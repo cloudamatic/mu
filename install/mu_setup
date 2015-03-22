@@ -142,7 +142,7 @@ if [ -f "$MURC" -a "$MURC" != "$MU_INSTALLDIR/etc/mu.rc" ] ;then
 	source $MURC
 fi
 
-MU_REPO='eGT-Labs/CAP.git'
+MU_REPO='eGT-Labs/mu.git'
 if [ "$MUBRANCH" == "" ];then
 	if [ -d "$MU_LIBDIR/.git" ]; then
 		cd $MU_LIBDIR

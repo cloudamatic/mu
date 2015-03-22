@@ -631,7 +631,7 @@ module MU
 							rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
 								MU.log "Instance #{data['instance_id']} is completely gone already (#{e.inspect})", MU::DEBUG
               rescue Aws::EC2::Errors::InternalError => e
-								CAP.log "Attempt to describe #{data['instance_id']} generated #{e.inspect}", CAP::WARN
+								MU.log "Attempt to describe #{data['instance_id']} generated #{e.inspect}", MU::WARN
 								next
 							end
 							if instance.nil? or instance.state.name == "terminated" or instance.state.name == "terminating"
