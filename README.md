@@ -1,4 +1,4 @@
-Mu
+Platform.Mu
 ===
 
 Secure Cloud Public Infrastructure as a service.  Currently supported on RHEL
