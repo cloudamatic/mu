@@ -149,7 +149,7 @@ if [ "$MUBRANCH" == "" ];then
 		MUBRANCH="`git branch | grep '^\*' | awk '{print $2}'`"
 	fi
 	if [ "$MUBRANCH" == "" ];then
-		MUBRANCH="multiuser"
+		MUBRANCH="master"
 	fi
 fi
 MU_REPO_NAME="`echo $MU_REPO | cut -d/ -f2 | sed -e 's/\.git$//'`"
