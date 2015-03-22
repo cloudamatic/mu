@@ -1,0 +1,366 @@
+#!/bin/sh
+# Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
+#
+# Licensed under the BSD-3 license (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License in the root of the project or at
+#
+#     http://egt-labs.com/mu/LICENSE.html
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+set -e
+
+#################################################
+################## SET VARIABLES ################
+#################################################
+
+scriptpath="`dirname $0`"
+
+USER=`whoami`
+if [ "$USER" != "root" ];then
+	fail_with_message "$0 can only be run by root"
+fi
+HOMEDIR="`getent passwd \"$USER\" |cut -d: -f6`"
+if [ "$CHEF_PUBLIC_IP" = "" -o "$MU_DATADIR" == "" ];then
+        if [ -f /opt/mu/etc/mu.rc ];then
+                source /opt/mu/etc/mu.rc
+        fi
+        if [ -f $HOMEDIR/.murc ];then
+                source $HOMEDIR/.murc
+        fi
+fi
+if [ -z $MU_DATADIR ];then
+        echo "MU_DATADIR is unset, I don't know where to find Mu!"
+        exit 1
+fi
+#source $MU_INSTALLDIR/bin/mu-configure
+source $MU_INSTALLDIR/lib/install/mu_setup
+
+cd $MU_LIBDIR
+#rawadmins="`/bin/ls $MU_DATADIR/admins/ | egrep '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,6}$' | tr -s '\n' ' '`"
+list_chef_users chef_users
+
+# Technically we have Chef users, and system users, and Nagios htpasswd stubs,
+# but in theory they're all in sync. In theory.
+list_users()
+{
+	for mu_user in $chef_users;do
+		if [ -d "$MU_INSTALLDIR/var/users/$mu_user" ];then
+			addr="`cat $MU_INSTALLDIR/var/users/$mu_user/email`"
+			realname="`cat $MU_INSTALLDIR/var/users/$mu_user/realname`"
+			echo "	${BOLD}$mu_user${NORM} - $realname <$addr>"
+		fi
+	done
+}
+
+usage()
+{
+  msg="$1"
+  echo "Create, modify, or remove Mu users."
+  echo "Usage: $0 -d|-c|-l [-f|-r] [-u <username>] [-e <email>] [-n 'Real Name'] [-p <password>] [-o organization]"
+  echo "    -l: List users."
+  echo "    -u: Username on which to operate."
+  echo "    -c: Create a user. Prompts for a password unless -p is specified."
+  echo "        Requires -u and -e. Assumes -r, unless -a is specified."
+  echo "    -d: Delete a user. Requires -u."
+  echo "    -n: The user's real name."
+  echo "    -a: Flag the user as an admin. Requires -u. Will implicitly add to"
+  echo "        the 'mu' Chef organization."
+  echo "    -r: Flag the user as a regular (non-admin) user. Requires -u. Will"
+  echo "        remove from the 'mu' Chef organization."
+  echo "    -i: Interactive mode. Will prompt for missing fields."
+  echo "    -e: Set the email address associated with this user. Requires -u."
+  echo "    -o: Add the user to the named Chef organization. Requires -u."
+  echo "    -z: Remove the user from the named Chef organization. Requires -u."
+  echo "    -p <password>: Set the password of this user. Requires -u."
+  echo ""
+  echo "Current users:"
+	list_users
+  if [ "$msg" != "" ];then
+		echo "${RED}$msg${NORM}"
+  fi
+  exit 1
+}
+
+add=0
+delete=0
+
+while getopts "u:p:n:e:o:z:dclrai" opt; do
+  case $opt in
+		l)
+			list_users
+			exit
+			;;
+    u)
+      user=$OPTARG
+      ;;
+    c)
+      create=1
+      ;;
+    d)
+      delete=1
+      ;;
+    a)
+      make_admin=1
+      ;;
+    r)
+      make_regular=1
+      ;;
+    i)
+      interactive=1
+      ;;
+    n)
+      realname=$OPTARG
+      ;;
+    p)
+      password=$OPTARG
+      ;;
+    e)
+      email=$OPTARG
+      ;;
+    o)
+      add_org=$OPTARG
+      ;;
+    z)
+      remove_org=$OPTARG
+      ;;
+    h)
+      usage
+      ;;
+    \?)
+      usage
+      ;;
+  esac
+done
+mkdir -p $MU_DATADIR/users
+chmod 755 $MU_DATADIR/users
+
+if [ "$make_admin" == "1" -a "$make_regular" == "1" ];then
+	usage "Cannot specify both -a and -r"
+fi
+
+# Now fill in missing arguments, if we're in interactive mode
+if [ "$interactive" == "1" ];then
+	verb="modify"
+	if [ "$delete" == "1" ];then
+		verb="delete"
+	elif [ "$create" == "1" ];then
+		verb="create"
+	fi
+
+	if [ "$user" == "" ];then
+		read -p "Enter the username to $verb: " user
+	fi
+	if [ "$create" == "1" ];then
+		if [ "$email" == "" ];then
+			read -p "Enter a valid email for ${BOLD}$user${NORM}: " email
+		fi
+		if [ "$realname" == "" ];then
+			read -p "Enter a real name for ${BOLD}$user${NORM}: " realname
+		fi
+	fi
+
+	if [ "$delete" != "1" ];then
+		if [ "$add_org" == "" ];then
+			read -p "(OPTIONAL) Chef org to which to add ${BOLD}$user${NORM}: " add_org
+		fi
+		if [ "$create" != "1" ];then
+			if [ "$remove_org" == "" ];then
+				read -p "(OPTIONAL) Chef org from which to remove ${BOLD}$user${NORM}: " remove_org
+			fi
+		fi
+		if [ "$make_admin" == "" ];then
+			while
+				read -p "Should ${BOLD}$user${NORM} be granted admin privileges to the ${BOLD}mu${NORM} org (Y/N)? " answer
+			do
+				if [ "$answer" == "y" -o "$answer" == "Y" ];then
+					make_admin="1"
+					break
+				elif [ "$answer" == "n" -o "$answer" == "N" ];then
+					break
+				fi
+			done
+		fi
+		if [ "$create" != "1" ];then
+			if [ "$make_regular" == "" -a "$make_admin" != "1" ];then
+				while
+					read -p "Should ${BOLD}$user${NORM}'s admin privileges to the ${BOLD}mu${NORM} org be revoked if present (Y/N)? " answer
+				do
+					if [ "$answer" == "y" -o "$answer" == "Y" ];then
+						make_regular="1"
+						break
+					elif [ "$answer" == "n" -o "$answer" == "N" ];then
+						break
+					fi
+				done
+			fi
+		fi
+	fi
+
+fi
+
+# Argument check: usernames
+if [ "$user" != "" ];then
+	if [ "$create" == "1" ];then
+		if ! echo "$user" | egrep '^[a-z_][a-z0-9_\-]{0,30}$' > /dev/null;then
+			usage "Username $user not Chef-valid (must match '^[a-z_][a-z0-9\-_]{0,30}\$')"
+		fi
+	fi
+	if [ "$user" == "pivotal" -o "$user" == "mu" ];then
+		usage "Username ${BOLD}$user${NORM} is reserved"
+	fi
+else
+	usage "You must supply a username (-u)"
+fi
+
+# Argument check: emails
+if [ "$email" != "" ];then
+	if ! echo "$email" | egrep '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,6}$' > /dev/null;then
+		usage "Email address '$email' is not syntactically valid."
+	fi
+elif [ "$create" == "1" ];then
+	usage "You must specify an email address (-e) when adding an account."
+fi
+
+# Argument check: real names
+if [ "$realname" == "" ];then
+	if [ "$create" == "1" ];then
+		realname="$user $user"
+	fi
+elif ! echo "$realname" | egrep ' ' > /dev/null;then
+	usage "Real name must have at least two parts (saw '$realname')"
+fi
+
+# Argument check: organizations
+org_pattern='^[a-z_][a-z0-9_]{0,30}$'
+if [ "$add_org" != "" ];then
+	if ! echo "$add_org" | egrep "$add_org_pattern" > /dev/null;then
+		usage "Chef organizations must be unix-valid ($add_org doesn't match '$add_org_pattern')"
+	fi
+fi
+if [ "$remove_org" != "" ];then
+	if ! echo "$remove_org" | egrep "$add_org_pattern" > /dev/null;then
+		usage "Chef organizations must be unix-valid ($remove_org doesn't match '$add_org_pattern')"
+	fi
+fi
+
+chef_user_exists=""
+if echo "$chef_users" | egrep "(^| )$user( |$)" > /dev/null;then
+	chef_user_exists="1"
+fi
+
+user_dir="$MU_DATADIR/users/$user"
+if [ "$delete" == "1" ];then
+	if [ "$remove_org" != "" ];then
+		warning_message "-z doesn't make any sense when deleting a user"
+	fi
+	if [ "$chef_user_exists" == "1" ];then
+		remove_chef_user "$user"
+	else
+		warning_message "Chef user $user does not exist"
+	fi
+	/usr/sbin/userdel -r "$user"
+	/bin/rm -rf "$MU_DATADIR/users/$user"
+else
+
+	# Grab things that are required for initial creation
+	skip_chef_mod=""
+	if [ "$create" == "1" ];then
+		if [ "$remove_org" != "" ];then
+			warning_message "-z doesn't make any sense when creating a new user"
+		fi
+		while ! echo "$password" | egrep '^.{6,}' > /dev/null;do
+			if [ "$password" != "" ];then
+				warning_message "Password provided does not meet requirements. Must match: ^.{6,}"
+			fi
+			read -s -p "Enter a valid password for user ${BOLD}$user${NORM} `echo $'\n> '`" password
+		done
+		if [ -f "$MU_DATADIR/users/$user" ];then
+			warning_message "Local account for $user may already exist."
+		fi
+		mkdir -p "$user_dir"
+    while [ ! -f "$user_dir/htpasswd" ];do
+			status_message "Setting Nagios password for user ${BOLD}$user${NORM}"
+			# XXX this is sloppy as hell, from a security standpoint
+			/usr/bin/htpasswd -c -b -m "$user_dir/htpasswd" "$user" "$password" || /bin/rm -f "$user_dir/htpasswd"
+		done
+		echo "$email" > "$user_dir/email"
+		echo "$realname" > "$user_dir/realname"
+
+		status_message "Creating local account for user ${BOLD}$user${NORM}"
+		/usr/sbin/useradd -m -U -c "$realname,$email" -K PASS_MAX_DAYS=-1 "$user"
+		chgrp -R "$user" "$user_dir"
+		find "$user_dir" -type d -exec chmod g+sxr {} \;
+		find "$user_dir" -type f -exec chmod g+r {} \;
+
+		user_home="`getent passwd \"$user\" |cut -d: -f6`"
+		mkdir -p "$user_home/.mu/var"
+		chown -R "$user" "$user_home/.mu"
+		update_murc MU_DATADIR "$user_home/.mu/var" "$user_home/.murc"
+		update_murc MU_CHEF_CACHE "$user_home/.chef" "$user_home/.murc"
+		update_murc PATH "$MU_INSTALLDIR/bin:/usr/local/ruby-current/bin:\${PATH}:/opt/opscode/embedded/bin" "$user_home/.murc"
+		chown "$user" "$user_home/.murc"
+		echo "source $user_home/.murc" >> $user_home/.bashrc
+
+		echo ""
+	else
+		if [ "$email$realname" != "" ];then
+			warning_message "Currently cannot update Chef user emails or real names from CLI." "Hopefully to be fixed in a future Chef release."
+		fi
+		update_gecos=""
+		if [ "$email" != "" ];then
+			echo "$email" > "$user_dir/email"
+			update_gecos="1"
+		fi
+		if [ "$realname" != "" ];then
+			echo "$realname" > "$user_dir/realname"
+			update_gecos="1"
+		fi
+		if [ "$chef_user_exists" != "1" ];then
+			skip_chef_mod="1"
+			warning_message "Chef user $user does not exist"
+		fi
+		if [ "$remove_org" != "" ];then
+			remove_chef_user_from_org "$user" "$remove_org"
+		fi
+		if [ "$make_admin$make_regular$add_org$password" == "" ];then
+			skip_chef_mod="1"
+		fi
+	fi
+
+	if [ "$password" != "" ];then
+		status_message "Setting password for ${BOLD}$user${NORM}'s local system account"
+		# XXX this is also sloppy as hell, from a security standpoint
+		echo "$password" | /usr/bin/passwd --stdin "$user"
+	fi
+	if [ "$update_gecos" == "1" ];then
+		status_message "Updating local account contact info for user ${BOLD}$user${NORM} to:" "$realname,$email"
+		/usr/bin/chfn -f "$realname" -o "$email" "$user" > /dev/null
+	fi
+
+	if [ "$skip_chef_mod" != "1" ];then
+		manage_chef_user "$user" "$password" "$realname" "$email" "$add_org" "$make_admin" "$make_regular"
+	fi
+
+fi
+
+
+if [ "$create" == "1" -o "$delete" == "1" ];then
+	status_message "Synchronizing Nagios"
+	$MU_INSTALLDIR/bin/mu-upload-chef-artifacts -g > /dev/null 2>&1
+	chef-client -o "recipe[mu-master::update_nagios_only]" > /dev/null 2>&1
+	list_chef_users chef_users
+fi
+
+if [ "$create" == "1" ];then
+	status_message "Uploading baseline Chef artifacts to org ${BOLD}$user${NORM}, this may take a while..."
+	su - "$user" -c "$MU_INSTALLDIR/bin/mu-upload-chef-artifacts -n" > /dev/null 2>&1
+fi
+
+echo "Current users:"
+list_users

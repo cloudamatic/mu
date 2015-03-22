@@ -1,0 +1,14 @@
+set columns=80
+set ts=2
+syntax on
+set shiftwidth=2
+set softtabstop=2
+set smarttab
+set autoindent
+set smartindent
+set cinwords=if,else,while,do,for,switch,def,class,elif,try,except,finally
+" fix the syntax highlighting to avoid dark blue comments on a black bg
+hi Comment term=bold    ctermfg=DarkCyan    guifg=#80a0ff
+" and to get PHP right when working on Drupal
+au BufReadPost *.module set syntax=php
+au BufReadPost *.install set syntax=php

@@ -1,0 +1,19 @@
+{
+        "name": "demo-portal-configure",
+        "default_attributes": {
+        },
+        "json_class": "Chef::Role",
+        "run_list": [
+          "recipe[mu-utility::make]",
+          "recipe[mu-utility::wget]",
+          "recipe[mu-utility::git]",
+          "recipe[mu-utility::mutt]",
+          "recipe[mu-utility::zip]",
+          "recipe[mu-utility::php]",
+          "recipe[mu-utility::apache]"
+        ],
+        "description": "Platform enablers for portal environments",
+        "chef_type": "role",
+        "override_attributes": {
+        }
+}

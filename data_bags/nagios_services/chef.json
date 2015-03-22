@@ -1,0 +1,5 @@
+{
+	"id": "chef",
+	"hostgroup_name": "mu-master",
+	"command_line": "$USER1$/check_http -I $HOSTADDRESS$ -S"
+}

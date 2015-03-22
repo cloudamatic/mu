@@ -1,0 +1,5 @@
+{
+	"id": "momma_cat",
+	"hostgroup_name": "mu-master",
+	"command_line": "$USER1$/check_tcp -H $HOSTADDRESS$ -p 2260"
+}

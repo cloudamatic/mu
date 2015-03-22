@@ -1,0 +1,2 @@
+db.auth({user: "<%= $mongo_admin_usr %>", pwd: "<%= $mongo_admin_pwd %>"})
+db.createUser({user: "<%= $mongo_openfema_usr %>", pwd: "<%= $mongo_openfema_pwd %>", roles : ['readWrite']})

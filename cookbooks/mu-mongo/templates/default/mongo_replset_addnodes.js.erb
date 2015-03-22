@@ -1,0 +1,6 @@
+rs.initiate()
+<% node['deployment']['servers']['mongo'].each_pair { |nodename, data|
+	if !data['mongo_master'] %>
+rs.add("<%= nodename %>:27017")
+<%	end
+} %>

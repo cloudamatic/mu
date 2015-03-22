@@ -1,0 +1,15 @@
+#!/bin/sh
+#
+# A default scan wrapper for maldetect. Scans every local-looking filesystem.
+
+for fs in `cat /etc/mtab | egrep -v ' (ext2|ext3|ext4) ' | cut -d' ' -f2`;do
+	if ! grep "^$fs$" /usr/local/maldetect/ignore_paths;then
+		echo "$fs" >> /usr/local/maldetect/ignore_paths
+	fi
+done
+
+if ( ps auxww | grep -v grep | grep maldet );then
+	echo "Not running maldet scan, a previous scan was already running"
+	exit 1
+fi
+/usr/local/maldetect/maldet -a /

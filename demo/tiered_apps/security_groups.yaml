@@ -1,0 +1,77 @@
+- name: winapps_lb_secgroup
+  vpc:
+  <% if !$vpc_deploy_id then %>
+    vpc_name: vpc
+  <% else %>
+    deploy_id: "<%= $vpc_deploy_id %>"
+  <% end %>
+  rules:
+  - port: 80
+    sgs:
+    - proxy_secgroup
+- name: proxy_lb_secgroup
+  vpc:
+  <% if !$vpc_deploy_id then %>
+    vpc_name: vpc
+  <% else %>
+    deploy_id: "<%= $vpc_deploy_id %>"
+  <% end %>
+  rules:
+  - port: 80
+    hosts:
+    - 0.0.0.0/0
+- name: drupaldb_secgroup
+  vpc:
+  <% if !$vpc_deploy_id then %>
+    vpc_name: vpc
+  <% else %>
+    deploy_id: "<%= $vpc_deploy_id %>"
+  <% end %>
+  rules:
+  - port: 3306
+    sgs:
+    - lnxapps_secgroup
+- name: lnxapps_lb_secgroup
+  vpc:
+  <% if !$vpc_deploy_id then %>
+    vpc_name: vpc
+  <% else %>
+    deploy_id: "<%= $vpc_deploy_id %>"
+  <% end %>
+  rules:
+  - port: 80
+    sgs:
+    - proxy_secgroup
+- name: proxy_secgroup
+  vpc:
+  <% if !$vpc_deploy_id then %>
+    vpc_name: vpc
+  <% else %>
+    deploy_id: "<%= $vpc_deploy_id %>"
+  <% end %>
+  rules:
+  - port-range: 0-65535
+    sgs:
+    - proxy_lb_secgroup
+- name: winapps_secgroup
+  vpc:
+  <% if !$vpc_deploy_id then %>
+    vpc_name: vpc
+  <% else %>
+    deploy_id: "<%= $vpc_deploy_id %>"
+  <% end %>
+  rules:
+  - port-range: 0-65535
+    sgs:
+    - winapps_lb_secgroup
+- name: lnxapps_secgroup
+  vpc:
+  <% if !$vpc_deploy_id then %>
+    vpc_name: vpc
+  <% else %>
+    deploy_id: "<%= $vpc_deploy_id %>"
+  <% end %>
+  rules:
+  - port-range: 0-65535
+    sgs:
+    - lnxapps_lb_secgroup

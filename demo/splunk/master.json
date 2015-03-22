@@ -1,0 +1,10 @@
+{
+	"appname":"splunk",
+	"region": "us-east-1",
+	"servers":[
+<%=include("splunk-svr.json") %>
+	],
+	"firewall_rules":[
+<%= include("splunk-fw.json") %>
+	]
+}

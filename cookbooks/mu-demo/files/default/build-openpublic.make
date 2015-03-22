@@ -1,0 +1,9 @@
+api = 2
+core = 7.x
+includes[] = drupal-org-core-openpublic.make
+projects[openpublic][type] = profile
+projects[openpublic][download][type] = git
+projects[openpublic][download][url] = http://git.drupal.org/project/openpublic.git
+projects[openpublic][download][revision] = appify_services
+projects[] = lava
+projects[] = nexus

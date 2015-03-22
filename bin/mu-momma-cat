@@ -1,0 +1,152 @@
+#!/bin/bash
+# Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
+#
+# Licensed under the BSD-3 license (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License in the root of the project or at
+#
+#     http://egt-labs.com/mu/LICENSE.html
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# mu-momma-cat		The listening server for Mu bootstrap requests.
+#
+# chkconfig: 2345 55 25
+# description: The listening server for Mu bootstrap requests. Uses \
+#							 the Ruby 'thin' webserver.
+#
+# processname: thin
+# pidfile: /var/run/mommacat.pid
+
+### BEGIN INIT INFO
+# Provides: mu-momma-cat
+# Required-Start: $local_fs $network $syslog
+# Required-Stop: $local_fs $syslog
+# Default-Start: 2 3 4 5
+# Default-Stop: 0 1 6
+# Short-Description: The listening server for Mu bootstrap requests.
+# Description:       The listening server for Mu bootstrap requests.
+### END INIT INFO
+
+# source function library
+. /etc/rc.d/init.d/functions
+
+RETVAL=0
+THIN="/usr/local/ruby-current/bin/thin"
+MU_RUBY="/usr/local/ruby-current/bin/bundle exec /usr/local/ruby-current/bin/ruby"
+LOG_FILE="/var/log/mu-momma-cat.log"
+PID_FILE="/var/run/mommacat.pid"
+PORT=2260
+prog="mu-momma-cat"
+lockfile=/var/lock/subsys/mommacat
+
+USER=`whoami`
+if [ "$USER" != "root" ];then
+	echo "Momma Cat must be run with root privileges."
+	exit 1
+fi
+HOMEDIR="`eval echo ~$USER`"
+if [ "$CHEF_PUBLIC_IP" = "" -o "$MU_DATADIR" == "" ];then
+	if [ -f /opt/mu/etc/mu.rc ];then
+		source /opt/mu/etc/mu.rc
+	fi
+	if [ -f $HOMEDIR/.murc ];then
+		source $HOMEDIR/.murc
+	fi
+fi
+if [ -z $MU_LIBDIR ];then
+	if [ -z $MU_INSTALLDIR ];then
+		echo "MU_LIBDIR and MU_INSTALLDIR are unset, I don't know where to find Mu!"
+		exit 1
+	else
+		MU_LIBDIR="$MU_INSTALLDIR/lib"
+	fi
+fi
+
+mudir="$MU_LIBDIR/modules"
+
+runlevel=$(set -- $(runlevel); eval "echo \$$#" )
+
+start()
+{
+	cd $mudir || ( echo "Couldn't cd to $mudir" && exit 1 )
+	[ -f $mudir/mommacat.ru ] || exit 5
+
+	echo -n $"Starting $prog: "
+	$MU_RUBY $THIN --threaded --daemonize --port $PORT --pid $PID_FILE --log $LOG_FILE --ssl --ssl-key-file $MU_DATADIR/ssl/mommacat.key --ssl-cert-file $MU_DATADIR/ssl/mommacat.crt --tag "mu-momma-cat" -R mommacat.ru start && success || failure
+	RETVAL=$?
+	[ $RETVAL -eq 0 ] && touch $lockfile
+	echo
+	return $RETVAL
+}
+
+stop()
+{
+	cd $mudir || ( echo "Couldn't cd to $mudir" && exit 1 )
+	echo -n $"Stopping $prog: "
+	killproc -p $PID_FILE $THIN
+	RETVAL=$?
+	# if we are in halt or reboot runlevel kill all running sessions
+	# so the TCP connections are closed cleanly
+	if [ "x$runlevel" = x0 -o "x$runlevel" = x6 ] ; then
+	    trap '' TERM
+	    killall $prog 2>/dev/null
+	    trap TERM
+	fi
+	[ $RETVAL -eq 0 ] && rm -f $lockfile
+	echo
+}
+
+restart() {
+	stop
+	start
+}
+
+case "$1" in
+	start)
+		start
+		;;
+	stop)
+		stop
+		;;
+	restart)
+		restart
+		;;
+	status)
+		if [ ! -f $PID_FILE ];then
+			maybe="`ps auxww | egrep \"thin server.*\[$prog\]\" | grep -v grep`"
+			if [ ! -z "$maybe" ];then
+				echo "$PID_FILE is missing, but I see a process that might be ours"
+				echo $maybe
+			else
+				echo "$prog not running"
+			fi
+			RETVAL=1
+		else
+			if [ -z "`cat $PID_FILE`" ];then
+				echo "$PID_FILE appears to be present but empty"
+				RETVAL=1
+			else
+				ps uwwp `cat $PID_FILE` | grep "$prog"
+				RETVAL=$?
+				if [ $RETVAL -ne 0 ];then
+					echo "$prog doesn't seem to be running"
+					if [ -f "$PID_FILE" ];then
+						echo "$PID_FILE may be stale"
+					fi
+				else
+					echo "$prog is running"
+					RETVAL=0
+				fi
+			fi
+		fi
+		;;
+	*)
+		echo $"Usage: $0 {start|stop|restart|status}"
+		RETVAL=2
+esac
+exit $RETVAL

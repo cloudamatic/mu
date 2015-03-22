@@ -1,0 +1,23 @@
+<Proxy *>
+	AddDefaultCharset off
+	Order deny,allow
+	Allow from all
+</Proxy>
+
+ProxyRequests Off
+
+<% node.winapps.each_key do |app| %>
+
+# <%= app %> routes to our Windows group
+#
+ProxyPass /<%= app %> http://<%= $win_url %>/<%= app %>
+ProxyPassReverse /<%= app %> http://<%= $win_url %>/<%= app %>
+<% end %>
+
+<% $lnx_apps.each do |app| %>
+
+# <%= app %> routes to our Linux group
+#
+ProxyPass /<%= app %> http://<%= $lnx_url %>/<%= app %>
+ProxyPassReverse /<%= app %> http://<%= $lnx_url %>/<%= app %>
+<% end %>

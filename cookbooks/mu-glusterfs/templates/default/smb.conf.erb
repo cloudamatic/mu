@@ -1,0 +1,14 @@
+#======================= Global Settings =====================================
+
+# ----------------------- Standalone Server Options ------------------------
+[glusterfs]
+comment = GlusterFS shared over SMB
+path = /
+read only = yes
+guest ok = yes
+browsable = yes
+kernel share modes = No
+vfs objects = glusterfs
+glusterfs:loglevel = 10
+glusterfs:logfile = /var/log/samba/glusterfs-<%= node.glusterfs.server.volume %>.log
+glusterfs:volume = <%= node.glusterfs.server.volume %>

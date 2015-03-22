@@ -1,0 +1,16 @@
+::1             localhost6.localdomain6 localhost6
+<%= $ipaddress %> <%= $hostname %>
+127.0.0.1 localhost
+<% if !node['deployment'].nil? and !node['deployment']['servers'].nil?
+	node['deployment']['servers'].each_pair { |nodetype, sibling_struct|
+		sibling = sibling_struct.values.each { |sibling|
+			next if sibling['nodename'] == $hostname
+			if !sibling['public_ip_address'].nil? %>
+<%= sibling['public_ip_address'] %> <%= sibling['nodename'] %>
+<%		else %>
+<%= sibling['private_ip_address'] %> <%= sibling['nodename'] %>
+<%
+			end
+		}
+	}
+end %>

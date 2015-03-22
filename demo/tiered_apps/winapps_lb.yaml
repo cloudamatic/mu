@@ -1,0 +1,27 @@
+  - name: winlb
+    private: true
+    vpc:
+    <% if !$vpc_deploy_id then %>
+      vpc_name: vpc
+      subnets:
+        <% (1..$azs.size).each do |i| %>
+      - subnet_name: TieredSubnet<%= i-1 %>Private
+        <% end %>
+    <% else %>
+      deploy_id: <%= $vpc_deploy_id %>
+      subnet_pref: all_private
+    <% end %>
+    cross_zone_unstickiness: true
+    add_firewall_rules:
+    - rule_name: winapps_lb_secgroup
+    healthcheck:
+      target: TCP:8080
+      timeout: 5
+      interval: 30
+      unhealthy-threshold: 2
+      healthy-threshold: 2
+    listeners:
+    - lb-port: 80
+      lb-protocol: HTTP
+      instance-port: 8080
+      instance-protocol: HTTP
