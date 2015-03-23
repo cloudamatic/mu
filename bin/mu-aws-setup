@@ -75,7 +75,14 @@ if $opts[:sg]
 end
 
 # Muddle with our IP address
-if instance.public_ip_address != ENV['CHEF_PUBLIC_IP'] and !ENV['CHEF_PUBLIC_IP'].nil? and !ENV['CHEF_PUBLIC_IP'].empty? and $opts[:ip]
+preferred_ip = nil
+if !ENV['CHEF_PUBLIC_IP'].nil? and !ENV['CHEF_PUBLIC_IP'].match(/^\d+\.\d+\.\d+\.\d+$/)
+	resolver = Resolv::DNS.new
+	preferred_ip = resolver.getaddress(ENV['CHEF_PUBLIC_IP']).to_s
+else
+	preferred_ip = ENV['CHEF_PUBLIC_IP']
+end
+if instance.public_ip_address != preferred_ip and !preferred_ip.nil? and !preferred_ip.empty? and $opts[:ip]
 
 	has_elastic_ip = false
 	if !instance.public_ip_address.nil?

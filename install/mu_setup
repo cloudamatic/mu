@@ -678,13 +678,14 @@ adjust_config_vars()
 			else
 				read -p "Enter new value for ${BOLD}${var_name[$config]}${NORM}. `echo $'\n> '`" newval
 			fi
-			if [ "${var_name[$config]}" == "CHEF_PUBLIC_IP" ];then
-				if ! echo $newval | egrep '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$' ; then
-					warning_message "You must specify a valid IP address!"
-			    print_setup_env_vars
-			    continue
-			  fi
-			elif [ "${var_name[$config]}" == "HOSTNAME" ];then
+#			if [ "${var_name[$config]}" == "CHEF_PUBLIC_IP" ];then
+#				if ! echo $newval | egrep '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$' ; then
+#					warning_message "You must specify a valid IP address!"
+#			    print_setup_env_vars
+#			    continue
+#			  fi
+#			elif [ "${var_name[$config]}" == "HOSTNAME" ];then
+			if [ "${var_name[$config]}" == "HOSTNAME" ];then
 				if [ "$LOG_BUCKET_NAME" == "Mu_Logs_${HOSTNAME}_${MY_INSTANCE_ID}" ];then
 					var_val[11]="Mu_Logs_${newval}_${MY_INSTANCE_ID}"
 				fi
