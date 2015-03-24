@@ -1091,6 +1091,14 @@ install_chef()
 		find /opt/opscode/embedded/lib/ruby -type d -exec chmod o+rx {} \;
 		/opt/opscode/bin/chef-server-ctl reconfigure
 		chef_self_test=1
+	elif [ ! -f "/var/opt/opscode/nginx/ca/${CHEF_PUBLIC_IP}-ssl.conf" ];then
+		status_message "Hostname or IP may have changed, reconfiguring Chef"
+		/opt/opscode/bin/chef-server-ctl restart
+		/opt/opscode/bin/chef-server-ctl reconfigure
+		knife ssl fetch -u pivotal -k /etc/opscode/pivotal.pem -s https://${CHEF_PUBLIC_IP} > /dev/null 2>&1
+		knife node delete -y MU-MASTER
+		knife client delete -y MU-MASTER
+		chef_self_test=1
 	fi
 #	add_chef_support_gems /opt/opscode/embedded
 
@@ -1284,7 +1292,7 @@ setup_localhost_chef_client()
 			upload_chef_artifacts -n -r $MU_REPO_NAME
 		fi
 		mkdir -p /etc/chef
-		/opt/chef/bin/knife bootstrap -N MU-MASTER -r "role[mu-master]" localhost
+		/opt/chef/bin/knife bootstrap -N MU-MASTER -r "role[mu-master]" $CHEF_PUBLIC_IP
 		run_chef_client=0
 	fi
 
