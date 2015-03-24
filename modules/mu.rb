@@ -22,6 +22,7 @@ gem 'nokogiri'
 autoload :Nokogiri, "nokogiri"
 gem 'simple-password-gen'
 autoload :Password, "simple-password-gen"
+autoload :Resolv, 'resolv'
 
 if ENV['AWS_ACCESS_KEY_ID'] == nil or ENV['AWS_ACCESS_KEY_ID'].empty?
 	ENV.delete('AWS_ACCESS_KEY_ID')
