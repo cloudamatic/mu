@@ -1073,7 +1073,7 @@ install_chef()
 	fi
 	for u in `ls $MU_DATADIR/users/`;do
 		if [ "$u" != "mu" ];then
-			/usr/sbin/usermod -a mu-users $u
+			/usr/sbin/usermod -a -G mu-users $u
 		fi
 	done
 
