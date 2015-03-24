@@ -1096,6 +1096,7 @@ install_chef()
 		/opt/opscode/bin/chef-server-ctl restart
 		/opt/opscode/bin/chef-server-ctl reconfigure
 		knife ssl fetch -u pivotal -k /etc/opscode/pivotal.pem -s https://${CHEF_PUBLIC_IP} > /dev/null 2>&1
+		rm -f /etc/chef/client.*
 		knife node delete -y MU-MASTER
 		knife client delete -y MU-MASTER
 		chef_self_test=1
