@@ -187,7 +187,12 @@ module MU
 	MU.setVar("my_private_ip", MU.getAWSMetaData("local-ipv4"))
 	MU.setVar("my_public_ip", MU.getAWSMetaData("public-ipv4"))
 	if ENV['CHEF_PUBLIC_IP'] != nil and !ENV['CHEF_PUBLIC_IP'].empty? and MU.my_public_ip != ENV['CHEF_PUBLIC_IP']
-		MU.setVar("mu_public_ip", ENV['CHEF_PUBLIC_IP'])
+		if !ENV['CHEF_PUBLIC_IP'].match(/^\d+\.\d+\.\d+\.\d+$/)
+			resolver = Resolv::DNS.new
+			MU.setVar("mu_public_ip", resolver.getaddress(ENV['CHEF_PUBLIC_IP']).to_s)
+		else
+			MU.setVar("mu_public_ip", ENV['CHEF_PUBLIC_IP'])
+		end
 	elsif !MU.my_public_ip.nil? and !MU.my_public_ip.empty?
 		MU.setVar("mu_public_ip", MU.my_public_ip)
 	else
