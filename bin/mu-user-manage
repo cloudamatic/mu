@@ -294,7 +294,7 @@ else
 
 		status_message "Creating local account for user ${BOLD}$user${NORM}"
 		/usr/sbin/useradd -m -U -c "$realname,$email" -K PASS_MAX_DAYS=-1 "$user"
-		/usr/sbin/usermod -a -G mu-users
+		/usr/sbin/usermod -a -G mu-users $user
 		/sbin/restorecon -r /home
 		chgrp -R "$user" "$user_dir"
 		find "$user_dir" -type d -exec chmod g+sxr {} \;
