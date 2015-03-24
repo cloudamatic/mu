@@ -768,7 +768,19 @@ expunge_github_ssh_key(){
 	unset keyname
 }
 
-
+fix_platform_repo_permissions()
+{
+	chefdir="$1"
+	if [ "$chefdir" != "" ];then
+		chmod go+rx $chefdir
+		for subdir in applications cookbooks site_cookbooks roles environments data_bags modules Berks* README.md LICENSE.md;do
+			if [ -e "$chefdir/$subdir" ];then
+				find "$chefdir/$subdir" -type d -exec chmod go+rx {} \;
+				find "$chefdir/$subdir" -type f -exec chmod go+r {} \;
+			fi
+		done
+	fi
+}
 
 ###############################################################################
 clone_repository()
@@ -807,13 +819,7 @@ clone_repository()
 		fi
 	fi
 
-	chmod go+rx $clone_path
-	for subdir in applications cookbooks site_cookbooks roles environments data_bags modules Berks* README.md LICENSE.md;do
-		if [ -e "$clone_path/$subdir" ];then
-			find "$clone_path/$subdir" -type d -exec chmod go+rx {} \;
-			find "$clone_path/$subdir" -type f -exec chmod go+r {} \;
-		fi
-	done
+	fix_platform_repo_permissions "$clone_path"
 }
 
 ###############################################################################
@@ -1377,6 +1383,20 @@ enable_audit_logs()
 	set +e
 }
 
+set_permissions()
+{
+	for extra in $ADDTL_CHEF_REPOS;do
+		extra_repo_name="`echo $extra | sed 's/^.*\///' | cut -d. -f1`"
+		fix_platform_repo_permissions "$MU_DATADIR/$extra_repo_name"
+	done
+	fix_platform_repo_permissions $MU_INSTALLDIR
+	/sbin/restorecon -r /home
+	for rubydir in /opt/opscode/embedded /opt/chef/embedded $RUBY_INSTALLDIR;do
+		find $rubydir/lib/ruby/gems -type f -exec chmod o+r {} \;
+		find $rubydir/lib/ruby/gems -type d -exec chmod o+rx {} \;
+	done
+}
+
 ###############################################################################
 ###############################################################################
 ###############################################################################
@@ -1422,6 +1442,7 @@ if [ "$library" != "1" ];then
 		generate_ssl_certs
 		setup_localhost_chef_client
 		configure_nagios_server
+		set_permissions
 	fi
 
 
