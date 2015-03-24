@@ -159,4 +159,4 @@ UseDNS no
 
 # CAP Mod, restrict ciphers
 Ciphers aes128-ctr,aes192-ctr,aes256-ctr
-#AllowUsers root
+AllowGroups mu-users
