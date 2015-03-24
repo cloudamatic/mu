@@ -1068,7 +1068,7 @@ install_chef()
 {
 	punch_tcp_hole 80
 	punch_tcp_hole 443
-	if ! grep '^mu-users:' /etc/group;
+	if ! grep '^mu-users:' /etc/group > /dev/null ;then
 		/usr/sbin/groupadd mu-users
 	fi
 	for u in `ls $MU_DATADIR/users/`;do
