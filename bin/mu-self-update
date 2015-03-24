@@ -201,7 +201,6 @@ for extra in $ADDTL_CHEF_REPOS;do
 	extra_repo_name="`echo $extra | sed 's/^.*\///' | cut -d. -f1`"
 	clone_repository "$extra" "$MU_DATADIR/$extra_repo_name"
 done
-set_permissions
 
 if [ $update_chef_artifacts == 1 ];then
 	upload_chef_artifacts
@@ -224,3 +223,4 @@ if [ "$stashed_changes" == "1" ];then
     git stash pop
   fi
 fi
+set_permissions
