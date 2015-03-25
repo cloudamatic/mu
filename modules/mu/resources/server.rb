@@ -1901,6 +1901,7 @@ module MU
 			@eip_semaphore.synchronize {
 				if !ip.nil?
 					filters = [ { name: "public-ip", values: [ip] } ]
+					resp = MU.ec2(region).describe_addresses(filters: filters)
 					if @eips_used.include?(ip)
 						is_free = false
 						resp.addresses.each { |address|
