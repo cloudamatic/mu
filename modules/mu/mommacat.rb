@@ -39,6 +39,7 @@ module MU
 		attr_reader :original_config
 		attr_reader :environment
 		attr_reader :ssh_key_name
+		attr_reader :ssh_public_key
 		@myhome = Etc.getpwuid(Process.uid).dir
 		@nagios_home = "/home/nagios"
 		@locks = Hash.new
@@ -53,6 +54,7 @@ module MU
 		# @param environment [String]: The environment of a deployment to create.
 		# @param ssh_key_name [String]: Required when creating a new deployment.
 		# @param ssh_private_key [String]: Required when creating a new deployment.
+		# @param ssh_public_key [String]: SSH public key for authorized_hosts on clients.
 		# @param verbose [Boolean]: Enable verbose log output.
 		# @param deployment_data [Hash]: Known deployment data.
 		# @return [void]
@@ -63,6 +65,7 @@ module MU
 				environment: environment = "dev",
 				ssh_key_name: ssh_key_name = nil,
 				ssh_private_key: ssh_private_key = nil,
+				ssh_public_key: ssh_public_key = nil,
 				verbose: false,
 				deployment_data: deployment_data = Hash.new,
 				mu_user: nil
@@ -95,6 +98,7 @@ module MU
 			@environment = environment
 			@ssh_key_name = ssh_key_name
 			@ssh_private_key = ssh_private_key
+			@ssh_public_key = ssh_public_key
 			if create 
 				if !Dir.exist?(MU.dataDir+"/deployments")
 					MU.log "Creating #{MU.dataDir}/deployments", MU::DEBUG
@@ -1696,6 +1700,11 @@ puts MU::Config.chefclient
 					key.puts @ssh_private_key
 					key.close
 				end
+				if !@ssh_public_key.nil?
+					key = File.new("#{deploy_dir}/node_ssh.pub", File::CREAT|File::TRUNC|File::RDWR, 0600)
+					key.puts @ssh_public_key
+					key.close
+				end
 				if !@ssh_key_name.nil?
 					key = File.new("#{deploy_dir}/ssh_key_name", File::CREAT|File::TRUNC|File::RDWR, 0600)
 					key.puts @ssh_key_name
@@ -1772,6 +1781,9 @@ puts MU::Config.chefclient
 				end
 				if File.exist?(deploy_dir+"/node_ssh.key")
 					@ssh_private_key = File.read("#{deploy_dir}/node_ssh.key")
+				end
+				if File.exist?(deploy_dir+"/node_ssh.pub")
+					@ssh_public_key = File.read("#{deploy_dir}/node_ssh.pub")
 				end
 				if File.exist?(deploy_dir+"/environment_name")
 					@environment = File.read("#{deploy_dir}/environment_name").chomp!

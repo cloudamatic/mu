@@ -214,7 +214,7 @@ module MU
 #			bar = foo.public_key
 
 			sleep 3
-		  return [keyname, keypair.key_material, keypair.key_fingerprint]
+		  return [keyname, keypair.key_material, @ssh_public_key]
 		end
 		
 		# Activate this deployment, instantiating all resources, orchestrating them,
@@ -286,6 +286,7 @@ module MU
 					verbose: MU.verbose,
 					ssh_key_name: keyname,
 					ssh_private_key: ssh_private_key,
+					ssh_public_key: ssh_public_key,
 					deployment_data: metadata
 				)
 				MU.setVar("mommacat", mommacat)
