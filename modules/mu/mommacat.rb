@@ -80,15 +80,6 @@ module MU
 			MU.setVar("mommacat", self)
 			MU.setVar("mu_id", mu_id)
 			MU.setVar("environment", environment)
-			MU.setVar("my_public_ip", MU.getAWSMetaData("public-ipv4"))
-			if ENV['CHEF_PUBLIC_IP'] != nil and !ENV['CHEF_PUBLIC_IP'].empty? and MU.my_public_ip != ENV['CHEF_PUBLIC_IP']
-				MU.setVar("mu_public_ip", ENV['CHEF_PUBLIC_IP'])
-				if MU.my_public_ip.nil?
-					MU.setVar("my_public_ip",  ENV['CHEF_PUBLIC_IP'])
-				end
-			else
-				MU.setVar("mu_public_ip", MU.my_public_ip)
-			end
 
 			@original_config = config
 			@deploy_struct_semaphore = Mutex.new
@@ -1036,6 +1027,7 @@ module MU
 		# @param node [String]: The node's name
 		# @return [void]
 		def self.removeInstanceFromEtcHosts(node)
+			return if MU.chef_user != "mu"
 			hostsfile = "/etc/hosts"
 			FileUtils.copy(hostsfile, "#{hostsfile}.bak-#{MU.mu_id}")
 			File.open(hostsfile, File::CREAT|File::RDWR, 0644) { |f|
@@ -1064,6 +1056,8 @@ module MU
 		# @param system_name [String]: The node's local system name
 		# @return [void]
 		def self.addInstanceToEtcHosts(public_ip, chef_name = nil, system_name = nil)
+			return if MU.chef_user != "mu"
+
 		  # XXX cover ipv6 case
 		  if public_ip.nil? or !public_ip.match(/^\d+\.\d+\.\d+\.\d+$/) or (chef_name.nil? and system_name.nil?)
 		    raise "addInstanceToEtcHosts requires public_ip and one or both of chef_name and system_name!"
@@ -1180,7 +1174,7 @@ MESSAGE_END
 			my_ports = [10514]
 
 			my_instance_id = MU.getAWSMetaData("instance-id")
-			my_client_sg_name = "Mu Client Rules for #{ENV['CHEF_PUBLIC_IP']}"
+			my_client_sg_name = "Mu Client Rules for #{MU.mu_public_ip}"
 			my_sgs = Array.new
 
 			MU.setVar("curRegion", MU.myRegion) if !MU.myRegion.nil?
@@ -1194,7 +1188,7 @@ MESSAGE_END
 			resp = MU.ec2.describe_security_groups(
 				group_ids: my_sgs,
 				filters:[
-					{ name: "tag:MU-MASTER-IP", values: [ENV['CHEF_PUBLIC_IP']] },
+					{ name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip] },
 					{ name: "tag:Name", values: [my_client_sg_name] }
 				]
 			)
@@ -1214,7 +1208,7 @@ MESSAGE_END
 					sg_id = group.group_id
 					my_sgs << sg_id
 					MU::MommaCat.createTag sg_id, "Name", my_client_sg_name
-					MU::MommaCat.createTag sg_id, "MU-MASTER-IP", ENV['CHEF_PUBLIC_IP']
+					MU::MommaCat.createTag sg_id, "MU-MASTER-IP", MU.mu_public_ip
 					MU.ec2.modify_instance_attribute(
 						instance_id: my_instance_id,
 						groups: my_sgs

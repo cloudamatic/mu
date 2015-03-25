@@ -218,12 +218,7 @@ module MU
 
 				# If we're hiding behind a NAT or something, make sure our external
 				# IP makes it into the admin SG.
-				if !ENV['CHEF_PUBLIC_IP'].nil? and
-						!ENV['CHEF_PUBLIC_IP'].empty? and
-						MU.my_public_ip != ENV['CHEF_PUBLIC_IP'] and
-						add_admin_ip.nil?
-					add_admin_ip = ENV['CHEF_PUBLIC_IP']
-				end
+				add_admin_ip = MU.mu_public_ip
 	
 				hosts = Array.new
 				hosts << "#{add_admin_ip}/32" if add_admin_ip

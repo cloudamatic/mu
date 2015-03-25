@@ -26,7 +26,7 @@ module MU
   class Cleanup
 
 		home = Etc.getpwuid(Process.uid).dir
-		@knife ="env -i HOME=#{home} CHEF_PUBLIC_IP=#{ENV['CHEF_PUBLIC_IP']} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin knife"
+		@knife ="env -i HOME=#{home} CHEF_PUBLIC_IP=#{MU.mu_public_ip} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin knife"
 
 		@muid = nil
 		@noop = false
@@ -1027,14 +1027,6 @@ module MU
 				rescue Exception => e
 					MU.log "Can't load a deploy record for #{muid} (#{e.inspect}), cleaning up resources by guesswork", MU::WARN, details: e.backtrace
 					MU.setVar("mu_id", muid)
-					if ENV['CHEF_PUBLIC_IP'] != nil and !ENV['CHEF_PUBLIC_IP'].empty? and MU.my_public_ip != ENV['CHEF_PUBLIC_IP']
-						MU.setVar("mu_public_ip", ENV['CHEF_PUBLIC_IP'])
-						if MU.my_public_ip.nil?
-							MU.setVar("my_public_ip",  ENV['CHEF_PUBLIC_IP'])
-						end
-					else
-						MU.setVar("mu_public_ip", MU.my_public_ip)
-					end
 				end
 			end
 

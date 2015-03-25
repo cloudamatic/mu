@@ -158,12 +158,6 @@ app = proc do |env|
 	ok = false
 	begin
 		if !env["rack.input"].nil?
-			MU.setVar("my_public_ip", MU.getAWSMetaData("public-ipv4"))
-			if ENV['CHEF_PUBLIC_IP'] != nil and !ENV['CHEF_PUBLIC_IP'].empty? and MU.my_public_ip != ENV['CHEF_PUBLIC_IP']
-				MU.setVar("mu_public_ip", ENV['CHEF_PUBLIC_IP'])
-			else
-				MU.setVar("mu_public_ip", MU.my_public_ip)
-			end
 			req = Rack::Utils.parse_nested_query(env["rack.input"].read)
 			ok = true
 #			required_vars.each { |var|

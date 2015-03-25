@@ -50,13 +50,7 @@ my_instance_id = MU.getAWSMetaData("instance-id")
 resp = MU.ec2.describe_instances(instance_ids: [my_instance_id])
 instance = resp.reservations.first.instances.first
 
-preferred_ip = nil
-if !ENV['CHEF_PUBLIC_IP'].nil? and !ENV['CHEF_PUBLIC_IP'].match(/^\d+\.\d+\.\d+\.\d+$/)
-	resolver = Resolv::DNS.new
-	preferred_ip = resolver.getaddress(ENV['CHEF_PUBLIC_IP']).to_s
-else
-	preferred_ip = ENV['CHEF_PUBLIC_IP']
-end
+preferred_ip = MU.mu_public_ip
 
 # Create a security group, or manipulate an existing one, so that we have all
 # of the appropriate network holes.
