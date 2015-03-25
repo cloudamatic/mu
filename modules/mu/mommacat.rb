@@ -879,7 +879,7 @@ module MU
 				  tags: tags
 				)
 			rescue Exception => e
-				MU.log "Got #{e.inspect} tagging #{resource} in #{region}", MU::WARN, details: caller if attempts > 1
+				MU.log "Got #{e.inspect} tagging #{resource} in #{region}", MU::WARN, details: caller.concat(tags) if attempts > 1
 				if attempts < 5
 					attempts = attempts + 1
 					sleep 5

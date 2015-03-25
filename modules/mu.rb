@@ -96,14 +96,6 @@ module MU
 	# Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
 	def self.mu_id; @@globals[Thread.current.object_id]['mu_id'] end
 	# Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
-	def self.my_public_ip; @@globals[Thread.current.object_id]['my_public_ip'] end
-	# Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
-	def self.mu_public_ip; @@globals[Thread.current.object_id]['mu_public_ip'] end
-	# Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
-	def self.my_private_ip; @@globals[Thread.current.object_id]['my_private_ip'] end
-	# Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
-	def self.mu_public_addr; @@globals[Thread.current.object_id]['mu_public_addr'] end
-	# Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
 	def self.appname; @@globals[Thread.current.object_id]['appname'] end
 	# Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
 
@@ -190,23 +182,30 @@ module MU
 		return response.body
 	end
 
-	MU.setVar("my_private_ip", MU.getAWSMetaData("local-ipv4"))
-	MU.setVar("my_public_ip", MU.getAWSMetaData("public-ipv4"))
-	if ENV['CHEF_PUBLIC_IP'] != nil and !ENV['CHEF_PUBLIC_IP'].empty? and MU.my_public_ip != ENV['CHEF_PUBLIC_IP']
-		MU.setVar("mu_public_addr", ENV['CHEF_PUBLIC_IP'])
+	@@my_private_ip = MU.getAWSMetaData("local-ipv4")
+	@@my_public_ip = MU.getAWSMetaData("public-ipv4")
+	@@mu_public_addr = nil
+	@@mu_public_ip = nil
+	if ENV['CHEF_PUBLIC_IP'] != nil and !ENV['CHEF_PUBLIC_IP'].empty? and @@my_public_ip != ENV['CHEF_PUBLIC_IP']
+		@@my_public_addr = ENV['CHEF_PUBLIC_IP']
 		if !ENV['CHEF_PUBLIC_IP'].match(/^\d+\.\d+\.\d+\.\d+$/)
 			resolver = Resolv::DNS.new
-			MU.setVar("mu_public_ip", resolver.getaddress(ENV['CHEF_PUBLIC_IP']).to_s)
+			@@mu_public_ip = resolver.getaddress(ENV['CHEF_PUBLIC_IP']).to_s
 		else
-			MU.setVar("mu_public_ip", ENV['CHEF_PUBLIC_IP'])
+			@@mu_public_ip = ENV['CHEF_PUBLIC_IP']
 		end
-	elsif !MU.my_public_ip.nil? and !MU.my_public_ip.empty?
-		MU.setVar("mu_public_addr", MU.my_public_ip)
-		MU.setVar("mu_public_ip", MU.my_public_ip)
+	elsif !@@my_public_ip.nil? and !@@my_public_ip.empty?
+		@@mu_public_addr = @@my_public_ip
+		@@mu_public_ip = @@my_public_ip
 	else
-		MU.setVar("mu_public_addr", MU.my_private_ip)
-		MU.setVar("mu_public_ip", MU.my_private_ip)
+		@@mu_public_addr = @@my_private_ip
+		@@mu_public_ip = @@my_private_ip
 	end
+
+	def self.my_private_ip; @@my_private_ip end
+	def self.my_public_ip; @@my_public_ip end
+	def self.mu_public_ip; @@mu_public_ip end
+	def self.mu_public_addr; @@mu_public_addr end
 
 	@@iam_api = {}
 	# Object for accessing Amazon's IAM service
