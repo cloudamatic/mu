@@ -35,6 +35,9 @@ ENV['HOME'] = Etc.getpwuid(Process.uid).dir
 
 require 'mu/logger'
 module MU
+	if !ENV.has_key?("MU_LIBDIR") and ENV.has_key?("MU_INSTALLDIR")
+		ENV['MU_LIBDIR'] = ENV['MU_INSTALLDIR']+"/lib"
+	end
 	# Mu's installation directory.
 	@@myRoot = File.expand_path(ENV['MU_LIBDIR'])
 	# Mu's installation directory.
