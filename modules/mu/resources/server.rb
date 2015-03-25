@@ -661,7 +661,7 @@ module MU
 			if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
 				Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
 			end
-			Chef::Config[:chef_server_url] = "https://#{MU.mu_public_ip}/organizations/#{MU.chef_user}"
+			Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}/organizations/#{MU.chef_user}"
 			Chef::Config[:environment] = environment
 
 
@@ -1115,7 +1115,7 @@ module MU
 				deploysecret = Base64.urlsafe_encode64(deploykey.public_encrypt(MU.mommacat.deploy_secret))
 				res_type = "server"
 				res_type = "server_pool" if !server['basis'].nil?
-				uri = URI("https://#{MU.mu_public_ip}:2260/")
+				uri = URI("https://#{MU.mu_public_addr}:2260/")
 				req = Net::HTTP::Post.new(uri)
 				req.set_form_data(
 					"mu_id" => MU.mu_id,
@@ -1503,7 +1503,7 @@ module MU
 				raise "MU::Server.deploy was called without a mu_name"
 			end
 
-			Chef::Config[:chef_server_url] = "https://#{MU.mu_public_ip}/organizations/#{MU.chef_user}"
+			Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}/organizations/#{MU.chef_user}"
 			Chef::Config[:environment] = environment
 
 			MU.log "Incorporating deployment metadata on #{node}"

@@ -99,6 +99,8 @@ module MU
 	# Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
 	def self.my_private_ip; @@globals[Thread.current.object_id]['my_private_ip'] end
 	# Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
+	def self.mu_public_addr; @@globals[Thread.current.object_id]['mu_public_addr'] end
+	# Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
 	def self.appname; @@globals[Thread.current.object_id]['appname'] end
 	# Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
 
