@@ -25,7 +25,7 @@ cookbook 'mu-utility', path: "#{cookbookPath}/mu-utility"
 cookbook 'chef_handler', '~> 1.1.4'
 cookbook 'chef-splunk', path: "#{cookbookPath}/chef-splunk"
 cookbook 'chef-sugar', '~> 2.0.0'
-cookbook 'chef-vault', '~> 1.1.2'
+cookbook 'chef-vault', '~> 1.2.5'
 cookbook 'demo', path: "#{siteCookbookPath}/demo"
 cookbook 'database', '~> 1.6.0'
 cookbook 'dmg', '~> 2.2.0'
