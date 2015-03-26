@@ -47,6 +47,7 @@ case node[:platform]
 			  tags = [ { key: "Name", value: node.application_attributes[volume].label } ]
 			  if node.tags.is_a?(Hash)
 			    node.tags.each_pair { |key, value|
+						next if !value.is_a?(String)
 			      tags << { key: key, value: value }
 			    }
 			  end

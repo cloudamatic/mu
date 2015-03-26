@@ -300,7 +300,7 @@ export TMOUT
 			  tags = [ { key: "Name", value: node.application_attributes.home.label } ]
 			  if node.tags.is_a?(Hash)
 			    node.tags.each_pair { |key, value|
-			      tags << { key: key, value: value }
+			      tags << { key: key, value: value } if value.is_a?(String)
 			    }
 			  end
 			  tag_volume(node.application_attributes.home.mount_device, tags)
