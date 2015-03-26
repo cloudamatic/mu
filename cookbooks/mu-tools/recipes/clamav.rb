@@ -35,7 +35,7 @@ if platform_family?("rhel")
 		action :nothing
 	end
 	package "clamav" do
-		notifies :run, "execute[#{freshclam}]", :immediately
+#		notifies :run, "execute[#{freshclam}]", :delayed
 	end
 	package "clamav-devel"
 	package "clamav-milter"
