@@ -108,7 +108,7 @@ module MU
 				asg_options[:load_balancer_names] = lbs
 			end
 			asg_options[:termination_policies] = @pool["termination_policies"] if @pool["termination_policies"]
-			asg_options[:desired_muacity] = @pool["desired_muacity"] if @pool["desired_muacity"]
+			asg_options[:desired_capacity] = @pool["desired_capacity"] if @pool["desired_capacity"]
 
 			basis = @pool["basis"]
 
