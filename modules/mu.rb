@@ -184,10 +184,10 @@ module MU
 
 	@@my_private_ip = MU.getAWSMetaData("local-ipv4")
 	@@my_public_ip = MU.getAWSMetaData("public-ipv4")
-	@@mu_public_addr = nil
-	@@mu_public_ip = nil
-	if ENV['CHEF_PUBLIC_IP'] != nil and !ENV['CHEF_PUBLIC_IP'].empty? and @@my_public_ip != ENV['CHEF_PUBLIC_IP']
-		@@my_public_addr = ENV['CHEF_PUBLIC_IP']
+	@@mu_public_addr = @@my_public_ip
+	@@mu_public_ip = @@my_public_ip
+	if !ENV['CHEF_PUBLIC_IP'].nil? and !ENV['CHEF_PUBLIC_IP'].empty? and @@my_public_ip != ENV['CHEF_PUBLIC_IP']
+		@@mu_public_addr = ENV['CHEF_PUBLIC_IP']
 		if !ENV['CHEF_PUBLIC_IP'].match(/^\d+\.\d+\.\d+\.\d+$/)
 			resolver = Resolv::DNS.new
 			@@mu_public_ip = resolver.getaddress(ENV['CHEF_PUBLIC_IP']).to_s
