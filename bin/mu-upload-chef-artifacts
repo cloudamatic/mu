@@ -25,6 +25,7 @@ berksdir="$user_home/.berkshelf"
 knife="/opt/chef/bin/knife"
 
 USER=`whoami`
+STARTDIR=`pwd`
 HOMEDIR="`getent passwd \"$USER\" |cut -d: -f6`"
 if [ "$CHEF_PUBLIC_IP" = "" -o "$MU_DATADIR" == "" ];then
 				if [ -f /opt/mu/etc/mu.rc ];then
@@ -525,6 +526,9 @@ if [ -d "$MU_DATADIR/users" -a "$USER" == "root" ];then
 	done
 fi
 
+# Somehow directory gets lost.  Set it to something sane
+cd $HOMEDIR
+echo "${YELLOW}Working from $STARTDIR ${NORM}"
 if [ "$all" != "1" ];then
 	if [ "$cookbooks_only" == "1" ];then
 		$knife cookbook upload $upload_cookbooks --cookbook-path $MU_CHEF_CACHE/cookbooks:$MU_CHEF_CACHE/site_cookbooks || fail_with_message "Cookbook upload failed"
