@@ -144,6 +144,12 @@ file "/var/www/html/index.html" do
 "
 end
 
+node.mu.user_map.each_pair { |mu_user, mu_email|
+	execute "echo '#{mu_user}: #{mu_email}' >> /etc/aliases" do
+		not_if "grep '^#{mu_user}: #{mu_email}$' /etc/aliases"
+	end
+}
+execute "/usr/bin/newaliases"
 
 include_recipe "mu-tools::aws_api"
 

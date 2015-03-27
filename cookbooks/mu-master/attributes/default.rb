@@ -14,6 +14,7 @@
 
 default['mu']['admin_emails'] = []
 default['mu']['user_list'] = []
+default['mu']['user_map'] = {}
 if !MU.mainDataDir.nil? and !MU.mainDataDir.empty? and
 		Dir.exists?("#{MU.mainDataDir}/users")
 	admin_list = []
@@ -23,6 +24,7 @@ if !MU.mainDataDir.nil? and !MU.mainDataDir.empty? and
 			email = File.read("#{MU.mainDataDir}/users/#{username}/email").chomp
 			admin_list << "#{username} (#{email})"
 			default['mu']['admin_emails'] << email
+			default['mu']['user_map'][username] = email
 		else
 			admin_list << username
 		end
