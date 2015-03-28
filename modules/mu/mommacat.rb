@@ -198,7 +198,7 @@ module MU
 		# @param max_length [Integer]: The maximum length of the resulting resource name.
 		# @param need_unique_string [Boolean]: Whether to forcibly append a random three-character string to the name to ensure it's unique. Note that this behavior will be automatically invoked if the name must be truncated.
 		# @return [String]: A full name string for this resource
-		def self.getResourceName(name, max_length: 255, need_unique_string: false, use_unique_string: nil)
+		def self.getResourceName(name, max_length: 255, need_unique_string: false, use_unique_string: nil, reuse_unique_string: false)
 			if name.nil?
 				raise "Got no argument to MU::MommaCat.getResourceName"
 			end
@@ -244,7 +244,7 @@ module MU
 				# Preferentially use a requested one, if it's not already in use.
 				if !use_unique_string.nil?
 					muname = basename + "-" + use_unique_string
-					if !allocateUniqueResourceName(muname)
+					if !allocateUniqueResourceName(muname) and !reuse_unique_string
 						MU.log "Requested to use #{use_unique_string} as differentiator when naming #{name}, but the name #{muname} is unavailable.", MU::WARN
 						muname = nil
 					end
@@ -1479,7 +1479,8 @@ puts MU::Config.chefclient
 						node_chef_data = chef_node.normal['deployment']['servers'][sib_name][nodename].dup
 						if !node_chef_data.nil? and node_chef_data.size > 0
 							MU.log "Merging Chef node data into deployment struct for #{nodename}", MU::DEBUG, details: node_chef_data
-							deployment['servers'][sib_name][nodename].merge!(node_chef_data)
+							node_chef_data.merge!(deployment['servers'][sib_name][nodename])
+							deployment['servers'][sib_name][nodename] = node_chef_data.dup
 						end
 						other_chef_data = chef_node.normal['deployment'].dup
 						['admins', 'firewall_rules', 'vpcs', 'loadbalancers', 'server_pools', 'servers', 'databases'].each { |res_type|
