@@ -72,30 +72,8 @@ link "/usr/lib64/nagios/cgi-bin" do
 	notifies :reload, "service[apache2]", :delayed
 end
 directory "/var/www/html/docs"
-["/usr/lib/cgi-bin/nagios3", "/usr/lib/nagios3", "/etc/nagios", "/etc/nagios3", "/var/log/nagios", "/var/www/html/docs"].each { |dir|
-	if Dir.exist?(dir)
-		execute "chcon -R -h -t httpd_sys_content_t #{dir}" do
-			not_if "ls -aZ #{dir} | grep ':httpd_sys_content_t:'"
-			returns [0,1]
-			notifies :reload, "service[apache2]", :delayed
-		end
-	end
-}
 
-["/usr/lib/cgi-bin/nagios3", "/usr/lib/cgi-bin"].each { |cgidir|
-	if Dir.exist?(cgidir)
-		execute "chcon -R -h -t httpd_sys_script_exec_t #{cgidir}" do
-			not_if "ls -aZ #{cgidir} | grep ':httpd_sys_script_exec_t:'"
-			notifies :reload, "service[apache2]", :delayed
-		end
-	end
-}
-execute "chcon -R -h -t nagios_unconfined_plugin_exec_t /usr/lib64/nagios/plugins/check_nagios" do
-	not_if "ls -aZ /usr/lib64/nagios/plugins/check_nagios | grep ':nagios_unconfined_plugin_exec_t:'"
-end
-
-execute "chgrp apache /var/log/nagios"
-
+include_recipe "mu-master::update_nagios_only"
 
 remote_file "/etc/httpd/ssl/nagios.crt" do
 	source "file:///#{MU.mainDataDir}/ssl/nagios.crt"
@@ -112,11 +90,11 @@ file "/etc/motd" do
 
  This is an Mu Master server. Mu is installed in #{MU.myRoot}.
 
- Chef Admin GUI: https://#{MU.mu_public_ip}/
+ Chef Admin GUI: https://#{MU.mu_public_addr}/
 
- Nagios monitoring GUI: https://#{MU.mu_public_ip}:8443/
+ Nagios monitoring GUI: https://#{MU.mu_public_addr}:8443/
 
- Mu API documentation: http://#{MU.mu_public_ip}/docs/frames.html
+ Mu API documentation: http://#{MU.mu_public_addr}/docs/frames.html
 
  Mu metadata are stored in #{MU.mainDataDir}
 
@@ -133,13 +111,13 @@ file "/var/www/html/index.html" do
  <h1>This is an Mu Master server</h2>
 
 <p>
- <a href='https://#{MU.mu_public_ip}'>Chef Admin GUI</a>
+ <a href='https://#{MU.mu_public_addr}'>Chef Admin GUI</a>
 </p>
 <p>
- <a href='https://#{MU.mu_public_ip}:8443/'>Nagios monitoring GUI</a>
+ <a href='https://#{MU.mu_public_addr}:8443/'>Nagios monitoring GUI</a>
 </p>
 <p>
- <a href='http://#{MU.mu_public_ip}/docs/frames.html'>Mu API documentation</a>
+ <a href='http://#{MU.mu_public_addr}/docs/frames.html'>Mu API documentation</a>
 </p>
 "
 end
