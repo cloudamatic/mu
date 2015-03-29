@@ -145,6 +145,7 @@ GRAPH
     mu-tools (>= 0.0.0)
     mu-utility (>= 0.0.0)
     nagios (>= 0.0.0)
+    postfix (>= 0.0.0)
     s3fs (>= 0.0.0)
   mu-php54 (0.3.0)
     apache2 (>= 0.0.0)

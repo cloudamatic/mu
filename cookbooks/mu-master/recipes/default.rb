@@ -84,6 +84,16 @@ remote_file "/etc/httpd/ssl/nagios.key" do
 	mode 0400
 end
 
+include_recipe "postfix"
+
+# Use a real hostname for mail if we happen to have one assigned
+if !MU.mu_public_addr.match(/^\d+\.\d+\.\d+\.\d+$/)
+	node.normal.postfix.main.myhostname = MU.mu_public_addr
+	node.normal.postfix.main.mydomain = MU.mu_public_addr.sub(/^.*?([^\.]+\.[^\.]+)$/, '\1')
+end
+node.normal.postfix.main.inet_interfaces = "all"
+node.save
+
 file "/etc/motd" do
 	content "
 *******************************************************************************

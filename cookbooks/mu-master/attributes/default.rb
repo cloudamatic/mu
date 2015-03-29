@@ -44,12 +44,13 @@ default['apache']['default_site_enabled'] = true
 default['apache']['mod_ssl']['cipher_suite'] = "ALL:!ADH:!EXPORT:!SSLv2:!RC4+RSA:+HIGH:!MEDIUM:!LOW"
 default['apache']['mod_ssl']['directives']['SSLProtocol'] = "all -SSLv2 -SSLv3"
 
-default['apache']['contact'] = default['mu']['admin_emails'].first
+default['apache']['contact'] = default['mu']['user_map']['mu']
 default['apache']['traceenable'] = 'Off'
 override["apache"]["listen_ports"] = [80, 8443]
 
 override["nagios"]["http_port"] = 8443
 default['nagios']['enable_ssl'] = true
+default['nagios']['sysadmin_email'] = default['mu']['user_map']['mu']
 default['nagios']['ssl_cert_file'] = "/etc/httpd/ssl/nagios.crt"
 default['nagios']['ssl_cert_key'] = "/etc/httpd/ssl/nagios.key"
 default["nagios"]["log_dir"] = "/var/log/httpd"
