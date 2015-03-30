@@ -1383,18 +1383,16 @@ enable_audit_logs()
 set_permissions()
 {
 	status_message "Setting permissions in Ruby installations and platform repos"
-	set -x
 	for extra in $ADDTL_CHEF_REPOS;do
 		extra_repo_name="`echo $extra | sed 's/^.*\///' | cut -d. -f1`"
 		fix_platform_repo_permissions "$MU_DATADIR/$extra_repo_name"
 	done
-	fix_platform_repo_permissions $MU_INSTALLDIR
+	fix_platform_repo_permissions "$MU_LIBDIR"
 	/sbin/restorecon -r /home
 	for rubydir in /opt/opscode/embedded /opt/chef/embedded $RUBY_INSTALLDIR;do
 		find $rubydir/lib/ruby/gems -type f -exec chmod o+r {} \;
 		find $rubydir/lib/ruby/gems -type d -exec chmod o+rx {} \;
 	done
-	set +x
 }
 
 ###############################################################################
