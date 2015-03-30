@@ -46,10 +46,9 @@ fi
 usage()
 {
 	echo "Create or reconfigure your Chef master."
-	echo "Usage: $0 [-n] [-d] [-c /path/to/murc] [-b branch]"
+	echo "Usage: $0 [-d] [-c /path/to/murc] [-b branch]"
 	echo "    -d: Use default values and run non-interactively."
 	echo "    -b: Choose a branch (default: production)."
-	echo "    -n: No Chef server self-test."
 	echo "    -c: Use an alternate .murc file."
 	echo "    -k: Run curl with -k to skip SSL certificate checks."
 	exit 1
@@ -74,6 +73,7 @@ if [ "$_me" == "mu-user-manage" ];then
 	library=1
 fi
 curl_dash_k=1
+chef_self_test=0
 if [ "$library" != "1" ];then
 	while getopts "c:tdhkb:" opt; do
 		case $opt in
@@ -85,9 +85,6 @@ if [ "$library" != "1" ];then
 			  ;;
 			b)
 			  MUBRANCH=$OPTARG
-			  ;;
-			t)
-			  chef_self_test=1
 			  ;;
 			k)
 			  curl_dash_k=1
@@ -146,7 +143,7 @@ MU_REPO='eGT-Labs/mu.git'
 if [ "$MUBRANCH" == "" ];then
 	if [ -d "$MU_LIBDIR/.git" ]; then
 		cd $MU_LIBDIR
-		MUBRANCH="`git branch | grep '^\*' | awk '{print $2}'`"
+		MUBRANCH="`git branch 2>/dev/null | grep '^\*' | awk '{print $2}'`"
 	fi
 	if [ "$MUBRANCH" == "" ];then
 		MUBRANCH="master"
