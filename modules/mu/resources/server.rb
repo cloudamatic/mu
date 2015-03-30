@@ -472,7 +472,7 @@ module MU
 				MU.log "Deploying #{node} into VPC #{vpc_id} Subnet #{subnet_id}"
 
 				if !@server["vpc"]["nat_host_name"].nil? or !@server["vpc"]["nat_host_id"].nil?
-					MU::Server.punchAdminNAT(@server, node)
+					admin_sg = MU::Server.punchAdminNAT(@server, node)
 				else
 					admin_sg = MU::FirewallRule.setAdminSG(vpc_id: vpc_id, region: @server['region'])
 				end
@@ -690,7 +690,7 @@ module MU
 				end
 			end while instance.nil? or (instance.state.name != "running" and retries < 30)
 
-			MU::Server.punchAdminNAT(server, node)
+			admin_sg = MU::Server.punchAdminNAT(server, node)
 
 			# Unless we're planning on associating a different IP later, set up a 
 			# DNS entry for this thing and let it sync in the background. We'll come
@@ -1487,7 +1487,7 @@ module MU
 						raise "deploy failure"
 					end
 					MU.log "Adding administrative holes for NAT host #{nat_instance["private_ip_address"]} to #{node}", MU::NOTICE
-					admin_sg = MU::FirewallRule.setAdminSG(
+					return MU::FirewallRule.setAdminSG(
 						vpc_id: vpc_id,
 						add_admin_ip: nat_instance["private_ip_address"],
 						region: server['region']
@@ -1523,7 +1523,7 @@ module MU
 			MU.log "Incorporating deployment metadata on #{node}"
 
 			nat_ssh_key, nat_ssh_user, nat_ssh_host = getNodeSSHProxy(server)
-			MU::Server.punchAdminNAT(server, node)
+			admin_sg = MU::Server.punchAdminNAT(server, node)
 
 			ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
 
