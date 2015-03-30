@@ -472,20 +472,7 @@ module MU
 				MU.log "Deploying #{node} into VPC #{vpc_id} Subnet #{subnet_id}"
 
 				if !@server["vpc"]["nat_host_name"].nil? or !@server["vpc"]["nat_host_id"].nil?
-					nat_instance, mu_name = MU::Server.find(
-						id: @server["vpc"]["nat_host_id"],
-						name: @server["vpc"]["nat_host_name"],
-						region: @server['region']
-					)
-					if nat_instance.nil?
-						MU.log "#{node} (#{MU.mu_id}) is configured to use #{@server['vpc']} but I can't find a running instance matching nat_host_id or nat_host_name", MU::ERR
-						raise "deploy failure"
-					end
-					admin_sg = MU::FirewallRule.setAdminSG(
-						vpc_id: vpc_id,
-						add_admin_ip: nat_instance["private_ip_address"],
-						region: @server['region']
-					)
+					MU::Server.punchAdminNAT(@server, node)
 				else
 					admin_sg = MU::FirewallRule.setAdminSG(vpc_id: vpc_id, region: @server['region'])
 				end
@@ -702,6 +689,8 @@ module MU
 					raise "Too many retries creating #{node} (#{e.inspect})"
 				end
 			end while instance.nil? or (instance.state.name != "running" and retries < 30)
+
+			MU::Server.punchAdminNAT(server, node)
 
 			# Unless we're planning on associating a different IP later, set up a 
 			# DNS entry for this thing and let it sync in the background. We'll come
@@ -1479,7 +1468,33 @@ module MU
 
 			return deploydata
 		end
-		
+
+		# If the specified server is in a VPC, and has a NAT, make sure we'll
+		# be letting ssh traffic in from said NAT.
+		# @param server [Hash]: The MU resource descriptor for this instance.
+		# @param node [String]: The full Mu name for this instance.
+		def self.punchAdminNAT(server, node)
+			if !server["vpc"].nil?
+				vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::VPC.parseVPC(server['vpc'])
+				if !nat_host_name.nil?
+					nat_instance, mu_name = MU::Server.find(
+						id: server["vpc"]["nat_host_id"],
+						name: server["vpc"]["nat_host_name"],
+						region: server['region']
+					)
+					if nat_instance.nil?
+						MU.log "#{node} (#{MU.mu_id}) is configured to use #{server['vpc']} but I can't find a running instance matching nat_host_id or nat_host_name", MU::ERR
+						raise "deploy failure"
+					end
+					MU.log "Adding administrative holes for NAT host #{nat_instance["private_ip_address"]} to #{node}", MU::NOTICE
+					admin_sg = MU::FirewallRule.setAdminSG(
+						vpc_id: vpc_id,
+						add_admin_ip: nat_instance["private_ip_address"],
+						region: server['region']
+					)
+				end
+			end
+		end
 
 		# Called automatically by {MU::Deploy#createResources}
 		def deploy
@@ -1508,6 +1523,8 @@ module MU
 			MU.log "Incorporating deployment metadata on #{node}"
 
 			nat_ssh_key, nat_ssh_user, nat_ssh_host = getNodeSSHProxy(server)
+			MU::Server.punchAdminNAT(server, node)
+
 			ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
 
 			if !chef_rerun_only

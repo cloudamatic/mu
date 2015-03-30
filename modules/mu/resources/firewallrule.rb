@@ -206,8 +206,8 @@ module MU
 		# Allow our MU server into our new child instances. Security Groups are
 		# VPC specific (and Classic is its own thing), so maintain one for each.
 		# @param vpc_id [String]: The cloud provider identifier for the VPC for this security group, if applicable.
-		# @param region [String]: The cloud provider region
 		# @param add_admin_ip [String]: Insert an additional host to allow, along with the MU master.
+		# @param region [String]: The cloud provider region
 		def self.setAdminSG(vpc_id: vpc_id, add_admin_ip: add_admin_ip, region: MU.curRegion)
 			@admin_sg_semaphore.synchronize {
 				if @admin_sgs['#CLASSIC'] and !vpc_id
@@ -218,7 +218,7 @@ module MU
 
 				# If we're hiding behind a NAT or something, make sure our external
 				# IP makes it into the admin SG.
-				add_admin_ip = MU.mu_public_ip
+				add_admin_ip = MU.mu_public_ip if add_admin_ip.nil?
 	
 				hosts = Array.new
 				hosts << "#{add_admin_ip}/32" if add_admin_ip
@@ -246,7 +246,7 @@ module MU
 				hosts << "#{MU.my_public_ip}/32" if MU.my_public_ip != nil
 				rules = MU::FirewallRule.stdAdminRules(hosts)
 	
-				sg = createEc2SG("ADMIN", rules, description: "Administrative security group for deploy #{MU.mu_id}. Lets our Chef Master in.", vpc_id: vpc_id, region: region)
+				sg = createEc2SG("ADMIN", rules, description: "Administrative security group for deploy #{MU.mu_id}. Lets our Mu Master in.", vpc_id: vpc_id, region: region)
 				if vpc_id != nil
 					@admin_sgs[vpc_id] = sg
 				else
