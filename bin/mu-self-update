@@ -189,6 +189,7 @@ generate_docs
 patch_knife_windows
 
 set +e
+install_ruby
 install_chef
 set_bash_defaults
 setup_chef_cache $update_chef_artifacts
