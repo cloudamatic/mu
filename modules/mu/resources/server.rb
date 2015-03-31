@@ -651,7 +651,6 @@ module MU
 			Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}/organizations/#{MU.chef_user}"
 			Chef::Config[:environment] = environment
 
-
 			return false if !MU::MommaCat.lock(instance.instance_id+"-groom", true)
 			return false if !MU::MommaCat.lock(instance.instance_id+"-deploy", true)
 
@@ -856,7 +855,18 @@ module MU
 
 			MU::MommaCat.removeHostFromSSHConfig(node)
 			if !server["vpc"].nil?
-				if is_private
+				if MU::VPC.haveRouteToInstance?(instance.instance_id)
+					MU::MommaCat.addHostToSSHConfig(
+						node,
+						instance.private_ip_address,
+						instance.private_dns_name,
+						user: node_ssh_user,
+						public_dns: instance.public_dns_name,
+						public_ip: instance.public_ip_address,
+						key_name: node_ssh_key,
+						timeout: ssh_timeout
+					)
+				elsif is_private
 					MU::MommaCat.addHostToSSHConfig(
 						node,
 						instance.private_ip_address,
@@ -1486,7 +1496,7 @@ module MU
 						MU.log "#{node} (#{MU.mu_id}) is configured to use #{server['vpc']} but I can't find a running instance matching nat_host_id or nat_host_name", MU::ERR
 						raise "deploy failure"
 					end
-					MU.log "Adding administrative holes for NAT host #{nat_instance["private_ip_address"]} to #{node}", MU::NOTICE
+					MU.log "Adding administrative holes for NAT host #{nat_instance["private_ip_address"]} to #{node}", MU::DEBUG
 					return MU::FirewallRule.setAdminSG(
 						vpc_id: vpc_id,
 						add_admin_ip: nat_instance["private_ip_address"],
@@ -1512,6 +1522,7 @@ module MU
 			MU::MommaCat.lock(server["instance_id"]+"-deploy")
 
 			node = server['mu_name']
+
 			if node.nil? or node.empty?
 				MU.log "MU::Server.deploy was called without a mu_name", MU::ERR, details: server
 				raise "MU::Server.deploy was called without a mu_name"
@@ -1519,8 +1530,6 @@ module MU
 
 			Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}/organizations/#{MU.chef_user}"
 			Chef::Config[:environment] = environment
-
-			MU.log "Incorporating deployment metadata on #{node}"
 
 			nat_ssh_key, nat_ssh_user, nat_ssh_host = getNodeSSHProxy(server)
 			admin_sg = MU::Server.punchAdminNAT(server, node)
@@ -1585,6 +1594,14 @@ module MU
 				# If this is Windows, ssh over with a Powershell command to set the
 				# password.
 				if server['platform'] == "windows" or server['platform'] == "win2k12"
+					# Make sure we don't lose a cached mu_windows_name value.
+					if !server['mu_windows_name'] and
+							!deployment.nil? and deployment.has_key?('servers') and
+							deployment['servers'].has_key?(server['name']) and
+							deployment['servers'][server['name']].has_key?(node)
+						server['mu_windows_name'] = deployment['servers'][server['name']][node]['mu_windows_name']
+					end
+
 					begin
 						winpass = MU::MommaCat.fetchSecret(server["instance_id"], "winpass")
 						MU.log "Setting Windows Administrator password to #{server['winpass']}"

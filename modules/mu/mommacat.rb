@@ -376,6 +376,9 @@ module MU
 								node = nodename
 								first_groom = false
 								MU.log "Re-grooming #{node}", details: data
+								if !data['mu_windows_name'].nil? and server['mu_windows_name'].nil?
+									server['mu_windows_name'] = data['mu_windows_name']
+								end
 								break
 							end
 						}
@@ -409,15 +412,22 @@ module MU
 						end
 						MU::MommaCat.unlock(instance.instance_id+"-create")
 
-						if server['platform'] == "windows"
-							if (server['mu_windows_name'].nil? or server['mu_windows_name'].empty?) and first_groom
-								server['mu_windows_name'] = MU::MommaCat.getResourceName(name, max_length: 15, use_unique_string: MU::MommaCat.name_unique_str_map[node])
+						if server['platform'] == "windows" and server['platform'] == "win2k12"
+							if (server['mu_windows_name'].nil? or server['mu_windows_name'].empty?) 
+								if first_groom
+									server['mu_windows_name'] = MU::MommaCat.getResourceName(name, max_length: 15, use_unique_string: MU::MommaCat.name_unique_str_map[node])
+								elsif !@deployment.nil? and @deployment.has_key?('servers') and
+										@deployment['servers'].has_key?(server['name']) and
+										@deployment['servers'][server['name']].has_key?(node)
+									server['mu_windows_name'] = @deployment['servers'][server['name']][node]['mu_windows_name']
+								end
 							end
 							if @secrets['windows_password'].has_key?(server["instance_id"])
 								server['winpass'] = fetchSecret(server["instance_id"], "windows_password")
 							elsif @secrets['windows_password'].has_key?("default")
 								server['winpass'] = fetchSecret("default", "windows_password")
 							end
+
 						end
 
 						if !MU::Server.groomEc2(server, instance, @ssh_key_name)
@@ -961,6 +971,7 @@ module MU
 				gateway_user: "ec2-user",
 				key_name: "deploy-#{MU.mu_id}",
 				ssh_dir: "#{@myhome}/.ssh",
+				ssh_conf: "#{@myhome}/.ssh/config",
 				ssh_owner: Etc.getpwuid(Process.uid).name,
 				timeout: 0
 			)
@@ -973,19 +984,18 @@ module MU
 			mu_dns = nil # XXX HD account hack
 
 			@ssh_semaphore.synchronize {
-				ssh_conf_file = "#{ssh_dir}/config"
 				MU.log "addHostToSSHConfig(node: #{node}, private_ip: #{private_ip}, private_dns: #{private_dns}, public_ip: #{public_ip}, public_dns: #{public_dns}, user: #{user}, gateway_ip: #{gateway_ip}, gateway_user: #{gateway_user}, key_name: #{key_name}", MU::DEBUG
 
-				if File.exists?(ssh_conf_file)
-				  File.readlines(ssh_conf_file).each { |line|
+				if File.exists?(ssh_conf)
+				  File.readlines(ssh_conf).each { |line|
 				    if line.match(/^Host #{node} /)
-							MU.log("Attempt to add duplicate #{ssh_conf_file} entry for #{node}", MU::WARN)
+							MU.log("Attempt to add duplicate #{ssh_conf} entry for #{node}", MU::WARN)
 							return
 				    end
 				  }
 				end
 
-			  File.open(ssh_conf_file, 'a') { |ssh_config|
+			  File.open(ssh_conf, 'a') { |ssh_config|
 				  ssh_config.flock(File::LOCK_EX)
 					if !mu_dns.nil? and !mu_dns.empty?
 				    ssh_config.puts "Host #{node} #{mu_dns} #{public_ip} #{public_dns}"
@@ -1002,8 +1012,10 @@ module MU
 					else
 						if !mu_dns.nil? and !mu_dns.empty?
 					    ssh_config.puts "  Hostname #{mu_dns}"
-						else
+						elsif !public_ip.nil? and !public_ip.empty?
 					    ssh_config.puts "  Hostname #{public_ip}"
+						else
+					    ssh_config.puts "  Hostname #{private_ip}"
 						end
 						if timeout > 0
 							ssh_config.puts "  ConnectTimeout #{timeout}"
@@ -1291,7 +1303,6 @@ MESSAGE_END
 			nagios_threads << Thread.new {
 				MU.dupGlobals(parent_thread_id)
 				MU.log "Updating Nagios monitoring config, this may take a while..."
-puts MU::Config.chefclient
 				system("#{MU::Config.chefclient} -o 'recipe[mu-master::update_nagios_only]' 2>&1 > /dev/null")
 				allnodes = Hash.new
 				if Dir.exists?(MU.dataDir+"/deployments")
@@ -1307,7 +1318,7 @@ puts MU::Config.chefclient
 				end
 				ssh_lock = File.new("#{@nagios_home}/.ssh/config.mu.lock", File::CREAT|File::TRUNC|File::RDWR, 0600)
 				ssh_lock.flock(File::LOCK_EX)
-				ssh_conf = File.new("#{@nagios_home}/.ssh/config", File::CREAT|File::TRUNC|File::RDWR, 0600)
+				ssh_conf = File.new("#{@nagios_home}/.ssh/config.tmp", File::CREAT|File::TRUNC|File::RDWR, 0600)
 				ssh_conf.puts "Host MU-MASTER localhost"
 				ssh_conf.puts "  Hostname localhost"
 				ssh_conf.puts "  User root"
@@ -1316,7 +1327,7 @@ puts MU::Config.chefclient
 				ssh_conf.close
 				FileUtils.cp("#{@myhome}/.ssh/id_rsa", "#{@nagios_home}/.ssh/id_rsa")
 				File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{@nagios_home}/.ssh/id_rsa")
-	
+
 				allnodes.each_pair { |nodename, metadata|
 					MU::MommaCat.new(metadata['mu_id'])
 					if !File.exist?("#{@nagios_home}/.ssh/#{metadata['key_name']}")
@@ -1329,6 +1340,23 @@ puts MU::Config.chefclient
 					end
 					if metadata['conf'].nil?
 						MU.log "Missing config portion of descriptor for #{nodename}", MU::WARN, details: metadata
+						next
+					end
+
+					# Prefer a direct route, if that's a choice we have.
+					if MU::VPC.haveRouteToInstance?(metadata['instance_id'])
+						MU::MommaCat.addHostToSSHConfig(
+							nodename,
+							metadata['private_ip_address'],
+							metadata['private_dns_name'],
+							public_dns: metadata['public_dns_name'],
+							public_ip: metadata['public_ip_address'],
+							user: metadata['conf']['ssh_user'],
+							key_name: metadata['key_name'],
+							ssh_dir: "#{@nagios_home}/.ssh",
+							ssh_conf: "#{@nagios_home}/.ssh/config.tmp",
+							ssh_owner: "nagios"
+						)
 						next
 					end
 
@@ -1352,6 +1380,7 @@ puts MU::Config.chefclient
 							gateway_user: nat_ssh_user,
 							key_name: metadata['key_name'],
 							ssh_dir: "#{@nagios_home}/.ssh",
+							ssh_conf: "#{@nagios_home}/.ssh/config.tmp",
 							ssh_owner: "nagios"
 						)
 					else
@@ -1364,12 +1393,15 @@ puts MU::Config.chefclient
 							user: metadata['conf']['ssh_user'],
 							key_name: metadata['key_name'],
 							ssh_dir: "#{@nagios_home}/.ssh",
+							ssh_conf: "#{@nagios_home}/.ssh/config.tmp",
 							ssh_owner: "nagios"
 						)
 					end
 				}
 				ssh_lock.flock(File::LOCK_UN)
 				ssh_lock.close
+				File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{@nagios_home}/.ssh/config")
+				File.rename("#{@nagios_home}/.ssh/config.tmp", "#{@nagios_home}/.ssh/config")
 				puts ""
 				MU.log "Nagios monitoring config update complete."
 			}

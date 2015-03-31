@@ -598,6 +598,82 @@ module MU
 			return subnet_ids
 		end
 
+		# Get the subnets associated with an instance.
+		# @param instance_id [String]: The cloud identifier of the instance
+		# @param region [String]: The cloud provider region of the target instance
+		# @return [Array<String>]
+		def self.getInstanceSubnets(instance_id, region: MU.curRegion)
+			return [] if instance_id.nil?
+			my_subnets = []
+
+			instance = MU.ec2(region).describe_instances(instance_ids: [instance_id]).reservations.first.instances.first
+			my_subnets << instance.subnet_id if !instance.subnet_id.nil?
+			if !instance.network_interfaces.nil?
+				instance.network_interfaces.each { |iface|
+					my_subnets << iface.subnet_id if !iface.subnet_id.nil?
+				}
+			end
+			return my_subnets.uniq
+		end
+
+		# Check whether we (the Mu Master) have a direct route to a particular
+		# subnet. Useful for skipping hops through bastion hosts to get directly
+		# at child nodes in peered VPCs and the like.
+		# @param subnet_id [String]: The cloud identifier of the subnet to check.
+		# @param region [String]: The cloud provider region of the target subnet.
+		# @return [Boolean]
+		def self.haveRouteToInstance?(instance_id, region: MU.curRegion)
+			return false if instance_id.nil?
+			my_subnets = MU::VPC.getInstanceSubnets(MU.myInstanceId)
+			target_subnets = MU::VPC.getInstanceSubnets(instance_id)
+
+			if (my_subnets & target_subnets).size > 0
+				MU.log "I share a subnet with #{instance_id}, I can route to it directly", MU::DEBUG
+				return true
+			end
+
+			my_routes = []
+			vpc_peer_mapping = {}
+			MU.ec2(MU.myRegion).describe_route_tables(
+				filters: [{name: "association.subnet-id", values: my_subnets}]
+			).route_tables.each { |route_table|
+				route_table.routes.each { |route|
+					if route.destination_cidr_block != "0.0.0.0/0" and route.state == "active"
+						my_routes << NetAddr::CIDR.create(route.destination_cidr_block)
+						if !route.vpc_peering_connection_id.nil?
+							vpc_peer_mapping[route.vpc_peering_connection_id] = route.destination_cidr_block
+						end
+					end
+				}
+			}
+			my_routes.uniq!
+
+			target_routes = []
+			MU.ec2(MU.myRegion).describe_route_tables(
+				filters: [{name: "association.subnet-id", values: target_subnets}]
+			).route_tables.each { |route_table|
+				route_table.routes.each { |route|
+					next if route.destination_cidr_block == "0.0.0.0/0" or route.state != "active"
+					cidr = NetAddr::CIDR.create(route.destination_cidr_block)
+					shared_ip_space = false
+					my_routes.each { |my_cidr|
+						if my_cidr.contains?(cidr) or my_cidr == cidr
+							shared_ip_space = true
+							break
+						end
+					}
+
+					if shared_ip_space and !route.vpc_peering_connection_id.nil? and
+							vpc_peer_mapping.has_key?(route.vpc_peering_connection_id) 
+						MU.log "I share a VPC peering connection (#{route.vpc_peering_connection_id}) with #{instance_id} for #{route.destination_cidr_block}, I can route to it directly", MU::DEBUG
+						return true
+					end
+				}
+			}
+
+			return false
+		end
+
 		# Given a cloud platform identifier for a subnet, determine whether it is
 		# publicly routable or private only.
 		# @param subnet_id [String]: The cloud identifier of the subnet to check.
