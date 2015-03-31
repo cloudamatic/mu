@@ -606,7 +606,11 @@ module MU
 			return [] if instance_id.nil?
 			my_subnets = []
 
-			instance = MU.ec2(region).describe_instances(instance_ids: [instance_id]).reservations.first.instances.first
+			begin
+				instance = MU.ec2(region).describe_instances(instance_ids: [instance_id]).reservations.first.instances.first
+			rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
+				return []
+			end
 			my_subnets << instance.subnet_id if !instance.subnet_id.nil?
 			if !instance.network_interfaces.nil?
 				instance.network_interfaces.each { |iface|
