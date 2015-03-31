@@ -10,4 +10,4 @@ $DefaultNetstreamDriver gtls # use gtls netstream driver
 $ActionSendStreamDriverMode 1 # require TLS for the connection
 $ActionSendStreamDriverAuthMode anon # server is NOT authenticated
 *.* @@(o)<%= node.deployment.mu_public_ip %>:10514 # send (all) messages
-<% end %>
+<% end rescue NoMethodError %>
