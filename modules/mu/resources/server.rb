@@ -1283,7 +1283,6 @@ module MU
 			return nil if !id and !name and !ip and !tag_value
 			# If we got an instance id, go get that
 			instance = nil
-			retries = 5
 			if !region.nil?
 				regions = [region]
 			else
@@ -1298,6 +1297,7 @@ module MU
 				regions.each { |region|
 					search_threads << Thread.new(region) { |myregion|
 						MU.log "Hunting for instance with cloud id '#{id}' in #{myregion}", MU::DEBUG
+						retries = 0
 						begin
 							response = MU.ec2(myregion).describe_instances(
 								instance_ids: [id],
@@ -1315,6 +1315,7 @@ module MU
 								retries = retries + 1
 								sleep 5
 							else
+								MU.log "#{e.inspect} in region #{region}", MU::ERR
 								raise e
 							end
 						end
