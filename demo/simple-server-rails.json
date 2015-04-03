@@ -1,54 +1,38 @@
-{
-    "appname": "demo",
-    "servers": [
-        {
-            "name": "rails",
-            "ssh_user": "ubuntu",
-            "platform": "ubuntu",
-            "storage": [
-                {
-                    "size": 15
-                }
-            ],
-            "run_list": [
-                "recipe[demo::rails]"
-            ],
-            "size": "t2.medium",
-            "ingress_rules": [
-                {
-                    "port": 80,
-                    "hosts": [
-                        "0.0.0.0/0"
-                    ]
-                },
-                {
-                    "port": 443,
-                    "hosts": [
-                        "0.0.0.0/0"
-                    ]
-                }
-            ],
-            "dependencies": [
-                {
-                    "name": "fss",
-                    "type": "database"
-                }
-            ]
-        }
-    ],
-    "databases":[
-        {
-            "name":"fss",
-            "engine":"mysql",
-            "size":"db.t1.micro",
-            "storage":5,
-            "port":3306
-        }
-    ],
-    "admins": [
-        {
-            "name": "Zach Rowe",
-            "email": "zachary.rowe@eglobaltech.com"
-        }
-    ]
-}
+---
+  appname: "demo"
+  servers: 
+    - 
+      name: "rails"
+      ssh_user: "ubuntu"
+      platform: "ubuntu"
+      storage: 
+        - 
+          size: 15
+      run_list: 
+        - "recipe[demo::rails]"
+      size: "t2.medium"
+      ingress_rules: 
+        - 
+          port: 80
+          hosts: 
+            - "0.0.0.0/0"
+        - 
+          port: 443
+          hosts: 
+            - "0.0.0.0/0"
+      dependencies: 
+        - 
+          name: "fss"
+          type: "database"
+  databases: 
+    - 
+      name: "fss"
+      engine: "mysql"
+      size: "db.t1.micro"
+      storage: 5
+      port: 3306
+  admins: 
+    - 
+      name: "Zach Rowe"
+      email: "zachary.rowe@eglobaltech.com"
+

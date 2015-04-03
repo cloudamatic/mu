@@ -1,9 +1,6 @@
-{
-    "appname": "demo",
-    "servers": [
-        {
-            "name": "simple",
-            "size": "m3.medium"
-        }
-    ]
-}
+---
+  appname: "demo"
+  servers: 
+    - 
+      name: "simple"
+      size: "m3.medium"

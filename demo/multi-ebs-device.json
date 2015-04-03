@@ -1,43 +1,27 @@
-{
-	"appname": "demo",
-	"servers": [
-		{
-			"name": "windows",
-			"platform": "windows",
-			"winrm_user": "Administrator",
-			"size": "m3.large",
-			"storage": [
-				{
-					"size": 70,
-					"device": "xvdg"
-				},
-				{
-					"size": 100
-				},
-				{
-					"size": 100
-				}
-			],
-			"ingress_rules": [
-				{
-					"port": 3389,
-					"hosts": [
-						"23.30.31.61/32"
-					]
-				}
-			],
-			"run_list": [
-
-			],
-			"dependencies": [
-
-			]
-		}
-	],
-	"admins": [
-		{
-			"name": "John Stange",
-			"email": "john.stange@eglobaltech.com"
-		}
-	]
-}
+---
+  appname: "demo"
+  servers: 
+    - 
+      name: "windows"
+      platform: "windows"
+      winrm_user: "Administrator"
+      size: "m3.large"
+      storage: 
+        - 
+          size: 70
+          device: "xvdg"
+        - 
+          size: 100
+        - 
+          size: 100
+      ingress_rules: 
+        - 
+          port: 3389
+          hosts: 
+            - "23.30.31.61/32"
+      run_list: []
+      dependencies: []
+  admins: 
+    - 
+      name: "John Stange"
+      email: "john.stange@eglobaltech.com"
