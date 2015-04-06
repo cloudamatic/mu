@@ -1,3 +1,6 @@
+<%
+  $azs = listAZs
+%>
 ---
   appname: "demo"
   servers: 
@@ -10,7 +13,21 @@
           size: 15
       run_list: 
         - "recipe[demo::rails]"
-      size: "t2.medium"
+      size: "m3.medium"
+      associate_public_ip: true
+      static_ip:
+        assign_ip: true
+      vpc:
+    <% if $vpc_deploy_id then %>
+        deploy_id: <%= $vpc_deploy_id %>
+        subnet_pref: all_public
+    <% else %>
+        vpc_name: vpc
+        subnets:
+        <% (1..$azs.size).each do |i| %>
+          - subnet_name: Subnet<%= i-1 %>Public
+        <% end %>
+    <% end %>
       ingress_rules: 
         - 
           port: 80
@@ -24,6 +41,22 @@
         - 
           name: "fss"
           type: "database"
+<% unless $vpc_deploy_id then %>
+  vpcs:
+  - name: vpc
+    route-tables:
+    - name: internet
+      routes:
+      - destination_network: 0.0.0.0/0
+        gateway: "#INTERNET"
+    subnets:
+  <% $azs.each.with_index do |az, i| %>
+    - name: Subnet<%= i %>Public
+      ip_block: 10.0.<%= i %>.0/24
+      availability-zone: "<%= az %>"
+      route-table: internet
+  <% end %>
+<% end %>
   databases: 
     - 
       name: "fss"
@@ -31,6 +64,17 @@
       size: "db.t1.micro"
       storage: 5
       port: 3306
+      vpc:
+      <% if $vpc_deploy_id then %>
+        deploy_id: <%= $vpc_deploy_id %>
+        subnet_pref: all_public
+      <% else %>
+        vpc_name: vpc
+        subnets:
+        <% (1..$azs.size).each do |i| %>
+          - subnet_name: Subnet<%= i-1 %>Public
+        <% end %>
+    <% end %>
   admins: 
     - 
       name: "Zach Rowe"
