@@ -12,7 +12,7 @@ DEPENDENCIES
   chef-splunk
     path: cookbooks/chef-splunk
   chef-sugar (~> 2.0.0)
-  chef-vault
+  chef-vault (~> 1.2.5)
   chef_handler (~> 1.1.4)
   database (~> 1.6.0)
   demo
@@ -38,7 +38,7 @@ DEPENDENCIES
   mu-utility
     path: cookbooks/mu-utility
   mysql (~> 5.2.12)
-  nagios (~> 6.1.2)
+  nagios (~> 7.0.8)
   nginx (~> 2.7.2)
   nginx-passenger
     path: cookbooks/nginx-passenger
@@ -174,7 +174,7 @@ GRAPH
     yum (>= 0.0.0)
     yum-epel (>= 0.0.0)
   mysql (5.2.12)
-  nagios (6.1.2)
+  nagios (7.0.8)
     apache2 (>= 2.0)
     build-essential (>= 0.0.0)
     nginx (>= 0.0.0)
