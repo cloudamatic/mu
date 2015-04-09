@@ -79,3 +79,23 @@ end
 
 include_recipe 'chef-splunk::service'
 include_recipe 'chef-splunk::setup_auth'
+
+svr_conf = "#{splunk_dir}/etc/system/local/server.conf"
+ruby_block "tighten SSL options in #{svr_conf}" do
+	block do
+		newfile = []
+		File.readlines(svr_conf).each { |line|
+			newfile << line
+			if line.match(/^\[sslConfig\]/)
+				newfile << "useClientSSLCompression = false\n"
+				newfile << "sslVersions = tls1.2\n"
+				newfile << "cipherSuite = TLSv1.2:!eNULL:!aNULL\n"
+			end
+		}
+		f = File.new(svr_conf, File::CREAT|File::TRUNC|File::RDWR)
+		f.puts newfile
+		f.close
+	end
+	not_if "grep ^sslVersions #{svr_conf}"
+  notifies :restart, 'service[splunk]'
+end

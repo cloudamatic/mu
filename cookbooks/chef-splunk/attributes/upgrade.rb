@@ -16,24 +16,32 @@
 #
 if node['splunk']['upgrade_enabled']
   case node['platform_family']
-  when 'rhel'
-    if node['kernel']['machine'] == 'x86_64'
-      default['splunk']['upgrade']['server_url'] = 'http://download.splunk.com/releases/4.3.7/splunk/linux/splunk-4.3.7-181874-linux-2.6-x86_64.rpm'
-      default['splunk']['upgrade']['forwarder_url'] = 'http://download.splunk.com/releases/4.3.7/universalforwarder/linux/splunkforwarder-4.3.7-181874-linux-2.6-x86_64.rpm'
-    else
-      default['splunk']['upgrade']['server_url'] = 'http://download.splunk.com/releases/4.3.7/splunk/linux/splunk-4.3.7-181874.i386.rpm'
-      default['splunk']['upgrade']['forwarder_url'] = 'http://download.splunk.com/releases/4.3.7/universalforwarder/linux/splunkforwarder-4.3.7-181874.i386.rpm'
-    end
-  when 'debian'
-    if node['kernel']['machine'] == 'x86_64'
-      default['splunk']['upgrade']['server_url'] = 'http://download.splunk.com/releases/4.3.7/splunk/linux/splunk-4.3.7-181874-linux-2.6-amd64.deb'
-      default['splunk']['upgrade']['forwarder_url'] = 'http://download.splunk.com/releases/4.3.7/universalforwarder/linux/splunkforwarder-4.3.7-181874-linux-2.6-amd64.deb'
-    else
-      default['splunk']['upgrade']['server_url'] = 'http://download.splunk.com/releases/4.3.7/splunk/linux/splunk-4.3.7-181874-linux-2.6-intel.deb'
-      default['splunk']['upgrade']['forwarder_url'] = 'http://download.splunk.com/releases/4.3.7/universalforwarder/linux/splunkforwarder-4.3.7-181874-linux-2.6-intel.deb'
-    end
-  when 'omnios'
-    default['splunk']['upgrade']['server_url'] = 'http://download.splunk.com/releases/4.3.7/splunk/solaris/splunk-4.3.7-181874-solaris-10-intel.pkg.Z'
-    default['splunk']['upgrade']['forwarder_url'] = 'http://download.splunk.com/releases/4.3.7/universalforwarder/solaris/splunkforwarder-4.3.7-181874-solaris-10-intel.pkg.Z'
+when 'rhel'
+  if node['kernel']['machine'] == 'x86_64'
+    default['splunk']['forwarder']['url'] = 'http://download.splunk.com/releases/6.2.2/universalforwarder/linux/splunkforwarder-6.2.2-255606-linux-2.6-x86_64.rpm'
+    default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.2.0/splunk/linux/splunk-6.2.2-255606-linux-2.6-x86_64.rpm'
+  else
+    default['splunk']['forwarder']['url'] = 'http://download.splunk.com/releases/6.2.2/universalforwarder/linux/splunkforwarder-6.2.2-255606.i386.rpm'
+    default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.2.0/splunk/linux/splunk-6.2.2-255606.i386.rpm'
   end
+when 'debian'
+  if node['kernel']['machine'] == 'x86_64'
+    default['splunk']['forwarder']['url'] = 'http://download.splunk.com/releases/6.2.2/universalforwarder/linux/splunkforwarder-6.2.2-255606-linux-2.6-amd64.deb'
+    default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.2.0/splunk/linux/splunk-6.2.2-255606-linux-2.6-amd64.deb'
+  else
+    default['splunk']['forwarder']['url'] = 'http://download.splunk.com/releases/6.2.2/universalforwarder/linux/splunkforwarder-6.2.2-255606-linux-2.6-intel.deb'
+    default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.2.0/splunk/linux/splunk-6.2.2-255606-linux-2.6-intel.deb'
+  end
+when 'omnios'
+  default['splunk']['forwarder']['url'] = 'http://download.splunk.com/releases/6.2.2/universalforwarder/solaris/splunkforwarder-6.2.2-255606-solaris-10-intel.pkg.Z'
+  default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.2.0/splunk/solaris/splunk-6.2.2-255606-solaris-10-intel.pkg.Z'
+when 'windows'
+  if node['kernel']['machine'] == 'x86_64'
+    default['splunk']['forwarder']['url'] = 'http://download.splunk.com/releases/6.2.2/universalforwarder/windows/splunkforwarder-6.2.2-255606-x64-release.msi'
+    default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.2.0/splunk/windows/splunk-6.2.2-255606-x64-release.msi'
+  else
+    default['splunk']['forwarder']['url'] = 'http://download.splunk.com/releases/6.2.2/universalforwarder/windows/splunkforwarder-6.2.2-255606-x86-release.msi'
+    default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.2.0/splunk/windows/splunk-6.2.2-255606-x86-release.msi'
+  end
+	end
 end

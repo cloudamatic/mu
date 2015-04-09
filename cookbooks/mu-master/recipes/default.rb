@@ -248,6 +248,12 @@ end
 		notifies :reload, "service[sshd]", :delayed
 	end
 
+	cron "Sync client firewall allow rules" do
+		action :create
+		minute "10"
+		user "root"
+		command "#{MU.installDir}/bin/mu-firewall-allow-clients"
+	end
 
 # This is stuff that can break for no damn reason at all
 include_recipe "mu-utility::cloudinit"
