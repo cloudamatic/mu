@@ -416,12 +416,34 @@ module MU
 			begin
 				sleep 5 if retries < 0
 
-				# Case one- we've been asked to find this resource by the name it was
+				# Case one- try to find this by matching cloud provider tags.
+				if tag_value
+					MU.log "Searching for VPC '#{name}' by tag:#{tag_key}", MU::DEBUG
+					resp = MU.ec2(region).describe_vpcs(
+						filters: [
+							{ name: "tag:#{tag_key}", values: [tag_value] }
+						]
+					)
+					if resp.data.vpcs.nil? or resp.data.vpcs.size == 0
+						return nil
+					elsif resp.data.vpcs.size == 1
+						return [resp.data.vpcs.first, name]
+					elsif resp.data.vpcs.size > 1 
+						if !allow_multi
+							MU.log "Got multiple results in VPC.find (tag:#{tag_key}=#{tag_value})", MU::ERR, details: resp.data.vpcs
+							raise "Got multiple results in VPC.find (tag:#{tag_key}=#{tag_value})"
+						else
+							return [resp.data.vpcs, name]
+						end
+					end
+				end
+
+				# Case two- we've been asked to find this resource by the name it was
 				# given in its Mu stack configuration. Optionally, search a
 				# deployment other than the currently loaded one. We pull out the cloud
 				# resource id, so that we can then go and execute that search just as
 				# we would if we'd been provided that in the first place.
-				if id.nil? 
+				if deploy_id
 					resource = MU::MommaCat.getResourceDeployStruct("vpcs", name: name, deploy_id: deploy_id, use_cache: false)
 					if !resource.nil?
 						if resource.is_a?(Hash)
@@ -446,7 +468,7 @@ module MU
 					end
 				end
 
-				# Case two- we've been asked to find this by its cloud provider id. Make
+				# Case three- we've been asked to find this by its cloud provider id. Make
 				# the appropriate API call. Fail gently.
 				if !id.nil?
 					MU.log "Searching for VPC id '#{id}'", MU::DEBUG
@@ -454,28 +476,6 @@ module MU
 						resp = MU.ec2(region).describe_vpcs(vpc_ids: [id])
 						return [resp.data.vpcs.first, name]
 					rescue Aws::EC2::Errors::InvalidVpcIDNotFound => e
-					end
-				end
-
-				# Case three- try to find things by matching cloud provider tags.
-				if tag_value
-					MU.log "Searching for VPC '#{name}' by tag:#{tag_key}", MU::DEBUG
-					resp = MU.ec2(region).describe_vpcs(
-						filters: [
-							{ name: "tag:#{tag_key}", values: [tag_value] }
-						]
-					)
-					if resp.data.vpcs.nil? or resp.data.vpcs.size == 0
-						return nil
-					elsif resp.data.vpcs.size == 1
-						return [resp.data.vpcs.first, name]
-					elsif resp.data.vpcs.size > 1 
-						if !allow_multi
-							MU.log "Got multiple results in VPC.find (tag:#{tag_key}=#{tag_value})", MU::ERR, details: resp.data.vpcs
-							raise "Got multiple results in VPC.find (tag:#{tag_key}=#{tag_value})"
-						else
-							return [resp.data.vpcs, name]
-						end
 					end
 				end
 
