@@ -443,7 +443,7 @@ module MU
 				# deployment other than the currently loaded one. We pull out the cloud
 				# resource id, so that we can then go and execute that search just as
 				# we would if we'd been provided that in the first place.
-				if deploy_id
+				if id.nil?
 					resource = MU::MommaCat.getResourceDeployStruct("vpcs", name: name, deploy_id: deploy_id, use_cache: false)
 					if !resource.nil?
 						if resource.is_a?(Hash)
