@@ -387,63 +387,54 @@ module MU
 			return ok
 		end
 
-		# Refactor
-		#
-		def self.processSubnetPref(bok_vpc, subnet_pref)
-				pp "=============== In subnetPref===========",subnet_pref
-				pp bok_vpc
-        private_subnets = []
-        public_subnets = []
-				public_route_tables = []
-				private_route_tables = []
-				# Get the index of public and private route tables so we can discriminate subnets
-				bok_vpc["route_tables"].each { |route_table|
-					pp "Doing ", route_table
-					route_table["routes"].each { |route|
-						pp route
-						# Think about this ... in a BOK (instead of deploy) the only differentiator seems to be presence or absence of nat_host_name
-						if route["destination_network"]  == "0.0.0.0/0" and route["nat_host_name"].nil?
-									public_route_tables << route_table["name"]
+		# Pick apart an internal VPC BOK in this deploy and apply subnet_pref to gather the preferred subnets
+		def self.processLocalVPCSubnetPref(bok_vpc, subnet_pref)
+	        private_subnets = []
+	        public_subnets = []
+					public_route_tables = []
+					private_route_tables = []
+					# Get the index of public and private route tables so we can discriminate subnets
+					bok_vpc["route_tables"].each { |route_table|
+						route_table["routes"].each { |route|
+							# Think about this ... in a BOK (instead of deploy) the only differentiator seems to be presence or absence of nat_host_name
+							if route["destination_network"]  == "0.0.0.0/0" and route["nat_host_name"].nil?
+										public_route_tables << route_table["name"]
+							else
+										private_route_tables << route_table["name"]
+							end
+						}
+					}
+					bok_vpc["subnets"].each { |subnet|
+						if private_route_tables.include? subnet["route_table"]
+							private_subnets << subnet
 						else
-									private_route_tables << route_table["name"]
+							public_subnets << subnet
 						end
 					}
-				}
-				pp public_route_tables, private_route_tables
-				bok_vpc["subnets"].each { |subnet|
-					pp subnet["name"], subnet["route_table"]
-					if private_route_tables.include? subnet["route_table"]
-						private_subnets << subnet
-					else
-						public_subnets << subnet
-					end
-				}
-				pp "======== Working with Private ",private_subnets," and Public ",public_subnets
-				pp "=== Differentating based on ",subnet_pref
-				filtered_subnets=[]
-        case subnet_pref
-        when "public"
-          filtered_subnets = public_subnets[rand(public_subnets.length)]
-        when "private"
-          filtered_subnets = private_subnets[rand(private_subnets.length)]
-        when "any"
-          filtered_subnets = public_subnets.concat(private_subnets)[rand(public_subnets.length+private_subnets.length)]
-        when "all"
-          public_subnets.each { |subnet|
-            filtered_subnets << { "subnet_id" => subnet }
-          }
-        when "all_public"
-					pp "in all public"
-          public_subnets.each { |subnet|
-            filtered_subnets << subnet 
-          }
-        when "all_private"
-          private_subnets.each { |subnet|
-            filtered_subnets << { "subnet_id" => subnet }
-          }
-        end
-				pp "=== All done, block subnets are now ",filtered_subnets
-				return filtered_subnets
+					MU.log "Discovering predeploy BOK subnets based on subnet_pref of #{subnet_pref}", MU::DEBUG
+					filtered_subnets=[]
+	        case subnet_pref
+	        when "public"
+	          filtered_subnets = public_subnets[rand(public_subnets.length)]
+	        when "private"
+	          filtered_subnets = private_subnets[rand(private_subnets.length)]
+	        when "any"
+	          filtered_subnets = public_subnets.concat(private_subnets)[rand(public_subnets.length+private_subnets.length)]
+	        when "all"
+	          public_subnets.each { |subnet|
+	            filtered_subnets << { "subnet_id" => subnet }
+	          }
+	        when "all_public"
+	          public_subnets.each { |subnet|
+	          	filtered_subnets << subnet 
+	          }
+	        when "all_private"
+	          private_subnets.each { |subnet|
+	            filtered_subnets << { "subnet_id" => subnet }
+	          }
+	        end
+	        MU.log "Returning local subnets based on subnet_pref #{subnet_pref} which are #{filtered_subnets}", MU::DEBUG
+			return filtered_subnets
 		end
 
 		# Pick apart an external VPC reference, validate it, and resolve it and its
@@ -607,7 +598,6 @@ module MU
 
 		def self.validate(config)
 			ok = true
-			pp "=============== Self.validate============="
 			begin
 				JSON::Validator.validate!(MU::Config.schema, config)
 			rescue JSON::Schema::ValidationError => e
@@ -616,7 +606,7 @@ module MU
 				MU.log "Validation error in #{@@config_path}!", MU::ERR, details: errors.join("\n")
 				exit 1
 			end
-			pp "End validate"
+
 			databases = config['databases']
 			servers = config['servers']
 			server_pools = config['server_pools']
@@ -625,7 +615,6 @@ module MU
 			firewall_rules = config['firewall_rules']
 			dnszones = config['dnszones']
 			vpcs = config['vpcs']
-			pp "assigned vpcs from config[]"
 
 			databases = Array.new if databases == nil
 			servers = Array.new if servers == nil
@@ -642,7 +631,6 @@ module MU
 			end
 
 			config['region'] = MU.curRegion if config['region'].nil?
-			pp "configged region"
 			# Stashing some shorthand to any servers we'll be building, in case
 			# some of them are NATs
 			server_names = Array.new
@@ -653,7 +641,6 @@ module MU
 			vpc_names = Array.new
 			nat_routes = Hash.new
 			vpcs.each { |vpc|
-				pp "vpc's each first time #{vpc}"
 				vpc['#MU_CLASS'] = MU::VPC
 				vpc['region'] = config['region'] if vpc['region'].nil?
 				vpc["dependencies"] = Array.new if vpc["dependencies"].nil?
@@ -682,7 +669,6 @@ module MU
 			# the VPCs we've declared. XXX Note that it's real easy to create a
 			# circular dependency here. Ugh.
 			vpcs.each { |vpc|
-				pp "VPCs each peering pass"
 				if !vpc["peers"].nil?
 					vpc["peers"].each { |peer|
 						peer['region'] = config['region'] if peer['region'].nil?
@@ -708,7 +694,7 @@ module MU
 					}
 				end
 			}
-			pp "about to do dnszones"
+
 			dnszones.each { |zone|
 				zone['#MU_CLASS'] = MU::DNSZone
 				zone['region'] = config['region'] if zone['region'].nil?
@@ -776,7 +762,7 @@ module MU
 			firewall_rules.each { |acl|
 				firewall_rule_names << acl['name']
 			}
-			pp "about to do firewall rules"
+
 			firewall_rules.each { |acl|
 				firewall_rule_names << acl['name']
 				acl['region'] = config['region'] if acl['region'].nil?
@@ -833,15 +819,12 @@ module MU
 				acl['dependencies'].uniq!
 			}
 
-			pp "about to do loadbalancers"
+
 			loadbalancers.each { |lb|
-				pp "doing lb #{lb}"
-				pp vpcs
 				lb['region'] = config['region'] if lb['region'] == nil
 				lb["dependencies"] = Array.new if lb["dependencies"] == nil
 				lb["#MU_CLASS"] = MU::LoadBalancer
 				if !lb["vpc"].nil?
-					pp "in lb vpc section"
 					lb['vpc']['region'] = config['region'] if lb['vpc']['region'].nil?
 					# If we're using a VPC in this deploy, set it as a dependency
 					if !lb["vpc"]["vpc_name"].nil? and vpc_names.include?(lb["vpc"]["vpc_name"]) and lb["vpc"]['deploy_id'].nil?
@@ -849,23 +832,33 @@ module MU
 							"type" => "vpc",
 							"name" => lb["vpc"]["vpc_name"]
 						}
-						# Get the one and only vpc for this lb
-						vpcs.each { |vpc|
-							pp "===============Looking at #{vpc["name"]}======================"
-							if vpc["name"] == lb["vpc"]["vpc_name"]
-								pp "equals"
-								if lb["vpc"]["subnet_pref"]			
-									pp "subnet pref is ",lb["vpc"]["subnet_pref"]
-									lb["vpc"]["subnets"] = processSubnetPref(vpc, lb["vpc"]["subnet_pref"])
-								end
+
+						# get subnets
+						if lb["vpc"]["subnet_name"].nil? and lb["vpc"]["subnet_id"].nil? and lb["vpc"]["subnet_pref"].nil?
+							MU.log "A lb VPC block must specify a target subnet or subnet_pref", MU::ERR
+							exit 1
+						end
+
+						# If indicated, get subnets from local BOK VPC based on subnet_pref 
+						if !lb["vpc"]["subnet_pref"].nil?
+							if !lb["vpc"]["subnet_name"].nil? or !lb["vpc"]["subnet_id"].nil? 
+								MU.log "A lb VPC block may not specify both a subnet_pref and a subnet name or id", MU::ERR
+								exit 1
 							end
-						}
+
+							# Get bok vpc for this lb and extract subnets
+							vpcs.each { |vpc|
+								if vpc["name"] == lb["vpc"]["vpc_name"]		
+									MU.log "subnet_pref #{lb["vpc"]["subnet_pref"]} so retrieving subnets from deploy's internal VPC BOK", MU::DEBUG
+									lb["vpc"]["subnets"] = processLocalVPCSubnetPref(vpc, lb["vpc"]["subnet_pref"])
+								end
+							}
+						end
 
 					# If we're using a VPC from somewhere else, make sure the flippin'
 					# thing exists, and also fetch its id now so later search routines
 					# don't have to work so hard.
 					else
-						pp "NEVER GET here"
 						if !processVPCReference(lb["vpc"], "loadbalancer #{lb['name']}", dflt_region: config['region'])
 							ok = false
 						end
@@ -1137,6 +1130,36 @@ module MU
 								"phase" => "deploy"
 							}
 						end
+						# If subnet_pref then retrieve subnet from VPC in local BOK.  Only some values are legal for a singular server so warn on all_*
+						if !server["vpc"]["subnet_pref"].nil? 
+							subnet_pref=server["vpc"]["subnet_pref"]
+							if !server["vpc"]["subnet_name"].nil? or !server["vpc"]["subnet_id"].nil?
+								MU.log "A server VPC block cannot specify subnet_pref and also specify a target subnet", MU::ERR
+								exit 1
+							end
+							if subnet_pref == "all"
+								MU.log "A server cannot specify subnet_pref #{subnet_pref}", MU::ERR 
+								exit 1
+							end
+							# map all_* to *
+							if subnet_pref.start_with?("all_")
+								orig_subnet_pref=subnet_pref.dup
+								subnet_pref.slice! "all_"
+								MU.log "Mapping server #{server["name"]} subnet_pref #{orig_subnet_pref} to #{subnet_pref}, cannot specify \"all_\"", MU::WARN
+							end
+
+							# Get bok vpc for this server and extract subnets
+							vpcs.each { |vpc|
+								if vpc["name"] == server["vpc"]["vpc_name"]	
+									MU.log "subnet_pref #{server["vpc"]["subnet_pref"]} so retrieving subnets from deploy's internal VPC BOK", MU::DEBUG
+									subnet = processLocalVPCSubnetPref(vpc, server["vpc"]["subnet_pref"])
+									subnet_name = subnet["name"]
+									server["vpc"]["subnet_name"] =  subnet_name
+									server["vpc"].delete("subnet_pref")
+								end
+							}
+						end
+
 					else
 						# If we're using a VPC from somewhere else, make sure the flippin'
 						# thing exists, and also fetch its id now so later search routines
@@ -2694,4 +2717,5 @@ module MU
 
 	end #class
 end #module
+
 
