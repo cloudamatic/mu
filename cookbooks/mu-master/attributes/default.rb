@@ -73,7 +73,7 @@ override['nagios']['default_service']['retry_interval'] = 30
 
 # no idea why this attribute isn't set on MU-MASTER, but it isn't.
 default['chef_node_name'] = Chef::Config[:node_name]
-override['nagios']['host_name_attribute'] = 'chef_node_name'
+default['nagios']['host_name_attribute'] = 'chef_node_name'
 
 default[:application_attributes][:logs]["volume_size_gb"] = 50
 default[:application_attributes][:logs][:mount_device] = "/dev/xvdl"
