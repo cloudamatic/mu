@@ -836,14 +836,14 @@ module MU
 						# get subnets
 						if lb["vpc"]["subnet_name"].nil? and lb["vpc"]["subnet_id"].nil? and lb["vpc"]["subnet_pref"].nil?
 							MU.log "A lb VPC block must specify a target subnet or subnet_pref", MU::ERR
-							exit 1
+							ok=false
 						end
 
 						# If indicated, get subnets from local BOK VPC based on subnet_pref 
 						if !lb["vpc"]["subnet_pref"].nil?
 							if !lb["vpc"]["subnet_name"].nil? or !lb["vpc"]["subnet_id"].nil? 
 								MU.log "A lb VPC block may not specify both a subnet_pref and a subnet name or id", MU::ERR
-								exit 1
+								ok=false
 							end
 
 							# Get bok vpc for this lb and extract subnets
@@ -1135,11 +1135,11 @@ module MU
 							subnet_pref=server["vpc"]["subnet_pref"]
 							if !server["vpc"]["subnet_name"].nil? or !server["vpc"]["subnet_id"].nil?
 								MU.log "A server VPC block cannot specify subnet_pref and also specify a target subnet", MU::ERR
-								exit 1
+								ok=false
 							end
 							if subnet_pref == "all"
 								MU.log "A server cannot specify subnet_pref #{subnet_pref}", MU::ERR 
-								exit 1
+								ok=false
 							end
 							# map all_* to *
 							if subnet_pref.start_with?("all_")
