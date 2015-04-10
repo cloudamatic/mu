@@ -38,7 +38,8 @@ DEPENDENCIES
   mu-utility
     path: cookbooks/mu-utility
   mysql (~> 5.2.12)
-  nagios (~> 7.0.8)
+  nagios
+    path: cookbooks/nagios
   nginx (~> 2.7.2)
   nginx-passenger
     path: cookbooks/nginx-passenger
