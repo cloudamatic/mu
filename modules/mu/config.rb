@@ -836,20 +836,20 @@ module MU
 						# get subnets
 						if lb["vpc"]["subnet_name"].nil? and lb["vpc"]["subnet_id"].nil? and lb["vpc"]["subnet_pref"].nil?
 							MU.log "A lb VPC block must specify a target subnet or subnet_pref", MU::ERR
-							exit 1
+							ok=false
 						end
 
 						# If indicated, get subnets from local BOK VPC based on subnet_pref 
 						if !lb["vpc"]["subnet_pref"].nil?
 							if !lb["vpc"]["subnet_name"].nil? or !lb["vpc"]["subnet_id"].nil? 
 								MU.log "A lb VPC block may not specify both a subnet_pref and a subnet name or id", MU::ERR
-								exit 1
+								ok=false
 							end
 
 							# Get bok vpc for this lb and extract subnets
 							vpcs.each { |vpc|
 								if vpc["name"] == lb["vpc"]["vpc_name"]		
-									MU.log "subnet_pref #{lb["vpc"]["subnet_pref"]} so retrieving subnets from deploy's internal VPC BOK", MU::DEBUG
+									MU.log "subnet_pref #{lb["vpc"]["subnet_pref"]} so retrieving lb subnets from deploy's internal VPC BOK", MU::DEBUG
 									lb["vpc"]["subnets"] = processLocalVPCSubnetPref(vpc, lb["vpc"]["subnet_pref"])
 								end
 							}
@@ -964,6 +964,42 @@ module MU
 								"phase" => "deploy"
 							}
 						end
+
+						# get subnets
+						if asg["vpc"]["subnet_name"].nil? and asg["vpc"]["subnet_id"].nil? and asg["vpc"]["subnet_pref"].nil?
+							MU.log "A pool VPC block must specify a target subnet or subnet_pref", MU::ERR
+							ok=false
+						end
+
+						# If indicated, get subnets from local BOK VPC based on subnet_pref 
+						if !asg["vpc"]["subnet_pref"].nil?
+							if !asg["vpc"]["subnet_name"].nil? or !asg["vpc"]["subnet_id"].nil? 
+								MU.log "A pool VPC block may not specify both a subnet_pref and a subnet name or id", MU::ERR
+								ok=false
+							end
+
+							# Get bok vpc for this asg and extract subnets
+							vpcs.each { |vpc|
+								if vpc["name"] == asg["vpc"]["vpc_name"]		
+									MU.log "subnet_pref #{asg["vpc"]["subnet_pref"]} so retrieving asg subnets from deploy's internal VPC BOK", MU::DEBUG
+									
+									subnets=processLocalVPCSubnetPref(vpc, asg["vpc"]["subnet_pref"])
+									asg["vpc"]["subnets"]=[]
+									subnets.each { |subnet| 
+										subnet_name = subnet["subnet_id"]["name"]
+										asg["vpc"]["subnets"] << {
+												"subnet_name" => subnet_name
+	 		              }
+									}
+								end
+							}
+						end
+
+
+
+
+
+
 					else
 						# If we're using a VPC from somewhere else, make sure the flippin'
 						# thing exists, and also fetch its id now so later search routines
@@ -1060,6 +1096,27 @@ module MU
 							"type" => "vpc",
 							"name" => db["vpc"]["vpc_name"]
 						}
+						# subnets
+						if db["vpc"]["subnet_name"].nil? and db["vpc"]["subnet_id"].nil? and db["vpc"]["subnet_pref"].nil?
+							MU.log "A db VPC block must specify a target subnet or subnet_pref", MU::ERR
+							ok=false
+						end
+
+						# If indicated, get subnets from local BOK VPC based on subnet_pref 
+						if !db["vpc"]["subnet_pref"].nil?
+							if !db["vpc"]["subnet_name"].nil? or !db["vpc"]["subnet_id"].nil? 
+								MU.log "A db VPC block may not specify both a subnet_pref and a subnet name or id", MU::ERR
+								ok=false
+							end
+
+							# Get bok vpc for this db and extract subnets
+							vpcs.each { |vpc|
+								if vpc["name"] == db["vpc"]["vpc_name"]		
+									MU.log "subnet_pref #{db["vpc"]["subnet_pref"]} so retrieving db subnets from deploy's internal VPC BOK", MU::DEBUG
+									db["vpc"]["subnets"] = processLocalVPCSubnetPref(vpc, db["vpc"]["subnet_pref"])
+								end
+							}
+						end
 					else
 						# If we're using a VPC from somewhere else, make sure the flippin'
 						# thing exists, and also fetch its id now so later search routines
@@ -1135,11 +1192,11 @@ module MU
 							subnet_pref=server["vpc"]["subnet_pref"]
 							if !server["vpc"]["subnet_name"].nil? or !server["vpc"]["subnet_id"].nil?
 								MU.log "A server VPC block cannot specify subnet_pref and also specify a target subnet", MU::ERR
-								exit 1
+								ok=false
 							end
 							if subnet_pref == "all"
 								MU.log "A server cannot specify subnet_pref #{subnet_pref}", MU::ERR 
-								exit 1
+								ok=false
 							end
 							# map all_* to *
 							if subnet_pref.start_with?("all_")
@@ -2717,5 +2774,3 @@ module MU
 
 	end #class
 end #module
-
-
