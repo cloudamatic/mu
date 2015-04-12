@@ -982,15 +982,7 @@ module MU
 							vpcs.each { |vpc|
 								if vpc["name"] == asg["vpc"]["vpc_name"]		
 									MU.log "subnet_pref #{asg["vpc"]["subnet_pref"]} so retrieving asg subnets from deploy's internal VPC BOK", MU::DEBUG
-									
-									subnets=processLocalVPCSubnetPref(vpc, asg["vpc"]["subnet_pref"])
-									asg["vpc"]["subnets"]=[]
-									subnets.each { |subnet| 
-										subnet_name = subnet["subnet_id"]["name"]
-										asg["vpc"]["subnets"] << {
-												"subnet_name" => subnet_name
-	 		              }
-									}
+									asg["vpc"]["subnets"] = processLocalVPCSubnetPref(vpc, asg["vpc"]["subnet_pref"])
 								end
 							}
 						end
@@ -1096,27 +1088,6 @@ module MU
 							"type" => "vpc",
 							"name" => db["vpc"]["vpc_name"]
 						}
-						# subnets
-						if db["vpc"]["subnet_name"].nil? and db["vpc"]["subnet_id"].nil? and db["vpc"]["subnet_pref"].nil?
-							MU.log "A db VPC block must specify a target subnet or subnet_pref", MU::ERR
-							ok=false
-						end
-
-						# If indicated, get subnets from local BOK VPC based on subnet_pref 
-						if !db["vpc"]["subnet_pref"].nil?
-							if !db["vpc"]["subnet_name"].nil? or !db["vpc"]["subnet_id"].nil? 
-								MU.log "A db VPC block may not specify both a subnet_pref and a subnet name or id", MU::ERR
-								ok=false
-							end
-
-							# Get bok vpc for this db and extract subnets
-							vpcs.each { |vpc|
-								if vpc["name"] == db["vpc"]["vpc_name"]		
-									MU.log "subnet_pref #{db["vpc"]["subnet_pref"]} so retrieving db subnets from deploy's internal VPC BOK", MU::DEBUG
-									db["vpc"]["subnets"] = processLocalVPCSubnetPref(vpc, db["vpc"]["subnet_pref"])
-								end
-							}
-						end
 					else
 						# If we're using a VPC from somewhere else, make sure the flippin'
 						# thing exists, and also fetch its id now so later search routines
@@ -1168,18 +1139,21 @@ module MU
 						"name" => server["cloudformation_stack"]
 					}
 				end
+
 				if !server["vpc"].nil?
 					server['vpc']['region'] = config['region'] if server['vpc']['region'].nil?
-					# If we're using a VPC in this deploy, set it as a dependency
+					# If we're using a local VPC in this deploy, set it as a dependency and get the subnets right
 					if !server["vpc"]["vpc_name"].nil? and vpc_names.include?(server["vpc"]["vpc_name"]) and server["vpc"]["deploy_id"].nil?
 						server["dependencies"] << {
 							"type" => "vpc",
 							"name" => server["vpc"]["vpc_name"]
 						}
+
 						if server["vpc"]["subnet_name"].nil? and server["vpc"]["subnet_id"].nil? and server["vpc"]["subnet_pref"].nil?
 							MU.log "A server VPC block must specify a target subnet", MU::ERR
 							ok = false
 						end
+
 						if !server["vpc"]["subnet_name"].nil? and nat_routes.has_key?(server["vpc"]["subnet_name"])
 							server["dependencies"] << {
 								"type" => "server",
@@ -1187,13 +1161,12 @@ module MU
 								"phase" => "deploy"
 							}
 						end
-						# If subnet_pref then retrieve subnet from VPC in local BOK.  Only some values are legal for a singular server so warn on all_*
-						if !server["vpc"]["subnet_pref"].nil? 
+
+						#CHECK this part... servers seem to universally inherit a default of subnet_pref=public.  For that reason, treat subnet_pref as secondary to 
+						#any specified subnet and disregard if a subnet_id or name is present
+						if server["vpc"]["subnet_name"].nil? and server["vpc"]["subnet_id"].nil?
+							# No absolugte subnet, so use subnet_pref to retrieve subnet from VPC in local BOK.  Only some values are legal for a singular server so warn on all_*
 							subnet_pref=server["vpc"]["subnet_pref"]
-							if !server["vpc"]["subnet_name"].nil? or !server["vpc"]["subnet_id"].nil?
-								MU.log "A server VPC block cannot specify subnet_pref and also specify a target subnet", MU::ERR
-								ok=false
-							end
 							if subnet_pref == "all"
 								MU.log "A server cannot specify subnet_pref #{subnet_pref}", MU::ERR 
 								ok=false
@@ -1212,9 +1185,11 @@ module MU
 									subnet = processLocalVPCSubnetPref(vpc, server["vpc"]["subnet_pref"])
 									subnet_name = subnet["name"]
 									server["vpc"]["subnet_name"] =  subnet_name
-									server["vpc"].delete("subnet_pref")
 								end
 							}
+						else
+							MU.log "Specified subnet name #{server["vpc"]["subnet_name"]} or subnet_id #{server["vpc"]["subnet_id"]} overrides subnet_pref of #{server["vpc"]["subnet_pref"]}", MU::DEBUG
+							ok=true
 						end
 
 					else
@@ -1226,6 +1201,7 @@ module MU
 						end
 					end
 				end
+
 				if !server["add_firewall_rules"].nil?
 					server["add_firewall_rules"].each { |acl_include|
 						if firewall_rule_names.include?(acl_include["rule_name"])
@@ -2774,3 +2750,6 @@ module MU
 
 	end #class
 end #module
+
+
+
