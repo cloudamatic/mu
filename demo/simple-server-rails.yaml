@@ -18,16 +18,13 @@
       static_ip:
         assign_ip: true
       vpc:
-    <% if $vpc_deploy_id then %>
+      <% if $vpc_deploy_id then %>
         deploy_id: <%= $vpc_deploy_id %>
-        subnet_pref: all_public
-    <% else %>
+      <% elsif current_vpc %>
+        vpc_id: <%= current_vpc %>
+      <% else %>
         vpc_name: vpc
-        subnets:
-        <% (1..$azs.size).each do |i| %>
-          - subnet_name: Subnet<%= i-1 %>Public
-        <% end %>
-    <% end %>
+      <% end %>
       ingress_rules: 
         - 
           port: 80
@@ -41,7 +38,7 @@
         - 
           name: "fss"
           type: "database"
-<% unless $vpc_deploy_id then %>
+<% unless $vpc_deploy_id or current_vpc then %>
   vpcs:
   - name: vpc
     route-tables:
@@ -67,6 +64,9 @@
       vpc:
       <% if $vpc_deploy_id then %>
         deploy_id: <%= $vpc_deploy_id %>
+        subnet_pref: all_public
+      <% elsif current_vpc %>
+        vpc_id: <%= current_vpc %>
         subnet_pref: all_public
       <% else %>
         vpc_name: vpc

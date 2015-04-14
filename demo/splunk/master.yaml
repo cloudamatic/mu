@@ -1,0 +1,13 @@
+<%
+  $azs = listAZs
+  current_vpc = MU.myVPC
+%>
+---
+  appname: "splunk"
+  region: "us-east-1"
+  servers:
+    - <%= include 'splunk-svr.yaml' %>
+  firewall_rules:
+  #- <%= include 'splunk-fw.yaml' %>
+  vpcs:
+  #- <%= include 'splunk-vpc.yaml' %>
