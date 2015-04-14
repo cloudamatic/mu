@@ -1,0 +1,14 @@
+---
+name: vpc
+  route-tables:
+  - name: internet
+    routes:
+    - destination_network: 0.0.0.0/0
+      gateway: "#INTERNET"
+  subnets:
+<% $azs.each.with_index do |az, i| %>
+  - name: Subnet<%= i %>Public
+    ip_block: 10.0.<%= i %>.0/24
+    availability-zone: "<%= az %>"
+    route-table: internet
+<% end %>
