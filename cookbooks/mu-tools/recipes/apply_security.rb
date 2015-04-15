@@ -314,7 +314,8 @@ export TMOUT
 		
 		execute "tar up any old userdirs" do
 			command "sudo tar czf /tmp/moveusers.tgz -C /home ."
-			not_if { ::File.exists?("/tmp/moveusers.tgz") }
+#			not_if { ::File.exists?("/tmp/moveusers.tgz") }
+			not_if "grep '^#{node[:application_attributes][:home][:mount_device]} #{node[:application_attributes][:home][:mount_directory]}' /etc/mtab"
 		end
 
 		mount node[:application_attributes][:home][:mount_directory] do
