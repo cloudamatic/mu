@@ -78,8 +78,8 @@
 				If (!(Test-Path $env:Temp/cygwin.zip)){
 					echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Cygwin packages"
 
-					Invoke-WebRequest -Uri "https://s3.amazonaws.com/mu-public/cygwin_20141028.zip" -OutFile $env:Temp/cygwin.zip
-	#				Start-BitsTransfer -source "https://s3.amazonaws.com/mu-public/cygwin_20141028.zip" -Destination $env:Temp/cygwin.zip
+					Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/cygwin_20141028.zip" -OutFile $env:Temp/cygwin.zip
+	#				Start-BitsTransfer -source "https://s3.amazonaws.com/cap-public/cygwin_20141028.zip" -Destination $env:Temp/cygwin.zip
 
 				}
 
@@ -116,15 +116,15 @@
 		If (!(Test-Path "$python_path\python.exe")){
 			echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Installing Python"
 
-			If (!(Test-Path $env:Temp/python-2.7.8.msi)){
+			If (!(Test-Path $env:Temp/python-2.7.9.msi)){
 				echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Python installer"
 
-				Invoke-WebRequest -Uri "https://www.python.org/ftp/python/2.7.8/python-2.7.8.msi" -OutFile $env:Temp/python-2.7.8.msi
+				Invoke-WebRequest -Uri "https://www.python.org/ftp/python/2.7.9/python-2.7.9.msi" -OutFile $env:Temp/python-2.7.9.msi
 			}
 
 
 			echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running Python installer"
-			(Start-Process -FilePath msiexec -ArgumentList "/i $env:Temp\python-2.7.8.msi /qn ALLUSERS=1 TARGETDIR=$python_path" -Wait -Passthru).ExitCode
+			(Start-Process -FilePath msiexec -ArgumentList "/i $env:Temp\python-2.7.9.msi /qn ALLUSERS=1 TARGETDIR=$python_path" -Wait -Passthru).ExitCode
 		}
 
 	# Install chocolatey

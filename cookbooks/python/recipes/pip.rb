@@ -1,9 +1,9 @@
 #
-# Author:: Seth Chisamore <schisamo@opscode.com>
+# Author:: Seth Chisamore <schisamo@chef.io>
 # Cookbook Name:: python
 # Recipe:: pip
 #
-# Copyright 2011, Opscode, Inc.
+# Copyright 2011, Chef Software, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -41,7 +41,7 @@ case node[:platform]
   when "windows"
     execute "upgrade setuptools using pip full path" do
       not_if "echo %path% | find /I \"#{node.python.prefix_dir}\\python#{node.python.major_version}\\Scripts\""
-        command "#{node['python']['pip_binary']} install setuptools --upgrade"
+      command "#{node['python']['pip_binary']} install setuptools --upgrade"
     end
     python_pip 'setuptools' do
       only_if "echo %path% | find /I \"#{node.python.prefix_dir}\\python#{node.python.major_version}\\Scripts\""

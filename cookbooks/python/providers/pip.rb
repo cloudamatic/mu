@@ -1,9 +1,9 @@
 #
-# Author:: Seth Chisamore <schisamo@opscode.com>
+# Author:: Seth Chisamore <schisamo@chef.io>
 # Cookbook Name:: python
 # Provider:: pip
 #
-# Copyright:: 2011, Opscode, Inc <legal@opscode.com>
+# Copyright:: 2011, Chef Software, Inc <legal@chef.io>
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -106,17 +106,13 @@ end
 
 def current_installed_version
   @current_installed_version ||= begin
-    delimeter = /==/
-
-    normalized_package_name = new_resource.package_name.gsub('_', '-')
-    version_check_cmd = "#{which_pip(new_resource)} freeze | grep -i '^#{normalized_package_name}=='"
-    # incase you upgrade pip with pip!
-    if new_resource.package_name.eql?('pip')
-      delimeter = /\s/
-      version_check_cmd = "#{which_pip(@new_resource)} --version"
+    out = nil
+    package_name = new_resource.package_name.gsub('_', '-')
+    pattern = Regexp.new("^#{Regexp.escape(package_name)} \\(([^)]+)\\)$", true)
+    shell_out("#{which_pip(new_resource)} list").stdout.lines.find do |line|
+      out = pattern.match(line)
     end
-    result = shell_out(version_check_cmd)
-    (result.exitstatus == 0) ? result.stdout.split(delimeter)[1].strip : nil
+    out.nil? ? nil : out[1]
   end
 end
 

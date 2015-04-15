@@ -1,9 +1,9 @@
 #
-# Author:: Seth Chisamore (<schisamo@opscode.com>)
+# Author:: Seth Chisamore (<schisamo@chef.io>)
 # Cookbook Name:: python
 # Attribute:: default
 #
-# Copyright 2011, Opscode, Inc.
+# Copyright 2011, Chef Software, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -40,7 +40,7 @@ major_version = node['python']['version'].split('.')
 major_version.pop()
 default['python']['major_version'] = major_version.join()
 default['python']['checksum'] = '1d8728eb0dfcac72a0fd99c17ec7f386'
-default['python']['configure_options'] = %W{--prefix=#{python['prefix_dir']}}
+default['python']['configure_options'] = %W{--prefix=#{node['python']['prefix_dir']}}
 default['python']['make_options'] = %W{install}
 
 case node[:platform]

@@ -2094,7 +2094,7 @@ module MU
 				"region" => @region_primitive,
 				"db_family" => { "type" => "string" },
 				"tags" => @tags_primitive,
-				"version" => { "type" => "string" },
+				"engine_version" => { "type" => "string" },
 				"add_firewall_rules" => @additional_firewall_rules,
 				"engine" => {
 					"enum" => ["mysql", "postgres", "oracle-se1", "oracle-se", "oracle-ee", "sqlserver-ee", "sqlserver-se", "sqlserver-ex", "sqlserver-web" ],

@@ -199,11 +199,12 @@ module MU
 		    :db_instance_identifier => dbidentifier,
 		    :db_instance_class => @db["size"],
 		    :engine => @db["engine"],
+		    :engine_version => @db["engine_version"],
 		    :multi_az => @db['multi_az_on_create'],
 		    :publicly_accessible => @db['publicly_accessible'],
-				:license_model => @db["license_model"],
-				:storage_type => @db['storage_type'],
-				:tags => []
+		    :license_model => @db["license_model"],
+		    :storage_type => @db['storage_type'],
+		    :tags => []
 		  }
 			MU::MommaCat.listStandardTags.each_pair { |name, value|
 				config[:tags] << { key: name, value: value }
