@@ -134,6 +134,7 @@ class Nagios
     # rubocop:disable Style/TrivialAccessors
     def notifications
       @notifications_enabled
+			true
     end
     # rubocop:enable Style/TrivialAccessors
 
