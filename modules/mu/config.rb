@@ -387,120 +387,10 @@ module MU
 			return ok
 		end
 
-		# Pick apart an internal VPC BOK in this deploy and apply subnet_pref to gather the preferred subnets
-		def self.processLocalVPCSubnetPref(vpc_block,vpcs, resource_name, resource_class)
-
-			MU.log "Processing subnet_prefs for resource name #{resource_name} of class #{resource_class}"
-      # Guard
-      if vpc_block['subnet_name'] or vpc_block['subnet_id'] 
-        MU.log "VPC block has a concrete subnet name or ID, ignoring subnet_pref of #{vpc_block["subnet_pref"]}", MU::WARN
-        return
-      end
-			if vpc_block["subnets"] and vpc_block["subnets"].size > 0
-				MU.log "VPC block has a concrete subnets array containing #{vpc_block["subnets"]}, ignoring subnet_pref of #{vpc_block["subnet_pref"]}", MU::WARN
-				return
-			end
-
-      if vpc_block['subnet_pref'].nil?
-        MU.log "A lb VPC block must specify a target subnet or subnet_pref: #{vpc_block}", MU::ERR
-        ok=false        
-      end
-
-			#CHECK THIS -- we can't really tell whether a resource takes singular or multiple by presence or absence of vpc_block["subnets"] because 
-			#could be defaulted and multiple.  So deterministic code below.  Do we need this in foreign VPC method too?
-			#
-			multiple_classes = [MU::LoadBalancer, MU::ServerPool, MU::Database]
-			is_multiple = multiple_classes.include?(resource_class) ? true : false
-
-      # Get on with expanding subnet_pref from BOK
-      private_subnets = []
-      public_subnets = []
-			public_route_tables = []
-			private_route_tables = []
-      # Get the VPC for this particular object
-			bok_vpc=nil
-			vpcs.each { |vpc|
-				if vpc["name"] == vpc_block["vpc_name"]   
-          bok_vpc=vpc.dup
-        end
-      }
-      if bok_vpc.nil?
-        MU.Log "No VPC found for #{vpc_block["vpc"]["vpc_name"]}, exiting", MU::ERR
-        ok=false
-      end
-			# Get the index of public and private route tables so we can discriminate subnets
-			bok_vpc["route_tables"].each { |route_table|
-				route_table["routes"].each { |route|
-					# Think about this ... in a BOK (instead of deploy) the only differentiator seems to be presence or absence of nat_host_name
-					if route["destination_network"]  == "0.0.0.0/0" and route["nat_host_name"].nil?
-								public_route_tables << route_table["name"]
-					else
-								private_route_tables << route_table["name"]
-					end
-				}
-			}
-      # Only criteria we seem to have in BOK
-			bok_vpc["subnets"].each { |subnet|
-				if private_route_tables.include? subnet["route_table"]
-					private_subnets << {"subnet_name" => subnet["name"]}
-				elsif public_route_tables.include? subnet["route_table"]
-					public_subnets << {"subnet_name" => subnet["name"]}
-        else
-          MU.log "Bad looking subnet #{subnet} that doesn't match public or prive route table", MU::ERR
-          ok=false
-				end
-			}
-			MU.log "Discovering predeploy BOK subnets based on subnet_pref of #{vpc_block["subnet_pref"]}", MU::DEBUG
-			filtered_subnets=[]
-      case vpc_block["subnet_pref"]
-      when "public"
-        filtered_subnets = public_subnets[rand(public_subnets.length)]
-      when "private"
-        filtered_subnets = private_subnets[rand(private_subnets.length)]
-      when "any"
-        filtered_subnets = public_subnets.concat(private_subnets)[rand(public_subnets.length+private_subnets.length)]
-      when "all"
-        public_subnets.each { |subnet|
-          filtered_subnets << subnet
-        }
-        private_subnets.each { |subnet|
-          filtered_subnets << subnet
-        }
-      when "all_public"
-        public_subnets.each { |subnet|
-        	filtered_subnets << subnet 
-        }
-      when "all_private"
-        private_subnets.each { |subnet|
-          filtered_subnets << subnet 
-        }
-      end
-			pp filtered_subnets
-      MU.log "Returning local subnets based on subnet_pref #{vpc_block["subnet_pref"]} which are #{filtered_subnets}", MU::WARN
-
-      # Now figure out the correct form of the insert for the block supplied
-			if is_multiple
-				if vpc_block['subnets'].nil?
-					# defaulted, so make one
-					vpc_block["subnets"] = []
-				end
-				pp "Orig subnets are #{vpc_block["subnets"]}"
-				filtered_subnets.each { |subnetname|
-					pp "INSERTING #{subnetname}"
-					vpc_block["subnets"] << subnetname
-				}
-			else #singular resource
-				if filtered_subnets.length > 1
-					MU.log "Multiple subnet pref of #{vpc_block["subnet_pref"]} specified for #{resouce_class} resource #{resource_name }", MU::ERR
-					ok=false
-				end
-        vpc_block["subnet_name"] =  filtered_subnets["subnet_name"]
-			end
-		end
 
 		# Pick apart an external VPC reference, validate it, and resolve it and its
 		# various subnets and NAT hosts to live resources.
-		def self.processVPCReference(vpc_block, parent_name, dflt_region: MU.curRegion)
+		def self.processVPCReference(vpc_block, parent_name, is_sibling: false, sibling_vpcs: [], dflt_region: MU.curRegion)
 			ok = true
 
 			if vpc_block['region'].nil? or 
@@ -510,27 +400,29 @@ module MU
 			# First, dig up the enclosing VPC 
 			tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !vpc_block['tag'].nil?
 
-			begin
-				ext_vpc, name = MU::VPC.find(
-					id: vpc_block["vpc_id"],
-					name: vpc_block["vpc_name"],
-					deploy_id: vpc_block["deploy_id"],
-					tag_key: tag_key,
-					tag_value: tag_value,
-					region: vpc_block["region"]
-				)
-			ensure
-				if !ext_vpc
-					MU.log "Couldn't resolve VPC reference to a live VPC in #{parent_name}", MU::ERR, details: vpc_block
-					return false
-				elsif !vpc_block["vpc_id"]
-					MU.log "Resolved VPC to #{ext_vpc.vpc_id} in #{parent_name}", MU::DEBUG, details: vpc_block
-					vpc_block["vpc_id"] = ext_vpc.vpc_id
+			if !is_sibling
+				begin
+					ext_vpc, name = MU::VPC.find(
+						id: vpc_block["vpc_id"],
+						name: vpc_block["vpc_name"],
+						deploy_id: vpc_block["deploy_id"],
+						tag_key: tag_key,
+						tag_value: tag_value,
+						region: vpc_block["region"]
+					)
+				ensure
+					if !ext_vpc
+						MU.log "Couldn't resolve VPC reference to a live VPC in #{parent_name}", MU::ERR, details: vpc_block
+						return false
+					elsif !vpc_block["vpc_id"]
+						MU.log "Resolved VPC to #{ext_vpc.vpc_id} in #{parent_name}", MU::DEBUG, details: vpc_block
+						vpc_block["vpc_id"] = ext_vpc.vpc_id
+					end
 				end
 			end
 
 			# Next, the NAT host, if there is one
-			if vpc_block['nat_host_name'] or vpc_block['nat_host_ip'] or vpc_block['nat_host_tag']
+			if (vpc_block['nat_host_name'] or vpc_block['nat_host_ip'] or vpc_block['nat_host_tag']) and !is_sibling
 				if !vpc_block['nat_host_tag'].nil?
 					nat_tag_key, nat_tag_value = vpc_block['nat_host_tag'].split(/=/, 2)
 				else
@@ -562,7 +454,7 @@ module MU
 			end
 
 			# Some resources specify multiple subnets...
-			if vpc_block['subnets']
+			if vpc_block['subnets'] and !is_sibling
 				vpc_block['subnets'].each { |subnet|
 					subnet["deploy_id"] = vpc_block["deploy_id"] if !subnet['deploy_id'] and vpc_block["deploy_id"]
 					tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !subnet['tag'].nil?
@@ -587,7 +479,7 @@ module MU
 					end
 				}
 			# ...others single subnets
-			elsif vpc_block['subnet_name'] or vpc_block['subnet_id']
+			elsif (vpc_block['subnet_name'] or vpc_block['subnet_id']) and !is_sibling
 				ext_subnet = MU::VPC.findSubnet(
 					id: vpc_block['subnet_id'],
 					name: vpc_block['subnet_name'],
@@ -609,40 +501,71 @@ module MU
 			elsif vpc_block['subnet_pref']
 				private_subnets = []
 				public_subnets = []
-				MU::VPC.listSubnets(vpc_id: vpc_block["vpc_id"], region: vpc_block['region']).each { |subnet|
-					if MU::VPC.isSubnetPrivate?(subnet, region: vpc_block['region'])
-						private_subnets << subnet
-					else
-						public_subnets << subnet
-					end
-				}
+				nat_routes = {}
+				subnet_ptr = "subnet_id"
+				if !is_sibling
+					MU::VPC.listSubnets(vpc_id: vpc_block["vpc_id"], region: vpc_block['region']).each { |subnet|
+						if MU::VPC.isSubnetPrivate?(subnet, region: vpc_block['region'])
+							private_subnets << subnet
+						else
+							public_subnets << subnet
+						end
+					}
+				else
+					sibling_vpcs.each { |ext_vpc|
+						if ext_vpc['name'] == vpc_block['vpc_name']
+							subnet_ptr = "subnet_name"
+							ext_vpc['subnets'].each { |subnet|
+								if subnet['is_public']
+									public_subnets << subnet['name']
+								else
+									private_subnets << subnet['name']
+									if !subnet['nat_host_name'].nil?
+										nat_routes[subnet['name']] << subnet['nat_host_name']
+									end
+								end
+							}
+							break
+						end
+					}
+				end
+				if public_subnets.size == 0 and private_subnets == 0
+					MU.log "Couldn't find any subnets for #{parent_name}", MU::ERR
+					return false
+				end
 				case vpc_block['subnet_pref']
 				when "public"
-					vpc_block['subnet_id'] = public_subnets[rand(public_subnets.length)]
+					vpc_block[subnet_ptr] = public_subnets[rand(public_subnets.length)]
 				when "private"
-					vpc_block['subnet_id'] = private_subnets[rand(private_subnets.length)]
-					vpc_block['nat_host_id'] = MU::VPC.getDefaultRoute(vpc_block['subnet_id'], region: vpc_block['region'])
+					vpc_block[subnet_ptr] = private_subnets[rand(private_subnets.length)]
+					if !is_sibling
+						vpc_block['nat_host_id'] = MU::VPC.getDefaultRoute(vpc_block[subnet_ptr], region: vpc_block['region'])
+					elsif nat_routes.has_key?(vpc_block[subnet_ptr])
+						vpc_block['nat_host_name'] == nat_routes[vpc_block[subnet_ptr]]
+					end
 				when "any"
-					vpc_block['subnet_id'] = public_subnets.concat(private_subnets)[rand(public_subnets.length+private_subnets.length)]
+					vpc_block[subnet_ptr] = public_subnets.concat(private_subnets)[rand(public_subnets.length+private_subnets.length)]
 				when "all"
 					vpc_block['subnets'] = []
 					public_subnets.each { |subnet|
-						vpc_block['subnets'] << { "subnet_id" => subnet }
+						vpc_block['subnets'] << { subnet_ptr => subnet }
 					}
           private_subnets.each { |subnet|
-            vpc_block['subnets'] << { "subnet_id" => subnet }
+            vpc_block['subnets'] << { subnet_ptr => subnet }
           }
 				when "all_public"
 					vpc_block['subnets'] = []
 					public_subnets.each { |subnet|
-						vpc_block['subnets'] << { "subnet_id" => subnet }
+						vpc_block['subnets'] << { subnet_ptr => subnet }
 					}
 				when "all_private"
 					vpc_block['subnets'] = []
 					private_subnets.each { |subnet|
-						vpc_block['subnets'] << { "subnet_id" => subnet }
-						if vpc_block['nat_host_id'].nil?
+						vpc_block['subnets'] << { subnet_ptr => subnet }
+						if !is_sibling and vpc_block['nat_host_id'].nil?
 							vpc_block['nat_host_id'] = MU::VPC.getDefaultRoute(subnet, region: vpc_block['region'])
+						elsif nat_routes.has_key?(subnet) and vpc_block['nat_host_name'].nil?
+							vpc_block['nat_host_name'] == nat_routes[subnet]
 						end
 					}
 				end
@@ -654,7 +577,7 @@ module MU
 				vpc_block.delete('vpc_name')
 				vpc_block.delete('deploy_id')
 				vpc_block.delete('tag')
-				MU.log "Resolved foreign VPC resources for #{parent_name}", MU::NOTICE, details: vpc_block
+				MU.log "Resolved VPC resources for #{parent_name}", MU::NOTICE, details: vpc_block
 			end
 
 			return ok
@@ -709,12 +632,16 @@ module MU
 				vpc['region'] = config['region'] if vpc['region'].nil?
 				vpc["dependencies"] = Array.new if vpc["dependencies"].nil?
 				subnet_routes = Hash.new
+				public_routes = Array.new
 				vpc['subnets'].each { |subnet|
 					subnet_routes[subnet['route_table']] = Array.new if subnet_routes[subnet['route_table']].nil?
 					subnet_routes[subnet['route_table']] << subnet['name']
 				}
 				vpc['route_tables'].each { |table|
 					table['routes'].each { |route|
+						if (!route['nat_host_name'].nil? or !route['nat_host_id'].nil?)
+							route.delete("gateway") if route['gateway'] == '#INTERNET'
+						end
 						if !route['nat_host_name'].nil? and server_names.include?(route['nat_host_name'])
 							subnet_routes[table['name']].each { |subnet|
 								nat_routes[subnet] = route['nat_host_name']
@@ -722,6 +649,16 @@ module MU
 							vpc['dependencies'] << {
 								"type" => "server",
 								"name" => route['nat_host_name']
+							}
+						end
+						if route['gateway'] == '#INTERNET'
+							vpc['subnets'].each { |subnet|
+								if table['name'] == subnet['route_table']
+									subnet['is_public'] = true
+								end
+								if !nat_routes[subnet['name']].nil?
+									subnet['nat_host_name'] = nat_routes[subnet['name']]
+								end
 							}
 						end
 					}
@@ -896,13 +833,21 @@ module MU
 							"type" => "vpc",
 							"name" => lb["vpc"]["vpc_name"]
 						}
-						processLocalVPCSubnetPref(lb["vpc"],vpcs,lb["name"], lb["#MU_CLASS"])
+						if !processVPCReference(lb['vpc'],
+																		"loadbalancer '#{lb['name']}'",
+																		dflt_region: config['region'],
+																		is_sibling: true,
+																		sibling_vpcs: vpcs)
+							ok = false
+						end
 
 					# If we're using a VPC from somewhere else, make sure the flippin'
 					# thing exists, and also fetch its id now so later search routines
 					# don't have to work so hard.
 					else
-						if !processVPCReference(lb["vpc"], "loadbalancer #{lb['name']}", dflt_region: config['region'])
+						if !processVPCReference(lb["vpc"],
+																		"loadbalancer #{lb['name']}",
+																		dflt_region: config['region'])
 							ok = false
 						end
 					end
@@ -1007,7 +952,13 @@ module MU
 								"phase" => "deploy"
 							}
 						end
-            processLocalVPCSubnetPref(asg["vpc"],vpcs,asg["name"], asg["#MU_CLASS"])
+						if !processVPCReference(asg["vpc"],
+																		"server_pool #{asg['name']}",
+																		dflt_region: config['region'],
+																		is_sibling: true,
+																		sibling_vpcs: vpcs)
+							ok = false
+						end
 					else
 						# If we're using a VPC from somewhere else, make sure the flippin'
 						# thing exists, and also fetch its id now so later search routines
@@ -1104,7 +1055,13 @@ module MU
 							"type" => "vpc",
 							"name" => db["vpc"]["vpc_name"]
 						}
-            processLocalVPCSubnetPref(db["vpc"],vpcs,db["name"], db["#MU_CLASS"])
+						if !processVPCReference(db["vpc"],
+																		"database #{db['name']}",
+																		dflt_region: config['region'],
+																		is_sibling: true,
+																		sibling_vpcs: vpcs)
+							ok = false
+						end
 					else
 						# If we're using a VPC from somewhere else, make sure the flippin'
 						# thing exists, and also fetch its id now so later search routines
@@ -1178,8 +1135,13 @@ module MU
 								"phase" => "deploy"
 							}
 						end
-            # Process subnet_pref if needed
-            processLocalVPCSubnetPref(server["vpc"],vpcs,server["name"], server["#MU_CLASS"])
+						if !processVPCReference(server["vpc"],
+																		"server #{server['name']}",
+																		dflt_region: config['region'],
+																		is_sibling: true,
+																		sibling_vpcs: vpcs)
+							ok = false
+						end
 
 					else
 						# If we're using a VPC from somewhere else, make sure the flippin'

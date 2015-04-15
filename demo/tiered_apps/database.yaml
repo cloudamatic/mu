@@ -1,14 +1,10 @@
   - name: drupaldb
     engine: mysql
     vpc:
-<% if !$vpc_deploy_id then %>
-      vpc_name: vpc
-      subnets:
-        <% (0..$azs.size-1).each do |i| %>
-      - subnet_name: TieredSubnet<%= i %>Private
-        <% end %>
-<% else %>
+<% if $vpc_deploy_id then %>
       deploy_id: <%= $vpc_deploy_id %>
+<% else %>
+      vpc_name: vpc
 <% end %>
 <% if $environment == 'dev' then %>
     size: db.t2.medium
