@@ -145,11 +145,14 @@ if [ "$make_admin" == "1" -a "$make_regular" == "1" ];then
 fi
 
 # Now fill in missing arguments, if we're in interactive mode
+sync_nagios=0
 if [ "$interactive" == "1" ];then
 	verb="modify"
 	if [ "$delete" == "1" ];then
+		sync_nagios=1
 		verb="delete"
 	elif [ "$create" == "1" ];then
+		sync_nagios=1
 		verb="create"
 	fi
 
@@ -212,7 +215,9 @@ if [ "$user" != "" ];then
 		fi
 	fi
 	if [ "$user" == "pivotal" -o "$user" == "mu" ];then
-		usage "Username ${BOLD}$user${NORM} is reserved"
+		if [ "$verb" == "delete" -o "$verb" == "create" ];then
+			usage "Username ${BOLD}$user${NORM} is reserved"
+		fi
 	fi
 else
 	usage "You must supply a username (-u)"
@@ -341,8 +346,11 @@ else
 		echo "$password" | /usr/bin/passwd --stdin "$user"
 	fi
 	if [ "$update_gecos" == "1" ];then
-		status_message "Updating local account contact info for user ${BOLD}$user${NORM} to:" "$realname,$email"
-		/usr/bin/chfn -f "$realname" -o "$email" "$user" > /dev/null
+		status_message "Updating local account contact info for user ${BOLD}$user${NORM} to:" "$realname <$email>"
+		sync_nagios=1
+		if [ "$user" != "mu" ];then
+			/usr/bin/chfn -f "$realname" -o "$email" "$user" > /dev/null
+		fi
 	fi
 
 	if [ "$skip_chef_mod" != "1" ];then
@@ -352,7 +360,7 @@ else
 fi
 
 
-if [ "$create" == "1" -o "$delete" == "1" ];then
+if [ "$sync_nagios" == "1" ];then
 	status_message "Synchronizing Nagios"
 	$MU_INSTALLDIR/bin/mu-upload-chef-artifacts -g > /dev/null 2>&1
 	chef-client -o "recipe[mu-master::update_nagios_only]" > /dev/null 2>&1
