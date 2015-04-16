@@ -22,13 +22,9 @@
       name: drupaldb
     vpc:
     <% if !$vpc_deploy_id then %>
-      vpc_name: vpc
       nat_host_name: bastion
       nat_ssh_user: root
-      subnets:
-        <% (1..$azs.size).each do |i| %>
-      - subnet_name: TieredSubnet<%= i-1 %>Private
-        <% end %>
+      vpc_name: vpc
     <% else %>
       deploy_id: <%= $vpc_deploy_id %>
     <% end %>
