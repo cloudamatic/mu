@@ -1,9 +1,14 @@
+<%
+  $azs = listAZs
+  current_vpc = MU.myVPC
+%>
 ---
 appname: demo
 servers:
 - name: windows
   platform: windows
   size: m3.medium
+  associate_public_ip: true
   storage:
   - size: 70
   ingress_rules:
@@ -13,6 +18,31 @@ servers:
     - 76.21.140.94/32
   run_list:
   - recipe[mu-utility::windows_basics]
+  vpc:
+  <% if $vpc_deploy_id then %>
+    deploy_id: <%= $vpc_deploy_id %>
+  <% elsif current_vpc %>
+    vpc_id: <%= current_vpc %>
+  <% else %>
+    vpc_name: vpc
+  <% end %>
 admins:
 - name: John Stange
   email: john.stange@eglobaltech.com
+<% unless $vpc_deploy_id or current_vpc then %>
+vpcs:
+- name: vpc
+  route-tables:
+  - name: internet
+    routes:
+    - destination_network: 0.0.0.0/0
+      gateway: "#INTERNET"
+  subnets:
+<% $azs.each.with_index do |az, i| %>
+  - name: Subnet<%= i %>Public
+    ip_block: 10.0.<%= i %>.0/24
+    availability-zone: "<%= az %>"
+    route-table: internet
+<% end %>
+<% end %>
+
