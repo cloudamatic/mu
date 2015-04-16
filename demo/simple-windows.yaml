@@ -8,6 +8,7 @@ servers:
 - name: windows
   platform: windows
   size: m3.medium
+  associate_public_ip: true
   storage:
   - size: 70
   ingress_rules:
