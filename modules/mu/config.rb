@@ -419,49 +419,72 @@ module MU
 						vpc_block["vpc_id"] = ext_vpc.vpc_id
 					end
 				end
-			end
 
-			# Next, the NAT host, if there is one
-			if (vpc_block['nat_host_name'] or vpc_block['nat_host_ip'] or vpc_block['nat_host_tag']) and !is_sibling
-				if !vpc_block['nat_host_tag'].nil?
-					nat_tag_key, nat_tag_value = vpc_block['nat_host_tag'].split(/=/, 2)
-				else
-					nat_tag_key, nat_tag_value = [tag_key, tag_value]
-				end
-				ext_nat, name = MU::Server.find(
-					id: vpc_block["nat_host_id"],
-					name: vpc_block["nat_host_name"],
-					deploy_id: vpc_block["deploy_id"],
-					tag_key: nat_tag_key,
-					tag_value: nat_tag_value,
-					ip: vpc_block['nat_host_ip'],
-					region: vpc_block['region']
-				)
-				if !ext_nat
-					if vpc_block["nat_host_id"].nil? and nat_tag_key.nil? and vpc_block['nat_host_ip'].nil? and vpc_block["deploy_id"].nil?
-						MU.log "Couldn't resolve NAT host to a live instance in #{parent_name}.", MU::DEBUG, details: vpc_block
+				# Other !is_sibling logic for external vpcs
+				# Next, the NAT host, if there is one
+				if (vpc_block['nat_host_name'] or vpc_block['nat_host_ip'] or vpc_block['nat_host_tag'])
+					if !vpc_block['nat_host_tag'].nil?
+						nat_tag_key, nat_tag_value = vpc_block['nat_host_tag'].split(/=/, 2)
 					else
-						MU.log "Couldn't resolve NAT host to a live instance in #{parent_name}", MU::ERR, details: vpc_block
-						return false
+						nat_tag_key, nat_tag_value = [tag_key, tag_value]
 					end
-				elsif !vpc_block["nat_host_id"]
-					MU.log "Resolved NAT host to #{ext_nat.instance_id} in #{parent_name}", MU::DEBUG, details: vpc_block
-					vpc_block["nat_host_id"] = ext_nat.instance_id
-					vpc_block.delete('nat_host_name')
-					vpc_block.delete('nat_host_ip')
-					vpc_block.delete('nat_host_tag')
-				end
-			end
 
-			# Some resources specify multiple subnets...
-			if vpc_block['subnets'] and !is_sibling
-				vpc_block['subnets'].each { |subnet|
-					subnet["deploy_id"] = vpc_block["deploy_id"] if !subnet['deploy_id'] and vpc_block["deploy_id"]
-					tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !subnet['tag'].nil?
+					ext_nat, name = MU::Server.find(
+						id: vpc_block["nat_host_id"],
+						name: vpc_block["nat_host_name"],
+						deploy_id: vpc_block["deploy_id"],
+						tag_key: nat_tag_key,
+						tag_value: nat_tag_value,
+						ip: vpc_block['nat_host_ip'],
+						region: vpc_block['region']
+					)
+					if !ext_nat
+						if vpc_block["nat_host_id"].nil? and nat_tag_key.nil? and vpc_block['nat_host_ip'].nil? and vpc_block["deploy_id"].nil?
+							MU.log "Couldn't resolve NAT host to a live instance in #{parent_name}.", MU::DEBUG, details: vpc_block
+						else
+							MU.log "Couldn't resolve NAT host to a live instance in #{parent_name}", MU::ERR, details: vpc_block
+							return false
+						end
+					elsif !vpc_block["nat_host_id"]
+						MU.log "Resolved NAT host to #{ext_nat.instance_id} in #{parent_name}", MU::DEBUG, details: vpc_block
+						vpc_block["nat_host_id"] = ext_nat.instance_id
+						vpc_block.delete('nat_host_name')
+						vpc_block.delete('nat_host_ip')
+						vpc_block.delete('nat_host_tag')
+					end
+				end
+
+				# Some resources specify multiple subnets...
+				if vpc_block['subnets'] 
+					vpc_block['subnets'].each { |subnet|
+						subnet["deploy_id"] = vpc_block["deploy_id"] if !subnet['deploy_id'] and vpc_block["deploy_id"]
+						tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !subnet['tag'].nil?
+						ext_subnet = MU::VPC.findSubnet(
+							id: subnet['subnet_id'],
+							name: subnet['subnet_name'],
+							deploy_id: subnet["deploy_id"],
+							vpc_id: vpc_block["vpc_id"],
+							tag_key: tag_key,
+							tag_value: tag_value,
+							region: vpc_block['region']
+						)
+						if !ext_subnet
+							ok = false
+							MU.log "Couldn't resolve subnet reference in #{parent_name} to a live subnet", MU::ERR, details: subnet
+						elsif !subnet['subnet_id']
+							subnet['subnet_id'] = ext_subnet.subnet_id
+							subnet.delete('deploy_id')
+							subnet.delete('subnet_name')
+							subnet.delete('tag')
+							MU.log "Resolved subnet reference in #{parent_name} to #{ext_subnet.subnet_id}", MU::DEBUG, details: subnet
+						end
+					}
+				# ...others single subnets
+				elsif (vpc_block['subnet_name'] or vpc_block['subnet_id']) 
 					ext_subnet = MU::VPC.findSubnet(
-						id: subnet['subnet_id'],
-						name: subnet['subnet_name'],
-						deploy_id: subnet["deploy_id"],
+						id: vpc_block['subnet_id'],
+						name: vpc_block['subnet_name'],
+						deploy_id: vpc_block["deploy_id"],
 						vpc_id: vpc_block["vpc_id"],
 						tag_key: tag_key,
 						tag_value: tag_value,
@@ -470,35 +493,30 @@ module MU
 					if !ext_subnet
 						ok = false
 						MU.log "Couldn't resolve subnet reference in #{parent_name} to a live subnet", MU::ERR, details: subnet
-					elsif !subnet['subnet_id']
-						subnet['subnet_id'] = ext_subnet.subnet_id
-						subnet.delete('deploy_id')
-						subnet.delete('subnet_name')
-						subnet.delete('tag')
-						MU.log "Resolved subnet reference in #{parent_name} to #{ext_subnet.subnet_id}", MU::DEBUG, details: subnet
+					elsif !vpc_block['subnet_id']
+						vpc_block['subnet_id'] = ext_subnet.subnet_id
+						vpc_block.delete('subnet_name')
+						MU.log "Resolved subnet reference in #{parent_name} to #{ext_subnet.subnet_id}", MU::DEBUG, details: vpc_block
 					end
-				}
-			# ...others single subnets
-			elsif (vpc_block['subnet_name'] or vpc_block['subnet_id']) and !is_sibling
-				ext_subnet = MU::VPC.findSubnet(
-					id: vpc_block['subnet_id'],
-					name: vpc_block['subnet_name'],
-					deploy_id: vpc_block["deploy_id"],
-					vpc_id: vpc_block["vpc_id"],
-					tag_key: tag_key,
-					tag_value: tag_value,
-					region: vpc_block['region']
-				)
-				if !ext_subnet
-					ok = false
-					MU.log "Couldn't resolve subnet reference in #{parent_name} to a live subnet", MU::ERR, details: subnet
-				elsif !vpc_block['subnet_id']
-					vpc_block['subnet_id'] = ext_subnet.subnet_id
-					vpc_block.delete('subnet_name')
-					MU.log "Resolved subnet reference in #{parent_name} to #{ext_subnet.subnet_id}", MU::DEBUG, details: vpc_block
 				end
-			# ...and other times we get to pick
-			elsif vpc_block['subnet_pref']
+			end #the !is_sibling processing for vpc's outside the deploy
+
+
+			# ...and other times we get to pick - deal with subnet_pref but do not override a subnet name or ID
+			honor_subnet_prefs=true 
+			if vpc_block['subnets']
+				vpc_block['subnets'].each {|subnet|
+					if subnet['subnet_id'] or subnet['subnet_name']
+						honor_subnet_prefs=false
+					end
+				} 
+			elsif (vpc_block['subnet_name'] or vpc_block['subnet_id']) 
+				honor_subnet_prefs=false
+			end
+			pp "Honor subnet prefs is #{honor_subnet_prefs} for #{parent_name} VPC Block #{vpc_block}"
+
+
+			if vpc_block['subnet_pref'] and honor_subnet_prefs
 				private_subnets = []
 				public_subnets = []
 				nat_routes = {}
@@ -550,9 +568,9 @@ module MU
 					public_subnets.each { |subnet|
 						vpc_block['subnets'] << { subnet_ptr => subnet }
 					}
-          private_subnets.each { |subnet|
-            vpc_block['subnets'] << { subnet_ptr => subnet }
-          }
+					private_subnets.each { |subnet|
+					vpc_block['subnets'] << { subnet_ptr => subnet }
+					}
 				when "all_public"
 					vpc_block['subnets'] = []
 					public_subnets.each { |subnet|
