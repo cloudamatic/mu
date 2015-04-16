@@ -8,3 +8,4 @@
       skipinitialupdates: true
       vpc:
         tag: "vpc_name=demo"
+      associate_public_ip: true
