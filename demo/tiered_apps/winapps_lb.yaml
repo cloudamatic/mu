@@ -2,11 +2,8 @@
     private: true
     vpc:
     <% if !$vpc_deploy_id then %>
+      subnet_pref: all_private
       vpc_name: vpc
-      subnets:
-        <% (1..$azs.size).each do |i| %>
-      - subnet_name: TieredSubnet<%= i-1 %>Private
-        <% end %>
     <% else %>
       deploy_id: <%= $vpc_deploy_id %>
       subnet_pref: all_private
