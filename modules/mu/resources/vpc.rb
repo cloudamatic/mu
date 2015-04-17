@@ -623,7 +623,7 @@ module MU
 		# Check whether we (the Mu Master) have a direct route to a particular
 		# subnet. Useful for skipping hops through bastion hosts to get directly
 		# at child nodes in peered VPCs and the like.
-		# @param subnet_id [String]: The cloud identifier of the subnet to check.
+		# @param instance_id [String]: The cloud identifier of the instance to check.
 		# @param region [String]: The cloud provider region of the target subnet.
 		# @return [Boolean]
 		def self.haveRouteToInstance?(instance_id, region: MU.curRegion)
