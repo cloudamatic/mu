@@ -1382,8 +1382,8 @@ enable_audit_logs()
 
 set_permissions()
 {
-	cp -a $MU_LIBDIR/extra/post-merge $MU_LIBDIR/.git/hooks/post-merge
-	cp -a $MU_LIBDIR/extra/post-merge $MU_LIBDIR/.git/hooks/post-checkout
+	cp -a $MU_LIBDIR/extra/git-fix-permissions-hook $MU_LIBDIR/.git/hooks/post-merge
+	cp -a $MU_LIBDIR/extra/git-fix-permissions-hook $MU_LIBDIR/.git/hooks/post-checkout
 	cp -a $MU_LIBDIR/extra/git-fix-permissions-hook $MU_LIBDIR/.git/hooks/post-rewrite
 	status_message "Setting permissions in Ruby installations and platform repos"
 	for extra in $ADDTL_CHEF_REPOS;do
