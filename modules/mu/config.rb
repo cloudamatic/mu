@@ -501,7 +501,6 @@ module MU
 				end
 			end #the !is_sibling processing for vpc's outside the deploy
 
-
 			# ...and other times we get to pick - deal with subnet_pref but do not override a subnet name or ID
 			honor_subnet_prefs=true 
 			if vpc_block['subnets']
@@ -513,7 +512,6 @@ module MU
 			elsif (vpc_block['subnet_name'] or vpc_block['subnet_id']) 
 				honor_subnet_prefs=false
 			end
-			pp "Honor subnet prefs is #{honor_subnet_prefs} for #{parent_name} VPC Block #{vpc_block}"
 
 
 			if vpc_block['subnet_pref'] and honor_subnet_prefs
