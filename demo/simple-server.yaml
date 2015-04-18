@@ -5,5 +5,3 @@
       name: "simple"
       size: "m3.medium"
       skipinitialupdates: true
-      static_ip:
-         assign_ip: true
