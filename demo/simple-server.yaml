@@ -5,7 +5,5 @@
       name: "simple"
       size: "m3.medium"
       skipinitialupdates: true
-      vpc:
-        tag: "vpc_name=demo"
       static_ip:
          assign_ip: true

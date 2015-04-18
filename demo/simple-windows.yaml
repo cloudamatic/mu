@@ -1,5 +1,4 @@
 <%
-  $azs = listAZs
   current_vpc = MU.myVPC
 %>
 ---
