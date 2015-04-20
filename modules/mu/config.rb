@@ -1078,6 +1078,13 @@ module MU
 					end
 				end
 
+				if db["read_replica"]
+					if db["engine"] != "postgres" and db["engine"] != "mysql"
+						MU.log "Read replica(s) database instances only supported for postgres and mysql. #{db["engine"]} not supported.", MU::ERR
+						ok = false
+					end
+				end
+				
 				if db["engine"] == "postgres"
 					db["license_model"] = "postgresql-license"
 				elsif db["engine"] == "mysql"

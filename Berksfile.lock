@@ -12,9 +12,9 @@ DEPENDENCIES
   chef-splunk
     path: cookbooks/chef-splunk
   chef-sugar (~> 2.0.0)
-  chef-vault (~> 1.2.5)
+  chef-vault (~> 1.3.0)
   chef_handler (~> 1.1.4)
-  database (~> 4.0.3)
+  database (~> 4.0.5)
   demo
     path: site_cookbooks/demo
   dmg (~> 2.2.0)
@@ -97,11 +97,11 @@ GRAPH
     rsyslog (>= 0.0.0)
   build-essential (2.2.2)
   chef-splunk (1.3.0)
-    chef-vault (>= 1.0.4)
+    chef-vault (>= 1.3.0)
   chef-sugar (2.0.0)
-  chef-vault (1.2.5)
+  chef-vault (1.3.0)
   chef_handler (1.1.6)
-  database (4.0.3)
+  database (4.0.5)
     postgresql (>= 1.0.0)
   demo (0.2.0)
     application (>= 0.0.0)

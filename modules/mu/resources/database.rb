@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License in the root of the project or at
 #
-#     http://egt-labs.com/mu/LICENSE.html
+#	http://egt-labs.com/mu/LICENSE.html
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -125,11 +125,11 @@ module MU
 
 			# Apply engine-specific master username constraints
 			if @db["engine"].match(/^oracle/)
-			  dbuser = basename[0..29].gsub(/[^a-z0-9]/i, "")
+				dbuser = basename[0..29].gsub(/[^a-z0-9]/i, "")
 			elsif @db["engine"].match(/^sqlserver/)
-			  dbuser = basename[0..127].gsub(/[^a-z0-9]/i, "")
+				dbuser = basename[0..127].gsub(/[^a-z0-9]/i, "")
 			elsif @db["engine"].match(/^mysql/)
-			  dbuser = basename[0..15].gsub(/[^a-z0-9]/i, "")
+				dbuser = basename[0..15].gsub(/[^a-z0-9]/i, "")
 			else
 				dbuser = basename.gsub(/[^a-z0-9]/i, "")
 			end
@@ -186,7 +186,7 @@ module MU
 
 			# Ok, if we're in EC2 Classic, use an old-style DB security group
 			if @db['vpc'].nil?
-				MU.log("Creating RDS security group #{dbsgname}")
+			  MU.log("Creating RDS security group #{dbsgname}")
 			  db_security_group=MU.rds(@db['region']).create_db_security_group(
 					{
 						:db_security_group_name=>"#{dbsgname}",
@@ -219,7 +219,7 @@ module MU
 				}
 			end
 
-			if snap_id == nil
+			if snap_id.nil?
 				config[:allocated_storage] = @db["storage"]
 				config[:db_name] = dbname
 				config[:master_username] = dbuser
@@ -243,13 +243,12 @@ module MU
 				else
 					config[:preferred_backup_window] = @db["preferred_backup_window"]
 				end
-
 			else
-					config[:backup_retention_period] = @db["backup_retention_period"]
-					config[:preferred_backup_window] = @db["preferred_backup_window"]
+				config[:backup_retention_period] = @db["backup_retention_period"]
+				config[:preferred_backup_window] = @db["preferred_backup_window"]
 			end
 
-			if @db['storage_type'] = "io1"
+			if @db['storage_type'] == "io1"
 				config[:iops] = @db["iops"]
 			end
 
@@ -282,7 +281,7 @@ module MU
 
 					MU.log "No subnets specified for #{dbname}, adding to all in #{vpc_id}", MU::DEBUG, details: subnet_ids
 				end
-				if subnet_ids == nil or subnet_ids.size < 1
+				if subnet_ids.nil? or subnet_ids.size < 1
 					raise "Couldn't find subnets in #{vpc_id} to add #{dbname} to"
 				end
 
@@ -423,7 +422,7 @@ module MU
 					end while !ok
 				end
 
-				if vpc_id == nil
+				if vpc_id.nil?
 					addStandardTags(dbsgname, "secgrp", region: @db['region'])
 				end
 
@@ -445,39 +444,8 @@ module MU
 				)
 			end
 
-			# Creating Read Replica database instance. should we move this somewhere else?
 			if @db['read_replica']
-				MU.log "Creating read replica for database instance #{@db['identifier']}", details: @db['read_replica']
-				read_replica_dbidentifier = dbidentifier + rand(36**4).to_s(36)
-				replica_config = {
-					db_instance_identifier: read_replica_dbidentifier,
-					source_db_instance_identifier: @db['identifier'],
-					auto_minor_version_upgrade: @db['read_replica']['auto_minor_version_upgrade'],
-					storage_type: @db['read_replica']['storage_type'],
-					publicly_accessible: @db['read_replica']['publicly_accessible'],
-					port: @db['read_replica']['port'],
-					db_instance_class: @db['read_replica']['size']
-				}
-
-				if @db['storage_type'] = "io1"
-					replica_config[:iops] = @db['read_replica']["iops"]
-				end
-
-				retries = 0
-				begin
-					MU.log "Read recplica RDS config: #{replica_config}", MU::DEBUG
-					MU.log "Creating read replica database instance #{read_replica_dbidentifier}", details: replica_config
-					resp = MU.rds(@db['region']).create_db_instance_read_replica(replica_config)
-				rescue Aws::RDS::Errors::InvalidParameterValue, Aws::RDS::Errors::InvalidDBInstanceState => e
-					if retries < 15
-						MU.log "Got #{e.inspect} creating #{read_replica_dbidentifier}, will retry a few times in case of transient errors.", MU::WARN
-						sleep 10
-						retry
-					else
-						MU.log e.inspect, MU::ERR, details: replica_config
-						raise e
-					end
-				end
+				createReadReplica
 			end
 
 			return @db['identifier']
@@ -593,6 +561,8 @@ module MU
 				end
 			end
 
+		end
+
 
 		# Permit a host to connect to the given database instance.
 		# @param cidr [String]: The CIDR-formatted IP address or block to allow access.
@@ -618,7 +588,7 @@ module MU
 
 			if !database.vpc_security_groups.nil?
 				database.vpc_security_groups.each { |vpc_sg|
-			    MU::FirewallRule.addRule(vpc_sg.vpc_security_group_id, [cidr], region: region)
+				MU::FirewallRule.addRule(vpc_sg.vpc_security_group_id, [cidr], region: region)
 				}
 			end
 		end
@@ -651,18 +621,18 @@ module MU
 			database.db_security_groups.each { |rds_sg|
 				rds_sg_ids << rds_sg.db_security_group_name 
 			}
-            
+			
 
-      # if database is new then want database name 
+	  # if database is new then want database name 
 			db_deploy_struct = {
 				"identifier" => database.db_instance_identifier,
 				"region" => region,
 				"engine" => database.engine,
-		        "engine_version" => database.engine_version,
-		        "backup_retention_period" => database.backup_retention_period,
-		        "preferred_backup_window" => database.preferred_backup_window,
-		        "auto_minor_version_upgrade" => database.auto_minor_version_upgrade,
-		        "storage_encrypted" => database.storage_encrypted,
+				"engine_version" => database.engine_version,
+				"backup_retention_period" => database.backup_retention_period,
+				"preferred_backup_window" => database.preferred_backup_window,
+				"auto_minor_version_upgrade" => database.auto_minor_version_upgrade,
+				"storage_encrypted" => database.storage_encrypted,
 				"endpoint" => database.endpoint.address,
 				"port" => database.endpoint.port,
 				"username" => database.master_username,
@@ -729,6 +699,90 @@ module MU
 			return nil if snapshots.size == 0
 			sorted_snapshots = snapshots.sort_by { |snap| snap.snapshot_create_time}
 			return sorted_snapshots.last.db_snapshot_identifier
-		end  
+		end
+
+		# Create Read Replica database instance.
+		# @return [String]: The cloud provider's identifier for this read replica database instance.
+		def createReadReplica
+			if @db['read_replica']
+				read_replica_dbidentifier = "#{@db['identifier']}-#{rand(36**4).to_s(36)}" # Unique name should be created with Mu instead
+				replica_config = {
+					db_instance_identifier: read_replica_dbidentifier,
+					source_db_instance_identifier: @db['identifier'],
+					auto_minor_version_upgrade: @db['read_replica']['auto_minor_version_upgrade'],
+					storage_type: @db['read_replica']['storage_type'],
+					publicly_accessible: @db['read_replica']['publicly_accessible'],
+					port: @db['read_replica']['port'],
+					db_instance_class: @db['read_replica']['size'],
+					tags: []
+				}
+
+				if @db['read_replica']['region'] != @db['region']
+					# Need to deal with case where read replica is created in different region than source DB instance.
+					# Will have to create db_subnet_group_name in different region.
+					# Read replica deployed in the same region as the source DB instance will inherit from source DB instance 
+				end
+
+				if @db['read_replica']['storage_type'] == "io1"
+					replica_config[:iops] = @db['read_replica']["iops"]
+				end
+
+				MU::MommaCat.listStandardTags.each_pair { |name, value|
+					replica_config[:tags] << { key: name, value: value }
+				}
+
+				if !@db['read_replica']['tags'].nil?
+					@db['read_replica']['tags'].each { |tag|
+						replica_config[:tags] << { key: tag['key'], value: tag['value'] }
+					}
+				end
+
+				retries = 0
+				begin
+					MU.log "Read recplica RDS config: #{replica_config}", MU::DEBUG
+					MU.log "Creating read replica database instance #{read_replica_dbidentifier} from #{@db['identifier']} database instance", details: replica_config
+					resp = MU.rds(@db['read_replica']['region']).create_db_instance_read_replica(replica_config)
+				rescue Aws::RDS::Errors::InvalidParameterValue => e
+					if retries < 5
+						MU.log "Got #{e.inspect} creating #{read_replica_dbidentifier}, will retry a few times in case of transient errors.", MU::WARN
+						sleep 10
+						retry
+					else
+						MU.log e.inspect, MU::ERR, details: replica_config
+						raise e
+					end
+				end
+
+				begin # this ends in an ensure block that cleans up if we die
+					@db['read_replica']['identifier'] = resp.db_instance.db_instance_identifier
+					attempts = 0
+					begin
+						# Don't make *too* much noise to console waiting, unless asked
+						if attempts % 5 == 0
+							MU.log("Waiting for RDS database #{read_replica_dbidentifier} to be ready...", MU::NOTICE)
+						else
+							MU.log("Waiting for RDS database #{read_replica_dbidentifier} to be ready...", MU::DEBUG)
+						end
+						database = MU.rds(@db['region']).describe_db_instances(db_instance_identifier: @db['read_replica']['identifier'])
+						attempts = attempts + 1
+						sleep 60
+					end while database.db_instances.first.db_instance_status != "available"
+					database = database.db_instances.first
+
+					MU::DNSZone.genericDNSEntry(database.db_instance_identifier, "#{database.endpoint.address}.", MU::Database)
+					MU::DNSZone.createRecordsFromConfig(@db['read_replica']['dns_records'], target: database.endpoint.address)
+
+					# MU::Database.notifyDeploy(@db['read_replica']['name'], @db['read_replica']['identifier'], dbpassword, "read_replica", region: @db['read_replica']['region'])
+					MU.log("Database instance #{@db['read_replica']['identifier']} is ready to use")
+					done = true
+				ensure
+					if !done and !database.nil?
+						MU::Cleanup.terminate_rds_instance(@db['read_replica']['identifier'])
+					end
+				end
+
+				return @db['read_replica']['identifier']
+			end
+		end
 	end #class
 end #module

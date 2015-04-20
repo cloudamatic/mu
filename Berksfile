@@ -25,9 +25,9 @@ cookbook 'mu-utility', path: "#{cookbookPath}/mu-utility"
 cookbook 'chef_handler', '~> 1.1.4'
 cookbook 'chef-splunk', path: "#{cookbookPath}/chef-splunk"
 cookbook 'chef-sugar', '~> 2.0.0'
-cookbook 'chef-vault', '~> 1.2.5'
+cookbook 'chef-vault', '~> 1.3.0'
 cookbook 'demo', path: "#{siteCookbookPath}/demo"
-cookbook 'database', '~> 4.0.3'
+cookbook 'database', '~> 4.0.5'
 cookbook 'dmg', '~> 2.2.0'
 cookbook 'ec2-s3-api-tools', path: "#{cookbookPath}/ec2-s3-api-tools"
 cookbook 'freebsd', '~> 0.1.9'
