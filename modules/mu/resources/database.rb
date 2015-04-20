@@ -111,17 +111,17 @@ module MU
 			if @db["creation_style"] == "existing_snapshot"
 				snap_id = getExistingSnapshot
 			end
-			if @db["creation_style"] == "new_snapshot" or (@db["creation_style"] == "existing_snapshot" and snap_id == nil)
+			if @db["creation_style"] == "new_snapshot" or (@db["creation_style"] == "existing_snapshot" and snap_id.nil?)
 				snap_id = createNewSnapshot
 			end
 
-		  node = MU::MommaCat.getResourceName(@db["name"])
+			node = MU::MommaCat.getResourceName(@db["name"])
 
 			# RDS is picky, we can't just use our regular node names for things like
 			# the default schema or username. And it varies from engine to engine.
 			basename = @db["name"]+@deploy.timestamp+MU.seed.downcase
 			basename.gsub!(/[^a-z0-9]/i, "")
-		  dbsgname = basename
+			dbsgname = basename
 
 			# Apply engine-specific master username constraints
 			if @db["engine"].match(/^oracle/)
@@ -138,7 +138,7 @@ module MU
 			# Apply engine-specific instance and schema/db name constraints
 			if @db["engine"].match(/^oracle/)
 				dbidentifier = node.gsub(/^[^a-z]/i, "")[0..62]
-			  dbname = (MU.seed.downcase+@db["name"])[0..7]
+				dbname = (MU.seed.downcase+@db["name"])[0..7]
 				if dbname != @db["name"]
 					MU.log "Truncated dbname to #{dbname} for Oracle", MU::WARN
 				end
@@ -158,10 +158,10 @@ module MU
 				MU.log "Truncated master username for #{dbidentifier} (db #{dbname}) to #{dbuser}", MU::WARN
 			end
 			@db['master_user'] = dbuser
-
+			
 			dbpassword = @db['password']
 			if !dbpassword
-			  dbpassword = @db['password'] = Password.pronounceable(10..12)
+				dbpassword = @db['password'] = Password.pronounceable(10..12)
 			end
 
 			# If we didn't specify a VPC, make the distinction between EC2 Classic
@@ -195,34 +195,63 @@ module MU
 				)
 			end
 
-		  config={
-		    :db_instance_identifier => dbidentifier,
-		    :db_instance_class => @db["size"],
-		    :engine => @db["engine"],
-		    :engine_version => @db["engine_version"],
-		    :multi_az => @db['multi_az_on_create'],
-		    :publicly_accessible => @db['publicly_accessible'],
-		    :license_model => @db["license_model"],
-		    :storage_type => @db['storage_type'],
-		    :tags => []
-		  }
+			config={
+				:db_instance_identifier => dbidentifier,
+				:db_instance_class => @db["size"],
+				:engine => @db["engine"],
+				:engine_version => @db["engine_version"],
+				:auto_minor_version_upgrade => @db["auto_minor_version_upgrade"],
+				:storage_encrypted => @db["storage_encrypted"],
+				:multi_az => @db['multi_az_on_create'],
+				:publicly_accessible => @db['publicly_accessible'],
+				:license_model => @db["license_model"],
+				:storage_type => @db['storage_type'],
+				:tags => []
+			}
+
 			MU::MommaCat.listStandardTags.each_pair { |name, value|
 				config[:tags] << { key: name, value: value }
 			}
+
 			if !@db['tags'].nil?
 				@db['tags'].each { |tag|
 					config[:tags] << { key: tag['key'], value: tag['value'] }
 				}
 			end
+
 			if snap_id == nil
-		    config[:allocated_storage] = @db["storage"]
-		    config[:db_name] = dbname
-		    config[:master_username] = dbuser
-		    config[:master_user_password] = dbpassword
+				config[:allocated_storage] = @db["storage"]
+				config[:db_name] = dbname
+				config[:master_username] = dbuser
+				config[:master_user_password] = dbpassword
 			end
 
-	    config[:license_model] = @db["license_model"]
+			if @db["preferred_maintenance_window"]
+				config[:preferred_maintenance_window] = @db["preferred_maintenance_window"]
+			end
 
+			# Lets make sure that automatic backups are enabled when DB instance is deployed in Multi-AZ so failover actually works. Maybe default to 1 instead?
+			if @db['multi_az_on_create'] or @db['multi_az_on_deploy']
+				if @db["backup_retention_period"].nil? or @db["backup_retention_period"] == 0
+					config[:backup_retention_period] = 35
+				else
+					config[:backup_retention_period] = @db["backup_retention_period"]
+				end
+
+				if @db["preferred_backup_window"].nil?
+					config[:preferred_backup_window] = "05:00-05:30"
+				else
+					config[:preferred_backup_window] = @db["preferred_backup_window"]
+				end
+
+			else
+					config[:backup_retention_period] = @db["backup_retention_period"]
+					config[:preferred_backup_window] = @db["preferred_backup_window"]
+			end
+
+			if @db['storage_type'] = "io1"
+				config[:iops] = @db["iops"]
+			end
 
 			if !@db['vpc'].nil?
 				existing_vpc, vpc_name = MU::VPC.find(
@@ -287,7 +316,7 @@ module MU
 					)
 				end
 				vpc_db_sg = MU::FirewallRule.createEc2SG(@db['name'], nil, description: "Database Security Group for #{dbname}", vpc_id: vpc_id, region: @db['region'])
-				if snap_id == nil
+				if snap_id.nil?
 					config[:vpc_security_group_ids] = [vpc_db_sg, admin_sg]
 					if !@db["add_firewall_rules"].nil?
 						@db["add_firewall_rules"].each { |acl|
@@ -298,19 +327,18 @@ module MU
 						}
 					end
 				end
-			elsif snap_id == nil
-		    config[:db_security_groups] = [dbsgname]
+			elsif snap_id.nil?
+				config[:db_security_groups] = [dbsgname]
 			end
 
-			if @db["publicly_accessible"] != nil and @db["publicly_accessible"] == true
+			if @db["publicly_accessible"]
 				config[:publicly_accessible] = true
 			end
-
 		
 			retries = 0
 			begin
 				MU.log "RDS config: #{config}", MU::DEBUG
-				if snap_id != nil
+				if !snap_id.nil?
 					config[:db_snapshot_identifier] = snap_id
 					MU.log "Creating database instance #{dbidentifier} (default db #{dbname}) from snapshot #{snap_id}"
 					resp = MU.rds(@db['region']).restore_db_instance_from_db_snapshot(config)
@@ -351,12 +379,12 @@ module MU
 
 				# When creating from a snapshot, some of the create arguments aren't
 				# applicable- but we can apply them after the fact with a modify.
-				if snap_id != nil
+				if !snap_id.nil?
 					mod_config = Hash.new
 					mod_config[:db_instance_identifier] = database.db_instance_identifier
 					mod_config[:apply_immediately] = true
 
-					if database.db_subnet_group != nil and database.db_subnet_group.subnets != nil
+					if !database.db_subnet_group.nil? and !database.db_subnet_group.subnets.nil?
 						mod_config[:vpc_security_group_ids] = [vpc_db_sg]
 						if !@db["add_firewall_rules"].nil?
 							@db["add_firewall_rules"].each { |acl|
@@ -369,7 +397,7 @@ module MU
 					else
 						mod_config[:db_security_groups] = [dbname]
 					end
-					if @db['password'] != nil
+					if !@db['password'].nil?
 						mod_config[:master_user_password] = @db['password']
 					end
 
@@ -381,7 +409,7 @@ module MU
 							ok = true
 							if !mod_db.pending_modified_values.nil?
 								mod_db.pending_modified_values.each { |val|
-									ok = false if val != nil
+									ok = false if !val.nil?
 								}
 							end
 							mod_db.vpc_security_groups.each { |sg|
@@ -400,7 +428,7 @@ module MU
 				end
 
 				MU::Database.notifyDeploy(@db["name"], @db['identifier'], dbpassword, @db["creation_style"], region: @db['region'])
-			  MU.log("Database #{dbname} is ready to use")
+				MU.log("Database #{dbname} is ready to use")
 				done = true
 			ensure
 				if !done and !database.nil?
@@ -408,8 +436,54 @@ module MU
 				end
 			end
 
+			if @db['allow_major_version_upgrade']
+				MU.log "Setting major database version upgrade on #{@db['identifier']}'"
+				MU.rds(@db['region']).modify_db_instance(
+					db_instance_identifier: @db['identifier'],
+					apply_immediately: true,
+					allow_major_version_upgrade: true
+				)
+			end
+
+			# Creating Read Replica database instance. should we move this somewhere else?
+			if @db['read_replica']
+				MU.log "Creating read replica for database instance #{@db['identifier']}", details: @db['read_replica']
+				read_replica_dbidentifier = dbidentifier + rand(36**4).to_s(36)
+				replica_config = {
+					db_instance_identifier: read_replica_dbidentifier,
+					source_db_instance_identifier: @db['identifier'],
+					auto_minor_version_upgrade: @db['read_replica']['auto_minor_version_upgrade'],
+					storage_type: @db['read_replica']['storage_type'],
+					publicly_accessible: @db['read_replica']['publicly_accessible'],
+					port: @db['read_replica']['port'],
+					db_instance_class: @db['read_replica']['size']
+				}
+
+				if @db['storage_type'] = "io1"
+					replica_config[:iops] = @db['read_replica']["iops"]
+				end
+
+				retries = 0
+				begin
+					MU.log "Read recplica RDS config: #{replica_config}", MU::DEBUG
+					MU.log "Creating read replica database instance #{read_replica_dbidentifier}", details: replica_config
+					resp = MU.rds(@db['region']).create_db_instance_read_replica(replica_config)
+				rescue Aws::RDS::Errors::InvalidParameterValue, Aws::RDS::Errors::InvalidDBInstanceState => e
+					if retries < 15
+						MU.log "Got #{e.inspect} creating #{read_replica_dbidentifier}, will retry a few times in case of transient errors.", MU::WARN
+						sleep 10
+						retry
+					else
+						MU.log e.inspect, MU::ERR, details: replica_config
+						raise e
+					end
+				end
+			end
+
 			return @db['identifier']
 		end
+
+
 
 		# Called automatically by {MU::Deploy#createResources}
 		def deploy
@@ -479,7 +553,7 @@ module MU
 					end
 				elsif @db['engine'] == "mysql"
 					autoload :Mysql, 'mysql'
-CAP.log "Initiating mysql connection to #{address}:#{port} as #{@db['master_user']}"
+					CAP.log "Initiating mysql connection to #{address}:#{port} as #{@db['master_user']}"
 					conn = Mysql.new(address, @db['master_user'], @db['password'], "mysql", port)
 					@db['run_sql_on_deploy'].each { |cmd|
 						MU.log "Running #{cmd} on database #{@db['name']}"
@@ -499,14 +573,25 @@ CAP.log "Initiating mysql connection to #{address}:#{port} as #{@db['master_user
 			if @db['multi_az_on_deploy']
 				if !database.multi_az
 					MU.log "Setting multi-az on '#{@db['identifier']}'"
-					MU.rds(@db['region']).modify_db_instance(
-						db_instance_identifier: @db['identifier'],
-						apply_immediately: true,
-						multi_az: true
-					)
+					retries = 0
+					begin
+						MU.rds(@db['region']).modify_db_instance(
+							db_instance_identifier: @db['identifier'],
+							apply_immediately: true,
+							multi_az: true
+						)
+					rescue Aws::RDS::Errors::InvalidParameterValue, Aws::RDS::Errors::InvalidDBInstanceState => e
+						if retries < 15
+							MU.log "Got #{e.inspect} creating #{read_replica_dbidentifier}, will retry a few times in case of transient errors.", MU::WARN
+							sleep 10
+							retry
+						else
+							MU.log e.inspect, MU::ERR, details: replica_config
+							raise e
+						end
+					end
 				end
 			end
-		end
 
 
 		# Permit a host to connect to the given database instance.
@@ -518,7 +603,7 @@ CAP.log "Initiating mysql connection to #{address}:#{port} as #{@db['master_user
 			resp = MU.rds(region).describe_db_instances(db_instance_identifier: db_id)
 			database = resp.data.db_instances.first
 
-			if database.db_security_groups != nil
+			if !database.db_security_groups.nil?
 				database.db_security_groups.each { |rds_sg|
 					begin
 					MU.rds(region).authorize_db_security_group_ingress(
@@ -531,7 +616,7 @@ CAP.log "Initiating mysql connection to #{address}:#{port} as #{@db['master_user
 				}
 			end
 
-			if database.vpc_security_groups != nil
+			if !database.vpc_security_groups.nil?
 				database.vpc_security_groups.each { |vpc_sg|
 			    MU::FirewallRule.addRule(vpc_sg.vpc_security_group_id, [cidr], region: region)
 				}
@@ -573,6 +658,11 @@ CAP.log "Initiating mysql connection to #{address}:#{port} as #{@db['master_user
 				"identifier" => database.db_instance_identifier,
 				"region" => region,
 				"engine" => database.engine,
+		        "engine_version" => database.engine_version,
+		        "backup_retention_period" => database.backup_retention_period,
+		        "preferred_backup_window" => database.preferred_backup_window,
+		        "auto_minor_version_upgrade" => database.auto_minor_version_upgrade,
+		        "storage_encrypted" => database.storage_encrypted,
 				"endpoint" => database.endpoint.address,
 				"port" => database.endpoint.port,
 				"username" => database.master_username,
@@ -583,7 +673,7 @@ CAP.log "Initiating mysql connection to #{address}:#{port} as #{@db['master_user
 				"create_style" => create_style,
 				"db_name" => database.db_name
 			}
-			if database.db_subnet_group != nil and database.db_subnet_group.subnets != nil
+			if !database.db_subnet_group.nil? and !database.db_subnet_group.subnets.nil?
 				subnet_ids = Array.new
 				database.db_subnet_group.subnets.each { |subnet|
 					subnet_ids <<  subnet.subnet_identifier

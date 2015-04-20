@@ -280,6 +280,22 @@ module MU
 		@@cloudtrails_api[region] ||= Aws::CloudTrail::Client.new(region: region)
 		@@cloudtrails_api[region]
 	end
+	
+	@@cloudwatch_api = {}
+	# Object for accessing Amazon's CloudWatch service
+	def self.cloudwatch(region = MU.curRegion)
+		region ||= MU.myRegion
+		@@cloudwatch_api[region] ||= Aws::CloudWatch::Client.new(region: region)
+		@@cloudwatch_api[region]
+	end
+
+	@@cloudfront_api = {}
+	# Object for accessing Amazon's CloudFront service
+	def self.cloudfront(region = MU.curRegion)
+		region ||= MU.myRegion
+		@@cloudfront_api[region] ||= Aws::CloudFront::Client.new(region: region)
+		@@cloudfront_api[region]
+	end
 
 	chef_user ||= Etc.getpwuid(Process.uid).name
 	chef_user = "mu" if chef_user == "root"

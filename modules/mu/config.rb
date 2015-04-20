@@ -1015,6 +1015,69 @@ module MU
 					ok = false
 				end
 
+				if db["storage_type"] == "standard" or db["storage_type"] == "gp2"
+					if db["engine"] == "postgres" or db["engine"] == "mysql"
+						if !(5..3072).include? db["storage"]
+							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 5 to 3072 GB for #{db["storage_type"]} volume types", MU::ERR
+							ok = false
+						end
+					elsif db["engine"] == "oracle-se1" or db["engine"] == "oracle-se" or db["engine"] == "oracle-se"
+						if !(10..3072).include? db["storage"]
+							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 10 to 3072 GB for #{db["storage_type"]} volume types", MU::ERR
+							ok = false
+						end
+					elsif db["engine"] == "sqlserver-ex" or db["engine"] == "sqlserver-web"
+						if !(20..1024).include? db["storage"]
+							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 20 to 1024 GB for #{db["storage_type"]} volume types", MU::ERR
+							ok = false
+						end					
+					elsif db["engine"] == "sqlserver-ee" or db["engine"] == "sqlserver-se"
+						if !(200..1024).include? db["storage"]
+							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 200 to 1024 GB for #{db["storage_type"]} volume types", MU::ERR
+							ok = false
+						end
+					end
+				elsif db["storage_type"] == "io1"
+					if db["engine"] == "postgres" or db["engine"] == "mysql" or db["engine"] == "oracle-se1" or db["engine"] == "oracle-se" or db["engine"] == "oracle-se"
+						if !(100..3072).include? db["storage"]
+							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 3072 GB for #{db["storage_type"]} volume types", MU::ERR
+							ok = false
+						end
+						# if (100..3072).include? db["storage"]
+							# min_iops = (db["storage"]*3).round(-3)
+							# max_iops = (db["storage"]*10).round(-3)
+							# if !(min_iops..max_iops).include? db["iops"]
+								# MU.log "PIOPS is set to #{db["iops"]}. PIOPS must be set with increments of 1000 ", MU::ERR
+								# ok = false
+							# end
+						# else
+							# MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 3072 GB for #{db["storage_type"]} volume types", MU::ERR
+							# ok = false
+						# end
+					elsif db["engine"] == "sqlserver-ex" or db["engine"] == "sqlserver-web"
+						if !(100..1000).step(100).include? db["storage"]
+							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 1000 GB  with 100 GB increments for #{db["storage_type"]} volume types", MU::ERR
+							ok = false
+						end
+						# if (100..1000).step(100).include? db["storage"]
+							# min_iops = (db["storage"]*3).round(-3)
+							# max_iops = (db["storage"]*10).round(-3)
+							# if !(min_iops..max_iops).include? db["iops"]
+								# MU.log "PIOPS is set to #{db["iops"]}. PIOPS must be set between #{(db["storage"]*3).round(-3)} and #{(db["storage"]*10).round(-3)}", MU::ERR
+								# ok = false
+							# end
+						# else
+							# MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 1000 GB  with 100 GB steps for #{db["storage_type"]} volume types", MU::ERR
+							# ok = false
+						# end
+					elsif db["engine"] == "sqlserver-ee" or db["engine"] == "sqlserver-se"
+						if !(200..1000).step(100).include? db["storage"]
+							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 1000 GB  with 100 GB increments for #{db["storage_type"]} volume types", MU::ERR
+							ok = false
+						end
+					end
+				end
+
 				if db["engine"] == "postgres"
 					db["license_model"] = "postgresql-license"
 				elsif db["engine"] == "mysql"
@@ -2177,7 +2240,7 @@ module MU
 				"iam_policies" => {
 					"type" => "array",
 					"items" => {
-						"description" => "Amazon-comptabible role policies which will be merged into this node's own instance profile.  Our parser expects the role policy document to me embedded under a named container, e.g. { 'name_of_policy':'{ <policy document> } }",
+						"description" => "Amazon-compatible role policies which will be merged into this node's own instance profile.  Our parser expects the role policy document to me embedded under a named container, e.g. { 'name_of_policy':'{ <policy document> } }",
 						"type" => "object"
 					}
 				}
@@ -2224,28 +2287,60 @@ module MU
 				},
 				"port" => { "type" => "integer" },
 				"vpc" => vpc_reference_primitive(MANY_SUBNETS, NAT_OPTS, "all_private"),
-				"publicly_accessible"=> { 
+				"publicly_accessible"=> {
 					"type" => "boolean",
 					"default" => true,
 				}, 
-				"multi_az_on_create"=> { 
+				"multi_az_on_create"=> {
 					"type" => "boolean",
 					"default" => false
-				}, 
-				"multi_az_on_deploy"=> { 
+				},
+				"multi_az_on_deploy"=> {
 					"type" => "boolean",
 					"default" => true,
 					"default_if" => {
 						"creation_style" => "existing",
 						"set" => false
 					}
-				}, 
-				"creation_style"=> { 
+				},
+				"backup_retention_period"=> {
+					"type" => "integer",
+					"enum" => (0..35),
+					"default" => 0,
+					"description" => "The number of days to retain an automatic database snapshot. If set to 0 and deployment is multi-az will be overridden to 35",
+				},
+				"preferred_backup_window"=> {
+					"type" => "string",
+					"default" => "05:00-05:30",
+					"description" => "The preferred time range to perform automatic database backups.",
+				},
+				"preferred_maintenance_window "=> {
+					"type" => "string",
+					"description" => "The preferred data/time range to perform database maintenance.",
+				},
+				"iops"=> {
+					"type" => "integer",
+					"enum" => (1000..30000).step(1000),
+					"description" => "The amount of IOPS to allocate to Provisioned IOPS (io1) volumes. Increments of 1,000",
+				},
+				"auto_minor_version_upgrade"=> { 
+					"type" => "boolean",
+					"default" => true
+				},
+				"allow_major_version_upgrade"=> { 
+					"type" => "boolean",
+					"default" => false
+				},
+				"storage_encrypted"=> {
+					"type" => "boolean",
+					"default" => false
+				},
+				"creation_style"=> {
 					"type" => "string",
 					"enum" => ["existing","new","new_snapshot","existing_snapshot"],
 					"default" => "new"
 				},
-				"license_model"=> { 
+				"license_model"=> {
 					"type" => "string",
 					"enum" => ["license-included","bring-your-own-license","general-public-license", "postgresql-license"],
 					"default" => "license-included"
@@ -2257,6 +2352,43 @@ module MU
 				"password" => {
 					"type" => "string",
 					"description" => "Set master password to this; if not specified, a random string will be generated. If you are creating from a snapshot, or using an existing database, you will almost certainly want to set this."
+				},
+				"read_replica" => {
+					"type" => "object",
+					"additionalProperties" => false,
+					"description" => "Create a read only databasae replica",
+					"properties" => {
+						"tags" => @tags_primitive,
+						"dns_records" => dns_records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
+						"dependencies" => @dependencies_primitive,
+						"size" => @rds_size_primitive,
+						"storage_type" => {
+							"enum" => ["standard", "gp2", "io1"],
+							"type" => "string",
+							"default" => "gp2"
+						},
+						"port" => { "type" => "integer" },
+						"vpc" => vpc_reference_primitive(MANY_SUBNETS, NAT_OPTS, "all_private"),
+						"publicly_accessible"=> {
+							"type" => "boolean",
+							"default" => true,
+						},
+						"iops"=> {
+							"type" => "integer",
+							"enum" => (1000..30000).step(1000),
+							"description" => "The amount of IOPS to allocate to Provisioned IOPS (io1) volumes. Increments of 1,000",
+						},
+						"auto_minor_version_upgrade"=> { 
+							"type" => "boolean",
+							"default" => true
+						},
+						"identifier" => {
+							"type" => "string",
+						},
+						"source_identifier" => {
+							"type" => "string",
+						},
+					}
 				},
 			}
 		}
@@ -2492,7 +2624,7 @@ module MU
 				"min_size" => { "type" => "integer" },
 				"max_size" => { "type" => "integer" },
 				"tags" => @tags_primitive,
-				"desired_muacity" => {
+				"desired_capacity" => {
 					"type" => "integer",
 					"description" => "The number of Amazon EC2 instances that should be running in the group. Should be between min_size and max_size."
 				},
@@ -2527,15 +2659,15 @@ module MU
 							"name" => {
 								"type" => "string"
 							},
-# XXX "alarm" - need some kind of reference muability to a CloudWatch alarm
+# XXX "alarm" - need some kind of reference capability to a CloudWatch alarm
 							"type" => {
 								"type" => "string",
 								"enum" => ["ChangeInCapacity", "ExactCapacity", "PercentChangeInCapacity"],
-								"description" => "Specifies whether 'adjustment' is an absolute number or a percentage of the current muacity. Valid values are ChangeInCapacity, ExactCapacity, and PercentChangeInCapacity."
+								"description" => "Specifies whether 'adjustment' is an absolute number or a percentage of the current capacity. Valid values are ChangeInCapacity, ExactCapacity, and PercentChangeInCapacity."
 							},
 							"adjustment" => {
 								"type" => "integer",
-								"description" => "The number of instances by which to scale. 'type' determines the interpretation of this number (e.g., as an absolute number or as a percentage of the existing Auto Scaling group size). A positive increment adds to the current muacity and a negative value removes from the current muacity."
+								"description" => "The number of instances by which to scale. 'type' determines the interpretation of this number (e.g., as an absolute number or as a percentage of the existing Auto Scaling group size). A positive increment adds to the current capacity and a negative value removes from the current capacity."
 							},
 							"cooldown" => {
 								"type" => "integer",
@@ -2717,7 +2849,3 @@ module MU
 
 	end #class
 end #module
-
-
-
-
