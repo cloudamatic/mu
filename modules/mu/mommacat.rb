@@ -1413,6 +1413,17 @@ MESSAGE_END
 			end
 		end
 
+		# Return a list of all currently active deploy identifiers.
+		# @return [Array<String>]
+		def self.listDeploys
+			deploys = []
+			Dir.entries("#{MU.dataDir}/deployments").reverse_each { |muid|
+				next if !Dir.exists?("#{MU.dataDir}/deployments/#{muid}") or muid == "." or muid == ".."
+				deploys << muid
+			}
+			return deploys
+		end
+
 		# Return a list of all nodes associated with the current deployment.
 		# @return [Hash]
 		def listNodes
