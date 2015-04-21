@@ -62,13 +62,14 @@ usage()
 {
   msg="$1"
   echo "Create, modify, or remove Mu users."
-  echo "Usage: $0 -d|-c|-l [-f|-r] [-u <username>] [-e <email>] [-n 'Real Name'] [-p <password>] [-o organization]"
+  echo "Usage: $0 -d|-c|-l [-a|-r] [-u <username>] [-e <email>] [-n '<Real Name>'] [-p <password>] [-o <organization>] [-m <email>]"
   echo "    -l: List users."
   echo "    -u: Username on which to operate."
   echo "    -c: Create a user. Prompts for a password unless -p is specified."
   echo "        Requires -u and -e. Assumes -r, unless -a is specified."
   echo "    -d: Delete a user. Requires -u."
   echo "    -n: The user's real name."
+  echo "    -m: The user should receive monitoring alerts at this alternate email address. Set to 'none' to disable monitoring alerts for this user."
   echo "    -a: Flag the user as an admin. Requires -u. Will implicitly add to"
   echo "        the 'mu' Chef organization."
   echo "    -r: Flag the user as a regular (non-admin) user. Requires -u. Will"
@@ -90,7 +91,7 @@ usage()
 add=0
 delete=0
 
-while getopts "u:p:n:e:o:z:dclrai" opt; do
+while getopts "u:p:n:e:o:m:z:dclrai" opt; do
   case $opt in
 		l)
 			list_users
@@ -122,6 +123,9 @@ while getopts "u:p:n:e:o:z:dclrai" opt; do
       ;;
     e)
       email=$OPTARG
+      ;;
+    m)
+      monitoring_email=$OPTARG
       ;;
     o)
       add_org=$OPTARG
@@ -171,6 +175,9 @@ if [ "$interactive" == "1" ];then
 	if [ "$delete" != "1" ];then
 		if [ "$add_org" == "" ];then
 			read -p "(OPTIONAL) Chef org to which to add ${BOLD}$user${NORM}: " add_org
+		fi
+		if [ "$monitoring_email" == "" ];then
+			read -p "(OPTIONAL) Alternate email for ${BOLD}$user${NORM} to receive monitoring alerts (set 'none' to disable alerts): " add_org
 		fi
 		if [ "$create" != "1" ];then
 			if [ "$remove_org" == "" ];then
@@ -230,6 +237,11 @@ if [ "$email" != "" ];then
 	fi
 elif [ "$create" == "1" ];then
 	usage "You must specify an email address (-e) when adding an account."
+fi
+if [ "$monitoring_email" != "" -a "$monitoring_email" != "none" ];then
+	if ! echo "$monitoring_email" | egrep '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,6}$' > /dev/null;then
+		usage "Email address '$monitoring_email' is not syntactically valid."
+	fi
 fi
 
 # Argument check: real names
@@ -318,6 +330,10 @@ else
 	else
 		if [ "$email$realname" != "" ];then
 			warning_message "Currently cannot update Chef user emails or real names from CLI." "Hopefully to be fixed in a future Chef release."
+		fi
+		if [ "$monitoring_email" != "" ];then
+			echo "$monitoring_email" > "$user_dir/monitoring_email"
+			sync_nagios=1
 		fi
 		update_gecos=""
 		if [ "$email" != "" ];then
