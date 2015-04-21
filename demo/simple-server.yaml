@@ -1,4 +1,3 @@
-<% $azs = listAZs %>
 ---
   appname: "demo"
   servers: 
@@ -6,6 +5,3 @@
       name: "simple"
       size: "m3.medium"
       skipinitialupdates: true
-      vpc:
-        tag: "vpc_name=demo"
-      associate_public_ip: true
