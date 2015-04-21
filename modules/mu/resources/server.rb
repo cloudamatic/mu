@@ -514,7 +514,7 @@ module MU
 		    instance_descriptor[:user_data] =  Base64.encode64(@userdata)
 		  end
 
-		  if !@server["iam_role"].nil? then
+		  if !@server["iam_role"].nil?
 		    instance_descriptor[:iam_instance_profile] = { name: @server["iam_role"]}
 		  end
 
@@ -527,11 +527,13 @@ module MU
 		
 			MU::Server.waitForAMI(@server["ami_id"], region: @server['region'])
 
-      instance_descriptor[:block_device_mappings] = configured_storage
+			instance_descriptor[:block_device_mappings] = configured_storage
 			instance_descriptor[:block_device_mappings].concat(@ephemeral_mappings)
 
-		  MU.log "Creating EC2 instance #{node}"
-		  MU.log "Instance details for #{node}: #{instance_descriptor}", MU::DEBUG
+			instance_descriptor[:monitoring] = { enabled: @server['monitoring'] }
+
+			MU.log "Creating EC2 instance #{node}"
+			MU.log "Instance details for #{node}: #{instance_descriptor}", MU::DEBUG
 #				if instance_descriptor[:block_device_mappings].empty?
 #					instance_descriptor.delete(:block_device_mappings)
 #				end

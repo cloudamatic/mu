@@ -2229,6 +2229,11 @@ module MU
 					"description" => "When creating an image of this server, exclude block device mappings.",
 					"default" => false
 				},
+				"monitoring" => {
+					"type" => "boolean",
+					"default" => true,
+					"description" => "Enable detailed instance monitoring.",
+				},
 				"private_ip" => {
 					"type" => "string",
 					"description" => "Request a specific private IP address for this instance.",
