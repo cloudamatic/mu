@@ -759,9 +759,9 @@ module MU
 					begin
 						# Don't make *too* much noise to console waiting, unless asked
 						if attempts % 5 == 0
-							MU.log("Waiting for RDS database #{read_replica_dbidentifier} to be ready...", MU::NOTICE)
+							MU.log("Waiting for Read Replica RDS database #{read_replica_dbidentifier} to be ready...", MU::NOTICE)
 						else
-							MU.log("Waiting for RDS database #{read_replica_dbidentifier} to be ready...", MU::DEBUG)
+							MU.log("Waiting for Read Replica RDS database #{read_replica_dbidentifier} to be ready...", MU::DEBUG)
 						end
 						database = MU.rds(@db['region']).describe_db_instances(db_instance_identifier: @db['read_replica']['identifier'])
 						attempts = attempts + 1
@@ -772,7 +772,7 @@ module MU
 					MU::DNSZone.genericDNSEntry(database.db_instance_identifier, "#{database.endpoint.address}.", MU::Database)
 					MU::DNSZone.createRecordsFromConfig(@db['read_replica']['dns_records'], target: database.endpoint.address)
 
-					# MU::Database.notifyDeploy(@db['read_replica']['name'], @db['read_replica']['identifier'], dbpassword, "read_replica", region: @db['read_replica']['region'])
+					MU::Database.notifyDeploy(@db['read_replica']['name'], @db['read_replica']['identifier'], @db['password'], "read_replica", region: @db['read_replica']['region'])
 					MU.log("Database instance #{@db['read_replica']['identifier']} is ready to use")
 					done = true
 				ensure

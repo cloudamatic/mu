@@ -2363,8 +2363,10 @@ module MU
 				"read_replica" => {
 					"type" => "object",
 					"additionalProperties" => false,
+					"required" => ["name"],
 					"description" => "Create a read only databasae replica",
 					"properties" => {
+						"name" => { "type" => "string" },
 						"tags" => @tags_primitive,
 						"dns_records" => dns_records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
 						"dependencies" => @dependencies_primitive,
