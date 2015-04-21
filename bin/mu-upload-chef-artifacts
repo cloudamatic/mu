@@ -525,8 +525,11 @@ if [ -d "$MU_DATADIR/users" -a "$USER" == "root" ];then
 				email="`cat $MU_DATADIR/users/$admin/email`"
 			fi
 			if [ "$email" != "none" ];then
-				echo "${GREEN}Adding $id to nagios_users data bag (email $admin)${NORM}"
-				echo "{ \"id\": \"$id\", \"groups\": \"sysadmin\", \"htpasswd\": \"$crypt\", \"openid\": \"http://nagiosadmin.myopenid.com/\", \"nagios\": { \"pager\": \"$admin\", \"email\": \"$email\" } }" > "$bagdir/$admin.json"
+				echo "${GREEN}Adding $id to nagios_users data bag (email $email)${NORM}"
+				echo "{ \"id\": \"$id\", \"groups\": \"sysadmin\", \"htpasswd\": \"$crypt\", \"openid\": \"http://nagiosadmin.myopenid.com/\", \"nagios\": { \"pager\": \"$email\", \"email\": \"$email\" } }" > "$bagdir/$admin.json"
+			else
+				echo "${GREEN}Adding $id to nagios_users data bag (No email)${NORM}"
+				echo "{ \"id\": \"$id\", \"groups\": \"sysadmin\", \"htpasswd\": \"$crypt\", \"openid\": \"http://nagiosadmin.myopenid.com/\", \"nagios\": { \"pager\": \"devnull@localhost\", \"email\": \"devnull@localhost\" } }" > "$bagdir/$admin.json"
 			fi
 		fi
 		if [ -f "$bagdir/$admin.json" ];then
