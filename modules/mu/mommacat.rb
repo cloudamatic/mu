@@ -1190,7 +1190,7 @@ MESSAGE_END
 			my_ports = [10514]
 
 			my_instance_id = MU.getAWSMetaData("instance-id")
-			my_client_sg_name = "Mu Client Rules for #{MU.mu_public_ip}"
+			my_client_sg_name = "Mu #{my_instance_id} Client Rules for master #{MU.mu_public_ip}"
 			my_sgs = Array.new
 
 			MU.setVar("curRegion", MU.myRegion) if !MU.myRegion.nil?
