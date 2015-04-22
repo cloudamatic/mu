@@ -318,14 +318,26 @@ module MU
 				next if no_purge.include?(resource_id)
 				MU.log "Removing AutoScale group #{resource_id}"
 				next if @noop
-				MU.autoscale(region).delete_auto_scaling_group(
-					auto_scaling_group_name: resource_id,
+				retries = 0
+				begin 
+					MU.autoscale(region).delete_auto_scaling_group(
+						auto_scaling_group_name: resource_id,
 # XXX this should obey @force
-					force_delete: true
-				)
+						force_delete: true
+					)
+				rescue Aws::AutoScaling::Errors::InternalFailure => e
+					if retries < 5
+						MU.log "Got #{e.inspect} while removing AutoScale group #{resource_id}.", MU::WARN
+						sleep 10
+						retry
+					else
+						MU.log "Failed to delete AutoScale group #{resource_id}", MU::ERR
+					end
+				end
 
 				# Generally there should be a launch_configuration of the same name
 # XXX search for these independently, too?
+				retries = 0
 				begin
 					MU.log "Removing AutoScale Launch Configuration #{resource_id}"
 					MU.autoscale(region).delete_launch_configuration(
@@ -333,6 +345,14 @@ module MU
 					)
 				rescue Aws::AutoScaling::Errors::ValidationError => e
 					MU.log "No such Launch Configuration #{resource_id}"
+				rescue Aws::AutoScaling::Errors::InternalFailure => e
+					if retries < 5
+						MU.log "Got #{e.inspect} while removing Launch Configuration #{resource_id}.", MU::WARN
+						sleep 10
+						retry
+					else
+						MU.log "Failed to delete Launch Configuration #{resource_id}", MU::ERR
+					end
 				end
 			}
 			return nil

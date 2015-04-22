@@ -705,10 +705,31 @@ module MU
 		# @return [String]: The cloud provider's identifier for this read replica database instance.
 		def createReadReplica
 			if @db['read_replica']
-				read_replica_dbidentifier = "#{@db['identifier']}-#{rand(36**4).to_s(36)}" # Unique name should be created with Mu instead
+				node_name = MU::MommaCat.getResourceName(@db['read_replica']['name'])
+
+				# Apply engine-specific instance name constraints
+				if @db["engine"].match(/^oracle/)
+					dbidentifier = node_name.gsub(/^[^a-z]/i, "")[0..62]
+				elsif @db["engine"].match(/^sqlserver/)
+					dbidentifier = node_name.gsub(/[^a-z]/i, "")[0..14]
+				elsif @db["engine"].match(/^mysql/)
+					dbidentifier = node_name.gsub(/^[^a-z]/i, "")[0..62]
+				else
+					dbidentifier = node_name.gsub(/^[^a-z]/i, "")[0..62]
+				end
+
+				read_replica_dbidentifier = dbidentifier.gsub(/(--|-$)/, "").gsub(/(_)/, "-")
+
+				if @db['read_replica']['source_identifier']
+					source_db_identifier = @db['read_replica']['source_identifier']
+				else
+					source_db_identifier = @db['identifier']
+				end
+
+				# read_replica_dbidentifier = "#{source_db_identifier}-#{rand(36**4).to_s(36)}" # Unique name should be created with Mu instead
 				replica_config = {
 					db_instance_identifier: read_replica_dbidentifier,
-					source_db_instance_identifier: @db['identifier'],
+					source_db_instance_identifier: source_db_identifier,
 					auto_minor_version_upgrade: @db['read_replica']['auto_minor_version_upgrade'],
 					storage_type: @db['read_replica']['storage_type'],
 					publicly_accessible: @db['read_replica']['publicly_accessible'],
@@ -740,7 +761,7 @@ module MU
 				retries = 0
 				begin
 					MU.log "Read recplica RDS config: #{replica_config}", MU::DEBUG
-					MU.log "Creating read replica database instance #{read_replica_dbidentifier} from #{@db['identifier']} database instance", details: replica_config
+					MU.log "Creating read replica database instance #{read_replica_dbidentifier} from #{source_db_identifier} database instance", details: replica_config
 					resp = MU.rds(@db['read_replica']['region']).create_db_instance_read_replica(replica_config)
 				rescue Aws::RDS::Errors::InvalidParameterValue => e
 					if retries < 5
