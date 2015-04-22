@@ -22,42 +22,111 @@ require 'mu'
 $opts = Trollop::options do
 	banner <<-EOS
 Usage:
-#{$0} 
+#{$0} [-c] [-w] [-l] [-d] [-a] [-p <platform>] [-m <mode>] [ deploy_id|node_name [ ... ] ]
   EOS
-	opt :max_concurrent, "Number of processes to run concurrently when invoking Chef or MommaCat on multiple nodes.", :require => false, :default => 10, :type => :integer
-	opt :windows, "Operate exclusively on Windows nodes. Can be used in conjunction with -a or -d.", :require => false, :default => false, :type => :boolean
-	opt :linux, "Operate exclusively on Linux nodes. Can be used in conjunction with -a or -d.", :require => false, :default => false, :type => :boolean
-	opt :deploy, "Operate on matching deploy IDs instead of node names.", :require => false, :default => false, :type => :boolean
+	opt :concurrent, "Max number of processes to run concurrently when invoking Chef or MommaCat on multiple nodes.", :require => false, :default => 10, :type => :integer
+	opt :deploys, "Operate on matching deploy IDs instead of node names.", :require => false, :default => false, :type => :boolean
 	opt :all, "Operate on all nodes/deploys. Use with caution.", :require => false, :default => false, :type => :boolean
-	opt :regroom, "Action: Re-groom matching Servers using Momma Cat.", :require => false, :default => true, :type => :boolean
-	opt :chefrun, "Action: Invoke Chef only on matching Servers.", :require => false, :default => false, :type => :boolean
-	opt :userdata, "Action: Update userdata for matching Servers and Server Pools.", :require => false, :default => false, :type => :boolean
+	opt :platform, "Operate exclusively on one nodes of a particular operating system. Can be used in conjunction with -a or -d. Valid platforms: linux, windows", :require => false, :type => :string
+	opt :environment, "Operate exclusively on one nodes with a particular environment (e.g. dev, prod). Can be used in conjunction with -a or -d.", :require => false, :type => :string
+	opt :mode, "Action to perform on matching nodes. Valid actions: groom, chefrun, userdata", :require => false, :default => "groom", :type => :string
 end
 
+if !["groom", "chefrun", "userdata"].include?($opts[:mode]) 
+	Trollop::die(:mode, "--mode must be one of: groom, chefrun, userdata")
+end
+if $opts[:platform] and !["linux", "windows"].include?($opts[:platform])
+	Trollop::die(:platform, "--platform must be one of: linux, windows")
+end
+if ARGV.empty? and !$opts[:all]
+	puts "Trollop::educate doesn't work for some reason, this is a placeholder"
+	exit 1
+end
 
-def reGroom
-	MU::MommaCat.listDeploys.each { |muid|
+# Run through our filters so we can pass flat lists into our methods that
+# actually do things.
+avail_deploys = MU::MommaCat.listDeploys
+do_deploys = []
+do_nodes = []
+ok = true
+if $opts[:all]
+	do_deploys = avail_deploys
+else
+	if $opts[:deploys] and !$opts[:all]
+		ARGV.each { |arg|
+			if !avail_deploys.include?(arg)
+				MU.log "Deploy ID '#{arg}' does not appear to be valid", MU::ERR
+				ok = false
+			end
+			do_deploys << arg
+		}
+	else
+		do_deploys = avail_deploys
+		do_nodes = ARGV # XXX yell at us about invalid nodes
+	end
+end
+
+exit 1 if !ok
+
+def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [], platform = nil, env = nil)
+	children = {}
+	badnodes = []
+	count = 0
+	deploys.each { |muid|
 		mommacat = MU::MommaCat.new(muid)
 		mommacat.listNodes.each_pair { |nodename, server|
 			id = server['instance_id']
+			server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
+			next if nodes.size > 0 and !nodes.include?(nodename)
+			next if !platform.nil? and server['conf']["platform"] != platform
+			next if !env.nil? and MU.environment.upcase != env.upcase
+
 			instance = MU.ec2.describe_instances(instance_ids: [id]).reservations.first.instances.first
 
 			mytype = "server"
 			mytype = "server_pool" if server['conf'].has_key?("basis") or server['conf']['#TYPENAME'] == "ServerPool" or server['conf']["#MU_CLASS"] == "MU::ServerPool"
-			mommacat.groomNode(instance, server['conf']["name"], mytype)
-		exit
+			count = count + 1
+			child = Process.fork {
+				begin
+					mommacat.groomNode(instance, server['conf']["name"], mytype)
+				rescue Exception => e
+					MU.log e.inspect, MU::ERR, details: e.backtrace
+					exit 1
+				end
+			}
+			children[child] = nodename
+			while children.size >= $opts[:concurrent]
+				child = Process.wait
+				if !$?.success?
+					badnodes << children[child]
+				end
+				children.delete(child)
+			end
 		}
 	}
+	Process.waitall.each { |child|
+		if !child[1].success?
+			badnodes << children[child[0]]
+		end
+	}
+
+	if badnodes.size > 0
+		MU.log "Not all Momma Cat runs exited cleanly", MU::WARN, details: badnodes
+	end
 end
 
-def runChef()
-	$opts[:max_concurrent] = 10
+def runChef(deploys = MU::MommaCat.listDeploys, nodes = [], platform = nil, env = nil)
 	children = {}
 	badnodes = []
 	count = 0
-	MU::MommaCat.listDeploys.each { |muid|
+	deploys.each { |muid|
 		mommacat = MU::MommaCat.new(muid)
 		mommacat.listNodes.each_pair { |nodename, server|
+			server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
+			next if nodes.size > 0 and !nodes.include?(nodename)
+			next if !platform.nil? and server['conf']["platform"] != platform
+			next if !env.nil? and MU.environment.upcase != env.upcase
+
 			count = count + 1
 			MU.log "Running Chef on #{nodename} (##{count})"
 			child = Process.fork {
@@ -68,12 +137,11 @@ def runChef()
 				end
 			}
 			children[child] = nodename
-			while children.size >= $opts[:max_concurrent]
+			while children.size >= $opts[:concurrent]
 				child = Process.wait
 				if !$?.success?
 					badnodes << children[child]
 				end
-#				MU.log "#{children[child]} completed"
 				children.delete(child)
 			end
 		}
@@ -89,8 +157,8 @@ def runChef()
 	end
 end
 
-def updateUserdata
-	MU::MommaCat.listDeploys.each { |muid|
+def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [], platform = nil, env = nil)
+	deploys.each { |muid|
 		mommacat = MU::MommaCat.new(muid)
 
 		# Clean up the userdata of matching Autoscale groups by replacing their
@@ -98,6 +166,10 @@ def updateUserdata
 		if mommacat.original_config.has_key?("server_pools")
 			mommacat.original_config['server_pools'].each { |server|
 				svr_class = server['name']
+				server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
+				next if !platform.nil? and server['conf']["platform"] != platform
+				next if !env.nil? and MU.environment.upcase != env.upcase
+
 				pool_name = MU::MommaCat.getResourceName(svr_class)
 				MU.autoscale.describe_auto_scaling_groups(
 					auto_scaling_group_names: [pool_name]
@@ -182,6 +254,10 @@ def updateUserdata
 			desc = MU.ec2.describe_instances(instance_ids: [id]).reservations.first.instances.first
 	
 			server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
+			next if nodes.size > 0 and !nodes.include?(nodename)
+			next if !platform.nil? and server['conf']["platform"] != platform
+			next if !env.nil? and MU.environment.upcase != env.upcase
+
 			mytype = "server"
 			mytype = "server_pool" if server['conf'].has_key?("basis") or server['conf']['#TYPENAME'] == "ServerPool" or server['conf']["#MU_CLASS"] == "MU::ServerPool"
 			olduserdata = Base64.decode64(MU.ec2.describe_instance_attribute(
@@ -229,3 +305,10 @@ def updateUserdata
 	}
 end
 
+if $opts[:mode] == "groom"
+	reGroom(do_deploys, do_nodes, $opts[:platform], $opts[:environment])
+elsif $opts[:mode] == "chefrun"
+	runChef(do_deploys, do_nodes, $opts[:platform], $opts[:environment])
+elsif $opts[:mode] == "userdata"
+	updateUserdata(do_deploys, do_nodes, $opts[:platform], $opts[:environment])
+end
