@@ -1,0 +1,40 @@
+---
+  appname: "test"
+  region: "us-east-1"
+  loadbalancers: 
+    - 
+      name: "demo"
+      vpc: 
+        vpc_id: "vpc-42d21327"
+        subnets: 
+          - 
+            subnet_id: "subnet-45323603"
+      listeners: 
+        - 
+          lb-port: 80
+          lb-protocol: "HTTP"
+          instance-port: 80
+          instance-protocol: "HTTP"
+  server_pools: 
+    - 
+      name: "autoscale_demo"
+      min-size: 2
+      max-size: 4
+      vpc: 
+        vpc_id: "vpc-42d21327"
+        nat_host_id: "i-4d8d921d"
+        nat_ssh_user: "ec2-user"
+        subnets: 
+          - 
+            subnet_id: "subnet-45323603"
+      loadbalancers: 
+        - 
+          concurrent-load-balancer: "demo"
+      basis: 
+        launch-config: 
+          name: "demo"
+          size: "m3.medium"
+  admins: 
+    - 
+      name: "John Stange"
+      email: "john.stange@eglobaltech.com"
