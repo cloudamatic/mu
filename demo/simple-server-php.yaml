@@ -31,8 +31,8 @@ servers:
     vpc_name: vpc
   <% end %>
 admins:
-- name: John Stange
-  email: john.stange@eglobaltech.com
+- name: Admin
+  email: admin@example.com
 <% unless $vpc_deploy_id or current_vpc then %>
 vpcs:
 - name: vpc
