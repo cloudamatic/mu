@@ -217,15 +217,15 @@ module MU
 		# @param region [String]: The cloud provider region
 		# @return [void]
 		def self.tagVolumes(instance_id, device=nil, tag_name="MU-ID", tag_value=MU.mu_id, region: MU.curRegion)
-		  MU.ec2(region).describe_volumes.each { |vol|
+		  MU.ec2(region).describe_volumes(filters: [name: "attachment.instance-id", values: [instance_id]]).each { |vol|
 		    vol.volumes.each { |volume|
 		    volume.attachments.each { |attachment|
 		      vol_parent = attachment.instance_id
 		      vol_id = attachment.volume_id
 		      vol_dev = attachment.device
-		      if vol_parent == instance_id and (vol_dev == device or device.nil?) then
-	          MU::MommaCat.createTag(vol_id, tag_name, tag_value, region: region)
-					  break
+		      if vol_parent == instance_id and (vol_dev == device or device.nil?) 
+	           MU::MommaCat.createTag(vol_id, tag_name, tag_value, region: region)
+	           break
 		      end
 		    }
 		  }
@@ -914,13 +914,38 @@ module MU
 			ext_mappings = MU.structToHash(instance.block_device_mappings)
 
 		  # Root disk on standard CentOS AMI
-		  tagVolumes(instance.instance_id, "/dev/sda", "Name", "ROOT-"+MU.mu_id+"-"+server["name"].upcase)
+		  # tagVolumes(instance.instance_id, "/dev/sda", "Name", "ROOT-"+MU.mu_id+"-"+server["name"].upcase)
 		  # Root disk on standard Ubuntu AMI
-		  tagVolumes(instance.instance_id, "/dev/sda1", "Name", "ROOT-"+MU.mu_id+"-"+server["name"].upcase)
+		  # tagVolumes(instance.instance_id, "/dev/sda1", "Name", "ROOT-"+MU.mu_id+"-"+server["name"].upcase)
 		
 		  # Generic deploy ID tag
-		  tagVolumes(instance.instance_id)
-		
+		  # tagVolumes(instance.instance_id)
+
+			# Tag volumes with all our standard tags. 
+			# Maybe replace tagVolumes with this? There is one more place tagVolumes is called from
+			volumes = MU.ec2(server['region']).describe_volumes(filters: [name: "attachment.instance-id", values: [instance.instance_id]])
+			volumes.each {|vol|
+				vol.volumes.each{ |volume|
+					volume.attachments.each { |attachment|
+						MU::MommaCat.listStandardTags.each_pair { |key, value|
+							MU::MommaCat.createTag(attachment.volume_id, key, value, region: server['region'])
+
+							if attachment.device == "/dev/sda1" or attachment.device == "/dev/sda1"
+								MU::MommaCat.createTag(attachment.volume_id, "Name", "ROOT-#{MU.mu_id}-#{server["name"].upcase}", region: server['region'])
+							else
+								MU::MommaCat.createTag(attachment.volume_id, "Name", "#{MU.mu_id}-#{server["name"].upcase}-#{attachment.device.upcase}", region: server['region'])
+							end
+						}
+
+						if server['tags']
+							server['tags'].each { |tag|
+								MU::MommaCat.createTag(attachment.volume_id, tag['key'], tag['value'], region: server['region'])
+							}
+						end
+					}
+				}
+			}
+
 		  ssh_retries=0;
 			canonical_name = instance.public_dns_name
 			canonical_name = instance.private_dns_name if !canonical_name or nat_ssh_host != nil
@@ -1819,7 +1844,7 @@ module MU
 		# @return [Hash]: The Amazon-style storage description.
 		def self.convertBlockDeviceMapping(storage)
 			vol_struct = Hash.new
-			if !storage["no_device"].nil?
+			if storage["no_device"]
 				vol_struct[:no_device] = storage["no_device"]
 			end
 
@@ -1836,8 +1861,9 @@ module MU
 				vol_struct[:ebs][:snapshot_id] = storage["snapshot_id"] if storage["snapshot_id"]
 				vol_struct[:ebs][:volume_size] = storage["size"] if storage["size"]
 				vol_struct[:ebs][:volume_type] = storage["volume_type"] if storage["volume_type"]
-				vol_struct[:ebs][:iops] = storage["iops"] if storage["iops"]
+				vol_struct[:ebs][:iops] = storage["iops"] if storage["iops"] and storage["volume_type"] == "io1"
 				vol_struct[:ebs][:delete_on_termination] = storage["delete_on_termination"]
+				vol_struct[:ebs][:encrypted] = storage["encrypted"] if storage["encrypted"]
 			end
 
 			return vol_struct

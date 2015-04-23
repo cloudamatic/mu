@@ -1832,6 +1832,8 @@ module MU
 					},
 					"iops" => {
 						"type" => "integer",
+						"enum" => (100..20000),
+						"description" => "The amount of IOPS to allocate to Provisioned IOPS (io1) volumes.",
 					},
 					"device" => {
 						"type" => "string",
@@ -1850,6 +1852,10 @@ module MU
 					"no_device" => {
 						"type" => "string",
 						"description" => "Do not share this device with the OS"
+					},
+					"encrypted" => {
+						"type" => "boolean",
+						"default" => false
 					},
 					"volume_type" => {
 						"enum" => ["standard", "io1", "gp2"],
