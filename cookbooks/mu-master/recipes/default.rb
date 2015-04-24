@@ -131,7 +131,9 @@ file "/var/www/html/index.html" do
 </p>
 "
 end
-
+execute "echo 'devnull: /dev/null' >> /etc/aliases" do
+	not_if "grep '^devnull: /dev/null$' /etc/aliases"
+end
 node.mu.user_map.each_pair { |mu_user, mu_email|
 	execute "echo '#{mu_user}: #{mu_email}' >> /etc/aliases" do
 		not_if "grep '^#{mu_user}: #{mu_email}$' /etc/aliases"
