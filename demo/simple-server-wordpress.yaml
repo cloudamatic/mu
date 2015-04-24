@@ -22,10 +22,10 @@ loadbalancers:
     target: "HTTP:80/"
     unhealthy-threshold: 5
   listeners: 
-    lb-port: 80
-    lb-protocol: "HTTP"
-    instance-port: 80
-    instance-protocol: "HTTP"
+   - lb-port: 80
+     lb-protocol: "HTTP"
+     instance-port: 80
+     instance-protocol: "HTTP"
 databases:
   - name: wordpress-demo-db
     engine: mysql
