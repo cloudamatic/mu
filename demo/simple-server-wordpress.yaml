@@ -37,6 +37,7 @@ databases:
 <% else %>
      vpc_name: vpc
 <% end %>
+    size: db.t2.micro
     storage: 5
     port: 3306
 servers:
