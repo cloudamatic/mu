@@ -29,6 +29,15 @@ loadbalancers:
 databases:
   - name: wordpress-demo-db
     engine: mysql
+    vpc: 
+<% if $vpc_deploy_id then %>
+     deploy_id: <%= $vpc_deploy_id %>
+<% elsif current_vpc %>
+     vpc_id: <%= current_vpc %>
+<% else %>
+     vpc_name: vpc
+<% end %>
+    creation_style: new
     size: db.t2.micro
     storage: 5
     port: 3306
