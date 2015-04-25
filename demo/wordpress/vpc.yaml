@@ -1,0 +1,35 @@
+- name: wordpress-demo-vpc
+  route-tables:
+  - name: internet
+    routes:
+    - destination_network: 0.0.0.0/0
+      gateway: "#INTERNET"
+  - name: private
+    routes:
+    - destination_network: 0.0.0.0/0
+      nat_host_name: bastion
+  dependencies:
+  - type: server
+    name: bastion
+  subnets:
+<%
+counter=0
+(1..$azs.size).each do |i|
+%>
+  - name: Public<%= counter %>
+    ip_block: 10.0.<%= counter %>.0/24
+    availability-zone: "<%= $azs[i-1] %>"
+    route-table: internet
+<%
+  counter = counter + 1
+end
+num_used = counter
+(1..$azs.size).each do |i|
+%>
+  - name: Private<%= counter-num_used %>Private
+    ip_block: 10.0.<%= counter %>.0/24
+    availability-zone: "<%= $azs[i-1] %>"
+    route-table: private
+<%
+  counter = counter + 1
+end %>
