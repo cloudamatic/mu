@@ -22,13 +22,14 @@ require 'mu'
 $opts = Trollop::options do
 	banner <<-EOS
 Usage:
-#{$0} [-c] [-w] [-l] [-d] [-a] [-p <platform>] [-m <mode>] [ deploy_id|node_name [ ... ] ]
+#{$0} [-c] [-w] [-l] [-d] [-a] [-p <platform>] [-m <mode>] [-o <chefopts>] [ deploy_id|node_name [ ... ] ]
   EOS
 	opt :concurrent, "Max number of processes to run concurrently when invoking Chef or MommaCat on multiple nodes.", :require => false, :default => 10, :type => :integer
 	opt :deploys, "Operate on matching deploy IDs instead of node names.", :require => false, :default => false, :type => :boolean
 	opt :all, "Operate on all nodes/deploys. Use with caution.", :require => false, :default => false, :type => :boolean
 	opt :platform, "Operate exclusively on one nodes of a particular operating system. Can be used in conjunction with -a or -d. Valid platforms: linux, windows", :require => false, :type => :string
 	opt :environment, "Operate exclusively on one nodes with a particular environment (e.g. dev, prod). Can be used in conjunction with -a or -d.", :require => false, :type => :string
+	opt :override_chef_runlist, "An alternate runlist to pass to Chef, in chefrun mode.", :require => false, :type => :string
 	opt :mode, "Action to perform on matching nodes. Valid actions: groom, chefrun, userdata", :require => false, :default => "groom", :type => :string
 end
 
@@ -95,7 +96,7 @@ def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [], platform = nil, env 
 				end
 			}
 			children[child] = nodename
-			while children.size >= $opts[:concurrent]
+			while children.size >= $opts[:concurrent]-1
 				child = Process.wait
 				if !$?.success?
 					badnodes << children[child]
@@ -130,14 +131,19 @@ def runChef(deploys = MU::MommaCat.listDeploys, nodes = [], platform = nil, env 
 			count = count + 1
 			MU.log "Running Chef on #{nodename} (##{count})"
 			child = Process.fork {
-				output=`ssh #{nodename} "( chef-client || ./chef-client ) 2>&1" 2>&1 < /dev/null`
+				output=""
+				if $opts[:override_chef_runlist]
+					output=`ssh #{nodename} "( chef-client -o '#{$opts[:override_chef_runlist]}' || ./chef-client -o '#{$opts[:override_chef_runlist]}' ) 2>&1" 2>&1 < /dev/null`
+				else
+					output=`ssh #{nodename} "( chef-client || ./chef-client ) 2>&1" 2>&1 < /dev/null`
+				end
 				if !$?.success?
 					MU.log "Chef on #{nodename} did not exit cleanly", MU::WARN, details: output.slice(-2000, 2000)
 					exit $?.exitstatus
 				end
 			}
 			children[child] = nodename
-			while children.size >= $opts[:concurrent]
+			while children.size >= $opts[:concurrent] - 1
 				child = Process.wait
 				if !$?.success?
 					badnodes << children[child]
