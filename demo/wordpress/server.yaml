@@ -26,9 +26,6 @@
   run_list:
   - recipe[apache2]
   - recipe[demo::php]
-  vpc:
-    vpc_name: wordpress-demo-vpc
-    subnet_name: Public3
 admins:
 - name: John Stange
   email: john.stange@eglobaltech.com
