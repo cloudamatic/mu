@@ -1,20 +1,20 @@
- - name: wordpress-demo-lb
-   private: true
-   vpc:
-     vpc_name: wordpress-demo-vpc
-     subnets:
-     - subnet_name: Public3
-   ingress_rules:
-   - port: 80
-     hosts:
-     - 0.0.0.0/0
-   healthcheck:
-   - target: TCP:80
-   listeners:
-   - lb-port: 80
-     lb-protocol: HTTP
-     instance-port: 80
-     instance-protocol: HTTP
-   dependencies:
-   - type: vpc
-     name: wordpress-demo-vpc
+- name: wordpress-demo-lb
+  private: true
+  vpc:
+    vpc_name: wordpress-demo-vpc
+    subnets:
+    - subnet_name: Public3
+  ingress_rules:
+  - port: 80
+    hosts:
+    - 0.0.0.0/0
+  healthcheck:
+  - target: TCP:80
+  listeners:
+  - lb-port: 80
+    lb-protocol: HTTP
+    instance-port: 80
+    instance-protocol: HTTP
+  dependencies:
+  - type: vpc
+    name: wordpress-demo-vpc
