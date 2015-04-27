@@ -6,6 +6,9 @@
    assign_ip: true
   storage:
   - size: 15
+  vpc: 
+   vpc_name: wordpress-demo-vpc
+   subnet_name: Public3
   dependencies:
   - type: loadbalancer
     name: wordpress-demo-lb
