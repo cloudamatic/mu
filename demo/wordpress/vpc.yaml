@@ -26,7 +26,7 @@ end
 num_used = counter
 (1..$azs.size).each do |i|
 %>
-  - name: Private<%= counter-num_used %>Private
+  - name: Private<%= counter-num_used %>
     ip_block: 10.0.<%= counter %>.0/24
     availability-zone: "<%= $azs[i-1] %>"
     route-table: private
