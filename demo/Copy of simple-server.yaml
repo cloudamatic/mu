@@ -1,7 +1,0 @@
----
-  appname: "demo"
-  servers: 
-    - 
-      name: "simple"
-      size: "m3.medium"
-      skipinitialupdates: true
