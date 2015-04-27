@@ -2,7 +2,7 @@ servers:
 - name: wordpress-demo-app
   ami_id: ami-5db4a934
   ssh_user: ubuntu
-  size: m3.medium
+  size: m1.small
   static_ip:
    assign_ip: true
   storage:
