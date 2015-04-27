@@ -3,7 +3,6 @@ appname: wordpress-demo
 <%
 $azs = listAZs
 %>
-region:  us-east-1
 vpcs:
 <% if !$vpc_id then %>
 <%= include("vpc.yaml") %>
