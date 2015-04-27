@@ -6,8 +6,8 @@
      - subnet_name: Public3
    ingress_rules: 
    - port: 80
-	 hosts: 
-	 - 0.0.0.0/0
+	  hosts: 
+	  - 0.0.0.0/0
    healthcheck: 
 	target: HTTP:80/
 	unhealthy-threshold: 5
