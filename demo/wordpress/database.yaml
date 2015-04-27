@@ -1,5 +1,6 @@
   - name: wordpress-demo-db
     engine: mysql
+    creation_style: new
     db_family: mysql5.6
     vpc:
       vpc_name: wordpress-demo-vpc

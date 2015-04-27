@@ -18,7 +18,7 @@ counter=0
 %>
   - name: Public<%= counter %>
     ip_block: 10.0.<%= counter %>.0/24
-    availability-zone: "<%= $azs[i-1] %>"
+    availability-zone: <%= $azs[i-1] %>
     route-table: internet
 <%
   counter = counter + 1
@@ -28,7 +28,7 @@ num_used = counter
 %>
   - name: Private<%= counter-num_used %>
     ip_block: 10.0.<%= counter %>.0/24
-    availability-zone: "<%= $azs[i-1] %>"
+    availability-zone: <%= $azs[i-1] %>
     route-table: private
 <%
   counter = counter + 1
