@@ -1,7 +1,7 @@
 - name: bastion
   ami-id: ami-bc8131d4
   ssh_user: root
-  size: m1.small
+  size: m3.medium
   src-dst-check: false
   static_ip: 
     assign_ip: true

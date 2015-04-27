@@ -3,7 +3,7 @@
   ssh_user: root
   loadbalancers:
   - concurrent-load-balancer: wordpress-demo-lb
-  size: m1.small
+  size: m3.medium
   static_ip:
    assign_ip: true
   storage:
