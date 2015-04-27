@@ -11,11 +11,11 @@
    healthcheck:
    - target: HTTP:80/
      unhealthy-threshold: 2
-   listeners: 
+   listeners:
    - lb-port: 80
-	 lb-protocol: HTTP
-	 instance-port: 80
-	 instance-protocol: HTTP
+     lb-protocol: HTTP
+     instance-port: 80
+     instance-protocol: HTTP
    dependencies:
    - type: vpc
      name: wordpress-demo-vpc
