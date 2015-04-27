@@ -1,11 +1,13 @@
 - name: wordpress-demo-app
   ami_id: ami-5db4a934
   ssh_user: ubuntu
+  loadbalancers:
+  - concurrent-load-balancer :wordpress-demo-lb
   size: m1.small
   static_ip:
    assign_ip: true
   storage:
-  - size: 15
+  - size: 70
   vpc: 
    vpc_name: wordpress-demo-vpc
    subnet_name: Public3
