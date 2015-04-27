@@ -8,21 +8,17 @@
 
 %>
 ---
-appname: tiered
-<%
-$azs = listAZs
-%>
-<% if !$vpc_deploy_id then %>
+appname: wordpress-demo
+region:  us-east-1
 vpcs:
+<% if !$vpc_id then %>
 <%= include("vpc.yaml") %>
 <% end %>
 loadbalancers:
 <%= include("loadbalancers.yaml") %>
-<% if !$vpc_deploy_id then %>
-servers:
-<%= include("bastion.yaml") %>
-<% end %>
-server_pools:
-<%= include("server.yaml") %>
 databases:
 <%= include("database.yaml") %>
+servers:
+<%= include("bastion.yaml") %>
+<%= include("server.yaml") %>
+

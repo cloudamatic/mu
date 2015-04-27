@@ -1,47 +1,28 @@
-servers:
-- name: wordpress-demo-app
-  ami_id: ami-5db4a934
+  name: bastion
+  ami-id: ami-5db4a934
   ssh_user: ubuntu
-  size: m3.medium
-  static_ip:
-   assign_ip: true
-  storage:
-  - size: 70
-  dependencies:
-  - type: loadbalancer
-    name: wordpress-demo-lb
-  - type: database
-    name: wordpress-demo-db
-  ingress_rules:
-  - port: 80
-    hosts:
-    - 0.0.0.0/0
-  - port: 443
-    hosts:
-    - 0.0.0.0/0  
-  run_list:
-  - recipe[apache2]
-  - recipe[demo::php]
-  vpc:
+  size: t1.micro
+  src-dst-check: false
+  static_ip: 
+    assign_ip: true
+  vpc: 
     vpc_name: wordpress-demo-vpc
-    subnets:
-      - subnet_name: Public3
-admins:
-- name: John Stange
-  email: john.stange@eglobaltech.com
-<% unless $vpc_deploy_id or current_vpc then %>
-vpcs:
-- name: vpc
-  route-tables:
-  - name: internet
-    routes:
-    - destination_network: 0.0.0.0/0
-      gateway: "#INTERNET"
-  subnets:
-<% $azs.each.with_index do |az, i| %>
-  - name: Subnet<%= i %>Public
-    ip_block: 10.0.<%= i %>.0/24
-    availability-zone: "<%= az %>"
-    route-table: internet
-<% end %>
-<% end %>
+    subnet_name: Public3
+  application_attributes: 
+    nat: 
+      private_net: 10.1.0.0/16
+  ingress_rules: 
+    - 
+      proto: icmp
+      hosts: 
+        - 10.0.0.0/16
+    - 
+      proto: tcp
+      port-range: 1-65535
+      hosts: 
+        - 10.0.0.0/16
+    - 
+      proto: udp
+      port-range: 1-65535
+      hosts: 
+        - 10.0.0.0/16
