@@ -9,7 +9,11 @@
     hosts:
     - 0.0.0.0/0
   healthcheck:
-  - target: TCP:80
+   target: TCP:80
+   timeout: 5
+   interval: 30
+   unhealthy-threshold: 2
+   healthy-threshold: 2
   listeners:
   - lb-port: 80
     lb-protocol: HTTP
