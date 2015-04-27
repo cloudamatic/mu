@@ -1015,6 +1015,7 @@ module MU
 					ok = false
 				end
 
+				# Adding rules for Database instance storage. This varies depending on storage type and database type. 
 				if db["storage_type"] == "standard" or db["storage_type"] == "gp2"
 					if db["engine"] == "postgres" or db["engine"] == "mysql"
 						if !(5..3072).include? db["storage"]
@@ -1043,33 +1044,11 @@ module MU
 							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 3072 GB for #{db["storage_type"]} volume types", MU::ERR
 							ok = false
 						end
-						# if (100..3072).include? db["storage"]
-							# min_iops = (db["storage"]*3).round(-3)
-							# max_iops = (db["storage"]*10).round(-3)
-							# if !(min_iops..max_iops).include? db["iops"]
-								# MU.log "PIOPS is set to #{db["iops"]}. PIOPS must be set with increments of 1000 ", MU::ERR
-								# ok = false
-							# end
-						# else
-							# MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 3072 GB for #{db["storage_type"]} volume types", MU::ERR
-							# ok = false
-						# end
 					elsif db["engine"] == "sqlserver-ex" or db["engine"] == "sqlserver-web"
 						if !(100..1000).step(100).include? db["storage"]
 							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 1000 GB  with 100 GB increments for #{db["storage_type"]} volume types", MU::ERR
 							ok = false
 						end
-						# if (100..1000).step(100).include? db["storage"]
-							# min_iops = (db["storage"]*3).round(-3)
-							# max_iops = (db["storage"]*10).round(-3)
-							# if !(min_iops..max_iops).include? db["iops"]
-								# MU.log "PIOPS is set to #{db["iops"]}. PIOPS must be set between #{(db["storage"]*3).round(-3)} and #{(db["storage"]*10).round(-3)}", MU::ERR
-								# ok = false
-							# end
-						# else
-							# MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 1000 GB  with 100 GB steps for #{db["storage_type"]} volume types", MU::ERR
-							# ok = false
-						# end
 					elsif db["engine"] == "sqlserver-ee" or db["engine"] == "sqlserver-se"
 						if !(200..1000).step(100).include? db["storage"]
 							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 1000 GB  with 100 GB increments for #{db["storage_type"]} volume types", MU::ERR
@@ -1832,7 +1811,6 @@ module MU
 					},
 					"iops" => {
 						"type" => "integer",
-						"enum" => (100..20000),
 						"description" => "The amount of IOPS to allocate to Provisioned IOPS (io1) volumes.",
 					},
 					"device" => {
@@ -2225,6 +2203,11 @@ module MU
 				},
 				"vpc" => vpc_reference_primitive(ONE_SUBNET+MANY_SUBNETS, NAT_OPTS, "public"),
 				"dns_records" => dns_records_primitive(need_target: false, default_type: "A", need_zone: true),
+				"dns_sync_wait"=> {
+					"type" => "boolean",
+					"description" => "Wait for DNS record to propagate in DNS Zone.",
+					"default" => true,
+				},
 				"image_then_destroy" => {
 					"type" => "boolean",
 					"description" => "Create an EC2 AMI of this server once it is complete, then destroy this server.",
@@ -2284,6 +2267,11 @@ module MU
 					"type" => "string",
 				},
 				"dns_records" => dns_records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
+				"dns_sync_wait"=> {
+					"type" => "boolean",
+					"description" => "Wait for DNS record to propagate in DNS Zone.",
+					"default" => true,
+				},
 				"dependencies" => @dependencies_primitive,
 				"size" => @rds_size_primitive,
 				"storage" => {
@@ -2323,7 +2311,6 @@ module MU
 				},
 				"backup_retention_period"=> {
 					"type" => "integer",
-					"enum" => (0..35),
 					"default" => 0,
 					"description" => "The number of days to retain an automatic database snapshot. If set to 0 and deployment is multi-az will be overridden to 35",
 				},
@@ -2338,7 +2325,6 @@ module MU
 				},
 				"iops"=> {
 					"type" => "integer",
-					"enum" => (1000..30000).step(1000),
 					"description" => "The amount of IOPS to allocate to Provisioned IOPS (io1) volumes. Increments of 1,000",
 				},
 				"auto_minor_version_upgrade"=> { 
@@ -2380,6 +2366,11 @@ module MU
 						"name" => { "type" => "string" },
 						"tags" => @tags_primitive,
 						"dns_records" => dns_records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
+						"dns_sync_wait"=> {
+							"type" => "boolean",
+							"description" => "Wait for DNS record to propagate in DNS Zone.",
+							"default" => true,
+						},
 						"dependencies" => @dependencies_primitive,
 						"size" => @rds_size_primitive,
 						"storage_type" => {
@@ -2395,7 +2386,6 @@ module MU
 						},
 						"iops"=> {
 							"type" => "integer",
-							"enum" => (1000..30000).step(1000),
 							"description" => "The amount of IOPS to allocate to Provisioned IOPS (io1) volumes. Increments of 1,000",
 						},
 						"auto_minor_version_upgrade"=> { 
@@ -2427,6 +2417,11 @@ module MU
 				"tags" => @tags_primitive,
 				"add_firewall_rules" => @additional_firewall_rules,
 				"dns_records" => dns_records_primitive(need_target: false, default_type: "R53ALIAS", need_zone: true),
+				"dns_sync_wait"=> {
+					"type" => "boolean",
+					"description" => "Wait for DNS record to propagate in DNS Zone.",
+					"default" => true,
+				},
 				"ingress_rules" => {
 					"type" => "array",
 					"items" => @firewall_ruleset_rule_primitive

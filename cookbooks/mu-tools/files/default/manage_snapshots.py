@@ -64,15 +64,18 @@ class EBSSnapshots():
         elif 'Name' in volume.tags.keys():
             volume_name_tag = volume.tags['Name']
         else:
-            volume_name_tag = volume.tags['CAP-ID']
+            volume_name_tag = volume.tags['MU-ID']
         new_snapshot.add_tag('Name', '{name_tag}-{device_id}'.format(name_tag=volume_name_tag, device_id=volume.attach_data.device.upper()))
         new_snapshot.add_tag('SnapshotType', 'Automated-Snapshots')
         new_snapshot.add_tag('Attachment-Device', volume.attach_data.device.upper())
-        new_snapshot.add_tag('CAP-ID', volume.tags['CAP-ID'])
+        for tag_key in volume.tags.iterkeys():
+            if tag_key =! "Name"
+                new_snapshot.add_tag(tag_key, volume.tags[tag_key])
+        new_snapshot.add_tag('MU-ID', volume.tags['MU-ID'])
         logger.info('Created snapshot {snap_id} {snap_name}'.format(snap_id=new_snapshot.id, snap_name=new_snapshot.tags['Name']))
 
     def deleteSnapshots(self, volume):
-        snapshots_filters = {'volume-id':volume.id, 'tag-key':'SnapshotType', 'tag-value':'Automated-Snapshots', 'tag-key':'CAP-ID', 'tag-value':volume.tags['CAP-ID']}
+        snapshots_filters = {'volume-id':volume.id, 'tag-key':'SnapshotType', 'tag-value':'Automated-Snapshots', 'tag-key':'MU-ID', 'tag-value':volume.tags['MU-ID']}
         all_snapshots = self.ec2_conn.get_all_snapshots(filters=snapshots_filters)
         sorted_snapshots = sorted(all_snapshots, key=lambda snapshot: snapshot.start_time)
         snpashots_to_delete = len(sorted_snapshots) - snaps_keep

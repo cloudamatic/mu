@@ -39,7 +39,6 @@ end
 
 file "/home/nagios/.ssh/config" do
 	owner "nagios"
-	group "0600"
 	mode 0600
 end
 

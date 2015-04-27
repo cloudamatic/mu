@@ -590,7 +590,7 @@ module MU
 					found_servers = MU::MommaCat.getResourceDeployStruct(MU::Server.cfg_plural, name: mu_name)
 					if !found_servers.nil? and found_servers.is_a?(Hash)
 						if found_servers.values.first['instance_id'] == nat_instance.instance_id
-							dns_name = MU::DNSZone.genericDNSEntry(found_servers.keys.first, nat_ssh_host, MU::Server, noop: true)
+							dns_name = MU::DNSZone.genericDNSEntry(found_servers.keys.first, nat_ssh_host, MU::Server, noop: true, sync_wait: @server['dns_sync_wait'])
 						end
 					end
 					nat_ssh_host = dns_name if !dns_name.nil?
@@ -701,9 +701,9 @@ module MU
 				dnsthread = Thread.new {
 					MU.dupGlobals(parent_thread_id)
 					if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
-						MU::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Server)
+						MU::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Server, sync_wait: @server['dns_sync_wait'])
 					else
-						MU::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Server)
+						MU::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Server, sync_wait: @server['dns_sync_wait'])
 					end
 				}
 			end
@@ -838,9 +838,9 @@ module MU
 
 			if dnsthread.nil?
 				if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
-					MU::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Server)
+					MU::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Server, sync_wait: @server['dns_sync_wait'])
 				else
-					MU::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Server)
+					MU::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Server, sync_wait: @server['dns_sync_wait'])
 				end
 			else
 				dnsthread.join
@@ -930,7 +930,7 @@ module MU
 						MU::MommaCat.listStandardTags.each_pair { |key, value|
 							MU::MommaCat.createTag(attachment.volume_id, key, value, region: server['region'])
 
-							if attachment.device == "/dev/sda1" or attachment.device == "/dev/sda1"
+							if attachment.device == "/dev/sda" or attachment.device == "/dev/sda1"
 								MU::MommaCat.createTag(attachment.volume_id, "Name", "ROOT-#{MU.mu_id}-#{server["name"].upcase}", region: server['region'])
 							else
 								MU::MommaCat.createTag(attachment.volume_id, "Name", "#{MU.mu_id}-#{server["name"].upcase}-#{attachment.device.upcase}", region: server['region'])
@@ -1278,9 +1278,9 @@ module MU
 			mu_zone, junk = MU::DNSZone.find(name: "mu")
 			if !mu_zone.nil?
 				if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
-					MU::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Server)
+					MU::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Server, sync_wait: @server['dns_sync_wait'])
 				else
-					MU::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Server)
+					MU::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Server, sync_wait: @server['dns_sync_wait'])
 				end
 			else
 				MU::MommaCat.removeInstanceFromEtcHosts(node)
