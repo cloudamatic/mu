@@ -1,4 +1,4 @@
-  name: bastion
+- name: bastion
   ami-id: ami-5db4a934
   ssh_user: ubuntu
   size: m1.small
