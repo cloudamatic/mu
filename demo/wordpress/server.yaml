@@ -5,8 +5,6 @@ servers:
   size: m1.small
   static_ip:
    assign_ip: true
-  storage:
-  - size: 70
   dependencies:
   - type: loadbalancer
     name: wordpress-demo-lb
