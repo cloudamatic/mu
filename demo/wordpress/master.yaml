@@ -1,12 +1,3 @@
-<%
-	if $vpc_id
-		if !$nat_host_id or !$subnet_public_1 or !$subnet_public_2 or !$subnet_public_3 or !$subnet_private_1 or !$subnet_private_2 or !$subnet_private_3
-			raise "If deploying into an existing VPC, you must specify a nat_host_id and at least one pair of subnets (subnet_public_1/subnet_private_1)"
-		end
-		$nat_ssh_user="root" if !$nat_ssh_user
-	end
-
-%>
 ---
 appname: wordpress-demo
 <%
@@ -24,4 +15,3 @@ databases:
 servers:
 <%= include("bastion.yaml") %>
 <%= include("server.yaml") %>
-
