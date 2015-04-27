@@ -1,7 +1,7 @@
   name: bastion
   ami-id: ami-5db4a934
   ssh_user: ubuntu
-  size: t1.micro
+  size: m1.small
   src-dst-check: false
   static_ip: 
     assign_ip: true
