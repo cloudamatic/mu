@@ -14,11 +14,5 @@ vpcs:
 <% if !$vpc_id then %>
 <%= include("vpc.yaml") %>
 <% end %>
-loadbalancers:
-<%= include("loadbalancers.yaml") %>
-databases:
-<%= include("database.yaml") %>
-servers:
-<%= include("bastion.yaml") %>
-<%= include("server.yaml") %>
+
 
