@@ -109,6 +109,8 @@ module MU
 		def createDb
 			snap_id = getExistingSnapshot if @db["creation_style"] == "existing_snapshot"
 			snap_id = createNewSnapshot if @db["creation_style"] == "new_snapshot" or (@db["creation_style"] == "existing_snapshot" and snap_id.nil?)
+			@db["snapshot_id"] = snap_id
+
 			db_node_name = MU::MommaCat.getResourceName(@db["name"])
 
 			# RDS is picky, we can't just use our regular node names for things like
@@ -119,21 +121,15 @@ module MU
 
 			# Getting engine specific names
 			dbname = getName(basename, type: "dbname")
-			dbuser = getName(basename, type: "dbuser")
-			db_identifier = getName(db_node_name, type: "dbidentifier")
-			MU.log "Truncated master username for #{db_identifier} (db #{dbname}) to #{dbuser}", MU::WARN if dbuser != @db["name"] and snap_id.nil?
+			@db['master_user'] = getName(basename, type: "dbuser")
+			@db['identifier'] = getName(db_node_name, type: "dbidentifier")
+			MU.log "Truncated master username for #{@db['identifier']} (db #{dbname}) to #{@db['master_user']}", MU::WARN if @db['master_user'] != @db["name"] and @db["snapshot_id"].nil?
 
-			@db['master_user'] = dbuser
-
-			if @db['password'].nil?
-				dbpassword = @db['password'] = Password.pronounceable(10..12)
-			else
-				dbpassword = @db['password']
-			end
+			@db['password'] = Password.pronounceable(10..12) if @db['password'].nil?
 
 			# Database instance config
 			config={
-				db_instance_identifier: db_identifier,
+				db_instance_identifier: @db['identifier'],
 				db_instance_class: @db["size"],
 				engine: @db["engine"],
 				engine_version: @db["engine_version"],
@@ -153,14 +149,14 @@ module MU
 			config[:iops] = @db["iops"] if @db['storage_type'] == "io1"
 			config[:preferred_maintenance_window] = @db["preferred_maintenance_window"] if @db["preferred_maintenance_window"]
 
-			if snap_id.nil?
+			if @db["snapshot_id"].nil?
 				config[:allocated_storage] = @db["storage"]
 				config[:db_name] = dbname
 				config[:master_username] = @db['master_user']
-				config[:master_user_password] = dbpassword
+				config[:master_user_password] = @db['password']
 			end
 			
-			# Lets make sure that automatic backups are enabled when DB instance is deployed in Multi-AZ so failover actually works. Maybe default to 1 instead?
+			# Lets make sure automatic backups are enabled when DB instance is deployed in Multi-AZ so failover actually works. Maybe default to 1 instead?
 			if @db['multi_az_on_create'] or @db['multi_az_on_deploy']
 				if @db["backup_retention_period"].nil? or @db["backup_retention_period"] == 0
 					@db["backup_retention_period"] = 35
@@ -175,21 +171,6 @@ module MU
 
 			config[:preferred_backup_window] = @db["preferred_backup_window"]
 			config[:backup_retention_period] = @db["backup_retention_period"]
-			
-			if @db['vpc'].empty?
-				MU.log("Creating RDS security group #{dbsgname}")
-				db_security_group=MU.rds(@db['region']).create_db_security_group(
-					{
-						db_security_group_name: dbsgname,
-						db_security_group_description: MU.mu_id
-					}
-				)
-				
-				addStandardTags(dbsgname, "secgrp", region: @db['region'])
-			
-				config[:db_security_groups] = [dbsgname]
-				config[:publicly_accessible] = @db["publicly_accessible"]
-			end
 
 			db_config = createSubnetGroup(config)
 
@@ -197,37 +178,32 @@ module MU
 			attempts = 0
 			begin
 				MU.log "RDS config: #{db_config}", MU::DEBUG
-				if snap_id
-					db_config[:db_snapshot_identifier] = snap_id
-					MU.log "Creating database instance #{db_identifier} (default db #{dbname}) from snapshot #{snap_id}", details: db_config
+				if @db["snapshot_id"]
+					db_config[:db_snapshot_identifier] = @db["snapshot_id"]
+					MU.log "Creating database instance #{@db['identifier']} (default db #{dbname}) from snapshot #{@db["snapshot_id"]}", details: db_config
 					resp = MU.rds(@db['region']).restore_db_instance_from_db_snapshot(db_config)
 				else
-					MU.log "Creating database instance #{db_identifier} (default db #{dbname})", details: db_config
+					MU.log "Creating database instance #{@db['identifier']} (default db #{dbname})", details: db_config
 					resp = MU.rds(@db['region']).create_db_instance(db_config)
 				end
 			rescue Aws::RDS::Errors::InvalidParameterValue => e
 				if attempts < 5
-					MU.log "Got #{e.inspect} creating #{db_identifier}, will retry a few times in case of transient errors.", MU::WARN
+					MU.log "Got #{e.inspect} creating #{@db['identifier']}, will retry a few times in case of transient errors.", MU::WARN
 					attempts += 1
 					sleep 10
 					retry
 				else
-					MU.log "Exhausted retries trying to create database instance #{db_identifier}", MU::ERR, details: e.inspect
+					MU.log "Exhausted retries trying to create database instance #{@db['identifier']}", MU::ERR, details: e.inspect
 				end
 			end
 
-			@db['identifier'] = resp.db_instance.db_instance_identifier
-
-			
-			attempts = 0
-			loop do
-				MU.log("Waiting for RDS database #{db_identifier} to be ready...", MU::NOTICE) if attempts % 20 == 0
-				MU.log("Waiting for RDS database #{db_identifier} to be ready...", MU::DEBUG)
-				resp = MU.rds(@db['region']).describe_db_instances(db_instance_identifier: @db['identifier'])
-				attempts += 1
-				sleep 15
-				break unless resp.db_instances.first.db_instance_status != "available"
+			MU.log "Waiting for RDS database #{@db['identifier'] } to be ready...", MU::NOTICE
+			MU.rds(@db['region']).wait_until(:db_instance_available, db_instance_identifier: @db['identifier']) do |waiter|
+				# Does create_db_instance implement wait_until_available ?
+				waiter.interval = 15
+				waiter.max_attempts = 150
 			end
+			# @db['identifier'] = resp.db_instance.db_instance_identifier
 
 			resp = MU.rds(@db['region']).describe_db_instances(db_instance_identifier: @db['identifier'])
 			database = resp.db_instances.first
@@ -239,7 +215,7 @@ module MU
 
 				# When creating from a snapshot, some of the create arguments aren't
 				# applicable- but we can apply them after the fact with a modify.
-				if snap_id
+				if @db["snapshot_id"]
 					mod_config = Hash.new
 					mod_config[:db_instance_identifier] = database.db_instance_identifier
 					mod_config[:apply_immediately] = true
@@ -261,19 +237,15 @@ module MU
 
 					MU.rds(@db['region']).modify_db_instance(mod_config)
 
-					attempts = 0
-					loop do
-						MU.log("Waiting for RDS database #{db_identifier} to be ready...", MU::NOTICE) if attempts % 10 == 0
-						MU.log("Waiting for RDS database #{db_identifier} to be ready...", MU::DEBUG)
-						resp = MU.rds(@db['region']).describe_db_instances(db_instance_identifier: @db['identifier'])
-						attempts += 1
-						sleep 15
-						break unless resp.data.db_instances.first.db_instance_status != "available"
+					MU.log "Waiting for RDS database #{@db['identifier'] } to be ready...", MU::NOTICE
+					MU.rds(@db['region']).wait_until(:db_instance_available, db_instance_identifier: @db['identifier']) do |waiter|
+						waiter.interval = 15
+						waiter.max_attempts = 150
 					end
 				end
 
-				MU::Database.notifyDeploy(@db["name"], @db['identifier'], dbpassword, @db["creation_style"], region: @db['region'])
-				MU.log("Database #{dbname} is ready to use")
+				MU::Database.notifyDeploy(@db["name"], @db['identifier'], @db['password'], @db["creation_style"], region: @db['region'])
+				MU.log "Database #{@db['identifier']} is ready to use"
 				done = true
 			ensure
 				if !done and database
@@ -297,8 +269,6 @@ module MU
 		end
 
 		def createSubnetGroup(config)
-			snap_id = getExistingSnapshot if @db["creation_style"] == "existing_snapshot"
-			snap_id = createNewSnapshot if @db["creation_style"] == "new_snapshot" or (@db["creation_style"] == "existing_snapshot" and snap_id.nil?)
 			# Finding subnets, creating security groups/adding holes, create subnet group 
 			if @db['vpc'] and !@db['vpc'].empty?
 				existing_vpc, vpc_name = MU::VPC.find(
@@ -323,20 +293,22 @@ module MU
 						)
 
 						if !subnet_struct
+							# should this be subnet_struct.empty?
 							MU.log "Couldn't find a live subnet matching #{subnet}", MU::ERR, details: MU::Deploy.deployment['subnets']
+							raise "Couldn't find a live subnet matching #{subnet}"
 						else
 							subnet_ids << subnet_struct.subnet_id
 						end
 					}
 				else
 					subnet_ids = MU::VPC.listSubnets(vpc_id: vpc_id, region: @db['region'])
-					MU.log "No subnets specified for #{dbname}, adding all subnets in #{vpc_id}", MU::DEBUG, details: subnet_ids
+					MU.log "No subnets specified for #{@db['identifier']}, adding all subnets in #{vpc_id}", MU::DEBUG, details: subnet_ids
 				end
 
 				# Create DB subnet group
 				if subnet_ids.empty?
-					MU.log "Couldn't find subnets in #{vpc_id} to add #{dbname} to", MU::ERR, details: vpc_id
-					raise "Couldn't find subnets in #{vpc_id} to add #{dbname} to"
+					MU.log "Couldn't find subnets in #{vpc_id} to add #{@db['identifier']} to", MU::ERR, details: vpc_id
+					raise "Couldn't find subnets in #{vpc_id} to add #{@db['identifier']} to"
 				else
 					resp = MU.rds(@db['region']).create_db_subnet_group(
 						db_subnet_group_name: config[:db_subnet_group_name],
@@ -355,13 +327,13 @@ module MU
 					}
 					# Setting publicly_accessible on DB instance. 
 					# Making sure that if we only include private subnets we didn't also set publicly_accessible to true. 
-					# Setting publicly_accessible to true in that case will make the DB instance DNS record only resolvable to a public IP address.
+					# Setting publicly_accessible to true in that case will make the DB instance DNS record resolvable only to a public IP address.
 					if !is_public_subnet and @db["publicly_accessible"]
-						MU.log "Database instance #{dbname} is set to be publicly accessible but subnet group #{resp.db_subnet_group.db_subnet_group_name} only includes private subnets. setting publicly_accessible to false", MU::WARN
-						config[:publicly_accessible] = false
-					else
-						config[:publicly_accessible] = @db["publicly_accessible"]
+						MU.log "Database instance #{@db['identifier']} is set to be publicly accessible but subnet group #{resp.db_subnet_group.db_subnet_group_name} only includes private subnets. setting publicly_accessible to false", MU::WARN
+						@db["publicly_accessible"] = false
 					end
+					
+					config[:publicly_accessible] = @db["publicly_accessible"]
 				end
 
 				# Find NAT and create holes in security groups
@@ -387,7 +359,7 @@ module MU
 
 				# Create VPC security group and add to config 
 				vpc_db_sg = MU::FirewallRule.createEc2SG(@db['name'], nil, description: "Database Security Group for #{@db['name']}", vpc_id: vpc_id, region: @db['region'])
-				if snap_id.nil?
+				if @db["snapshot_id"].nil?
 					config[:vpc_security_group_ids] = [vpc_db_sg, admin_sg]
 
 					if @db["add_firewall_rules"] and !@db["add_firewall_rules"].empty?
@@ -397,8 +369,8 @@ module MU
 						}
 					end
 				end
-			# elsif snap_id.nil?
-			# Why are we using an EC2 security group for VPC? should this be subnet_id instead? Changing it to something that makes more sense.
+			# elsif @db["snapshot_id"].nil?
+			# Why are we specifying an RDS security group for VPC? should this be subnet_id instead? Changing it to something that makes more sense.
 				# config[:db_security_groups] = [dbsgname]
 			else
 				# If we didn't specify a VPC, make the distinction between EC2 Classic
@@ -417,9 +389,22 @@ module MU
 						"subnet_id" => default_subnet
 					}
 					using_default_vpc = true
+				else
+					# Creating an RDS secuirty group if no VPC exist. Not sure if this actually works. 
+					MU.log "Creating RDS security group #{dbsgname}"
+					db_security_group=MU.rds(@db['region']).create_db_security_group(
+						{
+							db_security_group_name: dbsgname,
+							db_security_group_description: MU.mu_id
+						}
+					)
+
+					addStandardTags(dbsgname, "secgrp", region: @db['region'])
+
+					config[:db_security_groups] = [dbsgname]
 				end
 			end
-			
+
 			return config
 		end
 
@@ -434,20 +419,12 @@ module MU
 
 				# check if DB is private or public
 				if !database.publicly_accessible
-				# This doesn't necessarily mean what we think it does. 
-				#	You can still set publicly_accessible to true even when only private subnets are included in the subnet group. We try to solve this during creation.
+				# This doesn't necessarily mean what we think it does.
+				# You can still set publicly_accessible to true even when only private subnets are included in the subnet group. We try to solve this during creation.
 					is_private = true
 				else
 					is_private = false
 				end
-
-				# This isn't a good way to verify if a  DB instance is private or public. 
-				# publicly_accessible can still be set to true even if we included only private subnets. Solving this during creation
-				# database.db_subnet_group.subnets.each { |subnet|
-					# if MU::VPC.isSubnetPrivate?(subnet.subnet_identifier, region: @db['region'])
-						# is_private = true
-					# end
-				# }
 
 				# Getting VPC info
 				if @db['vpc'] and !@db['vpc'].empty?
@@ -518,7 +495,7 @@ module MU
 					begin
 						gateway.close(port)
 					rescue IOError => e
-						MU.log e.inspect, MU::ERR
+						MU.log "Failed to close ssh session to NAT after running sql_on_deploy", MU::ERR, details: e.inspect
 					end
 				end
 			end
@@ -536,7 +513,7 @@ module MU
 						)
 					rescue Aws::RDS::Errors::InvalidParameterValue, Aws::RDS::Errors::InvalidDBInstanceState => e
 						if retries < 15
-							MU.log "Got #{e.inspect} while setting Multi-AZ on #{@db['identifier']}, retrying.", MU::WARN
+							MU.log "Got #{e.inspect} while setting Multi-AZ on #{@db['identifier']}, retrying."
 							retries = retries + 1
 							sleep 15
 							retry
@@ -548,6 +525,8 @@ module MU
 			end
 		end
 
+		# Generate database user, database identifier, database name based on engine-specific constraints
+		# @return [String]: Name
 		def getName(basename, type: 'dbname')
 			if type == 'dbname'
 				# Apply engine-specific db name constraints
@@ -712,8 +691,8 @@ module MU
 			
 			attempts = 0
 			loop do
-				MU.log("Waiting for RDS snapshot of #{db_id} to be ready...", MU::NOTICE) if attempts % 20 == 0
-				MU.log("Waiting for RDS snapshot of #{db_id} to be ready...", MU::DEBUG)
+				MU.log "Waiting for RDS snapshot of #{db_id} to be ready...", MU::NOTICE if attempts % 20 == 0
+				MU.log "Waiting for RDS snapshot of #{db_id} to be ready...", MU::DEBUG
 				snapshot_resp = MU.rds(@db['region']).describe_db_snapshots(
 					:db_snapshot_identifier => snap_id,
 				)
@@ -744,19 +723,13 @@ module MU
 		def createReadReplica
 			if @db['read_replica']
 				db_node_name = MU::MommaCat.getResourceName(@db['read_replica']['name'])
+				
+				@db['read_replica']['identifier'] = getName(db_node_name, type: "dbidentifier")
+				@db['read_replica']['source_identifier'] = @db['identifier'] if !@db['read_replica']['source_identifier']
 
-				read_replica_db_identifier = getName(db_node_name, type: "dbidentifier")
-
-				if @db['read_replica']['source_identifier']
-					source_db_identifier = @db['read_replica']['source_identifier']
-				else
-					source_db_identifier = @db['identifier']
-				end
-
-				# read_replica_db_identifier = "#{source_db_identifier}-#{rand(36**4).to_s(36)}" # Unique name should be created with Mu instead
 				replica_config = {
-					db_instance_identifier: read_replica_db_identifier,
-					source_db_instance_identifier: source_db_identifier,
+					db_instance_identifier: @db['read_replica']['identifier'],
+					source_db_instance_identifier: @db['read_replica']['source_identifier'],
 					auto_minor_version_upgrade: @db['read_replica']['auto_minor_version_upgrade'],
 					storage_type: @db['read_replica']['storage_type'],
 					publicly_accessible: @db['read_replica']['publicly_accessible'],
@@ -782,40 +755,36 @@ module MU
 				retries = 0
 				begin
 					MU.log "Read recplica RDS config: #{replica_config}", MU::DEBUG
-					MU.log "Creating read replica database instance #{read_replica_db_identifier} from #{source_db_identifier} database instance", details: replica_config
+					MU.log "Creating read replica database instance #{@db['read_replica']['identifier']} from #{@db['read_replica']['source_identifier']} database instance", details: replica_config
 					resp = MU.rds(@db['read_replica']['region']).create_db_instance_read_replica(replica_config)
 				rescue Aws::RDS::Errors::InvalidParameterValue => e
 					if retries < 5
-						MU.log "Got #{e.inspect} creating #{read_replica_db_identifier}, will retry a few times in case of transient errors.", MU::WARN
+						MU.log "Got #{e.inspect} creating #{@db['read_replica']['identifier']}, will retry a few times in case of transient errors.", MU::WARN
 						retries = retries + 1
 						sleep 10
 						retry
 					else
-						MU.log e.inspect, MU::ERR, details: replica_config
-						raise e
+						MU.log "Exhausted retries to create DB read replica #{@db['read_replica']['identifier']}, giving up", MU::ERR, details: e.inspect
+						raise "Exhausted retries to create DB read replica #{@db['read_replica']['identifier']}, giving up"
 					end
 				end
 
-				@db['read_replica']['identifier'] = resp.db_instance.db_instance_identifier
+				# @db['read_replica']['identifier'] = resp.db_instance.db_instance_identifier
 				begin # this ends in an ensure block that cleans up if we die
-					attempts = 0
-					loop do
-						MU.log("Waiting for Read Replica RDS database #{read_replica_db_identifier} to be ready...", MU::NOTICE) if attempts % 20 == 0
-						MU.log("Waiting for Read Replica RDS database #{read_replica_db_identifier} to be ready...", MU::DEBUG)
-						resp = MU.rds(@db['region']).describe_db_instances(db_instance_identifier: @db['read_replica']['identifier'])
-						attempts += 1
-						sleep 15
-						break unless resp.db_instances.first.db_instance_status != "available"
+					MU.log "Waiting for Read Replica RDS database #{@db['read_replica']['identifier']} to be ready...", MU::NOTICE
+					MU.rds(@db['region']).wait_until(:db_instance_available, db_instance_identifier: @db['read_replica']['identifier']) do |waiter|
+						waiter.interval = 15
+						waiter.max_attempts = 150
 					end
 
 					resp = MU.rds(@db['region']).describe_db_instances(db_instance_identifier: @db['read_replica']['identifier'])
 					database = resp.db_instances.first
 
-					MU::DNSZone.genericDNSEntry(database.db_instance_identifier, "#{database.endpoint.address}.", MU::Database, sync_wait: @db['dns_sync_wait'])
+					MU::DNSZone.genericDNSEntry(database.db_instance_identifier, "#{database.endpoint.address}.", MU::Database, sync_wait: @db['read_replica']['dns_sync_wait'])
 					MU::DNSZone.createRecordsFromConfig(@db['read_replica']['dns_records'], target: database.endpoint.address)
 
 					MU::Database.notifyDeploy(@db['read_replica']['name'], @db['read_replica']['identifier'], @db['password'], "read_replica", region: @db['read_replica']['region'])
-					MU.log("Database instance #{@db['read_replica']['identifier']} is ready to use")
+					MU.log "Database instance #{@db['read_replica']['identifier']} is ready to use"
 					done = true
 				ensure
 					if !done and database
