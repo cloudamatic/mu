@@ -87,13 +87,6 @@ when "rhel"
 			wp core download
 			wp core config --dbname=#{$db_name} --dbuser=#{$db_user} --dbpass=#{$db_password} --dbhost=#{$db_host}
 			wp core multisite-install --url=#{$app_url} --title='#{$title}' --admin_user=#{$admin_user}  --admin_password=#{$admin_password}  --admin_email=#{$admin_email}
-
-            sed -i "/DB_HOST/s/'[^']*'/getenv('db_host')/2" wp-config.php
-		    sed -i "/DB_NAME/s/'[^']*'/getenv('db_name')/2" wp-config.php
-		    sed -i "/DB_USER/s/'[^']*'/getenv('db_user')/2" wp-config.php
-		    sed -i "/DB_PASSWORD/s/'[^']*'/getenv('db_password')/2" wp-config.php
-		    sed -i "/DOMAIN_CURRENT_SITE/s/'[^']*'/getenv('domain')/2" wp-config.php
-
 		EOH
 		not_if  {::File.exists?("/var/www/wordpressapp/wp-config.php") }
 	end
