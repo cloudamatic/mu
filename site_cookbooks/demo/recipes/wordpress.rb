@@ -62,6 +62,21 @@ when "rhel"
 		EOH
 	end
 
+    
+	template '/etc/profile.d/wordpress.sh' do
+	    owner 'root'
+	    group 'root'
+	    mode '0644'
+	    source "apache/wordpress.sh.erb"
+	    variables({
+	              :db_name => $db_name,
+	              :db_host => $db_host,
+	              :db_user => $db_user,
+	              :db_password => $db_password,
+	              :domain => $app_url
+	            })
+	end
+
 
 	bash "Launch Wordpress site" do
 		user "root"
