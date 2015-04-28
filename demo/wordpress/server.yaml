@@ -24,8 +24,7 @@
     hosts:
     - 0.0.0.0/0  
   run_list:
-  - recipe[apache2]
-  - recipe[demo::php]
+  - recipe[demo::wordpress]
 admins:
 - name: John Stange
   email: john.stange@eglobaltech.com
