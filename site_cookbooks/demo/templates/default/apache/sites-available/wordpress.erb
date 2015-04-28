@@ -1,7 +1,7 @@
 <VirtualHost *:80>
   ServerAdmin jaipbapna@gmail.com
   DocumentRoot /var/www/wordpressapp
-  ServerName localhost
+  ServerName <%=@site_url%>
   ErrorLog /var/log/<%=@site_url%>-error.log
   CustomLog /var/log/<%=@site_url%>-access.log combined
   <Directory /var/www/wordpressapp>
