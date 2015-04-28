@@ -2,7 +2,9 @@
   private: true
   vpc:
     vpc_name: wordpress-demo-vpc
-    subnet_name: Public3
+    subnet_pref: all_public
+    subnets: 
+    - subnet_name: Public3
   ingress_rules:
   - port: 80
     hosts:
