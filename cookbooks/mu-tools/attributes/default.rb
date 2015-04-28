@@ -179,3 +179,4 @@ default['ad']['auth'] = {
 	'data_bag' => 'active_directory',
 	'data_bag_item' => "join_domain"
 }
+default['windows_admin_username'] = "Administrator"
