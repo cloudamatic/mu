@@ -20,4 +20,4 @@ unless node[:recipes].include?("chef-server")
   end
 end
 
-include_recipe "mu-utility::updates"
+include_recipe "mu-tools::updates"
