@@ -9,10 +9,11 @@
 
 include_recipe "apache2"
 include_recipe "php"
+include_recipe "apache2::mod_php5"
 include_recipe "demo::mysql"
 include_recipe "demo::apache"
 
-$git_repo_name=node['mu_wordpress']['global']['git_repo_name']
+
 $database=node['deployment']['databases']
 $loadbalancer=node['deployment']['loadbalancers']
 $lb_url=$loadbalancer['wordpress-demo-lb']['dns'].downcase
@@ -79,6 +80,8 @@ when "rhel"
 	end
 
 when "debian"
+
+	
 
 	bash "Create mysql database in RDS" do
 		user "root"
