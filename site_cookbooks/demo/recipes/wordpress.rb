@@ -12,6 +12,7 @@ include_recipe "php"
 include_recipe "apache2::mod_php5"
 include_recipe "demo::mysql"
 include_recipe "demo::apache"
+include_recipe "demo::wp-cli"
 
 
 $database=node['deployment']['databases']
@@ -69,7 +70,7 @@ when "rhel"
 			cd wordpressapp
 			wp core download
 			wp core config --dbname=#{$db_name} --dbuser=#{$db_user} --dbpass=#{$db_password} --dbhost=#{$db_host}
-			wp core multisite-install --url=#{$app_url} --title=#{$title} --admin_user=#{$admin_user}  --admin_password=#{$admin_password}  --admin_email=#{$admin_email}
+			wp core multisite-install --url=#{$app_url} --title='#{$title}' --admin_user=#{$admin_user}  --admin_password=#{$admin_password}  --admin_email=#{$admin_email}
 		EOH
 		not_if  {::File.exists?("/var/www/wordpressapp/wp-config.php") }
 	end
