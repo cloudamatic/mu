@@ -7,9 +7,6 @@
 # All rights reserved - Do Not Redistribute
 #
 
-
-case node[:platform_family]
-
 include_recipe "apache2"
 include_recipe "php"
 include_recipe "mysql"
@@ -31,82 +28,86 @@ $admin_password="admin"
 $admin_email="admin@example.com"
 
 
+
+case node[:platform_family]
+
+
 when "rhel"	
 
-execute "yum -y install php-mbstring" do
- action :run
-end
+	execute "yum -y install php-mbstring" do
+	 action :run
+	end
 
-execute "yum -y install php-mysql" do
- action :run
-end
+	execute "yum -y install php-mysql" do
+	 action :run
+	end
 
-execute "setsebool httpd_can_network_connect=1" do
- action :run
-end
-
-
-execute "setsebool httpd_can_network_connect=1 | echo SELinux is disabled" do
- action :run
-end
+	execute "setsebool httpd_can_network_connect=1" do
+	 action :run
+	end
 
 
-bash "Create mysql database in RDS" do
-	user "root"
-	code <<-EOH
-		mysql -h #{$db_host} -u #{$db_user} -p#{$db_password} -e "CREATE DATABASE IF NOT EXISTS #{$db_name};"
-	EOH
-end
+	execute "setsebool httpd_can_network_connect=1 | echo SELinux is disabled" do
+	 action :run
+	end
 
 
-bash "Launch Wordpress site" do
-	user "root"
-	code <<-EOH
-		cd /var/www
-		mkdir -p wordpressapp
-		cd wordpressapp
-		wp core download
-		wp core config --dbname=#{$db_name} --dbuser=#{$db_user} --dbpass=#{$db_password} --dbhost=#{$db_host}
-		wp core multisite-install --url=#{$app_url} --title=#{$title} --admin_user=#{$admin_user}  --admin_password=#{$admin_password}  --admin_email=#{$admin_email}
-	EOH
-	not_if  {::File.exists?("/var/www/wordpressapp/wp-config.php") }
-end
+	bash "Create mysql database in RDS" do
+		user "root"
+		code <<-EOH
+			mysql -h #{$db_host} -u #{$db_user} -p#{$db_password} -e "CREATE DATABASE IF NOT EXISTS #{$db_name};"
+		EOH
+	end
 
 
-service "httpd" do
-  action :restart
-end
+	bash "Launch Wordpress site" do
+		user "root"
+		code <<-EOH
+			cd /var/www
+			mkdir -p wordpressapp
+			cd wordpressapp
+			wp core download
+			wp core config --dbname=#{$db_name} --dbuser=#{$db_user} --dbpass=#{$db_password} --dbhost=#{$db_host}
+			wp core multisite-install --url=#{$app_url} --title=#{$title} --admin_user=#{$admin_user}  --admin_password=#{$admin_password}  --admin_email=#{$admin_email}
+		EOH
+		not_if  {::File.exists?("/var/www/wordpressapp/wp-config.php") }
+	end
+
+
+	service "httpd" do
+	  action :restart
+	end
 
 when "debian"
 
-include_recipe "apache2::mod_php5"
+	include_recipe "apache2::mod_php5"
 
-bash "Create mysql database in RDS" do
-	user "root"
-	code <<-EOH
-		mysql -h #{$db_host} -u #{$db_user} -p#{$db_password} -e "CREATE DATABASE IF NOT EXISTS #{$db_name};"
-	EOH
-end
-
-
-bash "Launch Wordpress site" do
-	user "root"
-	code <<-EOH
-		cd /var/www
-		mkdir -p wordpressapp
-		cd wordpressapp
-		wp core download
-		wp core config --dbname=#{$db_name} --dbuser=#{$db_user} --dbpass=#{$db_password} --dbhost=#{$db_host}
-		wp core multisite-install --url=#{$app_url} --title=#{$title} --admin_user=#{$admin_user}  --admin_password=#{$admin_password}  --admin_email=#{$admin_email}
-	EOH
-	not_if  {::File.exists?("/var/www/wordpressapp/wp-config.php") }
-end
+	bash "Create mysql database in RDS" do
+		user "root"
+		code <<-EOH
+			mysql -h #{$db_host} -u #{$db_user} -p#{$db_password} -e "CREATE DATABASE IF NOT EXISTS #{$db_name};"
+		EOH
+	end
 
 
+	bash "Launch Wordpress site" do
+		user "root"
+		code <<-EOH
+			cd /var/www
+			mkdir -p wordpressapp
+			cd wordpressapp
+			wp core download
+			wp core config --dbname=#{$db_name} --dbuser=#{$db_user} --dbpass=#{$db_password} --dbhost=#{$db_host}
+			wp core multisite-install --url=#{$app_url} --title=#{$title} --admin_user=#{$admin_user}  --admin_password=#{$admin_password}  --admin_email=#{$admin_email}
+		EOH
+		not_if  {::File.exists?("/var/www/wordpressapp/wp-config.php") }
+	end
 
-service "apache2" do
-  action :restart
-end
+
+
+	service "apache2" do
+	  action :restart
+	end
 
 
 else
