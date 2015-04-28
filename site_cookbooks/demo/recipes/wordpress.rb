@@ -7,12 +7,11 @@
 # All rights reserved - Do Not Redistribute
 #
 
-include_recipe "apache2"
 include_recipe "php"
-include_recipe "apache2::mod_php5"
+include_recipe "apache2"
 include_recipe "demo::mysql"
-include_recipe "demo::apache"
 include_recipe "demo::wp-cli"
+include_recipe "demo::apache"
 include_recipe "demo::iptables-port"
 
 
