@@ -80,8 +80,6 @@ when "rhel"
 
 when "debian"
 
-	include_recipe "apache2::mod_php5"
-
 	bash "Create mysql database in RDS" do
 		user "root"
 		code <<-EOH
