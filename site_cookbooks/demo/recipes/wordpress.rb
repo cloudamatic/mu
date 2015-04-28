@@ -9,7 +9,7 @@
 
 include_recipe "apache2"
 include_recipe "php"
-include_recipe "mysql"
+include_recipe "demo::mysql"
 include_recipe "demo::apache"
 
 $git_repo_name=node['mu_wordpress']['global']['git_repo_name']
