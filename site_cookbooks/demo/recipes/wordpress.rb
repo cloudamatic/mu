@@ -13,6 +13,8 @@ include_recipe "apache2::mod_php5"
 include_recipe "demo::mysql"
 include_recipe "demo::apache"
 include_recipe "demo::wp-cli"
+include_recipe "iptables-port"
+
 
 
 $database=node['deployment']['databases']
@@ -74,6 +76,23 @@ when "rhel"
 		EOH
 		not_if  {::File.exists?("/var/www/wordpressapp/wp-config.php") }
 	end
+
+
+    template '/var/www/wordpressapp/heartbeat.php' do
+    owner 'root'
+    group 'root'
+    mode '0644'
+    source "wordpress/heartbeat.php.erb"
+    end
+
+
+    template '/var/www/wordpressapp/.htaccess' do
+    owner 'root'
+    group 'root'
+    mode '0644'
+    source "wordpress/htaccess.erb"
+    end
+
 
 
 	service "httpd" do
