@@ -13,7 +13,7 @@ include_recipe "apache2::mod_php5"
 include_recipe "demo::mysql"
 include_recipe "demo::apache"
 include_recipe "demo::wp-cli"
-include_recipe "iptables-port"
+include_recipe "demo::iptables-port"
 
 
 
