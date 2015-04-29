@@ -104,6 +104,15 @@ when "rhel"
     end
 
 
+    bash "Change owner and group" do
+	user "root"
+	code <<-EOH  
+        cd /var/www
+        chown -R apache:apache wordpressapp
+	EOH
+    end
+
+
 
 	service "httpd" do
 	  action :restart
@@ -133,6 +142,23 @@ when "debian"
 		EOH
 		not_if  {::File.exists?("/var/www/wordpressapp/wp-config.php") }
 	end
+
+
+	template '/var/www/wordpressapp/heartbeat.php' do
+    owner 'root'
+    group 'root'
+    mode '0644'
+    source "wordpress/heartbeat.php.erb"
+    end
+
+
+    template '/var/www/wordpressapp/.htaccess' do
+    owner 'root'
+    group 'root'
+    mode '0644'
+    source "wordpress/htaccess.erb"
+    end
+
    
     bash "Change owner and group" do
 		user "root"
