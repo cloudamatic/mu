@@ -20,9 +20,12 @@ $database=node['deployment']['databases']
 $loadbalancer=node['deployment']['loadbalancers']
 $lb_url=$loadbalancer['wordpress-demo-lb']['dns'].downcase
 $db_name="wordpress_db"
-$db_host=$database['wordpress-demo-db']['endpoint']
-$db_user=$database['wordpress-demo-db']['username']
-$db_password=$database['wordpress-demo-db']['password']
+#$db_host=$database['wordpress-demo-db']['endpoint']
+$db_host="localhost"
+#$db_user=$database['wordpress-demo-db']['username']
+$db_user=""
+#$db_password=$database['wordpress-demo-db']['password']
+$db_password=""
 $loadbalancer=node['deployment']['loadbalancers']
 $app_url=$loadbalancer['wordpress-demo-lb']['dns'].downcase
 $title="mu wordpress demo"
@@ -37,13 +40,9 @@ case node[:platform_family]
 
 when "rhel"	
 
-	execute "yum -y install php-mbstring" do
-	 action :run
-	end
+    package "php-mbstring"
 
-	execute "yum -y install php-mysql" do
-	 action :run
-	end
+	package "php-mysql"
 
 	execute "setsebool httpd_can_network_connect=1" do
 	 action :run
