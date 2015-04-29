@@ -1,5 +1,4 @@
 - name: wordpress-demo-lb
-  private: true
   vpc:
     vpc_name: wordpress-demo-vpc
     subnet_pref: all_public
