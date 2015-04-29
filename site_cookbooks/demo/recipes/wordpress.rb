@@ -20,12 +20,9 @@ $database=node['deployment']['databases']
 $loadbalancer=node['deployment']['loadbalancers']
 $lb_url=$loadbalancer['wordpress-demo-lb']['dns'].downcase
 $db_name="wordpress_db"
-#$db_host=$database['wordpress-demo-db']['endpoint']
-$db_host="localhost"
-#$db_user=$database['wordpress-demo-db']['username']
-$db_user=""
-#$db_password=$database['wordpress-demo-db']['password']
-$db_password=""
+$db_host=$database['wordpress-demo-db']['endpoint']
+$db_user=$database['wordpress-demo-db']['username']
+$db_password=$database['wordpress-demo-db']['password']
 $loadbalancer=node['deployment']['loadbalancers']
 $app_url=$loadbalancer['wordpress-demo-lb']['dns'].downcase
 $title="mu wordpress demo"
@@ -57,7 +54,7 @@ when "rhel"
 	bash "Create mysql database in RDS" do
 		user "root"
 		code <<-EOH
-			mysql   -e "CREATE DATABASE IF NOT EXISTS wordpress_db";
+			mysql -h #{$db_host} -u #{$db_user} -p#{$db_password} -e "CREATE DATABASE IF NOT EXISTS #{$db_name};"
 		EOH
 	end
 
@@ -136,7 +133,14 @@ when "debian"
 		EOH
 		not_if  {::File.exists?("/var/www/wordpressapp/wp-config.php") }
 	end
-
+   
+    bash "Change owner and group" do
+		user "root"
+		code <<-EOH  
+            cd /var/www
+	        chown -R apache:apache wordpressapp
+		EOH
+	end
 
 
 	service "apache2" do
