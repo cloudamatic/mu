@@ -192,6 +192,15 @@
 			New-NetFirewallRule -DisplayName "Allow SSH" -Direction Inbound -LocalPort 22 -Protocol TCP -Action Allow
 		}
 
+		echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Ensuring proper permissions on Cygwin's /var/empty for sshd"
+		Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkpasswd -l -d > /etc/passwd"'
+		Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkgroup -l -d > /etc/group"'
+		$sshd_svc_user = (Get-WmiObject -Query "SELECT * FROM win32_service WHERE name='sshd'").StartName
+		if ( $sshd_svc_user.contains("\") ){
+			$sshd_svc_user = $sshd_svc_user.substring($sshd_svc_user.LastIndexOf("\")+1)
+		}
+		Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "chown $sshd_svc_user /var/empty"'
+
 		echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Enabling sshd service"
 		Start-Service sshd
 		$url = 'https://<%= $mu.publicIP %>:2260'
