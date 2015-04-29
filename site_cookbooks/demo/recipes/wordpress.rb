@@ -57,7 +57,7 @@ when "rhel"
 	bash "Create mysql database in RDS" do
 		user "root"
 		code <<-EOH
-			mysql -h #{$db_host} -u #{$db_user} -p#{$db_password} -e "CREATE DATABASE IF NOT EXISTS #{$db_name};"
+			mysql   -e "CREATE DATABASE IF NOT EXISTS wordpress_db";
 		EOH
 	end
 
