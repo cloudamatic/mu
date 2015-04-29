@@ -331,7 +331,7 @@ module MU
 						instance, mu_name = MU::Server.find(id: member.instance_id)
 						groomthreads << Thread.new {
 							MU.dupGlobals(parent_thread_id)
-							MU.mommacat.groomNode(instance, @pool['name'], "server_pool", reraise_fail: true)
+							MU.mommacat.groomNode(instance, @pool['name'], "server_pool", reraise_fail: true, sync_wait: @pool['dns_sync_wait'])
 						}
 					rescue Exception => e
 						if !instance.nil? and !done

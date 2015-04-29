@@ -57,7 +57,18 @@ action :upgrade do
     description = "upgrade #{current_resource} version from #{current_resource.version} to #{candidate_version}"
     converge_by(description) do
       Chef::Log.info("Upgrading #{new_resource} version from #{orig_version} to #{candidate_version}")
-      status = upgrade_package(candidate_version)
+      begin
+        status = upgrade_package(candidate_version)
+	  rescue Exception => e
+	    # Ugly! rescuing all exceptions. 
+	    log "Tried to upgrade Python vrtualenv but got #{e.inspect}, trying to upgrade using easy_install and pip directly"
+        execute "update-pip-manually" do
+          command <<-EOF
+            easy_install --upgrade setuptools
+            pip install pip --upgrade
+          EOF
+      end
+	end
       if status
         new_resource.updated_by_last_action(true)
       end

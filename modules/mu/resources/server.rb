@@ -642,10 +642,10 @@ module MU
 		# Return SSH configuration information for getting into said instance.
 		# @param instance [OpenStruct]: The cloud provider's full descriptor for this instance.
 		def groomEc2(instance)
-			return MU::Server.groomEc2(@server, instance, @deploy.keypairname, environment: @deploy.environment)
+			return MU::Server.groomEc2(@server, instance, @deploy.keypairname, environment: @deploy.environment, sync_wait: @server['dns_sync_wait'])
 		end
 		# (see #groomEc2)
-		def self.groomEc2(server, instance, keypairname, environment: environment)
+		def self.groomEc2(server, instance, keypairname, environment: environment, sync_wait: sync_wait)
 		  node = server['mu_name']
 			if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
 				Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
@@ -701,9 +701,9 @@ module MU
 				dnsthread = Thread.new {
 					MU.dupGlobals(parent_thread_id)
 					if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
-						MU::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Server, sync_wait: @server['dns_sync_wait'])
+						MU::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Server, sync_wait: sync_wait)
 					else
-						MU::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Server, sync_wait: @server['dns_sync_wait'])
+						MU::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Server, sync_wait: sync_wait)
 					end
 				}
 			end

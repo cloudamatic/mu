@@ -2109,6 +2109,11 @@ module MU
 				"description" => "If true, chef-client will automatically re-run on nodes of the same type when this instance has finished grooming. Use, for example, to add new members to a database cluster in an autoscale group by sharing data in Chef's node structures.",
 				"default" => false
 			},
+			"dns_sync_wait"=> {
+				"type" => "boolean",
+				"description" => "Wait for DNS record to propagate in DNS Zone.",
+				"default" => true,
+			},
 			"loadbalancers" => @loadbalancer_reference_primitive,
 			"dependencies" => @dependencies_primitive,
 			"add_firewall_rules" => @additional_firewall_rules,
@@ -2203,11 +2208,6 @@ module MU
 				},
 				"vpc" => vpc_reference_primitive(ONE_SUBNET+MANY_SUBNETS, NAT_OPTS, "public"),
 				"dns_records" => dns_records_primitive(need_target: false, default_type: "A", need_zone: true),
-				"dns_sync_wait"=> {
-					"type" => "boolean",
-					"description" => "Wait for DNS record to propagate in DNS Zone.",
-					"default" => true,
-				},
 				"image_then_destroy" => {
 					"type" => "boolean",
 					"description" => "Create an EC2 AMI of this server once it is complete, then destroy this server.",
@@ -2292,7 +2292,7 @@ module MU
 					}
 				},
 				"port" => { "type" => "integer" },
-				"vpc" => vpc_reference_primitive(MANY_SUBNETS, NAT_OPTS, "all_private"),
+				"vpc" => vpc_reference_primitive(MANY_SUBNETS, NAT_OPTS, "all_public"),
 				"publicly_accessible"=> {
 					"type" => "boolean",
 					"default" => true,
@@ -2379,7 +2379,7 @@ module MU
 							"default" => "gp2"
 						},
 						"port" => { "type" => "integer" },
-						"vpc" => vpc_reference_primitive(MANY_SUBNETS, NAT_OPTS, "all_private"),
+						"vpc" => vpc_reference_primitive(MANY_SUBNETS, NAT_OPTS, "all_public"),
 						"publicly_accessible"=> {
 							"type" => "boolean",
 							"default" => true,

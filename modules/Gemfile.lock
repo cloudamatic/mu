@@ -42,7 +42,7 @@ GEM
     celluloid-io (0.16.1)
       celluloid (>= 0.16.0)
       nio4r (>= 1.0.0)
-    chef (12.2.1)
+    chef (12.3.0)
       chef-zero (~> 3.2)
       diff-lcs (~> 1.2, >= 1.2.4)
       erubis (~> 2.7)
@@ -235,7 +235,7 @@ PLATFORMS
 DEPENDENCIES
   aws-sdk-core (~> 2.0.40)
   berkshelf
-  chef (~> 12.2.1)
+  chef (~> 12.3.0)
   chef-vault
   color
   colorize

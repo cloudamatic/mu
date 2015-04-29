@@ -117,7 +117,6 @@ module MU
 			# the default schema or username. And it varies from engine to engine.
 			basename = @db["name"]+@deploy.timestamp+MU.seed.downcase
 			basename.gsub!(/[^a-z0-9]/i, "")
-			dbsgname = basename
 
 			# Getting engine specific names
 			dbname = getName(basename, type: "dbname")
@@ -175,15 +174,15 @@ module MU
 			db_config = createSubnetGroup(config)
 
 			# Creating DB instance
+			MU.log "RDS config: #{db_config}", MU::DEBUG
 			attempts = 0
 			begin
-				MU.log "RDS config: #{db_config}", MU::DEBUG
 				if @db["snapshot_id"]
 					db_config[:db_snapshot_identifier] = @db["snapshot_id"]
-					MU.log "Creating database instance #{@db['identifier']} (default db #{dbname}) from snapshot #{@db["snapshot_id"]}", details: db_config
+					MU.log "Creating database instance #{@db['identifier']} from snapshot #{@db["snapshot_id"]}", details: db_config
 					resp = MU.rds(@db['region']).restore_db_instance_from_db_snapshot(db_config)
 				else
-					MU.log "Creating database instance #{@db['identifier']} (default db #{dbname})", details: db_config
+					MU.log "Creating database instance #{@db['identifier']}", details: db_config
 					resp = MU.rds(@db['region']).create_db_instance(db_config)
 				end
 			rescue Aws::RDS::Errors::InvalidParameterValue => e
@@ -197,18 +196,28 @@ module MU
 				end
 			end
 
-			MU.log "Waiting for RDS database #{@db['identifier'] } to be ready...", MU::NOTICE
-			MU.rds(@db['region']).wait_until(:db_instance_available, db_instance_identifier: @db['identifier']) do |waiter|
-				# Does create_db_instance implement wait_until_available ?
-				waiter.interval = 15
-				waiter.max_attempts = 150
-			end
-			# @db['identifier'] = resp.db_instance.db_instance_identifier
+			begin
+				# this ends in an ensure block that cleans up if we die
+				resp = MU.rds(@db['region']).describe_db_instances(db_instance_identifier: @db['identifier'])
+				# Calling this a second time after the DB instance is ready or DNS record creation will fail.
+				database = resp.db_instances.first
+				wait_start_time = Time.now
 
-			resp = MU.rds(@db['region']).describe_db_instances(db_instance_identifier: @db['identifier'])
-			database = resp.db_instances.first
+				MU.rds(@db['region']).wait_until(:db_instance_available, db_instance_identifier: @db['identifier']) do |waiter|
+					# Does create_db_instance implement wait_until_available ?
+					waiter.max_attempts = nil
+					waiter.before_attempt do |attempts|
+						MU.log "Waiting for RDS database #{@db['identifier'] } to be ready..", MU::NOTICE if attempts % 10 == 0
+					end
+					waiter.before_wait do |attempts, resp|
+						throw :success if resp.data.db_instances.first.db_instance_status == "available"
+						throw :failure if Time.now - wait_start_time > 2400
+					end
+				end
 
-			begin # this ends in an ensure block that cleans up if we die
+				resp = MU.rds(@db['region']).describe_db_instances(db_instance_identifier: @db['identifier'])
+				database = resp.db_instances.first
+				# @db['identifier'] = resp.db_instance.db_instance_identifier
 
 				MU::DNSZone.genericDNSEntry(database.db_instance_identifier, "#{database.endpoint.address}.", MU::Database, sync_wait: @db['dns_sync_wait'])
 				MU::DNSZone.createRecordsFromConfig(@db['dns_records'], target: database.endpoint.address)
@@ -228,19 +237,25 @@ module MU
 								mod_config[:vpc_security_group_ids] << sg.group_id if sg
 							}
 						end
-					else
-						mod_config[:db_security_groups] = [dbname]
+					# else
+						# This doesn't make sense. we don't have a security group by that name, and we should only create this if we're in classic
+						# mod_config[:db_security_groups] = [dbname]
 					end
 
-					
-					mod_config[:master_user_password] = @db['password'] if @db['password']
-
+					mod_config[:master_user_password] = @db['password']
 					MU.rds(@db['region']).modify_db_instance(mod_config)
-
-					MU.log "Waiting for RDS database #{@db['identifier'] } to be ready...", MU::NOTICE
+					
+					
 					MU.rds(@db['region']).wait_until(:db_instance_available, db_instance_identifier: @db['identifier']) do |waiter|
-						waiter.interval = 15
-						waiter.max_attempts = 150
+						# Does create_db_instance implement wait_until_available ?
+						waiter.max_attempts = nil
+						waiter.before_attempt do |attempts|
+							MU.log "Waiting for RDS database #{@db['identifier'] } to be ready..", MU::NOTICE if attempts % 10 == 0
+						end
+						waiter.before_wait do |attempts, resp|
+							throw :success if resp.data.db_instances.first.db_instance_status == "available"
+							throw :failure if Time.now - wait_start_time > 2400
+						end
 					end
 				end
 
@@ -369,9 +384,6 @@ module MU
 						}
 					end
 				end
-			# elsif @db["snapshot_id"].nil?
-			# Why are we specifying an RDS security group for VPC? should this be subnet_id instead? Changing it to something that makes more sense.
-				# config[:db_security_groups] = [dbsgname]
 			else
 				# If we didn't specify a VPC, make the distinction between EC2 Classic
 				# or having a default VPC, so we can get security groups right.
@@ -391,17 +403,18 @@ module MU
 					using_default_vpc = true
 				else
 					# Creating an RDS secuirty group if no VPC exist. Not sure if this actually works. 
-					MU.log "Creating RDS security group #{dbsgname}"
+					db_sg_name = @db["name"]+@deploy.timestamp+MU.seed.downcase
+					MU.log "Creating RDS security group #{db_sg_name}"
 					db_security_group=MU.rds(@db['region']).create_db_security_group(
 						{
-							db_security_group_name: dbsgname,
+							db_security_group_name: db_sg_name,
 							db_security_group_description: MU.mu_id
 						}
 					)
 
-					addStandardTags(dbsgname, "secgrp", region: @db['region'])
+					addStandardTags(db_sg_name, "secgrp", region: @db['region'])
 
-					config[:db_security_groups] = [dbsgname]
+					config[:db_security_groups] = [db_sg_name]
 				end
 			end
 
@@ -419,8 +432,8 @@ module MU
 
 				# check if DB is private or public
 				if !database.publicly_accessible
-				# This doesn't necessarily mean what we think it does.
-				# You can still set publicly_accessible to true even when only private subnets are included in the subnet group. We try to solve this during creation.
+				# This doesn't necessarily mean what we think it does. publicly_accessible = true means resolve to public address.
+				# publicly_accessible can still be set to true even when only private subnets are included in the subnet group. We try to solve this during creation.
 					is_private = true
 				else
 					is_private = false
@@ -504,7 +517,7 @@ module MU
 			if @db['multi_az_on_deploy']
 				if !database.multi_az
 					MU.log "Setting multi-az on #{@db['identifier']}"
-					retries = 0
+					attempts = 0
 					begin
 						MU.rds(@db['region']).modify_db_instance(
 							db_instance_identifier: @db['identifier'],
@@ -512,9 +525,9 @@ module MU
 							multi_az: true
 						)
 					rescue Aws::RDS::Errors::InvalidParameterValue, Aws::RDS::Errors::InvalidDBInstanceState => e
-						if retries < 15
+						if attempts < 15
 							MU.log "Got #{e.inspect} while setting Multi-AZ on #{@db['identifier']}, retrying."
-							retries = retries + 1
+							attempts += 1
 							sleep 15
 							retry
 						else
@@ -670,18 +683,17 @@ module MU
 		# Generate a snapshot from the database described in this instance.
 		# @return [String]: The cloud provider's identifier for the snapshot.
 		def createNewSnapshot
-			db_id = @db["identifier"];
 			snap_id = MU::MommaCat.getResourceName(@db["name"]) + Time.new.strftime("%M%S").to_s
 
-			retries = 0
+			attempts = 0
 			begin
 				snapshot = MU.rds(@db['region']).create_db_snapshot(
 					db_snapshot_identifier: snap_id,
-					db_instance_identifier: db_id
+					db_instance_identifier: @db["identifier"]
 				)
 			rescue Aws::RDS::Errors::InvalidDBInstanceState => e
-				raise e if retries >= 10
-				retries = retries +1
+				raise e if attempts >= 10
+				attempts += 1
 				sleep 60
 				retry
 			end
@@ -691,11 +703,12 @@ module MU
 			
 			attempts = 0
 			loop do
-				MU.log "Waiting for RDS snapshot of #{db_id} to be ready...", MU::NOTICE if attempts % 20 == 0
-				MU.log "Waiting for RDS snapshot of #{db_id} to be ready...", MU::DEBUG
+				MU.log "Waiting for RDS snapshot of #{@db["identifier"];} to be ready...", MU::NOTICE if attempts % 20 == 0
+				MU.log "Waiting for RDS snapshot of #{@db["identifier"];} to be ready...", MU::DEBUG
 				snapshot_resp = MU.rds(@db['region']).describe_db_snapshots(
-					:db_snapshot_identifier => snap_id,
+					db_snapshot_identifier: snap_id,
 				)
+				attempts += 1
 				sleep 15
 				break unless snapshot_resp.db_snapshots.first.status != "available"
 			end
@@ -721,79 +734,87 @@ module MU
 		# Create Read Replica database instance.
 		# @return [String]: The cloud provider's identifier for this read replica database instance.
 		def createReadReplica
-			if @db['read_replica']
-				db_node_name = MU::MommaCat.getResourceName(@db['read_replica']['name'])
-				
-				@db['read_replica']['identifier'] = getName(db_node_name, type: "dbidentifier")
-				@db['read_replica']['source_identifier'] = @db['identifier'] if !@db['read_replica']['source_identifier']
+			db_node_name = MU::MommaCat.getResourceName(@db['read_replica']['name'])
+			
+			@db['read_replica']['identifier'] = getName(db_node_name, type: "dbidentifier")
+			@db['read_replica']['source_identifier'] = @db['identifier'] if !@db['read_replica']['source_identifier']
 
-				replica_config = {
-					db_instance_identifier: @db['read_replica']['identifier'],
-					source_db_instance_identifier: @db['read_replica']['source_identifier'],
-					auto_minor_version_upgrade: @db['read_replica']['auto_minor_version_upgrade'],
-					storage_type: @db['read_replica']['storage_type'],
-					publicly_accessible: @db['read_replica']['publicly_accessible'],
-					port: @db['read_replica']['port'],
-					db_instance_class: @db['read_replica']['size'],
-					tags: []
-				}
+			replica_config = {
+				db_instance_identifier: @db['read_replica']['identifier'],
+				source_db_instance_identifier: @db['read_replica']['source_identifier'],
+				auto_minor_version_upgrade: @db['read_replica']['auto_minor_version_upgrade'],
+				storage_type: @db['read_replica']['storage_type'],
+				publicly_accessible: @db['read_replica']['publicly_accessible'],
+				port: @db['read_replica']['port'],
+				db_instance_class: @db['read_replica']['size'],
+				tags: []
+			}
 
-				if @db['read_replica']['region'] != @db['region']
-					# Need to deal with case where read replica is created in different region than source DB instance.
-					# Will have to create db_subnet_group_name in different region.
-					# Read replica deployed in the same region as the source DB instance will inherit from source DB instance 
-				end
-
-				if @db['read_replica']['storage_type'] == "io1"
-					replica_config[:iops] = @db['read_replica']["iops"]
-				end
-
-				MU::MommaCat.listStandardTags.each_pair { |name, value|
-					replica_config[:tags] << { key: name, value: value }
-				}
-
-				retries = 0
-				begin
-					MU.log "Read recplica RDS config: #{replica_config}", MU::DEBUG
-					MU.log "Creating read replica database instance #{@db['read_replica']['identifier']} from #{@db['read_replica']['source_identifier']} database instance", details: replica_config
-					resp = MU.rds(@db['read_replica']['region']).create_db_instance_read_replica(replica_config)
-				rescue Aws::RDS::Errors::InvalidParameterValue => e
-					if retries < 5
-						MU.log "Got #{e.inspect} creating #{@db['read_replica']['identifier']}, will retry a few times in case of transient errors.", MU::WARN
-						retries = retries + 1
-						sleep 10
-						retry
-					else
-						MU.log "Exhausted retries to create DB read replica #{@db['read_replica']['identifier']}, giving up", MU::ERR, details: e.inspect
-						raise "Exhausted retries to create DB read replica #{@db['read_replica']['identifier']}, giving up"
-					end
-				end
-
-				# @db['read_replica']['identifier'] = resp.db_instance.db_instance_identifier
-				begin # this ends in an ensure block that cleans up if we die
-					MU.log "Waiting for Read Replica RDS database #{@db['read_replica']['identifier']} to be ready...", MU::NOTICE
-					MU.rds(@db['region']).wait_until(:db_instance_available, db_instance_identifier: @db['read_replica']['identifier']) do |waiter|
-						waiter.interval = 15
-						waiter.max_attempts = 150
-					end
-
-					resp = MU.rds(@db['region']).describe_db_instances(db_instance_identifier: @db['read_replica']['identifier'])
-					database = resp.db_instances.first
-
-					MU::DNSZone.genericDNSEntry(database.db_instance_identifier, "#{database.endpoint.address}.", MU::Database, sync_wait: @db['read_replica']['dns_sync_wait'])
-					MU::DNSZone.createRecordsFromConfig(@db['read_replica']['dns_records'], target: database.endpoint.address)
-
-					MU::Database.notifyDeploy(@db['read_replica']['name'], @db['read_replica']['identifier'], @db['password'], "read_replica", region: @db['read_replica']['region'])
-					MU.log "Database instance #{@db['read_replica']['identifier']} is ready to use"
-					done = true
-				ensure
-					if !done and database
-						MU::Cleanup.terminate_rds_instance(database, region: @db['read_replica']['region'])
-					end
-				end
-
-				return @db['read_replica']['identifier']
+			if @db['read_replica']['region'] != @db['region']
+				# Need to deal with case where read replica is created in different region than source DB instance.
+				# Will have to create db_subnet_group_name in different region.
+				# Read replica deployed in the same region as the source DB instance will inherit from source DB instance 
 			end
+
+			
+			replica_config[:iops] = @db['read_replica']["iops"] if @db['read_replica']['storage_type'] == "io1"
+
+			MU::MommaCat.listStandardTags.each_pair { |name, value|
+				replica_config[:tags] << { key: name, value: value }
+			}
+
+			attempts = 0
+			begin
+				MU.log "Read replica RDS config: #{replica_config}", MU::DEBUG
+				MU.log "Creating read replica database instance #{@db['read_replica']['identifier']} from #{@db['read_replica']['source_identifier']} database instance", details: replica_config
+				resp = MU.rds(@db['read_replica']['region']).create_db_instance_read_replica(replica_config)
+			rescue Aws::RDS::Errors::InvalidParameterValue => e
+				if attempts < 5
+					MU.log "Got #{e.inspect} creating #{@db['read_replica']['identifier']}, will retry a few times in case of transient errors.", MU::WARN
+					attempts += 1
+					sleep 10
+					retry
+				else
+					MU.log "Exhausted retries to create DB read replica #{@db['read_replica']['identifier']}, giving up", MU::ERR, details: e.inspect
+					raise "Exhausted retries to create DB read replica #{@db['read_replica']['identifier']}, giving up"
+				end
+			end
+
+			# @db['read_replica']['identifier'] = resp.db_instance.db_instance_identifier
+			begin # this ends in an ensure block that cleans up if we die
+				resp = MU.rds(@db['region']).describe_db_instances(db_instance_identifier: @db['read_replica']['identifier'])
+				# Calling this a second time after the DB instance is ready or DNS record creation will fail.
+				database = resp.db_instances.first
+				wait_start_time = Time.now
+
+				MU.rds(@db['region']).wait_until(:db_instance_available, db_instance_identifier: @db['read_replica']['identifier']) do |waiter|
+				# Does create_db_instance implement wait_until_available ?
+					waiter.max_attempts = nil
+					waiter.before_attempt do |attempts|
+						MU.log "Waiting for Read Replica RDS database #{@db['read_replica']['identifier']} to be ready...", MU::NOTICE if attempts % 10 == 0
+					end
+					waiter.before_wait do |attempts, resp|
+						throw :success if resp.data.db_instances.first.db_instance_status == "available"
+						throw :failure if Time.now - wait_start_time > 2400
+					end
+				end
+
+				resp = MU.rds(@db['region']).describe_db_instances(db_instance_identifier: @db['read_replica']['identifier'])
+				database = resp.db_instances.first
+
+				MU::DNSZone.genericDNSEntry(database.db_instance_identifier, "#{database.endpoint.address}.", MU::Database, sync_wait: @db['read_replica']['dns_sync_wait'])
+				MU::DNSZone.createRecordsFromConfig(@db['read_replica']['dns_records'], target: database.endpoint.address)
+
+				MU::Database.notifyDeploy(@db['read_replica']['name'], @db['read_replica']['identifier'], @db['password'], "read_replica", region: @db['read_replica']['region'])
+				MU.log "Database instance #{@db['read_replica']['identifier']} is ready to use"
+				done = true
+			ensure
+				if !done and database
+					MU::Cleanup.terminate_rds_instance(database, region: @db['read_replica']['region'])
+				end
+			end
+
+			return @db['read_replica']['identifier']
 		end
 	end #class
 end #module

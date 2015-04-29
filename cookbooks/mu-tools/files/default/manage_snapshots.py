@@ -47,7 +47,7 @@ class EBSSnapshots():
         self.instance_id = boto.utils.get_instance_metadata()['instance-id']
 
     def getVolumes(self):
-        volume_filters = {'attachment.instance-id':self.instance_id}
+        volume_filters = {'attachment.instance-id': self.instance_id}
         try:
             self.volumes = self.ec2_conn.get_all_volumes(filters=volume_filters)
         except:
@@ -68,10 +68,9 @@ class EBSSnapshots():
         new_snapshot.add_tag('Name', '{name_tag}-{device_id}'.format(name_tag=volume_name_tag, device_id=volume.attach_data.device.upper()))
         new_snapshot.add_tag('SnapshotType', 'Automated-Snapshots')
         new_snapshot.add_tag('Attachment-Device', volume.attach_data.device.upper())
-        for tag_key in volume.tags.iterkeys():
-            if tag_key =! "Name"
+        for tag_key in volume.tags:
+            if tag_key != "Name"
                 new_snapshot.add_tag(tag_key, volume.tags[tag_key])
-        new_snapshot.add_tag('MU-ID', volume.tags['MU-ID'])
         logger.info('Created snapshot {snap_id} {snap_name}'.format(snap_id=new_snapshot.id, snap_name=new_snapshot.tags['Name']))
 
     def deleteSnapshots(self, volume):
