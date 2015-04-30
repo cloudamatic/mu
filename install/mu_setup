@@ -1149,6 +1149,7 @@ install_chef()
 			find /opt/opscode/embedded/lib/ruby -type d -exec chmod o+rx {} \;
 			/opt/opscode/bin/chef-server-ctl reconfigure
 #			add_chef_support_gems /opt/opscode/embedded
+			$RUBY_INSTALLDIR/bin/bundle update chef
 			/opt/opscode/bin/chef-server-ctl start
 		else
 			warning_message "Failed to upgrade to package $OPSCODE_CHEF_DL"
