@@ -37,6 +37,11 @@ directory "/home/nagios/.ssh" do
 	mode "0711"
 end
 
+file "/home/nagios/.ssh/config" do
+	owner "nagios"
+	mode 0600
+end
+
 execute "dhclient-script" do
 	command "/sbin/dhclient-script"
 	action :nothing
@@ -71,7 +76,10 @@ link "/usr/lib64/nagios/cgi-bin" do
 	to "/usr/lib/cgi-bin"
 	notifies :reload, "service[apache2]", :delayed
 end
-directory "/var/www/html/docs"
+directory "/var/www/html/docs" do
+	owner "apache"
+	group "apache"
+end
 
 include_recipe "mu-master::update_nagios_only"
 
@@ -116,6 +124,8 @@ file "/etc/motd" do
 end
 
 file "/var/www/html/index.html" do
+	owner "apache"
+	group "apache"
 	content "
 
  <h1>This is an Mu Master server</h2>

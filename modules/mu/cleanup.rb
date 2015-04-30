@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License in the root of the project or at
 #
-#     http://egt-labs.com/mu/LICENSE.html
+#	  http://egt-labs.com/mu/LICENSE.html
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -23,7 +23,7 @@ Thread.abort_on_exception = true
 module MU
 
 	# Routines for removing cloud resources.
-  class Cleanup
+	class Cleanup
 
 		home = Etc.getpwuid(Process.uid).dir
 		@knife ="env -i HOME=#{home} CHEF_PUBLIC_IP=#{MU.mu_public_ip} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin knife"
@@ -38,7 +38,7 @@ module MU
 		# Expunge Chef resources associated with a node.
 		# @param node [String]: The Mu name of the node in question.
 		def self.purge_chef_resources(node, vaults_to_clean = nil)
-	  	MU.log "Deleting Chef resources associated with #{node}"
+			MU.log "Deleting Chef resources associated with #{node}"
 			if !vaults_to_clean.nil?
 				vaults_to_clean.each { |vault|
 					MU::MommaCat.lock("vault-"+vault['vault'], false, true)
@@ -48,11 +48,11 @@ module MU
 				}
 			end
 			MU.log "knife node delete -y #{node}"
-	    `#{MU::Config.knife} node delete -y #{node}` if !@noop
+			`#{MU::Config.knife} node delete -y #{node}` if !@noop
 			MU.log "knife client delete -y #{node}"
-	    `#{MU::Config.knife} client delete -y #{node}` if !@noop
+			`#{MU::Config.knife} client delete -y #{node}` if !@noop
 			MU.log "knife data bag delete -y #{node}"
-	    `#{MU::Config.knife} data bag delete -y #{node}` if !@noop
+			`#{MU::Config.knife} data bag delete -y #{node}` if !@noop
 			["crt", "key"].each { |ext|
 				if File.exists?("#{MU.mySSLDir}/#{node}.#{ext}")
 					MU.log "Removing #{MU.mySSLDir}/#{node}.#{ext}"
@@ -67,7 +67,7 @@ module MU
 		# @param region [String]: The cloud provider region
 		# @return [void]
 		def self.delete_volume(volume, id: id, region: MU.curRegion)
-			if volume != nil
+			if !volume.nil?
 				resp = MU.ec2(region).describe_volumes(volume_ids: [volume.volume_id])
 				volume = resp.data.volumes.first
 			end
@@ -76,19 +76,21 @@ module MU
 				name = tag.value if tag.key == "Name"
 			}
 
-		  MU.log("Deleting volume #{volume.volume_id} (#{name})")
-		  if !@noop
+			MU.log("Deleting volume #{volume.volume_id} (#{name})")
+			if !@noop
 				if !@skipsnapshots
-			    if name != nil and !name.empty?
-						desc = "#{MU.mu_id}-MUfinal (#{name})"
-			    else
-						desc = "#{MU.mu_id}-MUfinal"
-			    end
-		      MU.ec2(region).create_snapshot(
+					if !name.nil? and !name.empty?
+							desc = "#{MU.mu_id}-MUfinal (#{name})"
+					else
+							desc = "#{MU.mu_id}-MUfinal"
+					end
+
+					MU.ec2(region).create_snapshot(
 						volume_id: volume.volume_id,
 						description: desc
 					)
 				end
+
 				retries = 0
 				begin
 					MU.ec2(region).delete_volume(volume_id: volume.volume_id)
@@ -108,7 +110,7 @@ module MU
 						MU.log "Failed to delete #{name}", MU::ERR
 					end
 				end
-		  end
+			end
 		end
 
 		# Terminate an instance.
@@ -126,7 +128,7 @@ module MU
 						MU.log "Instance #{id} no longer exists", MU::WARN
 					end
 					if !resp.nil? and !resp.reservations.nil? and !resp.reservations.first.nil?
-			      instance = resp.reservations.first.instances.first
+						instance = resp.reservations.first.instances.first
 						ips << instance.public_ip_address if !instance.public_ip_address.nil?
 						ips << instance.private_ip_address if !instance.private_ip_address.nil?
 					end
@@ -220,9 +222,9 @@ module MU
 					MU.log "Cleaning up #{ips} from #{known_hosts}"
 					if !@noop 
 						File.open(known_hosts, File::CREAT|File::RDWR, 0644) { |f|
-					    f.flock(File::LOCK_EX)
-				      newlines = Array.new
-				      f.readlines.each { |line|
+							f.flock(File::LOCK_EX)
+							newlines = Array.new
+							f.readlines.each { |line|
 								ip_match = false
 								ips.each { |ip|
 									if line.match(/(^|,| )#{ip}( |,)/)
@@ -231,11 +233,11 @@ module MU
 									end
 								}
 								newlines << line if !ip_match
-				      }
+							}
 							f.rewind
-				      f.truncate(0)
-				      f.puts(newlines)
-				      f.flush
+							f.truncate(0)
+							f.puts(newlines)
+							f.flush
 							f.flock(File::LOCK_UN)
 						}
 					end
@@ -250,43 +252,42 @@ module MU
 				name = tag.value if tag.key == "Name"
 			}
 
-		  if instance.state.name == "terminated"
-		  	MU.log "#{instance.instance_id} (#{name}) has already been terminated, skipping"
-		  else
-	      if instance.state.name == "terminating"
-	      	MU.log "#{instance.instance_id} (#{name}) already terminating, waiting"
-	      elsif instance.state.name != "running" and instance.state.name != "pending" and instance.state.name != "stopping" and instance.state.name != "stopped"
-	      	MU.log "#{instance.instance_id} (#{name}) is in state #{instance.state.name}, waiting"
-	      else
-	      	MU.log "Terminating #{instance.instance_id} (#{name})"
-	        if !@noop
+			if instance.state.name == "terminated"
+				MU.log "#{instance.instance_id} (#{name}) has already been terminated, skipping"
+			else
+				if instance.state.name == "terminating"
+					MU.log "#{instance.instance_id} (#{name}) already terminating, waiting"
+				elsif instance.state.name != "running" and instance.state.name != "pending" and instance.state.name != "stopping" and instance.state.name != "stopped"
+					MU.log "#{instance.instance_id} (#{name}) is in state #{instance.state.name}, waiting"
+				else
+					MU.log "Terminating #{instance.instance_id} (#{name})"
+					if !@noop
 						begin
 							MU.ec2(region).modify_instance_attribute(
 								instance_id: instance.instance_id,
 								disable_api_termination: { value: false }
 							)
-			        MU.ec2(region).terminate_instances(instance_ids: [instance.instance_id])
-						# Small race window here with the state changing from under us
+							MU.ec2(region).terminate_instances(instance_ids: [instance.instance_id])
+							# Small race window here with the state changing from under us
 						rescue Aws::EC2::Errors::IncorrectInstanceState => e
 							resp = MU.ec2(region).describe_instances(instance_ids: [id])
 							if !resp.nil? and !resp.reservations.nil? and !resp.reservations.first.nil?
-					      instance = resp.reservations.first.instances.first
+								instance = resp.reservations.first.instances.first
 								if !instance.nil? and instance.state.name != "terminated" and instance.state.name != "terminating"
 									sleep 5
 									retry
 								end
 							end
 						end
-	        end
-	      end
-	      while instance.state.name != "terminated" and !@noop
-	        sleep 30
+					end
+				end
+				while instance.state.name != "terminated" and !@noop
+					sleep 30
 					instance_response = MU.ec2(region).describe_instances(instance_ids: [instance.instance_id])
-		      instance = instance_response.reservations.first.instances.first
-	      end
-	    	MU.log "#{instance.instance_id} (#{name}) terminated" if !@noop
-		  end
-
+					instance = instance_response.reservations.first.instances.first
+				end
+				MU.log "#{instance.instance_id} (#{name}) terminated" if !@noop
+			end
 		end
 
 		# Remove all autoscale groups associated with the currently loaded deployment.
@@ -296,7 +297,7 @@ module MU
 			resp = MU.autoscale(region).describe_tags(
 				filters: @autoscale_filters
 			)
-			return nil if resp.tags == nil or resp.tags.size == 0
+			return nil if resp.tags.nil? or resp.tags.size == 0
 
 			maybe_purge = []
 			no_purge = []
@@ -317,14 +318,26 @@ module MU
 				next if no_purge.include?(resource_id)
 				MU.log "Removing AutoScale group #{resource_id}"
 				next if @noop
-				MU.autoscale(region).delete_auto_scaling_group(
-					auto_scaling_group_name: resource_id,
+				retries = 0
+				begin 
+					MU.autoscale(region).delete_auto_scaling_group(
+						auto_scaling_group_name: resource_id,
 # XXX this should obey @force
-					force_delete: true
-				)
+						force_delete: true
+					)
+				rescue Aws::AutoScaling::Errors::InternalFailure => e
+					if retries < 5
+						MU.log "Got #{e.inspect} while removing AutoScale group #{resource_id}.", MU::WARN
+						sleep 10
+						retry
+					else
+						MU.log "Failed to delete AutoScale group #{resource_id}", MU::ERR
+					end
+				end
 
 				# Generally there should be a launch_configuration of the same name
 # XXX search for these independently, too?
+				retries = 0
 				begin
 					MU.log "Removing AutoScale Launch Configuration #{resource_id}"
 					MU.autoscale(region).delete_launch_configuration(
@@ -332,6 +345,14 @@ module MU
 					)
 				rescue Aws::AutoScaling::Errors::ValidationError => e
 					MU.log "No such Launch Configuration #{resource_id}"
+				rescue Aws::AutoScaling::Errors::InternalFailure => e
+					if retries < 5
+						MU.log "Got #{e.inspect} while removing Launch Configuration #{resource_id}.", MU::WARN
+						sleep 10
+						retry
+					else
+						MU.log "Failed to delete Launch Configuration #{resource_id}", MU::ERR
+					end
 				end
 			}
 			return nil
@@ -442,13 +463,13 @@ module MU
 				filters: @stdfilters
 			)
 
-			return if resp.data.reservations == nil
+			return if resp.data.reservations.nil?
 			resp.data.reservations.each { |reservation|
 				reservation.instances.each { |instance|
 				  if instance.state.name != "terminated" and !@force and !@noop
-				    unterminated << instance
+					unterminated << instance
 				  else
-				    instances << instance
+					instances << instance
 				  end
 				}
 			}
@@ -456,22 +477,22 @@ module MU
 			if unterminated.size > 0 and !@force and !@noop then
 				MU.log "Unterminated instances exist for this stack, aborting!"
 				MU.log "Terminate the following by hand, or use -f."
-			  unterminated.each { |instance|
+				unterminated.each { |instance|
 					name = ""
 					instance.tags.each { |tag|
 						name = tag.value if tag.key == "Name"
 					}
 					MU.log "\t#{name} (#{instance.instance_id})"
-			  }
-			  exit 1
+				}
+				exit 1
 			end
 
 			parent_thread_id = Thread.current.object_id
 
 			instances.each { |instance|
-		    @threads << Thread.new(instance) do |myinstance|
+			@threads << Thread.new(instance) do |myinstance|
 					MU.dupGlobals(parent_thread_id)
-		      Thread.abort_on_exception = true
+			  Thread.abort_on_exception = true
 					terminate_instance(id: myinstance.instance_id, region: region)
 				end
 			}
@@ -481,7 +502,7 @@ module MU
 				filters: @stdfilters
 			)
 			resp.data.volumes.each { |volume|
-		    @threads << Thread.new(volume) do |myvolume|
+			@threads << Thread.new(volume) do |myvolume|
 					MU.dupGlobals(parent_thread_id)
 					delete_volume(myvolume)
 				end
@@ -489,7 +510,7 @@ module MU
 
 			# Wait for all of the instances to finish cleanup before proceeding
 			@threads.each do |t|
-			  t.join
+				t.join
 			end
 			return instances.size
 		end
@@ -530,11 +551,11 @@ module MU
 			)
 			route_tables = resp.data.route_tables
 
-			return if route_tables == nil or route_tables.size == 0
+			return if route_tables.nil? or route_tables.size == 0
 
 			route_tables.each { |table|
 				table.routes.each { |route|
-					if route.network_interface_id != nil
+					if !route.network_interface_id.nil?
 						MU.log "Deleting Network Interface #{route.network_interface_id}"
 						begin
 							MU.ec2(region).delete_network_interface(network_interface_id: route.network_interface_id)
@@ -579,7 +600,7 @@ module MU
 			)
 			ifaces = resp.data.network_interfaces
 
-			return if ifaces == nil or ifaces.size == 0
+			return if ifaces.nil? or ifaces.size == 0
 
 			ifaces.each { |iface|
 				MU.log "Deleting Network Interface #{iface.network_interface_id}"
@@ -596,7 +617,7 @@ module MU
 			)
 			subnets = resp.data.subnets
 
-			return if subnets == nil or subnets.size == 0
+			return if subnets.nil? or subnets.size == 0
 
 			subnets.each { |subnet|
 				begin
@@ -624,7 +645,7 @@ module MU
 			)
 			sets = resp.data.dhcp_options
 
-			return if sets == nil or sets.size == 0
+			return if sets.nil? or sets.size == 0
 
 			sets.each { |optset|
 				begin
@@ -648,7 +669,7 @@ module MU
 			)
 
 			vpcs = resp.data.vpcs
-			return if vpcs == nil or vpcs.size == 0
+			return if vpcs.nil? or vpcs.size == 0
 
 			vpcs.each { |vpc|
 				my_peer_conns = MU.ec2(region).describe_vpc_peering_connections(
@@ -825,7 +846,7 @@ module MU
 			end
 
 			begin
-				if db.db_subnet_group != nil
+				if !db.db_subnet_group.nil?
 					subnet_group = db.db_subnet_group.db_subnet_group_name 
 				end
 			rescue NoMethodError
@@ -834,7 +855,7 @@ module MU
 
 			rdssecgroups = Array.new
 			begin
-	      secgroup = MU.rds(region).describe_db_security_groups(
+				secgroup = MU.rds(region).describe_db_security_groups(
 					{
 						:db_security_group_name => db_id
 					}
@@ -842,27 +863,30 @@ module MU
 			rescue Aws::RDS::Errors::DBSecurityGroupNotFound
 				# this is normal in VPC world
 			end
-      rdssecgroups << db_id if secgroup != nil
+
+			rdssecgroups << db_id if !secgroup.nil?
 			db = MU.rds(region).describe_db_instances(db_instance_identifier: db_id).data.db_instances.first
-      while !@noop and db.db_instance_status == "creating"# or db.db_instance_status == "modifying" or db.db_instance_status == "backing-up"
-      	MU.log "Waiting for #{db_id} to be in a removable state...", MU::NOTICE
-        sleep 60
+
+			while !@noop and db.db_instance_status == "creating"# or db.db_instance_status == "modifying" or db.db_instance_status == "backing-up"
+				MU.log "Waiting for #{db_id} to be in a removable state...", MU::NOTICE
+				sleep 60
 				db = MU.rds(region).describe_db_instances(db_instance_identifier: db_id).data.db_instances.first
-      end
+			end
 
 			MU::DNSZone.genericDNSEntry(db_id, db.endpoint.address, MU::Database, delete: true)
 
-      if db.db_instance_status == "deleting" or db.db_instance_status == "deleted" then
-      	MU.log "#{db_id} has already been terminated", MU::WARN
-      else
+			if db.db_instance_status == "deleting" or db.db_instance_status == "deleted" then
+				MU.log "#{db_id} has already been terminated", MU::WARN
+			else
 				if !@skipsnapshots
-	      	MU.log "Terminating #{db_id} (final snapshot: #{db_id}MUfinal)"
+					MU.log "Terminating #{db_id} (final snapshot: #{db_id}MUfinal)"
 				else
-	      	MU.log "Terminating #{db_id} (not saving final snapshot)"
+					MU.log "Terminating #{db_id} (not saving final snapshot)"
 				end
-        if !@noop
+
+				if !@noop
 					retries = 0
-          begin
+					begin
 						if !@skipsnapshots
 							MU.rds(region).delete_db_instance(db_instance_identifier: db_id,
 																			final_db_snapshot_identifier: "#{db_id}MUfinal",
@@ -881,35 +905,46 @@ module MU
 							MU.log "#{db_id} is not in a removable state after several retries, giving up. #{e.inspect}", MU::ERR
 							return
 						end
-          rescue AWS::RDS::Errors::DBSnapshotAlreadyExists
+					rescue AWS::RDS::Errors::DBSnapshotAlreadyExists
 						MU.rds(region).delete_db_instance(db_instance_identifier: db_id,
 																		skip_final_snapshot: true)
 						MU.log "Snapshot of #{db_id} already exists", MU::WARN
-          rescue AWS::RDS::Errors::SnapshotQuotaExceeded
+					rescue AWS::RDS::Errors::SnapshotQuotaExceeded
 						MU.rds(region).delete_db_instance(db_instance_identifier: db_id,
 																		skip_final_snapshot: true)
 						MU.log "Snapshot quota exceeded while deleting #{db_id}", MU::ERR
-          end
-        end
-      end
+					end
+				end
+			end
 
 			begin
 				del_db = MU.rds(region).describe_db_instances(db_instance_identifier: db_id).data.db_instances.first
-				while del_db != nil and del_db.db_instance_status != "deleted" and !@noop
+				while !del_db.nil? and del_db.db_instance_status != "deleted" and !@noop
 					MU.log "Waiting for #{db_id} termination to complete", MU::NOTICE
-			    sleep 60
+					sleep 60
 					del_db = MU.rds(region).describe_db_instances(db_instance_identifier: db_id).data.db_instances.first
-	      end
+				end
 			rescue Aws::RDS::Errors::DBInstanceNotFound
 				# we are ok with this
 			end
 
-			if subnet_group != nil
-		  	MU.log "Deleting DB subnet group #{subnet_group}"
+			retries = 0
+			if !subnet_group.nil?
+				MU.log "Deleting DB subnet group #{subnet_group}"
 				begin
 					MU.rds(region).delete_db_subnet_group(db_subnet_group_name: subnet_group)
 				rescue Aws::RDS::Errors::DBSubnetGroupNotFoundFault => e
 					MU.log "DB subnet group #{subnet_group} disappeared before we could remove it", MU::WARN
+				rescue Aws::RDS::Errors::InvalidDBSubnetGroupStateFault => e
+					MU.log "DB subnet group #{subnet_group} is not in a removable state, retrying", MU::WARN
+					if retries < 5
+						retries = retries + 1
+						sleep 30
+						retry
+					else
+						MU.log "#{subnet_group} is not in a removable state after several retries, giving up. #{e.inspect}", MU::ERR
+						return
+					end				
 				end
 			end
 
@@ -932,48 +967,50 @@ module MU
 			resp.data.db_instances.each { |db|
 				db_id = db.db_instance_identifier 
 
-			  # XXX this smells
-			  az = db.availability_zone
-				if az == nil
+				# XXX this smells
+				az = db.availability_zone
+				if az.nil?
 					MU.log "Couldn't retrieve availability zone of RDS instance #{db_id}", MU::ERR
 					MU.log "Going to try a wild guess about its region", MU::ERR
 # XXX maybe we load the deployment record with Momma and use the region listed in there?  Beats a WAG.
 					region = "us-east-1"
 				else
-				  region = az.sub(/[a-z]$/, "")
+					region = az.sub(/[a-z]$/, "")
 				end
 
-			  db_arn = MU::Database.getARN(db.db_instance_identifier, "db", region: region)
+				db_arn = MU::Database.getARN(db.db_instance_identifier, "db", region: region)
+
 				begin
-				  db_tags = MU.rds(region).list_tags_for_resource(resource_name: db_arn).data
+					db_tags = MU.rds(region).list_tags_for_resource(resource_name: db_arn).data
 				rescue Aws::RDS::Errors::DBInstanceNotFound
 					next
 				end
-			  found_muid = false
+				
+				found_muid = false
 				found_master = false
-			  db_tags[:tag_list].each { |tag|
-			    if (tag[:key] == "MU-ID" or tag[:key] == "CAP-ID") and tag[:value] == MU.mu_id
-			      found_muid = true
-			    end
-			    if (tag[:key] == "MU-MASTER-IP" or tag[:key] == "CAP-MASTER-IP") and tag[:value] == MU.mu_public_ip
-			      found_master = true
-			    end
-			  }
+				db_tags[:tag_list].each { |tag|
+					if (tag[:key] == "MU-ID" or tag[:key] == "CAP-ID") and tag[:value] == MU.mu_id
+						found_muid = true
+					end
+					if (tag[:key] == "MU-MASTER-IP" or tag[:key] == "CAP-MASTER-IP") and tag[:value] == MU.mu_public_ip
+						found_master = true
+					end
+				}
 				next if !found_muid
 
 				parent_thread_id = Thread.current.object_id
-			  if found_muid and (found_master or @ignoremaster)
-			    @threads << Thread.new(db) { |mydb|
+				if found_muid and (found_master or @ignoremaster)
+					@threads << Thread.new(db) { |mydb|
 						MU.dupGlobals(parent_thread_id)
-			      Thread.abort_on_exception = true
+						Thread.abort_on_exception = true
 						self.terminate_rds_instance(mydb, region: region)
-			    } # thread
-			  end # if found_muid and found_master
+					} # thread
+				end # if found_muid and found_master
 			} # resp.data.db_instances.each { |db|
 
 			# Wait for all of the databases to finish cleanup before proceeding
 			@threads.each do |t|
-			  t.join
+				t.join
 			end
 
 		end
@@ -1032,14 +1069,14 @@ module MU
 
 			# We identify most taggable resources like this.
 			@stdfilters = [
-											{ name: "tag:MU-ID", values: [MU.mu_id] }
-										]
+				{ name: "tag:MU-ID", values: [MU.mu_id] }
+			]
 			if !@ignoremaster
 				@stdfilters << { name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip] }
 			end
 			@autoscale_filters = [
-														{ name: "key", values: ["MU-ID"] }
-													 ]
+				{ name: "key", values: ["MU-ID"] }
+			]
 			if !@ignoremaster
 				@autoscale_filters << { name: "key", values: ["MU-MASTER-IP"] }
 			end
@@ -1104,7 +1141,7 @@ module MU
 			vaults_to_clean.uniq!
 
 			@threads.each do |t|
-			  t.join
+				t.join
 			end
 			@threads = []
 
@@ -1115,9 +1152,9 @@ module MU
 				chef_nodes.each { |node|
 					@threads << Thread.new {
 						MU.dupGlobals(parent_thread_id)
-					  if node.match(/^#{MU.mu_id}\-.+$/) then
+						if node.match(/^#{MU.mu_id}\-.+$/) then
 							MU::Cleanup.purge_chef_resources(node)
-					  end
+						end
 					}
 				}
 
@@ -1158,55 +1195,55 @@ module MU
 			keyname = "deploy-#{MU.mu_id}"
 			if File.exists?("#{sshdir}/#{keyname}")
 				MU.log "Moving #{sshdir}/#{keyname} to #{ssharchive}/#{keyname}"
-			  if !@noop
-			    File.rename("#{sshdir}/#{keyname}", "#{ssharchive}/#{keyname}")
-			  end
+				if !@noop
+					File.rename("#{sshdir}/#{keyname}", "#{ssharchive}/#{keyname}")
+				end
 			end
 			
 			if File.exists?(sshconf) and File.open(sshconf).read.match(/\/deploy\-#{MU.mu_id}$/)
 				MU.log "Expunging #{MU.mu_id} from #{sshconf}"
-			  if !@noop 
-			    FileUtils.copy(sshconf, "#{ssharchive}/config-#{MU.mu_id}")
-			    File.open(sshconf, File::CREAT|File::RDWR, 0600) { |f|
-			      f.flock(File::LOCK_EX)
-			      newlines = Array.new
-			      delete_block = false
-			      f.readlines.each { |line|
-			        if line.match(/^Host #{MU.mu_id}\-/)
-			          delete_block = true
-			        elsif line.match(/^Host /)
-			          delete_block = false
-			        end
-			        newlines << line if !delete_block
-			      }
-			      f.rewind
-			      f.truncate(0)
-			      f.puts(newlines)
-			      f.flush
-			      f.flock(File::LOCK_UN)
-			    }
-			  end
+				if !@noop 
+					FileUtils.copy(sshconf, "#{ssharchive}/config-#{MU.mu_id}")
+					File.open(sshconf, File::CREAT|File::RDWR, 0600) { |f|
+						f.flock(File::LOCK_EX)
+						newlines = Array.new
+						delete_block = false
+						f.readlines.each { |line|
+							if line.match(/^Host #{MU.mu_id}\-/)
+								delete_block = true
+							elsif line.match(/^Host /)
+								delete_block = false
+							end
+							newlines << line if !delete_block
+						}
+						f.rewind
+						f.truncate(0)
+						f.puts(newlines)
+						f.flush
+						f.flock(File::LOCK_UN)
+					}
+				end
 			end
 			
 			# XXX refactor with above? They're similar, ish.
 			hostsfile = "/etc/hosts"
 			if File.open(hostsfile).read.match(/ #{MU.mu_id}\-/)
 				MU.log "Expunging traces of #{MU.mu_id} from #{hostsfile}"
-			  if !@noop 
-			    FileUtils.copy(hostsfile, "#{hostsfile}.cleanup-#{muid}")
-			    File.open(hostsfile, File::CREAT|File::RDWR, 0644) { |f|
-			      f.flock(File::LOCK_EX)
-			      newlines = Array.new
-			      f.readlines.each { |line|
-			        newlines << line if !line.match(/ #{MU.mu_id}\-/)
-			      }
-			      f.rewind
-			      f.truncate(0)
-			      f.puts(newlines)
-			      f.flush
-			      f.flock(File::LOCK_UN)
-			    }
-			  end
+				if !@noop 
+					FileUtils.copy(hostsfile, "#{hostsfile}.cleanup-#{muid}")
+					File.open(hostsfile, File::CREAT|File::RDWR, 0644) { |f|
+						f.flock(File::LOCK_EX)
+						newlines = Array.new
+						f.readlines.each { |line|
+							newlines << line if !line.match(/ #{MU.mu_id}\-/)
+						}
+						f.rewind
+						f.truncate(0)
+						f.puts(newlines)
+						f.flush
+						f.flock(File::LOCK_UN)
+					}
+				end
 			end
 
 			if !@noop
@@ -1218,7 +1255,7 @@ module MU
 
 
 			@threads.each do |t|
-			  t.join
+				t.join
 			end
 
 			@mommacat.purge! if @mommacat and !@noop

@@ -1015,6 +1015,55 @@ module MU
 					ok = false
 				end
 
+				# Adding rules for Database instance storage. This varies depending on storage type and database type. 
+				if db["storage_type"] == "standard" or db["storage_type"] == "gp2"
+					if db["engine"] == "postgres" or db["engine"] == "mysql"
+						if !(5..3072).include? db["storage"]
+							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 5 to 3072 GB for #{db["storage_type"]} volume types", MU::ERR
+							ok = false
+						end
+					elsif %w{oracle-se1 oracle-se oracle-ee}.include? db["engine"]
+						if !(10..3072).include? db["storage"]
+							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 10 to 3072 GB for #{db["storage_type"]} volume types", MU::ERR
+							ok = false
+						end
+					elsif %w{sqlserver-ex sqlserver-web}.include? db["engine"]
+						if !(20..1024).include? db["storage"]
+							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 20 to 1024 GB for #{db["storage_type"]} volume types", MU::ERR
+							ok = false
+						end					
+					elsif %w{sqlserver-ee sqlserver-se}.include? db["engine"]
+						if !(200..1024).include? db["storage"]
+							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 200 to 1024 GB for #{db["storage_type"]} volume types", MU::ERR
+							ok = false
+						end
+					end
+				elsif db["storage_type"] == "io1"
+					if %w{postgres mysql oracle-se1 oracle-se oracle-ee}.include? db["engine"]
+						if !(100..3072).include? db["storage"]
+							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 3072 GB for #{db["storage_type"]} volume types", MU::ERR
+							ok = false
+						end
+					elsif %w{sqlserver-ex sqlserver-web}.include? db["engine"]
+						if !(100..1000).step(100).include? db["storage"]
+							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 1000 GB  with 100 GB increments for #{db["storage_type"]} volume types", MU::ERR
+							ok = false
+						end
+					elsif %w{sqlserver-ee sqlserver-se}.include? db["engine"]
+						if !(200..1000).step(100).include? db["storage"]
+							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 1000 GB  with 100 GB increments for #{db["storage_type"]} volume types", MU::ERR
+							ok = false
+						end
+					end
+				end
+
+				if db["read_replica"]
+					if db["engine"] != "postgres" and db["engine"] != "mysql"
+						MU.log "Read replica(s) database instances only supported for postgres and mysql. #{db["engine"]} not supported.", MU::ERR
+						ok = false
+					end
+				end
+				
 				if db["engine"] == "postgres"
 					db["license_model"] = "postgresql-license"
 				elsif db["engine"] == "mysql"
@@ -1064,6 +1113,19 @@ module MU
 				end
 
 				if !db["vpc"].nil?
+					if db["vpc"]["subnet_pref"] and !db["vpc"]["subnets"]
+						if %w{all any public private}.include? db["vpc"]["subnet_pref"]
+							MU.log "subnet_pref #{db["vpc"]["subnet_pref"]} is not supported for database instance.", MU::ERR
+							ok = false
+						elsif db["vpc"]["subnet_pref"] == "all_public" and !db['publicly_accessible']
+							MU.log "publicly_accessible must be set to true when deploying into public subnets.", MU::ERR
+							ok = false
+						elsif db["vpc"]["subnet_pref"] == "all_private" and db['publicly_accessible']
+							MU.log "publicly_accessible must be set to false when deploying into private subnets.", MU::ERR
+							ok = false
+						end
+					end
+
 					db['vpc']['region'] = config['region'] if db['vpc']['region'].nil?
 					# If we're using a VPC in this deploy, set it as a dependency
 					if !db["vpc"]["vpc_name"].nil? and vpc_names.include?(db["vpc"]["vpc_name"]) and db["vpc"]["deploy_id"].nil?
@@ -1071,6 +1133,7 @@ module MU
 							"type" => "vpc",
 							"name" => db["vpc"]["vpc_name"]
 						}
+
 						if !processVPCReference(db["vpc"],
 																		"database #{db['name']}",
 																		dflt_region: config['region'],
@@ -1762,6 +1825,7 @@ module MU
 					},
 					"iops" => {
 						"type" => "integer",
+						"description" => "The amount of IOPS to allocate to Provisioned IOPS (io1) volumes.",
 					},
 					"device" => {
 						"type" => "string",
@@ -1780,6 +1844,10 @@ module MU
 					"no_device" => {
 						"type" => "string",
 						"description" => "Do not share this device with the OS"
+					},
+					"encrypted" => {
+						"type" => "boolean",
+						"default" => false
 					},
 					"volume_type" => {
 						"enum" => ["standard", "io1", "gp2"],
@@ -2055,6 +2123,11 @@ module MU
 				"description" => "If true, chef-client will automatically re-run on nodes of the same type when this instance has finished grooming. Use, for example, to add new members to a database cluster in an autoscale group by sharing data in Chef's node structures.",
 				"default" => false
 			},
+			"dns_sync_wait"=> {
+				"type" => "boolean",
+				"description" => "Wait for DNS record to propagate in DNS Zone.",
+				"default" => true,
+			},
 			"loadbalancers" => @loadbalancer_reference_primitive,
 			"dependencies" => @dependencies_primitive,
 			"add_firewall_rules" => @additional_firewall_rules,
@@ -2159,6 +2232,11 @@ module MU
 					"description" => "When creating an image of this server, exclude block device mappings.",
 					"default" => false
 				},
+				"monitoring" => {
+					"type" => "boolean",
+					"default" => true,
+					"description" => "Enable detailed instance monitoring.",
+				},
 				"private_ip" => {
 					"type" => "string",
 					"description" => "Request a specific private IP address for this instance.",
@@ -2177,7 +2255,7 @@ module MU
 				"iam_policies" => {
 					"type" => "array",
 					"items" => {
-						"description" => "Amazon-comptabible role policies which will be merged into this node's own instance profile.  Our parser expects the role policy document to me embedded under a named container, e.g. { 'name_of_policy':'{ <policy document> } }",
+						"description" => "Amazon-compatible role policies which will be merged into this node's own instance profile.  Our parser expects the role policy document to me embedded under a named container, e.g. { 'name_of_policy':'{ <policy document> } }",
 						"type" => "object"
 					}
 				}
@@ -2196,13 +2274,18 @@ module MU
 				"region" => @region_primitive,
 				"db_family" => { "type" => "string" },
 				"tags" => @tags_primitive,
-				"version" => { "type" => "string" },
+				"engine_version" => { "type" => "string" },
 				"add_firewall_rules" => @additional_firewall_rules,
 				"engine" => {
 					"enum" => ["mysql", "postgres", "oracle-se1", "oracle-se", "oracle-ee", "sqlserver-ee", "sqlserver-se", "sqlserver-ex", "sqlserver-web" ],
 					"type" => "string",
 				},
 				"dns_records" => dns_records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
+				"dns_sync_wait"=> {
+					"type" => "boolean",
+					"description" => "Wait for DNS record to propagate in DNS Zone.",
+					"default" => true,
+				},
 				"dependencies" => @dependencies_primitive,
 				"size" => @rds_size_primitive,
 				"storage" => {
@@ -2223,29 +2306,59 @@ module MU
 					}
 				},
 				"port" => { "type" => "integer" },
-				"vpc" => vpc_reference_primitive(MANY_SUBNETS, NAT_OPTS, "all_private"),
-				"publicly_accessible"=> { 
+				"vpc" => vpc_reference_primitive(MANY_SUBNETS, NAT_OPTS, "all_public"),
+				"publicly_accessible"=> {
 					"type" => "boolean",
 					"default" => true,
 				}, 
-				"multi_az_on_create"=> { 
+				"multi_az_on_create"=> {
 					"type" => "boolean",
 					"default" => false
-				}, 
-				"multi_az_on_deploy"=> { 
+				},
+				"multi_az_on_deploy"=> {
 					"type" => "boolean",
 					"default" => true,
 					"default_if" => {
 						"creation_style" => "existing",
 						"set" => false
 					}
-				}, 
-				"creation_style"=> { 
+				},
+				"backup_retention_period"=> {
+					"type" => "integer",
+					"default" => 1,
+					"description" => "The number of days to retain an automatic database snapshot. If set to 0 and deployment is multi-az will be overridden to 35",
+				},
+				"preferred_backup_window"=> {
+					"type" => "string",
+					"default" => "05:00-05:30",
+					"description" => "The preferred time range to perform automatic database backups.",
+				},
+				"preferred_maintenance_window "=> {
+					"type" => "string",
+					"description" => "The preferred data/time range to perform database maintenance.",
+				},
+				"iops"=> {
+					"type" => "integer",
+					"description" => "The amount of IOPS to allocate to Provisioned IOPS (io1) volumes. Increments of 1,000",
+				},
+				"auto_minor_version_upgrade"=> { 
+					"type" => "boolean",
+					"default" => true
+				},
+				"allow_major_version_upgrade"=> { 
+					"type" => "boolean",
+					"default" => false
+				},
+				"storage_encrypted"=> {
+					"type" => "boolean",
+					"default" => false
+				},
+				"creation_style"=> {
 					"type" => "string",
 					"enum" => ["existing","new","new_snapshot","existing_snapshot"],
 					"default" => "new"
 				},
-				"license_model"=> { 
+				"license_model"=> {
 					"type" => "string",
 					"enum" => ["license-included","bring-your-own-license","general-public-license", "postgresql-license"],
 					"default" => "license-included"
@@ -2257,6 +2370,49 @@ module MU
 				"password" => {
 					"type" => "string",
 					"description" => "Set master password to this; if not specified, a random string will be generated. If you are creating from a snapshot, or using an existing database, you will almost certainly want to set this."
+				},
+				"read_replica" => {
+					"type" => "object",
+					"additionalProperties" => false,
+					"required" => ["name"],
+					"description" => "Create a read only databasae replica",
+					"properties" => {
+						"name" => { "type" => "string" },
+						"tags" => @tags_primitive,
+						"dns_records" => dns_records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
+						"dns_sync_wait"=> {
+							"type" => "boolean",
+							"description" => "Wait for DNS record to propagate in DNS Zone.",
+							"default" => true,
+						},
+						"dependencies" => @dependencies_primitive,
+						"size" => @rds_size_primitive,
+						"storage_type" => {
+							"enum" => ["standard", "gp2", "io1"],
+							"type" => "string",
+							"default" => "gp2"
+						},
+						"port" => { "type" => "integer" },
+						"vpc" => vpc_reference_primitive(MANY_SUBNETS, NAT_OPTS, "all_public"),
+						"publicly_accessible"=> {
+							"type" => "boolean",
+							"default" => true,
+						},
+						"iops"=> {
+							"type" => "integer",
+							"description" => "The amount of IOPS to allocate to Provisioned IOPS (io1) volumes. Increments of 1,000",
+						},
+						"auto_minor_version_upgrade"=> { 
+							"type" => "boolean",
+							"default" => true
+						},
+						"identifier" => {
+							"type" => "string",
+						},
+						"source_identifier" => {
+							"type" => "string",
+						},
+					}
 				},
 			}
 		}
@@ -2275,6 +2431,11 @@ module MU
 				"tags" => @tags_primitive,
 				"add_firewall_rules" => @additional_firewall_rules,
 				"dns_records" => dns_records_primitive(need_target: false, default_type: "R53ALIAS", need_zone: true),
+				"dns_sync_wait"=> {
+					"type" => "boolean",
+					"description" => "Wait for DNS record to propagate in DNS Zone.",
+					"default" => true,
+				},
 				"ingress_rules" => {
 					"type" => "array",
 					"items" => @firewall_ruleset_rule_primitive
@@ -2492,7 +2653,7 @@ module MU
 				"min_size" => { "type" => "integer" },
 				"max_size" => { "type" => "integer" },
 				"tags" => @tags_primitive,
-				"desired_muacity" => {
+				"desired_capacity" => {
 					"type" => "integer",
 					"description" => "The number of Amazon EC2 instances that should be running in the group. Should be between min_size and max_size."
 				},
@@ -2527,15 +2688,15 @@ module MU
 							"name" => {
 								"type" => "string"
 							},
-# XXX "alarm" - need some kind of reference muability to a CloudWatch alarm
+# XXX "alarm" - need some kind of reference capability to a CloudWatch alarm
 							"type" => {
 								"type" => "string",
 								"enum" => ["ChangeInCapacity", "ExactCapacity", "PercentChangeInCapacity"],
-								"description" => "Specifies whether 'adjustment' is an absolute number or a percentage of the current muacity. Valid values are ChangeInCapacity, ExactCapacity, and PercentChangeInCapacity."
+								"description" => "Specifies whether 'adjustment' is an absolute number or a percentage of the current capacity. Valid values are ChangeInCapacity, ExactCapacity, and PercentChangeInCapacity."
 							},
 							"adjustment" => {
 								"type" => "integer",
-								"description" => "The number of instances by which to scale. 'type' determines the interpretation of this number (e.g., as an absolute number or as a percentage of the existing Auto Scaling group size). A positive increment adds to the current muacity and a negative value removes from the current muacity."
+								"description" => "The number of instances by which to scale. 'type' determines the interpretation of this number (e.g., as an absolute number or as a percentage of the existing Auto Scaling group size). A positive increment adds to the current capacity and a negative value removes from the current capacity."
 							},
 							"cooldown" => {
 								"type" => "integer",
@@ -2717,7 +2878,3 @@ module MU
 
 	end #class
 end #module
-
-
-
-
