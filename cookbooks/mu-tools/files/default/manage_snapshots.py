@@ -69,7 +69,7 @@ class EBSSnapshots():
         new_snapshot.add_tag('SnapshotType', 'Automated-Snapshots')
         new_snapshot.add_tag('Attachment-Device', volume.attach_data.device.upper())
         for tag_key in volume.tags:
-            if tag_key != "Name"
+            if tag_key != "Name":
                 new_snapshot.add_tag(tag_key, volume.tags[tag_key])
         logger.info('Created snapshot {snap_id} {snap_name}'.format(snap_id=new_snapshot.id, snap_name=new_snapshot.tags['Name']))
 

@@ -138,6 +138,7 @@ module MU
 				license_model: @db["license_model"],
 				storage_type: @db['storage_type'],
 				db_subnet_group_name: db_node_name,
+				publicly_accessible: @db["publicly_accessible"],
 				tags: []
 			}
 
@@ -198,9 +199,8 @@ module MU
 
 			begin
 				# this ends in an ensure block that cleans up if we die
-				resp = MU.rds(@db['region']).describe_db_instances(db_instance_identifier: @db['identifier'])
+				database = MU::Database.getDatabaseById(@db['identifier'], region: @db['region'])
 				# Calling this a second time after the DB instance is ready or DNS record creation will fail.
-				database = resp.db_instances.first
 				wait_start_time = Time.now
 
 				MU.rds(@db['region']).wait_until(:db_instance_available, db_instance_identifier: @db['identifier']) do |waiter|
@@ -215,9 +215,7 @@ module MU
 					end
 				end
 
-				resp = MU.rds(@db['region']).describe_db_instances(db_instance_identifier: @db['identifier'])
-				database = resp.db_instances.first
-				# @db['identifier'] = resp.db_instance.db_instance_identifier
+				database = MU::Database.getDatabaseById(@db['identifier'], region: @db['region'])
 
 				MU::DNSZone.genericDNSEntry(database.db_instance_identifier, "#{database.endpoint.address}.", MU::Database, sync_wait: @db['dns_sync_wait'])
 				MU::DNSZone.createRecordsFromConfig(@db['dns_records'], target: database.endpoint.address)
@@ -316,6 +314,7 @@ module MU
 						end
 					}
 				else
+					# This should be changed to only include subnets that will work with publicly_accessible
 					subnet_ids = MU::VPC.listSubnets(vpc_id: vpc_id, region: @db['region'])
 					MU.log "No subnets specified for #{@db['identifier']}, adding all subnets in #{vpc_id}", MU::DEBUG, details: subnet_ids
 				end
@@ -325,30 +324,24 @@ module MU
 					MU.log "Couldn't find subnets in #{vpc_id} to add #{@db['identifier']} to", MU::ERR, details: vpc_id
 					raise "Couldn't find subnets in #{vpc_id} to add #{@db['identifier']} to"
 				else
+					subnet_ids.each { |subnet_id|
+						# Make sure we aren't configuring publicly_accessible wrong.
+						if MU::VPC.isSubnetPrivate?(subnet_id, region: @db['region']) and @db["publicly_accessible"]
+							MU.log "Found a private subnet but publicly_accessible is set to true on #{@db['identifier']}", MU::ERR
+							raise "Found a private subnet but publicly_accessible is set to true on #{@db['identifier']}"
+						elsif !MU::VPC.isSubnetPrivate?(subnet_id, region: @db['region']) and !@db["publicly_accessible"]
+							MU.log "Found a public subnet but publicly_accessible is set to false on #{@db['identifier']}", MU::ERR
+							raise "Found a public subnet but publicly_accessible is set to false on #{@db['identifier']}"
+						end
+					}
+
+					# Create subnet group
 					resp = MU.rds(@db['region']).create_db_subnet_group(
 						db_subnet_group_name: config[:db_subnet_group_name],
 						db_subnet_group_description: config[:db_subnet_group_name],
 						subnet_ids: subnet_ids
 					)
 					addStandardTags(config[:db_subnet_group_name], "subgrp", region: @db['region'])
-
-					is_public_subnet = false
-					subnet_ids.each { |subnet_id|
-						#To do: add isSubnetPublic
-						if !MU::VPC.isSubnetPrivate?(subnet_id, region: @db['region'])
-							is_public_subnet = true
-							break
-						end
-					}
-					# Setting publicly_accessible on DB instance. 
-					# Making sure that if we only include private subnets we didn't also set publicly_accessible to true. 
-					# Setting publicly_accessible to true in that case will make the DB instance DNS record resolvable only to a public IP address.
-					if !is_public_subnet and @db["publicly_accessible"]
-						MU.log "Database instance #{@db['identifier']} is set to be publicly accessible but subnet group #{resp.db_subnet_group.db_subnet_group_name} only includes private subnets. setting publicly_accessible to false", MU::WARN
-						@db["publicly_accessible"] = false
-					end
-					
-					config[:publicly_accessible] = @db["publicly_accessible"]
 				end
 
 				# Find NAT and create holes in security groups
@@ -423,8 +416,7 @@ module MU
 
 		# Called automatically by {MU::Deploy#createResources}
 		def deploy
-			resp = MU.rds(@db['region']).describe_db_instances(db_instance_identifier: @db['identifier'])
-			database = resp.data.db_instances.first
+			database = MU::Database.getDatabaseById(@db['identifier'], region: @db['region'])
 
 			# Run SQL on deploy
 			if @db['run_sql_on_deploy']
@@ -591,8 +583,9 @@ module MU
 		# @param region [String]: The cloud provider region
 		# @return [void]
 		def self.allowHost(cidr, db_id, region: MU.curRegion)
-			resp = MU.rds(region).describe_db_instances(db_instance_identifier: db_id)
-			database = resp.data.db_instances.first
+			database = MU::Database.getDatabaseById(@db['identifier'], region: @db['region'])
+			# resp = MU.rds(region).describe_db_instances(db_instance_identifier: db_id)
+			# database = resp.data.db_instances.first
 
 			if !database.db_security_groups.empty?
 				database.db_security_groups.each { |rds_sg|
@@ -780,15 +773,13 @@ module MU
 				end
 			end
 
-			# @db['read_replica']['identifier'] = resp.db_instance.db_instance_identifier
 			begin # this ends in an ensure block that cleans up if we die
-				resp = MU.rds(@db['region']).describe_db_instances(db_instance_identifier: @db['read_replica']['identifier'])
+				database = MU::Database.getDatabaseById(@db['identifier'], region: @db['region'])
 				# Calling this a second time after the DB instance is ready or DNS record creation will fail.
-				database = resp.db_instances.first
 				wait_start_time = Time.now
 
 				MU.rds(@db['region']).wait_until(:db_instance_available, db_instance_identifier: @db['read_replica']['identifier']) do |waiter|
-				# Does create_db_instance implement wait_until_available ?
+				# Does create_db_instance_read_replica implement wait_until_available ?
 					waiter.max_attempts = nil
 					waiter.before_attempt do |attempts|
 						MU.log "Waiting for Read Replica RDS database #{@db['read_replica']['identifier']} to be ready...", MU::NOTICE if attempts % 10 == 0
@@ -799,8 +790,7 @@ module MU
 					end
 				end
 
-				resp = MU.rds(@db['region']).describe_db_instances(db_instance_identifier: @db['read_replica']['identifier'])
-				database = resp.db_instances.first
+				database = MU::Database.getDatabaseById(@db['identifier'], region: @db['region'])
 
 				MU::DNSZone.genericDNSEntry(database.db_instance_identifier, "#{database.endpoint.address}.", MU::Database, sync_wait: @db['read_replica']['dns_sync_wait'])
 				MU::DNSZone.createRecordsFromConfig(@db['read_replica']['dns_records'], target: database.endpoint.address)

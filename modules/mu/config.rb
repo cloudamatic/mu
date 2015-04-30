@@ -1022,34 +1022,34 @@ module MU
 							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 5 to 3072 GB for #{db["storage_type"]} volume types", MU::ERR
 							ok = false
 						end
-					elsif db["engine"] == "oracle-se1" or db["engine"] == "oracle-se" or db["engine"] == "oracle-se"
+					elsif %w{oracle-se1 oracle-se oracle-ee}.include? db["engine"]
 						if !(10..3072).include? db["storage"]
 							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 10 to 3072 GB for #{db["storage_type"]} volume types", MU::ERR
 							ok = false
 						end
-					elsif db["engine"] == "sqlserver-ex" or db["engine"] == "sqlserver-web"
+					elsif %w{sqlserver-ex sqlserver-web}.include? db["engine"]
 						if !(20..1024).include? db["storage"]
 							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 20 to 1024 GB for #{db["storage_type"]} volume types", MU::ERR
 							ok = false
 						end					
-					elsif db["engine"] == "sqlserver-ee" or db["engine"] == "sqlserver-se"
+					elsif %w{sqlserver-ee sqlserver-se}.include? db["engine"]
 						if !(200..1024).include? db["storage"]
 							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 200 to 1024 GB for #{db["storage_type"]} volume types", MU::ERR
 							ok = false
 						end
 					end
 				elsif db["storage_type"] == "io1"
-					if db["engine"] == "postgres" or db["engine"] == "mysql" or db["engine"] == "oracle-se1" or db["engine"] == "oracle-se" or db["engine"] == "oracle-se"
+					if %w{postgres mysql oracle-se1 oracle-se oracle-ee}.include? db["engine"]
 						if !(100..3072).include? db["storage"]
 							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 3072 GB for #{db["storage_type"]} volume types", MU::ERR
 							ok = false
 						end
-					elsif db["engine"] == "sqlserver-ex" or db["engine"] == "sqlserver-web"
+					elsif %w{sqlserver-ex sqlserver-web}.include? db["engine"]
 						if !(100..1000).step(100).include? db["storage"]
 							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 1000 GB  with 100 GB increments for #{db["storage_type"]} volume types", MU::ERR
 							ok = false
 						end
-					elsif db["engine"] == "sqlserver-ee" or db["engine"] == "sqlserver-se"
+					elsif %w{sqlserver-ee sqlserver-se}.include? db["engine"]
 						if !(200..1000).step(100).include? db["storage"]
 							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 1000 GB  with 100 GB increments for #{db["storage_type"]} volume types", MU::ERR
 							ok = false
@@ -1113,6 +1113,19 @@ module MU
 				end
 
 				if !db["vpc"].nil?
+					if db["vpc"]["subnet_pref"] and !db["vpc"]["subnets"]
+						if %w{all any public private}.include? db["vpc"]["subnet_pref"]
+							MU.log "subnet_pref #{db["vpc"]["subnet_pref"]} is not supported for database instance.", MU::ERR
+							ok = false
+						elsif db["vpc"]["subnet_pref"] == "all_public" and !db['publicly_accessible']
+							MU.log "publicly_accessible must be set to true when deploying into public subnets.", MU::ERR
+							ok = false
+						elsif db["vpc"]["subnet_pref"] == "all_private" and db['publicly_accessible']
+							MU.log "publicly_accessible must be set to false when deploying into private subnets.", MU::ERR
+							ok = false
+						end
+					end
+
 					db['vpc']['region'] = config['region'] if db['vpc']['region'].nil?
 					# If we're using a VPC in this deploy, set it as a dependency
 					if !db["vpc"]["vpc_name"].nil? and vpc_names.include?(db["vpc"]["vpc_name"]) and db["vpc"]["deploy_id"].nil?
@@ -1120,6 +1133,7 @@ module MU
 							"type" => "vpc",
 							"name" => db["vpc"]["vpc_name"]
 						}
+
 						if !processVPCReference(db["vpc"],
 																		"database #{db['name']}",
 																		dflt_region: config['region'],
@@ -2311,7 +2325,7 @@ module MU
 				},
 				"backup_retention_period"=> {
 					"type" => "integer",
-					"default" => 0,
+					"default" => 1,
 					"description" => "The number of days to retain an automatic database snapshot. If set to 0 and deployment is multi-az will be overridden to 35",
 				},
 				"preferred_backup_window"=> {
