@@ -774,7 +774,7 @@ module MU
 			end
 
 			begin # this ends in an ensure block that cleans up if we die
-				database = MU::Database.getDatabaseById(@db['identifier'], region: @db['region'])
+				database = MU::Database.getDatabaseById(@db['read_replica']['identifier'], region: @db['region'])
 				# Calling this a second time after the DB instance is ready or DNS record creation will fail.
 				wait_start_time = Time.now
 
@@ -790,7 +790,7 @@ module MU
 					end
 				end
 
-				database = MU::Database.getDatabaseById(@db['identifier'], region: @db['region'])
+				database = MU::Database.getDatabaseById(@db['read_replica']['identifier'], region: @db['region'])
 
 				MU::DNSZone.genericDNSEntry(database.db_instance_identifier, "#{database.endpoint.address}.", MU::Database, sync_wait: @db['read_replica']['dns_sync_wait'])
 				MU::DNSZone.createRecordsFromConfig(@db['read_replica']['dns_records'], target: database.endpoint.address)
