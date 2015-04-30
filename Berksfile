@@ -9,7 +9,7 @@ siteCookbookPath = "#{ENV['MU_LIBDIR']}/site_cookbooks"
 
 source "https://supermarket.getchef.com"
 
-cookbook 'apache2', '~> 3.0.0'
+cookbook 'apache2', '~> 3.0.1'
 cookbook 'application', '~> 3.0.0'
 cookbook 'application_python', '~> 3.0.0'
 cookbook 'application_ruby', '~> 2.1.4'

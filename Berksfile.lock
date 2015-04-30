@@ -1,5 +1,5 @@
 DEPENDENCIES
-  apache2 (~> 3.0.0)
+  apache2 (~> 3.0.1)
   application (~> 3.0.0)
   application_python (~> 3.0.0)
   application_ruby (~> 2.1.4)

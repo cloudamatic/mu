@@ -269,7 +269,6 @@ DEPENDENCIES
   berkshelf
   chef (~> 12.3.0)
   chef-vault
-  chef-zero (~> 4.1)
   color
   colorize
   fileutils
