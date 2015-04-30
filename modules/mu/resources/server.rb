@@ -217,15 +217,15 @@ module MU
 		# @param region [String]: The cloud provider region
 		# @return [void]
 		def self.tagVolumes(instance_id, device=nil, tag_name="MU-ID", tag_value=MU.mu_id, region: MU.curRegion)
-		  MU.ec2(region).describe_volumes.each { |vol|
+		  MU.ec2(region).describe_volumes(filters: [name: "attachment.instance-id", values: [instance_id]]).each { |vol|
 		    vol.volumes.each { |volume|
 		    volume.attachments.each { |attachment|
 		      vol_parent = attachment.instance_id
 		      vol_id = attachment.volume_id
 		      vol_dev = attachment.device
-		      if vol_parent == instance_id and (vol_dev == device or device.nil?) then
-	          MU::MommaCat.createTag(vol_id, tag_name, tag_value, region: region)
-					  break
+		      if vol_parent == instance_id and (vol_dev == device or device.nil?) 
+	           MU::MommaCat.createTag(vol_id, tag_name, tag_value, region: region)
+	           break
 		      end
 		    }
 		  }
@@ -514,7 +514,7 @@ module MU
 		    instance_descriptor[:user_data] =  Base64.encode64(@userdata)
 		  end
 
-		  if !@server["iam_role"].nil? then
+		  if !@server["iam_role"].nil?
 		    instance_descriptor[:iam_instance_profile] = { name: @server["iam_role"]}
 		  end
 
@@ -527,11 +527,13 @@ module MU
 		
 			MU::Server.waitForAMI(@server["ami_id"], region: @server['region'])
 
-      instance_descriptor[:block_device_mappings] = configured_storage
+			instance_descriptor[:block_device_mappings] = configured_storage
 			instance_descriptor[:block_device_mappings].concat(@ephemeral_mappings)
 
-		  MU.log "Creating EC2 instance #{node}"
-		  MU.log "Instance details for #{node}: #{instance_descriptor}", MU::DEBUG
+			instance_descriptor[:monitoring] = { enabled: @server['monitoring'] }
+
+			MU.log "Creating EC2 instance #{node}"
+			MU.log "Instance details for #{node}: #{instance_descriptor}", MU::DEBUG
 #				if instance_descriptor[:block_device_mappings].empty?
 #					instance_descriptor.delete(:block_device_mappings)
 #				end
@@ -588,7 +590,7 @@ module MU
 					found_servers = MU::MommaCat.getResourceDeployStruct(MU::Server.cfg_plural, name: mu_name)
 					if !found_servers.nil? and found_servers.is_a?(Hash)
 						if found_servers.values.first['instance_id'] == nat_instance.instance_id
-							dns_name = MU::DNSZone.genericDNSEntry(found_servers.keys.first, nat_ssh_host, MU::Server, noop: true)
+							dns_name = MU::DNSZone.genericDNSEntry(found_servers.keys.first, nat_ssh_host, MU::Server, noop: true, sync_wait: @server['dns_sync_wait'])
 						end
 					end
 					nat_ssh_host = dns_name if !dns_name.nil?
@@ -640,10 +642,10 @@ module MU
 		# Return SSH configuration information for getting into said instance.
 		# @param instance [OpenStruct]: The cloud provider's full descriptor for this instance.
 		def groomEc2(instance)
-			return MU::Server.groomEc2(@server, instance, @deploy.keypairname, environment: @deploy.environment)
+			return MU::Server.groomEc2(@server, instance, @deploy.keypairname, environment: @deploy.environment, sync_wait: @server['dns_sync_wait'])
 		end
 		# (see #groomEc2)
-		def self.groomEc2(server, instance, keypairname, environment: environment)
+		def self.groomEc2(server, instance, keypairname, environment: environment, sync_wait: sync_wait)
 		  node = server['mu_name']
 			if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
 				Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
@@ -699,9 +701,9 @@ module MU
 				dnsthread = Thread.new {
 					MU.dupGlobals(parent_thread_id)
 					if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
-						MU::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Server)
+						MU::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Server, sync_wait: sync_wait)
 					else
-						MU::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Server)
+						MU::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Server, sync_wait: sync_wait)
 					end
 				}
 			end
@@ -836,9 +838,9 @@ module MU
 
 			if dnsthread.nil?
 				if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
-					MU::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Server)
+					MU::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Server, sync_wait: @server['dns_sync_wait'])
 				else
-					MU::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Server)
+					MU::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Server, sync_wait: @server['dns_sync_wait'])
 				end
 			else
 				dnsthread.join
@@ -912,13 +914,38 @@ module MU
 			ext_mappings = MU.structToHash(instance.block_device_mappings)
 
 		  # Root disk on standard CentOS AMI
-		  tagVolumes(instance.instance_id, "/dev/sda", "Name", "ROOT-"+MU.mu_id+"-"+server["name"].upcase)
+		  # tagVolumes(instance.instance_id, "/dev/sda", "Name", "ROOT-"+MU.mu_id+"-"+server["name"].upcase)
 		  # Root disk on standard Ubuntu AMI
-		  tagVolumes(instance.instance_id, "/dev/sda1", "Name", "ROOT-"+MU.mu_id+"-"+server["name"].upcase)
+		  # tagVolumes(instance.instance_id, "/dev/sda1", "Name", "ROOT-"+MU.mu_id+"-"+server["name"].upcase)
 		
 		  # Generic deploy ID tag
-		  tagVolumes(instance.instance_id)
-		
+		  # tagVolumes(instance.instance_id)
+
+			# Tag volumes with all our standard tags. 
+			# Maybe replace tagVolumes with this? There is one more place tagVolumes is called from
+			volumes = MU.ec2(server['region']).describe_volumes(filters: [name: "attachment.instance-id", values: [instance.instance_id]])
+			volumes.each {|vol|
+				vol.volumes.each{ |volume|
+					volume.attachments.each { |attachment|
+						MU::MommaCat.listStandardTags.each_pair { |key, value|
+							MU::MommaCat.createTag(attachment.volume_id, key, value, region: server['region'])
+
+							if attachment.device == "/dev/sda" or attachment.device == "/dev/sda1"
+								MU::MommaCat.createTag(attachment.volume_id, "Name", "ROOT-#{MU.mu_id}-#{server["name"].upcase}", region: server['region'])
+							else
+								MU::MommaCat.createTag(attachment.volume_id, "Name", "#{MU.mu_id}-#{server["name"].upcase}-#{attachment.device.upcase}", region: server['region'])
+							end
+						}
+
+						if server['tags']
+							server['tags'].each { |tag|
+								MU::MommaCat.createTag(attachment.volume_id, tag['key'], tag['value'], region: server['region'])
+							}
+						end
+					}
+				}
+			}
+
 		  ssh_retries=0;
 			canonical_name = instance.public_dns_name
 			canonical_name = instance.private_dns_name if !canonical_name or nat_ssh_host != nil
@@ -1251,9 +1278,9 @@ module MU
 			mu_zone, junk = MU::DNSZone.find(name: "mu")
 			if !mu_zone.nil?
 				if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
-					MU::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Server)
+					MU::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Server, sync_wait: @server['dns_sync_wait'])
 				else
-					MU::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Server)
+					MU::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Server, sync_wait: @server['dns_sync_wait'])
 				end
 			else
 				MU::MommaCat.removeInstanceFromEtcHosts(node)
@@ -1817,7 +1844,7 @@ module MU
 		# @return [Hash]: The Amazon-style storage description.
 		def self.convertBlockDeviceMapping(storage)
 			vol_struct = Hash.new
-			if !storage["no_device"].nil?
+			if storage["no_device"]
 				vol_struct[:no_device] = storage["no_device"]
 			end
 
@@ -1834,8 +1861,9 @@ module MU
 				vol_struct[:ebs][:snapshot_id] = storage["snapshot_id"] if storage["snapshot_id"]
 				vol_struct[:ebs][:volume_size] = storage["size"] if storage["size"]
 				vol_struct[:ebs][:volume_type] = storage["volume_type"] if storage["volume_type"]
-				vol_struct[:ebs][:iops] = storage["iops"] if storage["iops"]
+				vol_struct[:ebs][:iops] = storage["iops"] if storage["iops"] and storage["volume_type"] == "io1"
 				vol_struct[:ebs][:delete_on_termination] = storage["delete_on_termination"]
+				vol_struct[:ebs][:encrypted] = storage["encrypted"] if storage["encrypted"]
 			end
 
 			return vol_struct
