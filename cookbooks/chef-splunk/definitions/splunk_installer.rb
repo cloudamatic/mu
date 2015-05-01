@@ -65,6 +65,7 @@ define :splunk_installer, :url => nil do
       provider Chef::Provider::Package::Solaris
       options pkgopts.join(' ')
     when 'windows'
+			not_if {::File.exists?("c:/Program Files/SplunkUniversalForwarder/bin/splunk.exe") }
       provider Chef::Provider::Package::Windows
       options pkgopts.join(' ')
     end
