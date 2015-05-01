@@ -26,5 +26,5 @@
   run_list:
   - recipe[demo::wordpress]
 admins:
-- name: John Stange
-  email: john.stange@eglobaltech.com
+- name: Admin
+  email: admin@example.com
