@@ -180,3 +180,5 @@ default['ad']['auth'] = {
 	'data_bag_item' => "join_domain"
 }
 default['windows_admin_username'] = "Administrator"
+
+override['nagios']['notifications_enabled'] = 1
