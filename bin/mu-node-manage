@@ -172,8 +172,8 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [], platform = ni
 		if mommacat.original_config.has_key?("server_pools")
 			mommacat.original_config['server_pools'].each { |server|
 				svr_class = server['name']
-				server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
-				next if !platform.nil? and server['conf']["platform"] != platform
+				server["platform"] = "linux" if !server.has_key?("platform")
+				next if !platform.nil? and server["platform"] != platform
 				next if !env.nil? and MU.environment.upcase != env.upcase
 
 				pool_name = MU::MommaCat.getResourceName(svr_class)
