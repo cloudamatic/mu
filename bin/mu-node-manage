@@ -144,7 +144,6 @@ def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [])
 	end
 end
 
-#def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], platform = nil, env = nil, cmd = "( chef-client || ./chef-client ) 2>&1", print_output: false, noop: false)
 def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-client || ./chef-client ) 2>&1", print_output: false, noop: false)
 	children = {}
 	badnodes = []
@@ -161,14 +160,14 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-cli
 				output=`ssh -q #{nodename} "#{cmd}" 2>&1 < /dev/null`
 				if !$?.success?
 					if print_output
-						puts "#{nodename}: #{output}" if output.match(/[^\s]/)
+						puts "#{nodename} - #{output}" if output.match(/[^\s]/)
 						MU.log "#{nodename} did not exit cleanly", MU::WARN
 					else
 						MU.log "#{nodename} did not exit cleanly", MU::WARN, details: output.slice(-2000, 2000)
 					end
 					exit $?.exitstatus
 				end
-				puts "#{nodename}: #{output}" if print_output and output.match(/[^\s]/)
+				puts "#{nodename} - #{output}" if print_output and output.match(/[^\s]/)
 			}
 			children[child] = nodename
 			while children.size >= $opts[:concurrent] - 1
