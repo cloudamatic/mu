@@ -22,14 +22,16 @@ require 'mu'
 $opts = Trollop::options do
 	banner <<-EOS
 Usage:
-#{$0} [-c] [-w] [-l] [-d] [-a] [-p <platform>] [-m <mode>] [-o <chefopts>] [ deploy_id|node_name [ ... ] ]
+#{$0} [-c] [-w] [-l] [-d] [-a] [-e <environment>] [-p <platform>] [-m <mode>] [-o <chefopts>] [-x <command>] [ deploy_id|node_name [ ... ] ]
   EOS
 	opt :concurrent, "Max number of processes to run concurrently when invoking Chef or MommaCat on multiple nodes.", :require => false, :default => 10, :type => :integer
+	opt :list, "Perform no action, but instead return a list of matching hosts.", :require => false, :default => false, :type => :boolean
 	opt :deploys, "Operate on matching deploy IDs instead of node names.", :require => false, :default => false, :type => :boolean
 	opt :all, "Operate on all nodes/deploys. Use with caution.", :require => false, :default => false, :type => :boolean
 	opt :platform, "Operate exclusively on one nodes of a particular operating system. Can be used in conjunction with -a or -d. Valid platforms: linux, windows", :require => false, :type => :string
 	opt :environment, "Operate exclusively on one nodes with a particular environment (e.g. dev, prod). Can be used in conjunction with -a or -d.", :require => false, :type => :string
 	opt :override_chef_runlist, "An alternate runlist to pass to Chef, in chefrun mode.", :require => false, :type => :string
+	opt :xecute, "Run a shell command on matching nodes. Overrides --mode and suppresses some informational output in favor of scriptability.", :require => false, :type => :string
 	opt :mode, "Action to perform on matching nodes. Valid actions: groom, chefrun, userdata", :require => false, :default => "groom", :type => :string
 end
 
@@ -66,10 +68,38 @@ else
 		do_nodes = ARGV # XXX yell at us about invalid nodes
 	end
 end
+avail_nodes = []
+do_deploys.each { |muid|
+	mommacat = MU::MommaCat.new(muid)
+	mommacat.listNodes.each_pair { |nodename, server|
+		id = server['instance_id']
+		server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
+		next if !$opts[:platform].nil? and server['conf']["platform"] != $opts[:platform]
+		next if !$opts[:environment].nil? and MU.environment.upcase != $opts[:environment].upcase
+		avail_nodes << nodename
+	}
+}
+if do_nodes.size > 1
+	do_nodes.each { |node|
+		if !avail_nodes.include?(node)
+			ok = false
+			MU.log "Node #{node} requested, but no such node exists.", MU::ERR
+			do_nodes.delete(node)
+		end
+	}
+else
+	do_nodes = avail_nodes
+end
+do_nodes.sort!
+
+if $opts[:list]
+	puts do_nodes
+	exit
+end
 
 exit 1 if !ok
 
-def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [], platform = nil, env = nil)
+def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [])
 	children = {}
 	badnodes = []
 	count = 0
@@ -79,8 +109,6 @@ def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [], platform = nil, env 
 			id = server['instance_id']
 			server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
 			next if nodes.size > 0 and !nodes.include?(nodename)
-			next if !platform.nil? and server['conf']["platform"] != platform
-			next if !env.nil? and MU.environment.upcase != env.upcase
 
 			instance = MU.ec2.describe_instances(instance_ids: [id]).reservations.first.instances.first
 
@@ -116,7 +144,8 @@ def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [], platform = nil, env 
 	end
 end
 
-def runChef(deploys = MU::MommaCat.listDeploys, nodes = [], platform = nil, env = nil)
+#def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], platform = nil, env = nil, cmd = "( chef-client || ./chef-client ) 2>&1", print_output: false, noop: false)
+def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-client || ./chef-client ) 2>&1", print_output: false, noop: false)
 	children = {}
 	badnodes = []
 	count = 0
@@ -125,22 +154,21 @@ def runChef(deploys = MU::MommaCat.listDeploys, nodes = [], platform = nil, env 
 		mommacat.listNodes.each_pair { |nodename, server|
 			server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
 			next if nodes.size > 0 and !nodes.include?(nodename)
-			next if !platform.nil? and server['conf']["platform"] != platform
-			next if !env.nil? and MU.environment.upcase != env.upcase
 
 			count = count + 1
-			MU.log "Running Chef on #{nodename} (##{count})"
+			MU.log "Running #{cmd} on #{nodename} (##{count})" if !print_output
 			child = Process.fork {
-				output=""
-				if $opts[:override_chef_runlist]
-					output=`ssh #{nodename} "( chef-client -o '#{$opts[:override_chef_runlist]}' || ./chef-client -o '#{$opts[:override_chef_runlist]}' ) 2>&1" 2>&1 < /dev/null`
-				else
-					output=`ssh #{nodename} "( chef-client || ./chef-client ) 2>&1" 2>&1 < /dev/null`
-				end
+				output=`ssh -q #{nodename} "#{cmd}" 2>&1 < /dev/null`
 				if !$?.success?
-					MU.log "Chef on #{nodename} did not exit cleanly", MU::WARN, details: output.slice(-2000, 2000)
+					if print_output
+						puts "#{nodename}: #{output}" if output.match(/[^\s]/)
+						MU.log "#{nodename} did not exit cleanly", MU::WARN
+					else
+						MU.log "#{nodename} did not exit cleanly", MU::WARN, details: output.slice(-2000, 2000)
+					end
 					exit $?.exitstatus
 				end
+				puts "#{nodename}: #{output}" if print_output and output.match(/[^\s]/)
 			}
 			children[child] = nodename
 			while children.size >= $opts[:concurrent] - 1
@@ -158,12 +186,12 @@ def runChef(deploys = MU::MommaCat.listDeploys, nodes = [], platform = nil, env 
 		end
 	}
 
-	if badnodes.size > 0
-		MU.log "Not all Chef runs exited cleanly", MU::WARN, details: badnodes
+	if badnodes.size > 0 and !print_output
+		MU.log "Not all `#{cmd}` runs exited cleanly", MU::WARN, details: badnodes
 	end
 end
 
-def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [], platform = nil, env = nil)
+def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
 	deploys.each { |muid|
 		mommacat = MU::MommaCat.new(muid)
 
@@ -173,8 +201,6 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [], platform = ni
 			mommacat.original_config['server_pools'].each { |server|
 				svr_class = server['name']
 				server["platform"] = "linux" if !server.has_key?("platform")
-				next if !platform.nil? and server["platform"] != platform
-				next if !env.nil? and MU.environment.upcase != env.upcase
 
 				pool_name = MU::MommaCat.getResourceName(svr_class)
 				MU.autoscale.describe_auto_scaling_groups(
@@ -261,8 +287,6 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [], platform = ni
 	
 			server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
 			next if nodes.size > 0 and !nodes.include?(nodename)
-			next if !platform.nil? and server['conf']["platform"] != platform
-			next if !env.nil? and MU.environment.upcase != env.upcase
 
 			mytype = "server"
 			mytype = "server_pool" if server['conf'].has_key?("basis") or server['conf']['#TYPENAME'] == "ServerPool" or server['conf']["#MU_CLASS"] == "MU::ServerPool"
@@ -311,10 +335,16 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [], platform = ni
 	}
 end
 
-if $opts[:mode] == "groom"
-	reGroom(do_deploys, do_nodes, $opts[:platform], $opts[:environment])
+if $opts[:xecute]
+	runCommand(do_deploys, do_nodes, $opts[:xecute], print_output: true)
+elsif $opts[:mode] == "groom"
+	reGroom(do_deploys, do_nodes)
 elsif $opts[:mode] == "chefrun"
-	runChef(do_deploys, do_nodes, $opts[:platform], $opts[:environment])
+	if $opts[:override_chef_runlist]
+		runCommand(do_deploys, do_nodes, "( chef-client -o '#{$opts[:override_chef_runlist]}' || ./chef-client -o '#{$opts[:override_chef_runlist]}' ) 2>&1")
+	else
+		runCommand(do_deploys, do_nodes)
+	end
 elsif $opts[:mode] == "userdata"
-	updateUserdata(do_deploys, do_nodes, $opts[:platform], $opts[:environment])
+	updateUserdata(do_deploys, do_nodes)
 end
