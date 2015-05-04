@@ -838,9 +838,9 @@ module MU
 
 			if dnsthread.nil?
 				if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
-					MU::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Server, sync_wait: @server['dns_sync_wait'])
+					MU::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Server, sync_wait: server['dns_sync_wait'])
 				else
-					MU::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Server, sync_wait: @server['dns_sync_wait'])
+					MU::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Server, sync_wait: server['dns_sync_wait'])
 				end
 			else
 				dnsthread.join
