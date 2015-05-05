@@ -71,17 +71,15 @@ case node[:platform]
             EOH
         end
 
-        if registry_key_exists?("HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired")
-             notifies :request, 'windows_reboot[5]'
-        end
 		
-        # ruby_block "restart windows" do
-            # block do
-                # puts "Restarting Windows"
-            # end
-            # only_if { registry_key_exists?("HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired") }
-            # notifies :request, 'windows_reboot[60]'
-        # end
+				if registry_key_exists?("HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired")
+         ruby_block "restart windows" do
+             block do
+                 puts "Restarting Windows"
+             end
+             notifies :request, 'windows_reboot[5]'
+         end
+				end
     when "centos"
 
 			execute "yum -y update"
