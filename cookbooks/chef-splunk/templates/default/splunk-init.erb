@@ -37,18 +37,18 @@ splunk_stop() {
 splunk_restart() {
   echo Restarting Splunk...
   <% if @runasroot %>
-  "<%= @splunkdir %>/bin/splunk" restart 
+  "<%= @splunkdir %>/bin/splunk" restart  --no-prompt --answer-yes
   <% else %>
-  /bin/su - splunk -c "\"<%= @splunkdir %>/bin/splunk\" restart "
+  /bin/su - splunk -c "\"<%= @splunkdir %>/bin/splunk\" restart --no-prompt --answer-yes"
   <% end %>
   RETVAL=$?
 }
 splunk_status() {
   echo Splunk status:
   <% if @runasroot %>
-  "<%= @splunkdir %>/bin/splunk" status 
+  "<%= @splunkdir %>/bin/splunk" status  --no-prompt --answer-yes
   <% else %>
-  /bin/su - splunk -c "\"<%= @splunkdir %>/bin/splunk\" status "
+  /bin/su - splunk -c "\"<%= @splunkdir %>/bin/splunk\" status --no-prompt --answer-yes"
   <% end %>
   RETVAL=$?
 }
