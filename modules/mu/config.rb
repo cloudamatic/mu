@@ -105,6 +105,7 @@ module MU
 		def self.chefclient; @chefclient;end
 		attr_reader :chefclient
 
+
 		# Load a configuration file ("Basket of Kittens").
 		# @param path [String]: The path to the master config file to load. Note that this can include other configuration files via ERB.
 		# @param skipinitialupdates [Boolean]: Whether to forcibly apply the *skipinitialupdates* flag to nodes created by this configuration.
@@ -138,17 +139,41 @@ module MU
 				exit 1
 			end
 	
-			# Run our input through the ERB renderer. If it contains no ERB code, this
-			# is a NOOP, so straight JSON is ok.
+			# Figure out what kind of fail we're loading. We handle includes 
+			# differently if YAML is involved.
+			$file_format = MU::Config.guessFormat(@@config_path)
+			$yaml_refs = {}
+
+			# Run our input through the ERB renderer.
 			erb = ERB.new(File.read(@@config_path))
 			raw_text = erb.result(get_binding)
+			raw_json = nil
+
+			# If we're working in YAML, do some magic to make includes work better.
 			yaml_parse_error = nil
-			begin
-				un_yaml = YAML.load(raw_text)
-				raw_json = JSON.generate(un_yaml)
-			rescue Psych::SyntaxError => e
-				raw_json = raw_text
-				yaml_parse_error = e.message
+			if $file_format == :yaml
+				new_text = ""
+				raw_text.each_line { |line|
+					if line.match(/# MU::Config\.include PLACEHOLDER /)
+						$yaml_refs.each_pair { |anchor, data|
+							if line.sub!(/^(\s+).*?# MU::Config\.include PLACEHOLDER #{Regexp.quote(anchor)} REDLOHECALP/, "")
+								indent = $1
+								data.each_line { |addline|
+									line = line + indent + addline
+								}
+								break
+							end
+						}
+					end
+					new_text = new_text + line
+				}
+				raw_text = new_text
+				begin
+					raw_json = JSON.generate(YAML.load(raw_text))
+				rescue Psych::SyntaxError => e
+					raw_json = raw_text
+					yaml_parse_error = e.message
+				end
 			end
 
 			begin
@@ -199,6 +224,48 @@ module MU
 	
 		private
 
+		# Given a path to a config file, try to guess whether it's YAML or JSON.
+		# @param path [String]: The path to the file to check.
+		def self.guessFormat(path)
+			raw = File.read(path)
+			# Rip out ERB references that will bollocks parser syntax, first.
+			stripped = raw.gsub(/<%.*?%>,?/, "").gsub(/,[\n\s]*([\]\}])/, '\1')
+			begin
+				JSON.parse(stripped)
+			rescue JSON::ParserError => e
+				begin
+					YAML.load(raw.gsub(/<%.*?%>/, ""))
+				rescue Psych::SyntaxError => e
+					# Ok, well neither of those worked, let's assume that filenames are
+					# meaningful.
+					if path.match(/\.(yaml|yml)$/i)
+						MU.log "Guessing that #{path} is YAML based on filename", MU::NOTICE
+						return :yaml
+					elsif path.match(/\.(json|jsn|js)$/i)
+						MU.log "Guessing that #{path} is JSON based on filename", MU::NOTICE
+						return :json
+					else
+						# For real? Ok, let's try the dumbest possible method.
+						dashes = raw.match(/\-/)
+						braces = raw.match(/[{}]/)
+						if dashes.size > braces.size
+							MU.log "Guessing that #{path} is YAML by... counting dashes.", MU::WARN
+							return :yaml
+						elsif braces.size > dashes.size
+							MU.log "Guessing that #{path} is JSON by... counting braces.", MU::WARN
+							return :json
+						else
+							raise "Unable to guess composition of #{path} by any means"
+						end
+					end
+				end
+				MU.log "Guessing that #{path} is YAML based on parser", MU::NOTICE
+				return :yaml
+			end
+			MU.log "Guessing that #{path} is JSON based on parser", MU::NOTICE
+			return :json
+		end
+
 		# We used to be inconsistent about config keys using dashes versus
 		# underscores. Now we've standardized on the latter. Be polite and
 		# translate for older configs, since we're not fussed about name collisions.
@@ -239,6 +306,12 @@ module MU
 		def self.include(file, binding = nil)
 			retries = 0
 			orig_filename = file
+			assume_type = nil
+			if file.match(/(js|json|jsn)$/i)
+				assume_type = :json
+			elsif file.match(/(yaml|yml)$/i)
+				assume_type = :yaml
+			end
 			begin
 				erb = ERB.new(File.read(file))
 			rescue Errno::ENOENT => e
@@ -255,7 +328,38 @@ module MU
 				end
 			end
 			begin
-				return erb.result(binding)
+				# Include as just a drop-in block of text if the filename doesn't imply
+				# a particular format, or if we're melding JSON into JSON.
+				if ($file_format == :json and assume_type == :json) or assume_type.nil?
+					MU.log "Including #{file} as uninterpreted text", MU::NOTICE
+					return erb.result
+				end
+				# ...otherwise, try to parse into something useful so we can meld
+				# differing file formats, or work around YAML's annoying dependence
+				# on indentation.
+				parsed_cfg = nil
+				begin
+					parsed_cfg = JSON.parse(erb.result)
+					parsed_as = :json
+				rescue JSON::ParserError => e
+					MU.log e.inspect, MU::DEBUG
+					begin
+						parsed_cfg = YAML.load(erb.result)
+						parsed_as = :yaml
+					rescue Psych::SyntaxError => e
+						MU.log e.inspect, MU::DEBUG
+						MU.log "#{file} parsed neither as JSON nor as YAML, including as raw text", MU::WARN
+						return erb.result
+					end
+				end
+				if $file_format == :json
+					MU.log "Including #{file} as interpreted JSON", MU::NOTICE
+					return JSON.generate(parsed_cfg)
+				else
+					MU.log "Including #{file} as interpreted YAML", MU::NOTICE
+					$yaml_refs[file] = ""+YAML.dump(parsed_cfg).sub(/^---\n/, "")
+					return "# MU::Config.include PLACEHOLDER #{file} REDLOHECALP"
+				end
 			rescue SyntaxError => e
 				MU.log "ERB in #{file} threw a syntax error", MU::ERR
 				raise e
