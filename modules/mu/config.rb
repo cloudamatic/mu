@@ -358,7 +358,7 @@ module MU
 				else
 					MU.log "Including #{file} as interpreted YAML", MU::NOTICE
 					$yaml_refs[file] = ""+YAML.dump(parsed_cfg).sub(/^---\n/, "")
-					return $yaml_refs[file]
+					return "# MU::Config.include PLACEHOLDER #{file} REDLOHECALP"
 				end
 			rescue SyntaxError => e
 				MU.log "ERB in #{file} threw a syntax error", MU::ERR
