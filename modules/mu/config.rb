@@ -332,24 +332,24 @@ module MU
 				# a particular format, or if we're melding JSON into JSON.
 				if ($file_format == :json and assume_type == :json) or assume_type.nil?
 					MU.log "Including #{file} as uninterpreted text", MU::NOTICE
-					return erb.result
+					return erb.result(binding)
 				end
 				# ...otherwise, try to parse into something useful so we can meld
 				# differing file formats, or work around YAML's annoying dependence
 				# on indentation.
 				parsed_cfg = nil
 				begin
-					parsed_cfg = JSON.parse(erb.result)
+					parsed_cfg = JSON.parse(erb.result(binding))
 					parsed_as = :json
 				rescue JSON::ParserError => e
 					MU.log e.inspect, MU::DEBUG
 					begin
-						parsed_cfg = YAML.load(erb.result)
+						parsed_cfg = YAML.load(erb.result(binding))
 						parsed_as = :yaml
 					rescue Psych::SyntaxError => e
 						MU.log e.inspect, MU::DEBUG
 						MU.log "#{file} parsed neither as JSON nor as YAML, including as raw text", MU::WARN
-						return erb.result
+						return erb.result(binding)
 					end
 				end
 				if $file_format == :json
@@ -2254,6 +2254,21 @@ module MU
 					"key_is" => "platform",
 					"value_is" => "windows",
 					"set" => "Administrator"
+				},
+				"default_if" => {
+					"key_is" => "platform",
+					"value_is" => "ubuntu",
+					"set" => "ubuntu"
+				},
+				"default_if" => {
+					"key_is" => "platform",
+					"value_is" => "ubuntu14",
+					"set" => "ubuntu"
+				},
+				"default_if" => {
+					"key_is" => "platform",
+					"value_is" => "centos7",
+					"set" => "centos"
 				}
 			},
 			"winrm_user" => { "type" => "string" },
@@ -2264,7 +2279,7 @@ module MU
 			"platform" => {
 				"type" => "string",
 				"default" => "linux",
-				"enum" => ["linux", "windows", "centos", "ubuntu", "centos6", "ubuntu14", "win2k12"],
+				"enum" => ["linux", "windows", "centos", "ubuntu", "centos6", "ubuntu14", "win2k12", "centos7"],
 				"description" => "Helps select default AMIs, and enables correct grooming behavior for Windows instances.",
 			},
 			"run_list" => {
