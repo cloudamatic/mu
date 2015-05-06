@@ -142,37 +142,3 @@ execute 'boot Webrick' do
   cwd "#{application_dir}/rails"
 end
 
-=begin
-application 'flagship_safety' do
-  action     :deploy
-  path       application_dir
-  owner      'www-data'
-  group      'www-data'
-  repository application_repo
-  revision   'master'
-  migrate    true
-
-  rails do
-    gems %w(bundler unicorn)
-
-    database do
-      adapter  'mysql2'
-      encoding 'utf8'
-      database db_name
-      username db_username
-      password db_password
-      host     db_host
-      port     db_port
-    end
-  end
-
-  unicorn do
-    port             '127.0.0.1:9000'
-    worker_processes 2
-    stderr_path      unicorn_error_log
-    stdout_path      unicorn_log
-    forked_user      'www-data'
-    forked_group     'www-data'
-  end
-end
-=end
