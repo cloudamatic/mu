@@ -23,21 +23,21 @@ $azs = listAZs
 %>
 <% if !$vpc_deploy_id then %>
 vpcs:
-<%= include("vpc.yaml") %>
+  <%= include("vpc.yaml") %>
 <% end %>
 loadbalancers:
-<%= include("proxy_lb.yaml") %>
-<%= include("lnxapps_lb.yaml") %>
-<%= include("winapps_lb.yaml") %>
+  <%= include("proxy_lb.yaml") %>
+  <%= include("lnxapps_lb.yaml") %>
+  <%= include("winapps_lb.yaml") %>
 <% if !$vpc_deploy_id then %>
 servers:
-<%= include("bastion.yaml") %>
+  <%= include("bastion.yaml") %>
 <% end %>
 server_pools:
-<%= include("proxy_pool.yaml") %>
-<%= include("lnxapps_pool.yaml") %>
-<%= include("winapps_pool.yaml") %>
+  <%= include("proxy_pool.yaml") %>
+  <%= include("lnxapps_pool.yaml") %>
+  <%= include("winapps_pool.yaml") %>
 firewall_rules:
-<%= include("security_groups.yaml") %>
+  <%= include("security_groups.yaml") %>
 databases:
-<%= include("database.yaml") %>
+  <%= include("database.yaml") %>
