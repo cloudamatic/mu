@@ -170,6 +170,8 @@ module MU
 				end
 				$mu = OpenStruct.new(template_variables)
 				userdata_dir = File.expand_path(File.dirname(__FILE__)+"/../userdata")
+				platform = "linux" if %w{centos centos6 centos7 ubuntu ubuntu14}.include? platform
+				platform = "windows" if platform == "win2k12"
 				erbfile = "#{userdata_dir}/#{platform}.erb"
 				if !File.exist?(erbfile)
 					MU.log "No such userdata template '#{erbfile}'", MU::WARN
