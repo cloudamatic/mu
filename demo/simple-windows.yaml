@@ -14,8 +14,8 @@ servers:
   ingress_rules:
   - port: 3389
     hosts:
-    - 23.30.31.61/32
-    - 76.21.140.94/32
+    - 1.2.3.4/32
+    - 5.6.7.8/32
   run_list:
   - recipe[mu-utility::windows_basics]
   vpc:
@@ -27,8 +27,8 @@ servers:
     vpc_name: vpc
   <% end %>
 admins:
-- name: John Stange
-  email: john.stange@eglobaltech.com
+- name: Admin
+  email: admin@example.com
 <% unless $vpc_deploy_id or current_vpc then %>
 vpcs:
 - name: vpc

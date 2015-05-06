@@ -1,0 +1,30 @@
+- name: wordpress-demo-app
+  ami_id: ami-bc8131d4
+  ssh_user: root
+  loadbalancers:
+  - concurrent-load-balancer: wordpress-demo-lb
+  size: m3.medium
+  static_ip:
+   assign_ip: true
+  storage:
+  - size: 70
+  vpc: 
+   vpc_name: wordpress-demo-vpc
+   subnet_name: Public3
+  dependencies:
+  - type: loadbalancer
+    name: wordpress-demo-lb
+  - type: database
+    name: wordpress-demo-db
+  ingress_rules:
+  - port: 80
+    hosts:
+    - 0.0.0.0/0
+  - port: 443
+    hosts:
+    - 0.0.0.0/0  
+  run_list:
+  - recipe[demo::wordpress]
+admins:
+- name: Admin
+  email: admin@example.com
