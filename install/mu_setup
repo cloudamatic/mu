@@ -1387,6 +1387,8 @@ set_permissions()
 	cp -a $MU_LIBDIR/extras/git-fix-permissions-hook $MU_LIBDIR/.git/hooks/post-checkout
 	cp -a $MU_LIBDIR/extras/git-fix-permissions-hook $MU_LIBDIR/.git/hooks/post-rewrite
 	status_message "Setting permissions in Ruby installations and platform repos"
+	chmod 644 $MU_INSTALLDIR/etc/amazon_images.yaml
+	chmod 644 $MU_INSTALLDIR/etc/mu.rc
 	for extra in $ADDTL_CHEF_REPOS;do
 		extra_repo_name="`echo $extra | sed 's/^.*\///' | cut -d. -f1`"
 		fix_platform_repo_permissions "$MU_DATADIR/$extra_repo_name"
