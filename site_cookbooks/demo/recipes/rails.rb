@@ -16,7 +16,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-packages = %w(sqlite3 libsqlite3-dev libmysqlclient-dev software-properties-common)
+packages = %w(sqlite3 libsqlite3-dev libmysqlclient-dev software-properties-common libxml2-dev libxslt-dev libmagickwand-dev)
 
 package packages
 
@@ -38,7 +38,9 @@ include_recipe 'nginx'
 service_name     = node.normal.service_name
 chef_environment = node.chef_environment
 application_dir  = node[chef_environment][service_name].apps_dir
-application_repo = "https://github.com/#{node[chef_environment][service_name].application.rails_repo}"
+repo_path = node[chef_environment][service_name].application.rails_repo
+version = node[chef_environment][service_name].application.version 
+application_repo = "https://github.com/#{repo_path}"
 
 # Unicorn config
 unicorn_log_dir   = '/var/log/unicorn'
@@ -108,7 +110,7 @@ git 'checkout application' do
   user        'www-data'
   group       'www-data'
   repository  application_repo
-  revision    'master'
+  revision    version
 end
 
 rails_env = 'development'
@@ -125,6 +127,10 @@ template 'config/database.yml' do
   source 'database.yml.erb'
   variables ({:database => database, :rails_env => rails_env, :host => db_host})
   path "#{application_dir}/rails/config/database.yml"
+end
+
+cookbook_file 'concerto.yml' do
+  path "#{application_dir}/rails/config/concerto.yml"
 end
 
 execute 'bundle install' do
