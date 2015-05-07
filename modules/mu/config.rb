@@ -2475,6 +2475,7 @@ module MU
 				"creation_style"=> {
 					"type" => "string",
 					"enum" => ["existing","new","new_snapshot","existing_snapshot"],
+					"description" => "'new' - create a pristine database instances; 'existing' - use an already-extant database instance; 'new_snapshot' - create a snapshot of an already-extant database, and build a new one from that snapshot; 'existing_snapshot' - create database from an existing snapshot.",
 					"default" => "new"
 				},
 				"license_model"=> {

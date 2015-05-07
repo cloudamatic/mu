@@ -5,11 +5,10 @@ GEM
     akami (1.2.2)
       gyoku (>= 0.4.0)
       nokogiri
-    aws-sdk-core (2.0.40)
+    aws-sdk-core (2.0.41)
       builder (~> 3.0)
       jmespath (~> 1.0)
       multi_json (~> 1.0)
-      multi_xml (~> 0.5)
     berkshelf (3.2.0)
       addressable (~> 2.3.4)
       berkshelf-api-client (~> 1.2)
@@ -106,7 +105,7 @@ GEM
     httpi (0.9.7)
       rack
     ipaddress (0.8.0)
-    jmespath (1.0.1)
+    jmespath (1.0.2)
       multi_json (~> 1.0)
     json (1.8.1)
     json-schema (2.4.1)
@@ -128,8 +127,7 @@ GEM
     mixlib-config (2.1.0)
     mixlib-log (1.6.0)
     mixlib-shellout (2.0.1)
-    multi_json (1.10.1)
-    multi_xml (0.5.5)
+    multi_json (1.11.0)
     multipart-post (2.0.0)
     mysql (2.9.1)
     net-http-persistent (2.9.4)
@@ -265,7 +263,7 @@ PLATFORMS
   ruby
 
 DEPENDENCIES
-  aws-sdk-core (~> 2.0.40)
+  aws-sdk-core (~> 2.0.41)
   berkshelf
   chef (~> 12.3.0)
   chef-vault
