@@ -2500,7 +2500,7 @@ module MU
 					"type" => "object",
 					"additionalProperties" => false,
 					"required" => ["name"],
-					"description" => "Create a read only databasae replica",
+					"description" => "Create a read only database replica",
 					"properties" => {
 						"name" => { "type" => "string" },
 						"tags" => @tags_primitive,
