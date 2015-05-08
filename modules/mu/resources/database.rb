@@ -228,7 +228,9 @@ module MU
 					mod_config[:apply_immediately] = true
 
 					if database.db_subnet_group and database.db_subnet_group.subnets and !database.db_subnet_group.subnets.empty?
-						mod_config[:vpc_security_group_ids] = [vpc_db_sg]
+						if !db_config.nil? and db_config.has_key?(:vpc_security_group_ids)
+							mod_config[:vpc_security_group_ids] = db_config[:vpc_security_group_ids]
+						end
 						if @db["add_firewall_rules"] and !@db["add_firewall_rules"].empty?
 							@db["add_firewall_rules"].each { |acl|
 								sg = MU::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"], region: @db['region'])
@@ -583,7 +585,7 @@ module MU
 		# @param region [String]: The cloud provider region
 		# @return [void]
 		def self.allowHost(cidr, db_id, region: MU.curRegion)
-			database = MU::Database.getDatabaseById(@db['identifier'], region: @db['region'])
+			database = MU::Database.getDatabaseById(db_id, region: region)
 			# resp = MU.rds(region).describe_db_instances(db_instance_identifier: db_id)
 			# database = resp.data.db_instances.first
 
