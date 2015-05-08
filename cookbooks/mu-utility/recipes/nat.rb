@@ -23,20 +23,23 @@ else
 	if !node.application_attributes.nat.private_net.empty?
 		$ip_block = node.application_attributes.nat.private_net
 	end rescue NoMethodError
-	if platform_family?("rhel")
+
+	if platform_family?("rhel")	
 		$ssh_service_name = "sshd"
+
+		package "iptables-services" if node.platform_version.to_i == 7
+		# Iptables or FirewallD are not installed by default on CentOS7. Using iptables for backwards compatibility.
+
 		bash "enable NAT with iptables" do
-		code <<-EOH
-			if [ "`/sbin/iptables -n -L -t nat | tr -s ' '  | grep 'MASQUERADE all -- #{$ip_block} 0.0.0.0/0'`" == "" ];then
-				/sbin/iptables -t nat -A POSTROUTING -o eth0 -s #{$ip_block} -j MASQUERADE
-			fi
-			/sbin/iptables -D FORWARD 1
-			/sbin/iptables-save > /etc/sysconfig/iptables
-			echo 1 > /proc/sys/net/ipv4/ip_forward && echo 0 >  /proc/sys/net/ipv4/conf/eth0/send_redirects
-			mkdir -p /etc/sysctl.d/
-			echo "net.ipv4.ip_forward = 1" > /etc/sysctl.d/nat.conf
-			echo "net.ipv4.conf.eth0.send_redirects = 0" >> /etc/sysctl.d/nat.conf
-		EOH
+			code <<-EOH
+				if [ "`/sbin/iptables -n -L -t nat | tr -s ' '  | grep 'MASQUERADE all -- #{$ip_block} 0.0.0.0/0'`" == "" ];then
+					/sbin/iptables -t nat -A POSTROUTING -o eth0 -s #{$ip_block} -j MASQUERADE
+				fi
+				/sbin/iptables -D FORWARD 1
+				/sbin/iptables-save > /etc/sysconfig/iptables
+				sysctl -w net.ipv4.ip_forward=1
+				sysctl -w net.ipv4.conf.eth0.send_redirects=0
+			EOH
 		end
 	elsif platform_family?("debian")
 		$ssh_service_name = "ssh"

@@ -17,7 +17,7 @@
 # limitations under the License.
 
 case node[:platform]
-	when "centos"
+when "centos", "redhat"
 
 	include_recipe "mu-tools::aws_api"
 
@@ -38,7 +38,8 @@ case node[:platform]
 					result = attach_node_volume(volume)
 				end
 			end
-			not_if "tune2fs -l #{node[:application_attributes][volume][:mount_device]}"
+			not_if "tune2fs -l #{node[:application_attributes][volume][:mount_device]}" if node.platform_version.to_i == 6
+			not_if "xfs_info #{node[:application_attributes][volume][:mount_device]}" if node.platform_version.to_i == 7
 		end
 
 		ruby_block "label #{volume} as #{node.application_attributes[volume].label}" do
@@ -46,79 +47,122 @@ case node[:platform]
 			block do
 			  tags = [ { key: "Name", value: node.application_attributes[volume].label } ]
 			  if node.tags.is_a?(Hash)
-			    node.tags.each_pair { |key, value|
+				node.tags.each_pair { |key, value|
 						next if !value.is_a?(String)
-			      tags << { key: key, value: value }
-			    }
+				  tags << { key: key, value: value }
+				}
 			  end
 			  tag_volume(node.application_attributes[volume].mount_device, tags)
 			end
 		end rescue NoMethodError
 
-	  execute "mkfs.ext4 #{node[:application_attributes][volume][:mount_device]}" do
-			not_if "tune2fs -l #{node[:application_attributes][volume][:mount_device]}"
-			notifies :run, "execute[reboot for /var]", :delayed
+		if node.platform_version.to_i == 6
+			execute "mkfs.ext4 #{node[:application_attributes][volume][:mount_device]}" do
+				not_if "tune2fs -l #{node[:application_attributes][volume][:mount_device]}"
+				notifies :run, "execute[reboot for /var]", :delayed
+			end
+		elsif node.platform_version.to_i == 7
+			execute "mkfs.xfs -i size=512 #{node[:application_attributes][volume][:mount_device]}" do
+				not_if "xfs_info #{node[:application_attributes][volume][:mount_device]}"
+				notifies :run, "execute[reboot for /var]", :delayed
+			end
+
+			# doing something stoopid because CentOS7 dosen't like our init.d script. Should fix that instead 
+			directory "/mnt#{node[:application_attributes][volume][:mount_directory]}" do 
+				recursive true
+			end
+
+			execute "mount #{node[:application_attributes][volume][:mount_device]} /mnt#{node[:application_attributes][volume][:mount_directory]}" do
+				not_if "df -h | grep #{node[:application_attributes][volume][:mount_device]}"
+			end
 		end
 	}
+	
+	if node.platform_version.to_i == 7
+		# Copying var on a live system, should refactor mu-migrate-var-partitions to work on CentOS7
+		execute "cd /var && tar -cpf - . | ( cd /mnt/var && tar -xvpf - )" do
+			only_if "df -h | grep /dev/xvdo | grep /mnt/var"
+		end
+
+		%w{/mnt/var/log/audit /mnt/var/log /mnt/var}.each { |mount_point|
+			execute "umount #{mount_point}" do
+				only_if "df -h | grep #{mount_point}"
+			end
+		}
+
+		%w{var  var_log var_log_audit} .each { |volume|
+			mount node[:application_attributes][volume][:mount_directory] do
+				device node[:application_attributes][volume][:mount_device]
+				fstype "xfs"
+				options "defaults"
+				action [:mount, :enable]
+			end
+		}
+
+		execute "restorecon -Rv /var" do
+			not_if "ls -aZ /var | grep ':var_t:'"
+		end
+	end
 
 	package "lsof"
 
-	file "/etc/init.d/mu-migrate-var-partitions" do
-		mode 0755
-		content '#!/bin/sh
+	if node.platform_version.to_i == 6
+	# CentOS 7 seems to be freaking out on this, even when changing fstab to xfs and UUID 
+		file "/etc/init.d/mu-migrate-var-partitions" do
+			mode 0755
+			content '#!/bin/sh
+# mu-migrate-var-partitions Move /var and friends off of the root partition and onto their own
+#
+# chkconfig: 12345 00 99
+# description: Move /var and friends off of the root par
+# tition and onto their own
+#
 
-	# mu-migrate-var-partitions          Move /var and friends off of the root partition and onto their own
-	#
-	# chkconfig: 12345 00 99
-	# description: Move /var and friends off of the root par
-	# tition and onto their own
-	#
+if [ "`egrep \' /var \' /etc/fstab`" != "" ];then
+exit 0
+fi
 
-	if [ "`egrep \' /var \' /etc/fstab`" != "" ];then
-		exit 0
-	fi
+if [ "`/usr/sbin/lsof | egrep \' /var/[^[:space:]]+$\'`" != "" ];then
+echo "Services still have files open in /var, forcing init to single-user"
+/sbin/init 1
+sleep 30
+fi
 
-	if [ "`/usr/sbin/lsof | egrep \' /var/[^[:space:]]+$\'`" != "" ];then
-		echo "Services still have files open in /var, forcing init to single-user"
-		/sbin/init 1
-		sleep 30
-	fi
+mkdir -p /mnt5
+/bin/mount '+node[:application_attributes][:var][:mount_device]+' /mnt5
+mkdir -p /mnt5/log
+/bin/mount '+node[:application_attributes][:var_log][:mount_device]+' /mnt5/log
+mkdir -p /mnt5/log/audit
+/bin/mount '+node[:application_attributes][:var_log_audit][:mount_device]+' /mnt5/log/audit
 
-	mkdir -p /mnt5
-	/bin/mount '+node[:application_attributes][:var][:mount_device]+' /mnt5
-	mkdir -p /mnt5/log
-	/bin/mount '+node[:application_attributes][:var_log][:mount_device]+' /mnt5/log
-	mkdir -p /mnt5/log/audit
-	/bin/mount '+node[:application_attributes][:var_log_audit][:mount_device]+' /mnt5/log/audit
+/bin/umount /var/tmp
+cd /var && tar -cpf - . | ( cd /mnt5 && tar -xvpf - )
 
-	/bin/umount /var/tmp
-	cd /var && tar -cpf - . | ( cd /mnt5 && tar -xvpf - )
+rm -rf /var/*
 
-	rm -rf /var/*
+/bin/umount /mnt5/log/audit
+/bin/umount /mnt5/log
+/bin/umount /mnt5
 
-	/bin/umount /mnt5/log/audit
-	/bin/umount /mnt5/log
-	/bin/umount /mnt5
+echo "'+node[:application_attributes][:var][:mount_device]+' /var ext4 defaults 0 0" >> /etc/fstab
+echo "'+node[:application_attributes][:var_log][:mount_device]+' /var/log ext4 defaults 0 0" >> /etc/fstab
+echo "'+node[:application_attributes][:var_log_audit][:mount_device]+' /var/log/audit ext4 defaults 0 0" >> /etc/fstab
 
-	echo "'+node[:application_attributes][:var][:mount_device]+' /var ext4 defaults 0 0" >> /etc/fstab
-	echo "'+node[:application_attributes][:var_log][:mount_device]+' /var/log ext4 defaults 0 0" >> /etc/fstab
-	echo "'+node[:application_attributes][:var_log_audit][:mount_device]+' /var/log/audit ext4 defaults 0 0" >> /etc/fstab
+/bin/mount /var
+/bin/mount /var/log
+/bin/mount /var/log/audit
+/bin/mount /var/tmp
+/sbin/restorecon -Rv /var
 
-	/bin/mount /var
-	/bin/mount /var/log
-	/bin/mount /var/log/audit
-	/bin/mount /var/tmp
-	/sbin/restorecon -Rv /var
+init 3
 
-	init 3
+'
 
-	'
-	end
+		end
 
-
-	execute "/sbin/chkconfig --add mu-migrate-var-partitions && /sbin/chkconfig mu-migrate-var-partitions on"
-
+		execute "/sbin/chkconfig --add mu-migrate-var-partitions && /sbin/chkconfig mu-migrate-var-partitions on"
 	# XXX Trigger a reboot! Ye gods, we're basically Windows now.
-	else
-		Chef::Log.info("Unsupported platform #{node[:platform]}")
+	end
+else
+	Chef::Log.info("Unsupported platform #{node[:platform]}")
 end
