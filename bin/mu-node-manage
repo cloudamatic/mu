@@ -41,8 +41,8 @@ end
 if $opts[:platform] and !["linux", "windows"].include?($opts[:platform])
 	Trollop::die(:platform, "--platform must be one of: linux, windows")
 end
-if ARGV.empty? and !$opts[:all]
-	puts "Trollop::educate doesn't work for some reason, this is a placeholder"
+if ARGV.empty? and !$opts[:all] and !$opts[:platform] and !$opts[:environment] and !$opts[:list]
+	Trollop::educate
 	exit 1
 end
 
