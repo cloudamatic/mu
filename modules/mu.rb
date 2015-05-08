@@ -204,9 +204,13 @@ module MU
 		@@mu_public_ip = @@my_private_ip
 	end
 
+	# Private Mu server IP address, per AWS
 	def self.my_private_ip; @@my_private_ip end
+	# Public Mu server IP address, per AWS
 	def self.my_public_ip; @@my_public_ip end
+	# Public Mu server name, not necessarily the same as MU.mu_public_ip
 	def self.mu_public_ip; @@mu_public_ip end
+	# Public Mu server IP address, not necessarily the same as MU.my_public_ip
 	def self.mu_public_addr; @@mu_public_addr end
 
 	@@iam_api = {}

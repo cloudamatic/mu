@@ -30,6 +30,8 @@ require 'open-uri'
 # MommaCat. It's not at all clear why. Chef bug? Autoload threading weirdness?
 class Chef
   autoload :Knife, 'chef/knife'
+	# XXX This only seems to be necessary for independent groom invocations from
+	# MommaCat. It's not at all clear why. Chef bug? Autoload threading weirdness?
 	class Knife
 		autoload :Ssh, 'chef/knife/ssh'
 	end

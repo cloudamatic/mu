@@ -283,6 +283,9 @@ module MU
 			return @db['identifier']
 		end
 
+		# Create a subnet group for a database with the given config.
+		# @param config [Hash]: The cloud provider configuration options.
+		# @return [Hash]: The modified cloud provider configuration options Hash.
 		def createSubnetGroup(config)
 			# Finding subnets, creating security groups/adding holes, create subnet group 
 			if @db['vpc'] and !@db['vpc'].empty?
