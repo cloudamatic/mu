@@ -98,6 +98,7 @@ include_recipe "postfix"
 if !MU.mu_public_addr.match(/^\d+\.\d+\.\d+\.\d+$/)
 	node.normal.postfix.main.myhostname = MU.mu_public_addr
 	node.normal.postfix.main.mydomain = MU.mu_public_addr.sub(/^.*?([^\.]+\.[^\.]+)$/, '\1')
+	node.normal.postfix.main.myorigin = MU.mu_public_addr.sub(/^.*?([^\.]+\.[^\.]+)$/, '\1')
 end
 node.normal.postfix.main.inet_interfaces = "all"
 node.save
