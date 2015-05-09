@@ -594,7 +594,7 @@ module MU
 					found_servers = MU::MommaCat.getResourceDeployStruct(MU::Server.cfg_plural, name: mu_name)
 					if !found_servers.nil? and found_servers.is_a?(Hash)
 						if found_servers.values.first['instance_id'] == nat_instance.instance_id
-							dns_name = MU::DNSZone.genericDNSEntry(found_servers.keys.first, nat_ssh_host, MU::Server, noop: true, sync_wait: @server['dns_sync_wait'])
+							dns_name = MU::DNSZone.genericDNSEntry(found_servers.keys.first, nat_ssh_host, MU::Server, noop: true, sync_wait: config['dns_sync_wait'])
 						end
 					end
 					nat_ssh_host = dns_name if !dns_name.nil?
