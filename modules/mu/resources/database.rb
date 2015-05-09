@@ -234,6 +234,9 @@ module MU
 						if @db["add_firewall_rules"] and !@db["add_firewall_rules"].empty?
 							@db["add_firewall_rules"].each { |acl|
 								sg = MU::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"], region: @db['region'])
+								if sg and mod_config[:vpc_security_group_ids].nil?
+									mod_config[:vpc_security_group_ids] = []
+								end	
 								mod_config[:vpc_security_group_ids] << sg.group_id if sg
 							}
 						end
