@@ -4,7 +4,7 @@ centos6: &centos6
   us-west-1: ami-3525c171
   us-west-2: ami-cf8babff
 centos7: &centos7
-  us-east-1: ami-96a818fe 
+  us-east-1: ami-c2a0b6aa 
   us-west-1: ami-6bcfc42e
   us-west-2: ami-c7d092f7 
 ubuntu14: &ubuntu14

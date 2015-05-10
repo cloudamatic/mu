@@ -42,7 +42,8 @@ when "centos", "redhat"
 		include_recipe "mu-utility::cloudinit"
 
 		execute "hostnamectl set-hostname #{$hostname} && systemctl restart systemd-hostnamed" do
-			not_if "hostnamectl | grep Static | grep #{$hostname.downcase}"
+			# not_if "hostnamectl | grep Static | grep #{$hostname.downcase}"
+			not_if "grep #{$hostname} /etc/hostname"
 		end
 		
 		file "/etc/hostname" do

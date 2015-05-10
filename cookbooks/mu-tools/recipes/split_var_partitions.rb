@@ -90,7 +90,7 @@ when "centos", "redhat"
 			end
 		}
 
-		%w{var  var_log var_log_audit} .each { |volume|
+		%w{var var_log var_log_audit}.each { |volume|
 			mount node[:application_attributes][volume][:mount_directory] do
 				device node[:application_attributes][volume][:mount_device]
 				fstype "xfs"
@@ -104,10 +104,10 @@ when "centos", "redhat"
 		end
 	end
 
-	package "lsof"
-
 	if node.platform_version.to_i == 6
-	# CentOS 7 seems to be freaking out on this, even when changing fstab to xfs and UUID 
+	# CentOS 7 seems to be freaking out on this, even when changing fstab to xfs and UUID
+		package "lsof"
+
 		file "/etc/init.d/mu-migrate-var-partitions" do
 			mode 0755
 			content '#!/bin/sh
