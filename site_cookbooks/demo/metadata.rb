@@ -16,10 +16,10 @@ license          '# Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights
 ## limitations under the License.'
 description      'Installs/Configures demo application'
 long_description IO.read(File.join(File.dirname(__FILE__), 'README.md'))
-version          '0.2.0'
+version          '0.2.1'
 depends          'git'
 depends          'application'
-depends          'application_python', '~> 3.0'
+depends          'application_python'
 depends          'nginx'
 depends          'application_ruby'
 depends          'ruby_build'

@@ -239,7 +239,7 @@ GEM
     thor (0.19.1)
     timers (4.0.1)
       hitimes
-    trollop (2.0)
+    trollop (2.1.2)
     uuidtools (2.1.5)
     varia_model (0.4.0)
       buff-extensions (~> 1.0)
@@ -280,5 +280,5 @@ DEPENDENCIES
   ruby-wmi
   simple-password-gen
   thin
-  trollop
+  trollop (~> 2.1.2)
   yard

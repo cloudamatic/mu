@@ -61,8 +61,9 @@ $environment = 'dev'
 
 # rails
 $service = 'rails'
-default[$environment][$service]["apps_dir"] = "/apps/rails"
-default[$environment][$service]["application"]["rails_repo"] = "zr2d2/flagship_safety.git"
+default[$environment][$service]["apps_dir"] = "/apps"
+default[$environment][$service]["application"]["rails_repo"] = "concerto/concerto.git"
+default[$environment][$service]["application"]["version"] = "2.2.7"
 
 # Django
 $service = 'django'

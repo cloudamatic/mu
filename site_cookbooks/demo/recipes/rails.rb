@@ -16,8 +16,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+packages = %w(sqlite3 libsqlite3-dev libmysqlclient-dev software-properties-common libxml2-dev libxslt-dev libmagickwand-dev)
+
+package packages
+
+apt_repository "brightbox-ruby-ng-#{node['lsb']['codename']}" do
+  uri          "http://ppa.launchpad.net/brightbox/ruby-ng/ubuntu"
+  distribution node['lsb']['codename']
+  components   ["main"]
+  keyserver    "keyserver.ubuntu.com"
+  key          "C3173AA6"
+  action       :add
+  notifies     :run, "execute[apt-get update]", :immediately
+end
+
 include_recipe 'apt'
-include_recipe 'ruby_build'
 include_recipe 'runit'
 include_recipe 'nodejs'
 include_recipe 'nginx'
@@ -25,7 +38,9 @@ include_recipe 'nginx'
 service_name     = node.normal.service_name
 chef_environment = node.chef_environment
 application_dir  = node[chef_environment][service_name].apps_dir
-application_repo = "https://github.com/#{node[chef_environment][service_name].application.rails_repo}"
+repo_path = node[chef_environment][service_name].application.rails_repo
+version = node[chef_environment][service_name].application.version 
+application_repo = "https://github.com/#{repo_path}"
 
 # Unicorn config
 unicorn_log_dir   = '/var/log/unicorn'
@@ -41,16 +56,16 @@ db_port     = node.deployment.databases.fss.port
 
 node.set['nginx']['default_root'] = "#{application_dir}/"
 
-ruby_build_ruby '1.9.3-p547' do
-  prefix_path   '/usr/local/'
-  environment   'CFLAGS' => '-g -O2'
-  action        :install
-end
+package %w(ruby2.2 ruby2.2-dev)
 
 gem_package 'bundler' do
-  version    '1.6.2'
-  gem_binary '/usr/local/bin/gem'
   options    '--no-ri --no-rdoc'
+  gem_binary "/usr/bin/gem"
+end
+
+# Need to reload OHAI to ensure the newest ruby is loaded up
+ohai "reload" do
+ action :reload
 end
 
 directory unicorn_log_dir do
@@ -72,10 +87,6 @@ file unicorn_error_log do
   action :create_if_missing
 end
 
-package 'libmysqlclient-dev' do
-  action :install
-end
-
 file '/etc/nginx/sites-available/default' do
   content <<-EOH
     server {
@@ -89,35 +100,51 @@ file '/etc/nginx/sites-available/default' do
   EOH
 end
 
-application 'flagship_safety' do
-  action     :deploy
-  path       application_dir
-  owner      'www-data'
-  group      'www-data'
-  repository application_repo
-  revision   'master'
-  migrate    true
-
-  rails do
-    gems %w(bundler unicorn)
-
-    database do
-      adapter  'mysql2'
-      encoding 'utf8'
-      database db_name
-      username db_username
-      password db_password
-      host     db_host
-      port     db_port
-    end
-  end
-
-  unicorn do
-    port             '127.0.0.1:9000'
-    worker_processes 2
-    stderr_path      unicorn_error_log
-    stdout_path      unicorn_log
-    forked_user      'www-data'
-    forked_group     'www-data'
-  end
+directory application_dir do
+  recursive true
+  owner     'www-data'
 end
+
+git 'checkout application' do
+  destination "#{application_dir}/rails"
+  user        'www-data'
+  group       'www-data'
+  repository  application_repo
+  revision    version
+end
+
+rails_env = 'development'
+database = {
+  'adapter'  => 'mysql2',
+  'encoding' => 'utf8',
+  'database' => db_name,
+  'username' => db_username,
+  'password' => db_password,
+  'port'     => db_port
+}
+
+template 'config/database.yml' do
+  source 'database.yml.erb'
+  variables ({:database => database, :rails_env => rails_env, :host => db_host})
+  path "#{application_dir}/rails/config/database.yml"
+end
+
+cookbook_file 'concerto.yml' do
+  path "#{application_dir}/rails/config/concerto.yml"
+end
+
+execute 'bundle install' do
+  cwd "#{application_dir}/rails"
+  command "#{application_dir}/rails/bin/bundle install --path vendor/bundle"
+end
+
+execute 'mirgate databvase' do
+  cwd "#{application_dir}/rails"
+  command "/usr/local/bin/bundle exec rake db:migrate"
+end
+
+execute 'boot Webrick' do
+  command "bundle exec rails s -e development -p 9000 -d"
+  cwd "#{application_dir}/rails"
+end
+
