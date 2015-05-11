@@ -27,8 +27,15 @@ else
 	if platform_family?("rhel")	
 		$ssh_service_name = "sshd"
 
-		package "iptables-services" if node.platform_version.to_i == 7
+		if node.platform_version.to_i == 7
 		# Iptables or FirewallD are not installed by default on CentOS7. Using iptables for backwards compatibility.
+		# Looks like only the AWS marketplace image doesn't have FirewallD installed by default. Clean installation of CentOS7 minimal does, so removing.
+			package "firewalld" do 
+				action :remove
+			end
+
+			package "iptables-services"
+		end
 
 		bash "enable NAT with iptables" do
 			code <<-EOH
