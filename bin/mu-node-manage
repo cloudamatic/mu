@@ -65,7 +65,7 @@ else
 		}
 	else
 		do_deploys = avail_deploys
-		do_nodes = ARGV # XXX yell at us about invalid nodes
+		do_nodes = ARGV
 	end
 end
 avail_nodes = []
@@ -79,7 +79,7 @@ do_deploys.each { |muid|
 		avail_nodes << nodename
 	}
 }
-if do_nodes.size > 1
+if do_nodes.size > 0
 	do_nodes.each { |node|
 		if !avail_nodes.include?(node)
 			ok = false
@@ -91,6 +91,7 @@ else
 	do_nodes = avail_nodes
 end
 do_nodes.sort!
+
 
 if $opts[:list]
 	puts do_nodes
