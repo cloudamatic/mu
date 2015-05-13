@@ -40,7 +40,7 @@ cookbook 'java', '~> 1.31.0'
 cookbook 'memcached', '~> 1.7.2'
 cookbook 'mongodb', '~> 0.16.2'
 cookbook 'mysql', '~> 5.2.12'
-cookbook 'nagios', '~> 7.1.0'
+cookbook 'nagios', '~> 7.1.2'
 cookbook 'nginx', '~> 2.7.6'
 cookbook 'nginx_simplecgi', '~> 0.1.2'
 cookbook 'nginx-passenger', path: "#{cookbookPath}/nginx-passenger"
