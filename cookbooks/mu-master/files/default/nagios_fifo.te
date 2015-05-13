@@ -1,0 +1,13 @@
+
+module nagios_fifo 1.0;
+
+require {
+	type httpd_sys_content_t;
+	type httpd_sys_script_t;
+	class fifo_file { getattr open write };
+}
+
+#============= httpd_sys_script_t ==============
+allow httpd_sys_script_t httpd_sys_content_t:fifo_file open;
+allow httpd_sys_script_t httpd_sys_content_t:fifo_file getattr;
+allow httpd_sys_script_t httpd_sys_content_t:fifo_file write;

@@ -17,6 +17,17 @@
 # limitations under the License.
 
 include_recipe "nagios"
+
+cookbook_file "nagios_fifo.pp" do
+	path "#{Chef::Config[:file_cache_path]}/nagios_fifo.pp"
+end
+
+execute "Add Nagios cmd FIFO to SELinux allow list" do
+	command "/usr/sbin/semodule -i nagios_fifo.pp"
+	cwd Chef::Config[:file_cache_path]
+	not_if "/usr/sbin/semodule -l | grep nagios_fifo"
+	notifies :reload, "service[apache2]", :delayed
+end
 ["/usr/lib/cgi-bin/nagios3", "/usr/lib/nagios3", "/etc/nagios", "/etc/nagios3", "/var/log/nagios", "/var/www/html/docs"].each { |dir|
 	if Dir.exist?(dir)
 		execute "chcon -R -h -t httpd_sys_content_t #{dir}" do
