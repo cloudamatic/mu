@@ -48,11 +48,11 @@ unicorn_log       = "#{unicorn_log_dir}/unicorn.log"
 unicorn_error_log = "#{unicorn_log_dir}/error.log"
 
 # RDS cofig
-db_name     = node.deployment.databases.fss.db_name
-db_username = node.deployment.databases.fss.username
-db_password = node.deployment.databases.fss.password
-db_host     = node.deployment.databases.fss.endpoint
-db_port     = node.deployment.databases.fss.port
+db_name     = node.deployment.databases.concerto.db_name
+db_username = node.deployment.databases.concerto.username
+db_password = node.deployment.databases.concerto.password
+db_host     = node.deployment.databases.concerto.endpoint
+db_port     = node.deployment.databases.concerto.port
 
 node.set['nginx']['default_root'] = "#{application_dir}/"
 
