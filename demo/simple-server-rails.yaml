@@ -1,8 +1,11 @@
-<% $azs = listAZs %>
+<%
+  $azs = listAZs
+  $azs.delete $azskip if $azskip
+%>
 ---
   appname: demo
-  servers: 
-    - 
+  servers:
+    -
       name: rails
       ssh_user: ubuntu
       platform: ubuntu
@@ -12,7 +15,7 @@
       ami-id: ami-50e3c738
       skipinitialupdates: true
       size: t2.micro
-      run_list: 
+      run_list:
       - "recipe[demo::rails]"
       associate_public_ip: true
       static_ip:
@@ -20,17 +23,17 @@
       vpc:
         vpc_name: vpc
         subnet_name: Subnet0Public
-      ingress_rules: 
-        - 
+      ingress_rules:
+        -
           port: 80
-          hosts: 
+          hosts:
             - 0.0.0.0/0
-        - 
+        -
           port: 443
-          hosts: 
+          hosts:
             - 0.0.0.0/0
-      dependencies: 
-        - 
+      dependencies:
+        -
           name: fss
           type: database
   vpcs:
@@ -47,8 +50,8 @@
       availability-zone: <%= az %>
       route-table: internet
   <% end %>
-  databases: 
-    - 
+  databases:
+    -
       name: fss
       engine: mysql
       size: db.t1.micro
@@ -60,7 +63,7 @@
         <% (1..$azs.size).each do |i| %>
           - subnet_name: Subnet<%= i-1 %>Public
         <% end %>
-  admins: 
-    - 
+  admins:
+    -
       name: Zach Rowe
       email: zachary.rowe@eglobaltech.com
