@@ -154,7 +154,7 @@ module CAPVolume
             Chef::Log.info("in the ec2 branch with app volume #{volume_label}")
             # EC2 stuff
             if  az
-								resp = ec2.create_volume(size: volume_size_gb, availability_zone: az)
+								resp = ec2.create_volume(size: volume_size_gb, availability_zone: az, volume_type: "gp2")
                 volume_id = resp.volume_id
                 node.set[:application_attributes][volume_label]['volume_id'] = volume_id
                 node.save
