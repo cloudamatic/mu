@@ -174,6 +174,8 @@ module MU
 					raw_json = raw_text
 					yaml_parse_error = e.message
 				end
+			else
+				raw_json = raw_text
 			end
 
 			begin
