@@ -1451,6 +1451,7 @@ if [ "$library" != "1" ];then
 		set_permissions
 	fi
 
+	chef-client
 
 	echo ""
 	echo "You MUST source all of the changes I made to your environment:"
