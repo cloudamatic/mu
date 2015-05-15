@@ -31,11 +31,13 @@ end
 
 # Workaround for minor Nagios (cookbook?) bug. It looks for this at the wrong
 # URL at the moment, so copy it where it's actually looking.
-remote_file "/usr/lib/cgi-bin/statusjson.cgi" do
-	source "file:///usr/lib/cgi-bin/nagios/statusjson.cgi"
-	mode 0755
-	owner "root"
-	group "nagios"
+if File.exists?("usr/lib/cgi-bin/nagios/statusjson.cgi")
+	remote_file "/usr/lib/cgi-bin/statusjson.cgi" do
+		source "file:///usr/lib/cgi-bin/nagios/statusjson.cgi"
+		mode 0755
+		owner "root"
+		group "nagios"
+	end
 end
 
 ["/usr/lib/nagios", "/etc/nagios", "/etc/nagios3", "/var/log/nagios", "/var/www/html/docs"].each { |dir|
