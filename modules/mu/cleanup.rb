@@ -764,6 +764,9 @@ module MU
 							if !rule[:ip_ranges].nil? and rule[:ip_ranges].size == 0
 								rule.delete(:ip_ranges)
 							end
+							if !rule[:prefix_list_ids].nil? and rule[:prefix_list_ids].size == 0
+								rule.delete(:prefix_list_ids)
+							end
 						}
 					}
 					sg.ip_permissions_egress.each { |hole|
@@ -780,6 +783,9 @@ module MU
 							end
 							if !rule[:ip_ranges].nil? and rule[:ip_ranges].size == 0
 								rule.delete(:ip_ranges)
+							end
+							if !rule[:prefix_list_ids].nil? and rule[:prefix_list_ids].size == 0
+								rule.delete(:prefix_list_ids)
 							end
 						}
 					}
