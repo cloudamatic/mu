@@ -109,8 +109,6 @@ file "/etc/motd" do
 
  This is an Mu Master server. Mu is installed in #{MU.myRoot}.
 
- Chef Admin GUI: https://#{MU.mu_public_addr}/
-
  Nagios monitoring GUI: https://#{MU.mu_public_addr}:8443/
 
  Mu API documentation: http://#{MU.mu_public_addr}/docs/frames.html
@@ -131,9 +129,6 @@ file "/var/www/html/index.html" do
 
  <h1>This is an Mu Master server</h2>
 
-<p>
- <a href='https://#{MU.mu_public_addr}'>Chef Admin GUI</a>
-</p>
 <p>
  <a href='https://#{MU.mu_public_addr}:8443/'>Nagios monitoring GUI</a>
 </p>
