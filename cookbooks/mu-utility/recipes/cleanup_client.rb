@@ -20,39 +20,4 @@ unless node[:recipes].include?("chef-server")
   end
 end
 
-case node[:platform]
-
-	when "centos"
-
-		bash "Install system updates" do
-        user "root"
-		code <<-EOH
-
-		yum -y update
-
-		EOH
-		end
-
-
-	when "ubuntu"
-		include_recipe "mu-utility::apt"
-		bash "Install system updates" do
-        user "root"
-		code <<-EOH
-		apt-get -y upgrade
-
-cat >> /etc/ssh/sshd_config << EOF
-PermitRootLogin without-password
-EOF
-
-cat /root/.ssh/authorized_keys | sed 's/^.*ssh-rsa//g' > /tmp/temp && mv /tmp/temp /root/.ssh/authorized_keys
-cat /root/.ssh/authorized_keys | sed '1s/^/ssh-rsa/' > /tmp/temp && mv /tmp/temp /root/.ssh/authorized_keys
-
-/etc/init.d/ssh restart
-
-		EOH
-		end
-	
-	else
-		Chef::Log.info("Unsupported platform #{node[:platform]}")
-end
+include_recipe "mu-tools::updates"

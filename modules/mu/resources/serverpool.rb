@@ -62,14 +62,17 @@ module MU
 				:health_check_grace_period => @pool["health_check_grace_period"],
 				:tags => []
 			}
+
 			MU::MommaCat.listStandardTags.each_pair { |name, value|
 				asg_options[:tags] << { key: name, value: value, propagate_at_launch: true }
 			}
-			if !@pool['tags'].nil?
+
+			if @pool['tags']
 				@pool['tags'].each { |tag|
-					asg_options[:tags] << { key: tags['key'], value: tags['value'], propagate_at_launch: true }
+					asg_options[:tags] << { key: tag['key'], value: tag['value'], propagate_at_launch: true }
 				}
 			end
+
 			if @pool["wait_for_nodes"] > 0
 				MU.log "Setting pool #{pool_name} min_size and max_size to #{@pool["wait_for_nodes"]} until bootstrapped"
 				asg_options[:min_size] = @pool["wait_for_nodes"]
@@ -274,7 +277,7 @@ module MU
 			end
 
 			if zones_to_try != nil and zones_to_try.size < @pool["zones"].size
-	      zones_to_try.each { |zone|
+				zones_to_try.each { |zone|
 					begin
 						MU.autoscaleg.update_auto_scaling_group(
 							auto_scaling_group_name: pool_name,
@@ -291,7 +294,7 @@ module MU
 				@pool["scaling_policies"].each { |policy|
 					policy_params = {
 						:auto_scaling_group_name => pool_name,
-						:policy_name => MU::MommaCat.getResourceName(@pool['name']+policy['name']),
+						:policy_name => MU::MommaCat.getResourceName("#{@pool['name']}-#{policy['name']}"),
 						:scaling_adjustment => policy['adjustment'],
 						:adjustment_type => policy['type'],
 						:cooldown => policy['cooldown']
@@ -328,7 +331,7 @@ module MU
 						instance, mu_name = MU::Server.find(id: member.instance_id)
 						groomthreads << Thread.new {
 							MU.dupGlobals(parent_thread_id)
-							MU.mommacat.groomNode(instance, @pool['name'], "server_pool", reraise_fail: true)
+							MU.mommacat.groomNode(instance, @pool['name'], "server_pool", reraise_fail: true, sync_wait: @pool['dns_sync_wait'])
 						}
 					rescue Exception => e
 						if !instance.nil? and !done

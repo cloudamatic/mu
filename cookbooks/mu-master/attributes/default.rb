@@ -60,20 +60,21 @@ default['nagios']['server_role'] = "mu-master"
 default['nagios']['server']['install_method'] = 'source'
 default['nagios']['multi_environment_monitoring'] = true
 default['nagios']['users_databag'] = "nagios_users"
+default['nagios']['conf']['enable_notifications'] = 1
+default['nagios']['interval_length'] = 1
 default['nagios']['notifications_enabled'] = 1
-override['nagios']['default_host']['notification_interval'] = 7200
-override['nagios']['default_host']['check_interval'] = 180
-override['nagios']['default_host']['retry_interval'] = 60
+default['nagios']['default_host']['notification_interval'] = 7200
+default['nagios']['default_host']['check_interval'] = 180
+default['nagios']['default_host']['retry_interval'] = 60
 default['nagios']['conf']['service_check_timeout'] = 10
 default['nagios']['default_host']['max_check_attempts'] = 4
 default['nagios']['default_host']['check_command'] = "check_node_ssh"
-override['nagios']['default_service']['check_interval'] = 180
-override['nagios']['default_service']['retry_interval'] = 30
-
+default['nagios']['default_service']['check_interval'] = 180
+default['nagios']['default_service']['retry_interval'] = 30
 
 # no idea why this attribute isn't set on MU-MASTER, but it isn't.
 default['chef_node_name'] = Chef::Config[:node_name]
-override['nagios']['host_name_attribute'] = 'chef_node_name'
+default['nagios']['host_name_attribute'] = 'chef_node_name'
 
 default[:application_attributes][:logs]["volume_size_gb"] = 50
 default[:application_attributes][:logs][:mount_device] = "/dev/xvdl"

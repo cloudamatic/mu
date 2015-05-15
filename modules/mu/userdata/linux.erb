@@ -23,7 +23,8 @@ if [ -f /etc/debian_version ];then
 elif [ -x /usr/bin/yum ];then
 	# Ugh, rando EPEL mirror
 	if [ ! -f /etc/yum.repos.d/epel.repo ];then
-		/bin/rpm -ivh http://mirror.metrocast.net/fedora/epel/6/i386/epel-release-6-8.noarch.rpm
+	     version=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
+		/bin/rpm -ivh http://mirror.metrocast.net/fedora/epel/epel-release-latest-$version.noarch.rpm
 	fi
 	if [ ! -f /usr/bin/pip ] ;then /usr/bin/yum -y install python-pip;fi
 	if [ ! -f /usr/bin/curl ] ;then /usr/bin/yum -y install curl;fi
@@ -37,7 +38,7 @@ umask 0077
 
 # Install Chef now, because why not?
 if [ ! -f /opt/chef/embedded/bin/ruby ];then
-	curl https://www.opscode.com/chef/install.sh > chef-install.sh
+	curl https://www.chef.io/chef/install.sh > chef-install.sh
 	set +e
 	# We may run afoul of a synchronous bootstrap process doing the same thing. So
 	# wait until we've managed to run successfully.

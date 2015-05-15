@@ -66,7 +66,7 @@ python_pip "gunicorn"
 
 # target a virtualenv
 python_pip "gunicorn" do
-  virtualenv "/home/ubunut/my_ve"
+  virtualenv "/home/ubuntu/my_ve"
 end
 ```
 
@@ -74,13 +74,6 @@ end
 # install Django 1.1.4
 python_pip "django" do
   version "1.1.4"
-end
-```
-
-```ruby
-# use this provider with the core package resource
-package "django" do
-  provider Chef::Provider::PythonPip
 end
 ```
 
@@ -151,10 +144,10 @@ Installs virtualenv using the `python_pip` resource.
 
 License & Authors
 -----------------
-- Author:: Seth Chisamore (<schisamo@opscode.com>)
+- Author:: Seth Chisamore (<schisamo@chef.io>)
 
 ```text
-Copyright:: 2011, Opscode, Inc
+Copyright:: 2011, Chef Software, Inc
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.

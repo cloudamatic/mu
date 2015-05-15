@@ -262,7 +262,7 @@ module MU
 					end
 				end
 			end
-			MU::DNSZone.genericDNSEntry(lb_name, "#{resp.dns_name}.", MU::LoadBalancer)
+			MU::DNSZone.genericDNSEntry(lb_name, "#{resp.dns_name}.", MU::LoadBalancer, sync_wait: @loadbalancer['dns_sync_wait'])
 			MU::DNSZone.createRecordsFromConfig(@loadbalancer['dns_records'], target: resp.dns_name)
 
 			deploy_struct = {

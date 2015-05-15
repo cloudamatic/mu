@@ -321,7 +321,7 @@ module MU
 		# @param instance [OpenStruct]: The cloud providor's full descriptor for this node.
 		# @param name [String]: The MU resource name of the node being created.
 		# @param type [String]: The type of resource that created this node (either *server* or *serverpool*).
-		def groomNode(instance, name, type, reraise_fail: false)
+		def groomNode(instance, name, type, reraise_fail: false, sync_wait: true)
 
 			if instance.nil?
 				raise "MU::MommaCat.groomNode requires an AWS instance object"
@@ -430,7 +430,7 @@ module MU
 
 						end
 
-						if !MU::Server.groomEc2(server, instance, @ssh_key_name)
+						if !MU::Server.groomEc2(server, instance, @ssh_key_name, sync_wait: sync_wait)
 							MU.log "#{node} is already being groomed, skipping", MU::NOTICE
 							MU::MommaCat.unlockAll
 							puts "------------------------------"
@@ -1411,6 +1411,17 @@ MESSAGE_END
 					t.join
 				}
 			end
+		end
+
+		# Return a list of all currently active deploy identifiers.
+		# @return [Array<String>]
+		def self.listDeploys
+			deploys = []
+			Dir.entries("#{MU.dataDir}/deployments").reverse_each { |muid|
+				next if !Dir.exists?("#{MU.dataDir}/deployments/#{muid}") or muid == "." or muid == ".."
+				deploys << muid
+			}
+			return deploys
 		end
 
 		# Return a list of all nodes associated with the current deployment.

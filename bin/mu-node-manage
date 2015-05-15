@@ -1,0 +1,350 @@
+#!/usr/local/ruby-current/bin/ruby
+# Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
+#
+# Licensed under the BSD-3 license (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License in the root of the project or at
+#
+#     http://egt-labs.com/mu/LICENSE.html
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+require File.expand_path(File.dirname(__FILE__))+"/mu-load-murc.rb"
+require 'trollop'
+require 'chef'
+require 'json'
+require 'mu'
+
+$opts = Trollop::options do
+	banner <<-EOS
+Usage:
+#{$0} [-c] [-w] [-l] [-d] [-a] [-e <environment>] [-p <platform>] [-m <mode>] [-o <chefopts>] [-x <command>] [ deploy_id|node_name [ ... ] ]
+  EOS
+	opt :concurrent, "Max number of processes to run concurrently when invoking Chef or MommaCat on multiple nodes.", :require => false, :default => 10, :type => :integer
+	opt :list, "Perform no action, but instead return a list of matching hosts.", :require => false, :default => false, :type => :boolean
+	opt :deploys, "Operate on matching deploy IDs instead of node names.", :require => false, :default => false, :type => :boolean
+	opt :all, "Operate on all nodes/deploys. Use with caution.", :require => false, :default => false, :type => :boolean
+	opt :platform, "Operate exclusively on one nodes of a particular operating system. Can be used in conjunction with -a or -d. Valid platforms: linux, windows", :require => false, :type => :string
+	opt :environment, "Operate exclusively on one nodes with a particular environment (e.g. dev, prod). Can be used in conjunction with -a or -d.", :require => false, :type => :string
+	opt :override_chef_runlist, "An alternate runlist to pass to Chef, in chefrun mode.", :require => false, :type => :string
+	opt :xecute, "Run a shell command on matching nodes. Overrides --mode and suppresses some informational output in favor of scriptability.", :require => false, :type => :string
+	opt :mode, "Action to perform on matching nodes. Valid actions: groom, chefrun, userdata", :require => false, :default => "groom", :type => :string
+end
+
+if !["groom", "chefrun", "userdata"].include?($opts[:mode]) 
+	Trollop::die(:mode, "--mode must be one of: groom, chefrun, userdata")
+end
+if $opts[:platform] and !["linux", "windows"].include?($opts[:platform])
+	Trollop::die(:platform, "--platform must be one of: linux, windows")
+end
+if ARGV.empty? and !$opts[:all] and !$opts[:platform] and !$opts[:environment] and !$opts[:list]
+	Trollop::educate
+	exit 1
+end
+
+# Run through our filters so we can pass flat lists into our methods that
+# actually do things.
+avail_deploys = MU::MommaCat.listDeploys
+do_deploys = []
+do_nodes = []
+ok = true
+if $opts[:all]
+	do_deploys = avail_deploys
+else
+	if $opts[:deploys] and !$opts[:all]
+		ARGV.each { |arg|
+			if !avail_deploys.include?(arg)
+				MU.log "Deploy ID '#{arg}' does not appear to be valid", MU::ERR
+				ok = false
+			end
+			do_deploys << arg
+		}
+	else
+		do_deploys = avail_deploys
+		do_nodes = ARGV
+	end
+end
+avail_nodes = []
+do_deploys.each { |muid|
+	mommacat = MU::MommaCat.new(muid)
+	mommacat.listNodes.each_pair { |nodename, server|
+		id = server['instance_id']
+		server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
+		next if !$opts[:platform].nil? and server['conf']["platform"] != $opts[:platform]
+		next if !$opts[:environment].nil? and MU.environment.upcase != $opts[:environment].upcase
+		avail_nodes << nodename
+	}
+}
+if do_nodes.size > 0
+	do_nodes.each { |node|
+		if !avail_nodes.include?(node)
+			ok = false
+			MU.log "Node #{node} requested, but no such node exists.", MU::ERR
+			do_nodes.delete(node)
+		end
+	}
+else
+	do_nodes = avail_nodes
+end
+do_nodes.sort!
+
+
+if $opts[:list]
+	puts do_nodes
+	exit
+end
+
+exit 1 if !ok
+
+def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [])
+	children = {}
+	badnodes = []
+	count = 0
+	deploys.each { |muid|
+		mommacat = MU::MommaCat.new(muid)
+		mommacat.listNodes.each_pair { |nodename, server|
+			id = server['instance_id']
+			server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
+			next if nodes.size > 0 and !nodes.include?(nodename)
+
+			instance = MU.ec2.describe_instances(instance_ids: [id]).reservations.first.instances.first
+
+			mytype = "server"
+			mytype = "server_pool" if server['conf'].has_key?("basis") or server['conf']['#TYPENAME'] == "ServerPool" or server['conf']["#MU_CLASS"] == "MU::ServerPool"
+			count = count + 1
+			child = Process.fork {
+				begin
+					mommacat.groomNode(instance, server['conf']["name"], mytype)
+				rescue Exception => e
+					MU.log e.inspect, MU::ERR, details: e.backtrace
+					exit 1
+				end
+			}
+			children[child] = nodename
+			while children.size >= $opts[:concurrent]-1
+				child = Process.wait
+				if !$?.success?
+					badnodes << children[child]
+				end
+				children.delete(child)
+			end
+		}
+	}
+	Process.waitall.each { |child|
+		if !child[1].success?
+			badnodes << children[child[0]]
+		end
+	}
+
+	if badnodes.size > 0
+		MU.log "Not all Momma Cat runs exited cleanly", MU::WARN, details: badnodes
+	end
+end
+
+def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-client || ./chef-client ) 2>&1", print_output: false, noop: false)
+	children = {}
+	badnodes = []
+	count = 0
+	deploys.each { |muid|
+		mommacat = MU::MommaCat.new(muid)
+		mommacat.listNodes.each_pair { |nodename, server|
+			server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
+			next if nodes.size > 0 and !nodes.include?(nodename)
+
+			count = count + 1
+			MU.log "Running #{cmd} on #{nodename} (##{count})" if !print_output
+			child = Process.fork {
+				output=`ssh -q #{nodename} "#{cmd}" 2>&1 < /dev/null`
+				if !$?.success?
+					if print_output
+						puts "#{nodename} - #{output}" if output.match(/[^\s]/)
+						MU.log "#{nodename} did not exit cleanly", MU::WARN
+					else
+						MU.log "#{nodename} did not exit cleanly", MU::WARN, details: output.slice(-2000, 2000)
+					end
+					exit $?.exitstatus
+				end
+				puts "#{nodename} - #{output}" if print_output and output.match(/[^\s]/)
+			}
+			children[child] = nodename
+			while children.size >= $opts[:concurrent] - 1
+				child = Process.wait
+				if !$?.success?
+					badnodes << children[child]
+				end
+				children.delete(child)
+			end
+		}
+	}
+	Process.waitall.each { |child|
+		if !child[1].success?
+			badnodes << children[child[0]]
+		end
+	}
+
+	if badnodes.size > 0 and !print_output
+		MU.log "Not all `#{cmd}` runs exited cleanly", MU::WARN, details: badnodes
+	end
+end
+
+def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
+	deploys.each { |muid|
+		mommacat = MU::MommaCat.new(muid)
+
+		# Clean up the userdata of matching Autoscale groups by replacing their
+		# Launch Configurations with new ones.
+		if mommacat.original_config.has_key?("server_pools")
+			mommacat.original_config['server_pools'].each { |server|
+				svr_class = server['name']
+				server["platform"] = "linux" if !server.has_key?("platform")
+
+				pool_name = MU::MommaCat.getResourceName(svr_class)
+				MU.autoscale.describe_auto_scaling_groups(
+					auto_scaling_group_names: [pool_name]
+				).auto_scaling_groups.each { |asg|
+					launch = MU.autoscale.describe_launch_configurations(
+						launch_configuration_names: [asg.launch_configuration_name]
+					).launch_configurations.first
+
+					olduserdata = Base64.decode64(launch.user_data)
+
+					userdata = MU::Server.fetchUserdata(
+						platform: server["platform"],
+						template_variables: {
+							"deployKey" => Base64.urlsafe_encode64(mommacat.public_key),
+							"deploySSHKey" => mommacat.ssh_public_key,
+							"muID" => muid,
+							"muUser" => MU.chef_user,
+							"publicIP" => MU.mu_public_ip,
+							"resourceName" => svr_class,
+							"resourceType" => "server_pool"
+						},
+						custom_append: server['userdata_script']
+					)
+					if userdata == olduserdata
+						MU.log "Autoscale Group #{pool_name} has up-to-date userdata, skipping", MU::DEBUG
+						next
+					end
+
+					# Put our Autoscale group onto a temporary launch config
+					MU.autoscale.create_launch_configuration(
+						launch_configuration_name: pool_name+"-TMP",
+						user_data: Base64.encode64(userdata),
+						image_id: launch.image_id,
+						key_name: launch.key_name,
+						security_groups: launch.security_groups,
+						instance_type: launch.instance_type,
+						block_device_mappings: launch.block_device_mappings,
+						instance_monitoring: launch.instance_monitoring,
+						iam_instance_profile: launch.iam_instance_profile,
+						ebs_optimized: launch.ebs_optimized,
+						associate_public_ip_address: launch.associate_public_ip_address
+					)
+					MU.autoscale.update_auto_scaling_group(
+						auto_scaling_group_name: pool_name,
+						launch_configuration_name: pool_name+"-TMP"
+					)
+
+					# ...now back to an identical one with the "real" name
+					MU.autoscale.delete_launch_configuration(
+						launch_configuration_name: pool_name
+					)
+					MU.autoscale.create_launch_configuration(
+						launch_configuration_name: pool_name,
+						user_data: Base64.encode64(userdata),
+						image_id: launch.image_id,
+						key_name: launch.key_name,
+						security_groups: launch.security_groups,
+						instance_type: launch.instance_type,
+						block_device_mappings: launch.block_device_mappings,
+						instance_monitoring: launch.instance_monitoring,
+						iam_instance_profile: launch.iam_instance_profile,
+						ebs_optimized: launch.ebs_optimized,
+						associate_public_ip_address: launch.associate_public_ip_address
+					)
+					MU.autoscale.update_auto_scaling_group(
+						auto_scaling_group_name: pool_name,
+						launch_configuration_name: pool_name
+					)
+					MU.autoscale.delete_launch_configuration(
+						launch_configuration_name: pool_name+"-TMP"
+					)
+
+					MU.log "Launch Configuration #{asg.launch_configuration_name} replaced"
+				}
+			}
+		end
+
+		# Update the userdata of live nodes. They must be in the Stopped state for
+		# us to do so.
+		mommacat.listNodes.each_pair { |nodename, server|
+			id = server['instance_id']
+			desc = MU.ec2.describe_instances(instance_ids: [id]).reservations.first.instances.first
+	
+			server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
+			next if nodes.size > 0 and !nodes.include?(nodename)
+
+			mytype = "server"
+			mytype = "server_pool" if server['conf'].has_key?("basis") or server['conf']['#TYPENAME'] == "ServerPool" or server['conf']["#MU_CLASS"] == "MU::ServerPool"
+			olduserdata = Base64.decode64(MU.ec2.describe_instance_attribute(
+				instance_id: id,
+				attribute: "userData"
+			).user_data.value)
+
+			userdata = MU::Server.fetchUserdata(
+				platform: server['conf']["platform"],
+				template_variables: {
+					"deployKey" => Base64.urlsafe_encode64(mommacat.public_key),
+					"deploySSHKey" => mommacat.ssh_public_key,
+					"muID" => muid,
+					"muUser" => MU.chef_user,
+					"publicIP" => MU.mu_public_ip,
+					"resourceName" => server['conf']['name'],
+					"resourceType" => mytype
+				},
+				custom_append: server['userdata_script']
+			)
+
+			if userdata == olduserdata
+				MU.log "#{nodename} has up-to-date userdata, skipping", MU::DEBUG
+				next
+			end
+
+			if desc.state.name != "stopped"
+				MU.log "#{nodename} needs a userdata update, but is not in Stopped state", MU::NOTICE
+				if mytype == "server_pool"
+					pool_name = MU::MommaCat.getResourceName(server['conf']['name'])
+					MU.log "Note: Be sure to pause Autoscaling for this group before stopping this instance, e.g. with: aws autoscaling suspend-processes --auto-scaling-group-name #{pool_name}", MU::WARN
+				end
+				next
+			end
+
+			MU.log "Updating #{nodename} userdata (#{server["conf"]["platform"]})"
+
+			MU.ec2.modify_instance_attribute(
+				instance_id: id,
+				attribute: "userData",
+				value: Base64.encode64(userdata)
+			)
+	
+		}
+	}
+end
+
+if $opts[:xecute]
+	runCommand(do_deploys, do_nodes, $opts[:xecute], print_output: true)
+elsif $opts[:mode] == "groom"
+	reGroom(do_deploys, do_nodes)
+elsif $opts[:mode] == "chefrun"
+	if $opts[:override_chef_runlist]
+		runCommand(do_deploys, do_nodes, "( chef-client -o '#{$opts[:override_chef_runlist]}' || ./chef-client -o '#{$opts[:override_chef_runlist]}' ) 2>&1")
+	else
+		runCommand(do_deploys, do_nodes)
+	end
+elsif $opts[:mode] == "userdata"
+	updateUserdata(do_deploys, do_nodes)
+end

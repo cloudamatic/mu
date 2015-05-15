@@ -1,0 +1,11 @@
+#!/bin/sh
+#
+# Fix permissions that Git and our standard umask tend to stomp.
+
+if [ "`whoami`" == "root" ];then
+	scriptpath="`dirname $0`"
+	library=1
+	# assume we're in Mu's LIBDIR in .git/hooks
+	source "`dirname $0`"/../../install/mu_setup
+	set_permissions "skip_rubies"
+fi

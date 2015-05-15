@@ -54,17 +54,25 @@ define :splunk_installer, :url => nil do
 		]
   end
 
+  execute "accept license" do
+		command "/opt/splunkforwarder/bin/splunk enable boot-start --accept-license --answer-yes"
+		action :nothing
+	end
   package params[:name] do
     source cached_package.gsub(/\.Z/, '')
     case node['platform_family']
     when 'rhel'
       provider Chef::Provider::Package::Rpm
+			notifies :run, "execute[accept license]", :immediately if node['splunk']['accept_license']
     when 'debian'
       provider Chef::Provider::Package::Dpkg
+			notifies :run, "execute[accept license]", :immediately if node['splunk']['accept_license']
     when 'omnios'
       provider Chef::Provider::Package::Solaris
+			notifies :run, "execute[accept license]", :immediately if node['splunk']['accept_license']
       options pkgopts.join(' ')
     when 'windows'
+			not_if {::File.exists?("c:/Program Files/SplunkUniversalForwarder/bin/splunk.exe") }
       provider Chef::Provider::Package::Windows
       options pkgopts.join(' ')
     end

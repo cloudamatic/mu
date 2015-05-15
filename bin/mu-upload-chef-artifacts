@@ -519,10 +519,22 @@ if [ -d "$MU_DATADIR/users" -a "$USER" == "root" ];then
 		if [ ! -f "$bagdir/$admin.json" -a -f "$MU_DATADIR/users/$admin/htpasswd" ];then
 			id="`echo $admin | sed -e 's/@/_/'`"
 			crypt="`cat $MU_DATADIR/users/$admin/htpasswd | cut -d: -f2`"
-			echo "${GREEN}Adding $id to nagios_users data bag${NORM}"
-			echo "{ \"id\": \"$id\", \"groups\": \"sysadmin\", \"htpasswd\": \"$crypt\", \"openid\": \"http://nagiosadmin.myopenid.com/\", \"nagios\": { \"pager\": \"$admin\", \"email\": \"$admin\" } }" > "$bagdir/$admin.json"
+			if [ -f $MU_DATADIR/users/$admin/monitoring_email ];then
+				email="`cat $MU_DATADIR/users/$admin/monitoring_email`"
+			else
+				email="`cat $MU_DATADIR/users/$admin/email`"
+			fi
+			if [ "$email" != "none" ];then
+				echo "${GREEN}Adding $id to nagios_users data bag (email $email)${NORM}"
+				echo "{ \"id\": \"$id\", \"groups\": \"sysadmin\", \"htpasswd\": \"$crypt\", \"openid\": \"http://nagiosadmin.myopenid.com/\", \"nagios\": { \"pager\": \"$email\", \"email\": \"$email\" } }" > "$bagdir/$admin.json"
+			else
+				echo "${GREEN}Adding $id to nagios_users data bag (No email)${NORM}"
+				echo "{ \"id\": \"$id\", \"groups\": \"sysadmin\", \"htpasswd\": \"$crypt\", \"openid\": \"http://nagiosadmin.myopenid.com/\", \"nagios\": { \"pager\": \"devnull@localhost\", \"email\": \"devnull@localhost\" } }" > "$bagdir/$admin.json"
+			fi
 		fi
-		$knife data bag from file nagios_users $bagdir/$admin.json
+		if [ -f "$bagdir/$admin.json" ];then
+			$knife data bag from file nagios_users $bagdir/$admin.json
+		fi
 	done
 fi
 

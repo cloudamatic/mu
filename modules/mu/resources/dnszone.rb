@@ -423,7 +423,8 @@ module MU
 		# @param noop [Boolean]: Don't attempt to adjust entries, just return the name we'd create/remove.
 		# @param delete [Boolean]: Remove this entry instead of creating it.
 		# @param cloudclass [Object]: The resource's Mu class.
-		def self.genericDNSEntry(name, target, cloudclass, noop: false, delete: false)
+		# @param sync_wait [Boolean]: Wait for DNS entry to propagate across zone.
+		def self.genericDNSEntry(name, target, cloudclass, noop: false, delete: false, sync_wait: true)
 			return nil if name.nil? or target.nil? or cloudclass.nil?
 			mu_zone, junk = MU::DNSZone.find(name: "platform-mu")
 
@@ -464,10 +465,12 @@ module MU
 					return nil
 				end
 
+				sync_wait = false if delete
+
 				record_type = "R53ALIAS" if cloudclass == MU::LoadBalancer
 				attempts = 0
 				begin
-					MU::DNSZone.manageRecord(mu_zone.id, dns_name, record_type, targets: [target], delete: delete, sync_wait: !delete)
+					MU::DNSZone.manageRecord(mu_zone.id, dns_name, record_type, targets: [target], delete: delete, sync_wait: sync_wait)
 				rescue Aws::Route53::Errors::PriorRequestNotComplete => e
 					MU.log "Route53 was still processing a request, waiting", MU::WARN, details: e
 					sleep 15

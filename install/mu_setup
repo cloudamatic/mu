@@ -8,12 +8,12 @@
 # rather than some random mirror
 EPEL_RPM="http://mirror.pnl.gov/epel/6/i386/epel-release-6-8.noarch.rpm"
 
-PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.7.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx mysql-devel postgresql-devel openssl"
+PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.7.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx mysql-devel postgresql-devel openssl libyaml"
 DEL_PACKAGES="nagios"
 
-OPSCODE_CHEF_PKG="chef-server-core-12.0.4-1.el6.x86_64"
+OPSCODE_CHEF_PKG="chef-server-core-12.0.8-1.el6.x86_64"
 OPSCODE_CHEF_DL="https://web-dl.packagecloud.io/chef/stable/packages/el/6/${OPSCODE_CHEF_PKG}.rpm"
-CHEF_CLIENT_PKG="chef-12.0.3-1"
+CHEF_CLIENT_PKG="chef-12.3.0-1.el6.x86_64"
 
 RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby212-2.1.2p205-1.el6.x86_64.rpm"
 RUBY_INSTALL_DIR="/opt/rubies/ruby212-2.1.2-p205"
@@ -1149,6 +1149,7 @@ install_chef()
 			find /opt/opscode/embedded/lib/ruby -type d -exec chmod o+rx {} \;
 			/opt/opscode/bin/chef-server-ctl reconfigure
 #			add_chef_support_gems /opt/opscode/embedded
+			$RUBY_INSTALLDIR/bin/bundle update chef
 			/opt/opscode/bin/chef-server-ctl start
 		else
 			warning_message "Failed to upgrade to package $OPSCODE_CHEF_DL"
@@ -1382,17 +1383,24 @@ enable_audit_logs()
 
 set_permissions()
 {
+	cp -a $MU_LIBDIR/extras/git-fix-permissions-hook $MU_LIBDIR/.git/hooks/post-merge
+	cp -a $MU_LIBDIR/extras/git-fix-permissions-hook $MU_LIBDIR/.git/hooks/post-checkout
+	cp -a $MU_LIBDIR/extras/git-fix-permissions-hook $MU_LIBDIR/.git/hooks/post-rewrite
 	status_message "Setting permissions in Ruby installations and platform repos"
+	chmod 644 $MU_INSTALLDIR/etc/amazon_images.yaml
+	chmod 644 $MU_INSTALLDIR/etc/mu.rc
 	for extra in $ADDTL_CHEF_REPOS;do
 		extra_repo_name="`echo $extra | sed 's/^.*\///' | cut -d. -f1`"
 		fix_platform_repo_permissions "$MU_DATADIR/$extra_repo_name"
 	done
 	fix_platform_repo_permissions "$MU_LIBDIR"
-	/sbin/restorecon -r /home
-	for rubydir in /opt/opscode/embedded /opt/chef/embedded $RUBY_INSTALLDIR;do
-		find $rubydir/lib/ruby/gems -type f -exec chmod o+r {} \;
-		find $rubydir/lib/ruby/gems -type d -exec chmod o+rx {} \;
-	done
+	if [ "$1" != "skip_rubies" ] ;then
+		/sbin/restorecon -r /home
+		for rubydir in /opt/opscode/embedded /opt/chef/embedded $RUBY_INSTALLDIR;do
+			find $rubydir/lib/ruby/gems -type f -exec chmod o+r {} \;
+			find $rubydir/lib/ruby/gems -type d -exec chmod o+rx {} \;
+		done
+	fi
 }
 
 ###############################################################################
@@ -1443,6 +1451,7 @@ if [ "$library" != "1" ];then
 		set_permissions
 	fi
 
+	chef-client
 
 	echo ""
 	echo "You MUST source all of the changes I made to your environment:"

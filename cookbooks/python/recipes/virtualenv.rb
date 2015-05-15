@@ -1,9 +1,9 @@
 #
-# Author:: Seth Chisamore <schisamo@opscode.com>
+# Author:: Seth Chisamore <schisamo@chef.io>
 # Cookbook Name:: python
 # Recipe:: virtualenv
 #
-# Copyright 2011, Opscode, Inc.
+# Copyright 2011, Chef Software, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
+
 include_recipe "python::pip"
 
 case node[:platform]
@@ -37,13 +38,6 @@ case node[:platform]
 
     # Fail on Ubuntu becuase of a bug in setuptools, commenting out
     # execute "easy_install -U setuptools"
-
-    # This is already done in the pip recipe, so is shouldn't be here. 
-    # There was an issue with package installation only working on the second run using pip. leaving this in for now. Trying without version
-    python_pip 'setuptools' do
-      action :upgrade
-      version node['python']['setuptools_version'] if !node['python']['setuptools_version'].nil?
-    end
 
     python_pip 'virtualenv' do
       action :upgrade

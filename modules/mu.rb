@@ -204,9 +204,13 @@ module MU
 		@@mu_public_ip = @@my_private_ip
 	end
 
+	# Private Mu server IP address, per AWS
 	def self.my_private_ip; @@my_private_ip end
+	# Public Mu server IP address, per AWS
 	def self.my_public_ip; @@my_public_ip end
+	# Public Mu server name, not necessarily the same as MU.mu_public_ip
 	def self.mu_public_ip; @@mu_public_ip end
+	# Public Mu server IP address, not necessarily the same as MU.my_public_ip
 	def self.mu_public_addr; @@mu_public_addr end
 
 	@@iam_api = {}
@@ -279,6 +283,22 @@ module MU
 		region ||= MU.myRegion
 		@@cloudtrails_api[region] ||= Aws::CloudTrail::Client.new(region: region)
 		@@cloudtrails_api[region]
+	end
+	
+	@@cloudwatch_api = {}
+	# Object for accessing Amazon's CloudWatch service
+	def self.cloudwatch(region = MU.curRegion)
+		region ||= MU.myRegion
+		@@cloudwatch_api[region] ||= Aws::CloudWatch::Client.new(region: region)
+		@@cloudwatch_api[region]
+	end
+
+	@@cloudfront_api = {}
+	# Object for accessing Amazon's CloudFront service
+	def self.cloudfront(region = MU.curRegion)
+		region ||= MU.myRegion
+		@@cloudfront_api[region] ||= Aws::CloudFront::Client.new(region: region)
+		@@cloudfront_api[region]
 	end
 
 	chef_user ||= Etc.getpwuid(Process.uid).name
@@ -360,7 +380,7 @@ module MU
 
 
 	# The version of Chef we will install on nodes.
-	@@chefVersion = "12.1.2"
+	@@chefVersion = "12.3.0"
 	# The version of Chef we will install on nodes.
 	# @return [String]
 	def self.chefVersion; @@chefVersion end

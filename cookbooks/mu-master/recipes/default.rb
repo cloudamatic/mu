@@ -37,6 +37,11 @@ directory "/home/nagios/.ssh" do
 	mode "0711"
 end
 
+file "/home/nagios/.ssh/config" do
+	owner "nagios"
+	mode 0600
+end
+
 execute "dhclient-script" do
 	command "/sbin/dhclient-script"
 	action :nothing
@@ -71,7 +76,10 @@ link "/usr/lib64/nagios/cgi-bin" do
 	to "/usr/lib/cgi-bin"
 	notifies :reload, "service[apache2]", :delayed
 end
-directory "/var/www/html/docs"
+directory "/var/www/html/docs" do
+	owner "apache"
+	group "apache"
+end
 
 include_recipe "mu-master::update_nagios_only"
 
@@ -90,6 +98,7 @@ include_recipe "postfix"
 if !MU.mu_public_addr.match(/^\d+\.\d+\.\d+\.\d+$/)
 	node.normal.postfix.main.myhostname = MU.mu_public_addr
 	node.normal.postfix.main.mydomain = MU.mu_public_addr.sub(/^.*?([^\.]+\.[^\.]+)$/, '\1')
+	node.normal.postfix.main.myorigin = MU.mu_public_addr.sub(/^.*?([^\.]+\.[^\.]+)$/, '\1')
 end
 node.normal.postfix.main.inet_interfaces = "all"
 node.save
@@ -98,9 +107,7 @@ file "/etc/motd" do
 	content "
 *******************************************************************************
 
- This is an Mu Master server. Mu is installed in #{MU.myRoot}.
-
- Chef Admin GUI: https://#{MU.mu_public_addr}/
+ This is a Mu Master server. Mu is installed in #{MU.myRoot}.
 
  Nagios monitoring GUI: https://#{MU.mu_public_addr}:8443/
 
@@ -116,13 +123,12 @@ file "/etc/motd" do
 end
 
 file "/var/www/html/index.html" do
+	owner "apache"
+	group "apache"
 	content "
 
- <h1>This is an Mu Master server</h2>
+ <h1>This is a Mu Master server</h2>
 
-<p>
- <a href='https://#{MU.mu_public_addr}'>Chef Admin GUI</a>
-</p>
 <p>
  <a href='https://#{MU.mu_public_addr}:8443/'>Nagios monitoring GUI</a>
 </p>
@@ -131,7 +137,9 @@ file "/var/www/html/index.html" do
 </p>
 "
 end
-
+execute "echo 'devnull: /dev/null' >> /etc/aliases" do
+	not_if "grep '^devnull: /dev/null$' /etc/aliases"
+end
 node.mu.user_map.each_pair { |mu_user, mu_email|
 	execute "echo '#{mu_user}: #{mu_email}' >> /etc/aliases" do
 		not_if "grep '^#{mu_user}: #{mu_email}$' /etc/aliases"
