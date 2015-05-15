@@ -152,24 +152,8 @@ module MU
 			# If we're working in YAML, do some magic to make includes work better.
 			yaml_parse_error = nil
 			if $file_format == :yaml
-				new_text = ""
-				raw_text.each_line { |line|
-					if line.match(/# MU::Config\.include PLACEHOLDER /)
-						$yaml_refs.each_pair { |anchor, data|
-							if line.sub!(/^(\s+).*?# MU::Config\.include PLACEHOLDER #{Regexp.quote(anchor)} REDLOHECALP/, "")
-								indent = $1
-								data.each_line { |addline|
-									line = line + indent + addline
-								}
-								break
-							end
-						}
-					end
-					new_text = new_text + line
-				}
-				raw_text = new_text
 				begin
-					raw_json = JSON.generate(YAML.load(raw_text))
+					raw_json = JSON.generate(YAML.load(MU::Config.resolveYAMLAnchors(raw_text)))
 				rescue Psych::SyntaxError => e
 					raw_json = raw_text
 					yaml_parse_error = e.message
@@ -225,6 +209,26 @@ module MU
 		end
 	
 		private
+
+		def self.resolveYAMLAnchors(lines)
+			new_text = ""
+			lines.each_line { |line|
+				if line.match(/# MU::Config\.include PLACEHOLDER /)
+					$yaml_refs.each_pair { |anchor, data|
+						if line.sub!(/^(\s+).*?# MU::Config\.include PLACEHOLDER #{Regexp.quote(anchor)} REDLOHECALP/, "")
+							indent = $1
+							MU::Config.resolveYAMLAnchors(data).each_line { |addline|
+								line = line + indent + addline
+							}
+							break
+						end
+					}
+				end
+				new_text = new_text + line
+			}
+			return new_text
+		end
+
 
 		# Given a path to a config file, try to guess whether it's YAML or JSON.
 		# @param path [String]: The path to the file to check.
@@ -346,7 +350,7 @@ module MU
 				rescue JSON::ParserError => e
 					MU.log e.inspect, MU::DEBUG
 					begin
-						parsed_cfg = YAML.load(erb.result(binding))
+						parsed_cfg = YAML.load(MU::Config.resolveYAMLAnchors(erb.result(binding)))
 						parsed_as = :yaml
 					rescue Psych::SyntaxError => e
 						MU.log e.inspect, MU::DEBUG
