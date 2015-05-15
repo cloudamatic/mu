@@ -1,8 +1,12 @@
-<% $azs = listAZs %>
+<%
+  $azs = listAZs
+  $azs.delete $azskip if $azskip
+  current_vpc = MU.myVPC
+%>
 ---
   appname: demo
-  servers: 
-    - 
+  servers:
+    -
       name: rails
       ssh_user: ubuntu
       platform: ubuntu
@@ -11,56 +15,72 @@
           size: 15
       ami-id: ami-50e3c738
       skipinitialupdates: true
-      size: t2.micro
-      run_list: 
-      - "recipe[demo::rails]"
+      run_list:
+        - "recipe[demo::rails]"
+      size: "m3.medium"
       associate_public_ip: true
       static_ip:
         assign_ip: true
       vpc:
+      <% if $vpc_deploy_id %>
+        deploy_id: <%= $vpc_deploy_id %>
+      <% elsif $use_current %>
+        vpc_id: <%= current_vpc %>
+      <% else %>
         vpc_name: vpc
-        subnet_name: Subnet0Public
-      ingress_rules: 
-        - 
+      <% end %>
+      ingress_rules:
+        -
           port: 80
-          hosts: 
-            - 0.0.0.0/0
-        - 
+          hosts:
+            - "0.0.0.0/0"
+        -
           port: 443
-          hosts: 
-            - 0.0.0.0/0
-      dependencies: 
-        - 
-          name: fss
-          type: database
+          hosts:
+            - "0.0.0.0/0"
+      dependencies:
+        -
+          name: "concerto"
+          type: "database"
+<% unless $use_current or $vpc_deploy_id then %>
   vpcs:
   - name: vpc
     route-tables:
     - name: internet
       routes:
       - destination_network: 0.0.0.0/0
-        gateway: #INTERNET
+        gateway: "#INTERNET"
     subnets:
   <% $azs.each.with_index do |az, i| %>
     - name: Subnet<%= i %>Public
       ip_block: 10.0.<%= i %>.0/24
-      availability-zone: <%= az %>
+      availability-zone: "<%= az %>"
       route-table: internet
   <% end %>
-  databases: 
-    - 
-      name: fss
-      engine: mysql
-      size: db.t1.micro
+<% end %>
+  databases:
+    -
+      name: "concerto"
+      engine: "mysql"
+      size: "db.t1.micro"
       storage: 5
       port: 3306
       vpc:
+      <% if $vpc_deploy_id %>
+        deploy_id: <%= $vpc_deploy_id %>
+        subnet_pref: all_public
+      <% elsif $use_current %>
+        vpc_id: <%= current_vpc %>
+        subnet_pref: all_public
+      <% else %>
         vpc_name: vpc
         subnets:
         <% (1..$azs.size).each do |i| %>
           - subnet_name: Subnet<%= i-1 %>Public
         <% end %>
-  admins: 
-    - 
-      name: Zach Rowe
-      email: zachary.rowe@eglobaltech.com
+    <% end %>
+  admins:
+    -
+      name: "catwoman"
+      email: "catwoman@felinesrock.com"
+

@@ -105,7 +105,7 @@ GRAPH
     chef-vault (>= 1.0.4)
   chef-sugar (2.0.0)
   chef-vault (1.3.0)
-  chef_handler (1.1.6)
+  chef_handler (1.1.8)
   cpan (0.0.32)
   database (4.0.6)
     postgresql (>= 1.0.0)
