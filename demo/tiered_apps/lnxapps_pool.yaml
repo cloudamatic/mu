@@ -1,10 +1,9 @@
   - name: linuxapps
-    <% if $environment == 'dev' %>
+    platform: <%= $platform %>
+    dns_sync_wait: false
     min-size: 2
     max-size: 4
     wait_for_nodes: 2
-    <% else %>
-    <% end %>
     loadbalancers:
     - concurrent-load-balancer: lnxlb
     run_list:
@@ -13,17 +12,18 @@
     - recipe[mu-tools::split_var_partitions]
     - recipe[mu-demo::tiered_apps]
     add_firewall_rules:
-    - rule_name: lnxapps_secgroup
+    - rule_name: lnxapps
     application_attributes:
-      drupal_distro: "<%= $drupal_distro %>"
-      my_domain: "<%= $my_domain %>"
+      drupal_distro: <%= $drupal_distro %>
+      my_domain: <%= $my_domain %>
     dependencies:
     - type: database
       name: drupaldb
     vpc:
-    <% if !$vpc_deploy_id then %>
+      nat_ssh_user: <%= $nat_ssh_user %>
+      subnet_pref: all_private
+    <% if !$vpc_deploy_id %>
       nat_host_name: bastion
-      nat_ssh_user: root
       vpc_name: vpc
     <% else %>
       deploy_id: <%= $vpc_deploy_id %>

@@ -22,6 +22,7 @@ cookbook 'mu-master', path: "#{cookbookPath}/mu-master"
 cookbook 'mu-php54', path: "#{cookbookPath}/mu-php54"
 cookbook 'mu-tools', path: "#{cookbookPath}/mu-tools"
 cookbook 'mu-utility', path: "#{cookbookPath}/mu-utility"
+cookbook 'tomcat', path: "#{cookbookPath}/tomcat"
 cookbook 'chef_handler', '~> 1.1.4'
 cookbook 'chef-splunk', path: "#{cookbookPath}/chef-splunk"
 cookbook 'chef-sugar', '~> 2.0.0'

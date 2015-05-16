@@ -29,6 +29,8 @@ DEPENDENCIES
   logrotate (~> 1.9.1)
   memcached (~> 1.7.2)
   mongodb (~> 0.16.2)
+  tomcat
+    path: cookbooks/tomcat
   mu-master
     path: cookbooks/mu-master
   mu-php54

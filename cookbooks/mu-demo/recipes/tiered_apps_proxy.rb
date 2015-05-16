@@ -27,37 +27,40 @@ $lnx_apps = node.linux_apps
 $lnx_url = node.deployment.loadbalancers.lnxlb.dns
 $proxy_url = node.deployment.loadbalancers.proxylb.dns
 
-bash "Allow TCP 80 through iptables" do
-	user "root"
-	not_if "/sbin/iptables -nL | egrep '^ACCEPT.*dpt:80($| )'"
-	code <<-EOH
-		iptables -I INPUT -p tcp --dport 80 -j ACCEPT
-		service iptables save
-	EOH
-end
+case node.platform
+when "centos", "redhat"
+	execute "iptables -I INPUT -p tcp --dport 80 -j ACCEPT && service iptables save" do
+		not_if "iptables -nL | egrep '^ACCEPT.*dpt:80($| )'"
+	end
 
-template "/var/www/html/index.html" do
-	source "proxyindex.html.erb"
-	mode "0644"
-end
+	template "#{node.apache.docroot_dir}/index.html" do
+		source "proxyindex.html.erb"
+		mode "0644"
+		owner "apache"
+	end
 
-cookbook_file "/var/www/html/tiered_apps_demo_diagram.png" do
-	source "tiered_apps_demo_diagram.png"
-	mode "0644"
-end
+	cookbook_file "#{node.apache.docroot_dir}/tiered_apps_demo_diagram.png" do
+		source "tiered_apps_demo_diagram.png"
+		mode "0644"
+		owner "apache"
+	end
 
-web_app "proxy" do
-	server_name node.application_attributes.my_domain
-	server_aliases [ node['fqdn'], node['hostname'] ]
-	cookbook "mu-demo"
-	allow_override "All"
-	template "proxy.conf.erb"
-end
-web_app "vhosts" do
-	server_name node.application_attributes.my_domain
-	server_aliases [ node['fqdn'], node['hostname'] ]
-	docroot "/var/www/html"
-	cookbook "mu-demo"
-	allow_override "All"
-	template "proxyvhosts.conf.erb"
+	web_app "proxy" do
+		server_name node.application_attributes.my_domain
+		server_aliases [ node.fqdn, node.hostname ]
+		cookbook "mu-demo"
+		allow_override "All"
+		template "proxy.conf.erb"
+	end
+
+	web_app "vhosts" do
+		server_name node.application_attributes.my_domain
+		server_aliases [ node.fqdn, node.hostname ]
+		docroot node.apache.docroot_dir
+		cookbook "mu-demo"
+		allow_override "All"
+		template "proxyvhosts.conf.erb"
+	end
+else
+	Chef::Log.info("Unsupported platform #{node.platform}")
 end

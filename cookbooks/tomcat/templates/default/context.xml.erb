@@ -1,0 +1,26 @@
+<?xml version='1.0' encoding='utf-8'?>
+
+<Context>
+
+    <WatchedResource>WEB-INF/web.xml</WatchedResource>
+
+    <!--
+    <Manager pathname="" />
+    -->
+
+    <!--
+    <Valve className="org.apache.catalina.valves.CometConnectionManagerValve" />
+    -->
+
+  <% if node.tomcat.jndi -%>
+    <% node.tomcat.jndi_connections.each do |conn| -%>
+    <Resource
+     name="jdbc/<%= conn['datasource_name'] %>" auth="Container" type="javax.sql.DataSource"
+     driverClassName="<%= conn['driver'] %>"
+     url="jdbc:<%= conn['connection_string'] %>"
+     username="<%= conn['user'] %>" password="<%= conn['pwd'] %>"
+     maxActive="<%= conn['max_active'] %>" maxIdle="<%= conn['max_idle'] %>" maxWait="<%= conn['max_wait'] %>"/>
+
+    <% end -%>
+  <% end -%>
+</Context>

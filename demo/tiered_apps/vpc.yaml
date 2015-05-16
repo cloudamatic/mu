@@ -3,7 +3,7 @@
   - name: internet
     routes:
     - destination_network: 0.0.0.0/0
-      gateway: "#INTERNET"
+      gateway: #INTERNET
   - name: private
     routes:
     - destination_network: 0.0.0.0/0
@@ -13,23 +13,21 @@
     name: bastion
   subnets:
 <%
-counter=0
-(1..$azs.size).each do |i|
+$azs.each.with_index { |az, i|
 %>
-  - name: TieredSubnet<%= counter %>Public
-    ip_block: 10.0.<%= counter %>.0/24
-    availability-zone: "<%= $azs[i-1] %>"
+  - name: Public<%= i %>
+    ip_block: 10.0.<%= i %>.0/24
+    availability-zone: <%= az %>
     route-table: internet
 <%
-  counter = counter + 1
-end
-num_used = counter
-(1..$azs.size).each do |i|
+}
+offset = $azs.size
+$azs.each.with_index { |az, i|
 %>
-  - name: TieredSubnet<%= counter-num_used %>Private
-    ip_block: 10.0.<%= counter %>.0/24
-    availability-zone: "<%= $azs[i-1] %>"
+  - name: Private<%= i %>
+    ip_block: 10.0.<%= i + offset %>.0/24
+    availability-zone: <%= az %>
     route-table: private
 <%
-  counter = counter + 1
-end %>
+}
+%>

@@ -1,12 +1,12 @@
 ---
 centos6: &centos6
-  us-east-1: ami-aab0e9c2
-  us-west-1: ami-3525c171
-  us-west-2: ami-cf8babff
+  us-east-1: ami-845448ec
+  us-west-1: ami-3dbf5679
+  us-west-2: ami-6f4d7f5f
 centos7: &centos7
-  us-east-1: ami-c2a0b6aa 
-  us-west-1: ami-6bcfc42e
-  us-west-2: ami-c7d092f7 
+  us-east-1: ami-805448e8 
+  us-west-1: ami-c1bf5685
+  us-west-2: ami-c1bf5685
 ubuntu14: &ubuntu14
   us-east-1: ami-767a391e
   us-west-1: ami-8ebba3cb
@@ -19,7 +19,12 @@ ubuntu14: &ubuntu14
 win2k12: &win2k12
   us-east-1: ami-4ad8a222
   us-west-1: ami-529b8117
-windows: *win2k12
+  us-west-2: ami-cf8babff
+win2k12r2: &win2k12r2
+  us-east-1: ami-4ea9b426
+  us-west-1: ami-e3bc55a7
+  us-west-2: ami-b14e7c81
+windows: *win2k12r2
 ubuntu: *ubuntu14
 centos: *centos6
 linux: *centos6
