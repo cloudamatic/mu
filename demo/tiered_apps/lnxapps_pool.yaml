@@ -8,6 +8,7 @@
     - concurrent-load-balancer: lnxlb
     run_list:
     - recipe[python]
+    - recipe[mu-utility::iptables]
     - recipe[mu-tools::apply_security]
     - recipe[mu-tools::split_var_partitions]
     - recipe[mu-demo::tiered_apps]

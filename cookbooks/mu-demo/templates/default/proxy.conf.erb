@@ -7,21 +7,30 @@
 	Require all granted
 <% end %>
 </Proxy>
-
 ProxyRequests Off
-
-<% node.winapps.each_key do |app| %>
+<% if node.apache.version == "2.4" %>
+RewriteEngine on
+<% end %>
+<% node.winapps.each_key { |app| %>
 
 # <%= app %> routes to our Windows group
 #
+<% if node.apache.version == "2.2" %>
 ProxyPass /<%= app %> http://<%= $win_url %>/<%= app %>
 ProxyPassReverse /<%= app %> http://<%= $win_url %>/<%= app %>
+<% elsif node.apache.version == "2.4" %>
+RewriteRule /<%= app %> http://<%= $win_url %>/<%= app %>/$1 [P]
 <% end %>
+<% } %>
 
-<% $lnx_apps.each do |app| %>
+<% $lnx_apps.each { |app| %>
 
 # <%= app %> routes to our Linux group
 #
+<% if node.apache.version == "2.2" %>
 ProxyPass /<%= app %> http://<%= $lnx_url %>/<%= app %>
 ProxyPassReverse /<%= app %> http://<%= $lnx_url %>/<%= app %>
+<% elsif node.apache.version == "2.4" %>
+RewriteRule /<%= app %> http://<%= $win_url %>/<%= app %>/$1 [P]
 <% end %>
+<% } %>

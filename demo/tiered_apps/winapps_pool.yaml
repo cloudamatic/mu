@@ -1,8 +1,9 @@
   - name: winapps
+    platform: windows
+    ssh_user: Administrator
     min-size: 2
     max-size: 4
     wait_for_nodes: 2
-    platform: windows
     loadbalancers:
     - concurrent-load-balancer: winlb
     run_list:

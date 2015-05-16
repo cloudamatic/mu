@@ -26,10 +26,11 @@ $proxy_url = node.deployment.loadbalancers.proxylb.dns
 
 include_recipe 'java'
 include_recipe 'chef-vault'
-include_recipe 'tomcat'
 
 case node[:platform]
 when "windows"
+	include_recipe 'tomcat'
+
 	powershell_script "Allow 8080 traffic" do
 		code <<-EOH
 			New-NetFirewallRule -DisplayName "Permit Tomcat traffic" -Direction Inbound -Protocol TCP -LocalPort 8080 -Action Allow
@@ -65,12 +66,22 @@ when "centos"
 	include_recipe "apache2::mod_php5"
 	include_recipe "apache2::logrotate"
 	include_recipe "git"
-	package "openssl"
-	package "mysql"
-	package "php-mysql"
-	package "php-pear"
-	package "php-drush-drush"
-	package "php-gd"
+	
+	%w{openssl php-mysql php-pear php-drush-drush php-gd}.each { |pkg|
+		package pkg
+	}
+
+	package "mysql" if node.platform_version.to_i == 6
+	
+	if node.platform_version.to_i == 7
+		%w{mariadb-server mariadb}.each { |pkg|
+			package pkg
+		}
+
+		service "mariadb" do
+			action [ :enable, :start ]
+		end
+	end
 
 	execute "iptables -I INPUT -p tcp --dport 80 -j ACCEPT && service iptables save" do
 		not_if "iptables -nL | egrep '^ACCEPT.*dpt:80($| )'"

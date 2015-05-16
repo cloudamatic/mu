@@ -21,6 +21,7 @@ include_recipe "apache2::mod_proxy"
 include_recipe "apache2::mod_proxy_http"
 include_recipe "apache2::mod_expires"
 include_recipe "apache2::mod_deflate"
+include_recipe "apache2::mod_filter"
 
 $win_url = node.deployment.loadbalancers.winlb.dns
 $lnx_apps = node.linux_apps

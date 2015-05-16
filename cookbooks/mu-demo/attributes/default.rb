@@ -2,14 +2,14 @@ default['apache']['mod_ssl']['cipher_suite'] = "ALL:!ADH:!EXPORT:!SSLv2:RC4+RSA:
 default['apache']['traceenable'] = 'Off'
 default['s3_bucket'] = 'egt-labs'
 default['s3_bucket_path'] = "cap-public"
-default['s3_public_url'] = "https://s3.amazonaws.com/cap-public/mu-demo"
+default['s3_public_url'] = "https://s3.amazonaws.com/cap-public/cap-demo"
 default['winapps']['jackrabbit'] = "jackrabbit-webapp-2.8.0.war"
 default['winapps']['sample'] = "sample.war"
 default['winapps']['razuna'] = "razuna.war"
 default['linux_apps'] = ["drupal"]
 default['application_attributes']['tiered_apps']['domain_name'] = "example.com"
 
-f platform_family?("windows")
+if platform_family?("windows")
 	default.java.max_heap_size = '2G'
 	node.normal.java.java_home = "C:\\bin\\java"
 	node.normal.java.windows.package_name = 'Java SE Development Kit 7 Update 80 (64-bit)'
@@ -23,6 +23,8 @@ else
 	node.normal.java.java_home = '/usr/lib/jvm/java'
 	node.normal.java.install_flavor = 'oracle'
 	node.normal.java.jdk_version = 8
-    node.normal.java.windows.url = "http://download.oracle.com/otn-pub/java/jdk/8u45-b14/jdk-8u45-linux-x64.tar.gz"
-    node.normal.java.windows.checksum = "1ad9a5be748fb75b31cd3bd3aa339cac"
+    node.normal.java.jdk['8']["x86_64"]["url"] = "http://download.oracle.com/otn-pub/java/jdk/8u45-b14/jdk-8u45-linux-x64.tar.gz"
+    node.normal.java.jdk["8"]["x86_64"]["checksum"] = "1ad9a5be748fb75b31cd3bd3aa339cac"
 end
+
+node.normal.tomcat.generate_ssl_cert = false
