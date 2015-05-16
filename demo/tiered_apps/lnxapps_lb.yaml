@@ -12,7 +12,7 @@
     add_firewall_rules:
     - rule_name: lnxapps_lb
     healthcheck:
-      target: TCP:80
+      target: HTTP:80/
       timeout: 5
       interval: 30
       unhealthy-threshold: 2

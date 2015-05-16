@@ -9,10 +9,10 @@
 	<Directory <%= @params[:docroot] %>>
 		Options <%= [@params[:directory_options] || "FollowSymLinks" ].flatten.join " " %>
 		AllowOverride <%= [@params[:allow_override] || "None" ].flatten.join " " %>
-	<% if node.apache.version == "2.2" %>
+	<% if @params[:version] == "2.2" %>
 		Order allow, deny
 		Allow from all
-	<% elsif node.apache.version == "2.4" %>
+	<% elsif @params[:version] == "2.4" %>
 		Require all granted
 	<% end %>
 	</Directory>
@@ -24,17 +24,17 @@
   DirectoryIndex <%= [@params[:directory_index]].flatten.join " " %>
 <% end -%>
 
-	ErrorLog <%= node.apache.log_dir %>/<%= @params[:name] %>-error.log
+	ErrorLog <%= @params[:log_dir] %>/<%= @params[:name] %>-error.log
 	LogFormat "%{X-Forwarded-For}i %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-Agent}i\"" proxy
-	CustomLog <%= node.apache.log_dir %>/<%= @params[:name] %>-access.log proxy
+	CustomLog <%= @params[:log_dir] %>/<%= @params[:name] %>-access.log proxy
 
 	<Location /server-status>
 		SetHandler server-status
-	<% if node.apache.version == "2.2" %>
+	<% if @params[:version] == "2.2" %>
 		Order Deny, Allow
 		Deny from all
 		Allow from 127.0.0.1
-	<% elsif node.apache.version == "2.4" %>
+	<% elsif @params[:version] == "2.4" %>
 		Require host 127.0.0.1
 	<% end %>
 	</Location>

@@ -1,13 +1,14 @@
-default['apache']['mod_ssl']['cipher_suite'] = "ALL:!ADH:!EXPORT:!SSLv2:RC4+RSA:+HIGH:+MEDIUM:+LOW"
-default['apache']['traceenable'] = 'Off'
-default['s3_bucket'] = 'egt-labs'
-default['s3_bucket_path'] = "cap-public"
-default['s3_public_url'] = "https://s3.amazonaws.com/cap-public/cap-demo"
-default['winapps']['jackrabbit'] = "jackrabbit-webapp-2.8.0.war"
-default['winapps']['sample'] = "sample.war"
-default['winapps']['razuna'] = "razuna.war"
-default['linux_apps'] = ["drupal"]
-default['application_attributes']['tiered_apps']['domain_name'] = "example.com"
+default.apache.mod_ssl.cipher_suite = "ALL:!ADH:!EXPORT:!SSLv2:RC4+RSA:+HIGH:+MEDIUM:+LOW"
+default.apache.mod_ssl.directives.SSLProtocol = "all -SSLv2 -SSLv3"
+default.apache.traceenable = "Off"
+default.s3_bucket = "egt-labs"
+default.s3_bucket_path = "cap-public"
+default.s3_public_url = "https://s3.amazonaws.com/cap-public/cap-demo"
+default.winapps.jackrabbit = "jackrabbit-webapp-2.8.0.war"
+default.winapps.sample = "sample.war"
+default.winapps.razuna = "razuna.war"
+default.linux_apps = ["drupal"]
+default.application_attributes.tiered_apps.domain_name = "example.com"
 
 if platform_family?("windows")
 	default.java.max_heap_size = '2G'
@@ -28,3 +29,8 @@ else
 end
 
 node.normal.tomcat.generate_ssl_cert = false
+if node.java.jdk_version == 8
+	node.normal.tomcat.java_options = "-Djava.awt.headless=true -Xms256m -Xmx#{node.java.max_heap_size} -Xrs -XX:PerfDataSamplingInterval=500 -XX:+UseParallelOldGC -XX:+UseParallelGC -XX:SoftRefLRUPolicyMSPerMB=36000"
+else
+	node.normal.tomcat.java_options = "-Djava.awt.headless=true -Xms256m -Xmx#{node.java.max_heap_size} -Xrs -XX:PerfDataSamplingInterval=500 -XX:+UseParallelOldGC -XX:+UseParallelGC -XX:MaxPermSize=256m -XX:SoftRefLRUPolicyMSPerMB=36000"
+end

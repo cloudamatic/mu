@@ -17,9 +17,9 @@ ubuntu14: &ubuntu14
   ap-northeast-1: ami-5abca75b
   sa-east-1: ami-55f14e48
 win2k12: &win2k12
-  us-east-1: ami-4ad8a222
-  us-west-1: ami-529b8117
-  us-west-2: ami-cf8babff
+  us-east-1: ami-f81c0090
+  us-west-1: ami-a98960ed
+  us-west-2: ami-413d0f71
 win2k12r2: &win2k12r2
   us-east-1: ami-4ea9b426
   us-west-1: ami-e3bc55a7

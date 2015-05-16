@@ -1,36 +1,36 @@
 <Proxy *>
-<% if node.apache.version == "2.2" %>
+<% if @params[:version] == "2.2" %>
 	AddDefaultCharset off
 	Order allow, deny
 	Allow from all
-<% elsif node.apache.version == "2.4" %>
+<% elsif @params[:version] == "2.4" %>
 	Require all granted
 <% end %>
 </Proxy>
 ProxyRequests Off
-<% if node.apache.version == "2.4" %>
+<% if @params[:version] == "2.4" %>
 RewriteEngine on
 <% end %>
-<% node.winapps.each_key { |app| %>
+<% @params[:win_apps].each_key { |app| %>
 
 # <%= app %> routes to our Windows group
 #
-<% if node.apache.version == "2.2" %>
-ProxyPass /<%= app %> http://<%= $win_url %>/<%= app %>
-ProxyPassReverse /<%= app %> http://<%= $win_url %>/<%= app %>
-<% elsif node.apache.version == "2.4" %>
-RewriteRule /<%= app %> http://<%= $win_url %>/<%= app %>/$1 [P]
+<% if @params[:version] == "2.2" %>
+ProxyPass /<%= app %> http://<%= @params[:win_lb_url] %>/<%= app %>
+ProxyPassReverse /<%= app %> http://<%= @params[:win_lb_url] %>/<%= app %>
+<% elsif @params[:version] == "2.4" %>
+RewriteRule /<%= app %> http://<%= @params[:win_lb_url] %>/<%= app %>/$1 [P]
 <% end %>
 <% } %>
 
-<% $lnx_apps.each { |app| %>
+<% @params[:lnx_apps].each { |app| %>
 
 # <%= app %> routes to our Linux group
 #
-<% if node.apache.version == "2.2" %>
-ProxyPass /<%= app %> http://<%= $lnx_url %>/<%= app %>
-ProxyPassReverse /<%= app %> http://<%= $lnx_url %>/<%= app %>
-<% elsif node.apache.version == "2.4" %>
-RewriteRule /<%= app %> http://<%= $win_url %>/<%= app %>/$1 [P]
+<% if @params[:version] == "2.2" %>
+ProxyPass /<%= app %> http://<%= @params[:lnx_lb_url] %>/<%= app %>
+ProxyPassReverse /<%= app %> http://<%= @params[:lnx_lb_url] %>/<%= app %>
+<% elsif @params[:version] == "2.4" %>
+RewriteRule /<%= app %> http://<%= @params[:lnx_lb_url] %>/<%= app %>/$1 [P]
 <% end %>
 <% } %>
