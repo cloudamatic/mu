@@ -19,7 +19,8 @@ RewriteEngine on
 ProxyPass /<%= app %> http://<%= @params[:win_lb_url] %>/<%= app %>
 ProxyPassReverse /<%= app %> http://<%= @params[:win_lb_url] %>/<%= app %>
 <% elsif @params[:version] == "2.4" %>
-RewriteRule /<%= app %> http://<%= @params[:win_lb_url] %>/<%= app %>/$1 [P]
+RewriteRule /<%= app %>(.*)$ http://<%= @params[:win_lb_url] %>/<%= app %>/$1 [P]
+ProxyPassReverse /<%= app %>/ http://<%= @params[:win_lb_url] %>/<%= app %>/
 <% end %>
 <% } %>
 
@@ -31,6 +32,7 @@ RewriteRule /<%= app %> http://<%= @params[:win_lb_url] %>/<%= app %>/$1 [P]
 ProxyPass /<%= app %> http://<%= @params[:lnx_lb_url] %>/<%= app %>
 ProxyPassReverse /<%= app %> http://<%= @params[:lnx_lb_url] %>/<%= app %>
 <% elsif @params[:version] == "2.4" %>
-RewriteRule /<%= app %> http://<%= @params[:lnx_lb_url] %>/<%= app %>/$1 [P]
+RewriteRule /<%= app %>(.*)$ http://<%= @params[:lnx_lb_url] %>/<%= app %>/$1 [P]
+ProxyPassReverse /<%= app %>/ http://<%= @params[:win_lb_url] %>/<%= app %>/
 <% end %>
 <% } %>
