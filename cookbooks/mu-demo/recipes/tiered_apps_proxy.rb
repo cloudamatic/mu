@@ -43,7 +43,8 @@ when "centos", "redhat"
 			:hostname => node.hostname,
 			:drupal_distro => node.application_attributes.drupal_distro,
 			:mu_admins => node.deployment.admins,
-			:tomcat_app => node.application_attributes.tomcat_app
+			:tomcat_app => node.application_attributes.tomcat_app,
+			:os_type => "#{node.platform} #{node.platform_version.to_i}"
 		)
 	end
 

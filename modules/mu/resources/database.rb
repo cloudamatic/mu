@@ -131,9 +131,7 @@ module MU
 				db_instance_identifier: @db['identifier'],
 				db_instance_class: @db["size"],
 				engine: @db["engine"],
-				engine_version: @db["engine_version"],
 				auto_minor_version_upgrade: @db["auto_minor_version_upgrade"],
-				storage_encrypted: @db["storage_encrypted"],
 				multi_az: @db['multi_az_on_create'],
 				license_model: @db["license_model"],
 				storage_type: @db['storage_type'],
@@ -147,15 +145,7 @@ module MU
 			}
 
 			config[:iops] = @db["iops"] if @db['storage_type'] == "io1"
-			config[:preferred_maintenance_window] = @db["preferred_maintenance_window"] if @db["preferred_maintenance_window"]
 
-			if @db["snapshot_id"].nil?
-				config[:allocated_storage] = @db["storage"]
-				config[:db_name] = dbname
-				config[:master_username] = @db['master_user']
-				config[:master_user_password] = @db['password']
-			end
-			
 			# Lets make sure automatic backups are enabled when DB instance is deployed in Multi-AZ so failover actually works. Maybe default to 1 instead?
 			if @db['multi_az_on_create'] or @db['multi_az_on_deploy']
 				if @db["backup_retention_period"].nil? or @db["backup_retention_period"] == 0
@@ -169,8 +159,17 @@ module MU
 				end
 			end
 
-			config[:preferred_backup_window] = @db["preferred_backup_window"]
-			config[:backup_retention_period] = @db["backup_retention_period"]
+			if @db["snapshot_id"].nil?
+				config[:preferred_backup_window] = @db["preferred_backup_window"]
+				config[:backup_retention_period] = @db["backup_retention_period"]
+				config[:storage_encrypted] = @db["storage_encrypted"]
+				config[:engine_version] = @db["engine_version"]
+				config[:preferred_maintenance_window] = @db["preferred_maintenance_window"] if @db["preferred_maintenance_window"]
+				config[:allocated_storage] = @db["storage"]
+				config[:db_name] = dbname
+				config[:master_username] = @db['master_user']
+				config[:master_user_password] = @db['password']
+			end
 
 			db_config = createSubnetGroup(config)
 
@@ -225,6 +224,11 @@ module MU
 				if @db["snapshot_id"]
 					mod_config = Hash.new
 					mod_config[:db_instance_identifier] = database.db_instance_identifier
+					mod_config[:preferred_backup_window] = @db["preferred_backup_window"]
+					mod_config[:backup_retention_period] = @db["backup_retention_period"]
+					mod_config[:preferred_maintenance_window] = @db["preferred_maintenance_window"] if @db["preferred_maintenance_window"]
+					mod_config[:engine_version] = @db["engine_version"]
+					mod_config[:allow_major_version_upgrade] = @db["allow_major_version_upgrade"] if @db['allow_major_version_upgrade']
 					mod_config[:apply_immediately] = true
 
 					if database.db_subnet_group and database.db_subnet_group.subnets and !database.db_subnet_group.subnets.empty?

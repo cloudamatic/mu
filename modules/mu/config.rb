@@ -1199,9 +1199,10 @@ module MU
 					end
 					# XXX be nice to tell users that these parameters are invalid here,
 					# but only if they specified them.
-					db.delete("storage_encrypted")
-					db.delete("preferred_backup_window")
-					db.delete("backup_retention_period")
+					### Moving this back to MU::Database 
+					# db.delete("storage_encrypted")
+					# db.delete("preferred_backup_window")
+					# db.delete("backup_retention_period")
 				end
 
 				if !db["run_sql_on_deploy"].nil? and (db["engine"] != "postgres" and db["engine"] != "mysql")

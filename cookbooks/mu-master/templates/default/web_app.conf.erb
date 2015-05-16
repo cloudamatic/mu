@@ -26,7 +26,7 @@
   <Location /server-status>
     SetHandler server-status
 <% if node.apache.version == "2.2" %>
-    Order Deny, Allow
+    Order Deny,Allow
     Deny from all
     Allow from 127.0.0.1
 <% elsif node.apache.version == "2.4" %>

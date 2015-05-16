@@ -46,7 +46,7 @@
 <h2>Applications on <%= @domain_name %></h2>
 
 <ul>
-	<li> Drupal on CentOS 6: <a href="/drupal" class="cms" target="_blank"><%= @drupal_distro %></a>
+	<li> Drupal on <%= @os_type %>: <a href="/drupal" class="cms" target="_blank"><%= @drupal_distro %></a>
 	<ul>
 		<li class="sublabel"><strong>Drupal admin users</strong> (use <em>Request New Password</em> functionality to log in):
 <% @mu_admins.each_value do |admin| %>

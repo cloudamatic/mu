@@ -1,7 +1,7 @@
 <Proxy *>
 <% if @params[:version] == "2.2" %>
 	AddDefaultCharset off
-	Order allow, deny
+	Order allow,deny
 	Allow from all
 <% elsif @params[:version] == "2.4" %>
 	Require all granted

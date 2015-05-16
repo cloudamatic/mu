@@ -4,7 +4,7 @@
 		Options <%= [@params[:directory_options] || "FollowSymLinks" ].flatten.join " " %>
 		AllowOverride <%= [@params[:allow_override] || "None" ].flatten.join " " %>
 	<% if @params[:version] == "2.2" %>
-		Order allow, deny
+		Order allow,deny
 		Allow from all
 	<% elsif @params[:version] == "2.4" %>
 		Require all granted
@@ -25,7 +25,7 @@
 	<Location /server-status>
 		SetHandler server-status
 	<% if @params[:version] == "2.2" %>
-		Order Deny, Allow
+		Order Deny,Allow
 		Deny from all
 		Allow from 127.0.0.1
 	<% elsif @params[:version] == "2.4" %>
