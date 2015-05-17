@@ -16,7 +16,7 @@ if platform_family?("windows")
 	node.normal.java.windows.package_name = 'Java SE Development Kit 7 Update 80 (64-bit)'
     node.normal.java.windows.url = "https://s3.amazonaws.com/cap-public/jdk-7u80-windows-x64.exe"
 	# node.normal.java.windows.package_name = 'Java SE Development Kit 8 Update 45 (64-bit)'
-    # node.normal.java.windows.url = "https://s3.amazonaws.com/ps-boundless-public/jdk-8u45-windows-x64.exe"
+    # node.normal.java.windows.url = "https://s3.amazonaws.com/cap-public/jdk-8u45-windows-x64.exe"
     # node.normal.java.windows.checksum = "979ec7d6c93c6f36b32b8d532d736015"
 else
 	default.java.max_heap_size = "#{(node.memory.total.to_i * 0.6 ).floor / 1024}m"

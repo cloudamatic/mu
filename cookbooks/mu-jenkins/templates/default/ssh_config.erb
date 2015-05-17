@@ -1,0 +1,6 @@
+<% @ssh_urls.each { |url| %>
+Host <%= url %>
+  User <%= @ssh_user %>
+  IdentityFile <%= @jenkins_home %>/.ssh/jenkins_ssh
+  StrictHostKeyChecking no
+<% } %>

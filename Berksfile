@@ -22,6 +22,8 @@ cookbook 'mu-master', path: "#{cookbookPath}/mu-master"
 cookbook 'mu-php54', path: "#{cookbookPath}/mu-php54"
 cookbook 'mu-tools', path: "#{cookbookPath}/mu-tools"
 cookbook 'mu-utility', path: "#{cookbookPath}/mu-utility"
+cookbook 'mu-openvpn', path: "#{cookbookPath}/mu-openvpn"
+cookbook 'mu-jenkins', path: "#{cookbookPath}/mu-jenkins"
 cookbook 'tomcat', path: "#{cookbookPath}/tomcat"
 cookbook 'chef_handler', '~> 1.1.4'
 cookbook 'chef-splunk', path: "#{cookbookPath}/chef-splunk"
@@ -38,6 +40,7 @@ cookbook 'iis', '~> 4.1.0'
 cookbook 'iptables', '~> 1.0.0'
 cookbook 'logrotate', '~> 1.9.1'
 cookbook 'java', '~> 1.31.0'
+cookbook 'jenkins', '~> 2.3.0'
 cookbook 'memcached', '~> 1.7.2'
 cookbook 'mongodb', '~> 0.16.2'
 cookbook 'mysql', '~> 5.2.12'

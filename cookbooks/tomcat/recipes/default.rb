@@ -79,8 +79,8 @@ unless node['tomcat']['deploy_manager_apps']
   end
 end
 
-node.set_unless['tomcat']['keystore_password'] = secure_password
-node.set_unless['tomcat']['truststore_password'] = secure_password
+node.set['tomcat']['keystore_password'] = secure_password unless node['tomcat']['keystore_password']
+node.set['tomcat']['truststore_password'] = secure_password unless node['tomcat']['truststore_password']
 
 if node['tomcat']['run_base_instance']
   tomcat_instance "base" do
