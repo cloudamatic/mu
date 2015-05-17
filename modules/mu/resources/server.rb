@@ -123,7 +123,7 @@ module MU
 			end
 			Chef::Config[:environment] = @deploy.environment
 
-			if @server['platform'] == "windows" or @server['platform'] == "win2k12"
+			if %w{win2k12r2 win2k12 windows}.include? @server['platform']
 				@server['mu_windows_name'] = MU::MommaCat.getResourceName(server['name'], max_length: 15, need_unique_string: true)
 				if !@deploy.winpass.nil?
 					@server['winpass'] = @deploy.winpass
@@ -622,7 +622,7 @@ module MU
 				ssh.exec!(chef_cleanup)
 				server['cleaned_chef'] = true
 			end
-			if server['platform'] == "windows" or server['platform'] == "win2k12"
+			if %w{win2k12r2 win2k12 windows}.include? server['platform']
 				output = ssh.exec!(win_env_fix)
 				output = ssh.exec!(win_installer_check)
 				if output.match(/InProgress/)
@@ -857,7 +857,7 @@ module MU
 			end
 
 			ssh_timeout = 0 # meaning, use the default
-			ssh_timeout = 150 if server['platform'] == "windows" or server['platform'] == "win2k12"
+			ssh_timeout = 150 if %w{win2k12r2 win2k12 windows}.include? server['platform']
 
 			MU::MommaCat.removeHostFromSSHConfig(node)
 			if !server["vpc"].nil?
@@ -1059,7 +1059,7 @@ module MU
 			require 'chef/knife/bootstrap_windows_ssh'
 			require 'chef/knife/bootstrap_windows_winrm'
 
-		  if server["platform"] != "windows" and server['platform'] != "win2k12"
+		  if server["platform"] != "windows" and server['platform'] != "win2k12" and server['platform'] != "win2k12r2"
 				kb = Chef::Knife::Bootstrap.new([canonical_ip])
 		    kb.config[:use_sudo] = true
 				if !server['skipinitialupdates']
@@ -1625,7 +1625,7 @@ module MU
 
 				# If this is Windows, ssh over with a Powershell command to set the
 				# password.
-				if server['platform'] == "windows" or server['platform'] == "win2k12"
+				if %w{win2k12r2 win2k12 windows}.include? server['platform']
 					# Make sure we don't lose a cached mu_windows_name value.
 					if !server['mu_windows_name'] and
 							!deployment.nil? and deployment.has_key?('servers') and
@@ -1657,7 +1657,7 @@ module MU
 			Chef::Config[:identity_file] = ssh_keydir+"/"+keypairname
 			Chef::Config[:manual] = true
 			knife = Chef::Knife::Ssh.new([node, "chef-client"])
-	    if server["platform"] != "windows" and server['platform'] != "win2k12"
+	    if server["platform"] != "windows" and server['platform'] != "win2k12" and server['platform'] != "win2k12r2"
 # XXX maybe knife = Chef::Knife::Ssh.new; knife.run()
 				if !server["ssh_user"].nil? and !server["ssh_user"].empty? and server["ssh_user"] != "root" and server["ssh_user"] != "Administrator"
 					knife_args = ["ssh", '-m', node, '-x', server["ssh_user"], 'sudo chef-client' ]  
@@ -1680,7 +1680,7 @@ module MU
 			max_retries = 2
 			# Windows machines often reboot in mid run with the expectation of
 			# another when they come back up, Let's at least try to accommodate them.
-			max_retries = 5 if server['platform'] == "windows" or server['platform'] == "win2k12"
+			max_retries = 5 if %w{win2k12r2 win2k12 windows}.include? server['platform']
 			begin
 				MU.log "Invoking knife with args #{knife_args}", MU::DEBUG
 				if !chef_rerun_only
@@ -1695,7 +1695,7 @@ module MU
 				if retries < max_retries
 					retries = retries + 1
 					sleep 15
-					sleep 60 if server['platform'] == "windows" or server['platform'] == "win2k12"
+					sleep 60 if %w{win2k12r2 win2k12 windows}.include? server['platform']
 					MU.log "#{node} Initial Chef run threw #{e.inspect}, retrying (#{retries}/#{max_retries})", MU::WARN
 					retry
 				end

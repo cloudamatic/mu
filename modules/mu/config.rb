@@ -2269,6 +2269,16 @@ module MU
 				},
 				"default_if" => {
 					"key_is" => "platform",
+					"value_is" => "win2k12",
+					"set" => "Administrator"
+				},
+				"default_if" => {
+					"key_is" => "platform",
+					"value_is" => "win2k12r2",
+					"set" => "Administrator"
+				},
+				"default_if" => {
+					"key_is" => "platform",
 					"value_is" => "ubuntu",
 					"set" => "ubuntu"
 				},
@@ -2291,8 +2301,8 @@ module MU
 			"platform" => {
 				"type" => "string",
 				"default" => "linux",
-				"enum" => ["linux", "windows", "centos", "ubuntu", "centos6", "ubuntu14", "win2k12", "centos7"],
-				"description" => "Helps select default AMIs, and enables correct grooming behavior for Windows instances.",
+				"enum" => ["linux", "windows", "centos", "ubuntu", "centos6", "ubuntu14", "win2k12", "win2k12r2", "centos7"],
+				"description" => "Helps select default AMIs, and enables correct grooming behavior based on operating system type.",
 			},
 			"run_list" => {
 				"type" => "array",

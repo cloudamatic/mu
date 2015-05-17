@@ -412,7 +412,7 @@ module MU
 						end
 						MU::MommaCat.unlock(instance.instance_id+"-create")
 
-						if server['platform'] == "windows" and server['platform'] == "win2k12"
+						if %w{win2k12r2 win2k12 windows}.include? server['platform']
 							if (server['mu_windows_name'].nil? or server['mu_windows_name'].empty?) 
 								if first_groom
 									server['mu_windows_name'] = MU::MommaCat.getResourceName(name, max_length: 15, use_unique_string: MU::MommaCat.name_unique_str_map[node])
