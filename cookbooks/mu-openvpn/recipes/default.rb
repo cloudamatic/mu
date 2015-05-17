@@ -65,7 +65,7 @@ when "centos", "redhat"
 		node.normal.openvpn.auth_type = "ldap"
 		node.normal.openvpn.ldap_bind_pw = ldap_vault['password']
 		# node.normal.openvpn.ldap_bind_dn = "CN=openvpn,OU=muusers,DC=ad,DC=muplatform,DC=com"
-		# node.normal.openvpn.ldap_display_name = "LDAP Servers"
+		# node.normal.openvpn.ldap_display_name = "'LDAP Servers'"
 		# node.normal.openvpn.ldap_server1 = "dc1.ad.muplatform.com"
 		# node.normal.openvpn.ldap_server2 = "dc2.ad.muplatform.com"
 		# node.normal.openvpn.ldap_username_attr = "sAMAccountName"
@@ -90,6 +90,9 @@ when "centos", "redhat"
 
 	template "#{Chef::Config[:file_cache_path]}/openvpn_users.json" do
 		source "users.json.erb"
+		variables(
+			:users => node.openvpn.users
+		)
 	end
 
 	execute "./confdba -ulf #{Chef::Config[:file_cache_path]}/openvpn_users.json" do

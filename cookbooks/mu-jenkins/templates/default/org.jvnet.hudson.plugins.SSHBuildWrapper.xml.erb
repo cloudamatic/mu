@@ -6,7 +6,7 @@
       <port>22</port>
       <username><%= @ssh_user %></username>
       <password></password>
-      <keyfile>/var/lib/jenkins/.ssh/jenkins_ssh</keyfile>
+      <keyfile><%= @ssh_key_path %></keyfile>
       <serverAliveInterval>0</serverAliveInterval>
       <pty>false</pty>
     </org.jvnet.hudson.plugins.SSHSite>

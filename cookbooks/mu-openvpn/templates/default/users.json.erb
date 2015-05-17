@@ -6,7 +6,7 @@
         "type": "user_default"
     },
 <% 
-node.openvpn.users.each { |user|
+@users.each { |user|
 %>
     "<%= user[:name] %>": {
        <% if user[:type] == "user" %>
@@ -19,7 +19,7 @@ node.openvpn.users.each { |user|
        <% end %>
     },
 <% 
-} 
+}
 %>
     "admins": {
         "c2s_dest_s": "false",

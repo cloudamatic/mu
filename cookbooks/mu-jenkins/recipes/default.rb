@@ -37,6 +37,8 @@ when "centos", "redhat"
 		mode 0700
 	end
 
+	ssh_key_path = "#{node.jenkins.master.home}/.ssh/jenkins_ssh"
+
 	template "#{node.jenkins.master.home}/.ssh/config" do
 		source "ssh_config.erb"
 		owner "jenkins"
@@ -44,12 +46,12 @@ when "centos", "redhat"
 		mode 0600
 		variables(
 			:ssh_user => ssh_user,
-			:jenkins_home => node.jenkins.master.home,
+			:ssh_key_path => ssh_key_path,
 			:ssh_urls => node.jenkins_ssh_urls
 		)
 	end
 
-	file "#{node.jenkins.master.home}/.ssh/jenkins_ssh" do
+	file ssh_key_path do
 		owner "jenkins"
 		group "jenkins"
 		mode 0400
@@ -137,7 +139,7 @@ when "centos", "redhat"
 		variables(
 			:ssh_user => ssh_user,
 			:node_ip => node.ipaddress,
-			:ssh_key_path => "#{node.jenkins.master.home}/.ssh/jenkins_ssh"
+			:ssh_key_path => ssh_key_path
 		)
 		sensitive true
 	end
