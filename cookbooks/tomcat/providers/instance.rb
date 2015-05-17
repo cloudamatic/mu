@@ -271,7 +271,7 @@ action :configure do
 		:ldap_domain_name => new_resource.ldap_domain_name,
 		:ldap_group => new_resource.ldap_group,
 		:ldap_user_search => new_resource.ldap_user_search,
-		:ldap_role_search => new_resource.ldap_role_search,
+		:ldap_role_search => new_resource.ldap_role_search
       })
     owner 'root' if node.platform_family != 'windows'
     group 'root' if node.platform_family != 'windows'
@@ -306,17 +306,17 @@ action :configure do
     group 'root' if node.platform_family != 'windows'
     mode '0644' if node.platform_family != 'windows'
     notifies :restart, "service[#{instance}]"
-    variables (
+    variables ({
       :cors_enabled => new_resource.cors_enabled
-    )
+    })
   end
 
   template "#{new_resource.config_dir}/context.xml" do
     source 'context.xml.erb'
-    variables (
+    variables ({
       :jndi => new_resource.jndi,
       :jndi_connections => new_resource.jndi_connections
-    )
+    })
     owner 'root' if node.platform_family != 'windows'
     group 'root' if node.platform_family != 'windows'
     mode '0644' if node.platform_family != 'windows'

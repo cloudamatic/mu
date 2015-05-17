@@ -37,7 +37,7 @@ attribute :app_base,
 attribute :jndi_connections,
   :kind_of => Array
 attribute :jndi,
-  :kind_of => String
+  :kind_of => String,
   :equal_to => ['true', 'false']
 attribute :catalina_options,
   :kind_of => String
