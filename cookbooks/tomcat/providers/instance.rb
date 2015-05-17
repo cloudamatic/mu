@@ -8,7 +8,10 @@ action :configure do
    :max_threads, :ssl_max_threads, :ssl_cert_file, :ssl_key_file, :generate_ssl_cert,
    :ssl_chain_files, :keystore_file, :keystore_type, :truststore_file,
    :truststore_type, :certificate_dn, :loglevel, :tomcat_auth, :user,
-   :group, :tmp_dir, :lib_dir, :endorsed_dir].each do |attr|
+   :group, :tmp_dir, :lib_dir, :endorsed_dir, :jndi_connections, :jndi, :cors_enabled, 
+   :app_base, :ldap_enabled, :ldap_servers, :ldap_port, :ldap_bind_user, :ldap_bind_pwd,
+   :ldap_user_base, :ldap_role_base, :ldap_domain_name, :ldap_group, :ldap_user_search,
+   :ldap_role_search].each do |attr|
     if not new_resource.instance_variable_get("@#{attr}")
       new_resource.instance_variable_set("@#{attr}", node['tomcat'][attr])
     end
@@ -257,6 +260,18 @@ action :configure do
         :keystore_type => new_resource.keystore_type,
         :tomcat_auth => new_resource.tomcat_auth,
         :config_dir => new_resource.config_dir,
+        :app_base => new_resource.app_base,
+		:ldap_enabled => new_resource.ldap_enabled,
+		:ldap_servers => new_resource.ldap_servers,
+		:ldap_port => new_resource.ldap_port,
+		:ldap_bind_user => new_resource.ldap_bind_user,
+		:ldap_bind_pwd => new_resource.ldap_bind_pwd,
+		:ldap_user_base => new_resource.ldap_user_base,
+		:ldap_role_base => new_resource.ldap_role_base,
+		:ldap_domain_name => new_resource.ldap_domain_name,
+		:ldap_group => new_resource.ldap_group,
+		:ldap_user_search => new_resource.ldap_user_search,
+		:ldap_role_search => new_resource.ldap_role_search,
       })
     owner 'root' if node.platform_family != 'windows'
     group 'root' if node.platform_family != 'windows'
@@ -291,20 +306,17 @@ action :configure do
     group 'root' if node.platform_family != 'windows'
     mode '0644' if node.platform_family != 'windows'
     notifies :restart, "service[#{instance}]"
+    variables (
+      :cors_enabled => new_resource.cors_enabled
+    )
   end
 
   template "#{new_resource.config_dir}/context.xml" do
     source 'context.xml.erb'
-      variables ({
-        :jndi_datasource_name => new_resource.jndi_datasource_name,
-        :jndi_driver => new_resource.jndi_driver,
-        :jndi_connection_string => new_resource.jndi_connection_string,
-        :jndi_user => new_resource.jndi_user,
-        :jndi_password => new_resource.jndi_password,
-        :jndi_max_active => new_resource.jndi_max_active,
-        :jndi_max_idle => new_resource.jndi_max_idle,
-        :jndi_max_wait => new_resource.jndi_max_wait,
-      })
+    variables (
+      :jndi => new_resource.jndi,
+      :jndi_connections => new_resource.jndi_connections
+    )
     owner 'root' if node.platform_family != 'windows'
     group 'root' if node.platform_family != 'windows'
     mode '0644' if node.platform_family != 'windows'

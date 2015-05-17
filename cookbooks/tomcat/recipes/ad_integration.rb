@@ -8,7 +8,7 @@
 #
 
 include_recipe 'chef-vault'
-node.normal.tomcat.ad.integration = true
+node.normal.tomcat.ldap_enabled = true
 # auth_info = chef_vault_item("activedirectory", "tomcat_svc")
 
 template "#{node.tomcat.webapp_dir}/manager/WEB-INF/web.xml" do
@@ -17,6 +17,6 @@ template "#{node.tomcat.webapp_dir}/manager/WEB-INF/web.xml" do
 	group 'tomcat'
 	mode 0644
 	variables(
-		:ad_group => node.tomcat.ad.group
+		:ad_group => node.tomcat.ldap_group
 	)
 end

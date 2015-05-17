@@ -153,25 +153,27 @@
            resources under the key "UserDatabase".  Any edits
            that are performed against this UserDatabase are immediately
            available for use by the Realm.  -->
-	<% if node.tomcat.ad.integration -%>
+	<% if @ldap_enabled %>
         <Realm className="org.apache.catalina.realm.JNDIRealm" debug="99"
-			   connectionURL="ldap://<%= node.tomcat.ad.dc1 %>:<%= node.tomcat.ad.ldap_port %>"
-			   alternateURL="ldap://<%= node.tomcat.ad.dc2 %>:<%= node.tomcat.ad.ldap_port %>"
-			   connectionName="<%= $tomcat_ad_usr %>@<%= node.tomcat.ad.domain_name %>"
-			   connectionPassword='<%= $tomcat_ad_pwd %>'
+			   connectionURL="ldap://<%= @ldap_servers.first %>:<%= @ldap_port %>"
+			 <% if @ldap_servers.size > 1 %>
+			   alternateURL="ldap://<%= @ldap_servers[1] %>:<%= @ldap_port %>"
+			 <% end %>
+			   connectionName="<%= @ldap_bind_user %>@<%= @ldap_domain_name %>"
+			   connectionPassword='<%= @ldap_bind_pwd %>'
 			   referrals="follow"
-			   userBase="<%= node.tomcat.ad.user_base %>"
-			   userSearch="(sAMAccountName={0})"
+			   userBase="<%= @ldap_user_base %>"
+			   userSearch="<%= @ldap_user_search %>"
 			   userSubtree="true" 
-			   roleBase="<%= node.tomcat.ad.role_base %>"
+			   roleBase="<%= @ldap_role_base %>"
 			   roleName="cn"
-			   roleSearch="(member={0})"
+			   roleSearch="<%= @ldap_role_search %>"
 			   roleSubtree="true"
         />
-	<% else -%>
+	<% else %>
       <Realm className="org.apache.catalina.realm.UserDatabaseRealm"
              resourceName="UserDatabase"/>
-	<% end -%>
+	<% end %>
       </Realm>
 
       <!-- Define the default virtual host

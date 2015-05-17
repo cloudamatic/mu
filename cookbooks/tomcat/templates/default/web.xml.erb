@@ -394,7 +394,7 @@
 
   <!-- ================== Built In Filter Definitions ===================== -->
 
-<% if node.tomcat.cors_enabled -%>
+<% if @cors_enabled %>
 	<filter>
         <filter-name>CorsFilter</filter-name>
         <filter-class>org.apache.catalina.filters.CorsFilter</filter-class>
@@ -423,7 +423,7 @@
             <param-value>10</param-value>
         </init-param>
 	</filter>
-<% end -%>
+<% end %>
 
   <!-- A filter that sets character encoding that is used to decode -->
   <!-- parameters in a POST request -->
@@ -513,12 +513,12 @@
 
   <!-- ==================== Built In Filter Mappings ====================== -->
 
-<% if node.tomcat.cors_enabled -%>
+<% if @cors_enabled %>
 	<filter-mapping>
 		<filter-name>CorsFilter</filter-name>
 		<url-pattern>/*</url-pattern>
 	</filter-mapping>
-<% end -%>
+<% end %>
 
   <!-- The mapping for the Set Character Encoding Filter -->
 <!--

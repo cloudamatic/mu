@@ -34,24 +34,11 @@ attribute :webapp_dir,
   :kind_of => String
 attribute :app_base,
   :kind_of => String
-
-attribute :jndi_datasource_name,
+attribute :jndi_connections,
+  :kind_of => Array
+attribute :jndi,
   :kind_of => String
-attribute :jndi_driver,
-  :kind_of => String
-attribute :jndi_connection_string,
-  :kind_of => String
-attribute :jndi_user,
-  :kind_of => String
-attribute :jndi_password,
-  :kind_of => String
-attribute :jndi_max_active,
-  :kind_of => Fixnum
-attribute :jndi_max_idle,
-  :kind_of => Fixnum
-attribute :jndi_max_wait,
-  :kind_of => Fixnum
-
+  :equal_to => ['true', 'false']
 attribute :catalina_options,
   :kind_of => String
 attribute :java_options,
@@ -90,6 +77,32 @@ attribute :loglevel,
 attribute :tomcat_auth,
   :kind_of => String,
   :equal_to => ['true', 'false']
+attribute :cors_enabled,
+  :kind_of => String,
+  :equal_to => ['true', 'false']
+attribute :ldap_enabled,
+  :kind_of => String,
+  :equal_to => ['true', 'false']
+attribute :ldap_servers,
+  :kind_of => Array
+attribute :ldap_port,
+  :kind_of => Fixnum
+attribute :ldap_bind_user,
+  :kind_of => String
+attribute :ldap_bind_pwd,
+  :kind_of => String
+attribute :ldap_user_base,
+  :kind_of => String
+attribute :ldap_role_base,
+  :kind_of => String
+attribute :ldap_domain_name,
+  :kind_of => String
+attribute :ldap_group,
+  :kind_of => String
+attribute :ldap_user_search,
+  :kind_of => String
+attribute :ldap_role_search,
+  :kind_of => String
 
 attribute :user,
   :kind_of => String

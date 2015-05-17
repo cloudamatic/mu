@@ -55,18 +55,17 @@ default['tomcat']['deploy_manager_packages'] = ["tomcat#{node['tomcat']['base_ve
 default['tomcat']['jndi'] = false
 default['tomcat']['jndi_connections'] = []
 default['tomcat']['cors_enabled'] = false
-default['tomcat']['ad']['integration'] = false
-default['tomcat']['ad']['dc1'] = "dc1.ad.egt.com"
-default['tomcat']['ad']['dc2'] = "dc2.ad.egt.com"
-default['tomcat']['ad']['domain_name'] = "ad.egt.com"
-default['tomcat']['ad']['user_base'] = "OU=egt,DC=ad,DC=egt,DC=com"
-default['tomcat']['ad']['role_base'] = node.tomcat.ad.user_base
-default['tomcat']['ad']['ldap_port'] = 389
-default['tomcat']['ad']['group'] = "Tomcat Admins"
-default['tomcat']['ad']['auth'] = {
-  :data_bag => 'active_directory',
-  :data_bag_item => "tomcat"
-}
+default['tomcat']['ldap_enabled'] = false
+default['tomcat']['ldap_servers'] = []
+default['tomcat']['ldap_port'] = 389
+default['tomcat']['ldap_bind_user'] = nil
+default['tomcat']['ldap_bind_pwd'] = nil
+default['tomcat']['ldap_user_base'] = nil
+default['tomcat']['ldap_role_base'] = nil
+default['tomcat']['ldap_group'] = nil
+default['tomcat']['ldap_domain_name'] = nil
+default['tomcat']['ldap_user_search'] = "(sAMAccountName={0})"
+default['tomcat']['ldap_role_search'] = "(member={0})"
 
 case node['platform_family']
 when 'rhel'
