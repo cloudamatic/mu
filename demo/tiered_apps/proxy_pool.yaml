@@ -13,6 +13,9 @@
     - recipe[mu-demo::tiered_apps_proxy]
     add_firewall_rules:
     - rule_name: proxy
+    dependencies:
+    - type: server
+      name: bastion
     application_attributes:
       drupal_distro: <%= $drupal_distro %>
       tomcat_app: <%= $tomcat_app %>

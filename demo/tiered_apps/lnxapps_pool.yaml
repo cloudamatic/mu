@@ -20,6 +20,8 @@
     dependencies:
     - type: database
       name: drupaldb
+    - type: server
+      name: bastion
     vpc:
       nat_ssh_user: <%= $nat_ssh_user %>
       subnet_pref: all_private
