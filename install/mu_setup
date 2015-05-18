@@ -139,7 +139,7 @@ if [ -f "$MURC" -a "$MURC" != "$MU_INSTALLDIR/etc/mu.rc" ] ;then
 	source $MURC
 fi
 
-MU_REPO='eGT-Labs/mu.git'
+MU_REPO='cloudamatic/mu.git'
 if [ "$MUBRANCH" == "" ];then
 	if [ -d "$MU_LIBDIR/.git" ]; then
 		cd $MU_LIBDIR
@@ -662,7 +662,7 @@ adjust_config_vars()
 			if [ "${var_name[$config]}" == "ADDTL_CHEF_REPOS" ]; then
 				echo "Enter the Github repos from which we'll pull Chef artifacts additional to those "
 				echo "from $MU_REPO. Delineate multiple repositories with spaces. Example:"
-				echo "${BOLD}eGT-Labs/chef-master.git HHS/healthdata_platform.git${NORM}"
+				echo "${BOLD}eGT-Labs/mu-internal.git HHS/healthdata_platform.git${NORM}"
 				echo ""
 			fi
 			if [ "${var_name[$config]}" == "MU_ADMIN_EMAIL" ];then
