@@ -27,11 +27,13 @@ when "centos", "redhat"
 	group "openvpn"
 
 	node.openvpn.users.each { |user|
-		user user[:name] do
-			gid "openvpn"
-			home "/home/#{user[:name]}"
-			shell "/sbin/nologin"
-			password users_vault["#{user[:name]}_password_hash"]
+		if user[:auth] == "os"
+			user user[:name] do
+				gid "openvpn"
+				home "/home/#{user[:name]}"
+				shell "/sbin/nologin"
+				password users_vault["#{user[:name]}_password_hash"]
+			end
 		end
 	}
 
