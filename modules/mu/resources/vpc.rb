@@ -121,7 +121,7 @@ module MU
 				azs = MU::Config.listAZs
 				@vpc['subnets'].each { |subnet|
 					subnet_name = @vpc['name']+"-"+subnet['name']
-					MU.log "Creating Subnet #{subnet_name}", details: subnet
+					MU.log "Creating Subnet #{subnet_name} (#{subnet['ip_block']})", details: subnet
 					azs = MU::Config.listAZs if azs.size == 0
 					if !subnet['availability_zone'].nil?
 						az = subnet['availability_zone']

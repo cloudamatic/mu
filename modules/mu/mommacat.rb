@@ -579,6 +579,7 @@ module MU
 			if Dir.exist?(path+"/"+mu_id)
 				unlockAll
 				MU.log "Purging #{path}/#{mu_id}" if File.exists?(path+"/"+mu_id+"/deployment.json")
+
 				FileUtils.rm_rf(path+"/"+mu_id, :secure => true)
 			end
 			if File.exists?(path+"/unique_ids")
