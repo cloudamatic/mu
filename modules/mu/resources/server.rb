@@ -1911,7 +1911,7 @@ module MU
 					resp = MU.ec2(region).describe_addresses()
 				end
 				resp.addresses.each { |address|
-					return address if address.instance_id.nil? and address.network_interface_id.nil? and !@eips_used.include?(address.public_ip)
+					return address if (address.instance_id.nil? or address.instance_id.empty?) and address.network_interface_id.nil? and !@eips_used.include?(address.public_ip)
 				}
 				if ip != nil
 					if !classic
