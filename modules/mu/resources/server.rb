@@ -221,19 +221,24 @@ module MU
 		# @param region [String]: The cloud provider region
 		# @return [void]
 		def self.tagVolumes(instance_id, device=nil, tag_name="MU-ID", tag_value=MU.mu_id, region: MU.curRegion)
-		  MU.ec2(region).describe_volumes(filters: [name: "attachment.instance-id", values: [instance_id]]).each { |vol|
-		    vol.volumes.each { |volume|
-		    volume.attachments.each { |attachment|
-		      vol_parent = attachment.instance_id
-		      vol_id = attachment.volume_id
-		      vol_dev = attachment.device
-		      if vol_parent == instance_id and (vol_dev == device or device.nil?) 
-	           MU::MommaCat.createTag(vol_id, tag_name, tag_value, region: region)
-	           break
-		      end
-		    }
-		  }
-		}
+			begin
+			  MU.ec2(region).describe_volumes(filters: [name: "attachment.instance-id", values: [instance_id]]).each { |vol|
+			    vol.volumes.each { |volume|
+						volume.attachments.each { |attachment|
+							vol_parent = attachment.instance_id
+							vol_id = attachment.volume_id
+							vol_dev = attachment.device
+							if vol_parent == instance_id and (vol_dev == device or device.nil?) 
+								MU::MommaCat.createTag(vol_id, tag_name, tag_value, region: region)
+								break
+							end
+						}
+					}
+				}
+			rescue Aws::EC2::Errors::RequestLimitExceeded
+				sleep 10
+				retry
+			end
 		end
 		
 		# Add a role or recipe to a node. Optionally, throw a fit if it doesn't exist.
@@ -390,8 +395,8 @@ module MU
 				extra_policies.each { |policy_set|
 					policy_set.each_pair { |name, policy|
 						if policies.has_key?(name)
-							MU.log "Duplicate node policy '#{name}'", MU::ERR, details: policies
-							raise "Duplicate node policy '#{name}'"
+							MU.log "Attempt to add duplicate node policy '#{name}' to '#{rolename}'", MU::WARN, details: policy
+							next
 						end
 						policies[name] = JSON.generate(policy)
 					}
@@ -430,10 +435,20 @@ module MU
 		def createEc2Instance
 		  name = @server["name"]
 		  node = @server['mu_name']
-			@server['iam_role'] = MU::Server.createIAMProfile("Server-"+name, base_profile: @server['iam_role'], extra_policies: @server['iam_policies'])
+			begin
+				@server['iam_role'] = MU::Server.createIAMProfile("Server-"+name, base_profile: @server['iam_role'], extra_policies: @server['iam_policies'])
+			rescue Aws::EC2::Errors::RequestLimitExceeded => e
+				sleep 10
+				retry
+			end
 			@server['iam_role'] = @server['iam_role']
 
-			@deploy.createEc2SSHKey
+			begin
+				@deploy.createEc2SSHKey
+			rescue Aws::EC2::Errors::RequestLimitExceeded => e
+				sleep 10
+				retry
+			end
 
 		  instance_descriptor = {
 		    :image_id => @server["ami_id"],
@@ -545,7 +560,7 @@ module MU
 			retries = 0
 			begin
 				response = MU.ec2(@server['region']).run_instances(instance_descriptor)
-			rescue Aws::EC2::Errors::InvalidGroupNotFound, Aws::EC2::Errors::InvalidSubnetIDNotFound, Aws::EC2::Errors::InvalidParameterValue => e
+			rescue Aws::EC2::Errors::InvalidGroupNotFound, Aws::EC2::Errors::InvalidSubnetIDNotFound, Aws::EC2::Errors::InvalidParameterValue, Aws::EC2::Errors::RequestLimitExceeded => e
 				if retries < 10
 					sleep 10
 					retries = retries + 1
@@ -712,20 +727,25 @@ module MU
 				}
 			end
 
-			if !server['src_dst_check'] and !server["vpc"].nil?
-				MU.log "Disabling source_dest_check #{node} (making it NAT-worthy)"
+			begin
+				if !server['src_dst_check'] and !server["vpc"].nil?
+					MU.log "Disabling source_dest_check #{node} (making it NAT-worthy)"
+					MU.ec2(server['region']).modify_instance_attribute(
+						instance_id: instance.instance_id,
+						source_dest_check: { :value => false }
+					)
+				end
+
+				# Set console termination protection. Autoscale nodes won't set this
+				# by default.
 				MU.ec2(server['region']).modify_instance_attribute(
 					instance_id: instance.instance_id,
-					source_dest_check: { :value => false }
+					disable_api_termination: { :value => true }
 				)
+			rescue Aws::EC2::Errors::RequestLimitExceeded
+				sleep 10
+				retry
 			end
-
-			# Set console termination protection. Autoscale nodes won't set this
-			# by default.
-			MU.ec2(server['region']).modify_instance_attribute(
-				instance_id: instance.instance_id,
-				disable_api_termination: { :value => true }
-			)
 
 			has_elastic_ip = false
 			if !instance.public_ip_address.nil?
@@ -734,6 +754,9 @@ module MU
 					if resp.addresses.size > 0 and resp.addresses.first.instance_id == instance.instance_id
 						has_elastic_ip = true
 					end
+				rescue Aws::EC2::Errors::RequestLimitExceeded
+					sleep 10
+					retry
 				rescue Aws::EC2::Errors::InvalidAddressNotFound => e
 					# XXX this is ok to ignore, it means the public IP isn't Elastic
 				end
@@ -806,7 +829,12 @@ module MU
 						end
 						subnet_id = subnet_struct.subnet_id
 						MU.log "Adding network interface on subnet #{subnet_id} for #{node}"
-						iface = MU.ec2(server['region']).create_network_interface(subnet_id: subnet_id).network_interface
+						begin
+							iface = MU.ec2(server['region']).create_network_interface(subnet_id: subnet_id).network_interface
+						rescue Aws::EC2::Errors::RequestLimitExceeded
+							sleep 10
+							retry
+						end
 						MU::MommaCat.createStandardTags(iface.network_interface_id, region: server['region'])
 					  MU::MommaCat.createTag(iface.network_interface_id,"Name",node+"-ETH"+device_index.to_s, region: server['region'])
 						if !server['tags'].nil?
@@ -814,11 +842,16 @@ module MU
 								MU::MommaCat.createTag(iface.network_interface_id,tag['key'],tag['value'], region: server['region'])
 							}
 						end
-						MU.ec2(server['region']).attach_network_interface(
-							network_interface_id: iface.network_interface_id,
-							instance_id: instance.instance_id,
-							device_index: device_index
-						)
+						begin
+							MU.ec2(server['region']).attach_network_interface(
+								network_interface_id: iface.network_interface_id,
+								instance_id: instance.instance_id,
+								device_index: device_index
+							)
+						rescue Aws::EC2::Errors::RequestLimitExceeded
+							sleep 10
+							retry
+						end
 						device_index = device_index + 1
 					}
 				end
@@ -927,28 +960,33 @@ module MU
 
 			# Tag volumes with all our standard tags. 
 			# Maybe replace tagVolumes with this? There is one more place tagVolumes is called from
-			volumes = MU.ec2(server['region']).describe_volumes(filters: [name: "attachment.instance-id", values: [instance.instance_id]])
-			volumes.each {|vol|
-				vol.volumes.each{ |volume|
-					volume.attachments.each { |attachment|
-						MU::MommaCat.listStandardTags.each_pair { |key, value|
-							MU::MommaCat.createTag(attachment.volume_id, key, value, region: server['region'])
+			begin
+				volumes = MU.ec2(server['region']).describe_volumes(filters: [name: "attachment.instance-id", values: [instance.instance_id]])
+				volumes.each {|vol|
+					vol.volumes.each{ |volume|
+						volume.attachments.each { |attachment|
+							MU::MommaCat.listStandardTags.each_pair { |key, value|
+								MU::MommaCat.createTag(attachment.volume_id, key, value, region: server['region'])
 
-							if attachment.device == "/dev/sda" or attachment.device == "/dev/sda1"
-								MU::MommaCat.createTag(attachment.volume_id, "Name", "ROOT-#{MU.mu_id}-#{server["name"].upcase}", region: server['region'])
-							else
-								MU::MommaCat.createTag(attachment.volume_id, "Name", "#{MU.mu_id}-#{server["name"].upcase}-#{attachment.device.upcase}", region: server['region'])
+								if attachment.device == "/dev/sda" or attachment.device == "/dev/sda1"
+									MU::MommaCat.createTag(attachment.volume_id, "Name", "ROOT-#{MU.mu_id}-#{server["name"].upcase}", region: server['region'])
+								else
+									MU::MommaCat.createTag(attachment.volume_id, "Name", "#{MU.mu_id}-#{server["name"].upcase}-#{attachment.device.upcase}", region: server['region'])
+								end
+							}
+
+							if server['tags']
+								server['tags'].each { |tag|
+									MU::MommaCat.createTag(attachment.volume_id, tag['key'], tag['value'], region: server['region'])
+								}
 							end
 						}
-
-						if server['tags']
-							server['tags'].each { |tag|
-								MU::MommaCat.createTag(attachment.volume_id, tag['key'], tag['value'], region: server['region'])
-							}
-						end
 					}
 				}
-			}
+			rescue Aws::EC2::Errors::RequestLimitExceeded
+				sleep 10
+				retry
+			end
 
 		  ssh_retries=0;
 			canonical_name = instance.public_dns_name
@@ -968,11 +1006,16 @@ module MU
 				instance.network_interfaces.each { |int|
 					if int.private_ip_address == instance.private_ip_address and int.private_ip_addresses.size < (server['add_private_ips'] + 1)
 						MU.log "Adding #{server['add_private_ips']} extra private IP addresses to #{instance.instance_id}"
-						MU.ec2(server['region']).assign_private_ip_addresses(
-							network_interface_id: int.network_interface_id,
-							secondary_private_ip_address_count: server['add_private_ips'],
-							allow_reassignment: false
-						)
+						begin
+							MU.ec2(server['region']).assign_private_ip_addresses(
+								network_interface_id: int.network_interface_id,
+								secondary_private_ip_address_count: server['add_private_ips'],
+								allow_reassignment: false
+							)
+						rescue Aws::EC2::Errors::RequestLimitExceeded
+							sleep 10
+							retry
+						end
 					end
 				}
 				MU::Server.notifyDeploy(server["name"], instance.instance_id, server, region: server['region'])
@@ -1341,6 +1384,9 @@ module MU
 									found_instances << response.instances.first
 								}
 							end
+						rescue Aws::EC2::Errors::RequestLimitExceeded
+							sleep 10
+							retry
 						rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
 							if retries < 5
 								retries = retries + 1
@@ -1367,12 +1413,17 @@ module MU
 			if instance.nil? and !ip.nil?
 				MU.log "Hunting for instance by IP '#{ip}'", MU::DEBUG
 				["ip-address", "private-ip-address"].each { |filter|
-					response = MU.ec2(region).describe_instances(
-						filters: [
-							{ name: filter, values: [ip] },
-							{ name: "instance-state-name", values: ["running", "pending"] }
-						]
-					).reservations.first
+					begin
+						response = MU.ec2(region).describe_instances(
+							filters: [
+								{ name: filter, values: [ip] },
+								{ name: "instance-state-name", values: ["running", "pending"] }
+							]
+						).reservations.first
+					rescue Aws::EC2::Errors::RequestLimitExceeded
+						sleep 10
+						retry
+					end
 					instance = response.instances.first if !response.nil?
 				}
 			end
@@ -1415,24 +1466,34 @@ module MU
 			end
 			matches = []
 			name_matches.each { |server|
-				response = MU.ec2(region).describe_instances(
-					instance_ids: [server['instance_id']],
-					filters: [
-						{ name: "instance-state-name", values: ["running", "pending"] }
-					]
-				).reservations.first
+				begin
+					response = MU.ec2(region).describe_instances(
+						instance_ids: [server['instance_id']],
+						filters: [
+							{ name: "instance-state-name", values: ["running", "pending"] }
+						]
+					).reservations.first
+				rescue Aws::EC2::Errors::RequestLimitExceeded
+					sleep 10
+					retry
+				end
 				matches << response.instances.first if response
 			}
 
 			# Fine, let's try it by tag.
 			if matches.size == 0 and !tag_value.nil?
 				MU.log "Searching for instance by tag '#{tag_key}=#{tag_value}'", MU::DEBUG
-				resp = MU.ec2(region).describe_instances(
-					filters:[
-						{ name: "tag:#{tag_key}", values: [tag_value] },
-						{ name: "instance-state-name", values: ["running", "pending"] }
-					]
-				).reservations.first
+				begin
+					resp = MU.ec2(region).describe_instances(
+						filters:[
+							{ name: "tag:#{tag_key}", values: [tag_value] },
+							{ name: "instance-state-name", values: ["running", "pending"] }
+						]
+					).reservations.first
+				rescue Aws::EC2::Errors::RequestLimitExceeded
+					sleep 10
+					retry
+				end
 				if !resp.nil? and resp.instances.size == 1
 					matches << resp.instances.first if resp
 				elsif resp.instances.size > 1
@@ -1458,7 +1519,12 @@ module MU
 		# @param region [String]: The cloud provider region
 		# @param chef_data [Hash]: Optional data from Chef.
 		def self.notifyDeploy(name, instance_id, server = nil, region: MU.curRegion, chef_data: {})
-			response = MU.ec2(region).describe_instances(instance_ids: [instance_id]).reservations.first
+			begin
+				response = MU.ec2(region).describe_instances(instance_ids: [instance_id]).reservations.first
+			rescue Aws::EC2::Errors::RequestLimitExceeded
+				sleep 10
+				retry
+			end
 			instance = response.instances.first
 			interfaces = Array.new
 
@@ -1803,6 +1869,9 @@ module MU
 			MU.log "Creating AMI from #{node}", details: ami_descriptor
 			begin
 				resp = MU.ec2(region).create_image(ami_descriptor)
+			rescue Aws::EC2::Errors::RequestLimitExceeded
+				sleep 10
+				retry
 			rescue Aws::EC2::Errors::InvalidAMINameDuplicate => e
 				MU.log "AMI #{node} already exists, skipping", MU::WARN
 				return nil
@@ -1838,6 +1907,9 @@ module MU
 					MU.log "Waiting for AMI #{image_id} (#{state})", MU::NOTICE
 					sleep 60
 				end
+			rescue Aws::EC2::Errors::RequestLimitExceeded
+				sleep 10
+				retry
 			end while state != "available"
 			MU.log "AMI #{image_id} is ready", MU::DEBUG
 		end

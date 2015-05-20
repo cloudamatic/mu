@@ -810,7 +810,8 @@ module MU
 			if deploy_id.nil?
 				matches = []
 				@deploy_cache.each_key { |deploy|
-					next if @deploy_cache[deploy]['data'][type].nil?
+					next if !@deploy_cache[deploy].has_key?('data')
+					next if !@deploy_cache[deploy]['data'].has_key?(type)
 					if !name.nil?
 						next if @deploy_cache[deploy]['data'][type][name].nil?
 						matches << @deploy_cache[deploy]['data'][type][name].dup
@@ -859,11 +860,14 @@ module MU
 						}
 					]
 				)
+			rescue Aws::EC2::Errors::RequestLimitExceeded
+				sleep 10
+				retry
 			rescue Exception => e
 				MU.log "Got #{e.inspect} tagging #{resource} with #{tag_name}=#{tag_value}", MU::WARN if attempts > 1
 				if attempts < 5
 					attempts = attempts + 1
-					sleep 5
+					sleep 15
 					retry
 				else
 					raise e
@@ -889,11 +893,14 @@ module MU
 				  resources: [resource],
 				  tags: tags
 				)
+			rescue Aws::EC2::Errors::RequestLimitExceeded
+				sleep 10
+				retry
 			rescue Exception => e
-				MU.log "Got #{e.inspect} tagging #{resource} in #{region}", MU::WARN, details: caller.concat(tags) if attempts > 1
+				MU.log "Got #{e.inspect} tagging #{resource} in #{region}, will retry", MU::WARN, details: caller.concat(tags) if attempts > 1
 				if attempts < 5
 					attempts = attempts + 1
-					sleep 5
+					sleep 15
 					retry
 				else
 					raise e

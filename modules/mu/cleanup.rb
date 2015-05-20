@@ -94,6 +94,9 @@ module MU
 				retries = 0
 				begin
 					MU.ec2(region).delete_volume(volume_id: volume.volume_id)
+				rescue Aws::EC2::Errors::RequestLimitExceeded
+					sleep 10
+					retry
 				rescue Aws::EC2::Errors::InvalidVolumeNotFound
 					MU.log "Volume #{volume.volume_id} (#{name}) disappeared before I could remove it!", MU::WARN
 				rescue Aws::EC2::Errors::VolumeInUse
@@ -271,6 +274,9 @@ module MU
 							)
 							MU.ec2(region).terminate_instances(instance_ids: [instance.instance_id])
 							# Small race window here with the state changing from under us
+						rescue Aws::EC2::Errors::RequestLimitExceeded
+							sleep 10
+							retry
 						rescue Aws::EC2::Errors::IncorrectInstanceState => e
 							resp = MU.ec2(region).describe_instances(instance_ids: [id])
 							if !resp.nil? and !resp.reservations.nil? and !resp.reservations.first.nil?
@@ -1092,30 +1098,47 @@ module MU
 			if !@ignoremaster
 				@autoscale_filters << { name: "key", values: ["MU-MASTER-IP"] }
 			end
+			parent_thread_id = Thread.current.object_id
+
 
 			regions = MU::Config.listRegions
 			deleted_nodes = 0
+			@regionthreads = []
 			regions.each { |r|
-				MU.log "Checking for cloud resources in #{r}", MU::NOTICE
-				MU.setVar("curRegion", r)
-				purge_cloudformation(region: r)
-				purge_autoscale(region: r)
-				purge_loadbalancers(region: r)
-				deleted_nodes = purge_ec2(region: r) + deleted_nodes
-				purge_rds(region: r)
-				purge_secgroups(region: r)
-				purge_gateways(region: r)
-				MU::DNSZone.cleanup(@noop)
-				purge_routetables(region: r)
-				purge_interfaces(region: r)
-				purge_subnets(region: r)
-				purge_vpcs(region: r)
-				purge_dhcpopts(region: r)
+				@regionthreads << Thread.new {
+					MU.dupGlobals(parent_thread_id)
+					MU.setVar("curRegion", r)
+					MU.log "Checking for cloud resources in #{r}", MU::NOTICE
+					begin
+						purge_cloudformation(region: r)
+						purge_autoscale(region: r)
+						purge_loadbalancers(region: r)
+						deleted_nodes = purge_ec2(region: r) + deleted_nodes
+						purge_rds(region: r)
+						purge_secgroups(region: r)
+						purge_gateways(region: r)
+						MU::DNSZone.cleanup(@noop)
+						purge_routetables(region: r)
+						purge_interfaces(region: r)
+						purge_subnets(region: r)
+						purge_vpcs(region: r)
+						purge_dhcpopts(region: r)
 
-				# Hit CloudFormation again- sometimes the first delete will quietly fail
-				# due to dependencies. This time, wait on it to go away.
-				purge_cloudformation(true, region: r)
+						# Hit CloudFormation again- sometimes the first delete will quietly
+						# fail due to dependencies.
+						purge_cloudformation(true, region: r)
+					rescue Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::EC2::Errors::InternalError => e
+						MU.log e.inspect, MU::WARN
+						sleep 30
+						retry
+					end
+				}
 			}
+
+			@regionthreads.each do |t|
+				t.join
+			end
+			@threads = []
 
 			vaults_to_clean = []
 			if !@mommacat.nil? and !@mommacat.original_config.nil?
@@ -1175,24 +1198,31 @@ module MU
 
 			if !@noop and vaults_to_clean.size > 0
 				# XXX we actually want a global vault lock here, I suppose
-#				MU::MommaCat.lock("vault-cleanup", false, true)
-#				`#{MU::Config.knife} vault rotate all keys --clean-unknown-clients #{MU::Config.vault_opts}`
-#				MU::MommaCat.unlock("vault-cleanup")
+				MU.log "#{MU::Config.knife} vault rotate all keys --clean-unknown-clients #{MU::Config.vault_opts}"
+				MU::MommaCat.lock("vault-cleanup", false, true)
+				`#{MU::Config.knife} vault rotate all keys --clean-unknown-clients #{MU::Config.vault_opts}`
+				MU::MommaCat.unlock("vault-cleanup")
 			end
 
 			keyname = "deploy-#{MU.mu_id}"
-			regions = MU::Config.listRegions
-			regions.each { |r|
-				resp = MU.ec2(r).describe_key_pairs(
-					filters: [
-						{ name: "key-name", values: [keyname] }
-					]
-				)
-				resp.data.key_pairs.each { |keypair|
-					MU.log "Deleting key pair #{keypair.key_name} from #{r}"
-					MU.ec2(r).delete_key_pair(key_name: keypair.key_name) if !@noop
+			begin
+				regions = MU::Config.listRegions
+				regions.each { |r|
+					resp = MU.ec2(r).describe_key_pairs(
+						filters: [
+							{ name: "key-name", values: [keyname] }
+						]
+					)
+					resp.data.key_pairs.each { |keypair|
+						MU.log "Deleting key pair #{keypair.key_name} from #{r}"
+						MU.ec2(r).delete_key_pair(key_name: keypair.key_name) if !@noop
+					}
 				}
-			}
+			rescue Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::EC2::Errors::InternalError => e
+				MU.log e.inspect, MU::WARN
+				sleep 30
+				retry
+			end
 
 			exit if @onlycloud
 
