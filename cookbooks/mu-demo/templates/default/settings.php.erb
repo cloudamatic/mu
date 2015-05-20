@@ -213,10 +213,10 @@
 $databases = array();
 $databases['default']['default'] = array(
    'driver' => 'mysql',
-   'database' => '<%= node.deployment.databases.drupaldb.db_name %>',
-   'username' => '<%= node.deployment.databases.drupaldb.username %>',
-   'password' => '<%= node.deployment.databases.drupaldb.password %>',
-   'host' => '<%= node.deployment.databases.drupaldb.endpoint %>',
+   'database' => '<%= @db_name %>',
+   'username' => '<%= @username %>',
+   'password' => '<%= @password %>',
+   'host' => '<%= @db_host_name %>',
    'port' => 3306,
    'prefix' => 'drupal_',
    'collation' => 'utf8_general_ci',
@@ -274,7 +274,7 @@ $drupal_hash_salt = '';
  * It is not allowed to have a trailing slash; Drupal will add it
  * for you.
  */
-$base_url = 'http://<%= node.deployment.loadbalancers.proxylb.dns %>/drupal';  // NO trailing slash!
+$base_url = 'http://<%= @proxy_lb_url %>/drupal';  // NO trailing slash!
 
 
 /**
@@ -332,7 +332,7 @@ ini_set('session.cookie_lifetime', 2000000);
  * between your various domains. Make sure to always start the $cookie_domain
  * with a leading dot, as per RFC 2109.
  */
-$cookie_domain = '<%= node.deployment.loadbalancers.proxylb.dns %>';
+$cookie_domain = '<%= @proxy_lb_url %>';
 
 /**
  * Variable overrides:

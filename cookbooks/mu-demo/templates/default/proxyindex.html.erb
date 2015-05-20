@@ -39,21 +39,21 @@
 		background-image: linear-gradient(to top, #a7461c 0%, #E29472 100%);
 	}
 </style>
-<title><%= node.application_attributes.my_domain %></title>
+<title><%= @domain_name %></title>
 </head>
-<!-- <%= node.hostname %> -->
+<!-- <%= @hostname %> -->
 
-<h2>Applications on <%= node.application_attributes.my_domain %></h2>
+<h2>Applications on <%= @domain_name %></h2>
 
 <ul>
-	<li> Drupal on CentOS 6: <a href="/drupal" class="cms" target="_blank"><%= node.application_attributes.drupal_distro %></a>
+	<li> Drupal on <%= @os_type %>: <a href="/drupal" class="cms" target="_blank"><%= @drupal_distro %></a>
 	<ul>
 		<li class="sublabel"><strong>Drupal admin users</strong> (use <em>Request New Password</em> functionality to log in):
-<% node.deployment.admins.each_value do |admin| %>
+<% @mu_admins.each_value do |admin| %>
 		<li class="sublabel"> <a href="/drupal/user" target="_blank"><%= admin['email'] %></a>
 <% end %>
 	</ul>
-	<li> Tomcat on Windows Server 2012: <a href="/<%= node.application_attributes.tomcat_app %>" class="cms" target="_blank"><%= node.application_attributes.tomcat_app %></a>
+	<li> Tomcat on Windows Server 2012: <a href="/<%= @tomcat_app %>" class="cms" target="_blank"><%= @tomcat_app %></a>
 </ul>
 
 <h2>Architecture</h2>

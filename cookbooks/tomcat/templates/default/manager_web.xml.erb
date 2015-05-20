@@ -119,11 +119,76 @@
     <servlet-name>jsp</servlet-name>
   </filter-mapping>
 
+  <!-- Define a Security Constraint on this Application -->
+  <!-- NOTE:  None of these roles are present in the default users file -->
+  <security-constraint>
+    <web-resource-collection>
+      <web-resource-name>HTML Manager interface (for humans)</web-resource-name>
+      <url-pattern>/html/*</url-pattern>
+    </web-resource-collection>
+    <auth-constraint>
+       <role-name><%= @ad_group %></role-name>
+    </auth-constraint>
+  </security-constraint>
+  <security-constraint>
+    <web-resource-collection>
+      <web-resource-name>Text Manager interface (for scripts)</web-resource-name>
+      <url-pattern>/text/*</url-pattern>
+    </web-resource-collection>
+    <auth-constraint>
+       <role-name><%= @ad_group %></role-name>
+    </auth-constraint>
+  </security-constraint>
+  <security-constraint>
+    <web-resource-collection>
+      <web-resource-name>JMX Proxy interface</web-resource-name>
+      <url-pattern>/jmxproxy/*</url-pattern>
+    </web-resource-collection>
+    <auth-constraint>
+       <role-name><%= @ad_group %></role-name>
+    </auth-constraint>
+  </security-constraint>
+  <security-constraint>
+    <web-resource-collection>
+      <web-resource-name>Status interface</web-resource-name>
+      <url-pattern>/status/*</url-pattern>
+    </web-resource-collection>
+    <auth-constraint>
+       <role-name><%= @ad_group %></role-name>
+    </auth-constraint>
+  </security-constraint>
+
   <!-- Define the Login Configuration for this Application -->
   <login-config>
     <auth-method>BASIC</auth-method>
     <realm-name>Tomcat Manager Application</realm-name>
   </login-config>
+
+  <!-- Security roles referenced by this web application -->
+  <security-role>
+    <description>
+      The role that is required to access the HTML Manager pages
+    </description>
+    <role-name><%= @ad_group %></role-name>
+  </security-role>
+  <security-role>
+    <description>
+      The role that is required to access the text Manager pages
+    </description>
+    <role-name><%= @ad_group %></role-name>
+  </security-role>
+  <security-role>
+    <description>
+      The role that is required to access the HTML JMX Proxy
+    </description>
+    <role-name><%= @ad_group %></role-name>
+  </security-role>
+  <security-role>
+    <description>
+      The role that is required to access to the Manager Status pages
+    </description>
+    <role-name><%= @ad_group %></role-name>
+  </security-role>
 
   <error-page>
     <error-code>401</error-code>

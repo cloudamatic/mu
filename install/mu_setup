@@ -48,7 +48,7 @@ usage()
 	echo "Create or reconfigure your Chef master."
 	echo "Usage: $0 [-d] [-c /path/to/murc] [-b branch]"
 	echo "    -d: Use default values and run non-interactively."
-	echo "    -b: Choose a branch (default: production)."
+	echo "    -b: Choose a branch (default: master)."
 	echo "    -c: Use an alternate .murc file."
 	echo "    -k: Run curl with -k to skip SSL certificate checks."
 	exit 1

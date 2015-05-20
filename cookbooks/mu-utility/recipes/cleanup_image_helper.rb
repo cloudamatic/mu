@@ -12,10 +12,31 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-bash "cleanup image helper" do
-        user "root"
-		code <<-EOH
+case node.platform_family
+when "windows"
+	%w{client.rb first-boot.json client.pem validation.pem}.each { |file|
+		file "C:\\Users\\Administrator\\AppData\\Local\\Temp\\#{file}" do
+			content IO.read("C:\\chef\\#{file}")
+		end
 
-		rm -rf /etc/chef
-		EOH
+		file "C:\\chef\\#{file}" do
+			action :delete
+		end
+	}
+when "rhel"
+	if node.platform_version.to_i == 7
+		execute "sed -i '/^preserve_hostname/d' /etc/cloud/cloud.cfg" do
+			only_if "grep 'preserve_hostname: true' /etc/cloud/cloud.cfg"
+		end
+	end
+
+	directory "/etc/chef" do
+		action :delete
+		recursive true
+	end
+else
+	directory "/etc/chef" do
+		action :delete
+		recursive true
+	end
 end

@@ -1,18 +1,18 @@
   - name: lnxlb
     private: true
+    dns_sync_wait: false
     vpc:
-    <% if !$vpc_deploy_id then %>
       subnet_pref: all_private
+    <% if !$vpc_deploy_id  %>
       vpc_name: vpc
     <% else %>
       deploy_id: <%= $vpc_deploy_id %>
-      subnet_pref: all_private
     <% end %>
     cross_zone_unstickiness: true
     add_firewall_rules:
-    - rule_name: lnxapps_lb_secgroup
+    - rule_name: lnxapps_lb
     healthcheck:
-      target: TCP:80
+      target: HTTP:80/
       timeout: 5
       interval: 30
       unhealthy-threshold: 2

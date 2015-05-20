@@ -1205,9 +1205,10 @@ module MU
 					end
 					# XXX be nice to tell users that these parameters are invalid here,
 					# but only if they specified them.
-					db.delete("storage_encrypted")
-					db.delete("preferred_backup_window")
-					db.delete("backup_retention_period")
+					### Moving this back to MU::Database 
+					# db.delete("storage_encrypted")
+					# db.delete("preferred_backup_window")
+					# db.delete("backup_retention_period")
 				end
 
 				if !db["run_sql_on_deploy"].nil? and (db["engine"] != "postgres" and db["engine"] != "mysql")
@@ -2274,6 +2275,16 @@ module MU
 				},
 				"default_if" => {
 					"key_is" => "platform",
+					"value_is" => "win2k12",
+					"set" => "Administrator"
+				},
+				"default_if" => {
+					"key_is" => "platform",
+					"value_is" => "win2k12r2",
+					"set" => "Administrator"
+				},
+				"default_if" => {
+					"key_is" => "platform",
 					"value_is" => "ubuntu",
 					"set" => "ubuntu"
 				},
@@ -2296,8 +2307,8 @@ module MU
 			"platform" => {
 				"type" => "string",
 				"default" => "linux",
-				"enum" => ["linux", "windows", "centos", "ubuntu", "centos6", "ubuntu14", "win2k12", "centos7"],
-				"description" => "Helps select default AMIs, and enables correct grooming behavior for Windows instances.",
+				"enum" => ["linux", "windows", "centos", "ubuntu", "centos6", "ubuntu14", "win2k12", "win2k12r2", "centos7"],
+				"description" => "Helps select default AMIs, and enables correct grooming behavior based on operating system type.",
 			},
 			"run_list" => {
 				"type" => "array",
@@ -2512,7 +2523,7 @@ module MU
 					"type" => "object",
 					"additionalProperties" => false,
 					"required" => ["name"],
-					"description" => "Create a read only database replica",
+					"description" => "Create a read replica database server.",
 					"properties" => {
 						"name" => { "type" => "string" },
 						"tags" => @tags_primitive,

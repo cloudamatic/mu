@@ -27,7 +27,10 @@ case node[:platform]
 			package pkg
 		end
 
-		service "auditd"
+		service "auditd" do
+			action :nothing
+		end
+
 		if node['platform_version'] .to_i < 7
 			cookbook_file "/etc/audit/audit.rules" do
 				source "etc/audit/stig.rules"
@@ -292,7 +295,8 @@ export TMOUT
 					result = attach_node_volume(:home)
 				end
 			end
-			not_if "tune2fs -l #{node[:application_attributes][:home][:mount_device]}"
+			not_if "tune2fs -l #{node[:application_attributes][:home][:mount_device]}" if node.platform_version.to_i == 6
+			not_if "xfs_info #{node[:application_attributes][:home][:mount_device]}" if node.platform_version.to_i == 7
 		end
 		ruby_block "label /home as #{node.application_attributes.home.label}" do
 			extend CAPVolume
@@ -306,8 +310,15 @@ export TMOUT
 			  tag_volume(node.application_attributes.home.mount_device, tags)
 			end
 		end rescue NoMethodError
-		execute "mkfs.ext4 #{node[:application_attributes][:home][:mount_device]}" do
-			not_if "tune2fs -l #{node[:application_attributes][:home][:mount_device]}"
+
+		if node.platform_version.to_i == 6
+			execute "mkfs.ext4 #{node[:application_attributes][:home][:mount_device]}" do
+				not_if "tune2fs -l #{node[:application_attributes][:home][:mount_device]}"
+			end
+		elsif node.platform_version.to_i == 7
+			execute "mkfs.xfs -i size=512 #{node[:application_attributes][:home][:mount_device]}" do
+				not_if "xfs_info #{node[:application_attributes][:home][:mount_device]}"
+			end
 		end
 
 		Chef::Log.info("Value of login_disabled is #{node.normal.root_login_disabled}")
@@ -357,9 +368,16 @@ export TMOUT
 		# XXX This is where ephemeral storage seems to land, usually. Usually. We'd
 		# probably like a more robust way of identifying it.
 		if !node.tmp_dev.nil?
-			execute "mkfs.ext4 #{node.tmp_dev}" do
-				not_if "tune2fs -l #{node.tmp_dev}"
+			if node.platform_version.to_i == 6
+				execute "mkfs.ext4 #{node.tmp_dev}" do
+					not_if "tune2fs -l #{node.tmp_dev}"
+				end
+			elsif node.platform_version.to_i == 7
+				execute "mkfs.xfs -i size=512 #{node.tmp_dev}" do
+					not_if "xfs_info #{node.tmp_dev}"
+				end
 			end
+
 			mount "/tmp" do
 				device node.tmp_dev
 				options "nodev,nosuid,noexec"

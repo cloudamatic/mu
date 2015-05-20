@@ -1,77 +1,77 @@
-- name: winapps_lb_secgroup
+- name: winapps_lb
   vpc:
-  <% if !$vpc_deploy_id then %>
+  <% if !$vpc_deploy_id  %>
     vpc_name: vpc
   <% else %>
-    deploy_id: "<%= $vpc_deploy_id %>"
+    deploy_id: <%= $vpc_deploy_id %>
   <% end %>
   rules:
   - port: 80
     sgs:
-    - proxy_secgroup
-- name: proxy_lb_secgroup
+    - proxy
+- name: proxy_lb
   vpc:
-  <% if !$vpc_deploy_id then %>
+  <% if !$vpc_deploy_id  %>
     vpc_name: vpc
   <% else %>
-    deploy_id: "<%= $vpc_deploy_id %>"
+    deploy_id: <%= $vpc_deploy_id %>
   <% end %>
   rules:
   - port: 80
     hosts:
     - 0.0.0.0/0
-- name: drupaldb_secgroup
+- name: drupaldb
   vpc:
-  <% if !$vpc_deploy_id then %>
+  <% if !$vpc_deploy_id  %>
     vpc_name: vpc
   <% else %>
-    deploy_id: "<%= $vpc_deploy_id %>"
+    deploy_id: <%= $vpc_deploy_id %>
   <% end %>
   rules:
   - port: 3306
     sgs:
-    - lnxapps_secgroup
-- name: lnxapps_lb_secgroup
+    - lnxapps
+- name: lnxapps_lb
   vpc:
-  <% if !$vpc_deploy_id then %>
+  <% if !$vpc_deploy_id  %>
     vpc_name: vpc
   <% else %>
-    deploy_id: "<%= $vpc_deploy_id %>"
+    deploy_id: <%= $vpc_deploy_id %>
   <% end %>
   rules:
   - port: 80
     sgs:
-    - proxy_secgroup
-- name: proxy_secgroup
+    - proxy
+- name: proxy
   vpc:
-  <% if !$vpc_deploy_id then %>
+  <% if !$vpc_deploy_id  %>
     vpc_name: vpc
   <% else %>
-    deploy_id: "<%= $vpc_deploy_id %>"
+    deploy_id: <%= $vpc_deploy_id %>
   <% end %>
   rules:
   - port-range: 0-65535
     sgs:
-    - proxy_lb_secgroup
-- name: winapps_secgroup
+    - proxy_lb
+- name: winapps
   vpc:
-  <% if !$vpc_deploy_id then %>
+  <% if !$vpc_deploy_id  %>
     vpc_name: vpc
   <% else %>
-    deploy_id: "<%= $vpc_deploy_id %>"
+    deploy_id: <%= $vpc_deploy_id %>
   <% end %>
   rules:
   - port-range: 0-65535
     sgs:
-    - winapps_lb_secgroup
-- name: lnxapps_secgroup
+    - winapps_lb
+- name: lnxapps
   vpc:
-  <% if !$vpc_deploy_id then %>
+  <% if !$vpc_deploy_id  %>
     vpc_name: vpc
   <% else %>
-    deploy_id: "<%= $vpc_deploy_id %>"
+    deploy_id: <%= $vpc_deploy_id %>
   <% end %>
   rules:
   - port-range: 0-65535
     sgs:
-    - lnxapps_lb_secgroup
+    - lnxapps_lb

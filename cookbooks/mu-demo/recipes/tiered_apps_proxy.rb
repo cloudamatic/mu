@@ -21,43 +21,63 @@ include_recipe "apache2::mod_proxy"
 include_recipe "apache2::mod_proxy_http"
 include_recipe "apache2::mod_expires"
 include_recipe "apache2::mod_deflate"
+include_recipe "apache2::mod_filter"
 
-$win_url = node.deployment.loadbalancers.winlb.dns
-$lnx_apps = node.linux_apps
-$lnx_url = node.deployment.loadbalancers.lnxlb.dns
-$proxy_url = node.deployment.loadbalancers.proxylb.dns
+case node.platform
+when "centos", "redhat"
+	execute "iptables -I INPUT -p tcp --dport 80 -j ACCEPT && service iptables save" do
+		not_if "iptables -nL | egrep '^ACCEPT.*dpt:80($| )'"
+	end
 
-bash "Allow TCP 80 through iptables" do
-	user "root"
-	not_if "/sbin/iptables -nL | egrep '^ACCEPT.*dpt:80($| )'"
-	code <<-EOH
-		iptables -I INPUT -p tcp --dport 80 -j ACCEPT
-		service iptables save
-	EOH
-end
+	execute "setsebool -P httpd_can_network_connect 1" do
+		not_if "getsebool httpd_can_network_connect | grep ' on$'"
+		notifies :reload, "service[apache2]", :delayed
+	end
 
-template "/var/www/html/index.html" do
-	source "proxyindex.html.erb"
-	mode "0644"
-end
+	template "#{node.apache.docroot_dir}/index.html" do
+		source "proxyindex.html.erb"
+		mode 0644
+		owner "apache"
+		variables(
+			:domain_name => node.application_attributes.my_domain,
+			:hostname => node.hostname,
+			:drupal_distro => node.application_attributes.drupal_distro,
+			:mu_admins => node.deployment.admins,
+			:tomcat_app => node.application_attributes.tomcat_app,
+			:os_type => "#{node.platform} #{node.platform_version.to_i}"
+		)
+	end
 
-cookbook_file "/var/www/html/tiered_apps_demo_diagram.png" do
-	source "tiered_apps_demo_diagram.png"
-	mode "0644"
-end
+	cookbook_file "#{node.apache.docroot_dir}/tiered_apps_demo_diagram.png" do
+		source "tiered_apps_demo_diagram.png"
+		mode 0644
+		owner "apache"
+	end
 
-web_app "proxy" do
-	server_name node.application_attributes.my_domain
-	server_aliases [ node['fqdn'], node['hostname'] ]
-	cookbook "mu-demo"
-	allow_override "All"
-	template "proxy.conf.erb"
-end
-web_app "vhosts" do
-	server_name node.application_attributes.my_domain
-	server_aliases [ node['fqdn'], node['hostname'] ]
-	docroot "/var/www/html"
-	cookbook "mu-demo"
-	allow_override "All"
-	template "proxyvhosts.conf.erb"
+	web_app "proxy" do
+		server_name node.application_attributes.my_domain
+		server_aliases [ node.fqdn, node.hostname ]
+		cookbook "mu-demo"
+		allow_override "All"
+		template "proxy.conf.erb"
+		version node.apache.version
+		win_apps node.winapps
+		win_lb_url node.deployment.loadbalancers.winlb.dns
+		lnx_lb_url node.deployment.loadbalancers.lnxlb.dns
+		lnx_apps node.linux_apps
+	end
+
+	web_app "vhosts" do
+		server_name node.application_attributes.my_domain
+		server_aliases [ node.fqdn, node.hostname ]
+		docroot node.apache.docroot_dir
+		cookbook "mu-demo"
+		allow_override "All"
+		template "proxyvhosts.conf.erb"
+		version node.apache.version
+		log_dir node.apache.log_dir
+		base_dir node.apache.dir
+	end
+else
+	Chef::Log.info("Unsupported platform #{node.platform}")
 end

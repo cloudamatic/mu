@@ -280,6 +280,10 @@ module MU
 									retry
 								end
 							end
+						rescue Aws::EC2::Errors::InternalError => e
+							MU.log "Error #{e.inspect} while Terminating instance #{instance.instance_id} (#{name}), retrying", MU::WARN, details: e.inspect
+							sleep 5
+							retry
 						end
 					end
 				end

@@ -1,0 +1,24 @@
+appname: demo
+servers:
+  - name: openvpn
+    dns_sync_wait: false
+    platform: centos7
+    static_ip:
+      assign_ip: true
+    size: t2.medium
+    run_list:
+    - recipe[mu-openvpn]
+    vault_access:
+    - vault: openvpn
+      item: users
+    vpc:
+      deploy_id: <%= $deploy_id %>
+      subnet_pref: public
+    ingress_rules:
+    - port: 443
+      hosts:
+      - 0.0.0.0/0
+    - port: 1194
+      proto: udp
+      hosts:
+      - 0.0.0.0/0

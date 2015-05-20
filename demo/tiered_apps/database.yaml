@@ -1,14 +1,13 @@
   - name: drupaldb
     engine: mysql
+    dns_sync_wait: false
     vpc:
-<% if $vpc_deploy_id then %>
+      nat_ssh_user: <%= $nat_ssh_user %>
+<% if $vpc_deploy_id %>
       deploy_id: <%= $vpc_deploy_id %>
 <% else %>
       vpc_name: vpc
 <% end %>
-<% if $environment == 'dev' then %>
     size: db.t2.medium
-<% else %>
-<% end %>
     storage: 5
     port: 3306

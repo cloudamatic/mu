@@ -1,0 +1,42 @@
+{
+    "__DEFAULT__": {
+        "conn_group": "users",
+        "def_deny": "true",
+        "prop_autogenerate": "true",
+        "type": "user_default"
+    },
+<% 
+@users.each { |user|
+%>
+    "<%= user[:name] %>": {
+       <% if user[:type] == "user" %>
+        "conn_group": "users",
+        "type": "user_connect"
+       <% elsif user[:type] == "admin" %>
+        "conn_group": "admins",
+        "prop_superuser": "true",
+        "type": "user_compile"
+       <% end %>
+    },
+<% 
+}
+%>
+    "admins": {
+        "c2s_dest_s": "false",
+        "c2s_dest_v": "false",
+        "group_declare": "true",
+        "prop_autologin": "false",
+        "prop_deny": "false",
+        "prop_superuser": "true",
+        "type": "group"
+    },
+    "users": {
+        "c2s_dest_s": "false",
+        "c2s_dest_v": "false",
+        "group_declare": "true",
+        "prop_autologin": "true",
+        "prop_deny": "false",
+        "prop_superuser": "false",
+        "type": "group"
+    }
+}
