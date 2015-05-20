@@ -442,12 +442,11 @@ module MU
 
 		def self.set_defaults(conf_chunk = config, schema_chunk = schema, depth = 0, siblings = nil)
 			return if schema_chunk == nil
-			return if !conf_chunk.is_a?(Hash)
-			if conf_chunk != nil and schema_chunk["properties"].kind_of?(Hash)
+
+			if conf_chunk != nil and schema_chunk["properties"].kind_of?(Hash) and conf_chunk.is_a?(Hash)
 				if schema_chunk["properties"]["creation_style"].nil? or
 						schema_chunk["properties"]["creation_style"] != "existing"
 					schema_chunk["properties"].each_pair { |key, subschema|
-						next if conf_chunk[key].nil?
 						new_val = self.set_defaults(conf_chunk[key], subschema, depth+1, conf_chunk)
 						conf_chunk[key] = new_val if new_val != nil
 					}
