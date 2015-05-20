@@ -1171,9 +1171,9 @@ module MU
 
 			if !@noop and vaults_to_clean.size > 0
 				# XXX we actually want a global vault lock here, I suppose
-				MU::MommaCat.lock("vault-cleanup", false, true)
-				`#{MU::Config.knife} vault rotate all keys --clean-unknown-clients #{MU::Config.vault_opts}`
-				MU::MommaCat.unlock("vault-cleanup")
+#				MU::MommaCat.lock("vault-cleanup", false, true)
+#				`#{MU::Config.knife} vault rotate all keys --clean-unknown-clients #{MU::Config.vault_opts}`
+#				MU::MommaCat.unlock("vault-cleanup")
 			end
 
 			keyname = "deploy-#{MU.mu_id}"

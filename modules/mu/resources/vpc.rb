@@ -43,7 +43,7 @@ module MU
 			MU.log "Creating VPC #{vpc_name}", details: @vpc
 			begin
 				resp = MU.ec2(@vpc['region']).create_vpc(cidr_block: @vpc['ip_block']).vpc
-			rescue Aws::EC2::Errors::Unavailable, Aws::EC2::Errors::InternalError => e
+			rescue Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::EC2::Errors::InternalError => e
 				MU.log "Transient AWS weirdness: #{e.inspect}. Retrying after 30s", MU::ERR
 				sleep 30
 				retry
@@ -130,12 +130,17 @@ module MU
 					end
 					subnetthreads << Thread.new {
 						MU.dupGlobals(parent_thread_id)
-						resp = MU.ec2(@vpc['region']).create_subnet(
-							vpc_id: vpc_id,
-							cidr_block: subnet['ip_block'],
-							availability_zone: az
-						).subnet
-						subnet_id = subnet['subnet_id'] = resp.subnet_id
+						begin
+							resp = MU.ec2(@vpc['region']).create_subnet(
+								vpc_id: vpc_id,
+								cidr_block: subnet['ip_block'],
+								availability_zone: az
+							).subnet
+							subnet_id = subnet['subnet_id'] = resp.subnet_id
+						rescue Aws::EC2::Errors::RequestLimitExceeded => e
+							sleep 30
+							retry
+						end
 						MU::MommaCat.createStandardTags(subnet_id, region: @vpc['region'])
 						MU::MommaCat.createTag(subnet_id, "Name", vpc_name+"-"+subnet['name'], region: @vpc['region'])
 						if @vpc['tags']
@@ -148,7 +153,7 @@ module MU
 								MU.log "Waiting for Subnet #{subnet_name} (#{subnet_id}) to be available", MU::NOTICE
 								sleep 5
 								resp = MU.ec2(@vpc['region']).describe_subnets(subnet_ids: [subnet_id]).subnets.first
-							rescue Aws::EC2::Errors::InvalidSubnetIDNotFound => e
+							rescue Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::InvalidSubnetIDNotFound => e
 								retry
 							end while resp.state != "available"
 						end
@@ -165,7 +170,7 @@ module MU
 									route_table_id: routes[subnet['route_table']]['route_table_id'],
 									subnet_id: subnet_id
 								)
-							rescue Aws::EC2::Errors::InvalidRouteTableIDNotFound => e
+							rescue Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::InvalidRouteTableIDNotFound => e
 								retries = retries + 1
 								if retries < 10
 									sleep 10
@@ -178,7 +183,7 @@ module MU
 						retries = 0
 						begin
 							resp = MU.ec2(@vpc['region']).describe_subnets(subnet_ids: [subnet_id]).subnets.first
-						rescue Aws::EC2::Errors::InvalidSubnetIDNotFound => e
+						rescue Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::InvalidSubnetIDNotFound => e
 							if retries < 10
 								MU.log "Got #{e.inspect}, waiting and retrying", MU::WARN
 								sleep 10
@@ -198,6 +203,7 @@ module MU
 				@deploy.notify("vpcs", @vpc['name'], deploy_struct)
 			end
 
+			begin
 			if @vpc['enable_dns_support']
 				MU.log "Enabling DNS support in #{vpc_name}"
 				MU.ec2(@vpc['region']).modify_vpc_attribute(
@@ -247,6 +253,10 @@ module MU
 				MU.ec2(@vpc['region']).associate_dhcp_options(dhcp_options_id: dhcpopt_id, vpc_id: vpc_id)
 			end
 			@deploy.notify("vpcs", @vpc['name'], @vpc)
+			rescue Aws::EC2::Errors::RequestLimitExceeded => e
+				sleep 30
+				retry
+			end
 
 			mu_zone, junk = MU::DNSZone.find(name: "mu")
 			if !mu_zone.nil?
