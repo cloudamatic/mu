@@ -6,7 +6,7 @@ mu -- Cloudamatic Automation Tooling
 
 For general information on Cloudamatic, see the [cloudamatic repository](https://github.com/cloudamatic/cloudamatic) or [website](https://www.cloudamatic.com).
 
-For more detailed information on Cloudamatic architecture and mu tooling usage, see our [wiki](https://github.com/cloudamatic/cloudamatic/wiki) in this repository.
+For more detailed information on Cloudamatic architecture and mu tooling usage, see our [wiki](https://github.com/cloudamatic/mu/wiki) in this repository.
 
 The mu tooling is currently supported on RHEL or CentOS 6 in Amazon Web Services with RHEL/CentOS 7 in active development.
 
