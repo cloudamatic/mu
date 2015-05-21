@@ -473,7 +473,7 @@ module MU
 			if !@server["vpc"].nil?
 				begin
 					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::VPC.parseVPC(@server['vpc'])
-				rescue Exception => e
+				rescue Aws::EC2::Errors::ServiceError => e
 					MU.log e.message, MU::ERR, details: @server
 					if subnet_retries < 5
 					  subnet_retries = subnet_retries + 1
@@ -569,11 +569,6 @@ module MU
 					raise e
 				end
 			end
-#			rescue Exception => e
-#				MU.log "Failed to add ephemeral storage devices: #{e.inspect}", MU::WARN, details: instance_descriptor[:block_device_mappings]
-#				ephemeral_mappings.pop
-#				retry if ephemeral_mappings.size > 0
-#			end
 
 			instance = response.instances.first
 			MU.log "#{node} (#{instance.instance_id}) coming online"
@@ -699,7 +694,7 @@ module MU
 					sleep 20
 					instance, mu_name = MU::Server.find(id: id, region: server['region'])
 				end
-			rescue Exception => e
+			rescue Aws::EC2::Errors::ServiceError => e
 				if retries < 30
 					MU.log "Got #{e.inspect} during initial instance creation of #{id}, retrying...", MU::NOTICE, details: instance
 					retries = retries + 1
