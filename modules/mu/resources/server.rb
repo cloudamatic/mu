@@ -17,6 +17,7 @@ autoload :Chef, 'chef'
 gem "knife-windows"
 gem "chef-vault"
 autoload :Chef, 'chef-vault'
+autoload :ChefVault, 'chef-vault'
 require 'net/ssh'
 require 'net/ssh/multi'
 require 'net/ssh/proxy/command'
@@ -123,7 +124,7 @@ module MU
 			end
 			Chef::Config[:environment] = @deploy.environment
 
-			if %w{win2k12r2 win2k12 windows}.include? @server['platform']
+			if %w{win2k12r2 win2k12 windows}.include?(@server['platform']) or !@server['active_directory'].nil?
 				@server['mu_windows_name'] = MU::MommaCat.getResourceName(server['name'], max_length: 15, need_unique_string: true)
 				if !@deploy.winpass.nil?
 					@server['winpass'] = @deploy.winpass
@@ -1100,10 +1101,6 @@ module MU
 		  if server["platform"] != "windows" and server['platform'] != "win2k12" and server['platform'] != "win2k12r2"
 				kb = Chef::Knife::Bootstrap.new([canonical_ip])
 		    kb.config[:use_sudo] = true
-				if !server['skipinitialupdates']
-					run_list << "recipe[mu-utility::cleanup_client]"
-				else
-				end
 		    kb.config[:distro] = 'chef-full'
 		  else
 		    kb = Chef::Knife::BootstrapWindowsSsh.new([canonical_ip])
@@ -1117,6 +1114,10 @@ module MU
 #		    kb.config[:winrm_user] = server["winrm_user"]
 #		    kb.config[:winrm_password] = server['winpass']
 		  end
+			run_list << "recipe[mu-utility::cleanup_client]"
+			if !server['skipinitialupdates']
+				run_list << "recipe[mu-tools::updates]"
+			end
 	    kb.config[:run_list] = run_list
 	    kb.config[:ssh_user] = node_ssh_user
 	    kb.config[:forward_agent] = node_ssh_user
@@ -1223,16 +1224,38 @@ module MU
 				server['vault_access'] << { "vault"=> node, "item" => "secrets" }
 			end
 
+			# If AD integration has been requested for this node, add the relevant
+			# recipe and set up Chef data structures.
+			if !server['active_directory'].nil?
+				begin
+					Chef::Knife.run(['node', 'run_list', 'add', node, "recipe[mu-tools::ad-client]"], {})
+				rescue SystemExit => e
+					MU.log "#{node}: Run list addition of recipe[mu-tools::ad-client] failed with #{e.inspect}", MU::ERR
+				end
+				chef_node = Chef::Node.load(node)
+				chef_node.normal.ad.computer = server['mu_windows_name']
+				chef_node.normal.ad.node_class = server['name']
+				chef_node.normal.ad.domain_name = server['active_directory']['domain_name']
+				chef_node.normal.ad.netbios_name = server['active_directory']['short_domain_name']
+				chef_node.normal.ad.dcs = server['active_directory']['domain_controllers']
+				chef_node.normal.ad.auth_vault = server['active_directory']['auth_vault']
+				chef_node.normal.ad.auth_item = server['active_directory']['auth_item']
+				chef_node.normal.ad.auth_username_field = server['active_directory']['auth_username_field']
+				chef_node.normal.ad.auth_password_field = server['active_directory']['auth_password_field']
+				chef_node.save
+			end
 
 			saveInitialChefNodeAttrs(node, instance, server, canonical_ip)
 			MU::MommaCat.openFirewallForClients
 
-			begin
-				Chef::Knife.run(['node', 'run_list', 'remove', node, "recipe[mu-utility::cleanup_client]"], {})
-			rescue SystemExit => e
-				MU.log "#{node}: Run list removal of recipe[mu-utility::cleanup_client] failed with #{e.inspect}", MU::ERR
-				raise "deploy failure"
-			end
+			# Remove one-shot bootstrap recipes from the node's final run list
+			["mu-utility::cleanup_client", "mu-tools::updates"].each { |recipe|
+				begin
+					Chef::Knife.run(['node', 'run_list', 'remove', node, "recipe[#{recipe}]"], {})
+				rescue SystemExit => e
+					MU.log "#{node}: Run list removal of recipe[#{recipe}] failed with #{e.inspect}", MU::ERR
+				end
+			}
 
 
 			MU::MommaCat.unlock(instance.instance_id+"-deploy")
@@ -1686,7 +1709,7 @@ module MU
 
 				# If this is Windows, ssh over with a Powershell command to set the
 				# password.
-				if %w{win2k12r2 win2k12 windows}.include? server['platform']
+				if %w{win2k12r2 win2k12 windows}.include?(server['platform']) or !server['active_directory'].nil?
 					# Make sure we don't lose a cached mu_windows_name value.
 					if !server['mu_windows_name'] and
 							!deployment.nil? and deployment.has_key?('servers') and

@@ -18,6 +18,12 @@ require 'erb'
 require 'pp'
 require 'json-schema'
 require 'net/http'
+gem "chef"
+autoload :Chef, 'chef'
+gem "knife-windows"
+gem "chef-vault"
+autoload :Chef, 'chef-vault'
+autoload :ChefVault, 'chef-vault'
 
 module MU
 
@@ -1292,6 +1298,30 @@ module MU
 				server['skipinitialupdates'] = true if @skipinitialupdates
 				server['vault_access'] = [] if server['vault_access'].nil?
 				server['vault_access'] << { "vault" => "splunk", "item" => "admin_user" }
+				if !server['active_directory'].nil?
+					server['vault_access'] << {
+							"vault" => server['active_directory']['auth_vault'],
+							"item" => server['active_directory']['auth_item']
+						}
+					if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+						Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+					end
+					begin
+						item = ChefVault::Item.load(
+							server['active_directory']['auth_vault'],
+							server['active_directory']['auth_item']
+						)
+						["auth_username_field", "auth_password_field"].each { |field|
+							if !item.has_key?(server['active_directory'][field])
+								ok = false
+								MU.log "I don't see a value named #{field} in Chef Vault #{server['active_directory']['auth_vault']}:#{server['active_directory']['auth_item']}", MU::ERR
+							end
+						}
+					rescue ChefVault::Exceptions::KeysNotFound => e
+						MU.log "Can't load Chef Vault #{server['active_directory']['auth_vault']}:#{server['active_directory']['auth_item']}. Does the vault exist?", MU::ERR
+						ok = false
+					end
+				end
 
 				server["#MU_CLASS"] = MU::Server
 				if server['ingress_rules'] != nil
@@ -2231,6 +2261,50 @@ module MU
 			"name" => { "type" => "string" },
 			"region" => @region_primitive,
 			"tags" => @tags_primitive,
+			"active_directory" => {
+				"type" => "object",
+				"additionalProperties" => false,
+				"required" => ["domain_name", "short_domain_name", "domain_controllers"],
+				"description" => "Integrate this node into an Active Directory domain. On Linux, will configure Winbind and PAM for system-level AD authentication.",
+				"properties" => {
+					"domain_name" => {
+						"type" => "string",
+						"description" => "The full name Active Directory domain to join"
+					},
+					"short_domain_name" => {
+						"type" => "string",
+						"description" => "The short (NetBIOS) Active Directory domain to join"
+					},
+					"domain_controllers" => {
+						"type" => "array",
+						"minItems" => 1,
+						"items" => {
+							"type" => "string",
+							"description" => "IP address of a domain controller"
+						}
+					},
+					"auth_vault" => {
+						"type" => "string",
+						"default" => "active_directory",
+						"description" => "The vault where these credentials reside"
+					},
+					"auth_item" => {
+						"type" => "string",
+						"default" => "join_domain",
+						"description" => "The vault item where these credentials reside"
+					},
+					"auth_username_field" => {
+						"type" => "string",
+						"default" => "username",
+						"description" => "The field where the username for these credentials resides"
+					},
+					"auth_password_field" => {
+						"type" => "string",
+						"default" => "password",
+						"description" => "The field where the password for these credentials resides"
+					}
+				}
+			},
 			"add_private_ips" => {
 				"type" => "integer",
 				"description" => "Assign extra private IP addresses to this server."

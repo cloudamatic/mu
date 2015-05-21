@@ -177,7 +177,7 @@ GRAPH
     mysql (>= 0.0.0)
     simple_iptables (>= 0.0.0)
     yum-epel (>= 0.0.0)
-  mu-tools (1.0.3)
+  mu-tools (1.0.4)
     build-essential (>= 0.0.0)
     chef-splunk (>= 0.0.0)
     chef-vault (>= 0.0.0)

@@ -183,11 +183,12 @@ export TMOUT
 		end
 	
 		# 6.2 Configure SSH
-		cookbook_file "/etc/ssh/sshd_config" do
-			source "etc/ssh/sshd_config"
-			mode 0600
+		template "/etc/ssh/sshd_config" do
+			source "sshd_config.erb"
 			owner "root"
 			group "root"
+			mode 0600
+			notifies :restart, "service[sshd]", :immediately
 		end
 
 		cookbook_file "/etc/issue.net" do
@@ -395,11 +396,12 @@ export TMOUT
 		end rescue NoMethodError
 
 	when "ubuntu"
-		cookbook_file "/etc/ssh/sshd_config" do
-			source "etc/ssh/sshd_config"
-			mode 0600
+		template "/etc/ssh/sshd_config" do
+			source "sshd_config.erb"
 			owner "root"
 			group "root"
+			mode 0600
+			notifies :restart, "service[sshd]", :immediately
 		end
 		cookbook_file "/etc/issue.net" do
 			source "etc/BANNER"

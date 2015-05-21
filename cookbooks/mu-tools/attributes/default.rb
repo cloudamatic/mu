@@ -34,7 +34,8 @@ default['application_attributes']['ebs_snapshots']['days_to_keep'] = '7'
 
 default['nagios']['server_role'] = "mu-master"
 default['nagios']['multi_environment_monitoring'] = true
-# no idea why this attribute isn't set on CAP-MASTER, but it isn't.
+override['nagios']['notifications_enabled'] = 1
+# no idea why this attribute isn't set on MU-MASTER, but it isn't.
 default['chef_node_name'] = Chef::Config[:node_name]
 if node.has_key?("deployment")
 	if node.deployment.has_key?("admins")
@@ -45,8 +46,6 @@ if node.has_key?("deployment")
 	end
 	if node.deployment.has_key?("mu_public_ip")
 		default['nagios']['allowed_hosts'] = [node.deployment.mu_public_ip]
-	elsif node.deployment.has_key?("cap_public_ip")
-		default['nagios']['allowed_hosts'] = [node.deployment.cap_public_ip]
 	end
 end
 
@@ -139,8 +138,8 @@ node.deployment.servers.each_pair { |node_class, nodes|
 	nodes.each_pair { |name, data|
 		if name == Chef::Config[:node_name]
 			my_subnet_id = data['subnet_id']
-			if !data['cap_windows_name'].nil?
-				default['ad']['computer_name'] = data['cap_windows_name']
+			if !data['mu_windows_name'].nil?
+				default['ad']['computer_name'] = data['mu_windows_name']
 				default['ad']['node_class'] = node_class
 			end
 		end
@@ -167,18 +166,32 @@ if default['ad']['sites'].size == 0
 	]
 end
 
-default['ad']['rdgw']['computer_name'] = "RDGW1"
-if !node.ec2.private_ip_address.nil?
-	default['ad']['dc_ips'] = [node.ec2.private_ip_address]
-end rescue NoMethodError
 default['ad']['ntds_static_port'] = 50152
 default['ad']['ntfrs_static_port'] = 50154
 default['ad']['dfsr_static_port'] = 50156
-default['ad']['add_to_domain'] = true
+
+default['windows_admin_username'] = "Administrator"
+# Credentials for joining an Active Directory domain should be stored in a Chef
+# Vault structured like so:
+# {
+#   "username": "join_domain_user",
+#   "password": "join_domain_password"
+# }
 default['ad']['auth'] = {
 	'data_bag' => 'active_directory',
 	'data_bag_item' => "join_domain"
 }
-default['windows_admin_username'] = "Administrator"
 
-override['nagios']['notifications_enabled'] = 1
+default['ad']['dc_ips'] = [] 
+resolver = Resolv::DNS.new
+node.ad.dcs.each { |dc|
+	if dc.match(/^\d+\.\d+\.\d+\.\d+$/)
+		default['ad']['dc_ips'] << dc
+	else
+		begin
+			default['ad']['dc_ips'] << resolver.getaddress(dc)
+		rescue Resolv::ResolvError => e
+			Chef::Log.warn ("Couldn't resolve domain controller #{dc}!")
+		end
+	end
+} rescue NoMethodError

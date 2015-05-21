@@ -19,5 +19,3 @@ unless node[:recipes].include?("chef-server")
     only_if { ::File.exists?(Chef::Config[:client_key]) }
   end
 end
-
-include_recipe "mu-tools::updates"

@@ -1,6 +1,6 @@
 #
 # Cookbook Name:: mu-tools
-# Recipe:: set_cap_hostname
+# Recipe:: set_mu_hostname
 #
 # Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
 #
@@ -17,6 +17,9 @@
 # limitations under the License.
 
 $hostname = node.name
+if !node.ad.computer_name.nil? and !node.ad.computer_name.empty?
+	$hostname = node.ad.computer_name
+end rescue NoMethodError
 $ipaddress = node.ipaddress
 
 if !platform_family?("windows")
