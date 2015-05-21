@@ -5,7 +5,7 @@ GEM
     akami (1.2.2)
       gyoku (>= 0.4.0)
       nokogiri
-    aws-sdk-core (2.0.41)
+    aws-sdk-core (2.0.44)
       builder (~> 3.0)
       jmespath (~> 1.0)
       multi_json (~> 1.0)
@@ -263,7 +263,7 @@ PLATFORMS
   ruby
 
 DEPENDENCIES
-  aws-sdk-core (~> 2.0.41)
+  aws-sdk-core (~> 2.0.44)
   berkshelf
   chef (~> 12.3.0)
   chef-vault
