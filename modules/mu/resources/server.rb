@@ -563,6 +563,9 @@ module MU
 				response = MU.ec2(@server['region']).run_instances(instance_descriptor)
 			rescue Aws::EC2::Errors::InvalidGroupNotFound, Aws::EC2::Errors::InvalidSubnetIDNotFound, Aws::EC2::Errors::InvalidParameterValue, Aws::EC2::Errors::RequestLimitExceeded => e
 				if retries < 10
+					if retries > 7
+						MU.log "Seeing #{e.inspect} while trying to launch #{node}, retrying a few more times...", MU::WARN, details: instance_descriptor
+					end
 					sleep 10
 					retries = retries + 1
 					retry
@@ -617,7 +620,7 @@ module MU
 		end
 
 		# Basic setup tasks performed on a new node during its first initial ssh
-		# connection.
+		# connection. Most of this is terrible Windows glue.
 		# @param ssh [Net::SSH::Connection::Session]: The active SSH session to the new node.
 		# @param server [Hash]: A server's configuration block as defined in {MU::Config::BasketofKittens::servers}
 		def self.initialSshTasks(ssh, server)
@@ -625,8 +628,21 @@ module MU
 			win_env_fix = %q{echo 'export PATH="$PATH:/cygdrive/c/opscode/chef/embedded/bin"' > "$HOME/chef-client"; echo 'prev_dir="`pwd`"; for __dir in /proc/registry/HKEY_LOCAL_MACHINE/SYSTEM/CurrentControlSet/Control/Session\ Manager/Environment;do cd "$__dir"; for __var in `ls * | grep -v TEMP | grep -v TMP`;do __var=`echo $__var | tr "[a-z]" "[A-Z]"`; test -z "${!__var}" && export $__var="`cat $__var`" >/dev/null 2>&1; done; done; cd "$prev_dir"; /cygdrive/c/opscode/chef/bin/chef-client.bat $@' >> "$HOME/chef-client"; chmod 700 "$HOME/chef-client"; ( grep "^alias chef-client=" "$HOME/.bashrc" || echo 'alias chef-client="$HOME/chef-client"' >> "$HOME/.bashrc" ) ; ( grep "^alias mu-groom=" "$HOME/.bashrc" || echo 'alias mu-groom="powershell -File \"c:/Program Files/Amazon/Ec2ConfigService/Scripts/UserScript.ps1\""' >> "$HOME/.bashrc" )}
 #				end
 			win_installer_check = %q{ls /proc/registry/HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows/CurrentVersion/Installer/}
+			win_run_updates = %q{powershell -Command "& {Import-Module PSWindowsUpdate; Get-WUInstall -AcceptAll}"}
 			win_set_hostname = %Q{powershell -Command "& {Rename-Computer -NewName "#{server['mu_windows_name']}" -Force -PassThru -Restart}"}
-			#win_set_password = %Q{powershell -Command "& {(([adsi]('WinNT://./administrator, user')).psbase.invoke('SetPassword', '#{server['winpass']}'))}"}
+			win_reboot_after_updates = %Q{powershell -Command "& {If (Test-Path HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired){ Restart-Computer -Force }}"}
+			# We sometimes get a machine that's already been integrated into AD, and
+			# thus needs domain creds to rename. Use 'em if we have 'em.
+			win_set_hostname_ad = nil
+			if !server['active_directory'].nil?
+				item = ChefVault::Item.load(
+					server['active_directory']['auth_vault'],
+					server['active_directory']['auth_item']
+				)
+				ad_user = item[server['active_directory']['auth_username_field']]
+				ad_pwd = item[server['active_directory']['auth_password_field']]
+				win_set_hostname_ad = %Q{powershell -Command "& {Rename-Computer -NewName "#{server['mu_windows_name']}" -Force -PassThru -Restart -DomainCredential(New-Object System.Management.Automation.PSCredential('femadata\\#{ad_user}', (ConvertTo-SecureString '#{ad_pwd}' -AsPlainText -Force)))}"}
+			end
 
 			if !server['cleaned_chef']
 				MU.log "Expunging pre-existing Chef install, if we didn't create it", MU::NOTICE
@@ -639,10 +655,24 @@ module MU
 				if output.match(/InProgress/)
 					raise MU::BootstrapTempFail, "Windows Installer service is still doing something, need to wait"
 				end
+				just_ran_updates = false
+				if !server['ran_windows_updates'] and !server['skipinitialupdates']
+					MU.log "Running #{win_run_updates}, this may take a very long time..."
+					ssh.exec!(win_run_updates)
+					server['ran_windows_updates'] = true
+					just_ran_updates = true
+				end
+				# ...at least try to cram in the setting of the hostname before updates
+				# reboot us
 				if !server['hostname_set'] and !server['mu_windows_name'].nil?
 					ssh.exec!(win_set_hostname)
+					ssh.exec!(win_set_hostname_ad) if !win_set_hostname_ad.nil?
 					server['hostname_set'] = true
-					raise MU::BootstrapTempFail, "Setting hostname to #{server['mu_windows_name']}, rebooting"
+					raise MU::BootstrapTempFail, "Setting hostname to #{server['mu_windows_name']}, possibly rebooting"
+				end
+				if just_ran_updates
+					ssh.exec!(win_reboot_after_updates)
+					raise MU::BootstrapTempFail, "Just completed Windows Updates, possibly rebooting"
 				end
 				# if !server['password_set'] and !server['winpass'].nil?
 					# ssh.exec!(win_set_password)
@@ -1020,8 +1050,8 @@ module MU
 		  begin
 				loglevel = MU::DEBUG
 				Thread.abort_on_exception = false
-				if !nat_ssh_host.nil?
-					proxy_cmd = "ssh -o StrictHostKeyChecking=no -W %h:%p #{nat_ssh_user}@#{nat_ssh_host}"
+				if !nat_ssh_host.nil? and !MU::VPC.haveRouteToInstance?(instance.instance_id)
+					proxy_cmd = "ssh -q -o StrictHostKeyChecking=no -W %h:%p #{nat_ssh_user}@#{nat_ssh_host}"
 					MU.log "Attempting SSH to #{node} (#{canonical_ip}) as #{node_ssh_user} with key #{node_ssh_key} using proxy '#{proxy_cmd}'", loglevel
 						proxy = Net::SSH::Proxy::Command.new(proxy_cmd)
 						Net::SSH.start(
@@ -1098,6 +1128,12 @@ module MU
 			require 'chef/knife/bootstrap_windows_ssh'
 			require 'chef/knife/bootstrap_windows_winrm'
 
+			json_attribs = {}
+			if !server['application_attributes'].nil?
+				json_attribs['application_attributes'] = server['application_attributes']
+			end
+			server['vault_access'] = [] if server['vault_access'].nil?
+
 		  if server["platform"] != "windows" and server['platform'] != "win2k12" and server['platform'] != "win2k12r2"
 				kb = Chef::Knife::Bootstrap.new([canonical_ip])
 		    kb.config[:use_sudo] = true
@@ -1108,16 +1144,22 @@ module MU
 		    kb.config[:distro] = 'windows-chef-client-msi'
 		    kb.config[:node_ssl_verify_mode] = 'none'
 		    kb.config[:node_verify_api_cert] = false
-#		    kb = Chef::Knife::BootstrapWindowsWinrm.new
-#		    kb.config[:winrm_transport] = "plaintext"
-#		    kb.config[:encrypted_data_bag_secret] = "drivel"
-#		    kb.config[:winrm_user] = server["winrm_user"]
-#		    kb.config[:winrm_password] = server['winpass']
 		  end
-			run_list << "recipe[mu-utility::cleanup_client]"
 			if !server['skipinitialupdates']
 				run_list << "recipe[mu-tools::updates]"
 			end
+			if json_attribs.size > 1
+				kb.config[:json_attribs] = JSON.generate(json_attribs)
+			end
+# XXX this seems to break Knife Bootstrap for the moment
+#			if !server['vault_access'].nil?
+#				v = {}
+#				server['vault_access'].each { |vault|
+#					v[vault['vault']] = [] if v[vault['vault']].nil?
+#					v[vault['vault']] << vault['item']
+#				}
+#				kb.config[:bootstrap_vault_json] = JSON.generate(v)
+#			end
 	    kb.config[:run_list] = run_list
 	    kb.config[:ssh_user] = node_ssh_user
 	    kb.config[:forward_agent] = node_ssh_user
@@ -1126,7 +1168,6 @@ module MU
 		  kb.config[:bootstrap_version] = MU.chefVersion
 # XXX key off of MU verbosity level
 			kb.config[:log_level] = :debug
-#		  kb.config[:hint] = "{ local_host_name: #{node} }"
 			kb.config[:identity_file] = ssh_keydir+"/"+node_ssh_key
 			if !nat_ssh_host.nil?
 				kb.config[:ssh_gateway] = nat_ssh_user+"@"+nat_ssh_host
@@ -1142,10 +1183,10 @@ module MU
 				Timeout::timeout(600) {	
 				  kb.run
 				}
-			rescue IOError, SystemExit, Timeout::Error, SocketError => e
+			rescue IOError, SystemExit, Timeout::Error, SocketError, Net::HTTPServerException => e
 				if retries < 10
 					retries = retries + 1
-					MU.log "#{node}: Knife Bootstrap failed, retrying (#{retries} of 10)", MU::WARN
+					MU.log "#{node}: Knife Bootstrap failed #{e.inspect}, retrying (#{retries} of 10)", MU::WARN
 					sleep 10
 					retry
 				else
@@ -1201,15 +1242,12 @@ module MU
 				if response.code != "200"
 					MU.log "Got error back on signing request for #{MU.mySSLDir}/#{node}.csr", MU::ERR
 				end
-#				`/usr/bin/curl -k --data mu_id="#{MU.mu_id}" --data mu_resource_name="#{server['name']}" --data mu_resource_type="#{res_type}" --data mu_ssl_sign="#{MU.mySSLDir}/#{node}.csr" --data mu_user="#{MU.chef_user}" --data mu_deploy_secret="#{deploysecret}" https://#{MU.mu_public_ip}:2260/`
 			end
 
 			cert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/#{node}.crt"
 
-			server['vault_access'] = [] if server['vault_access'].nil?
 
 			# Upload the certificate to a Chef Vault for this node
-#			puts `#{MU::Config.knife} data bag delete -y #{node} 2>&1 > /dev/null`
 			vault_cmd = "#{MU::Config.knife} vault create #{node} ssl_cert '{ \"data\": { \"node.crt\":\"#{cert.to_pem.chomp!.gsub(/\n/, "\\n")}\", \"node.key\":\"#{key.to_pem.chomp!.gsub(/\n/, "\\n")}\" } }' #{MU::Config.vault_opts} --search name:#{node}"
 			MU.log vault_cmd, MU::DEBUG
 			puts `#{vault_cmd}`
@@ -1224,32 +1262,11 @@ module MU
 				server['vault_access'] << { "vault"=> node, "item" => "secrets" }
 			end
 
-			# If AD integration has been requested for this node, add the relevant
-			# recipe and set up Chef data structures.
-			if !server['active_directory'].nil?
-				begin
-					Chef::Knife.run(['node', 'run_list', 'add', node, "recipe[mu-tools::ad-client]"], {})
-				rescue SystemExit => e
-					MU.log "#{node}: Run list addition of recipe[mu-tools::ad-client] failed with #{e.inspect}", MU::ERR
-				end
-				chef_node = Chef::Node.load(node)
-				chef_node.normal.ad.computer = server['mu_windows_name']
-				chef_node.normal.ad.node_class = server['name']
-				chef_node.normal.ad.domain_name = server['active_directory']['domain_name']
-				chef_node.normal.ad.netbios_name = server['active_directory']['short_domain_name']
-				chef_node.normal.ad.dcs = server['active_directory']['domain_controllers']
-				chef_node.normal.ad.auth_vault = server['active_directory']['auth_vault']
-				chef_node.normal.ad.auth_item = server['active_directory']['auth_item']
-				chef_node.normal.ad.auth_username_field = server['active_directory']['auth_username_field']
-				chef_node.normal.ad.auth_password_field = server['active_directory']['auth_password_field']
-				chef_node.save
-			end
-
 			saveInitialChefNodeAttrs(node, instance, server, canonical_ip)
 			MU::MommaCat.openFirewallForClients
 
 			# Remove one-shot bootstrap recipes from the node's final run list
-			["mu-utility::cleanup_client", "mu-tools::updates"].each { |recipe|
+			["mu-tools::newclient"].each { |recipe|
 				begin
 					Chef::Knife.run(['node', 'run_list', 'remove', node, "recipe[#{recipe}]"], {})
 				rescue SystemExit => e
@@ -1257,6 +1274,31 @@ module MU
 				end
 			}
 
+			# Join this node to its Active Directory domain, if applicable. This will
+			# trigger a reboot on Windows nodes, because what doesn't?
+			if !server['active_directory'].nil?
+				knife_add(node, "recipe[mu-tools::ad-client]");
+				Chef::Config[:ssh_user] = server["ssh_user"]
+				Chef::Config[:identity_file] = ssh_keydir+"/"+node_ssh_key
+				Chef::Config[:manual] = true
+				knife = Chef::Knife::Ssh.new([node, "chef-client"])
+				if server["platform"] != "windows" and server['platform'] != "win2k12" and server['platform'] != "win2k12r2"
+					if !server["ssh_user"].nil? and !server["ssh_user"].empty? and server["ssh_user"] != "root"
+						knife_args = ["ssh", '-m', node, '-x', server["ssh_user"], 'sudo chef-client' ]  
+					else
+						knife_args = ['ssh', '-m', node, '-x', server["ssh_user"], 'chef-client' ]  
+					end
+				else
+					knife_args = ['ssh', '-m', node, '$HOME/chef-client' ]  
+				end
+
+				begin
+					# Run list will already have mu-tools::ad-client in it.
+					Chef::Knife.run(knife_args)
+				rescue SystemExit => e
+					MU.log "#{node}: Chef run to join to Active Directory failed: #{e.inspect}", MU::ERR, details: server['active_directory']
+				end
+			end
 
 			MU::MommaCat.unlock(instance.instance_id+"-deploy")
 			MU::MommaCat.unlock(instance.instance_id+"-groom")
@@ -1277,7 +1319,23 @@ module MU
 
 		  chef_node.normal.app = server['application_cookbook'] if server['application_cookbook'] != nil
 		  chef_node.normal.service_name = server["name"]
+			chef_node.normal.windows_admin_username = server['windows_admin_username']
 		  chef_node.chef_environment = MU.environment.downcase
+
+			# If AD integration has been requested for this node, give Chef what it'll
+			# need for mu-tools::ad-client to work.
+			if !server['active_directory'].nil?
+				chef_node.normal.ad.computer = server['mu_windows_name']
+				chef_node.normal.ad.node_class = server['name']
+				chef_node.normal.ad.domain_name = server['active_directory']['domain_name']
+				chef_node.normal.ad.netbios_name = server['active_directory']['short_domain_name']
+				chef_node.normal.ad.computer_ou = server['active_directory']['computer_ou'] if server['active_directory'].has_key?('computer_ou')
+				chef_node.normal.ad.dcs = server['active_directory']['domain_controllers']
+				chef_node.normal.ad.auth_vault = server['active_directory']['auth_vault']
+				chef_node.normal.ad.auth_item = server['active_directory']['auth_item']
+				chef_node.normal.ad.auth_username_field = server['active_directory']['auth_username_field']
+				chef_node.normal.ad.auth_password_field = server['active_directory']['auth_password_field']
+			end
 
 			# Amazon-isms
 			awscli_region_widget = {
@@ -1302,7 +1360,7 @@ module MU
 			chef_node.normal.tags = tags
 		  chef_node.save
 
-			# Finally, grant us access to other pre-existing Vaults.
+			# Finally, grant us access to some pre-existing Vaults.
 			if !server['vault_access'].nil?
 				retries = 0
 				server['vault_access'].each { |vault|
@@ -1742,7 +1800,6 @@ module MU
 			Chef::Config[:manual] = true
 			knife = Chef::Knife::Ssh.new([node, "chef-client"])
 	    if server["platform"] != "windows" and server['platform'] != "win2k12" and server['platform'] != "win2k12r2"
-# XXX maybe knife = Chef::Knife::Ssh.new; knife.run()
 				if !server["ssh_user"].nil? and !server["ssh_user"].empty? and server["ssh_user"] != "root" and server["ssh_user"] != "Administrator"
 					knife_args = ["ssh", '-m', node, '-x', server["ssh_user"], 'sudo chef-client' ]  
 				else
@@ -1750,7 +1807,6 @@ module MU
 				end
 	    else
 				knife_args = ['ssh', '-m', node, '$HOME/chef-client' ]  
-#				knife_args = ['winrm', '-m', node, '-P', server['winpass'], 'chef-client' ]  
 	    end
 
 			require 'chef/knife'

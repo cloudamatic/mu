@@ -454,7 +454,7 @@ module MU
 				if is_private
 					if nat_host_name
 						begin
-							proxy_cmd = "ssh -o StrictHostKeyChecking=no -W %h:%p #{nat_ssh_user}@#{nat_host_name}"
+							proxy_cmd = "ssh -q -o StrictHostKeyChecking=no -W %h:%p #{nat_ssh_user}@#{nat_host_name}"
 							gateway = Net::SSH::Gateway.new(
 								nat_host_name,
 								nat_ssh_user,

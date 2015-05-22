@@ -16,70 +16,57 @@
 
 case node[:platform]
 
+		# Note- most of this Windows logic is now dealt with in userdata (setup)
+		# and initial Mu bootstrap (running updates), but this recipe is still
+		# useful for updating existing hosts.
     when "windows"
 
-        include_recipe 'windows::reboot_handler'
-        ::Chef::Recipe.send(:include, Chef::Mixin::PowershellOut)
+      include_recipe 'windows::reboot_handler'
+      ::Chef::Recipe.send(:include, Chef::Mixin::PowershellOut)
 
-		windows_reboot 5 do
-			reason 'Applying updates'
-			action :nothing
-		end
+			windows_reboot 5 do
+				reason 'Applying updates'
+				action :nothing
+			end
 
-        batch "Create dirs for powershell" do
-            code <<-EOH
-                mkdir C:\\Users\\#{node.windows_admin_username}\\Documents\\WindowsPowerShell\\Modules
-            EOH
-            not_if { File.exists?("C:\\Users\\#{node.windows_admin_username}\\Documents\\WindowsPowerShell\\Modules")}
+			directory "C:\\Users\\#{node.windows_admin_username}\\Documents\\WindowsPowerShell\\Modules"
+
+			remote_file "#{Chef::Config[:file_cache_path]}/PSWindowsUpdate.zip" do
+				source "https://s3.amazonaws.com/cap-public/PSWindowsUpdate.zip"
+			end
+
+			["C:/Users/#{node.windows_admin_username}/Documents/WindowsPowerShell/Modules", "c:\\windows\\System32\\WindowsPowerShell\\v1.0\\Modules"].each { |dir|
+				windows_zipfile dir do
+					source "#{Chef::Config[:file_cache_path]}/PSWindowsUpdate.zip"
+					action :unzip
+					not_if { File.exists?("#{dir}/PSWindowsUpdate")}
         end
+			}
 
-		cookbook_file "#{Chef::Config[:file_cache_path]}/PSWindowsUpdate.zip" do
-			source "PSWindowsUpdate.zip"
-		end
-
-        windows_zipfile "C:/Users/#{node.windows_admin_username}/Documents/WindowsPowerShell/Modules" do
-            source "#{Chef::Config[:file_cache_path]}/PSWindowsUpdate.zip"
-            action :unzip
-            not_if { File.exists?("C:/Users/#{node.windows_admin_username}/Documents/WindowsPowerShell/Modules/PSWindowsUpdate")}
-        end
-        windows_zipfile 'c:\\windows\\System32\\WindowsPowerShell\\v1.0\\Modules' do
-            source "#{Chef::Config[:file_cache_path]}/PSWindowsUpdate.zip"
-            action :unzip
-            not_if { File.exists?('c:\\windows\\System32\\WindowsPowerShell\\v1.0\\Modules\\PSWindowsUpdate')}
-        end
-        
-        registry_key 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update' do
-            values [{
+      registry_key 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update' do
+        values [{
                 :name => 'AUOptions',
                 :type => :dword,
                 :data => '3'
             }]
-            action :create
-            recursive true
-        end
+        action :create
+        recursive true
+      end
 
-        powershell_script "Install Windows Updates" do
+      powershell_script "Install Windows Updates" do
 # XXX Something in here throws a security error now. Whee.
 #                Set-ExecutionPolicy RemoteSigned -Force
 #                if (!(Test-Path -path c:\\windows\\System32\\WindowsPowerShell\\v1.0\\Modules\\PSWindowsUpdate))
 #                {
 #                    cmd /c mklink /D c:\\windows\\System32\\WindowsPowerShell\\v1.0\\Modules\\PSWindowsUpdate C:\\Windows\\SysWOW64\\WindowsPowerShell\\v1.0\\Modules\\PSWindowsUpdate
 #                }
-            code <<-EOH
-                Import-Module PSWindowsUpdate
-                Get-WUInstall -AcceptAll -ignorereboot
-            EOH
-        end
+        code <<-EOH
+          Import-Module PSWindowsUpdate
+          Get-WUInstall -AcceptAll -ignorereboot
+        EOH
+      end
 
 		
-				if registry_key_exists?("HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired")
-         ruby_block "restart windows" do
-             block do
-                 puts "Restarting Windows"
-             end
-             notifies :request, 'windows_reboot[5]'
-         end
-				end
     when "centos"
 
 			execute "yum -y update"

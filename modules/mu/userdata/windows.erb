@@ -54,6 +54,30 @@
 		$cygwin_dir = "$base_dir/cygwin"
 		$sshdUser = "sshd_service"
 
+		If (!(Test-Path $env:Temp/PSWindowsUpdate.zip)){
+			echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Powershell Windows Update module"
+
+			If (!(Test-Path c:/Users/$admin_username/Documents/WindowsPowerShell/Modules)){
+				mkdir c:/Users/$admin_username/Documents/WindowsPowerShell/Modules
+			}
+
+			Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/PSWindowsUpdate.zip" -OutFile $env:Temp/PSWindowsUpdate.zip
+
+			Add-Type -A 'System.IO.Compression.FileSystem'
+			If (!(Test-Path c:/windows/System32/WindowsPowerShell/v1.0/Modules/PSWindowsUpdate)){
+				echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Extracting PSWindowsUpdate module"
+
+				[IO.Compression.ZipFile]::ExtractToDirectory("$env:Temp/PSWindowsUpdate.zip", "c:/windows/System32/WindowsPowerShell/v1.0/Modules")
+			}
+			If (!(Test-Path c:/Users/$admin_username/Documents/WindowsPowerShell/Modules/PSWindowsUpdate)){
+				echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Extracting PSWindowsUpdate module"
+
+				[IO.Compression.ZipFile]::ExtractToDirectory("$env:Temp/PSWindowsUpdate.zip", "c:/Users/$admin_username/Documents/WindowsPowerShell/Modules")
+			}
+		}
+
+		echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Setting Windows Update parameters in registry"
+		Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update" -Name AUOptions -Value 3
 
 		If (!(Test-Path "$cygwin_dir/$instanceid")){
 			echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Processing Cygwin for the first time on this node"

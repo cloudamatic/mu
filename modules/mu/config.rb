@@ -2283,6 +2283,10 @@ module MU
 							"description" => "IP address of a domain controller"
 						}
 					},
+					"computer_ou" => {
+						"type" => "string",
+						"description" => "The OU to which to add this computer when joining the domain."
+					},
 					"auth_vault" => {
 						"type" => "string",
 						"default" => "active_directory",
@@ -2339,6 +2343,10 @@ module MU
 				"description" => "Associate public IP address?",
 			},
 			"userdata_script" => @userdata_primitive,
+			"windows_admin_username" => {
+				"type" => "string",
+				"default" => "Administrator",
+			},
 			"ssh_user" => {
 				"type" => "string",
 				"default" => "root",

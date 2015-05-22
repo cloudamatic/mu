@@ -192,13 +192,15 @@ case node[:platform]
 
 		if !in_domain
 			powershell_script "Set DNS Server Addresses" do
-				code "Get-NetAdapter | Set-DnsClientServerAddress -ServerAddresses #{node.ad.dcs_ips.join(", ")}"
+				code "Get-NetAdapter | Set-DnsClientServerAddress -ServerAddresses #{node.ad.dc_ips.join(", ")}"
 			end
 
 			# This will allow us to add a new computer account to the correct OU so the right group policy is applied
-			if node.ad.computer_ou
-				cmd = "Add-Computer -DomainName #{node.ad.domain_name} -Credential(New-Object System.Management.Automation.PSCredential('femadata\\#{usr}', (ConvertTo-SecureString '#{pwd}' -AsPlainText -Force))) -OUPath '#{node.ad.computer_ou}' -PassThru -Restart -Verbose -Force"
-			else
+			begin
+				if node.ad.computer_ou
+					cmd = "Add-Computer -DomainName #{node.ad.domain_name} -Credential(New-Object System.Management.Automation.PSCredential('femadata\\#{usr}', (ConvertTo-SecureString '#{pwd}' -AsPlainText -Force))) -OUPath '#{node.ad.computer_ou}' -PassThru -Restart -Verbose -Force"
+				end
+			rescue NoMethodError
 				cmd = "Add-Computer -DomainName #{node.ad.domain_name} -Credential(New-Object System.Management.Automation.PSCredential('femadata\\#{usr}', (ConvertTo-SecureString '#{pwd}' -AsPlainText -Force))) -PassThru -Restart -Verbose -Force"
 			end
 
@@ -207,32 +209,18 @@ case node[:platform]
 				notifies :request, 'windows_reboot[1]', :immediately
 				sensitive true
 			end
-
-			# Below will fail which will stop the chef-client run and hopefully allow the node to reboot
-			execute "shutdown -r -f -t 0"
-
-			# cmd = powershell_out("Add-Computer -DomainName #{node.ad.domain_name} -Credential(New-Object System.Management.Automation.PSCredential('femadata\\#{usr}', (ConvertTo-SecureString '#{pwd}' -AsPlainText -Force))) -PassThru -Force")
-			# cmd.run_command
-			# if cmd.exitstatus == 0
-				# execute "shutdown -r -f -t 0"
-				# Chef::Application.fatal!("Added node #{node['hostname']} to domain, restarting computer")
-			# else
-				# log "Did not add node #{node['hostname']} to domain"
-			# end
-
 		end
 
-		node.deployment.servers[node.service_name].each_pair { |name, data|
-			log "Checking against name #{name} (#{node.chef_node_name}, #{data['mu_windows_name']})"
-			if name == node.chef_node_name and !data['mu_windows_name'].nil? and node.application_attributes.domain_controller_name.nil?
-				powershell_script "Rename Computer to #{data['mu_windows_name']}" do
-					guard_interpreter :powershell_script
-					not_if "$env:computername -eq '#{data['mu_windows_name']}'"
-					code "Rename-Computer -NewName '#{data['mu_windows_name']}' -Force -PassThru -Restart -DomainCredential(New-Object System.Management.Automation.PSCredential('femadata\\#{usr}', (ConvertTo-SecureString '#{pwd}' -AsPlainText -Force)))"
-					notifies :request, 'windows_reboot[1]', :immediately
-				end
+		# Theoretically this should have been done for us already, but let's cover
+		# the oddball cases.
+		if !node.ad.computer_name.nil?
+			powershell_script "Rename Computer to #{node.ad.computer_name}" do
+				guard_interpreter :powershell_script
+				not_if "$env:computername -eq '#{node.ad.computer_name}'"
+				code "Rename-Computer -NewName '#{node.ad.computer_name}' -Force -PassThru -Restart -DomainCredential(New-Object System.Management.Automation.PSCredential('femadata\\#{usr}', (ConvertTo-SecureString '#{pwd}' -AsPlainText -Force)))"
+				notifies :request, 'windows_reboot[1]', :immediately
 			end
-		} rescue NoMethodError
+		end rescue NoMethodError
 
 	else
 		log "#{node[:platform]} not supported"

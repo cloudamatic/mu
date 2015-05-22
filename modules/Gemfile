@@ -29,6 +29,6 @@ gem 'berkshelf'
 gem 'pg'
 gem 'mysql'
 gem 'ruby-wmi'
-gem 'chef-vault'
+gem 'chef-vault', "~> 2.6.0"
 gem 'net-ssh'
 gem 'netaddr'

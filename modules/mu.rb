@@ -380,7 +380,7 @@ module MU
 
 
 	# The version of Chef we will install on nodes.
-	@@chefVersion = "12.3.0"
+	@@chefVersion = "12.3.0-1"
 	# The version of Chef we will install on nodes.
 	# @return [String]
 	def self.chefVersion; @@chefVersion end

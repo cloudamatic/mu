@@ -38,7 +38,7 @@ else
 	include_recipe 'chef-vault'
 	domain_admin = chef_vault_item("activedirectory", "domain_admin")
 
-	cap_tools_active_directory_domain node['ad']['dns_name'] do
+	mu_tools_active_directory_domain node['ad']['dns_name'] do
 		action :join
 		netbios_name node['ad']['netbios_name']
 		domain_admin_user domain_admin['username']
