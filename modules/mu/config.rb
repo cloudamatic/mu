@@ -463,10 +463,11 @@ module MU
 				}
 			else
 				if conf_chunk == nil and schema_chunk["default_if"] != nil and siblings != nil
-					cond = schema_chunk["default_if"]
-					if siblings[cond["key_is"]] == cond["value_is"]
-						return cond["set"]
-					end
+					schema_chunk["default_if"].each { |cond|
+						if siblings[cond["key_is"]] == cond["value_is"]
+							return cond["set"]
+						end
+					}
 				end
 				if conf_chunk == nil and schema_chunk["default"] != nil
 					return schema_chunk["default"]
@@ -2350,36 +2351,38 @@ module MU
 			"ssh_user" => {
 				"type" => "string",
 				"default" => "root",
-				"default_if" => {
-					"key_is" => "platform",
-					"value_is" => "windows",
-					"set" => "Administrator"
-				},
-				"default_if" => {
-					"key_is" => "platform",
-					"value_is" => "win2k12",
-					"set" => "Administrator"
-				},
-				"default_if" => {
-					"key_is" => "platform",
-					"value_is" => "win2k12r2",
-					"set" => "Administrator"
-				},
-				"default_if" => {
-					"key_is" => "platform",
-					"value_is" => "ubuntu",
-					"set" => "ubuntu"
-				},
-				"default_if" => {
-					"key_is" => "platform",
-					"value_is" => "ubuntu14",
-					"set" => "ubuntu"
-				},
-				"default_if" => {
-					"key_is" => "platform",
-					"value_is" => "centos7",
-					"set" => "centos"
-				}
+				"default_if" => [
+					{
+						"key_is" => "platform",
+						"value_is" => "windows",
+						"set" => "Administrator"
+					},
+					"default_if" => {
+						"key_is" => "platform",
+						"value_is" => "win2k12",
+						"set" => "Administrator"
+					},
+					"default_if" => {
+						"key_is" => "platform",
+						"value_is" => "win2k12r2",
+						"set" => "Administrator"
+					},
+					"default_if" => {
+						"key_is" => "platform",
+						"value_is" => "ubuntu",
+						"set" => "ubuntu"
+					},
+					"default_if" => {
+						"key_is" => "platform",
+						"value_is" => "ubuntu14",
+						"set" => "ubuntu"
+					},
+					"default_if" => {
+						"key_is" => "platform",
+						"value_is" => "centos7",
+						"set" => "centos"
+					}
+				]
 			},
 			"winrm_user" => { "type" => "string" },
 			"never_generate_admin_password" => {
@@ -2547,10 +2550,12 @@ module MU
 				"multi_az_on_deploy"=> {
 					"type" => "boolean",
 					"default" => true,
-					"default_if" => {
-						"creation_style" => "existing",
-						"set" => false
-					}
+					"default_if" => [
+						{
+							"creation_style" => "existing",
+							"set" => false
+						}
+					]
 				},
 				"backup_retention_period"=> {
 					"type" => "integer",
