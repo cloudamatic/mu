@@ -447,7 +447,7 @@ module MU
 		end
 
 		def self.set_defaults(conf_chunk = config, schema_chunk = schema, depth = 0, siblings = nil)
-			return if schema_chunk == nil
+			return if schema_chunk.nil?
 
 			if conf_chunk != nil and schema_chunk["properties"].kind_of?(Hash) and conf_chunk.is_a?(Hash)
 				if schema_chunk["properties"]["creation_style"].nil? or
@@ -462,14 +462,14 @@ module MU
 					self.set_defaults(item, schema_chunk["items"], depth+1, conf_chunk)
 				}
 			else
-				if conf_chunk == nil and schema_chunk["default_if"] != nil and siblings != nil
+				if conf_chunk.nil? and !schema_chunk["default_if"].nil? and !siblings.nil?
 					schema_chunk["default_if"].each { |cond|
 						if siblings[cond["key_is"]] == cond["value_is"]
 							return cond["set"]
 						end
 					}
 				end
-				if conf_chunk == nil and schema_chunk["default"] != nil
+				if conf_chunk.nil? and schema_chunk["default"] != nil
 					return schema_chunk["default"]
 				end
 			end
@@ -742,14 +742,14 @@ module MU
 			dnszones = config['dnszones']
 			vpcs = config['vpcs']
 
-			databases = Array.new if databases == nil
-			servers = Array.new if servers == nil
-			server_pools = Array.new if server_pools == nil
-			loadbalancers = Array.new if loadbalancers == nil
-			cloudformation_stacks = Array.new if cloudformation_stacks == nil
-			firewall_rules = Array.new if firewall_rules == nil
-			vpcs = Array.new if vpcs == nil
-			dnszones = Array.new if dnszones == nil
+			databases = Array.new if databases.nil?
+			servers = Array.new if servers.nil?
+			server_pools = Array.new if server_pools.nil?
+			loadbalancers = Array.new if loadbalancers.nil?
+			cloudformation_stacks = Array.new if cloudformation_stacks.nil?
+			firewall_rules = Array.new if firewall_rules.nil?
+			vpcs = Array.new if vpcs.nil?
+			dnszones = Array.new if dnszones.nil?
 
 			if databases.size < 1 and servers.size < 1 and server_pools.size < 1 and loadbalancers.size < 1 and cloudformation_stacks.size < 1 and firewall_rules.size < 1 and vpcs.size < 1 and dnszones.size < 1
 				MU.log "You must declare at least one resource to create", MU::ERR
@@ -906,7 +906,7 @@ module MU
 			firewall_rules.each { |acl|
 				firewall_rule_names << acl['name']
 				acl['region'] = config['region'] if acl['region'].nil?
-				acl["dependencies"] = Array.new if acl["dependencies"] == nil
+				acl["dependencies"] = Array.new if acl["dependencies"].nil?
 				acl["#MU_CLASS"] = MU::FirewallRule
 
 				if !acl["vpc_name"].nil? or !acl["vpc_id"].nil?
@@ -961,8 +961,8 @@ module MU
 
 
 			loadbalancers.each { |lb|
-				lb['region'] = config['region'] if lb['region'] == nil
-				lb["dependencies"] = Array.new if lb["dependencies"] == nil
+				lb['region'] = config['region'] if lb['region'].nil?
+				lb["dependencies"] = Array.new if lb["dependencies"].nil?
 				lb["#MU_CLASS"] = MU::LoadBalancer
 				if !lb["vpc"].nil?
 					lb['vpc']['region'] = config['region'] if lb['vpc']['region'].nil?
@@ -1017,13 +1017,13 @@ module MU
 			}
 
 			cloudformation_stacks.each { |stack|
-				stack['region'] = config['region'] if stack['region'] == nil
+				stack['region'] = config['region'] if stack['region'].nil?
 				stack["#MU_CLASS"] = MU::CloudFormation
 			}
 
 			server_pools.each { |asg|
-				asg['region'] = config['region'] if asg['region'] == nil
-				asg["dependencies"] = Array.new if asg["dependencies"] == nil
+				asg['region'] = config['region'] if asg['region'].nil?
+				asg["dependencies"] = Array.new if asg["dependencies"].nil?
 				asg["#MU_CLASS"] = MU::ServerPool
 				asg['skipinitialupdates'] = true if @skipinitialupdates
 				if asg["basis"]["server"] != nil
@@ -1035,7 +1035,7 @@ module MU
 				end
 				if asg["basis"]["launch_config"] != nil
 					launch = asg["basis"]["launch_config"]
-					if launch["server"] == nil and launch["instance_id"] == nil and launch["ami_id"] == nil
+					if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?
 						if MU::Config.amazon_images.has_key?(asg['platform']) and
 							 MU::Config.amazon_images[asg['platform']].has_key?(asg['region'])
 							launch['ami_id'] = MU::Config.amazon_images[asg['platform']][asg['region']]
@@ -1053,7 +1053,7 @@ module MU
 						}
 					end
 				end
-				if asg["region"] == nil and asg["zones"] == nil and asg["vpc_zone_identifier"] == nil and asg["vpc"] == nil
+				if asg["region"].nil? and asg["zones"].nil? and asg["vpc_zone_identifier"].nil? and asg["vpc"].nil?
 					ok = false
 					MU.log "One of the following MUST be specified for Server Pools: region, zones, vpc_zone_identifier, vpc.", MU::ERR
 				end
@@ -1121,8 +1121,8 @@ module MU
 			}
 
 			databases.each { |db|
-				db['region'] = config['region'] if db['region'] == nil
-				db["dependencies"] = Array.new if db["dependencies"] == nil
+				db['region'] = config['region'] if db['region'].nil?
+				db["dependencies"] = Array.new if db["dependencies"].nil?
 				db["#MU_CLASS"] = MU::Database
 				if db['cloudformation_stack'] != nil
 					# XXX don't do this if 'true' was explicitly asked for (as distinct
@@ -1196,17 +1196,17 @@ module MU
 				if (db["creation_style"] == "new" or
 						db["creation_style"] == "new_snapshot" or
 						db["creation_style"] == "existing_snapshot") and
-						db["size"] == nil
+						db["size"].nil?
 					MU.log "You must specify 'size' when creating a new database or a database from a snapshot.", MU::ERR
 					ok = false
 				end
-				if db["creation_style"] == "new" and db["storage"] == nil
+				if db["creation_style"] == "new" and db["storage"].nil?
 					MU.log "You must specify 'storage' when creating a new database.", MU::ERR
 					ok = false
 				end
 
 				if db["creation_style"] == "existing" or db["creation_style"] == "new_snapshot" or db["creation_style"] == "existing_snapshot"
-					if db["identifier"] == nil
+					if db["identifier"].nil?
 						ok = false
 						MU.log "Using existing database (or snapshot thereof), but no identifier given", MU::ERR
 					end
@@ -2116,7 +2116,7 @@ module MU
 				"maxItems" => 100,
 				"items" => {
 					"type" => "object",
-					"required" => ["target", "type", "name"],
+					"required" => ["target", "type"],
 					"additionalProperties" => false,
 					"description" => "DNS records to create. If specified inside another resource (e.g. {MU::Config::BasketofKittens::servers}, {MU::Config::BasketofKittens::loadbalancers}, or {MU::Config::BasketofKittens::databases}), the record(s) will automatically target that resource.",
 					"properties" => {
@@ -2158,7 +2158,7 @@ module MU
 							"description" => "The value of this record. Must be valid for the 'type' field, e.g. A records must point to an IP address.",
 						},
 						"name" => {
-							"description" => "DNS name of this record",
+							"description" => "Name of the record to create. If not specified, will default to the Mu resource name.",
 							"type" => "string",
 							"pattern" => "^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$"
 						},
@@ -2357,34 +2357,33 @@ module MU
 						"value_is" => "windows",
 						"set" => "Administrator"
 					},
-					"default_if" => {
+					{
 						"key_is" => "platform",
 						"value_is" => "win2k12",
 						"set" => "Administrator"
 					},
-					"default_if" => {
+					{
 						"key_is" => "platform",
 						"value_is" => "win2k12r2",
 						"set" => "Administrator"
 					},
-					"default_if" => {
+					{
 						"key_is" => "platform",
 						"value_is" => "ubuntu",
 						"set" => "ubuntu"
 					},
-					"default_if" => {
+					{
 						"key_is" => "platform",
 						"value_is" => "ubuntu14",
 						"set" => "ubuntu"
 					},
-					"default_if" => {
+					{
 						"key_is" => "platform",
 						"value_is" => "centos7",
 						"set" => "centos"
 					}
 				]
 			},
-			"winrm_user" => { "type" => "string" },
 			"never_generate_admin_password" => {
 				"type" => "boolean",
 				"default" => false
