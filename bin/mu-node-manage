@@ -111,7 +111,7 @@ def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [])
 			server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
 			next if nodes.size > 0 and !nodes.include?(nodename)
 
-			instance = MU.ec2.describe_instances(instance_ids: [id]).reservations.first.instances.first
+			instance = MU.ec2(server['region']).describe_instances(instance_ids: [id]).reservations.first.instances.first
 
 			mytype = "server"
 			mytype = "server_pool" if server['conf'].has_key?("basis") or server['conf']['#TYPENAME'] == "ServerPool" or server['conf']["#MU_CLASS"] == "MU::ServerPool"
@@ -283,14 +283,14 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
 		# us to do so.
 		mommacat.listNodes.each_pair { |nodename, server|
 			id = server['instance_id']
-			desc = MU.ec2.describe_instances(instance_ids: [id]).reservations.first.instances.first
+			desc = MU.ec2(server['region']).describe_instances(instance_ids: [id]).reservations.first.instances.first
 	
 			server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
 			next if nodes.size > 0 and !nodes.include?(nodename)
 
 			mytype = "server"
 			mytype = "server_pool" if server['conf'].has_key?("basis") or server['conf']['#TYPENAME'] == "ServerPool" or server['conf']["#MU_CLASS"] == "MU::ServerPool"
-			olduserdata = Base64.decode64(MU.ec2.describe_instance_attribute(
+			olduserdata = Base64.decode64(MU.ec2(server['region']).describe_instance_attribute(
 				instance_id: id,
 				attribute: "userData"
 			).user_data.value)
@@ -325,7 +325,7 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
 
 			MU.log "Updating #{nodename} userdata (#{server["conf"]["platform"]})"
 
-			MU.ec2.modify_instance_attribute(
+			MU.ec2(server['region']).modify_instance_attribute(
 				instance_id: id,
 				attribute: "userData",
 				value: Base64.encode64(userdata)
