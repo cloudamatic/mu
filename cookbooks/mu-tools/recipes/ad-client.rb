@@ -222,6 +222,52 @@ case node[:platform]
 			end
 		end rescue NoMethodError
 
+#node.windows_admin_username
+
+		# sshd service user change over to domain user
+#		service "sshd" do
+#			action :nothing
+#		end
+#
+#		execute "sc start sshd" do
+#			action :nothing
+#		end
+#		execute "sc stop sshd" do
+#			action :nothing
+#			notifies :run, "execute[sc start sshd]", :immediately
+#		end
+#
+#		batch "Change local ssh service user account to domain account" do
+#			code "sc config sshd obj= \"femadata\\#{$ssh_svc_ad_usr}\" password= \"#{$ssh_svc_ad_pwd}\""
+#			not_if "sc qc sshd | grep SERVICE_START_NAME | grep femadata\\\\#{$ssh_svc_ad_usr}"
+#			notifies :run, "execute[sc stop sshd]", :delayed
+#			sensitive true
+#			end
+#		end
+
+# Run userdata as a domain admin user, too
+#		cookbook_file "#{Chef::Config[:file_cache_path]}/run-userdata_scheduledtask.xml" do
+#			source 'run-userdata_scheduledtask.xml'
+#		end
+
+#		powershell_script "Import run-userdata scheduled task" do
+#			guard_interpreter :powershell_script
+#			code "Register-ScheduledTask -Xml (get-content '#{Chef::Config[:file_cache_path]}/run-userdata_scheduledtask.xml' | out-string) -TaskName 'run-userdata' -User #{$ad_admin_usr} -Password '#{$ad_admin_pwd}' -Force"
+#			not_if "Get-ScheduledTask -TaskName 'run-userdata'"
+#			#(Get-ScheduledTask -TaskName 'run-userdata').TaskName -eq 'run-userdata'
+#		end
+
+		# Will allow remote users to get around UAC. Used for remote configuration
+		registry_key 'HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System' do
+			values [{
+				:name => 'LocalAccountTokenFilterPolicy',
+				:type => :dword,
+				:data => '1'
+			}]
+			action :create
+			recursive true
+		end
+
 	else
 		log "#{node[:platform]} not supported"
 end

@@ -217,6 +217,11 @@ module MU
 				database = MU::Database.getDatabaseById(@db['identifier'], region: @db['region'])
 
 				MU::DNSZone.genericDNSEntry(database.db_instance_identifier, "#{database.endpoint.address}.", MU::Database, sync_wait: @db['dns_sync_wait'])
+				if !@db['dns_records'].nil?
+					@db['dns_records'].each { |dnsrec|
+						dnsrec['name'] = database.db_instance_identifier.downcase if !dnsrec.has_key?('name')
+					}
+				end
 				MU::DNSZone.createRecordsFromConfig(@db['dns_records'], target: database.endpoint.address)
 
 				# When creating from a snapshot, some of the create arguments aren't
@@ -804,7 +809,12 @@ module MU
 
 				database = MU::Database.getDatabaseById(@db['read_replica']['identifier'], region: @db['region'])
 
-				MU::DNSZone.genericDNSEntry(database.db_instance_identifier, "#{database.endpoint.address}.", MU::Database, sync_wait: @db['read_replica']['dns_sync_wait'])
+				MU::DNSZone.genericDNSEntry(@db['read_replica']['identifier'], "#{database.endpoint.address}.", MU::Database, sync_wait: @db['read_replica']['dns_sync_wait'])
+				if !@db['read_replica']['dns_records'].nil?
+					@db['read_replica']['dns_records'].each { |dnsrec|
+						dnsrec['name'] = @db['read_replica']['identifier'].downcase if !dnsrec.has_key?('name')
+					}
+				end
 				MU::DNSZone.createRecordsFromConfig(@db['read_replica']['dns_records'], target: database.endpoint.address)
 
 				MU::Database.notifyDeploy(@db['read_replica']['name'], @db['read_replica']['identifier'], @db['password'], "read_replica", region: @db['read_replica']['region'])
