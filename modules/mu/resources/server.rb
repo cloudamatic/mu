@@ -956,7 +956,11 @@ module MU
 			# Make an initial connection with SSH to see if this host is ready to
 			# have Chef inflicted on it. Also run some prep.
 			ssh_wait = 15 
-			ssh_wait = 60 if %w{win2k12r2 win2k12 windows}.include? server['platform']
+			max_retries = 15
+			if %w{win2k12r2 win2k12 windows}.include? server['platform']
+				ssh_wait = 60
+				max_retries = 25
+			end
 		  begin
 				Thread.abort_on_exception = false
 				loglevel = MU::DEBUG
@@ -965,14 +969,14 @@ module MU
 				initialSshTasks(ssh, server)
 		  rescue MU::BootstrapTempFail, SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, Net::SSH::Disconnect => e
 				loglevel = MU::DEBUG
-				if (ssh_retries % 3 == 0 and ssh_retries > 0) or e.class.name == "MU::BootstrapTempFail"
+				if ssh_retries % 3 == 0 or e.class.name == "MU::BootstrapTempFail"
 					loglevel = MU::NOTICE
 				end
-
-		    MU.log "SSH Retry #{ssh_retries} for #{node}, waiting before trying again. (#{e.inspect})", loglevel
 		    ssh_retries += 1
-		    sleep ssh_wait
-		    if ssh_retries <= 15
+
+		    if ssh_retries <= max_retries
+					MU.log "SSH attempt ##{ssh_retries} of #{max_retries} for #{node} got #{e.inspect}, waiting #{ssh_wait}s before trying again.", loglevel
+					sleep ssh_wait
 		      retry
 		    else
 					MU.log "Too many authentication/connection failures bootstrapping #{node}.", MU::ERR
