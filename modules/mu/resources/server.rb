@@ -47,6 +47,11 @@ module MU
 	class BootstrapTempFail < StandardError
 	end
 
+	# An exception denoting a Chef run that has failed, but could potentially
+	# be successful on a subsequent run.
+	class ChefRunFail < StandardError
+	end
+
 	# A server as configured in {MU::Config::BasketofKittens::servers}
 	class Server
 		# The {MU::Config::BasketofKittens} name for a single resource of this class.
@@ -144,6 +149,7 @@ module MU
 					"muID" => MU.mu_id,
 					"muUser" => MU.chef_user,
 					"publicIP" => MU.mu_public_ip,
+					"skipApplyUpdates" => @server['skipinitialupdates'],
 					"resourceName" => @server["name"],
 					"resourceType" => "server"
 				},
@@ -242,47 +248,6 @@ module MU
 			end
 		end
 		
-		# Add a role or recipe to a node. Optionally, throw a fit if it doesn't exist.
-		# @param node [String]: The node (Chef name) of the node to modify.
-		# @param rl_entry [String]: The run-list entry to add.
-		# @param type [String]: One of *role* or *recipe*.
-		# @param ignore_missing [Boolean]: If set to true, will merely warn about missing recipes/roles instead of throwing an exception.
-		# @return [void]
-		def knife_add(node, rl_entry, type="role", ignore_missing=false)
-			return MU::Server.knife_add(node, rl_entry, type, ignore_missing)
-		end
-		# (see #knife_add)
-		def self.knife_add(node, rl_entry, type="role", ignore_missing=false)
-		  return if rl_entry.nil?
-		
-		  # Rather than argue about whether to expect a bare rl_entry name or require
-		  # rl_entry[rolename], let's just accomodate.
-		  if rl_entry.match(/^role\[(.+?)\]/) then
-			  type = "role"
-		    rl_entry = Regexp.last_match(1)
-		    query=%Q{#{MU::Config.knife} role show #{rl_entry}};
-		  elsif rl_entry.match(/^recipe\[(.+?)\]/) then
-			  type = "recipe"
-		    rl_entry = Regexp.last_match(1)
-		    query=%Q{#{MU::Config.knife} recipe list | grep '^#{rl_entry}$'};
-		  end
-		
-			%x{#{query}}
-		  if $? != 0 then
-		    raise "Attempted to add non-existing #{type} #{rl_entry}" if !ignore_missing
-		  end
-		
-		
-		  begin
-		    query=%Q{#{MU::Config.knife} node run_list add #{node} "#{type}[#{rl_entry}]"};
-				MU.log("Adding #{type} #{rl_entry} to #{node}")
-				MU.log("Running #{query}", MU::DEBUG)
-		    output=%x{#{query}}
-		# XXX rescue Exception is bad style
-		  rescue Exception => e
-		    raise "FAIL: #{MU::Config.knife} node run_list add #{node} \"#{type}[#{rl_entry}]\": #{e.message} (output was #{output})"
-		  end
-		end
 
 		# Called automatically by {MU::Deploy#createResources}
 		def create
@@ -628,9 +593,7 @@ module MU
 			win_env_fix = %q{echo 'export PATH="$PATH:/cygdrive/c/opscode/chef/embedded/bin"' > "$HOME/chef-client"; echo 'prev_dir="`pwd`"; for __dir in /proc/registry/HKEY_LOCAL_MACHINE/SYSTEM/CurrentControlSet/Control/Session\ Manager/Environment;do cd "$__dir"; for __var in `ls * | grep -v TEMP | grep -v TMP`;do __var=`echo $__var | tr "[a-z]" "[A-Z]"`; test -z "${!__var}" && export $__var="`cat $__var`" >/dev/null 2>&1; done; done; cd "$prev_dir"; /cygdrive/c/opscode/chef/bin/chef-client.bat $@' >> "$HOME/chef-client"; chmod 700 "$HOME/chef-client"; ( grep "^alias chef-client=" "$HOME/.bashrc" || echo 'alias chef-client="$HOME/chef-client"' >> "$HOME/.bashrc" ) ; ( grep "^alias mu-groom=" "$HOME/.bashrc" || echo 'alias mu-groom="powershell -File \"c:/Program Files/Amazon/Ec2ConfigService/Scripts/UserScript.ps1\""' >> "$HOME/.bashrc" )}
 #				end
 			win_installer_check = %q{ls /proc/registry/HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows/CurrentVersion/Installer/}
-			win_run_updates = %q{powershell -Command "& {Import-Module PSWindowsUpdate; Get-WUInstall -AcceptAll}"}
 			win_set_hostname = %Q{powershell -Command "& {Rename-Computer -NewName "#{server['mu_windows_name']}" -Force -PassThru -Restart}"}
-			win_reboot_after_updates = %Q{powershell -Command "& {If (Test-Path HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired){ Restart-Computer -Force }}"}
 			# We sometimes get a machine that's already been integrated into AD, and
 			# thus needs domain creds to rename. Use 'em if we have 'em.
 			win_set_hostname_ad = nil
@@ -655,24 +618,11 @@ module MU
 				if output.match(/InProgress/)
 					raise MU::BootstrapTempFail, "Windows Installer service is still doing something, need to wait"
 				end
-				just_ran_updates = false
-				if !server['ran_windows_updates'] and !server['skipinitialupdates']
-					MU.log "Running #{win_run_updates}, this may take a very long time..."
-					ssh.exec!(win_run_updates)
-					server['ran_windows_updates'] = true
-					just_ran_updates = true
-				end
-				# ...at least try to cram in the setting of the hostname before updates
-				# reboot us
 				if !server['hostname_set'] and !server['mu_windows_name'].nil?
 					ssh.exec!(win_set_hostname)
 					ssh.exec!(win_set_hostname_ad) if !win_set_hostname_ad.nil?
 					server['hostname_set'] = true
 					raise MU::BootstrapTempFail, "Setting hostname to #{server['mu_windows_name']}, possibly rebooting"
-				end
-				if just_ran_updates
-					ssh.exec!(win_reboot_after_updates)
-					raise MU::BootstrapTempFail, "Just completed Windows Updates, possibly rebooting"
 				end
 				# if !server['password_set'] and !server['winpass'].nil?
 					# ssh.exec!(win_set_password)
@@ -741,6 +691,7 @@ module MU
 			# Unless we're planning on associating a different IP later, set up a 
 			# DNS entry for this thing and let it sync in the background. We'll come
 			# back to it later.
+			dnsthread = nil
 			if server['static_ip'].nil?
 				parent_thread_id = Thread.current.object_id
 				dnsthread = Thread.new {
@@ -797,8 +748,8 @@ module MU
 				raise "deploy failure"
 			end
 
-			nat_ssh_key, nat_ssh_user, nat_ssh_host = getNodeSSHProxy(server)
-			if nat_ssh_host != nil
+			nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::Server.getNodeSSHProxy(server)
+			if !nat_ssh_host.nil? and !MU::VPC.haveRouteToInstance?(instance.instance_id)
 				MU.log "Connecting to #{node} through NAT instance #{nat_ssh_host}", MU::NOTICE
 			end
 
@@ -818,9 +769,9 @@ module MU
 					MU.log "NAT proxy #{nat_ssh_host} ssh key #{ssh_keydir}/#{nat_ssh_key} does not exist", MU::ERR
 					raise "deploy failure"
 				end
-				if is_private and !nat_ssh_host
-					MU.log "#{node} is in a private subnet, but has no NAT host configured", MU::ERR
-					raise "deploy failure"
+				if is_private and !nat_ssh_host and !MU::VPC.haveRouteToInstance?(instance.instance_id)
+					MU.log "#{node} is in a private subnet, but has no NAT host configured, and I have no other route to it", MU::ERR
+					raise "#{node} is in a private subnet, but has no NAT host configured, and I have no other route to it"
 				end
 
 				# If we've asked for additional subnets (and this server is not a
@@ -895,78 +846,33 @@ module MU
 				MU::Server.notifyDeploy(server["name"], instance.instance_id, server, region: server['region'])
 			end
 
-		  MU.log("EC2 instance #{node} has id #{instance.instance_id}", MU::DEBUG)
+		  MU.log "EC2 instance #{node} has id #{instance.instance_id}", MU::DEBUG
 
 			instance, mu_name = MU::Server.find(id: instance.instance_id, region: server['region'])
 
-			if dnsthread.nil?
-				if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
-					MU::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Server, sync_wait: server['dns_sync_wait'])
-				else
-					MU::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Server, sync_wait: server['dns_sync_wait'])
-				end
-			else
-				dnsthread.join
+			if !server['dns_records'].nil?
+				server['dns_records'].each { |dnsrec|
+					dnsrec['name'] = node.downcase if !dnsrec.has_key?('name')
+				}
 			end
-
 			if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
 				MU::DNSZone.createRecordsFromConfig(server['dns_records'], target: instance.public_dns_name)
 			else
 				MU::DNSZone.createRecordsFromConfig(server['dns_records'], target: instance.private_ip_address)
 			end
 
-			ssh_timeout = 0 # meaning, use the default
-			ssh_timeout = 150 if %w{win2k12r2 win2k12 windows}.include? server['platform']
-
-			MU::MommaCat.removeHostFromSSHConfig(node)
-			if !server["vpc"].nil?
-				if MU::VPC.haveRouteToInstance?(instance.instance_id)
-					MU::MommaCat.addHostToSSHConfig(
-						node,
-						instance.private_ip_address,
-						instance.private_dns_name,
-						user: node_ssh_user,
-						public_dns: instance.public_dns_name,
-						public_ip: instance.public_ip_address,
-						key_name: node_ssh_key,
-						timeout: ssh_timeout
-					)
-				elsif is_private
-					MU::MommaCat.addHostToSSHConfig(
-						node,
-						instance.private_ip_address,
-						instance.private_dns_name,
-						user: node_ssh_user,
-						gateway_ip: nat_ssh_host,
-						gateway_user: nat_ssh_user,
-						key_name: node_ssh_key,
-						timeout: ssh_timeout
-					)
-				else
-					MU::MommaCat.addHostToSSHConfig(
-						node,
-						instance.private_ip_address,
-						instance.private_dns_name,
-						public_dns: instance.public_dns_name,
-						public_ip: instance.public_ip_address,
-						user: node_ssh_user,
-						key_name: node_ssh_key,
-						gateway_user: nat_ssh_user,
-						gateway_ip: nat_ssh_host,
-						timeout: ssh_timeout
-					)
-				end
-			else
-				MU::MommaCat.addHostToSSHConfig(
-					node,
-					instance.private_ip_address,
-					instance.private_dns_name,
-					user: node_ssh_user,
-					public_dns: instance.public_dns_name,
-					public_ip: instance.public_ip_address,
-					key_name: node_ssh_key,
-					timeout: ssh_timeout
-				)
+			# If we haven't already, set a platform-mu DNS entry for this guy. It
+			# can sync in the background until we're done with knife bootstrap.
+			if dnsthread.nil?
+				parent_thread_id = Thread.current.object_id
+				dnsthread = Thread.new {
+					MU.dupGlobals(parent_thread_id)
+					if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
+						MU::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Server, sync_wait: sync_wait)
+					else
+						MU::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Server, sync_wait: sync_wait)
+					end
+				}
 			end
 
 			server["private_dns_name"] = instance.private_dns_name
@@ -1014,7 +920,7 @@ module MU
 				retry
 			end
 
-		  ssh_retries=0;
+		  ssh_retries=0
 			canonical_name = instance.public_dns_name
 			canonical_name = instance.private_dns_name if !canonical_name or nat_ssh_host != nil
 			server['canonical_name'] = canonical_name
@@ -1047,58 +953,26 @@ module MU
 				MU::Server.notifyDeploy(server["name"], instance.instance_id, server, region: server['region'])
 			end
 
+			# Make an initial connection with SSH to see if this host is ready to
+			# have Chef inflicted on it. Also run some prep.
+			ssh_wait = 15 
+			ssh_wait = 60 if %w{win2k12r2 win2k12 windows}.include? server['platform']
 		  begin
-				loglevel = MU::DEBUG
 				Thread.abort_on_exception = false
-				if !nat_ssh_host.nil? and !MU::VPC.haveRouteToInstance?(instance.instance_id)
-					proxy_cmd = "ssh -q -o StrictHostKeyChecking=no -W %h:%p #{nat_ssh_user}@#{nat_ssh_host}"
-					MU.log "Attempting SSH to #{node} (#{canonical_ip}) as #{node_ssh_user} with key #{node_ssh_key} using proxy '#{proxy_cmd}'", loglevel
-						proxy = Net::SSH::Proxy::Command.new(proxy_cmd)
-						Net::SSH.start(
-								canonical_ip,
-								node_ssh_user,
-								:config => false, 
-#								:timeout => ssh_timeout,
-								:keys_only => true,
-								:keys => [ssh_keydir+"/"+nat_ssh_key, ssh_keydir+"/"+node_ssh_key],
-								:paranoid => false,
-#								:verbose => :info,
-								:port => 22,
-								:auth_methods => ['publickey'],
-								:proxy => proxy
-							) { |ssh|
-								initialSshTasks(ssh, server)
-						}
-				else
-					MU.log "Attempting SSH to #{node} (#{canonical_ip}) as #{node_ssh_user} with key #{ssh_keydir}/#{node_ssh_key}", loglevel
-						Net::SSH.start(
-							canonical_ip,
-							node_ssh_user,
-							:config => false, 
-#							:timeout => ssh_timeout,
-							:keys_only => true,
-							:keys => [ssh_keydir+"/"+node_ssh_key],
-							:paranoid => false,
-#							:verbose => :info,
-							:port => 22,
-							:auth_methods => ['publickey']
-						) { |ssh|
-							initialSshTasks(ssh, server)
-						}
-		    end
-		  rescue Net::SSH::HostKeyMismatch => e
-		    MU.log("Remembering new key: #{e.fingerprint}")
-		    e.remember_host!
-		    retry
+				loglevel = MU::DEBUG
+				loglevel = MU::NOTICE if (ssh_retries % 3 == 0)
+				ssh = MU::Server.getSSHSession(server, node_ssh_key, loglevel)
+				initialSshTasks(ssh, server)
 		  rescue MU::BootstrapTempFail, SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, Net::SSH::Disconnect => e
+				loglevel = MU::DEBUG
 				if (ssh_retries % 3 == 0 and ssh_retries > 0) or e.class.name == "MU::BootstrapTempFail"
 					loglevel = MU::NOTICE
 				end
 
 		    MU.log "SSH Retry #{ssh_retries} for #{node}, waiting before trying again. (#{e.inspect})", loglevel
 		    ssh_retries += 1
-		    sleep 30
-		    if ssh_retries <= 30
+		    sleep ssh_wait
+		    if ssh_retries <= 15
 		      retry
 		    else
 					MU.log "Too many authentication/connection failures bootstrapping #{node}.", MU::ERR
@@ -1126,7 +1000,6 @@ module MU
 			require 'chef/knife/bootstrap'
 			require 'chef/knife/core/bootstrap_context'
 			require 'chef/knife/bootstrap_windows_ssh'
-			require 'chef/knife/bootstrap_windows_winrm'
 
 			json_attribs = {}
 			if !server['application_attributes'].nil?
@@ -1145,9 +1018,6 @@ module MU
 		    kb.config[:node_ssl_verify_mode] = 'none'
 		    kb.config[:node_verify_api_cert] = false
 		  end
-			if !server['skipinitialupdates']
-				run_list << "recipe[mu-tools::updates]"
-			end
 			if json_attribs.size > 1
 				kb.config[:json_attribs] = JSON.generate(json_attribs)
 			end
@@ -1183,7 +1053,7 @@ module MU
 				Timeout::timeout(600) {	
 				  kb.run
 				}
-			rescue IOError, SystemExit, Timeout::Error, SocketError, Net::HTTPServerException => e
+			rescue Net::SSH::Disconnect, Errno::EPIPE, IOError, SystemExit, Timeout::Error, SocketError, Net::HTTPServerException => e
 				if retries < 10
 					retries = retries + 1
 					MU.log "#{node}: Knife Bootstrap failed #{e.inspect}, retrying (#{retries} of 10)", MU::WARN
@@ -1193,6 +1063,56 @@ module MU
 					raise e
 				end
 			end
+
+			dnsthread.join if !dnsthread.nil?
+
+			MU::MommaCat.removeHostFromSSHConfig(node)
+			if !server["vpc"].nil?
+				if MU::VPC.haveRouteToInstance?(instance.instance_id)
+					MU::MommaCat.addHostToSSHConfig(
+						node,
+						instance.private_ip_address,
+						instance.private_dns_name,
+						user: node_ssh_user,
+						public_dns: instance.public_dns_name,
+						public_ip: instance.public_ip_address,
+						key_name: node_ssh_key
+					)
+				elsif is_private
+					MU::MommaCat.addHostToSSHConfig(
+						node,
+						instance.private_ip_address,
+						instance.private_dns_name,
+						user: node_ssh_user,
+						gateway_ip: nat_ssh_host,
+						gateway_user: nat_ssh_user,
+						key_name: node_ssh_key,
+					)
+				else
+					MU::MommaCat.addHostToSSHConfig(
+						node,
+						instance.private_ip_address,
+						instance.private_dns_name,
+						public_dns: instance.public_dns_name,
+						public_ip: instance.public_ip_address,
+						user: node_ssh_user,
+						key_name: node_ssh_key,
+						gateway_user: nat_ssh_user,
+						gateway_ip: nat_ssh_host,
+					)
+				end
+			else
+				MU::MommaCat.addHostToSSHConfig(
+					node,
+					instance.private_ip_address,
+					instance.private_dns_name,
+					user: node_ssh_user,
+					public_dns: instance.public_dns_name,
+					public_ip: instance.public_ip_address,
+					key_name: node_ssh_key
+				)
+			end
+
 
 			# Manufacture a generic SSL certificate, signed by the Mu server, for
 			# consumption by various node services (Apache, Splunk, etc).
@@ -1246,7 +1166,6 @@ module MU
 
 			cert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/#{node}.crt"
 
-
 			# Upload the certificate to a Chef Vault for this node
 			vault_cmd = "#{MU::Config.knife} vault create #{node} ssl_cert '{ \"data\": { \"node.crt\":\"#{cert.to_pem.chomp!.gsub(/\n/, "\\n")}\", \"node.key\":\"#{key.to_pem.chomp!.gsub(/\n/, "\\n")}\" } }' #{MU::Config.vault_opts} --search name:#{node}"
 			MU.log vault_cmd, MU::DEBUG
@@ -1274,30 +1193,12 @@ module MU
 				end
 			}
 
+
 			# Join this node to its Active Directory domain, if applicable. This will
 			# trigger a reboot on Windows nodes, because what doesn't?
 			if !server['active_directory'].nil?
-				knife_add(node, "recipe[mu-tools::ad-client]");
-				Chef::Config[:ssh_user] = server["ssh_user"]
-				Chef::Config[:identity_file] = ssh_keydir+"/"+node_ssh_key
-				Chef::Config[:manual] = true
-				knife = Chef::Knife::Ssh.new([node, "chef-client"])
-				if server["platform"] != "windows" and server['platform'] != "win2k12" and server['platform'] != "win2k12r2"
-					if !server["ssh_user"].nil? and !server["ssh_user"].empty? and server["ssh_user"] != "root"
-						knife_args = ["ssh", '-m', node, '-x', server["ssh_user"], 'sudo chef-client' ]  
-					else
-						knife_args = ['ssh', '-m', node, '-x', server["ssh_user"], 'chef-client' ]  
-					end
-				else
-					knife_args = ['ssh', '-m', node, '$HOME/chef-client' ]  
-				end
-
-				begin
-					# Run list will already have mu-tools::ad-client in it.
-					Chef::Knife.run(knife_args)
-				rescue SystemExit => e
-					MU.log "#{node}: Chef run to join to Active Directory failed: #{e.inspect}", MU::ERR, details: server['active_directory']
-				end
+				MU::Server.knifeAddToRunList(node, "recipe[mu-tools::ad-client]");
+				MU::Server.runChef(node, server, node_ssh_key, "Join Active Directory")
 			end
 
 			MU::MommaCat.unlock(instance.instance_id+"-deploy")
@@ -1325,7 +1226,7 @@ module MU
 			# If AD integration has been requested for this node, give Chef what it'll
 			# need for mu-tools::ad-client to work.
 			if !server['active_directory'].nil?
-				chef_node.normal.ad.computer = server['mu_windows_name']
+				chef_node.normal.ad.computer_name = server['mu_windows_name']
 				chef_node.normal.ad.node_class = server['name']
 				chef_node.normal.ad.domain_name = server['active_directory']['domain_name']
 				chef_node.normal.ad.netbios_name = server['active_directory']['short_domain_name']
@@ -1705,7 +1606,7 @@ module MU
 			Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}/organizations/#{MU.chef_user}"
 			Chef::Config[:environment] = environment
 
-			nat_ssh_key, nat_ssh_user, nat_ssh_host = getNodeSSHProxy(server)
+			nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::Server.getNodeSSHProxy(server)
 			admin_sg = MU::Server.punchAdminNAT(server, node)
 
 			ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
@@ -1750,7 +1651,7 @@ module MU
 
 				if !server["run_list"].nil?
 					server["run_list"].each do |rl_entry|
-						knife_add(node, rl_entry);
+						MU::Server.knifeAddToRunList(node, rl_entry);
 					end
 				end
 
@@ -1792,55 +1693,14 @@ module MU
 				end
 			end
 
-
-		  MU.log "Initiating full Chef client run on #{node}"
-
-			Chef::Config[:ssh_user] = server["ssh_user"]
-			Chef::Config[:identity_file] = ssh_keydir+"/"+keypairname
-			Chef::Config[:manual] = true
-			knife = Chef::Knife::Ssh.new([node, "chef-client"])
-	    if server["platform"] != "windows" and server['platform'] != "win2k12" and server['platform'] != "win2k12r2"
-				if !server["ssh_user"].nil? and !server["ssh_user"].empty? and server["ssh_user"] != "root" and server["ssh_user"] != "Administrator"
-					knife_args = ["ssh", '-m', node, '-x', server["ssh_user"], 'sudo chef-client' ]  
-				else
-					knife_args = ['ssh', '-m', node, '-x', server["ssh_user"], 'chef-client' ]  
-				end
-	    else
-				knife_args = ['ssh', '-m', node, '$HOME/chef-client' ]  
-	    end
-
-			require 'chef/knife'
-			require 'chef/knife/ssh'
-			require 'chef/knife/bootstrap'
-			require 'chef/knife/core/bootstrap_context'
-			require 'chef/knife/bootstrap_windows_ssh'
-			require 'chef/knife/bootstrap_windows_winrm'
-
-			retries = 0
-			max_retries = 2
-			# Windows machines often reboot in mid run with the expectation of
-			# another when they come back up, Let's at least try to accommodate them.
-			max_retries = 5 if %w{win2k12r2 win2k12 windows}.include? server['platform']
 			begin
-				MU.log "Invoking knife with args #{knife_args}", MU::DEBUG
-				if !chef_rerun_only
-					MU::MommaCat.syncSiblings(server["name"], true, triggering_node: node)
-					saveDeploymentToChef(node) if !server['sync_siblings']
-				end
-#MU.log "Invoking knife with args #{knife_args}", MU::WARN
-#pp ENV
-				Chef::Knife.run(knife_args, {})
-#				knife.run
-			rescue SystemExit, Errno::ETIMEDOUT => e
-				if retries < max_retries
-					retries = retries + 1
-					sleep 15
-					sleep 60 if %w{win2k12r2 win2k12 windows}.include? server['platform']
-					MU.log "#{node} Initial Chef run threw #{e.inspect}, retrying (#{retries}/#{max_retries})", MU::WARN
-					retry
-				end
-				MU.log "#{node} Initial Chef run threw #{e.inspect}, retries exhausted", MU::ERR, details: e.backtrace
-				MU.log "Deploy will continue, but #{node} may be confused", MU::WARN
+				MU::Server.runChef(node, server, keypairname, "Full Initial Run")
+			rescue MU::ChefRunFail
+				MU.log "Proceeding after failed initial Chef run, but #{node} may not behave as expected!", MU::WARN
+			end
+			if !chef_rerun_only
+				MU::MommaCat.syncSiblings(server["name"], true, triggering_node: node)
+				saveDeploymentToChef(node) if !server['sync_siblings']
 			end
 
 
@@ -1856,11 +1716,12 @@ module MU
 
 			if server['create_ami'] and !chef_rerun_only
 				if server['image_then_destroy']
+					# XXX ugh, man, this is incomplete
 					knife_args = ['ssh', '-m', node, "rm -rf /etc/chef /root/.ssh/authorized_keys ; sed -i 's/^HOSTNAME=.*//' /etc/sysconfig/network"]
 					begin
 						Chef::Knife.run(knife_args, {})
 					rescue SystemExit => e
-						MU.log "Error setting Administrator password: #{e.message}", MU::ERR, details: e.backtrace
+						MU.log "Error scouring #{node} for AMI generation: #{e.message}", MU::ERR, details: e.backtrace
 					end
 				end
 				ami_id = MU::Server.createImage(name: name = server['name'],
@@ -2092,7 +1953,7 @@ module MU
 						addr = resp.addresses.first
 					end while resp.addresses.size < 1 or addr.public_ip.nil?
 				rescue NoMethodError
-					MU.log "EIP descriptor came back without a public_ip attribute for #{new_ip}, waiting and retrying", MU::WARN
+					MU.log "EIP descriptor came back without a public_ip attribute for #{new_ip}, retrying", MU::WARN
 					sleep 5
 					retry
 				end
@@ -2159,7 +2020,7 @@ module MU
 			rescue Aws::EC2::Errors::IncorrectInstanceState => e
 				attempts = attempts + 1
 				if attempts < 6
-					MU.log "Got #{e.message} associating #{elastic_ip.allocation_id} with #{instance_id}, waiting and retrying", MU::WARN
+					MU.log "Got #{e.message} associating #{elastic_ip.allocation_id} with #{instance_id}, retrying", MU::WARN
 					sleep 5
 					retry
 				end
@@ -2193,6 +2054,153 @@ module MU
 
 			return elastic_ip.public_ip
 		end  
+
+		private
+
+		def self.runChef(nodename, server, keyname, purpose = "Chef run", max_retries = 5)
+			nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::Server.getNodeSSHProxy(server)
+			MU.log "Invoking Chef on #{nodename}: #{purpose}"
+			retries = 0
+			output = []
+			error_signal = "CHEF EXITED BADLY: "+(0...25).map { ('a'..'z').to_a[rand(26)] }.join
+			begin
+				ssh = MU::Server.getSSHSession(server, keyname)
+				cmd = nil
+				if server["platform"] != "windows" and
+					 server['platform'] != "win2k12" and
+					 server['platform'] != "win2k12r2"
+					if !server["ssh_user"].nil? and
+						 !server["ssh_user"].empty? and
+						 server["ssh_user"] != "root"
+						cmd = "sudo chef-client --color || echo #{error_signal}"
+					else
+						cmd = "chef-client --color || echo #{error_signal}"
+					end
+				else
+					cmd = "$HOME/chef-client --color || echo #{error_signal}"
+				end
+				retval = ssh.exec!(cmd) { |ch, stream, data|
+#					if stream == :stderr
+					puts data
+					output << data
+					if data.match(/#{error_signal}/)
+						raise MU::ChefRunFail, output.grep(/ ERROR: /).last
+					end
+				}
+
+		  rescue Net::SSH::HostKeyMismatch => e
+		    MU.log("Remembering new key: #{e.fingerprint}")
+		    e.remember_host!
+				ssh.close
+		    retry
+		  rescue SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, Net::SSH::Disconnect => e
+				ssh.close if !ssh.nil?
+				if retries < max_retries
+					retries = retries + 1
+					MU.log "#{nodename}: #{e.inspect} trying to connect for Chef run '#{purpose}", MU::WARN
+					sleep 30
+					retry
+				else
+					MU.log "#{nodename}: #{e.inspect} trying to connect for Chef run '#{purpose}", MU::ERR
+					raise "#{nodename}: #{e.inspect} trying to connect for Chef run '#{purpose}"
+				end
+		  rescue MU::ChefRunFail => e
+				ssh.close if !ssh.nil?
+				if retries < max_retries
+					retries = retries + 1
+					MU.log "#{nodename}: Chef run '#{purpose}' failed, retrying", MU::WARN, details: e.message
+					sleep 10
+					retry
+				else
+					MU.log "#{nodename}: Chef run '#{purpose}' failed #{max_retries} times", MU::ERR, details: e.message
+					raise e
+				end
+			end
+		end
+
+		# @param server [Hash]:
+		# @param node_ssh_key [String]:
+		# @return [Net::SSH::Connection::Session]
+		def self.getSSHSession(server, node_ssh_key, loglevel = MU::NOTICE)
+			ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
+			nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::Server.getNodeSSHProxy(server)
+			session = nil
+			begin
+				if !nat_ssh_host.nil? and !MU::VPC.haveRouteToInstance?(server['instance_id'])
+					proxy_cmd = "ssh -q -o StrictHostKeyChecking=no -W %h:%p #{nat_ssh_user}@#{nat_ssh_host}"
+					MU.log "Attempting SSH to #{node} (#{server['canonical_ip']}) as #{server['ssh_user']} with key #{node_ssh_key} using proxy '#{proxy_cmd}'", loglevel
+						proxy = Net::SSH::Proxy::Command.new(proxy_cmd)
+						session = Net::SSH.start(
+								server['canonical_ip'],
+								server['ssh_user'],
+								:config => false, 
+								:keys_only => true,
+								:keys => [ssh_keydir+"/"+nat_ssh_key, ssh_keydir+"/"+node_ssh_key],
+								:paranoid => false,
+	#							:verbose => :info,
+								:port => 22,
+								:auth_methods => ['publickey'],
+								:proxy => proxy
+							)
+				else
+					MU.log "Attempting SSH to #{server['canonical_ip']} as #{server['ssh_user']} with key #{ssh_keydir}/#{node_ssh_key}", loglevel
+						session = Net::SSH.start(
+							server['canonical_ip'],
+							server['ssh_user'],
+							:config => false, 
+							:keys_only => true,
+							:keys => [ssh_keydir+"/"+node_ssh_key],
+							:paranoid => false,
+	#						:verbose => :info,
+							:port => 22,
+							:auth_methods => ['publickey']
+						)
+		    end
+			  rescue Net::SSH::HostKeyMismatch => e
+			    MU.log("Remembering new key: #{e.fingerprint}")
+			    e.remember_host!
+			    retry
+				end
+			return session
+		end
+
+		# Add a role or recipe to a node. Optionally, throw a fit if it doesn't exist.
+		# @param node [String]: The node (Chef name) of the node to modify.
+		# @param rl_entry [String]: The run-list entry to add.
+		# @param type [String]: One of *role* or *recipe*.
+		# @param ignore_missing [Boolean]: If set to true, will merely warn about missing recipes/roles instead of throwing an exception.
+		# @return [void]
+		def self.knifeAddToRunList(node, rl_entry, type="role", ignore_missing=false)
+		  return if rl_entry.nil?
+		
+		  # Rather than argue about whether to expect a bare rl_entry name or require
+		  # rl_entry[rolename], let's just accomodate.
+		  if rl_entry.match(/^role\[(.+?)\]/) then
+			  type = "role"
+		    rl_entry = Regexp.last_match(1)
+		    query=%Q{#{MU::Config.knife} role show #{rl_entry}};
+		  elsif rl_entry.match(/^recipe\[(.+?)\]/) then
+			  type = "recipe"
+		    rl_entry = Regexp.last_match(1)
+		    query=%Q{#{MU::Config.knife} recipe list | grep '^#{rl_entry}$'};
+		  end
+		
+			%x{#{query}}
+		  if $? != 0 then
+		    raise "Attempted to add non-existing #{type} #{rl_entry}" if !ignore_missing
+		  end
+		
+		
+		  begin
+		    query=%Q{#{MU::Config.knife} node run_list add #{node} "#{type}[#{rl_entry}]"};
+				MU.log("Adding #{type} #{rl_entry} to #{node}")
+				MU.log("Running #{query}", MU::DEBUG)
+		    output=%x{#{query}}
+		# XXX rescue Exception is bad style
+		  rescue Exception => e
+		    raise "FAIL: #{MU::Config.knife} node run_list add #{node} \"#{type}[#{rl_entry}]\": #{e.message} (output was #{output})"
+		  end
+		end
 
 	end #class
 end #module
