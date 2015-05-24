@@ -15,11 +15,24 @@
 
 set -e
 
+updates_run=0
+need_reboot=0
 if [ -f /etc/debian_version ];then
 	apt-get update -y
 	if [ ! -f /usr/bin/pip ] ;then /usr/bin/apt-get --fix-missing -y install python-pip;fi
 	if [ ! -f /usr/bin/curl ] ;then /usr/bin/apt-get --fix-missing -y install curl;fi
 	AWSCLI=/usr/local/bin/aws
+<% if !$mu.skipApplyUpdates %>
+	if [ ! -f /.mu-installer-ran-updates ];then
+		apt-get --fix-missing -y upgrade && touch /.mu-installer-ran-updates && updates_run=1
+		# XXX this logic works on Ubuntu, is it Debian-friendly?
+		latest_kernel="`ls -1 /boot/vmlinuz-* | sed -r 's/^\/boot\/vmlinuz-//' | tail -1`"
+		running_kernel="`uname -r`"
+		if [ "$running_kernel" != "$latest_kernel" -a "$latest_kernel" != "" ];then
+			need_reboot=1
+		fi
+	fi
+<% end %>
 elif [ -x /usr/bin/yum ];then
 	# Ugh, rando EPEL mirror
 	if [ ! -f /etc/yum.repos.d/epel.repo ];then
@@ -29,6 +42,14 @@ elif [ -x /usr/bin/yum ];then
 	if [ ! -f /usr/bin/pip ] ;then /usr/bin/yum -y install python-pip;fi
 	if [ ! -f /usr/bin/curl ] ;then /usr/bin/yum -y install curl;fi
 	AWSCLI=/usr/bin/aws
+<% if !$mu.skipApplyUpdates %>
+	if [ ! -f /.mu-installer-ran-updates ];then
+		yum -y update && touch /.mu-installer-ran-updates && updates_run=1
+		if [ "`rpm -q kernel`" != "kernel-`uname -r`" ];then
+			need_reboot=1
+		fi
+	fi
+<% end %>
 fi
 if [ ! -f $AWSCLI ];then
 	/usr/bin/pip install awscli
@@ -47,6 +68,12 @@ if [ ! -f /opt/chef/embedded/bin/ruby ];then
 	done
 	set -e
 fi
+
+<% if !$mu.skipApplyUpdates %>
+if [ "$need_reboot" == "1" ];then
+	shutdown -r now "Applying new kernel"
+fi
+<% end %>
 
 $AWSCLI s3 cp s3://<%= MU.adminBucketName %>/<%= $mu.muID %>-secret .
 

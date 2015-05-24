@@ -13,13 +13,12 @@
 # limitations under the License.
 
 <powershell>
-	Start-Transcript -path "$env:Temp/Mu-bootstrap.log" -force -append
 
 	If ("$($myInvocation.MyCommand.Path)" -ne "$env:Temp/realuserdata_stripped.ps1"){
 		Invoke-WebRequest -Uri "http://169.254.169.254/latest/user-data" -OutFile $env:Temp/realuserdata.ps1
 		Get-Content $env:Temp/realuserdata.ps1 | Select-String -pattern '^#','^<' -notmatch | Set-Content $env:Temp/realuserdata_stripped.ps1
 		If (Compare-Object (Get-Content $myInvocation.MyCommand.Path) (Get-Content $env:Temp/realuserdata_stripped.ps1)){
-			echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Invoking $env:Temp/realuserdata.ps1 in lieu of $($myInvocation.MyCommand.Path)"
+			Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Invoking $env:Temp/realuserdata.ps1 in lieu of $($myInvocation.MyCommand.Path)"
 			Invoke-Expression $env:Temp/realuserdata_stripped.ps1
 			exit
 		}
@@ -28,10 +27,10 @@
 	New-Item $env:Temp/$username -type file -force
 	if ( $username -ne "system"){
 		Start-Transcript -path "$env:Temp/Mu-bootstrap.log" -force -append
-		echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) IT BEGINS on $env:computername"
+		Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) IT BEGINS on $env:computername"
 
 		$admin_username = (Get-WmiObject -Query 'Select * from Win32_UserAccount Where (LocalAccount=True and SID like "%-500")').name
-		echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Local admin account is $admin_username"
+		Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Local admin account is $admin_username"
 
 
 		Set-Service BITS -startuptype "Automatic" -status Running -passthru
@@ -41,7 +40,7 @@
 
 		$base_dir = 'c:/bin'
 		If (!(Test-Path $base_dir)){
-			echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Creating $base_dir"
+			Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Creating $base_dir"
 			New-Item -type directory -path $base_dir
 		}
 
@@ -50,12 +49,19 @@
 		Invoke-WebRequest -Uri "http://169.254.169.254/latest/user-data" -OutFile $env:Temp/realuserdata.ps1
 		Compare-Object (Get-Content "c:/Program Files/Amazon/Ec2ConfigService/Scripts/UserScript.ps1") (Get-Content $env:Temp/realuserdata.ps1)
 
+		# Ec2Config frequently fails to run us on reboot, too, so let's set up
+		# a scheduled task to make sure it happens.
+		If (!(Get-ScheduledTask -TaskName 'run-userdata')){
+			Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/run-userdata_scheduledtask.xml" -OutFile $env:Temp/run-userdata_scheduledtask.xml
+			Register-ScheduledTask -Xml (Get-Content "$env:Temp/run-userdata_scheduledtask.xml" | out-string) -TaskName 'run-userdata' -Force -User 'NT AUTHORITY\SYSTEM'
+		}
+
 		$instanceid=(New-Object System.Net.WebClient).DownloadString("http://169.254.169.254/latest/meta-data/instance-id")
 		$cygwin_dir = "$base_dir/cygwin"
 		$sshdUser = "sshd_service"
 
 		If (!(Test-Path $env:Temp/PSWindowsUpdate.zip)){
-			echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Powershell Windows Update module"
+			Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Powershell Windows Update module"
 
 			If (!(Test-Path c:/Users/$admin_username/Documents/WindowsPowerShell/Modules)){
 				mkdir c:/Users/$admin_username/Documents/WindowsPowerShell/Modules
@@ -65,24 +71,24 @@
 
 			Add-Type -A 'System.IO.Compression.FileSystem'
 			If (!(Test-Path c:/windows/System32/WindowsPowerShell/v1.0/Modules/PSWindowsUpdate)){
-				echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Extracting PSWindowsUpdate module"
+				Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Extracting PSWindowsUpdate module"
 
 				[IO.Compression.ZipFile]::ExtractToDirectory("$env:Temp/PSWindowsUpdate.zip", "c:/windows/System32/WindowsPowerShell/v1.0/Modules")
 			}
 			If (!(Test-Path c:/Users/$admin_username/Documents/WindowsPowerShell/Modules/PSWindowsUpdate)){
-				echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Extracting PSWindowsUpdate module"
+				Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Extracting PSWindowsUpdate module"
 
 				[IO.Compression.ZipFile]::ExtractToDirectory("$env:Temp/PSWindowsUpdate.zip", "c:/Users/$admin_username/Documents/WindowsPowerShell/Modules")
 			}
 		}
 
-		echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Setting Windows Update parameters in registry"
+		Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Setting Windows Update parameters in registry"
 		Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update" -Name AUOptions -Value 3
 
 		If (!(Test-Path "$cygwin_dir/$instanceid")){
-			echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Processing Cygwin for the first time on this node"
+			Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Processing Cygwin for the first time on this node"
 			if ((Get-Service "sshd" -ErrorAction SilentlyContinue) -and (Test-Path "$cygwin_dir/bin/bash.exe")) {
-				echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Disabling pre-existing sshd"
+				Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Disabling pre-existing sshd"
 
 				Stop-Service -ErrorAction SilentlyContinue sshd 
 				Invoke-Expression '& $cygwin_dir/bin/bash --login -c "cygrunsrv --stop sshd; cygrunsrv --remove sshd; net user sshd /delete; net user sshd_service /delete; mkpasswd > /etc/passwd"'
@@ -92,7 +98,7 @@
 			If (!(Test-Path "$cygwin_dir/Cygwin.bat")){
 				Import-Module BitsTransfer
 				If (!(Test-Path $env:Temp/setup-x86_64.exe)){
-					echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Cygwin setup"
+					Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Cygwin setup"
 
 					Invoke-WebRequest -Uri "http://cygwin.com/setup-x86_64.exe" -OutFile $env:Temp/setup-x86_64.exe
 	#				Start-BitsTransfer -source "http://cygwin.com/setup-x86_64.exe" -Destination $env:Temp/setup-x86_64.exe
@@ -100,7 +106,7 @@
 
 
 				If (!(Test-Path $env:Temp/cygwin.zip)){
-					echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Cygwin packages"
+					Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Cygwin packages"
 
 					Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/cygwin_20141028.zip" -OutFile $env:Temp/cygwin.zip
 	#				Start-BitsTransfer -source "https://s3.amazonaws.com/cap-public/cygwin_20141028.zip" -Destination $env:Temp/cygwin.zip
@@ -110,12 +116,12 @@
 
 				Add-Type -A 'System.IO.Compression.FileSystem'
 				If (!(Test-Path $env:Temp/cygwin)){
-					echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Extracting Cygwin packages"
+					Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Extracting Cygwin packages"
 
 					[IO.Compression.ZipFile]::ExtractToDirectory("$env:Temp/cygwin.zip", "$env:Temp/cygwin")
 				}
 
-				echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running Cygwin installer"
+				Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running Cygwin installer"
 
 				Start-Process -wait -FilePath "$env:Temp/setup-x86_64.exe" -ArgumentList "-q -n -l $env:Temp -l $env:Temp\cygwin -L -R $cygwin_dir -P openssh,mintty,vim,curl"
 			}
@@ -125,9 +131,9 @@
 		}
 
 		if ((Test-Path $cygwin_dir\sshd_installed_as.txt) -and ((Get-Content $cygwin_dir\sshd_installed_as.txt) -ne $admin_username)){
-			echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Changed Admin username, will reinstall sshd"
+			Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Changed Admin username, will reinstall sshd"
 			if (Get-Service "sshd" -ErrorAction SilentlyContinue){
-				echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Stopping sshd temporarily"
+				Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Stopping sshd temporarily"
 
 				Stop-Service -ErrorAction SilentlyContinue sshd
 			}
@@ -138,16 +144,16 @@
 		$python_path = 'c:\bin\python\python27'
 		$env:Path += ";$python_path\Scripts;$python_path"
 		If (!(Test-Path "$python_path\python.exe")){
-			echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Installing Python"
+			Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Installing Python"
 
 			If (!(Test-Path $env:Temp/python-2.7.9.msi)){
-				echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Python installer"
+				Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Python installer"
 
 				Invoke-WebRequest -Uri "https://www.python.org/ftp/python/2.7.9/python-2.7.9.msi" -OutFile $env:Temp/python-2.7.9.msi
 			}
 
 
-			echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running Python installer"
+			Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running Python installer"
 			(Start-Process -FilePath msiexec -ArgumentList "/i $env:Temp\python-2.7.9.msi /qn ALLUSERS=1 TARGETDIR=$python_path" -Wait -Passthru).ExitCode
 		}
 
@@ -158,81 +164,105 @@
 	#	$env:Path = $env:Path + ";%ALLUSERSPROFILE%\chocolatey\bin"
 
 		If (!(Test-Path "$python_path\Scripts\aws.cmd")){
-			echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Installing awscli"
+			Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Installing awscli"
 			If (!(Test-Path $env:Temp/get-pip.py)){
-				echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading get-pip.py"
+				Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading get-pip.py"
 
 				Invoke-WebRequest -Uri "https://bootstrap.pypa.io/get-pip.py" -OutFile $env:Temp/get-pip.py
 			}
-			echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running get-pip.py"
+			Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running get-pip.py"
 			python $env:Temp/get-pip.py
-			echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running pip install awscli"
+			Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running pip install awscli"
 			pip install awscli
 		}
 
 
 		If (!(Test-Path "c:\opscode\chef\embedded\bin\ruby.exe")){
-			echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Installing Chef"
+			Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Installing Chef"
 
 			If (!(Test-Path $env:Temp/chef-installer.msi)){
-				echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Chef installer"
+				Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Chef installer"
 
 				Invoke-WebRequest -Uri "https://www.opscode.com/chef/download?p=windows&pv=2012&m=x86_64&v=<%= MU.chefVersion %>" -OutFile $env:Temp/chef-installer.msi
 			}
 
 
-			echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running Chef installer"
+			Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running Chef installer"
 			(Start-Process -FilePath msiexec -ArgumentList "/i $env:Temp\chef-installer.msi ALLUSERS=1 /le $env:Temp\chef-client-install.log /qn" -Wait -Passthru).ExitCode
 		}
 
+		<% if !$mu.skipApplyUpdates %>
+		If (!(Test-Path "c:/mu-installer-ran-updates")){
+			Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Applying Windows updates"
+			Import-Module PSWindowsUpdate
+			Get-WUInstall -AcceptAll -IgnoreReboot
+			If (Test-Path "HKLM:/SOFTWARE/Microsoft/Windows/CurrentVersion/WindowsUpdate/Auto Update/RebootRequired"){
+				$need_reboot = $TRUE
+			}
+			Add-Content c:/mu-installer-ran-updates "$(Get-Date -f MM-dd-yyyy_HH:mm:ss)"
+		}
+		<% end %>
+
+
 		If (!((Get-ItemProperty HKLM:/SYSTEM/CurrentControlSet/Control/Lsa)."Authentication Packages" | Select-String -pattern "cyglsa64.dll")){
-			echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running cyglsa-config to grant Cygwin binaries privileges"
+			Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running cyglsa-config to grant Cygwin binaries privileges"
 
 			Invoke-Expression '& $cygwin_dir/bin/bash --login -c "echo yes | /usr/bin/cyglsa-config"'
-			Restart-Computer -Force -Wait
+			$need_reboot = $TRUE
 		}
 
-		echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Fetching Mu deploy secret from s3://<%= MU.adminBucketName %>/<%= $mu.muID %>-secret"
+		Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Fetching Mu deploy secret from s3://<%= MU.adminBucketName %>/<%= $mu.muID %>-secret"
 		aws.cmd s3 cp s3://<%= MU.adminBucketName %>/<%= $mu.muID %>-secret $env:Temp/<%= $mu.muID %>-secret
 
-		echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Encrypting Mu deploy secret"
+		Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Encrypting Mu deploy secret"
 		$deploy_secret = & "c:\opscode\chef\embedded\bin\ruby" -ropenssl -rbase64 -e "key = OpenSSL::PKey::RSA.new(Base64.urlsafe_decode64('<%= $mu.deployKey %>'))" -e "print Base64.urlsafe_encode64(key.public_encrypt(File.read('$env:Temp/<%= $mu.muID %>-secret')))"
 
 
 
 		if (!(Get-Service "sshd" -ErrorAction SilentlyContinue)){
-			echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Invoking ssh-host-config"
+			Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Invoking ssh-host-config"
 			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "ssh-host-config -y -c ntsec -w ''$password'' -u $sshdUser" > $cygwin_dir/sshd_setup_log.txt'
 			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "sed -i.bak ''s/#.*StrictModes.*yes/StrictModes no/'' /etc/sshd_config" >> $cygwin_dir/sshd_setup_log.txt'
 			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "sed -i.bak ''s/#.*PasswordAuthentication.*yes/PasswordAuthentication no/'' /etc/sshd_config" >> $cygwin_dir/sshd_setup_log.txt'
 			New-Item $cygwin_dir/sshd_installed_as.txt -type file -force -value $admin_username
 		}
 
-		echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Creating $cygwin_dir/home/$admin_username/.ssh/authorized_keys"
+		Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Creating $cygwin_dir/home/$admin_username/.ssh/authorized_keys"
 		New-Item $cygwin_dir/home/$admin_username/.ssh/authorized_keys -type file -force -value "<%= $mu.deploySSHKey %>"
 
 		if (!(Get-NetFirewallRule -DisplayName "Allow SSH" -ErrorAction SilentlyContinue)){
-			echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Opening port 22 in Windows Firewall"
+			Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Opening port 22 in Windows Firewall"
 			New-NetFirewallRule -DisplayName "Allow SSH" -Direction Inbound -LocalPort 22 -Protocol TCP -Action Allow
 		}
 
-		echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Ensuring proper permissions on Cygwin's /var/empty for sshd"
-		Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkpasswd -l -d > /etc/passwd"'
-		Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkgroup -l -d > /etc/group"'
+		Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Ensuring proper permissions on Cygwin's /var/empty for sshd"
+		if((Get-WmiObject win32_computersystem).partofdomain){
+			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkpasswd -l -d > /etc/passwd"'
+			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkgroup -l -d > /etc/group"'
+		} else {
+			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkpasswd -l > /etc/passwd"'
+			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkgroup -l > /etc/group"'
+		}
+
 		$sshd_svc_user = (Get-WmiObject -Query "SELECT * FROM win32_service WHERE name='sshd'").StartName
 		if ( $sshd_svc_user.contains("\") ){
 			$sshd_svc_user = $sshd_svc_user.substring($sshd_svc_user.LastIndexOf("\")+1)
 		}
 		Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "chown $sshd_svc_user /var/empty"'
 
-		echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Enabling sshd service"
+		Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Enabling sshd service"
 		Start-Service sshd
-		$url = 'https://<%= $mu.publicIP %>:2260'
-		echo "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Calling home to $url"
-		Start-Process -FilePath "c:\bin\cygwin\bin\curl.exe" -ArgumentList "-k --data mu_id='<%= $mu.muID %>' --data mu_resource_name='<%= $mu.resourceName %>' --data mu_resource_type='<%= $mu.resourceType %>' --data mu_instance_id='$instanceid' --data mu_bootstrap='1' --data mu_user='<%= $mu.muUser %>' --data mu_deploy_secret='$deploy_secret' $url" -Wait
+		Set-Service sshd -startuptype "Automatic"
 
+		if ($need_reboot){
+			Restart-Computer -Force
+			exit
+		} else {
+			$url = 'https://<%= $mu.publicIP %>:2260'
+			Add-Content c:/Mu-bootstrap.log "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Calling home to $url"
+			Start-Process -FilePath "c:\bin\cygwin\bin\curl.exe" -ArgumentList "-k --data mu_id='<%= $mu.muID %>' --data mu_resource_name='<%= $mu.resourceName %>' --data mu_resource_type='<%= $mu.resourceType %>' --data mu_instance_id='$instanceid' --data mu_bootstrap='1' --data mu_user='<%= $mu.muUser %>' --data mu_deploy_secret='$deploy_secret' $url" -Wait
+		}
 
-		Stop-Transcript
 	}
 </powershell>
 <persist>true</persist>
