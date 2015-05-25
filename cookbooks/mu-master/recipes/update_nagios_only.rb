@@ -64,3 +64,9 @@ execute "chcon -R -h -t nagios_unconfined_plugin_exec_t /usr/lib64/nagios/plugin
 end
 
 execute "chgrp apache /var/log/nagios"
+
+# The Nagios cookbook currently screws up this setting, so work around it.
+execute "sed -i s/^interval_length=.*/interval_length=1/ || echo 'interval_length=1' >> /etc/nagios/nagios.cfg" do
+	not_if "grep '^interval_length=1$' /etc/nagios/nagios.cfg"
+	notifies :reload, "service[nagios]", :delayed
+end
