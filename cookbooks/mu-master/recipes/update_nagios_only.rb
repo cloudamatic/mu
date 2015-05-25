@@ -17,6 +17,7 @@
 # limitations under the License.
 
 include_recipe "nagios"
+package "nagios-plugins-nrpe"
 
 cookbook_file "nagios_fifo.pp" do
 	path "#{Chef::Config[:file_cache_path]}/nagios_fifo.pp"
