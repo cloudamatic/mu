@@ -1,0 +1,70 @@
+#!/bin/bash
+# Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
+#
+# Licensed under the BSD-3 license (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License in the root of the project or at
+#
+#     http://egt-labs.com/mu/LICENSE.html
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# mu-gluster-client		Mounts <%= @path %>
+#
+# chkconfig: 2345 55 25
+# description: Mounts <%= @path %>
+#
+
+### BEGIN INIT INFO
+# Provides: mu-cluster-client
+# Required-Start: $local_fs $network $syslog
+# Required-Stop: $local_fs $syslog
+# Default-Start: 2 3 4 5
+# Default-Stop: 0 1 6
+# Short-Description: Mount glusterfs mounts
+# Description:       Mount glusterfs mounts
+### END INIT INFO
+
+# source function library
+. /etc/rc.d/init.d/functions
+
+RETVAL=0
+
+start()
+{
+	if ! grep ":<%= @volume %> <%= @path %> fuse.glusterfs" /etc/mtab > /dev/null;then
+		<%= @servers.map { |server| "mount -t glusterfs #{server.ec2.private_ip_address}:#{@volume} #{@path}" }.join(' || ') %> || exit 1
+	fi
+}
+
+stop()
+{
+	if grep ":<%= @volume %> <%= @path %> fuse.glusterfs" /etc/mtab > /dev/null;then
+		umount <%= @path %>
+	fi
+}
+
+restart() {
+	stop
+	start
+}
+
+case "$1" in
+	start)
+		start
+		;;
+	stop)
+		stop
+		;;
+	restart)
+		restart
+		;;
+	*)
+		echo $"Usage: $0 {start|stop|restart}"
+		RETVAL=2
+esac
+exit $RETVAL
