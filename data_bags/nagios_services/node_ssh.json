@@ -1,5 +1,6 @@
 {
 	"id": "node_ssh",
 	"hostgroup_name": "mu-node",
+	"notification_interval": 7200,
 	"command_line": "/home/nagios/mu-tunnel-nagios -d $HOSTNAME$ -p 22 -a '' -c \"$USER1$/check_ssh $ARG1$ 127.0.0.1\""
 }
