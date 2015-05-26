@@ -183,6 +183,9 @@ export TMOUT
 		end
 	
 		# 6.2 Configure SSH
+		service "sshd" do
+			action [ :enable, :start ]
+		end
 		template "/etc/ssh/sshd_config" do
 			source "sshd_config.erb"
 			owner "root"

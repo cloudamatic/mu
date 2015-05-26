@@ -2261,6 +2261,7 @@ module MU
 		@server_common_properties = {
 			"name" => { "type" => "string" },
 			"region" => @region_primitive,
+			"dns_records" => dns_records_primitive(need_target: false, default_type: "A", need_zone: true),
 			"tags" => @tags_primitive,
 			"active_directory" => {
 				"type" => "object",
@@ -2452,7 +2453,6 @@ module MU
 					"default" => false
 				},
 				"vpc" => vpc_reference_primitive(ONE_SUBNET+MANY_SUBNETS, NAT_OPTS, "public"),
-				"dns_records" => dns_records_primitive(need_target: false, default_type: "A", need_zone: true),
 				"image_then_destroy" => {
 					"type" => "boolean",
 					"description" => "Create an EC2 AMI of this server once it is complete, then destroy this server.",
