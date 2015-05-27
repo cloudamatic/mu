@@ -722,6 +722,36 @@ module MU
 			return ok
 		end
 
+		# Verify that a server or server_pool has a valid AD config referencing
+		# valid Vaults for credentials.
+		def self.check_ad_config(server)
+			ok = true
+			server['vault_access'] = [] if server['vault_access'].nil?
+			server['vault_access'] << {
+					"vault" => server['active_directory']['auth_vault'],
+					"item" => server['active_directory']['auth_item']
+				}
+			if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+				Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+			end
+			begin
+				item = ChefVault::Item.load(
+					server['active_directory']['auth_vault'],
+					server['active_directory']['auth_item']
+				)
+				["auth_username_field", "auth_password_field"].each { |field|
+					if !item.has_key?(server['active_directory'][field])
+						ok = false
+						MU.log "I don't see a value named #{field} in Chef Vault #{server['active_directory']['auth_vault']}:#{server['active_directory']['auth_item']}", MU::ERR
+					end
+				}
+			rescue ChefVault::Exceptions::KeysNotFound => e
+				MU.log "Can't load Chef Vault #{server['active_directory']['auth_vault']}:#{server['active_directory']['auth_item']}. Does the vault exist?", MU::ERR
+				ok = false
+			end
+			return ok
+		end
+
 		def self.validate(config)
 			ok = true
 			begin
@@ -1033,6 +1063,11 @@ module MU
 					ok = false
 					MU.log "Server Pools cannot assign specific static IPs.", MU::ERR
 				end
+				asg['vault_access'] = [] if asg['vault_access'].nil?
+				asg['vault_access'] << { "vault" => "splunk", "item" => "admin_user" }
+				if !asg['active_directory'].nil?
+					ok = false if !check_ad_config(asg)
+				end
 				if asg["basis"]["launch_config"] != nil
 					launch = asg["basis"]["launch_config"]
 					if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?
@@ -1300,28 +1335,7 @@ module MU
 				server['vault_access'] = [] if server['vault_access'].nil?
 				server['vault_access'] << { "vault" => "splunk", "item" => "admin_user" }
 				if !server['active_directory'].nil?
-					server['vault_access'] << {
-							"vault" => server['active_directory']['auth_vault'],
-							"item" => server['active_directory']['auth_item']
-						}
-					if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
-						Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
-					end
-					begin
-						item = ChefVault::Item.load(
-							server['active_directory']['auth_vault'],
-							server['active_directory']['auth_item']
-						)
-						["auth_username_field", "auth_password_field"].each { |field|
-							if !item.has_key?(server['active_directory'][field])
-								ok = false
-								MU.log "I don't see a value named #{field} in Chef Vault #{server['active_directory']['auth_vault']}:#{server['active_directory']['auth_item']}", MU::ERR
-							end
-						}
-					rescue ChefVault::Exceptions::KeysNotFound => e
-						MU.log "Can't load Chef Vault #{server['active_directory']['auth_vault']}:#{server['active_directory']['auth_item']}. Does the vault exist?", MU::ERR
-						ok = false
-					end
+					ok = false if !check_ad_config(server)
 				end
 
 				server["#MU_CLASS"] = MU::Server
@@ -2261,7 +2275,6 @@ module MU
 		@server_common_properties = {
 			"name" => { "type" => "string" },
 			"region" => @region_primitive,
-			"dns_records" => dns_records_primitive(need_target: false, default_type: "A", need_zone: true),
 			"tags" => @tags_primitive,
 			"active_directory" => {
 				"type" => "object",
@@ -2447,6 +2460,7 @@ module MU
 			"additionalProperties" => false,
 			"description" => "Create individual server instances.",
 			"properties" => {
+				"dns_records" => dns_records_primitive(need_target: false, default_type: "A", need_zone: true),
 				"create_ami" => {
 					"type" => "boolean",
 					"description" => "Create an EC2 AMI of this server once it is complete.",
@@ -2878,6 +2892,7 @@ module MU
 			"description" => "Create scalable pools of identical servers.",
 			"required" => ["name", "min_size", "max_size", "basis"],
 			"properties" => {
+				"dns_records" => dns_records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
 				"wait_for_nodes" => {
 					"type" => "integer",
 					"description" => "Use this parameter to force a certain number of nodes to come up and be fully bootstrapped before the rest of the pool is initialized.",

@@ -990,9 +990,12 @@ module MU
 				mu_dns = MU::DNSZone.genericDNSEntry(node, private_ip, MU::Server, noop: true)
 			end
 			mu_dns = nil # XXX HD account hack
+			if user.nil? or (gateway_user.nil? and !gateway_ip.nil? and (public_ip.nil? or public_ip.empty? and (private_ip != gateway_ip)))
+				MU.log "Called addHostToSSHConfig with a missing SSH user argument. addHostToSSHConfig(node: #{node}, private_ip: #{private_ip}, private_dns: #{private_dns}, public_ip: #{public_ip}, public_dns: #{public_dns}, user: #{user}, gateway_ip: #{gateway_ip}, gateway_user: #{gateway_user}, key_name: #{key_name}, ssh_dir: #{ssh_dir}, ssh_conf: #{ssh_conf}, ssh_owner: #{ssh_owner}", MU::ERR, details: caller
+				return
+			end
 
 			@ssh_semaphore.synchronize {
-				MU.log "addHostToSSHConfig(node: #{node}, private_ip: #{private_ip}, private_dns: #{private_dns}, public_ip: #{public_ip}, public_dns: #{public_dns}, user: #{user}, gateway_ip: #{gateway_ip}, gateway_user: #{gateway_user}, key_name: #{key_name}", MU::DEBUG
 
 				if File.exists?(ssh_conf)
 				  File.readlines(ssh_conf).each { |line|

@@ -1201,6 +1201,10 @@ module MU
 			# Join this node to its Active Directory domain, if applicable. This will
 			# trigger a reboot on Windows nodes, because what doesn't?
 			if !server['active_directory'].nil?
+				if server['mu_windows_name'].nil?
+					server['mu_windows_name'] = MU::MommaCat.getResourceName(server['name'], max_length: 15, need_unique_string: true)
+					MU::Server.saveInitialChefNodeAttrs(node, instance, server, canonical_ip)
+				end
 				MU::Server.knifeAddToRunList(node, "recipe[mu-tools::ad-client]");
 				MU::Server.runChef(node, server, node_ssh_key, "Join Active Directory")
 			end
