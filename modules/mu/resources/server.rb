@@ -607,28 +607,32 @@ module MU
 				win_set_hostname_ad = %Q{powershell -Command "& {Rename-Computer -NewName "#{server['mu_windows_name']}" -Force -PassThru -Restart -DomainCredential(New-Object System.Management.Automation.PSCredential('femadata\\#{ad_user}', (ConvertTo-SecureString '#{ad_pwd}' -AsPlainText -Force)))}"}
 			end
 
-			if !server['cleaned_chef']
-				MU.log "Expunging pre-existing Chef install, if we didn't create it", MU::NOTICE
-				ssh.exec!(chef_cleanup)
-				server['cleaned_chef'] = true
-			end
-			if %w{win2k12r2 win2k12 windows}.include? server['platform']
-				output = ssh.exec!(win_env_fix)
-				output = ssh.exec!(win_installer_check)
-				if output.match(/InProgress/)
-					raise MU::BootstrapTempFail, "Windows Installer service is still doing something, need to wait"
+			begin
+				if !server['cleaned_chef']
+					MU.log "Expunging pre-existing Chef install, if we didn't create it", MU::NOTICE
+					ssh.exec!(chef_cleanup)
+					server['cleaned_chef'] = true
 				end
-				if !server['hostname_set'] and !server['mu_windows_name'].nil?
-					ssh.exec!(win_set_hostname)
-					ssh.exec!(win_set_hostname_ad) if !win_set_hostname_ad.nil?
-					server['hostname_set'] = true
-					raise MU::BootstrapTempFail, "Setting hostname to #{server['mu_windows_name']}, possibly rebooting"
+				if %w{win2k12r2 win2k12 windows}.include? server['platform']
+					output = ssh.exec!(win_env_fix)
+					output = ssh.exec!(win_installer_check)
+					if output.match(/InProgress/)
+						raise MU::BootstrapTempFail, "Windows Installer service is still doing something, need to wait"
+					end
+					if !server['hostname_set'] and !server['mu_windows_name'].nil?
+						ssh.exec!(win_set_hostname)
+						ssh.exec!(win_set_hostname_ad) if !win_set_hostname_ad.nil?
+						server['hostname_set'] = true
+						raise MU::BootstrapTempFail, "Setting hostname to #{server['mu_windows_name']}, possibly rebooting"
+					end
+					# if !server['password_set'] and !server['winpass'].nil?
+						# ssh.exec!(win_set_password)
+						# server['password_set'] = true
+						# raise MU::BootstrapTempFail, "setting password to #{server['winpass']}"
+					# end
 				end
-				# if !server['password_set'] and !server['winpass'].nil?
-					# ssh.exec!(win_set_password)
-					# server['password_set'] = true
-					# raise MU::BootstrapTempFail, "setting password to #{server['winpass']}"
-				# end
+			rescue RuntimeError => e
+				MU.log e.inspect, MU::WARN
 			end
 		end
 
