@@ -150,6 +150,7 @@ module MU
 					"muUser" => MU.chef_user,
 					"publicIP" => MU.mu_public_ip,
 					"skipApplyUpdates" => @server['skipinitialupdates'],
+					"windowsAdminName" => @server['windows_admin_username'],
 					"resourceName" => @server["name"],
 					"resourceType" => "server"
 				},
@@ -588,10 +589,13 @@ module MU
 		# connection. Most of this is terrible Windows glue.
 		# @param ssh [Net::SSH::Connection::Session]: The active SSH session to the new node.
 		# @param server [Hash]: A server's configuration block as defined in {MU::Config::BasketofKittens::servers}
-		def self.initialSshTasks(ssh, server)
+		def self.initialSSHTasks(ssh, server)
 			chef_cleanup = %q{test -f /opt/mu_installed_chef || ( rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; touch /opt/mu_installed_chef )}
 			win_env_fix = %q{echo 'export PATH="$PATH:/cygdrive/c/opscode/chef/embedded/bin"' > "$HOME/chef-client"; echo 'prev_dir="`pwd`"; for __dir in /proc/registry/HKEY_LOCAL_MACHINE/SYSTEM/CurrentControlSet/Control/Session\ Manager/Environment;do cd "$__dir"; for __var in `ls * | grep -v TEMP | grep -v TMP`;do __var=`echo $__var | tr "[a-z]" "[A-Z]"`; test -z "${!__var}" && export $__var="`cat $__var`" >/dev/null 2>&1; done; done; cd "$prev_dir"; /cygdrive/c/opscode/chef/bin/chef-client.bat $@' >> "$HOME/chef-client"; chmod 700 "$HOME/chef-client"; ( grep "^alias chef-client=" "$HOME/.bashrc" || echo 'alias chef-client="$HOME/chef-client"' >> "$HOME/.bashrc" ) ; ( grep "^alias mu-groom=" "$HOME/.bashrc" || echo 'alias mu-groom="powershell -File \"c:/Program Files/Amazon/Ec2ConfigService/Scripts/UserScript.ps1\""' >> "$HOME/.bashrc" )}
-#				end
+			winpass = MU::MommaCat.fetchSecret(server["instance_id"], "winpass")
+			if !winpass.nil? and !winpass.empty?
+				win_set_pw = %Q{powershell -Command \"&{ (([adsi]('WinNT://./#{server['windows_admin_user']}, user')).psbase.invoke('SetPassword', '#{winpass}'))}}
+			end
 			win_installer_check = %q{ls /proc/registry/HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows/CurrentVersion/Installer/}
 			win_set_hostname = %Q{powershell -Command "& {Rename-Computer -NewName "#{server['mu_windows_name']}" -Force -PassThru -Restart}"}
 			# We sometimes get a machine that's already been integrated into AD, and
@@ -608,6 +612,11 @@ module MU
 			end
 
 			begin
+				if !server['set_windows_pass'] and !set_win_pw.nil?
+					MU.log "Setting Windows password for user #{server['windows_admin_user']}", MU::NOTICE
+					ssh.exec!(set_win_pw)
+					server['set_windows_pass'] = true
+				end
 				if !server['cleaned_chef']
 					MU.log "Expunging pre-existing Chef install, if we didn't create it", MU::NOTICE
 					ssh.exec!(chef_cleanup)
@@ -625,14 +634,9 @@ module MU
 						server['hostname_set'] = true
 						raise MU::BootstrapTempFail, "Setting hostname to #{server['mu_windows_name']}, possibly rebooting"
 					end
-					# if !server['password_set'] and !server['winpass'].nil?
-						# ssh.exec!(win_set_password)
-						# server['password_set'] = true
-						# raise MU::BootstrapTempFail, "setting password to #{server['winpass']}"
-					# end
 				end
 			rescue RuntimeError => e
-				MU.log e.inspect, MU::WARN
+				raise MU::BootstrapTempFail, "Got #{e.inspect} performing initial SSH connect tasks, will try again"
 			end
 		end
 
@@ -970,13 +974,13 @@ module MU
 				loglevel = MU::DEBUG
 				loglevel = MU::NOTICE if (ssh_retries % 3 == 0)
 				ssh = MU::Server.getSSHSession(server, node_ssh_key, loglevel)
-				initialSshTasks(ssh, server)
+				initialSSHTasks(ssh, server)
 		  rescue MU::BootstrapTempFail, SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, Net::SSH::Disconnect => e
 				loglevel = MU::DEBUG
 				if ssh_retries % 3 == 0 or e.class.name == "MU::BootstrapTempFail"
 					loglevel = MU::NOTICE
 				end
-		    ssh_retries += 1
+		    ssh_retries += 1 if e.class.name != "MU::BootstrapTempFail"
 
 		    if ssh_retries <= max_retries
 					MU.log "SSH attempt ##{ssh_retries} of #{max_retries} for #{node} got #{e.inspect}, waiting #{ssh_wait}s before trying again.", loglevel
@@ -1678,31 +1682,16 @@ module MU
 
 				chef_node.save
 
-				# If this is Windows, ssh over with a Powershell command to set the
-				# password.
+				# Make double sure we don't lose a cached mu_windows_name value.
 				if %w{win2k12r2 win2k12 windows}.include?(server['platform']) or !server['active_directory'].nil?
-					# Make sure we don't lose a cached mu_windows_name value.
 					if !server['mu_windows_name'] and
 							!deployment.nil? and deployment.has_key?('servers') and
 							deployment['servers'].has_key?(server['name']) and
 							deployment['servers'][server['name']].has_key?(node)
 						server['mu_windows_name'] = deployment['servers'][server['name']][node]['mu_windows_name']
 					end
-
-					begin
-						winpass = MU::MommaCat.fetchSecret(server["instance_id"], "winpass")
-						MU.log "Setting Windows Administrator password to #{server['winpass']}"
-						#pw_change = "{(([adsi]('WinNT://./administrator, user')).psbase.invoke('SetPassword', '#{server['winpass']}'))}"
-						knife_args = ['ssh', '-m', node, "powershell -Command \"&{ (([adsi]('WinNT://./administrator, user')).psbase.invoke('SetPassword', '#{server['winpass']}'))}\""]
-						begin
-							Chef::Knife.run(knife_args, {})
-						rescue SystemExit => e
-							MU.log "Error setting Administrator password: #{e.message}", MU::ERR, details: e.backtrace
-						end
-# XXX this should be a MU exception type raised by fetchSecret
-					rescue Exception => e
-					end
 				end
+
 			end
 
 			begin

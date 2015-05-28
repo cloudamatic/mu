@@ -171,6 +171,8 @@ module MU
 							"muID" => MU.mu_id,
 							"muUser" => MU.chef_user,
 							"publicIP" => MU.mu_public_ip,
+							"skipApplyUpdates" => @pool['skipinitialupdates'],
+							"windowsAdminName" => @pool['windows_admin_username'],
 							"resourceName" => @pool["name"],
 							"resourceType" => "server_pool"
 						},

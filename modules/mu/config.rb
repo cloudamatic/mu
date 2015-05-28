@@ -2355,12 +2355,13 @@ module MU
 			"associate_public_ip" => {
 				"type" => "boolean",
 				"default" => false,
-				"description" => "Associate public IP address?",
+				"description" => "Associate public IP address?"
 			},
 			"userdata_script" => @userdata_primitive,
 			"windows_admin_username" => {
 				"type" => "string",
 				"default" => "Administrator",
+				"description" => "Use an alternate Windows account for Administrator functions. Will change the name of the Administrator account, if it has not already been done."
 			},
 			"ssh_user" => {
 				"type" => "string",
