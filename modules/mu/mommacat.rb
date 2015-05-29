@@ -1505,6 +1505,7 @@ MESSAGE_END
 					# fetch Chef data that the nodes have generated
 					sibling_collection.each_pair { |nodename, sibling|
 						begin
+							require 'chef'
 							chef_node = Chef::Node.load(nodename)
 						rescue Net::HTTPServerException => e
 							# This isn't typically an error condition. Usually happens when
