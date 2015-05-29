@@ -233,8 +233,14 @@
 			New-Item $cygwin_dir/sshd_installed_by.txt -type file -force -value $admin_username
 		}
 
+
+<% if !$mu.windowsAdminName.nil? and !$mu.windowsAdminName.empty? %>
 		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Creating $cygwin_dir/home/<%= $mu.windowsAdminName %>/.ssh/authorized_keys"
 		New-Item $cygwin_dir/home/<%= $mu.windowsAdminName %>/.ssh/authorized_keys -type file -force -value "<%= $mu.deploySSHKey %>"
+<% else %>
+		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Creating $cygwin_dir/home/$admin_username/.ssh/authorized_keys"
+		New-Item $cygwin_dir/home/$admin_username/.ssh/authorized_keys -type file -force -value "<%= $mu.deploySSHKey %>"
+<% end %>
 
 		if (!(Get-NetFirewallRule -DisplayName "Allow SSH" -ErrorAction SilentlyContinue)){
 			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Opening port 22 in Windows Firewall"
@@ -256,12 +262,13 @@
 		}
 		Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "chown $sshd_svc_user /var/empty"'
 
+<% if !$mu.windowsAdminName.nil? and !$mu.windowsAdminName.empty? %>
 		if ("$admin_username" -ne "<%= $mu.windowsAdminName %>"){
 			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Changing local admin account from $admin_username to <%= $mu.windowsAdminName %>"
 			([adsi]('WinNT://./Administrator, user')).psbase.rename("<%= $mu.windowsAdminName %>")
 			$need_reboot = $TRUE
 		}
-
+<% end %>
 
 		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Enabling sshd service"
 		Start-Service sshd

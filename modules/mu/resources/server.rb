@@ -597,10 +597,10 @@ module MU
 					server['windows_admin_password']['vault'],
 					server['windows_admin_password']['item']
 				)[field]
-				win_set_pw = %Q{powershell -Command \"&{ (([adsi]('WinNT://./#{server["windows_admin_user"]}, user')).psbase.invoke('SetPassword', '#{pw}'))}}
+				win_set_pw = %Q{powershell -Command "&{ (([adsi]('WinNT://./#{server["windows_admin_username"]}, user')).psbase.invoke('SetPassword', '#{pw}'))}"}
 			else
 				begin
-					win_set_pw = %Q{powershell -Command \"&{ (([adsi]('WinNT://./#{server['windows_admin_user']}, user')).psbase.invoke('SetPassword', '#{MU.mommacat.fetchSecret(server["instance_id"], "winpass")}'))}}
+					win_set_pw = %Q{powershell -Command "&{ (([adsi]('WinNT://./#{server['windows_admin_username']}, user')).psbase.invoke('SetPassword', '#{MU.mommacat.fetchSecret(server["instance_id"], "winpass")}'))}"}
 				rescue MU::NoSuchSecret
 				end
 			end
@@ -622,8 +622,9 @@ module MU
 
 			begin
 				if !server['set_windows_pass'] and !win_set_pw.nil?
-					MU.log "Setting Windows password for user #{server['windows_admin_user']}", MU::NOTICE
+					MU.log "Setting Windows password for user #{server['windows_admin_username']}", MU::NOTICE
 					ssh.exec!(win_set_pw)
+MU.log win_set_pw, MU::ERR
 					server['set_windows_pass'] = true
 				end
 				if !server['cleaned_chef']
@@ -638,6 +639,7 @@ module MU
 						raise MU::BootstrapTempFail, "Windows Installer service is still doing something, need to wait"
 					end
 					if !server['hostname_set'] and !server['mu_windows_name'].nil?
+						# XXX need a better guard here, this pops off every time
 						ssh.exec!(win_set_hostname)
 						ssh.exec!(win_set_hostname_ad) if !win_set_hostname_ad.nil?
 						server['hostname_set'] = true

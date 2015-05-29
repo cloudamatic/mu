@@ -215,8 +215,7 @@ case node[:platform]
 		# the oddball cases.
 		if !node.ad.computer_name.nil?
 			powershell_script "Rename Computer to #{node.ad.computer_name}" do
-				guard_interpreter :powershell_script
-				not_if "$env:computername -eq '#{node.ad.computer_name}'"
+				not_if { node.machinename == node.ad.computer_name }
 				code "Rename-Computer -NewName '#{node.ad.computer_name}' -Force -PassThru -Restart -DomainCredential(New-Object System.Management.Automation.PSCredential('femadata\\#{usr}', (ConvertTo-SecureString '#{pwd}' -AsPlainText -Force)))"
 				notifies :request, 'windows_reboot[1]', :immediately
 			end
