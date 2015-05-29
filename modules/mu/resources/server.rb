@@ -2105,7 +2105,7 @@ MU.log win_set_pw, MU::ERR
 		    e.remember_host!
 				ssh.close
 		    retry
-		  rescue SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, Net::SSH::Disconnect => e
+		  rescue SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, Net::SSH::Disconnect, IOError => e
 				ssh.close if !ssh.nil?
 				if retries < max_retries
 					retries = retries + 1
