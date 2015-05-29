@@ -131,11 +131,9 @@ module MU
 
 			if %w{win2k12r2 win2k12 windows}.include?(@server['platform']) or !@server['active_directory'].nil?
 				@server['mu_windows_name'] = MU::MommaCat.getResourceName(server['name'], max_length: 15, need_unique_string: true)
-				if !@deploy.winpass.nil?
-					@server['winpass'] = @deploy.winpass
-				elsif !@server['never_generate_admin_password']
+				if !@server['never_generate_admin_password'] and !@server['windows_admin_password']
 					@server['winpass'] = MU::Server.generateWindowsAdminPassword
-					MU.log "I had to generate a Windows admin password for #{node}. It is: #{@server['winpass']}"
+					MU.log "I generated a Windows admin password for #{node}. It is: #{@server['winpass']}"
 				end
 			end
 			keypairname, ssh_private_key, ssh_public_key = @deploy.createEc2SSHKey
@@ -592,10 +590,21 @@ module MU
 		def self.initialSSHTasks(ssh, server)
 			chef_cleanup = %q{test -f /opt/mu_installed_chef || ( rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; touch /opt/mu_installed_chef )}
 			win_env_fix = %q{echo 'export PATH="$PATH:/cygdrive/c/opscode/chef/embedded/bin"' > "$HOME/chef-client"; echo 'prev_dir="`pwd`"; for __dir in /proc/registry/HKEY_LOCAL_MACHINE/SYSTEM/CurrentControlSet/Control/Session\ Manager/Environment;do cd "$__dir"; for __var in `ls * | grep -v TEMP | grep -v TMP`;do __var=`echo $__var | tr "[a-z]" "[A-Z]"`; test -z "${!__var}" && export $__var="`cat $__var`" >/dev/null 2>&1; done; done; cd "$prev_dir"; /cygdrive/c/opscode/chef/bin/chef-client.bat $@' >> "$HOME/chef-client"; chmod 700 "$HOME/chef-client"; ( grep "^alias chef-client=" "$HOME/.bashrc" || echo 'alias chef-client="$HOME/chef-client"' >> "$HOME/.bashrc" ) ; ( grep "^alias mu-groom=" "$HOME/.bashrc" || echo 'alias mu-groom="powershell -File \"c:/Program Files/Amazon/Ec2ConfigService/Scripts/UserScript.ps1\""' >> "$HOME/.bashrc" )}
-			winpass = MU::MommaCat.fetchSecret(server["instance_id"], "winpass")
-			if !winpass.nil? and !winpass.empty?
-				win_set_pw = %Q{powershell -Command \"&{ (([adsi]('WinNT://./#{server['windows_admin_user']}, user')).psbase.invoke('SetPassword', '#{winpass}'))}}
+			win_set_pw = nil
+			if !server['windows_admin_password'].nil?
+				field = server["windows_admin_password"]["password_field"]
+				pw = ChefVault::Item.load(
+					server['windows_admin_password']['vault'],
+					server['windows_admin_password']['item']
+				)[field]
+				win_set_pw = %Q{powershell -Command \"&{ (([adsi]('WinNT://./#{server["windows_admin_user"]}, user')).psbase.invoke('SetPassword', '#{pw}'))}}
+			else
+				begin
+					win_set_pw = %Q{powershell -Command \"&{ (([adsi]('WinNT://./#{server['windows_admin_user']}, user')).psbase.invoke('SetPassword', '#{MU.mommacat.fetchSecret(server["instance_id"], "winpass")}'))}}
+				rescue MU::NoSuchSecret
+				end
 			end
+
 			win_installer_check = %q{ls /proc/registry/HKEY_LOCAL_MACHINE/SOFTWARE/Microsoft/Windows/CurrentVersion/Installer/}
 			win_set_hostname = %Q{powershell -Command "& {Rename-Computer -NewName "#{server['mu_windows_name']}" -Force -PassThru -Restart}"}
 			# We sometimes get a machine that's already been integrated into AD, and
@@ -612,9 +621,9 @@ module MU
 			end
 
 			begin
-				if !server['set_windows_pass'] and !set_win_pw.nil?
+				if !server['set_windows_pass'] and !win_set_pw.nil?
 					MU.log "Setting Windows password for user #{server['windows_admin_user']}", MU::NOTICE
-					ssh.exec!(set_win_pw)
+					ssh.exec!(win_set_pw)
 					server['set_windows_pass'] = true
 				end
 				if !server['cleaned_chef']

@@ -30,7 +30,7 @@
 	}
 	$username = (whoami).Split('\')[1]
 	New-Item $env:Temp/$username -type file -force
-	if ( $username -ne "system"){
+
 		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) IT BEGINS on $env:computername"
 
 		$admin_username = (Get-WmiObject -Query 'Select * from Win32_UserAccount Where (LocalAccount=True and SID like "%-500")').name
@@ -57,6 +57,14 @@
 		$instanceid=(New-Object System.Net.WebClient).DownloadString("http://169.254.169.254/latest/meta-data/instance-id")
 		$cygwin_dir = "$base_dir/cygwin"
 		$sshdUser = "sshd_service"
+
+		# Ec2Config frequently fails to run us on reboot, too, so let's set up
+		# a scheduled task to make sure it happens.
+		If (!(Get-ScheduledTask -TaskName 'run-userdata')){
+			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Adding run-userdata scheduled task (user NT AUTHORITY\SYSTEM)"
+			Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/run-userdata_scheduledtask.xml" -OutFile $env:Temp/run-userdata_scheduledtask.xml
+			Register-ScheduledTask -Xml (Get-Content "$env:Temp/run-userdata_scheduledtask.xml" | out-string) -TaskName 'run-userdata' -Force -User "NT AUTHORITY\SYSTEM"
+		}
 
 		If (!(Test-Path $env:Temp/PSWindowsUpdate.zip)){
 			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Powershell Windows Update module"
@@ -254,13 +262,6 @@
 			$need_reboot = $TRUE
 		}
 
-		# Ec2Config frequently fails to run us on reboot, too, so let's set up
-		# a scheduled task to make sure it happens.
-		If (!(Get-ScheduledTask -TaskName 'run-userdata')){
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Adding run-userdata scheduled task (user <%= $mu.windowsAdminName %>)"
-			Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/run-userdata_scheduledtask.xml" -OutFile $env:Temp/run-userdata_scheduledtask.xml
-			Register-ScheduledTask -Xml (Get-Content "$env:Temp/run-userdata_scheduledtask.xml" | out-string) -TaskName 'run-userdata' -Force -User '<%= $mu.windowsAdminName %>'
-		}
 
 		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Enabling sshd service"
 		Start-Service sshd
@@ -276,6 +277,5 @@
 			Start-Process -FilePath "c:\bin\cygwin\bin\curl.exe" -ArgumentList "-k --data mu_id='<%= $mu.muID %>' --data mu_resource_name='<%= $mu.resourceName %>' --data mu_resource_type='<%= $mu.resourceType %>' --data mu_instance_id='$instanceid' --data mu_bootstrap='1' --data mu_user='<%= $mu.muUser %>' --data mu_deploy_secret='$deploy_secret' $url" -Wait
 		}
 
-	}
 </powershell>
 <persist>true</persist>

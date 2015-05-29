@@ -26,6 +26,9 @@ autoload :ChefVault, 'chef-vault'
 gem "knife-windows"
 
 module MU
+	# An exception denoting a failure in MommaCat#fetchSecret
+	class NoSuchSecret < StandardError
+	end
 
 	# MommaCat is in charge of managing metadata about resources we've created,
 	# as well as orchestrating amongst them and bootstrapping nodes outside of
@@ -307,10 +310,10 @@ module MU
 		def fetchSecret(instance_id, type)
 			@secret_semaphore.synchronize {
 				if @secrets[type].nil?
-					raise "'#{type}' is not a valid secret type (valid types: #{@secrets.keys.to_s})"
+					raise NoSuchSecret, "'#{type}' is not a valid secret type (valid types: #{@secrets.keys.to_s})"
 				end
 				if @secrets[type][instance_id].nil?
-					raise "No '#{type}' secret known for instance #{instance_id}"
+					raise NoSuchScret, "No '#{type}' secret known for instance #{instance_id}"
 				end
 			}
 			return decryptWithDeployKey(@secrets[type][instance_id])

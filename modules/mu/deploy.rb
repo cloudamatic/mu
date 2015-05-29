@@ -53,9 +53,6 @@ module MU
 		# The cloud provider's account identifier
 		attr_reader :account_number
 
-		# An optional statically-set Administrator password for Windows instances.
-		attr_reader :winpass
-
 		# An optional flag to skip instance bootstrapping steps, instead allowing
 		# {MU::MommaCat} to do them asynchronously.
 		attr_reader :mommacat_boot
@@ -97,19 +94,16 @@ module MU
 		# @param verbosity [Boolean]: Toggles debug-level log verbosity
 		# @param webify_logs [Boolean]: Toggles web-friendly log output
 		# @param nocleanup [Boolean]: Toggles whether to skip cleanup of resources if this deployment fails.
-		# @param winpass [String]: Optional default Administrator password for Windows instances.
 		# @param mommacat_boot [Boolean]: Toggles whether to skip full bootstrap of Server resources, leaving them to be groomed by the Momma Cat daemon instead.
 		# @param stack_conf [Hash]: A full application stack configuration parsed by {MU::Config}
 		def initialize(environment,
 									verbosity: verbosity,
 									webify_logs: webify_logs,
 									nocleanup: nocleanup,
-									winpass: winpass,
 									mommacat_boot: mommacat_boot,
 									stack_conf: stack_conf)
 			MU.setVar("verbose", verbosity)
 			@webify_logs = webify_logs
-			@winpass = winpass
 			@mommacat_boot = mommacat_boot
 			@nocleanup = nocleanup
 			MU.setLogging(verbosity, webify_logs)

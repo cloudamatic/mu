@@ -724,29 +724,44 @@ module MU
 
 		# Verify that a server or server_pool has a valid AD config referencing
 		# valid Vaults for credentials.
-		def self.check_ad_config(server)
+		def self.check_vault_refs(server)
 			ok = true
 			server['vault_access'] = [] if server['vault_access'].nil?
-			server['vault_access'] << {
-					"vault" => server['active_directory']['auth_vault'],
-					"item" => server['active_directory']['auth_item']
-				}
 			if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
 				Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
 			end
+
 			begin
-				item = ChefVault::Item.load(
-					server['active_directory']['auth_vault'],
-					server['active_directory']['auth_item']
-				)
-				["auth_username_field", "auth_password_field"].each { |field|
-					if !item.has_key?(server['active_directory'][field])
+				if !server['active_directory'].nil?
+					server['vault_access'] << {
+						"vault" => server['active_directory']['auth_vault'],
+						"item" => server['active_directory']['auth_item']
+					}
+					item = ChefVault::Item.load(server['active_directory']['auth_vault'], server['active_directory']['auth_item'])
+					["auth_username_field", "auth_password_field"].each { |field|
+						if !item.has_key?(server['active_directory'][field])
+							ok = false
+							MU.log "I don't see a value named #{field} in Chef Vault #{server['active_directory']['auth_vault']}:#{server['active_directory']['auth_item']}", MU::ERR
+						end
+					}
+				end
+				if !server['windows_admin_password'].nil?
+					server['vault_access'] << {
+						"vault" => server['windows_admin_password']['vault'],
+						"item" => server['windows_admin_password']['item']
+					}
+					item = ChefVault::Item.load(server['windows_admin_password']['vault'], server['windows_admin_password']['item'])
+					if !item.has_key?(server['windows_admin_password']['password_field'])
 						ok = false
-						MU.log "I don't see a value named #{field} in Chef Vault #{server['active_directory']['auth_vault']}:#{server['active_directory']['auth_item']}", MU::ERR
+						MU.log "I don't see a value named #{server['windows_admin_password']['password_field']} in Chef Vault #{server['windows_admin_password']['vault']}:#{server['windows_admin_password']['item']}", MU::ERR
 					end
+				end
+				# Check all of the non-special ones while we're at it
+				server['vault_access'].each { |v|
+					item = ChefVault::Item.load(v['vault'], v['item'])
 				}
 			rescue ChefVault::Exceptions::KeysNotFound => e
-				MU.log "Can't load Chef Vault #{server['active_directory']['auth_vault']}:#{server['active_directory']['auth_item']}. Does the vault exist?", MU::ERR
+				MU.log "Can't load a Chef Vault I was configured to use. Does it exist?", MU::ERR, details: e.inspect
 				ok = false
 			end
 			return ok
@@ -1065,9 +1080,7 @@ module MU
 				end
 				asg['vault_access'] = [] if asg['vault_access'].nil?
 				asg['vault_access'] << { "vault" => "splunk", "item" => "admin_user" }
-				if !asg['active_directory'].nil?
-					ok = false if !check_ad_config(asg)
-				end
+				ok = false if !check_vault_refs(asg)
 				if asg["basis"]["launch_config"] != nil
 					launch = asg["basis"]["launch_config"]
 					if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?
@@ -1334,9 +1347,7 @@ module MU
 				server['skipinitialupdates'] = true if @skipinitialupdates
 				server['vault_access'] = [] if server['vault_access'].nil?
 				server['vault_access'] << { "vault" => "splunk", "item" => "admin_user" }
-				if !server['active_directory'].nil?
-					ok = false if !check_ad_config(server)
-				end
+				ok = false if !check_vault_refs(server)
 
 				server["#MU_CLASS"] = MU::Server
 				if server['ingress_rules'] != nil
@@ -2362,6 +2373,28 @@ module MU
 				"type" => "string",
 				"default" => "Administrator",
 				"description" => "Use an alternate Windows account for Administrator functions. Will change the name of the Administrator account, if it has not already been done."
+			},
+			"windows_admin_password" => {
+				"type" => "object",
+				"additionalProperties" => false,
+				"description" => "Set Windows nodes' local administrator password to a value specified in a Chef Vault.",
+				"properties" => {
+					"vault" => {
+						"type" => "string",
+						"default" => "windows",
+						"description" => "The vault where these credentials reside"
+					},
+					"item" => {
+						"type" => "string",
+						"default" => "administrator",
+						"description" => "The vault item where these credentials reside"
+					},
+					"password_field" => {
+						"type" => "string",
+						"default" => "password",
+						"description" => "The field within the Vault item where the password for these credentials resides"
+					}
+				}
 			},
 			"ssh_user" => {
 				"type" => "string",
