@@ -875,7 +875,7 @@ MU.log win_set_pw, MU::ERR
 				}
 			end
 			if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
-				MU::DNSZone.createRecordsFromConfig(server['dns_records'], target: instance.public_dns_name)
+				MU::DNSZone.createRecordsFromConfig(server['dns_records'], target: instance.public_ip_address)
 			else
 				MU::DNSZone.createRecordsFromConfig(server['dns_records'], target: instance.private_ip_address)
 			end
