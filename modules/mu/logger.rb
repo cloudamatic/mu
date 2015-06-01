@@ -70,7 +70,7 @@ module MU
 					details = JSON.pretty_generate(details)
 				rescue Encoding::UndefinedConversionError => e
 					puts e.inspect
-					pp details
+					details = details.to_s
 				end
 			end
 			if details and details.kind_of?(Array)
