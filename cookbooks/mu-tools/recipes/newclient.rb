@@ -21,9 +21,9 @@ unless node[:recipes].include?("chef-server")
 end
 
 include_recipe "mu-tools::updates"
-if !node.ad.nil? and node.ad.size > 1
-	include_recipe "mu-tools::ad-client"
-end rescue NoMethodError
+# if !node.ad.nil? and node.ad.size > 1
+	# include_recipe "active-directory::domain-node"
+# end rescue NoMethodError
 
 if node[:platform] == "windows"
 	include_recipe 'windows::reboot_handler'

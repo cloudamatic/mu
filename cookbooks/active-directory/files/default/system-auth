@@ -1,0 +1,34 @@
+#%PAM-1.0
+
+auth        required      pam_env.so
+auth        sufficient    pam_unix.so try_first_pass
+auth        requisite     pam_succeed_if.so uid >= 500 quiet
+auth        sufficient    pam_krb5.so use_first_pass
+auth        sufficient    pam_winbind.so use_first_pass
+auth        required      pam_deny.so
+auth        required      pam_faillock.so preauth audit silent deny=5 unlock_time=900
+auth        [success=1 default=bad] pam_unix.so
+auth        [default=die] pam_faillock.so authfail audit deny=5 unlock_time=900
+auth        sufficient    pam_faillock.so authsucc audit deny=5 unlock_time=900
+
+account     required      pam_access.so
+account     required      pam_unix.so broken_shadow
+account     sufficient    pam_localuser.so
+account     sufficient    pam_succeed_if.so uid < 500 quiet
+account     [default=bad success=ok user_unknown=ignore] pam_krb5.so
+account     [default=bad success=ok user_unknown=ignore] pam_winbind.so
+account     required      pam_permit.so
+
+password    requisite     pam_cracklib.so try_first_pass retry=3 minlen=14 dcredit=-1 ucredit=-1 ocredit=-1 lcredit=-1
+password    sufficient    pam_unix.so sha512 shadow try_first_pass use_authtok
+password    sufficient    pam_krb5.so use_authtok
+password    sufficient    pam_winbind.so use_authtok
+password    required      pam_deny.so
+password    sufficient    pam_unix.so remember=5
+
+session     optional      pam_keyinit.so revoke
+session     required      pam_limits.so
+session     optional      pam_oddjob_mkhomedir.so umask=0077
+session     [success=1 default=ignore] pam_succeed_if.so service in crond quiet use_uid
+session     required      pam_unix.so
+session     optional      pam_krb5.so

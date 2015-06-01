@@ -1,0 +1,32 @@
+
+module sshd_pol 1.0;
+
+require {
+	type sshd_t;
+	type file_t;
+	type default_t;
+	type chroot_user_t;
+	type fusefs_t;
+	class sock_file write;
+	class lnk_file read;
+	class dir { search getattr };
+}
+
+#============= chroot_user_t ==============
+
+#!!!! This avc is allowed in the current policy
+allow chroot_user_t file_t:dir { getattr search };
+
+#!!!! This avc is allowed in the current policy
+allow chroot_user_t file_t:lnk_file read;
+
+#!!!! This avc is allowed in the current policy
+allow chroot_user_t fusefs_t:dir { search getattr };
+
+#============= sshd_t ==============
+allow sshd_t default_t:sock_file write;
+allow sshd_t file_t:dir search;
+allow sshd_t file_t:lnk_file read;
+
+#!!!! This avc can be allowed using the boolean 'use_fusefs_home_dirs'
+allow sshd_t fusefs_t:dir search;

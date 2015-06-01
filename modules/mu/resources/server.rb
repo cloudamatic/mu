@@ -617,14 +617,13 @@ module MU
 				)
 				ad_user = item[server['active_directory']['auth_username_field']]
 				ad_pwd = item[server['active_directory']['auth_password_field']]
-				win_set_hostname_ad = %Q{powershell -Command "& {Rename-Computer -NewName "#{server['mu_windows_name']}" -Force -PassThru -Restart -DomainCredential(New-Object System.Management.Automation.PSCredential('femadata\\#{ad_user}', (ConvertTo-SecureString '#{ad_pwd}' -AsPlainText -Force)))}"}
+				# win_set_hostname_ad = %Q{powershell -Command "& {Rename-Computer -NewName "#{server['mu_windows_name']}" -Force -PassThru -Restart -DomainCredential(New-Object System.Management.Automation.PSCredential('femadata\\#{ad_user}', (ConvertTo-SecureString '#{ad_pwd}' -AsPlainText -Force)))}"}
 			end
 
 			begin
 				if !server['set_windows_pass'] and !win_set_pw.nil?
 					MU.log "Setting Windows password for user #{server['windows_admin_username']}", MU::NOTICE
 					ssh.exec!(win_set_pw)
-MU.log win_set_pw, MU::ERR
 					server['set_windows_pass'] = true
 				end
 				if !server['cleaned_chef']
@@ -638,10 +637,10 @@ MU.log win_set_pw, MU::ERR
 					if output.match(/InProgress/)
 						raise MU::BootstrapTempFail, "Windows Installer service is still doing something, need to wait"
 					end
-					if !server['hostname_set'] and !server['mu_windows_name'].nil?
+					if !server['hostname_set'] && server['mu_windows_name'] && !server['active_directory']
 						# XXX need a better guard here, this pops off every time
 						ssh.exec!(win_set_hostname)
-						ssh.exec!(win_set_hostname_ad) if !win_set_hostname_ad.nil?
+						# ssh.exec!(win_set_hostname_ad) if !win_set_hostname_ad.nil?
 						server['hostname_set'] = true
 						raise MU::BootstrapTempFail, "Setting hostname to #{server['mu_windows_name']}, possibly rebooting"
 					end
@@ -1224,8 +1223,8 @@ MU.log win_set_pw, MU::ERR
 					server['mu_windows_name'] = MU::MommaCat.getResourceName(server['name'], max_length: 15, need_unique_string: true)
 					MU::Server.saveInitialChefNodeAttrs(node, instance, server, canonical_ip)
 				end
-				MU::Server.knifeAddToRunList(node, "recipe[mu-tools::ad-client]");
-				MU::Server.runChef(node, server, node_ssh_key, "Join Active Directory")
+				# MU::Server.knifeAddToRunList(node, "recipe[active-directory::domain-node]");
+				# MU::Server.runChef(node, server, node_ssh_key, "Join Active Directory")
 			end
 
 			MU::MommaCat.unlock(instance.instance_id+"-deploy")
@@ -2105,7 +2104,7 @@ MU.log win_set_pw, MU::ERR
 		    e.remember_host!
 				ssh.close
 		    retry
-		  rescue SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, Net::SSH::Disconnect, IOError => e
+		  rescue SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError => e
 				ssh.close if !ssh.nil?
 				if retries < max_retries
 					retries = retries + 1

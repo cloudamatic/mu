@@ -32,6 +32,8 @@ DEPENDENCIES
   mongodb (~> 0.16.2)
   mu-jenkins
     path: cookbooks/mu-jenkins
+  active-directory
+    path: cookbooks/active-directory
   mu-master
     path: cookbooks/mu-master
   mu-openvpn
