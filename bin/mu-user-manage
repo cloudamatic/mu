@@ -27,16 +27,16 @@ if [ "$USER" != "root" ];then
 fi
 HOMEDIR="`getent passwd \"$USER\" |cut -d: -f6`"
 if [ "$CHEF_PUBLIC_IP" = "" -o "$MU_DATADIR" == "" ];then
-        if [ -f /opt/mu/etc/mu.rc ];then
-                source /opt/mu/etc/mu.rc
-        fi
-        if [ -f $HOMEDIR/.murc ];then
-                source $HOMEDIR/.murc
-        fi
+		    if [ -f /opt/mu/etc/mu.rc ];then
+		            source /opt/mu/etc/mu.rc
+		    fi
+		    if [ -f $HOMEDIR/.murc ];then
+		            source $HOMEDIR/.murc
+		    fi
 fi
 if [ -z $MU_DATADIR ];then
-        echo "MU_DATADIR is unset, I don't know where to find Mu!"
-        exit 1
+		    echo "MU_DATADIR is unset, I don't know where to find Mu!"
+		    exit 1
 fi
 #source $MU_INSTALLDIR/bin/mu-configure
 source $MU_INSTALLDIR/lib/install/mu_setup
@@ -60,86 +60,98 @@ list_users()
 
 usage()
 {
-  msg="$1"
-  echo "Create, modify, or remove Mu users."
-  echo "Usage: $0 -d|-c|-l [-a|-r] [-u <username>] [-e <email>] [-n '<Real Name>'] [-p <password>] [-o <organization>] [-m <email>]"
-  echo "    -l: List users."
-  echo "    -u: Username on which to operate."
-  echo "    -c: Create a user. Prompts for a password unless -p is specified."
-  echo "        Requires -u and -e. Assumes -r, unless -a is specified."
-  echo "    -d: Delete a user. Requires -u."
-  echo "    -n: The user's real name."
-  echo "    -m: The user should receive monitoring alerts at this alternate email address. Set to 'none' to disable monitoring alerts for this user."
-  echo "    -a: Flag the user as an admin. Requires -u. Will implicitly add to"
-  echo "        the 'mu' Chef organization."
-  echo "    -r: Flag the user as a regular (non-admin) user. Requires -u. Will"
-  echo "        remove from the 'mu' Chef organization."
-  echo "    -i: Interactive mode. Will prompt for missing fields."
-  echo "    -e: Set the email address associated with this user. Requires -u."
-  echo "    -o: Add the user to the named Chef organization. Requires -u."
-  echo "    -z: Remove the user from the named Chef organization. Requires -u."
-  echo "    -p <password>: Set the password of this user. Requires -u."
-  echo ""
-  echo "Current users:"
+	msg="$1"
+	echo "Create, modify, or remove Mu users."
+	echo "Usage: $0 -d|-c|-l [-a|-r] [-u <username>] [-e <email>] [-n '<Real Name>'] [-p <password>] [-o <organization>] [-m <email>]"
+	echo "    -l: List users."
+	echo "    -u: Username on which to operate."
+	echo "    -c: Create a user. Prompts for a password unless -p is specified."
+	echo "        Requires -u and -e. Assumes -r, unless -a is specified."
+	echo "    -d: Delete a user. Requires -u."
+	echo "    -n: The user's real name."
+	echo "    -m: The user should receive monitoring alerts at this alternate email address. Set to 'none' to disable monitoring alerts for this user."
+	echo "    -a: Flag the user as an admin. Requires -u. Will implicitly add to"
+	echo "        the 'mu' Chef organization."
+	echo "    -r: Flag the user as a regular (non-admin) user. Requires -u. Will"
+	echo "        remove from the 'mu' Chef organization."
+	echo "    -i: Interactive mode. Will prompt for missing fields."
+	echo "    -e: Set the email address associated with this user. Requires -u."
+	echo "    -o: Add the user to the named Chef organization. Requires -u."
+	echo "    -z: Remove the user from the named Chef organization. Requires -u."
+	echo "    -p <password>: Set the password of this user. Requires -u."
+	echo ""
+	echo "Current users:"
 	list_users
-  if [ "$msg" != "" ];then
+	if [ "$msg" != "" ];then
 		echo "${RED}$msg${NORM}"
-  fi
-  exit 1
+	fi
+	exit 1
+}
+
+add_sudoer()
+{
+	status_message "adding ${BOLD}$user${NORM} to sudoers" 
+	sed -i "/^root/a $user\tALL=(ALL:ALL) ALL" /etc/sudoers
+}
+
+remove_sudoer()
+{
+	status_message "removing ${BOLD}$user${NORM} from sudoers"
+	sed -i "/^$user/ d" /etc/sudoers
 }
 
 add=0
 delete=0
 
 while getopts "u:p:n:e:o:m:z:dclrai" opt; do
-  case $opt in
+	case $opt in
 		l)
 			list_users
 			exit
 			;;
-    u)
-      user=$OPTARG
-      ;;
-    c)
-      create=1
-      ;;
-    d)
-      delete=1
-      ;;
-    a)
-      make_admin=1
-      ;;
-    r)
-      make_regular=1
-      ;;
-    i)
-      interactive=1
-      ;;
-    n)
-      realname=$OPTARG
-      ;;
-    p)
-      password=$OPTARG
-      ;;
-    e)
-      email=$OPTARG
-      ;;
-    m)
-      monitoring_email=$OPTARG
-      ;;
-    o)
-      add_org=$OPTARG
-      ;;
-    z)
-      remove_org=$OPTARG
-      ;;
-    h)
-      usage
-      ;;
-    \?)
-      usage
-      ;;
-  esac
+		u)
+		  user=$OPTARG
+		  ;;
+		c)
+		  create=1
+		  ;;
+		d)
+		  delete=1
+		  ;;
+		a)
+		  make_admin=1
+		  ;;
+		r)
+		  make_regular=1
+		  ;;
+		i)
+		  interactive=1
+		  ;;
+		n)
+		  realname=$OPTARG
+		  ;;
+		p)
+		  password=$OPTARG
+		  ;;
+		e)
+		  email=$OPTARG
+		  ;;
+		m)
+		  monitoring_email=$OPTARG
+		  ;;
+		o)
+		  add_org=$OPTARG
+		  ;;
+		z)
+		  remove_org=$OPTARG
+		  ;;
+		h)
+		  usage
+		  ;;
+		\?)
+		  usage
+		  ;;
+	esac
 done
 mkdir -p $MU_DATADIR/users
 chmod 755 $MU_DATADIR/users
@@ -283,6 +295,9 @@ if [ "$delete" == "1" ];then
 	fi
 	/usr/sbin/userdel -r "$user"
 	/bin/rm -rf "$MU_DATADIR/users/$user"
+	if [ -n "`grep $user /etc/sudoers`" ];then
+		remove_sudoer
+	fi
 else
 
 	# Grab things that are required for initial creation
@@ -301,7 +316,7 @@ else
 			warning_message "Local account for $user may already exist."
 		fi
 		mkdir -p "$user_dir"
-    while [ ! -f "$user_dir/htpasswd" ];do
+		while [ ! -f "$user_dir/htpasswd" ];do
 			status_message "Setting Nagios password for user ${BOLD}$user${NORM}"
 			# XXX this is sloppy as hell, from a security standpoint
 			/usr/bin/htpasswd -c -b -m "$user_dir/htpasswd" "$user" "$password" || /bin/rm -f "$user_dir/htpasswd"
@@ -361,6 +376,14 @@ else
 		# XXX this is also sloppy as hell, from a security standpoint
 		echo "$password" | /usr/bin/passwd --stdin "$user"
 	fi
+	if [ "$make_admin" == "1" -a -z "`grep $user /etc/sudoers`" ];then
+		add_sudoer
+	fi
+
+	if [ "$make_regular" == "1" -a -n "`grep $user /etc/sudoers`" ];then
+		remove_sudoer
+	fi
+
 	if [ "$update_gecos" == "1" ];then
 		status_message "Updating local account contact info for user ${BOLD}$user${NORM} to:" "$realname <$email>"
 		sync_nagios=1
