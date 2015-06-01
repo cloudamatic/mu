@@ -66,7 +66,12 @@ module MU
 			Syslog.open("Mu/"+caller_name, Syslog::LOG_PID, Syslog::LOG_DAEMON | Syslog::LOG_LOCAL3) if !Syslog.opened?
 
 			if details and details.kind_of?(Hash)
-				details = JSON.pretty_generate(details)
+				begin
+					details = JSON.pretty_generate(details)
+				rescue Encoding::UndefinedConversionError => e
+					puts e.inspect
+					pp details
+				end
 			end
 			if details and details.kind_of?(Array)
 				if @html
