@@ -27,16 +27,16 @@ if [ "$USER" != "root" ];then
 fi
 HOMEDIR="`getent passwd \"$USER\" |cut -d: -f6`"
 if [ "$CHEF_PUBLIC_IP" = "" -o "$MU_DATADIR" == "" ];then
-		    if [ -f /opt/mu/etc/mu.rc ];then
-		            source /opt/mu/etc/mu.rc
-		    fi
-		    if [ -f $HOMEDIR/.murc ];then
-		            source $HOMEDIR/.murc
-		    fi
+	if [ -f /opt/mu/etc/mu.rc ];then
+		source /opt/mu/etc/mu.rc
+	fi
+	if [ -f $HOMEDIR/.murc ];then
+		source $HOMEDIR/.murc
+	fi
 fi
 if [ -z $MU_DATADIR ];then
-		    echo "MU_DATADIR is unset, I don't know where to find Mu!"
-		    exit 1
+		echo "MU_DATADIR is unset, I don't know where to find Mu!"
+		exit 1
 fi
 #source $MU_INSTALLDIR/bin/mu-configure
 source $MU_INSTALLDIR/lib/install/mu_setup
@@ -110,47 +110,47 @@ while getopts "u:p:n:e:o:m:z:dclrai" opt; do
 			exit
 			;;
 		u)
-		  user=$OPTARG
-		  ;;
+			user=$OPTARG
+			;;
 		c)
-		  create=1
-		  ;;
+			create=1
+			;;
 		d)
-		  delete=1
-		  ;;
+			delete=1
+			;;
 		a)
-		  make_admin=1
-		  ;;
+			make_admin=1
+			;;
 		r)
-		  make_regular=1
-		  ;;
+			make_regular=1
+			;;
 		i)
-		  interactive=1
-		  ;;
+			interactive=1
+			;;
 		n)
-		  realname=$OPTARG
-		  ;;
+			realname=$OPTARG
+			;;
 		p)
-		  password=$OPTARG
-		  ;;
+			password=$OPTARG
+			;;
 		e)
-		  email=$OPTARG
-		  ;;
+			email=$OPTARG
+			;;
 		m)
-		  monitoring_email=$OPTARG
-		  ;;
+			monitoring_email=$OPTARG
+			;;
 		o)
-		  add_org=$OPTARG
-		  ;;
+			add_org=$OPTARG
+			;;
 		z)
-		  remove_org=$OPTARG
-		  ;;
+			remove_org=$OPTARG
+			;;
 		h)
-		  usage
-		  ;;
+			usage
+			;;
 		\?)
-		  usage
-		  ;;
+			usage
+			;;
 	esac
 done
 mkdir -p $MU_DATADIR/users
