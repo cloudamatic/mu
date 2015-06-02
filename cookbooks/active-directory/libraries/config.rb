@@ -17,7 +17,7 @@ module Activedirectory
 			# Theoretically this should have been done for us already, but let's cover the oddball cases.
 			if node.hostname.upcase != new_resource.computer_name.upcase
 				cmd = powershell_out("Rename-Computer -NewName '#{new_resource.computer_name}' -Force -PassThru -Restart -DomainCredential #{creds}").run_command
-				Chef::Application.fatal!("Failed to rename computer to #{new_resource.computer_name}") unless cmd.exitstatus == 0
+				Chef::Application.fatal!("Failed to rename computer to #{new_resource.computer_name}") if cmd.exitstatus != 0
 				Chef::Application.fatal!("Renamed computer to #{new_resource.computer_name}, rebooting. Will have to run chef again")
 			end
 		end
@@ -25,7 +25,8 @@ module Activedirectory
 		def elevate_remote_access
 			unless uac_remote_restrictions_enabled?
 				cmd = powershell_out("New-ItemProperty -Path HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System -Name 'LocalAccountTokenFilterPolicy' -PropertyType DWord -Force -Value 1").run_command
-				inspect_exit_status(cmd, "UAC remote access")
+				Chef::Log.info("Allowing remote access with UAC")
+				# inspect_exit_status(cmd, "UAC remote access")
 			end
 		end
 
@@ -39,12 +40,14 @@ module Activedirectory
 					$netadapter | New-NetIPAddress -IPAddress #{node.ipaddress} -PrefixLength $netipaddress.PrefixLength -DefaultGateway $netipconfig.IPv4DefaultGateway.NextHop
 				EOH
 				cmd = powershell_out(code).run_command
-				inspect_exit_status(cmd, "set network interface")
+				Chef::Log.info("Set network interface to use static address")
+				# inspect_exit_status(cmd, "set network interface")
 			end
 
 			unless new_resource.existing_dc_ips.empty?
 				cmd = powershell_out("Get-NetAdapter | Set-DnsClientServerAddress -PassThru -ServerAddresses #{new_resource.existing_dc_ips.join(",")}").run_command
-				inspect_exit_status(cmd, "set DNS addresses to #{new_resource.existing_dc_ips.join(",")}")
+				Chef::Log.info("set DNS addresses to #{new_resource.existing_dc_ips.join(",")}")
+				# inspect_exit_status(cmd, "set DNS addresses to #{new_resource.existing_dc_ips.join(",")}")
 			end
 		end
 
@@ -54,7 +57,7 @@ module Activedirectory
 		end
 
 		def set_replication_static_ports
-			# Can't inspect exist code of any of those. Windows is reporting wrong exit code
+			# Can't inspect exist code of any of those. exit code 0 doesn't seem to mean what it should mean on Windows
 			powershell_out("New-ItemProperty -Path HKLM:\\SYSTEM\\CurrentControlSet\\Services\\NTDS\\Parameters -Name 'TCP/IP Port' -PropertyType DWord -Force -Value #{new_resource.ntds_static_port}").run_command unless replication_tcp_port_set?
 			powershell_out("New-ItemProperty -Path HKLM:\\SYSTEM\\CurrentControlSet\\Services\\NTFRS\\Parameters -Name 'RPC TCP/IP Port Assignment' -PropertyType DWord -Force -Value #{new_resource.ntfrs_static_port}").run_command unless replication_rpc_port_set?
 			powershell_out("New-ItemProperty -Path HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Netlogon\\Parameters -Name 'DCTcpipPort' -PropertyType DWord -Force -Value #{new_resource.netlogon_static_port}").run_command unless netlogon_port_set?

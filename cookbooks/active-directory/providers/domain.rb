@@ -39,7 +39,8 @@ when "windows"
 				Add-ADGroupMember 'Domain Admins' -Members #{new_resource.domain_admin_user}
 			EOH
 			cmd = powershell_out(code).run_command
-			inspect_exit_status(cmd, "Create Domain Admin User #{new_resource.domain_admin_user}")
+			Chef::Log.info("Create Domain Admin User #{new_resource.domain_admin_user}")
+			# inspect_exit_status(cmd, "Create Domain Admin User #{new_resource.domain_admin_user}")
 		end
 	end
 
@@ -72,7 +73,7 @@ when "windows"
 			elsif version.windows_server_2012_r2?
 				cmd = powershell_out("Install-ADDSForest -DomainName #{new_resource.dns_name} -SafeModeAdministratorPassword (convertto-securestring '#{new_resource.restore_mode_password}' -asplaintext -force) -DomainMode Win2012R2 -DomainNetbiosName #{new_resource.netbios_name} -ForestMode Win2012R2 -Confirm:$false -Force").run_command
 		
-				Chef::Application.fatal!("Failed to create Active Directory Domain #{new_resource.dns_name}") unless cmd.exitstatus == 0
+				Chef::Application.fatal!("Failed to create Active Directory Domain #{new_resource.dns_name}") if cmd.exitstatus != 0
 				Chef::Application.fatal!("Active Directory Domain #{new_resource.dns_name} was created, rebooting. Will have to run chef again")
 			end
 		end
@@ -81,7 +82,8 @@ when "windows"
 	def rename_default_site
 		unless default_site_name_set?
 			cmd = powershell_out("Get-ADObject -Credential #{admin_creds} -SearchBase (Get-ADRootDSE).ConfigurationNamingContext -filter {Name -eq 'Default-First-Site-Name'} | Rename-ADObject -Credential #{admin_creds} -NewName #{new_resource.site_name}").run_command
-			inspect_exit_status(cmd, "Renamed default site to #{new_resource.site_name}")
+			Chef::Log.info("Renamed default site to #{new_resource.site_name}")
+			# inspect_exit_status(cmd, "Renamed default site to #{new_resource.site_name}")
 		end
 	end
 

@@ -56,7 +56,8 @@ when "windows"
 	end
 
 	def set_client_dns
-		cmd = powershell_out("Get-NetAdapter | Set-DnsClientServerAddress -ServerAddresses #{new_resource.dc_ips.join(", ")}").run_command unless client_dns_set?
+		cmd = powershell_out("Get-NetAdapter | Set-DnsClientServerAddress -ServerAddresses #{new_resource.dc_ips.join(", ")}").run_command
+		Chef::Log.info("Set DNS addresses to #{new_resource.dc_ips.join(", ")}")
 	end
 when "centos", "redhat"
 	def join_domain
