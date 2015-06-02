@@ -4,7 +4,6 @@ host = <%= @inputs_conf['host'] %>
 [SSL]
 sslVersions = tls1.2
 cipherSuite = TLSv1.2:!eNULL:!aNULL
-allowSslCompression = false
 
 <% @inputs_conf['ports'].each do |port| -%>
 [tcp://:<%= port['port_num'] %>]
