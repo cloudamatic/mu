@@ -77,6 +77,12 @@ template "#{splunk_dir}/etc/system/local/inputs.conf" do
   not_if { node['splunk']['inputs_conf'].nil? || node['splunk']['inputs_conf']['host'].empty? }
 end
 
+template "#{splunk_dir}/etc/apps/base_logs_unix/local/inputs.conf" do
+  source 'base_logs_unix_inputs.conf.erb'
+  mode 0644
+  notifies :restart, 'service[splunk]'
+end
+
 include_recipe 'chef-splunk::service'
 include_recipe 'chef-splunk::setup_auth'
 
