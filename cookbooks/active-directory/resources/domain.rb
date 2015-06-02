@@ -1,4 +1,12 @@
-# Create a simple Active Directory Domain (Single domain controller in a single forest)
+#
+# Cookbook Name:: active-directory
+# Resource:: domain
+#
+# Copyright 2015, eGlobalTech,
+#
+# All rights reserved - Do Not Redistribute
+#
+
 actions :create, :delete
 default_action :create
 

@@ -1,6 +1,14 @@
+#
+# Cookbook Name:: active-directory
+# Provider:: domain_node
+#
+# Copyright 2015, eGlobalTech,
+#
+# All rights reserved - Do Not Redistribute
+#
+
 require 'chef/mixin/shell_out'
 include Chef::Mixin::ShellOut
-include Chef::Mixin::PowershellOut
 
 def whyrun_supported?
 	true
@@ -14,61 +22,41 @@ action :remove do
 	disjoin_domain
 end
 
-def load_current_resource
-	@current_resource = @new_resource.dup
-end
+# def load_current_resource
+	# @current_resource = @new_resource.dup
+# end
 
 case node.platform
 when "windows"
-	def admin_creds
+	include Chef::Mixin::PowershellOut
+
+	def join_domain_creds
 		"(New-Object System.Management.Automation.PSCredential('#{new_resource.netbios_name}\\#{new_resource.join_user}', (ConvertTo-SecureString '#{new_resource.join_password}' -AsPlainText -Force)))"
 	end
 
-	def join_domain(computer_name)
+	def join_domain
 		set_client_dns
 		elevate_remote_access
-		set_computer_name
+		set_computer_name(join_domain_creds)
 
 		unless in_domain?
 			# This will allow us to add a new computer account to the correct OU so the right group policy is applied
 			begin
 				if new_resource.computer_ou
-					code = "Add-Computer -DomainName #{new_resource.dns_name} -Credential(New-Object System.Management.Automation.PSCredential('#{new_resource.netbios_name}\\#{new_resource.join_user}', (ConvertTo-SecureString '#{new_resource.join_password}' -AsPlainText -Force))) -NewName #{new_resource.computer_name} -OUPath '#{new_resource.computer_ou}' -PassThru -Restart -Verbose -Force"
+					code = "Add-Computer -DomainName #{new_resource.dns_name} -Credential#{join_domain_creds} -NewName #{new_resource.computer_name} -OUPath '#{new_resource.computer_ou}' -PassThru -Restart -Verbose -Force"
 				end
 			rescue NoMethodError
-				code = "Add-Computer -DomainName #{new_resource.dns_name} -Credential(New-Object System.Management.Automation.PSCredential('#{new_resource.netbios_name}\\#{new_resource.join_user}', (ConvertTo-SecureString '#{new_resource.join_password}' -AsPlainText -Force))) -NewName #{new_resource.computer_name} -PassThru -Restart -Verbose -Force"
+				code = "Add-Computer -DomainName #{new_resource.dns_name} -Credential#{join_domain_creds} -NewName #{new_resource.computer_name} -PassThru -Restart -Verbose -Force"
 			end
 
 			cmd = powershell_out(code).run_command
-			#Let's make sure the run breaks here
-			execute "shutdown -r -f -t 0"
+			Chef::Application.fatal!("Failed to join #{new_resource.computer_name} to #{new_resource.dns_name} domain") unless cmd.exitstatus == 0
+			Chef::Application.fatal!("Joined #{new_resource.computer_name} to #{new_resource.dns_name} domain, rebooting. Will have to run chef again")
 		end
 	end
 
 	def set_client_dns
 		cmd = powershell_out("Get-NetAdapter | Set-DnsClientServerAddress -ServerAddresses #{new_resource.dc_ips.join(", ")}").run_command unless client_dns_set?
-	end
-
-	def set_computer_name
-		# Theoretically this should have been done for us already, but let's cover the oddball cases.
-		if node.hostname != new_resource.computer_name
-			cmd = powershell_out("Rename-Computer -NewName '#{new_resource.computer_name}' -Force -PassThru -Restart -DomainCredential(New-Object System.Management.Automation.PSCredential('#{new_resource.netbios_name}\\#{new_resource.join_user}', (ConvertTo-SecureString '#{new_resource.join_password}' -AsPlainText -Force)))").run_command
-			execute "shutdown -r -f -t 0"
-		end
-	end
-
-	def elevate_remote_access
-		cmd = powershell_out("New-ItemProperty -Path HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System -Name 'LocalAccountTokenFilterPolicy' -PropertyType DWord -Force -Value 1").run_command unless uac_remote_restrictions_enabled?
-	end
-	
-	def in_domain?
-		cmd = powershell_out("((Get-WmiObject win32_computersystem).partofdomain -eq $true)").run_command
-		return cmd.stdout.match(/True/)
-	end
-
-	def uac_remote_restrictions_enabled?
-		cmd = powershell_out("(Get-ItemProperty HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System 'LocalAccountTokenFilterPolicy').'LocalAccountTokenFilterPolicy' -eq 1").run_command
-		return cmd.stdout.match(/True/)
 	end
 when "centos", "redhat"
 	def join_domain

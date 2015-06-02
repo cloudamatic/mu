@@ -1,4 +1,12 @@
-# Add a Domain Controller to an existing Active Directory domain   
+#
+# Cookbook Name:: active-directory
+# Resource:: domain_controller
+#
+# Copyright 2015, eGlobalTech,
+#
+# All rights reserved - Do Not Redistribute
+#
+
 actions :add, :remove
 default_action :add
 

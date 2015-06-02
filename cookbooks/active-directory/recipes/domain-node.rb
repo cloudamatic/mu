@@ -1,3 +1,12 @@
+#
+# Cookbook Name:: active-directory
+# Recipe:: domain-node
+#
+# Copyright 2015, eGlobalTech,
+#
+# All rights reserved - Do Not Redistribute
+#
+
 include_recipe 'chef-vault'
 domain_creds = chef_vault_item(node.ad.auth_vault, node.ad.auth_item)
 can_join_domain = false
@@ -18,7 +27,7 @@ when "centos", "redhat"
 	if node.platform_version.to_i >= 6
 		can_join_domain = true
 	else
-		Chef::Log.info "Requires CentOS/RedHat 6/7 current version is #{node.platform} #{node.platform_version.to_i}"
+		Chef::Log.info "Requires CentOS/RedHat 6/7. Current version is #{node.platform} #{node.platform_version.to_i}"
 	end
 else
 	Chef::Log.info("Unsupported platform #{node.platform}")

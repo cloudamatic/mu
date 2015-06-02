@@ -1,3 +1,12 @@
+#
+# Cookbook Name:: active-directory
+# Recipe:: domain-controller
+#
+# Copyright 2015, eGlobalTech,
+#
+# All rights reserved - Do Not Redistribute
+#
+
 include_recipe 'chef-vault'
 domain_admin = chef_vault_item("activedirectory", "domain_admin")
 

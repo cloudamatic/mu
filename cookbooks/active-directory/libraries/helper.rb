@@ -1,12 +1,9 @@
-
 require 'chef/mixin/shell_out'
 include Chef::Mixin::PowershellOut
 include Chef::Mixin::ShellOut
 
-module Activedirecotry
+module Activedirectory
 	module Helper
-    # extend Chef::Mixin::ShellOut
-
 		def in_domain?
 			cmd = powershell_out("((Get-WmiObject win32_computersystem).partofdomain -eq $true)").run_command
 			return cmd.stdout.match(/True/)
@@ -56,5 +53,15 @@ module Activedirecotry
 			cmd = powershell_out("(Get-ItemProperty HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Policies\\System 'LocalAccountTokenFilterPolicy').'LocalAccountTokenFilterPolicy' -eq 1").run_command
 			return cmd.stdout.match(/True/)
 		end
+
+		def default_site_name_set?
+			cmd = powershell_out("(Get-ADReplicationSite).name -eq '#{new_resource.site_name}'").run_command
+			return cmd.stdout.match(/True/)
+		end
 	end
 end
+
+Chef::Node.send(:include, Activedirectory::Helper)
+Chef::Recipe.send(:include, Activedirectory::Helper)
+Chef::Resource.send(:include, Activedirectory::Helper)
+Chef::Provider.send(:include, Activedirectory::Helper)
