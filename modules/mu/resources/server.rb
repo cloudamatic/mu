@@ -2105,7 +2105,17 @@ module MU
 				ssh.close
 		    retry
 		  rescue SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError => e
-				ssh.close if !ssh.nil?
+				begin
+					ssh.close if !ssh.nil?
+				rescue IOError => e
+					if %w{win2k12r2 win2k12 windows}.include?(server['platform'])
+						MU.log "Windows was probably restarted and closed the ssh session unexpectedly. Waiting before trying again #{e}", MU::WARN
+						sleep 30
+					else
+						MU.log "ssh session was closed unexpectedly Waiting before trying again #{e}", MU::WARN
+						sleep 10
+					end
+				end
 				if retries < max_retries
 					retries = retries + 1
 					MU.log "#{nodename}: #{e.inspect} trying to connect for Chef run '#{purpose}", MU::WARN
@@ -2116,7 +2126,17 @@ module MU
 					raise "#{nodename}: #{e.inspect} trying to connect for Chef run '#{purpose}"
 				end
 		  rescue MU::ChefRunFail => e
-				ssh.close if !ssh.nil?
+				begin
+					ssh.close if !ssh.nil?
+				rescue IOError => e
+					if %w{win2k12r2 win2k12 windows}.include?(server['platform'])
+						MU.log "Windows was probably restarted and closed the ssh session unexpectedly. Waiting before trying again #{e}", MU::WARN
+						sleep 30
+					else
+						MU.log "ssh session was closed unexpectedly Waiting before trying again #{e}", MU::WARN
+						sleep 10
+					end
+				end
 				if retries < max_retries
 					retries = retries + 1
 					MU.log "#{nodename}: Chef run '#{purpose}' failed, retrying", MU::WARN, details: e.message
