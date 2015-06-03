@@ -180,7 +180,7 @@ module MU
 							routes = deploy_struct['route_tables']
 							if routes.nil? or routes[subnet['route_table']].nil?
 								MU.log "Subnet #{subnet_name} references non-existent route #{subnet['route_table']}", MU::ERR, details: @deploy.deployment['vpcs']
-								raise "deploy failure"
+								raise MuError, "deploy failure"
 							end
 							MU.log "Associating Route Table '#{subnet['route_table']}' (#{routes[subnet['route_table']]['route_table_id']}) with #{subnet_name}"
 							retries = 0
@@ -198,7 +198,7 @@ module MU
 									sleep 10
 									retry
 								else
-									raise e
+									raise MuError, e.inspect
 								end
 							end
 						end
@@ -215,7 +215,7 @@ module MU
 								retries = retries + 1
 								retry
 							end
-							raise e
+							raise MuError, e.inspect
 						end
 						subnet_semaphore.synchronize {
 							deploy_struct['subnets'][subnet['name']] = subnet
@@ -313,7 +313,7 @@ module MU
 							)
 							if peer_desc.nil?
 								MU.log "Unable to locate peer VPC for #{@vpc['name']}", MU::ERR, details: peer
-								raise "Unable to locate peer VPC"
+								raise MuError, "Unable to locate peer VPC"
 							end
 							peer_id = peer_desc.vpc_id
 							peer_deploy_struct = nil
@@ -413,7 +413,7 @@ module MU
 							rescue Aws::EC2::Errors::InvalidStateTransition => e
 								# XXX apparently this is normal?
 							end
-							raise "VPC peering connection from VPC #{@vpc['name']} (#{@vpc['vpc_id']}) to #{peer_id} #{cnxn.status.code}: #{cnxn.status.message}"
+							raise MuError, "VPC peering connection from VPC #{@vpc['name']} (#{@vpc['vpc_id']}) to #{peer_id} #{cnxn.status.code}: #{cnxn.status.message}"
 						end
 					rescue Aws::EC2::Errors::RequestLimitExceeded => e
 						sleep 10
@@ -444,7 +444,7 @@ module MU
 							)
 							if nat_instance.nil?
 								MU.log "#{vpc_name} is configured to use #{route} but I can't find a running instance matching nat_host_id or nat_host_name", MU::ERR
-								raise "deploy failure"
+								raise MuError, "deploy failure"
 							end
 							route_config[:instance_id] = nat_instance.instance_id
 
@@ -496,7 +496,7 @@ module MU
 					elsif resp.data.vpcs.size > 1 
 						if !allow_multi
 							MU.log "Got multiple results in VPC.find (tag:#{tag_key}=#{tag_value})", MU::ERR, details: resp.data.vpcs
-							raise "Got multiple results in VPC.find (tag:#{tag_key}=#{tag_value})"
+							raise MuError, "Got multiple results in VPC.find (tag:#{tag_key}=#{tag_value})"
 						else
 							return [resp.data.vpcs, name]
 						end
@@ -580,7 +580,7 @@ module MU
 			# Go fish for our parent VPC, first off
 			existing_vpc, vpc_name = find(id: vpc_id, name: vpc_name, deploy_id: deploy_id, tag_key: tag_key, tag_value: tag_value, region: region)
 			if existing_vpc.nil?
-				raise "Couldn't find an appropriate VPC in findSubnet (id: #{id}, name: #{name}, vpc_id: #{vpc_id}, vpc_name: #{vpc_name})"
+				raise MuError, "Couldn't find an appropriate VPC in findSubnet (id: #{id}, name: #{name}, vpc_id: #{vpc_id}, vpc_name: #{vpc_name})"
 			end
 			vpc_id = existing_vpc.vpc_id
 
@@ -621,7 +621,7 @@ module MU
 					return nil if resp.data.subnets.size == 0 or resp.data.subnets.nil?
 					subnet = resp.data.subnets.first
 					if subnet.vpc_id != vpc_id
-						raise "Subnet #{id} isn't a member of VPC #{vpc_id} in findSubnet (id: #{id}, name: #{name}, vpc_id: #{vpc_id}, vpc_name: #{vpc_name})"
+						raise MuError, "Subnet #{id} isn't a member of VPC #{vpc_id} in findSubnet (id: #{id}, name: #{name}, vpc_id: #{vpc_id}, vpc_name: #{vpc_name})"
 					end
 					return subnet
 				end
@@ -649,7 +649,7 @@ module MU
 					sleep 10
 					retry
 				else
-					raise e
+					raise MuError, e.inspect
 				end
 			end
 			return nil
@@ -663,7 +663,7 @@ module MU
 		def self.listSubnets(vpc_id: vpc_id, vpc_name: vpc_name, region: MU.curRegion)
 			existing_vpc, vpc_name = find(id: vpc_id, name: vpc_name)
 			if existing_vpc.nil?
-				raise "Couldn't find VPC (name: '#{vpc_name}', id: #{vpc_id})"
+				raise MuError, "Couldn't find VPC (name: '#{vpc_name}', id: #{vpc_id})"
 			end
 			begin
 				resp = MU.ec2(region).describe_subnets(
@@ -847,7 +847,7 @@ module MU
 					retries = retries + 1
 				end
 			end while retries < 5 and (existing_vpc.nil? or existing_vpc.vpc_id.empty?)
-			raise "Couldn't find an active VPC from #{vpc_conf}" if existing_vpc.nil? or existing_vpc.vpc_id.empty?
+			raise MuError, "Couldn't find an active VPC from #{vpc_conf}" if existing_vpc.nil? or existing_vpc.vpc_id.empty?
 			vpc_id = existing_vpc.vpc_id
 
 # XXX sanity-check existence of requested subnet(s)
@@ -869,7 +869,7 @@ module MU
 							redo
 						end
 						MU.log "Couldn't find a live subnet matching #{subnet} in #{vpc_id} (#{vpc_conf['region']})", MU::ERR, details: MU::Deploy.deployment['subnets']
-						raise "Couldn't find a live subnet matching #{subnet} in #{vpc_id} (#{vpc_conf['region']})"
+						raise MuError, "Couldn't find a live subnet matching #{subnet} in #{vpc_id} (#{vpc_conf['region']})"
 					end
 					id = subnet_struct.subnet_id
 					subnet_ids << id if !id.nil?
@@ -884,7 +884,7 @@ module MU
 				)
 				if subnet_struct.nil?
 					MU.log "Couldn't find a live subnet matching #{vpc_conf}", MU::ERR, details: MU::Deploy.deployment['subnets']
-					raise "Couldn't find a live subnet matching #{vpc_conf}"
+					raise MuError, "Couldn't find a live subnet matching #{vpc_conf}"
 				end
 				id = subnet_struct.subnet_id
 				subnet_ids << id if id != nil
@@ -896,7 +896,7 @@ module MU
 			end
 
 			if subnet_ids == nil or subnet_ids.size < 1
-				raise "Couldn't find subnets in #{vpc_id}"
+				raise MuError, "Couldn't find subnets in #{vpc_id}"
 			end
 
 
@@ -904,11 +904,11 @@ module MU
 			nat_ssh_user = nil
 			if vpc_conf["nat_host_name"] != nil
 				nat, mu_name = MU::Server.find(name: vpc_conf["nat_host_name"], region: vpc_conf['region'])
-				raise "Can't find a bastion host with name #{vpc_conf["nat_host_name"]}" if nat == nil
+				raise MuError, "Can't find a bastion host with name #{vpc_conf["nat_host_name"]}" if nat == nil
 				nat_host_name = nat.public_dns_name
 			elsif vpc_conf["nat_host_id"] != nil
 				nat, mu_name = MU::Server.find(id: vpc_conf["nat_host_id"], region: vpc_conf['region'])
-				raise "Can't find a bastion host with id #{vpc_conf["nat_host_id"]}" if nat == nil
+				raise MuError, "Can't find a bastion host with id #{vpc_conf["nat_host_id"]}" if nat == nil
 				nat_host_name = nat.public_dns_name
 			end
 

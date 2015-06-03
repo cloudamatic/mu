@@ -46,7 +46,7 @@ module MU
 			if @db["creation_style"] == "existing"
 				database = MU::Database.getDatabaseById(@db['identifier'])
 
-				raise "No such database #{@db['identifier']} exists" if database.nil?
+				raise MuError, "No such database #{@db['identifier']} exists" if database.nil?
 
 				MU::Database.notifyDeploy(@db["name"], @db['identifier'], @db["password"], @db["creation_style"])
 				return @db['db_id']
@@ -325,7 +325,7 @@ module MU
 						if !subnet_struct
 							# should this be subnet_struct.empty?
 							MU.log "Couldn't find a live subnet matching #{subnet}", MU::ERR, details: MU::Deploy.deployment['subnets']
-							raise "Couldn't find a live subnet matching #{subnet}"
+							raise MuError, "Couldn't find a live subnet matching #{subnet}"
 						else
 							subnet_ids << subnet_struct.subnet_id
 						end
@@ -339,16 +339,16 @@ module MU
 				# Create DB subnet group
 				if subnet_ids.empty?
 					MU.log "Couldn't find subnets in #{vpc_id} to add #{@db['identifier']} to", MU::ERR, details: vpc_id
-					raise "Couldn't find subnets in #{vpc_id} to add #{@db['identifier']} to"
+					raise MuError, "Couldn't find subnets in #{vpc_id} to add #{@db['identifier']} to"
 				else
 					subnet_ids.each { |subnet_id|
 						# Make sure we aren't configuring publicly_accessible wrong.
 						if MU::VPC.isSubnetPrivate?(subnet_id, region: @db['region']) and @db["publicly_accessible"]
 							MU.log "Found a private subnet but publicly_accessible is set to true on #{@db['identifier']}", MU::ERR
-							raise "Found a private subnet but publicly_accessible is set to true on #{@db['identifier']}"
+							raise MuError, "Found a private subnet but publicly_accessible is set to true on #{@db['identifier']}"
 						elsif !MU::VPC.isSubnetPrivate?(subnet_id, region: @db['region']) and !@db["publicly_accessible"]
 							MU.log "Found a public subnet but publicly_accessible is set to false on #{@db['identifier']}", MU::ERR
-							raise "Found a public subnet but publicly_accessible is set to false on #{@db['identifier']}"
+							raise MuError, "Found a public subnet but publicly_accessible is set to false on #{@db['identifier']}"
 						end
 					}
 
@@ -702,7 +702,7 @@ module MU
 					db_instance_identifier: @db["identifier"]
 				)
 			rescue Aws::RDS::Errors::InvalidDBInstanceState => e
-				raise e if attempts >= 10
+				raise MuError, e.inspect if attempts >= 10
 				attempts += 1
 				sleep 60
 				retry
@@ -786,7 +786,7 @@ module MU
 					retry
 				else
 					MU.log "Exhausted retries to create DB read replica #{@db['read_replica']['identifier']}, giving up", MU::ERR, details: e.inspect
-					raise "Exhausted retries to create DB read replica #{@db['read_replica']['identifier']}, giving up"
+					raise MuError, "Exhausted retries to create DB read replica #{@db['read_replica']['identifier']}, giving up"
 				end
 			end
 

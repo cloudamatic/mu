@@ -41,19 +41,20 @@ end
 
 module MU
 
-	# An exception denoting an expected, temporary connection failure to a
-	# bootstrapping instance, e.g. for Windows instances that must reboot in
-	# mid-installation.
-	class BootstrapTempFail < StandardError
-	end
-
-	# An exception denoting a Chef run that has failed, but could potentially
-	# be successful on a subsequent run.
-	class ChefRunFail < StandardError
-	end
 
 	# A server as configured in {MU::Config::BasketofKittens::servers}
 	class Server
+		# An exception denoting an expected, temporary connection failure to a
+		# bootstrapping instance, e.g. for Windows instances that must reboot in
+		# mid-installation.
+		class BootstrapTempFail < MuNonFatal
+		end
+
+		# An exception denoting a Chef run that has failed, but could potentially
+		# be successful on a subsequent run.
+		class ChefRunFail < MuError
+		end
+
 		# The {MU::Config::BasketofKittens} name for a single resource of this class.
 		def self.cfg_name; "server".freeze end
 		# The {MU::Config::BasketofKittens} name for a collection of resources of this class.
@@ -174,7 +175,7 @@ module MU
 													)
 			userdata_mutex.synchronize {
 				if template_variables.nil? or !template_variables.is_a?(Hash)
-					raise "My second argument should be a hash of variables to pass into ERB templates"
+					raise MuError, "My second argument should be a hash of variables to pass into ERB templates"
 				end
 				$mu = OpenStruct.new(template_variables)
 				userdata_dir = File.expand_path(File.dirname(__FILE__)+"/../userdata")
@@ -190,12 +191,12 @@ module MU
 					erb = ERB.new(userdata)
 					script = erb.result
 				rescue NameError => e
-					raise "Error parsing userdata script #{erbfile} as an ERB template: #{e.inspect}"
+					raise MuError, "Error parsing userdata script #{erbfile} as an ERB template: #{e.inspect}"
 				end
 				MU.log "Parsed #{erbfile} as ERB", MU::DEBUG, details: script
 				if !custom_append.nil?
 					if custom_append['path'].nil?
-						raise "Got a custom userdata script argument, but no ['path'] component"
+						raise MuError, "Got a custom userdata script argument, but no ['path'] component"
 					end
 					erbfile = File.read(custom_append['path'])
 					MU.log "Loaded userdata script from #{custom_append['path']}"
@@ -204,7 +205,7 @@ module MU
 							erb = ERB.new(erbfile, 1)
 							script = script+"\n"+erb.result
 						rescue NameError => e
-							raise "Error parsing userdata script #{erbfile} as an ERB template: #{e.inspect}"
+							raise MuError, "Error parsing userdata script #{erbfile} as an ERB template: #{e.inspect}"
 						end
 						MU.log "Parsed #{custom_append['path']} as ERB", MU::DEBUG, details: script
 					else
@@ -383,7 +384,7 @@ module MU
 				}
 			rescue Aws::IAM::Errors::MalformedPolicyDocument => e
 				MU.log "Malformed policy when creating IAM Role #{rolename}: #{e.inspect}", MU::ERR
-				raise "Malformed policy when creating IAM Role #{rolename}: #{e.inspect}"
+				raise MuError, "Malformed policy when creating IAM Role #{rolename}: #{e.inspect}"
 			end
 			MU.iam.create_instance_profile(
 				instance_profile_name: rolename
@@ -445,12 +446,12 @@ module MU
 					  sleep 15
 					  retry
 					end
-					raise e
+					raise MuError, e.inspect
 				end
 				subnet_id = subnet_ids.first
 				if subnet_id.nil? or subnet_id.empty?
 					MU.log "Got null Subnet id out of #{@server['vpc']}", MU::ERR
-					raise "deploy failure"
+					raise MuError, "deploy failure"
 				end
 
 				MU.log "Deploying #{node} into VPC #{vpc_id} Subnet #{subnet_id}"
@@ -486,7 +487,7 @@ module MU
 					sg = MU::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"], region: @server['region'])
 					if sg.nil?
 						MU.log "Couldn't find dependent security group #{acl} for server #{node}", MU::ERR
-						raise "deploy failure"
+						raise MuError, "deploy failure"
 					end
 					security_groups << sg.group_id
 				}
@@ -534,7 +535,7 @@ module MU
 					retries = retries + 1
 					retry
 				else
-					raise e
+					raise MuError, e.inspect
 				end
 			end
 
@@ -565,7 +566,7 @@ module MU
           )
           if nat_instance.nil?
             MU.log "#{config["name"]} (#{MU.mu_id}) is configured to use #{config['vpc']} but I can't find a running instance matching nat_host_id or nat_host_name", MU::ERR, details: caller
-            raise "#{config["name"]} (#{MU.mu_id}) is configured to use #{config['vpc']} but I can't find a running instance matching nat_host_id or nat_host_name"
+            raise MuError, "#{config["name"]} (#{MU.mu_id}) is configured to use #{config['vpc']} but I can't find a running instance matching nat_host_id or nat_host_name"
           end
           nat_ssh_key = nat_instance.key_name
           nat_ssh_host = nat_instance.public_ip_address
@@ -601,7 +602,8 @@ module MU
 			else
 				begin
 					win_set_pw = %Q{powershell -Command "&{ (([adsi]('WinNT://./#{server['windows_admin_username']}, user')).psbase.invoke('SetPassword', '#{MU.mommacat.fetchSecret(server["instance_id"], "winpass")}'))}"}
-				rescue MU::NoSuchSecret
+				rescue MU::MommaCat::SecretError
+					# This is ok
 				end
 			end
 
@@ -636,18 +638,18 @@ MU.log win_set_pw, MU::ERR
 					output = ssh.exec!(win_env_fix)
 					output = ssh.exec!(win_installer_check)
 					if output.match(/InProgress/)
-						raise MU::BootstrapTempFail, "Windows Installer service is still doing something, need to wait"
+						raise BootstrapTempFail, "Windows Installer service is still doing something, need to wait"
 					end
 					if !server['hostname_set'] and !server['mu_windows_name'].nil?
 						# XXX need a better guard here, this pops off every time
 						ssh.exec!(win_set_hostname)
 						ssh.exec!(win_set_hostname_ad) if !win_set_hostname_ad.nil?
 						server['hostname_set'] = true
-						raise MU::BootstrapTempFail, "Setting hostname to #{server['mu_windows_name']}, possibly rebooting"
+						raise BootstrapTempFail, "Setting hostname to #{server['mu_windows_name']}, possibly rebooting"
 					end
 				end
 			rescue RuntimeError => e
-				raise MU::BootstrapTempFail, "Got #{e.inspect} performing initial SSH connect tasks, will try again"
+				raise BootstrapTempFail, "Got #{e.inspect} performing initial SSH connect tasks, will try again"
 			end
 		end
 
@@ -686,7 +688,7 @@ MU.log win_set_pw, MU::ERR
 				if instance.nil? or instance.state.name != "running"
 					if !instance.nil? and instance.state.name == "terminated"
 						retries = 30
-						raise "#{id} appears to have been terminated mid-bootstrap!"
+						raise MuError, "#{id} appears to have been terminated mid-bootstrap!"
 					end
 					if retries % 3 == 0
 						MU.log "Waiting for EC2 instance #{node} to be ready...", MU::NOTICE
@@ -701,7 +703,7 @@ MU.log win_set_pw, MU::ERR
 					sleep 5
 					retry
 				else
-					raise "Too many retries creating #{node} (#{e.inspect})"
+					raise MuError, "Too many retries creating #{node} (#{e.inspect})"
 				end
 			end while instance.nil? or (instance.state.name != "running" and retries < 30)
 
@@ -764,7 +766,7 @@ MU.log win_set_pw, MU::ERR
 			node_ssh_user = server["ssh_user"]
 			if !File.exist?(ssh_keydir+"/"+node_ssh_key)
 				MU.log "Node #{node} ssh key #{ssh_keydir}/#{node_ssh_key} does not exist", MU::ERR
-				raise "deploy failure"
+				raise MuError, "deploy failure"
 			end
 
 			nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::Server.getNodeSSHProxy(server)
@@ -786,11 +788,11 @@ MU.log win_set_pw, MU::ERR
 
 				if !nat_ssh_key.nil? and !File.exist?(ssh_keydir+"/"+nat_ssh_key)
 					MU.log "NAT proxy #{nat_ssh_host} ssh key #{ssh_keydir}/#{nat_ssh_key} does not exist", MU::ERR
-					raise "deploy failure"
+					raise MuError, "deploy failure"
 				end
 				if is_private and !nat_ssh_host and !MU::VPC.haveRouteToInstance?(instance.instance_id)
 					MU.log "#{node} is in a private subnet, but has no NAT host configured, and I have no other route to it", MU::ERR
-					raise "#{node} is in a private subnet, but has no NAT host configured, and I have no other route to it"
+					raise MuError, "#{node} is in a private subnet, but has no NAT host configured, and I have no other route to it"
 				end
 
 				# If we've asked for additional subnets (and this server is not a
@@ -821,7 +823,7 @@ MU.log win_set_pw, MU::ERR
 						)
 						if subnet_struct.nil?
 							MU.log "#{node} is configured to have an interface in #{subnet}, but no such subnet exists", MU::ERR
-							raise "deploy failure"
+							raise MuError, "deploy failure"
 						end
 						subnet_id = subnet_struct.subnet_id
 						MU.log "Adding network interface on subnet #{subnet_id} for #{node}"
@@ -950,7 +952,7 @@ MU.log win_set_pw, MU::ERR
 
 			if canonical_ip.nil?
 				MU.log "Failed to get an IP address out of #{instance.instance_id}", MU::ERR, details: instance
-				raise "deploy failure"
+				raise MuError, "deploy failure"
 			end
 
 			if !server['add_private_ips'].nil?
@@ -998,8 +1000,7 @@ MU.log win_set_pw, MU::ERR
 					sleep ssh_wait
 		      retry
 		    else
-					MU.log "Too many authentication/connection failures bootstrapping #{node}.", MU::ERR
-		      raise e
+		      raise MuError, "Too many authentication/connection failures bootstrapping #{node}."
 		    end
 		  end
 
@@ -1083,7 +1084,7 @@ MU.log win_set_pw, MU::ERR
 					sleep 10
 					retry
 				else
-					raise e
+					raise MuError, "#{node}: Knife Bootstrap failed too many times with #{e.inspect}"
 				end
 			end
 
@@ -1315,7 +1316,7 @@ MU.log win_set_pw, MU::ERR
 								redo
 							else
 								MU.log "ABORTING: Unable to add #{node} to #{vault['vault']} #{vault['item']}, instance unlikely to operate correctly!", MU::ERR
-								raise "Unable to add node #{node} to #{vault['vault']} #{vault['item']}, aborting"
+								raise MuError, "Unable to add node #{node} to #{vault['vault']} #{vault['item']}, aborting"
 							end
 						else
 							MU.log "Granting #{node} access to #{vault['vault']} #{vault['item']} after #{retries} retries", MU::NOTICE
@@ -1396,8 +1397,7 @@ MU.log win_set_pw, MU::ERR
 								retries = retries + 1
 								sleep 5
 							else
-								MU.log "#{e.inspect} in region #{region}", MU::ERR
-								raise e
+								raise MuError, "#{e.inspect} in region #{region}"
 							end
 						end
 					}
@@ -1460,7 +1460,7 @@ MU.log win_set_pw, MU::ERR
 				elsif !resource.nil? and resource.keys.size > 1
 					if !allow_multi
 						MU.log "Found multiple matching servers for name #{name} in deploy #{deploy_id}", MU::ERR, details: resource
-						raise "Found multiple matching servers for name #{name} in deploy #{deploy_id}"
+						raise MuError, "Found multiple matching servers for name #{name} in deploy #{deploy_id}"
 					else
 						resource.each_pair { |nodename, server|
 							name_matches << server
@@ -1503,7 +1503,7 @@ MU.log win_set_pw, MU::ERR
 				elsif resp.instances.size > 1
 					if !allow_multi
 						MU.log "Found multiple matching servers for tag #{tag_key}=#{tag_value} in deploy #{deploy_id}", MU::ERR, details: resp
-						raise "Found multiple matching servers for tag #{tag_key}=#{tag_value} in deploy #{deploy_id}"
+						raise MuError, "Found multiple matching servers for tag #{tag_key}=#{tag_value} in deploy #{deploy_id}"
 					else
 						matches = resp.instances
 					end
@@ -1596,7 +1596,7 @@ MU.log win_set_pw, MU::ERR
 					)
 					if nat_instance.nil?
 						MU.log "#{node} (#{MU.mu_id}) is configured to use #{server['vpc']} but I can't find a running instance matching nat_host_id or nat_host_name", MU::ERR
-						raise "deploy failure"
+						raise MuError, "deploy failure"
 					end
 					MU.log "Adding administrative holes for NAT host #{nat_instance["private_ip_address"]} to #{node}", MU::DEBUG
 					return MU::FirewallRule.setAdminSG(
@@ -1619,7 +1619,7 @@ MU.log win_set_pw, MU::ERR
 		def self.deploy(server, deployment, environment: environment, keypairname: keypairname, chef_rerun_only: chef_rerun_only = false)
 			if server["instance_id"].nil?
 				MU.log "MU::Server.deploy was called without an instance id", MU::ERR
-				raise "MU::Server.deploy was called without an instance id"
+				raise MuError, "MU::Server.deploy was called without an instance id"
 			end
 			MU::MommaCat.lock(server["instance_id"]+"-deploy")
 
@@ -1627,7 +1627,7 @@ MU.log win_set_pw, MU::ERR
 
 			if node.nil? or node.empty?
 				MU.log "MU::Server.deploy was called without a mu_name", MU::ERR, details: server
-				raise "MU::Server.deploy was called without a mu_name"
+				raise MuError, "MU::Server.deploy was called without a mu_name"
 			end
 
 			Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}/organizations/#{MU.chef_user}"
@@ -1650,7 +1650,7 @@ MU.log win_set_pw, MU::ERR
 							database = MU::Database.find(name: dependent_on["name"], region: server["region"])
 							if database.nil?
 								MU.log "Couldn't find identifier for dependent database #{dependent_on['name']} in #{server["region"]}", MU::ERR
-								raise "Couldn't find identifier for dependent database #{dependent_on['name']} in #{server["region"]}"
+								raise MuError, "Couldn't find identifier for dependent database #{dependent_on['name']} in #{server["region"]}"
 							end
 							db_id = database.db_instance_identifier
 							private_ip = server['private_ip_address']
@@ -1671,7 +1671,7 @@ MU.log win_set_pw, MU::ERR
 							dns_name: lb["existing_load_balancer"],
 							region: server['region']
 						)
-						raise "I need a LoadBalancer named #{lb['concurrent_load_balancer']}" if lb_res.nil?
+						raise MuError, "I need a LoadBalancer named #{lb['concurrent_load_balancer']}" if lb_res.nil?
 						MU::LoadBalancer.registerInstance(lb_res.load_balancer_name, server["instance_id"], region: server['region'])
 					}
 				end
@@ -1844,11 +1844,11 @@ MU.log win_set_pw, MU::ERR
 			begin
 				images = MU.ec2.describe_images(image_ids: [image_id]).images
 				if images.nil? or images.size == 0
-					raise "No such AMI #{image_id} found"
+					raise MuError, "No such AMI #{image_id} found"
 				end
 				state = images.first.state
 				if state == "failed"
-					raise "#{image_id} is marked as failed! I can't use this."
+					raise MuError, "#{image_id} is marked as failed! I can't use this."
 				end
 				if state != "available"
 					MU.log "Waiting for AMI #{image_id} (#{state})", MU::NOTICE
@@ -1904,7 +1904,7 @@ MU.log win_set_pw, MU::ERR
 		    if attempts.size > 25
 		      puts "Lousy passwords:"
 		      puts attempts
-		      raise "Failed to generate an adequate password!"
+		      raise MuError, "Failed to generate an adequate password!"
 		    end
 		    winpass=Password.random(14..16)
 		    attempts << winpass
@@ -1934,9 +1934,9 @@ MU.log win_set_pw, MU::ERR
 				}
 				if ip != nil
 					if !classic
-						raise "Requested EIP #{ip}, but no such IP exists in VPC domain"
+						raise MuError, "Requested EIP #{ip}, but no such IP exists in VPC domain"
 					else
-						raise "Requested EIP #{ip}, but no such IP exists in Classic domain"
+						raise MuError, "Requested EIP #{ip}, but no such IP exists in Classic domain"
 					end
 				end
 				if !classic
@@ -1951,7 +1951,7 @@ MU.log win_set_pw, MU::ERR
 				end rescue NoMethodError
 				if new_ip.nil?
 					MU.log "Unable to allocate new Elastic IP. Are we at quota?", MU::ERR
-					raise "Unable to allocate new Elastic IP. Are we at quota?"
+					raise MuError, "Unable to allocate new Elastic IP. Are we at quota?"
 				end
 				MU.log "Allocated new EIP #{new_ip}, fetching full description"
 
@@ -1996,7 +1996,7 @@ MU.log win_set_pw, MU::ERR
 							end
 						}
 	
-						raise "Requested EIP #{ip}, but we've already assigned this IP to someone else" if !is_free
+						raise MuError, "Requested EIP #{ip}, but we've already assigned this IP to someone else" if !is_free
 					else
 						resp.addresses.each { |address|
 							if address.public_ip == ip and address.instance_id == instance_id
@@ -2007,10 +2007,10 @@ MU.log win_set_pw, MU::ERR
 				end
 				elastic_ip = findFreeElasticIp(classic, ip: ip)
 				if !ip.nil? and (elastic_ip.nil? or ip != elastic_ip.public_ip)
-					raise "Requested EIP #{ip}, but this IP does not exist or is not available"
+					raise MuError, "Requested EIP #{ip}, but this IP does not exist or is not available"
 				end
 				if elastic_ip.nil?
-					raise "Couldn't find an Elastic IP to associate with #{instance_id}"
+					raise MuError, "Couldn't find an Elastic IP to associate with #{instance_id}"
 				end
 				@eips_used << elastic_ip.public_ip
 				MU.log "Associating Elastic IP #{elastic_ip.public_ip} with #{instance_id}", details: elastic_ip
@@ -2036,7 +2036,7 @@ MU.log win_set_pw, MU::ERR
 					sleep 5
 					retry
 				end
-				raise e
+				raise MuError "#{e.message} associating #{elastic_ip.allocation_id} with #{instance_id}"
 			rescue Aws::EC2::Errors::ResourceAlreadyAssociated => e
 				# A previous association attempt may have succeeded, albeit slowly.
 				resp = MU.ec2(region).describe_addresses(
@@ -2047,7 +2047,7 @@ MU.log win_set_pw, MU::ERR
 					MU.log "#{elastic_ip.public_ip} already associated with #{instance_id}", MU::WARN
 				else
 					MU.log "#{elastic_ip.public_ip} shows as already associated!", MU::ERR, details: resp
-					raise "#{elastic_ip.public_ip} shows as already associated with #{first_addr.instance_id}!"
+					raise MuError, "#{elastic_ip.public_ip} shows as already associated with #{first_addr.instance_id}!"
 				end
 			end
 
@@ -2096,7 +2096,7 @@ MU.log win_set_pw, MU::ERR
 					puts data
 					output << data
 					if data.match(/#{error_signal}/)
-						raise MU::ChefRunFail, output.grep(/ ERROR: /).last
+						raise ChefRunFail, output.grep(/ ERROR: /).last
 					end
 				}
 
@@ -2114,7 +2114,7 @@ MU.log win_set_pw, MU::ERR
 					retry
 				else
 					MU.log "#{nodename}: #{e.inspect} trying to connect for Chef run '#{purpose}", MU::ERR
-					raise "#{nodename}: #{e.inspect} trying to connect for Chef run '#{purpose}"
+					raise MuError, "#{nodename}: #{e.inspect} trying to connect for Chef run '#{purpose}"
 				end
 		  rescue MU::ChefRunFail => e
 				ssh.close if !ssh.nil?
@@ -2199,7 +2199,7 @@ MU.log win_set_pw, MU::ERR
 		
 			%x{#{query}}
 		  if $? != 0 then
-		    raise "Attempted to add non-existing #{type} #{rl_entry}" if !ignore_missing
+		    raise MuError, "Attempted to add non-existing #{type} #{rl_entry}" if !ignore_missing
 		  end
 		
 		
@@ -2210,7 +2210,7 @@ MU.log win_set_pw, MU::ERR
 		    output=%x{#{query}}
 		# XXX rescue Exception is bad style
 		  rescue Exception => e
-		    raise "FAIL: #{MU::Config.knife} node run_list add #{node} \"#{type}[#{rl_entry}]\": #{e.message} (output was #{output})"
+		    raise MuError, "FAIL: #{MU::Config.knife} node run_list add #{node} \"#{type}[#{rl_entry}]\": #{e.message} (output was #{output})"
 		  end
 		end
 

@@ -96,7 +96,7 @@ module MU
 # XXX probably have to query API to get the DNS name of this one
 						}
 					elsif lb["concurrent_load_balancer"]
-						raise "No loadbalancers exist! I need one named #{lb['concurrent_load_balancer']}" if !@deploy.deployment["loadbalancers"]
+						raise MuError, "No loadbalancers exist! I need one named #{lb['concurrent_load_balancer']}" if !@deploy.deployment["loadbalancers"]
 						found = false
 						@deploy.deployment["loadbalancers"].each_pair { |lb_name, deployed_lb|
 
@@ -105,7 +105,7 @@ module MU
 								found = true
 							end
 						}
-						raise "I need a loadbalancer named #{lb['concurrent_load_balancer']}, but none seems to have been created!" if !found
+						raise MuError, "I need a loadbalancer named #{lb['concurrent_load_balancer']}, but none seems to have been created!" if !found
 					end
 				}
 				asg_options[:load_balancer_names] = lbs
@@ -122,7 +122,7 @@ module MU
 
 				if !launch_desc["server"].nil?
 					if @deploy.deployment["images"].nil? or @deploy.deployment["images"][launch_desc["server"]].nil?
-						raise "#{pool_name} needs an AMI from server #{launch_desc["server"]}, but I don't see one anywhere"
+						raise MuError, "#{pool_name} needs an AMI from server #{launch_desc["server"]}, but I don't see one anywhere"
 					end
 					launch_desc["ami_id"] = @deploy.deployment["images"][launch_desc["server"]]["image_id"]
 				elsif !launch_desc["instance_id"].nil?
@@ -230,7 +230,7 @@ module MU
 					sg = MU::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"])
 					if sg.nil?
 						MU.log "Couldn't find dependent security group #{acl} for server pool #{@pool['name']}", MU::ERR, details: MU::Deploy.deployment['firewall_rules']
-						raise "deploy failure"
+						raise MuError, "deploy failure"
 					end
 					sgs << sg.group_id
 				}
@@ -249,7 +249,7 @@ module MU
 						sleep 10
 						retry
 					else
-						raise e
+						raise MuError, "Got #{e.inspect} creating Launch Configuration #{pool_name}"
 					end
 				end
 				asg_options[:launch_configuration_name] = pool_name
@@ -274,7 +274,7 @@ module MU
 					asg_options[:availability_zones] = [zones_to_try.pop]
 					retry
 				else
-					raise e
+					raise MuError, "#{e.message} creating AutoScale group #{pool_name}"
 				end
 			end
 
@@ -317,7 +317,7 @@ module MU
 				attempts = attempts + 1
 				if attempts > 25 and desc.instances.size == 0
 					MU.log "No instances spun up after #{5*attempts} seconds, something's wrong with Autoscale group #{pool_name}", MU::ERR, details: MU.autoscale.describe_scaling_activities(auto_scaling_group_name: pool_name).activities
-					raise "No instances spun up after #{5*attempts} seconds, something's wrong with Autoscale group #{pool_name}"
+					raise MuError, "No instances spun up after #{5*attempts} seconds, something's wrong with Autoscale group #{pool_name}"
 				end
 			end while desc.instances.size < desc.min_size
 			MU.log "#{desc.instances.size} instances spinning up in #{pool_name}"
@@ -346,7 +346,7 @@ module MU
 								}
 							end
 						end
-						raise e
+						raise MuError, e.inspect
 					end
 				}
 				groomthreads.each { |t|

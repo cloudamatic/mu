@@ -37,6 +37,24 @@ ENV['HOME'] = Etc.getpwuid(Process.uid).dir
 
 require 'mu/logger'
 module MU
+	# Wrapper class for fatal Exceptions. Gives our internals something to
+	# inherit that will log an error message appropriately before bubbling up.
+	class MuError < StandardError
+		def initialize(message)
+			MU.log message, MU::ERR
+			super ""
+		end
+	end
+
+	# Wrapper class for temporary Exceptions. Gives our internals something to
+	# inherit that will log a notice message appropriately before bubbling up.
+	class MuNonFatal < StandardError
+		def initialize(message)
+			MU.log message, MU::NOTICE
+			super ""
+		end
+	end
+
 	if !ENV.has_key?("MU_LIBDIR") and ENV.has_key?("MU_INSTALLDIR")
 		ENV['MU_LIBDIR'] = ENV['MU_INSTALLDIR']+"/lib"
 	end

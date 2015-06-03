@@ -26,15 +26,23 @@ autoload :ChefVault, 'chef-vault'
 gem "knife-windows"
 
 module MU
-	# An exception denoting a failure in MommaCat#fetchSecret
-	class NoSuchSecret < StandardError
-	end
 
 	# MommaCat is in charge of managing metadata about resources we've created,
 	# as well as orchestrating amongst them and bootstrapping nodes outside of
 	# the normal synchronous deploy sequence invoked by *mu-deploy*.
 	class MommaCat
 
+		# An exception denoting a failure in MommaCat#fetchSecret and related methods
+		class SecretError < MuError
+		end
+
+		# Failure to load or create a deploy
+		class DeployInitializeError < MuError
+		end
+
+		# Failure to groom a node
+		class GroomError < MuError
+		end
 
 		attr_reader :public_key
 		attr_reader :deploy_secret
@@ -75,7 +83,7 @@ module MU
 			)
 			verbose = true
 			if mu_id.nil? or mu_id.empty?
-				raise "MommaCat objects must specify a mu_id"
+				raise DeployInitializeError, "MommaCat objects must specify a mu_id"
 			end
 			MU.setVar("chef_user", mu_user) if !mu_user.nil?
 			if MU.chef_user != "mu"
@@ -113,12 +121,12 @@ module MU
 					Dir.mkdir(path, 0700)
 				end
 				if @original_config.nil? or !@original_config.is_a?(Hash)
-					raise "New MommaCat repository requires config hash"
+					raise DeployInitializeError, "New MommaCat repository requires config hash"
 				end
 				if @ssh_key_name.nil? or @ssh_private_key.nil?
 					puts @ssh_key_name
 					puts @ssh_private_key
-					raise "New MommaCat repository requires SSH keys"
+					raise DeployInitializeError, "New MommaCat repository requires SSH keys"
 				end
 				if !File.exist?(deploy_dir+"/private_key")
 					@private_key, @public_key = createDeployKey
@@ -133,8 +141,7 @@ module MU
 						body: "#{@deploy_secret}"
 					)
 				rescue Aws::S3::Errors::PermanentRedirect => e
-					MU.log "Got #{e.inspect} trying to write #{MU.mu_id}-secret to #{MU.adminBucketName}", MU::ERR
-					raise e
+					raise DeployInitializeError, "Got #{e.inspect} trying to write #{MU.mu_id}-secret to #{MU.adminBucketName}"
 				end
 				save!
 			end
@@ -143,7 +150,7 @@ module MU
 			loadDeploy
 			if !deploy_secret.nil?
 				if !authKey(deploy_secret)
-					raise "Invalid or incorrect deploy key."
+					raise DeployInitializeError, "Invalid or incorrect deploy key."
 				end
 			end
 		end
@@ -203,11 +210,11 @@ module MU
 		# @return [String]: A full name string for this resource
 		def self.getResourceName(name, max_length: 255, need_unique_string: false, use_unique_string: nil, reuse_unique_string: false)
 			if name.nil?
-				raise "Got no argument to MU::MommaCat.getResourceName"
+				raise MuError, "Got no argument to MU::MommaCat.getResourceName"
 			end
 			if MU.appname.nil? or MU.environment.nil? or  MU.timestamp.nil? or  MU.seed.nil?
-				raise "Missing global variables in thread #{Thread.current.object_id} for #{MU.mu_id}" if !MU.mu_id.nil?
-				raise "Missing global variables in call to getResourceName"
+				raise MuError, "Missing global variables in thread #{Thread.current.object_id} for #{MU.mu_id}" if !MU.mu_id.nil?
+				raise MuError, "Missing global variables in call to getResourceName"
 			end
 
 			muname = nil
@@ -290,13 +297,13 @@ module MU
 		# @param type [String]: The type of secret, used to identify for retrieval.
 		def saveSecret(instance_id, raw_secret, type)
 			if instance_id.nil? or instance_id.empty? or raw_secret.nil? or raw_secret.empty? or type.nil? or type.empty?
-				raise "saveSecret requires instance_id, raw_secret, and type args"
+				raise SecretError, "saveSecret requires instance_id, raw_secret, and type args"
 			end
 			MU::MommaCat.lock("deployment-notification")
 			loadDeploy(true) # make sure we're not trampling deployment data
 			@secret_semaphore.synchronize {
 				if @secrets[type].nil?
-					raise "'#{type}' is not a valid secret type (valid types: #{@secrets.keys.to_s})"
+					raise SecretError, "'#{type}' is not a valid secret type (valid types: #{@secrets.keys.to_s})"
 				end
 				@secrets[type][instance_id] = encryptWithDeployKey(raw_secret)
 			}
@@ -310,10 +317,10 @@ module MU
 		def fetchSecret(instance_id, type)
 			@secret_semaphore.synchronize {
 				if @secrets[type].nil?
-					raise NoSuchSecret, "'#{type}' is not a valid secret type (valid types: #{@secrets.keys.to_s})"
+					raise SecretError, "'#{type}' is not a valid secret type (valid types: #{@secrets.keys.to_s})"
 				end
 				if @secrets[type][instance_id].nil?
-					raise NoSuchScret, "No '#{type}' secret known for instance #{instance_id}"
+					raise SecretError, "No '#{type}' secret known for instance #{instance_id}"
 				end
 			}
 			return decryptWithDeployKey(@secrets[type][instance_id])
@@ -327,13 +334,13 @@ module MU
 		def groomNode(instance, name, type, reraise_fail: false, sync_wait: true)
 
 			if instance.nil?
-				raise "MU::MommaCat.groomNode requires an AWS instance object"
+				raise GroomError, "MU::MommaCat.groomNode requires an AWS instance object"
 			end
 			if name.nil? or name.empty?
-				raise "MU::MommaCat.groomNode requires a resource name"
+				raise GroomError, "MU::MommaCat.groomNode requires a resource name"
 			end
 			if type.nil? or type.empty?
-				raise "MU::MommaCat.groomNode requires a resource type"
+				raise GroomError, "MU::MommaCat.groomNode requires a resource type"
 			end
 
 			if !MU::MommaCat.lock(instance.instance_id+"-mommagroom", true)
@@ -362,8 +369,7 @@ module MU
 			cloudclass = MU.configType2ObjectType(type)
 
 			if @original_config[type+"s"].nil?
-				MU.log "I see no configured resources of type #{type} (bootstrapping #{name})", MU::ERR, details: @original_config
-				raise "I see no configured resources of type #{type} (bootstrapping #{name})"
+				raise GroomError, "I see no configured resources of type #{type} (bootstrapping #{name})"
 			end
 			@original_config[type+"s"].each { |svr|
 				mylocks = Array.new
@@ -454,7 +460,7 @@ module MU
 						MU::Server.deploy(server, @deployment, keypairname: @ssh_key_name)
 					rescue Exception => e
 						MU::MommaCat.unlockAll
-						if e.class.name != "MU::BootstrapTempFail" and !File.exists?(deploy_dir+"/.cleanup."+instance.instance_id) and !File.exists?(deploy_dir+"/.cleanup")
+						if e.class.name != "MU::Server::BootstrapTempFail" and !File.exists?(deploy_dir+"/.cleanup."+instance.instance_id) and !File.exists?(deploy_dir+"/.cleanup")
 							MU.log "Grooming FAILED for #{node} (#{e.inspect})", MU::ERR, details: e.backtrace
 							sendAdminMail("Grooming FAILED for #{node} on #{MU.appname} \"#{MU.handle}\" (#{MU.mu_id})",
 								msg: e.inspect,
@@ -516,7 +522,7 @@ module MU
 		# @param nonblock [Boolean]: Whether to block while waiting for the lock. In non-blocking mode, we simply return false if the lock is not available.
 		# return [false, nil]
 		def self.lock(id, nonblock = false, global = false)
-			raise "Can't pass a nil id to MU::MommaCat.lock" if id.nil?
+			raise MuError, "Can't pass a nil id to MU::MommaCat.lock" if id.nil?
 
 			if !global
 				lockdir = "#{deploy_dir(MU.mu_id)}/locks"
@@ -555,7 +561,7 @@ module MU
 		# Release a flock() lock.
 		# @param id [String]: The lock identifier to release.
 		def self.unlock(id)
-			raise "Can't pass a nil id to MU::MommaCat.unlock" if id.nil?
+			raise MuError, "Can't pass a nil id to MU::MommaCat.unlock" if id.nil?
 			@lock_semaphore.synchronize {
 				return if @locks.nil? or @locks[Thread.current.object_id].nil? or @locks[Thread.current.object_id][id].nil?
 			}
@@ -575,7 +581,7 @@ module MU
 		# @param mu_id [String]: The deployment identifier to remove.
 		def self.purge(mu_id)
 			if mu_id.nil? or mu_id.empty?
-				raise "Got nil mu_id in MU::MommaCat.purge"
+				raise MuError, "Got nil mu_id in MU::MommaCat.purge"
 			end
 			# XXX archiving is better than annihilating
 			path = File.expand_path(MU.dataDir+"/deployments")
@@ -759,7 +765,7 @@ module MU
 		# @return [Hash,Array<Hash>]
 		def self.getResourceDeployStruct(type, name: nil, deploy_id: MU.mu_id, use_cache: true)
 			if type.nil?
-				raise "Can't call getResourceDeployStruct without a type argument"
+				raise MuError, "Can't call getResourceDeployStruct without a type argument"
 			end
 
 			deploy_root = File.expand_path(MU.dataDir+"/deployments")
@@ -800,10 +806,7 @@ module MU
 							}
 						end
 					rescue JSON::ParserError => e
-						MU.log "JSON parse failed on #{this_deploy_dir}/deployment.json", MU::ERR
-						puts File.read("#{this_deploy_dir}/deployment.json")
-						
-						raise e
+						raise MuError, "JSON parse failed on #{this_deploy_dir}/deployment.json\n\n"+File.read("#{this_deploy_dir}/deployment.json")
 					end
 					lock.flock(File::LOCK_UN)
 					lock.close
@@ -1090,10 +1093,10 @@ module MU
 
 		  # XXX cover ipv6 case
 		  if public_ip.nil? or !public_ip.match(/^\d+\.\d+\.\d+\.\d+$/) or (chef_name.nil? and system_name.nil?)
-		    raise "addInstanceToEtcHosts requires public_ip and one or both of chef_name and system_name!"
+		    raise MuError, "addInstanceToEtcHosts requires public_ip and one or both of chef_name and system_name!"
 		  end
 		  if chef_name == "localhost" or system_name == "localhost"
-		    raise "Can't set localhost as a name in addInstanceToEtcHosts"
+		    raise MuError, "Can't set localhost as a name in addInstanceToEtcHosts"
 		  end
 		  File.readlines("/etc/hosts").each { |line|
 		    if line.match(/^#{public_ip} /) or (chef_name != nil and line.match(/ #{chef_name}(\s|$)/)) or (system_name != nil and line.match(/ #{system_name}(\s|$)/))
@@ -1646,7 +1649,7 @@ MESSAGE_END
 		# @param name [String]: The name to attempt to allocate.
 		# @return [Boolean]: True if allocation was successful.
 		def self.allocateUniqueResourceName(name)
-			raise "Cannot call allocateUniqueResourceName without an active deployment" if MU.mu_id.nil?
+			raise MuError, "Cannot call allocateUniqueResourceName without an active deployment" if MU.mu_id.nil?
 			path = File.expand_path(MU.dataDir+"/deployments")
 			File.open(path+"/unique_ids", File::CREAT|File::RDWR, 0600) { |f|
 				existing = []
@@ -1672,7 +1675,7 @@ MESSAGE_END
 		###########################################################################
 		###########################################################################
 		def self.deploy_dir(mu_id)
-			raise "deploy_dir must get a mu_id if called as class method" if mu_id.nil?
+			raise MuError, "deploy_dir must get a mu_id if called as class method" if mu_id.nil?
 # XXX this will blow up if someone sticks MU in /
 			path = File.expand_path(MU.dataDir+"/deployments")
 			if !Dir.exist?(path)
@@ -1739,9 +1742,7 @@ MESSAGE_END
 						deploy.flock(File::LOCK_EX)
 						deploy.puts JSON.pretty_generate(@deployment, max_nesting: false)
 					rescue JSON::NestingError => e
-						MU.log e.inspect, MU::ERR
-						pp @deployment
-						raise e
+						raise MuError, e.inspect+"\n\n"+@deployment.to_s
 					end
 					deploy.flock(File::LOCK_UN)
 					deploy.close
@@ -1808,10 +1809,7 @@ MESSAGE_END
 					begin					
 						@deployment = JSON.parse(File.read("#{deploy_dir}/deployment.json"))
 					rescue JSON::ParserError => e
-						MU.log "JSON parse failed on #{deploy_dir}/deployment.json", MU::ERR
-						puts File.read("#{deploy_dir}/deployment.json")
-						
-						raise e
+						raise MuError, "JSON parse failed on #{deploy_dir}/deployment.json\n"+File.read("#{deploy_dir}/deployment.json")
 					end
 					deploy.flock(File::LOCK_UN)
 					deploy.close

@@ -51,8 +51,8 @@ module MU
 				if existing_vpc.nil?
 					MU.log "Couldn't find VPC matching id #{@ruleset['vpc_id']}", MU::ERR if @ruleset['vpc_id']
 					MU.log "Couldn't find VPC matching name #{@ruleset['vpc_name']}", MU::ERR if @ruleset['vpc_name']
-					raise "Couldn't find VPC matching id #{@ruleset['vpc_id']}" if @ruleset['vpc_id']
-					raise "Couldn't find VPC matching name #{@ruleset['vpc_name']}" if @ruleset['vpc_name']
+					raise MuError, "Couldn't find VPC matching id #{@ruleset['vpc_id']}" if @ruleset['vpc_id']
+					raise MuError, "Couldn't find VPC matching name #{@ruleset['vpc_name']}" if @ruleset['vpc_name']
 				end
 				vpc_id = existing_vpc.vpc_id
 			# new-style VPC reference
@@ -331,7 +331,7 @@ module MU
 			return if rules.nil? or rules.size == 0
 
 			sg = MU::FirewallRule.find(sg_id: sg_id, region: region)
-			raise "Couldn't find firewall ruleset with id #{sg_id}" if sg.nil?
+			raise MuError, "Couldn't find firewall ruleset with id #{sg_id}" if sg.nil?
 			MU.log "Setting rules in Security Group #{sg.group_name} (#{sg_id})"
 
 			# add_to_self means that this security is a "member" of its own rules
@@ -378,7 +378,7 @@ module MU
 						sleep 10
 						retry
 					else
-						raise e
+						raise MuError, "#{sg.group_name} does not exist"
 					end
 				rescue Aws::EC2::Errors::InvalidPermissionDuplicate => e
 					MU.log "Attempt to add duplicate rule to #{sg.group_name}", MU::DEBUG, details: ec2_rules
@@ -410,11 +410,11 @@ module MU
 						p_end = rule['port']
 					elsif rule['proto'] != "icmp"
 						MU.log "Can't create a TCP or UDP security group rule without specifying ports.", MU::ERR, details: rule
-						raise "Can't create a TCP or UDP security group rule without specifying ports."
+						raise MuError, "Can't create a TCP or UDP security group rule without specifying ports."
 					end
 					if rule['proto'] != "icmp"
 						if p_start.nil? or p_end.nil?
-							raise "Got nil ports out of rule #{rule}"
+							raise MuError, "Got nil ports out of rule #{rule}"
 						end
 						ec2_rule[:from_port] = p_start.to_i
 						ec2_rule[:to_port] = p_end.to_i
@@ -426,7 +426,7 @@ module MU
 					if (!defined? rule['hosts'] or !rule['hosts'].is_a?(Array)) and
 						 (!defined? rule['sgs'] or !rule['sgs'].is_a?(Array)) and
 						 (!defined? rule['lbs'] or !rule['lbs'].is_a?(Array))
-						raise "One of 'hosts', 'sgs', or 'lbs' in rules provided to createEc2SG must be an array."
+						raise MuError, "One of 'hosts', 'sgs', or 'lbs' in rules provided to createEc2SG must be an array."
 					end
 
 					if !rule['hosts'].nil?
@@ -442,7 +442,7 @@ module MU
 							lb = MU::LoadBalancer.find(name: lb_name, dns_name: lb_name, region: region)
 							if lb.nil?
 								MU.log "Couldn't find a Load Balancer named #{lb_name}", MU::ERR
-								raise "deploy failure"
+								raise MuError, "deploy failure"
 							end
 							ec2_rule[:user_id_group_pairs] = Array.new
 # XXX nuh-uh, don't do this for every SG, just the default one
@@ -464,7 +464,7 @@ module MU
 								sg = MU::FirewallRule.find(name: sg_name, region: region)
 							end
 							if sg.nil?
-								raise "Attempted to reference non-existing Security Group #{sg_name}"
+								raise MuError, "Attempted to reference non-existing Security Group #{sg_name}"
 							end
 							ec2_rule[:user_id_group_pairs] << {
 								user_id: MU.account_number,
@@ -478,7 +478,7 @@ module MU
 							!ec2_rule[:ip_ranges].nil? and
 							ec2_rule[:ip_ranges].size > 0
 						MU.log "Cannot specify ip_ranges and user_id_group_pairs", MU::ERR
-						raise "Cannot specify ip_ranges and user_id_group_pairs"
+						raise MuError, "Cannot specify ip_ranges and user_id_group_pairs"
 					end
 
 					if !ec2_rule[:user_id_group_pairs].nil? and
@@ -501,7 +501,7 @@ module MU
 		# @return [Array<Hash>]: A set of rule structures derived from our hosts parameter.
 		def self.stdAdminRules(hosts = [])
 			if !hosts.is_a?(Array)
-				raise "Got a non-array in stdAdminRules (should be list of CIDRs)"
+				raise MuError, "Got a non-array in stdAdminRules (should be list of CIDRs)"
 			end
 			hosts.uniq!
 

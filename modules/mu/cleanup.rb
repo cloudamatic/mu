@@ -376,7 +376,7 @@ module MU
 		# @param region [String]: The cloud provider region
 		# @return [void]
 		def self.purge_loadbalancers(region: MU.curRegion)
-			raise "Can't touch ELBs without MU-ID" if MU.mu_id.nil? or MU.mu_id.empty?
+			raise MuError, "Can't touch ELBs without MU-ID" if MU.mu_id.nil? or MU.mu_id.empty?
 
 
 			resp = MU.elb(region).describe_load_balancers
@@ -845,7 +845,7 @@ module MU
 		# @param db [OpenStruct]: The cloud provider's description of the database artifact
 		# @return [void]
 		def self.terminate_rds_instance(db, region: MU.curRegion)
-			raise "terminate_rds_instance requires a non-nil database descriptor" if db.nil?
+			raise MuError, "terminate_rds_instance requires a non-nil database descriptor" if db.nil?
 
 			retries = 0
 			begin

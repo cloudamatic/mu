@@ -67,7 +67,7 @@ module MU
 					sg = MU::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"])
 					if sg.nil?
 						MU.log "Couldn't find dependent security group #{acl} for Load Balancer #{@loadbalancer['name']}", MU::ERR, details: MU::Deploy.deployment['firewall_rules']
-						raise "deploy failure"
+						raise MuError, "deploy failure"
 					end
 					sgs << sg.group_id
 				}
@@ -111,7 +111,7 @@ module MU
 					lb_options[:availability_zones] = [zones_to_try.pop]
 					retry
 				else
-					raise e
+					raise MuError, "#{e.inspect} when creating #{lb_name}"
 				end
 			rescue Aws::ElasticLoadBalancing::Errors::InvalidSecurityGroup => e
 				if retries < 5
@@ -120,7 +120,7 @@ module MU
 					retries = retries + 1
 					retry
 				else
-					raise e
+					raise MuError, "#{e.inspect} when creating #{lb_name}"
 				end
 			end
 			MU.log "Load Balancer is at #{resp.dns_name}"
@@ -285,7 +285,7 @@ module MU
 		# @param instance_id [String] A node to register.
 		# @param region [String]: The cloud provider region
 		def self.registerInstance(lb_name, instance_id, region: MU.curRegion)
-			raise "MU::LoadBalancer.registerInstance requires a Load Balancer name and an instance id" if lb_name.nil? or instance_id.nil?
+			raise MuError, "MU::LoadBalancer.registerInstance requires a Load Balancer name and an instance id" if lb_name.nil? or instance_id.nil?
 			MU.elb(region).register_instances_with_load_balancer(
 				load_balancer_name: lb_name,
 				instances: [

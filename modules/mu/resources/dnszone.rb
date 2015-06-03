@@ -87,7 +87,7 @@ module MU
 
 				if add_vpcs.size == 0
 					MU.log "DNS Zone #{@zone['name']} is flagged as private, but I can't find any VPCs in which to put it", MU::ERR
-					raise "DNS Zone #{@zone['name']} is flagged as private, but I can't find any VPCs in which to put it"
+					raise MuError, "DNS Zone #{@zone['name']} is flagged as private, but I can't find any VPCs in which to put it"
 				end
 
 				if !default_vpc.nil? and add_vpcs.has_key?(default_vpc)
@@ -282,12 +282,12 @@ module MU
 			MU.setVar("curRegion", region) if !region.nil?
 			zone, mu_name = MU::DNSZone.find(id: id)
 			if zone.nil?
-				raise "Hosted DNS Zone #{id} not found"
+				raise MuError, "Hosted DNS Zone #{id} not found"
 			end
 
 			if zone.nil?
 				MU.log "Attempting to add record to nonexistent DNS zone #{id}", MU::ERR
-				raise "Attempting to add record to nonexistent DNS zone #{id}"
+				raise MuError, "Attempting to add record to nonexistent DNS zone #{id}"
 			end
 
 			name = name + "." + zone.name if !name.match(/(^|\.)#{zone.name}$/)
@@ -483,8 +483,7 @@ module MU
 						attempts = attempts + 1
 						retry
 					elsif !e.inspect.match(/it already exists/)
-						MU.log "Problem managing entry for #{dns_name} -> #{target}: #{e.inspect}", MU::WARN
-						raise e.inspect
+						raise MuError "Problem managing entry for #{dns_name} -> #{target}: #{e.inspect}"
 					else
 						MU.log "#{dns_name} already exists", MU::DEBUG, details: e.inspect
 					end
@@ -567,8 +566,7 @@ module MU
 					rescue Aws::Route53::Errors::NoSuchHostedZone => e
 						MU.log "DNS Zone '#{zone.name}' (#{zone.id}) disappeared before I could remove it", MU::WARN, details: e.inspect
 					rescue Aws::Route53::Errors::HostedZoneNotEmpty => e
-						MU.log e.inspect, MU::ERR
-						raise e
+						raise MuError, e.inspect
 					end
 				end
 			}
@@ -617,7 +615,7 @@ module MU
 
 			if matches.size > 1 and !allow_multi
 				MU.log "Found multiple DNS zones matching name: #{name}, deploy_id: #{deploy_id}", MU::ERR, details: matches
-				raise "Found multiple DNS zones matching name: #{name}, deploy_id: #{deploy_id}"
+				raise MuError, "Found multiple DNS zones matching name: #{name}, deploy_id: #{deploy_id}"
 			end
 
 			if allow_multi

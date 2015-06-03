@@ -29,6 +29,12 @@ module MU
 
 	# Methods and structures for parsing Mu's configuration files. See also {MU::Config::BasketofKittens}.
 	class Config
+		# Exception class for BoK parse or validation errors
+		class ValidationError < MU::MuError
+		end
+		# Exception class for deploy parameter (mu-deploy -p foo=bar) errors
+		class DeployParamError < MuError
+		end
 
 		attr_reader :amazon_images
 		@@amazon_images = YAML.load(File.read("#{MU.myRoot}/modules/mu/defaults/amazon_images.yaml"))
@@ -130,10 +136,10 @@ module MU
 			ok = true
 			params.each_pair { |name, value|
 				begin
-					raise "Parameter be formatted as name=value" if value.nil?
-					raise "Parameter name must be a legal Ruby variable name" if name.match(/[^A-Za-z0-9_]/)
-					raise "Parameter values cannot contain quotes" if value.match(/["']/)
-					eval("defined? $#{name} and raise 'Parameter name reserved'")
+					raise DeployParamError, "Parameter must be formatted as name=value" if value.nil? or value.empty?
+					raise DeployParamError, "Parameter name must be a legal Ruby variable name" if name.match(/[^A-Za-z0-9_]/)
+					raise DeployParamError, "Parameter values cannot contain quotes" if value.match(/["']/)
+					eval("defined? $#{name} and raise DeployParamError, 'Parameter name reserved'")
 					eval("$#{name} = '#{value}'")
 					MU.log "Passing variable $#{name} into #{@@config_path} with value '#{value}'"
 				rescue RuntimeError, SyntaxError => e
@@ -141,9 +147,7 @@ module MU
 					MU.log "Error setting $#{name}='#{value}': #{e.message}", MU::ERR
 				end
 			}
-			if !ok
-				exit 1
-			end
+			raise ValidationError if !ok
 	
 			# Figure out what kind of fail we're loading. We handle includes 
 			# differently if YAML is involved.
@@ -179,7 +183,7 @@ module MU
 				else
 					MU.log "JSON Error parsing #{@@config_path}! Complete file dumped to /tmp/badconf.#{$$}", MU::ERR, details: e.message
 				end
-				exit 1
+				raise ValidationError
 			end
 			@config = MU::Config.fixDashes(@config)
 			if !@config.has_key?('admins') or @config['admins'].size == 0
@@ -189,14 +193,8 @@ module MU
 					@config['admins'] = [ { "name" => MU.userName, "email" => MU.userEmail } ]
 				end
 			end
-			begin
-				MU::Config.set_defaults(@config, MU::Config.schema)
-				MU::Config.validate(@config)
-			rescue Exception => e
-#				pp @config
-				MU.log e.inspect, MU::ERR
-				raise e
-			end
+			MU::Config.set_defaults(@config, MU::Config.schema)
+			MU::Config.validate(@config)
 
 			return @config.freeze
 	  end
@@ -341,8 +339,7 @@ module MU
 					file = File.dirname(MU.myRoot)+"/lib/demo/"+orig_filename
 					retry
 				else
-					MU.log "Couldn't read #{file} included from #{MU::Config.config_path}", MU::ERR
-					exit 1
+					raise ValidationError, "Couldn't read #{file} included from #{MU::Config.config_path}"
 				end
 			end
 			begin
@@ -379,8 +376,7 @@ module MU
 					return "# MU::Config.include PLACEHOLDER #{file} REDLOHECALP"
 				end
 			rescue SyntaxError => e
-				MU.log "ERB in #{file} threw a syntax error", MU::ERR
-				raise e
+				raise ValidationError, "ERB in #{file} threw a syntax error"
 			end
 		end 
 
@@ -774,8 +770,7 @@ module MU
 			rescue JSON::Schema::ValidationError => e
 				# Use fully_validate to get the complete error list, save some time
 			  errors = JSON::Validator.fully_validate(schema, config)
-				MU.log "Validation error in #{@@config_path}!", MU::ERR, details: errors.join("\n")
-				exit 1
+				raise ValidationError, "Validation error in #{@@config_path}!\n"+errors.join("\t\n")
 			end
 
 			databases = config['databases']
@@ -1436,7 +1431,7 @@ module MU
 			ok = false if !MU::Config.check_dependencies(config)
 
 # TODO enforce uniqueness of resource names
-			exit 1 if !ok
+			raise ValidationError if !ok
 		end
 
 

@@ -68,12 +68,12 @@ module MU
 		# @param data [Hash]:	Metadata about this resource we wish to save
 		# @return [void]
 		def notify(res_type, key, data) 
-			raise "Called notify without active deployment!" if MU.mommacat.nil?
+			raise MuError, "Called notify without active deployment!" if MU.mommacat.nil?
 			MU.mommacat.notify(res_type, key, data)
 		end
 		# (see #notify)
 		def self.notify(res_type, key, data, mu_id: mu_id)
-			raise "Called notify without active deployment!" if MU.mommacat.nil?
+			raise MuError, "Called notify without active deployment!" if MU.mommacat.nil?
 			MU.mommacat.notify(res_type, key, data)
 		end
 
@@ -109,8 +109,7 @@ module MU
 			MU.setLogging(verbosity, webify_logs)
 
 			if stack_conf.nil? or !stack_conf.is_a?(Hash)
-				MU.log "Deploy objects require a stack_conf hash", MU::ERR
-				exit 1
+				raise MuError, "Deploy objects require a stack_conf hash"
 			end
 
 			@my_threads = Array.new
@@ -132,7 +131,7 @@ module MU
 
 			retries = 0
 			begin
-				raise "Failed to allocate an unused MU-ID after #{retries} tries!" if retries > 70
+				raise MuError, "Failed to allocate an unused MU-ID after #{retries} tries!" if retries > 70
 				seedsize = 1 + (retries/10).abs
 				seed = Password.pronounceable(8).slice(0..seedsize)
 				mu_id = @appname.upcase + "-" + @environment.upcase + "-" + @timestamp + "-" + seed.upcase
@@ -257,7 +256,7 @@ module MU
 				if !die
 					puts "Received SIGINT, hit ctrl-C again within five seconds to kill this deployment."
 				else
-					raise "Terminated by user"
+					raise MuError, "Terminated by user"
 				end
 				@last_sigterm = Time.now.to_i
 			end
@@ -423,8 +422,7 @@ MESSAGE_END
 					redo
 				end
 				if retries >= 5
-					MU.log "#{dependent} tried five times but never saw #{dependent_thread} in live thread list...", MU::ERR, details: @my_threads
-					raise "#{dependent} tried five times but never saw #{dependent_thread} in live thread list..."
+					raise MuError, "#{dependent} tried five times but never saw #{dependent_thread} in live thread list...\n"+@my_threads.join("\t\n")
 				end
 			}
 		end
@@ -515,9 +513,8 @@ MESSAGE_END
 						end
 						run_this_method = service['#MUOBJECT'].method(mode)
 					rescue Exception => e
-						MU.log "Error invoking #{service["#MU_CLASS"]}.#{mode} for #{myservice['name']} (#{e.message})", MU::ERR
 						MU::MommaCat.unlockAll
-						raise e
+						raise MuError, "Error invoking #{service["#MU_CLASS"]}.#{mode} for #{myservice['name']} (#{e.message})"
 					end
 					begin
 						MU.log "Running #{service['#MUOBJECT']}.#{mode}", MU::DEBUG
@@ -533,8 +530,7 @@ MESSAGE_END
 						if !@nocleanup
 							MU::Cleanup.run(MU.mu_id, true, false, true)
 						end
-						MU.log e.inspect, MU::ERR
-						exit 1
+						raise MuError, e.inspect
 					end
 				}
 		  end
