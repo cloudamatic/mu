@@ -238,37 +238,6 @@ module MU
 			end
 		end
 
-		private
-
-		# Generate a MU-friendly name for a CloudFormation stack
-		# @param stack [String]: The internal resource name of the stack
-		# @return [String]
-		def getStackName(stack) 
-			stack_name = MU.mu_id + "-" + stack.upcase
-			stack_name.gsub!(/[_\.]/, "-")
-			return stack_name
-		end
-
-		# Log the Amazon-specific errors associated with a CloudFormation stack.
-		# We have to query the AWS API explicitly to get this.
-		# @param stack [String]: The internal resource name of the stack
-		# @return [void]
-		def showStackError(stack)
-			region = stack['region']
-			stack_name = getStackName(stack)
-			begin
-				resources = MU.cloudformation(region).describe_stack_resources(:stack_name => stack_name)
-
-				MU.log "CloudFormation stack #{stack_name} failed", MU::ERR
-
-				resources[:stack_resources].each { |resource|
-					MU.log "#{resource.resource_type} #{resource.resource_status} #{resource.resource_status_reason }", MU::ERR
-				}
-			rescue Aws::CloudFormation::Errors::ValidationError => e
-				MU.log e.inspect, MU::ERR, details: e.backtrace
-			end
-		end   
-
 		# Remove all CloudFormation stacks associated with the currently loaded deployment.
 		# @param noop [Boolean]: If true, will only print what would be done
 		# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
@@ -322,6 +291,37 @@ module MU
 			}
 			return nil
 		end
+
+		private
+
+		# Generate a MU-friendly name for a CloudFormation stack
+		# @param stack [String]: The internal resource name of the stack
+		# @return [String]
+		def getStackName(stack) 
+			stack_name = MU.mu_id + "-" + stack.upcase
+			stack_name.gsub!(/[_\.]/, "-")
+			return stack_name
+		end
+
+		# Log the Amazon-specific errors associated with a CloudFormation stack.
+		# We have to query the AWS API explicitly to get this.
+		# @param stack [String]: The internal resource name of the stack
+		# @return [void]
+		def showStackError(stack)
+			region = stack['region']
+			stack_name = getStackName(stack)
+			begin
+				resources = MU.cloudformation(region).describe_stack_resources(:stack_name => stack_name)
+
+				MU.log "CloudFormation stack #{stack_name} failed", MU::ERR
+
+				resources[:stack_resources].each { |resource|
+					MU.log "#{resource.resource_type} #{resource.resource_status} #{resource.resource_status_reason }", MU::ERR
+				}
+			rescue Aws::CloudFormation::Errors::ValidationError => e
+				MU.log e.inspect, MU::ERR, details: e.backtrace
+			end
+		end   
 
 	end #class
 end #module
