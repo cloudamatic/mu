@@ -59,7 +59,6 @@ when "windows"
 		ec2config_guard = ".\\\\#{username}"
 	end rescue NoMethodError
 
-
 	windows_task "run-userdata" do
 		action :change
 		user username

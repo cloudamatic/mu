@@ -2324,7 +2324,7 @@ module MU
 					"node_type" => {
 						"type" => "string",
 						"enum" => ["domain_node", "domain_controller"],
-						"description" => "If the node will be a domain controller or a domain node"
+						"description" => "If the node will be a domain controller or a domain node",
 						"default" => "domain_node",
 						"default_if" => [
 							{

@@ -883,6 +883,7 @@ module MU
 					dnsrec['name'] = node.downcase if !dnsrec.has_key?('name')
 				}
 			end
+
 			if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
 				MU::DNSZone.createRecordsFromConfig(server['dns_records'], target: instance.public_ip_address)
 			else
@@ -1239,6 +1240,7 @@ module MU
 					server['mu_windows_name'] = MU::MommaCat.getResourceName(server['name'], max_length: 15, need_unique_string: true)
 					MU::Server.saveInitialChefNodeAttrs(node, instance, server, canonical_ip)
 				end
+
 				if server['active_directory']['domain_operation'] == "join"
 					MU::Server.knifeAddToRunList(node, "recipe[active-directory::domain-node]");
 					MU::Server.runChef(node, server, node_ssh_key, "Join Active Directory")
@@ -1248,6 +1250,7 @@ module MU
 				elsif server['active_directory']['domain_operation'] == "add_controller"
 					MU::Server.knifeAddToRunList(node, "recipe[active-directory::domain-controller]");
 					MU::Server.runChef(node, server, node_ssh_key, "Add Domain Controller to Active Directory")
+				end
 			end
 
 			MU::MommaCat.unlock(instance.instance_id+"-deploy")

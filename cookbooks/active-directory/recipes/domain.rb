@@ -6,9 +6,9 @@
 #
 # All rights reserved - Do Not Redistribute
 #
-
+ 
 include_recipe 'chef-vault'
-domain_admin = chef_vault_item("activedirectory", "domain_admin")
+domain_admin = chef_vault_item(node.ad.auth[:vault], node.ad.auth[:item])
 
 case node.platform
 when "windows"
@@ -20,9 +20,9 @@ when "windows"
 	if version.windows_server_2012? || version.windows_server_2012_r2?
 		active_directory_domain node.ad.domain_name do
 			netbios_name node.ad.netbios_name
-			domain_admin_user domain_admin["username"]
-			domain_admin_password domain_admin["password"]
-			restore_mode_password domain_admin["restore_mode_password"]
+			domain_admin_user domain_admin[node.ad.auth[:username_field]]
+			domain_admin_password domain_admin[node.ad.auth[:password_field]]
+			restore_mode_password domain_admin[node.ad.auth[:password_field]]
 			site_name node.ad.site_name
 			computer_name node.ad.computer_name
 			sites node.ad.sites

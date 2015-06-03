@@ -5,6 +5,7 @@ default.ad.dn_dc_ou = "Domain Controllers"
 default.ad.dn_domain_cmpnt = "dc=ad,dc=cloudamatic,dc=com"
 default.ad.computer_ou = nil
 default.ad.domain_controller_names = []
+default.ad.computer_name = nil
 
 # Need to rewrite this to use ad node name instead of windows node name
 # This is only for domain controllers. We may want to set domain controller names to a none mu name to make fail over easier.
@@ -48,10 +49,22 @@ default.windows_admin_username = "Administrator"
 #   "username": "join_domain_user",
 #   "password": "join_domain_password"
 # }
-default.ad.auth = {
-	:data_bag => "active_directory",
-	:data_bag_item => "join_domain"
-}
+
+begin
+	default.ad.auth = {
+		:vault => node.ad.auth_vault,
+		:item => node.ad.auth_item,
+		:password_field => node.ad.auth_password_field,
+		:username_field => node.ad.auth_username_field
+	}
+rescue NoMethodError => e
+	default.ad.dc_auth = {
+		:vault => "activedirectory",
+		:item => "domain_admin",
+		:password_field => "password",
+		:username_field => "username"
+	}
+end
 
 default.ad.dc_ips = []
 if node.ad.dc_ips.empty?
