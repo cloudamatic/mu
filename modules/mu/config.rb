@@ -745,15 +745,17 @@ module MU
 						end
 					}
 				end
-				if !server['windows_admin_password'].nil?
+				if !server['windows_auth_vault'].nil?
+					server['use_cloud_provider_windows_password'] = false
+
 					server['vault_access'] << {
-						"vault" => server['windows_admin_password']['vault'],
-						"item" => server['windows_admin_password']['item']
+						"vault" => server['windows_auth_vault']['vault'],
+						"item" => server['windows_auth_vault']['item']
 					}
-					item = ChefVault::Item.load(server['windows_admin_password']['vault'], server['windows_admin_password']['item'])
-					if !item.has_key?(server['windows_admin_password']['password_field'])
+					item = ChefVault::Item.load(server['windows_auth_vault']['vault'], server['windows_auth_vault']['item'])
+					if !item.has_key?(server['windows_auth_vault']['password_field'])
 						ok = false
-						MU.log "I don't see a value named #{server['windows_admin_password']['password_field']} in Chef Vault #{server['windows_admin_password']['vault']}:#{server['windows_admin_password']['item']}", MU::ERR
+						MU.log "I don't see a value named #{server['windows_auth_vault']['password_field']} in Chef Vault #{server['windows_auth_vault']['vault']}:#{server['windows_auth_vault']['item']}", MU::ERR
 					end
 				end
 				# Check all of the non-special ones while we're at it
@@ -2309,6 +2311,16 @@ module MU
 							"description" => "IP address of a domain controller"
 						}
 					},
+					"domain_controller_hostname" => {
+						"type" => "string",
+						"description" => "A custom hostname for your domain controller. mu_windows_name will be used if not specified"
+					},
+					"node_type" => {
+						"type" => "string",
+						"default" => "domain_node",
+						"enum" => ["domain_node", "domain_controller"],
+						"description" => "If the node will be a domain controller or a domain node"
+					},
 					"computer_ou" => {
 						"type" => "string",
 						"description" => "The OU to which to add this computer when joining the domain."
@@ -2320,8 +2332,15 @@ module MU
 					},
 					"auth_item" => {
 						"type" => "string",
+						"description" => "The vault item where these credentials reside",
 						"default" => "join_domain",
-						"description" => "The vault item where these credentials reside"
+						"default_if" => [
+							{
+								"key_is" => "node_type",
+								"value_is" => "domain_controller",
+								"set" => "domain_admin"
+							}
+						]
 					},
 					"auth_username_field" => {
 						"type" => "string",
@@ -2374,7 +2393,7 @@ module MU
 				"default" => "Administrator",
 				"description" => "Use an alternate Windows account for Administrator functions. Will change the name of the Administrator account, if it has not already been done."
 			},
-			"windows_admin_password" => {
+			"windows_auth_vault" => {
 				"type" => "object",
 				"additionalProperties" => false,
 				"description" => "Set Windows nodes' local administrator password to a value specified in a Chef Vault.",
@@ -2432,9 +2451,9 @@ module MU
 					}
 				]
 			},
-			"never_generate_admin_password" => {
+			"use_cloud_provider_windows_password" => {
 				"type" => "boolean",
-				"default" => false
+				"default" => true
 			},
 			"platform" => {
 				"type" => "string",

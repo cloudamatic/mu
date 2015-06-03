@@ -47,7 +47,7 @@ module MU
 			if @pool['platform'] == "windows"
 				if !@deploy.winpass.nil?
 					winpass = @deploy.winpass
-				elsif !@pool['never-generate_admin_password'] and !@pool['windows_admin_password']
+				elsif !@pool['use_cloud_provider_windows_password'] and !@pool['windows_auth_vault']
 					winpass = MU::Server.generateWindowsAdminPassword
 				end
 				if !winpass.nil?

@@ -33,7 +33,7 @@
 
 	$local_admin_group_members = ([adsi]"WinNT://./Administrators, group").psbase.Invoke("Members")
 	$can_run_userdata = ($local_admin_group_members | foreach {$_.GetType().InvokeMember("Name", 'GetProperty', $null, $_, $null)}) -contains $username
-    if ($can_run_userdata){
+    if ($can_run_userdata -eq $true){
 	# Userdata MUST be run under a user with local admin privileges. If not, at a minimum, cygwin/ssh will fail to install and configure correctly. 
 	# This only test if a user is in the local admin group, however in a domain a user could have local admin privileges without belonging to the local admin group.
 
@@ -230,10 +230,12 @@
 		Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "chown $sshd_svc_user /var/empty"'
 
 <% if $mu.windowsAdminName %>
-		if ("$admin_username" -ne "<%= $mu.windowsAdminName %>"){
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Changing local admin account from $admin_username to <%= $mu.windowsAdminName %>"
-			([adsi]("WinNT://./$admin_username, user")).psbase.rename("<%= $mu.windowsAdminName %>")
-			$need_reboot = $TRUE
+		if ((Get-WmiObject win32_computersystem).partofdomain -ne $true){
+			if ("$admin_username" -ne "<%= $mu.windowsAdminName %>"){
+				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Changing local admin account from $admin_username to <%= $mu.windowsAdminName %>"
+				([adsi]("WinNT://./$admin_username, user")).psbase.rename("<%= $mu.windowsAdminName %>")
+				$need_reboot = $TRUE
+			}
 		}
 <% end %>
 
