@@ -988,7 +988,7 @@ MU.log win_set_pw, MU::ERR
 				loglevel = MU::NOTICE if (ssh_retries % 3 == 0)
 				ssh = MU::Server.getSSHSession(server, node_ssh_key, loglevel)
 				initialSSHTasks(ssh, server)
-		  rescue MU::BootstrapTempFail, SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, Net::SSH::Disconnect => e
+		  rescue BootstrapTempFail, SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, Net::SSH::Disconnect => e
 				loglevel = MU::DEBUG
 				if ssh_retries % 3 == 0 or e.class.name == "MU::BootstrapTempFail"
 					loglevel = MU::NOTICE
@@ -1707,7 +1707,7 @@ MU.log win_set_pw, MU::ERR
 
 			begin
 				MU::Server.runChef(node, server, keypairname, "Full Initial Run")
-			rescue MU::ChefRunFail
+			rescue ChefRunFail
 				MU.log "Proceeding after failed initial Chef run, but #{node} may not behave as expected!", MU::WARN
 			end
 			if !chef_rerun_only
@@ -2116,7 +2116,7 @@ MU.log win_set_pw, MU::ERR
 					MU.log "#{nodename}: #{e.inspect} trying to connect for Chef run '#{purpose}", MU::ERR
 					raise MuError, "#{nodename}: #{e.inspect} trying to connect for Chef run '#{purpose}"
 				end
-		  rescue MU::ChefRunFail => e
+		  rescue ChefRunFail => e
 				ssh.close if !ssh.nil?
 				if retries < max_retries
 					retries = retries + 1
