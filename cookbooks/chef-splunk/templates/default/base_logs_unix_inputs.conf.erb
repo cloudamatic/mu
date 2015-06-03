@@ -1,0 +1,26 @@
+[monitor:///var/log/messages]
+disabled = false
+followTail = 0
+
+[monitor:///var/log/secure]
+disabled = false
+followTail = 0
+
+[monitor:///var/log/maillog]
+disabled = false
+followTail = 0
+
+[monitor:///var/log/cron]
+disabled = false
+followTail = 0
+
+
+[monitor:///var/log/httpd/access_log]
+disabled = false
+followTail = 0
+sourcetype = access_combined
+
+[monitor:///var/log/httpd/error_log]
+disabled = false
+followTail = 0
+sourcetype = apache_error
