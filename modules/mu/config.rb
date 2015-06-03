@@ -2313,13 +2313,36 @@ module MU
 					},
 					"domain_controller_hostname" => {
 						"type" => "string",
-						"description" => "A custom hostname for your domain controller. mu_windows_name will be used if not specified"
+						"description" => "A custom hostname for your domain controller. mu_windows_name will be used if not specified. Do not specify when joining a Domain-Node"
+					},
+					"domain_operation" => {
+						"type" => "string",
+						"default" => "join",
+						"enum" => ["join", "create", "add_controller"],
+						"description" => "Rather to join, create or add a Domain Controller"
 					},
 					"node_type" => {
 						"type" => "string",
-						"default" => "domain_node",
 						"enum" => ["domain_node", "domain_controller"],
 						"description" => "If the node will be a domain controller or a domain node"
+						"default" => "domain_node",
+						"default_if" => [
+							{
+								"key_is" => "domain_operation",
+								"value_is" => "create",
+								"set" => "domain_controller"
+							},
+							{
+								"key_is" => "domain_operation",
+								"value_is" => "add_controller",
+								"set" => "domain_controller"
+							},
+							{
+								"key_is" => "domain_operation",
+								"value_is" => "join",
+								"set" => "domain_node"
+							}
+						]
 					},
 					"computer_ou" => {
 						"type" => "string",

@@ -774,9 +774,7 @@ module MU
 			end
 
 			win_admin_password = nil
-			if %w{win2k12r2 win2k12 windows}.include?(server['platform'])
-				win_admin_password = MU::Server.getWindowsAdminPassword(instance_id: id, identity_file: "#{ssh_keydir}/#{node_ssh_key}", node_name:node, region: server['region'])
-			end
+			win_admin_password = MU::Server.getWindowsAdminPassword(instance_id: id, identity_file: "#{ssh_keydir}/#{node_ssh_key}", node_name:node, region: server['region']) if %w{win2k12r2 win2k12 windows}.include?(server['platform'])
 
 			nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::Server.getNodeSSHProxy(server)
 			if !nat_ssh_host.nil? and !MU::VPC.haveRouteToInstance?(instance.instance_id)
@@ -1241,10 +1239,15 @@ module MU
 					server['mu_windows_name'] = MU::MommaCat.getResourceName(server['name'], max_length: 15, need_unique_string: true)
 					MU::Server.saveInitialChefNodeAttrs(node, instance, server, canonical_ip)
 				end
-				if server['active_directory']['node_type'] == "domain_node"
+				if server['active_directory']['domain_operation'] == "join"
 					MU::Server.knifeAddToRunList(node, "recipe[active-directory::domain-node]");
 					MU::Server.runChef(node, server, node_ssh_key, "Join Active Directory")
-				end
+				elsif server['active_directory']['domain_operation'] == "create"
+					MU::Server.knifeAddToRunList(node, "recipe[active-directory::domain]");
+					MU::Server.runChef(node, server, node_ssh_key, "Create Active Directory")
+				elsif server['active_directory']['domain_operation'] == "add_controller"
+					MU::Server.knifeAddToRunList(node, "recipe[active-directory::domain-controller]");
+					MU::Server.runChef(node, server, node_ssh_key, "Add Domain Controller to Active Directory")
 			end
 
 			MU::MommaCat.unlock(instance.instance_id+"-deploy")
@@ -1269,6 +1272,16 @@ module MU
 			chef_node.normal.windows_admin_username = server['windows_admin_username']
 			chef_node.chef_environment = MU.environment.downcase
 
+			if  server['use_cloud_provider_windows_password']
+				chef_node.normal.windows_auth_vault = node
+				chef_node.normal.windows_auth_item = "windows_admin_creds"
+				chef_node.normal.windows_auth_password_field = "password"
+			elsif !server['windows_auth_vault'].nil?
+				chef_node.normal.windows_auth_vault = server['windows_auth_vault']['vault']
+				chef_node.normal.windows_auth_item = server['windows_auth_vault']['item']
+				chef_node.normal.windows_auth_password_field = server['windows_auth_vault']['password_field']
+			end
+
 			# If AD integration has been requested for this node, give Chef what it'll
 			# need for mu-tools::ad-client to work.
 			if !server['active_directory'].nil?
@@ -1276,6 +1289,7 @@ module MU
 				chef_node.normal.ad.node_class = server['name']
 				chef_node.normal.ad.domain_name = server['active_directory']['domain_name']
 				chef_node.normal.ad.node_type = server['active_directory']['node_type']
+				chef_node.normal.ad.domain_operation = server['active_directory']['domain_operation']
 				chef_node.normal.ad.domain_controller_hostname = server['active_directory']['domain_controller_hostname'] if server['active_directory'].has_key?('domain_controller_hostname')
 				chef_node.normal.ad.netbios_name = server['active_directory']['short_domain_name']
 				chef_node.normal.ad.computer_ou = server['active_directory']['computer_ou'] if server['active_directory'].has_key?('computer_ou')
