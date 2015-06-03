@@ -832,9 +832,10 @@ module MU
 		# Called by {MU::Cleanup}. Locates resources that were created by the
 		# currently-loaded deployment, and purges them.
 		# @param noop [Boolean]: If true, will only print what would be done
+		# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
 		# @param region [String]: The cloud provider region in which to operate
 		# @return [void]
-		def self.cleanup(noop = false, region: MU.curRegion)
+		def self.cleanup(noop = false, ignoremaster = false, region: MU.curRegion)
 			resp = MU.rds(region).describe_db_instances
 			threads = []
 			resp.data.db_instances.each { |db|
@@ -872,7 +873,7 @@ module MU
 				next if !found_muid
 
 				parent_thread_id = Thread.current.object_id
-				if found_muid and (found_master or @ignoremaster)
+				if found_muid and (found_master or ignoremaster)
 					threads << Thread.new(db) { |mydb|
 						MU.dupGlobals(parent_thread_id)
 						Thread.abort_on_exception = true

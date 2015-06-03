@@ -302,164 +302,6 @@ module MU
 			end
 		end
 
-		# Remove all autoscale groups associated with the currently loaded deployment.
-		# @param region [String]: The cloud provider region
-		# @return [void]
-		def self.purge_autoscale(region: MU.curRegion)
-			resp = MU.autoscale(region).describe_tags(
-				filters: @autoscale_filters
-			)
-			return nil if resp.tags.nil? or resp.tags.size == 0
-
-			maybe_purge = []
-			no_purge = []
-
-			resp.data.tags.each { |asg|
-				if asg.resource_type != "auto-scaling-group"
-					no_purge << asg.resource_id
-				end
-				if asg.key == "MU-MASTER-IP" and asg.value != MU.mu_public_ip and !@ignoremaster
-					no_purge << asg.resource_id
-				end
-				if (asg.key == "MU-ID" or asg.key == "CAP-ID") and asg.value == MU.mu_id
-					maybe_purge << asg.resource_id
-				end
-			}
-
-			maybe_purge.each { |resource_id|
-				next if no_purge.include?(resource_id)
-				MU.log "Removing AutoScale group #{resource_id}"
-				next if @noop
-				retries = 0
-				begin 
-					MU.autoscale(region).delete_auto_scaling_group(
-						auto_scaling_group_name: resource_id,
-# XXX this should obey @force
-						force_delete: true
-					)
-				rescue Aws::AutoScaling::Errors::InternalFailure => e
-					if retries < 5
-						MU.log "Got #{e.inspect} while removing AutoScale group #{resource_id}.", MU::WARN
-						sleep 10
-						retry
-					else
-						MU.log "Failed to delete AutoScale group #{resource_id}", MU::ERR
-					end
-				end
-
-				# Generally there should be a launch_configuration of the same name
-# XXX search for these independently, too?
-				retries = 0
-				begin
-					MU.log "Removing AutoScale Launch Configuration #{resource_id}"
-					MU.autoscale(region).delete_launch_configuration(
-						launch_configuration_name: resource_id
-					)
-				rescue Aws::AutoScaling::Errors::ValidationError => e
-					MU.log "No such Launch Configuration #{resource_id}"
-				rescue Aws::AutoScaling::Errors::InternalFailure => e
-					if retries < 5
-						MU.log "Got #{e.inspect} while removing Launch Configuration #{resource_id}.", MU::WARN
-						sleep 10
-						retry
-					else
-						MU.log "Failed to delete Launch Configuration #{resource_id}", MU::ERR
-					end
-				end
-			}
-			return nil
-		end
-
-		# Remove all load balancers associated with the currently loaded deployment. Amazon does not
-		# permit tags on ELBs at this time, so we guess based on the name. This is
-		# sketchy.
-		# @param region [String]: The cloud provider region
-		# @return [void]
-		def self.purge_loadbalancers(region: MU.curRegion)
-			raise MuError, "Can't touch ELBs without MU-ID" if MU.mu_id.nil? or MU.mu_id.empty?
-
-
-			resp = MU.elb(region).describe_load_balancers
-			resp.load_balancer_descriptions.each { |lb|
-				tags = MU.elb(region).describe_tags(load_balancer_names: [lb.load_balancer_name]).tag_descriptions.first.tags
-				muid_match = false
-				mumaster_match = false
-				saw_tags = []
-				if !tags.nil?
-					tags.each { |tag|
-						saw_tags << tag.key
-						muid_match = true if (tag.key == "MU-ID" or tag.key == "CAP-ID") and tag.value == MU.mu_id
-						mumaster_match = true if tag.key == "MU-MASTER-IP" and tag.value == MU.mu_public_ip
-					}
-				end
-				if (saw_tags.include?("MU-ID") or saw_tags.include?("CAP-ID")) and (saw_tags.include?("MU-MASTER-IP") or saw_tags.include?("CAP-MASTER-IP") or @ignoremaster)
-					if muid_match and (mumaster_match or @ignoremaster)
-						MU::DNSZone.genericDNSEntry(lb.load_balancer_name, lb.dns_name, MU::LoadBalancer, delete: true)
-						MU.log "Removing Elastic Load Balancer #{lb.load_balancer_name}"
-						MU.elb(region).delete_load_balancer(load_balancer_name: lb.load_balancer_name) if !@noop
-					end
-					next
-				end
-				if lb.load_balancer_name.match(/^#{MU.mu_id}/)
-					MU.log "Removing Elastic Load Balancer #{lb.load_balancer_name} by name match (tags unavailable). This behavior is DEPRECATED and will be removed in a future release.", MU::WARN
-					resp = MU.elb(region).delete_load_balancer(load_balancer_name: lb.load_balancer_name) if !@noop
-				end
-			}
-
-			return nil
-		end
-
-		# Remove all CloudFormation stacks associated with the currently loaded deployment.
-		# @param wait [Boolean]: Block on the removal of this stack; will continue in the background otherwise.
-		# @param region [String]: The cloud provider region
-		# @return [void]
-		def self.purge_cloudformation(wait = false, region: MU.curRegion)
-# XXX needs to check tags instead of name- possible?
-			resp = MU.cloudformation(region).describe_stacks
-			resp.stacks.each { |stack|
-				ok = false
-				stack.tags.each { |tag|
-					ok = true if (tag.key == "MU-ID" or tag.key == "CAP-ID") and tag.value == MU.mu_id
-				}
-				if ok
-					MU.log "Deleting CloudFormation stack #{stack.stack_name})"
-					next if @noop
-					if stack.stack_status != "DELETE_IN_PROGRESS"
-						MU.cloudformation(region).delete_stack(stack_name: stack.stack_name)
-					end
-					if wait
-						last_status = ""
-						max_retries = 10
-						retries = 0
-						mystack = nil
-						begin
-							mystack = nil
-						  sleep 30
-							retries = retries + 1
-							desc = MU.cloudformation(region).describe_stacks(stack_name: stack.stack_name)
-							if desc.size > 0
-								mystack = desc.first.stacks.first
-								if mystack.size > 0 and mystack.stack_status == "DELETE_FAILED"
-									MU.log "Couldn't delete CloudFormation stack #{stack.stack_name}", MU::ERR, details: mystack.stack_status_reason
-									return
-								end
-								last_status = mystack.stack_status_reason
-								MU.log "Waiting for CloudFormation stack #{stack.stack_name} to delete (#{stack.stack_status})...", MU::NOTICE
-							end
-						rescue Aws::CloudFormation::Errors::ValidationError => e
-							# this is ok, it means deletion finally succeeded
-						
-						end while !desc.nil? and desc.size > 0 and retries < max_retries
-
-						if retries >= max_retries and !mystack.nil? and mystack.stack_status != "DELETED"
-							MU.log "Failed to delete CloudFormation stack #{stack.stack_name}", MU::ERR
-						end
-					end
-
-				end
-			}
-			return nil
-		end
 
 		# Remove all instances associated with the currently loaded deployment. Also cleans up associated volumes, droppings in the MU master's /etc/hosts and ~/.ssh, and in Chef.
 		# @param region [String]: The cloud provider region
@@ -899,12 +741,6 @@ module MU
 			if !@ignoremaster
 				@stdfilters << { name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip] }
 			end
-			@autoscale_filters = [
-				{ name: "key", values: ["MU-ID"] }
-			]
-			if !@ignoremaster
-				@autoscale_filters << { name: "key", values: ["MU-MASTER-IP"] }
-			end
 			parent_thread_id = Thread.current.object_id
 
 
@@ -917,11 +753,11 @@ module MU
 					MU.setVar("curRegion", r)
 					MU.log "Checking for cloud resources in #{r}", MU::NOTICE
 					begin
-						purge_cloudformation(region: r)
-						purge_autoscale(region: r)
-						purge_loadbalancers(region: r)
+						MU::CloudFormation.cleanup(@noop, @ignoremaster, region: r)
+						MU::ServerPool.cleanup(@noop, @ignoremaster, region: r)
+						MU::LoadBalancer.cleanup(@noop, @ignoremaster, region: r)
 						deleted_nodes = purge_ec2(region: r) + deleted_nodes
-						MU::Database.cleanup(@noop, region: r)
+						MU::Database.cleanup(@noop, @ignoremaster, region: r)
 						purge_secgroups(region: r)
 						purge_gateways(region: r)
 						MU::DNSZone.cleanup(@noop, region: r)
@@ -933,7 +769,7 @@ module MU
 
 						# Hit CloudFormation again- sometimes the first delete will quietly
 						# fail due to dependencies.
-						purge_cloudformation(true, region: r)
+						MU::CloudFormation.cleanup(@noop, wait: true, region: r)
 					rescue Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::EC2::Errors::InternalError => e
 						MU.log e.inspect, MU::WARN
 						sleep 30

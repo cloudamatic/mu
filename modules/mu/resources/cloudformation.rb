@@ -269,5 +269,59 @@ module MU
 			end
 		end   
 
+		# Remove all CloudFormation stacks associated with the currently loaded deployment.
+		# @param noop [Boolean]: If true, will only print what would be done
+		# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
+		# @param wait [Boolean]: Block on the removal of this stack; will continue in the background otherwise.
+		# @param region [String]: The cloud provider region
+		# @return [void]
+		def self.cleanup(noop = false, ignoremaster = false, wait: false, region: MU.curRegion)
+# XXX needs to check tags instead of name- possible?
+			resp = MU.cloudformation(region).describe_stacks
+			resp.stacks.each { |stack|
+				ok = false
+				stack.tags.each { |tag|
+					ok = true if (tag.key == "MU-ID") and tag.value == MU.mu_id
+				}
+				if ok
+					MU.log "Deleting CloudFormation stack #{stack.stack_name})"
+					next if noop
+					if stack.stack_status != "DELETE_IN_PROGRESS"
+						MU.cloudformation(region).delete_stack(stack_name: stack.stack_name)
+					end
+					if wait
+						last_status = ""
+						max_retries = 10
+						retries = 0
+						mystack = nil
+						begin
+							mystack = nil
+						  sleep 30
+							retries = retries + 1
+							desc = MU.cloudformation(region).describe_stacks(stack_name: stack.stack_name)
+							if desc.size > 0
+								mystack = desc.first.stacks.first
+								if mystack.size > 0 and mystack.stack_status == "DELETE_FAILED"
+									MU.log "Couldn't delete CloudFormation stack #{stack.stack_name}", MU::ERR, details: mystack.stack_status_reason
+									return
+								end
+								last_status = mystack.stack_status_reason
+								MU.log "Waiting for CloudFormation stack #{stack.stack_name} to delete (#{stack.stack_status})...", MU::NOTICE
+							end
+						rescue Aws::CloudFormation::Errors::ValidationError => e
+							# this is ok, it means deletion finally succeeded
+						
+						end while !desc.nil? and desc.size > 0 and retries < max_retries
+
+						if retries >= max_retries and !mystack.nil? and mystack.stack_status != "DELETED"
+							MU.log "Failed to delete CloudFormation stack #{stack.stack_name}", MU::ERR
+						end
+					end
+
+				end
+			}
+			return nil
+		end
+
 	end #class
 end #module

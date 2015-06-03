@@ -363,5 +363,79 @@ module MU
 
 			return asg
 		end
+
+		# Remove all autoscale groups associated with the currently loaded deployment.
+		# @param noop [Boolean]: If true, will only print what would be done
+		# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
+		# @param region [String]: The cloud provider region
+		# @return [void]
+		def self.cleanup(noop = false, ignoremaster = false, region: MU.curRegion)
+			filters = [ { name: "key", values: ["MU-ID"] } ]
+			if !ignoremaster
+				filters << { name: "key", values: ["MU-MASTER-IP"] }
+			end
+			resp = MU.autoscale(region).describe_tags(
+				filters: filters
+			)
+			return nil if resp.tags.nil? or resp.tags.size == 0
+
+			maybe_purge = []
+			no_purge = []
+
+			resp.data.tags.each { |asg|
+				if asg.resource_type != "auto-scaling-group"
+					no_purge << asg.resource_id
+				end
+				if asg.key == "MU-MASTER-IP" and asg.value != MU.mu_public_ip and !ignoremaster
+					no_purge << asg.resource_id
+				end
+				if (asg.key == "MU-ID" or asg.key == "CAP-ID") and asg.value == MU.mu_id
+					maybe_purge << asg.resource_id
+				end
+			}
+
+			maybe_purge.each { |resource_id|
+				next if no_purge.include?(resource_id)
+				MU.log "Removing AutoScale group #{resource_id}"
+				next if noop
+				retries = 0
+				begin 
+					MU.autoscale(region).delete_auto_scaling_group(
+						auto_scaling_group_name: resource_id,
+# XXX this should obey @force
+						force_delete: true
+					)
+				rescue Aws::AutoScaling::Errors::InternalFailure => e
+					if retries < 5
+						MU.log "Got #{e.inspect} while removing AutoScale group #{resource_id}.", MU::WARN
+						sleep 10
+						retry
+					else
+						MU.log "Failed to delete AutoScale group #{resource_id}", MU::ERR
+					end
+				end
+
+				# Generally there should be a launch_configuration of the same name
+# XXX search for these independently, too?
+				retries = 0
+				begin
+					MU.log "Removing AutoScale Launch Configuration #{resource_id}"
+					MU.autoscale(region).delete_launch_configuration(
+						launch_configuration_name: resource_id
+					)
+				rescue Aws::AutoScaling::Errors::ValidationError => e
+					MU.log "No such Launch Configuration #{resource_id}"
+				rescue Aws::AutoScaling::Errors::InternalFailure => e
+					if retries < 5
+						MU.log "Got #{e.inspect} while removing Launch Configuration #{resource_id}.", MU::WARN
+						sleep 10
+						retry
+					else
+						MU.log "Failed to delete Launch Configuration #{resource_id}", MU::ERR
+					end
+				end
+			}
+			return nil
+		end
 	end
 end

@@ -294,6 +294,46 @@ module MU
 			)
 		end
 
+		# Remove all load balancers associated with the currently loaded deployment.
+		# @param noop [Boolean]: If true, will only print what would be done
+		# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
+		# @param region [String]: The cloud provider region
+		# @return [void]
+		def self.cleanup(noop = false, ignoremaster = false, region: MU.curRegion)
+			raise MuError, "Can't touch ELBs without MU-ID" if MU.mu_id.nil? or MU.mu_id.empty?
+
+			resp = MU.elb(region).describe_load_balancers
+			resp.load_balancer_descriptions.each { |lb|
+				tags = MU.elb(region).describe_tags(load_balancer_names: [lb.load_balancer_name]).tag_descriptions.first.tags
+				muid_match = false
+				mumaster_match = false
+				saw_tags = []
+				if !tags.nil?
+					tags.each { |tag|
+						saw_tags << tag.key
+						muid_match = true if tag.key == "MU-ID" and tag.value == MU.mu_id
+						mumaster_match = true if tag.key == "MU-MASTER-IP" and tag.value == MU.mu_public_ip
+					}
+				end
+				if saw_tags.include?("MU-ID") and (saw_tags.include?("MU-MASTER-IP") or ignoremaster)
+					if muid_match and (mumaster_match or ignoremaster)
+						MU::DNSZone.genericDNSEntry(lb.load_balancer_name, lb.dns_name, MU::LoadBalancer, delete: true)
+						MU.log "Removing Elastic Load Balancer #{lb.load_balancer_name}"
+						MU.elb(region).delete_load_balancer(load_balancer_name: lb.load_balancer_name) if !noop
+					end
+					next
+				end
+				if lb.load_balancer_name.match(/^#{MU.mu_id}/)
+					MU.log "Removing Elastic Load Balancer #{lb.load_balancer_name} by name match (tags unavailable). This behavior is DEPRECATED and will be removed in a future release.", MU::WARN
+					resp = MU.elb(region).delete_load_balancer(load_balancer_name: lb.load_balancer_name) if !noop
+				end
+			}
+
+			return nil
+		end
+
+
+
 		# Find a LoadBalancer, given one or more pieces of identifying information.
 		#
 		# @param name [String] The MU resource name of a LoadBalancer to find.
