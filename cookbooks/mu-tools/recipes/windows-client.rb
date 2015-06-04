@@ -42,40 +42,6 @@ when "windows"
 		ec2config_username = ".\\#{username}"
 	end rescue NoMethodError
 
-	# To do: Replace existing guard with guard that checks if the user running the task is admin.
-	# Or allow userdata to be rerun everytime the recipe is run
-	powershell_script "Import run-userdata scheduled task" do
-		guard_interpreter :powershell_script
-		code "Register-ScheduledTask -Xml (get-content '#{Chef::Config[:file_cache_path]}/run-userdata.xml' | out-string) -TaskName 'run-userdata' -User #{username} -Password '#{password}' -Force"
-		only_if "((schtasks /TN 'run-userdata' /query /FO LIST -v | Select-String 'Run As User') -replace '`n|`r').split(':')[1].trim() -ne '#{username}'"
-		# not_if "Get-ScheduledTask -TaskName 'run-userdata'"
-		notifies :delete, "file[C:\\bin\\cygwin\\#{node.ec2.instance_id}]", :immediately
-		notifies :delete, "file[C:\\bin\\cygwin\\sshd_installed_by.txt]", :immediately
-		notifies :run, "windows_task[run-userdata]", :immediately
-	end
-
-	file "C:\\bin\\cygwin\\#{node.ec2.instance_id}" do 
-		action :nothing
-	end
-	
-	file "C:\\bin\\cygwin\\sshd_installed_by.txt" do 
-		action :nothing
-	end
-
-	windows_task 'run-userdata' do
-		action :nothing
-	end
-
-	# just making sure, pointless for the most part because notifies doesn't seem to work on windows_task.
-	# The password is set correctly
-	windows_task "run-userdata" do
-		action :change
-		user username
-		password password
-		sensitive true
-		notifies :run, "windows_task[run-userdata]", :immediately
-	end
-
 	service "Ec2Config" do
 		action :nothing
 	end
@@ -95,6 +61,7 @@ when "windows"
 		code "sc config Ec2Config obj= \"#{ec2config_username}\" password= \"#{password}\""
 		not_if "sc qc Ec2Config | findstr SERVICE_START_NAME | findstr #{ec2config_guard}"
 		notifies :restart, "service[Ec2Config]", :delayed
+		# notifies :request, 'windows_reboot[1]'
 		sensitive true
 	end
 
@@ -111,5 +78,52 @@ when "windows"
 			notifies :request, 'windows_reboot[1]'
 		end
 		execute "shutdown -r -f -t 0"
+	end
+	
+	# To do: Replace existing guard with guard that checks if the user running the task is admin.
+	# Or allow userdata to be rerun everytime the recipe is run
+	powershell_script "Import run-userdata scheduled task" do
+		guard_interpreter :powershell_script
+		code "Register-ScheduledTask -Xml (get-content '#{Chef::Config[:file_cache_path]}/run-userdata.xml' | out-string) -TaskName 'run-userdata' -User #{username} -Password '#{password}' -Force"
+		only_if "((schtasks /TN 'run-userdata' /query /FO LIST -v | Select-String 'Run As User') -replace '`n|`r').split(':')[1].trim() -ne '#{username}'"
+		# not_if "Get-ScheduledTask -TaskName 'run-userdata'"
+		notifies :delete, "file[C:\\bin\\cygwin\\#{node.ec2.instance_id}]", :immediately
+		notifies :delete, "file[C:\\bin\\cygwin\\sshd_installed_by.txt]", :immediately
+		# notifies :run, "powershell_script[kill sshd processes]", :immediately
+		notifies :run, "windows_task[run-userdata]", :immediately
+		notifies :run, "execute[Taskkill /im sshd.exe /f /t]", :immediately
+	end
+
+	execute "Taskkill /im sshd.exe /f /t" do
+		action :nothing
+		returns [0, 128]
+	end
+
+	powershell_script "kill sshd processes" do
+		code "Stop-Process -ProcessName sshd -force"
+		action :nothing
+		returns [0, 1]
+	end
+
+	file "C:\\bin\\cygwin\\#{node.ec2.instance_id}" do 
+		action :nothing
+	end
+	
+	file "C:\\bin\\cygwin\\sshd_installed_by.txt" do 
+		action :nothing
+	end
+
+	windows_task 'run-userdata' do
+		action :nothing
+	end
+
+	# just making sure, pointless for the most part because notifies doesn't seem to work on windows_task.
+	# The password is set correctly
+	windows_task "run-userdata" do
+		action :change
+		user username
+		password "\"#{password}\""
+		sensitive true
+		notifies :run, "windows_task[run-userdata]", :immediately
 	end
 end

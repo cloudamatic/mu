@@ -2190,14 +2190,13 @@ module MU
 		  rescue SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError => e
 				begin
 					ssh.close if !ssh.nil?
-				rescue IOError => e
+				rescue Net::SSH::Disconnect, IOError => e
 					if %w{win2k12r2 win2k12 windows}.include?(server['platform'])
-						MU.log "Windows was probably restarted and closed the ssh session unexpectedly. Waiting before trying again #{e}", MU::WARN
-						sleep 30
+						MU.log "Windows was probably restarted and closed the ssh session unexpectedly. Waiting before trying again: #{e}", MU::WARN
 					else
-						MU.log "ssh session was closed unexpectedly Waiting before trying again #{e}", MU::WARN
-						sleep 10
+						MU.log "ssh session was closed unexpectedly Waiting before trying again: #{e}", MU::WARN
 					end
+					sleep 10
 				end
 				if retries < max_retries
 					retries = retries + 1
@@ -2211,14 +2210,13 @@ module MU
 		  rescue MU::ChefRunFail => e
 				begin
 					ssh.close if !ssh.nil?
-				rescue IOError => e
+				rescue Net::SSH::Disconnect, IOError => e
 					if %w{win2k12r2 win2k12 windows}.include?(server['platform'])
-						MU.log "Windows was probably restarted and closed the ssh session unexpectedly. Waiting before trying again #{e}", MU::WARN
-						sleep 30
+						MU.log "Windows was probably restarted and closed the ssh session unexpectedly. Waiting before trying again: #{e}", MU::WARN
 					else
-						MU.log "ssh session was closed unexpectedly Waiting before trying again #{e}", MU::WARN
-						sleep 10
+						MU.log "ssh session was closed unexpectedly Waiting before trying again: #{e}", MU::WARN
 					end
+					sleep 10
 				end
 				if retries < max_retries
 					retries = retries + 1
