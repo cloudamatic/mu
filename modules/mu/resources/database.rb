@@ -276,7 +276,7 @@ module MU
 				done = true
 			ensure
 				if !done and database
-					MU::Cleanup.terminate_rds_instance(database, region: @db['region'])
+					MU::Database.terminate_rds_instance(database, region: @db['region'])
 				end
 			end
 
@@ -822,7 +822,7 @@ module MU
 				done = true
 			ensure
 				if !done and database
-					MU::Cleanup.terminate_rds_instance(database, region: @db['read_replica']['region'])
+					MU::Database.terminate_rds_instance(database, region: @db['read_replica']['region'])
 				end
 			end
 
