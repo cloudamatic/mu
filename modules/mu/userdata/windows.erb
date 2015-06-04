@@ -1,11 +1,8 @@
 # Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
-#
 # Licensed under the BSD-3 license (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License in the root of the project or at
-#
 #     http://egt-labs.com/mu/LICENSE.html
-#
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -14,7 +11,7 @@
 
 <powershell>
 	# Workaround for buggy userdata persistence?
-	Set-ExecutionPolicy Unrestricted -Force -Scope Process
+	Set-ExecutionPolicy Unrestricted -Force -Scope CurrentUser
 
 	$logfile = "c:/Mu-Bootstrap-$([Environment]::UserName).log"
 	Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Invoked as $([Environment]::UserName)"
@@ -60,7 +57,6 @@
 		$sshdUser = "sshd_service"
 		
 		# Ec2Config frequently fails to run us on reboot, too, so lets set up a scheduled task to make sure it happens.
-		# This task gets overwritten later by the mu-tools::windows-client recipe.
 		If (!(Get-ScheduledTask -TaskName 'run-userdata')){
 			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Adding run-userdata scheduled task (user NT AUTHORITY\SYSTEM)"
 			Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/run-userdata_scheduledtask.xml" -OutFile $env:Temp/run-userdata_scheduledtask.xml
@@ -125,7 +121,6 @@
 		}
 
 		if ((Test-Path $cygwin_dir\sshd_installed_by.txt) -and ((Get-Content $cygwin_dir\sshd_installed_by.txt) -ne $admin_username)){
-			# Making sure when we run under the Local System user we don't remove sshd because it fail to reinstall it. Reason number #9625 why we should bootstrap with WinRM
 			if ($username -ne "system"){
 				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Changed Admin username, will reinstall sshd"
 				if (Get-Service "sshd" -ErrorAction SilentlyContinue){
@@ -253,5 +248,6 @@
 			Start-Process -FilePath "c:\bin\cygwin\bin\curl.exe" -ArgumentList "-k --data mu_id='<%= $mu.muID %>' --data mu_resource_name='<%= $mu.resourceName %>' --data mu_resource_type='<%= $mu.resourceType %>' --data mu_instance_id='$instanceid' --data mu_bootstrap='1' --data mu_user='<%= $mu.muUser %>' --data mu_deploy_secret='$deploy_secret' $url" -Wait
 		}
     # }
+	Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy Undefined
 </powershell>
 <persist>true</persist>

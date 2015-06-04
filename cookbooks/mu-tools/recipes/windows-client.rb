@@ -49,7 +49,17 @@ when "windows"
 		code "Register-ScheduledTask -Xml (get-content '#{Chef::Config[:file_cache_path]}/run-userdata.xml' | out-string) -TaskName 'run-userdata' -User #{username} -Password '#{password}' -Force"
 		only_if "((schtasks /TN 'run-userdata' /query /FO LIST -v | Select-String 'Run As User') -replace '`n|`r').split(':')[1].trim() -ne '#{username}'"
 		# not_if "Get-ScheduledTask -TaskName 'run-userdata'"
+		notifies :delete, "file[C:\\bin\\cygwin\\#{node.ec2.instance_id}]", :immediately
+		notifies :delete, "file[C:\\bin\\cygwin\\sshd_installed_by.txt]", :immediately
 		notifies :run, "windows_task[run-userdata]", :immediately
+	end
+
+	file "C:\\bin\\cygwin\\#{node.ec2.instance_id}" do 
+		action :nothing
+	end
+	
+	file "C:\\bin\\cygwin\\sshd_installed_by.txt" do 
+		action :nothing
 	end
 
 	windows_task 'run-userdata' do
