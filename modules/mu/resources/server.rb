@@ -27,20 +27,6 @@ autoload :ERB, "erb"
 autoload :Base64, "base64"
 require 'open-uri'
 
-# XXX This only seems to be necessary for independent groom invocations from
-# MommaCat. It's not at all clear why. Chef bug? Autoload threading weirdness?
-class Chef
-  autoload :Knife, 'chef/knife'
-  autoload :Search, 'chef/search'
-  autoload :Node, 'chef/node'
-	# XXX This only seems to be necessary for independent groom invocations from
-	# MommaCat. It's not at all clear why. Chef bug? Autoload threading weirdness?
-	class Knife
-		autoload :Ssh, 'chef/knife/ssh'
-	end
-end
-
-
 module MU
 
 

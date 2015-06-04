@@ -35,6 +35,19 @@ else
 end
 ENV['HOME'] = Etc.getpwuid(Process.uid).dir
 
+# XXX This only seems to be necessary for independent groom invocations from
+# MommaCat. It's not at all clear why. Chef bug? Autoload threading weirdness?
+class Chef
+  autoload :Knife, 'chef/knife'
+  autoload :Search, 'chef/search'
+  autoload :Node, 'chef/node'
+	# XXX This only seems to be necessary for independent groom invocations from
+	# MommaCat. It's not at all clear why. Chef bug? Autoload threading weirdness?
+	class Knife
+		autoload :Ssh, 'chef/knife/ssh'
+	end
+end
+
 require 'mu/logger'
 module MU
 	# Wrapper class for fatal Exceptions. Gives our internals something to
