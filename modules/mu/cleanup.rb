@@ -29,12 +29,10 @@ module MU
 
 		@muid = nil
 		@noop = false
-		@force = false
 		@onlycloud = false
 
 		# Purge all resources associated with a deployment.
 		# @param muid [String]: The identifier of the deployment to remove (typically seen in the MU-ID tag on a resource).
-		# @param force [Boolean]: Force deletion of resources.
 		# @param noop [Boolean]: Do not delete resources, merely list what would be deleted.
 		# @param skipsnapshots [Boolean]: Refrain from saving final snapshots of volumes and databases before deletion.
 		# @param onlycloud [Boolean]: Purge cloud resources, but skip purging all Mu master metadata, ssh keys, etc.
@@ -42,7 +40,7 @@ module MU
 		# @param web [Boolean]: Generate web-friendly output.
 		# @param ignoremaster [Boolean]: Ignore the tags indicating the originating MU master server when deleting.
 		# @return [void]
-		def self.run(muid, force, noop=false, skipsnapshots=false, onlycloud=false, verbose=false, web=false, ignoremaster=false, mommacat: nil)
+		def self.run(muid, noop=false, skipsnapshots=false, onlycloud=false, verbose=false, web=false, ignoremaster=false, mommacat: nil)
 			MU.setLogging(verbose, web)
 			@noop = noop
 			@skipsnapshots = skipsnapshots
