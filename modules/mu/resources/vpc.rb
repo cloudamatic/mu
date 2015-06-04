@@ -916,6 +916,27 @@ module MU
 			return [vpc_id, subnet_ids, nat_host_name, vpc_conf['nat_ssh_user']]
 		end
 
+		# Remove all load balancers associated with the currently loaded deployment.
+		# @param noop [Boolean]: If true, will only print what would be done
+		# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
+		# @param region [String]: The cloud provider region
+		# @return [void]
+		def self.cleanup(noop = false, ignoremaster = false, region: MU.curRegion)
+			tagfilters = [
+				{ name: "tag:MU-ID", values: [MU.mu_id] }
+			]
+			if !ignoremaster
+				tagfilters << { name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip] }
+			end
+
+			purge_gateways(noop, tagfilters, region: region)
+			purge_routetables(noop, tagfilters, region: region)
+			purge_interfaces(noop, tagfilters, region: region)
+			purge_subnets(noop, tagfilters, region: region)
+			purge_vpcs(noop, tagfilters, region: region)
+			purge_dhcpopts(noop, tagfilters, region: region)
+		end
+
 		private
 
 		# List the route tables for each subnet in the given VPC
@@ -1007,6 +1028,238 @@ module MU
 			}
 			return rtb
 		end
+
+
+		# Remove all network gateways associated with the currently loaded deployment.
+		# @param noop [Boolean]: If true, will only print what would be done
+		# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
+		# @param region [String]: The cloud provider region
+		# @return [void]
+		def self.purge_gateways(noop = false, tagfilters = [], region: MU.curRegion)
+			resp = MU.ec2(region).describe_internet_gateways(
+				filters: tagfilters
+			)
+			gateways = resp.data.internet_gateways
+
+			gateways.each { |gateway|
+				gateway.attachments.each { |attachment|
+					MU.log "Detaching Internet Gateway #{gateway.internet_gateway_id} from #{attachment.vpc_id}"
+					begin
+						MU.ec2(region).detach_internet_gateway(
+							internet_gateway_id: gateway.internet_gateway_id,
+							vpc_id: attachment.vpc_id
+						)
+					rescue Aws::EC2::Errors::GatewayNotAttached => e
+						MU.log "Gateway #{gateway.internet_gateway_id} was already detached", MU::WARN
+					end
+				}
+				MU.log "Deleting Internet Gateway #{gateway.internet_gateway_id}"
+				MU.ec2(region).delete_internet_gateway(internet_gateway_id: gateway.internet_gateway_id)
+			}
+			return nil
+		end
+
+		# Remove all route tables associated with the currently loaded deployment.
+		# @param noop [Boolean]: If true, will only print what would be done
+		# @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
+		# @param region [String]: The cloud provider region
+		# @return [void]
+		def self.purge_routetables(noop = false, tagfilters = [], region: MU.curRegion)
+			resp = MU.ec2(region).describe_route_tables(
+				filters: tagfilters
+			)
+			route_tables = resp.data.route_tables
+
+			return if route_tables.nil? or route_tables.size == 0
+
+			route_tables.each { |table|
+				table.routes.each { |route|
+					if !route.network_interface_id.nil?
+						MU.log "Deleting Network Interface #{route.network_interface_id}"
+						begin
+							MU.ec2(region).delete_network_interface(network_interface_id: route.network_interface_id)
+						rescue Aws::EC2::Errors::InvalidNetworkInterfaceIDNotFound => e
+							MU.log "Network Interface #{route.network_interface_id} has already been deleted", MU::WARN
+						end
+					end
+					if route.gateway_id != "local"
+						MU.log "Deleting #{table.route_table_id}'s route for #{route.destination_cidr_block}"
+						MU.ec2(region).delete_route(
+							route_table_id: table.route_table_id,
+							destination_cidr_block: route.destination_cidr_block
+						)
+					end
+				}
+				can_delete = true
+				table.associations.each { |assoc|
+					begin
+						MU.ec2(region).disassociate_route_table(association_id: assoc.route_table_association_id)
+					rescue Aws::EC2::Errors::InvalidAssociationIDNotFound => e
+						MU.log "Route table association #{assoc.route_table_association_id} already removed", MU::WARN
+					rescue Aws::EC2::Errors::InvalidParameterValue => e
+						# normal and ignorable with the default route table
+						can_delete = false
+						next
+					end
+				}
+				next if !can_delete
+				MU.log "Deleting Route Table #{table.route_table_id}"
+				MU.ec2(region).delete_route_table(route_table_id: table.route_table_id)
+			}
+			return nil
+		end
+
+
+		# Remove all network interfaces associated with the currently loaded deployment.
+		# @param noop [Boolean]: If true, will only print what would be done
+		# @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
+		# @param region [String]: The cloud provider region
+		# @return [void]
+		def self.purge_interfaces(noop = false, tagfilters = [], region: MU.curRegion)
+			resp = MU.ec2(region).describe_network_interfaces(
+				filters: tagfilters
+			)
+			ifaces = resp.data.network_interfaces
+
+			return if ifaces.nil? or ifaces.size == 0
+
+			ifaces.each { |iface|
+				MU.log "Deleting Network Interface #{iface.network_interface_id}"
+				MU.ec2(region).delete_network_interface(network_interface_id: iface.network_interface_id)
+			}
+		end
+
+		# Remove all subnets associated with the currently loaded deployment.
+		# @param noop [Boolean]: If true, will only print what would be done
+		# @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
+		# @param region [String]: The cloud provider region
+		# @return [void]
+		def self.purge_subnets(noop = false, tagfilters = [], region: MU.curRegion)
+			resp = MU.ec2(region).describe_subnets(
+				filters: tagfilters
+			)
+			subnets = resp.data.subnets
+
+			return if subnets.nil? or subnets.size == 0
+
+			subnets.each { |subnet|
+				begin
+					if subnet.state != "available"
+						MU.log "Waiting for #{subnet.subnet_id} to be in a removable state...", MU::NOTICE
+						sleep 30
+					else
+						MU.log "Deleting Subnet #{subnet.subnet_id}"
+						MU.ec2(region).delete_subnet(subnet_id: subnet.subnet_id)
+					end
+				rescue Aws::EC2::Errors::InvalidSubnetIDNotFound
+					MU.log "Subnet #{subnet.subnet_id} disappeared before I could remove it", MU::WARN
+					next
+				end while subnet.state != "available"
+			}
+		end
+
+		# Remove all DHCP options sets associated with the currently loaded
+		# deployment.
+		# @param noop [Boolean]: If true, will only print what would be done
+		# @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
+		# @param region [String]: The cloud provider region
+		# @return [void]
+		def self.purge_dhcpopts(noop = false, tagfilters = [], region: MU.curRegion)
+			resp = MU.ec2(region).describe_dhcp_options(
+				filters: tagfilters
+			)
+			sets = resp.data.dhcp_options
+
+			return if sets.nil? or sets.size == 0
+
+			sets.each { |optset|
+				begin
+					MU.log "Deleting DHCP Option Set #{optset.dhcp_options_id}"
+					MU.ec2(region).delete_dhcp_options(dhcp_options_id: optset.dhcp_options_id)
+				rescue Aws::EC2::Errors::DependencyViolation => e
+					MU.log e.inspect, MU::ERR
+#				rescue Aws::EC2::Errors::InvalidSubnetIDNotFound
+#					MU.log "Subnet #{subnet.subnet_id} disappeared before I could remove it", MU::WARN
+#					next
+				end
+			}
+		end
+
+		# Remove all VPCs associated with the currently loaded deployment.
+		# @param noop [Boolean]: If true, will only print what would be done
+		# @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
+		# @param region [String]: The cloud provider region
+		# @return [void]
+		def self.purge_vpcs(noop = false, tagfilters = [], region: MU.curRegion)
+			resp = MU.ec2(region).describe_vpcs(
+				filters: @stdfilters
+			)
+
+			vpcs = resp.data.vpcs
+			return if vpcs.nil? or vpcs.size == 0
+
+			vpcs.each { |vpc|
+				my_peer_conns = MU.ec2(region).describe_vpc_peering_connections(
+					filters: [
+						{
+							name: "requester-vpc-info.vpc-id",
+							values: [vpc.vpc_id]
+						}
+					]
+				).vpc_peering_connections
+				my_peer_conns.concat(MU.ec2(region).describe_vpc_peering_connections(
+					filters: [
+						{
+							name: "accepter-vpc-info.vpc-id",
+							values: [vpc.vpc_id]
+						}
+					]
+				).vpc_peering_connections)
+				my_peer_conns.each { |cnxn|
+					
+					[cnxn.accepter_vpc_info.vpc_id, cnxn.requester_vpc_info.vpc_id].each { |peer_vpc|
+						MU::VPC.listAllSubnetRouteTables(peer_vpc, region: region).each { |rtb_id|
+							resp = MU.ec2(region).describe_route_tables(
+								route_table_ids: [rtb_id]
+							)
+							resp.route_tables.each { |rtb|
+								rtb.routes.each { |route|
+									if route.vpc_peering_connection_id == cnxn.vpc_peering_connection_id
+										MU.log "Removing route #{route.destination_cidr_block} from route table #{rtb_id} in VPC #{peer_vpc}"
+										MU.ec2(region).delete_route(
+											route_table_id: rtb_id,
+											destination_cidr_block: route.destination_cidr_block
+										) if !noop
+									end
+								}
+							}
+						}
+					}
+					MU.log "Deleting VPC peering connection #{cnxn.vpc_peering_connection_id}"
+					begin
+						MU.ec2(region).delete_vpc_peering_connection(
+							vpc_peering_connection_id: cnxn.vpc_peering_connection_id
+						) if !noop
+					rescue Aws::EC2::Errors::InvalidStateTransition => e
+						MU.log "VPC peering connection #{cnxn.vpc_peering_connection_id} not in removable (state #{cnxn.status.code})", MU::WARN
+					end
+				}
+				
+				MU.log "Deleting VPC #{vpc.vpc_id}"
+				begin
+					MU.ec2(region).delete_vpc(vpc_id: vpc.vpc_id)
+				rescue Aws::EC2::Errors::DependencyViolation => e
+					MU.log "Couldn't delete VPC #{vpc.vpc_id}: #{e.inspect}", MU::ERR
+				end
+
+				mu_zone, junk = MU::DNSZone.find(name: "mu", region: region)
+				if !mu_zone.nil?
+					MU::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc.vpc_id, remove: true)
+				end
+			}
+		end
+
+
 
 	end #class
 end #module
