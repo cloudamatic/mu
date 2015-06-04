@@ -1035,7 +1035,7 @@ module MU
 		# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
 		# @param region [String]: The cloud provider region
 		# @return [void]
-		def self.purge_gateways(noop = false, tagfilters = [], region: MU.curRegion)
+		def self.purge_gateways(noop = false, tagfilters = [{ name: "tag:MU-ID", values: [MU.mu_id] }], region: MU.curRegion)
 			resp = MU.ec2(region).describe_internet_gateways(
 				filters: tagfilters
 			)
@@ -1048,13 +1048,13 @@ module MU
 						MU.ec2(region).detach_internet_gateway(
 							internet_gateway_id: gateway.internet_gateway_id,
 							vpc_id: attachment.vpc_id
-						)
+						) if !noop
 					rescue Aws::EC2::Errors::GatewayNotAttached => e
 						MU.log "Gateway #{gateway.internet_gateway_id} was already detached", MU::WARN
 					end
 				}
 				MU.log "Deleting Internet Gateway #{gateway.internet_gateway_id}"
-				MU.ec2(region).delete_internet_gateway(internet_gateway_id: gateway.internet_gateway_id)
+				MU.ec2(region).delete_internet_gateway(internet_gateway_id: gateway.internet_gateway_id) if !noop
 			}
 			return nil
 		end
@@ -1064,7 +1064,7 @@ module MU
 		# @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
 		# @param region [String]: The cloud provider region
 		# @return [void]
-		def self.purge_routetables(noop = false, tagfilters = [], region: MU.curRegion)
+		def self.purge_routetables(noop = false, tagfilters = [{ name: "tag:MU-ID", values: [MU.mu_id] }], region: MU.curRegion)
 			resp = MU.ec2(region).describe_route_tables(
 				filters: tagfilters
 			)
@@ -1077,7 +1077,7 @@ module MU
 					if !route.network_interface_id.nil?
 						MU.log "Deleting Network Interface #{route.network_interface_id}"
 						begin
-							MU.ec2(region).delete_network_interface(network_interface_id: route.network_interface_id)
+							MU.ec2(region).delete_network_interface(network_interface_id: route.network_interface_id) if !noop
 						rescue Aws::EC2::Errors::InvalidNetworkInterfaceIDNotFound => e
 							MU.log "Network Interface #{route.network_interface_id} has already been deleted", MU::WARN
 						end
@@ -1087,13 +1087,13 @@ module MU
 						MU.ec2(region).delete_route(
 							route_table_id: table.route_table_id,
 							destination_cidr_block: route.destination_cidr_block
-						)
+						) if !noop
 					end
 				}
 				can_delete = true
 				table.associations.each { |assoc|
 					begin
-						MU.ec2(region).disassociate_route_table(association_id: assoc.route_table_association_id)
+						MU.ec2(region).disassociate_route_table(association_id: assoc.route_table_association_id) if !noop
 					rescue Aws::EC2::Errors::InvalidAssociationIDNotFound => e
 						MU.log "Route table association #{assoc.route_table_association_id} already removed", MU::WARN
 					rescue Aws::EC2::Errors::InvalidParameterValue => e
@@ -1104,7 +1104,7 @@ module MU
 				}
 				next if !can_delete
 				MU.log "Deleting Route Table #{table.route_table_id}"
-				MU.ec2(region).delete_route_table(route_table_id: table.route_table_id)
+				MU.ec2(region).delete_route_table(route_table_id: table.route_table_id) if !noop
 			}
 			return nil
 		end
@@ -1115,7 +1115,7 @@ module MU
 		# @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
 		# @param region [String]: The cloud provider region
 		# @return [void]
-		def self.purge_interfaces(noop = false, tagfilters = [], region: MU.curRegion)
+		def self.purge_interfaces(noop = false, tagfilters = [{ name: "tag:MU-ID", values: [MU.mu_id] }], region: MU.curRegion)
 			resp = MU.ec2(region).describe_network_interfaces(
 				filters: tagfilters
 			)
@@ -1134,7 +1134,7 @@ module MU
 		# @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
 		# @param region [String]: The cloud provider region
 		# @return [void]
-		def self.purge_subnets(noop = false, tagfilters = [], region: MU.curRegion)
+		def self.purge_subnets(noop = false, tagfilters = [{ name: "tag:MU-ID", values: [MU.mu_id] }], region: MU.curRegion)
 			resp = MU.ec2(region).describe_subnets(
 				filters: tagfilters
 			)
@@ -1149,7 +1149,7 @@ module MU
 						sleep 30
 					else
 						MU.log "Deleting Subnet #{subnet.subnet_id}"
-						MU.ec2(region).delete_subnet(subnet_id: subnet.subnet_id)
+						MU.ec2(region).delete_subnet(subnet_id: subnet.subnet_id) if !noop
 					end
 				rescue Aws::EC2::Errors::InvalidSubnetIDNotFound
 					MU.log "Subnet #{subnet.subnet_id} disappeared before I could remove it", MU::WARN
@@ -1164,7 +1164,7 @@ module MU
 		# @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
 		# @param region [String]: The cloud provider region
 		# @return [void]
-		def self.purge_dhcpopts(noop = false, tagfilters = [], region: MU.curRegion)
+		def self.purge_dhcpopts(noop = false, tagfilters = [{ name: "tag:MU-ID", values: [MU.mu_id] }], region: MU.curRegion)
 			resp = MU.ec2(region).describe_dhcp_options(
 				filters: tagfilters
 			)
@@ -1190,9 +1190,9 @@ module MU
 		# @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
 		# @param region [String]: The cloud provider region
 		# @return [void]
-		def self.purge_vpcs(noop = false, tagfilters = [], region: MU.curRegion)
+		def self.purge_vpcs(noop = false, tagfilters = [{ name: "tag:MU-ID", values: [MU.mu_id] }], region: MU.curRegion)
 			resp = MU.ec2(region).describe_vpcs(
-				filters: @stdfilters
+				filters: tagfilters
 			)
 
 			vpcs = resp.data.vpcs
@@ -1247,7 +1247,7 @@ module MU
 				
 				MU.log "Deleting VPC #{vpc.vpc_id}"
 				begin
-					MU.ec2(region).delete_vpc(vpc_id: vpc.vpc_id)
+					MU.ec2(region).delete_vpc(vpc_id: vpc.vpc_id) if !noop
 				rescue Aws::EC2::Errors::DependencyViolation => e
 					MU.log "Couldn't delete VPC #{vpc.vpc_id}: #{e.inspect}", MU::ERR
 				end
