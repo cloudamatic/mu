@@ -133,7 +133,6 @@ module MU
 				@server['mu_windows_name'] = MU::MommaCat.getResourceName(server['name'], max_length: 15, need_unique_string: true)
 				if !@server['use_cloud_provider_windows_password'] and !@server['windows_auth_vault']
 					@server['winpass'] = MU::Server.generateWindowsAdminPassword
-					MU.log "I generated a Windows admin password for #{node}. It is: #{@server['winpass']}"
 				end
 			end
 			keypairname, ssh_private_key, ssh_public_key = @deploy.createEc2SSHKey
@@ -624,7 +623,9 @@ module MU
 					hostname = server['mu_windows_name']
 				end
 
-				win_set_hostname_ad = %Q{powershell -Command "& {Rename-Computer -NewName "#{hostname}" -Force -PassThru -Restart -DomainCredential(New-Object System.Management.Automation.PSCredential('#{server['active_directory']['short_domain_name']}\\#{ad_user}', (ConvertTo-SecureString '#{ad_pwd}' -AsPlainText -Force)))}"}
+				# Bootstrap happens before a node is joined to a domain. Domain credentials aren't going to work. We can add a guard to verify a node is actually in a domain before running this.
+				# win_set_hostname_ad = %Q{powershell -Command "& {Rename-Computer -NewName "#{hostname}" -Force -PassThru -Restart -DomainCredential(New-Object System.Management.Automation.PSCredential('#{server['active_directory']['short_domain_name']}\\#{ad_user}', (ConvertTo-SecureString '#{ad_pwd}' -AsPlainText -Force)))}"}
+				win_set_hostname_ad = %Q{powershell -Command "& {Rename-Computer -NewName "#{hostname}" -Force -PassThru -Restart}"}
 			end
 
 			begin
@@ -774,7 +775,19 @@ module MU
 			end
 
 			win_admin_password = nil
-			win_admin_password = MU::Server.getWindowsAdminPassword(instance_id: id, identity_file: "#{ssh_keydir}/#{node_ssh_key}", node_name:node, region: server['region']) if %w{win2k12r2 win2k12 windows}.include?(server['platform'])
+			if %w{win2k12r2 win2k12 windows}.include?(server['platform'])
+				if server['use_cloud_provider_windows_password']
+					win_admin_password = MU::Server.getWindowsAdminPassword(instance_id: id, identity_file: "#{ssh_keydir}/#{node_ssh_key}", node_name: node, region: server['region'])
+				elsif !server['use_cloud_provider_windows_password'] && server['windows_auth_vault'] && !server['windows_auth_vault'].empty?
+					field = server["windows_auth_vault"]["password_field"]
+					win_admin_password = ChefVault::Item.load(
+						server['windows_auth_vault']['vault'],
+						server['windows_auth_vault']['item']
+					)[field]
+				else
+					win_admin_password = server['winpass']
+				end
+			end
 
 			nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::Server.getNodeSSHProxy(server)
 			if !nat_ssh_host.nil? and !MU::VPC.haveRouteToInstance?(instance.instance_id)
@@ -1215,10 +1228,10 @@ module MU
 			end
 
 			unless win_admin_password.nil? 
-				vault_cmd = "#{MU::Config.knife} vault create #{node} windows_admin_creds '{ \"password\":\"#{win_admin_password}\", \"username\":\"Administrator\" }' #{MU::Config.vault_opts} --search name:#{node}"
+				vault_cmd = "#{MU::Config.knife} vault create #{node} windows_credentials '{ \"password\":\"#{win_admin_password}\", \"username\":\"#{server['windows_admin_username']}\" }' #{MU::Config.vault_opts} --search name:#{node}"
 				puts `#{vault_cmd}`
 				MU.log vault_cmd, MU::DEBUG
-				server['vault_access'] << { "vault"=> node, "item" => "windows_admin_creds" }
+				server['vault_access'] << { "vault"=> node, "item" => "windows_credentials" }
 			end
 
 			saveInitialChefNodeAttrs(node, instance, server, canonical_ip)
@@ -1232,6 +1245,12 @@ module MU
 					MU.log "#{node}: Run list removal of recipe[#{recipe}] failed with #{e.inspect}", MU::ERR
 				end
 			}
+
+			# Making sure all Windows nodes get the mu-tools::windows-client recipe
+			if %w{win2k12r2 win2k12 windows}.include? server['platform']
+				MU::Server.knifeAddToRunList(node, "recipe[mu-tools::windows-client]");
+				MU::Server.runChef(node, server, node_ssh_key, "Base Windows Recipe")
+			end
 
 			# Join this node to its Active Directory domain, if applicable. This will
 			# trigger a reboot on Windows nodes, because what doesn't?
@@ -1277,7 +1296,7 @@ module MU
 
 			if  server['use_cloud_provider_windows_password']
 				chef_node.normal.windows_auth_vault = node
-				chef_node.normal.windows_auth_item = "windows_admin_creds"
+				chef_node.normal.windows_auth_item = "windows_credentials"
 				chef_node.normal.windows_auth_password_field = "password"
 			elsif !server['windows_auth_vault'].nil?
 				chef_node.normal.windows_auth_vault = server['windows_auth_vault']['vault']
@@ -1954,8 +1973,9 @@ module MU
 		# Retrieves the Cloud provider's randomly generated Windows password
 		# Will only work on stock Amazon Windows AMIs and custom AMIs that where created with Administrator Password set to random in EC2Config
 		# return [String]: A password string.
-		def self.getWindowsAdminPassword(instance_id: instance_id, identity_file: identity_file, node_name:node, region: MU.curRegion)
+		def self.getWindowsAdminPassword(instance_id: nil, identity_file: nil, node_name: nil, region: MU.curRegion)
 				MU.ec2(region).wait_until(:password_data_available, instance_id: instance_id) do |waiter|
+					waiter.max_attempts = 60
 					waiter.before_attempt do |attempts|
 						MU.log "Waiting for Windows password data to be available for node #{node_name}", MU::NOTICE if attempts % 5 == 0
 					end
