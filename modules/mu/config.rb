@@ -804,6 +804,7 @@ module MU
 				server_names << server['name']
 			}
 
+			server_names = Array.new
 			vpc_names = Array.new
 			nat_routes = Hash.new
 			vpcs.each { |vpc|
@@ -1062,6 +1063,11 @@ module MU
 			}
 
 			server_pools.each { |asg|
+				if server_names.include?(asg['name'])
+					MU.log "Can't use name #{asg['name']} more than once in servers/server_pools"
+					ok = false
+				end
+				server_names << asg['name']
 				asg['region'] = config['region'] if asg['region'].nil?
 				asg["dependencies"] = Array.new if asg["dependencies"].nil?
 				asg["#MU_CLASS"] = MU::ServerPool
@@ -1326,6 +1332,11 @@ module MU
 			}
 
 			servers.each { |server|
+				if server_names.include?(server['name'])
+					MU.log "Can't use name #{server['name']} more than once in servers/server_pools"
+					ok = false
+				end
+				server_names << server['name']
 				server['region'] = config['region'] if server['region'].nil?
 				server["dependencies"] = Array.new if server["dependencies"].nil?
 				server['create_ami'] = true if server['image_then_destroy']

@@ -26,348 +26,11 @@ module MU
 	class Cleanup
 
 		home = Etc.getpwuid(Process.uid).dir
-		@knife ="env -i HOME=#{home} CHEF_PUBLIC_IP=#{MU.mu_public_ip} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin knife"
 
 		@muid = nil
 		@noop = false
 		@force = false
 		@onlycloud = false
-		@threads = []
-
-
-		# Expunge Chef resources associated with a node.
-		# @param node [String]: The Mu name of the node in question.
-		def self.purge_chef_resources(node, vaults_to_clean = nil)
-			MU.log "Deleting Chef resources associated with #{node}"
-			if !vaults_to_clean.nil?
-				vaults_to_clean.each { |vault|
-					MU::MommaCat.lock("vault-"+vault['vault'], false, true)
-					MU.log "knife vault remove #{vault['vault']} #{vault['item']} --search name:#{node}", MU::NOTICE
-					puts `#{MU::Config.knife} vault remove #{vault['vault']} #{vault['item']} --search name:#{node}` if !@noop
-					MU::MommaCat.unlock("vault-"+vault['vault'])
-				}
-			end
-			MU.log "knife node delete -y #{node}"
-			`#{MU::Config.knife} node delete -y #{node}` if !@noop
-			MU.log "knife client delete -y #{node}"
-			`#{MU::Config.knife} client delete -y #{node}` if !@noop
-			MU.log "knife data bag delete -y #{node}"
-			`#{MU::Config.knife} data bag delete -y #{node}` if !@noop
-			["crt", "key"].each { |ext|
-				if File.exists?("#{MU.mySSLDir}/#{node}.#{ext}")
-					MU.log "Removing #{MU.mySSLDir}/#{node}.#{ext}"
-					File.unlink("#{MU.mySSLDir}/#{node}.#{ext}") if !@noop
-				end
-			}
-		end
-
-		# Destroy a volume.
-		# @param volume [OpenStruct]: The cloud provider's description of the volume.
-		# @param id [String]: The cloud provider's identifier for the volume, to use if the full description is not available.
-		# @param region [String]: The cloud provider region
-		# @return [void]
-		def self.delete_volume(volume, id: id, region: MU.curRegion)
-			if !volume.nil?
-				resp = MU.ec2(region).describe_volumes(volume_ids: [volume.volume_id])
-				volume = resp.data.volumes.first
-			end
-			name = ""
-			volume.tags.each { |tag|
-				name = tag.value if tag.key == "Name"
-			}
-
-			MU.log("Deleting volume #{volume.volume_id} (#{name})")
-			if !@noop
-				if !@skipsnapshots
-					if !name.nil? and !name.empty?
-							desc = "#{MU.mu_id}-MUfinal (#{name})"
-					else
-							desc = "#{MU.mu_id}-MUfinal"
-					end
-
-					MU.ec2(region).create_snapshot(
-						volume_id: volume.volume_id,
-						description: desc
-					)
-				end
-
-				retries = 0
-				begin
-					MU.ec2(region).delete_volume(volume_id: volume.volume_id)
-				rescue Aws::EC2::Errors::RequestLimitExceeded
-					sleep 10
-					retry
-				rescue Aws::EC2::Errors::InvalidVolumeNotFound
-					MU.log "Volume #{volume.volume_id} (#{name}) disappeared before I could remove it!", MU::WARN
-				rescue Aws::EC2::Errors::VolumeInUse
-					if retries < 10
-						volume.attachments.each { |attachment|
-# TODO @force should rip this away from its mommy
-							MU.log "#{volume.volume_id} is attached to #{attachment.instance_id} as #{attachment.device}", MU::NOTICE
-						}
-						MU.log "Volume '#{name}' is still attached, waiting...", MU::NOTICE
-						sleep 30
-						retries = retries + 1
-						retry
-					else
-						MU.log "Failed to delete #{name}", MU::ERR
-					end
-				end
-			end
-		end
-
-		# Terminate an instance.
-		# @param instance [OpenStruct]: The cloud provider's description of the instance.
-		# @param id [String]: The cloud provider's identifier for the instance, to use if the full description is not available.
-		# @param region [String]: The cloud provider region
-		# @return [void]
-		def self.terminate_instance(instance=nil, id: id, onlylocal: false, region: MU.curRegion)
-			ips = Array.new
-			if !instance
-				if id
-					begin
-						resp = MU.ec2(region).describe_instances(instance_ids: [id])
-					rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
-						MU.log "Instance #{id} no longer exists", MU::WARN
-					end
-					if !resp.nil? and !resp.reservations.nil? and !resp.reservations.first.nil?
-						instance = resp.reservations.first.instances.first
-						ips << instance.public_ip_address if !instance.public_ip_address.nil?
-						ips << instance.private_ip_address if !instance.private_ip_address.nil?
-					end
-				else
-					MU.log "You must supply an instance handle or id to terminate_instance", MU::ERR
-				end
-			else
-				id = instance.instance_id
-			end
-			if !MU.mu_id.empty?
-				deploy_dir = File.expand_path("#{MU.dataDir}/deployments/"+MU.mu_id)
-				if Dir.exist?(deploy_dir) and !@noop
-					FileUtils.touch("#{deploy_dir}/.cleanup-"+id)
-				end
-			end
-
-			# Remove Chef-related resources and deployment metadata for this instance
-			if !@onlycloud
-				cleaned_dns = false
-				mu_zone, junk = MU::DNSZone.find(name: "mu")
-				if !mu_zone.nil?
-					dns_targets = []
-					rrsets = MU.route53(region).list_resource_record_sets(hosted_zone_id: mu_zone.id)
-				end
-				begin
-					junk, mu_name = MU::Server.find(id: id, region: region)
-				rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
-#					MU.log "Instance #{id} no longer exists", MU::WARN
-				end
-				servers = MU::MommaCat.getResourceDeployStruct(MU::Server.cfg_plural, name: mu_name, deploy_id: MU.mu_id)
-
-				if servers.is_a?(Array)
-					server_hash = {}
-					servers.each { |chunk|
-						chunk.each { |node_name, data|
-							server_hash[node_name] = data.dup
-						}
-					}
-					servers = server_hash
-				end
-
-				if !servers.nil? and !servers.is_a?(Array)
-					servers.each_pair { |node_name, data|
-						if data['instance_id'] == id
-							if !rrsets.nil?
-								rrsets.resource_record_sets.each { |rrset|
-									if rrset.name.match(/^#{node_name.downcase}\.server\.#{MU.myInstanceId}\.mu/i)
-										rrset.resource_records.each { |record|
-											MU::DNSZone.genericDNSEntry(node_name, record.value, MU::Server, delete: true)
-											cleaned_dns = true
-										}
-									end
-								}
-							end
-							MU::Cleanup.purge_chef_resources(node_name, data['vault_access'])
-							if !@noop
-								# XXX this doesn't actually work right now (vault bug?) and is
-								# tremendously slow.
-#								MU::MommaCat.lock("vault-rotate", false, true)
-#								MU.log "Rotating vault keys and purging unknown clients"
-#								`#{MU::Config.knife} vault rotate all keys --clean-unknown-clients #{MU::Config.vault_opts}`
-#								MU::MommaCat.unlock("vault-rotate")
-							end
-							@mommacat.notify(MU::Server.cfg_plural, mu_name, node_name, remove: true, sub_key: node_name) if !@noop and @mommacat
-							break
-						end
-					}
-				end
-				# If we didn't manage to find this instance's Route53 entry by sifting
-				# deployment metadata, see if we can get it with the Name tag.
-				if !mu_zone.nil? and !cleaned_dns and !instance.nil?
-					instance.tags.each { |tag|
-						if tag.key == "Name"
-							rrsets.resource_record_sets.each { |rrset|
-								if rrset.name.match(/^#{tag.value.downcase}\.server\.#{MU.myInstanceId}\.mu/i)
-									rrset.resource_records.each { |record|
-										MU::DNSZone.genericDNSEntry(tag.value, record.value, MU::Server, delete: true)
-									}
-								end
-							}
-						end
-					}
-				end
-			end
-
-			if ips.size > 0 and !@onlycloud
-				known_hosts_files = [Etc.getpwuid(Process.uid).dir+"/.ssh/known_hosts"] 
-				if Etc.getpwuid(Process.uid).name == "root"
-					known_hosts_files << Etc.getpwnam("nagios").dir+"/.ssh/known_hosts"
-				end
-				known_hosts_files.each { |known_hosts|
-					next if !File.exists?(known_hosts)
-					MU.log "Cleaning up #{ips} from #{known_hosts}"
-					if !@noop 
-						File.open(known_hosts, File::CREAT|File::RDWR, 0644) { |f|
-							f.flock(File::LOCK_EX)
-							newlines = Array.new
-							f.readlines.each { |line|
-								ip_match = false
-								ips.each { |ip|
-									if line.match(/(^|,| )#{ip}( |,)/)
-										MU.log "Expunging #{ip} from #{known_hosts}"
-										ip_match = true
-									end
-								}
-								newlines << line if !ip_match
-							}
-							f.rewind
-							f.truncate(0)
-							f.puts(newlines)
-							f.flush
-							f.flock(File::LOCK_UN)
-						}
-					end
-				}
-			end
-
-
-			return if instance.nil? or onlylocal
-
-			name = ""
-			instance.tags.each { |tag|
-				name = tag.value if tag.key == "Name"
-			}
-
-			if instance.state.name == "terminated"
-				MU.log "#{instance.instance_id} (#{name}) has already been terminated, skipping"
-			else
-				if instance.state.name == "terminating"
-					MU.log "#{instance.instance_id} (#{name}) already terminating, waiting"
-				elsif instance.state.name != "running" and instance.state.name != "pending" and instance.state.name != "stopping" and instance.state.name != "stopped"
-					MU.log "#{instance.instance_id} (#{name}) is in state #{instance.state.name}, waiting"
-				else
-					MU.log "Terminating #{instance.instance_id} (#{name})"
-					if !@noop
-						begin
-							MU.ec2(region).modify_instance_attribute(
-								instance_id: instance.instance_id,
-								disable_api_termination: { value: false }
-							)
-							MU.ec2(region).terminate_instances(instance_ids: [instance.instance_id])
-							# Small race window here with the state changing from under us
-						rescue Aws::EC2::Errors::RequestLimitExceeded
-							sleep 10
-							retry
-						rescue Aws::EC2::Errors::IncorrectInstanceState => e
-							resp = MU.ec2(region).describe_instances(instance_ids: [id])
-							if !resp.nil? and !resp.reservations.nil? and !resp.reservations.first.nil?
-								instance = resp.reservations.first.instances.first
-								if !instance.nil? and instance.state.name != "terminated" and instance.state.name != "terminating"
-									sleep 5
-									retry
-								end
-							end
-						rescue Aws::EC2::Errors::InternalError => e
-							MU.log "Error #{e.inspect} while Terminating instance #{instance.instance_id} (#{name}), retrying", MU::WARN, details: e.inspect
-							sleep 5
-							retry
-						end
-					end
-				end
-				while instance.state.name != "terminated" and !@noop
-					sleep 30
-					instance_response = MU.ec2(region).describe_instances(instance_ids: [instance.instance_id])
-					instance = instance_response.reservations.first.instances.first
-				end
-				MU.log "#{instance.instance_id} (#{name}) terminated" if !@noop
-			end
-		end
-
-
-		# Remove all instances associated with the currently loaded deployment. Also cleans up associated volumes, droppings in the MU master's /etc/hosts and ~/.ssh, and in Chef.
-		# @param region [String]: The cloud provider region
-		# @return [Integer]: The number of instances terminated.
-		def self.purge_ec2(region: MU.curRegion)
-			instances = Array.new
-			unterminated = Array.new
-
-			# Build a list of instances we need to clean up. We guard against
-			# accidental deletion here by requiring someone to have hand-terminated
-			# these, by default.
-			resp = MU.ec2(region).describe_instances(
-				filters: @stdfilters
-			)
-
-			return if resp.data.reservations.nil?
-			resp.data.reservations.each { |reservation|
-				reservation.instances.each { |instance|
-				  if instance.state.name != "terminated" and !@force and !@noop
-					unterminated << instance
-				  else
-					instances << instance
-				  end
-				}
-			}
-
-			if unterminated.size > 0 and !@force and !@noop then
-				MU.log "Unterminated instances exist for this stack, aborting!"
-				MU.log "Terminate the following by hand, or use -f."
-				unterminated.each { |instance|
-					name = ""
-					instance.tags.each { |tag|
-						name = tag.value if tag.key == "Name"
-					}
-					MU.log "\t#{name} (#{instance.instance_id})"
-				}
-				exit 1
-			end
-
-			parent_thread_id = Thread.current.object_id
-
-			instances.each { |instance|
-			@threads << Thread.new(instance) do |myinstance|
-					MU.dupGlobals(parent_thread_id)
-			  Thread.abort_on_exception = true
-					terminate_instance(id: myinstance.instance_id, region: region)
-				end
-			}
-
-
-			resp = MU.ec2(region).describe_volumes(
-				filters: @stdfilters
-			)
-			resp.data.volumes.each { |volume|
-			@threads << Thread.new(volume) do |myvolume|
-					MU.dupGlobals(parent_thread_id)
-					delete_volume(myvolume)
-				end
-			}
-
-			# Wait for all of the instances to finish cleanup before proceeding
-			@threads.each do |t|
-				t.join
-			end
-			return instances.size
-		end
 
 		# Remove all network gateways associated with the currently loaded deployment.
 		# @param region [String]: The cloud provider region
@@ -587,101 +250,6 @@ module MU
 			}
 		end
 
-		# Remove all security groups (firewall rulesets) associated with the currently loaded deployment.
-		# @param region [String]: The cloud provider region
-		# @return [void]
-		def self.purge_secgroups(region: MU.curRegion)
-
-			resp = MU.ec2(region).describe_security_groups(
-				filters: @stdfilters
-			)
-
-			resp.data.security_groups.each { |sg|
-				MU.log "Revoking rules in EC2 Security Group #{sg.group_name} (#{sg.group_id})"
-
-				if !@noop
-					ingress_to_revoke = Array.new
-					egress_to_revoke = Array.new
-					sg.ip_permissions.each { |hole|
-
-						hole_hash = MU.structToHash(hole)
-						if !hole_hash[:user_id_group_pairs].nil?
-							hole[:user_id_group_pairs].each { |group_ref|
-								group_ref.delete(:group_name) if group_ref.is_a?(Hash)
-							}
-						end
-						ingress_to_revoke << MU.structToHash(hole)
-						ingress_to_revoke.each { |rule|
-							if !rule[:user_id_group_pairs].nil? and rule[:user_id_group_pairs].size == 0
-								rule.delete(:user_id_group_pairs)
-							end
-							if !rule[:ip_ranges].nil? and rule[:ip_ranges].size == 0
-								rule.delete(:ip_ranges)
-							end
-							if !rule[:prefix_list_ids].nil? and rule[:prefix_list_ids].size == 0
-								rule.delete(:prefix_list_ids)
-							end
-						}
-					}
-					sg.ip_permissions_egress.each { |hole|
-						hole_hash = MU.structToHash(hole)
-						if !hole_hash[:user_id_group_pairs].nil? and hole_hash[:user_id_group_pairs].is_a?(Hash)
-							hole[:user_id_group_pairs].each { |group_ref|
-								group_ref.delete(:group_name)
-							}
-						end
-						egress_to_revoke << MU.structToHash(hole)
-						egress_to_revoke.each { |rule|
-							if !rule[:user_id_group_pairs].nil? and rule[:user_id_group_pairs].size == 0
-								rule.delete(:user_id_group_pairs)
-							end
-							if !rule[:ip_ranges].nil? and rule[:ip_ranges].size == 0
-								rule.delete(:ip_ranges)
-							end
-							if !rule[:prefix_list_ids].nil? and rule[:prefix_list_ids].size == 0
-								rule.delete(:prefix_list_ids)
-							end
-						}
-					}
-					begin
-						if ingress_to_revoke.size > 0
-							MU.ec2(region).revoke_security_group_ingress(
-								group_id: sg.group_id,
-								ip_permissions: ingress_to_revoke
-							)
-						end
-						if egress_to_revoke.size > 0
-							MU.ec2(region).revoke_security_group_egress(
-								group_id: sg.group_id,
-								ip_permissions: egress_to_revoke
-							)
-						end
-					rescue Aws::EC2::Errors::InvalidPermissionNotFound
-						MU.log "Rule in #{sg.group_id} disappeared before I could remove it", MU::WARN
-					end
-				end
-			}
-
-			resp.data.security_groups.each { |sg|
-				MU.log "Removing EC2 Security Group #{sg.group_name}"
-
-				retries = 0
-				begin
-				  MU.ec2(region).delete_security_group(group_id: sg.group_id) if !@noop
-				rescue Aws::EC2::Errors::InvalidGroupNotFound
-					MU.log "EC2 Security Group #{sg.group_name} disappeared before I could delete it!", MU::WARN
-				rescue Aws::EC2::Errors::DependencyViolation, Aws::EC2::Errors::InvalidGroupInUse
-					if retries < 10
-						MU.log "EC2 Security Group #{sg.group_name} is still in use, waiting...", MU::NOTICE
-						sleep 10
-						retries = retries + 1
-						retry
-					else
-						MU.log "Failed to delete #{sg.group_name}", MU::ERR
-					end
-				end
-			}
-		end
 
 		# Purge all resources associated with a deployment.
 		# @param muid [String]: The identifier of the deployment to remove (typically seen in the MU-ID tag on a resource).
@@ -697,7 +265,6 @@ module MU
 			MU.setLogging(verbose, web)
 			@noop = noop
 			@skipsnapshots = skipsnapshots
-			@force = force
 			@onlycloud = onlycloud
 			@ignoremaster = ignoremaster
 
@@ -720,16 +287,11 @@ module MU
 					else
 						MU.log "I don't see a deploy named #{muid}.", MU::WARN
 						MU.log "Known deployments:\n#{Dir.entries(deploy_dir).reject{|item| item.match(/^\./) or !File.exists?(deploy_dir+"/"+item+"/public_key") }.join("\n")}", MU::WARN
-						if !@force
-							MU.log "Use -f to proceed anyway and search for remnants of #{muid}.", MU::WARN
-							exit 1
-						else
-							MU.log "Searching for remnants of #{muid}, though this may be an invalid MU-ID.", MU::WARN
-						end
+						MU.log "Searching for remnants of #{muid}, though this may be an invalid MU-ID.", MU::WARN
 					end
 					@mommacat = MU::MommaCat.new(muid)
 				rescue Exception => e
-					MU.log "Can't load a deploy record for #{muid} (#{e.inspect}), cleaning up resources by guesswork", MU::WARN, details: e.backtrace
+					MU.log "Can't load a deploy record for #{muid} (#{e.inspect}), cleaning up resources by guesswork", MU::WARN
 					MU.setVar("mu_id", muid)
 				end
 			end
@@ -747,6 +309,7 @@ module MU
 			regions = MU::Config.listRegions
 			deleted_nodes = 0
 			@regionthreads = []
+			keyname = "deploy-#{MU.mu_id}"
 			regions.each { |r|
 				@regionthreads << Thread.new {
 					MU.dupGlobals(parent_thread_id)
@@ -756,11 +319,11 @@ module MU
 						MU::CloudFormation.cleanup(@noop, @ignoremaster, region: r)
 						MU::ServerPool.cleanup(@noop, @ignoremaster, region: r)
 						MU::LoadBalancer.cleanup(@noop, @ignoremaster, region: r)
-						deleted_nodes = purge_ec2(region: r) + deleted_nodes
+						MU::Server.cleanup(@noop, @ignoremaster, skipsnapshots: @skipsnapshots, onlycloud: @onlycloud, region: r)
 						MU::Database.cleanup(@noop, @ignoremaster, region: r)
-						purge_secgroups(region: r)
-						purge_gateways(region: r)
+						MU::FirewallRule.cleanup(@noop, @ignoremaster, region: r)
 						MU::DNSZone.cleanup(@noop, region: r)
+						purge_gateways(region: r)
 						purge_routetables(region: r)
 						purge_interfaces(region: r)
 						purge_subnets(region: r)
@@ -770,6 +333,14 @@ module MU
 						# Hit CloudFormation again- sometimes the first delete will quietly
 						# fail due to dependencies.
 						MU::CloudFormation.cleanup(@noop, wait: true, region: r)
+
+						resp = MU.ec2(r).describe_key_pairs(
+							filters: [ { name: "key-name", values: [keyname] } ]
+						)
+						resp.data.key_pairs.each { |keypair|
+							MU.log "Deleting key pair #{keypair.key_name} from #{r}"
+							MU.ec2(r).delete_key_pair(key_name: keypair.key_name) if !@noop
+						}
 					rescue Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::EC2::Errors::InternalError => e
 						MU.log e.inspect, MU::WARN
 						sleep 30
@@ -781,93 +352,39 @@ module MU
 			@regionthreads.each do |t|
 				t.join
 			end
-			@threads = []
 
-			vaults_to_clean = []
-			if !@mommacat.nil? and !@mommacat.original_config.nil?
-				if !@mommacat.original_config["servers"].nil?
-					@mommacat.original_config["servers"].each { |server|
-						begin
-							MU::Server.removeIAMProfile("Server-"+server['name']) if !@noop
-						rescue Exception => e
-							MU.log e.inspect, MU::NOTICE
-						end
-						if !server['vault_access'].nil?
-							server['vault_access'].each { |vault|
-								vaults_to_clean << vault
-							}
-						end
-					}
-				end
-				if !@mommacat.original_config["server_pools"].nil?
-					@mommacat.original_config["server_pools"].each { |server|
-						begin
-							if !@noop
-								MU::Server.removeIAMProfile("ServerPool-"+server['name'])
-							end
-						rescue Exception => e
-							MU.log e.inspect, MU::NOTICE
-						end
-						if !server['vault_access'].nil?
-							server['vault_access'].each { |vault|
-								vaults_to_clean << vault
-							}
-						end
-					}
-				end
-			end
-			vaults_to_clean.uniq!
-
-			@threads.each do |t|
-				t.join
-			end
-			@threads = []
-
+			# Scrub any residual Chef records with matching tags
 			if !@onlycloud
-				parent_thread_id = Thread.current.object_id
-
-				chef_nodes = `#{MU::Config.knife} node list`.split("\n")
-				chef_nodes.each { |node|
-					@threads << Thread.new {
-						MU.dupGlobals(parent_thread_id)
-						if node.match(/^#{MU.mu_id}\-.+$/) then
-							MU::Cleanup.purge_chef_resources(node)
-						end
+				if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+					Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+				end
+				deadnodes = []
+				Chef::Config[:environment] = MU.environment
+				q = Chef::Search::Query.new
+				q.search("node", "tags_MU-ID:#{MU.mu_id}").each { |item|
+					next if item.is_a?(Fixnum)
+					item.each { |node|
+						deadnodes << node.name
 					}
 				}
-
-				@mommacat.purge! if @mommacat and !@noop
-			end
-
-			if !@noop and vaults_to_clean.size > 0
-				# XXX we actually want a global vault lock here, I suppose
-				MU.log "#{MU::Config.knife} vault rotate all keys --clean-unknown-clients #{MU::Config.vault_opts}"
-				MU::MommaCat.lock("vault-cleanup", false, true)
-				`#{MU::Config.knife} vault rotate all keys --clean-unknown-clients #{MU::Config.vault_opts}`
-				MU::MommaCat.unlock("vault-cleanup")
-			end
-
-			keyname = "deploy-#{MU.mu_id}"
-			begin
-				regions = MU::Config.listRegions
-				regions.each { |r|
-					resp = MU.ec2(r).describe_key_pairs(
-						filters: [
-							{ name: "key-name", values: [keyname] }
-						]
-					)
-					resp.data.key_pairs.each { |keypair|
-						MU.log "Deleting key pair #{keypair.key_name} from #{r}"
-						MU.ec2(r).delete_key_pair(key_name: keypair.key_name) if !@noop
-					}
+				MU.log "Missed some Chef resources in node cleanup, purging now", MU::NOTICE if deadnodes.size > 0
+				deadnodes.uniq.each { |node|
+					MU::Server.purgeChefResources(node, [], noop)
 				}
-			rescue Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::EC2::Errors::InternalError => e
-				MU.log e.inspect, MU::WARN
-				sleep 30
-				retry
 			end
 
-			exit if @onlycloud
+			# XXX Rotate vault keys and remove any residual crufty clients. This
+			# doesn't actually work right now (vault bug?) and is ungodly slow.
+			if !@noop and !@onlycloud
+#				MU::MommaCat.lock("vault-rotate", false, true)
+#				MU.log "Rotating vault keys and purging unknown clients"
+#				`#{MU::Config.knife} vault rotate all keys --clean-unknown-clients #{MU::Config.vault_opts}`
+#				MU::MommaCat.unlock("vault-rotate")
+			end
+
+			if !@onlycloud and !@noop and @mommacat
+				@mommacat.purge!
+			end
 
 			myhome = Etc.getpwuid(Process.uid).dir
 			sshdir = "#{myhome}/.ssh"
@@ -938,17 +455,8 @@ module MU
 				)
 			end
 
-
-			@threads.each do |t|
-				t.join
-			end
-
-			@mommacat.purge! if @mommacat and !@noop
-			if deleted_nodes > 0
-				MU::MommaCat.syncMonitoringConfig if !@noop
-			end
+			MU::MommaCat.syncMonitoringConfig if !@noop
 
 		end
-
 	end #class
 end #module

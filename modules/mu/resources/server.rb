@@ -31,6 +31,8 @@ require 'open-uri'
 # MommaCat. It's not at all clear why. Chef bug? Autoload threading weirdness?
 class Chef
   autoload :Knife, 'chef/knife'
+  autoload :Search, 'chef/search'
+  autoload :Node, 'chef/node'
 	# XXX This only seems to be necessary for independent groom invocations from
 	# MommaCat. It's not at all clear why. Chef bug? Autoload threading weirdness?
 	class Knife
@@ -284,7 +286,7 @@ module MU
 						parent_thread_id = Thread.current.object_id
 						Thread.new {
 							MU.dupGlobals(parent_thread_id)
-							MU::Cleanup.terminate_instance(id: instance.instance_id)
+							MU::Server.terminateInstance(id: instance.instance_id)
 						}
 					end
 				end
@@ -1744,7 +1746,7 @@ MU.log win_set_pw, MU::ERR
 				if server['image_then_destroy']
 					waitForAMI(ami_id, region: server['region'])
 					MU.log "AMI ready, removing source node #{node}"
-					MU::Cleanup.terminate_instance(id: server["instance_id"])
+					MU::Server.terminateInstance(id: server["instance_id"])
 					%x{#{MU::Config.knife} node delete -y #{node}};
 					return
 				end
@@ -2067,7 +2069,340 @@ MU.log win_set_pw, MU::ERR
 			return elastic_ip.public_ip
 		end  
 
+		# Remove all instances associated with the currently loaded deployment. Also cleans up associated volumes, droppings in the MU master's /etc/hosts and ~/.ssh, and in Chef.
+		# @param noop [Boolean]: If true, will only print what would be done
+		# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
+		# @param region [String]: The cloud provider region
+		# @return [void]
+		def self.cleanup(noop = false, ignoremaster = false, skipsnapshots: false, onlycloud: false, region: MU.curRegion)
+			tagfilters = [
+				{ name: "tag:MU-ID", values: [MU.mu_id] }
+			]
+			if !ignoremaster
+				tagfilters << { name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip] }
+			end
+			instances = Array.new
+			unterminated = Array.new
+
+			# Build a list of instances we need to clean up. We guard against
+			# accidental deletion here by requiring someone to have hand-terminated
+			# these, by default.
+			resp = MU.ec2(region).describe_instances(
+				filters: tagfilters
+			)
+
+			return if resp.data.reservations.nil?
+			resp.data.reservations.each { |reservation|
+				reservation.instances.each { |instance|
+				  if instance.state.name != "terminated"
+						unterminated << instance
+				  end
+				}
+			}
+
+			parent_thread_id = Thread.current.object_id
+
+			threads = []
+			unterminated.each { |instance|
+				threads << Thread.new(instance) { |myinstance|
+					MU.dupGlobals(parent_thread_id)
+					Thread.abort_on_exception = true
+					MU::Server.terminateInstance(id: myinstance.instance_id, noop: noop, onlycloud: onlycloud, region: region)
+				}
+			}
+
+			resp = MU.ec2(region).describe_volumes(
+				filters: tagfilters
+			)
+			resp.data.volumes.each { |volume|
+				threads << Thread.new(volume) { |myvolume|
+					MU.dupGlobals(parent_thread_id)
+					MU::Server.delete_volume(myvolume, noop, skipsnapshots)
+				}
+			}
+
+			# Wait for all of the instances to finish cleanup before proceeding
+			threads.each { |t|
+				t.join
+			}
+
+
+		end
+
+		# Terminate an instance.
+		# @param instance [OpenStruct]: The cloud provider's description of the instance.
+		# @param id [String]: The cloud provider's identifier for the instance, to use if the full description is not available.
+		# @param region [String]: The cloud provider region
+		# @return [void]
+		def self.terminateInstance(instance = nil, noop: false, id: id, onlycloud: false, region: MU.curRegion)
+			ips = Array.new
+			if !instance
+				if id
+					begin
+						resp = MU.ec2(region).describe_instances(instance_ids: [id])
+					rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
+						MU.log "Instance #{id} no longer exists", MU::WARN
+					end
+					if !resp.nil? and !resp.reservations.nil? and !resp.reservations.first.nil?
+						instance = resp.reservations.first.instances.first
+						ips << instance.public_ip_address if !instance.public_ip_address.nil?
+						ips << instance.private_ip_address if !instance.private_ip_address.nil?
+					end
+				else
+					MU.log "You must supply an instance handle or id to terminateInstance", MU::ERR
+				end
+			else
+				id = instance.instance_id
+			end
+			if !MU.mu_id.empty?
+				deploy_dir = File.expand_path("#{MU.dataDir}/deployments/"+MU.mu_id)
+				if Dir.exist?(deploy_dir) and !noop
+					FileUtils.touch("#{deploy_dir}/.cleanup-"+id)
+				end
+			end
+
+			cleaned_dns = false
+			mu_name = nil
+			mu_zone, junk = MU::DNSZone.find(name: "mu")
+			if !mu_zone.nil?
+				dns_targets = []
+				rrsets = MU.route53(region).list_resource_record_sets(hosted_zone_id: mu_zone.id)
+			end
+			begin
+				junk, mu_name = MU::Server.find(id: id, region: region)
+			rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
+				MU.log "Instance #{id} no longer exists", MU::DEBUG
+			end
+
+			if !onlycloud and !mu_name.nil?
+				if !rrsets.nil?
+					rrsets.resource_record_sets.each { |rrset|
+						if rrset.name.match(/^#{mu_name.downcase}\.server\.#{MU.myInstanceId}\.mu/i)
+							rrset.resource_records.each { |record|
+								MU::DNSZone.genericDNSEntry(mu_name, record.value, MU::Server, delete: true)
+								cleaned_dns = true
+							}
+						end
+					}
+				end
+
+				deploydata = MU::MommaCat.getResourceDeployStruct(MU::Server.cfg_plural, name: mu_name)
+				nodename = nil
+				deploydata.each_pair { |node, data|
+					if data['instance_id'] == id
+						nodename = node
+						break
+					end
+				}
+				
+				orig_config = nil
+				sources = []
+				if MU.mommacat.original_config.has_key?(MU::Server.cfg_plural)
+					sources.concat(MU.mommacat.original_config[MU::Server.cfg_plural])
+				end
+				if MU.mommacat.original_config.has_key?(MU::ServerPool.cfg_plural)
+					sources.concat(MU.mommacat.original_config[MU::ServerPool.cfg_plural])
+				end
+				sources.each { |svr|
+					if svr['name'] == mu_name
+						orig_config = svr
+						break
+					end
+				}
+
+				# Expunge the IAM profile for this instance class
+				if orig_config["#MU_CLASS"] == "MU::Server"
+					MU::Server.removeIAMProfile("Server-"+mu_name) if !noop
+				else
+					MU::Server.removeIAMProfile("ServerPool-"+mu_name) if !noop
+				end
+
+				MU::Server.purgeChefResources(nodename, orig_config['vault_access'], noop)
+
+				MU.mommacat.notify(MU::Server.cfg_plural, mu_name, nodename, remove: true, sub_key: nodename) if !noop and MU.mommacat
+
+				# If we didn't manage to find this instance's Route53 entry by sifting
+				# deployment metadata, see if we can get it with the Name tag.
+				if !mu_zone.nil? and !cleaned_dns and !instance.nil?
+					instance.tags.each { |tag|
+						if tag.key == "Name"
+							rrsets.resource_record_sets.each { |rrset|
+								if rrset.name.match(/^#{tag.value.downcase}\.server\.#{MU.myInstanceId}\.mu/i)
+									rrset.resource_records.each { |record|
+										MU::DNSZone.genericDNSEntry(tag.value, record.value, MU::Server, delete: true) if !noop
+									}
+								end
+							}
+						end
+					}
+				end
+			end
+
+			if ips.size > 0 and !onlycloud
+				known_hosts_files = [Etc.getpwuid(Process.uid).dir+"/.ssh/known_hosts"] 
+				if Etc.getpwuid(Process.uid).name == "root"
+					known_hosts_files << Etc.getpwnam("nagios").dir+"/.ssh/known_hosts"
+				end
+				known_hosts_files.each { |known_hosts|
+					next if !File.exists?(known_hosts)
+					MU.log "Cleaning up #{ips} from #{known_hosts}"
+					if !noop 
+						File.open(known_hosts, File::CREAT|File::RDWR, 0644) { |f|
+							f.flock(File::LOCK_EX)
+							newlines = Array.new
+							f.readlines.each { |line|
+								ip_match = false
+								ips.each { |ip|
+									if line.match(/(^|,| )#{ip}( |,)/)
+										MU.log "Expunging #{ip} from #{known_hosts}"
+										ip_match = true
+									end
+								}
+								newlines << line if !ip_match
+							}
+							f.rewind
+							f.truncate(0)
+							f.puts(newlines)
+							f.flush
+							f.flock(File::LOCK_UN)
+						}
+					end
+				}
+			end
+
+
+			return if instance.nil?
+
+			name = ""
+			instance.tags.each { |tag|
+				name = tag.value if tag.key == "Name"
+			}
+
+			if instance.state.name == "terminated"
+				MU.log "#{instance.instance_id} (#{name}) has already been terminated, skipping"
+			else
+				if instance.state.name == "terminating"
+					MU.log "#{instance.instance_id} (#{name}) already terminating, waiting"
+				elsif instance.state.name != "running" and instance.state.name != "pending" and instance.state.name != "stopping" and instance.state.name != "stopped"
+					MU.log "#{instance.instance_id} (#{name}) is in state #{instance.state.name}, waiting"
+				else
+					MU.log "Terminating #{instance.instance_id} (#{name})"
+					if !noop
+						begin
+							MU.ec2(region).modify_instance_attribute(
+								instance_id: instance.instance_id,
+								disable_api_termination: { value: false }
+							)
+							MU.ec2(region).terminate_instances(instance_ids: [instance.instance_id])
+							# Small race window here with the state changing from under us
+						rescue Aws::EC2::Errors::RequestLimitExceeded
+							sleep 10
+							retry
+						rescue Aws::EC2::Errors::IncorrectInstanceState => e
+							resp = MU.ec2(region).describe_instances(instance_ids: [id])
+							if !resp.nil? and !resp.reservations.nil? and !resp.reservations.first.nil?
+								instance = resp.reservations.first.instances.first
+								if !instance.nil? and instance.state.name != "terminated" and instance.state.name != "terminating"
+									sleep 5
+									retry
+								end
+							end
+						rescue Aws::EC2::Errors::InternalError => e
+							MU.log "Error #{e.inspect} while Terminating instance #{instance.instance_id} (#{name}), retrying", MU::WARN, details: e.inspect
+							sleep 5
+							retry
+						end
+					end
+				end
+				while instance.state.name != "terminated" and !noop
+					sleep 30
+					instance_response = MU.ec2(region).describe_instances(instance_ids: [instance.instance_id])
+					instance = instance_response.reservations.first.instances.first
+				end
+				MU.log "#{instance.instance_id} (#{name}) terminated" if !noop
+			end
+		end
+
+		# Expunge Chef resources associated with a node.
+		# @param node [String]: The Mu name of the node in question.
+		def self.purgeChefResources(node, vaults_to_clean = [], noop = false)
+			MU.log "Deleting Chef resources associated with #{node}"
+			vaults_to_clean.each { |vault|
+				MU::MommaCat.lock("vault-"+vault['vault'], false, true)
+				MU.log "knife vault remove #{vault['vault']} #{vault['item']} --search name:#{node}", MU::NOTICE
+				puts `#{MU::Config.knife} vault remove #{vault['vault']} #{vault['item']} --search name:#{node}` if !noop
+				MU::MommaCat.unlock("vault-"+vault['vault'])
+			}
+			MU.log "knife node delete -y #{node}"
+			`#{MU::Config.knife} node delete -y #{node}` if !noop
+			MU.log "knife client delete -y #{node}"
+			`#{MU::Config.knife} client delete -y #{node}` if !noop
+			MU.log "knife data bag delete -y #{node}"
+			`#{MU::Config.knife} data bag delete -y #{node}` if !noop
+			["crt", "key"].each { |ext|
+				if File.exists?("#{MU.mySSLDir}/#{node}.#{ext}")
+					MU.log "Removing #{MU.mySSLDir}/#{node}.#{ext}"
+					File.unlink("#{MU.mySSLDir}/#{node}.#{ext}") if !noop
+				end
+			}
+		end
+
 		private
+
+		# Destroy a volume.
+		# @param volume [OpenStruct]: The cloud provider's description of the volume.
+		# @param id [String]: The cloud provider's identifier for the volume, to use if the full description is not available.
+		# @param region [String]: The cloud provider region
+		# @return [void]
+		def self.delete_volume(volume, noop, skipsnapshots, id: id, region: MU.curRegion)
+			if !volume.nil?
+				resp = MU.ec2(region).describe_volumes(volume_ids: [volume.volume_id])
+				volume = resp.data.volumes.first
+			end
+			name = ""
+			volume.tags.each { |tag|
+				name = tag.value if tag.key == "Name"
+			}
+
+			MU.log("Deleting volume #{volume.volume_id} (#{name})")
+			if !noop
+				if !skipsnapshots
+					if !name.nil? and !name.empty?
+							desc = "#{MU.mu_id}-MUfinal (#{name})"
+					else
+							desc = "#{MU.mu_id}-MUfinal"
+					end
+
+					MU.ec2(region).create_snapshot(
+						volume_id: volume.volume_id,
+						description: desc
+					)
+				end
+
+				retries = 0
+				begin
+					MU.ec2(region).delete_volume(volume_id: volume.volume_id)
+				rescue Aws::EC2::Errors::RequestLimitExceeded
+					sleep 10
+					retry
+				rescue Aws::EC2::Errors::InvalidVolumeNotFound
+					MU.log "Volume #{volume.volume_id} (#{name}) disappeared before I could remove it!", MU::WARN
+				rescue Aws::EC2::Errors::VolumeInUse
+					if retries < 10
+						volume.attachments.each { |attachment|
+							MU.log "#{volume.volume_id} is attached to #{attachment.instance_id} as #{attachment.device}", MU::NOTICE
+						}
+						MU.log "Volume '#{name}' is still attached, waiting...", MU::NOTICE
+						sleep 30
+						retries = retries + 1
+						retry
+					else
+						MU.log "Failed to delete #{name}", MU::ERR
+					end
+				end
+			end
+		end
+
 
 		def self.runChef(nodename, server, keyname, purpose = "Chef run", max_retries = 5)
 			nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::Server.getNodeSSHProxy(server)

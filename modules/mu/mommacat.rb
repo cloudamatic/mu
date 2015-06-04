@@ -659,13 +659,13 @@ module MU
 										if !kitten_pile.original_config[res_type].nil?
 											kitten_pile.original_config[res_type].each { |svr|
 												if svr['name'] == data['#MU_NODE_CLASS']
-													MU::Cleanup.purge_chef_resources(nodename, svr['vault_access'])
+													MU::Server.purgeChefResources(nodename, svr['vault_access'])
 												end
 											}
 										end
 									}
 								end
-								MU::Cleanup.terminate_instance(id: data['instance_id'], onlylocal: true, region: MU.curRegion)
+								MU::Server.terminateInstance(id: data['instance_id'], region: MU.curRegion)
 								begin
 									kitten_pile.notify("servers", data['#MU_NODE_CLASS'], nodename, remove: true, sub_key: nodename)
 									kitten_pile.sendAdminMail("Retired terminated node #{nodename}", data: data)
@@ -753,7 +753,6 @@ module MU
 			MU::MommaCat.unlock("deployment-notification")
 		end
 
-
 		# Find a resource by its Mu resource name, and return its full
 		# deployment structure. If no name is specified, will return all resources
 		# of that type in an array. If mu_id is set to nil, will return all
@@ -772,7 +771,7 @@ module MU
 			if Dir.exists?(deploy_root)
 				Dir.entries(deploy_root).each { |deploy|
 					this_deploy_dir = deploy_root+"/"+deploy
-					next if deploy == "." or deploy == ".." or !Dir.exists?(this_deploy_dir) or File.exists?(this_deploy_dir+"/.cleanup")
+					next if deploy == "." or deploy == ".." or !Dir.exists?(this_deploy_dir) 
 					if !File.size?(this_deploy_dir+"/deployment.json")
 						MU.log "#{this_deploy_dir}/deployment.json doesn't exist, skipping when loading cache", MU::WARN
 						next

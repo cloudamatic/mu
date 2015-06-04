@@ -342,7 +342,7 @@ module MU
 							if !@deploy.nocleanup
 								Thread.new {
 									MU.dupGlobals(parent_thread_id)
-									MU::Cleanup.terminate_instance(id: instance.instance_id)
+									MU::Server.terminateInstance(id: instance.instance_id)
 								}
 							end
 						end

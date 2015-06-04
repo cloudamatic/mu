@@ -320,6 +320,109 @@ module MU
 
 		end
 
+		# Remove all security groups (firewall rulesets) associated with the currently loaded deployment.
+		# @param noop [Boolean]: If true, will only print what would be done
+		# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
+		# @param region [String]: The cloud provider region
+		# @return [void]
+		def self.cleanup(noop = false, ignoremaster = false, region: MU.curRegion)
+			tagfilters = [
+				{ name: "tag:MU-ID", values: [MU.mu_id] }
+			]
+			if !ignoremaster
+				tagfilters << { name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip] }
+			end
+
+			resp = MU.ec2(region).describe_security_groups(
+				filters: tagfilters
+			)
+
+			resp.data.security_groups.each { |sg|
+				MU.log "Revoking rules in EC2 Security Group #{sg.group_name} (#{sg.group_id})"
+
+				if !noop
+					ingress_to_revoke = Array.new
+					egress_to_revoke = Array.new
+					sg.ip_permissions.each { |hole|
+
+						hole_hash = MU.structToHash(hole)
+						if !hole_hash[:user_id_group_pairs].nil?
+							hole[:user_id_group_pairs].each { |group_ref|
+								group_ref.delete(:group_name) if group_ref.is_a?(Hash)
+							}
+						end
+						ingress_to_revoke << MU.structToHash(hole)
+						ingress_to_revoke.each { |rule|
+							if !rule[:user_id_group_pairs].nil? and rule[:user_id_group_pairs].size == 0
+								rule.delete(:user_id_group_pairs)
+							end
+							if !rule[:ip_ranges].nil? and rule[:ip_ranges].size == 0
+								rule.delete(:ip_ranges)
+							end
+							if !rule[:prefix_list_ids].nil? and rule[:prefix_list_ids].size == 0
+								rule.delete(:prefix_list_ids)
+							end
+						}
+					}
+					sg.ip_permissions_egress.each { |hole|
+						hole_hash = MU.structToHash(hole)
+						if !hole_hash[:user_id_group_pairs].nil? and hole_hash[:user_id_group_pairs].is_a?(Hash)
+							hole[:user_id_group_pairs].each { |group_ref|
+								group_ref.delete(:group_name)
+							}
+						end
+						egress_to_revoke << MU.structToHash(hole)
+						egress_to_revoke.each { |rule|
+							if !rule[:user_id_group_pairs].nil? and rule[:user_id_group_pairs].size == 0
+								rule.delete(:user_id_group_pairs)
+							end
+							if !rule[:ip_ranges].nil? and rule[:ip_ranges].size == 0
+								rule.delete(:ip_ranges)
+							end
+							if !rule[:prefix_list_ids].nil? and rule[:prefix_list_ids].size == 0
+								rule.delete(:prefix_list_ids)
+							end
+						}
+					}
+					begin
+						if ingress_to_revoke.size > 0
+							MU.ec2(region).revoke_security_group_ingress(
+								group_id: sg.group_id,
+								ip_permissions: ingress_to_revoke
+							)
+						end
+						if egress_to_revoke.size > 0
+							MU.ec2(region).revoke_security_group_egress(
+								group_id: sg.group_id,
+								ip_permissions: egress_to_revoke
+							)
+						end
+					rescue Aws::EC2::Errors::InvalidPermissionNotFound
+						MU.log "Rule in #{sg.group_id} disappeared before I could remove it", MU::WARN
+					end
+				end
+			}
+
+			resp.data.security_groups.each { |sg|
+				MU.log "Removing EC2 Security Group #{sg.group_name}"
+
+				retries = 0
+				begin
+				  MU.ec2(region).delete_security_group(group_id: sg.group_id) if !noop
+				rescue Aws::EC2::Errors::InvalidGroupNotFound
+					MU.log "EC2 Security Group #{sg.group_name} disappeared before I could delete it!", MU::WARN
+				rescue Aws::EC2::Errors::DependencyViolation, Aws::EC2::Errors::InvalidGroupInUse
+					if retries < 10
+						MU.log "EC2 Security Group #{sg.group_name} is still in use, waiting...", MU::NOTICE
+						sleep 10
+						retries = retries + 1
+						retry
+					else
+						MU.log "Failed to delete #{sg.group_name}", MU::ERR
+					end
+				end
+			}
+		end
 
 		private
 
