@@ -35,6 +35,12 @@ else
 end
 ENV['HOME'] = Etc.getpwuid(Process.uid).dir
 
+gem "chef"
+autoload :Chef, 'chef'
+gem "knife-windows"
+gem "chef-vault"
+autoload :Chef, 'chef-vault'
+autoload :ChefVault, 'chef-vault'
 # XXX This only seems to be necessary for independent groom invocations from
 # MommaCat. It's not at all clear why. Chef bug? Autoload threading weirdness?
 class Chef
