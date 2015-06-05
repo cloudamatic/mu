@@ -51,16 +51,32 @@ default.windows_admin_username = "Administrator"
 # }
 
 begin
-	default.ad.auth = {
-		:vault => node.ad.auth_vault,
-		:item => node.ad.auth_item,
-		:password_field => node.ad.auth_password_field,
-		:username_field => node.ad.auth_username_field
+	default.ad.admin_auth = {
+		:vault => node.ad.domain_admin_vault,
+		:item => node.ad.domain_admin_item,
+		:password_field => node.ad.domain_admin_password_field,
+		:username_field => node.ad.domain_admin_username_field
 	}
 rescue NoMethodError => e
-	default.ad.dc_auth = {
+	default.ad.admin_auth = {
 		:vault => "activedirectory",
 		:item => "domain_admin",
+		:password_field => "password",
+		:username_field => "username"
+	}
+end
+
+begin
+	default.ad.join_auth = {
+		:vault => node.ad.domain_join_vault,
+		:item => node.ad.domain_join_item,
+		:password_field => node.ad.domain_join_password_field,
+		:username_field => node.ad.domain_join_username_field
+	}
+rescue NoMethodError => e
+	default.ad.join_auth = {
+		:vault => "activedirectory",
+		:item => "join_domain",
 		:password_field => "password",
 		:username_field => "username"
 	}

@@ -16,7 +16,7 @@ case node.platform
 when "windows"
 	include_recipe 'windows::reboot_handler'
 	::Chef::Recipe.send(:include, Chef::Mixin::PowershellOut)
-	
+
 	include_recipe 'chef-vault'
 
 	def in_domain
@@ -27,12 +27,12 @@ when "windows"
 	remote_file "#{Chef::Config[:file_cache_path]}/run-userdata.xml" do
 		source "https://s3.amazonaws.com/cap-public/run-userdata_scheduledtask.xml"
 	end
-	
+
 	if in_domain
-		windows_vault = chef_vault_item(node.ad.auth_vault, node.ad.auth_item)
-		username = "#{node.ad.netbios_name}\\#{windows_vault[node.ad.auth_username_field]}"
-		password = windows_vault[node.ad.auth_password_field]
-		ec2config_guard = "#{node.ad.netbios_name}\\\\#{windows_vault[node.ad.auth_username_field]}}"
+		windows_vault = chef_vault_item(node.ad.domain_admin_vault, node.ad.domain_admin_item)
+		username = "#{node.ad.netbios_name}\\#{windows_vault[node.ad.domain_admin_username_field]}"
+		password = windows_vault[node.ad.domain_admin_password_field]
+		ec2config_guard = "#{node.ad.netbios_name}\\\\#{windows_vault[node.ad.domain_admin_username_field]}}"
 		ec2config_username = username
 	else
 		username = node.windows_admin_username
@@ -79,7 +79,7 @@ when "windows"
 		end
 		execute "shutdown -r -f -t 0"
 	end
-	
+
 	# To do: Replace existing guard with guard that checks if the user running the task is admin.
 	# Or allow userdata to be rerun everytime the recipe is run
 	powershell_script "Import run-userdata scheduled task" do
@@ -108,7 +108,7 @@ when "windows"
 	file "C:\\bin\\cygwin\\#{node.ec2.instance_id}" do 
 		action :nothing
 	end
-	
+
 	file "C:\\bin\\cygwin\\sshd_installed_by.txt" do 
 		action :nothing
 	end

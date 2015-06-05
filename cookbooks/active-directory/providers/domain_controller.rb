@@ -19,9 +19,9 @@ action :add do
 	case node.platform
 	when "windows"
 		install_ad_features
-		configure_network_interface
 		elevate_remote_access
 		join_domain
+		configure_network_interface
 		promote
 		set_replication_static_ports
 		set_computer_name(admin_creds)
@@ -50,6 +50,7 @@ end
 def promote
 	unless is_domain_controller?
 		cmd = powershell_out("Install-ADDSDomainController -InstallDns -DomainName #{new_resource.dns_name} -Credential #{admin_creds} -SafeModeAdministratorPassword (convertto-securestring '#{new_resource.restore_mode_password}' -asplaintext -force) -Force -Confirm:$false").run_command
+		kill_ssh
 		Chef::Application.fatal!("Failed to promote #{new_resource.computer_name} to Domain Controller in #{new_resource.dns_name} domain") unless cmd.exitstatus == 0
 		Chef::Application.fatal!("Promoted #{new_resource.computer_name} to Domain Controller in #{new_resource.dns_name} domain. Will have to run chef again" )
 	end
@@ -58,6 +59,7 @@ end
 def demote
 	if is_domain_controller?
 		cmd = powershell_out("").run_command
+		kill_ssh
 		Chef::Application.fatal!("Failed to demote Domain Controller #{new_resource.computer_name} in #{new_resource.dns_name} domain") unless cmd.exitstatus == 0
 		Chef::Application.fatal!("Demoted #{new_resource.computer_name} Domain Controller in #{new_resource.dns_name} domain. Will have to run chef again" )
 	end
@@ -65,7 +67,28 @@ end
 
 def join_domain
 	unless in_domain?
-		cmd = powershell_out("Add-Computer -DomainName #{new_resource.dns_name} -Credential #{admin_creds} -newname #{new_resource.computer_name} -Restart -PassThru").run_command
+		dc_ips = nil
+		dc_ips = new_resource.existing_dc_ips.join(",") unless new_resource.existing_dc_ips.empty?
+		
+		# Workaround for a really crappy issue with cygwin/ssh and windows where we need to end all ssh process,
+		# or Mu's SSH session / chef client run won't disconnect even though the client chef run has finished or the SSH session has closed.
+		# Running configure_network_interface before joining a domain, and re-running chef-client will cause DNS name resolution to fail if the node wasn't successfully added to the domain, 
+		# which is why we add the configure_network_interface code to join_domain direclty.
+		code =<<-EOH
+			Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue
+			$netipconfig = Get-NetIPConfiguration
+			$netadapter = Get-NetAdapter
+			$netipaddress = $netadapter | Get-NetIPAddress -AddressFamily IPv4
+			$netadapter | Set-NetIPInterface -Dhcp Disabled
+			$netadapter | New-NetIPAddress -IPAddress #{node.ipaddress} -PrefixLength $netipaddress.PrefixLength -DefaultGateway $netipconfig.IPv4DefaultGateway.NextHop
+			$netadapter | Set-DnsClientServerAddress -PassThru -ServerAddresses #{dc_ips}
+			Start-Service sshd -ErrorAction SilentlyContinue
+			Add-Computer -DomainName #{new_resource.dns_name} -Credential #{admin_creds} -newname #{new_resource.computer_name} -Restart -PassThru
+			Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue
+		EOH
+		cmd = powershell_out(code).run_command
+		# cmd = powershell_out("Add-Computer -DomainName #{new_resource.dns_name} -Credential #{admin_creds} -newname #{new_resource.computer_name} -Restart -PassThru").run_command
+		kill_ssh
 		Chef::Application.fatal!("Failed to join #{new_resource.computer_name} to #{new_resource.dns_name} domain") unless cmd.exitstatus == 0
 		Chef::Application.fatal!("Joined #{new_resource.computer_name} to #{new_resource.dns_name} domain. Will have to run chef again" )
 	end

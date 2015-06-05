@@ -611,11 +611,11 @@ module MU
 			win_set_hostname_ad = nil
 			if !server['active_directory'].nil?
 				item = ChefVault::Item.load(
-					server['active_directory']['auth_vault'],
-					server['active_directory']['auth_item']
+					server['active_directory']['domain_join_vault']['vault'],
+					server['active_directory']['domain_join_vault']['item']
 				)
-				ad_user = item[server['active_directory']['auth_username_field']]
-				ad_pwd = item[server['active_directory']['auth_password_field']]
+				ad_user = item[server['active_directory']['domain_join_vault']['username_field']]
+				ad_pwd = item[server['active_directory']['domain_join_vault']['password_field']]
 				if server['active_directory']['node_type'] == "domain_controller" && server['active_directory']['domain_controller_hostname']
 					hostname = server['active_directory']['domain_controller_hostname']
 					server['mu_windows_name'] = hostname
@@ -647,7 +647,7 @@ module MU
 					end
 					if !server['hostname_set'] && server['mu_windows_name']
 						# XXX need a better guard here, this pops off every time
-						ssh.exec!(win_set_hostname)
+						ssh.exec!(win_set_hostname) if win_set_hostname_ad.nil?
 						ssh.exec!(win_set_hostname_ad) if server['active_directory'] && server['active_directory']['node_type'] == "domain_controller"
 						server['hostname_set'] = true
 						raise MU::BootstrapTempFail, "Setting hostname to #{server['mu_windows_name']}, possibly rebooting"
@@ -1249,7 +1249,7 @@ module MU
 			# Making sure all Windows nodes get the mu-tools::windows-client recipe
 			if %w{win2k12r2 win2k12 windows}.include? server['platform']
 				MU::Server.knifeAddToRunList(node, "recipe[mu-tools::windows-client]");
-				MU::Server.runChef(node, server, node_ssh_key, "Base Windows Recipe")
+				MU::Server.runChef(node, server, node_ssh_key, "Base Windows Recipe", max_retries = 10)
 			end
 
 			# Join this node to its Active Directory domain, if applicable. This will
@@ -1262,13 +1262,13 @@ module MU
 
 				if server['active_directory']['domain_operation'] == "join"
 					MU::Server.knifeAddToRunList(node, "recipe[active-directory::domain-node]");
-					MU::Server.runChef(node, server, node_ssh_key, "Join Active Directory")
+					MU::Server.runChef(node, server, node_ssh_key, "Join Active Directory", max_retries = 10)
 				elsif server['active_directory']['domain_operation'] == "create"
 					MU::Server.knifeAddToRunList(node, "recipe[active-directory::domain]");
-					MU::Server.runChef(node, server, node_ssh_key, "Create Active Directory")
+					MU::Server.runChef(node, server, node_ssh_key, "Create Active Directory", max_retries = 10)
 				elsif server['active_directory']['domain_operation'] == "add_controller"
 					MU::Server.knifeAddToRunList(node, "recipe[active-directory::domain-controller]");
-					MU::Server.runChef(node, server, node_ssh_key, "Add Domain Controller to Active Directory")
+					MU::Server.runChef(node, server, node_ssh_key, "Add Domain Controller to Active Directory", max_retries = 10)
 				end
 			end
 
@@ -1291,17 +1291,19 @@ module MU
 
 			chef_node.normal.app = server['application_cookbook'] if server['application_cookbook'] != nil
 			chef_node.normal.service_name = server["name"]
-			chef_node.normal.windows_admin_username = server['windows_admin_username']
 			chef_node.chef_environment = MU.environment.downcase
 
-			if  server['use_cloud_provider_windows_password']
-				chef_node.normal.windows_auth_vault = node
-				chef_node.normal.windows_auth_item = "windows_credentials"
-				chef_node.normal.windows_auth_password_field = "password"
-			elsif !server['windows_auth_vault'].nil?
-				chef_node.normal.windows_auth_vault = server['windows_auth_vault']['vault']
-				chef_node.normal.windows_auth_item = server['windows_auth_vault']['item']
-				chef_node.normal.windows_auth_password_field = server['windows_auth_vault']['password_field']
+			if %w{win2k12r2 win2k12 windows}.include? server['platform']
+				chef_node.normal.windows_admin_username = server['windows_admin_username']
+				if  server['use_cloud_provider_windows_password']
+					chef_node.normal.windows_auth_vault = node
+					chef_node.normal.windows_auth_item = "windows_credentials"
+					chef_node.normal.windows_auth_password_field = "password"
+				elsif !server['windows_auth_vault'].nil?
+					chef_node.normal.windows_auth_vault = server['windows_auth_vault']['vault']
+					chef_node.normal.windows_auth_item = server['windows_auth_vault']['item']
+					chef_node.normal.windows_auth_password_field = server['windows_auth_vault']['password_field']
+				end
 			end
 
 			# If AD integration has been requested for this node, give Chef what it'll
@@ -1316,10 +1318,14 @@ module MU
 				chef_node.normal.ad.netbios_name = server['active_directory']['short_domain_name']
 				chef_node.normal.ad.computer_ou = server['active_directory']['computer_ou'] if server['active_directory'].has_key?('computer_ou')
 				chef_node.normal.ad.dcs = server['active_directory']['domain_controllers']
-				chef_node.normal.ad.auth_vault = server['active_directory']['auth_vault']
-				chef_node.normal.ad.auth_item = server['active_directory']['auth_item']
-				chef_node.normal.ad.auth_username_field = server['active_directory']['auth_username_field']
-				chef_node.normal.ad.auth_password_field = server['active_directory']['auth_password_field']
+				chef_node.normal.ad.domain_join_vault = server['active_directory']['domain_join_vault']['vault']
+				chef_node.normal.ad.domain_join_item = server['active_directory']['domain_join_vault']['item']
+				chef_node.normal.ad.domain_join_username_field = server['active_directory']['domain_join_vault']['username_field']
+				chef_node.normal.ad.domain_join_password_field = server['active_directory']['domain_join_vault']['password_field']
+				chef_node.normal.ad.domain_admin_vault = server['active_directory']['domain_admin_vault']['vault']
+				chef_node.normal.ad.domain_admin_item = server['active_directory']['domain_admin_vault']['item']
+				chef_node.normal.ad.domain_admin_username_field = server['active_directory']['domain_admin_vault']['username_field']
+				chef_node.normal.ad.domain_admin_password_field = server['active_directory']['domain_admin_vault']['password_field']
 			end
 
 			# Amazon-isms

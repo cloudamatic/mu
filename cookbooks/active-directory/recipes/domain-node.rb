@@ -8,7 +8,7 @@
 #
 
 include_recipe 'chef-vault'
-domain_creds = chef_vault_item(node.ad.auth[:vault], node.ad.auth[:item])
+domain_creds = chef_vault_item(node.ad.join_auth[:vault], node.ad.join_auth[:item])
 can_join_domain = false
 
 case node.platform
@@ -37,8 +37,8 @@ if can_join_domain
 	active_directory_domain_node node.ad.domain_name do
 		netbios_name node.ad.netbios_name
 		computer_name node.ad.computer_name
-		join_user domain_creds[node.ad.auth[:username_field]]
-		join_passwword domain_creds[node.ad.auth[:password_field]]
+		join_user domain_creds[node.ad.join_auth[:username_field]]
+		join_password domain_creds[node.ad.join_auth[:password_field]]
 		ou node.ad.ou if node.ad.computer_ou
 		dc_ips node.ad.dc_ips
 		dc_names node.ad.dcs

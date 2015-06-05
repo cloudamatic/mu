@@ -19,8 +19,8 @@ action :create do
 		install_ad_features
 		elevate_remote_access
 		set_computer_name(admin_creds)
-		configure_network_interface
 		create_domain
+		configure_network_interface
 		configure_domain
 	when "centos", "redhat"
 		# To do: Do Active Directory on Linux
@@ -47,7 +47,7 @@ end
 def create_domain_admin_user
 	unless domain_admin_user_exist?
 		code =<<-EOH
-			New-ADUser -Name #{new_resource.domain_admin_user} -UserPrincipalName #{new_resource.domain_admin_user}@#{new_resource.dns_name} -AccountPassword (convertto-securestring '#{new_resource.domain_admin_password}' -asplaintext -force) -Enabled $true -PasswordNeverExpires $true
+			New-ADUser -Name #{new_resource.domain_admin_user} -UserPrincipalName #{new_resource.domain_admin_user}@#{new_resource.dns_name} -AccountPassword (ConvertTo-SecureString -AsPlainText '#{new_resource.domain_admin_password}' -force) -Enabled $true -PasswordNeverExpires $true
 			Add-ADGroupMember 'Domain Admins' -Members #{new_resource.domain_admin_user}
 		EOH
 		cmd = powershell_out(code).run_command
@@ -57,13 +57,27 @@ def create_domain_admin_user
 end
 
 #This will restart the OS. The OS needs to be restated after creating the domain
+# Workaround for a really crappy issue with cygwin/ssh and windows where we need to end all ssh process,
+# or Mu's SSH session / chef client run won't disconnect even though the client chef run has finished or the SSH session has closed.
+# Running configure_network_interface before creating a domain, and re-running chef-client will cause DNS name resolution to fail if the domain hasn't been created, 
+# which is why we add the configure_network_interface code to the domain creation execution itself.
 def create_domain
 	unless domain_exists?
+		dc_ips = nil
+		dc_ips = new_resource.existing_dc_ips.join(",") unless new_resource.existing_dc_ips.empty?
 		require 'chef/win32/version'
 		version = Chef::ReservedNames::Win32::Version.new
-		
+
+		Chef::Log.info("Configuring network interface settings and creating domain")
 		if version.windows_server_2012?
 			code =<<-EOH
+				Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue
+				$netipconfig = Get-NetIPConfiguration
+				$netadapter = Get-NetAdapter
+				$netipaddress = $netadapter | Get-NetIPAddress -AddressFamily IPv4
+				$netadapter | Set-NetIPInterface -Dhcp Disabled
+				$netadapter | New-NetIPAddress -IPAddress #{node.ipaddress} -PrefixLength $netipaddress.PrefixLength -DefaultGateway $netipconfig.IPv4DefaultGateway.NextHop
+				$netadapter | Set-DnsClientServerAddress -PassThru -ServerAddresses #{dc_ips}
 				$DCPromoFile = @"
 				[DCINSTALL]
 				InstallDNS=yes
@@ -83,11 +97,23 @@ def create_domain
 			EOH
 			cmd = powershell_out(code).run_command
 		elsif version.windows_server_2012_r2?
-			cmd = powershell_out("Install-ADDSForest -DomainName #{new_resource.dns_name} -SafeModeAdministratorPassword (convertto-securestring '#{new_resource.restore_mode_password}' -asplaintext -force) -DomainMode Win2012R2 -DomainNetbiosName #{new_resource.netbios_name} -ForestMode Win2012R2 -Confirm:$false -Force").run_command
-	
-			Chef::Application.fatal!("Failed to create Active Directory Domain #{new_resource.dns_name}") if cmd.exitstatus != 0
-			Chef::Application.fatal!("Active Directory Domain #{new_resource.dns_name} was created, rebooting. Will have to run chef again")
+			code =<<-EOH
+				Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue
+				$netipconfig = Get-NetIPConfiguration
+				$netadapter = Get-NetAdapter
+				$netipaddress = $netadapter | Get-NetIPAddress -AddressFamily IPv4
+				$netadapter | Set-NetIPInterface -Dhcp Disabled
+				$netadapter | New-NetIPAddress -IPAddress #{node.ipaddress} -PrefixLength $netipaddress.PrefixLength -DefaultGateway $netipconfig.IPv4DefaultGateway.NextHop
+				$netadapter | Set-DnsClientServerAddress -PassThru -ServerAddresses #{dc_ips}
+				Install-ADDSForest -DomainName #{new_resource.dns_name} -SafeModeAdministratorPassword (convertto-securestring '#{new_resource.restore_mode_password}' -asplaintext -force) -DomainMode Win2012R2 -DomainNetbiosName #{new_resource.netbios_name} -ForestMode Win2012R2 -Confirm:$false -Force
+				Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue
+			EOH
+			cmd = powershell_out(code).run_command
+			# cmd = powershell_out("Install-ADDSForest -DomainName #{new_resource.dns_name} -SafeModeAdministratorPassword (convertto-securestring '#{new_resource.restore_mode_password}' -asplaintext -force) -DomainMode Win2012R2 -DomainNetbiosName #{new_resource.netbios_name} -ForestMode Win2012R2 -Confirm:$false -Force").run_command
 		end
+		kill_ssh
+		Chef::Application.fatal!("Failed to create Active Directory Domain #{new_resource.dns_name}") if cmd.exitstatus != 0
+		Chef::Application.fatal!("Active Directory Domain #{new_resource.dns_name} was created, rebooting. Will have to run chef again")
 	end
 end
 
@@ -130,7 +156,6 @@ def configure_domain
 	powershell_out("Set-Service NTDS -StartupType Automatic").run_command
 	powershell_out("Set-Service ADWS -StartupType Automatic").run_command
 
-	set_computer_name(admin_creds)
 	create_domain_admin_user
 	rename_default_site
 	configure_replication

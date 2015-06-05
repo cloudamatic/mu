@@ -44,10 +44,8 @@ module MU
 			MU.setVar("curRegion", @pool['region']) if !@pool['region'].nil?
 
 			if @pool['platform'] == "windows"
-				if !@pool['use_cloud_provider_windows_password'] and !@pool['windows_auth_vault']
+				if !@pool['use_cloud_provider_windows_password'] && !@pool['windows_auth_vault']
 					winpass = MU::Server.generateWindowsAdminPassword
-				end
-				if !winpass.nil?
 					MU.mommacat.saveSecret("default", winpass, "windows_password")
 				end
 			end

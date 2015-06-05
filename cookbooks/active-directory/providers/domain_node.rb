@@ -19,8 +19,8 @@ action :add do
 	when "windows"
 		set_client_dns
 		elevate_remote_access
-		set_computer_name(join_domain_creds)
 		join_domain_windows
+		set_computer_name(join_domain_creds)
 	when "centos", "redhat"
 		install_ad_client_packages
 		join_domain_linux
@@ -47,15 +47,19 @@ end
 def join_domain_windows
 	unless in_domain?
 		# This will allow us to add a new computer account to the correct OU so the right group policy is applied
+		new_name = nil
+		new_name = "-NewName #{new_resource.computer_name}" if node.hostname.downcase != new_resource.computer_name.downcase
+
 		begin
 			if new_resource.computer_ou
-				code = "Add-Computer -DomainName #{new_resource.dns_name} -Credential#{join_domain_creds} -NewName #{new_resource.computer_name} -OUPath '#{new_resource.computer_ou}' -PassThru -Restart -Verbose -Force"
+				code = "Add-Computer -DomainName #{new_resource.dns_name} -Credential#{join_domain_creds} #{new_name} -OUPath '#{new_resource.computer_ou}' -PassThru -Restart -Verbose -Force"
 			end
 		rescue NoMethodError
-			code = "Add-Computer -DomainName #{new_resource.dns_name} -Credential#{join_domain_creds} -NewName #{new_resource.computer_name} -PassThru -Restart -Verbose -Force"
+			code = "Add-Computer -DomainName #{new_resource.dns_name} -Credential#{join_domain_creds} #{new_name} -PassThru -Restart -Verbose -Force"
 		end
 
 		cmd = powershell_out(code).run_command
+		kill_ssh
 		Chef::Application.fatal!("Failed to join #{new_resource.computer_name} to #{new_resource.dns_name} domain") unless cmd.exitstatus == 0
 		Chef::Application.fatal!("Joined #{new_resource.computer_name} to #{new_resource.dns_name} domain, rebooting. Will have to run chef again")
 	end

@@ -730,19 +730,21 @@ module MU
 			if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
 				Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
 			end
-
+			
 			begin
 				if !server['active_directory'].nil?
-					server['vault_access'] << {
-						"vault" => server['active_directory']['auth_vault'],
-						"item" => server['active_directory']['auth_item']
-					}
-					item = ChefVault::Item.load(server['active_directory']['auth_vault'], server['active_directory']['auth_item'])
-					["auth_username_field", "auth_password_field"].each { |field|
-						if !item.has_key?(server['active_directory'][field])
-							ok = false
-							MU.log "I don't see a value named #{field} in Chef Vault #{server['active_directory']['auth_vault']}:#{server['active_directory']['auth_item']}", MU::ERR
-						end
+					["domain_admin_vault", "domain_join_vault"].each { |vault_class|
+						server['vault_access'] << {
+							"vault" => server['active_directory'][vault_class]['vault'],
+							"item" => server['active_directory'][vault_class]['item']
+						}
+						item = ChefVault::Item.load(server['active_directory'][vault_class]['vault'], server['active_directory'][vault_class]['item'])
+						["username_field", "password_field"].each { |field|
+							if !item.has_key?(server['active_directory'][vault_class][field])
+								ok = false
+								MU.log "I don't see a value named #{field} in Chef Vault #{server['active_directory'][vault_class]['vault']}:#{server['active_directory'][vault_class]['item']}", MU::ERR
+							end
+						}
 					}
 				end
 				if !server['windows_auth_vault'].nil?
@@ -2348,32 +2350,59 @@ module MU
 						"type" => "string",
 						"description" => "The OU to which to add this computer when joining the domain."
 					},
-					"auth_vault" => {
-						"type" => "string",
-						"default" => "active_directory",
-						"description" => "The vault where these credentials reside"
-					},
-					"auth_item" => {
-						"type" => "string",
-						"description" => "The vault item where these credentials reside",
-						"default" => "join_domain",
-						"default_if" => [
-							{
-								"key_is" => "node_type",
-								"value_is" => "domain_controller",
-								"set" => "domain_admin"
+					"domain_join_vault" => {
+						"type" => "object",
+						"additionalProperties" => false,
+						"description" => "Vault used to store the credentials for the domain join user",
+						"properties" => {
+							"vault" => {
+								"type" => "string",
+								"default" => "active_directory",
+								"description" => "The vault where these credentials reside"
+							},
+							"item" => {
+								"type" => "string",
+								"default" => "join_domain",
+								"description" => "The vault item where these credentials reside"
+							},
+							"password_field" => {
+								"type" => "string",
+								"default" => "password",
+								"description" => "The field within the Vault item where the password for these credentials resides"
+							},
+							"username_field" => {
+								"type" => "string",
+								"default" => "username",
+								"description" => "The field where the username for these credentials resides"
 							}
-						]
+						}
 					},
-					"auth_username_field" => {
-						"type" => "string",
-						"default" => "username",
-						"description" => "The field where the username for these credentials resides"
-					},
-					"auth_password_field" => {
-						"type" => "string",
-						"default" => "password",
-						"description" => "The field where the password for these credentials resides"
+					"domain_admin_vault" => {
+						"type" => "object",
+						"additionalProperties" => false,
+						"description" => "Vault used to store the credentials for the domain admin user",
+						"properties" => {
+							"vault" => {
+								"type" => "string",
+								"default" => "active_directory",
+								"description" => "The vault where these credentials reside"
+							},
+							"item" => {
+								"type" => "string",
+								"default" => "domain_admin",
+								"description" => "The vault item where these credentials reside"
+							},
+							"password_field" => {
+								"type" => "string",
+								"default" => "password",
+								"description" => "The field within the Vault item where the password for these credentials resides"
+							},
+							"username_field" => {
+								"type" => "string",
+								"default" => "username",
+								"description" => "The field where the username for these credentials resides"
+							}
+						}
 					}
 				}
 			},
