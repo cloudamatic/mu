@@ -868,9 +868,6 @@ module MU
 						}
 					]
 				)
-			rescue Aws::EC2::Errors::RequestLimitExceeded
-				sleep 10
-				retry
 			rescue Aws::EC2::Errors::ServiceError => e
 				MU.log "Got #{e.inspect} tagging #{resource} with #{tag_name}=#{tag_value}", MU::WARN if attempts > 1
 				if attempts < 5
@@ -901,9 +898,6 @@ module MU
 				  resources: [resource],
 				  tags: tags
 				)
-			rescue Aws::EC2::Errors::RequestLimitExceeded
-				sleep 10
-				retry
 			rescue Aws::EC2::Errors::ServiceError => e
 				MU.log "Got #{e.inspect} tagging #{resource} in #{region}, will retry", MU::WARN, details: caller.concat(tags) if attempts > 1
 				if attempts < 5

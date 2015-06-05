@@ -85,32 +85,26 @@ module MU
 					MU.dupGlobals(parent_thread_id)
 					MU.setVar("curRegion", r)
 					MU.log "Checking for cloud resources in #{r}", MU::NOTICE
-					begin
-						MU::CloudFormation.cleanup(@noop, @ignoremaster, region: r)
-						MU::ServerPool.cleanup(@noop, @ignoremaster, region: r)
-						MU::LoadBalancer.cleanup(@noop, @ignoremaster, region: r)
-						MU::Server.cleanup(@noop, @ignoremaster, skipsnapshots: @skipsnapshots, onlycloud: @onlycloud, region: r)
-						MU::Database.cleanup(@noop, @ignoremaster, region: r)
-						MU::FirewallRule.cleanup(@noop, @ignoremaster, region: r)
-						MU::DNSZone.cleanup(@noop, region: r)
-						MU::VPC.cleanup(@noop, @ignoremaster, region: r)
+					MU::CloudFormation.cleanup(@noop, @ignoremaster, region: r)
+					MU::ServerPool.cleanup(@noop, @ignoremaster, region: r)
+					MU::LoadBalancer.cleanup(@noop, @ignoremaster, region: r)
+					MU::Server.cleanup(@noop, @ignoremaster, skipsnapshots: @skipsnapshots, onlycloud: @onlycloud, region: r)
+					MU::Database.cleanup(@noop, @ignoremaster, region: r)
+					MU::FirewallRule.cleanup(@noop, @ignoremaster, region: r)
+					MU::DNSZone.cleanup(@noop, region: r)
+					MU::VPC.cleanup(@noop, @ignoremaster, region: r)
 
-						# Hit CloudFormation again- sometimes the first delete will quietly
-						# fail due to dependencies.
-						MU::CloudFormation.cleanup(@noop, wait: true, region: r)
+					# Hit CloudFormation again- sometimes the first delete will quietly
+					# fail due to dependencies.
+					MU::CloudFormation.cleanup(@noop, wait: true, region: r)
 
-						resp = MU.ec2(r).describe_key_pairs(
-							filters: [ { name: "key-name", values: [keyname] } ]
-						)
-						resp.data.key_pairs.each { |keypair|
-							MU.log "Deleting key pair #{keypair.key_name} from #{r}"
-							MU.ec2(r).delete_key_pair(key_name: keypair.key_name) if !@noop
-						}
-					rescue Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::EC2::Errors::InternalError => e
-						MU.log e.inspect, MU::WARN
-						sleep 30
-						retry
-					end
+					resp = MU.ec2(r).describe_key_pairs(
+						filters: [ { name: "key-name", values: [keyname] } ]
+					)
+					resp.data.key_pairs.each { |keypair|
+						MU.log "Deleting key pair #{keypair.key_name} from #{r}"
+						MU.ec2(r).delete_key_pair(key_name: keypair.key_name) if !@noop
+					}
 				}
 			}
 
