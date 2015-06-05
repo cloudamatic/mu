@@ -60,22 +60,6 @@ when "centos", "redhat"
 		}
 	end
 
-	if node.openvpn.configure_ladp_auth
-		ldap_vault = chef_vault_item(node.openvpn.ldap_vault[:vault], node.openvpn.cert_vault[:item])
-
-		# This is just an example, override with real values as needed
-		node.normal.openvpn.auth_type = "ldap"
-		node.normal.openvpn.ldap_bind_pw = ldap_vault['password']
-		# node.normal.openvpn.ldap_bind_dn = "CN=openvpn,OU=muusers,DC=ad,DC=muplatform,DC=com"
-		# node.normal.openvpn.ldap_display_name = "'LDAP Servers'"
-		# node.normal.openvpn.ldap_server1 = "dc1.ad.muplatform.com"
-		# node.normal.openvpn.ldap_server2 = "dc2.ad.muplatform.com"
-		# node.normal.openvpn.ldap_username_attr = "sAMAccountName"
-		# node.normal.openvpn.ldap_users_base_dn = "OU=muusers,DC=ad,DC=muplatform,DC=com"
-		# node.normal.openvpn.ldap_ssl_verify = true
-		# node.normal.openvpn.ldap_use_ssl = true
-	end
-
 	node.openvpn.vpc_networks.each.with_index { |cidr, i|
 		execute "./sacli -k vpn.server.routing.private_network.#{i} -v #{cidr} ConfigPut" do
 			cwd node.openvpn.scripts

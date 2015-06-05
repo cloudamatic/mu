@@ -9,7 +9,7 @@ siteCookbookPath = "#{ENV['MU_LIBDIR']}/site_cookbooks"
 
 source "https://supermarket.getchef.com"
 
-cookbook 'apache2', '~> 3.0.1'
+cookbook 'apache2', '~> 3.1.0'
 cookbook 'application', '~> 3.0.0'
 cookbook 'application_python', '~> 3.0.0'
 cookbook 'application_ruby', '~> 2.1.4'
@@ -47,6 +47,7 @@ cookbook 'mysql', '~> 5.2.12'
 cookbook 'nagios', '~> 7.1.4'
 cookbook 'nginx', '~> 2.7.6'
 cookbook 'nginx_simplecgi', '~> 0.1.2'
+cookbook 'active-directory', path: "#{cookbookPath}/active-directory"
 cookbook 'nginx-passenger', path: "#{cookbookPath}/nginx-passenger"
 cookbook 'nodejs', '~> 2.4.0'
 cookbook 'ohai', '~> 2.0.0'
@@ -68,7 +69,7 @@ cookbook 's3fs', path: "#{cookbookPath}/s3fs"
 cookbook 'simple_iptables', '~> 0.7.0'
 cookbook 'supervisor', '~> 0.4.10'
 cookbook 'unicorn', '~> 1.3.0'
-cookbook 'windows', '~> 1.36.6'
+cookbook 'windows', '~> 1.37'
 cookbook 'xfs', '~> 1.1.0'
 cookbook 'xml', '~> 1.2.4'
 cookbook 'yum', '~> 3.6.0'

@@ -1,5 +1,6 @@
 default.jenkins_users = %w{testuser}
 default.jenkins_ssh_urls = [node.ipaddress]
+default.jenkins_create_demo_job = false
 
 node.normal.java.oracle.accept_oracle_download_terms = true
 node.normal.java.java_home = '/usr/lib/jvm/java'

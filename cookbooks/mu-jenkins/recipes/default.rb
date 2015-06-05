@@ -113,49 +113,51 @@ when "centos", "redhat"
 		action :nothing
 	end
 
-	%w{nodejs github ssh deploy}.each { |plugin|
-		jenkins_plugin plugin do
-			notifies :restart, 'service[jenkins]', :delayed
+	if node.jenkins_create_demo_job
+		%w{nodejs github ssh deploy}.each { |plugin|
+			jenkins_plugin plugin do
+				notifies :restart, 'service[jenkins]', :delayed
+			end
+		}
+
+		jenkins_private_key_credentials 'github' do
+			id "7c1402e6-c358-4182-b03e-5333a7e6363d"
+			description 'github'
+			private_key github_vault['private_key'].strip
+			sensitive true
 		end
-	}
 
-	jenkins_private_key_credentials 'github' do
-		id "7c1402e6-c358-4182-b03e-5333a7e6363d"
-		description 'github'
-		private_key github_vault['private_key'].strip
-		sensitive true
-	end
+		# To do - Replace templates with native Jenkins Groovy API
+		# %w{org.jvnet.hudson.plugins.SSHBuildWrapper.xml com.cloudbees.jenkins.GitHubPushTrigger.xml nodejs.xml hudson.tasks.Maven.xml jenkins.model.JenkinsLocationConfiguration.xml hudson.plugins.git.GitSCM.xml hudson.plugins.git.GitTool.xml}.each { |tpl|
+			# template "#{node.jenkins.master.home}/#{tpl}" do
+				# source "#{tpl}.erb"
+				# notifies :restart, 'service[jenkins]', :delayed
+			# end
+		# }
+		
+		template "#{node.jenkins.master.home}/org.jvnet.hudson.plugins.SSHBuildWrapper.xml" do
+			source "org.jvnet.hudson.plugins.SSHBuildWrapper.xml.erb"
+			variables(
+				:ssh_user => ssh_user,
+				:node_ip => node.ipaddress,
+				:ssh_key_path => ssh_key_path
+			)
+			sensitive true
+		end
 
-	# To do - Replace templates with native Jenkins Groovy API
-	# %w{org.jvnet.hudson.plugins.SSHBuildWrapper.xml com.cloudbees.jenkins.GitHubPushTrigger.xml nodejs.xml hudson.tasks.Maven.xml jenkins.model.JenkinsLocationConfiguration.xml hudson.plugins.git.GitSCM.xml hudson.plugins.git.GitTool.xml}.each { |tpl|
-		# template "#{node.jenkins.master.home}/#{tpl}" do
-			# source "#{tpl}.erb"
-			# notifies :restart, 'service[jenkins]', :delayed
-		# end
-	# }
-	
-	template "#{node.jenkins.master.home}/org.jvnet.hudson.plugins.SSHBuildWrapper.xml" do
-		source "org.jvnet.hudson.plugins.SSHBuildWrapper.xml.erb"
-		variables(
-			:ssh_user => ssh_user,
-			:node_ip => node.ipaddress,
-			:ssh_key_path => ssh_key_path
-		)
-		sensitive true
-	end
+		template "#{Chef::Config[:file_cache_path]}/example_job.config.xml" do
+			source "example_job.config.xml.erb"
+			variables(
+				:ssh_user => ssh_user,
+				:node_ip => node.ipaddress
+			)
+			sensitive true
+		end
 
-	template "#{Chef::Config[:file_cache_path]}/example_job.config.xml" do
-		source "example_job.config.xml.erb"
-		variables(
-			:ssh_user => ssh_user,
-			:node_ip => node.ipaddress
-		)
-		sensitive true
-	end
-
-	jenkins_job "example_job" do
-		config "#{Chef::Config[:file_cache_path]}/example_job.config.xml"
-		sensitive true
+		jenkins_job "example_job" do
+			config "#{Chef::Config[:file_cache_path]}/example_job.config.xml"
+			sensitive true
+		end
 	end
 else
 	Chef::Log.info("Unsupported platform #{node.platform}")

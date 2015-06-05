@@ -1,0 +1,37 @@
+
+module mypol 1.0;
+
+require {
+	type postfix_pickup_t;
+	type sshd_t;
+	type default_t;
+	type winbind_t;
+	type postfix_cleanup_t;
+	type postfix_master_t;
+	class sock_file { getattr unlink create };
+	class dir { write remove_name add_name };
+	class file { write read lock create unlink open };
+}
+
+#============= postfix_cleanup_t ==============
+allow postfix_cleanup_t default_t:sock_file getattr;
+
+#============= postfix_master_t ==============
+allow postfix_master_t default_t:sock_file getattr;
+
+#============= postfix_pickup_t ==============
+allow postfix_pickup_t default_t:sock_file getattr;
+
+#============= sshd_t ==============
+allow sshd_t default_t:sock_file getattr;
+
+#============= winbind_t ==============
+#!!!! The source type 'winbind_t' can write to a 'dir' of the following types:
+# user_home_t, var_run_t, var_log_t, samba_etc_t, samba_log_t, samba_var_t, ctdbd_var_lib_t, pcscd_var_run_t, smbd_var_run_t, user_home_dir_t, winbind_var_run_t, tmp_t, var_t, user_tmp_t, auth_cache_t, cluster_var_lib_t, cluster_var_run_t, root_t, cluster_conf_t
+
+allow winbind_t default_t:dir { write remove_name add_name };
+#!!!! The source type 'winbind_t' can write to a 'file' of the following types:
+# winbind_log_t, user_home_t, samba_secrets_t, samba_log_t, samba_var_t, ctdbd_var_lib_t, pcscd_var_run_t, smbd_var_run_t, winbind_var_run_t, user_tmp_t, auth_cache_t, cluster_var_lib_t, cluster_var_run_t, root_t, cluster_conf_t
+
+allow winbind_t default_t:file { write read lock create unlink open };
+allow winbind_t default_t:sock_file { create unlink };

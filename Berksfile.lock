@@ -1,5 +1,5 @@
 DEPENDENCIES
-  apache2 (~> 3.0.1)
+  apache2 (~> 3.1.0)
   application (~> 3.0.0)
   application_python (~> 3.0.0)
   application_ruby (~> 2.1.4)
@@ -32,6 +32,8 @@ DEPENDENCIES
   mongodb (~> 0.16.2)
   mu-jenkins
     path: cookbooks/mu-jenkins
+  active-directory
+    path: cookbooks/active-directory
   mu-master
     path: cookbooks/mu-master
   mu-openvpn
@@ -74,7 +76,7 @@ DEPENDENCIES
   tomcat
     path: cookbooks/tomcat
   unicorn (~> 1.3.0)
-  windows (~> 1.36.6)
+  windows (~> 1.37)
   xfs (~> 1.1.0)
   xml (~> 1.2.4)
   yum (~> 3.6.0)
@@ -82,8 +84,8 @@ DEPENDENCIES
 
 GRAPH
   7-zip (1.0.2)
-    windows (>= 1.2.2)
-  apache2 (3.0.1)
+    windows (>= 1.37)
+  apache2 (3.1.0)
     iptables (>= 0.0.0)
     logrotate (>= 0.0.0)
   application (3.0.0)
@@ -139,7 +141,7 @@ GRAPH
   homebrew (1.12.0)
     build-essential (>= 2.1.2)
   iis (4.1.1)
-    windows (>= 1.34.6)
+    windows (>= 1.37)
   iptables (1.0.0)
   java (1.31.0)
   jenkins (2.3.1)
@@ -274,7 +276,7 @@ GRAPH
     openssl (>= 0.0.0)
     yum-epel (>= 0.0.0)
   unicorn (1.3.0)
-  windows (1.36.6)
+  windows (1.37)
     chef_handler (>= 0.0.0)
   xfs (1.1.0)
   xml (1.2.13)

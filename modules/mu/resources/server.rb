@@ -131,9 +131,8 @@ module MU
 
 			if %w{win2k12r2 win2k12 windows}.include?(@server['platform']) or !@server['active_directory'].nil?
 				@server['mu_windows_name'] = MU::MommaCat.getResourceName(server['name'], max_length: 15, need_unique_string: true)
-				if !@server['never_generate_admin_password'] and !@server['windows_admin_password']
+				if !@server['use_cloud_provider_windows_password'] and !@server['windows_auth_vault']
 					@server['winpass'] = MU::Server.generateWindowsAdminPassword
-					MU.log "I generated a Windows admin password for #{node}. It is: #{@server['winpass']}"
 				end
 			end
 			keypairname, ssh_private_key, ssh_public_key = @deploy.createEc2SSHKey
@@ -591,14 +590,14 @@ module MU
 			chef_cleanup = %q{test -f /opt/mu_installed_chef || ( rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; touch /opt/mu_installed_chef )}
 			win_env_fix = %q{echo 'export PATH="$PATH:/cygdrive/c/opscode/chef/embedded/bin"' > "$HOME/chef-client"; echo 'prev_dir="`pwd`"; for __dir in /proc/registry/HKEY_LOCAL_MACHINE/SYSTEM/CurrentControlSet/Control/Session\ Manager/Environment;do cd "$__dir"; for __var in `ls * | grep -v TEMP | grep -v TMP`;do __var=`echo $__var | tr "[a-z]" "[A-Z]"`; test -z "${!__var}" && export $__var="`cat $__var`" >/dev/null 2>&1; done; done; cd "$prev_dir"; /cygdrive/c/opscode/chef/bin/chef-client.bat $@' >> "$HOME/chef-client"; chmod 700 "$HOME/chef-client"; ( grep "^alias chef-client=" "$HOME/.bashrc" || echo 'alias chef-client="$HOME/chef-client"' >> "$HOME/.bashrc" ) ; ( grep "^alias mu-groom=" "$HOME/.bashrc" || echo 'alias mu-groom="powershell -File \"c:/Program Files/Amazon/Ec2ConfigService/Scripts/UserScript.ps1\""' >> "$HOME/.bashrc" )}
 			win_set_pw = nil
-			if !server['windows_admin_password'].nil?
-				field = server["windows_admin_password"]["password_field"]
+			if !server['windows_auth_vault'].nil?
+				field = server["windows_auth_vault"]["password_field"]
 				pw = ChefVault::Item.load(
-					server['windows_admin_password']['vault'],
-					server['windows_admin_password']['item']
+					server['windows_auth_vault']['vault'],
+					server['windows_auth_vault']['item']
 				)[field]
 				win_set_pw = %Q{powershell -Command "&{ (([adsi]('WinNT://./#{server["windows_admin_username"]}, user')).psbase.invoke('SetPassword', '#{pw}'))}"}
-			else
+			elsif !server['use_cloud_provider_windows_password']
 				begin
 					win_set_pw = %Q{powershell -Command "&{ (([adsi]('WinNT://./#{server['windows_admin_username']}, user')).psbase.invoke('SetPassword', '#{MU.mommacat.fetchSecret(server["instance_id"], "winpass")}'))}"}
 				rescue MU::NoSuchSecret
@@ -612,19 +611,27 @@ module MU
 			win_set_hostname_ad = nil
 			if !server['active_directory'].nil?
 				item = ChefVault::Item.load(
-					server['active_directory']['auth_vault'],
-					server['active_directory']['auth_item']
+					server['active_directory']['domain_join_vault']['vault'],
+					server['active_directory']['domain_join_vault']['item']
 				)
-				ad_user = item[server['active_directory']['auth_username_field']]
-				ad_pwd = item[server['active_directory']['auth_password_field']]
-				win_set_hostname_ad = %Q{powershell -Command "& {Rename-Computer -NewName "#{server['mu_windows_name']}" -Force -PassThru -Restart -DomainCredential(New-Object System.Management.Automation.PSCredential('femadata\\#{ad_user}', (ConvertTo-SecureString '#{ad_pwd}' -AsPlainText -Force)))}"}
+				ad_user = item[server['active_directory']['domain_join_vault']['username_field']]
+				ad_pwd = item[server['active_directory']['domain_join_vault']['password_field']]
+				if server['active_directory']['node_type'] == "domain_controller" && server['active_directory']['domain_controller_hostname']
+					hostname = server['active_directory']['domain_controller_hostname']
+					server['mu_windows_name'] = hostname
+				else
+					hostname = server['mu_windows_name']
+				end
+
+				# Bootstrap happens before a node is joined to a domain. Domain credentials aren't going to work. We can add a guard to verify a node is actually in a domain before running this.
+				# win_set_hostname_ad = %Q{powershell -Command "& {Rename-Computer -NewName "#{hostname}" -Force -PassThru -Restart -DomainCredential(New-Object System.Management.Automation.PSCredential('#{server['active_directory']['short_domain_name']}\\#{ad_user}', (ConvertTo-SecureString '#{ad_pwd}' -AsPlainText -Force)))}"}
+				win_set_hostname_ad = %Q{powershell -Command "& {Rename-Computer -NewName "#{hostname}" -Force -PassThru -Restart}"}
 			end
 
 			begin
 				if !server['set_windows_pass'] and !win_set_pw.nil?
 					MU.log "Setting Windows password for user #{server['windows_admin_username']}", MU::NOTICE
 					ssh.exec!(win_set_pw)
-MU.log win_set_pw, MU::ERR
 					server['set_windows_pass'] = true
 				end
 				if !server['cleaned_chef']
@@ -638,10 +645,10 @@ MU.log win_set_pw, MU::ERR
 					if output.match(/InProgress/)
 						raise MU::BootstrapTempFail, "Windows Installer service is still doing something, need to wait"
 					end
-					if !server['hostname_set'] and !server['mu_windows_name'].nil?
+					if !server['hostname_set'] && server['mu_windows_name']
 						# XXX need a better guard here, this pops off every time
-						ssh.exec!(win_set_hostname)
-						ssh.exec!(win_set_hostname_ad) if !win_set_hostname_ad.nil?
+						ssh.exec!(win_set_hostname) if win_set_hostname_ad.nil?
+						ssh.exec!(win_set_hostname_ad) if server['active_directory'] && server['active_directory']['node_type'] == "domain_controller"
 						server['hostname_set'] = true
 						raise MU::BootstrapTempFail, "Setting hostname to #{server['mu_windows_name']}, possibly rebooting"
 					end
@@ -767,6 +774,21 @@ MU.log win_set_pw, MU::ERR
 				raise "deploy failure"
 			end
 
+			win_admin_password = nil
+			if %w{win2k12r2 win2k12 windows}.include?(server['platform'])
+				if server['use_cloud_provider_windows_password']
+					win_admin_password = MU::Server.getWindowsAdminPassword(instance_id: id, identity_file: "#{ssh_keydir}/#{node_ssh_key}", node_name: node, region: server['region'])
+				elsif !server['use_cloud_provider_windows_password'] && server['windows_auth_vault'] && !server['windows_auth_vault'].empty?
+					field = server["windows_auth_vault"]["password_field"]
+					win_admin_password = ChefVault::Item.load(
+						server['windows_auth_vault']['vault'],
+						server['windows_auth_vault']['item']
+					)[field]
+				else
+					win_admin_password = server['winpass']
+				end
+			end
+
 			nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::Server.getNodeSSHProxy(server)
 			if !nat_ssh_host.nil? and !MU::VPC.haveRouteToInstance?(instance.instance_id)
 				MU.log "Connecting to #{node} through NAT instance #{nat_ssh_host}", MU::NOTICE
@@ -874,6 +896,7 @@ MU.log win_set_pw, MU::ERR
 					dnsrec['name'] = node.downcase if !dnsrec.has_key?('name')
 				}
 			end
+
 			if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
 				MU::DNSZone.createRecordsFromConfig(server['dns_records'], target: instance.public_ip_address)
 			else
@@ -1204,6 +1227,13 @@ MU.log win_set_pw, MU::ERR
 				server['vault_access'] << { "vault"=> node, "item" => "secrets" }
 			end
 
+			unless win_admin_password.nil? 
+				vault_cmd = "#{MU::Config.knife} vault create #{node} windows_credentials '{ \"password\":\"#{win_admin_password}\", \"username\":\"#{server['windows_admin_username']}\" }' #{MU::Config.vault_opts} --search name:#{node}"
+				puts `#{vault_cmd}`
+				MU.log vault_cmd, MU::DEBUG
+				server['vault_access'] << { "vault"=> node, "item" => "windows_credentials" }
+			end
+
 			saveInitialChefNodeAttrs(node, instance, server, canonical_ip)
 			MU::MommaCat.openFirewallForClients
 
@@ -1216,6 +1246,11 @@ MU.log win_set_pw, MU::ERR
 				end
 			}
 
+			# Making sure all Windows nodes get the mu-tools::windows-client recipe
+			if %w{win2k12r2 win2k12 windows}.include? server['platform']
+				MU::Server.knifeAddToRunList(node, "recipe[mu-tools::windows-client]");
+				MU::Server.runChef(node, server, node_ssh_key, "Base Windows Recipe", max_retries = 10)
+			end
 
 			# Join this node to its Active Directory domain, if applicable. This will
 			# trigger a reboot on Windows nodes, because what doesn't?
@@ -1224,8 +1259,17 @@ MU.log win_set_pw, MU::ERR
 					server['mu_windows_name'] = MU::MommaCat.getResourceName(server['name'], max_length: 15, need_unique_string: true)
 					MU::Server.saveInitialChefNodeAttrs(node, instance, server, canonical_ip)
 				end
-				MU::Server.knifeAddToRunList(node, "recipe[mu-tools::ad-client]");
-				MU::Server.runChef(node, server, node_ssh_key, "Join Active Directory")
+
+				if server['active_directory']['domain_operation'] == "join"
+					MU::Server.knifeAddToRunList(node, "recipe[active-directory::domain-node]");
+					MU::Server.runChef(node, server, node_ssh_key, "Join Active Directory", max_retries = 10)
+				elsif server['active_directory']['domain_operation'] == "create"
+					MU::Server.knifeAddToRunList(node, "recipe[active-directory::domain]");
+					MU::Server.runChef(node, server, node_ssh_key, "Create Active Directory", max_retries = 10)
+				elsif server['active_directory']['domain_operation'] == "add_controller"
+					MU::Server.knifeAddToRunList(node, "recipe[active-directory::domain-controller]");
+					MU::Server.runChef(node, server, node_ssh_key, "Add Domain Controller to Active Directory", max_retries = 10)
+				end
 			end
 
 			MU::MommaCat.unlock(instance.instance_id+"-deploy")
@@ -1240,15 +1284,27 @@ MU.log win_set_pw, MU::ERR
 		# @param canonical_ip [String]: The node's "real" IP address for purposes of the outside world.
 		def self.saveInitialChefNodeAttrs(node, instance, server, canonical_ip)
 			MU.log "Saving #{node} Chef artifacts"
-		  chef_node = Chef::Node.load(node)
+			chef_node = Chef::Node.load(node)
 			# Figure out what this node thinks its name is
-		  system_name = chef_node['fqdn']
+			system_name = chef_node['fqdn']
 			MU.log "#{node} local name is #{system_name}", MU::DEBUG
 
-		  chef_node.normal.app = server['application_cookbook'] if server['application_cookbook'] != nil
-		  chef_node.normal.service_name = server["name"]
-			chef_node.normal.windows_admin_username = server['windows_admin_username']
-		  chef_node.chef_environment = MU.environment.downcase
+			chef_node.normal.app = server['application_cookbook'] if server['application_cookbook'] != nil
+			chef_node.normal.service_name = server["name"]
+			chef_node.chef_environment = MU.environment.downcase
+
+			if %w{win2k12r2 win2k12 windows}.include? server['platform']
+				chef_node.normal.windows_admin_username = server['windows_admin_username']
+				if  server['use_cloud_provider_windows_password']
+					chef_node.normal.windows_auth_vault = node
+					chef_node.normal.windows_auth_item = "windows_credentials"
+					chef_node.normal.windows_auth_password_field = "password"
+				elsif !server['windows_auth_vault'].nil?
+					chef_node.normal.windows_auth_vault = server['windows_auth_vault']['vault']
+					chef_node.normal.windows_auth_item = server['windows_auth_vault']['item']
+					chef_node.normal.windows_auth_password_field = server['windows_auth_vault']['password_field']
+				end
+			end
 
 			# If AD integration has been requested for this node, give Chef what it'll
 			# need for mu-tools::ad-client to work.
@@ -1256,13 +1312,20 @@ MU.log win_set_pw, MU::ERR
 				chef_node.normal.ad.computer_name = server['mu_windows_name']
 				chef_node.normal.ad.node_class = server['name']
 				chef_node.normal.ad.domain_name = server['active_directory']['domain_name']
+				chef_node.normal.ad.node_type = server['active_directory']['node_type']
+				chef_node.normal.ad.domain_operation = server['active_directory']['domain_operation']
+				chef_node.normal.ad.domain_controller_hostname = server['active_directory']['domain_controller_hostname'] if server['active_directory'].has_key?('domain_controller_hostname')
 				chef_node.normal.ad.netbios_name = server['active_directory']['short_domain_name']
 				chef_node.normal.ad.computer_ou = server['active_directory']['computer_ou'] if server['active_directory'].has_key?('computer_ou')
 				chef_node.normal.ad.dcs = server['active_directory']['domain_controllers']
-				chef_node.normal.ad.auth_vault = server['active_directory']['auth_vault']
-				chef_node.normal.ad.auth_item = server['active_directory']['auth_item']
-				chef_node.normal.ad.auth_username_field = server['active_directory']['auth_username_field']
-				chef_node.normal.ad.auth_password_field = server['active_directory']['auth_password_field']
+				chef_node.normal.ad.domain_join_vault = server['active_directory']['domain_join_vault']['vault']
+				chef_node.normal.ad.domain_join_item = server['active_directory']['domain_join_vault']['item']
+				chef_node.normal.ad.domain_join_username_field = server['active_directory']['domain_join_vault']['username_field']
+				chef_node.normal.ad.domain_join_password_field = server['active_directory']['domain_join_vault']['password_field']
+				chef_node.normal.ad.domain_admin_vault = server['active_directory']['domain_admin_vault']['vault']
+				chef_node.normal.ad.domain_admin_item = server['active_directory']['domain_admin_vault']['item']
+				chef_node.normal.ad.domain_admin_username_field = server['active_directory']['domain_admin_vault']['username_field']
+				chef_node.normal.ad.domain_admin_password_field = server['active_directory']['domain_admin_vault']['password_field']
 			end
 
 			# Amazon-isms
@@ -1912,6 +1975,31 @@ MU.log win_set_pw, MU::ERR
 			MU.log "Generated Windows admin password #{winpass} after #{attempts} attempts", MU::DEBUG
 			return winpass
 		end
+		
+		# Retrieves the Cloud provider's randomly generated Windows password
+		# Will only work on stock Amazon Windows AMIs and custom AMIs that where created with Administrator Password set to random in EC2Config
+		# return [String]: A password string.
+		def self.getWindowsAdminPassword(instance_id: nil, identity_file: nil, node_name: nil, region: MU.curRegion)
+				MU.ec2(region).wait_until(:password_data_available, instance_id: instance_id) do |waiter|
+					waiter.max_attempts = 60
+					waiter.before_attempt do |attempts|
+						MU.log "Waiting for Windows password data to be available for node #{node_name}", MU::NOTICE if attempts % 5 == 0
+					end
+					# waiter.before_wait do |attempts, resp|
+						# throw :success if resp.data.password_data and !resp.data.password_data.empty?
+					# end
+				end
+
+				resp = MU.ec2(region).get_password_data(instance_id: instance_id)
+				encrypted_password = resp.password_data
+				
+				# Note: This is already implemented in the decrypt_windows_password API call
+				decoded = Base64.decode64(encrypted_password)
+				pem_bytes = File.open(identity_file, 'rb') { |f| f.read }
+				private_key = OpenSSL::PKey::RSA.new(pem_bytes)
+				decrypted_password = private_key.private_decrypt(decoded)
+				return decrypted_password
+		end
 
 		@eips_used = Array.new
 		# Find a free AWS Elastic IP.
@@ -2105,8 +2193,17 @@ MU.log win_set_pw, MU::ERR
 		    e.remember_host!
 				ssh.close
 		    retry
-		  rescue SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, Net::SSH::Disconnect, IOError => e
-				ssh.close if !ssh.nil?
+		  rescue SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError => e
+				begin
+					ssh.close if !ssh.nil?
+				rescue Net::SSH::Disconnect, IOError => e
+					if %w{win2k12r2 win2k12 windows}.include?(server['platform'])
+						MU.log "Windows was probably restarted and closed the ssh session unexpectedly. Waiting before trying again: #{e}", MU::WARN
+					else
+						MU.log "ssh session was closed unexpectedly Waiting before trying again: #{e}", MU::WARN
+					end
+					sleep 10
+				end
 				if retries < max_retries
 					retries = retries + 1
 					MU.log "#{nodename}: #{e.inspect} trying to connect for Chef run '#{purpose}", MU::WARN
@@ -2117,7 +2214,16 @@ MU.log win_set_pw, MU::ERR
 					raise "#{nodename}: #{e.inspect} trying to connect for Chef run '#{purpose}"
 				end
 		  rescue MU::ChefRunFail => e
-				ssh.close if !ssh.nil?
+				begin
+					ssh.close if !ssh.nil?
+				rescue Net::SSH::Disconnect, IOError => e
+					if %w{win2k12r2 win2k12 windows}.include?(server['platform'])
+						MU.log "Windows was probably restarted and closed the ssh session unexpectedly. Waiting before trying again: #{e}", MU::WARN
+					else
+						MU.log "ssh session was closed unexpectedly Waiting before trying again: #{e}", MU::WARN
+					end
+					sleep 10
+				end
 				if retries < max_retries
 					retries = retries + 1
 					MU.log "#{nodename}: Chef run '#{purpose}' failed, retrying", MU::WARN, details: e.message

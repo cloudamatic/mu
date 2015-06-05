@@ -1,17 +1,3 @@
-# Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
-#
-# Licensed under the BSD-3 license (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License in the root of the project or at
-#
-#     http://egt-labs.com/mu/LICENSE.html
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
 <powershell>
 	# Workaround for buggy userdata persistence?
 	Set-ExecutionPolicy Unrestricted -Force -Scope CurrentUser
@@ -31,35 +17,35 @@
 	$username = (whoami).Split('\')[1]
 	New-Item $env:Temp/$username -type file -force
 
-		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) IT BEGINS on $env:computername"
+	$local_admin_group_members = ([adsi]"WinNT://./Administrators, group").psbase.Invoke("Members")
+	$can_run_userdata = ($local_admin_group_members | foreach {$_.GetType().InvokeMember("Name", 'GetProperty', $null, $_, $null)}) -contains $username
+    # if ($can_run_userdata -eq $true){
+	# Userdata MUST be run under a user with local admin privileges. If not, at a minimum, cygwin/ssh will fail to install and configure correctly. 
+	# This only test if a user is in the local admin group, however in a domain a user could have local admin privileges without belonging to the local admin group.
 
+		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) IT BEGINS on $env:computername"
 		$admin_username = (Get-WmiObject -Query 'Select * from Win32_UserAccount Where (LocalAccount=True and SID like "%-500")').name
 		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Local admin account is $admin_username"
 
-
 		Set-Service BITS -startuptype "Automatic" -status Running -passthru
-
 		Add-Type -Assembly System.Web
 		$password = [Web.Security.Membership]::GeneratePassword(15,2)
-
 		$base_dir = 'c:/bin'
+
 		If (!(Test-Path $base_dir)){
 			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Creating $base_dir"
 			New-Item -type directory -path $base_dir
 		}
 
-		# Make sure we're actually the right code, because Ec2Config
-		# gets this wrong sometimes.
+		# Make sure we're actually the right code, because Ec2Config gets this wrong sometimes.
 		Invoke-WebRequest -Uri "http://169.254.169.254/latest/user-data" -OutFile $env:Temp/realuserdata.ps1
 		Compare-Object (Get-Content "c:/Program Files/Amazon/Ec2ConfigService/Scripts/UserScript.ps1") (Get-Content $env:Temp/realuserdata.ps1)
-
 
 		$instanceid=(New-Object System.Net.WebClient).DownloadString("http://169.254.169.254/latest/meta-data/instance-id")
 		$cygwin_dir = "$base_dir/cygwin"
 		$sshdUser = "sshd_service"
-
-		# Ec2Config frequently fails to run us on reboot, too, so let's set up
-		# a scheduled task to make sure it happens.
+		
+		# Ec2Config frequently fails to run us on reboot, too, so lets set up a scheduled task to make sure it happens.
 		If (!(Get-ScheduledTask -TaskName 'run-userdata')){
 			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Adding run-userdata scheduled task (user NT AUTHORITY\SYSTEM)"
 			Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/run-userdata_scheduledtask.xml" -OutFile $env:Temp/run-userdata_scheduledtask.xml
@@ -74,16 +60,14 @@
 			}
 
 			Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/PSWindowsUpdate.zip" -OutFile $env:Temp/PSWindowsUpdate.zip
-
 			Add-Type -A 'System.IO.Compression.FileSystem'
+
 			If (!(Test-Path c:/windows/System32/WindowsPowerShell/v1.0/Modules/PSWindowsUpdate)){
 				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Extracting PSWindowsUpdate module to c:/windows/System32/WindowsPowerShell/v1.0/Modules"
-
 				[IO.Compression.ZipFile]::ExtractToDirectory("$env:Temp/PSWindowsUpdate.zip", "c:/windows/System32/WindowsPowerShell/v1.0/Modules")
 			}
 			If (!(Test-Path c:/Users/$admin_username/Documents/WindowsPowerShell/Modules/PSWindowsUpdate)){
 				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Extracting PSWindowsUpdate module to c:/Users/$admin_username/Documents/WindowsPowerShell"
-
 				[IO.Compression.ZipFile]::ExtractToDirectory("$env:Temp/PSWindowsUpdate.zip", "c:/Users/$admin_username/Documents/WindowsPowerShell/Modules")
 			}
 		}
@@ -96,84 +80,64 @@
 			if ((Get-Service "sshd" -ErrorAction SilentlyContinue) -and (Test-Path "$cygwin_dir/bin/bash.exe")) {
 				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Disabling pre-existing sshd"
 
-				Stop-Service -ErrorAction SilentlyContinue sshd 
+				Stop-Service -ErrorAction SilentlyContinue sshd
+				Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue
 				Invoke-Expression '& $cygwin_dir/bin/bash --login -c "cygrunsrv --stop sshd; cygrunsrv --remove sshd; net user sshd /delete; net user sshd_service /delete; mkpasswd > /etc/passwd"'
 			}
-
 
 			If (!(Test-Path "$cygwin_dir/Cygwin.bat")){
 				Import-Module BitsTransfer
 				If (!(Test-Path $env:Temp/setup-x86_64.exe)){
 					Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Cygwin setup"
-
 					Invoke-WebRequest -Uri "http://cygwin.com/setup-x86_64.exe" -OutFile $env:Temp/setup-x86_64.exe
-	#				Start-BitsTransfer -source "http://cygwin.com/setup-x86_64.exe" -Destination $env:Temp/setup-x86_64.exe
 				}
-
 
 				If (!(Test-Path $env:Temp/cygwin.zip)){
 					Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Cygwin packages"
-
-					Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/cygwin_20141028.zip" -OutFile $env:Temp/cygwin.zip
-	#				Start-BitsTransfer -source "https://s3.amazonaws.com/cap-public/cygwin_20141028.zip" -Destination $env:Temp/cygwin.zip
-
+					Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/cygwin_20150531.zip" -OutFile $env:Temp/cygwin.zip
 				}
-
 
 				Add-Type -A 'System.IO.Compression.FileSystem'
 				If (!(Test-Path $env:Temp/cygwin)){
 					Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Extracting Cygwin packages"
-
 					[IO.Compression.ZipFile]::ExtractToDirectory("$env:Temp/cygwin.zip", "$env:Temp/cygwin")
 				}
 
 				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running Cygwin installer"
-
-				Start-Process -wait -FilePath "$env:Temp/setup-x86_64.exe" -ArgumentList "-q -n -l $env:Temp -l $env:Temp\cygwin -L -R $cygwin_dir -P openssh,mintty,vim,curl"
+				Start-Process -wait -FilePath "$env:Temp/setup-x86_64.exe" -ArgumentList "-q -n -l $env:Temp -l $env:Temp\cygwin -L -R $cygwin_dir -P openssh,mintty,vim,curl,openssl"
 			}
-
 
 			New-Item $cygwin_dir/$instanceid -type file -force -value "<%= $mu.muID %>"
 		}
 
 		if ((Test-Path $cygwin_dir\sshd_installed_by.txt) -and ((Get-Content $cygwin_dir\sshd_installed_by.txt) -ne $admin_username)){
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Changed Admin username, will reinstall sshd"
-			if (Get-Service "sshd" -ErrorAction SilentlyContinue){
-				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Stopping sshd temporarily"
-
-				Stop-Service -ErrorAction SilentlyContinue sshd
+			if ($username -ne "system"){
+				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Changed Admin username, will reinstall sshd"
+				if (Get-Service "sshd" -ErrorAction SilentlyContinue){
+					Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Stopping sshd temporarily"
+					Stop-Service -ErrorAction SilentlyContinue sshd
+					Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue
+				}
+				Invoke-Expression '& $cygwin_dir/bin/bash --login -c "cygrunsrv --stop sshd; cygrunsrv --remove sshd; net user sshd /delete; net user sshd_service /delete; mkpasswd > /etc/passwd"'
 			}
-
-			Invoke-Expression '& $cygwin_dir/bin/bash --login -c "cygrunsrv --stop sshd; cygrunsrv --remove sshd; net user sshd /delete; net user sshd_service /delete; mkpasswd > /etc/passwd"'
 		}
 
 		$python_path = 'c:\bin\python\python27'
 		$env:Path += ";$python_path\Scripts;$python_path"
 		If (!(Test-Path "$python_path\python.exe")){
 			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Installing Python"
-
 			If (!(Test-Path $env:Temp/python-2.7.9.msi)){
 				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Python installer"
-
 				Invoke-WebRequest -Uri "https://www.python.org/ftp/python/2.7.9/python-2.7.9.msi" -OutFile $env:Temp/python-2.7.9.msi
 			}
-
-
 			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running Python installer"
 			(Start-Process -FilePath msiexec -ArgumentList "/i $env:Temp\python-2.7.9.msi /qn ALLUSERS=1 TARGETDIR=$python_path" -Wait -Passthru).ExitCode
 		}
-
-	# Install chocolatey
-	#	Set-ExecutionPolicy Unrestricted -Force
-	#	Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
-	#	Set-ExecutionPolicy Restricted -Force
-	#	$env:Path = $env:Path + ";%ALLUSERSPROFILE%\chocolatey\bin"
 
 		If (!(Test-Path "$python_path\Scripts\aws.cmd")){
 			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Installing awscli"
 			If (!(Test-Path $env:Temp/get-pip.py)){
 				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading get-pip.py"
-
 				Invoke-WebRequest -Uri "https://bootstrap.pypa.io/get-pip.py" -OutFile $env:Temp/get-pip.py
 			}
 			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running get-pip.py"
@@ -182,17 +146,12 @@
 			pip install awscli
 		}
 
-
 		If (!(Test-Path "c:\opscode\chef\embedded\bin\ruby.exe")){
 			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Installing Chef"
-
 			If (!(Test-Path $env:Temp/chef-installer.msi)){
 				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Chef installer"
-
-				Invoke-WebRequest -Uri "https://www.opscode.com/chef/download?p=windows&pv=2012&m=x86_64&v=<%= MU.chefVersion %>" -OutFile $env:Temp/chef-installer.msi
+				Invoke-WebRequest -Uri "https://www.chef.io/chef/download?p=windows&pv=2012&m=x86_64&v=<%= MU.chefVersion %>" -OutFile $env:Temp/chef-installer.msi
 			}
-
-
 			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running Chef installer"
 			(Start-Process -FilePath msiexec -ArgumentList "/i $env:Temp\chef-installer.msi ALLUSERS=1 /le $env:Temp\chef-client-install.log /qn" -Wait -Passthru).ExitCode
 		}
@@ -209,10 +168,8 @@
 		}
 		<% end %>
 
-
 		If (!((Get-ItemProperty HKLM:/SYSTEM/CurrentControlSet/Control/Lsa)."Authentication Packages" | Select-String -pattern "cyglsa64.dll")){
 			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running cyglsa-config to grant Cygwin binaries privileges"
-
 			Invoke-Expression '& $cygwin_dir/bin/bash --login -c "echo yes | /usr/bin/cyglsa-config"'
 			$need_reboot = $TRUE
 		}
@@ -223,8 +180,6 @@
 		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Encrypting Mu deploy secret"
 		$deploy_secret = & "c:\opscode\chef\embedded\bin\ruby" -ropenssl -rbase64 -e "key = OpenSSL::PKey::RSA.new(Base64.urlsafe_decode64('<%= $mu.deployKey %>'))" -e "print Base64.urlsafe_encode64(key.public_encrypt(File.read('$env:Temp/<%= $mu.muID %>-secret')))"
 
-
-
 		if (!(Get-Service "sshd" -ErrorAction SilentlyContinue)){
 			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Invoking ssh-host-config"
 			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "ssh-host-config -y -c ntsec -w ''$password'' -u $sshdUser" > $cygwin_dir/sshd_setup_log.txt'
@@ -233,8 +188,7 @@
 			New-Item $cygwin_dir/sshd_installed_by.txt -type file -force -value $admin_username
 		}
 
-
-<% if !$mu.windowsAdminName.nil? and !$mu.windowsAdminName.empty? %>
+<% if $mu.windowsAdminName %>
 		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Creating $cygwin_dir/home/<%= $mu.windowsAdminName %>/.ssh/authorized_keys"
 		New-Item $cygwin_dir/home/<%= $mu.windowsAdminName %>/.ssh/authorized_keys -type file -force -value "<%= $mu.deploySSHKey %>"
 <% else %>
@@ -262,18 +216,19 @@
 		}
 		Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "chown $sshd_svc_user /var/empty"'
 
-<% if !$mu.windowsAdminName.nil? and !$mu.windowsAdminName.empty? %>
-		if ("$admin_username" -ne "<%= $mu.windowsAdminName %>"){
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Changing local admin account from $admin_username to <%= $mu.windowsAdminName %>"
-			([adsi]('WinNT://./Administrator, user')).psbase.rename("<%= $mu.windowsAdminName %>")
-			$need_reboot = $TRUE
+<% if $mu.windowsAdminName %>
+		if ((Get-WmiObject win32_computersystem).partofdomain -ne $true){
+			if ("$admin_username" -ne "<%= $mu.windowsAdminName %>"){
+				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Changing local admin account from $admin_username to <%= $mu.windowsAdminName %>"
+				([adsi]("WinNT://./$admin_username, user")).psbase.rename("<%= $mu.windowsAdminName %>")
+				$need_reboot = $TRUE
+			}
 		}
 <% end %>
 
 		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Enabling sshd service"
 		Start-Service sshd
 		Set-Service sshd -startuptype "Automatic"
-
 
 		if ($need_reboot){
 			Restart-Computer -Force
@@ -283,6 +238,7 @@
 			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Calling home to $url"
 			Start-Process -FilePath "c:\bin\cygwin\bin\curl.exe" -ArgumentList "-k --data mu_id='<%= $mu.muID %>' --data mu_resource_name='<%= $mu.resourceName %>' --data mu_resource_type='<%= $mu.resourceType %>' --data mu_instance_id='$instanceid' --data mu_bootstrap='1' --data mu_user='<%= $mu.muUser %>' --data mu_deploy_secret='$deploy_secret' $url" -Wait
 		}
-
+    # }
+	Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy Undefined
 </powershell>
 <persist>true</persist>

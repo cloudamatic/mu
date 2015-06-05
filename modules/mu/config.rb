@@ -730,30 +730,34 @@ module MU
 			if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
 				Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
 			end
-
+			
 			begin
 				if !server['active_directory'].nil?
-					server['vault_access'] << {
-						"vault" => server['active_directory']['auth_vault'],
-						"item" => server['active_directory']['auth_item']
-					}
-					item = ChefVault::Item.load(server['active_directory']['auth_vault'], server['active_directory']['auth_item'])
-					["auth_username_field", "auth_password_field"].each { |field|
-						if !item.has_key?(server['active_directory'][field])
-							ok = false
-							MU.log "I don't see a value named #{field} in Chef Vault #{server['active_directory']['auth_vault']}:#{server['active_directory']['auth_item']}", MU::ERR
-						end
+					["domain_admin_vault", "domain_join_vault"].each { |vault_class|
+						server['vault_access'] << {
+							"vault" => server['active_directory'][vault_class]['vault'],
+							"item" => server['active_directory'][vault_class]['item']
+						}
+						item = ChefVault::Item.load(server['active_directory'][vault_class]['vault'], server['active_directory'][vault_class]['item'])
+						["username_field", "password_field"].each { |field|
+							if !item.has_key?(server['active_directory'][vault_class][field])
+								ok = false
+								MU.log "I don't see a value named #{field} in Chef Vault #{server['active_directory'][vault_class]['vault']}:#{server['active_directory'][vault_class]['item']}", MU::ERR
+							end
+						}
 					}
 				end
-				if !server['windows_admin_password'].nil?
+				if !server['windows_auth_vault'].nil?
+					server['use_cloud_provider_windows_password'] = false
+
 					server['vault_access'] << {
-						"vault" => server['windows_admin_password']['vault'],
-						"item" => server['windows_admin_password']['item']
+						"vault" => server['windows_auth_vault']['vault'],
+						"item" => server['windows_auth_vault']['item']
 					}
-					item = ChefVault::Item.load(server['windows_admin_password']['vault'], server['windows_admin_password']['item'])
-					if !item.has_key?(server['windows_admin_password']['password_field'])
+					item = ChefVault::Item.load(server['windows_auth_vault']['vault'], server['windows_auth_vault']['item'])
+					if !item.has_key?(server['windows_auth_vault']['password_field'])
 						ok = false
-						MU.log "I don't see a value named #{server['windows_admin_password']['password_field']} in Chef Vault #{server['windows_admin_password']['vault']}:#{server['windows_admin_password']['item']}", MU::ERR
+						MU.log "I don't see a value named #{server['windows_auth_vault']['password_field']} in Chef Vault #{server['windows_auth_vault']['vault']}:#{server['windows_auth_vault']['item']}", MU::ERR
 					end
 				end
 				# Check all of the non-special ones while we're at it
@@ -2309,29 +2313,96 @@ module MU
 							"description" => "IP address of a domain controller"
 						}
 					},
+					"domain_controller_hostname" => {
+						"type" => "string",
+						"description" => "A custom hostname for your domain controller. mu_windows_name will be used if not specified. Do not specify when joining a Domain-Node"
+					},
+					"domain_operation" => {
+						"type" => "string",
+						"default" => "join",
+						"enum" => ["join", "create", "add_controller"],
+						"description" => "Rather to join, create or add a Domain Controller"
+					},
+					"node_type" => {
+						"type" => "string",
+						"enum" => ["domain_node", "domain_controller"],
+						"description" => "If the node will be a domain controller or a domain node",
+						"default" => "domain_node",
+						"default_if" => [
+							{
+								"key_is" => "domain_operation",
+								"value_is" => "create",
+								"set" => "domain_controller"
+							},
+							{
+								"key_is" => "domain_operation",
+								"value_is" => "add_controller",
+								"set" => "domain_controller"
+							},
+							{
+								"key_is" => "domain_operation",
+								"value_is" => "join",
+								"set" => "domain_node"
+							}
+						]
+					},
 					"computer_ou" => {
 						"type" => "string",
 						"description" => "The OU to which to add this computer when joining the domain."
 					},
-					"auth_vault" => {
-						"type" => "string",
-						"default" => "active_directory",
-						"description" => "The vault where these credentials reside"
+					"domain_join_vault" => {
+						"type" => "object",
+						"additionalProperties" => false,
+						"description" => "Vault used to store the credentials for the domain join user",
+						"properties" => {
+							"vault" => {
+								"type" => "string",
+								"default" => "active_directory",
+								"description" => "The vault where these credentials reside"
+							},
+							"item" => {
+								"type" => "string",
+								"default" => "join_domain",
+								"description" => "The vault item where these credentials reside"
+							},
+							"password_field" => {
+								"type" => "string",
+								"default" => "password",
+								"description" => "The field within the Vault item where the password for these credentials resides"
+							},
+							"username_field" => {
+								"type" => "string",
+								"default" => "username",
+								"description" => "The field where the username for these credentials resides"
+							}
+						}
 					},
-					"auth_item" => {
-						"type" => "string",
-						"default" => "join_domain",
-						"description" => "The vault item where these credentials reside"
-					},
-					"auth_username_field" => {
-						"type" => "string",
-						"default" => "username",
-						"description" => "The field where the username for these credentials resides"
-					},
-					"auth_password_field" => {
-						"type" => "string",
-						"default" => "password",
-						"description" => "The field where the password for these credentials resides"
+					"domain_admin_vault" => {
+						"type" => "object",
+						"additionalProperties" => false,
+						"description" => "Vault used to store the credentials for the domain admin user",
+						"properties" => {
+							"vault" => {
+								"type" => "string",
+								"default" => "active_directory",
+								"description" => "The vault where these credentials reside"
+							},
+							"item" => {
+								"type" => "string",
+								"default" => "domain_admin",
+								"description" => "The vault item where these credentials reside"
+							},
+							"password_field" => {
+								"type" => "string",
+								"default" => "password",
+								"description" => "The field within the Vault item where the password for these credentials resides"
+							},
+							"username_field" => {
+								"type" => "string",
+								"default" => "username",
+								"description" => "The field where the username for these credentials resides"
+							}
+						}
 					}
 				}
 			},
@@ -2374,7 +2445,7 @@ module MU
 				"default" => "Administrator",
 				"description" => "Use an alternate Windows account for Administrator functions. Will change the name of the Administrator account, if it has not already been done."
 			},
-			"windows_admin_password" => {
+			"windows_auth_vault" => {
 				"type" => "object",
 				"additionalProperties" => false,
 				"description" => "Set Windows nodes' local administrator password to a value specified in a Chef Vault.",
@@ -2432,9 +2503,9 @@ module MU
 					}
 				]
 			},
-			"never_generate_admin_password" => {
+			"use_cloud_provider_windows_password" => {
 				"type" => "boolean",
-				"default" => false
+				"default" => true
 			},
 			"platform" => {
 				"type" => "string",
