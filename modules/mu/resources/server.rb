@@ -266,7 +266,7 @@ module MU
 						parent_thread_id = Thread.current.object_id
 						Thread.new {
 							MU.dupGlobals(parent_thread_id)
-							MU::Server.terminateInstance(id: instance.instance_id)
+							MU::Server.cleanup(false, false, skipsnapshots: true)
 						}
 					end
 				end
@@ -583,7 +583,8 @@ module MU
 				win_set_pw = %Q{powershell -Command "&{ (([adsi]('WinNT://./#{server["windows_admin_username"]}, user')).psbase.invoke('SetPassword', '#{pw}'))}"}
 			else
 				begin
-					win_set_pw = %Q{powershell -Command "&{ (([adsi]('WinNT://./#{server['windows_admin_username']}, user')).psbase.invoke('SetPassword', '#{MU.mommacat.fetchSecret(server["instance_id"], "winpass")}'))}"}
+					winpass = MU.mommacat.fetchSecret(server["instance_id"], "winpass", quiet: true)
+					win_set_pw = %Q{powershell -Command "&{ (([adsi]('WinNT://./#{server['windows_admin_username']}, user')).psbase.invoke('SetPassword', '#{winpass}'))}"} if !winpass.nil?
 				rescue MU::MommaCat::SecretError
 					# This is ok
 				end
@@ -859,10 +860,8 @@ MU.log win_set_pw, MU::ERR
 				}
 			end
 			if !instance.public_ip_address.nil? and !instance.public_ip_address.empty?
-				server['dns_records'][0]['type'] = "A"
 				MU::DNSZone.createRecordsFromConfig(server['dns_records'], target: instance.public_ip_address)
 			else
-				server['dns_records'][0]['type'] = "A"
 				MU::DNSZone.createRecordsFromConfig(server['dns_records'], target: instance.private_ip_address)
 			end
 
@@ -2269,7 +2268,7 @@ MU.log win_set_pw, MU::ERR
 				elsif instance.state.name != "running" and instance.state.name != "pending" and instance.state.name != "stopping" and instance.state.name != "stopped"
 					MU.log "#{instance.instance_id} (#{name}) is in state #{instance.state.name}, waiting"
 				else
-					MU.log "Terminating #{instance.instance_id} (#{name})"
+					MU.log "Terminating #{instance.instance_id} (#{name}) #{noop}"
 					if !noop
 						begin
 							MU.ec2(region).modify_instance_attribute(

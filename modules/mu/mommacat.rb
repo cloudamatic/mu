@@ -314,12 +314,15 @@ module MU
 		# Retrieve an encrypted secret from metadata for the current deployment.
 		# @param instance_id [String]: The cloud instance identifier with which this secret is associated.
 		# @param type [String]: The type of secret, used to identify for retrieval.
-		def fetchSecret(instance_id, type)
+		# @param quiet [Boolean]: Do not log errors for non-existent secrets
+		def fetchSecret(instance_id, type, quiet: false)
 			@secret_semaphore.synchronize {
 				if @secrets[type].nil?
+					return nil if quiet
 					raise SecretError, "'#{type}' is not a valid secret type (valid types: #{@secrets.keys.to_s})"
 				end
 				if @secrets[type][instance_id].nil?
+					return nil if quiet
 					raise SecretError, "No '#{type}' secret known for instance #{instance_id}"
 				end
 			}

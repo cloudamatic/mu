@@ -528,7 +528,7 @@ MESSAGE_END
 							end
 					  end
 						if !@nocleanup
-							MU::Cleanup.run(MU.mu_id, true, false, true)
+							MU::Cleanup.run(MU.mu_id, false, true)
 						end
 						raise MuError, e.inspect
 					end
