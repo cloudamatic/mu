@@ -2932,7 +2932,7 @@ module MU
 			"description" => "Create scalable pools of identical servers.",
 			"required" => ["name", "min_size", "max_size", "basis"],
 			"properties" => {
-				"dns_records" => dns_records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
+				"dns_records" => dns_records_primitive(need_target: false, default_type: "A", need_zone: true),
 				"wait_for_nodes" => {
 					"type" => "integer",
 					"description" => "Use this parameter to force a certain number of nodes to come up and be fully bootstrapped before the rest of the pool is initialized.",
