@@ -858,9 +858,11 @@ MU.log win_set_pw, MU::ERR
 					dnsrec['name'] = node.downcase if !dnsrec.has_key?('name')
 				}
 			end
-			if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
+			if !instance.public_ip_address.nil? and !instance.public_ip_address.empty?
+				server['dns_records'][0]['type'] = "A"
 				MU::DNSZone.createRecordsFromConfig(server['dns_records'], target: instance.public_ip_address)
 			else
+				server['dns_records'][0]['type'] = "A"
 				MU::DNSZone.createRecordsFromConfig(server['dns_records'], target: instance.private_ip_address)
 			end
 
@@ -1057,6 +1059,7 @@ MU.log win_set_pw, MU::ERR
 				# A Chef bootstrap shouldn't take this long, but we get these random
 				# inexplicable hangs sometimes.
 				Timeout::timeout(600) {	
+					require 'chef'
 				  kb.run
 				}
 			rescue Net::SSH::Disconnect, Errno::EPIPE, IOError, SystemExit, Timeout::Error, SocketError, Net::HTTPServerException => e

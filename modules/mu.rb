@@ -41,12 +41,15 @@ gem "knife-windows"
 gem "chef-vault"
 autoload :Chef, 'chef-vault'
 autoload :ChefVault, 'chef-vault'
-# XXX This only seems to be necessary for independent groom invocations from
-# MommaCat. It's not at all clear why. Chef bug? Autoload threading weirdness?
+
+# XXX Explicit autoloads for child classes of :Chef. This only seems to be
+# necessary for independent groom invocations from MommaCat. It's not at all
+# clear why. Chef bug? Autoload threading weirdness?
 class Chef
   autoload :Knife, 'chef/knife'
   autoload :Search, 'chef/search'
   autoload :Node, 'chef/node'
+	autoload :Mixin, 'chef/mixin'
 	# XXX This only seems to be necessary for independent groom invocations from
 	# MommaCat. It's not at all clear why. Chef bug? Autoload threading weirdness?
 	class Knife
