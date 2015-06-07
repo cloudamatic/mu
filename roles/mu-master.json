@@ -7,7 +7,6 @@
 			"recipe[mu-tools::base_repositories]",
 			"recipe[mu-tools::maldet]",
 			"recipe[mu-tools::apply_security]",
-			"recipe[mu-tools::split_var_partitions]",
 			"recipe[mu-master]"
 	],
 	"description": "Run List for Mu master servers",
