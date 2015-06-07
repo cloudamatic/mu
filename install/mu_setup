@@ -517,7 +517,7 @@ validate_setup_env_vars(){
 	validate_errs=0
 	while [ "${var_name[$n]}" != "" ];do
 		if [ "${var_name[$n]}" == "AWS_ACCESS" -o "${var_name[$n]}" == "AWS_SECRET" ]; then
-			if [ "$IAM_ROLE" == "" ];then
+			if [ "$IAM_ROLE" == "" -a "${var_val[$n]}" == "" ];then
 				warning_message "No IAM instance profile assigned to this server. You must specify AWS credentials."
 				validate_errs=1
 			fi
