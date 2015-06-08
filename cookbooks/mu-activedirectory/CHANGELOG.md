@@ -1,11 +1,11 @@
-active-directory CHANGELOG
+mu-activedirectory CHANGELOG
 ==========================
 
-This file is used to list changes made in each version of the active-directory cookbook.
+This file is used to list changes made in each version of the mu-activedirectory cookbook.
 
 0.1.0
 -----
-- [your_name] - Initial release of active-directory
+- [your_name] - Initial release of mu-activedirectory
 
 - - -
 Check the [Markdown Syntax Guide](http://daringfireball.net/projects/markdown/syntax) for help with Markdown.

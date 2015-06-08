@@ -47,7 +47,7 @@ cookbook 'mysql', '~> 5.2.12'
 cookbook 'nagios', '~> 7.1.4'
 cookbook 'nginx', '~> 2.7.6'
 cookbook 'nginx_simplecgi', '~> 0.1.2'
-cookbook 'active-directory', path: "#{cookbookPath}/active-directory"
+cookbook 'mu-activedirectory', path: "#{cookbookPath}/mu-activedirectory"
 cookbook 'nginx-passenger', path: "#{cookbookPath}/nginx-passenger"
 cookbook 'nodejs', '~> 2.4.0'
 cookbook 'ohai', '~> 2.0.0'

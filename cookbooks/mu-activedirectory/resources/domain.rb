@@ -1,14 +1,14 @@
 #
-# Cookbook Name:: active-directory
-# Resource:: domain_controller
+# Cookbook Name:: mu-activedirectory
+# Resource:: domain
 #
 # Copyright 2015, eGlobalTech,
 #
 # All rights reserved - Do Not Redistribute
 #
 
-actions :add, :remove
-default_action :add
+actions :create, :delete
+default_action :create
 
 attribute :dns_name, :kind_of => String, :name_attribute => true, :required => true
 attribute :sites, :kind_of => Array, :required => false

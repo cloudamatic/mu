@@ -25,10 +25,10 @@ include_recipe "mu-tools::windows-client"
 
 if !node.ad.nil? and node.ad.size > 1
 	if node.ad.domain_operation == "join"
-		include_recipe "active-directory::domain-node"
+		include_recipe "mu-activedirectory::domain-node"
 	elsif node.ad.domain_operation == "create"
-		include_recipe "active-directory::domain"
+		include_recipe "mu-activedirectory::domain"
 	elsif node.ad.domain_operation == "add_controller"
-		include_recipe "active-directory::domain-controller"
+		include_recipe "mu-activedirectory::domain-controller"
 	end
 end rescue NoMethodError

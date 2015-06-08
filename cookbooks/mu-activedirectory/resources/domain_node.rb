@@ -1,5 +1,5 @@
 #
-# Cookbook Name:: active-directory
+# Cookbook Name:: mu-activedirectory
 # Resource:: domain_node
 #
 # Copyright 2015, eGlobalTech,

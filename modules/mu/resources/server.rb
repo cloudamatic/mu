@@ -1277,13 +1277,13 @@ module MU
 				end
 
 				if server['active_directory']['domain_operation'] == "join"
-					MU::Server.knifeAddToRunList(node, "recipe[active-directory::domain-node]");
+					MU::Server.knifeAddToRunList(node, "recipe[mu-activedirectory::domain-node]");
 					MU::Server.runChef(node, server, node_ssh_key, "Join Active Directory", max_retries = 10)
 				elsif server['active_directory']['domain_operation'] == "create"
-					MU::Server.knifeAddToRunList(node, "recipe[active-directory::domain]");
+					MU::Server.knifeAddToRunList(node, "recipe[mu-activedirectory::domain]");
 					MU::Server.runChef(node, server, node_ssh_key, "Create Active Directory", max_retries = 10)
 				elsif server['active_directory']['domain_operation'] == "add_controller"
-					MU::Server.knifeAddToRunList(node, "recipe[active-directory::domain-controller]");
+					MU::Server.knifeAddToRunList(node, "recipe[mu-activedirectory::domain-controller]");
 					MU::Server.runChef(node, server, node_ssh_key, "Add Domain Controller to Active Directory", max_retries = 10)
 				end
 			end

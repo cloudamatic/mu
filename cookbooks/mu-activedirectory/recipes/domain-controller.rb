@@ -1,5 +1,5 @@
 #
-# Cookbook Name:: active-directory
+# Cookbook Name:: mu-activedirectory
 # Recipe:: domain-controller
 #
 # Copyright 2015, eGlobalTech,
