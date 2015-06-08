@@ -253,6 +253,49 @@ module MU
 	# Public Mu server IP address, not necessarily the same as MU.my_public_ip
 	def self.mu_public_addr; @@mu_public_addr end
 
+	# Wrapper class for the EC2 API, so that we can catch some common transient
+	# endpoint errors without having to spray rescues all over the codebase.
+	class AWS
+		@api = nil
+		@region = nil
+
+		# Create an AWS API client
+		# @param region [String]: Amazon region so we know what endpoint to use
+		# @param api [String]: Which API are we wrapping?
+		def initialize(region: MU.curRegion, api: "EC2")
+			@region = region
+			case api
+			when "EC2"
+				@api ||= Aws::EC2::Client.new(region: region)
+			else
+			end
+		end
+
+		# Catch-all for AWS client methods. Essentially a pass-through with some
+		# rescues for known silly endpoint behavior.
+		def method_missing(method_sym, *arguments)
+			retries = 0
+			begin
+				MU.log "Calling #{method_sym} in #{@region}", MU::DEBUG, details: arguments[0]
+				return @api.method(method_sym).call(arguments[0])
+			rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable => e
+				retries = retries + 1
+				debuglevel = MU::DEBUG
+				interval = 5
+				if retries < 5 and retries > 2
+					debuglevel = MU::NOTICE
+					interval = 10
+				else
+					debuglevel = MU::WARN
+					interval = 20
+				end
+				MU.log "Got #{e.inspect} calling EC2's #{method_sym} in #{@region}, waiting #{interval.to_s}s and retrying", debuglevel
+				sleep interval
+				retry
+			end
+		end
+	end
+
 	@@iam_api = {}
 	# Object for accessing Amazon's IAM service
 	def self.iam(region = MU.curRegion)
@@ -261,39 +304,13 @@ module MU
 		@@iam_api[region]
 	end
 
-	# Wrapper class for the EC2 API, so that we can catch some common transient
-	# endpoint errors without having to spray rescues all over the codebase.
-	class EC2
-		@api = nil
-		@region = nil
-
-		# Create an EC2 API client
-		# @param region [String]: Amazon region so we know what endpoint to use
-		def initialize(region: MU.curRegion)
-			@region = region
-			@api ||= Aws::EC2::Client.new(region: region)
-		end
-
-		# Catch-all for Aws::EC2::Client methods. Invoke them with a wrapper for
-		# annoying occasional errors.
-		def method_missing(method_sym, *arguments)
-			begin
-				MU.log "Calling #{method_sym} in #{@region}", MU::DEBUG, details: arguments[0]
-				return @api.method(method_sym).call(arguments[0])
-			rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable => e
-				MU.log "Got #{e.inspect} calling EC2's #{method_sym} in #{@region}, waiting and retrying", MU::WARN
-				sleep 10
-				retry
-			end
-		end
-	end
 
 	@@ec2_api = {}
 	# Object for accessing Amazon's EC2 service
 	def self.ec2(region = MU.curRegion)
 		region ||= MU.myRegion
 #		@@ec2_api[region] ||= Aws::EC2::Client.new(region: region)
-		@@ec2_api[region] ||= MU::EC2.new(region: region)
+		@@ec2_api[region] ||= MU::AWS.new(region: region)
 		@@ec2_api[region]
 	end
 
