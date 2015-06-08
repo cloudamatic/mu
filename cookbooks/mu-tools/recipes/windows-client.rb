@@ -19,9 +19,11 @@ when "windows"
 
 	include_recipe 'chef-vault'
 
-	remote_file "#{Chef::Config[:file_cache_path]}/run-userdata.xml" do
-		source "https://s3.amazonaws.com/cap-public/run-userdata_scheduledtask.xml"
-	end
+	%w{run-userdata_scheduledtask.xml run_chefclient_scheduledtask.xml}.each { |file|
+		remote_file "#{Chef::Config[:file_cache_path]}/#{file}" do
+			source "https://s3.amazonaws.com/cap-public/#{file}"
+		end
+	}
 
 	windows_vault = chef_vault_item(node.windows_auth_vault, node.windows_auth_item)
 	ec2config_username = windows_vault[node.windows_ec2config_username_field]
@@ -57,7 +59,7 @@ when "windows"
 	if in_domain?
 		if is_domain_controller?(node.ad.computer_name)
 			unless domain_user_exist?(ad_vault[node.ad.domain_admin_username_field])
-				powershell_script "Create User #{sshd_username}" do
+				powershell_script "Create User #{ad_vault[node.ad.domain_admin_username_field]}" do
 					code <<-EOH
 						New-ADUser -Name #{ad_vault[node.ad.domain_admin_username_field]} -UserPrincipalName #{ad_vault[node.ad.domain_admin_username_field]}@#{node.ad.domain_name} -AccountPassword (ConvertTo-SecureString -AsPlainText '#{password}' -force) -Enabled $true -PasswordNeverExpires $true
 						Add-ADGroupMember 'Domain Admins' -Members #{ad_vault[node.ad.domain_admin_username_field]}
@@ -166,9 +168,9 @@ when "windows"
 					code <<-EOH
 						$domain_user = [ADSI]("WinNT://#{node.ad.netbios_name}/#{user}")
 						$local_admin_group = [ADSI]("WinNT://./Administrators")
-						$local_admin_group.PSBase.Invoke("Add",$domain_group.PSBase.Path)
+						$local_admin_group.PSBase.Invoke("Add",$domain_user.PSBase.Path)
 					EOH
-					not_if "net localgroup Administrators | findstr #{user}"
+					not_if "net localgroup Administrators | findstr #{node.ad.netbios_name}\\#{user}"
 				end
 			}
 		end
@@ -218,14 +220,22 @@ when "windows"
 	# Or allow userdata to be rerun everytime the recipe is run
 	powershell_script "Import run-userdata scheduled task" do
 		guard_interpreter :powershell_script
-		code "Register-ScheduledTask -Xml (get-content '#{Chef::Config[:file_cache_path]}/run-userdata.xml' | out-string) -TaskName 'run-userdata' -User #{username} -Password '#{password}' -Force"
+		code "Register-ScheduledTask -Xml (get-content '#{Chef::Config[:file_cache_path]}/run-userdata_scheduledtask.xml' | out-string) -TaskName 'run-userdata' -User #{username} -Password '#{password}' -Force"
 		only_if "((schtasks /TN 'run-userdata' /query /FO LIST -v | Select-String 'Run As User') -replace '`n|`r').split(':')[1].trim() -ne '#{username}'"
 		# not_if "Get-ScheduledTask -TaskName 'run-userdata'"
         # notifies :delete, "file[C:\\bin\\cygwin\\#{node.ec2.instance_id}]", :immediately
 		notifies :delete, "file[C:\\bin\\cygwin\\sshd_installed_by.txt]", :immediately
 		# notifies :run, "powershell_script[kill sshd processes]", :immediately
 		notifies :run, "windows_task[run-userdata]", :immediately
-		notifies :run, "execute[Taskkill /im sshd.exe /f /t]", :immediately
+		# notifies :run, "execute[Taskkill /im sshd.exe /f /t]", :immediately #windows userdata should already be killing the any running ssh sessions. Killing SSH sessions at this point is problematic for AD nodes
+	end
+
+	# Need to add a guard to this.
+	powershell_script "Import run-chef-client scheduled task" do
+		guard_interpreter :powershell_script
+		code "Register-ScheduledTask -Xml (get-content '#{Chef::Config[:file_cache_path]}/run_chefclient_scheduledtask.xml' | out-string) -TaskName 'run-chef-client' -User #{username} -Password '#{password}' -Force"
+		# only_if "((schtasks /TN 'run-chef-client' /query /FO LIST -v | Select-String 'Run As User') -replace '`n|`r').split(':')[1].trim() -ne '#{username}'"
+		# not_if "Get-ScheduledTask -TaskName 'run-chef-client'"
 	end
 
 	execute "Set sshd service to login with ssh user" do
