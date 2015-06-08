@@ -58,7 +58,7 @@ def join_domain_windows
 			code = "Add-Computer -DomainName #{new_resource.dns_name} -Credential#{join_domain_creds} #{new_name} -PassThru -Restart -Verbose -Force"
 		end
 
-		cmd = powershell_out(code).run_command
+		cmd = powershell_out(code)
 		kill_ssh
 		Chef::Application.fatal!("Failed to join #{new_resource.computer_name} to #{new_resource.dns_name} domain") unless cmd.exitstatus == 0
 		Chef::Application.fatal!("Joined #{new_resource.computer_name} to #{new_resource.dns_name} domain, rebooting. Will have to run chef again")
@@ -66,7 +66,7 @@ def join_domain_windows
 end
 
 def set_client_dns
-	cmd = powershell_out("Get-NetAdapter | Set-DnsClientServerAddress -ServerAddresses #{new_resource.dc_ips.join(", ")}").run_command
+	cmd = powershell_out("Get-NetAdapter | Set-DnsClientServerAddress -ServerAddresses #{new_resource.dc_ips.join(", ")}")
 	Chef::Log.info("Set DNS addresses to #{new_resource.dc_ips.join(", ")}")
 end
 
@@ -88,9 +88,10 @@ def join_domain_linux
 	pam_winbind_lib
 	configure_winbind_kerberos_authentication
 	
-	execute "net ads join #{new_resource.dns_name.downcase} -U #{new_resource.join_user}%#{new_resource.join_password}" do
+	execute "Join domain #{new_resource.dns_name}" do
+		command "net ads join #{new_resource.dns_name.downcase} -U #{new_resource.join_user}%#{new_resource.join_password}"
 		sensitive true
-		not_if "net ads testjoin | grep 'Join is OK'"
+		not_if "net ads testjoin | grep OK"
 	end
 
 	template "/etc/samba/smb.conf" do

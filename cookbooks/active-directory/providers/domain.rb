@@ -45,12 +45,12 @@ end
 # end
 
 def create_domain_admin_user
-	unless domain_admin_user_exist?
+	unless domain_user_exist?(new_resource.domain_admin_user)
 		code =<<-EOH
 			New-ADUser -Name #{new_resource.domain_admin_user} -UserPrincipalName #{new_resource.domain_admin_user}@#{new_resource.dns_name} -AccountPassword (ConvertTo-SecureString -AsPlainText '#{new_resource.domain_admin_password}' -force) -Enabled $true -PasswordNeverExpires $true
 			Add-ADGroupMember 'Domain Admins' -Members #{new_resource.domain_admin_user}
 		EOH
-		cmd = powershell_out(code).run_command
+		cmd = powershell_out(code)
 		Chef::Log.info("Create Domain Admin User #{new_resource.domain_admin_user}")
 		# inspect_exit_status(cmd, "Create Domain Admin User #{new_resource.domain_admin_user}")
 	end
@@ -95,7 +95,7 @@ def create_domain
 				$DCPromoFile | out-file c:/dcpromoanswerfile.txt -Force
 				dcpromo.exe /unattend:c:/dcpromoanswerfile.txt
 			EOH
-			cmd = powershell_out(code).run_command
+			cmd = powershell_out(code)
 		elsif version.windows_server_2012_r2?
 			code =<<-EOH
 				Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue
@@ -108,8 +108,8 @@ def create_domain
 				Install-ADDSForest -DomainName #{new_resource.dns_name} -SafeModeAdministratorPassword (convertto-securestring '#{new_resource.restore_mode_password}' -asplaintext -force) -DomainMode Win2012R2 -DomainNetbiosName #{new_resource.netbios_name} -ForestMode Win2012R2 -Confirm:$false -Force
 				Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue
 			EOH
-			cmd = powershell_out(code).run_command
-			# cmd = powershell_out("Install-ADDSForest -DomainName #{new_resource.dns_name} -SafeModeAdministratorPassword (convertto-securestring '#{new_resource.restore_mode_password}' -asplaintext -force) -DomainMode Win2012R2 -DomainNetbiosName #{new_resource.netbios_name} -ForestMode Win2012R2 -Confirm:$false -Force").run_command
+			cmd = powershell_out(code)
+			# cmd = powershell_out("Install-ADDSForest -DomainName #{new_resource.dns_name} -SafeModeAdministratorPassword (convertto-securestring '#{new_resource.restore_mode_password}' -asplaintext -force) -DomainMode Win2012R2 -DomainNetbiosName #{new_resource.netbios_name} -ForestMode Win2012R2 -Confirm:$false -Force")
 		end
 		kill_ssh
 		Chef::Application.fatal!("Failed to create Active Directory Domain #{new_resource.dns_name}") if cmd.exitstatus != 0
@@ -119,7 +119,7 @@ end
 
 def rename_default_site
 	unless default_site_name_set?
-		cmd = powershell_out("Get-ADObject -Credential #{admin_creds} -SearchBase (Get-ADRootDSE).ConfigurationNamingContext -filter {Name -eq 'Default-First-Site-Name'} | Rename-ADObject -Credential #{admin_creds} -NewName #{new_resource.site_name}").run_command
+		cmd = powershell_out("Get-ADObject -Credential #{admin_creds} -SearchBase (Get-ADRootDSE).ConfigurationNamingContext -filter {Name -eq 'Default-First-Site-Name'} | Rename-ADObject -Credential #{admin_creds} -NewName #{new_resource.site_name}")
 		Chef::Log.info("Renamed default site to #{new_resource.site_name}")
 		# inspect_exit_status(cmd, "Renamed default site to #{new_resource.site_name}")
 	end
@@ -151,12 +151,82 @@ def configure_replication
 	}
 end
 
+def apply_gpo
+	gpo_name = "ec2config-ssh-privileges"
+	unless gpo_exist?(gpo_name)
+		["Machine\\microsoft\\windows nt\\SecEdit", "Machine\\Scripts\\Shutdown", "Machine\\Scripts\\Startup", "User"].each { |dir|
+			directory "#{Chef::Config[:file_cache_path]}\\gpo\\{24E13F41-7118-4FB6-AE8B-45D48AFD6AFE}\\DomainSysvol\\GPO\\#{dir}" do
+				recursive true
+			end
+		}
+
+		ssh_user_sid = powershell_out("(New-Object System.Security.Principal.NTAccount('#{new_resource.netbios_name}', 'sshd_service')).Translate([System.Security.Principal.SecurityIdentifier]).value").stdout.strip
+		ec2config_user_sid = powershell_out("(New-Object System.Security.Principal.NTAccount('#{new_resource.netbios_name}', 'ec2config')).Translate([System.Security.Principal.SecurityIdentifier]).value").stdout.strip
+
+		template "#{Chef::Config[:file_cache_path]}\\gpo\\manifest.xml" do
+			source "manifest.xml.erb"
+			variables(
+				:domain_name => new_resource.dns_name,
+				:computer_name => new_resource.computer_name
+			)
+		end
+
+		template "#{Chef::Config[:file_cache_path]}\\gpo\\{24E13F41-7118-4FB6-AE8B-45D48AFD6AFE}\\Backup.xml" do
+			source "Backup.xml.erb"
+			variables(
+				:domain_name => new_resource.dns_name,
+				:computer_name => new_resource.computer_name,
+				:netbios_name => new_resource.netbios_name
+			)
+		end
+
+		template "#{Chef::Config[:file_cache_path]}\\gpo\\{24E13F41-7118-4FB6-AE8B-45D48AFD6AFE}\\bkupInfo.xml" do
+			source "bkupInfo.xml.erb"
+			variables(
+				:domain_name => new_resource.dns_name,
+				:computer_name => new_resource.computer_name
+			)
+		end
+
+		template "#{Chef::Config[:file_cache_path]}\\gpo\\{24E13F41-7118-4FB6-AE8B-45D48AFD6AFE}\\gpreport.xml" do
+			source "gpreprt.xml.erb"
+			variables(
+				:domain_name => new_resource.dns_name,
+				:computer_name => new_resource.computer_name,
+				:netbios_name => new_resource.netbios_name,
+				:ssh_sid => ssh_user_sid,
+				:ec2config_sid => ec2config_user_sid
+			)
+		end
+
+		template "#{Chef::Config[:file_cache_path]}\\gpo\\{24E13F41-7118-4FB6-AE8B-45D48AFD6AFE}\\DomainSysvol\\GPO\\Machine\\microsoft\\windows nt\\SecEdit\\GptTmpl.inf" do
+			source "gptmpl.inf.erb"
+			variables(
+				:ssh_sid => ssh_user_sid,
+				:ec2config_sid => ec2config_user_sid
+			)
+		end
+
+		powershell_script "import #{gpo_name} gpo" do
+			guard_interpreter :powershell_script
+			code <<-EOH
+				Import-GPO -BackupId 24E13F41-7118-4FB6-AE8B-45D48AFD6AFE -TargetName #{gpo_name} -path #{Chef::Config[:file_cache_path]}\\gpo -CreateIfNeeded
+				new-gplink -name #{gpo_name} -target 'dc=#{new_resource.dns_name.gsub(".", ",dc=")}'
+			EOH
+		end
+
+		# powershell_out("Import-GPO -BackupId 24E13F41-7118-4FB6-AE8B-45D48AFD6AFE -TargetName #{gpo_name} -path #{Chef::Config[:file_cache_path]}\\gpo -CreateIfNeeded").run_command
+		# powershell_out("new-gplink -name #{gpo_name} -target 'dc=#{new_resource.dns_name.gsub(".", ",dc=")}'").run_command
+	end
+end
+
 def configure_domain
 	# Move these to somewhere that makes sense
-	powershell_out("Set-Service NTDS -StartupType Automatic").run_command
-	powershell_out("Set-Service ADWS -StartupType Automatic").run_command
+	powershell_out("Set-Service NTDS -StartupType Automatic")
+	powershell_out("Set-Service ADWS -StartupType Automatic")
 
 	create_domain_admin_user
+	apply_gpo
 	rename_default_site
 	configure_replication
 	set_replication_static_ports

@@ -110,15 +110,17 @@
 			New-Item $cygwin_dir/$instanceid -type file -force -value "<%= $mu.muID %>"
 		}
 
-		if ((Test-Path $cygwin_dir\sshd_installed_by.txt) -and ((Get-Content $cygwin_dir\sshd_installed_by.txt) -ne $admin_username)){
-			if ($username -ne "system"){
-				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Changed Admin username, will reinstall sshd"
-				if (Get-Service "sshd" -ErrorAction SilentlyContinue){
-					Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Stopping sshd temporarily"
-					Stop-Service -ErrorAction SilentlyContinue sshd
-					Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue
+		if ((Get-WmiObject win32_computersystem).partofdomain -ne $true){
+			if ((Test-Path $cygwin_dir\sshd_installed_by.txt) -and ((Get-Content $cygwin_dir\sshd_installed_by.txt) -ne $admin_username)){
+				if ($username -ne "system"){
+					Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Changed Admin username, will reinstall sshd"
+					if (Get-Service "sshd" -ErrorAction SilentlyContinue){
+						Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Stopping sshd temporarily"
+						Stop-Service -ErrorAction SilentlyContinue sshd
+						Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue
+					}
+					Invoke-Expression '& $cygwin_dir/bin/bash --login -c "cygrunsrv --stop sshd; cygrunsrv --remove sshd; net user sshd /delete; net user sshd_service /delete; mkpasswd > /etc/passwd"'
 				}
-				Invoke-Expression '& $cygwin_dir/bin/bash --login -c "cygrunsrv --stop sshd; cygrunsrv --remove sshd; net user sshd /delete; net user sshd_service /delete; mkpasswd > /etc/passwd"'
 			}
 		}
 

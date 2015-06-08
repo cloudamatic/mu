@@ -60,6 +60,8 @@ when "centos", "redhat"
 		}
 	end
 
+	ldap_vault = chef_vault_item(node.openvpn.ldap_vault[:vault], node.openvpn.cert_vault[:item]) if node.openvpn.configure_ladp_auth
+
 	node.openvpn.vpc_networks.each.with_index { |cidr, i|
 		execute "./sacli -k vpn.server.routing.private_network.#{i} -v #{cidr} ConfigPut" do
 			cwd node.openvpn.scripts

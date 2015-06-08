@@ -775,18 +775,32 @@ module MU
 			end
 
 			win_admin_password = nil
+			ec2config_password = nil
+			sshd_password = nil
 			if %w{win2k12r2 win2k12 windows}.include?(server['platform'])
 				if server['use_cloud_provider_windows_password']
 					win_admin_password = MU::Server.getWindowsAdminPassword(instance_id: id, identity_file: "#{ssh_keydir}/#{node_ssh_key}", node_name: node, region: server['region'])
 				elsif !server['use_cloud_provider_windows_password'] && server['windows_auth_vault'] && !server['windows_auth_vault'].empty?
-					field = server["windows_auth_vault"]["password_field"]
 					win_admin_password = ChefVault::Item.load(
 						server['windows_auth_vault']['vault'],
 						server['windows_auth_vault']['item']
-					)[field]
+					)[server["windows_auth_vault"]["password_field"]]
+					
+					ec2config_password = ChefVault::Item.load(
+						server['windows_auth_vault']['vault'],
+						server['windows_auth_vault']['item']
+					)[server["windows_auth_vault"]["ec2config_password_field"]]
+					
+					sshd_password = ChefVault::Item.load(
+						server['windows_auth_vault']['vault'],
+						server['windows_auth_vault']['item']
+					)[server["windows_auth_vault"]["sshd_password_field"]]
 				else
 					win_admin_password = server['winpass']
 				end
+
+				ec2config_password = MU::Server.generateWindowsAdminPassword if ec2config_password.nil?
+				sshd_password = MU::Server.generateWindowsAdminPassword if sshd_password.nil?
 			end
 
 			nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::Server.getNodeSSHProxy(server)
@@ -1227,8 +1241,10 @@ module MU
 				server['vault_access'] << { "vault"=> node, "item" => "secrets" }
 			end
 
-			unless win_admin_password.nil? 
-				vault_cmd = "#{MU::Config.knife} vault create #{node} windows_credentials '{ \"password\":\"#{win_admin_password}\", \"username\":\"#{server['windows_admin_username']}\" }' #{MU::Config.vault_opts} --search name:#{node}"
+			if %w{win2k12r2 win2k12 windows}.include? server['platform']
+				win_password = nil
+				win_password = "\"password\":\"#{win_admin_password}\", \"username\":\"#{server['windows_admin_username']}\", " unless win_admin_password.nil? 
+				vault_cmd = "#{MU::Config.knife} vault create #{node} windows_credentials '{ #{win_password} \"ec2config_password\":\"#{ec2config_password}\", \"ec2config_username\":\"ec2config\", \"sshd_password\":\"#{sshd_password}\", \"sshd_username\":\"sshd_service\" }' #{MU::Config.vault_opts} --search name:#{node}"
 				puts `#{vault_cmd}`
 				MU.log vault_cmd, MU::DEBUG
 				server['vault_access'] << { "vault"=> node, "item" => "windows_credentials" }
@@ -1295,15 +1311,14 @@ module MU
 
 			if %w{win2k12r2 win2k12 windows}.include? server['platform']
 				chef_node.normal.windows_admin_username = server['windows_admin_username']
-				if  server['use_cloud_provider_windows_password']
-					chef_node.normal.windows_auth_vault = node
-					chef_node.normal.windows_auth_item = "windows_credentials"
-					chef_node.normal.windows_auth_password_field = "password"
-				elsif !server['windows_auth_vault'].nil?
-					chef_node.normal.windows_auth_vault = server['windows_auth_vault']['vault']
-					chef_node.normal.windows_auth_item = server['windows_auth_vault']['item']
-					chef_node.normal.windows_auth_password_field = server['windows_auth_vault']['password_field']
-				end
+				chef_node.normal.windows_auth_vault = node
+				chef_node.normal.windows_auth_item = "windows_credentials"
+				chef_node.normal.windows_auth_password_field = "password"
+				chef_node.normal.windows_auth_username_field = "username"
+				chef_node.normal.windows_ec2config_password_field = "ec2config_password"
+				chef_node.normal.windows_ec2config_username_field = "ec2config_username"
+				chef_node.normal.windows_sshd_password_field = "sshd_password"
+				chef_node.normal.windows_sshd_username_field = "sshd_username"
 			end
 
 			# If AD integration has been requested for this node, give Chef what it'll
@@ -2198,9 +2213,9 @@ module MU
 					ssh.close if !ssh.nil?
 				rescue Net::SSH::Disconnect, IOError => e
 					if %w{win2k12r2 win2k12 windows}.include?(server['platform'])
-						MU.log "Windows was probably restarted and closed the ssh session unexpectedly. Waiting before trying again: #{e}", MU::WARN
+						MU.log "Windows was probably restarted and closed the ssh session unexpectedly. Waiting before trying again", MU::NOTICE
 					else
-						MU.log "ssh session was closed unexpectedly Waiting before trying again: #{e}", MU::WARN
+						MU.log "ssh session was closed unexpectedly Waiting before trying again", MU::NOTICE
 					end
 					sleep 10
 				end
@@ -2218,9 +2233,9 @@ module MU
 					ssh.close if !ssh.nil?
 				rescue Net::SSH::Disconnect, IOError => e
 					if %w{win2k12r2 win2k12 windows}.include?(server['platform'])
-						MU.log "Windows was probably restarted and closed the ssh session unexpectedly. Waiting before trying again: #{e}", MU::WARN
+						MU.log "Windows was probably restarted and closed the ssh session unexpectedly. Waiting before trying again", MU::NOTICE
 					else
-						MU.log "ssh session was closed unexpectedly Waiting before trying again: #{e}", MU::WARN
+						MU.log "ssh session was closed unexpectedly Waiting before trying again", MU::NOTICE
 					end
 					sleep 10
 				end

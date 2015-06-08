@@ -747,6 +747,7 @@ module MU
 						}
 					}
 				end
+
 				if !server['windows_auth_vault'].nil?
 					server['use_cloud_provider_windows_password'] = false
 
@@ -755,10 +756,12 @@ module MU
 						"item" => server['windows_auth_vault']['item']
 					}
 					item = ChefVault::Item.load(server['windows_auth_vault']['vault'], server['windows_auth_vault']['item'])
-					if !item.has_key?(server['windows_auth_vault']['password_field'])
-						ok = false
-						MU.log "I don't see a value named #{server['windows_auth_vault']['password_field']} in Chef Vault #{server['windows_auth_vault']['vault']}:#{server['windows_auth_vault']['item']}", MU::ERR
-					end
+					["password_field", "ec2config_password_field", "sshd_password_field"].each { |field|
+						if !item.has_key?(server['windows_auth_vault'][field])
+							ok = false
+							MU.log "I don't see a value named #{field} in Chef Vault #{server['windows_auth_vault']['vault']}:#{server['windows_auth_vault']['item']}", MU::ERR
+						end
+					}
 				end
 				# Check all of the non-special ones while we're at it
 				server['vault_access'].each { |v|
@@ -2457,13 +2460,23 @@ module MU
 					},
 					"item" => {
 						"type" => "string",
-						"default" => "administrator",
+						"default" => "credentials",
 						"description" => "The vault item where these credentials reside"
 					},
 					"password_field" => {
 						"type" => "string",
 						"default" => "password",
-						"description" => "The field within the Vault item where the password for these credentials resides"
+						"description" => "The field within the Vault item where the password for Windows local Administrator user is stored"
+					},
+					"ec2config_password_field" => {
+						"type" => "string",
+						"default" => "ec2config_password",
+						"description" => "The field within the Vault item where the password for the EC2config service user is stored"
+					},
+					"sshd_password_field" => {
+						"type" => "string",
+						"default" => "sshd_password",
+						"description" => "The field within the Vault item where the password for the Cygwin/SSH service user is stored"
 					}
 				}
 			},

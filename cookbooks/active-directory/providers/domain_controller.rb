@@ -49,7 +49,7 @@ end
 
 def promote
 	unless is_domain_controller?
-		cmd = powershell_out("Install-ADDSDomainController -InstallDns -DomainName #{new_resource.dns_name} -Credential #{admin_creds} -SafeModeAdministratorPassword (convertto-securestring '#{new_resource.restore_mode_password}' -asplaintext -force) -Force -Confirm:$false").run_command
+		cmd = powershell_out("Install-ADDSDomainController -InstallDns -DomainName #{new_resource.dns_name} -Credential #{admin_creds} -SafeModeAdministratorPassword (convertto-securestring '#{new_resource.restore_mode_password}' -asplaintext -force) -Force -Confirm:$false")
 		kill_ssh
 		Chef::Application.fatal!("Failed to promote #{new_resource.computer_name} to Domain Controller in #{new_resource.dns_name} domain") unless cmd.exitstatus == 0
 		Chef::Application.fatal!("Promoted #{new_resource.computer_name} to Domain Controller in #{new_resource.dns_name} domain. Will have to run chef again" )
@@ -57,8 +57,8 @@ def promote
 end
 
 def demote
-	if is_domain_controller?
-		cmd = powershell_out("").run_command
+	if is_domain_controller?(new_resource.computer_name)
+		cmd = powershell_out("")
 		kill_ssh
 		Chef::Application.fatal!("Failed to demote Domain Controller #{new_resource.computer_name} in #{new_resource.dns_name} domain") unless cmd.exitstatus == 0
 		Chef::Application.fatal!("Demoted #{new_resource.computer_name} Domain Controller in #{new_resource.dns_name} domain. Will have to run chef again" )
@@ -86,8 +86,8 @@ def join_domain
 			Add-Computer -DomainName #{new_resource.dns_name} -Credential #{admin_creds} -newname #{new_resource.computer_name} -Restart -PassThru
 			Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue
 		EOH
-		cmd = powershell_out(code).run_command
-		# cmd = powershell_out("Add-Computer -DomainName #{new_resource.dns_name} -Credential #{admin_creds} -newname #{new_resource.computer_name} -Restart -PassThru").run_command
+		cmd = powershell_out(code)
+		# cmd = powershell_out("Add-Computer -DomainName #{new_resource.dns_name} -Credential #{admin_creds} -newname #{new_resource.computer_name} -Restart -PassThru")
 		kill_ssh
 		Chef::Application.fatal!("Failed to join #{new_resource.computer_name} to #{new_resource.dns_name} domain") unless cmd.exitstatus == 0
 		Chef::Application.fatal!("Joined #{new_resource.computer_name} to #{new_resource.dns_name} domain. Will have to run chef again" )
