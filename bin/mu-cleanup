@@ -32,12 +32,10 @@ Usage:
   opt :skipsnapshots, "Skip creation of final snapshots for EBS volumes and RDS instances.", :default => false, :type => :boolean
 	opt :onlycloud, "Only purge cloud resources, and skip all Mu master metadata cleanup.", :require => false, :default => false, :type => :boolean
 	opt :web, "Generate web-friendly (HTML) output.", :require => false, :default => false, :type => :boolean
-	opt :capid, "[DEPRECATED] Deploy id to remove", :require => false, :default => false, :type => :boolean
 	opt :verbose, "Display debugging output", :require => false, :default => false, :type => :boolean
 end
 
 MU.setLogging($opts[:verbose], $opts[:web])
-$opts[:deploy] = $opts[:capid] if $opts[:capid]
 
 if (!ARGV[0] or ARGV[0].empty?) and !$opts[:deploy]
 	MU.log("You must specify a deploy id!", MU::ERR, html: $opts[:web])
