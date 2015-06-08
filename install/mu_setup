@@ -18,7 +18,7 @@ CHEF_CLIENT_PKG="chef-12.3.0-1.el6.x86_64"
 RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby212-2.1.2p205-1.el6.x86_64.rpm"
 RUBY_INSTALL_DIR="/opt/rubies/ruby212-2.1.2-p205"
 
-GET_METADATA="curl -s http://169.254.169.254/latest"
+GET_METADATA="curl --fail -s http://169.254.169.254/latest"
 RCFILE=".murc"
 
 BOLD=`tput bold`
@@ -188,7 +188,7 @@ for mac in `$GET_METADATA/meta-data/network/interfaces/macs/`;do
 		break
 	fi
 done
-IAM_ROLE="`$GET_METADATA/meta-data/iam/security-credentials/`"
+IAM_ROLE="`$GET_METADATA/meta-data/iam/security-credentials/ 2> /dev/null`"
 
 ###############################################################################
 fail_with_message()
@@ -517,7 +517,7 @@ validate_setup_env_vars(){
 	validate_errs=0
 	while [ "${var_name[$n]}" != "" ];do
 		if [ "${var_name[$n]}" == "AWS_ACCESS" -o "${var_name[$n]}" == "AWS_SECRET" ]; then
-			if [ "$IAM_ROLE" == "" ];then
+			if [ "$IAM_ROLE" == "" -a "${var_val[$n]}" == "" ];then
 				warning_message "No IAM instance profile assigned to this server. You must specify AWS credentials."
 				validate_errs=1
 			fi
@@ -1387,7 +1387,7 @@ set_permissions()
 	cp -a $MU_LIBDIR/extras/git-fix-permissions-hook $MU_LIBDIR/.git/hooks/post-checkout
 	cp -a $MU_LIBDIR/extras/git-fix-permissions-hook $MU_LIBDIR/.git/hooks/post-rewrite
 	status_message "Setting permissions in Ruby installations and platform repos"
-	chmod 644 $MU_INSTALLDIR/etc/amazon_images.yaml
+	test -f $MU_INSTALLDIR/etc/amazon_images.yaml && chmod 644 $MU_INSTALLDIR/etc/amazon_images.yaml
 	chmod 644 $MU_INSTALLDIR/etc/mu.rc
 	for extra in $ADDTL_CHEF_REPOS;do
 		extra_repo_name="`echo $extra | sed 's/^.*\///' | cut -d. -f1`"
