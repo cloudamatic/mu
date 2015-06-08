@@ -14,6 +14,7 @@
 
 module MU
 
+
 	# Creation of Virtual Private Clouds and associated artifacts (routes, subnets, etc).
 	class VPC
 		# The {MU::Config::BasketofKittens} name for a single resource of this class.

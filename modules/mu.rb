@@ -523,14 +523,14 @@ module MU
 	end
 
 
-	autoload :CloudFormation, 'mu/resources/cloudformation'
-	autoload :LoadBalancer, 'mu/resources/loadbalancer'
-	autoload :Database, 'mu/resources/database'
-	autoload :Server, 'mu/resources/server'
-	autoload :ServerPool, 'mu/resources/serverpool'
-	autoload :VPC, 'mu/resources/vpc'
-	autoload :FirewallRule, 'mu/resources/firewallrule'
-	autoload :DNSZone, 'mu/resources/dnszone'
+	autoload :CloudFormation, 'mu/clouds/aws/cloudformation'
+	autoload :LoadBalancer, 'mu/clouds/aws/loadbalancer'
+	autoload :Database, 'mu/clouds/aws/database'
+	autoload :Server, 'mu/clouds/aws/server'
+	autoload :ServerPool, 'mu/clouds/aws/serverpool'
+	autoload :VPC, 'mu/clouds/aws/vpc'
+	autoload :FirewallRule, 'mu/clouds/aws/firewallrule'
+	autoload :DNSZone, 'mu/clouds/aws/dnszone'
 	autoload :Cleanup, 'mu/cleanup'
 	autoload :Deploy, 'mu/deploy'
 	autoload :MommaCat, 'mu/mommacat'
