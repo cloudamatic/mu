@@ -590,7 +590,7 @@ module MU
 			chef_cleanup = %q{test -f /opt/mu_installed_chef || ( rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; touch /opt/mu_installed_chef )}
 			win_env_fix = %q{echo 'export PATH="$PATH:/cygdrive/c/opscode/chef/embedded/bin"' > "$HOME/chef-client"; echo 'prev_dir="`pwd`"; for __dir in /proc/registry/HKEY_LOCAL_MACHINE/SYSTEM/CurrentControlSet/Control/Session\ Manager/Environment;do cd "$__dir"; for __var in `ls * | grep -v TEMP | grep -v TMP`;do __var=`echo $__var | tr "[a-z]" "[A-Z]"`; test -z "${!__var}" && export $__var="`cat $__var`" >/dev/null 2>&1; done; done; cd "$prev_dir"; /cygdrive/c/opscode/chef/bin/chef-client.bat $@' >> "$HOME/chef-client"; chmod 700 "$HOME/chef-client"; ( grep "^alias chef-client=" "$HOME/.bashrc" || echo 'alias chef-client="$HOME/chef-client"' >> "$HOME/.bashrc" ) ; ( grep "^alias mu-groom=" "$HOME/.bashrc" || echo 'alias mu-groom="powershell -File \"c:/Program Files/Amazon/Ec2ConfigService/Scripts/UserScript.ps1\""' >> "$HOME/.bashrc" )}
 			win_set_pw = nil
-			if !server['windows_auth_vault'].nil?
+			if !server['windows_auth_vault'].nil? and server["windows_auth_vault"].has_key?("password_field")
 				field = server["windows_auth_vault"]["password_field"]
 				pw = ChefVault::Item.load(
 					server['windows_auth_vault']['vault'],
@@ -780,21 +780,29 @@ module MU
 			if %w{win2k12r2 win2k12 windows}.include?(server['platform'])
 				if server['use_cloud_provider_windows_password']
 					win_admin_password = MU::Server.getWindowsAdminPassword(instance_id: id, identity_file: "#{ssh_keydir}/#{node_ssh_key}", node_name: node, region: server['region'])
-				elsif !server['use_cloud_provider_windows_password'] && server['windows_auth_vault'] && !server['windows_auth_vault'].empty?
-					win_admin_password = ChefVault::Item.load(
-						server['windows_auth_vault']['vault'],
-						server['windows_auth_vault']['item']
-					)[server["windows_auth_vault"]["password_field"]]
+				elsif server['windows_auth_vault'] && !server['windows_auth_vault'].empty?
+					if server["windows_auth_vault"].has_key?("password_field")
+						win_admin_password = ChefVault::Item.load(
+							server['windows_auth_vault']['vault'],
+							server['windows_auth_vault']['item']
+						)[server["windows_auth_vault"]["password_field"]]
+					else
+						win_admin_password = MU::Server.getWindowsAdminPassword(instance_id: id, identity_file: "#{ssh_keydir}/#{node_ssh_key}", node_name: node, region: server['region'])
+					end
 					
-					ec2config_password = ChefVault::Item.load(
-						server['windows_auth_vault']['vault'],
-						server['windows_auth_vault']['item']
-					)[server["windows_auth_vault"]["ec2config_password_field"]]
+					if server["windows_auth_vault"].has_key?("ec2config_password_field")
+						ec2config_password = ChefVault::Item.load(
+							server['windows_auth_vault']['vault'],
+							server['windows_auth_vault']['item']
+						)[server["windows_auth_vault"]["ec2config_password_field"]]
+					end
 					
-					sshd_password = ChefVault::Item.load(
-						server['windows_auth_vault']['vault'],
-						server['windows_auth_vault']['item']
-					)[server["windows_auth_vault"]["sshd_password_field"]]
+					if server["windows_auth_vault"].has_key?("sshd_password_field")
+						sshd_password = ChefVault::Item.load(
+							server['windows_auth_vault']['vault'],
+							server['windows_auth_vault']['item']
+						)[server["windows_auth_vault"]["sshd_password_field"]]
+					end
 				else
 					win_admin_password = server['winpass']
 				end

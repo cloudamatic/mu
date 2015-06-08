@@ -758,8 +758,8 @@ module MU
 					item = ChefVault::Item.load(server['windows_auth_vault']['vault'], server['windows_auth_vault']['item'])
 					["password_field", "ec2config_password_field", "sshd_password_field"].each { |field|
 						if !item.has_key?(server['windows_auth_vault'][field])
-							ok = false
-							MU.log "I don't see a value named #{field} in Chef Vault #{server['windows_auth_vault']['vault']}:#{server['windows_auth_vault']['item']}", MU::ERR
+							MU.log "No value named #{field} in Chef Vault #{server['windows_auth_vault']['vault']}:#{server['windows_auth_vault']['item']}, will use a generated password.", MU::NOTICE
+							server['windows_auth_vault'].delete(field)
 						end
 					}
 				end
@@ -2451,6 +2451,7 @@ module MU
 			"windows_auth_vault" => {
 				"type" => "object",
 				"additionalProperties" => false,
+				"required" => ["vault", "item"],
 				"description" => "Set Windows nodes' local administrator password to a value specified in a Chef Vault.",
 				"properties" => {
 					"vault" => {
