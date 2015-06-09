@@ -30,7 +30,7 @@ else
 end
 
 if can_create_domain
-	active_directory_domain node.ad.domain_name do
+	mu_activedirectory_domain node.ad.domain_name do
 		netbios_name node.ad.netbios_name
 		domain_admin_user domain_admin[node.ad.admin_auth[:username_field]]
 		domain_admin_password domain_admin[node.ad.admin_auth[:password_field]]

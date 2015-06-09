@@ -34,7 +34,7 @@ else
 end
 
 if can_join_domain
-	active_directory_domain_node node.ad.domain_name do
+	mu_activedirectory_domain_node node.ad.domain_name do
 		netbios_name node.ad.netbios_name
 		computer_name node.ad.computer_name
 		join_user domain_creds[node.ad.join_auth[:username_field]]

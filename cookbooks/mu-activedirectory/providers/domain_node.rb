@@ -30,7 +30,14 @@ action :add do
 end
 
 action :remove do
-	disjoin_domain
+	case node.platform
+	when "windows"
+		unjoin_domain_windows
+	when "centos", "redhat"
+		unjoin_domain_linux
+	else
+		Chef::Log.info("Unsupported platform #{node.platform}")
+	end
 end
 
 # def load_current_resource
@@ -70,6 +77,14 @@ def set_client_dns
 	Chef::Log.info("Set DNS addresses to #{new_resource.dc_ips.join(", ")}")
 end
 
+def unjoin_domain_windows
+	if in_domain?
+		cmd = powershell_out("Remove-Computer -UnjoinDomaincredential #{admin_creds} -Passthru -Verbose -Restart -Force")
+		kill_ssh
+		Chef::Application.fatal!("Failed to remove #{new_resource.computer_name} from #{new_resource.dns_name} domain") unless cmd.exitstatus == 0
+		Chef::Application.fatal!("Removed #{new_resource.computer_name} from #{new_resource.dns_name} domain, rebooting. Will have to run chef again")
+	end
+end
 
 def join_domain_linux
 	%w{sshd winbind}.each { |svc|
@@ -241,4 +256,12 @@ def configure_winbind_kerberos_authentication
 			manage_symlink_source true
 		end
 	}
+end
+
+def unjoin_domain_linux
+	execute "Unjoin domain #{new_resource.dns_name}" do
+		command "net ads leave -U #{new_resource.join_user}%#{new_resource.join_password}"
+		sensitive true
+		only_if "net ads testjoin | grep OK"
+	end
 end

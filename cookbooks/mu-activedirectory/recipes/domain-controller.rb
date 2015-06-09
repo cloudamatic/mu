@@ -31,7 +31,7 @@ else
 end
 
 if can_add_controller
-	active_directory_domain_controller node.ad.domain_name do
+	mu_activedirectory_domain_controller node.ad.domain_name do
 		netbios_name node.ad.netbios_name
 		domain_admin_user domain_admin[node.ad.admin_auth[:username_field]]
 		domain_admin_password domain_admin[node.ad.admin_auth[:password_field]]
