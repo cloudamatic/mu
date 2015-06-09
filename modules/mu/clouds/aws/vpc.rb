@@ -254,7 +254,7 @@ module MU
 		end
 
 		# Called automatically by {MU::Deploy#createResources}
-		def deploy
+		def groom
 			vpc_name = MU::MommaCat.getResourceName(@vpc['name'])
 			deploy_struct = @deploy.deployment['vpcs'][@vpc['name']]
 

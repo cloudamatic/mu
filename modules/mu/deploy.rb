@@ -305,15 +305,15 @@ module MU
 					}
 				}
 
-				# Some resources have a "deploy" phase too
+				# Some resources have a "groom" phase too
 		    @my_threads << Thread.new {
 					MU.dupGlobals(parent_thread_id)
-					Thread.current.thread_variable_set("name", "mu_deploy_container")
+					Thread.current.thread_variable_set("name", "mu_groom_container")
 					MU.resource_types.each { |cloudclass|
 						if !@main_config[cloudclass.cfg_plural].nil? and
 						 		@main_config[cloudclass.cfg_plural].size > 0 and
-								cloudclass.instance_methods(false).include?(:deploy)
-							createResources(@main_config[cloudclass.cfg_plural], "deploy")
+								cloudclass.instance_methods(false).include?(:groom)
+							createResources(@main_config[cloudclass.cfg_plural], "groom")
 						end
 					}
 				}
@@ -454,11 +454,11 @@ MESSAGE_END
 				res_type = resource["#MU_CLASS"].name
 		    name = res_type+"_"+resource["name"]
 
-				# All resources wait to "deploy" until after their own "create" thread
+				# All resources wait to "groom" until after their own "create" thread
 				# finishes, and also on the main thread which spawns them (so all
 				# siblings will exist for dependency checking before we start).
 		    @dependency_threads["#{name}_create"]=["mu_create_container"]
-		    @dependency_threads["#{name}_deploy"]=["#{name}_create", "mu_deploy_container"]
+		    @dependency_threads["#{name}_groom"]=["#{name}_create", "mu_groom_container"]
 
 				MU.log "Setting dependencies for #{name}", MU::DEBUG
 				if resource["dependencies"] != nil then
@@ -467,14 +467,14 @@ MESSAGE_END
 
 						parent_type = parent_class.name
 						parent = parent_type+"_"+dependency["name"]+"_create"
-						addDependentThread(parent, "#{name}_deploy")
+						addDependentThread(parent, "#{name}_groom")
 						if (parent_class.deps_wait_on_my_creation and parent_type != res_type) or resource["#MU_CLASS"].waits_on_parent_completion or dependency['phase'] == "create"
 							addDependentThread(parent, "#{name}_create")
 						end
-						if (dependency['phase'] == "deploy" or resource["#MU_CLASS"].waits_on_parent_completion) and parent_class.instance_methods(false).include?(:deploy)
-							parent = parent_type+"_"+dependency["name"]+"_deploy"
-							addDependentThread(parent, "#{name}_deploy")
-							if (parent_class.deps_wait_on_my_creation and parent_type != res_type) or resource["#MU_CLASS"].waits_on_parent_completion or dependency['phase'] == "deploy"
+						if (dependency['phase'] == "groom" or resource["#MU_CLASS"].waits_on_parent_completion) and parent_class.instance_methods(false).include?(:groom)
+							parent = parent_type+"_"+dependency["name"]+"_groom"
+							addDependentThread(parent, "#{name}_groom")
+							if (parent_class.deps_wait_on_my_creation and parent_type != res_type) or resource["#MU_CLASS"].waits_on_parent_completion or dependency['phase'] == "groom"
 								addDependentThread(parent, "#{name}_create")
 							end
 						end
@@ -498,10 +498,10 @@ MESSAGE_END
 		      Thread.abort_on_exception = true
 					waitOnThreadDependencies(threadname)
 
-					if service["#MU_CLASS"].instance_methods(false).include?(:deploy)
+					if service["#MU_CLASS"].instance_methods(false).include?(:groom)
 						if mode == "create"
 							MU::MommaCat.lock(service["#MU_CLASS"].name+"_"+myservice["name"]+"-dependencies")
-						elsif mode == "deploy"
+						elsif mode == "groom"
 							MU::MommaCat.unlock(service["#MU_CLASS"].name+"_"+myservice["name"]+"-dependencies")
 						end
 					end

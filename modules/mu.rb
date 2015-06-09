@@ -54,6 +54,10 @@ class Chef
 	# MommaCat. It's not at all clear why. Chef bug? Autoload threading weirdness?
 	class Knife
 		autoload :Ssh, 'chef/knife/ssh'
+		autoload :Bootstrap, 'chef/knife/bootstrap'
+		autoload :BootstrapWindowsSsh, 'chef/knife/bootstrap_windows_ssh'
+		autoload :Bootstrap, 'chef/knife/core/bootstrap_context'
+		autoload :BootstrapWindowsSsh, 'chef/knife/core/bootstrap_context'
 	end
 end
 
@@ -255,7 +259,7 @@ module MU
 
 	# Wrapper class for the EC2 API, so that we can catch some common transient
 	# endpoint errors without having to spray rescues all over the codebase.
-	class AWS
+	class AWSEndpoint
 		@api = nil
 		@region = nil
 
@@ -310,7 +314,7 @@ module MU
 	def self.ec2(region = MU.curRegion)
 		region ||= MU.myRegion
 #		@@ec2_api[region] ||= Aws::EC2::Client.new(region: region)
-		@@ec2_api[region] ||= MU::AWS.new(region: region)
+		@@ec2_api[region] ||= MU::AWSEndpoint.new(region: region)
 		@@ec2_api[region]
 	end
 
@@ -522,39 +526,6 @@ module MU
 		return bucketname
 	end
 
-
-	autoload :CloudFormation, 'mu/clouds/aws/cloudformation'
-	autoload :LoadBalancer, 'mu/clouds/aws/loadbalancer'
-	autoload :Database, 'mu/clouds/aws/database'
-	autoload :Server, 'mu/clouds/aws/server'
-	autoload :ServerPool, 'mu/clouds/aws/serverpool'
-	autoload :VPC, 'mu/clouds/aws/vpc'
-	autoload :FirewallRule, 'mu/clouds/aws/firewallrule'
-	autoload :DNSZone, 'mu/clouds/aws/dnszone'
-	autoload :Cleanup, 'mu/cleanup'
-	autoload :Deploy, 'mu/deploy'
-	autoload :MommaCat, 'mu/mommacat'
-	autoload :Config, 'mu/config'
-
-	# The types of cloud resources we can create, as class objects. Map to the
-	# {MU::Config.BasketofKittens} config language names so we can convert
-	# between them as needed.
-	@@resource_types = [
-		MU::CloudFormation,
-		MU::Database,
-		MU::DNSZone,
-		MU::FirewallRule,
-		MU::LoadBalancer,
-		MU::Server,
-		MU::ServerPool,
-		MU::VPC
-	].freeze
-	# XXX when we re-namespace these guys, we can probably generate this list
-	# dynamically
-
-	# A list of supported cloud resource types as Mu classes
-	def self.resource_types ; @@resource_types end
-
 	# For log entries that should only be logged when we're in verbose mode
 	DEBUG = 0.freeze
 	# For ordinary log entries
@@ -569,6 +540,82 @@ module MU
 	ERR = 4.freeze
 	# Log entries for fatal errors
 	ERROR = 4.freeze
+
+	# The types of cloud resources we can create, as class objects. List methods
+	# a class implementing this resource type must support to be considered
+	# valid.
+	generic_class_methods = [:deps_wait_on_my_creation, :waits_on_parent_completion, :find, :cleanup]
+	generic_instance_methods = [:create]
+	@@resource_types = {
+		:CloudFormation => {
+			:cfg_name => "cloudformation_stack",
+			:cfg_plural => "cloudformation_stacks",
+			:instance => generic_class_methods,
+			:class => generic_instance_methods
+		},
+		:Database => {
+			:cfg_name => "database",
+			:cfg_plural => "databases",
+			:instance => generic_class_methods,
+			:class => generic_instance_methods + [:groom]
+		},
+		:DNSZone => {
+			:cfg_name => "dnszone",
+			:cfg_plural => "dnszones",
+			:instance => generic_class_methods,
+			:class => generic_instance_methods
+		},
+		:FirewallRule => {
+			:cfg_name => "firewall_rule",
+			:cfg_plural => "firewall_rules",
+			:instance => generic_class_methods,
+			:class => generic_instance_methods + [:groom]
+		},
+		:LoadBalancer => {
+			:cfg_name => "loadbalancer",
+			:cfg_plural => "loadbalancers",
+			:instance => generic_class_methods,
+			:class => generic_instance_methods
+		},
+		:Server => {
+			:cfg_name => "server",
+			:cfg_plural => "servers",
+			:instance => generic_class_methods + [:postBoot],
+			:class => generic_instance_methods + [:groom]
+		},
+		:ServerPool => {
+			:cfg_name => "server_pool",
+			:cfg_plural => "server_pools",
+			:instance => generic_class_methods,
+			:class => generic_instance_methods
+		},
+		:VPC => {
+			:cfg_name => "vpc",
+			:cfg_plural => "vpcs",
+			:instance => generic_class_methods,
+			:class => generic_instance_methods + [:groom]
+		},
+	}.freeze
+
+	# A list of supported cloud resource types as Mu classes
+	def self.resource_types ; @@resource_types end
+
+	autoload :Cleanup, 'mu/cleanup'
+	autoload :Deploy, 'mu/deploy'
+	autoload :MommaCat, 'mu/mommacat'
+	autoload :Config, 'mu/config'
+
+	MU::Config.supportedClouds.each { |cloud|
+		cloudclass = Class.new(Object) do
+MU.log "Initializing #{cloud} support"
+			@@resource_types.each_pair { |res_class, data|
+MU.log "autoload #{res_class}, 'mu/clouds/#{cloud.downcase}/#{data[:cfg_name]}'"
+				autoload res_class, "mu/clouds/#{cloud.downcase}/#{data[:cfg_name]}"
+			}
+		end
+		MU.const_set(cloud, Class.new(Object))
+	}
+
 
 	# The AWS policy to allow CloudTrails to log to an S3 bucket.
 	CLOUDTRAIL_BUCKET_POLICY = '{

@@ -68,7 +68,7 @@ module MU
 		end
 
 		# Called by {MU::Deploy#createResources}
-		def deploy
+		def groom
 			MU::FirewallRule.setRules(
 					@ruleset['sg_id'],
 					@ruleset['rules'],

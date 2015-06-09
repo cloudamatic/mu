@@ -330,7 +330,7 @@ module MU
 		end
 
 
-		# Run {MU::Server#groomEc2} and {MU::Server#deploy} on a node.
+		# Run {MU::Server#postBoot} and {MU::Server#deploy} on a node.
 		# @param instance [OpenStruct]: The cloud providor's full descriptor for this node.
 		# @param name [String]: The MU resource name of the node being created.
 		# @param type [String]: The type of resource that created this node (either *server* or *serverpool*).
@@ -442,7 +442,7 @@ module MU
 
 						end
 
-						if !MU::Server.groomEc2(server, instance, @ssh_key_name, sync_wait: sync_wait)
+						if !MU::Server.postBoot(server, instance, @ssh_key_name, sync_wait: sync_wait)
 							MU.log "#{node} is already being groomed, skipping", MU::NOTICE
 							MU::MommaCat.unlockAll
 							puts "------------------------------"

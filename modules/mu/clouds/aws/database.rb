@@ -432,7 +432,7 @@ module MU
 		end
 
 		# Called automatically by {MU::Deploy#createResources}
-		def deploy
+		def groom
 			database = MU::Database.getDatabaseById(@db['identifier'], region: @db['region'])
 
 			# Run SQL on deploy

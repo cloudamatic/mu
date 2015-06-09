@@ -36,6 +36,15 @@ module MU
 		class DeployParamError < MuError
 		end
 
+		# The default cloud provider for new resources
+		def self.defaultCloud
+			"AWS"
+		end
+		# List of known/supported Cloud providers
+		def self.supportedClouds
+			["AWS"]
+		end
+
 		attr_reader :amazon_images
 		@@amazon_images = YAML.load(File.read("#{MU.myRoot}/modules/mu/defaults/amazon_images.yaml"))
 		if File.exists?("#{MU.etcDir}/amazon_images.yaml")
@@ -409,6 +418,7 @@ module MU
 			}
 			return zones
 		end
+
 
 		# List the Amazon Web Services region names available to this account. The
 		# region that is local to this Mu server will be listed first.
@@ -1137,7 +1147,7 @@ module MU
 							asg["dependencies"] << {
 								"type" => "asg",
 								"name" => nat_routes[subnet["subnet_name"]],
-								"phase" => "deploy"
+								"phase" => "groom"
 							}
 						end
 						if !processVPCReference(asg["vpc"],
@@ -1355,7 +1365,7 @@ module MU
 				server['vault_access'] << { "vault" => "splunk", "item" => "admin_user" }
 				ok = false if !check_vault_refs(server)
 
-				server["#MU_CLASS"] = MU::Server
+				server["#MU_CLASS"] = Object.const_get("MU::#{server['cloud']}::Server")
 				if server['ingress_rules'] != nil
 					server['ingress_rules'].each {|rule|
 						if rule['port'].nil? and rule['port_range'].nil? and rule['proto'] != "icmp"
@@ -1395,7 +1405,7 @@ module MU
 							server["dependencies"] << {
 								"type" => "server",
 								"name" => nat_routes[server["vpc"]["subnet_name"]],
-								"phase" => "deploy"
+								"phase" => "groom"
 							}
 						end
 						if !processVPCReference(server["vpc"],
@@ -1675,6 +1685,12 @@ module MU
 			"enum" => MU::Config.listRegions
 		}
 
+		@cloud_primitive = {
+			"type" => "string",
+			"default" => MU::Config.defaultCloud,
+			"enum" => MU::Config.supportedClouds
+		}
+
 
 		@dependencies_primitive = {
 			"type" => "array",
@@ -1691,8 +1707,8 @@ module MU
 					},
 					"phase" => {
 						"type" => "string",
-						"description" => "Which part of the creation process of the resource we depend on should we wait for before starting our own creation? Defaults are usually sensible, but sometimes you want, say, a Server to wait on another Server to be completely ready (through its deploy phase) before starting up.",
-						"enum" => ["create", "deploy"]
+						"description" => "Which part of the creation process of the resource we depend on should we wait for before starting our own creation? Defaults are usually sensible, but sometimes you want, say, a Server to wait on another Server to be completely ready (through its groom phase) before starting up.",
+						"enum" => ["create", "groom"]
 					}
 				}
 			}
@@ -2292,6 +2308,7 @@ module MU
 		@server_common_properties = {
 			"name" => { "type" => "string" },
 			"region" => @region_primitive,
+			"cloud" => @cloud_primitive,
 			"tags" => @tags_primitive,
 			"active_directory" => {
 				"type" => "object",
@@ -2496,7 +2513,7 @@ module MU
 		@server_primitive = {
 			"type" => "object",
 			"title" => "server",
-			"required" => ["name", "size"],
+			"required" => ["name", "size", "cloud"],
 			"additionalProperties" => false,
 			"description" => "Create individual server instances.",
 			"properties" => {
@@ -2552,9 +2569,10 @@ module MU
 			"type" => "object",
 			"title" => "database",
 			"description" => "Create a dedicated database server.",
-			"required" => ["name", "engine", "size"],
+			"required" => ["name", "engine", "size", "cloud"],
 			"additionalProperties" => false,
 			"properties" => {
+				"cloud" => @cloud_primitive,
 				"name" => { "type" => "string" },
 				"region" => @region_primitive,
 				"db_family" => { "type" => "string" },
@@ -2710,7 +2728,7 @@ module MU
 			"title" => "loadbalancer",
 			"description" => "Create Load Balancers",
 			"additionalProperties" => false,
-			"required" => ["name", "listeners"],
+			"required" => ["name", "listeners", "cloud"],
 			"properties" => {
 				"name" => {
 					"type" => "string",
@@ -2729,6 +2747,7 @@ module MU
 					"items" => @firewall_ruleset_rule_primitive
 				},
 				"region" => @region_primitive,
+				"cloud" => @cloud_primitive,
 				"cross_zone_unstickiness" => {
 					"type" => "boolean",
 					"default" => false
@@ -2901,8 +2920,9 @@ module MU
 			"type" => "object",
 			"additionalProperties" => false,
 			"description" => "Create a DNS zone in Route 53.",
-			"required" => ["name"],
+			"required" => ["name", "cloud"],
 			"properties" => {
+				"cloud" => @cloud_primitive,
 				"name" => {
 					"type" => "string",
 					"description" => "The domain name to create. Must comply with RFC 1123",
@@ -2930,7 +2950,7 @@ module MU
 			"type" => "object",
 			"additionalProperties" => false,
 			"description" => "Create scalable pools of identical servers.",
-			"required" => ["name", "min_size", "max_size", "basis"],
+			"required" => ["name", "min_size", "max_size", "basis", "cloud"],
 			"properties" => {
 				"dns_records" => dns_records_primitive(need_target: false, default_type: "A", need_zone: true),
 				"wait_for_nodes" => {
@@ -3098,7 +3118,7 @@ module MU
 			"$schema" => "http://json-schema.org/draft-04/schema#",
 			"title" => "MU Application",
 			"type" => "object",
-			"description" => "A MU application stack, consisting of at least one server or database, and at least one 'admins' entry.",
+			"description" => "A MU application stack, consisting of at least one resource.",
 			"required" => ["admins", "appname"],
 			"properties" => {
 				"appname" => {

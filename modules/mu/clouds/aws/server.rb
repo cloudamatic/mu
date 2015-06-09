@@ -23,6 +23,7 @@ require 'open-uri'
 
 module MU
 
+class AWS
 
 	# A server as configured in {MU::Config::BasketofKittens::servers}
 	class Server
@@ -242,7 +243,7 @@ module MU
 				if !@deploy.mommacat_boot
 					sleep 5
 					MU::MommaCat.lock(instance.instance_id+"-create")
-					if !groomEc2(instance)
+					if !postBoot(instance)
 						MU.log "#{@server['name']} is already being groomed, skipping", MU::NOTICE
 					else
 						MU.log "Node creation complete for #{@server['name']}"
@@ -625,11 +626,17 @@ MU.log win_set_pw, MU::ERR
 		# Apply tags, bootstrap Chef, and other administravia for a new instance.
 		# Return SSH configuration information for getting into said instance.
 		# @param instance [OpenStruct]: The cloud provider's full descriptor for this instance.
-		def groomEc2(instance)
-			return MU::Server.groomEc2(@server, instance, @deploy.keypairname, environment: @deploy.environment, sync_wait: @server['dns_sync_wait'])
+		def postBoot(instance)
+			return MU::Server.postBoot(@server, instance, @deploy.keypairname, environment: @deploy.environment, sync_wait: @server['dns_sync_wait'])
 		end
-		# (see #groomEc2)
-		def self.groomEc2(server, instance, keypairname, environment: environment, sync_wait: sync_wait)
+		# Apply tags, bootstrap Chef, and other administravia for a new instance.
+		# Return SSH configuration information for getting into said instance.
+		# @param server [Hash]: The #{MU::Config::BasketofKittens::Server} descriptor for this node
+		# @param instance [OpenStruct]: The cloud provider's full descriptor for this instance.
+		# @param keypairname [String]: The name of the SSH keypair used to access this node
+		# @param environment [String]: This node's environment
+		# @param sync_wait [Boolean]: Whether to wait for DNS entries to propagate before completing 
+		def self.postBoot(server, instance, keypairname, environment: environment, sync_wait: sync_wait)
 		  node = server['mu_name']
 			if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
 				Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
@@ -637,8 +644,8 @@ MU.log win_set_pw, MU::ERR
 			Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}/organizations/#{MU.chef_user}"
 			Chef::Config[:environment] = environment
 
+			return false if !MU::MommaCat.lock(instance.instance_id+"-orchestrate", true)
 			return false if !MU::MommaCat.lock(instance.instance_id+"-groom", true)
-			return false if !MU::MommaCat.lock(instance.instance_id+"-deploy", true)
 
 			MU::MommaCat.createStandardTags(instance.instance_id, region: server['region'])
 		  MU::MommaCat.createTag(instance.instance_id, "Name", node, region: server['region'])
@@ -950,8 +957,8 @@ MU.log win_set_pw, MU::ERR
 			if nodelist.has_key?(node)
 				MU.log "Node #{node} has already been bootstrapped, skipping Chef setup.", MU::NOTICE
 				saveInitialChefNodeAttrs(node, instance, server, canonical_ip)
+				MU::MommaCat.unlock(instance.instance_id+"-orchestrate")
 				MU::MommaCat.unlock(instance.instance_id+"-groom")
-				MU::MommaCat.unlock(instance.instance_id+"-deploy")
 				return true
 			end
 
@@ -959,8 +966,7 @@ MU.log win_set_pw, MU::ERR
 
 			run_list = ["role[mu-node]"]
 
-			require 'chef/knife'
-			require 'chef/knife/ssh'
+			# XXX These shouldn't be needed, see Autoloads in mu.rb.
 			require 'chef/knife/bootstrap'
 			require 'chef/knife/core/bootstrap_context'
 			require 'chef/knife/bootstrap_windows_ssh'
@@ -1170,8 +1176,8 @@ MU.log win_set_pw, MU::ERR
 				MU::Server.runChef(node, server, node_ssh_key, "Join Active Directory")
 			end
 
-			MU::MommaCat.unlock(instance.instance_id+"-deploy")
 			MU::MommaCat.unlock(instance.instance_id+"-groom")
+			MU::MommaCat.unlock(instance.instance_id+"-orchestrate")
 			return true
 		end
 
@@ -1527,25 +1533,25 @@ MU.log win_set_pw, MU::ERR
 		end
 
 		# Called automatically by {MU::Deploy#createResources}
-		def deploy
+		def groom
 			if !@deploy.mommacat_boot
 				keypairname, ssh_private_key, ssh_public_key = @deploy.createEc2SSHKey
-				return MU::Server.deploy(@server, @deploy.deployment, environment: @deploy.environment, keypairname: keypairname)
+				return MU::Server.groom(@server, @deploy.deployment, environment: @deploy.environment, keypairname: keypairname)
 			end
 		end
-		# (see #deploy)
-		def self.deploy(server, deployment, environment: environment, keypairname: keypairname, chef_rerun_only: chef_rerun_only = false)
+		# (see #groom)
+		def self.groom(server, deployment, environment: environment, keypairname: keypairname, chef_rerun_only: chef_rerun_only = false)
 			if server["instance_id"].nil?
-				MU.log "MU::Server.deploy was called without an instance id", MU::ERR
-				raise MuError, "MU::Server.deploy was called without an instance id"
+				MU.log "MU::Server.groom was called without an instance id", MU::ERR
+				raise MuError, "MU::Server.groom was called without an instance id"
 			end
-			MU::MommaCat.lock(server["instance_id"]+"-deploy")
+			MU::MommaCat.lock(server["instance_id"]+"-groom")
 
 			node = server['mu_name']
 
 			if node.nil? or node.empty?
-				MU.log "MU::Server.deploy was called without a mu_name", MU::ERR, details: server
-				raise MuError, "MU::Server.deploy was called without a mu_name"
+				MU.log "MU::Server.groom was called without a mu_name", MU::ERR, details: server
+				raise MuError, "MU::Server.groom was called without a mu_name"
 			end
 
 			Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}/organizations/#{MU.chef_user}"
@@ -1668,7 +1674,7 @@ MU.log win_set_pw, MU::ERR
 				end
 			end
 
-			MU::MommaCat.unlock(server["instance_id"]+"-deploy")
+			MU::MommaCat.unlock(server["instance_id"]+"-groom")
 		end
 
 		# Synchronize the deployment structure managed by {MU::MommaCat} to Chef,
@@ -2453,5 +2459,6 @@ MU.log win_set_pw, MU::ERR
 		  end
 		end
 
+	end #class
 	end #class
 end #module
