@@ -7,21 +7,20 @@ default.ad.computer_ou = nil
 default.ad.domain_controller_names = []
 default.ad.computer_name = nil
 
-# Need to rewrite this to use ad node name instead of windows node name
-# This is only for domain controllers. We may want to set domain controller names to a none mu name to make fail over easier.
-node.deployment.servers.each_pair { |node_class, nodes|
-	nodes.each_pair { |name, data|
-		if name == Chef::Config[:node_name]
-			my_subnet_id = data['subnet_id']
-			if node.ad.domain_controller_names.empty?
-				if data['mu_windows_name']
-					default.ad.computer_name = data['mu_windows_name']
-					default.ad.node_class = node_class
-				end
-			end
-		end
-	} rescue NoMethodError
-} rescue NoMethodError
+# This is done in Mu.
+# node.deployment.servers.each_pair { |node_class, nodes|
+	# nodes.each_pair { |name, data|
+		# if name == Chef::Config[:node_name]
+			# my_subnet_id = data['subnet_id']
+			# if node.ad.domain_controller_names.empty?
+				# if data['mu_windows_name']
+					# default.ad.computer_name = data['mu_windows_name']
+					# default.ad.node_class = node_class
+				# end
+			# end
+		# end
+	# } rescue NoMethodError
+# } rescue NoMethodError
 
 default.ad.sites = []
 if !node.deployment.vpcs.empty?
@@ -31,9 +30,6 @@ if !node.deployment.vpcs.empty?
 			:name => data['name'],
 			:ip_block => data['ip_block']
 		}
-		if my_subnet_id && my_subnet_id == data['subnet_id']
-			default.ad.site_name = "#{data['name']}_#{data['ip_block']}"
-		end
 	}
 end rescue NoMethodError
 
