@@ -394,31 +394,6 @@ module MU
 			MU::Config.include(file, get_binding)
 		end
 
-		# List the Availability Zones associated with a given Amazon Web Services
-		# region. If no region is given, search the one in which this MU master
-		# server resides.
-		# @param region [String]: The region to search.	
-		# @return [Array<String>]: The Availability Zones in this region.
-		def listAZs(region = MU.curRegion)
-			azs = MU::Config.listAZs(region)
-			return azs
-		end
-		# (see #listAZs)
-		def self.listAZs(region = MU.curRegion)
-			if region
-				azs = MU::AWS.ec2(region).describe_availability_zones(
-					filters: [name: "region-name", values: [region]]
-				)
-			else
-				azs = MU::AWS.ec2(region).describe_availability_zones
-			end
-			zones = Array.new
-			azs.data.availability_zones.each { |az|
-				zones << az.zone_name if az.state == "available"
-			}
-			return zones
-		end
-
 		# Namespace magic to pass to ERB's result method.
 		def get_binding
 			binding
@@ -1038,13 +1013,15 @@ module MU
 
 				lb['listeners'].each { |listener|
 					if !listener["ssl_certificate_name"].nil?
-						resp = MU::AWS.iam.get_server_certificate(server_certificate_name: listener["ssl_certificate_name"])
-						if resp.nil?
-							MU.log "Requested SSL certificate #{listener["ssl_certificate_name"]}, but no such cert exists", MU::ERR
-							ok = false
-						else
-							listener["ssl_certificate_id"] = resp.server_certificate.server_certificate_metadata.arn
-							MU.log "Using SSL cert #{listener["ssl_certificate_id"]} on port #{listener['lb_port']} in ELB #{lb['name']}"
+						if lb['cloud'] == "AWS"
+							resp = MU::AWS.iam.get_server_certificate(server_certificate_name: listener["ssl_certificate_name"])
+							if resp.nil?
+								MU.log "Requested SSL certificate #{listener["ssl_certificate_name"]}, but no such cert exists", MU::ERR
+								ok = false
+							else
+								listener["ssl_certificate_id"] = resp.server_certificate.server_certificate_metadata.arn
+								MU.log "Using SSL cert #{listener["ssl_certificate_id"]} on port #{listener['lb_port']} in ELB #{lb['name']}"
+							end
 						end
 					end
 				}

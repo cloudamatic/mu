@@ -43,7 +43,7 @@ module MU
 				lb_name.gsub!(/[^\-a-z0-9]/i, "-") # LB naming rules
 
 				if @loadbalancer["zones"] == nil
-					@loadbalancer["zones"] = MU::Config.listAZs(@loadbalancer['region'])
+					@loadbalancer["zones"] = MU::AWS.listAZs(@loadbalancer['region'])
 					MU.log "Using zones from #{@loadbalancer['region']}", MU::DEBUG, details: @loadbalancer['zones']
 				end
 

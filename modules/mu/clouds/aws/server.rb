@@ -119,7 +119,7 @@ module MU
 						MU.log "I generated a Windows admin password for #{node}. It is: #{@server['winpass']}"
 					end
 				end
-				keypairname, ssh_private_key, ssh_public_key = @deploy.createEc2SSHKey
+				keypairname, ssh_private_key, ssh_public_key = @deploy.SSHKey
 
 				@server['instance_secret'] = Password.random(50)
 				@userdata = MU::Server.fetchUserdata(
@@ -381,7 +381,7 @@ module MU
 				@server['iam_role'] = MU::Server.createIAMProfile("Server-"+name, base_profile: @server['iam_role'], extra_policies: @server['iam_policies'])
 				@server['iam_role'] = @server['iam_role']
 
-				@deploy.createEc2SSHKey
+				keypairname, ssh_private_key, ssh_public_key = @deploy.SSHKey
 
 			  instance_descriptor = {
 			    :image_id => @server["ami_id"],
@@ -1534,7 +1534,7 @@ MU.log win_set_pw, MU::ERR
 			# Called automatically by {MU::Deploy#createResources}
 			def groom
 				if !@deploy.mommacat_boot
-					keypairname, ssh_private_key, ssh_public_key = @deploy.createEc2SSHKey
+					keypairname, ssh_private_key, ssh_public_key = @deploy.SSHKey
 					return MU::Server.groom(@server, @deploy.deployment, environment: @deploy.environment, keypairname: keypairname)
 				end
 			end

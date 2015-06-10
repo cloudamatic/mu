@@ -114,11 +114,11 @@ module MU
 					subnet_semaphore = Mutex.new
 					subnetthreads = Array.new
 					parent_thread_id = Thread.current.object_id
-					azs = MU::Config.listAZs
+					azs = MU::AWS.listAZs
 					@vpc['subnets'].each { |subnet|
 						subnet_name = @vpc['name']+"-"+subnet['name']
 						MU.log "Creating Subnet #{subnet_name} (#{subnet['ip_block']})", details: subnet
-						azs = MU::Config.listAZs if azs.size == 0
+						azs = MU::AWS.listAZs if azs.size == 0
 						if !subnet['availability_zone'].nil?
 							az = subnet['availability_zone']
 						else

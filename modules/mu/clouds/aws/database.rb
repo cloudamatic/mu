@@ -456,7 +456,7 @@ module MU
 
 					#Setting up connection params
 					ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
-					keypairname, ssh_private_key, ssh_public_key = @deploy.createEc2SSHKey
+					keypairname, ssh_private_key, ssh_public_key = @deploy.SSHKey
 					if is_private
 						if nat_host_name
 							begin

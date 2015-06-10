@@ -71,7 +71,7 @@ module MU
 						]
 					}
 
-					keypairname, ssh_private_key, ssh_public_key = @deploy.createEc2SSHKey
+					keypairname, ssh_private_key, ssh_public_key = @deploy.SSHKey
 
 					parameters = Array.new
 					if !@stack["parameters"].nil?

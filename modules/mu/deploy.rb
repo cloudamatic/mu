@@ -149,8 +149,6 @@ module MU
 			@my_instance_id = MU.getAWSMetaData("instance-id")
 			@my_az = MU.getAWSMetaData("placement/availability-zone")
 	
-			@myhome = Dir.home
-
 			@ssh_private_key = nil
 			@ssh_public_key = nil
 	
@@ -163,53 +161,32 @@ module MU
 			}
 
 		end
-		
 
-		# Generate an EC2 keypair unique to this deployment.  This will be the main 
-		# key for each child node we create in this run. If keys have already been
-		# generated, return the existing keys instead of creating new ones.
-		# @return [Array<String>]: keypairname, ssh_private_key, ssh_public_key
-		def createEc2SSHKey
+		# Return the parts and pieces of this deploy's node ssh key set. Generate 
+		# or load if that hasn't been done already.
+		def SSHKey
 			return [@keypairname, @ssh_private_key, @ssh_public_key] if !@keypairname.nil?
-		  keyname="deploy-#{MU.mu_id}"
-			keypair = MU::AWS.ec2(MU.myRegion).create_key_pair(key_name: keyname)
-			@keypairname = keyname
-		  @ssh_private_key = keypair.key_material
-			MU.log "SSH Key Pair '#{keyname}' fingerprint is #{keypair.key_fingerprint}"
+		  @keypairname="deploy-#{MU.mu_id}"
 		
-		  if !File.directory?("#{@myhome}/.ssh") then
-				MU.log "Creating #{@myhome}/.ssh", MU::DEBUG
-		    Dir.mkdir("#{@myhome}/.ssh", 0700)
+		  if !File.directory?("#{Dir.home}/.ssh") then
+				MU.log "Creating #{Dir.home}/.ssh", MU::DEBUG
+		    Dir.mkdir("#{Dir.home}/.ssh", 0700)
 		  end
-		
-		  # Plop this private key into our local SSH key stash
-			MU.log "Depositing key '#{keyname}' into #{@myhome}/.ssh/#{keyname}", MU::DEBUG
-		  ssh_keyfile = File.new("#{@myhome}/.ssh/#{keyname}", File::CREAT|File::TRUNC|File::RDWR, 0600)
-		  ssh_keyfile.puts @ssh_private_key
-		  ssh_keyfile.close
-
-			# Drag out the public key half of this
-			@ssh_public_key = %x{/usr/bin/ssh-keygen -y -f #{@myhome}/.ssh/#{keyname}}
+			if !File.exists?("#{Dir.home}/.ssh/#{@keypairname}")
+				MU.log "Generating SSH key #{@keypairname}"
+				%x{/usr/bin/ssh-keygen -N "" -f #{Dir.home}/.ssh/#{@keypairname}}
+			end
+			@ssh_public_key = File.read(" #{Dir.home}/.ssh/#{@keypairname}.pub")
 			@ssh_public_key.chomp!
+			@ssh_private_key = File.read(" #{Dir.home}/.ssh/#{@keypairname}")
+			@ssh_private_key.chomp!
 
-			# Replicate this key in all regions
-			MU::AWS.listRegions.each { |region|
-				next if region == MU.myRegion
-				MU.log "Replicating #{keyname} to #{region}", MU::DEBUG, details: @ssh_public_key
-				MU::AWS.ec2(region).import_key_pair(
-					key_name: @keypairname,
-					public_key_material: @ssh_public_key
-				)
-			}
+			# XXX only call this if we're creating EC2 resources
+			MU::AWS.createEc2SSHKey(@keypairname, @ssh_public_key)
 
-# XXX This library code would be nicer... except it can't do PKCS8.
-#			foo = OpenSSL::PKey::RSA.new(@ssh_private_key)
-#			bar = foo.public_key
-
-			sleep 3
-		  return [keyname, keypair.key_material, @ssh_public_key]
+		  return [@keypairname, @ssh_private_key, @ssh_public_key]
 		end
-		
+
 		# Activate this deployment, instantiating all resources, orchestrating them,
 		# and saving metadata about them.
 		def run
@@ -262,7 +239,7 @@ module MU
 			end
 
 			begin
-				keyname, ssh_private_key, ssh_public_key = createEc2SSHKey
+				keyname, ssh_private_key, ssh_public_key = deploySSHKey(MU.mu_id)
 
 				metadata = {
 					"appname" => @appname,

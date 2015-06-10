@@ -1,6 +1,30 @@
 
 module MU
 	class AWS
+		# List the Availability Zones associated with a given Amazon Web Services
+		# region. If no region is given, search the one in which this MU master
+		# server resides.
+		# @param region [String]: The region to search.	
+		# @return [Array<String>]: The Availability Zones in this region.
+		def listAZs(region = MU.curRegion)
+			azs = MU::Config.listAZs(region)
+			return azs
+		end
+		# (see #listAZs)
+		def self.listAZs(region = MU.curRegion)
+			if region
+				azs = MU::AWS.ec2(region).describe_availability_zones(
+					filters: [name: "region-name", values: [region]]
+				)
+			else
+				azs = MU::AWS.ec2(region).describe_availability_zones
+			end
+			zones = Array.new
+			azs.data.availability_zones.each { |az|
+				zones << az.zone_name if az.state == "available"
+			}
+			return zones
+		end
 
 		# List the Amazon Web Services region names available to this account. The
 		# region that is local to this Mu server will be listed first.
@@ -24,6 +48,31 @@ module MU
 
 			return regions
 		end
+
+		# Generate an EC2 keypair unique to this deployment, given a regular
+		# OpenSSH-style public key and a name.
+		# @param keyname [String]: The name of the key to create.
+		# @param public_key [String]: The public key
+		# @return [Array<String>]: keypairname, ssh_private_key, ssh_public_key
+		def self.createEc2SSHKey(keyname, public_key)
+			# We replicate this key in all regions
+			MU::AWS.listRegions.each { |region|
+				next if region == MU.myRegion
+				MU.log "Replicating #{keyname} to #{region}", MU::DEBUG, details: @ssh_public_key
+				MU::AWS.ec2(region).import_key_pair(
+					key_name: keyname,
+					public_key_material: public_key
+				)
+			}
+
+# XXX This library code would be nicer... except it can't do PKCS8.
+#			foo = OpenSSL::PKey::RSA.new(@ssh_private_key)
+#			bar = foo.public_key
+
+			sleep 3
+		  return [keyname, keypair.key_material, @ssh_public_key]
+		end
+		
 
 		# Wrapper class for the EC2 API, so that we can catch some common transient
 		# endpoint errors without having to spray rescues all over the codebase.

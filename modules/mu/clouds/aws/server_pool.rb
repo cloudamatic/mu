@@ -38,7 +38,7 @@ module MU
 
 			# Called automatically by {MU::Deploy#createResources}
 			def create
-				keypairname, ssh_private_key, ssh_public_key = @deploy.createEc2SSHKey
+				keypairname, ssh_private_key, ssh_public_key = @deploy.SSHKey
 
 				pool_name = MU::MommaCat.getResourceName(@pool['name'])
 				MU.setVar("curRegion", @pool['region']) if !@pool['region'].nil?
@@ -246,7 +246,7 @@ module MU
 				# Do the dance of specifying individual zones if we haven't asked to
 				# use particular VPC subnets.
 				if @pool['zones'] == nil and asg_options[:vpc_zone_identifier] == nil
-					@pool["zones"] = MU::Config.listAZs(@pool['region'])
+					@pool["zones"] = MU::AWS.listAZs(@pool['region'])
 					MU.log "Using zones from #{@pool['region']}", MU::DEBUG, details: @pool['zones']
 				end
 				asg_options[:availability_zones] = @pool["zones"] if @pool["zones"] != nil
