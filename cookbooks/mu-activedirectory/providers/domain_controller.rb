@@ -21,8 +21,8 @@ action :add do
 		install_ad_features
 		elevate_remote_access
 		join_domain
-		configure_network_interface
 		promote
+		configure_network_interface
 		set_replication_static_ports
 		set_computer_name(admin_creds)
 	when "centos", "redhat"
@@ -63,6 +63,7 @@ def demote
 		Chef::Application.fatal!("Failed to demote Domain Controller #{new_resource.computer_name} in #{new_resource.dns_name} domain") unless cmd.exitstatus == 0
 		Chef::Application.fatal!("Demoted Domain Controller #{new_resource.computer_name} in #{new_resource.dns_name} domain. Will have to run chef again" )
 	end
+	powershell_out("Uninstall-WindowsFeature AD-Domain-Services, rsat-adds, FS-DFS-Replication, RSAT-DFS-Mgmt-Con -IncludeManagementTools")
 end
 
 def join_domain
@@ -84,7 +85,7 @@ def join_domain
 			$netadapter | Set-DnsClientServerAddress -PassThru -ServerAddresses #{dc_ips}
 			Start-Service sshd -ErrorAction SilentlyContinue
 			Add-Computer -DomainName #{new_resource.dns_name} -Credential #{admin_creds} -Restart -PassThru
-			Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue
+			Restart-Computer -Force
 		EOH
 		cmd = powershell_out(code)
 		# cmd = powershell_out("Add-Computer -DomainName #{new_resource.dns_name} -Credential #{admin_creds} -Restart -PassThru")

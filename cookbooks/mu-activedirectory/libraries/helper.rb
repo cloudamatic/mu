@@ -64,6 +64,11 @@ module Activedirectory
 			cmd = powershell_out("(Get-GPO -Name #{gpo_name}).DisplayName -eq '#{gpo_name}'")
 			return cmd.stdout.match(/True/)
 		end
+
+		def is_schemamaster?(domain_name, hostname)
+			cmd = powershell_out("(Get-ADForest #{domain_name}).SchemaMaster -eq '#{hostname.downcase}.#{domain_name}'")
+			return cmd.stdout.match(/True/)
+		end
 	end
 end
 

@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License in the root of the project or at
 #
-#     http://egt-labs.com/mu/LICENSE.html
+#	  http://egt-labs.com/mu/LICENSE.html
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -47,8 +47,6 @@ when "windows"
 		sshd_guard = ".\\\\#{sshd_username}"
 		sshd_service_username = ".\\#{sshd_username}"
 	end rescue NoMethodError
-	
-
 
 	%w{sshd Ec2Config}.each {|svc|
 		service svc do
@@ -94,73 +92,83 @@ when "windows"
 			end
 
 			# Ugh! we can't run this because at this point the sshd service is running under a user that doesn't have sufficient privileges in the domain. Need to RDP at this point. Why aren't we bootstrapping with WinRM???????
-			# Try running this as a scheduled task instead. We should still be able to create a scheduled task that runs as domain admin.
-			# Also chagne this to re-import the GPO even if the GPO exist. The SSH user that is running the service might change, and the GPO will have the old SID. 
+			# Another problem with cygwin is that gpo_exist? fails on "secondary" domain controllers although it works fine in native powershell.
+			# Using WinRM here doesn't work for multiple reasons so instead we're going to run it only on the schemamaster which is hopefully still the first domain controller.
+			# Also need to chagne this to re-import the GPO even if the GPO exist. The SSH user that is running the service might change, and the GPO will have the old SID. 
 			gpo_name = "ec2config-ssh-privileges"
-			unless gpo_exist?(gpo_name)
-				["Machine\\microsoft\\windows nt\\SecEdit", "Machine\\Scripts\\Shutdown", "Machine\\Scripts\\Startup", "User"].each { |dir|
-					directory "#{Chef::Config[:file_cache_path]}\\gpo\\{24E13F41-7118-4FB6-AE8B-45D48AFD6AFE}\\DomainSysvol\\GPO\\#{dir}" do
-						recursive true
+			if is_schemamaster?(node.ad.domain_name, node.ad.computer_name)
+				unless gpo_exist?(gpo_name)
+					["Machine\\microsoft\\windows nt\\SecEdit", "Machine\\Scripts\\Shutdown", "Machine\\Scripts\\Startup", "User"].each { |dir|
+						directory "#{Chef::Config[:file_cache_path]}\\gpo\\{24E13F41-7118-4FB6-AE8B-45D48AFD6AFE}\\DomainSysvol\\GPO\\#{dir}" do
+							recursive true
+						end
+					}
+
+					ssh_user_sid = powershell_out("(New-Object System.Security.Principal.NTAccount('#{node.ad.netbios_name}', '#{sshd_username}')).Translate([System.Security.Principal.SecurityIdentifier]).value").stdout.strip
+					ec2config_user_sid = powershell_out("(New-Object System.Security.Principal.NTAccount('#{node.ad.netbios_name}', '#{ec2config_username}')).Translate([System.Security.Principal.SecurityIdentifier]).value").stdout.strip
+					# ssh_user_sid = powershell_out("Invoke-Command -ScriptBlock { (New-Object System.Security.Principal.NTAccount('#{node.ad.netbios_name}', '#{sshd_username}')).Translate([System.Security.Principal.SecurityIdentifier]).value } -ComputerName #{node.ipaddress} -Credential (New-Object System.Management.Automation.PSCredential('#{node.ad.netbios_name}\\#{ad_vault[node.ad.domain_admin_username_field]}', (ConvertTo-SecureString '#{password}' -AsPlainText -Force)))").stdout.strip
+					# ec2config_user_sid = powershell_out("Invoke-Command -ScriptBlock { (New-Object System.Security.Principal.NTAccount('#{node.ad.netbios_name}', '#{ec2config_username}')).Translate([System.Security.Principal.SecurityIdentifier]).value } -ComputerName #{node.ipaddress} -Credential (New-Object System.Management.Automation.PSCredential('#{node.ad.netbios_name}\\#{ad_vault[node.ad.domain_admin_username_field]}', (ConvertTo-SecureString '#{password}' -AsPlainText -Force)))").stdout.strip
+
+					Chef::Log.info("ssh_user_sid #{ssh_user_sid}")
+					Chef::Log.info("ec2config_user_sid #{ec2config_user_sid}")
+
+					template "#{Chef::Config[:file_cache_path]}\\gpo\\manifest.xml" do
+						source "manifest.xml.erb"
+						variables(
+							:domain_name => node.ad.domain_name,
+							:computer_name => node.ad.computer_name
+						)
 					end
-				}
 
-				ssh_user_sid = powershell_out("(New-Object System.Security.Principal.NTAccount('#{node.ad.netbios_name}', '#{sshd_username}')).Translate([System.Security.Principal.SecurityIdentifier]).value").stdout.strip
-				ec2config_user_sid = powershell_out("(New-Object System.Security.Principal.NTAccount('#{node.ad.netbios_name}', '#{ec2config_username}')).Translate([System.Security.Principal.SecurityIdentifier]).value").stdout.strip
+					template "#{Chef::Config[:file_cache_path]}\\gpo\\{24E13F41-7118-4FB6-AE8B-45D48AFD6AFE}\\Backup.xml" do
+						source "Backup.xml.erb"
+						variables(
+							:domain_name => node.ad.domain_name,
+							:computer_name => node.ad.computer_name,
+							:netbios_name => node.ad.netbios_name
+						)
+					end
 
-				template "#{Chef::Config[:file_cache_path]}\\gpo\\manifest.xml" do
-					source "manifest.xml.erb"
-					variables(
-						:domain_name => node.ad.domain_name,
-						:computer_name => node.ad.computer_name
-					)
+					template "#{Chef::Config[:file_cache_path]}\\gpo\\{24E13F41-7118-4FB6-AE8B-45D48AFD6AFE}\\bkupInfo.xml" do
+						source "bkupInfo.xml.erb"
+						variables(
+							:domain_name => node.ad.domain_name,
+							:computer_name => node.ad.computer_name
+						)
+					end
+
+					template "#{Chef::Config[:file_cache_path]}\\gpo\\{24E13F41-7118-4FB6-AE8B-45D48AFD6AFE}\\gpreport.xml" do
+						source "gpreprt.xml.erb"
+						variables(
+							:domain_name => node.ad.domain_name,
+							:computer_name => node.ad.computer_name,
+							:netbios_name => node.ad.netbios_name,
+							:ssh_sid => ssh_user_sid,
+							:ec2config_sid => ec2config_user_sid
+						)
+					end
+
+					template "#{Chef::Config[:file_cache_path]}\\gpo\\{24E13F41-7118-4FB6-AE8B-45D48AFD6AFE}\\DomainSysvol\\GPO\\Machine\\microsoft\\windows nt\\SecEdit\\GptTmpl.inf" do
+						source "gptmpl.inf.erb"
+						variables(
+							:ssh_sid => ssh_user_sid,
+							:ec2config_sid => ec2config_user_sid
+						)
+					end
+
+					# We might not have sufficient permissions to import the GPO correctly with Cygwin/SSH at this point. Lets use WinRM to authenticate to the local machine
+					powershell_script "import #{gpo_name} gpo" do
+						guard_interpreter :powershell_script
+						code <<-EOH
+							Invoke-Command -ScriptBlock { Import-GPO -BackupId 24E13F41-7118-4FB6-AE8B-45D48AFD6AFE -TargetName #{gpo_name} -path #{Chef::Config[:file_cache_path]}\\gpo -CreateIfNeeded } -ComputerName #{node.ipaddress} -Credential (New-Object System.Management.Automation.PSCredential('#{node.ad.netbios_name}\\#{ad_vault[node.ad.domain_admin_username_field]}', (ConvertTo-SecureString '#{password}' -AsPlainText -Force)))
+							new-gplink -name #{gpo_name} -target 'dc=#{node.ad.domain_name.gsub(".", ",dc=")}'
+							gpupdate /force
+						EOH
+					end
+
+					# powershell_out("Import-GPO -BackupId 24E13F41-7118-4FB6-AE8B-45D48AFD6AFE -TargetName #{gpo_name} -path #{Chef::Config[:file_cache_path]}\\gpo -CreateIfNeeded").run_command
+					# powershell_out("new-gplink -name #{gpo_name} -target 'dc=#{node.ad.domain_name.gsub(".", ",dc=")}'").run_command
 				end
-
-				template "#{Chef::Config[:file_cache_path]}\\gpo\\{24E13F41-7118-4FB6-AE8B-45D48AFD6AFE}\\Backup.xml" do
-					source "Backup.xml.erb"
-					variables(
-						:domain_name => node.ad.domain_name,
-						:computer_name => node.ad.computer_name,
-						:netbios_name => node.ad.netbios_name
-					)
-				end
-
-				template "#{Chef::Config[:file_cache_path]}\\gpo\\{24E13F41-7118-4FB6-AE8B-45D48AFD6AFE}\\bkupInfo.xml" do
-					source "bkupInfo.xml.erb"
-					variables(
-						:domain_name => node.ad.domain_name,
-						:computer_name => node.ad.computer_name
-					)
-				end
-
-				template "#{Chef::Config[:file_cache_path]}\\gpo\\{24E13F41-7118-4FB6-AE8B-45D48AFD6AFE}\\gpreport.xml" do
-					source "gpreprt.xml.erb"
-					variables(
-						:domain_name => node.ad.domain_name,
-						:computer_name => node.ad.computer_name,
-						:netbios_name => node.ad.netbios_name,
-						:ssh_sid => ssh_user_sid,
-						:ec2config_sid => ec2config_user_sid
-					)
-				end
-
-				template "#{Chef::Config[:file_cache_path]}\\gpo\\{24E13F41-7118-4FB6-AE8B-45D48AFD6AFE}\\DomainSysvol\\GPO\\Machine\\microsoft\\windows nt\\SecEdit\\GptTmpl.inf" do
-					source "gptmpl.inf.erb"
-					variables(
-						:ssh_sid => ssh_user_sid,
-						:ec2config_sid => ec2config_user_sid
-					)
-				end
-
-				powershell_script "import #{gpo_name} gpo" do
-					guard_interpreter :powershell_script
-					code <<-EOH
-						Import-GPO -BackupId 24E13F41-7118-4FB6-AE8B-45D48AFD6AFE -TargetName #{gpo_name} -path #{Chef::Config[:file_cache_path]}\\gpo -CreateIfNeeded
-						new-gplink -name #{gpo_name} -target 'dc=#{node.ad.domain_name.gsub(".", ",dc=")}'
-					EOH
-				end
-
-				# powershell_out("Import-GPO -BackupId 24E13F41-7118-4FB6-AE8B-45D48AFD6AFE -TargetName #{gpo_name} -path #{Chef::Config[:file_cache_path]}\\gpo -CreateIfNeeded").run_command
-				# powershell_out("new-gplink -name #{gpo_name} -target 'dc=#{node.ad.domain_name.gsub(".", ",dc=")}'").run_command
 			end
 		else
 			[sshd_username, ec2config_username].each { |user|
@@ -175,10 +183,10 @@ when "windows"
 			}
 		end
 	else 
-		# We want to run ec2config as admin user so Windows userdata executes as admin, however the local admin account doesn't have Logon As a Service right. Domain privileges are set separately  
-        cookbook_file "c:\\Windows\\SysWOW64\\ntrights.exe" do
-            source "ntrights"
-        end
+		# We want to run ec2config as admin user so Windows userdata executes as admin, however the local admin account doesn't have Logon As a Service right. Domain privileges are set separately	 
+		cookbook_file "c:\\Windows\\SysWOW64\\ntrights.exe" do
+			source "ntrights"
+		end
 
 		[sshd_username, ec2config_username].each { |usr|
 			user usr do
@@ -223,7 +231,7 @@ when "windows"
 		code "Register-ScheduledTask -Xml (get-content '#{Chef::Config[:file_cache_path]}/run-userdata_scheduledtask.xml' | out-string) -TaskName 'run-userdata' -User #{username} -Password '#{password}' -Force"
 		only_if "((schtasks /TN 'run-userdata' /query /FO LIST -v | Select-String 'Run As User') -replace '`n|`r').split(':')[1].trim() -ne '#{username}'"
 		# not_if "Get-ScheduledTask -TaskName 'run-userdata'"
-        # notifies :delete, "file[C:\\bin\\cygwin\\#{node.ec2.instance_id}]", :immediately
+		# notifies :delete, "file[C:\\bin\\cygwin\\#{node.ec2.instance_id}]", :immediately
 		notifies :delete, "file[C:\\bin\\cygwin\\sshd_installed_by.txt]", :immediately
 		# notifies :run, "powershell_script[kill sshd processes]", :immediately
 		notifies :run, "windows_task[run-userdata]", :immediately
@@ -272,6 +280,10 @@ when "windows"
 	end
 
 	windows_task 'run-userdata' do
+		action :nothing
+	end
+
+	windows_task 'run-chef-client' do
 		action :nothing
 	end
 
