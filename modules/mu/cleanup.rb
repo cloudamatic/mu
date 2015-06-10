@@ -76,7 +76,7 @@ module MU
 			end
 
 			parent_thread_id = Thread.current.object_id
-			regions = MU::Config.listRegions
+			regions = MU::AWS.listRegions
 			deleted_nodes = 0
 			@regionthreads = []
 			keyname = "deploy-#{MU.mu_id}"
@@ -98,12 +98,12 @@ module MU
 					# fail due to dependencies.
 					MU::CloudFormation.cleanup(@noop, wait: true, region: r)
 
-					resp = MU.ec2(r).describe_key_pairs(
+					resp = MU::AWS.ec2(r).describe_key_pairs(
 						filters: [ { name: "key-name", values: [keyname] } ]
 					)
 					resp.data.key_pairs.each { |keypair|
 						MU.log "Deleting key pair #{keypair.key_name} from #{r}"
-						MU.ec2(r).delete_key_pair(key_name: keypair.key_name) if !@noop
+						MU::AWS.ec2(r).delete_key_pair(key_name: keypair.key_name) if !@noop
 					}
 				}
 			}
@@ -208,7 +208,7 @@ module MU
 			end
 
 			if !@noop
-				MU.s3(MU.myRegion).delete_object(
+				MU::AWS.s3(MU.myRegion).delete_object(
 					bucket: MU.adminBucketName,
 					key: "#{MU.mu_id}-secret"
 				)

@@ -257,138 +257,6 @@ module MU
 	# Public Mu server IP address, not necessarily the same as MU.my_public_ip
 	def self.mu_public_addr; @@mu_public_addr end
 
-	# Wrapper class for the EC2 API, so that we can catch some common transient
-	# endpoint errors without having to spray rescues all over the codebase.
-	class AWSEndpoint
-		@api = nil
-		@region = nil
-
-		# Create an AWS API client
-		# @param region [String]: Amazon region so we know what endpoint to use
-		# @param api [String]: Which API are we wrapping?
-		def initialize(region: MU.curRegion, api: "EC2")
-			@region = region
-			case api
-			when "EC2"
-				@api ||= Aws::EC2::Client.new(region: region)
-			else
-			end
-		end
-
-		# Catch-all for AWS client methods. Essentially a pass-through with some
-		# rescues for known silly endpoint behavior.
-		def method_missing(method_sym, *arguments)
-			retries = 0
-			begin
-				MU.log "Calling #{method_sym} in #{@region}", MU::DEBUG, details: arguments[0]
-				return @api.method(method_sym).call(arguments[0])
-			rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable => e
-				retries = retries + 1
-				debuglevel = MU::DEBUG
-				interval = 5
-				if retries < 5 and retries > 2
-					debuglevel = MU::NOTICE
-					interval = 10
-				else
-					debuglevel = MU::WARN
-					interval = 20
-				end
-				MU.log "Got #{e.inspect} calling EC2's #{method_sym} in #{@region}, waiting #{interval.to_s}s and retrying", debuglevel
-				sleep interval
-				retry
-			end
-		end
-	end
-
-	@@iam_api = {}
-	# Object for accessing Amazon's IAM service
-	def self.iam(region = MU.curRegion)
-		region ||= MU.myRegion
-		@@iam_api[region] ||= Aws::IAM::Client.new(region: region)
-		@@iam_api[region]
-	end
-
-
-	@@ec2_api = {}
-	# Object for accessing Amazon's EC2 service
-	def self.ec2(region = MU.curRegion)
-		region ||= MU.myRegion
-#		@@ec2_api[region] ||= Aws::EC2::Client.new(region: region)
-		@@ec2_api[region] ||= MU::AWSEndpoint.new(region: region)
-		@@ec2_api[region]
-	end
-
-	@@autoscale_api = {}
-	# Object for accessing Amazon's Autoscaling service
-	def self.autoscale(region = MU.curRegion)
-		region ||= MU.myRegion
-		@@autoscale_api[region] ||= Aws::AutoScaling::Client.new(region: region)
-		@@autoscale_api[region]
-	end
-
-	@@elb_api = {}
-	# Object for accessing Amazon's ElasticLoadBalancing service
-	def self.elb(region = MU.curRegion)
-		region ||= MU.myRegion
-		@@elb_api[region] ||= Aws::ElasticLoadBalancing::Client.new(region: region)
-		@@elb_api[region]
-	end
-
-	@@route53_api = {}
-	# Object for accessing Amazon's Route53 service
-	def self.route53(region = MU.curRegion)
-		region ||= MU.myRegion
-		@@route53_api[region] ||= Aws::Route53::Client.new(region: region)
-		@@route53_api[region]
-	end
-
-	@@rds_api = {}
-	# Object for accessing Amazon's RDS service
-	def self.rds(region = MU.curRegion)
-		region ||= MU.myRegion
-		@@rds_api[region] ||= Aws::RDS::Client.new(region: region)
-		@@rds_api[region]
-	end
-
-	@@cloudformation_api = {}
-	# Object for accessing Amazon's CloudFormation service
-	def self.cloudformation(region = MU.curRegion)
-		region ||= MU.myRegion
-		@@cloudformation_api[region] ||= Aws::CloudFormation::Client.new(region: region)
-		@@cloudformation_api[region]
-	end
-
-	@@s3_api = {}
-	# Object for accessing Amazon's S3 service
-	def self.s3(region = MU.curRegion)
-		region ||= MU.myRegion
-		@@s3_api[region] ||= Aws::S3::Client.new(region: region)
-		@@s3_api[region]
-	end
-
-	@@cloudtrails_api = {}
-	# Object for accessing Amazon's CloudTrail service
-	def self.cloudtrails(region = MU.curRegion)
-		region ||= MU.myRegion
-		@@cloudtrails_api[region] ||= Aws::CloudTrail::Client.new(region: region)
-		@@cloudtrails_api[region]
-	end
-	
-	@@cloudwatch_api = {}
-	# Object for accessing Amazon's CloudWatch service
-	def self.cloudwatch(region = MU.curRegion)
-		region ||= MU.myRegion
-		@@cloudwatch_api[region] ||= Aws::CloudWatch::Client.new(region: region)
-		@@cloudwatch_api[region]
-	end
-
-	@@cloudfront_api = {}
-	# Object for accessing Amazon's CloudFront service
-	def self.cloudfront(region = MU.curRegion)
-		region ||= MU.myRegion
-		@@cloudfront_api[region] ||= Aws::CloudFront::Client.new(region: region)
-		@@cloudfront_api[region]
-	end
 
 	chef_user ||= Etc.getpwuid(Process.uid).name
 	chef_user = "mu" if chef_user == "root"
@@ -413,119 +281,6 @@ module MU
 		end
 	end
 
-	# Figure out our account number, by hook or by crook
-	def self.account_number
-		if !@@globals[Thread.current.object_id].nil? and
-			 !@@globals[Thread.current.object_id]['account_number'].nil?
-			return @@globals[Thread.current.object_id]['account_number']
-		end
-		user_list = MU.iam.list_users.users
-		if user_list.nil? or user_list.size == 0
-			mac = MU.getAWSMetaData("network/interfaces/macs/").split(/\n/)[0]
-			account_number = MU.getAWSMetaData("network/interfaces/macs/#{mac}owner-id")
-			account_number.chomp!
-		else
-			account_number = MU.iam.list_users.users.first.arn.split(/:/)[4]
-		end
-		MU.setVar("account_number", account_number)
-		account_number
-	end
-
-	@@myRegion_var = nil
-	# Find our AWS Region and Availability Zone
-	def self.myRegion
-		@@myRegion_var ||= MU.ec2(ENV['EC2_REGION']).describe_availability_zones.availability_zones.first.region_name
-		@@myRegion_var
-	end	
-
-	# XXX is there a better way to get this?
-	@@myInstanceId = MU.getAWSMetaData("instance-id")
-	# The AWS instance identifier of this Mu master
-	def self.myInstanceId; @@myInstanceId end
-
-	@@myAZ_var = nil
-	# The AWS Availability Zone in which this Mu master resides
-	def self.myAZ
-		begin
-			@@myAZ_var ||= MU.ec2(MU.myRegion).describe_instances(instance_ids: [@@myInstanceId]).reservations.first.instances.first.placement.availability_zone
-		rescue Aws::EC2::Errors::InternalError => e
-			MU.log "Got #{e.inspect} on MU.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
-			sleep 10
-		end
-		@@myAZ_var
-	end
-
-	@@myVPC_var = nil
-	# The AWS Availability Zone in which this Mu master resides
-	def self.myVPC
-		begin
-			@@myVPC_var ||= MU.ec2(MU.myRegion).describe_instances(instance_ids: [@@myInstanceId]).reservations.first.instances.first.vpc_id
-		rescue Aws::EC2::Errors::InternalError => e
-			MU.log "Got #{e.inspect} on MU.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
-			sleep 10
-		end
-		@@myVPC_var
-	end
-
-
-	# The version of Chef we will install on nodes.
-	@@chefVersion = "12.3.0-1"
-	# The version of Chef we will install on nodes.
-	# @return [String]
-	def self.chefVersion; @@chefVersion end
-
-	# Map {MU::Config::BasketofKittens} object names to its Mu cloud resource
-	# Ruby class.
-	def self.configType2ObjectType(name)
-		@@resource_types.each { |cloudclass|
-			if name == cloudclass.cfg_name or
-				 name == cloudclass.cfg_plural
-				return cloudclass
-			end
-		}
-		nil
-	end
-
-	# Mu's SSL certificate directory
-	@@mySSLDir = File.expand_path(ENV['MU_DATADIR']+"/ssl")
-	# Mu's SSL certificate directory
-	# @return [String]
-	def self.mySSLDir; @@mySSLDir end
-
-	# Recursively turn a Ruby OpenStruct into a Hash
-	# @param struct [OpenStruct]
-	# @return [Hash]
-	def self.structToHash(struct)
-		if struct.is_a?(Struct)
-			hash = struct.to_h
-			hash.each_pair { |key, value|
-				hash[key] = self.structToHash(value)
-			}
-			return hash
-		elsif struct.is_a?(Hash)
-			struct.each_pair { |key, value|
-				struct[key] = self.structToHash(value)
-			}
-			return struct
-		elsif struct.is_a?(Array)
-			struct.map! { |elt|
-				self.structToHash(elt)
-			}
-		else
-			return struct
-		end
-	end
-
-	# Return the name of the S3 Mu log and key bucket for this Mu server.
-	# @return [String]
-	def self.adminBucketName
-		bucketname = ENV['LOG_BUCKET_NAME']
-		if bucketname.nil? or bucketname.empty?
-			bucketname = "Mu_Logs_"+Socket.gethostname+"_"+MU.getAWSMetaData("instance-id")
-		end
-		return bucketname
-	end
-
 	# For log entries that should only be logged when we're in verbose mode
 	DEBUG = 0.freeze
 	# For ordinary log entries
@@ -540,6 +295,7 @@ module MU
 	ERR = 4.freeze
 	# Log entries for fatal errors
 	ERROR = 4.freeze
+
 
 	# The types of cloud resources we can create, as class objects. List methods
 	# a class implementing this resource type must support to be considered
@@ -605,19 +361,151 @@ module MU
 	autoload :MommaCat, 'mu/mommacat'
 	autoload :Config, 'mu/config'
 
-	MU::Config.supportedClouds.each { |cloud|
-		cloudclass = Class.new(Object) do
-MU.log "Initializing #{cloud} support"
+	# List of known/supported Cloud providers
+	def self.supportedClouds
+		["AWS"]
+	end
+
+	# Load the container class for each cloud we know about, and inject autoload
+	# code for each of its supported resource type classes.
+	MU.supportedClouds.each { |cloud|
+		require "mu/clouds/#{cloud.downcase}"
+		cloudclass = Object.const_get("MU::#{cloud}")
+		cloudclass.instance_eval {
 			@@resource_types.each_pair { |res_class, data|
+# XXX test for existence, quietly skip missing ones
 MU.log "autoload #{res_class}, 'mu/clouds/#{cloud.downcase}/#{data[:cfg_name]}'"
 				autoload res_class, "mu/clouds/#{cloud.downcase}/#{data[:cfg_name]}"
 			}
-		end
-		MU.const_set(cloud, Class.new(Object))
+
+		}
 	}
+
+	def self.resourceClass(type, cloud = MU::Config.defaultCloud)
+# XXX raise MuError if the cloud/resource combination isn't available
+		begin
+			Object.const_get("MU::#{cloud}::#{type}")
+		rescue NameError
+			raise MuError, "The '#{type}' resource is not supported in cloud #{cloud} (tried MU::#{cloud}::#{type})"
+		end
+	end
 
 
 	# The AWS policy to allow CloudTrails to log to an S3 bucket.
+
+	# Figure out our account number, by hook or by crook
+	def self.account_number
+		if !@@globals[Thread.current.object_id].nil? and
+			 !@@globals[Thread.current.object_id]['account_number'].nil?
+			return @@globals[Thread.current.object_id]['account_number']
+		end
+		user_list = MU::AWS.iam.list_users.users
+		if user_list.nil? or user_list.size == 0
+			mac = MU.getAWSMetaData("network/interfaces/macs/").split(/\n/)[0]
+			account_number = MU.getAWSMetaData("network/interfaces/macs/#{mac}owner-id")
+			account_number.chomp!
+		else
+			account_number = MU::AWS.iam.list_users.users.first.arn.split(/:/)[4]
+		end
+		MU.setVar("account_number", account_number)
+		account_number
+	end
+
+	@@myRegion_var = nil
+	# Find our AWS Region and Availability Zone
+	def self.myRegion
+		@@myRegion_var ||= MU::AWS.ec2(ENV['EC2_REGION']).describe_availability_zones.availability_zones.first.region_name
+		@@myRegion_var
+	end	
+
+	# XXX is there a better way to get this?
+	@@myInstanceId = MU.getAWSMetaData("instance-id")
+	# The AWS instance identifier of this Mu master
+	def self.myInstanceId; @@myInstanceId end
+
+	@@myAZ_var = nil
+	# The AWS Availability Zone in which this Mu master resides
+	def self.myAZ
+		begin
+			@@myAZ_var ||= MU::AWS.ec2(MU.myRegion).describe_instances(instance_ids: [@@myInstanceId]).reservations.first.instances.first.placement.availability_zone
+		rescue Aws::EC2::Errors::InternalError => e
+			MU.log "Got #{e.inspect} on MU::AWS.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
+			sleep 10
+		end
+		@@myAZ_var
+	end
+
+	@@myVPC_var = nil
+	# The AWS Availability Zone in which this Mu master resides
+	def self.myVPC
+		begin
+			@@myVPC_var ||= MU::AWS.ec2(MU.myRegion).describe_instances(instance_ids: [@@myInstanceId]).reservations.first.instances.first.vpc_id
+		rescue Aws::EC2::Errors::InternalError => e
+			MU.log "Got #{e.inspect} on MU::AWS.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
+			sleep 10
+		end
+		@@myVPC_var
+	end
+
+
+	# The version of Chef we will install on nodes.
+	@@chefVersion = "12.3.0-1"
+	# The version of Chef we will install on nodes.
+	# @return [String]
+	def self.chefVersion; @@chefVersion end
+
+	# Map {MU::Config::BasketofKittens} object names to its Mu cloud resource
+	# Ruby class.
+	def self.configType2ObjectType(name)
+		@@resource_types.each { |cloudclass|
+			if name == cloudclass.cfg_name or
+				 name == cloudclass.cfg_plural
+				return cloudclass
+			end
+		}
+		nil
+	end
+
+	# Mu's SSL certificate directory
+	@@mySSLDir = File.expand_path(ENV['MU_DATADIR']+"/ssl")
+	# Mu's SSL certificate directory
+	# @return [String]
+	def self.mySSLDir; @@mySSLDir end
+
+	# Recursively turn a Ruby OpenStruct into a Hash
+	# @param struct [OpenStruct]
+	# @return [Hash]
+	def self.structToHash(struct)
+		if struct.is_a?(Struct)
+			hash = struct.to_h
+			hash.each_pair { |key, value|
+				hash[key] = self.structToHash(value)
+			}
+			return hash
+		elsif struct.is_a?(Hash)
+			struct.each_pair { |key, value|
+				struct[key] = self.structToHash(value)
+			}
+			return struct
+		elsif struct.is_a?(Array)
+			struct.map! { |elt|
+				self.structToHash(elt)
+			}
+		else
+			return struct
+		end
+	end
+
+	# Return the name of the S3 Mu log and key bucket for this Mu server.
+	# @return [String]
+	def self.adminBucketName
+		bucketname = ENV['LOG_BUCKET_NAME']
+		if bucketname.nil? or bucketname.empty?
+			bucketname = "Mu_Logs_"+Socket.gethostname+"_"+MU.getAWSMetaData("instance-id")
+		end
+		return bucketname
+	end
+
 	CLOUDTRAIL_BUCKET_POLICY = '{
 		"Version": "2012-10-17",
 		"Statement": [

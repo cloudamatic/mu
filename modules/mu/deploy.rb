@@ -172,7 +172,7 @@ module MU
 		def createEc2SSHKey
 			return [@keypairname, @ssh_private_key, @ssh_public_key] if !@keypairname.nil?
 		  keyname="deploy-#{MU.mu_id}"
-			keypair = MU.ec2(MU.myRegion).create_key_pair(key_name: keyname)
+			keypair = MU::AWS.ec2(MU.myRegion).create_key_pair(key_name: keyname)
 			@keypairname = keyname
 		  @ssh_private_key = keypair.key_material
 			MU.log "SSH Key Pair '#{keyname}' fingerprint is #{keypair.key_fingerprint}"
@@ -193,10 +193,10 @@ module MU
 			@ssh_public_key.chomp!
 
 			# Replicate this key in all regions
-			MU::Config.listRegions.each { |region|
+			MU::AWS.listRegions.each { |region|
 				next if region == MU.myRegion
 				MU.log "Replicating #{keyname} to #{region}", MU::DEBUG, details: @ssh_public_key
-				MU.ec2(region).import_key_pair(
+				MU::AWS.ec2(region).import_key_pair(
 					key_name: @keypairname,
 					public_key_material: @ssh_public_key
 				)

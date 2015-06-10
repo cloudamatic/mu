@@ -406,41 +406,17 @@ module MU
 		# (see #listAZs)
 		def self.listAZs(region = MU.curRegion)
 			if region
-				azs = MU.ec2(region).describe_availability_zones(
+				azs = MU::AWS.ec2(region).describe_availability_zones(
 					filters: [name: "region-name", values: [region]]
 				)
 			else
-				azs = MU.ec2(region).describe_availability_zones
+				azs = MU::AWS.ec2(region).describe_availability_zones
 			end
 			zones = Array.new
 			azs.data.availability_zones.each { |az|
 				zones << az.zone_name if az.state == "available"
 			}
 			return zones
-		end
-
-
-		# List the Amazon Web Services region names available to this account. The
-		# region that is local to this Mu server will be listed first.
-		# @return [Array<String>]
-		def listRegions
-			return MU::Config.listRegions
-		end
-		# (see #listRegions)
-		def self.listRegions
-			regions = MU.ec2.describe_regions().regions.map{ |region| region.region_name }
-
-			regions.sort! { |a, b|
-				val = a <=> b
-				if a == MU.myRegion
-					val = -1
-				elsif b == MU.myRegion
-					val = 1
-				end
-				val
-			}
-
-			return regions
 		end
 
 		# Namespace magic to pass to ERB's result method.
@@ -521,6 +497,9 @@ module MU
 		def self.processVPCReference(vpc_block, parent_name, is_sibling: false, sibling_vpcs: [], dflt_region: MU.curRegion)
 			ok = true
 
+			muVPC = MU.resourceClass("VPC", vpc_block['cloud'])
+			muServer = MU.resourceClass("Server", vpc_block['cloud'])
+
 			if vpc_block['region'].nil? or 
 				vpc_block['region'] = dflt_region
 			end
@@ -530,7 +509,7 @@ module MU
 
 			if !is_sibling
 				begin
-					ext_vpc, name = MU::VPC.find(
+					ext_vpc, name = muVPC.find(
 						id: vpc_block["vpc_id"],
 						name: vpc_block["vpc_name"],
 						deploy_id: vpc_block["deploy_id"],
@@ -557,7 +536,7 @@ module MU
 						nat_tag_key, nat_tag_value = [tag_key, tag_value]
 					end
 
-					ext_nat, name = MU::Server.find(
+					ext_nat, name = muServer.find(
 						id: vpc_block["nat_host_id"],
 						name: vpc_block["nat_host_name"],
 						deploy_id: vpc_block["deploy_id"],
@@ -587,7 +566,7 @@ module MU
 					vpc_block['subnets'].each { |subnet|
 						subnet["deploy_id"] = vpc_block["deploy_id"] if !subnet['deploy_id'] and vpc_block["deploy_id"]
 						tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !subnet['tag'].nil?
-						ext_subnet = MU::VPC.findSubnet(
+						ext_subnet = muVPC.findSubnet(
 							id: subnet['subnet_id'],
 							name: subnet['subnet_name'],
 							deploy_id: subnet["deploy_id"],
@@ -609,7 +588,7 @@ module MU
 					}
 				# ...others single subnets
 				elsif (vpc_block['subnet_name'] or vpc_block['subnet_id']) 
-					ext_subnet = MU::VPC.findSubnet(
+					ext_subnet = muVPC.findSubnet(
 						id: vpc_block['subnet_id'],
 						name: vpc_block['subnet_name'],
 						deploy_id: vpc_block["deploy_id"],
@@ -648,8 +627,8 @@ module MU
 				nat_routes = {}
 				subnet_ptr = "subnet_id"
 				if !is_sibling
-					MU::VPC.listSubnets(vpc_id: vpc_block["vpc_id"], region: vpc_block['region']).each { |subnet|
-						if MU::VPC.isSubnetPrivate?(subnet, region: vpc_block['region'])
+					muVPC.listSubnets(vpc_id: vpc_block["vpc_id"], region: vpc_block['region']).each { |subnet|
+						if muVPC.isSubnetPrivate?(subnet, region: vpc_block['region'])
 							private_subnets << subnet
 						else
 							public_subnets << subnet
@@ -684,7 +663,7 @@ module MU
 				when "private"
 					vpc_block[subnet_ptr] = private_subnets[rand(private_subnets.length)]
 					if !is_sibling
-						vpc_block['nat_host_id'] = MU::VPC.getDefaultRoute(vpc_block[subnet_ptr], region: vpc_block['region'])
+						vpc_block['nat_host_id'] = muVPC.getDefaultRoute(vpc_block[subnet_ptr], region: vpc_block['region'])
 					elsif nat_routes.has_key?(vpc_block[subnet_ptr])
 						vpc_block['nat_host_name'] == nat_routes[vpc_block[subnet_ptr]]
 					end
@@ -708,7 +687,7 @@ module MU
 					private_subnets.each { |subnet|
 						vpc_block['subnets'] << { subnet_ptr => subnet }
 						if !is_sibling and vpc_block['nat_host_id'].nil?
-							vpc_block['nat_host_id'] = MU::VPC.getDefaultRoute(subnet, region: vpc_block['region'])
+							vpc_block['nat_host_id'] = muVPC.getDefaultRoute(subnet, region: vpc_block['region'])
 						elsif nat_routes.has_key?(subnet) and vpc_block['nat_host_name'].nil?
 							vpc_block['nat_host_name'] == nat_routes[subnet]
 						end
@@ -818,7 +797,7 @@ module MU
 			vpc_names = Array.new
 			nat_routes = Hash.new
 			vpcs.each { |vpc|
-				vpc['#MU_CLASS'] = MU::VPC
+				vpc["#MU_CLASS"] = Object.const_get("MU::#{server['cloud']}::VPC")
 				vpc['region'] = config['region'] if vpc['region'].nil?
 				vpc["dependencies"] = Array.new if vpc["dependencies"].nil?
 				subnet_routes = Hash.new
@@ -863,6 +842,7 @@ module MU
 				if !vpc["peers"].nil?
 					vpc["peers"].each { |peer|
 						peer['region'] = config['region'] if peer['region'].nil?
+						peer['cloud'] = vpc['cloud'] if vpc['cloud'].nil?
 						# If we're peering with a VPC in this deploy, set it as a dependency
 						if !peer['vpc']["vpc_name"].nil? and vpc_names.include?(peer['vpc']["vpc_name"]) and peer['deploy_id'].nil?
 							vpc["dependencies"] << {
@@ -887,7 +867,7 @@ module MU
 			}
 
 			dnszones.each { |zone|
-				zone['#MU_CLASS'] = MU::DNSZone
+				zone["#MU_CLASS"] = Object.const_get("MU::#{server['cloud']}::DNSZone")
 				zone['region'] = config['region'] if zone['region'].nil?
 				ext_zone, ext_name = MU::DNSZone.find(name: zone['name'])
 
@@ -927,6 +907,7 @@ module MU
 				if !zone["vpcs"].nil?
 					zone["vpcs"].each { |vpc|
 						vpc['region'] = config['region'] if vpc['region'].nil?
+						vpc['cloud'] = zone['cloud'] if vpc['cloud'].nil?
 						if !vpc["vpc_name"].nil? and vpc_names.include?(vpc["vpc_name"]) and zone['deploy_id'].nil?
 							zone["dependencies"] << {
 								"type" => "vpc",
@@ -958,7 +939,7 @@ module MU
 				firewall_rule_names << acl['name']
 				acl['region'] = config['region'] if acl['region'].nil?
 				acl["dependencies"] = Array.new if acl["dependencies"].nil?
-				acl["#MU_CLASS"] = MU::FirewallRule
+				acl["#MU_CLASS"] = Object.const_get("MU::#{server['cloud']}::FirewallRule")
 
 				if !acl["vpc_name"].nil? or !acl["vpc_id"].nil?
 					acl['vpc'] = Hash.new
@@ -967,6 +948,7 @@ module MU
 				end
 				if !acl["vpc"].nil?
 					acl['vpc']['region'] = config['region'] if acl['vpc']['region'].nil?
+					acl["vpc"]['#CLOUD'] = acl['#MU_CLASS']
 					# If we're using a VPC in this deploy, set it as a dependency
 					if !acl["vpc"]["vpc_name"].nil? and vpc_names.include?(acl["vpc"]["vpc_name"]) and acl["vpc"]['deploy_id'].nil?
 						acl["dependencies"] << {
@@ -1014,9 +996,10 @@ module MU
 			loadbalancers.each { |lb|
 				lb['region'] = config['region'] if lb['region'].nil?
 				lb["dependencies"] = Array.new if lb["dependencies"].nil?
-				lb["#MU_CLASS"] = MU::LoadBalancer
+				lb["#MU_CLASS"] = Object.const_get("MU::#{server['cloud']}::LoadBalancer")
 				if !lb["vpc"].nil?
-					lb['vpc']['region'] = config['region'] if lb['vpc']['region'].nil?
+					lb['vpc']['region'] = lb['region'] if lb['vpc']['region'].nil?
+					lb["vpc"]['#MU_CLASS'] = lb['#MU_CLASS']
 					# If we're using a VPC in this deploy, set it as a dependency
 					if !lb["vpc"]["vpc_name"].nil? and vpc_names.include?(lb["vpc"]["vpc_name"]) and lb["vpc"]['deploy_id'].nil?
 						lb["dependencies"] << {
@@ -1055,7 +1038,7 @@ module MU
 
 				lb['listeners'].each { |listener|
 					if !listener["ssl_certificate_name"].nil?
-						resp = MU.iam.get_server_certificate(server_certificate_name: listener["ssl_certificate_name"])
+						resp = MU::AWS.iam.get_server_certificate(server_certificate_name: listener["ssl_certificate_name"])
 						if resp.nil?
 							MU.log "Requested SSL certificate #{listener["ssl_certificate_name"]}, but no such cert exists", MU::ERR
 							ok = false
@@ -1069,7 +1052,7 @@ module MU
 
 			cloudformation_stacks.each { |stack|
 				stack['region'] = config['region'] if stack['region'].nil?
-				stack["#MU_CLASS"] = MU::CloudFormation
+				stack["#MU_CLASS"] = Object.const_get("MU::#{server['cloud']}::CloudFormation")
 			}
 
 			server_pools.each { |asg|
@@ -1080,7 +1063,7 @@ module MU
 				server_names << asg['name']
 				asg['region'] = config['region'] if asg['region'].nil?
 				asg["dependencies"] = Array.new if asg["dependencies"].nil?
-				asg["#MU_CLASS"] = MU::ServerPool
+				asg["#MU_CLASS"] = Object.const_get("MU::#{server['cloud']}::ServerPool")
 				asg['skipinitialupdates'] = true if @skipinitialupdates
 				if asg["basis"]["server"] != nil
 					asg["dependencies"] << { "type" => "server", "name" => asg["basis"]["server"] }
@@ -1136,7 +1119,8 @@ module MU
 					}
 				end
 				if !asg["vpc"].nil?
-					asg['vpc']['region'] = config['region'] if asg['vpc']['region'].nil?
+					asg['vpc']['region'] = asg['region'] if asg['vpc']['region'].nil?
+					asg["vpc"]['#MU_CLASS'] = asg['#MU_CLASS']
 					# If we're using a VPC in this deploy, set it as a dependency
 					if !asg["vpc"]["vpc_name"].nil? and vpc_names.include?(asg["vpc"]["vpc_name"]) and asg["vpc"]["deploy_id"].nil?
 						asg["dependencies"] << {
@@ -1182,7 +1166,7 @@ module MU
 			databases.each { |db|
 				db['region'] = config['region'] if db['region'].nil?
 				db["dependencies"] = Array.new if db["dependencies"].nil?
-				db["#MU_CLASS"] = MU::Database
+				db["#MU_CLASS"] = Object.const_get("MU::#{server['cloud']}::Database")
 				if db['cloudformation_stack'] != nil
 					# XXX don't do this if 'true' was explicitly asked for (as distinct
 					# from default)
@@ -1314,7 +1298,8 @@ module MU
 						end
 					end
 
-					db['vpc']['region'] = config['region'] if db['vpc']['region'].nil?
+					db['vpc']['region'] = db['region'] if db['vpc']['region'].nil?
+					db["vpc"]['#MU_CLASS'] = db['#MU_CLASS']
 					# If we're using a VPC in this deploy, set it as a dependency
 					if !db["vpc"]["vpc_name"].nil? and vpc_names.include?(db["vpc"]["vpc_name"]) and db["vpc"]["deploy_id"].nil?
 						db["dependencies"] << {
@@ -1347,6 +1332,7 @@ module MU
 					ok = false
 				end
 				server_names << server['name']
+				server["#MU_CLASS"] = Object.const_get("MU::#{server['cloud']}::Server")
 				server['region'] = config['region'] if server['region'].nil?
 				server["dependencies"] = Array.new if server["dependencies"].nil?
 				server['create_ami'] = true if server['image_then_destroy']
@@ -1365,7 +1351,6 @@ module MU
 				server['vault_access'] << { "vault" => "splunk", "item" => "admin_user" }
 				ok = false if !check_vault_refs(server)
 
-				server["#MU_CLASS"] = Object.const_get("MU::#{server['cloud']}::Server")
 				if server['ingress_rules'] != nil
 					server['ingress_rules'].each {|rule|
 						if rule['port'].nil? and rule['port_range'].nil? and rule['proto'] != "icmp"
@@ -1388,7 +1373,9 @@ module MU
 				end
 
 				if !server["vpc"].nil?
-					server['vpc']['region'] = config['region'] if server['vpc']['region'].nil?
+					server['vpc']['region'] = server['region'] if server['vpc']['region'].nil?
+					server['vpc']['cloud'] = server['cloud'] if server['vpc']['cloud'].nil?
+					server["vpc"]['#MU_CLASS'] = server['#MU_CLASS']
 					# If we're using a local VPC in this deploy, set it as a dependency and get the subnets right
 					if !server["vpc"]["vpc_name"].nil? and vpc_names.include?(server["vpc"]["vpc_name"]) and server["vpc"]["deploy_id"].nil?
 						server["dependencies"] << {
@@ -1428,6 +1415,7 @@ module MU
 
 				if !server["add_firewall_rules"].nil?
 					server["add_firewall_rules"].each { |acl_include|
+						acl_include['#MU_CLASS'] = server['#MU_CLASS']
 						if firewall_rule_names.include?(acl_include["rule_name"])
 							server["dependencies"] << {
 								"type" => "firewall_rule",
@@ -1438,6 +1426,7 @@ module MU
 				end
 				if !server["loadbalancers"].nil?
 					server["loadbalancers"].each { |lb|
+						lb['#MU_CLASS'] = server['#MU_CLASS']
 						if lb["concurrent_load_balancer"] != nil
 							server["dependencies"] << {
 								"type" => "loadbalancer",
@@ -1682,13 +1671,13 @@ module MU
 
 		@region_primitive = {
 			"type" => "string",
-			"enum" => MU::Config.listRegions
+			"enum" => MU::AWS.listRegions
 		}
 
 		@cloud_primitive = {
 			"type" => "string",
 			"default" => MU::Config.defaultCloud,
-			"enum" => MU::Config.supportedClouds
+			"enum" => MU.supportedClouds
 		}
 
 
@@ -2187,7 +2176,7 @@ module MU
 						},
 						"region" => {
 							"type" => "string",
-							"enum" => MU::Config.listRegions,
+							"enum" => MU::AWS.listRegions,
 							"description" => "Set preferred region for latency-based routing."
 						},
 						"failover" => {

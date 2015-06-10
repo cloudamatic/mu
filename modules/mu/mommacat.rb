@@ -134,7 +134,7 @@ module MU
 				MU.log "Creating deploy secret for #{MU.mu_id}"
 				@deploy_secret = Password.random(256)
 				begin
-					MU.s3(MU.myRegion).put_object(
+					MU::AWS.s3(MU.myRegion).put_object(
 						acl: "private",
 						bucket: MU.adminBucketName,
 						key: "#{MU.mu_id}-secret",
@@ -628,7 +628,7 @@ module MU
 				}
 			end
 			cleanup_threads = []
-			regions = MU::Config.listRegions
+			regions = MU::AWS.listRegions
 			deploys.each { |deploy|
 				known_servers = MU::MommaCat.getResourceDeployStruct(MU::Server.cfg_plural, deploy_id: deploy)
 
@@ -642,7 +642,7 @@ module MU
 						server_container.each_pair { |nodename, data|
 							MU.setVar("curRegion", data['region']) if !data['region'].nil?
 							begin
-								resp = MU.ec2(MU.curRegion).describe_instances(instance_ids: [data['instance_id']])
+								resp = MU::AWS.ec2(MU.curRegion).describe_instances(instance_ids: [data['instance_id']])
 								if !resp.nil? and !resp.reservations.nil? and !resp.reservations.first.nil?
 									instance = resp.reservations.first.instances.first
 								end
@@ -859,7 +859,7 @@ module MU
 			attempts = 0 
 
 			begin
-			  MU.ec2(region).create_tags(
+			  MU::AWS.ec2(region).create_tags(
 				  resources: [resource],
 				  tags: [
 				    {
@@ -894,7 +894,7 @@ module MU
 
 			attempts = 0
 			begin
-			  MU.ec2(region).create_tags(
+			  MU::AWS.ec2(region).create_tags(
 				  resources: [resource],
 				  tags: tags
 				)
@@ -1208,13 +1208,13 @@ MESSAGE_END
 
 			MU.setVar("curRegion", MU.myRegion) if !MU.myRegion.nil?
 
-			resp = MU.ec2.describe_instances(instance_ids: [my_instance_id])
+			resp = MU::AWS.ec2.describe_instances(instance_ids: [my_instance_id])
 			instance = resp.reservations.first.instances.first
 
 			instance.security_groups.each { |sg|
 				my_sgs << sg.group_id
 			}
-			resp = MU.ec2.describe_security_groups(
+			resp = MU::AWS.ec2.describe_security_groups(
 				group_ids: my_sgs,
 				filters:[
 					{ name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip] },
@@ -1225,11 +1225,11 @@ MESSAGE_END
 			if resp.nil? or resp.security_groups.nil? or resp.security_groups.size == 0
 				if instance.vpc_id.nil?
 					sg_id = my_sgs.first
-					resp = MU.ec2.describe_security_groups(group_ids: [sg_id])
+					resp = MU::AWS.ec2.describe_security_groups(group_ids: [sg_id])
 					group = resp.security_groups.first
 					MU.log "We don't have a security group named '#{my_client_sg_name}' available, and we are in EC2 Classic and so cannot create a new group. Defaulting to #{group.group_name}.", MU::NOTICE
 				else
-					group = MU.ec2.create_security_group(
+					group = MU::AWS.ec2.create_security_group(
 						group_name: my_client_sg_name,
 						description: my_client_sg_name,
 						vpc_id: instance.vpc_id
@@ -1238,14 +1238,14 @@ MESSAGE_END
 					my_sgs << sg_id
 					MU::MommaCat.createTag sg_id, "Name", my_client_sg_name
 					MU::MommaCat.createTag sg_id, "MU-MASTER-IP", MU.mu_public_ip
-					MU.ec2.modify_instance_attribute(
+					MU::AWS.ec2.modify_instance_attribute(
 						instance_id: my_instance_id,
 						groups: my_sgs
 					)
 				end
 			elsif resp.security_groups.size == 1
 				sg_id = resp.security_groups.first.group_id
-				resp = MU.ec2.describe_security_groups(group_ids: [sg_id])
+				resp = MU::AWS.ec2.describe_security_groups(group_ids: [sg_id])
 				group = resp.security_groups.first
 			else
 				MU.log "Found more than one security group named #{my_client_sg_name}, aborting", MU::ERR
@@ -1280,7 +1280,7 @@ MESSAGE_END
 							rule.from_port == port and rule.to_port == port
 							MU.log "Revoking old rules for port #{port.to_s} from #{sg_id}", MU::NOTICE
 							begin
-							MU.ec2.revoke_security_group_ingress(
+							MU::AWS.ec2.revoke_security_group_ingress(
 								group_id: sg_id,
 								ip_permissions: [
 									{
