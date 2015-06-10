@@ -95,7 +95,6 @@ def create_domain
 				$DCPromoFile | out-file c:/dcpromoanswerfile.txt -Force
 				dcpromo.exe /unattend:c:/dcpromoanswerfile.txt
 			EOH
-			cmd = powershell_out(code)
 		elsif version.windows_server_2012_r2?
 			code =<<-EOH
 				Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue
@@ -108,9 +107,10 @@ def create_domain
 				Install-ADDSForest -DomainName #{new_resource.dns_name} -SafeModeAdministratorPassword (convertto-securestring '#{new_resource.restore_mode_password}' -asplaintext -force) -DomainMode Win2012R2 -DomainNetbiosName #{new_resource.netbios_name} -ForestMode Win2012R2 -Confirm:$false -Force
 				Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue
 			EOH
-			cmd = powershell_out(code)
 			# cmd = powershell_out("Install-ADDSForest -DomainName #{new_resource.dns_name} -SafeModeAdministratorPassword (convertto-securestring '#{new_resource.restore_mode_password}' -asplaintext -force) -DomainMode Win2012R2 -DomainNetbiosName #{new_resource.netbios_name} -ForestMode Win2012R2 -Confirm:$false -Force")
 		end
+		Chef::Log.info("Creating Active Directory Domain #{new_resource.dns_name}")
+		cmd = powershell_out(code)
 		kill_ssh
 		Chef::Application.fatal!("Failed to create Active Directory Domain #{new_resource.dns_name}") if cmd.exitstatus != 0
 		Chef::Application.fatal!("Active Directory Domain #{new_resource.dns_name} was created, rebooting. Will have to run chef again")

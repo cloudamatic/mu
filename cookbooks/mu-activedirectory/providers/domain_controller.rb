@@ -49,7 +49,8 @@ end
 
 def promote
 	unless is_domain_controller?(new_resource.computer_name)
-		cmd = powershell_out("Install-ADDSDomainController -InstallDns -DomainName #{new_resource.dns_name} -Credential #{admin_creds} -SafeModeAdministratorPassword (convertto-securestring '#{new_resource.restore_mode_password}' -asplaintext -force) -Force -Confirm:$false")
+		Chef::Log.info("Promoting #{new_resource.computer_name} to domain controller in #{new_resource.dns_name} domain")
+		cmd = powershell_out("Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue; Install-ADDSDomainController -InstallDns -DomainName #{new_resource.dns_name} -Credential #{admin_creds} -SafeModeAdministratorPassword (convertto-securestring '#{new_resource.restore_mode_password}' -asplaintext -force) -Force -Confirm:$false; Restart-Computer -Force")
 		kill_ssh
 		Chef::Application.fatal!("Failed to promote #{new_resource.computer_name} to Domain Controller in #{new_resource.dns_name} domain") unless cmd.exitstatus == 0
 		Chef::Application.fatal!("Promoted #{new_resource.computer_name} to Domain Controller in #{new_resource.dns_name} domain. Will have to run chef again" )
@@ -58,7 +59,8 @@ end
 
 def demote
 	if is_domain_controller?(new_resource.computer_name)
-		cmd = powershell_out("Uninstall-WindowsFeature DNS; Uninstall-ADDSDomainController -Credential #{admin_creds} -LocalAdministratorPassword (convertto-securestring '#{new_resource.domain_admin_password}'  -asplaintext -force) -Force -Confirm:$false")
+		Chef::Log.info("Demoting domain controller #{new_resource.computer_name} in #{new_resource.dns_name} domain")
+		cmd = powershell_out("Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue; Uninstall-WindowsFeature DNS; Uninstall-ADDSDomainController -Credential #{admin_creds} -LocalAdministratorPassword (convertto-securestring '#{new_resource.domain_admin_password}'  -asplaintext -force) -Force -Confirm:$false; Restart-Computer -Force")
 		kill_ssh
 		Chef::Application.fatal!("Failed to demote Domain Controller #{new_resource.computer_name} in #{new_resource.dns_name} domain") unless cmd.exitstatus == 0
 		Chef::Application.fatal!("Demoted Domain Controller #{new_resource.computer_name} in #{new_resource.dns_name} domain. Will have to run chef again" )
@@ -87,6 +89,7 @@ def join_domain
 			Add-Computer -DomainName #{new_resource.dns_name} -Credential #{admin_creds} -Restart -PassThru
 			Restart-Computer -Force
 		EOH
+		Chef::Log.info("Joining #{new_resource.computer_name} node to #{new_resource.dns_name} domain")
 		cmd = powershell_out(code)
 		# cmd = powershell_out("Add-Computer -DomainName #{new_resource.dns_name} -Credential #{admin_creds} -Restart -PassThru")
 		kill_ssh

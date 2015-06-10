@@ -159,7 +159,7 @@ UseDNS no
 
 Ciphers aes128-ctr,aes192-ctr,aes256-ctr
 
-# If we've set AllowGroups, use that instead of restricting to root
+# If we've set AllowGroups, use that instead of restricting to ec2-user
 <% 
 begin 
 %>
@@ -167,7 +167,7 @@ AllowGroups <%= node.application_attributes.sshd_allow_groups %>
 <% 
 rescue NoMethodError 
 %>
-AllowUsers root
+AllowUsers ec2-user
 <%
 end
 %>

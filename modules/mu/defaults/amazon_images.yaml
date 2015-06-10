@@ -21,9 +21,9 @@ win2k12: &win2k12
   us-west-1: ami-a98960ed
   us-west-2: ami-413d0f71
 win2k12r2: &win2k12r2
-  us-east-1: ami-4ea9b426
-  us-west-1: ami-e3bc55a7
-  us-west-2: ami-b14e7c81
+  us-east-1: ami-091eeb62
+  us-west-1: ami-ad4aa0e9
+  us-west-2: ami-a98cb499
 windows: *win2k12r2
 ubuntu: *ubuntu14
 centos: *centos6

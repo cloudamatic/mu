@@ -9,6 +9,7 @@
 
 require 'chef/mixin/shell_out'
 include Chef::Mixin::ShellOut
+include Chef::Mixin::PowershellOut
 
 def whyrun_supported?
 	true
@@ -44,9 +45,6 @@ end
 	# @current_resource = @new_resource.dup
 # end
 
-
-	include Chef::Mixin::PowershellOut
-
 def join_domain_creds
 	"(New-Object System.Management.Automation.PSCredential('#{new_resource.netbios_name}\\#{new_resource.join_user}', (ConvertTo-SecureString '#{new_resource.join_password}' -AsPlainText -Force)))"
 end
@@ -65,6 +63,7 @@ def join_domain_windows
 			code = "Add-Computer -DomainName #{new_resource.dns_name} -Credential#{join_domain_creds} #{new_name} -PassThru -Restart -Verbose -Force"
 		end
 
+		Chef::Log.info("Joining #{new_resource.computer_name} node to #{new_resource.dns_name} domain")
 		cmd = powershell_out(code)
 		kill_ssh
 		Chef::Application.fatal!("Failed to join #{new_resource.computer_name} to #{new_resource.dns_name} domain") unless cmd.exitstatus == 0
@@ -79,7 +78,8 @@ end
 
 def unjoin_domain_windows
 	if in_domain?
-		cmd = powershell_out("Remove-Computer -UnjoinDomaincredential #{admin_creds} -Passthru -Verbose -Restart -Force")
+		Chef::Log.info("Removing #{new_resource.computer_name} node from #{new_resource.dns_name} domain")
+		cmd = powershell_out("Remove-Computer -UnjoinDomaincredential #{join_domain_creds} -Passthru -Verbose -Restart -Force")
 		kill_ssh
 		Chef::Application.fatal!("Failed to remove #{new_resource.computer_name} from #{new_resource.dns_name} domain") unless cmd.exitstatus == 0
 		Chef::Application.fatal!("Removed #{new_resource.computer_name} from #{new_resource.dns_name} domain, rebooting. Will have to run chef again")

@@ -14,6 +14,25 @@
 
 case node.platform_family
 when "windows"
+	execute "del c:\\Mu-Bootstrap*"
+	file "c:\\mu-installer-ran-updates" do
+		action :delete
+	end
+
+	admin_username = powershell_out("(Get-WmiObject -Query 'Select * from Win32_UserAccount Where (LocalAccount=True and SID like \"%-500\")').name").stdout.strip
+	["Administrator", admin_username].each { |user|
+		file "c:\\bin\\cygwin\\home\\#{user}\\.ssh\\authorized_keys" do
+			action :delete
+		end
+	}
+
+	cookbook_file "C:\\Program Files\\Amazon\\Ec2ConfigService\\Settings\\config.xml" do
+		source "config.xml"
+	end
+
+	execute "sc config Ec2Config obj= \".\\LocalSystem\" password= \"\""
+	execute "sc config sshd obj= \".\\LocalSystem\" password= \"\""
+
 	%w{client.rb first-boot.json client.pem validation.pem}.each { |file|
 		file "C:\\Users\\Administrator\\AppData\\Local\\Temp\\#{file}" do
 			content IO.read("C:\\chef\\#{file}")
@@ -23,6 +42,7 @@ when "windows"
 			action :delete
 		end
 	}
+
 when "rhel"
 	if node.platform_version.to_i == 7
 		execute "sed -i '/^preserve_hostname/d' /etc/cloud/cloud.cfg" do

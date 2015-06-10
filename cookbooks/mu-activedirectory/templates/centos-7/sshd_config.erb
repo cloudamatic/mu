@@ -76,7 +76,7 @@ PermitEmptyPasswords no
 
 <% 
 begin
-	if @allow_password_auth %>
+	if node.application_attributes.sshd_allow_password_auth %>
 PasswordAuthentication yes
 <%
 	end
@@ -166,7 +166,7 @@ UseDNS no
 
 Ciphers aes128-ctr,aes192-ctr,aes256-ctr
 
-# If we've set AllowGroups, use that instead of restricting to root
+# If we've set AllowGroups, use that instead of restricting to centos
 <% 
 begin 
 %>
@@ -174,7 +174,7 @@ AllowGroups <%= node.application_attributes.sshd_allow_groups %>
 <% 
 rescue NoMethodError 
 %>
-AllowUsers root
+AllowUsers centos
 <%
 end
 %>
