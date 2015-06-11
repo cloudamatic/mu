@@ -26,6 +26,32 @@ autoload :Resolv, 'resolv'
 gem 'netaddr'
 autoload :NetAddr, 'netaddr'
 
+gem "chef"
+autoload :Chef, 'chef'
+gem "knife-windows"
+gem "chef-vault"
+autoload :Chef, 'chef-vault'
+autoload :ChefVault, 'chef-vault'
+
+# XXX Explicit autoloads for child classes of :Chef. This only seems to be
+# necessary for independent groom invocations from MommaCat. It's not at all
+# clear why. Chef bug? Autoload threading weirdness?
+class Chef
+  autoload :Knife, 'chef/knife'
+  autoload :Search, 'chef/search'
+  autoload :Node, 'chef/node'
+	autoload :Mixin, 'chef/mixin'
+	# XXX This only seems to be necessary for independent groom invocations from
+	# MommaCat. It's not at all clear why. Chef bug? Autoload threading weirdness?
+	class Knife
+		autoload :Ssh, 'chef/knife/ssh'
+		autoload :Bootstrap, 'chef/knife/bootstrap'
+		autoload :BootstrapWindowsSsh, 'chef/knife/bootstrap_windows_ssh'
+		autoload :Bootstrap, 'chef/knife/core/bootstrap_context'
+		autoload :BootstrapWindowsSsh, 'chef/knife/core/bootstrap_context'
+	end
+end
+
 if ENV['AWS_ACCESS_KEY_ID'] == nil or ENV['AWS_ACCESS_KEY_ID'].empty?
 	ENV.delete('AWS_ACCESS_KEY_ID')
 	ENV.delete('AWS_SECRET_ACCESS_KEY')
