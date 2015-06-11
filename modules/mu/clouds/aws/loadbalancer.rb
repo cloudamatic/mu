@@ -64,7 +64,7 @@ module MU
 				sgs = Array.new
 				if !@loadbalancer["add_firewall_rules"].nil?
 					@loadbalancer["add_firewall_rules"].each { |acl|
-						sg = MU::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"])
+						sg = MU::AWS::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"])
 						if sg.nil?
 							MU.log "Couldn't find dependent security group #{acl} for Load Balancer #{@loadbalancer['name']}", MU::ERR, details: MU::Deploy.deployment['firewall_rules']
 							raise MuError, "deploy failure"
@@ -74,9 +74,9 @@ module MU
 				end
 
 				if @loadbalancer["vpc"] != nil
-					vpc_id, subnet_ids = MU::VPC.parseVPC(@loadbalancer["vpc"])
-					sgs << MU::FirewallRule.setAdminSG(vpc_id: vpc_id)
-					lb_sg = MU::FirewallRule.createEc2SG(@loadbalancer['name'], @loadbalancer['ingress_rules'], description: "Load Balancer #{lb_name}", vpc_id: vpc_id)
+					vpc_id, subnet_ids = MU::AWS::VPC.parseVPC(@loadbalancer["vpc"])
+					sgs << MU::AWS::FirewallRule.setAdminSG(vpc_id: vpc_id)
+					lb_sg = MU::AWS::FirewallRule.createEc2SG(@loadbalancer['name'], @loadbalancer['ingress_rules'], description: "Load Balancer #{lb_name}", vpc_id: vpc_id)
 					sgs << lb_sg
 					lb_options[:subnets] = subnet_ids
 					lb_options[:security_groups] = sgs
@@ -262,13 +262,13 @@ module MU
 						end
 					end
 				end
-				MU::DNSZone.genericDNSEntry(lb_name, "#{resp.dns_name}.", MU::LoadBalancer, sync_wait: @loadbalancer['dns_sync_wait'])
+				MU::AWS::DNSZone.genericDNSEntry(lb_name, "#{resp.dns_name}.", MU::AWS::LoadBalancer, sync_wait: @loadbalancer['dns_sync_wait'])
 				if !@loadbalancer['dns_records'].nil?
 					@loadbalancer['dns_records'].each { |dnsrec|
 						dnsrec['name'] = lb_name.downcase if !dnsrec.has_key?('name')
 					}
 				end
-				MU::DNSZone.createRecordsFromConfig(@loadbalancer['dns_records'], target: resp.dns_name)
+				MU::AWS::DNSZone.createRecordsFromConfig(@loadbalancer['dns_records'], target: resp.dns_name)
 
 				deploy_struct = {
 					"awsname" => lb_name,
@@ -285,7 +285,7 @@ module MU
 			# @param instance_id [String] A node to register.
 			# @param region [String]: The cloud provider region
 			def self.registerInstance(lb_name, instance_id, region: MU.curRegion)
-				raise MuError, "MU::LoadBalancer.registerInstance requires a Load Balancer name and an instance id" if lb_name.nil? or instance_id.nil?
+				raise MuError, "MU::AWS::LoadBalancer.registerInstance requires a Load Balancer name and an instance id" if lb_name.nil? or instance_id.nil?
 				MU::AWS.elb(region).register_instances_with_load_balancer(
 					load_balancer_name: lb_name,
 					instances: [
@@ -317,7 +317,7 @@ module MU
 					end
 					if saw_tags.include?("MU-ID") and (saw_tags.include?("MU-MASTER-IP") or ignoremaster)
 						if muid_match and (mumaster_match or ignoremaster)
-							MU::DNSZone.genericDNSEntry(lb.load_balancer_name, lb.dns_name, MU::LoadBalancer, delete: true)
+							MU::AWS::DNSZone.genericDNSEntry(lb.load_balancer_name, lb.dns_name, MU::AWS::LoadBalancer, delete: true)
 							MU.log "Removing Elastic Load Balancer #{lb.load_balancer_name}"
 							MU::AWS.elb(region).delete_load_balancer(load_balancer_name: lb.load_balancer_name) if !noop
 						end

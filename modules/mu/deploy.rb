@@ -154,9 +154,9 @@ module MU
 	
 			@fromName ='chef-server';
 
-			MU.resource_types.each { |cloudclass|
-				if !@main_config[cloudclass.cfg_plural].nil? and @main_config[cloudclass.cfg_plural].size > 0
-					setThreadDependencies(@main_config[cloudclass.cfg_plural])
+			MU.resource_types.each { |cloudclass, data|
+				if !@main_config[data[:cfg_plural]].nil? and @main_config[data[:cfg_plural]].size > 0
+					setThreadDependencies(@main_config[data[:cfg_plural]])
 				end
 			}
 
@@ -176,9 +176,9 @@ module MU
 				MU.log "Generating SSH key #{@keypairname}"
 				%x{/usr/bin/ssh-keygen -N "" -f #{Dir.home}/.ssh/#{@keypairname}}
 			end
-			@ssh_public_key = File.read(" #{Dir.home}/.ssh/#{@keypairname}.pub")
+			@ssh_public_key = File.read("#{Dir.home}/.ssh/#{@keypairname}.pub")
 			@ssh_public_key.chomp!
-			@ssh_private_key = File.read(" #{Dir.home}/.ssh/#{@keypairname}")
+			@ssh_private_key = File.read("#{Dir.home}/.ssh/#{@keypairname}")
 			@ssh_private_key.chomp!
 
 			# XXX only call this if we're creating EC2 resources
@@ -239,7 +239,7 @@ module MU
 			end
 
 			begin
-				keyname, ssh_private_key, ssh_public_key = deploySSHKey(MU.mu_id)
+				keyname, ssh_private_key, ssh_public_key = self.SSHKey
 
 				metadata = {
 					"appname" => @appname,
@@ -273,11 +273,13 @@ module MU
 		    @my_threads << Thread.new {
 					MU.dupGlobals(parent_thread_id)
 					Thread.current.thread_variable_set("name", "mu_create_container")
-					MU.resource_types.each { |cloudclass|
-						if !@main_config[cloudclass.cfg_plural].nil? and
-						 		@main_config[cloudclass.cfg_plural].size > 0 and
-								cloudclass.instance_methods(false).include?(:create)
-							createResources(@main_config[cloudclass.cfg_plural], "create")
+					MU.resource_types.each { |cloudclass, data|
+						if !@main_config[data[:cfg_plural]].nil? and
+						 		@main_config[data[:cfg_plural]].size > 0 and
+								data[:instance].include?(:create)
+			# XXX maybe here we verify that cloud provider implementations have
+			# all their methods?
+							createResources(@main_config[data[:cfg_plural]], "create")
 						end
 					}
 				}
@@ -286,11 +288,11 @@ module MU
 		    @my_threads << Thread.new {
 					MU.dupGlobals(parent_thread_id)
 					Thread.current.thread_variable_set("name", "mu_groom_container")
-					MU.resource_types.each { |cloudclass|
-						if !@main_config[cloudclass.cfg_plural].nil? and
-						 		@main_config[cloudclass.cfg_plural].size > 0 and
-								cloudclass.instance_methods(false).include?(:groom)
-							createResources(@main_config[cloudclass.cfg_plural], "groom")
+					MU.resource_types.each { |cloudclass, data|
+						if !@main_config[data[:cfg_plural]].nil? and
+						 		@main_config[data[:cfg_plural]].size > 0 and
+								data[:instance].include?(:groom)
+							createResources(@main_config[data[:cfg_plural]], "groom")
 						end
 					}
 				}
@@ -306,6 +308,7 @@ module MU
 			  @my_threads.each do |t|
 			    t.join
 			  end
+raise "ENOUGH OF THAT"
 			rescue Exception => e
 
 			  @my_threads.each do |t|
@@ -491,7 +494,7 @@ MESSAGE_END
 						run_this_method = service['#MUOBJECT'].method(mode)
 					rescue Exception => e
 						MU::MommaCat.unlockAll
-						raise MuError, "Error invoking #{service["#MU_CLASS"]}.#{mode} for #{myservice['name']} (#{e.message})"
+						raise MuError, "Error instantiating #{service["#MU_CLASS"]} for#{mode} for #{myservice['name']} (#{e.message})"
 					end
 					begin
 						MU.log "Running #{service['#MUOBJECT']}.#{mode}", MU::DEBUG

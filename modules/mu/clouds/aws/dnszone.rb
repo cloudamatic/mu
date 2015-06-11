@@ -141,14 +141,14 @@ module MU
 					}
 				end
 
-				MU::DNSZone.notify(@zone['name'], id, @zone)
+				MU::AWS::DNSZone.notify(@zone['name'], id, @zone)
 
-				MU::DNSZone.createRecordsFromConfig(@zone['records'])
+				MU::AWS::DNSZone.createRecordsFromConfig(@zone['records'])
 
 				return resp.hosted_zone
 			end
 
-			# Wrapper for {MU::DNSZone.manageRecord}. Spawns threads to create all
+			# Wrapper for {MU::AWS::DNSZone.manageRecord}. Spawns threads to create all
 			# requested records in background and returns immediately.
 			# @param cfg [Array]: An array of parsed {MU::Config::BasketofKittens::dnszones::records} objects.
 			# @param target [String]: Optional target for the records to be created. Overrides targets embedded in cfg records.
@@ -156,16 +156,16 @@ module MU
 				return if cfg.nil?
 				record_threads = []
 				cfg.each { |record|
-					zone, junk = MU::DNSZone.find(name: record['zone']['name'], id: record['zone']['id'])
+					zone, junk = MU::AWS::DNSZone.find(name: record['zone']['name'], id: record['zone']['id'])
 					healthcheck_id = nil
 					record['target'] = target if !target.nil?
 					if !record['healthcheck'].nil?
-						healthcheck_id = MU::DNSZone.createHealthCheck(record['healthcheck'], record['target'])
+						healthcheck_id = MU::AWS::DNSZone.createHealthCheck(record['healthcheck'], record['target'])
 					end
 					parent_thread_id = Thread.current.object_id
 					record_threads << Thread.new {
 						MU.dupGlobals(parent_thread_id)
-						MU::DNSZone.manageRecord(zone.id, record['name'], record['type'],
+						MU::AWS::DNSZone.manageRecord(zone.id, record['name'], record['type'],
 							targets: [record['target']], ttl: record['ttl'],
 							failover: record['failover'], healthcheck: healthcheck_id,
 							weight: record['weight'], overwrite: record['override_existing'],
@@ -281,7 +281,7 @@ module MU
 					location: nil, set_identifier: nil, alias_zone: nil)
 
 				MU.setVar("curRegion", region) if !region.nil?
-				zone, mu_name = MU::DNSZone.find(id: id)
+				zone, mu_name = MU::AWS::DNSZone.find(id: id)
 				if zone.nil?
 					raise MuError, "Hosted DNS Zone #{id} not found"
 				end
@@ -428,7 +428,7 @@ module MU
 			# @param sync_wait [Boolean]: Wait for DNS entry to propagate across zone.
 			def self.genericDNSEntry(name, target, cloudclass, noop: false, delete: false, sync_wait: true)
 				return nil if name.nil? or target.nil? or cloudclass.nil?
-				mu_zone, junk = MU::DNSZone.find(name: "platform-mu")
+				mu_zone, junk = MU::AWS::DNSZone.find(name: "platform-mu")
 
 				if !mu_zone.nil? and !MU.myVPC.nil?
 					subdomain = cloudclass.cfg_name
@@ -469,10 +469,10 @@ module MU
 
 					sync_wait = false if delete
 
-					record_type = "R53ALIAS" if cloudclass == MU::LoadBalancer
+					record_type = "R53ALIAS" if cloudclass == MU::AWS::LoadBalancer
 					attempts = 0
 					begin
-						MU::DNSZone.manageRecord(mu_zone.id, dns_name, record_type, targets: [target], delete: delete, sync_wait: sync_wait)
+						MU::AWS::DNSZone.manageRecord(mu_zone.id, dns_name, record_type, targets: [target], delete: delete, sync_wait: sync_wait)
 					rescue Aws::Route53::Errors::PriorRequestNotComplete => e
 						MU.log "Route53 was still processing a request, waiting", MU::WARN, details: e
 						sleep 15
@@ -541,7 +541,7 @@ module MU
 						MU::AWS.route53(region).delete_health_check(health_check_id: check.id) if !noop
 					end
 				}
-				zones, name = MU::DNSZone.find(deploy_id: MU.mu_id, allow_multi: true, region: region)
+				zones, name = MU::AWS::DNSZone.find(deploy_id: MU.mu_id, allow_multi: true, region: region)
 				zones.each { |zone|
 					MU.log "Purging DNS Zone '#{zone.name}' (#{zone.id})"
 					if !noop

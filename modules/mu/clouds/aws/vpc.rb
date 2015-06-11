@@ -245,9 +245,9 @@ module MU
 				end
 				@deploy.notify("vpcs", @vpc['name'], @vpc)
 
-				mu_zone, junk = MU::DNSZone.find(name: "mu")
+				mu_zone, junk = MU::AWS::DNSZone.find(name: "mu")
 				if !mu_zone.nil?
-					MU::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc_id, region: @vpc['region'])
+					MU::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc_id, region: @vpc['region'])
 				end
 
 				MU.log "VPC #{vpc_name} created", details: @vpc
@@ -265,7 +265,7 @@ module MU
 						begin
 							if peer['account'].nil? or peer['account'] == MU.account_number
 								tag_key, tag_value = peer['vpc']['tag'].split(/=/, 2) if !peer['vpc']['tag'].nil?
-								peer_desc, peer_name = MU::VPC.find(
+								peer_desc, peer_name = MU::AWS::VPC.find(
 									id: peer['vpc']['vpc_id'],
 									name: peer['vpc']['vpc_name'],
 									deploy_id: peer['vpc']['deploy_id'],
@@ -390,7 +390,7 @@ module MU
 									:destination_cidr_block => route['destination_network']
 								}
 
-								nat_instance, mu_name = MU::Server.find(
+								nat_instance, mu_name = MU::AWS::Server.find(
 									id: route["nat_host_id"],
 									name: route["nat_host_name"],
 									region: @vpc['region']
@@ -651,8 +651,8 @@ module MU
 			# @return [Boolean]
 			def self.haveRouteToInstance?(instance_id, region: MU.curRegion)
 				return false if instance_id.nil?
-				my_subnets = MU::VPC.getInstanceSubnets(MU.myInstanceId)
-				target_subnets = MU::VPC.getInstanceSubnets(instance_id)
+				my_subnets = MU::AWS::VPC.getInstanceSubnets(MU.myInstanceId)
+				target_subnets = MU::AWS::VPC.getInstanceSubnets(instance_id)
 
 				if (my_subnets & target_subnets).size > 0
 					MU.log "I share a subnet with #{instance_id}, I can route to it directly", MU::DEBUG
@@ -817,11 +817,11 @@ module MU
 				nat_host_name = nil
 				nat_ssh_user = nil
 				if vpc_conf["nat_host_name"] != nil
-					nat, mu_name = MU::Server.find(name: vpc_conf["nat_host_name"], region: vpc_conf['region'])
+					nat, mu_name = MU::AWS::Server.find(name: vpc_conf["nat_host_name"], region: vpc_conf['region'])
 					raise MuError, "Can't find a bastion host with name #{vpc_conf["nat_host_name"]}" if nat == nil
 					nat_host_name = nat.public_dns_name
 				elsif vpc_conf["nat_host_id"] != nil
-					nat, mu_name = MU::Server.find(id: vpc_conf["nat_host_id"], region: vpc_conf['region'])
+					nat, mu_name = MU::AWS::Server.find(id: vpc_conf["nat_host_id"], region: vpc_conf['region'])
 					raise MuError, "Can't find a bastion host with id #{vpc_conf["nat_host_id"]}" if nat == nil
 					nat_host_name = nat.public_dns_name
 				end
@@ -887,7 +887,7 @@ module MU
 			end
 
 			# Helper method for manufacturing route tables. Expect to be called from
-			# {MU::VPC#create} or {MU::VPC#deploy}.
+			# {MU::AWS::VPC#create} or {MU::AWS::VPC#deploy}.
 			# @param rtb [Hash]: A route table description parsed through {MU::Config::BasketofKittens::vpcs::route_tables}.
 			# @return [Hash]: The modified configuration that was originally passed in.
 			def createRouteTable(rtb)
@@ -1111,7 +1111,7 @@ module MU
 					my_peer_conns.each { |cnxn|
 						
 						[cnxn.accepter_vpc_info.vpc_id, cnxn.requester_vpc_info.vpc_id].each { |peer_vpc|
-							MU::VPC.listAllSubnetRouteTables(peer_vpc, region: region).each { |rtb_id|
+							MU::AWS::VPC.listAllSubnetRouteTables(peer_vpc, region: region).each { |rtb_id|
 								resp = MU::AWS.ec2(region).describe_route_tables(
 									route_table_ids: [rtb_id]
 								)
@@ -1145,9 +1145,9 @@ module MU
 						MU.log "Couldn't delete VPC #{vpc.vpc_id}: #{e.inspect}", MU::ERR
 					end
 
-					mu_zone, junk = MU::DNSZone.find(name: "mu", region: region)
+					mu_zone, junk = MU::AWS::DNSZone.find(name: "mu", region: region)
 					if !mu_zone.nil?
-						MU::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc.vpc_id, remove: true)
+						MU::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc.vpc_id, remove: true)
 					end
 				}
 			end

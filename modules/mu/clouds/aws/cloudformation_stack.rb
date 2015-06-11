@@ -163,7 +163,7 @@ module MU
 								instance_name = MU.mu_id+"-"+@stack['name']+"-"+resource.logical_resource_id
 								MU::MommaCat.createTag(resource.physical_resource_id, "Name", instance_name)
 
-								instance = MU::Server.notifyDeploy(
+								instance = MU::AWS::Server.notifyDeploy(
 									@stack['name']+"-"+resource.logical_resource_id,
 									resource.physical_resource_id
 								)
@@ -179,9 +179,9 @@ module MU
 									key_name: instance["key_name"]
 								)
 
-								mu_zone, junk = MU::DNSZone.find(name: "mu")
+								mu_zone, junk = MU::AWS::DNSZone.find(name: "mu")
 								if !mu_zone.nil?
-									MU::DNSZone.genericDNSEntry(instance_name, instance["private_ip_address"], MU::Server)
+									MU::AWS::DNSZone.genericDNSEntry(instance_name, instance["private_ip_address"], MU::AWS::Server)
 								else
 									MU::MommaCat.addInstanceToEtcHosts(instance["public_ip_address"], instance_name)
 								end
@@ -189,7 +189,7 @@ module MU
 							when "AWS::EC2::SecurityGroup"
 								MU::MommaCat.createStandardTags(resource.physical_resource_id)
 								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.mu_id+"-"+@stack['name']+'-'+resource.logical_resource_id)
-								MU::FirewallRule.notifyDeploy(
+								MU::AWS::FirewallRule.notifyDeploy(
 									@stack['name']+"-"+resource.logical_resource_id,
 									resource.physical_resource_id
 								)

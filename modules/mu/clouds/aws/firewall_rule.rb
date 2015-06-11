@@ -44,7 +44,7 @@ module MU
 			def create
 				# old-style VPC reference
 				if !@ruleset['vpc_id'].nil? or !@ruleset['vpc_name'].nil?
-					existing_vpc, vpc_name = MU::VPC.find(
+					existing_vpc, vpc_name = MU::AWS::VPC.find(
 						id: @ruleset['vpc_id'],
 						name: @ruleset['vpc_name'],
 						region: @ruleset['region']
@@ -58,9 +58,9 @@ module MU
 					vpc_id = existing_vpc.vpc_id
 				# new-style VPC reference
 				elsif !@ruleset['vpc'].nil?
-					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::VPC.parseVPC(@ruleset['vpc'])
+					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::AWS::VPC.parseVPC(@ruleset['vpc'])
 				end
-				@ruleset['sg_id'] = MU::FirewallRule.createEc2SG(
+				@ruleset['sg_id'] = MU::AWS::FirewallRule.createEc2SG(
 						@ruleset['name'],
 						[],
 						vpc_id: vpc_id,
@@ -70,7 +70,7 @@ module MU
 
 			# Called by {MU::Deploy#createResources}
 			def groom
-				MU::FirewallRule.setRules(
+				MU::AWS::FirewallRule.setRules(
 						@ruleset['sg_id'],
 						@ruleset['rules'],
 						add_to_self: @ruleset['self-referencing'],
@@ -84,7 +84,7 @@ module MU
 			# @param sg_id [String]: The cloud provider identifier of the ruleset.
 			def self.notifyDeploy(name, sg_id, region: MU.curRegion)
 				sg_data = MU.structToHash(
-						MU::FirewallRule.find(sg_id: sg_id, region: region)
+						MU::AWS::FirewallRule.find(sg_id: sg_id, region: region)
 					)
 				sg_data["group_id"] = sg_id
 				MU::Deploy.notify("firewall_rules", name, sg_data)
@@ -122,7 +122,7 @@ module MU
 				else
 					rule["port_range"] = port_range
 				end
-				ec2_rule = MU::FirewallRule.convertToEc2([rule], region: region)
+				ec2_rule = MU::AWS::FirewallRule.convertToEc2([rule], region: region)
 
 				begin
 					if egress
@@ -170,7 +170,7 @@ module MU
 					secgroup = MU::AWS.ec2(region).create_security_group(sg_struct)
 				rescue Aws::EC2::Errors::InvalidGroupDuplicate
 					MU.log "EC2 Security Group #{groupname} already exists, using it", MU::WARN
-					secgroup = MU::FirewallRule.find(name: groupname, region: region)
+					secgroup = MU::AWS::FirewallRule.find(name: groupname, region: region)
 				end
 
 				begin
@@ -189,7 +189,7 @@ module MU
 					egress = true if !vpc_id.nil?
 					# XXX the egress logic here is a crude hack, this really needs to be
 					# done at config level
-					MU::FirewallRule.setRules(
+					MU::AWS::FirewallRule.setRules(
 							secgroup.group_id,
 							rules,
 							add_to_self: add_to_self,
@@ -200,7 +200,7 @@ module MU
 				end
 
 				MU.log "EC2 Security Group #{groupname} is #{secgroup.group_id}", MU::DEBUG
-				MU::FirewallRule.notifyDeploy(name, secgroup.group_id, region: region)
+				MU::AWS::FirewallRule.notifyDeploy(name, secgroup.group_id, region: region)
 				return secgroup.group_id
 			end
 
@@ -232,11 +232,11 @@ module MU
 					if extant_sg != nil
 						if add_admin_ip != nil
 							MU.log "Modifying EC2 Security Group #{admin_sg_name} to add #{add_admin_ip}"
-							ec2_rules = MU::FirewallRule.convertToEc2(MU::FirewallRule.stdAdminRules(hosts), region: region)
+							ec2_rules = MU::AWS::FirewallRule.convertToEc2(MU::AWS::FirewallRule.stdAdminRules(hosts), region: region)
 
-							MU::FirewallRule.addRule(extant_sg, hosts, proto: "tcp", port_range: "0-65535", region: region)
-							MU::FirewallRule.addRule(extant_sg, hosts, proto: "udp", port_range: "0-65535", region: region)
-							MU::FirewallRule.addRule(extant_sg, hosts, proto: "icmp", port_range: "-1", region: region)
+							MU::AWS::FirewallRule.addRule(extant_sg, hosts, proto: "tcp", port_range: "0-65535", region: region)
+							MU::AWS::FirewallRule.addRule(extant_sg, hosts, proto: "udp", port_range: "0-65535", region: region)
+							MU::AWS::FirewallRule.addRule(extant_sg, hosts, proto: "icmp", port_range: "-1", region: region)
 						end
 		
 						return extant_sg
@@ -245,7 +245,7 @@ module MU
 					# Create this group from scratch if it wasn't already around
 					hosts << "#{MU.my_private_ip}/32"
 					hosts << "#{MU.my_public_ip}/32" if MU.my_public_ip != nil
-					rules = MU::FirewallRule.stdAdminRules(hosts)
+					rules = MU::AWS::FirewallRule.stdAdminRules(hosts)
 		
 					sg = createEc2SG("ADMIN", rules, description: "Administrative security group for deploy #{MU.mu_id}. Lets our Mu Master in.", vpc_id: vpc_id, region: region)
 					if vpc_id != nil
@@ -417,7 +417,7 @@ module MU
 			def self.setRules(sg_id, rules, add_to_self: add_to_self = false, ingress: ingress = true, egress: egress = false, region: MU.curRegion)
 				return if rules.nil? or rules.size == 0
 
-				sg = MU::FirewallRule.find(sg_id: sg_id, region: region)
+				sg = MU::AWS::FirewallRule.find(sg_id: sg_id, region: region)
 				raise MuError, "Couldn't find firewall ruleset with id #{sg_id}" if sg.nil?
 				MU.log "Setting rules in Security Group #{sg.group_name} (#{sg_id})"
 
@@ -435,7 +435,7 @@ module MU
 					}
 				end
 
-				ec2_rules = MU::FirewallRule.convertToEc2(rules, region: region)
+				ec2_rules = MU::AWS::FirewallRule.convertToEc2(rules, region: region)
 
 				# Creating an empty security group is ok, so don't freak out if we get
 				# a null rule list.
@@ -469,7 +469,7 @@ module MU
 					end
 				end
 
-				MU::FirewallRule.notifyDeploy(sg.group_name, sg_id, region: region)
+				MU::AWS::FirewallRule.notifyDeploy(sg.group_name, sg_id, region: region)
 				return sg_id
 			end
 
@@ -523,7 +523,7 @@ module MU
 						if !rule['lbs'].nil?
 							ec2_rule[:ip_ranges] = Array.new
 							rule['lbs'].each { |lb_name|
-								lb = MU::LoadBalancer.find(name: lb_name, dns_name: lb_name, region: region)
+								lb = MU::AWS::LoadBalancer.find(name: lb_name, dns_name: lb_name, region: region)
 								if lb.nil?
 									MU.log "Couldn't find a Load Balancer named #{lb_name}", MU::ERR
 									raise MuError, "deploy failure"
@@ -543,9 +543,9 @@ module MU
 							ec2_rule[:user_id_group_pairs] = Array.new if ec2_rule[:user_id_group_pairs].nil?
 							rule['sgs'].each { |sg_name|
 								if sg_name.match(/^sg-/)
-									sg = MU::FirewallRule.find(sg_id: sg_name, region: region)
+									sg = MU::AWS::FirewallRule.find(sg_id: sg_name, region: region)
 								else
-									sg = MU::FirewallRule.find(name: sg_name, region: region)
+									sg = MU::AWS::FirewallRule.find(name: sg_name, region: region)
 								end
 								if sg.nil?
 									raise MuError, "Attempted to reference non-existing Security Group #{sg_name}"

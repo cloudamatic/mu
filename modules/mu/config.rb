@@ -844,7 +844,7 @@ module MU
 			dnszones.each { |zone|
 				zone["#MU_CLASS"] = Object.const_get("MU::#{server['cloud']}::DNSZone")
 				zone['region'] = config['region'] if zone['region'].nil?
-				ext_zone, ext_name = MU::DNSZone.find(name: zone['name'])
+				ext_zone, ext_name = MU::AWS::DNSZone.find(name: zone['name'])
 
 				if !ext_zone.nil?
 					MU.log "DNS zone #{zone['name']} already exists", MU::ERR
@@ -1232,7 +1232,7 @@ module MU
 					end
 					# XXX be nice to tell users that these parameters are invalid here,
 					# but only if they specified them.
-					### Moving this back to MU::Database 
+					### Moving this back to MU::AWS::Database 
 					# db.delete("storage_encrypted")
 					# db.delete("preferred_backup_window")
 					# db.delete("backup_retention_period")
@@ -1618,7 +1618,7 @@ module MU
 					}
 				}
 				if subnets == (ONE_SUBNET+MANY_SUBNETS)
-					vpc_ref_schema["properties"]["subnets"]["items"]["description"] = "Extra subnets to which to attach this {MU::Server}. Extra network interfaces will be created to accomodate these attachments."
+					vpc_ref_schema["properties"]["subnets"]["items"]["description"] = "Extra subnets to which to attach this {MU::AWS::Server}. Extra network interfaces will be created to accomodate these attachments."
 				end
 			end
 			

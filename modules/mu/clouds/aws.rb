@@ -1,4 +1,18 @@
+# Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
+#
+# Licensed under the BSD-3 license (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License in the root of the project or at
+#
+#     http://egt-labs.com/mu/LICENSE.html
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
+require "net/http"
 module MU
 	class AWS
 		# List the Availability Zones associated with a given Amazon Web Services
@@ -57,20 +71,12 @@ module MU
 		def self.createEc2SSHKey(keyname, public_key)
 			# We replicate this key in all regions
 			MU::AWS.listRegions.each { |region|
-				next if region == MU.myRegion
-				MU.log "Replicating #{keyname} to #{region}", MU::DEBUG, details: @ssh_public_key
+				MU.log "Replicating #{keyname} to EC2 in #{region}", MU::DEBUG, details: @ssh_public_key
 				MU::AWS.ec2(region).import_key_pair(
 					key_name: keyname,
 					public_key_material: public_key
 				)
 			}
-
-# XXX This library code would be nicer... except it can't do PKCS8.
-#			foo = OpenSSL::PKey::RSA.new(@ssh_private_key)
-#			bar = foo.public_key
-
-			sleep 3
-		  return [keyname, keypair.key_material, @ssh_public_key]
 		end
 		
 
@@ -141,7 +147,7 @@ module MU
 		# Object for accessing Amazon's ElasticLoadBalancing service
 		def self.elb(region = MU.curRegion)
 			region ||= MU.myRegion
-			@@elb_api[region] ||= MU::AWS::Endpoint.new(api: "ElasticLoadBalancer", region: region)
+			@@elb_api[region] ||= MU::AWS::Endpoint.new(api: "ElasticLoadBalancing", region: region)
 			@@elb_api[region]
 		end
 

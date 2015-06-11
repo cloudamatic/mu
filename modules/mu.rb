@@ -306,50 +306,50 @@ module MU
 		:CloudFormation => {
 			:cfg_name => "cloudformation_stack",
 			:cfg_plural => "cloudformation_stacks",
-			:instance => generic_class_methods,
-			:class => generic_instance_methods
+			:class => generic_class_methods,
+			:instance => generic_instance_methods
 		},
 		:Database => {
 			:cfg_name => "database",
 			:cfg_plural => "databases",
-			:instance => generic_class_methods,
-			:class => generic_instance_methods + [:groom]
+			:class => generic_class_methods,
+			:instance => generic_instance_methods + [:groom]
 		},
 		:DNSZone => {
 			:cfg_name => "dnszone",
 			:cfg_plural => "dnszones",
-			:instance => generic_class_methods,
-			:class => generic_instance_methods
+			:class => generic_class_methods,
+			:instance => generic_instance_methods
 		},
 		:FirewallRule => {
 			:cfg_name => "firewall_rule",
 			:cfg_plural => "firewall_rules",
-			:instance => generic_class_methods,
-			:class => generic_instance_methods + [:groom]
+			:class => generic_class_methods,
+			:instance => generic_instance_methods + [:groom]
 		},
 		:LoadBalancer => {
 			:cfg_name => "loadbalancer",
 			:cfg_plural => "loadbalancers",
-			:instance => generic_class_methods,
-			:class => generic_instance_methods
+			:class => generic_class_methods,
+			:instance => generic_instance_methods
 		},
 		:Server => {
 			:cfg_name => "server",
 			:cfg_plural => "servers",
-			:instance => generic_class_methods + [:postBoot],
-			:class => generic_instance_methods + [:groom]
+			:class => generic_class_methods + [:postBoot],
+			:instance => generic_instance_methods + [:groom]
 		},
 		:ServerPool => {
 			:cfg_name => "server_pool",
 			:cfg_plural => "server_pools",
-			:instance => generic_class_methods,
-			:class => generic_instance_methods
+			:class => generic_class_methods,
+			:instance => generic_instance_methods
 		},
 		:VPC => {
 			:cfg_name => "vpc",
 			:cfg_plural => "vpcs",
-			:instance => generic_class_methods,
-			:class => generic_instance_methods + [:groom]
+			:class => generic_class_methods,
+			:instance => generic_instance_methods + [:groom]
 		},
 	}.freeze
 
@@ -363,7 +363,7 @@ module MU
 
 	# List of known/supported Cloud providers
 	def self.supportedClouds
-		["AWS"]
+		["AWS", "Docker"]
 	end
 
 	# Load the container class for each cloud we know about, and inject autoload
@@ -373,16 +373,23 @@ module MU
 		cloudclass = Object.const_get("MU::#{cloud}")
 		cloudclass.instance_eval {
 			@@resource_types.each_pair { |res_class, data|
-# XXX test for existence, quietly skip missing ones
-MU.log "autoload #{res_class}, 'mu/clouds/#{cloud.downcase}/#{data[:cfg_name]}'"
-				autoload res_class, "mu/clouds/#{cloud.downcase}/#{data[:cfg_name]}"
+				MU.log "Checking for '#{cloud}::#{res_class}'", MU::DEBUG
+				if File.exists?("#{MU.myRoot}/modules/mu/clouds/#{cloud.downcase}/#{data[:cfg_name]}.rb")
+# XXX also test if they've implemented required methods, throw a nutty if not
+# any way to do this without loading every damn thing?
+#					data[:instance].each { |method|
+#						cloudclass.instance_methods(false).include?(:groom)
+#					}
+					MU.log "Adding: autoload #{res_class}, 'mu/clouds/#{cloud.downcase}/#{data[:cfg_name]}'", MU::DEBUG
+					autoload res_class, "mu/clouds/#{cloud.downcase}/#{data[:cfg_name]}"
+				end
 			}
-
 		}
 	}
 
 	def self.resourceClass(type, cloud = MU::Config.defaultCloud)
 # XXX raise MuError if the cloud/resource combination isn't available
+# XXX test if these guys implemented all their methods?
 		begin
 			Object.const_get("MU::#{cloud}::#{type}")
 		rescue NameError

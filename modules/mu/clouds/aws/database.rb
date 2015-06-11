@@ -45,11 +45,11 @@ module MU
 			# @return [String]: The cloud provider's identifier for this database instance.
 			def create
 				if @db["creation_style"] == "existing"
-					database = MU::Database.getDatabaseById(@db['identifier'])
+					database = MU::AWS::Database.getDatabaseById(@db['identifier'])
 
 					raise MuError, "No such database #{@db['identifier']} exists" if database.nil?
 
-					MU::Database.notifyDeploy(@db["name"], @db['identifier'], @db["password"], @db["creation_style"])
+					MU::AWS::Database.notifyDeploy(@db["name"], @db['identifier'], @db["password"], @db["creation_style"])
 					return @db['db_id']
 				else
 					return createDb
@@ -100,7 +100,7 @@ module MU
 
 				MU.log "Adding tags to RDS resource #{resource}: #{tags}"
 				MU::AWS.rds(region).add_tags_to_resource(
-					resource_name: MU::Database.getARN(resource, resource_type, region: region),
+					resource_name: MU::AWS::Database.getARN(resource, resource_type, region: region),
 					tags: tags
 				)
 			end		
@@ -199,7 +199,7 @@ module MU
 
 				begin
 					# this ends in an ensure block that cleans up if we die
-					database = MU::Database.getDatabaseById(@db['identifier'], region: @db['region'])
+					database = MU::AWS::Database.getDatabaseById(@db['identifier'], region: @db['region'])
 					# Calling this a second time after the DB instance is ready or DNS record creation will fail.
 					wait_start_time = Time.now
 
@@ -215,15 +215,15 @@ module MU
 						end
 					end
 
-					database = MU::Database.getDatabaseById(@db['identifier'], region: @db['region'])
+					database = MU::AWS::Database.getDatabaseById(@db['identifier'], region: @db['region'])
 
-					MU::DNSZone.genericDNSEntry(database.db_instance_identifier, "#{database.endpoint.address}.", MU::Database, sync_wait: @db['dns_sync_wait'])
+					MU::AWS::DNSZone.genericDNSEntry(database.db_instance_identifier, "#{database.endpoint.address}.", MU::AWS::Database, sync_wait: @db['dns_sync_wait'])
 					if !@db['dns_records'].nil?
 						@db['dns_records'].each { |dnsrec|
 							dnsrec['name'] = database.db_instance_identifier.downcase if !dnsrec.has_key?('name')
 						}
 					end
-					MU::DNSZone.createRecordsFromConfig(@db['dns_records'], target: database.endpoint.address)
+					MU::AWS::DNSZone.createRecordsFromConfig(@db['dns_records'], target: database.endpoint.address)
 
 					# When creating from a snapshot, some of the create arguments aren't
 					# applicable- but we can apply them after the fact with a modify.
@@ -243,7 +243,7 @@ module MU
 							end
 							if @db["add_firewall_rules"] and !@db["add_firewall_rules"].empty?
 								@db["add_firewall_rules"].each { |acl|
-									sg = MU::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"], region: @db['region'])
+									sg = MU::AWS::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"], region: @db['region'])
 									if sg and mod_config[:vpc_security_group_ids].nil?
 										mod_config[:vpc_security_group_ids] = []
 									end	
@@ -272,12 +272,12 @@ module MU
 						end
 					end
 
-					MU::Database.notifyDeploy(@db["name"], @db['identifier'], @db['password'], @db["creation_style"], region: @db['region'])
+					MU::AWS::Database.notifyDeploy(@db["name"], @db['identifier'], @db['password'], @db["creation_style"], region: @db['region'])
 					MU.log "Database #{@db['identifier']} is ready to use"
 					done = true
 				ensure
 					if !done and database
-						MU::Database.terminate_rds_instance(database, region: @db['region'])
+						MU::AWS::Database.terminate_rds_instance(database, region: @db['region'])
 					end
 				end
 
@@ -302,7 +302,7 @@ module MU
 			def createSubnetGroup(config)
 				# Finding subnets, creating security groups/adding holes, create subnet group 
 				if @db['vpc'] and !@db['vpc'].empty?
-					existing_vpc, vpc_name = MU::VPC.find(
+					existing_vpc, vpc_name = MU::AWS::VPC.find(
 						id: @db["vpc"]["vpc_id"],
 						name: @db["vpc"]["vpc_name"],
 						region: @db['region']
@@ -316,7 +316,7 @@ module MU
 					# Getting subnet IDs
 					if !@db["vpc"]["subnets"].empty?
 						@db["vpc"]["subnets"].each { |subnet|
-							subnet_struct = MU::VPC.findSubnet(
+							subnet_struct = MU::AWS::VPC.findSubnet(
 								id: subnet["subnet_id"],
 								name: subnet["subnet_name"],
 								vpc_id: vpc_id,
@@ -333,7 +333,7 @@ module MU
 						}
 					else
 						# This should be changed to only include subnets that will work with publicly_accessible
-						subnet_ids = MU::VPC.listSubnets(vpc_id: vpc_id, region: @db['region'])
+						subnet_ids = MU::AWS::VPC.listSubnets(vpc_id: vpc_id, region: @db['region'])
 						MU.log "No subnets specified for #{@db['identifier']}, adding all subnets in #{vpc_id}", MU::DEBUG, details: subnet_ids
 					end
 
@@ -344,10 +344,10 @@ module MU
 					else
 						subnet_ids.each { |subnet_id|
 							# Make sure we aren't configuring publicly_accessible wrong.
-							if MU::VPC.isSubnetPrivate?(subnet_id, region: @db['region']) and @db["publicly_accessible"]
+							if MU::AWS::VPC.isSubnetPrivate?(subnet_id, region: @db['region']) and @db["publicly_accessible"]
 								MU.log "Found a private subnet but publicly_accessible is set to true on #{@db['identifier']}", MU::ERR
 								raise MuError, "Found a private subnet but publicly_accessible is set to true on #{@db['identifier']}"
-							elsif !MU::VPC.isSubnetPrivate?(subnet_id, region: @db['region']) and !@db["publicly_accessible"]
+							elsif !MU::AWS::VPC.isSubnetPrivate?(subnet_id, region: @db['region']) and !@db["publicly_accessible"]
 								MU.log "Found a public subnet but publicly_accessible is set to false on #{@db['identifier']}", MU::ERR
 								raise MuError, "Found a public subnet but publicly_accessible is set to false on #{@db['identifier']}"
 							end
@@ -364,7 +364,7 @@ module MU
 
 					# Find NAT and create holes in security groups
 					if @db["vpc"]["nat_host_name"] or @db["vpc"]["nat_host_id"]
-						nat_instance, mu_name = MU::Server.find(
+						nat_instance, mu_name = MU::AWS::Server.find(
 							id: @db["vpc"]["nat_host_id"],
 							name: @db["vpc"]["nat_host_name"],
 							region: @db['region']
@@ -373,24 +373,24 @@ module MU
 						if nat_instance.nil?
 							MU.log "#{@db['name']} is configured to use #{@db['vpc']} but I can't find a running instance matching nat_host_id or nat_host_name", MU::ERR
 						else
-							admin_sg = MU::FirewallRule.setAdminSG(
+							admin_sg = MU::AWS::FirewallRule.setAdminSG(
 								vpc_id: vpc_id,
 								add_admin_ip: nat_instance["private_ip_address"],
 								region: @db['region']
 							)
 						end
 					else
-						admin_sg = MU::FirewallRule.setAdminSG(vpc_id: vpc_id, region: @db['region'])
+						admin_sg = MU::AWS::FirewallRule.setAdminSG(vpc_id: vpc_id, region: @db['region'])
 					end
 
 					# Create VPC security group and add to config 
-					vpc_db_sg = MU::FirewallRule.createEc2SG(@db['name'], nil, description: "Database Security Group for #{@db['name']}", vpc_id: vpc_id, region: @db['region'])
+					vpc_db_sg = MU::AWS::FirewallRule.createEc2SG(@db['name'], nil, description: "Database Security Group for #{@db['name']}", vpc_id: vpc_id, region: @db['region'])
 					if @db["snapshot_id"].nil?
 						config[:vpc_security_group_ids] = [vpc_db_sg, admin_sg]
 
 						if @db["add_firewall_rules"] and !@db["add_firewall_rules"].empty?
 							@db["add_firewall_rules"].each { |acl|
-								sg = MU::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"], region: @db['region'])
+								sg = MU::AWS::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"], region: @db['region'])
 								config[:vpc_security_group_ids] << sg.group_id if sg
 							}
 						end
@@ -434,7 +434,7 @@ module MU
 
 			# Called automatically by {MU::Deploy#createResources}
 			def groom
-				database = MU::Database.getDatabaseById(@db['identifier'], region: @db['region'])
+				database = MU::AWS::Database.getDatabaseById(@db['identifier'], region: @db['region'])
 
 				# Run SQL on deploy
 				if @db['run_sql_on_deploy']
@@ -451,7 +451,7 @@ module MU
 
 					# Getting VPC info
 					if @db['vpc'] and !@db['vpc'].empty?
-						vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::VPC.parseVPC(@db['vpc'])
+						vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::AWS::VPC.parseVPC(@db['vpc'])
 					end
 
 					#Setting up connection params
@@ -601,7 +601,7 @@ module MU
 			# @param region [String]: The cloud provider region
 			# @return [void]
 			def self.allowHost(cidr, db_id, region: MU.curRegion)
-				database = MU::Database.getDatabaseById(db_id, region: region)
+				database = MU::AWS::Database.getDatabaseById(db_id, region: region)
 				# resp = MU::AWS.rds(region).describe_db_instances(db_instance_identifier: db_id)
 				# database = resp.data.db_instances.first
 
@@ -620,7 +620,7 @@ module MU
 
 				if !database.vpc_security_groups.empty?
 					database.vpc_security_groups.each { |vpc_sg|
-						MU::FirewallRule.addRule(vpc_sg.vpc_security_group_id, [cidr], region: region)
+						MU::AWS::FirewallRule.addRule(vpc_sg.vpc_security_group_id, [cidr], region: region)
 					}
 				end
 			end
@@ -643,7 +643,7 @@ module MU
 			# @param region [String]: The cloud provider region
 			# @param create_style [String]: How the database was created. See also {MU::Config::BasketofKittens::databases#creation_style}
 			def self.notifyDeploy(name, db_id, password = nil, create_style='new', region: MU.curRegion)
-				database = MU::Database.getDatabaseById(db_id, region: region)
+				database = MU::AWS::Database.getDatabaseById(db_id, region: region)
 
 				vpc_sg_ids = Array.new
 				database.vpc_security_groups.each { |vpc_sg|
@@ -792,7 +792,7 @@ module MU
 				end
 
 				begin # this ends in an ensure block that cleans up if we die
-					database = MU::Database.getDatabaseById(@db['read_replica']['identifier'], region: @db['region'])
+					database = MU::AWS::Database.getDatabaseById(@db['read_replica']['identifier'], region: @db['region'])
 					# Calling this a second time after the DB instance is ready or DNS record creation will fail.
 					wait_start_time = Time.now
 
@@ -808,22 +808,22 @@ module MU
 						end
 					end
 
-					database = MU::Database.getDatabaseById(@db['read_replica']['identifier'], region: @db['region'])
+					database = MU::AWS::Database.getDatabaseById(@db['read_replica']['identifier'], region: @db['region'])
 
-					MU::DNSZone.genericDNSEntry(@db['read_replica']['identifier'], "#{database.endpoint.address}.", MU::Database, sync_wait: @db['read_replica']['dns_sync_wait'])
+					MU::AWS::DNSZone.genericDNSEntry(@db['read_replica']['identifier'], "#{database.endpoint.address}.", MU::AWS::Database, sync_wait: @db['read_replica']['dns_sync_wait'])
 					if !@db['read_replica']['dns_records'].nil?
 						@db['read_replica']['dns_records'].each { |dnsrec|
 							dnsrec['name'] = @db['read_replica']['identifier'].downcase if !dnsrec.has_key?('name')
 						}
 					end
-					MU::DNSZone.createRecordsFromConfig(@db['read_replica']['dns_records'], target: database.endpoint.address)
+					MU::AWS::DNSZone.createRecordsFromConfig(@db['read_replica']['dns_records'], target: database.endpoint.address)
 
-					MU::Database.notifyDeploy(@db['read_replica']['name'], @db['read_replica']['identifier'], @db['password'], "read_replica", region: @db['read_replica']['region'])
+					MU::AWS::Database.notifyDeploy(@db['read_replica']['name'], @db['read_replica']['identifier'], @db['password'], "read_replica", region: @db['read_replica']['region'])
 					MU.log "Database instance #{@db['read_replica']['identifier']} is ready to use"
 					done = true
 				ensure
 					if !done and database
-						MU::Database.terminate_rds_instance(database, region: @db['read_replica']['region'])
+						MU::AWS::Database.terminate_rds_instance(database, region: @db['read_replica']['region'])
 					end
 				end
 
@@ -853,7 +853,7 @@ module MU
 						region = az.sub(/[a-z]$/, "")
 					end
 
-					db_arn = MU::Database.getARN(db.db_instance_identifier, "db", region: region)
+					db_arn = MU::AWS::Database.getARN(db.db_instance_identifier, "db", region: region)
 
 					begin
 						db_tags = MU::AWS.rds(region).list_tags_for_resource(resource_name: db_arn).data
@@ -878,7 +878,7 @@ module MU
 						threads << Thread.new(db) { |mydb|
 							MU.dupGlobals(parent_thread_id)
 							Thread.abort_on_exception = true
-							MU::Database.terminate_rds_instance(mydb, noop, region: region)
+							MU::AWS::Database.terminate_rds_instance(mydb, noop, region: region)
 						} # thread
 					end # if found_muid and found_master
 				} # resp.data.db_instances.each { |db|
@@ -941,7 +941,7 @@ module MU
 					db = MU::AWS.rds(region).describe_db_instances(db_instance_identifier: db_id).data.db_instances.first
 				end
 
-				MU::DNSZone.genericDNSEntry(db_id, db.endpoint.address, MU::Database, delete: true)
+				MU::AWS::DNSZone.genericDNSEntry(db_id, db.endpoint.address, MU::AWS::Database, delete: true)
 
 				if db.db_instance_status == "deleting" or db.db_instance_status == "deleted" then
 					MU.log "#{db_id} has already been terminated", MU::WARN

@@ -114,12 +114,12 @@ module MU
 						end
 						launch_desc["ami_id"] = @deploy.deployment["images"][launch_desc["server"]]["image_id"]
 					elsif !launch_desc["instance_id"].nil?
-						launch_desc["ami_id"] = MU::Server.createImage(
+						launch_desc["ami_id"] = MU::AWS::Server.createImage(
 																					name: pool_name,
 																					instance_id: launch_desc["instance_id"]
 																		)
 					end
-					MU::Server.waitForAMI(launch_desc["ami_id"])
+					MU::AWS::Server.waitForAMI(launch_desc["ami_id"])
 
 					launch_options = {
 						:launch_configuration_name => pool_name,
@@ -132,15 +132,15 @@ module MU
 					if launch_desc["storage"]
 						storage = Array.new
 						launch_desc["storage"].each { |vol|
-							storage << MU::Server.convertBlockDeviceMapping(vol)
+							storage << MU::AWS::Server.convertBlockDeviceMapping(vol)
 						}
 						launch_options[:block_device_mappings ] = storage
-						launch_options[:block_device_mappings].concat(MU::Server.ephemeral_mappings)
+						launch_options[:block_device_mappings].concat(MU::AWS::Server.ephemeral_mappings)
 					end
 					launch_options[:spot_price ] = launch_desc["spot_price"] if launch_desc["spot_price"]
 					launch_options[:kernel_id ] = launch_desc["kernel_id"] if launch_desc["kernel_id"]
 					launch_options[:ramdisk_id ] = launch_desc["ramdisk_id"] if launch_desc["ramdisk_id"]
-					launch_options[:iam_instance_profile] = MU::Server.createIAMProfile("ServerPool-"+@pool['name'], base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'])
+					launch_options[:iam_instance_profile] = MU::AWS::Server.createIAMProfile("ServerPool-"+@pool['name'], base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'])
 					@pool['iam_role'] = launch_options[:iam_instance_profile]
 
 				if !@pool["vpc_zone_identifier"].nil? or !@pool["vpc"].nil?
@@ -151,7 +151,7 @@ module MU
 					MU.mommacat.saveSecret("default", instance_secret, "instance_secret")
 
 					launch_options[:user_data ] = Base64.encode64(
-						MU::Server.fetchUserdata(
+						MU::AWS::Server.fetchUserdata(
 							platform: @pool["platform"],
 							template_variables: {
 								"deployKey" => Base64.urlsafe_encode64(MU.mommacat.public_key),
@@ -190,32 +190,32 @@ module MU
 				if @pool["vpc_zone_identifier"]
 					asg_options[:vpc_zone_identifier] = @pool["vpc_zone_identifier"]
 				elsif @pool["vpc"]
-					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::VPC.parseVPC(@pool['vpc'])
-					nat_instance, mu_name = MU::Server.find(
+					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::AWS::VPC.parseVPC(@pool['vpc'])
+					nat_instance, mu_name = MU::AWS::Server.find(
 						id: @pool['vpc']['nat_host_id'],
 						name: @pool['vpc']['nat_host_name']
 					)
 					asg_options[:vpc_zone_identifier] = subnet_ids.join(",")
 
-					sgs << MU::FirewallRule.createEc2SG(@pool['name']+vpc_id.upcase, @pool['ingress_rules'], description: "AutoScale Group #{pool_name}", vpc_id: vpc_id)
+					sgs << MU::AWS::FirewallRule.createEc2SG(@pool['name']+vpc_id.upcase, @pool['ingress_rules'], description: "AutoScale Group #{pool_name}", vpc_id: vpc_id)
 					if nat_instance != nil
-						sgs << MU::FirewallRule.setAdminSG(
+						sgs << MU::AWS::FirewallRule.setAdminSG(
 							vpc_id: vpc_id,
 							add_admin_ip: nat_instance["private_ip_address"]
 						)
 					else
-						sgs << MU::FirewallRule.setAdminSG(vpc_id: vpc_id)
+						sgs << MU::AWS::FirewallRule.setAdminSG(vpc_id: vpc_id)
 					end
 				end
 
 				if asg_options[:vpc_zone_identifier] == nil
-					sgs << MU::FirewallRule.createEc2SG(@pool['name'], nil, description: "AutoScale Group #{pool_name}")
-					sgs << MU::FirewallRule.setAdminSG
+					sgs << MU::AWS::FirewallRule.createEc2SG(@pool['name'], nil, description: "AutoScale Group #{pool_name}")
+					sgs << MU::AWS::FirewallRule.setAdminSG
 				end
 
 				if !@pool["add_firewall_rules"].nil?
 					@pool["add_firewall_rules"].each { |acl|
-						sg = MU::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"])
+						sg = MU::AWS::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"])
 						if sg.nil?
 							MU.log "Couldn't find dependent security group #{acl} for server pool #{@pool['name']}", MU::ERR, details: MU::Deploy.deployment['firewall_rules']
 							raise MuError, "deploy failure"
@@ -318,7 +318,7 @@ module MU
 					groomthreads = Array.new
 					desc.instances.each { |member|
 						begin
-							instance, mu_name = MU::Server.find(id: member.instance_id)
+							instance, mu_name = MU::AWS::Server.find(id: member.instance_id)
 							groomthreads << Thread.new {
 								MU.dupGlobals(parent_thread_id)
 								MU.mommacat.groomNode(instance, @pool['name'], "server_pool", reraise_fail: true, sync_wait: @pool['dns_sync_wait'])
@@ -330,7 +330,7 @@ module MU
 								if !@deploy.nocleanup
 									Thread.new {
 										MU.dupGlobals(parent_thread_id)
-										MU::Server.terminateInstance(id: instance.instance_id)
+										MU::AWS::Server.terminateInstance(id: instance.instance_id)
 									}
 								end
 							end

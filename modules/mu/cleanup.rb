@@ -85,18 +85,18 @@ module MU
 					MU.dupGlobals(parent_thread_id)
 					MU.setVar("curRegion", r)
 					MU.log "Checking for cloud resources in #{r}", MU::NOTICE
-					MU::CloudFormation.cleanup(@noop, @ignoremaster, region: r)
-					MU::ServerPool.cleanup(@noop, @ignoremaster, region: r)
-					MU::LoadBalancer.cleanup(@noop, @ignoremaster, region: r)
-					MU::Server.cleanup(@noop, @ignoremaster, skipsnapshots: @skipsnapshots, onlycloud: @onlycloud, region: r)
-					MU::Database.cleanup(@noop, @ignoremaster, region: r)
-					MU::FirewallRule.cleanup(@noop, @ignoremaster, region: r)
-					MU::DNSZone.cleanup(@noop, region: r)
-					MU::VPC.cleanup(@noop, @ignoremaster, region: r)
+					MU::AWS::CloudFormation.cleanup(@noop, @ignoremaster, region: r)
+					MU::AWS::ServerPool.cleanup(@noop, @ignoremaster, region: r)
+					MU::AWS::LoadBalancer.cleanup(@noop, @ignoremaster, region: r)
+					MU::AWS::Server.cleanup(@noop, @ignoremaster, skipsnapshots: @skipsnapshots, onlycloud: @onlycloud, region: r)
+					MU::AWS::Database.cleanup(@noop, @ignoremaster, region: r)
+					MU::AWS::FirewallRule.cleanup(@noop, @ignoremaster, region: r)
+					MU::AWS::DNSZone.cleanup(@noop, region: r)
+					MU::AWS::VPC.cleanup(@noop, @ignoremaster, region: r)
 
 					# Hit CloudFormation again- sometimes the first delete will quietly
 					# fail due to dependencies.
-					MU::CloudFormation.cleanup(@noop, wait: true, region: r)
+					MU::AWS::CloudFormation.cleanup(@noop, wait: true, region: r)
 
 					resp = MU::AWS.ec2(r).describe_key_pairs(
 						filters: [ { name: "key-name", values: [keyname] } ]
@@ -128,7 +128,7 @@ module MU
 				}
 				MU.log "Missed some Chef resources in node cleanup, purging now", MU::NOTICE if deadnodes.size > 0
 				deadnodes.uniq.each { |node|
-					MU::Server.purgeChefResources(node, [], noop)
+					MU::AWS::Server.purgeChefResources(node, [], noop)
 				}
 			end
 

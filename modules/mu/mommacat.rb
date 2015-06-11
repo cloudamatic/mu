@@ -330,7 +330,7 @@ module MU
 		end
 
 
-		# Run {MU::Server#postBoot} and {MU::Server#deploy} on a node.
+		# Run {MU::AWS::Server#postBoot} and {MU::AWS::Server#deploy} on a node.
 		# @param instance [OpenStruct]: The cloud providor's full descriptor for this node.
 		# @param name [String]: The MU resource name of the node being created.
 		# @param type [String]: The type of resource that created this node (either *server* or *serverpool*).
@@ -409,7 +409,7 @@ module MU
 					server['mu_name'] = node
 					server["instance_id"] = instance.instance_id
 					begin
-						# This is a shared lock with MU::Server.create, to keep from
+						# This is a shared lock with MU::AWS::Server.create, to keep from
 						# stomping on synchronous deploys that are still running. This
 						# means we're going to wait here if this instance is still being
 						# bootstrapped by "regular" means.
@@ -442,7 +442,7 @@ module MU
 
 						end
 
-						if !MU::Server.postBoot(server, instance, @ssh_key_name, sync_wait: sync_wait)
+						if !MU::AWS::Server.postBoot(server, instance, @ssh_key_name, sync_wait: sync_wait)
 							MU.log "#{node} is already being groomed, skipping", MU::NOTICE
 							MU::MommaCat.unlockAll
 							puts "------------------------------"
@@ -453,17 +453,17 @@ module MU
 						end
 
 						# This is a shared lock with MU::Deploy.createResources, simulating
-						# the thread logic that tells MU::Server.deploy to wait until its
+						# the thread logic that tells MU::AWS::Server.deploy to wait until its
 						# dependencies are ready. We don't, for example, want to start
 						# deploying if we rely on an RDS instance that isn't ready yet. We
 						# can release this immediately, once we successfully grab it.
 						MU::MommaCat.lock("#{cloudclass.name}_#{server["name"]}-dependencies")
 						MU::MommaCat.unlock("#{cloudclass.name}_#{server["name"]}-dependencies")
 
-						MU::Server.deploy(server, @deployment, keypairname: @ssh_key_name)
+						MU::AWS::Server.deploy(server, @deployment, keypairname: @ssh_key_name)
 					rescue Exception => e
 						MU::MommaCat.unlockAll
-						if e.class.name != "MU::Server::BootstrapTempFail" and !File.exists?(deploy_dir+"/.cleanup."+instance.instance_id) and !File.exists?(deploy_dir+"/.cleanup")
+						if e.class.name != "MU::AWS::Server::BootstrapTempFail" and !File.exists?(deploy_dir+"/.cleanup."+instance.instance_id) and !File.exists?(deploy_dir+"/.cleanup")
 							MU.log "Grooming FAILED for #{node} (#{e.inspect})", MU::ERR, details: e.backtrace
 							sendAdminMail("Grooming FAILED for #{node} on #{MU.appname} \"#{MU.handle}\" (#{MU.mu_id})",
 								msg: e.inspect,
@@ -630,7 +630,7 @@ module MU
 			cleanup_threads = []
 			regions = MU::AWS.listRegions
 			deploys.each { |deploy|
-				known_servers = MU::MommaCat.getResourceDeployStruct(MU::Server.cfg_plural, deploy_id: deploy)
+				known_servers = MU::MommaCat.getResourceDeployStruct(MU::AWS::Server.cfg_plural, deploy_id: deploy)
 
 				next if known_servers.nil?
 				parent_thread_id = Thread.current.object_id
@@ -662,13 +662,13 @@ module MU
 										if !kitten_pile.original_config[res_type].nil?
 											kitten_pile.original_config[res_type].each { |svr|
 												if svr['name'] == data['#MU_NODE_CLASS']
-													MU::Server.purgeChefResources(nodename, svr['vault_access'])
+													MU::AWS::Server.purgeChefResources(nodename, svr['vault_access'])
 												end
 											}
 										end
 									}
 								end
-								MU::Server.terminateInstance(id: data['instance_id'], region: MU.curRegion)
+								MU::AWS::Server.terminateInstance(id: data['instance_id'], region: MU.curRegion)
 								begin
 									kitten_pile.notify("servers", data['#MU_NODE_CLASS'], nodename, remove: true, sub_key: nodename)
 									kitten_pile.sendAdminMail("Retired terminated node #{nodename}", data: data)
@@ -987,9 +987,9 @@ module MU
 			)
 			mu_dns = nil
 			if !public_dns.nil?
-				mu_dns = MU::DNSZone.genericDNSEntry(node, public_dns, MU::Server, noop: true)
+				mu_dns = MU::AWS::DNSZone.genericDNSEntry(node, public_dns, MU::AWS::Server, noop: true)
 			else
-				mu_dns = MU::DNSZone.genericDNSEntry(node, private_ip, MU::Server, noop: true)
+				mu_dns = MU::AWS::DNSZone.genericDNSEntry(node, private_ip, MU::AWS::Server, noop: true)
 			end
 			mu_dns = nil # XXX HD account hack
 			if user.nil? or (gateway_user.nil? and !gateway_ip.nil? and (public_ip.nil? or public_ip.empty? and (private_ip != gateway_ip)))
@@ -1301,7 +1301,7 @@ MESSAGE_END
 				end
 				MU.log "Adding current IP list to allow rule for port #{port.to_s} in #{sg_id}", details: allow_ips
 
-				MU::FirewallRule.addRule(sg_id, allow_ips, port: port)
+				MU::AWS::FirewallRule.addRule(sg_id, allow_ips, port: port)
 			}
 		end
 
@@ -1357,7 +1357,7 @@ MESSAGE_END
 					end
 
 					# Prefer a direct route, if that's a choice we have.
-					if MU::VPC.haveRouteToInstance?(metadata['instance_id'])
+					if MU::AWS::VPC.haveRouteToInstance?(metadata['instance_id'])
 						MU::MommaCat.addHostToSSHConfig(
 							nodename,
 							metadata['private_ip_address'],
@@ -1376,7 +1376,7 @@ MESSAGE_END
 					if !MU.mu_id.nil?
 # XXX we need our own exception type for this
 						begin
-							nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::Server.getNodeSSHProxy(metadata['conf'])
+							nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::AWS::Server.getNodeSSHProxy(metadata['conf'])
 						rescue  Exception => e
 							MU::MommaCat.unlockAll
 							MU.log e.inspect, MU::ERR, details: e.backtrace
@@ -1551,7 +1551,7 @@ MESSAGE_END
 						if !updating_node_type.nil? and
 								updating_node_type == sib_name and
 								sibling_config['sync_siblings']
-							MU::Server.saveDeploymentToChef(nodename, deployment)
+							MU::AWS::Server.saveDeploymentToChef(nodename, deployment)
 							next if saveonly or triggering_node == nodename or sibling_collection.size == 1
 							MU.log "Re-running Chef on '#{sib_name}' member '#{nodename}'"
 							server_conf = sibling_config.dup
@@ -1561,7 +1561,7 @@ MESSAGE_END
 							Thread.new {
 								MU.dupGlobals(parent_thread_id)
 								begin
-									MU::Server.deploy(
+									MU::AWS::Server.deploy(
 										server_conf,
 										deployment,
 										environment: environment,

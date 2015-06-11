@@ -115,14 +115,14 @@ module MU
 				if %w{win2k12r2 win2k12 windows}.include?(@server['platform']) or !@server['active_directory'].nil?
 					@server['mu_windows_name'] = MU::MommaCat.getResourceName(server['name'], max_length: 15, need_unique_string: true)
 					if !@server['never_generate_admin_password'] and !@server['windows_admin_password']
-						@server['winpass'] = MU::Server.generateWindowsAdminPassword
+						@server['winpass'] = MU::AWS::Server.generateWindowsAdminPassword
 						MU.log "I generated a Windows admin password for #{node}. It is: #{@server['winpass']}"
 					end
 				end
 				keypairname, ssh_private_key, ssh_public_key = @deploy.SSHKey
 
 				@server['instance_secret'] = Password.random(50)
-				@userdata = MU::Server.fetchUserdata(
+				@userdata = MU::AWS::Server.fetchUserdata(
 					platform: @server["platform"],
 					template_variables: {
 						"deployKey" => Base64.urlsafe_encode64(MU.mommacat.public_key),
@@ -138,8 +138,8 @@ module MU
 					custom_append: @server['userdata_script']
 				)
 
-				@disk_devices = MU::Server.disk_devices
-				@ephemeral_mappings = MU::Server.ephemeral_mappings
+				@disk_devices = MU::AWS::Server.disk_devices
+				@ephemeral_mappings = MU::AWS::Server.ephemeral_mappings
 			end
 
 			# Fetch our baseline userdata argument (read: "script that runs on first
@@ -160,7 +160,7 @@ module MU
 						raise MuError, "My second argument should be a hash of variables to pass into ERB templates"
 					end
 					$mu = OpenStruct.new(template_variables)
-					userdata_dir = File.expand_path(File.dirname(__FILE__)+"/../userdata")
+					userdata_dir = File.expand_path(MU.myRoot"/modules/mu/userdata")
 					platform = "linux" if %w{centos centos6 centos7 ubuntu ubuntu14}.include? platform
 					platform = "windows" if %w{win2k12r2 win2k12}.include? platform
 					erbfile = "#{userdata_dir}/#{platform}.erb"
@@ -261,7 +261,7 @@ module MU
 							parent_thread_id = Thread.current.object_id
 							Thread.new {
 								MU.dupGlobals(parent_thread_id)
-								MU::Server.cleanup(false, false, skipsnapshots: true)
+								MU::AWS::Server.cleanup(false, false, skipsnapshots: true)
 							}
 						end
 					end
@@ -273,7 +273,7 @@ module MU
 
 			# Remove the automatically generated IAM Profile for a given class of
 			# server.
-			# @param name [String]: The name field of the {MU::Server} or {MU::ServerPool} resource's IAM profile to remove.
+			# @param name [String]: The name field of the {MU::AWS::Server} or {MU::AWS::ServerPool} resource's IAM profile to remove.
 			# @return [void]
 			def self.removeIAMProfile(name)
 				rolename = MU::MommaCat.getResourceName(name)
@@ -307,10 +307,10 @@ module MU
 			end
 
 			# Create an Amazon IAM instance profile. One of these should get created
-			# for each class of instance (each {MU::Server} or {MU::ServerPool}),
+			# for each class of instance (each {MU::AWS::Server} or {MU::AWS::ServerPool}),
 			# and will include both baseline Mu policies and whatever other policies
 			# are requested.
-			# @param name [String]: The name field of the {MU::Server} or {MU::ServerPool} resource's IAM profile to create.
+			# @param name [String]: The name field of the {MU::AWS::Server} or {MU::AWS::ServerPool} resource's IAM profile to create.
 			# @return [String]: The name of the instance profile.
 			def self.createIAMProfile(name, base_profile: nil, extra_policies: nil)
 				rolename = MU::MommaCat.getResourceName(name, max_length: 64)
@@ -378,7 +378,7 @@ module MU
 			def createEc2Instance
 			  name = @server["name"]
 			  node = @server['mu_name']
-				@server['iam_role'] = MU::Server.createIAMProfile("Server-"+name, base_profile: @server['iam_role'], extra_policies: @server['iam_policies'])
+				@server['iam_role'] = MU::AWS::Server.createIAMProfile("Server-"+name, base_profile: @server['iam_role'], extra_policies: @server['iam_policies'])
 				@server['iam_role'] = @server['iam_role']
 
 				keypairname, ssh_private_key, ssh_public_key = @deploy.SSHKey
@@ -405,7 +405,7 @@ module MU
 				subnet_retries = 0
 				if !@server["vpc"].nil?
 					begin
-						vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::VPC.parseVPC(@server['vpc'])
+						vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::AWS::VPC.parseVPC(@server['vpc'])
 					rescue Aws::EC2::Errors::ServiceError => e
 						MU.log e.message, MU::ERR, details: @server
 						if subnet_retries < 5
@@ -424,13 +424,13 @@ module MU
 					MU.log "Deploying #{node} into VPC #{vpc_id} Subnet #{subnet_id}"
 
 					if !@server["vpc"]["nat_host_name"].nil? or !@server["vpc"]["nat_host_id"].nil?
-						admin_sg = MU::Server.punchAdminNAT(@server, node)
+						admin_sg = MU::AWS::Server.punchAdminNAT(@server, node)
 					else
-						admin_sg = MU::FirewallRule.setAdminSG(vpc_id: vpc_id, region: @server['region'])
+						admin_sg = MU::AWS::FirewallRule.setAdminSG(vpc_id: vpc_id, region: @server['region'])
 					end
 
 					instance_descriptor[:subnet_id] = subnet_id
-					node_sg = MU::FirewallRule.createEc2SG(
+					node_sg = MU::AWS::FirewallRule.createEc2SG(
 							@server["name"].upcase,
 							@server["ingress_rules"],
 							description: "SG holes for #{node}",
@@ -438,8 +438,8 @@ module MU
 							region: @server['region']
 					)
 				else
-					admin_sg = MU::FirewallRule.setAdminSG(region: @server['region'])
-					node_sg = MU::FirewallRule.createEc2SG(
+					admin_sg = MU::AWS::FirewallRule.setAdminSG(region: @server['region'])
+					node_sg = MU::AWS::FirewallRule.createEc2SG(
 							@server["name"].upcase,
 							@server["ingress_rules"],
 							description: "SG holes for #{node}",
@@ -451,7 +451,7 @@ module MU
 				security_groups << node_sg
 				if !@server["add_firewall_rules"].nil?
 					@server["add_firewall_rules"].each { |acl|
-						sg = MU::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"], region: @server['region'])
+						sg = MU::AWS::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"], region: @server['region'])
 						if sg.nil?
 							MU.log "Couldn't find dependent security group #{acl} for server #{node}", MU::ERR
 							raise MuError, "deploy failure"
@@ -473,11 +473,11 @@ module MU
 				configured_storage = Array.new
 				if @server["storage"]
 					@server["storage"].each { |vol|
-						configured_storage << MU::Server.convertBlockDeviceMapping(vol)
+						configured_storage << MU::AWS::Server.convertBlockDeviceMapping(vol)
 					}
 				end
 			
-				MU::Server.waitForAMI(@server["ami_id"], region: @server['region'])
+				MU::AWS::Server.waitForAMI(@server["ami_id"], region: @server['region'])
 
 				instance_descriptor[:block_device_mappings] = configured_storage
 				instance_descriptor[:block_device_mappings].concat(@ephemeral_mappings)
@@ -526,7 +526,7 @@ module MU
         if !config["vpc"]["nat_host_name"].nil? or
             !config["vpc"]["nat_host_id"].nil?
           nat_ssh_user = config["vpc"]["nat_ssh_user"]
-          nat_instance, mu_name = MU::Server.find(
+          nat_instance, mu_name = MU::AWS::Server.find(
             id: config["vpc"]["nat_host_id"],
             name: config["vpc"]["nat_host_name"],
 							region: config['region']
@@ -537,10 +537,10 @@ module MU
           end
           nat_ssh_key = nat_instance.key_name
           nat_ssh_host = nat_instance.public_ip_address
-						found_servers = MU::MommaCat.getResourceDeployStruct(MU::Server.cfg_plural, name: mu_name)
+						found_servers = MU::MommaCat.getResourceDeployStruct(MU::AWS::Server.cfg_plural, name: mu_name)
 						if !found_servers.nil? and found_servers.is_a?(Hash)
 							if found_servers.values.first['instance_id'] == nat_instance.instance_id
-								dns_name = MU::DNSZone.genericDNSEntry(found_servers.keys.first, nat_ssh_host, MU::Server, noop: true, sync_wait: config['dns_sync_wait'])
+								dns_name = MU::AWS::DNSZone.genericDNSEntry(found_servers.keys.first, nat_ssh_host, MU::AWS::Server, noop: true, sync_wait: config['dns_sync_wait'])
 							end
 						end
 						nat_ssh_host = dns_name if !dns_name.nil?
@@ -626,7 +626,7 @@ MU.log win_set_pw, MU::ERR
 			# Return SSH configuration information for getting into said instance.
 			# @param instance [OpenStruct]: The cloud provider's full descriptor for this instance.
 			def postBoot(instance)
-				return MU::Server.postBoot(@server, instance, @deploy.keypairname, environment: @deploy.environment, sync_wait: @server['dns_sync_wait'])
+				return MU::AWS::Server.postBoot(@server, instance, @deploy.keypairname, environment: @deploy.environment, sync_wait: @server['dns_sync_wait'])
 			end
 			# Apply tags, bootstrap Chef, and other administravia for a new instance.
 			# Return SSH configuration information for getting into said instance.
@@ -668,7 +668,7 @@ MU.log win_set_pw, MU::ERR
 							MU.log "Waiting for EC2 instance #{node} to be ready...", MU::NOTICE
 						end
 						sleep 20
-						instance, mu_name = MU::Server.find(id: id, region: server['region'])
+						instance, mu_name = MU::AWS::Server.find(id: id, region: server['region'])
 					end
 				rescue Aws::EC2::Errors::ServiceError => e
 					if retries < 30
@@ -681,7 +681,7 @@ MU.log win_set_pw, MU::ERR
 					end
 				end while instance.nil? or (instance.state.name != "running" and retries < 30)
 
-				admin_sg = MU::Server.punchAdminNAT(server, node)
+				admin_sg = MU::AWS::Server.punchAdminNAT(server, node)
 
 				# Unless we're planning on associating a different IP later, set up a 
 				# DNS entry for this thing and let it sync in the background. We'll come
@@ -692,9 +692,9 @@ MU.log win_set_pw, MU::ERR
 					dnsthread = Thread.new {
 						MU.dupGlobals(parent_thread_id)
 						if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
-							MU::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Server, sync_wait: sync_wait)
+							MU::AWS::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::AWS::Server, sync_wait: sync_wait)
 						else
-							MU::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Server, sync_wait: sync_wait)
+							MU::AWS::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::AWS::Server, sync_wait: sync_wait)
 						end
 					}
 				end
@@ -735,13 +735,13 @@ MU.log win_set_pw, MU::ERR
 					raise MuError, "deploy failure"
 				end
 
-				nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::Server.getNodeSSHProxy(server)
-				if !nat_ssh_host.nil? and !MU::VPC.haveRouteToInstance?(instance.instance_id)
+				nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::AWS::Server.getNodeSSHProxy(server)
+				if !nat_ssh_host.nil? and !MU::AWS::VPC.haveRouteToInstance?(instance.instance_id)
 					MU.log "Connecting to #{node} through NAT instance #{nat_ssh_host}", MU::NOTICE
 				end
 
 				if !server["vpc"].nil?
-					is_private = MU::VPC.isSubnetPrivate?(instance.subnet_id, region: server['vpc']['region'])
+					is_private = MU::AWS::VPC.isSubnetPrivate?(instance.subnet_id, region: server['vpc']['region'])
 					if !is_private or (!server['static_ip'].nil? and !server['static_ip']['assign_ip'].nil?)
 						if !server['static_ip'].nil?
 							if !server['static_ip']['ip'].nil?
@@ -756,7 +756,7 @@ MU.log win_set_pw, MU::ERR
 						MU.log "NAT proxy #{nat_ssh_host} ssh key #{ssh_keydir}/#{nat_ssh_key} does not exist", MU::ERR
 						raise MuError, "deploy failure"
 					end
-					if is_private and !nat_ssh_host and !MU::VPC.haveRouteToInstance?(instance.instance_id)
+					if is_private and !nat_ssh_host and !MU::AWS::VPC.haveRouteToInstance?(instance.instance_id)
 						MU.log "#{node} is in a private subnet, but has no NAT host configured, and I have no other route to it", MU::ERR
 						raise MuError, "#{node} is in a private subnet, but has no NAT host configured, and I have no other route to it"
 					end
@@ -768,7 +768,7 @@ MU.log win_set_pw, MU::ERR
 						device_index = 1
 						server['vpc']['subnets'].each { |subnet|
 							tag_key, tag_value = server['vpc']['tag'].split(/=/, 2) if !server['vpc']['tag'].nil?
-							existing_vpc, vpc_name = MU::VPC.find(
+							existing_vpc, vpc_name = MU::AWS::VPC.find(
 								id: server['vpc']['vpc_id'],
 								name: server['vpc']['vpc_name'],
 								deploy_id: server['vpc']['deploy_id'],
@@ -778,7 +778,7 @@ MU.log win_set_pw, MU::ERR
 							)
 							tag_key, tag_value = server['vpc']['tag'].split(/=/, 2) if !subnet['tag'].nil?
 
-							subnet_struct = MU::VPC::findSubnet(
+							subnet_struct = MU::AWS::VPC::findSubnet(
 								id: subnet["subnet_id"],
 								name: subnet["subnet_name"],
 								vpc_id: existing_vpc.vpc_id,
@@ -820,12 +820,12 @@ MU.log win_set_pw, MU::ERR
 				canonical_ip = public_ip if !public_ip.nil?
 
 				if !server['image_then_destroy']
-					MU::Server.notifyDeploy(server["name"], instance.instance_id, server, region: server['region'])
+					MU::AWS::Server.notifyDeploy(server["name"], instance.instance_id, server, region: server['region'])
 				end
 
 			  MU.log "EC2 instance #{node} has id #{instance.instance_id}", MU::DEBUG
 
-				instance, mu_name = MU::Server.find(id: instance.instance_id, region: server['region'])
+				instance, mu_name = MU::AWS::Server.find(id: instance.instance_id, region: server['region'])
 
 				if !server['dns_records'].nil?
 					server['dns_records'].each { |dnsrec|
@@ -833,9 +833,9 @@ MU.log win_set_pw, MU::ERR
 					}
 				end
 				if !instance.public_ip_address.nil? and !instance.public_ip_address.empty?
-					MU::DNSZone.createRecordsFromConfig(server['dns_records'], target: instance.public_ip_address)
+					MU::AWS::DNSZone.createRecordsFromConfig(server['dns_records'], target: instance.public_ip_address)
 				else
-					MU::DNSZone.createRecordsFromConfig(server['dns_records'], target: instance.private_ip_address)
+					MU::AWS::DNSZone.createRecordsFromConfig(server['dns_records'], target: instance.private_ip_address)
 				end
 
 				# If we haven't already, set a platform-mu DNS entry for this guy. It
@@ -845,9 +845,9 @@ MU.log win_set_pw, MU::ERR
 					dnsthread = Thread.new {
 						MU.dupGlobals(parent_thread_id)
 						if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
-							MU::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Server, sync_wait: sync_wait)
+							MU::AWS::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::AWS::Server, sync_wait: sync_wait)
 						else
-							MU::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Server, sync_wait: sync_wait)
+							MU::AWS::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::AWS::Server, sync_wait: sync_wait)
 						end
 					}
 				end
@@ -917,7 +917,7 @@ MU.log win_set_pw, MU::ERR
 							)
 						end
 					}
-					MU::Server.notifyDeploy(server["name"], instance.instance_id, server, region: server['region'])
+					MU::AWS::Server.notifyDeploy(server["name"], instance.instance_id, server, region: server['region'])
 				end
 
 				# Make an initial connection with SSH to see if this host is ready to
@@ -932,7 +932,7 @@ MU.log win_set_pw, MU::ERR
 					Thread.abort_on_exception = false
 					loglevel = MU::DEBUG
 					loglevel = MU::NOTICE if (ssh_retries % 3 == 0)
-					ssh = MU::Server.getSSHSession(server, node_ssh_key, loglevel)
+					ssh = MU::AWS::Server.getSSHSession(server, node_ssh_key, loglevel)
 					initialSSHTasks(ssh, server)
 			  rescue BootstrapTempFail, SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, Net::SSH::Disconnect => e
 					loglevel = MU::DEBUG
@@ -1038,7 +1038,7 @@ MU.log win_set_pw, MU::ERR
 
 				MU::MommaCat.removeHostFromSSHConfig(node)
 				if !server["vpc"].nil?
-					if MU::VPC.haveRouteToInstance?(instance.instance_id)
+					if MU::AWS::VPC.haveRouteToInstance?(instance.instance_id)
 						MU::MommaCat.addHostToSSHConfig(
 							node,
 							instance.private_ip_address,
@@ -1169,10 +1169,10 @@ MU.log win_set_pw, MU::ERR
 				if !server['active_directory'].nil?
 					if server['mu_windows_name'].nil?
 						server['mu_windows_name'] = MU::MommaCat.getResourceName(server['name'], max_length: 15, need_unique_string: true)
-						MU::Server.saveInitialChefNodeAttrs(node, instance, server, canonical_ip)
+						MU::AWS::Server.saveInitialChefNodeAttrs(node, instance, server, canonical_ip)
 					end
-					MU::Server.knifeAddToRunList(node, "recipe[mu-tools::ad-client]");
-					MU::Server.runChef(node, server, node_ssh_key, "Join Active Directory")
+					MU::AWS::Server.knifeAddToRunList(node, "recipe[mu-tools::ad-client]");
+					MU::AWS::Server.runChef(node, server, node_ssh_key, "Join Active Directory")
 				end
 
 				MU::MommaCat.unlock(instance.instance_id+"-groom")
@@ -1273,12 +1273,12 @@ MU.log win_set_pw, MU::ERR
 					}
 				end
 
-				mu_zone, junk = MU::DNSZone.find(name: "mu")
+				mu_zone, junk = MU::AWS::DNSZone.find(name: "mu")
 				if !mu_zone.nil?
 					if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
-						MU::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Server, sync_wait: @server['dns_sync_wait'])
+						MU::AWS::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::AWS::Server, sync_wait: @server['dns_sync_wait'])
 					else
-						MU::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Server, sync_wait: @server['dns_sync_wait'])
+						MU::AWS::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::AWS::Server, sync_wait: @server['dns_sync_wait'])
 					end
 				else
 					MU::MommaCat.removeInstanceFromEtcHosts(node)
@@ -1510,9 +1510,9 @@ MU.log win_set_pw, MU::ERR
 			# @param node [String]: The full Mu name for this instance.
 			def self.punchAdminNAT(server, node)
 				if !server["vpc"].nil?
-					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::VPC.parseVPC(server['vpc'])
+					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::AWS::VPC.parseVPC(server['vpc'])
 					if !nat_host_name.nil?
-						nat_instance, mu_name = MU::Server.find(
+						nat_instance, mu_name = MU::AWS::Server.find(
 							id: server["vpc"]["nat_host_id"],
 							name: server["vpc"]["nat_host_name"],
 							region: server['region']
@@ -1522,7 +1522,7 @@ MU.log win_set_pw, MU::ERR
 							raise MuError, "deploy failure"
 						end
 						MU.log "Adding administrative holes for NAT host #{nat_instance["private_ip_address"]} to #{node}", MU::DEBUG
-						return MU::FirewallRule.setAdminSG(
+						return MU::AWS::FirewallRule.setAdminSG(
 							vpc_id: vpc_id,
 							add_admin_ip: nat_instance["private_ip_address"],
 							region: server['region']
@@ -1535,34 +1535,34 @@ MU.log win_set_pw, MU::ERR
 			def groom
 				if !@deploy.mommacat_boot
 					keypairname, ssh_private_key, ssh_public_key = @deploy.SSHKey
-					return MU::Server.groom(@server, @deploy.deployment, environment: @deploy.environment, keypairname: keypairname)
+					return MU::AWS::Server.groom(@server, @deploy.deployment, environment: @deploy.environment, keypairname: keypairname)
 				end
 			end
 			# (see #groom)
 			def self.groom(server, deployment, environment: environment, keypairname: keypairname, chef_rerun_only: chef_rerun_only = false)
 				if server["instance_id"].nil?
-					MU.log "MU::Server.groom was called without an instance id", MU::ERR
-					raise MuError, "MU::Server.groom was called without an instance id"
+					MU.log "MU::AWS::Server.groom was called without an instance id", MU::ERR
+					raise MuError, "MU::AWS::Server.groom was called without an instance id"
 				end
 				MU::MommaCat.lock(server["instance_id"]+"-groom")
 
 				node = server['mu_name']
 
 				if node.nil? or node.empty?
-					MU.log "MU::Server.groom was called without a mu_name", MU::ERR, details: server
-					raise MuError, "MU::Server.groom was called without a mu_name"
+					MU.log "MU::AWS::Server.groom was called without a mu_name", MU::ERR, details: server
+					raise MuError, "MU::AWS::Server.groom was called without a mu_name"
 				end
 
 				Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}/organizations/#{MU.chef_user}"
 				Chef::Config[:environment] = environment
 
-				nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::Server.getNodeSSHProxy(server)
-				admin_sg = MU::Server.punchAdminNAT(server, node)
+				nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::AWS::Server.getNodeSSHProxy(server)
+				admin_sg = MU::AWS::Server.punchAdminNAT(server, node)
 
 				ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
 
 				if !chef_rerun_only
-					instance, mu_name = MU::Server.find(id: server["instance_id"], region: server['region'])
+					instance, mu_name = MU::AWS::Server.find(id: server["instance_id"], region: server['region'])
 					tagVolumes(server["instance_id"])
 				        
 				  # If we depend on database instances, make sure those database instances'
@@ -1570,7 +1570,7 @@ MU.log win_set_pw, MU::ERR
 					if server["dependencies"] != nil then
 						server["dependencies"].each { |dependent_on|
 							if dependent_on['type'] != nil and dependent_on['type'] == "database" then
-								database = MU::Database.find(name: dependent_on["name"], region: server["region"])
+								database = MU::AWS::Database.find(name: dependent_on["name"], region: server["region"])
 								if database.nil?
 									MU.log "Couldn't find identifier for dependent database #{dependent_on['name']} in #{server["region"]}", MU::ERR
 									raise MuError, "Couldn't find identifier for dependent database #{dependent_on['name']} in #{server["region"]}"
@@ -1579,7 +1579,7 @@ MU.log win_set_pw, MU::ERR
 								private_ip = server['private_ip_address']
 								if private_ip != nil and db_id != nil then
 									MU.log "Adding #{private_ip}/32 to database security groups for #{db_id}"
-									MU::Database.allowHost("#{private_ip}/32", db_id, region: server['region'])
+									MU::AWS::Database.allowHost("#{private_ip}/32", db_id, region: server['region'])
 								end
 							end
 						}
@@ -1589,19 +1589,19 @@ MU.log win_set_pw, MU::ERR
 					# XXX refactor this into the LoadBalancer resource
 					if !server['loadbalancers'].nil?
 						server['loadbalancers'].each { |lb|
-							lb_res = MU::LoadBalancer.find(
+							lb_res = MU::AWS::LoadBalancer.find(
 								name: lb['concurrent_load_balancer'],
 								dns_name: lb["existing_load_balancer"],
 								region: server['region']
 							)
 							raise MuError, "I need a LoadBalancer named #{lb['concurrent_load_balancer']}" if lb_res.nil?
-							MU::LoadBalancer.registerInstance(lb_res.load_balancer_name, server["instance_id"], region: server['region'])
+							MU::AWS::LoadBalancer.registerInstance(lb_res.load_balancer_name, server["instance_id"], region: server['region'])
 						}
 					end
 
 					if !server["run_list"].nil?
 						server["run_list"].each do |rl_entry|
-							MU::Server.knifeAddToRunList(node, rl_entry);
+							MU::AWS::Server.knifeAddToRunList(node, rl_entry);
 						end
 					end
 
@@ -1629,7 +1629,7 @@ MU.log win_set_pw, MU::ERR
 				end
 
 				begin
-					MU::Server.runChef(node, server, keypairname, "Full Initial Run")
+					MU::AWS::Server.runChef(node, server, keypairname, "Full Initial Run")
 				rescue ChefRunFail
 					MU.log "Proceeding after failed initial Chef run, but #{node} may not behave as expected!", MU::WARN
 				end
@@ -1645,7 +1645,7 @@ MU.log win_set_pw, MU::ERR
 				chef_data = chef_node.normal['deployment']['servers'][server['name']][node]
 				if !chef_data.nil? and chef_data.size > 0 and !chef_rerun_only
 					MU.log "Merging Chef data into deployment struct for #{node}", MU::DEBUG, details: chef_data
-					MU::Server.notifyDeploy(server["name"], instance.instance_id, server, region: server['region'], chef_data: chef_data)
+					MU::AWS::Server.notifyDeploy(server["name"], instance.instance_id, server, region: server['region'], chef_data: chef_data)
 					saveDeploymentToChef(node)
 				end
 
@@ -1659,7 +1659,7 @@ MU.log win_set_pw, MU::ERR
 							MU.log "Error scouring #{node} for AMI generation: #{e.message}", MU::ERR, details: e.backtrace
 						end
 					end
-					ami_id = MU::Server.createImage(name: name = server['name'],
+					ami_id = MU::AWS::Server.createImage(name: name = server['name'],
 																instance_id: instance_id = server['instance_id'],
 																storage: server['storage'],
 																exclude_storage: server['image_exclude_storage'],
@@ -1667,7 +1667,7 @@ MU.log win_set_pw, MU::ERR
 					if server['image_then_destroy']
 						waitForAMI(ami_id, region: server['region'])
 						MU.log "AMI ready, removing source node #{node}"
-						MU::Server.terminateInstance(id: server["instance_id"])
+						MU::AWS::Server.terminateInstance(id: server["instance_id"])
 						%x{#{MU::Config.knife} node delete -y #{node}};
 						return
 					end
@@ -1716,10 +1716,10 @@ MU.log win_set_pw, MU::ERR
 
 				storage_list = Array.new
 				if exclude_storage
-					instance, mu_name = MU::Server.find(id: instance_id, region: region)
+					instance, mu_name = MU::AWS::Server.find(id: instance_id, region: region)
 					instance.block_device_mappings.each { |vol|
 						if vol.device_name != instance.root_device_name 
-							storage_list << MU::Server.convertBlockDeviceMapping(
+							storage_list << MU::AWS::Server.convertBlockDeviceMapping(
 								{
 									"device" => vol.device_name,
 									"no-device" => ""
@@ -1729,7 +1729,7 @@ MU.log win_set_pw, MU::ERR
 					}
 				elsif !storage.nil?
 					storage.each { |vol|
-						storage_list << MU::Server.convertBlockDeviceMapping(vol)
+						storage_list << MU::AWS::Server.convertBlockDeviceMapping(vol)
 					}
 				end
 				ami_descriptor[:block_device_mappings] = storage_list
@@ -2022,7 +2022,7 @@ MU.log win_set_pw, MU::ERR
 					threads << Thread.new(instance) { |myinstance|
 						MU.dupGlobals(parent_thread_id)
 						Thread.abort_on_exception = true
-						MU::Server.terminateInstance(id: myinstance.instance_id, noop: noop, onlycloud: onlycloud, region: region)
+						MU::AWS::Server.terminateInstance(id: myinstance.instance_id, noop: noop, onlycloud: onlycloud, region: region)
 					}
 				}
 
@@ -2032,7 +2032,7 @@ MU.log win_set_pw, MU::ERR
 				resp.data.volumes.each { |volume|
 					threads << Thread.new(volume) { |myvolume|
 						MU.dupGlobals(parent_thread_id)
-						MU::Server.delete_volume(myvolume, noop, skipsnapshots)
+						MU::AWS::Server.delete_volume(myvolume, noop, skipsnapshots)
 					}
 				}
 
@@ -2078,13 +2078,13 @@ MU.log win_set_pw, MU::ERR
 
 				cleaned_dns = false
 				mu_name = nil
-				mu_zone, junk = MU::DNSZone.find(name: "mu")
+				mu_zone, junk = MU::AWS::DNSZone.find(name: "mu")
 				if !mu_zone.nil?
 					dns_targets = []
 					rrsets = MU::AWS.route53(region).list_resource_record_sets(hosted_zone_id: mu_zone.id)
 				end
 				begin
-					junk, mu_name = MU::Server.find(id: id, region: region)
+					junk, mu_name = MU::AWS::Server.find(id: id, region: region)
 				rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
 					MU.log "Instance #{id} no longer exists", MU::DEBUG
 				end
@@ -2094,14 +2094,14 @@ MU.log win_set_pw, MU::ERR
 						rrsets.resource_record_sets.each { |rrset|
 							if rrset.name.match(/^#{mu_name.downcase}\.server\.#{MU.myInstanceId}\.mu/i)
 								rrset.resource_records.each { |record|
-									MU::DNSZone.genericDNSEntry(mu_name, record.value, MU::Server, delete: true)
+									MU::AWS::DNSZone.genericDNSEntry(mu_name, record.value, MU::AWS::Server, delete: true)
 									cleaned_dns = true
 								}
 							end
 						}
 					end
 
-					deploydata = MU::MommaCat.getResourceDeployStruct(MU::Server.cfg_plural, name: mu_name)
+					deploydata = MU::MommaCat.getResourceDeployStruct(MU::AWS::Server.cfg_plural, name: mu_name)
 					nodename = nil
 					deploydata.each_pair { |node, data|
 						if data['instance_id'] == id
@@ -2112,11 +2112,11 @@ MU.log win_set_pw, MU::ERR
 					
 					orig_config = nil
 					sources = []
-					if MU.mommacat.original_config.has_key?(MU::Server.cfg_plural)
-						sources.concat(MU.mommacat.original_config[MU::Server.cfg_plural])
+					if MU.mommacat.original_config.has_key?(MU::AWS::Server.cfg_plural)
+						sources.concat(MU.mommacat.original_config[MU::AWS::Server.cfg_plural])
 					end
-					if MU.mommacat.original_config.has_key?(MU::ServerPool.cfg_plural)
-						sources.concat(MU.mommacat.original_config[MU::ServerPool.cfg_plural])
+					if MU.mommacat.original_config.has_key?(MU::AWS::ServerPool.cfg_plural)
+						sources.concat(MU.mommacat.original_config[MU::AWS::ServerPool.cfg_plural])
 					end
 					sources.each { |svr|
 						if svr['name'] == mu_name
@@ -2126,15 +2126,15 @@ MU.log win_set_pw, MU::ERR
 					}
 
 					# Expunge the IAM profile for this instance class
-					if orig_config["#MU_CLASS"] == "MU::Server"
-						MU::Server.removeIAMProfile("Server-"+mu_name) if !noop
+					if orig_config["#MU_CLASS"] == "MU::AWS::Server"
+						MU::AWS::Server.removeIAMProfile("Server-"+mu_name) if !noop
 					else
-						MU::Server.removeIAMProfile("ServerPool-"+mu_name) if !noop
+						MU::AWS::Server.removeIAMProfile("ServerPool-"+mu_name) if !noop
 					end
 
-					MU::Server.purgeChefResources(nodename, orig_config['vault_access'], noop)
+					MU::AWS::Server.purgeChefResources(nodename, orig_config['vault_access'], noop)
 
-					MU.mommacat.notify(MU::Server.cfg_plural, mu_name, nodename, remove: true, sub_key: nodename) if !noop and MU.mommacat
+					MU.mommacat.notify(MU::AWS::Server.cfg_plural, mu_name, nodename, remove: true, sub_key: nodename) if !noop and MU.mommacat
 
 					# If we didn't manage to find this instance's Route53 entry by sifting
 					# deployment metadata, see if we can get it with the Name tag.
@@ -2144,7 +2144,7 @@ MU.log win_set_pw, MU::ERR
 								rrsets.resource_record_sets.each { |rrset|
 									if rrset.name.match(/^#{tag.value.downcase}\.server\.#{MU.myInstanceId}\.mu/i)
 										rrset.resource_records.each { |record|
-											MU::DNSZone.genericDNSEntry(tag.value, record.value, MU::Server, delete: true) if !noop
+											MU::AWS::DNSZone.genericDNSEntry(tag.value, record.value, MU::AWS::Server, delete: true) if !noop
 										}
 									end
 								}
@@ -2314,13 +2314,13 @@ MU.log win_set_pw, MU::ERR
 
 
 			def self.runChef(nodename, server, keyname, purpose = "Chef run", max_retries = 5)
-				nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::Server.getNodeSSHProxy(server)
+				nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::AWS::Server.getNodeSSHProxy(server)
 				MU.log "Invoking Chef on #{nodename}: #{purpose}"
 				retries = 0
 				output = []
 				error_signal = "CHEF EXITED BADLY: "+(0...25).map { ('a'..'z').to_a[rand(26)] }.join
 				begin
-					ssh = MU::Server.getSSHSession(server, keyname)
+					ssh = MU::AWS::Server.getSSHSession(server, keyname)
 					cmd = nil
 					if server["platform"] != "windows" and
 						 server['platform'] != "win2k12" and
@@ -2379,10 +2379,10 @@ MU.log win_set_pw, MU::ERR
 			# @return [Net::SSH::Connection::Session]
 			def self.getSSHSession(server, node_ssh_key, loglevel = MU::NOTICE)
 				ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
-				nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::Server.getNodeSSHProxy(server)
+				nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::AWS::Server.getNodeSSHProxy(server)
 				session = nil
 				begin
-					if !nat_ssh_host.nil? and !MU::VPC.haveRouteToInstance?(server['instance_id'])
+					if !nat_ssh_host.nil? and !MU::AWS::VPC.haveRouteToInstance?(server['instance_id'])
 						proxy_cmd = "ssh -q -o StrictHostKeyChecking=no -W %h:%p #{nat_ssh_user}@#{nat_ssh_host}"
 						MU.log "Attempting SSH to #{node} (#{server['canonical_ip']}) as #{server['ssh_user']} with key #{node_ssh_key} using proxy '#{proxy_cmd}'", loglevel
 							proxy = Net::SSH::Proxy::Command.new(proxy_cmd)
