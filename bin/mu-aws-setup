@@ -231,12 +231,12 @@ if $opts[:logs]
 	)
 
 
-	resp = MU.cloudtrails.describe_trails(trail_name_list: ["Mu_Trails"])
+	resp = MU::AWS.cloudtrails.describe_trails(trail_name_list: ["Mu_Trails"])
 	if resp.trail_list.size == 0
 		MU.log "Enabling Cloud Trails, logged to bucket #{$bucketname}"
 
 		begin
-		MU.cloudtrails.create_trail(
+		MU::AWS.cloudtrails.create_trail(
 			name: "Mu_Trails",
 			s3_bucket_name: $bucketname,
 			s3_key_prefix: "AWSLogs",
