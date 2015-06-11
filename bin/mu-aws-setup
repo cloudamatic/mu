@@ -275,7 +275,7 @@ if $opts[:dns]
 			}
 
 			begin
-				resp = MU.route53.create_hosted_zone(params)
+				resp = MU::AWS.route53.create_hosted_zone(params)
 			rescue Aws::Route53::Errors::HostedZoneAlreadyExists => e
 				MU.log "#{e.inspect}, appending some gibberish...", MU::WARN
 				params[:caller_reference] = params[:caller_reference]+(0...2).map { ('a'..'z').to_a[rand(26)] }.join
@@ -284,7 +284,7 @@ if $opts[:dns]
 			MU.log ".platform-mu private domain created"
 		else
 			begin
-				MU.route53.associate_vpc_with_hosted_zone(
+				MU::AWS.route53.associate_vpc_with_hosted_zone(
 					hosted_zone_id: ext_zone.id,
 					vpc: {
 						vpc_region: MU.myRegion,
