@@ -2136,6 +2136,12 @@ MU.log win_set_pw, MU::ERR
 		def self.getSSHSession(server, node_ssh_key, loglevel = MU::NOTICE)
 			ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
 			nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::Server.getNodeSSHProxy(server)
+			if server['canonical_ip'].nil?
+				instance, mu_name = MU::Server.find(id: server['instance_id'], region: server['region'])
+				canonical_ip = instance.public_ip_address
+				canonical_ip = instance.private_ip_address if !canonical_ip
+				server['canonical_ip'] = canonical_ip
+			end
 			session = nil
 			begin
 				if !nat_ssh_host.nil? and !MU::VPC.haveRouteToInstance?(server['instance_id'])
