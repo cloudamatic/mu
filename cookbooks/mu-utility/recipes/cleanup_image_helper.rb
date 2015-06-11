@@ -33,6 +33,12 @@ when "windows"
 	execute "sc config Ec2Config obj= \".\\LocalSystem\" password= \"\""
 	execute "sc config sshd obj= \".\\LocalSystem\" password= \"\""
 
+	%w{run-chef-client run-userdata}.each { |task|
+		windows_task task do
+			action :delete
+		end
+	}
+
 	%w{client.rb first-boot.json client.pem validation.pem}.each { |file|
 		file "C:\\Users\\Administrator\\AppData\\Local\\Temp\\#{file}" do
 			content IO.read("C:\\chef\\#{file}")
