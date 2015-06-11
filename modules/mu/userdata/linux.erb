@@ -13,6 +13,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
+if ! grep '^/bin/sh /var/lib/cloud/instance/user-data.txt$' /etc/rc.d/rc.local > /dev/null;then
+	echo "/bin/sh /var/lib/cloud/instance/user-data.txt" >> /etc/rc.d/rc.local
+fi
+
 set -e
 
 updates_run=0
