@@ -43,13 +43,6 @@ module MU
 			pool_name = MU::MommaCat.getResourceName(@pool['name'])
 			MU.setVar("curRegion", @pool['region']) if !@pool['region'].nil?
 
-			if @pool['platform'] == "windows"
-				if !@pool['use_cloud_provider_windows_password'] && !@pool['windows_auth_vault']
-					winpass = MU::Server.generateWindowsAdminPassword
-					MU.mommacat.saveSecret("default", winpass, "windows_password")
-				end
-			end
-
 			asg_options = {
 				:auto_scaling_group_name => pool_name,
 				:default_cooldown => @pool["default_cooldown"],

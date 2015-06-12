@@ -96,7 +96,6 @@ module MU
 			@private_key = nil
 			@public_key = nil
 			@secrets = Hash.new
-			@secrets['windows_password'] = Hash.new
 			@secrets['instance_secret'] = Hash.new
 			@environment = environment
 			@ssh_key_name = ssh_key_name
@@ -425,12 +424,6 @@ module MU
 									server['mu_windows_name'] = @deployment['servers'][server['name']][node]['mu_windows_name']
 								end
 							end
-							if @secrets['windows_password'].has_key?(server["instance_id"])
-								server['winpass'] = fetchSecret(server["instance_id"], "windows_password")
-							elsif @secrets['windows_password'].has_key?("default")
-								server['winpass'] = fetchSecret("default", "windows_password")
-							end
-
 						end
 
 						if !MU::Server.groomEc2(server, instance, @ssh_key_name, sync_wait: sync_wait)

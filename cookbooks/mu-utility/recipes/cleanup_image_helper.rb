@@ -39,6 +39,10 @@ when "windows"
 		end
 	}
 
+	user "ec2config" do
+		action :remove
+	end
+
 	%w{client.rb first-boot.json client.pem validation.pem}.each { |file|
 		file "C:\\Users\\Administrator\\AppData\\Local\\Temp\\#{file}" do
 			content IO.read("C:\\chef\\#{file}")

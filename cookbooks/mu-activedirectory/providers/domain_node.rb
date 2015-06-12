@@ -124,7 +124,7 @@ def join_domain_linux
 end
 
 def install_ad_client_packages
-# XXX This is a lousy place to get these packages, Copy those packages to S3
+# This is repo with a copy of the Samba packages hosted in the GlusterFS repo at http://download.gluster.org/pub/gluster/glusterfs/samba/EPEL.repo/epel-6/x86_64
 	yum_repository "mu-platform" do
 		description 'Mu-Platform Repo'
 		url "https://s3.amazonaws.com/cap-public/repo/el/$releasever/$basearch/"
