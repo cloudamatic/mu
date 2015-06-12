@@ -13,7 +13,10 @@
 # limitations under the License.
 
 module MU
+	# Plugins under this namespace serve as interfaces to host configuration
+	# management tools, like Chef or Puppet.
 	class Groomer
+		# Support for Chef as a host configuration management layer.
 		class Chef
 		end
 	end

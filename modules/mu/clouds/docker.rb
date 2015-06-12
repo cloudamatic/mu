@@ -13,6 +13,7 @@
 # limitations under the License.
 
 module MU
+	# Support for Docker as a provisioning layer.
 	class Docker
 	end
 end

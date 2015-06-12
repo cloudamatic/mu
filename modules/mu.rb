@@ -324,12 +324,12 @@ module MU
 	# Log entries for fatal errors
 	ERROR = 4.freeze
 
-
-	# The types of cloud resources we can create, as class objects. List methods
-	# a class implementing this resource type must support to be considered
-	# valid.
 	generic_class_methods = [:deps_wait_on_my_creation, :waits_on_parent_completion, :find, :cleanup]
 	generic_instance_methods = [:create]
+
+	# The types of cloud resources we can create, as class objects. Include
+	# methods a class implementing this resource type must support to be
+	# considered valid.
 	@@resource_types = {
 		:CloudFormation => {
 			:cfg_name => "cloudformation_stack",
@@ -568,6 +568,7 @@ module MU
 		return bucketname
 	end
 
+	# Log bucket policy for enabling CloudTrail logging to our log bucket in S3.
 	CLOUDTRAIL_BUCKET_POLICY = '{
 		"Version": "2012-10-17",
 		"Statement": [

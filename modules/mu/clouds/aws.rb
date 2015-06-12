@@ -14,17 +14,13 @@
 
 require "net/http"
 module MU
+	# Support for Amazon Web Services as a provisioning layer.
 	class AWS
 		# List the Availability Zones associated with a given Amazon Web Services
 		# region. If no region is given, search the one in which this MU master
 		# server resides.
 		# @param region [String]: The region to search.	
 		# @return [Array<String>]: The Availability Zones in this region.
-		def listAZs(region = MU.curRegion)
-			azs = MU::Config.listAZs(region)
-			return azs
-		end
-		# (see #listAZs)
 		def self.listAZs(region = MU.curRegion)
 			if region
 				azs = MU::AWS.ec2(region).describe_availability_zones(
@@ -43,10 +39,6 @@ module MU
 		# List the Amazon Web Services region names available to this account. The
 		# region that is local to this Mu server will be listed first.
 		# @return [Array<String>]
-		def listRegions
-			return MU::AWS.listRegions
-		end
-		# (see #listRegions)
 		def self.listRegions
 			regions = MU::AWS.ec2.describe_regions().regions.map{ |region| region.region_name }
 
@@ -78,7 +70,85 @@ module MU
 				)
 			}
 		end
+
+		# Amazon's IAM API
+		def self.iam(region = MU.curRegion)
+			region ||= MU.myRegion
+			@@iam_api[region] ||= MU::AWS::Endpoint.new(api: "IAM", region: region)
+			@@iam_api[region]
+		end
+
+		# Amazon's EC2 API
+		def self.ec2(region = MU.curRegion)
+			region ||= MU.myRegion
+			@@ec2_api[region] ||= MU::AWS::Endpoint.new(api: "EC2", region: region)
+			@@ec2_api[region]
+		end
+
+		# Amazon's Autoscaling API
+		def self.autoscale(region = MU.curRegion)
+			region ||= MU.myRegion
+			@@autoscale_api[region] ||= MU::AWS::Endpoint.new(api: "AutoScaling", region: region)
+			@@autoscale_api[region]
+		end
+
+		# Amazon's ElasticLoadBalancing API
+		def self.elb(region = MU.curRegion)
+			region ||= MU.myRegion
+			@@elb_api[region] ||= MU::AWS::Endpoint.new(api: "ElasticLoadBalancing", region: region)
+			@@elb_api[region]
+		end
+
+		# Amazon's Route53 API
+		def self.route53(region = MU.curRegion)
+			region ||= MU.myRegion
+			@@route53_api[region] ||= MU::AWS::Endpoint.new(api: "Route53", region: region)
+			@@route53_api[region]
+		end
+
+		# Amazon's RDS API
+		def self.rds(region = MU.curRegion)
+			region ||= MU.myRegion
+			@@rds_api[region] ||= MU::AWS::Endpoint.new(api: "RDS", region: region)
+			@@rds_api[region]
+		end
+
+		# Amazon's CloudFormation API
+		def self.cloudformation(region = MU.curRegion)
+			region ||= MU.myRegion
+			@@cloudformation_api[region] ||= MU::AWS::Endpoint.new(api: "CloudFormation", region: region)
+			@@cloudformation_api[region]
+		end
+
+		# Amazon's S3 API
+		def self.s3(region = MU.curRegion)
+			region ||= MU.myRegion
+			@@s3_api[region] ||= MU::AWS::Endpoint.new(api: "S3", region: region)
+			@@s3_api[region]
+		end
+
+		# Amazon's CloudTrail API
+		def self.cloudtrails(region = MU.curRegion)
+			region ||= MU.myRegion
+			@@cloudtrails_api[region] ||= MU::AWS::Endpoint.new(api: "CloudTrail", region: region)
+			@@cloudtrails_api[region]
+		end
 		
+		# Amazon's CloudWatch API
+		def self.cloudwatch(region = MU.curRegion)
+			region ||= MU.myRegion
+			@@cloudwatch_api[region] ||= MU::AWS::Endpoint.new(api: "CloudWatch", region: region)
+			@@cloudwatch_api[region]
+		end
+
+		# Amazon's CloudFront API
+		def self.cloudfront(region = MU.curRegion)
+			region ||= MU.myRegion
+			@@cloudfront_api[region] ||= MU::AWS::Endpoint.new(api: "CloudFront", region: region)
+			@@cloudfront_api[region]
+		end
+
+		private
 
 		# Wrapper class for the EC2 API, so that we can catch some common transient
 		# endpoint errors without having to spray rescues all over the codebase.
@@ -118,94 +188,18 @@ module MU
 				end
 			end
 		end
-
 		@@iam_api = {}
-		# Object for accessing Amazon's IAM service
-		def self.iam(region = MU.curRegion)
-			region ||= MU.myRegion
-			@@iam_api[region] ||= MU::AWS::Endpoint.new(api: "IAM", region: region)
-			@@iam_api[region]
-		end
-
 		@@ec2_api = {}
-		# Object for accessing Amazon's EC2 service
-		def self.ec2(region = MU.curRegion)
-			region ||= MU.myRegion
-			@@ec2_api[region] ||= MU::AWS::Endpoint.new(api: "EC2", region: region)
-			@@ec2_api[region]
-		end
-
 		@@autoscale_api = {}
-		# Object for accessing Amazon's Autoscaling service
-		def self.autoscale(region = MU.curRegion)
-			region ||= MU.myRegion
-			@@autoscale_api[region] ||= MU::AWS::Endpoint.new(api: "AutoScaling", region: region)
-			@@autoscale_api[region]
-		end
-
 		@@elb_api = {}
-		# Object for accessing Amazon's ElasticLoadBalancing service
-		def self.elb(region = MU.curRegion)
-			region ||= MU.myRegion
-			@@elb_api[region] ||= MU::AWS::Endpoint.new(api: "ElasticLoadBalancing", region: region)
-			@@elb_api[region]
-		end
-
 		@@route53_api = {}
-		# Object for accessing Amazon's Route53 service
-		def self.route53(region = MU.curRegion)
-			region ||= MU.myRegion
-			@@route53_api[region] ||= MU::AWS::Endpoint.new(api: "Route53", region: region)
-			@@route53_api[region]
-		end
-
 		@@rds_api = {}
-		# Object for accessing Amazon's RDS service
-		def self.rds(region = MU.curRegion)
-			region ||= MU.myRegion
-			@@rds_api[region] ||= MU::AWS::Endpoint.new(api: "RDS", region: region)
-			@@rds_api[region]
-		end
-
 		@@cloudformation_api = {}
-		# Object for accessing Amazon's CloudFormation service
-		def self.cloudformation(region = MU.curRegion)
-			region ||= MU.myRegion
-			@@cloudformation_api[region] ||= MU::AWS::Endpoint.new(api: "CloudFormation", region: region)
-			@@cloudformation_api[region]
-		end
-
 		@@s3_api = {}
-		# Object for accessing Amazon's S3 service
-		def self.s3(region = MU.curRegion)
-			region ||= MU.myRegion
-			@@s3_api[region] ||= MU::AWS::Endpoint.new(api: "S3", region: region)
-			@@s3_api[region]
-		end
-
 		@@cloudtrails_api = {}
-		# Object for accessing Amazon's CloudTrail service
-		def self.cloudtrails(region = MU.curRegion)
-			region ||= MU.myRegion
-			@@cloudtrails_api[region] ||= MU::AWS::Endpoint.new(api: "CloudTrail", region: region)
-			@@cloudtrails_api[region]
-		end
-		
 		@@cloudwatch_api = {}
-		# Object for accessing Amazon's CloudWatch service
-		def self.cloudwatch(region = MU.curRegion)
-			region ||= MU.myRegion
-			@@cloudwatch_api[region] ||= MU::AWS::Endpoint.new(api: "CloudWatch", region: region)
-			@@cloudwatch_api[region]
-		end
-
 		@@cloudfront_api = {}
-		# Object for accessing Amazon's CloudFront service
-		def self.cloudfront(region = MU.curRegion)
-			region ||= MU.myRegion
-			@@cloudfront_api[region] ||= MU::AWS::Endpoint.new(api: "CloudFront", region: region)
-			@@cloudfront_api[region]
-		end
+		@@cloudfront_api = {}
 
 	end
 end
