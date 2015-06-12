@@ -36,13 +36,13 @@ module MU
 		class DeployParamError < MuError
 		end
 
-		# The default cloud provider for new resources
+		# The default cloud provider for new resources. Must exist in MU.supportedClouds
 		def self.defaultCloud
 			"AWS"
 		end
-		# List of known/supported Cloud providers
-		def self.supportedClouds
-			["AWS"]
+		# The default grooming agent for new resources. Must exist in MU.supportedGroomers.
+		def self.defaultGroomer
+			"Chef"
 		end
 
 		attr_reader :amazon_images
@@ -1041,6 +1041,7 @@ module MU
 				asg['region'] = config['region'] if asg['region'].nil?
 				asg["dependencies"] = Array.new if asg["dependencies"].nil?
 				asg["#MU_CLASS"] = MU.resourceClass(server['cloud'], "ServerPool")
+				asg["#MU_GROOMER"] = MU.loadGroomer(asg['groomer'])
 				asg['skipinitialupdates'] = true if @skipinitialupdates
 				if asg["basis"]["server"] != nil
 					asg["dependencies"] << { "type" => "server", "name" => asg["basis"]["server"] }
@@ -1310,6 +1311,7 @@ module MU
 				end
 				server_names << server['name']
 				server["#MU_CLASS"] = MU.resourceClass(server['cloud'], "Server")
+				server["#MU_GROOMER"] = MU.loadGroomer(server['groomer'])
 				server['region'] = config['region'] if server['region'].nil?
 				server["dependencies"] = Array.new if server["dependencies"].nil?
 				server['create_ami'] = true if server['image_then_destroy']
@@ -2275,6 +2277,11 @@ module MU
 			"name" => { "type" => "string" },
 			"region" => @region_primitive,
 			"cloud" => @cloud_primitive,
+			"groomer" => {
+				"type" => "string",
+				"default" => MU::Config.defaultGroomer,
+				"enum" => MU.supportedGroomers
+			},
 			"tags" => @tags_primitive,
 			"active_directory" => {
 				"type" => "object",

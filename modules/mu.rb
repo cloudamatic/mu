@@ -93,7 +93,7 @@ module MU
 	# inherit that will log an error message appropriately before bubbling up.
 	class MuError < StandardError
 		def initialize(message)
-			MU.log message, MU::ERR, details: $!.backtrace
+			MU.log message, MU::ERR
 			super ""
 		end
 	end
@@ -393,27 +393,29 @@ module MU
 	def self.supportedClouds
 		["AWS", "Docker"]
 	end
+	# List of known/supported grooming agents (configuration management tools)
+	def self.supportedGroomers
+		["Chef"]
+	end
 
 	# Load the container class for each cloud we know about, and inject autoload
 	# code for each of its supported resource type classes.
 	MU.supportedClouds.each { |cloud|
 		require "mu/clouds/#{cloud.downcase}"
-		cloudclass = Object.const_get("MU::#{cloud}")
-		cloudclass.instance_eval {
-			@@resource_types.each_pair { |res_class, data|
-				MU.log "Checking for '#{cloud}::#{res_class}'", MU::DEBUG
-				if File.exists?("#{MU.myRoot}/modules/mu/clouds/#{cloud.downcase}/#{data[:cfg_name]}.rb")
-# XXX also test if they've implemented required methods, throw a nutty if not
-# any way to do this without loading every damn thing?
-#					data[:instance].each { |method|
-#						cloudclass.instance_methods(false).include?(:groom)
-#					}
-					MU.log "Adding: autoload #{res_class}, 'mu/clouds/#{cloud.downcase}/#{data[:cfg_name]}'", MU::DEBUG
-					autoload res_class, "mu/clouds/#{cloud.downcase}/#{data[:cfg_name]}"
-				end
-			}
-		}
 	}
+	MU.supportedGroomers.each { |groomer|
+		require "mu/groomers/#{groomer.downcase}"
+	}
+
+	# @param groomer [String]: The grooming agent to load. 
+	# @return [Class]: The class object implementing this groomer agent
+	def self.loadGroomer(groomer)
+		if !File.size?(MU.myRoot+"/modules/mu/groomers/#{groomer.downcase}.rb")
+			raise MuError, "Requested to use unsupported grooming agent #{groomer}"
+		end
+		require "mu/groomers/#{groomer.downcase}"
+		return Object.const_get("MU").const_get("Groomer").const_get(groomer)
+	end
 
 	# Given a cloud layer and resource type, return the class which implements it.
 	# @param cloud [String]: The Cloud layer
@@ -423,6 +425,9 @@ module MU
 		# If we've been asked to resolve this object, that means we plan to use it,
 		# so go ahead and load it.
 		cfg_name = @@resource_types[type.to_sym][:cfg_name]
+		if !File.size?(MU.myRoot+"/modules/mu/clouds/#{cloud.downcase}.rb")
+			raise MuError, "Requested to use unsupported grooming agent #{cloud}"
+		end
 		require "mu/clouds/#{cloud.downcase}/#{cfg_name}"
 		begin
 			myclass = Object.const_get("MU").const_get(cloud).const_get(type)
