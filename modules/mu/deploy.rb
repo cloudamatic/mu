@@ -491,10 +491,15 @@ MESSAGE_END
 						if service['#MUOBJECT'].nil?
 							service['#MUOBJECT'] = service["#MU_CLASS"].new(self, myservice)
 						end
+					rescue Exception => e
+						MU::MommaCat.unlockAll
+						raise MuError, "Error instantiating object from #{service["#MU_CLASS"]} (#{e.inspect})", e.backtrace
+					end
+					begin
 						run_this_method = service['#MUOBJECT'].method(mode)
 					rescue Exception => e
 						MU::MommaCat.unlockAll
-						raise MuError, "Error instantiating #{service["#MU_CLASS"]} for#{mode} for #{myservice['name']} (#{e.message})"
+						raise MuError, "Error invoking #{service["#MU_CLASS"]}.#{mode} for #{myservice['name']} (#{e.inspect})", e.backtrace
 					end
 					begin
 						MU.log "Running #{service['#MUOBJECT']}.#{mode}", MU::DEBUG
@@ -510,7 +515,7 @@ MESSAGE_END
 						if !@nocleanup
 							MU::Cleanup.run(MU.mu_id, false, true)
 						end
-						raise MuError, e.inspect
+						raise MuError, e.inspect, e.backtrace
 					end
 				}
 		  end

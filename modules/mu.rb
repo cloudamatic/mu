@@ -93,7 +93,7 @@ module MU
 	# inherit that will log an error message appropriately before bubbling up.
 	class MuError < StandardError
 		def initialize(message)
-			MU.log message, MU::ERR
+			MU.log message, MU::ERR, details: $!.backtrace
 			super ""
 		end
 	end
@@ -109,6 +109,8 @@ module MU
 
 	if !ENV.has_key?("MU_LIBDIR") and ENV.has_key?("MU_INSTALLDIR")
 		ENV['MU_LIBDIR'] = ENV['MU_INSTALLDIR']+"/lib"
+	else
+		ENV['MU_LIBDIR'] = "/opt/mu/lib"
 	end
 	# Mu's installation directory.
 	@@myRoot = File.expand_path(ENV['MU_LIBDIR'])
@@ -413,12 +415,34 @@ module MU
 		}
 	}
 
-	def self.resourceClass(type, cloud = MU::Config.defaultCloud)
-# XXX raise MuError if the cloud/resource combination isn't available
-# XXX test if these guys implemented all their methods?
+	# Given a cloud layer and resource type, return the class which implements it.
+	# @param cloud [String]: The Cloud layer
+	# @param type [String]: The resource type
+	# @return [Class]: The class object implementing this resource
+	def self.resourceClass(cloud = MU::Config.defaultCloud, type)
+		# If we've been asked to resolve this object, that means we plan to use it,
+		# so go ahead and load it.
+		cfg_name = @@resource_types[type.to_sym][:cfg_name]
+		require "mu/clouds/#{cloud.downcase}/#{cfg_name}"
 		begin
-			Object.const_get("MU::#{cloud}::#{type}")
-		rescue NameError
+			myclass = Object.const_get("MU").const_get(cloud).const_get(type)
+			# XXX also test whether methods take the expected arguments
+			@@resource_types[type.to_sym][:class].each { |class_method|
+				begin
+					# XXX this is a hack, we really just want to check for existence
+					myclass.public_class_method(class_method)				
+				rescue NameError
+					raise MuError, "MU::#{cloud}::#{type} has not implemented required class method #{class_method}"
+				end
+			}
+			@@resource_types[type.to_sym][:instance].each { |instance_method|
+				if !myclass.public_instance_methods.include?(instance_method)
+					raise MuError, "MU::#{cloud}::#{type} has not implemented required instance method #{instance_method}"
+				end
+			}
+
+			return myclass
+		rescue NameError => e
 			raise MuError, "The '#{type}' resource is not supported in cloud #{cloud} (tried MU::#{cloud}::#{type})"
 		end
 	end

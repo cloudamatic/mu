@@ -472,8 +472,8 @@ module MU
 		def self.processVPCReference(vpc_block, parent_name, is_sibling: false, sibling_vpcs: [], dflt_region: MU.curRegion)
 			ok = true
 
-			muVPC = MU.resourceClass("VPC", vpc_block['cloud'])
-			muServer = MU.resourceClass("Server", vpc_block['cloud'])
+			muVPC = MU.resourceClass(vpc_block['cloud'], "VPC")
+			muServer = MU.resourceClass(vpc_block['cloud'], "Server")
 
 			if vpc_block['region'].nil? or 
 				vpc_block['region'] = dflt_region
@@ -772,7 +772,7 @@ module MU
 			vpc_names = Array.new
 			nat_routes = Hash.new
 			vpcs.each { |vpc|
-				vpc["#MU_CLASS"] = Object.const_get("MU::#{server['cloud']}::VPC")
+				vpc["#MU_CLASS"] = MU.resourceClass(server['cloud'], "VPC")
 				vpc['region'] = config['region'] if vpc['region'].nil?
 				vpc["dependencies"] = Array.new if vpc["dependencies"].nil?
 				subnet_routes = Hash.new
@@ -842,7 +842,7 @@ module MU
 			}
 
 			dnszones.each { |zone|
-				zone["#MU_CLASS"] = Object.const_get("MU::#{server['cloud']}::DNSZone")
+				zone["#MU_CLASS"] = MU.resourceClass(server['cloud'], "DNSZone")
 				zone['region'] = config['region'] if zone['region'].nil?
 				ext_zone, ext_name = MU::AWS::DNSZone.find(name: zone['name'])
 
@@ -971,7 +971,7 @@ module MU
 			loadbalancers.each { |lb|
 				lb['region'] = config['region'] if lb['region'].nil?
 				lb["dependencies"] = Array.new if lb["dependencies"].nil?
-				lb["#MU_CLASS"] = Object.const_get("MU::#{server['cloud']}::LoadBalancer")
+				lb["#MU_CLASS"] = MU.resourceClass(server['cloud'], "LoadBalancer")
 				if !lb["vpc"].nil?
 					lb['vpc']['region'] = lb['region'] if lb['vpc']['region'].nil?
 					lb["vpc"]['#MU_CLASS'] = lb['#MU_CLASS']
@@ -1029,7 +1029,7 @@ module MU
 
 			cloudformation_stacks.each { |stack|
 				stack['region'] = config['region'] if stack['region'].nil?
-				stack["#MU_CLASS"] = Object.const_get("MU::#{server['cloud']}::CloudFormation")
+				stack["#MU_CLASS"] = MU.resourceClass(server['cloud'], "CloudFormation")
 			}
 
 			server_pools.each { |asg|
@@ -1040,7 +1040,7 @@ module MU
 				server_names << asg['name']
 				asg['region'] = config['region'] if asg['region'].nil?
 				asg["dependencies"] = Array.new if asg["dependencies"].nil?
-				asg["#MU_CLASS"] = Object.const_get("MU::#{server['cloud']}::ServerPool")
+				asg["#MU_CLASS"] = MU.resourceClass(server['cloud'], "ServerPool")
 				asg['skipinitialupdates'] = true if @skipinitialupdates
 				if asg["basis"]["server"] != nil
 					asg["dependencies"] << { "type" => "server", "name" => asg["basis"]["server"] }
@@ -1097,7 +1097,7 @@ module MU
 				end
 				if !asg["vpc"].nil?
 					asg['vpc']['region'] = asg['region'] if asg['vpc']['region'].nil?
-					asg["vpc"]['#MU_CLASS'] = asg['#MU_CLASS']
+					asg["vpc"]['cloud'] = asg['cloud']
 					# If we're using a VPC in this deploy, set it as a dependency
 					if !asg["vpc"]["vpc_name"].nil? and vpc_names.include?(asg["vpc"]["vpc_name"]) and asg["vpc"]["deploy_id"].nil?
 						asg["dependencies"] << {
@@ -1143,7 +1143,7 @@ module MU
 			databases.each { |db|
 				db['region'] = config['region'] if db['region'].nil?
 				db["dependencies"] = Array.new if db["dependencies"].nil?
-				db["#MU_CLASS"] = Object.const_get("MU::#{server['cloud']}::Database")
+				db["#MU_CLASS"] = MU.resourceClass(server['cloud'], "Database")
 				if db['cloudformation_stack'] != nil
 					# XXX don't do this if 'true' was explicitly asked for (as distinct
 					# from default)
@@ -1276,7 +1276,7 @@ module MU
 					end
 
 					db['vpc']['region'] = db['region'] if db['vpc']['region'].nil?
-					db["vpc"]['#MU_CLASS'] = db['#MU_CLASS']
+					db["vpc"]['cloud'] = db['cloud']
 					# If we're using a VPC in this deploy, set it as a dependency
 					if !db["vpc"]["vpc_name"].nil? and vpc_names.include?(db["vpc"]["vpc_name"]) and db["vpc"]["deploy_id"].nil?
 						db["dependencies"] << {
@@ -1309,7 +1309,7 @@ module MU
 					ok = false
 				end
 				server_names << server['name']
-				server["#MU_CLASS"] = Object.const_get("MU::#{server['cloud']}::Server")
+				server["#MU_CLASS"] = MU.resourceClass(server['cloud'], "Server")
 				server['region'] = config['region'] if server['region'].nil?
 				server["dependencies"] = Array.new if server["dependencies"].nil?
 				server['create_ami'] = true if server['image_then_destroy']
