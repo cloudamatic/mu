@@ -183,8 +183,14 @@ module MU
 					@config['admins'] = [ { "name" => MU.userName, "email" => MU.userEmail } ]
 				end
 			end
-			MU::Config.set_defaults(@config, MU::Config.schema)
-			MU::Config.validate(@config)
+			begin
+				MU::Config.set_defaults(@config, MU::Config.schema)
+				MU::Config.validate(@config)
+			rescue Exception => e
+#				pp @config
+				MU.log e.inspect, MU::ERR
+				raise e
+			end
 
 			return @config.freeze
 	  end
@@ -437,7 +443,7 @@ module MU
 		def self.set_defaults(conf_chunk = config, schema_chunk = schema, depth = 0, siblings = nil)
 			return if schema_chunk == nil
 
-			if conf_chunk != nil and schema_chunk["properties"].kind_of?(Hash)
+			if conf_chunk != nil and schema_chunk["properties"].kind_of?(Hash) and conf_chunk.is_a?(Hash)
 				if schema_chunk["properties"]["creation_style"].nil? or
 						schema_chunk["properties"]["creation_style"] != "existing"
 					schema_chunk["properties"].each_pair { |key, subschema|
@@ -460,7 +466,6 @@ module MU
 					return schema_chunk["default"]
 				end
 			end
-
 			return conf_chunk
 		end
 
@@ -646,6 +651,7 @@ module MU
 									public_subnets << subnet['name']
 								else
 									private_subnets << subnet['name']
+									nat_routes[subnet['name']] = [] if nat_routes[subnet['name']].nil?
 									if !subnet['nat_host_name'].nil?
 										nat_routes[subnet['name']] << subnet['nat_host_name']
 									end
@@ -700,7 +706,7 @@ module MU
 			if ok
 				vpc_block.delete('deploy_id')
 				vpc_block.delete('nat_host_id') if vpc_block.has_key?('nat_host_id') and !vpc_block['nat_host_id'].match(/^i-/)
-				vpc_block.delete('vpc_name')
+				vpc_block.delete('vpc_name') if vpc_block.has_key?('vpc_id')
 				vpc_block.delete('deploy_id')
 				vpc_block.delete('tag')
 				MU.log "Resolved VPC resources for #{parent_name}", MU::NOTICE, details: vpc_block

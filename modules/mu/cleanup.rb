@@ -185,10 +185,12 @@ module MU
 							end
 							MU::Cleanup.purge_chef_resources(node_name, data['vault_access'])
 							if !@noop
-								# XXX we actually want a global vault lock here, I suppose
-								MU::MommaCat.lock("vault-rotate", false, true)
-								`#{MU::Config.knife} vault rotate all keys --clean-unknown-clients #{MU::Config.vault_opts}`
-								MU::MommaCat.unlock("vault-rotate")
+								# XXX this doesn't actually work right now (vault bug?) and is
+								# tremendously slow.
+#								MU::MommaCat.lock("vault-rotate", false, true)
+#								MU.log "Rotating vault keys and purging unknown clients"
+#								`#{MU::Config.knife} vault rotate all keys --clean-unknown-clients #{MU::Config.vault_opts}`
+#								MU::MommaCat.unlock("vault-rotate")
 							end
 							@mommacat.notify(MU::Server.cfg_plural, mu_name, node_name, remove: true, sub_key: node_name) if !@noop and @mommacat
 							break

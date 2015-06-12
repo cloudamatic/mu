@@ -42,7 +42,7 @@ module MU
 
 			MU.log "Creating VPC #{vpc_name}", details: @vpc
 			begin
-				resp = MU.ec2.create_vpc(cidr_block: @vpc['ip_block']).vpc
+				resp = MU.ec2(@vpc['region']).create_vpc(cidr_block: @vpc['ip_block']).vpc
 			rescue Aws::EC2::Errors::Unavailable, Aws::EC2::Errors::InternalError => e
 				MU.log "Transient AWS weirdness: #{e.inspect}. Retrying after 30s", MU::ERR
 				sleep 30
@@ -121,7 +121,7 @@ module MU
 				azs = MU::Config.listAZs
 				@vpc['subnets'].each { |subnet|
 					subnet_name = @vpc['name']+"-"+subnet['name']
-					MU.log "Creating Subnet #{subnet_name}", details: subnet
+					MU.log "Creating Subnet #{subnet_name} (#{subnet['ip_block']})", details: subnet
 					azs = MU::Config.listAZs if azs.size == 0
 					if !subnet['availability_zone'].nil?
 						az = subnet['availability_zone']
