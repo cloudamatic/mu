@@ -1060,6 +1060,7 @@ module MU
 			require 'chef/knife'
 			require 'chef/knife/ssh'
 			require 'chef/knife/bootstrap'
+			require 'chef/mixin/command'
 			require 'chef/knife/core/bootstrap_context'
 			require 'chef/knife/bootstrap_windows_ssh'
 
@@ -1112,7 +1113,7 @@ module MU
 			begin
 				# A Chef bootstrap shouldn't take this long, but we get these random
 				# inexplicable hangs sometimes.
-				Timeout::timeout(600) {	
+				Timeout::timeout(600) {
 				  kb.run
 				}
 			rescue Net::SSH::Disconnect, Errno::EPIPE, IOError, SystemExit, Timeout::Error, SocketError, Net::HTTPServerException => e
@@ -2264,7 +2265,7 @@ module MU
 			begin
 				if !nat_ssh_host.nil? and !MU::VPC.haveRouteToInstance?(server['instance_id'])
 					proxy_cmd = "ssh -q -o StrictHostKeyChecking=no -W %h:%p #{nat_ssh_user}@#{nat_ssh_host}"
-					MU.log "Attempting SSH to #{node} (#{server['canonical_ip']}) as #{server['ssh_user']} with key #{node_ssh_key} using proxy '#{proxy_cmd}'", loglevel
+					MU.log "Attempting SSH to #{server['mu_name']} (#{server['canonical_ip']}) as #{server['ssh_user']} with key #{node_ssh_key} using proxy '#{proxy_cmd}'", loglevel
 						proxy = Net::SSH::Proxy::Command.new(proxy_cmd)
 						session = Net::SSH.start(
 								server['canonical_ip'],
