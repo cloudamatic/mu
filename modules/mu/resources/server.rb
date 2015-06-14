@@ -1279,10 +1279,10 @@ module MU
 					MU::Server.runChef(node, server, node_ssh_key, "Join Active Directory", max_retries = 10)
 				elsif server['active_directory']['domain_operation'] == "create"
 					MU::Server.knifeAddToRunList(node, "recipe[mu-activedirectory::domain]");
-					MU::Server.runChef(node, server, node_ssh_key, "Create Active Directory", max_retries = 10)
+					MU::Server.runChef(node, server, node_ssh_key, "Create Active Directory", max_retries = 15)
 				elsif server['active_directory']['domain_operation'] == "add_controller"
 					MU::Server.knifeAddToRunList(node, "recipe[mu-activedirectory::domain-controller]");
-					MU::Server.runChef(node, server, node_ssh_key, "Add Domain Controller to Active Directory", max_retries = 10)
+					MU::Server.runChef(node, server, node_ssh_key, "Add Domain Controller to Active Directory", max_retries = 15)
 				end
 			end
 

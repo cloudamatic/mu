@@ -32,7 +32,7 @@ module Activedirectory
 			end
 		end
 
-		def network_interface_command
+		def network_interface_code
 			dc_ips = nil
 			dc_ips = new_resource.existing_dc_ips.join(",") unless new_resource.existing_dc_ips.empty?
 			code =<<-EOH
@@ -43,7 +43,6 @@ module Activedirectory
 				$netadapter | Set-NetIPInterface -Dhcp Disabled
 				$netadapter | New-NetIPAddress -IPAddress #{node.ipaddress} -PrefixLength $netipaddress.PrefixLength -DefaultGateway $netipconfig.IPv4DefaultGateway.NextHop
 				$netadapter | Set-DnsClientServerAddress -PassThru -ServerAddresses #{dc_ips}
-				Start-Service sshd -ErrorAction SilentlyContinue
 			EOH
 			return code
 		end
@@ -54,13 +53,7 @@ module Activedirectory
 
 			if dhcp_enabled?
 				code =<<-EOH
-					Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue
-					$netipconfig = Get-NetIPConfiguration
-					$netadapter = Get-NetAdapter
-					$netipaddress = $netadapter | Get-NetIPAddress -AddressFamily IPv4
-					$netadapter | Set-NetIPInterface -Dhcp Disabled
-					$netadapter | New-NetIPAddress -IPAddress #{node.ipaddress} -PrefixLength $netipaddress.PrefixLength -DefaultGateway $netipconfig.IPv4DefaultGateway.NextHop
-					$netadapter | Set-DnsClientServerAddress -PassThru -ServerAddresses #{dc_ips}
+					#{network_interface_code}
 					Start-Service sshd -ErrorAction SilentlyContinue
 				EOH
 				cmd = powershell_out(code)

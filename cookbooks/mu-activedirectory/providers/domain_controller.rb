@@ -70,22 +70,12 @@ end
 
 def join_domain
 	unless in_domain?
-		dc_ips = nil
-		dc_ips = new_resource.existing_dc_ips.join(",") unless new_resource.existing_dc_ips.empty?
-		
 		# Workaround for a really crappy issue with cygwin/ssh and windows where we need to end all ssh process,
 		# or Mu's SSH session / chef client run won't disconnect even though the client chef run has finished or the SSH session has closed.
 		# Running configure_network_interface before joining a domain, and re-running chef-client will cause DNS name resolution to fail if the node wasn't successfully added to the domain, 
-		# which is why we add the configure_network_interface code to join_domain direclty.
+		# which is why we add the configure_network_interface code to join_domain directly.
 		code =<<-EOH
-			Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue
-			$netipconfig = Get-NetIPConfiguration
-			$netadapter = Get-NetAdapter
-			$netipaddress = $netadapter | Get-NetIPAddress -AddressFamily IPv4
-			$netadapter | Set-NetIPInterface -Dhcp Disabled
-			$netadapter | New-NetIPAddress -IPAddress #{node.ipaddress} -PrefixLength $netipaddress.PrefixLength -DefaultGateway $netipconfig.IPv4DefaultGateway.NextHop
-			$netadapter | Set-DnsClientServerAddress -PassThru -ServerAddresses #{dc_ips}
-			Start-Service sshd -ErrorAction SilentlyContinue
+			#{network_interface_code}
 			Add-Computer -DomainName #{new_resource.dns_name} -Credential #{admin_creds} -Restart -PassThru
 			Restart-Computer -Force
 		EOH
