@@ -30,3 +30,13 @@ template "#{node["tomcat"]["config_dir"]}/tomcat-users.xml" do
   )
   notifies :restart, 'service[tomcat]'
 end
+
+if node["tomcat"]["base_version"] == 8
+  template "#{node["tomcat"]["config_dir"]}/tomcat-users.xsd" do
+  source 'tomcat-users.xsd.erb'
+  owner 'root'
+  group 'root'
+  mode '0644'
+  notifies :restart, 'service[tomcat]'
+  end
+end

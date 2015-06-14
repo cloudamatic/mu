@@ -16,7 +16,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-default['tomcat']['base_version'] = 6
+default['tomcat']['base_version'] = 7
 default['tomcat']['base_instance'] = "tomcat#{node['tomcat']['base_version']}"
 default['tomcat']['port'] = 8080
 default['tomcat']['proxy_port'] = nil
@@ -42,6 +42,13 @@ default['tomcat']['keystore_type'] = 'jks'
 # not otherwise set. Do not hardcode passwords in the cookbook.
 # default["tomcat"]["keystore_password"] = nil
 # default["tomcat"]["truststore_password"] = nil
+if node['tomcat']['base_version'] == 8
+  default['tomcat']['install_method'] = 'archive'
+else
+  default['tomcat']['install_method'] = 'package'
+end
+default['tomcat']['archive_url'] = "https://s3.amazonaws.com/cap-public/apache-tomcat-7.0.62.tar.gz" if node['tomcat']['base_version'] == 7
+default['tomcat']['archive_url'] = "https://s3.amazonaws.com/cap-public/apache-tomcat-8.0.23.tar.gz" if node['tomcat']['base_version'] == 8
 default['tomcat']['package_url'] = nil
 default['tomcat']['truststore_file'] = nil
 default['tomcat']['truststore_type'] = 'jks'
@@ -80,16 +87,15 @@ when 'rhel'
     default['tomcat']['tmp_dir'] = "/var/cache/tomcat#{node['tomcat']['base_version']}/temp"
     default['tomcat']['work_dir'] = "/var/cache/tomcat#{node['tomcat']['base_version']}/work"
     default['tomcat']['context_dir'] = "#{node["tomcat"]["config_dir"]}/Catalina/localhost"
-    default['tomcat']['webapp_dir'] = "/var/lib/tomcat#{node['tomcat']['base_version']}/webapps"
+    default['tomcat']['webapp_dir'] = "#{node["tomcat"]["home"]}/webapps"
     default['tomcat']['keytool'] = 'keytool'
     default['tomcat']['lib_dir'] = "#{node["tomcat"]["home"]}/lib"
     default['tomcat']['endorsed_dir'] = "#{node["tomcat"]["lib_dir"]}/endorsed"
     default['tomcat']['packages'] = ["tomcat#{node['tomcat']['base_version']}"]
     default['tomcat']['deploy_manager_packages'] = ["tomcat#{node['tomcat']['base_version']}-admin-webapps"]
-	default['tomcat']['app_base'] = "webapps"
-	default['tomcat']['package_url'] = "https://s3.amazonaws.com/cap-public/tomcat7-7.0.57-1.x86_64.rpm"
+    default['tomcat']['app_base'] = "webapps"
+    default['tomcat']['package_url'] = "https://s3.amazonaws.com/cap-public/tomcat7-7.0.57-1.x86_64.rpm" if node['tomcat']['base_version'] == 7
   elsif node.platform_version.to_i == 7
-    default['tomcat']['base_version'] = 7
     default['tomcat']['base_instance'] = "tomcat"
     default['tomcat']['user'] = 'tomcat'
     default['tomcat']['group'] = 'tomcat'
@@ -100,7 +106,8 @@ when 'rhel'
     default['tomcat']['tmp_dir'] = "/var/cache/tomcat/temp"
     default['tomcat']['work_dir'] = "/var/cache/tomcat/work"
     default['tomcat']['context_dir'] = "#{node["tomcat"]["config_dir"]}/Catalina/localhost"
-    default['tomcat']['webapp_dir'] = "/var/lib/tomcat/webapps"
+    default['tomcat']['webapp_dir'] = "/var/lib/tomcat/webapps" if node['tomcat']['install_method'] == "package"
+    default['tomcat']['webapp_dir'] = "#{node["tomcat"]["home"]}/webapps" if node['tomcat']['install_method'] == "archive"
     default['tomcat']['keytool'] = 'keytool'
     default['tomcat']['lib_dir'] = "#{node["tomcat"]["home"]}/lib"
     default['tomcat']['endorsed_dir'] = "#{node["tomcat"]["lib_dir"]}/endorsed"
@@ -160,7 +167,7 @@ when 'smartos'
   default['tomcat']['packages'] = ["apache-tomcat"]
   default['tomcat']['deploy_manager_packages'] = []
 when 'windows'
-  default['tomcat']['base_version'] = 7
+  default['tomcat']['install_method'] = 'archive'
   default['tomcat']['base_instance'] = "tomcat#{node.tomcat.base_version}"
   default['tomcat']['base'] = "C:\\bin\\tomcat\\#{node.tomcat.base_version}"
   default['tomcat']['home'] = node['tomcat']['base']
@@ -174,10 +181,16 @@ when 'windows'
   default['tomcat']['lib_dir'] = "#{node.tomcat.home}/lib"
   default['tomcat']['endorsed_dir'] = "#{node.tomcat.lib_dir}/endorsed"
   default['tomcat']['app_base'] = "webapps"
+  default['tomcat']['generate_ssl_cert'] = false
   default['tomcat']['service']['display_name'] = "Apache Tomcat 7.0 Tomcat7 (remove only)"
   default['tomcat']['packages'] = []
-  default['tomcat']['version'] =   "apache-tomcat-7.0.62"
-  default['tomcat']['package_url'] = "http://mirror.metrocast.net/apache/tomcat/tomcat-7/v7.0.62/bin/apache-tomcat-7.0.62-windows-x64.zip"
+  if node['tomcat']['base_version'] == 7
+    default['tomcat']['version'] =   "apache-tomcat-7.0.62"
+    default['tomcat']['archive_url'] = "https://s3.amazonaws.com/cap-public/apache-tomcat-7.0.62-windows-x64.zip"
+  elsif node['tomcat']['base_version'] == 8
+    default['tomcat']['version'] =   "apache-tomcat-8.0.23"
+    default['tomcat']['archive_url'] = "https://s3.amazonaws.com/cap-public/apache-tomcat-8.0.23-windows-x64.zip"
+  end
 else
   default['tomcat']['user'] = "tomcat#{node["tomcat"]["base_version"]}"
   default['tomcat']['group'] = "tomcat#{node["tomcat"]["base_version"]}"

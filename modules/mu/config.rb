@@ -2376,7 +2376,7 @@ module MU
 							"username_field" => {
 								"type" => "string",
 								"default" => "username",
-								"description" => "The field where the username for these credentials resides"
+								"description" => "The field where the user name for these credentials resides"
 							}
 						}
 					},
@@ -2403,7 +2403,7 @@ module MU
 							"username_field" => {
 								"type" => "string",
 								"default" => "username",
-								"description" => "The field where the username for these credentials resides"
+								"description" => "The field where the user name for these credentials resides"
 							}
 						}
 					}

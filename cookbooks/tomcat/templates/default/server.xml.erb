@@ -24,20 +24,20 @@
      Documentation at /docs/config/server.html
  -->
 <Server port="<%= @shutdown_port %>" shutdown="SHUTDOWN">
-
-  <!--APR library loader. Documentation at /docs/apr.html -->
-  <!--
-  <Listener className="org.apache.catalina.core.AprLifecycleListener" SSLEngine="on" />
+  <Listener className="org.apache.catalina.startup.VersionLoggerListener" />
+  <!-- Security listener. Documentation at /docs/config/listeners.html
+  <Listener className="org.apache.catalina.security.SecurityListener" />
   -->
+  <!--APR library loader. Documentation at /docs/apr.html -->
+  <Listener className="org.apache.catalina.core.AprLifecycleListener" SSLEngine="on" />
+<% if node["tomcat"]["base_version"].to_i < 8 %>
   <!--Initialize Jasper prior to webapps are loaded. Documentation at /docs/jasper-howto.html -->
   <Listener className="org.apache.catalina.core.JasperListener" />
+<% end %>
   <!-- Prevent memory leaks due to use of particular java/javax APIs-->
   <Listener className="org.apache.catalina.core.JreMemoryLeakPreventionListener" />
-  <% if node['tomcat']['base_version'].to_i < 7 -%>
-  <!-- JMX Support for the Tomcat server. Documentation at /docs/non-existent.html -->
-  <Listener className="org.apache.catalina.mbeans.ServerLifecycleListener" />
-  <% end -%>
   <Listener className="org.apache.catalina.mbeans.GlobalResourcesLifecycleListener" />
+  <Listener className="org.apache.catalina.core.ThreadLocalLeakPreventionListener" />
 
   <!-- Global JNDI resources
        Documentation at /docs/jndi-resources-howto.html
@@ -99,13 +99,19 @@
     -->
   <% if @ssl_port -%>
     <!-- Define a SSL HTTP/1.1 Connector on port <%= @ssl_port %>
-         This connector uses the JSSE configuration, when using APR, the
-         connector should be using the OpenSSL style configuration
-         described in the APR documentation -->
-    <Connector port="<%= @ssl_port %>" protocol="HTTP/1.1" SSLEnabled="true"
+         This connector uses the BIO implementation that requires the JSSE
+         style configuration. When using the APR/native implementation, the
+         OpenSSL style configuration is required as described in the APR/native
+         documentation -->
+<% if node["tomcat"]["base_version"].to_i == 8 %>
+    <Connector port="<%= @ssl_port %>" protocol="org.apache.coyote.http11.Http11NioProtocol"
+<% else %>
+    <Connector port="<%= @ssl_port %>" protocol="org.apache.coyote.http11.Http11Protocol"
+<% end %>
              <% if @ssl_proxy_port -%>
                proxyPort="<%= @ssl_proxy_port %>"
              <% end -%>
+               SSLEnabled="true"
                keystoreFile="<%= @config_dir %>/<%= @keystore_file %>"
                keystorePass="<%= node['tomcat']['keystore_password'] %>"
                keystoreType="<%= @keystore_type %>"
@@ -140,13 +146,8 @@
       <Cluster className="org.apache.catalina.ha.tcp.SimpleTcpCluster"/>
       -->
 
-      <!-- The request dumper valve dumps useful debugging information about
-           the request and response data received and sent by Tomcat.
-           Documentation at: /docs/config/valve.html -->
-      <!--
-      <Valve className="org.apache.catalina.valves.RequestDumperValve"/>
-      -->
-
+      <!-- Use the LockOutRealm to prevent attempts to guess user passwords
+           via a brute-force attack -->
       <Realm className="org.apache.catalina.realm.LockOutRealm">
 
       <!-- This Realm uses the UserDatabase configured in the global JNDI
@@ -176,15 +177,8 @@
 	<% end %>
       </Realm>
 
-      <!-- Define the default virtual host
-           Note: XML Schema validation will not work with Xerces 2.2.
-       -->
       <Host name="localhost"  appBase="<%= node.tomcat.app_base %>"
-            unpackWARs="true" autoDeploy="true"
-            <% if node['tomcat']['base_version'].to_i < 7 -%>
-            xmlValidation="false" xmlNamespaceAware="false"
-            <% end -%>
-            >
+            unpackWARs="true" autoDeploy="true">
 
         <!-- SingleSignOn valve, share authentication between web applications
              Documentation at: /docs/config/valve.html -->
@@ -193,10 +187,11 @@
         -->
 
         <!-- Access log processes all example.
-             Documentation at: /docs/config/valve.html -->
+             Documentation at: /docs/config/valve.html
+             Note: The pattern used is equivalent to using pattern="common" -->
         <!--
         <Valve className="org.apache.catalina.valves.AccessLogValve" directory="logs"
-               prefix="localhost_access_log." suffix=".txt" pattern="common" resolveHosts="false"/>
+               prefix="localhost_access_log" suffix=".txt" pattern="common" />
         -->
 
       </Host>
