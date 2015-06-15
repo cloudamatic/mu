@@ -1,4 +1,5 @@
 - 
+  name: wordpress-demo-lb
   dependencies: 
     - 
       name: wordpress-demo-vpc
@@ -20,7 +21,6 @@
       instance-protocol: HTTP
       lb-port: 80
       lb-protocol: HTTP
-  name: wordpress-demo-lb
   vpc: 
     subnet_pref: all_public
     subnets: 
