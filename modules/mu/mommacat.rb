@@ -374,14 +374,13 @@ module MU
 				end
 			}
 
-			cloudclass = MU.configType2ObjectType(type)
-
 			if @original_config[type+"s"].nil?
 				raise GroomError, "I see no configured resources of type #{type} (bootstrapping #{name})"
 			end
 			@original_config[type+"s"].each { |svr|
 				mylocks = Array.new
 				if svr["name"] == name
+					cloudclass = MU.resourceClass(svr["cloud"], type)
 					server = svr.dup
 					node = nil
 					first_groom = true

@@ -264,7 +264,6 @@ module MU
 			  @my_threads.each do |t|
 			    t.join
 			  end
-raise "ENOUGH OF THAT"
 			rescue Exception => e
 
 			  @my_threads.each do |t|
@@ -399,7 +398,9 @@ MESSAGE_END
 				MU.log "Setting dependencies for #{name}", MU::DEBUG
 				if resource["dependencies"] != nil then
 				  resource["dependencies"].each { |dependency|
-						parent_class = MU.configType2ObjectType(dependency["type"])
+						# XXX actually, the dependency should identify the target cloud
+						# resource instead of assuming it's the same as the dependent
+						parent_class = MU.resourceClass(resource["cloud"], dependency["type"])
 
 						parent_type = parent_class.name
 						parent = parent_type+"_"+dependency["name"]+"_create"

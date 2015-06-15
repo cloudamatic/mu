@@ -227,6 +227,7 @@ module MU
 
 			# Called automatically by {MU::Deploy#createResources}
 			def create
+				MU.resourceClass("AWS", :DNSZone)
 				begin
 					done = false
 					instance = createEc2Instance

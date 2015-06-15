@@ -40,6 +40,7 @@ module MU
 
 			# Called automatically by {MU::Deploy#createResources}
 			def create
+				MU.resourceClass("AWS", :DNSZone)
 				vpc_name = MU::MommaCat.getResourceName(@vpc['name'])
 
 				MU.log "Creating VPC #{vpc_name}", details: @vpc

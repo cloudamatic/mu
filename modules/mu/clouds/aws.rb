@@ -174,13 +174,13 @@ module MU
 				rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling => e
 					retries = retries + 1
 					debuglevel = MU::DEBUG
-					interval = 5
+					interval = 5 + Random.rand(4) - 2
 					if retries < 5 and retries > 2
 						debuglevel = MU::NOTICE
-						interval = 10
+						interval = 10 + Random.rand(6) - 3
 					else
 						debuglevel = MU::WARN
-						interval = 20
+						interval = 20 + Random.rand(10) - 5
 					end
 					MU.log "Got #{e.inspect} calling EC2's #{method_sym} in #{@region}, waiting #{interval.to_s}s and retrying", debuglevel
 					sleep interval

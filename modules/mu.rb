@@ -422,9 +422,19 @@ module MU
 	# @param type [String]: The resource type
 	# @return [Class]: The class object implementing this resource
 	def self.resourceClass(cloud = MU::Config.defaultCloud, type)
+		raise MuError, "cloud argument to MU.resourceClass cannot be nil" if cloud.nil?
 		# If we've been asked to resolve this object, that means we plan to use it,
 		# so go ahead and load it.
-		cfg_name = @@resource_types[type.to_sym][:cfg_name]
+		cfg_name = nil
+		@@resource_types.each_pair { |name, cloudclass|
+			if name == type.to_sym or
+				 cloudclass[:cfg_name] == type or
+				 cloudclass[:cfg_plural] == type
+				cfg_name = cloudclass[:cfg_name]
+				type = name
+				break
+			end
+		}
 		if !File.size?(MU.myRoot+"/modules/mu/clouds/#{cloud.downcase}.rb")
 			raise MuError, "Requested to use unsupported grooming agent #{cloud}"
 		end
@@ -515,18 +525,6 @@ module MU
 	# The version of Chef we will install on nodes.
 	# @return [String]
 	def self.chefVersion; @@chefVersion end
-
-	# Map {MU::Config::BasketofKittens} object names to its Mu cloud resource
-	# Ruby class.
-	def self.configType2ObjectType(name)
-		@@resource_types.each { |cloudclass|
-			if name == cloudclass.cfg_name or
-				 name == cloudclass.cfg_plural
-				return cloudclass
-			end
-		}
-		nil
-	end
 
 	# Mu's SSL certificate directory
 	@@mySSLDir = File.expand_path(ENV['MU_DATADIR']+"/ssl")

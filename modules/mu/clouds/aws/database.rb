@@ -44,6 +44,7 @@ module MU
 			# Called automatically by {MU::Deploy#createResources}
 			# @return [String]: The cloud provider's identifier for this database instance.
 			def create
+				MU.resourceClass("AWS", :DNSZone)
 				if @db["creation_style"] == "existing"
 					database = MU::AWS::Database.getDatabaseById(@db['identifier'])
 

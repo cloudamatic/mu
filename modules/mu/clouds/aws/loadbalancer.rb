@@ -38,6 +38,7 @@ module MU
 
 			# Called automatically by {MU::Deploy#createResources}
 			def create
+				MU.resourceClass("AWS", :DNSZone)
 				MU.setVar("curRegion", @loadbalancer['region']) if !@loadbalancer['region'].nil?
 				lb_name = MU::MommaCat.getResourceName(@loadbalancer["name"], max_length: 32, need_unique_string: true)
 				lb_name.gsub!(/[^\-a-z0-9]/i, "-") # LB naming rules

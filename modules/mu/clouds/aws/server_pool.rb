@@ -38,6 +38,7 @@ module MU
 
 			# Called automatically by {MU::Deploy#createResources}
 			def create
+				MU.resourceClass("AWS", :DNSZone)
 				keypairname, ssh_private_key, ssh_public_key = @deploy.SSHKey
 
 				pool_name = MU::MommaCat.getResourceName(@pool['name'])

@@ -772,7 +772,7 @@ module MU
 			vpc_names = Array.new
 			nat_routes = Hash.new
 			vpcs.each { |vpc|
-				vpc["#MU_CLASS"] = MU.resourceClass(server['cloud'], "VPC")
+				vpc["#MU_CLASS"] = MU.resourceClass(vpc['cloud'], "VPC")
 				vpc['region'] = config['region'] if vpc['region'].nil?
 				vpc["dependencies"] = Array.new if vpc["dependencies"].nil?
 				subnet_routes = Hash.new
@@ -1767,6 +1767,7 @@ module MU
 			"description" => "Create Virtual Private Clouds with custom public or private subnets.",
 			"properties" => {
 				"name" => { "type" => "string" },
+				"cloud" => @cloud_primitive,
 				"ip_block" => {
 					"type" => "string",
 					"pattern" => @cidr_pattern,
