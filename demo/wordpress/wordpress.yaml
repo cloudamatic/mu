@@ -68,7 +68,7 @@ databases:
   - 
     creation_style: new
     db_family: mysql5.6
-    engine: mysql
+    engine_version: mysql
     name: wordpress-demo-db
     port: 3306
     publicly_accessible: true
