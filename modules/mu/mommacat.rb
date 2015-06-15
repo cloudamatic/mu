@@ -635,7 +635,7 @@ module MU
 			cleanup_threads = []
 			regions = MU::AWS.listRegions
 			deploys.each { |deploy|
-				known_servers = MU::MommaCat.getResourceDeployStruct(MU::AWS::Server.cfg_plural, deploy_id: deploy)
+				known_servers = MU::MommaCat.getResourceDeployStruct("servers", deploy_id: deploy)
 
 				next if known_servers.nil?
 				parent_thread_id = Thread.current.object_id
@@ -809,6 +809,10 @@ module MU
 								nodes.each_pair { |nodename, data|
 									next if !data.is_a?(Hash)
 									data['#MU_NODE_CLASS'] = node_class
+									if !data.has_key?("cloud")
+										data["cloud"] = MU::Config.defaultCloud
+									end
+									data['#MU_CLASS'] = MU.resourceClass("AWS", :Server)
 								}
 							}
 						end

@@ -224,7 +224,6 @@ module MU
 				}
 			end
 			
-
 			# Called automatically by {MU::Deploy#createResources}
 			def create
 				MU.resourceClass("AWS", :DNSZone)
