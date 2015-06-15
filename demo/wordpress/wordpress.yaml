@@ -74,7 +74,7 @@ databases:
     publicly_accessible: true
     size: db.t2.micro
     storage: 5
-    engine_version: "5.6.13"
+    engine_version: "5.6.23"
     vpc: 
       vpc_name: wordpress-demo-vpc
 servers:
