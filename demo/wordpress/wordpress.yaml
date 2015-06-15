@@ -68,13 +68,13 @@ databases:
   - 
     creation_style: new
     db_family: mysql5.6
-    engine_version: mysql
+    engine: mysql
     name: wordpress-demo-db
     port: 3306
     publicly_accessible: true
     size: db.t2.micro
     storage: 5
-    version: "5.6.13"
+    engine_version: "5.6.13"
     vpc: 
       vpc_name: wordpress-demo-vpc
 servers:
