@@ -63,9 +63,9 @@ module MU
 			# @return [OpenStruct, nil]: The cloud provider's full description of this database resource, or nil if no such database exists.
 			def self.find(name: name, db_id: db_id, region: MU.curRegion)
 				# TODO expand to work with name tags like the other resources
-				if name and MU::Deploy.deployment and MU::Deploy.deployment['databases']
-					MU.log "Looking for database #{name}", MU::DEBUG, details: MU::Deploy.deployment['databases']
-					return getDatabaseById(MU::Deploy.deployment['databases'][name]['identifier'], region: region) if MU::Deploy.deployment['databases'][name]
+				if name and MU.mommacat.deployment and MU.mommacat.deployment['databases']
+					MU.log "Looking for database #{name}", MU::DEBUG, details: MU.mommacat.deployment['databases']
+					return getDatabaseById(MU.mommacat.deployment['databases'][name]['identifier'], region: region) if MU.mommacat.deployment['databases'][name]
 				end
 				return nil
 			end
@@ -325,7 +325,7 @@ module MU
 
 							if !subnet_struct
 								# should this be subnet_struct.empty?
-								MU.log "Couldn't find a live subnet matching #{subnet}", MU::ERR, details: MU::Deploy.deployment['subnets']
+								MU.log "Couldn't find a live subnet matching #{subnet}", MU::ERR, details: MU.mommacat.deployment['subnets']
 								raise MuError, "Couldn't find a live subnet matching #{subnet}"
 							else
 								subnet_ids << subnet_struct.subnet_id

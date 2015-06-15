@@ -914,7 +914,7 @@ module MU
 				firewall_rule_names << acl['name']
 				acl['region'] = config['region'] if acl['region'].nil?
 				acl["dependencies"] = Array.new if acl["dependencies"].nil?
-				acl["#MU_CLASS"] = Object.const_get("MU::#{server['cloud']}::FirewallRule")
+				acl['#MU_CLASS'] = MU.resourceClass(server['cloud'], "FirewallRule")
 
 				if !acl["vpc_name"].nil? or !acl["vpc_id"].nil?
 					acl['vpc'] = Hash.new
@@ -923,7 +923,8 @@ module MU
 				end
 				if !acl["vpc"].nil?
 					acl['vpc']['region'] = config['region'] if acl['vpc']['region'].nil?
-					acl["vpc"]['#CLOUD'] = acl['#MU_CLASS']
+					acl["vpc"]['cloud'] = acl['cloud']
+					acl['vpc']['#MU_CLASS'] = MU.resourceClass(server['cloud'], "VPC")
 					# If we're using a VPC in this deploy, set it as a dependency
 					if !acl["vpc"]["vpc_name"].nil? and vpc_names.include?(acl["vpc"]["vpc_name"]) and acl["vpc"]['deploy_id'].nil?
 						acl["dependencies"] << {
@@ -954,6 +955,7 @@ module MU
 					if !rule['lbs'].nil?
 						rule['lbs'].each { |lb_name|
 							loadbalancers.each { |lb|
+								lb['#MU_CLASS'] = MU.resourceClass(rule['cloud'], "FirewallRule")
 								if lb['name'] == lb_name
 									acl["dependencies"] << {
 										"type" => "loadbalancer",
@@ -974,7 +976,7 @@ module MU
 				lb["#MU_CLASS"] = MU.resourceClass(server['cloud'], "LoadBalancer")
 				if !lb["vpc"].nil?
 					lb['vpc']['region'] = lb['region'] if lb['vpc']['region'].nil?
-					lb["vpc"]['#MU_CLASS'] = lb['#MU_CLASS']
+					lb['vpc']['#MU_CLASS'] = MU.resourceClass(server['cloud'], "VPC")
 					# If we're using a VPC in this deploy, set it as a dependency
 					if !lb["vpc"]["vpc_name"].nil? and vpc_names.include?(lb["vpc"]["vpc_name"]) and lb["vpc"]['deploy_id'].nil?
 						lb["dependencies"] << {
@@ -1088,6 +1090,7 @@ module MU
 # TODO make sure any load balancer we ask for has the same VPC configured
 				if !pool["loadbalancers"].nil?
 					pool["loadbalancers"].each { |lb|
+						lb['#MU_CLASS'] = MU.resourceClass(pool['cloud'], "LoadBalancer")
 						if lb["concurrent_load_balancer"] != nil
 							pool["dependencies"] << {
 								"type" => "loadbalancer",
@@ -1367,7 +1370,7 @@ module MU
 				if !server["vpc"].nil?
 					server['vpc']['region'] = server['region'] if server['vpc']['region'].nil?
 					server['vpc']['cloud'] = server['cloud'] if server['vpc']['cloud'].nil?
-					server["vpc"]['#MU_CLASS'] = server['#MU_CLASS']
+					server['vpc']['#MU_CLASS'] = MU.resourceClass(server['cloud'], "VPC")
 					# If we're using a local VPC in this deploy, set it as a dependency and get the subnets right
 					if !server["vpc"]["vpc_name"].nil? and vpc_names.include?(server["vpc"]["vpc_name"]) and server["vpc"]["deploy_id"].nil?
 						server["dependencies"] << {
@@ -1407,7 +1410,7 @@ module MU
 
 				if !server["add_firewall_rules"].nil?
 					server["add_firewall_rules"].each { |acl_include|
-						acl_include['#MU_CLASS'] = server['#MU_CLASS']
+						acl_include['#MU_CLASS'] = MU.resourceClass(server['cloud'], "FirewallRule")
 						if firewall_rule_names.include?(acl_include["rule_name"])
 							server["dependencies"] << {
 								"type" => "firewall_rule",
@@ -1418,7 +1421,7 @@ module MU
 				end
 				if !server["loadbalancers"].nil?
 					server["loadbalancers"].each { |lb|
-						lb['#MU_CLASS'] = server['#MU_CLASS']
+						lb['#MU_CLASS'] = MU.resourceClass(server['cloud'], "LoadBalancer")
 						if lb["concurrent_load_balancer"] != nil
 							server["dependencies"] << {
 								"type" => "loadbalancer",

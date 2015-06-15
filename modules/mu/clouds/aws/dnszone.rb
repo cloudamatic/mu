@@ -429,6 +429,7 @@ module MU
 			def self.genericDNSEntry(name, target, cloudclass, noop: false, delete: false, sync_wait: true)
 				return nil if name.nil? or target.nil? or cloudclass.nil?
 				mu_zone, junk = MU::AWS::DNSZone.find(name: "platform-mu")
+				MU.resourceClass("AWS", :LoadBalancer)
 
 				if !mu_zone.nil? and !MU.myVPC.nil?
 					subdomain = cloudclass.cfg_name
@@ -502,8 +503,8 @@ module MU
 			# @param region [String]: The region into which this zone was deployed.
 			def self.notify(name, id, cfg, region: region)
 				MU.setVar("curRegion", region) if !region.nil?
-				if !MU::Deploy.deployment[cfg_plural].nil? and !MU::Deploy.deployment[self.class.cfg_plural][name].nil?
-					deploydata = MU::Deploy.deployment[cfg_plural][name].dup				
+				if !MU.mommacat.deployment[cfg_plural].nil? and !MU.mommacat.deployment[self.class.cfg_plural][name].nil?
+					deploydata = MU.mommacat.deployment[cfg_plural][name].dup				
 				else
 					deploydata = Hash.new
 				end

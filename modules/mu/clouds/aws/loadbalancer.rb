@@ -66,7 +66,7 @@ module MU
 					@loadbalancer["add_firewall_rules"].each { |acl|
 						sg = MU::AWS::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"])
 						if sg.nil?
-							MU.log "Couldn't find dependent security group #{acl} for Load Balancer #{@loadbalancer['name']}", MU::ERR, details: MU::Deploy.deployment['firewall_rules']
+							MU.log "Couldn't find dependent security group #{acl} for Load Balancer #{@loadbalancer['name']}", MU::ERR, details: MU.mommacat.deployment['firewall_rules']
 							raise MuError, "deploy failure"
 						end
 						sgs << sg.group_id
@@ -343,9 +343,9 @@ module MU
 			# @return [OpenStruct, nil] The cloud provider's description of the LoadBalancer, or nil if none was found.
 			def self.find(name: name = nil, lb_id: lb_id = nil, dns_name: dns_name = nil, region: MU.curRegion)
 				return nil if !name and !dns_name and !lb_id
-				if !name.nil? and !MU::Deploy.deployment.nil? and !MU::Deploy.deployment['loadbalancers'].nil?
-					lb_id = MU::Deploy.deployment['loadbalancers'][name]['awsname'] if lb_id.nil?
-					dns_name = MU::Deploy.deployment['loadbalancers'][name]['dns'] if dns_name.nil?
+				if !name.nil? and !MU.mommacat.deployment.nil? and !MU.mommacat.deployment['loadbalancers'].nil?
+					lb_id = MU.mommacat.deployment['loadbalancers'][name]['awsname'] if lb_id.nil?
+					dns_name = MU.mommacat.deployment['loadbalancers'][name]['dns'] if dns_name.nil?
 				end
 
 				return nil if lb_id.nil? and dns_name.nil?

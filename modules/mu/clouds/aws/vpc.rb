@@ -460,8 +460,8 @@ module MU
 						resource = nil
 						# Check the currently-running deploy structure first
 						# XXX maybe this behavior should be in MU::MommaCat.getResourceDeployStruct
-					  if !name.nil? and (deploy_id.nil? or deploy_id == MU.mu_id) and MU::Deploy.deployment.has_key?('vpcs') and MU::Deploy.deployment['vpcs'].has_key?(name)
-							resource = MU::Deploy.deployment['vpcs'][name]
+					  if !name.nil? and (deploy_id.nil? or deploy_id == MU.mu_id) and MU.mommacat.deployment.has_key?('vpcs') and MU.mommacat.deployment['vpcs'].has_key?(name)
+							resource = MU.mommacat.deployment['vpcs'][name]
 						else
 							resource = MU::MommaCat.getResourceDeployStruct("vpcs", name: name, deploy_id: deploy_id, use_cache: false)
 						end
@@ -782,7 +782,7 @@ module MU
 								sleep 5
 								redo
 							end
-							MU.log "Couldn't find a live subnet matching #{subnet} in #{vpc_id} (#{vpc_conf['region']})", MU::ERR, details: MU::Deploy.deployment['subnets']
+							MU.log "Couldn't find a live subnet matching #{subnet} in #{vpc_id} (#{vpc_conf['region']})", MU::ERR, details: MU.mommacat.deployment['subnets']
 							raise MuError, "Couldn't find a live subnet matching #{subnet} in #{vpc_id} (#{vpc_conf['region']})"
 						end
 						id = subnet_struct.subnet_id
@@ -797,7 +797,7 @@ module MU
 						region: vpc_conf['region']
 					)
 					if subnet_struct.nil?
-						MU.log "Couldn't find a live subnet matching #{vpc_conf}", MU::ERR, details: MU::Deploy.deployment['subnets']
+						MU.log "Couldn't find a live subnet matching #{vpc_conf}", MU::ERR, details: MU.mommacat.deployment['subnets']
 						raise MuError, "Couldn't find a live subnet matching #{vpc_conf}"
 					end
 					id = subnet_struct.subnet_id

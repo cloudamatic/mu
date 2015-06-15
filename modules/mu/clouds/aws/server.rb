@@ -634,6 +634,7 @@ MU.log win_set_pw, MU::ERR
 			# @param sync_wait [Boolean]: Whether to wait for DNS entries to propagate before completing 
 			def self.postBoot(server, instance, keypairname, environment: environment, sync_wait: sync_wait)
 			  node = server['mu_name']
+				MU.resourceClass("AWS", :DNSZone)
 				if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
 					Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
 				end
@@ -1464,8 +1465,8 @@ MU.log win_set_pw, MU::ERR
 					}
 				}
 
-				if !MU::Deploy.deployment["servers"].nil? and !MU::Deploy.deployment["servers"][name].nil?
-					deploydata = MU::Deploy.deployment["servers"][name].dup
+				if !MU.mommacat.deployment["servers"].nil? and !MU.mommacat.deployment["servers"][name].nil?
+					deploydata = MU.mommacat.deployment["servers"][name].dup
 				else
 					deploydata = Hash.new
 				end
@@ -2076,6 +2077,7 @@ MU.log win_set_pw, MU::ERR
 
 				cleaned_dns = false
 				mu_name = nil
+				MU.resourceClass("AWS", :DNSZone)
 				mu_zone, junk = MU::AWS::DNSZone.find(name: "mu")
 				if !mu_zone.nil?
 					dns_targets = []

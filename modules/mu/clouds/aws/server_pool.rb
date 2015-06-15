@@ -217,7 +217,7 @@ module MU
 					@pool["add_firewall_rules"].each { |acl|
 						sg = MU::AWS::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"])
 						if sg.nil?
-							MU.log "Couldn't find dependent security group #{acl} for server pool #{@pool['name']}", MU::ERR, details: MU::Deploy.deployment['firewall_rules']
+							MU.log "Couldn't find dependent security group #{acl} for server pool #{@pool['name']}", MU::ERR, details: MU.mommacat.deployment['firewall_rules']
 							raise MuError, "deploy failure"
 						end
 						sgs << sg.group_id

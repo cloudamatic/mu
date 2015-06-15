@@ -269,10 +269,10 @@ module MU
 				return nil if !sg_id and !name
 				MU.log "find invoked with sg_id: #{sg_id}, name: #{name}, region: #{region}", MU::DEBUG, details: caller
 
-				if sg_id.nil? and !name.nil? and !MU::Deploy.deployment.nil? and !MU::Deploy.deployment['firewall_rules'].nil?
+				if sg_id.nil? and !name.nil? and !MU.mommacat.deployment.nil? and !MU.mommacat.deployment['firewall_rules'].nil?
 
-					if MU::Deploy.deployment['firewall_rules'][name] != nil
-						sg_id = MU::Deploy.deployment['firewall_rules'][name]['group_id']
+					if MU.mommacat.deployment['firewall_rules'][name] != nil
+						sg_id = MU.mommacat.deployment['firewall_rules'][name]['group_id']
 					end
 				end
 
