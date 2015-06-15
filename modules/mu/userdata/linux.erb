@@ -14,15 +14,13 @@
 # limitations under the License.
 
 
-if ! grep '^/bin/sh /var/lib/cloud/instance/user-data.txt$' /etc/rc.d/rc.local > /dev/null;then
-	echo "/bin/sh /var/lib/cloud/instance/user-data.txt" >> /etc/rc.d/rc.local
-fi
-
-set -e
 
 updates_run=0
 need_reboot=0
 if [ -f /etc/debian_version ];then
+	if ! grep '^/bin/sh /var/lib/cloud/instance/user-data.txt$' /etc/rc.local > /dev/null;then
+		echo "/bin/sh /var/lib/cloud/instance/user-data.txt" >> /etc/rc.local
+	fi
 	apt-get update -y
 	if [ ! -f /usr/bin/pip ] ;then /usr/bin/apt-get --fix-missing -y install python-pip;fi
 	if [ ! -f /usr/bin/curl ] ;then /usr/bin/apt-get --fix-missing -y install curl;fi
@@ -42,6 +40,9 @@ if [ -f /etc/debian_version ];then
 	fi
 <% end %>
 elif [ -x /usr/bin/yum ];then
+	if ! grep '^/bin/sh /var/lib/cloud/instance/user-data.txt$' /etc/rc.d/rc.local > /dev/null;then
+		echo "/bin/sh /var/lib/cloud/instance/user-data.txt" >> /etc/rc.d/rc.local
+	fi
 	# Ugh, rando EPEL mirror
 	if [ ! -f /etc/yum.repos.d/epel.repo ];then
 	     version=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
@@ -62,6 +63,7 @@ elif [ -x /usr/bin/yum ];then
 	fi
 <% end %>
 fi
+set -e
 if [ ! -f $AWSCLI ];then
 	/usr/bin/pip install awscli
 fi
