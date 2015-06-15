@@ -381,6 +381,7 @@ module MU
 				mylocks = Array.new
 				if svr["name"] == name
 					cloudclass = MU.resourceClass(svr["cloud"], type)
+					serverclass = MU.resourceClass(svr["cloud"], "Server")
 					server = svr.dup
 					node = nil
 					first_groom = true
@@ -446,7 +447,7 @@ module MU
 
 						end
 
-						if !MU::AWS::Server.postBoot(server, instance, @ssh_key_name, sync_wait: sync_wait)
+						if !serverclass.postBoot(server, instance, @ssh_key_name, sync_wait: sync_wait)
 							MU.log "#{node} is already being groomed, skipping", MU::NOTICE
 							MU::MommaCat.unlockAll
 							puts "------------------------------"
@@ -464,7 +465,7 @@ module MU
 						MU::MommaCat.lock("#{cloudclass.name}_#{server["name"]}-dependencies")
 						MU::MommaCat.unlock("#{cloudclass.name}_#{server["name"]}-dependencies")
 
-						MU::AWS::Server.deploy(server, @deployment, keypairname: @ssh_key_name)
+						serverclass.deploy(server, @deployment, keypairname: @ssh_key_name)
 					rescue Exception => e
 						MU::MommaCat.unlockAll
 						if e.class.name != "MU::AWS::Server::BootstrapTempFail" and !File.exists?(deploy_dir+"/.cleanup."+instance.instance_id) and !File.exists?(deploy_dir+"/.cleanup")
