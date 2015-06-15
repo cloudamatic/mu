@@ -65,17 +65,18 @@ loadbalancers:
   - type: vpc
     name: wordpress-demo-vpc
 databases:
-- name: wordpress-demo-db
-    engine: mysql
+  - 
     creation_style: new
     db_family: mysql5.6
-    vpc:
-      vpc_name: wordpress-demo-vpc
-    size: db.t2.micro
-    version: 5.6.13
-    storage: 5
+    engine: mysql
+    name: wordpress-demo-db
     port: 3306
     publicly_accessible: true
+    size: db.t2.micro
+    storage: 5
+    version: "5.6.13"
+    vpc: 
+      vpc_name: wordpress-demo-vpc
 servers:
 - name: bastion
   ami-id: ami-bc8131d4
