@@ -14,3 +14,6 @@ databases:
 servers:
 <%= include("bastion.yaml") %>
 <%= include("server.yaml") %>
+admins:
+- name: Admin
+  email: admin@example.com
