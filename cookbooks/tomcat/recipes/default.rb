@@ -21,6 +21,20 @@
 ::Chef::Recipe.send(:include, Opscode::OpenSSL::Password)
 
 if node['tomcat']['install_method'] == 'package'
+  def package_installation
+    node['tomcat']['packages'].each do |pkg|
+      package pkg do
+        action :install
+      end
+    end
+    
+    node['tomcat']['deploy_manager_packages'].each do |pkg|
+      package pkg do
+        action :install
+      end
+    end
+  end
+
   case node['platform']
   when 'centos', 'redhat'
     if node['platform_version'].to_i == 6
@@ -44,20 +58,6 @@ if node['tomcat']['install_method'] == 'package'
     Chef::Log.info("Tomcat package installation not supported on #{node['platform']}")
   else
     package_installation
-  end
-
-  def package_installation
-    node['tomcat']['packages'].each do |pkg|
-      package pkg do
-        action :install
-      end
-    end
-    
-    node['tomcat']['deploy_manager_packages'].each do |pkg|
-      package pkg do
-        action :install
-      end
-    end
   end
 
 elsif node['tomcat']['install_method'] == 'archive'
@@ -174,7 +174,7 @@ elsif node['tomcat']['install_method'] == 'archive'
     end
 
     template "/etc/logrotate.d/#{node['tomcat']['base_instance']}" do
-      source "logrotate"
+      source "logrotate.erb"
       mode 0644
     end
 

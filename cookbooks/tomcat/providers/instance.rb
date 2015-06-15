@@ -246,35 +246,35 @@ action :configure do
 
   template "#{new_resource.config_dir}/server.xml" do
     source 'server.xml.erb'
-      variables ({
-        :port => new_resource.port,
-        :proxy_port => new_resource.proxy_port,
-        :ssl_port => new_resource.ssl_port,
-        :app_base => new_resource.app_base,
-        :ssl_proxy_port => new_resource.ssl_proxy_port,
-        :ajp_port => new_resource.ajp_port,
-        :shutdown_port => new_resource.shutdown_port,
-        :max_threads => new_resource.max_threads,
-        :ssl_max_threads => new_resource.ssl_max_threads,
-        :keystore_file => new_resource.keystore_file,
-        :keystore_type => new_resource.keystore_type,
-        :tomcat_auth => new_resource.tomcat_auth,
-        :config_dir => new_resource.config_dir,
-        :app_base => new_resource.app_base,
-		:ldap_enabled => new_resource.ldap_enabled,
-		:ldap_servers => new_resource.ldap_servers,
-		:ldap_port => new_resource.ldap_port,
-		:ldap_bind_user => new_resource.ldap_bind_user,
-		:ldap_bind_pwd => new_resource.ldap_bind_pwd,
-		:ldap_user_base => new_resource.ldap_user_base,
-		:ldap_role_base => new_resource.ldap_role_base,
-		:ldap_domain_name => new_resource.ldap_domain_name,
-		:ldap_group => new_resource.ldap_group,
-		:ldap_user_search => new_resource.ldap_user_search,
-		:ldap_role_search => new_resource.ldap_role_search
-      })
-    owner 'root' if node.platform_family != 'windows'
-    group 'root' if node.platform_family != 'windows'
+    variables ({
+      :port => new_resource.port,
+      :proxy_port => new_resource.proxy_port,
+      :ssl_port => new_resource.ssl_port,
+      :app_base => new_resource.app_base,
+      :ssl_proxy_port => new_resource.ssl_proxy_port,
+      :ajp_port => new_resource.ajp_port,
+      :shutdown_port => new_resource.shutdown_port,
+      :max_threads => new_resource.max_threads,
+      :ssl_max_threads => new_resource.ssl_max_threads,
+      :keystore_file => new_resource.keystore_file,
+      :keystore_type => new_resource.keystore_type,
+      :tomcat_auth => new_resource.tomcat_auth,
+      :config_dir => new_resource.config_dir,
+      :app_base => new_resource.app_base,
+      :ldap_enabled => new_resource.ldap_enabled,
+      :ldap_servers => new_resource.ldap_servers,
+      :ldap_port => new_resource.ldap_port,
+      :ldap_bind_user => new_resource.ldap_bind_user,
+      :ldap_bind_pwd => new_resource.ldap_bind_pwd,
+      :ldap_user_base => new_resource.ldap_user_base,
+      :ldap_role_base => new_resource.ldap_role_base,
+      :ldap_domain_name => new_resource.ldap_domain_name,
+      :ldap_group => new_resource.ldap_group,
+      :ldap_user_search => new_resource.ldap_user_search,
+      :ldap_role_search => new_resource.ldap_role_search
+    })
+    owner new_resource.user if node.platform_family != 'windows'
+    group new_resource.group if node.platform_family != 'windows'
     mode '0644' if node.platform_family != 'windows'
     notifies :restart, "service[#{instance}]"
   end
@@ -302,8 +302,8 @@ action :configure do
 
   template "#{new_resource.config_dir}/web.xml" do
     source 'web.xml.erb'
-    owner 'root' if node.platform_family != 'windows'
-    group 'root' if node.platform_family != 'windows'
+    owner new_resource.user if node.platform_family != 'windows'
+    group new_resource.group if node.platform_family != 'windows'
     mode '0644' if node.platform_family != 'windows'
     notifies :restart, "service[#{instance}]"
     variables ({
@@ -317,16 +317,16 @@ action :configure do
       :jndi => new_resource.jndi,
       :jndi_connections => new_resource.jndi_connections
     })
-    owner 'root' if node.platform_family != 'windows'
-    group 'root' if node.platform_family != 'windows'
+    owner new_resource.user if node.platform_family != 'windows'
+    group new_resource.group if node.platform_family != 'windows'
     mode '0644' if node.platform_family != 'windows'
     notifies :restart, "service[#{instance}]"
   end
 
   template "#{new_resource.config_dir}/logging.properties" do
     source 'logging.properties.erb'
-    owner 'root' if node.platform_family != 'windows'
-    group 'root' if node.platform_family != 'windows'
+    owner new_resource.user if node.platform_family != 'windows'
+    group new_resource.group if node.platform_family != 'windows'
     mode '0644' if node.platform_family != 'windows'
     notifies :restart, "service[#{instance}]"
   end

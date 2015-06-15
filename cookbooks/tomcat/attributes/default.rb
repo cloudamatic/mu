@@ -96,20 +96,29 @@ when 'rhel'
     default['tomcat']['app_base'] = "webapps"
     default['tomcat']['package_url'] = "https://s3.amazonaws.com/cap-public/tomcat7-7.0.57-1.x86_64.rpm" if node['tomcat']['base_version'] == 7
   elsif node.platform_version.to_i == 7
-    default['tomcat']['base_instance'] = "tomcat"
+    if node['tomcat']['install_method'] == "package"
+      default['tomcat']['base_instance'] = "tomcat"
+      default['tomcat']['home'] = "/usr/share/tomcat"
+      default['tomcat']['config_dir'] = "/etc/tomcat"
+      default['tomcat']['log_dir'] = "/var/log/tomcat"
+      default['tomcat']['tmp_dir'] = "/var/cache/tomcat/temp"
+      default['tomcat']['work_dir'] = "/var/cache/tomcat/work"
+      default['tomcat']['webapp_dir'] = "/var/lib/tomcat/webapps"
+    elsif node['tomcat']['install_method'] == "archive"
+      default['tomcat']['base_instance'] = "tomcat#{node['tomcat']['base_version']}"
+      default['tomcat']['home'] = "/usr/share/tomcat#{node['tomcat']['base_version']}"
+      default['tomcat']['config_dir'] = "/etc/tomcat#{node['tomcat']['base_version']}"
+      default['tomcat']['log_dir'] = "/var/log/tomcat#{node['tomcat']['base_version']}"
+      default['tomcat']['tmp_dir'] = "/var/cache/tomcat#{node['tomcat']['base_version']}/temp"
+      default['tomcat']['work_dir'] = "/var/cache/tomcat#{node['tomcat']['base_version']}/work"
+      default['tomcat']['webapp_dir'] = "#{node["tomcat"]["home"]}/webapps"
+    end
+    default['tomcat']['base'] = node['tomcat']['home']
     default['tomcat']['user'] = 'tomcat'
     default['tomcat']['group'] = 'tomcat'
-    default['tomcat']['home'] = "/usr/share/tomcat"
-    default['tomcat']['base'] = node['tomcat']['home']
-    default['tomcat']['config_dir'] = "/etc/tomcat"
-    default['tomcat']['log_dir'] = "/var/log/tomcat"
-    default['tomcat']['tmp_dir'] = "/var/cache/tomcat/temp"
-    default['tomcat']['work_dir'] = "/var/cache/tomcat/work"
-    default['tomcat']['context_dir'] = "#{node["tomcat"]["config_dir"]}/Catalina/localhost"
-    default['tomcat']['webapp_dir'] = "/var/lib/tomcat/webapps" if node['tomcat']['install_method'] == "package"
-    default['tomcat']['webapp_dir'] = "#{node["tomcat"]["home"]}/webapps" if node['tomcat']['install_method'] == "archive"
     default['tomcat']['keytool'] = 'keytool'
     default['tomcat']['lib_dir'] = "#{node["tomcat"]["home"]}/lib"
+    default['tomcat']['context_dir'] = "#{node["tomcat"]["config_dir"]}/Catalina/localhost"
     default['tomcat']['endorsed_dir'] = "#{node["tomcat"]["lib_dir"]}/endorsed"
     default['tomcat']['packages'] = ["tomcat"]
     default['tomcat']['deploy_manager_packages'] = ["tomcat-admin-webapps"]
