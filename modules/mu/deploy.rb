@@ -41,15 +41,6 @@ module MU
 		# The environment into which we're deploying
 		attr_reader :environment
 
-		# The MU root directory
-		attr_reader :myhome
-
-		# The name of the SSH keypair associated with this deployment
-		attr_reader :keypairname
-
-		# The metadata for all resources in this deployment (this is just a shortcut into {MU::MommaCat#deployment})
-		attr_reader :deployment
-
 		# The cloud provider's account identifier
 		attr_reader :account_number
 
@@ -61,35 +52,6 @@ module MU
 		# failure occurs.
 		attr_reader :nocleanup
 		
-		# Log information about a resource to our deployment structure, which nodes
-		# can then access for orchestration purposes.
-		# @param res_type [String]:	The type of cloud resource (server, loadbalancer, etc)
-		# @param key [String]: The resource's MU name
-		# @param data [Hash]:	Metadata about this resource we wish to save
-		# @return [void]
-		def notify(res_type, key, data) 
-			raise MuError, "Called notify without active deployment!" if MU.mommacat.nil?
-			MU.mommacat.notify(res_type, key, data)
-		end
-		# (see #notify)
-		def self.notify(res_type, key, data, mu_id: mu_id)
-			raise MuError, "Called notify without active deployment!" if MU.mommacat.nil?
-			MU.mommacat.notify(res_type, key, data)
-		end
-
-		# The metadata for all resources in this deployment (this is just a shortcut to {MU::MommaCat#deployment})
-		# @!attribute [r]
-		def deployment(mu_id: mu_id = MU.mu_id)
-			return nil if MU.mommacat.nil?
-			MU.mommacat.deployment
-		end
-		# @!attribute [r]
-		# (see #deployment)
-		def self.deployment(mu_id: mu_id = MU.mu_id)
-			return nil if MU.mommacat.nil?
-			MU.mommacat.deployment
-		end
-
 		# @param environment [String]: The environment name for this application stack (e.g. "dev" or "prod")
 		# @param verbosity [Boolean]: Toggles debug-level log verbosity
 		# @param webify_logs [Boolean]: Toggles web-friendly log output
@@ -257,12 +219,13 @@ module MU
 					ssh_key_name: keyname,
 					ssh_private_key: ssh_private_key,
 					ssh_public_key: ssh_public_key,
+					nocleanup: @nocleanup,
 					deployment_data: metadata
 				)
 				MU.setVar("mommacat", mommacat)
 
 				@admins.each { |admin|
-					notify("admins", admin['name'], admin)
+					mommacat.notify("admins", admin['name'], admin)
 				}
 
 				@deploy_semaphore = Mutex.new
@@ -489,7 +452,7 @@ MESSAGE_END
 					MU.log "Launching thread #{threadname}", MU::DEBUG
 					begin
 						if service['#MUOBJECT'].nil?
-							service['#MUOBJECT'] = service["#MU_CLASS"].new(self, myservice)
+							service['#MUOBJECT'] = service["#MU_CLASS"].new(mommacat: MU.mommacat, kitten_cfg: myservice)
 						end
 					rescue Exception => e
 						MU::MommaCat.unlockAll

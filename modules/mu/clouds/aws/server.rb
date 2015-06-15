@@ -98,12 +98,12 @@ module MU
 				@ephemeral_mappings
 			end
 
-			# @param deployer [MU::Deploy]: A {MU::Deploy} object, typically associated with an in-progress deployment.
-			# @param server [Hash]: The full {MU::Config} resource declaration as defined in {MU::Config::BasketofKittens::servers}
-			def initialize(deployer, server)
-				@deploy = deployer
-				@server = server
-			  node = MU::MommaCat.getResourceName(server['name'])
+			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
+			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::servers}
+			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg)
+				@deploy = mommacat
+				@server = kitten_cfg
+			  node = MU::MommaCat.getResourceName(@server['name'])
 				@server['mu_name'] = node
 				MU.setVar("curRegion", @server['region']) if !@server['region'].nil?
 
@@ -113,20 +113,19 @@ module MU
 				Chef::Config[:environment] = @deploy.environment
 
 				if %w{win2k12r2 win2k12 windows}.include?(@server['platform']) or !@server['active_directory'].nil?
-					@server['mu_windows_name'] = MU::MommaCat.getResourceName(server['name'], max_length: 15, need_unique_string: true)
+					@server['mu_windows_name'] = MU::MommaCat.getResourceName(@server['name'], max_length: 15, need_unique_string: true)
 					if !@server['never_generate_admin_password'] and !@server['windows_admin_password']
 						@server['winpass'] = MU::AWS::Server.generateWindowsAdminPassword
 						MU.log "I generated a Windows admin password for #{node}. It is: #{@server['winpass']}"
 					end
 				end
-				keypairname, ssh_private_key, ssh_public_key = @deploy.SSHKey
 
 				@server['instance_secret'] = Password.random(50)
 				@userdata = MU::AWS::Server.fetchUserdata(
 					platform: @server["platform"],
 					template_variables: {
-						"deployKey" => Base64.urlsafe_encode64(MU.mommacat.public_key),
-						"deploySSHKey" => ssh_public_key,
+						"deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
+						"deploySSHKey" => @deploy.ssh_public_key,
 						"muID" => MU.mu_id,
 						"muUser" => MU.chef_user,
 						"publicIP" => MU.mu_public_ip,
@@ -239,7 +238,7 @@ module MU
 						MU.mommacat.saveSecret(@server["instance_id"], @server['winpass'], "windows_password")
 						@server.delete("winpass")
 					end
-					if !@deploy.mommacat_boot
+					if !@server['async_groom']
 						sleep 5
 						MU::MommaCat.lock(instance.instance_id+"-create")
 						if !postBoot(instance)
@@ -381,11 +380,9 @@ module MU
 				@server['iam_role'] = MU::AWS::Server.createIAMProfile("Server-"+name, base_profile: @server['iam_role'], extra_policies: @server['iam_policies'])
 				@server['iam_role'] = @server['iam_role']
 
-				keypairname, ssh_private_key, ssh_public_key = @deploy.SSHKey
-
 			  instance_descriptor = {
 			    :image_id => @server["ami_id"],
-			    :key_name => @deploy.keypairname,
+			    :key_name => @deploy.ssh_key_name,
 			    :instance_type => @server["size"],
 			    :disable_api_termination => true,
 			    :min_count => 1,
@@ -626,7 +623,7 @@ MU.log win_set_pw, MU::ERR
 			# Return SSH configuration information for getting into said instance.
 			# @param instance [OpenStruct]: The cloud provider's full descriptor for this instance.
 			def postBoot(instance)
-				return MU::AWS::Server.postBoot(@server, instance, @deploy.keypairname, environment: @deploy.environment, sync_wait: @server['dns_sync_wait'])
+				return MU::AWS::Server.postBoot(@server, instance, @deploy.ssh_key_name, environment: @deploy.environment, sync_wait: @server['dns_sync_wait'])
 			end
 			# Apply tags, bootstrap Chef, and other administravia for a new instance.
 			# Return SSH configuration information for getting into said instance.
@@ -1499,7 +1496,7 @@ MU.log win_set_pw, MU::ERR
 				end
 				deploydata[node]["region"] = region if !region.nil?
 
-				MU::Deploy.notify("servers", name, deploydata)
+				MU.mommacat.notify("servers", name, deploydata)
 
 				return deploydata
 			end
@@ -1510,6 +1507,7 @@ MU.log win_set_pw, MU::ERR
 			# @param node [String]: The full Mu name for this instance.
 			def self.punchAdminNAT(server, node)
 				if !server["vpc"].nil?
+					MU.resourceClass("AWS", :VPC)
 					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::AWS::VPC.parseVPC(server['vpc'])
 					if !nat_host_name.nil?
 						nat_instance, mu_name = MU::AWS::Server.find(
@@ -1522,6 +1520,7 @@ MU.log win_set_pw, MU::ERR
 							raise MuError, "deploy failure"
 						end
 						MU.log "Adding administrative holes for NAT host #{nat_instance["private_ip_address"]} to #{node}", MU::DEBUG
+						MU.resourceClass("AWS", :FirewallRule)
 						return MU::AWS::FirewallRule.setAdminSG(
 							vpc_id: vpc_id,
 							add_admin_ip: nat_instance["private_ip_address"],
@@ -1533,9 +1532,8 @@ MU.log win_set_pw, MU::ERR
 
 			# Called automatically by {MU::Deploy#createResources}
 			def groom
-				if !@deploy.mommacat_boot
-					keypairname, ssh_private_key, ssh_public_key = @deploy.SSHKey
-					return MU::AWS::Server.groom(@server, @deploy.deployment, environment: @deploy.environment, keypairname: keypairname)
+				if !@server['async_groom']
+					return MU::AWS::Server.groom(@server, @deploy.deployment, environment: @deploy.environment, keypairname: @deploy.ssh_key_name)
 				end
 			end
 			# (see #groom)
@@ -1751,7 +1749,7 @@ MU.log win_set_pw, MU::ERR
 #								MU::MommaCat.createTag(iface.network_interface_id,tag['key'],tag['value'])
 #							}
 #						end
-				MU::Deploy.notify("images", name, { "image_id" => resp.data.image_id })
+				MU.mommacat.notify("images", name, { "image_id" => resp.data.image_id })
 				return resp.data.image_id
 			end
 

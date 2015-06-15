@@ -32,11 +32,11 @@ module MU
 			@deploy = nil
 			@db = nil
 
-			# @param deployer [MU::Deploy]: A {MU::Deploy} object, typically associated with an in-progress deployment.
-			# @param db [Hash]: The full {MU::Config} resource declaration as defined in {MU::Config::BasketofKittens::databases}
-			def initialize(deployer, db)
-				@deploy = deployer
-				@db = db
+			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
+			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::databases}
+			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg)
+				@deploy = kitten_cfg
+				@db = kitten_cfg
 				MU.setVar("curRegion", @db['region']) if !@db['region'].nil?
 			end
 
@@ -688,7 +688,7 @@ module MU
 					db_deploy_struct["subnets"] = subnet_ids
 				end
 
-				MU::Deploy.notify("databases", name, db_deploy_struct)
+				MU.mommacat.notify("databases", name, db_deploy_struct)
 			end
 
 			# Generate a snapshot from the database described in this instance.

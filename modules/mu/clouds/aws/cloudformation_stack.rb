@@ -31,11 +31,11 @@ module MU
 			@deploy = nil
 			@stack = nil
 
-			# @param deployer [MU::Deploy]: A {MU::Deploy} object, typically associated with an in-progress deployment.
-			# @param cloudformation_stack [Hash]: The full {MU::Config} resource declaration as defined in {MU::Config::BasketofKittens::cloudformation_stacks}
-			def initialize(deployer, cloudformation_stack)
-				@deploy = deployer
-				@stack = cloudformation_stack
+			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
+			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::vpcs}
+			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg)
+				@deploy = mommacat
+				@stack = kitten_cfg
 				MU.setVar("curRegion", @stack['region']) if !@stack['region'].nil?
 			end
 
@@ -292,6 +292,10 @@ module MU
 					end
 				}
 				return nil
+			end
+
+			# placeholder
+			def self.find
 			end
 
 			private

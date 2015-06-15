@@ -30,11 +30,11 @@ module MU
 			@deploy = nil
 			@vpc = nil
 
-			# @param deployer [MU::Deploy]: A {MU::Deploy} object, typically associated with an in-progress deployment.
-			# @param vpc [Hash]: The full {MU::Config} resource declaration as defined in {MU::Config::BasketofKittens::vpcs}
-			def initialize(deployer, vpc)
-				@deploy = deployer
-				@vpc = vpc
+			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
+			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::vpcs}
+			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg)
+				@deploy = mommacat
+				@vpc = kitten_cfg
 				MU.setVar("curRegion", @vpc['region']) if !@vpc['region'].nil?
 			end
 

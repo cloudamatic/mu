@@ -51,10 +51,12 @@ module MU
 		attr_reader :environment
 		attr_reader :ssh_key_name
 		attr_reader :ssh_public_key
+		attr_reader :nocleanup
 		@myhome = Etc.getpwuid(Process.uid).dir
 		@nagios_home = "/home/nagios"
 		@locks = Hash.new
 		@deploy_cache = Hash.new
+		@nocleanup = false
 		# List the currently held flock() locks.
 		def self.locks; @locks end
 
@@ -67,6 +69,7 @@ module MU
 		# @param ssh_private_key [String]: Required when creating a new deployment.
 		# @param ssh_public_key [String]: SSH public key for authorized_hosts on clients.
 		# @param verbose [Boolean]: Enable verbose log output.
+		# @param nocleanup [Boolean]: Skip automatic cleanup of failed resources
 		# @param deployment_data [Hash]: Known deployment data.
 		# @return [void]
 		def initialize(mu_id,
@@ -78,6 +81,7 @@ module MU
 				ssh_private_key: ssh_private_key = nil,
 				ssh_public_key: ssh_public_key = nil,
 				verbose: false,
+				nocleanup: false,
 				deployment_data: deployment_data = Hash.new,
 				mu_user: nil
 			)
@@ -96,6 +100,7 @@ module MU
 			MU.setVar("environment", environment)
 
 			@original_config = config
+			@nocleanup = nocleanup
 			@deploy_struct_semaphore = Mutex.new
 			@secret_semaphore = Mutex.new
 			@notify_semaphore = Mutex.new

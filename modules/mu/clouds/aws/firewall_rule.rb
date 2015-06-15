@@ -32,11 +32,11 @@ module MU
 			@admin_sgs = Hash.new
 			@admin_sg_semaphore = Mutex.new
 
-			# @param deployer [MU::Deploy]: A {MU::Deploy} object, typically associated with an in-progress deployment.
-			# @param ruleset [Hash]: The full {MU::Config} resource declaration as defined in {MU::Config::BasketofKittens::firewall_rules}
-			def initialize(deployer, ruleset)
-				@deploy = deployer
-				@ruleset = ruleset
+			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
+			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::firewall_rules}
+			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg)
+				@deploy = mommacat
+				@ruleset = kitten_cfg
 				MU.setVar("curRegion", @ruleset['region']) if !@ruleset['region'].nil?
 			end
 
@@ -87,7 +87,7 @@ module MU
 						MU::AWS::FirewallRule.find(sg_id: sg_id, region: region)
 					)
 				sg_data["group_id"] = sg_id
-				MU::Deploy.notify("firewall_rules", name, sg_data)
+				MU.mommacat.notify("firewall_rules", name, sg_data)
 			end
 
 			# Insert a rule into an existing security group.

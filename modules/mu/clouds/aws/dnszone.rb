@@ -29,11 +29,11 @@ module MU
 			# Whether {MU::Deploy} should hold creation of this resource until resources on which it depends have been fully created and deployed.
 			def self.waits_on_parent_completion; false.freeze end
 
-			# @param deployer [MU::Deploy]: A {MU::Deploy} object, typically associated with an in-progress deployment.
-			# @param zone [Hash]: The full {MU::Config} resource declaration as defined in {MU::Config::BasketofKittens::dnszones}
-			def initialize(deployer, zone)
-				@deploy = deployer
-				@zone = zone
+			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
+			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::dnszones}
+			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg)
+				@deploy = mommacat
+				@zone = kitten_cfg
 				MU.setVar("curRegion", @zone['region']) if !@zone['region'].nil?
 			end
 
@@ -516,14 +516,14 @@ module MU
 
 				deploydata["region"] = region if !region.nil?
 
-				MU::Deploy.notify(cfg_plural, name, deploydata)
+				MU.mommacat.notify(cfg_plural, name, deploydata)
 
 				return deploydata
 			end
 
 			# Called by {MU::Cleanup}. Locates resources that were created by the
 			# currently-loaded deployment, and purges them.
-			def self.cleanup(noop = false, region: MU.curRegion)
+			def self.cleanup(noop = false, ignoremaster = false, region: MU.curRegion)
 				checks_to_clean = []
 				MU::AWS.route53(region).list_health_checks().health_checks.each { |check|
 					tags = MU::AWS.route53(region).list_tags_for_resource(

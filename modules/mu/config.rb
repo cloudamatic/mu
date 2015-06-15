@@ -1032,40 +1032,40 @@ module MU
 				stack["#MU_CLASS"] = MU.resourceClass(server['cloud'], "CloudFormation")
 			}
 
-			server_pools.each { |asg|
-				if server_names.include?(asg['name'])
-					MU.log "Can't use name #{asg['name']} more than once in servers/server_pools"
+			server_pools.each { |pool|
+				if server_names.include?(pool['name'])
+					MU.log "Can't use name #{pool['name']} more than once in servers/server_pools"
 					ok = false
 				end
-				server_names << asg['name']
-				asg['region'] = config['region'] if asg['region'].nil?
-				asg["dependencies"] = Array.new if asg["dependencies"].nil?
-				asg["#MU_CLASS"] = MU.resourceClass(server['cloud'], "ServerPool")
-				asg["#MU_GROOMER"] = MU.loadGroomer(asg['groomer'])
-				asg['skipinitialupdates'] = true if @skipinitialupdates
-				if asg["basis"]["server"] != nil
-					asg["dependencies"] << { "type" => "server", "name" => asg["basis"]["server"] }
+				server_names << pool['name']
+				pool['region'] = config['region'] if pool['region'].nil?
+				pool["dependencies"] = Array.new if pool["dependencies"].nil?
+				pool["#MU_CLASS"] = MU.resourceClass(server['cloud'], "ServerPool")
+				pool["#MU_GROOMER"] = MU.loadGroomer(pool['groomer'])
+				pool['skipinitialupdates'] = true if @skipinitialupdates
+				if pool["basis"]["server"] != nil
+					pool["dependencies"] << { "type" => "server", "name" => pool["basis"]["server"] }
 				end
-				if !asg['static_ip'].nil? and !asg['ip'].nil?
+				if !pool['static_ip'].nil? and !pool['ip'].nil?
 					ok = false
 					MU.log "Server Pools cannot assign specific static IPs.", MU::ERR
 				end
-				asg['vault_access'] = [] if asg['vault_access'].nil?
-				asg['vault_access'] << { "vault" => "splunk", "item" => "admin_user" }
-				ok = false if !check_vault_refs(asg)
-				if asg["basis"]["launch_config"] != nil
-					launch = asg["basis"]["launch_config"]
+				pool['vault_access'] = [] if pool['vault_access'].nil?
+				pool['vault_access'] << { "vault" => "splunk", "item" => "admin_user" }
+				ok = false if !check_vault_refs(pool)
+				if pool["basis"]["launch_config"] != nil
+					launch = pool["basis"]["launch_config"]
 					if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?
-						if MU::Config.amazon_images.has_key?(asg['platform']) and
-							 MU::Config.amazon_images[asg['platform']].has_key?(asg['region'])
-							launch['ami_id'] = MU::Config.amazon_images[asg['platform']][asg['region']]
+						if MU::Config.amazon_images.has_key?(pool['platform']) and
+							 MU::Config.amazon_images[pool['platform']].has_key?(pool['region'])
+							launch['ami_id'] = MU::Config.amazon_images[pool['platform']][pool['region']]
 						else
 							ok = false
 							MU.log "One of the following MUST be specified for launch_config: server, ami_id, instance_id.", MU::ERR
 						end
 					end
 					if launch["server"] != nil
-						asg["dependencies"] << { "type" => "server", "name" => launch["server"] }
+						pool["dependencies"] << { "type" => "server", "name" => launch["server"] }
 						servers.each { |server|
 							if server["name"] == launch["server"]
 								server["create_ami"] = true
@@ -1073,12 +1073,12 @@ module MU
 						}
 					end
 				end
-				if asg["region"].nil? and asg["zones"].nil? and asg["vpc_zone_identifier"].nil? and asg["vpc"].nil?
+				if pool["region"].nil? and pool["zones"].nil? and pool["vpc_zone_identifier"].nil? and pool["vpc"].nil?
 					ok = false
 					MU.log "One of the following MUST be specified for Server Pools: region, zones, vpc_zone_identifier, vpc.", MU::ERR
 				end
-				if !asg["scaling_policies"].nil?
-					asg["scaling_policies"].each { |policy|
+				if !pool["scaling_policies"].nil?
+					pool["scaling_policies"].each { |policy|
 						if policy['type'] != "PercentChangeInCapacity" and !policy['min_adjustment_step'].nil?
 							MU.log "Cannot specify scaling policy min_adjustment_step if type is not PercentChangeInCapacity", MU::ERR
 							ok = false
@@ -1086,34 +1086,34 @@ module MU
 					}
 				end
 # TODO make sure any load balancer we ask for has the same VPC configured
-				if !asg["loadbalancers"].nil?
-					asg["loadbalancers"].each { |lb|
+				if !pool["loadbalancers"].nil?
+					pool["loadbalancers"].each { |lb|
 						if lb["concurrent_load_balancer"] != nil
-							asg["dependencies"] << {
+							pool["dependencies"] << {
 								"type" => "loadbalancer",
 								"name" => lb["concurrent_load_balancer"]
 							}
 						end
 					}
 				end
-				if !asg["vpc"].nil?
-					asg['vpc']['region'] = asg['region'] if asg['vpc']['region'].nil?
-					asg["vpc"]['cloud'] = asg['cloud']
+				if !pool["vpc"].nil?
+					pool['vpc']['region'] = pool['region'] if pool['vpc']['region'].nil?
+					pool["vpc"]['cloud'] = pool['cloud']
 					# If we're using a VPC in this deploy, set it as a dependency
-					if !asg["vpc"]["vpc_name"].nil? and vpc_names.include?(asg["vpc"]["vpc_name"]) and asg["vpc"]["deploy_id"].nil?
-						asg["dependencies"] << {
+					if !pool["vpc"]["vpc_name"].nil? and vpc_names.include?(pool["vpc"]["vpc_name"]) and pool["vpc"]["deploy_id"].nil?
+						pool["dependencies"] << {
 							"type" => "vpc",
-							"name" => asg["vpc"]["vpc_name"]
+							"name" => pool["vpc"]["vpc_name"]
 						}
-						if !asg["vpc"]["subnet_name"].nil? and nat_routes.has_key?(asg["vpc"]["subnet_name"])
-							asg["dependencies"] << {
-								"type" => "asg",
+						if !pool["vpc"]["subnet_name"].nil? and nat_routes.has_key?(pool["vpc"]["subnet_name"])
+							pool["dependencies"] << {
+								"type" => "pool",
 								"name" => nat_routes[subnet["subnet_name"]],
 								"phase" => "groom"
 							}
 						end
-						if !processVPCReference(asg["vpc"],
-																		"server_pool #{asg['name']}",
+						if !processVPCReference(pool["vpc"],
+																		"server_pool #{pool['name']}",
 																		dflt_region: config['region'],
 																		is_sibling: true,
 																		sibling_vpcs: vpcs)
@@ -1123,16 +1123,29 @@ module MU
 						# If we're using a VPC from somewhere else, make sure the flippin'
 						# thing exists, and also fetch its id now so later search routines
 						# don't have to work so hard.
-						if !processVPCReference(asg["vpc"], "server_pool #{asg['name']}", dflt_region: config['region'])
+						if !processVPCReference(pool["vpc"], "server_pool #{pool['name']}", dflt_region: config['region'])
 							ok = false
 						end
 					end
 				end
-				asg["dependencies"].uniq!
-				if !asg["add_firewall_rules"].nil?
-					asg["add_firewall_rules"].each { |acl_include|
+				if pool['ingress_rules'] != nil
+					pool['ingress_rules'].each {|rule|
+						rule["#MU_CLASS"] = MU.resourceClass(pool['cloud'], "FirewallRule")
+						if rule['port'].nil? and rule['port_range'].nil? and rule['proto'] != "icmp"
+							MU.log "Non-ICMP ingress rules must specify a port or port range", MU::ERR
+							ok = false
+						end
+						if (rule['hosts'].nil? or rule['hosts'].size == 0) and (rule['sgs'].nil? or rule['sgs'].size == 0) and (rule['lbs'].nil? or rule['lbs'].size == 0)
+							MU.log "Ingress/egress rules must specify hosts, security groups, or load balancers to which to grant access", MU::ERR
+							ok = false
+						end
+					}
+				end
+				pool["dependencies"].uniq!
+				if !pool["add_firewall_rules"].nil?
+					pool["add_firewall_rules"].each { |acl_include|
 						if firewall_rule_names.include?(acl_include["rule_name"])
-							asg["dependencies"] << {
+							pool["dependencies"] << {
 								"type" => "firewall_rule",
 								"name" => acl_include["rule_name"]
 							}
@@ -1332,6 +1345,7 @@ module MU
 
 				if server['ingress_rules'] != nil
 					server['ingress_rules'].each {|rule|
+						rule["#MU_CLASS"] = MU.resourceClass(server['cloud'], "FirewallRule")
 						if rule['port'].nil? and rule['port_range'].nil? and rule['proto'] != "icmp"
 							MU.log "Non-ICMP ingress rules must specify a port or port range", MU::ERR
 							ok = false
@@ -1342,7 +1356,6 @@ module MU
 						end
 					}
 				end
-
 
 				if server["cloudformation_stack"] != nil
 					server["dependencies"] << {
@@ -2277,6 +2290,11 @@ module MU
 			"name" => { "type" => "string" },
 			"region" => @region_primitive,
 			"cloud" => @cloud_primitive,
+			"aync_groom" => {
+				"type" => "boolean",
+				"default" => false,
+				"description" => "Bootstrap asynchronously via the Momma Cat daemon instead of during the main deployment process"
+			},
 			"groomer" => {
 				"type" => "string",
 				"default" => MU::Config.defaultGroomer,

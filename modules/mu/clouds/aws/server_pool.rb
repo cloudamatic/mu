@@ -28,11 +28,11 @@ module MU
 			@deploy = nil
 			@pool = nil
 
-			# @param deployer [MU::Deploy]: A {MU::Deploy} object, typically associated with an in-progress deployment.
-			# @param asg [Hash]: The full {MU::Config} resource declaration as defined in {MU::Config::BasketofKittens::server_pools}
-			def initialize(deployer, asg)
-				@deploy = deployer
-				@pool = asg
+			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
+			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::server_pools}
+			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg)
+				@deploy = mommacat
+				@pool = kitten_cfg
 				MU.setVar("curRegion", @pool['region']) if !@pool['region'].nil?
 			end
 
@@ -350,6 +350,10 @@ module MU
 				MU.log "See /var/log/mu-momma-cat.log for asynchronous bootstrap progress.", MU::NOTICE
 
 				return asg
+			end
+
+			# placeholder
+			def self.find
 			end
 
 			# Remove all autoscale groups associated with the currently loaded deployment.
