@@ -974,8 +974,8 @@ MU.log win_set_pw, MU::ERR
 
 			# Make an initial connection with SSH to see if this host is ready to
 			# have Chef inflicted on it. Also run some prep.
-			ssh_wait = 15 
-			max_retries = 25
+			ssh_wait = 25 
+			max_retries = 15
 			if %w{win2k12r2 win2k12 windows}.include? server['platform']
 				ssh_wait = 60
 				max_retries = 25
