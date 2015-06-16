@@ -9,7 +9,7 @@ vpcs:
   - name: internet
     routes:
     - destination_network: 0.0.0.0/0
-      gateway: "#INTERNET"
+      gateway: #INTERNET
   - name: private
     routes:
     - destination_network: 0.0.0.0/0
@@ -19,26 +19,24 @@ vpcs:
     name: bastion
   subnets:
 <%
-counter=0
-(1..$azs.size).each do |i|
+$azs.each.with_index { |az, i|
 %>
-  - name: Public<%= counter %>
-    ip_block: 10.0.<%= counter %>.0/24
-    availability-zone: "<%= $azs[i-1] %>"
+  - name: Public<%= i %>
+    ip_block: 10.0.<%= i %>.0/24
+    availability-zone: <%= az %>
     route-table: internet
 <%
-  counter = counter + 1
-end
-num_used = counter
-(1..$azs.size).each do |i|
+}
+offset = $azs.size
+$azs.each.with_index { |az, i|
 %>
-  - name: Private<%= counter-num_used %>
-    ip_block: 10.0.<%= counter %>.0/24
-    availability-zone: "<%= $azs[i-1] %>"
+  - name: Private<%= i %>
+    ip_block: 10.0.<%= i + offset %>.0/24
+    availability-zone: <%= az %>
     route-table: private
 <%
-  counter = counter + 1
-end %>
+}
+%>
 loadbalancers:
 - name: wordpress-demo-lb
   vpc:
@@ -79,7 +77,6 @@ databases:
       vpc_name: wordpress-demo-vpc
 servers:
 - name: bastion
-  ami-id: ami-bc8131d4
   ssh_user: root
   size: m3.medium
   src-dst-check: false
@@ -91,31 +88,27 @@ servers:
   application_attributes: 
     nat: 
       private_net: 10.1.0.0/16
-  ingress_rules: 
-    - 
-      proto: icmp
-      hosts: 
-        - 10.0.0.0/16
-    - 
-      proto: tcp
-      port-range: 1-65535
-      hosts: 
-        - 10.0.0.0/16
-    - 
-      proto: udp
-      port-range: 1-65535
-      hosts: 
-        - 10.0.0.0/16
+  ingress_rules:
+  - proto: icmp
+    hosts:
+    - 10.0.0.0/16
+  - proto: tcp
+    port-range: 0-65535
+    hosts:
+    - 10.0.0.0/16
+  - proto: udp
+    port-range: 0-65535
+    hosts:
+    - 10.0.0.0/16
 - name: wordpress-demo-app
-  ami_id: ami-bc8131d4
-  ssh_user: root
   loadbalancers:
   - concurrent-load-balancer: wordpress-demo-lb
-  size: m3.medium
+  size: t2.medium
   static_ip:
    assign_ip: true
   storage:
-  - size: 70
+  - device: /dev/sda1
+    size: 70
   vpc: 
    vpc_name: wordpress-demo-vpc
    subnet_name: Public3
@@ -133,6 +126,3 @@ servers:
     - 0.0.0.0/0  
   run_list:
   - recipe[demo::wordpress]
-admins:
-- name: Admin
-  email: admin@example.com

@@ -1,29 +1,24 @@
-- 
-  name: wordpress-demo-lb
-  dependencies: 
-    - 
+  - name: wordpress-demo-lb
+    dependencies:
+    - type: vpc
       name: wordpress-demo-vpc
-      type: vpc
-  healthcheck: 
-    healthy-threshold: 2
-    interval: 30
-    target: "HTTP:80/heartbeat.php"
-    timeout: 5
-    unhealthy-threshold: 2
-  ingress_rules: 
-    - 
-      hosts: 
-        - 0.0.0.0/0
-      port: 80
-  listeners: 
-    - 
+    healthcheck: 
+      healthy-threshold: 2
+      interval: 30
+      target: "HTTP:80/heartbeat.php"
+      timeout: 5
+      unhealthy-threshold: 2
+    ingress_rules:
+    - port: 80
+      hosts:
+      - 0.0.0.0/0
+    listeners:
+    - lb-port: 80
+      lb-protocol: HTTP
       instance-port: 80
       instance-protocol: HTTP
-      lb-port: 80
-      lb-protocol: HTTP
-  vpc: 
-    subnet_pref: all_public
-    subnets: 
-      - 
-        subnet_name: Public3
-    vpc_name: wordpress-demo-vpc
+    vpc: 
+      subnet_pref: all_public
+      vpc_name: wordpress-demo-vpc
+
+
