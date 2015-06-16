@@ -472,8 +472,8 @@ module MU
 		def self.processVPCReference(vpc_block, parent_name, is_sibling: false, sibling_vpcs: [], dflt_region: MU.curRegion)
 			ok = true
 
-			muVPC = MU.resourceClass(vpc_block['cloud'], "VPC")
-			muServer = MU.resourceClass(vpc_block['cloud'], "Server")
+			muVPC = MU::Cloud.artifact(vpc_block['cloud'], "VPC")
+			muServer = MU::Cloud.artifact(vpc_block['cloud'], "Server")
 
 			if vpc_block['region'].nil? or 
 				vpc_block['region'] = dflt_region
@@ -772,7 +772,8 @@ module MU
 			vpc_names = Array.new
 			nat_routes = Hash.new
 			vpcs.each { |vpc|
-				vpc["#MU_CLASS"] = MU.resourceClass(vpc['cloud'], "VPC")
+				vpc["#MU_CLASS"] = MU::Cloud.artifact(vpc['cloud'], "VPC")
+				vpc["#MU_CONTAINER"] = Object.const_get("MU").const_get("Cloud").const_get("VPC")
 				vpc['region'] = config['region'] if vpc['region'].nil?
 				vpc["dependencies"] = Array.new if vpc["dependencies"].nil?
 				subnet_routes = Hash.new
@@ -842,9 +843,10 @@ module MU
 			}
 
 			dnszones.each { |zone|
-				zone["#MU_CLASS"] = MU.resourceClass(server['cloud'], "DNSZone")
+				zone["#MU_CLASS"] = MU::Cloud.artifact(server['cloud'], "DNSZone")
+				zone["#MU_CONTAINER"] = Object.const_get("MU").const_get("Cloud").const_get("DNSZone")
 				zone['region'] = config['region'] if zone['region'].nil?
-				ext_zone, ext_name = MU::AWS::DNSZone.find(name: zone['name'])
+				ext_zone, ext_name = MU::Cloud::AWS::DNSZone.find(name: zone['name'])
 
 				if !ext_zone.nil?
 					MU.log "DNS zone #{zone['name']} already exists", MU::ERR
@@ -914,7 +916,8 @@ module MU
 				firewall_rule_names << acl['name']
 				acl['region'] = config['region'] if acl['region'].nil?
 				acl["dependencies"] = Array.new if acl["dependencies"].nil?
-				acl['#MU_CLASS'] = MU.resourceClass(server['cloud'], "FirewallRule")
+				acl['#MU_CLASS'] = MU::Cloud.artifact(server['cloud'], "FirewallRule")
+				acl["#MU_CONTAINER"] = Object.const_get("MU").const_get("Cloud").const_get("FirewallRule")
 
 				if !acl["vpc_name"].nil? or !acl["vpc_id"].nil?
 					acl['vpc'] = Hash.new
@@ -924,7 +927,7 @@ module MU
 				if !acl["vpc"].nil?
 					acl['vpc']['region'] = config['region'] if acl['vpc']['region'].nil?
 					acl["vpc"]['cloud'] = acl['cloud']
-					acl['vpc']['#MU_CLASS'] = MU.resourceClass(server['cloud'], "VPC")
+					acl['vpc']['#MU_CLASS'] = MU::Cloud.artifact(server['cloud'], "VPC")
 					# If we're using a VPC in this deploy, set it as a dependency
 					if !acl["vpc"]["vpc_name"].nil? and vpc_names.include?(acl["vpc"]["vpc_name"]) and acl["vpc"]['deploy_id'].nil?
 						acl["dependencies"] << {
@@ -955,7 +958,7 @@ module MU
 					if !rule['lbs'].nil?
 						rule['lbs'].each { |lb_name|
 							loadbalancers.each { |lb|
-								lb['#MU_CLASS'] = MU.resourceClass(rule['cloud'], "FirewallRule")
+								lb['#MU_CLASS'] = MU::Cloud.artifact(rule['cloud'], "FirewallRule")
 								if lb['name'] == lb_name
 									acl["dependencies"] << {
 										"type" => "loadbalancer",
@@ -973,10 +976,11 @@ module MU
 			loadbalancers.each { |lb|
 				lb['region'] = config['region'] if lb['region'].nil?
 				lb["dependencies"] = Array.new if lb["dependencies"].nil?
-				lb["#MU_CLASS"] = MU.resourceClass(server['cloud'], "LoadBalancer")
+				lb["#MU_CLASS"] = MU::Cloud.artifact(server['cloud'], "LoadBalancer")
+				lb["#MU_CONTAINER"] = Object.const_get("MU").const_get("Cloud").const_get("LoadBalancer")
 				if !lb["vpc"].nil?
 					lb['vpc']['region'] = lb['region'] if lb['vpc']['region'].nil?
-					lb['vpc']['#MU_CLASS'] = MU.resourceClass(server['cloud'], "VPC")
+					lb['vpc']['#MU_CLASS'] = MU::Cloud.artifact(server['cloud'], "VPC")
 					# If we're using a VPC in this deploy, set it as a dependency
 					if !lb["vpc"]["vpc_name"].nil? and vpc_names.include?(lb["vpc"]["vpc_name"]) and lb["vpc"]['deploy_id'].nil?
 						lb["dependencies"] << {
@@ -1016,7 +1020,7 @@ module MU
 				lb['listeners'].each { |listener|
 					if !listener["ssl_certificate_name"].nil?
 						if lb['cloud'] == "AWS"
-							resp = MU::AWS.iam.get_server_certificate(server_certificate_name: listener["ssl_certificate_name"])
+							resp = MU::Cloud::AWS.iam.get_server_certificate(server_certificate_name: listener["ssl_certificate_name"])
 							if resp.nil?
 								MU.log "Requested SSL certificate #{listener["ssl_certificate_name"]}, but no such cert exists", MU::ERR
 								ok = false
@@ -1031,7 +1035,8 @@ module MU
 
 			cloudformation_stacks.each { |stack|
 				stack['region'] = config['region'] if stack['region'].nil?
-				stack["#MU_CLASS"] = MU.resourceClass(server['cloud'], "CloudFormation")
+				stack["#MU_CLASS"] = MU::Cloud.artifact(server['cloud'], "CloudFormation")
+				stack["#MU_CONTAINER"] = Object.const_get("MU").const_get("Cloud").const_get("CloudFormation")
 			}
 
 			server_pools.each { |pool|
@@ -1042,7 +1047,8 @@ module MU
 				server_names << pool['name']
 				pool['region'] = config['region'] if pool['region'].nil?
 				pool["dependencies"] = Array.new if pool["dependencies"].nil?
-				pool["#MU_CLASS"] = MU.resourceClass(server['cloud'], "ServerPool")
+				pool["#MU_CLASS"] = MU::Cloud.artifact(server['cloud'], "ServerPool")
+				pool["#MU_CONTAINER"] = Object.const_get("MU").const_get("Cloud").const_get("ServerPool")
 				pool["#MU_GROOMER"] = MU.loadGroomer(pool['groomer'])
 				pool['skipinitialupdates'] = true if @skipinitialupdates
 				if pool["basis"]["server"] != nil
@@ -1090,7 +1096,7 @@ module MU
 # TODO make sure any load balancer we ask for has the same VPC configured
 				if !pool["loadbalancers"].nil?
 					pool["loadbalancers"].each { |lb|
-						lb['#MU_CLASS'] = MU.resourceClass(pool['cloud'], "LoadBalancer")
+						lb['#MU_CLASS'] = MU::Cloud.artifact(pool['cloud'], "LoadBalancer")
 						if lb["concurrent_load_balancer"] != nil
 							pool["dependencies"] << {
 								"type" => "loadbalancer",
@@ -1133,7 +1139,7 @@ module MU
 				end
 				if pool['ingress_rules'] != nil
 					pool['ingress_rules'].each {|rule|
-						rule["#MU_CLASS"] = MU.resourceClass(pool['cloud'], "FirewallRule")
+						rule["#MU_CLASS"] = MU::Cloud.artifact(pool['cloud'], "FirewallRule")
 						if rule['port'].nil? and rule['port_range'].nil? and rule['proto'] != "icmp"
 							MU.log "Non-ICMP ingress rules must specify a port or port range", MU::ERR
 							ok = false
@@ -1160,7 +1166,8 @@ module MU
 			databases.each { |db|
 				db['region'] = config['region'] if db['region'].nil?
 				db["dependencies"] = Array.new if db["dependencies"].nil?
-				db["#MU_CLASS"] = MU.resourceClass(server['cloud'], "Database")
+				db["#MU_CLASS"] = MU::Cloud.artifact(server['cloud'], "Database")
+				db["#MU_CONTAINER"] = Object.const_get("MU").const_get("Cloud").const_get("Database")
 				if db['cloudformation_stack'] != nil
 					# XXX don't do this if 'true' was explicitly asked for (as distinct
 					# from default)
@@ -1249,7 +1256,7 @@ module MU
 					end
 					# XXX be nice to tell users that these parameters are invalid here,
 					# but only if they specified them.
-					### Moving this back to MU::AWS::Database 
+					### Moving this back to MU::Cloud::AWS::Database 
 					# db.delete("storage_encrypted")
 					# db.delete("preferred_backup_window")
 					# db.delete("backup_retention_period")
@@ -1326,7 +1333,8 @@ module MU
 					ok = false
 				end
 				server_names << server['name']
-				server["#MU_CLASS"] = MU.resourceClass(server['cloud'], "Server")
+				server["#MU_CLASS"] = MU::Cloud.artifact(server['cloud'], "Server")
+				server["#MU_CONTAINER"] = Object.const_get("MU").const_get("Cloud").const_get("Server")
 				server["#MU_GROOMER"] = MU.loadGroomer(server['groomer'])
 				server['region'] = config['region'] if server['region'].nil?
 				server["dependencies"] = Array.new if server["dependencies"].nil?
@@ -1348,7 +1356,7 @@ module MU
 
 				if server['ingress_rules'] != nil
 					server['ingress_rules'].each {|rule|
-						rule["#MU_CLASS"] = MU.resourceClass(server['cloud'], "FirewallRule")
+						rule["#MU_CLASS"] = MU::Cloud.artifact(server['cloud'], "FirewallRule")
 						if rule['port'].nil? and rule['port_range'].nil? and rule['proto'] != "icmp"
 							MU.log "Non-ICMP ingress rules must specify a port or port range", MU::ERR
 							ok = false
@@ -1370,7 +1378,7 @@ module MU
 				if !server["vpc"].nil?
 					server['vpc']['region'] = server['region'] if server['vpc']['region'].nil?
 					server['vpc']['cloud'] = server['cloud'] if server['vpc']['cloud'].nil?
-					server['vpc']['#MU_CLASS'] = MU.resourceClass(server['cloud'], "VPC")
+					server['vpc']['#MU_CLASS'] = MU::Cloud.artifact(server['cloud'], "VPC")
 					# If we're using a local VPC in this deploy, set it as a dependency and get the subnets right
 					if !server["vpc"]["vpc_name"].nil? and vpc_names.include?(server["vpc"]["vpc_name"]) and server["vpc"]["deploy_id"].nil?
 						server["dependencies"] << {
@@ -1410,7 +1418,7 @@ module MU
 
 				if !server["add_firewall_rules"].nil?
 					server["add_firewall_rules"].each { |acl_include|
-						acl_include['#MU_CLASS'] = MU.resourceClass(server['cloud'], "FirewallRule")
+						acl_include['#MU_CLASS'] = MU::Cloud.artifact(server['cloud'], "FirewallRule")
 						if firewall_rule_names.include?(acl_include["rule_name"])
 							server["dependencies"] << {
 								"type" => "firewall_rule",
@@ -1421,7 +1429,7 @@ module MU
 				end
 				if !server["loadbalancers"].nil?
 					server["loadbalancers"].each { |lb|
-						lb['#MU_CLASS'] = MU.resourceClass(server['cloud'], "LoadBalancer")
+						lb['#MU_CLASS'] = MU::Cloud.artifact(server['cloud'], "LoadBalancer")
 						if lb["concurrent_load_balancer"] != nil
 							server["dependencies"] << {
 								"type" => "loadbalancer",
@@ -1636,7 +1644,7 @@ module MU
 					}
 				}
 				if subnets == (ONE_SUBNET+MANY_SUBNETS)
-					vpc_ref_schema["properties"]["subnets"]["items"]["description"] = "Extra subnets to which to attach this {MU::AWS::Server}. Extra network interfaces will be created to accomodate these attachments."
+					vpc_ref_schema["properties"]["subnets"]["items"]["description"] = "Extra subnets to which to attach this {MU::Cloud::AWS::Server}. Extra network interfaces will be created to accomodate these attachments."
 				end
 			end
 			
@@ -1666,15 +1674,14 @@ module MU
 
 		@region_primitive = {
 			"type" => "string",
-			"enum" => MU::AWS.listRegions
+			"enum" => MU::Cloud::AWS.listRegions
 		}
 
 		@cloud_primitive = {
 			"type" => "string",
 			"default" => MU::Config.defaultCloud,
-			"enum" => MU.supportedClouds
+			"enum" => MU::Cloud.supportedClouds
 		}
-
 
 		@dependencies_primitive = {
 			"type" => "array",
@@ -2172,7 +2179,7 @@ module MU
 						},
 						"region" => {
 							"type" => "string",
-							"enum" => MU::AWS.listRegions,
+							"enum" => MU::Cloud::AWS.listRegions,
 							"description" => "Set preferred region for latency-based routing."
 						},
 						"failover" => {

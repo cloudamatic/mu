@@ -52,6 +52,7 @@ module MU
 		attr_reader :ssh_key_name
 		attr_reader :ssh_public_key
 		attr_reader :nocleanup
+		attr_reader :mu_id
 		@myhome = Etc.getpwuid(Process.uid).dir
 		@nagios_home = "/home/nagios"
 		@locks = Hash.new
@@ -82,6 +83,7 @@ module MU
 				ssh_public_key: ssh_public_key = nil,
 				verbose: false,
 				nocleanup: false,
+				set_context_to_me: true,
 				deployment_data: deployment_data = Hash.new,
 				mu_user: nil
 			)
@@ -89,16 +91,21 @@ module MU
 			if mu_id.nil? or mu_id.empty?
 				raise DeployInitializeError, "MommaCat objects must specify a mu_id"
 			end
-			MU.setVar("chef_user", mu_user) if !mu_user.nil?
-			if MU.chef_user != "mu"
-				MU.setVar("dataDir", Etc.getpwnam(MU.chef_user).dir+"/.mu/var")
-			else
-				MU.setVar("dataDir", MU.mainDataDir)
-			end
-			MU.setVar("mommacat", self)
-			MU.setVar("mu_id", mu_id)
-			MU.setVar("environment", environment)
+			set_context_to_me = true if create
 
+			if set_context_to_me
+				MU.setVar("chef_user", mu_user) if !mu_user.nil?
+				if MU.chef_user != "mu"
+					MU.setVar("dataDir", Etc.getpwnam(MU.chef_user).dir+"/.mu/var")
+				else
+					MU.setVar("dataDir", MU.mainDataDir)
+				end
+				MU.setVar("mommacat", self)
+				MU.setVar("mu_id", mu_id)
+				MU.setVar("environment", environment)
+			end
+
+			@mu_id = mu_id
 			@original_config = config
 			@nocleanup = nocleanup
 			@deploy_struct_semaphore = Mutex.new
@@ -120,7 +127,7 @@ module MU
 					MU.log "Creating #{MU.dataDir}/deployments", MU::DEBUG
 					Dir.mkdir(MU.dataDir+"/deployments", 0700)
 				end
-				path = File.expand_path(MU.dataDir+"/deployments")+"/"+MU.mu_id
+				path = File.expand_path(MU.dataDir+"/deployments")+"/"+@mu_id
 				if !Dir.exist?(path)
 					MU.log "Creating #{path}", MU::DEBUG
 					Dir.mkdir(path, 0700)
@@ -139,14 +146,14 @@ module MU
 				MU.log "Creating deploy secret for #{MU.mu_id}"
 				@deploy_secret = Password.random(256)
 				begin
-					MU::AWS.s3(MU.myRegion).put_object(
+					MU::Cloud::AWS.s3(MU.myRegion).put_object(
 						acl: "private",
 						bucket: MU.adminBucketName,
-						key: "#{MU.mu_id}-secret",
+						key: "#{@mu_id}-secret",
 						body: "#{@deploy_secret}"
 					)
 				rescue Aws::S3::Errors::PermanentRedirect => e
-					raise DeployInitializeError, "Got #{e.inspect} trying to write #{MU.mu_id}-secret to #{MU.adminBucketName}"
+					raise DeployInitializeError, "Got #{e.inspect} trying to write #{@mu_id}-secret to #{MU.adminBucketName}"
 				end
 				save!
 			end
@@ -335,7 +342,7 @@ module MU
 		end
 
 
-		# Run {MU::AWS::Server#postBoot} and {MU::AWS::Server#deploy} on a node.
+		# Run {MU::Cloud::AWS::Server#postBoot} and {MU::Cloud::AWS::Server#deploy} on a node.
 		# @param instance [OpenStruct]: The cloud providor's full descriptor for this node.
 		# @param name [String]: The MU resource name of the node being created.
 		# @param type [String]: The type of resource that created this node (either *server* or *serverpool*).
@@ -380,8 +387,8 @@ module MU
 			@original_config[type+"s"].each { |svr|
 				mylocks = Array.new
 				if svr["name"] == name
-					cloudclass = MU.resourceClass(svr["cloud"], type)
-					serverclass = MU.resourceClass(svr["cloud"], "Server")
+					cloudclass = MU::Cloud.artifact(svr["cloud"], type)
+					serverclass = MU::Cloud.artifact(svr["cloud"], "Server")
 					server = svr.dup
 					node = nil
 					first_groom = true
@@ -414,7 +421,7 @@ module MU
 					server['mu_name'] = node
 					server["instance_id"] = instance.instance_id
 					begin
-						# This is a shared lock with MU::AWS::Server.create, to keep from
+						# This is a shared lock with MU::Cloud::AWS::Server.create, to keep from
 						# stomping on synchronous deploys that are still running. This
 						# means we're going to wait here if this instance is still being
 						# bootstrapped by "regular" means.
@@ -458,7 +465,7 @@ module MU
 						end
 
 						# This is a shared lock with MU::Deploy.createResources, simulating
-						# the thread logic that tells MU::AWS::Server.deploy to wait until its
+						# the thread logic that tells MU::Cloud::AWS::Server.deploy to wait until its
 						# dependencies are ready. We don't, for example, want to start
 						# deploying if we rely on an RDS instance that isn't ready yet. We
 						# can release this immediately, once we successfully grab it.
@@ -468,7 +475,7 @@ module MU
 						serverclass.deploy(server, @deployment, keypairname: @ssh_key_name)
 					rescue Exception => e
 						MU::MommaCat.unlockAll
-						if e.class.name != "MU::AWS::Server::BootstrapTempFail" and !File.exists?(deploy_dir+"/.cleanup."+instance.instance_id) and !File.exists?(deploy_dir+"/.cleanup")
+						if e.class.name != "MU::Cloud::AWS::Server::BootstrapTempFail" and !File.exists?(deploy_dir+"/.cleanup."+instance.instance_id) and !File.exists?(deploy_dir+"/.cleanup")
 							MU.log "Grooming FAILED for #{node} (#{e.inspect})", MU::ERR, details: e.backtrace
 							sendAdminMail("Grooming FAILED for #{node} on #{MU.appname} \"#{MU.handle}\" (#{MU.mu_id})",
 								msg: e.inspect,
@@ -633,7 +640,7 @@ module MU
 				}
 			end
 			cleanup_threads = []
-			regions = MU::AWS.listRegions
+			regions = MU::Cloud::AWS.listRegions
 			deploys.each { |deploy|
 				known_servers = MU::MommaCat.getResourceDeployStruct("servers", deploy_id: deploy)
 
@@ -647,7 +654,7 @@ module MU
 						server_container.each_pair { |nodename, data|
 							MU.setVar("curRegion", data['region']) if !data['region'].nil?
 							begin
-								resp = MU::AWS.ec2(MU.curRegion).describe_instances(instance_ids: [data['instance_id']])
+								resp = MU::Cloud::AWS.ec2(MU.curRegion).describe_instances(instance_ids: [data['instance_id']])
 								if !resp.nil? and !resp.reservations.nil? and !resp.reservations.first.nil?
 									instance = resp.reservations.first.instances.first
 								end
@@ -667,13 +674,13 @@ module MU
 										if !kitten_pile.original_config[res_type].nil?
 											kitten_pile.original_config[res_type].each { |svr|
 												if svr['name'] == data['#MU_NODE_CLASS']
-													MU::AWS::Server.purgeChefResources(nodename, svr['vault_access'])
+													MU::Cloud::AWS::Server.purgeChefResources(nodename, svr['vault_access'])
 												end
 											}
 										end
 									}
 								end
-								MU::AWS::Server.terminateInstance(id: data['instance_id'], region: MU.curRegion)
+								MU::Cloud::AWS::Server.terminateInstance(id: data['instance_id'], region: MU.curRegion)
 								begin
 									kitten_pile.notify("servers", data['#MU_NODE_CLASS'], nodename, remove: true, sub_key: nodename)
 									kitten_pile.sendAdminMail("Retired terminated node #{nodename}", data: data)
@@ -812,7 +819,7 @@ module MU
 									if !data.has_key?("cloud")
 										data["cloud"] = MU::Config.defaultCloud
 									end
-									data['#MU_CLASS'] = MU.resourceClass("AWS", :Server)
+									data['#MU_CLASS'] = MU::Cloud.artifact("AWS", :Server)
 								}
 							}
 						end
@@ -868,7 +875,7 @@ module MU
 			attempts = 0 
 
 			begin
-			  MU::AWS.ec2(region).create_tags(
+			  MU::Cloud::AWS.ec2(region).create_tags(
 				  resources: [resource],
 				  tags: [
 				    {
@@ -903,7 +910,7 @@ module MU
 
 			attempts = 0
 			begin
-			  MU::AWS.ec2(region).create_tags(
+			  MU::Cloud::AWS.ec2(region).create_tags(
 				  resources: [resource],
 				  tags: tags
 				)
@@ -996,9 +1003,9 @@ module MU
 			)
 			mu_dns = nil
 			if !public_dns.nil?
-				mu_dns = MU::AWS::DNSZone.genericDNSEntry(node, public_dns, MU::AWS::Server, noop: true)
+				mu_dns = MU::Cloud::AWS::DNSZone.genericDNSEntry(node, public_dns, MU::Cloud::AWS::Server, noop: true)
 			else
-				mu_dns = MU::AWS::DNSZone.genericDNSEntry(node, private_ip, MU::AWS::Server, noop: true)
+				mu_dns = MU::Cloud::AWS::DNSZone.genericDNSEntry(node, private_ip, MU::Cloud::AWS::Server, noop: true)
 			end
 			mu_dns = nil # XXX HD account hack
 			if user.nil? or (gateway_user.nil? and !gateway_ip.nil? and (public_ip.nil? or public_ip.empty? and (private_ip != gateway_ip)))
@@ -1217,13 +1224,13 @@ MESSAGE_END
 
 			MU.setVar("curRegion", MU.myRegion) if !MU.myRegion.nil?
 
-			resp = MU::AWS.ec2.describe_instances(instance_ids: [my_instance_id])
+			resp = MU::Cloud::AWS.ec2.describe_instances(instance_ids: [my_instance_id])
 			instance = resp.reservations.first.instances.first
 
 			instance.security_groups.each { |sg|
 				my_sgs << sg.group_id
 			}
-			resp = MU::AWS.ec2.describe_security_groups(
+			resp = MU::Cloud::AWS.ec2.describe_security_groups(
 				group_ids: my_sgs,
 				filters:[
 					{ name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip] },
@@ -1234,11 +1241,11 @@ MESSAGE_END
 			if resp.nil? or resp.security_groups.nil? or resp.security_groups.size == 0
 				if instance.vpc_id.nil?
 					sg_id = my_sgs.first
-					resp = MU::AWS.ec2.describe_security_groups(group_ids: [sg_id])
+					resp = MU::Cloud::AWS.ec2.describe_security_groups(group_ids: [sg_id])
 					group = resp.security_groups.first
 					MU.log "We don't have a security group named '#{my_client_sg_name}' available, and we are in EC2 Classic and so cannot create a new group. Defaulting to #{group.group_name}.", MU::NOTICE
 				else
-					group = MU::AWS.ec2.create_security_group(
+					group = MU::Cloud::AWS.ec2.create_security_group(
 						group_name: my_client_sg_name,
 						description: my_client_sg_name,
 						vpc_id: instance.vpc_id
@@ -1247,14 +1254,14 @@ MESSAGE_END
 					my_sgs << sg_id
 					MU::MommaCat.createTag sg_id, "Name", my_client_sg_name
 					MU::MommaCat.createTag sg_id, "MU-MASTER-IP", MU.mu_public_ip
-					MU::AWS.ec2.modify_instance_attribute(
+					MU::Cloud::AWS.ec2.modify_instance_attribute(
 						instance_id: my_instance_id,
 						groups: my_sgs
 					)
 				end
 			elsif resp.security_groups.size == 1
 				sg_id = resp.security_groups.first.group_id
-				resp = MU::AWS.ec2.describe_security_groups(group_ids: [sg_id])
+				resp = MU::Cloud::AWS.ec2.describe_security_groups(group_ids: [sg_id])
 				group = resp.security_groups.first
 			else
 				MU.log "Found more than one security group named #{my_client_sg_name}, aborting", MU::ERR
@@ -1289,7 +1296,7 @@ MESSAGE_END
 							rule.from_port == port and rule.to_port == port
 							MU.log "Revoking old rules for port #{port.to_s} from #{sg_id}", MU::NOTICE
 							begin
-							MU::AWS.ec2.revoke_security_group_ingress(
+							MU::Cloud::AWS.ec2.revoke_security_group_ingress(
 								group_id: sg_id,
 								ip_permissions: [
 									{
@@ -1310,7 +1317,7 @@ MESSAGE_END
 				end
 				MU.log "Adding current IP list to allow rule for port #{port.to_s} in #{sg_id}", details: allow_ips
 
-				MU::AWS::FirewallRule.addRule(sg_id, allow_ips, port: port)
+				MU::Cloud::AWS::FirewallRule.addRule(sg_id, allow_ips, port: port)
 			}
 		end
 
@@ -1366,7 +1373,7 @@ MESSAGE_END
 					end
 
 					# Prefer a direct route, if that's a choice we have.
-					if MU::AWS::VPC.haveRouteToInstance?(metadata['instance_id'])
+					if MU::Cloud::AWS::VPC.haveRouteToInstance?(metadata['instance_id'])
 						MU::MommaCat.addHostToSSHConfig(
 							nodename,
 							metadata['private_ip_address'],
@@ -1385,7 +1392,7 @@ MESSAGE_END
 					if !MU.mu_id.nil?
 # XXX we need our own exception type for this
 						begin
-							nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::AWS::Server.getNodeSSHProxy(metadata['conf'])
+							nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::Cloud::AWS::Server.getNodeSSHProxy(metadata['conf'])
 						rescue  Exception => e
 							MU::MommaCat.unlockAll
 							MU.log e.inspect, MU::ERR, details: e.backtrace
@@ -1560,7 +1567,7 @@ MESSAGE_END
 						if !updating_node_type.nil? and
 								updating_node_type == sib_name and
 								sibling_config['sync_siblings']
-							MU::AWS::Server.saveDeploymentToChef(nodename, deployment)
+							MU::Cloud::AWS::Server.saveDeploymentToChef(nodename, deployment)
 							next if saveonly or triggering_node == nodename or sibling_collection.size == 1
 							MU.log "Re-running Chef on '#{sib_name}' member '#{nodename}'"
 							server_conf = sibling_config.dup
@@ -1570,7 +1577,7 @@ MESSAGE_END
 							Thread.new {
 								MU.dupGlobals(parent_thread_id)
 								begin
-									MU::AWS::Server.deploy(
+									MU::Cloud::AWS::Server.deploy(
 										server_conf,
 										deployment,
 										environment: environment,
@@ -1702,7 +1709,7 @@ MESSAGE_END
 			return Dir.exist?(deploy_path)
 		end
 		def deploy_dir
-			MU::MommaCat.deploy_dir(MU.mu_id)
+			MU::MommaCat.deploy_dir(@mu_id)
 		end
 
 

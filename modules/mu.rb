@@ -324,89 +324,19 @@ module MU
 	# Log entries for fatal errors
 	ERROR = 4.freeze
 
-	generic_class_methods = [:deps_wait_on_my_creation, :waits_on_parent_completion, :find, :cleanup]
-	generic_instance_methods = [:create]
-
-	# The types of cloud resources we can create, as class objects. Include
-	# methods a class implementing this resource type must support to be
-	# considered valid.
-	@@resource_types = {
-		:CloudFormation => {
-			:cfg_name => "cloudformation_stack",
-			:cfg_plural => "cloudformation_stacks",
-			:class => generic_class_methods,
-			:instance => generic_instance_methods
-		},
-		:Database => {
-			:cfg_name => "database",
-			:cfg_plural => "databases",
-			:class => generic_class_methods,
-			:instance => generic_instance_methods + [:groom]
-		},
-		:DNSZone => {
-			:cfg_name => "dnszone",
-			:cfg_plural => "dnszones",
-			:class => generic_class_methods,
-			:instance => generic_instance_methods
-		},
-		:FirewallRule => {
-			:cfg_name => "firewall_rule",
-			:cfg_plural => "firewall_rules",
-			:class => generic_class_methods,
-			:instance => generic_instance_methods + [:groom]
-		},
-		:LoadBalancer => {
-			:cfg_name => "loadbalancer",
-			:cfg_plural => "loadbalancers",
-			:class => generic_class_methods,
-			:instance => generic_instance_methods
-		},
-		:Server => {
-			:cfg_name => "server",
-			:cfg_plural => "servers",
-			:class => generic_class_methods + [:postBoot],
-			:instance => generic_instance_methods + [:groom]
-		},
-		:ServerPool => {
-			:cfg_name => "server_pool",
-			:cfg_plural => "server_pools",
-			:class => generic_class_methods,
-			:instance => generic_instance_methods
-		},
-		:VPC => {
-			:cfg_name => "vpc",
-			:cfg_plural => "vpcs",
-			:class => generic_class_methods,
-			:instance => generic_instance_methods + [:groom]
-		},
-	}.freeze
-
-	# A list of supported cloud resource types as Mu classes
-	def self.resource_types ; @@resource_types end
-
 	autoload :Cleanup, 'mu/cleanup'
 	autoload :Deploy, 'mu/deploy'
 	autoload :MommaCat, 'mu/mommacat'
-	autoload :Config, 'mu/config'
+	require 'mu/cloud'
 
-	# List of known/supported Cloud providers
-	def self.supportedClouds
-		["AWS", "Docker"]
-	end
+# XXX these guys to move into mu/groomer
 	# List of known/supported grooming agents (configuration management tools)
 	def self.supportedGroomers
 		["Chef"]
 	end
-
-	# Load the container class for each cloud we know about, and inject autoload
-	# code for each of its supported resource type classes.
-	MU.supportedClouds.each { |cloud|
-		require "mu/clouds/#{cloud.downcase}"
-	}
 	MU.supportedGroomers.each { |groomer|
 		require "mu/groomers/#{groomer.downcase}"
 	}
-
 	# @param groomer [String]: The grooming agent to load. 
 	# @return [Class]: The class object implementing this groomer agent
 	def self.loadGroomer(groomer)
@@ -417,53 +347,7 @@ module MU
 		return Object.const_get("MU").const_get("Groomer").const_get(groomer)
 	end
 
-	# Given a cloud layer and resource type, return the class which implements it.
-	# @param cloud [String]: The Cloud layer
-	# @param type [String]: The resource type
-	# @return [Class]: The class object implementing this resource
-	def self.resourceClass(cloud = MU::Config.defaultCloud, type)
-		raise MuError, "cloud argument to MU.resourceClass cannot be nil" if cloud.nil?
-		# If we've been asked to resolve this object, that means we plan to use it,
-		# so go ahead and load it.
-		cfg_name = nil
-		@@resource_types.each_pair { |name, cloudclass|
-			if name == type.to_sym or
-				 cloudclass[:cfg_name] == type or
-				 cloudclass[:cfg_plural] == type
-				cfg_name = cloudclass[:cfg_name]
-				type = name
-				break
-			end
-		}
-		if !File.size?(MU.myRoot+"/modules/mu/clouds/#{cloud.downcase}.rb")
-			raise MuError, "Requested to use unsupported grooming agent #{cloud}"
-		end
-		require "mu/clouds/#{cloud.downcase}/#{cfg_name}"
-		begin
-			myclass = Object.const_get("MU").const_get(cloud).const_get(type)
-			# XXX also test whether methods take the expected arguments
-			@@resource_types[type.to_sym][:class].each { |class_method|
-				begin
-					# XXX this is a hack, we really just want to check for existence
-					myclass.public_class_method(class_method)				
-				rescue NameError
-					raise MuError, "MU::#{cloud}::#{type} has not implemented required class method #{class_method}"
-				end
-			}
-			@@resource_types[type.to_sym][:instance].each { |instance_method|
-				if !myclass.public_instance_methods.include?(instance_method)
-					raise MuError, "MU::#{cloud}::#{type} has not implemented required instance method #{instance_method}"
-				end
-			}
-
-			return myclass
-		rescue NameError => e
-			raise MuError, "The '#{type}' resource is not supported in cloud #{cloud} (tried MU::#{cloud}::#{type})"
-		end
-	end
-
-
-	# The AWS policy to allow CloudTrails to log to an S3 bucket.
+	require 'mu/config'
 
 	# Figure out our account number, by hook or by crook
 	def self.account_number
@@ -471,13 +355,13 @@ module MU
 			 !@@globals[Thread.current.object_id]['account_number'].nil?
 			return @@globals[Thread.current.object_id]['account_number']
 		end
-		user_list = MU::AWS.iam.list_users.users
+		user_list = MU::Cloud::AWS.iam.list_users.users
 		if user_list.nil? or user_list.size == 0
 			mac = MU.getAWSMetaData("network/interfaces/macs/").split(/\n/)[0]
 			account_number = MU.getAWSMetaData("network/interfaces/macs/#{mac}owner-id")
 			account_number.chomp!
 		else
-			account_number = MU::AWS.iam.list_users.users.first.arn.split(/:/)[4]
+			account_number = MU::Cloud::AWS.iam.list_users.users.first.arn.split(/:/)[4]
 		end
 		MU.setVar("account_number", account_number)
 		account_number
@@ -486,7 +370,7 @@ module MU
 	@@myRegion_var = nil
 	# Find our AWS Region and Availability Zone
 	def self.myRegion
-		@@myRegion_var ||= MU::AWS.ec2(ENV['EC2_REGION']).describe_availability_zones.availability_zones.first.region_name
+		@@myRegion_var ||= MU::Cloud::AWS.ec2(ENV['EC2_REGION']).describe_availability_zones.availability_zones.first.region_name
 		@@myRegion_var
 	end	
 
@@ -499,9 +383,9 @@ module MU
 	# The AWS Availability Zone in which this Mu master resides
 	def self.myAZ
 		begin
-			@@myAZ_var ||= MU::AWS.ec2(MU.myRegion).describe_instances(instance_ids: [@@myInstanceId]).reservations.first.instances.first.placement.availability_zone
+			@@myAZ_var ||= MU::Cloud::AWS.ec2(MU.myRegion).describe_instances(instance_ids: [@@myInstanceId]).reservations.first.instances.first.placement.availability_zone
 		rescue Aws::EC2::Errors::InternalError => e
-			MU.log "Got #{e.inspect} on MU::AWS.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
+			MU.log "Got #{e.inspect} on MU::Cloud::AWS.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
 			sleep 10
 		end
 		@@myAZ_var
@@ -511,9 +395,9 @@ module MU
 	# The AWS Availability Zone in which this Mu master resides
 	def self.myVPC
 		begin
-			@@myVPC_var ||= MU::AWS.ec2(MU.myRegion).describe_instances(instance_ids: [@@myInstanceId]).reservations.first.instances.first.vpc_id
+			@@myVPC_var ||= MU::Cloud::AWS.ec2(MU.myRegion).describe_instances(instance_ids: [@@myInstanceId]).reservations.first.instances.first.vpc_id
 		rescue Aws::EC2::Errors::InternalError => e
-			MU.log "Got #{e.inspect} on MU::AWS.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
+			MU.log "Got #{e.inspect} on MU::Cloud::AWS.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
 			sleep 10
 		end
 		@@myVPC_var

@@ -13,6 +13,7 @@
 # limitations under the License.
 
 module MU
+class Cloud
 	class AWS
 		# A server pool as configured in {MU::Config::BasketofKittens::server_pools}
 		class ServerPool
@@ -38,7 +39,7 @@ module MU
 
 			# Called automatically by {MU::Deploy#createResources}
 			def create
-				MU.resourceClass("AWS", :DNSZone)
+				MU::Cloud.artifact("AWS", :DNSZone)
 				keypairname, ssh_private_key, ssh_public_key = @deploy.SSHKey
 
 				pool_name = MU::MommaCat.getResourceName(@pool['name'])
@@ -115,12 +116,12 @@ module MU
 						end
 						launch_desc["ami_id"] = @deploy.deployment["images"][launch_desc["server"]]["image_id"]
 					elsif !launch_desc["instance_id"].nil?
-						launch_desc["ami_id"] = MU::AWS::Server.createImage(
+						launch_desc["ami_id"] = MU::Cloud::AWS::Server.createImage(
 																					name: pool_name,
 																					instance_id: launch_desc["instance_id"]
 																		)
 					end
-					MU::AWS::Server.waitForAMI(launch_desc["ami_id"])
+					MU::Cloud::AWS::Server.waitForAMI(launch_desc["ami_id"])
 
 					launch_options = {
 						:launch_configuration_name => pool_name,
@@ -133,15 +134,15 @@ module MU
 					if launch_desc["storage"]
 						storage = Array.new
 						launch_desc["storage"].each { |vol|
-							storage << MU::AWS::Server.convertBlockDeviceMapping(vol)
+							storage << MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
 						}
 						launch_options[:block_device_mappings ] = storage
-						launch_options[:block_device_mappings].concat(MU::AWS::Server.ephemeral_mappings)
+						launch_options[:block_device_mappings].concat(MU::Cloud::AWS::Server.ephemeral_mappings)
 					end
 					launch_options[:spot_price ] = launch_desc["spot_price"] if launch_desc["spot_price"]
 					launch_options[:kernel_id ] = launch_desc["kernel_id"] if launch_desc["kernel_id"]
 					launch_options[:ramdisk_id ] = launch_desc["ramdisk_id"] if launch_desc["ramdisk_id"]
-					launch_options[:iam_instance_profile] = MU::AWS::Server.createIAMProfile("ServerPool-"+@pool['name'], base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'])
+					launch_options[:iam_instance_profile] = MU::Cloud::AWS::Server.createIAMProfile("ServerPool-"+@pool['name'], base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'])
 					@pool['iam_role'] = launch_options[:iam_instance_profile]
 
 				if !@pool["vpc_zone_identifier"].nil? or !@pool["vpc"].nil?
@@ -152,7 +153,7 @@ module MU
 					MU.mommacat.saveSecret("default", instance_secret, "instance_secret")
 
 					launch_options[:user_data ] = Base64.encode64(
-						MU::AWS::Server.fetchUserdata(
+						MU::Cloud::AWS::Server.fetchUserdata(
 							platform: @pool["platform"],
 							template_variables: {
 								"deployKey" => Base64.urlsafe_encode64(MU.mommacat.public_key),
@@ -191,32 +192,32 @@ module MU
 				if @pool["vpc_zone_identifier"]
 					asg_options[:vpc_zone_identifier] = @pool["vpc_zone_identifier"]
 				elsif @pool["vpc"]
-					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::AWS::VPC.parseVPC(@pool['vpc'])
-					nat_instance, mu_name = MU::AWS::Server.find(
+					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::Cloud::AWS::VPC.parseVPC(@pool['vpc'])
+					nat_instance, mu_name = MU::Cloud::AWS::Server.find(
 						id: @pool['vpc']['nat_host_id'],
 						name: @pool['vpc']['nat_host_name']
 					)
 					asg_options[:vpc_zone_identifier] = subnet_ids.join(",")
 
-					sgs << MU::AWS::FirewallRule.createEc2SG(@pool['name']+vpc_id.upcase, @pool['ingress_rules'], description: "AutoScale Group #{pool_name}", vpc_id: vpc_id)
+					sgs << MU::Cloud::AWS::FirewallRule.createEc2SG(@pool['name']+vpc_id.upcase, @pool['ingress_rules'], description: "AutoScale Group #{pool_name}", vpc_id: vpc_id)
 					if nat_instance != nil
-						sgs << MU::AWS::FirewallRule.setAdminSG(
+						sgs << MU::Cloud::AWS::FirewallRule.setAdminSG(
 							vpc_id: vpc_id,
 							add_admin_ip: nat_instance["private_ip_address"]
 						)
 					else
-						sgs << MU::AWS::FirewallRule.setAdminSG(vpc_id: vpc_id)
+						sgs << MU::Cloud::AWS::FirewallRule.setAdminSG(vpc_id: vpc_id)
 					end
 				end
 
 				if asg_options[:vpc_zone_identifier] == nil
-					sgs << MU::AWS::FirewallRule.createEc2SG(@pool['name'], nil, description: "AutoScale Group #{pool_name}")
-					sgs << MU::AWS::FirewallRule.setAdminSG
+					sgs << MU::Cloud::AWS::FirewallRule.createEc2SG(@pool['name'], nil, description: "AutoScale Group #{pool_name}")
+					sgs << MU::Cloud::AWS::FirewallRule.setAdminSG
 				end
 
 				if !@pool["add_firewall_rules"].nil?
 					@pool["add_firewall_rules"].each { |acl|
-						sg = MU::AWS::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"])
+						sg = MU::Cloud::AWS::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"])
 						if sg.nil?
 							MU.log "Couldn't find dependent security group #{acl} for server pool #{@pool['name']}", MU::ERR, details: MU.mommacat.deployment['firewall_rules']
 							raise MuError, "deploy failure"
@@ -230,7 +231,7 @@ module MU
 					MU.log "Creating AutoScale Launch Configuration #{pool_name}", details: launch_options 
 					retries = 0
 					begin
-						launch_config = MU::AWS.autoscale.create_launch_configuration(launch_options)
+						launch_config = MU::Cloud::AWS.autoscale.create_launch_configuration(launch_options)
 					rescue Aws::AutoScaling::Errors::ValidationError => e
 						if retries < 10
 							MU.log "Got #{e.inspect} creating Launch Configuration #{pool_name}, retrying in case of lagging resources", MU::WARN
@@ -247,7 +248,7 @@ module MU
 				# Do the dance of specifying individual zones if we haven't asked to
 				# use particular VPC subnets.
 				if @pool['zones'] == nil and asg_options[:vpc_zone_identifier] == nil
-					@pool["zones"] = MU::AWS.listAZs(@pool['region'])
+					@pool["zones"] = MU::Cloud::AWS.listAZs(@pool['region'])
 					MU.log "Using zones from #{@pool['region']}", MU::DEBUG, details: @pool['zones']
 				end
 				asg_options[:availability_zones] = @pool["zones"] if @pool["zones"] != nil
@@ -256,7 +257,7 @@ module MU
 
 				zones_to_try = @pool["zones"]
 				begin
-					asg = MU::AWS.autoscale.create_auto_scaling_group(asg_options)
+					asg = MU::Cloud::AWS.autoscale.create_auto_scaling_group(asg_options)
 				rescue Aws::AutoScaling::Errors::ValidationError => e
 					if zones_to_try != nil and zones_to_try.size > 0
 						MU.log "#{e.message}, retrying with individual AZs", MU::WARN
@@ -270,7 +271,7 @@ module MU
 				if zones_to_try != nil and zones_to_try.size < @pool["zones"].size
 					zones_to_try.each { |zone|
 						begin
-							MU::AWS.autoscaleg.update_auto_scaling_group(
+							MU::Cloud::AWS.autoscaleg.update_auto_scaling_group(
 								auto_scaling_group_name: pool_name,
 								availability_zones: [zone]
 							)
@@ -293,7 +294,7 @@ module MU
 						if !policy['min_adjustment_step'].nil?
 							policy_params[:min_adjustment_step] = policy['min_adjustment_step']
 						end
-						MU::AWS.autoscale.put_scaling_policy(policy_params)
+						MU::Cloud::AWS.autoscale.put_scaling_policy(policy_params)
 					}
 				end
 
@@ -301,11 +302,11 @@ module MU
 				attempts = 0
 				begin
 					sleep 5
-					desc = MU::AWS.autoscale.describe_auto_scaling_groups(auto_scaling_group_names: [pool_name]).auto_scaling_groups.first
+					desc = MU::Cloud::AWS.autoscale.describe_auto_scaling_groups(auto_scaling_group_names: [pool_name]).auto_scaling_groups.first
 					MU.log "Looking for #{desc.min_size} instances in #{pool_name}, found #{desc.instances.size}", MU::DEBUG
 					attempts = attempts + 1
 					if attempts > 25 and desc.instances.size == 0
-						MU.log "No instances spun up after #{5*attempts} seconds, something's wrong with Autoscale group #{pool_name}", MU::ERR, details: MU::AWS.autoscale.describe_scaling_activities(auto_scaling_group_name: pool_name).activities
+						MU.log "No instances spun up after #{5*attempts} seconds, something's wrong with Autoscale group #{pool_name}", MU::ERR, details: MU::Cloud::AWS.autoscale.describe_scaling_activities(auto_scaling_group_name: pool_name).activities
 						raise MuError, "No instances spun up after #{5*attempts} seconds, something's wrong with Autoscale group #{pool_name}"
 					end
 				end while desc.instances.size < desc.min_size
@@ -319,7 +320,7 @@ module MU
 					groomthreads = Array.new
 					desc.instances.each { |member|
 						begin
-							instance, mu_name = MU::AWS::Server.find(id: member.instance_id)
+							instance, mu_name = MU::Cloud::AWS::Server.find(id: member.instance_id)
 							groomthreads << Thread.new {
 								MU.dupGlobals(parent_thread_id)
 								MU.mommacat.groomNode(instance, @pool['name'], "server_pool", reraise_fail: true, sync_wait: @pool['dns_sync_wait'])
@@ -331,7 +332,7 @@ module MU
 								if !@deploy.nocleanup
 									Thread.new {
 										MU.dupGlobals(parent_thread_id)
-										MU::AWS::Server.terminateInstance(id: instance.instance_id)
+										MU::Cloud::AWS::Server.terminateInstance(id: instance.instance_id)
 									}
 								end
 							end
@@ -342,7 +343,7 @@ module MU
 						t.join
 					}
 					MU.log "Setting min_size to #{@pool['min_size']} and max_size to #{@pool['max_size']}"
-					MU::AWS.autoscale.update_auto_scaling_group(
+					MU::Cloud::AWS.autoscale.update_auto_scaling_group(
 						auto_scaling_group_name: pool_name,
 						min_size: @pool['min_size'],
 						max_size: @pool['max_size']
@@ -367,7 +368,7 @@ module MU
 				if !ignoremaster
 					filters << { name: "key", values: ["MU-MASTER-IP"] }
 				end
-				resp = MU::AWS.autoscale(region).describe_tags(
+				resp = MU::Cloud::AWS.autoscale(region).describe_tags(
 					filters: filters
 				)
 				return nil if resp.tags.nil? or resp.tags.size == 0
@@ -393,7 +394,7 @@ module MU
 					next if noop
 					retries = 0
 					begin 
-						MU::AWS.autoscale(region).delete_auto_scaling_group(
+						MU::Cloud::AWS.autoscale(region).delete_auto_scaling_group(
 							auto_scaling_group_name: resource_id,
 # XXX this should obey @force
 							force_delete: true
@@ -413,7 +414,7 @@ module MU
 					retries = 0
 					begin
 						MU.log "Removing AutoScale Launch Configuration #{resource_id}"
-						MU::AWS.autoscale(region).delete_launch_configuration(
+						MU::Cloud::AWS.autoscale(region).delete_launch_configuration(
 							launch_configuration_name: resource_id
 						)
 					rescue Aws::AutoScaling::Errors::ValidationError => e
@@ -431,5 +432,6 @@ module MU
 				return nil
 			end
 		end
+	end
 	end
 end

@@ -14,7 +14,8 @@
 
 module MU
 
-		class AWS
+	class Cloud
+	class AWS
 
 		# An Amazon CloudFormation stack as configured in {MU::Config::BasketofKittens::cloudformation_stacks}
 		class CloudFormation
@@ -118,11 +119,11 @@ module MU
 					end 
     
 					MU.log "Creating CloudFormation stack '#{@stack['name']}'", details: stack_descriptor
-					res = MU::AWS.cloudformation(region).create_stack(stack_descriptor);
+					res = MU::Cloud::AWS.cloudformation(region).create_stack(stack_descriptor);
 					@deploy.notify("cloudformations", @stack["name"], @stack)
 
 					sleep(10);
-					stack_response = MU::AWS.cloudformation(region).describe_stacks({:stack_name=>stack_name}).stacks.first
+					stack_response = MU::Cloud::AWS.cloudformation(region).describe_stacks({:stack_name=>stack_name}).stacks.first
 					attempts = 0
 					begin
 						if attempts % 5 == 0
@@ -130,7 +131,7 @@ module MU
 						else
 							MU.log "Waiting for CloudFormation stack '#{@stack['name']}' to be ready...", MU::DEBUG
 						end
-						stack_response =MU::AWS.cloudformation(region).describe_stacks({:stack_name=>stack_name}).stacks.first
+						stack_response =MU::Cloud::AWS.cloudformation(region).describe_stacks({:stack_name=>stack_name}).stacks.first
 						sleep 60
 					end while stack_response.stack_status == "CREATE_IN_PROGRESS" 
 
@@ -146,14 +147,14 @@ module MU
 				end
 
 				if flag == "FAIL" then
-					stack_response = MU::AWS.cloudformation(region).delete_stack({:stack_name=>stack_name})
+					stack_response = MU::Cloud::AWS.cloudformation(region).delete_stack({:stack_name=>stack_name})
 					exit 1
 				end 
 
 				MU.log "CloudFormation stack '#{@stack['name']}' complete"
 
 				begin
-					resources = MU::AWS.cloudformation(region).describe_stack_resources(:stack_name=> stack_name)
+					resources = MU::Cloud::AWS.cloudformation(region).describe_stack_resources(:stack_name=> stack_name)
 
 					resources[:stack_resources].each { |resource|
 
@@ -163,7 +164,7 @@ module MU
 								instance_name = MU.mu_id+"-"+@stack['name']+"-"+resource.logical_resource_id
 								MU::MommaCat.createTag(resource.physical_resource_id, "Name", instance_name)
 
-								instance = MU::AWS::Server.notifyDeploy(
+								instance = MU::Cloud::AWS::Server.notifyDeploy(
 									@stack['name']+"-"+resource.logical_resource_id,
 									resource.physical_resource_id
 								)
@@ -179,9 +180,9 @@ module MU
 									key_name: instance["key_name"]
 								)
 
-								mu_zone, junk = MU::AWS::DNSZone.find(name: "mu")
+								mu_zone, junk = MU::Cloud::AWS::DNSZone.find(name: "mu")
 								if !mu_zone.nil?
-									MU::AWS::DNSZone.genericDNSEntry(instance_name, instance["private_ip_address"], MU::AWS::Server)
+									MU::Cloud::AWS::DNSZone.genericDNSEntry(instance_name, instance["private_ip_address"], MU::Cloud::AWS::Server)
 								else
 									MU::MommaCat.addInstanceToEtcHosts(instance["public_ip_address"], instance_name)
 								end
@@ -189,7 +190,7 @@ module MU
 							when "AWS::EC2::SecurityGroup"
 								MU::MommaCat.createStandardTags(resource.physical_resource_id)
 								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.mu_id+"-"+@stack['name']+'-'+resource.logical_resource_id)
-								MU::AWS::FirewallRule.notifyDeploy(
+								MU::Cloud::AWS::FirewallRule.notifyDeploy(
 									@stack['name']+"-"+resource.logical_resource_id,
 									resource.physical_resource_id
 								)
@@ -248,7 +249,7 @@ module MU
 			# @return [void]
 			def self.cleanup(noop = false, ignoremaster = false, wait: false, region: MU.curRegion)
 # XXX needs to check tags instead of name- possible?
-				resp = MU::AWS.cloudformation(region).describe_stacks
+				resp = MU::Cloud::AWS.cloudformation(region).describe_stacks
 				resp.stacks.each { |stack|
 					ok = false
 					stack.tags.each { |tag|
@@ -258,7 +259,7 @@ module MU
 						MU.log "Deleting CloudFormation stack #{stack.stack_name})"
 						next if noop
 						if stack.stack_status != "DELETE_IN_PROGRESS"
-							MU::AWS.cloudformation(region).delete_stack(stack_name: stack.stack_name)
+							MU::Cloud::AWS.cloudformation(region).delete_stack(stack_name: stack.stack_name)
 						end
 						if wait
 							last_status = ""
@@ -269,7 +270,7 @@ module MU
 								mystack = nil
 							  sleep 30
 								retries = retries + 1
-								desc = MU::AWS.cloudformation(region).describe_stacks(stack_name: stack.stack_name)
+								desc = MU::Cloud::AWS.cloudformation(region).describe_stacks(stack_name: stack.stack_name)
 								if desc.size > 0
 									mystack = desc.first.stacks.first
 									if mystack.size > 0 and mystack.stack_status == "DELETE_FAILED"
@@ -317,7 +318,7 @@ module MU
 				region = stack['region']
 				stack_name = getStackName(stack)
 				begin
-					resources = MU::AWS.cloudformation(region).describe_stack_resources(:stack_name => stack_name)
+					resources = MU::Cloud::AWS.cloudformation(region).describe_stack_resources(:stack_name => stack_name)
 
 					MU.log "CloudFormation stack #{stack_name} failed", MU::ERR
 
@@ -331,4 +332,5 @@ module MU
 
 		end #class
 	end #class
+	end
 end #module

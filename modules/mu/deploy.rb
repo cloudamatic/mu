@@ -109,7 +109,7 @@ module MU
 	
 			@fromName ='chef-server';
 
-			MU.resource_types.each { |cloudclass, data|
+			MU::Cloud.resource_types.each { |cloudclass, data|
 				if !@main_config[data[:cfg_plural]].nil? and @main_config[data[:cfg_plural]].size > 0
 					setThreadDependencies(@main_config[data[:cfg_plural]])
 				end
@@ -137,7 +137,7 @@ module MU
 			@ssh_private_key.chomp!
 
 			# XXX only call this if we're creating EC2 resources
-			MU::AWS.createEc2SSHKey(@keypairname, @ssh_public_key)
+			MU::Cloud::AWS.createEc2SSHKey(@keypairname, @ssh_public_key)
 
 		  return [@keypairname, @ssh_private_key, @ssh_public_key]
 		end
@@ -229,7 +229,7 @@ module MU
 		    @my_threads << Thread.new {
 					MU.dupGlobals(parent_thread_id)
 					Thread.current.thread_variable_set("name", "mu_create_container")
-					MU.resource_types.each { |cloudclass, data|
+					MU::Cloud.resource_types.each { |cloudclass, data|
 						if !@main_config[data[:cfg_plural]].nil? and
 						 		@main_config[data[:cfg_plural]].size > 0 and
 								data[:instance].include?(:create)
@@ -244,7 +244,7 @@ module MU
 		    @my_threads << Thread.new {
 					MU.dupGlobals(parent_thread_id)
 					Thread.current.thread_variable_set("name", "mu_groom_container")
-					MU.resource_types.each { |cloudclass, data|
+					MU::Cloud.resource_types.each { |cloudclass, data|
 						if !@main_config[data[:cfg_plural]].nil? and
 						 		@main_config[data[:cfg_plural]].size > 0 and
 								data[:instance].include?(:groom)
@@ -285,7 +285,7 @@ module MU
 
 			  exit 1
 			end
-			
+			deployment = MU.mommacat.deployment
 			deployment["deployment_end_time"]=Time.new.strftime("%I:%M %p on %A, %b %d, %Y").to_s;
 			MU::MommaCat.syncMonitoringConfig	
 
@@ -400,7 +400,7 @@ MESSAGE_END
 				  resource["dependencies"].each { |dependency|
 						# XXX actually, the dependency should identify the target cloud
 						# resource instead of assuming it's the same as the dependent
-						parent_class = MU.resourceClass(resource["cloud"], dependency["type"])
+						parent_class = MU::Cloud.artifact(resource["cloud"], dependency["type"])
 
 						parent_type = parent_class.name
 						parent = parent_type+"_"+dependency["name"]+"_create"
@@ -446,7 +446,7 @@ MESSAGE_END
 					MU.log "Launching thread #{threadname}", MU::DEBUG
 					begin
 						if service['#MUOBJECT'].nil?
-							service['#MUOBJECT'] = service["#MU_CLASS"].new(mommacat: MU.mommacat, kitten_cfg: myservice)
+							service['#MUOBJECT'] = service["#MU_CONTAINER"].new(mommacat: MU.mommacat, kitten_cfg: myservice)
 						end
 					rescue Exception => e
 						MU::MommaCat.unlockAll
@@ -456,7 +456,7 @@ MESSAGE_END
 						run_this_method = service['#MUOBJECT'].method(mode)
 					rescue Exception => e
 						MU::MommaCat.unlockAll
-						raise MuError, "Error invoking #{service["#MU_CLASS"]}.#{mode} for #{myservice['name']} (#{e.inspect})", e.backtrace
+						raise MuError, "Error invoking #{service["#MU_CONTAINER"]}.#{mode} for #{myservice['name']} (#{e.inspect})", e.backtrace
 					end
 					begin
 						MU.log "Running #{service['#MUOBJECT']}.#{mode}", MU::DEBUG

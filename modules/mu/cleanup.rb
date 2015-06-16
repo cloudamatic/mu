@@ -76,7 +76,7 @@ module MU
 			end
 
 			parent_thread_id = Thread.current.object_id
-			regions = MU::AWS.listRegions
+			regions = MU::Cloud::AWS.listRegions
 			deleted_nodes = 0
 			@regionthreads = []
 			keyname = "deploy-#{MU.mu_id}"
@@ -86,27 +86,27 @@ module MU
 					MU.setVar("curRegion", r)
 					MU.log "Checking for cloud resources in #{r}", MU::NOTICE
 					[:CloudFormation, :ServerPool, :LoadBalancer, :Server, :Database, :FirewallRule, :DNSZone, :VPC].each { |type|
-						res_class = MU.resourceClass("AWS", type)
+						res_class = MU::Cloud.artifact("AWS", type)
 						res_class.cleanup(@noop, @ignoremaster, region: r)
 					}
-#					MU::AWS::ServerPool.cleanup(@noop, @ignoremaster, region: r)
-#					MU::AWS::LoadBalancer.cleanup(@noop, @ignoremaster, region: r)
-#					MU::AWS::Server.cleanup(@noop, @ignoremaster, skipsnapshots: @skipsnapshots, onlycloud: @onlycloud, region: r)
-#					MU::AWS::Database.cleanup(@noop, @ignoremaster, region: r)
-#					MU::AWS::FirewallRule.cleanup(@noop, @ignoremaster, region: r)
-#					MU::AWS::DNSZone.cleanup(@noop, region: r)
-#					MU::AWS::VPC.cleanup(@noop, @ignoremaster, region: r)
+#					MU::Cloud::AWS::ServerPool.cleanup(@noop, @ignoremaster, region: r)
+#					MU::Cloud::AWS::LoadBalancer.cleanup(@noop, @ignoremaster, region: r)
+#					MU::Cloud::AWS::Server.cleanup(@noop, @ignoremaster, skipsnapshots: @skipsnapshots, onlycloud: @onlycloud, region: r)
+#					MU::Cloud::AWS::Database.cleanup(@noop, @ignoremaster, region: r)
+#					MU::Cloud::AWS::FirewallRule.cleanup(@noop, @ignoremaster, region: r)
+#					MU::Cloud::AWS::DNSZone.cleanup(@noop, region: r)
+#					MU::Cloud::AWS::VPC.cleanup(@noop, @ignoremaster, region: r)
 
 					# Hit CloudFormation again- sometimes the first delete will quietly
 					# fail due to dependencies.
-#					MU::AWS::CloudFormation.cleanup(@noop, wait: true, region: r)
+#					MU::Cloud::AWS::CloudFormation.cleanup(@noop, wait: true, region: r)
 
-					resp = MU::AWS.ec2(r).describe_key_pairs(
+					resp = MU::Cloud::AWS.ec2(r).describe_key_pairs(
 						filters: [ { name: "key-name", values: [keyname] } ]
 					)
 					resp.data.key_pairs.each { |keypair|
 						MU.log "Deleting key pair #{keypair.key_name} from #{r}"
-						MU::AWS.ec2(r).delete_key_pair(key_name: keypair.key_name) if !@noop
+						MU::Cloud::AWS.ec2(r).delete_key_pair(key_name: keypair.key_name) if !@noop
 					}
 				}
 			}
@@ -131,7 +131,7 @@ module MU
 				}
 				MU.log "Missed some Chef resources in node cleanup, purging now", MU::NOTICE if deadnodes.size > 0
 				deadnodes.uniq.each { |node|
-					MU::AWS::Server.purgeChefResources(node, [], noop)
+					MU::Cloud::AWS::Server.purgeChefResources(node, [], noop)
 				}
 			end
 
@@ -211,7 +211,7 @@ module MU
 			end
 
 			if !@noop
-				MU::AWS.s3(MU.myRegion).delete_object(
+				MU::Cloud::AWS.s3(MU.myRegion).delete_object(
 					bucket: MU.adminBucketName,
 					key: "#{MU.mu_id}-secret"
 				)
