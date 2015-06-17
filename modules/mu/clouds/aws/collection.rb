@@ -20,14 +20,10 @@ module MU
 		# An Amazon CloudFormation stack as configured in {MU::Config::BasketofKittens::collections}
 		class Collection
 
-			# The {MU::Config::BasketofKittens} name for a single resource of this class.
-			def self.cfg_name; "collection".freeze end
-			# The {MU::Config::BasketofKittens} name for a collection of resources of this class.
-			def self.cfg_plural; "collections".freeze end
 			# Whether {MU::Deploy} should hold creation of other resources which depend on this resource until the latter has been created.
-			def self.deps_wait_on_my_creation; true.freeze end
+			def deps_wait_on_my_creation; true.freeze end
 			# Whether {MU::Deploy} should hold creation of this resource until resources on which it depends have been fully created and deployed.
-			def self.waits_on_parent_completion; false.freeze end
+			def waits_on_parent_completion; false.freeze end
 
 			@deploy = nil
 			@stack = nil
@@ -182,7 +178,7 @@ module MU
 
 								mu_zone, junk = MU::Cloud::AWS::DNSZone.find(name: "mu")
 								if !mu_zone.nil?
-									MU::Cloud::AWS::DNSZone.genericDNSEntry(instance_name, instance["private_ip_address"], MU::Cloud::AWS::Server)
+									MU::Cloud::AWS::DNSZone.genericDNSEntry(instance_name, instance["private_ip_address"], MU::Cloud::Server)
 								else
 									MU::MommaCat.addInstanceToEtcHosts(instance["public_ip_address"], instance_name)
 								end
@@ -247,7 +243,7 @@ module MU
 			# @param wait [Boolean]: Block on the removal of this stack; will continue in the background otherwise.
 			# @param region [String]: The cloud provider region
 			# @return [void]
-			def self.cleanup(noop = false, ignoremaster = false, wait: false, region: MU.curRegion)
+			def self.cleanup(noop: false, ignoremaster: false, wait: false, region: MU.curRegion)
 # XXX needs to check tags instead of name- possible?
 				resp = MU::Cloud::AWS.cloudformation(region).describe_stacks
 				resp.stacks.each { |stack|

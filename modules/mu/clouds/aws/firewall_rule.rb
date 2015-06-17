@@ -19,14 +19,10 @@ module MU
 		# A firewall ruleset as configured in {MU::Config::BasketofKittens::firewall_rules}
 		class FirewallRule
 
-			# The {MU::Config::BasketofKittens} name for a single resource of this class.
-			def self.cfg_name; "firewall_rule".freeze end
-			# The {MU::Config::BasketofKittens} name for a collection of resources of this class.
-			def self.cfg_plural; "firewall_rules".freeze end
 			# Whether {MU::Deploy} should hold creation of other resources which depend on this resource until the latter has been created.
-			def self.deps_wait_on_my_creation; true.freeze end
+			def deps_wait_on_my_creation; true.freeze end
 			# Whether {MU::Deploy} should hold creation of this resource until resources on which it depends have been fully created and deployed.
-			def self.waits_on_parent_completion; false.freeze end
+			def waits_on_parent_completion; false.freeze end
 
 			@deploy = nil
 			@ruleset = nil
@@ -310,7 +306,7 @@ module MU
 			# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
 			# @param region [String]: The cloud provider region
 			# @return [void]
-			def self.cleanup(noop = false, ignoremaster = false, region: MU.curRegion)
+			def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion)
 				tagfilters = [
 					{ name: "tag:MU-ID", values: [MU.mu_id] }
 				]

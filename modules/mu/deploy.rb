@@ -114,7 +114,6 @@ module MU
 					setThreadDependencies(@main_config[data[:cfg_plural]])
 				end
 			}
-
 		end
 
 		# Return the parts and pieces of this deploy's node ssh key set. Generate 
@@ -386,7 +385,7 @@ MESSAGE_END
 			end
 
 		  services.each { |resource|
-				res_type = resource["#MU_CLASS"].name
+				res_type = resource["#MU_CLOUDCLASS"].name
 		    name = res_type+"_"+resource["name"]
 
 				# All resources wait to "groom" until after their own "create" thread
@@ -405,13 +404,13 @@ MESSAGE_END
 						parent_type = parent_class.name
 						parent = parent_type+"_"+dependency["name"]+"_create"
 						addDependentThread(parent, "#{name}_groom")
-						if (parent_class.deps_wait_on_my_creation and parent_type != res_type) or resource["#MU_CLASS"].waits_on_parent_completion or dependency['phase'] == "create"
+						if (parent_class.deps_wait_on_my_creation and parent_type != res_type) or resource["#MU_CLOUDCLASS"].waits_on_parent_completion or dependency['phase'] == "create"
 							addDependentThread(parent, "#{name}_create")
 						end
-						if (dependency['phase'] == "groom" or resource["#MU_CLASS"].waits_on_parent_completion) and parent_class.instance_methods(false).include?(:groom)
+						if (dependency['phase'] == "groom" or resource["#MU_CLOUDCLASS"].waits_on_parent_completion) and parent_class.instance_methods(false).include?(:groom)
 							parent = parent_type+"_"+dependency["name"]+"_groom"
 							addDependentThread(parent, "#{name}_groom")
-							if (parent_class.deps_wait_on_my_creation and parent_type != res_type) or resource["#MU_CLASS"].waits_on_parent_completion or dependency['phase'] == "groom"
+							if (parent_class.deps_wait_on_my_creation and parent_type != res_type) or resource["#MU_CLOUDCLASS"].waits_on_parent_completion or dependency['phase'] == "groom"
 								addDependentThread(parent, "#{name}_create")
 							end
 						end
@@ -430,33 +429,33 @@ MESSAGE_END
 		  services.each do |service|
 		    @my_threads << Thread.new(service) { |myservice|
 					MU.dupGlobals(parent_thread_id)
-					threadname = service["#MU_CLASS"].name+"_"+myservice["name"]+"_#{mode}"
+					threadname = service["#MU_CLOUDCLASS"].name+"_"+myservice["name"]+"_#{mode}"
 		      Thread.current.thread_variable_set("name", threadname)
 		      Thread.abort_on_exception = true
 					waitOnThreadDependencies(threadname)
 
-					if service["#MU_CLASS"].instance_methods(false).include?(:groom)
+					if service["#MU_CLOUDCLASS"].instance_methods(false).include?(:groom)
 						if mode == "create"
-							MU::MommaCat.lock(service["#MU_CLASS"].name+"_"+myservice["name"]+"-dependencies")
+							MU::MommaCat.lock(service["#MU_CLOUDCLASS"].name+"_"+myservice["name"]+"-dependencies")
 						elsif mode == "groom"
-							MU::MommaCat.unlock(service["#MU_CLASS"].name+"_"+myservice["name"]+"-dependencies")
+							MU::MommaCat.unlock(service["#MU_CLOUDCLASS"].name+"_"+myservice["name"]+"-dependencies")
 						end
 					end
 
 					MU.log "Launching thread #{threadname}", MU::DEBUG
 					begin
 						if service['#MUOBJECT'].nil?
-							service['#MUOBJECT'] = service["#MU_CONTAINER"].new(mommacat: MU.mommacat, kitten_cfg: myservice)
+							service['#MUOBJECT'] = service["#MU_CLOUDCLASS"].new(mommacat: MU.mommacat, kitten_cfg: myservice)
 						end
 					rescue Exception => e
 						MU::MommaCat.unlockAll
-						raise MuError, "Error instantiating object from #{service["#MU_CLASS"]} (#{e.inspect})", e.backtrace
+						raise MuError, "Error instantiating object from #{service["#MU_CLOUDCLASS"]} (#{e.inspect})", e.backtrace
 					end
 					begin
 						run_this_method = service['#MUOBJECT'].method(mode)
 					rescue Exception => e
 						MU::MommaCat.unlockAll
-						raise MuError, "Error invoking #{service["#MU_CONTAINER"]}.#{mode} for #{myservice['name']} (#{e.inspect})", e.backtrace
+						raise MuError, "Error invoking #{service["#MU_CLOUDCLASS"]}.#{mode} for #{myservice['name']} (#{e.inspect})", e.backtrace
 					end
 					begin
 						MU.log "Running #{service['#MUOBJECT']}.#{mode}", MU::DEBUG

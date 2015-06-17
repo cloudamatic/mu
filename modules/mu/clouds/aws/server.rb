@@ -38,14 +38,10 @@ class Cloud
 			class ChefRunFail < MuError
 			end
 
-			# The {MU::Config::BasketofKittens} name for a single resource of this class.
-			def self.cfg_name; "server".freeze end
-			# The {MU::Config::BasketofKittens} name for a collection of resources of this class.
-			def self.cfg_plural; "servers".freeze end
 			# Whether {MU::Deploy} should hold creation of other resources which depend on this resource until the latter has been created.
-			def self.deps_wait_on_my_creation; false.freeze end
+			def deps_wait_on_my_creation; false.freeze end
 			# Whether {MU::Deploy} should hold creation of this resource until resources on which it depends have been fully created and deployed.
-			def self.waits_on_parent_completion; false.freeze end
+			def waits_on_parent_completion; false.freeze end
 
 			# @return [Mutex]
 			def self.userdata_mutex
@@ -535,10 +531,10 @@ class Cloud
           end
           nat_ssh_key = nat_instance.key_name
           nat_ssh_host = nat_instance.public_ip_address
-						found_servers = MU::MommaCat.getResourceDeployStruct(MU::Cloud::AWS::Server.cfg_plural, name: mu_name)
+						found_servers = MU::MommaCat.getResourceDeployStruct(MU::Cloud::Server.cfg_plural, name: mu_name)
 						if !found_servers.nil? and found_servers.is_a?(Hash)
 							if found_servers.values.first['instance_id'] == nat_instance.instance_id
-								dns_name = MU::Cloud::AWS::DNSZone.genericDNSEntry(found_servers.keys.first, nat_ssh_host, MU::Cloud::AWS::Server, noop: true, sync_wait: config['dns_sync_wait'])
+								dns_name = MU::Cloud::AWS::DNSZone.genericDNSEntry(found_servers.keys.first, nat_ssh_host, MU::Cloud::Server, noop: true, sync_wait: config['dns_sync_wait'])
 							end
 						end
 						nat_ssh_host = dns_name if !dns_name.nil?
@@ -691,9 +687,9 @@ MU.log win_set_pw, MU::ERR
 					dnsthread = Thread.new {
 						MU.dupGlobals(parent_thread_id)
 						if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
-							MU::Cloud::AWS::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Cloud::AWS::Server, sync_wait: sync_wait)
+							MU::Cloud::AWS::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Cloud::Server, sync_wait: sync_wait)
 						else
-							MU::Cloud::AWS::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Cloud::AWS::Server, sync_wait: sync_wait)
+							MU::Cloud::AWS::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Cloud::Server, sync_wait: sync_wait)
 						end
 					}
 				end
@@ -844,9 +840,9 @@ MU.log win_set_pw, MU::ERR
 					dnsthread = Thread.new {
 						MU.dupGlobals(parent_thread_id)
 						if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
-							MU::Cloud::AWS::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Cloud::AWS::Server, sync_wait: sync_wait)
+							MU::Cloud::AWS::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Cloud::Server, sync_wait: sync_wait)
 						else
-							MU::Cloud::AWS::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Cloud::AWS::Server, sync_wait: sync_wait)
+							MU::Cloud::AWS::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Cloud::Server, sync_wait: sync_wait)
 						end
 					}
 				end
@@ -1275,9 +1271,9 @@ MU.log win_set_pw, MU::ERR
 				mu_zone, junk = MU::Cloud::AWS::DNSZone.find(name: "mu")
 				if !mu_zone.nil?
 					if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
-						MU::Cloud::AWS::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Cloud::AWS::Server, sync_wait: @server['dns_sync_wait'])
+						MU::Cloud::AWS::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Cloud::Server, sync_wait: @server['dns_sync_wait'])
 					else
-						MU::Cloud::AWS::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Cloud::AWS::Server, sync_wait: @server['dns_sync_wait'])
+						MU::Cloud::AWS::DNSZone.genericDNSEntry(node, instance.private_ip_address, MU::Cloud::Server, sync_wait: @server['dns_sync_wait'])
 					end
 				else
 					MU::MommaCat.removeInstanceFromEtcHosts(node)
@@ -1372,7 +1368,7 @@ MU.log win_set_pw, MU::ERR
 				# Let's say we've found this instance with the cloud id or IP. Let's go
 				# get its Mu resource name and return that too, if there is one.
 				if !instance.nil? and name.nil?
-					servers = MU::MommaCat.getResourceDeployStruct(cfg_plural, deploy_id: deploy_id)
+					servers = MU::MommaCat.getResourceDeployStruct(MU::Cloud::Server.cfg_plural, deploy_id: deploy_id)
 					if !servers.nil?
 						servers.each { |ext_server|
 							if ext_server.values.size > 0 and ext_server.values.first['instance_id'] == instance.instance_id
@@ -1389,7 +1385,7 @@ MU.log win_set_pw, MU::ERR
 				# you can easily have multiple servers with the same Mu resource name.
 				name_matches = []
 				if !name.nil? and !deploy_id.nil?
-					resource = MU::MommaCat.getResourceDeployStruct(cfg_plural, name: name, deploy_id: deploy_id)
+					resource = MU::MommaCat.getResourceDeployStruct(MU::Cloud::Server.cfg_plural, name: name, deploy_id: deploy_id)
 					MU.log "Searching for instance by name '#{name}'", MU::DEBUG, details: resource
 					if !resource.nil? and resource.keys.size == 1
 						nodename, server = resource.shift
@@ -1989,7 +1985,7 @@ MU.log win_set_pw, MU::ERR
 			# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
 			# @param region [String]: The cloud provider region
 			# @return [void]
-			def self.cleanup(noop = false, ignoremaster = false, skipsnapshots: false, onlycloud: false, region: MU.curRegion)
+			def self.cleanup(noop: false, ignoremaster: false, skipsnapshots: false, onlycloud: false, region: MU.curRegion)
 				tagfilters = [
 					{ name: "tag:MU-ID", values: [MU.mu_id] }
 				]
@@ -2095,14 +2091,14 @@ MU.log win_set_pw, MU::ERR
 						rrsets.resource_record_sets.each { |rrset|
 							if rrset.name.match(/^#{mu_name.downcase}\.server\.#{MU.myInstanceId}\.mu/i)
 								rrset.resource_records.each { |record|
-									MU::Cloud::AWS::DNSZone.genericDNSEntry(mu_name, record.value, MU::Cloud::AWS::Server, delete: true)
+									MU::Cloud::AWS::DNSZone.genericDNSEntry(mu_name, record.value, MU::Cloud::Server, delete: true)
 									cleaned_dns = true
 								}
 							end
 						}
 					end
 
-					deploydata = MU::MommaCat.getResourceDeployStruct(MU::Cloud::AWS::Server.cfg_plural, name: mu_name)
+					deploydata = MU::MommaCat.getResourceDeployStruct(MU::Cloud::Server.cfg_plural, name: mu_name)
 					nodename = nil
 					deploydata.each_pair { |node, data|
 						if data['instance_id'] == id
@@ -2113,11 +2109,11 @@ MU.log win_set_pw, MU::ERR
 					
 					orig_config = nil
 					sources = []
-					if MU.mommacat.original_config.has_key?(MU::Cloud::AWS::Server.cfg_plural)
-						sources.concat(MU.mommacat.original_config[MU::Cloud::AWS::Server.cfg_plural])
+					if MU.mommacat.original_config.has_key?(MU::Cloud::Server.cfg_plural)
+						sources.concat(MU.mommacat.original_config[MU::Cloud::Server.cfg_plural])
 					end
-					if MU.mommacat.original_config.has_key?(MU::Cloud::AWS::ServerPool.cfg_plural)
-						sources.concat(MU.mommacat.original_config[MU::Cloud::AWS::ServerPool.cfg_plural])
+					if MU.mommacat.original_config.has_key?(MU::Cloud::ServerPool.cfg_plural)
+						sources.concat(MU.mommacat.original_config[MU::Cloud::ServerPool.cfg_plural])
 					end
 					sources.each { |svr|
 						if svr['name'] == mu_name
@@ -2127,7 +2123,7 @@ MU.log win_set_pw, MU::ERR
 					}
 
 					# Expunge the IAM profile for this instance class
-					if orig_config["#MU_CLASS"] == "MU::Cloud::AWS::Server"
+					if orig_config["#MU_CLOUDCLASS"] == "MU::Cloud::Server"
 						MU::Cloud::AWS::Server.removeIAMProfile("Server-"+mu_name) if !noop
 					else
 						MU::Cloud::AWS::Server.removeIAMProfile("ServerPool-"+mu_name) if !noop
@@ -2135,7 +2131,7 @@ MU.log win_set_pw, MU::ERR
 
 					MU::Cloud::AWS::Server.purgeChefResources(nodename, orig_config['vault_access'], noop)
 
-					MU.mommacat.notify(MU::Cloud::AWS::Server.cfg_plural, mu_name, nodename, remove: true, sub_key: nodename) if !noop and MU.mommacat
+					MU.mommacat.notify(MU::Cloud::Server.cfg_plural, mu_name, nodename, remove: true, sub_key: nodename) if !noop and MU.mommacat
 
 					# If we didn't manage to find this instance's Route53 entry by sifting
 					# deployment metadata, see if we can get it with the Name tag.
@@ -2145,7 +2141,7 @@ MU.log win_set_pw, MU::ERR
 								rrsets.resource_record_sets.each { |rrset|
 									if rrset.name.match(/^#{tag.value.downcase}\.server\.#{MU.myInstanceId}\.mu/i)
 										rrset.resource_records.each { |record|
-											MU::Cloud::AWS::DNSZone.genericDNSEntry(tag.value, record.value, MU::Cloud::AWS::Server, delete: true) if !noop
+											MU::Cloud::AWS::DNSZone.genericDNSEntry(tag.value, record.value, MU::Cloud::Server, delete: true) if !noop
 										}
 									end
 								}

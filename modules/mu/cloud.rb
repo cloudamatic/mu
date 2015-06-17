@@ -17,14 +17,17 @@ module MU
 	# other provisioning layers.
 	class Cloud
 
-		generic_class_methods = [:deps_wait_on_my_creation, :waits_on_parent_completion, :find, :cleanup]
-		generic_instance_methods = [:create]
+		class MuCloudResourceNotImplemented < StandardError
+		end
+
+		generic_class_methods = [:find, :cleanup]
+		generic_instance_methods = [:create, :deps_wait_on_my_creation, :waits_on_parent_completion]
 
 		# The types of cloud resources we can create, as class objects. Include
 		# methods a class implementing this resource type must support to be
 		# considered valid.
 		@@resource_types = {
-			:CloudFormation => {
+			:Collection => {
 				:cfg_name => "collection",
 				:cfg_plural => "collections",
 				:class => generic_class_methods,
@@ -91,7 +94,7 @@ module MU
 		# Given a cloud layer and resource type, return the class which implements it.
 		# @param cloud [String]: The Cloud layer
 		# @param type [String]: The resource type
-		# @return [Class]: The class object implementing this resource
+		# @return [Class]: The cloud-specific class implementing this resource
 		def self.artifact(cloud = MU::Config.defaultCloud, type)
 			raise MuError, "cloud argument to MU::Cloud.artifact cannot be nil" if cloud.nil?
 			# If we've been asked to resolve this object, that means we plan to use it,
@@ -106,10 +109,17 @@ module MU
 					break
 				end
 			}
+			if cfg_name.nil?
+				raise MuError, "Can't find a cloud resource type named '#{type}'"
+			end
 			if !File.size?(MU.myRoot+"/modules/mu/clouds/#{cloud.downcase}.rb")
 				raise MuError, "Requested to use unsupported provisioning layer #{cloud}"
 			end
-			require "mu/clouds/#{cloud.downcase}/#{cfg_name}"
+			begin
+				require "mu/clouds/#{cloud.downcase}/#{cfg_name}"
+			rescue LoadError => e
+				raise MuCloudResourceNotImplemented
+			end
 			begin
 				myclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(type)
 				# XXX also test whether methods take the expected arguments
@@ -129,8 +139,6 @@ module MU
 
 				return myclass
 			rescue NameError => e
-			puts e.inspect
-			pp e.backtrace
 				raise MuError, "The '#{type}' resource is not supported in cloud #{cloud} (tried MU::#{cloud}::#{type})", e.backtrace
 			end
 		end
@@ -154,6 +162,13 @@ module MU
 					@cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg)
 				end
 
+				def self.cfg_plural
+					MU::Cloud.resource_types[name.to_sym][:cfg_plural]
+				end
+				def self.cfg_name
+					MU::Cloud.resource_types[name.to_sym][:cfg_name]
+				end
+
 				# XXX figure out how to do args and return values here
 				def self.find
 					MU::Cloud.supportedClouds.each { |cloud|
@@ -163,10 +178,16 @@ module MU
 				end
 
 				# XXX figure out how to do args and return values here
-				def self.cleanup
+				def self.cleanup(noop: false,
+					               ignoremaster: false,
+												 region: MU.myRegion)
 					MU::Cloud.supportedClouds.each { |cloud|
-						cloudclass = MU::Cloud.artifact(cloud, name)
-						cloudclass.cleanup
+						begin
+							cloudclass = MU::Cloud.artifact(cloud, name)
+							MU.log "Invoking #{cloudclass}.cleanup in #{region}", MU::DEBUG
+							cloudclass.cleanup(noop: noop, ignoremaster: ignoremaster, region: region)
+						rescue MuCloudResourceNotImplemented
+						end
 					}
 				end
 

@@ -819,7 +819,7 @@ module MU
 									if !data.has_key?("cloud")
 										data["cloud"] = MU::Config.defaultCloud
 									end
-									data['#MU_CLASS'] = MU::Cloud.artifact("AWS", :Server)
+									data['#MU_CLOUDCLASS'] = MU::Cloud.artifact("AWS", :Server)
 								}
 							}
 						end
@@ -1003,9 +1003,9 @@ module MU
 			)
 			mu_dns = nil
 			if !public_dns.nil?
-				mu_dns = MU::Cloud::AWS::DNSZone.genericDNSEntry(node, public_dns, MU::Cloud::AWS::Server, noop: true)
+				mu_dns = MU::Cloud::AWS::DNSZone.genericDNSEntry(node, public_dns, MU::Cloud::Server, noop: true)
 			else
-				mu_dns = MU::Cloud::AWS::DNSZone.genericDNSEntry(node, private_ip, MU::Cloud::AWS::Server, noop: true)
+				mu_dns = MU::Cloud::AWS::DNSZone.genericDNSEntry(node, private_ip, MU::Cloud::Server, noop: true)
 			end
 			mu_dns = nil # XXX HD account hack
 			if user.nil? or (gateway_user.nil? and !gateway_ip.nil? and (public_ip.nil? or public_ip.empty? and (private_ip != gateway_ip)))

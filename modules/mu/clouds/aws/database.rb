@@ -21,14 +21,10 @@ module MU
 		# A database as configured in {MU::Config::BasketofKittens::databases}
 		class Database
 
-			# The {MU::Config::BasketofKittens} name for a single resource of this class.
-			def self.cfg_name; "database".freeze end
-			# The {MU::Config::BasketofKittens} name for a collection of resources of this class.
-			def self.cfg_plural; "databases".freeze end
 			# Whether {MU::Deploy} should hold creation of other resources which depend on this resource until the latter has been created.
-			def self.deps_wait_on_my_creation; true.freeze end
+			def deps_wait_on_my_creation; true.freeze end
 			# Whether {MU::Deploy} should hold creation of this resource until resources on which it depends have been fully created and deployed.
-			def self.waits_on_parent_completion; false.freeze end
+			def waits_on_parent_completion; false.freeze end
 
 			@deploy = nil
 			@db = nil
@@ -219,7 +215,7 @@ module MU
 
 					database = MU::Cloud::AWS::Database.getDatabaseById(@db['identifier'], region: @db['region'])
 
-					MU::Cloud::AWS::DNSZone.genericDNSEntry(database.db_instance_identifier, "#{database.endpoint.address}.", MU::Cloud::AWS::Database, sync_wait: @db['dns_sync_wait'])
+					MU::Cloud::AWS::DNSZone.genericDNSEntry(database.db_instance_identifier, "#{database.endpoint.address}.", MU::Cloud::Database, sync_wait: @db['dns_sync_wait'])
 					if !@db['dns_records'].nil?
 						@db['dns_records'].each { |dnsrec|
 							dnsrec['name'] = database.db_instance_identifier.downcase if !dnsrec.has_key?('name')
@@ -812,7 +808,7 @@ module MU
 
 					database = MU::Cloud::AWS::Database.getDatabaseById(@db['read_replica']['identifier'], region: @db['region'])
 
-					MU::Cloud::AWS::DNSZone.genericDNSEntry(@db['read_replica']['identifier'], "#{database.endpoint.address}.", MU::Cloud::AWS::Database, sync_wait: @db['read_replica']['dns_sync_wait'])
+					MU::Cloud::AWS::DNSZone.genericDNSEntry(@db['read_replica']['identifier'], "#{database.endpoint.address}.", MU::Cloud::Database, sync_wait: @db['read_replica']['dns_sync_wait'])
 					if !@db['read_replica']['dns_records'].nil?
 						@db['read_replica']['dns_records'].each { |dnsrec|
 							dnsrec['name'] = @db['read_replica']['identifier'].downcase if !dnsrec.has_key?('name')
@@ -838,7 +834,7 @@ module MU
 			# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
 			# @param region [String]: The cloud provider region in which to operate
 			# @return [void]
-			def self.cleanup(noop = false, ignoremaster = false, region: MU.curRegion)
+			def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion)
 				resp = MU::Cloud::AWS.rds(region).describe_db_instances
 				threads = []
 				resp.data.db_instances.each { |db|
@@ -943,7 +939,7 @@ module MU
 					db = MU::Cloud::AWS.rds(region).describe_db_instances(db_instance_identifier: db_id).data.db_instances.first
 				end
 
-				MU::Cloud::AWS::DNSZone.genericDNSEntry(db_id, db.endpoint.address, MU::Cloud::AWS::Database, delete: true)
+				MU::Cloud::AWS::DNSZone.genericDNSEntry(db_id, db.endpoint.address, MU::Cloud::Database, delete: true)
 
 				if db.db_instance_status == "deleting" or db.db_instance_status == "deleted" then
 					MU.log "#{db_id} has already been terminated", MU::WARN

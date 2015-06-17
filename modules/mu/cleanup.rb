@@ -85,9 +85,13 @@ module MU
 					MU.dupGlobals(parent_thread_id)
 					MU.setVar("curRegion", r)
 					MU.log "Checking for cloud resources in #{r}", MU::NOTICE
-					[:CloudFormation, :ServerPool, :LoadBalancer, :Server, :Database, :FirewallRule, :DNSZone, :VPC].each { |type|
-						res_class = MU::Cloud.artifact("AWS", type)
-						res_class.cleanup(@noop, @ignoremaster, region: r)
+
+					# We do these in an order that unrolls dependent resources sensibly,
+					# and we hit :Collection twice because AWS CloudFormation sometimes
+					# fails internally.
+					[:Collection, :ServerPool, :LoadBalancer, :Server, :Database, :FirewallRule, :DNSZone, :VPC, :Collection].each { |type|
+						res_class = Object.const_get("MU").const_get("Cloud").const_get(type)
+						res_class.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
 					}
 					# Hit CloudFormation again- sometimes the first delete will quietly
 					# fail due to dependencies.

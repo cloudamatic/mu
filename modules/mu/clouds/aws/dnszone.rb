@@ -21,14 +21,10 @@ module MU
 
 			@zone = nil
 
-			# The {MU::Config::BasketofKittens} name for a single resource of this class.
-			def self.cfg_name; "dnszone".freeze end
-			# The {MU::Config::BasketofKittens} name for a collection of resources of this class.
-			def self.cfg_plural; "dnszones".freeze end
 			# Whether {MU::Deploy} should hold creation of other resources which depend on this resource until the latter has been created.
-			def self.deps_wait_on_my_creation; true.freeze end
+			def deps_wait_on_my_creation; true.freeze end
 			# Whether {MU::Deploy} should hold creation of this resource until resources on which it depends have been fully created and deployed.
-			def self.waits_on_parent_completion; false.freeze end
+			def waits_on_parent_completion; false.freeze end
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::dnszones}
@@ -504,8 +500,8 @@ module MU
 			# @param region [String]: The region into which this zone was deployed.
 			def self.notify(name, id, cfg, region: region)
 				MU.setVar("curRegion", region) if !region.nil?
-				if !MU.mommacat.deployment[cfg_plural].nil? and !MU.mommacat.deployment[self.class.cfg_plural][name].nil?
-					deploydata = MU.mommacat.deployment[cfg_plural][name].dup				
+				if !MU.mommacat.deployment[MU::Cloud::DNSZone.cfg_plural].nil? and !MU.mommacat.deployment[MU::Cloud::DNSZone.cfg_plural][name].nil?
+					deploydata = MU.mommacat.deployment[MU::Cloud::DNSZone.cfg_plural][name].dup
 				else
 					deploydata = Hash.new
 				end
@@ -518,14 +514,14 @@ module MU
 
 				deploydata["region"] = region if !region.nil?
 
-				MU.mommacat.notify(cfg_plural, name, deploydata)
+				MU.mommacat.notify(MU::Cloud::DNSZone.cfg_plural, name, deploydata)
 
 				return deploydata
 			end
 
 			# Called by {MU::Cleanup}. Locates resources that were created by the
 			# currently-loaded deployment, and purges them.
-			def self.cleanup(noop = false, ignoremaster = false, region: MU.curRegion)
+			def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion)
 				checks_to_clean = []
 				MU::Cloud::AWS.route53(region).list_health_checks().health_checks.each { |check|
 					tags = MU::Cloud::AWS.route53(region).list_tags_for_resource(

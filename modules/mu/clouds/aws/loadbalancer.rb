@@ -18,13 +18,10 @@ module MU
 		# A load balancer as configured in {MU::Config::BasketofKittens::loadbalancers}
 		class LoadBalancer
 			# The {MU::Config::BasketofKittens} name for a single resource of this class.
-			def self.cfg_name; "loadbalancer".freeze end
-			# The {MU::Config::BasketofKittens} name for a collection of resources of this class.
-			def self.cfg_plural; "loadbalancers".freeze end
 			# Whether {MU::Deploy} should hold creation of other resources which depend on this resource until the latter has been created.
-			def self.deps_wait_on_my_creation; true.freeze end
+			def deps_wait_on_my_creation; true.freeze end
 			# Whether {MU::Deploy} should hold creation of this resource until resources on which it depends have been fully created and deployed.
-			def self.waits_on_parent_completion; false.freeze end
+			def waits_on_parent_completion; false.freeze end
 
 			@deploy = nil
 			@lb = nil
@@ -264,7 +261,7 @@ module MU
 						end
 					end
 				end
-				MU::Cloud::AWS::DNSZone.genericDNSEntry(lb_name, "#{resp.dns_name}.", MU::Cloud::AWS::LoadBalancer, sync_wait: @loadbalancer['dns_sync_wait'])
+				MU::Cloud::AWS::DNSZone.genericDNSEntry(lb_name, "#{resp.dns_name}.", MU::Cloud::LoadBalancer, sync_wait: @loadbalancer['dns_sync_wait'])
 				if !@loadbalancer['dns_records'].nil?
 					@loadbalancer['dns_records'].each { |dnsrec|
 						dnsrec['name'] = lb_name.downcase if !dnsrec.has_key?('name')
@@ -301,7 +298,7 @@ module MU
 			# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
 			# @param region [String]: The cloud provider region
 			# @return [void]
-			def self.cleanup(noop = false, ignoremaster = false, region: MU.curRegion)
+			def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion)
 				raise MuError, "Can't touch ELBs without MU-ID" if MU.mu_id.nil? or MU.mu_id.empty?
 
 				resp = MU::Cloud::AWS.elb(region).describe_load_balancers
@@ -319,7 +316,7 @@ module MU
 					end
 					if saw_tags.include?("MU-ID") and (saw_tags.include?("MU-MASTER-IP") or ignoremaster)
 						if muid_match and (mumaster_match or ignoremaster)
-							MU::Cloud::AWS::DNSZone.genericDNSEntry(lb.load_balancer_name, lb.dns_name, MU::Cloud::AWS::LoadBalancer, delete: true)
+							MU::Cloud::AWS::DNSZone.genericDNSEntry(lb.load_balancer_name, lb.dns_name, MU::Cloud::LoadBalancer, delete: true)
 							MU.log "Removing Elastic Load Balancer #{lb.load_balancer_name}"
 							MU::Cloud::AWS.elb(region).delete_load_balancer(load_balancer_name: lb.load_balancer_name) if !noop
 						end

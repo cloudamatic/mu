@@ -772,8 +772,7 @@ module MU
 			vpc_names = Array.new
 			nat_routes = Hash.new
 			vpcs.each { |vpc|
-				vpc["#MU_CLASS"] = MU::Cloud.artifact(vpc['cloud'], "VPC")
-				vpc["#MU_CONTAINER"] = Object.const_get("MU").const_get("Cloud").const_get("VPC")
+				vpc["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("VPC")
 				vpc['region'] = config['region'] if vpc['region'].nil?
 				vpc["dependencies"] = Array.new if vpc["dependencies"].nil?
 				subnet_routes = Hash.new
@@ -843,8 +842,7 @@ module MU
 			}
 
 			dnszones.each { |zone|
-				zone["#MU_CLASS"] = MU::Cloud.artifact(server['cloud'], "DNSZone")
-				zone["#MU_CONTAINER"] = Object.const_get("MU").const_get("Cloud").const_get("DNSZone")
+				zone["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("DNSZone")
 				zone['region'] = config['region'] if zone['region'].nil?
 				ext_zone, ext_name = MU::Cloud::AWS::DNSZone.find(name: zone['name'])
 
@@ -916,8 +914,7 @@ module MU
 				firewall_rule_names << acl['name']
 				acl['region'] = config['region'] if acl['region'].nil?
 				acl["dependencies"] = Array.new if acl["dependencies"].nil?
-				acl['#MU_CLASS'] = MU::Cloud.artifact(server['cloud'], "FirewallRule")
-				acl["#MU_CONTAINER"] = Object.const_get("MU").const_get("Cloud").const_get("FirewallRule")
+				acl["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("FirewallRule")
 
 				if !acl["vpc_name"].nil? or !acl["vpc_id"].nil?
 					acl['vpc'] = Hash.new
@@ -927,7 +924,6 @@ module MU
 				if !acl["vpc"].nil?
 					acl['vpc']['region'] = config['region'] if acl['vpc']['region'].nil?
 					acl["vpc"]['cloud'] = acl['cloud']
-					acl['vpc']['#MU_CLASS'] = MU::Cloud.artifact(server['cloud'], "VPC")
 					# If we're using a VPC in this deploy, set it as a dependency
 					if !acl["vpc"]["vpc_name"].nil? and vpc_names.include?(acl["vpc"]["vpc_name"]) and acl["vpc"]['deploy_id'].nil?
 						acl["dependencies"] << {
@@ -958,7 +954,6 @@ module MU
 					if !rule['lbs'].nil?
 						rule['lbs'].each { |lb_name|
 							loadbalancers.each { |lb|
-								lb['#MU_CLASS'] = MU::Cloud.artifact(rule['cloud'], "FirewallRule")
 								if lb['name'] == lb_name
 									acl["dependencies"] << {
 										"type" => "loadbalancer",
@@ -976,11 +971,9 @@ module MU
 			loadbalancers.each { |lb|
 				lb['region'] = config['region'] if lb['region'].nil?
 				lb["dependencies"] = Array.new if lb["dependencies"].nil?
-				lb["#MU_CLASS"] = MU::Cloud.artifact(server['cloud'], "LoadBalancer")
-				lb["#MU_CONTAINER"] = Object.const_get("MU").const_get("Cloud").const_get("LoadBalancer")
+				lb["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("LoadBalancer")
 				if !lb["vpc"].nil?
 					lb['vpc']['region'] = lb['region'] if lb['vpc']['region'].nil?
-					lb['vpc']['#MU_CLASS'] = MU::Cloud.artifact(server['cloud'], "VPC")
 					# If we're using a VPC in this deploy, set it as a dependency
 					if !lb["vpc"]["vpc_name"].nil? and vpc_names.include?(lb["vpc"]["vpc_name"]) and lb["vpc"]['deploy_id'].nil?
 						lb["dependencies"] << {
@@ -1035,8 +1028,7 @@ module MU
 
 			collections.each { |stack|
 				stack['region'] = config['region'] if stack['region'].nil?
-				stack["#MU_CLASS"] = MU::Cloud.artifact(server['cloud'], "CloudFormation")
-				stack["#MU_CONTAINER"] = Object.const_get("MU").const_get("Cloud").const_get("CloudFormation")
+				stack["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Collection")
 			}
 
 			server_pools.each { |pool|
@@ -1047,8 +1039,7 @@ module MU
 				server_names << pool['name']
 				pool['region'] = config['region'] if pool['region'].nil?
 				pool["dependencies"] = Array.new if pool["dependencies"].nil?
-				pool["#MU_CLASS"] = MU::Cloud.artifact(server['cloud'], "ServerPool")
-				pool["#MU_CONTAINER"] = Object.const_get("MU").const_get("Cloud").const_get("ServerPool")
+				pool["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("ServerPool")
 				pool["#MU_GROOMER"] = MU::Groomer.loadGroomer(pool['groomer'])
 				pool['skipinitialupdates'] = true if @skipinitialupdates
 				if pool["basis"]["server"] != nil
@@ -1096,7 +1087,6 @@ module MU
 # TODO make sure any load balancer we ask for has the same VPC configured
 				if !pool["loadbalancers"].nil?
 					pool["loadbalancers"].each { |lb|
-						lb['#MU_CLASS'] = MU::Cloud.artifact(pool['cloud'], "LoadBalancer")
 						if lb["concurrent_load_balancer"] != nil
 							pool["dependencies"] << {
 								"type" => "loadbalancer",
@@ -1139,7 +1129,6 @@ module MU
 				end
 				if pool['ingress_rules'] != nil
 					pool['ingress_rules'].each {|rule|
-						rule["#MU_CLASS"] = MU::Cloud.artifact(pool['cloud'], "FirewallRule")
 						if rule['port'].nil? and rule['port_range'].nil? and rule['proto'] != "icmp"
 							MU.log "Non-ICMP ingress rules must specify a port or port range", MU::ERR
 							ok = false
@@ -1166,8 +1155,7 @@ module MU
 			databases.each { |db|
 				db['region'] = config['region'] if db['region'].nil?
 				db["dependencies"] = Array.new if db["dependencies"].nil?
-				db["#MU_CLASS"] = MU::Cloud.artifact(server['cloud'], "Database")
-				db["#MU_CONTAINER"] = Object.const_get("MU").const_get("Cloud").const_get("Database")
+				db["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Database")
 				if db['collection'] != nil
 					# XXX don't do this if 'true' was explicitly asked for (as distinct
 					# from default)
@@ -1333,8 +1321,7 @@ module MU
 					ok = false
 				end
 				server_names << server['name']
-				server["#MU_CLASS"] = MU::Cloud.artifact(server['cloud'], "Server")
-				server["#MU_CONTAINER"] = Object.const_get("MU").const_get("Cloud").const_get("Server")
+				server["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Server")
 				server["#MU_GROOMER"] = MU::Groomer.loadGroomer(server['groomer'])
 				server['region'] = config['region'] if server['region'].nil?
 				server["dependencies"] = Array.new if server["dependencies"].nil?
@@ -1356,7 +1343,6 @@ module MU
 
 				if server['ingress_rules'] != nil
 					server['ingress_rules'].each {|rule|
-						rule["#MU_CLASS"] = MU::Cloud.artifact(server['cloud'], "FirewallRule")
 						if rule['port'].nil? and rule['port_range'].nil? and rule['proto'] != "icmp"
 							MU.log "Non-ICMP ingress rules must specify a port or port range", MU::ERR
 							ok = false
@@ -1378,7 +1364,6 @@ module MU
 				if !server["vpc"].nil?
 					server['vpc']['region'] = server['region'] if server['vpc']['region'].nil?
 					server['vpc']['cloud'] = server['cloud'] if server['vpc']['cloud'].nil?
-					server['vpc']['#MU_CLASS'] = MU::Cloud.artifact(server['cloud'], "VPC")
 					# If we're using a local VPC in this deploy, set it as a dependency and get the subnets right
 					if !server["vpc"]["vpc_name"].nil? and vpc_names.include?(server["vpc"]["vpc_name"]) and server["vpc"]["deploy_id"].nil?
 						server["dependencies"] << {
@@ -1418,7 +1403,6 @@ module MU
 
 				if !server["add_firewall_rules"].nil?
 					server["add_firewall_rules"].each { |acl_include|
-						acl_include['#MU_CLASS'] = MU::Cloud.artifact(server['cloud'], "FirewallRule")
 						if firewall_rule_names.include?(acl_include["rule_name"])
 							server["dependencies"] << {
 								"type" => "firewall_rule",
@@ -1429,7 +1413,6 @@ module MU
 				end
 				if !server["loadbalancers"].nil?
 					server["loadbalancers"].each { |lb|
-						lb['#MU_CLASS'] = MU::Cloud.artifact(server['cloud'], "LoadBalancer")
 						if lb["concurrent_load_balancer"] != nil
 							server["dependencies"] << {
 								"type" => "loadbalancer",

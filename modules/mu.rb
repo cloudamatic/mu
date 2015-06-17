@@ -328,6 +328,7 @@ module MU
 	autoload :Deploy, 'mu/deploy'
 	autoload :MommaCat, 'mu/mommacat'
 	require 'mu/cloud'
+	require 'mu/groomer'
 
 # XXX these guys to move into mu/groomer
 	# List of known/supported grooming agents (configuration management tools)
