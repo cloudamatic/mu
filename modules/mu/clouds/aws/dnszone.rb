@@ -181,7 +181,7 @@ module MU
 			end
 
 			# Create a Route53 health check. 
-			# @param cfg [Hash]: Parsed hash of {MU::Config::BasketofKittens::dnszones::healthcheck}
+			# @param cfg [Hash]: Parsed hash of {MU::Config::BasketofKittens::dnszones::records::healthcheck}
 			# @param target [String]: The IP address of FQDN of the target resource to check.
 			def self.createHealthCheck(cfg, target)
 

@@ -628,7 +628,7 @@ MU.log win_set_pw, MU::ERR
 			end
 			# Apply tags, bootstrap Chef, and other administravia for a new instance.
 			# Return SSH configuration information for getting into said instance.
-			# @param server [Hash]: The #{MU::Config::BasketofKittens::Server} descriptor for this node
+			# @param server [Hash]: The #{MU::Config::BasketofKittens::servers} descriptor for this node
 			# @param instance [OpenStruct]: The cloud provider's full descriptor for this instance.
 			# @param keypairname [String]: The name of the SSH keypair used to access this node
 			# @param environment [String]: This node's environment
