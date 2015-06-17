@@ -77,6 +77,18 @@ module MU
 			},
 		}.freeze
 
+		# Initialize empty classes for each of these. We'll fill them with code
+		# later; we're doing this here because otherwise the parser yells about
+		# missing classes, even though they're created at runtime.
+		class Collection; end
+		class Database; end
+		class DNSZone; end
+		class FirewallRule; end
+		class LoadBalancer; end
+		class Server; end
+		class ServerPool; end
+		class VPC; end
+
 		# A list of supported cloud resource types as Mu classes
 		def self.resource_types ; @@resource_types end
 
@@ -93,7 +105,7 @@ module MU
 
 		# Given a cloud layer and resource type, return the class which implements it.
 		# @param cloud [String]: The Cloud layer
-		# @param type [String]: The resource type
+		# @param type [String]: The resource type. Can be the full class name, symbolic name, or Basket of Kittens configuration shorthand for the resource type.
 		# @return [Class]: The cloud-specific class implementing this resource
 		def self.artifact(cloud = MU::Config.defaultCloud, type)
 			raise MuError, "cloud argument to MU::Cloud.artifact cannot be nil" if cloud.nil?
@@ -103,13 +115,15 @@ module MU
 			@@resource_types.each_pair { |name, cloudclass|
 				if name == type.to_sym or
 					 cloudclass[:cfg_name] == type or
-					 cloudclass[:cfg_plural] == type
+					 cloudclass[:cfg_plural] == type or
+					 Object.const_get("MU").const_get("Cloud").const_get(name) == type
 					cfg_name = cloudclass[:cfg_name]
 					type = name
 					break
 				end
 			}
 			if cfg_name.nil?
+				puts caller
 				raise MuError, "Can't find a cloud resource type named '#{type}'"
 			end
 			if !File.size?(MU.myRoot+"/modules/mu/clouds/#{cloud.downcase}.rb")
@@ -144,13 +158,16 @@ module MU
 		end
 
 		@@resource_types.each_pair { |name, attrs|
-			resource_container = Class.new(MU::Cloud) {
+			Object.const_get("MU").const_get("Cloud").const_get(name).class_eval {
 				attr_reader :config
 				attr_reader :cloud
 				attr_reader :environment
 				attr_reader :deploydata
 				attr_reader :cloudclass
 				attr_reader :cloudobj
+				def self.shortname
+					name.sub(/.*?::([^:]+)$/, '\1')
+				end
 
 				def initialize(mommacat: mommacat = nil,
 											 kitten_cfg: kitten_cfg)
@@ -158,34 +175,34 @@ module MU
 					@cloud = kitten_cfg['cloud']
 					@environment = kitten_cfg['environment']
 					@deploydata = mommacat.deployment
-					@cloudclass = MU::Cloud.artifact(@cloud, self.class.name)
+					@cloudclass = MU::Cloud.artifact(@cloud, self.class.shortname)
 					@cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg)
 				end
 
 				def self.cfg_plural
-					MU::Cloud.resource_types[name.to_sym][:cfg_plural]
+					MU::Cloud.resource_types[shortname.to_sym][:cfg_plural]
 				end
 				def self.cfg_name
-					MU::Cloud.resource_types[name.to_sym][:cfg_name]
+					MU::Cloud.resource_types[shortname.to_sym][:cfg_name]
 				end
 
-				# XXX figure out how to do args and return values here
-				def self.find
+				def self.find(*flags)
 					MU::Cloud.supportedClouds.each { |cloud|
-						cloudclass = MU::Cloud.artifact(cloud, name)
-						cloudclass.find
+						begin
+							cloudclass = MU::Cloud.artifact(cloud, shortname)
+							found = cloudclass.find(flags.first)
+							return found if !found.nil? # XXX actually, we should merge all results
+						rescue MuCloudResourceNotImplemented
+						end
 					}
 				end
 
-				# XXX figure out how to do args and return values here
-				def self.cleanup(noop: false,
-					               ignoremaster: false,
-												 region: MU.myRegion)
+				def self.cleanup(*flags)
 					MU::Cloud.supportedClouds.each { |cloud|
 						begin
-							cloudclass = MU::Cloud.artifact(cloud, name)
-							MU.log "Invoking #{cloudclass}.cleanup in #{region}", MU::DEBUG
-							cloudclass.cleanup(noop: noop, ignoremaster: ignoremaster, region: region)
+							cloudclass = MU::Cloud.artifact(cloud, shortname)
+							MU.log "Invoking #{cloudclass}.cleanup", MU::DEBUG, details: flags
+							cloudclass.cleanup(flags.first)
 						rescue MuCloudResourceNotImplemented
 						end
 					}
@@ -199,9 +216,7 @@ module MU
 						@cloudobj.method(method).call
 					end
 				}
-
-			}
-			Object.const_set name, resource_container
+			} # end dynamic class generation block
 		}
 
 	end

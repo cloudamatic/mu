@@ -41,7 +41,7 @@ module MU
 			def create
 				# old-style VPC reference
 				if !@ruleset['vpc_id'].nil? or !@ruleset['vpc_name'].nil?
-					existing_vpc, vpc_name = MU::Cloud::AWS::VPC.find(
+					existing_vpc, vpc_name = MU::Cloud::VPC.find(
 						id: @ruleset['vpc_id'],
 						name: @ruleset['vpc_name'],
 						region: @ruleset['region']
@@ -81,7 +81,7 @@ module MU
 			# @param sg_id [String]: The cloud provider identifier of the ruleset.
 			def self.notifyDeploy(name, sg_id, region: MU.curRegion)
 				sg_data = MU.structToHash(
-						MU::Cloud::AWS::FirewallRule.find(sg_id: sg_id, region: region)
+						MU::Cloud::FirewallRule.find(sg_id: sg_id, region: region)
 					)
 				sg_data["group_id"] = sg_id
 				MU.mommacat.notify("firewall_rules", name, sg_data)
@@ -167,7 +167,7 @@ module MU
 					secgroup = MU::Cloud::AWS.ec2(region).create_security_group(sg_struct)
 				rescue Aws::EC2::Errors::InvalidGroupDuplicate
 					MU.log "EC2 Security Group #{groupname} already exists, using it", MU::WARN
-					secgroup = MU::Cloud::AWS::FirewallRule.find(name: groupname, region: region)
+					secgroup = MU::Cloud::FirewallRule.find(name: groupname, region: region)
 				end
 
 				begin
@@ -306,7 +306,7 @@ module MU
 			# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
 			# @param region [String]: The cloud provider region
 			# @return [void]
-			def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion)
+			def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
 				tagfilters = [
 					{ name: "tag:MU-ID", values: [MU.mu_id] }
 				]
@@ -414,7 +414,7 @@ module MU
 			def self.setRules(sg_id, rules, add_to_self: add_to_self = false, ingress: ingress = true, egress: egress = false, region: MU.curRegion)
 				return if rules.nil? or rules.size == 0
 
-				sg = MU::Cloud::AWS::FirewallRule.find(sg_id: sg_id, region: region)
+				sg = MU::Cloud::FirewallRule.find(sg_id: sg_id, region: region)
 				raise MuError, "Couldn't find firewall ruleset with id #{sg_id}" if sg.nil?
 				MU.log "Setting rules in Security Group #{sg.group_name} (#{sg_id})"
 
@@ -520,7 +520,7 @@ module MU
 						if !rule['lbs'].nil?
 							ec2_rule[:ip_ranges] = Array.new
 							rule['lbs'].each { |lb_name|
-								lb = MU::Cloud::AWS::LoadBalancer.find(name: lb_name, dns_name: lb_name, region: region)
+								lb = MU::Cloud::LoadBalancer.find(name: lb_name, dns_name: lb_name, region: region)
 								if lb.nil?
 									MU.log "Couldn't find a Load Balancer named #{lb_name}", MU::ERR
 									raise MuError, "deploy failure"
@@ -540,9 +540,9 @@ module MU
 							ec2_rule[:user_id_group_pairs] = Array.new if ec2_rule[:user_id_group_pairs].nil?
 							rule['sgs'].each { |sg_name|
 								if sg_name.match(/^sg-/)
-									sg = MU::Cloud::AWS::FirewallRule.find(sg_id: sg_name, region: region)
+									sg = MU::Cloud::FirewallRule.find(sg_id: sg_name, region: region)
 								else
-									sg = MU::Cloud::AWS::FirewallRule.find(name: sg_name, region: region)
+									sg = MU::Cloud::FirewallRule.find(name: sg_name, region: region)
 								end
 								if sg.nil?
 									raise MuError, "Attempted to reference non-existing Security Group #{sg_name}"

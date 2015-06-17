@@ -243,7 +243,7 @@ module MU
 				end
 				@deploy.notify("vpcs", @vpc['name'], @vpc)
 
-				mu_zone, junk = MU::Cloud::AWS::DNSZone.find(name: "mu")
+				mu_zone, junk = MU::Cloud::DNSZone.find(name: "mu")
 				if !mu_zone.nil?
 					MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc_id, region: @vpc['region'])
 				end
@@ -263,7 +263,7 @@ module MU
 						begin
 							if peer['account'].nil? or peer['account'] == MU.account_number
 								tag_key, tag_value = peer['vpc']['tag'].split(/=/, 2) if !peer['vpc']['tag'].nil?
-								peer_desc, peer_name = MU::Cloud::AWS::VPC.find(
+								peer_desc, peer_name = MU::Cloud::VPC.find(
 									id: peer['vpc']['vpc_id'],
 									name: peer['vpc']['vpc_name'],
 									deploy_id: peer['vpc']['deploy_id'],
@@ -388,7 +388,7 @@ module MU
 									:destination_cidr_block => route['destination_network']
 								}
 
-								nat_instance, mu_name = MU::Cloud::AWS::Server.find(
+								nat_instance, mu_name = MU::Cloud::Server.find(
 									id: route["nat_host_id"],
 									name: route["nat_host_name"],
 									region: @vpc['region']
@@ -815,11 +815,11 @@ module MU
 				nat_host_name = nil
 				nat_ssh_user = nil
 				if vpc_conf["nat_host_name"] != nil
-					nat, mu_name = MU::Cloud::AWS::Server.find(name: vpc_conf["nat_host_name"], region: vpc_conf['region'])
+					nat, mu_name = MU::Cloud::Server.find(name: vpc_conf["nat_host_name"], region: vpc_conf['region'])
 					raise MuError, "Can't find a bastion host with name #{vpc_conf["nat_host_name"]}" if nat == nil
 					nat_host_name = nat.public_dns_name
 				elsif vpc_conf["nat_host_id"] != nil
-					nat, mu_name = MU::Cloud::AWS::Server.find(id: vpc_conf["nat_host_id"], region: vpc_conf['region'])
+					nat, mu_name = MU::Cloud::Server.find(id: vpc_conf["nat_host_id"], region: vpc_conf['region'])
 					raise MuError, "Can't find a bastion host with id #{vpc_conf["nat_host_id"]}" if nat == nil
 					nat_host_name = nat.public_dns_name
 				end
@@ -833,7 +833,7 @@ module MU
 			# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
 			# @param region [String]: The cloud provider region
 			# @return [void]
-			def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion)
+			def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
 				tagfilters = [
 					{ name: "tag:MU-ID", values: [MU.mu_id] }
 				]
@@ -1143,7 +1143,7 @@ module MU
 						MU.log "Couldn't delete VPC #{vpc.vpc_id}: #{e.inspect}", MU::ERR
 					end
 
-					mu_zone, junk = MU::Cloud::AWS::DNSZone.find(name: "mu", region: region)
+					mu_zone, junk = MU::Cloud::DNSZone.find(name: "mu", region: region)
 					if !mu_zone.nil?
 						MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc.vpc_id, remove: true)
 					end

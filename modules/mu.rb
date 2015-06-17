@@ -33,6 +33,12 @@ gem "chef-vault"
 autoload :Chef, 'chef-vault'
 autoload :ChefVault, 'chef-vault'
 
+class Object
+	def metaclass
+		class << self; self; end
+	end
+end
+
 # XXX Explicit autoloads for child classes of :Chef. This only seems to be
 # necessary for independent groom invocations from MommaCat. It's not at all
 # clear why. Chef bug? Autoload threading weirdness?
@@ -89,6 +95,7 @@ end
 
 require 'mu/logger'
 module MU
+
 	# Wrapper class for fatal Exceptions. Gives our internals something to
 	# inherit that will log an error message appropriately before bubbling up.
 	class MuError < StandardError

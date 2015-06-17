@@ -190,7 +190,7 @@ class Cloud
 					asg_options[:vpc_zone_identifier] = @pool["vpc_zone_identifier"]
 				elsif @pool["vpc"]
 					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::Cloud::AWS::VPC.parseVPC(@pool['vpc'])
-					nat_instance, mu_name = MU::Cloud::AWS::Server.find(
+					nat_instance, mu_name = MU::Cloud::Server.find(
 						id: @pool['vpc']['nat_host_id'],
 						name: @pool['vpc']['nat_host_name']
 					)
@@ -214,7 +214,7 @@ class Cloud
 
 				if !@pool["add_firewall_rules"].nil?
 					@pool["add_firewall_rules"].each { |acl|
-						sg = MU::Cloud::AWS::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"])
+						sg = MU::Cloud::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"])
 						if sg.nil?
 							MU.log "Couldn't find dependent security group #{acl} for server pool #{@pool['name']}", MU::ERR, details: MU.mommacat.deployment['firewall_rules']
 							raise MuError, "deploy failure"
@@ -317,7 +317,7 @@ class Cloud
 					groomthreads = Array.new
 					desc.instances.each { |member|
 						begin
-							instance, mu_name = MU::Cloud::AWS::Server.find(id: member.instance_id)
+							instance, mu_name = MU::Cloud::Server.find(id: member.instance_id)
 							groomthreads << Thread.new {
 								MU.dupGlobals(parent_thread_id)
 								MU.mommacat.groomNode(instance, @pool['name'], "server_pool", reraise_fail: true, sync_wait: @pool['dns_sync_wait'])
@@ -360,7 +360,7 @@ class Cloud
 			# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
 			# @param region [String]: The cloud provider region
 			# @return [void]
-			def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion)
+			def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
 				filters = [ { name: "key", values: ["MU-ID"] } ]
 				if !ignoremaster
 					filters << { name: "key", values: ["MU-MASTER-IP"] }

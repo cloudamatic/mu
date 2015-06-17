@@ -298,7 +298,7 @@ module MU
 
 		def sendMail()
 		
-		  $str = JSON.pretty_generate(deployment)
+		  $str = JSON.pretty_generate(MU.mommacat.deployment)
 
 			admin_addrs = @admins.map { |admin|
 				admin['name']+" <"+admin['email']+">"

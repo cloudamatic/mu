@@ -176,7 +176,7 @@ module MU
 									key_name: instance["key_name"]
 								)
 
-								mu_zone, junk = MU::Cloud::AWS::DNSZone.find(name: "mu")
+								mu_zone, junk = MU::Cloud::DNSZone.find(name: "mu")
 								if !mu_zone.nil?
 									MU::Cloud::AWS::DNSZone.genericDNSEntry(instance_name, instance["private_ip_address"], MU::Cloud::Server)
 								else
@@ -240,10 +240,10 @@ module MU
 			# Remove all CloudFormation stacks associated with the currently loaded deployment.
 			# @param noop [Boolean]: If true, will only print what would be done
 			# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
-			# @param wait [Boolean]: Block on the removal of this stack; will continue in the background otherwise.
 			# @param region [String]: The cloud provider region
+			# @param wait [Boolean]: Block on the removal of this stack; AWS deletion will continue in the background otherwise if false.
 			# @return [void]
-			def self.cleanup(noop: false, ignoremaster: false, wait: false, region: MU.curRegion)
+			def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, wait: false)
 # XXX needs to check tags instead of name- possible?
 				resp = MU::Cloud::AWS.cloudformation(region).describe_stacks
 				resp.stacks.each { |stack|

@@ -63,7 +63,7 @@ module MU
 				sgs = Array.new
 				if !@loadbalancer["add_firewall_rules"].nil?
 					@loadbalancer["add_firewall_rules"].each { |acl|
-						sg = MU::Cloud::AWS::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"])
+						sg = MU::Cloud::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"])
 						if sg.nil?
 							MU.log "Couldn't find dependent security group #{acl} for Load Balancer #{@loadbalancer['name']}", MU::ERR, details: MU.mommacat.deployment['firewall_rules']
 							raise MuError, "deploy failure"
@@ -298,7 +298,7 @@ module MU
 			# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
 			# @param region [String]: The cloud provider region
 			# @return [void]
-			def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion)
+			def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
 				raise MuError, "Can't touch ELBs without MU-ID" if MU.mu_id.nil? or MU.mu_id.empty?
 
 				resp = MU::Cloud::AWS.elb(region).describe_load_balancers

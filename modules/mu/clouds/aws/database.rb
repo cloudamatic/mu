@@ -241,7 +241,7 @@ module MU
 							end
 							if @db["add_firewall_rules"] and !@db["add_firewall_rules"].empty?
 								@db["add_firewall_rules"].each { |acl|
-									sg = MU::Cloud::AWS::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"], region: @db['region'])
+									sg = MU::Cloud::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"], region: @db['region'])
 									if sg and mod_config[:vpc_security_group_ids].nil?
 										mod_config[:vpc_security_group_ids] = []
 									end	
@@ -300,7 +300,7 @@ module MU
 			def createSubnetGroup(config)
 				# Finding subnets, creating security groups/adding holes, create subnet group 
 				if @db['vpc'] and !@db['vpc'].empty?
-					existing_vpc, vpc_name = MU::Cloud::AWS::VPC.find(
+					existing_vpc, vpc_name = MU::Cloud::VPC.find(
 						id: @db["vpc"]["vpc_id"],
 						name: @db["vpc"]["vpc_name"],
 						region: @db['region']
@@ -314,7 +314,7 @@ module MU
 					# Getting subnet IDs
 					if !@db["vpc"]["subnets"].empty?
 						@db["vpc"]["subnets"].each { |subnet|
-							subnet_struct = MU::Cloud::AWS::VPC.findSubnet(
+							subnet_struct = MU::Cloud::VPC.findSubnet(
 								id: subnet["subnet_id"],
 								name: subnet["subnet_name"],
 								vpc_id: vpc_id,
@@ -362,7 +362,7 @@ module MU
 
 					# Find NAT and create holes in security groups
 					if @db["vpc"]["nat_host_name"] or @db["vpc"]["nat_host_id"]
-						nat_instance, mu_name = MU::Cloud::AWS::Server.find(
+						nat_instance, mu_name = MU::Cloud::Server.find(
 							id: @db["vpc"]["nat_host_id"],
 							name: @db["vpc"]["nat_host_name"],
 							region: @db['region']
@@ -388,7 +388,7 @@ module MU
 
 						if @db["add_firewall_rules"] and !@db["add_firewall_rules"].empty?
 							@db["add_firewall_rules"].each { |acl|
-								sg = MU::Cloud::AWS::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"], region: @db['region'])
+								sg = MU::Cloud::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"], region: @db['region'])
 								config[:vpc_security_group_ids] << sg.group_id if sg
 							}
 						end
@@ -834,7 +834,7 @@ module MU
 			# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
 			# @param region [String]: The cloud provider region in which to operate
 			# @return [void]
-			def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion)
+			def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
 				resp = MU::Cloud::AWS.rds(region).describe_db_instances
 				threads = []
 				resp.data.db_instances.each { |db|

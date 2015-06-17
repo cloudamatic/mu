@@ -89,13 +89,15 @@ module MU
 					# We do these in an order that unrolls dependent resources sensibly,
 					# and we hit :Collection twice because AWS CloudFormation sometimes
 					# fails internally.
-					[:Collection, :ServerPool, :LoadBalancer, :Server, :Database, :FirewallRule, :DNSZone, :VPC, :Collection].each { |type|
-						res_class = Object.const_get("MU").const_get("Cloud").const_get(type)
-						res_class.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
-					}
-					# Hit CloudFormation again- sometimes the first delete will quietly
-					# fail due to dependencies.
-#					MU::Cloud::AWS::CloudFormation.cleanup(@noop, wait: true, region: r)
+					MU::Cloud::Collection.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
+					MU::Cloud::ServerPool.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
+					MU::Cloud::LoadBalancer.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
+					MU::Cloud::Server.cleanup(skipsnapshots: @skipsnapshots, onlycloud: @onlycloud, noop: @noop, ignoremaster: @ignoremaster, region: r)
+					MU::Cloud::Database.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
+					MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
+					MU::Cloud::DNSZone.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
+					MU::Cloud::VPC.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
+					MU::Cloud::Collection.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, wait: true)
 
 					resp = MU::Cloud::AWS.ec2(r).describe_key_pairs(
 						filters: [ { name: "key-name", values: [keyname] } ]

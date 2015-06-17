@@ -445,7 +445,7 @@ class Cloud
 				security_groups << node_sg
 				if !@server["add_firewall_rules"].nil?
 					@server["add_firewall_rules"].each { |acl|
-						sg = MU::Cloud::AWS::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"], region: @server['region'])
+						sg = MU::Cloud::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"], region: @server['region'])
 						if sg.nil?
 							MU.log "Couldn't find dependent security group #{acl} for server #{node}", MU::ERR
 							raise MuError, "deploy failure"
@@ -520,7 +520,7 @@ class Cloud
         if !config["vpc"]["nat_host_name"].nil? or
             !config["vpc"]["nat_host_id"].nil?
           nat_ssh_user = config["vpc"]["nat_ssh_user"]
-          nat_instance, mu_name = MU::Cloud::AWS::Server.find(
+          nat_instance, mu_name = MU::Cloud::Server.find(
             id: config["vpc"]["nat_host_id"],
             name: config["vpc"]["nat_host_name"],
 							region: config['region']
@@ -663,7 +663,7 @@ MU.log win_set_pw, MU::ERR
 							MU.log "Waiting for EC2 instance #{node} to be ready...", MU::NOTICE
 						end
 						sleep 20
-						instance, mu_name = MU::Cloud::AWS::Server.find(id: id, region: server['region'])
+						instance, mu_name = MU::Cloud::Server.find(id: id, region: server['region'])
 					end
 				rescue Aws::EC2::Errors::ServiceError => e
 					if retries < 30
@@ -763,7 +763,7 @@ MU.log win_set_pw, MU::ERR
 						device_index = 1
 						server['vpc']['subnets'].each { |subnet|
 							tag_key, tag_value = server['vpc']['tag'].split(/=/, 2) if !server['vpc']['tag'].nil?
-							existing_vpc, vpc_name = MU::Cloud::AWS::VPC.find(
+							existing_vpc, vpc_name = MU::Cloud::VPC.find(
 								id: server['vpc']['vpc_id'],
 								name: server['vpc']['vpc_name'],
 								deploy_id: server['vpc']['deploy_id'],
@@ -820,7 +820,7 @@ MU.log win_set_pw, MU::ERR
 
 			  MU.log "EC2 instance #{node} has id #{instance.instance_id}", MU::DEBUG
 
-				instance, mu_name = MU::Cloud::AWS::Server.find(id: instance.instance_id, region: server['region'])
+				instance, mu_name = MU::Cloud::Server.find(id: instance.instance_id, region: server['region'])
 
 				if !server['dns_records'].nil?
 					server['dns_records'].each { |dnsrec|
@@ -1268,7 +1268,7 @@ MU.log win_set_pw, MU::ERR
 					}
 				end
 
-				mu_zone, junk = MU::Cloud::AWS::DNSZone.find(name: "mu")
+				mu_zone, junk = MU::Cloud::DNSZone.find(name: "mu")
 				if !mu_zone.nil?
 					if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
 						MU::Cloud::AWS::DNSZone.genericDNSEntry(node, instance.public_dns_name, MU::Cloud::Server, sync_wait: @server['dns_sync_wait'])
@@ -1508,7 +1508,7 @@ MU.log win_set_pw, MU::ERR
 					MU::Cloud.artifact("AWS", :VPC)
 					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::Cloud::AWS::VPC.parseVPC(server['vpc'])
 					if !nat_host_name.nil?
-						nat_instance, mu_name = MU::Cloud::AWS::Server.find(
+						nat_instance, mu_name = MU::Cloud::Server.find(
 							id: server["vpc"]["nat_host_id"],
 							name: server["vpc"]["nat_host_name"],
 							region: server['region']
@@ -1558,7 +1558,7 @@ MU.log win_set_pw, MU::ERR
 				ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
 
 				if !chef_rerun_only
-					instance, mu_name = MU::Cloud::AWS::Server.find(id: server["instance_id"], region: server['region'])
+					instance, mu_name = MU::Cloud::Server.find(id: server["instance_id"], region: server['region'])
 					tagVolumes(server["instance_id"])
 				        
 				  # If we depend on database instances, make sure those database instances'
@@ -1566,7 +1566,7 @@ MU.log win_set_pw, MU::ERR
 					if server["dependencies"] != nil then
 						server["dependencies"].each { |dependent_on|
 							if dependent_on['type'] != nil and dependent_on['type'] == "database" then
-								database = MU::Cloud::AWS::Database.find(name: dependent_on["name"], region: server["region"])
+								database = MU::Cloud::Database.find(name: dependent_on["name"], region: server["region"])
 								if database.nil?
 									MU.log "Couldn't find identifier for dependent database #{dependent_on['name']} in #{server["region"]}", MU::ERR
 									raise MuError, "Couldn't find identifier for dependent database #{dependent_on['name']} in #{server["region"]}"
@@ -1585,7 +1585,7 @@ MU.log win_set_pw, MU::ERR
 					# XXX refactor this into the LoadBalancer resource
 					if !server['loadbalancers'].nil?
 						server['loadbalancers'].each { |lb|
-							lb_res = MU::Cloud::AWS::LoadBalancer.find(
+							lb_res = MU::Cloud::LoadBalancer.find(
 								name: lb['concurrent_load_balancer'],
 								dns_name: lb["existing_load_balancer"],
 								region: server['region']
@@ -1712,7 +1712,7 @@ MU.log win_set_pw, MU::ERR
 
 				storage_list = Array.new
 				if exclude_storage
-					instance, mu_name = MU::Cloud::AWS::Server.find(id: instance_id, region: region)
+					instance, mu_name = MU::Cloud::Server.find(id: instance_id, region: region)
 					instance.block_device_mappings.each { |vol|
 						if vol.device_name != instance.root_device_name 
 							storage_list << MU::Cloud::AWS::Server.convertBlockDeviceMapping(
@@ -1985,7 +1985,7 @@ MU.log win_set_pw, MU::ERR
 			# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
 			# @param region [String]: The cloud provider region
 			# @return [void]
-			def self.cleanup(noop: false, ignoremaster: false, skipsnapshots: false, onlycloud: false, region: MU.curRegion)
+			def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, skipsnapshots: false, onlycloud: false)
 				tagfilters = [
 					{ name: "tag:MU-ID", values: [MU.mu_id] }
 				]
@@ -2075,13 +2075,13 @@ MU.log win_set_pw, MU::ERR
 				cleaned_dns = false
 				mu_name = nil
 				MU::Cloud.artifact("AWS", :DNSZone)
-				mu_zone, junk = MU::Cloud::AWS::DNSZone.find(name: "mu")
+				mu_zone, junk = MU::Cloud::DNSZone.find(name: "mu")
 				if !mu_zone.nil?
 					dns_targets = []
 					rrsets = MU::Cloud::AWS.route53(region).list_resource_record_sets(hosted_zone_id: mu_zone.id)
 				end
 				begin
-					junk, mu_name = MU::Cloud::AWS::Server.find(id: id, region: region)
+					junk, mu_name = MU::Cloud::Server.find(id: id, region: region)
 				rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
 					MU.log "Instance #{id} no longer exists", MU::DEBUG
 				end
