@@ -17,13 +17,13 @@ module MU
 	class Cloud
 	class AWS
 
-		# An Amazon CloudFormation stack as configured in {MU::Config::BasketofKittens::cloudformation_stacks}
-		class CloudFormation
+		# An Amazon CloudFormation stack as configured in {MU::Config::BasketofKittens::collections}
+		class Collection
 
 			# The {MU::Config::BasketofKittens} name for a single resource of this class.
-			def self.cfg_name; "cloudformation_stack".freeze end
+			def self.cfg_name; "collection".freeze end
 			# The {MU::Config::BasketofKittens} name for a collection of resources of this class.
-			def self.cfg_plural; "cloudformation_stacks".freeze end
+			def self.cfg_plural; "collections".freeze end
 			# Whether {MU::Deploy} should hold creation of other resources which depend on this resource until the latter has been created.
 			def self.deps_wait_on_my_creation; true.freeze end
 			# Whether {MU::Deploy} should hold creation of this resource until resources on which it depends have been fully created and deployed.
@@ -198,7 +198,7 @@ module MU
 								MU::MommaCat.createStandardTags(resource.physical_resource_id)
 								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.mu_id+"-"+@stack['name']+'-'+resource.logical_resource_id)
 								data = {
-									"cloudformation_stack" => @stack["name"],
+									"collection" => @stack["name"],
 									"subnet_id" => resource.physical_resource_id,
 								}
 								@deploy.notify("subnets", @stack['name']+"-"+resource.logical_resource_id, data)
@@ -206,7 +206,7 @@ module MU
 								MU::MommaCat.createStandardTags(resource.physical_resource_id)
 								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.mu_id+"-"+@stack['name']+'-'+resource.logical_resource_id)
 								data = {
-									"cloudformation_stack" => @stack["name"],
+									"collection" => @stack["name"],
 									"vpc_id" => resource.physical_resource_id,
 								}
 								@deploy.notify("vpcs", @stack['name']+"-"+resource.logical_resource_id, data)

@@ -89,14 +89,6 @@ module MU
 						res_class = MU::Cloud.artifact("AWS", type)
 						res_class.cleanup(@noop, @ignoremaster, region: r)
 					}
-#					MU::Cloud::AWS::ServerPool.cleanup(@noop, @ignoremaster, region: r)
-#					MU::Cloud::AWS::LoadBalancer.cleanup(@noop, @ignoremaster, region: r)
-#					MU::Cloud::AWS::Server.cleanup(@noop, @ignoremaster, skipsnapshots: @skipsnapshots, onlycloud: @onlycloud, region: r)
-#					MU::Cloud::AWS::Database.cleanup(@noop, @ignoremaster, region: r)
-#					MU::Cloud::AWS::FirewallRule.cleanup(@noop, @ignoremaster, region: r)
-#					MU::Cloud::AWS::DNSZone.cleanup(@noop, region: r)
-#					MU::Cloud::AWS::VPC.cleanup(@noop, @ignoremaster, region: r)
-
 					# Hit CloudFormation again- sometimes the first delete will quietly
 					# fail due to dependencies.
 #					MU::Cloud::AWS::CloudFormation.cleanup(@noop, wait: true, region: r)

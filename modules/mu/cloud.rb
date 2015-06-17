@@ -25,8 +25,8 @@ module MU
 		# considered valid.
 		@@resource_types = {
 			:CloudFormation => {
-				:cfg_name => "cloudformation_stack",
-				:cfg_plural => "cloudformation_stacks",
+				:cfg_name => "collection",
+				:cfg_plural => "collections",
 				:class => generic_class_methods,
 				:instance => generic_instance_methods
 			},

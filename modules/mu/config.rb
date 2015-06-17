@@ -741,7 +741,7 @@ module MU
 			servers = config['servers']
 			server_pools = config['server_pools']
 			loadbalancers = config['loadbalancers']
-			cloudformation_stacks = config['cloudformation_stacks']
+			collections = config['collections']
 			firewall_rules = config['firewall_rules']
 			dnszones = config['dnszones']
 			vpcs = config['vpcs']
@@ -750,12 +750,12 @@ module MU
 			servers = Array.new if servers.nil?
 			server_pools = Array.new if server_pools.nil?
 			loadbalancers = Array.new if loadbalancers.nil?
-			cloudformation_stacks = Array.new if cloudformation_stacks.nil?
+			collections = Array.new if collections.nil?
 			firewall_rules = Array.new if firewall_rules.nil?
 			vpcs = Array.new if vpcs.nil?
 			dnszones = Array.new if dnszones.nil?
 
-			if databases.size < 1 and servers.size < 1 and server_pools.size < 1 and loadbalancers.size < 1 and cloudformation_stacks.size < 1 and firewall_rules.size < 1 and vpcs.size < 1 and dnszones.size < 1
+			if databases.size < 1 and servers.size < 1 and server_pools.size < 1 and loadbalancers.size < 1 and collections.size < 1 and firewall_rules.size < 1 and vpcs.size < 1 and dnszones.size < 1
 				MU.log "You must declare at least one resource to create", MU::ERR
 				ok = false
 			end
@@ -1033,7 +1033,7 @@ module MU
 				}
 			}
 
-			cloudformation_stacks.each { |stack|
+			collections.each { |stack|
 				stack['region'] = config['region'] if stack['region'].nil?
 				stack["#MU_CLASS"] = MU::Cloud.artifact(server['cloud'], "CloudFormation")
 				stack["#MU_CONTAINER"] = Object.const_get("MU").const_get("Cloud").const_get("CloudFormation")
@@ -1049,7 +1049,7 @@ module MU
 				pool["dependencies"] = Array.new if pool["dependencies"].nil?
 				pool["#MU_CLASS"] = MU::Cloud.artifact(server['cloud'], "ServerPool")
 				pool["#MU_CONTAINER"] = Object.const_get("MU").const_get("Cloud").const_get("ServerPool")
-				pool["#MU_GROOMER"] = MU.loadGroomer(pool['groomer'])
+				pool["#MU_GROOMER"] = MU::Groomer.loadGroomer(pool['groomer'])
 				pool['skipinitialupdates'] = true if @skipinitialupdates
 				if pool["basis"]["server"] != nil
 					pool["dependencies"] << { "type" => "server", "name" => pool["basis"]["server"] }
@@ -1168,7 +1168,7 @@ module MU
 				db["dependencies"] = Array.new if db["dependencies"].nil?
 				db["#MU_CLASS"] = MU::Cloud.artifact(server['cloud'], "Database")
 				db["#MU_CONTAINER"] = Object.const_get("MU").const_get("Cloud").const_get("Database")
-				if db['cloudformation_stack'] != nil
+				if db['collection'] != nil
 					# XXX don't do this if 'true' was explicitly asked for (as distinct
 					# from default)
 					db['publicly_accessible'] = false
@@ -1267,10 +1267,10 @@ module MU
 					MU.log "Running SQL on deploy is only supported for postgres and mysql databases", MU::ERR
 				end
 
-				if db["cloudformation_stack"] != nil
+				if db["collection"] != nil
 					db["dependencies"] << {
-						"type" => "cloudformation_stack",
-						"name" => db["cloudformation_stack"]
+						"type" => "collection",
+						"name" => db["collection"]
 					}
 				end
 
@@ -1335,7 +1335,7 @@ module MU
 				server_names << server['name']
 				server["#MU_CLASS"] = MU::Cloud.artifact(server['cloud'], "Server")
 				server["#MU_CONTAINER"] = Object.const_get("MU").const_get("Cloud").const_get("Server")
-				server["#MU_GROOMER"] = MU.loadGroomer(server['groomer'])
+				server["#MU_GROOMER"] = MU::Groomer.loadGroomer(server['groomer'])
 				server['region'] = config['region'] if server['region'].nil?
 				server["dependencies"] = Array.new if server["dependencies"].nil?
 				server['create_ami'] = true if server['image_then_destroy']
@@ -1368,10 +1368,10 @@ module MU
 					}
 				end
 
-				if server["cloudformation_stack"] != nil
+				if server["collection"] != nil
 					server["dependencies"] << {
-						"type" => "cloudformation_stack",
-						"name" => server["cloudformation_stack"]
+						"type" => "collection",
+						"name" => server["collection"]
 					}
 				end
 
@@ -1694,7 +1694,7 @@ module MU
 					"name" => { "type" => "string" },
 					"type" => {
 						"type" => "string",
-						"enum" => ["server", "database", "server_pool", "loadbalancer", "cloudformation_stack", "firewall_rule", "vpc", "dnszone"]
+						"enum" => ["server", "database", "server_pool", "loadbalancer", "collection", "firewall_rule", "vpc", "dnszone"]
 					},
 					"phase" => {
 						"type" => "string",
@@ -3154,7 +3154,7 @@ module MU
 					"type" => "array",
 					"items" => @firewall_ruleset_primitive
 				},
-				"cloudformation_stacks" => {
+				"collections" => {
 					"type" => "array",
 					"items" => @cloudformation_primitive
 				},
