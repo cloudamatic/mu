@@ -44,16 +44,16 @@ module MU
 			MU.setVar("curRegion", @pool['region']) if !@pool['region'].nil?
 
 
-			if @pool['platform'] == "windows"
-				if !@deploy.winpass.nil?
-					winpass = @deploy.winpass
-				elsif !@pool['never-generate_admin_password'] and !@pool['windows_admin_password']
-					winpass = MU::Server.generateWindowsAdminPassword
-				end
-				if !winpass.nil?
-					MU.mommacat.saveSecret("default", winpass, "windows_password")
-				end
-			end
+			# if @pool['platform'] == "windows"
+				# if !@deploy.winpass.nil?
+					# winpass = @deploy.winpass
+				# elsif !@pool['never-generate_admin_password'] and !@pool['windows_admin_password']
+					# winpass = MU::Server.generateWindowsAdminPassword
+				# end
+				# if !winpass.nil?
+					# MU.mommacat.saveSecret("default", winpass, "windows_password")
+				# end
+			# end
 
 			asg_options = {
 				:auto_scaling_group_name => pool_name,

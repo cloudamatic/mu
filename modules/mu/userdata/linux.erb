@@ -92,7 +92,6 @@ fi
 
 <% if !$mu.skipApplyUpdates %>
 if [ "$need_reboot" == "1" ];then
-	chmod +x /etc/rc.d/rc.local
 	shutdown -r now "Applying new kernel"
 fi
 <% end %>
