@@ -17,6 +17,7 @@
 
 updates_run=0
 need_reboot=0
+instance_id="`curl http://169.254.169.254/latest/meta-data/instance-id`"
 if [ -f /etc/debian_version ];then
 	if ! grep '^/bin/sh /var/lib/cloud/instance/user-data.txt$' /etc/rc.local > /dev/null;then
 		echo "/bin/sh /var/lib/cloud/instance/user-data.txt" >> /etc/rc.local
@@ -40,8 +41,14 @@ if [ -f /etc/debian_version ];then
 	fi
 <% end %>
 elif [ -x /usr/bin/yum ];then
+	version=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
 	if ! grep '^/bin/sh /var/lib/cloud/instance/user-data.txt$' /etc/rc.d/rc.local > /dev/null;then
-		echo "/bin/sh /var/lib/cloud/instance/user-data.txt" >> /etc/rc.d/rc.local
+		if [ $version == 7 ];then
+			echo "/bin/sh /var/lib/cloud/instances/$instance_id/user-data.txt" >> /etc/rc.d/rc.local
+			chmod +x /etc/rc.d/rc.local
+		else
+			echo "/bin/sh /var/lib/cloud/instance/user-data.txt" >> /etc/rc.d/rc.local
+		fi
 	fi
 	# Ugh, rando EPEL mirror
 	if [ ! -f /etc/yum.repos.d/epel.repo ];then
@@ -84,6 +91,7 @@ fi
 
 <% if !$mu.skipApplyUpdates %>
 if [ "$need_reboot" == "1" ];then
+	chmod +x /etc/rc.d/rc.local
 	shutdown -r now "Applying new kernel"
 fi
 <% end %>
