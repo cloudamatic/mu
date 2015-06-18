@@ -1054,6 +1054,9 @@ MU.log win_set_pw, MU::ERR
 #				}
 #				kb.config[:bootstrap_vault_json] = JSON.generate(v)
 #			end
+		# Knife Bootstrap is failing on certificate issue even though knife ssl check is showing that the certificate is valid
+		kb.config[:node_ssl_verify_mode] = 'none'
+		kb.config[:node_verify_api_cert] = false
 	    kb.config[:run_list] = run_list
 	    kb.config[:ssh_user] = node_ssh_user
 	    kb.config[:forward_agent] = node_ssh_user

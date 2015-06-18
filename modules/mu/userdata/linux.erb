@@ -61,8 +61,9 @@ elif [ -x /usr/bin/yum ];then
 <% if !$mu.skipApplyUpdates %>
 	if [ ! -f /.mu-installer-ran-updates ];then
 		service sshd stop
+		kernel_update=`yum list updates | grep kernel`
 		yum -y update && touch /.mu-installer-ran-updates && updates_run=1
-		if [ "`rpm -q kernel`" != "kernel-`uname -r`" ];then
+		if [ -n "$kernel_update" ]; then
 			need_reboot=1
 		else
 			service sshd start
