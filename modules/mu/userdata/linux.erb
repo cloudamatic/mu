@@ -14,15 +14,14 @@
 # limitations under the License.
 
 
-if ! grep '^/bin/sh /var/lib/cloud/instance/user-data.txt$' /etc/rc.d/rc.local > /dev/null;then
-	echo "/bin/sh /var/lib/cloud/instance/user-data.txt" >> /etc/rc.d/rc.local
-fi
-
-set -e
 
 updates_run=0
 need_reboot=0
+instance_id="`curl http://169.254.169.254/latest/meta-data/instance-id`"
 if [ -f /etc/debian_version ];then
+	if ! grep '^/bin/sh /var/lib/cloud/instance/user-data.txt$' /etc/rc.local > /dev/null;then
+		echo "/bin/sh /var/lib/cloud/instance/user-data.txt" >> /etc/rc.local
+	fi
 	apt-get update -y
 	if [ ! -f /usr/bin/pip ] ;then /usr/bin/apt-get --fix-missing -y install python-pip;fi
 	if [ ! -f /usr/bin/curl ] ;then /usr/bin/apt-get --fix-missing -y install curl;fi
@@ -42,6 +41,15 @@ if [ -f /etc/debian_version ];then
 	fi
 <% end %>
 elif [ -x /usr/bin/yum ];then
+	version=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
+	if ! grep '^/bin/sh /var/lib/cloud/instance/user-data.txt$' /etc/rc.d/rc.local > /dev/null;then
+		if [ $version == 7 ];then
+			echo "/bin/sh /var/lib/cloud/instances/$instance_id/user-data.txt" >> /etc/rc.d/rc.local
+			chmod +x /etc/rc.d/rc.local
+		else
+			echo "/bin/sh /var/lib/cloud/instance/user-data.txt" >> /etc/rc.d/rc.local
+		fi
+	fi
 	# Ugh, rando EPEL mirror
 	if [ ! -f /etc/yum.repos.d/epel.repo ];then
 	     version=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
@@ -53,8 +61,9 @@ elif [ -x /usr/bin/yum ];then
 <% if !$mu.skipApplyUpdates %>
 	if [ ! -f /.mu-installer-ran-updates ];then
 		service sshd stop
+		kernel_update=`yum list updates | grep kernel`
 		yum -y update && touch /.mu-installer-ran-updates && updates_run=1
-		if [ "`rpm -q kernel`" != "kernel-`uname -r`" ];then
+		if [ -n "$kernel_update" ]; then
 			need_reboot=1
 		else
 			service sshd start
@@ -62,6 +71,7 @@ elif [ -x /usr/bin/yum ];then
 	fi
 <% end %>
 fi
+set -e
 if [ ! -f $AWSCLI ];then
 	/usr/bin/pip install awscli
 fi

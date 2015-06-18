@@ -1013,12 +1013,13 @@ module MU
 
 			# Make an initial connection with SSH to see if this host is ready to
 			# have Chef inflicted on it. Also run some prep.
-			ssh_wait = 15
-			max_retries = 20
+			ssh_wait = 25 
+			max_retries = 25
 			if %w{win2k12r2 win2k12 windows}.include? server['platform']
 				ssh_wait = 60
 				max_retries = 25
 			end
+
 		  begin
 				Thread.abort_on_exception = false
 				loglevel = MU::DEBUG
@@ -1093,6 +1094,9 @@ module MU
 #				}
 #				kb.config[:bootstrap_vault_json] = JSON.generate(v)
 #			end
+		# Knife Bootstrap is failing on certificate issue even though knife ssl check is showing that the certificate is valid
+		kb.config[:node_ssl_verify_mode] = 'none'
+		kb.config[:node_verify_api_cert] = false
 	    kb.config[:run_list] = run_list
 	    kb.config[:ssh_user] = node_ssh_user
 	    kb.config[:forward_agent] = node_ssh_user
