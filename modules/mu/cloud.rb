@@ -21,7 +21,7 @@ module MU
 		end
 
 		generic_class_methods = [:find, :cleanup]
-		generic_instance_methods = [:create, :deps_wait_on_my_creation, :waits_on_parent_completion]
+		generic_instance_methods = [:create, :deps_wait_on_my_creation, :waits_on_parent_completion, :notify]
 
 		# The types of cloud resources we can create, as class objects. Include
 		# methods a class implementing this resource type must support to be
@@ -72,7 +72,7 @@ module MU
 			:VPC => {
 				:cfg_name => "vpc",
 				:cfg_plural => "vpcs",
-				:class => generic_class_methods,
+				:class => generic_class_methods + [:findSubnet, :listSubnets, :isSubnetPrivate?, :getDefaultRoute],
 				:instance => generic_instance_methods + [:groom]
 			},
 		}.freeze
@@ -214,6 +214,9 @@ module MU
 					define_method method do
 						MU.log "Invoking #{@cloudobj}.#{method}", MU::DEBUG
 						@cloudobj.method(method).call
+						if method == :create or method == :groom
+							@cloudobj.method(:notify).call
+						end
 					end
 				}
 			} # end dynamic class generation block

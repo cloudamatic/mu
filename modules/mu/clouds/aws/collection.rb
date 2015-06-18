@@ -116,7 +116,6 @@ module MU
     
 					MU.log "Creating CloudFormation stack '#{@stack['name']}'", details: stack_descriptor
 					res = MU::Cloud::AWS.cloudformation(region).create_stack(stack_descriptor);
-					@deploy.notify("cloudformations", @stack["name"], @stack)
 
 					sleep(10);
 					stack_response = MU::Cloud::AWS.cloudformation(region).describe_stacks({:stack_name=>stack_name}).stacks.first
@@ -293,6 +292,11 @@ module MU
 
 			# placeholder
 			def self.find
+			end
+
+			def notify
+# XXX move those individual resource type notify calls into here
+				@deploy.notify("collections", @stack["name"], @stack)
 			end
 
 			private

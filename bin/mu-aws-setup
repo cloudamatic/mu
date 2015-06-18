@@ -260,7 +260,7 @@ if $opts[:dns]
 		MU.log "This Mu master appears to be in EC2 Classic. Route53 private DNS zones are not supported. Falling back to old /etc/hosts chicanery.", MU::ERR
 	else
 		MU::Cloud.artifact("AWS", :DNSZone)
-		ext_zone, junk = MU::Cloud::AWS::DNSZone.find(name: "platform-mu")
+		ext_zone, junk = MU::Cloud::DNSZone.find(name: "platform-mu")
 
 		if ext_zone.nil?
 			params = {

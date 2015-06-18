@@ -197,7 +197,7 @@ app = proc do |env|
 
 			MU.log "Dug up server config for #{req["mu_resource_type"]} name: #{req["mu_resource_name"]} deploy_id: #{req["mu_id"]}", MU::DEBUG, details: server_cfg
 
-			instance, mu_name = MU::Server.find(id: req["mu_instance_id"], region: server_cfg["region"])
+			instance, mu_name = MU::Cloud::Server.find(id: req["mu_instance_id"], region: server_cfg["region"])
 			if !instance.nil?
 				if !req["mu_bootstrap"].nil?
 					kittenpile.groomNode(instance, req["mu_resource_name"], req["mu_resource_type"], sync_wait: true)

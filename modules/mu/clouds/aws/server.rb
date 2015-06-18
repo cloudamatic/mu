@@ -815,7 +815,7 @@ MU.log win_set_pw, MU::ERR
 				canonical_ip = public_ip if !public_ip.nil?
 
 				if !server['image_then_destroy']
-					MU::Cloud::AWS::Server.notifyDeploy(server["name"], instance.instance_id, server, region: server['region'])
+#					MU::Cloud::AWS::Server.notifyDeploy(server["name"], instance.instance_id, server, region: server['region'])
 				end
 
 			  MU.log "EC2 instance #{node} has id #{instance.instance_id}", MU::DEBUG
@@ -912,7 +912,7 @@ MU.log win_set_pw, MU::ERR
 							)
 						end
 					}
-					MU::Cloud::AWS::Server.notifyDeploy(server["name"], instance.instance_id, server, region: server['region'])
+#					MU::Cloud::AWS::Server.notifyDeploy(server["name"], instance.instance_id, server, region: server['region'])
 				end
 
 				# Make an initial connection with SSH to see if this host is ready to
@@ -1441,12 +1441,9 @@ MU.log win_set_pw, MU::ERR
 			end
 
 			# Fetch an instance by its id and log metadata to our deployment structure.
-			# @param name [String]: The MU resource name of the instance.
-			# @param instance_id [String]: The cloud provider's identifier for the instance.
-			# @param region [String]: The cloud provider region
-			# @param chef_data [Hash]: Optional data from Chef.
-			def self.notifyDeploy(name, instance_id, server = nil, region: MU.curRegion, chef_data: {})
-				response = MU::Cloud::AWS.ec2(region).describe_instances(instance_ids: [instance_id]).reservations.first
+			def notify
+#					MU::Cloud::AWS::Server.notifyDeploy(server["name"], instance.instance_id, server, region: server['region'], chef_data: chef_data)
+				response = MU::Cloud::AWS.ec2(region).describe_instances(instance_ids: [@server['instance_id']]).reservations.first
 				instance = response.instances.first
 				interfaces = Array.new
 
@@ -1468,12 +1465,12 @@ MU.log win_set_pw, MU::ERR
 					deploydata = Hash.new
 				end
 
-				node = server['mu_name']
+				node = @server['mu_name']
 				deploydata[node] = {
-					"nodename" => server['mu_name'],
-					"run_list" => server['run_list'],
-					"iam_role" => server['iam_role'],
-					"instance_id" => instance_id,
+					"nodename" => @server['mu_name'],
+					"run_list" => @server['run_list'],
+					"iam_role" => @server['iam_role'],
+					"instance_id" => @server['instance_id'],
 					"private_dns_name" => instance.private_dns_name,
 					"public_dns_name" => instance.public_dns_name,
 					"private_ip_address" => instance.private_ip_address,
@@ -1486,15 +1483,15 @@ MU.log win_set_pw, MU::ERR
 #				"config" => server
 				}
 
-				if !server['mu_windows_name'].nil?
-					deploydata[node]["mu_windows_name"] = server['mu_windows_name']
+				if !@server['mu_windows_name'].nil?
+					deploydata[node]["mu_windows_name"] = @server['mu_windows_name']
 				end
 				if !chef_data.nil?
 					deploydata[node].merge!(chef_data)
 				end
 				deploydata[node]["region"] = region if !region.nil?
 
-				MU.mommacat.notify("servers", name, deploydata)
+				@deploy.notify("servers", name, deploydata)
 
 				return deploydata
 			end
@@ -1641,7 +1638,7 @@ MU.log win_set_pw, MU::ERR
 				chef_data = chef_node.normal['deployment']['servers'][server['name']][node]
 				if !chef_data.nil? and chef_data.size > 0 and !chef_rerun_only
 					MU.log "Merging Chef data into deployment struct for #{node}", MU::DEBUG, details: chef_data
-					MU::Cloud::AWS::Server.notifyDeploy(server["name"], instance.instance_id, server, region: server['region'], chef_data: chef_data)
+#					MU::Cloud::AWS::Server.notifyDeploy(server["name"], instance.instance_id, server, region: server['region'], chef_data: chef_data)
 					saveDeploymentToChef(node)
 				end
 

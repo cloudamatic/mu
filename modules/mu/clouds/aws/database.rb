@@ -47,7 +47,6 @@ module MU
 
 					raise MuError, "No such database #{@db['identifier']} exists" if database.nil?
 
-					MU::Cloud::AWS::Database.notifyDeploy(@db["name"], @db['identifier'], @db["password"], @db["creation_style"])
 					return @db['db_id']
 				else
 					return createDb
@@ -270,7 +269,6 @@ module MU
 						end
 					end
 
-					MU::Cloud::AWS::Database.notifyDeploy(@db["name"], @db['identifier'], @db['password'], @db["creation_style"], region: @db['region'])
 					MU.log "Database #{@db['identifier']} is ready to use"
 					done = true
 				ensure
@@ -634,59 +632,62 @@ module MU
 			end
 
 			# Register a description of this database instance with this deployment's
-			# metadata.
-			# @param name [String]: The MU resource name of this database instance.
-			# @param db_id [String]: The cloud provider's identifier for this database.
-			# @param password [String]: The master user's password for this database, when applicable.
-			# @param region [String]: The cloud provider region
-			# @param create_style [String]: How the database was created. See also {MU::Config::BasketofKittens::databases#creation_style}
-			def self.notifyDeploy(name, db_id, password = nil, create_style='new', region: MU.curRegion)
-				database = MU::Cloud::AWS::Database.getDatabaseById(db_id, region: region)
-
-				vpc_sg_ids = Array.new
-				database.vpc_security_groups.each { |vpc_sg|
-					vpc_sg_ids << vpc_sg.vpc_security_group_id 
-				}
-
-				rds_sg_ids = Array.new
-				database.db_security_groups.each { |rds_sg|
-					rds_sg_ids << rds_sg.db_security_group_name 
-				}
-
-		  # if database is new then want database name 
-				db_deploy_struct = {
-					"identifier" => database.db_instance_identifier,
-					"region" => region,
-					"engine" => database.engine,
-					"engine_version" => database.engine_version,
-					"backup_retention_period" => database.backup_retention_period,
-					"preferred_backup_window" => database.preferred_backup_window,
-					"preferred_maintenance_window" => database.preferred_maintenance_window,
-					"auto_minor_version_upgrade" => database.auto_minor_version_upgrade,
-					"storage_encrypted" => database.storage_encrypted,
-					"endpoint" => database.endpoint.address,
-					"port" => database.endpoint.port,
-					"username" => database.master_username,
-					"rds_sgs" => rds_sg_ids,
-					"vpc_sgs" => vpc_sg_ids,
-					"az" => database.availability_zone,
-					"password" => password,
-					"create_style" => create_style,
-					"db_name" => database.db_name,
-					"multi_az" => database.multi_az,
-					"publicly_accessible" => database.publicly_accessible,
-					"ca_certificate_identifier" => database.ca_certificate_identifier
-				}
-
-				if database.db_subnet_group and database.db_subnet_group.subnets
-					subnet_ids = Array.new
-					database.db_subnet_group.subnets.each { |subnet|
-						subnet_ids <<  subnet.subnet_identifier
-					}
-					db_deploy_struct["subnets"] = subnet_ids
+			# metadata. Register read replicas as separate instances, while we're
+			# at it.
+			def notify
+				my_dbs = [@db]
+				if !@db['read_replica'].nil?
+					@db['read_replica']['create_style'] = "read_replica"
+					@db['read_replica']['password'] = @db["password"]
+					my_dbs << @db['read_replica']
 				end
+				my_dbs.each { |db|
+					database = MU::Cloud::AWS::Database.getDatabaseById(db["identifier"], region: db['region'])
+					vpc_sg_ids = Array.new
+					database.vpc_security_groups.each { |vpc_sg|
+						vpc_sg_ids << vpc_sg.vpc_security_group_id 
+					}
 
-				MU.mommacat.notify("databases", name, db_deploy_struct)
+					rds_sg_ids = Array.new
+					database.db_security_groups.each { |rds_sg|
+						rds_sg_ids << rds_sg.db_security_group_name 
+					}
+
+			  # if database is new then want database name 
+					db_deploy_struct = {
+						"identifier" => database.db_instance_identifier,
+						"region" => db['region'],
+						"engine" => database.engine,
+						"engine_version" => database.engine_version,
+						"backup_retention_period" => database.backup_retention_period,
+						"preferred_backup_window" => database.preferred_backup_window,
+						"preferred_maintenance_window" => database.preferred_maintenance_window,
+						"auto_minor_version_upgrade" => database.auto_minor_version_upgrade,
+						"storage_encrypted" => database.storage_encrypted,
+						"endpoint" => database.endpoint.address,
+						"port" => database.endpoint.port,
+						"username" => database.master_username,
+						"rds_sgs" => rds_sg_ids,
+						"vpc_sgs" => vpc_sg_ids,
+						"az" => database.availability_zone,
+						"password" => db['password'],
+						"create_style" => db['create_style'],
+						"db_name" => database.db_name,
+						"multi_az" => database.multi_az,
+						"publicly_accessible" => database.publicly_accessible,
+						"ca_certificate_identifier" => database.ca_certificate_identifier
+					}
+
+					if database.db_subnet_group and database.db_subnet_group.subnets
+						subnet_ids = Array.new
+						database.db_subnet_group.subnets.each { |subnet|
+							subnet_ids <<  subnet.subnet_identifier
+						}
+						db_deploy_struct["subnets"] = subnet_ids
+					end
+
+					@deploy.notify("databases", db['name'], db_deploy_struct)
+				}
 			end
 
 			# Generate a snapshot from the database described in this instance.
@@ -816,7 +817,6 @@ module MU
 					end
 					MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@db['read_replica']['dns_records'], target: database.endpoint.address)
 
-					MU::Cloud::AWS::Database.notifyDeploy(@db['read_replica']['name'], @db['read_replica']['identifier'], @db['password'], "read_replica", region: @db['read_replica']['region'])
 					MU.log "Database instance #{@db['read_replica']['identifier']} is ready to use"
 					done = true
 				ensure

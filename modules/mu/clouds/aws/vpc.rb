@@ -78,7 +78,7 @@ module MU
 					}
 				end
 				@vpc['vpc_id'] = vpc_id
-				@deploy.notify("vpcs", @vpc['name'], @vpc)
+				notify
 
 				deploy_struct = @deploy.deployment['vpcs'][@vpc['name']].dup
 
@@ -102,9 +102,9 @@ module MU
 					deploy_struct['route_tables'] = Hash.new
 					@vpc['route_tables'].each { |rtb|
 						rtb = createRouteTable(rtb)
-						deploy_struct['route_tables'][rtb['name']] = rtb
+#						deploy_struct['route_tables'][rtb['name']] = rtb
 					}
-					@deploy.notify("vpcs", @vpc['name'], deploy_struct)
+					notify
 				end
 
 				if !@vpc['subnets'].nil?
@@ -148,7 +148,7 @@ module MU
 								end while resp.state != "available"
 							end
 							if !subnet['route_table'].nil?
-								routes = deploy_struct['route_tables']
+								routes = @vpc['route_tables']
 								if routes.nil? or routes[subnet['route_table']].nil?
 									MU.log "Subnet #{subnet_name} references non-existent route #{subnet['route_table']}", MU::ERR, details: @deploy.deployment['vpcs']
 									raise MuError, "deploy failure"
@@ -180,17 +180,18 @@ module MU
 									retries = retries + 1
 									retry
 								end
-								raise MuError, e.inspect
+								raise MuError, e.inspect, e.backtrace
 							end
-							subnet_semaphore.synchronize {
-								deploy_struct['subnets'][subnet['name']] = subnet
-							}
+#							subnet_semaphore.synchronize {
+#								deploy_struct['subnets'][subnet['name']] = subnet
+#							}
 						}
 					}
 					subnetthreads.each { |t|
 						t.join
 					}
-					@deploy.notify("vpcs", @vpc['name'], deploy_struct)
+					notify
+#					@deploy.notify("vpcs", @vpc['name'], deploy_struct)
 				end
 
 					if @vpc['enable_dns_support']
@@ -241,7 +242,7 @@ module MU
 					end
 					MU::Cloud::AWS.ec2(@vpc['region']).associate_dhcp_options(dhcp_options_id: dhcpopt_id, vpc_id: vpc_id)
 				end
-				@deploy.notify("vpcs", @vpc['name'], @vpc)
+				notify
 
 				mu_zone, junk = MU::Cloud::DNSZone.find(name: "mu")
 				if !mu_zone.nil?
@@ -250,6 +251,10 @@ module MU
 
 				MU.log "VPC #{vpc_name} created", details: @vpc
 
+			end
+
+			def notify
+				@deploy.notify("vpcs", @vpc['name'], @vpc)
 			end
 
 			# Called automatically by {MU::Deploy#createResources}

@@ -473,7 +473,6 @@ module MU
 			ok = true
 
 			muVPC = MU::Cloud.artifact(vpc_block['cloud'], "VPC")
-			muServer = MU::Cloud.artifact(vpc_block['cloud'], "Server")
 
 			if vpc_block['region'].nil? or 
 				vpc_block['region'] = dflt_region
@@ -484,7 +483,7 @@ module MU
 
 			if !is_sibling
 				begin
-					ext_vpc, name = muVPC.find(
+					ext_vpc, name = MU::Cloud::VPC.find(
 						id: vpc_block["vpc_id"],
 						name: vpc_block["vpc_name"],
 						deploy_id: vpc_block["deploy_id"],
@@ -511,7 +510,7 @@ module MU
 						nat_tag_key, nat_tag_value = [tag_key, tag_value]
 					end
 
-					ext_nat, name = muServer.find(
+					ext_nat, name = MU::Cloud::Server.find(
 						id: vpc_block["nat_host_id"],
 						name: vpc_block["nat_host_name"],
 						deploy_id: vpc_block["deploy_id"],
@@ -817,7 +816,8 @@ module MU
 				if !vpc["peers"].nil?
 					vpc["peers"].each { |peer|
 						peer['region'] = config['region'] if peer['region'].nil?
-						peer['cloud'] = vpc['cloud'] if vpc['cloud'].nil?
+						peer['cloud'] = vpc['cloud'] if peer['cloud'].nil?
+						peer["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("VPC")
 						# If we're peering with a VPC in this deploy, set it as a dependency
 						if !peer['vpc']["vpc_name"].nil? and vpc_names.include?(peer['vpc']["vpc_name"]) and peer['deploy_id'].nil?
 							vpc["dependencies"] << {
@@ -923,7 +923,7 @@ module MU
 				end
 				if !acl["vpc"].nil?
 					acl['vpc']['region'] = config['region'] if acl['vpc']['region'].nil?
-					acl["vpc"]['cloud'] = acl['cloud']
+					acl["vpc"]['cloud'] = acl['cloud'] if acl["vpc"]['cloud'].nil?
 					# If we're using a VPC in this deploy, set it as a dependency
 					if !acl["vpc"]["vpc_name"].nil? and vpc_names.include?(acl["vpc"]["vpc_name"]) and acl["vpc"]['deploy_id'].nil?
 						acl["dependencies"] << {
@@ -974,6 +974,7 @@ module MU
 				lb["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("LoadBalancer")
 				if !lb["vpc"].nil?
 					lb['vpc']['region'] = lb['region'] if lb['vpc']['region'].nil?
+					lb['vpc']['cloud'] = lb['cloud'] if lb['vpc']['cloud'].nil?
 					# If we're using a VPC in this deploy, set it as a dependency
 					if !lb["vpc"]["vpc_name"].nil? and vpc_names.include?(lb["vpc"]["vpc_name"]) and lb["vpc"]['deploy_id'].nil?
 						lb["dependencies"] << {
@@ -1097,7 +1098,7 @@ module MU
 				end
 				if !pool["vpc"].nil?
 					pool['vpc']['region'] = pool['region'] if pool['vpc']['region'].nil?
-					pool["vpc"]['cloud'] = pool['cloud']
+					pool["vpc"]['cloud'] = pool['cloud'] if pool["vpc"]['cloud'].nil?
 					# If we're using a VPC in this deploy, set it as a dependency
 					if !pool["vpc"]["vpc_name"].nil? and vpc_names.include?(pool["vpc"]["vpc_name"]) and pool["vpc"]["deploy_id"].nil?
 						pool["dependencies"] << {
@@ -1288,7 +1289,7 @@ module MU
 					end
 
 					db['vpc']['region'] = db['region'] if db['vpc']['region'].nil?
-					db["vpc"]['cloud'] = db['cloud']
+					db["vpc"]['cloud'] = db['cloud'] if db['cloud'].nil?
 					# If we're using a VPC in this deploy, set it as a dependency
 					if !db["vpc"]["vpc_name"].nil? and vpc_names.include?(db["vpc"]["vpc_name"]) and db["vpc"]["deploy_id"].nil?
 						db["dependencies"] << {

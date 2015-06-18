@@ -111,6 +111,7 @@ module MU
 
 				resp = MU::Cloud::AWS.route53.create_hosted_zone(params)
 				id = resp.hosted_zone.id
+				@zone['zone_id'] = id
 
 				begin
 					resp = MU::Cloud::AWS.route53.get_hosted_zone(
@@ -137,8 +138,6 @@ module MU
 						end
 					}
 				end
-
-				MU::Cloud::AWS::DNSZone.notify(@zone['name'], id, @zone)
 
 				MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@zone['records'])
 
@@ -494,27 +493,24 @@ module MU
 			end
 
 			# Log DNS zone metadata to the deployment struct for the current deploy.
-			# @param name [String]: The Mu resource name of this zone, which is also the domain name.
-			# @param id [String]: The cloud provider's identifier for the zone.
-			# @param cfg [Hash]: The original {MU::Config::BasketofKittens::dnszones} structure for this zone.
-			# @param region [String]: The region into which this zone was deployed.
-			def self.notify(name, id, cfg, region: region)
-				MU.setVar("curRegion", region) if !region.nil?
-				if !MU.mommacat.deployment[MU::Cloud::DNSZone.cfg_plural].nil? and !MU.mommacat.deployment[MU::Cloud::DNSZone.cfg_plural][name].nil?
-					deploydata = MU.mommacat.deployment[MU::Cloud::DNSZone.cfg_plural][name].dup
+			def notify
+
+# XXX this wants generalization
+				if !@deploy.deployment[MU::Cloud::DNSZone.cfg_plural].nil? and !@deploy.deployment[MU::Cloud::DNSZone.cfg_plural][name].nil?
+					deploydata = @deploy.deployment[MU::Cloud::DNSZone.cfg_plural][name].dup
 				else
 					deploydata = Hash.new
 				end
 
 				resp = MU::Cloud::AWS.route53.get_hosted_zone(
-					id: id
+					id: @zone['zone_id']
 				)
 				deploydata.merge!(MU.structToHash(resp.hosted_zone))
-				deploydata['vpcs'] = cfg['vpcs'] if !cfg['vpcs'].nil?
+				deploydata['vpcs'] = @zone['vpcs'] if !@zone['vpcs'].nil?
 
-				deploydata["region"] = region if !region.nil?
+				deploydata["region"] = @zone['region'] if !@zone['region'].nil?
 
-				MU.mommacat.notify(MU::Cloud::DNSZone.cfg_plural, name, deploydata)
+				@deploy.notify(MU::Cloud::DNSZone.cfg_plural, name, deploydata)
 
 				return deploydata
 			end

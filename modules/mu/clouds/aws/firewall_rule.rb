@@ -75,16 +75,13 @@ module MU
 					)
 			end
 
-			# Log metadata about this ruleset to the currently running deployment's
-			# metadata.
-			# @param name [String]: The MU resource name of the ruleset.
-			# @param sg_id [String]: The cloud provider identifier of the ruleset.
-			def self.notifyDeploy(name, sg_id, region: MU.curRegion)
+			# Log metadata about this ruleset to the currently running deployment
+			def notify
 				sg_data = MU.structToHash(
-						MU::Cloud::FirewallRule.find(sg_id: sg_id, region: region)
+						MU::Cloud::FirewallRule.find(sg_id: @ruleset['sg_id'], region: @ruleset['region'])
 					)
-				sg_data["group_id"] = sg_id
-				MU.mommacat.notify("firewall_rules", name, sg_data)
+				sg_data["group_id"] = @ruleset['sg_id']
+				@deploy.notify("firewall_rules", @ruleset['name'], sg_data)
 			end
 
 			# Insert a rule into an existing security group.
@@ -197,7 +194,6 @@ module MU
 				end
 
 				MU.log "EC2 Security Group #{groupname} is #{secgroup.group_id}", MU::DEBUG
-				MU::Cloud::AWS::FirewallRule.notifyDeploy(name, secgroup.group_id, region: region)
 				return secgroup.group_id
 			end
 
@@ -466,7 +462,6 @@ module MU
 					end
 				end
 
-				MU::Cloud::AWS::FirewallRule.notifyDeploy(sg.group_name, sg_id, region: region)
 				return sg_id
 			end
 
