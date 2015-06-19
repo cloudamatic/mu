@@ -200,7 +200,7 @@ app = proc do |env|
 			instance, mu_name = MU::Cloud::Server.find(id: req["mu_instance_id"], region: server_cfg["region"])
 			if !instance.nil?
 				if !req["mu_bootstrap"].nil?
-					kittenpile.groomNode(instance, req["mu_resource_name"], req["mu_resource_type"], sync_wait: true)
+					kittenpile.groomNode(instance, req["mu_resource_name"], req["mu_resource_type"], mu_name: mu_name, sync_wait: true)
 				else
 					throw500 "Didn't get 'mu_bootstrap' parameter from instance id '#{req["mu_instance_id"]}'"
 					ok = false

@@ -17,9 +17,9 @@ module MU
 	class Cloud
 	class AWS
 		# A DNS Zone as configured in {MU::Config::BasketofKittens::dnszones}
-		class DNSZone
+		class DNSZone < MU::Cloud::DNSZone
 
-			@zone = nil
+			@config = nil
 
 			# Whether {MU::Deploy} should hold creation of other resources which depend on this resource until the latter has been created.
 			def deps_wait_on_my_creation; true.freeze end
@@ -30,24 +30,24 @@ module MU
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::dnszones}
 			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg)
 				@deploy = mommacat
-				@zone = kitten_cfg
-				MU.setVar("curRegion", @zone['region']) if !@zone['region'].nil?
+				@config = kitten_cfg
+				MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
 			end
 
 			# Called automatically by {MU::Deploy#createResources}
 			def create
-				MU.setVar("curRegion", @zone['region']) if !@zone['region'].nil?
+				MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
 				params = {
-					:name => @zone['name'],
+					:name => @config['name'],
 					:hosted_zone_config => {
 						:comment => MU.mu_id
 					},
-					:caller_reference => MU::MommaCat.getResourceName(@zone['name'])
+					:caller_reference => MU::MommaCat.getResourceName(@config['name'])
 				}
 
 				# Private zones have their lookup restricted by VPC
 				add_vpcs = Hash.new
-				if @zone['private']
+				if @config['private']
 					default_vpc = nil
 
 					MU::Cloud::AWS.listRegions.each { |region|
@@ -63,7 +63,7 @@ module MU
 						}
 					
 						# If we've been told to make this domain available account-wide, do so
-						if @zone['all_account_vpcs']
+						if @config['all_account_vpcs']
 							known_vpcs.vpcs.each { |vpc|
 								add_vpcs[vpc.vpc_id] = region
 							}
@@ -75,8 +75,8 @@ module MU
 
 					# Now add any other VPCs we specified in our config, if we haven't
 					# already picked them up.
-					if !@zone['vpcs'].nil? and @zone['vpcs'].size > 0
-						@zone['vpcs'].each { |vpc|
+					if !@config['vpcs'].nil? and @config['vpcs'].size > 0
+						@config['vpcs'].each { |vpc|
 							if !add_vpcs.has_key?(vpc['vpc_id'])
 								add_vpcs[vpc['vpc_id']] = vpc['region']
 							end
@@ -84,8 +84,8 @@ module MU
 					end
 
 					if add_vpcs.size == 0
-						MU.log "DNS Zone #{@zone['name']} is flagged as private, but I can't find any VPCs in which to put it", MU::ERR
-						raise MuError, "DNS Zone #{@zone['name']} is flagged as private, but I can't find any VPCs in which to put it"
+						MU.log "DNS Zone #{@config['name']} is flagged as private, but I can't find any VPCs in which to put it", MU::ERR
+						raise MuError, "DNS Zone #{@config['name']} is flagged as private, but I can't find any VPCs in which to put it"
 					end
 
 					if !default_vpc.nil? and add_vpcs.has_key?(default_vpc)
@@ -107,11 +107,11 @@ module MU
 
 				end
 
-				MU.log "Creating DNS Zone '#{@zone['name']}'", details: params
+				MU.log "Creating DNS Zone '#{@config['name']}'", details: params
 
 				resp = MU::Cloud::AWS.route53.create_hosted_zone(params)
 				id = resp.hosted_zone.id
-				@zone['zone_id'] = id
+				@config['zone_id'] = id
 
 				begin
 					resp = MU::Cloud::AWS.route53.get_hosted_zone(
@@ -123,7 +123,7 @@ module MU
 				if add_vpcs.size > 0
 					add_vpcs.each_pair { |vpc_id, region|
 						if vpc_id != params[:vpc][:vpc_id]
-							MU.log "Associating VPC #{vpc_id} in #{region} with DNS Zone #{@zone['name']}", MU::DEBUG
+							MU.log "Associating VPC #{vpc_id} in #{region} with DNS Zone #{@config['name']}", MU::DEBUG
 							begin
 							MU::Cloud::AWS.route53.associate_vpc_with_hosted_zone(
 								hosted_zone_id: id,
@@ -133,13 +133,13 @@ module MU
 								}
 							)
 							rescue Aws::Route53::Errors::InvalidVPCId => e
-								MU.log "Unable to associate #{vpc_id} in #{region} with DNS Zone #{@zone['name']}: #{e.inspect}", MU::WARN
+								MU.log "Unable to associate #{vpc_id} in #{region} with DNS Zone #{@config['name']}: #{e.inspect}", MU::WARN
 							end
 						end
 					}
 				end
 
-				MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@zone['records'])
+				MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@config['records'])
 
 				return resp.hosted_zone
 			end
@@ -422,7 +422,7 @@ module MU
 			# @param delete [Boolean]: Remove this entry instead of creating it.
 			# @param cloudclass [Object]: The resource's Mu class.
 			# @param sync_wait [Boolean]: Wait for DNS entry to propagate across zone.
-			def self.genericDNSEntry(name, target, cloudclass, noop: false, delete: false, sync_wait: true)
+			def self.genericMuDNSEntry(name, target, cloudclass, noop: false, delete: false, sync_wait: true)
 				return nil if name.nil? or target.nil? or cloudclass.nil?
 				mu_zone, junk = MU::Cloud::DNSZone.find(name: "platform-mu")
 				MU::Cloud.artifact("AWS", :LoadBalancer)
@@ -503,12 +503,12 @@ module MU
 				end
 
 				resp = MU::Cloud::AWS.route53.get_hosted_zone(
-					id: @zone['zone_id']
+					id: @config['zone_id']
 				)
 				deploydata.merge!(MU.structToHash(resp.hosted_zone))
-				deploydata['vpcs'] = @zone['vpcs'] if !@zone['vpcs'].nil?
+				deploydata['vpcs'] = @config['vpcs'] if !@config['vpcs'].nil?
 
-				deploydata["region"] = @zone['region'] if !@zone['region'].nil?
+				deploydata["region"] = @config['region'] if !@config['region'].nil?
 
 				@deploy.notify(MU::Cloud::DNSZone.cfg_plural, name, deploydata)
 

@@ -17,65 +17,10 @@ module MU
 	# other provisioning layers.
 	class Cloud
 
-		class MuCloudResourceNotImplemented < StandardError
-		end
+		class MuCloudResourceNotImplemented < StandardError; end
 
 		generic_class_methods = [:find, :cleanup]
 		generic_instance_methods = [:create, :deps_wait_on_my_creation, :waits_on_parent_completion, :notify]
-
-		# The types of cloud resources we can create, as class objects. Include
-		# methods a class implementing this resource type must support to be
-		# considered valid.
-		@@resource_types = {
-			:Collection => {
-				:cfg_name => "collection",
-				:cfg_plural => "collections",
-				:class => generic_class_methods,
-				:instance => generic_instance_methods
-			},
-			:Database => {
-				:cfg_name => "database",
-				:cfg_plural => "databases",
-				:class => generic_class_methods,
-				:instance => generic_instance_methods + [:groom]
-			},
-			:DNSZone => {
-				:cfg_name => "dnszone",
-				:cfg_plural => "dnszones",
-				:class => generic_class_methods,
-				:instance => generic_instance_methods
-			},
-			:FirewallRule => {
-				:cfg_name => "firewall_rule",
-				:cfg_plural => "firewall_rules",
-				:class => generic_class_methods,
-				:instance => generic_instance_methods + [:groom]
-			},
-			:LoadBalancer => {
-				:cfg_name => "loadbalancer",
-				:cfg_plural => "loadbalancers",
-				:class => generic_class_methods,
-				:instance => generic_instance_methods
-			},
-			:Server => {
-				:cfg_name => "server",
-				:cfg_plural => "servers",
-				:class => generic_class_methods + [:postBoot],
-				:instance => generic_instance_methods + [:groom]
-			},
-			:ServerPool => {
-				:cfg_name => "server_pool",
-				:cfg_plural => "server_pools",
-				:class => generic_class_methods,
-				:instance => generic_instance_methods
-			},
-			:VPC => {
-				:cfg_name => "vpc",
-				:cfg_plural => "vpcs",
-				:class => generic_class_methods + [:findSubnet, :listSubnets, :isSubnetPrivate?, :getDefaultRoute],
-				:instance => generic_instance_methods + [:groom]
-			},
-		}.freeze
 
 		# Initialize empty classes for each of these. We'll fill them with code
 		# later; we're doing this here because otherwise the parser yells about
@@ -88,6 +33,76 @@ module MU
 		class Server; end
 		class ServerPool; end
 		class VPC; end
+		# The types of cloud resources we can create, as class objects. Include
+		# methods a class implementing this resource type must support to be
+		# considered valid.
+		@@resource_types = {
+			:Collection => {
+				:has_multiples => false,
+				:cfg_name => "collection",
+				:cfg_plural => "collections",
+				:interface => self.const_get("Collection"),
+				:class => generic_class_methods,
+				:instance => generic_instance_methods
+			},
+			:Database => {
+				:has_multiples => false,
+				:cfg_name => "database",
+				:cfg_plural => "databases",
+				:interface => self.const_get("Database"),
+				:class => generic_class_methods,
+				:instance => generic_instance_methods + [:groom]
+			},
+			:DNSZone => {
+				:has_multiples => false,
+				:cfg_name => "dnszone",
+				:cfg_plural => "dnszones",
+				:interface => self.const_get("DNSZone"),
+				:class => generic_class_methods + [:genericMuDNSEntry],
+				:instance => generic_instance_methods
+			},
+			:FirewallRule => {
+				:has_multiples => false,
+				:cfg_name => "firewall_rule",
+				:cfg_plural => "firewall_rules",
+				:interface => self.const_get("FirewallRule"),
+				:class => generic_class_methods,
+				:instance => generic_instance_methods + [:groom]
+			},
+			:LoadBalancer => {
+				:has_multiples => false,
+				:cfg_name => "loadbalancer",
+				:cfg_plural => "loadbalancers",
+				:interface => self.const_get("LoadBalancer"),
+				:class => generic_class_methods,
+				:instance => generic_instance_methods
+			},
+			:Server => {
+				:has_multiples => true,
+				:cfg_name => "server",
+				:cfg_plural => "servers",
+				:interface => self.const_get("Server"),
+				:class => generic_class_methods,
+				:instance => generic_instance_methods + [:groom, :postBoot]
+			},
+			:ServerPool => {
+				:has_multiples => true,
+				:cfg_name => "server_pool",
+				:cfg_plural => "server_pools",
+				:interface => self.const_get("ServerPool"),
+				:class => generic_class_methods,
+				:instance => generic_instance_methods
+			},
+			:VPC => {
+				:has_multiples => true,
+				:cfg_name => "vpc",
+				:cfg_plural => "vpcs",
+				:interface => self.const_get("VPC"),
+				:class => generic_class_methods + [:findSubnet, :listSubnets, :isSubnetPrivate?, :getDefaultRoute],
+				:instance => generic_instance_methods + [:groom]
+			},
+		}.freeze
+
 
 		# A list of supported cloud resource types as Mu classes
 		def self.resource_types ; @@resource_types end
@@ -169,14 +184,39 @@ module MU
 					name.sub(/.*?::([^:]+)$/, '\1')
 				end
 
-				def initialize(mommacat: mommacat = nil,
+				def initialize(mommacat: nil,
+											 mu_name: nil,
 											 kitten_cfg: kitten_cfg)
+					raise MuError, "Cannot invoke Cloud objects without a configuration" if kitten_cfg.nil?
+					@deploy = mommacat
 					@config = kitten_cfg
 					@cloud = kitten_cfg['cloud']
 					@environment = kitten_cfg['environment']
 					@deploydata = mommacat.deployment
 					@cloudclass = MU::Cloud.artifact(@cloud, self.class.shortname)
-					@cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg)
+# XXX require subclass to provide attr_readers of @config and @deploy
+					if mu_name.nil?
+						@cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg)
+					else
+						@cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name)
+					end
+				end
+
+				# Retrieve all of the known metadata for this resource.
+				# @param id [String]: The cloud platform's identifier for the resource we're describing.
+				# @param node [String]: Identify a specific node to return. Types such as Server can have multiple instantiated resources of the same name, and this parameter allows us to request the description of a specific instance.
+				# @return [Array<Hash>]
+				def describe(id = nil, node = nil)
+					res_type = self.class.cfg_name
+					res_name = @config['name']
+					deploydata = MU::MommaCat.getResourceDeployStruct(res_type, name: res_name, deploy_id: @deploy.mu_id, use_cache: false)
+					cloud_desc, junk = self.class.find(name: res_name, deploy_id: @deploy.mu_id, region: @config['region'], id: id)
+					# We asked for a specific node, return it if available
+					if !node.nil? and deploydata.is_a?(Hash) and deploydata.has_key?(node)
+						deploydata = deploydata[node]
+					end
+
+					return [@config['mu_name'], @config, deploydata, cloud_desc]
 				end
 
 				def self.cfg_plural
@@ -197,6 +237,13 @@ module MU
 					}
 				end
 
+# This method should only exist for MU::Cloud::DNSZone
+				def self.genericMuDNSEntry(*flags)
+# XXX have this be a global config for where Mu puts its stuff
+					cloudclass = MU::Cloud.artifact(MU::Config.defaultCloud, "DNSZone")
+					cloudclass.genericMuDNSEntry(flags.first)
+				end
+
 				def self.cleanup(*flags)
 					MU::Cloud.supportedClouds.each { |cloud|
 						begin
@@ -212,15 +259,15 @@ module MU
 				# implement.
 				MU::Cloud.resource_types[name.to_sym][:instance].each { |method|
 					define_method method do
-						MU.log "Invoking #{@cloudobj}.#{method}", MU::DEBUG
+						MU.log "Invoking #{@cloudobj}.#{method}", MU::NOTICE
 						@cloudobj.method(method).call
-						if method == :create or method == :groom
+						if method == :create or method == :groom or method == :postBoot
 							@cloudobj.method(:notify).call
 						end
 					end
-				}
+				} # end instance method list
 			} # end dynamic class generation block
-		}
+		} # end resource type iteration
 
 	end
 

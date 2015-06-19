@@ -18,7 +18,7 @@ module MU
 	class AWS
 
 		# An Amazon CloudFormation stack as configured in {MU::Config::BasketofKittens::collections}
-		class Collection
+		class Collection < MU::Cloud::Collection
 
 			# Whether {MU::Deploy} should hold creation of other resources which depend on this resource until the latter has been created.
 			def deps_wait_on_my_creation; true.freeze end
@@ -26,40 +26,40 @@ module MU
 			def waits_on_parent_completion; false.freeze end
 
 			@deploy = nil
-			@stack = nil
+			@config = nil
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::vpcs}
 			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg)
 				@deploy = mommacat
-				@stack = kitten_cfg
-				MU.setVar("curRegion", @stack['region']) if !@stack['region'].nil?
+				@config = kitten_cfg
+				MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
 			end
 
 
 			# Called automatically by {MU::Deploy#createResources}
 			def create
 				flag="SUCCESS"
-				MU.setVar("curRegion", @stack['region']) if !@stack['region'].nil?
-				region = @stack['region']
-				server=@stack["name"]
-				stack_name = getStackName(@stack["name"])
+				MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
+				region = @config['region']
+				server=@config["name"]
+				stack_name = getStackName(@config["name"])
 
-				if @stack["type"] !=nil && @stack["type"]=="existing" then 
+				if @config["type"] !=nil && @config["type"]=="existing" then 
 # XXX this isn't correct, need to go through and list its resources
-					return @stack
+					return @config
 				end
-				@stack["time"]=@deploy.timestamp
+				@config["time"]=@deploy.timestamp
 
 				begin
 
 					stack_descriptor = {
 						:stack_name => stack_name,
-						:on_failure => @stack["on_failure"],
+						:on_failure => @config["on_failure"],
 						:tags=> [
 							{
 								:key => "Name",
-								:value => MU.appname.upcase + "-" + MU.environment.upcase + "-" + MU.timestamp.upcase + "-" + @stack['name'].upcase
+								:value => MU.appname.upcase + "-" + MU.environment.upcase + "-" + MU.timestamp.upcase + "-" + @config['name'].upcase
 							},
 							{
 								:key => "MU-ID",
@@ -71,50 +71,50 @@ module MU
 					keypairname, ssh_private_key, ssh_public_key = @deploy.SSHKey
 
 					parameters = Array.new
-					if !@stack["parameters"].nil?
-						@stack["parameters"].each { |parameter|
+					if !@config["parameters"].nil?
+						@config["parameters"].each { |parameter|
 							parameters << {
 								:parameter_key =>parameter["parameter_key"],
 								:parameter_value=>parameter["parameter_value"]
 							}
 		        }
 					end
-					if @stack["pass_deploy_key_as"] != nil
+					if @config["pass_deploy_key_as"] != nil
 						parameters << {
-							:parameter_key => @stack["pass_deploy_key_as"],
+							:parameter_key => @config["pass_deploy_key_as"],
 							:parameter_value => keypairname
 						}
 					end
 					stack_descriptor[:parameters] = parameters
 
-					if @stack["template_file"] != nil then
+					if @config["template_file"] != nil then
 						# pass absolute path
-						if !@stack["template_file"].nil?
-							if @stack["template_file"].match(/^\//)
-								MU.log "Loading Cloudformation template from #{@stack["template_file"]}"
-								template_body = File.read(@stack["template_file"])
+						if !@config["template_file"].nil?
+							if @config["template_file"].match(/^\//)
+								MU.log "Loading Cloudformation template from #{@config["template_file"]}"
+								template_body = File.read(@config["template_file"])
 							else
-								path = File.expand_path(File.dirname(MU::Config.config_path)+"/"+@stack["template_file"])
+								path = File.expand_path(File.dirname(MU::Config.config_path)+"/"+@config["template_file"])
 								MU.log "Loading Cloudformation template from #{path}"
 								template_body = File.read(path)
 							end
 						else
 							# json file and template path is same            
 							file_dir =File.dirname(ARGV[0])
-							if File.exists?file_dir+"/"+@stack["template_file"] then
-								template_body=File.read(file_dir+"/"+@stack["template_file"]);
+							if File.exists?file_dir+"/"+@config["template_file"] then
+								template_body=File.read(file_dir+"/"+@config["template_file"]);
 							end
 						end
 						stack_descriptor[:template_body] = template_body.to_s
 					end 
 
-					if @stack["template_url"] != nil then
-						if @stack["template_file"] == nil then
-							stack_descriptor[:template_url] = @stack["template_url"]
+					if @config["template_url"] != nil then
+						if @config["template_file"] == nil then
+							stack_descriptor[:template_url] = @config["template_url"]
 						end 
 					end 
     
-					MU.log "Creating CloudFormation stack '#{@stack['name']}'", details: stack_descriptor
+					MU.log "Creating CloudFormation stack '#{@config['name']}'", details: stack_descriptor
 					res = MU::Cloud::AWS.cloudformation(region).create_stack(stack_descriptor);
 
 					sleep(10);
@@ -122,9 +122,9 @@ module MU
 					attempts = 0
 					begin
 						if attempts % 5 == 0
-							MU.log "Waiting for CloudFormation stack '#{@stack['name']}' to be ready...", MU::NOTICE
+							MU.log "Waiting for CloudFormation stack '#{@config['name']}' to be ready...", MU::NOTICE
 						else
-							MU.log "Waiting for CloudFormation stack '#{@stack['name']}' to be ready...", MU::DEBUG
+							MU.log "Waiting for CloudFormation stack '#{@config['name']}' to be ready...", MU::DEBUG
 						end
 						stack_response =MU::Cloud::AWS.cloudformation(region).describe_stacks({:stack_name=>stack_name}).stacks.first
 						sleep 60
@@ -146,7 +146,7 @@ module MU
 					exit 1
 				end 
 
-				MU.log "CloudFormation stack '#{@stack['name']}' complete"
+				MU.log "CloudFormation stack '#{@config['name']}' complete"
 
 				begin
 					resources = MU::Cloud::AWS.cloudformation(region).describe_stack_resources(:stack_name=> stack_name)
@@ -156,11 +156,11 @@ module MU
 						case resource.resource_type
 							when "AWS::EC2::Instance"
 								MU::MommaCat.createStandardTags(resource.physical_resource_id)
-								instance_name = MU.mu_id+"-"+@stack['name']+"-"+resource.logical_resource_id
+								instance_name = MU.mu_id+"-"+@config['name']+"-"+resource.logical_resource_id
 								MU::MommaCat.createTag(resource.physical_resource_id, "Name", instance_name)
 
 								instance = MU::Cloud::AWS::Server.notifyDeploy(
-									@stack['name']+"-"+resource.logical_resource_id,
+									@config['name']+"-"+resource.logical_resource_id,
 									resource.physical_resource_id
 								)
 							
@@ -177,40 +177,40 @@ module MU
 
 								mu_zone, junk = MU::Cloud::DNSZone.find(name: "mu")
 								if !mu_zone.nil?
-									MU::Cloud::AWS::DNSZone.genericDNSEntry(instance_name, instance["private_ip_address"], MU::Cloud::Server)
+									MU::Cloud::AWS::DNSZone.genericMuDNSEntry(instance_name, instance["private_ip_address"], MU::Cloud::Server)
 								else
 									MU::MommaCat.addInstanceToEtcHosts(instance["public_ip_address"], instance_name)
 								end
 
 							when "AWS::EC2::SecurityGroup"
 								MU::MommaCat.createStandardTags(resource.physical_resource_id)
-								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.mu_id+"-"+@stack['name']+'-'+resource.logical_resource_id)
+								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.mu_id+"-"+@config['name']+'-'+resource.logical_resource_id)
 								MU::Cloud::AWS::FirewallRule.notifyDeploy(
-									@stack['name']+"-"+resource.logical_resource_id,
+									@config['name']+"-"+resource.logical_resource_id,
 									resource.physical_resource_id
 								)
 							when  "AWS::EC2::Subnet"
 								MU::MommaCat.createStandardTags(resource.physical_resource_id)
-								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.mu_id+"-"+@stack['name']+'-'+resource.logical_resource_id)
+								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.mu_id+"-"+@config['name']+'-'+resource.logical_resource_id)
 								data = {
-									"collection" => @stack["name"],
+									"collection" => @config["name"],
 									"subnet_id" => resource.physical_resource_id,
 								}
-								@deploy.notify("subnets", @stack['name']+"-"+resource.logical_resource_id, data)
+								@deploy.notify("subnets", @config['name']+"-"+resource.logical_resource_id, data)
 							when "AWS::EC2::VPC"
 								MU::MommaCat.createStandardTags(resource.physical_resource_id)
-								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.mu_id+"-"+@stack['name']+'-'+resource.logical_resource_id)
+								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.mu_id+"-"+@config['name']+'-'+resource.logical_resource_id)
 								data = {
-									"collection" => @stack["name"],
+									"collection" => @config["name"],
 									"vpc_id" => resource.physical_resource_id,
 								}
-								@deploy.notify("vpcs", @stack['name']+"-"+resource.logical_resource_id, data)
+								@deploy.notify("vpcs", @config['name']+"-"+resource.logical_resource_id, data)
 							when "AWS::EC2::InternetGateway"
 								MU::MommaCat.createStandardTags(resource.physical_resource_id)
-								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.mu_id+"-"+@stack['name']+'-'+resource.logical_resource_id)
+								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.mu_id+"-"+@config['name']+'-'+resource.logical_resource_id)
 							when "AWS::EC2::RouteTable"
 								MU::MommaCat.createStandardTags(resource.physical_resource_id)
-								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.mu_id+"-"+@stack['name']+'-'+resource.logical_resource_id)
+								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.mu_id+"-"+@config['name']+'-'+resource.logical_resource_id)
 
 							# The rest of these aren't anything we act on
 							when "AWS::EC2::Route"
@@ -296,7 +296,7 @@ module MU
 
 			def notify
 # XXX move those individual resource type notify calls into here
-				@deploy.notify("collections", @stack["name"], @stack)
+				@deploy.notify("collections", @config["name"], @config)
 			end
 
 			private

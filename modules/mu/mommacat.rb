@@ -33,16 +33,13 @@ module MU
 	class MommaCat
 
 		# An exception denoting a failure in MommaCat#fetchSecret and related methods
-		class SecretError < MuError
-		end
+		class SecretError < MuError; end
 
 		# Failure to load or create a deploy
-		class DeployInitializeError < MuError
-		end
+		class DeployInitializeError < MuError; end
 
 		# Failure to groom a node
-		class GroomError < MuError
-		end
+		class GroomError < MuError; end
 
 		attr_reader :public_key
 		attr_reader :deploy_secret
@@ -53,6 +50,7 @@ module MU
 		attr_reader :ssh_public_key
 		attr_reader :nocleanup
 		attr_reader :mu_id
+		attr_reader :kittens
 		@myhome = Etc.getpwuid(Process.uid).dir
 		@nagios_home = "/home/nagios"
 		@locks = Hash.new
@@ -106,6 +104,7 @@ module MU
 			end
 
 			@mu_id = mu_id
+			@kittens = {}
 			@original_config = config
 			@nocleanup = nocleanup
 			@deploy_struct_semaphore = Mutex.new
@@ -164,6 +163,44 @@ module MU
 				if !authKey(deploy_secret)
 					raise DeployInitializeError, "Invalid or incorrect deploy key."
 				end
+			end
+
+			# Initialize a MU::Cloud object for each resource belonging to this
+			# deploy, IF it already exists, which is to say if we're loading an
+			# existing deploy instead of creating a new one.
+			if !create
+				MU::Cloud.resource_types.each_pair { |res_type, attrs|
+					type = attrs[:cfg_plural]
+					if @deployment.has_key?(type)
+						@deployment[type].each_pair { |res_name, data|
+							key = data['mu_name']
+							key = res_name if key.nil?
+							orig_cfg = nil
+							if 
+								@original_config[type].each { |resource|
+									if resource["name"] == res_name
+										orig_cfg = resource
+										break
+									end
+								}
+							end
+							if type == "servers" and orig_cfg.nil?
+									@original_config.has_key?("server_pools")
+								@original_config["server_pools"].each { |resource|
+									if resource["name"] == res_name
+										orig_cfg = resource
+										break
+									end
+								}
+							end
+							if orig_cfg.nil?
+								raise DeployInitializeError, "Failed to locate original for #{attrs[:cfg_name]} #{res_name} in #{@mu_id}"
+							end
+							@kittens[type] = {} if @kittens[type].nil?
+							@kittens[type][key] = attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: data['mu_name'])
+						}
+					end
+				}
 			end
 		end
 
@@ -342,11 +379,12 @@ module MU
 		end
 
 
-		# Run {MU::Cloud::AWS::Server#postBoot} and {MU::Cloud::AWS::Server#deploy} on a node.
+		# Run {MU::Cloud::Server#postBoot} and {MU::Cloud::Server#groom} on a node.
 		# @param instance [OpenStruct]: The cloud providor's full descriptor for this node.
 		# @param name [String]: The MU resource name of the node being created.
+		# @param mu_name [String]: The full #{MU::MommaCat.getResourceName} name of the server we're grooming, if it's been initialized already.
 		# @param type [String]: The type of resource that created this node (either *server* or *serverpool*).
-		def groomNode(instance, name, type, reraise_fail: false, sync_wait: true)
+		def groomNode(instance, name, type, mu_name: mu_name, reraise_fail: false, sync_wait: true)
 
 			if instance.nil?
 				raise GroomError, "MU::MommaCat.groomNode requires an AWS instance object"
@@ -381,125 +419,98 @@ module MU
 				end
 			}
 
-			if @original_config[type+"s"].nil?
+			if @kittens[type+"s"].nil?
 				raise GroomError, "I see no configured resources of type #{type} (bootstrapping #{name})"
 			end
-			@original_config[type+"s"].each { |svr|
-				mylocks = Array.new
-				if svr["name"] == name
-					cloudclass = MU::Cloud.artifact(svr["cloud"], type)
-					serverclass = MU::Cloud.artifact(svr["cloud"], "Server")
-					server = svr.dup
-					node = nil
-					first_groom = true
+			kitten = nil
 
-					# See if this particular instance has been groomed before.
-					if !@deployment['servers'].nil? and !@deployment['servers'][name].nil?
-						@deployment['servers'][name].each_pair { |nodename, data|
-							if data['instance_id'] == instance.instance_id
-								node = nodename
-								first_groom = false
-								MU.log "Re-grooming #{node}", details: data
-								if !data['mu_windows_name'].nil? and server['mu_windows_name'].nil?
-									server['mu_windows_name'] = data['mu_windows_name']
-								end
-								break
+			if !mu_name.nil? and @kittens["servers"].has_key?(mu_name)
+				kitten = @kittens["servers"][mu_name]
+				MU.log "Re-grooming #{mu_name}", details: kitten.deploydata
+			else
+				first_groom = true
+				@original_config[type+"s"].each { |svr|
+					if svr['name'] == name
+						svr["instance_id"] = instance.instance_id
+						if mu_name.nil? or mu_name.empty?
+							if type == "server_pool"
+								mu_name = MU::MommaCat.getResourceName(name, need_unique_string: true)
+							else
+								mu_name = MU::MommaCat.getResourceName(name)
 							end
-						}
+						end
+						MU.log "Grooming #{mu_name} for the first time", details: svr
+						kitten = MU::Cloud::Server.new(mommacat: self, kitten_cfg: svr)
+						break
 					end
+				}
+			end
+
+#								if !data['mu_windows_name'].nil? and server['mu_windows_name'].nil?
+#									server['mu_windows_name'] = data['mu_windows_name']
+#								end
 
 
-					if node.nil? or node.empty?
-						if type == "server_pool"
-							node = MU::MommaCat.getResourceName(name, need_unique_string: true)
-						else
-							node = MU::MommaCat.getResourceName(name)
-						end
-						MU.log "Grooming #{node} for the first time", details: server
-					end
-
-					server['mu_name'] = node
-					server["instance_id"] = instance.instance_id
-					begin
-						# This is a shared lock with MU::Cloud::AWS::Server.create, to keep from
-						# stomping on synchronous deploys that are still running. This
-						# means we're going to wait here if this instance is still being
-						# bootstrapped by "regular" means.
-						if !MU::MommaCat.lock(instance.instance_id+"-create", true)
-							MU.log "#{node} is still in mid-creation, skipping", MU::NOTICE
-							MU::MommaCat.unlockAll
-							puts "------------------------------"
-							puts "Open flock() locks:"
-							pp MU::MommaCat.locks
-							puts "------------------------------"
-							return
-						end
-						MU::MommaCat.unlock(instance.instance_id+"-create")
-
-						if %w{win2k12r2 win2k12 windows}.include? server['platform']
-							if (server['mu_windows_name'].nil? or server['mu_windows_name'].empty?) 
-								if first_groom
-									server['mu_windows_name'] = MU::MommaCat.getResourceName(name, max_length: 15, use_unique_string: MU::MommaCat.name_unique_str_map[node])
-								elsif !@deployment.nil? and @deployment.has_key?('servers') and
-										@deployment['servers'].has_key?(server['name']) and
-										@deployment['servers'][server['name']].has_key?(node)
-									server['mu_windows_name'] = @deployment['servers'][server['name']][node]['mu_windows_name']
-								end
-							end
-							if @secrets['windows_password'].has_key?(server["instance_id"])
-								server['winpass'] = fetchSecret(server["instance_id"], "windows_password")
-							elsif @secrets['windows_password'].has_key?("default")
-								server['winpass'] = fetchSecret("default", "windows_password")
-							end
-
-						end
-
-						if !serverclass.postBoot(server, instance, @ssh_key_name, sync_wait: sync_wait)
-							MU.log "#{node} is already being groomed, skipping", MU::NOTICE
-							MU::MommaCat.unlockAll
-							puts "------------------------------"
-							puts "Open flock() locks:"
-							pp MU::MommaCat.locks
-							puts "------------------------------"
-							return
-						end
-
-						# This is a shared lock with MU::Deploy.createResources, simulating
-						# the thread logic that tells MU::Cloud::AWS::Server.deploy to wait until its
-						# dependencies are ready. We don't, for example, want to start
-						# deploying if we rely on an RDS instance that isn't ready yet. We
-						# can release this immediately, once we successfully grab it.
-						MU::MommaCat.lock("#{cloudclass.name}_#{server["name"]}-dependencies")
-						MU::MommaCat.unlock("#{cloudclass.name}_#{server["name"]}-dependencies")
-
-						serverclass.deploy(server, @deployment, keypairname: @ssh_key_name)
-					rescue Exception => e
-						MU::MommaCat.unlockAll
-						if e.class.name != "MU::Cloud::AWS::Server::BootstrapTempFail" and !File.exists?(deploy_dir+"/.cleanup."+instance.instance_id) and !File.exists?(deploy_dir+"/.cleanup")
-							MU.log "Grooming FAILED for #{node} (#{e.inspect})", MU::ERR, details: e.backtrace
-							sendAdminMail("Grooming FAILED for #{node} on #{MU.appname} \"#{MU.handle}\" (#{MU.mu_id})",
-								msg: e.inspect,
-								data: e.backtrace,
-								debug: true
-							)
-							raise e if reraise_fail
-						else
-							MU.log "Grooming of #{node} interrupted by cleanup or planned reboot"
-						end
-						return
-					end
-
-					MU::MommaCat.unlock(instance.instance_id+"-mommagroom")
-					MU::MommaCat.syncMonitoringConfig(false)
-					MU::MommaCat.createStandardTags(instance.instance_id, region: server["region"])
-					MU.log "Grooming complete for '#{name}' node on \"#{MU.handle}\" (#{MU.mu_id})"
+			begin
+				# This is a shared lock with MU::Cloud::AWS::Server.create, to keep from
+				# stomping on synchronous deploys that are still running. This
+				# means we're going to wait here if this instance is still being
+				# bootstrapped by "regular" means.
+				if !MU::MommaCat.lock(instance.instance_id+"-create", true)
+					MU.log "#{mu_name} is still in mid-creation, skipping", MU::NOTICE
 					MU::MommaCat.unlockAll
-					if first_groom
-						sendAdminMail("Grooming complete for '#{name}' node on deploy \"#{MU.handle}\" (#{MU.mu_id})", data: server.merge(MU.structToHash(instance)))
-					end
+					puts "------------------------------"
+					puts "Open flock() locks:"
+					pp MU::MommaCat.locks
+					puts "------------------------------"
 					return
 				end
-			}
+				MU::MommaCat.unlock(instance.instance_id+"-create")
+
+				if !kitten.postBoot
+					MU.log "#{mu_name} is already being groomed, skipping", MU::NOTICE
+					MU::MommaCat.unlockAll
+					puts "------------------------------"
+					puts "Open flock() locks:"
+					pp MU::MommaCat.locks
+					puts "------------------------------"
+					return
+				end
+
+				# This is a shared lock with MU::Deploy.createResources, simulating the
+				# thread logic that tells MU::Cloud::AWS::Server.deploy to wait until
+				# its dependencies are ready. We don't, for example, want to start
+				# deploying if we rely on an RDS instance that isn't ready yet. We can
+				# release this immediately, once we successfully grab it.
+				MU::MommaCat.lock("#{kitten.cloudclass.name}_#{kitten.config["name"]}-dependencies")
+				MU::MommaCat.unlock("#{kitten.cloudclass.name}_#{kitten.config["name"]}-dependencies")
+
+				kitten.groom
+			rescue Exception => e
+				MU::MommaCat.unlockAll
+				if e.class.name != "MU::Cloud::AWS::Server::BootstrapTempFail" and !File.exists?(deploy_dir+"/.cleanup."+instance.instance_id) and !File.exists?(deploy_dir+"/.cleanup")
+					MU.log "Grooming FAILED for #{mu_name} (#{e.inspect})", MU::ERR, details: e.backtrace
+					sendAdminMail("Grooming FAILED for #{mu_name} on #{MU.appname} \"#{MU.handle}\" (#{MU.mu_id})",
+						msg: e.inspect,
+						data: e.backtrace,
+						debug: true
+					)
+					raise e if reraise_fail
+				else
+					MU.log "Grooming of #{mu_name} interrupted by cleanup or planned reboot"
+				end
+				return
+			end
+
+			MU::MommaCat.unlock(instance.instance_id+"-mommagroom")
+			MU::MommaCat.syncMonitoringConfig(false)
+			MU::MommaCat.createStandardTags(instance.instance_id, region: kitten.config["region"])
+			MU.log "Grooming complete for '#{name}' mu_name on \"#{MU.handle}\" (#{MU.mu_id})"
+			MU::MommaCat.unlockAll
+			if first_groom
+				sendAdminMail("Grooming complete for '#{name}' mu_name on deploy \"#{MU.handle}\" (#{MU.mu_id})", data: server.merge(MU.structToHash(instance)))
+			end
+			return
 		end
 
 		@lock_semaphore = Mutex.new
@@ -652,6 +663,7 @@ module MU
 					purged = 0
 					known_servers.each { |server_container|
 						server_container.each_pair { |nodename, data|
+							next if data['instance_id'].nil?
 							MU.setVar("curRegion", data['region']) if !data['region'].nil?
 							begin
 								resp = MU::Cloud::AWS.ec2(MU.curRegion).describe_instances(instance_ids: [data['instance_id']])
@@ -703,7 +715,7 @@ module MU
 		# Add or remove a resource's metadata to this deployment's structure and
 		# flush it to disk.
 		# @param res_type [String]: The type of resource (e.g. *server*, *database*).
-		# @param key [String]: The MU resource name.
+		# @param key [String]: The name field of this resource.
 		# @param data [Hash]: The resource's metadata.
 		# @param remove [Boolean]: Remove this resource from the deploy structure, instead of adding it.
 		# @return [void]
@@ -1003,11 +1015,11 @@ module MU
 			)
 			mu_dns = nil
 			if !public_dns.nil?
-				mu_dns = MU::Cloud::AWS::DNSZone.genericDNSEntry(node, public_dns, MU::Cloud::Server, noop: true)
+				mu_dns = MU::Cloud::AWS::DNSZone.genericMuDNSEntry(node, public_dns, MU::Cloud::Server, noop: true)
 			else
-				mu_dns = MU::Cloud::AWS::DNSZone.genericDNSEntry(node, private_ip, MU::Cloud::Server, noop: true)
+				mu_dns = MU::Cloud::AWS::DNSZone.genericMuDNSEntry(node, private_ip, MU::Cloud::Server, noop: true)
 			end
-			mu_dns = nil # XXX HD account hack
+
 			if user.nil? or (gateway_user.nil? and !gateway_ip.nil? and (public_ip.nil? or public_ip.empty? and (private_ip != gateway_ip)))
 				MU.log "Called addHostToSSHConfig with a missing SSH user argument. addHostToSSHConfig(node: #{node}, private_ip: #{private_ip}, private_dns: #{private_dns}, public_ip: #{public_ip}, public_dns: #{public_dns}, user: #{user}, gateway_ip: #{gateway_ip}, gateway_user: #{gateway_user}, key_name: #{key_name}, ssh_dir: #{ssh_dir}, ssh_conf: #{ssh_conf}, ssh_owner: #{ssh_owner}", MU::ERR, details: caller
 				return

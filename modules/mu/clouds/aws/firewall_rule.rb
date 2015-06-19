@@ -25,7 +25,7 @@ module MU
 			def waits_on_parent_completion; false.freeze end
 
 			@deploy = nil
-			@ruleset = nil
+			@config = nil
 			@admin_sgs = Hash.new
 			@admin_sg_semaphore = Mutex.new
 
@@ -33,55 +33,55 @@ module MU
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::firewall_rules}
 			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg)
 				@deploy = mommacat
-				@ruleset = kitten_cfg
-				MU.setVar("curRegion", @ruleset['region']) if !@ruleset['region'].nil?
+				@config = kitten_cfg
+				MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
 			end
 
 			# Called by {MU::Deploy#createResources}
 			def create
 				# old-style VPC reference
-				if !@ruleset['vpc_id'].nil? or !@ruleset['vpc_name'].nil?
+				if !@config['vpc_id'].nil? or !@config['vpc_name'].nil?
 					existing_vpc, vpc_name = MU::Cloud::VPC.find(
-						id: @ruleset['vpc_id'],
-						name: @ruleset['vpc_name'],
-						region: @ruleset['region']
+						id: @config['vpc_id'],
+						name: @config['vpc_name'],
+						region: @config['region']
 					)
 					if existing_vpc.nil?
-						MU.log "Couldn't find VPC matching id #{@ruleset['vpc_id']}", MU::ERR if @ruleset['vpc_id']
-						MU.log "Couldn't find VPC matching name #{@ruleset['vpc_name']}", MU::ERR if @ruleset['vpc_name']
-						raise MuError, "Couldn't find VPC matching id #{@ruleset['vpc_id']}" if @ruleset['vpc_id']
-						raise MuError, "Couldn't find VPC matching name #{@ruleset['vpc_name']}" if @ruleset['vpc_name']
+						MU.log "Couldn't find VPC matching id #{@config['vpc_id']}", MU::ERR if @config['vpc_id']
+						MU.log "Couldn't find VPC matching name #{@config['vpc_name']}", MU::ERR if @config['vpc_name']
+						raise MuError, "Couldn't find VPC matching id #{@config['vpc_id']}" if @config['vpc_id']
+						raise MuError, "Couldn't find VPC matching name #{@config['vpc_name']}" if @config['vpc_name']
 					end
 					vpc_id = existing_vpc.vpc_id
 				# new-style VPC reference
-				elsif !@ruleset['vpc'].nil?
-					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::Cloud::AWS::VPC.parseVPC(@ruleset['vpc'])
+				elsif !@config['vpc'].nil?
+					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::Cloud::AWS::VPC.parseVPC(@config['vpc'])
 				end
-				@ruleset['sg_id'] = MU::Cloud::AWS::FirewallRule.createEc2SG(
-						@ruleset['name'],
+				@config['sg_id'] = MU::Cloud::AWS::FirewallRule.createEc2SG(
+						@config['name'],
 						[],
 						vpc_id: vpc_id,
-						region: @ruleset['region']
+						region: @config['region']
 				)
 			end
 
 			# Called by {MU::Deploy#createResources}
 			def groom
 				MU::Cloud::AWS::FirewallRule.setRules(
-						@ruleset['sg_id'],
-						@ruleset['rules'],
-						add_to_self: @ruleset['self-referencing'],
-						region: @ruleset['region']
+						@config['sg_id'],
+						@config['rules'],
+						add_to_self: @config['self-referencing'],
+						region: @config['region']
 					)
 			end
 
 			# Log metadata about this ruleset to the currently running deployment
 			def notify
 				sg_data = MU.structToHash(
-						MU::Cloud::FirewallRule.find(sg_id: @ruleset['sg_id'], region: @ruleset['region'])
+						MU::Cloud::FirewallRule.find(sg_id: @config['sg_id'], region: @config['region'])
 					)
-				sg_data["group_id"] = @ruleset['sg_id']
-				@deploy.notify("firewall_rules", @ruleset['name'], sg_data)
+				sg_data["group_id"] = @config['sg_id']
+				@deploy.notify("firewall_rules", @config['name'], sg_data)
 			end
 
 			# Insert a rule into an existing security group.

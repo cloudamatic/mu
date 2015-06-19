@@ -16,7 +16,7 @@ module MU
 class Cloud
 	class AWS
 		# A server pool as configured in {MU::Config::BasketofKittens::server_pools}
-		class ServerPool
+		class ServerPool < MU::Cloud::ServerPool
 			# The {MU::Config::BasketofKittens} name for a single resource of this class.
 			# Whether {MU::Deploy} should hold creation of other resources which depend on this resource until the latter has been created.
 			def deps_wait_on_my_creation; false.freeze end
@@ -24,14 +24,14 @@ class Cloud
 			def waits_on_parent_completion; true.freeze end
 
 			@deploy = nil
-			@pool = nil
+			@config = nil
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::server_pools}
 			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg)
 				@deploy = mommacat
-				@pool = kitten_cfg
-				MU.setVar("curRegion", @pool['region']) if !@pool['region'].nil?
+				@config = kitten_cfg
+				MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
 			end
 
 			# Called automatically by {MU::Deploy#createResources}
@@ -39,14 +39,14 @@ class Cloud
 				MU::Cloud.artifact("AWS", :DNSZone)
 				keypairname, ssh_private_key, ssh_public_key = @deploy.SSHKey
 
-				pool_name = MU::MommaCat.getResourceName(@pool['name'])
-				MU.setVar("curRegion", @pool['region']) if !@pool['region'].nil?
+				pool_name = MU::MommaCat.getResourceName(@config['name'])
+				MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
 
 				asg_options = {
 					:auto_scaling_group_name => pool_name,
-					:default_cooldown => @pool["default_cooldown"],
-					:health_check_type => @pool["health_check_type"],
-					:health_check_grace_period => @pool["health_check_grace_period"],
+					:default_cooldown => @config["default_cooldown"],
+					:health_check_type => @config["health_check_type"],
+					:health_check_grace_period => @config["health_check_grace_period"],
 					:tags => []
 				}
 
@@ -54,26 +54,26 @@ class Cloud
 					asg_options[:tags] << { key: name, value: value, propagate_at_launch: true }
 				}
 
-				if @pool['tags']
-					@pool['tags'].each { |tag|
+				if @config['tags']
+					@config['tags'].each { |tag|
 						asg_options[:tags] << { key: tag['key'], value: tag['value'], propagate_at_launch: true }
 					}
 				end
 
-				if @pool["wait_for_nodes"] > 0
-					MU.log "Setting pool #{pool_name} min_size and max_size to #{@pool["wait_for_nodes"]} until bootstrapped"
-					asg_options[:min_size] = @pool["wait_for_nodes"]
-					asg_options[:max_size] = @pool["wait_for_nodes"]
+				if @config["wait_for_nodes"] > 0
+					MU.log "Setting pool #{pool_name} min_size and max_size to #{@config["wait_for_nodes"]} until bootstrapped"
+					asg_options[:min_size] = @config["wait_for_nodes"]
+					asg_options[:max_size] = @config["wait_for_nodes"]
 				else
-					asg_options[:min_size] = @pool["min_size"]
-					asg_options[:max_size] = @pool["max_size"]
+					asg_options[:min_size] = @config["min_size"]
+					asg_options[:max_size] = @config["max_size"]
 				end
 
 
-				if @pool["loadbalancers"]
+				if @config["loadbalancers"]
 					lbs = Array.new
 # XXX refactor this into the LoadBalancer resource
-					@pool["loadbalancers"].each { |lb|
+					@config["loadbalancers"].each { |lb|
 						if lb["existing_load_balancer"]
 							lbs << lb["existing_load_balancer"]
 							@deploy.deployment["loadbalancers"] = Array.new if !@deploy.deployment["loadbalancers"]
@@ -97,10 +97,10 @@ class Cloud
 					}
 					asg_options[:load_balancer_names] = lbs
 				end
-				asg_options[:termination_policies] = @pool["termination_policies"] if @pool["termination_policies"]
-				asg_options[:desired_capacity] = @pool["desired_capacity"] if @pool["desired_capacity"]
+				asg_options[:termination_policies] = @config["termination_policies"] if @config["termination_policies"]
+				asg_options[:desired_capacity] = @config["desired_capacity"] if @config["desired_capacity"]
 
-				basis = @pool["basis"]
+				basis = @config["basis"]
 
 				if basis["launch_config"]
 					nodes_name = MU::MommaCat.getResourceName(basis["launch_config"]["name"])
@@ -139,11 +139,11 @@ class Cloud
 					launch_options[:spot_price ] = launch_desc["spot_price"] if launch_desc["spot_price"]
 					launch_options[:kernel_id ] = launch_desc["kernel_id"] if launch_desc["kernel_id"]
 					launch_options[:ramdisk_id ] = launch_desc["ramdisk_id"] if launch_desc["ramdisk_id"]
-					launch_options[:iam_instance_profile] = MU::Cloud::AWS::Server.createIAMProfile("ServerPool-"+@pool['name'], base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'])
-					@pool['iam_role'] = launch_options[:iam_instance_profile]
+					launch_options[:iam_instance_profile] = MU::Cloud::AWS::Server.createIAMProfile("ServerPool-"+@config['name'], base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'])
+					@config['iam_role'] = launch_options[:iam_instance_profile]
 
-				if !@pool["vpc_zone_identifier"].nil? or !@pool["vpc"].nil?
-					launch_options[:associate_public_ip_address] = @pool["associate_public_ip"]
+				if !@config["vpc_zone_identifier"].nil? or !@config["vpc"].nil?
+					launch_options[:associate_public_ip_address] = @config["associate_public_ip"]
 				end
 
 					instance_secret = Password.random(50)
@@ -151,19 +151,19 @@ class Cloud
 
 					launch_options[:user_data ] = Base64.encode64(
 						MU::Cloud::AWS::Server.fetchUserdata(
-							platform: @pool["platform"],
+							platform: @config["platform"],
 							template_variables: {
 								"deployKey" => Base64.urlsafe_encode64(MU.mommacat.public_key),
 								"deploySSHKey" => ssh_public_key,
 								"muID" => MU.mu_id,
 								"muUser" => MU.chef_user,
 								"publicIP" => MU.mu_public_ip,
-								"skipApplyUpdates" => @pool['skipinitialupdates'],
-								"windowsAdminName" => @pool['windows_admin_username'],
-								"resourceName" => @pool["name"],
+								"skipApplyUpdates" => @config['skipinitialupdates'],
+								"windowsAdminName" => @config['windows_admin_username'],
+								"resourceName" => @config["name"],
 								"resourceType" => "server_pool"
 							},
-							custom_append: @pool['userdata_script']
+							custom_append: @config['userdata_script']
 						)
 					)
 
@@ -186,17 +186,17 @@ class Cloud
 
 				sgs = Array.new
 #XXX should be passing optional rules to createEc2SG here
-				if @pool["vpc_zone_identifier"]
-					asg_options[:vpc_zone_identifier] = @pool["vpc_zone_identifier"]
-				elsif @pool["vpc"]
-					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::Cloud::AWS::VPC.parseVPC(@pool['vpc'])
+				if @config["vpc_zone_identifier"]
+					asg_options[:vpc_zone_identifier] = @config["vpc_zone_identifier"]
+				elsif @config["vpc"]
+					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::Cloud::AWS::VPC.parseVPC(@config['vpc'])
 					nat_instance, mu_name = MU::Cloud::Server.find(
-						id: @pool['vpc']['nat_host_id'],
-						name: @pool['vpc']['nat_host_name']
+						id: @config['vpc']['nat_host_id'],
+						name: @config['vpc']['nat_host_name']
 					)
 					asg_options[:vpc_zone_identifier] = subnet_ids.join(",")
 
-					sgs << MU::Cloud::AWS::FirewallRule.createEc2SG(@pool['name']+vpc_id.upcase, @pool['ingress_rules'], description: "AutoScale Group #{pool_name}", vpc_id: vpc_id)
+					sgs << MU::Cloud::AWS::FirewallRule.createEc2SG(@config['name']+vpc_id.upcase, @config['ingress_rules'], description: "AutoScale Group #{pool_name}", vpc_id: vpc_id)
 					if nat_instance != nil
 						sgs << MU::Cloud::AWS::FirewallRule.setAdminSG(
 							vpc_id: vpc_id,
@@ -208,15 +208,15 @@ class Cloud
 				end
 
 				if asg_options[:vpc_zone_identifier] == nil
-					sgs << MU::Cloud::AWS::FirewallRule.createEc2SG(@pool['name'], nil, description: "AutoScale Group #{pool_name}")
+					sgs << MU::Cloud::AWS::FirewallRule.createEc2SG(@config['name'], nil, description: "AutoScale Group #{pool_name}")
 					sgs << MU::Cloud::AWS::FirewallRule.setAdminSG
 				end
 
-				if !@pool["add_firewall_rules"].nil?
-					@pool["add_firewall_rules"].each { |acl|
+				if !@config["add_firewall_rules"].nil?
+					@config["add_firewall_rules"].each { |acl|
 						sg = MU::Cloud::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"])
 						if sg.nil?
-							MU.log "Couldn't find dependent security group #{acl} for server pool #{@pool['name']}", MU::ERR, details: MU.mommacat.deployment['firewall_rules']
+							MU.log "Couldn't find dependent security group #{acl} for server pool #{@config['name']}", MU::ERR, details: MU.mommacat.deployment['firewall_rules']
 							raise MuError, "deploy failure"
 						end
 						sgs << sg.group_id
@@ -244,15 +244,15 @@ class Cloud
 
 				# Do the dance of specifying individual zones if we haven't asked to
 				# use particular VPC subnets.
-				if @pool['zones'] == nil and asg_options[:vpc_zone_identifier] == nil
-					@pool["zones"] = MU::Cloud::AWS.listAZs(@pool['region'])
-					MU.log "Using zones from #{@pool['region']}", MU::DEBUG, details: @pool['zones']
+				if @config['zones'] == nil and asg_options[:vpc_zone_identifier] == nil
+					@config["zones"] = MU::Cloud::AWS.listAZs(@config['region'])
+					MU.log "Using zones from #{@config['region']}", MU::DEBUG, details: @config['zones']
 				end
-				asg_options[:availability_zones] = @pool["zones"] if @pool["zones"] != nil
+				asg_options[:availability_zones] = @config["zones"] if @config["zones"] != nil
 
 				MU.log "Creating AutoScale group #{pool_name}", details: asg_options
 
-				zones_to_try = @pool["zones"]
+				zones_to_try = @config["zones"]
 				begin
 					asg = MU::Cloud::AWS.autoscale.create_auto_scaling_group(asg_options)
 				rescue Aws::AutoScaling::Errors::ValidationError => e
@@ -265,7 +265,7 @@ class Cloud
 					end
 				end
 
-				if zones_to_try != nil and zones_to_try.size < @pool["zones"].size
+				if zones_to_try != nil and zones_to_try.size < @config["zones"].size
 					zones_to_try.each { |zone|
 						begin
 							MU::Cloud::AWS.autoscaleg.update_auto_scaling_group(
@@ -279,11 +279,11 @@ class Cloud
 
 				end
 
-				if @pool["scaling_policies"] and @pool["scaling_policies"].size > 0
-					@pool["scaling_policies"].each { |policy|
+				if @config["scaling_policies"] and @config["scaling_policies"].size > 0
+					@config["scaling_policies"].each { |policy|
 						policy_params = {
 							:auto_scaling_group_name => pool_name,
-							:policy_name => MU::MommaCat.getResourceName("#{@pool['name']}-#{policy['name']}"),
+							:policy_name => MU::MommaCat.getResourceName("#{@config['name']}-#{policy['name']}"),
 							:scaling_adjustment => policy['adjustment'],
 							:adjustment_type => policy['type'],
 							:cooldown => policy['cooldown']
@@ -311,8 +311,8 @@ class Cloud
 
 				# If we're holding to bootstrap some nodes, do so, then set our min/max
 				# sizes to their real values.
-				if @pool["wait_for_nodes"] > 0
-					MU.log "Waiting for #{@pool["wait_for_nodes"]} nodes to fully bootstrap before proceeding"
+				if @config["wait_for_nodes"] > 0
+					MU.log "Waiting for #{@config["wait_for_nodes"]} nodes to fully bootstrap before proceeding"
 					parent_thread_id = Thread.current.object_id
 					groomthreads = Array.new
 					desc.instances.each { |member|
@@ -320,11 +320,11 @@ class Cloud
 							instance, mu_name = MU::Cloud::Server.find(id: member.instance_id)
 							groomthreads << Thread.new {
 								MU.dupGlobals(parent_thread_id)
-								MU.mommacat.groomNode(instance, @pool['name'], "server_pool", reraise_fail: true, sync_wait: @pool['dns_sync_wait'])
+								MU.mommacat.groomNode(instance, @config['name'], "server_pool", reraise_fail: true, sync_wait: @config['dns_sync_wait'])
 							}
 						rescue Exception => e
 							if !instance.nil? and !done
-								MU.log "Aborted before I could finish setting up #{@pool['name']}, cleaning it up. Stack trace will print once cleanup is complete.", MU::WARN if !@deploy.nocleanup
+								MU.log "Aborted before I could finish setting up #{@config['name']}, cleaning it up. Stack trace will print once cleanup is complete.", MU::WARN if !@deploy.nocleanup
 								MU::MommaCat.unlockAll
 								if !@deploy.nocleanup
 									Thread.new {
@@ -339,11 +339,11 @@ class Cloud
 					groomthreads.each { |t|
 						t.join
 					}
-					MU.log "Setting min_size to #{@pool['min_size']} and max_size to #{@pool['max_size']}"
+					MU.log "Setting min_size to #{@config['min_size']} and max_size to #{@config['max_size']}"
 					MU::Cloud::AWS.autoscale.update_auto_scaling_group(
 						auto_scaling_group_name: pool_name,
-						min_size: @pool['min_size'],
-						max_size: @pool['max_size']
+						min_size: @config['min_size'],
+						max_size: @config['max_size']
 					)
 				end
 				MU.log "See /var/log/mu-momma-cat.log for asynchronous bootstrap progress.", MU::NOTICE
