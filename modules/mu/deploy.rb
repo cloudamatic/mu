@@ -41,76 +41,30 @@ module MU
 		# The environment into which we're deploying
 		attr_reader :environment
 
-		# The MU root directory
-		attr_reader :myhome
-
-		# The name of the SSH keypair associated with this deployment
-		attr_reader :keypairname
-
-		# The metadata for all resources in this deployment (this is just a shortcut into {MU::MommaCat#deployment})
-		attr_reader :deployment
-
 		# The cloud provider's account identifier
 		attr_reader :account_number
-
-		# An optional flag to skip instance bootstrapping steps, instead allowing
-		# {MU::MommaCat} to do them asynchronously.
-		attr_reader :mommacat_boot
 
 		# This flag indicates that cleanup operations should be skipped if a
 		# failure occurs.
 		attr_reader :nocleanup
 		
-		# Log information about a resource to our deployment structure, which nodes
-		# can then access for orchestration purposes.
-		# @param res_type [String]:	The type of cloud resource (server, loadbalancer, etc)
-		# @param key [String]: The resource's MU name
-		# @param data [Hash]:	Metadata about this resource we wish to save
-		# @return [void]
-		def notify(res_type, key, data) 
-			raise "Called notify without active deployment!" if MU.mommacat.nil?
-			MU.mommacat.notify(res_type, key, data)
-		end
-		# (see #notify)
-		def self.notify(res_type, key, data, mu_id: mu_id)
-			raise "Called notify without active deployment!" if MU.mommacat.nil?
-			MU.mommacat.notify(res_type, key, data)
-		end
-
-		# The metadata for all resources in this deployment (this is just a shortcut to {MU::MommaCat#deployment})
-		# @!attribute [r]
-		def deployment(mu_id: mu_id = MU.mu_id)
-			return nil if MU.mommacat.nil?
-			MU.mommacat.deployment
-		end
-		# @!attribute [r]
-		# (see #deployment)
-		def self.deployment(mu_id: mu_id = MU.mu_id)
-			return nil if MU.mommacat.nil?
-			MU.mommacat.deployment
-		end
-
 		# @param environment [String]: The environment name for this application stack (e.g. "dev" or "prod")
 		# @param verbosity [Boolean]: Toggles debug-level log verbosity
 		# @param webify_logs [Boolean]: Toggles web-friendly log output
 		# @param nocleanup [Boolean]: Toggles whether to skip cleanup of resources if this deployment fails.
-		# @param mommacat_boot [Boolean]: Toggles whether to skip full bootstrap of Server resources, leaving them to be groomed by the Momma Cat daemon instead.
 		# @param stack_conf [Hash]: A full application stack configuration parsed by {MU::Config}
 		def initialize(environment,
 									verbosity: verbosity,
 									webify_logs: webify_logs,
 									nocleanup: nocleanup,
-									mommacat_boot: mommacat_boot,
 									stack_conf: stack_conf)
 			MU.setVar("verbose", verbosity)
 			@webify_logs = webify_logs
-			@mommacat_boot = mommacat_boot
 			@nocleanup = nocleanup
 			MU.setLogging(verbosity, webify_logs)
 
 			if stack_conf.nil? or !stack_conf.is_a?(Hash)
-				MU.log "Deploy objects require a stack_conf hash", MU::ERR
-				exit 1
+				raise MuError, "Deploy objects require a stack_conf hash"
 			end
 
 			@my_threads = Array.new
@@ -132,7 +86,7 @@ module MU
 
 			retries = 0
 			begin
-				raise "Failed to allocate an unused MU-ID after #{retries} tries!" if retries > 70
+				raise MuError, "Failed to allocate an unused MU-ID after #{retries} tries!" if retries > 70
 				seedsize = 1 + (retries/10).abs
 				seed = Password.pronounceable(8).slice(0..seedsize)
 				mu_id = @appname.upcase + "-" + @environment.upcase + "-" + @timestamp + "-" + seed.upcase
@@ -150,67 +104,43 @@ module MU
 			@my_instance_id = MU.getAWSMetaData("instance-id")
 			@my_az = MU.getAWSMetaData("placement/availability-zone")
 	
-			@myhome = Dir.home
-
 			@ssh_private_key = nil
 			@ssh_public_key = nil
 	
 			@fromName ='chef-server';
 
-			MU.resource_types.each { |cloudclass|
-				if !@main_config[cloudclass.cfg_plural].nil? and @main_config[cloudclass.cfg_plural].size > 0
-					setThreadDependencies(@main_config[cloudclass.cfg_plural])
+			MU::Cloud.resource_types.each { |cloudclass, data|
+				if !@main_config[data[:cfg_plural]].nil? and @main_config[data[:cfg_plural]].size > 0
+					setThreadDependencies(@main_config[data[:cfg_plural]])
 				end
 			}
-
 		end
-		
 
-		# Generate an EC2 keypair unique to this deployment.  This will be the main 
-		# key for each child node we create in this run. If keys have already been
-		# generated, return the existing keys instead of creating new ones.
-		# @return [Array<String>]: keypairname, ssh_private_key, ssh_public_key
-		def createEc2SSHKey
+		# Return the parts and pieces of this deploy's node ssh key set. Generate 
+		# or load if that hasn't been done already.
+		def SSHKey
 			return [@keypairname, @ssh_private_key, @ssh_public_key] if !@keypairname.nil?
-		  keyname="deploy-#{MU.mu_id}"
-			keypair = MU.ec2(MU.myRegion).create_key_pair(key_name: keyname)
-			@keypairname = keyname
-		  @ssh_private_key = keypair.key_material
-			MU.log "SSH Key Pair '#{keyname}' fingerprint is #{keypair.key_fingerprint}"
+		  @keypairname="deploy-#{MU.mu_id}"
 		
-		  if !File.directory?("#{@myhome}/.ssh") then
-				MU.log "Creating #{@myhome}/.ssh", MU::DEBUG
-		    Dir.mkdir("#{@myhome}/.ssh", 0700)
+		  if !File.directory?("#{Dir.home}/.ssh") then
+				MU.log "Creating #{Dir.home}/.ssh", MU::DEBUG
+		    Dir.mkdir("#{Dir.home}/.ssh", 0700)
 		  end
-		
-		  # Plop this private key into our local SSH key stash
-			MU.log "Depositing key '#{keyname}' into #{@myhome}/.ssh/#{keyname}", MU::DEBUG
-		  ssh_keyfile = File.new("#{@myhome}/.ssh/#{keyname}", File::CREAT|File::TRUNC|File::RDWR, 0600)
-		  ssh_keyfile.puts @ssh_private_key
-		  ssh_keyfile.close
-
-			# Drag out the public key half of this
-			@ssh_public_key = %x{/usr/bin/ssh-keygen -y -f #{@myhome}/.ssh/#{keyname}}
+			if !File.exists?("#{Dir.home}/.ssh/#{@keypairname}")
+				MU.log "Generating SSH key #{@keypairname}"
+				%x{/usr/bin/ssh-keygen -N "" -f #{Dir.home}/.ssh/#{@keypairname}}
+			end
+			@ssh_public_key = File.read("#{Dir.home}/.ssh/#{@keypairname}.pub")
 			@ssh_public_key.chomp!
+			@ssh_private_key = File.read("#{Dir.home}/.ssh/#{@keypairname}")
+			@ssh_private_key.chomp!
 
-			# Replicate this key in all regions
-			MU::Config.listRegions.each { |region|
-				next if region == MU.myRegion
-				MU.log "Replicating #{keyname} to #{region}", MU::DEBUG, details: @ssh_public_key
-				MU.ec2(region).import_key_pair(
-					key_name: @keypairname,
-					public_key_material: @ssh_public_key
-				)
-			}
+			# XXX only call this if we're creating EC2 resources
+			MU::Cloud::AWS.createEc2SSHKey(@keypairname, @ssh_public_key)
 
-# XXX This library code would be nicer... except it can't do PKCS8.
-#			foo = OpenSSL::PKey::RSA.new(@ssh_private_key)
-#			bar = foo.public_key
-
-			sleep 3
-		  return [keyname, keypair.key_material, @ssh_public_key]
+		  return [@keypairname, @ssh_private_key, @ssh_public_key]
 		end
-		
+
 		# Activate this deployment, instantiating all resources, orchestrating them,
 		# and saving metadata about them.
 		def run
@@ -257,13 +187,13 @@ module MU
 				if !die
 					puts "Received SIGINT, hit ctrl-C again within five seconds to kill this deployment."
 				else
-					raise "Terminated by user"
+					raise MuError, "Terminated by user"
 				end
 				@last_sigterm = Time.now.to_i
 			end
 
 			begin
-				keyname, ssh_private_key, ssh_public_key = createEc2SSHKey
+				keyname, ssh_private_key, ssh_public_key = self.SSHKey
 
 				metadata = {
 					"appname" => @appname,
@@ -281,12 +211,13 @@ module MU
 					ssh_key_name: keyname,
 					ssh_private_key: ssh_private_key,
 					ssh_public_key: ssh_public_key,
+					nocleanup: @nocleanup,
 					deployment_data: metadata
 				)
 				MU.setVar("mommacat", mommacat)
 
 				@admins.each { |admin|
-					notify("admins", admin['name'], admin)
+					mommacat.notify("admins", admin['name'], admin)
 				}
 
 				@deploy_semaphore = Mutex.new
@@ -297,24 +228,26 @@ module MU
 		    @my_threads << Thread.new {
 					MU.dupGlobals(parent_thread_id)
 					Thread.current.thread_variable_set("name", "mu_create_container")
-					MU.resource_types.each { |cloudclass|
-						if !@main_config[cloudclass.cfg_plural].nil? and
-						 		@main_config[cloudclass.cfg_plural].size > 0 and
-								cloudclass.instance_methods(false).include?(:create)
-							createResources(@main_config[cloudclass.cfg_plural], "create")
+					MU::Cloud.resource_types.each { |cloudclass, data|
+						if !@main_config[data[:cfg_plural]].nil? and
+						 		@main_config[data[:cfg_plural]].size > 0 and
+								data[:instance].include?(:create)
+			# XXX maybe here we verify that cloud provider implementations have
+			# all their methods?
+							createResources(@main_config[data[:cfg_plural]], "create")
 						end
 					}
 				}
 
-				# Some resources have a "deploy" phase too
+				# Some resources have a "groom" phase too
 		    @my_threads << Thread.new {
 					MU.dupGlobals(parent_thread_id)
-					Thread.current.thread_variable_set("name", "mu_deploy_container")
-					MU.resource_types.each { |cloudclass|
-						if !@main_config[cloudclass.cfg_plural].nil? and
-						 		@main_config[cloudclass.cfg_plural].size > 0 and
-								cloudclass.instance_methods(false).include?(:deploy)
-							createResources(@main_config[cloudclass.cfg_plural], "deploy")
+					Thread.current.thread_variable_set("name", "mu_groom_container")
+					MU::Cloud.resource_types.each { |cloudclass, data|
+						if !@main_config[data[:cfg_plural]].nil? and
+						 		@main_config[data[:cfg_plural]].size > 0 and
+								data[:instance].include?(:groom)
+							createResources(@main_config[data[:cfg_plural]], "groom")
 						end
 					}
 				}
@@ -351,7 +284,7 @@ module MU
 
 			  exit 1
 			end
-			
+			deployment = MU.mommacat.deployment
 			deployment["deployment_end_time"]=Time.new.strftime("%I:%M %p on %A, %b %d, %Y").to_s;
 			MU::MommaCat.syncMonitoringConfig	
 
@@ -365,7 +298,7 @@ module MU
 
 		def sendMail()
 		
-		  $str = JSON.pretty_generate(deployment)
+		  $str = JSON.pretty_generate(MU.mommacat.deployment)
 
 			admin_addrs = @admins.map { |admin|
 				admin['name']+" <"+admin['email']+">"
@@ -423,8 +356,7 @@ MESSAGE_END
 					redo
 				end
 				if retries >= 5
-					MU.log "#{dependent} tried five times but never saw #{dependent_thread} in live thread list...", MU::ERR, details: @my_threads
-					raise "#{dependent} tried five times but never saw #{dependent_thread} in live thread list..."
+					raise MuError, "#{dependent} tried five times but never saw #{dependent_thread} in live thread list...\n"+@my_threads.join("\t\n")
 				end
 			}
 		end
@@ -453,30 +385,32 @@ MESSAGE_END
 			end
 
 		  services.each { |resource|
-				res_type = resource["#MU_CLASS"].name
+				res_type = resource["#MU_CLOUDCLASS"].name
 		    name = res_type+"_"+resource["name"]
 
-				# All resources wait to "deploy" until after their own "create" thread
+				# All resources wait to "groom" until after their own "create" thread
 				# finishes, and also on the main thread which spawns them (so all
 				# siblings will exist for dependency checking before we start).
 		    @dependency_threads["#{name}_create"]=["mu_create_container"]
-		    @dependency_threads["#{name}_deploy"]=["#{name}_create", "mu_deploy_container"]
+		    @dependency_threads["#{name}_groom"]=["#{name}_create", "mu_groom_container"]
 
 				MU.log "Setting dependencies for #{name}", MU::DEBUG
 				if resource["dependencies"] != nil then
 				  resource["dependencies"].each { |dependency|
-						parent_class = MU.configType2ObjectType(dependency["type"])
+						# XXX actually, the dependency should identify the target cloud
+						# resource instead of assuming it's the same as the dependent
+						parent_class = MU::Cloud.artifact(resource["cloud"], dependency["type"])
 
 						parent_type = parent_class.name
 						parent = parent_type+"_"+dependency["name"]+"_create"
-						addDependentThread(parent, "#{name}_deploy")
-						if (parent_class.deps_wait_on_my_creation and parent_type != res_type) or resource["#MU_CLASS"].waits_on_parent_completion or dependency['phase'] == "create"
+						addDependentThread(parent, "#{name}_groom")
+						if (parent_class.deps_wait_on_my_creation and parent_type != res_type) or resource["#MU_CLOUDCLASS"].waits_on_parent_completion or dependency['phase'] == "create"
 							addDependentThread(parent, "#{name}_create")
 						end
-						if (dependency['phase'] == "deploy" or resource["#MU_CLASS"].waits_on_parent_completion) and parent_class.instance_methods(false).include?(:deploy)
-							parent = parent_type+"_"+dependency["name"]+"_deploy"
-							addDependentThread(parent, "#{name}_deploy")
-							if (parent_class.deps_wait_on_my_creation and parent_type != res_type) or resource["#MU_CLASS"].waits_on_parent_completion or dependency['phase'] == "deploy"
+						if (dependency['phase'] == "groom" or resource["#MU_CLOUDCLASS"].waits_on_parent_completion) and parent_class.instance_methods(false).include?(:groom)
+							parent = parent_type+"_"+dependency["name"]+"_groom"
+							addDependentThread(parent, "#{name}_groom")
+							if (parent_class.deps_wait_on_my_creation and parent_type != res_type) or resource["#MU_CLOUDCLASS"].waits_on_parent_completion or dependency['phase'] == "groom"
 								addDependentThread(parent, "#{name}_create")
 							end
 						end
@@ -495,29 +429,33 @@ MESSAGE_END
 		  services.each do |service|
 		    @my_threads << Thread.new(service) { |myservice|
 					MU.dupGlobals(parent_thread_id)
-					threadname = service["#MU_CLASS"].name+"_"+myservice["name"]+"_#{mode}"
+					threadname = service["#MU_CLOUDCLASS"].name+"_"+myservice["name"]+"_#{mode}"
 		      Thread.current.thread_variable_set("name", threadname)
 		      Thread.abort_on_exception = true
 					waitOnThreadDependencies(threadname)
 
-					if service["#MU_CLASS"].instance_methods(false).include?(:deploy)
+					if service["#MU_CLOUDCLASS"].instance_methods(false).include?(:groom)
 						if mode == "create"
-							MU::MommaCat.lock(service["#MU_CLASS"].name+"_"+myservice["name"]+"-dependencies")
-						elsif mode == "deploy"
-							MU::MommaCat.unlock(service["#MU_CLASS"].name+"_"+myservice["name"]+"-dependencies")
+							MU::MommaCat.lock(service["#MU_CLOUDCLASS"].name+"_"+myservice["name"]+"-dependencies")
+						elsif mode == "groom"
+							MU::MommaCat.unlock(service["#MU_CLOUDCLASS"].name+"_"+myservice["name"]+"-dependencies")
 						end
 					end
 
 					MU.log "Launching thread #{threadname}", MU::DEBUG
 					begin
 						if service['#MUOBJECT'].nil?
-							service['#MUOBJECT'] = service["#MU_CLASS"].new(self, myservice)
+							service['#MUOBJECT'] = service["#MU_CLOUDCLASS"].new(mommacat: MU.mommacat, kitten_cfg: myservice)
 						end
+					rescue Exception => e
+						MU::MommaCat.unlockAll
+						raise MuError, "Error instantiating object from #{service["#MU_CLOUDCLASS"]} (#{e.inspect})", e.backtrace
+					end
+					begin
 						run_this_method = service['#MUOBJECT'].method(mode)
 					rescue Exception => e
-						MU.log "Error invoking #{service["#MU_CLASS"]}.#{mode} for #{myservice['name']} (#{e.message})", MU::ERR
 						MU::MommaCat.unlockAll
-						raise e
+						raise MuError, "Error invoking #{service["#MU_CLOUDCLASS"]}.#{mode} for #{myservice['name']} (#{e.inspect})", e.backtrace
 					end
 					begin
 						MU.log "Running #{service['#MUOBJECT']}.#{mode}", MU::DEBUG
@@ -531,10 +469,9 @@ MESSAGE_END
 							end
 					  end
 						if !@nocleanup
-							MU::Cleanup.run(MU.mu_id, true, false, true)
+							MU::Cleanup.run(MU.mu_id, false, true)
 						end
-						MU.log e.inspect, MU::ERR
-						exit 1
+						raise MuError, e.inspect, e.backtrace
 					end
 				}
 		  end

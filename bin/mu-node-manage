@@ -111,10 +111,10 @@ def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [])
 			server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
 			next if nodes.size > 0 and !nodes.include?(nodename)
 
-			instance = MU.ec2(server['region']).describe_instances(instance_ids: [id]).reservations.first.instances.first
+			instance = MU::Cloud::AWS.ec2(server['region']).describe_instances(instance_ids: [id]).reservations.first.instances.first
 
 			mytype = "server"
-			mytype = "server_pool" if server['conf'].has_key?("basis") or server['conf']['#TYPENAME'] == "ServerPool" or server['conf']["#MU_CLASS"] == "MU::ServerPool"
+			mytype = "server_pool" if server['conf'].has_key?("basis") or server['conf']['#TYPENAME'] == "ServerPool" or server['conf']["#MU_CLASS"] == "MU::Cloud::AWS::ServerPool"
 			count = count + 1
 			child = Process.fork {
 				begin
@@ -212,7 +212,7 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
 
 					olduserdata = Base64.decode64(launch.user_data)
 
-					userdata = MU::Server.fetchUserdata(
+					userdata = MU::Cloud::AWS::Server.fetchUserdata(
 						platform: server["platform"],
 						template_variables: {
 							"deployKey" => Base64.urlsafe_encode64(mommacat.public_key),
@@ -283,19 +283,19 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
 		# us to do so.
 		mommacat.listNodes.each_pair { |nodename, server|
 			id = server['instance_id']
-			desc = MU.ec2(server['region']).describe_instances(instance_ids: [id]).reservations.first.instances.first
+			desc = MU::Cloud::AWS.ec2(server['region']).describe_instances(instance_ids: [id]).reservations.first.instances.first
 	
 			server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
 			next if nodes.size > 0 and !nodes.include?(nodename)
 
 			mytype = "server"
-			mytype = "server_pool" if server['conf'].has_key?("basis") or server['conf']['#TYPENAME'] == "ServerPool" or server['conf']["#MU_CLASS"] == "MU::ServerPool"
-			olduserdata = Base64.decode64(MU.ec2(server['region']).describe_instance_attribute(
+			mytype = "server_pool" if server['conf'].has_key?("basis") or server['conf']['#TYPENAME'] == "ServerPool" or server['conf']["#MU_CLASS"] == "MU::Cloud::AWS::ServerPool"
+			olduserdata = Base64.decode64(MU::Cloud::AWS.ec2(server['region']).describe_instance_attribute(
 				instance_id: id,
 				attribute: "userData"
 			).user_data.value)
 
-			userdata = MU::Server.fetchUserdata(
+			userdata = MU::Cloud::AWS::Server.fetchUserdata(
 				platform: server['conf']["platform"],
 				template_variables: {
 					"deployKey" => Base64.urlsafe_encode64(mommacat.public_key),
@@ -325,7 +325,7 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
 
 			MU.log "Updating #{nodename} userdata (#{server["conf"]["platform"]})"
 
-			MU.ec2(server['region']).modify_instance_attribute(
+			MU::Cloud::AWS.ec2(server['region']).modify_instance_attribute(
 				instance_id: id,
 				attribute: "userData",
 				value: Base64.encode64(userdata)

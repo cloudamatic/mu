@@ -33,6 +33,12 @@ gem "chef-vault"
 autoload :Chef, 'chef-vault'
 autoload :ChefVault, 'chef-vault'
 
+class Object
+	def metaclass
+		class << self; self; end
+	end
+end
+
 # XXX Explicit autoloads for child classes of :Chef. This only seems to be
 # necessary for independent groom invocations from MommaCat. It's not at all
 # clear why. Chef bug? Autoload threading weirdness?
@@ -61,10 +67,57 @@ else
 end
 ENV['HOME'] = Etc.getpwuid(Process.uid).dir
 
+gem "chef"
+autoload :Chef, 'chef'
+gem "knife-windows"
+gem "chef-vault"
+autoload :Chef, 'chef-vault'
+autoload :ChefVault, 'chef-vault'
+
+# XXX Explicit autoloads for child classes of :Chef. This only seems to be
+# necessary for independent groom invocations from MommaCat. It's not at all
+# clear why. Chef bug? Autoload threading weirdness?
+class Chef
+  autoload :Knife, 'chef/knife'
+  autoload :Search, 'chef/search'
+  autoload :Node, 'chef/node'
+	autoload :Mixin, 'chef/mixin'
+	# XXX This only seems to be necessary for independent groom invocations from
+	# MommaCat. It's not at all clear why. Chef bug? Autoload threading weirdness?
+	class Knife
+		autoload :Ssh, 'chef/knife/ssh'
+		autoload :Bootstrap, 'chef/knife/bootstrap'
+		autoload :BootstrapWindowsSsh, 'chef/knife/bootstrap_windows_ssh'
+		autoload :Bootstrap, 'chef/knife/core/bootstrap_context'
+		autoload :BootstrapWindowsSsh, 'chef/knife/core/bootstrap_context'
+	end
+end
+
 require 'mu/logger'
 module MU
+
+	# Wrapper class for fatal Exceptions. Gives our internals something to
+	# inherit that will log an error message appropriately before bubbling up.
+	class MuError < StandardError
+		def initialize(message)
+			MU.log message, MU::ERR
+			super ""
+		end
+	end
+
+	# Wrapper class for temporary Exceptions. Gives our internals something to
+	# inherit that will log a notice message appropriately before bubbling up.
+	class MuNonFatal < StandardError
+		def initialize(message)
+			MU.log message, MU::NOTICE
+			super ""
+		end
+	end
+
 	if !ENV.has_key?("MU_LIBDIR") and ENV.has_key?("MU_INSTALLDIR")
 		ENV['MU_LIBDIR'] = ENV['MU_INSTALLDIR']+"/lib"
+	else
+		ENV['MU_LIBDIR'] = "/opt/mu/lib"
 	end
 	# Mu's installation directory.
 	@@myRoot = File.expand_path(ENV['MU_LIBDIR'])
@@ -239,93 +292,6 @@ module MU
 	# Public Mu server IP address, not necessarily the same as MU.my_public_ip
 	def self.mu_public_addr; @@mu_public_addr end
 
-	@@iam_api = {}
-	# Object for accessing Amazon's IAM service
-	def self.iam(region = MU.curRegion)
-		region ||= MU.myRegion
-		@@iam_api[region] ||= Aws::IAM::Client.new(region: region)
-		@@iam_api[region]
-	end
-
-	@@ec2_api = {}
-	# Object for accessing Amazon's EC2 service
-	def self.ec2(region = MU.curRegion)
-		region ||= MU.myRegion
-		@@ec2_api[region] ||= Aws::EC2::Client.new(region: region)
-		@@ec2_api[region]
-	end
-
-	@@autoscale_api = {}
-	# Object for accessing Amazon's Autoscaling service
-	def self.autoscale(region = MU.curRegion)
-		region ||= MU.myRegion
-		@@autoscale_api[region] ||= Aws::AutoScaling::Client.new(region: region)
-		@@autoscale_api[region]
-	end
-
-	@@elb_api = {}
-	# Object for accessing Amazon's ElasticLoadBalancing service
-	def self.elb(region = MU.curRegion)
-		region ||= MU.myRegion
-		@@elb_api[region] ||= Aws::ElasticLoadBalancing::Client.new(region: region)
-		@@elb_api[region]
-	end
-
-	@@route53_api = {}
-	# Object for accessing Amazon's Route53 service
-	def self.route53(region = MU.curRegion)
-		region ||= MU.myRegion
-		@@route53_api[region] ||= Aws::Route53::Client.new(region: region)
-		@@route53_api[region]
-	end
-
-	@@rds_api = {}
-	# Object for accessing Amazon's RDS service
-	def self.rds(region = MU.curRegion)
-		region ||= MU.myRegion
-		@@rds_api[region] ||= Aws::RDS::Client.new(region: region)
-		@@rds_api[region]
-	end
-
-	@@cloudformation_api = {}
-	# Object for accessing Amazon's CloudFormation service
-	def self.cloudformation(region = MU.curRegion)
-		region ||= MU.myRegion
-		@@cloudformation_api[region] ||= Aws::CloudFormation::Client.new(region: region)
-		@@cloudformation_api[region]
-	end
-
-	@@s3_api = {}
-	# Object for accessing Amazon's S3 service
-	def self.s3(region = MU.curRegion)
-		region ||= MU.myRegion
-		@@s3_api[region] ||= Aws::S3::Client.new(region: region)
-		@@s3_api[region]
-	end
-
-	@@cloudtrails_api = {}
-	# Object for accessing Amazon's CloudTrail service
-	def self.cloudtrails(region = MU.curRegion)
-		region ||= MU.myRegion
-		@@cloudtrails_api[region] ||= Aws::CloudTrail::Client.new(region: region)
-		@@cloudtrails_api[region]
-	end
-	
-	@@cloudwatch_api = {}
-	# Object for accessing Amazon's CloudWatch service
-	def self.cloudwatch(region = MU.curRegion)
-		region ||= MU.myRegion
-		@@cloudwatch_api[region] ||= Aws::CloudWatch::Client.new(region: region)
-		@@cloudwatch_api[region]
-	end
-
-	@@cloudfront_api = {}
-	# Object for accessing Amazon's CloudFront service
-	def self.cloudfront(region = MU.curRegion)
-		region ||= MU.myRegion
-		@@cloudfront_api[region] ||= Aws::CloudFront::Client.new(region: region)
-		@@cloudfront_api[region]
-	end
 
 	chef_user ||= Etc.getpwuid(Process.uid).name
 	chef_user = "mu" if chef_user == "root"
@@ -350,19 +316,60 @@ module MU
 		end
 	end
 
+	# For log entries that should only be logged when we're in verbose mode
+	DEBUG = 0.freeze
+	# For ordinary log entries
+	INFO = 1.freeze
+	# For more interesting log entries which are not errors
+	NOTICE = 2.freeze
+	# Log entries for non-fatal errors
+	WARN = 3.freeze
+	# Log entries for non-fatal errors
+	WARNING = 3.freeze
+	# Log entries for fatal errors
+	ERR = 4.freeze
+	# Log entries for fatal errors
+	ERROR = 4.freeze
+
+	autoload :Cleanup, 'mu/cleanup'
+	autoload :Deploy, 'mu/deploy'
+	autoload :MommaCat, 'mu/mommacat'
+	require 'mu/cloud'
+	require 'mu/groomer'
+
+# XXX these guys to move into mu/groomer
+	# List of known/supported grooming agents (configuration management tools)
+	def self.supportedGroomers
+		["Chef"]
+	end
+	MU.supportedGroomers.each { |groomer|
+		require "mu/groomers/#{groomer.downcase}"
+	}
+	# @param groomer [String]: The grooming agent to load. 
+	# @return [Class]: The class object implementing this groomer agent
+	def self.loadGroomer(groomer)
+		if !File.size?(MU.myRoot+"/modules/mu/groomers/#{groomer.downcase}.rb")
+			raise MuError, "Requested to use unsupported grooming agent #{groomer}"
+		end
+		require "mu/groomers/#{groomer.downcase}"
+		return Object.const_get("MU").const_get("Groomer").const_get(groomer)
+	end
+
+	require 'mu/config'
+
 	# Figure out our account number, by hook or by crook
 	def self.account_number
 		if !@@globals[Thread.current.object_id].nil? and
 			 !@@globals[Thread.current.object_id]['account_number'].nil?
 			return @@globals[Thread.current.object_id]['account_number']
 		end
-		user_list = MU.iam.list_users.users
+		user_list = MU::Cloud::AWS.iam.list_users.users
 		if user_list.nil? or user_list.size == 0
 			mac = MU.getAWSMetaData("network/interfaces/macs/").split(/\n/)[0]
 			account_number = MU.getAWSMetaData("network/interfaces/macs/#{mac}owner-id")
 			account_number.chomp!
 		else
-			account_number = MU.iam.list_users.users.first.arn.split(/:/)[4]
+			account_number = MU::Cloud::AWS.iam.list_users.users.first.arn.split(/:/)[4]
 		end
 		MU.setVar("account_number", account_number)
 		account_number
@@ -371,7 +378,7 @@ module MU
 	@@myRegion_var = nil
 	# Find our AWS Region and Availability Zone
 	def self.myRegion
-		@@myRegion_var ||= MU.ec2(ENV['EC2_REGION']).describe_availability_zones.availability_zones.first.region_name
+		@@myRegion_var ||= MU::Cloud::AWS.ec2(ENV['EC2_REGION']).describe_availability_zones.availability_zones.first.region_name
 		@@myRegion_var
 	end	
 
@@ -384,9 +391,9 @@ module MU
 	# The AWS Availability Zone in which this Mu master resides
 	def self.myAZ
 		begin
-			@@myAZ_var ||= MU.ec2(MU.myRegion).describe_instances(instance_ids: [@@myInstanceId]).reservations.first.instances.first.placement.availability_zone
+			@@myAZ_var ||= MU::Cloud::AWS.ec2(MU.myRegion).describe_instances(instance_ids: [@@myInstanceId]).reservations.first.instances.first.placement.availability_zone
 		rescue Aws::EC2::Errors::InternalError => e
-			MU.log "Got #{e.inspect} on MU.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
+			MU.log "Got #{e.inspect} on MU::Cloud::AWS.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
 			sleep 10
 		end
 		@@myAZ_var
@@ -396,9 +403,9 @@ module MU
 	# The AWS Availability Zone in which this Mu master resides
 	def self.myVPC
 		begin
-			@@myVPC_var ||= MU.ec2(MU.myRegion).describe_instances(instance_ids: [@@myInstanceId]).reservations.first.instances.first.vpc_id
+			@@myVPC_var ||= MU::Cloud::AWS.ec2(MU.myRegion).describe_instances(instance_ids: [@@myInstanceId]).reservations.first.instances.first.vpc_id
 		rescue Aws::EC2::Errors::InternalError => e
-			MU.log "Got #{e.inspect} on MU.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
+			MU.log "Got #{e.inspect} on MU::Cloud::AWS.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
 			sleep 10
 		end
 		@@myVPC_var
@@ -410,18 +417,6 @@ module MU
 	# The version of Chef we will install on nodes.
 	# @return [String]
 	def self.chefVersion; @@chefVersion end
-
-	# Map {MU::Config::BasketofKittens} object names to its Mu cloud resource
-	# Ruby class.
-	def self.configType2ObjectType(name)
-		@@resource_types.each { |cloudclass|
-			if name == cloudclass.cfg_name or
-				 name == cloudclass.cfg_plural
-				return cloudclass
-			end
-		}
-		nil
-	end
 
 	# Mu's SSL certificate directory
 	@@mySSLDir = File.expand_path(ENV['MU_DATADIR']+"/ssl")
@@ -463,55 +458,7 @@ module MU
 		return bucketname
 	end
 
-
-	autoload :CloudFormation, 'mu/resources/cloudformation'
-	autoload :LoadBalancer, 'mu/resources/loadbalancer'
-	autoload :Database, 'mu/resources/database'
-	autoload :Server, 'mu/resources/server'
-	autoload :ServerPool, 'mu/resources/serverpool'
-	autoload :VPC, 'mu/resources/vpc'
-	autoload :FirewallRule, 'mu/resources/firewallrule'
-	autoload :DNSZone, 'mu/resources/dnszone'
-	autoload :Cleanup, 'mu/cleanup'
-	autoload :Deploy, 'mu/deploy'
-	autoload :MommaCat, 'mu/mommacat'
-	autoload :Config, 'mu/config'
-
-	# The types of cloud resources we can create, as class objects. Map to the
-	# {MU::Config.BasketofKittens} config language names so we can convert
-	# between them as needed.
-	@@resource_types = [
-		MU::CloudFormation,
-		MU::Database,
-		MU::DNSZone,
-		MU::FirewallRule,
-		MU::LoadBalancer,
-		MU::Server,
-		MU::ServerPool,
-		MU::VPC
-	].freeze
-	# XXX when we re-namespace these guys, we can probably generate this list
-	# dynamically
-
-	# A list of supported cloud resource types as Mu classes
-	def self.resource_types ; @@resource_types end
-
-	# For log entries that should only be logged when we're in verbose mode
-	DEBUG = 0.freeze
-	# For ordinary log entries
-	INFO = 1.freeze
-	# For more interesting log entries which are not errors
-	NOTICE = 2.freeze
-	# Log entries for non-fatal errors
-	WARN = 3.freeze
-	# Log entries for non-fatal errors
-	WARNING = 3.freeze
-	# Log entries for fatal errors
-	ERR = 4.freeze
-	# Log entries for fatal errors
-	ERROR = 4.freeze
-
-	# The AWS policy to allow CloudTrails to log to an S3 bucket.
+	# Log bucket policy for enabling CloudTrail logging to our log bucket in S3.
 	CLOUDTRAIL_BUCKET_POLICY = '{
 		"Version": "2012-10-17",
 		"Statement": [
