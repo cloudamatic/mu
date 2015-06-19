@@ -42,13 +42,13 @@ if [ -f /etc/debian_version ];then
 <% end %>
 elif [ -x /usr/bin/yum ];then
 	version=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
-	if ! grep '^/bin/sh /var/lib/cloud/instance/user-data.txt$' /etc/rc.d/rc.local > /dev/null;then
-		if [ $version == 7 ];then
-			echo "/bin/sh /var/lib/cloud/instances/$instance_id/user-data.txt" >> /etc/rc.d/rc.local
-			chmod +x /etc/rc.d/rc.local
-		else
-			echo "/bin/sh /var/lib/cloud/instance/user-data.txt" >> /etc/rc.d/rc.local
-		fi
+	if [ $version == 7 ];then
+		userdata_dir="/var/lib/cloud/instances/$instance_id"
+	else
+		userdata_dir="/var/lib/cloud/instance"
+	fi
+	if ! grep "^/bin/sh $userdata_dir/user-data.txt$" /etc/rc.d/rc.local > /dev/null;then
+		echo "/bin/sh $userdata_dir/user-data.txt" >> /etc/rc.d/rc.local
 	fi
 	# Ugh, rando EPEL mirror
 	if [ ! -f /etc/yum.repos.d/epel.repo ];then
