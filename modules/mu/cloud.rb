@@ -83,7 +83,7 @@ module MU
 				:cfg_plural => "servers",
 				:interface => self.const_get("Server"),
 				:class => generic_class_methods,
-				:instance => generic_instance_methods + [:groom, :postBoot]
+				:instance => generic_instance_methods + [:groom, :postBoot, :getSSHSession, :getSSHConfig]
 			},
 			:ServerPool => {
 				:has_multiples => true,
@@ -259,7 +259,7 @@ module MU
 				# implement.
 				MU::Cloud.resource_types[name.to_sym][:instance].each { |method|
 					define_method method do
-						MU.log "Invoking #{@cloudobj}.#{method}", MU::NOTICE
+						MU.log "Invoking #{@cloudobj}.#{method}", MU::DEBUG
 						@cloudobj.method(method).call
 						if method == :create or method == :groom or method == :postBoot
 							@cloudobj.method(:notify).call

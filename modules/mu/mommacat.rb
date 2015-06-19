@@ -1217,6 +1217,7 @@ MESSAGE_END
 		# @return [void]
 		def self.openFirewallForClients
 
+			MU::Cloud.artifact("AWS", :FirewallRule)
 			if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
 				Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
 			end

@@ -21,9 +21,12 @@ module MU
 		def self.supportedGroomers
 			["Chef"]
 		end
-		MU::Groomer.supportedGroomers.each { |groomer|
-			require "mu/groomers/#{groomer.downcase}"
-		}
+		# Instance methods that any Groomer plugin must implement
+		def self.requiredMethods
+			[:bootstrap, :haveBootstrapped?, :run, :syncDeployData]
+		end
+
+		class Chef; end
 		# @param groomer [String]: The grooming agent to load. 
 		# @return [Class]: The class object implementing this groomer agent
 		def self.loadGroomer(groomer)
@@ -31,7 +34,29 @@ module MU
 				raise MuError, "Requested to use unsupported grooming agent #{groomer}"
 			end
 			require "mu/groomers/#{groomer.downcase}"
-			return Object.const_get("MU").const_get("Groomer").const_get(groomer)
+			myclass = Object.const_get("MU").const_get("Groomer").const_get(groomer)
+			MU::Groomer.requiredMethods.each { |method|
+				if !myclass.public_instance_methods.include?(method)
+					raise MuError, "MU::Groom::#{groomer} has not implemented required instance method #{method}"
+				end
+			}
+			return myclass
 		end
+
+		attr_reader :groomer_obj
+		attr_reader :groomer_class
+
+		# @param server [MU::Cloud::Server]: The server which this groomer will be configuring.
+		def initialize(server)
+# XXX check server with .is_a?
+			@groomer_class = MU::Groomer.loadGroomer(server.config['groomer'])
+			@groomer_obj = @groomer_class.new(server)
+		end
+
+		MU::Groomer.requiredMethods.each { |method|
+			define_method method do
+				@groomer_obj.method(method).call
+			end
+		}
 	end
 end
