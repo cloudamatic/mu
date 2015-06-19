@@ -218,6 +218,15 @@ end
 execute "echo '/opt/chef/bin/chef-client' >> /etc/rc.d/rc.local" do
 	not_if "grep ^/opt/chef/bin/chef-client /etc/rc.d/rc.local"
 end
+
+cookbook_file 'chef-client'  do
+  path '/opt/mu/bin/chef-client'
+end
+
+cookbook_file 'chef-client' do
+  path '/usr/local/ruby-current/bin/chef-client'
+end
+
 directory "/etc/pki/rsyslog"
 ["Mu_CA.pem", "rsyslog.crt", "rsyslog.key"].each { |file|
 	execute "install rsyslog SSL cert file #{file}" do
