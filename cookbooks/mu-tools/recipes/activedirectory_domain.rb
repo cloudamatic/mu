@@ -70,7 +70,7 @@ else
 		Chef::Log.info "Requires Windows Server 2012 or 2012R2 (#{version})"
 	elsif i_am_first_dc
 		Chef::Log.info "I am first Domain Controller"
-		cap_tools_active_directory_domain node['ad']['dns_name'] do
+		mu_tools_active_directory_domain node['ad']['dns_name'] do
 			action :create
 			netbios_name node['ad']['netbios_name']
 			domain_admin_user domain_admin['username']
@@ -85,7 +85,7 @@ else
 			dfsr_static_port node['ad']['dfsr_static_port']
 		end
 	else
-		cap_tools_active_directory_domain node['ad']['dns_name'] do
+		mu_tools_active_directory_domain node['ad']['dns_name'] do
 			action :add_controller
 			netbios_name node['ad']['netbios_name']
 			domain_admin_user domain_admin['username']

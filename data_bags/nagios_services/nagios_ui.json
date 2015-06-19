@@ -1,5 +1,6 @@
 {
 	"id": "nagios_ui",
 	"hostgroup_name": "mu-master",
+	"notification_interval": 7200,
 	"command_line": "$USER1$/check_http -I $HOSTADDRESS$ -p 8443 -S -e 401"
 }

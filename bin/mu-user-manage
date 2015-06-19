@@ -295,6 +295,7 @@ if [ "$delete" == "1" ];then
 	fi
 	/usr/sbin/userdel -r "$user"
 	/bin/rm -rf "$MU_DATADIR/users/$user"
+	sync_nagios=1
 	if [ -n "`grep $user /etc/sudoers`" ];then
 		remove_sudoer
 	fi
@@ -303,6 +304,7 @@ else
 	# Grab things that are required for initial creation
 	skip_chef_mod=""
 	if [ "$create" == "1" ];then
+		sync_nagios=1
 		if [ "$remove_org" != "" ];then
 			warning_message "-z doesn't make any sense when creating a new user"
 		fi

@@ -62,6 +62,7 @@ default['nagios']['multi_environment_monitoring'] = true
 default['nagios']['users_databag'] = "nagios_users"
 default['nagios']['conf']['enable_notifications'] = 1
 default['nagios']['interval_length'] = 1
+default['nagios']['conf']['interval_length'] = 1
 default['nagios']['notifications_enabled'] = 1
 default['nagios']['default_host']['notification_interval'] = 7200
 default['nagios']['default_host']['check_interval'] = 180

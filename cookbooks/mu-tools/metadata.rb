@@ -16,7 +16,7 @@ license          '# Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights
 # limitations under the License.'
 description      'Mu-specific platform capabilities'
 long_description IO.read(File.join(File.dirname(__FILE__), 'README.md'))
-version          '1.0.3'
+version          '1.0.4'
 depends "oracle-instantclient"
 depends "nagios"
 depends "database"

@@ -263,6 +263,11 @@ module MU
 				end
 			end
 			MU::DNSZone.genericDNSEntry(lb_name, "#{resp.dns_name}.", MU::LoadBalancer, sync_wait: @loadbalancer['dns_sync_wait'])
+			if !@loadbalancer['dns_records'].nil?
+				@loadbalancer['dns_records'].each { |dnsrec|
+					dnsrec['name'] = lb_name.downcase if !dnsrec.has_key?('name')
+				}
+			end
 			MU::DNSZone.createRecordsFromConfig(@loadbalancer['dns_records'], target: resp.dns_name)
 
 			deploy_struct = {

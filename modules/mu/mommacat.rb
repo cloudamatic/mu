@@ -26,6 +26,9 @@ autoload :ChefVault, 'chef-vault'
 gem "knife-windows"
 
 module MU
+	# An exception denoting a failure in MommaCat#fetchSecret
+	class NoSuchSecret < StandardError
+	end
 
 	# MommaCat is in charge of managing metadata about resources we've created,
 	# as well as orchestrating amongst them and bootstrapping nodes outside of
@@ -307,10 +310,10 @@ module MU
 		def fetchSecret(instance_id, type)
 			@secret_semaphore.synchronize {
 				if @secrets[type].nil?
-					raise "'#{type}' is not a valid secret type (valid types: #{@secrets.keys.to_s})"
+					raise NoSuchSecret, "'#{type}' is not a valid secret type (valid types: #{@secrets.keys.to_s})"
 				end
 				if @secrets[type][instance_id].nil?
-					raise "No '#{type}' secret known for instance #{instance_id}"
+					raise NoSuchScret, "No '#{type}' secret known for instance #{instance_id}"
 				end
 			}
 			return decryptWithDeployKey(@secrets[type][instance_id])
@@ -810,7 +813,8 @@ module MU
 			if deploy_id.nil?
 				matches = []
 				@deploy_cache.each_key { |deploy|
-					next if @deploy_cache[deploy]['data'][type].nil?
+					next if !@deploy_cache[deploy].has_key?('data')
+					next if !@deploy_cache[deploy]['data'].has_key?(type)
 					if !name.nil?
 						next if @deploy_cache[deploy]['data'][type][name].nil?
 						matches << @deploy_cache[deploy]['data'][type][name].dup
@@ -859,11 +863,14 @@ module MU
 						}
 					]
 				)
-			rescue Exception => e
+			rescue Aws::EC2::Errors::RequestLimitExceeded
+				sleep 10
+				retry
+			rescue Aws::EC2::Errors::ServiceError => e
 				MU.log "Got #{e.inspect} tagging #{resource} with #{tag_name}=#{tag_value}", MU::WARN if attempts > 1
 				if attempts < 5
 					attempts = attempts + 1
-					sleep 5
+					sleep 15
 					retry
 				else
 					raise e
@@ -889,11 +896,14 @@ module MU
 				  resources: [resource],
 				  tags: tags
 				)
-			rescue Exception => e
-				MU.log "Got #{e.inspect} tagging #{resource} in #{region}", MU::WARN, details: caller.concat(tags) if attempts > 1
+			rescue Aws::EC2::Errors::RequestLimitExceeded
+				sleep 10
+				retry
+			rescue Aws::EC2::Errors::ServiceError => e
+				MU.log "Got #{e.inspect} tagging #{resource} in #{region}, will retry", MU::WARN, details: caller.concat(tags) if attempts > 1
 				if attempts < 5
 					attempts = attempts + 1
-					sleep 5
+					sleep 15
 					retry
 				else
 					raise e
@@ -983,9 +993,12 @@ module MU
 				mu_dns = MU::DNSZone.genericDNSEntry(node, private_ip, MU::Server, noop: true)
 			end
 			mu_dns = nil # XXX HD account hack
+			if user.nil? or (gateway_user.nil? and !gateway_ip.nil? and (public_ip.nil? or public_ip.empty? and (private_ip != gateway_ip)))
+				MU.log "Called addHostToSSHConfig with a missing SSH user argument. addHostToSSHConfig(node: #{node}, private_ip: #{private_ip}, private_dns: #{private_dns}, public_ip: #{public_ip}, public_dns: #{public_dns}, user: #{user}, gateway_ip: #{gateway_ip}, gateway_user: #{gateway_user}, key_name: #{key_name}, ssh_dir: #{ssh_dir}, ssh_conf: #{ssh_conf}, ssh_owner: #{ssh_owner}", MU::ERR, details: caller
+				return
+			end
 
 			@ssh_semaphore.synchronize {
-				MU.log "addHostToSSHConfig(node: #{node}, private_ip: #{private_ip}, private_dns: #{private_dns}, public_ip: #{public_ip}, public_dns: #{public_dns}, user: #{user}, gateway_ip: #{gateway_ip}, gateway_user: #{gateway_user}, key_name: #{key_name}", MU::DEBUG
 
 				if File.exists?(ssh_conf)
 				  File.readlines(ssh_conf).each { |line|
@@ -1492,6 +1505,7 @@ MESSAGE_END
 					# fetch Chef data that the nodes have generated
 					sibling_collection.each_pair { |nodename, sibling|
 						begin
+							require 'chef'
 							chef_node = Chef::Node.load(nodename)
 						rescue Net::HTTPServerException => e
 							# This isn't typically an error condition. Usually happens when

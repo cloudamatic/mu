@@ -9,11 +9,11 @@
 
 
 case node[:platform]
-    when "centos"
+  when "centos"
 
-        %w{glusterfs glusterfs-fuse}.each do |pkg|
-            package pkg
-        end
+    %w{glusterfs glusterfs-fuse}.each do |pkg|
+      package pkg
+    end
 
 		node.glusterfs.fw.each do |rule|
 			bash "Allow TCP #{rule['port_range']} through iptables" do
@@ -31,12 +31,31 @@ case node[:platform]
 			mode "0755"
 		end
 
-		mount node.glusterfs.client.mount_path do
-			device "#{node.application_attributes.glusterfs_master_ip}:#{node.glusterfs.server.volume}"
-			fstype "glusterfs"
-			options "defaults,_netdev"
-			pass 0
-			action [:mount, :enable]
+		if node.glusterfs.discovery == 'groupname'
+			gluster_servers = search(
+				:node,
+				"glusterfs_is_server:true AND glusterfs_groupname:#{node.glusterfs_groupname}"
+			)
+		end rescue NoMethodError
+		if gluster_servers.nil?
+			gluster_servers = search(
+				:node,
+				"glusterfs_is_server:true AND chef_environment:#{node.chef_environment}"
+			)
+		end
+
+		template "/etc/init.d/mu-gluster-client" do
+			source "mu-gluster-client.erb"
+			variables(
+				:servers => gluster_servers,
+				:path => node.glusterfs.client.mount_path,
+				:volume => node.glusterfs.server.volume
+			)
+			mode 0755
+		end
+
+		service "mu-gluster-client" do
+			action [ :enable, :start ]
 		end
 
     else

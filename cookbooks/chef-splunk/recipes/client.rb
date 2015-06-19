@@ -76,6 +76,16 @@ template "#{splunk_dir}/etc/system/local/inputs.conf" do
   notifies :restart, 'service[splunk]'
   not_if { node['splunk']['inputs_conf'].nil? || node['splunk']['inputs_conf']['host'].empty? }
 end
+if node['platform_family'] != 'windows'
+	directory "/opt/splunkforwarder/etc/apps"
+	directory "/opt/splunkforwarder/etc/apps/base_logs_unix"
+	directory "/opt/splunkforwarder/etc/apps/base_logs_unix/local"
+	template "#{splunk_dir}/etc/apps/base_logs_unix/local/inputs.conf" do
+	  source 'base_logs_unix_inputs.conf.erb'
+	  mode 0644
+		notifies :restart, 'service[splunk]'
+	end
+end
 
 include_recipe 'chef-splunk::service'
 include_recipe 'chef-splunk::setup_auth'

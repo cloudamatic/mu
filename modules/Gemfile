@@ -15,7 +15,7 @@
 source "https://rubygems.org"
 gem 'yard'
 gem 'chef', "~> 12.3.0"
-gem "aws-sdk-core", "~> 2.0.41"
+gem "aws-sdk-core", "~> 2.0.44"
 gem 'simple-password-gen'
 gem 'trollop', "~> 2.1.2"
 gem 'knife-windows', '0.8.2'
@@ -29,6 +29,6 @@ gem 'berkshelf'
 gem 'pg'
 gem 'mysql'
 gem 'ruby-wmi'
-gem 'chef-vault'
+gem 'chef-vault', "~> 2.6.0"
 gem 'net-ssh'
 gem 'netaddr'

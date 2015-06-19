@@ -1,0 +1,30 @@
+#======================= Global Settings =====================================
+[global]
+
+   workgroup = <%= node.ad.netbios_name.upcase %>
+   password server = <%= node.ad.dcs.join(" ") %>
+   wins server = <%= node.ad.dcs.join(" ") %>
+   realm = <%= node.ad.domain_name.upcase %>
+   security = ads
+;   idmap config * : range = 16777216-33554431
+   idmap config * : range = 10000-5000000
+   idmap config * : backend = rid
+   idmap config SENT : range = 10000-5000000
+   idmap config SENT : default = yes
+   idmap config SENT : backend = rid
+   idmap uid = 10000-5000000
+   idmap gid = 10000-5000000
+   template homedir = /home/<%= node.ad.domain_name.downcase %>/%U
+   template shell = /bin/bash
+   winbind enum users = Yes
+   winbind enum groups = Yes
+   winbind nested groups = yes
+   winbind use default domain = true
+   winbind offline logon = false
+   client use spnego = yes
+   client ntlmv2 auth = false
+   encrypt passwords = yes
+
+# --------------------------- Logging Options -----------------------------
+	log file = /var/log/samba/log.%m
+	max log size = 5000

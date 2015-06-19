@@ -136,7 +136,7 @@ module MU
 					showStackError server
 					flag="FAIL"
 				end
-			rescue Exception => e
+			rescue Aws::EC2::Errors::ServiceError => e
         
 				flag="FAIL"
 				MU.log "#{stack_name} creation failed (#{e.inspect})", MU::ERR, details: e.backtrace

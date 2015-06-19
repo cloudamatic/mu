@@ -43,7 +43,7 @@ module MU
 			MU.log "Creating VPC #{vpc_name}", details: @vpc
 			begin
 				resp = MU.ec2(@vpc['region']).create_vpc(cidr_block: @vpc['ip_block']).vpc
-			rescue Aws::EC2::Errors::Unavailable, Aws::EC2::Errors::InternalError => e
+			rescue Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::EC2::Errors::InternalError => e
 				MU.log "Transient AWS weirdness: #{e.inspect}. Retrying after 30s", MU::ERR
 				sleep 30
 				retry
@@ -63,16 +63,24 @@ module MU
 					MU.log "Waiting for VPC #{vpc_name} (#{vpc_id}) to be available", MU::NOTICE
 					sleep 5
 					resp = MU.ec2(@vpc['region']).describe_vpcs(vpc_ids: [vpc_id]).vpcs.first
+				rescue Aws::EC2::Errors::RequestLimitExceeded
+					sleep 10
+					retry
 				end while resp.state != "available"
 				# There's a default route table that comes with. Let's tag it.
-				resp = MU.ec2(@vpc['region']).describe_route_tables(
-					filters: [
-						{
-							name: "vpc-id",
-							values: [vpc_id]
-						}
-					]
-				)
+				begin
+					resp = MU.ec2(@vpc['region']).describe_route_tables(
+						filters: [
+							{
+								name: "vpc-id",
+								values: [vpc_id]
+							}
+						]
+					)
+				rescue Aws::EC2::Errors::RequestLimitExceeded
+					sleep 10
+					retry
+				end
 				resp.route_tables.each { |rtb|
 					MU::MommaCat.createTag(rtb.route_table_id, "Name", vpc_name+"-#DEFAULTPRIV", region: @vpc['region'])
 					if @vpc['tags']
@@ -90,7 +98,12 @@ module MU
 
 			if @vpc['create_internet_gateway']
 				MU.log "Creating Internet Gateway #{vpc_name}"
-				resp = MU.ec2(@vpc['region']).create_internet_gateway
+				begin
+					resp = MU.ec2(@vpc['region']).create_internet_gateway
+				rescue Aws::EC2::Errors::RequestLimitExceeded
+					sleep 10
+					retry
+				end
 				internet_gateway_id = resp.internet_gateway.internet_gateway_id
 				sleep 5
 				MU::MommaCat.createStandardTags(internet_gateway_id, region: @vpc['region'])
@@ -100,7 +113,12 @@ module MU
 						MU::MommaCat.createTag(internet_gateway_id,tag['key'],tag['value'], region: @vpc['region'])
 					}
 				end
-				MU.ec2(@vpc['region']).attach_internet_gateway(vpc_id: vpc_id, internet_gateway_id: internet_gateway_id)
+				begin
+					MU.ec2(@vpc['region']).attach_internet_gateway(vpc_id: vpc_id, internet_gateway_id: internet_gateway_id)
+				rescue Aws::EC2::Errors::RequestLimitExceeded
+					sleep 10
+					retry
+				end
 				@vpc['internet_gateway_id'] = internet_gateway_id
 			end
 
@@ -130,12 +148,17 @@ module MU
 					end
 					subnetthreads << Thread.new {
 						MU.dupGlobals(parent_thread_id)
-						resp = MU.ec2(@vpc['region']).create_subnet(
-							vpc_id: vpc_id,
-							cidr_block: subnet['ip_block'],
-							availability_zone: az
-						).subnet
-						subnet_id = subnet['subnet_id'] = resp.subnet_id
+						begin
+							resp = MU.ec2(@vpc['region']).create_subnet(
+								vpc_id: vpc_id,
+								cidr_block: subnet['ip_block'],
+								availability_zone: az
+							).subnet
+							subnet_id = subnet['subnet_id'] = resp.subnet_id
+						rescue Aws::EC2::Errors::RequestLimitExceeded => e
+							sleep 10
+							retry
+						end
 						MU::MommaCat.createStandardTags(subnet_id, region: @vpc['region'])
 						MU::MommaCat.createTag(subnet_id, "Name", vpc_name+"-"+subnet['name'], region: @vpc['region'])
 						if @vpc['tags']
@@ -148,7 +171,8 @@ module MU
 								MU.log "Waiting for Subnet #{subnet_name} (#{subnet_id}) to be available", MU::NOTICE
 								sleep 5
 								resp = MU.ec2(@vpc['region']).describe_subnets(subnet_ids: [subnet_id]).subnets.first
-							rescue Aws::EC2::Errors::InvalidSubnetIDNotFound => e
+							rescue Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::InvalidSubnetIDNotFound => e
+								sleep 10
 								retry
 							end while resp.state != "available"
 						end
@@ -165,6 +189,9 @@ module MU
 									route_table_id: routes[subnet['route_table']]['route_table_id'],
 									subnet_id: subnet_id
 								)
+							rescue Aws::EC2::Errors::RequestLimitExceeded
+								sleep 10
+								retry
 							rescue Aws::EC2::Errors::InvalidRouteTableIDNotFound => e
 								retries = retries + 1
 								if retries < 10
@@ -178,6 +205,9 @@ module MU
 						retries = 0
 						begin
 							resp = MU.ec2(@vpc['region']).describe_subnets(subnet_ids: [subnet_id]).subnets.first
+						rescue Aws::EC2::Errors::RequestLimitExceeded
+							sleep 10
+							retry
 						rescue Aws::EC2::Errors::InvalidSubnetIDNotFound => e
 							if retries < 10
 								MU.log "Got #{e.inspect}, waiting and retrying", MU::WARN
@@ -198,55 +228,60 @@ module MU
 				@deploy.notify("vpcs", @vpc['name'], deploy_struct)
 			end
 
-			if @vpc['enable_dns_support']
-				MU.log "Enabling DNS support in #{vpc_name}"
-				MU.ec2(@vpc['region']).modify_vpc_attribute(
-					vpc_id: vpc_id,
-					enable_dns_support: { value: @vpc['enable_dns_support'] }
-				)
-			end
-			if @vpc['enable_dns_hostnames']
-				MU.log "Enabling DNS hostnames in #{vpc_name}"
-				MU.ec2(@vpc['region']).modify_vpc_attribute(
-					vpc_id: vpc_id,
-					enable_dns_hostnames: { value: @vpc['enable_dns_hostnames'] }
-				)
-			end
-
-			if @vpc['dhcp']
-				MU.log "Setting custom DHCP options in #{vpc_name}", details: @vpc['dhcp']
-				dhcpopts = []
-
-				if @vpc['dhcp']['netbios_type']
-					dhcpopts << { key: "netbios-node-type", values: [ @vpc['dhcp']['netbios_type'].to_s ] } 
+			begin
+				if @vpc['enable_dns_support']
+					MU.log "Enabling DNS support in #{vpc_name}"
+					MU.ec2(@vpc['region']).modify_vpc_attribute(
+						vpc_id: vpc_id,
+						enable_dns_support: { value: @vpc['enable_dns_support'] }
+					)
 				end
-				if @vpc['dhcp']['domains']
-					dhcpopts << { key: "domain-name", values: @vpc['dhcp']['domains'] }
-				end
-				if @vpc['dhcp']['dns_servers']
-					dhcpopts << { key: "domain-name-servers", values: @vpc['dhcp']['dns_servers'] }
-				end
-				if @vpc['dhcp']['ntp_servers']
-					dhcpopts << { key: "ntp-servers", values: @vpc['dhcp']['ntp_servers'] }
-				end
-				if @vpc['dhcp']['netbios_servers']
-					dhcpopts << { key: "netbios-name-servers", values: @vpc['dhcp']['netbios_servers'] }
+				if @vpc['enable_dns_hostnames']
+					MU.log "Enabling DNS hostnames in #{vpc_name}"
+					MU.ec2(@vpc['region']).modify_vpc_attribute(
+						vpc_id: vpc_id,
+						enable_dns_hostnames: { value: @vpc['enable_dns_hostnames'] }
+					)
 				end
 
-				resp = MU.ec2(@vpc['region']).create_dhcp_options(
-					dhcp_configurations: dhcpopts
-				)
-				dhcpopt_id = resp.dhcp_options.dhcp_options_id
-				MU::MommaCat.createStandardTags(dhcpopt_id, region: @vpc['region'])
-				MU::MommaCat.createTag(dhcpopt_id, "Name", vpc_name, region: @vpc['region'])
-				if @vpc['tags']
-					@vpc['tags'].each { |tag|
-						MU::MommaCat.createTag(dhcpopt_id,tag['key'],tag['value'], region: @vpc['region'])
-					}
+				if @vpc['dhcp']
+					MU.log "Setting custom DHCP options in #{vpc_name}", details: @vpc['dhcp']
+					dhcpopts = []
+
+					if @vpc['dhcp']['netbios_type']
+						dhcpopts << { key: "netbios-node-type", values: [ @vpc['dhcp']['netbios_type'].to_s ] } 
+					end
+					if @vpc['dhcp']['domains']
+						dhcpopts << { key: "domain-name", values: @vpc['dhcp']['domains'] }
+					end
+					if @vpc['dhcp']['dns_servers']
+						dhcpopts << { key: "domain-name-servers", values: @vpc['dhcp']['dns_servers'] }
+					end
+					if @vpc['dhcp']['ntp_servers']
+						dhcpopts << { key: "ntp-servers", values: @vpc['dhcp']['ntp_servers'] }
+					end
+					if @vpc['dhcp']['netbios_servers']
+						dhcpopts << { key: "netbios-name-servers", values: @vpc['dhcp']['netbios_servers'] }
+					end
+
+					resp = MU.ec2(@vpc['region']).create_dhcp_options(
+						dhcp_configurations: dhcpopts
+					)
+					dhcpopt_id = resp.dhcp_options.dhcp_options_id
+					MU::MommaCat.createStandardTags(dhcpopt_id, region: @vpc['region'])
+					MU::MommaCat.createTag(dhcpopt_id, "Name", vpc_name, region: @vpc['region'])
+					if @vpc['tags']
+						@vpc['tags'].each { |tag|
+							MU::MommaCat.createTag(dhcpopt_id,tag['key'],tag['value'], region: @vpc['region'])
+						}
+					end
+					MU.ec2(@vpc['region']).associate_dhcp_options(dhcp_options_id: dhcpopt_id, vpc_id: vpc_id)
 				end
-				MU.ec2(@vpc['region']).associate_dhcp_options(dhcp_options_id: dhcpopt_id, vpc_id: vpc_id)
+				@deploy.notify("vpcs", @vpc['name'], @vpc)
+			rescue Aws::EC2::Errors::RequestLimitExceeded => e
+				sleep 30
+				retry
 			end
-			@deploy.notify("vpcs", @vpc['name'], @vpc)
 
 			mu_zone, junk = MU::DNSZone.find(name: "mu")
 			if !mu_zone.nil?
@@ -265,43 +300,50 @@ module MU
 			# Generate peering connections
 			if !@vpc['peers'].nil? and @vpc['peers'].size > 0
 				@vpc['peers'].each { |peer|
-					if peer['account'].nil? or peer['account'] == MU.account_number
-						tag_key, tag_value = peer['vpc']['tag'].split(/=/, 2) if !peer['vpc']['tag'].nil?
-						peer_desc, peer_name = MU::VPC.find(
-							id: peer['vpc']['vpc_id'],
-							name: peer['vpc']['vpc_name'],
-							deploy_id: peer['vpc']['deploy_id'],
-							tag_key: tag_key,
-							tag_value: tag_value,
-							region: peer['vpc']['region']
-						)
-						if peer_desc.nil?
-							MU.log "Unabled to locate peer VPC for #{@vpc['name']}", MU::ERR, details: peer
-							raise "Unabled to locate peer VPC"
-						end
-						peer_id = peer_desc.vpc_id
-						peer_deploy_struct = nil
-						known_vpcs = MU::MommaCat.getResourceDeployStruct("vpcs", name: peer_name, deploy_id: nil)
-						known_vpcs.each { |ext_vpc|
-							if ext_vpc['vpc_id'] == peer_id
-								peer_deploy_struct = ext_vpc
-								break
+					begin
+						if peer['account'].nil? or peer['account'] == MU.account_number
+							tag_key, tag_value = peer['vpc']['tag'].split(/=/, 2) if !peer['vpc']['tag'].nil?
+							peer_desc, peer_name = MU::VPC.find(
+								id: peer['vpc']['vpc_id'],
+								name: peer['vpc']['vpc_name'],
+								deploy_id: peer['vpc']['deploy_id'],
+								tag_key: tag_key,
+								tag_value: tag_value,
+								region: peer['vpc']['region']
+							)
+							if peer_desc.nil?
+								MU.log "Unable to locate peer VPC for #{@vpc['name']}", MU::ERR, details: peer
+								raise "Unable to locate peer VPC"
 							end
-						}
+							peer_id = peer_desc.vpc_id
+							peer_deploy_struct = nil
+							known_vpcs = MU::MommaCat.getResourceDeployStruct("vpcs", name: peer_name, deploy_id: nil)
+							known_vpcs.each { |ext_vpc|
+								if ext_vpc['vpc_id'] == peer_id
+									peer_deploy_struct = ext_vpc
+									break
+								end
+							}
 
-						MU.log "Initiating peering connection from VPC #{@vpc['name']} (#{@vpc['vpc_id']}) to #{peer_id}", MU::INFO, details: peer
-						resp = MU.ec2(@vpc['region']).create_vpc_peering_connection(
-							vpc_id: @vpc['vpc_id'],
-							peer_vpc_id: peer_id
-						)
-					else
-						peer_id = peer['vpc']['vpc_id']
-						MU.log "Initiating peering connection from VPC #{@vpc['name']} (#{@vpc['vpc_id']}) to #{peer_id} in account #{peer['account']}", MU::INFO, details: peer
-						resp = MU.ec2(@vpc['region']).create_vpc_peering_connection(
-							vpc_id: @vpc['vpc_id'],
-							peer_vpc_id: peer_id,
-							peer_owner_id: peer['account']
-						)
+							MU.log "Initiating peering connection from VPC #{@vpc['name']} (#{@vpc['vpc_id']}) to #{peer_id}", MU::INFO, details: peer
+							resp = MU.ec2(@vpc['region']).create_vpc_peering_connection(
+								vpc_id: @vpc['vpc_id'],
+								peer_vpc_id: peer_id
+							)
+						else
+							peer_id = peer['vpc']['vpc_id']
+							MU.log "Initiating peering connection from VPC #{@vpc['name']} (#{@vpc['vpc_id']}) to #{peer_id} in account #{peer['account']}", MU::INFO, details: peer
+							resp = MU.ec2(@vpc['region']).create_vpc_peering_connection(
+								vpc_id: @vpc['vpc_id'],
+								peer_vpc_id: peer_id,
+								peer_owner_id: peer['account']
+							)
+						end
+					rescue Aws::EC2::Errors::VpcPeeringConnectionAlreadyExists => e
+						MU.log "Attempt to create duplicate peering connection to #{peer_id} from VPC #{@vpc['name']}", MU::WARN
+					rescue Aws::EC2::Errors::RequestLimitExceeded => e
+						sleep 10
+						retry
 					end
 					peering_name = MU::MommaCat.getResourceName(@vpc['name']+"-PEER-"+peer_id)
 
@@ -316,7 +358,14 @@ module MU
 							:destination_cidr_block => peer_desc.cidr_block,
 							:vpc_peering_connection_id => peering_id
 						}
-						resp = MU.ec2(@vpc['region']).create_route(my_route_config)
+						begin
+							resp = MU.ec2(@vpc['region']).create_route(my_route_config)
+						rescue Aws::EC2::Errors::RouteAlreadyExists => e
+							MU.log "Attempt to create duplicate route to #{peer_desc.cidr_block} from VPC #{@vpc['name']}", MU::WARN
+						rescue Aws::EC2::Errors::RequestLimitExceeded => e
+							sleep 10
+							retry
+						end
 					}
 
 					begin
@@ -327,9 +376,13 @@ module MU
 						if cnxn.status.code == "pending-acceptance" 
 							if (!peer_deploy_struct.nil? and peer_deploy_struct['auto_accept_peers']) or (!ENV['ALLOW_INVADE_FOREIGN_VPCS'].nil? and !ENV['ALLOW_INVADE_FOREIGN_VPCS'].empty? and ENV['ALLOW_INVADE_FOREIGN_VPCS'] != "0")
 								MU.log "Auto-accepting peering connection from VPC #{@vpc['name']} (#{@vpc['vpc_id']}) to #{peer_id}", MU::NOTICE
-								MU.ec2(@vpc['region']).accept_vpc_peering_connection(
-									vpc_peering_connection_id: peering_id
-								)
+								begin
+									MU.ec2(@vpc['region']).accept_vpc_peering_connection(
+										vpc_peering_connection_id: peering_id
+									)
+								rescue Aws::EC2::Errors::VpcPeeringConnectionAlreadyExists => e
+									MU.log "Attempt to create duplicate peering connection to #{peer_id} from VPC #{@vpc['name']}", MU::WARN
+								end
 
 								# Create routes back from our new friend to us.
 								self.class.listAllSubnetRouteTables(peer_id, region: peer['vpc']['region']).each { |rtb_id|
@@ -338,7 +391,11 @@ module MU
 										:destination_cidr_block => @vpc['ip_block'],
 										:vpc_peering_connection_id => peering_id
 									}
-									resp = MU.ec2(@vpc['region']).create_route(peer_route_config)
+									begin
+										resp = MU.ec2(@vpc['region']).create_route(peer_route_config)
+									rescue Aws::EC2::Errors::RouteAlreadyExists => e
+										MU.log "Attempt to create duplicate route to #{@vpc['ip_block']} from VPC #{peer_id}", MU::WARN
+									end
 								}
 #MU.log "Creating route for #{peer_deploy_struct['ip_block']}", details: route_config
 #resp = MU.ec2(@vpc['region']).create_route(route_config)
@@ -358,6 +415,9 @@ module MU
 							end
 							raise "VPC peering connection from VPC #{@vpc['name']} (#{@vpc['vpc_id']}) to #{peer_id} #{cnxn.status.code}: #{cnxn.status.message}"
 						end
+					rescue Aws::EC2::Errors::RequestLimitExceeded => e
+						sleep 10
+						retry
 					end while cnxn.status.code != "active" and !(cnxn.status.code == "pending-acceptance" and (peer_deploy_struct.nil? or !peer_deploy_struct['auto_accept_peers']))
 
 				}
@@ -389,7 +449,12 @@ module MU
 							route_config[:instance_id] = nat_instance.instance_id
 
 							MU.log "Creating route for #{route['destination_network']} through NAT host #{nat_instance.instance_id}", details: route_config
-							resp = MU.ec2(@vpc['region']).create_route(route_config)
+							begin
+								resp = MU.ec2(@vpc['region']).create_route(route_config)
+							rescue Aws::EC2::Errors::RequestLimitExceeded => e
+								sleep 10
+								retry
+							end
 						end
 					}
 
@@ -444,10 +509,19 @@ module MU
 				# resource id, so that we can then go and execute that search just as
 				# we would if we'd been provided that in the first place.
 				if id.nil?
-					resource = MU::MommaCat.getResourceDeployStruct("vpcs", name: name, deploy_id: deploy_id, use_cache: false)
+					resource = nil
+					# Check the currently-running deploy structure first
+					# XXX maybe this behavior should be in MU::MommaCat.getResourceDeployStruct
+				  if !name.nil? and (deploy_id.nil? or deploy_id == MU.mu_id) and MU::Deploy.deployment.has_key?('vpcs') and MU::Deploy.deployment['vpcs'].has_key?(name)
+						resource = MU::Deploy.deployment['vpcs'][name]
+					else
+						resource = MU::MommaCat.getResourceDeployStruct("vpcs", name: name, deploy_id: deploy_id, use_cache: false)
+					end
+
 					if !resource.nil?
 						if resource.is_a?(Hash)
 							id = resource['vpc_id']
+							region = resource['region']
 						elsif resource.is_a?(Array)
 							if resource.size > 1
 								MU.log "Got multiple matching VPCs from MU::MommaCat.getResourceDeployStruct('vpcs', name: #{name}, deploy_id: #{deploy_id})", MU::WARN
@@ -455,6 +529,7 @@ module MU
 							end
 							vpc_res = resource.first
 							id = vpc_res['vpc_id']
+							region = vpc_res['region']
 						end
 					end
 				else
@@ -468,10 +543,10 @@ module MU
 					end
 				end
 
-				# Case three- we've been asked to find this by its cloud provider id. Make
-				# the appropriate API call. Fail gently.
+				# Case three- we've been asked to find this by its cloud provider id.
+				# Make the appropriate API call. Fail gently.
 				if !id.nil?
-					MU.log "Searching for VPC id '#{id}'", MU::DEBUG
+					MU.log "Searching for VPC id '#{id}' in #{region}", MU::DEBUG
 					begin
 						resp = MU.ec2(region).describe_vpcs(vpc_ids: [id])
 						return [resp.data.vpcs.first, name]
@@ -480,6 +555,9 @@ module MU
 				end
 
 				retries = retries + 1
+			rescue Aws::EC2::Errors::RequestLimitExceeded => e
+				retries = retries + 1
+				sleep 10
 			end while retries < 5
 
 			return nil
@@ -561,6 +639,9 @@ module MU
 						end
 					}
 				end
+			rescue Aws::EC2::Errors::RequestLimitExceeded
+				sleep 10
+				retry
 			rescue Aws::EC2::Errors::InvalidSubnetIDNotFound => e
 				if retries < 10
 					retries = retries + 1
@@ -584,11 +665,16 @@ module MU
 			if existing_vpc.nil?
 				raise "Couldn't find VPC (name: '#{vpc_name}', id: #{vpc_id})"
 			end
-			resp = MU.ec2(region).describe_subnets(
-				filters: [
-					{ name: "vpc-id", values: [existing_vpc.vpc_id] }
-				]
-			)
+			begin
+				resp = MU.ec2(region).describe_subnets(
+					filters: [
+						{ name: "vpc-id", values: [existing_vpc.vpc_id] }
+					]
+				)
+			rescue Aws::EC2::Errors::RequestLimitExceeded
+				sleep 10
+				retry
+			end
 			return nil if resp.data.subnets.nil? or resp.data.subnets.size == 0
 
 			subnet_ids = Array.new
@@ -608,6 +694,9 @@ module MU
 
 			begin
 				instance = MU.ec2(region).describe_instances(instance_ids: [instance_id]).reservations.first.instances.first
+			rescue Aws::EC2::Errors::RequestLimitExceeded
+				sleep 10
+				retry
 			rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
 				return []
 			end
@@ -638,42 +727,52 @@ module MU
 
 			my_routes = []
 			vpc_peer_mapping = {}
-			MU.ec2(MU.myRegion).describe_route_tables(
-				filters: [{name: "association.subnet-id", values: my_subnets}]
-			).route_tables.each { |route_table|
-				route_table.routes.each { |route|
-					if route.destination_cidr_block != "0.0.0.0/0" and route.state == "active"
-						my_routes << NetAddr::CIDR.create(route.destination_cidr_block)
-						if !route.vpc_peering_connection_id.nil?
-							vpc_peer_mapping[route.vpc_peering_connection_id] = route.destination_cidr_block
+			begin
+				MU.ec2(MU.myRegion).describe_route_tables(
+					filters: [{name: "association.subnet-id", values: my_subnets}]
+				).route_tables.each { |route_table|
+					route_table.routes.each { |route|
+						if route.destination_cidr_block != "0.0.0.0/0" and route.state == "active"
+							my_routes << NetAddr::CIDR.create(route.destination_cidr_block)
+							if !route.vpc_peering_connection_id.nil?
+								vpc_peer_mapping[route.vpc_peering_connection_id] = route.destination_cidr_block
+							end
 						end
-					end
+					}
 				}
-			}
+			rescue Aws::EC2::Errors::RequestLimitExceeded
+				sleep 10
+				retry
+			end
 			my_routes.uniq!
 
 			target_routes = []
-			MU.ec2(MU.myRegion).describe_route_tables(
-				filters: [{name: "association.subnet-id", values: target_subnets}]
-			).route_tables.each { |route_table|
-				route_table.routes.each { |route|
-					next if route.destination_cidr_block == "0.0.0.0/0" or route.state != "active"
-					cidr = NetAddr::CIDR.create(route.destination_cidr_block)
-					shared_ip_space = false
-					my_routes.each { |my_cidr|
-						if my_cidr.contains?(cidr) or my_cidr == cidr
-							shared_ip_space = true
-							break
+			begin
+				MU.ec2(MU.myRegion).describe_route_tables(
+					filters: [{name: "association.subnet-id", values: target_subnets}]
+				).route_tables.each { |route_table|
+					route_table.routes.each { |route|
+						next if route.destination_cidr_block == "0.0.0.0/0" or route.state != "active"
+						cidr = NetAddr::CIDR.create(route.destination_cidr_block)
+						shared_ip_space = false
+						my_routes.each { |my_cidr|
+							if my_cidr.contains?(cidr) or my_cidr == cidr
+								shared_ip_space = true
+								break
+							end
+						}
+
+						if shared_ip_space and !route.vpc_peering_connection_id.nil? and
+								vpc_peer_mapping.has_key?(route.vpc_peering_connection_id) 
+							MU.log "I share a VPC peering connection (#{route.vpc_peering_connection_id}) with #{instance_id} for #{route.destination_cidr_block}, I can route to it directly", MU::DEBUG
+							return true
 						end
 					}
-
-					if shared_ip_space and !route.vpc_peering_connection_id.nil? and
-							vpc_peer_mapping.has_key?(route.vpc_peering_connection_id) 
-						MU.log "I share a VPC peering connection (#{route.vpc_peering_connection_id}) with #{instance_id} for #{route.destination_cidr_block}, I can route to it directly", MU::DEBUG
-						return true
-					end
 				}
-			}
+			rescue Aws::EC2::Errors::RequestLimitExceeded
+				sleep 10
+				retry
+			end
 
 			return false
 		end
@@ -685,9 +784,14 @@ module MU
 		# @return [Boolean]
 		def self.isSubnetPrivate?(subnet_id, region: MU.curRegion)
 			return false if subnet_id.nil?
-			resp = MU.ec2(region).describe_route_tables(
-				filters: [{name: "association.subnet-id", values: [subnet_id]}]
-			)
+			begin
+				resp = MU.ec2(region).describe_route_tables(
+					filters: [{name: "association.subnet-id", values: [subnet_id]}]
+				)
+			rescue Aws::EC2::Errors::RequestLimitExceeded
+				sleep 10
+				retry
+			end
 			resp.route_tables.each { |route_table|
 				route_table.routes.each { |route|
 					if route.destination_cidr_block =="0.0.0.0/0" and route.instance_id !=nil
@@ -703,9 +807,14 @@ module MU
 		# @param subnet_id [String]: The cloud provider subnet id
 		# @return [String]: route
 		def self.getDefaultRoute(subnet_id, region: MU.curRegion)
-			resp = MU.ec2(region).describe_route_tables(
-				filters: [{name: "association.subnet-id", values: [subnet_id]}]
-			)
+			begin
+				resp = MU.ec2(region).describe_route_tables(
+					filters: [{name: "association.subnet-id", values: [subnet_id]}]
+				)
+			rescue Aws::EC2::Errors::RequestLimitExceeded
+				sleep 10
+				retry
+			end
 			resp.route_tables.each { |route_table|
 				route_table.routes.each { |route|
 					if route.destination_cidr_block =="0.0.0.0/0" and route.state != "blackhole"
@@ -811,29 +920,35 @@ module MU
 
 		# List the route tables for each subnet in the given VPC
 		def self.listAllSubnetRouteTables(vpc_id, region: MU.curRegion)
-			resp = MU.ec2(region).describe_subnets(
-				filters: [
-					{
-						name: "vpc-id",
-						values: [vpc_id]
-					}
-				]
-			)
+			begin
+				resp = MU.ec2(region).describe_subnets(
+					filters: [
+						{
+							name: "vpc-id",
+							values: [vpc_id]
+						}
+					]
+				)
 
-			subnets = resp.subnets.map { |subnet| subnet.subnet_id }
+				subnets = resp.subnets.map { |subnet| subnet.subnet_id }
 
-			tables = MU.ec2(region).describe_route_tables(
-				filters: [
-					{
-						name: "vpc-id",
-						values: [vpc_id]
-					},
-					{
-						name: "association.subnet-id",
-						values: subnets
-					}
-				]
-			)
+				tables = MU.ec2(region).describe_route_tables(
+					filters: [
+						{
+							name: "vpc-id",
+							values: [vpc_id]
+						},
+						{
+							name: "association.subnet-id",
+							values: subnets
+						}
+					]
+				)
+			rescue Aws::EC2::Errors::RequestLimitExceeded
+				sleep 10
+				retry
+			end
+
 			table_ids = []
 			tables.route_tables.each { |rtb|
 				table_ids <<  rtb.route_table_id
@@ -849,16 +964,26 @@ module MU
 			vpc_id = @vpc['vpc_id']
 			vpc_name = @vpc['name']
 			MU.setVar("curRegion", @vpc['region']) if !@vpc['region'].nil?
-			resp = MU.ec2.create_route_table(vpc_id: vpc_id).route_table
+			begin
+				resp = MU.ec2.create_route_table(vpc_id: vpc_id).route_table
+			rescue Aws::EC2::Errors::RequestLimitExceeded
+				sleep 10
+				retry
+			end
 			route_table_id = rtb['route_table_id'] = resp.route_table_id
 			sleep 5
-			MU::MommaCat.createTag(route_table_id, "Name", vpc_name+"-"+rtb['name'].upcase)
-			if @vpc['tags']
-				@vpc['tags'].each { |tag|
-					MU::MommaCat.createTag(route_table_id,tag['key'],tag['value'])
-				}
+			begin
+				MU::MommaCat.createTag(route_table_id, "Name", vpc_name+"-"+rtb['name'].upcase)
+				if @vpc['tags']
+					@vpc['tags'].each { |tag|
+						MU::MommaCat.createTag(route_table_id,tag['key'],tag['value'])
+					}
+				end
+				MU::MommaCat.createStandardTags(route_table_id)
+			rescue Aws::EC2::Errors::RequestLimitExceeded
+				sleep 10
+				retry
 			end
-			MU::MommaCat.createStandardTags(route_table_id)
 			rtb['routes'].each { |route|
 				if route['nat_host_id'].nil? and route['nat_host_name'].nil?
 					route_config = {
@@ -872,7 +997,12 @@ module MU
 					end
 					# XXX how do the network interfaces work with this?
 					MU.log "Creating route for #{route['destination_network']}", details: route_config
-					resp = MU.ec2.create_route(route_config)
+					begin
+						resp = MU.ec2.create_route(route_config)
+					rescue Aws::EC2::Errors::RequestLimitExceeded
+						sleep 10
+						retry
+					end
 				end
 			}
 			return rtb

@@ -135,6 +135,9 @@ module MU
 						ip_permissions: ec2_rule
 					)
 				end
+			rescue Aws::EC2::Errors::RequestLimitExceeded => e
+				sleep 10
+				retry
 			rescue Aws::EC2::Errors::InvalidPermissionDuplicate => e
 				MU.log "Attempt to add duplicate rule to #{sg_id}", MU::DEBUG, details: ec2_rule
 			end
@@ -167,6 +170,9 @@ module MU
 
 			begin
 				secgroup = MU.ec2(region).create_security_group(sg_struct)
+			rescue Aws::EC2::Errors::RequestLimitExceeded
+				sleep 10
+				retry
 			rescue Aws::EC2::Errors::InvalidGroupDuplicate
 				MU.log "EC2 Security Group #{groupname} already exists, using it", MU::WARN
 				secgroup = MU::FirewallRule.find(name: groupname, region: region)
@@ -174,6 +180,9 @@ module MU
 
 			begin
 				MU.ec2(region).describe_security_groups(group_ids: [secgroup.group_id])
+			rescue Aws::EC2::Errors::RequestLimitExceeded
+				sleep 10
+				retry
 			rescue Aws::EC2::Errors::InvalidGroupNotFound => e
 				MU.log "#{secgroup.group_id} not yet ready, waiting...", MU::NOTICE
 				sleep 10
@@ -280,6 +289,9 @@ module MU
 				begin
 					resp = MU.ec2(region).describe_security_groups(group_ids: [sg_id])
 					return resp.data.security_groups.first
+				rescue Aws::EC2::Errors::RequestLimitExceeded => e
+					sleep 10
+					retry
 				rescue Aws::EC2::Errors::InvalidGroupNotFound => e
 					if retries < 2
 						MU.log "#{e.inspect} (#{name} in #{region}), retrying...", MU::WARN, details: caller
@@ -292,11 +304,17 @@ module MU
 			end
 
 			if name
-				resp = MU.ec2(region).describe_security_groups(
-					filters:[
-						{ name: "tag:Name", values: [name] }
-					]
-				)
+				begin
+					resp = MU.ec2(region).describe_security_groups(
+						filters:[
+							{ name: "tag:Name", values: [name] }
+						]
+					)
+				rescue Aws::EC2::Errors::RequestLimitExceeded => e
+					sleep 10
+					retry
+				end
+
 				return resp.data.security_groups.first if resp
 			end
 
@@ -350,6 +368,9 @@ module MU
 							ip_permissions: ec2_rules
 						)
 					end
+				rescue Aws::EC2::Errors::RequestLimitExceeded => e
+					sleep 10
+					retry
 				rescue Aws::EC2::Errors::InvalidGroupNotFound => e
 					MU.log "#{sg.group_name} does not yet exist", MU::WARN
 					retries = retries + 1

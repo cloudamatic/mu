@@ -26,7 +26,7 @@ require 'mu'
 $opts = Trollop::options do
 	banner <<-EOS
 Usage:
-#{$0} [-e <environment>] [-r region] [-v] [-d] [-w] [-c] [-n] [-m] [-s] [-a <admin_password>] [-p parameter=value] /path/to/stack/config.[json|yaml]
+#{$0} [-e <environment>] [-r region] [-v] [-d] [-w] [-c] [-n] [-m] [-s] [-p parameter=value] /path/to/stack/config.[json|yaml]
   EOS
   opt :environment, "Environment to set on creation.", :require => false, :default => "dev"
 	opt :region, "Default region for newly-created cloud resources.", :require => false, :default => MU.myRegion, :type => :string
@@ -34,7 +34,6 @@ Usage:
 	opt :web, "Generate web-friendly (HTML) output.", :require => false, :default => false, :type => :boolean
 	opt :mommacat, "Allow nodes to bootstrap on their own with Momma Cat, instead of doing it on the fly during deploy", :require => false, :default => false, :type => :boolean
 	opt :dryrun, "Do not build a stack, only run configuration validation.", :require => false, :default => false, :type => :boolean
-	opt :administrator_pass, "When creating Windows instances, use this Administrator password instead of a random one.", :require => false, :type => :string
   opt :skipinitialupdates, "Node bootstrapping normally runs an internal recipe that does a full system update. This disables that behavior.", :require => false, :default => false, :type => :boolean
   opt :parameter, "Pass a parameter to the configuration parser (Name=Value). This will be presented to your config file as the ERB variable $Name.", :require => false, :type => :string, :multi => true
   opt :verbose, "Display debugging output.", :require => false, :default => false, :type => :boolean
@@ -67,6 +66,16 @@ rescue Errno::ENOENT => e
   exit 1
 end
 
+# Make sure we've got a Splunk admin vault for any mu-splunk-servers to use,
+# and set it up if we don't.
+`#{MU::Config.knife} vault show splunk admin_user #{MU::Config.vault_opts} > /dev/null 2>&1`
+if $?.exitstatus != 0
+	`#{MU::Config.knife} data bag delete -y splunk > /dev/null 2>&1`
+	user = "admin"
+	password = Password.pronounceable(12..14)
+	`#{MU::Config.knife} vault create splunk admin_user '{ \"auth\": \"#{user}:#{password}\" }' --search role:mu-splunk-server #{MU::Config.vault_opts}`
+end
+
 MU.log "Loading #{config}", html: $opts[:web], details: $opts
 
 stack_conf = MU::Config.new(config, $opts[:skipinitialupdates], params: params).config
@@ -81,22 +90,11 @@ end
 $application_cookbook = stack_conf["application_cookbook"]
 Dir.chdir(MU.installDir)
 
-# Make sure we've got a Splunk admin vault for any mu-splunk-servers to use,
-# and set it up if we don't.
-`#{MU::Config.knife} vault show splunk admin_user #{MU::Config.vault_opts} > /dev/null 2>&1`
-if $?.exitstatus != 0
-	`#{MU::Config.knife} data bag delete -y splunk > /dev/null 2>&1`
-	user = "admin"
-	password = Password.pronounceable(12..14)
-	`#{MU::Config.knife} vault create splunk admin_user '{ \"auth\": \"#{user}:#{password}\" }' --search role:mu-splunk-server #{MU::Config.vault_opts}`
-end
-
 deployer = MU::Deploy.new(
 	$opts[:environment],
 	verbosity: $opts[:verbose],
 	webify_logs: $opts[:web],
 	nocleanup: $opts[:nocleanup],
-	winpass: $opts[:administrator_pass],
 	mommacat_boot: $opts[:mommacat],
 	stack_conf: stack_conf
 )
