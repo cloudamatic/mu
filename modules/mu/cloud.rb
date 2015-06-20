@@ -20,7 +20,7 @@ module MU
 		class MuCloudResourceNotImplemented < StandardError; end
 
 		generic_class_methods = [:find, :cleanup]
-		generic_instance_methods = [:create, :deps_wait_on_my_creation, :waits_on_parent_completion, :notify]
+		generic_instance_methods = [:create, :deps_wait_on_my_creation, :waits_on_parent_completion, :notify, :mu_name]
 
 		# Initialize empty classes for each of these. We'll fill them with code
 		# later; we're doing this here because otherwise the parser yells about
@@ -83,7 +83,7 @@ module MU
 				:cfg_plural => "servers",
 				:interface => self.const_get("Server"),
 				:class => generic_class_methods,
-				:instance => generic_instance_methods + [:groom, :postBoot, :getSSHSession, :getSSHConfig]
+				:instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig]
 			},
 			:ServerPool => {
 				:has_multiples => true,
@@ -237,11 +237,75 @@ module MU
 					}
 				end
 
-# This method should only exist for MU::Cloud::DNSZone
+# XXX This method should only exist for MU::Cloud::DNSZone
 				def self.genericMuDNSEntry(*flags)
-# XXX have this be a global config for where Mu puts its stuff
+# XXX have this switch on a global config for where Mu puts its DNS
 					cloudclass = MU::Cloud.artifact(MU::Config.defaultCloud, "DNSZone")
 					cloudclass.genericMuDNSEntry(flags.first)
+				end
+
+# XXX This method should only exist for MU::Cloud::Server
+				# @param max_retries [Integer]: Number of connection attempts to make before giving up
+				# @param retry_interval [Integer]: Number of seconds to wait between connection attempts
+				# @return [Net::SSH::Connection::Session]
+				def getSSHSession(max_retries = 5, retry_interval = 30)
+					ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
+					nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
+					session = nil
+					retries = 0
+					begin
+						if !nat_ssh_host.nil?
+							proxy_cmd = "ssh -q -o StrictHostKeyChecking=no -W %h:%p #{nat_ssh_user}@#{nat_ssh_host}"
+							MU.log "Attempting SSH to #{@config['mu_name']} (#{canonical_ip}) as #{ssh_user} with key #{@deploy.ssh_key_name} using proxy '#{proxy_cmd}'" if retries == 0
+							proxy = Net::SSH::Proxy::Command.new(proxy_cmd)
+							session = Net::SSH.start(
+								canonical_ip,
+								ssh_user,
+								:config => false, 
+								:keys_only => true,
+								:keys => [ssh_keydir+"/"+nat_ssh_key, ssh_keydir+"/"+@deploy.ssh_key_name],
+								:paranoid => false,
+		#						:verbose => :info,
+								:port => 22,
+								:auth_methods => ['publickey'],
+								:proxy => proxy
+							)
+						else
+							MU.log "Attempting SSH to #{canonical_ip} as #{ssh_user} with key #{ssh_keydir}/#{@deploy.ssh_key_name}" if retries == 0
+							session = Net::SSH.start(
+								canonical_ip,
+								ssh_user,
+								:config => false, 
+								:keys_only => true,
+								:keys => [ssh_keydir+"/"+@deploy.ssh_key_name],
+								:paranoid => false,
+		#						:verbose => :info,
+								:port => 22,
+								:auth_methods => ['publickey']
+							)
+				    end
+					  rescue Net::SSH::HostKeyMismatch => e
+					    MU.log("Remembering new key: #{e.fingerprint}")
+					    e.remember_host!
+							session.close
+					    retry
+						rescue SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, Net::SSH::Disconnect, IOError => e
+							session.close if !session.nil?
+							if retries < max_retries
+								retries = retries + 1
+								msg = "ssh #{ssh_user}@#{@config['mu_name']}: #{e.message}, waiting #{retry_interval}s (attempt #{retries}/#{max_retries})"
+								if retries == 1 or (retries/max_retries <= 0.5 and (retries % 3) == 0)
+									MU.log msg, MU::NOTICE
+								elsif retries/max_retries > 0.5
+									MU.log msg, MU::WARN, details: e.inspect
+								end
+								sleep retry_interval
+								retry
+							else
+								raise MuError, "#{@config['mu_name']}: #{e.inspect} trying to connect with SSH, max_retries exceeded", e.backtrace
+							end
+						end
+					return session
 				end
 
 				def self.cleanup(*flags)

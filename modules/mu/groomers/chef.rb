@@ -22,6 +22,9 @@ module MU
 			# @param server [MU::Cloud::Server]: The server object on which we'll be operating
 			def initialize(server)
 				@server = server
+				if @server.mu_name.nil? or @server.mu_name.empty?
+					raise MuError, "Cannot groom a server that doesn't tell me its mu_name"
+				end
 				if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
 					::Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
 				end
@@ -30,9 +33,9 @@ module MU
 			end
 
 			def haveBootstrapped?
-				MU.log "Chef config", MU::DEBUG, details: Chef::Config.inspect
+				MU.log "Chef config", MU::DEBUG, details: ::Chef::Config.inspect
 				nodelist = ::Chef::Node.list()
-				nodelist.has_key?(node)
+				nodelist.has_key?(@server.mu_name)
 			end
 
 			# Invoke the Chef client on the node at the other end of a provided SSH
@@ -45,18 +48,17 @@ module MU
 						knifeAddToRunList(rl_entry)
 					}
 				end
-				node = @server.config['mu_node']
 
 				if !@server.config['application_attributes'].nil?
-					chef_node = ::Chef::Node.load(node)
-					MU.log "Setting node:#{node} application_attributes", MU::DEBUG, details: @server.config['application_attributes']
+					chef_node = ::Chef::Node.load(@server.mu_name)
+					MU.log "Setting node:#{@server.mu_name} application_attributes", MU::DEBUG, details: @server.config['application_attributes']
 					chef_node.normal.application_attributes = @server.config['application_attributes']
 					chef_node.save
 				end
 				syncDeployData
 
 				ssh = @server.getSSHSession
-				MU.log "Invoking Chef on #{node}: #{purpose}"
+				MU.log "Invoking Chef on #{@server.mu_name}: #{purpose}"
 				retries = 0
 				output = []
 				error_signal = "CHEF EXITED BADLY: "+(0...25).map { ('a'..'z').to_a[rand(26)] }.join
@@ -80,41 +82,29 @@ module MU
 						puts data
 						output << data
 						if data.match(/#{error_signal}/)
-							raise ChefRunFail, output.grep(/ ERROR: /).last
+							raise MU::Groomer::RunError, output.grep(/ ERROR: /).last
 						end
 					}
-
-			  rescue SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, Net::SSH::Disconnect, IOError => e
+			  rescue MU::Groomer::RunError => e
 					ssh.close if !ssh.nil?
 					if retries < max_retries
 						retries = retries + 1
-						MU.log "#{node}: #{e.inspect} trying to connect for Chef run '#{purpose}", MU::WARN
-						sleep 30
-						retry
-					else
-						MU.log "#{node}: #{e.inspect} trying to connect for Chef run '#{purpose}", MU::ERR
-						raise MuError, "#{node}: #{e.inspect} trying to connect for Chef run '#{purpose}"
-					end
-			  rescue ChefRunFail => e
-					ssh.close if !ssh.nil?
-					if retries < max_retries
-						retries = retries + 1
-						MU.log "#{node}: Chef run '#{purpose}' failed, retrying", MU::WARN, details: e.message
+						MU.log "#{@server.mu_name}: Chef run '#{purpose}' failed, retrying", MU::WARN, details: e.message
 						sleep 10
 						retry
 					else
-						MU.log "#{node}: Chef run '#{purpose}' failed #{max_retries} times", MU::ERR, details: e.message
+						MU.log "#{@server.mu_name}: Chef run '#{purpose}' failed #{max_retries} times", MU::ERR, details: e.message
 						raise e
 					end
 				end
 				syncDeployData
 			end
 
-			def bootstrap(node)
+			def bootstrap
 				nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = @server.getSSHConfig
-			  MU.log "Bootstrapping #{node} (#{canonical_addr}) with knife"
+			  MU.log "Bootstrapping #{@server.mu_name} (#{canonical_addr}) with knife"
 
-				run_list = ["role[mu-node]"]
+				run_list = ["recipe[mu-tools::newclient]", "role[mu-node]"]
 
 				# XXX These shouldn't be needed, see Autoloads in mu.rb. Whyy Chef why? 
 				require 'chef/knife/bootstrap'
@@ -158,7 +148,7 @@ module MU
 		    kb.config[:ssh_user] = ssh_user
 		    kb.config[:forward_agent] = ssh_user
 			  kb.name_args = "#{canonical_addr}"
-			  kb.config[:chef_node_name] = node
+			  kb.config[:chef_node_name] = @server.mu_name
 			  kb.config[:bootstrap_version] = MU.chefVersion
 # XXX key off of MU verbosity level
 				kb.config[:log_level] = :debug
@@ -168,7 +158,7 @@ module MU
 				end
 				# This defaults to localhost for some reason sometimes. Brute-force it.
 			
-			  MU.log "Knife Bootstrap settings for #{node} (#{canonical_addr})", MU::NOTICE, details: kb.config
+			  MU.log "Knife Bootstrap settings for #{@server.mu_name} (#{canonical_addr})", MU::NOTICE, details: kb.config
 
 				retries = 0
 				begin
@@ -181,11 +171,11 @@ module MU
 				rescue Net::SSH::Disconnect, Errno::EPIPE, IOError, SystemExit, Timeout::Error, SocketError, Net::HTTPServerException => e
 					if retries < 10
 						retries = retries + 1
-						MU.log "#{node}: Knife Bootstrap failed #{e.inspect}, retrying (#{retries} of 10)", MU::WARN
+						MU.log "#{@server.mu_name}: Knife Bootstrap failed #{e.inspect}, retrying (#{retries} of 10)", MU::WARN
 						sleep 10
 						retry
 					else
-						raise MuError, "#{node}: Knife Bootstrap failed too many times with #{e.inspect}"
+						raise MuError, "#{@server.mu_name}: Knife Bootstrap failed too many times with #{e.inspect}"
 					end
 				end
 
@@ -193,9 +183,9 @@ module MU
 				# node's final run list
 				["mu-tools::newclient"].each { |recipe|
 					begin
-						::Chef::Knife.run(['node', 'run_list', 'remove', node, "recipe[#{recipe}]"], {})
+						::Chef::Knife.run(['node', 'run_list', 'remove', @server.mu_name, "recipe[#{recipe}]"], {})
 					rescue SystemExit => e
-						MU.log "#{node}: Run list removal of recipe[#{recipe}] failed with #{e.inspect}", MU::ERR
+						MU.log "#{@server.mu_name}: Run list removal of recipe[#{recipe}] failed with #{e.inspect}", MU::ERR
 					end
 				}
 
@@ -222,18 +212,43 @@ module MU
 			# so that nodes can access this metadata.
 			# @return [void]
 			def syncDeployData
-				node = @server.config['mu_node']
 				deployment = @server.deploy.deployment
 				begin
-					chef_node = ::Chef::Node.load(node)
+					chef_node = ::Chef::Node.load(@server.mu_name)
 
-					MU.log "Updating node: #{node} deployment attributes", details: deployment
+					MU.log "Updating node: #{@server.mu_name} deployment attributes", details: deployment
 					chef_node.normal.deployment.merge!(@server.deploy.deployment)
 
 					chef_node.save
 				rescue Net::HTTPServerException => e
-					MU.log "Attempted to save deployment to Chef node #{node} before it was bootstrapped.", MU::DEBUG
+					MU.log "Attempted to save deployment to Chef node #{@server.mu_name} before it was bootstrapped.", MU::DEBUG
 				end
+			end
+
+			# Expunge Chef resources associated with a node.
+			# @param node [String]: The Mu name of the node in question.
+			# @param vaults_to_clean [Array<Hash>]: Some vaults to expunge
+			# @param noop [Boolean]: Skip actual deletion, just state what we'd do
+			def self.cleanup(node, vaults_to_clean = [], noop = false)
+				MU.log "Deleting Chef resources associated with #{node}"
+				vaults_to_clean.each { |vault|
+					MU::MommaCat.lock("vault-"+vault['vault'], false, true)
+					MU.log "knife vault remove #{vault['vault']} #{vault['item']} --search name:#{node}", MU::NOTICE
+					puts `#{MU::Config.knife} vault remove #{vault['vault']} #{vault['item']} --search name:#{node}` if !noop
+					MU::MommaCat.unlock("vault-"+vault['vault'])
+				}
+				MU.log "knife node delete -y #{node}"
+				`#{MU::Config.knife} node delete -y #{node}` if !noop
+				MU.log "knife client delete -y #{node}"
+				`#{MU::Config.knife} client delete -y #{node}` if !noop
+				MU.log "knife data bag delete -y #{node}"
+				`#{MU::Config.knife} data bag delete -y #{node}` if !noop
+				["crt", "key"].each { |ext|
+					if File.exists?("#{MU.mySSLDir}/#{node}.#{ext}")
+						MU.log "Removing #{MU.mySSLDir}/#{node}.#{ext}"
+						File.unlink("#{MU.mySSLDir}/#{node}.#{ext}") if !noop
+					end
+				}
 			end
 
 			private
@@ -241,13 +256,12 @@ module MU
 			# Save common Mu attributes to this node's Chef node structure.
 			def saveInitialMetadata
 				config = @server.config
-				node = config['mu_node']
 				nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = @server.getSSHConfig
-				MU.log "Saving #{node} Chef artifacts"
-			  chef_node = ::Chef::Node.load(node)
+				MU.log "Saving #{@server.mu_name} Chef artifacts"
+			  chef_node = ::Chef::Node.load(@server.mu_name)
 				# Figure out what this node thinks its name is
 			  system_name = chef_node['fqdn']
-				MU.log "#{node} local name is #{system_name}", MU::DEBUG
+				MU.log "#{@server.mu_name} local name is #{system_name}", MU::DEBUG
 
 			  chef_node.normal.app = config['application_cookbook'] if config['application_cookbook'] != nil
 			  chef_node.normal.service_name = config["name"]
@@ -295,55 +309,59 @@ module MU
 
 				# Finally, grant us access to some pre-existing Vaults.
 				if !config['vault_access'].nil?
-					retries = 0
 					config['vault_access'].each { |vault|
-						MU::MommaCat.lock("vault-"+vault['vault'], false, true)
-						begin
-							retries = retries + 1
-							vault_cmd = "#{MU::Config.knife} vault update #{vault['vault']} #{vault['item']} #{MU::Config.vault_opts} --search name:#{node} 2>&1"
-							MU.log "ADD attempt #{retries} enabling #{node} for vault access to #{vault['vault']} #{vault['item']} using command  #{vault_cmd}", MU::DEBUG
-							output = `#{vault_cmd}`
-                        MU.log "Result of ADD attempt #{retries} enabling #{node} for vault access to #{vault} was #{output} with RC #{$?.exitstatus}", MU::DEBUG
-							if $?.exitstatus != 0
-								MU.log "Got bad exit code on try #{retries} from knife vault update #{vault['vault']} #{vault['item']} #{MU::Config.vault_opts} --search name:#{node}", MU::WARN, details: output
-							end
-							# Check and see if what we asked for actually got done
-							vault_cmd = "#{MU::Config.knife} vault show #{vault['vault']} #{vault['item']} clients -p clients -f yaml #{MU::Config.vault_opts} 2>&1"
-							#MU.log vault_cmd, MU::DEBUG
-							output = `#{vault_cmd}`
-							MU.log "VERIFYING #{node} access to #{vault['vault']} #{vault['item']}:\n #{output}", MU::DEBUG
-							if !output.match(/#{node}/)
-								MU.log "Didn't see #{node} in output of #{vault_cmd}, trying again...", MU::WARN, details: output
-								if retries < 10
-									MU::MommaCat.unlock("vault-"+vault['vault'])
-									sleep 5
-									redo
-								else
-									MU.log "ABORTING: Unable to add #{node} to #{vault['vault']} #{vault['item']}, instance unlikely to operate correctly!", MU::ERR
-									raise MuError, "Unable to add node #{node} to #{vault['vault']} #{vault['item']}, aborting"
-								end
-							else
-								MU.log "Granting #{node} access to #{vault['vault']} #{vault['item']} after #{retries} retries", MU::NOTICE
-								retries = 0
-							end
-						end
-						MU::MommaCat.unlock("vault-"+vault['vault'])
+						grantVaultAccess(vault['vault'], vault['item'])
 					}
 				end
 			end
 
+			def grantVaultAccess(vault, item)
+				MU::MommaCat.lock("vault-"+vault, false, true)
+				retries = 0
+				begin
+					retries = retries + 1
+					vault_cmd = "#{MU::Config.knife} vault update #{vault} #{item} #{MU::Config.vault_opts} --search name:#{@server.mu_name} 2>&1"
+					MU.log "ADD attempt #{retries} enabling #{@server.mu_name} for vault access to #{vault} #{item} using command  #{vault_cmd}", MU::DEBUG
+					output = `#{vault_cmd}`
+          MU.log "Result of ADD attempt #{retries} enabling #{@server.mu_name} for vault access to #{vault} was #{output} with RC #{$?.exitstatus}", MU::DEBUG
+					if $?.exitstatus != 0
+						MU.log "Got bad exit code on try #{retries} from knife vault update #{vault} #{item} #{MU::Config.vault_opts} --search name:#{@server.mu_name}", MU::WARN, details: output
+					end
+					# Check and see if what we asked for actually got done
+					vault_cmd = "#{MU::Config.knife} vault show #{vault} #{item} clients -p clients -f yaml #{MU::Config.vault_opts} 2>&1"
+					#MU.log vault_cmd, MU::DEBUG
+					output = `#{vault_cmd}`
+					MU.log "VERIFYING #{@server.mu_name} access to #{vault} #{item}:\n #{output}", MU::DEBUG
+					if !output.match(/#{@server.mu_name}/)
+						MU.log "Didn't see #{@server.mu_name} in output of #{vault_cmd}, trying again...", MU::WARN, details: output
+						if retries < 10
+							MU::MommaCat.unlock("vault-"+vault)
+							sleep 5
+							redo
+						else
+							MU.log "ABORTING: Unable to add #{@server.mu_name} to #{vault} #{item}, instance unlikely to operate correctly!", MU::ERR
+							raise MuError, "Unable to add node #{@server.mu_name} to #{vault} #{item}, aborting"
+						end
+					else
+						MU.log "Granted #{@server.mu_name} access to #{vault} #{item} after #{retries} retries", MU::NOTICE
+						return
+					end
+				end while true
+				MU::MommaCat.unlock("vault-"+vault)
+			end
+
 			def createGenericHostSSLCert
+				nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = @server.getSSHConfig
 				# Manufacture a generic SSL certificate, signed by the Mu master, for
 				# consumption by various node services (Apache, Splunk, etc).
-				node = @server.config['mu_node']
-				MU.log "Creating self-signed service SSL certificate for #{node} (CN=#{canonical_ip})"
+				MU.log "Creating self-signed service SSL certificate for #{@server.mu_name} (CN=#{canonical_ip})"
 		
 				# Create and save a key
 				key = OpenSSL::PKey::RSA.new 4096
 				if !Dir.exist?(MU.mySSLDir)
 					Dir.mkdir(MU.mySSLDir, 0700)
 				end
-				open("#{MU.mySSLDir}/#{node}.key", 'w', 0600) { |io|
+				open("#{MU.mySSLDir}/#{@server.mu_name}.key", 'w', 0600) { |io|
 					io.write key.to_pem
 				}
 
@@ -352,25 +370,25 @@ module MU
 				csr.version = 0
 				csr.subject = OpenSSL::X509::Name.parse "CN=#{canonical_ip}/O=Mu/C=US"
 				csr.public_key = key.public_key
-				open("#{MU.mySSLDir}/#{node}.csr", 'w', 0644) { |io|
+				open("#{MU.mySSLDir}/#{@server.mu_name}.csr", 'w', 0644) { |io|
 					io.write csr.to_pem
 				}
 
 
 				if MU.chef_user == "mu"
-					MU.mommacat.signSSLCert("#{MU.mySSLDir}/#{node}.csr")
+					MU.mommacat.signSSLCert("#{MU.mySSLDir}/#{@server.mu_name}.csr")
 				else
 					deploykey = OpenSSL::PKey::RSA.new(MU.mommacat.public_key)
 					deploysecret = Base64.urlsafe_encode64(deploykey.public_encrypt(MU.mommacat.deploy_secret))
-					res_type = "@config"
-					res_type = "@config_pool" if !@config['basis'].nil?
+					res_type = "server"
+					res_type = "server_pool" if !@server.config['basis'].nil?
 					uri = URI("https://#{MU.mu_public_addr}:2260/")
 					req = Net::HTTP::Post.new(uri)
 					req.set_form_data(
 						"mu_id" => MU.mu_id,
-						"mu_resource_name" => @config['name'],
+						"mu_resource_name" => @server.config['name'],
 						"mu_resource_type" => res_type,
-						"mu_ssl_sign" => "#{MU.mySSLDir}/#{node}.csr",
+						"mu_ssl_sign" => "#{MU.mySSLDir}/#{@server.mu_name}.csr",
 						"mu_user" => MU.chef_user,
 						"mu_deploy_secret" => deploysecret
 					)
@@ -380,25 +398,26 @@ module MU
 					http.verify_mode = OpenSSL::SSL::VERIFY_NONE
 					response = http.request(req)
 					if response.code != "200"
-						MU.log "Got error back on signing request for #{MU.mySSLDir}/#{node}.csr", MU::ERR
+						MU.log "Got error back on signing request for #{MU.mySSLDir}/#{@server.mu_name}.csr", MU::ERR
 					end
 				end
 
-				cert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/#{node}.crt"
+				cert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/#{@server.mu_name}.crt"
 
 				# Upload the certificate to a Chef Vault for this node
-				vault_cmd = "#{MU::Config.knife} vault create #{node} ssl_cert '{ \"data\": { \"node.crt\":\"#{cert.to_pem.chomp!.gsub(/\n/, "\\n")}\", \"node.key\":\"#{key.to_pem.chomp!.gsub(/\n/, "\\n")}\" } }' #{MU::Config.vault_opts} --search name:#{node}"
+				vault_cmd = "#{MU::Config.knife} vault create #{@server.mu_name} ssl_cert '{ \"data\": { \"node.crt\":\"#{cert.to_pem.chomp!.gsub(/\n/, "\\n")}\", \"node.key\":\"#{key.to_pem.chomp!.gsub(/\n/, "\\n")}\" } }' #{MU::Config.vault_opts} --search name:#{@server.mu_name}"
 				MU.log vault_cmd, MU::DEBUG
 				puts `#{vault_cmd}`
-				@config['vault_access'] << { "vault"=> node, "item" => "ssl_cert" }
+
+				grantVaultAccess(@server.mu_name, "ssl_cert")
 
 				# Any and all 'secrets' parameters should also be stuffed into our vault.
-				if !@config['secrets'].nil?
-					json = JSON.generate(@config['secrets'])
-					vault_cmd = "#{MU::Config.knife} vault create #{node} secrets '#{json}' #{MU::Config.vault_opts} --search name:#{node}"
+				if !@server.config['secrets'].nil?
+					json = JSON.generate(@server.config['secrets'])
+					vault_cmd = "#{MU::Config.knife} vault create #{@server.mu_name} secrets '#{json}' #{MU::Config.vault_opts} --search name:#{@server.mu_name}"
 					MU.log vault_cmd, MU::DEBUG
 					puts `#{vault_cmd}`
-					@config['vault_access'] << { "vault"=> node, "item" => "secrets" }
+					grantVaultAccess(@server.mu_name, "secrets")
 				end
 			end
 
@@ -410,7 +429,6 @@ module MU
 			# @return [void]
 			def knifeAddToRunList(rl_entry, type="role", ignore_missing=false)
 				return if rl_entry.nil?
-				node = @server.config['mu_node']
 		
 				# Rather than argue about whether to expect a bare rl_entry name or require
 				# rl_entry[rolename], let's just accomodate.
@@ -430,13 +448,13 @@ module MU
 				end
 		
 				begin
-					query=%Q{#{MU::Config.knife} node run_list add #{node} "#{type}[#{rl_entry}]"};
-					MU.log("Adding #{type} #{rl_entry} to #{node}")
+					query=%Q{#{MU::Config.knife} node run_list add #{@server.mu_name} "#{type}[#{rl_entry}]"};
+					MU.log("Adding #{type} #{rl_entry} to #{@server.mu_name}")
 					MU.log("Running #{query}", MU::DEBUG)
 					output=%x{#{query}}
 					# XXX rescue Exception is bad style
 				rescue Exception => e
-					raise MuError, "FAIL: #{MU::Config.knife} node run_list add #{node} \"#{type}[#{rl_entry}]\": #{e.message} (output was #{output})"
+					raise MuError, "FAIL: #{MU::Config.knife} node run_list add #{@server.mu_name} \"#{type}[#{rl_entry}]\": #{e.message} (output was #{output})"
 				end
 			end
 

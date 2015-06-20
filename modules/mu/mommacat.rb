@@ -985,6 +985,78 @@ module MU
 			
 		end
 
+		# Make sure the given node has proper DNS entries, /etc/hosts entries,
+		# SSH config entries, etc.
+		# @param server [MU::Cloud::Server]: 
+		def self.nameKitten(server)
+			node, config, deploydata, instance = server.describe(nil, server.mu_name)
+			nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = server.getSSHConfig
+# XXX remove need for AWS structure here
+
+			mu_zone, junk = MU::Cloud::DNSZone.find(name: "mu")
+			if !mu_zone.nil?
+				parent_thread_id = Thread.current.object_id
+				dnsthread = Thread.new {
+					MU.dupGlobals(parent_thread_id)
+					if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
+						MU::Cloud::DNSZone.genericMuDNSEntry(node, instance.public_dns_name, MU::Cloud::Server)
+					else
+						MU::Cloud::DNSZone.genericMuDNSEntry(node, instance.private_ip_address, MU::Cloud::Server)
+					end
+				}
+			else
+				MU::MommaCat.addInstanceToEtcHosts(instance.public_dns_name, node)
+			end
+
+			MU::MommaCat.removeHostFromSSHConfig(node)
+			if !config["vpc"].nil?
+				if MU::Cloud::VPC.haveRouteToInstance?(instance.instance_id)
+					MU::MommaCat.addHostToSSHConfig(
+						node,
+						instance.private_ip_address,
+						instance.private_dns_name,
+						user: config["ssh_user"],
+						public_dns: instance.public_dns_name,
+						public_ip: instance.public_ip_address,
+						key_name: server.deploy.ssh_key_name
+					)
+				elsif MU::Cloud::VPC.isSubnetPrivate?(instance.subnet_id, region: @config['vpc']['region'])
+					MU::MommaCat.addHostToSSHConfig(
+						node,
+						instance.private_ip_address,
+						instance.private_dns_name,
+						user: config["ssh_user"],
+						gateway_ip: nat_ssh_host,
+						gateway_user: nat_ssh_user,
+						key_name: server.deploy.ssh_key_name,
+					)
+				else
+					MU::MommaCat.addHostToSSHConfig(
+						node,
+						instance.private_ip_address,
+						instance.private_dns_name,
+						public_dns: instance.public_dns_name,
+						public_ip: instance.public_ip_address,
+						user: config["ssh_user"],
+						key_name: server.deploy.ssh_key_name,
+						gateway_user: nat_ssh_user,
+						gateway_ip: nat_ssh_host,
+					)
+				end
+			else
+				MU::MommaCat.addHostToSSHConfig(
+					node,
+					instance.private_ip_address,
+					instance.private_dns_name,
+					user: config["ssh_user"],
+					public_dns: instance.public_dns_name,
+					public_ip: instance.public_ip_address,
+					key_name: server.deploy.ssh_key_name
+				)
+			end
+			dnsthread.join
+		end
+
 		@ssh_semaphore = Mutex.new
 		# Insert a definition for a node into our SSH config.
 		# @param node [String]: The name of the node.

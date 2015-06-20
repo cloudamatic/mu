@@ -99,8 +99,8 @@ module MU
 	# Wrapper class for fatal Exceptions. Gives our internals something to
 	# inherit that will log an error message appropriately before bubbling up.
 	class MuError < StandardError
-		def initialize(message)
-			MU.log message, MU::ERR
+		def initialize(message = nil)
+			MU.log message, MU::ERR if !message.nil?
 			super ""
 		end
 	end
@@ -108,8 +108,8 @@ module MU
 	# Wrapper class for temporary Exceptions. Gives our internals something to
 	# inherit that will log a notice message appropriately before bubbling up.
 	class MuNonFatal < StandardError
-		def initialize(message)
-			MU.log message, MU::NOTICE
+		def initialize(message = nil)
+			MU.log message, MU::NOTICE if !message.nil?
 			super ""
 		end
 	end

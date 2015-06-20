@@ -29,11 +29,14 @@ module MU
 			@admin_sgs = Hash.new
 			@admin_sg_semaphore = Mutex.new
 
+			attr_reader :mu_name
+
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::firewall_rules}
 			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg)
 				@deploy = mommacat
 				@config = kitten_cfg
+				@mu_name = MU::MommaCat.getResourceName(@config['name'])
 				MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
 			end
 

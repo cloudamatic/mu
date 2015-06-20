@@ -30,13 +30,7 @@ class Cloud
 			# An exception denoting an expected, temporary connection failure to a
 			# bootstrapping instance, e.g. for Windows instances that must reboot in
 			# mid-installation.
-			class BootstrapTempFail < MuNonFatal
-			end
-
-			# An exception denoting a Chef run that has failed, but could potentially
-			# be successful on a subsequent run.
-			class ChefRunFail < MuError
-			end
+			class BootstrapTempFail < MuNonFatal; end
 
 			# Whether {MU::Deploy} should hold creation of other resources which depend on this resource until the latter has been created.
 			def deps_wait_on_my_creation; false.freeze end
@@ -96,6 +90,7 @@ class Cloud
 			end
 
 			attr_reader :mu_name
+			attr_reader :cloud_id
 			attr_reader :config
 			attr_reader :deploy
 
@@ -109,15 +104,15 @@ class Cloud
 					@mu_name = mu_name
 					@config['mu_name'] = mu_name
 				else
-					node = MU::MommaCat.getResourceName(@config['name'])
-					@config['mu_name'] = node
+					@mu_name = MU::MommaCat.getResourceName(@config['name'])
+					@config['mu_name'] = @mu_name
 
 					if %w{win2k12r2 win2k12 windows}.include?(@config['platform']) or
 						 !@config['active_directory'].nil?
 						@config['mu_windows_name'] = MU::MommaCat.getResourceName(@config['name'], max_length: 15, need_unique_string: true)
 						if !@config['never_generate_admin_password'] and !@config['windows_admin_password']
 							@config['winpass'] = MU::Cloud::AWS::Server.generateWindowsAdminPassword
-							MU.log "I generated a Windows admin password for #{node}. It is: #{@config['winpass']}"
+							MU.log "I generated a Windows admin password for #{@mu_name}. It is: #{@config['winpass']}"
 						end
 					end
 
@@ -567,63 +562,6 @@ class Cloud
 
 			end
 
-			# @param loglevel [Integer]: The baseline level of log noise to make with this session's connection attempts
-			# @return [Net::SSH::Connection::Session]
-			def getSSHSession(loglevel = MU::NOTICE, max_retries = 5)
-				ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
-				nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
-				session = nil
-				retries = 0
-				begin
-					if !nat_ssh_host.nil?
-						proxy_cmd = "ssh -q -o StrictHostKeyChecking=no -W %h:%p #{nat_ssh_user}@#{nat_ssh_host}"
-						MU.log "Attempting SSH to #{@config['mu_name']} (#{@config['canonical_ip']}) as #{@config['ssh_user']} with key #{@deploy.ssh_key_name} using proxy '#{proxy_cmd}'", loglevel
-							proxy = Net::SSH::Proxy::Command.new(proxy_cmd)
-							session = Net::SSH.start(
-									@config['canonical_ip'],
-									@config['ssh_user'],
-									:config => false, 
-									:keys_only => true,
-									:keys => [ssh_keydir+"/"+nat_ssh_key, ssh_keydir+"/"+@deploy.ssh_key_name],
-									:paranoid => false,
-		#							:verbose => :info,
-									:port => 22,
-									:auth_methods => ['publickey'],
-									:proxy => proxy
-								)
-					else
-						MU.log "Attempting SSH to #{@config['canonical_ip']} as #{@config['ssh_user']} with key #{ssh_keydir}/#{@deploy.ssh_key_name}", loglevel
-							session = Net::SSH.start(
-								@config['canonical_ip'],
-								@config['ssh_user'],
-								:config => false, 
-								:keys_only => true,
-								:keys => [ssh_keydir+"/"+@deploy.ssh_key_name],
-								:paranoid => false,
-		#						:verbose => :info,
-								:port => 22,
-								:auth_methods => ['publickey']
-							)
-			    end
-				  rescue Net::SSH::HostKeyMismatch => e
-				    MU.log("Remembering new key: #{e.fingerprint}")
-				    e.remember_host!
-						session.close
-				    retry
-					rescue SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, Net::SSH::Disconnect, IOError => e
-						session.close if !session.nil?
-						if retries < max_retries
-							retries = retries + 1
-							MU.log "#{@config['mu_name']}: #{e.inspect} trying to connect with SSH", MU::WARN
-							sleep 30
-							retry
-						else
-							raise MuError, "#{@config['mu_name']}: #{e.inspect} trying to connect with SSH", e.backtrace
-						end
-					end
-				return session
-			end
-
 			# Basic setup tasks performed on a new node during its first initial ssh
 			# connection. Most of this is terrible Windows glue.
 			# @param ssh [Net::SSH::Connection::Session]: The active SSH session to the new node.
@@ -695,8 +633,8 @@ MU.log win_set_pw, MU::ERR
 			end
 
 			
-			# Apply tags, bootstrap Chef, and other administravia for a new instance.
-			# Return SSH configuration information for getting into said instance.
+			# Apply tags, bootstrap our configuration management, and other
+			# administravia for a new instance.
 			def postBoot
 				node, config, deploydata, instance = describe(@config['instance_id'], @config['mu_name'])
 
@@ -742,18 +680,8 @@ MU.log win_set_pw, MU::ERR
 				# Unless we're planning on associating a different IP later, set up a 
 				# DNS entry for this thing and let it sync in the background. We'll come
 				# back to it later.
-				dnsthread = nil
 				if @config['static_ip'].nil?
-# XXX delegate this to MommaCat, let her interface with DNS
-#					parent_thread_id = Thread.current.object_id
-#					dnsthread = Thread.new {
-#						MU.dupGlobals(parent_thread_id)
-#						if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
-#							MU::Cloud::DNSZone.genericMuDNSEntry(node, instance.public_dns_name, MU::Cloud::Server)
-#						else
-#							MU::Cloud::DNSZone.genericMuDNSEntry(node, instance.private_ip_address, MU::Cloud::Server)
-#						end
-#					}
+					MU::MommaCat.nameKitten(self)
 				end
 
 				if !@config['src_dst_check'] and !@config["vpc"].nil?
@@ -875,21 +803,6 @@ MU.log win_set_pw, MU::ERR
 #					MU::Cloud::DNSZone.createRecordsFromConfig(@config['dns_records'], target: instance.private_ip_address)
 				end
 
-				# If we haven't already, set a platform-mu DNS entry for this guy. It
-				# can sync in the background until we're done with knife bootstrap.
-				if dnsthread.nil?
-# XXX delegate this to MommaCat
-#					parent_thread_id = Thread.current.object_id
-#					dnsthread = Thread.new {
-#						MU.dupGlobals(parent_thread_id)
-#						if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
-#							MU::Cloud::DNSZone.genericMuDNSEntry(node, instance.public_dns_name, MU::Cloud::Server)
-#						else
-#							MU::Cloud::DNSZone.genericMuDNSEntry(node, instance.private_ip_address, MU::Cloud::Server)
-#						end
-#					}
-				end
-
 				@config["private_dns_name"] = instance.private_dns_name
 				@config["public_dns_name"] = instance.public_dns_name
 				@config["private_ip_address"] = instance.private_ip_address
@@ -950,39 +863,27 @@ MU.log win_set_pw, MU::ERR
 
 
 				# Make an initial connection with SSH to see if this host is ready to
-				# have Chef or Puppet inflicted on it. Also run some prep.
+				# have configuration management inflicted on it. Also run some prep.
 				ssh_wait = 25 
-				max_retries = 5 # *5 in getSSHSession
-				ssh_retries = 0
+				max_retries = 25
 				if %w{win2k12r2 win2k12 windows}.include? @config['platform']
 					ssh_wait = 60
-					max_retries = 5 # *5 in getSSHSession
+					max_retries = 25
 				end
-#XXX let getSSHSession handle SSH connection failures, we can just respond to
-# BootstrapTempFail
+
 			  begin
 					Thread.abort_on_exception = false
-					loglevel = MU::DEBUG
-					loglevel = MU::NOTICE if (ssh_retries % 3 == 0)
-					ssh = getSSHSession(loglevel)
-					MU::Cloud::AWS::Server.initialSSHTasks(ssh, @config)
-			  rescue BootstrapTempFail, SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, Net::SSH::Disconnect => e
-					loglevel = MU::DEBUG
-					if ssh_retries % 3 == 0 or e.class.name == "MU::BootstrapTempFail"
-						loglevel = MU::NOTICE
-					end
-			    ssh_retries += 1 if e.class.name != "MU::BootstrapTempFail"
-
-			    if ssh_retries <= max_retries
-						MU.log "SSH attempt ##{ssh_retries} of #{max_retries} for #{node} got #{e.inspect}, waiting #{ssh_wait}s before trying again.", loglevel
-						sleep ssh_wait
-			      retry
-			    else
-			      raise MuError, "Too many authentication/connection failures bootstrapping #{node}."
-			    end
+					session = getSSHSession(ssh_wait, max_retries)
+					MU::Cloud::AWS::Server.initialSSHTasks(session, @config)
+			  rescue BootstrapTempFail
+					sleep ssh_wait
+			    retry
+				ensure
+					session.close if !session.nil?
 			  end
 
-				# See if this node already exists in Chef. If it does, we're done.
+				# See if this node already exists in our config management. If it does,
+				# we're done.
 				if @groomer.haveBootstrapped?
 					MU.log "Node #{node} has already been bootstrapped, skipping groomer setup.", MU::NOTICE
 					@groomer.syncDeployData
@@ -1000,55 +901,8 @@ MU.log win_set_pw, MU::ERR
 
 				@groomer.bootstrap
 
-				dnsthread.join if !dnsthread.nil?
-
-				# XXX This nonsense should be done by Momma, and is probably redundant
-				MU::MommaCat.removeHostFromSSHConfig(node)
-				if !@config["vpc"].nil?
-					if MU::Cloud::AWS::VPC.haveRouteToInstance?(instance.instance_id)
-						MU::MommaCat.addHostToSSHConfig(
-							node,
-							instance.private_ip_address,
-							instance.private_dns_name,
-							user: @config["ssh_user"],
-							public_dns: instance.public_dns_name,
-							public_ip: instance.public_ip_address,
-							key_name: @deploy.ssh_key_name
-						)
-					elsif is_private
-						MU::MommaCat.addHostToSSHConfig(
-							node,
-							instance.private_ip_address,
-							instance.private_dns_name,
-							user: @config["ssh_user"],
-							gateway_ip: nat_ssh_host,
-							gateway_user: nat_ssh_user,
-							key_name: @deploy.ssh_key_name,
-						)
-					else
-						MU::MommaCat.addHostToSSHConfig(
-							node,
-							instance.private_ip_address,
-							instance.private_dns_name,
-							public_dns: instance.public_dns_name,
-							public_ip: instance.public_ip_address,
-							user: @config["ssh_user"],
-							key_name: @deploy.ssh_key_name,
-							gateway_user: nat_ssh_user,
-							gateway_ip: nat_ssh_host,
-						)
-					end
-				else
-					MU::MommaCat.addHostToSSHConfig(
-						node,
-						instance.private_ip_address,
-						instance.private_dns_name,
-						user: @config["ssh_user"],
-						public_dns: instance.public_dns_name,
-						public_ip: instance.public_ip_address,
-						key_name: @deploy.ssh_key_name
-					)
-				end
+				# Make sure we got our name written everywhere applicable
+				MU::MommaCat.nameKitten(self)
 
 				@groomer.syncDeployData
 				MU::MommaCat.openFirewallForClients
@@ -1262,6 +1116,7 @@ MU.log win_set_pw, MU::ERR
 				end
 				deploydata[node]["region"] = @config['region'] if !@config['region'].nil?
 				@deploy.notify("servers", @config['name'], deploydata)
+				MU::MommaCat.nameKitten(self)
 
 				return deploydata
 			end
@@ -1365,9 +1220,10 @@ MU.log win_set_pw, MU::ERR
 
 				begin
 					@groomer.run(purpose: "Full Initial Run")
-				rescue ChefRunFail
-					MU.log "Proceeding after failed initial Chef run, but #{node} may not behave as expected!", MU::WARN
+				rescue MU::Groomer::RunError
+					MU.log "Proceeding after failed initial Groomer run, but #{node} may not behave as expected!", MU::WARN
 				end
+# XXX figure out what the condition was for this and implement here
 #				if !chef_rerun_only
 					MU::MommaCat.syncSiblings(@config["name"], true, triggering_node: node)
 					syncDeployData if !@config['sync_siblings']
@@ -1400,7 +1256,6 @@ MU.log win_set_pw, MU::ERR
 
 				MU::MommaCat.unlock(@config["instance_id"]+"-groom")
 			end
-
 
 			# Create an AMI out of a running server. Requires either the name of a MU resource in the current deployment, or the cloud provider id of a running instance.
 			# @param name [String]: The MU resource name of the server to use as the basis for this image.
@@ -1841,7 +1696,8 @@ MU.log win_set_pw, MU::ERR
 						MU::Cloud::AWS::Server.removeIAMProfile("ServerPool-"+mu_name) if !noop
 					end
 
-					MU::Cloud::AWS::Server.purgeChefResources(nodename, orig_config['vault_access'], noop)
+# XXX abstraction motherfucker
+					MU::Groomer::Chef.cleanup(nodename, orig_config['vault_access'], noop)
 
 					MU.mommacat.notify(MU::Cloud::Server.cfg_plural, mu_name, nodename, remove: true, sub_key: nodename) if !noop and MU.mommacat
 
@@ -1942,30 +1798,6 @@ MU.log win_set_pw, MU::ERR
 					end
 					MU.log "#{instance.instance_id} (#{name}) terminated" if !noop
 				end
-			end
-
-			# Expunge Chef resources associated with a node.
-			# @param node [String]: The Mu name of the node in question.
-			def self.purgeChefResources(node, vaults_to_clean = [], noop = false)
-				MU.log "Deleting Chef resources associated with #{node}"
-				vaults_to_clean.each { |vault|
-					MU::MommaCat.lock("vault-"+vault['vault'], false, true)
-					MU.log "knife vault remove #{vault['vault']} #{vault['item']} --search name:#{node}", MU::NOTICE
-					puts `#{MU::Config.knife} vault remove #{vault['vault']} #{vault['item']} --search name:#{node}` if !noop
-					MU::MommaCat.unlock("vault-"+vault['vault'])
-				}
-				MU.log "knife node delete -y #{node}"
-				`#{MU::Config.knife} node delete -y #{node}` if !noop
-				MU.log "knife client delete -y #{node}"
-				`#{MU::Config.knife} client delete -y #{node}` if !noop
-				MU.log "knife data bag delete -y #{node}"
-				`#{MU::Config.knife} data bag delete -y #{node}` if !noop
-				["crt", "key"].each { |ext|
-					if File.exists?("#{MU.mySSLDir}/#{node}.#{ext}")
-						MU.log "Removing #{MU.mySSLDir}/#{node}.#{ext}"
-						File.unlink("#{MU.mySSLDir}/#{node}.#{ext}") if !noop
-					end
-				}
 			end
 
 			private

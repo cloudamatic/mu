@@ -17,6 +17,9 @@ module MU
 	# management tools (Chef, Puppet, etc).
 	class Groomer
 
+    # An exception denoting a Groomer run that has failed
+		class RunError < MuError; end
+
 		# List of known/supported grooming agents (configuration management tools)
 		def self.supportedGroomers
 			["Chef"]
