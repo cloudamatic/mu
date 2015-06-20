@@ -18,13 +18,13 @@ include_recipe "demo::iptables-port"
 
 $database=node['deployment']['databases']
 $loadbalancer=node['deployment']['loadbalancers']
-$lb_url=$loadbalancer['wordpress-demo-lb']['dns'].downcase
+$lb_url=$loadbalancer['lb']['dns'].downcase
 $db_name="wordpress_db"
-$db_host=$database['wordpress-demo-db']['endpoint']
-$db_user=$database['wordpress-demo-db']['username']
-$db_password=$database['wordpress-demo-db']['password']
+$db_host=$database['db']['endpoint']
+$db_user=$database['db']['username']
+$db_password=$database['db']['password']
 $loadbalancer=node['deployment']['loadbalancers']
-$app_url=$loadbalancer['wordpress-demo-lb']['dns'].downcase
+$app_url=$loadbalancer['lb']['dns'].downcase
 $title="mu wordpress demo"
 $admin_user="admin"
 $admin_password="admin"

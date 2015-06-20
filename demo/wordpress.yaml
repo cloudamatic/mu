@@ -50,8 +50,6 @@ loadbalancers:
   vpc:
     vpc_name: "vpc"
     subnet_pref: all_public
-    subnets: 
-    - subnet_name: Public3
   ingress_rules:
   - port: 80
     hosts:
@@ -76,7 +74,6 @@ databases:
   db_family: mysql5.6
   engine: mysql
   port: 3306
-  publicly_accessible: true
   size: db.t2.micro
   storage: 5
   engine_version: 5.6.23
@@ -94,7 +91,7 @@ servers:
     subnet_name: Public3
   application_attributes: 
     nat: 
-      private_net: 10.1.0.0/16
+      private_net: 10.0.0.0/16
   ingress_rules:
   - proto: icmp
     hosts:
@@ -107,7 +104,9 @@ servers:
     port-range: 0-65535
     hosts:
     - 10.0.0.0/16
-- name: "<%=$appname %>"
+  run_list: 
+  - "recipe[mu-utility::nat]"
+- name: "wpress"
   loadbalancers:
   - concurrent-load-balancer: "lb"
   size: t2.medium
@@ -122,12 +121,53 @@ servers:
     name: "lb"
   - type: database
     name: "db"
-  ingress_rules:
-  - port: 80
-    hosts:
-    - 0.0.0.0/0
-  - port: 443
-    hosts:
-    - 0.0.0.0/0  
+  image_then_destroy: true
+  add_firewall_rules: 
+    - rule_name: "wpress_secgroup"
   run_list:
   - recipe[demo::wordpress]
+server_pools:
+  - name: "wpress"
+    min-size: 1
+    max-size: 1
+    ssh_user: "root"
+    skipinitialupdates: true
+    loadbalancers: 
+    - concurrent-load-balancer: "lb"
+    add_firewall_rules: 
+      - rule_name: "wpress_secgroup"
+    vpc:
+      vpc_name: "vpc"
+      subnet_pref: all_private
+      nat_host_name: "bastion"
+      nat_ssh_user: "root"
+    run_list: 
+    - "role[egt-jira]"
+    dependencies: 
+    - name: "lb"
+      type: "loadbalancer"
+    - name: "db"
+      type: "database"    
+    basis: 
+      launch-config: 
+        name: "wpress-launch"
+        size: "t2.medium"
+        server: "wpress"
+firewall_rules:
+  - name: "database_secgroup"
+    vpc:
+      vpc_name: "vpc"
+    rules: 
+    - port: 3306
+      sgs: 
+      - "wpress_secgroup"
+  - name: "wpress_secgroup"
+    vpc:
+      vpc_name: "vpc"
+    rules: 
+    - port: 80
+      lbs: 
+      - "lb"
+    dependencies: 
+    - type: "loadbalancer"
+      name: "lb"
