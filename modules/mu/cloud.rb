@@ -312,8 +312,18 @@ module MU
 					    e.remember_host!
 							session.close
 					    retry
-						rescue SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, Net::SSH::Disconnect, IOError => e
-							session.close if !session.nil?
+						rescue SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError => e
+							begin
+								session.close if !session.nil?
+							rescue Net::SSH::Disconnect, IOError => e
+								if %w{win2k12r2 win2k12 windows}.include?(@config['platform'])
+									MU.log "Windows has probably closed the ssh session before we could. Waiting before trying again", MU::NOTICE
+								else
+									MU.log "ssh session was closed unexpectedly, waiting before trying again", MU::NOTICE
+								end
+								sleep 10
+							end
+
 							if retries < max_retries
 								retries = retries + 1
 								msg = "ssh #{ssh_user}@#{@config['mu_name']}: #{e.message}, waiting #{retry_interval}s (attempt #{retries}/#{max_retries})"

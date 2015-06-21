@@ -65,12 +65,8 @@ module MU
 				error_signal = "CHEF EXITED BADLY: "+(0...25).map { ('a'..'z').to_a[rand(26)] }.join
 				begin
 					cmd = nil
-					if @server["platform"] != "windows" and
-						 @server['platform'] != "win2k12" and
-						 @server['platform'] != "win2k12r2"
-						if !@server["ssh_user"].nil? and
-							 !@server["ssh_user"].empty? and
-							 @server["ssh_user"] != "root"
+					if !%w{win2k12r2 win2k12 windows}.include?(@server['platform'])
+						if !@server["ssh_user"].nil? and !@server["ssh_user"].empty? and @server["ssh_user"] != "root"
 							cmd = "sudo chef-client --color || echo #{error_signal}"
 						else
 							cmd = "chef-client --color || echo #{error_signal}"
@@ -86,8 +82,18 @@ module MU
 							raise MU::Groomer::RunError, output.grep(/ ERROR: /).last
 						end
 					}
-			  rescue MU::Groomer::RunError => e
-					ssh.close if !ssh.nil?
+				rescue MU::Groomer::RunError => e
+					begin
+						ssh.close if !ssh.nil?
+					rescue Net::SSH::Disconnect, IOError => e
+						if %w{win2k12r2 win2k12 windows}.include?(@server['platform'])
+							MU.log "Windows has probably closed the ssh session before we could. Waiting before trying again", MU::NOTICE
+						else
+							MU.log "ssh session was closed unexpectedly, waiting before trying again", MU::NOTICE
+						end
+						sleep 10
+					end
+
 					if retries < max_retries
 						retries = retries + 1
 						MU.log "#{@server.mu_name}: Chef run '#{purpose}' failed, retrying", MU::WARN, details: e.message
@@ -98,6 +104,7 @@ module MU
 						raise e
 					end
 				end
+
 				syncDeployData
 			end
 
