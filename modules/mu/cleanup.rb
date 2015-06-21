@@ -27,12 +27,12 @@ module MU
 
 		home = Etc.getpwuid(Process.uid).dir
 
-		@muid = nil
+		@deploy_id = nil
 		@noop = false
 		@onlycloud = false
 
 		# Purge all resources associated with a deployment.
-		# @param muid [String]: The identifier of the deployment to remove (typically seen in the MU-ID tag on a resource).
+		# @param deploy_id [String]: The identifier of the deployment to remove (typically seen in the MU-ID tag on a resource).
 		# @param noop [Boolean]: Do not delete resources, merely list what would be deleted.
 		# @param skipsnapshots [Boolean]: Refrain from saving final snapshots of volumes and databases before deletion.
 		# @param onlycloud [Boolean]: Purge cloud resources, but skip purging all Mu master metadata, ssh keys, etc.
@@ -40,7 +40,7 @@ module MU
 		# @param web [Boolean]: Generate web-friendly output.
 		# @param ignoremaster [Boolean]: Ignore the tags indicating the originating MU master server when deleting.
 		# @return [void]
-		def self.run(muid, noop=false, skipsnapshots=false, onlycloud=false, verbose=false, web=false, ignoremaster=false, mommacat: nil)
+		def self.run(deploy_id, noop=false, skipsnapshots=false, onlycloud=false, verbose=false, web=false, ignoremaster=false, mommacat: nil)
 			MU.setLogging(verbose, web)
 			@noop = noop
 			@skipsnapshots = skipsnapshots
@@ -58,20 +58,20 @@ module MU
 				@mommacat = mommacat
 			else
 				begin
-					deploy_dir = File.expand_path("#{MU.dataDir}/deployments/"+muid)
+					deploy_dir = File.expand_path("#{MU.dataDir}/deployments/"+deploy_id)
 					if Dir.exist?(deploy_dir)
 #						key = OpenSSL::PKey::RSA.new(File.read("#{deploy_dir}/public_key"))
 #						deploy_secret = key.public_encrypt(File.read("#{deploy_dir}/deploy_secret"))
 						FileUtils.touch("#{deploy_dir}/.cleanup") if !@noop
 					else
-						MU.log "I don't see a deploy named #{muid}.", MU::WARN
+						MU.log "I don't see a deploy named #{deploy_id}.", MU::WARN
 						MU.log "Known deployments:\n#{Dir.entries(deploy_dir).reject{|item| item.match(/^\./) or !File.exists?(deploy_dir+"/"+item+"/public_key") }.join("\n")}", MU::WARN
-						MU.log "Searching for remnants of #{muid}, though this may be an invalid MU-ID.", MU::WARN
+						MU.log "Searching for remnants of #{deploy_id}, though this may be an invalid MU-ID.", MU::WARN
 					end
-					@mommacat = MU::MommaCat.new(muid)
+					@mommacat = MU::MommaCat.new(deploy_id)
 				rescue Exception => e
-					MU.log "Can't load a deploy record for #{muid} (#{e.inspect}), cleaning up resources by guesswork", MU::WARN
-					MU.setVar("mu_id", muid)
+					MU.log "Can't load a deploy record for #{deploy_id} (#{e.inspect}), cleaning up resources by guesswork", MU::WARN
+					MU.setVar("deploy_id", deploy_id)
 				end
 			end
 
@@ -79,7 +79,7 @@ module MU
 			regions = MU::Cloud::AWS.listRegions
 			deleted_nodes = 0
 			@regionthreads = []
-			keyname = "deploy-#{MU.mu_id}"
+			keyname = "deploy-#{MU.deploy_id}"
 			regions.each { |r|
 				@regionthreads << Thread.new {
 					MU.dupGlobals(parent_thread_id)
@@ -121,7 +121,7 @@ module MU
 				deadnodes = []
 				Chef::Config[:environment] = MU.environment
 				q = Chef::Search::Query.new
-				q.search("node", "tags_MU-ID:#{MU.mu_id}").each { |item|
+				q.search("node", "tags_MU-ID:#{MU.deploy_id}").each { |item|
 					next if item.is_a?(Fixnum)
 					item.each { |node|
 						deadnodes << node.name
@@ -154,7 +154,7 @@ module MU
 			Dir.mkdir(sshdir, 0700) if !Dir.exists?(sshdir) and !@noop
 			Dir.mkdir(ssharchive, 0700) if !Dir.exists?(ssharchive) and !@noop
 			
-			keyname = "deploy-#{MU.mu_id}"
+			keyname = "deploy-#{MU.deploy_id}"
 			if File.exists?("#{sshdir}/#{keyname}")
 				MU.log "Moving #{sshdir}/#{keyname} to #{ssharchive}/#{keyname}"
 				if !@noop
@@ -162,16 +162,16 @@ module MU
 				end
 			end
 			
-			if File.exists?(sshconf) and File.open(sshconf).read.match(/\/deploy\-#{MU.mu_id}$/)
-				MU.log "Expunging #{MU.mu_id} from #{sshconf}"
+			if File.exists?(sshconf) and File.open(sshconf).read.match(/\/deploy\-#{MU.deploy_id}$/)
+				MU.log "Expunging #{MU.deploy_id} from #{sshconf}"
 				if !@noop 
-					FileUtils.copy(sshconf, "#{ssharchive}/config-#{MU.mu_id}")
+					FileUtils.copy(sshconf, "#{ssharchive}/config-#{MU.deploy_id}")
 					File.open(sshconf, File::CREAT|File::RDWR, 0600) { |f|
 						f.flock(File::LOCK_EX)
 						newlines = Array.new
 						delete_block = false
 						f.readlines.each { |line|
-							if line.match(/^Host #{MU.mu_id}\-/)
+							if line.match(/^Host #{MU.deploy_id}\-/)
 								delete_block = true
 							elsif line.match(/^Host /)
 								delete_block = false
@@ -189,15 +189,15 @@ module MU
 			
 			# XXX refactor with above? They're similar, ish.
 			hostsfile = "/etc/hosts"
-			if File.open(hostsfile).read.match(/ #{MU.mu_id}\-/)
-				MU.log "Expunging traces of #{MU.mu_id} from #{hostsfile}"
+			if File.open(hostsfile).read.match(/ #{MU.deploy_id}\-/)
+				MU.log "Expunging traces of #{MU.deploy_id} from #{hostsfile}"
 				if !@noop 
-					FileUtils.copy(hostsfile, "#{hostsfile}.cleanup-#{muid}")
+					FileUtils.copy(hostsfile, "#{hostsfile}.cleanup-#{deploy_id}")
 					File.open(hostsfile, File::CREAT|File::RDWR, 0644) { |f|
 						f.flock(File::LOCK_EX)
 						newlines = Array.new
 						f.readlines.each { |line|
-							newlines << line if !line.match(/ #{MU.mu_id}\-/)
+							newlines << line if !line.match(/ #{MU.deploy_id}\-/)
 						}
 						f.rewind
 						f.truncate(0)
@@ -211,7 +211,7 @@ module MU
 			if !@noop
 				MU::Cloud::AWS.s3(MU.myRegion).delete_object(
 					bucket: MU.adminBucketName,
-					key: "#{MU.mu_id}-secret"
+					key: "#{MU.deploy_id}-secret"
 				)
 			end
 

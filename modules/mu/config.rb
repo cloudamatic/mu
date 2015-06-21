@@ -472,7 +472,7 @@ module MU
 		def self.processVPCReference(vpc_block, parent_name, is_sibling: false, sibling_vpcs: [], dflt_region: MU.curRegion)
 			ok = true
 
-			muVPC = MU::Cloud.artifact(vpc_block['cloud'], "VPC")
+			muVPC = MU::Cloud.loadCloudType(vpc_block['cloud'], "VPC")
 
 			if vpc_block['region'].nil? or 
 				vpc_block['region'] = dflt_region
@@ -2836,7 +2836,8 @@ module MU
 					"properties" => {
 						"name" => {
 							"type" => "string",
-							"description" => "The name of this policy."
+							"description" => "The name of this policy.",
+							"pattern" => "^([a-zA-Z0-9\\-]+)$"
 						},
 						"timeout" => {
 							"type" => "integer",
@@ -2852,7 +2853,8 @@ module MU
 					"properties" => {
 						"name" => {
 							"type" => "string",
-							"description" => "The name of this policy."
+							"description" => "The name of this policy.",
+							"pattern" => "^([a-zA-Z0-9\\-]+)$"
 						},
 						"cookie" => {
 							"type" => "string",

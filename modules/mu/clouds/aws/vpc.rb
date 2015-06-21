@@ -18,11 +18,6 @@ module MU
 
 		# Creation of Virtual Private Clouds and associated artifacts (routes, subnets, etc).
 		class VPC < MU::Cloud::VPC
-			# The {MU::Config::BasketofKittens} name for a single resource of this class.
-			# Whether {MU::Deploy} should hold creation of other resources which depend on this resource until the latter has been created.
-			def deps_wait_on_my_creation; true.freeze end
-			# Whether {MU::Deploy} should hold creation of this resource until resources on which it depends have been fully created and deployed.
-			def waits_on_parent_completion; false.freeze end
 
 			@deploy = nil
 			@config = nil
@@ -37,7 +32,6 @@ module MU
 
 			# Called automatically by {MU::Deploy#createResources}
 			def create
-				MU::Cloud.artifact("AWS", :DNSZone)
 				vpc_name = MU::MommaCat.getResourceName(@config['name'])
 
 				MU.log "Creating VPC #{vpc_name}", details: @config
@@ -426,7 +420,7 @@ module MU
 			# @param allow_multi [Boolean]: When searching by tags, permit an array of resources to be returned (if applicable) instead of just one.
 			# @param region [String]: The cloud provider region
 			# @return [OpenStruct,String]: The cloud provider's complete description of this VPC, and its MU resource name (if applicable).
-			def self.find(name: nil, deploy_id: MU.mu_id, id: nil, tag_key: "Name", tag_value: nil, allow_multi: false, region: MU.curRegion)
+			def self.find(name: nil, deploy_id: MU.deploy_id, id: nil, tag_key: "Name", tag_value: nil, allow_multi: false, region: MU.curRegion)
 
 				retries = 0
 				begin
@@ -463,7 +457,7 @@ module MU
 						resource = nil
 						# Check the currently-running deploy structure first
 						# XXX maybe this behavior should be in MU::MommaCat.getResourceDeployStruct
-					  if !name.nil? and (deploy_id.nil? or deploy_id == MU.mu_id) and MU.mommacat.deployment.has_key?('vpcs') and MU.mommacat.deployment['vpcs'].has_key?(name)
+					  if !name.nil? and (deploy_id.nil? or deploy_id == MU.deploy_id) and MU.mommacat.deployment.has_key?('vpcs') and MU.mommacat.deployment['vpcs'].has_key?(name)
 							resource = MU.mommacat.deployment['vpcs'][name]
 						else
 							resource = MU::MommaCat.getResourceDeployStruct("vpcs", name: name, deploy_id: deploy_id, use_cache: false)
@@ -524,7 +518,7 @@ module MU
 			# @param vpc_name [String]: The Mu resource name of the VPC which should contain this subnet.
 			# @param region [String]: The cloud provider region
 			# @return [OpenStruct]: The cloud provider's complete description of this VPC.
-			def self.findSubnet(name: nil, deploy_id: MU.mu_id, id: nil, tag_key: "Name", tag_value: nil, allow_multi: false, vpc_id: nil, vpc_name: nil, region: MU.curRegion)
+			def self.findSubnet(name: nil, deploy_id: MU.deploy_id, id: nil, tag_key: "Name", tag_value: nil, allow_multi: false, vpc_id: nil, vpc_name: nil, region: MU.curRegion)
 				# Go fish for our parent VPC, first off
 				existing_vpc, vpc_name = find(id: vpc_id, name: vpc_name, deploy_id: deploy_id, tag_key: tag_key, tag_value: tag_value, region: region)
 				if existing_vpc.nil?
@@ -845,7 +839,7 @@ module MU
 			# @return [void]
 			def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
 				tagfilters = [
-					{ name: "tag:MU-ID", values: [MU.mu_id] }
+					{ name: "tag:MU-ID", values: [MU.deploy_id] }
 				]
 				if !ignoremaster
 					tagfilters << { name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip] }
@@ -936,7 +930,7 @@ module MU
 			# @param noop [Boolean]: If true, will only print what would be done
 			# @param region [String]: The cloud provider region
 			# @return [void]
-			def self.purge_gateways(noop = false, tagfilters = [{ name: "tag:MU-ID", values: [MU.mu_id] }], region: MU.curRegion)
+			def self.purge_gateways(noop = false, tagfilters = [{ name: "tag:MU-ID", values: [MU.deploy_id] }], region: MU.curRegion)
 				resp = MU::Cloud::AWS.ec2(region).describe_internet_gateways(
 					filters: tagfilters
 				)
@@ -965,7 +959,7 @@ module MU
 			# @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
 			# @param region [String]: The cloud provider region
 			# @return [void]
-			def self.purge_routetables(noop = false, tagfilters = [{ name: "tag:MU-ID", values: [MU.mu_id] }], region: MU.curRegion)
+			def self.purge_routetables(noop = false, tagfilters = [{ name: "tag:MU-ID", values: [MU.deploy_id] }], region: MU.curRegion)
 				resp = MU::Cloud::AWS.ec2(region).describe_route_tables(
 					filters: tagfilters
 				)
@@ -1016,7 +1010,7 @@ module MU
 			# @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
 			# @param region [String]: The cloud provider region
 			# @return [void]
-			def self.purge_interfaces(noop = false, tagfilters = [{ name: "tag:MU-ID", values: [MU.mu_id] }], region: MU.curRegion)
+			def self.purge_interfaces(noop = false, tagfilters = [{ name: "tag:MU-ID", values: [MU.deploy_id] }], region: MU.curRegion)
 				resp = MU::Cloud::AWS.ec2(region).describe_network_interfaces(
 					filters: tagfilters
 				)
@@ -1035,7 +1029,7 @@ module MU
 			# @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
 			# @param region [String]: The cloud provider region
 			# @return [void]
-			def self.purge_subnets(noop = false, tagfilters = [{ name: "tag:MU-ID", values: [MU.mu_id] }], region: MU.curRegion)
+			def self.purge_subnets(noop = false, tagfilters = [{ name: "tag:MU-ID", values: [MU.deploy_id] }], region: MU.curRegion)
 				resp = MU::Cloud::AWS.ec2(region).describe_subnets(
 					filters: tagfilters
 				)
@@ -1065,7 +1059,7 @@ module MU
 			# @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
 			# @param region [String]: The cloud provider region
 			# @return [void]
-			def self.purge_dhcpopts(noop = false, tagfilters = [{ name: "tag:MU-ID", values: [MU.mu_id] }], region: MU.curRegion)
+			def self.purge_dhcpopts(noop = false, tagfilters = [{ name: "tag:MU-ID", values: [MU.deploy_id] }], region: MU.curRegion)
 				resp = MU::Cloud::AWS.ec2(region).describe_dhcp_options(
 					filters: tagfilters
 				)
@@ -1091,7 +1085,7 @@ module MU
 			# @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
 			# @param region [String]: The cloud provider region
 			# @return [void]
-			def self.purge_vpcs(noop = false, tagfilters = [{ name: "tag:MU-ID", values: [MU.mu_id] }], region: MU.curRegion)
+			def self.purge_vpcs(noop = false, tagfilters = [{ name: "tag:MU-ID", values: [MU.deploy_id] }], region: MU.curRegion)
 				resp = MU::Cloud::AWS.ec2(region).describe_vpcs(
 					filters: tagfilters
 				)

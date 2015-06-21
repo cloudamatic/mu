@@ -17,11 +17,6 @@ class Cloud
 	class AWS
 		# A server pool as configured in {MU::Config::BasketofKittens::server_pools}
 		class ServerPool < MU::Cloud::ServerPool
-			# The {MU::Config::BasketofKittens} name for a single resource of this class.
-			# Whether {MU::Deploy} should hold creation of other resources which depend on this resource until the latter has been created.
-			def deps_wait_on_my_creation; false.freeze end
-			# Whether {MU::Deploy} should hold creation of this resource until resources on which it depends have been fully created and deployed.
-			def waits_on_parent_completion; true.freeze end
 
 			@deploy = nil
 			@config = nil
@@ -36,9 +31,6 @@ class Cloud
 
 			# Called automatically by {MU::Deploy#createResources}
 			def create
-				MU::Cloud.artifact("AWS", :DNSZone)
-				keypairname, ssh_private_key, ssh_public_key = @deploy.SSHKey
-
 				pool_name = MU::MommaCat.getResourceName(@config['name'])
 				MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
 
@@ -124,7 +116,7 @@ class Cloud
 						:launch_configuration_name => pool_name,
 						:image_id => launch_desc["ami_id"],
 						:instance_type => launch_desc["size"],
-						:key_name => @deploy.keypairname,
+						:key_name => @deploy.ssh_key_name,
 						:ebs_optimized => launch_desc["ebs_optimized"],
 						:instance_monitoring => { :enabled => launch_desc["monitoring"] },
 					}
@@ -154,8 +146,8 @@ class Cloud
 							platform: @config["platform"],
 							template_variables: {
 								"deployKey" => Base64.urlsafe_encode64(MU.mommacat.public_key),
-								"deploySSHKey" => ssh_public_key,
-								"muID" => MU.mu_id,
+								"deploySSHKey" => @deploy.ssh_public_key,
+								"muID" => MU.deploy_id,
 								"muUser" => MU.chef_user,
 								"publicIP" => MU.mu_public_ip,
 								"skipApplyUpdates" => @config['skipinitialupdates'],
@@ -317,7 +309,7 @@ class Cloud
 					groomthreads = Array.new
 					desc.instances.each { |member|
 						begin
-							instance, mu_name = MU::Cloud::Server.find(id: member.instance_id)
+							instance = MU::Cloud::Server.find(id: member.instance_id)
 							groomthreads << Thread.new {
 								MU.dupGlobals(parent_thread_id)
 								MU.mommacat.groomNode(instance, @config['name'], "server_pool", reraise_fail: true, sync_wait: @config['dns_sync_wait'])
@@ -351,6 +343,12 @@ class Cloud
 				return asg
 			end
 
+			# This is a NOOP right now, because we're really an empty generator for
+			# Servers, and that's what we care about having in deployment
+			# descriptors. Should we log some stuff though?
+			def notify
+			end
+
 			# placeholder
 			def self.find
 			end
@@ -380,7 +378,7 @@ class Cloud
 					if asg.key == "MU-MASTER-IP" and asg.value != MU.mu_public_ip and !ignoremaster
 						no_purge << asg.resource_id
 					end
-					if (asg.key == "MU-ID" or asg.key == "CAP-ID") and asg.value == MU.mu_id
+					if (asg.key == "MU-ID" or asg.key == "CAP-ID") and asg.value == MU.deploy_id
 						maybe_purge << asg.resource_id
 					end
 				}

@@ -32,11 +32,6 @@ class Cloud
 			# mid-installation.
 			class BootstrapTempFail < MuNonFatal; end
 
-			# Whether {MU::Deploy} should hold creation of other resources which depend on this resource until the latter has been created.
-			def deps_wait_on_my_creation; false.freeze end
-			# Whether {MU::Deploy} should hold creation of this resource until resources on which it depends have been fully created and deployed.
-			def waits_on_parent_completion; false.freeze end
-
 			# @return [Mutex]
 			def self.userdata_mutex
 				@userdata_mutex ||= Mutex.new
@@ -113,17 +108,12 @@ class Cloud
 					@config['instance_secret'] = Password.random(50)
 				end
 
-				# We know we're going to need these, so make sure the relevant modules
-				# are loaded.
-				MU::Cloud.artifact("AWS", :FirewallRule)
-				MU::Cloud.artifact("AWS", :VPC)
-
 				@userdata = MU::Cloud::AWS::Server.fetchUserdata(
 					platform: @config["platform"],
 					template_variables: {
 						"deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
 						"deploySSHKey" => @deploy.ssh_public_key,
-						"muID" => MU.mu_id,
+						"muID" => MU.deploy_id,
 						"muUser" => MU.chef_user,
 						"publicIP" => MU.mu_public_ip,
 						"skipApplyUpdates" => @config['skipinitialupdates'],
@@ -206,7 +196,7 @@ class Cloud
 			# @param tag_value [String]: The value of the tag to attach.
 			# @param region [String]: The cloud provider region
 			# @return [void]
-			def self.tagVolumes(instance_id, device=nil, tag_name="MU-ID", tag_value=MU.mu_id, region: MU.curRegion)
+			def self.tagVolumes(instance_id, device=nil, tag_name="MU-ID", tag_value=MU.deploy_id, region: MU.curRegion)
 			  MU::Cloud::AWS.ec2(region).describe_volumes(filters: [name: "attachment.instance-id", values: [instance_id]]).each { |vol|
 			    vol.volumes.each { |volume|
 						volume.attachments.each { |attachment|
@@ -310,7 +300,7 @@ class Cloud
 				rolename = MU::MommaCat.getResourceName(name, max_length: 64)
 				MU.log "Creating IAM role and policies for '#{name}' nodes"
 				policies = Hash.new
-				policies['Mu_Bootstrap_Secret'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{MU.mu_id}-secret"+'"}]}'
+				policies['Mu_Bootstrap_Secret'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{MU.deploy_id}-secret"+'"}]}'
 				policies['Mu_Volume_Management'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ec2:CreateTags","ec2:CreateVolume","ec2:AttachVolume","ec2:DescribeInstanceAttribute","ec2:DescribeVolumeAttribute","ec2:DescribeVolumeStatus","ec2:DescribeVolumes"],"Resource":"*"}]}'
 
 				if base_profile
@@ -373,8 +363,6 @@ class Cloud
 			  name = @config["name"]
 			  node = @config['mu_name']
 				@config['iam_role'] = MU::Cloud::AWS::Server.createIAMProfile("Server-"+name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'])
-				@config['iam_role'] = @config['iam_role']
-
 			  instance_descriptor = {
 			    :image_id => @config["ami_id"],
 			    :key_name => @deploy.ssh_key_name,
@@ -524,13 +512,13 @@ class Cloud
 							region: @config['region']
 						)
 						if nat_instance.nil?
-							MU.log "#{@config["name"]} (#{MU.mu_id}) is configured to use #{@config['vpc']} but I can't find a running instance matching nat_host_id or nat_host_name", MU::ERR, details: caller
-							raise MuError, "#{@config["name"]} (#{MU.mu_id}) is @configured to use #{@config['vpc']} but I can't find a running instance matching nat_host_id or nat_host_name"
+							MU.log "#{@config["name"]} (#{MU.deploy_id}) is configured to use #{@config['vpc']} but I can't find a running instance matching nat_host_id or nat_host_name", MU::ERR, details: caller
+							raise MuError, "#{@config["name"]} (#{MU.deploy_id}) is @configured to use #{@config['vpc']} but I can't find a running instance matching nat_host_id or nat_host_name"
 						end
 						nat_ssh_key = nat_instance.key_name
 						nat_ssh_host = nat_instance.public_ip_address
 						if nat_ssh_user.nil? and !nat_ssh_host.nil?
-							MU.log "#{@config["name"]} (#{MU.mu_id}) is configured to use #{@config['vpc']} NAT #{nat_ssh_host}, but username isn't specified. Guessing root.", MU::ERR, details: caller
+							MU.log "#{@config["name"]} (#{MU.deploy_id}) is configured to use #{@config['vpc']} NAT #{nat_ssh_host}, but username isn't specified. Guessing root.", MU::ERR, details: caller
 							nat_ssh_user = "root"
 						end
 					end
@@ -623,7 +611,7 @@ class Cloud
 						MU::MommaCat.createTag(instance.instance_id, tag['key'], tag['value'], region: @config['region'])
 					}
 				end
-				MU.log "Tagged #{node} (#{instance.instance_id}) with MU-ID=#{MU.mu_id}", MU::DEBUG
+				MU.log "Tagged #{node} (#{instance.instance_id}) with MU-ID=#{MU.deploy_id}", MU::DEBUG
 
 				retries = 0
 				id = instance.instance_id
@@ -833,9 +821,9 @@ class Cloud
 				ext_mappings = MU.structToHash(instance.block_device_mappings)
 
 			  # Root disk on standard CentOS AMI
-			  # tagVolumes(instance.instance_id, "/dev/sda", "Name", "ROOT-"+MU.mu_id+"-"+@config["name"].upcase)
+			  # tagVolumes(instance.instance_id, "/dev/sda", "Name", "ROOT-"+MU.deploy_id+"-"+@config["name"].upcase)
 			  # Root disk on standard Ubuntu AMI
-			  # tagVolumes(instance.instance_id, "/dev/sda1", "Name", "ROOT-"+MU.mu_id+"-"+@config["name"].upcase)
+			  # tagVolumes(instance.instance_id, "/dev/sda1", "Name", "ROOT-"+MU.deploy_id+"-"+@config["name"].upcase)
 			
 			  # Generic deploy ID tag
 			  # tagVolumes(instance.instance_id)
@@ -850,9 +838,9 @@ class Cloud
 								MU::MommaCat.createTag(attachment.volume_id, key, value, region: @config['region'])
 
 								if attachment.device == "/dev/sda" or attachment.device == "/dev/sda1"
-									MU::MommaCat.createTag(attachment.volume_id, "Name", "ROOT-#{MU.mu_id}-#{@config["name"].upcase}", region: @config['region'])
+									MU::MommaCat.createTag(attachment.volume_id, "Name", "ROOT-#{MU.deploy_id}-#{@config["name"].upcase}", region: @config['region'])
 								else
-									MU::MommaCat.createTag(attachment.volume_id, "Name", "#{MU.mu_id}-#{@config["name"].upcase}-#{attachment.device.upcase}", region: @config['region'])
+									MU::MommaCat.createTag(attachment.volume_id, "Name", "#{MU.deploy_id}-#{@config["name"].upcase}-#{attachment.device.upcase}", region: @config['region'])
 								end
 							}
 
@@ -946,7 +934,7 @@ class Cloud
 			# @param ip [String]: An IP address assigned to this instance.
 			# @param region [String]: The cloud provider region
 			# @return [OpenStruct]: The cloud provider's complete description of this server
-			def self.find(name: nil, deploy_id: MU.mu_id, id: nil, tag_key: "Name", tag_value: nil, allow_multi: false, ip: nil, region: MU.curRegion, mu_name: nil)
+			def self.find(name: nil, deploy_id: MU.deploy_id, id: nil, tag_key: "Name", tag_value: nil, allow_multi: false, ip: nil, region: MU.curRegion, mu_name: nil)
 				return nil if !id and !name and !ip and !tag_value
 
 				# If we got an instance id, go get that
@@ -1143,7 +1131,6 @@ class Cloud
 			# @param node [String]: The full Mu name for this instance.
 			def self.punchAdminNAT(server, node)
 				if !server["vpc"].nil?
-					MU::Cloud.artifact("AWS", :VPC)
 					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::Cloud::AWS::VPC.parseVPC(server['vpc'])
 					if !nat_host_name.nil?
 						nat_instance, mu_name = MU::Cloud::Server.find(
@@ -1152,10 +1139,9 @@ class Cloud
 							region: server['region']
 						)
 						if nat_instance.nil?
-							raise MuError, "#{node} (#{MU.mu_id}) is configured to use #{server['vpc']} but I can't find a running instance matching nat_host_id or nat_host_name"
+							raise MuError, "#{node} (#{MU.deploy_id}) is configured to use #{server['vpc']} but I can't find a running instance matching nat_host_id or nat_host_name"
 						end
 						MU.log "Adding administrative holes for NAT host #{nat_instance["private_ip_address"]} to #{node}", MU::DEBUG
-						MU::Cloud.artifact("AWS", :FirewallRule)
 						return MU::Cloud::AWS::FirewallRule.setAdminSG(
 							vpc_id: vpc_id,
 							add_admin_ip: nat_instance["private_ip_address"],
@@ -1615,7 +1601,7 @@ class Cloud
 			# @return [void]
 			def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, skipsnapshots: false, onlycloud: false)
 				tagfilters = [
-					{ name: "tag:MU-ID", values: [MU.mu_id] }
+					{ name: "tag:MU-ID", values: [MU.deploy_id] }
 				]
 				if !ignoremaster
 					tagfilters << { name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip] }
@@ -1693,8 +1679,8 @@ class Cloud
 				else
 					id = instance.instance_id
 				end
-				if !MU.mu_id.empty?
-					deploy_dir = File.expand_path("#{MU.dataDir}/deployments/"+MU.mu_id)
+				if !MU.deploy_id.empty?
+					deploy_dir = File.expand_path("#{MU.dataDir}/deployments/"+MU.deploy_id)
 					if Dir.exist?(deploy_dir) and !noop
 						FileUtils.touch("#{deploy_dir}/.cleanup-"+id)
 					end
@@ -1702,7 +1688,6 @@ class Cloud
 
 				cleaned_dns = false
 				mu_name = nil
-				MU::Cloud.artifact("AWS", :DNSZone)
 				mu_zone, junk = MU::Cloud::DNSZone.find(name: "mu")
 				if !mu_zone.nil?
 					dns_targets = []
@@ -1882,9 +1867,9 @@ class Cloud
 				if !noop
 					if !skipsnapshots
 						if !name.nil? and !name.empty?
-								desc = "#{MU.mu_id}-MUfinal (#{name})"
+								desc = "#{MU.deploy_id}-MUfinal (#{name})"
 						else
-								desc = "#{MU.mu_id}-MUfinal"
+								desc = "#{MU.deploy_id}-MUfinal"
 						end
 
 						MU::Cloud::AWS.ec2(region).create_snapshot(

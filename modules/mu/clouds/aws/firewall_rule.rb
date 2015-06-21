@@ -19,11 +19,6 @@ module MU
 		# A firewall ruleset as configured in {MU::Config::BasketofKittens::firewall_rules}
 		class FirewallRule
 
-			# Whether {MU::Deploy} should hold creation of other resources which depend on this resource until the latter has been created.
-			def deps_wait_on_my_creation; true.freeze end
-			# Whether {MU::Deploy} should hold creation of this resource until resources on which it depends have been fully created and deployed.
-			def waits_on_parent_completion; false.freeze end
-
 			@deploy = nil
 			@config = nil
 			@admin_sgs = Hash.new
@@ -37,7 +32,6 @@ module MU
 				@deploy = mommacat
 				@config = kitten_cfg
 				@mu_name = MU::MommaCat.getResourceName(@config['name'])
-				MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
 			end
 
 			# Called by {MU::Deploy#createResources}
@@ -66,6 +60,14 @@ module MU
 						vpc_id: vpc_id,
 						region: @config['region']
 				)
+			end
+
+			def self.createConfigFromInlineRules(name, rules, vpc)
+				return {
+					"name" => name,
+					"rules" => rules,
+					"vpc" => vpc
+				}
 			end
 
 			# Called by {MU::Deploy#createResources}
@@ -220,9 +222,9 @@ module MU
 					hosts = Array.new
 					hosts << "#{add_admin_ip}/32" if add_admin_ip
 					if vpc_id.nil?
-						admin_sg_name = MU.mu_id + "-ADMIN"
+						admin_sg_name = MU.deploy_id + "-ADMIN"
 					else
-						admin_sg_name = MU.mu_id + "-ADMIN-" + vpc_id.upcase
+						admin_sg_name = MU.deploy_id + "-ADMIN-" + vpc_id.upcase
 					end
 		
 					if extant_sg != nil
@@ -243,7 +245,7 @@ module MU
 					hosts << "#{MU.my_public_ip}/32" if MU.my_public_ip != nil
 					rules = MU::Cloud::AWS::FirewallRule.stdAdminRules(hosts)
 		
-					sg = createEc2SG("ADMIN", rules, description: "Administrative security group for deploy #{MU.mu_id}. Lets our Mu Master in.", vpc_id: vpc_id, region: region)
+					sg = createEc2SG("ADMIN", rules, description: "Administrative security group for deploy #{MU.deploy_id}. Lets our Mu Master in.", vpc_id: vpc_id, region: region)
 					if vpc_id != nil
 						@admin_sgs[vpc_id] = sg
 					else
@@ -307,7 +309,7 @@ module MU
 			# @return [void]
 			def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
 				tagfilters = [
-					{ name: "tag:MU-ID", values: [MU.mu_id] }
+					{ name: "tag:MU-ID", values: [MU.deploy_id] }
 				]
 				if !ignoremaster
 					tagfilters << { name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip] }
@@ -518,10 +520,9 @@ module MU
 						if !rule['lbs'].nil?
 							ec2_rule[:ip_ranges] = Array.new
 							rule['lbs'].each { |lb_name|
-								lb = MU::Cloud::LoadBalancer.find(name: lb_name, dns_name: lb_name, region: region)
+								lb = MU::Cloud::LoadBalancer.find(name: lb_name, deploy_id: MU.deploy_id, region: region)
 								if lb.nil?
-									MU.log "Couldn't find a Load Balancer named #{lb_name}", MU::ERR
-									raise MuError, "deploy failure"
+									raise MuError, "Couldn't find a Load Balancer named #{lb_name}"
 								end
 								ec2_rule[:user_id_group_pairs] = Array.new
 # XXX nuh-uh, don't do this for every SG, just the default one

@@ -20,7 +20,7 @@ module MU
 		class MuCloudResourceNotImplemented < StandardError; end
 
 		generic_class_methods = [:find, :cleanup]
-		generic_instance_methods = [:create, :deps_wait_on_my_creation, :waits_on_parent_completion, :notify, :mu_name]
+		generic_instance_methods = [:create, :notify, :mu_name]
 
 		# Initialize empty classes for each of these. We'll fill them with code
 		# later; we're doing this here because otherwise the parser yells about
@@ -42,6 +42,8 @@ module MU
 				:cfg_name => "collection",
 				:cfg_plural => "collections",
 				:interface => self.const_get("Collection"),
+				:deps_wait_on_my_creation => true,
+				:waits_on_parent_completion => false,
 				:class => generic_class_methods,
 				:instance => generic_instance_methods
 			},
@@ -50,6 +52,8 @@ module MU
 				:cfg_name => "database",
 				:cfg_plural => "databases",
 				:interface => self.const_get("Database"),
+				:deps_wait_on_my_creation => true,
+				:waits_on_parent_completion => false,
 				:class => generic_class_methods,
 				:instance => generic_instance_methods + [:groom]
 			},
@@ -58,6 +62,8 @@ module MU
 				:cfg_name => "dnszone",
 				:cfg_plural => "dnszones",
 				:interface => self.const_get("DNSZone"),
+				:deps_wait_on_my_creation => true,
+				:waits_on_parent_completion => false,
 				:class => generic_class_methods + [:genericMuDNSEntry],
 				:instance => generic_instance_methods
 			},
@@ -66,6 +72,8 @@ module MU
 				:cfg_name => "firewall_rule",
 				:cfg_plural => "firewall_rules",
 				:interface => self.const_get("FirewallRule"),
+				:deps_wait_on_my_creation => true,
+				:waits_on_parent_completion => false,
 				:class => generic_class_methods,
 				:instance => generic_instance_methods + [:groom]
 			},
@@ -74,6 +82,8 @@ module MU
 				:cfg_name => "loadbalancer",
 				:cfg_plural => "loadbalancers",
 				:interface => self.const_get("LoadBalancer"),
+				:deps_wait_on_my_creation => true,
+				:waits_on_parent_completion => false,
 				:class => generic_class_methods,
 				:instance => generic_instance_methods
 			},
@@ -82,6 +92,8 @@ module MU
 				:cfg_name => "server",
 				:cfg_plural => "servers",
 				:interface => self.const_get("Server"),
+				:deps_wait_on_my_creation => false,
+				:waits_on_parent_completion => false,
 				:class => generic_class_methods,
 				:instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP]
 			},
@@ -90,6 +102,8 @@ module MU
 				:cfg_name => "server_pool",
 				:cfg_plural => "server_pools",
 				:interface => self.const_get("ServerPool"),
+				:deps_wait_on_my_creation => false,
+				:waits_on_parent_completion => true,
 				:class => generic_class_methods,
 				:instance => generic_instance_methods
 			},
@@ -98,6 +112,8 @@ module MU
 				:cfg_name => "vpc",
 				:cfg_plural => "vpcs",
 				:interface => self.const_get("VPC"),
+				:deps_wait_on_my_creation => true,
+				:waits_on_parent_completion => false,
 				:class => generic_class_methods + [:findSubnet, :listSubnets, :isSubnetPrivate?, :getDefaultRoute],
 				:instance => generic_instance_methods + [:groom]
 			},
@@ -122,8 +138,8 @@ module MU
 		# @param cloud [String]: The Cloud layer
 		# @param type [String]: The resource type. Can be the full class name, symbolic name, or Basket of Kittens configuration shorthand for the resource type.
 		# @return [Class]: The cloud-specific class implementing this resource
-		def self.artifact(cloud = MU::Config.defaultCloud, type)
-			raise MuError, "cloud argument to MU::Cloud.artifact cannot be nil" if cloud.nil?
+		def self.loadCloudType(cloud = MU::Config.defaultCloud, type)
+			raise MuError, "cloud argument to MU::Cloud.loadCloudType cannot be nil" if cloud.nil?
 			# If we've been asked to resolve this object, that means we plan to use it,
 			# so go ahead and load it.
 			cfg_name = nil
@@ -172,6 +188,22 @@ module MU
 			end
 		end
 
+		MU::Cloud.supportedClouds.each { |cloud|
+			Object.const_get("MU").const_get("Cloud").const_get(cloud).class_eval {
+
+				# Automatically load supported cloud resource classes when they're
+				# referenced.
+				def self.const_missing(symbol)
+					if MU::Cloud.resource_types.has_key?(symbol.to_sym)
+						return MU::Cloud.loadCloudType(name.sub(/.*?::([^:]+)$/, '\1'), symbol)
+					else
+						raise MuCloudResourceNotImplemented, "No such cloud resource #{name}:#{symbol}"
+					end
+				end
+			}
+		}
+
+
 		@@resource_types.each_pair { |name, attrs|
 			Object.const_get("MU").const_get("Cloud").const_get(name).class_eval {
 				attr_reader :config
@@ -179,7 +211,7 @@ module MU
 				attr_reader :environment
 				attr_reader :cloudclass
 				attr_reader :cloudobj
-				attr_reader :mu_id
+				attr_reader :deploy_id
 				def self.shortname
 					name.sub(/.*?::([^:]+)$/, '\1')
 				end
@@ -189,14 +221,14 @@ module MU
 											 kitten_cfg: kitten_cfg)
 					raise MuError, "Cannot invoke Cloud objects without a configuration" if kitten_cfg.nil?
 					@deploy = mommacat
-					@mu_id = mommacat.mu_id
+					@deploy_id = mommacat.deploy_id
 					@config = kitten_cfg
 					if !kitten_cfg.has_key?("cloud")
 						kitten_cfg['cloud'] = MU::Config.defaultCloud
 					end
 					@cloud = kitten_cfg['cloud']
 					@environment = kitten_cfg['environment']
-					@cloudclass = MU::Cloud.artifact(@cloud, self.class.shortname)
+					@cloudclass = MU::Cloud.loadCloudType(@cloud, self.class.shortname)
 # XXX require subclass to provide attr_readers of @config and @deploy
 					if mu_name.nil?
 						@cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg)
@@ -216,7 +248,7 @@ module MU
 					if !@deploy.deployment.nil? and !@deploy.deployment[res_type].nil? and !@deploy.deployment[res_type][res_name].nil?
 						deploydata = @deploy.deployment[res_type][res_name]
 					elsif update_cache or @deploydata.nil?
-						deploydata = MU::MommaCat.getResourceDeployStruct(res_type, name: res_name, deploy_id: @deploy.mu_id, mu_name: @mu_name)
+						deploydata = MU::MommaCat.getResourceDeployStruct(res_type, name: res_name, deploy_id: @deploy.deploy_id, mu_name: @mu_name)
 					end
 					# XXX :has_multiples is what to actually check here
 					if !@mu_name.nil? and deploydata.is_a?(Hash) and deploydata.has_key?(@mu_name)
@@ -225,7 +257,7 @@ module MU
 						@deploydata = deploydata
 					end
 					if update_cache or @cloud_desc.nil?
-						@cloud_desc, junk = self.class.find(name: res_name, deploy_id: @deploy.mu_id, region: @config['region'], id: cloud_id, mu_name: @mu_name)
+						@cloud_desc, junk = self.class.find(name: res_name, deploy_id: @deploy.deploy_id, region: @config['region'], id: cloud_id, mu_name: @mu_name)
 					end
 
 					return [@mu_name, @config, @deploydata, @cloud_desc]
@@ -237,15 +269,22 @@ module MU
 				def self.cfg_name
 					MU::Cloud.resource_types[shortname.to_sym][:cfg_name]
 				end
+				def self.waits_on_parent_completion
+					MU::Cloud.resource_types[shortname.to_sym][:waits_on_parent_completion]
+				end
+				def self.deps_wait_on_my_creation
+					MU::Cloud.resource_types[shortname.to_sym][:deps_wait_on_my_creation]
+				end
 
 				def self.find(*flags)
 					MU::Cloud.supportedClouds.each { |cloud|
 						begin
-							cloudclass = MU::Cloud.artifact(cloud, shortname)
+							cloudclass = MU::Cloud.loadCloudType(cloud, shortname)
 							found = cloudclass.find(flags.first)
 							return found if !found.nil? # XXX actually, we should merge all results
 						rescue MuCloudResourceNotImplemented
 						end
+						return nil
 					}
 				end
 
@@ -253,7 +292,7 @@ module MU
 				def self.haveRouteToInstance?(*flags)
 # XXX have this switch on a global config for where Mu puts its DNS
 					begin
-						cloudclass = MU::Cloud.artifact(MU::Config.defaultCloud, "VPC")
+						cloudclass = MU::Cloud.loadCloudType(MU::Config.defaultCloud, "VPC")
 					rescue MuCloudResourceNotImplemented
 						return true
 					end
@@ -263,7 +302,7 @@ module MU
 # XXX This method should only exist for MU::Cloud::DNSZone
 				def self.genericMuDNSEntry(*flags)
 # XXX have this switch on a global config for where Mu puts its DNS
-					cloudclass = MU::Cloud.artifact(MU::Config.defaultCloud, "DNSZone")
+					cloudclass = MU::Cloud.loadCloudType(MU::Config.defaultCloud, "DNSZone")
 					cloudclass.genericMuDNSEntry(flags.first)
 				end
 
@@ -344,7 +383,7 @@ module MU
 				def self.cleanup(*flags)
 					MU::Cloud.supportedClouds.each { |cloud|
 						begin
-							cloudclass = MU::Cloud.artifact(cloud, shortname)
+							cloudclass = MU::Cloud.loadCloudType(cloud, shortname)
 							MU.log "Invoking #{cloudclass}.cleanup", MU::DEBUG, details: flags
 							cloudclass.cleanup(flags.first)
 						rescue MuCloudResourceNotImplemented

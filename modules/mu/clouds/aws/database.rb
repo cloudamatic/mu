@@ -21,11 +21,6 @@ module MU
 		# A database as configured in {MU::Config::BasketofKittens::databases}
 		class Database < MU::Cloud::Database
 
-			# Whether {MU::Deploy} should hold creation of other resources which depend on this resource until the latter has been created.
-			def deps_wait_on_my_creation; true.freeze end
-			# Whether {MU::Deploy} should hold creation of this resource until resources on which it depends have been fully created and deployed.
-			def waits_on_parent_completion; false.freeze end
-
 			@deploy = nil
 			@db = nil
 
@@ -41,7 +36,6 @@ module MU
 			# Called automatically by {MU::Deploy#createResources}
 			# @return [String]: The cloud provider's identifier for this database instance.
 			def create
-				MU::Cloud.artifact("AWS", :DNSZone)
 				if @db["creation_style"] == "existing"
 					database = MU::Cloud::AWS::Database.getDatabaseById(@db['identifier'])
 
@@ -415,7 +409,7 @@ module MU
 						db_security_group=MU::Cloud::AWS.rds(@db['region']).create_db_security_group(
 							{
 								db_security_group_name: db_sg_name,
-								db_security_group_description: MU.mu_id
+								db_security_group_description: MU.deploy_id
 							}
 						)
 
@@ -862,7 +856,7 @@ module MU
 					found_muid = false
 					found_master = false
 					db_tags[:tag_list].each { |tag|
-						if (tag[:key] == "MU-ID" or tag[:key] == "CAP-ID") and tag[:value] == MU.mu_id
+						if (tag[:key] == "MU-ID" or tag[:key] == "CAP-ID") and tag[:value] == MU.deploy_id
 							found_muid = true
 						end
 						if (tag[:key] == "MU-MASTER-IP" or tag[:key] == "CAP-MASTER-IP") and tag[:value] == MU.mu_public_ip

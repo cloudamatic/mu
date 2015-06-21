@@ -175,7 +175,7 @@ module MU
 	# Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
 	def self.mommacat; @@globals[Thread.current.object_id]['mommacat'] end
 	# Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
-	def self.mu_id; @@globals[Thread.current.object_id]['mu_id'] end
+	def self.deploy_id; @@globals[Thread.current.object_id]['deploy_id'] end
 	# Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
 	def self.appname; @@globals[Thread.current.object_id]['appname'] end
 	# Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.

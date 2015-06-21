@@ -89,23 +89,20 @@ module MU
 				raise MuError, "Failed to allocate an unused MU-ID after #{retries} tries!" if retries > 70
 				seedsize = 1 + (retries/10).abs
 				seed = Password.pronounceable(8).slice(0..seedsize)
-				mu_id = @appname.upcase + "-" + @environment.upcase + "-" + @timestamp + "-" + seed.upcase
-			end while MU::MommaCat.deploy_exists?(mu_id) or seed == "mu"
-			MU.setVar("mu_id", mu_id)
+				deploy_id = @appname.upcase + "-" + @environment.upcase + "-" + @timestamp + "-" + seed.upcase
+			end while MU::MommaCat.deploy_exists?(deploy_id) or seed == "mu"
+			MU.setVar("deploy_id", deploy_id)
 			MU.setVar("appname", @appname.upcase)
 			MU.setVar("environment", @environment.upcase)
 			MU.setVar("timestamp", @timestamp)
 			MU.setVar("seed", seed)
 			MU.setVar("handle", MU::MommaCat.generateHandle(seed))
 
-			MU.log "Deployment id: #{MU.appname} \"#{MU.handle}\" (#{MU.mu_id})"
+			MU.log "Deployment id: #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id})"
 
 			# Instance variables that are effectively class variables
 			@my_instance_id = MU.getAWSMetaData("instance-id")
 			@my_az = MU.getAWSMetaData("placement/availability-zone")
-	
-			@ssh_private_key = nil
-			@ssh_public_key = nil
 	
 			@fromName ='chef-server';
 
@@ -116,30 +113,6 @@ module MU
 			}
 		end
 
-		# Return the parts and pieces of this deploy's node ssh key set. Generate 
-		# or load if that hasn't been done already.
-		def SSHKey
-			return [@keypairname, @ssh_private_key, @ssh_public_key] if !@keypairname.nil?
-		  @keypairname="deploy-#{MU.mu_id}"
-		
-		  if !File.directory?("#{Dir.home}/.ssh") then
-				MU.log "Creating #{Dir.home}/.ssh", MU::DEBUG
-		    Dir.mkdir("#{Dir.home}/.ssh", 0700)
-		  end
-			if !File.exists?("#{Dir.home}/.ssh/#{@keypairname}")
-				MU.log "Generating SSH key #{@keypairname}"
-				%x{/usr/bin/ssh-keygen -N "" -f #{Dir.home}/.ssh/#{@keypairname}}
-			end
-			@ssh_public_key = File.read("#{Dir.home}/.ssh/#{@keypairname}.pub")
-			@ssh_public_key.chomp!
-			@ssh_private_key = File.read("#{Dir.home}/.ssh/#{@keypairname}")
-			@ssh_private_key.chomp!
-
-			# XXX only call this if we're creating EC2 resources
-			MU::Cloud::AWS.createEc2SSHKey(@keypairname, @ssh_public_key)
-
-		  return [@keypairname, @ssh_private_key, @ssh_public_key]
-		end
 
 		# Activate this deployment, instantiating all resources, orchestrating them,
 		# and saving metadata about them.
@@ -193,8 +166,6 @@ module MU
 			end
 
 			begin
-				keyname, ssh_private_key, ssh_public_key = self.SSHKey
-
 				metadata = {
 					"appname" => @appname,
 					"timestamp" => @timestamp,
@@ -204,13 +175,10 @@ module MU
 					"chef_user" => MU.chef_user
 				}
 				mommacat = MU::MommaCat.new(
-					MU.mu_id,
+					MU.deploy_id,
 					create: true,
 					config: @main_config,
 					verbose: MU.verbose,
-					ssh_key_name: keyname,
-					ssh_private_key: ssh_private_key,
-					ssh_public_key: ssh_public_key,
 					nocleanup: @nocleanup,
 					deployment_data: metadata
 				)
@@ -232,8 +200,6 @@ module MU
 						if !@main_config[data[:cfg_plural]].nil? and
 						 		@main_config[data[:cfg_plural]].size > 0 and
 								data[:instance].include?(:create)
-			# XXX maybe here we verify that cloud provider implementations have
-			# all their methods?
 							createResources(@main_config[data[:cfg_plural]], "create")
 						end
 					}
@@ -277,7 +243,7 @@ module MU
 				if e.class.to_s != "SystemExit"
 					MU.log e.inspect, MU::ERR, details: e.backtrace
 					if !@nocleanup
-						MU::Cleanup.run(MU.mu_id, true, false, true, mommacat: mommacat)
+						MU::Cleanup.run(MU.deploy_id, true, false, true, mommacat: mommacat)
 					end
 					MU.log e.inspect, MU::ERR
 				end
@@ -311,7 +277,7 @@ From: #{MU.handle} <#{@fromName}>
 To:  #{admin_addrs.join(", ")}>
 MIME-Version: 1.0
 Content-type: text/html
-Subject: Mu deployment #{MU.appname} \"#{MU.handle}\" (#{MU.mu_id}) succesfully completed
+Subject: Mu deployment #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id}) succesfully completed
 		
 <br>
 <pre>#{$str}</pre>
@@ -385,7 +351,7 @@ MESSAGE_END
 			end
 
 		  services.each { |resource|
-				res_type = resource["#MU_CLOUDCLASS"].name
+				res_type = resource["#MU_CLOUDCLASS"].cfg_name
 		    name = res_type+"_"+resource["name"]
 
 				# All resources wait to "groom" until after their own "create" thread
@@ -399,9 +365,9 @@ MESSAGE_END
 				  resource["dependencies"].each { |dependency|
 						# XXX actually, the dependency should identify the target cloud
 						# resource instead of assuming it's the same as the dependent
-						parent_class = MU::Cloud.artifact(resource["cloud"], dependency["type"])
+						parent_class = MU::Cloud.loadCloudType(resource["cloud"], dependency["type"])
 
-						parent_type = parent_class.name
+						parent_type = parent_class.cfg_name
 						parent = parent_type+"_"+dependency["name"]+"_create"
 						addDependentThread(parent, "#{name}_groom")
 						if (parent_class.deps_wait_on_my_creation and parent_type != res_type) or resource["#MU_CLOUDCLASS"].waits_on_parent_completion or dependency['phase'] == "create"
@@ -429,16 +395,16 @@ MESSAGE_END
 		  services.each do |service|
 		    @my_threads << Thread.new(service) { |myservice|
 					MU.dupGlobals(parent_thread_id)
-					threadname = service["#MU_CLOUDCLASS"].name+"_"+myservice["name"]+"_#{mode}"
+					threadname = service["#MU_CLOUDCLASS"].cfg_name+"_"+myservice["name"]+"_#{mode}"
 		      Thread.current.thread_variable_set("name", threadname)
 		      Thread.abort_on_exception = true
 					waitOnThreadDependencies(threadname)
 
 					if service["#MU_CLOUDCLASS"].instance_methods(false).include?(:groom)
 						if mode == "create"
-							MU::MommaCat.lock(service["#MU_CLOUDCLASS"].name+"_"+myservice["name"]+"-dependencies")
+							MU::MommaCat.lock(service["#MU_CLOUDCLASS"].cfg_name+"_"+myservice["name"]+"-dependencies")
 						elsif mode == "groom"
-							MU::MommaCat.unlock(service["#MU_CLOUDCLASS"].name+"_"+myservice["name"]+"-dependencies")
+							MU::MommaCat.unlock(service["#MU_CLOUDCLASS"].cfg_name+"_"+myservice["name"]+"-dependencies")
 						end
 					end
 
@@ -469,7 +435,7 @@ MESSAGE_END
 							end
 					  end
 						if !@nocleanup
-							MU::Cleanup.run(MU.mu_id, false, true)
+							MU::Cleanup.run(MU.deploy_id, false, true)
 						end
 						raise MuError, e.inspect, e.backtrace
 					end

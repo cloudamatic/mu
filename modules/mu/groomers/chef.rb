@@ -424,7 +424,7 @@ module MU
 					uri = URI("https://#{MU.mu_public_addr}:2260/")
 					req = Net::HTTP::Post.new(uri)
 					req.set_form_data(
-						"mu_id" => MU.mu_id,
+						"mu_id" => MU.deploy_id,
 						"mu_resource_name" => @server.config['name'],
 						"mu_resource_type" => res_type,
 						"mu_ssl_sign" => "#{MU.mySSLDir}/#{@server.mu_name}.csr",

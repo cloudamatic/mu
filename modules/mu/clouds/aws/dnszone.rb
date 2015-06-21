@@ -21,11 +21,6 @@ module MU
 
 			@config = nil
 
-			# Whether {MU::Deploy} should hold creation of other resources which depend on this resource until the latter has been created.
-			def deps_wait_on_my_creation; true.freeze end
-			# Whether {MU::Deploy} should hold creation of this resource until resources on which it depends have been fully created and deployed.
-			def waits_on_parent_completion; false.freeze end
-
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::dnszones}
 			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name)
@@ -40,7 +35,7 @@ module MU
 				params = {
 					:name => @config['name'],
 					:hosted_zone_config => {
-						:comment => MU.mu_id
+						:comment => MU.deploy_id
 					},
 					:caller_reference => MU::MommaCat.getResourceName(@config['name'])
 				}
@@ -206,7 +201,7 @@ module MU
 				MU::MommaCat.listStandardTags.each_pair { |name, value|
 					tags << { key: name, value: value }
 				}
-				tags << { key: "Name", value: MU.mu_id+"-"+target.upcase }
+				tags << { key: "Name", value: MU.deploy_id+"-"+target.upcase }
 
 				MU::Cloud::AWS.route53.change_tags_for_resource(
 					resource_type: "healthcheck",
@@ -234,7 +229,7 @@ module MU
 							:vpc_id => vpc_id,
 							:vpc_region => region
 						},
-						comment: MU.mu_id
+						comment: MU.deploy_id
 					)
 				else
 					MU.log "Revoking VPC #{vpc_id} access to zone #{id}"
@@ -245,7 +240,7 @@ module MU
 								:vpc_id => vpc_id,
 								:vpc_region => region
 							},
-							comment: MU.mu_id
+							comment: MU.deploy_id
 						)
 					rescue Aws::Route53::Errors::LastVPCAssociation => e
 						MU.log e.inspect, MU::WARN
@@ -355,10 +350,10 @@ module MU
 
 				if !failover.nil?
 					base_rrset[:failover] = failover
-					base_rrset[:set_identifier] = MU.mu_id+"-failover-"+failover.downcase
+					base_rrset[:set_identifier] = MU.deploy_id+"-failover-"+failover.downcase
 				elsif !weight.nil?
 					base_rrset[:weight] = weight
-					base_rrset[:set_identifier] = MU.mu_id+"-weighted-"+weight.to_s
+					base_rrset[:set_identifier] = MU.deploy_id+"-weighted-"+weight.to_s
 				elsif !location.nil?
 					loc_arg = Hash.new
 					location.each_pair { |key,val|
@@ -366,10 +361,10 @@ module MU
 						loc_arg[sym] = val
 					}
 					base_rrset[:geo_location] = loc_arg
-					base_rrset[:set_identifier] = MU.mu_id+"-location-"+location.values.join("-")
+					base_rrset[:set_identifier] = MU.deploy_id+"-location-"+location.values.join("-")
 				elsif !region.nil?
 					base_rrset[:region] = region
-					base_rrset[:set_identifier] = MU.mu_id+"-latency-"+region
+					base_rrset[:set_identifier] = MU.deploy_id+"-latency-"+region
 				end
 
 				if !set_identifier.nil?
@@ -425,7 +420,6 @@ module MU
 			def self.genericMuDNSEntry(name: name, target: target, cloudclass: cloudclass, noop: false, delete: false, sync_wait: true)
 				return nil if name.nil? or target.nil? or cloudclass.nil?
 				mu_zone, junk = MU::Cloud::DNSZone.find(name: "platform-mu")
-				MU::Cloud.artifact("AWS", :LoadBalancer)
 
 				if !mu_zone.nil? and !MU.myVPC.nil?
 					subdomain = cloudclass.cfg_name
@@ -527,7 +521,7 @@ module MU
 					muid_match = false
 					mumaster_match = false
 					tags.each { |tag|
-						muid_match = true if tag.key == "MU-ID" and tag.value == MU.mu_id
+						muid_match = true if tag.key == "MU-ID" and tag.value == MU.deploy_id
 						mumaster_match = true if tag.key == "MU-MASTER-IP" and tag.value == MU.mu_public_ip
 					}
 					if muid_match and mumaster_match
@@ -535,7 +529,7 @@ module MU
 						MU::Cloud::AWS.route53(region).delete_health_check(health_check_id: check.id) if !noop
 					end
 				}
-				zones, name = MU::Cloud::DNSZone.find(deploy_id: MU.mu_id, allow_multi: true, region: region)
+				zones, name = MU::Cloud::DNSZone.find(deploy_id: MU.deploy_id, allow_multi: true, region: region)
 				zones.each { |zone|
 					MU.log "Purging DNS Zone '#{zone.name}' (#{zone.id})"
 					if !noop
@@ -577,7 +571,7 @@ module MU
 			# @param allow_multi [Boolean]: When searching by tags or name, permit an array of resources to be returned (if applicable) instead of just one.
 			# @param region [String]: The cloud provider's region
 			# @return [OpenStruct,String]: The cloud provider's complete description of this DNS zone, and its MU resource name (if applicable).
-			def self.find(name: nil, deploy_id: MU.mu_id, id: nil, allow_multi: false, region: MU.curRegion)
+			def self.find(name: nil, deploy_id: MU.deploy_id, id: nil, allow_multi: false, region: MU.curRegion)
 				return nil if !id and !name and !deploy_id
 
 				MU.log "Searching for DNS Zone with name: #{name}, deploy_id: #{deploy_id}, id: #{id}, allow_multi: #{allow_multi}", MU::DEBUG

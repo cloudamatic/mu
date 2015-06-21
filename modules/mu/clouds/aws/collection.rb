@@ -20,11 +20,6 @@ module MU
 		# An Amazon CloudFormation stack as configured in {MU::Config::BasketofKittens::collections}
 		class Collection < MU::Cloud::Collection
 
-			# Whether {MU::Deploy} should hold creation of other resources which depend on this resource until the latter has been created.
-			def deps_wait_on_my_creation; true.freeze end
-			# Whether {MU::Deploy} should hold creation of this resource until resources on which it depends have been fully created and deployed.
-			def waits_on_parent_completion; false.freeze end
-
 			@deploy = nil
 			@config = nil
 
@@ -63,7 +58,7 @@ module MU
 							},
 							{
 								:key => "MU-ID",
-								:value => MU.mu_id
+								:value => MU.deploy_id
 							}
 						]
 					}
@@ -156,7 +151,7 @@ module MU
 						case resource.resource_type
 							when "AWS::EC2::Instance"
 								MU::MommaCat.createStandardTags(resource.physical_resource_id)
-								instance_name = MU.mu_id+"-"+@config['name']+"-"+resource.logical_resource_id
+								instance_name = MU.deploy_id+"-"+@config['name']+"-"+resource.logical_resource_id
 								MU::MommaCat.createTag(resource.physical_resource_id, "Name", instance_name)
 
 								instance = MU::Cloud::AWS::Server.notifyDeploy(
@@ -184,14 +179,14 @@ module MU
 
 							when "AWS::EC2::SecurityGroup"
 								MU::MommaCat.createStandardTags(resource.physical_resource_id)
-								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.mu_id+"-"+@config['name']+'-'+resource.logical_resource_id)
+								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id)
 								MU::Cloud::AWS::FirewallRule.notifyDeploy(
 									@config['name']+"-"+resource.logical_resource_id,
 									resource.physical_resource_id
 								)
 							when  "AWS::EC2::Subnet"
 								MU::MommaCat.createStandardTags(resource.physical_resource_id)
-								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.mu_id+"-"+@config['name']+'-'+resource.logical_resource_id)
+								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id)
 								data = {
 									"collection" => @config["name"],
 									"subnet_id" => resource.physical_resource_id,
@@ -199,7 +194,7 @@ module MU
 								@deploy.notify("subnets", @config['name']+"-"+resource.logical_resource_id, data)
 							when "AWS::EC2::VPC"
 								MU::MommaCat.createStandardTags(resource.physical_resource_id)
-								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.mu_id+"-"+@config['name']+'-'+resource.logical_resource_id)
+								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id)
 								data = {
 									"collection" => @config["name"],
 									"vpc_id" => resource.physical_resource_id,
@@ -207,10 +202,10 @@ module MU
 								@deploy.notify("vpcs", @config['name']+"-"+resource.logical_resource_id, data)
 							when "AWS::EC2::InternetGateway"
 								MU::MommaCat.createStandardTags(resource.physical_resource_id)
-								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.mu_id+"-"+@config['name']+'-'+resource.logical_resource_id)
+								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id)
 							when "AWS::EC2::RouteTable"
 								MU::MommaCat.createStandardTags(resource.physical_resource_id)
-								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.mu_id+"-"+@config['name']+'-'+resource.logical_resource_id)
+								MU::MommaCat.createTag(resource.physical_resource_id, "Name", MU.deploy_id+"-"+@config['name']+'-'+resource.logical_resource_id)
 
 							# The rest of these aren't anything we act on
 							when "AWS::EC2::Route"
@@ -248,7 +243,7 @@ module MU
 				resp.stacks.each { |stack|
 					ok = false
 					stack.tags.each { |tag|
-						ok = true if (tag.key == "MU-ID") and tag.value == MU.mu_id
+						ok = true if (tag.key == "MU-ID") and tag.value == MU.deploy_id
 					}
 					if ok
 						MU.log "Deleting CloudFormation stack #{stack.stack_name})"
@@ -305,7 +300,7 @@ module MU
 			# @param stack [String]: The internal resource name of the stack
 			# @return [String]
 			def getStackName(stack) 
-				stack_name = MU.mu_id + "-" + stack.upcase
+				stack_name = MU.deploy_id + "-" + stack.upcase
 				stack_name.gsub!(/[_\.]/, "-")
 				return stack_name
 			end

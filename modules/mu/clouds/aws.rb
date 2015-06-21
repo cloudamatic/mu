@@ -17,6 +17,7 @@ module MU
 	class Cloud
 	# Support for Amazon Web Services as a provisioning layer.
 	class AWS
+
 		# List the Availability Zones associated with a given Amazon Web Services
 		# region. If no region is given, search the one in which this MU master
 		# server resides.
@@ -36,6 +37,7 @@ module MU
 			}
 			return zones
 		end
+
 
 		# List the Amazon Web Services region names available to this account. The
 		# region that is local to this Mu server will be listed first.

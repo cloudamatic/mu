@@ -17,29 +17,23 @@ module MU
 	class AWS
 		# A load balancer as configured in {MU::Config::BasketofKittens::loadbalancers}
 		class LoadBalancer < MU::Cloud::LoadBalancer
-			# The {MU::Config::BasketofKittens} name for a single resource of this class.
-			# Whether {MU::Deploy} should hold creation of other resources which depend on this resource until the latter has been created.
-			def deps_wait_on_my_creation; true.freeze end
-			# Whether {MU::Deploy} should hold creation of this resource until resources on which it depends have been fully created and deployed.
-			def waits_on_parent_completion; false.freeze end
 
 			@deploy = nil
 			@lb = nil
+			attr_reader :mu_name
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::loadbalancers}
 			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name)
 				@deploy = mommacat
 				@config = kitten_cfg
-				MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
+				@mu_name = mu_name if !mu_name.nil?
 			end
 
 			# Called automatically by {MU::Deploy#createResources}
 			def create
-				MU::Cloud.artifact("AWS", :DNSZone)
-				MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
-				lb_name = MU::MommaCat.getResourceName(@config["name"], max_length: 32, need_unique_string: true)
-				lb_name.gsub!(/[^\-a-z0-9]/i, "-") # LB naming rules
+				@mu_name = MU::MommaCat.getResourceName(@config["name"], max_length: 32, need_unique_string: true)
+				@mu_name.gsub!(/[^\-a-z0-9]/i, "-") # LB naming rules
 
 				if @config["zones"] == nil
 					@config["zones"] = MU::Cloud::AWS.listAZs(@config['region'])
@@ -47,7 +41,7 @@ module MU
 				end
 
 				lb_options = {
-					load_balancer_name: lb_name,
+					load_balancer_name: @mu_name,
 					tags: []
 				}
 				MU::MommaCat.listStandardTags.each_pair { |name, value|
@@ -75,10 +69,13 @@ module MU
 				if @config["vpc"] != nil
 					vpc_id, subnet_ids = MU::Cloud::AWS::VPC.parseVPC(@config["vpc"])
 					sgs << MU::Cloud::AWS::FirewallRule.setAdminSG(vpc_id: vpc_id)
-					lb_sg = MU::Cloud::AWS::FirewallRule.createEc2SG(@config['name'], @config['ingress_rules'], description: "Load Balancer #{lb_name}", vpc_id: vpc_id)
+					lb_sg = MU::Cloud::AWS::FirewallRule.createEc2SG(@config['name'], @config['ingress_rules'], description: "Load Balancer #{@mu_name}", vpc_id: vpc_id)
+					fw_conf = MU::Cloud::AWS::FirewallRule.createConfigFromInlineRules(@config['name'], @config['ingress_rules'], @config['vpc'])
+					lb_sg = MU::Cloud::FirewallRule.new(mommacat: @deploy, kitten_cfg: fw_conf)
 					sgs << lb_sg
 					lb_options[:subnets] = subnet_ids
 					lb_options[:security_groups] = sgs
+					@config['sgs'] = sgs
 					if @config["private"]
 						lb_options[:scheme] = "internal"
 					end
@@ -99,18 +96,18 @@ module MU
 				}
 				lb_options[:listeners ] = listeners
 
-				MU.log "Creating Load Balancer #{lb_name}", details: lb_options
+				MU.log "Creating Load Balancer #{@mu_name}", details: lb_options
 				zones_to_try = @config["zones"]
 				retries = 0
 				begin
 					resp = MU::Cloud::AWS.elb.create_load_balancer(lb_options)
-				rescue Aws::ElasticLoadBalancing::Errors::ValidationError, Aws::ElasticLoadBalancing::Errors::SubnetNotFound => e
+				rescue Aws::ElasticLoadBalancing::Errors::ValidationError, Aws::ElasticLoadBalancing::Errors::SubnetNotFound, Aws::ElasticLoadBalancing::Errors::InvalidConfigurationRequest => e
 					if zones_to_try.size > 0
-						MU.log "Got #{e.inspect} when creating #{lb_name} retrying with individual AZs in case that's the problem", MU::WARN
+						MU.log "Got #{e.inspect} when creating #{@mu_name} retrying with individual AZs in case that's the problem", MU::WARN
 						lb_options[:availability_zones] = [zones_to_try.pop]
 						retry
 					else
-						raise MuError, "#{e.inspect} when creating #{lb_name}"
+						raise MuError, "#{e.inspect} when creating #{@mu_name}", e.backtrace
 					end
 				rescue Aws::ElasticLoadBalancing::Errors::InvalidSecurityGroup => e
 					if retries < 5
@@ -119,28 +116,34 @@ module MU
 						retries = retries + 1
 						retry
 					else
-						raise MuError, "#{e.inspect} when creating #{lb_name}"
+						raise MuError, "#{e.inspect} when creating #{@mu_name}", e.backtrace
 					end
 				end
 				MU.log "Load Balancer is at #{resp.dns_name}"
+
+				parent_thread_id = Thread.current.object_id
+				dnsthread = Thread.new {
+					MU.dupGlobals(parent_thread_id)
+					MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: @mu_name, target: "#{resp.dns_name}.", cloudclass: MU::Cloud::LoadBalancer, sync_wait: @config['dns_sync_wait'])
+				}
 
 				if zones_to_try.size < @config["zones"].size
 					zones_to_try.each { |zone|
 						begin
 							MU::Cloud::AWS.elb.enable_availability_zones_for_load_balancer(
-								load_balancer_name: lb_name,
+								load_balancer_name: @mu_name,
 								availability_zones: [zone]
 							)
 						rescue Aws::ElasticLoadBalancing::Errors::ValidationError => e
-							MU.log "Couldn't enable Availability Zone #{zone} for Load Balancer #{lb_name} (#{e.message})", MU::WARN
+							MU.log "Couldn't enable Availability Zone #{zone} for Load Balancer #{@mu_name} (#{e.message})", MU::WARN
 						end
 					}
 				end
 
 				if !@config['healthcheck'].nil?
-					MU.log "Configuring custom health check for ELB #{lb_name}", details: @config['healthcheck']
+					MU.log "Configuring custom health check for ELB #{@mu_name}", details: @config['healthcheck']
 					MU::Cloud::AWS.elb.configure_health_check(
-						load_balancer_name: lb_name,
+						load_balancer_name: @mu_name,
 						health_check: {
 							target: @config['healthcheck']['target'],
 							interval: @config['healthcheck']['interval'],
@@ -154,7 +157,7 @@ module MU
 				if @config['cross_zone_unstickiness']
 					MU.log "Enabling cross-zone un-stickiness on #{resp.dns_name}"
 					MU::Cloud::AWS.elb.modify_load_balancer_attributes(
-						load_balancer_name: lb_name,
+						load_balancer_name: @mu_name,
 						load_balancer_attributes: {
 							cross_zone_load_balancing: {
 								enabled: true
@@ -166,7 +169,7 @@ module MU
 				if !@config['idle_timeout'].nil?
 					MU.log "Setting idle timeout to #{@config['idle_timeout']} #{resp.dns_name}"
 					MU::Cloud::AWS.elb.modify_load_balancer_attributes(
-						load_balancer_name: lb_name,
+						load_balancer_name: @mu_name,
 						load_balancer_attributes: {
 							connection_settings: {
 								idle_timeout: @config['idle_timeout']
@@ -179,7 +182,7 @@ module MU
 					if @config['connection_draining_timeout'] >= 0
 						MU.log "Setting connection draining timeout to #{@config['connection_draining_timeout']} on #{resp.dns_name}"
 						MU::Cloud::AWS.elb.modify_load_balancer_attributes(
-							load_balancer_name: lb_name,
+							load_balancer_name: @mu_name,
 							load_balancer_attributes: {
 								connection_draining: {
 									enabled: true,
@@ -190,7 +193,7 @@ module MU
 					else
 						MU.log "Disabling connection draining on #{resp.dns_name}"
 						MU::Cloud::AWS.elb.modify_load_balancer_attributes(
-							load_balancer_name: lb_name,
+							load_balancer_name: @mu_name,
 							load_balancer_attributes: {
 								connection_draining: {
 									enabled: false
@@ -200,11 +203,10 @@ module MU
 					end
 				end
 
-
 				if !@config['access_log'].nil?
 					MU.log "Setting access log params for #{resp.dns_name}", details: @config['access_log']
 					MU::Cloud::AWS.elb.modify_load_balancer_attributes(
-						load_balancer_name: lb_name,
+						load_balancer_name: @mu_name,
 						load_balancer_attributes: {
 							access_log: {
 								enabled: @config['access_log']['enabled'],
@@ -219,7 +221,7 @@ module MU
 				if !@config['lb_cookie_stickiness_policy'].nil?
 					MU.log "Setting ELB cookie stickiness policy for #{resp.dns_name}", details: @config['lb_cookie_stickiness_policy']
 					cookie_policy = {
-						load_balancer_name: lb_name,
+						load_balancer_name: @mu_name,
 						policy_name: @config['lb_cookie_stickiness_policy']['name']
 					}
 					if !@config['lb_cookie_stickiness_policy']['timeout'].nil?
@@ -229,7 +231,7 @@ module MU
 					lb_policy_names = Array.new
 					lb_policy_names << @config['lb_cookie_stickiness_policy']['name']
 					listener_policy = {
-						load_balancer_name: lb_name,
+						load_balancer_name: @mu_name,
 						policy_names: lb_policy_names
 					}
 					lb_options[:listeners].each do |listener|
@@ -243,7 +245,7 @@ module MU
 				if !@config['app_cookie_stickiness_policy'].nil?
 					MU.log "Setting application cookie stickiness policy for #{resp.dns_name}", details: @config['app_cookie_stickiness_policy']
 					cookie_policy = {
-						load_balancer_name: lb_name,
+						load_balancer_name: @mu_name,
 						policy_name: @config['app_cookie_stickiness_policy']['name'],
 						cookie_name: @config['app_cookie_stickiness_policy']['cookie']
 					}
@@ -251,7 +253,7 @@ module MU
 					lb_policy_names = Array.new
 					lb_policy_names << @config['app_cookie_stickiness_policy']['name']
 					listener_policy = {
-						load_balancer_name: lb_name,
+						load_balancer_name: @mu_name,
 						policy_names: lb_policy_names
 					}
 					lb_options[:listeners].each do |listener|
@@ -261,26 +263,30 @@ module MU
 						end
 					end
 				end
-				MU::Cloud::AWS::DNSZone.genericMuDNSEntry(lb_name, "#{resp.dns_name}.", MU::Cloud::LoadBalancer, sync_wait: @config['dns_sync_wait'])
+				dnsthread.join # from genericMuDNS
+
 				if !@config['dns_records'].nil?
 					@config['dns_records'].each { |dnsrec|
-						dnsrec['name'] = lb_name.downcase if !dnsrec.has_key?('name')
+						dnsrec['name'] = @mu_name.downcase if !dnsrec.has_key?('name')
 					}
+					MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@config['dns_records'], target: resp.dns_name)
 				end
-				MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@config['dns_records'], target: resp.dns_name)
 
+				notify
+			end
+
+			def notify
+				mu_name, config, deploydata, cloud_descriptor = describe(cloud_id: @mu_name)
 				deploy_struct = {
-					"awsname" => lb_name,
-					"dns" => resp.dns_name,
-					"sgs" => lb_options[:security_groups],
-					"listeners" => listeners
+					"awsname" => @mu_name,
+					"dns" => cloud_descriptor.dns_name
 				}
 				@deploy.notify("loadbalancers", @config["name"], deploy_struct)
 			end
 
 			# Register a Server node with an existing LoadBalancer.
 			#
-			# @param lb_name [String] The name of a LoadBalancer with which to register.
+			# @param @mu_name [String] The name of a LoadBalancer with which to register.
 			# @param instance_id [String] A node to register.
 			# @param region [String]: The cloud provider region
 			def self.registerInstance(lb_name, instance_id, region: MU.curRegion)
@@ -299,7 +305,7 @@ module MU
 			# @param region [String]: The cloud provider region
 			# @return [void]
 			def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
-				raise MuError, "Can't touch ELBs without MU-ID" if MU.mu_id.nil? or MU.mu_id.empty?
+				raise MuError, "Can't touch ELBs without MU-ID" if MU.deploy_id.nil? or MU.deploy_id.empty?
 
 				resp = MU::Cloud::AWS.elb(region).describe_load_balancers
 				resp.load_balancer_descriptions.each { |lb|
@@ -310,19 +316,19 @@ module MU
 					if !tags.nil?
 						tags.each { |tag|
 							saw_tags << tag.key
-							muid_match = true if tag.key == "MU-ID" and tag.value == MU.mu_id
+							muid_match = true if tag.key == "MU-ID" and tag.value == MU.deploy_id
 							mumaster_match = true if tag.key == "MU-MASTER-IP" and tag.value == MU.mu_public_ip
 						}
 					end
 					if saw_tags.include?("MU-ID") and (saw_tags.include?("MU-MASTER-IP") or ignoremaster)
 						if muid_match and (mumaster_match or ignoremaster)
-							MU::Cloud::AWS::DNSZone.genericMuDNSEntry(lb.load_balancer_name, lb.dns_name, MU::Cloud::LoadBalancer, delete: true)
+							MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: lb.load_balancer_name, target: lb.dns_name, cloudclass: MU::Cloud::LoadBalancer, delete: true)
 							MU.log "Removing Elastic Load Balancer #{lb.load_balancer_name}"
 							MU::Cloud::AWS.elb(region).delete_load_balancer(load_balancer_name: lb.load_balancer_name) if !noop
 						end
 						next
 					end
-					if lb.load_balancer_name.match(/^#{MU.mu_id}/)
+					if lb.load_balancer_name.match(/^#{MU.deploy_id}/)
 						MU.log "Removing Elastic Load Balancer #{lb.load_balancer_name} by name match (tags unavailable). This behavior is DEPRECATED and will be removed in a future release.", MU::WARN
 						resp = MU::Cloud::AWS.elb(region).delete_load_balancer(load_balancer_name: lb.load_balancer_name) if !noop
 					end
@@ -331,27 +337,44 @@ module MU
 				return nil
 			end
 
-
-
 			# Find a LoadBalancer, given one or more pieces of identifying information.
-			#
 			# @param name [String] The MU resource name of a LoadBalancer to find.
-			# @param lb_id [String] The cloud provider's internal identifier of a LoadBalancer to find.
+			# @param id [String] The cloud provider's internal identifier of a LoadBalancer to find.
 			# @param dns_name [String] The DNS name of a LoadBalancer to Find.
 			# @param region [String]: The cloud provider region
-			# @return [OpenStruct, nil] The cloud provider's description of the LoadBalancer, or nil if none was found.
-			def self.find(name: name = nil, lb_id: lb_id = nil, dns_name: dns_name = nil, region: MU.curRegion)
-				return nil if !name and !dns_name and !lb_id
-				if !name.nil? and !MU.mommacat.deployment.nil? and !MU.mommacat.deployment['loadbalancers'].nil?
-					lb_id = MU.mommacat.deployment['loadbalancers'][name]['awsname'] if lb_id.nil?
-					dns_name = MU.mommacat.deployment['loadbalancers'][name]['dns'] if dns_name.nil?
+			# @param deploy_id [String]: The parent deploy identifier
+			# @return [OpenStruct] The cloud provider's description of the LoadBalancer
+			def self.find(name: nil, id: nil, dns_name: nil, region: MU.curRegion, deploy_id: nil, mu_name: nil)
+				return nil if !name and !dns_name and !id
+				id = mu_name if id.nil? and !mu_name.nil?
+				deploydata = MU::MommaCat.getResourceDeployStruct(MU::Cloud::LoadBalancer.cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name)
+MU.log "Fishing for ELB name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}, region: #{region}, dns_name: #{dns_name}", MU::WARN, details: deploydata
+				if !deploydata.nil?
+					if deploydata.is_a?(Array)
+						if !dns_name.nil? or !id.nil?
+							deploydata.each { |elb|
+								if (!dns_name.nil? and dns_name == deploydata['dns']) or
+									 (!id.nil? and id == deploydata['awsname'])
+									id = deploydata['awsname'] if id.nil?
+									dns_name = deploydata['dns'] if dns_name.nil?
+									break
+								end
+							}
+						end
+						if !id.nil? or dns_name.nil?
+							MU.log "Can't isolate a single ELB from: name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}, region: #{region}, dns_name: #{dns_name}", MU::DEBUG
+						end
+					elsif deploydata.is_a?(Hash)
+						id = deploydata['awsname'] if id.nil? and deploydata.has_key?("awsname")
+						dns_name = deploydata['dns'] if dns_name.nil? and deploydata.has_key?("dns")
+					end
 				end
 
-				return nil if lb_id.nil? and dns_name.nil?
+				return nil if id.nil? and dns_name.nil?
 
 				resp = MU::Cloud::AWS.elb(region).describe_load_balancers
 				resp.load_balancer_descriptions.each { |lb|
-					return lb if !lb_id.nil? and lb.load_balancer_name == lb_id
+					return lb if !id.nil? and lb.load_balancer_name == id
 					return lb if !dns_name.nil? and lb.dns_name == dns_name
 				}
 
