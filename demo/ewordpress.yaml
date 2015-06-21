@@ -5,6 +5,14 @@
     $region = "us-east-1" if !$region
     $azs = listAZs
 
+    #Specify DB Creation Style 
+    $db_creationstyle="new" if !$db_creationstyle
+    if $db_creationstyle != "new"
+      raise ArgumentError, 'You must specify dbpw' if $dbpw.nil?
+      raise ArgumentError, 'You must specify dbid' if $dbid.nil?
+    end
+
+
 %>
 
 ---
@@ -70,7 +78,11 @@ loadbalancers:
     instance-protocol: HTTP
 databases:
 - name: "db"
-  creation_style: new
+  creation_style: "<%=$db_creationstyle %>"
+  <% if $db_creationstyle != "new" %>
+  identifier: "<%=$dbid%>"
+  password: "<%=$dbpw%>"  
+  <% end %>
   db_family: mysql5.6
   engine: mysql
   port: 3306
@@ -159,7 +171,7 @@ server_pools:
       deploy_id: "<%=$deploy_id %>"
       <% end %>
     run_list: 
-    - "role[egt-jira]"
+    - recipe[demo::wordpress]
     dependencies: 
     - name: "lb"
       type: "loadbalancer"
