@@ -32,6 +32,7 @@ module MU
 				::Chef::Config[:environment] = @server.deploy.environment
 			end
 
+			# Indicate whether our server has been bootstrapped with Chef
 			def haveBootstrapped?
 				MU.log "Chef config", MU::DEBUG, details: ::Chef::Config.inspect
 				nodelist = ::Chef::Node.list()
@@ -100,6 +101,7 @@ module MU
 				syncDeployData
 			end
 
+			# Bootstrap our server with Chef
 			def bootstrap
 				nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = @server.getSSHConfig
 			  MU.log "Bootstrapping #{@server.mu_name} (#{canonical_addr}) with knife"
@@ -210,7 +212,6 @@ module MU
 
 			# Synchronize the deployment structure managed by {MU::MommaCat} to Chef,
 			# so that nodes can access this metadata.
-			# @return [void]
 			def syncDeployData
 				deployment = @server.deploy.deployment
 				begin

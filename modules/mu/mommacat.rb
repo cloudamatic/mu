@@ -172,10 +172,8 @@ module MU
 					type = attrs[:cfg_plural]
 					if @deployment.has_key?(type)
 						@deployment[type].each_pair { |res_name, data|
-							key = data['mu_name']
-							key = res_name if key.nil?
 							orig_cfg = nil
-							if 
+							if @original_config.has_key?(type)
 								@original_config[type].each { |resource|
 									if resource["name"] == res_name
 										orig_cfg = resource
@@ -193,14 +191,24 @@ module MU
 								}
 							end
 							if orig_cfg.nil?
-								raise DeployInitializeError, "Failed to locate original for #{attrs[:cfg_name]} #{res_name} in #{@mu_id}"
+								MU.log "Failed to locate original config for #{attrs[:cfg_name]} #{res_name} in #{@mu_id}", MU::WARN if type != "firewall_rules" # XXX shaddap
+								next
 							end
 							@kittens[type] = {} if @kittens[type].nil?
-							@kittens[type][key] = attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: data['mu_name'])
+							if attrs[:has_multiples]
+								data.each_pair { |mu_name, actual_data|
+									MU.log "Loading #{type}:#{mu_name} into #{mu_id}", MU::DEBUG
+									@kittens[type][mu_name] = attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: mu_name)
+								}
+							else
+								MU.log "Loading #{type}:#{res_name} into #{mu_id}", MU::DEBUG
+								@kittens[type][res_name] = attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: data['mu_name'])
+							end
 						}
 					end
 				}
 			end
+			endtime = Time.new
 		end
 
 		# Check a provided deploy key against our stored version. The instance has
@@ -638,6 +646,8 @@ module MU
 		# Iterate over all known deployments and look for instances that have been
 		# terminated, but not yet cleaned up, then clean them up.
 		def self.cleanTerminatedInstances
+# XXX while testing
+return
 			MU.log "Checking for harvested instances in need of cleanup", MU::DEBUG
 			deploys = []
 			deploy_root = File.expand_path(MU.dataDir+"/deployments")
@@ -784,63 +794,69 @@ module MU
 		# matching resources across all deployments in an array.
 		# 
 		# @param type [String]: The type of resource, e.g. "vpc" or "server."
-		# @param name [String]: The Mu resource name, typically the name field of a Basket of Kittens resource declaration.
+		# @param name [String]: The Mu resource class, typically the name field of a Basket of Kittens resource declaration.
+		# @param mu_name [String]: The fully-expanded Mu resource name, e.g. MGMT-PROD-2015040115-FR-ADMGMT2
 		# @param deploy_id [String]: The deployment to search. Defaults to the currently loaded deployment.
 		# @return [Hash,Array<Hash>]
-		def self.getResourceDeployStruct(type, name: nil, deploy_id: MU.mu_id, use_cache: true)
+		def self.getResourceDeployStruct(type, name: nil, deploy_id: MU.mu_id, use_cache: true, mu_name: nil)
 			if type.nil?
 				raise MuError, "Can't call getResourceDeployStruct without a type argument"
 			end
 
-			deploy_root = File.expand_path(MU.dataDir+"/deployments")
-			if Dir.exists?(deploy_root)
-				Dir.entries(deploy_root).each { |deploy|
-					this_deploy_dir = deploy_root+"/"+deploy
-					next if deploy == "." or deploy == ".." or !Dir.exists?(this_deploy_dir) 
-					if !File.size?(this_deploy_dir+"/deployment.json")
-						MU.log "#{this_deploy_dir}/deployment.json doesn't exist, skipping when loading cache", MU::WARN
-						next
-					end
-					if @deploy_cache[deploy].nil? or !use_cache
-						@deploy_cache[deploy] = Hash.new
-					elsif @deploy_cache[deploy]['mtime'] == File.mtime("#{this_deploy_dir}/deployment.json")
-						MU.log "Using cached copy of deploy #{deploy} from #{@deploy_cache[deploy]['mtime']}", MU::DEBUG
-
-						next
-					end
-					@deploy_cache[deploy] = Hash.new if !@deploy_cache.has_key?(deploy)
-					MU.log "Caching deploy #{deploy}", MU::DEBUG
-					lock = File.open("#{this_deploy_dir}/deployment.json", File::RDONLY)
-					lock.flock(File::LOCK_EX)
-					@deploy_cache[deploy]['mtime'] = File.mtime("#{this_deploy_dir}/deployment.json")
-
-					begin					
-						@deploy_cache[deploy]['data'] = JSON.parse(File.read("#{this_deploy_dir}/deployment.json"))
-						# Servers have an annoying layer of indirection, because you can
-						# have multiple things of the same name (aka node_class). Preserve
-						# that when we return these guys as a flat array by sticking it in
-						# a special field.
-						if !@deploy_cache[deploy].nil? and !@deploy_cache[deploy]['data'].nil? and !@deploy_cache[deploy]['data']['servers'].nil?
-							@deploy_cache[deploy]['data']['servers'].each_pair { |node_class, nodes|
-								next if nodes.nil? or !nodes.is_a?(Hash)
-								nodes.each_pair { |nodename, data|
-									next if !data.is_a?(Hash)
-									data['#MU_NODE_CLASS'] = node_class
-									if !data.has_key?("cloud")
-										data["cloud"] = MU::Config.defaultCloud
-									end
-									data['#MU_CLOUDCLASS'] = MU::Cloud.artifact("AWS", :Server)
-								}
-							}
+			# Skip refreshing the cache if we're looking for something we already know
+			if !use_cache or @deploy_cache.nil? or deploy_id.nil? or @deploy_cache[deploy_id].nil?
+#puts "RIFLING CACHE"
+				deploy_root = File.expand_path(MU.dataDir+"/deployments")
+				if Dir.exists?(deploy_root)
+					Dir.entries(deploy_root).each { |deploy|
+						this_deploy_dir = deploy_root+"/"+deploy
+						next if deploy == "." or deploy == ".." or !Dir.exists?(this_deploy_dir) 
+						if !File.size?(this_deploy_dir+"/deployment.json")
+							MU.log "#{this_deploy_dir}/deployment.json doesn't exist, skipping when loading cache", MU::WARN
+							next
 						end
-					rescue JSON::ParserError => e
-						raise MuError, "JSON parse failed on #{this_deploy_dir}/deployment.json\n\n"+File.read("#{this_deploy_dir}/deployment.json")
-					end
-					lock.flock(File::LOCK_UN)
-					lock.close
-				}
-			end
+						if @deploy_cache[deploy].nil? or !use_cache
+							@deploy_cache[deploy] = Hash.new
+						elsif @deploy_cache[deploy]['mtime'] == File.mtime("#{this_deploy_dir}/deployment.json")
+							MU.log "Using cached copy of deploy #{deploy} from #{@deploy_cache[deploy]['mtime']}", MU::DEBUG
 
+							next
+						end
+						@deploy_cache[deploy] = Hash.new if !@deploy_cache.has_key?(deploy)
+						MU.log "Caching deploy #{deploy}", MU::DEBUG
+						lock = File.open("#{this_deploy_dir}/deployment.json", File::RDONLY)
+						lock.flock(File::LOCK_EX)
+						@deploy_cache[deploy]['mtime'] = File.mtime("#{this_deploy_dir}/deployment.json")
+
+						begin					
+							@deploy_cache[deploy]['data'] = JSON.parse(File.read("#{this_deploy_dir}/deployment.json"))
+							# Servers have an annoying layer of indirection, because you can
+							# have multiple things of the same name (aka node_class). Preserve
+							# that when we return these guys as a flat array by sticking it in
+							# a special field.
+							if !@deploy_cache[deploy].nil? and !@deploy_cache[deploy]['data'].nil? and !@deploy_cache[deploy]['data']['servers'].nil?
+								@deploy_cache[deploy]['data']['servers'].each_pair { |node_class, nodes|
+									next if nodes.nil? or !nodes.is_a?(Hash)
+									nodes.each_pair { |nodename, data|
+										next if !data.is_a?(Hash)
+										data['#MU_NODE_CLASS'] = node_class
+										if !data.has_key?("cloud")
+											data["cloud"] = MU::Config.defaultCloud
+										end
+										data['#MU_CLOUDCLASS'] = MU::Cloud.artifact("AWS", :Server)
+									}
+								}
+							end
+						rescue JSON::ParserError => e
+							raise MuError, "JSON parse failed on #{this_deploy_dir}/deployment.json\n\n"+File.read("#{this_deploy_dir}/deployment.json")
+						end
+						lock.flock(File::LOCK_UN)
+						lock.close
+					}
+				end
+			end
+#puts "***********************"
+#puts "fetching '#{type}' '#{name}' '#{deploy_id}' '#{mu_name}' for #{caller[0]}"
 			if deploy_id.nil?
 				matches = []
 				@deploy_cache.each_key { |deploy|
@@ -854,19 +870,29 @@ module MU
 					end
 				}
 				return matches
-			elsif !@deploy_cache[deploy_id].nil? and
-					!@deploy_cache[deploy_id]['data'].nil? and
-					!@deploy_cache[deploy_id]['data'][type].nil? 
-				if !name.nil? 
-					if !@deploy_cache[deploy_id]['data'][type][name].nil?
-						return @deploy_cache[deploy_id]['data'][type][name].dup
+			elsif !@deploy_cache[deploy_id].nil?
+				if !@deploy_cache[deploy_id]['data'].nil? and
+						!@deploy_cache[deploy_id]['data'][type].nil? 
+					if !name.nil? 
+						if !@deploy_cache[deploy_id]['data'][type][name].nil?
+#puts "FOUND IT!"
+#puts ">>>>>>>>>>>>>>>>>>>>>>>"
+							return @deploy_cache[deploy_id]['data'][type][name].dup
+						else
+#puts "Came up empty, what?"
+#pp @deploy_cache[deploy_id]['data'][type]
+#puts ">>>>>>>>>>>>>>>>>>>>>>>"
+							return nil
+						end
 					else
-						return nil
+#puts "RETURNING A TRUCKLOAD!"
+#puts ">>>>>>>>>>>>>>>>>>>>>>>"
+						return @deploy_cache[deploy_id]['data'][type].values
 					end
-				else
-					return @deploy_cache[deploy_id]['data'][type].values
 				end
 			end
+#puts "FAILING AT LIFE"
+#puts ">>>>>>>>>>>>>>>>>>>>>>>"
 			return nil
 		end
 
@@ -989,118 +1015,49 @@ module MU
 		# SSH config entries, etc.
 		# @param server [MU::Cloud::Server]: 
 		def self.nameKitten(server)
-			node, config, deploydata, instance = server.describe(nil, server.mu_name)
+			node, config, deploydata, instance = server.describe
 			nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = server.getSSHConfig
-# XXX remove need for AWS structure here
 
-			mu_zone, junk = MU::Cloud::DNSZone.find(name: "mu")
+			mu_zone, junk = MU::Cloud::DNSZone.find(name: "platform-mu")
 			if !mu_zone.nil?
-				parent_thread_id = Thread.current.object_id
-				dnsthread = Thread.new {
-					MU.dupGlobals(parent_thread_id)
-					if !instance.public_dns_name.nil? and !instance.public_dns_name.empty?
-						MU::Cloud::DNSZone.genericMuDNSEntry(node, instance.public_dns_name, MU::Cloud::Server)
-					else
-						MU::Cloud::DNSZone.genericMuDNSEntry(node, instance.private_ip_address, MU::Cloud::Server)
-					end
-				}
+				MU::Cloud::DNSZone.genericMuDNSEntry(name: node, target: server.canonicalIP, cloudclass: MU::Cloud::Server, sync_wait: true)
 			else
-				MU::MommaCat.addInstanceToEtcHosts(instance.public_dns_name, node)
+				MU::MommaCat.addInstanceToEtcHosts(server.canonicalIP, node)
 			end
 
 			MU::MommaCat.removeHostFromSSHConfig(node)
-			if !config["vpc"].nil?
-				if MU::Cloud::VPC.haveRouteToInstance?(instance.instance_id)
-					MU::MommaCat.addHostToSSHConfig(
-						node,
-						instance.private_ip_address,
-						instance.private_dns_name,
-						user: config["ssh_user"],
-						public_dns: instance.public_dns_name,
-						public_ip: instance.public_ip_address,
-						key_name: server.deploy.ssh_key_name
-					)
-				elsif MU::Cloud::VPC.isSubnetPrivate?(instance.subnet_id, region: @config['vpc']['region'])
-					MU::MommaCat.addHostToSSHConfig(
-						node,
-						instance.private_ip_address,
-						instance.private_dns_name,
-						user: config["ssh_user"],
-						gateway_ip: nat_ssh_host,
-						gateway_user: nat_ssh_user,
-						key_name: server.deploy.ssh_key_name,
-					)
-				else
-					MU::MommaCat.addHostToSSHConfig(
-						node,
-						instance.private_ip_address,
-						instance.private_dns_name,
-						public_dns: instance.public_dns_name,
-						public_ip: instance.public_ip_address,
-						user: config["ssh_user"],
-						key_name: server.deploy.ssh_key_name,
-						gateway_user: nat_ssh_user,
-						gateway_ip: nat_ssh_host,
-					)
-				end
-			else
-				MU::MommaCat.addHostToSSHConfig(
-					node,
-					instance.private_ip_address,
-					instance.private_dns_name,
-					user: config["ssh_user"],
-					public_dns: instance.public_dns_name,
-					public_ip: instance.public_ip_address,
-					key_name: server.deploy.ssh_key_name
-				)
-			end
-			dnsthread.join
+# XXX add names paramater with useful stuff
+			MU::MommaCat.addHostToSSHConfig(server)
 		end
 
 		@ssh_semaphore = Mutex.new
 		# Insert a definition for a node into our SSH config.
-		# @param node [String]: The name of the node.
-		# @param private_ip [String]: The node's private IP address.
-		# @param private_dns [String]: The node's private DNS name.
-		# @param public_ip [String]: The node's public IP address.
-		# @param public_dns [String]: The node's public DNS name.
-		# @param user [String]: The user on the node which will accept remote logins.
-		# @param gateway_ip [String]: The IP address of the bastion/gateway host, if any.
-		# @param gateway_user [String]: The user on the bastion/gateway host which will accept proxy requests.
-		# @param key_name [String]: The name of the SSH key which will allow us access.
+		# @param server [MU::Cloud::Server]: The name of the node.
+		# @param names [Array<String>]: Other names that we'd like this host to be known by for SSH purposes
 		# @param ssh_dir [String]: The configuration directory of the SSH config to emit.
+		# @param ssh_config [String]: A specific SSH configuration file to write entries into.
 		# @param ssh_owner [String]: The preferred owner of the SSH configuration files.
+		# @param timeout [Integer]: An alternate timeout value for connections to this server.
 		# @return [void]
-		def self.addHostToSSHConfig(node, private_ip, private_dns,
-				public_ip: "",
-				public_dns: "",
-				user: "root",
-				gateway_ip: nil,
-				gateway_user: "ec2-user",
-				key_name: "deploy-#{MU.mu_id}",
+		def self.addHostToSSHConfig(server,
 				ssh_dir: "#{@myhome}/.ssh",
 				ssh_conf: "#{@myhome}/.ssh/config",
 				ssh_owner: Etc.getpwuid(Process.uid).name,
+				names: [],
 				timeout: 0
 			)
-			mu_dns = nil
-			if !public_dns.nil?
-				mu_dns = MU::Cloud::AWS::DNSZone.genericMuDNSEntry(node, public_dns, MU::Cloud::Server, noop: true)
-			else
-				mu_dns = MU::Cloud::AWS::DNSZone.genericMuDNSEntry(node, private_ip, MU::Cloud::Server, noop: true)
+			if server.nil?
+				MU.log "Called addHostToSSHConfig without a MU::Cloud::Server object", MU::ERR, details: caller
+				return nil
 			end
-
-			if user.nil? or (gateway_user.nil? and !gateway_ip.nil? and (public_ip.nil? or public_ip.empty? and (private_ip != gateway_ip)))
-				MU.log "Called addHostToSSHConfig with a missing SSH user argument. addHostToSSHConfig(node: #{node}, private_ip: #{private_ip}, private_dns: #{private_dns}, public_ip: #{public_ip}, public_dns: #{public_dns}, user: #{user}, gateway_ip: #{gateway_ip}, gateway_user: #{gateway_user}, key_name: #{key_name}, ssh_dir: #{ssh_dir}, ssh_conf: #{ssh_conf}, ssh_owner: #{ssh_owner}", MU::ERR, details: caller
-				return
-			end
+			nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = server.getSSHConfig
 
 			@ssh_semaphore.synchronize {
 
 				if File.exists?(ssh_conf)
 				  File.readlines(ssh_conf).each { |line|
-				    if line.match(/^Host #{node} /)
-							MU.log("Attempt to add duplicate #{ssh_conf} entry for #{node}", MU::WARN)
+				    if line.match(/^Host #{server.mu_name} /)
+							MU.log("Attempt to add duplicate #{ssh_conf} entry for #{server.mu_name}", MU::WARN)
 							return
 				    end
 				  }
@@ -1108,45 +1065,33 @@ module MU
 
 			  File.open(ssh_conf, 'a') { |ssh_config|
 				  ssh_config.flock(File::LOCK_EX)
-					if !mu_dns.nil? and !mu_dns.empty?
-				    ssh_config.puts "Host #{node} #{mu_dns} #{public_ip} #{public_dns}"
-					else
-				    ssh_config.puts "Host #{node} #{private_ip} #{public_ip} #{private_dns} #{public_dns}"
+					host_str = "Host #{server.mu_name} #{server.canonicalIP}"
+					if !names.nil? and names.size > 0
+						host_str = host_str+" "+names.join(" ")
 					end
-					if !gateway_ip.nil? and (public_ip.nil? or public_ip.empty? and (private_ip != gateway_ip))
-						if !mu_dns.nil? and !mu_dns.empty?
-					    ssh_config.puts "  Hostname #{mu_dns}"
-						else
-					    ssh_config.puts "  Hostname #{private_ip}"
-						end
-						ssh_config.puts "  ProxyCommand ssh -W %h:%p #{gateway_user}@#{gateway_ip}"
-					else
-						if !mu_dns.nil? and !mu_dns.empty?
-					    ssh_config.puts "  Hostname #{mu_dns}"
-						elsif !public_ip.nil? and !public_ip.empty?
-					    ssh_config.puts "  Hostname #{public_ip}"
-						else
-					    ssh_config.puts "  Hostname #{private_ip}"
-						end
-						if timeout > 0
-							ssh_config.puts "  ConnectTimeout #{timeout}"
-						end
+					ssh_config.puts host_str
+			    ssh_config.puts "  Hostname #{server.canonicalIP}"
+					if !nat_ssh_host.nil? and server.canonicalIP != nat_ssh_host
+						ssh_config.puts "  ProxyCommand ssh -W %h:%p #{nat_ssh_user}@#{nat_ssh_host}"
+					end
+					if timeout > 0
+						ssh_config.puts "  ConnectTimeout #{timeout}"
 					end
 
-			    ssh_config.puts "  User #{user}"
+			    ssh_config.puts "  User #{ssh_user}"
 # XXX I'd rather add the host key to known_hosts, but Net::SSH is a little dumb
 			    ssh_config.puts "  StrictHostKeyChecking no"
 
-				  ssh_config.puts "  IdentityFile #{ssh_dir}/#{key_name}"
-					if !File.exist?("#{ssh_dir}/#{key_name}")
-						MU.log "SSH private key #{ssh_dir}/#{key_name} does not exist", MU::WARN
+				  ssh_config.puts "  IdentityFile #{ssh_dir}/#{ssh_key_name}"
+					if !File.exist?("#{ssh_dir}/#{ssh_key_name}")
+						MU.log "#{server.mu_name} - ssh private key #{ssh_dir}/#{ssh_key_name} does not exist", MU::WARN
 					end
 
 			    ssh_config.flock(File::LOCK_UN)
 					ssh_config.chown(Etc.getpwnam(ssh_owner).uid, Etc.getpwnam(ssh_owner).gid)
 			  }
-				MU.log "Wrote #{MU.mu_id} ssh key to #{ssh_dir}/config", MU::DEBUG
-				return "#{ssh_dir}/#{key_name}"
+				MU.log "Wrote #{server.mu_name} ssh key to #{ssh_dir}/config", MU::DEBUG
+				return "#{ssh_dir}/#{ssh_key_name}"
 			}
 		end
 
@@ -1416,18 +1361,10 @@ MESSAGE_END
 				MU.dupGlobals(parent_thread_id)
 				MU.log "Updating Nagios monitoring config, this may take a while..."
 				system("#{MU::Config.chefclient} -o 'recipe[mu-master::update_nagios_only]' 2>&1 > /dev/null")
-				allnodes = Hash.new
-				if Dir.exists?(MU.dataDir+"/deployments")
-					Dir.entries(MU.dataDir+"/deployments").each { |deploy|
-						next if deploy == "." or deploy == ".." or !Dir.exists?(MU.dataDir+"/deployments/"+deploy) or File.exists?(MU.dataDir+"/deployments/"+deploy+"/.cleanup")
-						# XXX should also check for .cleanup on individual nodes
-						momma = MU::MommaCat.new(deploy)
-						allnodes.merge!(momma.listNodes)
-					}
-				end
 				if !Dir.exists?("#{@nagios_home}/.ssh")
 					Dir.mkdir("#{@nagios_home}/.ssh", 0711)
 				end
+				MU.log "Updating #{@nagios_home}/.ssh/config..."
 				ssh_lock = File.new("#{@nagios_home}/.ssh/config.mu.lock", File::CREAT|File::TRUNC|File::RDWR, 0600)
 				ssh_lock.flock(File::LOCK_EX)
 				ssh_conf = File.new("#{@nagios_home}/.ssh/config.tmp", File::CREAT|File::TRUNC|File::RDWR, 0600)
@@ -1439,76 +1376,32 @@ MESSAGE_END
 				ssh_conf.close
 				FileUtils.cp("#{@myhome}/.ssh/id_rsa", "#{@nagios_home}/.ssh/id_rsa")
 				File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{@nagios_home}/.ssh/id_rsa")
-
-				allnodes.each_pair { |nodename, metadata|
-					MU::MommaCat.new(metadata['mu_id'])
-					if !File.exist?("#{@nagios_home}/.ssh/#{metadata['key_name']}")
-						if !File.exist?("#{@myhome}/.ssh/#{metadata['key_name']}")
-							MU.log "SSH key #{@myhome}/.ssh/#{metadata['key_name']} referenced by deploy #{metadata['mu_id']} does not exist", MU::ERR, details: metadata
-						else
-							FileUtils.cp("#{@myhome}/.ssh/#{metadata['key_name']}", "#{@nagios_home}/.ssh/#{metadata['key_name']}")
-							File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{@nagios_home}/.ssh/#{metadata['key_name']}")
+				threads = []
+				mu_zone, junk = MU::Cloud::DNSZone.find(name: "platform-mu")
+# XXX need a MU::Cloud::DNSZone.lookup for bulk lookups
+# XXX also grab things like mu_windows_name out of deploy data if we can
+				MU::MommaCat.listDeploys.each { |deploy_id|
+					begin
+						deploy = MU::MommaCat.new(deploy_id, set_context_to_me: false)
+						if deploy.kittens.has_key?("servers")
+							deploy.kittens["servers"].each_pair { |mu_name, server|
+								threads << Thread.new {
+									MU.log "Adding #{server.mu_name} to #{@nagios_home}/.ssh/config", MU::DEBUG
+									MU::MommaCat.addHostToSSHConfig(
+										server,
+										ssh_dir: "#{@nagios_home}/.ssh",
+										ssh_conf: "#{@nagios_home}/.ssh/config.tmp",
+										ssh_owner: "nagios"
+									)
+								}
+							}
 						end
+					rescue Exception => e
+						MU.log "#{e.inspect} while generating Nagios SSH config in #{deploy_id}", MU::ERR, details: e.backtrace
 					end
-					if metadata['conf'].nil?
-						MU.log "Missing config portion of descriptor for #{nodename}", MU::WARN, details: metadata
-						next
-					end
-
-					# Prefer a direct route, if that's a choice we have.
-					if MU::Cloud::AWS::VPC.haveRouteToInstance?(metadata['instance_id'])
-						MU::MommaCat.addHostToSSHConfig(
-							nodename,
-							metadata['private_ip_address'],
-							metadata['private_dns_name'],
-							public_dns: metadata['public_dns_name'],
-							public_ip: metadata['public_ip_address'],
-							user: metadata['conf']['ssh_user'],
-							key_name: metadata['key_name'],
-							ssh_dir: "#{@nagios_home}/.ssh",
-							ssh_conf: "#{@nagios_home}/.ssh/config.tmp",
-							ssh_owner: "nagios"
-						)
-						next
-					end
-
-					if !MU.mu_id.nil?
-# XXX we need our own exception type for this
-						begin
-							nat_ssh_key, nat_ssh_user, nat_ssh_host = MU::Cloud::AWS::Server.getNodeSSHProxy(metadata['conf'])
-						rescue  Exception => e
-							MU::MommaCat.unlockAll
-							MU.log e.inspect, MU::ERR, details: e.backtrace
-							next
-						end
-					end
-					if !nat_ssh_host.nil? and !nat_ssh_host.empty?
-						MU::MommaCat.addHostToSSHConfig(
-							nodename,
-							metadata['private_ip_address'],
-							metadata['private_dns_name'],
-							user: metadata['conf']['ssh_user'],
-							gateway_ip: nat_ssh_host,
-							gateway_user: nat_ssh_user,
-							key_name: metadata['key_name'],
-							ssh_dir: "#{@nagios_home}/.ssh",
-							ssh_conf: "#{@nagios_home}/.ssh/config.tmp",
-							ssh_owner: "nagios"
-						)
-					else
-						MU::MommaCat.addHostToSSHConfig(
-							nodename,
-							metadata['private_ip_address'],
-							metadata['private_dns_name'],
-							public_dns: metadata['public_dns_name'],
-							public_ip: metadata['public_ip_address'],
-							user: metadata['conf']['ssh_user'],
-							key_name: metadata['key_name'],
-							ssh_dir: "#{@nagios_home}/.ssh",
-							ssh_conf: "#{@nagios_home}/.ssh/config.tmp",
-							ssh_owner: "nagios"
-						)
-					end
+				}
+				threads.each { |t|
+					t.join
 				}
 				ssh_lock.flock(File::LOCK_UN)
 				ssh_lock.close

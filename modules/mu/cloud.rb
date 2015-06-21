@@ -83,10 +83,10 @@ module MU
 				:cfg_plural => "servers",
 				:interface => self.const_get("Server"),
 				:class => generic_class_methods,
-				:instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig]
+				:instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP]
 			},
 			:ServerPool => {
-				:has_multiples => true,
+				:has_multiples => false,
 				:cfg_name => "server_pool",
 				:cfg_plural => "server_pools",
 				:interface => self.const_get("ServerPool"),
@@ -94,7 +94,7 @@ module MU
 				:instance => generic_instance_methods
 			},
 			:VPC => {
-				:has_multiples => true,
+				:has_multiples => false,
 				:cfg_name => "vpc",
 				:cfg_plural => "vpcs",
 				:interface => self.const_get("VPC"),
@@ -177,9 +177,9 @@ module MU
 				attr_reader :config
 				attr_reader :cloud
 				attr_reader :environment
-				attr_reader :deploydata
 				attr_reader :cloudclass
 				attr_reader :cloudobj
+				attr_reader :mu_id
 				def self.shortname
 					name.sub(/.*?::([^:]+)$/, '\1')
 				end
@@ -189,34 +189,46 @@ module MU
 											 kitten_cfg: kitten_cfg)
 					raise MuError, "Cannot invoke Cloud objects without a configuration" if kitten_cfg.nil?
 					@deploy = mommacat
+					@mu_id = mommacat.mu_id
 					@config = kitten_cfg
+					if !kitten_cfg.has_key?("cloud")
+						kitten_cfg['cloud'] = MU::Config.defaultCloud
+					end
 					@cloud = kitten_cfg['cloud']
 					@environment = kitten_cfg['environment']
-					@deploydata = mommacat.deployment
 					@cloudclass = MU::Cloud.artifact(@cloud, self.class.shortname)
 # XXX require subclass to provide attr_readers of @config and @deploy
 					if mu_name.nil?
 						@cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg)
 					else
 						@cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name)
+						@cloudobj.describe # prepopulate the describe() cache
 					end
 				end
 
 				# Retrieve all of the known metadata for this resource.
-				# @param id [String]: The cloud platform's identifier for the resource we're describing.
-				# @param node [String]: Identify a specific node to return. Types such as Server can have multiple instantiated resources of the same name, and this parameter allows us to request the description of a specific instance.
-				# @return [Array<Hash>]
-				def describe(id = nil, node = nil)
-					res_type = self.class.cfg_name
+				# @param cloud_id [String]: The cloud platform's identifier for the resource we're describing. Makes lookups more efficient.
+				# @param update_cache [Boolean]: Ignore cached data if we have any, instead reconsituting from original sources.
+				# @return [Array<Hash>]: mu_name, config, deploydata, cloud_descriptor
+				def describe(cloud_id: nil, update_cache: false)
+					res_type = self.class.cfg_plural
 					res_name = @config['name']
-					deploydata = MU::MommaCat.getResourceDeployStruct(res_type, name: res_name, deploy_id: @deploy.mu_id, use_cache: false)
-					cloud_desc, junk = self.class.find(name: res_name, deploy_id: @deploy.mu_id, region: @config['region'], id: id)
-					# We asked for a specific node, return it if available
-					if !node.nil? and deploydata.is_a?(Hash) and deploydata.has_key?(node)
-						deploydata = deploydata[node]
+					if !@deploy.deployment.nil? and !@deploy.deployment[res_type].nil? and !@deploy.deployment[res_type][res_name].nil?
+						deploydata = @deploy.deployment[res_type][res_name]
+					elsif update_cache or @deploydata.nil?
+						deploydata = MU::MommaCat.getResourceDeployStruct(res_type, name: res_name, deploy_id: @deploy.mu_id, mu_name: @mu_name)
+					end
+					# XXX :has_multiples is what to actually check here
+					if !@mu_name.nil? and deploydata.is_a?(Hash) and deploydata.has_key?(@mu_name)
+						@deploydata = deploydata[@mu_name]
+					else
+						@deploydata = deploydata
+					end
+					if update_cache or @cloud_desc.nil?
+						@cloud_desc, junk = self.class.find(name: res_name, deploy_id: @deploy.mu_id, region: @config['region'], id: cloud_id, mu_name: @mu_name)
 					end
 
-					return [@config['mu_name'], @config, deploydata, cloud_desc]
+					return [@mu_name, @config, @deploydata, @cloud_desc]
 				end
 
 				def self.cfg_plural
@@ -235,6 +247,17 @@ module MU
 						rescue MuCloudResourceNotImplemented
 						end
 					}
+				end
+
+# XXX This method should only exist for MU::Cloud::VPC
+				def self.haveRouteToInstance?(*flags)
+# XXX have this switch on a global config for where Mu puts its DNS
+					begin
+						cloudclass = MU::Cloud.artifact(MU::Config.defaultCloud, "VPC")
+					rescue MuCloudResourceNotImplemented
+						return true
+					end
+					cloudclass.haveRouteToInstance?(flags.first)
 				end
 
 # XXX This method should only exist for MU::Cloud::DNSZone
@@ -324,10 +347,11 @@ module MU
 				MU::Cloud.resource_types[name.to_sym][:instance].each { |method|
 					define_method method do
 						MU.log "Invoking #{@cloudobj}.#{method}", MU::DEBUG
-						@cloudobj.method(method).call
+						retval = @cloudobj.method(method).call
 						if method == :create or method == :groom or method == :postBoot
 							@cloudobj.method(:notify).call
 						end
+						retval
 					end
 				} # end instance method list
 			} # end dynamic class generation block

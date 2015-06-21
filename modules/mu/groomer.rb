@@ -52,7 +52,11 @@ module MU
 		# @param server [MU::Cloud::Server]: The server which this groomer will be configuring.
 		def initialize(server)
 # XXX check server with .is_a?
-			@groomer_class = MU::Groomer.loadGroomer(server.config['groomer'])
+			if !server.config.has_key?("groomer")
+				@groomer_class = MU::Groomer.loadGroomer(MU::Config.defaultGroomer)
+			else
+				@groomer_class = MU::Groomer.loadGroomer(server.config['groomer'])
+			end
 			@groomer_obj = @groomer_class.new(server)
 		end
 

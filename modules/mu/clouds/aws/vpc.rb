@@ -29,7 +29,7 @@ module MU
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::vpcs}
-			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg)
+			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name)
 				@deploy = mommacat
 				@config = kitten_cfg
 				MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
@@ -646,6 +646,7 @@ module MU
 				return my_subnets.uniq
 			end
 
+			@route_cache = {}
 			# Check whether we (the Mu Master) have a direct route to a particular
 			# subnet. Useful for skipping hops through bastion hosts to get directly
 			# at child nodes in peered VPCs and the like.
@@ -654,11 +655,13 @@ module MU
 			# @return [Boolean]
 			def self.haveRouteToInstance?(instance_id, region: MU.curRegion)
 				return false if instance_id.nil?
+				return @route_cache[instance_id] if @route_cache.has_key?(instance_id)
 				my_subnets = MU::Cloud::AWS::VPC.getInstanceSubnets(MU.myInstanceId)
 				target_subnets = MU::Cloud::AWS::VPC.getInstanceSubnets(instance_id)
 
 				if (my_subnets & target_subnets).size > 0
 					MU.log "I share a subnet with #{instance_id}, I can route to it directly", MU::DEBUG
+					@route_cache[instance_id] = true
 					return true
 				end
 
@@ -679,7 +682,7 @@ module MU
 				my_routes.uniq!
 
 				target_routes = []
-				MU::Cloud::AWS.ec2(MU.myRegion).describe_route_tables(
+				MU::Cloud::AWS.ec2(region).describe_route_tables(
 					filters: [{name: "association.subnet-id", values: target_subnets}]
 				).route_tables.each { |route_table|
 					route_table.routes.each { |route|
@@ -696,11 +699,13 @@ module MU
 						if shared_ip_space and !route.vpc_peering_connection_id.nil? and
 								vpc_peer_mapping.has_key?(route.vpc_peering_connection_id) 
 							MU.log "I share a VPC peering connection (#{route.vpc_peering_connection_id}) with #{instance_id} for #{route.destination_cidr_block}, I can route to it directly", MU::DEBUG
+							@route_cache[instance_id] = true
 							return true
 						end
 					}
 				}
 
+				@route_cache[instance_id] = false
 				return false
 			end
 

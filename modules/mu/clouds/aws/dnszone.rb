@@ -28,7 +28,7 @@ module MU
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::dnszones}
-			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg)
+			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name)
 				@deploy = mommacat
 				@config = kitten_cfg
 				MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
@@ -422,7 +422,7 @@ module MU
 			# @param delete [Boolean]: Remove this entry instead of creating it.
 			# @param cloudclass [Object]: The resource's Mu class.
 			# @param sync_wait [Boolean]: Wait for DNS entry to propagate across zone.
-			def self.genericMuDNSEntry(name, target, cloudclass, noop: false, delete: false, sync_wait: true)
+			def self.genericMuDNSEntry(name: name, target: target, cloudclass: cloudclass, noop: false, delete: false, sync_wait: true)
 				return nil if name.nil? or target.nil? or cloudclass.nil?
 				mu_zone, junk = MU::Cloud::DNSZone.find(name: "platform-mu")
 				MU::Cloud.artifact("AWS", :LoadBalancer)

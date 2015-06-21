@@ -90,7 +90,6 @@ class Cloud
 			end
 
 			attr_reader :mu_name
-			attr_reader :cloud_id
 			attr_reader :config
 			attr_reader :deploy
 
@@ -102,7 +101,7 @@ class Cloud
 
 				if !mu_name.nil?
 					@mu_name = mu_name
-					@config['mu_name'] = mu_name
+					@config['mu_name'] = @mu_name
 				else
 					@mu_name = MU::MommaCat.getResourceName(@config['name'])
 					@config['mu_name'] = @mu_name
@@ -118,6 +117,11 @@ class Cloud
 
 					@config['instance_secret'] = Password.random(50)
 				end
+
+				# We know we're going to need these, so make sure the relevant modules
+				# are loaded.
+				MU::Cloud.artifact("AWS", :FirewallRule)
+				MU::Cloud.artifact("AWS", :VPC)
 
 				@userdata = MU::Cloud::AWS::Server.fetchUserdata(
 					platform: @config["platform"],
@@ -509,13 +513,16 @@ class Cloud
 			end
 
 			# Figure out what's needed to SSH into this server.
-			# @return [Array<String>]: nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name
+			# @return [Array<String>]: nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name, alternate_names
 			def getSSHConfig
+				node, config, deploydata, instance = describe(cloud_id: @config['instance_id'])
+# XXX add some awesome alternate names from metadata and make sure they end
+# up in MU::MommaCat's ssh config wangling
 				ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
 				return nil if @config.nil? or @deploy.nil?
 
 				nat_ssh_key = nat_ssh_user = nat_ssh_host = nil
-				if !@config["vpc"].nil? and !MU::Cloud::AWS::VPC.haveRouteToInstance?(@config['instance_id'])
+				if !@config["vpc"].nil? and !MU::Cloud::AWS::VPC.haveRouteToInstance?(instance.instance_id, region: @config['region'])
 					if !@config["vpc"]["nat_host_name"].nil? or
 						 !@config["vpc"]["nat_host_id"].nil?
 						nat_ssh_user = @config["vpc"]["nat_ssh_user"]
@@ -530,13 +537,6 @@ class Cloud
 						end
 						nat_ssh_key = nat_instance.key_name
 						nat_ssh_host = nat_instance.public_ip_address
-						found_servers = MU::MommaCat.getResourceDeployStruct(MU::Cloud::Server.cfg_plural, name: mu_name)
-						if !found_servers.nil? and found_servers.is_a?(Hash)
-							if found_servers.values.first['instance_id'] == nat_instance.instance_id
-								dns_name = MU::Cloud::DNSZone.genericMuDNSEntry(found_servers.keys.first, nat_ssh_host, MU::Cloud::Server, noop: true, sync_wait: @config['dns_sync_wait'])
-							end
-						end
-						nat_ssh_host = dns_name if !dns_name.nil?
 						if nat_ssh_user.nil? and !nat_ssh_host.nil?
 							MU.log "#{@config["name"]} (#{MU.mu_id}) is configured to use #{@config['vpc']} NAT #{nat_ssh_host}, but username isn't specified. Guessing root.", MU::ERR, details: caller
 							nat_ssh_user = "root"
@@ -544,12 +544,6 @@ class Cloud
 					end
 				end
 
-				if @config['canonical_ip'].nil?
-					instance, mu_name = MU::Cloud::Server.find(id: @config['instance_id'], region: @config['region'])
-					canonical_ip = instance.public_ip_address
-					canonical_ip = instance.private_ip_address if !canonical_ip
-					@config['canonical_ip'] = canonical_ip
-				end
 				if @config['ssh_user'].nil?
 					if %w{win2k12r2 win2k12 windows}.include?(@server['platform'])
 						@config['ssh_user'] = "Administrator"
@@ -558,7 +552,7 @@ class Cloud
 					end
 				end
 
-				return [nat_ssh_key, nat_ssh_user, nat_ssh_host, @config['canonical_ip'], @config['ssh_user'], @deploy.ssh_key_name]
+				return [nat_ssh_key, nat_ssh_user, nat_ssh_host, canonicalIP, @config['ssh_user'], @deploy.ssh_key_name]
 
 			end
 
@@ -636,7 +630,7 @@ MU.log win_set_pw, MU::ERR
 			# Apply tags, bootstrap our configuration management, and other
 			# administravia for a new instance.
 			def postBoot
-				node, config, deploydata, instance = describe(@config['instance_id'], @config['mu_name'])
+				node, config, deploydata, instance = describe(cloud_id: @config['instance_id'])
 
 				return false if !MU::MommaCat.lock(instance.instance_id+"-orchestrate", true)
 				return false if !MU::MommaCat.lock(instance.instance_id+"-groom", true)
@@ -912,11 +906,10 @@ MU.log win_set_pw, MU::ERR
 				return true
 			end # postBoot
 
-
 			# Locate a running instance. Can identify instances by their cloud
 			# provider identifier, OR by their internal Mu resource name, OR by a 
 			# cloud provider tag name/value pair, OR by an assigned IP address.
-			# @param name [String]: An Mu resource name, usually the 'name' field of aa Basket of Kittens resource declaration. Will search the currently loaded deployment unless another is specified.
+			# @param name [String]: A Mu resource name, usually the 'name' field of aa Basket of Kittens resource declaration. Will search the currently loaded deployment unless another is specified.
 			# @param deploy_id [String]: The deployment to search using the 'name' parameter.
 			# @param id [String]: The cloud provider's identifier for this resource.
 			# @param tag_key [String]: A tag key to search.
@@ -924,9 +917,10 @@ MU.log win_set_pw, MU::ERR
 			# @param allow_multi [Boolean]: When searching by tags or name, permit an array of resources to be returned (if applicable) instead of just one.
 			# @param ip [String]: An IP address assigned to this instance.
 			# @param region [String]: The cloud provider region
-			# @return [OpenStruct,String]: The cloud provider's complete description of this server, and its MU resource name (if applicable).
-			def self.find(name: nil, deploy_id: MU.mu_id, id: nil, tag_key: "Name", tag_value: nil, allow_multi: false, ip: nil, region: MU.curRegion)
+			# @return [OpenStruct]: The cloud provider's complete description of this server
+			def self.find(name: nil, deploy_id: MU.mu_id, id: nil, tag_key: "Name", tag_value: nil, allow_multi: false, ip: nil, region: MU.curRegion, mu_name: nil)
 				return nil if !id and !name and !ip and !tag_value
+
 				# If we got an instance id, go get that
 				instance = nil
 				if !region.nil?
@@ -976,6 +970,9 @@ MU.log win_set_pw, MU::ERR
 				end
 
 				instance = found_instances.shift if found_instances.size > 0
+				if !instance.nil?
+					return instance if !instance.nil?
+				end
 
 				# Ok, well, let's try looking it up by IP then
 				if instance.nil? and !ip.nil?
@@ -991,21 +988,9 @@ MU.log win_set_pw, MU::ERR
 					}
 				end
 
-				# Let's say we've found this instance with the cloud id or IP. Let's go
-				# get its Mu resource name and return that too, if there is one.
-				if !instance.nil? and name.nil?
-					servers = MU::MommaCat.getResourceDeployStruct(MU::Cloud::Server.cfg_plural, deploy_id: deploy_id)
-					if !servers.nil?
-						servers.each { |ext_server|
-							if ext_server.values.size > 0 and ext_server.values.first['instance_id'] == instance.instance_id
-								name = ext_server.values.first['#MU_NODE_CLASS']
-								break
-							end
-						}
-					end
+				if !instance.nil?
+					return instance if !instance.nil?
 				end
-
-				return [instance, name] if !instance.nil?
 
 				# If we've been asked to find by name, things get weird. In server pools
 				# you can easily have multiple servers with the same Mu resource name.
@@ -1017,7 +1002,9 @@ MU.log win_set_pw, MU::ERR
 						nodename, server = resource.shift
 						name_matches << server
 					elsif !resource.nil? and resource.keys.size > 1
-						if !allow_multi
+						if !mu_name.nil?
+							name_matches << resource[mu_name]
+						elsif !allow_multi
 							MU.log "Found multiple matching servers for name #{name} in deploy #{deploy_id}", MU::ERR, details: resource
 							raise MuError, "Found multiple matching servers for name #{name} in deploy #{deploy_id}"
 						else
@@ -1029,6 +1016,7 @@ MU.log win_set_pw, MU::ERR
 				end
 				matches = []
 				name_matches.each { |server|
+					next if server.nil?
 					next if server['instance_id'].nil?
 					response = MU::Cloud::AWS.ec2(region).describe_instances(
 						instance_ids: [server['instance_id']],
@@ -1061,16 +1049,16 @@ MU.log win_set_pw, MU::ERR
 				end
 
 				if allow_multi
-					return [matches, name]
+					return matches
 				else
-					return [matches.first, name]
+					return matches.first
 				end
 			end
 
 			# Return a description of this resource appropriate for deployment
 			# metadata. Arguments reflect the return values of the MU::Cloud::[Resource].describe method
 			def notify
-				node, config, deploydata, instance = describe(@config['instance_id'], @config['mu_name'])
+				node, config, deploydata, instance = describe(cloud_id: @config['instance_id'], update_cache: true)
 				deploydata = Hash.new if deploydata.nil?
 
 				if instance.nil?
@@ -1255,6 +1243,27 @@ MU.log win_set_pw, MU::ERR
 				end
 
 				MU::MommaCat.unlock(@config["instance_id"]+"-groom")
+			end
+
+			# Return the IP address that we, the Mu server, should be using to access
+			# this host via the network. Note that this does not factor in SSH 
+			# bastion hosts that may be in the path, see getSSHConfig if that's what
+			# you need.
+			def canonicalIP
+				node, config, deploydata, instance = describe(cloud_id: @config['instance_id'])
+				if instance.nil?
+					raise MuError, "#{@mu_name}: Can't find my own cloud resource"
+				end
+
+				canonical_ip = instance.public_ip_address
+				canonical_ip = instance.private_ip_address if !canonical_ip
+				if MU::Cloud::VPC.haveRouteToInstance?(instance.instance_id) or instance.public_ip_address.nil?
+					@config['canonical_ip'] = instance.private_ip_address
+					return instance.private_ip_address
+				else
+					@config['canonical_ip'] = instance.public_ip_address
+					return instance.public_ip_address
+				end
 			end
 
 			# Create an AMI out of a running server. Requires either the name of a MU resource in the current deployment, or the cloud provider id of a running instance.
