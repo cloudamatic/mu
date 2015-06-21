@@ -193,11 +193,24 @@ module MU
 
 				createGenericHostSSLCert
 
-				# Join this node to its Active Directory domain, if applicable. This
-				# will trigger a reboot on Windows nodes, because what doesn't?
+				# Making sure all Windows nodes get the mu-tools::windows-client recipe
+				if %w{win2k12r2 win2k12 windows}.include? @server.config['platform']
+					knifeAddToRunList("recipe[mu-tools::windows-client]")
+					run(purpose: "Base Windows configuration", update_runlist: false, max_retries: 10)
+				end
+
+				# This will deal with Active Directory integration.
 				if !@server.config['active_directory'].nil?
-					knifeAddToRunList("recipe[mu-tools::ad-client]")
-					run(purpose: "Join Active Directory", update_runlist: false)
+					if @server.config['active_directory']['domain_operation'] == "join"
+						knifeAddToRunList("recipe[mu-activedirectory::domain-node]")
+						run(purpose: "Join Active Directory", update_runlist: false, max_retries: 10)
+					elsif @server.config['active_directory']['domain_operation'] == "create"
+						knifeAddToRunList("recipe[mu-activedirectory::domain]")
+						run(purpose: "Create Active Directory Domain", update_runlist: false, max_retries: 15)
+					elsif @server.config['active_directory']['domain_operation'] == "add_controller"
+						knifeAddToRunList("recipe[mu-activedirectory::domain-controller]")
+						run(purpose: "Add Domain Controller to Active Directory", update_runlist: false, max_retries: 15)
+					end
 				end
 
 				if !@server.config['run_list'].nil?
@@ -259,29 +272,47 @@ module MU
 				config = @server.config
 				nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = @server.getSSHConfig
 				MU.log "Saving #{@server.mu_name} Chef artifacts"
-			  chef_node = ::Chef::Node.load(@server.mu_name)
+				chef_node = ::Chef::Node.load(@server.mu_name)
 				# Figure out what this node thinks its name is
-			  system_name = chef_node['fqdn']
+				system_name = chef_node['fqdn']
 				MU.log "#{@server.mu_name} local name is #{system_name}", MU::DEBUG
 
-			  chef_node.normal.app = config['application_cookbook'] if config['application_cookbook'] != nil
-			  chef_node.normal.service_name = config["name"]
+				chef_node.normal.app = config['application_cookbook'] if config['application_cookbook'] != nil
+				chef_node.normal.service_name = config["name"]
 				chef_node.normal.windows_admin_username = config['windows_admin_username']
-			  chef_node.chef_environment = MU.environment.downcase
+				chef_node.chef_environment = MU.environment.downcase
 
-				# If AD integration has been requested for this node, give Chef what it'll
-				# need for mu-tools::ad-client to work.
+				if %w{win2k12r2 win2k12 windows}.include? config['platform']
+					chef_node.normal.windows_admin_username = config['windows_admin_username']
+					chef_node.normal.windows_auth_vault = node
+					chef_node.normal.windows_auth_item = "windows_credentials"
+					chef_node.normal.windows_auth_password_field = "password"
+					chef_node.normal.windows_auth_username_field = "username"
+					chef_node.normal.windows_ec2config_password_field = "ec2config_password"
+					chef_node.normal.windows_ec2config_username_field = "ec2config_username"
+					chef_node.normal.windows_sshd_password_field = "sshd_password"
+					chef_node.normal.windows_sshd_username_field = "sshd_username"
+				end
+
+				# If AD integration has been requested for this node, give Chef what it'll need.
 				if !config['active_directory'].nil?
 					chef_node.normal.ad.computer_name = config['mu_windows_name']
 					chef_node.normal.ad.node_class = config['name']
 					chef_node.normal.ad.domain_name = config['active_directory']['domain_name']
+					chef_node.normal.ad.node_type = config['active_directory']['node_type']
+					chef_node.normal.ad.domain_operation = config['active_directory']['domain_operation']
+					chef_node.normal.ad.domain_controller_hostname = config['active_directory']['domain_controller_hostname'] if config['active_directory'].has_key?('domain_controller_hostname')
 					chef_node.normal.ad.netbios_name = config['active_directory']['short_domain_name']
 					chef_node.normal.ad.computer_ou = config['active_directory']['computer_ou'] if config['active_directory'].has_key?('computer_ou')
 					chef_node.normal.ad.dcs = config['active_directory']['domain_controllers']
-					chef_node.normal.ad.auth_vault = config['active_directory']['auth_vault']
-					chef_node.normal.ad.auth_item = config['active_directory']['auth_item']
-					chef_node.normal.ad.auth_username_field = config['active_directory']['auth_username_field']
-					chef_node.normal.ad.auth_password_field = config['active_directory']['auth_password_field']
+					chef_node.normal.ad.domain_join_vault = config['active_directory']['domain_join_vault']['vault']
+					chef_node.normal.ad.domain_join_item = config['active_directory']['domain_join_vault']['item']
+					chef_node.normal.ad.domain_join_username_field = config['active_directory']['domain_join_vault']['username_field']
+					chef_node.normal.ad.domain_join_password_field = config['active_directory']['domain_join_vault']['password_field']
+					chef_node.normal.ad.domain_admin_vault = config['active_directory']['domain_admin_vault']['vault']
+					chef_node.normal.ad.domain_admin_item = config['active_directory']['domain_admin_vault']['item']
+					chef_node.normal.ad.domain_admin_username_field = config['active_directory']['domain_admin_vault']['username_field']
+					chef_node.normal.ad.domain_admin_password_field = config['active_directory']['domain_admin_vault']['password_field']
 				end
 
 				# Amazon-isms
@@ -409,7 +440,6 @@ module MU
 				vault_cmd = "#{MU::Config.knife} vault create #{@server.mu_name} ssl_cert '{ \"data\": { \"node.crt\":\"#{cert.to_pem.chomp!.gsub(/\n/, "\\n")}\", \"node.key\":\"#{key.to_pem.chomp!.gsub(/\n/, "\\n")}\" } }' #{MU::Config.vault_opts} --search name:#{@server.mu_name}"
 				MU.log vault_cmd, MU::DEBUG
 				puts `#{vault_cmd}`
-
 				grantVaultAccess(@server.mu_name, "ssl_cert")
 
 				# Any and all 'secrets' parameters should also be stuffed into our vault.
@@ -419,6 +449,11 @@ module MU
 					MU.log vault_cmd, MU::DEBUG
 					puts `#{vault_cmd}`
 					grantVaultAccess(@server.mu_name, "secrets")
+				end
+				
+				if %w{win2k12r2 win2k12 windows}.include? @server.config['platform']
+					# We're creating the vault earlier to allow us to grab the Windows Admin password when running MU::Server.initialSSHTasks.
+					grantVaultAccess(@server.mu_name, "windows_credentials")
 				end
 			end
 
