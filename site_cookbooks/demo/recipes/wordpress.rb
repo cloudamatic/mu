@@ -37,7 +37,7 @@ case node[:platform_family]
 
 when "rhel"	
 
-    package "php-mbstring"
+	package "php-mbstring"
 
 	package "php-mysql"
 
@@ -58,19 +58,19 @@ when "rhel"
 		EOH
 	end
 
-    
+	
 	template '/etc/profile.d/wordpress.sh' do
-	    owner 'root'
-	    group 'root'
-	    mode '0644'
-	    source "apache/wordpress.sh.erb"
-	    variables({
-	              :db_name => $db_name,
-	              :db_host => $db_host,
-	              :db_user => $db_user,
-	              :db_password => $db_password,
-	              :domain => $app_url
-	            })
+		owner 'root'
+		group 'root'
+		mode '0644'
+		source "apache/wordpress.sh.erb"
+		variables({
+				  :db_name => $db_name,
+				  :db_host => $db_host,
+				  :db_user => $db_user,
+				  :db_password => $db_password,
+				  :domain => $app_url
+				})
 	end
 
 
@@ -88,29 +88,29 @@ when "rhel"
 	end
 
 
-    template '/var/www/wordpressapp/heartbeat.php' do
-    owner 'root'
-    group 'root'
-    mode '0644'
-    source "wordpress/heartbeat.php.erb"
-    end
+	template '/var/www/wordpressapp/heartbeat.php' do
+	owner 'root'
+	group 'root'
+	mode '0644'
+	source "wordpress/heartbeat.php.erb"
+	end
 
 
-    template '/var/www/wordpressapp/.htaccess' do
-    owner 'root'
-    group 'root'
-    mode '0644'
-    source "wordpress/htaccess.erb"
-    end
+	template '/var/www/wordpressapp/.htaccess' do
+	owner 'root'
+	group 'root'
+	mode '0644'
+	source "wordpress/htaccess.erb"
+	end
 
 
-    bash "Change owner and group" do
+	bash "Change owner and group" do
 	user "root"
 	code <<-EOH  
-        cd /var/www
-        chown -R apache:apache wordpressapp
+		cd /var/www
+		chown -R apache:apache wordpressapp
 	EOH
-    end
+	end
 
 
 
@@ -145,26 +145,26 @@ when "debian"
 
 
 	template '/var/www/wordpressapp/heartbeat.php' do
-    owner 'root'
-    group 'root'
-    mode '0644'
-    source "wordpress/heartbeat.php.erb"
-    end
+	owner 'root'
+	group 'root'
+	mode '0644'
+	source "wordpress/heartbeat.php.erb"
+	end
 
 
-    template '/var/www/wordpressapp/.htaccess' do
-    owner 'root'
-    group 'root'
-    mode '0644'
-    source "wordpress/htaccess.erb"
-    end
+	template '/var/www/wordpressapp/.htaccess' do
+	owner 'root'
+	group 'root'
+	mode '0644'
+	source "wordpress/htaccess.erb"
+	end
 
    
-    bash "Change owner and group" do
+	bash "Change owner and group" do
 		user "root"
 		code <<-EOH  
-            cd /var/www
-	        chown -R apache:apache wordpressapp
+			cd /var/www
+			chown -R apache:apache wordpressapp
 		EOH
 	end
 

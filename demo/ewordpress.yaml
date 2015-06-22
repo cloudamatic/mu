@@ -146,11 +146,11 @@ servers:
       name: "bastion"
       phase: "deploy"
     <% end %>
-    image_then_destroy: true
+    image_then_destroy: false
     add_firewall_rules:
       - rule_name: "wpress_secgroup"
     run_list:
-    - recipe[demo::wordpress]
+    - recipe[demo::wrdpress]
 
 server_pools:
   - name: "wpress"
@@ -171,7 +171,7 @@ server_pools:
       deploy_id: "<%=$deploy_id %>"
       <% end %>
     run_list: 
-    - recipe[demo::wordpress]
+    - recipe[demo::wrdpress]
     dependencies: 
     - name: "lb"
       type: "loadbalancer"
