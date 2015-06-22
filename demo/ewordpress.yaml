@@ -146,7 +146,7 @@ servers:
       name: "bastion"
       phase: "deploy"
     <% end %>
-    image_then_destroy: false
+    image_then_destroy: true
     add_firewall_rules:
       - rule_name: "wpress_secgroup"
     run_list:
