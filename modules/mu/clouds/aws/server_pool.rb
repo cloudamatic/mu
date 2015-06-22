@@ -363,6 +363,7 @@ class Cloud
 			# @param region [String]: The cloud provider region
 			# @return [void]
 			def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
+# XXX blow away IAM roles, they're getting missed right now
 				filters = [ { name: "key", values: ["MU-ID"] } ]
 				if !ignoremaster
 					filters << { name: "key", values: ["MU-MASTER-IP"] }
