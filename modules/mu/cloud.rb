@@ -232,6 +232,10 @@ module MU
 # XXX require subclass to provide attr_readers of @config and @deploy
 					if mu_name.nil?
 						@cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg)
+						if !@cloudobj.nil?
+							@deploy.kittens[self.class.cfg_plural] = {} if !@deploy.kittens.has_key?(self.class.cfg_plural)
+							@deploy.kittens[self.class.cfg_plural][@cloudobj.mu_name] = self
+						end
 					else
 						@cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name)
 						@cloudobj.describe # prepopulate the describe() cache

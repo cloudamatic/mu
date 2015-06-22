@@ -669,7 +669,7 @@ class Cloud
 					ssh_key_name = @deploy.ssh_key_name
 
 					if @config['use_cloud_provider_windows_password']
-						win_admin_password = MU::Cloud::Server.getWindowsAdminPassword(instance_id: id, identity_file: "#{ssh_keydir}/#{node_ssh_key}", node_name: node, region: server['region'])
+						win_admin_password = MU::Cloud::Server.getWindowsAdminPassword(instance_id: id, identity_file: "#{ssh_keydir}/#{@deploy.ssh_key_name}", node_name: node, region: server['region'])
 					elsif @config['windows_auth_vault'] && !@config['windows_auth_vault'].empty?
 						if @config["windows_auth_vault"].has_key?("password_field")
 							win_admin_password = ChefVault::Item.load(
@@ -677,7 +677,7 @@ class Cloud
 								@config['windows_auth_vault']['item']
 							)[@config["windows_auth_vault"]["password_field"]]
 						else
-							win_admin_password = MU::Cloud::Server.getWindowsAdminPassword(instance_id: id, identity_file: "#{ssh_keydir}/#{node_ssh_key}", node_name: node, region: server['region'])
+							win_admin_password = MU::Cloud::Server.getWindowsAdminPassword(instance_id: id, identity_file: "#{ssh_keydir}/#{@deploy.ssh_key_name}", node_name: node, region: server['region'])
 						end
 
 						if @config["windows_auth_vault"].has_key?("ec2config_password_field")

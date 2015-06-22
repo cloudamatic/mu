@@ -374,7 +374,6 @@ module MU
 					end
 
 					# Create VPC security group and add to config 
-					vpc_db_sg = MU::Cloud::AWS::FirewallRule.createEc2SG(@db['name'], nil, description: "Database Security Group for #{@db['name']}", vpc_id: vpc_id, region: @db['region'])
 					if @db["snapshot_id"].nil?
 						config[:vpc_security_group_ids] = [vpc_db_sg, admin_sg]
 

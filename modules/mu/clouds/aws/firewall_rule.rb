@@ -31,7 +31,11 @@ module MU
 			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name)
 				@deploy = mommacat
 				@config = kitten_cfg
-				@mu_name = MU::MommaCat.getResourceName(@config['name'])
+				if !mu_name.nil?
+					@mu_name = mu_name
+				else
+					@mu_name = MU::MommaCat.getResourceName(@config['name'])
+				end
 			end
 
 			# Called by {MU::Deploy#createResources}

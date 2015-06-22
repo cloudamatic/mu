@@ -1316,6 +1316,17 @@ module MU
 					}
 				end
 
+				if !db['ingress_rules'].nil?
+					fwname = db['name']
+					if firewall_rule_names.include?(fwname)
+						fwname = "serverdb#{fwname}"
+					end
+					firewall_rule_names << fwname
+					acl = {"name"=> fwname, "rules" => db['ingress_rules'], "vpc" => db['vpc'], "region" => db['region']}
+					firewall_rules << resolveFirewall.call(acl)
+					db["add_firewall_rules"] = [] if db["add_firewall_rules"].nil?
+					db["add_firewall_rules"] << { "rule_name" => fwname }
+				end
 				if !db["add_firewall_rules"].nil?
 					db["add_firewall_rules"].each { |acl_include|
 						if firewall_rule_names.include?(acl_include["rule_name"])

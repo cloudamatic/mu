@@ -50,7 +50,7 @@ module MU
 		attr_reader :ssh_public_key
 		attr_reader :nocleanup
 		attr_reader :deploy_id
-		attr_reader :kittens
+		attr_accessor :kittens # really want a protected method delegated to :Deploy
 		@myhome = Etc.getpwuid(Process.uid).dir
 		@nagios_home = "/home/nagios"
 		@locks = Hash.new
@@ -758,9 +758,7 @@ return
 					MU.log "MU::MommaCat.notify called to add to deployment struct, but no data provided", MU::WARN
 					return
 				end
-				if @deployment[res_type].nil?
-					@deployment[res_type] = Hash.new
-				end
+				@deployment[res_type] = {} if @deployment[res_type].nil?
 				@deployment[res_type][key] = data
 				MU.log "Adding to @deployment[#{res_type}][#{key}]", MU::DEBUG, details: data
 			else
@@ -821,13 +819,13 @@ return
 		# @param mu_name [String]: The fully-expanded Mu resource name, e.g. MGMT-PROD-2015040115-FR-ADMGMT2
 		# @param deploy_id [String]: The deployment to search. Defaults to the currently loaded deployment.
 		# @return [Hash,Array<Hash>]
-		def self.getResourceDeployStruct(type, name: nil, deploy_id: MU.deploy_id, use_cache: true, mu_name: nil)
+		def self.getResourceDeployStruct(type, name: nil, deploy_id: nil, use_cache: true, mu_name: nil)
 			if type.nil?
 				raise MuError, "Can't call getResourceDeployStruct without a type argument"
 			end
 
 			# Skip refreshing the cache if we're looking for something we already know
-			if !use_cache or @deploy_cache.nil? or deploy_id.nil? or @deploy_cache[deploy_id].nil?
+#			if !use_cache or @deploy_cache.nil? or deploy_id.nil? or @deploy_cache[deploy_id].nil?
 #puts "RIFLING CACHE"
 				deploy_root = File.expand_path(MU.dataDir+"/deployments")
 				if Dir.exists?(deploy_root)
@@ -880,9 +878,10 @@ return
 						lock.close
 					}
 				end
-			end
-#puts "***********************"
-#puts "fetching '#{type}' '#{name}' '#{deploy_id}' '#{mu_name}' for #{caller[0]}"
+#			end
+if !@deploy_cache.nil? and @deploy_cache.has_key?(deploy_id) and @deploy_cache[deploy_id].has_key?("data") and @deploy_cache[deploy_id]['data'].has_key?(type) and type == "loadbalancers"
+MU.log "fetching '#{type}' '#{name}' '#{deploy_id}' '#{mu_name}' for #{caller[0]}", MU::NOTICE, details: @deploy_cache[deploy_id]['data'][type]
+end
 			if deploy_id.nil?
 				matches = []
 				@deploy_cache.each_key { |deploy|
