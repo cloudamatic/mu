@@ -363,9 +363,13 @@ MESSAGE_END
 				MU.log "Setting dependencies for #{name}", MU::DEBUG
 				if resource["dependencies"] != nil then
 				  resource["dependencies"].each { |dependency|
-						# XXX actually, the dependency should identify the target cloud
-						# resource instead of assuming it's the same as the dependent
-						parent_class = MU::Cloud.loadCloudType(resource["cloud"], dependency["type"])
+						parent_class = nil
+						MU::Cloud.resource_types.each_pair { |name, attrs|
+							if attrs[:cfg_name] == dependency['type']
+								parent_class = Object.const_get("MU").const_get("Cloud").const_get(name)
+								break
+							end
+						}
 
 						parent_type = parent_class.cfg_name
 						parent = parent_type+"_"+dependency["name"]+"_create"

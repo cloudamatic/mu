@@ -24,6 +24,7 @@ gem "knife-windows"
 gem "chef-vault"
 autoload :Chef, 'chef-vault'
 autoload :ChefVault, 'chef-vault'
+autoload :GraphViz, 'graphviz'
 
 module MU
 
@@ -207,6 +208,40 @@ module MU
 
 			return @config.freeze
 	  end
+
+		# Output the dependencies of this BoK stack as a directed acyclic graph.
+		def visualizeDependencies
+# XXX what the I don't even
+			$LOAD_PATH << "/opt/rubies/ruby212-2.1.2-p205/lib/ruby/gems/2.1.0/gems/ruby-graphviz-1.2.2/lib/"
+			g = GraphViz.new( :G, :type => :digraph )
+			# Generate a GraphViz node for each resource in this stack
+			nodes = {}
+			MU::Cloud.resource_types.each_pair { |classname, attrs|
+				nodes[attrs[:cfg_name]] = {}
+				if @config.has_key?(attrs[:cfg_plural])
+					@config[attrs[:cfg_plural]].each { |resource|
+						nodes[attrs[:cfg_name]][resource['name']] = g.add_nodes("#{classname}: #{resource['name']}")
+					}
+				end
+			}
+			# Now add edges corresponding to the dependencies they list
+			MU::Cloud.resource_types.each_pair { |classname, attrs|
+				if @config.has_key?(attrs[:cfg_plural])
+					@config[attrs[:cfg_plural]].each { |resource|
+						if resource.has_key?("dependencies")
+							me = nodes[attrs[:cfg_name]][resource['name']]
+							resource["dependencies"].each { |dep|
+								parent = nodes[dep['type']][dep['name']] 
+								g.add_edges( me, parent )
+							}
+						end
+					}
+				end
+			}
+			# Spew some output?
+			g.output(:plain => "foo.plain")
+			g.output(:jpg => "foo.jpg")
+		end
 
 		# Take the schema we've defined and create a dummy Ruby class tree out of
 		# it, basically so we can leverage Yard to document it.
@@ -675,7 +710,7 @@ module MU
 				vpc_block.delete('vpc_name') if vpc_block.has_key?('vpc_id')
 				vpc_block.delete('deploy_id')
 				vpc_block.delete('tag')
-				MU.log "Resolved VPC resources for #{parent_name}", MU::NOTICE, details: vpc_block
+				MU.log "Resolved VPC resources for #{parent_name}", MU::DEBUG, details: vpc_block
 			end
 
 			return ok
@@ -917,7 +952,7 @@ module MU
 				firewall_rule_names << acl['name']
 			}
 
-			firewall_rules.each { |acl|
+			resolveFirewall = Proc.new { |acl|
 				firewall_rule_names << acl['name']
 				acl['region'] = config['region'] if acl['region'].nil?
 				acl["dependencies"] = Array.new if acl["dependencies"].nil?
@@ -960,20 +995,21 @@ module MU
 					end
 					if !rule['lbs'].nil?
 						rule['lbs'].each { |lb_name|
-							loadbalancers.each { |lb|
-								if lb['name'] == lb_name
-									acl["dependencies"] << {
-										"type" => "loadbalancer",
-										"name" => lb_name
-									}
-								end
+							acl["dependencies"] << {
+								"type" => "loadbalancer",
+								"name" => lb_name,
+								"phase" => "groom"
 							}
 						}
 					end
 				}
 				acl['dependencies'].uniq!
+				acl
 			}
 
+			firewall_rules.each { |acl|
+				acl = resolveFirewall.call(acl)
+			}
 
 			loadbalancers.each { |lb|
 				lb['region'] = config['region'] if lb['region'].nil?
@@ -1006,6 +1042,17 @@ module MU
 							ok = false
 						end
 					end
+				end
+				if !lb['ingress_rules'].nil?
+					fwname = lb['name']
+					if firewall_rule_names.include?(fwname)
+						fwname = "serverlb#{fwname}"
+					end
+					firewall_rule_names << fwname
+					acl = {"name"=> fwname, "rules" => lb['ingress_rules'], "vpc" => lb['vpc'], "region" => lb['region']}
+					firewall_rules << resolveFirewall.call(acl)
+					lb["add_firewall_rules"] = [] if lb["add_firewall_rules"].nil?
+					lb["add_firewall_rules"] << { "rule_name" => fwname }
 				end
 				if !lb["add_firewall_rules"].nil?
 					lb["add_firewall_rules"].each { |acl_include|
@@ -1135,17 +1182,16 @@ module MU
 						end
 					end
 				end
-				if pool['ingress_rules'] != nil
-					pool['ingress_rules'].each {|rule|
-						if rule['port'].nil? and rule['port_range'].nil? and rule['proto'] != "icmp"
-							MU.log "Non-ICMP ingress rules must specify a port or port range", MU::ERR
-							ok = false
-						end
-						if (rule['hosts'].nil? or rule['hosts'].size == 0) and (rule['sgs'].nil? or rule['sgs'].size == 0) and (rule['lbs'].nil? or rule['lbs'].size == 0)
-							MU.log "Ingress/egress rules must specify hosts, security groups, or load balancers to which to grant access", MU::ERR
-							ok = false
-						end
-					}
+				if !pool['ingress_rules'].nil?
+					fwname = pool['name']
+					if firewall_rule_names.include?(fwname)
+						fwname = "serverpool#{fwname}"
+					end
+					firewall_rule_names << fwname
+					acl = {"name"=> fwname, "rules" => pool['ingress_rules'], "vpc" => pool['vpc'], "region" => pool['region']}
+					firewall_rules << resolveFirewall.call(acl)
+					pool["add_firewall_rules"] = [] if pool["add_firewall_rules"].nil?
+					pool["add_firewall_rules"] << { "rule_name" => fwname }
 				end
 				pool["dependencies"].uniq!
 				if !pool["add_firewall_rules"].nil?
@@ -1349,17 +1395,16 @@ module MU
 				server['vault_access'] << { "vault" => "splunk", "item" => "admin_user" }
 				ok = false if !check_vault_refs(server)
 
-				if server['ingress_rules'] != nil
-					server['ingress_rules'].each {|rule|
-						if rule['port'].nil? and rule['port_range'].nil? and rule['proto'] != "icmp"
-							MU.log "Non-ICMP ingress rules must specify a port or port range", MU::ERR
-							ok = false
-						end
-						if (rule['hosts'].nil? or rule['hosts'].size == 0) and (rule['sgs'].nil? or rule['sgs'].size == 0) and (rule['lbs'].nil? or rule['lbs'].size == 0)
-							MU.log "Ingress/egress rules must specify hosts, security groups, or load balancers to which to grant access", MU::ERR
-							ok = false
-						end
-					}
+				if !server['ingress_rules'].nil?
+					fwname = server['name']
+					if firewall_rule_names.include?(fwname)
+						fwname = "server#{fwname}"
+					end
+					firewall_rule_names << fwname
+					acl = {"name"=> fwname, "rules" => server['ingress_rules'], "vpc" => server['vpc'], "region" => server['region'] }
+					firewall_rules << resolveFirewall.call(acl)
+					server["add_firewall_rules"] = [] if server["add_firewall_rules"].nil?
+					server["add_firewall_rules"] << { "rule_name" => fwname }
 				end
 
 				if server["collection"] != nil
@@ -1432,6 +1477,7 @@ module MU
 				server["dependencies"].uniq!
 			}
 
+			config['firewall_rules'] = firewall_rules
 			ok = false if !MU::Config.check_dependencies(config)
 
 # TODO enforce uniqueness of resource names

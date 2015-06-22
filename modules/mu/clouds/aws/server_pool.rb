@@ -188,7 +188,6 @@ class Cloud
 					)
 					asg_options[:vpc_zone_identifier] = subnet_ids.join(",")
 
-					sgs << MU::Cloud::AWS::FirewallRule.createEc2SG(@config['name']+vpc_id.upcase, @config['ingress_rules'], description: "AutoScale Group #{pool_name}", vpc_id: vpc_id)
 					if nat_instance != nil
 						sgs << MU::Cloud::AWS::FirewallRule.setAdminSG(
 							vpc_id: vpc_id,

@@ -69,10 +69,6 @@ module MU
 				if @config["vpc"] != nil
 					vpc_id, subnet_ids = MU::Cloud::AWS::VPC.parseVPC(@config["vpc"])
 					sgs << MU::Cloud::AWS::FirewallRule.setAdminSG(vpc_id: vpc_id)
-					lb_sg = MU::Cloud::AWS::FirewallRule.createEc2SG(@config['name'], @config['ingress_rules'], description: "Load Balancer #{@mu_name}", vpc_id: vpc_id)
-					fw_conf = MU::Cloud::AWS::FirewallRule.createConfigFromInlineRules(@config['name'], @config['ingress_rules'], @config['vpc'])
-					lb_sg = MU::Cloud::FirewallRule.new(mommacat: @deploy, kitten_cfg: fw_conf)
-					sgs << lb_sg
 					lb_options[:subnets] = subnet_ids
 					lb_options[:security_groups] = sgs
 					@config['sgs'] = sgs

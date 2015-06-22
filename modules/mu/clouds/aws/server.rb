@@ -409,21 +409,8 @@ class Cloud
 					end
 
 					instance_descriptor[:subnet_id] = subnet_id
-					node_sg = MU::Cloud::AWS::FirewallRule.createEc2SG(
-							@config["name"].upcase,
-							@config["ingress_rules"],
-							description: "SG holes for #{node}",
-							vpc_id: vpc_id,
-							region: @config['region']
-					)
 				else
 					admin_sg = MU::Cloud::AWS::FirewallRule.setAdminSG(region: @config['region'])
-					node_sg = MU::Cloud::AWS::FirewallRule.createEc2SG(
-							@config["name"].upcase,
-							@config["ingress_rules"],
-							description: "SG holes for #{node}",
-							region: @config['region']
-					)
 				end
 				security_groups = Array.new
 				security_groups << admin_sg

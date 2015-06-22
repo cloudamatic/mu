@@ -77,9 +77,13 @@ end
 
 MU.log "Loading #{config}", html: $opts[:web], details: $opts
 
-stack_conf = MU::Config.new(config, $opts[:skipinitialupdates], params: params).config
+conf_engine = MU::Config.new(config, $opts[:skipinitialupdates], params: params)
+stack_conf = conf_engine.config
 
-pp stack_conf if $opts[:dryrun] or $opts[:verbose]
+if $opts[:dryrun] or $opts[:verbose]
+	pp stack_conf
+	conf_engine.visualizeDependencies
+end
 
 if $opts[:dryrun]
 	MU.log("#{$config} loaded successfully.", html: $opts[:web])

@@ -14,6 +14,7 @@
 
 source "https://rubygems.org"
 gem 'yard'
+gem 'ruby-graphviz', "~> 1.2.2"
 gem 'chef', "~> 12.3.0"
 gem "aws-sdk-core", "~> 2.0.44"
 gem 'simple-password-gen'
