@@ -21,13 +21,16 @@ module MU
 
 			@deploy = nil
 			@config = nil
+			attr_reader :mu_name
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::vpcs}
 			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name)
 				@deploy = mommacat
 				@config = kitten_cfg
-				MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
+				if !mu_name.nil?
+					@mu_name = mu_name
+				end
 			end
 
 			# Called automatically by {MU::Deploy#createResources}
