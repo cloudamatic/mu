@@ -30,9 +30,10 @@ execute "Add Nagios cmd FIFO to SELinux allow list" do
 	notifies :reload, "service[apache2]", :delayed
 end
 
+
 # Workaround for minor Nagios (cookbook?) bug. It looks for this at the wrong
 # URL at the moment, so copy it where it's actually looking.
-if File.exists?("usr/lib/cgi-bin/nagios/statusjson.cgi")
+if File.exists?("/usr/lib/cgi-bin/nagios/statusjson.cgi")
 	remote_file "/usr/lib/cgi-bin/statusjson.cgi" do
 		source "file:///usr/lib/cgi-bin/nagios/statusjson.cgi"
 		mode 0755
@@ -40,6 +41,22 @@ if File.exists?("usr/lib/cgi-bin/nagios/statusjson.cgi")
 		group "nagios"
 	end
 end
+
+# ... the nagios cookbook is bafflingly inconsistent
+directory "/usr/lib/cgi-bin/nagios" do
+	mode 0755
+	owner "root"
+	group "nagios"
+end
+Dir.glob("/usr/lib/cgi-bin/*.cgi").each { |script|
+	shortname = script.gsub(/.*?\/([^\/]+)$/, '\1')
+	remote_file "/usr/lib/cgi-bin/nagios/#{shortname}" do
+		source "file:///#{script}"
+		mode 0755
+		owner "root"
+		group "nagios"
+	end
+}
 
 ["/usr/lib/nagios", "/etc/nagios", "/etc/nagios3", "/var/log/nagios", "/var/www/html/docs"].each { |dir|
 	if Dir.exist?(dir)
