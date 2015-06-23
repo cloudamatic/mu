@@ -209,7 +209,7 @@ module MU
 			end
 
 			if asg_options[:vpc_zone_identifier] == nil
-				sgs << MU::FirewallRule.createEc2SG(@pool['name'], nil, description: "AutoScale Group #{pool_name}")
+				sgs << MU::FirewallRule.createEc2SG(@pool['name'], @pool['ingress_rules'], description: "AutoScale Group #{pool_name}")
 				sgs << MU::FirewallRule.setAdminSG
 			end
 
