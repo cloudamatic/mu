@@ -923,11 +923,11 @@ module MU
 							MU.log "#{db_id} is not in a removable state after several retries, giving up. #{e.inspect}", MU::ERR
 							return
 						end
-					rescue AWS::RDS::Errors::DBSnapshotAlreadyExists
+					rescue Aws::RDS::Errors::DBSnapshotAlreadyExists
 						MU.rds(region).delete_db_instance(db_instance_identifier: db_id,
 																		skip_final_snapshot: true)
 						MU.log "Snapshot of #{db_id} already exists", MU::WARN
-					rescue AWS::RDS::Errors::SnapshotQuotaExceeded
+					rescue Aws::RDS::Errors::SnapshotQuotaExceeded
 						MU.rds(region).delete_db_instance(db_instance_identifier: db_id,
 																		skip_final_snapshot: true)
 						MU.log "Snapshot quota exceeded while deleting #{db_id}", MU::ERR
