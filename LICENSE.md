@@ -4,7 +4,7 @@ solely looking at this software or this software has been integrated into any
 derivative work, the party accessing,  reading, or utilizing the software
 directly or indirectly agrees to abide by the following license. 
 
-The eGlobalTech Cloud Automation Platform is the Copyright (c) 2014 of Global
+The eGlobalTech Cloudamatic Platform is the Copyright (c) 2014, 2015 of Global
 Tech Inc. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
