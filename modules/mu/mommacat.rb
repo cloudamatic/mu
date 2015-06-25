@@ -1137,7 +1137,7 @@ MESSAGE_END
 				Net::SMTP.start('localhost') do |smtp|
 					smtp.send_message message, "root@localhost", to
 				end
-			rescue Net::SMTPFatalError => e
+			rescue Net::SMTPFatalError, Errno::ECONNREFUSED => e
 				MU.log e.inspect, MU::WARN
 			end
 		end
