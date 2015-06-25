@@ -1047,7 +1047,8 @@ set_knife_rb()
 	fi
 	mkdir -p $chef_cache
 	cat /dev/null > $chef_cache/knife.rb
-
+# XXX verify_api_cert ssl_verify_mode shouldn't have to be set like this. 
+# don't release with this grotesquely insecure configuration.
 	cat > $chef_cache/knife.rb.tmp.$$ << EOF
 log_level                :info
 log_location             STDOUT
@@ -1061,6 +1062,8 @@ syntax_check_cache_path  '$chef_cache/syntax_check_cache'
 cookbook_path [ '$chef_cache/cookbooks', '$chef_cache/site_cookbooks' ]
 knife[:vault_mode] = 'client'
 knife[:vault_admins] = ['$knife_user']
+verify_api_cert    false
+ssl_verify_mode    :verify_none
 EOF
 	mv -f $chef_cache/knife.rb.tmp.$$ $chef_cache/knife.rb
 }
