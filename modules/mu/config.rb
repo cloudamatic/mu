@@ -507,6 +507,12 @@ module MU
 		def self.processVPCReference(vpc_block, parent_name, is_sibling: false, sibling_vpcs: [], dflt_region: MU.curRegion)
 			ok = true
 
+				begin
+			muVPC = MU::Cloud.loadCloudType(vpc_block['cloud'], "VPC")
+				rescue MU::MuError => e
+				MU.log e.inspect, MU::ERR, details: vpc_block
+				puts caller[0]
+				end
 			muVPC = MU::Cloud.loadCloudType(vpc_block['cloud'], "VPC")
 
 			if vpc_block['region'].nil? or 
@@ -776,11 +782,14 @@ module MU
 			name = "admin"
 			if vpc
 				processVPCReference(vpc, "vpc '#{vpc['name']}'", dflt_region: region)
+				realvpc = {}
+				realvpc['vpc_id'] = vpc['vpc_id']
+				realvpc['vpc_name'] = vpc['vpc_name']
 			end
-			if !vpc['vpc_id'].nil?
-				name = name + "-" + vpc['vpc_id']
-			elsif !vpc['vpc_name'].nil?
-				name = name + "-vpc-" + vpc['vpc_name']
+			if !realvpc['vpc_id'].nil?
+				name = name + "-" + realvpc['vpc_id']
+			elsif !realvpc['vpc_name'].nil?
+				name = name + "-" + realvpc['vpc_name']
 			end
 
 			hosts.uniq!
@@ -803,7 +812,7 @@ module MU
 				}
 			]
 
-			acl = { "name"=> name, "rules" => rules, "vpc" => vpc, "region" => region }
+			acl = { "name"=> name, "rules" => rules, "vpc" => realvpc, "region" => region }
 			pp acl
 			return acl
 		end
@@ -1058,7 +1067,6 @@ module MU
 				if !lb["vpc"].nil?
 					lb['vpc']['region'] = lb['region'] if lb['vpc']['region'].nil?
 					lb['vpc']['cloud'] = lb['cloud'] if lb['vpc']['cloud'].nil?
-					genAdminFirewallRuleset(vpc: lb['vpc'], region: lb['region'])
 					# If we're using a VPC in this deploy, set it as a dependency
 					if !lb["vpc"]["vpc_name"].nil? and vpc_names.include?(lb["vpc"]["vpc_name"]) and lb["vpc"]['deploy_id'].nil?
 						lb["dependencies"] << {
@@ -1120,6 +1128,7 @@ module MU
 						end
 					end
 				}
+				genAdminFirewallRuleset(vpc: lb['vpc'], region: lb['region'])
 			}
 
 			collections.each { |stack|
@@ -1191,7 +1200,6 @@ module MU
 						end
 					}
 				end
-				genAdminFirewallRuleset(vpc: pool['vpc'], region: pool['region'])
 				if !pool["vpc"].nil?
 					pool['vpc']['region'] = pool['region'] if pool['vpc']['region'].nil?
 					pool["vpc"]['cloud'] = pool['cloud'] if pool["vpc"]['cloud'].nil?
@@ -1246,6 +1254,7 @@ module MU
 						end
 					}
 				end
+				genAdminFirewallRuleset(vpc: pool['vpc'], region: pool['region'])
 			}
 
 			databases.each { |db|
@@ -1379,7 +1388,6 @@ module MU
 						end
 					}
 				end
-				genAdminFirewallRuleset(vpc: db['vpc'], region: db['region'])
 
 				if !db["vpc"].nil?
 					if db["vpc"]["subnet_pref"] and !db["vpc"]["subnets"]
@@ -1396,7 +1404,7 @@ module MU
 					end
 
 					db['vpc']['region'] = db['region'] if db['vpc']['region'].nil?
-					db["vpc"]['cloud'] = db['cloud'] if db['cloud'].nil?
+					db["vpc"]['cloud'] = db['cloud'] if db["vpc"]['cloud'].nil?
 					# If we're using a VPC in this deploy, set it as a dependency
 					if !db["vpc"]["vpc_name"].nil? and vpc_names.include?(db["vpc"]["vpc_name"]) and db["vpc"]["deploy_id"].nil?
 						db["dependencies"] << {
@@ -1420,7 +1428,7 @@ module MU
 						end
 					end
 				end
-
+				genAdminFirewallRuleset(vpc: db['vpc'], region: db['region'])
 			}
 
 			servers.each { |server|
@@ -1467,7 +1475,6 @@ module MU
 						"name" => server["collection"]
 					}
 				end
-				genAdminFirewallRuleset(vpc: server['vpc'], region: server['region'])
 
 				if !server["vpc"].nil?
 					server['vpc']['region'] = server['region'] if server['vpc']['region'].nil?
@@ -1529,6 +1536,7 @@ module MU
 						end
 					}
 				end
+				genAdminFirewallRuleset(vpc: server['vpc'], region: server['region'])
 				server["dependencies"].uniq!
 			}
 
