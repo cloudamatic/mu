@@ -768,6 +768,46 @@ module MU
 			return ok
 		end
 
+		@admin_fwrs = []
+		def self.genAdminFirewallRuleset(vpc: nil, admin_ip: nil, region: nil)
+			admin_ip = MU.mu_public_ip if admin_ip.nil?
+			hosts = Array.new
+			hosts << "#{admin_ip}/32" if admin_ip
+			name = "admin"
+			if vpc
+				processVPCReference(vpc, "vpc '#{vpc['name']}'", dflt_region: region)
+			end
+			if !vpc['vpc_id'].nil?
+				name = name + "-" + vpc['vpc_id']
+			elsif !vpc['vpc_name'].nil?
+				name = name + "-vpc-" + vpc['vpc_name']
+			end
+
+			hosts.uniq!
+
+			rules = [
+				{
+					"proto" => "tcp",
+					"port_range" => "0-65535",
+					"hosts" => hosts
+				},
+				{
+					"proto" => "udp",
+					"port_range" => "0-65535",
+					"hosts" => hosts
+				},
+				{
+					"proto" => "icmp",
+					"port_range" => "-1",
+					"hosts" => hosts
+				}
+			]
+
+			acl = { "name"=> name, "rules" => rules, "vpc" => vpc, "region" => region }
+			pp acl
+			return acl
+		end
+
 		def self.validate(config)
 			ok = true
 			begin
@@ -1018,6 +1058,7 @@ module MU
 				if !lb["vpc"].nil?
 					lb['vpc']['region'] = lb['region'] if lb['vpc']['region'].nil?
 					lb['vpc']['cloud'] = lb['cloud'] if lb['vpc']['cloud'].nil?
+					genAdminFirewallRuleset(vpc: lb['vpc'], region: lb['region'])
 					# If we're using a VPC in this deploy, set it as a dependency
 					if !lb["vpc"]["vpc_name"].nil? and vpc_names.include?(lb["vpc"]["vpc_name"]) and lb["vpc"]['deploy_id'].nil?
 						lb["dependencies"] << {
@@ -1150,6 +1191,7 @@ module MU
 						end
 					}
 				end
+				genAdminFirewallRuleset(vpc: pool['vpc'], region: pool['region'])
 				if !pool["vpc"].nil?
 					pool['vpc']['region'] = pool['region'] if pool['vpc']['region'].nil?
 					pool["vpc"]['cloud'] = pool['cloud'] if pool["vpc"]['cloud'].nil?
@@ -1337,6 +1379,7 @@ module MU
 						end
 					}
 				end
+				genAdminFirewallRuleset(vpc: db['vpc'], region: db['region'])
 
 				if !db["vpc"].nil?
 					if db["vpc"]["subnet_pref"] and !db["vpc"]["subnets"]
@@ -1424,6 +1467,7 @@ module MU
 						"name" => server["collection"]
 					}
 				end
+				genAdminFirewallRuleset(vpc: server['vpc'], region: server['region'])
 
 				if !server["vpc"].nil?
 					server['vpc']['region'] = server['region'] if server['vpc']['region'].nil?
