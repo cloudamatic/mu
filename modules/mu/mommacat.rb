@@ -1060,7 +1060,7 @@ end
 		# @param server [MU::Cloud::Server]: The name of the node.
 		# @param names [Array<String>]: Other names that we'd like this host to be known by for SSH purposes
 		# @param ssh_dir [String]: The configuration directory of the SSH config to emit.
-		# @param ssh_config [String]: A specific SSH configuration file to write entries into.
+		# @param ssh_conf [String]: A specific SSH configuration file to write entries into.
 		# @param ssh_owner [String]: The preferred owner of the SSH configuration files.
 		# @param timeout [Integer]: An alternate timeout value for connections to this server.
 		# @return [void]

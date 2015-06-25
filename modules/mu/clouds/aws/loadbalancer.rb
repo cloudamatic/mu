@@ -282,7 +282,7 @@ module MU
 
 			# Register a Server node with an existing LoadBalancer.
 			#
-			# @param @mu_name [String] The name of a LoadBalancer with which to register.
+			# @param lb_name [String] The name of a LoadBalancer with which to register.
 			# @param instance_id [String] A node to register.
 			# @param region [String]: The cloud provider region
 			def self.registerInstance(lb_name, instance_id, region: MU.curRegion)
@@ -344,7 +344,6 @@ module MU
 				return nil if !name and !dns_name and !id
 				id = mu_name if id.nil? and !mu_name.nil?
 				deploydata = MU::MommaCat.getResourceDeployStruct(MU::Cloud::LoadBalancer.cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name)
-MU.log "Fishing for ELB name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}, region: #{region}, dns_name: #{dns_name}", MU::WARN, details: deploydata
 				if !deploydata.nil?
 					if deploydata.is_a?(Array)
 						if !dns_name.nil? or !id.nil?

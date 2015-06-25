@@ -414,7 +414,6 @@ class Cloud
 				end
 				security_groups = Array.new
 				security_groups << admin_sg
-				security_groups << node_sg
 				if !@config["add_firewall_rules"].nil?
 					@config["add_firewall_rules"].each { |acl|
 						sg = MU::Cloud::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"], region: @config['region'])
@@ -774,9 +773,9 @@ class Cloud
 					end
 				elsif !@config['static_ip'].nil?
 					if !@config['static_ip']['ip'].nil?
-						public_ip = associateElasticIp(instance.instance_id, classic: true, ip: @config['static_ip']['ip'])
+						public_ip = MU::Cloud::AWS::Server.associateElasticIp(instance.instance_id, classic: true, ip: @config['static_ip']['ip'])
 					elsif !has_elastic_ip
-						public_ip = associateElasticIp(instance.instance_id, classic: true)
+						public_ip = MU::Cloud::AWS::Server.associateElasticIp(instance.instance_id, classic: true)
 					end
 				end
 
