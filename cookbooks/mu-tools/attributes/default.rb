@@ -111,17 +111,17 @@ default[:application_attributes][:home][:mount_device] = "/dev/xvdn"
 default[:application_attributes][:home][:label] = "#{disk_name_str} /home"
 default[:application_attributes][:home][:mount_directory] = "/home"
 
-default[:application_attributes][:var]["volume_size_gb"] = 2
+default[:application_attributes][:var]["volume_size_gb"] = 7
 default[:application_attributes][:var][:mount_device] = "/dev/xvdo"
 default[:application_attributes][:var][:label] = "#{disk_name_str} /var"
 default[:application_attributes][:var][:mount_directory] = "/var"
 
-default[:application_attributes][:var_log]["volume_size_gb"] = 5
+default[:application_attributes][:var_log]["volume_size_gb"] = 7
 default[:application_attributes][:var_log][:mount_device] = "/dev/xvdp"
 default[:application_attributes][:var_log][:label] = "#{disk_name_str} /var/log"
 default[:application_attributes][:var_log][:mount_directory] = "/var/log"
 
-default[:application_attributes][:var_log_audit]["volume_size_gb"] = 1
+default[:application_attributes][:var_log_audit]["volume_size_gb"] = 2
 default[:application_attributes][:var_log_audit][:mount_device] = "/dev/xvdq"
 default[:application_attributes][:var_log_audit][:label] = "#{disk_name_str} /var/log/audit"
 default[:application_attributes][:var_log_audit][:mount_directory] = "/var/log/audit"
