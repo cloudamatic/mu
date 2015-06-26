@@ -471,7 +471,7 @@ module MU
 				end
 				MU::MommaCat.unlock(instance.instance_id+"-create")
 
-				if !kitten.postBoot
+				if !kitten.postBoot(instance.instance_id)
 					MU.log "#{mu_name} is already being groomed, skipping", MU::NOTICE
 					MU::MommaCat.unlockAll
 					puts "------------------------------"
@@ -743,6 +743,34 @@ return
 
 		end
 
+		# Return the resource object of another member of this deployment
+		# @param type [String,Symbol]: The type of resource
+		# @param name [String]: The name of the resource as defined in its 'name' Basket of Kittens field
+		# @param mu_name [String]: The fully-resolved and deployed name of the resource
+		# @return [MU::Cloud]
+		def findLitterMate(type: nil, name: nil, mu_name: nil)
+			MU::Cloud.resource_types.each_pair { |name, cloudclass|
+				if name == type.to_sym or
+						cloudclass[:cfg_name] == type or
+						cloudclass[:cfg_plural] == type
+					type = cloudclass[:cfg_plural]
+					break
+				end
+			}
+			if !@kittens.has_key?(type)
+				raise MuError, "No sibling resources of type #{type}"
+			end
+			@kittens[type].each { |sib_mu_name, obj|
+				if !mu_name.nil? and mu_name == sib_mu_name
+					return obj
+				end
+				if !name.nil? and obj.config['name'] == name
+					return obj
+				end
+			}
+			return nil
+		end
+
 		# Add or remove a resource's metadata to this deployment's structure and
 		# flush it to disk.
 		# @param res_type [String]: The type of resource (e.g. *server*, *database*).
@@ -879,9 +907,6 @@ return
 					}
 				end
 #			end
-if !@deploy_cache.nil? and @deploy_cache.has_key?(deploy_id) and @deploy_cache[deploy_id].has_key?("data") and @deploy_cache[deploy_id]['data'].has_key?(type) and type == "loadbalancers"
-MU.log "fetching '#{type}' '#{name}' '#{deploy_id}' '#{mu_name}' for #{caller[0]}", MU::NOTICE, details: @deploy_cache[deploy_id]['data'][type]
-end
 			if deploy_id.nil?
 				matches = []
 				@deploy_cache.each_key { |deploy|
@@ -1392,6 +1417,8 @@ MESSAGE_END
 		# to client nodes.
 		# @return [void]
 		def self.syncMonitoringConfig(blocking = true)
+			# XXX
+			return
 			return if Etc.getpwuid(Process.uid).name != "root" or MU.chef_user != "mu"
 			parent_thread_id = Thread.current.object_id
 			nagios_threads = []

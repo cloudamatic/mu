@@ -20,7 +20,7 @@ module MU
 		class MuCloudResourceNotImplemented < StandardError; end
 
 		generic_class_methods = [:find, :cleanup]
-		generic_instance_methods = [:create, :notify, :mu_name]
+		generic_instance_methods = [:create, :notify, :mu_name, :cloud_id]
 
 		# Initialize empty classes for each of these. We'll fill them with code
 		# later; we're doing this here because otherwise the parser yells about
@@ -55,7 +55,7 @@ module MU
 				:deps_wait_on_my_creation => true,
 				:waits_on_parent_completion => false,
 				:class => generic_class_methods,
-				:instance => generic_instance_methods + [:groom]
+				:instance => generic_instance_methods + [:groom, :allowHost]
 			},
 			:DNSZone => {
 				:has_multiples => false,
@@ -75,7 +75,7 @@ module MU
 				:deps_wait_on_my_creation => true,
 				:waits_on_parent_completion => false,
 				:class => generic_class_methods,
-				:instance => generic_instance_methods + [:groom]
+				:instance => generic_instance_methods + [:groom, :addRule]
 			},
 			:LoadBalancer => {
 				:has_multiples => false,
@@ -95,7 +95,7 @@ module MU
 				:deps_wait_on_my_creation => false,
 				:waits_on_parent_completion => false,
 				:class => generic_class_methods,
-				:instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP]
+				:instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP, :getWindowsAdminPassword]
 			},
 			:ServerPool => {
 				:has_multiples => false,
@@ -247,6 +247,9 @@ module MU
 				# @param update_cache [Boolean]: Ignore cached data if we have any, instead reconsituting from original sources.
 				# @return [Array<Hash>]: mu_name, config, deploydata, cloud_descriptor
 				def describe(cloud_id: nil, update_cache: false)
+					if cloud_id.nil? and !@cloudobj.nil?
+						cloud_id = @cloudobj.cloud_id
+					end
 					res_type = self.class.cfg_plural
 					res_name = @config['name']
 					if !@deploy.deployment.nil? and !@deploy.deployment[res_type].nil? and !@deploy.deployment[res_type][res_name].nil?
@@ -259,6 +262,9 @@ module MU
 						@deploydata = deploydata[@mu_name]
 					else
 						@deploydata = deploydata
+					end
+					if cloud_id.nil? and @deploydata.is_a?(Hash) and @deploydata.has_key?('cloud_id')
+						cloud_id = @deploydata['cloud_id']
 					end
 					if update_cache or @cloud_desc.nil?
 						@cloud_desc, junk = self.class.find(name: res_name, deploy_id: @deploy.deploy_id, region: @config['region'], id: cloud_id, mu_name: @mu_name)
@@ -398,11 +404,22 @@ module MU
 				# Wrap the instance methods that this cloud resource type has to
 				# implement.
 				MU::Cloud.resource_types[name.to_sym][:instance].each { |method|
-					define_method method do
+					define_method method do |*args|
 						MU.log "Invoking #{@cloudobj}.#{method}", MU::DEBUG
-						retval = @cloudobj.method(method).call
+						retval = nil
+						if !args.nil? and args.size > 0
+							retval = @cloudobj.method(method).call(args.first)
+						else
+							retval = @cloudobj.method(method).call
+						end
 						if method == :create or method == :groom or method == :postBoot
 							@cloudobj.method(:notify).call
+							deploydata = @cloudobj.method(:notify).call
+							deploydata['cloud_id'] = @cloudobj.cloud_id
+							@deploy.notify(self.class.cfg_plural, @config['name'], deploydata)
+						elsif method == :notify
+							retval['cloud_id'] = @cloudobj.cloud_id
+							@deploy.notify(self.class.cfg_plural, @config['name'], retval)
 						end
 						retval
 					end

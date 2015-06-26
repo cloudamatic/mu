@@ -25,6 +25,7 @@ module MU
 			@admin_sg_semaphore = Mutex.new
 
 			attr_reader :mu_name
+			attr_reader :cloud_id
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::firewall_rules}
@@ -58,7 +59,7 @@ module MU
 				elsif !@config['vpc'].nil?
 					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::Cloud::AWS::VPC.parseVPC(@config['vpc'])
 				end
-				@config['sg_id'] = MU::Cloud::AWS::FirewallRule.createEc2SG(
+				@cloud_id = MU::Cloud::AWS::FirewallRule.createEc2SG(
 						@config['name'],
 						[],
 						vpc_id: vpc_id,
@@ -77,7 +78,7 @@ module MU
 			# Called by {MU::Deploy#createResources}
 			def groom
 				MU::Cloud::AWS::FirewallRule.setRules(
-						@config['sg_id'],
+						@cloud_id,
 						@config['rules'],
 						add_to_self: @config['self-referencing'],
 						region: @config['region']
@@ -87,31 +88,26 @@ module MU
 			# Log metadata about this ruleset to the currently running deployment
 			def notify
 				sg_data = MU.structToHash(
-						MU::Cloud::FirewallRule.find(sg_id: @config['sg_id'], region: @config['region'])
+						MU::Cloud::FirewallRule.find(sg_id: @cloud_id, region: @config['region'])
 					)
-				sg_data["group_id"] = @config['sg_id']
-				@deploy.notify("firewall_rules", @config['name'], sg_data)
+				sg_data["group_id"] = @cloud_id
+				return sg_data
 			end
 
 			# Insert a rule into an existing security group.
 			#
-			# @param sg_id [String]: The cloud provider's identifier for the group to modify.
 			# @param hosts [Array<String>]: An array of CIDR network addresses to which this rule will apply.
 			# @param proto [String]: One of "tcp," "udp," or "icmp"
 			# @param port [Integer]: A port number. Only valid with udp or tcp.
 			# @param egress [Boolean]: Whether this is an egress ruleset, instead of ingress.
-			# @param sg_name [String]: A human-readable name for this resource.
 			# @param port_range [String]: A port range descriptor (e.g. 0-65535). Only valid with udp or tcp.
-			# @param region [String]: The cloud provider region
 			# @return [void]
-			def self.addRule(sg_id, hosts,
-																					proto: proto = "tcp",
-																					port: port = nil,
-																					egress: egress = false,
-																					sg_name: sg_name = "",
-																					port_range: port_range = "0-65535",
-																					region: MU.curRegion
-																				)
+			def addRule(hosts,
+									proto: proto = "tcp",
+									port: port = nil,
+									egress: egress = false,
+									port_range: port_range = "0-65535"
+								)
 				rule = Hash.new
 				rule["proto"] = proto
 				if hosts.is_a?(String)
@@ -125,22 +121,22 @@ module MU
 				else
 					rule["port_range"] = port_range
 				end
-				ec2_rule = MU::Cloud::AWS::FirewallRule.convertToEc2([rule], region: region)
+				ec2_rule = MU::Cloud::AWS::FirewallRule.convertToEc2([rule], region: @config['region'])
 
 				begin
 					if egress
-						MU::Cloud::AWS.ec2(region).authorize_security_group_egress(
-							group_id: sg_id,
+						MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_egress(
+							group_id: @cloud_id,
 							ip_permissions: ec2_rule
 						)
 					else
-						MU::Cloud::AWS.ec2(region).authorize_security_group_ingress(
-							group_id: sg_id,
+						MU::Cloud::AWS.(@config['region']).authorize_security_group_ingress(
+							group_id: @cloud_id,
 							ip_permissions: ec2_rule
 						)
 					end
 				rescue Aws::EC2::Errors::InvalidPermissionDuplicate => e
-					MU.log "Attempt to add duplicate rule to #{sg_id}", MU::DEBUG, details: ec2_rule
+					MU.log "Attempt to add duplicate rule to #{@cloud_id}", MU::DEBUG, details: ec2_rule
 				end
 			end
 			
@@ -213,7 +209,7 @@ module MU
 			# @param name [String]: This parameter will attempt first to find a MU resource with the given name string in the current deployment, and failing that will attempt to find a resource with a matching Name tag.
 			# @param region [String]: The cloud provider region
 			# @return [OpenStruct]: The cloud provider's full description of this resource.
-			def self.find(sg_id: sg_id = nil, name: name = nil, region: MU.curRegion)
+			def self.find(sg_id: nil, name: nil, deploy_id: nil, region: MU.curRegion)
 				return nil if !sg_id and !name
 				MU.log "find invoked with sg_id: #{sg_id}, name: #{name}, region: #{region}", MU::DEBUG, details: caller
 
@@ -469,6 +465,7 @@ module MU
 						
 						if !rule['lbs'].nil?
 							ec2_rule[:ip_ranges] = Array.new
+# XXX this is a dopey place for this
 							rule['lbs'].each { |lb_name|
 								lb = MU::Cloud::LoadBalancer.find(name: lb_name, deploy_id: MU.deploy_id, region: region)
 								if lb.nil?
@@ -523,37 +520,6 @@ module MU
 					}
 				end
 				return ec2_rules
-			end
-
-			# Generate a ruleset allowing blanket access. Mostly we use this to let
-			# our child nodes get in touch with our MU/Chef server.
-			# @param hosts [Array]: A list of CIDR addresses of hosts to allow.	
-			# @return [Array<Hash>]: A set of rule structures derived from our hosts parameter.
-			def self.stdAdminRules(hosts = [])
-				if !hosts.is_a?(Array)
-					raise MuError, "Got a non-array in stdAdminRules (should be list of CIDRs)"
-				end
-				hosts.uniq!
-
-				rules = [
-					{
-						"proto" => "tcp",
-						"port_range" => "0-65535",
-						"hosts" => hosts
-					},
-					{
-						"proto" => "udp",
-						"port_range" => "0-65535",
-						"hosts" => hosts
-					},
-					{
-						"proto" => "icmp",
-						"port_range" => "-1",
-						"hosts" => hosts
-					}
-				]
-
-				return rules
 			end
 
 		end #class

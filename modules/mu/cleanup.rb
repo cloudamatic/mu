@@ -84,7 +84,7 @@ module MU
 				@regionthreads << Thread.new {
 					MU.dupGlobals(parent_thread_id)
 					MU.setVar("curRegion", r)
-					MU.log "Checking for cloud resources in #{r}", MU::NOTICE
+					MU.log "Checking for cloud resources from #{MU.deploy_id} in #{r}", MU::NOTICE
 
 					# We do these in an order that unrolls dependent resources sensibly,
 					# and we hit :Collection twice because AWS CloudFormation sometimes

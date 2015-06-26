@@ -24,6 +24,7 @@ module MU
 			@deploy = nil
 			@db = nil
 			attr_reader :mu_name
+			attr_reader :cloud_id
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::databases}
@@ -44,10 +45,12 @@ module MU
 					database = MU::Cloud::AWS::Database.getDatabaseById(@db['identifier'])
 
 					raise MuError, "No such database #{@db['identifier']} exists" if database.nil?
+					@cloud_id = @db['db_id']
 
-					return @db['db_id']
+					return @cloud_id
 				else
-					return createDb
+					@cloud_id = createDb
+					return @cloud_id
 				end
 			end
 
@@ -582,14 +585,12 @@ module MU
 
 			# Permit a host to connect to the given database instance.
 			# @param cidr [String]: The CIDR-formatted IP address or block to allow access.
-			# @param db_id [String]: The cloud provider's identifier for this database.
-			# @param region [String]: The cloud provider region
 			# @return [void]
-			def self.allowHost(cidr, db_id, region: MU.curRegion)
-				database = MU::Cloud::AWS::Database.getDatabaseById(db_id, region: region)
-				# resp = MU::Cloud::AWS.rds(region).describe_db_instances(db_instance_identifier: db_id)
-				# database = resp.data.db_instances.first
+			def allowHost(cidr)
+# XXX
 
+				# If we're an old, Classic-style database with RDS-specific
+				# authorization, punch holes in that.
 				if !database.db_security_groups.empty?
 					database.db_security_groups.each { |rds_sg|
 						begin
@@ -603,6 +604,8 @@ module MU
 					}
 				end
 
+				# Otherwise go get our generic EC2 ruleset and punch a hole in it
+				# XXX
 				if !database.vpc_security_groups.empty?
 					database.vpc_security_groups.each { |vpc_sg|
 						MU::Cloud::AWS::FirewallRule.addRule(vpc_sg.vpc_security_group_id, [cidr], region: region)

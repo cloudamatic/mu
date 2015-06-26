@@ -21,6 +21,7 @@ class Cloud
 			@deploy = nil
 			@config = nil
 			attr_reader :mu_name
+			attr_reader :cloud_id
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::server_pools}
@@ -251,7 +252,7 @@ class Cloud
 				if zones_to_try != nil and zones_to_try.size < @config["zones"].size
 					zones_to_try.each { |zone|
 						begin
-							MU::Cloud::AWS.autoscaleg.update_auto_scaling_group(
+							MU::Cloud::AWS.autoscale.update_auto_scaling_group(
 								auto_scaling_group_name: pool_name,
 								availability_zones: [zone]
 							)
@@ -261,6 +262,8 @@ class Cloud
 					}
 
 				end
+
+				@cloud_id = pool_name
 
 				if @config["scaling_policies"] and @config["scaling_policies"].size > 0
 					@config["scaling_policies"].each { |policy|
@@ -338,6 +341,7 @@ class Cloud
 			# Servers, and that's what we care about having in deployment
 			# descriptors. Should we log some stuff though?
 			def notify
+				return {}
 			end
 
 			# placeholder
@@ -358,11 +362,11 @@ class Cloud
 				resp = MU::Cloud::AWS.autoscale(region).describe_tags(
 					filters: filters
 				)
+
 				return nil if resp.tags.nil? or resp.tags.size == 0
 
 				maybe_purge = []
 				no_purge = []
-
 				resp.data.tags.each { |asg|
 					if asg.resource_type != "auto-scaling-group"
 						no_purge << asg.resource_id
@@ -370,10 +374,11 @@ class Cloud
 					if asg.key == "MU-MASTER-IP" and asg.value != MU.mu_public_ip and !ignoremaster
 						no_purge << asg.resource_id
 					end
-					if (asg.key == "MU-ID" or asg.key == "CAP-ID") and asg.value == MU.deploy_id
+					if asg.key == "MU-ID" and asg.value == MU.deploy_id
 						maybe_purge << asg.resource_id
 					end
 				}
+
 
 				maybe_purge.each { |resource_id|
 					next if no_purge.include?(resource_id)

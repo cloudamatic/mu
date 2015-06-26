@@ -21,6 +21,7 @@ module MU
 			@deploy = nil
 			@lb = nil
 			attr_reader :mu_name
+			attr_reader :cloud_id
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::loadbalancers}
@@ -57,12 +58,12 @@ module MU
 				sgs = Array.new
 				if !@config["add_firewall_rules"].nil?
 					@config["add_firewall_rules"].each { |acl|
-						sg = MU::Cloud::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"])
+						sg = @deploy.findLitterMate(type: "firewall_rule", name: acl["rule_name"])
 						if sg.nil?
-							MU.log "Couldn't find dependent security group #{acl} for Load Balancer #{@config['name']}", MU::ERR, details: MU.mommacat.deployment['firewall_rules']
+							MU.log "Couldn't find dependent security group #{acl["rule_name"]} for Load Balancer #{@config['name']}", MU::ERR, details: @deploy.kittens['firewall_rules']
 							raise MuError, "deploy failure"
 						end
-						sgs << sg.group_id
+						sgs << sg.cloud_id
 					}
 				end
 
@@ -115,6 +116,7 @@ module MU
 					end
 				end
 				MU.log "Load Balancer is at #{resp.dns_name}"
+				@cloud_id = @mu_name
 
 				parent_thread_id = Thread.current.object_id
 				dnsthread = Thread.new {
@@ -276,7 +278,7 @@ module MU
 					"awsname" => @mu_name,
 					"dns" => cloud_descriptor.dns_name
 				}
-				@deploy.notify("loadbalancers", @config["name"], deploy_struct)
+				return deploy_struct
 			end
 
 			# Register a Server node with an existing LoadBalancer.

@@ -532,6 +532,8 @@ module MU
 						tag_value: tag_value,
 						region: vpc_block["region"]
 					)
+				rescue Exception => e
+					raise MuError, e.inspect, e.backtrace
 				ensure
 					if !ext_vpc
 						MU.log "Couldn't resolve VPC reference to a live VPC in #{parent_name}", MU::ERR, details: vpc_block
@@ -781,9 +783,13 @@ module MU
 		# a VPC for our purposes.
 		# @param vpc [Hash]: A VPC reference as defined in our config schema. This originates with the calling resource, so we'll peel out just what we need (a name or cloud id of a VPC).
 		# @param admin_ip [String]: Optional string of an extra IP address to allow blanket access to the calling resource.
+		# @param cloud [String]: The parent resource's cloud plugin identifier
 		# @param region [String]: Cloud provider region, if applicable.
 		# @return [Hash<String>]: A dependency description that the calling resource can then add to itself.
-		def self.genAdminFirewallRuleset(vpc: nil, admin_ip: nil, region: nil)
+		def self.genAdminFirewallRuleset(vpc: nil, admin_ip: nil, region: nil, cloud: nil)
+			if !cloud or !region
+				raise MuError, "Cannot call genAdminFirewallRuleset without specifying the parent's region and cloud provider"
+			end
 			hosts = Array.new
 			hosts << "#{MU.my_public_ip}/32" if MU.my_public_ip
 			hosts << "#{MU.my_private_ip}/32" if MU.my_private_ip
@@ -823,7 +829,7 @@ module MU
 				}
 			]
 
-			acl = { "name"=> name, "rules" => rules, "vpc" => realvpc, "region" => region }
+			acl = { "name"=> name, "rules" => rules, "vpc" => realvpc, "region" => region, "cloud" => cloud }
 			@admin_firewall_rules << acl if !@admin_firewall_rules.include?(acl)
 			return { "type" => "firewall_rule", "name" => name }
 		end
@@ -1024,7 +1030,7 @@ module MU
 					acl['vpc']['vpc_name'] = acl["vpc_name"] if !acl["vpc_name"].nil?
 				end
 				if !acl["vpc"].nil?
-					acl['vpc']['region'] = config['region'] if acl['vpc']['region'].nil?
+					acl['vpc']['region'] = acl['region'] if acl['vpc']['region'].nil?
 					acl["vpc"]['cloud'] = acl['cloud'] if acl["vpc"]['cloud'].nil?
 					# If we're using a VPC in this deploy, set it as a dependency
 					if !acl["vpc"]["vpc_name"].nil? and vpc_names.include?(acl["vpc"]["vpc_name"]) and acl["vpc"]['deploy_id'].nil?
@@ -1104,10 +1110,7 @@ module MU
 					end
 				end
 				if !lb['ingress_rules'].nil?
-					fwname = lb['name']
-					if firewall_rule_names.include?(fwname)
-						fwname = "serverlb#{fwname}"
-					end
+					fwname = "lb"+lb['name']
 					firewall_rule_names << fwname
 					acl = {"name"=> fwname, "rules" => lb['ingress_rules'], "vpc" => lb['vpc'], "region" => lb['region']}
 					firewall_rules << resolveFirewall.call(acl)
@@ -1139,7 +1142,7 @@ module MU
 						end
 					end
 				}
-				lb['dependencies'] << genAdminFirewallRuleset(vpc: lb['vpc'], region: lb['region'])
+				lb['dependencies'] << genAdminFirewallRuleset(vpc: lb['vpc'], region: lb['region'], cloud: lb['cloud'])
 			}
 
 			collections.each { |stack|
@@ -1244,10 +1247,7 @@ module MU
 					end
 				end
 				if !pool['ingress_rules'].nil?
-					fwname = pool['name']
-					if firewall_rule_names.include?(fwname)
-						fwname = "serverpool#{fwname}"
-					end
+					fwname = "pool"+pool['name']
 					firewall_rule_names << fwname
 					acl = {"name"=> fwname, "rules" => pool['ingress_rules'], "vpc" => pool['vpc'], "region" => pool['region']}
 					firewall_rules << resolveFirewall.call(acl)
@@ -1265,7 +1265,7 @@ module MU
 						end
 					}
 				end
-				pool['dependencies'] << genAdminFirewallRuleset(vpc: pool['vpc'], region: pool['region'])
+				pool['dependencies'] << genAdminFirewallRuleset(vpc: pool['vpc'], region: pool['region'], cloud: pool['cloud'])
 			}
 
 			databases.each { |db|
@@ -1379,10 +1379,7 @@ module MU
 				end
 
 				if !db['ingress_rules'].nil?
-					fwname = db['name']
-					if firewall_rule_names.include?(fwname)
-						fwname = "serverdb#{fwname}"
-					end
+					fwname = "db"+db['name']
 					firewall_rule_names << fwname
 					acl = {"name"=> fwname, "rules" => db['ingress_rules'], "vpc" => db['vpc'], "region" => db['region']}
 					firewall_rules << resolveFirewall.call(acl)
@@ -1439,7 +1436,7 @@ module MU
 						end
 					end
 				end
-				db['dependencies'] << genAdminFirewallRuleset(vpc: db['vpc'], region: db['region'])
+				db['dependencies'] << genAdminFirewallRuleset(vpc: db['vpc'], region: db['region'], cloud: db['cloud'])
 			}
 
 			servers.each { |server|
@@ -1469,10 +1466,7 @@ module MU
 				ok = false if !check_vault_refs(server)
 
 				if !server['ingress_rules'].nil?
-					fwname = server['name']
-					if firewall_rule_names.include?(fwname)
-						fwname = "server#{fwname}"
-					end
+					fwname = "server"+server['name']
 					firewall_rule_names << fwname
 					acl = {"name"=> fwname, "rules" => server['ingress_rules'], "vpc" => server['vpc'], "region" => server['region'] }
 					firewall_rules << resolveFirewall.call(acl)
@@ -1547,7 +1541,7 @@ module MU
 						end
 					}
 				end
-				server['dependencies'] << genAdminFirewallRuleset(vpc: server['vpc'], region: server['region'])
+				server['dependencies'] << genAdminFirewallRuleset(vpc: server['vpc'], region: server['region'], cloud: server['cloud'])
 				server["dependencies"].uniq!
 			}
 
@@ -1687,6 +1681,7 @@ module MU
 					"vpc_id" => { "type" => "string" },
 					"vpc_name" => { "type" => "string" },
 					"region" => @region_primitive,
+					"cloud" => @cloud_primitive,
 					"tag" => {
 						"type" => "string",
 						"description" => "Identify this VPC by a tag (key=value). Note that this tag must not match more than one resource.",
@@ -2082,6 +2077,7 @@ module MU
 			"description" => "Create network-level access controls.",
 			"properties" => {
 				"name" => { "type" => "string" },
+				"cloud" => @cloud_primitive,
 				"vpc_name" => {
 					"type" => "string",
 					"description" => "Backwards-compatibility means of identifying a VPC; see {MU::Config::BasketofKittens::firewall_rules::vpc}"

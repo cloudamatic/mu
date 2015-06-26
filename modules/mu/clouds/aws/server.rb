@@ -87,6 +87,7 @@ class Cloud
 			attr_reader :mu_name
 			attr_reader :config
 			attr_reader :deploy
+			attr_reader :cloud_id
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::servers}
@@ -218,8 +219,8 @@ class Cloud
 					done = false
 					instance = createEc2Instance
 
-					@config["instance_id"] = instance.instance_id
-					MU.mommacat.saveSecret(@config["instance_id"], @config['instance_secret'], "instance_secret")
+					@cloud_id = instance.instance_id
+					MU.mommacat.saveSecret(@cloud_id, @config['instance_secret'], "instance_secret")
 					@config.delete("instance_secret")
 
 					if !@config['async_groom']
@@ -403,7 +404,7 @@ class Cloud
 					MU.log "Deploying #{node} into VPC #{vpc_id} Subnet #{subnet_id}"
 
 					if !@config["vpc"]["nat_host_name"].nil? or !@config["vpc"]["nat_host_id"].nil?
-						admin_sg = MU::Cloud::AWS::Server.punchAdminNAT(@config, node)
+						punchAdminNAT
 					end
 
 					instance_descriptor[:subnet_id] = subnet_id
@@ -476,7 +477,7 @@ class Cloud
 			# Figure out what's needed to SSH into this server.
 			# @return [Array<String>]: nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name, alternate_names
 			def getSSHConfig
-				node, config, deploydata, instance = describe(cloud_id: @config['instance_id'])
+				node, config, deploydata, instance = describe(cloud_id: @cloud_id)
 # XXX add some awesome alternate names from metadata and make sure they end
 # up in MU::MommaCat's ssh config wangling
 				ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
@@ -579,9 +580,13 @@ class Cloud
 			
 			# Apply tags, bootstrap our configuration management, and other
 			# administravia for a new instance.
-			def postBoot
-				node, config, deploydata, instance = describe(cloud_id: @config['instance_id'])
-
+			def postBoot(instance_id = nil)
+				if !instance_id.nil?
+					@cloud_id = instance_id
+				end
+				node, config, deploydata, instance = describe(cloud_id: @cloud_id)
+				raise MuError, "Couldn't find instance id of #{@mu_name}" if !instance
+				@cloud_id = instance.instance_id
 				return false if !MU::MommaCat.lock(instance.instance_id+"-orchestrate", true)
 				return false if !MU::MommaCat.lock(instance.instance_id+"-groom", true)
 
@@ -619,7 +624,7 @@ class Cloud
 					end
 				end while instance.nil? or (instance.state.name != "running" and retries < 30)
 
-				admin_sg = MU::Cloud::AWS::Server.punchAdminNAT(@config, node)
+				punchAdminNAT
 
 				# Unless we're planning on associating a different IP later, set up a 
 				# DNS entry for this thing and let it sync in the background. We'll come
@@ -663,7 +668,7 @@ class Cloud
 					ssh_key_name = @deploy.ssh_key_name
 
 					if @config['use_cloud_provider_windows_password']
-						win_admin_password = MU::Cloud::Server.getWindowsAdminPassword(instance_id: instance.instance_id, identity_file: "#{ssh_keydir}/#{@deploy.ssh_key_name}", node_name: @mu_name, region: @config['region'])
+						win_admin_password = getWindowsAdminPassword
 					elsif @config['windows_auth_vault'] && !@config['windows_auth_vault'].empty?
 						if @config["windows_auth_vault"].has_key?("password_field")
 							win_admin_password = ChefVault::Item.load(
@@ -671,7 +676,7 @@ class Cloud
 								@config['windows_auth_vault']['item']
 							)[@config["windows_auth_vault"]["password_field"]]
 						else
-							win_admin_password = MU::Cloud::Server.getWindowsAdminPassword(instance_id: instance.instance_id, identity_file: "#{ssh_keydir}/#{@deploy.ssh_key_name}", node_name: @mu_name, region: @config['region'])
+							win_admin_password = getWindowsAdminPassword
 						end
 
 						if @config["windows_auth_vault"].has_key?("ec2config_password_field")
@@ -1014,6 +1019,7 @@ class Cloud
 				matches = []
 				name_matches.each { |server|
 					next if server.nil?
+					next if !server.is_a?(Hash)
 					next if server['instance_id'].nil?
 					response = MU::Cloud::AWS.ec2(region).describe_instances(
 						instance_ids: [server['instance_id']],
@@ -1055,11 +1061,11 @@ class Cloud
 			# Return a description of this resource appropriate for deployment
 			# metadata. Arguments reflect the return values of the MU::Cloud::[Resource].describe method
 			def notify
-				node, config, deploydata, instance = describe(cloud_id: @config['instance_id'], update_cache: true)
+				node, config, deploydata, instance = describe(cloud_id: @cloud_id, update_cache: true)
 				deploydata = Hash.new if deploydata.nil?
 
 				if instance.nil?
-					raise MuError, "Failed to load instance metadata for #{@config['mu_name']}/#{@config['instance_id']}"
+					raise MuError, "Failed to load instance metadata for #{@config['mu_name']}/#{@cloud_id}"
 				end
 
 				interfaces = Array.new
@@ -1080,7 +1086,7 @@ class Cloud
 					"nodename" => @config['mu_name'],
 					"run_list" => @config['run_list'],
 					"iam_role" => @config['iam_role'],
-					"instance_id" => @config['instance_id'],
+					"instance_id" => @cloud_id,
 					"private_dns_name" => instance.private_dns_name,
 					"public_dns_name" => instance.public_dns_name,
 					"private_ip_address" => instance.private_ip_address,
@@ -1100,7 +1106,6 @@ class Cloud
 					deploydata[node].merge!(@config['chef_data'])
 				end
 				deploydata[node]["region"] = @config['region'] if !@config['region'].nil?
-				@deploy.notify("servers", @config['name'], deploydata)
 				MU::MommaCat.nameKitten(self)
 
 				return deploydata
@@ -1108,33 +1113,32 @@ class Cloud
 
 			# If the specified server is in a VPC, and has a NAT, make sure we'll
 			# be letting ssh traffic in from said NAT.
-			# @param server [Hash]: The MU resource descriptor for this instance.
-			# @param node [String]: The full Mu name for this instance.
-			def self.punchAdminNAT(server, node)
-				if !server["vpc"].nil?
-					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::Cloud::AWS::VPC.parseVPC(server['vpc'])
+			def punchAdminNAT
+				if !@config["vpc"].nil?
+					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::Cloud::AWS::VPC.parseVPC(@config['vpc'])
 					if !nat_host_name.nil?
 						nat_instance, mu_name = MU::Cloud::Server.find(
-							id: server["vpc"]["nat_host_id"],
-							name: server["vpc"]["nat_host_name"],
-							region: server['region']
+							id: @config["vpc"]["nat_host_id"],
+							name: @config["vpc"]["nat_host_name"],
+							region: @config['region']
 						)
 						if nat_instance.nil?
-							raise MuError, "#{node} (#{MU.deploy_id}) is configured to use #{server['vpc']} but I can't find a running instance matching nat_host_id or nat_host_name"
+							raise MuError, "#{node} (#{MU.deploy_id}) is configured to use #{@config['vpc']} but I can't find a running instance matching nat_host_id or nat_host_name"
 						end
-						MU.log "Adding administrative holes for NAT host #{nat_instance["private_ip_address"]} to #{node}", MU::DEBUG
-						MU.log "punchAdminNAT is a NOOP right now! Find a better way to do this.", MU::ERR
+						MU.log "Adding administrative holes for NAT host #{nat_instance["private_ip_address"]} to #{@mu_name}", MU::DEBUG
+						@deploy.kittens['firewall_rules'].each_pair { |name, acl|
+							if name.match(/^admin-/) # XXX KLUUUDGE, get the exact name
+								acl.addRule([nat_instance["private_ip_address"]], proto: "tcp")
+								acl.addRule([nat_instance["private_ip_address"]], proto: "udp")
+							end
+						}
 					end
 				end
 			end
 
 			# Called automatically by {MU::Deploy#createResources}
 			def groom
-				if @config["instance_id"].nil?
-					MU.log "MU::Cloud::AWS::Server.groom was called without an instance id", MU::ERR
-					raise MuError, "MU::Cloud::AWS::Server.groom was called without an instance id"
-				end
-				MU::MommaCat.lock(@config["instance_id"]+"-groom")
+				MU::MommaCat.lock(@cloud_id+"-groom")
 
 				node = @config['mu_name']
 
@@ -1143,10 +1147,10 @@ class Cloud
 					raise MuError, "MU::Cloud::AWS::Server.groom was called without a mu_name"
 				end
 
-				admin_sg = MU::Cloud::AWS::Server.punchAdminNAT(@config, node)
+				punchAdminNAT
 
-				instance, mu_name = MU::Cloud::Server.find(id: @config["instance_id"], region: @config['region'])
-				MU::Cloud::AWS::Server.tagVolumes(@config["instance_id"])
+				instance, mu_name = MU::Cloud::Server.find(id: @cloud_id, region: @config['region'])
+				MU::Cloud::AWS::Server.tagVolumes(@cloud_id)
 			        
 			  # If we depend on database instances, make sure those database instances'
 			  # security groups will let us in.
@@ -1178,7 +1182,7 @@ class Cloud
 							region: @config['region']
 						)
 						raise MuError, "I need a LoadBalancer named #{lb['concurrent_load_balancer']}" if lb_res.nil?
-						MU::Cloud::AWS::LoadBalancer.registerInstance(lb_res.load_balancer_name, @config["instance_id"], region: @config['region'])
+						MU::Cloud::AWS::LoadBalancer.registerInstance(lb_res.load_balancer_name, @cloud_id, region: @config['region'])
 					}
 				end
 
@@ -1220,20 +1224,20 @@ class Cloud
 						end
 					end
 					ami_id = MU::Cloud::AWS::Server.createImage(name: name = @config['name'],
-																instance_id: instance_id = @config['instance_id'],
+																instance_id: instance_id = @cloud_id,
 																storage: @config['storage'],
 																exclude_storage: @config['image_exclude_storage'],
 																region: @config['region'])
 					if @config['image_then_destroy']
 						waitForAMI(ami_id, region: @config['region'])
 						MU.log "AMI ready, removing source node #{node}"
-						MU::Cloud::AWS::Server.terminateInstance(id: @config["instance_id"])
+						MU::Cloud::AWS::Server.terminateInstance(id: @cloud_id)
 						%x{#{MU::Config.knife} node delete -y #{node}};
 						return
 					end
 				end
 
-				MU::MommaCat.unlock(@config["instance_id"]+"-groom")
+				MU::MommaCat.unlock(@cloud_id+"-groom")
 			end
 
 			# Return the IP address that we, the Mu server, should be using to access
@@ -1241,7 +1245,7 @@ class Cloud
 			# bastion hosts that may be in the path, see getSSHConfig if that's what
 			# you need.
 			def canonicalIP
-				node, config, deploydata, instance = describe(cloud_id: @config['instance_id'])
+				node, config, deploydata, instance = describe(cloud_id: @cloud_id)
 				if instance.nil?
 					raise MuError, "#{@mu_name}: Can't find my own cloud resource"
 				end
@@ -1395,23 +1399,32 @@ class Cloud
 			# Retrieves the Cloud provider's randomly generated Windows password
 			# Will only work on stock Amazon Windows AMIs or custom AMIs that where created with Administrator Password set to random in EC2Config
 			# return [String]: A password string.
-			def self.getWindowsAdminPassword(instance_id: nil, identity_file: nil, node_name: nil, region: MU.curRegion)
-				MU::Cloud::AWS.ec2(region).wait_until(:password_data_available, instance_id: instance_id) do |waiter|
+			def getWindowsAdminPassword
+				if @cloud_id.nil?
+					node, config, deploydata, instance = describe
+					@cloud_id = instance.instance_id
+				end
+				ssh_keydir = "#{Etc.getpwuid(Process.uid).dir}/.ssh"
+        ssh_key_name = @deploy.ssh_key_name
+
+# XXX this is throwing a nutty about the instance_id parameter being missing, but it's not. What?
+MU.log "MU::Cloud::AWS.ec2(#{@config['region']}).wait_until(:password_data_available, instance_id: #{@cloud_id})", MU::WARN
+				MU::Cloud::AWS.ec2(@config['region']).wait_until(:password_data_available, instance_id: @cloud_id) do |waiter|
 					waiter.max_attempts = 60
 					waiter.before_attempt do |attempts|
-						MU.log "Waiting for Windows password data to be available for node #{node_name}", MU::NOTICE if attempts % 5 == 0
+						MU.log "Waiting for Windows password data to be available for node #{@mu_name}", MU::NOTICE if attempts % 5 == 0
 					end
 					# waiter.before_wait do |attempts, resp|
 						# throw :success if resp.data.password_data and !resp.data.password_data.empty?
 					# end
 				end
 
-				resp = MU::Cloud::AWS.ec2(region).get_password_data(instance_id: instance_id)
+				resp = MU::Cloud::AWS.ec2(@config['region']).get_password_data(instance_id: @cloud_id)
 				encrypted_password = resp.password_data
 
 				# Note: This is already implemented in the decrypt_windows_password API call
 				decoded = Base64.decode64(encrypted_password)
-				pem_bytes = File.open(identity_file, 'rb') { |f| f.read }
+				pem_bytes = File.open("#{ssh_keydir}/#{ssh_key_name}", 'rb') { |f| f.read }
 				private_key = OpenSSL::PKey::RSA.new(pem_bytes)
 				decrypted_password = private_key.private_decrypt(decoded)
 				return decrypted_password
