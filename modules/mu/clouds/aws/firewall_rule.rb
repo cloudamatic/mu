@@ -206,60 +206,6 @@ module MU
 				return secgroup.group_id
 			end
 
-			# Allow our MU server into our new child instances. Security Groups are
-			# VPC specific (and Classic is its own thing), so maintain one for each.
-			# @param vpc_id [String]: The cloud provider identifier for the VPC for this security group, if applicable.
-			# @param add_admin_ip [String]: Insert an additional host to allow, along with the MU master.
-			# @param region [String]: The cloud provider region
-			def self.setAdminSG(vpc_id: vpc_id, add_admin_ip: add_admin_ip, region: MU.curRegion)
-				@admin_sg_semaphore.synchronize {
-					if @admin_sgs['#CLASSIC'] and !vpc_id
-						extant_sg = @admin_sgs['#CLASSIC']
-					elsif @admin_sgs[vpc_id] and vpc_id
-						extant_sg = @admin_sgs[vpc_id]
-					end
-
-					# If we're hiding behind a NAT or something, make sure our external
-					# IP makes it into the admin SG.
-					add_admin_ip = MU.mu_public_ip if add_admin_ip.nil?
-		
-					hosts = Array.new
-					hosts << "#{add_admin_ip}/32" if add_admin_ip
-					if vpc_id.nil?
-						admin_sg_name = MU.deploy_id + "-ADMIN"
-					else
-						admin_sg_name = MU.deploy_id + "-ADMIN-" + vpc_id.upcase
-					end
-		
-					if extant_sg != nil
-						if add_admin_ip != nil
-							MU.log "Modifying EC2 Security Group #{admin_sg_name} to add #{add_admin_ip}"
-							ec2_rules = MU::Cloud::AWS::FirewallRule.convertToEc2(MU::Cloud::AWS::FirewallRule.stdAdminRules(hosts), region: region)
-
-							MU::Cloud::AWS::FirewallRule.addRule(extant_sg, hosts, proto: "tcp", port_range: "0-65535", region: region)
-							MU::Cloud::AWS::FirewallRule.addRule(extant_sg, hosts, proto: "udp", port_range: "0-65535", region: region)
-							MU::Cloud::AWS::FirewallRule.addRule(extant_sg, hosts, proto: "icmp", port_range: "-1", region: region)
-						end
-		
-						return extant_sg
-					end
-		
-					# Create this group from scratch if it wasn't already around
-					hosts << "#{MU.my_private_ip}/32"
-					hosts << "#{MU.my_public_ip}/32" if MU.my_public_ip != nil
-					rules = MU::Cloud::AWS::FirewallRule.stdAdminRules(hosts)
-		
-					sg = createEc2SG("ADMIN", rules, description: "Administrative security group for deploy #{MU.deploy_id}. Lets our Mu Master in.", vpc_id: vpc_id, region: region)
-					if vpc_id != nil
-						@admin_sgs[vpc_id] = sg
-					else
-						@admin_sgs['#CLASSIC'] = sg
-					end
-
-					return sg
-				}
-			end
-
 			# Locate an existing Firewall Rule and return the cloud provider's
 			# complete description thereof.
 			#

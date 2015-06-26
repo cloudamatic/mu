@@ -404,16 +404,11 @@ class Cloud
 
 					if !@config["vpc"]["nat_host_name"].nil? or !@config["vpc"]["nat_host_id"].nil?
 						admin_sg = MU::Cloud::AWS::Server.punchAdminNAT(@config, node)
-					else
-						admin_sg = MU::Cloud::AWS::FirewallRule.setAdminSG(vpc_id: vpc_id, region: @config['region'])
 					end
 
 					instance_descriptor[:subnet_id] = subnet_id
-				else
-					admin_sg = MU::Cloud::AWS::FirewallRule.setAdminSG(region: @config['region'])
 				end
 				security_groups = Array.new
-				security_groups << admin_sg
 				if !@config["add_firewall_rules"].nil?
 					@config["add_firewall_rules"].each { |acl|
 						sg = MU::Cloud::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"], region: @config['region'])
@@ -1128,11 +1123,7 @@ class Cloud
 							raise MuError, "#{node} (#{MU.deploy_id}) is configured to use #{server['vpc']} but I can't find a running instance matching nat_host_id or nat_host_name"
 						end
 						MU.log "Adding administrative holes for NAT host #{nat_instance["private_ip_address"]} to #{node}", MU::DEBUG
-						return MU::Cloud::AWS::FirewallRule.setAdminSG(
-							vpc_id: vpc_id,
-							add_admin_ip: nat_instance["private_ip_address"],
-							region: server['region']
-						)
+						MU.log "punchAdminNAT is a NOOP right now! Find a better way to do this.", MU::ERR
 					end
 				end
 			end

@@ -23,7 +23,7 @@
 ---
 appname: tiered
 <%
-$azs = listAZs
+$azs = MU::Cloud::AWS.listAZs
 %>
 <% if !$vpc_deploy_id then %>
 vpcs:

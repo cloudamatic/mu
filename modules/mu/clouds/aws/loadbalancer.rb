@@ -68,7 +68,6 @@ module MU
 
 				if @config["vpc"] != nil
 					vpc_id, subnet_ids = MU::Cloud::AWS::VPC.parseVPC(@config["vpc"])
-					sgs << MU::Cloud::AWS::FirewallRule.setAdminSG(vpc_id: vpc_id)
 					lb_options[:subnets] = subnet_ids
 					lb_options[:security_groups] = sgs
 					@config['sgs'] = sgs

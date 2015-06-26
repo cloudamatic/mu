@@ -366,15 +366,7 @@ module MU
 
 						if nat_instance.nil?
 							MU.log "#{@db['name']} is configured to use #{@db['vpc']} but I can't find a running instance matching nat_host_id or nat_host_name", MU::ERR
-						else
-							admin_sg = MU::Cloud::AWS::FirewallRule.setAdminSG(
-								vpc_id: vpc_id,
-								add_admin_ip: nat_instance["private_ip_address"],
-								region: @db['region']
-							)
 						end
-					else
-						admin_sg = MU::Cloud::AWS::FirewallRule.setAdminSG(vpc_id: vpc_id, region: @db['region'])
 					end
 
 					# Create VPC security group and add to config 

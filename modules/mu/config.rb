@@ -774,22 +774,33 @@ module MU
 			return ok
 		end
 
-		@admin_fwrs = []
+		@admin_firewall_rules = []
+		# Generate configuration for the general-pursose ADMIN firewall rulesets
+		# (security groups in AWS). Note that these are unique to regions and
+		# individual VPCs (as well as Classic, which is just a degenerate case of
+		# a VPC for our purposes.
+		# @param vpc [Hash]: A VPC reference as defined in our config schema. This originates with the calling resource, so we'll peel out just what we need (a name or cloud id of a VPC).
+		# @param admin_ip [String]: Optional string of an extra IP address to allow blanket access to the calling resource.
+		# @param region [String]: Cloud provider region, if applicable.
+		# @return [Hash<String>]: A dependency description that the calling resource can then add to itself.
 		def self.genAdminFirewallRuleset(vpc: nil, admin_ip: nil, region: nil)
-			admin_ip = MU.mu_public_ip if admin_ip.nil?
 			hosts = Array.new
+			hosts << "#{MU.my_public_ip}/32" if MU.my_public_ip
+			hosts << "#{MU.my_private_ip}/32" if MU.my_private_ip
+			hosts << "#{MU.mu_public_ip}/32" if MU.mu_public_ip
 			hosts << "#{admin_ip}/32" if admin_ip
+			hosts.uniq!
 			name = "admin"
+			realvpc = nil
 			if vpc
-				processVPCReference(vpc, "vpc '#{vpc['name']}'", dflt_region: region)
 				realvpc = {}
 				realvpc['vpc_id'] = vpc['vpc_id']
 				realvpc['vpc_name'] = vpc['vpc_name']
-			end
-			if !realvpc['vpc_id'].nil?
-				name = name + "-" + realvpc['vpc_id']
-			elsif !realvpc['vpc_name'].nil?
-				name = name + "-" + realvpc['vpc_name']
+				if !realvpc['vpc_id'].nil?
+					name = name + "-" + realvpc['vpc_id']
+				elsif !realvpc['vpc_name'].nil?
+					name = name + "-" + realvpc['vpc_name']
+				end
 			end
 
 			hosts.uniq!
@@ -813,8 +824,8 @@ module MU
 			]
 
 			acl = { "name"=> name, "rules" => rules, "vpc" => realvpc, "region" => region }
-			pp acl
-			return acl
+			@admin_firewall_rules << acl if !@admin_firewall_rules.include?(acl)
+			return { "type" => "firewall_rule", "name" => name }
 		end
 
 		def self.validate(config)
@@ -1128,7 +1139,7 @@ module MU
 						end
 					end
 				}
-				genAdminFirewallRuleset(vpc: lb['vpc'], region: lb['region'])
+				lb['dependencies'] << genAdminFirewallRuleset(vpc: lb['vpc'], region: lb['region'])
 			}
 
 			collections.each { |stack|
@@ -1254,7 +1265,7 @@ module MU
 						end
 					}
 				end
-				genAdminFirewallRuleset(vpc: pool['vpc'], region: pool['region'])
+				pool['dependencies'] << genAdminFirewallRuleset(vpc: pool['vpc'], region: pool['region'])
 			}
 
 			databases.each { |db|
@@ -1428,7 +1439,7 @@ module MU
 						end
 					end
 				end
-				genAdminFirewallRuleset(vpc: db['vpc'], region: db['region'])
+				db['dependencies'] << genAdminFirewallRuleset(vpc: db['vpc'], region: db['region'])
 			}
 
 			servers.each { |server|
@@ -1536,8 +1547,12 @@ module MU
 						end
 					}
 				end
-				genAdminFirewallRuleset(vpc: server['vpc'], region: server['region'])
+				server['dependencies'] << genAdminFirewallRuleset(vpc: server['vpc'], region: server['region'])
 				server["dependencies"].uniq!
+			}
+
+			@admin_firewall_rules.each { |acl|
+				firewall_rules << resolveFirewall.call(acl)
 			}
 
 			config['firewall_rules'] = firewall_rules

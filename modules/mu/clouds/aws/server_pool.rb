@@ -193,19 +193,6 @@ class Cloud
 					)
 					asg_options[:vpc_zone_identifier] = subnet_ids.join(",")
 
-					if nat_instance != nil
-						sgs << MU::Cloud::AWS::FirewallRule.setAdminSG(
-							vpc_id: vpc_id,
-							add_admin_ip: nat_instance["private_ip_address"]
-						)
-					else
-						sgs << MU::Cloud::AWS::FirewallRule.setAdminSG(vpc_id: vpc_id)
-					end
-				end
-
-				if asg_options[:vpc_zone_identifier] == nil
-					sgs << MU::Cloud::AWS::FirewallRule.createEc2SG(@config['name'], nil, description: "AutoScale Group #{pool_name}")
-					sgs << MU::Cloud::AWS::FirewallRule.setAdminSG
 				end
 
 				if !@config["add_firewall_rules"].nil?
