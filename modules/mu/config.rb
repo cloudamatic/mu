@@ -505,15 +505,11 @@ module MU
 		# Pick apart an external VPC reference, validate it, and resolve it and its
 		# various subnets and NAT hosts to live resources.
 		def self.processVPCReference(vpc_block, parent_name, is_sibling: false, sibling_vpcs: [], dflt_region: MU.curRegion)
+			puts vpc_block.ancestors if !vpc_block.is_a?(Hash)
+			if !vpc_block.is_a?(Hash) and vpc_block.kind_of?(MU::Cloud::VPC)
+				return true
+			end
 			ok = true
-
-				begin
-			muVPC = MU::Cloud.loadCloudType(vpc_block['cloud'], "VPC")
-				rescue MU::MuError => e
-				MU.log e.inspect, MU::ERR, details: vpc_block
-				puts caller[0]
-				end
-			muVPC = MU::Cloud.loadCloudType(vpc_block['cloud'], "VPC")
 
 			if vpc_block['region'].nil? or 
 				vpc_block['region'] = dflt_region
@@ -521,9 +517,9 @@ module MU
 
 			# First, dig up the enclosing VPC 
 			tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !vpc_block['tag'].nil?
-
 			if !is_sibling
 				begin
+
 					found = MU::MommaCat.findStray(
 						vpc_block['cloud'],
 						"vpc",
@@ -539,7 +535,7 @@ module MU
 					raise MuError, e.inspect, e.backtrace
 				ensure
 					if !ext_vpc
-						MU.log "Couldn't resolve VPC reference to a single live VPC in #{parent_name}", MU::ERR, details: vpc_block
+						MU.log "Couldn't resolve VPC reference to a unique live VPC in #{parent_name}", MU::ERR, details: vpc_block
 						return false
 					elsif !vpc_block["vpc_id"]
 						MU.log "Resolved VPC to #{ext_vpc.cloud_id} in #{parent_name}", MU::DEBUG, details: vpc_block
@@ -549,77 +545,75 @@ module MU
 
 				# Other !is_sibling logic for external vpcs
 				# Next, the NAT host, if there is one
-				if (vpc_block['nat_host_name'] or vpc_block['nat_host_ip'] or vpc_block['nat_host_tag'])
-					if !vpc_block['nat_host_tag'].nil?
-						nat_tag_key, nat_tag_value = vpc_block['nat_host_tag'].split(/=/, 2)
-					else
-						nat_tag_key, nat_tag_value = [tag_key, tag_value]
-					end
-
-					ext_nat, name = MU::Cloud::Server.find(
-						id: vpc_block["nat_host_id"],
-						name: vpc_block["nat_host_name"],
-						deploy_id: vpc_block["deploy_id"],
-						tag_key: nat_tag_key,
-						tag_value: nat_tag_value,
-						ip: vpc_block['nat_host_ip'],
-						region: vpc_block['region']
-					)
-					if !ext_nat
-						if vpc_block["nat_host_id"].nil? and nat_tag_key.nil? and vpc_block['nat_host_ip'].nil? and vpc_block["deploy_id"].nil?
-							MU.log "Couldn't resolve NAT host to a live instance in #{parent_name}.", MU::DEBUG, details: vpc_block
-						else
-							MU.log "Couldn't resolve NAT host to a live instance in #{parent_name}", MU::ERR, details: vpc_block
-							return false
-						end
-					elsif !vpc_block["nat_host_id"]
-						MU.log "Resolved NAT host to #{ext_nat.instance_id} in #{parent_name}", MU::DEBUG, details: vpc_block
-						vpc_block["nat_host_id"] = ext_nat.instance_id
-						vpc_block.delete('nat_host_name')
-						vpc_block.delete('nat_host_ip')
-						vpc_block.delete('nat_host_tag')
-					end
-				end
+#				if (vpc_block['nat_host_name'] or vpc_block['nat_host_ip'] or vpc_block['nat_host_tag'])
+#					if !vpc_block['nat_host_tag'].nil?
+#						nat_tag_key, nat_tag_value = vpc_block['nat_host_tag'].split(/=/, 2)
+#					else
+#						nat_tag_key, nat_tag_value = [tag_key, tag_value]
+#					end
+#
+#					ext_nat, name = MU::Cloud::Server.find(
+#						id: vpc_block["nat_host_id"],
+#						name: vpc_block["nat_host_name"],
+#						deploy_id: vpc_block["deploy_id"],
+#						tag_key: nat_tag_key,
+#						tag_value: nat_tag_value,
+#						ip: vpc_block['nat_host_ip'],
+#						region: vpc_block['region']
+#					)
+#					if !ext_nat
+#						if vpc_block["nat_host_id"].nil? and nat_tag_key.nil? and vpc_block['nat_host_ip'].nil? and vpc_block["deploy_id"].nil?
+#							MU.log "Couldn't resolve NAT host to a live instance in #{parent_name}.", MU::DEBUG, details: vpc_block
+#						else
+#							MU.log "Couldn't resolve NAT host to a live instance in #{parent_name}", MU::ERR, details: vpc_block
+#							return false
+#						end
+#					elsif !vpc_block["nat_host_id"]
+#						MU.log "Resolved NAT host to #{ext_nat.instance_id} in #{parent_name}", MU::DEBUG, details: vpc_block
+#						vpc_block["nat_host_id"] = ext_nat.instance_id
+#						vpc_block.delete('nat_host_name')
+#						vpc_block.delete('nat_host_ip')
+#						vpc_block.delete('nat_host_tag')
+#					end
+#				end
 
 				# Some resources specify multiple subnets...
-				if vpc_block['subnets'] 
+				if vpc_block.has_key?("subnets")
 					vpc_block['subnets'].each { |subnet|
-						subnet["deploy_id"] = vpc_block["deploy_id"] if !subnet['deploy_id'] and vpc_block["deploy_id"]
-						tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !subnet['tag'].nil?
-						found_subnets = ext_vpc.listSubnets
-						pp found_subnets
-						if !ext_subnet
+						tag_key, tag_value = subnet['tag'].split(/=/, 2) if !subnet['tag'].nil?
+						begin
+						ext_subnet = ext_vpc.getSubnet(cloud_id: subnet['subnet_id'], name: subnet['subnet_name'], tag_key: tag_key, tag_value: tag_value)
+						rescue MuError
+						end
+
+						if ext_subnet.nil?
 							ok = false
-							MU.log "Couldn't resolve subnet reference in #{parent_name} to a live subnet", MU::ERR, details: subnet
+							MU.log "Couldn't resolve subnet reference in #{parent_name}'s list to a live subnet (#{vpc_block})", MU::ERR, details: caller
 						elsif !subnet['subnet_id']
-							subnet['subnet_id'] = ext_subnet.subnet_id
-							subnet.delete('deploy_id')
+							subnet['subnet_id'] = ext_subnet.cloud_id
 							subnet.delete('subnet_name')
 							subnet.delete('tag')
-							MU.log "Resolved subnet reference in #{parent_name} to #{ext_subnet.subnet_id}", MU::DEBUG, details: subnet
+							MU.log "Resolved subnet reference in #{parent_name} to #{ext_subnet.cloud_id}", MU::DEBUG, details: subnet
 						end
 					}
 				# ...others single subnets
-				elsif (vpc_block['subnet_name'] or vpc_block['subnet_id']) 
-					ext_subnet = muVPC.findSubnet(
-						id: vpc_block['subnet_id'],
-						name: vpc_block['subnet_name'],
-						deploy_id: vpc_block["deploy_id"],
-						vpc_id: vpc_block["vpc_id"],
-						tag_key: tag_key,
-						tag_value: tag_value,
-						region: vpc_block['region']
-					)
-					if !ext_subnet
+				elsif vpc_block.has_key?('subnet_name') or vpc_block.has_key?('subnet_id')
+					tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !vpc_block['tag'].nil?
+					begin
+					ext_subnet = ext_vpc.getSubnet(cloud_id: vpc_block['subnet_id'], name: vpc_block['subnet_name'], tag_key: tag_key, tag_value: tag_value)
+					rescue MuError
+					end
+
+					if ext_subnet.nil?
 						ok = false
-						MU.log "Couldn't resolve subnet reference in #{parent_name} to a live subnet", MU::ERR, details: subnet
+						MU.log "Couldn't resolve subnet reference in #{parent_name} to a live subnet", MU::ERR, details: vpc_block
 					elsif !vpc_block['subnet_id']
-						vpc_block['subnet_id'] = ext_subnet.subnet_id
+						vpc_block['subnet_id'] = ext_subnet.cloud_id
 						vpc_block.delete('subnet_name')
-						MU.log "Resolved subnet reference in #{parent_name} to #{ext_subnet.subnet_id}", MU::DEBUG, details: vpc_block
+						MU.log "Resolved subnet reference in #{parent_name} to #{ext_subnet.cloud_id}", MU::DEBUG, details: vpc_block
 					end
 				end
-			end #the !is_sibling processing for vpc's outside the deploy
+			end
 
 			# ...and other times we get to pick - deal with subnet_pref but do not override a subnet name or ID
 			honor_subnet_prefs=true 
@@ -634,80 +628,79 @@ module MU
 			end
 
 
-			if vpc_block['subnet_pref'] and honor_subnet_prefs
-				private_subnets = []
-				public_subnets = []
-				nat_routes = {}
-				subnet_ptr = "subnet_id"
-				if !is_sibling
-					ext_vpc.listSubnets.each { |subnet|
-						if muVPC.isSubnetPrivate?(subnet, region: vpc_block['region'])
-							private_subnets << subnet
-						else
-							public_subnets << subnet
-						end
-					}
-				else
-					sibling_vpcs.each { |ext_vpc|
-						if ext_vpc.config['name'] == vpc_block['vpc_name']
-							subnet_ptr = "subnet_name"
-# XXX not a real thing in non-local VPCs, need a method call
-							ext_vpc.config['subnets'].each { |subnet|
-								if subnet['is_public']
-									public_subnets << subnet['name']
-								else
-									private_subnets << subnet['name']
-									nat_routes[subnet['name']] = [] if nat_routes[subnet['name']].nil?
-									if !subnet['nat_host_name'].nil?
-										nat_routes[subnet['name']] << subnet['nat_host_name']
-									end
-								end
-							}
-							break
-						end
-					}
-				end
-				if public_subnets.size == 0 and private_subnets == 0
-					MU.log "Couldn't find any subnets for #{parent_name}", MU::ERR
-					return false
-				end
-				case vpc_block['subnet_pref']
-				when "public"
-					vpc_block[subnet_ptr] = public_subnets[rand(public_subnets.length)]
-				when "private"
-					vpc_block[subnet_ptr] = private_subnets[rand(private_subnets.length)]
-					if !is_sibling
-						vpc_block['nat_host_id'] = muVPC.getDefaultRoute(vpc_block[subnet_ptr], region: vpc_block['region'])
-					elsif nat_routes.has_key?(vpc_block[subnet_ptr])
-						vpc_block['nat_host_name'] == nat_routes[vpc_block[subnet_ptr]]
-					end
-				when "any"
-					vpc_block[subnet_ptr] = public_subnets.concat(private_subnets)[rand(public_subnets.length+private_subnets.length)]
-				when "all"
-					vpc_block['subnets'] = []
-					public_subnets.each { |subnet|
-						vpc_block['subnets'] << { subnet_ptr => subnet }
-					}
-					private_subnets.each { |subnet|
-					vpc_block['subnets'] << { subnet_ptr => subnet }
-					}
-				when "all_public"
-					vpc_block['subnets'] = []
-					public_subnets.each { |subnet|
-						vpc_block['subnets'] << { subnet_ptr => subnet }
-					}
-				when "all_private"
-					vpc_block['subnets'] = []
-					private_subnets.each { |subnet|
-						vpc_block['subnets'] << { subnet_ptr => subnet }
-						if !is_sibling and vpc_block['nat_host_id'].nil?
-							vpc_block['nat_host_id'] = muVPC.getDefaultRoute(subnet, region: vpc_block['region'])
-						elsif nat_routes.has_key?(subnet) and vpc_block['nat_host_name'].nil?
-							vpc_block['nat_host_name'] == nat_routes[subnet]
-						end
-					}
-				end
-			end
+#			if vpc_block['subnet_pref'] and honor_subnet_prefs
+#				private_subnets = []
+#				public_subnets = []
+#				nat_routes = {}
+#				subnet_ptr = "subnet_id"
+#				if !is_sibling
+#					ext_vpc.subnets.each { |subnet|
+#						if subnet.private?
+#							private_subnets << subnet
+#						else
+#							public_subnets << subnet
+#						end
+#					}
+#				else
+#					sibling_vpcs.each { |ext_vpc|
+#						if ext_vpc.config['name'] == vpc_block['vpc_name']
+#							subnet_ptr = "subnet_name"
+#							ext_vpc['subnets'].each { |subnet|
+#								if subnet['is_public']
+#									public_subnets << subnet['name']
+#								else
+#									private_subnets << subnet['name']
+#									nat_routes[subnet['name']] = [] if nat_routes[subnet['name']].nil?
+#									if !subnet['nat_host_name'].nil?
+#										nat_routes[subnet['name']] << subnet['nat_host_name']
+#									end
+#								end
+#							}
+#							break
+#						end
+#					}
+#				end
+#				if public_subnets.size == 0 and private_subnets == 0
+#					MU.log "Couldn't find any subnets for #{parent_name}", MU::ERR
+#					return false
+#				end
+#				case vpc_block['subnet_pref']
+#				when "public"
+#					vpc_block[subnet_ptr] = public_subnets[rand(public_subnets.length)]
+#				when "private"
+#					vpc_block[subnet_ptr] = private_subnets[rand(private_subnets.length)]
+#					if !is_sibling
+#						vpc_block['nat_host_id'] = MU::Cloud::VPC.getDefaultRoute(vpc_block[subnet_ptr], region: vpc_block['region'])
+#					elsif nat_routes.has_key?(vpc_block[subnet_ptr])
+#						vpc_block['nat_host_name'] == nat_routes[vpc_block[subnet_ptr]]
+#					end
+#				when "any"
+#					vpc_block[subnet_ptr] = public_subnets.concat(private_subnets)[rand(public_subnets.length+private_subnets.length)]
+#				when "all"
+#					vpc_block['subnets'] = []
+#					public_subnets.each { |subnet|
+#						vpc_block['subnets'] << { subnet_ptr => subnet }
+#					}
+#					private_subnets.each { |subnet|
+#					vpc_block['subnets'] << { subnet_ptr => subnet }
+#					}
+#				when "all_public"
+#					vpc_block['subnets'] = []
+#					public_subnets.each { |subnet|
+#						vpc_block['subnets'] << { subnet_ptr => subnet }
+#					}
+#				when "all_private"
+#					vpc_block['subnets'] = []
+#					private_subnets.each { |subnet|
+#						vpc_block['subnets'] << { subnet_ptr => subnet }
+#						if !is_sibling and vpc_block['nat_host_id'].nil?
+#							vpc_block['nat_host_id'] = MU::Cloud::VPC.getDefaultRoute(subnet, region: vpc_block['region'])
+#						elsif nat_routes.has_key?(subnet) and vpc_block['nat_host_name'].nil?
+#							vpc_block['nat_host_name'] == nat_routes[subnet]
+#						end
+#					}
+#				end
+#			end
 
 			if ok
 				vpc_block.delete('deploy_id')
@@ -1039,6 +1032,11 @@ module MU
 					# thing exists, and also fetch its id now so later search routines
 					# don't have to work so hard.
 					else
+						# Drop meaningless subnet references
+						acl['vpc'].delete("subnets")
+						acl['vpc'].delete("subnet_id")
+						acl['vpc'].delete("subnet_name")
+						acl['vpc'].delete("subnet_pref")
 						if !processVPCReference(acl["vpc"], "firewall_rule #{acl['name']}", dflt_region: config['region'])
 							ok = false
 						end

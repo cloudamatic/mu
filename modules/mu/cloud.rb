@@ -114,8 +114,8 @@ module MU
 				:interface => self.const_get("VPC"),
 				:deps_wait_on_my_creation => true,
 				:waits_on_parent_completion => false,
-				:class => generic_class_methods + [:isSubnetPrivate?, :getDefaultRoute],
-				:instance => generic_instance_methods + [:groom, :listSubnets]
+				:class => generic_class_methods,# + [:isSubnetPrivate?, :getDefaultRoute],
+				:instance => generic_instance_methods + [:groom, :subnets, :getSubnet]
 			},
 		}.freeze
 
@@ -225,9 +225,9 @@ module MU
 					@config = kitten_cfg
 					if !@deploy.nil?
 						@deploy_id = @deploy.deploy_id
-						MU.log "Initializing an instance of #{self.class.name} in #{@deploy_id} #{mu_name}", MU::WARN, details: kitten_cfg
+						MU.log "Initializing an instance of #{self.class.name} in #{@deploy_id} #{mu_name}", MU::DEBUG, details: kitten_cfg
 					else
-						MU.log "Initializing an instance of #{self.class.name}", MU::WARN, details: kitten_cfg
+						MU.log "Initializing an instance of #{self.class.name}", MU::DEBUG, details: kitten_cfg
 					end
 					if !kitten_cfg.has_key?("cloud")
 						kitten_cfg['cloud'] = MU::Config.defaultCloud
@@ -236,7 +236,11 @@ module MU
 					@environment = kitten_cfg['environment']
 					@cloudclass = MU::Cloud.loadCloudType(@cloud, self.class.shortname)
 # XXX require subclass to provide attr_readers of @config and @deploy
-					if mu_name.nil?
+					# If we're called with a cloud_id, we're probably putting together
+					# a dummy resource handle for some kind of foreign resource.
+					if !cloud_id.nil?
+						@cloudobj = @cloudclass.new(mommacat: mommacat, cloud_id: cloud_id, kitten_cfg: kitten_cfg)
+					elsif mu_name.nil?
 						@cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg)
 						if !@cloudobj.nil?
 							@deploy.kittens[self.class.cfg_plural] = {} if !@deploy.kittens.has_key?(self.class.cfg_plural)
@@ -430,7 +434,12 @@ module MU
 				# implement.
 				MU::Cloud.resource_types[name.to_sym][:instance].each { |method|
 					define_method method do |*args|
+						return nil if @cloudobj.nil?
 						MU.log "Invoking #{@cloudobj}.#{method}", MU::DEBUG
+						if method != :describe
+							# make sure the stuff this populates is ready
+							@cloudobj.describe
+						end
 						retval = nil
 						if !args.nil? and args.size > 0
 							retval = @cloudobj.method(method).call(args.first)
@@ -440,10 +449,12 @@ module MU
 						if method == :create or method == :groom or method == :postBoot
 							@cloudobj.method(:notify).call
 							deploydata = @cloudobj.method(:notify).call
-							deploydata['cloud_id'] = @cloudobj.cloud_id
+							deploydata['cloud_id'] = @cloudobj.cloud_id if !@cloudobj.cloud_id.nil?
+							deploydata['mu_name'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
 							@deploy.notify(self.class.cfg_plural, @config['name'], deploydata)
 						elsif method == :notify
-							retval['cloud_id'] = @cloudobj.cloud_id
+							retval['cloud_id'] = @cloudobj.cloud_id if !@cloudobj.cloud_id.nil?
+							retval['mu_name'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
 							@deploy.notify(self.class.cfg_plural, @config['name'], retval)
 						end
 						retval

@@ -853,8 +853,10 @@ begin
 							matches << kitten[kitten_cloud_id]
 						# If we don't have a MU::Cloud object, manufacture a dummy one
 						elsif kittens.size == 0
-							name = "#dummy" if !name # XXX needs uniqueness against calling deploy's resources of same type
-							cfg = { name => name, cloud => cloud, region => r }
+							if name.nil? or name.empty?
+								name = "#dummy"
+							end
+							cfg = { "name" => name, "cloud" => cloud, "region" => r }
 							matches << resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: kitten_cloud_id)
 						end
 					}
@@ -863,7 +865,7 @@ begin
 rescue Exception => e
 MU.log e.inspect, MU::ERR, details: e.backtrace
 end
-			pp matches
+#			pp matches
 			matches
 		end
 
@@ -1543,8 +1545,19 @@ MESSAGE_END
 # XXX this is ok
 				end
 				MU.log "Adding current IP list to allow rule for port #{port.to_s} in #{sg_id}", details: allow_ips
+				rules = [
+					{
+						"hosts" => allow_ips,
+						"proto" => "tcp",
+						"port" => 10514
+					}
+				]
 
-				MU::Cloud::AWS::FirewallRule.addRule(sg_id, allow_ips, port: port)
+				ec2_rules = MU::Cloud::AWS::FirewallRule.convertToEc2(rules, region: MU.myRegion)
+				MU::Cloud::AWS.ec2(MU.myRegion).authorize_security_group_ingress(
+					group_id: sg_id,
+					ip_permissions: ec2_rules
+				)
 			}
 		end
 

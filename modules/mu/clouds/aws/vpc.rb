@@ -26,24 +26,28 @@ module MU
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::vpcs}
-			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name)
+			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name, cloud_id: cloud_id)
 				@deploy = mommacat
 				@config = kitten_cfg
+				@subnets = []
 				if !mu_name.nil?
 					@mu_name = mu_name
+				else
+					# Names for this resource are deterministic, so it's ok to just
+					# generate it any time we're loaded up.
+					@mu_name = MU::MommaCat.getResourceName(@config['name'])
 				end
 			end
 
 			# Called automatically by {MU::Deploy#createResources}
 			def create
-				vpc_name = MU::MommaCat.getResourceName(@config['name'])
 
-				MU.log "Creating VPC #{vpc_name}", details: @config
+				MU.log "Creating VPC #{@mu_name}", details: @config
 				resp = MU::Cloud::AWS.ec2(@config['region']).create_vpc(cidr_block: @config['ip_block']).vpc
 				vpc_id = @config['vpc_id'] = resp.vpc_id
 
 				MU::MommaCat.createStandardTags(vpc_id, region: @config['region'])
-				MU::MommaCat.createTag(vpc_id, "Name", vpc_name, region: @config['region'])
+				MU::MommaCat.createTag(vpc_id, "Name", @mu_name, region: @config['region'])
 				if @config['tags']
 					@config['tags'].each { |tag|
 						MU::MommaCat.createTag(vpc_id,tag['key'],tag['value'], region: @config['region'])
@@ -52,7 +56,7 @@ module MU
 
 				if resp.state != "available"
 					begin
-						MU.log "Waiting for VPC #{vpc_name} (#{vpc_id}) to be available", MU::NOTICE
+						MU.log "Waiting for VPC #{@mu_name} (#{vpc_id}) to be available", MU::NOTICE
 						sleep 5
 						resp = MU::Cloud::AWS.ec2(@config['region']).describe_vpcs(vpc_ids: [vpc_id]).vpcs.first
 					end while resp.state != "available"
@@ -66,7 +70,7 @@ module MU
 						]
 					)
 					resp.route_tables.each { |rtb|
-						MU::MommaCat.createTag(rtb.route_table_id, "Name", vpc_name+"-#DEFAULTPRIV", region: @config['region'])
+						MU::MommaCat.createTag(rtb.route_table_id, "Name", @mu_name+"-#DEFAULTPRIV", region: @config['region'])
 						if @config['tags']
 							@config['tags'].each { |tag|
 								MU::MommaCat.createTag(rtb.route_table_id,tag['key'],tag['value'], region: @config['region'])
@@ -81,12 +85,12 @@ module MU
 				deploy_struct = @deploy.deployment['vpcs'][@config['name']].dup
 
 				if @config['create_internet_gateway']
-					MU.log "Creating Internet Gateway #{vpc_name}"
+					MU.log "Creating Internet Gateway #{@mu_name}"
 					resp = MU::Cloud::AWS.ec2(@config['region']).create_internet_gateway
 					internet_gateway_id = resp.internet_gateway.internet_gateway_id
 					sleep 5
 					MU::MommaCat.createStandardTags(internet_gateway_id, region: @config['region'])
-					MU::MommaCat.createTag(internet_gateway_id, "Name", vpc_name, region: @config['region'])
+					MU::MommaCat.createTag(internet_gateway_id, "Name", @mu_name, region: @config['region'])
 					if @config['tags']
 						@config['tags'].each { |tag|
 							MU::MommaCat.createTag(internet_gateway_id,tag['key'],tag['value'], region: @config['region'])
@@ -129,7 +133,7 @@ module MU
 							).subnet
 							subnet_id = subnet['subnet_id'] = resp.subnet_id
 							MU::MommaCat.createStandardTags(subnet_id, region: @config['region'])
-							MU::MommaCat.createTag(subnet_id, "Name", vpc_name+"-"+subnet['name'], region: @config['region'])
+							MU::MommaCat.createTag(subnet_id, "Name", @mu_name+"-"+subnet['name'], region: @config['region'])
 							if @config['tags']
 								@config['tags'].each { |tag|
 									MU::MommaCat.createTag(subnet_id,tag['key'],tag['value'], region: @config['region'])
@@ -189,18 +193,17 @@ module MU
 						t.join
 					}
 					notify
-#					@deploy.notify("vpcs", @config['name'], deploy_struct)
 				end
 
 					if @config['enable_dns_support']
-						MU.log "Enabling DNS support in #{vpc_name}"
+						MU.log "Enabling DNS support in #{@mu_name}"
 						MU::Cloud::AWS.ec2(@config['region']).modify_vpc_attribute(
 							vpc_id: vpc_id,
 							enable_dns_support: { value: @config['enable_dns_support'] }
 						)
 					end
 					if @config['enable_dns_hostnames']
-						MU.log "Enabling DNS hostnames in #{vpc_name}"
+						MU.log "Enabling DNS hostnames in #{@mu_name}"
 						MU::Cloud::AWS.ec2(@config['region']).modify_vpc_attribute(
 							vpc_id: vpc_id,
 							enable_dns_hostnames: { value: @config['enable_dns_hostnames'] }
@@ -208,7 +211,7 @@ module MU
 					end
 
 				if @config['dhcp']
-					MU.log "Setting custom DHCP options in #{vpc_name}", details: @config['dhcp']
+					MU.log "Setting custom DHCP options in #{@mu_name}", details: @config['dhcp']
 					dhcpopts = []
 
 					if @config['dhcp']['netbios_type']
@@ -232,7 +235,7 @@ module MU
 					)
 					dhcpopt_id = resp.dhcp_options.dhcp_options_id
 					MU::MommaCat.createStandardTags(dhcpopt_id, region: @config['region'])
-					MU::MommaCat.createTag(dhcpopt_id, "Name", vpc_name, region: @config['region'])
+					MU::MommaCat.createTag(dhcpopt_id, "Name", @mu_name, region: @config['region'])
 					if @config['tags']
 						@config['tags'].each { |tag|
 							MU::MommaCat.createTag(dhcpopt_id,tag['key'],tag['value'], region: @config['region'])
@@ -247,7 +250,7 @@ module MU
 					MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc_id, region: @config['region'])
 				end
 
-				MU.log "VPC #{vpc_name} created", details: @config
+				MU.log "VPC #{@mu_name} created", details: @config
 
 			end
 
@@ -537,25 +540,85 @@ module MU
 				return nil
 			end
 
+			# Return an array of MU::Cloud::AWS::VPC::Subnet objects describe the
+			# member subnets of this VPC.
+			#
+			# @return [Array<MU::Cloud::AWS::VPC::Subnet>]
+			def subnets
+				if @subnets.nil? or @subnets.size == 0
+					return loadSubnets
+				end
+				return @subnets
+			end
+
 			# Describe subnets associated with this VPC. We'll compose identifying
 			# information similar to what MU::Cloud.describe builds for first-class
 			# resources.
+			# XXX this is weaksauce. Subnets should be objects with their own methods
+			# that work like first-class objects. How would we enforce that?
 			# @return [Array<Hash>]: A list of cloud provider identifiers of subnets associated with this VPC.
-			def listSubnets
-				mu_name, config, deploydata, cloud_descriptor = describe
-MU.log "MOTHERFUCKER: '#{@mu_name}' DIIIIE '#{@cloud_id}'", MU::NOTICE
-				resp = MU::Cloud::AWS.ec2(@config['region']).describe_subnets(
-					filters: [
-						{ name: "vpc-id", values: [@cloud_id] }
-					]
-				)
-				return nil if resp.data.subnets.nil? or resp.data.subnets.size == 0
+			def loadSubnets
+				if @cloud_id
+					resp = MU::Cloud::AWS.ec2(@config['region']).describe_subnets(
+						filters: [
+							{ name: "vpc-id", values: [@cloud_id] }
+						]
+					)
+					return [] if resp.data.subnets.nil? or resp.data.subnets.size == 0
+				end
 
-				subnet_ids = Array.new
-				resp.data.subnets.each { |subnet|
-					subnet_ids << subnet.subnet_id
+				@subnets = []
+
+				# If we're a plain old Mu resource, load our config and deployment
+				# metadata. Like ya do.
+				if !@config.nil? and @config.has_key?("subnets")
+					@config['subnets'].each { |subnet|
+						subnet['mu_name'] = @mu_name+"-"+subnet['name']
+						# add deployment metadata, if we have any
+						if !@deploydata.nil? and @deploydata.has_key?("subnets") and @deploydata["subnets"].has_key?(subnet["name"])
+							subnet.merge(@deploydata["subnets"][subnet["name"]])
+						end
+						resp.data.subnets.each { |desc|
+							if desc.cidr_block == subnet["ip_block"]
+								subnet["tags"] = MU.structToHash(desc.tags)
+								subnet["cloud_id"] = desc.subnet_id
+								break
+							end
+						}
+						@subnets << MU::Cloud::AWS::VPC::Subnet.new(self, subnet)
+					}
+				# Of course we might be loading up a dummy subnet object from a foreign
+				# or non-Mu-created VPC and subnet. So make something up.
+				elsif !resp.nil?
+					resp.data.subnets.each { |desc|
+						subnet = {}
+						subnet["ip_block"] = desc.cidr_block
+						subnet["name"] = subnet["ip_block"].gsub(/[\.\/]/, "_")
+						subnet['mu_name'] = @mu_name+"-"+subnet['name']
+						subnet["tags"] = MU.structToHash(desc.tags)
+						subnet["cloud_id"] = desc.subnet_id
+						@subnets << MU::Cloud::AWS::VPC::Subnet.new(self, subnet)
+					}
+				end
+
+				return @subnets
+			end
+
+			# Check for a subnet in this VPC matching one or more of the specified
+			# criteria, and return it if found.
+			def getSubnet(cloud_id: nil, name: nil, tag_key: nil, tag_value: nil, ip_block: nil)
+				if !cloud_id and !name and !tag_key and !tag_value and !ip_block
+					raise MuError, "getSubnet called with no non-nil arguments"
+				end
+				loadSubnets
+				@subnets.each { |subnet|
+					if !cloud_id.nil? and subnet.cloud_id == cloud_id
+						return subnet
+					elsif !name.nil? and subnet.name == name
+						return subnet
+					end
 				}
-				return subnet_ids
+				return nil
 			end
 
 			# Get the subnets associated with an instance.
@@ -643,25 +706,6 @@ MU.log "MOTHERFUCKER: '#{@mu_name}' DIIIIE '#{@cloud_id}'", MU::NOTICE
 				return false
 			end
 
-			# Given a cloud platform identifier for a subnet, determine whether it is
-			# publicly routable or private only.
-			# @param subnet_id [String]: The cloud identifier of the subnet to check.
-			# @param region [String]: The cloud provider region
-			# @return [Boolean]
-			def self.isSubnetPrivate?(subnet_id, region: MU.curRegion)
-				return false if subnet_id.nil?
-				resp = MU::Cloud::AWS.ec2(region).describe_route_tables(
-					filters: [{name: "association.subnet-id", values: [subnet_id]}]
-				)
-				resp.route_tables.each { |route_table|
-					route_table.routes.each { |route|
-						if route.destination_cidr_block =="0.0.0.0/0" and route.instance_id !=nil
-							return true
-						end
-					}
-				}
-				return false
-			end
 
 			# Fetch a subnet's default route. Useful for getting NAT host IDs from
 			# subnet identifiers.
@@ -745,7 +789,7 @@ MU.log "MOTHERFUCKER: '#{@mu_name}' DIIIIE '#{@cloud_id}'", MU::NOTICE
 					id = subnet_struct.subnet_id
 					subnet_ids << id if id != nil
 				else
-					listSubnets(vpc_id: vpc_id, region: vpc_conf['region']).each { |subnet|
+					loadSubnets(vpc_id: vpc_id, region: vpc_conf['region']).each { |subnet|
 						subnet_ids << subnet
 					}
 					MU.log "No subnets specified, using all in #{vpc_id}", MU::DEBUG, details: subnet_ids
@@ -1092,6 +1136,47 @@ MU.log "MOTHERFUCKER: '#{@mu_name}' DIIIIE '#{@cloud_id}'", MU::NOTICE
 						MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc.vpc_id, remove: true)
 					end
 				}
+			end
+
+
+			# Subnets are almost a first-class resource. So let's kinda sorta treat
+			# them like one. This should only be invoked on objects that already
+			# exists in the cloud layer.
+			protected
+			class Subnet < MU::Cloud::AWS::VPC
+
+				attr_reader :cloud_id
+				attr_reader :ip_block
+				attr_reader :mu_name
+				attr_reader :name
+
+				# @param parent [MU::Cloud::AWS::VPC]: The parent VPC of this subnet.
+				# @param config [Hash<String>]:
+				def initialize(parent, config)
+					@parent = parent
+					@config = config
+					@mu_name = config['mu_name']
+					@name = config['name']
+					@deploydata = config # This is a dummy for the sake of describe()
+				end
+
+				# Given a cloud platform identifier for a subnet, determine whether it
+				# is publicly routable or private only.
+				# @return [Boolean]
+				def private?
+					return false if @cloud_id.nil?
+					resp = MU::Cloud::AWS.ec2(@config['region']).describe_route_tables(
+						filters: [{name: "association.subnet-id", values: [@cloud_id]}]
+					)
+					resp.route_tables.each { |route_table|
+						route_table.routes.each { |route|
+							if route.destination_cidr_block =="0.0.0.0/0" and !route.instance_id.nil?
+								return true
+							end
+						}
+					}
+					return false
+				end
 			end
 
 		end #class
