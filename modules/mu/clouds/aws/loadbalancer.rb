@@ -344,7 +344,7 @@ module MU
 			def self.find(name: nil, id: nil, dns_name: nil, region: MU.curRegion, deploy_id: nil, mu_name: nil)
 				return nil if !name and !dns_name and !id
 				id = mu_name if id.nil? and !mu_name.nil?
-				deploydata = MU::MommaCat.getResourceDeployStruct(MU::Cloud::LoadBalancer.cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name)
+				deploydata = MU::MommaCat.getResourceMetadata(MU::Cloud::LoadBalancer.cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name)
 				if !deploydata.nil?
 					if deploydata.is_a?(Array)
 						if !dns_name.nil? or !id.nil?

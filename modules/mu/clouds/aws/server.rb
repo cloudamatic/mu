@@ -998,7 +998,7 @@ class Cloud
 				# you can easily have multiple servers with the same Mu resource name.
 				name_matches = []
 				if !name.nil? and !deploy_id.nil?
-					resource = MU::MommaCat.getResourceDeployStruct(MU::Cloud::Server.cfg_plural, name: name, deploy_id: deploy_id)
+					resource = MU::MommaCat.getResourceMetadata(MU::Cloud::Server.cfg_plural, name: name, deploy_id: deploy_id)
 					MU.log "Searching for instance by name '#{name}'", MU::DEBUG, details: resource
 					if !resource.nil? and resource.keys.size == 1
 						nodename, server = resource.shift
@@ -1701,7 +1701,7 @@ MU.log "MU::Cloud::AWS.ec2(#{@config['region']}).wait_until(:password_data_avail
 						}
 					end
 
-					deploydata = MU::MommaCat.getResourceDeployStruct(MU::Cloud::Server.cfg_plural, name: mu_name)
+					deploydata = MU::MommaCat.getResourceMetadata(MU::Cloud::Server.cfg_plural, name: mu_name)
 					nodename = nil
 					deploydata.each_pair { |node, data|
 						if data['instance_id'] == id

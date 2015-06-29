@@ -21,6 +21,7 @@ module MU
 
 			@config = nil
 			attr_reader :mu_name
+			attr_reader :cloud_id
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::dnszones}

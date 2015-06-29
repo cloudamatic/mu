@@ -684,7 +684,7 @@ return
 			cleanup_threads = []
 			regions = MU::Cloud::AWS.listRegions
 			deploys.each { |deploy|
-				known_servers = MU::MommaCat.getResourceDeployStruct("servers", deploy_id: deploy)
+				known_servers = MU::MommaCat.getResourceMetadata("servers", deploy_id: deploy)
 
 				next if known_servers.nil?
 				parent_thread_id = Thread.current.object_id
@@ -741,6 +741,130 @@ return
 				t.join
 			}
 
+		end
+
+		# Locate a resource that's either a member of another deployment, or of no
+		# deployment at all, and return a {MU::Cloud} object for it.
+		# @param cloud [String]: The Cloud provider to use.
+		# @param type [String]: The resource type. Can be the full class name, symbolic name, or Basket of Kittens configuration shorthand for the resource type.
+		# @param deploy_id [String]: The identifier of an outside deploy to search.
+		# @param name [String]: The name of the resource as defined in its 'name' Basket of Kittens field, typically used in conjunction with deploy_id.
+		# @param mu_name [String]: The fully-resolved and deployed name of the resource, typically used in conjunction with deploy_id.
+		# @param cloud_id [String]: A cloud provider identifier for this resource.
+		# @param region [String]: The cloud provider region
+		# @param tag_key [String]: A cloud provider tag to help identify the resource, used in conjunction with tag_value.
+		# @param tag_value [String]: A cloud provider tag to help identify the resource, used in conjunction with tag_key.
+		# @param allow_multi [Boolean]: Permit an array of matching resources to be returned (if applicable) instead of just one.
+		# @return [Array<MU::Cloud>]
+		def self.findStray(cloud,
+			            type,
+									deploy_id: nil,
+									name: nil,
+									mu_name: nil,
+									cloud_id: nil,
+									region: nil,
+									tag_key: nil,
+									tag_value: nil,
+									allow_multi: false,
+									calling_deploy: MU.mommacat
+								)
+begin
+			resourceclass = MU::Cloud.loadCloudType(cloud, type)
+			cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+			if (tag_key and !tag_value) or (!tag_key and tag_value)
+				raise MuError, "Must use tag_key and tag_value in tandem in findStray"
+			end
+			mu_descs = cloud_descs = []
+			
+			# Help ourselves by making more refined parameters out of mu_name, if 
+			# they weren't passed explicitly
+			if mu_name
+				if !tag_key and !tag_value
+					# XXX "Name" is an AWS-ism, perhaps those plugins should do this bit?
+					tag_key="Name"
+					tag_value=mu_name
+				end
+				# We can extract a deploy_id from mu_name if we don't have one already
+				if !deploy_id and mu_name
+					deploy_id = mu_name.sub(/^(\w+-\w+-\d{10}-[A-Z]{2})-/, '\1')
+				end
+			end
+
+			kittens = {}
+
+			# Search our deploys for matching resources
+			if deploy_id or name or mu_name
+				mu_descs = MU::MommaCat.getResourceMetadata(resourceclass.cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name)
+				mu_descs.each_pair { |found_deploy, matches|
+					# If we got exactly one match, see if we can use it to make the rest
+					# of our job easier.
+					momma = MU::MommaCat.new(found_deploy, set_context_to_me: false)
+					# If we found exactly one match in this deploy, use its metadata to
+					# guess at resource names we weren't told.
+					if matches.size == 1 and name.nil? and mu_name.nil?
+						straykitten = momma.findLitterMate(type: type, name: matches.first["name"])
+					else
+						straykitten = momma.findLitterMate(type: type, name: name, mu_name: mu_name)
+					end
+					if straykitten.nil?
+						MU.log "Failed to lock down a kitten from deploy_id: #{deploy_id}, name: #{name}, mu_name: #{mu_name} and found metadata", MU::ERR, details: matches
+						next
+					end
+					kittens[straykitten.cloud_id] = straykitten
+					# Peace out if we found the exact resource we want
+					if cloud_id and straykitten.cloud_id == cloud_id
+						return [straykitten]
+					elsif !cloud_id and mu_descs.size == 1 and matches.size == 1
+						return [straykitten]
+					end
+				}
+				# We can't refine any further by asking the cloud provider...
+				if !cloud_id and !tag_key and !tag_value and kittens.size > 0
+					if !allow_multi
+						raise MuError, "Multiple matches in MU::MommaCat.findStray where none allowed from deploy_id: #{deploy_id}, name: #{name}, mu_name: #{mu_name}"
+					else
+						return kittens.values
+					end
+				end
+			end
+
+			matches = []
+			if cloud_id or (tag_key and tag_value)
+				regions = []
+				begin
+					if region
+						regions << region
+					else
+						regions = cloudclass.listRegions
+					end
+				rescue NoMethodError # Not all cloud providers have regions
+					regions = [""]
+				end
+
+				cloud_descs = {}
+				regions.each { |r|
+					cloud_descs[r] = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value)
+				}
+				regions.each { |r|
+					next if cloud_descs[r].nil?
+					cloud_descs[r].each_pair { |kitten_cloud_id, descriptor|
+						# We already have a MU::Cloud object for this guy, use it
+						if kittens.has_key?(kitten_cloud_id)
+							matches << kitten[kitten_cloud_id]
+						# If we don't have a MU::Cloud object, manufacture a dummy one
+						elsif kittens.size == 0
+							name = "#dummy" if !name # XXX needs uniqueness against calling deploy's resources of same type
+							cfg = { name => name, cloud => cloud, region => r }
+							matches << resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: kitten_cloud_id)
+						end
+					}
+				}
+			end
+rescue Exception => e
+MU.log e.inspect, MU::ERR, details: e.backtrace
+end
+			pp matches
+			matches
 		end
 
 		# Return the resource object of another member of this deployment
@@ -837,113 +961,125 @@ return
 			MU::MommaCat.unlock("deployment-notification")
 		end
 
-		# Find a resource by its Mu resource name, and return its full
-		# deployment structure. If no name is specified, will return all resources
-		# of that type in an array. If deploy_id is set to nil, will return all
-		# matching resources across all deployments in an array.
-		# 
+		# Find one or more resources by their Mu resource name, and return 
+		# MommaCat objects for their containing deploys, their BoK config data,
+		# and their deployment data.
+		#
 		# @param type [String]: The type of resource, e.g. "vpc" or "server."
 		# @param name [String]: The Mu resource class, typically the name field of a Basket of Kittens resource declaration.
 		# @param mu_name [String]: The fully-expanded Mu resource name, e.g. MGMT-PROD-2015040115-FR-ADMGMT2
-		# @param deploy_id [String]: The deployment to search. Defaults to the currently loaded deployment.
+		# @param deploy_id [String]: The deployment to search. Will search all deployments if not specified.
 		# @return [Hash,Array<Hash>]
-		def self.getResourceDeployStruct(type, name: nil, deploy_id: nil, use_cache: true, mu_name: nil)
+		def self.getResourceMetadata(type, name: nil, deploy_id: nil, use_cache: true, mu_name: nil)
 			if type.nil?
-				raise MuError, "Can't call getResourceDeployStruct without a type argument"
+				raise MuError, "Can't call getResourceMetadata without a type argument"
 			end
+			MU::Cloud.resource_types.each_pair { |res_classname, attrs|
+				if res_classname == type.to_sym or
+						attrs[:cfg_name] == type or
+						attrs[:cfg_plural] == type
+					type = attrs[:cfg_plural]
+					break
+				end
+			}
 
-			# Skip refreshing the cache if we're looking for something we already know
-#			if !use_cache or @deploy_cache.nil? or deploy_id.nil? or @deploy_cache[deploy_id].nil?
-#puts "RIFLING CACHE"
-				deploy_root = File.expand_path(MU.dataDir+"/deployments")
-				if Dir.exists?(deploy_root)
-					Dir.entries(deploy_root).each { |deploy|
-						this_deploy_dir = deploy_root+"/"+deploy
-						next if deploy == "." or deploy == ".." or !Dir.exists?(this_deploy_dir) 
-						if !File.size?(this_deploy_dir+"/deployment.json")
-							MU.log "#{this_deploy_dir}/deployment.json doesn't exist, skipping when loading cache", MU::WARN
-							next
-						end
-						if @deploy_cache[deploy].nil? or !use_cache
-							@deploy_cache[deploy] = Hash.new
-						elsif @deploy_cache[deploy]['mtime'] == File.mtime("#{this_deploy_dir}/deployment.json")
-							MU.log "Using cached copy of deploy #{deploy} from #{@deploy_cache[deploy]['mtime']}", MU::DEBUG
+			deploy_root = File.expand_path(MU.dataDir+"/deployments")
+			if Dir.exists?(deploy_root)
+				Dir.entries(deploy_root).each { |deploy|
+					this_deploy_dir = deploy_root+"/"+deploy
+					next if deploy == "." or deploy == ".." or !Dir.exists?(this_deploy_dir) 
+					if !File.size?(this_deploy_dir+"/deployment.json")
+						MU.log "#{this_deploy_dir}/deployment.json doesn't exist, skipping when loading cache", MU::WARN
+						next
+					end
+					if @deploy_cache[deploy].nil? or !use_cache
+						@deploy_cache[deploy] = Hash.new
+					elsif @deploy_cache[deploy]['mtime'] == File.mtime("#{this_deploy_dir}/deployment.json")
+						MU.log "Using cached copy of deploy #{deploy} from #{@deploy_cache[deploy]['mtime']}", MU::DEBUG
 
-							next
-						end
-						@deploy_cache[deploy] = Hash.new if !@deploy_cache.has_key?(deploy)
-						MU.log "Caching deploy #{deploy}", MU::DEBUG
-						lock = File.open("#{this_deploy_dir}/deployment.json", File::RDONLY)
-						lock.flock(File::LOCK_EX)
-						@deploy_cache[deploy]['mtime'] = File.mtime("#{this_deploy_dir}/deployment.json")
+						next
+					end
+					@deploy_cache[deploy] = Hash.new if !@deploy_cache.has_key?(deploy)
+					MU.log "Caching deploy #{deploy}", MU::DEBUG
+					lock = File.open("#{this_deploy_dir}/deployment.json", File::RDONLY)
+					lock.flock(File::LOCK_EX)
+					@deploy_cache[deploy]['mtime'] = File.mtime("#{this_deploy_dir}/deployment.json")
 
-						begin					
-							@deploy_cache[deploy]['data'] = JSON.parse(File.read("#{this_deploy_dir}/deployment.json"))
-							# Servers have an annoying layer of indirection, because you can
-							# have multiple things of the same name (aka node_class). Preserve
-							# that when we return these guys as a flat array by sticking it in
-							# a special field.
-							if !@deploy_cache[deploy].nil? and !@deploy_cache[deploy]['data'].nil? and !@deploy_cache[deploy]['data']['servers'].nil?
-								@deploy_cache[deploy]['data']['servers'].each_pair { |node_class, nodes|
+					begin					
+						@deploy_cache[deploy]['data'] = JSON.parse(File.read("#{this_deploy_dir}/deployment.json"))
+						next if @deploy_cache[deploy].nil? or @deploy_cache[deploy]['data'].nil?
+						# Populate some generable entries that should be in the deploy 
+						# data. Also, bounce out if we realize we've found exactly what
+						# we needed already.
+						MU::Cloud.resource_types.each_pair { |res_type, attrs|
+								
+							next if @deploy_cache[deploy]['data'][attrs[:cfg_plural]].nil?
+							if !attrs[:has_multiples]
+								@deploy_cache[deploy]['data'][attrs[:cfg_plural]].each_pair { |nodename, data|
+# XXX we don't actually store node names for some resources, need to farm them
+# and fix metadata
+#									if !mu_name.nil? and nodename == mu_name
+#										return { deploy => [data] }
+#									end
+								}
+							else
+								@deploy_cache[deploy]['data'][attrs[:cfg_plural]].each_pair { |node_class, nodes|
 									next if nodes.nil? or !nodes.is_a?(Hash)
 									nodes.each_pair { |nodename, data|
 										next if !data.is_a?(Hash)
 										data['#MU_NODE_CLASS'] = node_class
-										if !data.has_key?("cloud")
+										if !data.has_key?("cloud") # XXX kludge until old metadata gets fixed
 											data["cloud"] = MU::Config.defaultCloud
 										end
-										data['#MU_CLOUDCLASS'] = MU::Cloud.loadCloudType("AWS", :Server)
+										data['#MU_NAME'] = nodename
 										if !mu_name.nil? and nodename == mu_name
-											return data
+											return { deploy => [data] }
 										end
 									}
 								}
 							end
-						rescue JSON::ParserError => e
-							raise MuError, "JSON parse failed on #{this_deploy_dir}/deployment.json\n\n"+File.read("#{this_deploy_dir}/deployment.json")
-						end
-						lock.flock(File::LOCK_UN)
-						lock.close
-					}
-				end
-#			end
+						}
+					rescue JSON::ParserError => e
+						raise MuError, "JSON parse failed on #{this_deploy_dir}/deployment.json\n\n"+File.read("#{this_deploy_dir}/deployment.json")
+					end
+					lock.flock(File::LOCK_UN)
+					lock.close
+				}
+			end
+
+			matches = {}
+
 			if deploy_id.nil?
-				matches = []
 				@deploy_cache.each_key { |deploy|
 					next if !@deploy_cache[deploy].has_key?('data')
 					next if !@deploy_cache[deploy]['data'].has_key?(type)
 					if !name.nil?
 						next if @deploy_cache[deploy]['data'][type][name].nil?
-						matches << @deploy_cache[deploy]['data'][type][name].dup
+						matches[deploy] = [] if !matches.has_key?(deploy)
+						matches[deploy] << @deploy_cache[deploy]['data'][type][name].dup
 					else
-						matches.concat(@deploy_cache[deploy]['data'][type].values)
+						matches[deploy] = [] if !matches.has_key?(deploy)
+						matches[deploy].concat(@deploy_cache[deploy]['data'][type].values)
 					end
 				}
 				return matches
 			elsif !@deploy_cache[deploy_id].nil?
+				matches[deploy_id] = [] if !matches.has_key?(deploy_id)
 				if !@deploy_cache[deploy_id]['data'].nil? and
 						!@deploy_cache[deploy_id]['data'][type].nil? 
 					if !name.nil? 
 						if !@deploy_cache[deploy_id]['data'][type][name].nil?
-#puts "FOUND IT!"
-#puts ">>>>>>>>>>>>>>>>>>>>>>>"
-							return @deploy_cache[deploy_id]['data'][type][name].dup
+							matches[deploy_id] << @deploy_cache[deploy_id]['data'][type][name].dup
 						else
-#puts "Came up empty, what?"
-#pp @deploy_cache[deploy_id]['data'][type]
-#puts ">>>>>>>>>>>>>>>>>>>>>>>"
-							return nil
+							return matches # nothing, actually
 						end
 					else
-#puts "RETURNING A TRUCKLOAD!"
-#puts ">>>>>>>>>>>>>>>>>>>>>>>"
-						return @deploy_cache[deploy_id]['data'][type].values
+						matches[deploy_id] = @deploy_cache[deploy_id]['data'][type].values
 					end
 				end
 			end
-#puts "FAILING AT LIFE"
-#puts ">>>>>>>>>>>>>>>>>>>>>>>"
-			return nil
+
+			return matches
 		end
 
 		# Tag a resource. Defaults to applying our MU deployment identifier, if no

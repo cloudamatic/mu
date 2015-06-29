@@ -22,6 +22,7 @@ module MU
 			@deploy = nil
 			@config = nil
 			attr_reader :mu_name
+			attr_reader :cloud_id
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::vpcs}
@@ -279,7 +280,7 @@ module MU
 								end
 								peer_id = peer_desc.vpc_id
 								peer_deploy_struct = nil
-								known_vpcs = MU::MommaCat.getResourceDeployStruct("vpcs", name: peer_name, deploy_id: nil)
+								known_vpcs = MU::MommaCat.getResourceMetadata("vpcs", name: peer_name, deploy_id: nil)
 								known_vpcs.each { |ext_vpc|
 									if ext_vpc['vpc_id'] == peer_id
 										peer_deploy_struct = ext_vpc
@@ -412,26 +413,21 @@ module MU
 
 			end
 
-			# Locate an existing VPC. Can identify VPCs by their cloud provider
-			# identifier, OR by their internal Mu resource name, OR by a cloud
-			# provider tag name/value pair.
-			# @param name [String]: An Mu resource name, usually the 'name' field of aa Basket of Kittens resource declaration. Will search the currently loaded deployment unless another is specified.
-			# @param deploy_id [String]: The deployment to search using the 'name' parameter.
-			# @param id [String]: The cloud provider's identifier for this resource.
+			# Locate an existing VPC and return an array containing matching AWS resource descriptors for VPCs that match.
+			# @param cloud_id [String]: The cloud provider's identifier for this resource.
+			# @param region [String]: The cloud provider region
 			# @param tag_key [String]: A tag key to search.
 			# @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-			# @param allow_multi [Boolean]: When searching by tags, permit an array of resources to be returned (if applicable) instead of just one.
-			# @param region [String]: The cloud provider region
-			# @return [OpenStruct,String]: The cloud provider's complete description of this VPC, and its MU resource name (if applicable).
-			def self.find(name: nil, deploy_id: MU.deploy_id, id: nil, tag_key: "Name", tag_value: nil, allow_multi: false, region: MU.curRegion)
+			# @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete description of this VPC
+			def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil)
 
 				retries = 0
+				map = {}
 				begin
 					sleep 5 if retries < 0
 
-					# Case one- try to find this by matching cloud provider tags.
 					if tag_value
-						MU.log "Searching for VPC '#{name}' by tag:#{tag_key}", MU::DEBUG
+						MU.log "Searching for VPC by tag:#{tag_key}=#{tag_value}", MU::DEBUG
 						resp = MU::Cloud::AWS.ec2(region).describe_vpcs(
 							filters: [
 								{ name: "tag:#{tag_key}", values: [tag_value] }
@@ -439,65 +435,22 @@ module MU
 						)
 						if resp.data.vpcs.nil? or resp.data.vpcs.size == 0
 							return nil
-						elsif resp.data.vpcs.size == 1
-							return [resp.data.vpcs.first, name]
-						elsif resp.data.vpcs.size > 1 
-							if !allow_multi
-								MU.log "Got multiple results in VPC.find (tag:#{tag_key}=#{tag_value})", MU::ERR, details: resp.data.vpcs
-								raise MuError, "Got multiple results in VPC.find (tag:#{tag_key}=#{tag_value})"
-							else
-								return [resp.data.vpcs, name]
-							end
-						end
-					end
-
-					# Case two- we've been asked to find this resource by the name it was
-					# given in its Mu stack configuration. Optionally, search a
-					# deployment other than the currently loaded one. We pull out the cloud
-					# resource id, so that we can then go and execute that search just as
-					# we would if we'd been provided that in the first place.
-					if id.nil?
-						resource = nil
-						# Check the currently-running deploy structure first
-						# XXX maybe this behavior should be in MU::MommaCat.getResourceDeployStruct
-					  if !name.nil? and (deploy_id.nil? or deploy_id == MU.deploy_id) and MU.mommacat.deployment.has_key?('vpcs') and MU.mommacat.deployment['vpcs'].has_key?(name)
-							resource = MU.mommacat.deployment['vpcs'][name]
-						else
-							resource = MU::MommaCat.getResourceDeployStruct("vpcs", name: name, deploy_id: deploy_id, use_cache: false)
-						end
-
-						if !resource.nil?
-							if resource.is_a?(Hash)
-								id = resource['vpc_id']
-								region = resource['region']
-							elsif resource.is_a?(Array)
-								if resource.size > 1
-									MU.log "Got multiple matching VPCs from MU::MommaCat.getResourceDeployStruct('vpcs', name: #{name}, deploy_id: #{deploy_id})", MU::WARN
-									return [nil, nil]
-								end
-								vpc_res = resource.first
-								id = vpc_res['vpc_id']
-								region = vpc_res['region']
-							end
-						end
-					else
-						# If we didn't get a name but did get an id, we want to find the name.
-						# Rummage through the deploy for something matching.
-						resources = MU::MommaCat.getResourceDeployStruct("vpcs", deploy_id: deploy_id)
-						if resources
-							resources.each { |vpc|
-								name = vpc['name'] if vpc['vpc_id'] == id
+						elsif resp.data.vpcs.size >= 1
+							resp.data.vpcs.each { |vpc|
+								map[vpc.vpc_id] = vpc
 							}
+							return map
 						end
 					end
 
-					# Case three- we've been asked to find this by its cloud provider id.
-					# Make the appropriate API call. Fail gently.
-					if !id.nil?
-						MU.log "Searching for VPC id '#{id}' in #{region}", MU::DEBUG
+					if !cloud_id.nil?
+						MU.log "Searching for VPC id '#{cloud_id}' in #{region}", MU::DEBUG
 						begin
-							resp = MU::Cloud::AWS.ec2(region).describe_vpcs(vpc_ids: [id])
-							return [resp.data.vpcs.first, name]
+							resp = MU::Cloud::AWS.ec2(region).describe_vpcs(vpc_ids: [cloud_id])
+							resp.data.vpcs.each { |vpc|
+								map[vpc.vpc_id] = vpc
+							}
+							return map
 						rescue Aws::EC2::Errors::InvalidVpcIDNotFound => e
 						end
 					end
@@ -505,37 +458,24 @@ module MU
 					retries = retries + 1
 				end while retries < 5
 
-				return nil
+				return map
 			end
 
-			# Locate an existing subnet. Can identify subnets by their cloud provider
-			# identifier, OR by their internal Mu resource name, OR by a cloud
-			# provider tag name/value pair. A parent VPC must be specified.
+			# Pick out one of the subnets belonging to this VPC by name or cloud
+			# identifier.
 			# @param name [String]: An Mu resource name, usually the 'name' field of aa Basket of Kittens resource declaration. Will search the currently loaded deployment unless another is specified.
-			# @param deploy_id [String]: The deployment to search using the 'name' parameter.
 			# @param id [String]: The cloud provider's identifier for this resource.
-			# @param tag_key [String]: A tag key to search.
-			# @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-			# @param allow_multi [Boolean]: When searching by tags, permit an array of resources to be returned (if applicable) instead of just one.
-			# @param vpc_id [String]: The cloud provider identifier of the VPC which should contain this subnet.
-			# @param vpc_name [String]: The Mu resource name of the VPC which should contain this subnet.
-			# @param region [String]: The cloud provider region
 			# @return [OpenStruct]: The cloud provider's complete description of this VPC.
-			def self.findSubnet(name: nil, deploy_id: MU.deploy_id, id: nil, tag_key: "Name", tag_value: nil, allow_multi: false, vpc_id: nil, vpc_name: nil, region: MU.curRegion)
-				# Go fish for our parent VPC, first off
-				existing_vpc, vpc_name = find(id: vpc_id, name: vpc_name, deploy_id: deploy_id, tag_key: tag_key, tag_value: tag_value, region: region)
-				if existing_vpc.nil?
-					raise MuError, "Couldn't find an appropriate VPC in findSubnet (id: #{id}, name: #{name}, vpc_id: #{vpc_id}, vpc_name: #{vpc_name})"
-				end
-				vpc_id = existing_vpc.vpc_id
+			def findSubnet(name: nil, id: nil, allow_multi: false)
+				vpc_id = @cloud_id
 
 				# Now see if this subnet is referenced in any deployments as an Mu
 				# resource. We actually use the parent VPC, since a subnet isn't a
 				# first-class resource... except sometimes it is, if we yanked it out
 				# of a CloudFormation template. Confused yet?
 				if id.nil? and !name.nil? 
-					vpc = MU::MommaCat.getResourceDeployStruct("vpcs", name: vpc_name, deploy_id: deploy_id)
-					subnet = MU::MommaCat.getResourceDeployStruct("subnets", name: name, deploy_id: deploy_id)
+					vpc = MU::MommaCat.getResourceMetadata("vpcs", name: vpc_name, deploy_id: deploy_id)
+					subnet = MU::MommaCat.getResourceMetadata("subnets", name: name, deploy_id: deploy_id)
 
 					if !subnet.nil?
 						if subnet.is_a?(Hash)
@@ -597,19 +537,16 @@ module MU
 				return nil
 			end
 
-			# List subnets associated with a VPC, given either a name or identifier for said VPC.
-			# @param vpc_id [String]: The cloud provider's identifier for the VPC in which we're searching for subnets.
-			# @param vpc_name [String]: The name of the VPC in which we're searching for subnets. This parameter will attempt first to find a MU resource with the given name string in the current deployment, and failing that will attempt to find a resource with a matching Name tag.
-			# @param region [String]: The cloud provider region
-			# @return [Array<String>]: A list of cloud provider identifiers of subnets associated with this VPC.
-			def self.listSubnets(vpc_id: vpc_id, vpc_name: vpc_name, region: MU.curRegion)
-				existing_vpc, vpc_name = find(id: vpc_id, name: vpc_name)
-				if existing_vpc.nil?
-					raise MuError, "Couldn't find VPC (name: '#{vpc_name}', id: #{vpc_id})"
-				end
-				resp = MU::Cloud::AWS.ec2(region).describe_subnets(
+			# Describe subnets associated with this VPC. We'll compose identifying
+			# information similar to what MU::Cloud.describe builds for first-class
+			# resources.
+			# @return [Array<Hash>]: A list of cloud provider identifiers of subnets associated with this VPC.
+			def listSubnets
+				mu_name, config, deploydata, cloud_descriptor = describe
+MU.log "MOTHERFUCKER: '#{@mu_name}' DIIIIE '#{@cloud_id}'", MU::NOTICE
+				resp = MU::Cloud::AWS.ec2(@config['region']).describe_subnets(
 					filters: [
-						{ name: "vpc-id", values: [existing_vpc.vpc_id] }
+						{ name: "vpc-id", values: [@cloud_id] }
 					]
 				)
 				return nil if resp.data.subnets.nil? or resp.data.subnets.size == 0

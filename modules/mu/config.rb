@@ -524,23 +524,26 @@ module MU
 
 			if !is_sibling
 				begin
-					ext_vpc, name = MU::Cloud::VPC.find(
-						id: vpc_block["vpc_id"],
-						name: vpc_block["vpc_name"],
+					found = MU::MommaCat.findStray(
+						vpc_block['cloud'],
+						"vpc",
 						deploy_id: vpc_block["deploy_id"],
+						cloud_id: vpc_block["vpc_id"],
+						name: vpc_block["vpc_name"],
 						tag_key: tag_key,
 						tag_value: tag_value,
 						region: vpc_block["region"]
 					)
+					ext_vpc = found.first if found.size == 1
 				rescue Exception => e
 					raise MuError, e.inspect, e.backtrace
 				ensure
 					if !ext_vpc
-						MU.log "Couldn't resolve VPC reference to a live VPC in #{parent_name}", MU::ERR, details: vpc_block
+						MU.log "Couldn't resolve VPC reference to a single live VPC in #{parent_name}", MU::ERR, details: vpc_block
 						return false
 					elsif !vpc_block["vpc_id"]
-						MU.log "Resolved VPC to #{ext_vpc.vpc_id} in #{parent_name}", MU::DEBUG, details: vpc_block
-						vpc_block["vpc_id"] = ext_vpc.vpc_id
+						MU.log "Resolved VPC to #{ext_vpc.cloud_id} in #{parent_name}", MU::DEBUG, details: vpc_block
+						vpc_block["vpc_id"] = ext_vpc.cloud_id
 					end
 				end
 
@@ -583,15 +586,8 @@ module MU
 					vpc_block['subnets'].each { |subnet|
 						subnet["deploy_id"] = vpc_block["deploy_id"] if !subnet['deploy_id'] and vpc_block["deploy_id"]
 						tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !subnet['tag'].nil?
-						ext_subnet = muVPC.findSubnet(
-							id: subnet['subnet_id'],
-							name: subnet['subnet_name'],
-							deploy_id: subnet["deploy_id"],
-							vpc_id: vpc_block["vpc_id"],
-							tag_key: tag_key,
-							tag_value: tag_value,
-							region: vpc_block['region']
-						)
+						found_subnets = ext_vpc.listSubnets
+						pp found_subnets
 						if !ext_subnet
 							ok = false
 							MU.log "Couldn't resolve subnet reference in #{parent_name} to a live subnet", MU::ERR, details: subnet
@@ -644,7 +640,7 @@ module MU
 				nat_routes = {}
 				subnet_ptr = "subnet_id"
 				if !is_sibling
-					muVPC.listSubnets(vpc_id: vpc_block["vpc_id"], region: vpc_block['region']).each { |subnet|
+					ext_vpc.listSubnets.each { |subnet|
 						if muVPC.isSubnetPrivate?(subnet, region: vpc_block['region'])
 							private_subnets << subnet
 						else
@@ -653,9 +649,10 @@ module MU
 					}
 				else
 					sibling_vpcs.each { |ext_vpc|
-						if ext_vpc['name'] == vpc_block['vpc_name']
+						if ext_vpc.config['name'] == vpc_block['vpc_name']
 							subnet_ptr = "subnet_name"
-							ext_vpc['subnets'].each { |subnet|
+# XXX not a real thing in non-local VPCs, need a method call
+							ext_vpc.config['subnets'].each { |subnet|
 								if subnet['is_public']
 									public_subnets << subnet['name']
 								else

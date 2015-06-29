@@ -114,8 +114,8 @@ module MU
 				:interface => self.const_get("VPC"),
 				:deps_wait_on_my_creation => true,
 				:waits_on_parent_completion => false,
-				:class => generic_class_methods + [:findSubnet, :listSubnets, :isSubnetPrivate?, :getDefaultRoute],
-				:instance => generic_instance_methods + [:groom]
+				:class => generic_class_methods + [:isSubnetPrivate?, :getDefaultRoute],
+				:instance => generic_instance_methods + [:groom, :listSubnets]
 			},
 		}.freeze
 
@@ -138,7 +138,7 @@ module MU
 		# @param cloud [String]: The Cloud layer
 		# @param type [String]: The resource type. Can be the full class name, symbolic name, or Basket of Kittens configuration shorthand for the resource type.
 		# @return [Class]: The cloud-specific class implementing this resource
-		def self.loadCloudType(cloud = MU::Config.defaultCloud, type)
+		def self.loadCloudType(cloud, type)
 			raise MuError, "cloud argument to MU::Cloud.loadCloudType cannot be nil" if cloud.nil?
 			# If we've been asked to resolve this object, that means we plan to use it,
 			# so go ahead and load it.
@@ -218,11 +218,17 @@ module MU
 
 				def initialize(mommacat: nil,
 											 mu_name: nil,
+											 cloud_id: nil,
 											 kitten_cfg: kitten_cfg)
 					raise MuError, "Cannot invoke Cloud objects without a configuration" if kitten_cfg.nil?
 					@deploy = mommacat
-					@deploy_id = mommacat.deploy_id
 					@config = kitten_cfg
+					if !@deploy.nil?
+						@deploy_id = @deploy.deploy_id
+						MU.log "Initializing an instance of #{self.class.name} in #{@deploy_id} #{mu_name}", MU::WARN, details: kitten_cfg
+					else
+						MU.log "Initializing an instance of #{self.class.name}", MU::WARN, details: kitten_cfg
+					end
 					if !kitten_cfg.has_key?("cloud")
 						kitten_cfg['cloud'] = MU::Config.defaultCloud
 					end
@@ -238,7 +244,8 @@ module MU
 						end
 					else
 						@cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name)
-						@cloudobj.describe # prepopulate the describe() cache
+						# prepopulate the describe() cache
+						@cloudobj.describe(cloud_id: cloud_id)
 					end
 				end
 
@@ -248,14 +255,14 @@ module MU
 				# @return [Array<Hash>]: mu_name, config, deploydata, cloud_descriptor
 				def describe(cloud_id: nil, update_cache: false)
 					if cloud_id.nil? and !@cloudobj.nil?
-						cloud_id = @cloudobj.cloud_id
+						@cloud_id = @cloudobj.cloud_id
 					end
 					res_type = self.class.cfg_plural
 					res_name = @config['name']
 					if !@deploy.deployment.nil? and !@deploy.deployment[res_type].nil? and !@deploy.deployment[res_type][res_name].nil?
 						deploydata = @deploy.deployment[res_type][res_name]
 					elsif update_cache or @deploydata.nil?
-						deploydata = MU::MommaCat.getResourceDeployStruct(res_type, name: res_name, deploy_id: @deploy.deploy_id, mu_name: @mu_name)
+						deploydata = MU::MommaCat.getResourceMetadata(res_type, name: res_name, deploy_id: @deploy.deploy_id, mu_name: @mu_name)
 					end
 					# XXX :has_multiples is what to actually check here
 					if !@mu_name.nil? and deploydata.is_a?(Hash) and deploydata.has_key?(@mu_name)
@@ -263,11 +270,29 @@ module MU
 					else
 						@deploydata = deploydata
 					end
-					if cloud_id.nil? and @deploydata.is_a?(Hash) and @deploydata.has_key?('cloud_id')
-						cloud_id = @deploydata['cloud_id']
+					if @cloud_id.nil? and @deploydata.is_a?(Hash)
+						if @mu_name.nil? and @deploydata.has_key?('#MU_NAME')
+							@mu_name = @deploydata['#MU_NAME']
+						end
+						if @deploydata.has_key?('cloud_id')
+							@cloud_id = @deploydata['cloud_id']
+						else
+							# XXX temp hack to catch old Amazon-style identifiers. Remove this
+							# before supporting any other cloud layers, otherwise name
+							# collision is possible.
+							["vpc_id", "instance_id", "awsname", "identifier", "group_id", "id"].each { |identifier|
+								if @deploydata.has_key?(identifier)
+									@cloud_id = @deploydata[identifier]
+									if @mu_name.nil? and (identifier == "awsname" or identifier == "identifier" or identifier == "group_id")
+										@mu_name = @deploydata[identifier]
+									end
+									break
+								end
+							}
+						end
 					end
 					if update_cache or @cloud_desc.nil?
-						@cloud_desc, junk = self.class.find(name: res_name, deploy_id: @deploy.deploy_id, region: @config['region'], id: cloud_id, mu_name: @mu_name)
+						@cloud_desc = self.class.find(region: @config['region'], cloud_id: @cloud_id)
 					end
 
 					return [@mu_name, @config, @deploydata, @cloud_desc]
