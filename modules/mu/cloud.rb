@@ -39,6 +39,7 @@ module MU
 		@@resource_types = {
 			:Collection => {
 				:has_multiples => false,
+				:can_live_in_vpc => false,
 				:cfg_name => "collection",
 				:cfg_plural => "collections",
 				:interface => self.const_get("Collection"),
@@ -49,6 +50,7 @@ module MU
 			},
 			:Database => {
 				:has_multiples => false,
+				:can_live_in_vpc => true,
 				:cfg_name => "database",
 				:cfg_plural => "databases",
 				:interface => self.const_get("Database"),
@@ -59,6 +61,7 @@ module MU
 			},
 			:DNSZone => {
 				:has_multiples => false,
+				:can_live_in_vpc => false,
 				:cfg_name => "dnszone",
 				:cfg_plural => "dnszones",
 				:interface => self.const_get("DNSZone"),
@@ -69,6 +72,7 @@ module MU
 			},
 			:FirewallRule => {
 				:has_multiples => false,
+				:can_live_in_vpc => true,
 				:cfg_name => "firewall_rule",
 				:cfg_plural => "firewall_rules",
 				:interface => self.const_get("FirewallRule"),
@@ -79,6 +83,7 @@ module MU
 			},
 			:LoadBalancer => {
 				:has_multiples => false,
+				:can_live_in_vpc => true,
 				:cfg_name => "loadbalancer",
 				:cfg_plural => "loadbalancers",
 				:interface => self.const_get("LoadBalancer"),
@@ -89,6 +94,7 @@ module MU
 			},
 			:Server => {
 				:has_multiples => true,
+				:can_live_in_vpc => true,
 				:cfg_name => "server",
 				:cfg_plural => "servers",
 				:interface => self.const_get("Server"),
@@ -99,6 +105,7 @@ module MU
 			},
 			:ServerPool => {
 				:has_multiples => false,
+				:can_live_in_vpc => true,
 				:cfg_name => "server_pool",
 				:cfg_plural => "server_pools",
 				:interface => self.const_get("ServerPool"),
@@ -109,13 +116,14 @@ module MU
 			},
 			:VPC => {
 				:has_multiples => false,
+				:can_live_in_vpc => false,
 				:cfg_name => "vpc",
 				:cfg_plural => "vpcs",
 				:interface => self.const_get("VPC"),
 				:deps_wait_on_my_creation => true,
 				:waits_on_parent_completion => false,
-				:class => generic_class_methods,# + [:isSubnetPrivate?, :getDefaultRoute],
-				:instance => generic_instance_methods + [:groom, :subnets, :getSubnet]
+				:class => generic_class_methods,
+				:instance => generic_instance_methods + [:groom, :subnets, :getSubnet, :listSubnets]
 			},
 		}.freeze
 
@@ -216,6 +224,14 @@ module MU
 					name.sub(/.*?::([^:]+)$/, '\1')
 				end
 
+				# Print something palatable
+				def to_s
+					describe
+					mu_name = @mu_name
+					mu_name ||= MU::MommaCat.getResourceName(@config['name'])
+					return "#{@mu_name} - #{self.class.shortname} - #{@cloud_id}"
+				end
+
 				def initialize(mommacat: nil,
 											 mu_name: nil,
 											 cloud_id: nil,
@@ -233,22 +249,39 @@ module MU
 						kitten_cfg['cloud'] = MU::Config.defaultCloud
 					end
 					@cloud = kitten_cfg['cloud']
-					@environment = kitten_cfg['environment']
 					@cloudclass = MU::Cloud.loadCloudType(@cloud, self.class.shortname)
+					if self.class.can_live_in_vpc and @config.has_key?("vpc")
+						tag_key, tag_value = @config['vpc']['tag'].split(/=/, 2) if !@config['vpc']['tag'].nil?
+						@vpc = MU::MommaCat.findStray(
+							@cloud,
+							"vpc",
+							deploy_id: @config['vpc']["deploy_id"],
+							cloud_id: @config['vpc']["vpc_id"],
+							name: @config['vpc']["vpc_name"],
+							tag_key: tag_key,
+							tag_value: tag_value,
+							region: @config['vpc']["region"]
+						)
+					end
+					@environment = kitten_cfg['environment']
 # XXX require subclass to provide attr_readers of @config and @deploy
-					# If we're called with a cloud_id, we're probably putting together
-					# a dummy resource handle for some kind of foreign resource.
-					if !cloud_id.nil?
-						@cloudobj = @cloudclass.new(mommacat: mommacat, cloud_id: cloud_id, kitten_cfg: kitten_cfg)
-					elsif mu_name.nil?
-						@cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg)
+
+					if self.class.can_live_in_vpc
+						@cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg, cloud_id: cloud_id, mu_name: mu_name, vpc: @vpc)
+					else
+						@cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg, cloud_id: cloud_id, mu_name: mu_name)
+					end
+
+					raise MuError, "Unknown error instantiating #{self}" if @cloudobj.nil?
+
+					# Brand new resource, stash it in this deploy's kitten list
+					if cloud_id.nil? and mu_name.nil?
 						if !@cloudobj.nil?
 							@deploy.kittens[self.class.cfg_plural] = {} if !@deploy.kittens.has_key?(self.class.cfg_plural)
 							@deploy.kittens[self.class.cfg_plural][@cloudobj.mu_name] = self
 						end
+					# Existing object, go ahead and prepopulate the describe() cache
 					else
-						@cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name)
-						# prepopulate the describe() cache
 						@cloudobj.describe(cloud_id: cloud_id)
 					end
 				end
@@ -296,7 +329,7 @@ module MU
 						end
 					end
 					if update_cache or @cloud_desc.nil?
-						@cloud_desc = self.class.find(region: @config['region'], cloud_id: @cloud_id)
+						@cloud_desc = self.class.find(region: @config['region'], cloud_id: @cloud_id).first
 					end
 
 					return [@mu_name, @config, @deploydata, @cloud_desc]
@@ -307,6 +340,9 @@ module MU
 				end
 				def self.cfg_name
 					MU::Cloud.resource_types[shortname.to_sym][:cfg_name]
+				end
+				def self.can_live_in_vpc
+					MU::Cloud.resource_types[shortname.to_sym][:can_live_in_vpc]
 				end
 				def self.waits_on_parent_completion
 					MU::Cloud.resource_types[shortname.to_sym][:waits_on_parent_completion]
@@ -325,17 +361,6 @@ module MU
 						end
 						return nil
 					}
-				end
-
-# XXX This method should only exist for MU::Cloud::VPC
-				def self.haveRouteToInstance?(*flags)
-# XXX have this switch on a global config for where Mu puts its DNS
-					begin
-						cloudclass = MU::Cloud.loadCloudType(MU::Config.defaultCloud, "VPC")
-					rescue MuCloudResourceNotImplemented
-						return true
-					end
-					cloudclass.haveRouteToInstance?(flags.first)
 				end
 
 # XXX This method should only exist for MU::Cloud::DNSZone

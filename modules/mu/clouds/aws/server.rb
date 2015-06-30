@@ -91,9 +91,10 @@ class Cloud
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::servers}
-			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name)
+			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name, vpc: vpc)
 				@deploy = mommacat
 				@config = kitten_cfg
+				@vpc = vpc
 
 				if !mu_name.nil?
 					@mu_name = mu_name
@@ -382,32 +383,26 @@ class Cloud
 					instance_descriptor[:private_ip_address] = @config['private_ip']
 				end
 
-				vpc_id=subnet_id=nat_host_name=nat_ssh_user = nil
-				subnet_retries = 0
-				if !@config["vpc"].nil?
-					begin
-						vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::Cloud::AWS::VPC.parseVPC(@config['vpc'])
-					rescue Aws::EC2::Errors::ServiceError => e
-						MU.log e.message, MU::ERR, details: @config
-						if subnet_retries < 5
-						  subnet_retries = subnet_retries + 1
-						  sleep 15
-						  retry
-						end
-						raise MuError, e.inspect
-					end
-					subnet_id = subnet_ids.first
-					if subnet_id.nil? or subnet_id.empty?
+				vpc_id = subnet = nil
+				if !@vpc.nil? and @config.has_key?("vpc")
+					subnet_conf = @config['vpc']
+					subnet_conf = @config['vpc']['subnets'].first if @config['vpc'].has_key?("subnets")
+					tag_key, tag_value = subnet_conf['tag'].split(/=/, 2) if !subnet_conf['tag'].nil?
+					subnet = @vpc.getSubnet(
+						cloud_id: subnet_conf['subnet_id'],
+						name: subnet_conf['subnet_name'],
+						tag_key: tag_key,
+						tag_value: tag_value
+					)
+					if subnet.nil? or subnet.empty?
 						raise MuError, "Got null Subnet id out of #{@config['vpc']}"
 					end
 
-					MU.log "Deploying #{node} into VPC #{vpc_id} Subnet #{subnet_id}"
+					MU.log "Deploying #{node} into VPC #{@vpc.cloud_id} Subnet #{subnet.cloud_id}"
 
-					if !@config["vpc"]["nat_host_name"].nil? or !@config["vpc"]["nat_host_id"].nil?
-						punchAdminNAT
-					end
+					punchAdminNAT
 
-					instance_descriptor[:subnet_id] = subnet_id
+					instance_descriptor[:subnet_id] = subnet.cloud_id
 				end
 				security_groups = Array.new
 				if !@config["add_firewall_rules"].nil?
@@ -704,11 +699,9 @@ class Cloud
 					puts `#{vault_cmd}`
 					MU.log vault_cmd, MU::DEBUG				
 				end
-				
-				
 
-				if !@config["vpc"].nil?
-					is_private = MU::Cloud::AWS::VPC.isSubnetPrivate?(instance.subnet_id, region: @config['vpc']['region'])
+				if !subnet.nil?
+					is_private = subnet.private
 					if !is_private or (!@config['static_ip'].nil? and !@config['static_ip']['assign_ip'].nil?)
 						if !@config['static_ip'].nil?
 							if !@config['static_ip']['ip'].nil?
@@ -729,31 +722,8 @@ class Cloud
 					# extra interfaces to accomodate.
 					if !@config['vpc']['subnets'].nil? and @config['basis'].nil?
 						device_index = 1
-						@config['vpc']['subnets'].each { |subnet|
-							tag_key, tag_value = @config['vpc']['tag'].split(/=/, 2) if !@config['vpc']['tag'].nil?
-							existing_vpc, vpc_name = MU::Cloud::VPC.find(
-								id: @config['vpc']['vpc_id'],
-								name: @config['vpc']['vpc_name'],
-								deploy_id: @config['vpc']['deploy_id'],
-								tag_key: tag_key,
-								tag_value: tag_value,
-								region: @config['vpc']['region']
-							)
-							tag_key, tag_value = @config['vpc']['tag'].split(/=/, 2) if !subnet['tag'].nil?
-
-							subnet_struct = MU::Cloud::AWS::VPC::findSubnet(
-								id: subnet["subnet_id"],
-								name: subnet["subnet_name"],
-								vpc_id: existing_vpc.vpc_id,
-								deploy_id: @config['vpc']['deploy_id'],
-								tag_key: tag_key,
-								tag_value: tag_value,
-								region: @config['vpc']['region']
-							)
-							if subnet_struct.nil?
-								raise MuError, "#{node} is configured to have an interface in #{subnet}, but no such subnet exists"
-							end
-							subnet_id = subnet_struct.subnet_id
+						@vpc.subnets { |subnet|
+							subnet_id = subnet.cloud_id
 							MU.log "Adding network interface on subnet #{subnet_id} for #{node}"
 							iface = MU::Cloud::AWS.ec2(@config['region']).create_network_interface(subnet_id: subnet_id).network_interface
 							MU::MommaCat.createStandardTags(iface.network_interface_id, region: @config['region'])
@@ -908,22 +878,15 @@ class Cloud
 				return true
 			end # postBoot
 
-			# Locate a running instance. Can identify instances by their cloud
-			# provider identifier, OR by their internal Mu resource name, OR by a 
-			# cloud provider tag name/value pair, OR by an assigned IP address.
-			# @param name [String]: A Mu resource name, usually the 'name' field of aa Basket of Kittens resource declaration. Will search the currently loaded deployment unless another is specified.
-			# @param deploy_id [String]: The deployment to search using the 'name' parameter.
-			# @param id [String]: The cloud provider's identifier for this resource.
+			# Locate an existing instance or instances and return an array containing matching AWS resource descriptors for those that match.
+			# @param cloud_id [String]: The cloud provider's identifier for this resource.
+			# @param region [String]: The cloud provider region
 			# @param tag_key [String]: A tag key to search.
 			# @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-			# @param allow_multi [Boolean]: When searching by tags or name, permit an array of resources to be returned (if applicable) instead of just one.
-			# @param ip [String]: An IP address assigned to this instance.
-			# @param region [String]: The cloud provider region
-			# @return [OpenStruct]: The cloud provider's complete description of this server
-			def self.find(name: nil, deploy_id: MU.deploy_id, id: nil, tag_key: "Name", tag_value: nil, allow_multi: false, ip: nil, region: MU.curRegion, mu_name: nil)
-				return nil if !id and !name and !ip and !tag_value
+			# @param ip [String]: An IP address associated with the instance
+			# @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching instances
+			def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, ip: nil)
 
-				# If we got an instance id, go get that
 				instance = nil
 				if !region.nil?
 					regions = [region]
@@ -935,23 +898,27 @@ class Cloud
 				search_semaphore = Mutex.new
 				search_threads = []
 
-				if !id.nil?
+				# If we got an instance id, go get it
+				if !cloud_id.nil?
 					regions.each { |region|
-						search_threads << Thread.new(region) { |myregion|
-							MU.log "Hunting for instance with cloud id '#{id}' in #{myregion}", MU::DEBUG
+						search_threads << Thread.new {
+							MU.log "Hunting for instance with cloud id '#{cloud_id}' in #{region}", MU::DEBUG
 							retries = 0
 							begin
-								response = MU::Cloud::AWS.ec2(myregion).describe_instances(
-									instance_ids: [id],
+								MU::Cloud::AWS.ec2(region).describe_instances(
+									instance_ids: [cloud_id],
 									filters: [
 										{ name: "instance-state-name", values: ["running", "pending"] }
 									]
-								).reservations.first
-								if response
-									search_semaphore.synchronize {
-										found_instances << response.instances.first
-									}
-								end
+								).reservations.each { |resp|
+									if !resp.nil? and !resp.instances.nil?
+										resp.instances.each { |instance|
+											search_semaphore.synchronize {
+												found_instances << instance
+											}
+										}
+									end
+								}
 							rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
 								if retries < 5
 									retries = retries + 1
@@ -971,9 +938,8 @@ class Cloud
 					end while found_instances.size < 1 and done_threads.size != search_threads.size
 				end
 
-				instance = found_instances.shift if found_instances.size > 0
-				if !instance.nil?
-					return instance if !instance.nil?
+				if found_instances.size > 0
+					return found_instances
 				end
 
 				# Ok, well, let's try looking it up by IP then
@@ -991,71 +957,27 @@ class Cloud
 				end
 
 				if !instance.nil?
-					return instance if !instance.nil?
+					return [instance] if !instance.nil?
 				end
-
-				# If we've been asked to find by name, things get weird. In server pools
-				# you can easily have multiple servers with the same Mu resource name.
-				name_matches = []
-				if !name.nil? and !deploy_id.nil?
-					resource = MU::MommaCat.getResourceMetadata(MU::Cloud::Server.cfg_plural, name: name, deploy_id: deploy_id)
-					MU.log "Searching for instance by name '#{name}'", MU::DEBUG, details: resource
-					if !resource.nil? and resource.keys.size == 1
-						nodename, server = resource.shift
-						name_matches << server
-					elsif !resource.nil? and resource.keys.size > 1
-						if !mu_name.nil?
-							name_matches << resource[mu_name]
-						elsif !allow_multi
-							MU.log "Found multiple matching servers for name #{name} in deploy #{deploy_id}", MU::ERR, details: resource
-							raise MuError, "Found multiple matching servers for name #{name} in deploy #{deploy_id}"
-						else
-							resource.each_pair { |nodename, server|
-								name_matches << server
-							}
-						end
-					end
-				end
-				matches = []
-				name_matches.each { |server|
-					next if server.nil?
-					next if !server.is_a?(Hash)
-					next if server['instance_id'].nil?
-					response = MU::Cloud::AWS.ec2(region).describe_instances(
-						instance_ids: [server['instance_id']],
-						filters: [
-							{ name: "instance-state-name", values: ["running", "pending"] }
-						]
-					).reservations.first
-					matches << response.instances.first if response
-				}
 
 				# Fine, let's try it by tag.
 				if matches.size == 0 and !tag_value.nil?
 					MU.log "Searching for instance by tag '#{tag_key}=#{tag_value}'", MU::DEBUG
-					resp = MU::Cloud::AWS.ec2(region).describe_instances(
+					MU::Cloud::AWS.ec2(region).describe_instances(
 						filters:[
 							{ name: "tag:#{tag_key}", values: [tag_value] },
 							{ name: "instance-state-name", values: ["running", "pending"] }
 						]
-					).reservations.first
-					if !resp.nil? and resp.instances.size == 1
-						matches << resp.instances.first if resp
-					elsif resp.instances.size > 1
-						if !allow_multi
-							MU.log "Found multiple matching servers for tag #{tag_key}=#{tag_value} in deploy #{deploy_id}", MU::ERR, details: resp
-							raise MuError, "Found multiple matching servers for tag #{tag_key}=#{tag_value} in deploy #{deploy_id}"
-						else
-							matches = resp.instances
+					).reservations.each { |resp|
+						if !resp.nil? and resp.instances.size > 0
+							resp.instances.each { |instance|
+								matches << instance
+							}
 						end
-					end
+					}
 				end
 
-				if allow_multi
-					return matches
-				else
-					return matches.first
-				end
+				return matches
 			end
 
 			# Return a description of this resource appropriate for deployment
@@ -1114,25 +1036,30 @@ class Cloud
 			# If the specified server is in a VPC, and has a NAT, make sure we'll
 			# be letting ssh traffic in from said NAT.
 			def punchAdminNAT
-				if !@config["vpc"].nil?
-					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::Cloud::AWS::VPC.parseVPC(@config['vpc'])
-					if !nat_host_name.nil?
-						nat_instance, mu_name = MU::Cloud::Server.find(
-							id: @config["vpc"]["nat_host_id"],
-							name: @config["vpc"]["nat_host_name"],
-							region: @config['region']
-						)
-						if nat_instance.nil?
-							raise MuError, "#{node} (#{MU.deploy_id}) is configured to use #{@config['vpc']} but I can't find a running instance matching nat_host_id or nat_host_name"
-						end
-						MU.log "Adding administrative holes for NAT host #{nat_instance["private_ip_address"]} to #{@mu_name}", MU::DEBUG
-						@deploy.kittens['firewall_rules'].each_pair { |name, acl|
-							if name.match(/^admin-/) # XXX KLUUUDGE, get the exact name
-								acl.addRule([nat_instance["private_ip_address"]], proto: "tcp")
-								acl.addRule([nat_instance["private_ip_address"]], proto: "udp")
-							end
-						}
+				if !@config["vpc"].nil? and (
+						@config['vpc'].has_key?("nat_host_id") or
+						@config['vpc'].has_key?("nat_host_tag") or
+						@config['vpc'].has_key?("nat_host_ip") or
+						@config['vpc'].has_key?("nat_host_name")
+					)
+					nat_tag_key, nat_tag_value = @config['vpc']['nat_host_tag'].split(/=/, 2)
+					nat_instance = @vpc.findBastion(
+						nat_name: @config['vpc']['nat_host_name'],
+						nat_cloud_id: @config['vpc']['nat_host_id'],
+						nat_tag_key: nat_tag_key,
+						nat_tag_value: nat_tag_value,
+						nat_ip: @config['vpc']['nat_host_ip']
+					)
+					if nat_instance.nil?
+						raise MuError, "#{node} (#{MU.deploy_id}) is configured to use #{@config['vpc']} but I can't find a matching NAT instance"
 					end
+					MU.log "Adding administrative holes for NAT host #{nat_instance["private_ip_address"]} to #{@mu_name}", MU::DEBUG
+					@deploy.kittens['firewall_rules'].each_pair { |name, acl|
+						if name.match(/^admin-/) # XXX KLUUUDGE, get the exact name out of our dependencies or something
+							acl.addRule([nat_instance["private_ip_address"]], proto: "tcp")
+							acl.addRule([nat_instance["private_ip_address"]], proto: "udp")
+						end
+					}
 				end
 			end
 

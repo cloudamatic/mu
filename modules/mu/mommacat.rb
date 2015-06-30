@@ -757,17 +757,17 @@ return
 		# @param allow_multi [Boolean]: Permit an array of matching resources to be returned (if applicable) instead of just one.
 		# @return [Array<MU::Cloud>]
 		def self.findStray(cloud,
-			            type,
-									deploy_id: nil,
-									name: nil,
-									mu_name: nil,
-									cloud_id: nil,
-									region: nil,
-									tag_key: nil,
-									tag_value: nil,
-									allow_multi: false,
-									calling_deploy: MU.mommacat
-								)
+												type,
+												deploy_id: nil,
+												name: nil,
+												mu_name: nil,
+												cloud_id: nil,
+												region: nil,
+												tag_key: nil,
+												tag_value: nil,
+												allow_multi: false,
+												calling_deploy: MU.mommacat
+											)
 begin
 			resourceclass = MU::Cloud.loadCloudType(cloud, type)
 			cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)

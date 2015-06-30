@@ -26,7 +26,7 @@ module MU
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::vpcs}
-			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name, cloud_id: cloud_id)
+			def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
 				@deploy = mommacat
 				@config = kitten_cfg
 				@subnets = []
@@ -416,12 +416,12 @@ module MU
 
 			end
 
-			# Locate an existing VPC and return an array containing matching AWS resource descriptors for VPCs that match.
+			# Locate an existing VPC or VPCs and return an array containing matching AWS resource descriptors for those that match.
 			# @param cloud_id [String]: The cloud provider's identifier for this resource.
 			# @param region [String]: The cloud provider region
 			# @param tag_key [String]: A tag key to search.
 			# @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-			# @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete description of this VPC
+			# @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching VPCs
 			def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil)
 
 				retries = 0
@@ -604,6 +604,43 @@ module MU
 				return @subnets
 			end
 
+			# Given some search criteria for a {MU::Cloud::Server}, see if we can
+			# locate a NAT host in this VPC.
+			# @param nat_name [String]: The name of the resource as defined in its 'name' Basket of Kittens field, typically used in conjunction with deploy_id.
+			# @param nat_cloud_id [String]: The cloud provider's identifier for this NAT.
+			# @param nat_tag_key [String]: A cloud provider tag to help identify the resource, used in conjunction with tag_value.
+			# @param nat_tag_value [String]: A cloud provider tag to help identify the resource, used in conjunction with tag_key.
+			# @param nat_ip [String]: An IP address associated with the NAT instance.
+			def findBastion(nat_name: nil, nat_cloud_id: nil, nat_tag_key: nil, nat_tag_value: nil, nat_ip: nil)
+				nat = nil
+				found = MU::MommaCat.findStray(
+					vpc_block['cloud'],
+					"server",
+					name: nat_name,
+					region: @config['region'],
+					cloud_id: nat_cloud_id,
+					tag_key: nat_tag_key,
+					tag_value: nat_tag_value,
+					allow_multi: true
+				)
+				if found.size > 1
+					found.each { |instance| 
+						# Try some AWS-specific criteria
+						junk, morejunk, whocares, cloud_desc = instance.describe
+						if !vpc_block['nat_host_ip'].nil? and (cloud_desc.private_ip_address == vpc_block['nat_host_ip'] or cloud_desc.public_ip_address == vpc_block['nat_host_ip'])
+							return nat
+						elsif cloud_desc.vpc_id == @cloud_id
+							# XXX Strictly speaking we could have different NATs in different
+							# subnets, so this can be wrong in corner cases.
+							return nat
+						end
+					}
+				elsif found.size == 1
+					return nat
+				end
+				return nil
+			end
+
 			# Check for a subnet in this VPC matching one or more of the specified
 			# criteria, and return it if found.
 			def getSubnet(cloud_id: nil, name: nil, tag_key: nil, tag_value: nil, ip_block: nil)
@@ -704,28 +741,6 @@ module MU
 
 				@route_cache[instance_id] = false
 				return false
-			end
-
-
-			# Fetch a subnet's default route. Useful for getting NAT host IDs from
-			# subnet identifiers.
-			# @param subnet_id [String]: The cloud provider subnet id
-			# @return [String]: route
-			def self.getDefaultRoute(subnet_id, region: MU.curRegion)
-				resp = MU::Cloud::AWS.ec2(region).describe_route_tables(
-					filters: [{name: "association.subnet-id", values: [subnet_id]}]
-				)
-				resp.route_tables.each { |route_table|
-					route_table.routes.each { |route|
-						if route.destination_cidr_block =="0.0.0.0/0" and route.state != "blackhole"
-							return route.instance_id if !route.instance_id.nil?
-							return route.gateway_id if !route.gateway_id.nil?
-							return route.vpc_peering_connection_id if !route.vpc_peering_connection_id.nil?
-							return route.network_interface_id if !route.network_interface_id.nil?
-						end
-					}
-				}
-				return nil
 			end
 
 			# Take in the @config_primitive configuration section and resolve to
@@ -1160,8 +1175,25 @@ module MU
 					@deploydata = config # This is a dummy for the sake of describe()
 				end
 
-				# Given a cloud platform identifier for a subnet, determine whether it
-				# is publicly routable or private only.
+				# Return the cloud identifier for the default route of this subnet.
+				def defaultRoute
+					resp = MU::Cloud::AWS.ec2(@config['region']).describe_route_tables(
+						filters: [{name: "association.subnet-id", values: [@cloud_id]}]
+					)
+					resp.route_tables.each { |route_table|
+						route_table.routes.each { |route|
+							if route.destination_cidr_block =="0.0.0.0/0" and route.state != "blackhole"
+								return route.instance_id if !route.instance_id.nil?
+								return route.gateway_id if !route.gateway_id.nil?
+								return route.vpc_peering_connection_id if !route.vpc_peering_connection_id.nil?
+								return route.network_interface_id if !route.network_interface_id.nil?
+							end
+						}
+					}
+					return nil
+				end
+
+				# Is this subnet privately-routable only, or public?
 				# @return [Boolean]
 				def private?
 					return false if @cloud_id.nil?
