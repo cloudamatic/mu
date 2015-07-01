@@ -13,7 +13,8 @@ DEL_PACKAGES="nagios"
 
 OPSCODE_CHEF_PKG="chef-server-core-12.0.8-1.el6.x86_64"
 OPSCODE_CHEF_DL="https://web-dl.packagecloud.io/chef/stable/packages/el/6/${OPSCODE_CHEF_PKG}.rpm"
-CHEF_CLIENT_PKG="chef-12.3.0-1.el6.x86_64"
+CHEF_CLIENT_VERSION="12.3.0-1"
+CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el6.x86_64"
 
 RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby212-2.1.2p205-1.el6.x86_64.rpm"
 RUBY_INSTALL_DIR="/opt/rubies/ruby212-2.1.2-p205"
@@ -1088,8 +1089,8 @@ install_chef()
 	if ! rpm -q $CHEF_CLIENT_PKG > /dev/null ;then
 		status_message "Installing current Chef client"
 		yum -y erase chef
-		curl https://www.opscode.com/chef/install.sh > /root/chef-install.sh
-		sh /root/chef-install.sh
+		curl https://www.chef.io/chef/install.sh > /root/chef-install.sh
+		sh /root/chef-install.sh -v $CHEF_CLIENT_VERSION
 	fi
 	add_chef_support_gems /opt/chef/embedded
 	set_knife_rb organizations/mu
