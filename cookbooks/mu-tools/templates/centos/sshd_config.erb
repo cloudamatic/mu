@@ -167,11 +167,21 @@ PermitRootLogin without-password
 UseDNS no
 
 # If we've set AllowGroups, use that instead of restricting to root
-<% begin %>
+<%
+begin
+	if !node.application_attributes.sshd_allow_groups.empty? %>
 AllowGroups <%= node.application_attributes.sshd_allow_groups %>
-<% rescue NoMethodError %>
+<%
+	else
+	%>
 AllowUsers root
-<% end %>
+<%
+	end
+rescue NoMethodError %>
+AllowUsers root
+<%
+end
+%>
 
 # Support SFTP-only servers, while we're at it
 <%
