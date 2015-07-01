@@ -91,7 +91,7 @@ class Cloud
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::servers}
-			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name, vpc: vpc)
+			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name, vpc: vpc, cloud_id: cloud_id)
 				@deploy = mommacat
 				@config = kitten_cfg
 				@vpc = vpc
@@ -407,7 +407,7 @@ class Cloud
 				security_groups = Array.new
 				if !@config["add_firewall_rules"].nil?
 					@config["add_firewall_rules"].each { |acl|
-						sg = MU::Cloud::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"], region: @config['region'])
+						sg = MU::Cloud::FirewallRule.find(cloud_id: acl["rule_id"], name: acl["rule_name"], region: @config['region'])
 						if sg.nil?
 							raise MuError, "Couldn't find dependent security group #{acl} for server #{node}"
 						end
@@ -1079,21 +1079,19 @@ class Cloud
 				instance, mu_name = MU::Cloud::Server.find(id: @cloud_id, region: @config['region'])
 				MU::Cloud::AWS::Server.tagVolumes(@cloud_id)
 			        
-			  # If we depend on database instances, make sure those database instances'
-			  # security groups will let us in.
+				# If we depend on database instances, make sure those database
+				# instances' security groups will let us in.
 				if @config["dependencies"] != nil then
 					@config["dependencies"].each { |dependent_on|
 						if dependent_on['type'] != nil and dependent_on['type'] == "database" then
-							database = MU::Cloud::Database.find(name: dependent_on["name"], region: @config["region"])
+							database = @deploy.findLitterMate(type: dependent_on['type'], name: dependent_on["name"])
 							if database.nil?
-								MU.log "Couldn't find identifier for dependent database #{dependent_on['name']} in #{@config["region"]}", MU::ERR
-								raise MuError, "Couldn't find identifier for dependent database #{dependent_on['name']} in #{@config["region"]}"
+								raise MuError, "Couldn't find dependent database #{dependent_on['name']} for server #{@config["name"]}"
 							end
-							db_id = database.db_instance_identifier
 							private_ip = @config['private_ip_address']
 							if private_ip != nil and db_id != nil then
 								MU.log "Adding #{private_ip}/32 to database security groups for #{db_id}"
-								MU::Cloud::AWS::Database.allowHost("#{private_ip}/32", db_id, region: @config['region'])
+								database.allowHost("#{private_ip}/32")
 							end
 						end
 					}

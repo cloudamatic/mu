@@ -25,7 +25,7 @@ class Cloud
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::server_pools}
-			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name, vpc: vpc)
+			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name, vpc: vpc, cloud_id: cloud_id)
 				@deploy = mommacat
 				@config = kitten_cfg
 				@vpc = vpc
@@ -199,7 +199,7 @@ class Cloud
 
 				if !@config["add_firewall_rules"].nil?
 					@config["add_firewall_rules"].each { |acl|
-						sg = MU::Cloud::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"])
+						sg = MU::Cloud::FirewallRule.find(cloud_id: acl["rule_id"], name: acl["rule_name"])
 						if sg.nil?
 							MU.log "Couldn't find dependent security group #{acl} for server pool #{@config['name']}", MU::ERR, details: MU.mommacat.deployment['firewall_rules']
 							raise MuError, "deploy failure"
@@ -345,8 +345,15 @@ class Cloud
 				return {}
 			end
 
-			# placeholder
-			def self.find
+			# Locate an existing ServerPool or ServerPools and return an array containing matching AWS resource descriptors for those that match.
+			# @param cloud_id [String]: The cloud provider's identifier for this resource.
+			# @param region [String]: The cloud provider region
+			# @param tag_key [String]: A tag key to search.
+			# @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
+			# @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching ServerPools
+			def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil)
+				MU.log "XXX ServerPool.find not yet implemented", MU::WARN
+				return {}
 			end
 
 			# Remove all autoscale groups associated with the currently loaded deployment.

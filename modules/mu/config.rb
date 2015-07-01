@@ -1167,7 +1167,8 @@ module MU
 					MU.log "Server Pools cannot assign specific static IPs.", MU::ERR
 				end
 				pool['vault_access'] = [] if pool['vault_access'].nil?
-				pool['vault_access'] << { "vault" => "splunk", "item" => "admin_user" }
+# XXX vault seems broken right now
+#				pool['vault_access'] << { "vault" => "splunk", "item" => "admin_user" }
 				ok = false if !check_vault_refs(pool)
 				if pool["basis"]["launch_config"] != nil
 					launch = pool["basis"]["launch_config"]
@@ -1460,7 +1461,8 @@ module MU
 
 				server['skipinitialupdates'] = true if @skipinitialupdates
 				server['vault_access'] = [] if server['vault_access'].nil?
-				server['vault_access'] << { "vault" => "splunk", "item" => "admin_user" }
+# XXX vault seems broken right now
+#				server['vault_access'] << { "vault" => "splunk", "item" => "admin_user" }
 				ok = false if !check_vault_refs(server)
 
 				if !server['ingress_rules'].nil?

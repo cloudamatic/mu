@@ -228,7 +228,9 @@ module MU
 				def to_s
 					describe
 					mu_name = @mu_name
-					mu_name ||= MU::MommaCat.getResourceName(@config['name'])
+					if !@config.nil?
+						mu_name ||= MU::MommaCat.getResourceName(@config['name'])
+					end
 					return "#{@mu_name} - #{self.class.shortname} - #{@cloud_id}"
 				end
 
@@ -238,6 +240,9 @@ module MU
 											 kitten_cfg: kitten_cfg)
 					raise MuError, "Cannot invoke Cloud objects without a configuration" if kitten_cfg.nil?
 					@deploy = mommacat
+if @deploy.is_a?(Hash)
+	MU.log "WTF", MU::WARN, details: caller
+end
 					@config = kitten_cfg
 					if !@deploy.nil?
 						@deploy_id = @deploy.deploy_id
@@ -250,18 +255,36 @@ module MU
 					end
 					@cloud = kitten_cfg['cloud']
 					@cloudclass = MU::Cloud.loadCloudType(@cloud, self.class.shortname)
+					if self.class.waits_on_parent_completion
+						@config['dependencies'].each { |dep|
+							begin
+								dep['#HANDLE'] = @deploy.findLitterMate(type: dep['type'], name: dep['name'])
+							rescue MuError
+								# XXX what we should really do is be aware of groom and dependency phases here
+								MU.log "Was trying to load '#{self}' dependencies...", MU::WARN, details: dep
+							end
+						}
+					end
 					if self.class.can_live_in_vpc and @config.has_key?("vpc")
-						tag_key, tag_value = @config['vpc']['tag'].split(/=/, 2) if !@config['vpc']['tag'].nil?
-						@vpc = MU::MommaCat.findStray(
-							@cloud,
-							"vpc",
-							deploy_id: @config['vpc']["deploy_id"],
-							cloud_id: @config['vpc']["vpc_id"],
-							name: @config['vpc']["vpc_name"],
-							tag_key: tag_key,
-							tag_value: tag_value,
-							region: @config['vpc']["region"]
-						)
+						@config['dependencies'].each { |dep|
+							if dep['type'] == "vpc" and dep['name'] == @config['vpc']["vpc_name"]
+								@vpc = dep['#HANDLE']
+							end
+						}
+						if !@vpc.nil?
+							tag_key, tag_value = @config['vpc']['tag'].split(/=/, 2) if !@config['vpc']['tag'].nil?
+							vpcs = MU::MommaCat.findStray(
+								@cloud,
+								"vpc",
+								deploy_id: @config['vpc']["deploy_id"],
+								cloud_id: @config['vpc']["vpc_id"],
+								name: @config['vpc']["vpc_name"],
+								tag_key: tag_key,
+								tag_value: tag_value,
+								region: @config['vpc']["region"]
+							)
+							@vpc = vpcs.first if !vpcs.nil? and vpcs.size > 0
+						end
 					end
 					@environment = kitten_cfg['environment']
 # XXX require subclass to provide attr_readers of @config and @deploy
@@ -295,10 +318,13 @@ module MU
 						@cloud_id = @cloudobj.cloud_id
 					end
 					res_type = self.class.cfg_plural
-					res_name = @config['name']
-					if !@deploy.deployment.nil? and !@deploy.deployment[res_type].nil? and !@deploy.deployment[res_type][res_name].nil?
+					res_name = @config['name'] if !@config.nil?
+					if !@deploy.nil? and @deploy.is_a?(MU::MommaCat) and
+							!@deploy.deployment.nil? and
+							!@deploy.deployment[res_type].nil? and
+							!@deploy.deployment[res_type][res_name].nil?
 						deploydata = @deploy.deployment[res_type][res_name]
-					elsif update_cache or @deploydata.nil?
+					elsif (update_cache or @deploydata.nil?) and !@deploy.nil? and @deploy.is_a?(MU::MommaCat)
 						deploydata = MU::MommaCat.getResourceMetadata(res_type, name: res_name, deploy_id: @deploy.deploy_id, mu_name: @mu_name)
 					end
 					# XXX :has_multiples is what to actually check here
@@ -328,7 +354,7 @@ module MU
 							}
 						end
 					end
-					if update_cache or @cloud_desc.nil?
+					if (update_cache or @cloud_desc.nil?) and !@config.nil?
 						@cloud_desc = self.class.find(region: @config['region'], cloud_id: @cloud_id).first
 					end
 
@@ -472,8 +498,10 @@ module MU
 							retval = @cloudobj.method(method).call
 						end
 						if method == :create or method == :groom or method == :postBoot
-							@cloudobj.method(:notify).call
 							deploydata = @cloudobj.method(:notify).call
+							if deploydata.nil? or !deploydata.is_a?(Hash)
+								raise MuError, "#{self}'s notify method did not return a Hash of deployment data"
+							end
 							deploydata['cloud_id'] = @cloudobj.cloud_id if !@cloudobj.cloud_id.nil?
 							deploydata['mu_name'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
 							@deploy.notify(self.class.cfg_plural, @config['name'], deploydata)

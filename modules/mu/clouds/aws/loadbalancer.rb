@@ -25,7 +25,7 @@ module MU
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::loadbalancers}
-			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name, vpc: vpc)
+			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name, vpc: vpc, cloud_id: cloud_id)
 				@deploy = mommacat
 				@config = kitten_cfg
 				@vpc = vpc
@@ -335,47 +335,39 @@ module MU
 				return nil
 			end
 
-			# Find a LoadBalancer, given one or more pieces of identifying information.
-			# @param name [String] The MU resource name of a LoadBalancer to find.
-			# @param id [String] The cloud provider's internal identifier of a LoadBalancer to find.
-			# @param dns_name [String] The DNS name of a LoadBalancer to Find.
+			# Locate an existing LoadBalancer or LoadBalancers and return an array containing matching AWS resource descriptors for those that match.
+			# @param cloud_id [String]: The cloud provider's identifier for this resource.
 			# @param region [String]: The cloud provider region
-			# @param deploy_id [String]: The parent deploy identifier
-			# @return [OpenStruct] The cloud provider's description of the LoadBalancer
-			def self.find(name: nil, id: nil, dns_name: nil, region: MU.curRegion, deploy_id: nil, mu_name: nil)
-				return nil if !name and !dns_name and !id
-				id = mu_name if id.nil? and !mu_name.nil?
-				deploydata = MU::MommaCat.getResourceMetadata(MU::Cloud::LoadBalancer.cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name)
-				if !deploydata.nil?
-					if deploydata.is_a?(Array)
-						if !dns_name.nil? or !id.nil?
-							deploydata.each { |elb|
-								if (!dns_name.nil? and dns_name == deploydata['dns']) or
-									 (!id.nil? and id == deploydata['awsname'])
-									id = deploydata['awsname'] if id.nil?
-									dns_name = deploydata['dns'] if dns_name.nil?
-									break
+			# @param tag_key [String]: A tag key to search.
+			# @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
+			# @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching LoadBalancers
+			def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil)
+				matches = {}
+				list = {}
+				resp = MU::Cloud::AWS.elb(region).describe_load_balancers
+				lb_names = []
+				resp.load_balancer_descriptions.each { |lb|
+					list[lb.load_balancer_name] = lb
+					if !cloud_id.nil? and lb.load_balancer_name == cloud_id
+						matches[cloud_id] = lb
+					end
+				}
+				return matches if matches.size > 0
+
+				if !tag_key.nil? and !tag_value.nil?
+					resp = MU::Cloud::AWS.elb(region).describe_tags(load_balancer_names: list.keys)
+					if !resp.nil?
+						resp.tag_descriptions.each { |lb|
+							lb.tags.each { |tag|
+								if tag.key == tag_key and tag.value == tag_value
+									matches[lb.load_balancer_name] = list[lb.load_balancer_name]
 								end
 							}
-						end
-						if !id.nil? or dns_name.nil?
-							MU.log "Can't isolate a single ELB from: name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}, region: #{region}, dns_name: #{dns_name}", MU::DEBUG
-						end
-					elsif deploydata.is_a?(Hash)
-						id = deploydata['awsname'] if id.nil? and deploydata.has_key?("awsname")
-						dns_name = deploydata['dns'] if dns_name.nil? and deploydata.has_key?("dns")
+						}
 					end
 				end
 
-				return nil if id.nil? and dns_name.nil?
-
-				resp = MU::Cloud::AWS.elb(region).describe_load_balancers
-				resp.load_balancer_descriptions.each { |lb|
-					return lb if !id.nil? and lb.load_balancer_name == id
-					return lb if !dns_name.nil? and lb.dns_name == dns_name
-				}
-
-				return nil
+				return matches
 
 			end
 		end

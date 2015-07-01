@@ -17,7 +17,7 @@ module MU
 	class Cloud
 	class AWS
 		# A firewall ruleset as configured in {MU::Config::BasketofKittens::firewall_rules}
-		class FirewallRule
+		class FirewallRule < MU::Cloud::FirewallRule
 
 			@deploy = nil
 			@config = nil
@@ -29,7 +29,7 @@ module MU
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::firewall_rules}
-			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name, vpc: vpc)
+			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name, vpc: vpc, cloud_id: cloud_id)
 				@deploy = mommacat
 				@config = kitten_cfg
 				@vpc = vpc
@@ -38,28 +38,12 @@ module MU
 				else
 					@mu_name = MU::MommaCat.getResourceName(@config['name'])
 				end
+# XXX load a cloud_id if we got one
 			end
 
 			# Called by {MU::Deploy#createResources}
 			def create
-				# old-style VPC reference
-				if !@config['vpc_id'].nil? or !@config['vpc_name'].nil?
-					existing_vpc, vpc_name = MU::Cloud::VPC.find(
-						id: @config['vpc_id'],
-						name: @config['vpc_name'],
-						region: @config['region']
-					)
-					if existing_vpc.nil?
-						MU.log "Couldn't find VPC matching id #{@config['vpc_id']}", MU::ERR if @config['vpc_id']
-						MU.log "Couldn't find VPC matching name #{@config['vpc_name']}", MU::ERR if @config['vpc_name']
-						raise MuError, "Couldn't find VPC matching id #{@config['vpc_id']}" if @config['vpc_id']
-						raise MuError, "Couldn't find VPC matching name #{@config['vpc_name']}" if @config['vpc_name']
-					end
-					vpc_id = existing_vpc.vpc_id
-				# new-style VPC reference
-				elsif !@config['vpc'].nil?
-					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::Cloud::AWS::VPC.parseVPC(@config['vpc'])
-				end
+				vpc_id = @vpc.cloud_id if !@vpc.nil?
 				@cloud_id = MU::Cloud::AWS::FirewallRule.createEc2SG(
 						@config['name'],
 						[],
@@ -89,7 +73,7 @@ module MU
 			# Log metadata about this ruleset to the currently running deployment
 			def notify
 				sg_data = MU.structToHash(
-						MU::Cloud::FirewallRule.find(sg_id: @cloud_id, region: @config['region'])
+						MU::Cloud::FirewallRule.find(cloud_id: @cloud_id, region: @config['region'])
 					)
 				sg_data["group_id"] = @cloud_id
 				return sg_data
@@ -203,32 +187,22 @@ module MU
 				return secgroup.group_id
 			end
 
-			# Locate an existing Firewall Rule and return the cloud provider's
-			# complete description thereof.
-			#
-			# @param sg_id [String]: The cloud provider's identifier for this resource.
-			# @param name [String]: This parameter will attempt first to find a MU resource with the given name string in the current deployment, and failing that will attempt to find a resource with a matching Name tag.
+			# Locate an existing security group or groups and return an array containing matching AWS resource descriptors for those that match.
+			# @param cloud_id [String]: The cloud provider's identifier for this resource.
 			# @param region [String]: The cloud provider region
-			# @return [OpenStruct]: The cloud provider's full description of this resource.
-			def self.find(sg_id: nil, name: nil, deploy_id: nil, region: MU.curRegion)
-				return nil if !sg_id and !name
-				MU.log "find invoked with sg_id: #{sg_id}, name: #{name}, region: #{region}", MU::DEBUG, details: caller
+			# @param tag_key [String]: A tag key to search.
+			# @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
+			# @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching FirewallRules
+			def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil)
 
-				if sg_id.nil? and !name.nil? and !MU.mommacat.deployment.nil? and !MU.mommacat.deployment['firewall_rules'].nil?
-
-					if MU.mommacat.deployment['firewall_rules'][name] != nil
-						sg_id = MU.mommacat.deployment['firewall_rules'][name]['group_id']
-					end
-				end
-
-				if sg_id != nil
+				if !cloud_id.nil?
 					retries = 0
 					begin
-						resp = MU::Cloud::AWS.ec2(region).describe_security_groups(group_ids: [sg_id])
-						return resp.data.security_groups.first
+						resp = MU::Cloud::AWS.ec2(region).describe_security_groups(group_ids: [cloud_id])
+						return { cloud_id => resp.data.security_groups.first }
 					rescue Aws::EC2::Errors::InvalidGroupNotFound => e
 						if retries < 2
-							MU.log "#{e.inspect} (#{name} in #{region}), retrying...", MU::WARN, details: caller
+							MU.log "#{e.inspect} (#{cloud_id} in #{region}), retrying...", MU::WARN, details: caller
 							retries = retries + 1
 							sleep 5
 							retry
@@ -237,16 +211,21 @@ module MU
 					end
 				end
 
-				if name
+				map = {}
+				if !tag_key.nil? and !tag_value.nil?
 					resp = MU::Cloud::AWS.ec2(region).describe_security_groups(
 						filters:[
-							{ name: "tag:Name", values: [name] }
+							{ name: "tag:#{tag_key}", values: [tag_value] }
 						]
 					)
-
-					return resp.data.security_groups.first if resp
+					if !resp.nil?
+						resp.data.security_groups.each { |sg|
+							map[sg.group_id] = sg
+						}
+					end
 				end
 
+				map
 			end
 
 			# Remove all security groups (firewall rulesets) associated with the currently loaded deployment.
@@ -362,7 +341,7 @@ module MU
 			def self.setRules(sg_id, rules, add_to_self: add_to_self = false, ingress: ingress = true, egress: egress = false, region: MU.curRegion)
 				return if rules.nil? or rules.size == 0
 
-				sg = MU::Cloud::FirewallRule.find(sg_id: sg_id, region: region)
+				sg = MU::Cloud::FirewallRule.find(cloud_id: sg_id, region: region)[sg_id]
 				raise MuError, "Couldn't find firewall ruleset with id #{sg_id}" if sg.nil?
 				MU.log "Setting rules in Security Group #{sg.group_name} (#{sg_id})"
 
@@ -487,9 +466,9 @@ module MU
 							ec2_rule[:user_id_group_pairs] = Array.new if ec2_rule[:user_id_group_pairs].nil?
 							rule['sgs'].each { |sg_name|
 								if sg_name.match(/^sg-/)
-									sg = MU::Cloud::FirewallRule.find(sg_id: sg_name, region: region)
+									sg = MU::MommaCat.findStray(cloud_id: sg_name, region: region, calling_deploy: @deploy).first
 								else
-									sg = MU::Cloud::FirewallRule.find(name: sg_name, region: region)
+									sg = MU::MommaCat.findStray(name: sg_name, region: region, calling_deploy: @deploy).first
 								end
 								if sg.nil?
 									raise MuError, "Attempted to reference non-existing Security Group #{sg_name}"

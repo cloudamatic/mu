@@ -28,14 +28,13 @@ module MU
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::databases}
-			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name, vpc: vpc)
-				@deploy = kitten_cfg
+			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name, vpc: vpc, cloud_id: cloud_id)
+				@deploy = mommacat
 				@db = kitten_cfg
 				@vpc = vpc
 				if !mu_name.nil?
 					@mu_name = mu_name
 				end
-				MU.setVar("curRegion", @db['region']) if !@db['region'].nil?
 			end
 
 
@@ -55,18 +54,38 @@ module MU
 				end
 			end
 
-			# Fetch a full description of a database instance.
-			# @param name [String]: The MU name of a database.
-			# @param db_id [String]: The cloud provider's identifier for this database.
+			# Locate an existing Database or Databases and return an array containing matching AWS resource descriptors for those that match.
+			# @param cloud_id [String]: The cloud provider's identifier for this resource.
 			# @param region [String]: The cloud provider region
-			# @return [OpenStruct, nil]: The cloud provider's full description of this database resource, or nil if no such database exists.
-			def self.find(name: name, db_id: db_id, region: MU.curRegion)
-				# TODO expand to work with name tags like the other resources
-				if name and MU.mommacat.deployment and MU.mommacat.deployment['databases']
-					MU.log "Looking for database #{name}", MU::DEBUG, details: MU.mommacat.deployment['databases']
-					return getDatabaseById(MU.mommacat.deployment['databases'][name]['identifier'], region: region) if MU.mommacat.deployment['databases'][name]
+			# @param tag_key [String]: A tag key to search.
+			# @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
+			# @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching Databases
+			def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil)
+				map = {}
+				if !cloud_id.nil?
+					db = getDatabaseById(cloud_id, region: region)
+					if !db.nil?
+						map[cloud_id] = db
+						return map
+					end
 				end
-				return nil
+	
+				if !tag_value.nil?
+					MU::Cloud::AWS.rds(region).describe_db_instances().db_instances.each { |db|
+						resp = MU::Cloud::AWS.rds(region).list_tags_for_resource(
+							resource_name: MU::Cloud::AWS::Database.getARN(db.db_instance_identifier, "db", region: region)
+						)
+						if !resp.nil? and !resp.tag_list.nil?
+							resp.tag_list { |tag|
+								if tag.key == tag_key and tag.value == tag_value
+									map[db.db_instance_identifier] = db
+								end
+							}
+						end
+					}
+				end
+
+				return map
 			end
 
 			# Construct an Amazon Resource Name for an RDS resource. The RDS API is
@@ -242,7 +261,7 @@ module MU
 							end
 							if @db["add_firewall_rules"] and !@db["add_firewall_rules"].empty?
 								@db["add_firewall_rules"].each { |acl|
-									sg = MU::Cloud::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"], region: @db['region'])
+									sg = MU::Cloud::FirewallRule.find(cloud_id: acl["rule_id"], name: acl["rule_name"], region: @db['region'])
 									if sg and mod_config[:vpc_security_group_ids].nil?
 										mod_config[:vpc_security_group_ids] = []
 									end	
@@ -379,7 +398,7 @@ module MU
 
 						if @db["add_firewall_rules"] and !@db["add_firewall_rules"].empty?
 							@db["add_firewall_rules"].each { |acl|
-								sg = MU::Cloud::FirewallRule.find(sg_id: acl["rule_id"], name: acl["rule_name"], region: @db['region'])
+								sg = MU::Cloud::FirewallRule.find(cloud_id: acl["rule_id"], name: acl["rule_name"], region: @db['region'])
 								config[:vpc_security_group_ids] << sg.group_id if sg
 							}
 						end
@@ -588,28 +607,27 @@ module MU
 			# @param cidr [String]: The CIDR-formatted IP address or block to allow access.
 			# @return [void]
 			def allowHost(cidr)
-# XXX
-
+				mu_name, config, deploydata, cloud_desc = describe
 				# If we're an old, Classic-style database with RDS-specific
 				# authorization, punch holes in that.
-				if !database.db_security_groups.empty?
-					database.db_security_groups.each { |rds_sg|
+				if !cloud_desc.db_security_groups.empty?
+					cloud_desc.db_security_groups.each { |rds_sg|
 						begin
-						MU::Cloud::AWS.rds(region).authorize_db_security_group_ingress(
+						MU::Cloud::AWS.rds(@config['region']).authorize_db_security_group_ingress(
 							db_security_group_name: rds_sg.db_security_group_name,
 							cidrip: cidr
 						)
 						rescue Aws::RDS::Errors::AuthorizationAlreadyExists => e
-							MU.log "CIDR #{cidr} already in database instance #{db_id} security group", MU::WARN
+							MU.log "CIDR #{cidr} already in database instance #{@cloud_id} security group", MU::WARN
 						end
 					}
 				end
 
 				# Otherwise go get our generic EC2 ruleset and punch a hole in it
-				# XXX
-				if !database.vpc_security_groups.empty?
-					database.vpc_security_groups.each { |vpc_sg|
-						MU::Cloud::AWS::FirewallRule.addRule(vpc_sg.vpc_security_group_id, [cidr], region: region)
+				if !cloud_desc.vpc_security_groups.empty?
+					cloud_desc.vpc_security_groups.each { |vpc_sg|
+						fwrule = MU::MommaCat::findStray(@config['cloud'], "firewall_rule", cloud_id: vpc_sg.vpc_security_group_id)
+						fwrule.addRule([cidr], proto: "tcp")
 					}
 				end
 			end

@@ -108,6 +108,22 @@ module MU
 				syncDeployData
 			end
 
+			# Make sure we've got a Splunk admin vault for any mu-splunk-servers to
+			# use, and set it up if we don't.
+			def splunkVaultInit
+				`#{MU::Config.knife} vault show splunk admin_user #{MU::Config.vault_opts} > /dev/null 2>&1`
+				if $?.exitstatus != 0
+					`#{MU::Config.knife} data bag delete -y splunk > /dev/null 2>&1`
+					user = "admin"
+					password = Password.pronounceable(12..14)
+					`#{MU::Config.knife} vault create splunk admin_user '{ \"auth\": \"#{user}:#{password}\" }' --search role:mu-splunk-server #{MU::Config.vault_opts}`
+					if $?.exitstatus != 0
+						MU.log "Failed to create standard Splunk vault: #{MU::Config.knife} vault create splunk admin_user '{ \"auth\": \"#{user}:#{password}\" }' --search role:mu-splunk-server #{MU::Config.vault_opts}", MU::ERR
+						exit 1
+					end
+				end
+			end
+
 			# Bootstrap our server with Chef
 			def bootstrap
 				nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = @server.getSSHConfig

@@ -80,9 +80,8 @@ module MU
 					}
 				end
 				@config['vpc_id'] = vpc_id
-				notify
 
-				deploy_struct = @deploy.deployment['vpcs'][@config['name']].dup
+				deploy_struct = notify
 
 				if @config['create_internet_gateway']
 					MU.log "Creating Internet Gateway #{@mu_name}"
@@ -150,7 +149,10 @@ module MU
 								end while resp.state != "available"
 							end
 							if !subnet['route_table'].nil?
-								routes = @config['route_tables']
+								routes = {}
+								@config['route_tables'].each { |tbl|
+									routes[tbl['name']] = tbl
+								}
 								if routes.nil? or routes[subnet['route_table']].nil?
 									MU.log "Subnet #{subnet_name} references non-existent route #{subnet['route_table']}", MU::ERR, details: @deploy.deployment['vpcs']
 									raise MuError, "deploy failure"
@@ -255,7 +257,7 @@ module MU
 			end
 
 			def notify
-				@deploy.notify("vpcs", @config['name'], @config)
+				@config
 			end
 
 			# Called automatically by {MU::Deploy#createResources}

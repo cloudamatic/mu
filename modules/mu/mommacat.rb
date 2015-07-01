@@ -50,7 +50,8 @@ module MU
 		attr_reader :ssh_public_key
 		attr_reader :nocleanup
 		attr_reader :deploy_id
-		attr_accessor :kittens # really want a protected method delegated to :Deploy
+		attr_reader :timestamp
+		attr_accessor :kittens # really want a method only available to :Deploy
 		@myhome = Etc.getpwuid(Process.uid).dir
 		@nagios_home = "/home/nagios"
 		@locks = Hash.new
@@ -107,7 +108,7 @@ module MU
 			@kittens = {}
 			@original_config = config
 			@nocleanup = nocleanup
-			@deploy_struct_semaphore = Mutex.new
+			@@deploy_struct_semaphore = Mutex.new
 			@secret_semaphore = Mutex.new
 			@notify_semaphore = Mutex.new
 			@deployment = deployment_data
@@ -819,9 +820,9 @@ begin
 					end
 				}
 				# We can't refine any further by asking the cloud provider...
-				if !cloud_id and !tag_key and !tag_value and kittens.size > 0
+				if !cloud_id and !tag_key and !tag_value and kittens.size > 1
 					if !allow_multi
-						raise MuError, "Multiple matches in MU::MommaCat.findStray where none allowed from deploy_id: #{deploy_id}, name: #{name}, mu_name: #{mu_name}"
+						raise MuError, "Multiple matches in MU::MommaCat.findStray where none allowed from deploy_id: '#{deploy_id}', name: '#{name}', mu_name: '#{mu_name}' (#{caller[0]})"
 					else
 						return kittens.values
 					end
@@ -985,6 +986,7 @@ end
 				end
 			}
 
+@@deploy_struct_semaphore.synchronize {
 			deploy_root = File.expand_path(MU.dataDir+"/deployments")
 			if Dir.exists?(deploy_root)
 				Dir.entries(deploy_root).each { |deploy|
@@ -1048,7 +1050,7 @@ end
 					lock.close
 				}
 			end
-
+}
 			matches = {}
 
 			if deploy_id.nil?
@@ -1912,7 +1914,7 @@ MESSAGE_END
 		# Synchronize all in-memory information related to this to deployment to
 		# disk.
 		def save!(updating_node_type = nil)
-			@deploy_struct_semaphore.synchronize {
+			@@deploy_struct_semaphore.synchronize {
 				MU.log "Saving deployment #{MU.deploy_id}", MU::DEBUG
 
 				if !Dir.exist?(deploy_dir)
@@ -2002,7 +2004,7 @@ MESSAGE_END
 		###########################################################################
 		###########################################################################
 		def loadDeploy(deployment_json_only = false)
-			@deploy_struct_semaphore.synchronize {
+			@@deploy_struct_semaphore.synchronize {
 				if File.size?(deploy_dir+"/deployment.json")
 					deploy = File.open("#{deploy_dir}/deployment.json", File::RDONLY)
 					MU.log "Getting lock to read #{deploy_dir}/deployment.json", MU::DEBUG
@@ -2025,6 +2027,7 @@ MESSAGE_END
 							MU.log "Missing global variable #{var} for #{MU.deploy_id}", MU::ERR
 						end
 					}
+					@timestamp = MU.timestamp
 					return if deployment_json_only
 				end
 				if File.exist?(deploy_dir+"/private_key")

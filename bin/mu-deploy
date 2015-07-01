@@ -65,15 +65,6 @@ rescue Errno::ENOENT => e
   exit 1
 end
 
-# Make sure we've got a Splunk admin vault for any mu-splunk-servers to use,
-# and set it up if we don't.
-`#{MU::Config.knife} vault show splunk admin_user #{MU::Config.vault_opts} > /dev/null 2>&1`
-if $?.exitstatus != 0
-	`#{MU::Config.knife} data bag delete -y splunk > /dev/null 2>&1`
-	user = "admin"
-	password = Password.pronounceable(12..14)
-	`#{MU::Config.knife} vault create splunk admin_user '{ \"auth\": \"#{user}:#{password}\" }' --search role:mu-splunk-server #{MU::Config.vault_opts}`
-end
 
 MU.log "Loading #{config}", html: $opts[:web], details: $opts
 
