@@ -37,16 +37,19 @@ DEL_PACKAGES="nagios"
 GET_METADATA="curl --fail -s http://169.254.169.254/latest"
 RCFILE=".murc"
 
-BOLD=`tput bold`
-NORM=`tput sgr0`
-BLACK=`tput setaf 0`
-RED=`tput setaf 1`
-GREEN=`tput setaf 2`
-YELLOW=`tput setaf 3`
-BLUE=`tput setaf 4`
-PINK=`tput setaf 5`
-CYAN=`tput setaf 6`
-WHITE=`tput setaf 7`
+#tput will cause a noninteractive session to silently fail, else color things
+if [ -t 0 ]; then
+	BOLD=`tput bold`
+	NORM=`tput sgr0`
+	BLACK=`tput setaf 0`
+	RED=`tput setaf 1`
+	GREEN=`tput setaf 2`
+	YELLOW=`tput setaf 3`
+	BLUE=`tput setaf 4`
+	PINK=`tput setaf 5`
+	CYAN=`tput setaf 6`
+	WHITE=`tput setaf 7`
+fi
 
 export PATH="/bin:/usr/bin:/sbin:/usr/sbin"
 
