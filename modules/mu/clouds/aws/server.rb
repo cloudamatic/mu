@@ -388,14 +388,14 @@ class Cloud
 					subnet_conf = @config['vpc']
 					subnet_conf = @config['vpc']['subnets'].first if @config['vpc'].has_key?("subnets")
 					tag_key, tag_value = subnet_conf['tag'].split(/=/, 2) if !subnet_conf['tag'].nil?
-MU.log "SUBNET FETCH #{subnet_conf}", MU::WARN, details: @config['vpc']
+
 					subnet = @vpc.getSubnet(
 						cloud_id: subnet_conf['subnet_id'],
 						name: subnet_conf['subnet_name'],
 						tag_key: tag_key,
 						tag_value: tag_value
 					)
-					if subnet.nil? or subnet.empty?
+					if subnet.nil?
 						raise MuError, "Got null subnet id out of #{subnet_conf['vpc']}"
 					end
 
@@ -405,18 +405,21 @@ MU.log "SUBNET FETCH #{subnet_conf}", MU::WARN, details: @config['vpc']
 
 					instance_descriptor[:subnet_id] = subnet.cloud_id
 				end
-				security_groups = Array.new
+				security_groups = []
 				if !@config["add_firewall_rules"].nil?
-					@config["add_firewall_rules"].each { |acl|
-						sg = MU::Cloud::FirewallRule.find(cloud_id: acl["rule_id"], name: acl["rule_name"], region: @config['region'])
-						if sg.nil?
-							raise MuError, "Couldn't find dependent security group #{acl} for server #{node}"
-						end
-						security_groups << sg.group_id
+					if @add_firewall_rules.nil?
+						raise MuError, "Database #{@mu_name} is configured for additional firewall rules, but none appear to have been loaded for me"
+					end
+					@add_firewall_rules.each { |acl|
+						security_groups << acl.cloud_id
 					}
 				end
 
-				instance_descriptor[:security_group_ids] = security_groups
+				if security_groups.size > 0
+					instance_descriptor[:security_group_ids] = security_groups
+				else
+# XXX this shouldn't happen, throw a fit
+				end
 
 			  if !@userdata.nil? and !@userdata.empty?
 			    instance_descriptor[:user_data] =  Base64.encode64(@userdata)
@@ -895,7 +898,7 @@ MU.log "SUBNET FETCH #{subnet_conf}", MU::WARN, details: @config['vpc']
 					regions = MU::Cloud::AWS.listRegions
 				end
 
-				found_instances = []
+				found_instances = {}
 				search_semaphore = Mutex.new
 				search_threads = []
 
@@ -915,7 +918,7 @@ MU.log "SUBNET FETCH #{subnet_conf}", MU::WARN, details: @config['vpc']
 									if !resp.nil? and !resp.instances.nil?
 										resp.instances.each { |instance|
 											search_semaphore.synchronize {
-												found_instances << instance
+												found_instances[instance.instance_id] = instance
 											}
 										}
 									end
@@ -958,11 +961,10 @@ MU.log "SUBNET FETCH #{subnet_conf}", MU::WARN, details: @config['vpc']
 				end
 
 				if !instance.nil?
-					return [instance] if !instance.nil?
+					return { instance.instance_id => instance } if !instance.nil?
 				end
 
 				# Fine, let's try it by tag.
-				matches = []
 				if !tag_value.nil?
 					MU.log "Searching for instance by tag '#{tag_key}=#{tag_value}'", MU::DEBUG
 					MU::Cloud::AWS.ec2(region).describe_instances(
@@ -973,13 +975,13 @@ MU.log "SUBNET FETCH #{subnet_conf}", MU::WARN, details: @config['vpc']
 					).reservations.each { |resp|
 						if !resp.nil? and resp.instances.size > 0
 							resp.instances.each { |instance|
-								matches << instance
+								found_instances[instance.instance_id] = instance
 							}
 						end
 					}
 				end
 
-				return matches
+				return found_instances
 			end
 
 			# Return a description of this resource appropriate for deployment

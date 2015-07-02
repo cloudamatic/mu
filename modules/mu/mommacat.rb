@@ -232,6 +232,9 @@ module MU
 		end
 
 		def addKitten(type, name, object)
+			if !type or !name or !object
+				raise MuError, "Nil arguments to addKitten are not allowed (got type: #{type}, name: #{name}, and '#{object}' to add"
+			end
 			MU::Cloud.resource_types.each_pair { |name, cloudclass|
 				if name == type.to_sym or
 						cloudclass[:cfg_name] == type or

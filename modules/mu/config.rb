@@ -1055,8 +1055,7 @@ module MU
 									"name" => sg_name
 								}
 							else
-							puts "Didn't see #{sg_name} anywhere, is that ok?"
-							pp firewall_rule_names
+								MU.log "Didn't see #{sg_name} anywhere, is that ok?", MU::WARN
 							end
 						}
 					end

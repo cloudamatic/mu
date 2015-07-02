@@ -377,7 +377,7 @@ module MU
 					end
 
 					admin_sg = nil
-pp @deploy.kittens['firewall_rules']
+# XXX this sucks, make # dependencies get this for us instead
 					@deploy.kittens['firewall_rules'].each_pair { |name, acl|
 						if name.match(/^admin-/) # XXX KLUUUDGE, get the exact name out of our dependencies or something
 							admin_sg = acl
@@ -405,25 +405,17 @@ pp @deploy.kittens['firewall_rules']
 
 					# Create VPC security group and add to config 
 					if @config["snapshot_id"].nil?
-						config[:vpc_security_group_ids] = [vpc_db_sg, admin_sg.cloud_id]
+						config[:vpc_security_group_ids] = [admin_sg.cloud_id] if !admin_sg.nil?
 
-# XXX this logic is a refactoring candidate (put in MU::Cloud::FirewallRule.initialize?)
 						if @config["add_firewall_rules"] and !@config["add_firewall_rules"].empty?
-							@config["add_firewall_rules"].each { |acl|
-								fwrule = nil
-								if acl.has_key?("rule_name")
-									fwrule = @deploy.findLitterMate(type: "firewall_rule", name: acl['rule_name'])
-								else
-									fwrule = MU::MommaCat.findStray(@config['cloud'], "firewall_rule", cloud_id: acl["rule_id"], region: @config['region']).first
+							if @add_firewall_rules.nil?
+								raise MuError, "Database #{@mu_name} is configured for additional firewall rules, but none appear to have been loaded for me"
+							end
+							@add_firewall_rules.each { |acl|
+								if !mod_config.has_key?(:vpc_security_group_ids)
+									config[:vpc_security_group_ids] = [] 
 								end
-								if !fwrule.nil?
-									if !mod_config.has_key?(:vpc_security_group_ids)
-										config[:vpc_security_group_ids] = [] 
-									end
-									config[:vpc_security_group_ids] << fwrule.cloud_id
-								else
-									raise MuError, "Failed to find FirewallRule specified by #{acl}"
-								end	
+								config[:vpc_security_group_ids] << acl.cloud_id
 							}
 						end
 					end
@@ -975,7 +967,7 @@ pp @deploy.kittens['firewall_rules']
 					db = MU::Cloud::AWS.rds(region).describe_db_instances(db_instance_identifier: db_id).data.db_instances.first
 				end
 
-				MU::Cloud::AWS::DNSZone.genericMuDNSEntry(db_id, db.endpoint.address, MU::Cloud::Database, delete: true)
+				MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: db_id, target: db.endpoint.address, cloudclass: MU::Cloud::Database, delete: true)
 
 				if db.db_instance_status == "deleting" or db.db_instance_status == "deleted" then
 					MU.log "#{db_id} has already been terminated", MU::WARN
@@ -1007,11 +999,11 @@ pp @deploy.kittens['firewall_rules']
 								MU.log "#{db_id} is not in a removable state after several retries, giving up. #{e.inspect}", MU::ERR
 								return
 							end
-						rescue AWS::RDS::Errors::DBSnapshotAlreadyExists
+						rescue Aws::RDS::Errors::DBSnapshotAlreadyExists
 							MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id,
 																			skip_final_snapshot: true)
 							MU.log "Snapshot of #{db_id} already exists", MU::WARN
-						rescue AWS::RDS::Errors::SnapshotQuotaExceeded
+						rescue Aws::RDS::Errors::SnapshotQuotaExceeded
 							MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id,
 																			skip_final_snapshot: true)
 							MU.log "Snapshot quota exceeded while deleting #{db_id}", MU::ERR

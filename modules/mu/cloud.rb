@@ -226,12 +226,19 @@ module MU
 
 				# Print something palatable
 				def to_s
+					fullname = "#{self.class.shortname}"
 					describe
 					mu_name = @mu_name
 					if !@config.nil?
 						mu_name ||= MU::MommaCat.getResourceName(@config['name'])
 					end
-					return "#{@mu_name} - #{self.class.shortname} - #{@cloud_id}"
+					if !mu_name.nil? and !mu_name.empty?
+						fullname = fullname + " '#{mu_name}'"
+					end
+					if !@cloud_id.nil?
+						fullname = fullname + " (#{@cloud_id})"
+					end
+					return fullname
 				end
 
 				# Fetch MU::Cloud objects for each of this object's dependencies, and
@@ -375,8 +382,8 @@ module MU
 					# littermates if needed.
 					if self.class.has_multiples
 						@deploy.addKitten(self.class.cfg_name, @config['name'], self)
-					else
-						@deploy.addKitten(self.class.cfg_name, @mu_name, self)
+					elsif !@cloudobj.mu_name.nil? and !@cloudobj.mu_name.empty?
+						@deploy.addKitten(self.class.cfg_name, @cloudobj.mu_name, self)
 					end
 				end
 
@@ -425,8 +432,13 @@ module MU
 							}
 						end
 					end
-					if (update_cache or @cloud_desc.nil?) and !@config.nil?
-						@cloud_desc = self.class.find(region: @config['region'], cloud_id: @cloud_id).first
+					if (update_cache or @cloud_desc.nil?) and !@config.nil? and !@cloud_id.nil?
+						# The find() method should be returning a Hash with the cloud_id
+						# as a key.
+						matches = self.class.find(region: @config['region'], cloud_id: @cloud_id)
+						if !matches.nil? and matches.is_a?(Hash) and matches.has_key?(@cloud_id)
+							@cloud_desc = matches[@cloud_id]
+						end
 					end
 
 					return [@mu_name, @config, @deploydata, @cloud_desc]
