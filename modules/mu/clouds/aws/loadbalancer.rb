@@ -71,7 +71,7 @@ module MU
 					end
 					lb_options[:subnets] = []
 					@config["vpc"]["subnets"].each { |subnet|
-						subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"]
+						subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
 						lb_options[:subnets] << subnet_obj.cloud_id
 					}
 					if @config["private"]
