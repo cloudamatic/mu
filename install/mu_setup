@@ -6,18 +6,32 @@
 
 # XXX should probably get this through their main site or a mirror redirector,
 # rather than some random mirror
-EPEL_RPM="http://mirror.pnl.gov/epel/6/i386/epel-release-6-8.noarch.rpm"
+DIST_VERSION=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
 
-PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.7.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx mysql-devel postgresql-devel openssl libyaml"
+EPEL_RPM="http://mirror.metrocast.net/fedora/epel/epel-release-latest-$DIST_VERSION.noarch.rpm"
+
+if [ $DIST_VERSION == 7 ];then
+	PACKAGES="git curl vim-enhanced zip unzip java-1.8.0-openjdk gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx postgresql-devel openssl libyaml mariadb mariadb-devel"
+	OPSCODE_CHEF_PKG="chef-server-core-12.1.0-1.el7.x86_64"
+	OPSCODE_CHEF_DL="https://web-dl.packagecloud.io/chef/stable/packages/el/7/${OPSCODE_CHEF_PKG}.rpm"
+	CHEF_CLIENT_VERSION="12.3.0-1"
+	CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el7.x86_64"
+	RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby-2.1.6-1.el7.x86_64.rpm"
+	RUBY_INSTALL_DIR="/opt/rubies/ruby-2.1.6"
+	RUBY_VERSION="ruby-2.1.6"
+	GECODE_RPMS="https://s3.amazonaws.com/cap-public/gecode-devel-3.7.3-2.el7.centos.x86_64.rpm https://s3.amazonaws.com/cap-public/gecode-3.7.3-2.el7.centos.x86_64.rpm"
+else
+	PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.7.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx mysql-devel postgresql-devel openssl libyaml"
+	OPSCODE_CHEF_PKG="chef-server-core-12.0.8-1.el6.x86_64"
+	OPSCODE_CHEF_DL="https://web-dl.packagecloud.io/chef/stable/packages/el/6/${OPSCODE_CHEF_PKG}.rpm"
+	CHEF_CLIENT_VERSION="12.3.0-1"
+	CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el6.x86_64"
+	RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby212-2.1.2p205-1.el6.x86_64.rpm"
+	RUBY_INSTALL_DIR="/opt/rubies/ruby212-2.1.2-p205"
+	RUBY_VERSION="ruby212"
+fi
+
 DEL_PACKAGES="nagios"
-
-OPSCODE_CHEF_PKG="chef-server-core-12.0.8-1.el6.x86_64"
-OPSCODE_CHEF_DL="https://web-dl.packagecloud.io/chef/stable/packages/el/6/${OPSCODE_CHEF_PKG}.rpm"
-CHEF_CLIENT_VERSION="12.3.0-1"
-CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el6.x86_64"
-
-RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby212-2.1.2p205-1.el6.x86_64.rpm"
-RUBY_INSTALL_DIR="/opt/rubies/ruby212-2.1.2-p205"
 
 GET_METADATA="curl --fail -s http://169.254.169.254/latest"
 RCFILE=".murc"
@@ -860,6 +874,12 @@ install_system_packages()
 		yum -y install ${install_me} || exit 1
 	fi
 
+	if [ $DIST_VERSION == 7 ];then
+		if ! rpm -q gecode-devel-3.7.3 > /dev/null ;then
+			rpm -ivh $GECODE_RPMS
+		fi
+	fi
+
 	uninstall_me=""
 	for pkg in $DEL_PACKAGES;do
 		rpm -q $pkg 2>&1 > /dev/null && uninstall_me="${install_me} $pkg"
@@ -905,11 +925,18 @@ install_ruby()
 {
 	status_message "Installing latest ${BOLD}Ruby${NORM} stable snapshot"
 
-	if ! rpm -q ruby212 > /dev/null ;then
+	if ! rpm -q $RUBY_VERSION > /dev/null ;then
 		rpm -ivh $RUBY_RPM
 	fi
-	rm -f /usr/local/ruby-current 
+	rm -f /usr/local/ruby-current
 	ln -s $RUBY_INSTALL_DIR /usr/local/ruby-current
+
+	if [ $DIST_VERSION == 7 ];then
+		# This was all supposed to be done in the RPM, but doesn't seem to work.
+		ln -s $RUBY_INSTALL_DIR/lib/libruby.so.2.1.0 /usr/lib64/libruby.so.2.1.0
+		ln -s $RUBY_INSTALL_DIR/lib/libruby.so.2.1.0 /usr/lib64/libruby.so
+		ln -s $RUBY_INSTALL_DIR/lib/libruby.so.2.1.0 /usr/lib64/libruby.so.2.1
+	fi
 
 	# Init Mu's gem library now that it has a Ruby to use.
 	export USE_SYSTEM_GECODE=1
