@@ -11,7 +11,8 @@ DIST_VERSION=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
 EPEL_RPM="http://mirror.metrocast.net/fedora/epel/epel-release-latest-$DIST_VERSION.noarch.rpm"
 
 if [ $DIST_VERSION == 7 ];then
-	PACKAGES="git curl vim-enhanced zip unzip java-1.8.0-openjdk gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx postgresql-devel openssl libyaml mariadb mariadb-devel"
+	# mariadb replaces mysql, qt and qt-x11 are required by gecode which is required by the dep_selector gem. 
+	PACKAGES="git curl vim-enhanced zip unzip java-1.8.0-openjdk gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx postgresql-devel openssl libyaml mariadb mariadb-devel qt qt-x11"
 	OPSCODE_CHEF_PKG="chef-server-core-12.1.0-1.el7.x86_64"
 	OPSCODE_CHEF_DL="https://web-dl.packagecloud.io/chef/stable/packages/el/7/${OPSCODE_CHEF_PKG}.rpm"
 	CHEF_CLIENT_VERSION="12.3.0-1"
@@ -19,7 +20,7 @@ if [ $DIST_VERSION == 7 ];then
 	RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby-2.1.6-1.el7.x86_64.rpm"
 	RUBY_INSTALL_DIR="/opt/rubies/ruby-2.1.6"
 	RUBY_VERSION="ruby-2.1.6"
-	GECODE_RPMS="https://s3.amazonaws.com/cap-public/gecode-devel-3.7.3-2.el7.centos.x86_64.rpm https://s3.amazonaws.com/cap-public/gecode-3.7.3-2.el7.centos.x86_64.rpm"
+	GECODE_RPMS="https://s3.amazonaws.com/cap-public/gecode-3.7.3-2.el7.centos.x86_64.rpm https://s3.amazonaws.com/cap-public/gecode-devel-3.7.3-2.el7.centos.x86_64.rpm"
 else
 	PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.7.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx mysql-devel postgresql-devel openssl libyaml"
 	OPSCODE_CHEF_PKG="chef-server-core-12.0.8-1.el6.x86_64"
@@ -840,6 +841,10 @@ set_hostname()
 	if [ "$HOSTNAME" != "`hostname -s`" ];then
 		hostname $HOSTNAME
 		sed -i "s/^HOSTNAME=.*/HOSTNAME=$HOSTNAME/" /etc/sysconfig/network
+
+		if [ $DIST_VERSION == 7 ];then
+			hostnamectl set-hostname $HOSTNAME && systemctl restart systemd-hostnamed
+		fi
 	fi
 	if ! grep "^$MY_PRIVATE_IP $HOSTNAME MU-MASTER" /etc/hosts > /dev/null;then
 		sed -i "/ $HOSTNAME/d" /etc/hosts
@@ -875,9 +880,9 @@ install_system_packages()
 	fi
 
 	if [ $DIST_VERSION == 7 ];then
-		if ! rpm -q gecode-devel-3.7.3 > /dev/null ;then
-			rpm -ivh $GECODE_RPMS
-		fi
+		for pkg in $GECODE_RPMS;do
+			rpm -ivh $pkg
+		done
 	fi
 
 	uninstall_me=""
