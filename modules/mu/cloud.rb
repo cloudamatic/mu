@@ -234,15 +234,112 @@ module MU
 					return "#{@mu_name} - #{self.class.shortname} - #{@cloud_id}"
 				end
 
+				# Fetch MU::Cloud objects for each of this object's dependencies, and
+				# return in an easily-navigable Hash. This can include things listed in
+				# @config['dependencies'], implicitly-defined depdendencies such as
+				# add_firewall_rules or vpc stanzas, and may refer to objects internal
+				# to this deployment or external.  Will populate the instance variables
+				# @dependencies (general dependencies, which can only be sibling
+				# resources in this deployment), as well as for certain config stanzas
+				# which can refer to external resources (@vpc, @loadbalancers,
+				# @add_firewall_rules)
+				def dependencies
+					@dependencies = {} if @dependencies.nil?
+					@loadbalancers = [] if @loadbalancers.nil?
+					@add_firewall_rules = [] if @add_firewall_rules.nil?
+					if @config.nil?
+						return [@dependencies, @vpc, @loadbalancers, @add_firewall_rules]
+					end
+
+					# First, general dependencies. These should all be fellow members of
+					# the current deployment.
+					@config['dependencies'].each { |dep|
+						@dependencies[dep['type']] = {} if !@dependencies.has_key?(dep['type'])
+						next if @dependencies[dep['type']].has_key?(dep['name'])
+						handle = @deploy.findLitterMate(type: dep['type'], name: dep['name'])
+						if !handle.nil?
+							MU.log "Loaded dependency for #{self}: #{handle}", MU::NOTICE
+							@dependencies[dep['type']][dep['name']] = handle
+						else
+							 # XXX yell under circumstances where we should expect to have
+							 # our stuff available already
+						end
+					}
+
+					# Special dependencies: my containing VPC
+					if self.class.can_live_in_vpc and @config.has_key?("vpc")
+						if !@config['vpc']["vpc_name"].nil? and
+							 @dependencies.has_key?("vpc") and
+							 @dependencies["vpc"].has_key?(@config['vpc']["vpc_name"])
+							@vpc = @dependencies["vpc"][@config['vpc']["vpc_name"]]
+						else
+							MU.log "Searching for VPC for #{self}", MU::NOTICE, details: @config['vpc']
+							tag_key, tag_value = @config['vpc']['tag'].split(/=/, 2) if !@config['vpc']['tag'].nil?
+							vpcs = MU::MommaCat.findStray(
+								@config['cloud'],
+								"vpc",
+								deploy_id: @config['vpc']["deploy_id"],
+								cloud_id: @config['vpc']["vpc_id"],
+								name: @config['vpc']["vpc_name"],
+								tag_key: tag_key,
+								tag_value: tag_value,
+								region: @config['vpc']["region"]
+							)
+							@vpc = vpcs.first if !vpcs.nil? and vpcs.size > 0
+						end
+					end
+
+					# Special dependencies: LoadBalancers I've asked to attach
+					if @config.has_key?("loadbalancers")
+						@loadbalancers = [] if !@loadbalancers
+						@config['loadbalancers'].each { |lb|
+							MU.log "Loading LoadBalancer for #{self}", MU::NOTICE, details: lb
+							if @dependencies.has_key?("loadbalancers") and 
+								 @dependencies["loadbalancers"].has_key?(lb['concurrent_load_balancer'])  
+								@loadbalancers << @dependencies["loadbalancers"][lb['concurrent_load_balancer']]
+							else
+								lbs = MU::MommaCat.findStray(
+									@config['cloud'],
+									"loadbalancer",
+									cloud_id: lb['existing_load_balancer'],
+									name: lb['concurrent_load_balancer'],
+									region: @config["region"]
+								)
+								@loadbalancers << lbs.first if !lbs.nil? and lbs.size > 0
+							end
+						}
+					end
+
+					# Special dependencies: FirewallRules I've asked to apply
+					if @config.has_key?("add_firewall_rules")
+						@add_firewall_rules = [] if !@add_firewall_rules
+						@config['add_firewall_rules'].each { |sg|
+							MU.log "Loading FirewallRules for #{self}", MU::NOTICE, details: sg
+							if @dependencies.has_key?("firewall_rules") and
+								 @dependencies["firewall_rules"].has_key?(sg['rule_name'])
+								@add_firewall_rules << @dependencies["firewall_rule"][sg['rule_name']]
+							else
+								sgs = MU::MommaCat.findStray(
+									@config['cloud'],
+									"firewall_rule",
+									cloud_id: sg['rule_id'],
+									name: sg['rule_name'],
+									region: @config["region"]
+								)
+								@add_firewall_rules << sgs.first if !sgs.nil? and sgs.size > 0
+							end
+						}
+					end
+					
+					return [@dependencies, @vpc, @loadbalancers, @add_firewall_rules]
+				end
+
 				def initialize(mommacat: nil,
 											 mu_name: nil,
 											 cloud_id: nil,
 											 kitten_cfg: kitten_cfg)
 					raise MuError, "Cannot invoke Cloud objects without a configuration" if kitten_cfg.nil?
 					@deploy = mommacat
-if @deploy.is_a?(Hash)
-	MU.log "WTF", MU::WARN, details: caller
-end
 					@config = kitten_cfg
 					if !@deploy.nil?
 						@deploy_id = @deploy.deploy_id
@@ -255,57 +352,31 @@ end
 					end
 					@cloud = kitten_cfg['cloud']
 					@cloudclass = MU::Cloud.loadCloudType(@cloud, self.class.shortname)
-					if self.class.waits_on_parent_completion
-						@config['dependencies'].each { |dep|
-							begin
-								dep['#HANDLE'] = @deploy.findLitterMate(type: dep['type'], name: dep['name'])
-							rescue MuError
-								# XXX what we should really do is be aware of groom and dependency phases here
-								MU.log "Was trying to load '#{self}' dependencies...", MU::WARN, details: dep
-							end
-						}
-					end
-					if self.class.can_live_in_vpc and @config.has_key?("vpc")
-						@config['dependencies'].each { |dep|
-							if dep['type'] == "vpc" and dep['name'] == @config['vpc']["vpc_name"]
-								@vpc = dep['#HANDLE']
-							end
-						}
-						if !@vpc.nil?
-							tag_key, tag_value = @config['vpc']['tag'].split(/=/, 2) if !@config['vpc']['tag'].nil?
-							vpcs = MU::MommaCat.findStray(
-								@cloud,
-								"vpc",
-								deploy_id: @config['vpc']["deploy_id"],
-								cloud_id: @config['vpc']["vpc_id"],
-								name: @config['vpc']["vpc_name"],
-								tag_key: tag_key,
-								tag_value: tag_value,
-								region: @config['vpc']["region"]
-							)
-							@vpc = vpcs.first if !vpcs.nil? and vpcs.size > 0
-						end
-					end
 					@environment = kitten_cfg['environment']
 # XXX require subclass to provide attr_readers of @config and @deploy
 
-					if self.class.can_live_in_vpc
-						@cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg, cloud_id: cloud_id, mu_name: mu_name, vpc: @vpc)
-					else
-						@cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg, cloud_id: cloud_id, mu_name: mu_name)
-					end
+					@cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg, cloud_id: cloud_id, mu_name: mu_name)
 
 					raise MuError, "Unknown error instantiating #{self}" if @cloudobj.nil?
 
 					# Brand new resource, stash it in this deploy's kitten list
 					if cloud_id.nil? and mu_name.nil?
 						if !@cloudobj.nil?
+							@cloudobj.dependencies
 							@deploy.kittens[self.class.cfg_plural] = {} if !@deploy.kittens.has_key?(self.class.cfg_plural)
 							@deploy.kittens[self.class.cfg_plural][@cloudobj.mu_name] = self
 						end
 					# Existing object, go ahead and prepopulate the describe() cache
 					else
 						@cloudobj.describe(cloud_id: cloud_id)
+					end
+
+					# Register us with our parent deploy so that we can be found by our
+					# littermates if needed.
+					if self.class.has_multiples
+						@deploy.addKitten(self.class.cfg_name, @config['name'], self)
+					else
+						@deploy.addKitten(self.class.cfg_name, @mu_name, self)
 					end
 				end
 
@@ -363,6 +434,9 @@ end
 
 				def self.cfg_plural
 					MU::Cloud.resource_types[shortname.to_sym][:cfg_plural]
+				end
+				def self.has_multiples
+					MU::Cloud.resource_types[shortname.to_sym][:has_multples]
 				end
 				def self.cfg_name
 					MU::Cloud.resource_types[shortname.to_sym][:cfg_name]
@@ -487,10 +561,11 @@ end
 					define_method method do |*args|
 						return nil if @cloudobj.nil?
 						MU.log "Invoking #{@cloudobj}.#{method}", MU::DEBUG
-						if method != :describe
-							# make sure the stuff this populates is ready
-							@cloudobj.describe
-						end
+
+						# Make sure certain useful caches are fresh
+						@cloudobj.describe if method != :describe
+						@cloudobj.dependencies if method != :dependencies
+
 						retval = nil
 						if !args.nil? and args.size > 0
 							retval = @cloudobj.method(method).call(args.first)

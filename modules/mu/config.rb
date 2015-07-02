@@ -648,9 +648,9 @@ module MU
 							subnet_ptr = "subnet_name"
 							ext_vpc['subnets'].each { |subnet|
 								if subnet['is_public'] # NAT nonsense calculated elsewhere, ew
-									public_subnets << subnet['name']
+									public_subnets << { "subnet_name" => subnet['name'] }
 								else
-									private_subnets << subnet['name']
+									private_subnets << { "subnet_name" => subnet['name'] }
 									nat_routes[subnet['name']] = [] if nat_routes[subnet['name']].nil?
 									if !subnet['nat_host_name'].nil?
 										nat_routes[subnet['name']] << subnet['nat_host_name']
@@ -669,16 +669,16 @@ module MU
 
 				case vpc_block['subnet_pref']
 				when "public"
-					vpc_block[subnet_ptr] = public_subnets[rand(public_subnets.length)]
+					vpc_block.merge!(public_subnets[rand(public_subnets.length)])
 				when "private"
-					vpc_block[subnet_ptr] = private_subnets[rand(private_subnets.length)]
+					vpc_block.merge!(private_subnets[rand(private_subnets.length)])
 					if !is_sibling
 						vpc_block['nat_host_id'] = private_subnets_map[vpc_block[subnet_ptr]].defaultRoute
 					elsif nat_routes.has_key?(vpc_block[subnet_ptr])
 						vpc_block['nat_host_name'] == nat_routes[vpc_block[subnet_ptr]]
 					end
 				when "any"
-					vpc_block[subnet_ptr] = public_subnets.concat(private_subnets)[rand(public_subnets.length+private_subnets.length)]
+					vpc_block.merge!(public_subnets.concat(private_subnets)[rand(public_subnets.length+private_subnets.length)])
 				when "all"
 					vpc_block['subnets'] = []
 					public_subnets.each { |subnet|
@@ -1054,6 +1054,9 @@ module MU
 									"type" => "firewall_rule",
 									"name" => sg_name
 								}
+							else
+							puts "Didn't see #{sg_name} anywhere, is that ok?"
+							pp firewall_rule_names
 							end
 						}
 					end

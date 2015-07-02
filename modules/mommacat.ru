@@ -115,6 +115,7 @@ def getKittenPile(req)
 			kittenpile = MU::MommaCat.new(
 				mu_id,
 				deploy_secret: Base64.urlsafe_decode64(req["mu_deploy_secret"]),
+				set_context_to_me: true,
 				verbose: true,
 				mu_user: req['mu_user']
 			)
@@ -197,7 +198,8 @@ app = proc do |env|
 
 			MU.log "Dug up server config for #{req["mu_resource_type"]} name: #{req["mu_resource_name"]} deploy_id: #{req["mu_id"]}", MU::DEBUG, details: server_cfg
 
-			instance, mu_name = MU::Cloud::Server.find(id: req["mu_instance_id"], region: server_cfg["region"])
+			# XXX we can't assume AWS anymore
+			instance = MU::MommaCat.findStray("AWS", "server", cloud_id: req["mu_instance_id"], region: server_cfg["region"])
 			if !instance.nil?
 				if !req["mu_bootstrap"].nil?
 					kittenpile.groomNode(instance, req["mu_resource_name"], req["mu_resource_type"], mu_name: mu_name, sync_wait: true)

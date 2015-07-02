@@ -388,6 +388,7 @@ class Cloud
 					subnet_conf = @config['vpc']
 					subnet_conf = @config['vpc']['subnets'].first if @config['vpc'].has_key?("subnets")
 					tag_key, tag_value = subnet_conf['tag'].split(/=/, 2) if !subnet_conf['tag'].nil?
+MU.log "SUBNET FETCH #{subnet_conf}", MU::WARN, details: @config['vpc']
 					subnet = @vpc.getSubnet(
 						cloud_id: subnet_conf['subnet_id'],
 						name: subnet_conf['subnet_name'],
@@ -395,7 +396,7 @@ class Cloud
 						tag_value: tag_value
 					)
 					if subnet.nil? or subnet.empty?
-						raise MuError, "Got null Subnet id out of #{@config['vpc']}"
+						raise MuError, "Got null subnet id out of #{subnet_conf['vpc']}"
 					end
 
 					MU.log "Deploying #{node} into VPC #{@vpc.cloud_id} Subnet #{subnet.cloud_id}"
@@ -961,7 +962,8 @@ class Cloud
 				end
 
 				# Fine, let's try it by tag.
-				if matches.size == 0 and !tag_value.nil?
+				matches = []
+				if !tag_value.nil?
 					MU.log "Searching for instance by tag '#{tag_key}=#{tag_value}'", MU::DEBUG
 					MU::Cloud::AWS.ec2(region).describe_instances(
 						filters:[

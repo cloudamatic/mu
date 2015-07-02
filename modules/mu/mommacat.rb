@@ -41,6 +41,27 @@ module MU
 		# Failure to groom a node
 		class GroomError < MuError; end
 
+		@@litters = {}
+		@@litter_semaphore = Mutex.new
+
+		# Return a {MU::MommaCat} instance for an existing deploy. Use this instead
+		# of using #initialize directly to avoid loading deploys multiple times or
+		# stepping on the global context for the deployment you're really working
+		# on..
+		# @param deploy_id [String]: The deploy ID of the deploy to load.
+		# @return [MU::MommaCat]
+		def self.getLitter(deploy_id)
+			if deploy_id.nil? or deploy_id.empty?
+				raise MuError, "Cannot fetch a deployment without a deploy_id"
+			end
+			@@litter_semaphore.synchronize {
+				if !@@litters.has_key?(deploy_id)
+					@@litters[deploy_id] = MU::MommaCat.new(deploy_id, set_context_to_me: false)
+				end
+				return @@litters[deploy_id]
+			}
+		end
+
 		attr_reader :public_key
 		attr_reader :deploy_secret
 		attr_reader :deployment
@@ -73,9 +94,9 @@ module MU
 		# @param deployment_data [Hash]: Known deployment data.
 		# @return [void]
 		def initialize(deploy_id,
-				create: create = false,
+				create: false,
 				deploy_secret: deploy_secret,
-				config: config = nil,
+				config: nil,
 				environment: environment = "dev",
 				ssh_key_name: ssh_key_name = nil,
 				ssh_private_key: ssh_private_key = nil,
@@ -91,7 +112,6 @@ module MU
 				raise DeployInitializeError, "MommaCat objects must specify a deploy_id"
 			end
 			set_context_to_me = true if create
-
 			if set_context_to_me
 				MU.setVar("chef_user", mu_user) if !mu_user.nil?
 				if MU.chef_user != "mu"
@@ -105,6 +125,7 @@ module MU
 			end
 
 			@deploy_id = deploy_id
+			@kitten_semaphore = Mutex.new
 			@kittens = {}
 			@original_config = config
 			@nocleanup = nocleanup
@@ -154,7 +175,7 @@ module MU
 			end
 
 
-			loadDeploy
+			loadDeploy(set_context_to_me: set_context_to_me)
 			if !deploy_secret.nil?
 				if !authKey(deploy_secret)
 					raise DeployInitializeError, "Invalid or incorrect deploy key."
@@ -191,21 +212,39 @@ module MU
 								MU.log "Failed to locate original config for #{attrs[:cfg_name]} #{res_name} in #{@deploy_id}", MU::WARN if type != "firewall_rules" # XXX shaddap
 								next
 							end
-							@kittens[type] = {} if @kittens[type].nil?
 							if attrs[:has_multiples]
 								data.each_pair { |mu_name, actual_data|
 									MU.log "Loading #{type}:#{mu_name} into #{@deploy_id}", MU::DEBUG
-									@kittens[type][mu_name] = attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: mu_name)
+									addKitten(type, mu_name, attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: mu_name))
 								}
 							else
-								MU.log "Loading #{type}:#{res_name} into #{@deploy_id}", MU::DEBUG
-								@kittens[type][res_name] = attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: data['mu_name'])
+								addKitten(type, res_name, attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: data['mu_name']))
 							end
 						}
 					end
 				}
 			end
-			endtime = Time.new
+
+
+			@@litter_semaphore.synchronize {
+				@@litters[@deploy_id] = self
+			}
+		end
+
+		def addKitten(type, name, object)
+			MU::Cloud.resource_types.each_pair { |name, cloudclass|
+				if name == type.to_sym or
+						cloudclass[:cfg_name] == type or
+						cloudclass[:cfg_plural] == type
+					type = cloudclass[:cfg_plural]
+					break
+				end
+			}
+
+			@kitten_semaphore.synchronize {
+				@kittens[type] = {} if @kittens[type].nil?
+				@kittens[type][name] = object
+			}
 		end
 
 		# Check a provided deploy key against our stored version. The instance has
@@ -267,7 +306,6 @@ module MU
 			end
 			if MU.appname.nil? or MU.environment.nil? or  MU.timestamp.nil? or  MU.seed.nil?
 				raise MuError, "Missing global variables in thread #{Thread.current.object_id} for #{MU.deploy_id}" if !MU.deploy_id.nil?
-				raise MuError, "Missing global variables in call to getResourceName"
 			end
 
 			muname = nil
@@ -711,7 +749,7 @@ return
 							if instance.nil? or instance.state.name == "terminated" or instance.state.name == "terminating"
 								MU.log "Retiring #{nodename} (#{data['instance_id']})", MU::NOTICE, details: data
 								purged = purged + 1
-								kitten_pile = MU::MommaCat.new(deploy)
+								kitten_pile = MU::MommaCat.getLitter(deploy)
 								conf = Hash.new
 								if !kitten_pile.nil? and !kitten_pile.original_config.nil?
 									["servers", "server_pools"].each { |res_type|
@@ -795,11 +833,12 @@ begin
 
 			# Search our deploys for matching resources
 			if deploy_id or name or mu_name
+MU.log "HUNTING FOR STRAY - deploy_id: #{deploy_id}, name: #{name}, mu_name: #{mu_name}", MU::NOTICE
 				mu_descs = MU::MommaCat.getResourceMetadata(resourceclass.cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name)
 				mu_descs.each_pair { |found_deploy, matches|
 					# If we got exactly one match, see if we can use it to make the rest
 					# of our job easier.
-					momma = MU::MommaCat.new(found_deploy, set_context_to_me: false)
+					momma = MU::MommaCat.getLitter(found_deploy)
 					# If we found exactly one match in this deploy, use its metadata to
 					# guess at resource names we weren't told.
 					if matches.size == 1 and name.nil? and mu_name.nil?
@@ -808,7 +847,8 @@ begin
 						straykitten = momma.findLitterMate(type: type, name: name, mu_name: mu_name)
 					end
 					if straykitten.nil?
-						MU.log "Failed to lock down a kitten from deploy_id: #{deploy_id}, name: #{name}, mu_name: #{mu_name} and found metadata", MU::ERR, details: matches
+						MU.log "Failed to locate a kitten from deploy_id: #{deploy_id}, name: #{name}, mu_name: #{mu_name}, despite having found metadata", MU::ERR, details: caller
+						raise MuError, "I can't find #{mu_name} anywhere" if !mu_name.nil?
 						next
 					end
 					kittens[straykitten.cloud_id] = straykitten
@@ -884,16 +924,18 @@ end
 					break
 				end
 			}
-			if !@kittens.has_key?(type)
-				raise MuError, "No sibling resources of type #{type}"
-			end
-			@kittens[type].each { |sib_mu_name, obj|
-				if !mu_name.nil? and mu_name == sib_mu_name
-					return obj
+			@kitten_semaphore.synchronize {
+				if !@kittens.has_key?(type)
+					return nil
 				end
-				if !name.nil? and obj.config['name'] == name
-					return obj
-				end
+				@kittens[type].each { |sib_mu_name, obj|
+					if !mu_name.nil? and mu_name == sib_mu_name
+						return obj
+					end
+					if !name.nil? and obj.config['name'] == name
+						return obj
+					end
+				}
 			}
 			return nil
 		end
@@ -1436,7 +1478,8 @@ MESSAGE_END
 		# Punch AWS security group holes for client nodes to talk back to us.
 		# @return [void]
 		def self.openFirewallForClients
-
+return
+# XXX need to move this into AWS-specific module and only call when relevant
 			MU::Cloud.loadCloudType("AWS", :FirewallRule)
 			if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
 				Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
@@ -1596,11 +1639,13 @@ MESSAGE_END
 				mu_zone, junk = MU::Cloud::DNSZone.find(name: "platform-mu")
 # XXX need a MU::Cloud::DNSZone.lookup for bulk lookups
 # XXX also grab things like mu_windows_name out of deploy data if we can
+				parent_thread_id = Thread.current.object_id
 				MU::MommaCat.listDeploys.each { |deploy_id|
 					begin
-						deploy = MU::MommaCat.new(deploy_id, set_context_to_me: false)
+						deploy = MU::MommaCat.getLitter(deploy_id)
 						if deploy.kittens.has_key?("servers")
 							deploy.kittens["servers"].each_pair { |mu_name, server|
+								MU.dupGlobals(parent_thread_id)
 								threads << Thread.new {
 									MU.log "Adding #{server.mu_name} to #{@nagios_home}/.ssh/config", MU::DEBUG
 									MU::MommaCat.addHostToSSHConfig(
@@ -2003,7 +2048,7 @@ MESSAGE_END
 
 		###########################################################################
 		###########################################################################
-		def loadDeploy(deployment_json_only = false)
+		def loadDeploy(deployment_json_only = false, set_context_to_me: true)
 			@@deploy_struct_semaphore.synchronize {
 				if File.size?(deploy_dir+"/deployment.json")
 					deploy = File.open("#{deploy_dir}/deployment.json", File::RDONLY)
@@ -2016,18 +2061,21 @@ MESSAGE_END
 					end
 					deploy.flock(File::LOCK_UN)
 					deploy.close
-					["appname", "environment", "timestamp", "seed", "handle"].each { |var|
-						if @deployment[var]
-							if var != "handle"	
-								MU.setVar(var, @deployment[var].upcase)
+					if set_context_to_me
+						["appname", "environment", "timestamp", "seed", "handle"].each { |var|
+							if @deployment[var]
+								if var != "handle"	
+									MU.setVar(var, @deployment[var].upcase)
+								else
+									MU.setVar(var, @deployment[var])
+								end
 							else
-								MU.setVar(var, @deployment[var])
+								MU.log "Missing global variable #{var} for #{MU.deploy_id}", MU::ERR
 							end
-						else
-							MU.log "Missing global variable #{var} for #{MU.deploy_id}", MU::ERR
-						end
-					}
-					@timestamp = MU.timestamp
+						}
+					end
+					@timestamp = @deployment['timestamp']
+
 					return if deployment_json_only
 				end
 				if File.exist?(deploy_dir+"/private_key")
@@ -2035,7 +2083,11 @@ MESSAGE_END
 					@public_key = File.read("#{deploy_dir}/public_key")
 				end
 				if File.exist?(deploy_dir+"/basket_of_kittens.json")
-					@original_config = JSON.parse(File.read("#{deploy_dir}/basket_of_kittens.json"))
+					begin					
+						@original_config = JSON.parse(File.read("#{deploy_dir}/basket_of_kittens.json"))
+					rescue JSON::ParserError => e
+						raise MuError, "JSON parse failed on #{deploy_dir}/basket_of_kittens.json"
+					end
 				end
 				if File.exist?(deploy_dir+"/ssh_key_name")
 					@ssh_key_name = File.read("#{deploy_dir}/ssh_key_name").chomp!

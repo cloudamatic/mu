@@ -58,21 +58,22 @@ module MU
 
 				sgs = Array.new
 				if !@config["add_firewall_rules"].nil?
-					@config["add_firewall_rules"].each { |acl|
-						sg = @deploy.findLitterMate(type: "firewall_rule", name: acl["rule_name"])
-						if sg.nil?
-							MU.log "Couldn't find dependent security group #{acl["rule_name"]} for Load Balancer #{@config['name']}", MU::ERR, details: @deploy.kittens['firewall_rules']
-							raise MuError, "deploy failure"
-						end
-						sgs << sg.cloud_id
+					@add_firewall_rules.each { |ruleset|
+						sgs << ruleset.cloud_id
 					}
+					@config['sgs'] = sgs
+					lb_options[:security_groups] = sgs # XXX legal in non-VPC ELBS?
 				end
 
 				if @config["vpc"] != nil
-					vpc_id, subnet_ids = MU::Cloud::AWS::VPC.parseVPC(@config["vpc"])
-					lb_options[:subnets] = subnet_ids
-					lb_options[:security_groups] = sgs
-					@config['sgs'] = sgs
+					if @vpc.nil?
+						raise MuError, "LoadBalancer #{@config['name']} is configured to use a VPC, but no VPC found"
+					end
+					lb_options[:subnets] = []
+					@config["vpc"]["subnets"].each { |subnet|
+						subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"]
+						lb_options[:subnets] << subnet_obj.cloud_id
+					}
 					if @config["private"]
 						lb_options[:scheme] = "internal"
 					end
@@ -99,7 +100,7 @@ module MU
 				begin
 					resp = MU::Cloud::AWS.elb.create_load_balancer(lb_options)
 				rescue Aws::ElasticLoadBalancing::Errors::ValidationError, Aws::ElasticLoadBalancing::Errors::SubnetNotFound, Aws::ElasticLoadBalancing::Errors::InvalidConfigurationRequest => e
-					if zones_to_try.size > 0
+					if zones_to_try.size > 0 and lb_options.has_key?(:availability_zones)
 						MU.log "Got #{e.inspect} when creating #{@mu_name} retrying with individual AZs in case that's the problem", MU::WARN
 						lb_options[:availability_zones] = [zones_to_try.pop]
 						retry

@@ -180,6 +180,7 @@ module MU
 					config: @main_config,
 					verbose: MU.verbose,
 					nocleanup: @nocleanup,
+					set_context_to_me: true,
 					deployment_data: metadata
 				)
 				MU.setVar("mommacat", mommacat)

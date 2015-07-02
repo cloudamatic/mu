@@ -188,6 +188,7 @@ class Cloud
 				if @config["vpc_zone_identifier"]
 					asg_options[:vpc_zone_identifier] = @config["vpc_zone_identifier"]
 				elsif @config["vpc"]
+# XXX This sucks. Use #dependencies instead.
 					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::Cloud::AWS::VPC.parseVPC(@config['vpc'])
 					nat_instance, mu_name = MU::Cloud::Server.find(
 						id: @config['vpc']['nat_host_id'],

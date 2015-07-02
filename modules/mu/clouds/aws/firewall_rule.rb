@@ -44,13 +44,64 @@ module MU
 			# Called by {MU::Deploy#createResources}
 			def create
 				vpc_id = @vpc.cloud_id if !@vpc.nil?
-				@cloud_id = MU::Cloud::AWS::FirewallRule.createEc2SG(
-						@config['name'],
+				groupname = MU::MommaCat.getResourceName(@config['name'])
+				description = groupname
+
+				MU.log "Creating EC2 Security Group #{groupname}"
+
+				sg_struct = {
+					:group_name => groupname,
+					:description => description
+				}
+				if !vpc_id.nil?
+					sg_struct[:vpc_id] = vpc_id
+					groupname = MU::MommaCat.getResourceName(@config['name'], need_unique_string: true)
+					sg_struct[:group_name] = groupname
+				end
+
+				begin
+					secgroup = MU::Cloud::AWS.ec2(@config['region']).create_security_group(sg_struct)
+					@cloud_id = secgroup.group_id
+				rescue Aws::EC2::Errors::InvalidGroupDuplicate
+					MU.log "EC2 Security Group #{groupname} already exists, using it", MU::WARN, details: caller
+					# XXX how are we getting invoked multiple times though?
+					secgroup = MU::MommaCat.findStray(@config['cloud'], "firewall_rule", mu_name: groupname, region: @config['region'], deploy_id: @deploy.deploy_id).first
+					@cloud_id = secgroup.cloud_id
+					if secgroup.nil?
+						raise MuError, "Failed to locate security group named #{groupname}, even though EC2 says it already exists"
+					end
+					mu_name, config, deploydata, cloud_descriptor = secgroup.describe
+					secgroup = cloud_descriptor
+				end
+
+				begin
+					MU::Cloud::AWS.ec2(@config['region']).describe_security_groups(group_ids: [secgroup.group_id])
+				rescue Aws::EC2::Errors::InvalidGroupNotFound => e
+					MU.log "#{secgroup.group_id} not yet ready, waiting...", MU::NOTICE
+					sleep 10
+					retry
+				end
+
+				MU::MommaCat.createStandardTags secgroup.group_id, region: @config['region']
+				MU::MommaCat.createTag secgroup.group_id, "Name", groupname, region: @config['region']
+
+				if !@config['rules'].nil? and @config['rules'].size > 0
+					egress = false
+					egress = true if !vpc_id.nil?
+					# XXX the egress logic here is a crude hack, this really needs to be
+					# done at config level
+					setRules(
 						[],
-						vpc_id: vpc_id,
-						region: @config['region']
-				)
+						add_to_self: @config['self_referencing'],
+						ingress: true,
+						egress: egress
+					)
+				end
+
+				MU.log "EC2 Security Group #{groupname} is #{secgroup.group_id}", MU::DEBUG
+				return secgroup.group_id
 			end
+
 
 			def self.createConfigFromInlineRules(name, rules, vpc)
 				return {
@@ -62,12 +113,18 @@ module MU
 
 			# Called by {MU::Deploy#createResources}
 			def groom
-				MU::Cloud::AWS::FirewallRule.setRules(
-						@cloud_id,
+				if !@config['rules'].nil? and @config['rules'].size > 0
+					egress = false
+					egress = true if !@vpc.nil?
+					# XXX the egress logic here is a crude hack, this really needs to be
+					# done at config level
+					setRules(
 						@config['rules'],
-						add_to_self: @config['self-referencing'],
-						region: @config['region']
+						add_to_self: @config['self_referencing'],
+						ingress: true,
+						egress: egress
 					)
+				end
 			end
 
 			# Log metadata about this ruleset to the currently running deployment
@@ -106,7 +163,7 @@ module MU
 				else
 					rule["port_range"] = port_range
 				end
-				ec2_rule = MU::Cloud::AWS::FirewallRule.convertToEc2([rule], region: @config['region'])
+				ec2_rule = convertToEc2([rule])
 
 				begin
 					if egress
@@ -125,68 +182,6 @@ module MU
 				end
 			end
 			
-			# Manufacture an EC2 security group.
-			#
-			# @param name [String]: A human-readable resource name.
-			# @param rules [Hash]: Firewall rules as defined and validated by MU::Config
-			# @param description [String]: A long-form human-readable description.
-			# @param vpc_id [String]: The cloud provider's identifier for a Virtual Private Cloud 
-			# @param add_to_self [Boolean]: Add this ruleset to itself, so that all resources associated with this ruleset will also be considered "allowed hosts."
-			# @param region [String]: The cloud provider region
-			# @return [String]: The cloud provider's identifier for this resource.
-			def self.createEc2SG(name, rules, description: description, vpc_id: vpc_id, add_to_self: add_to_self = false, region: MU.curRegion)
-				groupname = MU::MommaCat.getResourceName(name)
-				description = groupname if description.nil?
-
-				MU.log "Creating EC2 Security Group #{groupname}"
-
-				sg_struct = {
-					:group_name => groupname,
-					:description => description
-				}
-				if !vpc_id.nil?
-					sg_struct[:vpc_id] = vpc_id
-					groupname = MU::MommaCat.getResourceName(name, need_unique_string: true)
-					sg_struct[:group_name] = groupname
-				end
-
-				begin
-					secgroup = MU::Cloud::AWS.ec2(region).create_security_group(sg_struct)
-				rescue Aws::EC2::Errors::InvalidGroupDuplicate
-					MU.log "EC2 Security Group #{groupname} already exists, using it", MU::WARN
-					secgroup = MU::Cloud::FirewallRule.find(name: groupname, region: region)
-				end
-
-				begin
-					MU::Cloud::AWS.ec2(region).describe_security_groups(group_ids: [secgroup.group_id])
-				rescue Aws::EC2::Errors::InvalidGroupNotFound => e
-					MU.log "#{secgroup.group_id} not yet ready, waiting...", MU::NOTICE
-					sleep 10
-					retry
-				end
-
-				MU::MommaCat.createStandardTags secgroup.group_id, region: region
-				MU::MommaCat.createTag secgroup.group_id, "Name", groupname, region: region
-
-				if !rules.nil? and rules.size > 0
-					egress = false
-					egress = true if !vpc_id.nil?
-					# XXX the egress logic here is a crude hack, this really needs to be
-					# done at config level
-					MU::Cloud::AWS::FirewallRule.setRules(
-							secgroup.group_id,
-							rules,
-							add_to_self: add_to_self,
-							ingress: true,
-							egress: egress,
-							region: region
-					)
-				end
-
-				MU.log "EC2 Security Group #{groupname} is #{secgroup.group_id}", MU::DEBUG
-				return secgroup.group_id
-			end
-
 			# Locate an existing security group or groups and return an array containing matching AWS resource descriptors for those that match.
 			# @param cloud_id [String]: The cloud provider's identifier for this resource.
 			# @param region [String]: The cloud provider region
@@ -338,12 +333,10 @@ module MU
 			# Manufacture an EC2 security group. The second parameter, rules, is an
 			# "ingress_rules" structure parsed and validated by MU::Config.
 			#########################################################################
-			def self.setRules(sg_id, rules, add_to_self: add_to_self = false, ingress: ingress = true, egress: egress = false, region: MU.curRegion)
+			def setRules(rules, add_to_self: add_to_self = false, ingress: ingress = true, egress: egress = false)
 				return if rules.nil? or rules.size == 0
 
-				sg = MU::Cloud::FirewallRule.find(cloud_id: sg_id, region: region)[sg_id]
-				raise MuError, "Couldn't find firewall ruleset with id #{sg_id}" if sg.nil?
-				MU.log "Setting rules in Security Group #{sg.group_name} (#{sg_id})"
+				MU.log "Setting rules in Security Group #{@mu_name} (#{@cloud_id})"
 
 				# add_to_self means that this security is a "member" of its own rules
 				# (which is to say, objects that have this SG are allowed in my these
@@ -354,53 +347,52 @@ module MU
 							new_rule = rule.clone
 							new_rule.delete('hosts')
 							rule['sgs'] = Array.new if rule['sgs'].nil?
-							rule['sgs'] << sg_id
+							rule['sgs'] << @cloud_id
 						end
 					}
 				end
 
-				ec2_rules = MU::Cloud::AWS::FirewallRule.convertToEc2(rules, region: region)
+				ec2_rules = convertToEc2(rules)
 
 				# Creating an empty security group is ok, so don't freak out if we get
 				# a null rule list.
 				retries = 0
 				if rules != nil
-					MU.log "Rules for EC2 Security Group #{sg.group_name} (#{sg_id}): #{ec2_rules}", MU::DEBUG
+					MU.log "Rules for EC2 Security Group #{@mu_name} (#{@cloud_id}): #{ec2_rules}", MU::NOTICE
 					begin
 						if ingress
-							MU::Cloud::AWS.ec2(region).authorize_security_group_ingress(
-								group_id: sg_id,
+							MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_ingress(
+								group_id: @cloud_id,
 								ip_permissions: ec2_rules
 							)
 						end
 						if egress
-							MU::Cloud::AWS.ec2(region).authorize_security_group_egress(
-								group_id: sg_id,
+							MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_egress(
+								group_id: @cloud_id,
 								ip_permissions: ec2_rules
 							)
 						end
 					rescue Aws::EC2::Errors::InvalidGroupNotFound => e
-						MU.log "#{sg.group_name} does not yet exist", MU::WARN
+						MU.log "#{@mu_name} does not yet exist", MU::WARN
 						retries = retries + 1
 						if retries < 10
 							sleep 10
 							retry
 						else
-							raise MuError, "#{sg.group_name} does not exist"
+							raise MuError, "#{@mu_name} does not exist"
 						end
 					rescue Aws::EC2::Errors::InvalidPermissionDuplicate => e
-						MU.log "Attempt to add duplicate rule to #{sg.group_name}", MU::DEBUG, details: ec2_rules
+						MU.log "Attempt to add duplicate rule to #{@mu_name}", MU::DEBUG, details: ec2_rules
 					end
 				end
 
-				return sg_id
 			end
 
 			#########################################################################
 			# Convert our config languages description of firewall rules into Amazon's.
 			# This rule structure is as defined in MU::Config.
 			#########################################################################
-			def self.convertToEc2(rules, region: MU.curRegion)
+			def convertToEc2(rules)
 				ec2_rules = []
 				if rules != nil
 					rules.each { |rule|
@@ -447,7 +439,7 @@ module MU
 							ec2_rule[:ip_ranges] = Array.new
 # XXX this is a dopey place for this
 							rule['lbs'].each { |lb_name|
-								lb = MU::Cloud::LoadBalancer.find(name: lb_name, deploy_id: MU.deploy_id, region: region)
+								lb = MU::Cloud::LoadBalancer.find(name: lb_name, deploy_id: MU.deploy_id, region: @config['region'])
 								if lb.nil?
 									raise MuError, "Couldn't find a Load Balancer named #{lb_name}"
 								end
@@ -465,17 +457,25 @@ module MU
 						if !rule['sgs'].nil?
 							ec2_rule[:user_id_group_pairs] = Array.new if ec2_rule[:user_id_group_pairs].nil?
 							rule['sgs'].each { |sg_name|
-								if sg_name.match(/^sg-/)
-									sg = MU::MommaCat.findStray(cloud_id: sg_name, region: region, calling_deploy: @deploy).first
+								dependencies # Make sure our cache is fresh
+								if @dependencies.has_key?("firewall_rule") and
+									 @dependencies["firewall_rule"].has_key?(sg_name)
+									sg = @dependencies["firewall_rule"][sg_name]
 								else
-									sg = MU::MommaCat.findStray(name: sg_name, region: region, calling_deploy: @deploy).first
-								end
-								if sg.nil?
-									raise MuError, "Attempted to reference non-existing Security Group #{sg_name}"
+									if sg_name.match(/^sg-/)
+										found_sgs = MU::MommaCat.findStray("AWS", "firewall_rule", cloud_id: sg_name, region: @config['region'], calling_deploy: @deploy)
+									else
+										found_sgs = MU::MommaCat.findStray("AWS", "firewall_rule", name: sg_name, region: @config['region'], calling_deploy: @deploy)
+									end
+									if found_sgs.nil? or found_sgs.size == 0
+										MU.log "Couldn't find FirewallRule #{sg_name} for poor #{@mu_name}", MU::ERR, details: @dependencies
+										raise MuError, "Attempted to reference non-existing Security Group #{sg_name} while building #{@mu_name}"
+									end
+									sg = found_sgs.first
 								end
 								ec2_rule[:user_id_group_pairs] << {
 									user_id: MU.account_number,
-									group_id: sg.group_id
+									group_id: sg.cloud_id
 								}
 							}
 						end

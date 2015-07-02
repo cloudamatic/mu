@@ -80,8 +80,7 @@ module MU
 					}
 				end
 				@config['vpc_id'] = vpc_id
-
-				deploy_struct = notify
+				@cloud_id = vpc_id
 
 				if @config['create_internet_gateway']
 					MU.log "Creating Internet Gateway #{@mu_name}"
@@ -100,20 +99,16 @@ module MU
 				end
 
 				if !@config['route_tables'].nil?
-					deploy_struct['route_tables'] = Hash.new
 					@config['route_tables'].each { |rtb|
 						rtb = createRouteTable(rtb)
-#						deploy_struct['route_tables'][rtb['name']] = rtb
 					}
-					notify
 				end
 
 				if !@config['subnets'].nil?
-					deploy_struct['subnets'] = Hash.new
 					subnet_semaphore = Mutex.new
 					subnetthreads = Array.new
 					parent_thread_id = Thread.current.object_id
-					azs = MU::Cloud::AWS.listAZs
+					azs = []
 					@config['subnets'].each { |subnet|
 						subnet_name = @config['name']+"-"+subnet['name']
 						MU.log "Creating Subnet #{subnet_name} (#{subnet['ip_block']})", details: subnet
@@ -263,7 +258,6 @@ module MU
 			# Called automatically by {MU::Deploy#createResources}
 			def groom
 				vpc_name = MU::MommaCat.getResourceName(@config['name'])
-				deploy_struct = @deploy.deployment['vpcs'][@config['name']]
 
 				# Generate peering connections
 				if !@config['peers'].nil? and @config['peers'].size > 0
@@ -566,7 +560,7 @@ module MU
 							{ name: "vpc-id", values: [@cloud_id] }
 						]
 					)
-					return [] if resp.data.subnets.nil? or resp.data.subnets.size == 0
+					return [] if resp.subnets.nil? or resp.subnets.size == 0
 				end
 
 				@subnets = []
@@ -575,11 +569,7 @@ module MU
 				# metadata. Like ya do.
 				if !@config.nil? and @config.has_key?("subnets")
 					@config['subnets'].each { |subnet|
-						subnet['mu_name'] = @mu_name+"-"+subnet['name']
-						# add deployment metadata, if we have any
-						if !@deploydata.nil? and @deploydata.has_key?("subnets") and @deploydata["subnets"].has_key?(subnet["name"])
-							subnet.merge(@deploydata["subnets"][subnet["name"]])
-						end
+						subnet['mu_name'] = @mu_name+"-"+subnet['name'] if !subnet.has_key?("mu_name")
 						resp.data.subnets.each { |desc|
 							if desc.cidr_block == subnet["ip_block"]
 								subnet["tags"] = MU.structToHash(desc.tags)
@@ -1172,6 +1162,7 @@ module MU
 				def initialize(parent, config)
 					@parent = parent
 					@config = config
+					@cloud_id = config['cloud_id']
 					@mu_name = config['mu_name']
 					@name = config['name']
 					@deploydata = config # This is a dummy for the sake of describe()
