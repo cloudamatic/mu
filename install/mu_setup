@@ -806,32 +806,45 @@ clone_repository()
 	clone_path=$2
 
 	clone_ssh="git clone git@github.com:$repo $clone_path"
+	clone_https="git clone https://github.com/$repo $clone_path"
 	mkdir -p $clone_path
 	if [ "$(ls -A $clone_path)" ];then
 		echo "$clone_path exists and is non-empty. I'm going to assume the repo has already been cloned..."
 		sleep 3
 	else
 		mkdir -p $SSHDIR
-		if [ "`grep ^github.com $SSHDIR/known_hosts 2>/dev/null`" != "" ];then
-			echo "Attempting to clone $repo with existing keys..."
-			echo $clone_ssh
-			$clone_ssh 2>&1 > /dev/null
-		fi
-		if [ $? != 0 -o "`grep ^github.com $SSHDIR/known_hosts 2>/dev/null`" == "" ];then
-			echo ""
-			authtype=""
-			echo "We'll need a key for access to ${BOLD}$repo${NORM}."
-			if [ "$use_defaults" != "" ];then
-			  fail_with_message "In non-interactive mode, but I need Git credentials! Run without -n."
+		
+		read -p "Use a private key to clone $1 repository? (y/n)?" choice
+		resp="echo ${choice,,}"
+
+		if [[ $resp =~ (yes|y) ]];then
+			if [ "`grep ^github.com $SSHDIR/known_hosts 2>/dev/null`" != "" ];then
+				echo "Attempting to clone $repo with existing keys..."
+				echo $clone_ssh
+				$clone_ssh 2>&1 > /dev/null
 			fi
-			while /bin/true ;do
-			    rm -rf $clone_path
-			    expunge_github_ssh_key $keyname
-			    echo ""
-			    set_up_github_ssh_key $repo
-			    echo $clone_ssh
-			    $clone_ssh && break
-			done
+			if [ $? != 0 -o "`grep ^github.com $SSHDIR/known_hosts 2>/dev/null`" == "" ];then
+				echo ""
+				authtype=""
+				echo "We'll need a key for access to ${BOLD}$repo${NORM}."
+				if [ "$use_defaults" != "" ];then
+				  fail_with_message "In non-interactive mode, but I need Git credentials! Run without -n."
+				fi
+				while /bin/true ;do
+					rm -rf $clone_path
+					expunge_github_ssh_key $keyname
+					echo ""
+					set_up_github_ssh_key $repo
+					echo $clone_ssh
+					$clone_ssh && break
+				done
+			fi
+		elif [[ $resp =~ (no|n) ]];then
+			echo "Attempting to clone $repo without private key."
+			echo $clone_https
+			$clone_https 2>&1 > /dev/null
+		else
+			clone_repository $repo $clone_path
 		fi
 	fi
 

@@ -60,7 +60,7 @@ end
 template "/etc/dhcp/dhclient-eth0.conf" do
 	source "dhclient-eth0.conf.erb"
 	mode 0644
-	notifies :restart, "service[network]", :immediately
+	notifies :restart, "service[network]", :immediately unless %w{redhat centos}.include?(node.platform) && node.platform_version.to_i == 7
 	variables(
 		:instance_id => instance_id
 	)
