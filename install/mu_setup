@@ -10,13 +10,16 @@ DIST_VERSION=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
 
 EPEL_RPM="http://mirror.metrocast.net/fedora/epel/epel-release-latest-$DIST_VERSION.noarch.rpm"
 
+CHEF_CLIENT_VERSION="12.3.0-1"
+
 if [ $DIST_VERSION == 7 ];then
 	# mariadb replaces mysql, qt and qt-x11 are required by gecode which is required by the dep_selector gem. 
 	PACKAGES="git curl vim-enhanced zip unzip java-1.8.0-openjdk gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx postgresql-devel openssl libyaml mariadb mariadb-devel qt qt-x11"
-	OPSCODE_CHEF_PKG="chef-server-core-12.1.0-1.el7.x86_64"
-	OPSCODE_CHEF_DL="https://web-dl.packagecloud.io/chef/stable/packages/el/7/${OPSCODE_CHEF_PKG}.rpm"
-	CHEF_CLIENT_VERSION="12.3.0-1"
-	CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el7.x86_64"
+	OPSCODE_CHEF_PKG="chef-server-core-12.0.8-1.el6.x86_64"
+#	OPSCODE_CHEF_DL="https://web-dl.packagecloud.io/chef/stable/packages/el/7/${OPSCODE_CHEF_PKG}.rpm"
+#	CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el7.x86_64"
+	OPSCODE_CHEF_DL="https://web-dl.packagecloud.io/chef/stable/packages/el/6/${OPSCODE_CHEF_PKG}.rpm"
+	CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el6.x86_64"
 	RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby-2.1.6-1.el7.x86_64.rpm"
 	RUBY_INSTALL_DIR="/opt/rubies/ruby-2.1.6"
 	RUBY_VERSION="ruby-2.1.6"
@@ -25,7 +28,6 @@ else
 	PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.7.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx mysql-devel postgresql-devel openssl libyaml"
 	OPSCODE_CHEF_PKG="chef-server-core-12.0.8-1.el6.x86_64"
 	OPSCODE_CHEF_DL="https://web-dl.packagecloud.io/chef/stable/packages/el/6/${OPSCODE_CHEF_PKG}.rpm"
-	CHEF_CLIENT_VERSION="12.3.0-1"
 	CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el6.x86_64"
 	RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby212-2.1.2p205-1.el6.x86_64.rpm"
 	RUBY_INSTALL_DIR="/opt/rubies/ruby212-2.1.2-p205"
@@ -806,7 +808,7 @@ clone_repository()
 	clone_path=$2
 
 	clone_ssh="git clone git@github.com:$repo $clone_path"
-	# This is ugly. Adding a 30 second timeout for HTTPS clone so we don't hang if it tromps for a username and/or password. 
+	# This is ugly. Adding a 30 second timeout for HTTPS clone so we don't hang if prompted for a username and/or password. 
 	clone_https="timeout 30 git clone https://github.com/$repo $clone_path"
 	mkdir -p $clone_path
 	if [ "$(ls -A $clone_path)" ];then
@@ -947,13 +949,6 @@ install_ruby()
 	fi
 	rm -f /usr/local/ruby-current
 	ln -s $RUBY_INSTALL_DIR /usr/local/ruby-current
-
-	if [ $DIST_VERSION == 7 ];then
-		# This was all supposed to be done in the RPM, but doesn't seem to work.
-		ln -s $RUBY_INSTALL_DIR/lib/libruby.so.2.1.0 /usr/lib64/libruby.so.2.1.0
-		ln -s $RUBY_INSTALL_DIR/lib/libruby.so.2.1.0 /usr/lib64/libruby.so
-		ln -s $RUBY_INSTALL_DIR/lib/libruby.so.2.1.0 /usr/lib64/libruby.so.2.1
-	fi
 
 	# Init Mu's gem library now that it has a Ruby to use.
 	export USE_SYSTEM_GECODE=1

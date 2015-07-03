@@ -17,19 +17,21 @@
 module CAPVolume
 	require 'pathname'
 	require 'net/http'
+	require 'json'
 
 	def set_aws_cfg_params
 		begin
 			require 'aws-sdk-core'
-			# XXX Figure out the local Amazon region. Guesswork in a white coat.
-			az = Net::HTTP.get(URI("http://169.254.169.254/latest/meta-data/placement/availability-zone"))
-			ENV['AWS_DEFAULT_REGION'] = az.sub(/.$/, "")
+			instance_identity = Net::HTTP.get(URI("http://169.254.169.254/latest/dynamic/instance-identity/document"))
+			region = JSON.parse(instance_identity)["region"]
+			# az = Net::HTTP.get(URI("http://169.254.169.254/latest/meta-data/placement/availability-zone"))
+			ENV['AWS_DEFAULT_REGION'] = region
 			if ENV['AWS_ACCESS_KEY_ID'] == nil or ENV['AWS_ACCESS_KEY_ID'].empty?
 				ENV.delete('AWS_ACCESS_KEY_ID')
 				ENV.delete('AWS_SECRET_ACCESS_KEY')
-				Aws.config = { region: az.sub(/.$/, "") }
+				Aws.config = { region: region }
 			else
-				Aws.config = { access_key_id: ENV['AWS_ACCESS_KEY_ID'], secret_access_key: ENV['AWS_SECRET_ACCESS_KEY'], region: az.sub(/.$/, "") }
+				Aws.config = { access_key_id: ENV['AWS_ACCESS_KEY_ID'], secret_access_key: ENV['AWS_SECRET_ACCESS_KEY'], region: region }
 			end
 		rescue LoadError
 			Chef::Log.info("aws-sdk-gem hasn't been installed yet!")

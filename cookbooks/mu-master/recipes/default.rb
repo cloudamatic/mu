@@ -69,7 +69,8 @@ end
 # nagios keeps disabling the default vhost, so let's make another one
 web_app "mu_docs" do
 	server_name node.hostname
-	server_aliases [node.fqdn, node.hostname, node.local_hostname, node.local_ipv4, node.public_hostname, node.public_ipv4]
+	server_aliases [node.fqdn, node.hostname, node.local_hostname, node.local_ipv4, node.public_hostname, node.public_ipv4] unless %w{redhat centos}.include?(node.platform) && node.platform_version.to_i == 7
+	server_aliases [node.fqdn, node.hostname, node.ipaddress] if %w{redhat centos}.include?(node.platform) && node.platform_version.to_i == 7
 	docroot "/var/www/html"
 	cookbook "mu-master"
 end
@@ -183,20 +184,27 @@ ruby_block "mount_logs_volume" do
 			ebs_keyfile = node.application_attributes.logs.ebs_keyfile
 			temp_dev = "/dev/ram7"
 			temp_mount = "/tmp/ram7"
-			destroy_temp_disk(temp_dev)
+
+			if File.open("/proc/mounts").read.match(/ #{temp_mount} /)
+				destroy_temp_disk(temp_dev)
+			end
+
 			make_temp_disk!(temp_dev, temp_mount)
 			s3 = Aws::S3::Client.new
+
 			begin
-			resp = s3.get_object(bucket: node.application_attributes.logs.secure_location, key: "log_vol_ebs_key")
+				resp = s3.get_object(bucket: node.application_attributes.logs.secure_location, key: "log_vol_ebs_key")
 			rescue Exception => e
 				Chef::Log.info(e.inspect)
 				destroy_temp_disk(temp_dev)
 				raise e
 			end
+
 			if resp.body.nil? or resp.body.size == 0
 				destroy_temp_disk(temp_dev)
 				raise "Couldn't fetch log volume key #{node.application_attributes.logs.secure_location}:/log_vol_ebs_key"
 			end
+
 			ebs_key_handle = File.new("#{temp_mount}/log_vol_ebs_key", File::CREAT|File::TRUNC|File::RDWR, 0400)
 			ebs_key_handle.puts resp.body
 			ebs_key_handle.close
