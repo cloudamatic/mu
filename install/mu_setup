@@ -806,18 +806,20 @@ clone_repository()
 	clone_path=$2
 
 	clone_ssh="git clone git@github.com:$repo $clone_path"
-	clone_https="git clone https://github.com/$repo $clone_path"
+	# This is ugly. Adding a 30 second timeout for HTTPS clone so we don't hang if it tromps for a username and/or password. 
+	clone_https="timeout 30 git clone https://github.com/$repo $clone_path"
 	mkdir -p $clone_path
 	if [ "$(ls -A $clone_path)" ];then
 		echo "$clone_path exists and is non-empty. I'm going to assume the repo has already been cloned..."
 		sleep 3
 	else
 		mkdir -p $SSHDIR
-		
-		read -p "Use a private key to clone $1 repository? (y/n)?" choice
-		resp="echo ${choice,,}"
-
-		if [[ $resp =~ (yes|y) ]];then
+		echo "Attempting to clone $repo without private key."
+		echo $clone_https
+		$clone_https 2>&1 > /dev/null
+		if [ "$(ls -A $clone_path)" ];then
+			echo "$clone_path exists and is not empty. I'm going to assume $repo was cloned successfully without a private key"
+		else
 			if [ "`grep ^github.com $SSHDIR/known_hosts 2>/dev/null`" != "" ];then
 				echo "Attempting to clone $repo with existing keys..."
 				echo $clone_ssh
@@ -839,12 +841,6 @@ clone_repository()
 					$clone_ssh && break
 				done
 			fi
-		elif [[ $resp =~ (no|n) ]];then
-			echo "Attempting to clone $repo without private key."
-			echo $clone_https
-			$clone_https 2>&1 > /dev/null
-		else
-			clone_repository $repo $clone_path
 		fi
 	fi
 
