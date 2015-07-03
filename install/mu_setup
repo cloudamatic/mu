@@ -14,7 +14,8 @@ CHEF_CLIENT_VERSION="12.3.0-1"
 
 if [ $DIST_VERSION == 7 ];then
 	# mariadb replaces mysql, qt and qt-x11 are required by gecode which is required by the dep_selector gem. 
-	PACKAGES="git curl vim-enhanced zip unzip java-1.8.0-openjdk gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx postgresql-devel openssl libyaml mariadb mariadb-devel qt qt-x11"
+	PACKAGES="git curl vim-enhanced zip unzip java-1.8.0-openjdk gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx postgresql-devel openssl libyaml mariadb mariadb-devel qt qt-x11 iptables-services"
+	DEL_PACKAGES="nagios firewalld"
 	OPSCODE_CHEF_PKG="chef-server-core-12.0.8-1.el6.x86_64"
 #	OPSCODE_CHEF_DL="https://web-dl.packagecloud.io/chef/stable/packages/el/7/${OPSCODE_CHEF_PKG}.rpm"
 #	CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el7.x86_64"
@@ -32,9 +33,8 @@ else
 	RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby212-2.1.2p205-1.el6.x86_64.rpm"
 	RUBY_INSTALL_DIR="/opt/rubies/ruby212-2.1.2-p205"
 	RUBY_VERSION="ruby212"
+	DEL_PACKAGES="nagios"
 fi
-
-DEL_PACKAGES="nagios"
 
 GET_METADATA="curl --fail -s http://169.254.169.254/latest"
 RCFILE=".murc"
@@ -884,6 +884,14 @@ install_system_packages()
 		rpm -ivh ${EPEL_RPM}
 	fi
 
+	uninstall_me=""
+	for pkg in $DEL_PACKAGES;do
+		rpm -q $pkg 2>&1 > /dev/null && uninstall_me="${install_me} $pkg"
+	done
+	if [ "$uninstall_me" != "" ];then
+		yum -y erase ${uninstall_me} || exit 1
+	fi
+
 	install_me=""
 	for pkg in $PACKAGES;do
 		rpm -q $pkg 2>&1 > /dev/null || install_me="${install_me} $pkg"
@@ -897,14 +905,6 @@ install_system_packages()
 		for pkg in $GECODE_RPMS;do
 			rpm -ivh $pkg
 		done
-	fi
-
-	uninstall_me=""
-	for pkg in $DEL_PACKAGES;do
-		rpm -q $pkg 2>&1 > /dev/null && uninstall_me="${install_me} $pkg"
-	done
-	if [ "$uninstall_me" != "" ];then
-		yum -y erase ${uninstall_me} || exit 1
 	fi
 }
 

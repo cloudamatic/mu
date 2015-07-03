@@ -57,7 +57,7 @@ module CAPVolume
 	def get_ec2_attribute(attribute_name)
 		attribute_value =nil
 		begin
-				query="http://169.254.169.254/latest/meta-data/"+attribute_name
+				query="http://169.254.169.254/latest/meta-data/#{attribute_name}"
 				uri = URI(query)
 				Chef::Log.info("URI will be #{uri}")
 				attribute_value = Net::HTTP.get(uri)
@@ -76,7 +76,7 @@ module CAPVolume
 		end
 		`mke2fs #{device}` if %w{redhat centos}.include?(node.platform) && node.platform_version.to_i == 6
 		`mkfs.xfs #{device}` if %w{redhat centos}.include?(node.platform) && node.platform_version.to_i == 7
-		Dir.mkdir(mount_directory) unless File.exists?(mount_directory)
+		Dir.mkdir(mount_directory) unless Dir.exists?(mount_directory)
 		`mount #{device} #{mount_directory}`
 	end
 
@@ -126,10 +126,10 @@ module CAPVolume
 		# Helper method, create an arbitrary volume using an arbitrary label that must be preconfigured in nodes
 		volume_size_gb = node[:application_attributes][volume_label]["volume_size_gb"]
 		if volume_size_gb.nil?
-			Chef::Log.fatal("Must supply a volume label preconfigured in nodes") 
+			Chef::Log.fatal("Must supply a volume size") 
 			raise
 		end
-		create_volume(volume_label,volume_size_gb)
+		create_volume(volume_label, volume_size_gb)
 	end
 
 	def get_cloudprovider 
