@@ -1041,10 +1041,10 @@ class Cloud
 			# be letting ssh traffic in from said NAT.
 			def punchAdminNAT
 				if @config['vpc'].nil? or 
-					 !@config['vpc'].has_key?("nat_host_id") and
+					 (!@config['vpc'].has_key?("nat_host_id") and
 					 !@config['vpc'].has_key?("nat_host_tag") and
 					 !@config['vpc'].has_key?("nat_host_ip") and
-					 !@config['vpc'].has_key?("nat_host_name")
+					 !@config['vpc'].has_key?("nat_host_name"))
 					return nil
 				end
 				dependencies if @nat.nil?
@@ -1126,7 +1126,7 @@ class Cloud
 # XXX figure out what the condition was for this and implement here
 #				if !chef_rerun_only
 					MU::MommaCat.syncSiblings(@config["name"], true, triggering_node: node)
-					syncDeployData if !@config['sync_siblings']
+					@groomer.syncDeployData if !@config['sync_siblings']
 #				end
 
 
@@ -1355,7 +1355,11 @@ MU.log "MU::Cloud::AWS.ec2(#{@config['region']}).wait_until(:password_data_avail
 			# @param region [String]: The cloud provider region
 			def self.findFreeElasticIp(classic = false, ip: ip, region: MU.curRegion)
 					filters = Array.new
-					filters << { name: "domain", values: ["vpc"] } if !classic
+					if !classic
+						filters << { name: "domain", values: ["vpc"] }
+					else
+						filters << { name: "domain", values: ["standard"] }
+					end
 					filters << { name: "public-ip", values: [ip] } if ip != nil
 
 					if filters.size > 0
@@ -1414,7 +1418,7 @@ MU.log "MU::Cloud::AWS.ec2(#{@config['region']}).wait_until(:password_data_avail
 			# @param ip [String]: Request a specific IP address.
 			# @param region [String]: The cloud provider region
 			# @return [void]
-			def self.associateElasticIp(instance_id, classic: classic = false, ip: ip, region: MU.curRegion)
+			def self.associateElasticIp(instance_id, classic: false, ip: ip, region: MU.curRegion)
 				MU.log "associateElasticIp called: #{instance_id}, classic: #{classic}, ip: #{ip}, region: #{region}", MU::DEBUG
 				elastic_ip = nil
 				@eip_semaphore.synchronize {

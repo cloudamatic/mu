@@ -123,7 +123,7 @@ module MU
 				:deps_wait_on_my_creation => true,
 				:waits_on_parent_completion => false,
 				:class => generic_class_methods,
-				:instance => generic_instance_methods + [:groom, :subnets, :getSubnet, :listSubnets]
+				:instance => generic_instance_methods + [:groom, :subnets, :getSubnet, :listSubnets, :findBastion]
 			},
 		}.freeze
 
@@ -274,7 +274,7 @@ module MU
 					}
 
 					# Special dependencies: my containing VPC
-					if self.class.can_live_in_vpc and @config.has_key?("vpc")
+					if self.class.can_live_in_vpc and !@config['vpc'].nil?
 						MU.log "Loading VPC for #{self}", MU::DEBUG, details: @config['vpc']
 						if !@config['vpc']["vpc_name"].nil? and
 							 @dependencies.has_key?("vpc") and
@@ -294,7 +294,8 @@ module MU
 								name: @config['vpc']["vpc_name"],
 								tag_key: tag_key,
 								tag_value: tag_value,
-								region: @config['vpc']["region"]
+								region: @config['vpc']["region"],
+								calling_deploy: @deploy
 							)
 							@vpc = vpcs.first if !vpcs.nil? and vpcs.size > 0
 						end
@@ -334,7 +335,8 @@ module MU
 									deploy_id: lb["deploy_id"],
 									cloud_id: lb['existing_load_balancer'],
 									name: lb['concurrent_load_balancer'],
-									region: @config["region"]
+									region: @config["region"],
+									calling_deploy: @deploy
 								)
 								@loadbalancers << lbs.first if !lbs.nil? and lbs.size > 0
 							end

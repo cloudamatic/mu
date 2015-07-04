@@ -1,0 +1,31 @@
+  - name: winapps
+    platform: windows
+    ssh_user: Administrator
+    min-size: 2
+    max-size: 4
+    wait_for_nodes: 2
+    loadbalancers:
+    - concurrent-load-balancer: winlb
+    run_list:
+    - recipe[mu-demo::tiered_apps]
+    add_firewall_rules:
+    - rule_name: winapps
+    dependencies:
+    - type: server
+      name: bastion
+    application_attributes:
+      tomcat_app: <%= $tomcat_app %>
+      my_domain: <%= $my_domain %>
+    vpc:
+      subnet_pref: all_private
+      nat_ssh_user: <%= $nat_ssh_user %>
+    <% if !$vpc_deploy_id %>
+      vpc_name: vpc
+      nat_host_name: bastion
+    <% else %>
+      deploy_id: <%= $vpc_deploy_id %>
+    <% end %>
+    basis:
+      launch-config:
+        name: winapps
+        size: m3.large

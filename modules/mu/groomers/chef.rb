@@ -253,7 +253,7 @@ module MU
 				begin
 					chef_node = ::Chef::Node.load(@server.mu_name)
 
-					MU.log "Updating node: #{@server.mu_name} deployment attributes", MU::NOTICE, details: @server.deploy.deployment
+					MU.log "Updating node: #{@server.mu_name} deployment attributes", details: @server.deploy.deployment
 					chef_node.normal.deployment.merge!(@server.deploy.deployment)
 
 					chef_node.save

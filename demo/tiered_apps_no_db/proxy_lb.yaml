@@ -1,0 +1,23 @@
+  - name: proxylb
+    dns_sync_wait: false
+    vpc:
+      subnet_pref: all_public
+    <% if $vpc_deploy_id then %>
+      deploy_id: <%= $vpc_deploy_id %>
+    <% else %>
+      vpc_name: vpc
+    <% end %>
+    cross_zone_unstickiness: true
+    add_firewall_rules:
+    - rule_name: proxy_lb
+    healthcheck:
+      target: HTTP:80/
+      timeout: 5
+      interval: 30
+      unhealthy-threshold: 2
+      healthy-threshold: 2
+    listeners:
+    - lb-port: 80
+      lb-protocol: HTTP
+      instance-port: 80
+      instance-protocol: HTTP

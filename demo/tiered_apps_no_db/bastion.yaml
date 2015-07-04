@@ -1,0 +1,25 @@
+  - name: bastion
+    size: t2.micro
+    platform: <%= $platform %>
+    dns_sync_wait: false
+    src-dst-check: false
+    static_ip:
+      assign_ip: true
+    vpc:
+      vpc_name: vpc
+    ingress_rules:
+    - proto: icmp
+      hosts:
+      - 10.0.0.0/16
+    - proto: tcp
+      port-range: 0-65535
+      hosts:
+      - 10.0.0.0/16
+    - proto: udp
+      port-range: 0-65535
+      hosts:
+      - 10.0.0.0/16
+    run_list:
+    - recipe[mu-tools::apply_security]
+    - recipe[mu-tools::split_var_partitions]
+    - recipe[mu-utility::nat]

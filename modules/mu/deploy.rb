@@ -118,6 +118,8 @@ module MU
 		# and saving metadata about them.
 		def run
 			Signal.trap("INT") do
+				# Don't use MU.log in here, it does a synchronize {} and that ain't
+				# legal inside a trap.
 				die = true if (Time.now.to_i - @last_sigterm) < 5
 				if !die
 					puts "------------------------------"
@@ -129,11 +131,7 @@ module MU
 				end
 			  Thread.list.each do |t|
 					next if !t.status # skip threads that've been cleanly terminated
-					if die
-						if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread"
-					    t.kill
-						end
-					else
+					if !die
 						thread_name = t.thread_variable_get("name")
 						puts "Thread #{thread_name} (#{t.object_id}): #{t.inspect} #{t.status}"
 						t.thread_variables.each { |tvar|
@@ -160,7 +158,7 @@ module MU
 				if !die
 					puts "Received SIGINT, hit ctrl-C again within five seconds to kill this deployment."
 				else
-					raise MuError, "Terminated by user"
+					raise "Terminated by user"
 				end
 				@last_sigterm = Time.now.to_i
 			end

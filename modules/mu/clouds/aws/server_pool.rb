@@ -297,19 +297,19 @@ class Cloud
 					groomthreads = Array.new
 					desc.instances.each { |member|
 						begin
-							instance = MU::Cloud::AWS::Server.find(cloud_id: member.instance_id)
 							groomthreads << Thread.new {
+								Thread.abort_on_exception = true
 								MU.dupGlobals(parent_thread_id)
-								MU.mommacat.groomNode(instance, @config['name'], "server_pool", reraise_fail: true, sync_wait: @config['dns_sync_wait'])
+								MU.mommacat.groomNode(member, @config['name'], "server_pool", reraise_fail: true, sync_wait: @config['dns_sync_wait'])
 							}
 						rescue Exception => e
-							if !instance.nil? and !done
+							if !member.nil? and !done
 								MU.log "Aborted before I could finish setting up #{@config['name']}, cleaning it up. Stack trace will print once cleanup is complete.", MU::WARN if !@deploy.nocleanup
 								MU::MommaCat.unlockAll
 								if !@deploy.nocleanup
 									Thread.new {
 										MU.dupGlobals(parent_thread_id)
-										MU::Cloud::AWS::Server.terminateInstance(id: instance.instance_id)
+										MU::Cloud::AWS::Server.terminateInstance(id: member.instance_id)
 									}
 								end
 							end

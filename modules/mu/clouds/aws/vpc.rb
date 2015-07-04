@@ -1076,6 +1076,8 @@ module MU
 					MU.log "Deleting VPC #{vpc.vpc_id}"
 					begin
 						MU::Cloud::AWS.ec2(region).delete_vpc(vpc_id: vpc.vpc_id) if !noop
+					rescue Aws::EC2::Errors::InvalidVpcIDNotFound
+						MU.log "VPC #{vpc.vpc_id} has already been deleted", MU::WARN
 					rescue Aws::EC2::Errors::DependencyViolation => e
 						MU.log "Couldn't delete VPC #{vpc.vpc_id}: #{e.inspect}", MU::ERR
 					end

@@ -1,0 +1,24 @@
+  - name: winlb
+    private: true
+    dns_sync_wait: false
+    vpc:
+      subnet_pref: all_private
+    <% if !$vpc_deploy_id %>
+      vpc_name: vpc
+    <% else %>
+      deploy_id: <%= $vpc_deploy_id %>
+    <% end %>
+    cross_zone_unstickiness: true
+    add_firewall_rules:
+    - rule_name: winapps_lb
+    healthcheck:
+      target: HTTP:8080/
+      timeout: 5
+      interval: 30
+      unhealthy-threshold: 2
+      healthy-threshold: 2
+    listeners:
+    - lb-port: 80
+      lb-protocol: HTTP
+      instance-port: 8080
+      instance-protocol: HTTP

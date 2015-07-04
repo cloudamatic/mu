@@ -331,7 +331,6 @@ module MU
 			def setRules(rules, add_to_self: add_to_self = false, ingress: ingress = true, egress: egress = false)
 				return if rules.nil? or rules.size == 0
 
-				MU.log "Setting rules in Security Group #{@mu_name} (#{@cloud_id})"
 
 				# add_to_self means that this security is a "member" of its own rules
 				# (which is to say, objects that have this SG are allowed in my these
@@ -348,6 +347,7 @@ module MU
 				end
 
 				ec2_rules = convertToEc2(rules)
+				MU.log "Setting rules in Security Group #{@mu_name} (#{@cloud_id})", details: ec2_rules
 
 				# Creating an empty security group is ok, so don't freak out if we get
 				# a null rule list.
@@ -431,26 +431,38 @@ module MU
 						end
 						
 						if !rule['lbs'].nil?
-							ec2_rule[:ip_ranges] = Array.new
+							ec2_rule[:ip_ranges] = []
+							ec2_rule[:user_id_group_pairs] = []
 # XXX this is a dopey place for this
+							dependencies # make sure we're fresh here
 							rule['lbs'].each { |lb_name|
-								lb = MU::Cloud::LoadBalancer.find(name: lb_name, deploy_id: MU.deploy_id, region: @config['region'])
-								if lb.nil?
-									raise MuError, "Couldn't find a Load Balancer named #{lb_name}"
+MU.log "Digging for clams, or at least a LoadBalancer named #{lb_name}"
+# XXX the language for addressing ELBs should be as flexible as VPCs
+								found = MU::MommaCat.findStray(
+									"AWS",
+									"loadbalancer",
+									deploy_id: @deploy.deploy_id,
+									name: lb_name,
+									region: @config['region']
+								)
+								if found.nil? or found.size == 0
+									raise MuError, "FirewallRule #{@mu_name} is configured to use a LoadBalancer named #{lb_name}, but I can't find one"
 								end
-								ec2_rule[:user_id_group_pairs] = Array.new
-# XXX nuh-uh, don't do this for every SG, just the default one
-								lb.security_groups.each { |lb_sg|
-									ec2_rule[:user_id_group_pairs] << {
-										user_id: MU.account_number,
-										group_id: lb_sg
+								lb = found.values.first
+								if lb.cloud_id == lb_name or lb.config['name']
+									lb.cloud_desc.security_groups.each { |lb_sg|
+										ec2_rule[:user_id_group_pairs] << {
+											user_id: MU.account_number,
+											group_id: lb_sg
+										}
 									}
-								}
+								end
 							}
+							ec2_rule.delete(:user_id_group_pairs) if ec2_rule[:user_id_group_pairs].size == 0
 						end
 
 						if !rule['sgs'].nil?
-							ec2_rule[:user_id_group_pairs] = Array.new if ec2_rule[:user_id_group_pairs].nil?
+							ec2_rule[:user_id_group_pairs] = [] if ec2_rule[:user_id_group_pairs].nil?
 							rule['sgs'].each { |sg_name|
 								dependencies # Make sure our cache is fresh
 								if @dependencies.has_key?("firewall_rule") and

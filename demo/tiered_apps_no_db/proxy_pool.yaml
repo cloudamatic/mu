@@ -1,0 +1,35 @@
+  - name: proxy
+    platform: <%= $platform %>
+    dns_sync_wait: false
+    min-size: 2
+    max-size: 4
+    wait_for_nodes: 2
+    loadbalancers:
+    - concurrent-load-balancer: proxylb
+    run_list:
+    - recipe[mu-utility::iptables]
+    - recipe[mu-tools::apply_security]
+    - recipe[mu-tools::split_var_partitions]
+    - recipe[mu-demo::tiered_apps_proxy]
+    add_firewall_rules:
+    - rule_name: proxy
+    dependencies:
+    - type: server
+      name: bastion
+    application_attributes:
+      drupal_distro: <%= $drupal_distro %>
+      tomcat_app: <%= $tomcat_app %>
+      my_domain: <%= $my_domain %>
+    vpc:
+      subnet_pref: all_private
+      nat_ssh_user: <%= $nat_ssh_user %>
+    <% if !$vpc_deploy_id %>
+      nat_host_name: bastion
+      vpc_name: vpc
+    <% else %>
+      deploy_id: <%= $vpc_deploy_id %>
+    <% end %>
+    basis:
+      launch-config:
+        name: appsproxy
+        size: t2.medium

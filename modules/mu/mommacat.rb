@@ -844,18 +844,17 @@ begin
 			if deploy_id or name or mu_name
 				mu_descs = MU::MommaCat.getResourceMetadata(resourceclass.cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name)
 				mu_descs.each_pair { |found_deploy, matches|
-					# If we got exactly one match, see if we can use it to make the rest
-					# of our job easier.
 					momma = MU::MommaCat.getLitter(found_deploy)
+
 					# If we found exactly one match in this deploy, use its metadata to
 					# guess at resource names we weren't told.
 					if matches.size == 1 and name.nil? and mu_name.nil?
-						straykitten = momma.findLitterMate(type: type, name: matches.first["name"])
+						straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: matches.first["cloud_id"])
 					else
 						straykitten = momma.findLitterMate(type: type, name: name, mu_name: mu_name)
 					end
 					if straykitten.nil?
-						MU.log "Failed to locate a kitten from deploy_id: #{deploy_id}, name: #{name}, mu_name: #{mu_name}, despite having found metadata", MU::ERR, details: caller
+						MU.log "Failed to locate a kitten from deploy_id: #{deploy_id}, name: #{name}, mu_name: #{mu_name}, despite having found metadata", MU::ERR, details: matches
 						raise MuError, "I can't find #{mu_name} anywhere" if !mu_name.nil?
 						next
 					end

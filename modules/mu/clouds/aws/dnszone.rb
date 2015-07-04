@@ -572,16 +572,12 @@ module MU
 				}
 			end
 
-			# Locate an Mu controlled DNS zone hosted by our cloud provider. Can
-			# identify zones by their cloud provider identifier, OR by their internal
-			# Mu resource name, OR by a cloud provider tag name/value pair, OR by an
-			# assigned IP address.
-			# @param name [String]: An Mu resource name, usually the 'name' field of aa Basket of Kittens resource declaration. Will search the currently loaded deployment unless another is specified.
-			# @param deploy_id [String]: The deployment to search using the 'name' parameter.
-			# @param id [String]: The cloud provider's identifier for this resource.
-			# @param allow_multi [Boolean]: When searching by tags or name, permit an array of resources to be returned (if applicable) instead of just one.
-			# @param region [String]: The cloud provider's region
-			# @return [OpenStruct,String]: The cloud provider's complete description of this DNS zone, and its MU resource name (if applicable).
+			# Locate an existing DNSZone or DNSZones and return an array containing matching AWS resource descriptors for those that match.
+			# @param cloud_id [String]: The cloud provider's identifier for this resource. Can also use the domain name, we'll check for both.
+			# @param region [String]: The cloud provider region
+			# @param tag_key [String]: A tag key to search.
+			# @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
+			# @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching DNSZones
 			def self.find(cloud_id: nil, deploy_id: MU.deploy_id, region: MU.curRegion)
 				matches = {}
 
