@@ -24,8 +24,8 @@ module CAPVolume
 			require 'aws-sdk-core'
 			instance_identity = Net::HTTP.get(URI("http://169.254.169.254/latest/dynamic/instance-identity/document"))
 			region = JSON.parse(instance_identity)["region"]
-			# az = Net::HTTP.get(URI("http://169.254.169.254/latest/meta-data/placement/availability-zone"))
 			ENV['AWS_DEFAULT_REGION'] = region
+
 			if ENV['AWS_ACCESS_KEY_ID'] == nil or ENV['AWS_ACCESS_KEY_ID'].empty?
 				ENV.delete('AWS_ACCESS_KEY_ID')
 				ENV.delete('AWS_SECRET_ACCESS_KEY')
@@ -40,12 +40,10 @@ module CAPVolume
 
 	@ec2 = nil
 	def ec2
-	require 'aws-sdk-core'
-	set_aws_cfg_params
-	if @ec2.nil?
-	  @ec2 = Aws::EC2::Client.new
-	end
-	@ec2
+		require 'aws-sdk-core'
+		set_aws_cfg_params
+		@ec2 = Aws::EC2::Client.new if @ec2.nil?
+		return @ec2
 	end
 
 	def is_mounted?(target)
@@ -71,25 +69,29 @@ module CAPVolume
 	def make_temp_disk!(device='/dev/ram0', mount_directory='/tmp/ram0')
 		#Creates a temporary ramdisk for holding credentials.  Destructive to existing device
 		if is_mounted?(mount_directory)
-				Chef::Log.fatal("#{mount_directory} is already mounted")
-				raise
+			Chef::Log.fatal("#{mount_directory} is already mounted")
+			raise
 		end
-		`mke2fs #{device}` if %w{redhat centos}.include?(node.platform) && node.platform_version.to_i == 6
-		`mkfs.xfs #{device}` if %w{redhat centos}.include?(node.platform) && node.platform_version.to_i == 7
+
 		Dir.mkdir(mount_directory) unless Dir.exists?(mount_directory)
-		`mount #{device} #{mount_directory}`
+		`mount -t tmpfs -o size=50m #{device} #{mount_directory}`
 	end
 
 	def destroy_temp_disk(device='/dev/ram0')
 		#destroys a ramdisk by overwriting with /dev/urandom
+		`dd if=/dev/urandom of=#{device}` unless %w{redhat centos}.include?(node.platform) && node.platform_version.to_i == 7
 		`umount #{device}`
-		`dd if=/dev/urandom of=#{device}`
 	end
 
 	def mount_volume (mount_device, mount_directory, key_file=nil)
 		if key_file.nil?
-			`mkfs.ext4 "#{mount_device}"` if %w{redhat centos}.include?(node.platform) && node.platform_version.to_i == 6
-			`mkfs.xfs  "#{mount_device}"` if %w{redhat centos}.include?(node.platform) && node.platform_version.to_i == 7
+			if %w{redhat centos}.include?(node.platform) && node.platform_version.to_i == 7
+				`mkfs.xfs  "#{mount_device}"`
+				# `echo -e "#{mount_device}\t#{mount_directory}\txfs\tdefaults\t0\t2"  >> /etc/fstab` unless File.open("/etc/fstab").read.match(/ #{mount_directory} /)
+			else
+				`mkfs.ext4 "#{mount_device}"`
+			end
+
 			command = "mount #{mount_device} #{mount_directory}"
 			Chef::Log.info("Unencrypted mount of #{command}")
 			`#{command}`
@@ -97,16 +99,22 @@ module CAPVolume
 			alias_device = mount_directory.gsub("/","") #by convention
 			`cryptsetup luksFormat #{mount_device} #{key_file} --batch-mode`
 			`cryptsetup luksOpen #{mount_device} #{alias_device} --key-file #{key_file}`
-			`mkfs.ext4 "/dev/mapper/#{alias_device}"` if %w{redhat centos}.include?(node.platform) && node.platform_version.to_i == 6
-			`mkfs.xfs  "/dev/mapper/#{alias_device}"` if %w{redhat centos}.include?(node.platform) && node.platform_version.to_i == 7
+			
+			if %w{redhat centos}.include?(node.platform) && node.platform_version.to_i == 7
+				`mkfs.xfs  "/dev/mapper/#{alias_device}"`
+				# `echo -e "/dev/mapper/#{alias_device}\t#{mount_directory}\txfs\tdefaults\t0\t2"  >> /etc/fstab` unless File.open("/etc/fstab").read.match(/ #{mount_directory} /)
+			else
+				`mkfs.ext4 "/dev/mapper/#{alias_device}"`
+			end
+
 			`mount "/dev/mapper/#{alias_device}" #{mount_directory}`
 		end
 	end
 
 	def mount_node_volume(volume_label, key_file=nil)
 		#helper method to discover node volume parms
-		mount_device = node[:application_attributes][volume_label][:mount_device]
-		mount_directory = node[:application_attributes][volume_label][:mount_directory]
+		mount_device = node.application_attributes[volume_label].mount_device
+		mount_directory = node.application_attributes[volume_label].mount_directory
 		mount_volume(mount_device, mount_directory, key_file)
 	end
 
@@ -114,7 +122,6 @@ module CAPVolume
 		#helper method for apps volume
 		mount_node_volume(:application_volume, key_file)
 	end
-
 
 	# Creation methods for volumes
 	def create_default_volume()
@@ -124,7 +131,7 @@ module CAPVolume
 
 	def create_node_volume (volume_label)
 		# Helper method, create an arbitrary volume using an arbitrary label that must be preconfigured in nodes
-		volume_size_gb = node[:application_attributes][volume_label]["volume_size_gb"]
+		volume_size_gb = node.application_attributes[volume_label].volume_size_gb
 		if volume_size_gb.nil?
 			Chef::Log.fatal("Must supply a volume size") 
 			raise
@@ -133,15 +140,15 @@ module CAPVolume
 	end
 
 	def get_cloudprovider 
-		cloudprovider = node[:cloudprovider]
-		cloudprovider = 'ec2' if cloudprovider.nil? 
-		cloudprovider
+		cloudprovider = nil
+		cloudprovider = 'ec2' unless node.attribute?("cloudprovider")
+		return cloudprovider
 	end
 
 	def tag_volume(device, tags)
-	volume_id = find_volume_id(device)
-	return nil if volume_id.nil?
-	ec2.create_tags(resources: [volume_id], tags: tags)
+		volume_id = find_volume_id(device)
+		raise "No volume ID found. Not tagging" if volume_id.nil?
+		ec2.create_tags(resources: [volume_id], tags: tags)
 	end
 
 	def create_volume(volume_label, volume_size_gb)
@@ -152,16 +159,15 @@ module CAPVolume
 			instance_id = get_ec2_attribute("instance-id")
 			az = get_ec2_attribute("placement/availability-zone")
 
-			Chef::Log.info("in the ec2 branch with app volume #{volume_label}")
 			# EC2 stuff
 			if az
 				resp = ec2.create_volume(size: volume_size_gb, availability_zone: az, volume_type: "gp2")
 				volume_id = resp.volume_id
-				node.set[:application_attributes][volume_label]['volume_id'] = volume_id
+				node.set.application_attributes[volume_label].volume_id = volume_id
 				node.save
 				
-				if !node[:application_attributes][volume_label][:label].nil?
-					description = node[:application_attributes][volume_label][:label]
+				if node.application_attributes[volume_label].label
+					description = node.application_attributes[volume_label].label
 				else
 					description = "#{instance_id} #{node.application_attributes[volume_label].mount_directory}"
 				end
@@ -182,12 +188,14 @@ module CAPVolume
 				# and if so throw an exception
 		# Helper method, attach an arbitrary volume using an arbitrary label that must be preconfigured in nodes
 		Chef::Log.info("In attach_node_volume with volume_label #{volume_label}")
-		mount_device = node[:application_attributes][volume_label][:mount_device]
-		volume_id = node[:application_attributes][volume_label]['volume_id']
+		mount_device = node.application_attributes[volume_label].mount_device
+		volume_id = node.application_attributes[volume_label].volume_id
+
 		if mount_device.nil?
 			Chef::Log.fatal("No mount device for volume label #{volume_label}.	Must supply a volume label configured in nodes") 
 			raise
 		end
+
 		attach_volume(volume_label, volume_id, mount_device)
 	end
 
@@ -241,15 +249,14 @@ module CAPVolume
 				return
 			end
 
-			volume_id = node[:application_attributes][volume_label]['volume_id']
-			unless volume_id.nil?
-				Chef::Log.info("Node indicates an existing mounted volume of #{volume_id}") 
-			end
-
+			volume_id = node.application_attributes[volume_label].volume_id
 			instance_id = get_ec2_attribute("instance-id")
+
 			if volume_id.nil?
 				Chef::Log.fatal("No volume created for label #{volume_label}") 
 				raise
+			else
+				Chef::Log.info("Node indicates an existing mounted volume of #{volume_id}")
 			end
 
 			retries = 0
@@ -265,12 +272,11 @@ module CAPVolume
 				end
 			end
 
-			Chef::Log.info("Response is #{response}")
 			if response.nil? || response.length == 0
 				Chef::Log.fatal("Error in attach, former attach is in place but node reflects new volume") 
 				raise
 			else
-				node.set[:application_attributes][volume_label]['mount_device'] = mount_device
+				node.set.application_attributes[volume_label].mount_device = mount_device
 				node.save
 			end
 
@@ -290,7 +296,6 @@ module CAPVolume
 		if get_cloudprovider == 'ec2'
 			for try in (1..n_tries)
 				sleep interval_sec
-				Chef::Log.info("Try #{try}")
 				device_status = check_device_status(device_target)
 				return true if device_status == "attached"
 			end

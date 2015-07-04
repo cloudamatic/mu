@@ -95,12 +95,22 @@ Subsystem sftp /usr/lib/openssh/sftp-server
 UsePAM yes
 PermitRootLogin without-password
 
-# If we've set AllowGroups, use that instead of restricting to root
-<% begin %>
+# If we've set AllowGroups, use that instead of restricting to ubuntu
+<%
+begin
+	if !node.application_attributes.sshd_allow_groups.empty? %>
 AllowGroups <%= node.application_attributes.sshd_allow_groups %>
-<% rescue NoMethodError %>
-AllowUsers root
-<% end %>
+<%
+	else
+	%>
+AllowUsers ubuntu
+<%
+	end
+rescue NoMethodError %>
+AllowUsers ubuntu
+<%
+end
+%>
 
 # Support SFTP-only servers, while we're at it
 <%

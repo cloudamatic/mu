@@ -1,40 +1,46 @@
-#       $OpenBSD: sshd_config,v 1.80 2008/07/02 02:24:18 djm Exp $
+#	$OpenBSD: sshd_config,v 1.90 2013/05/16 04:09:14 dtucker Exp $
 
 # This is the sshd server system-wide configuration file.  See
 # sshd_config(5) for more information.
 
-# This sshd was compiled with PATH=/usr/local/bin:/bin:/usr/bin
+# This sshd was compiled with PATH=/usr/local/bin:/usr/bin
 
 # The strategy used for options in the default sshd_config shipped with
 # OpenSSH is to specify options with their default value where
-# possible, but leave them commented.  Uncommented options change a
+# possible, but leave them commented.  Uncommented options override the
 # default value.
 
+# If you want to change the port on a SELinux system, you have to tell
+# SELinux about this change.
+# semanage port -a -t ssh_port_t -p tcp #PORTNUMBER
+#
 #Port 22
 #AddressFamily any
 #ListenAddress 0.0.0.0
 #ListenAddress ::
 
-# Disable legacy (protocol version 1) support in the server for new
-# installations. In future the default will change to require explicit
-# activation of protocol 1
+# The default requires explicit activation of protocol 1
 Protocol 2
 
 # HostKey for protocol version 1
 #HostKey /etc/ssh/ssh_host_key
 # HostKeys for protocol version 2
-#HostKey /etc/ssh/ssh_host_rsa_key
+HostKey /etc/ssh/ssh_host_rsa_key
 #HostKey /etc/ssh/ssh_host_dsa_key
+HostKey /etc/ssh/ssh_host_ecdsa_key
 
 # Lifetime and size of ephemeral version 1 server key
 #KeyRegenerationInterval 1h
 #ServerKeyBits 1024
 
+# Ciphers and keying
+#RekeyLimit default none
+
 # Logging
 # obsoletes QuietMode and FascistLogging
 #SyslogFacility AUTH
 SyslogFacility AUTHPRIV
-LogLevel INFO
+#LogLevel INFO
 
 # Authentication:
 
@@ -48,9 +54,15 @@ MaxAuthTries 4
 
 #RSAAuthentication yes
 #PubkeyAuthentication yes
-#AuthorizedKeysFile     .ssh/authorized_keys
+
+# The default is to check both .ssh/authorized_keys and .ssh/authorized_keys2
+# but this is overridden so installations will only check .ssh/authorized_keys
+AuthorizedKeysFile .ssh/authorized_keys
+
+#AuthorizedPrincipalsFile none
+
 #AuthorizedKeysCommand none
-#AuthorizedKeysCommandRunAs nobody
+#AuthorizedKeysCommandUser nobody
 
 # For this to work you will also need host keys in /etc/ssh/ssh_known_hosts
 #RhostsRSAAuthentication no
@@ -78,6 +90,7 @@ PasswordAuthentication yes
 rescue NoMethodError %>
 PasswordAuthentication no
 <% end %>
+
 
 # Change to no to disable s/key passwords
 #ChallengeResponseAuthentication yes
@@ -107,29 +120,24 @@ GSSAPICleanupCredentials yes
 # If you just want the PAM account and session checks to run without
 # PAM authentication, then enable this but set PasswordAuthentication
 # and ChallengeResponseAuthentication to 'no'.
+# WARNING: 'UsePAM no' is not supported in Red Hat Enterprise Linux and may cause several
+# problems.
 #UsePAM no
 UsePAM yes
-
-# Accept locale-related environment variables
-AcceptEnv LANG LC_CTYPE LC_NUMERIC LC_TIME LC_COLLATE LC_MONETARY LC_MESSAGES
-AcceptEnv LC_PAPER LC_NAME LC_ADDRESS LC_TELEPHONE LC_MEASUREMENT
-AcceptEnv LC_IDENTIFICATION LC_ALL LANGUAGE
-AcceptEnv XMODIFIERS
 
 #AllowAgentForwarding yes
 #AllowTcpForwarding yes
 #GatewayPorts no
-X11Forwarding no
-#X11Forwarding yes
-
+#X11Forwarding no
+X11Forwarding yes
 #X11DisplayOffset 10
 #X11UseLocalhost yes
 #PrintMotd yes
 #PrintLastLog yes
 #TCPKeepAlive yes
 #UseLogin no
-#UsePrivilegeSeparation yes
-PermitUserEnvironment no
+UsePrivilegeSeparation sandbox		# Default for new installations.
+#PermitUserEnvironment no
 #Compression delayed
 ClientAliveInterval 300
 ClientAliveCountMax 0
@@ -139,36 +147,56 @@ ClientAliveCountMax 0
 #MaxStartups 10
 #PermitTunnel no
 #ChrootDirectory none
+#VersionAddendum none
 
 # no default banner path
 #Banner none
 
 Banner /etc/issue.net
+# Accept locale-related environment variables
+AcceptEnv LANG LC_CTYPE LC_NUMERIC LC_TIME LC_COLLATE LC_MONETARY LC_MESSAGES
+AcceptEnv LC_PAPER LC_NAME LC_ADDRESS LC_TELEPHONE LC_MEASUREMENT
+AcceptEnv LC_IDENTIFICATION LC_ALL LANGUAGE
+AcceptEnv XMODIFIERS
 
 # override default of no subsystems
-Subsystem       sftp    /usr/libexec/openssh/sftp-server
+Subsystem sftp	/usr/libexec/openssh/sftp-server
+
+# Uncomment this if you want to use .local domain
+#Host *.local
+#	CheckHostIP no
 
 # Example of overriding settings on a per-user basis
 #Match User anoncvs
-#       X11Forwarding no
-#       AllowTcpForwarding no
-#       ForceCommand cvs server
+#	X11Forwarding no
+#	AllowTcpForwarding no
+#	ForceCommand cvs server
 PermitRootLogin without-password
 UseDNS no
 
 Ciphers aes128-ctr,aes192-ctr,aes256-ctr
 
 # If we've set AllowGroups, use that instead of restricting to root
-<% begin %>
+<%
+begin
+	if !node.application_attributes.sshd_allow_groups.empty? %>
 AllowGroups <%= node.application_attributes.sshd_allow_groups %>
-<% rescue NoMethodError %>
+<%
+	else
+	%>
 AllowUsers root
-<% end %>
+<%
+	end
+rescue NoMethodError %>
+AllowUsers root
+<%
+end
+%>
 
+# Support SFTP-only servers, while we're at it
 <%
 begin
 	if node.application_attributes.sftp_only_group %>
-# Support SFTP-only servers, while we're at it
 Match Group <%= node.application_attributes.sftp_only_group %>
 	ForceCommand internal-sftp
 <%  begin

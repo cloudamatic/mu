@@ -167,8 +167,8 @@ ruby_block "create_logs_volume" do
 	block do
 		require 'aws-sdk-core'
 		if !File.open("/etc/mtab").read.match(/ #{node.application_attributes.logs.mount_directory} /) and !volume_attached(node.application_attributes.logs.mount_device)
-			create_node_volume(:logs)
-			result = attach_node_volume(:logs)
+			create_node_volume("logs")
+			result = attach_node_volume("logs")
 		end
 	end
 	notifies :restart, "service[rsyslog]", :delayed
@@ -207,7 +207,7 @@ ruby_block "mount_logs_volume" do
 			ebs_key_handle = File.new("#{temp_mount}/log_vol_ebs_key", File::CREAT|File::TRUNC|File::RDWR, 0400)
 			ebs_key_handle.puts resp.body
 			ebs_key_handle.close
-			mount_node_volume(:logs, "#{temp_mount}/log_vol_ebs_key")
+			mount_node_volume("logs", "#{temp_mount}/log_vol_ebs_key")
 			destroy_temp_disk(temp_dev)
 		end
 	end

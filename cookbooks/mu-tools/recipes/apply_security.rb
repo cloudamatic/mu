@@ -191,6 +191,7 @@ export TMOUT
 			owner "root"
 			group "root"
 			mode 0600
+			cookbook "mu-tools"
 			notifies :restart, "service[sshd]", :immediately
 		end
 
@@ -404,6 +405,7 @@ export TMOUT
 			owner "root"
 			group "root"
 			mode 0600
+			cookbook "mu-tools"
 			notifies :restart, "service[sshd]", :immediately
 		end
 		cookbook_file "/etc/issue.net" do
