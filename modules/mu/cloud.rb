@@ -20,7 +20,7 @@ module MU
 		class MuCloudResourceNotImplemented < StandardError; end
 
 		generic_class_methods = [:find, :cleanup]
-		generic_instance_methods = [:create, :notify, :mu_name, :cloud_id]
+		generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config]
 
 		# Initialize empty classes for each of these. We'll fill them with code
 		# later; we're doing this here because otherwise the parser yells about
@@ -90,7 +90,7 @@ module MU
 				:deps_wait_on_my_creation => true,
 				:waits_on_parent_completion => false,
 				:class => generic_class_methods,
-				:instance => generic_instance_methods
+				:instance => generic_instance_methods + [:registerNode]
 			},
 			:Server => {
 				:has_multiples => true,
@@ -253,9 +253,8 @@ module MU
 				def dependencies
 					@dependencies = {} if @dependencies.nil?
 					@loadbalancers = [] if @loadbalancers.nil?
-					@add_firewall_rules = [] if @add_firewall_rules.nil?
 					if @config.nil?
-						return [@dependencies, @vpc, @loadbalancers, @add_firewall_rules]
+						return [@dependencies, @vpc, @loadbalancers]
 					end
 
 					# First, general dependencies. These should all be fellow members of
@@ -263,9 +262,10 @@ module MU
 					@config['dependencies'].each { |dep|
 						@dependencies[dep['type']] = {} if !@dependencies.has_key?(dep['type'])
 						next if @dependencies[dep['type']].has_key?(dep['name'])
+#MU.log "#{self.class.cfg_name}:#{self.config['name']} calling into findLitterMate(type: #{dep['type']}, name: #{dep['name']}).", MU::WARN, details: dep
 						handle = @deploy.findLitterMate(type: dep['type'], name: dep['name'])
 						if !handle.nil?
-							MU.log "Loaded dependency for #{self}: #{handle}", MU::NOTICE
+							MU.log "Loaded dependency for #{self}: #{dep['name']} => #{handle}", MU::NOTICE
 							@dependencies[dep['type']][dep['name']] = handle
 						else
 							 # XXX yell under circumstances where we should expect to have
@@ -275,13 +275,17 @@ module MU
 
 					# Special dependencies: my containing VPC
 					if self.class.can_live_in_vpc and @config.has_key?("vpc")
+						MU.log "Loading VPC for #{self}", MU::DEBUG, details: @config['vpc']
 						if !@config['vpc']["vpc_name"].nil? and
 							 @dependencies.has_key?("vpc") and
 							 @dependencies["vpc"].has_key?(@config['vpc']["vpc_name"])
 							@vpc = @dependencies["vpc"][@config['vpc']["vpc_name"]]
 						else
-							MU.log "Searching for VPC for #{self}", MU::NOTICE, details: @config['vpc']
 							tag_key, tag_value = @config['vpc']['tag'].split(/=/, 2) if !@config['vpc']['tag'].nil?
+							if !@config['vpc'].has_key?("vpc_id") and
+								 !@config['vpc'].has_key?("deploy_id")
+								@config['vpc']["deploy_id"] = @deploy.deploy_id
+							end
 							vpcs = MU::MommaCat.findStray(
 								@config['cloud'],
 								"vpc",
@@ -294,20 +298,40 @@ module MU
 							)
 							@vpc = vpcs.first if !vpcs.nil? and vpcs.size > 0
 						end
+						if !@vpc.nil? and (@config['vpc'].has_key?("nat_host_id") or
+							 @config['vpc'].has_key?("nat_host_tag") or
+							 @config['vpc'].has_key?("nat_host_ip") or
+							 @config['vpc'].has_key?("nat_host_name"))
+							nat_tag_key, nat_tag_value = @config['vpc']['nat_host_tag'].split(/=/, 2) if !@config['vpc']['nat_host_tag'].nil?
+							@nat = @vpc.findBastion(
+								nat_name: @config['vpc']['nat_host_name'],
+								nat_cloud_id: @config['vpc']['nat_host_id'],
+								nat_tag_key: nat_tag_key,
+								nat_tag_value: nat_tag_value,
+								nat_ip: @config['vpc']['nat_host_ip']
+							)
+						end
+					elsif self.class.cfg_name == "vpc"
+						@vpc = self
 					end
 
 					# Special dependencies: LoadBalancers I've asked to attach
 					if @config.has_key?("loadbalancers")
 						@loadbalancers = [] if !@loadbalancers
 						@config['loadbalancers'].each { |lb|
-							MU.log "Loading LoadBalancer for #{self}", MU::NOTICE, details: lb
+							MU.log "Loading LoadBalancer for #{self}", MU::DEBUG, details: lb
 							if @dependencies.has_key?("loadbalancers") and 
 								 @dependencies["loadbalancers"].has_key?(lb['concurrent_load_balancer'])  
 								@loadbalancers << @dependencies["loadbalancers"][lb['concurrent_load_balancer']]
 							else
+								if !lb.has_key?("existing_load_balancer") and
+									 !lb.has_key?("deploy_id")
+									lb["deploy_id"] = @deploy.deploy_id
+								end
 								lbs = MU::MommaCat.findStray(
 									@config['cloud'],
 									"loadbalancer",
+									deploy_id: lb["deploy_id"],
 									cloud_id: lb['existing_load_balancer'],
 									name: lb['concurrent_load_balancer'],
 									region: @config["region"]
@@ -317,28 +341,7 @@ module MU
 						}
 					end
 
-					# Special dependencies: FirewallRules I've asked to apply
-					if @config.has_key?("add_firewall_rules")
-						@add_firewall_rules = [] if !@add_firewall_rules
-						@config['add_firewall_rules'].each { |sg|
-							MU.log "Loading FirewallRules for #{self}", MU::NOTICE, details: sg
-							if @dependencies.has_key?("firewall_rules") and
-								 @dependencies["firewall_rules"].has_key?(sg['rule_name'])
-								@add_firewall_rules << @dependencies["firewall_rule"][sg['rule_name']]
-							else
-								sgs = MU::MommaCat.findStray(
-									@config['cloud'],
-									"firewall_rule",
-									cloud_id: sg['rule_id'],
-									name: sg['rule_name'],
-									region: @config["region"]
-								)
-								@add_firewall_rules << sgs.first if !sgs.nil? and sgs.size > 0
-							end
-						}
-					end
-					
-					return [@dependencies, @vpc, @loadbalancers, @add_firewall_rules]
+					return [@dependencies, @vpc, @loadbalancers]
 				end
 
 				def initialize(mommacat: nil,
@@ -366,15 +369,9 @@ module MU
 
 					raise MuError, "Unknown error instantiating #{self}" if @cloudobj.nil?
 
-					# Brand new resource, stash it in this deploy's kitten list
-					if cloud_id.nil? and mu_name.nil?
-						if !@cloudobj.nil?
-							@cloudobj.dependencies
-							@deploy.kittens[self.class.cfg_plural] = {} if !@deploy.kittens.has_key?(self.class.cfg_plural)
-							@deploy.kittens[self.class.cfg_plural][@cloudobj.mu_name] = self
-						end
-					# Existing object, go ahead and prepopulate the describe() cache
-					else
+					# If we just loaded an existing object, go ahead and prepopulate the
+					# describe() cache
+					if !cloud_id.nil? or !mu_name.nil?
 						@cloudobj.describe(cloud_id: cloud_id)
 					end
 
@@ -574,9 +571,13 @@ module MU
 						return nil if @cloudobj.nil?
 						MU.log "Invoking #{@cloudobj}.#{method}", MU::DEBUG
 
-						# Make sure certain useful caches are fresh
+						# Make sure the describe() caches are fresh
 						@cloudobj.describe if method != :describe
-						@cloudobj.dependencies if method != :dependencies
+
+						# Don't run through dependencies on simple attr_reader lookups
+						if ![:dependencies, :cloud_id, :config, :mu_name].include?(method)
+							@cloudobj.dependencies
+						end
 
 						retval = nil
 						if !args.nil? and args.size > 0

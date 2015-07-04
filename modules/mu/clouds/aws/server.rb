@@ -378,6 +378,20 @@ class Cloud
 						}
 					]
 			  }
+
+				security_groups = []
+				if @dependencies.has_key?("firewall_rule")
+					@dependencies['firewall_rule'].values.each { |sg|
+						security_groups << sg.cloud_id
+					}
+				end
+
+				if security_groups.size > 0
+					instance_descriptor[:security_group_ids] = security_groups
+				else
+					raise MuError, "Didn't get any security groups assigned to be in #{@mu_name}, that shouldn't happen"
+				end
+
 				
 				if !@config['private_ip'].nil?
 					instance_descriptor[:private_ip_address] = @config['private_ip']
@@ -404,21 +418,6 @@ class Cloud
 					punchAdminNAT
 
 					instance_descriptor[:subnet_id] = subnet.cloud_id
-				end
-				security_groups = []
-				if !@config["add_firewall_rules"].nil?
-					if @add_firewall_rules.nil?
-						raise MuError, "Database #{@mu_name} is configured for additional firewall rules, but none appear to have been loaded for me"
-					end
-					@add_firewall_rules.each { |acl|
-						security_groups << acl.cloud_id
-					}
-				end
-
-				if security_groups.size > 0
-					instance_descriptor[:security_group_ids] = security_groups
-				else
-# XXX this shouldn't happen, throw a fit
 				end
 
 			  if !@userdata.nil? and !@userdata.empty?
@@ -484,20 +483,12 @@ class Cloud
 
 				nat_ssh_key = nat_ssh_user = nat_ssh_host = nil
 				if !@config["vpc"].nil? and !MU::Cloud::AWS::VPC.haveRouteToInstance?(instance.instance_id, region: @config['region'])
-					if !@config["vpc"]["nat_host_name"].nil? or
-						 !@config["vpc"]["nat_host_id"].nil?
+					if !@nat.nil?
+						nat_name, nat_conf, nat_deploydata, nat_descriptor = @nat.describe
+						# XXX Yanking these things from the cloud descriptor will only work in AWS!
+						nat_ssh_key = nat_descriptor.key_name
+						nat_ssh_host = nat_descriptor.public_ip_address
 						nat_ssh_user = @config["vpc"]["nat_ssh_user"]
-						nat_instance, mu_name = MU::Cloud::Server.find(
-							id: @config["vpc"]["nat_host_id"],
-							name: @config["vpc"]["nat_host_name"],
-							region: @config['region']
-						)
-						if nat_instance.nil?
-							MU.log "#{@config["name"]} (#{MU.deploy_id}) is configured to use #{@config['vpc']} but I can't find a running instance matching nat_host_id or nat_host_name", MU::ERR, details: caller
-							raise MuError, "#{@config["name"]} (#{MU.deploy_id}) is @configured to use #{@config['vpc']} but I can't find a running instance matching nat_host_id or nat_host_name"
-						end
-						nat_ssh_key = nat_instance.key_name
-						nat_ssh_host = nat_instance.public_ip_address
 						if nat_ssh_user.nil? and !nat_ssh_host.nil?
 							MU.log "#{@config["name"]} (#{MU.deploy_id}) is configured to use #{@config['vpc']} NAT #{nat_ssh_host}, but username isn't specified. Guessing root.", MU::ERR, details: caller
 							nat_ssh_user = "root"
@@ -610,7 +601,8 @@ class Cloud
 							MU.log "Waiting for EC2 instance #{node} to be ready...", MU::NOTICE
 						end
 						sleep 20
-						instance, mu_name = MU::Cloud::Server.find(id: id, region: @config['region'])
+						# Get a fresh AWS descriptor
+						instance = MU::Cloud::Server.find(cloud_id: id, region: @config['region']).values.first
 					end
 				rescue Aws::EC2::Errors::ServiceError => e
 					if retries < 30
@@ -704,20 +696,29 @@ class Cloud
 					MU.log vault_cmd, MU::DEBUG				
 				end
 
+				subnet = nil
+				if !@vpc.nil? and @config.has_key?("vpc") and !instance.subnet_id.nil?
+					subnet = @vpc.getSubnet(
+						cloud_id: instance.subnet_id
+					)
+					if subnet.nil?
+						raise MuError, "Got null subnet id out of #{subnet_conf['vpc']}"
+					end
+				end
+
 				if !subnet.nil?
-					is_private = subnet.private
-					if !is_private or (!@config['static_ip'].nil? and !@config['static_ip']['assign_ip'].nil?)
+					if !subnet.private? or (!@config['static_ip'].nil? and !@config['static_ip']['assign_ip'].nil?)
 						if !@config['static_ip'].nil?
 							if !@config['static_ip']['ip'].nil?
-								public_ip = associateElasticIp(instance.instance_id, classic: false, ip: @config['static_ip']['ip'])
+								public_ip = MU::Cloud::AWS::Server.associateElasticIp(instance.instance_id, classic: false, ip: @config['static_ip']['ip'])
 							elsif !has_elastic_ip
-								public_ip = associateElasticIp(instance.instance_id)
+								public_ip = MU::Cloud::AWS::Server.associateElasticIp(instance.instance_id)
 							end
 						end
 					end
 
 					nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
-					if is_private and !nat_ssh_host and !MU::Cloud::AWS::VPC.haveRouteToInstance?(instance.instance_id)
+					if subnet.private? and !nat_ssh_host and !MU::Cloud::AWS::VPC.haveRouteToInstance?(instance.instance_id)
 						raise MuError, "#{node} is in a private subnet, but has no NAT host configured, and I have no other route to it"
 					end
 
@@ -760,14 +761,13 @@ class Cloud
 
 			  MU.log "EC2 instance #{node} has id #{instance.instance_id}", MU::DEBUG
 
-				instance, mu_name = MU::Cloud::Server.find(id: instance.instance_id, region: @config['region'])
-
 				if !@config['dns_records'].nil?
 					@config['dns_records'].each { |dnsrec|
 						dnsrec['name'] = node.downcase if !dnsrec.has_key?('name')
 					}
 				end
 				if !instance.public_ip_address.nil? and !instance.public_ip_address.empty?
+# XXX
 #					MU::Cloud::DNSZone.createRecordsFromConfig(@config['dns_records'], target: instance.public_ip_address)
 				else
 #					MU::Cloud::DNSZone.createRecordsFromConfig(@config['dns_records'], target: instance.private_ip_address)
@@ -1040,38 +1040,31 @@ class Cloud
 			# If the specified server is in a VPC, and has a NAT, make sure we'll
 			# be letting ssh traffic in from said NAT.
 			def punchAdminNAT
-				if !@config["vpc"].nil? and (
-						@config['vpc'].has_key?("nat_host_id") or
-						@config['vpc'].has_key?("nat_host_tag") or
-						@config['vpc'].has_key?("nat_host_ip") or
-						@config['vpc'].has_key?("nat_host_name")
-					)
-					nat_tag_key, nat_tag_value = @config['vpc']['nat_host_tag'].split(/=/, 2)
-					nat_instance = @vpc.findBastion(
-						nat_name: @config['vpc']['nat_host_name'],
-						nat_cloud_id: @config['vpc']['nat_host_id'],
-						nat_tag_key: nat_tag_key,
-						nat_tag_value: nat_tag_value,
-						nat_ip: @config['vpc']['nat_host_ip']
-					)
-					if nat_instance.nil?
-						raise MuError, "#{node} (#{MU.deploy_id}) is configured to use #{@config['vpc']} but I can't find a matching NAT instance"
-					end
-					MU.log "Adding administrative holes for NAT host #{nat_instance["private_ip_address"]} to #{@mu_name}", MU::DEBUG
-					@deploy.kittens['firewall_rules'].each_pair { |name, acl|
-						if name.match(/^admin-/) # XXX KLUUUDGE, get the exact name out of our dependencies or something
-							acl.addRule([nat_instance["private_ip_address"]], proto: "tcp")
-							acl.addRule([nat_instance["private_ip_address"]], proto: "udp")
-						end
-					}
+				if @config['vpc'].nil? or 
+					 !@config['vpc'].has_key?("nat_host_id") and
+					 !@config['vpc'].has_key?("nat_host_tag") and
+					 !@config['vpc'].has_key?("nat_host_ip") and
+					 !@config['vpc'].has_key?("nat_host_name")
+					return nil
 				end
+				dependencies if @nat.nil?
+				if @nat.nil?
+					raise MuError, "#{@mu_name} (#{MU.deploy_id}) is configured to use #{@config['vpc']} but I can't find a matching NAT instance"
+				end
+				nat_name, nat_conf, nat_deploydata, nat_descriptor = @nat.describe
+				MU.log "Adding administrative holes for NAT host #{nat_deploydata["private_ip_address"]} to #{@mu_name}", MU::DEBUG
+				@deploy.kittens['firewall_rules'].each_pair { |name, acl|
+					if name.match(/^admin-/) # XXX KLUUUDGE, get the exact name out of our dependencies or something
+						acl.addRule([nat_deploydata["private_ip_address"]], proto: "tcp")
+						acl.addRule([nat_deploydata["private_ip_address"]], proto: "udp")
+					end
+				}
 			end
 
 			# Called automatically by {MU::Deploy#createResources}
 			def groom
 				MU::MommaCat.lock(@cloud_id+"-groom")
-
-				node = @config['mu_name']
+				node, config, deploydata, instance = describe(cloud_id: @cloud_id)
 
 				if node.nil? or node.empty?
 					MU.log "MU::Cloud::AWS::Server.groom was called without a mu_name", MU::ERR, details: server
@@ -1080,7 +1073,6 @@ class Cloud
 
 				punchAdminNAT
 
-				instance, mu_name = MU::Cloud::Server.find(id: @cloud_id, region: @config['region'])
 				MU::Cloud::AWS::Server.tagVolumes(@cloud_id)
 			        
 				# If we depend on database instances, make sure those database
@@ -1102,16 +1094,12 @@ class Cloud
 				end
 
 			  # If we have a loadbalancer configured, attach us to it
-				# XXX refactor this into the LoadBalancer resource
 				if !@config['loadbalancers'].nil?
-					@config['loadbalancers'].each { |lb|
-						lb_res = MU::Cloud::LoadBalancer.find(
-							name: lb['concurrent_load_balancer'],
-							dns_name: lb["existing_load_balancer"],
-							region: @config['region']
-						)
-						raise MuError, "I need a LoadBalancer named #{lb['concurrent_load_balancer']}" if lb_res.nil?
-						MU::Cloud::AWS::LoadBalancer.registerInstance(lb_res.load_balancer_name, @cloud_id, region: @config['region'])
+					if @loadbalancers.nil?
+						raise MuError, "#{@mu_name} is configured to use LoadBalancers, but none have been loaded by dependencies()"
+					end
+					@loadbalancers.each { |lb|
+						lb.registerNode(@cloud_id)
 					}
 				end
 
@@ -1181,7 +1169,7 @@ class Cloud
 
 				canonical_ip = instance.public_ip_address
 				canonical_ip = instance.private_ip_address if !canonical_ip
-				if MU::Cloud::VPC.haveRouteToInstance?(instance.instance_id) or instance.public_ip_address.nil?
+				if MU::Cloud::AWS::VPC.haveRouteToInstance?(instance.instance_id) or instance.public_ip_address.nil?
 					@config['canonical_ip'] = instance.private_ip_address
 					return instance.private_ip_address
 				else
@@ -1202,7 +1190,7 @@ class Cloud
 														storage: storage,
 														exclude_storage: exclude_storage,
 														region: MU.curRegion)
-
+# XXX re-examine this
 			  node = MU::MommaCat.getResourceName(name)
 				ami_descriptor = {
 					:instance_id => instance_id,
@@ -1212,7 +1200,7 @@ class Cloud
 
 				storage_list = Array.new
 				if exclude_storage
-					instance, mu_name = MU::Cloud::Server.find(id: instance_id, region: region)
+					instance = MU::Cloud::Server.find(cloud_id: instance_id, region: region)
 					instance.block_device_mappings.each { |vol|
 						if vol.device_name != instance.root_device_name 
 							storage_list << MU::Cloud::AWS::Server.convertBlockDeviceMapping(
@@ -1561,6 +1549,7 @@ MU.log "MU::Cloud::AWS.ec2(#{@config['region']}).wait_until(:password_data_avail
 				resp.data.volumes.each { |volume|
 					threads << Thread.new(volume) { |myvolume|
 						MU.dupGlobals(parent_thread_id)
+						Thread.abort_on_exception = true
 						MU::Cloud::AWS::Server.delete_volume(myvolume, noop, skipsnapshots)
 					}
 				}
@@ -1607,13 +1596,13 @@ MU.log "MU::Cloud::AWS.ec2(#{@config['region']}).wait_until(:password_data_avail
 
 				cleaned_dns = false
 				mu_name = nil
-				mu_zone, junk = MU::Cloud::DNSZone.find(name: "mu")
+				mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
 				if !mu_zone.nil?
 					dns_targets = []
 					rrsets = MU::Cloud::AWS.route53(region).list_resource_record_sets(hosted_zone_id: mu_zone.id)
 				end
 				begin
-					junk, mu_name = MU::Cloud::Server.find(id: id, region: region)
+					junk = MU::Cloud::Server.find(cloud_id: id, region: region)
 				rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
 					MU.log "Instance #{id} no longer exists", MU::DEBUG
 				end
@@ -1623,7 +1612,7 @@ MU.log "MU::Cloud::AWS.ec2(#{@config['region']}).wait_until(:password_data_avail
 						rrsets.resource_record_sets.each { |rrset|
 							if rrset.name.match(/^#{mu_name.downcase}\.server\.#{MU.myInstanceId}\.mu/i)
 								rrset.resource_records.each { |record|
-									MU::Cloud::DNSZone.genericMuDNSEntry(mu_name, record.value, MU::Cloud::Server, delete: true)
+									MU::Cloud::DNSZone.genericMuDNSEntry(name: mu_name, target: record.value, cloudclass: MU::Cloud::Server, delete: true)
 									cleaned_dns = true
 								}
 							end
@@ -1674,7 +1663,7 @@ MU.log "MU::Cloud::AWS.ec2(#{@config['region']}).wait_until(:password_data_avail
 								rrsets.resource_record_sets.each { |rrset|
 									if rrset.name.match(/^#{tag.value.downcase}\.server\.#{MU.myInstanceId}\.mu/i)
 										rrset.resource_records.each { |record|
-											MU::Cloud::DNSZone.genericMuDNSEntry(tag.value, record.value, MU::Cloud::Server, delete: true) if !noop
+											MU::Cloud::DNSZone.genericMuDNSEntry(name: tag.value, target: record.value, cloudclass: MU::Cloud::Server, delete: true) if !noop
 										}
 									end
 								}

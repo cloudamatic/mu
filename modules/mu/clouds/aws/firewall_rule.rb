@@ -25,6 +25,7 @@ module MU
 			@admin_sg_semaphore = Mutex.new
 
 			attr_reader :mu_name
+			attr_reader :config
 			attr_reader :cloud_id
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
@@ -191,18 +192,12 @@ module MU
 			def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil)
 
 				if !cloud_id.nil?
-					retries = 0
 					begin
 						resp = MU::Cloud::AWS.ec2(region).describe_security_groups(group_ids: [cloud_id])
 						return { cloud_id => resp.data.security_groups.first }
 					rescue Aws::EC2::Errors::InvalidGroupNotFound => e
-						if retries < 2
-							MU.log "#{e.inspect} (#{cloud_id} in #{region}), retrying...", MU::WARN, details: caller
-							retries = retries + 1
-							sleep 5
-							retry
-						end
-
+						MU.log e.inspect, MU::WARN
+					return {}
 					end
 				end
 
@@ -358,7 +353,7 @@ module MU
 				# a null rule list.
 				retries = 0
 				if rules != nil
-					MU.log "Rules for EC2 Security Group #{@mu_name} (#{@cloud_id}): #{ec2_rules}", MU::NOTICE
+					MU.log "Rules for EC2 Security Group #{@mu_name} (#{@cloud_id}): #{ec2_rules}", MU::DEBUG
 					begin
 						if ingress
 							MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_ingress(

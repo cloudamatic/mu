@@ -19,17 +19,18 @@ module MU
 		# Support for Chef as a host configuration management layer.
 		class Chef
 
-			# @param server [MU::Cloud::Server]: The server object on which we'll be operating
-			def initialize(server)
-				@server = server
-				if @server.mu_name.nil? or @server.mu_name.empty?
+			# @param node [MU::Cloud::Server]: The server object on which we'll be operating
+			def initialize(node)
+				@config = node.config
+				@server = node
+				if node.mu_name.nil? or node.mu_name.empty?
 					raise MuError, "Cannot groom a server that doesn't tell me its mu_name"
 				end
 				if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
 					::Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
 				end
 				::Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}/organizations/#{MU.chef_user}"
-				::Chef::Config[:environment] = @server.deploy.environment
+				::Chef::Config[:environment] = node.deploy.environment
 			end
 
 			# Indicate whether our server has been bootstrapped with Chef
@@ -44,16 +45,16 @@ module MU
 			# @param purpose [String] = A string describing the purpose of this client run.
 			# @param max_retries [Integer] = The maximum number of attempts at a successful run to make before giving up.
 			def run(purpose: "Chef run", update_runlist: true, max_retries: 5)
-				if update_runlist and !@server.config['run_list'].nil?
-					@server.config['run_list'].each { |rl_entry|
+				if update_runlist and !@config['run_list'].nil?
+					@config['run_list'].each { |rl_entry|
 						knifeAddToRunList(rl_entry)
 					}
 				end
 
-				if !@server.config['application_attributes'].nil?
+				if !@config['application_attributes'].nil?
 					chef_node = ::Chef::Node.load(@server.mu_name)
-					MU.log "Setting node:#{@server.mu_name} application_attributes", MU::DEBUG, details: @server.config['application_attributes']
-					chef_node.normal.application_attributes = @server.config['application_attributes']
+					MU.log "Setting node:#{@server.mu_name} application_attributes", MU::DEBUG, details: @config['application_attributes']
+					chef_node.normal.application_attributes = @config['application_attributes']
 					chef_node.save
 				end
 				syncDeployData
@@ -65,8 +66,8 @@ module MU
 				error_signal = "CHEF EXITED BADLY: "+(0...25).map { ('a'..'z').to_a[rand(26)] }.join
 				begin
 					cmd = nil
-					if !%w{win2k12r2 win2k12 windows}.include?(@server['platform'])
-						if !@server["ssh_user"].nil? and !@server["ssh_user"].empty? and @server["ssh_user"] != "root"
+					if !%w{win2k12r2 win2k12 windows}.include?(@config['platform'])
+						if !@config["ssh_user"].nil? and !@config["ssh_user"].empty? and @config["ssh_user"] != "root"
 							cmd = "sudo chef-client --color || echo #{error_signal}"
 						else
 							cmd = "chef-client --color || echo #{error_signal}"
@@ -75,18 +76,17 @@ module MU
 						cmd = "$HOME/chef-client --color || echo #{error_signal}"
 					end
 					retval = ssh.exec!(cmd) { |ch, stream, data|
-#					if stream == :stderr
 						puts data
 						output << data
 						if data.match(/#{error_signal}/)
 							raise MU::Groomer::RunError, output.grep(/ ERROR: /).last
 						end
 					}
-				rescue MU::Groomer::RunError => e
+				rescue IOError, MU::Groomer::RunError => e
 					begin
 						ssh.close if !ssh.nil?
 					rescue Net::SSH::Disconnect, IOError => e
-						if %w{win2k12r2 win2k12 windows}.include?(@server['platform'])
+						if %w{win2k12r2 win2k12 windows}.include?(@config['platform'])
 							MU.log "Windows has probably closed the ssh session before we could. Waiting before trying again", MU::NOTICE
 						else
 							MU.log "ssh session was closed unexpectedly, waiting before trying again", MU::NOTICE
@@ -137,16 +137,16 @@ module MU
 				require 'chef/knife/bootstrap_windows_ssh'
 
 				json_attribs = {}
-				if !@server.config['application_attributes'].nil?
-					json_attribs['application_attributes'] = @server.config['application_attributes']
+				if !@config['application_attributes'].nil?
+					json_attribs['application_attributes'] = @config['application_attributes']
 				end
-				if !@server.config['vault_access'].nil?
-					vault_access = @server.config['vault_access']
+				if !@config['vault_access'].nil?
+					vault_access = @config['vault_access']
 				else
 					vault_access = []
 				end
 
-				if !%w{win2k12r2 win2k12 windows}.include?(@server.config['platform'])
+				if !%w{win2k12r2 win2k12 windows}.include?(@config['platform'])
 					kb = ::Chef::Knife::Bootstrap.new([canonical_addr])
 			    kb.config[:use_sudo] = true
 			    kb.config[:distro] = 'chef-full'
@@ -217,27 +217,27 @@ module MU
 				createGenericHostSSLCert
 
 				# Making sure all Windows nodes get the mu-tools::windows-client recipe
-				if %w{win2k12r2 win2k12 windows}.include? @server.config['platform']
+				if %w{win2k12r2 win2k12 windows}.include? @config['platform']
 					knifeAddToRunList("recipe[mu-tools::windows-client]")
 					run(purpose: "Base Windows configuration", update_runlist: false, max_retries: 10)
 				end
 
 				# This will deal with Active Directory integration.
-				if !@server.config['active_directory'].nil?
-					if @server.config['active_directory']['domain_operation'] == "join"
+				if !@config['active_directory'].nil?
+					if @config['active_directory']['domain_operation'] == "join"
 						knifeAddToRunList("recipe[mu-activedirectory::domain-node]")
 						run(purpose: "Join Active Directory", update_runlist: false, max_retries: 10)
-					elsif @server.config['active_directory']['domain_operation'] == "create"
+					elsif @config['active_directory']['domain_operation'] == "create"
 						knifeAddToRunList("recipe[mu-activedirectory::domain]")
 						run(purpose: "Create Active Directory Domain", update_runlist: false, max_retries: 15)
-					elsif @server.config['active_directory']['domain_operation'] == "add_controller"
+					elsif @config['active_directory']['domain_operation'] == "add_controller"
 						knifeAddToRunList("recipe[mu-activedirectory::domain-controller]")
 						run(purpose: "Add Domain Controller to Active Directory", update_runlist: false, max_retries: 15)
 					end
 				end
 
-				if !@server.config['run_list'].nil?
-					@server.config['run_list'].each { |rl_entry|
+				if !@config['run_list'].nil?
+					@config['run_list'].each { |rl_entry|
 						knifeAddToRunList(rl_entry)
 					}
 				end
@@ -249,11 +249,11 @@ module MU
 			# Synchronize the deployment structure managed by {MU::MommaCat} to Chef,
 			# so that nodes can access this metadata.
 			def syncDeployData
-				deployment = @server.deploy.deployment
+				@server.describe(update_cache: true) # Make sure we're fresh
 				begin
 					chef_node = ::Chef::Node.load(@server.mu_name)
 
-					MU.log "Updating node: #{@server.mu_name} deployment attributes", details: deployment
+					MU.log "Updating node: #{@server.mu_name} deployment attributes", MU::NOTICE, details: @server.deploy.deployment
 					chef_node.normal.deployment.merge!(@server.deploy.deployment)
 
 					chef_node.save
@@ -280,7 +280,7 @@ module MU
 				`#{MU::Config.knife} client delete -y #{node}` if !noop
 				MU.log "knife data bag delete -y #{node}"
 				`#{MU::Config.knife} data bag delete -y #{node}` if !noop
-				["crt", "key"].each { |ext|
+				["crt", "key", "csr"].each { |ext|
 					if File.exists?("#{MU.mySSLDir}/#{node}.#{ext}")
 						MU.log "Removing #{MU.mySSLDir}/#{node}.#{ext}"
 						File.unlink("#{MU.mySSLDir}/#{node}.#{ext}") if !noop
@@ -292,7 +292,7 @@ module MU
 
 			# Save common Mu attributes to this node's Chef node structure.
 			def saveInitialMetadata
-				config = @server.config
+				config = @config
 				nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = @server.getSSHConfig
 				MU.log "Saving #{@server.mu_name} Chef artifacts"
 				chef_node = ::Chef::Node.load(@server.mu_name)
@@ -436,12 +436,12 @@ module MU
 					deploykey = OpenSSL::PKey::RSA.new(MU.mommacat.public_key)
 					deploysecret = Base64.urlsafe_encode64(deploykey.public_encrypt(MU.mommacat.deploy_secret))
 					res_type = "server"
-					res_type = "server_pool" if !@server.config['basis'].nil?
+					res_type = "server_pool" if !@config['basis'].nil?
 					uri = URI("https://#{MU.mu_public_addr}:2260/")
 					req = Net::HTTP::Post.new(uri)
 					req.set_form_data(
 						"mu_id" => MU.deploy_id,
-						"mu_resource_name" => @server.config['name'],
+						"mu_resource_name" => @config['name'],
 						"mu_resource_type" => res_type,
 						"mu_ssl_sign" => "#{MU.mySSLDir}/#{@server.mu_name}.csr",
 						"mu_user" => MU.chef_user,
@@ -466,15 +466,15 @@ module MU
 				grantVaultAccess(@server.mu_name, "ssl_cert")
 
 				# Any and all 'secrets' parameters should also be stuffed into our vault.
-				if !@server.config['secrets'].nil?
-					json = JSON.generate(@server.config['secrets'])
+				if !@config['secrets'].nil?
+					json = JSON.generate(@config['secrets'])
 					vault_cmd = "#{MU::Config.knife} vault create #{@server.mu_name} secrets '#{json}' #{MU::Config.vault_opts} --search name:#{@server.mu_name}"
 					MU.log vault_cmd, MU::DEBUG
 					puts `#{vault_cmd}`
 					grantVaultAccess(@server.mu_name, "secrets")
 				end
 				
-				if %w{win2k12r2 win2k12 windows}.include? @server.config['platform']
+				if %w{win2k12r2 win2k12 windows}.include? @config['platform']
 					# We're creating the vault earlier to allow us to grab the Windows Admin password when running MU::Server.initialSSHTasks.
 					grantVaultAccess(@server.mu_name, "windows_credentials")
 				end

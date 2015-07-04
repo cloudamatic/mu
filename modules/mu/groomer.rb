@@ -61,8 +61,14 @@ module MU
 		end
 
 		MU::Groomer.requiredMethods.each { |method|
-			define_method method do
-				@groomer_obj.method(method).call
+			define_method method do |*args|
+				retval = nil
+				if !args.nil? and args.size > 0
+					retval = @groomer_obj.method(method).call(args.first)
+				else
+					retval = @groomer_obj.method(method).call
+				end
+				retval
 			end
 		}
 	end

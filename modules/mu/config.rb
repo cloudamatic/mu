@@ -945,7 +945,7 @@ module MU
 			dnszones.each { |zone|
 				zone["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("DNSZone")
 				zone['region'] = config['region'] if zone['region'].nil?
-				ext_zone, ext_name = MU::Cloud::DNSZone.find(name: zone['name'])
+				ext_zone = MU::Cloud::DNSZone.find(cloud_id: zone['name']).values.first
 
 				if !ext_zone.nil?
 					MU.log "DNS zone #{zone['name']} already exists", MU::ERR

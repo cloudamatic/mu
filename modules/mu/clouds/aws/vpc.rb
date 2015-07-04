@@ -23,6 +23,7 @@ module MU
 			@config = nil
 			attr_reader :mu_name
 			attr_reader :cloud_id
+			attr_reader :config
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::vpcs}
@@ -242,7 +243,7 @@ module MU
 				end
 				notify
 
-				mu_zone, junk = MU::Cloud::DNSZone.find(name: "mu")
+				mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
 				if !mu_zone.nil?
 					MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc_id, region: @config['region'])
 				end
@@ -380,7 +381,6 @@ module MU
 				# in Server objects' create phases.
 				if !@config['route_tables'].nil?
 					@config['route_tables'].each { |rtb|
-						# XXX get route_table_id
 						route_table_id = rtb['route_table_id']
 
 						rtb['routes'].each { |route|
@@ -390,24 +390,21 @@ module MU
 									:destination_cidr_block => route['destination_network']
 								}
 
-								nat_instance, mu_name = MU::Cloud::Server.find(
-									id: route["nat_host_id"],
-									name: route["nat_host_name"],
-									region: @config['region']
+								nat_instance = findBastion(
+									nat_name: route["nat_host_name"],
+									nat_cloud_id: route["nat_host_id"]
 								)
 								if nat_instance.nil?
-									MU.log "#{vpc_name} is configured to use #{route} but I can't find a running instance matching nat_host_id or nat_host_name", MU::ERR
-									raise MuError, "deploy failure"
+									raise MuError, "VPC #{vpc_name} is configured to use #{route} as a route, but I can't find a matching bastion host!"
 								end
-								route_config[:instance_id] = nat_instance.instance_id
+								route_config[:instance_id] = nat_instance.cloud_id
 
-								MU.log "Creating route for #{route['destination_network']} through NAT host #{nat_instance.instance_id}", details: route_config
+								MU.log "Creating route for #{route['destination_network']} through NAT host #{nat_instance.cloud_id}", details: route_config
 								resp = MU::Cloud::AWS.ec2(@config['region']).create_route(route_config)
 							end
 						}
 
 					}
-					@deploy.notify("vpcs", @config['name'], deploy_struct)
 				end
 
 			end
@@ -605,30 +602,41 @@ module MU
 			# @param nat_ip [String]: An IP address associated with the NAT instance.
 			def findBastion(nat_name: nil, nat_cloud_id: nil, nat_tag_key: nil, nat_tag_value: nil, nat_ip: nil)
 				nat = nil
+				deploy_id = nil
+				# If we're searching by name, assume it's part of this here deploy.
+				if nat_cloud_id.nil? 
+					deploy_id = @deploy.deploy_id
+				end
 				found = MU::MommaCat.findStray(
-					vpc_block['cloud'],
+					@config['cloud'],
 					"server",
 					name: nat_name,
 					region: @config['region'],
 					cloud_id: nat_cloud_id,
+					deploy_id: deploy_id,
 					tag_key: nat_tag_key,
 					tag_value: nat_tag_value,
-					allow_multi: true
+					allow_multi: true,
+					calling_deploy: @deploy
 				)
+
+				return nil if found.nil?
 				if found.size > 1
-					found.each { |instance| 
+					found.each { |nat| 
 						# Try some AWS-specific criteria
 						junk, morejunk, whocares, cloud_desc = instance.describe
-						if !vpc_block['nat_host_ip'].nil? and (cloud_desc.private_ip_address == vpc_block['nat_host_ip'] or cloud_desc.public_ip_address == vpc_block['nat_host_ip'])
+						if !nat_host_ip.nil? and
+							 (cloud_desc.private_ip_address == nat_host_ip or cloud_desc.public_ip_address == nat_host_ip)
 							return nat
 						elsif cloud_desc.vpc_id == @cloud_id
 							# XXX Strictly speaking we could have different NATs in different
-							# subnets, so this can be wrong in corner cases.
+							# subnets, so this can be wrong in corner cases. Why you'd
+							# architect something that obnoxiously, I have no idea.
 							return nat
 						end
 					}
 				elsif found.size == 1
-					return nat
+					return found.first
 				end
 				return nil
 			end
@@ -735,95 +743,7 @@ module MU
 				return false
 			end
 
-			# Take in the @config_primitive configuration section and resolve to
-			# to a VPC id, a list of Subnet ids, and optional NAT host configuration.
-			# @param vpc_conf [Hash]: The {MU::Config} resource element describing a VPC association.
-			# @return [Array<String>]: vpc_id, subnet_ids, nat_host_name, nat_ssh_user
-			def self.parseVPC(vpc_conf)
-				MU.log "Called parseVPC with #{vpc_conf}", MU::DEBUG
-				retries = 0
-
-				begin
-					existing_vpc, vpc_name = find(
-						id: vpc_conf["vpc_id"],
-						name: vpc_conf["vpc_name"],
-						region: vpc_conf['region']
-					)
-					if existing_vpc.nil? or existing_vpc.vpc_id.empty?
-						sleep 5
-						retries = retries + 1
-					end
-				end while retries < 5 and (existing_vpc.nil? or existing_vpc.vpc_id.empty?)
-				raise MuError, "Couldn't find an active VPC from #{vpc_conf}" if existing_vpc.nil? or existing_vpc.vpc_id.empty?
-				vpc_id = existing_vpc.vpc_id
-
-# XXX sanity-check existence of requested subnet(s)
-				subnet_ids = Array.new
-				retries = Hash.new
-				if vpc_conf["subnets"] != nil
-					vpc_conf["subnets"].each { |subnet|
-						retries[subnet] = 0 if retries[subnet].nil?
-						subnet_struct = findSubnet(
-							id: subnet["subnet_id"],
-							name: subnet["subnet_name"],
-							vpc_id: vpc_id,
-							region: vpc_conf['region']
-						)
-						if subnet_struct.nil?
-							if retries[subnet] < 5
-								retries[subnet] = retries[subnet] + 1
-								sleep 5
-								redo
-							end
-							MU.log "Couldn't find a live subnet matching #{subnet} in #{vpc_id} (#{vpc_conf['region']})", MU::ERR, details: MU.mommacat.deployment['subnets']
-							raise MuError, "Couldn't find a live subnet matching #{subnet} in #{vpc_id} (#{vpc_conf['region']})"
-						end
-						id = subnet_struct.subnet_id
-						subnet_ids << id if !id.nil?
-					}
-				elsif !vpc_conf["subnet_id"].nil? or !vpc_conf["subnet_name"].nil?
-					subnet_struct = findSubnet(
-						id: vpc_conf["subnet_id"],
-						name: vpc_conf["subnet_name"],
-						region: vpc_conf['region'],
-						vpc_id: vpc_id,
-						region: vpc_conf['region']
-					)
-					if subnet_struct.nil?
-						MU.log "Couldn't find a live subnet matching #{vpc_conf}", MU::ERR, details: MU.mommacat.deployment['subnets']
-						raise MuError, "Couldn't find a live subnet matching #{vpc_conf}"
-					end
-					id = subnet_struct.subnet_id
-					subnet_ids << id if id != nil
-				else
-					loadSubnets(vpc_id: vpc_id, region: vpc_conf['region']).each { |subnet|
-						subnet_ids << subnet
-					}
-					MU.log "No subnets specified, using all in #{vpc_id}", MU::DEBUG, details: subnet_ids
-				end
-
-				if subnet_ids == nil or subnet_ids.size < 1
-					raise MuError, "Couldn't find subnets in #{vpc_id}"
-				end
-
-
-				nat_host_name = nil
-				nat_ssh_user = nil
-				if vpc_conf["nat_host_name"] != nil
-					nat, mu_name = MU::Cloud::Server.find(name: vpc_conf["nat_host_name"], region: vpc_conf['region'])
-					raise MuError, "Can't find a bastion host with name #{vpc_conf["nat_host_name"]}" if nat == nil
-					nat_host_name = nat.public_dns_name
-				elsif vpc_conf["nat_host_id"] != nil
-					nat, mu_name = MU::Cloud::Server.find(id: vpc_conf["nat_host_id"], region: vpc_conf['region'])
-					raise MuError, "Can't find a bastion host with id #{vpc_conf["nat_host_id"]}" if nat == nil
-					nat_host_name = nat.public_dns_name
-				end
-
-				MU.log "Returning from parseVPC with #{vpc_id}/#{subnet_ids}/#{nat_host_name}", MU::DEBUG
-				return [vpc_id, subnet_ids, nat_host_name, vpc_conf['nat_ssh_user']]
-			end
-
-			# Remove all load balancers associated with the currently loaded deployment.
+			# Remove all VPC resources associated with the currently loaded deployment.
 			# @param noop [Boolean]: If true, will only print what would be done
 			# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
 			# @param region [String]: The cloud provider region
@@ -940,7 +860,11 @@ module MU
 						end
 					}
 					MU.log "Deleting Internet Gateway #{gateway.internet_gateway_id}"
-					MU::Cloud::AWS.ec2(region).delete_internet_gateway(internet_gateway_id: gateway.internet_gateway_id) if !noop
+					begin
+						MU::Cloud::AWS.ec2(region).delete_internet_gateway(internet_gateway_id: gateway.internet_gateway_id) if !noop
+					rescue Aws::EC2::Errors::InvalidInternetGatewayIDNotFound
+						MU.log "Gateway #{gateway.internet_gateway_id} was already destroyed by the time I got to it", MU::WARN
+					end
 				}
 				return nil
 			end
@@ -970,10 +894,14 @@ module MU
 						end
 						if route.gateway_id != "local"
 							MU.log "Deleting #{table.route_table_id}'s route for #{route.destination_cidr_block}"
-							MU::Cloud::AWS.ec2(region).delete_route(
-								route_table_id: table.route_table_id,
-								destination_cidr_block: route.destination_cidr_block
-							) if !noop
+							begin
+								MU::Cloud::AWS.ec2(region).delete_route(
+									route_table_id: table.route_table_id,
+									destination_cidr_block: route.destination_cidr_block
+								) if !noop
+							rescue Aws::EC2::Errors::InvalidRouteNotFound
+								MU.log "Route #{table.route_table_id} has already been deleted", MU::WARN
+							end
 						end
 					}
 					can_delete = true
@@ -990,7 +918,11 @@ module MU
 					}
 					next if !can_delete
 					MU.log "Deleting Route Table #{table.route_table_id}"
-					MU::Cloud::AWS.ec2(region).delete_route_table(route_table_id: table.route_table_id) if !noop
+					begin
+						MU::Cloud::AWS.ec2(region).delete_route_table(route_table_id: table.route_table_id) if !noop
+					rescue Aws::EC2::Errors::InvalidRouteTableIDNotFound
+						MU.log "Route table #{table.route_table_id} already removed", MU::WARN
+					end
 				}
 				return nil
 			end
@@ -1028,6 +960,7 @@ module MU
 
 				return if subnets.nil? or subnets.size == 0
 
+				retries = 0
 				subnets.each { |subnet|
 					begin
 						if subnet.state != "available"
@@ -1036,6 +969,15 @@ module MU
 						else
 							MU.log "Deleting Subnet #{subnet.subnet_id}"
 							MU::Cloud::AWS.ec2(region).delete_subnet(subnet_id: subnet.subnet_id) if !noop
+						end
+					rescue Aws::EC2::Errors::DependencyViolation => e
+						if retries < 7
+							MU.log "#{e.inspect}, retrying in 10s", MU::WARN
+							sleep 10
+							retries = retries + 1
+							retry
+						else
+							raise e
 						end
 					rescue Aws::EC2::Errors::InvalidSubnetIDNotFound
 						MU.log "Subnet #{subnet.subnet_id} disappeared before I could remove it", MU::WARN
@@ -1138,7 +1080,7 @@ module MU
 						MU.log "Couldn't delete VPC #{vpc.vpc_id}: #{e.inspect}", MU::ERR
 					end
 
-					mu_zone, junk = MU::Cloud::DNSZone.find(name: "mu", region: region)
+					mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu", region: region).values.first
 					if !mu_zone.nil?
 						MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc.vpc_id, remove: true)
 					end

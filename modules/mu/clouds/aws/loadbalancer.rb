@@ -21,6 +21,7 @@ module MU
 			@deploy = nil
 			@lb = nil
 			attr_reader :mu_name
+			attr_reader :config
 			attr_reader :cloud_id
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
@@ -55,14 +56,15 @@ module MU
 					}
 				end
 
-
-				sgs = Array.new
-				if !@config["add_firewall_rules"].nil?
-					@add_firewall_rules.each { |ruleset|
-						sgs << ruleset.cloud_id
+				sgs = []
+				if @dependencies.has_key?("firewall_rule")
+					@dependencies['firewall_rule'].values.each { |sg|
+						sgs << sg.cloud_id
 					}
+				end
+				if sgs.size > 0
+					lb_options[:security_groups] = sgs
 					@config['sgs'] = sgs
-					lb_options[:security_groups] = sgs # XXX legal in non-VPC ELBS?
 				end
 
 				if @config["vpc"] != nil
@@ -285,13 +287,10 @@ module MU
 
 			# Register a Server node with an existing LoadBalancer.
 			#
-			# @param lb_name [String] The name of a LoadBalancer with which to register.
 			# @param instance_id [String] A node to register.
-			# @param region [String]: The cloud provider region
-			def self.registerInstance(lb_name, instance_id, region: MU.curRegion)
-				raise MuError, "MU::Cloud::AWS::LoadBalancer.registerInstance requires a Load Balancer name and an instance id" if lb_name.nil? or instance_id.nil?
-				MU::Cloud::AWS.elb(region).register_instances_with_load_balancer(
-					load_balancer_name: lb_name,
+			def registerNode(instance_id)
+				MU::Cloud::AWS.elb(@config['region']).register_instances_with_load_balancer(
+					load_balancer_name: @cloud_id,
 					instances: [
 						{ instance_id: instance_id }
 					]

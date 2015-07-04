@@ -185,7 +185,7 @@ module MU
 			# Initialize a MU::Cloud object for each resource belonging to this
 			# deploy, IF it already exists, which is to say if we're loading an
 			# existing deploy instead of creating a new one.
-			if !create
+			if !create and @deployment and @original_config
 				MU::Cloud.resource_types.each_pair { |res_type, attrs|
 					type = attrs[:cfg_plural]
 					if @deployment.has_key?(type)
@@ -226,9 +226,12 @@ module MU
 			end
 
 
-			@@litter_semaphore.synchronize {
-				@@litters[@deploy_id] = self
-			}
+# XXX this .owned? method may get changed by the Ruby maintainers?
+			if !@@litter_semaphore.owned?
+				@@litter_semaphore.synchronize {
+					@@litters[@deploy_id] = self
+				}
+			end
 		end
 
 		def addKitten(type, name, object)
@@ -814,10 +817,8 @@ begin
 			resourceclass = MU::Cloud.loadCloudType(cloud, type)
 			cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
 			if (tag_key and !tag_value) or (!tag_key and tag_value)
-				raise MuError, "Must use tag_key and tag_value in tandem in findStray"
+				raise MuError, "Can't call findStray with only one of tag_key and tag_value set, must be both or neither"
 			end
-			mu_descs = cloud_descs = []
-			
 			# Help ourselves by making more refined parameters out of mu_name, if 
 			# they weren't passed explicitly
 			if mu_name
@@ -832,11 +833,15 @@ begin
 				end
 			end
 
-			kittens = {}
+			if !deploy_id.nil? and !calling_deploy.nil? and
+					calling_deploy.deploy_id == deploy_id and (!name.nil? or !mu_name.nil?)
+				handle = calling_deploy.findLitterMate(type: type, name: name, mu_name: mu_name)
+				return [handle] if !handle.nil?
+			end
 
+			kittens = {}
 			# Search our deploys for matching resources
 			if deploy_id or name or mu_name
-MU.log "HUNTING FOR STRAY - deploy_id: #{deploy_id}, name: #{name}, mu_name: #{mu_name}", MU::NOTICE
 				mu_descs = MU::MommaCat.getResourceMetadata(resourceclass.cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name)
 				mu_descs.each_pair { |found_deploy, matches|
 					# If we got exactly one match, see if we can use it to make the rest
@@ -917,8 +922,9 @@ end
 		# @param type [String,Symbol]: The type of resource
 		# @param name [String]: The name of the resource as defined in its 'name' Basket of Kittens field
 		# @param mu_name [String]: The fully-resolved and deployed name of the resource
+		# @param created_only [Boolean]: Only return the littermate if its cloud_id method returns a value
 		# @return [MU::Cloud]
-		def findLitterMate(type: nil, name: nil, mu_name: nil)
+		def findLitterMate(type: nil, name: nil, mu_name: nil, created_only: false)
 			MU::Cloud.resource_types.each_pair { |name, cloudclass|
 				if name == type.to_sym or
 						cloudclass[:cfg_name] == type or
@@ -927,16 +933,18 @@ end
 					break
 				end
 			}
+
 			@kitten_semaphore.synchronize {
 				if !@kittens.has_key?(type)
 					return nil
 				end
+
 				@kittens[type].each { |sib_mu_name, obj|
 					if !mu_name.nil? and mu_name == sib_mu_name
-						return obj
+						return obj if !created_only or !obj.cloud_id.nil?
 					end
 					if !name.nil? and obj.config['name'] == name
-						return obj
+						return obj if !created_only or !obj.cloud_id.nil?
 					end
 				}
 			}
@@ -1253,7 +1261,7 @@ end
 			node, config, deploydata, instance = server.describe
 			nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = server.getSSHConfig
 
-			mu_zone, junk = MU::Cloud::DNSZone.find(name: "platform-mu")
+			mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
 			if !mu_zone.nil?
 				MU::Cloud::DNSZone.genericMuDNSEntry(name: node, target: server.canonicalIP, cloudclass: MU::Cloud::Server, sync_wait: true)
 			else
@@ -1639,7 +1647,7 @@ return
 				FileUtils.cp("#{@myhome}/.ssh/id_rsa", "#{@nagios_home}/.ssh/id_rsa")
 				File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{@nagios_home}/.ssh/id_rsa")
 				threads = []
-				mu_zone, junk = MU::Cloud::DNSZone.find(name: "platform-mu")
+				mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
 # XXX need a MU::Cloud::DNSZone.lookup for bulk lookups
 # XXX also grab things like mu_windows_name out of deploy data if we can
 				parent_thread_id = Thread.current.object_id
@@ -2060,7 +2068,7 @@ return
 					begin					
 						@deployment = JSON.parse(File.read("#{deploy_dir}/deployment.json"))
 					rescue JSON::ParserError => e
-						raise MuError, "JSON parse failed on #{deploy_dir}/deployment.json\n"+File.read("#{deploy_dir}/deployment.json")
+						MU.log "JSON parse failed on #{deploy_dir}/deployment.json", MU::ERR
 					end
 					deploy.flock(File::LOCK_UN)
 					deploy.close
@@ -2089,7 +2097,7 @@ return
 					begin					
 						@original_config = JSON.parse(File.read("#{deploy_dir}/basket_of_kittens.json"))
 					rescue JSON::ParserError => e
-						raise MuError, "JSON parse failed on #{deploy_dir}/basket_of_kittens.json"
+						MU.log "JSON parse failed on #{deploy_dir}/basket_of_kittens.json", MU::ERR
 					end
 				end
 				if File.exist?(deploy_dir+"/ssh_key_name")

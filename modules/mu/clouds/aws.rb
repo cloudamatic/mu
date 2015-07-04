@@ -174,7 +174,7 @@ module MU
 				begin
 					MU.log "Calling #{method_sym} in #{@region}", MU::DEBUG, details: arguments[0]
 					return @api.method(method_sym).call(arguments[0])
-				rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling => e
+				rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException => e
 					retries = retries + 1
 					debuglevel = MU::DEBUG
 					interval = 5 + Random.rand(4) - 2

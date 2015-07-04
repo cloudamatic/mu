@@ -70,7 +70,7 @@ module MU
 					end
 					@mommacat = MU::MommaCat.new(deploy_id)
 				rescue Exception => e
-					MU.log "Can't load a deploy record for #{deploy_id} (#{e.inspect}), cleaning up resources by guesswork", MU::WARN
+					MU.log "Can't load a deploy record for #{deploy_id} (#{e.inspect}), cleaning up resources by guesswork", MU::WARN, details: e.backtrace
 					MU.setVar("deploy_id", deploy_id)
 				end
 			end
@@ -93,7 +93,7 @@ module MU
 					MU::Cloud::ServerPool.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
 					MU::Cloud::LoadBalancer.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
 					MU::Cloud::Server.cleanup(skipsnapshots: @skipsnapshots, onlycloud: @onlycloud, noop: @noop, ignoremaster: @ignoremaster, region: r)
-					MU::Cloud::Database.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
+					MU::Cloud::Database.cleanup(skipsnapshots: @skipsnapshots, noop: @noop, ignoremaster: @ignoremaster, region: r)
 					MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
 					MU::Cloud::DNSZone.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
 					MU::Cloud::VPC.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
@@ -129,7 +129,7 @@ module MU
 				}
 				MU.log "Missed some Chef resources in node cleanup, purging now", MU::NOTICE if deadnodes.size > 0
 				deadnodes.uniq.each { |node|
-					MU::Cloud::AWS::Server.purgeChefResources(node, [], noop)
+					MU::Groomer::Chef.cleanup(node, [], noop)
 				}
 			end
 

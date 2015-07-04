@@ -152,7 +152,12 @@ module MU
 				return if cfg.nil?
 				record_threads = []
 				cfg.each { |record|
-					zone, junk = MU::Cloud::DNSZone.find(name: record['zone']['name'], id: record['zone']['id'])
+					zone = nil
+					if record['zone'].has_key?("id")
+						zone = MU::Cloud::DNSZone.find(cloud_id: record['zone']['id']).values.first
+					else
+						zone = MU::Cloud::DNSZone.find(cloud_id: record['zone']['name']).values.first
+					end
 					healthcheck_id = nil
 					record['target'] = target if !target.nil?
 					if !record['healthcheck'].nil?
@@ -277,7 +282,7 @@ module MU
 					location: nil, set_identifier: nil, alias_zone: nil)
 
 				MU.setVar("curRegion", region) if !region.nil?
-				zone, mu_name = MU::Cloud::DNSZone.find(id: id)
+				zone = MU::Cloud::DNSZone.find(cloud_id: id).values.first
 				if zone.nil?
 					raise MuError, "Hosted DNS Zone #{id} not found"
 				end
@@ -424,7 +429,8 @@ module MU
 			# @param sync_wait [Boolean]: Wait for DNS entry to propagate across zone.
 			def self.genericMuDNSEntry(name: name, target: target, cloudclass: cloudclass, noop: false, delete: false, sync_wait: true)
 				return nil if name.nil? or target.nil? or cloudclass.nil?
-				mu_zone, junk = MU::Cloud::DNSZone.find(name: "platform-mu")
+				mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
+				raise MuError, "Couldn't isolate platform-mu DNS zone" if mu_zone.nil?
 
 				if !mu_zone.nil? and !MU.myVPC.nil?
 					subdomain = cloudclass.cfg_name
@@ -534,8 +540,8 @@ module MU
 						MU::Cloud::AWS.route53(region).delete_health_check(health_check_id: check.id) if !noop
 					end
 				}
-				zones, name = MU::Cloud::DNSZone.find(deploy_id: MU.deploy_id, allow_multi: true, region: region)
-				zones.each { |zone|
+				zones = MU::Cloud::DNSZone.find(deploy_id: MU.deploy_id, region: region)
+				zones.each_pair { |id, zone|
 					MU.log "Purging DNS Zone '#{zone.name}' (#{zone.id})"
 					if !noop
 						begin
@@ -576,47 +582,27 @@ module MU
 			# @param allow_multi [Boolean]: When searching by tags or name, permit an array of resources to be returned (if applicable) instead of just one.
 			# @param region [String]: The cloud provider's region
 			# @return [OpenStruct,String]: The cloud provider's complete description of this DNS zone, and its MU resource name (if applicable).
-			def self.find(name: nil, deploy_id: MU.deploy_id, id: nil, allow_multi: false, region: MU.curRegion)
-				return nil if !id and !name and !deploy_id
-
-				MU.log "Searching for DNS Zone with name: #{name}, deploy_id: #{deploy_id}, id: #{id}, allow_multi: #{allow_multi}", MU::DEBUG
+			def self.find(cloud_id: nil, deploy_id: MU.deploy_id, region: MU.curRegion)
+				matches = {}
 
 				resp = MU::Cloud::AWS.route53(region).list_hosted_zones(
 					max_items: 100
 				)
-				dns_matches=deploy_matches=id_matches = []
+
 				resp.hosted_zones.each { |zone|
-					if !name.nil? and !name.empty? and (zone.name == name or zone.name == name+".")
-						dns_matches << MU::Cloud::AWS.route53(region).get_hosted_zone(id: zone.id).hosted_zone
-					end
-					if !id.nil? and !id.empty? and zone.id == id
-						id_matches << MU::Cloud::AWS.route53(region).get_hosted_zone(id: zone.id).hosted_zone
+					if !cloud_id.nil? and !cloud_id.empty?
+						if zone.id == cloud_id
+							matches[zone.id] = MU::Cloud::AWS.route53(region).get_hosted_zone(id: zone.id).hosted_zone
+						elsif zone.name == cloud_id or zone.name == cloud_id+"."
+							matches[zone.id] = MU::Cloud::AWS.route53(region).get_hosted_zone(id: zone.id).hosted_zone
+						end
 					end
 					if !deploy_id.nil? and !deploy_id.empty? and zone.config.comment == deploy_id
-						deploy_matches << MU::Cloud::AWS.route53(region).get_hosted_zone(id: zone.id).hosted_zone
+						matches[zone.id] = MU::Cloud::AWS.route53(region).get_hosted_zone(id: zone.id).hosted_zone
 					end
 				}
 
-				# If we specified both a DNS name and a deploy id, return only things
-				# that match both. Since Route53 doesn't do tags, we need extra safety
-				# in case of colliding MU-ID tags from different masters.
-				if !name.nil? and !deploy_id.nil?
-					matches = dns_matches & deploy_matches
-				else
-					matches = dns_matches + deploy_matches + id_matches
-					matches.uniq!
-				end
-
-				if matches.size > 1 and !allow_multi
-					MU.log "Found multiple DNS zones matching name: #{name}, deploy_id: #{deploy_id}", MU::ERR, details: matches
-					raise MuError, "Found multiple DNS zones matching name: #{name}, deploy_id: #{deploy_id}"
-				end
-
-				if allow_multi
-					return [matches, name]
-				else
-					return [matches.first, name]
-				end
+				return matches
 			end
 		end
 	end

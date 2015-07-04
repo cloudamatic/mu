@@ -197,6 +197,7 @@ module MU
 		    @my_threads << Thread.new {
 					MU.dupGlobals(parent_thread_id)
 					Thread.current.thread_variable_set("name", "mu_create_container")
+					Thread.abort_on_exception = true
 					MU::Cloud.resource_types.each { |cloudclass, data|
 						if !@main_config[data[:cfg_plural]].nil? and
 						 		@main_config[data[:cfg_plural]].size > 0 and
@@ -210,6 +211,7 @@ module MU
 		    @my_threads << Thread.new {
 					MU.dupGlobals(parent_thread_id)
 					Thread.current.thread_variable_set("name", "mu_groom_container")
+					Thread.abort_on_exception = true
 					MU::Cloud.resource_types.each { |cloudclass, data|
 						if !@main_config[data[:cfg_plural]].nil? and
 						 		@main_config[data[:cfg_plural]].size > 0 and
@@ -244,7 +246,7 @@ module MU
 				if e.class.to_s != "SystemExit"
 					MU.log e.inspect, MU::ERR, details: e.backtrace
 					if !@nocleanup
-						MU::Cleanup.run(MU.deploy_id, true, false, true, mommacat: mommacat)
+						MU::Cleanup.run(MU.deploy_id, false, true, mommacat: mommacat)
 					end
 					MU.log e.inspect, MU::ERR
 				end

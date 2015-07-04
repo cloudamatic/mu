@@ -22,6 +22,7 @@ class Cloud
 			@config = nil
 			attr_reader :mu_name
 			attr_reader :cloud_id
+			attr_reader :config
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::server_pools}
@@ -182,30 +183,21 @@ class Cloud
 					asg_options[:instance_id] = basis["instance_id"]
 				end
 
-
-				sgs = Array.new
-#XXX should be passing optional rules to createEc2SG here
 				if @config["vpc_zone_identifier"]
 					asg_options[:vpc_zone_identifier] = @config["vpc_zone_identifier"]
 				elsif @config["vpc"]
-# XXX This sucks. Use #dependencies instead.
-					vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::Cloud::AWS::VPC.parseVPC(@config['vpc'])
-					nat_instance, mu_name = MU::Cloud::Server.find(
-						id: @config['vpc']['nat_host_id'],
-						name: @config['vpc']['nat_host_name']
-					)
+					subnet_ids = []
+					@config["vpc"]["subnets"].each { |subnet|
+						subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
+						subnet_ids << subnet_obj.cloud_id
+					}
 					asg_options[:vpc_zone_identifier] = subnet_ids.join(",")
-
 				end
 
-				if !@config["add_firewall_rules"].nil?
-					@config["add_firewall_rules"].each { |acl|
-						sg = MU::Cloud::FirewallRule.find(cloud_id: acl["rule_id"], name: acl["rule_name"])
-						if sg.nil?
-							MU.log "Couldn't find dependent security group #{acl} for server pool #{@config['name']}", MU::ERR, details: MU.mommacat.deployment['firewall_rules']
-							raise MuError, "deploy failure"
-						end
-						sgs << sg.group_id
+				sgs = []
+				if @dependencies.has_key?("firewall_rule")
+					@dependencies['firewall_rule'].values.each { |sg|
+						sgs << sg.cloud_id
 					}
 				end
 
@@ -305,7 +297,7 @@ class Cloud
 					groomthreads = Array.new
 					desc.instances.each { |member|
 						begin
-							instance = MU::Cloud::Server.find(id: member.instance_id)
+							instance = MU::Cloud::AWS::Server.find(cloud_id: member.instance_id)
 							groomthreads << Thread.new {
 								MU.dupGlobals(parent_thread_id)
 								MU.mommacat.groomNode(instance, @config['name'], "server_pool", reraise_fail: true, sync_wait: @config['dns_sync_wait'])

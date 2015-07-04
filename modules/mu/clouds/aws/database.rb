@@ -235,7 +235,7 @@ module MU
 
 					database = MU::Cloud::AWS::Database.getDatabaseById(@config['identifier'], region: @config['region'])
 
-					MU::Cloud::AWS::DNSZone.genericMuDNSEntry(database.db_instance_identifier, "#{database.endpoint.address}.", MU::Cloud::Database, sync_wait: @config['dns_sync_wait'])
+					MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: database.db_instance_identifier, target: "#{database.endpoint.address}.", cloudclass: MU::Cloud::Database, sync_wait: @config['dns_sync_wait'])
 					if !@config['dns_records'].nil?
 						@config['dns_records'].each { |dnsrec|
 							dnsrec['name'] = database.db_instance_identifier.downcase if !dnsrec.has_key?('name')
@@ -259,23 +259,13 @@ module MU
 							if !db_config.nil? and db_config.has_key?(:vpc_security_group_ids)
 								mod_config[:vpc_security_group_ids] = db_config[:vpc_security_group_ids]
 							end
-# XXX this logic is a refactoring candidate (put in MU::Cloud::FirewallRule.initialize?)
-							if @config["add_firewall_rules"] and !@config["add_firewall_rules"].empty?
-								@config["add_firewall_rules"].each { |acl|
-									fwrule = nil
-									if acl.has_key?("rule_name")
-										fwrule = @deploy.findLitterMate(type: "firewall_rule", name: acl['rule_name'])
-									else
-										fwrule = MU::MommaCat.findStray(@config['cloud'], "firewall_rule", cloud_id: acl["rule_id"], region: @config['region']).first
-									end
-									if !fwrule.nil?
-										if !mod_config.has_key?(:vpc_security_group_ids)
-											mod_config[:vpc_security_group_ids] = [] 
-										end
-										mod_config[:vpc_security_group_ids] << fwrule.cloud_id
-									else
-										raise MuError, "Failed to find FirewallRule specified by #{acl}"
-									end	
+
+							if @dependencies.has_key?('firewall_ruleset')
+								if !mod_config.has_key?(:vpc_security_group_ids)
+									mod_config[:vpc_security_group_ids] = []
+								end
+								@dependencies['firewall_ruleset'].each { |sg|
+									mod_config[:vpc_security_group_ids] << sg.cloud_id
 								}
 							end
 						# else
@@ -403,19 +393,13 @@ module MU
 						admin_sg.addRule([nat_instance["private_ip_address"]], proto: "udp")
 					end
 
-					# Create VPC security group and add to config 
 					if @config["snapshot_id"].nil?
-						config[:vpc_security_group_ids] = [admin_sg.cloud_id] if !admin_sg.nil?
-
-						if @config["add_firewall_rules"] and !@config["add_firewall_rules"].empty?
-							if @add_firewall_rules.nil?
-								raise MuError, "Database #{@mu_name} is configured for additional firewall rules, but none appear to have been loaded for me"
+						if @dependencies.has_key?('firewall_rule')
+							if !config.has_key?(:vpc_security_group_ids)
+								config[:vpc_security_group_ids] = []
 							end
-							@add_firewall_rules.each { |acl|
-								if !mod_config.has_key?(:vpc_security_group_ids)
-									config[:vpc_security_group_ids] = [] 
-								end
-								config[:vpc_security_group_ids] << acl.cloud_id
+							@dependencies['firewall_rule'].values.each { |sg|
+								config[:vpc_security_group_ids] << sg.cloud_id
 							}
 						end
 					end
@@ -473,22 +457,16 @@ module MU
 						is_private = false
 					end
 
-					# Getting VPC info
-					if @config['vpc'] and !@config['vpc'].empty?
-# XXX This sucks. Use #dependencies instead.
-						vpc_id, subnet_ids, nat_host_name, nat_ssh_user = MU::Cloud::AWS::VPC.parseVPC(@config['vpc'])
-					end
-
 					#Setting up connection params
 					ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
 					keypairname, ssh_private_key, ssh_public_key = @deploy.SSHKey
-					if is_private
-						if nat_host_name
+					if is_private and @vpc
+						if @config['vpc']['nat_host_name']
 							begin
 								proxy_cmd = "ssh -q -o StrictHostKeyChecking=no -W %h:%p #{nat_ssh_user}@#{nat_host_name}"
 								gateway = Net::SSH::Gateway.new(
-									nat_host_name,
-									nat_ssh_user,
+									@config['vpc']['nat_host_name'],
+									@config['vpc']['nat_ssh_user'],
 									:keys => [ssh_keydir+"/"+keypairname],
 									:keys_only => true,
 									:auth_methods => ['publickey'],
@@ -669,6 +647,7 @@ module MU
 					@config['read_replica']['password'] = @config["password"]
 					my_dbs << @config['read_replica']
 				end
+# XXX databases probably need to be has_multiples aware if we're treating read_replicas as first-class resources
 				my_dbs.each { |db|
 					database = MU::Cloud::AWS::Database.getDatabaseById(db["identifier"], region: db['region'])
 					vpc_sg_ids = Array.new
@@ -714,7 +693,7 @@ module MU
 						db_deploy_struct["subnets"] = subnet_ids
 					end
 
-					@deploy.notify("databases", db['name'], db_deploy_struct)
+					return db_deploy_struct
 				}
 			end
 
@@ -837,7 +816,7 @@ module MU
 
 					database = MU::Cloud::AWS::Database.getDatabaseById(@config['read_replica']['identifier'], region: @config['region'])
 
-					MU::Cloud::AWS::DNSZone.genericMuDNSEntry(@config['read_replica']['identifier'], "#{database.endpoint.address}.", MU::Cloud::Database, sync_wait: @config['read_replica']['dns_sync_wait'])
+					MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: @config['read_replica']['identifier'], target: "#{database.endpoint.address}.", cloudclass: MU::Cloud::Database, sync_wait: @config['read_replica']['dns_sync_wait'])
 					if !@config['read_replica']['dns_records'].nil?
 						@config['read_replica']['dns_records'].each { |dnsrec|
 							dnsrec['name'] = @config['read_replica']['identifier'].downcase if !dnsrec.has_key?('name')
@@ -862,7 +841,7 @@ module MU
 			# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
 			# @param region [String]: The cloud provider region in which to operate
 			# @return [void]
-			def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
+			def self.cleanup(skipsnapshots: false, noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
 				resp = MU::Cloud::AWS.rds(region).describe_db_instances
 				threads = []
 				resp.data.db_instances.each { |db|
@@ -904,7 +883,7 @@ module MU
 						threads << Thread.new(db) { |mydb|
 							MU.dupGlobals(parent_thread_id)
 							Thread.abort_on_exception = true
-							MU::Cloud::AWS::Database.terminate_rds_instance(mydb, noop, region: region)
+							MU::Cloud::AWS::Database.terminate_rds_instance(mydb, noop, skipsnapshots, region: region)
 						} # thread
 					end # if found_muid and found_master
 				} # resp.data.db_instances.each { |db|
@@ -920,7 +899,7 @@ module MU
 			# Remove an RDS database and associated artifacts
 			# @param db [OpenStruct]: The cloud provider's description of the database artifact
 			# @return [void]
-			def self.terminate_rds_instance(db, noop = false, region: MU.curRegion)
+			def self.terminate_rds_instance(db, noop = false, skipsnapshots = false, region: MU.curRegion)
 				raise MuError, "terminate_rds_instance requires a non-nil database descriptor" if db.nil?
 
 				retries = 0
@@ -961,7 +940,7 @@ module MU
 				rdssecgroups << db_id if !secgroup.nil?
 				db = MU::Cloud::AWS.rds(region).describe_db_instances(db_instance_identifier: db_id).data.db_instances.first
 
-				while !noop and db.db_instance_status == "creating"# or db.db_instance_status == "modifying" or db.db_instance_status == "backing-up"
+				while !noop and (db.nil? or db.db_instance_status == "creating" or db.db_instance_status == "modifying" or db.db_instance_status == "backing-up")
 					MU.log "Waiting for #{db_id} to be in a removable state...", MU::NOTICE
 					sleep 60
 					db = MU::Cloud::AWS.rds(region).describe_db_instances(db_instance_identifier: db_id).data.db_instances.first
@@ -972,7 +951,7 @@ module MU
 				if db.db_instance_status == "deleting" or db.db_instance_status == "deleted" then
 					MU.log "#{db_id} has already been terminated", MU::WARN
 				else
-					if !@skipsnapshots
+					if !skipsnapshots
 						MU.log "Terminating #{db_id} (final snapshot: #{db_id}MUfinal)"
 					else
 						MU.log "Terminating #{db_id} (not saving final snapshot)"
@@ -981,7 +960,7 @@ module MU
 					if !noop
 						retries = 0
 						begin
-							if !@skipsnapshots
+							if !skipsnapshots
 								MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id,
 																				final_db_snapshot_identifier: "#{db_id}MUfinal",
 																				skip_final_snapshot: false)
