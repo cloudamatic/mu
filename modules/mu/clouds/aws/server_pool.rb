@@ -23,27 +23,28 @@ class Cloud
 			attr_reader :mu_name
 			attr_reader :cloud_id
 			attr_reader :config
+			attr_reader :cloud_desc
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::server_pools}
-			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name, vpc: vpc, cloud_id: cloud_id)
+			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name, cloud_id: cloud_id)
 				@deploy = mommacat
 				@config = kitten_cfg
-				@vpc = vpc
+				@cloud_id ||= cloud_id
 				if !mu_name.nil?
 					@mu_name = mu_name
+				else
+					@mu_name = MU::MommaCat.getResourceName(@config['name'])
 				end
-				MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
 			end
 
 			# Called automatically by {MU::Deploy#createResources}
 			def create
-				pool_name = MU::MommaCat.getResourceName(@config['name'])
-				@mu_name = pool_name
+				@mu_name = MU::MommaCat.getResourceName(@config['name'])
 				MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
 
 				asg_options = {
-					:auto_scaling_group_name => pool_name,
+					:auto_scaling_group_name => @mu_name,
 					:default_cooldown => @config["default_cooldown"],
 					:health_check_type => @config["health_check_type"],
 					:health_check_grace_period => @config["health_check_grace_period"],
@@ -61,7 +62,7 @@ class Cloud
 				end
 
 				if @config["wait_for_nodes"] > 0
-					MU.log "Setting pool #{pool_name} min_size and max_size to #{@config["wait_for_nodes"]} until bootstrapped"
+					MU.log "Setting pool #{@mu_name} min_size and max_size to #{@config["wait_for_nodes"]} until bootstrapped"
 					asg_options[:min_size] = @config["wait_for_nodes"]
 					asg_options[:max_size] = @config["wait_for_nodes"]
 				else
@@ -109,19 +110,19 @@ class Cloud
 
 					if !launch_desc["server"].nil?
 						if @deploy.deployment["images"].nil? or @deploy.deployment["images"][launch_desc["server"]].nil?
-							raise MuError, "#{pool_name} needs an AMI from server #{launch_desc["server"]}, but I don't see one anywhere"
+							raise MuError, "#{@mu_name} needs an AMI from server #{launch_desc["server"]}, but I don't see one anywhere"
 						end
 						launch_desc["ami_id"] = @deploy.deployment["images"][launch_desc["server"]]["image_id"]
 					elsif !launch_desc["instance_id"].nil?
 						launch_desc["ami_id"] = MU::Cloud::AWS::Server.createImage(
-																					name: pool_name,
+																					name: @mu_name,
 																					instance_id: launch_desc["instance_id"]
 																		)
 					end
 					MU::Cloud::AWS::Server.waitForAMI(launch_desc["ami_id"])
 
 					launch_options = {
-						:launch_configuration_name => pool_name,
+						:launch_configuration_name => @mu_name,
 						:image_id => launch_desc["ami_id"],
 						:instance_type => launch_desc["size"],
 						:key_name => @deploy.ssh_key_name,
@@ -203,21 +204,21 @@ class Cloud
 
 				if launch_options
 					launch_options[:security_groups] = sgs
-					MU.log "Creating AutoScale Launch Configuration #{pool_name}", details: launch_options 
+					MU.log "Creating AutoScale Launch Configuration #{@mu_name}", details: launch_options 
 					retries = 0
 					begin
 						launch_config = MU::Cloud::AWS.autoscale.create_launch_configuration(launch_options)
 					rescue Aws::AutoScaling::Errors::ValidationError => e
 						if retries < 10
-							MU.log "Got #{e.inspect} creating Launch Configuration #{pool_name}, retrying in case of lagging resources", MU::WARN
+							MU.log "Got #{e.inspect} creating Launch Configuration #{@mu_name}, retrying in case of lagging resources", MU::WARN
 							retries = retries + 1
 							sleep 10
 							retry
 						else
-							raise MuError, "Got #{e.inspect} creating Launch Configuration #{pool_name}"
+							raise MuError, "Got #{e.inspect} creating Launch Configuration #{@mu_name}"
 						end
 					end
-					asg_options[:launch_configuration_name] = pool_name
+					asg_options[:launch_configuration_name] = @mu_name
 				end
 
 				# Do the dance of specifying individual zones if we haven't asked to
@@ -228,7 +229,7 @@ class Cloud
 				end
 				asg_options[:availability_zones] = @config["zones"] if @config["zones"] != nil
 
-				MU.log "Creating AutoScale group #{pool_name}", details: asg_options
+				MU.log "Creating AutoScale group #{@mu_name}", details: asg_options
 
 				zones_to_try = @config["zones"]
 				begin
@@ -239,7 +240,7 @@ class Cloud
 						asg_options[:availability_zones] = [zones_to_try.pop]
 						retry
 					else
-						raise MuError, "#{e.message} creating AutoScale group #{pool_name}"
+						raise MuError, "#{e.message} creating AutoScale group #{@mu_name}"
 					end
 				end
 
@@ -247,22 +248,22 @@ class Cloud
 					zones_to_try.each { |zone|
 						begin
 							MU::Cloud::AWS.autoscale.update_auto_scaling_group(
-								auto_scaling_group_name: pool_name,
+								auto_scaling_group_name: @mu_name,
 								availability_zones: [zone]
 							)
 						rescue Aws::AutoScaling::Errors::ValidationError => e
-							MU.log "Couldn't enable Availability Zone #{zone} for AutoScale Group #{pool_name} (#{e.message})", MU::WARN
+							MU.log "Couldn't enable Availability Zone #{zone} for AutoScale Group #{@mu_name} (#{e.message})", MU::WARN
 						end
 					}
 
 				end
 
-				@cloud_id = pool_name
+				@cloud_id = @mu_name
 
 				if @config["scaling_policies"] and @config["scaling_policies"].size > 0
 					@config["scaling_policies"].each { |policy|
 						policy_params = {
-							:auto_scaling_group_name => pool_name,
+							:auto_scaling_group_name => @mu_name,
 							:policy_name => MU::MommaCat.getResourceName("#{@config['name']}-#{policy['name']}"),
 							:scaling_adjustment => policy['adjustment'],
 							:adjustment_type => policy['type'],
@@ -279,15 +280,15 @@ class Cloud
 				attempts = 0
 				begin
 					sleep 5
-					desc = MU::Cloud::AWS.autoscale.describe_auto_scaling_groups(auto_scaling_group_names: [pool_name]).auto_scaling_groups.first
-					MU.log "Looking for #{desc.min_size} instances in #{pool_name}, found #{desc.instances.size}", MU::DEBUG
+					desc = MU::Cloud::AWS.autoscale.describe_auto_scaling_groups(auto_scaling_group_names: [@mu_name]).auto_scaling_groups.first
+					MU.log "Looking for #{desc.min_size} instances in #{@mu_name}, found #{desc.instances.size}", MU::DEBUG
 					attempts = attempts + 1
 					if attempts > 25 and desc.instances.size == 0
-						MU.log "No instances spun up after #{5*attempts} seconds, something's wrong with Autoscale group #{pool_name}", MU::ERR, details: MU::Cloud::AWS.autoscale.describe_scaling_activities(auto_scaling_group_name: pool_name).activities
-						raise MuError, "No instances spun up after #{5*attempts} seconds, something's wrong with Autoscale group #{pool_name}"
+						MU.log "No instances spun up after #{5*attempts} seconds, something's wrong with Autoscale group #{@mu_name}", MU::ERR, details: MU::Cloud::AWS.autoscale.describe_scaling_activities(auto_scaling_group_name: @mu_name).activities
+						raise MuError, "No instances spun up after #{5*attempts} seconds, something's wrong with Autoscale group #{@mu_name}"
 					end
 				end while desc.instances.size < desc.min_size
-				MU.log "#{desc.instances.size} instances spinning up in #{pool_name}"
+				MU.log "#{desc.instances.size} instances spinning up in #{@mu_name}"
 
 				# If we're holding to bootstrap some nodes, do so, then set our min/max
 				# sizes to their real values.
@@ -321,7 +322,7 @@ class Cloud
 					}
 					MU.log "Setting min_size to #{@config['min_size']} and max_size to #{@config['max_size']}"
 					MU::Cloud::AWS.autoscale.update_auto_scaling_group(
-						auto_scaling_group_name: pool_name,
+						auto_scaling_group_name: @mu_name,
 						min_size: @config['min_size'],
 						max_size: @config['max_size']
 					)

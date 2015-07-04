@@ -23,20 +23,24 @@ module MU
 			attr_reader :mu_name
 			attr_reader :config
 			attr_reader :cloud_id
+			attr_reader :cloud_desc
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::loadbalancers}
-			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name, vpc: vpc, cloud_id: cloud_id)
+			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name, cloud_id: cloud_id)
 				@deploy = mommacat
 				@config = kitten_cfg
-				@vpc = vpc
-				@mu_name = mu_name if !mu_name.nil?
+				@cloud_id ||= cloud_id
+				if !mu_name.nil?
+					@mu_name = mu_name
+				else
+					@mu_name = MU::MommaCat.getResourceName(@config["name"], max_length: 32, need_unique_string: true)
+					@mu_name.gsub!(/[^\-a-z0-9]/i, "-") # AWS ELB naming rules
+				end
 			end
 
 			# Called automatically by {MU::Deploy#createResources}
 			def create
-				@mu_name = MU::MommaCat.getResourceName(@config["name"], max_length: 32, need_unique_string: true)
-				@mu_name.gsub!(/[^\-a-z0-9]/i, "-") # LB naming rules
 
 				if @config["zones"] == nil
 					@config["zones"] = MU::Cloud::AWS.listAZs(@config['region'])

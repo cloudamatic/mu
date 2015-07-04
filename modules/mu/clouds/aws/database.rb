@@ -25,15 +25,19 @@ module MU
 			@config = nil
 			attr_reader :mu_name
 			attr_reader :cloud_id
+			attr_reader :config
+			attr_reader :cloud_desc
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::databases}
-			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name, vpc: vpc, cloud_id: cloud_id)
+			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name, cloud_id: cloud_id)
 				@deploy = mommacat
 				@config = kitten_cfg
-				@vpc = vpc
+				@cloud_id ||= cloud_id
 				if !mu_name.nil?
 					@mu_name = mu_name
+				else
+					@mu_name = MU::MommaCat.getResourceName(@config["name"])
 				end
 			end
 
@@ -130,8 +134,6 @@ module MU
 				snap_id = createNewSnapshot if @config["creation_style"] == "new_snapshot" or (@config["creation_style"] == "existing_snapshot" and snap_id.nil?)
 				@config["snapshot_id"] = snap_id
 
-				db_node_name = MU::MommaCat.getResourceName(@config["name"])
-
 				# RDS is picky, we can't just use our regular node names for things like
 				# the default schema or username. And it varies from engine to engine.
 				basename = @config["name"]+@deploy.timestamp+MU.seed.downcase
@@ -140,7 +142,7 @@ module MU
 				# Getting engine specific names
 				dbname = getName(basename, type: "dbname")
 				@config['master_user'] = getName(basename, type: "dbuser")
-				@config['identifier'] = getName(db_node_name, type: "dbidentifier")
+				@config['identifier'] = getName(@mu_name, type: "dbidentifier")
 				MU.log "Truncated master username for #{@config['identifier']} (db #{dbname}) to #{@config['master_user']}", MU::WARN if @config['master_user'] != @config["name"] and @config["snapshot_id"].nil?
 
 				@config['password'] = Password.pronounceable(10..12) if @config['password'].nil?
@@ -154,7 +156,7 @@ module MU
 					multi_az: @config['multi_az_on_create'],
 					license_model: @config["license_model"],
 					storage_type: @config['storage_type'],
-					db_subnet_group_name: db_node_name,
+					db_subnet_group_name: @mu_name,
 					publicly_accessible: @config["publicly_accessible"],
 					tags: []
 				}
@@ -751,9 +753,9 @@ module MU
 			# Create Read Replica database instance.
 			# @return [String]: The cloud provider's identifier for this read replica database instance.
 			def createReadReplica
-				db_node_name = MU::MommaCat.getResourceName(@config['read_replica']['name'])
+				rr_name = MU::MommaCat.getResourceName(@config['read_replica']['name'])
 				
-				@config['read_replica']['identifier'] = getName(db_node_name, type: "dbidentifier")
+				@config['read_replica']['identifier'] = getName(rr_name, type: "dbidentifier")
 				@config['read_replica']['source_identifier'] = @config['identifier'] if !@config['read_replica']['source_identifier']
 
 				replica_config = {

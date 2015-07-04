@@ -234,6 +234,11 @@ module MU
 			end
 		end
 
+		# Keep tabs on a {MU::Cloud} object so that it can be found easily by
+		# #findLitterMate.
+		# @param type [String]:
+		# @param name [String]:
+		# @param object [MU::Cloud]:
 		def addKitten(type, name, object)
 			if !type or !name or !object
 				raise MuError, "Nil arguments to addKitten are not allowed (got type: #{type}, name: #{name}, and '#{object}' to add"
@@ -246,7 +251,6 @@ module MU
 					break
 				end
 			}
-
 			@kitten_semaphore.synchronize {
 				@kittens[type] = {} if @kittens[type].nil?
 				@kittens[type][name] = object
@@ -557,7 +561,8 @@ module MU
 			MU.log "Grooming complete for '#{name}' mu_name on \"#{MU.handle}\" (#{MU.deploy_id})"
 			MU::MommaCat.unlockAll
 			if first_groom
-				sendAdminMail("Grooming complete for '#{name}' mu_name on deploy \"#{MU.handle}\" (#{MU.deploy_id})", data: server.merge(MU.structToHash(instance)))
+				sendAdminMail("Grooming complete for '#{name}' mu_name on deploy \"#{MU.handle}\" (#{MU.deploy_id})", data: kitten.deploydata.merge(MU.structToHash(instance)))
+# XXX pass the kitten object, actually. can do more interesting things with it once inside
 			end
 			return
 		end

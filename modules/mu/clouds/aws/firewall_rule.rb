@@ -27,19 +27,19 @@ module MU
 			attr_reader :mu_name
 			attr_reader :config
 			attr_reader :cloud_id
+			attr_reader :cloud_desc
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::firewall_rules}
-			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name, vpc: vpc, cloud_id: cloud_id)
+			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name, cloud_id: cloud_id)
 				@deploy = mommacat
 				@config = kitten_cfg
-				@vpc = vpc
+				@cloud_id ||= cloud_id
 				if !mu_name.nil?
 					@mu_name = mu_name
 				else
 					@mu_name = MU::MommaCat.getResourceName(@config['name'])
 				end
-# XXX load a cloud_id if we got one
 			end
 
 			# Called by {MU::Deploy#createResources}
@@ -86,18 +86,16 @@ module MU
 				MU::MommaCat.createStandardTags secgroup.group_id, region: @config['region']
 				MU::MommaCat.createTag secgroup.group_id, "Name", groupname, region: @config['region']
 
-				if !@config['rules'].nil? and @config['rules'].size > 0
-					egress = false
-					egress = true if !vpc_id.nil?
-					# XXX the egress logic here is a crude hack, this really needs to be
-					# done at config level
-					setRules(
-						[],
-						add_to_self: @config['self_referencing'],
-						ingress: true,
-						egress: egress
-					)
-				end
+				egress = false
+				egress = true if !vpc_id.nil?
+				# XXX the egress logic here is a crude hack, this really needs to be
+				# done at config level
+				setRules(
+					[],
+					add_to_self: @config['self_referencing'],
+					ingress: true,
+					egress: egress
+				)
 
 				MU.log "EC2 Security Group #{groupname} is #{secgroup.group_id}", MU::DEBUG
 				return secgroup.group_id
@@ -422,47 +420,45 @@ module MU
 							 (!defined? rule['lbs'] or !rule['lbs'].is_a?(Array))
 							raise MuError, "One of 'hosts', 'sgs', or 'lbs' in rules provided to createEc2SG must be an array."
 						end
+						ec2_rule[:ip_ranges] = []
+						ec2_rule[:user_id_group_pairs] = []
 
 						if !rule['hosts'].nil?
-							ec2_rule[:ip_ranges] = Array.new
 							rule['hosts'].each { |cidr|
 								ec2_rule[:ip_ranges] << { cidr_ip: cidr }
 							}
 						end
 						
 						if !rule['lbs'].nil?
-							ec2_rule[:ip_ranges] = []
-							ec2_rule[:user_id_group_pairs] = []
-# XXX this is a dopey place for this
-							dependencies # make sure we're fresh here
+# XXX This is a dopey place for this, dependencies() should be doing our legwork
 							rule['lbs'].each { |lb_name|
-MU.log "Digging for clams, or at least a LoadBalancer named #{lb_name}"
-# XXX the language for addressing ELBs should be as flexible as VPCs
-								found = MU::MommaCat.findStray(
-									"AWS",
-									"loadbalancer",
-									deploy_id: @deploy.deploy_id,
+# XXX The language for addressing ELBs should be as flexible as VPCs. This sauce
+# is weak.
+								# Try to find one by name in this deploy
+								found = MU::MommaCat.findStray("AWS", "loadbalancers",
 									name: lb_name,
-									region: @config['region']
+									deploy_id: @deploy.deploy_id
 								)
-								if found.nil? or found.size == 0
-									raise MuError, "FirewallRule #{@mu_name} is configured to use a LoadBalancer named #{lb_name}, but I can't find one"
+								# Ok, let's try it with the name being an AWS identifier
+								if found.nil? or found.size < 1
+									found = MU::MommaCat.findStray("AWS", "loadbalancers",
+										cloud_id: lb_name
+									)
+									if found.nil? or found.size < 1
+										raise MuError, "Couldn't find a LoadBalancer with #{lb_name} for #{@mu_name}"
+									end
 								end
-								lb = found.values.first
-								if lb.cloud_id == lb_name or lb.config['name']
-									lb.cloud_desc.security_groups.each { |lb_sg|
-										ec2_rule[:user_id_group_pairs] << {
-											user_id: MU.account_number,
-											group_id: lb_sg
-										}
+								lb = found.first
+								lb.cloud_desc.security_groups.each { |lb_sg|
+									ec2_rule[:user_id_group_pairs] << {
+										user_id: MU.account_number,
+										group_id: lb_sg
 									}
-								end
+								}
 							}
-							ec2_rule.delete(:user_id_group_pairs) if ec2_rule[:user_id_group_pairs].size == 0
 						end
 
 						if !rule['sgs'].nil?
-							ec2_rule[:user_id_group_pairs] = [] if ec2_rule[:user_id_group_pairs].nil?
 							rule['sgs'].each { |sg_name|
 								dependencies # Make sure our cache is fresh
 								if @dependencies.has_key?("firewall_rule") and
@@ -495,6 +491,9 @@ MU.log "Digging for clams, or at least a LoadBalancer named #{lb_name}"
 							raise MuError, "Cannot specify ip_ranges and user_id_group_pairs"
 						end
 
+						ec2_rule.delete(:ip_ranges) if ec2_rule[:ip_ranges].size == 0
+						ec2_rule.delete(:user_id_group_pairs) if ec2_rule[:user_id_group_pairs].size == 0
+
 						if !ec2_rule[:user_id_group_pairs].nil? and
 								ec2_rule[:user_id_group_pairs].size > 0
 							ec2_rule.delete(:ip_ranges)
@@ -502,7 +501,6 @@ MU.log "Digging for clams, or at least a LoadBalancer named #{lb_name}"
 								ec2_rule[:ip_ranges].size > 0
 							ec2_rule.delete(:user_id_group_pairs)
 						end
-
 						ec2_rules << ec2_rule
 					}
 				end

@@ -88,6 +88,7 @@ class Cloud
 			attr_reader :config
 			attr_reader :deploy
 			attr_reader :cloud_id
+			attr_reader :cloud_desc
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::servers}
@@ -246,7 +247,11 @@ class Cloud
 							parent_thread_id = Thread.current.object_id
 							Thread.new {
 								MU.dupGlobals(parent_thread_id)
-								MU::Cloud::AWS::Server.removeIAMProfile(@config['name'])
+								if @config.has_key?("basis")
+									MU::Cloud::AWS::Server.removeIAMProfile("ServerPool-"+@config['name'])
+								else
+									MU::Cloud::AWS::Server.removeIAMProfile("Server-"+@config['name'])
+								end
 								MU::Cloud::AWS::Server.cleanup(noop: false, ignoremaster: false, skipsnapshots: true)
 							}
 						end
@@ -685,9 +690,9 @@ class Cloud
 						end
 					end
 
-					win_admin_password =  MU::Cloud::Server.generateWindowsPassword if win_admin_password.nil?
-					ec2config_password = MU::Cloud::Server.generateWindowsPassword if ec2config_password.nil?
-					sshd_password = MU::Cloud::Server.generateWindowsPassword if sshd_password.nil?
+					win_admin_password =  MU::Cloud::AWS::Server.generateWindowsPassword if win_admin_password.nil?
+					ec2config_password = MU::Cloud::AWS::Server.generateWindowsPassword if ec2config_password.nil?
+					sshd_password = MU::Cloud::AWS::Server.generateWindowsPassword if sshd_password.nil?
 
 					# We're creating the vault here so when we run MU::Cloud::Server.initialSSHTasks and we need to set the Windows Admin password we can grab it fro a vault.
 					win_password = "\"password\":\"#{win_admin_password}\", \"username\":\"#{@config['windows_admin_username']}\", "
@@ -1295,6 +1300,7 @@ class Cloud
 
 			# Generate a random password which will satisfy the complexity requirements of stock Amazon Windows AMIs.
 			# return [String]: A password string.
+			# XXX this probably doesn't want to live inside a cloud provider
 			def self.generateWindowsPassword
 				# We have dopey complexity requirements, be stringent here. 
 				# I'll be nice and not condense this into one elegant-but-unreadable regular expression
@@ -1648,10 +1654,10 @@ MU.log "MU::Cloud::AWS.ec2(#{@config['region']}).wait_until(:password_data_avail
 					}
 
 					# Expunge the IAM profile for this instance class
-					if orig_config["#MU_CLOUDCLASS"] == "MU::Cloud::Server"
-						MU::Cloud::AWS::Server.removeIAMProfile("Server-"+mu_name) if !noop
-					else
+					if orig_config.has_key?("basis")
 						MU::Cloud::AWS::Server.removeIAMProfile("ServerPool-"+mu_name) if !noop
+					else
+						MU::Cloud::AWS::Server.removeIAMProfile("Server-"+mu_name) if !noop
 					end
 
 # XXX abstraction motherfucker

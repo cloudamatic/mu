@@ -20,7 +20,7 @@ module MU
 		class MuCloudResourceNotImplemented < StandardError; end
 
 		generic_class_methods = [:find, :cleanup]
-		generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config]
+		generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config, :cloud_desc]
 
 		# Initialize empty classes for each of these. We'll fill them with code
 		# later; we're doing this here because otherwise the parser yells about
@@ -269,7 +269,7 @@ module MU
 							@dependencies[dep['type']][dep['name']] = handle
 						else
 							 # XXX yell under circumstances where we should expect to have
-							 # our stuff available already
+							 # our stuff available already?
 						end
 					}
 
@@ -316,14 +316,15 @@ module MU
 						@vpc = self
 					end
 
-					# Special dependencies: LoadBalancers I've asked to attach
+					# Special dependencies: LoadBalancers I've asked to attach to an
+					# instance.
 					if @config.has_key?("loadbalancers")
 						@loadbalancers = [] if !@loadbalancers
 						@config['loadbalancers'].each { |lb|
 							MU.log "Loading LoadBalancer for #{self}", MU::DEBUG, details: lb
-							if @dependencies.has_key?("loadbalancers") and 
-								 @dependencies["loadbalancers"].has_key?(lb['concurrent_load_balancer'])  
-								@loadbalancers << @dependencies["loadbalancers"][lb['concurrent_load_balancer']]
+							if @dependencies.has_key?("loadbalancer") and 
+								 @dependencies["loadbalancer"].has_key?(lb['concurrent_load_balancer'])  
+								@loadbalancers << @dependencies["loadbalancer"][lb['concurrent_load_balancer']]
 							else
 								if !lb.has_key?("existing_load_balancer") and
 									 !lb.has_key?("deploy_id")
@@ -379,10 +380,14 @@ module MU
 
 					# Register us with our parent deploy so that we can be found by our
 					# littermates if needed.
-					if self.class.has_multiples
-						@deploy.addKitten(self.class.cfg_name, @config['name'], self)
-					elsif !@cloudobj.mu_name.nil? and !@cloudobj.mu_name.empty?
-						@deploy.addKitten(self.class.cfg_name, @cloudobj.mu_name, self)
+					if !@cloudobj.mu_name.nil? and !@cloudobj.mu_name.empty?
+						if self.class.has_multiples
+							@deploy.addKitten(self.class.cfg_name, @config['name'], self)
+						else
+							@deploy.addKitten(self.class.cfg_name, @cloudobj.mu_name, self)
+						end
+					else
+						MU.log "#{self} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR
 					end
 				end
 
