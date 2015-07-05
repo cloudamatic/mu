@@ -471,7 +471,7 @@ module MU
 				end
 			}
 
-			if @kittens[type+"s"].nil?
+			if @original_config[type+"s"].nil?
 				raise GroomError, "I see no configured resources of type #{type} (bootstrap request for #{name} on #{@deploy_id})"
 			end
 			kitten = nil
@@ -484,25 +484,12 @@ module MU
 				@original_config[type+"s"].each { |svr|
 					if svr['name'] == name
 						svr["instance_id"] = instance.instance_id
-						if mu_name.nil? or mu_name.empty?
-							if type == "server_pool"
-								mu_name = MU::MommaCat.getResourceName(name, need_unique_string: true)
-							else
-								mu_name = MU::MommaCat.getResourceName(name)
-							end
-						end
-						MU.log "Grooming #{mu_name} for the first time", details: svr
 						kitten = MU::Cloud::Server.new(mommacat: self, kitten_cfg: svr)
-						@kittens["servers"] = {} if !@kittens.has_key?("servers")
-						@kittens["servers"][mu_name] = kitten
+						MU.log "Grooming #{kitten.mu_name} for the first time", details: svr
 						break
 					end
 				}
 			end
-
-#								if !data['mu_windows_name'].nil? and server['mu_windows_name'].nil?
-#									server['mu_windows_name'] = data['mu_windows_name']
-#								end
 
 			begin
 				# This is a shared lock with MU::Cloud::AWS::Server.create, to keep from

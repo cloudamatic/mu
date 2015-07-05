@@ -171,7 +171,7 @@ module MU
 							ip_permissions: ec2_rule
 						)
 					else
-						MU::Cloud::AWS.(@config['region']).authorize_security_group_ingress(
+						MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_ingress(
 							group_id: @cloud_id,
 							ip_permissions: ec2_rule
 						)
@@ -425,6 +425,7 @@ module MU
 
 						if !rule['hosts'].nil?
 							rule['hosts'].each { |cidr|
+								cidr = cidr + "/32" if cidr.match(/^\d+\.\d+\.\d+\.\d+$/)
 								ec2_rule[:ip_ranges] << { cidr_ip: cidr }
 							}
 						end

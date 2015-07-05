@@ -822,7 +822,7 @@ module MU
 				}
 			]
 
-			acl = { "name"=> name, "rules" => rules, "vpc" => realvpc, "region" => region, "cloud" => cloud }
+			acl = { "name"=> name, "rules" => rules, "vpc" => realvpc, "region" => region, "cloud" => cloud, "admin" => true }
 			@admin_firewall_rules << acl if !@admin_firewall_rules.include?(acl)
 			return { "type" => "firewall_rule", "name" => name }
 		end

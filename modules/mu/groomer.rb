@@ -26,7 +26,7 @@ module MU
 		end
 		# Instance methods that any Groomer plugin must implement
 		def self.requiredMethods
-			[:bootstrap, :haveBootstrapped?, :run, :syncDeployData]
+			[:preBootstrap, :bootstrap, :haveBootstrapped?, :run, :syncDeployData]
 		end
 
 		class Chef; end
@@ -63,8 +63,10 @@ module MU
 		MU::Groomer.requiredMethods.each { |method|
 			define_method method do |*args|
 				retval = nil
-				if !args.nil? and args.size > 0
+				if !args.nil? and args.size == 1
 					retval = @groomer_obj.method(method).call(args.first)
+				elsif !args.nil? and args.size > 0
+					retval = @groomer_obj.method(method).call(*args)
 				else
 					retval = @groomer_obj.method(method).call
 				end

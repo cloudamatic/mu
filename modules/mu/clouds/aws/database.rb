@@ -369,9 +369,9 @@ module MU
 					end
 
 					admin_sg = nil
-# XXX this sucks, make # dependencies get this for us instead
+# XXX this sucks, make #dependencies get this for us instead
 					@deploy.kittens['firewall_rules'].each_pair { |name, acl|
-						if name.match(/^admin-/) # XXX KLUUUDGE, get the exact name out of our dependencies or something
+						if acl.config["admin"]
 							admin_sg = acl
 							break
 						end
@@ -391,8 +391,9 @@ module MU
 						if nat_instance.nil?
 							MU.log "#{node} (#{MU.deploy_id}) is configured to use #{@config['vpc']} but I can't find a matching NAT instance", MU::ERR
 						end
-						admin_sg.addRule([nat_instance["private_ip_address"]], proto: "tcp")
-						admin_sg.addRule([nat_instance["private_ip_address"]], proto: "udp")
+						nat_name, nat_conf, nat_deploydata, nat_descriptor = @nat.describe
+						admin_sg.addRule([nat_deploydata["private_ip_address"]], proto: "tcp")
+						admin_sg.addRule([nat_deploydata["private_ip_address"]], proto: "udp")
 					end
 
 					if @config["snapshot_id"].nil?
@@ -920,6 +921,7 @@ module MU
 					return
 				end
 
+				subnet_group = nil
 				begin
 					if !db.db_subnet_group.nil?
 						subnet_group = db.db_subnet_group.db_subnet_group_name 

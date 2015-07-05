@@ -40,6 +40,19 @@ module MU
 				nodelist.has_key?(@server.mu_name)
 			end
 
+			# Preparation tasks that must be completed before bootstrapping Chef.
+			# @param ssh [Net::SSH::Connection::Session]: The active SSH session to the new node.
+			def preBootstrap(ssh)
+				chef_cleanup = %q{test -f /opt/mu_installed_chef || ( rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; touch /opt/mu_installed_chef )}
+
+				if !@server['cleaned_chef']
+					MU.log "Expunging pre-existing Chef install, if we didn't create it", MU::NOTICE
+					ssh.exec!(chef_cleanup)
+					@server['cleaned_chef'] = true
+				end
+			end
+
+
 			# Invoke the Chef client on the node at the other end of a provided SSH
 			# session.
 			# @param purpose [String] = A string describing the purpose of this client run.
@@ -187,9 +200,8 @@ module MU
 
 				retries = 0
 				begin
-					# A Chef bootstrap shouldn't take this long, but we get these random
-					# inexplicable hangs sometimes.
-					Timeout::timeout(600) {	
+					# A Chef bootstrap shouldn't take this long, but... Windows.
+					Timeout::timeout(1200) {	
 						require 'chef'
 					  kb.run
 					}

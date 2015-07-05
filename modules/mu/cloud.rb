@@ -214,17 +214,39 @@ module MU
 
 		@@resource_types.each_pair { |name, attrs|
 			Object.const_get("MU").const_get("Cloud").const_get(name).class_eval {
-				attr_reader :config
 				attr_reader :cloud
 				attr_reader :environment
 				attr_reader :cloudclass
 				attr_reader :cloudobj
 				attr_reader :deploy_id
+				attr_reader :mu_name
+				attr_reader :cloud_id
+				attr_reader :config
+				attr_reader :cloud_desc
+
 				def self.shortname
 					name.sub(/.*?::([^:]+)$/, '\1')
 				end
+				def self.cfg_plural
+					MU::Cloud.resource_types[shortname.to_sym][:cfg_plural]
+				end
+				def self.has_multiples
+					MU::Cloud.resource_types[shortname.to_sym][:has_multples]
+				end
+				def self.cfg_name
+					MU::Cloud.resource_types[shortname.to_sym][:cfg_name]
+				end
+				def self.can_live_in_vpc
+					MU::Cloud.resource_types[shortname.to_sym][:can_live_in_vpc]
+				end
+				def self.waits_on_parent_completion
+					MU::Cloud.resource_types[shortname.to_sym][:waits_on_parent_completion]
+				end
+				def self.deps_wait_on_my_creation
+					MU::Cloud.resource_types[shortname.to_sym][:deps_wait_on_my_creation]
+				end
 
-				# Print something palatable
+				# Print something palatable when we're called in a string context.
 				def to_s
 					fullname = "#{self.class.shortname}"
 					describe
@@ -239,6 +261,113 @@ module MU
 						fullname = fullname + " (#{@cloud_id})"
 					end
 					return fullname
+				end
+
+
+				# @param mommacat [MU::MommaCat]: The deployment containing this cloud resource
+				# @param mu_name [String]: Optional- specify the full Mu resource name of an existing resource to load, instead of creating a new one
+				# @param cloud_id [String]: Optional- specify the cloud provider's identifier for an existing resource to load, instead of creating a new one
+				# @param kitten_cfg [Hash]: The parse configuration for this object from {MU::Config}
+				def initialize(mommacat: nil,
+											 mu_name: nil,
+											 cloud_id: nil,
+											 kitten_cfg: kitten_cfg)
+					raise MuError, "Cannot invoke Cloud objects without a configuration" if kitten_cfg.nil?
+					@deploy = mommacat
+					@config = kitten_cfg
+					if !@deploy.nil?
+						@deploy_id = @deploy.deploy_id
+						MU.log "Initializing an instance of #{self.class.name} in #{@deploy_id} #{mu_name}", MU::DEBUG, details: kitten_cfg
+					else
+						MU.log "Initializing an instance of #{self.class.name}", MU::DEBUG, details: kitten_cfg
+					end
+					if !kitten_cfg.has_key?("cloud")
+						kitten_cfg['cloud'] = MU::Config.defaultCloud
+					end
+					@cloud = kitten_cfg['cloud']
+					@cloudclass = MU::Cloud.loadCloudType(@cloud, self.class.shortname)
+					@environment = kitten_cfg['environment']
+# XXX require subclass to provide attr_readers of @config and @deploy
+
+					@cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg, cloud_id: cloud_id, mu_name: mu_name)
+
+					raise MuError, "Unknown error instantiating #{self}" if @cloudobj.nil?
+
+					# If we just loaded an existing object, go ahead and prepopulate the
+					# describe() cache
+					if !cloud_id.nil? or !mu_name.nil?
+						@cloudobj.describe(cloud_id: cloud_id)
+					end
+
+					# Register us with our parent deploy so that we can be found by our
+					# littermates if needed.
+					if !@cloudobj.mu_name.nil? and !@cloudobj.mu_name.empty?
+						if self.class.has_multiples
+							@deploy.addKitten(self.class.cfg_name, @config['name'], self)
+						else
+							@deploy.addKitten(self.class.cfg_name, @cloudobj.mu_name, self)
+						end
+					else
+						MU.log "#{self} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR
+					end
+				end
+
+
+				# Retrieve all of the known metadata for this resource.
+				# @param cloud_id [String]: The cloud platform's identifier for the resource we're describing. Makes lookups more efficient.
+				# @param update_cache [Boolean]: Ignore cached data if we have any, instead reconsituting from original sources.
+				# @return [Array<Hash>]: mu_name, config, deploydata, cloud_descriptor
+				def describe(cloud_id: nil, update_cache: false)
+					if cloud_id.nil? and !@cloudobj.nil?
+						@cloud_id = @cloudobj.cloud_id
+					end
+					res_type = self.class.cfg_plural
+					res_name = @config['name'] if !@config.nil?
+					if !@deploy.nil? and @deploy.is_a?(MU::MommaCat) and
+							!@deploy.deployment.nil? and
+							!@deploy.deployment[res_type].nil? and
+							!@deploy.deployment[res_type][res_name].nil?
+						deploydata = @deploy.deployment[res_type][res_name]
+					elsif (update_cache or @deploydata.nil?) and !@deploy.nil? and @deploy.is_a?(MU::MommaCat)
+						deploydata = MU::MommaCat.getResourceMetadata(res_type, name: res_name, deploy_id: @deploy.deploy_id, mu_name: @mu_name)
+					end
+					# XXX :has_multiples is what to actually check here
+					if !@mu_name.nil? and deploydata.is_a?(Hash) and deploydata.has_key?(@mu_name)
+						@deploydata = deploydata[@mu_name]
+					else
+						@deploydata = deploydata
+					end
+					if @cloud_id.nil? and @deploydata.is_a?(Hash)
+						if @mu_name.nil? and @deploydata.has_key?('#MU_NAME')
+							@mu_name = @deploydata['#MU_NAME']
+						end
+						if @deploydata.has_key?('cloud_id')
+							@cloud_id = @deploydata['cloud_id']
+						else
+							# XXX temp hack to catch old Amazon-style identifiers. Remove this
+							# before supporting any other cloud layers, otherwise name
+							# collision is possible.
+							["vpc_id", "instance_id", "awsname", "identifier", "group_id", "id"].each { |identifier|
+								if @deploydata.has_key?(identifier)
+									@cloud_id = @deploydata[identifier]
+									if @mu_name.nil? and (identifier == "awsname" or identifier == "identifier" or identifier == "group_id")
+										@mu_name = @deploydata[identifier]
+									end
+									break
+								end
+							}
+						end
+					end
+					if (update_cache or @cloud_desc.nil?) and !@config.nil? and !@cloud_id.nil?
+						# The find() method should be returning a Hash with the cloud_id
+						# as a key.
+						matches = self.class.find(region: @config['region'], cloud_id: @cloud_id)
+						if !matches.nil? and matches.is_a?(Hash) and matches.has_key?(@cloud_id)
+							@cloud_desc = matches[@cloud_id]
+						end
+					end
+
+					return [@mu_name, @config, @deploydata, @cloud_desc]
 				end
 
 				# Fetch MU::Cloud objects for each of this object's dependencies, and
@@ -347,125 +476,6 @@ module MU
 					return [@dependencies, @vpc, @loadbalancers]
 				end
 
-				def initialize(mommacat: nil,
-											 mu_name: nil,
-											 cloud_id: nil,
-											 kitten_cfg: kitten_cfg)
-					raise MuError, "Cannot invoke Cloud objects without a configuration" if kitten_cfg.nil?
-					@deploy = mommacat
-					@config = kitten_cfg
-					if !@deploy.nil?
-						@deploy_id = @deploy.deploy_id
-						MU.log "Initializing an instance of #{self.class.name} in #{@deploy_id} #{mu_name}", MU::DEBUG, details: kitten_cfg
-					else
-						MU.log "Initializing an instance of #{self.class.name}", MU::DEBUG, details: kitten_cfg
-					end
-					if !kitten_cfg.has_key?("cloud")
-						kitten_cfg['cloud'] = MU::Config.defaultCloud
-					end
-					@cloud = kitten_cfg['cloud']
-					@cloudclass = MU::Cloud.loadCloudType(@cloud, self.class.shortname)
-					@environment = kitten_cfg['environment']
-# XXX require subclass to provide attr_readers of @config and @deploy
-
-					@cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg, cloud_id: cloud_id, mu_name: mu_name)
-
-					raise MuError, "Unknown error instantiating #{self}" if @cloudobj.nil?
-
-					# If we just loaded an existing object, go ahead and prepopulate the
-					# describe() cache
-					if !cloud_id.nil? or !mu_name.nil?
-						@cloudobj.describe(cloud_id: cloud_id)
-					end
-
-					# Register us with our parent deploy so that we can be found by our
-					# littermates if needed.
-					if !@cloudobj.mu_name.nil? and !@cloudobj.mu_name.empty?
-						if self.class.has_multiples
-							@deploy.addKitten(self.class.cfg_name, @config['name'], self)
-						else
-							@deploy.addKitten(self.class.cfg_name, @cloudobj.mu_name, self)
-						end
-					else
-						MU.log "#{self} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR
-					end
-				end
-
-				# Retrieve all of the known metadata for this resource.
-				# @param cloud_id [String]: The cloud platform's identifier for the resource we're describing. Makes lookups more efficient.
-				# @param update_cache [Boolean]: Ignore cached data if we have any, instead reconsituting from original sources.
-				# @return [Array<Hash>]: mu_name, config, deploydata, cloud_descriptor
-				def describe(cloud_id: nil, update_cache: false)
-					if cloud_id.nil? and !@cloudobj.nil?
-						@cloud_id = @cloudobj.cloud_id
-					end
-					res_type = self.class.cfg_plural
-					res_name = @config['name'] if !@config.nil?
-					if !@deploy.nil? and @deploy.is_a?(MU::MommaCat) and
-							!@deploy.deployment.nil? and
-							!@deploy.deployment[res_type].nil? and
-							!@deploy.deployment[res_type][res_name].nil?
-						deploydata = @deploy.deployment[res_type][res_name]
-					elsif (update_cache or @deploydata.nil?) and !@deploy.nil? and @deploy.is_a?(MU::MommaCat)
-						deploydata = MU::MommaCat.getResourceMetadata(res_type, name: res_name, deploy_id: @deploy.deploy_id, mu_name: @mu_name)
-					end
-					# XXX :has_multiples is what to actually check here
-					if !@mu_name.nil? and deploydata.is_a?(Hash) and deploydata.has_key?(@mu_name)
-						@deploydata = deploydata[@mu_name]
-					else
-						@deploydata = deploydata
-					end
-					if @cloud_id.nil? and @deploydata.is_a?(Hash)
-						if @mu_name.nil? and @deploydata.has_key?('#MU_NAME')
-							@mu_name = @deploydata['#MU_NAME']
-						end
-						if @deploydata.has_key?('cloud_id')
-							@cloud_id = @deploydata['cloud_id']
-						else
-							# XXX temp hack to catch old Amazon-style identifiers. Remove this
-							# before supporting any other cloud layers, otherwise name
-							# collision is possible.
-							["vpc_id", "instance_id", "awsname", "identifier", "group_id", "id"].each { |identifier|
-								if @deploydata.has_key?(identifier)
-									@cloud_id = @deploydata[identifier]
-									if @mu_name.nil? and (identifier == "awsname" or identifier == "identifier" or identifier == "group_id")
-										@mu_name = @deploydata[identifier]
-									end
-									break
-								end
-							}
-						end
-					end
-					if (update_cache or @cloud_desc.nil?) and !@config.nil? and !@cloud_id.nil?
-						# The find() method should be returning a Hash with the cloud_id
-						# as a key.
-						matches = self.class.find(region: @config['region'], cloud_id: @cloud_id)
-						if !matches.nil? and matches.is_a?(Hash) and matches.has_key?(@cloud_id)
-							@cloud_desc = matches[@cloud_id]
-						end
-					end
-
-					return [@mu_name, @config, @deploydata, @cloud_desc]
-				end
-
-				def self.cfg_plural
-					MU::Cloud.resource_types[shortname.to_sym][:cfg_plural]
-				end
-				def self.has_multiples
-					MU::Cloud.resource_types[shortname.to_sym][:has_multples]
-				end
-				def self.cfg_name
-					MU::Cloud.resource_types[shortname.to_sym][:cfg_name]
-				end
-				def self.can_live_in_vpc
-					MU::Cloud.resource_types[shortname.to_sym][:can_live_in_vpc]
-				end
-				def self.waits_on_parent_completion
-					MU::Cloud.resource_types[shortname.to_sym][:waits_on_parent_completion]
-				end
-				def self.deps_wait_on_my_creation
-					MU::Cloud.resource_types[shortname.to_sym][:deps_wait_on_my_creation]
-				end
 
 				def self.find(*flags)
 					MU::Cloud.supportedClouds.each { |cloud|
@@ -479,87 +489,90 @@ module MU
 					}
 				end
 
-# XXX This method should only exist for MU::Cloud::DNSZone
-				def self.genericMuDNSEntry(*flags)
+				if shortname == "DNSZone"
+					def self.genericMuDNSEntry(*flags)
 # XXX have this switch on a global config for where Mu puts its DNS
-					cloudclass = MU::Cloud.loadCloudType(MU::Config.defaultCloud, "DNSZone")
-					cloudclass.genericMuDNSEntry(flags.first)
+						cloudclass = MU::Cloud.loadCloudType(MU::Config.defaultCloud, "DNSZone")
+						cloudclass.genericMuDNSEntry(flags.first)
+					end
 				end
 
-# XXX This method should only exist for MU::Cloud::Server
-				# @param max_retries [Integer]: Number of connection attempts to make before giving up
-				# @param retry_interval [Integer]: Number of seconds to wait between connection attempts
-				# @return [Net::SSH::Connection::Session]
-				def getSSHSession(max_retries = 5, retry_interval = 30)
-					ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
-					nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
-					session = nil
-					retries = 0
-					begin
-						if !nat_ssh_host.nil?
-							proxy_cmd = "ssh -q -o StrictHostKeyChecking=no -W %h:%p #{nat_ssh_user}@#{nat_ssh_host}"
-							MU.log "Attempting SSH to #{@config['mu_name']} (#{canonical_ip}) as #{ssh_user} with key #{@deploy.ssh_key_name} using proxy '#{proxy_cmd}'" if retries == 0
-							proxy = Net::SSH::Proxy::Command.new(proxy_cmd)
-							session = Net::SSH.start(
-								canonical_ip,
-								ssh_user,
-								:config => false, 
-								:keys_only => true,
-								:keys => [ssh_keydir+"/"+nat_ssh_key, ssh_keydir+"/"+@deploy.ssh_key_name],
-								:paranoid => false,
-		#						:verbose => :info,
-								:port => 22,
-								:auth_methods => ['publickey'],
-								:proxy => proxy
-							)
-						else
-							MU.log "Attempting SSH to #{canonical_ip} as #{ssh_user} with key #{ssh_keydir}/#{@deploy.ssh_key_name}" if retries == 0
-							session = Net::SSH.start(
-								canonical_ip,
-								ssh_user,
-								:config => false, 
-								:keys_only => true,
-								:keys => [ssh_keydir+"/"+@deploy.ssh_key_name],
-								:paranoid => false,
-		#						:verbose => :info,
-								:port => 22,
-								:auth_methods => ['publickey']
-							)
-				    end
-					  rescue Net::SSH::HostKeyMismatch => e
-					    MU.log("Remembering new key: #{e.fingerprint}")
-					    e.remember_host!
-							session.close
-					    retry
-						rescue SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError => e
-							begin
-								session.close if !session.nil?
-							rescue Net::SSH::Disconnect, IOError => e
-								if %w{win2k12r2 win2k12 windows}.include?(@config['platform'])
-									MU.log "Windows has probably closed the ssh session before we could. Waiting before trying again", MU::NOTICE
-								else
-									MU.log "ssh session was closed unexpectedly, waiting before trying again", MU::NOTICE
-								end
-								sleep 10
-							end
-
-							if retries < max_retries
-								retries = retries + 1
-								msg = "ssh #{ssh_user}@#{@config['mu_name']}: #{e.message}, waiting #{retry_interval}s (attempt #{retries}/#{max_retries})"
-								if retries == 1 or (retries/max_retries <= 0.5 and (retries % 3) == 0)
-									MU.log msg, MU::NOTICE
-								elsif retries/max_retries > 0.5
-									MU.log msg, MU::WARN, details: e.inspect
-								end
-								sleep retry_interval
-								retry
+				if shortname == "Server"
+					# @param max_retries [Integer]: Number of connection attempts to make before giving up
+					# @param retry_interval [Integer]: Number of seconds to wait between connection attempts
+					# @return [Net::SSH::Connection::Session]
+					def getSSHSession(max_retries = 5, retry_interval = 30)
+						ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
+						nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
+						session = nil
+						retries = 0
+						begin
+							if !nat_ssh_host.nil?
+								proxy_cmd = "ssh -q -o StrictHostKeyChecking=no -W %h:%p #{nat_ssh_user}@#{nat_ssh_host}"
+								MU.log "Attempting SSH to #{@config['mu_name']} (#{canonical_ip}) as #{ssh_user} with key #{@deploy.ssh_key_name} using proxy '#{proxy_cmd}'" if retries == 0
+								proxy = Net::SSH::Proxy::Command.new(proxy_cmd)
+								session = Net::SSH.start(
+									canonical_ip,
+									ssh_user,
+									:config => false, 
+									:keys_only => true,
+									:keys => [ssh_keydir+"/"+nat_ssh_key, ssh_keydir+"/"+@deploy.ssh_key_name],
+									:paranoid => false,
+			#						:verbose => :info,
+									:port => 22,
+									:auth_methods => ['publickey'],
+									:proxy => proxy
+								)
 							else
-								raise MuError, "#{@config['mu_name']}: #{e.inspect} trying to connect with SSH, max_retries exceeded", e.backtrace
+								MU.log "Attempting SSH to #{canonical_ip} as #{ssh_user} with key #{ssh_keydir}/#{@deploy.ssh_key_name}" if retries == 0
+								session = Net::SSH.start(
+									canonical_ip,
+									ssh_user,
+									:config => false, 
+									:keys_only => true,
+									:keys => [ssh_keydir+"/"+@deploy.ssh_key_name],
+									:paranoid => false,
+			#						:verbose => :info,
+									:port => 22,
+									:auth_methods => ['publickey']
+								)
+					    end
+						  rescue Net::SSH::HostKeyMismatch => e
+						    MU.log("Remembering new key: #{e.fingerprint}")
+						    e.remember_host!
+								session.close
+						    retry
+							rescue SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError => e
+								begin
+									session.close if !session.nil?
+								rescue Net::SSH::Disconnect, IOError => e
+									if %w{win2k12r2 win2k12 windows}.include?(@config['platform'])
+										MU.log "Windows has probably closed the ssh session before we could. Waiting before trying again", MU::NOTICE
+									else
+										MU.log "ssh session was closed unexpectedly, waiting before trying again", MU::NOTICE
+									end
+									sleep 10
+								end
+
+								if retries < max_retries
+									retries = retries + 1
+									msg = "ssh #{ssh_user}@#{@config['mu_name']}: #{e.message}, waiting #{retry_interval}s (attempt #{retries}/#{max_retries})"
+									if retries == 1 or (retries/max_retries <= 0.5 and (retries % 3) == 0)
+										MU.log msg, MU::NOTICE
+									elsif retries/max_retries > 0.5
+										MU.log msg, MU::WARN, details: e.inspect
+									end
+									sleep retry_interval
+									retry
+								else
+									raise MuError, "#{@config['mu_name']}: #{e.inspect} trying to connect with SSH, max_retries exceeded", e.backtrace
+								end
 							end
-						end
-					return session
+						return session
+					end
 				end
 
+				# Wrapper for the cleanup class method of underlying cloud object implementations.
 				def self.cleanup(*flags)
 					MU::Cloud.supportedClouds.each { |cloud|
 						begin
@@ -587,8 +600,10 @@ module MU
 						end
 
 						retval = nil
-						if !args.nil? and args.size > 0
+						if !args.nil? and args.size == 1
 							retval = @cloudobj.method(method).call(args.first)
+						elsif !args.nil? and args.size > 0
+							retval = @cloudobj.method(method).call(*args)
 						else
 							retval = @cloudobj.method(method).call
 						end

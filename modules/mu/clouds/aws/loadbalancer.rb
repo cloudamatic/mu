@@ -348,7 +348,6 @@ module MU
 			def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil)
 				matches = {}
 				list = {}
-MU.log "LOADING ELB: cloud_id: #{cloud_id}", MU::NOTICE
 				resp = MU::Cloud::AWS.elb(region).describe_load_balancers
 				lb_names = []
 				resp.load_balancer_descriptions.each { |lb|

@@ -101,7 +101,11 @@ class Cloud
 					@mu_name = mu_name
 					@config['mu_name'] = @mu_name
 				else
-					@mu_name = MU::MommaCat.getResourceName(@config['name'])
+					if kitten_cfg.has_key?("basis")
+						@mu_name = MU::MommaCat.getResourceName(@config['name'], need_unique_string: true)
+					else
+						@mu_name = MU::MommaCat.getResourceName(@config['name'])
+					end
 					@config['mu_name'] = @mu_name
 
 					if %w{win2k12r2 win2k12 windows}.include?(@config['platform']) or @config['active_directory']
@@ -594,26 +598,24 @@ class Cloud
 				end
 				MU.log "Tagged #{node} (#{instance.instance_id}) with MU-ID=#{MU.deploy_id}", MU::DEBUG
 
-				retries = 0
-				id = instance.instance_id
+				retries = -1
 				begin
 					if instance.nil? or instance.state.name != "running"
+						retries = retries + 1
 						if !instance.nil? and instance.state.name == "terminated"
-							retries = 30
-							raise MuError, "#{id} appears to have been terminated mid-bootstrap!"
+							raise MuError, "#{@cloud_id} appears to have been terminated mid-bootstrap!"
 						end
 						if retries % 3 == 0
 							MU.log "Waiting for EC2 instance #{node} to be ready...", MU::NOTICE
 						end
-						sleep 20
+						sleep 40
 						# Get a fresh AWS descriptor
-						instance = MU::Cloud::Server.find(cloud_id: id, region: @config['region']).values.first
+						instance = MU::Cloud::Server.find(cloud_id: @cloud_id, region: @config['region']).values.first
 					end
 				rescue Aws::EC2::Errors::ServiceError => e
-					if retries < 30
-						MU.log "Got #{e.inspect} during initial instance creation of #{id}, retrying...", MU::NOTICE, details: instance
+					if retries < 20
+						MU.log "Got #{e.inspect} during initial instance creation of #{@cloud_id}, retrying...", MU::NOTICE, details: instance
 						retries = retries + 1
-						sleep 5
 						retry
 					else
 						raise MuError, "Too many retries creating #{node} (#{e.inspect})"
@@ -632,7 +634,7 @@ class Cloud
 				if !@config['src_dst_check'] and !@config["vpc"].nil?
 					MU.log "Disabling source_dest_check #{node} (making it NAT-worthy)"
 					MU::Cloud::AWS.ec2(@config['region']).modify_instance_attribute(
-						instance_id: instance.instance_id,
+						instance_id: @cloud_id,
 						source_dest_check: { :value => false }
 					)
 				end
@@ -640,7 +642,7 @@ class Cloud
 				# Set console termination protection. Autoscale nodes won't set this
 				# by default.
 				MU::Cloud::AWS.ec2(@config['region']).modify_instance_attribute(
-					instance_id: instance.instance_id,
+					instance_id: @cloud_id,
 					disable_api_termination: { :value => true }
 				)
 
@@ -648,7 +650,7 @@ class Cloud
 				if !instance.public_ip_address.nil?
 					begin
 						resp = MU::Cloud::AWS.ec2((@config['region'])).describe_addresses(public_ips: [instance.public_ip_address])
-						if resp.addresses.size > 0 and resp.addresses.first.instance_id == instance.instance_id
+						if resp.addresses.size > 0 and resp.addresses.first.instance_id == @cloud_id
 							has_elastic_ip = true
 						end
 					rescue Aws::EC2::Errors::InvalidAddressNotFound => e
@@ -993,15 +995,15 @@ class Cloud
 			# metadata. Arguments reflect the return values of the MU::Cloud::[Resource].describe method
 			def notify
 				node, config, deploydata, instance = describe(cloud_id: @cloud_id, update_cache: true)
-				deploydata = Hash.new if deploydata.nil?
+				deploydata = {} if deploydata.nil?
 
 				if instance.nil?
 					raise MuError, "Failed to load instance metadata for #{@config['mu_name']}/#{@cloud_id}"
 				end
 
-				interfaces = Array.new
-
+				interfaces = []
 				private_ips = []
+
 				instance.network_interfaces.each { |iface|
 					iface.private_ip_addresses .each { |priv_ip|
 						private_ips << priv_ip.private_ip_address
@@ -1013,7 +1015,7 @@ class Cloud
 					}
 				}
 
-				deploydata[node] = {
+				deploydata = {
 					"nodename" => @config['mu_name'],
 					"run_list" => @config['run_list'],
 					"iam_role" => @config['iam_role'],
@@ -1031,12 +1033,12 @@ class Cloud
 				}
 
 				if !@config['mu_windows_name'].nil?
-					deploydata[node]["mu_windows_name"] = @config['mu_windows_name']
+					deploydata["mu_windows_name"] = @config['mu_windows_name']
 				end
 				if !@config['chef_data'].nil?
-					deploydata[node].merge!(@config['chef_data'])
+					deploydata.merge!(@config['chef_data'])
 				end
-				deploydata[node]["region"] = @config['region'] if !@config['region'].nil?
+				deploydata["region"] = @config['region'] if !@config['region'].nil?
 				MU::MommaCat.nameKitten(self)
 
 				return deploydata
@@ -1050,6 +1052,9 @@ class Cloud
 					 !@config['vpc'].has_key?("nat_host_tag") and
 					 !@config['vpc'].has_key?("nat_host_ip") and
 					 !@config['vpc'].has_key?("nat_host_name"))
+if @config['name'] != "bastion"
+	raise MuError, "Failed to set up a bastion host for #{self}"
+end
 					return nil
 				end
 				dependencies if @nat.nil?
@@ -1057,9 +1062,9 @@ class Cloud
 					raise MuError, "#{@mu_name} (#{MU.deploy_id}) is configured to use #{@config['vpc']} but I can't find a matching NAT instance"
 				end
 				nat_name, nat_conf, nat_deploydata, nat_descriptor = @nat.describe
-				MU.log "Adding administrative holes for NAT host #{nat_deploydata["private_ip_address"]} to #{@mu_name}", MU::DEBUG
+				MU.log "Adding administrative holes for NAT host #{nat_deploydata["private_ip_address"]} to #{@mu_name}", MU::WARN
 				@deploy.kittens['firewall_rules'].each_pair { |name, acl|
-					if name.match(/^admin-/) # XXX KLUUUDGE, get the exact name out of our dependencies or something
+					if acl.config["admin"]
 						acl.addRule([nat_deploydata["private_ip_address"]], proto: "tcp")
 						acl.addRule([nat_deploydata["private_ip_address"]], proto: "udp")
 					end
@@ -1090,8 +1095,8 @@ class Cloud
 								raise MuError, "Couldn't find dependent database #{dependent_on['name']} for server #{@config["name"]}"
 							end
 							private_ip = @config['private_ip_address']
-							if private_ip != nil and db_id != nil then
-								MU.log "Adding #{private_ip}/32 to database security groups for #{db_id}"
+							if private_ip != nil and database.cloud_id != nil then
+								MU.log "Adding #{private_ip}/32 to database security groups for #{database.cloud_id}"
 								database.allowHost("#{private_ip}/32")
 							end
 						end
@@ -1330,8 +1335,6 @@ class Cloud
 				ssh_keydir = "#{Etc.getpwuid(Process.uid).dir}/.ssh"
         ssh_key_name = @deploy.ssh_key_name
 
-# XXX this is throwing a nutty about the instance_id parameter being missing, but it's not. What?
-MU.log "MU::Cloud::AWS.ec2(#{@config['region']}).wait_until(:password_data_available, instance_id: #{@cloud_id})", MU::WARN
 				MU::Cloud::AWS.ec2(@config['region']).wait_until(:password_data_available, instance_id: @cloud_id) do |waiter|
 					waiter.max_attempts = 60
 					waiter.before_attempt do |attempts|
