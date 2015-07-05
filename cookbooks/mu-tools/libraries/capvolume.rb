@@ -139,9 +139,9 @@ module CAPVolume
 		create_volume(volume_label, volume_size_gb)
 	end
 
-	def get_cloudprovider 
-		cloudprovider = nil
-		cloudprovider = 'ec2' unless node.attribute?("cloudprovider")
+	def get_cloudprovider
+		cloudprovider = 'ec2'
+		cloudprovider = node.cloudprovider if node.attribute?("cloudprovider")
 		return cloudprovider
 	end
 
@@ -176,7 +176,7 @@ module CAPVolume
 				volume_id
 			else
 				Chef::Log.info("create_volume fail zone not found")
-			end	   
+			end
 		else
 			Chef::Log.info("create_volume in the nonec2 branch with volume #{volume_label}")
 		end
@@ -184,7 +184,7 @@ module CAPVolume
 
 	# Attachment methods for volumes
 	def attach_node_volume (volume_label)
-				# XXX should check whether this device name is already allocated, 
+				# XXX should check whether this device name is already allocated,
 				# and if so throw an exception
 		# Helper method, attach an arbitrary volume using an arbitrary label that must be preconfigured in nodes
 		Chef::Log.info("In attach_node_volume with volume_label #{volume_label}")
@@ -192,7 +192,7 @@ module CAPVolume
 		volume_id = node.application_attributes[volume_label].volume_id
 
 		if mount_device.nil?
-			Chef::Log.fatal("No mount device for volume label #{volume_label}.	Must supply a volume label configured in nodes") 
+			Chef::Log.fatal("No mount device for volume label #{volume_label}.	Must supply a volume label configured in nodes")
 			raise
 		end
 
@@ -244,7 +244,7 @@ module CAPVolume
 			device_status = check_device_status(mount_device)
 
 			unless device_status == "unattached"
-				Chef::Log.error("Not attempting attachment, device #{mount_device} is in status #{device_status}") 
+				Chef::Log.error("Not attempting attachment, device #{mount_device} is in status #{device_status}")
 				device_status
 				return
 			end
@@ -253,7 +253,7 @@ module CAPVolume
 			instance_id = get_ec2_attribute("instance-id")
 
 			if volume_id.nil?
-				Chef::Log.fatal("No volume created for label #{volume_label}") 
+				Chef::Log.fatal("No volume created for label #{volume_label}")
 				raise
 			else
 				Chef::Log.info("Node indicates an existing mounted volume of #{volume_id}")
@@ -273,7 +273,7 @@ module CAPVolume
 			end
 
 			if response.nil? || response.length == 0
-				Chef::Log.fatal("Error in attach, former attach is in place but node reflects new volume") 
+				Chef::Log.fatal("Error in attach, former attach is in place but node reflects new volume")
 				raise
 			else
 				node.set.application_attributes[volume_label].mount_device = mount_device

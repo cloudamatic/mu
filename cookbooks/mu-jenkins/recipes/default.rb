@@ -7,13 +7,11 @@
 # All rights reserved - Do Not Redistribute
 #
 
-include_recipe 'mu-jenkins::public_key'
 include_recipe 'mu-utility::disable-requiretty'
 include_recipe 'mu-utility::iptables'
 include_recipe 'chef-vault'
 
 admin_vault = chef_vault_item(node.jenkins_admin_vault[:vault], node.jenkins_admin_vault[:item])
-ssh_vault = chef_vault_item(node.jenkins_ssh_vault[:vault], node.jenkins_ssh_vault[:item])
 
 case node.platform
 when "centos", "redhat"
@@ -23,38 +21,7 @@ when "centos", "redhat"
 		end
 	}
 
-	ssh_user = "root" if node.platform_version.to_i == 6
-	ssh_user = "centos" if node.platform_version.to_i == 7
-
-	directory "#{node.jenkins.master.home}/.ssh" do
-		owner "jenkins"
-		group "jenkins"
-		mode 0700
-	end
-
-	ssh_key_path = "#{node.jenkins.master.home}/.ssh/jenkins_ssh"
-
-	template "#{node.jenkins.master.home}/.ssh/config" do
-		source "ssh_config.erb"
-		owner "jenkins"
-		group "jenkins"
-		mode 0600
-		variables(
-			:ssh_user => ssh_user,
-			:ssh_key_path => ssh_key_path,
-			:ssh_urls => node.jenkins_ssh_urls
-		)
-	end
-
-	file ssh_key_path do
-		owner "jenkins"
-		group "jenkins"
-		mode 0400
-		content ssh_vault['private_key'].strip
-		sensitive true
-	end
-
-	%w{npm git bzip2}.each { |pkg|
+	%w{git bzip2}.each { |pkg|
 		package pkg
 	}
 
@@ -78,7 +45,7 @@ when "centos", "redhat"
 		jenkins_user user[:user_name] do
 			full_name user[:fullname]
 			email user[:email]
-			password user_vault['password']
+			password user_vault["#{user[:user_name]}_password"]
 			sensitive true
 		end	
 	}
@@ -108,7 +75,7 @@ when "centos", "redhat"
 		action :nothing
 	end
 
-	%w{nodejs github ssh deploy}.each { |plugin|
+	node.jenkins_plugins.each { |plugin|
 		jenkins_plugin plugin do
 			notifies :restart, 'service[jenkins]', :delayed
 		end

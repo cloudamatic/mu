@@ -1,5 +1,5 @@
 {
-	"name": "prod",
+	"name": "PROD",
 	"default_attributes": {
 	  },
 	"json_class": "Chef::Environment",
