@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-case node.platform_family
+case node.platform
 when "windows"
 	execute "del c:\\Mu-Bootstrap*"
 	file "c:\\mu-installer-ran-updates" do
@@ -52,19 +52,38 @@ when "windows"
 			action :delete
 		end
 	}
-
-when "rhel"
+when "centos", "redhat"
 	if node.platform_version.to_i == 7
 		execute "sed -i '/^preserve_hostname/d' /etc/cloud/cloud.cfg" do
 			only_if "grep 'preserve_hostname: true' /etc/cloud/cloud.cfg"
 		end
+
+		execute "sed -i '_^/bin/sh /var/lib/cloud/instances/_d' /etc/rc.d/rc.local" do
+			only_if "grep '/bin/sh /var/lib/cloud/instances/' /etc/rc.d/rc.local"
+		end
+	elsif node.platform_version.to_i == 6
+		execute "sed -i '_^/bin/sh /var/lib/cloud/instance/_d' /etc/rc.d/rc.local" do
+			only_if "grep '/bin/sh /var/lib/cloud/instance/' /etc/rc.d/rc.local"
+		end
+	end
+
+	file "/.mu-installer-ran-updates" do
+		action :delete
 	end
 
 	directory "/etc/chef" do
 		action :delete
 		recursive true
 	end
-else
+when "ubuntu"
+	file "/.mu-installer-ran-updates" do
+		action :delete
+	end
+	
+	execute "sed -i '_^/bin/sh /var/lib/cloud/instance/user-data.txt_d' /etc/rc.local" do
+		only_if "grep '/bin/sh /var/lib/cloud/instance/user-data.txt' /etc/rc.local"
+	end
+
 	directory "/etc/chef" do
 		action :delete
 		recursive true

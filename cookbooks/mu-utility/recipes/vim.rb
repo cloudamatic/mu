@@ -16,13 +16,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-case node[:platform]
-
-	when "centos", "ubuntu"
-		package("vim-minimal")
-		package("vim-enhanced")
-
-	else
-		Chef::Log.info("Unsupported platform #{node[:platform]}")
+case node.platform
+when "centos", "redhat", "ubuntu"
+	%w{vim-minimal vim-enhanced}.each { |pkg|
+		package pkg
+	}
+else
+	Chef::Log.info("Unsupported platform #{node.platform}")
 end
-

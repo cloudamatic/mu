@@ -77,9 +77,19 @@ default['nagios']['default_service']['retry_interval'] = 30
 default['chef_node_name'] = Chef::Config[:node_name]
 default['nagios']['host_name_attribute'] = 'chef_node_name'
 
-default[:application_attributes][:logs]["volume_size_gb"] = 50
-default[:application_attributes][:logs][:mount_device] = "/dev/xvdl"
-default[:application_attributes][:logs][:label] = "#{node.hostname} /Mu_Logs"
-default[:application_attributes][:logs][:secure_location] = MU.adminBucketName
-default[:application_attributes][:logs][:ebs_keyfile] = "log_vol_ebs_key"
-default[:application_attributes][:logs][:mount_directory] = "/Mu_Logs"
+default['application_attributes']['logs']['volume_size_gb'] = 50
+default['application_attributes']['logs']['mount_device'] = "/dev/xvdl"
+default['application_attributes']['logs']['label'] = "#{node.hostname} /Mu_Logs"
+default['application_attributes']['logs']['secure_location'] = MU.adminBucketName
+default['application_attributes']['logs']['ebs_keyfile'] = "log_vol_ebs_key"
+default['application_attributes']['logs']['mount_directory'] = "/Mu_Logs"
+
+case node.platform
+when "centos"
+	ssh_user = "root" if node.platform_version.to_i == 6
+	ssh_user = "centos" if node.platform_version.to_i == 7
+when "redhat"
+	ssh_user = "ec2-user"
+end
+
+default['application_attributes']['sshd_allow_groups'] = "#{ssh_user} mu-users"

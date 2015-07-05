@@ -17,6 +17,6 @@
 # limitations under the License.
 
 chef_gem "aws-sdk-core" do
-	version "2.0.41"
+	version "2.1.2"
 	action :install
 end
