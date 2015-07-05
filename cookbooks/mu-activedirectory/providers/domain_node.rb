@@ -176,6 +176,7 @@ def config_ssh_ntp_dns
 		source "sshd_config.erb"
 		owner "root"
 		group "root"
+		cookbook "mu-tools"
 		mode 0600
 		notifies :restart, "service[sshd]", :immediately
 		# variables(

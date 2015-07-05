@@ -6,17 +6,33 @@
 
 # XXX should probably get this through their main site or a mirror redirector,
 # rather than some random mirror
-EPEL_RPM="http://mirror.pnl.gov/epel/6/i386/epel-release-6-8.noarch.rpm"
+DIST_VERSION=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
 
-PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.7.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx mysql-devel postgresql-devel openssl libyaml graphviz graphviz-devel"
-DEL_PACKAGES="nagios"
+EPEL_RPM="http://mirror.metrocast.net/fedora/epel/epel-release-latest-$DIST_VERSION.noarch.rpm"
 
-OPSCODE_CHEF_PKG="chef-server-core-12.1.0-1.el6.x86_64"
-OPSCODE_CHEF_DL="https://web-dl.packagecloud.io/chef/stable/packages/el/6/${OPSCODE_CHEF_PKG}.rpm"
-CHEF_CLIENT_PKG="chef-12.4.0-1.el6.x86_64"
+CHEF_CLIENT_VERSION="12.4.0-1"
 
-RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby212-2.1.2p205-1.el6.x86_64.rpm"
-RUBY_INSTALL_DIR="/opt/rubies/ruby212-2.1.2-p205"
+if [ $DIST_VERSION == 7 ];then
+	# mariadb replaces mysql, qt and qt-x11 are required by gecode which is required by the dep_selector gem. 
+	PACKAGES="git curl vim-enhanced zip unzip java-1.8.0-openjdk gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx postgresql-devel openssl libyaml graphviz graphviz-devel mariadb mariadb-devel qt qt-x11 iptables-services"
+	DEL_PACKAGES="nagios firewalld"
+	OPSCODE_CHEF_PKG="chef-server-core-12.1.0-1.el7.x86_64"
+	OPSCODE_CHEF_DL="https://web-dl.packagecloud.io/chef/stable/packages/el/7/${OPSCODE_CHEF_PKG}.rpm"
+	CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el7.x86_64"
+	RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby-2.1.6-1.el7.x86_64.rpm"
+	RUBY_INSTALL_DIR="/opt/rubies/ruby-2.1.6"
+	RUBY_VERSION="ruby-2.1.6"
+	GECODE_RPMS="https://s3.amazonaws.com/cap-public/gecode-3.7.3-2.el7.centos.x86_64.rpm https://s3.amazonaws.com/cap-public/gecode-devel-3.7.3-2.el7.centos.x86_64.rpm"
+else
+	PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.7.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx mysql-devel postgresql-devel openssl libyaml graphviz graphviz-devel"
+	OPSCODE_CHEF_PKG="chef-server-core-12.1.0-1.el6.x86_64"
+	OPSCODE_CHEF_DL="https://web-dl.packagecloud.io/chef/stable/packages/el/6/${OPSCODE_CHEF_PKG}.rpm"
+	CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el6.x86_64"
+	RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby212-2.1.2p205-1.el6.x86_64.rpm"
+	RUBY_INSTALL_DIR="/opt/rubies/ruby212-2.1.2-p205"
+	RUBY_VERSION="ruby212"
+	DEL_PACKAGES="nagios"
+fi
 
 GET_METADATA="curl --fail -s http://169.254.169.254/latest"
 RCFILE=".murc"
@@ -790,32 +806,41 @@ clone_repository()
 	clone_path=$2
 
 	clone_ssh="git clone git@github.com:$repo $clone_path"
+	# This is ugly. Adding a 30 second timeout for HTTPS clone so we don't hang if prompted for a username and/or password. 
+	clone_https="timeout 30 git clone https://github.com/$repo $clone_path"
 	mkdir -p $clone_path
 	if [ "$(ls -A $clone_path)" ];then
 		echo "$clone_path exists and is non-empty. I'm going to assume the repo has already been cloned..."
 		sleep 3
 	else
 		mkdir -p $SSHDIR
-		if [ "`grep ^github.com $SSHDIR/known_hosts 2>/dev/null`" != "" ];then
-			echo "Attempting to clone $repo with existing keys..."
-			echo $clone_ssh
-			$clone_ssh 2>&1 > /dev/null
-		fi
-		if [ $? != 0 -o "`grep ^github.com $SSHDIR/known_hosts 2>/dev/null`" == "" ];then
-			echo ""
-			authtype=""
-			echo "We'll need a key for access to ${BOLD}$repo${NORM}."
-			if [ "$use_defaults" != "" ];then
-			  fail_with_message "In non-interactive mode, but I need Git credentials! Run without -n."
+		echo "Attempting to clone $repo without private key."
+		echo $clone_https
+		$clone_https 2>&1 > /dev/null
+		if [ "$(ls -A $clone_path)" ];then
+			echo "$clone_path exists and is not empty. I'm going to assume $repo was cloned successfully without a private key"
+		else
+			if [ "`grep ^github.com $SSHDIR/known_hosts 2>/dev/null`" != "" ];then
+				echo "Attempting to clone $repo with existing keys..."
+				echo $clone_ssh
+				$clone_ssh 2>&1 > /dev/null
 			fi
-			while /bin/true ;do
-			    rm -rf $clone_path
-			    expunge_github_ssh_key $keyname
-			    echo ""
-			    set_up_github_ssh_key $repo
-			    echo $clone_ssh
-			    $clone_ssh && break
-			done
+			if [ $? != 0 -o "`grep ^github.com $SSHDIR/known_hosts 2>/dev/null`" == "" ];then
+				echo ""
+				authtype=""
+				echo "We'll need a key for access to ${BOLD}$repo${NORM}."
+				if [ "$use_defaults" != "" ];then
+				  fail_with_message "In non-interactive mode, but I need Git credentials! Run without -n."
+				fi
+				while /bin/true ;do
+					rm -rf $clone_path
+					expunge_github_ssh_key $keyname
+					echo ""
+					set_up_github_ssh_key $repo
+					echo $clone_ssh
+					$clone_ssh && break
+				done
+			fi
 		fi
 	fi
 
@@ -828,6 +853,10 @@ set_hostname()
 	if [ "$HOSTNAME" != "`hostname -s`" ];then
 		hostname $HOSTNAME
 		sed -i "s/^HOSTNAME=.*/HOSTNAME=$HOSTNAME/" /etc/sysconfig/network
+
+		if [ $DIST_VERSION == 7 ];then
+			hostnamectl set-hostname $HOSTNAME && systemctl restart systemd-hostnamed
+		fi
 	fi
 	if ! grep "^$MY_PRIVATE_IP $HOSTNAME MU-MASTER" /etc/hosts > /dev/null;then
 		sed -i "/ $HOSTNAME/d" /etc/hosts
@@ -853,6 +882,14 @@ install_system_packages()
 		rpm -ivh ${EPEL_RPM}
 	fi
 
+	uninstall_me=""
+	for pkg in $DEL_PACKAGES;do
+		rpm -q $pkg 2>&1 > /dev/null && uninstall_me="${install_me} $pkg"
+	done
+	if [ "$uninstall_me" != "" ];then
+		yum -y erase ${uninstall_me} || exit 1
+	fi
+
 	install_me=""
 	for pkg in $PACKAGES;do
 		rpm -q $pkg 2>&1 > /dev/null || install_me="${install_me} $pkg"
@@ -862,12 +899,10 @@ install_system_packages()
 		yum -y install ${install_me} || exit 1
 	fi
 
-	uninstall_me=""
-	for pkg in $DEL_PACKAGES;do
-		rpm -q $pkg 2>&1 > /dev/null && uninstall_me="${install_me} $pkg"
-	done
-	if [ "$uninstall_me" != "" ];then
-		yum -y erase ${uninstall_me} || exit 1
+	if [ $DIST_VERSION == 7 ];then
+		for pkg in $GECODE_RPMS;do
+			rpm -ivh $pkg
+		done
 	fi
 }
 
@@ -907,10 +942,10 @@ install_ruby()
 {
 	status_message "Installing latest ${BOLD}Ruby${NORM} stable snapshot"
 
-	if ! rpm -q ruby212 > /dev/null ;then
+	if ! rpm -q $RUBY_VERSION > /dev/null ;then
 		rpm -ivh $RUBY_RPM
 	fi
-	rm -f /usr/local/ruby-current 
+	rm -f /usr/local/ruby-current
 	ln -s $RUBY_INSTALL_DIR /usr/local/ruby-current
 
 	# Init Mu's gem library now that it has a Ruby to use.
@@ -1091,8 +1126,8 @@ install_chef()
 	if ! rpm -q $CHEF_CLIENT_PKG > /dev/null ;then
 		status_message "Installing current Chef client"
 		yum -y erase chef
-		curl https://www.opscode.com/chef/install.sh > /root/chef-install.sh
-		sh /root/chef-install.sh
+		curl https://www.chef.io/chef/install.sh > /root/chef-install.sh
+		sh /root/chef-install.sh -v $CHEF_CLIENT_VERSION
 	fi
 	add_chef_support_gems /opt/chef/embedded
 	set_knife_rb organizations/mu

@@ -159,16 +159,26 @@ UseDNS no
 Ciphers aes128-ctr,aes192-ctr,aes256-ctr
 
 # If we've set AllowGroups, use that instead of restricting to root
-<% begin %>
+<%
+begin
+	if !node.application_attributes.sshd_allow_groups.empty? %>
 AllowGroups <%= node.application_attributes.sshd_allow_groups %>
-<% rescue NoMethodError %>
+<%
+	else
+	%>
 AllowUsers root
-<% end %>
+<%
+	end
+rescue NoMethodError %>
+AllowUsers root
+<%
+end
+%>
 
+# Support SFTP-only servers, while we're at it
 <%
 begin
 	if node.application_attributes.sftp_only_group %>
-# Support SFTP-only servers, while we're at it
 Match Group <%= node.application_attributes.sftp_only_group %>
 	ForceCommand internal-sftp
 <%  begin

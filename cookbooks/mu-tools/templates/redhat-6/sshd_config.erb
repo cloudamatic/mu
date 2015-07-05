@@ -160,11 +160,21 @@ UseDNS no
 Ciphers aes128-ctr,aes192-ctr,aes256-ctr
 
 # If we've set AllowGroups, use that instead of restricting to ec2-user
-<% begin %>
+<%
+begin
+	if !node.application_attributes.sshd_allow_groups.empty? %>
 AllowGroups <%= node.application_attributes.sshd_allow_groups %>
-<% rescue NoMethodError %>
+<%
+	else
+	%>
 AllowUsers ec2-user
-<% end %>
+<%
+	end
+rescue NoMethodError %>
+AllowUsers ec2-user
+<%
+end
+%>
 
 # Support SFTP-only servers, while we're at it
 <%
