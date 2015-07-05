@@ -58,7 +58,7 @@ when "centos"
 	include_recipe "apache2"
 	include_recipe "apache2::mod_ssl"
 	include_recipe "apache2::mod_php5"
-	include_recipe "apache2::logrotate"
+#	include_recipe "apache2::logrotate"
 	include_recipe "git"
 	
 	%w{openssl php-mysql php-pear php-drush-drush php-gd}.each { |pkg|

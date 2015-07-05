@@ -223,6 +223,7 @@ module MU
 				attr_reader :cloud_id
 				attr_reader :config
 				attr_reader :cloud_desc
+				attr_reader :deploydata
 
 				def self.shortname
 					name.sub(/.*?::([^:]+)$/, '\1')
@@ -361,9 +362,13 @@ module MU
 					if (update_cache or @cloud_desc.nil?) and !@config.nil? and !@cloud_id.nil?
 						# The find() method should be returning a Hash with the cloud_id
 						# as a key.
-						matches = self.class.find(region: @config['region'], cloud_id: @cloud_id)
-						if !matches.nil? and matches.is_a?(Hash) and matches.has_key?(@cloud_id)
-							@cloud_desc = matches[@cloud_id]
+						begin
+							matches = self.class.find(region: @config['region'], cloud_id: @cloud_id)
+							if !matches.nil? and matches.is_a?(Hash) and matches.has_key?(@cloud_id)
+								@cloud_desc = matches[@cloud_id]
+							end
+						rescue Exception => e
+							MU.log "Got #{e.inspect} trying to find cloud handle for #{@mu_name}", MU::WARN
 						end
 					end
 
@@ -391,10 +396,9 @@ module MU
 					@config['dependencies'].each { |dep|
 						@dependencies[dep['type']] = {} if !@dependencies.has_key?(dep['type'])
 						next if @dependencies[dep['type']].has_key?(dep['name'])
-#MU.log "#{self.class.cfg_name}:#{self.config['name']} calling into findLitterMate(type: #{dep['type']}, name: #{dep['name']}).", MU::WARN, details: dep
 						handle = @deploy.findLitterMate(type: dep['type'], name: dep['name'])
 						if !handle.nil?
-							MU.log "Loaded dependency for #{self}: #{dep['name']} => #{handle}", MU::NOTICE
+							MU.log "Loaded dependency for #{self}: #{dep['name']} => #{handle}", MU::DEBUG
 							@dependencies[dep['type']][dep['name']] = handle
 						else
 							 # XXX yell under circumstances where we should expect to have

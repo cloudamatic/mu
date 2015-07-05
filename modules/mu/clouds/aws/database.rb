@@ -611,7 +611,7 @@ module MU
 				if !cloud_desc.db_security_groups.empty?
 					cloud_desc.db_security_groups.each { |rds_sg|
 						begin
-						MU::Cloud::AWS.rds(@config['region']).authorize_db_security_group_ingress(
+							MU::Cloud::AWS.rds(@config['region']).authorize_db_security_group_ingress(
 							db_security_group_name: rds_sg.db_security_group_name,
 							cidrip: cidr
 						)
@@ -622,10 +622,10 @@ module MU
 				end
 
 				# Otherwise go get our generic EC2 ruleset and punch a hole in it
-				if !cloud_desc.vpc_security_groups.empty?
-					cloud_desc.vpc_security_groups.each { |vpc_sg|
-						fwrule = MU::MommaCat::findStray(@config['cloud'], "firewall_rule", cloud_id: vpc_sg.vpc_security_group_id)
-						fwrule.addRule([cidr], proto: "tcp")
+				if @dependencies.has_key?('firewall_rule')
+					@dependencies['firewall_rule'].values.each { |sg|
+						sg.addRule([cidr], proto: "tcp")
+						break
 					}
 				end
 			end

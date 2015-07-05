@@ -69,7 +69,7 @@ module MU
 					secgroup = MU::MommaCat.findStray(@config['cloud'], "firewall_rule", mu_name: groupname, region: @config['region'], deploy_id: @deploy.deploy_id).first
 					@cloud_id = secgroup.cloud_id
 					if secgroup.nil?
-						raise MuError, "Failed to locate security group named #{groupname}, even though EC2 says it already exists"
+						raise MuError, "Failed to locate security group named #{groupname}, even though EC2 says it already exists", e.backtrace
 					end
 					mu_name, config, deploydata, cloud_descriptor = secgroup.describe
 					secgroup = cloud_descriptor
@@ -194,7 +194,7 @@ module MU
 						resp = MU::Cloud::AWS.ec2(region).describe_security_groups(group_ids: [cloud_id])
 						return { cloud_id => resp.data.security_groups.first }
 					rescue Aws::EC2::Errors::InvalidGroupNotFound => e
-						MU.log e.inspect, MU::WARN
+						MU.log "Attempting to load #{cloud_id}: #{e.inspect}", MU::WARN, details: caller
 					return {}
 					end
 				end
@@ -372,7 +372,7 @@ module MU
 							sleep 10
 							retry
 						else
-							raise MuError, "#{@mu_name} does not exist"
+							raise MuError, "#{@mu_name} does not exist", e.backtrace
 						end
 					rescue Aws::EC2::Errors::InvalidPermissionDuplicate => e
 						MU.log "Attempt to add duplicate rule to #{@mu_name}", MU::DEBUG, details: ec2_rules
@@ -401,8 +401,7 @@ module MU
 							p_start = rule['port']
 							p_end = rule['port']
 						elsif rule['proto'] != "icmp"
-							MU.log "Can't create a TCP or UDP security group rule without specifying ports.", MU::ERR, details: rule
-							raise MuError, "Can't create a TCP or UDP security group rule without specifying ports."
+							raise MuError, "Can't create a TCP or UDP security group rule without specifying ports: #{rule}"
 						end
 						if rule['proto'] != "icmp"
 							if p_start.nil? or p_end.nil?
@@ -472,7 +471,6 @@ module MU
 										found_sgs = MU::MommaCat.findStray("AWS", "firewall_rule", name: sg_name, region: @config['region'], calling_deploy: @deploy)
 									end
 									if found_sgs.nil? or found_sgs.size == 0
-										MU.log "Couldn't find FirewallRule #{sg_name} for poor #{@mu_name}", MU::ERR, details: @dependencies
 										raise MuError, "Attempted to reference non-existing Security Group #{sg_name} while building #{@mu_name}"
 									end
 									sg = found_sgs.first

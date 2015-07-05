@@ -145,10 +145,11 @@ class Cloud
 			# @param custom_append [String]: Arbitrary extra code to append to our default userdata behavior.
 			# @return [String]
 			def self.fetchUserdata(
-															platform: platform = "linux",
-															template_variables: template_variables = Hash.new,
-															custom_append: custom_append = nil
+															platform: "linux",
+															template_variables: {},
+															custom_append:  nil
 														)
+				return nil if platform.nil? or platform.empty?
 				userdata_mutex.synchronize {
 					if template_variables.nil? or !template_variables.is_a?(Hash)
 						raise MuError, "My second argument should be a hash of variables to pass into ERB templates"
@@ -159,7 +160,7 @@ class Cloud
 					platform = "windows" if %w{win2k12r2 win2k12}.include? platform
 					erbfile = "#{userdata_dir}/#{platform}.erb"
 					if !File.exist?(erbfile)
-						MU.log "No such userdata template '#{erbfile}'", MU::WARN
+						MU.log "No such userdata template '#{erbfile}'", MU::WARN, details: caller
 						return ""
 					end
 					userdata = File.read(erbfile)
@@ -365,6 +366,13 @@ class Cloud
 					instance_profile_name: rolename,
 					role_name: rolename
 				)
+				begin
+					MU::Cloud::AWS.iam.get_role(role_name: rolename)
+				rescue Exception => e
+					MU.log e.inspect, MU::WARN
+					sleep 30
+					retry
+				end
 
 				return rolename
 			end
@@ -1062,7 +1070,7 @@ end
 					raise MuError, "#{@mu_name} (#{MU.deploy_id}) is configured to use #{@config['vpc']} but I can't find a matching NAT instance"
 				end
 				nat_name, nat_conf, nat_deploydata, nat_descriptor = @nat.describe
-				MU.log "Adding administrative holes for NAT host #{nat_deploydata["private_ip_address"]} to #{@mu_name}", MU::WARN
+				MU.log "Adding administrative holes for NAT host #{nat_deploydata["private_ip_address"]} to #{@mu_name}", MU::DEBUG
 				@deploy.kittens['firewall_rules'].each_pair { |name, acl|
 					if acl.config["admin"]
 						acl.addRule([nat_deploydata["private_ip_address"]], proto: "tcp")

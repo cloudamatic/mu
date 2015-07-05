@@ -77,6 +77,7 @@ module MU
 				retries = 0
 				output = []
 				error_signal = "CHEF EXITED BADLY: "+(0...25).map { ('a'..'z').to_a[rand(26)] }.join
+				runstart = nil
 				begin
 					cmd = nil
 					if !%w{win2k12r2 win2k12 windows}.include?(@config['platform'])
@@ -88,6 +89,7 @@ module MU
 					else
 						cmd = "$HOME/chef-client --color || echo #{error_signal}"
 					end
+					runstart = Time.new
 					retval = ssh.exec!(cmd) { |ch, stream, data|
 						puts data
 						output << data
@@ -100,7 +102,7 @@ module MU
 						ssh.close if !ssh.nil?
 					rescue Net::SSH::Disconnect, IOError => e
 						if %w{win2k12r2 win2k12 windows}.include?(@config['platform'])
-							MU.log "Windows has probably closed the ssh session before we could. Waiting before trying again", MU::NOTICE
+							MU.log "Windows has probably closed the ssh session before we could. Waiting before trying again", MU::DEBUG
 						else
 							MU.log "ssh session was closed unexpectedly, waiting before trying again", MU::NOTICE
 						end
@@ -109,12 +111,11 @@ module MU
 
 					if retries < max_retries
 						retries = retries + 1
-						MU.log "#{@server.mu_name}: Chef run '#{purpose}' failed, retrying", MU::WARN, details: e.message
-						sleep 10
+						MU.log "#{@server.mu_name}: Chef run '#{purpose}' failed after #{Time.new - runstart}, retrying (#{retries}/#{max_retries})", MU::WARN, details: e.message
+						sleep 30
 						retry
 					else
-						MU.log "#{@server.mu_name}: Chef run '#{purpose}' failed #{max_retries} times", MU::ERR, details: e.message
-						raise e
+						raise MU::Groomer::RunError, "#{@server.mu_name}: Chef run '#{purpose}' failed #{max_retries} times, last error was: #{e.message}"
 					end
 				end
 
@@ -231,7 +232,7 @@ module MU
 				# Making sure all Windows nodes get the mu-tools::windows-client recipe
 				if %w{win2k12r2 win2k12 windows}.include? @config['platform']
 					knifeAddToRunList("recipe[mu-tools::windows-client]")
-					run(purpose: "Base Windows configuration", update_runlist: false, max_retries: 10)
+					run(purpose: "Base Windows configuration", update_runlist: false, max_retries: 20)
 				end
 
 				# This will deal with Active Directory integration.
@@ -406,13 +407,16 @@ module MU
 							sleep 5
 							redo
 						else
-							MU.log "ABORTING: Unable to add #{@server.mu_name} to #{vault} #{item}, instance unlikely to operate correctly!", MU::ERR
+							MU::MommaCat.unlock("vault-"+vault)
 							raise MuError, "Unable to add node #{@server.mu_name} to #{vault} #{item}, aborting"
 						end
 					else
 						MU.log "Granted #{@server.mu_name} access to #{vault} #{item} after #{retries} retries", MU::NOTICE
+						MU::MommaCat.unlock("vault-"+vault)
 						return
 					end
+				ensure
+					MU::MommaCat.unlock("vault-"+vault)
 				end while true
 				MU::MommaCat.unlock("vault-"+vault)
 			end

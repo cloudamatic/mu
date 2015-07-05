@@ -212,13 +212,17 @@ module MU
 								MU.log "Failed to locate original config for #{attrs[:cfg_name]} #{res_name} in #{@deploy_id}", MU::WARN if type != "firewall_rules" # XXX shaddap
 								next
 							end
-							if attrs[:has_multiples]
-								data.each_pair { |mu_name, actual_data|
-									MU.log "Loading #{type}:#{mu_name} into #{@deploy_id}", MU::DEBUG
-									addKitten(type, mu_name, attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: mu_name))
-								}
-							else
-								addKitten(type, res_name, attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: data['mu_name']))
+							begin
+								if attrs[:has_multiples]
+									data.each_pair { |mu_name, actual_data|
+										MU.log "Loading #{type}:#{mu_name} into #{@deploy_id}", MU::DEBUG
+										addKitten(type, mu_name, attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: mu_name))
+									}
+								else
+									addKitten(type, res_name, attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: data['mu_name']))
+								end
+							rescue Exception => e
+								MU.log "Failed to load existing resource #{mu_name} in #{@deploy_id}", MU::WARN
 							end
 						}
 					end
@@ -432,14 +436,14 @@ module MU
 
 
 		# Run {MU::Cloud::Server#postBoot} and {MU::Cloud::Server#groom} on a node.
-		# @param instance [OpenStruct]: The cloud providor's full descriptor for this node.
+		# @param cloud_id [OpenStruct]: The cloud provider's identifier for this node.
 		# @param name [String]: The MU resource name of the node being created.
 		# @param mu_name [String]: The full #{MU::MommaCat.getResourceName} name of the server we're grooming, if it's been initialized already.
 		# @param type [String]: The type of resource that created this node (either *server* or *serverpool*).
-		def groomNode(instance, name, type, mu_name: mu_name, reraise_fail: false, sync_wait: true)
+		def groomNode(cloud_id, name, type, mu_name: mu_name, reraise_fail: false, sync_wait: true)
 
-			if instance.nil?
-				raise GroomError, "MU::MommaCat.groomNode requires an AWS instance object"
+			if cloud_id.nil?
+				raise GroomError, "MU::MommaCat.groomNode requires a {MU::Cloud::Server} object"
 			end
 			if name.nil? or name.empty?
 				raise GroomError, "MU::MommaCat.groomNode requires a resource name"
@@ -448,8 +452,8 @@ module MU
 				raise GroomError, "MU::MommaCat.groomNode requires a resource type"
 			end
 
-			if !MU::MommaCat.lock(instance.instance_id+"-mommagroom", true)
-				MU.log "Instance #{instance.instance_id} on #{MU.deploy_id} (#{type}: #{name}) is already being groomed, ignoring this extra request.", MU::NOTICE
+			if !MU::MommaCat.lock(cloud_id+"-mommagroom", true)
+				MU.log "Instance #{cloud_id} on #{MU.deploy_id} (#{type}: #{name}) is already being groomed, ignoring this extra request.", MU::NOTICE
 				MU::MommaCat.unlockAll
 				puts "------------------------------"
 				puts "Open flock() locks:"
@@ -483,9 +487,9 @@ module MU
 				first_groom = true
 				@original_config[type+"s"].each { |svr|
 					if svr['name'] == name
-						svr["instance_id"] = instance.instance_id
-						kitten = MU::Cloud::Server.new(mommacat: self, kitten_cfg: svr)
-						MU.log "Grooming #{kitten.mu_name} for the first time", details: svr
+						svr["instance_id"] = cloud_id
+						kitten = MU::Cloud::Server.new(mommacat: self, kitten_cfg: svr, cloud_id: cloud_id)
+						MU.log "Grooming #{kitten.mu_name} for the first time", MU::NOTICE, details: svr
 						break
 					end
 				}
@@ -496,7 +500,7 @@ module MU
 				# stomping on synchronous deploys that are still running. This
 				# means we're going to wait here if this instance is still being
 				# bootstrapped by "regular" means.
-				if !MU::MommaCat.lock(instance.instance_id+"-create", true)
+				if !MU::MommaCat.lock(cloud_id+"-create", true)
 					MU.log "#{mu_name} is still in mid-creation, skipping", MU::NOTICE
 					MU::MommaCat.unlockAll
 					puts "------------------------------"
@@ -505,9 +509,9 @@ module MU
 					puts "------------------------------"
 					return
 				end
-				MU::MommaCat.unlock(instance.instance_id+"-create")
+				MU::MommaCat.unlock(cloud_id+"-create")
 
-				if !kitten.postBoot(instance.instance_id)
+				if !kitten.postBoot(cloud_id)
 					MU.log "#{mu_name} is already being groomed, skipping", MU::NOTICE
 					MU::MommaCat.unlockAll
 					puts "------------------------------"
@@ -528,27 +532,27 @@ module MU
 				kitten.groom
 			rescue Exception => e
 				MU::MommaCat.unlockAll
-				if e.class.name != "MU::Cloud::AWS::Server::BootstrapTempFail" and !File.exists?(deploy_dir+"/.cleanup."+instance.instance_id) and !File.exists?(deploy_dir+"/.cleanup")
-					MU.log "Grooming FAILED for #{mu_name} (#{e.inspect})", MU::ERR, details: e.backtrace
-					sendAdminMail("Grooming FAILED for #{mu_name} on #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id})",
+				if e.class.name != "MU::Cloud::AWS::Server::BootstrapTempFail" and !File.exists?(deploy_dir+"/.cleanup."+cloud_id) and !File.exists?(deploy_dir+"/.cleanup")
+					MU.log "Grooming FAILED for #{kitten.mu_name} (#{e.inspect})", MU::ERR, details: e.backtrace
+					sendAdminMail("Grooming FAILED for #{kitten.mu_name} on #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id})",
 						msg: e.inspect,
 						data: e.backtrace,
 						debug: true
 					)
 					raise e if reraise_fail
 				else
-					MU.log "Grooming of #{mu_name} interrupted by cleanup or planned reboot"
+					MU.log "Grooming of #{kitten.mu_name} interrupted by cleanup or planned reboot"
 				end
 				return
 			end
 
-			MU::MommaCat.unlock(instance.instance_id+"-mommagroom")
+			MU::MommaCat.unlock(cloud_id+"-mommagroom")
 			MU::MommaCat.syncMonitoringConfig(false)
-			MU::MommaCat.createStandardTags(instance.instance_id, region: kitten.config["region"])
+			MU::MommaCat.createStandardTags(cloud_id, region: kitten.config["region"])
 			MU.log "Grooming complete for '#{name}' mu_name on \"#{MU.handle}\" (#{MU.deploy_id})"
 			MU::MommaCat.unlockAll
 			if first_groom
-				sendAdminMail("Grooming complete for '#{name}' mu_name on deploy \"#{MU.handle}\" (#{MU.deploy_id})", data: kitten.deploydata.merge(MU.structToHash(instance)))
+#				sendAdminMail("Grooming complete for '#{name}' mu_name on deploy \"#{MU.handle}\" (#{MU.deploy_id})", data: kitten.deploydata.merge(MU.structToHash(instance)))
 # XXX pass the kitten object, actually. can do more interesting things with it once inside
 			end
 			return

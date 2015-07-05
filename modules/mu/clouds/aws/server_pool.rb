@@ -301,7 +301,7 @@ class Cloud
 							groomthreads << Thread.new {
 								Thread.abort_on_exception = true
 								MU.dupGlobals(parent_thread_id)
-								MU.mommacat.groomNode(member, @config['name'], "server_pool", reraise_fail: true, sync_wait: @config['dns_sync_wait'])
+								MU.mommacat.groomNode(member.instance_id, @config['name'], "server_pool", reraise_fail: true, sync_wait: @config['dns_sync_wait'])
 							}
 						rescue Exception => e
 							if !member.nil? and !done
