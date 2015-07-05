@@ -1,8 +1,9 @@
 default.jenkins_users = [
-	{:user_name => "testuser", :fullname => "testuser", :email => "testuser@email.com", :vault => "jenkins", :vault_item => "testuser"}
+	{:user_name => "mu_user", :fullname => "Mu-Demo-User", :email => "mu-developers@googlegroups.com", :vault => "jenkins", :vault_item => "users"}
 ]
 
 default.jenkins_ssh_urls = [node.ipaddress]
+default.jenkins_plugins = %w{github ssh deploy}
 
 node.normal.java.oracle.accept_oracle_download_terms = true
 node.normal.java.java_home = '/usr/lib/jvm/java'
