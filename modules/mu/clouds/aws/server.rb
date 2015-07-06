@@ -1060,9 +1060,6 @@ class Cloud
 					 !@config['vpc'].has_key?("nat_host_tag") and
 					 !@config['vpc'].has_key?("nat_host_ip") and
 					 !@config['vpc'].has_key?("nat_host_name"))
-if @config['name'] != "bastion"
-	raise MuError, "Failed to set up a bastion host for #{self}"
-end
 					return nil
 				end
 				dependencies if @nat.nil?
