@@ -656,11 +656,29 @@
                             }
                         },
                         "files": {
+                            "/root/jenkinskeys.rb": {
+                                "source": {
+                                    "Fn::Join": [
+                                        "",
+                                        [
+                                            "https://github.com/cloudamatic/mu/raw/",
+                                            {"Ref": "GitMuTag"},
+                                            "/install/jenkinskeys.rb"
+                                        ]
+                                    ]
+                                }
+                            },
                             "/root/mu_setup": {
-                                "source": "https://github.com/cloudamatic/mu/raw/master/install/mu_setup",
-                                "mode": "000700",
-                                "owner": "root",
-                                "group": "root"
+                                "source": {
+                                    "Fn::Join": [
+                                        "",
+                                        [
+                                            "https://github.com/cloudamatic/mu/raw/",
+                                            {"Ref": "GitMuTag"},
+                                            "/install/mu_setup"
+                                        ]
+                                    ]
+                                }
                             },
                             "/root/.ssh/config": {
                                 "content": {
@@ -699,32 +717,14 @@
                                         ]
                                     ]
                                 }
-                            },
-                            "/root/installvaultkeys.rb": {
-                                "mode": "000700",
-                                "owner": "root",
-                                "group": "root",
-                                "content": {
-                                    "Fn::Join": [
-                                        "",
-                                        [
-                                        "#!/usr/local/ruby-current/bin/ruby \n",
-                                        "require openssl \n",
-                                        "vaultname=\"jenkins\" \n",
-                                        "vault_opts=\"--mode client -u mu -F json\" \n",
-                                        "vault_cmd = \"knife vault create jenkins admin \'{ \"public_key\":\"#{key.public_key.to_pem.chomp!.gsub(/\n/, "\\n")}\", \"private_key\":\"#{key.to_pem.chomp!.gsub(/\n/, "\\n")}\", \"username\": \"jenkinsadmin\" }\' #{vault_opts} --search name:MU-MASTER\" \n",
-                                        "exec vault_cmd \n"
-                                        ]
-                                    ]
-                                }
-                            },
+                            }
                         },
                         "commands": {
                             "install_mu": {
                                 "command": {"Fn::Join": ["",
-                                    "bash -x /root/mu_setup -d -b ",
+                                    ["bash -x /root/mu_setup -d -b ",
                                     {"Ref": "GitMuTag"},
-                                    " > /root/setup.out"]},
+                                    " > /root/setup.out"]]},
                                 "env": {"MU_ADMIN_PW": {"Ref": "adminPassword"},
                                         "HOME": "/root",
                                         "USER":"root",
@@ -737,18 +737,24 @@
                                 "test": "test -e /root/mu_setup",
                                 "ignoreErrors": "true"
                             },
-                            "jenkinsvault": {
-                                "command": "source /root/.bashrc;knife vault create -V  jenkins users '{\"mu-user-password\":\"feefiefoefum\"}'  --mode client -F json -u mu --search name:MU-MASTER\" ",
+                            "jenkinsadminvault": {
+                                "command": "/root/jenkinskeys.rb",
                                 "env": {
                                     "HOME": "/root"
                                 },
                                 "cwd": "/root",
                                 "ignoreErrors": "true"
-                            },
-                            "uservault": {
-                                "command": "/root/installvaultkeys.rb",
+                            },                            
+                            "jenkinsusersvault": {
+                                "command": {"Fn::Join": ["",
+                                        ["source /root/.bashrc;",
+                                        "knife vault create jenkins users '{\"mu_user_password\":\"",
+                                        {"Ref": "adminPassword"},
+                                        "\"}'  --mode client -F json -u mu --search name:MU-MASTER",
+                                        {"Ref": "GitMuTag"}]
+                                    ]},
                                 "env": {
-                                    "USER_PW": "foo"
+                                    "HOME": "/root"
                                 },
                                 "cwd": "/root",
                                 "ignoreErrors": "true"
