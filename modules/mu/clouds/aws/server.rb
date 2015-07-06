@@ -1340,6 +1340,8 @@ class Cloud
 				ssh_keydir = "#{Etc.getpwuid(Process.uid).dir}/.ssh"
         ssh_key_name = @deploy.ssh_key_name
 
+				retries = 0
+				begin
 				MU::Cloud::AWS.ec2(@config['region']).wait_until(:password_data_available, instance_id: @cloud_id) do |waiter|
 					waiter.max_attempts = 60
 					waiter.before_attempt do |attempts|
@@ -1348,6 +1350,14 @@ class Cloud
 					# waiter.before_wait do |attempts, resp|
 						# throw :success if resp.data.password_data and !resp.data.password_data.empty?
 					# end
+				end
+				rescue Aws::Waiters::Errors::TooManyAttemptsError => e
+					if retries < 3
+						retries = retries + 1
+						retry
+					else
+						raise e
+					end
 				end
 
 				resp = MU::Cloud::AWS.ec2(@config['region']).get_password_data(instance_id: @cloud_id)

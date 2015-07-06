@@ -6,7 +6,7 @@ appname: demo
 servers:
 - name: windows
   platform: windows
-  size: m3.medium
+  size: m3.large
   static_ip:
     assign_ip: true
   storage:
