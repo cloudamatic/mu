@@ -742,7 +742,7 @@
                                         },
                                 "cwd": "/root",
                                 "test": "test -e /root/mu_setup",
-                                "ignoreErrors": "true"
+                                "ignoreErrors": "false"
                             },
                             "jenkinsadminvault": {
                                 "command": "/root/jenkinskeys.rb",
