@@ -502,6 +502,10 @@ module MU
 				end
 
 				if shortname == "Server"
+					def windows?
+						%w{win2k12r2 win2k12 win2k8 win2k8r2 windows}.include?(@config['platform'])
+					end
+
 					# @param max_retries [Integer]: Number of connection attempts to make before giving up
 					# @param retry_interval [Integer]: Number of seconds to wait between connection attempts
 					# @return [Net::SSH::Connection::Session]
@@ -546,11 +550,11 @@ module MU
 						    e.remember_host!
 								session.close
 						    retry
-							rescue SystemCallError, Timeout::Error, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError => e
+							rescue SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError => e
 								begin
 									session.close if !session.nil?
 								rescue Net::SSH::Disconnect, IOError => e
-									if %w{win2k12r2 win2k12 windows}.include?(@config['platform'])
+									if windows?
 										MU.log "Windows has probably closed the ssh session before we could. Waiting before trying again", MU::NOTICE
 									else
 										MU.log "ssh session was closed unexpectedly, waiting before trying again", MU::NOTICE

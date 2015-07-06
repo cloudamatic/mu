@@ -87,6 +87,7 @@ if [ ! -f /opt/chef/embedded/bin/ruby ];then
 	while ! sh chef-install.sh -v <%= MU.chefVersion %>;do
 		sleep 10
 	done
+	touch /opt/mu_installed_chef
 	set -e
 fi
 

@@ -156,6 +156,7 @@
 			}
 			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running Chef installer"
 			(Start-Process -FilePath msiexec -ArgumentList "/i $env:Temp\chef-installer.msi ALLUSERS=1 /le $env:Temp\chef-client-install.log /qn" -Wait -Passthru).ExitCode
+			Set-Content "c:/mu_installed_chef" "yup"
 		}
 
 		<% if !$mu.skipApplyUpdates %>

@@ -26,7 +26,7 @@ module MU
 		end
 		# Instance methods that any Groomer plugin must implement
 		def self.requiredMethods
-			[:preBootstrap, :bootstrap, :haveBootstrapped?, :run, :syncDeployData]
+			[:preClean, :bootstrap, :haveBootstrapped?, :run, :syncDeployData]
 		end
 
 		class Chef; end

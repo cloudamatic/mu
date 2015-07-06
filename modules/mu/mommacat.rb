@@ -1251,14 +1251,15 @@ end
 
 		# Make sure the given node has proper DNS entries, /etc/hosts entries,
 		# SSH config entries, etc.
-		# @param server [MU::Cloud::Server]: 
-		def self.nameKitten(server)
+		# @param server [MU::Cloud::Server]: The {MU::Cloud::Server} we'll be setting up.
+		# @param sync_wait [Boolean]: Whether to wait for DNS to fully synchronize before returning.
+		def self.nameKitten(server, sync_wait: false)
 			node, config, deploydata, instance = server.describe
 			nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = server.getSSHConfig
 
 			mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
 			if !mu_zone.nil?
-				MU::Cloud::DNSZone.genericMuDNSEntry(name: node, target: server.canonicalIP, cloudclass: MU::Cloud::Server, sync_wait: true)
+				MU::Cloud::DNSZone.genericMuDNSEntry(name: node, target: server.canonicalIP, cloudclass: MU::Cloud::Server, sync_wait: sync_wait)
 			else
 				MU::MommaCat.addInstanceToEtcHosts(server.canonicalIP, node)
 			end
