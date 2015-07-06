@@ -9,20 +9,20 @@
             "MaxLength": "255",
             "Default": "ami-845448ec"
         },
-        "GitMuTag": {
-            "Description": "Git tag or branch to pull mu, default master",
-            "Type": "String",
-            "MinLength": "0",
-            "MaxLength": "255",
-            "Default": "master"
-        },
         "GithubKey": {
             "Description": "S3 URL of a GitHub key for building the server",
             "Type": "String",
             "MinLength": "0",
             "MaxLength": "255",
             "Default": "s3://test-drive-dev-mu/github/mu_testdrive"
-        },       
+        },
+        "GitMuTag": {
+            "Description": "Git tag or branch to pull mu, default master",
+            "Type": "String",
+            "MinLength": "0",
+            "MaxLength": "255",
+            "Default": "headless"
+        },      
         "KeyName": {
             "Description": "Name of an existing EC2 KeyPair to enable SSH access to Cloudamatic Server",
             "Type": "String",
@@ -666,7 +666,10 @@
                                             "/install/jenkinskeys.rb"
                                         ]
                                     ]
-                                }
+                                },
+                                "mode": "000700",
+                                "owner": "root",
+                                "group": "root"
                             },
                             "/root/mu_setup": {
                                 "source": {
@@ -678,7 +681,10 @@
                                             "/install/mu_setup"
                                         ]
                                     ]
-                                }
+                                },
+                                "mode": "000700",
+                                "owner": "root",
+                                "group": "root"
                             },
                             "/root/.ssh/config": {
                                 "content": {
@@ -699,6 +705,7 @@
                                         "",
                                         [
                                             "export MU_ADMIN_EMAIL=\"",{"Ref": "adminEmail"},"\"\n",
+                                            "export MUTAG=\"",{"Ref": "GitMuTag"},"\"\n",
                                             "export ADDTL_CHEF_REPOS=\"eGT-Labs/ecap_test_drive.git\"\n",
                                             "export MU_REPO=\"cloudamatic/mu.git\"\n",
                                             "export CHEF_PUBLIC_IP=\"",{"Ref": "MasterEIP"},"\"\n",
@@ -753,6 +760,14 @@
                                         "\"}'  --mode client -F json -u mu --search name:MU-MASTER",
                                         {"Ref": "GitMuTag"}]
                                     ]},
+                                "env": {
+                                    "HOME": "/root"
+                                },
+                                "cwd": "/root",
+                                "ignoreErrors": "true"
+                            },
+                            "recipe_jenkins": {
+                                "command": "bash /root/.bashrc;chef-client -l info -o recipe[java],recipe[jenkins::master],recipe[mu-jenkins]",
                                 "env": {
                                     "HOME": "/root"
                                 },
