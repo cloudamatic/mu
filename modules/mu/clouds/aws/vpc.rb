@@ -264,32 +264,23 @@ module MU
 				# Generate peering connections
 				if !@config['peers'].nil? and @config['peers'].size > 0
 					@config['peers'].each { |peer|
+						peer_obj = nil
 						begin
 							if peer['account'].nil? or peer['account'] == MU.account_number
 								tag_key, tag_value = peer['vpc']['tag'].split(/=/, 2) if !peer['vpc']['tag'].nil?
-								peer_desc, peer_name = MU::Cloud::VPC.find(
-									id: peer['vpc']['vpc_id'],
-									name: peer['vpc']['vpc_name'],
+								peer_obj = MU::MommaCat.findStray(
+									"AWS",
+									"vpcs",
 									deploy_id: peer['vpc']['deploy_id'],
+									cloud_id: peer['vpc']['vpc_id'],
+									name: peer['vpc']['vpc_name'],
 									tag_key: tag_key,
 									tag_value: tag_value,
 									region: peer['vpc']['region']
-								)
-								if peer_desc.nil?
-									MU.log "Unable to locate peer VPC for #{@config['name']}", MU::ERR, details: peer
-									raise MuError, "Unable to locate peer VPC"
-								end
-								peer_id = peer_desc.vpc_id
-								peer_deploy_struct = nil
-								known_vpcs = MU::MommaCat.getResourceMetadata("vpcs", name: peer_name, deploy_id: nil)
-								known_vpcs.each { |ext_vpc|
-									if ext_vpc['vpc_id'] == peer_id
-										peer_deploy_struct = ext_vpc
-										break
-									end
-								}
+								).first
+								peer_id = peer_obj.cloud_id
 
-								MU.log "Initiating peering connection from VPC #{@config['name']} (#{@config['vpc_id']}) to #{peer_id}", MU::INFO, details: peer
+								MU.log "Initiating peering connection from VPC #{@config['name']} (#{@config['vpc_id']}) to #{peer_id}"
 								resp = MU::Cloud::AWS.ec2(@config['region']).create_vpc_peering_connection(
 									vpc_id: @config['vpc_id'],
 									peer_vpc_id: peer_id
@@ -313,16 +304,16 @@ module MU
 						MU::MommaCat.createTag(peering_id, "Name", peering_name, region: @config['region'])
 
 						# Create routes to our new friend.
-						self.class.listAllSubnetRouteTables(@config['vpc_id'], region: @config['region']).each { |rtb_id|
+						MU::Cloud::AWS::VPC.listAllSubnetRouteTables(@config['vpc_id'], region: @config['region']).each { |rtb_id|
 							my_route_config = {
 								:route_table_id => rtb_id,
-								:destination_cidr_block => peer_desc.cidr_block,
+								:destination_cidr_block => peer_obj.cloud_desc.cidr_block,
 								:vpc_peering_connection_id => peering_id
 							}
 							begin
 								resp = MU::Cloud::AWS.ec2(@config['region']).create_route(my_route_config)
 							rescue Aws::EC2::Errors::RouteAlreadyExists => e
-								MU.log "Attempt to create duplicate route to #{peer_desc.cidr_block} from VPC #{@config['name']}", MU::WARN
+								MU.log "Attempt to create duplicate route to #{peer_obj.cloud_desc.cidr_block} from VPC #{@config['name']}", MU::WARN
 							end
 						}
 
@@ -332,7 +323,7 @@ module MU
 							).vpc_peering_connections.first
 						
 							if cnxn.status.code == "pending-acceptance" 
-								if (!peer_deploy_struct.nil? and peer_deploy_struct['auto_accept_peers']) or (!ENV['ALLOW_INVADE_FOREIGN_VPCS'].nil? and !ENV['ALLOW_INVADE_FOREIGN_VPCS'].empty? and ENV['ALLOW_INVADE_FOREIGN_VPCS'] != "0")
+								if (!peer_obj.nil? and peer_obj.deploydata['auto_accept_peers']) or (!ENV['ALLOW_INVADE_FOREIGN_VPCS'].nil? and !ENV['ALLOW_INVADE_FOREIGN_VPCS'].empty? and ENV['ALLOW_INVADE_FOREIGN_VPCS'] != "0")
 									MU.log "Auto-accepting peering connection from VPC #{@config['name']} (#{@config['vpc_id']}) to #{peer_id}", MU::NOTICE
 									begin
 										MU::Cloud::AWS.ec2(@config['region']).accept_vpc_peering_connection(
@@ -343,7 +334,7 @@ module MU
 									end
 
 									# Create routes back from our new friend to us.
-									self.class.listAllSubnetRouteTables(peer_id, region: peer['vpc']['region']).each { |rtb_id|
+									MU::Cloud::AWS::VPC.listAllSubnetRouteTables(peer_id, region: peer['vpc']['region']).each { |rtb_id|
 										peer_route_config = {
 											:route_table_id => rtb_id,
 											:destination_cidr_block => @config['ip_block'],
@@ -355,8 +346,6 @@ module MU
 											MU.log "Attempt to create duplicate route to #{@config['ip_block']} from VPC #{peer_id}", MU::WARN
 										end
 									}
-#MU.log "Creating route for #{peer_deploy_struct['ip_block']}", details: route_config
-#resp = MU::Cloud::AWS.ec2(@config['region']).create_route(route_config)
 								else
 									MU.log "VPC #{peer_id} is not managed by this Mu server or is not configured to auto-accept peering requests. You must accept the peering request for '#{@config['name']}' (#{@config['vpc_id']}) by hand.", MU::NOTICE
 								end
@@ -373,7 +362,7 @@ module MU
 								end
 								raise MuError, "VPC peering connection from VPC #{@config['name']} (#{@config['vpc_id']}) to #{peer_id} #{cnxn.status.code}: #{cnxn.status.message}"
 							end
-						end while cnxn.status.code != "active" and !(cnxn.status.code == "pending-acceptance" and (peer_deploy_struct.nil? or !peer_deploy_struct['auto_accept_peers']))
+						end while cnxn.status.code != "active" and !(cnxn.status.code == "pending-acceptance" and (peer_obj.nil? or !peer_obj.deployment['auto_accept_peers']))
 
 					}
 				end
@@ -456,82 +445,6 @@ module MU
 				end while retries < 5
 
 				return map
-			end
-
-			# Pick out one of the subnets belonging to this VPC by name or cloud
-			# identifier.
-			# @param name [String]: An Mu resource name, usually the 'name' field of aa Basket of Kittens resource declaration. Will search the currently loaded deployment unless another is specified.
-			# @param id [String]: The cloud provider's identifier for this resource.
-			# @return [OpenStruct]: The cloud provider's complete description of this VPC.
-			def findSubnet(name: nil, id: nil, allow_multi: false)
-				vpc_id = @cloud_id
-
-				# Now see if this subnet is referenced in any deployments as an Mu
-				# resource. We actually use the parent VPC, since a subnet isn't a
-				# first-class resource... except sometimes it is, if we yanked it out
-				# of a CloudFormation template. Confused yet?
-				if id.nil? and !name.nil? 
-					vpc = MU::MommaCat.getResourceMetadata("vpcs", name: vpc_name, deploy_id: deploy_id)
-					subnet = MU::MommaCat.getResourceMetadata("subnets", name: name, deploy_id: deploy_id)
-
-					if !subnet.nil?
-						if subnet.is_a?(Hash)
-							id = subnet['subnet_id']
-						elsif subnet.is_a?(Array)
-							subnet_res = subnet.first
-							id = subnet_res['subnet_id']
-						end
-					elsif !vpc.nil? and vpc.is_a?(Hash) and
-							!vpc['subnets'].nil? and vpc['subnets'].is_a?(Hash) and
-							!vpc['subnets'][name].nil?
-						id = vpc['subnets'][name]['subnet_id']
-					elsif !vpc.nil? and vpc.is_a?(Hash) and
-							!vpc['subnets'].nil? and vpc['subnets'].is_a?(Array)
-						vpc['subnets'].each { |this_subnet|
-							if this_subnet['name'] == name
-								id = this_subnet['subnet_id']
-								break
-							end
-						}
-					end
-				end
-
-				retries = 0
-				begin
-					if !id.nil?
-						resp = MU::Cloud::AWS.ec2(region).describe_subnets(subnet_ids: [id])
-						return nil if resp.data.subnets.size == 0 or resp.data.subnets.nil?
-						subnet = resp.data.subnets.first
-						if subnet.vpc_id != vpc_id
-							raise MuError, "Subnet #{id} isn't a member of VPC #{vpc_id} in findSubnet (id: #{id}, name: #{name}, vpc_id: #{vpc_id}, vpc_name: #{vpc_name})"
-						end
-						return subnet
-					end
-
-					if !tag_value.nil?
-						resp = MU::Cloud::AWS.ec2(region).describe_subnets(
-							filters: [
-								{ name: "tag:#{tag_key}", values: [tag_value] }
-							]
-						)
-						resp.data.subnets.each { |subnet|
-							if subnet.vpc_id == vpc_id
-								MU.log "Subnet #{name} has AWS id #{subnet.subnet_id}", MU::DEBUG
-								return subnet
-							end
-						}
-					end
-				rescue Aws::EC2::Errors::InvalidSubnetIDNotFound => e
-					if retries < 10
-						retries = retries + 1
-						MU.log "Subnet that we know should exist wasn't found, waiting and retrying", MU::WARN
-						sleep 10
-						retry
-					else
-						raise MuError, e.inspect
-					end
-				end
-				return nil
 			end
 
 			# Return an array of MU::Cloud::AWS::VPC::Subnet objects describe the

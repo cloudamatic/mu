@@ -851,18 +851,15 @@ class Cloud
 					notify
 				end
 
-
-				# Make an initial connection with SSH to see if this host is ready to
-				# have configuration management inflicted on it. Also run some prep.
-				ssh_wait = 25 
-				max_retries = 25
-				if windows?
-					ssh_wait = 60
-					max_retries = 25
+				if !@config['active_directory'].nil?
+					if @config['mu_windows_name'].nil?
+						@config['mu_windows_name'] = MU::MommaCat.getResourceName(@config['name'], max_length: 15, need_unique_string: true)
+					end
 				end
 
+				windows? ssh_wait = 60 : ssh_wait = 25
+				max_retries = 25
 			  begin
-					Thread.abort_on_exception = false
 					session = getSSHSession(ssh_wait, max_retries)
 					initialSSHTasks(session)
 			  rescue BootstrapTempFail
@@ -880,12 +877,6 @@ class Cloud
 					MU::MommaCat.unlock(instance.instance_id+"-orchestrate")
 					MU::MommaCat.unlock(instance.instance_id+"-groom")
 					return true
-				end
-
-				if !@config['active_directory'].nil?
-					if @config['mu_windows_name'].nil?
-						@config['mu_windows_name'] = MU::MommaCat.getResourceName(@config['name'], max_length: 15, need_unique_string: true)
-					end
 				end
 
 				@groomer.bootstrap
@@ -1651,29 +1642,14 @@ class Cloud
 						}
 					end
 
-					deploydata = MU::MommaCat.getResourceMetadata(MU::Cloud::Server.cfg_plural, name: mu_name)
-					nodename = nil
-					deploydata.each_pair { |node, data|
-						if data['instance_id'] == id
-							nodename = node
-							break
-						end
-					}
-					
-					orig_config = nil
-					sources = []
-					if MU.mommacat.original_config.has_key?(MU::Cloud::Server.cfg_plural)
-						sources.concat(MU.mommacat.original_config[MU::Cloud::Server.cfg_plural])
-					end
-					if MU.mommacat.original_config.has_key?(MU::Cloud::ServerPool.cfg_plural)
-						sources.concat(MU.mommacat.original_config[MU::Cloud::ServerPool.cfg_plural])
-					end
-					sources.each { |svr|
-						if svr['name'] == mu_name
-							orig_config = svr
-							break
-						end
-					}
+					deletia = MU::MommaCat.findStray(
+						"AWS",
+						"servers",
+						mu_name: mu_name,
+					).first
+pp deletia
+
+					orig_config = deletia.config if !deletia.nil?
 
 					# Expunge the IAM profile for this instance class
 					if orig_config.has_key?("basis")

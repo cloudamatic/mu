@@ -211,7 +211,6 @@ module MU
 			}
 		}
 
-
 		@@resource_types.each_pair { |name, attrs|
 			Object.const_get("MU").const_get("Cloud").const_get(name).class_eval {
 				attr_reader :cloud
@@ -251,7 +250,6 @@ module MU
 				# Print something palatable when we're called in a string context.
 				def to_s
 					fullname = "#{self.class.shortname}"
-					describe
 					mu_name = @mu_name
 					if !@config.nil?
 						mu_name ||= MU::MommaCat.getResourceName(@config['name'])
@@ -325,18 +323,21 @@ module MU
 					end
 					res_type = self.class.cfg_plural
 					res_name = @config['name'] if !@config.nil?
+					deploydata = nil
 					if !@deploy.nil? and @deploy.is_a?(MU::MommaCat) and
 							!@deploy.deployment.nil? and
 							!@deploy.deployment[res_type].nil? and
 							!@deploy.deployment[res_type][res_name].nil?
 						deploydata = @deploy.deployment[res_type][res_name]
-					elsif (update_cache or @deploydata.nil?) and !@deploy.nil? and @deploy.is_a?(MU::MommaCat)
-						deploydata = MU::MommaCat.getResourceMetadata(res_type, name: res_name, deploy_id: @deploy.deploy_id, mu_name: @mu_name)
+					else
+						# XXX This should only happen on a brand new resource, but we should
+						# probably complain under other circumstances, if we can
+						# differentiate them.
 					end
 					# XXX :has_multiples is what to actually check here
-					if !@mu_name.nil? and deploydata.is_a?(Hash) and deploydata.has_key?(@mu_name)
+					if self.class.has_multiples and !@mu_name.nil? and deploydata.is_a?(Hash) and deploydata.has_key?(@mu_name)
 						@deploydata = deploydata[@mu_name]
-					else
+					elsif deploydata.is_a?(Hash)
 						@deploydata = deploydata
 					end
 					if @cloud_id.nil? and @deploydata.is_a?(Hash)
@@ -546,6 +547,11 @@ module MU
 									:auth_methods => ['publickey']
 								)
 					    end
+							# Test that this connection is actually working
+							puts session.exec!("who")
+							if session.nil? or session.closed?
+								raise Net::SSH::Disconnect
+							end
 						  rescue Net::SSH::HostKeyMismatch => e
 						    MU.log("Remembering new key: #{e.fingerprint}")
 						    e.remember_host!

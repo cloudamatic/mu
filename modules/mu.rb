@@ -189,6 +189,8 @@ module MU
 	def self.curRegion
 		@@globals[Thread.current.object_id]['curRegion'] ||= ENV['EC2_REGION']
 	end
+	# Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
+	def self.syncLitterThread; @@globals[Thread.current.object_id]['syncLitterThread'] end
 
 	# Mu's deployment metadata directory.
 	dataDir = File.expand_path(ENV['MU_DATADIR'])

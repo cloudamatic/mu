@@ -300,10 +300,10 @@ module MU
 						require 'chef'
 					  kb.run
 					}
-				rescue Net::SSH::Disconnect, Errno::EPIPE, IOError, SystemExit, Timeout::Error, SocketError, Net::HTTPServerException => e
+				rescue SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::HTTPServerException, SystemExit, Errno::ECONNREFUSED, Errno::EPIPE => e
 					if retries < 10
 						retries = retries + 1
-						MU.log "#{@server.mu_name}: Knife Bootstrap failed #{e.inspect}, retrying (#{retries} of 10)", MU::WARN
+						MU.log "#{@server.mu_name}: Knife Bootstrap failed #{e.inspect}, retrying (#{retries} of 10)", MU::WARN, details: e.backtrace
 						sleep 10*retries
 						retry
 					else

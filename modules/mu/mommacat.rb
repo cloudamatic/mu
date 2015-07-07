@@ -488,7 +488,7 @@ module MU
 					if svr['name'] == name
 						svr["instance_id"] = cloud_id
 						kitten = MU::Cloud::Server.new(mommacat: self, kitten_cfg: svr, cloud_id: cloud_id)
-						MU.log "Grooming #{kitten.mu_name} for the first time", MU::NOTICE, details: svr
+						MU.log "Grooming #{kitten.mu_name} for the first time", details: svr
 						break
 					end
 				}
@@ -1038,7 +1038,6 @@ end
 				end
 			}
 
-@@deploy_struct_semaphore.synchronize {
 			deploy_root = File.expand_path(MU.dataDir+"/deployments")
 			if Dir.exists?(deploy_root)
 				Dir.entries(deploy_root).each { |deploy|
@@ -1102,7 +1101,7 @@ end
 					lock.close
 				}
 			end
-}
+
 			matches = {}
 
 			if deploy_id.nil?
@@ -1788,6 +1787,7 @@ return
 		# Make sure deployment data is synchronized to/from each Chef node in the
 		# currently-loaded deployment.
 		def syncLitter(nodeclasses = [], triggering_node: nil)
+			return if MU.syncLitterThread
 			svrs = MU::Cloud.resource_types[:Server][:cfg_plural] # legibility shorthand
 			if @kittens.nil? or
 					@kittens[svrs].nil?
@@ -1822,6 +1822,7 @@ return
 				threads << Thread.new {
 					MU.dupGlobals(parent_thread_id)
 					Thread.current.thread_variable_set("name", "sync-"+sibling.mu_name.downcase)
+					MU.setVar("syncLitterThread", true)
 					sibling.groomer.run
 				}
 			}

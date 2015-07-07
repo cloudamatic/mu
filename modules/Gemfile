@@ -31,5 +31,5 @@ gem 'pg'
 gem 'mysql'
 gem 'ruby-wmi'
 gem 'chef-vault', "~> 2.6.1"
-gem 'net-ssh'
+gem 'net-ssh', :github => "net-ssh/net-ssh", :branch => "master"
 gem 'netaddr'
