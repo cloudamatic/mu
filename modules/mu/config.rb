@@ -1450,7 +1450,15 @@ module MU
 				server["#MU_GROOMER"] = MU::Groomer.loadGroomer(server['groomer'])
 				server['region'] = config['region'] if server['region'].nil?
 				server["dependencies"] = Array.new if server["dependencies"].nil?
-				server['create_ami'] = true if server['image_then_destroy']
+				if !server['create_image'].nil?
+					if server['create_image'].has_key?('copy_to_regions') and
+						 (server['create_image']['copy_to_regions'].nil? or
+						  server['create_image']['copy_to_regions'].include?("#ALL") or
+						  server['create_image']['copy_to_regions'].size == 0
+						 )
+						 server['create_image']['copy_to_regions'] = MU::Cloud::AWS.listRegions
+					end
+				end
 				if server['ami_id'].nil?
 					if MU::Config.amazon_images.has_key?(server['platform']) and
 						 MU::Config.amazon_images[server['platform']].has_key?(server['region'])
@@ -2711,22 +2719,34 @@ module MU
 			"description" => "Create individual server instances.",
 			"properties" => {
 				"dns_records" => dns_records_primitive(need_target: false, default_type: "A", need_zone: true),
-				"create_ami" => {
-					"type" => "boolean",
-					"description" => "Create an EC2 AMI of this server once it is complete.",
-					"default" => false
+				"create_image" => {
+					"type" => "object",
+					"title" => "create_image",
+					"required" => ["image_then_destroy", "image_exclude_storage"],
+					"additionalProperties" => false,
+					"description" => "Create a reusable image of this server once it is complete.",
+					"properties" => {
+						"image_then_destroy" => {
+							"type" => "boolean",
+							"description" => "Destroy the source server after creating the reusable image(s).",
+							"default" => false
+						},
+						"image_exclude_storage" => {
+							"type" => "boolean",
+							"description" => "When creating an image of this server, exclude the block device mappings of the source server.",
+							"default" => false
+						},
+						"copy_to_regions" => {
+							"type" => "array",
+							"description" => "Replicate the AMI to regions other than the source server's.",
+							"items" => {
+								"type" => "String",
+								"description" => "Regions in which to place more copies of this image. If none are specified, or if the keyword #ALL is specified, will place in all available regions."
+							}
+						}
+					}
 				},
 				"vpc" => vpc_reference_primitive(ONE_SUBNET+MANY_SUBNETS, NAT_OPTS, "public"),
-				"image_then_destroy" => {
-					"type" => "boolean",
-					"description" => "Create an EC2 AMI of this server once it is complete, then destroy this server.",
-					"default" => false
-				},
-				"image_exclude_storage" => {
-					"type" => "boolean",
-					"description" => "When creating an image of this server, exclude block device mappings.",
-					"default" => false
-				},
 				"monitoring" => {
 					"type" => "boolean",
 					"default" => true,

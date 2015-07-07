@@ -120,10 +120,11 @@ module MU
 						end
 						sleep 10
 					end
+					ssh = @server.getSSHSession
 
 					if retries < max_retries
 						retries = retries + 1
-						MU.log "#{@server.mu_name}: Chef run '#{purpose}' failed after #{Time.new - runstart}, retrying (#{retries}/#{max_retries})", MU::WARN, details: e.message
+						MU.log "#{@server.mu_name}: Chef run '#{purpose}' failed after #{Time.new - runstart} seconds, retrying (#{retries}/#{max_retries})", MU::WARN, details: e.inspect
 						sleep 30
 						retry
 					else
@@ -308,7 +309,7 @@ module MU
 			# so that nodes can access this metadata.
 			def syncDeployData
 				@server.describe(update_cache: true) # Make sure we're fresh
-				saveInitialMetadata
+				saveChefMetadata
 				begin
 					chef_node = ::Chef::Node.load(@server.mu_name)
 
@@ -350,14 +351,13 @@ module MU
 			private
 
 			# Save common Mu attributes to this node's Chef node structure.
-			def saveInitialMetadata
+			def saveChefMetadata
 				nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = @server.getSSHConfig
 				MU.log "Saving #{@server.mu_name} Chef artifacts"
 				chef_node = ::Chef::Node.load(@server.mu_name)
 				# Figure out what this node thinks its name is
 				system_name = chef_node['fqdn']
 				MU.log "#{@server.mu_name} local name is #{system_name}", MU::DEBUG
-MU.log "#{@server.mu_name} local name is #{system_name}", MU::WARN
 
 				chef_node.normal.app = @config['application_cookbook'] if @config['application_cookbook'] != nil
 				chef_node.normal.service_name = @config["name"]
@@ -365,7 +365,6 @@ MU.log "#{@server.mu_name} local name is #{system_name}", MU::WARN
 				chef_node.chef_environment = MU.environment.downcase
 
 				if @server.windows?
-MU.log "SAVING WINDOWS CRAP FOR #{@server.mu_name}", MU::WARN
 					chef_node.normal.windows_admin_username = @config['windows_admin_username']
 					chef_node.normal.windows_auth_vault = @server.mu_name
 					chef_node.normal.windows_auth_item = "windows_credentials"
@@ -379,7 +378,6 @@ MU.log "SAVING WINDOWS CRAP FOR #{@server.mu_name}", MU::WARN
 
 				# If AD integration has been requested for this node, give Chef what it'll need.
 				if !@config['active_directory'].nil?
-MU.log "SAVING AD CRAP FOR #{@server.mu_name}", MU::WARN
 					chef_node.normal.ad.computer_name = @config['mu_windows_name']
 					chef_node.normal.ad.node_class = @config['name']
 					chef_node.normal.ad.domain_name = @config['active_directory']['domain_name']
@@ -399,7 +397,7 @@ MU.log "SAVING AD CRAP FOR #{@server.mu_name}", MU::WARN
 					chef_node.normal.ad.domain_admin_password_field = @config['active_directory']['domain_admin_vault']['password_field']
 				end
 
-				# Amazon-isms
+				# Amazon-isms, possibly irrelevant
 				awscli_region_widget = {
 					"compile_time" => true,
 					"config_profiles" => {
@@ -410,10 +408,12 @@ MU.log "SAVING AD CRAP FOR #{@server.mu_name}", MU::WARN
 						}
 					}
 				}
-# XXX pass this crap in?
-#				chef_node.normal.awscli = awscli_region_widget
-#			  chef_node.normal.ec2 = MU.structToHash(instance)
-#				chef_node.normal.cloudprovider = "ec2"
+				chef_node.normal.awscli = awscli_region_widget
+				chef_node.normal.cloudprovider = @server.cloud
+
+				# XXX In AWS this is an OpenStruct-ish thing, but it may not be in
+				# others.
+			  chef_node.normal[@server.cloud.to_sym] = MU.structToHash(@server.cloud_desc)
 				tags = MU::MommaCat.listStandardTags
 				if !@config['tags'].nil?
 					@config['tags'].each { |tag|
@@ -422,7 +422,6 @@ MU.log "SAVING AD CRAP FOR #{@server.mu_name}", MU::WARN
 				end
 				chef_node.normal.tags = tags
 			  chef_node.save
-pp chef_node
 
 				# Finally, grant us access to some pre-existing Vaults.
 				if !@config['vault_access'].nil?
