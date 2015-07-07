@@ -4,13 +4,13 @@ This cookbook creates a working Jenkins installation.  It can be deployed on a s
 
 Requirements
 ------------
-This is essentially a configuration cookbook, meant to be run after a jenkins install.  
+This is a wrapper cookbook that is meant to be run after a Jenkins install using the Jenkins community cookbook. This will configure basic authentication, create an "admin" user that will allow Chef to modify Jenkins after authentication has been enabled, Create users and install plugins.
 
 A jenkins vault must be present before invoking.  Two items are required
--  A users item containing passwords for each user enumerated in the ['mu-jenkins']['jenkins_users'] attribute (see below)
--  An admin item containing a public and private keypair for ??? and a single admin user created for ???
+-  A users item containing passwords for each user enumerated in the default.jenkins_users attribute (see below)
+-  An admin item containing a public and private keypair that will be used by chef to authenticate to Jenkins after disabling anonymous authentication, and a username for this user
 
-A third optional ssh item is used for ??
+A third optional ssh item is used to store a keypair used by Jenkins to SSH to other nodes, to allow Jenkins to run code locally as part of a Jenkins job.
 
 Create the items along these lines:
 
@@ -47,27 +47,33 @@ Some basic attributes on the java install and node address, plus Jenkins specifi
     <th>Default</th>
   </tr>
   <tr>
-    <td><tt>['mu-jenkins']['jenkins_users']</tt></td>
+    <td><tt>default.jenkins_users</tt></td>
     <td>Hash</td>
     <td>Jenkins users to create with their properties (excepting password) and a single vault to retrieve creds from</td>
     <td><tt>:user_name => "mu_user", :fullname => "Mu-Demo-User", :email => "mu-developers@googlegroups.com", :vault => "jenkins", :vault_item => "users"}</tt></td>
   </tr>
   <tr>
-    <td><tt>['mu-jenkins']['jenkins_plugins']</tt></td>
+    <td><tt>default.jenkins_ssh_urls</tt></td>
+    <td>Array</td>
+    <td>IP addresses / DNS names of nodes Jenkins will SSH into</td>
+    <td><tt>[node.ipaddress]</tt></td>
+  </tr>
+  <tr>
+    <td><tt>default.jenkins_plugins</tt></td>
     <td>Whitespace string</td>
     <td>plugins to install</td>
     <td><tt>%w{github ssh deploy}</tt></td>
   </tr>
   <tr>
-    <td><tt>['mu-jenkins']['jenkins_ssh_vault']</tt></td>
+    <td><tt>default.jenkins_ssh_vault</tt></td>
     <td>Hash</td>
-    <td>??</td>
+    <td>Preexisting vault containing a public private keypair that will be used to SSH to other nodes</td>
     <td><tt>:vault => "jenkins", :item => "ssh"</tt></td>
   </tr>
   <tr>
-    <td><tt>['mu-jenkins']['jenkins_admin_vault']</tt></td>
+    <td><tt>default.jenkins_admin_vault</tt></td>
     <td>Hash</td>
-    <td>Preexisting vault containing a public private keypair for ??, and an admin user for ??</td>
+    <td>Preexisting vault containing a public private keypair used by Chef to authenticate to Jenkins. This also include the username of the Jenkins user</td>
     <td><tt>:vault => "jenkins", :item => "admin"</tt></td>
   </tr>
 </table>
