@@ -227,7 +227,7 @@ class Cloud
 					instance = createEc2Instance
 
 					@cloud_id = instance.instance_id
-					MU.mommacat.saveSecret(@cloud_id, @config['instance_secret'], "instance_secret")
+					@deploy.saveNodeSecret(@cloud_id, @config['instance_secret'], "instance_secret")
 					@config.delete("instance_secret")
 
 					if !@config['async_groom']
@@ -702,11 +702,18 @@ class Cloud
 					ec2config_password = MU::Cloud::AWS::Server.generateWindowsPassword if ec2config_password.nil?
 					sshd_password = MU::Cloud::AWS::Server.generateWindowsPassword if sshd_password.nil?
 
-					# We're creating the vault here so when we run MU::Cloud::Server.initialSSHTasks and we need to set the Windows Admin password we can grab it fro a vault.
-					win_password = "\"password\":\"#{win_admin_password}\", \"username\":\"#{@config['windows_admin_username']}\", "
-					vault_cmd = "#{MU::Config.knife} vault create #{node} windows_credentials '{ #{win_password} \"ec2config_password\":\"#{ec2config_password}\", \"ec2config_username\":\"ec2config\", \"sshd_password\":\"#{sshd_password}\", \"sshd_username\":\"sshd_service\" }' #{MU::Config.vault_opts}"
-					puts `#{vault_cmd}`
-					MU.log vault_cmd, MU::DEBUG				
+					# We're creating the vault here so when we run
+					# MU::Cloud::Server.initialSSHTasks and we need to set the Windows
+					# Admin password we can grab it from said vault.
+					creds = {
+						"username" => @config['windows_admin_username'],
+						"password" => win_admin_password,
+						"ec2config_username" => "ec2config",
+						"ec2config_password" => ec2config_password,
+						"sshd_username" => "sshd_service",
+						"sshd_password" => sshd_password
+					}
+					@groomer.saveSecret(vault: @mu_name, item: "windows_credentials", data: creds)
 				end
 
 				subnet = nil
@@ -869,7 +876,7 @@ class Cloud
 				# we're done.
 				if @groomer.haveBootstrapped?
 					MU.log "Node #{node} has already been bootstrapped, skipping groomer setup.", MU::NOTICE
-					@groomer.syncDeployData
+					@groomer.saveDeployData
 					MU::MommaCat.unlock(instance.instance_id+"-orchestrate")
 					MU::MommaCat.unlock(instance.instance_id+"-groom")
 					return true
@@ -1022,6 +1029,7 @@ class Cloud
 				deploydata = {
 					"nodename" => @config['mu_name'],
 					"run_list" => @config['run_list'],
+					"image_created" => @config['image_created'],
 					"iam_role" => @config['iam_role'],
 					"instance_id" => @cloud_id,
 					"private_dns_name" => instance.private_dns_name,
@@ -1120,20 +1128,15 @@ class Cloud
 					}
 				end
 
-				@groomer.syncDeployData
+				@groomer.saveDeployData
 
 				begin
 					@groomer.run(purpose: "Full Initial Run")
 				rescue MU::Groomer::RunError
 					MU.log "Proceeding after failed initial Groomer run, but #{node} may not behave as expected!", MU::WARN
 				end
-# XXX figure out what the condition was for this and implement here
-#				if !chef_rerun_only
-					@groomer.syncDeployData if !@config['sync_siblings']
-					MU::MommaCat.syncSiblings(@config["name"], true, triggering_node: node)
-#				end
 
-				if !@config['create_image'].nil?#and !chef_rerun_only
+				if !@config['create_image'].nil? and !@config['image_created']
 					img_cfg = @config['create_image']
 					if img_cfg['image_then_destroy']
 						# tear out Chef or Puppet or whatever we just installed
@@ -1151,6 +1154,7 @@ class Cloud
 														exclude_storage: img_cfg['image_exclude_storage'],
 														copy_to_regions: img_cfg['copy_to_regions'],
 														region: @config['region'])
+					@config['image_created'] = true
 					if img_cfg['image_then_destroy']
 						MU::Cloud::AWS::Server.waitForAMI(ami_id, region: @config['region'])
 						MU.log "AMI ready, removing source node #{node}"
@@ -1529,7 +1533,7 @@ class Cloud
 				return elastic_ip.public_ip
 			end  
 
-			# Remove all instances associated with the currently loaded deployment. Also cleans up associated volumes, droppings in the MU master's /etc/hosts and ~/.ssh, and in Chef.
+			# Remove all instances associated with the currently loaded deployment. Also cleans up associated volumes, droppings in the MU master's /etc/hosts and ~/.ssh, and in whatever Groomer was used.
 			# @param noop [Boolean]: If true, will only print what would be done
 			# @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
 			# @param region [String]: The cloud provider region
@@ -1678,8 +1682,11 @@ class Cloud
 						MU::Cloud::AWS::Server.removeIAMProfile("Server-"+mu_name) if !noop
 					end
 
-# XXX abstraction motherfucker
-					MU::Groomer::Chef.cleanup(nodename, orig_config['vault_access'], noop)
+					# Expunge traces left in Chef, Puppet or what have you
+					MU::Groomer.supportedGroomers.each { |groomer|
+						groomclass = MU::Groomer.loadGroomer(groomer)
+						groomclass.cleanup(nodename, orig_config['vault_access'], noop)
+					}
 
 					MU.mommacat.notify(MU::Cloud::Server.cfg_plural, mu_name, nodename, remove: true, sub_key: nodename) if !noop and MU.mommacat
 

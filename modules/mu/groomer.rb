@@ -26,8 +26,9 @@ module MU
 		end
 		# Instance methods that any Groomer plugin must implement
 		def self.requiredMethods
-			[:preClean, :bootstrap, :haveBootstrapped?, :run, :syncDeployData]
+			[:preClean, :bootstrap, :haveBootstrapped?, :run, :saveDeployData, :getSecret, :saveSecret]
 		end
+# XXX need the class version of getSecret
 
 		class Chef; end
 		# @param groomer [String]: The grooming agent to load. 

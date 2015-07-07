@@ -148,13 +148,13 @@ class Cloud
 				end
 
 					instance_secret = Password.random(50)
-					MU.mommacat.saveSecret("default", instance_secret, "instance_secret")
+					@deploy.saveNodeSecret("default", instance_secret, "instance_secret")
 
 					launch_options[:user_data ] = Base64.encode64(
 						MU::Cloud::AWS::Server.fetchUserdata(
 							platform: @config["platform"],
 							template_variables: {
-								"deployKey" => Base64.urlsafe_encode64(MU.mommacat.public_key),
+								"deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
 								"deploySSHKey" => @deploy.ssh_public_key,
 								"muID" => MU.deploy_id,
 								"muUser" => MU.chef_user,
@@ -301,7 +301,7 @@ class Cloud
 							groomthreads << Thread.new {
 								Thread.abort_on_exception = true
 								MU.dupGlobals(parent_thread_id)
-								MU.mommacat.groomNode(member.instance_id, @config['name'], "server_pool", reraise_fail: true, sync_wait: @config['dns_sync_wait'])
+								@deploy.groomNode(member.instance_id, @config['name'], "server_pool", reraise_fail: true, sync_wait: @config['dns_sync_wait'])
 							}
 						rescue Exception => e
 							if !member.nil? and !done

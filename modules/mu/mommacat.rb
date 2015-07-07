@@ -229,8 +229,7 @@ module MU
 				}
 			end
 
-
-# XXX this .owned? method may get changed by the Ruby maintainers?
+# XXX this .owned? method may get changed by the Ruby maintainers
 			if !@@litter_semaphore.owned?
 				@@litter_semaphore.synchronize {
 					@@litters[@deploy_id] = self
@@ -400,9 +399,9 @@ module MU
 		# @param instance_id [String]: The cloud instance identifier with which this secret is associated.
 		# @param raw_secret [String]: The unencrypted string to store.
 		# @param type [String]: The type of secret, used to identify for retrieval.
-		def saveSecret(instance_id, raw_secret, type)
+		def saveNodeSecret(instance_id, raw_secret, type)
 			if instance_id.nil? or instance_id.empty? or raw_secret.nil? or raw_secret.empty? or type.nil? or type.empty?
-				raise SecretError, "saveSecret requires instance_id, raw_secret, and type args"
+				raise SecretError, "saveNodeSecret requires instance_id, raw_secret, and type args"
 			end
 			MU::MommaCat.lock("deployment-notification")
 			loadDeploy(true) # make sure we're not trampling deployment data
@@ -1626,7 +1625,7 @@ return
 			nagios_threads << Thread.new {
 				MU.dupGlobals(parent_thread_id)
 				MU.log "Updating Nagios monitoring config, this may take a while..."
-				system("#{MU::Config.chefclient} -o 'recipe[mu-master::update_nagios_only]' 2>&1 > /dev/null")
+				system("#{MU::Groomer::Chef.chefclient} -o 'recipe[mu-master::update_nagios_only]' 2>&1 > /dev/null")
 				if !Dir.exists?("#{@nagios_home}/.ssh")
 					Dir.mkdir("#{@nagios_home}/.ssh", 0711)
 				end
@@ -1727,122 +1726,6 @@ return
 			return nodes
 		end
 
-		# Make sure deployment data is synchronized to/from each Chef node in the
-		# currently-loaded deployment.
-		# @param updating_node_type [String]: The class of node we're synchronizing, meaning the 'name' field of the server or server_pool resource we're working with.
-		# @param saveonly [Boolean]: If true, skip rerunning Chef on nodes.
-		def self.syncSiblings(updating_node_type, saveonly = false, triggering_node: nil)
-			deployment = MU.mommacat.deployment.dup
-			original_config = MU.mommacat.original_config.dup
-			environment = MU.mommacat.environment.dup
-			ssh_key_name = MU.mommacat.ssh_key_name.dup
-
-			if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
-				Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
-			end
-			Chef::Config[:environment] = MU.environment
-
-			return if deployment.nil? or deployment['servers'].nil? or original_config.nil? or environment.nil? or ssh_key_name.nil?
-
-			sibling_config = Hash.new
-			deployment['servers'].each_pair { |sib_name, sibling_collection|
-				['servers', 'server_pools'].each { |server_type|
-					if !original_config[server_type].nil?
-						original_config[server_type].each { |conf_block|
-							if conf_block['name'] == sib_name
-								sibling_config = conf_block
-								break
-							end
-						}
-					end
-				}
-				if sibling_config.size == 0
-					MU.log "Couldn't find original config for node type #{sib_name}"
-				end
-				has_no_chef_data = []
-				if sibling_collection.is_a?(Hash)
-					# fetch Chef data that the nodes have generated
-					sibling_collection.each_pair { |nodename, sibling|
-						begin
-							chef_node = Chef::Node.load(nodename)
-						rescue Net::HTTPServerException => e
-							# This isn't typically an error condition. Usually happens when
-							# we've been called before all nodes have been bootstrapped by
-							# Chef, which is routine.
-							MU.log "#{nodename} Chef load: #{e.inspect}", MU::DEBUG, details: sibling_collection
-							has_no_chef_data << nodename
-							next
-						end
-						# While we're in here, delete references to any retired nodes.
-						chef_node.normal['deployment']['servers'].each_pair { |node_class, node_collection|
-							deletia_count = 0
-							node_collection.each_pair { |deletia_name, deletia_data|
-								
-								if deployment['servers'][node_class].nil?
-									deletia_count = deletia_count + 1
-									chef_node.normal['deployment']['servers'].delete(node_class)
-								elsif deployment['servers'][node_class][deletia_name].nil?
-									deletia_count = deletia_count + 1
-									chef_node.normal['deployment']['servers'][node_class].delete(deletia_name)
-								end
-							}
-							if deletia_count > 0
-								MU.log "Some sibling nodes were deleted, expunging from #{nodename}"
-								chef_node.save
-							end
-						}
-						# Now update this sibling node's node-specific metadata
-						node_chef_data = chef_node.normal['deployment']['servers'][sib_name][nodename].dup
-						if !node_chef_data.nil? and node_chef_data.size > 0
-							MU.log "Merging Chef node data into deployment struct for #{nodename}", MU::DEBUG, details: node_chef_data
-							node_chef_data.merge!(deployment['servers'][sib_name][nodename])
-							deployment['servers'][sib_name][nodename] = node_chef_data.dup
-						end
-						other_chef_data = chef_node.normal['deployment'].dup
-						['admins', 'firewall_rules', 'vpcs', 'loadbalancers', 'server_pools', 'servers', 'databases'].each { |res_type|
-							other_chef_data.delete(res_type)
-						}
-						MU.log "Merging non-resource deployment struct data for #{nodename}", MU::DEBUG, details: other_chef_data
-						deployment.merge!(other_chef_data)
-					}
-					# save it back to each sibling, and re-run Chef
-					sibling_collection.each_pair { |nodename, sibling|
-						next if has_no_chef_data.include?(nodename)
-						if !updating_node_type.nil? and
-								updating_node_type == sib_name and
-								sibling_config['sync_siblings']
-							MU::Cloud::AWS::Server.saveDeploymentToChef(nodename, deployment)
-							next if saveonly or triggering_node == nodename or sibling_collection.size == 1
-							MU.log "Re-running Chef on '#{sib_name}' member '#{nodename}'"
-							server_conf = sibling_config.dup
-							server_conf['mu_name'] = nodename
-							server_conf['instance_id'] = sibling['instance_id']
-							parent_thread_id = Thread.current.object_id
-							Thread.new {
-								MU.dupGlobals(parent_thread_id)
-								begin
-									MU::Cloud::AWS::Server.deploy(
-										server_conf,
-										deployment,
-										environment: environment,
-										keypairname: ssh_key_name,
-										chef_rerun_only: true
-									)
-								rescue Exception => e
-									MU::MommaCat.unlockAll
-#									if !File.exists?(deploy_dir+"/.cleanup."+sibling['instance_id']) and !File.exists?(deploy_dir+"/.cleanup")
-									raise e
-#									else
-#										MU.log "#{sibling['instance_id']} is in mid-cleanup", MU::WARN
-#									end
-								end
-							}
-							MU.log "Chef synchronization on '#{sib_name}' member '#{nodename}' complete"
-						end
-					}
-				end
-			}
-		end
 
 		# Given a Certificate Signing Request, sign it with our internal CA and
 		# writers the resulting signed certificate. Only works on local files.
@@ -1896,6 +1779,46 @@ return
 		end
 
 		private
+
+		# Make sure deployment data is synchronized to/from each Chef node in the
+		# currently-loaded deployment.
+		def syncLitter(update_servers = [], triggering_node: nil)
+
+			type = MU::Cloud.resource_types[:Server][:cfg_plural]
+			if @kittens.nil? or
+					@kittens[type].nil?
+				MU.log "No #{type} as yet available in #{@deploy_id}", MU::WARN, details: @kittens
+				return
+			end
+
+			if update_servers.nil? or update_servers.size == 0
+				update_servers = @kittens[type].keys
+			end
+			return if update_servers.size == 0
+
+			# Merge everyone's deploydata together
+			touchclasses = []
+			update_servers.each { |sibling|
+				next if @kittens[type][sibling].nil?
+				mu_name, config, deploydata, cloud_descriptor = @kittens[type][sibling].describe
+				@deployment[type][config['name']][mu_name] = deploydata
+			}
+			threads = []
+			parent_thread_id = Thread.current.object_id
+			update_servers.each { |sibling|
+				next if @kittens[type][sibling].nil?
+				threads << Thread.new {
+					MU.dupGlobals(parent_thread_id)
+					@kittens[type][sibling].groom
+				}
+			}
+
+			threads.each { |t|
+				t.join
+			}
+
+			MU.log "Synchronization of #{@deploy_id} complete", MU::NOTICE, details: update_servers
+		end
 
 		# Check to see whether a given resource name is unique across all
 		# deployments on this Mu server. We only enforce this for certain classes
@@ -2001,7 +1924,10 @@ return
 					end
 					deploy.flock(File::LOCK_UN)
 					deploy.close
-					MU::MommaCat.syncSiblings(updating_node_type)
+					if !@deployment['servers'].nil? and @deployment['servers'].keys.size > 0
+						# XXX some kind of filter (obey sync_siblings on nodes' configs)
+						syncLitter(@deployment['servers'].keys)
+					end
 				end
 
 				if !@original_config.nil? and @original_config.is_a?(Hash)

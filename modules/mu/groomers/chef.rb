@@ -19,6 +19,28 @@ module MU
 		# Support for Chef as a host configuration management layer.
 		class Chef
 
+			@knife = "cd #{MU.myRoot} && env -i HOME=#{Etc.getpwuid(Process.uid).dir} #{MU.mu_env_vars} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin knife"
+			# The canonical path to invoke Chef's *knife* utility with a clean environment.
+			# @return [String]
+			def self.knife; @knife;end
+			attr_reader :knife
+
+			@vault_opts = "--mode client -u #{MU.chef_user} -F json"
+			# The canonical set of arguments for most `knife vault` commands
+			# @return [String]
+			def self.vault_opts; @vault_opts;end
+			attr_reader :vault_opts
+
+			@chefclient = "env -i HOME=#{Etc.getpwuid(Process.uid).dir} #{MU.mu_env_vars} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin chef-client"
+			# The canonical path to invoke Chef's *chef-client* utility with a clean environment.
+			# @return [String]
+			def self.chefclient; @chefclient;end
+			attr_reader :chefclient
+
+			if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+				::Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+			end
+
 			# @param node [MU::Cloud::Server]: The server object on which we'll be operating
 			def initialize(node)
 				@config = node.config
@@ -40,15 +62,33 @@ module MU
 				nodelist.has_key?(@server.mu_name)
 			end
 
+			# @param vault [String]: A repository of secrets to create/save into.
+			# @param item [String]: The item within the repository to create/save.
+			# @param data [Hash]: Data to save
+			# @param permissions [String]: An implementation-specific string describing what node or nodes should have access to this secret.
+			def saveSecret(vault: @server.mu_name, item: nil, data: nil, permissions: "name:#{@server.mu_name}")
+				if item.nil? or !item.is_a?(String)
+					raise MuError, "item argument to saveSecret must be a String"
+				end
+				if data.nil? or !data.is_a?(Hash)
+					raise MuError, "data argument to saveSecret must be a Hash"
+				end
 
-			# Preparation tasks that must be completed before bootstrapping Chef.
-			# @param ssh [Net::SSH::Connection::Session]: The active SSH session to the new node.
+				cmd = "update"
+				`#{MU::Groomer::Chef.knife} vault show '#{vault}' #{item} #{MU::Groomer::Chef.vault_opts} > /dev/null 2>&1`
+				cmd = "create" if $?.exitstatus != 0
+
+				vault_cmd = "#{MU::Groomer::Chef.knife} vault '#{cmd}' '#{vault}' '#{item}' '#{JSON.generate(data)}' --search '#{permissions}' #{MU::Groomer::Chef.vault_opts}"
+				puts `#{vault_cmd}`
+				MU.log vault_cmd, MU::DEBUG
+			end
+
 			# Retrieve sensitive data, which hopefully we're storing and retrieving
 			# in a secure fashion.
 			# @param vault [String]: A repository of secrets to search
 			# @param item [String]: The item within the repository to retrieve
 			# @param field [String]: OPTIONAL - A specific field within the item to return.
-			def getSecret(vault: nil, item: nil, field: nil)
+			def self.getSecret(vault: nil, item: nil, field: nil)
 				item = ChefVault::Item.load(repo, item)
 				if item.nil?
 					raise MuError, "Failed to retrieve Vault #{repo}:#{item}"
@@ -63,7 +103,9 @@ module MU
 					return item
 				end
 			end
-
+			def getSecret(vault: nil, item: nil, field: nil)
+				self.class.getSecret(vault: vault, item: item, field: field)
+			end
 
 			# Invoke the Chef client on the node at the other end of a provided SSH
 			# session.
@@ -82,7 +124,7 @@ module MU
 					chef_node.normal.application_attributes = @config['application_attributes']
 					chef_node.save
 				end
-				syncDeployData
+				saveDeployData
 
 				ssh = @server.getSSHSession
 				MU.log "Invoking Chef on #{@server.mu_name}: #{purpose}"
@@ -132,23 +174,26 @@ module MU
 					end
 				end
 
-				syncDeployData
+				saveDeployData
 			end
 
 			# Make sure we've got a Splunk admin vault for any mu-splunk-servers to
 			# use, and set it up if we don't.
 			def splunkVaultInit
-				`#{MU::Config.knife} vault show splunk admin_user #{MU::Config.vault_opts} > /dev/null 2>&1`
-				if $?.exitstatus != 0
-					`#{MU::Config.knife} data bag delete -y splunk > /dev/null 2>&1`
-					user = "admin"
-					password = Password.pronounceable(12..14)
-					`#{MU::Config.knife} vault create splunk admin_user '{ \"auth\": \"#{user}:#{password}\" }' --search role:mu-splunk-server #{MU::Config.vault_opts}`
-					if $?.exitstatus != 0
-						MU.log "Failed to create standard Splunk vault: #{MU::Config.knife} vault create splunk admin_user '{ \"auth\": \"#{user}:#{password}\" }' --search role:mu-splunk-server #{MU::Config.vault_opts}", MU::ERR
-						exit 1
-					end
-				end
+				pw = Password.pronounceable(12..14)
+				# ...one of these is correct
+				creds = {
+					"username" => "admin",
+					"password" => pw,
+					"auth" => "admin:#{pw}"
+				}
+
+				saveSecret(
+					vault: "splunk",
+					item: "admin_user",
+					data: creds,
+					permissions: "role:mu-splunk-server"
+				)
 			end
 
 			# Expunge
@@ -302,12 +347,13 @@ module MU
 					}
 				end
 
-				syncDeployData
+				saveDeployData
 			end
 
 			# Synchronize the deployment structure managed by {MU::MommaCat} to Chef,
 			# so that nodes can access this metadata.
-			def syncDeployData
+			# @return [Hash]: The data synchronized.
+			def saveDeployData
 				@server.describe(update_cache: true) # Make sure we're fresh
 				saveChefMetadata
 				begin
@@ -317,6 +363,7 @@ module MU
 					chef_node.normal.deployment.merge!(@server.deploy.deployment)
 
 					chef_node.save
+					return chef_node.deployment
 				rescue Net::HTTPServerException => e
 					MU.log "Attempted to save deployment to Chef node #{@server.mu_name} before it was bootstrapped.", MU::DEBUG
 				end
@@ -331,15 +378,15 @@ module MU
 				vaults_to_clean.each { |vault|
 					MU::MommaCat.lock("vault-"+vault['vault'], false, true)
 					MU.log "knife vault remove #{vault['vault']} #{vault['item']} --search name:#{node}", MU::NOTICE
-					puts `#{MU::Config.knife} vault remove #{vault['vault']} #{vault['item']} --search name:#{node}` if !noop
+					puts `#{MU::Groomer::Chef.knife} vault remove #{vault['vault']} #{vault['item']} --search name:#{node}` if !noop
 					MU::MommaCat.unlock("vault-"+vault['vault'])
 				}
 				MU.log "knife node delete -y #{node}"
-				`#{MU::Config.knife} node delete -y #{node}` if !noop
+				`#{MU::Groomer::Chef.knife} node delete -y #{node}` if !noop
 				MU.log "knife client delete -y #{node}"
-				`#{MU::Config.knife} client delete -y #{node}` if !noop
+				`#{MU::Groomer::Chef.knife} client delete -y #{node}` if !noop
 				MU.log "knife data bag delete -y #{node}"
-				`#{MU::Config.knife} data bag delete -y #{node}` if !noop
+				`#{MU::Groomer::Chef.knife} data bag delete -y #{node}` if !noop
 				["crt", "key", "csr"].each { |ext|
 					if File.exists?("#{MU.mySSLDir}/#{node}.#{ext}")
 						MU.log "Removing #{MU.mySSLDir}/#{node}.#{ext}"
@@ -409,11 +456,15 @@ module MU
 					}
 				}
 				chef_node.normal.awscli = awscli_region_widget
-				chef_node.normal.cloudprovider = @server.cloud
 
-				# XXX In AWS this is an OpenStruct-ish thing, but it may not be in
-				# others.
-			  chef_node.normal[@server.cloud.to_sym] = MU.structToHash(@server.cloud_desc)
+				if !@server.cloud.nil?
+					chef_node.normal.cloudprovider = @server.cloud
+
+					# XXX In AWS this is an OpenStruct-ish thing, but it may not be in
+					# others.
+				  chef_node.normal[@server.cloud.to_sym] = MU.structToHash(@server.cloud_desc)
+				end
+
 				tags = MU::MommaCat.listStandardTags
 				if !@config['tags'].nil?
 					@config['tags'].each { |tag|
@@ -426,25 +477,25 @@ module MU
 				# Finally, grant us access to some pre-existing Vaults.
 				if !@config['vault_access'].nil?
 					@config['vault_access'].each { |vault|
-						grantVaultAccess(vault['vault'], vault['item'])
+						grantSecretAccess(vault['vault'], vault['item'])
 					}
 				end
 			end
 
-			def grantVaultAccess(vault, item)
+			def grantSecretAccess(vault, item)
 				MU::MommaCat.lock("vault-"+vault, false, true)
 				retries = 0
 				begin
 					retries = retries + 1
-					vault_cmd = "#{MU::Config.knife} vault update #{vault} #{item} #{MU::Config.vault_opts} --search name:#{@server.mu_name} 2>&1"
+					vault_cmd = "#{MU::Groomer::Chef.knife} vault update #{vault} #{item} #{MU::Groomer::Chef.vault_opts} --search name:#{@server.mu_name} 2>&1"
 					MU.log "ADD attempt #{retries} enabling #{@server.mu_name} for vault access to #{vault} #{item} using command  #{vault_cmd}", MU::DEBUG
 					output = `#{vault_cmd}`
           MU.log "Result of ADD attempt #{retries} enabling #{@server.mu_name} for vault access to #{vault} was #{output} with RC #{$?.exitstatus}", MU::DEBUG
 					if $?.exitstatus != 0
-						MU.log "Got bad exit code on try #{retries} from knife vault update #{vault} #{item} #{MU::Config.vault_opts} --search name:#{@server.mu_name}", MU::WARN, details: output
+						MU.log "Got bad exit code on try #{retries} from knife vault update #{vault} #{item} #{MU::Groomer::Chef.vault_opts} --search name:#{@server.mu_name}", MU::WARN, details: output
 					end
 					# Check and see if what we asked for actually got done
-					vault_cmd = "#{MU::Config.knife} vault show #{vault} #{item} clients -p clients -f yaml #{MU::Config.vault_opts} 2>&1"
+					vault_cmd = "#{MU::Groomer::Chef.knife} vault show #{vault} #{item} clients -p clients -f yaml #{MU::Groomer::Chef.vault_opts} 2>&1"
 					#MU.log vault_cmd, MU::DEBUG
 					output = `#{vault_cmd}`
 					MU.log "VERIFYING #{@server.mu_name} access to #{vault} #{item}:\n #{output}", MU::DEBUG
@@ -524,23 +575,22 @@ module MU
 				cert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/#{@server.mu_name}.crt"
 
 				# Upload the certificate to a Chef Vault for this node
-				vault_cmd = "#{MU::Config.knife} vault create #{@server.mu_name} ssl_cert '{ \"data\": { \"node.crt\":\"#{cert.to_pem.chomp!.gsub(/\n/, "\\n")}\", \"node.key\":\"#{key.to_pem.chomp!.gsub(/\n/, "\\n")}\" } }' #{MU::Config.vault_opts} --search name:#{@server.mu_name}"
-				MU.log vault_cmd, MU::DEBUG
-				puts `#{vault_cmd}`
-				grantVaultAccess(@server.mu_name, "ssl_cert")
+				certdata = {
+					"data" => {
+						"node.crt" => cert.to_pem.chomp!.gsub(/\n/, "\\n"),
+						"node.key" => key.to_pem.chomp!.gsub(/\n/, "\\n")
+					}
+				}
+				saveSecret(item: "ssl_cert", data: certdata)
 
 				# Any and all 'secrets' parameters should also be stuffed into our vault.
 				if !@config['secrets'].nil?
-					json = JSON.generate(@config['secrets'])
-					vault_cmd = "#{MU::Config.knife} vault create #{@server.mu_name} secrets '#{json}' #{MU::Config.vault_opts} --search name:#{@server.mu_name}"
-					MU.log vault_cmd, MU::DEBUG
-					puts `#{vault_cmd}`
-					grantVaultAccess(@server.mu_name, "secrets")
+					saveSecret(item: "secrets", data: @config['secrets'])
 				end
 				
 				if @server.windows?
 					# We're creating the vault earlier to allow us to grab the Windows Admin password when running MU::Server.initialSSHTasks.
-					grantVaultAccess(@server.mu_name, "windows_credentials")
+					grantSecretAccess(@server.mu_name, "windows_credentials")
 				end
 			end
 
@@ -558,11 +608,11 @@ module MU
 				if rl_entry.match(/^role\[(.+?)\]/) then
 					type = "role"
 					rl_entry = Regexp.last_match(1)
-					query=%Q{#{MU::Config.knife} role show #{rl_entry}};
+					query=%Q{#{MU::Groomer::Chef.knife} role show #{rl_entry}};
 				elsif rl_entry.match(/^recipe\[(.+?)\]/) then
 					type = "recipe"
 					rl_entry = Regexp.last_match(1)
-					query=%Q{#{MU::Config.knife} recipe list | grep '^#{rl_entry}$'};
+					query=%Q{#{MU::Groomer::Chef.knife} recipe list | grep '^#{rl_entry}$'};
 				end
 		
 				%x{#{query}}
@@ -571,13 +621,13 @@ module MU
 				end
 		
 				begin
-					query=%Q{#{MU::Config.knife} node run_list add #{@server.mu_name} "#{type}[#{rl_entry}]"};
+					query=%Q{#{MU::Groomer::Chef.knife} node run_list add #{@server.mu_name} "#{type}[#{rl_entry}]"};
 					MU.log("Adding #{type} #{rl_entry} to #{@server.mu_name}")
 					MU.log("Running #{query}", MU::DEBUG)
 					output=%x{#{query}}
 					# XXX rescue Exception is bad style
 				rescue Exception => e
-					raise MuError, "FAIL: #{MU::Config.knife} node run_list add #{@server.mu_name} \"#{type}[#{rl_entry}]\": #{e.message} (output was #{output})"
+					raise MuError, "FAIL: #{MU::Groomer::Chef.knife} node run_list add #{@server.mu_name} \"#{type}[#{rl_entry}]\": #{e.message} (output was #{output})"
 				end
 			end
 

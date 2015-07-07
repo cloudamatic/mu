@@ -85,48 +85,6 @@ module MU
 
 		attr_reader :config
 		
-		rcfile = nil
-		home = Etc.getpwuid(Process.uid).dir
-		if ENV.include?('MU_INSTALLDIR') and File.readable?(ENV['MU_INSTALLDIR']+"/etc/mu.rc")
-			rcfile = ENV['MU_INSTALLDIR']+"/etc/mu.rc"
-		elsif File.readable?("/opt/mu/etc/mu.rc")
-			rcfile = "/opt/mu/etc/mu.rc"
-		elsif File.readable?("#{home}/.murc")
-			rcfile = "#{home}/.murc"
-		end
-		MU.log "MU::Config loading #{rcfile}", MU::DEBUG
-		File.readlines(rcfile).each {|line|
-			line.strip!
-			name, value = line.split(/=/, 2)
-			name.sub!(/^export /, "")
-			if !value.nil? and !value.empty?
-				value.gsub!(/(^"|"$)/, "")
-				if !value.match(/\$/)
-					@mu_env_vars = "#{@mu_env_vars} #{name}=\"#{value}\""
-				end
-			end
-		}
-
-		# The invocation to Chef's knife utility. We want full paths and clean
-		# environments when running external commands.
-		@knife = "cd #{MU.myRoot} && env -i HOME=#{home} #{@mu_env_vars} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin knife"
-		# The canonical path to invoke Chef's *knife* utility with a clean environment.
-		# @return [String]
-		def self.knife; @knife;end
-		attr_reader :knife
-
-		@vault_opts = "--mode client -u #{MU.chef_user} -F json"
-		# The canonical set of arguments for most `knife vault` commands
-		# @return [String]
-		def self.vault_opts; @vault_opts;end
-		attr_reader :vault_opts
-
-		@chefclient = "env -i HOME=#{home} #{@mu_env_vars} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin chef-client"
-		# The canonical path to invoke Chef's *chef-client* utility with a clean environment.
-		# @return [String]
-		def self.chefclient; @chefclient;end
-		attr_reader :chefclient
-
 
 		# Load a configuration file ("Basket of Kittens").
 		# @param path [String]: The path to the master config file to load. Note that this can include other configuration files via ERB.
@@ -722,10 +680,8 @@ module MU
 		def self.check_vault_refs(server)
 			ok = true
 			server['vault_access'] = [] if server['vault_access'].nil?
-			if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
-				Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
-			end
-			
+			groomclass = MU::Groomer.loadGroomer(server['groomer'])
+
 			begin
 				if !server['active_directory'].nil?
 					["domain_admin_vault", "domain_join_vault"].each { |vault_class|
@@ -733,7 +689,10 @@ module MU
 							"vault" => server['active_directory'][vault_class]['vault'],
 							"item" => server['active_directory'][vault_class]['item']
 						}
-						item = ChefVault::Item.load(server['active_directory'][vault_class]['vault'], server['active_directory'][vault_class]['item'])
+						item = groomclass.getSecret(
+							vault: server['active_directory'][vault_class]['vault'],
+							item: server['active_directory'][vault_class]['item'],
+						)
 						["username_field", "password_field"].each { |field|
 							if !item.has_key?(server['active_directory'][vault_class][field])
 								ok = false

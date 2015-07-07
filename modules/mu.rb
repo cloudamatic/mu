@@ -67,13 +67,6 @@ else
 end
 ENV['HOME'] = Etc.getpwuid(Process.uid).dir
 
-gem "chef"
-autoload :Chef, 'chef'
-gem "knife-windows"
-gem "chef-vault"
-autoload :Chef, 'chef-vault'
-autoload :ChefVault, 'chef-vault'
-
 # XXX Explicit autoloads for child classes of :Chef. This only seems to be
 # necessary for independent groom invocations from MommaCat. It's not at all
 # clear why. Chef bug? Autoload threading weirdness?
@@ -336,6 +329,31 @@ module MU
 	autoload :MommaCat, 'mu/mommacat'
 	require 'mu/cloud'
 	require 'mu/groomer'
+
+	rcfile = nil
+	home = Etc.getpwuid(Process.uid).dir
+	if ENV.include?('MU_INSTALLDIR') and File.readable?(ENV['MU_INSTALLDIR']+"/etc/mu.rc")
+		rcfile = ENV['MU_INSTALLDIR']+"/etc/mu.rc"
+	elsif File.readable?("/opt/mu/etc/mu.rc")
+		rcfile = "/opt/mu/etc/mu.rc"
+	elsif File.readable?("#{home}/.murc")
+		rcfile = "#{home}/.murc"
+	end
+	MU.log "MU::Config loading #{rcfile}", MU::DEBUG
+	File.readlines(rcfile).each {|line|
+		line.strip!
+		name, value = line.split(/=/, 2)
+		name.sub!(/^export /, "")
+		if !value.nil? and !value.empty?
+			value.gsub!(/(^"|"$)/, "")
+			if !value.match(/\$/)
+				@mu_env_vars = "#{@mu_env_vars} #{name}=\"#{value}\""
+			end
+		end
+	}
+
+	# Environment variables which command-line utilities might wish to inherit
+	def self.mu_env_vars; @mu_env_vars;end
 
 # XXX these guys to move into mu/groomer
 	# List of known/supported grooming agents (configuration management tools)
