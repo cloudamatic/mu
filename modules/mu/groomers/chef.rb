@@ -235,7 +235,8 @@ module MU
 
 			  MU.log "Bootstrapping #{@server.mu_name} (#{canonical_addr}) with knife"
 
-				run_list = ["recipe[mu-tools::newclient]", "role[mu-node]"]
+				run_list = ["role[mu-node]", "recipe[mu-tools::newclient]"]
+				run_list << "recipe[mu-tools::updates]" if !@config['skipinitialupdates']
 
 				# XXX These shouldn't be needed, see Autoloads in mu.rb. Whyy Chef why? 
 				require 'chef/knife/bootstrap'
@@ -245,6 +246,7 @@ module MU
 				json_attribs = {}
 				if !@config['application_attributes'].nil?
 					json_attribs['application_attributes'] = @config['application_attributes']
+					json_attribs['skipinitialupdates'] = @config['skipinitialupdates']
 				end
 				if !@config['vault_access'].nil?
 					vault_access = @config['vault_access']

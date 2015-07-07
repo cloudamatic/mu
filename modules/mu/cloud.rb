@@ -224,6 +224,7 @@ module MU
 				attr_reader :config
 				attr_reader :cloud_desc
 				attr_reader :deploydata
+				attr_reader :groomer
 
 				def self.shortname
 					name.sub(/.*?::([^:]+)$/, '\1')

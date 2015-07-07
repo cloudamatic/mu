@@ -954,6 +954,7 @@ end
 		# @return [void]
 		def notify(res_type, key, data, remove: remove = false, sub_key: nil)
 			MU::MommaCat.lock("deployment-notification")
+			changed = false
 			loadDeploy(true) # make sure we're saving the latest and greatest
 			if !remove
 				if data.nil?
@@ -961,6 +962,7 @@ end
 					return
 				end
 				@deployment[res_type] = {} if @deployment[res_type].nil?
+				changed = true if @deployment[res_type][key] != data
 				@deployment[res_type][key] = data
 				MU.log "Adding to @deployment[#{res_type}][#{key}]", MU::DEBUG, details: data
 			else
@@ -977,9 +979,11 @@ end
 
 				if !sub_key.nil? and have_deploy
 					MU.log "Removing @deployment[#{res_type}][#{key}][#{sub_key}]", MU::DEBUG, details: @deployment[res_type][key][sub_key]
+					changed = true
 					@deployment[res_type][key].delete(sub_key)
 				else
 					MU.log "Removing @deployment[#{res_type}][#{key}]", MU::DEBUG, details: @deployment[res_type][key]
+					changed = true
 					@deployment[res_type].delete(key)
 				end
 
@@ -996,6 +1000,7 @@ end
 										end
 									}
 									deletia.each { |drop_vault|
+										changed = true
 										MU.log "Removing vault references to #{sub_key} from #{svr_class} #{server['name']}"
 										server['vault_access'].delete(drop_vault)
 									}
@@ -1007,7 +1012,7 @@ end
 					}
 				end
 			end
-			save!(key)
+			save!(key) if changed
 			MU::MommaCat.unlock("deployment-notification")
 		end
 
@@ -1782,34 +1787,42 @@ return
 
 		# Make sure deployment data is synchronized to/from each Chef node in the
 		# currently-loaded deployment.
-		def syncLitter(update_servers = [], triggering_node: nil)
-
-			type = MU::Cloud.resource_types[:Server][:cfg_plural]
+		def syncLitter(nodeclasses = [], triggering_node: nil)
+			svrs = MU::Cloud.resource_types[:Server][:cfg_plural] # legibility shorthand
 			if @kittens.nil? or
-					@kittens[type].nil?
-				MU.log "No #{type} as yet available in #{@deploy_id}", MU::WARN, details: @kittens
+					@kittens[svrs].nil?
+				MU.log "No #{svrs} as yet available in #{@deploy_id}", MU::WARN, details: @kittens
 				return
 			end
+			MU.log "Updating these siblings in #{@deploy_id}: #{nodeclasses.join(', ')}", MU::DEBUG, details: @kittens[svrs]
 
-			if update_servers.nil? or update_servers.size == 0
-				update_servers = @kittens[type].keys
+			update_servers = []
+			if nodeclasses.nil? or nodeclasses.size == 0
+				update_servers = @kittens[svrs].values
+			else
+				@kittens[svrs].each_pair { |mu_name, node|
+					if nodeclasses.include?(node.config['name']) and !node.groomer.nil?
+						update_servers << node
+					end
+				}
 			end
 			return if update_servers.size == 0
 
 			# Merge everyone's deploydata together
-			touchclasses = []
 			update_servers.each { |sibling|
-				next if @kittens[type][sibling].nil?
-				mu_name, config, deploydata, cloud_descriptor = @kittens[type][sibling].describe
-				@deployment[type][config['name']][mu_name] = deploydata
+				mu_name, config, deploydata, cloud_descriptor = sibling.describe
+				@deployment[svrs][config['name']][mu_name] = deploydata if !deploydata.nil?
 			}
 			threads = []
 			parent_thread_id = Thread.current.object_id
+# XXX apparently we teeter dangerously close to outrunning the system call stack
+# here, even though we're not doing anything recursive or even that deep.
+# Beware future surprises.
 			update_servers.each { |sibling|
-				next if @kittens[type][sibling].nil?
 				threads << Thread.new {
 					MU.dupGlobals(parent_thread_id)
-					@kittens[type][sibling].groom
+					Thread.current.thread_variable_set("name", "sync-"+sibling.mu_name.downcase)
+					sibling.groomer.run
 				}
 			}
 
