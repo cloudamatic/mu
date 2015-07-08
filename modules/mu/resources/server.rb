@@ -980,11 +980,10 @@ module MU
 
 		  ssh_retries=0
 			canonical_name = instance.public_dns_name
-			canonical_name = instance.private_dns_name if !canonical_name or nat_ssh_host != nil
+			canonical_name = instance.private_dns_name if !canonical_name
 			server['canonical_name'] = canonical_name
-
 			canonical_ip = instance.public_ip_address if !canonical_ip
-			canonical_ip = instance.private_ip_address if !canonical_ip or nat_ssh_host != nil
+			canonical_ip = instance.private_ip_address if !canonical_ip
 			server['canonical_ip'] = canonical_ip
 
 			if canonical_ip.nil?
@@ -1106,7 +1105,7 @@ module MU
 # XXX key off of MU verbosity level
 			kb.config[:log_level] = :debug
 			kb.config[:identity_file] = ssh_keydir+"/"+node_ssh_key
-			if !nat_ssh_host.nil?
+			if !instance.public_ip_address.nil? and !instance.public_ip_address.empty? and instance.public_ip_address != canonical_ip and !nat_ssh_host.nil? and !MU::VPC.haveRouteToInstance?(instance.instance_id)
 				kb.config[:ssh_gateway] = nat_ssh_user+"@"+nat_ssh_host
 			end
 			# This defaults to localhost for some reason sometimes. Brute-force it.
