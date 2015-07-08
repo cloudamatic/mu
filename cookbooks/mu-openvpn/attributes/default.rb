@@ -6,7 +6,7 @@ end
 
 default.openvpn.vpc_networks = %w{172.31.0.0/16 10.0.0.0/16}
 default.openvpn.base_url = "http://swupdate.openvpn.org/as"
-default.openvpn.url = node.ec2.public_ip_address
+default.openvpn.url = node.aws.public_ip_address
 default.openvpn.base_dir = "/usr/local/openvpn_as"
 default.openvpn.scripts = "#{node.openvpn.base_dir}/scripts"
 default.openvpn.bin = "#{node.openvpn.base_dir}/bin"

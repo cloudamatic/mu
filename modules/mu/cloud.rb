@@ -101,7 +101,7 @@ module MU
 				:deps_wait_on_my_creation => false,
 				:waits_on_parent_completion => false,
 				:class => generic_class_methods,
-				:instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP, :getWindowsAdminPassword]
+				:instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP, :getWindowsAdminPassword, :active?, :groomer]
 			},
 			:ServerPool => {
 				:has_multiples => false,
@@ -232,7 +232,7 @@ module MU
 					MU::Cloud.resource_types[shortname.to_sym][:cfg_plural]
 				end
 				def self.has_multiples
-					MU::Cloud.resource_types[shortname.to_sym][:has_multples]
+					MU::Cloud.resource_types[shortname.to_sym][:has_multiples]
 				end
 				def self.cfg_name
 					MU::Cloud.resource_types[shortname.to_sym][:cfg_name]
@@ -250,19 +250,17 @@ module MU
 				# Print something palatable when we're called in a string context.
 				def to_s
 					fullname = "#{self.class.shortname}"
-					mu_name = @mu_name
-					if !@config.nil?
-						mu_name ||= MU::MommaCat.getResourceName(@config['name'])
+					if !@cloudobj.nil? and !@cloudobj.mu_name.nil?
+						@mu_name ||= @cloudobj.mu_name
 					end
-					if !mu_name.nil? and !mu_name.empty?
-						fullname = fullname + " '#{mu_name}'"
+					if !@mu_name.nil? and !@mu_name.empty?
+						fullname = fullname + " '#{@mu_name}'"
 					end
 					if !@cloud_id.nil?
 						fullname = fullname + " (#{@cloud_id})"
 					end
 					return fullname
 				end
-
 
 				# @param mommacat [MU::MommaCat]: The deployment containing this cloud resource
 				# @param mu_name [String]: Optional- specify the full Mu resource name of an existing resource to load, instead of creating a new one
@@ -302,11 +300,7 @@ module MU
 					# Register us with our parent deploy so that we can be found by our
 					# littermates if needed.
 					if !@cloudobj.mu_name.nil? and !@cloudobj.mu_name.empty?
-						if self.class.has_multiples
-							@deploy.addKitten(self.class.cfg_name, @config['name'], self)
-						else
-							@deploy.addKitten(self.class.cfg_name, @cloudobj.mu_name, self)
-						end
+						@deploy.addKitten(self.class.cfg_name, @config['name'], self)
 					else
 						MU.log "#{self} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR
 					end
@@ -334,12 +328,13 @@ module MU
 						# probably complain under other circumstances, if we can
 						# differentiate them.
 					end
-					# XXX :has_multiples is what to actually check here
+
 					if self.class.has_multiples and !@mu_name.nil? and deploydata.is_a?(Hash) and deploydata.has_key?(@mu_name)
 						@deploydata = deploydata[@mu_name]
 					elsif deploydata.is_a?(Hash)
 						@deploydata = deploydata
 					end
+
 					if @cloud_id.nil? and @deploydata.is_a?(Hash)
 						if @mu_name.nil? and @deploydata.has_key?('#MU_NAME')
 							@mu_name = @deploydata['#MU_NAME']

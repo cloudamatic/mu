@@ -28,7 +28,8 @@ module MU
 		def self.requiredMethods
 			[:preClean, :bootstrap, :haveBootstrapped?, :run, :saveDeployData, :getSecret, :saveSecret]
 		end
-# XXX need the class version of getSecret
+# XXX need the class versions of getSecret, cleanup
+
 
 		class Chef; end
 		# @param groomer [String]: The grooming agent to load. 
@@ -59,6 +60,12 @@ module MU
 				@groomer_class = MU::Groomer.loadGroomer(server.config['groomer'])
 			end
 			@groomer_obj = @groomer_class.new(server)
+		end
+
+		# Wrapper for Groomer implementations of the cleanup class method. We'll
+		# helpfully provide the arguments we know the answer to.
+		def cleanup
+			@groomer_class.cleanup.call(@server.mu_name, @server.config['vault_access'])
 		end
 
 		MU::Groomer.requiredMethods.each { |method|

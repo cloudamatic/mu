@@ -367,7 +367,7 @@ class Cloud
 					role_name: rolename
 				)
 				begin
-					MU::Cloud::AWS.iam.get_role(role_name: rolename)
+					MU::Cloud::AWS.iam.get_instance_profile(instance_profile_name: rolename)
 # XXX figure out what the real exception is and catch that
 				rescue Exception => e
 					MU.log e.inspect, MU::WARN
@@ -857,7 +857,7 @@ class Cloud
 					end
 				end
 
-				windows? ssh_wait = 60 : ssh_wait = 25
+				windows? ? ssh_wait = 60 : ssh_wait = 25
 				max_retries = 25
 			  begin
 					session = getSSHSession(ssh_wait, max_retries)
@@ -1062,11 +1062,12 @@ class Cloud
 					raise MuError, "#{@mu_name} (#{MU.deploy_id}) is configured to use #{@config['vpc']} but I can't find a matching NAT instance"
 				end
 				nat_name, nat_conf, nat_deploydata, nat_descriptor = @nat.describe
-				MU.log "Adding administrative holes for NAT host #{nat_deploydata["private_ip_address"]} to #{@mu_name}", MU::DEBUG
+				MU.log "Adding administrative holes for NAT host #{nat_descriptor.private_ip_address} to #{@mu_name}"
 				@deploy.kittens['firewall_rules'].each_pair { |name, acl|
 					if acl.config["admin"]
-						acl.addRule([nat_deploydata["private_ip_address"]], proto: "tcp")
-						acl.addRule([nat_deploydata["private_ip_address"]], proto: "udp")
+						acl.addRule([nat_descriptor.private_ip_address], proto: "tcp")
+						acl.addRule([nat_descriptor.private_ip_address], proto: "udp")
+						acl.addRule([nat_descriptor.private_ip_address], proto: "icmp")
 					end
 				}
 			end
@@ -1430,6 +1431,30 @@ class Cloud
 					return addr
 			end
 
+			# Determine whether the node in question exists at the Cloud provider
+			# layer.
+			# @return [Boolean]
+			def active?
+				if @cloud_id.nil? or @cloud_id.empty?
+					MU.log "#{self} didn't have a #{@cloud_id}, couldn't determine 'active?' status", MU::ERR
+					return true
+				end
+				MU::Cloud::AWS.ec2(@config['region']).describe_instances(
+					instance_ids: [@cloud_id]
+				).reservations.each { |resp|
+					if !resp.nil? and !resp.instances.nil?
+						resp.instances.each { |instance|
+							if instance.state.name == "terminated" or
+								 instance.state.name == "terminating"
+								return false
+							end
+							return true
+						}
+					end
+				}
+				return false
+			end
+
 			@eip_semaphore = Mutex.new
 			# Associate an Amazon Elastic IP with an instance.
 			# @param instance_id [String]: The cloud provider identifier of the instance.
@@ -1581,8 +1606,6 @@ class Cloud
 				threads.each { |t|
 					t.join
 				}
-
-
 			end
 
 			# Terminate an instance.

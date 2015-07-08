@@ -49,14 +49,15 @@ module MU
 		# stepping on the global context for the deployment you're really working
 		# on..
 		# @param deploy_id [String]: The deploy ID of the deploy to load.
+		# @param set_context_to_me [Boolean]: Whether new MommaCat objects should overwrite any existing per-thread global deploy variables.
 		# @return [MU::MommaCat]
-		def self.getLitter(deploy_id)
+		def self.getLitter(deploy_id, set_context_to_me: false)
 			if deploy_id.nil? or deploy_id.empty?
 				raise MuError, "Cannot fetch a deployment without a deploy_id"
 			end
 			@@litter_semaphore.synchronize {
 				if !@@litters.has_key?(deploy_id)
-					@@litters[deploy_id] = MU::MommaCat.new(deploy_id, set_context_to_me: false)
+					@@litters[deploy_id] = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
 				end
 				return @@litters[deploy_id]
 			}
@@ -199,7 +200,10 @@ module MU
 									end
 								}
 							end
-							if type == "servers" and orig_cfg.nil?
+
+							# Some Server objects originated from ServerPools, get their
+							# configs from there
+							if type == "servers" and orig_cfg.nil? and
 									@original_config.has_key?("server_pools")
 								@original_config["server_pools"].each { |resource|
 									if resource["name"] == res_name
@@ -213,13 +217,13 @@ module MU
 								next
 							end
 							begin
+								# Load up MU::Cloud objects for all our kittens in this deploy
 								if attrs[:has_multiples]
 									data.each_pair { |mu_name, actual_data|
-										MU.log "Loading #{type}:#{mu_name} into #{@deploy_id}", MU::DEBUG
-										addKitten(type, mu_name, attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: mu_name))
+										attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: mu_name)
 									}
 								else
-									addKitten(type, res_name, attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: data['mu_name']))
+									attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: data['mu_name'])
 								end
 							rescue Exception => e
 								MU.log "Failed to load existing resource #{mu_name} in #{@deploy_id}", MU::WARN
@@ -243,20 +247,27 @@ module MU
 		# @param name [String]:
 		# @param object [MU::Cloud]:
 		def addKitten(type, name, object)
-			if !type or !name or !object
-				raise MuError, "Nil arguments to addKitten are not allowed (got type: #{type}, name: #{name}, and '#{object}' to add"
+			if !type or !name or !object or !object.mu_name
+				raise MuError, "Nil arguments to addKitten are not allowed (got type: #{type}, name: #{name}, and '#{object}' to add)"
 			end
+			has_multiples = false
 			MU::Cloud.resource_types.each_pair { |name, cloudclass|
 				if name == type.to_sym or
 						cloudclass[:cfg_name] == type or
 						cloudclass[:cfg_plural] == type
 					type = cloudclass[:cfg_plural]
+					has_multiples = cloudclass[:has_multiples]
 					break
 				end
 			}
 			@kitten_semaphore.synchronize {
 				@kittens[type] = {} if @kittens[type].nil?
-				@kittens[type][name] = object
+				if has_multiples
+					@kittens[type][name] = {} if @kittens[type][name].nil?
+					@kittens[type][name][object.mu_name] = object
+				else
+					@kittens[type][name] = object
+				end
 			}
 		end
 
@@ -479,8 +490,8 @@ module MU
 			end
 			kitten = nil
 
-			if !mu_name.nil? and @kittens["servers"].has_key?(mu_name)
-				kitten = @kittens["servers"][mu_name]
+			if !mu_name.nil? and @kittens["servers"].has_key?(name) and @kittens["servers"][name].has_key?(mu_name)
+				kitten = @kittens["servers"][name][mu_name]
 				MU.log "Re-grooming #{mu_name}", details: kitten.deploydata
 			else
 				first_groom = true
@@ -709,79 +720,41 @@ module MU
 		# Iterate over all known deployments and look for instances that have been
 		# terminated, but not yet cleaned up, then clean them up.
 		def self.cleanTerminatedInstances
-# XXX while testing
-return
+			return if @ranalready
+			@ranalready = true
 			MU.log "Checking for harvested instances in need of cleanup", MU::DEBUG
-			deploys = []
-			deploy_root = File.expand_path(MU.dataDir+"/deployments")
-			if Dir.exists?(deploy_root)
-				Dir.entries(deploy_root).each { |deploy|
-					this_deploy_dir = deploy_dir(deploy)
-					next if deploy == "." or deploy == ".." or !Dir.exists?(this_deploy_dir) or File.exists?(this_deploy_dir+"/.cleanup")
-					deploys << deploy
-				}
-			end
+			parent_thread_id = Thread.current.object_id
 			cleanup_threads = []
-			regions = MU::Cloud::AWS.listRegions
-			deploys.each { |deploy|
-				known_servers = MU::MommaCat.getResourceMetadata("servers", deploy_id: deploy)
-
-				next if known_servers.nil?
-				parent_thread_id = Thread.current.object_id
+			purged = 0
+			MU::MommaCat.listDeploys.each { |deploy_id|
 				cleanup_threads << Thread.new {
 					MU.dupGlobals(parent_thread_id)
-					MU.setVar("deploy_id", deploy)
-					purged = 0
-					known_servers.each { |server_container|
-						server_container.each_pair { |nodename, data|
-							next if data['instance_id'].nil?
-							MU.setVar("curRegion", data['region']) if !data['region'].nil?
-							begin
-								resp = MU::Cloud::AWS.ec2(MU.curRegion).describe_instances(instance_ids: [data['instance_id']])
-								if !resp.nil? and !resp.reservations.nil? and !resp.reservations.first.nil?
-									instance = resp.reservations.first.instances.first
+					deploy = MU::MommaCat.getLitter(deploy_id, set_context_to_me: true)
+					if deploy.kittens.has_key?("servers")
+MU.log "#{deploy.deploy_id}", MU::NOTICE, details: deploy.kittens["servers"]
+						deploy.kittens["servers"].each_pair { |nodeclass, servers|
+							servers.each_pair { |mu_name, server|
+								if !server.cloud_id
+									MU.log "Checking for deletion of #{mu_name}, but unable to fetch its cloud_id", MU::ERR, details: server
+								elsif !server.active?
+									MU.log "DELETING #{server} (#{nodeclass}), formerly #{server.cloud_id}", MU::ERR
+									server.groomer.cleanup
+									deploy.notify("servers", nodeclass, mu_name, remove: true)
+									deploy.sendAdminMail("Retired terminated node #{mu_name}", data: server)
+									purged = purged + 1
 								end
-							rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
-								MU.log "Instance #{data['instance_id']} is completely gone already (#{e.inspect})", MU::DEBUG
-              rescue Aws::EC2::Errors::InternalError => e
-								MU.log "Attempt to describe #{data['instance_id']} generated #{e.inspect}", MU::WARN
-								next
-							end
-							if instance.nil? or instance.state.name == "terminated" or instance.state.name == "terminating"
-								MU.log "Retiring #{nodename} (#{data['instance_id']})", MU::NOTICE, details: data
-								purged = purged + 1
-								kitten_pile = MU::MommaCat.getLitter(deploy)
-								conf = Hash.new
-								if !kitten_pile.nil? and !kitten_pile.original_config.nil?
-									["servers", "server_pools"].each { |res_type|
-										if !kitten_pile.original_config[res_type].nil?
-											kitten_pile.original_config[res_type].each { |svr|
-												if svr['name'] == data['#MU_NODE_CLASS']
-													MU::Cloud::AWS::Server.purgeChefResources(nodename, svr['vault_access'])
-												end
-											}
-										end
-									}
-								end
-								MU::Cloud::AWS::Server.terminateInstance(id: data['instance_id'], region: MU.curRegion)
-								begin
-									kitten_pile.notify("servers", data['#MU_NODE_CLASS'], nodename, remove: true, sub_key: nodename)
-									kitten_pile.sendAdminMail("Retired terminated node #{nodename}", data: data)
-								rescue Errno::ENOENT => e
-									MU.log "Looks like #{nodename} was cleaned up by something else", MU::WARN, details: e.inspect
-								end
-							end
+							}
 						}
-					}
-					MU::MommaCat.syncMonitoringConfig if purged > 0
+					end
 				}
 			}
-
 			cleanup_threads.each { |t|
 				t.join
 			}
 
+			MU::MommaCat.syncMonitoringConfig if purged > 0
 		end
+
 
 		# Locate a resource that's either a member of another deployment, or of no
 		# deployment at all, and return a {MU::Cloud} object for it.
@@ -919,11 +892,13 @@ end
 		# @param created_only [Boolean]: Only return the littermate if its cloud_id method returns a value
 		# @return [MU::Cloud]
 		def findLitterMate(type: nil, name: nil, mu_name: nil, created_only: false)
+			has_multiples = false
 			MU::Cloud.resource_types.each_pair { |name, cloudclass|
 				if name == type.to_sym or
 						cloudclass[:cfg_name] == type or
 						cloudclass[:cfg_plural] == type
 					type = cloudclass[:cfg_plural]
+					has_multiples = cloudclass[:has_multiples]
 					break
 				end
 			}
@@ -933,12 +908,17 @@ end
 					return nil
 				end
 
-				@kittens[type].each { |sib_mu_name, obj|
-					if !mu_name.nil? and mu_name == sib_mu_name
-						return obj if !created_only or !obj.cloud_id.nil?
-					end
-					if !name.nil? and obj.config['name'] == name
-						return obj if !created_only or !obj.cloud_id.nil?
+				@kittens[type].each { |sib_class, data|
+					if has_multiples
+						data.each_pair { |sib_mu_name, obj|
+							if !mu_name.nil? and mu_name == sib_mu_name
+								return obj if !created_only or !obj.cloud_id.nil?
+							end
+						}
+					else
+						if !name.nil? and sib_class == name
+							return data if !created_only or !data.cloud_id.nil?
+						end
 					end
 				}
 			}
@@ -952,43 +932,64 @@ end
 		# @param data [Hash]: The resource's metadata.
 		# @param remove [Boolean]: Remove this resource from the deploy structure, instead of adding it.
 		# @return [void]
-		def notify(res_type, key, data, remove: remove = false, sub_key: nil)
+		def notify(type, key, data, remove: remove = false, sub_key: nil)
 			MU::MommaCat.lock("deployment-notification")
 			changed = false
 			loadDeploy(true) # make sure we're saving the latest and greatest
+			has_multiples = false
+			MU::Cloud.resource_types.each_pair { |res_classname, attrs|
+				if res_classname == type.to_sym or
+						attrs[:cfg_name] == type or
+						attrs[:cfg_plural] == type
+					type = attrs[:cfg_plural]
+					has_multiples = attrs[:has_multiples]
+					break
+				end
+			}
 			if !remove
 				if data.nil?
 					MU.log "MU::MommaCat.notify called to add to deployment struct, but no data provided", MU::WARN
 					return
 				end
-				@deployment[res_type] = {} if @deployment[res_type].nil?
-				changed = true if @deployment[res_type][key] != data
-				@deployment[res_type][key] = data
-				MU.log "Adding to @deployment[#{res_type}][#{key}]", MU::DEBUG, details: data
+				@deployment[type] = {} if @deployment[type].nil?
+				if has_multiples
+					@deployment[type][key] = {} if @deployment[type][key].nil?
+					if @deployment[type][key].is_a?(Hash) and @deployment[type][key].has_key?("mu_name")
+						olddata = @deployment[type][key].dup
+						@deployment[type][key][olddata["mu_name"]] = olddata
+					end
+					changed = true if @deployment[type][key][data["mu_name"]] != data
+					@deployment[type][key][data["mu_name"]] = data
+					MU.log "Adding to @deployment[#{type}][#{key}][#{data["mu_name"]}]", MU::DEBUG, details: data
+				else
+					changed = true if @deployment[type][key] != data
+					@deployment[type][key] = data
+					MU.log "Adding to @deployment[#{type}][#{key}]", MU::DEBUG, details: data
+				end
 			else
 				have_deploy = true
-				if @deployment[res_type].nil? or @deployment[res_type][key].nil?
+				if @deployment[type].nil? or @deployment[type][key].nil?
 					if !sub_key.nil?
-						MU.log "MU::MommaCat.notify called to remove #{res_type} #{key} #{sub_key} deployment struct, but no such data exist", MU::WARN
+						MU.log "MU::MommaCat.notify called to remove #{type} #{key} #{sub_key} deployment struct, but no such data exist", MU::WARN
 					else
-						MU.log "MU::MommaCat.notify called to remove #{res_type} #{key} deployment struct, but no such data exist", MU::WARN
+						MU.log "MU::MommaCat.notify called to remove #{type} #{key} deployment struct, but no such data exist", MU::WARN
 					end
 
 					have_deploy = false
 				end
 
 				if !sub_key.nil? and have_deploy
-					MU.log "Removing @deployment[#{res_type}][#{key}][#{sub_key}]", MU::DEBUG, details: @deployment[res_type][key][sub_key]
+					MU.log "Removing @deployment[#{type}][#{key}][#{sub_key}]", MU::DEBUG, details: @deployment[type][key][sub_key]
 					changed = true
-					@deployment[res_type][key].delete(sub_key)
+					@deployment[type][key].delete(sub_key)
 				else
-					MU.log "Removing @deployment[#{res_type}][#{key}]", MU::DEBUG, details: @deployment[res_type][key]
+					MU.log "Removing @deployment[#{type}][#{key}]", MU::DEBUG, details: @deployment[type][key]
 					changed = true
-					@deployment[res_type].delete(key)
+					@deployment[type].delete(key)
 				end
 
 				# scrape vault traces out of basket_of_kittens.json too
-				if res_type == "servers" or res_type == "server_pools" and !sub_key.nil?
+				if type == "servers" or type == "server_pools" and !sub_key.nil?
 					["servers", "server_pools"].each { |svr_class|
 						if !@original_config[svr_class].nil?
 							@original_config[svr_class].map! { |server|
@@ -1654,16 +1655,18 @@ return
 					begin
 						deploy = MU::MommaCat.getLitter(deploy_id)
 						if deploy.kittens.has_key?("servers")
-							deploy.kittens["servers"].each_pair { |mu_name, server|
-								MU.dupGlobals(parent_thread_id)
-								threads << Thread.new {
-									MU.log "Adding #{server.mu_name} to #{@nagios_home}/.ssh/config", MU::DEBUG
-									MU::MommaCat.addHostToSSHConfig(
-										server,
-										ssh_dir: "#{@nagios_home}/.ssh",
-										ssh_conf: "#{@nagios_home}/.ssh/config.tmp",
-										ssh_owner: "nagios"
-									)
+							deploy.kittens["servers"].each_pair { |nodeclass, nodes|
+								nodes.each_pair { |mu_name, server|
+									MU.dupGlobals(parent_thread_id)
+									threads << Thread.new {
+										MU.log "Adding #{server.mu_name} to #{@nagios_home}/.ssh/config", MU::DEBUG
+										MU::MommaCat.addHostToSSHConfig(
+											server,
+											ssh_dir: "#{@nagios_home}/.ssh",
+											ssh_conf: "#{@nagios_home}/.ssh/config.tmp",
+											ssh_owner: "nagios"
+										)
+									}
 								}
 							}
 						end
@@ -1795,7 +1798,7 @@ return
 				return
 			end
 			MU.log "Updating these siblings in #{@deploy_id}: #{nodeclasses.join(', ')}", MU::DEBUG, details: @kittens[svrs]
-
+# XXX add mu_name indirection
 			update_servers = []
 			if nodeclasses.nil? or nodeclasses.size == 0
 				update_servers = @kittens[svrs].values
