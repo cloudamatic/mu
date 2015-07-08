@@ -816,14 +816,6 @@
                                 "cwd": "/root",
                                 "ignoreErrors": "true"
                             },
-                            "5_recipe_jenkins": {
-                                "command": "bash /root/.bashrc;chef-client -l info -o recipe[java],recipe[jenkins::master],recipe[mu-jenkins]",
-                                "env": {
-                                    "HOME": "/root"
-                                },
-                                "cwd": "/root",
-                                "ignoreErrors": "true"
-                            },
                             "4_jenkins_mu_user": {
                                 "command": {"Fn::Join": ["",
                                     ["source /root/.bashrc;",
@@ -832,6 +824,14 @@
                                     " -p ",
                                     {"Ref": "adminPassword"}]
                                 ]},
+                                "env": {
+                                    "HOME": "/root"
+                                },
+                                "cwd": "/root",
+                                "ignoreErrors": "true"
+                            },
+                            "5_recipe_jenkins": {
+                                "command": "bash /root/.bashrc;chef-client -l info -o role[mu-master-jenkins]",
                                 "env": {
                                     "HOME": "/root"
                                 },

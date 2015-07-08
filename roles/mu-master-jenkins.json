@@ -1,0 +1,24 @@
+{
+  "name": "mu-master-jenkins",
+  "description": "Role for a Jenkins instance running on a mu master (only)",
+  "json_class": "Chef::Role",
+  "default_attributes": {
+  },
+  "override_attributes": {
+    "jenkins": {
+      "master": {
+        "port": "9443",
+        "home": "/home/jenkins"
+      }
+    }
+  },
+  "chef_type": "role",
+  "run_list": [
+    "recipe[java]",
+    "recipe[jenkins::master]",
+    "recipe[mu-jenkins]"
+  ],
+  "env_run_lists": {
+
+  }
+}
