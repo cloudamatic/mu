@@ -157,7 +157,16 @@
                 "Tags": [
                     {
                         "Key": "Name",
-                        "Value": "-TestDriveVPC"
+                        "Value": {
+                            "Fn::Join": [
+                                "",
+                                [
+                                    {"Ref": "AWS::StackName"},
+                                    "muMaster",
+                                    "-VPC"
+                                ]
+                            ]
+                        }
                     },
                     {
                         "Key": "StackName",
@@ -187,6 +196,7 @@
                             "Fn::Join": [
                                 "",
                                 [
+                                    {"Ref": "AWS::StackName"},
                                     "muMaster",
                                     "-MasterSubnet"
                                 ]
@@ -219,7 +229,16 @@
                 "Tags": [
                     {
                         "Key": "Name",
-                        "Value": "TargetPublicSubnet1"
+                        "Value": {
+                            "Fn::Join": [
+                                "",
+                                [
+                                    {"Ref": "AWS::StackName"},
+                                    "muMaster",
+                                    "-TargetPrivateSubnet1"
+                                ]
+                            ]
+                        }
                     },
                     {
                         "Key": "SubnetName",
@@ -247,7 +266,16 @@
                 "Tags": [
                     {
                         "Key": "Name",
-                        "Value": "TargetPublicSubnet2"
+                        "Value": {
+                            "Fn::Join": [
+                                "",
+                                [
+                                    {"Ref": "AWS::StackName"},
+                                    "muMaster",
+                                    "-TargetPublicSubnet2"
+                                ]
+                            ]
+                        }
                     },
                     {
                         "Key": "SubnetName",
@@ -275,7 +303,16 @@
                 "Tags": [
                     {
                         "Key": "Name",
-                        "Value": "TargetPrivateSubnet1"
+                        "Value": {
+                            "Fn::Join": [
+                                "",
+                                [
+                                    {"Ref": "AWS::StackName"},
+                                    "muMaster",
+                                    "-TargetPrivateSubnet1"
+                                ]
+                            ]
+                        }
                     },
                     {
                         "Key": "SubnetName",
@@ -303,7 +340,17 @@
                 "Tags": [
                     {
                         "Key": "Name",
-                        "Value": "TargetPrivateSubnet2"
+                        "Value": {
+                            "Fn::Join": [
+                                "",
+                                [
+                                    {"Ref": "AWS::StackName"},
+                                    "muMaster",
+                                    "-TargetPrivateSubnet2"
+                                ]
+                            ]
+                        }
+
                     },
                     {
                         "Key": "SubnetName",
@@ -322,7 +369,16 @@
                 "Tags": [
                     {
                         "Key": "Name",
-                        "Value": "InternetGateway"
+                        "Value": {
+                            "Fn::Join": [
+                                "",
+                                [
+                                    {"Ref": "AWS::StackName"},
+                                    "muMaster",
+                                    "-InternetGateway"
+                                ]
+                            ]
+                        }
                     },
                     {
                         "Key": "StackName",
@@ -361,9 +417,8 @@
                             "Fn::Join": [
                                 "",
                                 [
-                                    {
-                                        "Ref": "AWS::StackName"
-                                    },
+                                    {"Ref": "AWS::StackName"},
+                                    "muMaster",
                                     "-MasterRouteTable"
                                 ]
                             ]
@@ -395,9 +450,8 @@
                             "Fn::Join": [
                                 "",
                                 [
-                                    {
-                                        "Ref": "AWS::StackName"
-                                    },
+                                    {"Ref": "AWS::StackName"},
+                                    "muMaster",
                                     "-PublicRouteTable1"
                                 ]
                             ]
@@ -429,9 +483,8 @@
                             "Fn::Join": [
                                 "",
                                 [
-                                    {
-                                        "Ref": "AWS::StackName"
-                                    },
+                                    {"Ref": "AWS::StackName"},
+                                    "muMaster",
                                     "-PublicRouteTable2"
                                 ]
                             ]
@@ -463,9 +516,8 @@
                             "Fn::Join": [
                                 "",
                                 [
-                                    {
-                                        "Ref": "AWS::StackName"
-                                    },
+                                    {"Ref": "AWS::StackName"},
+                                    "muMaster",
                                     "-PrivateRouteTable1"
                                 ]
                             ]
@@ -497,9 +549,8 @@
                             "Fn::Join": [
                                 "",
                                 [
-                                    {
-                                        "Ref": "AWS::StackName"
-                                    },
+                                    {"Ref": "AWS::StackName"},
+                                    "muMaster",
                                     "-PrivateRouteTable2"
                                 ]
                             ]
@@ -727,7 +778,7 @@
                             }
                         },
                         "commands": {
-                            "install_mu": {
+                            "1_install_mu": {
                                 "command": {"Fn::Join": ["",
                                     ["bash -x /root/mu_setup -d -b ",
                                     {"Ref": "GitMuTag"},
@@ -744,7 +795,7 @@
                                 "test": "test -e /root/mu_setup",
                                 "ignoreErrors": "true"
                             },
-                            "jenkinsadminvault": {
+                            "2_jenkinsadminvault": {
                                 "command": "/root/jenkinskeys.rb",
                                 "env": {
                                     "HOME": "/root"
@@ -752,7 +803,7 @@
                                 "cwd": "/root",
                                 "ignoreErrors": "true"
                             },                            
-                            "jenkinsusersvault": {
+                            "3_jenkinsusersvault": {
                                 "command": {"Fn::Join": ["",
                                         ["source /root/.bashrc;",
                                         "knife vault create jenkins users '{\"mu_user_password\":\"",
@@ -765,8 +816,22 @@
                                 "cwd": "/root",
                                 "ignoreErrors": "true"
                             },
-                            "recipe_jenkins": {
+                            "5_recipe_jenkins": {
                                 "command": "bash /root/.bashrc;chef-client -l info -o recipe[java],recipe[jenkins::master],recipe[mu-jenkins]",
+                                "env": {
+                                    "HOME": "/root"
+                                },
+                                "cwd": "/root",
+                                "ignoreErrors": "true"
+                            },
+                            "4_jenkins_mu_user": {
+                                "command": {"Fn::Join": ["",
+                                    ["source /root/.bashrc;",
+                                    "bash /root/.bashrc;mu-user-manage -c -u jenkins -e ",
+                                    {"Ref": "adminEmail"},
+                                    " -p ",
+                                    {"Ref": "adminPassword"}]
+                                ]},
                                 "env": {
                                     "HOME": "/root"
                                 },
@@ -876,7 +941,8 @@
                 "Tags": [
                     {
                         "Key": "Name",
-                        "Value": { "Fn::Join" : [ "", [ "fee", "-MuAdminSecurityGroup" ]] }
+                        "Value": { "Fn::Join" : [ "", [ {"Ref": "AWS::StackName"},
+                                    "muMaster", "-MuAdminSecurityGroup" ]] }
                     }
                 ]   
             }
