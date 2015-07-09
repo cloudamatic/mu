@@ -812,6 +812,7 @@ module MU
 		# @param tag_key [String]: A cloud provider tag to help identify the resource, used in conjunction with tag_value.
 		# @param tag_value [String]: A cloud provider tag to help identify the resource, used in conjunction with tag_key.
 		# @param allow_multi [Boolean]: Permit an array of matching resources to be returned (if applicable) instead of just one.
+		# @param dummy_ok [Boolean]: Permit return of a faked {MU::Cloud} object if we don't have enough information to identify a real live one.
 		# @return [Array<MU::Cloud>]
 		def self.findStray(cloud,
 												type,
@@ -823,7 +824,8 @@ module MU
 												tag_key: nil,
 												tag_value: nil,
 												allow_multi: false,
-												calling_deploy: MU.mommacat
+												calling_deploy: MU.mommacat,
+												dummy_ok: false
 											)
 begin
 			resourceclass = MU::Cloud.loadCloudType(cloud, type)
@@ -845,19 +847,23 @@ begin
 				end
 			end
 
+			MU.log "Called findStray(#{cloud}, #{type}, deploy_id: #{deploy_id}, name: #{name}, mu_name: #{mu_name}, cloud_id: #{cloud_id}, region: #{region}, tag_key: #{tag_key}, tag_value: #{tag_value})", MU::DEBUG, details: caller
+
 			if !deploy_id.nil? and !calling_deploy.nil? and
 					calling_deploy.deploy_id == deploy_id and (!name.nil? or !mu_name.nil?)
 				handle = calling_deploy.findLitterMate(type: type, name: name, mu_name: mu_name)
 				return [handle] if !handle.nil?
 			end
 
+
 			kittens = {}
 			# Search our deploys for matching resources
 			if deploy_id or name or mu_name or cloud_id
 				mu_descs = MU::MommaCat.getResourceMetadata(resourceclass.cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name)
 				mu_descs.each_pair { |deploy_id, matches|
+					next if matches.nil? or matches.size == 0
 					momma = MU::MommaCat.getLitter(deploy_id)
-
+					straykitten = nil
 					# If we found exactly one match in this deploy, use its metadata to
 					# guess at resource names we weren't told.
 					if matches.size == 1 and name.nil? and mu_name.nil?
@@ -869,11 +875,12 @@ begin
 					else
 						straykitten = momma.findLitterMate(type: type, name: name, mu_name: mu_name)
 					end
-					if straykitten.nil?
-						MU.log "Failed to locate a kitten from deploy_id: #{deploy_id}, name: #{name}, mu_name: #{mu_name}, cloud_id, #{cloud_id} despite having found metadata", MU::ERR, details: matches
+					if straykitten.nil? and !matches.nil? and matches.size > 0
+						MU.log "Failed to locate a kitten from deploy_id: #{deploy_id}, name: #{name}, mu_name: #{mu_name}, cloud_id, #{cloud_id} despite having found metadata", MU::WARN, details: matches
 #						raise MuError, "I can't find #{mu_name} anywhere" if !mu_name.nil?
-						next
 					end
+					next if straykitten.nil?
+
 					kittens[straykitten.cloud_id] = straykitten
 					# Peace out if we found the exact resource we want
 					if cloud_id and straykitten.cloud_id == cloud_id
@@ -882,6 +889,10 @@ begin
 						return [straykitten]
 					end
 				}
+				if !mu_descs.nil? and mu_descs.size > 0
+					MU.log "I found descriptions that might match #{resourceclass.cfg_plural} name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}, but couldn't isolate my target kitten", MU::DEBUG, details: mu_descs
+					puts File.read(deploy_dir(deploy_id)+"/deployment.json")
+				end
 				# We can't refine any further by asking the cloud provider...
 				if !cloud_id and !tag_key and !tag_value and kittens.size > 1
 					if !allow_multi
@@ -915,10 +926,13 @@ begin
 						# We already have a MU::Cloud object for this guy, use it
 						if kittens.has_key?(kitten_cloud_id)
 							matches << kitten[kitten_cloud_id]
-						# If we don't have a MU::Cloud object, manufacture a dummy one
+						# If we don't have a MU::Cloud object, manufacture a dummy one if
+						# we have enough information to get close to the mark.
 						elsif kittens.size == 0
 							if name.nil? or name.empty?
-								name = "#dummy"
+								MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", MU::WARN, details: caller
+								next if !dummy_ok
+								name = "dummy"
 							end
 							cfg = { "name" => name, "cloud" => cloud, "region" => r }
 							matches << resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: kitten_cloud_id)
@@ -985,9 +999,10 @@ end
 		# @return [void]
 		def notify(type, key, data, remove: remove = false, sub_key: nil)
 			MU::MommaCat.lock("deployment-notification")
-			changed = false
+
 			loadDeploy(true) # make sure we're saving the latest and greatest
 			has_multiples = false
+			have_deploy = true
 			MU::Cloud.resource_types.each_pair { |res_classname, attrs|
 				if res_classname == type.to_sym or
 						attrs[:cfg_name] == type or
@@ -1009,11 +1024,9 @@ end
 						olddata = @deployment[type][key].dup
 						@deployment[type][key][olddata["mu_name"]] = olddata
 					end
-					changed = true if @deployment[type][key][data["mu_name"]] != data
 					@deployment[type][key][data["mu_name"]] = data
 					MU.log "Adding to @deployment[#{type}][#{key}][#{data["mu_name"]}]", MU::DEBUG, details: data
 				else
-					changed = true if @deployment[type][key] != data
 					@deployment[type][key] = data
 					MU.log "Adding to @deployment[#{type}][#{key}]", MU::DEBUG, details: data
 				end
@@ -1032,11 +1045,9 @@ end
 
 				if !sub_key.nil? and have_deploy
 					MU.log "Removing @deployment[#{type}][#{key}][#{sub_key}]", MU::DEBUG, details: @deployment[type][key][sub_key]
-					changed = true
 					@deployment[type][key].delete(sub_key)
 				else
 					MU.log "Removing @deployment[#{type}][#{key}]", MU::DEBUG, details: @deployment[type][key]
-					changed = true
 					@deployment[type].delete(key)
 				end
 
@@ -1053,7 +1064,6 @@ end
 										end
 									}
 									deletia.each { |drop_vault|
-										changed = true
 										MU.log "Removing vault references to #{sub_key} from #{svr_class} #{server['name']}"
 										server['vault_access'].delete(drop_vault)
 									}
@@ -1065,7 +1075,7 @@ end
 					}
 				end
 			end
-			save!(key) if changed and have_deploy
+			save!(key) if have_deploy
 			MU::MommaCat.unlock("deployment-notification")
 		end
 

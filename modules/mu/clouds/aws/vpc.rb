@@ -278,6 +278,7 @@ module MU
 									name: peer['vpc']['vpc_name'],
 									tag_key: tag_key,
 									tag_value: tag_value,
+									dummy_ok: true,
 									region: peer['vpc']['region']
 								).first
 								peer_id = peer_obj.cloud_id
@@ -533,6 +534,7 @@ module MU
 					tag_key: nat_tag_key,
 					tag_value: nat_tag_value,
 					allow_multi: true,
+					dummy_ok: true,
 					calling_deploy: @deploy
 				)
 

@@ -433,7 +433,8 @@ module MU
 								# Ok, let's try it with the name being an AWS identifier
 								if found.nil? or found.size < 1
 									found = MU::MommaCat.findStray("AWS", "loadbalancers",
-										cloud_id: lb_name
+										cloud_id: lb_name,
+										dummy_ok: true
 									)
 									if found.nil? or found.size < 1
 										raise MuError, "Couldn't find a LoadBalancer with #{lb_name} for #{@mu_name}"
@@ -457,7 +458,7 @@ module MU
 									sg = @dependencies["firewall_rule"][sg_name]
 								else
 									if sg_name.match(/^sg-/)
-										found_sgs = MU::MommaCat.findStray("AWS", "firewall_rule", cloud_id: sg_name, region: @config['region'], calling_deploy: @deploy)
+										found_sgs = MU::MommaCat.findStray("AWS", "firewall_rule", cloud_id: sg_name, region: @config['region'], calling_deploy: @deploy, dummy_ok: true)
 									else
 										found_sgs = MU::MommaCat.findStray("AWS", "firewall_rule", name: sg_name, region: @config['region'], calling_deploy: @deploy)
 									end

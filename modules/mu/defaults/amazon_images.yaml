@@ -1,12 +1,16 @@
 ---
 centos6: &centos6
-  us-east-1: ami-7574ba1e
-  us-west-1: ami-3dbf5679
-  us-west-2: ami-6f4d7f5f
+  us-east-1: ami-551ed73e
 centos7: &centos7
-  us-east-1: ami-1178b67a
-  us-west-1: ami-c1bf5685
-  us-west-2: ami-c1bf5685
+  us-east-1: ami-a719d0cc
+  us-west-1: ami-7dbd4e39
+  us-west-2: ami-05d4d435
+  eu-west-1: ami-b888c5cf
+  eu-central-1: ami-5c3c0641
+  sa-east-1: ami-3d830f20
+  ap-northeast-1: ami-ba57f9ba
+  ap-southeast-1: ami-46cece14
+  ap-southeast-2: ami-e50047df
 ubuntu14: &ubuntu14
   us-east-1: ami-3b6a8050
   us-west-1: ami-fb05efbf
@@ -14,13 +18,25 @@ ubuntu14: &ubuntu14
   eu-west-1: ami-85344af2
   eu-central-1: ami-e68db4fb
 win2k12: &win2k12
-  us-east-1: ami-f81c0090
-  us-west-1: ami-a98960ed
-  us-west-2: ami-413d0f71
+  us-east-1: ami-2f13da44
+  us-west-1: ami-1fa3505b
+  us-west-2: ami-43d7d773
+  eu-west-1: ami-8687caf1
+  eu-central-1: ami-7e3d0763
+  sa-east-1: ami-039c101e
+  ap-northeast-1: ami-3c26883c
+  ap-southeast-1: ami-8ed1d1dc
+  ap-southeast-2: ami-350d4a0f
 win2k12r2: &win2k12r2
-  us-east-1: ami-091eeb62
-  us-west-1: ami-ad4aa0e9
-  us-west-2: ami-a98cb499
+  us-east-1: ami-2f13da44
+  us-west-1: ami-1fa3505b
+  us-west-2: ami-43d7d773
+  eu-west-1: ami-8687caf1
+  eu-central-1: ami-7e3d0763
+  sa-east-1: ami-039c101e
+  ap-northeast-1: ami-3c26883c
+  ap-southeast-1: ami-8ed1d1dc
+  ap-southeast-2: ami-350d4a0f
 windows: *win2k12r2
 ubuntu: *ubuntu14
 centos: *centos6

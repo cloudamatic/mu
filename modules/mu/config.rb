@@ -486,7 +486,8 @@ module MU
 						name: vpc_block["vpc_name"],
 						tag_key: tag_key,
 						tag_value: tag_value,
-						region: vpc_block["region"]
+						region: vpc_block["region"],
+						dummy_ok: true
 					)
 					ext_vpc = found.first if found.size == 1
 				rescue Exception => e

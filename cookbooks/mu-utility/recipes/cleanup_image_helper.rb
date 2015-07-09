@@ -20,11 +20,12 @@ when "windows"
 	end
 
 	admin_username = powershell_out("(Get-WmiObject -Query 'Select * from Win32_UserAccount Where (LocalAccount=True and SID like \"%-500\")').name").stdout.strip
-	["Administrator", admin_username].each { |user|
-		file "c:\\bin\\cygwin\\home\\#{user}\\.ssh\\authorized_keys" do
-			action :delete
-		end
-	}
+# XXX can't do this here, Mu still needs to get back in
+#	["Administrator", admin_username].each { |user|
+#		file "c:\\bin\\cygwin\\home\\#{user}\\.ssh\\authorized_keys" do
+#			action :delete
+#		end
+#	}
 
 	cookbook_file "C:\\Program Files\\Amazon\\Ec2ConfigService\\Settings\\config.xml" do
 		source "config.xml"
@@ -43,15 +44,20 @@ when "windows"
 		action :remove
 	end
 
-	%w{client.rb first-boot.json client.pem validation.pem}.each { |file|
-		file "C:\\Users\\Administrator\\AppData\\Local\\Temp\\#{file}" do
-			content IO.read("C:\\chef\\#{file}")
-		end
-
-		file "C:\\chef\\#{file}" do
-			action :delete
-		end
-	}
+# XXX this breaks Chef mid-run
+#	if Dir.exists?("C:\\chef")
+#		%w{client.rb first-boot.json client.pem validation.pem}.each { |file|
+#			if File.exists?("C:\\chef\\#{file}")
+#				file "C:\\Users\\Administrator\\AppData\\Local\\Temp\\#{file}" do
+#					content IO.read("C:\\chef\\#{file}")
+#				end
+#
+#				file "C:\\chef\\#{file}" do
+#					action :delete
+#				end
+#			end
+#		}
+#	end
 when "centos", "redhat"
 	if node.platform_version.to_i == 7
 		execute "sed -i '/^preserve_hostname/d' /etc/cloud/cloud.cfg" do
