@@ -169,6 +169,7 @@ module MU
 			return response.body
 		end
 
+		@syslog_port_semaphore = Mutex.new
 		# Punch AWS security group holes for client nodes to talk back to us, the
 		# Mu Master, if we're in AWS.
 		# @return [void]
@@ -264,50 +265,56 @@ module MU
 			}
 			allow_ips.uniq!
 
-			my_ports.each { |port|
-				begin
-					group.ip_permissions.each { |rule|
-						if rule.ip_protocol == "tcp" and
-							rule.from_port == port and rule.to_port == port
-							MU.log "Revoking old rules for port #{port.to_s} from #{sg_id}", MU::NOTICE
-							begin
-							MU::Cloud::AWS.ec2(MU.myRegion).revoke_security_group_ingress(
-								group_id: sg_id,
-								ip_permissions: [
-									{
-										ip_protocol: "tcp",
-										from_port: port,
-										to_port: port,
-										ip_ranges: MU.structToHash(rule.ip_ranges)
-									}
-								]
-							)
-							rescue Aws::EC2::Errors::InvalidPermissionNotFound => e
-								MU.log "Permission disappeared from #{sg_id} (port #{port.to_s}) before I could remove it", MU::WARN, details: MU.structToHash(rule.ip_ranges)
+			@syslog_port_semaphore.synchronize {
+				my_ports.each { |port|
+					begin
+						group.ip_permissions.each { |rule|
+							if rule.ip_protocol == "tcp" and
+								rule.from_port == port and rule.to_port == port
+								MU.log "Revoking old rules for port #{port.to_s} from #{sg_id}", MU::NOTICE
+								begin
+								MU::Cloud::AWS.ec2(MU.myRegion).revoke_security_group_ingress(
+									group_id: sg_id,
+									ip_permissions: [
+										{
+											ip_protocol: "tcp",
+											from_port: port,
+											to_port: port,
+											ip_ranges: MU.structToHash(rule.ip_ranges)
+										}
+									]
+								)
+								rescue Aws::EC2::Errors::InvalidPermissionNotFound => e
+									MU.log "Permission disappeared from #{sg_id} (port #{port.to_s}) before I could remove it", MU::WARN, details: MU.structToHash(rule.ip_ranges)
+								end
 							end
-						end
-					}
-				rescue NoMethodError
-# XXX this is ok
-				end
-				MU.log "Adding current IP list to allow rule for port #{port.to_s} in #{sg_id}", details: allow_ips
-
-				allow_ips_cidr = []
-				allow_ips.each { |cidr|
-					allow_ips_cidr << { "cidr_ip" => cidr }
-				}
-
-				MU::Cloud::AWS.ec2(MU.myRegion).authorize_security_group_ingress(
-					group_id: sg_id,
-					ip_permissions: [
-						{
-							ip_protocol: "tcp",
-							from_port: 10514,
-							to_port: 10514,
-							ip_ranges: allow_ips_cidr
 						}
-					]
-				)
+					rescue NoMethodError
+# XXX this is ok
+					end
+					MU.log "Adding current IP list to allow rule for port #{port.to_s} in #{sg_id}", details: allow_ips
+
+					allow_ips_cidr = []
+					allow_ips.each { |cidr|
+						allow_ips_cidr << { "cidr_ip" => cidr }
+					}
+
+					begin
+					MU::Cloud::AWS.ec2(MU.myRegion).authorize_security_group_ingress(
+						group_id: sg_id,
+						ip_permissions: [
+							{
+								ip_protocol: "tcp",
+								from_port: 10514,
+								to_port: 10514,
+								ip_ranges: allow_ips_cidr
+							}
+						]
+					)
+					rescue Aws::EC2::Errors::InvalidPermissionDuplicate => e
+						MU.log "Got #{e.inspect} in MU::Cloud::AWS.openFirewallForClients", MU::WARN, details: allow_ips_cidr
+					end
+				}
 			}
 		end
 

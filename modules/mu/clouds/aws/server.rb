@@ -249,11 +249,7 @@ class Cloud
 							parent_thread_id = Thread.current.object_id
 							Thread.new {
 								MU.dupGlobals(parent_thread_id)
-								if @config.has_key?("basis")
-									MU::Cloud::AWS::Server.removeIAMProfile("ServerPool-"+@config['name'])
-								else
-									MU::Cloud::AWS::Server.removeIAMProfile("Server-"+@config['name'])
-								end
+								MU::Cloud::AWS::Server.removeIAMProfile(@config['name'])
 								MU::Cloud::AWS::Server.cleanup(noop: false, ignoremaster: false, skipsnapshots: true)
 							}
 						end
@@ -1105,19 +1101,22 @@ class Cloud
 			# bastion hosts that may be in the path, see getSSHConfig if that's what
 			# you need.
 			def canonicalIP
-				node, config, deploydata, instance = describe(cloud_id: @cloud_id)
-				if instance.nil?
-					raise MuError, "#{@mu_name}: Can't find my own cloud resource"
+				if @cloud_desc.nil?
+					node, config, deploydata, @cloud_desc = describe(cloud_id: @cloud_id)
+					if @cloud_desc.nil?
+						MU.log "Trying to load #{@mu_name} (#{@cloud_id})", MU::ERR, details: config.merge!(deploydata)
+						raise MuError, "#{@mu_name}: Can't find my own cloud resource"
+					end
 				end
 
-				canonical_ip = instance.public_ip_address
-				canonical_ip = instance.private_ip_address if !canonical_ip
-				if MU::Cloud::AWS::VPC.haveRouteToInstance?(instance.instance_id) or instance.public_ip_address.nil?
-					@config['canonical_ip'] = instance.private_ip_address
-					return instance.private_ip_address
+				canonical_ip = @cloud_desc.public_ip_address
+				canonical_ip = @cloud_desc.private_ip_address if !canonical_ip
+				if MU::Cloud::AWS::VPC.haveRouteToInstance?(@cloud_desc.instance_id) or @cloud_desc.public_ip_address.nil?
+					@config['canonical_ip'] = @cloud_desc.private_ip_address
+					return @cloud_desc.private_ip_address
 				else
-					@config['canonical_ip'] = instance.public_ip_address
-					return instance.public_ip_address
+					@config['canonical_ip'] = @cloud_desc.public_ip_address
+					return @cloud_desc.public_ip_address
 				end
 			end
 
@@ -1621,8 +1620,16 @@ class Cloud
 					end
 				end
 
+				deletia = MU::MommaCat.findStray(
+					"AWS",
+					"servers",
+					region: region,
+					cloud_id: id
+				).first
+				return if deletia.nil?
+
 				cleaned_dns = false
-				mu_name = nil
+				mu_name = deletia.mu_name
 				mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
 				if !mu_zone.nil?
 					dns_targets = []
@@ -1633,7 +1640,7 @@ class Cloud
 				rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
 					MU.log "Instance #{id} no longer exists", MU::DEBUG
 				end
-
+puts "#{id} #{mu_name}"
 				if !onlycloud and !mu_name.nil?
 					if !rrsets.nil?
 						rrsets.resource_record_sets.each { |rrset|
@@ -1646,29 +1653,16 @@ class Cloud
 						}
 					end
 
-					deletia = MU::MommaCat.findStray(
-						"AWS",
-						"servers",
-						mu_name: mu_name,
-					).first
-pp deletia
-
-					orig_config = deletia.config if !deletia.nil?
-
-					# Expunge the IAM profile for this instance class
-					if orig_config.has_key?("basis")
-						MU::Cloud::AWS::Server.removeIAMProfile("ServerPool-"+mu_name) if !noop
-					else
-						MU::Cloud::AWS::Server.removeIAMProfile("Server-"+mu_name) if !noop
+					MU::Cloud::AWS::Server.removeIAMProfile(mu_name) if !noop
+					if !deletia.nil?
+						# Expunge traces left in Chef, Puppet or what have you
+						MU::Groomer.supportedGroomers.each { |groomer|
+							groomclass = MU::Groomer.loadGroomer(groomer)
+							groomclass.cleanup(mu_name, deletia.config['vault_access'], noop)
+						}
 					end
 
-					# Expunge traces left in Chef, Puppet or what have you
-					MU::Groomer.supportedGroomers.each { |groomer|
-						groomclass = MU::Groomer.loadGroomer(groomer)
-						groomclass.cleanup(nodename, orig_config['vault_access'], noop)
-					}
-
-					MU.mommacat.notify(MU::Cloud::Server.cfg_plural, mu_name, nodename, remove: true, sub_key: nodename) if !noop and MU.mommacat
+					MU.mommacat.notify(MU::Cloud::Server.cfg_plural, mu_name, mu_name, remove: true, sub_key: mu_name) if !noop and MU.mommacat
 
 					# If we didn't manage to find this instance's Route53 entry by sifting
 					# deployment metadata, see if we can get it with the Name tag.

@@ -12,35 +12,35 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+gem "chef"
+autoload :Chef, 'chef'
+gem "knife-windows"
+gem "chef-vault"
+autoload :Chef, 'chef-vault'
+autoload :ChefVault, 'chef-vault'
+
+# Autoload is smart, but not that smart.
+class Chef
+  autoload :Knife, 'chef/knife'
+  autoload :Search, 'chef/search'
+  autoload :Node, 'chef/node'
+	autoload :Mixin, 'chef/mixin'
+	# Autoload is smart, but not that smart.
+	class Knife
+		autoload :Ssh, 'chef/knife/ssh'
+		autoload :Bootstrap, 'chef/knife/bootstrap'
+		autoload :BootstrapWindowsSsh, 'chef/knife/bootstrap_windows_ssh'
+		autoload :Bootstrap, 'chef/knife/core/bootstrap_context'
+		autoload :BootstrapWindowsSsh, 'chef/knife/core/bootstrap_context'
+	end
+end
+
 module MU
 	# Plugins under this namespace serve as interfaces to host configuration
 	# management tools, like Chef or Puppet.
 	class Groomer
 		# Support for Chef as a host configuration management layer.
 		class Chef
-
-			gem "chef"
-			autoload :Chef, 'chef'
-			gem "knife-windows"
-			gem "chef-vault"
-			autoload :Chef, 'chef-vault'
-			autoload :ChefVault, 'chef-vault'
-
-			# Autoload is smart, but not that smart.
-			class Chef
-			  autoload :Knife, 'chef/knife'
-			  autoload :Search, 'chef/search'
-			  autoload :Node, 'chef/node'
-				autoload :Mixin, 'chef/mixin'
-				# Autoload is smart, but not that smart.
-				class Knife
-					autoload :Ssh, 'chef/knife/ssh'
-					autoload :Bootstrap, 'chef/knife/bootstrap'
-					autoload :BootstrapWindowsSsh, 'chef/knife/bootstrap_windows_ssh'
-					autoload :Bootstrap, 'chef/knife/core/bootstrap_context'
-					autoload :BootstrapWindowsSsh, 'chef/knife/core/bootstrap_context'
-				end
-			end
 
 			@knife = "cd #{MU.myRoot} && env -i HOME=#{Etc.getpwuid(Process.uid).dir} #{MU.mu_env_vars} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin knife"
 			# The canonical path to invoke Chef's *knife* utility with a clean environment.
@@ -428,7 +428,10 @@ module MU
 			def saveChefMetadata
 				nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = @server.getSSHConfig
 				MU.log "Saving #{@server.mu_name} Chef artifacts"
+				begin
 				chef_node = ::Chef::Node.load(@server.mu_name)
+				rescue Net::HTTPServerException
+				end
 				# Figure out what this node thinks its name is
 				system_name = chef_node['fqdn']
 				MU.log "#{@server.mu_name} local name is #{system_name}", MU::DEBUG

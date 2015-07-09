@@ -853,21 +853,25 @@ begin
 
 			kittens = {}
 			# Search our deploys for matching resources
-			if deploy_id or name or mu_name
+			if deploy_id or name or mu_name or cloud_id
 				mu_descs = MU::MommaCat.getResourceMetadata(resourceclass.cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name)
-				mu_descs.each_pair { |found_deploy, matches|
-					momma = MU::MommaCat.getLitter(found_deploy)
+				mu_descs.each_pair { |deploy_id, matches|
+					momma = MU::MommaCat.getLitter(deploy_id)
 
 					# If we found exactly one match in this deploy, use its metadata to
 					# guess at resource names we weren't told.
 					if matches.size == 1 and name.nil? and mu_name.nil?
-						straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: matches.first["cloud_id"])
+						if cloud_id.nil?
+							straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: matches.first["cloud_id"])
+						else
+							straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: cloud_id)
+						end
 					else
 						straykitten = momma.findLitterMate(type: type, name: name, mu_name: mu_name)
 					end
 					if straykitten.nil?
-						MU.log "Failed to locate a kitten from deploy_id: #{deploy_id}, name: #{name}, mu_name: #{mu_name}, despite having found metadata", MU::ERR, details: matches
-						raise MuError, "I can't find #{mu_name} anywhere" if !mu_name.nil?
+						MU.log "Failed to locate a kitten from deploy_id: #{deploy_id}, name: #{name}, mu_name: #{mu_name}, cloud_id, #{cloud_id} despite having found metadata", MU::ERR, details: matches
+#						raise MuError, "I can't find #{mu_name} anywhere" if !mu_name.nil?
 						next
 					end
 					kittens[straykitten.cloud_id] = straykitten
@@ -933,9 +937,10 @@ end
 		# @param type [String,Symbol]: The type of resource
 		# @param name [String]: The name of the resource as defined in its 'name' Basket of Kittens field
 		# @param mu_name [String]: The fully-resolved and deployed name of the resource
+		# @param cloud_id [String]: The cloud provider's unique identifier for this resource
 		# @param created_only [Boolean]: Only return the littermate if its cloud_id method returns a value
 		# @return [MU::Cloud]
-		def findLitterMate(type: nil, name: nil, mu_name: nil, created_only: false)
+		def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false)
 			has_multiples = false
 			MU::Cloud.resource_types.each_pair { |name, cloudclass|
 				if name == type.to_sym or
@@ -955,12 +960,14 @@ end
 				@kittens[type].each { |sib_class, data|
 					if has_multiples
 						data.each_pair { |sib_mu_name, obj|
-							if !mu_name.nil? and mu_name == sib_mu_name
+							if (!mu_name.nil? and mu_name == sib_mu_name) or
+								 (!cloud_id.nil? and cloud_id == obj.cloud_id)
 								return obj if !created_only or !obj.cloud_id.nil?
 							end
 						}
 					else
-						if !name.nil? and sib_class == name
+						if (!name.nil? and sib_class == name) or
+							 (!cloud.nil? and cloud_id == data.cloud_id)
 							return data if !created_only or !data.cloud_id.nil?
 						end
 					end
@@ -1057,9 +1064,8 @@ end
 					}
 				end
 			end
-			save!(key) if changed
+			save!(key) if changed and have_deploy
 			MU::MommaCat.unlock("deployment-notification")
-			MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS
 		end
 
 		# Find one or more resources by their Mu resource name, and return 
@@ -1316,6 +1322,7 @@ end
 			MU::MommaCat.removeHostFromSSHConfig(node)
 # XXX add names paramater with useful stuff
 			MU::MommaCat.addHostToSSHConfig(server)
+			MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS
 		end
 
 		@ssh_semaphore = Mutex.new
@@ -1712,6 +1719,7 @@ MESSAGE_END
 		# currently-loaded deployment.
 		def syncLitter(nodeclasses = [], triggering_node: nil)
 			return if MU.syncLitterThread
+			return if !Dir.exists?(deploy_dir)
 			svrs = MU::Cloud.resource_types[:Server][:cfg_plural] # legibility shorthand
 			if @kittens.nil? or
 					@kittens[svrs].nil?
