@@ -21,6 +21,8 @@ module MU
 		# mid-installation.
 		class BootstrapTempFail < MuNonFatal; end
 
+		# Exception thrown when a request is made to an unimplemented cloud
+		# resource.
 		class MuCloudResourceNotImplemented < StandardError; end
 
 		generic_class_methods = [:find, :cleanup]
@@ -29,14 +31,24 @@ module MU
 		# Initialize empty classes for each of these. We'll fill them with code
 		# later; we're doing this here because otherwise the parser yells about
 		# missing classes, even though they're created at runtime.
+
+		# Stub base class; real implementations generated at runtime
 		class Collection; end
+		# Stub base class; real implementations generated at runtime
 		class Database; end
+		# Stub base class; real implementations generated at runtime
 		class DNSZone; end
+		# Stub base class; real implementations generated at runtime
 		class FirewallRule; end
+		# Stub base class; real implementations generated at runtime
 		class LoadBalancer; end
+		# Stub base class; real implementations generated at runtime
 		class Server; end
+		# Stub base class; real implementations generated at runtime
 		class ServerPool; end
+		# Stub base class; real implementations generated at runtime
 		class VPC; end
+
 		# The types of cloud resources we can create, as class objects. Include
 		# methods a class implementing this resource type must support to be
 		# considered valid.

@@ -32,6 +32,7 @@ module MU
 			  autoload :Search, 'chef/search'
 			  autoload :Node, 'chef/node'
 				autoload :Mixin, 'chef/mixin'
+				# Autoload is smart, but not that smart.
 				class Knife
 					autoload :Ssh, 'chef/knife/ssh'
 					autoload :Bootstrap, 'chef/knife/bootstrap'
@@ -110,6 +111,7 @@ module MU
 			# @param vault [String]: A repository of secrets to search
 			# @param item [String]: The item within the repository to retrieve
 			# @param field [String]: OPTIONAL - A specific field within the item to return.
+			# @return [Hash]
 			def self.getSecret(vault: nil, item: nil, field: nil)
 				item = ChefVault::Item.load(repo, item)
 				if item.nil?
@@ -125,6 +127,7 @@ module MU
 					return item
 				end
 			end
+			# see {MU::Groomer::Chef.getSecret}
 			def getSecret(vault: nil, item: nil, field: nil)
 				self.class.getSecret(vault: vault, item: item, field: field)
 			end

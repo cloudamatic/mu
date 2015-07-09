@@ -26,7 +26,9 @@ autoload :Resolv, 'resolv'
 gem 'netaddr'
 autoload :NetAddr, 'netaddr'
 
+# weird magic (possibly unnecessary)
 class Object
+	# weird magic (possibly unnecessary)
 	def metaclass
 		class << self; self; end
 	end

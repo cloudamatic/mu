@@ -101,15 +101,6 @@ module MU
 				return secgroup.group_id
 			end
 
-
-			def self.createConfigFromInlineRules(name, rules, vpc)
-				return {
-					"name" => name,
-					"rules" => rules,
-					"vpc" => vpc
-				}
-			end
-
 			# Called by {MU::Deploy#createResources}
 			def groom
 				if !@config['rules'].nil? and @config['rules'].size > 0

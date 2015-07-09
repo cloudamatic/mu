@@ -294,6 +294,8 @@ module MU
 			def self.find
 			end
 
+			# placeholder
+			# @return [Hash]
 			def notify
 # XXX move those individual resource type notify calls into here
 				@deploy.notify("collections", @config["name"], @config)

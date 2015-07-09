@@ -253,6 +253,8 @@ module MU
 
 			end
 
+			# Describe this VPC
+			# @return [Hash]
 			def notify
 				@config
 			end
@@ -1003,11 +1005,11 @@ module MU
 				}
 			end
 
+			protected
 
 			# Subnets are almost a first-class resource. So let's kinda sorta treat
 			# them like one. This should only be invoked on objects that already
 			# exists in the cloud layer.
-			protected
 			class Subnet < MU::Cloud::AWS::VPC
 
 				attr_reader :cloud_id

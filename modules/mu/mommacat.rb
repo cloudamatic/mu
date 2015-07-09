@@ -971,7 +971,7 @@ end
 
 		# Add or remove a resource's metadata to this deployment's structure and
 		# flush it to disk.
-		# @param res_type [String]: The type of resource (e.g. *server*, *database*).
+		# @param type [String]: The type of resource (e.g. *server*, *database*).
 		# @param key [String]: The name field of this resource.
 		# @param data [Hash]: The resource's metadata.
 		# @param remove [Boolean]: Remove this resource from the deploy structure, instead of adding it.

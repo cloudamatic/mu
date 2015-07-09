@@ -280,6 +280,8 @@ module MU
 				notify
 			end
 
+			# Return the metadata for this LoadBalancer
+			# @return [Hash]
 			def notify
 				mu_name, config, deploydata, cloud_descriptor = describe(cloud_id: @mu_name)
 				deploy_struct = {

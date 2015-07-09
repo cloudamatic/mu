@@ -45,7 +45,7 @@ EOS
 	opt :uploadlogs, "Push today's log files to the S3 bucket created by the -l option.", :require => false, :default => false, :type => :boolean
 end
 
-my_instance_id = MU.getAWSMetaData("instance-id")
+my_instance_id = MU::Cloud::AWS.getAWSMetaData("instance-id")
 
 resp = MU::Cloud::AWS.ec2.describe_instances(instance_ids: [my_instance_id])
 instance = resp.reservations.first.instances.first
