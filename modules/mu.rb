@@ -169,7 +169,7 @@ module MU
 	setLogging(false, false)
 
 	# Shortcut to invoke {MU::Logger#log}
-	def self.log(msg, level=MU::INFO, details: details, html: html = false)
+	def self.log(msg, level=MU::INFO, details: nil, html: html = false)
 		return if(level == MU::DEBUG and !MU.verbose)
 
 		if(level == MU::ERR or

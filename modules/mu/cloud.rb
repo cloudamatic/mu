@@ -289,7 +289,7 @@ module MU
 				def initialize(mommacat: nil,
 											 mu_name: nil,
 											 cloud_id: nil,
-											 kitten_cfg: kitten_cfg)
+											 kitten_cfg: nil)
 					raise MuError, "Cannot invoke Cloud objects without a configuration" if kitten_cfg.nil?
 					@deploy = mommacat
 					@config = kitten_cfg
