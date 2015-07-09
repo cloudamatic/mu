@@ -272,11 +272,15 @@ class Cloud
 							instance_profile_name: rolename,
 							role_name: rolename
 						)
+					rescue Aws::IAM::Errors::ValidationError => e
+						MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
 					rescue Aws::IAM::Errors::NoSuchEntity => e
 						MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
 					end
 					begin
 						MU::Cloud::AWS.iam.delete_instance_profile(instance_profile_name: rolename)
+					rescue Aws::IAM::Errors::ValidationError => e
+						MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
 					rescue Aws::IAM::Errors::NoSuchEntity => e
 						MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
 					end
@@ -285,11 +289,15 @@ class Cloud
 						policies.each { |policy|
 							MU::Cloud::AWS.iam.delete_role_policy(role_name: rolename, policy_name: policy)
 						}
+					rescue Aws::IAM::Errors::ValidationError => e
+						MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
 					rescue Aws::IAM::Errors::NoSuchEntity => e
 						MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
 					end
 					begin
 						MU::Cloud::AWS.iam.delete_role(role_name: rolename)
+					rescue Aws::IAM::Errors::ValidationError => e
+						MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
 					rescue Aws::IAM::Errors::NoSuchEntity => e
 						MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
 					end
@@ -1641,7 +1649,7 @@ class Cloud
 				rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
 					MU.log "Instance #{id} no longer exists", MU::DEBUG
 				end
-puts "#{id} #{mu_name}"
+
 				if !onlycloud and !mu_name.nil?
 					if !rrsets.nil?
 						rrsets.resource_record_sets.each { |rrset|
@@ -1654,14 +1662,19 @@ puts "#{id} #{mu_name}"
 						}
 					end
 
-					if !deletia.nil?
+					if !deletia.nil? and !deletia.config.nil?
 						MU::Cloud::AWS::Server.removeIAMProfile(deletia.config['name']) if !noop
-						# Expunge traces left in Chef, Puppet or what have you
-						MU::Groomer.supportedGroomers.each { |groomer|
-							groomclass = MU::Groomer.loadGroomer(groomer)
-							groomclass.cleanup(mu_name, deletia.config['vault_access'], noop)
-						}
 					end
+
+					# Expunge traces left in Chef, Puppet or what have you
+					MU::Groomer.supportedGroomers.each { |groomer|
+						groomclass = MU::Groomer.loadGroomer(groomer)
+						if !deletia.nil? and !deletia.config.nil? and !deletia.config['vault_access'].nil?
+							groomclass.cleanup(mu_name, deletia.config['vault_access'], noop)
+						else
+							groomclass.cleanup(mu_name, [], noop)
+						end
+					}
 
 					MU.mommacat.notify(MU::Cloud::Server.cfg_plural, mu_name, mu_name, remove: true, sub_key: mu_name) if !noop and MU.mommacat
 

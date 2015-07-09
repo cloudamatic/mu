@@ -225,8 +225,13 @@ module MU
 			def preClean(leave_ours = false)
 				remove_cmd = nil
 				if !@server.windows?
-					remove_cmd = "rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; touch /opt/mu_installed_chef"
+					if @server.config['ssh_user'] == "root"
+						remove_cmd = "rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; touch /opt/mu_installed_chef"
+					else
+						remove_cmd = "sudo rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; touch /opt/mu_installed_chef"
+					end
 					guardfile = "/opt/mu_installed_chef"
+
 				else
 					remove_cmd = "rm -rf /cygdrive/c/opscode /cygdrive/c/chef"
 					guardfile = "/cygdrive/c/mu_installed_chef"
@@ -246,11 +251,6 @@ module MU
 
 			# Bootstrap our server with Chef
 			def bootstrap
-				chef_cleanup = %q{test -f /opt/mu_installed_chef || ( rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; touch /opt/mu_installed_chef )}
-				if @server.windows?
-					chef_cleanup = %q{test -f /cygdrive/c/opscode/mu_installed_chef || ( rm -rf /cygdrive/c/opscode /cygdrive/c/chef ; touch /cygdrive/c/mu_installed_chef )}
-				end
-
 				if !@config['cleaned_chef']
 					preClean(true)
 					@config['cleaned_chef'] = true

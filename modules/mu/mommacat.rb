@@ -1020,13 +1020,14 @@ end
 			else
 				have_deploy = true
 				if @deployment[type].nil? or @deployment[type][key].nil?
+
 					if !sub_key.nil?
 						MU.log "MU::MommaCat.notify called to remove #{type} #{key} #{sub_key} deployment struct, but no such data exist", MU::WARN
 					else
 						MU.log "MU::MommaCat.notify called to remove #{type} #{key} deployment struct, but no such data exist", MU::WARN
 					end
 
-					have_deploy = false
+					return
 				end
 
 				if !sub_key.nil? and have_deploy
