@@ -537,6 +537,7 @@ module MU
 					if svr['name'] == name
 						svr["instance_id"] = cloud_id
 						kitten = MU::Cloud::Server.new(mommacat: self, kitten_cfg: svr, cloud_id: cloud_id)
+						mu_name = kitten.mu_name if mu_name.nil?
 						MU.log "Grooming #{mu_name} for the first time", details: svr
 						break
 					end
@@ -876,7 +877,7 @@ begin
 						straykitten = momma.findLitterMate(type: type, name: name, mu_name: mu_name)
 					end
 					if straykitten.nil? and !matches.nil? and matches.size > 0
-						MU.log "Failed to locate a kitten from deploy_id: #{deploy_id}, name: #{name}, mu_name: #{mu_name}, cloud_id, #{cloud_id} despite having found metadata", MU::WARN, details: matches
+						MU.log "Failed to locate a kitten from deploy_id: #{deploy_id}, name: #{name}, mu_name: #{mu_name}, cloud_id, #{cloud_id} despite having found metadata", MU::WARN, details: momma.kittens
 #						raise MuError, "I can't find #{mu_name} anywhere" if !mu_name.nil?
 					end
 					next if straykitten.nil?
@@ -970,9 +971,18 @@ end
 				if !@kittens.has_key?(type)
 					return nil
 				end
-
+				MU.log "findLitterMate(type: #{type}, name: #{name}, mu_name: #{mu_name}, cloud_id: #{cloud_id}, created_only: #{created_only})", MU::DEBUG, details: @kittens
 				@kittens[type].each { |sib_class, data|
+					next if !name.nil? and name != sib_class
 					if has_multiples
+						if !name.nil? 
+							if data.size == 1
+								return data.values.first
+							elsif mu_name.nil? and cloud_id.nil?
+								MU.log "Found multiple matches in findLitterMate based on #{type}: #{name}, and not enough info to narrow down further. Returning an arbitrary result.", MU::WARN, details: data.values
+								return data.values.first
+							end
+						end
 						data.each_pair { |sib_mu_name, obj|
 							if (!mu_name.nil? and mu_name == sib_mu_name) or
 								 (!cloud_id.nil? and cloud_id == obj.cloud_id)
@@ -997,7 +1007,7 @@ end
 		# @param data [Hash]: The resource's metadata.
 		# @param remove [Boolean]: Remove this resource from the deploy structure, instead of adding it.
 		# @return [void]
-		def notify(type, key, data, remove: remove = false, sub_key: nil)
+		def notify(type, key, data, mu_name: nil, remove: remove = false, triggering_node: nil)
 			MU::MommaCat.lock("deployment-notification")
 
 			loadDeploy(true) # make sure we're saving the latest and greatest
@@ -1012,20 +1022,34 @@ end
 					break
 				end
 			}
+
+			if mu_name.nil? 
+				if !data.nil? and data.is_a?(Hash) and data.has_key?("mu_name")
+					mu_name = data["mu_name"]
+				elsif !triggering_node.nil? and !triggering_node.mu_name.nil?
+					mu_name = triggering_node.mu_name
+				end
+			end
+			if mu_name.nil? and has_multiples
+				MU.log "MU::MommaCat.notify called to modify deployment struct for a type with :has_multiples, but no mu_name available", MU::WARN
+				return
+			end
+
 			if !remove
 				if data.nil?
-					MU.log "MU::MommaCat.notify called to add to deployment struct, but no data provided", MU::WARN
+					MU.log "MU::MommaCat.notify called to modify deployment struct, but no data provided", MU::WARN
 					return
 				end
 				@deployment[type] = {} if @deployment[type].nil?
 				if has_multiples
 					@deployment[type][key] = {} if @deployment[type][key].nil?
+					# fix has_multiples classes that weren't tiered correctly
 					if @deployment[type][key].is_a?(Hash) and @deployment[type][key].has_key?("mu_name")
 						olddata = @deployment[type][key].dup
 						@deployment[type][key][olddata["mu_name"]] = olddata
 					end
-					@deployment[type][key][data["mu_name"]] = data
-					MU.log "Adding to @deployment[#{type}][#{key}][#{data["mu_name"]}]", MU::DEBUG, details: data
+					@deployment[type][key][mu_name] = data
+					MU.log "Adding to @deployment[#{type}][#{key}][#{mu_name}]", MU::DEBUG, details: data
 				else
 					@deployment[type][key] = data
 					MU.log "Adding to @deployment[#{type}][#{key}]", MU::DEBUG, details: data
@@ -1034,8 +1058,8 @@ end
 				have_deploy = true
 				if @deployment[type].nil? or @deployment[type][key].nil?
 
-					if !sub_key.nil?
-						MU.log "MU::MommaCat.notify called to remove #{type} #{key} #{sub_key} deployment struct, but no such data exist", MU::WARN
+					if has_multiples
+						MU.log "MU::MommaCat.notify called to remove #{type} #{key} #{mu_name} deployment struct, but no such data exist", MU::WARN
 					else
 						MU.log "MU::MommaCat.notify called to remove #{type} #{key} deployment struct, but no such data exist", MU::WARN
 					end
@@ -1043,28 +1067,30 @@ end
 					return
 				end
 
-				if !sub_key.nil? and have_deploy
-					MU.log "Removing @deployment[#{type}][#{key}][#{sub_key}]", MU::DEBUG, details: @deployment[type][key][sub_key]
-					@deployment[type][key].delete(sub_key)
+				# XXX check against has_multiples
+				if has_multiples and have_deploy
+					MU.log "Removing @deployment[#{type}][#{key}][#{mu_name}]", MU::DEBUG, details: @deployment[type][key][mu_name]
+					@deployment[type][key].delete(mu_name)
 				else
 					MU.log "Removing @deployment[#{type}][#{key}]", MU::DEBUG, details: @deployment[type][key]
 					@deployment[type].delete(key)
 				end
 
 				# scrape vault traces out of basket_of_kittens.json too
-				if type == "servers" or type == "server_pools" and !sub_key.nil?
+				# XXX this was a terrible place to store these, move them... somewhere
+				if type == "servers" or type == "server_pools" and !mu_name.nil?
 					["servers", "server_pools"].each { |svr_class|
 						if !@original_config[svr_class].nil?
 							@original_config[svr_class].map! { |server|
 								if !server['vault_access'].nil? 
 									deletia = []
 									server['vault_access'].each { |vault|
-										if vault["vault"] == sub_key
+										if vault["vault"] == mu_name
 											deletia << vault
 										end
 									}
 									deletia.each { |drop_vault|
-										MU.log "Removing vault references to #{sub_key} from #{svr_class} #{server['name']}"
+										MU.log "Removing vault references to #{mu_name} from #{svr_class} #{server['name']}"
 										server['vault_access'].delete(drop_vault)
 									}
 								end
@@ -1075,7 +1101,13 @@ end
 					}
 				end
 			end
-			save!(key) if have_deploy
+			if have_deploy
+				save!(key)
+				if !@deployment['servers'].nil? and @deployment['servers'].keys.size > 0
+					# XXX some kind of filter (obey sync_siblings on nodes' configs)
+					syncLitter(@deployment['servers'].keys, triggering_node: triggering_node)
+				end
+			end
 			MU::MommaCat.unlock("deployment-notification")
 		end
 
@@ -1333,7 +1365,7 @@ end
 			MU::MommaCat.removeHostFromSSHConfig(node)
 # XXX add names paramater with useful stuff
 			MU::MommaCat.addHostToSSHConfig(server)
-			MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS
+			MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS... also this gets invoked too many times from here, find a better spot
 		end
 
 		@ssh_semaphore = Mutex.new
@@ -1729,6 +1761,8 @@ MESSAGE_END
 		# Make sure deployment data is synchronized to/from each node in the
 		# currently-loaded deployment.
 		def syncLitter(nodeclasses = [], triggering_node: nil)
+# XXX take some config logic to decide what nodeclasses to hit
+# XXX don't run on triggering node, duh
 			return if MU.syncLitterThread
 			return if !Dir.exists?(deploy_dir)
 			svrs = MU::Cloud.resource_types[:Server][:cfg_plural] # legibility shorthand
@@ -1742,6 +1776,7 @@ MESSAGE_END
 			update_servers = []
 			if nodeclasses.nil? or nodeclasses.size == 0
 				@kittens[svrs].values.each_pair { |mu_name, node|
+					next if !triggering_node.nil? and node == triggering_node
 					if !node.groomer.nil?
 						update_servers << @kittens[svrs].values
 					end
@@ -1749,6 +1784,7 @@ MESSAGE_END
 			else
 				@kittens[svrs].each_pair { |nodeclass, servers|
 					servers.each_pair { |mu_name, node|
+						next if !triggering_node.nil? and node == triggering_node
 						if nodeclasses.include?(node.config['name']) and !node.groomer.nil?
 							update_servers << node
 						end
@@ -1762,6 +1798,7 @@ MESSAGE_END
 				mu_name, config, deploydata, cloud_descriptor = sibling.describe
 				@deployment[svrs][config['name']][mu_name] = deploydata if !deploydata.nil?
 			}
+			return if update_servers.size < 2
 			threads = []
 			parent_thread_id = Thread.current.object_id
 # XXX apparently we teeter dangerously close to outrunning the system call stack
@@ -1851,7 +1888,7 @@ MESSAGE_END
 
 		# Synchronize all in-memory information related to this to deployment to
 		# disk.
-		def save!(updating_node_type = nil)
+		def save!(triggering_node = nil)
 			@@deploy_struct_semaphore.synchronize {
 				MU.log "Saving deployment #{MU.deploy_id}", MU::DEBUG
 
@@ -1887,10 +1924,6 @@ MESSAGE_END
 					end
 					deploy.flock(File::LOCK_UN)
 					deploy.close
-					if !@deployment['servers'].nil? and @deployment['servers'].keys.size > 0
-						# XXX some kind of filter (obey sync_siblings on nodes' configs)
-						syncLitter(@deployment['servers'].keys)
-					end
 				end
 
 				if !@original_config.nil? and @original_config.is_a?(Hash)

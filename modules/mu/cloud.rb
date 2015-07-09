@@ -333,7 +333,7 @@ module MU
 						@cloudobj.groomer.cleanup
 					end
 					if !@cloudobj.nil? and !@config.nil? and !@cloudobj.mu_name.nil?
-						@deploy.notify(self.class.cfg_plural, @config['name'], @cloudobj.mu_name, remove: true)
+						@deploy.notify(self.class.cfg_plural, @config['name'], @cloudobj.mu_name, remove: true, triggering_node: @cloudobj)
 					end
 					@deploy.removeKitten(self)
 				end
@@ -733,11 +733,11 @@ module MU
 							end
 							deploydata['cloud_id'] = @cloudobj.cloud_id if !@cloudobj.cloud_id.nil?
 							deploydata['mu_name'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
-							@deploy.notify(self.class.cfg_plural, @config['name'], deploydata)
+							@deploy.notify(self.class.cfg_plural, @config['name'], deploydata, triggering_node: @cloudobj)
 						elsif method == :notify
 							retval['cloud_id'] = @cloudobj.cloud_id if !@cloudobj.cloud_id.nil?
 							retval['mu_name'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
-							@deploy.notify(self.class.cfg_plural, @config['name'], retval)
+							@deploy.notify(self.class.cfg_plural, @config['name'], retval, triggering_node: @cloudobj)
 						end
 						retval
 					end

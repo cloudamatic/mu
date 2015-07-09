@@ -502,7 +502,7 @@ class Cloud
 				return nil if @config.nil? or @deploy.nil?
 
 				nat_ssh_key = nat_ssh_user = nat_ssh_host = nil
-				if !@config["vpc"].nil? and !MU::Cloud::AWS::VPC.haveRouteToInstance?(instance.instance_id, region: @config['region'])
+				if !@config["vpc"].nil? and !instance.nil? and !MU::Cloud::AWS::VPC.haveRouteToInstance?(instance.instance_id, region: @config['region'])
 					if !@nat.nil?
 						nat_name, nat_conf, nat_deploydata, nat_descriptor = @nat.describe
 						# XXX Yanking these things from the cloud descriptor will only work in AWS!
@@ -1684,7 +1684,7 @@ class Cloud
 							end
 						}
 
-						MU.mommacat.notify(MU::Cloud::Server.cfg_plural, mu_name, mu_name, remove: true, sub_key: mu_name) if !noop and MU.mommacat
+						MU.mommacat.notify(MU::Cloud::Server.cfg_plural, mu_name, mu_name, remove: true) if !noop and MU.mommacat
 
 						# If we didn't manage to find this instance's Route53 entry by sifting
 						# deployment metadata, see if we can get it with the Name tag.

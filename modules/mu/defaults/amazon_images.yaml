@@ -17,16 +17,6 @@ ubuntu14: &ubuntu14
   us-west-2: ami-ade2da9d
   eu-west-1: ami-85344af2
   eu-central-1: ami-e68db4fb
-win2k12: &win2k12
-  us-east-1: ami-2f13da44
-  us-west-1: ami-1fa3505b
-  us-west-2: ami-43d7d773
-  eu-west-1: ami-8687caf1
-  eu-central-1: ami-7e3d0763
-  sa-east-1: ami-039c101e
-  ap-northeast-1: ami-3c26883c
-  ap-southeast-1: ami-8ed1d1dc
-  ap-southeast-2: ami-350d4a0f
 win2k12r2: &win2k12r2
   us-east-1: ami-2f13da44
   us-west-1: ami-1fa3505b
@@ -37,6 +27,7 @@ win2k12r2: &win2k12r2
   ap-northeast-1: ami-3c26883c
   ap-southeast-1: ami-8ed1d1dc
   ap-southeast-2: ami-350d4a0f
+win2k12: *win2k12r2
 windows: *win2k12r2
 ubuntu: *ubuntu14
 centos: *centos6
