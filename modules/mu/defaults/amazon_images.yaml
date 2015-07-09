@@ -1,6 +1,14 @@
 ---
 centos6: &centos6
-  us-east-1: ami-551ed73e
+  us-east-1: ami-f521e89e
+  us-west-1: ami-4da05309
+  us-west-2: ami-e5dcdcd5
+  eu-west-1: ami-1c9dd06b
+  eu-central-1: ami-8a320897
+  sa-east-1: ami-2b9d1136
+  ap-northeast-1: ami-9e3b959e
+  ap-southeast-1: ami-d6d5d584
+  ap-southeast-2: ami-550b4c6f
 centos7: &centos7
   us-east-1: ami-a719d0cc
   us-west-1: ami-7dbd4e39
