@@ -1,5 +1,5 @@
 #
-# Licensed under the BSD-3 license (the "License");
+	# Licensed under the BSD-3 license (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License in the root of the project or at
 #
@@ -406,7 +406,7 @@ module MU
 
 
 	# The version of Chef we will install on nodes.
-	@@chefVersion = "12.3.0-1"
+	@@chefVersion = "12.4.1-1"
 	# The version of Chef we will install on nodes.
 	# @return [String]
 	def self.chefVersion; @@chefVersion end
