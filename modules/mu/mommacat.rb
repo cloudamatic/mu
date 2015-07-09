@@ -967,7 +967,7 @@ end
 						}
 					else
 						if (!name.nil? and sib_class == name) or
-							 (!cloud.nil? and cloud_id == data.cloud_id)
+							 (!cloud_id.nil? and cloud_id == data.cloud_id)
 							return data if !created_only or !data.cloud_id.nil?
 						end
 					end
