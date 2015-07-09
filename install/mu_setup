@@ -22,7 +22,7 @@ GET_METADATA="curl --fail -s http://169.254.169.254/latest"
 RCFILE=".murc"
 
 #tput will cause a noninteractive session to silently fail, else color things
-if [ -t 0]; then
+if [ -t 0 ]; then
 	BOLD=`tput bold`
 	NORM=`tput sgr0`
 	BLACK=`tput setaf 0`
