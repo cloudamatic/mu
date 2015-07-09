@@ -151,6 +151,166 @@ module MU
 			@@cloudfront_api[region]
 		end
 
+		# Fetch an Amazon instance metadata parameter (example: public-ipv4).
+		# @param param [String]: The parameter name to fetch
+		# @return [String, nil]
+		def self.getAWSMetaData(param)
+			base_url = "http://169.254.169.254/latest/meta-data/"
+			begin
+				response = Net::HTTP.get_response(URI("#{base_url}/#{param}"))
+				response.value
+			rescue Net::HTTPServerException => e
+			# This is fairly normal, just handle it gracefully
+				logger = MU::Logger.new
+				logger.log "Failed metadata request #{base_url}/#{param}: #{e.inspect}", MU::DEBUG
+				return nil
+			end
+
+			return response.body
+		end
+
+		# Punch AWS security group holes for client nodes to talk back to us, the
+		# Mu Master, if we're in AWS.
+		# @return [void]
+		def self.openFirewallForClients
+			MU::Cloud.loadCloudType("AWS", :FirewallRule)
+			if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+				::Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+			end
+			::Chef::Config[:environment] = MU.environment
+
+			# This is the set of (TCP) ports we're opening to clients. We assume that
+			# we can and and remove these without impacting anything a human has
+			# created.
+
+			my_ports = [10514]
+
+			my_instance_id = MU::Cloud::AWS.getAWSMetaData("instance-id")
+			my_client_sg_name = "Mu Client Rules for #{MU.mu_public_ip}"
+			my_sgs = Array.new
+
+			MU.setVar("curRegion", MU.myRegion) if !MU.myRegion.nil?
+
+			resp = MU::Cloud::AWS.ec2.describe_instances(instance_ids: [my_instance_id])
+			instance = resp.reservations.first.instances.first
+
+			instance.security_groups.each { |sg|
+				my_sgs << sg.group_id
+			}
+			resp = MU::Cloud::AWS.ec2.describe_security_groups(
+				group_ids: my_sgs,
+				filters:[
+					{ name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip] },
+					{ name: "tag:Name", values: [my_client_sg_name] }
+				]
+			)
+
+			if resp.nil? or resp.security_groups.nil? or resp.security_groups.size == 0
+				if instance.vpc_id.nil?
+					sg_id = my_sgs.first
+					resp = MU::Cloud::AWS.ec2.describe_security_groups(group_ids: [sg_id])
+					group = resp.security_groups.first
+					MU.log "We don't have a security group named '#{my_client_sg_name}' available, and we are in EC2 Classic and so cannot create a new group. Defaulting to #{group.group_name}.", MU::NOTICE
+				else
+					group = MU::Cloud::AWS.ec2.create_security_group(
+						group_name: my_client_sg_name,
+						description: my_client_sg_name,
+						vpc_id: instance.vpc_id
+					)
+					sg_id = group.group_id
+					my_sgs << sg_id
+					MU::MommaCat.createTag sg_id, "Name", my_client_sg_name
+					MU::MommaCat.createTag sg_id, "MU-MASTER-IP", MU.mu_public_ip
+					MU::Cloud::AWS.ec2.modify_instance_attribute(
+						instance_id: my_instance_id,
+						groups: my_sgs
+					)
+				end
+			elsif resp.security_groups.size == 1
+				sg_id = resp.security_groups.first.group_id
+				resp = MU::Cloud::AWS.ec2.describe_security_groups(group_ids: [sg_id])
+				group = resp.security_groups.first
+			else
+				MU.log "Found more than one security group named #{my_client_sg_name}, aborting", MU::ERR
+				exit 1
+			end
+			
+			begin
+				MU.log "Using AWS Security Group '#{group.group_name}' (#{sg_id})"
+			rescue NoMethodError
+				MU.log "Using AWS Security Group #{sg_id}"
+			end
+
+			allow_ips = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+			MU::MommaCat.listDeploys.each { |deploy_id|
+				next if File.exists?(MU::MommaCat.deploy_dir(deploy_id)+"/.cleanup")
+				MU.log "Checking for dead wood in #{deploy_id}", MU::DEBUG
+				deploy = MU::MommaCat.getLitter(deploy_id, set_context_to_me: false)
+				if deploy.kittens.has_key?("servers")
+					deploy.kittens["servers"].each_pair { |nodeclass, servers|
+						deletia = []
+						servers.each_pair { |mu_name, server|
+							begin
+								if !server.deploydata.nil? and server.deploydata.has_key?("private_ip_address")
+									allow_ips << server.deploydata["private_ip_address"] + "/32"
+								end
+							rescue URI::InvalidURIError => e
+								MU.log "Error loading node '#{mu_name}' while opening client firewall holes: #{e.inspect}", MU::WARN
+								next
+							end
+						}
+					}
+				end
+			}
+			allow_ips.uniq!
+
+			my_ports.each { |port|
+				begin
+					group.ip_permissions.each { |rule|
+						if rule.ip_protocol == "tcp" and
+							rule.from_port == port and rule.to_port == port
+							MU.log "Revoking old rules for port #{port.to_s} from #{sg_id}", MU::NOTICE
+							begin
+							MU::Cloud::AWS.ec2(MU.myRegion).revoke_security_group_ingress(
+								group_id: sg_id,
+								ip_permissions: [
+									{
+										ip_protocol: "tcp",
+										from_port: port,
+										to_port: port,
+										ip_ranges: MU.structToHash(rule.ip_ranges)
+									}
+								]
+							)
+							rescue Aws::EC2::Errors::InvalidPermissionNotFound => e
+								MU.log "Permission disappeared from #{sg_id} (port #{port.to_s}) before I could remove it", MU::WARN, details: MU.structToHash(rule.ip_ranges)
+							end
+						end
+					}
+				rescue NoMethodError
+# XXX this is ok
+				end
+				MU.log "Adding current IP list to allow rule for port #{port.to_s} in #{sg_id}", details: allow_ips
+
+				allow_ips_cidr = []
+				allow_ips.each { |cidr|
+					allow_ips_cidr << { "cidr_ip" => cidr }
+				}
+
+				MU::Cloud::AWS.ec2(MU.myRegion).authorize_security_group_ingress(
+					group_id: sg_id,
+					ip_permissions: [
+						{
+							ip_protocol: "tcp",
+							from_port: 10514,
+							to_port: 10514,
+							ip_ranges: allow_ips_cidr
+						}
+					]
+				)
+			}
+		end
+
 		private
 
 		# Wrapper class for the EC2 API, so that we can catch some common transient

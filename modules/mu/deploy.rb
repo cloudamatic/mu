@@ -101,8 +101,8 @@ module MU
 			MU.log "Deployment id: #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id})"
 
 			# Instance variables that are effectively class variables
-			@my_instance_id = MU.getAWSMetaData("instance-id")
-			@my_az = MU.getAWSMetaData("placement/availability-zone")
+			@my_instance_id = MU::Cloud::AWS.getAWSMetaData("instance-id")
+			@my_az = MU::Cloud::AWS.getAWSMetaData("placement/availability-zone")
 	
 			@fromName ='chef-server';
 

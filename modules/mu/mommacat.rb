@@ -41,8 +41,8 @@ module MU
 		# Failure to groom a node
 		class GroomError < MuError; end
 
-		@@litters = {}
-		@@litter_semaphore = Mutex.new
+#		@@litters = {}
+#		@@litter_semaphore = Mutex.new
 
 		# Return a {MU::MommaCat} instance for an existing deploy. Use this instead
 		# of using #initialize directly to avoid loading deploys multiple times or
@@ -55,12 +55,15 @@ module MU
 			if deploy_id.nil? or deploy_id.empty?
 				raise MuError, "Cannot fetch a deployment without a deploy_id"
 			end
-			@@litter_semaphore.synchronize {
-				if !@@litters.has_key?(deploy_id)
-					@@litters[deploy_id] = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
-				end
-				return @@litters[deploy_id]
-			}
+# XXX this caching is harmful, as it causes stale resource objects to stick
+# around; find a way to make these go away before turning this back on
+#			@@litter_semaphore.synchronize {
+#				if !@@litters.has_key?(deploy_id)
+#					@@litters[deploy_id] = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
+#				end
+#				return @@litters[deploy_id]
+#			}
+			MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
 		end
 
 		attr_reader :public_key
@@ -234,11 +237,43 @@ module MU
 			end
 
 # XXX this .owned? method may get changed by the Ruby maintainers
-			if !@@litter_semaphore.owned?
-				@@litter_semaphore.synchronize {
-					@@litters[@deploy_id] = self
-				}
+#			if !@@litter_semaphore.owned?
+#				@@litter_semaphore.synchronize {
+#					@@litters[@deploy_id] = self
+#				}
+#			end
+		end
+
+		# @param object [MU::Cloud]:
+		def removeKitten(object)
+			if !object
+				raise MuError, "Nil arguments to removeKitten are not allowed"
 			end
+			newlitter = {}
+			@kitten_semaphore.synchronize {
+				MU::Cloud.resource_types.each_pair { |name, attrs|
+					type = attrs[:cfg_plural]
+					next if !@kittens.has_key?(type)
+					tmplitter = @kittens[type].values.dup
+					tmplitter.each { |nodeclass, data|
+						if data.is_a?(Hash)
+							data.each_pair { |mu_name, obj|
+								if data == object
+									@kittens[type][nodeclass].delete(mu_name)
+									return
+								end
+							}
+						else
+							if data == object
+								@kittens[type].delete(nodeclass)
+								return
+							end
+						end
+					}
+				}
+			}
+			@kittens = newlitter
+			@kittens
 		end
 
 		# Keep tabs on a {MU::Cloud} object so that it can be found easily by
@@ -474,7 +509,7 @@ module MU
 			loadDeploy
 
 			# XXX this is to stop Net::SSH from killing our entire stack when it 
-			# throws an exception. See MU-139 in JIRA. Far as we can tell, it's
+			# throws an exception. See ECAP-139 in JIRA. Far as we can tell, it's
 			# just not entirely thread safe.
 			Thread.handle_interrupt(Net::SSH::Disconnect => :never) {
 				begin
@@ -490,7 +525,10 @@ module MU
 			end
 			kitten = nil
 
-			if !mu_name.nil? and @kittens["servers"].has_key?(name) and @kittens["servers"][name].has_key?(mu_name)
+			if !mu_name.nil? and
+				 @kittens.has_key?("servers") and
+				 @kittens["servers"].has_key?(name) and
+				 @kittens["servers"][name].has_key?(mu_name)
 				kitten = @kittens["servers"][name][mu_name]
 				MU.log "Re-grooming #{mu_name}", details: kitten.deploydata
 			else
@@ -499,7 +537,7 @@ module MU
 					if svr['name'] == name
 						svr["instance_id"] = cloud_id
 						kitten = MU::Cloud::Server.new(mommacat: self, kitten_cfg: svr, cloud_id: cloud_id)
-						MU.log "Grooming #{kitten.mu_name} for the first time", details: svr
+						MU.log "Grooming #{mu_name} for the first time", details: svr
 						break
 					end
 				}
@@ -546,6 +584,7 @@ module MU
 					MU.log "Grooming FAILED for #{kitten.mu_name} (#{e.inspect})", MU::ERR, details: e.backtrace
 					sendAdminMail("Grooming FAILED for #{kitten.mu_name} on #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id})",
 						msg: e.inspect,
+						kitten: kitten,
 						data: e.backtrace,
 						debug: true
 					)
@@ -562,8 +601,7 @@ module MU
 			MU.log "Grooming complete for '#{name}' mu_name on \"#{MU.handle}\" (#{MU.deploy_id})"
 			MU::MommaCat.unlockAll
 			if first_groom
-#				sendAdminMail("Grooming complete for '#{name}' mu_name on deploy \"#{MU.handle}\" (#{MU.deploy_id})", data: kitten.deploydata.merge(MU.structToHash(instance)))
-# XXX pass the kitten object, actually. can do more interesting things with it once inside
+				sendAdminMail("Grooming complete for '#{name}' (#{mu_name}) on deploy \"#{MU.handle}\" (#{MU.deploy_id})", kitten: kitten)
 			end
 			return
 		end
@@ -720,27 +758,33 @@ module MU
 		# Iterate over all known deployments and look for instances that have been
 		# terminated, but not yet cleaned up, then clean them up.
 		def self.cleanTerminatedInstances
-			return if @ranalready
-			@ranalready = true
 			MU.log "Checking for harvested instances in need of cleanup", MU::DEBUG
 			parent_thread_id = Thread.current.object_id
 			cleanup_threads = []
 			purged = 0
 			MU::MommaCat.listDeploys.each { |deploy_id|
+				next if File.exists?(deploy_dir(deploy_id)+"/.cleanup")
+				MU.log "Checking for dead wood in #{deploy_id}", MU::DEBUG
 				cleanup_threads << Thread.new {
 					MU.dupGlobals(parent_thread_id)
 					deploy = MU::MommaCat.getLitter(deploy_id, set_context_to_me: true)
 					if deploy.kittens.has_key?("servers")
-MU.log "#{deploy.deploy_id}", MU::NOTICE, details: deploy.kittens["servers"]
 						deploy.kittens["servers"].each_pair { |nodeclass, servers|
+							deletia = []
 							servers.each_pair { |mu_name, server|
+								server.describe
 								if !server.cloud_id
-									MU.log "Checking for deletion of #{mu_name}, but unable to fetch its cloud_id", MU::ERR, details: server
+									MU.log "Checking for deletion of #{mu_name}, but unable to fetch its cloud_id", MU::WARN, details: server
 								elsif !server.active?
-									MU.log "DELETING #{server} (#{nodeclass}), formerly #{server.cloud_id}", MU::ERR
-									server.groomer.cleanup
-									deploy.notify("servers", nodeclass, mu_name, remove: true)
-									deploy.sendAdminMail("Retired terminated node #{mu_name}", data: server)
+									next if File.exists?(deploy_dir(deploy_id)+"/.cleanup"+server.cloud_id)
+									deletia << mu_name
+									MU.log "DELETING #{server} (#{nodeclass}), formerly #{server.cloud_id}", MU::NOTICE
+									begin
+										server.destroy
+										deploy.sendAdminMail("Retired terminated node #{mu_name}", kitten: server)
+									rescue MuError => e
+										MU.log e.inspect, MU::ERR
+									end
 									purged = purged + 1
 								end
 							}
@@ -1015,6 +1059,7 @@ end
 			end
 			save!(key) if changed
 			MU::MommaCat.unlock("deployment-notification")
+			MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS
 		end
 
 		# Find one or more resources by their Mu resource name, and return 
@@ -1377,8 +1422,6 @@ end
 		# Insert node names associated with a new instance into /etc/hosts so we
 		# can treat them as if they were real DNS entries. Especially helpful when
 		# Chef/Ohai mistake the proper hostname, e.g. when bootstrapping Windows.
-		# *TODO* this is a placeholder until we get something real, probably
-		# involving Route 53.
 		# @param public_ip [String]: The node's IP address
 		# @param chef_name [String]: The node's Chef node name
 		# @param system_name [String]: The node's local system name
@@ -1413,7 +1456,8 @@ end
 		# @param data [Array]: Supplemental data to add to the message body.
 		# @param debug [Boolean]: If set, will include the full deployment structure and original {MU::Config}-parsed configuration.
 		# @return [void]
-		def sendAdminMail(subject, msg: msg = "", data: data = [], debug: debug = false)
+		def sendAdminMail(subject, msg: msg = "", kitten: nil, data: nil, debug: debug = false)
+			require 'net/smtp'
 			if @deployment.nil?
 				MU.log "Can't send admin mail without a loaded deployment", MU::ERR
 				return
@@ -1431,8 +1475,16 @@ Subject: #{subject}
 
 #{msg}
 MESSAGE_END
+			if !kitten.nil? and kitten.kind_of?(MU::Cloud)
+				message = message + "\n\n**** #{kitten}:\n"
+				if !kitten.report.nil?
+					kitten.report.each { |line|
+						message = message + line
+					}
+				end
+			end
 			if !data.nil?
-				message = message + "\n\n**** Supplemental data:\n" + PP.pp(data, "")
+				message = message + "\n\n" + PP.pp(data, "")
 			end
 			if debug
 				message = message + "\n\n**** Stack configuration:\n" + PP.pp(@original_config, "")
@@ -1486,144 +1538,11 @@ MESSAGE_END
 			return "#{word_one.capitalize} #{word_two.capitalize}"
 		end
 
-		# Punch AWS security group holes for client nodes to talk back to us.
-		# @return [void]
-		def self.openFirewallForClients
-return
-# XXX need to move this into AWS-specific module and only call when relevant
-			MU::Cloud.loadCloudType("AWS", :FirewallRule)
-			if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
-				Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
-			end
-			Chef::Config[:environment] = MU.environment
-
-			# This is the set of (TCP) ports we're opening to clients. We assume that
-			# we can and and remove these without impacting anything a human has
-			# created.
-
-			my_ports = [10514]
-
-			my_instance_id = MU.getAWSMetaData("instance-id")
-			my_client_sg_name = "Mu Client Rules for #{MU.mu_public_ip}"
-			my_sgs = Array.new
-
-			MU.setVar("curRegion", MU.myRegion) if !MU.myRegion.nil?
-
-			resp = MU::Cloud::AWS.ec2.describe_instances(instance_ids: [my_instance_id])
-			instance = resp.reservations.first.instances.first
-
-			instance.security_groups.each { |sg|
-				my_sgs << sg.group_id
-			}
-			resp = MU::Cloud::AWS.ec2.describe_security_groups(
-				group_ids: my_sgs,
-				filters:[
-					{ name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip] },
-					{ name: "tag:Name", values: [my_client_sg_name] }
-				]
-			)
-
-			if resp.nil? or resp.security_groups.nil? or resp.security_groups.size == 0
-				if instance.vpc_id.nil?
-					sg_id = my_sgs.first
-					resp = MU::Cloud::AWS.ec2.describe_security_groups(group_ids: [sg_id])
-					group = resp.security_groups.first
-					MU.log "We don't have a security group named '#{my_client_sg_name}' available, and we are in EC2 Classic and so cannot create a new group. Defaulting to #{group.group_name}.", MU::NOTICE
-				else
-					group = MU::Cloud::AWS.ec2.create_security_group(
-						group_name: my_client_sg_name,
-						description: my_client_sg_name,
-						vpc_id: instance.vpc_id
-					)
-					sg_id = group.group_id
-					my_sgs << sg_id
-					MU::MommaCat.createTag sg_id, "Name", my_client_sg_name
-					MU::MommaCat.createTag sg_id, "MU-MASTER-IP", MU.mu_public_ip
-					MU::Cloud::AWS.ec2.modify_instance_attribute(
-						instance_id: my_instance_id,
-						groups: my_sgs
-					)
-				end
-			elsif resp.security_groups.size == 1
-				sg_id = resp.security_groups.first.group_id
-				resp = MU::Cloud::AWS.ec2.describe_security_groups(group_ids: [sg_id])
-				group = resp.security_groups.first
-			else
-				MU.log "Found more than one security group named #{my_client_sg_name}, aborting", MU::ERR
-				exit 1
-			end
-			
-			begin
-				MU.log "Using AWS Security Group '#{group.group_name}' (#{sg_id})"
-			rescue NoMethodError
-				MU.log "Using AWS Security Group #{sg_id}"
-			end
-
-			allow_ips = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
-			nodelist = `#{MU::Config.knife} node list`.split(/\n/)
-			nodelist.each { |node|
-				begin
-					chef_node = Chef::Node.load(node)
-				rescue URI::InvalidURIError => e
-					MU.log "Error loading node '#{node}' while opening client firewall holes: #{e.inspect}", MU::WARN
-					next
-				end
-				if !chef_node[:ec2].nil?
-					allow_ips << chef_node[:ec2][:public_ip_address] + "/32" if !chef_node[:ec2][:public_ip_address].nil?
-				end
-			}
-			allow_ips.uniq!
-
-			my_ports.each { |port|
-				begin
-					group.ip_permissions.each { |rule|
-						if rule.ip_protocol == "tcp" and
-							rule.from_port == port and rule.to_port == port
-							MU.log "Revoking old rules for port #{port.to_s} from #{sg_id}", MU::NOTICE
-							begin
-							MU::Cloud::AWS.ec2.revoke_security_group_ingress(
-								group_id: sg_id,
-								ip_permissions: [
-									{
-										ip_protocol: "tcp",
-										from_port: port,
-										to_port: port,
-										ip_ranges: MU.structToHash(rule.ip_ranges)
-									}
-								]
-							)
-							rescue Aws::EC2::Errors::InvalidPermissionNotFound => e
-								MU.log "Permission disappeared from #{sg_id} (port #{port.to_s}) before I could remove it", MU::WARN, details: MU.structToHash(rule.ip_ranges)
-							end
-						end
-					}
-				rescue NoMethodError
-# XXX this is ok
-				end
-				MU.log "Adding current IP list to allow rule for port #{port.to_s} in #{sg_id}", details: allow_ips
-				rules = [
-					{
-						"hosts" => allow_ips,
-						"proto" => "tcp",
-						"port" => 10514
-					}
-				]
-
-				ec2_rules = MU::Cloud::AWS::FirewallRule.convertToEc2(rules, region: MU.myRegion)
-				MU::Cloud::AWS.ec2(MU.myRegion).authorize_security_group_ingress(
-					group_id: sg_id,
-					ip_permissions: ec2_rules
-				)
-			}
-		end
-
 		# Ensure that the Nagios configuration local to the MU master has been
 		# updated, and make sure Nagios has all of the ssh keys it needs to tunnel
 		# to client nodes.
 		# @return [void]
 		def self.syncMonitoringConfig(blocking = true)
-			# XXX
-			return
 			return if Etc.getpwuid(Process.uid).name != "root" or MU.chef_user != "mu"
 			parent_thread_id = Thread.current.object_id
 			nagios_threads = []
@@ -1654,6 +1573,8 @@ return
 				MU::MommaCat.listDeploys.each { |deploy_id|
 					begin
 						deploy = MU::MommaCat.getLitter(deploy_id)
+						FileUtils.cp("#{@myhome}/.ssh/#{deploy.ssh_key_name}", "#{@nagios_home}/.ssh/#{deploy.ssh_key_name}")
+						File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{@nagios_home}/.ssh/#{deploy.ssh_key_name}")
 						if deploy.kittens.has_key?("servers")
 							deploy.kittens["servers"].each_pair { |nodeclass, nodes|
 								nodes.each_pair { |mu_name, server|
@@ -1787,7 +1708,7 @@ return
 
 		private
 
-		# Make sure deployment data is synchronized to/from each Chef node in the
+		# Make sure deployment data is synchronized to/from each node in the
 		# currently-loaded deployment.
 		def syncLitter(nodeclasses = [], triggering_node: nil)
 			return if MU.syncLitterThread
@@ -1798,15 +1719,21 @@ return
 				return
 			end
 			MU.log "Updating these siblings in #{@deploy_id}: #{nodeclasses.join(', ')}", MU::DEBUG, details: @kittens[svrs]
-# XXX add mu_name indirection
+
 			update_servers = []
 			if nodeclasses.nil? or nodeclasses.size == 0
-				update_servers = @kittens[svrs].values
-			else
-				@kittens[svrs].each_pair { |mu_name, node|
-					if nodeclasses.include?(node.config['name']) and !node.groomer.nil?
-						update_servers << node
+				@kittens[svrs].values.each_pair { |mu_name, node|
+					if !node.groomer.nil?
+						update_servers << @kittens[svrs].values
 					end
+				}
+			else
+				@kittens[svrs].each_pair { |nodeclass, servers|
+					servers.each_pair { |mu_name, node|
+						if nodeclasses.include?(node.config['name']) and !node.groomer.nil?
+							update_servers << node
+						end
+					}
 				}
 			end
 			return if update_servers.size == 0
@@ -1834,7 +1761,7 @@ return
 				t.join
 			}
 
-			MU.log "Synchronization of #{@deploy_id} complete", MU::NOTICE, details: update_servers
+			MU.log "Synchronization of #{@deploy_id} complete", MU::DEBUG, details: update_servers
 		end
 
 		# Check to see whether a given resource name is unique across all
@@ -1870,7 +1797,7 @@ return
 		###########################################################################
 		###########################################################################
 		def self.deploy_dir(deploy_id)
-			raise MuError, "deploy_dir must get a deploy_id if called as class method" if deploy_id.nil?
+			raise MuError, "deploy_dir must get a deploy_id if called as class method (from #{caller[0]}; #{caller[1]})" if deploy_id.nil?
 # XXX this will blow up if someone sticks MU in /
 			path = File.expand_path(MU.dataDir+"/deployments")
 			if !Dir.exist?(path)

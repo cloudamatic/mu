@@ -53,7 +53,7 @@ module MU
 
 		# @param server [MU::Cloud::Server]: The server which this groomer will be configuring.
 		def initialize(server)
-# XXX check server with .is_a?
+			@server = server
 			if !server.config.has_key?("groomer")
 				@groomer_class = MU::Groomer.loadGroomer(MU::Config.defaultGroomer)
 			else
@@ -65,7 +65,8 @@ module MU
 		# Wrapper for Groomer implementations of the cleanup class method. We'll
 		# helpfully provide the arguments we know the answer to.
 		def cleanup
-			@groomer_class.cleanup.call(@server.mu_name, @server.config['vault_access'])
+			raise MuError, "Called MU::Groomer.cleanup, but I don't have an instantiated server object to clean!" if @server.nil?
+			@groomer_class.cleanup(@server.mu_name, @server.config['vault_access'])
 		end
 
 		MU::Groomer.requiredMethods.each { |method|

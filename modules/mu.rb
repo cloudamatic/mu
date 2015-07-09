@@ -26,35 +26,9 @@ autoload :Resolv, 'resolv'
 gem 'netaddr'
 autoload :NetAddr, 'netaddr'
 
-gem "chef"
-autoload :Chef, 'chef'
-gem "knife-windows"
-gem "chef-vault"
-autoload :Chef, 'chef-vault'
-autoload :ChefVault, 'chef-vault'
-
 class Object
 	def metaclass
 		class << self; self; end
-	end
-end
-
-# XXX Explicit autoloads for child classes of :Chef. This only seems to be
-# necessary for independent groom invocations from MommaCat. It's not at all
-# clear why. Chef bug? Autoload threading weirdness?
-class Chef
-  autoload :Knife, 'chef/knife'
-  autoload :Search, 'chef/search'
-  autoload :Node, 'chef/node'
-	autoload :Mixin, 'chef/mixin'
-	# XXX This only seems to be necessary for independent groom invocations from
-	# MommaCat. It's not at all clear why. Chef bug? Autoload threading weirdness?
-	class Knife
-		autoload :Ssh, 'chef/knife/ssh'
-		autoload :Bootstrap, 'chef/knife/bootstrap'
-		autoload :BootstrapWindowsSsh, 'chef/knife/bootstrap_windows_ssh'
-		autoload :Bootstrap, 'chef/knife/core/bootstrap_context'
-		autoload :BootstrapWindowsSsh, 'chef/knife/core/bootstrap_context'
 	end
 end
 
@@ -66,25 +40,6 @@ else
 	Aws.config = { access_key_id: ENV['AWS_ACCESS_KEY_ID'], secret_access_key: ENV['AWS_SECRET_ACCESS_KEY'], region: ENV['EC2_REGION'] }
 end
 ENV['HOME'] = Etc.getpwuid(Process.uid).dir
-
-# XXX Explicit autoloads for child classes of :Chef. This only seems to be
-# necessary for independent groom invocations from MommaCat. It's not at all
-# clear why. Chef bug? Autoload threading weirdness?
-class Chef
-  autoload :Knife, 'chef/knife'
-  autoload :Search, 'chef/search'
-  autoload :Node, 'chef/node'
-	autoload :Mixin, 'chef/mixin'
-	# XXX This only seems to be necessary for independent groom invocations from
-	# MommaCat. It's not at all clear why. Chef bug? Autoload threading weirdness?
-	class Knife
-		autoload :Ssh, 'chef/knife/ssh'
-		autoload :Bootstrap, 'chef/knife/bootstrap'
-		autoload :BootstrapWindowsSsh, 'chef/knife/bootstrap_windows_ssh'
-		autoload :Bootstrap, 'chef/knife/core/bootstrap_context'
-		autoload :BootstrapWindowsSsh, 'chef/knife/core/bootstrap_context'
-	end
-end
 
 require 'mu/logger'
 module MU
@@ -240,26 +195,29 @@ module MU
 		end
 	end
 
-	# Fetch an Amazon instance metadata parameter (example: public-ipv4).
-	# @param param [String]: The parameter name to fetch
-	# @return [String, nil]
-	def self.getAWSMetaData(param)
-		base_url = "http://169.254.169.254/latest/meta-data/"
-		begin
-			response = Net::HTTP.get_response(URI("#{base_url}/#{param}"))
-			response.value
-		rescue Net::HTTPServerException => e
-		# This is fairly normal, just handle it gracefully
-			logger = MU::Logger.new
-			logger.log "Failed metadata request #{base_url}/#{param}: #{e.inspect}", MU::DEBUG
-			return nil
-		end
+	# For log entries that should only be logged when we're in verbose mode
+	DEBUG = 0.freeze
+	# For ordinary log entries
+	INFO = 1.freeze
+	# For more interesting log entries which are not errors
+	NOTICE = 2.freeze
+	# Log entries for non-fatal errors
+	WARN = 3.freeze
+	# Log entries for non-fatal errors
+	WARNING = 3.freeze
+	# Log entries for fatal errors
+	ERR = 4.freeze
+	# Log entries for fatal errors
+	ERROR = 4.freeze
 
-		return response.body
-	end
+	autoload :Cleanup, 'mu/cleanup'
+	autoload :Deploy, 'mu/deploy'
+	autoload :MommaCat, 'mu/mommacat'
+	require 'mu/cloud'
+	require 'mu/groomer'
 
-	@@my_private_ip = MU.getAWSMetaData("local-ipv4")
-	@@my_public_ip = MU.getAWSMetaData("public-ipv4")
+	@@my_private_ip = MU::Cloud::AWS.getAWSMetaData("local-ipv4")
+	@@my_public_ip = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
 	@@mu_public_addr = @@my_public_ip
 	@@mu_public_ip = @@my_public_ip
 	if !ENV['CHEF_PUBLIC_IP'].nil? and !ENV['CHEF_PUBLIC_IP'].empty? and @@my_public_ip != ENV['CHEF_PUBLIC_IP']
@@ -311,26 +269,6 @@ module MU
 		end
 	end
 
-	# For log entries that should only be logged when we're in verbose mode
-	DEBUG = 0.freeze
-	# For ordinary log entries
-	INFO = 1.freeze
-	# For more interesting log entries which are not errors
-	NOTICE = 2.freeze
-	# Log entries for non-fatal errors
-	WARN = 3.freeze
-	# Log entries for non-fatal errors
-	WARNING = 3.freeze
-	# Log entries for fatal errors
-	ERR = 4.freeze
-	# Log entries for fatal errors
-	ERROR = 4.freeze
-
-	autoload :Cleanup, 'mu/cleanup'
-	autoload :Deploy, 'mu/deploy'
-	autoload :MommaCat, 'mu/mommacat'
-	require 'mu/cloud'
-	require 'mu/groomer'
 
 	rcfile = nil
 	home = Etc.getpwuid(Process.uid).dir
@@ -385,8 +323,8 @@ module MU
 		end
 		user_list = MU::Cloud::AWS.iam.list_users.users
 		if user_list.nil? or user_list.size == 0
-			mac = MU.getAWSMetaData("network/interfaces/macs/").split(/\n/)[0]
-			account_number = MU.getAWSMetaData("network/interfaces/macs/#{mac}owner-id")
+			mac = MU::Cloud::AWS.getAWSMetaData("network/interfaces/macs/").split(/\n/)[0]
+			account_number = MU::Cloud::AWS.getAWSMetaData("network/interfaces/macs/#{mac}owner-id")
 			account_number.chomp!
 		else
 			account_number = MU::Cloud::AWS.iam.list_users.users.first.arn.split(/:/)[4]
@@ -403,7 +341,7 @@ module MU
 	end	
 
 	# XXX is there a better way to get this?
-	@@myInstanceId = MU.getAWSMetaData("instance-id")
+	@@myInstanceId = MU::Cloud::AWS.getAWSMetaData("instance-id")
 	# The AWS instance identifier of this Mu master
 	def self.myInstanceId; @@myInstanceId end
 
@@ -432,7 +370,8 @@ module MU
 	end
 
 
-	# The version of Chef we will install on nodes.
+	# The version of Chef we will install on nodes (note- not the same as what
+	# we intall on ourself, which comes from install/mu_setup).
 	@@chefVersion = "12.4.0-1"
 	# The version of Chef we will install on nodes.
 	# @return [String]
@@ -473,7 +412,7 @@ module MU
 	def self.adminBucketName
 		bucketname = ENV['LOG_BUCKET_NAME']
 		if bucketname.nil? or bucketname.empty?
-			bucketname = "Mu_Logs_"+Socket.gethostname+"_"+MU.getAWSMetaData("instance-id")
+			bucketname = "Mu_Logs_"+Socket.gethostname+"_"+MU::Cloud::AWS.getAWSMetaData("instance-id")
 		end
 		return bucketname
 	end

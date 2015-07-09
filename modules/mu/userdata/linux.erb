@@ -111,3 +111,4 @@ instance_id="`curl http://169.254.169.254/latest/meta-data/instance-id`"
 
 /usr/bin/curl -k --data mu_id="<%= $mu.muID %>" --data mu_resource_name="<%= $mu.resourceName %>" --data mu_resource_type="<%= $mu.resourceType %>" --data mu_instance_id="$instance_id" --data mu_bootstrap="1" --data mu_user="<%= $mu.muUser %>" --data mu_deploy_secret="`/opt/chef/embedded/bin/ruby encrypt_deploy_secret.rb`" https://<%= $mu.publicIP %>:2260/
 /bin/rm -f <%= $mu.muID %>-secret mu_deploy_key.pub chef-install.sh encrypt_deploy_secret.rb
+touch /.mu_userdata_complete

@@ -83,6 +83,7 @@ module MU
 			# We get passed literal quoted newlines sometimes, fix 'em
 			details.gsub!(/\\n/, "\n") if !details.nil?
 
+			msg = msg.first if msg.is_a?(Array)
 			msg = "" if msg == nil
 			
 			@@log_semaphere.synchronize {

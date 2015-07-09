@@ -99,7 +99,7 @@ default['sec']['pwd'] = {
 }
 
 # dumb hack, or dumbest hack?
-["r", "s", "t", "u", "v", "w", "x", "y", "z"].each { |drive|
+["s", "t", "u", "v", "w", "x", "y", "z"].reverse_each { |drive|
 	if File.exist?("/dev/xvd#{drive}")
 		default[:tmp_dev] = "/dev/xvd#{drive}"
 		break

@@ -19,6 +19,28 @@ module MU
 		# Support for Chef as a host configuration management layer.
 		class Chef
 
+			gem "chef"
+			autoload :Chef, 'chef'
+			gem "knife-windows"
+			gem "chef-vault"
+			autoload :Chef, 'chef-vault'
+			autoload :ChefVault, 'chef-vault'
+
+			# Autoload is smart, but not that smart.
+			class Chef
+			  autoload :Knife, 'chef/knife'
+			  autoload :Search, 'chef/search'
+			  autoload :Node, 'chef/node'
+				autoload :Mixin, 'chef/mixin'
+				class Knife
+					autoload :Ssh, 'chef/knife/ssh'
+					autoload :Bootstrap, 'chef/knife/bootstrap'
+					autoload :BootstrapWindowsSsh, 'chef/knife/bootstrap_windows_ssh'
+					autoload :Bootstrap, 'chef/knife/core/bootstrap_context'
+					autoload :BootstrapWindowsSsh, 'chef/knife/core/bootstrap_context'
+				end
+			end
+
 			@knife = "cd #{MU.myRoot} && env -i HOME=#{Etc.getpwuid(Process.uid).dir} #{MU.mu_env_vars} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin knife"
 			# The canonical path to invoke Chef's *knife* utility with a clean environment.
 			# @return [String]
@@ -158,7 +180,7 @@ module MU
 						if @server.windows?
 							MU.log "Windows has probably closed the ssh session before we could. Waiting before trying again", MU::DEBUG
 						else
-							MU.log "ssh session was closed unexpectedly, waiting before trying again", MU::NOTICE
+							MU.log "ssh session to #{@server.mu_name} was closed unexpectedly, waiting before trying again", MU::NOTICE
 						end
 						sleep 10
 					end

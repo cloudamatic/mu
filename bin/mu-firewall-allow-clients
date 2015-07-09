@@ -27,4 +27,6 @@ require 'rubygems'
 require 'bundler/setup'
 require 'mu'
 
-MU::MommaCat.openFirewallForClients
+# XXX this should be rolled into mu-aws-setup
+
+MU::Cloud::AWS.openFirewallForClients

@@ -242,6 +242,7 @@
 			Start-Process -FilePath "c:\bin\cygwin\bin\curl.exe" -ArgumentList "-k --data mu_id='<%= $mu.muID %>' --data mu_resource_name='<%= $mu.resourceName %>' --data mu_resource_type='<%= $mu.resourceType %>' --data mu_instance_id='$instanceid' --data mu_bootstrap='1' --data mu_user='<%= $mu.muUser %>' --data mu_deploy_secret='$deploy_secret' $url" -Wait
 		}
     # }
+		Set-Content "c:/mu_userdata_complete" "yup"
 	Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy Undefined
 </powershell>
 <persist>true</persist>

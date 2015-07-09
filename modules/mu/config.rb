@@ -92,7 +92,7 @@ module MU
 		# @param params [Hash]: Optional name-value parameter pairs, which will be passed to our configuration files as ERB variables.
 		# @return [Hash]: The complete validated configuration for a deployment.
 	  def initialize(path, skipinitialupdates = false, params: params = Hash.new)
-			$myPublicIp = MU.getAWSMetaData("public-ipv4")
+			$myPublicIp = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
 			$myRoot = MU.myRoot
 
 			$myAZ = MU.myAZ
@@ -2681,10 +2681,15 @@ module MU
 				"create_image" => {
 					"type" => "object",
 					"title" => "create_image",
-					"required" => ["image_then_destroy", "image_exclude_storage"],
+					"required" => ["image_then_destroy", "image_exclude_storage", "public"],
 					"additionalProperties" => false,
 					"description" => "Create a reusable image of this server once it is complete.",
 					"properties" => {
+						"public" => {
+							"type" => "boolean",
+							"description" => "Make the image public once it's complete",
+							"default" => false
+						},
 						"image_then_destroy" => {
 							"type" => "boolean",
 							"description" => "Destroy the source server after creating the reusable image(s).",

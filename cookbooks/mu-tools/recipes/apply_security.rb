@@ -328,10 +328,12 @@ export TMOUT
 
 		Chef::Log.info("Value of login_disabled is #{node.normal.root_login_disabled}")
 		
-		execute "tar up any old userdirs" do
-			command "sudo tar czf /tmp/moveusers.tgz -C /home ."
+		if Dir.exist?("/home")
+			execute "tar up any old userdirs" do
+				command "tar czf /tmp/moveusers.tgz -C /home ."
 #			not_if { ::File.exists?("/tmp/moveusers.tgz") }
-			not_if "grep '^#{node[:application_attributes][:home][:mount_device]} #{node[:application_attributes][:home][:mount_directory]}' /etc/mtab"
+				not_if "grep '^#{node[:application_attributes][:home][:mount_device]} #{node[:application_attributes][:home][:mount_directory]}' /etc/mtab"
+			end
 		end
 
 		mount node[:application_attributes][:home][:mount_directory] do
@@ -343,9 +345,9 @@ export TMOUT
 
 		ruby_block "restore userdirs" do
 			block do
-				`sudo tar xzf /tmp/moveusers.tgz --preserve-permissions --same-owner --directory /home`
-				`sudo chcon -Rv --type=user_home_t /home`
-				`sudo rm -rf /tmp/moveusers.tgz`
+				`tar xzf /tmp/moveusers.tgz --preserve-permissions --same-owner --directory /home`
+				`chcon -Rv --type=user_home_t /home`
+				`rm -rf /tmp/moveusers.tgz`
 	 			valid_users="AllowUsers root"
     		node['etc']['passwd'].each do |user, data|
       		if data['uid'] >= 500 && data['shell'] !~ /nologin/ then
