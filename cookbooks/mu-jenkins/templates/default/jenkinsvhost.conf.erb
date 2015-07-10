@@ -1,0 +1,19 @@
+<Proxy *>
+        Order allow,deny
+        Allow from all
+</Proxy>
+
+<VirtualHost *:9443>
+        ServerAdmin test@test.com
+        ProxyPass / http://localhost:8080/
+        ProxyPassReverse / http://localhost:8080/
+        SSLEngine On
+        SSLCertificateFile /etc/httpd/ssl/nagios.crt
+        SSLCertificateKeyFile /etc/httpd/ssl/nagios.key
+        SSLProxyEngine on
+
+        CustomLog /var/log/jenkins-ssl-access.log combined
+        ErrorLog /var/log/jenkins-error.log
+  LogLevel debug
+</VirtualHost>
+

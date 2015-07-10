@@ -10,6 +10,8 @@
 include_recipe 'mu-utility::disable-requiretty'
 include_recipe 'mu-utility::iptables'
 include_recipe 'chef-vault'
+include_recipe "apache2::mod_proxy"
+include_recipe "apache2::mod_proxy_http"
 
 admin_vault = chef_vault_item(node.jenkins_admin_vault[:vault], node.jenkins_admin_vault[:item])
 
@@ -20,6 +22,13 @@ when "centos", "redhat"
 			not_if "iptables -nL | egrep '^ACCEPT.*dpt:#{port}($| )'"
 		end
 	}
+
+	web_app "jenkins" do
+	    server_name "localhost"
+	    server_aliases [ node.fqdn, node.hostname ]
+
+	    template "jenkinsvhost.conf.erb"
+	end
 
 	%w{git bzip2}.each { |pkg|
 		package pkg
