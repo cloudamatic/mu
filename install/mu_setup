@@ -1399,27 +1399,27 @@ configure_jenkins_server()
         status_message "Configuring the ${BOLD}Jenkins${NORM} server"
         punch_tcp_hole 9443
         if [ "`/bin/ls $MU_DATADIR/users/`" == "" ];then
-                echo "${RED}Cannot enable Jenkins until at least one admin user                                                                                                                      is specified.${NORM}"
-                echo "${RED}Use ${BOLD}mu-user-manage${NORM}${RED} to create and                                                                                                                      manage users.${NORM}"
+                echo "${RED}Cannot enable Jenkins until at least one admin user is specified.${NORM}"
+                echo "${RED}Use ${BOLD}mu-user-manage${NORM}${RED} to create and manage users.${NORM}"
                 return
         fi
-        if [ "`grep ^jenkins: /etc/passwd`" == "" -o "`pgrep -u jenkins -f /usr/                                                                                                                     lib/jenkins`" == "" ];then
-                # skip this if we're being called from mu-self-update and have a                                                                                                                     lready
-                # done it
-                #
-                # Create Jenkins Vault with admin and user items
+        # skip user and vault creation if we're being called from mu-self-update and have already
+        # done it
+        #
+        if [ "`grep ^jenkins: /etc/passwd`" == "" -o "`pgrep -u jenkins -f /usr/lib/jenkins`" == "" ];then
+        # Create Jenkins Vault with admin and user items
                 $MU_LIBDIR/install/jenkinskeys.rb
-                knife vault create jenkins users '{"mu_user_password":"feefiefoe                                                                                                                     fum"}'  --mode client -F json -u mu --search name:MU-MASTER
+                knife vault create jenkins users '{"mu_user_password":"feefiefoefum"}'  --mode client -F json -u mu --search name:MU-MASTER
 
                 # Create the Jenkins user
-                mu-user-manage -c -u jenkins -e $JENKINS_EMAIL -p $JENKINS_ADMIN                                                                                                                     _PW
-
-                if [ update_chef_artifacts != 1 ];then
-                        upload_chef_artifacts
-                fi
-            	chef-client -o "role[mu-master-jenkins]"
-                run_chef_client=0
+                mu-user-manage -c -u jenkins -e $JENKINS_ADMIN_EMAIL -p $JENKINS_ADMIN_PW
         fi
+        # But idempotently run the Jenkins recipe each time, just like Nagios
+        if [ update_chef_artifacts != 1 ];then
+        	upload_chef_artifacts
+        fi
+    	chef-client -o "role[mu-master-jenkins]"
+        run_chef_client=0
 }
 
 
