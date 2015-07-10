@@ -31,7 +31,7 @@ if node.maldet.install == true
 		# XXX Probably ought to pick a version and checksum it.
 		remote_file "#{Chef::Config[:file_cache_path]}/maldetect-current.tar.gz" do
 		  action :create
-		  source "http://www.rfxn.com/downloads/maldetect-current.tar.gz"
+		  source "https://www.rfxn.com/downloads/maldetect-current.tar.gz"
 		  owner "root"
 		  group "root"
 			notifies :run, "execute[unpack maldetect]", :immediately
