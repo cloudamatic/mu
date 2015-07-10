@@ -54,10 +54,10 @@ module MU
 		# @param nocleanup [Boolean]: Toggles whether to skip cleanup of resources if this deployment fails.
 		# @param stack_conf [Hash]: A full application stack configuration parsed by {MU::Config}
 		def initialize(environment,
-									verbosity: verbosity,
-									webify_logs: webify_logs,
-									nocleanup: nocleanup,
-									stack_conf: stack_conf)
+									verbosity: nil,
+									webify_logs: nil,
+									nocleanup: nil,
+									stack_conf: nil)
 			MU.setVar("verbose", verbosity)
 			@webify_logs = webify_logs
 			@nocleanup = nocleanup
