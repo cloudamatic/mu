@@ -17,11 +17,24 @@ admin_vault = chef_vault_item(node.jenkins_admin_vault[:vault], node.jenkins_adm
 
 case node.platform
 when "centos", "redhat"
-	%w{8080 8443}.each { |port|
+	%w{8080 9443}.each { |port|
 		execute "iptables -I INPUT -p tcp --dport #{port} -j ACCEPT; service iptables save" do
 			not_if "iptables -nL | egrep '^ACCEPT.*dpt:#{port}($| )'"
 		end
 	}
+
+	# Set up SELinux for port
+	execute "Allow 9443 for apache" do
+		command "/usr/sbin/semanage port -a -t https_port_t -p tcp 9443"
+		not_if "/usr/sbin/semanage port -l | grep 9443"
+	end
+
+ 	#Set up SELinux for HTTPD scripts and modules to connect to the network
+	execute "Allow net connect to local for apache" do
+		command "/usr/sbin/setsebool -P httpd_can_network_connect on"
+		not_if "/usr/sbin/getsebool httpd_can_network_connect | grep on"
+		notifies "service[apache2]", :delayed
+	end
 
 	web_app "jenkins" do
 	    server_name "localhost"
