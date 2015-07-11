@@ -3,19 +3,20 @@
   "description": "Role for a Jenkins instance running on a mu master (only)",
   "json_class": "Chef::Role",
   "default_attributes": {
+    "jenkins_apache_port": "9443"
   },
   "override_attributes": {
     "jenkins": {
       "master": {
         "home": "/home/jenkins"
-      },
-      "apache": {
-        "listen_ports": [
-          "80",
-          "8443",
-          "9443"
-        ]
       }
+    },
+    "apache": {
+      "listen_ports": [
+        "80",
+        "8443",
+        "9443"
+      ]
     }
   },
   "chef_type": "role",

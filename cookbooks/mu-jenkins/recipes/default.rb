@@ -10,31 +10,33 @@
 include_recipe 'mu-utility::disable-requiretty'
 include_recipe 'mu-utility::iptables'
 include_recipe 'chef-vault'
-include_recipe "apache2::mod_proxy"
-include_recipe "apache2::mod_proxy_http"
+#include_recipe "apache2::mod_proxy"
+#include_recipe "apache2::mod_proxy_http"
+jenkins_apache_port = node.jenkins_apache_port
+include_recipe "mu-jenkins::jenkins_apache" unless jenkins_apache_port.nil?
 
 admin_vault = chef_vault_item(node.jenkins_admin_vault[:vault], node.jenkins_admin_vault[:item])
 
 case node.platform
 when "centos", "redhat"
-	%w{8080 9443}.each { |port|
+	%w{node.jenkins_ports}.each { |port|
 		execute "iptables -I INPUT -p tcp --dport #{port} -j ACCEPT; service iptables save" do
 			not_if "iptables -nL | egrep '^ACCEPT.*dpt:#{port}($| )'"
 		end
 	}
-
+=begin
 	# Set up SELinux for port
 	execute "Allow 9443 for apache" do
-		command "/usr/sbin/semanage port -a -t https_port_t -p tcp 9443"
-		not_if "/usr/sbin/semanage port -l | grep 9443"
+	command "/usr/sbin/semanage port -a -t http_port_t -p tcp 9443"
+	not_if "/usr/sbin/semanage port -l | grep 9443"
 	end
 
- 	#Set up SELinux for HTTPD scripts and modules to connect to the network
+	#Set up SELinux for HTTPD scripts and modules to connect to the network
 	execute "Allow net connect to local for apache" do
-		command "/usr/sbin/setsebool -P httpd_can_network_connect on"
-		not_if "/usr/sbin/getsebool httpd_can_network_connect | grep on"
-		notifies "service[apache2]", :delayed
+	command "/usr/sbin/setsebool -P httpd_can_network_connect on"
+	not_if "/usr/sbin/getsebool httpd_can_network_connect | grep on"
 	end
+
 
 	web_app "jenkins" do
 	    server_name "localhost"
@@ -42,7 +44,7 @@ when "centos", "redhat"
 
 	    template "jenkinsvhost.conf.erb"
 	end
-
+=end
 	%w{git bzip2}.each { |pkg|
 		package pkg
 	}
