@@ -594,7 +594,7 @@ module MU
 					instance.network_interfaces.each { |iface|
 						my_subnets << iface.subnet_id if !iface.subnet_id.nil?
 					}
-				nd
+				end
 				return my_subnets.uniq
 			end
 
