@@ -23,14 +23,14 @@ when "centos", "redhat"
 
   # Set up SELinux for port
   execute "Allow jenkins port for apache" do
-    command "/usr/sbin/semanage port -a -t http_port_t -p tcp i#{apache_port}"
-    not_if "/usr/sbin/semanage port -l | grep #{apache_port}"
+    command "/usr/sbin/semanage port -a -t http_port_t -p tcp #{apache_port}"
+    not_if "semanage port -l | grep -ci http_port_t.*#{apache_port}"
   end
 
   #Set up SELinux for HTTPD scripts and modules to connect to the network
   execute "Allow net connect to local for apache" do
     command "/usr/sbin/setsebool -P httpd_can_network_connect on"
-    not_if "/usr/sbin/getsebool httpd_can_network_connect | grep on"
+    not_if "/usr/sbin/getsebool httpd_can_network_connect | grep -cim1 ^.*on$"
   end
 
   web_app "jenkins" do

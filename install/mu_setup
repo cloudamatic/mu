@@ -1417,7 +1417,7 @@ configure_jenkins_server()
         if [ update_chef_artifacts != 1 ];then
         	upload_chef_artifacts
         fi
-    	chef-client -l info -o "role[mu-master-jenkins]" > /root/installjenkins.log
+    	chef-client -l info -o "role[mu-master-jenkins]"
         run_chef_client=0
 }
 
