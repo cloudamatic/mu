@@ -12,8 +12,13 @@ include_recipe 'mu-utility::iptables'
 include_recipe 'chef-vault'
 #include_recipe "apache2::mod_proxy"
 #include_recipe "apache2::mod_proxy_http"
-jenkins_apache_port = node.jenkins_apache_port
-include_recipe "mu-jenkins::jenkins_apache" unless jenkins_apache_port.nil?
+
+# Apache setup if indicated
+unless node['jenkins_apache_port'].nil?
+  jenkins_apache_port = node.jenkins_apache_port
+  include_recipe "mu-jenkins::jenkins_apache"
+end
+
 
 admin_vault = chef_vault_item(node.jenkins_admin_vault[:vault], node.jenkins_admin_vault[:item])
 
