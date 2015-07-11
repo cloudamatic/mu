@@ -99,7 +99,7 @@ module MU
 		# @return [void]
 		def initialize(deploy_id,
 				create: false,
-				deploy_secret: deploy_secret,
+				deploy_secret: nil,
 				config: nil,
 				environment: environment = "dev",
 				ssh_key_name: ssh_key_name = nil,
@@ -485,7 +485,7 @@ module MU
 		# @param name [String]: The MU resource name of the node being created.
 		# @param mu_name [String]: The full #{MU::MommaCat.getResourceName} name of the server we're grooming, if it's been initialized already.
 		# @param type [String]: The type of resource that created this node (either *server* or *serverpool*).
-		def groomNode(cloud_id, name, type, mu_name: mu_name, reraise_fail: false, sync_wait: true)
+		def groomNode(cloud_id, name, type, mu_name: nil, reraise_fail: false, sync_wait: true)
 
 			if cloud_id.nil?
 				raise GroomError, "MU::MommaCat.groomNode requires a {MU::Cloud::Server} object"

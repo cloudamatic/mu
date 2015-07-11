@@ -594,7 +594,7 @@ module MU
 					instance.network_interfaces.each { |iface|
 						my_subnets << iface.subnet_id if !iface.subnet_id.nil?
 					}
-				end
+				nd
 				return my_subnets.uniq
 			end
 
@@ -608,9 +608,11 @@ module MU
 			def self.haveRouteToInstance?(instance_id, region: MU.curRegion)
 				return false if instance_id.nil?
 				return @route_cache[instance_id] if @route_cache.has_key?(instance_id)
+				my_instance = MU::Cloud::AWS::Server.find(MU.myInstanceId)
+				target_instance = MU::Cloud::AWS::Server.find(instance_id)
 				my_subnets = MU::Cloud::AWS::VPC.getInstanceSubnets(MU.myInstanceId)
 				target_subnets = MU::Cloud::AWS::VPC.getInstanceSubnets(instance_id)
-
+# XXX make sure accounts for being in different regions
 				if (my_subnets & target_subnets).size > 0
 					MU.log "I share a subnet with #{instance_id}, I can route to it directly", MU::DEBUG
 					@route_cache[instance_id] = true

@@ -89,10 +89,9 @@ class Cloud
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::servers}
-			def initialize(mommacat: mommacat, kitten_cfg: kitten_cfg, mu_name: mu_name, vpc: vpc, cloud_id: cloud_id)
+			def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
 				@deploy = mommacat
 				@config = kitten_cfg
-				@vpc = vpc
 
 				if !mu_name.nil?
 					@mu_name = mu_name
