@@ -577,7 +577,6 @@ validate_setup_env_vars(){
 	MU_ADMIN_EMAIL_VAL=$(return_targetvar_value "MU_ADMIN_EMAIL")
   	JENKINS_ADMIN_EMAIL_VAL=$(return_targetvar_value "JENKINS_ADMIN_EMAIL")
 
-  	echo "** From call got ****************** $MU_ADMIN_EMAIL_VAL $JENKINS_ADMIN_EMAIL_VAL  ************************"
  	if [ "$MU_ADMIN_EMAIL_VAL" == "$JENKINS_ADMIN_EMAIL_VAL" ]; then
  	 echo "EMail addresses for mu users must be unique and your Jenkins and Mu addresses are the same!"
     	validate_errs=1
