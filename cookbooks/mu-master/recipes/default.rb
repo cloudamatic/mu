@@ -21,6 +21,30 @@ cookbook_file "/root/.vimrc" do
 	action :create_if_missing
 end
 
+# Set up apache for Jenkins, then jenkins itself early to ensure vhost is present at first apache start
+apache_port = node.jenkins_apache_port
+execute "iptables -I INPUT -p tcp --dport #{apache_port} -j ACCEPT; service iptables save" do
+not_if "iptables -nL | egrep '^ACCEPT.*dpt:#{apache_port}($| )'"
+end
+
+# Set up SELinux for port
+execute "Allow jenkins port for apache" do
+command "/usr/sbin/semanage port -a -t http_port_t -p tcp #{apache_port}"
+not_if "semanage port -l | grep -ci http_port_t.*#{apache_port}"
+end
+
+#Set up SELinux for HTTPD scripts and modules to connect to the network
+execute "Allow net connect to local for apache" do
+command "/usr/sbin/setsebool -P httpd_can_network_connect on"
+not_if "/usr/sbin/getsebool httpd_can_network_connect | grep -cim1 ^.*on$"
+end
+
+include_recipe "java"
+include_recipe "jenkins::master"
+include_recipe "mu-jenkins"
+
+# Now set up nagios
+
 package "nagios" do
 	action :remove
 end

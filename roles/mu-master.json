@@ -12,5 +12,6 @@
 	"description": "Run List for Mu master servers",
 	"chef_type": "role",
 	"override_attributes": {
+		"jenkins_apache_port": "9443"
 	}
 }
