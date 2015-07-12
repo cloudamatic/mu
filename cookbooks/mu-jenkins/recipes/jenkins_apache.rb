@@ -8,6 +8,7 @@
 #
 
 include_recipe 'mu-utility::iptables'
+include_recipe "apache2"
 include_recipe "apache2::mod_proxy"
 include_recipe "apache2::mod_proxy_http"
 
