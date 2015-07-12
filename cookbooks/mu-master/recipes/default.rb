@@ -111,6 +111,8 @@ file "/etc/motd" do
 
  Nagios monitoring GUI: https://#{MU.mu_public_addr}:8443/
 
+ Jenkins automation GUI: https://#{MU.mu_public_addr}:9443/
+
  Mu API documentation: http://#{MU.mu_public_addr}/docs/frames.html
 
  Mu metadata are stored in #{MU.mainDataDir}
@@ -131,6 +133,9 @@ file "/var/www/html/index.html" do
 
 <p>
  <a href='https://#{MU.mu_public_addr}:8443/'>Nagios monitoring GUI</a>
+</p>
+<p>
+ <a href='https://#{MU.mu_public_addr}:9443/'>Jenkins automation GUI</a>
 </p>
 <p>
  <a href='http://#{MU.mu_public_addr}/docs/frames.html'>Mu API documentation</a>

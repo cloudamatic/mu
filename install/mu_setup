@@ -1535,14 +1535,12 @@ if [ "$library" != "1" ];then
 		start_momma_cat
 		generate_ssl_certs
 		setup_localhost_chef_client
-		#configure_nagios_server
-		configure_jenkins_server
 		configure_nagios_server
+		configure_jenkins_server
 		set_permissions
 	fi
 
 	chef-client
-	#configure_jenkins_server
 
 	echo ""
 	echo "You MUST source all of the changes I made to your environment:"
