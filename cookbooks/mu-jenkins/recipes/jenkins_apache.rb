@@ -12,9 +12,8 @@ include_recipe "apache2"
 include_recipe "apache2::mod_proxy"
 include_recipe "apache2::mod_proxy_http"
 
-puts node.apache['listen_ports'],"------------------------------------------"
-puts node.jenkins_apache_port
 apache_port = node.jenkins_apache_port
+jenkins_port = node.jenkins_ports
 
 case node.platform
 when "centos", "redhat"
@@ -37,8 +36,11 @@ when "centos", "redhat"
   web_app "jenkins" do
       server_name "localhost"
       server_aliases [ node.fqdn, node.hostname ]
-
       template "jenkinsvhost.conf.erb"
+      variables({
+          :apache_port => apache_port,
+          :jenkins_port => jenkins_port
+      })
   end
 else
   Chef::Log.info("Unsupported platform #{node.platform}")

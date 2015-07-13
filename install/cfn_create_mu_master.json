@@ -1,6 +1,6 @@
 {
     "AWSTemplateFormatVersion": "2010-09-09",
-    "Description": "Cloudamatic Mu Master Creation. Imaging only. v1.0.0-alpha-1",
+    "Description": "Cloudamatic Mu Master Creation. Imaging only. v1.1.alpha1",
     "Parameters": {
         "MasterAMIId": {
             "Description": "AMI for Cloudamatic Server",
@@ -73,19 +73,23 @@
             ],
             "ConstraintDescription": "must be a valid EC2 instance type, at least medium."
         },
-        "adminEmail": {
-            "Description": "The e-mail address of the admin",
-            "Type": "String",
-            "MinLength": "0",
-            "MaxLength": "255",
-            "Default": "test@email.com"
-        },
         "adminPassword": {
-            "Description": "The admin password ",
+            "Description": "Password used for mu and Jenkins admin users ",
             "Type": "String",
             "MinLength": "0",
-            "MaxLength": "255",
-            "Default": "feefief0efum"
+            "MaxLength": "255"
+        },
+        "adminEmail": {
+            "Description": "The e-mail address of the administrative user for the server, for notifications",
+            "Type": "String",
+            "MinLength": "0",
+            "MaxLength": "255"
+        },
+        "JenkinsAdminEmail": {
+            "Description": "The e-mail address for the administrative Jenkins user.  Sadly Chef requires this be different than admin email",
+            "Type": "String",
+            "MinLength": "0",
+            "MaxLength": "255"
         },
         "MasterSubnetCidr": {
             "Description": "Address range for a public subnet to be created in AZ1.",
@@ -756,6 +760,7 @@
                                         "",
                                         [
                                             "export MU_ADMIN_EMAIL=\"",{"Ref": "adminEmail"},"\"\n",
+                                            "export JENKINS_ADMIN_EMAIL=\"",{"Ref": "JenkinsAdminEmail"},"\"\n",
                                             "export MUTAG=\"",{"Ref": "GitMuTag"},"\"\n",
                                             "export ADDTL_CHEF_REPOS=\"eGT-Labs/ecap_test_drive.git\"\n",
                                             "export MU_REPO=\"cloudamatic/mu.git\"\n",
@@ -784,6 +789,7 @@
                                     {"Ref": "GitMuTag"},
                                     " > /root/setup.out"]]},
                                 "env": {"MU_ADMIN_PW": {"Ref": "adminPassword"},
+                                        "JENKINS_ADMIN_PW": {"Ref": "adminPassword"},
                                         "HOME": "/root",
                                         "USER":"root",
                                         "TERM":"xterm",
@@ -793,49 +799,6 @@
                                         },
                                 "cwd": "/root",
                                 "test": "test -e /root/mu_setup",
-                                "ignoreErrors": "true"
-                            },
-                            "2_jenkinsadminvault": {
-                                "command": "/root/jenkinskeys.rb",
-                                "env": {
-                                    "HOME": "/root"
-                                },
-                                "cwd": "/root",
-                                "ignoreErrors": "true"
-                            },                            
-                            "3_jenkinsusersvault": {
-                                "command": {"Fn::Join": ["",
-                                        ["source /root/.bashrc;",
-                                        "knife vault create jenkins users '{\"mu_user_password\":\"",
-                                        {"Ref": "adminPassword"},
-                                        "\"}'  --mode client -F json -u mu --search name:MU-MASTER"]
-                                    ]},
-                                "env": {
-                                    "HOME": "/root"
-                                },
-                                "cwd": "/root",
-                                "ignoreErrors": "true"
-                            },
-                            "4_jenkins_mu_user": {
-                                "command": {"Fn::Join": ["",
-                                    ["source /root/.bashrc;",
-                                    "bash /root/.bashrc;mu-user-manage -c -u jenkins -e ",
-                                    {"Ref": "adminEmail"},
-                                    " -p ",
-                                    {"Ref": "adminPassword"}]
-                                ]},
-                                "env": {
-                                    "HOME": "/root"
-                                },
-                                "cwd": "/root",
-                                "ignoreErrors": "true"
-                            },
-                            "5_recipe_jenkins": {
-                                "command": "bash /root/.bashrc;chef-client -l info -o role[mu-master-jenkins]",
-                                "env": {
-                                    "HOME": "/root"
-                                },
-                                "cwd": "/root",
                                 "ignoreErrors": "true"
                             }
                         },
@@ -896,17 +859,7 @@
                                 {
                                     "Ref": "AWS::Region"
                                 },
-                                " || error_exit 'Failed to run cfn-init'\n",
-                                "# Start custom portion \n",
-                                "#SET UP SECRETS \n",
-                                "genpasswd() { \n",
-                                "local l=$1 \n",
-                                "[ \"$l\" == \"\" ] && l=16 \n",
-                                "tr -dc A-Za-z0-9_ < /dev/urandom | head -c ${l} | xargs \n",
-                                "} \n",
-                                "JENKINS_ADMIN_PW=`genpasswd 8` \n",
-                                "USER_RO_PW=`genpasswd 8` \n",
-                                "TESTDRIVE_PW=`genpasswd` \n"
+                                " || error_exit 'Failed to run cfn-init'\n"
                             ]
                         ]
                     }
@@ -1013,8 +966,12 @@
     },
     
     "Outputs": {
+        "sshURL" : {
+            "Value" : { "Fn::GetAtt" : [ "MasterInstance", "PublicDnsName" ] },
+            "Description" : "SSH Public/PrivateKey Interface"
+        },
         "JenkinsURL" : {
-            "Value" :  { "Fn::Join" : [ "", [ { "Fn::GetAtt" : [ "MasterInstance", "PublicDnsName" ] }, ":8090" ]] },
+            "Value" :  { "Fn::Join" : [ "", [ { "Fn::GetAtt" : [ "MasterInstance", "PublicDnsName" ] }, ":9443" ]] },
             "Description" : "Jenkins Interface"
         },
         "MuDNS" : {

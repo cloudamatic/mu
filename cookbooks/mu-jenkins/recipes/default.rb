@@ -10,8 +10,6 @@
 include_recipe 'mu-utility::disable-requiretty'
 include_recipe 'mu-utility::iptables'
 include_recipe 'chef-vault'
-#include_recipe "apache2::mod_proxy"
-#include_recipe "apache2::mod_proxy_http"
 
 # Apache setup if indicated
 unless node['jenkins_apache_port'].nil?
@@ -29,27 +27,6 @@ when "centos", "redhat"
 			not_if "iptables -nL | egrep '^ACCEPT.*dpt:#{port}($| )'"
 		end
 	}
-=begin
-	# Set up SELinux for port
-	execute "Allow 9443 for apache" do
-	command "/usr/sbin/semanage port -a -t http_port_t -p tcp 9443"
-	not_if "/usr/sbin/semanage port -l | grep 9443"
-	end
-
-	#Set up SELinux for HTTPD scripts and modules to connect to the network
-	execute "Allow net connect to local for apache" do
-	command "/usr/sbin/setsebool -P httpd_can_network_connect on"
-	not_if "/usr/sbin/getsebool httpd_can_network_connect | grep on"
-	end
-
-
-	web_app "jenkins" do
-	    server_name "localhost"
-	    server_aliases [ node.fqdn, node.hostname ]
-
-	    template "jenkinsvhost.conf.erb"
-	end
-=end
 	%w{git bzip2}.each { |pkg|
 		package pkg
 	}
