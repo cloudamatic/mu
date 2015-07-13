@@ -20,7 +20,7 @@ cookbook_file "/root/.vimrc" do
 	source "vimrc"
 	action :create_if_missing
 end
-
+=begin
 # Set up apache for Jenkins, then jenkins itself early to ensure vhost is present at first apache start
 apache_port = node.jenkins_apache_port
 execute "iptables -I INPUT -p tcp --dport #{apache_port} -j ACCEPT; service iptables save" do
@@ -42,6 +42,7 @@ end
 include_recipe "java"
 include_recipe "jenkins::master"
 include_recipe "mu-jenkins"
+=end
 
 # Now set up nagios
 

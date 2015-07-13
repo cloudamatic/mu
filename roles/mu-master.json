@@ -7,11 +7,26 @@
 			"recipe[mu-tools::base_repositories]",
 			"recipe[mu-tools::maldet]",
 			"recipe[mu-tools::apply_security]",
+			"recipe[java]",
+    		"recipe[jenkins::master]",
+    		"recipe[mu-jenkins]"
 			"recipe[mu-master]"
 	],
 	"description": "Run List for Mu master servers",
 	"chef_type": "role",
 	"override_attributes": {
 		"jenkins_apache_port": "9443"
+		"jenkins": {
+      		"master": {
+        		"home": "/home/jenkins"
+      		}
+    	},
+    	"apache": {
+      		"listen_ports": [
+        	"80",
+        	"8443",
+        	"9443"
+      		]
+    	}
 	}
 }
