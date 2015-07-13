@@ -141,8 +141,6 @@ module MU
 	# Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
 	def self.chef_user; @@globals[Thread.current.object_id]['chef_user'] end
 	# Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
-	def self.dataDir; @@globals[Thread.current.object_id]['dataDir'] end
-	# Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
 	def self.curRegion
 		@@globals[Thread.current.object_id]['curRegion'] ||= ENV['EC2_REGION']
 	end
@@ -150,9 +148,11 @@ module MU
 	def self.syncLitterThread; @@globals[Thread.current.object_id]['syncLitterThread'] end
 
 	# Mu's deployment metadata directory.
-	dataDir = File.expand_path(ENV['MU_DATADIR'])
-	dataDir = @@mainDataDir if dataDir.nil?
-	MU.setVar("dataDir", dataDir)
+	@myDataDir = File.expand_path(ENV['MU_DATADIR'])
+	@myDataDir = @@mainDataDir if @myDataDir.nil?
+	def self.dataDir
+		@myDataDir
+	end
 
 	# The verbose logging flag merits a default value.
 	def self.verbose

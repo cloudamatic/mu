@@ -76,6 +76,7 @@ module MU
 				end
 				::Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}/organizations/#{MU.chef_user}"
 				::Chef::Config[:environment] = node.deploy.environment
+				splunkVaultInit
 			end
 
 			# Indicate whether our server has been bootstrapped with Chef
