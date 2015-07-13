@@ -1,16 +1,23 @@
 {
-	"name": "mu-master",
-	"default_attributes": {
-	},
-	"json_class": "Chef::Role",
-	"run_list": [
-			"recipe[mu-tools::base_repositories]",
-			"recipe[mu-tools::maldet]",
-			"recipe[mu-tools::apply_security]",
-			"recipe[mu-master]"
-	],
-	"description": "Run List for Mu master servers",
-	"chef_type": "role",
-	"override_attributes": {
-    	}
+  "name": "mu-master",
+  "description": "Run List for Mu master servers",
+  "json_class": "Chef::Role",
+  "default_attributes": {
+
+  },
+  "override_attributes": {
+
+  },
+  "chef_type": "role",
+  "run_list": [
+    "recipe[mu-tools::base_repositories]",
+    "recipe[mu-tools::maldet]",
+    "recipe[mu-tools::apply_security]",
+    "recipe[mu-master]",
+    "role[mu-master-jenkins]"
+  ],
+  "env_run_lists": {
+
+  }
 }
+
