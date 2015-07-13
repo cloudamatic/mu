@@ -64,7 +64,7 @@ module MU
 					secgroup = MU::Cloud::AWS.ec2(@config['region']).create_security_group(sg_struct)
 					@cloud_id = secgroup.group_id
 				rescue Aws::EC2::Errors::InvalidGroupDuplicate => e
-					MU.log "EC2 Security Group #{groupname} already exists, using it", MU::NOTICE, details: sg_struct
+					MU.log "EC2 Security Group #{groupname} already exists, using it", MU::NOTICE
 					filters = [{ name: "group-name", values: [groupname] }]
 					filters << { name: "vpc-id", values: [vpc_id] } if !vpc_id.nil?
 

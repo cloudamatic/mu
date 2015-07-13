@@ -113,15 +113,15 @@ module MU
 			# @param field [String]: OPTIONAL - A specific field within the item to return.
 			# @return [Hash]
 			def self.getSecret(vault: nil, item: nil, field: nil)
-				item = ChefVault::Item.load(repo, item)
+				item = ChefVault::Item.load(vault, item)
 				if item.nil?
-					raise MuError, "Failed to retrieve Vault #{repo}:#{item}"
+					raise MuError, "Failed to retrieve Vault #{vault}:#{item}"
 				end
 				if !field.nil?
 					if item.has_key?(field)
 						return item[field]
 					else
-						raise MuError, "No such field in Vault #{repo}:#{item}"
+						raise MuError, "No such field in Vault #{vault}:#{item}"
 					end
 				else
 					return item

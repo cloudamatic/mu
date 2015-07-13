@@ -576,7 +576,7 @@ module MU
 			# ...and other times we get to pick
 
 			# First decide whether we should pay attention to subnet_prefs.
-			honor_subnet_prefs=true 
+			honor_subnet_prefs = true 
 			if vpc_block['subnets']
 				vpc_block['subnets'].each {|subnet|
 					if subnet['subnet_id'] or subnet['subnet_name']
@@ -589,6 +589,7 @@ module MU
 
 			if vpc_block['subnet_pref'] and honor_subnet_prefs
 				private_subnets = []
+				private_subnets_map = {}
 				public_subnets = []
 				nat_routes = {}
 				subnet_ptr = "subnet_id"
@@ -1072,7 +1073,7 @@ module MU
 				if !lb['ingress_rules'].nil?
 					fwname = "lb"+lb['name']
 					firewall_rule_names << fwname
-					acl = {"name"=> fwname, "rules" => lb['ingress_rules'], "vpc" => lb['vpc'], "region" => lb['region']}
+					acl = {"name"=> fwname, "rules" => lb['ingress_rules'], "vpc" => lb['vpc'].dup, "region" => lb['region']}
 					firewall_rules << resolveFirewall.call(acl)
 					lb["add_firewall_rules"] = [] if lb["add_firewall_rules"].nil?
 					lb["add_firewall_rules"] << { "rule_name" => fwname }
@@ -1210,7 +1211,7 @@ module MU
 				if !pool['ingress_rules'].nil?
 					fwname = "pool"+pool['name']
 					firewall_rule_names << fwname
-					acl = {"name"=> fwname, "rules" => pool['ingress_rules'], "vpc" => pool['vpc'], "region" => pool['region']}
+					acl = {"name"=> fwname, "rules" => pool['ingress_rules'], "vpc" => pool['vpc'].dup, "region" => pool['region']}
 					firewall_rules << resolveFirewall.call(acl)
 					pool["add_firewall_rules"] = [] if pool["add_firewall_rules"].nil?
 					pool["add_firewall_rules"] << { "rule_name" => fwname }
@@ -1342,7 +1343,7 @@ module MU
 				if !db['ingress_rules'].nil?
 					fwname = "db"+db['name']
 					firewall_rule_names << fwname
-					acl = {"name"=> fwname, "rules" => db['ingress_rules'], "vpc" => db['vpc'], "region" => db['region']}
+					acl = {"name"=> fwname, "rules" => db['ingress_rules'], "vpc" => db['vpc'].dup, "region" => db['region']}
 					firewall_rules << resolveFirewall.call(acl)
 					db["add_firewall_rules"] = [] if db["add_firewall_rules"].nil?
 					db["add_firewall_rules"] << { "rule_name" => fwname }
@@ -1438,7 +1439,7 @@ module MU
 				if !server['ingress_rules'].nil?
 					fwname = "server"+server['name']
 					firewall_rule_names << fwname
-					acl = {"name"=> fwname, "rules" => server['ingress_rules'], "vpc" => server['vpc'], "region" => server['region'] }
+					acl = {"name"=> fwname, "rules" => server['ingress_rules'], "vpc" => server['vpc'].dup, "region" => server['region'] }
 					firewall_rules << resolveFirewall.call(acl)
 					server["add_firewall_rules"] = [] if server["add_firewall_rules"].nil?
 					server["add_firewall_rules"] << { "rule_name" => fwname }
@@ -1692,6 +1693,7 @@ module MU
 					"default" => subnet_pref,
 					"description" => "When auto-discovering VPC resources, this specifies whether to prefer subnets with or without public internet routes.",
 				}
+
 				if subnets == ONE_SUBNET
 					vpc_ref_schema["properties"]["subnet_pref"]["enum"] = ["public", "private", "any"] 
 				elsif subnets == MANY_SUBNETS
@@ -2382,7 +2384,7 @@ module MU
 			"name" => { "type" => "string" },
 			"region" => @region_primitive,
 			"cloud" => @cloud_primitive,
-			"aync_groom" => {
+			"async_groom" => {
 				"type" => "boolean",
 				"default" => false,
 				"description" => "Bootstrap asynchronously via the Momma Cat daemon instead of during the main deployment process"
@@ -2396,7 +2398,7 @@ module MU
 			"active_directory" => {
 				"type" => "object",
 				"additionalProperties" => false,
-				"required" => ["domain_name", "short_domain_name", "domain_controllers"],
+				"required" => ["domain_name", "short_domain_name", "domain_controllers", "domain_join_vault", "domain_admin_vault"],
 				"description" => "Integrate this node into an Active Directory domain. On Linux, will configure Winbind and PAM for system-level AD authentication.",
 				"properties" => {
 					"domain_name" => {

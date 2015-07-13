@@ -95,8 +95,6 @@ if $opts[:sg]
 		admin_sg = MU::Cloud::FirewallRule.new(kitten_cfg: cfg, mu_name: "Mu Master")
 		admin_sg.create
 		admin_sg.groom
-		pp admin_sg
-		exit
 	end
 end
 

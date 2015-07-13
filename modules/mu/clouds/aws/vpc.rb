@@ -608,8 +608,8 @@ module MU
 			def self.haveRouteToInstance?(instance_id, region: MU.curRegion)
 				return false if instance_id.nil?
 				return @route_cache[instance_id] if @route_cache.has_key?(instance_id)
-				my_instance = MU::Cloud::AWS::Server.find(MU.myInstanceId)
-				target_instance = MU::Cloud::AWS::Server.find(instance_id)
+				my_instance = MU::Cloud::AWS::Server.find(cloud_id: MU.myInstanceId)
+				target_instance = MU::Cloud::AWS::Server.find(cloud_id: instance_id)
 				my_subnets = MU::Cloud::AWS::VPC.getInstanceSubnets(MU.myInstanceId)
 				target_subnets = MU::Cloud::AWS::VPC.getInstanceSubnets(instance_id)
 # XXX make sure accounts for being in different regions
