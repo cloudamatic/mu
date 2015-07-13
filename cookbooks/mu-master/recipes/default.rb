@@ -20,31 +20,6 @@ cookbook_file "/root/.vimrc" do
 	source "vimrc"
 	action :create_if_missing
 end
-=begin
-# Set up apache for Jenkins, then jenkins itself early to ensure vhost is present at first apache start
-apache_port = node.jenkins_apache_port
-execute "iptables -I INPUT -p tcp --dport #{apache_port} -j ACCEPT; service iptables save" do
-not_if "iptables -nL | egrep '^ACCEPT.*dpt:#{apache_port}($| )'"
-end
-
-# Set up SELinux for port
-execute "Allow jenkins port for apache" do
-command "/usr/sbin/semanage port -a -t http_port_t -p tcp #{apache_port}"
-not_if "semanage port -l | grep -ci http_port_t.*#{apache_port}"
-end
-
-#Set up SELinux for HTTPD scripts and modules to connect to the network
-execute "Allow net connect to local for apache" do
-command "/usr/sbin/setsebool -P httpd_can_network_connect on"
-not_if "/usr/sbin/getsebool httpd_can_network_connect | grep -cim1 ^.*on$"
-end
-
-include_recipe "java"
-include_recipe "jenkins::master"
-include_recipe "mu-jenkins"
-=end
-
-# Now set up nagios
 
 package "nagios" do
 	action :remove
@@ -136,8 +111,6 @@ file "/etc/motd" do
 
  Nagios monitoring GUI: https://#{MU.mu_public_addr}:8443/
 
- Jenkins automation GUI: https://#{MU.mu_public_addr}:9443/
-
  Mu API documentation: http://#{MU.mu_public_addr}/docs/frames.html
 
  Mu metadata are stored in #{MU.mainDataDir}
@@ -158,9 +131,6 @@ file "/var/www/html/index.html" do
 
 <p>
  <a href='https://#{MU.mu_public_addr}:8443/'>Nagios monitoring GUI</a>
-</p>
-<p>
- <a href='https://#{MU.mu_public_addr}:9443/'>Jenkins automation GUI</a>
 </p>
 <p>
  <a href='http://#{MU.mu_public_addr}/docs/frames.html'>Mu API documentation</a>
