@@ -63,16 +63,17 @@ module MU
 				begin
 					secgroup = MU::Cloud::AWS.ec2(@config['region']).create_security_group(sg_struct)
 					@cloud_id = secgroup.group_id
-				rescue Aws::EC2::Errors::InvalidGroupDuplicate
-					MU.log "EC2 Security Group #{groupname} already exists, using it", MU::WARN, details: caller
-					# XXX how are we getting invoked multiple times though?
-					secgroup = MU::MommaCat.findStray(@config['cloud'], "firewall_rule", mu_name: groupname, region: @config['region'], deploy_id: @deploy.deploy_id).first
-					@cloud_id = secgroup.cloud_id
+				rescue Aws::EC2::Errors::InvalidGroupDuplicate => e
+					MU.log "EC2 Security Group #{groupname} already exists, using it", MU::NOTICE, details: sg_struct
+					filters = [{ name: "group-name", values: [groupname] }]
+					filters << { name: "vpc-id", values: [vpc_id] } if !vpc_id.nil?
+
+					secgroup = MU::Cloud::AWS.ec2(@config['region']).describe_security_groups(filters: filters).security_groups.first
+					deploy_id = @deploy.deploy_id if !@deploy_id.nil?
 					if secgroup.nil?
-						raise MuError, "Failed to locate security group named #{groupname}, even though EC2 says it already exists", e.backtrace
+						raise MuError, "Failed to locate security group named #{groupname}, even though EC2 says it already exists", caller
 					end
-					mu_name, config, deploydata, cloud_descriptor = secgroup.describe
-					secgroup = cloud_descriptor
+					@cloud_id = secgroup.group_id
 				end
 
 				begin
@@ -180,13 +181,16 @@ module MU
 			# @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching FirewallRules
 			def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil)
 
-				if !cloud_id.nil?
+				if !cloud_id.nil? and !cloud_id.empty?
 					begin
 						resp = MU::Cloud::AWS.ec2(region).describe_security_groups(group_ids: [cloud_id])
 						return { cloud_id => resp.data.security_groups.first }
-					rescue Aws::EC2::Errors::InvalidGroupNotFound => e
+					rescue ArgumentError => e
 						MU.log "Attempting to load #{cloud_id}: #{e.inspect}", MU::WARN, details: caller
-					return {}
+						return {}
+					rescue Aws::EC2::Errors::InvalidGroupNotFound => e
+						MU.log "Attempting to load #{cloud_id}: #{e.inspect}", MU::DEBUG, details: caller
+						return {}
 					end
 				end
 

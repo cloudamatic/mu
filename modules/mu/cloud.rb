@@ -319,9 +319,9 @@ module MU
 
 					# Register us with our parent deploy so that we can be found by our
 					# littermates if needed.
-					if !@cloudobj.mu_name.nil? and !@cloudobj.mu_name.empty?
+					if !@deploy.nil? and !@cloudobj.mu_name.nil? and !@cloudobj.mu_name.empty?
 						@deploy.addKitten(self.class.cfg_name, @config['name'], self)
-					else
+					elsif !@deploy.nil?
 						MU.log "#{self} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR
 					end
 				end
@@ -332,10 +332,12 @@ module MU
 					if !@cloudobj.nil? and !@cloudobj.groomer.nil?
 						@cloudobj.groomer.cleanup
 					end
-					if !@cloudobj.nil? and !@config.nil? and !@cloudobj.mu_name.nil?
-						@deploy.notify(self.class.cfg_plural, @config['name'], @cloudobj.mu_name, remove: true, triggering_node: @cloudobj)
+					if !@deploy.nil?
+						if !@cloudobj.nil? and !@config.nil? and !@cloudobj.mu_name.nil?
+							@deploy.notify(self.class.cfg_plural, @config['name'], @cloudobj.mu_name, remove: true, triggering_node: @cloudobj)
+						end
+						@deploy.removeKitten(self)
 					end
-					@deploy.removeKitten(self)
 				end
 
 				# Retrieve all of the known metadata for this resource.
@@ -376,7 +378,7 @@ module MU
 							# XXX temp hack to catch old Amazon-style identifiers. Remove this
 							# before supporting any other cloud layers, otherwise name
 							# collision is possible.
-							["vpc_id", "instance_id", "awsname", "identifier", "group_id", "id"].each { |identifier|
+							["group_id", "instance_id", "awsname", "identifier", "vpc_id", "id"].each { |identifier|
 								if @deploydata.has_key?(identifier)
 									@cloud_id = @deploydata[identifier]
 									if @mu_name.nil? and (identifier == "awsname" or identifier == "identifier" or identifier == "group_id")
@@ -394,9 +396,12 @@ module MU
 							matches = self.class.find(region: @config['region'], cloud_id: @cloud_id)
 							if !matches.nil? and matches.is_a?(Hash) and matches.has_key?(@cloud_id)
 								@cloud_desc = matches[@cloud_id]
+							else
+								MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id}, which has a record in deploy #{@deploy.deploy_id}", MU::WARN
 							end
 						rescue Exception => e
-							MU.log "Got #{e.inspect} trying to find cloud handle for #{@mu_name}", MU::WARN
+							MU.log "Got #{e.inspect} trying to find cloud handle for #{self.class.shortname} #{@mu_name} (#{@cloud_id})", MU::WARN
+							raise e
 						end
 					end
 
@@ -418,13 +423,14 @@ module MU
 					if @config.nil?
 						return [@dependencies, @vpc, @loadbalancers]
 					end
+					@config['dependencies'] = [] if @config['dependencies'].nil?
 
 					# First, general dependencies. These should all be fellow members of
 					# the current deployment.
 					@config['dependencies'].each { |dep|
 						@dependencies[dep['type']] = {} if !@dependencies.has_key?(dep['type'])
 						next if @dependencies[dep['type']].has_key?(dep['name'])
-						handle = @deploy.findLitterMate(type: dep['type'], name: dep['name'])
+						handle = @deploy.findLitterMate(type: dep['type'], name: dep['name']) if !@deploy.nil?
 						if !handle.nil?
 							MU.log "Loaded dependency for #{self}: #{dep['name']} => #{handle}", MU::DEBUG
 							@dependencies[dep['type']][dep['name']] = handle
@@ -444,7 +450,7 @@ module MU
 						else
 							tag_key, tag_value = @config['vpc']['tag'].split(/=/, 2) if !@config['vpc']['tag'].nil?
 							if !@config['vpc'].has_key?("vpc_id") and
-								 !@config['vpc'].has_key?("deploy_id")
+								 !@config['vpc'].has_key?("deploy_id") and !@deploy.nil?
 								@config['vpc']["deploy_id"] = @deploy.deploy_id
 							end
 							vpcs = MU::MommaCat.findStray(
@@ -488,7 +494,7 @@ module MU
 								@loadbalancers << @dependencies["loadbalancer"][lb['concurrent_load_balancer']]
 							else
 								if !lb.has_key?("existing_load_balancer") and
-									 !lb.has_key?("deploy_id")
+									 !lb.has_key?("deploy_id") and !@deploy.nil?
 									lb["deploy_id"] = @deploy.deploy_id
 								end
 								lbs = MU::MommaCat.findStray(
@@ -733,11 +739,11 @@ module MU
 							end
 							deploydata['cloud_id'] = @cloudobj.cloud_id if !@cloudobj.cloud_id.nil?
 							deploydata['mu_name'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
-							@deploy.notify(self.class.cfg_plural, @config['name'], deploydata, triggering_node: @cloudobj)
+							@deploy.notify(self.class.cfg_plural, @config['name'], deploydata, triggering_node: @cloudobj) if !@deploy.nil?
 						elsif method == :notify
 							retval['cloud_id'] = @cloudobj.cloud_id if !@cloudobj.cloud_id.nil?
 							retval['mu_name'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
-							@deploy.notify(self.class.cfg_plural, @config['name'], retval, triggering_node: @cloudobj)
+							@deploy.notify(self.class.cfg_plural, @config['name'], retval, triggering_node: @cloudobj) if !@deploy.nil?
 						end
 						retval
 					end

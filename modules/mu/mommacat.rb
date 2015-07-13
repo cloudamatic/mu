@@ -229,7 +229,7 @@ module MU
 									attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: data['mu_name'])
 								end
 							rescue Exception => e
-								MU.log "Failed to load existing resource #{mu_name} in #{@deploy_id}", MU::WARN
+								MU.log "Failed to load an existing resource of type '#{type}' in #{@deploy_id}", MU::WARN, details: data
 							end
 						}
 					end
@@ -363,8 +363,9 @@ module MU
 			if name.nil?
 				raise MuError, "Got no argument to MU::MommaCat.getResourceName"
 			end
-			if MU.appname.nil? or MU.environment.nil? or  MU.timestamp.nil? or  MU.seed.nil?
-				raise MuError, "Missing global variables in thread #{Thread.current.object_id} for #{MU.deploy_id}" if !MU.deploy_id.nil?
+			if MU.appname.nil? or MU.environment.nil? or MU.timestamp.nil? or MU.seed.nil?
+				MU.log "Missing global deploy variables in thread #{Thread.current.object_id}, using bare name '#{name}'", MU::DEBUG, details: caller
+				return name
 			end
 
 			muname = nil
@@ -876,10 +877,10 @@ begin
 					else
 						straykitten = momma.findLitterMate(type: type, name: name, mu_name: mu_name)
 					end
-					if straykitten.nil? and !matches.nil? and matches.size > 0
-						MU.log "Failed to locate a kitten from deploy_id: #{deploy_id}, name: #{name}, mu_name: #{mu_name}, cloud_id, #{cloud_id} despite having found metadata", MU::WARN, details: momma.kittens
+#					if straykitten.nil? and !matches.nil? and matches.size > 0
+#						MU.log "Failed to locate a kitten from deploy_id: #{deploy_id}, name: #{name}, mu_name: #{mu_name}, cloud_id, #{cloud_id} despite having found metadata", MU::WARN, details: matches
 #						raise MuError, "I can't find #{mu_name} anywhere" if !mu_name.nil?
-					end
+#					end
 					next if straykitten.nil?
 
 					kittens[straykitten.cloud_id] = straykitten
@@ -890,8 +891,8 @@ begin
 						return [straykitten]
 					end
 				}
-				if !mu_descs.nil? and mu_descs.size > 0
-					MU.log "I found descriptions that might match #{resourceclass.cfg_plural} name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}, but couldn't isolate my target kitten", MU::DEBUG, details: mu_descs
+				if !mu_descs.nil? and mu_descs.size > 0 and !deploy_id.nil? and !deploy_id.empty?
+					MU.log "I found descriptions that might match #{resourceclass.cfg_plural} name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}, but couldn't isolate my target kitten", MU::WARN, details: mu_descs
 					puts File.read(deploy_dir(deploy_id)+"/deployment.json")
 				end
 				# We can't refine any further by asking the cloud provider...
@@ -930,10 +931,17 @@ begin
 						# If we don't have a MU::Cloud object, manufacture a dummy one if
 						# we have enough information to get close to the mark.
 						elsif kittens.size == 0
-							if name.nil? or name.empty?
+							if name.nil? or name.empty? and !dummy_ok
 								MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", MU::WARN, details: caller
-								next if !dummy_ok
-								name = "dummy"
+								next 
+							else
+								if !mu_name.nil?
+									name = mu_name
+								elsif !tag_value.nil?
+									name = tag_value
+								else
+									name = kitten_cloud_id
+								end
 							end
 							cfg = { "name" => name, "cloud" => cloud, "region" => r }
 							matches << resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: kitten_cloud_id)
@@ -1277,7 +1285,9 @@ end
 		def self.createStandardTags(resource, region: MU.curRegion)
 			tags = []
 			listStandardTags.each_pair { |name, value|
-				tags << { key: name, value: value }
+				if !value.nil?
+					tags << { key: name, value: value }
+				end
 			}
 
 			attempts = 0

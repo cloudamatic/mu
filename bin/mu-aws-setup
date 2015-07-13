@@ -57,14 +57,19 @@ preferred_ip = MU.mu_public_ip
 if $opts[:sg]
 	open_ports = [80, 443, 2260, 8443]
 
-	sg_id = nil
-	if instance.security_groups.size > 0
-		sg_id = instance.security_groups.first.group_id
-		MU.log "Using an existing Security Group, #{sg_id}, already associated with this Mu server."
+	found = MU::MommaCat.findStray("AWS", "firewall_rule", region: MU.myRegion, dummy_ok: true, tag_key: "Name", tag_value: "Mu Master")
+
+	if found.nil? or found.size < 1 and instance.security_groups.size > 0
+		found = MU::MommaCat.findStray("AWS", "firewall_rule", region: MU.myRegion, dummy_ok: true, cloud_id: instance.security_groups.first.group_id)
+	end
+	admin_sg = found.first if !found.nil? and found.size > 0
+
+	if admin_sg.nil?
+		MU.log "Using an existing Security Group, #{admin_sg}, already associated with this Mu server."
 		open_ports.each { |port|
-			MU::Cloud::AWS::FirewallRule.addRule(sg_id, ["0.0.0.0/0"], port: port)
+			admin_sg.addRule(["0.0.0.0/0"], port: port)
 		}
-		MU::Cloud::AWS::FirewallRule.addRule(sg_id, ["#{preferred_ip}/32"], port: 22)
+		admin_sg.addRule(["#{preferred_ip}/32"], port: 22)
 	else
 		rules = Array.new
 		open_ports.each { |port|
@@ -77,9 +82,22 @@ if $opts[:sg]
 			"port" => 22,
 			"hosts" => ["#{preferred_ip}/32"]
 		}
-		sg_id = MU::Cloud::AWS::FirewallRule.createEc2SG("Mu Master", rules, description: "Mu Master", vpc_id: instance.vpc_id)
+		cfg = {
+			"name" => "Mu Master",
+			"cloud" => "AWS",
+			"region" => MU.myRegion,
+			"rules" => rules
+		}
+
+		if !instance.vpc_id.nil?
+			cfg["vpc"] = { "vpc_id" => instance.vpc_id }
+		end
+		admin_sg = MU::Cloud::FirewallRule.new(kitten_cfg: cfg, mu_name: "Mu Master")
+		admin_sg.create
+		admin_sg.groom
+		pp admin_sg
+		exit
 	end
-	puts "SECURITY GROUP ID: #{sg_id}"
 end
 
 # Muddle with our IP address
@@ -259,8 +277,7 @@ if $opts[:dns]
 	if instance.vpc_id.nil? or instance.vpc_id.empty?
 		MU.log "This Mu master appears to be in EC2 Classic. Route53 private DNS zones are not supported. Falling back to old /etc/hosts chicanery.", MU::ERR
 	else
-		MU::Cloud.loadCloudType("AWS", :DNSZone)
-		ext_zone, junk = MU::Cloud::DNSZone.find(cloud_id: "platform-mu")
+		ext_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu")
 
 		if ext_zone.nil?
 			params = {
