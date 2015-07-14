@@ -230,7 +230,17 @@ module MU
 										attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: mu_name)
 									}
 								else
-									attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: data['mu_name'])
+									use_mu_name = nil
+									# XXX hack for old deployments
+									["mu_name", "awsname", "group_name", "identifier"].each { |identifier|
+										if data.has_key?(identifier) and
+											 !data["identifier"].nil? and
+											 !data["identifier"].empty?
+											use_mu_name = data["identifier"].upcase
+											break
+										end
+									}
+									attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: use_mu_name)
 								end
 							rescue Exception => e
 								MU.log "Failed to load an existing resource of type '#{type}' in #{@deploy_id}: #{e.inspect}", MU::WARN, details: e.backtrace
@@ -766,6 +776,8 @@ module MU
 		# Iterate over all known deployments and look for instances that have been
 		# terminated, but not yet cleaned up, then clean them up.
 		def self.cleanTerminatedInstances
+# XXX we seem not to be detected the mu_names of existing resources and just
+# throwing up new ones intead, and that's not ok
 return
 			MU.log "Checking for harvested instances in need of cleanup", MU::DEBUG
 			parent_thread_id = Thread.current.object_id
@@ -789,8 +801,9 @@ return
 									deletia << mu_name
 									MU.log "DELETING #{server} (#{nodeclass}), formerly #{server.cloud_id}", MU::NOTICE
 									begin
-										server.destroy
-										deploy.sendAdminMail("Retired terminated node #{mu_name}", kitten: server)
+# XXX not declaring this safe juuuust yet
+#										server.destroy
+#										deploy.sendAdminMail("Retired terminated node #{mu_name}", kitten: server)
 									rescue MuError => e
 										MU.log e.inspect, MU::ERR
 									end
@@ -1637,6 +1650,7 @@ return
 				mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
 # XXX need a MU::Cloud::DNSZone.lookup for bulk lookups
 # XXX also grab things like mu_windows_name out of deploy data if we can
+
 				parent_thread_id = Thread.current.object_id
 				MU::MommaCat.listDeploys.each { |deploy_id|
 					begin
@@ -1704,6 +1718,7 @@ return
 					next
 				end
 				data = File.open("#{deploy_dir(deploy)}/deployment.json", File::RDONLY)
+				data["deploy_id"] = deploy
 				MU.log "Getting lock to read #{deploy_dir(deploy)}/deployment.json", MU::DEBUG
 				data.flock(File::LOCK_EX)
 				begin					

@@ -73,8 +73,8 @@ default['nagios']['default_host']['check_command'] = "check_node_ssh"
 default['nagios']['default_service']['check_interval'] = 180
 default['nagios']['default_service']['retry_interval'] = 30
 
-# no idea why this attribute isn't set on MU-MASTER, but it isn't.
-default['chef_node_name'] = Chef::Config[:node_name]
+# No idea why this is set wrong by default
+default['chef_node_name'] = node.name
 default['nagios']['host_name_attribute'] = 'chef_node_name'
 
 default['application_attributes']['logs']['volume_size_gb'] = 50

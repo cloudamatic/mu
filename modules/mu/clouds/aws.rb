@@ -244,8 +244,6 @@ module MU
 
 			allow_ips = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
 			MU::MommaCat.listAllNodes.each_pair { |node, data|
-			puts node
-			pp data
 				["public_ip_address"].each { |key|
 					if data.has_key?(key) and !data[key].nil? and !data[key].empty?
 						allow_ips << data[key] + "/32"
