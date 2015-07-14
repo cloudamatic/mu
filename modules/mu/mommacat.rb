@@ -1692,10 +1692,41 @@ return
 			return deploys
 		end
 
+		# Return a list of all nodes in all deployments. Does so without loading
+		# deployments fully.
+		# @return [Hash]
+		def self.listAllNodes
+			nodes = Hash.new
+			MU::MommaCat.listDeploys.each { |deploy|
+				if !Dir.exists?(deploy_dir(deploy)) or
+					 !File.size?("#{deploy_dir(deploy)}/deployment.json")
+					MU.log "Didn't see deployment metadata for '#{deploy}'", MU::WARN
+					next
+				end
+				data = File.open("#{deploy_dir(deploy)}/deployment.json", File::RDONLY)
+				MU.log "Getting lock to read #{deploy_dir(deploy)}/deployment.json", MU::DEBUG
+				data.flock(File::LOCK_EX)
+				begin					
+					deployment = JSON.parse(File.read("#{deploy_dir(deploy)}/deployment.json"))
+					if deployment.has_key?("servers")
+						deployment["servers"].each_key { |nodeclass|
+							deployment["servers"][nodeclass].each_pair { |mu_name, metadata|
+								nodes[mu_name] = metadata
+							}
+						}
+					end
+				rescue JSON::ParserError => e
+					MU.log "JSON parse failed on #{deploy_dir(deploy)}/deployment.json", MU::ERR
+				end
+				data.flock(File::LOCK_UN)
+				data.close
+			}
+			return nodes
+		end
+
 		# Return a list of all nodes associated with the current deployment.
 		# @return [Hash]
 		def listNodes
-
 			nodes = Hash.new
 			if !@deployment['servers'].nil?
 				@deployment['servers'].each_pair { |nodetype, node|

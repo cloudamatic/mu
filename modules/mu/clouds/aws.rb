@@ -243,25 +243,14 @@ module MU
 			end
 
 			allow_ips = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
-			MU::MommaCat.listDeploys.each { |deploy_id|
-				next if File.exists?(MU::MommaCat.deploy_dir(deploy_id)+"/.cleanup")
-				MU.log "Checking for dead wood in #{deploy_id}", MU::DEBUG
-				deploy = MU::MommaCat.getLitter(deploy_id, set_context_to_me: false)
-				if deploy.kittens.has_key?("servers")
-					deploy.kittens["servers"].each_pair { |nodeclass, servers|
-						deletia = []
-						servers.each_pair { |mu_name, server|
-							begin
-								if !server.deploydata.nil? and server.deploydata.has_key?("private_ip_address")
-									allow_ips << server.deploydata["private_ip_address"] + "/32"
-								end
-							rescue URI::InvalidURIError => e
-								MU.log "Error loading node '#{mu_name}' while opening client firewall holes: #{e.inspect}", MU::WARN
-								next
-							end
-						}
-					}
-				end
+			MU::MommaCat.listAllNodes.each_pair { |node, data|
+			puts node
+			pp data
+				["public_ip_address"].each { |key|
+					if data.has_key?(key) and !data[key].nil? and !data[key].empty?
+						allow_ips << data[key] + "/32"
+					end
+				}
 			}
 			allow_ips.uniq!
 
