@@ -36,8 +36,8 @@ module MU
 				@cloud_id ||= cloud_id
 				if !mu_name.nil?
 					@mu_name = mu_name
-				else
-					@mu_name = MU::MommaCat.getResourceName(@config["name"])
+				else !@deploy.nil?
+					@mu_name = @deploy.getResourceName(@config["name"])
 				end
 			end
 
@@ -702,7 +702,7 @@ module MU
 			# Generate a snapshot from the database described in this instance.
 			# @return [String]: The cloud provider's identifier for the snapshot.
 			def createNewSnapshot
-				snap_id = MU::MommaCat.getResourceName(@config["name"]) + Time.new.strftime("%M%S").to_s
+				snap_id = @deploy.getResourceName(@config["name"]) + Time.new.strftime("%M%S").to_s
 
 				attempts = 0
 				begin
@@ -753,7 +753,7 @@ module MU
 			# Create Read Replica database instance.
 			# @return [String]: The cloud provider's identifier for this read replica database instance.
 			def createReadReplica
-				rr_name = MU::MommaCat.getResourceName(@config['read_replica']['name'])
+				rr_name = @deploy.getResourceName(@config['read_replica']['name'])
 				
 				@config['read_replica']['identifier'] = getName(rr_name, type: "dbidentifier")
 				@config['read_replica']['source_identifier'] = @config['identifier'] if !@config['read_replica']['source_identifier']

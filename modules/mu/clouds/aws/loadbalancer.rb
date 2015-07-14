@@ -34,7 +34,7 @@ module MU
 				if !mu_name.nil?
 					@mu_name = mu_name
 				else
-					@mu_name = MU::MommaCat.getResourceName(@config["name"], max_length: 32, need_unique_string: true)
+					@mu_name = @deploy.getResourceName(@config["name"], max_length: 32, need_unique_string: true)
 					@mu_name.gsub!(/[^\-a-z0-9]/i, "-") # AWS ELB naming rules
 				end
 			end
@@ -283,10 +283,10 @@ module MU
 			# Return the metadata for this LoadBalancer
 			# @return [Hash]
 			def notify
-				mu_name, config, deploydata, cloud_descriptor = describe(cloud_id: @mu_name)
+				mu_name, config, deploydata = describe(cloud_id: @mu_name)
 				deploy_struct = {
 					"awsname" => @mu_name,
-					"dns" => cloud_descriptor.dns_name
+					"dns" => cloud_desc.dns_name
 				}
 				return deploy_struct
 			end

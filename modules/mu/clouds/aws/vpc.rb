@@ -37,7 +37,7 @@ module MU
 				else
 					# Names for this resource are deterministic, so it's ok to just
 					# generate it any time we're loaded up.
-					@mu_name = MU::MommaCat.getResourceName(@config['name'])
+					@mu_name = @deploy.getResourceName(@config['name'])
 				end
 			end
 
@@ -261,7 +261,7 @@ module MU
 
 			# Called automatically by {MU::Deploy#createResources}
 			def groom
-				vpc_name = MU::MommaCat.getResourceName(@config['name'])
+				vpc_name = @deploy.getResourceName(@config['name'])
 
 				# Generate peering connections
 				if !@config['peers'].nil? and @config['peers'].size > 0
@@ -300,7 +300,7 @@ module MU
 						rescue Aws::EC2::Errors::VpcPeeringConnectionAlreadyExists => e
 							MU.log "Attempt to create duplicate peering connection to #{peer_id} from VPC #{@config['name']}", MU::WARN
 						end
-						peering_name = MU::MommaCat.getResourceName(@config['name']+"-PEER-"+peer_id)
+						peering_name = @deploy.getResourceName(@config['name']+"-PEER-"+peer_id)
 
 						peering_id = resp.vpc_peering_connection.vpc_peering_connection_id
 						MU::MommaCat.createStandardTags(peering_id, region: @config['region'])
@@ -586,7 +586,8 @@ module MU
 
 				begin
 					instance = MU::Cloud::AWS.ec2(region).describe_instances(instance_ids: [instance_id]).reservations.first.instances.first
-				rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
+				rescue NoMethodError, Aws::EC2::Errors::InvalidInstanceIDNotFound => e
+					MU.log "Failed to identify instance #{instance_id} in MU::Cloud::AWS::VPC.getInstanceSubnets", MU::WARN
 					return []
 				end
 				my_subnets << instance.subnet_id if !instance.subnet_id.nil?
@@ -609,9 +610,9 @@ module MU
 				return false if instance_id.nil?
 				return @route_cache[instance_id] if @route_cache.has_key?(instance_id)
 				my_instance = MU::Cloud::AWS::Server.find(cloud_id: MU.myInstanceId)
-				target_instance = MU::Cloud::AWS::Server.find(cloud_id: instance_id)
+				target_instance = MU::Cloud::AWS::Server.find(cloud_id: instance_id, region: region)
 				my_subnets = MU::Cloud::AWS::VPC.getInstanceSubnets(MU.myInstanceId)
-				target_subnets = MU::Cloud::AWS::VPC.getInstanceSubnets(instance_id)
+				target_subnets = MU::Cloud::AWS::VPC.getInstanceSubnets(instance_id, region: region)
 # XXX make sure accounts for being in different regions
 				if (my_subnets & target_subnets).size > 0
 					MU.log "I share a subnet with #{instance_id}, I can route to it directly", MU::DEBUG

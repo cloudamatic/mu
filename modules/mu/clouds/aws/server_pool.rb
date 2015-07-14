@@ -34,13 +34,12 @@ class Cloud
 				if !mu_name.nil?
 					@mu_name = mu_name
 				else
-					@mu_name = MU::MommaCat.getResourceName(@config['name'])
+					@mu_name = @deploy.getResourceName(@config['name'])
 				end
 			end
 
 			# Called automatically by {MU::Deploy#createResources}
 			def create
-				@mu_name = MU::MommaCat.getResourceName(@config['name'])
 				MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
 
 				asg_options = {
@@ -104,7 +103,7 @@ class Cloud
 				basis = @config["basis"]
 
 				if basis["launch_config"]
-					nodes_name = MU::MommaCat.getResourceName(basis["launch_config"]["name"])
+					nodes_name = @deploy.getResourceName(basis["launch_config"]["name"])
 					launch_desc = basis["launch_config"]
 					# XXX need to handle platform["windows"] in here
 
@@ -140,7 +139,7 @@ class Cloud
 					launch_options[:spot_price ] = launch_desc["spot_price"] if launch_desc["spot_price"]
 					launch_options[:kernel_id ] = launch_desc["kernel_id"] if launch_desc["kernel_id"]
 					launch_options[:ramdisk_id ] = launch_desc["ramdisk_id"] if launch_desc["ramdisk_id"]
-					launch_options[:iam_instance_profile] = MU::Cloud::AWS::Server.createIAMProfile(@config['name'], base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'])
+					launch_options[:iam_instance_profile] = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'])
 					@config['iam_role'] = launch_options[:iam_instance_profile]
 
 				if !@config["vpc_zone_identifier"].nil? or !@config["vpc"].nil?
@@ -171,7 +170,7 @@ class Cloud
 					launch_options[:user_data ] = launch_desc["user_data"] if launch_desc["user_data"]
 
 				elsif basis["server"]
-					nodes_name = MU::MommaCat.getResourceName(basis["server"])
+					nodes_name = @deploy.getResourceName(basis["server"])
 					srv_name = basis["server"]
 
 					if @deploy.deployment['servers'] != nil and
@@ -180,7 +179,7 @@ class Cloud
 					end
 				elsif basis["instance_id"]
 					# TODO should go fetch the name tag or something
-					nodes_name = MU::MommaCat.getResourceName(basis["instance_id"].gsub(/-/, ""))
+					nodes_name = @deploy.getResourceName(basis["instance_id"].gsub(/-/, ""))
 					asg_options[:instance_id] = basis["instance_id"]
 				end
 
@@ -264,7 +263,7 @@ class Cloud
 					@config["scaling_policies"].each { |policy|
 						policy_params = {
 							:auto_scaling_group_name => @mu_name,
-							:policy_name => MU::MommaCat.getResourceName("#{@config['name']}-#{policy['name']}"),
+							:policy_name => @deploy.getResourceName("#{@config['name']}-#{policy['name']}"),
 							:scaling_adjustment => policy['adjustment'],
 							:adjustment_type => policy['type'],
 							:cooldown => policy['cooldown']

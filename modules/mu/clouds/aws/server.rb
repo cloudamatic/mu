@@ -98,14 +98,14 @@ class Cloud
 					@config['mu_name'] = @mu_name
 				else
 					if kitten_cfg.has_key?("basis")
-						@mu_name = MU::MommaCat.getResourceName(@config['name'], need_unique_string: true)
+						@mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
 					else
-						@mu_name = MU::MommaCat.getResourceName(@config['name'])
+						@mu_name = @deploy.getResourceName(@config['name'])
 					end
 					@config['mu_name'] = @mu_name
 
 					if windows? or @config['active_directory']
-						@config['mu_windows_name'] = MU::MommaCat.getResourceName(@config['name'], max_length: 15, need_unique_string: true)
+						@config['mu_windows_name'] = @deploy.getResourceName(@config['name'], max_length: 15, need_unique_string: true)
 					end
 
 					@config['instance_secret'] = Password.random(50)
@@ -237,7 +237,7 @@ class Cloud
 						MU::MommaCat.unlock(instance.instance_id+"-create")
 					else
 						MU::MommaCat.createStandardTags(instance.instance_id, region: @config['region'])
-					  MU::MommaCat.createTag(instance.instance_id,"Name",MU::MommaCat.getResourceName(@config['name']), region: @config['region'])
+					  MU::MommaCat.createTag(instance.instance_id,"Name",@mu_name, region: @config['region'])
 					end
 					done = true
 				rescue Exception => e
@@ -309,8 +309,7 @@ class Cloud
 			# are requested.
 			# @param name [String]: The name field of the {MU::Cloud::AWS::Server} or {MU::Cloud::AWS::ServerPool} resource's IAM profile to create.
 			# @return [String]: The name of the instance profile.
-			def self.createIAMProfile(name, base_profile: nil, extra_policies: nil)
-				rolename = MU::MommaCat.getResourceName(name, max_length: 64)
+			def self.createIAMProfile(rolename, base_profile: nil, extra_policies: nil)
 				MU.log "Creating IAM role and policies for '#{name}' nodes"
 				policies = Hash.new
 				policies['Mu_Bootstrap_Secret'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{MU.deploy_id}-secret"+'"}]}'
@@ -383,7 +382,7 @@ class Cloud
 			def createEc2Instance
 			  name = @config["name"]
 			  node = @config['mu_name']
-				@config['iam_role'] = MU::Cloud::AWS::Server.createIAMProfile(name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'])
+				@config['iam_role'] = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'])
 			  instance_descriptor = {
 			    :image_id => @config["ami_id"],
 			    :key_name => @deploy.ssh_key_name,
@@ -532,7 +531,8 @@ class Cloud
 				if !instance_id.nil?
 					@cloud_id = instance_id
 				end
-				node, config, deploydata, instance = describe(cloud_id: @cloud_id)
+				node, config, deploydata = describe(cloud_id: @cloud_id)
+				instance = cloud_desc
 				raise MuError, "Couldn't find instance id of #{@mu_name}" if !instance
 				@cloud_id = instance.instance_id
 				return false if !MU::MommaCat.lock(instance.instance_id+"-orchestrate", true)
@@ -684,7 +684,7 @@ class Cloud
 					end
 
 					nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
-					if subnet.private? and !nat_ssh_host and !MU::Cloud::AWS::VPC.haveRouteToInstance?(instance.instance_id)
+					if subnet.private? and !nat_ssh_host and !MU::Cloud::AWS::VPC.haveRouteToInstance?(instance.instance_id, region: @config['region'])
 						raise MuError, "#{node} is in a private subnet, but has no NAT host configured, and I have no other route to it"
 					end
 
@@ -843,7 +843,6 @@ class Cloud
 			# @param ip [String]: An IP address associated with the instance
 			# @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching instances
 			def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, ip: nil)
-
 				instance = nil
 				if !region.nil?
 					regions = [region]
@@ -940,17 +939,17 @@ class Cloud
 			# Return a description of this resource appropriate for deployment
 			# metadata. Arguments reflect the return values of the MU::Cloud::[Resource].describe method
 			def notify
-				node, config, deploydata, instance = describe(cloud_id: @cloud_id, update_cache: true)
+				node, config, deploydata = describe(cloud_id: @cloud_id, update_cache: true)
 				deploydata = {} if deploydata.nil?
 
-				if instance.nil?
+				if cloud_desc.nil?
 					raise MuError, "Failed to load instance metadata for #{@config['mu_name']}/#{@cloud_id}"
 				end
 
 				interfaces = []
 				private_ips = []
 
-				instance.network_interfaces.each { |iface|
+				cloud_desc.network_interfaces.each { |iface|
 					iface.private_ip_addresses .each { |priv_ip|
 						private_ips << priv_ip.private_ip_address
 					}
@@ -966,15 +965,15 @@ class Cloud
 					"run_list" => @config['run_list'],
 					"image_created" => @config['image_created'],
 					"iam_role" => @config['iam_role'],
-					"instance_id" => @cloud_id,
-					"private_dns_name" => instance.private_dns_name,
-					"public_dns_name" => instance.public_dns_name,
-					"private_ip_address" => instance.private_ip_address,
-					"public_ip_address" => instance.public_ip_address,
+					"cloud_desc_id" => @cloud_id,
+					"private_dns_name" => cloud_desc.private_dns_name,
+					"public_dns_name" => cloud_desc.public_dns_name,
+					"private_ip_address" => cloud_desc.private_ip_address,
+					"public_ip_address" => cloud_desc.public_ip_address,
 					"private_ip_list" => private_ips,
-					"key_name" => instance.key_name,
-					"subnet_id" => instance.subnet_id,
-					"instance_type" => instance.instance_type#,
+					"key_name" => cloud_desc.key_name,
+					"subnet_id" => cloud_desc.subnet_id,
+					"cloud_desc_type" => cloud_desc.instance_type#,
 #				"network_interfaces" => interfaces,
 #				"config" => server
 				}
@@ -1018,7 +1017,7 @@ class Cloud
 			# Called automatically by {MU::Deploy#createResources}
 			def groom
 				MU::MommaCat.lock(@cloud_id+"-groom")
-				node, config, deploydata, instance = describe(cloud_id: @cloud_id)
+				node, config, deploydata = describe(cloud_id: @cloud_id)
 
 				if node.nil? or node.empty?
 					raise MuError, "MU::Cloud::AWS::Server.groom was called without a mu_name"
@@ -1120,13 +1119,18 @@ class Cloud
 			# you need.
 			def canonicalIP
 				mu_name, config, deploydata = describe
-				if !deploydata.has_key?("private_ip_address") and !deploydata.has_key?("public_ip_address")
+
+				if deploydata.nil? or
+						(!deploydata.has_key?("private_ip_address") and
+						!deploydata.has_key?("public_ip_address"))
 					instance = cloud_desc
+					return nil if instance.nil?
+					@deploydata = {} if @deploydata.nil?
 					@deploydata["public_ip_address"] = instance.public_ip_address
 					@deploydata["private_ip_address"] = instance.private_ip_address
 					notify
 				end
-				if MU::Cloud::AWS::VPC.haveRouteToInstance?(@cloud_id) or @deploydata["public_ip_address"].nil?
+				if MU::Cloud::AWS::VPC.haveRouteToInstance?(@cloud_id, region: @config['region']) or @deploydata["public_ip_address"].nil?
 					@config['canonical_ip'] = @deploydata["private_ip_address"]
 					return @deploydata["private_ip_address"]
 				else

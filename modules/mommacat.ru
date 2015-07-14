@@ -198,11 +198,18 @@ app = proc do |env|
 
 			MU.log "Dug up server config for #{req["mu_resource_type"]} name: #{req["mu_resource_name"]} deploy_id: #{req["mu_id"]}", MU::DEBUG, details: server_cfg
 
-			# XXX we can't assume AWS anymore
+			# XXX We can't assume AWS anymore. What does this look like otherwise?
 			instance = MU::MommaCat.findStray("AWS", "server", cloud_id: req["mu_instance_id"], region: server_cfg["region"]).first
+			mu_name = nil
+			if instance.nil?
+				# Now we're just checking for existence in the cloud provider, really
+				instance = MU::Cloud::Server.find(cloud_id: req["mu_instance_id"], region: server_cfg["region"])
+			else
+				mu_name = instance.mu_name
+			end
 			if !instance.nil?
 				if !req["mu_bootstrap"].nil?
-					kittenpile.groomNode(req["mu_instance_id"], req["mu_resource_name"], req["mu_resource_type"], mu_name: instance.mu_name, sync_wait: true)
+					kittenpile.groomNode(req["mu_instance_id"], req["mu_resource_name"], req["mu_resource_type"], mu_name: mu_name, sync_wait: true)
 				else
 					throw500 "Didn't get 'mu_bootstrap' parameter from instance id '#{req["mu_instance_id"]}'"
 					ok = false

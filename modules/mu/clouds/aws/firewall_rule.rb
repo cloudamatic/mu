@@ -38,14 +38,14 @@ module MU
 				if !mu_name.nil?
 					@mu_name = mu_name
 				else
-					@mu_name = MU::MommaCat.getResourceName(@config['name'])
+					@mu_name = @deploy.getResourceName(@config['name'])
 				end
 			end
 
 			# Called by {MU::Deploy#createResources}
 			def create
 				vpc_id = @vpc.cloud_id if !@vpc.nil?
-				groupname = MU::MommaCat.getResourceName(@config['name'])
+				groupname = @deploy.getResourceName(@config['name'])
 				description = groupname
 
 				MU.log "Creating EC2 Security Group #{groupname}"
@@ -56,7 +56,7 @@ module MU
 				}
 				if !vpc_id.nil?
 					sg_struct[:vpc_id] = vpc_id
-					groupname = MU::MommaCat.getResourceName(@config['name'], need_unique_string: true)
+					groupname = @deploy.getResourceName(@config['name'], need_unique_string: true)
 					sg_struct[:group_name] = groupname
 				end
 

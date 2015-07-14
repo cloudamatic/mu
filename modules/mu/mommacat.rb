@@ -57,13 +57,13 @@ module MU
 			end
 # XXX this caching is harmful, as it causes stale resource objects to stick
 # around; find a way to make these go away before turning this back on
-			@@litter_semaphore.synchronize {
-				if !@@litters.has_key?(deploy_id)
-					@@litters[deploy_id] = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
-				end
-				return @@litters[deploy_id]
-			}
-#			MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
+#			@@litter_semaphore.synchronize {
+#				if !@@litters.has_key?(deploy_id)
+#					@@litters[deploy_id] = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
+#				end
+#				return @@litters[deploy_id]
+#			}
+			MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
 		end
 
 		attr_reader :public_key
@@ -76,6 +76,8 @@ module MU
 		attr_reader :nocleanup
 		attr_reader :deploy_id
 		attr_reader :timestamp
+		attr_reader :appname
+		attr_reader :seed
 		attr_accessor :kittens # really want a method only available to :Deploy
 		@myhome = Etc.getpwuid(Process.uid).dir
 		@nagios_home = "/home/nagios"
@@ -159,6 +161,8 @@ module MU
 				if @original_config.nil? or !@original_config.is_a?(Hash)
 					raise DeployInitializeError, "New MommaCat repository requires config hash"
 				end
+				@seed = MU.seed # pass this in
+				@appname = @original_config['name']
 			  @ssh_key_name, @ssh_private_key, @ssh_public_key = self.SSHKey
 				if !File.exist?(deploy_dir+"/private_key")
 					@private_key, @public_key = createDeployKey
@@ -229,7 +233,7 @@ module MU
 									attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: data['mu_name'])
 								end
 							rescue Exception => e
-								MU.log "Failed to load an existing resource of type '#{type}' in #{@deploy_id}", MU::WARN, details: data
+								MU.log "Failed to load an existing resource of type '#{type}' in #{@deploy_id}: #{e.inspect}", MU::WARN, details: e.backtrace
 							end
 						}
 					end
@@ -350,6 +354,9 @@ module MU
 		def self.name_unique_str_map
 			@name_unique_str_map
 		end
+		def self.unique_map_semaphore
+			@unique_map_semaphore
+		end
 
 		# Generate a name string for a resource, incorporate the MU identifier
 		# for this deployment. Will dynamically shorten the name to fit for
@@ -359,12 +366,12 @@ module MU
 		# @param max_length [Integer]: The maximum length of the resulting resource name.
 		# @param need_unique_string [Boolean]: Whether to forcibly append a random three-character string to the name to ensure it's unique. Note that this behavior will be automatically invoked if the name must be truncated.
 		# @return [String]: A full name string for this resource
-		def self.getResourceName(name, max_length: 255, need_unique_string: false, use_unique_string: nil, reuse_unique_string: false)
+		def getResourceName(name, max_length: 255, need_unique_string: false, use_unique_string: nil, reuse_unique_string: false)
 			if name.nil?
 				raise MuError, "Got no argument to MU::MommaCat.getResourceName"
 			end
-			if MU.appname.nil? or MU.environment.nil? or MU.timestamp.nil? or MU.seed.nil?
-				MU.log "Missing global deploy variables in thread #{Thread.current.object_id}, using bare name '#{name}'", MU::DEBUG, details: caller
+			if @appname.nil? or @environment.nil? or @timestamp.nil? or @seed.nil?
+				MU.log "Missing global deploy variables in thread #{Thread.current.object_id}, using bare name '#{name}' (appname: #{@appname}, environment: #{@environment}, timestamp: #{@timestamp}, seed: #{@seed}", MU::WARN, details: caller
 				return name
 			end
 
@@ -376,26 +383,26 @@ module MU
 			end
 
 			# First, pare down the base name string until it will fit
-			basename = MU.appname.upcase + "-" + MU.environment.upcase + "-" + MU.timestamp + "-" + MU.seed.upcase + "-" + name.upcase
+			basename = @appname.upcase + "-" + @environment.upcase + "-" + @timestamp + "-" + @seed.upcase + "-" + name.upcase
 			begin
 				if (basename.length + reserved) > max_length
 					MU.log "Stripping name down from #{basename}[#{basename.length.to_s}] (reserved: #{reserved.to_s}, max_length: #{max_length.to_s})", MU::DEBUG
-					if basename == MU.appname.upcase + "-" + MU.seed.upcase + "-" + name.upcase
+					if basename == @appname.upcase + "-" + @seed.upcase + "-" + name.upcase
 						# If we've run out of stuff to strip, truncate what's left and
 						# just leave room for the deploy seed and uniqueness string. This
 						# is the bare minimum, and probably what you'll see for most Windows
 						# hostnames.
-						basename = name.upcase + "-" + MU.appname.upcase
+						basename = name.upcase + "-" + @appname.upcase
 						basename.slice!((max_length-(reserved+3))..basename.length)
 						basename.sub!(/-$/, "")
-						basename = basename + "-" + MU.seed.upcase
+						basename = basename + "-" + @seed.upcase
 					else
 						# If we have to strip anything, assume we've lost uniqueness and
 						# will have to compensate with #genUniquenessString.
 						need_unique_string = true
 						reserved = 4
-						basename.sub!(/-[^-]+-#{MU.seed.upcase}-#{Regexp.escape(name.upcase)}$/, "")
-						basename = basename + "-" + MU.seed.upcase + "-" + name.upcase
+						basename.sub!(/-[^-]+-#{@seed.upcase}-#{Regexp.escape(name.upcase)}$/, "")
+						basename = basename + "-" + @seed.upcase + "-" + name.upcase
 					end
 				end
 			end while (basename.length + reserved) > max_length
@@ -412,11 +419,11 @@ module MU
 				end
 				if !muname
 					begin
-						unique_string = genUniquenessString
+						unique_string = MU::MommaCat.genUniquenessString
 						muname = basename + "-" + unique_string
 					end while !allocateUniqueResourceName(muname)
-					@unique_map_semaphore.synchronize {
-						@name_unique_str_map[muname] = unique_string
+					MU::MommaCat.unique_map_semaphore.synchronize {
+						MU::MommaCat.name_unique_str_map[muname] = unique_string
 					}
 				end
 			else
@@ -487,7 +494,6 @@ module MU
 		# @param mu_name [String]: The full #{MU::MommaCat.getResourceName} name of the server we're grooming, if it's been initialized already.
 		# @param type [String]: The type of resource that created this node (either *server* or *serverpool*).
 		def groomNode(cloud_id, name, type, mu_name: nil, reraise_fail: false, sync_wait: true)
-
 			if cloud_id.nil?
 				raise GroomError, "MU::MommaCat.groomNode requires a {MU::Cloud::Server} object"
 			end
@@ -760,6 +766,7 @@ module MU
 		# Iterate over all known deployments and look for instances that have been
 		# terminated, but not yet cleaned up, then clean them up.
 		def self.cleanTerminatedInstances
+return
 			MU.log "Checking for harvested instances in need of cleanup", MU::DEBUG
 			parent_thread_id = Thread.current.object_id
 			cleanup_threads = []
@@ -1603,6 +1610,7 @@ MESSAGE_END
 		# to client nodes.
 		# @return [void]
 		def self.syncMonitoringConfig(blocking = true)
+return
 			return if Etc.getpwuid(Process.uid).name != "root" or MU.chef_user != "mu"
 			parent_thread_id = Thread.current.object_id
 			nagios_threads = []
@@ -1631,7 +1639,6 @@ MESSAGE_END
 # XXX also grab things like mu_windows_name out of deploy data if we can
 				parent_thread_id = Thread.current.object_id
 				MU::MommaCat.listDeploys.each { |deploy_id|
-MU.log "Chewing through #{deploy_id}"
 					begin
 						deploy = MU::MommaCat.getLitter(deploy_id)
 						FileUtils.cp("#{@myhome}/.ssh/#{deploy.ssh_key_name}", "#{@nagios_home}/.ssh/#{deploy.ssh_key_name}")
@@ -1639,7 +1646,6 @@ MU.log "Chewing through #{deploy_id}"
 						if deploy.kittens.has_key?("servers")
 							deploy.kittens["servers"].each_pair { |nodeclass, nodes|
 								nodes.each_pair { |mu_name, server|
-MU.log "#{mu_name}"
 									MU.dupGlobals(parent_thread_id)
 									threads << Thread.new {
 										MU.log "Adding #{server.mu_name} to #{@nagios_home}/.ssh/config", MU::DEBUG
@@ -1818,6 +1824,7 @@ MU.log "#{mu_name}"
 # Beware future surprises.
 			update_servers.each { |sibling|
 				threads << Thread.new {
+					Thread.abort_on_exception = true
 					MU.dupGlobals(parent_thread_id)
 					Thread.current.thread_variable_set("name", "sync-"+sibling.mu_name.downcase)
 					MU.setVar("syncLitterThread", true)
@@ -1838,8 +1845,8 @@ MU.log "#{mu_name}"
 		# said names.  See #{MU::MommaCat.getResourceName}
 		# @param name [String]: The name to attempt to allocate.
 		# @return [Boolean]: True if allocation was successful.
-		def self.allocateUniqueResourceName(name)
-			raise MuError, "Cannot call allocateUniqueResourceName without an active deployment" if MU.deploy_id.nil?
+		def allocateUniqueResourceName(name)
+			raise MuError, "Cannot call allocateUniqueResourceName without an active deployment" if @deploy_id.nil?
 			path = File.expand_path(MU.dataDir+"/deployments")
 			File.open(path+"/unique_ids", File::CREAT|File::RDWR, 0600) { |f|
 				existing = []
@@ -1854,7 +1861,7 @@ MU.log "#{mu_name}"
 							return false
 						end
 					}
-					f.puts name+":"+MU.deploy_id
+					f.puts name+":"+@deploy_id
 					return true
 				ensure
 					f.flock(File::LOCK_UN)
@@ -2016,6 +2023,8 @@ MU.log "#{mu_name}"
 						}
 					end
 					@timestamp = @deployment['timestamp']
+					@seed = @deployment['seed']
+					@appname = @deployment['appname']
 
 					return if deployment_json_only
 				end

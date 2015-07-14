@@ -76,6 +76,7 @@ module MU
 				end
 				::Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}/organizations/#{MU.chef_user}"
 				::Chef::Config[:environment] = node.deploy.environment
+				createGenericHostSSLCert
 			end
 
 			# Indicate whether our server has been bootstrapped with Chef
@@ -98,9 +99,9 @@ module MU
 				end
 
 				cmd = "update"
-				knifeCmd("vault show '#{vault}' #{item} #{MU::Groomer::Chef.vault_opts}")
+				exitstatus, output = knifeCmd("vault show '#{vault}' #{item} #{MU::Groomer::Chef.vault_opts} 2>&1 > /dev/null")
 #				`#{MU::Groomer::Chef.knife} vault show '#{vault}' #{item} #{MU::Groomer::Chef.vault_opts} > /dev/null 2>&1`
-				cmd = "create" if $?.exitstatus != 0
+				cmd = "create" if exitstatus != 0
 
 #				vault_cmd = "#{MU::Groomer::Chef.knife} vault '#{cmd}' '#{vault}' '#{item}' '#{JSON.generate(data)}' --search '#{permissions}' #{MU::Groomer::Chef.vault_opts}"
 				knifeCmd("vault '#{cmd}' '#{vault}' '#{item}' '#{JSON.generate(data)}' --search '#{permissions}' #{MU::Groomer::Chef.vault_opts}")
@@ -348,7 +349,6 @@ module MU
 					end
 				}
 
-				createGenericHostSSLCert
 				splunkVaultInit
 
 				# Making sure all Windows nodes get the mu-tools::windows-client recipe
@@ -521,21 +521,21 @@ module MU
 				begin
 					retries = retries + 1
 #					vault_cmd = "#{MU::Groomer::Chef.knife} vault update #{vault} #{item} #{MU::Groomer::Chef.vault_opts} --search name:#{@server.mu_name} 2>&1"
-					output = knifeCmd("vault update #{vault} #{item} #{MU::Groomer::Chef.vault_opts} --search name:#{@server.mu_name}")
+					exitstatus, output = knifeCmd("vault update #{vault} #{item} #{MU::Groomer::Chef.vault_opts} --search name:#{@server.mu_name}")
 #					MU.log "ADD attempt #{retries} enabling #{@server.mu_name} for vault access to #{vault} #{item} using command  #{vault_cmd}", MU::DEBUG
 #					output = `#{vault_cmd}`
 #          MU.log "Result of ADD attempt #{retries} enabling #{@server.mu_name} for vault access to #{vault} was #{output} with RC #{$?.exitstatus}", MU::DEBUG
-					if $?.exitstatus != 0
+					if exitstatus != 0
 #						MU.log "Got bad exit code on try #{retries} from knife vault update #{vault} #{item} #{MU::Groomer::Chef.vault_opts} --search name:#{@server.mu_name}", MU::WARN, details: output
 					end
 					# Check and see if what we asked for actually got done
 #					vault_cmd = "#{MU::Groomer::Chef.knife} vault show #{vault} #{item} clients -p clients -f yaml #{MU::Groomer::Chef.vault_opts} 2>&1"
 					#MU.log vault_cmd, MU::DEBUG
 #					output = `#{vault_cmd}`
-					output = knifeCmd("vault show #{vault} #{item} clients -p clients -f yaml #{MU::Groomer::Chef.vault_opts}")
+					exitstatus, output = knifeCmd("vault show #{vault} #{item} clients -p clients -f yaml #{MU::Groomer::Chef.vault_opts} 2>&1")
 #					MU.log "VERIFYING #{@server.mu_name} access to #{vault} #{item}:\n #{output}", MU::DEBUG
 					if !output.match(/#{@server.mu_name}/)
-#						MU.log "Didn't see #{@server.mu_name} in output of #{vault_cmd}, trying again...", MU::WARN, details: output
+						MU.log "Didn't see #{@server.mu_name} in output of vault show #{vault} #{item}, trying again...", MU::WARN, details: output
 						if retries < 10
 							MU::MommaCat.unlock("vault-"+vault)
 							sleep 5
@@ -555,19 +555,22 @@ module MU
 				MU::MommaCat.unlock("vault-"+vault)
 			end
 
-			def knifeCmd(cmd, showoutput = true)
-				MU.log "knife #{cmd}"
-				output = `#{MU::Groomer::Chef.knife} #{cmd} 2>&1`
+			def knifeCmd(cmd, showoutput = false)
+				MU.log "knife #{cmd}", MU::NOTICE if showoutput
+				output = `#{MU::Groomer::Chef.knife} #{cmd}`
+				exitstatus = $?.exitstatus
 				if showoutput
 					puts output
+					puts "Exit status: #{exitstatus}"
 				end
-				return output
+				return [exitstatus, output]
 			end
 
 			def createGenericHostSSLCert
 				nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = @server.getSSHConfig
 				# Manufacture a generic SSL certificate, signed by the Mu master, for
 				# consumption by various node services (Apache, Splunk, etc).
+				return if File.exists?("#{MU.mySSLDir}/#{@server.mu_name}.crt")
 				MU.log "Creating self-signed service SSL certificate for #{@server.mu_name} (CN=#{canonical_ip})"
 		
 				# Create and save a key
@@ -590,10 +593,10 @@ module MU
 
 
 				if MU.chef_user == "mu"
-					MU.mommacat.signSSLCert("#{MU.mySSLDir}/#{@server.mu_name}.csr")
+					@server.deploy.signSSLCert("#{MU.mySSLDir}/#{@server.mu_name}.csr")
 				else
-					deploykey = OpenSSL::PKey::RSA.new(MU.mommacat.public_key)
-					deploysecret = Base64.urlsafe_encode64(deploykey.public_encrypt(MU.mommacat.deploy_secret))
+					deploykey = OpenSSL::PKey::RSA.new(@server.deploy.public_key)
+					deploysecret = Base64.urlsafe_encode64(deploykey.public_encrypt(@server.deploy.deploy_secret))
 					res_type = "server"
 					res_type = "server_pool" if !@config['basis'].nil?
 					uri = URI("https://#{MU.mu_public_addr}:2260/")

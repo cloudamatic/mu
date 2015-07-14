@@ -44,7 +44,7 @@ module MU
 					:hosted_zone_config => {
 						:comment => MU.deploy_id
 					},
-					:caller_reference => MU::MommaCat.getResourceName(@config['name'])
+					:caller_reference => @deploy.getResourceName(@config['name'])
 				}
 
 				# Private zones have their lookup restricted by VPC
@@ -204,7 +204,7 @@ module MU
 				
 				MU.log "Creating health check for #{target}", details: check
 				id = MU::Cloud::AWS.route53.create_health_check(
-					caller_reference: MU::MommaCat.getResourceName(cfg['method']+"-"+Time.now.to_i.to_s),
+					caller_reference: @deploy.getResourceName(cfg['method']+"-"+Time.now.to_i.to_s),
 					health_check_config: check
 				).health_check.id
 
