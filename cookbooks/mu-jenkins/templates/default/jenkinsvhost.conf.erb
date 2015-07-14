@@ -3,10 +3,10 @@
         Allow from all
 </Proxy>
 
-<VirtualHost *:<%= @params[:apache_port] %>>
+<VirtualHost *:<%= @params[:variables][:apache_port] %>>
         ServerAdmin test@test.com
-        ProxyPass / http://localhost:<%= @params[:jenkins_port] %>/
-        ProxyPassReverse / http://localhost:<%= @params[:jenkins_port] %>/
+        ProxyPass / http://localhost:<%= @params[:variables][:jenkins_port] %>/
+        ProxyPassReverse / http://localhost:<%= @params[:variables][:jenkins_port] %>/
         SSLEngine On
         SSLCertificateFile /etc/httpd/ssl/nagios.crt
         SSLCertificateKeyFile /etc/httpd/ssl/nagios.key
