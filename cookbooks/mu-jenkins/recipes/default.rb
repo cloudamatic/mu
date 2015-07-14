@@ -11,22 +11,22 @@ include_recipe 'mu-utility::disable-requiretty'
 include_recipe 'mu-utility::iptables'
 include_recipe 'chef-vault'
 
-# Apache setup if indicated
-unless node['jenkins_apache_port'].nil?
-  jenkins_apache_port = node.jenkins_apache_port
-  include_recipe "mu-jenkins::jenkins_apache"
-end
-
-
 admin_vault = chef_vault_item(node.jenkins_admin_vault[:vault], node.jenkins_admin_vault[:item])
 
 case node.platform
 when "centos", "redhat"
-	%w{node.jenkins_ports}.each { |port|
-		execute "iptables -I INPUT -p tcp --dport #{port} -j ACCEPT; service iptables save" do
-			not_if "iptables -nL | egrep '^ACCEPT.*dpt:#{port}($| )'"
-		end
-	}
+	# Apache setup if indicated, otherwise open iptables for direct
+	if node.attribute?('jenkins_port_external')
+	  jenkins_port_external = node.jenkins_port_external
+	  include_recipe "mu-jenkins::jenkins_apache"
+	else
+		%w{node.jenkins_ports_direct}.each { |port|
+			execute "iptables -I INPUT -p tcp --dport #{port} -j ACCEPT; service iptables save" do
+				not_if "iptables -nL | egrep '^ACCEPT.*dpt:#{port}($| )'"
+			end
+		}
+	end
+
 	%w{git bzip2}.each { |pkg|
 		package pkg
 	}

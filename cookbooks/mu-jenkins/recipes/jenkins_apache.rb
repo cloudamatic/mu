@@ -12,8 +12,8 @@ include_recipe "apache2"
 include_recipe "apache2::mod_proxy"
 include_recipe "apache2::mod_proxy_http"
 
-apache_port = node.jenkins_apache_port
-jenkins_port = node.jenkins_ports
+apache_port = node.jenkins_port_external
+jenkins_port = node.jenkins_port_internal
 
 case node.platform
 when "centos", "redhat"
