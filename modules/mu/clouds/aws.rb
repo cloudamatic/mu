@@ -334,19 +334,22 @@ module MU
 				@api = Object.const_get("Aws::#{api}::Client").new(region: region)
 			end
 
+			@instance_cache = {}
 			# Catch-all for AWS client methods. Essentially a pass-through with some
 			# rescues for known silly endpoint behavior.
 			def method_missing(method_sym, *arguments)
 				retries = 0
 				begin
 					MU.log "Calling #{method_sym} in #{@region}", MU::DEBUG, details: arguments
+					retval = nil
 					if !arguments.nil? and arguments.size == 1
-						return @api.method(method_sym).call(arguments[0])
+						retval = @api.method(method_sym).call(arguments[0])
 					elsif !arguments.nil? and arguments.size > 0
-						return @api.method(method_sym).call(*arguments)
+						retval = @api.method(method_sym).call(*arguments)
 					else
-						return @api.method(method_sym).call
+						retval = @api.method(method_sym).call
 					end
+					return retval
 				rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException => e
 					retries = retries + 1
 					debuglevel = MU::DEBUG

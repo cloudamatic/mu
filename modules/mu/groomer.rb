@@ -72,6 +72,7 @@ module MU
 		MU::Groomer.requiredMethods.each { |method|
 			define_method method do |*args|
 				retval = nil
+				MU.log "Calling groomer method #{method}", MU::NOTICE, details: args
 				if !args.nil? and args.size == 1
 					retval = @groomer_obj.method(method).call(args.first)
 				elsif !args.nil? and args.size > 0

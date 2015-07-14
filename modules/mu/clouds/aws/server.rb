@@ -494,19 +494,18 @@ class Cloud
 			# Figure out what's needed to SSH into this server.
 			# @return [Array<String>]: nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name, alternate_names
 			def getSSHConfig
-				node, config, deploydata, instance = describe(cloud_id: @cloud_id)
+				node, config, deploydata = describe(cloud_id: @cloud_id)
 # XXX add some awesome alternate names from metadata and make sure they end
 # up in MU::MommaCat's ssh config wangling
 				ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
 				return nil if @config.nil? or @deploy.nil?
 
 				nat_ssh_key = nat_ssh_user = nat_ssh_host = nil
-				if !@config["vpc"].nil? and !instance.nil? and !MU::Cloud::AWS::VPC.haveRouteToInstance?(instance.instance_id, region: @config['region'])
+				if !@config["vpc"].nil? and !MU::Cloud::AWS::VPC.haveRouteToInstance?(@cloud_id, region: @config['region'])
 					if !@nat.nil?
-						nat_name, nat_conf, nat_deploydata, nat_descriptor = @nat.describe
 						# XXX Yanking these things from the cloud descriptor will only work in AWS!
-						nat_ssh_key = nat_descriptor.key_name
-						nat_ssh_host = nat_descriptor.public_ip_address
+						nat_ssh_key = @nat.cloud_desc.key_name
+						nat_ssh_host = @nat.cloud_desc.public_ip_address
 						nat_ssh_user = @config["vpc"]["nat_ssh_user"]
 						if nat_ssh_user.nil? and !nat_ssh_host.nil?
 							MU.log "#{@config["name"]} (#{MU.deploy_id}) is configured to use #{@config['vpc']} NAT #{nat_ssh_host}, but username isn't specified. Guessing root.", MU::ERR, details: caller
@@ -1006,13 +1005,12 @@ class Cloud
 				if @nat.nil?
 					raise MuError, "#{@mu_name} (#{MU.deploy_id}) is configured to use #{@config['vpc']} but I can't find a matching NAT instance"
 				end
-				nat_name, nat_conf, nat_deploydata, nat_descriptor = @nat.describe
-				MU.log "Adding administrative holes for NAT host #{nat_descriptor.private_ip_address} to #{@mu_name}"
+				MU.log "Adding administrative holes for NAT host #{@nat.cloud_desc.private_ip_address} to #{@mu_name}"
 				@deploy.kittens['firewall_rules'].each_pair { |name, acl|
 					if acl.config["admin"]
-						acl.addRule([nat_descriptor.private_ip_address], proto: "tcp")
-						acl.addRule([nat_descriptor.private_ip_address], proto: "udp")
-						acl.addRule([nat_descriptor.private_ip_address], proto: "icmp")
+						acl.addRule([@nat.cloud_desc.private_ip_address], proto: "tcp")
+						acl.addRule([@nat.cloud_desc.private_ip_address], proto: "udp")
+						acl.addRule([@nat.cloud_desc.private_ip_address], proto: "icmp")
 					end
 				}
 			end
@@ -1110,27 +1108,30 @@ class Cloud
 				MU::MommaCat.unlock(@cloud_id+"-groom")
 			end
 
+			def cloud_desc
+				if !@cloud_id.nil?
+					return MU::Cloud::AWS.ec2(@config['region']).describe_instances(instance_ids: [@cloud_id]).reservations.first.instances.first
+				end
+			end
+
 			# Return the IP address that we, the Mu server, should be using to access
 			# this host via the network. Note that this does not factor in SSH 
 			# bastion hosts that may be in the path, see getSSHConfig if that's what
 			# you need.
 			def canonicalIP
-				if @cloud_desc.nil?
-					node, config, deploydata, @cloud_desc = describe(cloud_id: @cloud_id)
-					if @cloud_desc.nil?
-						MU.log "Trying to load #{@mu_name} (#{@cloud_id})", MU::ERR, details: config.merge!(deploydata)
-						raise MuError, "#{@mu_name}: Can't find my own cloud resource"
-					end
+				mu_name, config, deploydata = describe
+				if !deploydata.has_key?("private_ip_address") and !deploydata.has_key?("public_ip_address")
+					instance = cloud_desc
+					@deploydata["public_ip_address"] = instance.public_ip_address
+					@deploydata["private_ip_address"] = instance.private_ip_address
+					notify
 				end
-
-				canonical_ip = @cloud_desc.public_ip_address
-				canonical_ip = @cloud_desc.private_ip_address if !canonical_ip
-				if MU::Cloud::AWS::VPC.haveRouteToInstance?(@cloud_desc.instance_id) or @cloud_desc.public_ip_address.nil?
-					@config['canonical_ip'] = @cloud_desc.private_ip_address
-					return @cloud_desc.private_ip_address
+				if MU::Cloud::AWS::VPC.haveRouteToInstance?(@cloud_id) or @deploydata["public_ip_address"].nil?
+					@config['canonical_ip'] = @deploydata["private_ip_address"]
+					return @deploydata["private_ip_address"]
 				else
-					@config['canonical_ip'] = @cloud_desc.public_ip_address
-					return @cloud_desc.public_ip_address
+					@config['canonical_ip'] = @deploydata["public_ip_address"]
+					return @deploydata["public_ip_address"]
 				end
 			end
 
@@ -1325,8 +1326,8 @@ class Cloud
 			# return [String]: A password string.
 			def getWindowsAdminPassword
 				if @cloud_id.nil?
-					node, config, deploydata, instance = describe
-					@cloud_id = instance.instance_id
+					node, config, deploydata = describe
+					@cloud_id = cloud_desc.instance_id
 				end
 				ssh_keydir = "#{Etc.getpwuid(Process.uid).dir}/.ssh"
         ssh_key_name = @deploy.ssh_key_name

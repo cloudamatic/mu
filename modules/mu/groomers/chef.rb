@@ -76,7 +76,6 @@ module MU
 				end
 				::Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}/organizations/#{MU.chef_user}"
 				::Chef::Config[:environment] = node.deploy.environment
-				splunkVaultInit
 			end
 
 			# Indicate whether our server has been bootstrapped with Chef
@@ -99,12 +98,14 @@ module MU
 				end
 
 				cmd = "update"
-				`#{MU::Groomer::Chef.knife} vault show '#{vault}' #{item} #{MU::Groomer::Chef.vault_opts} > /dev/null 2>&1`
+				knifeCmd("vault show '#{vault}' #{item} #{MU::Groomer::Chef.vault_opts}")
+#				`#{MU::Groomer::Chef.knife} vault show '#{vault}' #{item} #{MU::Groomer::Chef.vault_opts} > /dev/null 2>&1`
 				cmd = "create" if $?.exitstatus != 0
 
-				vault_cmd = "#{MU::Groomer::Chef.knife} vault '#{cmd}' '#{vault}' '#{item}' '#{JSON.generate(data)}' --search '#{permissions}' #{MU::Groomer::Chef.vault_opts}"
-				puts `#{vault_cmd}`
-				MU.log vault_cmd, MU::DEBUG
+#				vault_cmd = "#{MU::Groomer::Chef.knife} vault '#{cmd}' '#{vault}' '#{item}' '#{JSON.generate(data)}' --search '#{permissions}' #{MU::Groomer::Chef.vault_opts}"
+				knifeCmd("vault '#{cmd}' '#{vault}' '#{item}' '#{JSON.generate(data)}' --search '#{permissions}' #{MU::Groomer::Chef.vault_opts}")
+#				puts `#{vault_cmd}`
+#				MU.log vault_cmd, MU::DEBUG
 			end
 
 			# Retrieve sensitive data, which hopefully we're storing and retrieving
@@ -348,6 +349,7 @@ module MU
 				}
 
 				createGenericHostSSLCert
+				splunkVaultInit
 
 				# Making sure all Windows nodes get the mu-tools::windows-client recipe
 				if @server.windows?
@@ -406,7 +408,7 @@ module MU
 				vaults_to_clean.each { |vault|
 					MU::MommaCat.lock("vault-"+vault['vault'], false, true)
 					MU.log "knife vault remove #{vault['vault']} #{vault['item']} --search name:#{node}", MU::NOTICE
-					puts `#{MU::Groomer::Chef.knife} vault remove #{vault['vault']} #{vault['item']} --search name:#{node}` if !noop
+					`#{MU::Groomer::Chef.knife} vault remove #{vault['vault']} #{vault['item']} --search name:#{node} 2>&1 > /dev/null` if !noop
 					MU::MommaCat.unlock("vault-"+vault['vault'])
 				}
 				MU.log "knife node delete -y #{node}"
@@ -518,20 +520,22 @@ module MU
 				retries = 0
 				begin
 					retries = retries + 1
-					vault_cmd = "#{MU::Groomer::Chef.knife} vault update #{vault} #{item} #{MU::Groomer::Chef.vault_opts} --search name:#{@server.mu_name} 2>&1"
-					MU.log "ADD attempt #{retries} enabling #{@server.mu_name} for vault access to #{vault} #{item} using command  #{vault_cmd}", MU::DEBUG
-					output = `#{vault_cmd}`
-          MU.log "Result of ADD attempt #{retries} enabling #{@server.mu_name} for vault access to #{vault} was #{output} with RC #{$?.exitstatus}", MU::DEBUG
+#					vault_cmd = "#{MU::Groomer::Chef.knife} vault update #{vault} #{item} #{MU::Groomer::Chef.vault_opts} --search name:#{@server.mu_name} 2>&1"
+					output = knifeCmd("vault update #{vault} #{item} #{MU::Groomer::Chef.vault_opts} --search name:#{@server.mu_name}")
+#					MU.log "ADD attempt #{retries} enabling #{@server.mu_name} for vault access to #{vault} #{item} using command  #{vault_cmd}", MU::DEBUG
+#					output = `#{vault_cmd}`
+#          MU.log "Result of ADD attempt #{retries} enabling #{@server.mu_name} for vault access to #{vault} was #{output} with RC #{$?.exitstatus}", MU::DEBUG
 					if $?.exitstatus != 0
-						MU.log "Got bad exit code on try #{retries} from knife vault update #{vault} #{item} #{MU::Groomer::Chef.vault_opts} --search name:#{@server.mu_name}", MU::WARN, details: output
+#						MU.log "Got bad exit code on try #{retries} from knife vault update #{vault} #{item} #{MU::Groomer::Chef.vault_opts} --search name:#{@server.mu_name}", MU::WARN, details: output
 					end
 					# Check and see if what we asked for actually got done
-					vault_cmd = "#{MU::Groomer::Chef.knife} vault show #{vault} #{item} clients -p clients -f yaml #{MU::Groomer::Chef.vault_opts} 2>&1"
+#					vault_cmd = "#{MU::Groomer::Chef.knife} vault show #{vault} #{item} clients -p clients -f yaml #{MU::Groomer::Chef.vault_opts} 2>&1"
 					#MU.log vault_cmd, MU::DEBUG
-					output = `#{vault_cmd}`
-					MU.log "VERIFYING #{@server.mu_name} access to #{vault} #{item}:\n #{output}", MU::DEBUG
+#					output = `#{vault_cmd}`
+					output = knifeCmd("vault show #{vault} #{item} clients -p clients -f yaml #{MU::Groomer::Chef.vault_opts}")
+#					MU.log "VERIFYING #{@server.mu_name} access to #{vault} #{item}:\n #{output}", MU::DEBUG
 					if !output.match(/#{@server.mu_name}/)
-						MU.log "Didn't see #{@server.mu_name} in output of #{vault_cmd}, trying again...", MU::WARN, details: output
+#						MU.log "Didn't see #{@server.mu_name} in output of #{vault_cmd}, trying again...", MU::WARN, details: output
 						if retries < 10
 							MU::MommaCat.unlock("vault-"+vault)
 							sleep 5
@@ -549,6 +553,15 @@ module MU
 					MU::MommaCat.unlock("vault-"+vault)
 				end while true
 				MU::MommaCat.unlock("vault-"+vault)
+			end
+
+			def knifeCmd(cmd, showoutput = true)
+				MU.log "knife #{cmd}"
+				output = `#{MU::Groomer::Chef.knife} #{cmd} 2>&1`
+				if showoutput
+					puts output
+				end
+				return output
 			end
 
 			def createGenericHostSSLCert

@@ -391,7 +391,7 @@ module MU
 						if nat_instance.nil?
 							MU.log "#{node} (#{MU.deploy_id}) is configured to use #{@config['vpc']} but I can't find a matching NAT instance", MU::ERR
 						end
-						nat_name, nat_conf, nat_deploydata, nat_descriptor = @nat.describe
+						nat_name, nat_conf, nat_deploydata = @nat.describe
 						admin_sg.addRule([nat_deploydata["private_ip_address"]], proto: "tcp")
 						admin_sg.addRule([nat_deploydata["private_ip_address"]], proto: "udp")
 					end
@@ -605,7 +605,6 @@ module MU
 			# @param cidr [String]: The CIDR-formatted IP address or block to allow access.
 			# @return [void]
 			def allowHost(cidr)
-				mu_name, config, deploydata, cloud_desc = describe
 				# If we're an old, Classic-style database with RDS-specific
 				# authorization, punch holes in that.
 				if !cloud_desc.db_security_groups.empty?

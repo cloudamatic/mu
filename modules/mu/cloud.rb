@@ -237,7 +237,6 @@ module MU
 				attr_reader :mu_name
 				attr_reader :cloud_id
 				attr_reader :config
-				attr_reader :cloud_desc
 				attr_reader :deploydata
 
 				def self.shortname
@@ -340,10 +339,30 @@ module MU
 					end
 				end
 
+				def cloud_desc
+					describe
+# XXX maybe we just need to call @cloudobj.cloud_desc
+					if !@config.nil? and !@cloud_id.nil?
+						# The find() method should be returning a Hash with the cloud_id
+						# as a key.
+						begin
+							matches = self.class.find(region: @config['region'], cloud_id: @cloud_id)
+							if !matches.nil? and matches.is_a?(Hash) and matches.has_key?(@cloud_id)
+								@cloud_desc = matches[@cloud_id]
+							else
+								MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id}, which has a record in deploy #{@deploy.deploy_id}", MU::WARN
+							end
+						rescue Exception => e
+							MU.log "Got #{e.inspect} trying to find cloud handle for #{self.class.shortname} #{@mu_name} (#{@cloud_id})", MU::WARN
+							raise e
+						end
+					end
+				end
+
 				# Retrieve all of the known metadata for this resource.
 				# @param cloud_id [String]: The cloud platform's identifier for the resource we're describing. Makes lookups more efficient.
 				# @param update_cache [Boolean]: Ignore cached data if we have any, instead reconsituting from original sources.
-				# @return [Array<Hash>]: mu_name, config, deploydata, cloud_descriptor
+				# @return [Array<Hash>]: mu_name, config, deploydata
 				def describe(cloud_id: nil, update_cache: false)
 					if cloud_id.nil? and !@cloudobj.nil?
 						@cloud_id = @cloudobj.cloud_id
@@ -389,23 +408,8 @@ module MU
 							}
 						end
 					end
-					if (update_cache or @cloud_desc.nil?) and !@config.nil? and !@cloud_id.nil?
-						# The find() method should be returning a Hash with the cloud_id
-						# as a key.
-						begin
-							matches = self.class.find(region: @config['region'], cloud_id: @cloud_id)
-							if !matches.nil? and matches.is_a?(Hash) and matches.has_key?(@cloud_id)
-								@cloud_desc = matches[@cloud_id]
-							else
-								MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id}, which has a record in deploy #{@deploy.deploy_id}", MU::WARN
-							end
-						rescue Exception => e
-							MU.log "Got #{e.inspect} trying to find cloud handle for #{self.class.shortname} #{@mu_name} (#{@cloud_id})", MU::WARN
-							raise e
-						end
-					end
 
-					return [@mu_name, @config, @deploydata, @cloud_desc]
+					return [@mu_name, @config, @deploydata]
 				end
 
 				# Fetch MU::Cloud objects for each of this object's dependencies, and

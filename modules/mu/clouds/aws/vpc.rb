@@ -542,7 +542,7 @@ module MU
 				if found.size > 1
 					found.each { |nat| 
 						# Try some AWS-specific criteria
-						junk, morejunk, whocares, cloud_desc = instance.describe
+						cloud_desc = instance.cloud_desc
 						if !nat_host_ip.nil? and
 							 (cloud_desc.private_ip_address == nat_host_ip or cloud_desc.public_ip_address == nat_host_ip)
 							return nat

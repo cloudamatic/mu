@@ -41,8 +41,8 @@ module MU
 		# Failure to groom a node
 		class GroomError < MuError; end
 
-#		@@litters = {}
-#		@@litter_semaphore = Mutex.new
+		@@litters = {}
+		@@litter_semaphore = Mutex.new
 
 		# Return a {MU::MommaCat} instance for an existing deploy. Use this instead
 		# of using #initialize directly to avoid loading deploys multiple times or
@@ -57,13 +57,13 @@ module MU
 			end
 # XXX this caching is harmful, as it causes stale resource objects to stick
 # around; find a way to make these go away before turning this back on
-#			@@litter_semaphore.synchronize {
-#				if !@@litters.has_key?(deploy_id)
-#					@@litters[deploy_id] = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
-#				end
-#				return @@litters[deploy_id]
-#			}
-			MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
+			@@litter_semaphore.synchronize {
+				if !@@litters.has_key?(deploy_id)
+					@@litters[deploy_id] = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
+				end
+				return @@litters[deploy_id]
+			}
+#			MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
 		end
 
 		attr_reader :public_key
@@ -893,7 +893,7 @@ begin
 				}
 				if !mu_descs.nil? and mu_descs.size > 0 and !deploy_id.nil? and !deploy_id.empty?
 					MU.log "I found descriptions that might match #{resourceclass.cfg_plural} name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}, but couldn't isolate my target kitten", MU::WARN, details: mu_descs
-					puts File.read(deploy_dir(deploy_id)+"/deployment.json")
+#					puts File.read(deploy_dir(deploy_id)+"/deployment.json")
 				end
 				# We can't refine any further by asking the cloud provider...
 				if !cloud_id and !tag_key and !tag_value and kittens.size > 1
@@ -1362,7 +1362,7 @@ end
 		# @param server [MU::Cloud::Server]: The {MU::Cloud::Server} we'll be setting up.
 		# @param sync_wait [Boolean]: Whether to wait for DNS to fully synchronize before returning.
 		def self.nameKitten(server, sync_wait: false)
-			node, config, deploydata, instance = server.describe
+			node, config, deploydata = server.describe
 			nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = server.getSSHConfig
 
 			mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
@@ -1631,6 +1631,7 @@ MESSAGE_END
 # XXX also grab things like mu_windows_name out of deploy data if we can
 				parent_thread_id = Thread.current.object_id
 				MU::MommaCat.listDeploys.each { |deploy_id|
+MU.log "Chewing through #{deploy_id}"
 					begin
 						deploy = MU::MommaCat.getLitter(deploy_id)
 						FileUtils.cp("#{@myhome}/.ssh/#{deploy.ssh_key_name}", "#{@nagios_home}/.ssh/#{deploy.ssh_key_name}")
@@ -1638,6 +1639,7 @@ MESSAGE_END
 						if deploy.kittens.has_key?("servers")
 							deploy.kittens["servers"].each_pair { |nodeclass, nodes|
 								nodes.each_pair { |mu_name, server|
+MU.log "#{mu_name}"
 									MU.dupGlobals(parent_thread_id)
 									threads << Thread.new {
 										MU.log "Adding #{server.mu_name} to #{@nagios_home}/.ssh/config", MU::DEBUG
@@ -1805,7 +1807,7 @@ MESSAGE_END
 
 			# Merge everyone's deploydata together
 			update_servers.each { |sibling|
-				mu_name, config, deploydata, cloud_descriptor = sibling.describe
+				mu_name, config, deploydata = sibling.describe
 				@deployment[svrs][config['name']][mu_name] = deploydata if !deploydata.nil?
 			}
 			return if update_servers.size < 2
@@ -1848,7 +1850,7 @@ MESSAGE_END
 				begin
 					existing.each { |used|
 						if used.match(/^#{name}:/)
-							MU.log "#{name} is already reserved by another resource on this Mu server.", MU::WARN
+							MU.log "#{name} is already reserved by another resource on this Mu server.", MU::WARN, details: caller
 							return false
 						end
 					}
