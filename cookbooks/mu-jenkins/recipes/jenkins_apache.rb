@@ -34,8 +34,9 @@ when "centos", "redhat"
   end
 
   web_app "jenkins" do
-      server_name "localhost"
+      server_name "#{ENV['CHEF_PUBLIC_IP']}"
       server_aliases [ node.fqdn, node.hostname ]
+      server_admin "#{ENV['MU_ADMIN_EMAIL']}"
       template "jenkinsvhost.conf.erb"
       variables({
           :apache_port => apache_port,
