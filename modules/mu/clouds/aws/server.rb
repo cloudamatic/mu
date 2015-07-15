@@ -248,7 +248,7 @@ class Cloud
 							parent_thread_id = Thread.current.object_id
 							Thread.new {
 								MU.dupGlobals(parent_thread_id)
-								MU::Cloud::AWS::Server.removeIAMProfile(@config['name'])
+								MU::Cloud::AWS::Server.removeIAMProfile(@mu_name)
 								MU::Cloud::AWS::Server.cleanup(noop: false, ignoremaster: false, skipsnapshots: true)
 							}
 						end
@@ -259,48 +259,45 @@ class Cloud
 				return @config
 			end
 
-			# Remove the automatically generated IAM Profile for a given class of
-			# server.
-			# @param name [String]: The name field of the {MU::Cloud::AWS::Server} or {MU::Cloud::AWS::ServerPool} resource's IAM profile to remove.
+			# Remove the automatically generated IAM Profile for a server.
+			# @param rolename [String]: The name of the role to create, generally a {MU::Cloud::AWS::Server} mu_name
 			# @return [void]
-			def self.removeIAMProfile(name, classname = "server")
-				MU.log "Removing IAM role and policies for '#{name}' nodes"
-				[MU::MommaCat.getResourceName(name), MU::MommaCat.getResourceName("Server-"+name), MU::MommaCat.getResourceName("ServerPool-"+name)].each { |rolename|
-					begin
-						MU::Cloud::AWS.iam.remove_role_from_instance_profile(
-							instance_profile_name: rolename,
-							role_name: rolename
-						)
-					rescue Aws::IAM::Errors::ValidationError => e
-						MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
-					rescue Aws::IAM::Errors::NoSuchEntity => e
-						MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
-					end
-					begin
-						MU::Cloud::AWS.iam.delete_instance_profile(instance_profile_name: rolename)
-					rescue Aws::IAM::Errors::ValidationError => e
-						MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
-					rescue Aws::IAM::Errors::NoSuchEntity => e
-						MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
-					end
-					begin
-						policies = MU::Cloud::AWS.iam.list_role_policies(role_name: rolename).policy_names
-						policies.each { |policy|
-							MU::Cloud::AWS.iam.delete_role_policy(role_name: rolename, policy_name: policy)
-						}
-					rescue Aws::IAM::Errors::ValidationError => e
-						MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
-					rescue Aws::IAM::Errors::NoSuchEntity => e
-						MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
-					end
-					begin
-						MU::Cloud::AWS.iam.delete_role(role_name: rolename)
-					rescue Aws::IAM::Errors::ValidationError => e
-						MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
-					rescue Aws::IAM::Errors::NoSuchEntity => e
-						MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
-					end
-				}
+			def self.removeIAMProfile(rolename)
+				MU.log "Removing IAM role and policies for '#{rolename}'"
+				begin
+					MU::Cloud::AWS.iam.remove_role_from_instance_profile(
+						instance_profile_name: rolename,
+						role_name: rolename
+					)
+				rescue Aws::IAM::Errors::ValidationError => e
+					MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
+				rescue Aws::IAM::Errors::NoSuchEntity => e
+					MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
+				end
+				begin
+					MU::Cloud::AWS.iam.delete_instance_profile(instance_profile_name: rolename)
+				rescue Aws::IAM::Errors::ValidationError => e
+					MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
+				rescue Aws::IAM::Errors::NoSuchEntity => e
+					MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
+				end
+				begin
+					policies = MU::Cloud::AWS.iam.list_role_policies(role_name: rolename).policy_names
+					policies.each { |policy|
+						MU::Cloud::AWS.iam.delete_role_policy(role_name: rolename, policy_name: policy)
+					}
+				rescue Aws::IAM::Errors::ValidationError => e
+					MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
+				rescue Aws::IAM::Errors::NoSuchEntity => e
+					MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
+				end
+				begin
+					MU::Cloud::AWS.iam.delete_role(role_name: rolename)
+				rescue Aws::IAM::Errors::ValidationError => e
+					MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
+				rescue Aws::IAM::Errors::NoSuchEntity => e
+					MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
+				end
 			end
 
 			# Create an Amazon IAM instance profile. One of these should get created
@@ -1677,8 +1674,8 @@ MU.log "about to call wait_until"
 							}
 						end
 
-						if !server_obj.nil? and !server_obj.config.nil?
-							MU::Cloud::AWS::Server.removeIAMProfile(server_obj.config['name']) if !noop
+						if !server_obj.nil? and !server_obj.mu_name.nil?
+							MU::Cloud::AWS::Server.removeIAMProfile(server_obj.mu_name)
 						end
 
 						# Expunge traces left in Chef, Puppet or what have you

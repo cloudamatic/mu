@@ -127,6 +127,12 @@ module MU
 						deadnodes << node.name
 					}
 				}
+				q.search("node", "name:#{MU.deploy_id}-*").each { |item|
+					next if item.is_a?(Fixnum)
+					item.each { |node|
+						deadnodes << node.name
+					}
+				}
 				MU.log "Missed some Chef resources in node cleanup, purging now", MU::NOTICE if deadnodes.size > 0
 				deadnodes.uniq.each { |node|
 					MU::Groomer::Chef.cleanup(node, [], noop)
