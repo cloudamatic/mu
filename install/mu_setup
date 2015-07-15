@@ -1408,7 +1408,7 @@ configure_jenkins_server()
         if [ "`grep ^jenkins: /etc/passwd`" == "" -o "`pgrep -u jenkins -f /usr/lib/jenkins`" == "" ];then
         # Create Jenkins Vault with admin and user items
                 $MU_LIBDIR/install/jenkinskeys.rb
-                knife vault create jenkins users '{"mu_user_password":"$JENKINS_ADMIN_PW"}'  --mode client -F json -u mu --search name:MU-MASTER
+                knife vault create jenkins users "{\"mu_user_password\":\"$JENKINS_ADMIN_PW\"}" --mode client -F json -u mu --search name:MU-MASTER
 
                 # Create the Jenkins user
                 mu-user-manage -c -u jenkins -e $JENKINS_ADMIN_EMAIL -p $JENKINS_ADMIN_PW
