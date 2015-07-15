@@ -1406,12 +1406,13 @@ preconfigure_jenkins_artifacts()
         # done it
         #
         if [ "`grep ^jenkins: /etc/passwd`" == "" -o "`pgrep -u jenkins -f /usr/lib/jenkins`" == "" ];then
-        # Create Jenkins Vault with admin and user items
-                $MU_LIBDIR/install/jenkinskeys.rb
-                knife vault create jenkins users "{\"mu_user_password\":\"$JENKINS_ADMIN_PW\"}" --mode client -F json -u mu --search name:MU-MASTER
-
-                # Create the Jenkins user
-                mu-user-manage -c -u jenkins -e $JENKINS_ADMIN_EMAIL -p $JENKINS_ADMIN_PW
+        	# Create Jenkins Vault with admin and user items
+	        $MU_LIBDIR/install/jenkinskeys.rb
+	        knife vault create jenkins users "{\"mu_user_password\":\"$JENKINS_ADMIN_PW\"}" --mode client -F json -u mu --search name:MU-MASTER
+	        # Create the Jenkins user
+	        mu-user-manage -c -u jenkins -e $JENKINS_ADMIN_EMAIL -p $JENKINS_ADMIN_PW
+	        # Make sure the mu-node role is uploaded in jenkins user, so we can do deploys from the jenkins user
+	        su - jenkins -c "knife role from file /opt/mu/lib/roles/mu-node.json "
         fi
 }
 
