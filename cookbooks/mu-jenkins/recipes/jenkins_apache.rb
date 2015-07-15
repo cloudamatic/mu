@@ -41,7 +41,7 @@ when "centos", "redhat"
       recursive true
     end
 
-    cookbook_file "/home/jenkins/jobs" do
+    cookbook_file "/home/jenkins/jobs/#{job}/config.xml" do
       source "#{job}_config.xml"
       owner 'jenkins'
       group 'jenkins'
