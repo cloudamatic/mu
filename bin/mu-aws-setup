@@ -277,7 +277,7 @@ if $opts[:dns]
 	else
 		ext_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu")
 
-		if ext_zone.nil?
+		if ext_zone.nil? or ext_zone.size == 0
 			params = {
 				:name => "platform-mu",
 				:vpc => {
@@ -299,6 +299,7 @@ if $opts[:dns]
 			end
 			MU.log ".platform-mu private domain created"
 		else
+			ext_zone = ext_zone.values.first
 			begin
 				MU::Cloud::AWS.route53.associate_vpc_with_hosted_zone(
 					hosted_zone_id: ext_zone.id,

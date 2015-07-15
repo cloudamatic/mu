@@ -968,7 +968,11 @@ begin
 								end
 							end
 							cfg = { "name" => name, "cloud" => cloud, "region" => r }
-							matches << resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: kitten_cloud_id)
+							if !calling_deploy.nil?
+								matches << resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: kitten_cloud_id)
+							else
+								matches << resourceclass.new(mu_name: name, kitten_cfg: cfg, cloud_id: kitten_cloud_id)
+							end
 						end
 					}
 				}

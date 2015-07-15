@@ -37,6 +37,8 @@ module MU
 				@cloud_id ||= cloud_id
 				if !mu_name.nil?
 					@mu_name = mu_name
+				elsif !@vpc.nil?
+					@mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
 				else
 					@mu_name = @deploy.getResourceName(@config['name'])
 				end
@@ -45,7 +47,7 @@ module MU
 			# Called by {MU::Deploy#createResources}
 			def create
 				vpc_id = @vpc.cloud_id if !@vpc.nil?
-				groupname = @deploy.getResourceName(@config['name'])
+				groupname = @mu_name
 				description = groupname
 
 				MU.log "Creating EC2 Security Group #{groupname}"
@@ -56,8 +58,6 @@ module MU
 				}
 				if !vpc_id.nil?
 					sg_struct[:vpc_id] = vpc_id
-					groupname = @deploy.getResourceName(@config['name'], need_unique_string: true)
-					sg_struct[:group_name] = groupname
 				end
 
 				begin
