@@ -1718,11 +1718,11 @@ return
 					next
 				end
 				data = File.open("#{deploy_dir(deploy)}/deployment.json", File::RDONLY)
-				data["deploy_id"] = deploy
 				MU.log "Getting lock to read #{deploy_dir(deploy)}/deployment.json", MU::DEBUG
 				data.flock(File::LOCK_EX)
 				begin					
 					deployment = JSON.parse(File.read("#{deploy_dir(deploy)}/deployment.json"))
+					deployment["deploy_id"] = deploy
 					if deployment.has_key?("servers")
 						deployment["servers"].each_key { |nodeclass|
 							deployment["servers"][nodeclass].each_pair { |mu_name, metadata|

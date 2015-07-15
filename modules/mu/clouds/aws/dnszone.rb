@@ -487,8 +487,8 @@ module MU
 							sleep 15
 							attempts = attempts + 1
 							retry
-						elsif !e.inspect.match(/it already exists/)
-							raise MuError "Problem managing entry for #{dns_name} -> #{target}: #{e.inspect}"
+						elsif !e.inspect.match(/(it|name) already exists/)
+							raise MuError, "Problem managing entry for #{dns_name} -> #{target}: #{e.inspect}"
 						else
 							MU.log "#{dns_name} already exists", MU::DEBUG, details: e.inspect
 						end
