@@ -1393,9 +1393,9 @@ configure_nagios_server()
 }
 
 ###############################################################################
-configure_jenkins_server()
+preconfigure_jenkins_artifacts()
 {
-        status_message "Configuring the ${BOLD}Jenkins${NORM} server"
+        status_message "Configuring the ${BOLD}Jenkins${NORM} artifacts"
         punch_tcp_hole 9443
         if [ "`/bin/ls $MU_DATADIR/users/`" == "" ];then
                 echo "${RED}Cannot enable Jenkins until at least one admin user is specified.${NORM}"
@@ -1413,12 +1413,6 @@ configure_jenkins_server()
                 # Create the Jenkins user
                 mu-user-manage -c -u jenkins -e $JENKINS_ADMIN_EMAIL -p $JENKINS_ADMIN_PW
         fi
-        # But idempotently run the Jenkins recipe each time, just like Nagios
-        if [ update_chef_artifacts != 1 ];then
-        	upload_chef_artifacts
-        fi
-    	chef-client -l info -o "role[mu-master-jenkins]"
-        run_chef_client=0
 }
 
 
@@ -1534,9 +1528,9 @@ if [ "$library" != "1" ];then
 		umask 0077
 		start_momma_cat
 		generate_ssl_certs
+		preconfigure_jenkins_artifacts
 		setup_localhost_chef_client
 		configure_nagios_server
-		configure_jenkins_server
 		set_permissions
 	fi
 
