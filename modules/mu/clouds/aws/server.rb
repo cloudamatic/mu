@@ -307,7 +307,7 @@ class Cloud
 			# for each class of instance (each {MU::Cloud::AWS::Server} or {MU::Cloud::AWS::ServerPool}),
 			# and will include both baseline Mu policies and whatever other policies
 			# are requested.
-			# @param name [String]: The name field of the {MU::Cloud::AWS::Server} or {MU::Cloud::AWS::ServerPool} resource's IAM profile to create.
+			# @param rolename [String]: The name of the role to create, generally a {MU::Cloud::AWS::Server} mu_name
 			# @return [String]: The name of the instance profile.
 			def self.createIAMProfile(rolename, base_profile: nil, extra_policies: nil)
 				MU.log "Creating IAM role and policies for '#{name}' nodes"

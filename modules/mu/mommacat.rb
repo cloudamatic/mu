@@ -55,15 +55,15 @@ module MU
 			if deploy_id.nil? or deploy_id.empty?
 				raise MuError, "Cannot fetch a deployment without a deploy_id"
 			end
-# XXX this caching is harmful, as it causes stale resource objects to stick
-# around; find a way to make these go away before turning this back on
-#			@@litter_semaphore.synchronize {
-#				if !@@litters.has_key?(deploy_id)
-#					@@litters[deploy_id] = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
-#				end
-#				return @@litters[deploy_id]
-#			}
-			MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
+# XXX this caching may be harmful, causing stale resource objects to stick
+# around. Have we fixed this?
+			@@litter_semaphore.synchronize {
+				if !@@litters.has_key?(deploy_id)
+					@@litters[deploy_id] = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
+				end
+				return @@litters[deploy_id]
+			}
+#			MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
 		end
 
 		attr_reader :public_key
@@ -230,17 +230,23 @@ module MU
 										attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: mu_name)
 									}
 								else
-									use_mu_name = nil
 									# XXX hack for old deployments
-									["mu_name", "awsname", "group_name", "identifier"].each { |identifier|
-										if data.has_key?(identifier) and
-											 !data["identifier"].nil? and
-											 !data["identifier"].empty?
-											use_mu_name = data["identifier"].upcase
-											break
+									if data['mu_name'].nil? or data['mu_name'].empty?
+										if res_type.to_s == "LoadBalancer" and !data['awsname'].nil?
+											data['mu_name'] = data['awsname'].dup
+										elsif res_type.to_s == "FirewallRule" and !data['group_name'].nil?
+											data['mu_name'] = data['group_name'].dup
+										elsif res_type.to_s == "Database" and !data['identifier'].nil?
+											data['mu_name'] = data['identifier'].dup.upcase
+										elsif res_type.to_s == "VPC"
+											# VPC names are deterministic, just generate the things
+											data['mu_name'] = getResourceName(data['name'])
 										end
-									}
-									attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: use_mu_name)
+									end
+									if data['mu_name'].nil?
+										raise MuError, "Unable to find or guess a Mu name for #{res_type}: #{res_name} in #{@deploy_id}"
+									end
+									attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: data['mu_name'])
 								end
 							rescue Exception => e
 								MU.log "Failed to load an existing resource of type '#{type}' in #{@deploy_id}: #{e.inspect}", MU::WARN, details: e.backtrace
@@ -776,9 +782,7 @@ module MU
 		# Iterate over all known deployments and look for instances that have been
 		# terminated, but not yet cleaned up, then clean them up.
 		def self.cleanTerminatedInstances
-# XXX we seem not to be detected the mu_names of existing resources and just
-# throwing up new ones intead, and that's not ok
-return
+
 			MU.log "Checking for harvested instances in need of cleanup", MU::DEBUG
 			parent_thread_id = Thread.current.object_id
 			cleanup_threads = []
@@ -1623,7 +1627,6 @@ MESSAGE_END
 		# to client nodes.
 		# @return [void]
 		def self.syncMonitoringConfig(blocking = true)
-return
 			return if Etc.getpwuid(Process.uid).name != "root" or MU.chef_user != "mu"
 			parent_thread_id = Thread.current.object_id
 			nagios_threads = []
