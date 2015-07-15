@@ -644,7 +644,7 @@ class Cloud
 						end
 					end
 
-					win_admin_password =  MU::Cloud::AWS::Server.generateWindowsPassword if win_admin_password.nil?
+					win_admin_password = MU::Cloud::AWS::Server.generateWindowsPassword if win_admin_password.nil?
 					ec2config_password = MU::Cloud::AWS::Server.generateWindowsPassword if ec2config_password.nil?
 					sshd_password = MU::Cloud::AWS::Server.generateWindowsPassword if sshd_password.nil?
 
@@ -1338,6 +1338,7 @@ class Cloud
 
 				retries = 0
 				begin
+MU.log "about to call wait_until"
 				MU::Cloud::AWS.ec2(@config['region']).wait_until(:password_data_available, instance_id: @cloud_id) do |waiter|
 					waiter.max_attempts = 60
 					waiter.before_attempt do |attempts|
@@ -1348,11 +1349,13 @@ class Cloud
 					# end
 				end
 				rescue Aws::Waiters::Errors::TooManyAttemptsError => e
-					if retries < 3
+					if retries < 2
 						retries = retries + 1
+						MU.log "wait_until(:password_data_available, instance_id: #{@cloud_id}) in #{@config['region']} never got a good response, retrying (#{retries}/2)", MU::WARN, details: e.inspect
 						retry
 					else
-						raise e
+						MU.log "wait_until(:password_data_available, instance_id: #{@cloud_id}) in #{@config['region']} never returned- this image may not be configured to have its password set by AWS.", MU::ERR
+						return nil
 					end
 				end
 

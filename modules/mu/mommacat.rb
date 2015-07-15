@@ -952,9 +952,9 @@ begin
 						# We already have a MU::Cloud object for this guy, use it
 						if kittens.has_key?(kitten_cloud_id)
 							matches << kitten[kitten_cloud_id]
-						# If we don't have a MU::Cloud object, manufacture a dummy one if
-						# we have enough information to get close to the mark.
 						elsif kittens.size == 0
+							# If we don't have a MU::Cloud object, manufacture a dummy one.
+							# Give it a fake name if we have to and have decided that's ok.
 							if name.nil? or name.empty? and !dummy_ok
 								MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", MU::WARN, details: caller
 								next 
