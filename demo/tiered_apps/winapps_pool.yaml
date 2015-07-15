@@ -28,4 +28,4 @@
     basis:
       launch-config:
         name: winapps
-        size: m3.large
+        size: m4.large
