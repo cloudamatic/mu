@@ -99,12 +99,12 @@ module MU
 				end
 
 				cmd = "update"
-				exitstatus, output = knifeCmd("vault show '#{vault}' #{item} #{MU::Groomer::Chef.vault_opts} 2>&1 > /dev/null")
+				exitstatus, output = knifeCmd("vault show '#{vault}' '#{item}' #{MU::Groomer::Chef.vault_opts} 2>&1 /dev/null")
 #				`#{MU::Groomer::Chef.knife} vault show '#{vault}' #{item} #{MU::Groomer::Chef.vault_opts} > /dev/null 2>&1`
 				cmd = "create" if exitstatus != 0
 
 #				vault_cmd = "#{MU::Groomer::Chef.knife} vault '#{cmd}' '#{vault}' '#{item}' '#{JSON.generate(data)}' --search '#{permissions}' #{MU::Groomer::Chef.vault_opts}"
-				knifeCmd("vault '#{cmd}' '#{vault}' '#{item}' '#{JSON.generate(data)}' --search '#{permissions}' #{MU::Groomer::Chef.vault_opts}")
+				knifeCmd("vault '#{cmd}' '#{vault}' '#{item}' '#{JSON.generate(data).gsub(/'/, '\\1')}' --search '#{permissions}' #{MU::Groomer::Chef.vault_opts}")
 #				puts `#{vault_cmd}`
 #				MU.log vault_cmd, MU::DEBUG
 			end
@@ -328,7 +328,7 @@ module MU
 						require 'chef'
 					  kb.run
 					}
-				rescue SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::HTTPServerException, SystemExit, Errno::ECONNREFUSED, Errno::EPIPE => e
+				rescue Net::SSH::Disconnect, SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::HTTPServerException, SystemExit, Errno::ECONNREFUSED, Errno::EPIPE => e
 					if retries < 10
 						retries = retries + 1
 						MU.log "#{@server.mu_name}: Knife Bootstrap failed #{e.inspect}, retrying (#{retries} of 10)", MU::WARN, details: e.backtrace
@@ -436,7 +436,7 @@ module MU
 				rescue Net::HTTPServerException
 				end
 				# Figure out what this node thinks its name is
-				system_name = chef_node['fqdn']
+				system_name = chef_node['fqdn'] if !chef_node['fqdn'].nil?
 				MU.log "#{@server.mu_name} local name is #{system_name}", MU::DEBUG
 
 				chef_node.normal.app = @config['application_cookbook'] if @config['application_cookbook'] != nil

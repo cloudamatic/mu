@@ -29,6 +29,9 @@ case node[:platform]
 				action :nothing
 			end
 
+			directory "C:\\Users\\#{node.windows_admin_username}"
+			directory "C:\\Users\\#{node.windows_admin_username}\\Documents"
+			directory "C:\\Users\\#{node.windows_admin_username}\\Documents\\WindowsPowerShell"
 			directory "C:\\Users\\#{node.windows_admin_username}\\Documents\\WindowsPowerShell\\Modules"
 
 			remote_file "#{Chef::Config[:file_cache_path]}/PSWindowsUpdate.zip" do

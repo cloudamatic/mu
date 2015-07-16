@@ -32,8 +32,10 @@ module MU
 				@deploy = mommacat
 				@config = kitten_cfg
 				@subnets = []
+				@cloud_id = cloud_id
 				if !mu_name.nil?
 					@mu_name = mu_name
+					loadSubnets if !@cloud_id.nil?
 				else
 					# Names for this resource are deterministic, so it's ok to just
 					# generate it any time we're loaded up.
@@ -436,7 +438,7 @@ module MU
 						MU.log "Searching for VPC id '#{cloud_id}' in #{region}", MU::DEBUG
 						begin
 							resp = MU::Cloud::AWS.ec2(region).describe_vpcs(vpc_ids: [cloud_id])
-							resp.data.vpcs.each { |vpc|
+							resp.vpcs.each { |vpc|
 								map[vpc.vpc_id] = vpc
 							}
 							return map

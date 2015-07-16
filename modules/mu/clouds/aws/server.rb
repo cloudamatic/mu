@@ -656,7 +656,7 @@ class Cloud
 						"sshd_username" => "sshd_service",
 						"sshd_password" => sshd_password
 					}
-					@groomer.saveSecret(vault: @mu_name, item: "windows_credentials", data: creds)
+					@groomer.saveSecret(vault: @mu_name, item: "windows_credentials", data: creds, permissions: "name:#{@mu_name}")
 				end
 
 				subnet = nil
