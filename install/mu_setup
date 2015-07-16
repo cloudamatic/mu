@@ -1411,12 +1411,8 @@ preconfigure_jenkins_artifacts()
 	        knife vault create jenkins users "{\"mu_user_password\":\"$JENKINS_ADMIN_PW\"}" --mode client -F json -u mu --search name:MU-MASTER
 	        # Create the Jenkins user
 	        mu-user-manage -c -u jenkins -e $JENKINS_ADMIN_EMAIL -p $JENKINS_ADMIN_PW
-	        # Make sure the mu-node role is uploaded in jenkins user, so we can do deploys from the jenkins user
-	        su - jenkins -c "knife role from file /opt/mu/lib/roles/mu-node.json "
-	        su - jenkins -c "knife environment from file /opt/mu/lib/environments/DEV.json "
-	        su - jenkins -c "knife environment from file /opt/mu/lib/environments/dev.json "
-	        su - jenkins -c "knife environment from file /opt/mu/lib/environments/PROD.json "
-	        su - jenkins -c "knife environment from file /opt/mu/lib/environments/prod.json "
+	        # Upload the chef artifacts in jenkins user, so we can do deploys from the jenkins user
+	        su - jenkins -c "mu-upload-chef-artifacts -r mu"
         fi
 }
 
