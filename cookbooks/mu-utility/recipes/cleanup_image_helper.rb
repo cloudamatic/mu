@@ -27,9 +27,11 @@ when "windows"
 #		end
 #	}
 
-	cookbook_file "C:\\Program Files\\Amazon\\Ec2ConfigService\\Settings\\config.xml" do
-		source "config.xml"
-	end
+	%w{config.xml BundleConfig.xml}.each { |file|
+		cookbook_file "C:\\Program Files\\Amazon\\Ec2ConfigService\\Settings\\#{file}" do
+			source file
+		end
+	}
 
 	execute "sc config Ec2Config obj= \".\\LocalSystem\" password= \"\""
 	execute "sc config sshd obj= \".\\LocalSystem\" password= \"\""
