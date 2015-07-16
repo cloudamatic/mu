@@ -179,7 +179,7 @@ module MU
 							raise MU::Groomer::RunError, output.grep(/ ERROR: /).last
 						end
 					}
-				rescue SystemCallError, Timeout::Error, SocketError, Errno::ECONNRESET, IOError, Net::SSH::Exception, MU::Groomer::RunError => e
+				rescue RuntimeError, SystemCallError, Timeout::Error, SocketError, Errno::ECONNRESET, IOError, Net::SSH::Exception, MU::Groomer::RunError => e
 					begin
 						ssh.close if !ssh.nil?
 					rescue Net::SSH::Exception, IOError => e
@@ -240,7 +240,7 @@ module MU
 					guardfile = "/cygdrive/c/mu_installed_chef"
 				end
 
-				ssh = @server.getSSHSession
+				ssh = @server.getSSHSession(15)
 				if leave_ours
 					MU.log "Expunging pre-existing Chef install on #{@server.mu_name}, if we didn't create it", MU::NOTICE
 					ssh.exec!(%Q{test -f #{guardfile} || (#{remove_cmd}) ; touch #{guardfile}})
@@ -350,6 +350,8 @@ module MU
 				}
 
 				splunkVaultInit
+				grantSecretAccess(@server.mu_name, "windows_credentials")
+				grantSecretAccess(@server.mu_name, "ssl_cert")
 
 				# Making sure all Windows nodes get the mu-tools::windows-client recipe
 				if @server.windows?
