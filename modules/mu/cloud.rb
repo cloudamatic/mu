@@ -468,7 +468,8 @@ module MU
 								tag_key: tag_key,
 								tag_value: tag_value,
 								region: @config['vpc']["region"],
-								calling_deploy: @deploy
+								calling_deploy: @deploy,
+								dummy_ok: true
 							)
 							@vpc = vpcs.first if !vpcs.nil? and vpcs.size > 0
 						end
@@ -482,7 +483,8 @@ module MU
 								nat_cloud_id: @config['vpc']['nat_host_id'],
 								nat_tag_key: nat_tag_key,
 								nat_tag_value: nat_tag_value,
-								nat_ip: @config['vpc']['nat_host_ip']
+								nat_ip: @config['vpc']['nat_host_ip'],
+								dummy_ok: true
 							)
 						end
 					elsif self.class.cfg_name == "vpc"
@@ -510,7 +512,8 @@ module MU
 									cloud_id: lb['existing_load_balancer'],
 									name: lb['concurrent_load_balancer'],
 									region: @config["region"],
-									calling_deploy: @deploy
+									calling_deploy: @deploy,
+									dummy_ok: true
 								)
 								@loadbalancers << lbs.first if !lbs.nil? and lbs.size > 0
 							end
