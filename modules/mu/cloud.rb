@@ -483,8 +483,7 @@ module MU
 								nat_cloud_id: @config['vpc']['nat_host_id'],
 								nat_tag_key: nat_tag_key,
 								nat_tag_value: nat_tag_value,
-								nat_ip: @config['vpc']['nat_host_ip'],
-								dummy_ok: true
+								nat_ip: @config['vpc']['nat_host_ip']
 							)
 						end
 					elsif self.class.cfg_name == "vpc"
