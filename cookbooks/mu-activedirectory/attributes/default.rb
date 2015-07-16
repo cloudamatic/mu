@@ -86,7 +86,7 @@ if node.ad.dc_ips.empty?
 			default.ad.dc_ips << dc
 		else
 			begin
-				default.ad.dc_ips << resolver.getaddress(dc)
+				default.ad.dc_ips << resolver.getaddress(dc).to_s
 			rescue Resolv::ResolvError => e
 				Chef::Log.warn ("Couldn't resolve domain controller #{dc}!")
 			end

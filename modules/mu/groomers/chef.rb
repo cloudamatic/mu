@@ -328,6 +328,8 @@ module MU
 						require 'chef'
 					  kb.run
 					}
+					# throws Net::HTTPServerException if we haven't really bootstrapped
+					::Chef::Node.load(@server.mu_name)
 				rescue Net::SSH::Disconnect, SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::HTTPServerException, SystemExit, Errno::ECONNREFUSED, Errno::EPIPE => e
 					if retries < 10
 						retries = retries + 1
