@@ -1,5 +1,5 @@
 default.jenkins_users = [
-	{:user_name => "mu_user", :fullname => "Mu-Demo-User", :email => "mu-developers@googlegroups.com", :vault => "jenkins", :vault_item => "users"}
+	{:user_name => "mu_user", :fullname => "Mu-Demo-User", :email => "#{ENV['MU_ADMIN_EMAIL']}", :vault => "jenkins", :vault_item => "users"}
 ]
 
 default.jenkins_ssh_urls = [node.ipaddress]

@@ -35,11 +35,11 @@ when "centos", "redhat"
 		block do
 			node.run_state[:jenkins_private_key] = admin_vault['private_key'].strip
 		end
-		only_if { node.application_attributes.attribute?('jenkins_auth') }
+		#only_if { node.application_attributes.attribute?('jenkins_auth') }
 	end
 
 	jenkins_user admin_vault['username'] do
-		full_name "Admin User"
+		full_name "master_user"
 		email "mu-developers@googlegroups.com"
 		public_keys [admin_vault['public_key'].strip]
 		notifies :execute, 'jenkins_script[Configure Jenkins auth]', :immediately

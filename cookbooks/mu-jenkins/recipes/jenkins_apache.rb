@@ -33,10 +33,29 @@ when "centos", "redhat"
     not_if "/usr/sbin/getsebool httpd_can_network_connect | grep -cim1 ^.*on$"
   end
 
+  #Set up our standard Jenkins Jobs
+  %w{deploy cleanup_deploy}.each { |job|
+    directory "/home/jenkins/jobs/#{job}" do
+      owner "jenkins"
+      group "jenkins"
+      recursive true
+    end
+
+    cookbook_file "/home/jenkins/jobs/#{job}/config.xml" do
+      source "#{job}_config.xml"
+      owner 'jenkins'
+      group 'jenkins'
+      mode '0644'
+      action :create
+    end
+  }
+
+  # Now the web app virtual host
   web_app "jenkins" do
       server_name "#{ENV['CHEF_PUBLIC_IP']}"
       server_aliases [ node.fqdn, node.hostname ]
       server_admin "#{ENV['MU_ADMIN_EMAIL']}"
+      cookbook "mu-jenkins"
       template "jenkinsvhost.conf.erb"
       variables({
           :apache_port => apache_port,

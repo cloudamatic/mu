@@ -13,8 +13,7 @@
     "recipe[mu-tools::base_repositories]",
     "recipe[mu-tools::maldet]",
     "recipe[mu-tools::apply_security]",
-    "recipe[mu-master]",
-    "role[mu-master-jenkins]"
+    "recipe[mu-master]"
   ],
   "env_run_lists": {
 

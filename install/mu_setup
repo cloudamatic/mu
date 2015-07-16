@@ -1393,9 +1393,9 @@ configure_nagios_server()
 }
 
 ###############################################################################
-configure_jenkins_server()
+preconfigure_jenkins_artifacts()
 {
-        status_message "Configuring the ${BOLD}Jenkins${NORM} server"
+        status_message "Configuring the ${BOLD}Jenkins${NORM} artifacts"
         punch_tcp_hole 9443
         if [ "`/bin/ls $MU_DATADIR/users/`" == "" ];then
                 echo "${RED}Cannot enable Jenkins until at least one admin user is specified.${NORM}"
@@ -1406,19 +1406,14 @@ configure_jenkins_server()
         # done it
         #
         if [ "`grep ^jenkins: /etc/passwd`" == "" -o "`pgrep -u jenkins -f /usr/lib/jenkins`" == "" ];then
-        # Create Jenkins Vault with admin and user items
-                $MU_LIBDIR/install/jenkinskeys.rb
-                knife vault create jenkins users "{\"mu_user_password\":\"$JENKINS_ADMIN_PW\"}" --mode client -F json -u mu --search name:MU-MASTER
-
-                # Create the Jenkins user
-                mu-user-manage -c -u jenkins -e $JENKINS_ADMIN_EMAIL -p $JENKINS_ADMIN_PW
+        	# Create Jenkins Vault with admin and user items
+	        $MU_LIBDIR/install/jenkinskeys.rb
+	        knife vault create jenkins users "{\"mu_user_password\":\"$JENKINS_ADMIN_PW\"}" --mode client -F json -u mu --search name:MU-MASTER
+	        # Create the Jenkins user
+	        mu-user-manage -c -u jenkins -e $JENKINS_ADMIN_EMAIL -p $JENKINS_ADMIN_PW
+	        # Upload the chef artifacts in jenkins user, so we can do deploys from the jenkins user
+	        su - jenkins -c "mu-upload-chef-artifacts -r mu"
         fi
-        # But idempotently run the Jenkins recipe each time, just like Nagios
-        if [ update_chef_artifacts != 1 ];then
-        	upload_chef_artifacts
-        fi
-    	chef-client -l info -o "role[mu-master-jenkins]"
-        run_chef_client=0
 }
 
 
@@ -1536,11 +1531,11 @@ if [ "$library" != "1" ];then
 		generate_ssl_certs
 		setup_localhost_chef_client
 		configure_nagios_server
-		configure_jenkins_server
+		preconfigure_jenkins_artifacts
 		set_permissions
 	fi
-
-	chef-client
+	knife node run_list add MU-MASTER "role[mu-master-jenkins]"
+	chef-client -l info
 
 	echo ""
 	echo "You MUST source all of the changes I made to your environment:"
