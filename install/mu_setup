@@ -4,12 +4,7 @@
 # setting up the Mu tools, Chef, and assorted support libraries and utilities.
 #
 
-CHEF_CLIENT_VERSION="12.3.0-1"
-
-RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby212-2.1.2p205-1.el6.x86_64.rpm"
-RUBY_INSTALL_DIR="/opt/rubies/ruby212-2.1.2-p205"
 DIST_VERSION=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
-
 EPEL_RPM="http://mirror.metrocast.net/fedora/epel/epel-release-latest-$DIST_VERSION.noarch.rpm"
 
 CHEF_CLIENT_VERSION="12.4.1-1"

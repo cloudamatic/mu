@@ -1,0 +1,30 @@
+<?xml version="1.0" standalone="yes"?>
+<BundleConfig>
+  <Property>
+    <Name>AutoSysprep</Name>
+    <Value>No</Value>
+  </Property>
+  <Property>
+    <Name>SetRDPCertificate</Name>
+    <Value>No</Value>
+  </Property>
+  <Property>
+    <Name>SetPasswordAfterSysprep</Name>
+    <Value>Yes</Value>
+  </Property>
+  <GeneralSettings>
+    <AutoResponse>false</AutoResponse>
+    <Sysprep version="6.0">
+      <PreSysprepRunCmd>C:\Program Files\Amazon\Ec2ConfigService\Scripts\BeforeSysprep.cmd</PreSysprepRunCmd>
+      <ExePath>C:\windows\system32\sysprep\sysprep.exe</ExePath>
+      <AnswerFilePath>sysprep2008.xml</AnswerFilePath>
+      <Switches>/oobe /shutdown /generalize</Switches>
+    </Sysprep>
+    <Sysprep version="5.2">
+      <ExePath>sysprep-AMD64.exe</ExePath>
+      <AnswerFilePath>sysprep-AMD64.inf</AnswerFilePath>
+      <Switches>-quiet -pnp -mini -forceshutdown -reseal</Switches>
+      <DefaultRunInServiceProcess>true</DefaultRunInServiceProcess>
+    </Sysprep>
+  </GeneralSettings>
+</BundleConfig>
