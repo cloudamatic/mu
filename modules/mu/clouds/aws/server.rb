@@ -822,7 +822,11 @@ class Cloud
 					return true
 				end
 
-				@groomer.bootstrap
+				if @server.windows?
+					@groomer.bootstrap(15, 60)
+				else
+					@groomer.bootstrap
+				end
 
 				# Make sure we got our name written everywhere applicable
 				MU::MommaCat.nameKitten(self)

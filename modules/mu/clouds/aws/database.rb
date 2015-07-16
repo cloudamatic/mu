@@ -379,7 +379,7 @@ module MU
 
 					# Find NAT and create holes in security groups
 					if @config["vpc"]["nat_host_name"] or @config["vpc"]["nat_host_id"] or @config["vpc"]["nat_host_tag"] or @config["vpc"]["nat_host_ip"]
-						nat_tag_key, nat_tag_value = @config['vpc']['nat_host_tag'].split(/=/, 2)
+						nat_tag_key, nat_tag_value = @config['vpc']['nat_host_tag'].split(/=/, 2) if !@config['vpc']['nat_host_tag'].nil?
 						nat_instance = @vpc.findBastion(
 							nat_name: @config["vpc"]["nat_host_name"],
 							nat_cloud_id: @config["vpc"]["nat_host_id"],

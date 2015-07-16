@@ -419,6 +419,7 @@ module MU
 
 						if !rule['hosts'].nil?
 							rule['hosts'].each { |cidr|
+								next if cidr.nil? # XXX where is that coming from?
 								cidr = cidr + "/32" if cidr.match(/^\d+\.\d+\.\d+\.\d+$/)
 								ec2_rule[:ip_ranges] << { cidr_ip: cidr }
 							}
