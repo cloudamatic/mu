@@ -822,7 +822,7 @@ class Cloud
 					return true
 				end
 
-				if @server.windows?
+				if windows?
 					@groomer.bootstrap(15, 60)
 				else
 					@groomer.bootstrap
