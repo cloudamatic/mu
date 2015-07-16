@@ -1529,13 +1529,13 @@ if [ "$library" != "1" ];then
 		umask 0077
 		start_momma_cat
 		generate_ssl_certs
-		preconfigure_jenkins_artifacts
 		setup_localhost_chef_client
 		configure_nagios_server
+		preconfigure_jenkins_artifacts
 		set_permissions
 	fi
-
-	chef-client
+	knife node run_list add MU-MASTER "role[mu-master-jenkins]"
+	chef-client -l info
 
 	echo ""
 	echo "You MUST source all of the changes I made to your environment:"
