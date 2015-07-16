@@ -657,7 +657,7 @@ module MU
 					private_subnets.each { |subnet|
 						vpc_block['subnets'] << subnet
 						if !is_sibling and vpc_block['nat_host_id'].nil?
-							vpc_block['nat_host_id'] = private_subnets_map[vpc_block[subnet_ptr]].defaultRoute
+							vpc_block['nat_host_id'] = private_subnets_map[subnet[subnet_ptr]].defaultRoute
 						elsif nat_routes.has_key?(subnet) and vpc_block['nat_host_name'].nil?
 							vpc_block['nat_host_name'] == nat_routes[subnet]
 						end
