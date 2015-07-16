@@ -46,5 +46,9 @@ def list = proc.text.readLines()
     </hudson.tasks.Shell>
   </builders>
   <publishers/>
-  <buildWrappers/>
-<project>
+  <buildWrappers>
+    <hudson.plugins.ansicolor.AnsiColorBuildWrapper plugin="ansicolor@0.4.1">
+      <colorMapName>xterm</colorMapName>
+    </hudson.plugins.ansicolor.AnsiColorBuildWrapper>
+  </buildWrappers>
+</project>

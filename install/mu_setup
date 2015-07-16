@@ -1410,9 +1410,11 @@ preconfigure_jenkins_artifacts()
 	        $MU_LIBDIR/install/jenkinskeys.rb
 	        knife vault create jenkins users "{\"mu_user_password\":\"$JENKINS_ADMIN_PW\"}" --mode client -F json -u mu --search name:MU-MASTER
 	        # Create the Jenkins user
-	        mu-user-manage -c -u jenkins -e $JENKINS_ADMIN_EMAIL -p $JENKINS_ADMIN_PW
+	        $MU_INSTALLDIR/bin/mu-user-manage -c -u jenkins -e $JENKINS_ADMIN_EMAIL -p $JENKINS_ADMIN_PW
 	        # Upload the chef artifacts in jenkins user, so we can do deploys from the jenkins user
-	        su - jenkins -c "mu-upload-chef-artifacts -r mu"
+	        status_message "Uploading the ${BOLD}Jenkins${NORM} artifacts"
+	        su - jenkins -c "$MU_INSTALLDIR/bin/mu-upload-chef-artifacts -r mu"
+	        status_message "Uploaded the ${BOLD}Jenkins${NORM} artifacts"
         fi
 }
 

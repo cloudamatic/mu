@@ -971,7 +971,7 @@
             "Description" : "SSH Public/PrivateKey Interface"
         },
         "JenkinsURL" : {
-            "Value" :  { "Fn::Join" : [ "", [ { "Fn::GetAtt" : [ "MasterInstance", "PublicDnsName" ] }, ":9443" ]] },
+            "Value" :  { "Fn::Join" : [ "", [ "https://",{ "Fn::GetAtt" : [ "MasterInstance", "PublicDnsName" ] }, ":9443" ]] },
             "Description" : "Jenkins Interface"
         },
         "MuDNS" : {
