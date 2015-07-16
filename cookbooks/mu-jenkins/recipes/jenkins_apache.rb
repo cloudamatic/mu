@@ -62,6 +62,13 @@ when "centos", "redhat"
           :jenkins_port => jenkins_port
       })
   end
+
+
+  execute 'upload mu' do
+    command 'su - jenkins -c "/opt/mu/bin/mu-upload-chef-artifacts -r mu"'
+    return [0,1]
+  end
+
 else
   Chef::Log.info("Unsupported platform #{node.platform}")
 end
