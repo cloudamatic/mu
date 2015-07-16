@@ -1413,6 +1413,7 @@ preconfigure_jenkins_artifacts()
 	        $MU_INSTALLDIR/bin/mu-user-manage -c -u jenkins -e $JENKINS_ADMIN_EMAIL -p $JENKINS_ADMIN_PW
 	        # Upload the chef artifacts in jenkins user, so we can do deploys from the jenkins user
 	        status_message "Uploading the ${BOLD}Jenkins${NORM} artifacts"
+			runuser -l jenkins -c 'cd /home/jenkins && mu-upload-chef-artifacts -n -r mu'
 	        su - jenkins -c "$MU_INSTALLDIR/bin/mu-upload-chef-artifacts -r mu"
 	        status_message "Uploaded the ${BOLD}Jenkins${NORM} artifacts"
         fi

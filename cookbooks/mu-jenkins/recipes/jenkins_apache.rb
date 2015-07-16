@@ -21,6 +21,11 @@ when "centos", "redhat"
     not_if "iptables -nL | egrep '^ACCEPT.*dpt:#{apache_port}($| )'"
   end
 
+  # Upload mu artifacts so jenkins can be a deployer
+  execute "upload mu repository so jenkins can deploy" do
+    command "runuser -l jenkins -c 'cd /home/jenkins && mu-upload-chef-artifacts -n -r mu'"
+  end
+
   # Set up SELinux for port
   execute "Allow jenkins port for apache" do
     command "/usr/sbin/semanage port -a -t http_port_t -p tcp #{apache_port}"
@@ -62,6 +67,7 @@ when "centos", "redhat"
           :jenkins_port => jenkins_port
       })
   end
+
 else
   Chef::Log.info("Unsupported platform #{node.platform}")
 end
