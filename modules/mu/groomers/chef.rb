@@ -257,7 +257,13 @@ module MU
 			# Bootstrap our server with Chef
 			def bootstrap
 				if !@config['cleaned_chef']
-					preClean(true)
+					begin
+						preClean(true)
+					rescue RuntimeError => e
+						MU.log e.inspect, MU::ERR
+						sleep 10
+						retry
+					end
 					@config['cleaned_chef'] = true
 				end
 
