@@ -17,7 +17,7 @@ cookbook 'apt', '~> 2.7.0'
 cookbook 'aws', '~> 2.7.0'
 cookbook 'awscli', path: "#{cookbookPath}/awscli"
 cookbook 'bluepill', '~> 2.3.1'
-cookbook 'build-essential', '~> 2.2.2'
+cookbook 'build-essential', '~> 2.2.3'
 cookbook 'mu-master', path: "#{cookbookPath}/mu-master"
 cookbook 'mu-php54', path: "#{cookbookPath}/mu-php54"
 cookbook 'mu-tools', path: "#{cookbookPath}/mu-tools"

@@ -298,18 +298,18 @@ when "windows"
 		notifies :run, "windows_task[run-userdata]", :immediately
 	end
 
-	windows_reboot 1 do
-		reason 'Applying updates'
-		action :nothing
-	end
-
-	if registry_key_exists?("HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired")
-		ruby_block "restart windows" do
-			block do
-				puts "Restarting Windows"
-			end
-			notifies :request, 'windows_reboot[1]'
-		end
-		execute "shutdown -r -f -t 0"
-	end
+#	windows_reboot 1 do
+#		reason 'Applying updates'
+#		action :nothing
+#	end
+#
+#	if registry_key_exists?("HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired")
+#		ruby_block "restart windows" do
+#			block do
+#				puts "Restarting Windows"
+#			end
+#			notifies :request, 'windows_reboot[1]'
+#		end
+#		execute "shutdown -r -f -t 0"
+#	end
 end

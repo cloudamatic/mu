@@ -143,7 +143,7 @@ module MU
 				dbname = getName(basename, type: "dbname")
 				@config['master_user'] = getName(basename, type: "dbuser")
 				@config['identifier'] = getName(@mu_name, type: "dbidentifier")
-				MU.log "Truncated master username for #{@config['identifier']} (db #{dbname}) to #{@config['master_user']}", MU::WARN if @config['master_user'] != @config["name"] and @config["snapshot_id"].nil?
+				MU.log "Truncated master username for #{@config['identifier']} (db #{dbname}) to #{@config['master_user']}", MU::NOTICE if @config['master_user'] != @config["name"] and @config["snapshot_id"].nil?
 
 				@config['password'] = Password.pronounceable(10..12) if @config['password'].nil?
 
@@ -197,6 +197,7 @@ module MU
 				# Creating DB instance
 				MU.log "RDS config: #{db_config}", MU::DEBUG
 				attempts = 0
+				@cloud_id = @config['identifier']
 				begin
 					if @config["snapshot_id"]
 						db_config[:db_snapshot_identifier] = @config["snapshot_id"]
@@ -236,6 +237,7 @@ module MU
 					end
 
 					database = MU::Cloud::AWS::Database.getDatabaseById(@config['identifier'], region: @config['region'])
+					@cloud_desc = database
 
 					MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: database.db_instance_identifier, target: "#{database.endpoint.address}.", cloudclass: MU::Cloud::Database, sync_wait: @config['dns_sync_wait'])
 					if !@config['dns_records'].nil?

@@ -177,6 +177,7 @@ module MU
 					create: true,
 					config: @main_config,
 					verbose: MU.verbose,
+					environment: @environment,
 					nocleanup: @nocleanup,
 					set_context_to_me: true,
 					deployment_data: metadata

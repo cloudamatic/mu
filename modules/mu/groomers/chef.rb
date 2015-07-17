@@ -74,6 +74,8 @@ module MU
 				if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
 					::Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
 				end
+				@secrets_semaphore = Mutex.new
+				@secrets_granted = {}
 				::Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}/organizations/#{MU.chef_user}"
 				::Chef::Config[:environment] = node.deploy.environment
 				createGenericHostSSLCert
@@ -520,6 +522,7 @@ module MU
 			end
 
 			def grantSecretAccess(vault, item)
+				return if @secrets_granted["#{vault}:#{item}"]
 				MU::MommaCat.lock("vault-"+vault, false, true)
 				retries = 0
 				begin
@@ -549,6 +552,9 @@ module MU
 							raise MuError, "Unable to add node #{@server.mu_name} to #{vault} #{item}, aborting"
 						end
 					else
+						@secrets_semaphore.synchronize {
+							@secrets_granted["#{vault}:#{item}"] = true
+						}
 						MU.log "Granted #{@server.mu_name} access to #{vault} #{item} after #{retries} retries", MU::NOTICE
 						MU::MommaCat.unlock("vault-"+vault)
 						return
