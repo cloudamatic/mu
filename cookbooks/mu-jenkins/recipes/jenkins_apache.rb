@@ -55,6 +55,14 @@ when "centos", "redhat"
     end
   }
 
+  #Configure security and jenkins parms
+  template '/home/jenkins/config.xml' do
+    source 'jenkins_config.xml.erb'
+    owner 'jenkins'
+    group 'jenkins'
+    mode '0644'
+  end
+
   # Now the web app virtual host
   web_app "jenkins" do
       server_name "#{ENV['CHEF_PUBLIC_IP']}"
