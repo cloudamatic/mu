@@ -205,7 +205,7 @@
 
 		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Ensuring proper permissions on Cygwin's /var/empty for sshd"
 		if((Get-WmiObject win32_computersystem).partofdomain){
-			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkpasswd -l -d > /etc/passwd"'
+			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkpasswd -d > /etc/passwd"'
 			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkgroup -l -d > /etc/group"'
 		} else {
 			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkpasswd -l > /etc/passwd"'

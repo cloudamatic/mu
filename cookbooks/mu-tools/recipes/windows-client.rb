@@ -77,7 +77,7 @@ when "windows"
 			end
 
 			### This is a workaround because user data might re-install cygwin and use a random password that we don't know about. This is not idempotent, it just doesn't throw and error.
-			powershell_script "Add sshd to group" do
+			powershell_script "Add #{sshd_username} user to Domain Admins group" do
 				code "Add-ADGroupMember 'Domain Admins' -Members #{sshd_username}; Set-ADAccountPassword -Identity #{sshd_username} -NewPassword (ConvertTo-SecureString -AsPlainText \"#{sshd_password}\" -Force)"
 			end
 
@@ -201,14 +201,14 @@ when "windows"
 			end
 
 			%w{SeDenyRemoteInteractiveLogonRight SeDenyInteractiveLogonRight SeServiceLogonRight}.each { |privilege|
-				batch "Grant local Admin user #{usr} logon as service right" do
+				batch "Grant local user #{usr} logon as service right" do
 					code "C:\\Windows\\SysWOW64\\ntrights +r #{privilege} -u #{usr}"
 				end
 			}
 
 			if usr == sshd_username
 				%w{SeCreateTokenPrivilege SeTcbPrivilege SeAssignPrimaryTokenPrivilege}.each { |privilege|
-				batch "Grant local Admin user #{usr} logon as service right" do
+				batch "Grant local user #{usr} logon as service right" do
 					code "C:\\Windows\\SysWOW64\\ntrights +r #{privilege} -u #{usr}"
 				end
 				}
