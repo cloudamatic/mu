@@ -63,6 +63,12 @@ when "centos", "redhat"
     mode '0644'
   end
 
+  # Restart Jenkins to pick up the configuration changes
+  service "jenkins" do
+    action :restart
+  end
+
+
   # Now the web app virtual host
   web_app "jenkins" do
       server_name "#{ENV['CHEF_PUBLIC_IP']}"
