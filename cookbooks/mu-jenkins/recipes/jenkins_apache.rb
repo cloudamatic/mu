@@ -22,9 +22,9 @@ when "centos", "redhat"
   end
 
   # Upload mu artifacts so jenkins can be a deployer
-#  execute "upload mu repository so jenkins can deploy" do
-#    command "runuser -l jenkins -c 'cd /home/jenkins && mu-upload-chef-artifacts -n -r mu'"
-#  end
+  execute "upload mu repository so jenkins can deploy" do
+    command "runuser -l jenkins -c 'cd /home/jenkins && mu-upload-chef-artifacts -n -r mu'"
+  end
 
   # Set up SELinux for port
   execute "Allow jenkins port for apache" do
