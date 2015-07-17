@@ -101,7 +101,7 @@ module MU
 				end
 
 				cmd = "update"
-				exitstatus, output = knifeCmd("vault show '#{vault}' '#{item}' #{MU::Groomer::Chef.vault_opts} 2>&1 /dev/null")
+				exitstatus, output = knifeCmd("vault show '#{vault}' '#{item}' --search '#{permissions}' #{MU::Groomer::Chef.vault_opts} 2>&1 /dev/null")
 #				`#{MU::Groomer::Chef.knife} vault show '#{vault}' #{item} #{MU::Groomer::Chef.vault_opts} > /dev/null 2>&1`
 				cmd = "create" if exitstatus != 0
 
@@ -156,13 +156,13 @@ module MU
 				end
 				saveDeployData
 
-				ssh = @server.getSSHSession
 				MU.log "Invoking Chef on #{@server.mu_name}: #{purpose}"
 				retries = 0
 				output = []
 				error_signal = "CHEF EXITED BADLY: "+(0...25).map { ('a'..'z').to_a[rand(26)] }.join
 				runstart = nil
 				begin
+					ssh = @server.getSSHSession(max_retries)
 					cmd = nil
 					if !@server.windows?
 						if !@config["ssh_user"].nil? and !@config["ssh_user"].empty? and @config["ssh_user"] != "root"
@@ -192,7 +192,6 @@ module MU
 						end
 						sleep 10
 					end
-					ssh = @server.getSSHSession
 
 					if retries < max_retries
 						retries = retries + 1

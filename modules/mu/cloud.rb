@@ -618,7 +618,7 @@ module MU
 					# @param max_retries [Integer]: Number of connection attempts to make before giving up
 					# @param retry_interval [Integer]: Number of seconds to wait between connection attempts
 					# @return [Net::SSH::Connection::Session]
-					def getSSHSession(max_retries = 5, retry_interval = 30)
+					def getSSHSession(max_retries = 10, retry_interval = 30)
 						ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
 						nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
 						session = nil
