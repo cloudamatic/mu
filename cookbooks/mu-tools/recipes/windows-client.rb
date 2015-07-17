@@ -232,9 +232,7 @@ when "windows"
 		only_if "((schtasks /TN 'run-userdata' /query /FO LIST -v | Select-String 'Run As User') -replace '`n|`r').split(':')[1].trim() -ne '#{username}'"
 		# not_if "Get-ScheduledTask -TaskName 'run-userdata'"
 		notifies :delete, "file[C:\\bin\\cygwin\\sshd_installed_by.txt]", :immediately
-		# notifies :run, "powershell_script[kill sshd processes]", :immediately
 		notifies :run, "windows_task[run-userdata]", :immediately
-		# notifies :run, "execute[Taskkill /im sshd.exe /f /t]", :immediately #windows userdata should already be killing the any running ssh sessions. Killing SSH sessions at this point is problematic for AD nodes
 	end
 
 	# Need to add a guard to this.
@@ -265,7 +263,7 @@ when "windows"
 	end
 
 	powershell_script "restart sshd service" do
-		code "Invoke-Expression '& C:/bin/cygwin/bin/bash --login -c \"chown #{sshd_username} /var/empty\"'; Stop-Process -ProcessName sshd -force; Stop-Service sshd -Force; Start-Service sshd; sleep 5; Start-Service sshd"
+		code "Invoke-Expression '& C:/bin/cygwin/bin/bash --login -c \"chown -R #{sshd_username} /var/empty && chown #{sshd_username} /var/log/sshd.log /etc/ssh*\"'; Stop-Process -ProcessName sshd -force; Stop-Service sshd -Force; Start-Service sshd; sleep 5; Start-Service sshd"
 		action :nothing
 	end
 	
