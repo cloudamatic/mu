@@ -324,6 +324,7 @@ module MU
 			  MU.log "Knife Bootstrap settings for #{@server.mu_name} (#{canonical_addr})", MU::NOTICE, details: kb.config
 
 				retries = 0
+				@server.windows? ? max_retries = 25 : max_retries = 10
 				begin
 					# A Chef bootstrap shouldn't take this long, but... Windows.
 					Timeout::timeout(1200) {	
@@ -333,9 +334,9 @@ module MU
 					# throws Net::HTTPServerException if we haven't really bootstrapped
 					::Chef::Node.load(@server.mu_name)
 				rescue Net::SSH::Disconnect, SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::HTTPServerException, SystemExit, Errno::ECONNREFUSED, Errno::EPIPE => e
-					if retries < 10
+					if retries < max_retries
 						retries = retries + 1
-						MU.log "#{@server.mu_name}: Knife Bootstrap failed #{e.inspect}, retrying (#{retries} of 10)", MU::WARN, details: e.backtrace
+						MU.log "#{@server.mu_name}: Knife Bootstrap failed #{e.inspect}, retrying (#{retries} of #{max_retries})", MU::WARN, details: e.backtrace
 						sleep 10*retries
 						retry
 					else
