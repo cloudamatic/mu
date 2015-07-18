@@ -182,6 +182,20 @@ when "windows"
 				end
 			}
 		end
+
+		template "#{Chef::Config[:file_cache_path]}\\set_ad_dns_scheduled_task.ps1" do
+			source 'set_ad_dns_scheduled_task.ps1.erb'
+			variables(
+				:dc_ips => node.ad.dc_ips
+			)
+		end
+
+		windows_task 'set-ad-dns' do
+			user "SYSTEM"
+			command "powershell -ExecutionPolicy RemoteSigned -File '#{Chef::Config[:file_cache_path]}\\set_ad_dns_scheduled_task.ps1'"
+			run_level :highest
+			frequency :onstart
+		end
 	else 
 		# We want to run ec2config as admin user so Windows userdata executes as admin, however the local admin account doesn't have Logon As a Service right. Domain privileges are set separately	 
 		cookbook_file "c:\\Windows\\SysWOW64\\ntrights.exe" do
@@ -266,7 +280,6 @@ when "windows"
 		code "Invoke-Expression '& C:/bin/cygwin/bin/bash --login -c \"chown -R #{sshd_username} /var/empty && chown #{sshd_username} /var/log/sshd.log /etc/ssh*\"'; Stop-Process -ProcessName sshd -force; Stop-Service sshd -Force; Start-Service sshd; sleep 5; Start-Service sshd"
 		action :nothing
 	end
-	
 
 	if node.aws.instance_id
 		file "C:\\bin\\cygwin\\#{node.aws.instance_id}" do 
