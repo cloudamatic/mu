@@ -29,7 +29,7 @@ when "windows"
 
 	%w{config.xml BundleConfig.xml}.each { |file|
 		template "C:\\Program Files\\Amazon\\Ec2ConfigService\\Settings\\#{file}" do
-			source file
+			source "#{file}.erb"
 			variables(
 				:auto_gen_password => node.auto_generate_windows_password
 			)
