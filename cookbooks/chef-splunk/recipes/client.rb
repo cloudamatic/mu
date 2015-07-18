@@ -108,5 +108,6 @@ ruby_block "tighten SSL options in #{svr_conf}" do
 		f.close
 	end
 	not_if "grep ^sslVersions #{svr_conf}"
-  notifies :restart, 'service[splunk]'
+	notifies :restart, 'service[splunk]', :immediately if platform_family?("windows")
+	notifies :restart, 'service[splunk]', :delayed unless platform_family?("windows")
 end
