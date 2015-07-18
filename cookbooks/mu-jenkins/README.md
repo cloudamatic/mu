@@ -1,18 +1,18 @@
 mu-jenkins Cookbook
 ===================
-This cookbook creates a working Jenkins installation.  It can be deployed on a standalone node (see demo/jenkins.yaml) or as a Jenkins server on the mu-master itself.
+This cookbook creates a working Jenkins installation.  It can be deployed on a standalone node (see demo/jenkins.yaml) or as a Jenkins server on the mu-master itself.  
 
 Requirements
 ------------
-This is a wrapper cookbook that is meant to be run after a Jenkins install using the Jenkins community cookbook. This will configure basic authentication, create an "admin" user that will allow Chef to modify Jenkins after authentication has been enabled, Create users and install plugins.
+This is a wrapper cookbook that is meant to be run after a Jenkins install using the Jenkins community cookbook. The recipe uses some groovy scripts to manage jenkins authentication from chef itself, and create an additional administrave Jenkins user for interactive work.
 
 A jenkins vault must be present before invoking.  Two items are required
--  A users item containing passwords for each user enumerated in the default.jenkins_users attribute (see below)
+-  A users item containing passwords for each user enumerated in the default.jenkins_users attribute (see below).  The mu-user password is required, as we need at least one interactive Jenkins user
 -  An admin item containing a public and private keypair that will be used by chef to authenticate to Jenkins after disabling anonymous authentication, and a username for this user
 
 A third optional ssh item is used to store a keypair used by Jenkins to SSH to other nodes, to allow Jenkins to run code locally as part of a Jenkins job.
 
-Create the items along these lines:
+Create the vault items along these lines:
 
 admin:
 ```
@@ -81,31 +81,25 @@ Some basic attributes on the java install and node address, plus Jenkins specifi
 Usage
 -----
 #### mu-jenkins::default
-Your typical runlist will look like:
+This cookbook can run in a standalone mode which creates a basic Jenkins install on a target node, or a mu-master mode which creates a Jenkins server on a mu master.
 
+In either case the runlist will look like:
 ```    run_list:
     - recipe[java]
     - recipe[jenkins::master]
     - recipe[mu-jenkins]
 ```
 
-or if you're deploying right on the mu-master:
+In the mu-master mode the cookbook is invoked with the role[mu-master-jenkins], which adds some attributes to trigger the jenkins-apache recipe, which places Jenkins behind a mu-master apache reverse proxy:
 
     chef-client -l info -o recipe[java],recipe[jenkins::master],recipe[mu-jenkins]
 
 
 Contributing
 ------------
-TODO: (optional) If this is a public cookbook, detail the process for contributing. If this is a private cookbook, remove this section.
+Usual Cloudamatic process via pull request
 
-e.g.
-1. Fork the repository on Github
-2. Create a named feature branch (like `add_component_x`)
-3. Write your change
-4. Write tests for your change (if applicable)
-5. Run the tests, ensuring they all pass
-6. Submit a Pull Request using Github
 
 License and Authors
 -------------------
-Authors: Ami Rahav
+Authors: Ami Rahav, Robert Patt-Corner
