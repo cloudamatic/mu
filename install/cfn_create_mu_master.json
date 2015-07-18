@@ -13,15 +13,14 @@
             "Description": "S3 URL of a GitHub key for building the server",
             "Type": "String",
             "MinLength": "0",
-            "MaxLength": "255",
-            "Default": "s3://test-drive-dev-mu/github/mu_testdrive"
+            "MaxLength": "255"
         },
         "GitMuTag": {
             "Description": "Git tag or branch to pull mu, default master",
             "Type": "String",
             "MinLength": "0",
             "MaxLength": "255",
-            "Default": "headless"
+            "Default": "master"
         },      
         "KeyName": {
             "Description": "Name of an existing EC2 KeyPair to enable SSH access to Cloudamatic Server",
@@ -29,18 +28,15 @@
             "MinLength": "1",
             "MaxLength": "64",
             "AllowedPattern": "[-_ a-zA-Z.@0-9]*",
-            "ConstraintDescription": "can contain only alphanumeric characters, spaces, dashes and underscores.",
-            "Default": "testdrive_admin_20141017"
+            "ConstraintDescription": "can contain only alphanumeric characters, spaces, dashes and underscores."
         },
         "AdminIPCIDR": {
-            "Description": "Initial CIDR  address for admin access, e.g.. 50.1.1.1/32,",
-            "Type": "String",
-            "Default": "108.48.38.181/32"
+            "Description": "The IP address you will initially use to connect to the master for admin access, in CIDR format, e.g.. 50.1.1.1/32",
+            "Type": "String"
         },
         "masterIAMRole": {
             "Description": "Existing IAM instance profile/role for Mu Server to access AWS Services",
-            "Type": "String",
-            "Default": "mu_test_drive_server_role"
+            "Type": "String"
         },
         "VpcCidr": {
             "Description": "CIDR address space for the VPC to be created.",
