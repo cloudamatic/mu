@@ -63,17 +63,18 @@ end
 
 template "#{splunk_dir}/etc/system/local/outputs.conf" do
   source 'outputs.conf.erb'
-  mode 0644 if node['platform_family'] != 'windows'
+  mode 0644 unless platform_family?("windows")
   variables :splunk_servers => splunk_servers, :outputs_conf => node['splunk']['outputs_conf']
-  notifies :restart, 'service[splunk]', :immediately if node['platform_family'] == 'windows'
-  notifies :restart, 'service[splunk]' if node['platform_family'] != 'windows'
+  notifies :restart, 'service[splunk]', :immediately if platform_family?("windows")
+  notifies :restart, 'service[splunk]', :delayed unless platform_family?("windows")
 end
 
 template "#{splunk_dir}/etc/system/local/inputs.conf" do
   source 'inputs.conf.erb'
   mode 0644
   variables :inputs_conf => node['splunk']['inputs_conf']
-  notifies :restart, 'service[splunk]'
+  notifies :restart, 'service[splunk]', :immediately if platform_family?("windows")
+  notifies :restart, 'service[splunk]', :delayed unless platform_family?("windows")
   not_if { node['splunk']['inputs_conf'].nil? || node['splunk']['inputs_conf']['host'].empty? }
 end
 if node['platform_family'] != 'windows'
