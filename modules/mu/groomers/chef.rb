@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License in the root of the project or at
 #
-#     http://egt-labs.com/mu/LICENSE.html
+#	  http://egt-labs.com/mu/LICENSE.html
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -21,9 +21,9 @@ autoload :ChefVault, 'chef-vault'
 
 # Autoload is smart, but not that smart.
 class Chef
-  autoload :Knife, 'chef/knife'
-  autoload :Search, 'chef/search'
-  autoload :Node, 'chef/node'
+	autoload :Knife, 'chef/knife'
+	autoload :Search, 'chef/search'
+	autoload :Node, 'chef/node'
 	autoload :Mixin, 'chef/mixin'
 	# Autoload is smart, but not that smart.
 	class Knife
@@ -60,8 +60,8 @@ module MU
 			def self.chefclient; @chefclient;end
 			attr_reader :chefclient
 
-			if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
-				::Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+			if File.exists?("#{Etc.getpwuid(Process.uid).dir}/.chef/knife.rb")
+				::Chef::Config.from_file("#{Etc.getpwuid(Process.uid).dir}/.chef/knife.rb")
 			end
 
 			# @param node [MU::Cloud::Server]: The server object on which we'll be operating
@@ -71,8 +71,8 @@ module MU
 				if node.mu_name.nil? or node.mu_name.empty?
 					raise MuError, "Cannot groom a server that doesn't tell me its mu_name"
 				end
-				if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
-					::Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
+				if File.exists?("#{Etc.getpwuid(Process.uid).dir}/.chef/knife.rb")
+					::Chef::Config.from_file("#{Etc.getpwuid(Process.uid).dir}/.chef/knife.rb")
 				end
 				@secrets_semaphore = Mutex.new
 				@secrets_granted = {}
@@ -102,13 +102,8 @@ module MU
 
 				cmd = "update"
 				exitstatus, output = knifeCmd("vault show '#{vault}' '#{item}' --search '#{permissions}' #{MU::Groomer::Chef.vault_opts} 2>&1 /dev/null")
-#				`#{MU::Groomer::Chef.knife} vault show '#{vault}' #{item} #{MU::Groomer::Chef.vault_opts} > /dev/null 2>&1`
 				cmd = "create" if exitstatus != 0
-
-#				vault_cmd = "#{MU::Groomer::Chef.knife} vault '#{cmd}' '#{vault}' '#{item}' '#{JSON.generate(data)}' --search '#{permissions}' #{MU::Groomer::Chef.vault_opts}"
 				knifeCmd("vault '#{cmd}' '#{vault}' '#{item}' '#{JSON.generate(data).gsub(/'/, '\\1')}' --search '#{permissions}' #{MU::Groomer::Chef.vault_opts}")
-#				puts `#{vault_cmd}`
-#				MU.log vault_cmd, MU::DEBUG
 			end
 
 			# Retrieve sensitive data, which hopefully we're storing and retrieving
@@ -119,9 +114,11 @@ module MU
 			# @return [Hash]
 			def self.getSecret(vault: nil, item: nil, field: nil)
 				item = ChefVault::Item.load(vault, item)
+
 				if item.nil?
 					raise MuError, "Failed to retrieve Vault #{vault}:#{item}"
 				end
+
 				if !field.nil?
 					if item.has_key?(field)
 						return item[field]
@@ -177,9 +174,7 @@ module MU
 					retval = ssh.exec!(cmd) { |ch, stream, data|
 						puts data
 						output << data
-						if data.match(/#{error_signal}/)
-							raise MU::Groomer::RunError, output.grep(/ ERROR: /).last
-						end
+							raise MU::Groomer::RunError, output.grep(/ ERROR: /).last if data.match(/#{error_signal}/)
 					}
 				rescue RuntimeError, SystemCallError, Timeout::Error, SocketError, Errno::ECONNRESET, IOError, Net::SSH::Exception, MU::Groomer::RunError => e
 					begin
@@ -194,7 +189,7 @@ module MU
 					end
 
 					if retries < max_retries
-						retries = retries + 1
+						retries += 1
 						MU.log "#{@server.mu_name}: Chef run '#{purpose}' failed after #{Time.new - runstart} seconds, retrying (#{retries}/#{max_retries})", MU::WARN, details: e.inspect
 						sleep 30
 						retry
@@ -235,7 +230,6 @@ module MU
 						remove_cmd = "sudo rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; touch /opt/mu_installed_chef"
 					end
 					guardfile = "/opt/mu_installed_chef"
-
 				else
 					remove_cmd = "rm -rf /cygdrive/c/opscode /cygdrive/c/chef"
 					guardfile = "/cygdrive/c/mu_installed_chef"
@@ -267,8 +261,7 @@ module MU
 				end
 
 				nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = @server.getSSHConfig
-
-			  MU.log "Bootstrapping #{@server.mu_name} (#{canonical_addr}) with knife"
+				MU.log "Bootstrapping #{@server.mu_name} (#{canonical_addr}) with knife"
 
 				run_list = ["role[mu-node]", "recipe[mu-tools::newclient]"]
 				run_list << "recipe[mu-tools::updates]" if !@config['skipinitialupdates']
@@ -283,6 +276,7 @@ module MU
 					json_attribs['application_attributes'] = @config['application_attributes']
 					json_attribs['skipinitialupdates'] = @config['skipinitialupdates']
 				end
+
 				if !@config['vault_access'].nil?
 					vault_access = @config['vault_access']
 				else
@@ -291,18 +285,16 @@ module MU
 
 				if !@server.windows?
 					kb = ::Chef::Knife::Bootstrap.new([canonical_addr])
-			    kb.config[:use_sudo] = true
-			    kb.config[:distro] = 'chef-full'
-			  else
-			    kb = ::Chef::Knife::BootstrapWindowsSsh.new([canonical_addr])
-			    kb.config[:cygwin] = true
-			    kb.config[:distro] = 'windows-chef-client-msi'
-			    kb.config[:node_ssl_verify_mode] = 'none'
-			    kb.config[:node_verify_api_cert] = false
-			  end
-				if json_attribs.size > 1
-					kb.config[:json_attribs] = JSON.generate(json_attribs)
+					kb.config[:use_sudo] = true
+					kb.config[:distro] = 'chef-full'
+				else
+					kb = ::Chef::Knife::BootstrapWindowsSsh.new([canonical_addr])
+					kb.config[:cygwin] = true
+					kb.config[:distro] = 'windows-chef-client-msi'
+					kb.config[:node_ssl_verify_mode] = 'none'
+					kb.config[:node_verify_api_cert] = false
 				end
+
 # XXX this seems to break Knife Bootstrap for the moment
 #			if vault_access.size > 0
 #				v = {}
@@ -312,21 +304,21 @@ module MU
 #				}
 #				kb.config[:bootstrap_vault_json] = JSON.generate(v)
 #			end
-		    kb.config[:run_list] = run_list
-		    kb.config[:ssh_user] = ssh_user
-		    kb.config[:forward_agent] = ssh_user
-			  kb.name_args = "#{canonical_addr}"
-			  kb.config[:chef_node_name] = @server.mu_name
-			  kb.config[:bootstrap_version] = MU.chefVersion
+
+				kb.config[:json_attribs] = JSON.generate(json_attribs) if json_attribs.size > 1
+				kb.config[:run_list] = run_list
+				kb.config[:ssh_user] = ssh_user
+				kb.config[:forward_agent] = ssh_user
+				kb.name_args = "#{canonical_addr}"
+				kb.config[:chef_node_name] = @server.mu_name
+				kb.config[:bootstrap_version] = MU.chefVersion
 # XXX key off of MU verbosity level
 				kb.config[:log_level] = :debug
-				kb.config[:identity_file] = Etc.getpwuid(Process.uid).dir+"/.ssh/"+ssh_key_name
-				if !nat_ssh_host.nil?
-					kb.config[:ssh_gateway] = nat_ssh_user+"@"+nat_ssh_host
-				end
+				kb.config[:identity_file] = "#{Etc.getpwuid(Process.uid).dir}/.ssh/#{ssh_key_name}"
+				kb.config[:ssh_gateway] = "#{nat_ssh_user}@#{nat_ssh_host}" if !nat_ssh_host.nil?
 				# This defaults to localhost for some reason sometimes. Brute-force it.
-			
-			  MU.log "Knife Bootstrap settings for #{@server.mu_name} (#{canonical_addr})", MU::NOTICE, details: kb.config
+
+				MU.log "Knife Bootstrap settings for #{@server.mu_name} (#{canonical_addr})", MU::NOTICE, details: kb.config
 
 				retries = 0
 				@server.windows? ? max_retries = 25 : max_retries = 10
@@ -334,13 +326,13 @@ module MU
 					# A Chef bootstrap shouldn't take this long, but... Windows.
 					Timeout::timeout(1200) {	
 						require 'chef'
-					  kb.run
+						kb.run
 					}
 					# throws Net::HTTPServerException if we haven't really bootstrapped
 					::Chef::Node.load(@server.mu_name)
 				rescue Net::SSH::Disconnect, SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::HTTPServerException, SystemExit, Errno::ECONNREFUSED, Errno::EPIPE => e
 					if retries < max_retries
-						retries = retries + 1
+						retries += 1
 						MU.log "#{@server.mu_name}: Knife Bootstrap failed #{e.inspect}, retrying (#{retries} of #{max_retries})", MU::WARN, details: e.backtrace
 						sleep 10*retries
 						retry
@@ -418,11 +410,12 @@ module MU
 			def self.cleanup(node, vaults_to_clean = [], noop = false)
 				MU.log "Deleting Chef resources associated with #{node}"
 				vaults_to_clean.each { |vault|
-					MU::MommaCat.lock("vault-"+vault['vault'], false, true)
+					MU::MommaCat.lock("vault-#{vault['vault']}", false, true)
 					MU.log "knife vault remove #{vault['vault']} #{vault['item']} --search name:#{node}", MU::NOTICE
 					`#{MU::Groomer::Chef.knife} vault remove #{vault['vault']} #{vault['item']} --search name:#{node} 2>&1 > /dev/null` if !noop
-					MU::MommaCat.unlock("vault-"+vault['vault'])
+					MU::MommaCat.unlock("vault-#{vault['vault']}")
 				}
+
 				MU.log "knife node delete -y #{node}"
 				`#{MU::Groomer::Chef.knife} node delete -y #{node}` if !noop
 				MU.log "knife client delete -y #{node}"
@@ -443,10 +436,12 @@ module MU
 			def saveChefMetadata
 				nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = @server.getSSHConfig
 				MU.log "Saving #{@server.mu_name} Chef artifacts"
+
 				begin
-				chef_node = ::Chef::Node.load(@server.mu_name)
+					chef_node = ::Chef::Node.load(@server.mu_name)
 				rescue Net::HTTPServerException
 				end
+
 				# Figure out what this node thinks its name is
 				system_name = chef_node['fqdn'] if !chef_node['fqdn'].nil?
 				MU.log "#{@server.mu_name} local name is #{system_name}", MU::DEBUG
@@ -517,7 +512,7 @@ module MU
 					}
 				end
 				chef_node.normal.tags = tags
-			  chef_node.save
+				chef_node.save
 
 				# Finally, grant us access to some pre-existing Vaults.
 				if !@config['vault_access'].nil?
@@ -529,52 +524,44 @@ module MU
 
 			def grantSecretAccess(vault, item)
 				return if @secrets_granted["#{vault}:#{item}"]
-				MU::MommaCat.lock("vault-"+vault, false, true)
+				MU::MommaCat.lock("vault-#{vault}", false, true)
 				retries = 0
 				begin
-					retries = retries + 1
-#					vault_cmd = "#{MU::Groomer::Chef.knife} vault update #{vault} #{item} #{MU::Groomer::Chef.vault_opts} --search name:#{@server.mu_name} 2>&1"
+					retries += 1
 					exitstatus, output = knifeCmd("vault update #{vault} #{item} #{MU::Groomer::Chef.vault_opts} --search name:#{@server.mu_name}")
-#					MU.log "ADD attempt #{retries} enabling #{@server.mu_name} for vault access to #{vault} #{item} using command  #{vault_cmd}", MU::DEBUG
-#					output = `#{vault_cmd}`
-#          MU.log "Result of ADD attempt #{retries} enabling #{@server.mu_name} for vault access to #{vault} was #{output} with RC #{$?.exitstatus}", MU::DEBUG
-					if exitstatus != 0
-#						MU.log "Got bad exit code on try #{retries} from knife vault update #{vault} #{item} #{MU::Groomer::Chef.vault_opts} --search name:#{@server.mu_name}", MU::WARN, details: output
-					end
-					# Check and see if what we asked for actually got done
-#					vault_cmd = "#{MU::Groomer::Chef.knife} vault show #{vault} #{item} clients -p clients -f yaml #{MU::Groomer::Chef.vault_opts} 2>&1"
-					#MU.log vault_cmd, MU::DEBUG
-#					output = `#{vault_cmd}`
 					exitstatus, output = knifeCmd("vault show #{vault} #{item} clients -p clients -f yaml #{MU::Groomer::Chef.vault_opts} 2>&1")
-#					MU.log "VERIFYING #{@server.mu_name} access to #{vault} #{item}:\n #{output}", MU::DEBUG
+
 					if !output.match(/#{@server.mu_name}/)
 						MU.log "Didn't see #{@server.mu_name} in output of vault show #{vault} #{item}, trying again...", MU::WARN, details: output
 						if retries < 10
-							MU::MommaCat.unlock("vault-"+vault)
+							MU::MommaCat.unlock("vault-#{vault}")
 							sleep 5
 							redo
 						else
-							MU::MommaCat.unlock("vault-"+vault)
+							MU::MommaCat.unlock("vault-#{vault}")
 							raise MuError, "Unable to add node #{@server.mu_name} to #{vault} #{item}, aborting"
 						end
 					else
 						@secrets_semaphore.synchronize {
 							@secrets_granted["#{vault}:#{item}"] = true
 						}
+
 						MU.log "Granted #{@server.mu_name} access to #{vault} #{item} after #{retries} retries", MU::NOTICE
-						MU::MommaCat.unlock("vault-"+vault)
+						MU::MommaCat.unlock("vault-#{vault}")
 						return
 					end
 				ensure
-					MU::MommaCat.unlock("vault-"+vault)
+					MU::MommaCat.unlock("vault-#{vault}")
 				end while true
-				MU::MommaCat.unlock("vault-"+vault)
+
+				MU::MommaCat.unlock("vault-#{vault}")
 			end
 
 			def knifeCmd(cmd, showoutput = false)
 				MU.log "knife #{cmd}", MU::NOTICE if showoutput
 				output = `#{MU::Groomer::Chef.knife} #{cmd}`
 				exitstatus = $?.exitstatus
+
 				if showoutput
 					puts output
 					puts "Exit status: #{exitstatus}"
@@ -594,6 +581,7 @@ module MU
 				if !Dir.exist?(MU.mySSLDir)
 					Dir.mkdir(MU.mySSLDir, 0700)
 				end
+
 				open("#{MU.mySSLDir}/#{@server.mu_name}.key", 'w', 0600) { |io|
 					io.write key.to_pem
 				}
@@ -630,13 +618,11 @@ module MU
 					http.use_ssl = true
 					http.verify_mode = OpenSSL::SSL::VERIFY_NONE
 					response = http.request(req)
-					if response.code != "200"
-						MU.log "Got error back on signing request for #{MU.mySSLDir}/#{@server.mu_name}.csr", MU::ERR
-					end
+					
+					MU.log "Got error back on signing request for #{MU.mySSLDir}/#{@server.mu_name}.csr", MU::ERR if response.code != "200"
 				end
 
 				cert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/#{@server.mu_name}.crt"
-
 				# Upload the certificate to a Chef Vault for this node
 				certdata = {
 					"data" => {
@@ -647,14 +633,7 @@ module MU
 				saveSecret(item: "ssl_cert", data: certdata)
 
 				# Any and all 'secrets' parameters should also be stuffed into our vault.
-				if !@config['secrets'].nil?
-					saveSecret(item: "secrets", data: @config['secrets'])
-				end
-				
-				if @server.windows?
-					# We're creating the vault earlier to allow us to grab the Windows Admin password when running MU::Server.initialSSHTasks.
-					grantSecretAccess(@server.mu_name, "windows_credentials")
-				end
+				saveSecret(item: "secrets", data: @config['secrets']) if !@config['secrets'].nil?
 			end
 
 			# Add a role or recipe to a node. Optionally, throw a fit if it doesn't
