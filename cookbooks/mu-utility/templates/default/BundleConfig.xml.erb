@@ -10,7 +10,11 @@
   </Property>
   <Property>
     <Name>SetPasswordAfterSysprep</Name>
+<% if @auto_gen_password %>
     <Value>Yes</Value>
+<% else %>
+    <Value>No</Value>
+<% end %>
   </Property>
   <GeneralSettings>
     <AutoResponse>false</AutoResponse>

@@ -1077,6 +1077,7 @@ class Cloud
 						session = getSSHSession
 						if windows?
 							session.exec!("rm -rf /cygdrive/c/chef/ /home/#{@config['windows_admin_username']}/.ssh/authorized_keys /home/Administrator/.ssh/authorized_keys")
+							# session.exec!("powershell -Command \"& {(Get-WmiObject -Class Win32_Product -Filter \"Name='UniversalForwarder'\").Uninstall()}\"")
 						else
 							sudo = ""
 							sudo = "sudo" if @config['ssh_user'] != "root"

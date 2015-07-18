@@ -3,7 +3,11 @@
   <Plugins>
     <Plugin>
       <Name>Ec2SetPassword</Name>
+<% if @auto_gen_password %>
       <State>Enabled</State>
+<% else %>
+      <State>Disabled</State>
+<% end %>
     </Plugin>
     <Plugin>
       <Name>Ec2SetComputerName</Name>

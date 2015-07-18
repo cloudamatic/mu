@@ -28,8 +28,11 @@ when "windows"
 #	}
 
 	%w{config.xml BundleConfig.xml}.each { |file|
-		cookbook_file "C:\\Program Files\\Amazon\\Ec2ConfigService\\Settings\\#{file}" do
+		template "C:\\Program Files\\Amazon\\Ec2ConfigService\\Settings\\#{file}" do
 			source file
+			variables(
+				:auto_gen_password => node.auto_generate_windows_password
+			)
 		end
 	}
 
