@@ -15,11 +15,13 @@
 case node.platform
 when "windows"
 	execute "del c:\\Mu-Bootstrap*"
-	file "c:\\mu-installer-ran-updates" do
-		action :delete
-	end
+	%w{c:\\mu-installer-ran-update c:\\mu-configure-initial-ssh-user}.each { |file|
+		file file do
+			action :delete
+		end
+		}
 
-	admin_username = powershell_out("(Get-WmiObject -Query 'Select * from Win32_UserAccount Where (LocalAccount=True and SID like \"%-500\")').name").stdout.strip
+	# admin_username = powershell_out("(Get-WmiObject -Query 'Select * from Win32_UserAccount Where (LocalAccount=True and SID like \"%-500\")').name").stdout.strip
 # XXX can't do this here, Mu still needs to get back in
 #	["Administrator", admin_username].each { |user|
 #		file "c:\\bin\\cygwin\\home\\#{user}\\.ssh\\authorized_keys" do
