@@ -258,12 +258,25 @@ when "windows"
 		# not_if "Get-ScheduledTask -TaskName 'run-chef-client'"
 	end
 
-	execute "Set sshd service to login with ssh user" do
-		not_if "sc qc sshd | findstr SERVICE_START_NAME | findstr #{sshd_guard}"
-		command "sc config sshd obj= \"#{sshd_service_username}\" password= \"#{sshd_password}\""
-		# notifies :restart, "service[sshd]", :immediately
-		notifies :run, "powershell_script[restart sshd service]", :immediately
-		sensitive true
+	# This is problematic now, we do want to change the password on this service even if the user is already configured to run the service. 
+	# We fixed the Cygwin/SSH issue of it falling back to running as system, so now the credentials are out of sync between the Windows user and service.
+	# but without the guard we can't use notifies, which means this change won't apply until the next time the service is restarted which is likely to be on the the next system restart.
+	# Because this doesn't apply to domain nodes we will still use the guard there.
+	if in_domain?
+		execute "Set sshd service to login with ssh user" do
+			not_if "sc qc sshd | findstr SERVICE_START_NAME | findstr #{sshd_guard}"
+			command "sc config sshd obj= \"#{sshd_service_username}\" password= \"#{sshd_password}\""
+			notifies :run, "powershell_script[restart sshd service]", :immediately
+			sensitive true
+		end
+	else
+		execute "Set sshd service to login with ssh user" do
+			# not_if "sc qc sshd | findstr SERVICE_START_NAME | findstr #{sshd_guard}"
+			command "sc config sshd obj= \"#{sshd_service_username}\" password= \"#{sshd_password}\""
+			# notifies :restart, "service[sshd]", :immediately
+			# notifies :run, "powershell_script[restart sshd service]", :immediately
+			sensitive true
+		end
 	end
 
 	execute "Taskkill /im sshd.exe /f /t" do

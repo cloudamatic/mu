@@ -113,20 +113,20 @@
 		}
 
 		# We're going to make sure the initial ssh user works. This should replace the need of removing and re-installing the ssh service.
-		# Should probably add a guard to make sure this doesn't run in a domain.
-		If (!(Test-Path "c:/mu-configure-initial-ssh-user")){
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) making sure the ssh user is configured correctly"
-			(([adsi]("WinNT://./$sshdUser, user")).psbase.invoke('SetPassword', "$password"))
-			$sshd_service = Get-WmiObject -Class Win32_Service -Filter "Name='sshd'"
-			$sshd_service.Change($Null,$Null,$Null,$Null,$Null,$Null,".\$sshdUser",$password,$Null,$Null,$Null)
+		if (!(Get-WmiObject win32_computersystem).partofdomain){
+			If (!(Test-Path "c:/mu-configure-initial-ssh-user")){
+				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) making sure the ssh user is configured correctly"
+				(([adsi]("WinNT://./$sshdUser, user")).psbase.invoke('SetPassword', "$password"))
+				$sshd_service = Get-WmiObject -Class Win32_Service -Filter "Name='sshd'"
+				$sshd_service.Change($Null,$Null,$Null,$Null,$Null,$Null,".\$sshdUser",$password,$Null,$Null,$Null)
 
-			$editrights="$cygwin_dir/bin/editrights"
-			&$editrights -a SeAssignPrimaryTokenPrivilege -u $sshdUser
-			&$editrights -a SeCreateTokenPrivilege -u $sshdUser
-			&$editrights -a SeTcbPrivilege -u $sshdUser
-			&$editrights -a SeServiceLogonRight -u $sshdUser
-			&$editrights -a SeAssignPrimaryTokenPrivilege -u $sshdUser
-			Add-Content c:/mu-configure-initial-ssh-user "done"
+				$editrights="$cygwin_dir/bin/editrights"
+				&$editrights -a SeAssignPrimaryTokenPrivilege -u $sshdUser
+				&$editrights -a SeCreateTokenPrivilege -u $sshdUser
+				&$editrights -a SeTcbPrivilege -u $sshdUser
+				&$editrights -a SeServiceLogonRight -u $sshdUser
+				Add-Content c:/mu-configure-initial-ssh-user "done"
+			}
 		}
 
 		$sshd_svc_user = (Get-WmiObject -Query "SELECT * FROM win32_service WHERE name='sshd'").StartName
