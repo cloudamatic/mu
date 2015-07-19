@@ -10,5 +10,8 @@ For more detailed information on Cloudamatic architecture and mu tooling usage, 
 
 The mu tooling is currently supported on RHEL or CentOS 6 in Amazon Web Services with RHEL/CentOS 7 in active development.
 
-## Installation and Operation
-See the [Usage](https://github.com/cloudamatic/mu/wiki/Usage) section of our Wiki for a brief overview of the installation of Cloudamatic and its mu tooling
+## Installation
+See the [README](../installation/README.md) in the installation folder for mu master installation instructions
+
+## Usage
+See the [Usage](https://github.com/cloudamatic/mu/wiki/Usage) section of our Wiki for an overview of how to use the mu tooling for deployment
