@@ -44,3 +44,5 @@ As general guidance the CloudFormation stack can serve as a model for more compl
 5. Fill in the required environmental variables in the display, along the lines of:
 
 ![](images/\Usage.png) 
+
+For mu master usage instructions see [our Wiki](https://github.com/cloudamatic/mu/wiki/Usage)
