@@ -26,7 +26,7 @@ module MU
 		class MuCloudResourceNotImplemented < StandardError; end
 
 		generic_class_methods = [:find, :cleanup]
-		generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config, :cloud_desc]
+		generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config]
 
 		# Initialize empty classes for each of these. We'll fill them with code
 		# later; we're doing this here because otherwise the parser yells about
@@ -306,6 +306,8 @@ module MU
 					@cloud = kitten_cfg['cloud']
 					@cloudclass = MU::Cloud.loadCloudType(@cloud, self.class.shortname)
 					@environment = kitten_cfg['environment']
+					@method_semaphore = Mutex.new
+					@method_locks = {}
 # XXX require subclass to provide attr_readers of @config and @deploy
 
 					@cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg, cloud_id: cloud_id, mu_name: mu_name)
@@ -343,7 +345,6 @@ module MU
 
 				def cloud_desc
 					describe
-# XXX maybe we just need to call @cloudobj.cloud_desc
 					if !@config.nil? and !@cloud_id.nil?
 						# The find() method should be returning a Hash with the cloud_id
 						# as a key.
@@ -359,6 +360,7 @@ module MU
 							raise e
 						end
 					end
+					return @cloud_desc
 				end
 
 				# Retrieve all of the known metadata for this resource.
@@ -723,6 +725,17 @@ module MU
 						return nil if @cloudobj.nil?
 						MU.log "Invoking #{@cloudobj}.#{method}", MU::DEBUG
 
+						# Go ahead and guarantee that we can't accidentally trigger these
+						# methods recursively.
+						@method_semaphore.synchronize {
+							# findBastion can get called by multiple threads harmlessly;
+							# we're looking for recursion, not contention.
+							if @method_locks.has_key?(method) and method != :findBastion
+								MU.log "Double-call to cloud method #{method} for #{self}", MU::WARN, details: caller + ["competing call stack:"] + @method_locks[method]
+							end
+							@method_locks[method] = caller
+						}
+
 						# Make sure the describe() caches are fresh
 						@cloudobj.describe if method != :describe
 
@@ -752,6 +765,9 @@ module MU
 							retval['mu_name'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
 							@deploy.notify(self.class.cfg_plural, @config['name'], retval, triggering_node: @cloudobj) if !@deploy.nil?
 						end
+						@method_semaphore.synchronize {
+							@method_locks.delete(method)
+						}
 						retval
 					end
 				} # end instance method list

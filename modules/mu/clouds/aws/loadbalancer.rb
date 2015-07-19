@@ -23,7 +23,6 @@ module MU
 			attr_reader :mu_name
 			attr_reader :config
 			attr_reader :cloud_id
-			attr_reader :cloud_desc
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::loadbalancers}
@@ -123,8 +122,8 @@ module MU
 						raise MuError, "#{e.inspect} when creating #{@mu_name}", e.backtrace
 					end
 				end
-				MU.log "Load Balancer is at #{resp.dns_name}"
 				@cloud_id = @mu_name
+				MU.log "Load Balancer is at #{resp.dns_name}"
 
 				parent_thread_id = Thread.current.object_id
 				dnsthread = Thread.new {
@@ -283,7 +282,6 @@ module MU
 			# Return the metadata for this LoadBalancer
 			# @return [Hash]
 			def notify
-				mu_name, config, deploydata = describe(cloud_id: @mu_name)
 				deploy_struct = {
 					"awsname" => @mu_name,
 					"dns" => cloud_desc.dns_name
@@ -352,6 +350,7 @@ module MU
 			# @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
 			# @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching LoadBalancers
 			def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil)
+
 				matches = {}
 				list = {}
 				resp = MU::Cloud::AWS.elb(region).describe_load_balancers

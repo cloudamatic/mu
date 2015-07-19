@@ -59,6 +59,8 @@ module MU
 			else
 				@groomer_class = MU::Groomer.loadGroomer(server.config['groomer'])
 			end
+			@groom_semaphore = Mutex.new
+			@groom_locks = {}
 			@groomer_obj = @groomer_class.new(server)
 		end
 
@@ -72,6 +74,15 @@ module MU
 		MU::Groomer.requiredMethods.each { |method|
 			define_method method do |*args|
 				retval = nil
+
+				# Go ahead and guarantee that we can't accidentally trigger these
+				# methods recursively.
+				@groom_semaphore.synchronize {
+					if @groom_locks.has_key?(method)
+						MU.log "Double-call to groomer method #{method} for #{@server}", MU::WARN, details: caller + ["Competing call stack"] + @groom_locks[method]
+					end
+					@groom_locks[method] = caller
+				}
 				if method != :saveSecret
 					MU.log "Calling groomer method #{method}", MU::DEBUG, details: args
 				else
@@ -84,6 +95,9 @@ module MU
 				else
 					retval = @groomer_obj.method(method).call
 				end
+				@groom_semaphore.synchronize {
+					@groom_locks.delete(method)
+				}
 				retval
 			end
 		}
