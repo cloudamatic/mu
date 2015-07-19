@@ -7,11 +7,12 @@ existing Chef Groomer implementation and this README as a guide.
 
 A `MU::Groomer` object is the generic interface to host configuration
 platforms, used so that other parts of Mu can operate on nodes without needing
-to know specifics about how to operate Chef vs. Puppet vs. Ansible, etc.
+to know specifics about Chef or its ilk. 
 
-It is create for and invoked from `MU::Cloud::Server` objects during certain
-phases of their creation and upkeep, to manage host-level configuration and to
-share metadata amongst other objects in a deployment.
+`MU::Groomer` objects are created for and invoked from `MU::Cloud::Server`
+objects during certain phases of their creation and upkeep. They run
+recipes/manifests/scripts to manage the host's configuration and share metadata
+from the rest of a Mu deployment.
 
 Any Groomer plugin must implement the following instance methods:
 
@@ -32,7 +33,7 @@ successfully run on this node.
 **saveDeployData**: Propagate Mu deployment metadata into the host management
 system so that it will be accessible from recipes/manifests.
 
-**getSecret**/**saveSecret**: Retrieve a piece of secured (encrypted,
+**getSecret**/**saveSecret**: Set or retrieve a piece of secured (encrypted,
 access-controlled) data from whatever mechanism this host management system
 uses for that job, e.g. Chef's Vault add-on.
 
@@ -52,6 +53,6 @@ implementing a new Groomer are:
 
 **mu_name**: The "official" name of this node within Mu. This name is guaranteed to be unique amongst all `MU::Cloud::Server` objects managed by your Mu Master. If the host management platform you're implementing needs to name nodes something, it should be this.
 
-**getSSHSession**: This method will return a *Net::SSH::Session* object connected to the host which is being groomed.
+**getSSHSession**: This method will return a `Net::SSH::Session` object connected to the host which is being groomed.
 
 
