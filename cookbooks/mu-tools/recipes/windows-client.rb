@@ -246,6 +246,7 @@ when "windows"
 		only_if "((schtasks /TN 'run-userdata' /query /FO LIST -v | Select-String 'Run As User') -replace '`n|`r').split(':')[1].trim() -ne '#{username}'"
 		# not_if "Get-ScheduledTask -TaskName 'run-userdata'"
 		notifies :delete, "file[C:\\bin\\cygwin\\sshd_installed_by.txt]", :immediately
+		# Do we really need to run userdata at his point? probably not because the SSH user should have already been configured correctly when userdata was initially run, and there is nothing we needed in userdata other than that
 		notifies :run, "windows_task[run-userdata]", :immediately
 	end
 

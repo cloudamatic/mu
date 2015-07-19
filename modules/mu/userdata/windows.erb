@@ -75,53 +75,70 @@
 		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Setting Windows Update parameters in registry"
 		Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update" -Name AUOptions -Value 3
 
-		If (!(Test-Path "$cygwin_dir/$instanceid")){
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Processing Cygwin for the first time on this node"
-			if ((Get-Service "sshd" -ErrorAction SilentlyContinue) -and (Test-Path "$cygwin_dir/bin/bash.exe")) {
-				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Disabling pre-existing sshd"
-
-				Stop-Service -ErrorAction SilentlyContinue sshd
-				Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue
-				Invoke-Expression '& $cygwin_dir/bin/bash --login -c "cygrunsrv --stop sshd; cygrunsrv --remove sshd; net user sshd /delete; net user sshd_service /delete; mkpasswd > /etc/passwd"'
+		If (!(Test-Path "$cygwin_dir/Cygwin.bat")){
+			If (!(Test-Path $env:Temp/setup-x86_64.exe)){
+				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Cygwin setup"
+				Invoke-WebRequest -Uri "http://cygwin.com/setup-x86_64.exe" -OutFile $env:Temp/setup-x86_64.exe
 			}
 
-			If (!(Test-Path "$cygwin_dir/Cygwin.bat")){
-				Import-Module BitsTransfer
-				If (!(Test-Path $env:Temp/setup-x86_64.exe)){
-					Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Cygwin setup"
-					Invoke-WebRequest -Uri "http://cygwin.com/setup-x86_64.exe" -OutFile $env:Temp/setup-x86_64.exe
-				}
-
-				If (!(Test-Path $env:Temp/cygwin.zip)){
-					Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Cygwin packages"
-					Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/cygwin_20150531.zip" -OutFile $env:Temp/cygwin.zip
-				}
-
-				Add-Type -A 'System.IO.Compression.FileSystem'
-				If (!(Test-Path $env:Temp/cygwin)){
-					Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Extracting Cygwin packages"
-					[IO.Compression.ZipFile]::ExtractToDirectory("$env:Temp/cygwin.zip", "$env:Temp/cygwin")
-				}
-
-				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running Cygwin installer"
-				Start-Process -wait -FilePath "$env:Temp/setup-x86_64.exe" -ArgumentList "-q -n -l $env:Temp -l $env:Temp\cygwin -L -R $cygwin_dir -P openssh,mintty,vim,curl,openssl"
+			If (!(Test-Path $env:Temp/cygwin.zip)){
+				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Cygwin packages"
+				Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/cygwin_20150531.zip" -OutFile $env:Temp/cygwin.zip
 			}
 
-			New-Item $cygwin_dir/$instanceid -type file -force -value "<%= $mu.muID %>"
+			Add-Type -A 'System.IO.Compression.FileSystem'
+			If (!(Test-Path $env:Temp/cygwin)){
+				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Extracting Cygwin packages"
+				[IO.Compression.ZipFile]::ExtractToDirectory("$env:Temp/cygwin.zip", "$env:Temp/cygwin")
+			}
+
+			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running Cygwin installer"
+			Start-Process -wait -FilePath "$env:Temp/setup-x86_64.exe" -ArgumentList "-q -n -l $env:Temp -l $env:Temp\cygwin -L -R $cygwin_dir -P openssh,mintty,vim,curl,openssl"
 		}
 
-		if ((Get-WmiObject win32_computersystem).partofdomain -ne $true){
-			if ((Test-Path $cygwin_dir\sshd_installed_by.txt) -and ((Get-Content $cygwin_dir\sshd_installed_by.txt) -ne $admin_username)){
-				if ($username -ne "system"){
-					Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Changed Admin username, will reinstall sshd"
-					if (Get-Service "sshd" -ErrorAction SilentlyContinue){
-						Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Stopping sshd temporarily"
-						Stop-Service -ErrorAction SilentlyContinue sshd
-						Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue
-					}
-					Invoke-Expression '& $cygwin_dir/bin/bash --login -c "cygrunsrv --stop sshd; cygrunsrv --remove sshd; net user sshd /delete; net user sshd_service /delete; mkpasswd > /etc/passwd"'
-				}
-			}
+		if (!(Get-Service "sshd" -ErrorAction SilentlyContinue)){
+			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Invoking ssh-host-config"
+			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "ssh-host-config -y -c ntsec -w ''$password'' -u $sshdUser" > $cygwin_dir/sshd_setup_log.txt'
+			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "sed -i.bak ''s/#.*StrictModes.*yes/StrictModes no/'' /etc/sshd_config" >> $cygwin_dir/sshd_setup_log.txt'
+			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "sed -i.bak ''s/#.*PasswordAuthentication.*yes/PasswordAuthentication no/'' /etc/sshd_config" >> $cygwin_dir/sshd_setup_log.txt'
+		}
+
+		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Ensuring domain or local users are in /etc/passwd for sshd"
+		if((Get-WmiObject win32_computersystem).partofdomain){
+			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkpasswd -d > /etc/passwd"'
+			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkgroup -l -d > /etc/group"'
+		} else {
+			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkpasswd -l > /etc/passwd"'
+			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkgroup -l > /etc/group"'
+		}
+
+		# We're going to make sure the initial ssh user works. This should replace the need of removing and re-installing the ssh service.
+		# Should probably add a guard to make sure this doesn't run in a domain.
+		If (!(Test-Path "c:/mu-configure-initial-ssh-user")){
+			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) making sure the ssh user is configured correctly"
+			(([adsi]("WinNT://./$sshdUser, user")).psbase.invoke('SetPassword', "$password"))
+			$sshd_service = Get-WmiObject -Class Win32_Service -Filter "Name='sshd'"
+			$sshd_service.Change($Null,$Null,$Null,$Null,$Null,$Null,".\$sshdUser",$password,$Null,$Null,$Null)
+
+			$editrights="$cygwin_dir/bin/editrights"
+			&$editrights -a SeAssignPrimaryTokenPrivilege -u $sshdUser
+			&$editrights -a SeCreateTokenPrivilege -u $sshdUser
+			&$editrights -a SeTcbPrivilege -u $sshdUser
+			&$editrights -a SeServiceLogonRight -u $sshdUser
+			&$editrights -a SeAssignPrimaryTokenPrivilege -u $sshdUser
+			Add-Content c:/mu-configure-initial-ssh-user "done"
+		}
+
+		$sshd_svc_user = (Get-WmiObject -Query "SELECT * FROM win32_service WHERE name='sshd'").StartName
+		if ( $sshd_svc_user.contains("\") ){
+			$sshd_svc_user = $sshd_svc_user.substring($sshd_svc_user.LastIndexOf("\")+1)
+		}
+		Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "chown -R $sshd_svc_user /var/empty && chown $sshd_svc_user /var/log/sshd.log /etc/ssh*"'
+
+		If (!((Get-ItemProperty HKLM:/SYSTEM/CurrentControlSet/Control/Lsa)."Authentication Packages" | Select-String -pattern "cyglsa64.dll")){
+			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running cyglsa-config to grant Cygwin binaries privileges"
+			Invoke-Expression '& $cygwin_dir/bin/bash --login -c "echo yes | /usr/bin/cyglsa-config"'
+			$need_reboot = $TRUE
 		}
 
 		$python_path = 'c:\bin\python\python27'
@@ -159,7 +176,7 @@
 			Set-Content "c:/mu_installed_chef" "yup"
 		}
 
-		<% if !$mu.skipApplyUpdates %>
+	<% if !$mu.skipApplyUpdates %>
 		If (!(Test-Path "c:/mu-installer-ran-updates")){
 			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Applying Windows updates"
 			Import-Module PSWindowsUpdate
@@ -168,13 +185,7 @@
 				$need_reboot = $TRUE
 			}
 		}
-		<% end %>
-
-		If (!((Get-ItemProperty HKLM:/SYSTEM/CurrentControlSet/Control/Lsa)."Authentication Packages" | Select-String -pattern "cyglsa64.dll")){
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running cyglsa-config to grant Cygwin binaries privileges"
-			Invoke-Expression '& $cygwin_dir/bin/bash --login -c "echo yes | /usr/bin/cyglsa-config"'
-			$need_reboot = $TRUE
-		}
+	<% end %>
 
 		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Fetching Mu deploy secret from s3://<%= MU.adminBucketName %>/<%= $mu.muID %>-secret"
 		aws.cmd s3 cp s3://<%= MU.adminBucketName %>/<%= $mu.muID %>-secret $env:Temp/<%= $mu.muID %>-secret
@@ -182,41 +193,10 @@
 		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Encrypting Mu deploy secret"
 		$deploy_secret = & "c:\opscode\chef\embedded\bin\ruby" -ropenssl -rbase64 -e "key = OpenSSL::PKey::RSA.new(Base64.urlsafe_decode64('<%= $mu.deployKey %>'))" -e "print Base64.urlsafe_encode64(key.public_encrypt(File.read('$env:Temp/<%= $mu.muID %>-secret')))"
 
-		if (!(Get-Service "sshd" -ErrorAction SilentlyContinue)){
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Invoking ssh-host-config"
-			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "ssh-host-config -y -c ntsec -w ''$password'' -u $sshdUser" > $cygwin_dir/sshd_setup_log.txt'
-			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "sed -i.bak ''s/#.*StrictModes.*yes/StrictModes no/'' /etc/sshd_config" >> $cygwin_dir/sshd_setup_log.txt'
-			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "sed -i.bak ''s/#.*PasswordAuthentication.*yes/PasswordAuthentication no/'' /etc/sshd_config" >> $cygwin_dir/sshd_setup_log.txt'
-			New-Item $cygwin_dir/sshd_installed_by.txt -type file -force -value $admin_username
-		}
-
-<% if $mu.windowsAdminName %>
-		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Creating $cygwin_dir/home/<%= $mu.windowsAdminName %>/.ssh/authorized_keys"
-		New-Item $cygwin_dir/home/<%= $mu.windowsAdminName %>/.ssh/authorized_keys -type file -force -value "<%= $mu.deploySSHKey %>"
-<% else %>
-		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Creating $cygwin_dir/home/$admin_username/.ssh/authorized_keys"
-		New-Item $cygwin_dir/home/$admin_username/.ssh/authorized_keys -type file -force -value "<%= $mu.deploySSHKey %>"
-<% end %>
-
 		if (!(Get-NetFirewallRule -DisplayName "Allow SSH" -ErrorAction SilentlyContinue)){
 			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Opening port 22 in Windows Firewall"
 			New-NetFirewallRule -DisplayName "Allow SSH" -Direction Inbound -LocalPort 22 -Protocol TCP -Action Allow
 		}
-
-		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Ensuring proper permissions on Cygwin's /var/empty for sshd"
-		if((Get-WmiObject win32_computersystem).partofdomain){
-			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkpasswd -d > /etc/passwd"'
-			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkgroup -l -d > /etc/group"'
-		} else {
-			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkpasswd -l > /etc/passwd"'
-			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkgroup -l > /etc/group"'
-		}
-
-		$sshd_svc_user = (Get-WmiObject -Query "SELECT * FROM win32_service WHERE name='sshd'").StartName
-		if ( $sshd_svc_user.contains("\") ){
-			$sshd_svc_user = $sshd_svc_user.substring($sshd_svc_user.LastIndexOf("\")+1)
-		}
-		Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "chown $sshd_svc_user /var/empty"'
 
 <% if $mu.windowsAdminName %>
 		if ((Get-WmiObject win32_computersystem).partofdomain -ne $true){
@@ -228,21 +208,30 @@
 		}
 <% end %>
 
-		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Enabling sshd service"
-		Start-Service sshd
-		Set-Service sshd -startuptype "Automatic"
-
 		if ($need_reboot){
 			Restart-Computer -Force
 			exit
 		} else {
+			# Moving ssh keys to after we installed all the updates so windows won't throw us out
+			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Enabling sshd service"
+			Start-Service sshd
+			Set-Service sshd -startuptype "Automatic"
+
+	<% if $mu.windowsAdminName %>
+			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Creating $cygwin_dir/home/<%= $mu.windowsAdminName %>/.ssh/authorized_keys"
+			New-Item $cygwin_dir/home/<%= $mu.windowsAdminName %>/.ssh/authorized_keys -type file -force -value "<%= $mu.deploySSHKey %>"
+	<% else %>
+			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Creating $cygwin_dir/home/$admin_username/.ssh/authorized_keys"
+			New-Item $cygwin_dir/home/$admin_username/.ssh/authorized_keys -type file -force -value "<%= $mu.deploySSHKey %>"
+	<% end %>
+
 			Add-Content c:/mu-installer-ran-updates "$(Get-Date -f MM-dd-yyyy_HH:mm:ss)"
 			$url = 'https://<%= $mu.publicIP %>:2260'
 			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Calling home to $url"
 			Start-Process -FilePath "c:\bin\cygwin\bin\curl.exe" -ArgumentList "-k --data mu_id='<%= $mu.muID %>' --data mu_resource_name='<%= $mu.resourceName %>' --data mu_resource_type='<%= $mu.resourceType %>' --data mu_instance_id='$instanceid' --data mu_bootstrap='1' --data mu_user='<%= $mu.muUser %>' --data mu_deploy_secret='$deploy_secret' $url" -Wait
 		}
     # }
-		Set-Content "c:/mu_userdata_complete" "yup"
+	Set-Content "c:/mu_userdata_complete" "yup"
 	Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy Undefined
 </powershell>
 <persist>true</persist>
