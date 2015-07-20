@@ -242,7 +242,11 @@ def import_scheduled_tasks
 end
 
 def set_sshd_service
+	ssh_user_set = ssh_user_set?(new_resource.ssh_guard)
+
 	cmd = powershell_out("$sshd_service = Get-WmiObject Win32_service | Where-Object {$_.Name -eq 'sshd'}; $sshd_service.Change($Null,$Null,$Null,$Null,$Null,$Null,'#{new_resource.ssh_service_user}','#{new_resource.ssh_password}',$Null,$Null,$Null)")
-	cmd = powershell_out("c:/bin/cygwin/bin/bash --login -c 'chown -R #{new_resource.ssh_user} /var/empty && chown #{new_resource.ssh_user} /var/log/sshd.log /etc/ssh*\'; Stop-Process -ProcessName sshd -force; Stop-Service sshd -Force; Start-Service sshd; sleep 5; Start-Service sshd") unless ssh_user_set?(new_resource.ssh_guard)
-	Chef::Application.fatal!("Cygwin sux") unless ssh_user_set?(new_resource.ssh_guard)
+	unless ssh_user_set
+		cmd = powershell_out("c:/bin/cygwin/bin/bash --login -c 'chown -R #{new_resource.ssh_user} /var/empty && chown #{new_resource.ssh_user} /var/log/sshd.log /etc/ssh*\'; Stop-Process -ProcessName sshd -force; Stop-Service sshd -Force; Start-Service sshd; sleep 5; Start-Service sshd")
+		Chef::Application.fatal!("Cygwin sux")
+	end
 end
