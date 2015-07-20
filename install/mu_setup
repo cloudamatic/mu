@@ -569,7 +569,7 @@ print_setup_env_vars(){
 	while [ "${var_name[$n]}" != "" ];do
 		if [ "${var_name[$n]}" == "CHEF_PUBLIC_IP" ]; then
 			if [ "$MY_VPC_ID" != "" ];then
-			  echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (if private VPC, set to bastion public IP): ${GREEN}${var_val[$n]}${NORM}"
+			  echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (if in private sunbet, set to bastion public IP): ${GREEN}${var_val[$n]}${NORM}"
 			else
 			  echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (OPTIONAL; will try to guess): ${GREEN}${var_val[$n]}${NORM}"
 			fi 
