@@ -1024,7 +1024,7 @@ configure_ec2_security_group()
 {
 	status_message "Detecting ${BOLD}EC2 Security Group${NORM} configuration"
 	set -e
-	EC2SECGROUP="`$MU_INSTALLDIR/bin/mu-aws-setup -s | grep '^SECURITY GROUP ID:' | cut -d' ' -f4`"
+	EC2SECGROUP="`$MU_INSTALLDIR/bin/mu-aws-setup -s | grep 'Setting' | cut -d'(' -f2 | cut -d')' -f1`"
 	set +e
 	update_murc EC2SECGROUP $EC2SECGROUP
 }
