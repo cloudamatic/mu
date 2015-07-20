@@ -117,7 +117,7 @@
 			If (!(Test-Path "c:/mu-configure-initial-ssh-user")){
 				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) making sure the ssh user is configured correctly"
 				(([adsi]("WinNT://./$sshdUser, user")).psbase.invoke('SetPassword', "$password"))
-				$sshd_service = Get-WmiObject -Class Win32_Service -Filter "Name='sshd'"
+				$sshd_service = Get-WmiObject Win32_Service -Filter "Name='sshd'"
 				$sshd_service.Change($Null,$Null,$Null,$Null,$Null,$Null,".\$sshdUser",$password,$Null,$Null,$Null)
 
 				$editrights="$cygwin_dir/bin/editrights"
