@@ -26,9 +26,9 @@ else
 	OPSCODE_CHEF_PKG="chef-server-core-$CHEF_SERVER_VERSION.el6.x86_64"
 	OPSCODE_CHEF_DL="https://web-dl.packagecloud.io/chef/stable/packages/el/6/${OPSCODE_CHEF_PKG}.rpm"
 	CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el6.x86_64"
-	RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby212-2.1.2p205-1.el6.x86_64.rpm"
-	RUBY_INSTALL_DIR="/opt/rubies/ruby212-2.1.2-p205"
-	RUBY_VERSION="ruby212"
+	RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby-2.1.6-1.el6.x86_64.rpm"
+	RUBY_INSTALL_DIR="/opt/rubies/ruby-2.1.6"
+	RUBY_VERSION="ruby-2.1.6"
 	DEL_PACKAGES="nagios"
 fi
 
@@ -569,7 +569,7 @@ print_setup_env_vars(){
 	while [ "${var_name[$n]}" != "" ];do
 		if [ "${var_name[$n]}" == "CHEF_PUBLIC_IP" ]; then
 			if [ "$MY_VPC_ID" != "" ];then
-			  echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (if private VPC, set to bastion public IP): ${GREEN}${var_val[$n]}${NORM}"
+			  echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (if in private sunbet, set to bastion public IP): ${GREEN}${var_val[$n]}${NORM}"
 			else
 			  echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (OPTIONAL; will try to guess): ${GREEN}${var_val[$n]}${NORM}"
 			fi 
@@ -1024,7 +1024,7 @@ configure_ec2_security_group()
 {
 	status_message "Detecting ${BOLD}EC2 Security Group${NORM} configuration"
 	set -e
-	EC2SECGROUP="`$MU_INSTALLDIR/bin/mu-aws-setup -s | grep '^SECURITY GROUP ID:' | cut -d' ' -f4`"
+	EC2SECGROUP="`$MU_INSTALLDIR/bin/mu-aws-setup -s | grep 'Setting' | cut -d'(' -f2 | cut -d')' -f1`"
 	set +e
 	update_murc EC2SECGROUP $EC2SECGROUP
 }
