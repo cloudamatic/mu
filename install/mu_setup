@@ -26,9 +26,9 @@ else
 	OPSCODE_CHEF_PKG="chef-server-core-$CHEF_SERVER_VERSION.el6.x86_64"
 	OPSCODE_CHEF_DL="https://web-dl.packagecloud.io/chef/stable/packages/el/6/${OPSCODE_CHEF_PKG}.rpm"
 	CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el6.x86_64"
-	RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby212-2.1.2p205-1.el6.x86_64.rpm"
-	RUBY_INSTALL_DIR="/opt/rubies/ruby212-2.1.2-p205"
-	RUBY_VERSION="ruby212"
+	RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby-2.1.6-1.el6.x86_64.rpm"
+	RUBY_INSTALL_DIR="/opt/rubies/ruby-2.1.6"
+	RUBY_VERSION="ruby-2.1.6"
 	DEL_PACKAGES="nagios"
 fi
 
