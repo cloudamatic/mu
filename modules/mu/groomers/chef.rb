@@ -78,7 +78,6 @@ module MU
 				@secrets_granted = {}
 				::Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}/organizations/#{MU.chef_user}"
 				::Chef::Config[:environment] = node.deploy.environment
-				createGenericHostSSLCert
 			end
 
 			# Indicate whether our server has been bootstrapped with Chef
@@ -249,6 +248,7 @@ module MU
 
 			# Bootstrap our server with Chef
 			def bootstrap
+				createGenericHostSSLCert
 				if !@config['cleaned_chef']
 					begin
 						preClean(true)
@@ -322,9 +322,9 @@ module MU
 
 				retries = 0
 				@server.windows? ? max_retries = 25 : max_retries = 10
+				@server.windows? ? timeout = 720 : timeout = 300
 				begin
-					# A Chef bootstrap shouldn't take this long, but... Windows.
-					Timeout::timeout(1200) {	
+					Timeout::timeout(timeout) {	
 						require 'chef'
 						kb.run
 					}

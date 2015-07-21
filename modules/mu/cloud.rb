@@ -331,13 +331,13 @@ module MU
 
 				# Remove all metadata and cloud resources associated with this object
 				def destroy
-					MU.log "PLACEHOLDER in MU::Cloud::#{self.class.shortname} - implement cleanup method for individual cloud resource here as soon as we end up needing it", MU::NOTICE
+					MU.log "PLACEHOLDER in MU::Cloud::#{self.class.shortname} - implement cleanup method for individual cloud resource here as soon as we end up needing it", MU::DEBUG
 					if !@cloudobj.nil? and !@cloudobj.groomer.nil?
 						@cloudobj.groomer.cleanup
 					end
 					if !@deploy.nil?
 						if !@cloudobj.nil? and !@config.nil? and !@cloudobj.mu_name.nil?
-							@deploy.notify(self.class.cfg_plural, @config['name'], @cloudobj.mu_name, remove: true, triggering_node: @cloudobj)
+							@deploy.notify(self.class.cfg_plural, @config['name'], nil, mu_name: @cloudobj.mu_name, remove: true, triggering_node: @cloudobj)
 						end
 						@deploy.removeKitten(self)
 					end
@@ -620,7 +620,7 @@ module MU
 					# @param max_retries [Integer]: Number of connection attempts to make before giving up
 					# @param retry_interval [Integer]: Number of seconds to wait between connection attempts
 					# @return [Net::SSH::Connection::Session]
-					def getSSHSession(max_retries = 10, retry_interval = 30)
+					def getSSHSession(max_retries = 12, retry_interval = 30)
 						ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
 						nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
 						session = nil
@@ -716,6 +716,7 @@ module MU
 						rescue MuCloudResourceNotImplemented
 						end
 					}
+					MU::MommaCat.unlockAll
 				end
 
 				# Wrap the instance methods that this cloud resource type has to
@@ -730,7 +731,7 @@ module MU
 						@method_semaphore.synchronize {
 							# findBastion can get called by multiple threads harmlessly;
 							# we're looking for recursion, not contention.
-							if @method_locks.has_key?(method) and method != :findBastion
+							if @method_locks.has_key?(method) and method != :findBastion and method != :cloud_id
 								MU.log "Double-call to cloud method #{method} for #{self}", MU::WARN, details: caller + ["competing call stack:"] + @method_locks[method]
 							end
 							@method_locks[method] = caller

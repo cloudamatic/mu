@@ -803,14 +803,14 @@ module MU
 								elsif !server.active?
 									next if File.exists?(deploy_dir(deploy_id)+"/.cleanup"+server.cloud_id)
 									deletia << mu_name
-									MU.log "DELETING #{server} (#{nodeclass}), formerly #{server.cloud_id}", MU::NOTICE
+									MU.log "Deleting #{server} (#{nodeclass}), formerly #{server.cloud_id}", MU::NOTICE
 									begin
-# XXX not declaring this safe juuuust yet
-#										server.destroy
-#										deploy.sendAdminMail("Retired terminated node #{mu_name}", kitten: server)
+										server.destroy
+										deploy.sendAdminMail("Retired terminated node #{mu_name}", kitten: server)
 									rescue MuError => e
 										MU.log e.inspect, MU::ERR
 									end
+									MU.log "Deletion of #{server} (#{nodeclass}), formerly #{server.cloud_id} complete", MU::NOTICE
 									purged = purged + 1
 								end
 							}
@@ -956,7 +956,7 @@ begin
 							# If we don't have a MU::Cloud object, manufacture a dummy one.
 							# Give it a fake name if we have to and have decided that's ok.
 							if name.nil? or name.empty? and !dummy_ok
-								MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", MU::WARN, details: caller
+								MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", MU::DEBUG, details: caller
 								next 
 							else
 								if !mu_name.nil?
@@ -1043,9 +1043,8 @@ end
 		# @param data [Hash]: The resource's metadata.
 		# @param remove [Boolean]: Remove this resource from the deploy structure, instead of adding it.
 		# @return [void]
-		def notify(type, key, data, mu_name: nil, remove: remove = false, triggering_node: nil)
+		def notify(type, key, data, mu_name: nil, remove: false, triggering_node: nil)
 			MU::MommaCat.lock("deployment-notification")
-
 			loadDeploy(true) # make sure we're saving the latest and greatest
 			has_multiples = false
 			have_deploy = true
@@ -1068,12 +1067,14 @@ end
 			end
 			if mu_name.nil? and has_multiples
 				MU.log "MU::MommaCat.notify called to modify deployment struct for a type with :has_multiples, but no mu_name available", MU::WARN
+				MU::MommaCat.unlock("deployment-notification")
 				return
 			end
 
 			if !remove
 				if data.nil?
 					MU.log "MU::MommaCat.notify called to modify deployment struct, but no data provided", MU::WARN
+					MU::MommaCat.unlock("deployment-notification")
 					return
 				end
 				@deployment[type] = {} if @deployment[type].nil?
@@ -1099,6 +1100,7 @@ end
 					else
 						MU.log "MU::MommaCat.notify called to remove #{type} #{key} deployment struct, but no such data exist", MU::WARN
 					end
+					MU::MommaCat.unlock("deployment-notification")
 
 					return
 				end
@@ -1139,12 +1141,14 @@ end
 			end
 			if have_deploy
 				save!(key)
+				MU::MommaCat.unlock("deployment-notification")
 				if !@deployment['servers'].nil? and @deployment['servers'].keys.size > 0
 					# XXX some kind of filter (obey sync_siblings on nodes' configs)
 					syncLitter(@deployment['servers'].keys, triggering_node: triggering_node)
 				end
+			else
+				MU::MommaCat.unlock("deployment-notification")
 			end
-			MU::MommaCat.unlock("deployment-notification")
 		end
 
 		# Find one or more resources by their Mu resource name, and return 
