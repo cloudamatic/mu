@@ -300,6 +300,21 @@ class Cloud
 				end
 			end
 
+			# Insert a Server's standard IAM role needs into an arbitrary IAM profile
+			def self.addStdPoliciesToIAMProfile(rolename)
+				policies = Hash.new
+				policies['Mu_Bootstrap_Secret_'+MU.deploy_id] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{MU.deploy_id}-secret"+'"}]}'
+				policies['Mu_Volume_Management'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ec2:CreateTags","ec2:CreateVolume","ec2:AttachVolume","ec2:DescribeInstanceAttribute","ec2:DescribeVolumeAttribute","ec2:DescribeVolumeStatus","ec2:DescribeVolumes"],"Resource":"*"}]}'
+				policies.each_pair { |name, doc|
+					MU.log "Merging policy #{name} into #{rolename}", MU::NOTICE, details: doc
+					MU::Cloud::AWS.iam.put_role_policy(
+						role_name: rolename,
+						policy_name: name,
+						policy_document: doc
+					)
+				}
+			end
+
 			# Create an Amazon IAM instance profile. One of these should get created
 			# for each class of instance (each {MU::Cloud::AWS::Server} or {MU::Cloud::AWS::ServerPool}),
 			# and will include both baseline Mu policies and whatever other policies
@@ -309,8 +324,6 @@ class Cloud
 			def self.createIAMProfile(rolename, base_profile: nil, extra_policies: nil)
 				MU.log "Creating IAM role and policies for '#{name}' nodes"
 				policies = Hash.new
-				policies['Mu_Bootstrap_Secret'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{MU.deploy_id}-secret"+'"}]}'
-				policies['Mu_Volume_Management'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ec2:CreateTags","ec2:CreateVolume","ec2:AttachVolume","ec2:DescribeInstanceAttribute","ec2:DescribeVolumeAttribute","ec2:DescribeVolumeStatus","ec2:DescribeVolumes"],"Resource":"*"}]}'
 
 				if base_profile
 					MU.log "Incorporating policies from existing IAM profile '#{base_profile}'"
@@ -379,7 +392,12 @@ class Cloud
 			def createEc2Instance
 			  name = @config["name"]
 			  node = @config['mu_name']
-				@config['iam_role'] = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'])
+				if @config['generate_iam_role']
+					@config['iam_role'] = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'])
+				elsif @config['iam_role'].nil?
+					raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
+				end
+				MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'])
 			  instance_descriptor = {
 			    :image_id => @config["ami_id"],
 			    :key_name => @deploy.ssh_key_name,

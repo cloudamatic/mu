@@ -138,8 +138,15 @@ class Cloud
 					launch_options[:spot_price ] = launch_desc["spot_price"] if launch_desc["spot_price"]
 					launch_options[:kernel_id ] = launch_desc["kernel_id"] if launch_desc["kernel_id"]
 					launch_options[:ramdisk_id ] = launch_desc["ramdisk_id"] if launch_desc["ramdisk_id"]
-					launch_options[:iam_instance_profile] = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'])
+					if launch_desc['generate_iam_role']
+						launch_options[:iam_instance_profile] = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'])
+					elsif launch_desc['iam_role'].nil?
+						raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
+					else
+						launch_options[:iam_instance_profile] = launch_desc['iam_role']
+					end
 					@config['iam_role'] = launch_options[:iam_instance_profile]
+					MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'])
 
 				if !@config["vpc_zone_identifier"].nil? or !@config["vpc"].nil?
 					launch_options[:associate_public_ip_address] = @config["associate_public_ip"]

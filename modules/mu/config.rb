@@ -721,6 +721,7 @@ module MU
 				end
 				# Check all of the non-special ones while we're at it
 				server['vault_access'].each { |v|
+					next if v['vault'] == "splunk" and v['item'] == "admin_user"
 					item = ChefVault::Item.load(v['vault'], v['item'])
 				}
 			rescue ChefVault::Exceptions::KeysNotFound => e
@@ -1073,7 +1074,8 @@ module MU
 				if !lb['ingress_rules'].nil?
 					fwname = "lb"+lb['name']
 					firewall_rule_names << fwname
-					acl = {"name"=> fwname, "rules" => lb['ingress_rules'], "vpc" => lb['vpc'].dup, "region" => lb['region']}
+					acl = {"name"=> fwname, "rules" => lb['ingress_rules'], "region" => lb['region']}
+					acl["vpc"] = lb['vpc'].dup if !lb['vpc'].nil?
 					firewall_rules << resolveFirewall.call(acl)
 					lb["add_firewall_rules"] = [] if lb["add_firewall_rules"].nil?
 					lb["add_firewall_rules"] << { "rule_name" => fwname }
@@ -1134,6 +1136,16 @@ module MU
 				ok = false if !check_vault_refs(pool)
 				if pool["basis"]["launch_config"] != nil
 					launch = pool["basis"]["launch_config"]
+					if !launch['generate_iam_role']
+						if !launch['iam_role']
+							MU.log "Must set iam_role if generate_iam_role set to false", MU::ERR
+							ok = false
+						end
+						if !launch['iam_policies'].nil? and launch['iam_policies'].size > 0
+							MU.log "Cannot mix iam_policies with generate_iam_role set to false", MU::ERR
+							ok = false
+						end
+					end
 					if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?
 						if MU::Config.amazon_images.has_key?(pool['platform']) and
 							 MU::Config.amazon_images[pool['platform']].has_key?(pool['region'])
@@ -1210,7 +1222,8 @@ module MU
 				if !pool['ingress_rules'].nil?
 					fwname = "pool"+pool['name']
 					firewall_rule_names << fwname
-					acl = {"name"=> fwname, "rules" => pool['ingress_rules'], "vpc" => pool['vpc'].dup, "region" => pool['region']}
+					acl = {"name"=> fwname, "rules" => pool['ingress_rules'], "region" => pool['region']}
+					acl["vpc"] = pool['vpc'].dup if !pool['vpc'].nil?
 					firewall_rules << resolveFirewall.call(acl)
 					pool["add_firewall_rules"] = [] if pool["add_firewall_rules"].nil?
 					pool["add_firewall_rules"] << { "rule_name" => fwname }
@@ -1342,7 +1355,8 @@ module MU
 				if !db['ingress_rules'].nil?
 					fwname = "db"+db['name']
 					firewall_rule_names << fwname
-					acl = {"name"=> fwname, "rules" => db['ingress_rules'], "vpc" => db['vpc'].dup, "region" => db['region']}
+					acl = {"name"=> fwname, "rules" => db['ingress_rules'], "region" => db['region']}
+					acl["vpc"] = db['vpc'].dup if !db['vpc'].nil?
 					firewall_rules << resolveFirewall.call(acl)
 					db["add_firewall_rules"] = [] if db["add_firewall_rules"].nil?
 					db["add_firewall_rules"] << { "rule_name" => fwname }
@@ -1410,6 +1424,16 @@ module MU
 				server["#MU_GROOMER"] = MU::Groomer.loadGroomer(server['groomer'])
 				server['region'] = config['region'] if server['region'].nil?
 				server["dependencies"] = Array.new if server["dependencies"].nil?
+				if !server['generate_iam_role']
+					if !server['iam_role']
+						MU.log "Must set iam_role if generate_iam_role set to false", MU::ERR
+						ok = false
+					end
+					if !server['iam_policies'].nil? and server['iam_policies'].size > 0
+						MU.log "Cannot mix iam_policies with generate_iam_role set to false", MU::ERR
+						ok = false
+					end
+				end
 				if !server['create_image'].nil?
 					if server['create_image'].has_key?('copy_to_regions') and
 						 (server['create_image']['copy_to_regions'].nil? or
@@ -1437,7 +1461,8 @@ module MU
 				if !server['ingress_rules'].nil?
 					fwname = "server"+server['name']
 					firewall_rule_names << fwname
-					acl = {"name"=> fwname, "rules" => server['ingress_rules'], "vpc" => server['vpc'].dup, "region" => server['region'] }
+					acl = {"name"=> fwname, "rules" => server['ingress_rules'], "region" => server['region'] }
+					acl["vpc"] = server['vpc'].dup if !server['vpc'].nil?
 					firewall_rules << resolveFirewall.call(acl)
 					server["add_firewall_rules"] = [] if server["add_firewall_rules"].nil?
 					server["add_firewall_rules"] << { "rule_name" => fwname }
@@ -2728,14 +2753,19 @@ module MU
 				},
 				"size" => @ec2_size_primitive,
 				"storage" => @storage_primitive,
+				"generate_iam_role" => {
+					"type" => "boolean",
+					"default" => true,
+					"description" => "Generate a unique IAM profile for this Server or ServerPool.",
+				},
 				"iam_role" => {
 					"type" => "string",
-					"description" => "An Amazon IAM instance profile, from which to harvest role policies to merge into this node's own instance profile.",
+					"description" => "An Amazon IAM instance profile, from which to harvest role policies to merge into this node's own instance profile. If generate_iam_role is false, will simple use this profile.",
 				},
 				"iam_policies" => {
 					"type" => "array",
 					"items" => {
-						"description" => "Amazon-compatible role policies which will be merged into this node's own instance profile.  Our parser expects the role policy document to me embedded under a named container, e.g. { 'name_of_policy':'{ <policy document> } }",
+						"description" => "Amazon-compatible role policies which will be merged into this node's own instance profile.  Not valid with generate_iam_role set to false. Our parser expects the role policy document to me embedded under a named container, e.g. { 'name_of_policy':'{ <policy document> } }",
 						"type" => "object"
 					}
 				}
@@ -3265,12 +3295,17 @@ module MU
 								},
 								"iam_role" => {
 									"type" => "string",
-									"description" => "An Amazon IAM instance profile, from which to harvest role policies to merge into this node's own instance profile.",
+									"description" => "An Amazon IAM instance profile, from which to harvest role policies to merge into this node's own instance profile. If generate_iam_role is false, will simple use this profile.",
+								},
+								"generate_iam_role" => {
+									"type" => "boolean",
+									"default" => true,
+									"description" => "Generate a unique IAM profile for this Server or ServerPool.",
 								},
 								"iam_policies" => {
 									"type" => "array",
 									"items" => {
-										"description" => "Amazon-comptabible role policies which will be merged into this node's own instance profile. Our parser expects the role policy document to me embedded under a named container, e.g. { 'name_of_policy':'{ <policy document> } }",
+										"description" => "Amazon-compatible role policies which will be merged into this node's own instance profile.  Not valid with generate_iam_role set to false. Our parser expects the role policy document to me embedded under a named container, e.g. { 'name_of_policy':'{ <policy document> } }",
 										"type" => "object"
 									}
 								},
