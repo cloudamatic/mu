@@ -112,13 +112,18 @@ def getKittenPile(req)
 	@litter_semaphore.synchronize {
 		mu_id = req["mu_id"]
 		if !@litters.has_key?(mu_id)
-			kittenpile = MU::MommaCat.new(
-				mu_id,
-				deploy_secret: Base64.urlsafe_decode64(req["mu_deploy_secret"]),
-				set_context_to_me: true,
-				verbose: true,
-				mu_user: req['mu_user']
-			)
+			begin
+				kittenpile = MU::MommaCat.new(
+					mu_id,
+					deploy_secret: Base64.urlsafe_decode64(req["mu_deploy_secret"]),
+					set_context_to_me: true,
+					verbose: true,
+					mu_user: req['mu_user']
+				)
+			rescue MU::MommaCat::DeployInitializeError => e
+				MU.log e.inspect, MU::ERR, details: req
+				return nil
+			end
 			@litters[mu_id] = Hash.new
 			@litters[mu_id]['kittenpile'] = kittenpile
 			@litters[mu_id]['kittencount'] = 1
@@ -199,6 +204,7 @@ app = proc do |env|
 			MU.log "Dug up server config for #{req["mu_resource_type"]} name: #{req["mu_resource_name"]} deploy_id: #{req["mu_id"]}", MU::DEBUG, details: server_cfg
 
 			# XXX We can't assume AWS anymore. What does this look like otherwise?
+			# If this is an already-groomed instance, try to get a real object for it
 			instance = MU::MommaCat.findStray("AWS", "server", cloud_id: req["mu_instance_id"], region: server_cfg["region"]).first
 			mu_name = nil
 			if instance.nil?

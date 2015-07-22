@@ -570,11 +570,13 @@ module MU
 						end
 
 						# There shouldn't be a use case where a domain joined computer goes through initialSSHTasks. Removing Active Directory specific computer rename.
+						reboot_after_hostname_set = true
 						if !@config['active_directory'].nil?
 							if @config['active_directory']['node_type'] == "domain_controller" && @config['active_directory']['domain_controller_hostname']
 								hostname = @config['active_directory']['domain_controller_hostname']
 								@config['mu_windows_name'] = hostname
 							end
+							reboot_after_hostname_set = false
 						else
 							hostname = @config['mu_windows_name']
 						end
@@ -596,7 +598,11 @@ module MU
 									# XXX need a better guard here, this pops off every time
 									ssh.exec!(win_set_hostname)
 									@config['hostname_set'] = true
-									raise MU::Cloud::BootstrapTempFail, "Setting hostname to #{@config['mu_windows_name']}, possibly rebooting"
+									if reboot_after_hostname_set
+										raise MU::Cloud::BootstrapTempFail, "Setting hostname to #{@config['mu_windows_name']}, possibly rebooting"
+									else
+										MU.log "Set local Windows hostname to #{@config['mu_windows_name']}"
+									end
 								end
 							else
 								output = ssh.exec!(lnx_installer_check)

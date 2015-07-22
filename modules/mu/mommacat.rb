@@ -1851,7 +1851,7 @@ MESSAGE_END
 			update_servers = []
 			if nodeclasses.nil? or nodeclasses.size == 0
 				@kittens[svrs].values.each_pair { |mu_name, node|
-					next if !triggering_node.nil? and node == triggering_node
+					next if !triggering_node.nil? and mu_name == triggering_node.mu_name
 					if !node.groomer.nil?
 						update_servers << @kittens[svrs].values
 					end
@@ -1859,7 +1859,7 @@ MESSAGE_END
 			else
 				@kittens[svrs].each_pair { |nodeclass, servers|
 					servers.each_pair { |mu_name, node|
-						next if !triggering_node.nil? and node == triggering_node
+						next if !triggering_node.nil? and mu_name == triggering_node.mu_name
 						if nodeclasses.include?(node.config['name']) and !node.groomer.nil?
 							update_servers << node
 						end
@@ -1867,12 +1867,16 @@ MESSAGE_END
 				}
 			end
 			return if update_servers.size == 0
-
+puts update_servers.size
 			# Merge everyone's deploydata together
 			update_servers.each { |sibling|
-				mu_name, config, deploydata = sibling.describe
-				@deployment[svrs][config['name']][mu_name] = deploydata if !deploydata.nil?
+				if sibling.mu_name.nil? or sibling.deploydata.nil? or sibling.config.nil?
+					MU.log "Missing mu_name #{sibling.mu_name}, deploydata, or config from #{sibling} in syncLitter", MU::ERR, details: sibling.deploydata
+					next
+				end
+				@deployment[svrs][sibling.config['name']][sibling.mu_name] = sibling.deploydata
 			}
+
 			return if update_servers.size < 2
 			threads = []
 			parent_thread_id = Thread.current.object_id
@@ -2121,7 +2125,6 @@ MESSAGE_END
 					}
 				end
 			}
-
 		end
 
 
