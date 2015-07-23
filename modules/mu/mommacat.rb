@@ -877,7 +877,7 @@ begin
 
 			if !deploy_id.nil? and !calling_deploy.nil? and
 					calling_deploy.deploy_id == deploy_id and (!name.nil? or !mu_name.nil?)
-				handle = calling_deploy.findLitterMate(type: type, name: name, mu_name: mu_name)
+				handle = calling_deploy.findLitterMate(type: type, name: name, mu_name: mu_name, cloud_id: cloud_id)
 				return [handle] if !handle.nil?
 			end
 
@@ -1407,7 +1407,6 @@ end
 			MU::MommaCat.removeHostFromSSHConfig(node)
 # XXX add names paramater with useful stuff
 			MU::MommaCat.addHostToSSHConfig(server)
-			MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS... also this gets invoked too many times from here, find a better spot
 		end
 
 		@ssh_semaphore = Mutex.new
@@ -2052,6 +2051,7 @@ MESSAGE_END
 					}
 				end
 			}
+			MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS... also this gets invoked too many times from here, find a better spot
 
 		end
 

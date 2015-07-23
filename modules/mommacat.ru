@@ -205,7 +205,8 @@ app = proc do |env|
 
 			# XXX We can't assume AWS anymore. What does this look like otherwise?
 			# If this is an already-groomed instance, try to get a real object for it
-			instance = MU::MommaCat.findStray("AWS", "server", cloud_id: req["mu_instance_id"], region: server_cfg["region"]).first
+			instance = MU::MommaCat.findStray("AWS", "server", cloud_id: req["mu_instance_id"], region: server_cfg["region"], deploy_id: req["mu_id"], name: req["mu_resource_name"]).first
+
 			mu_name = nil
 			if instance.nil?
 				# Now we're just checking for existence in the cloud provider, really

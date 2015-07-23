@@ -96,6 +96,8 @@ class Cloud
 				if !mu_name.nil?
 					@mu_name = mu_name
 					@config['mu_name'] = @mu_name
+					describe
+					@config['mu_windows_name'] = @deploydata['mu_windows_name']
 				else
 					if kitten_cfg.has_key?("basis")
 						@mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
