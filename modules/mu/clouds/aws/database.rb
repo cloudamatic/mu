@@ -337,7 +337,7 @@ module MU
 					done = true
 				ensure
 					if !done and database
-						MU::Cloud::AWS::Database.terminate_rds_instance(database, region: @config['region'])
+						MU::Cloud::AWS::Database.terminate_rds_instance(database, false, true, region: @config['region'])
 					end
 				end
 
@@ -854,6 +854,7 @@ module MU
 			# @param db [OpenStruct]: The cloud provider's description of the database artifact
 			# @return [void]
 			def self.terminate_rds_instance(db, noop = false, skipsnapshots = false, region: MU.curRegion)
+# XXX try to id read replicas; can't save final snaps of those guys
 				raise MuError, "terminate_rds_instance requires a non-nil database descriptor" if db.nil?
 
 				retries = 0

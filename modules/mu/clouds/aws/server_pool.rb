@@ -107,6 +107,7 @@ class Cloud
 					# XXX need to handle platform["windows"] in here
 
 					if !launch_desc["server"].nil?
+						 #XXX this isn't how we find these; do better
 						if @deploy.deployment["images"].nil? or @deploy.deployment["images"][launch_desc["server"]].nil?
 							raise MuError, "#{@mu_name} needs an AMI from server #{launch_desc["server"]}, but I don't see one anywhere"
 						end
