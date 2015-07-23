@@ -348,7 +348,7 @@ module MU
 						debuglevel = MU::WARN
 						interval = 20 + Random.rand(10) - 5
 					end
-					MU.log "Got #{e.inspect} calling EC2's #{method_sym} in #{@region}, waiting #{interval.to_s}s and retrying", debuglevel, details: arguments
+					MU.log "Got #{e.inspect} calling EC2's #{method_sym} in #{@region}, waiting #{interval.to_s}s and retrying. Args were: #{arguments}", debuglevel, details: caller
 					sleep interval
 					retry
 				end

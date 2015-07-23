@@ -517,7 +517,7 @@ class Cloud
 				return nil if @config.nil? or @deploy.nil?
 
 				nat_ssh_key = nat_ssh_user = nat_ssh_host = nil
-				if !@config["vpc"].nil? and !MU::Cloud::AWS::VPC.haveRouteToInstance?(@cloud_id, region: @config['region'])
+				if !@config["vpc"].nil? and !MU::Cloud::AWS::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'])
 					if !@nat.nil?
 						# XXX Yanking these things from the cloud descriptor will only work in AWS!
 						nat_ssh_key = @nat.cloud_desc.key_name
@@ -701,7 +701,7 @@ class Cloud
 					end
 
 					nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
-					if subnet.private? and !nat_ssh_host and !MU::Cloud::AWS::VPC.haveRouteToInstance?(instance.instance_id, region: @config['region'])
+					if subnet.private? and !nat_ssh_host and !MU::Cloud::AWS::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'])
 						raise MuError, "#{node} is in a private subnet, but has no NAT host configured, and I have no other route to it"
 					end
 
@@ -866,7 +866,9 @@ class Cloud
 				else
 					regions = MU::Cloud::AWS.listRegions
 				end
-
+if !cloud_id.nil?
+	MU.log "in Server.find for #{cloud_id}", MU::NOTICE, details: caller
+end
 				found_instances = {}
 				search_semaphore = Mutex.new
 				search_threads = []
@@ -1150,7 +1152,7 @@ class Cloud
 					@deploydata["private_ip_address"] = instance.private_ip_address
 					notify
 				end
-				if MU::Cloud::AWS::VPC.haveRouteToInstance?(@cloud_id, region: @config['region']) or @deploydata["public_ip_address"].nil?
+				if MU::Cloud::AWS::VPC.haveRouteToInstance?(cloud_desc, region: @config['region']) or @deploydata["public_ip_address"].nil?
 					@config['canonical_ip'] = @deploydata["private_ip_address"]
 					return @deploydata["private_ip_address"]
 				else

@@ -347,11 +347,14 @@ module MU
 	# The AWS instance identifier of this Mu master
 	def self.myInstanceId; @@myInstanceId end
 
+	@@myCloudDescriptor = MU::Cloud::AWS.ec2(MU.myRegion).describe_instances(instance_ids: [@@myInstanceId]).reservations.first.instances.first
+	def self.myCloudDescriptor; @@myCloudDescriptor end
+
 	@@myAZ_var = nil
 	# The AWS Availability Zone in which this Mu master resides
 	def self.myAZ
 		begin
-			@@myAZ_var ||= MU::Cloud::AWS.ec2(MU.myRegion).describe_instances(instance_ids: [@@myInstanceId]).reservations.first.instances.first.placement.availability_zone
+			@@myAZ_var ||= MU.myCloudDescriptor.placement.availability_zone
 		rescue Aws::EC2::Errors::InternalError => e
 			MU.log "Got #{e.inspect} on MU::Cloud::AWS.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
 			sleep 10
@@ -363,7 +366,7 @@ module MU
 	# The AWS Availability Zone in which this Mu master resides
 	def self.myVPC
 		begin
-			@@myVPC_var ||= MU::Cloud::AWS.ec2(MU.myRegion).describe_instances(instance_ids: [@@myInstanceId]).reservations.first.instances.first.vpc_id
+			@@myVPC_var ||= MU.myCloudDescriptor.vpc_id
 		rescue Aws::EC2::Errors::InternalError => e
 			MU.log "Got #{e.inspect} on MU::Cloud::AWS.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
 			sleep 10

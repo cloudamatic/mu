@@ -579,17 +579,20 @@ module MU
 
 			# Get the subnets associated with an instance.
 			# @param instance_id [String]: The cloud identifier of the instance
+			# @param instance [String]: A cloud descriptor for the instance, to save us an API call if we already have it
 			# @param region [String]: The cloud provider region of the target instance
 			# @return [Array<String>]
-			def self.getInstanceSubnets(instance_id, region: MU.curRegion)
-				return [] if instance_id.nil?
+			def self.getInstanceSubnets(instance_id: nil, instance: nil, region: MU.curRegion)
+				return [] if instance_id.nil? and instance.nil?
 				my_subnets = []
 
-				begin
-					instance = MU::Cloud::AWS.ec2(region).describe_instances(instance_ids: [instance_id]).reservations.first.instances.first
-				rescue NoMethodError, Aws::EC2::Errors::InvalidInstanceIDNotFound => e
-					MU.log "Failed to identify instance #{instance_id} in MU::Cloud::AWS::VPC.getInstanceSubnets", MU::WARN
-					return []
+				if instance.nil?
+					begin
+						instance = MU::Cloud::AWS.ec2(region).describe_instances(instance_ids: [instance_id]).reservations.first.instances.first
+					rescue NoMethodError, Aws::EC2::Errors::InvalidInstanceIDNotFound => e
+						MU.log "Failed to identify instance #{instance_id} in MU::Cloud::AWS::VPC.getInstanceSubnets", MU::WARN
+						return []
+					end
 				end
 				my_subnets << instance.subnet_id if !instance.subnet_id.nil?
 				if !instance.network_interfaces.nil?
@@ -597,23 +600,24 @@ module MU
 						my_subnets << iface.subnet_id if !iface.subnet_id.nil?
 					}
 				end
-				return my_subnets.uniq
+				return my_subnets.uniq.sort
 			end
 
 			@route_cache = {}
+			@rtb_cache = {}
+			@rtb_cache_semaphore = Mutex.new
 			# Check whether we (the Mu Master) have a direct route to a particular
 			# subnet. Useful for skipping hops through bastion hosts to get directly
 			# at child nodes in peered VPCs and the like.
 			# @param instance_id [String]: The cloud identifier of the instance to check.
 			# @param region [String]: The cloud provider region of the target subnet.
 			# @return [Boolean]
-			def self.haveRouteToInstance?(instance_id, region: MU.curRegion)
-				return false if instance_id.nil?
+			def self.haveRouteToInstance?(target_instance, region: MU.curRegion)
+				return false if target_instance.nil?
+				instance_id = target_instance.instance_id
 				return @route_cache[instance_id] if @route_cache.has_key?(instance_id)
-				my_instance = MU::Cloud::AWS::Server.find(cloud_id: MU.myInstanceId)
-				target_instance = MU::Cloud::AWS::Server.find(cloud_id: instance_id, region: region)
-				my_subnets = MU::Cloud::AWS::VPC.getInstanceSubnets(MU.myInstanceId)
-				target_subnets = MU::Cloud::AWS::VPC.getInstanceSubnets(instance_id, region: region)
+				my_subnets = MU::Cloud::AWS::VPC.getInstanceSubnets(instance: MU.myCloudDescriptor)
+				target_subnets = MU::Cloud::AWS::VPC.getInstanceSubnets(instance: target_instance)
 # XXX make sure accounts for being in different regions
 				if (my_subnets & target_subnets).size > 0
 					MU.log "I share a subnet with #{instance_id}, I can route to it directly", MU::DEBUG
@@ -623,9 +627,21 @@ module MU
 
 				my_routes = []
 				vpc_peer_mapping = {}
-				MU::Cloud::AWS.ec2(MU.myRegion).describe_route_tables(
-					filters: [{name: "association.subnet-id", values: my_subnets}]
-				).route_tables.each { |route_table|
+				resp = nil
+				my_subnets_key = my_subnets.join(",")
+				target_subnets_key = target_subnets.join(",")
+				@rtb_cache_semaphore.synchronize {
+					[my_subnets_key, target_subnets_key].each { |key|
+						if !@rtb_cache.has_key?(key)
+							resp = MU::Cloud::AWS.ec2(MU.myRegion).describe_route_tables(
+								filters: [{name: "association.subnet-id", values: key.split(",")}]
+							)
+							@rtb_cache[key] = resp
+						end
+					}
+				}
+
+				@rtb_cache[my_subnets_key].route_tables.each { |route_table|
 					route_table.routes.each { |route|
 						if route.destination_cidr_block != "0.0.0.0/0" and route.state == "active"
 							my_routes << NetAddr::CIDR.create(route.destination_cidr_block)
@@ -638,9 +654,7 @@ module MU
 				my_routes.uniq!
 
 				target_routes = []
-				MU::Cloud::AWS.ec2(region).describe_route_tables(
-					filters: [{name: "association.subnet-id", values: target_subnets}]
-				).route_tables.each { |route_table|
+				@rtb_cache[target_subnets_key].route_tables.each { |route_table|
 					route_table.routes.each { |route|
 						next if route.destination_cidr_block == "0.0.0.0/0" or route.state != "active"
 						cidr = NetAddr::CIDR.create(route.destination_cidr_block)
