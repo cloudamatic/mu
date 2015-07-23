@@ -1,6 +1,6 @@
 --- 
 <%
-  $azs = listAZs
+  $azs = MU::Cloud::AWS.listAZs
   current_vpc = MU.myVPC
 %>
 admins: 

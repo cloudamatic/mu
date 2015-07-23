@@ -79,7 +79,7 @@ module MU
 				# methods recursively.
 				@groom_semaphore.synchronize {
 					if @groom_locks.has_key?(method)
-						MU.log "Double-call to groomer method #{method} for #{@server}", MU::WARN, details: caller + ["Competing call stack"] + @groom_locks[method]
+						MU.log "Double-call to groomer method #{method} for #{@server}", MU::DEBUG, details: caller + ["Competing call stack"] + @groom_locks[method]
 					end
 					@groom_locks[method] = caller
 				}

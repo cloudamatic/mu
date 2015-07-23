@@ -168,9 +168,11 @@ module MU
 	  end
 
 		# Output the dependencies of this BoK stack as a directed acyclic graph.
+		# Very useful for debugging.
 		def visualizeDependencies
-# XXX what the I don't even
-			$LOAD_PATH << "/opt/rubies/ruby212-2.1.2-p205/lib/ruby/gems/2.1.0/gems/ruby-graphviz-1.2.2/lib/"
+			# XXX no idea why this is necessary
+			$LOAD_PATH << "/usr/local/ruby-current/lib/ruby/gems/2.1.0/gems/ruby-graphviz-1.2.2/lib/"
+
 			g = GraphViz.new( :G, :type => :digraph )
 			# Generate a GraphViz node for each resource in this stack
 			nodes = {}
@@ -197,8 +199,8 @@ module MU
 				end
 			}
 			# Spew some output?
-			g.output(:plain => "foo.plain")
-			g.output(:jpg => "foo.jpg")
+			MU.log "Emitting dependency graph as /tmp/#{@config['appname']}.jpg", MU::NOTICE
+			g.output(:jpg => "/tmp/#{@config['appname']}.jpg")
 		end
 
 		# Take the schema we've defined and create a dummy Ruby class tree out of
@@ -1242,10 +1244,13 @@ module MU
 				pool['dependencies'] << genAdminFirewallRuleset(vpc: pool['vpc'], region: pool['region'], cloud: pool['cloud'])
 			}
 
+			read_replicas = []
+			database_names = []
 			databases.each { |db|
 				db['region'] = config['region'] if db['region'].nil?
 				db["dependencies"] = Array.new if db["dependencies"].nil?
 				db["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Database")
+				database_names << db['name']
 				if db['collection'] != nil
 					# XXX don't do this if 'true' was explicitly asked for (as distinct
 					# from default)
@@ -1302,13 +1307,6 @@ module MU
 					end
 				end
 
-				if db["read_replica"]
-					if db["engine"] != "postgres" and db["engine"] != "mysql"
-						MU.log "Read replica(s) database instances only supported for postgres and mysql. #{db["engine"]} not supported.", MU::ERR
-						ok = false
-					end
-				end
-				
 				if db["engine"] == "postgres"
 					db["license_model"] = "postgresql-license"
 				elsif db["engine"] == "mysql"
@@ -1412,6 +1410,62 @@ module MU
 					end
 				end
 				db['dependencies'] << genAdminFirewallRuleset(vpc: db['vpc'], region: db['region'], cloud: db['cloud'])
+
+				if db["create_read_replica"] or db['read_replica_of']
+					if db["engine"] != "postgres" and db["engine"] != "mysql"
+						MU.log "Read replica(s) database instances only supported for postgres and mysql. #{db["engine"]} not supported.", MU::ERR
+						ok = false
+					end
+				end
+				
+				# Automatically manufacture another database object, which will serve
+				# as a read replica of this one, if we've asked for it.
+				if db['create_read_replica']
+					replica = Marshal.load(Marshal.dump(db)) 
+					replica['name'] = db['name']+"-replica"
+					database_names << replica['name']
+					replica['create_read_replica'] = false
+					replica['read_replica_of'] = {
+						"db_name" => db['name'],
+						"cloud" => db['cloud'],
+						"region" => db['region'] # XXX might want to allow override of this
+					}
+					replica['dependencies'] << {
+						"type" => "database",
+						"name" => db["name"],
+						"phase" => "groom"
+					}
+					read_replicas << replica
+				end
+			}
+			databases.concat(read_replicas)
+			databases.each { |db|
+				if !db['read_replica_of'].nil?
+					rr = db['read_replica_of']
+					if !rr['db_name'].nil?
+						if !database_names.include?(rr['db_name'])
+							MU.log "Read replica #{db['name']} references sibling source #{rr['db_name']}, but I have no such database", MU::ERR
+							ok = false
+						end
+					else
+						tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
+						found = MU::MommaCat.findStray(
+							rr['cloud'],
+							"database",
+							deploy_id: rr["deploy_id"],
+							cloud_id: rr["db_id"],
+							tag_key: tag_key,
+							tag_value: tag_value,
+							region: rr["region"],
+							dummy_ok: true
+						)
+						ext_database = found.first if found.size == 1
+						if !ext_database
+							MU.log "Couldn't resolve Database reference to a unique live Database in #{db['name']}", MU::ERR, details: rr
+							ok = false
+						end
+					end
+				end
 			}
 
 			servers.each { |server|
@@ -1755,6 +1809,29 @@ module MU
 			
 			return vpc_ref_schema
 		end
+
+		@database_ref_primitive = {
+			"type" => "object",
+			"description" => "Incorporate a database object",
+			"minProperties" => 1,
+			"additionalProperties" => false,
+			"properties" => {
+				"db_id" => { "type" => "string" },
+				"db_name" => { "type" => "string" },
+				"region" => @region_primitive,
+				"cloud" => @cloud_primitive,
+				"tag" => {
+					"type" => "string",
+					"description" => "Identify this Database by a tag (key=value). Note that this tag must not match more than one resource.",
+					"pattern" => "^[^=]+=.+"
+				},
+				"deploy_id" => {
+					"type" => "string",
+					"description" => "Look for a Database fitting this description in another Mu deployment with this id.",
+				}
+			}
+		}
+
 
 #		@route_table_reference_primitive = {
 #			"type" => "object",
@@ -2787,6 +2864,7 @@ module MU
 				"tags" => @tags_primitive,
 				"engine_version" => { "type" => "string" },
 				"add_firewall_rules" => @additional_firewall_rules,
+				"read_replica_of" => @database_ref_primitive,
 				"engine" => {
 					"enum" => ["mysql", "postgres", "oracle-se1", "oracle-se", "oracle-ee", "sqlserver-ee", "sqlserver-se", "sqlserver-ex", "sqlserver-web" ],
 					"type" => "string",
@@ -2885,49 +2963,53 @@ module MU
 					"type" => "string",
 					"description" => "Set master password to this; if not specified, a random string will be generated. If you are creating from a snapshot, or using an existing database, you will almost certainly want to set this."
 				},
-				"read_replica" => {
-					"type" => "object",
-					"additionalProperties" => false,
-					"required" => ["name"],
-					"description" => "Create a read replica database server.",
-					"properties" => {
-						"name" => { "type" => "string" },
-						"tags" => @tags_primitive,
-						"dns_records" => dns_records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
-						"dns_sync_wait"=> {
-							"type" => "boolean",
-							"description" => "Wait for DNS record to propagate in DNS Zone.",
-							"default" => true,
-						},
-						"dependencies" => @dependencies_primitive,
-						"size" => @rds_size_primitive,
-						"storage_type" => {
-							"enum" => ["standard", "gp2", "io1"],
-							"type" => "string",
-							"default" => "gp2"
-						},
-						"port" => { "type" => "integer" },
-						"vpc" => vpc_reference_primitive(MANY_SUBNETS, NAT_OPTS, "all_public"),
-						"publicly_accessible"=> {
-							"type" => "boolean",
-							"default" => true,
-						},
-						"iops"=> {
-							"type" => "integer",
-							"description" => "The amount of IOPS to allocate to Provisioned IOPS (io1) volumes. Increments of 1,000",
-						},
-						"auto_minor_version_upgrade"=> { 
-							"type" => "boolean",
-							"default" => true
-						},
-						"identifier" => {
-							"type" => "string",
-						},
-						"source_identifier" => {
-							"type" => "string",
-						},
-					}
-				},
+				"create_read_replica"=> {
+					"type" => "boolean",
+					"default" => false
+				}#,
+#				"read_replica" => {
+#					"type" => "object",
+#					"additionalProperties" => false,
+#					"required" => ["name"],
+#					"description" => "Create a read replica database server.",
+#					"properties" => {
+#						"name" => { "type" => "string" },
+#						"tags" => @tags_primitive,
+#						"dns_records" => dns_records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
+#						"dns_sync_wait"=> {
+#							"type" => "boolean",
+#							"description" => "Wait for DNS record to propagate in DNS Zone.",
+#							"default" => true,
+#						},
+#						"dependencies" => @dependencies_primitive,
+#						"size" => @rds_size_primitive,
+#						"storage_type" => {
+#							"enum" => ["standard", "gp2", "io1"],
+#							"type" => "string",
+#							"default" => "gp2"
+#						},
+#						"port" => { "type" => "integer" },
+#						"vpc" => vpc_reference_primitive(MANY_SUBNETS, NAT_OPTS, "all_public"),
+#						"publicly_accessible"=> {
+#							"type" => "boolean",
+#							"default" => true,
+#						},
+#						"iops"=> {
+#							"type" => "integer",
+#							"description" => "The amount of IOPS to allocate to Provisioned IOPS (io1) volumes. Increments of 1,000",
+#						},
+#						"auto_minor_version_upgrade"=> { 
+#							"type" => "boolean",
+#							"default" => true
+#						},
+#						"identifier" => {
+#							"type" => "string",
+#						},
+#						"source_identifier" => {
+#							"type" => "string",
+#						}
+#					}
+#				}
 			}
 		}
 

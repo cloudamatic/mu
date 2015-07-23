@@ -133,6 +133,34 @@ module MU
 				snap_id = createNewSnapshot if @config["creation_style"] == "new_snapshot" or (@config["creation_style"] == "existing_snapshot" and snap_id.nil?)
 				@config["snapshot_id"] = snap_id
 
+				source_db = nil
+				if !@config['read_replica_of'].nil?
+					rr = @config['read_replica_of']
+					if !rr['db_name'].nil?
+						source_db = @deploy.findLitterMate(type: "database", name: rr['db_name'])
+					end
+					if source_db.nil?
+						tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
+						found = MU::MommaCat.findStray(
+							rr['cloud'],
+							"database",
+							deploy_id: rr["deploy_id"],
+							cloud_id: rr["db_id"],
+							tag_key: tag_key,
+							tag_value: tag_value,
+							region: rr["region"],
+							dummy_ok: true
+						)
+						source_db = found.first if found.size == 1
+					end
+					if source_db.nil? or source_db.cloud_id.nil?
+						pp @config['dependencies']
+						pp @config['read_replica_of']
+						raise MuError, "Couldn't resolve read replica reference to a unique live Database in #{@mu_name}"
+					end
+					@config['source_identifier'] = source_db.cloud_id
+				end
+
 				# RDS is picky, we can't just use our regular node names for things like
 				# the default schema or username. And it varies from engine to engine.
 				basename = @config["name"]+@deploy.timestamp+MU.seed.downcase
@@ -159,6 +187,9 @@ module MU
 					publicly_accessible: @config["publicly_accessible"],
 					tags: []
 				}
+				if !@config['source_identifier'].nil?
+					config[:source_db_instance_identifier] = @config['source_identifier']
+				end
 
 				MU::MommaCat.listStandardTags.each_pair { |name, value|
 					config[:tags] << { key: name, value: value }
@@ -191,20 +222,30 @@ module MU
 					config[:master_user_password] = @config['password']
 				end
 
-				db_config = createSubnetGroup(config)
+				config = createSubnetGroup(config) if source_db.nil? or @config['region'] != source_db.config['region']
 
 				# Creating DB instance
-				MU.log "RDS config: #{db_config}", MU::DEBUG
+				MU.log "RDS config: #{config}", MU::DEBUG
 				attempts = 0
 				@cloud_id = @config['identifier']
 				begin
 					if @config["snapshot_id"]
-						db_config[:db_snapshot_identifier] = @config["snapshot_id"]
-						MU.log "Creating database instance #{@config['identifier']} from snapshot #{@config["snapshot_id"]}", details: db_config
-						resp = MU::Cloud::AWS.rds(@config['region']).restore_db_instance_from_db_snapshot(db_config)
+						config[:db_snapshot_identifier] = @config["snapshot_id"]
+						MU.log "Creating database instance #{@config['identifier']} from snapshot #{@config["snapshot_id"]}", details: config
+						resp = MU::Cloud::AWS.rds(@config['region']).restore_db_instance_from_db_snapshot(config)
+					elsif @config["read_replica_of"]
+						[:engine, :multi_az, :license_model, :preferred_backup_window, :backup_retention_period, :storage_encrypted, :engine_version, :allocated_storage, :db_name, :master_username, :master_user_password, :vpc_security_group_ids].each { |param|
+							config.delete(param) # params inherited from the original
+						}
+						begin
+							resp = MU::Cloud::AWS.rds(@config['region']).create_db_instance_read_replica(config)
+						rescue Aws::RDS::Errors::DBSubnetGroupNotAllowedFault
+							config.delete(:db_subnet_group_name)
+							resp = MU::Cloud::AWS.rds(@config['region']).create_db_instance_read_replica(config)
+						end
 					else
-						MU.log "Creating database instance #{@config['identifier']}", details: db_config
-						resp = MU::Cloud::AWS.rds(@config['region']).create_db_instance(db_config)
+						MU.log "Creating database instance #{@config['identifier']}", details: config
+						resp = MU::Cloud::AWS.rds(@config['region']).create_db_instance(config)
 					end
 				rescue Aws::RDS::Errors::InvalidParameterValue => e
 					if attempts < 5
@@ -258,8 +299,8 @@ module MU
 						mod_config[:apply_immediately] = true
 
 						if database.db_subnet_group and database.db_subnet_group.subnets and !database.db_subnet_group.subnets.empty?
-							if !db_config.nil? and db_config.has_key?(:vpc_security_group_ids)
-								mod_config[:vpc_security_group_ids] = db_config[:vpc_security_group_ids]
+							if !config.nil? and config.has_key?(:vpc_security_group_ids)
+								mod_config[:vpc_security_group_ids] = config[:vpc_security_group_ids]
 							end
 
 							if @dependencies.has_key?('firewall_ruleset')
@@ -310,8 +351,6 @@ module MU
 					)
 				end
 				
-				createReadReplica if @config['read_replica']
-
 				return @config['identifier']
 			end
 
@@ -748,93 +787,6 @@ module MU
 				end
 				
 				return latest_snapshot
-			end
-
-			# Create Read Replica database instance.
-			# @return [String]: The cloud provider's identifier for this read replica database instance.
-			def createReadReplica
-				rr_name = @deploy.getResourceName(@config['read_replica']['name'])
-				
-				@config['read_replica']['identifier'] = getName(rr_name, type: "dbidentifier")
-				@config['read_replica']['source_identifier'] = @config['identifier'] if !@config['read_replica']['source_identifier']
-
-				replica_config = {
-					db_instance_identifier: @config['read_replica']['identifier'],
-					source_db_instance_identifier: @config['read_replica']['source_identifier'],
-					auto_minor_version_upgrade: @config['read_replica']['auto_minor_version_upgrade'],
-					storage_type: @config['read_replica']['storage_type'],
-					publicly_accessible: @config['read_replica']['publicly_accessible'],
-					port: @config['read_replica']['port'],
-					db_instance_class: @config['read_replica']['size'],
-					tags: []
-				}
-
-				if @config['read_replica']['region'] != @config['region']
-					# Need to deal with case where read replica is created in different region than source DB instance.
-					# Will have to create db_subnet_group_name in different region.
-					# Read replica deployed in the same region as the source DB instance will inherit from source DB instance 
-				end
-
-				
-				replica_config[:iops] = @config['read_replica']["iops"] if @config['read_replica']['storage_type'] == "io1"
-
-				MU::MommaCat.listStandardTags.each_pair { |name, value|
-					replica_config[:tags] << { key: name, value: value }
-				}
-
-				attempts = 0
-				begin
-					MU.log "Read replica RDS config: #{replica_config}", MU::DEBUG
-					MU.log "Creating read replica database instance #{@config['read_replica']['identifier']} from #{@config['read_replica']['source_identifier']} database instance", details: replica_config
-					resp = MU::Cloud::AWS.rds(@config['read_replica']['region']).create_db_instance_read_replica(replica_config)
-				rescue Aws::RDS::Errors::InvalidParameterValue => e
-					if attempts < 5
-						MU.log "Got #{e.inspect} creating #{@config['read_replica']['identifier']}, will retry a few times in case of transient errors.", MU::WARN
-						attempts += 1
-						sleep 10
-						retry
-					else
-						MU.log "Exhausted retries to create DB read replica #{@config['read_replica']['identifier']}, giving up", MU::ERR, details: e.inspect
-						raise MuError, "Exhausted retries to create DB read replica #{@config['read_replica']['identifier']}, giving up"
-					end
-				end
-
-				begin # this ends in an ensure block that cleans up if we die
-					database = MU::Cloud::AWS::Database.getDatabaseById(@config['read_replica']['identifier'], region: @config['region'])
-					# Calling this a second time after the DB instance is ready or DNS record creation will fail.
-					wait_start_time = Time.now
-
-					MU::Cloud::AWS.rds(@config['region']).wait_until(:db_instance_available, db_instance_identifier: @config['read_replica']['identifier']) do |waiter|
-					# Does create_db_instance_read_replica implement wait_until_available ?
-						waiter.max_attempts = nil
-						waiter.before_attempt do |attempts|
-							MU.log "Waiting for Read Replica RDS database #{@config['read_replica']['identifier']} to be ready...", MU::NOTICE if attempts % 10 == 0
-						end
-						waiter.before_wait do |attempts, resp|
-							throw :success if resp.data.db_instances.first.db_instance_status == "available"
-							throw :failure if Time.now - wait_start_time > 2400
-						end
-					end
-
-					database = MU::Cloud::AWS::Database.getDatabaseById(@config['read_replica']['identifier'], region: @config['region'])
-
-					MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: @config['read_replica']['identifier'], target: "#{database.endpoint.address}.", cloudclass: MU::Cloud::Database, sync_wait: @config['read_replica']['dns_sync_wait'])
-					if !@config['read_replica']['dns_records'].nil?
-						@config['read_replica']['dns_records'].each { |dnsrec|
-							dnsrec['name'] = @config['read_replica']['identifier'].downcase if !dnsrec.has_key?('name')
-						}
-					end
-					MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@config['read_replica']['dns_records'], target: database.endpoint.address)
-
-					MU.log "Database instance #{@config['read_replica']['identifier']} is ready to use"
-					done = true
-				ensure
-					if !done and database
-						MU::Cloud::AWS::Database.terminate_rds_instance(database, region: @config['read_replica']['region'])
-					end
-				end
-
-				return @config['read_replica']['identifier']
 			end
 
 			# Called by {MU::Cleanup}. Locates resources that were created by the

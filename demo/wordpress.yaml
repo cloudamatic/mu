@@ -3,7 +3,7 @@
     $appname="wordpress-demo" if !$appname
     $nat_ssh_user="root" if !$nat_ssh_user
     $region = "us-east-1" if !$region
-    $azs = listAZs
+    $azs = MU::Cloud::AWS.listAZs
 
     #Specify DB Creation Style 
     $db_creationstyle="new" if !$db_creationstyle
@@ -79,6 +79,7 @@ loadbalancers:
 databases:
 - name: "db"
   creation_style: "<%=$db_creationstyle %>"
+  create_read_replica: true
   <% if $db_creationstyle != "new" %>
   identifier: "<%=$dbid%>"
   password: "<%=$dbpw%>"  
@@ -144,16 +145,17 @@ servers:
     <% if !$deploy_id %>
     - type: "server"
       name: "bastion"
-      phase: "deploy"
+      phase: "groom"
     <% end %>
-    image_then_destroy: true
+    create_image:
+      image_then_destroy: true
     add_firewall_rules:
       - rule_name: "wpress_secgroup"
     run_list:
     - recipe[demo::wordpress]
 
 server_pools:
-  - name: "wpress"
+  - name: "wpressbase"
     min-size: 1
     max-size: 1
     ssh_user: "root"
