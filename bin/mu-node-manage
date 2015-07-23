@@ -288,7 +288,8 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
 		# Update the userdata of live nodes. They must be in the Stopped state for
 		# us to do so.
 		mommacat.listNodes.each_pair { |nodename, server|
-			id = server['instance_id']
+			id = server['cloud_id']
+			id = server['instance_id'] if id.nil?
 			desc = MU::Cloud::AWS.ec2(server['region']).describe_instances(instance_ids: [id]).reservations.first.instances.first
 	
 			server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")

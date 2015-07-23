@@ -814,7 +814,7 @@ class Cloud
 
 				if !@config['active_directory'].nil?
 					if @config['mu_windows_name'].nil?
-						@config['mu_windows_name'] = MU::MommaCat.getResourceName(@config['name'], max_length: 15, need_unique_string: true)
+						@config['mu_windows_name'] = @deploy.getResourceName(@config['name'], max_length: 15, need_unique_string: true)
 					end
 				end
 
@@ -1020,13 +1020,15 @@ class Cloud
 					raise MuError, "#{@mu_name} (#{MU.deploy_id}) is configured to use #{@config['vpc']} but I can't find a matching NAT instance"
 				end
 				MU.log "Adding administrative holes for NAT host #{@nat.cloud_desc.private_ip_address} to #{@mu_name}"
-				@deploy.kittens['firewall_rules'].each_pair { |name, acl|
-					if acl.config["admin"]
-						acl.addRule([@nat.cloud_desc.private_ip_address], proto: "tcp")
-						acl.addRule([@nat.cloud_desc.private_ip_address], proto: "udp")
-						acl.addRule([@nat.cloud_desc.private_ip_address], proto: "icmp")
-					end
-				}
+				if !@deploy.kittens['firewall_rules'].nil?
+					@deploy.kittens['firewall_rules'].each_pair { |name, acl|
+						if acl.config["admin"]
+							acl.addRule([@nat.cloud_desc.private_ip_address], proto: "tcp")
+							acl.addRule([@nat.cloud_desc.private_ip_address], proto: "udp")
+							acl.addRule([@nat.cloud_desc.private_ip_address], proto: "icmp")
+						end
+					}
+				end
 			end
 
 			# Called automatically by {MU::Deploy#createResources}

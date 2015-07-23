@@ -100,7 +100,7 @@ module MU
 				end
 
 				cmd = "update"
-				exitstatus, output = knifeCmd("vault show '#{vault}' '#{item}' --search '#{permissions}' #{MU::Groomer::Chef.vault_opts} 2>&1 /dev/null")
+				exitstatus, output = knifeCmd("vault show '#{vault}' '#{item}' #{MU::Groomer::Chef.vault_opts} 2>&1 /dev/null")
 				cmd = "create" if exitstatus != 0
 				knifeCmd("vault '#{cmd}' '#{vault}' '#{item}' '#{JSON.generate(data).gsub(/'/, '\\1')}' --search '#{permissions}' #{MU::Groomer::Chef.vault_opts}")
 			end

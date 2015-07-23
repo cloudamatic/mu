@@ -26,7 +26,7 @@ require 'mu'
 $opts = Trollop::options do
 	banner <<-EOS
 Usage:
-#{$0} [-e <environment>] [-r region] [-v] [-d] [-w] [-c] [-n] [-s] [-p parameter=value] /path/to/stack/config.[json|yaml]
+#{$0} [-e <environment>] [-r region] [-v] [-d] [-w] [-c] [-n] [-s] [-j] [-p parameter=value] /path/to/stack/config.[json|yaml]
   EOS
   opt :environment, "Environment to set on creation.", :require => false, :default => "dev"
 	opt :region, "Default region for newly-created cloud resources.", :require => false, :default => MU.myRegion, :type => :string
@@ -72,7 +72,7 @@ conf_engine = MU::Config.new(config, $opts[:skipinitialupdates], params: params)
 stack_conf = conf_engine.config
 
 if $opts[:dryrun] or $opts[:verbose]
-	pp stack_conf
+	puts JSON.pretty_generate(stack_conf)
 	conf_engine.visualizeDependencies
 end
 
