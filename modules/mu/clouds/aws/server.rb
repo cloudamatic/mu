@@ -272,14 +272,14 @@ class Cloud
 				rescue Aws::IAM::Errors::ValidationError => e
 					MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
 				rescue Aws::IAM::Errors::NoSuchEntity => e
-					MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
+					MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
 				end
 				begin
 					MU::Cloud::AWS.iam.delete_instance_profile(instance_profile_name: rolename)
 				rescue Aws::IAM::Errors::ValidationError => e
 					MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
 				rescue Aws::IAM::Errors::NoSuchEntity => e
-					MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
+					MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
 				end
 				begin
 					policies = MU::Cloud::AWS.iam.list_role_policies(role_name: rolename).policy_names
@@ -289,14 +289,14 @@ class Cloud
 				rescue Aws::IAM::Errors::ValidationError => e
 					MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
 				rescue Aws::IAM::Errors::NoSuchEntity => e
-					MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
+					MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
 				end
 				begin
 					MU::Cloud::AWS.iam.delete_role(role_name: rolename)
 				rescue Aws::IAM::Errors::ValidationError => e
 					MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
 				rescue Aws::IAM::Errors::NoSuchEntity => e
-					MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
+					MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
 				end
 			end
 
@@ -801,9 +801,9 @@ class Cloud
 				end
 
 				windows? ? ssh_wait = 60 : ssh_wait = 30
-				max_retries = 25
+				windows? ? max_retries = 40 : max_retries = 25
 			  begin
-					session = getSSHSession(ssh_wait, max_retries)
+					session = getSSHSession(max_retries, ssh_wait)
 					initialSSHTasks(session)
 			  rescue BootstrapTempFail
 					sleep ssh_wait
@@ -1062,7 +1062,7 @@ class Cloud
 				@groomer.saveDeployData
 
 				begin
-					@groomer.run(purpose: "Full Initial Run", max_retries: 10)
+					@groomer.run(purpose: "Full Initial Run", max_retries: 15)
 				rescue MU::Groomer::RunError
 					MU.log "Proceeding after failed initial Groomer run, but #{node} may not behave as expected!", MU::WARN
 				end
@@ -1076,7 +1076,7 @@ class Cloud
 						# Scrub other things that don't belong on an AMI
 						session = getSSHSession
 						if windows?
-							session.exec!("rm -rf /cygdrive/c/chef/ /home/#{@config['windows_admin_username']}/.ssh/authorized_keys /home/Administrator/.ssh/authorized_keys")
+							session.exec!("rm -rf /cygdrive/c/chef/ /home/#{@config['windows_admin_username']}/.ssh/authorized_keys /home/Administrator/.ssh/authorized_keys /cygdrive/c/mu-installer-ran-updates")
 							# session.exec!("powershell -Command \"& {(Get-WmiObject -Class Win32_Product -Filter \"Name='UniversalForwarder'\").Uninstall()}\"")
 						else
 							sudo = ""
