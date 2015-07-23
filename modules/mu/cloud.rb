@@ -735,10 +735,10 @@ module MU
 						# Go ahead and guarantee that we can't accidentally trigger these
 						# methods recursively.
 						@method_semaphore.synchronize {
-							# findBastion can get called by multiple threads harmlessly;
-							# we're looking for recursion, not contention.
+							# We're looking for recursion, not contention, so ignore some
+							# obviously harmless things.
 							if @method_locks.has_key?(method) and method != :findBastion and method != :cloud_id
-								MU.log "Double-call to cloud method #{method} for #{self}", MU::WARN, details: caller + ["competing call stack:"] + @method_locks[method]
+								MU.log "Double-call to cloud method #{method} for #{self}", MU::DEBUG, details: caller + ["competing call stack:"] + @method_locks[method]
 							end
 							@method_locks[method] = caller
 						}

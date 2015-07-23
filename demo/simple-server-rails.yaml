@@ -1,5 +1,5 @@
 <%
-  $azs = listAZs
+  $azs = MU::Cloud::AWS.listAZs
   $azs.delete $azskip if $azskip
   current_vpc = MU.myVPC
 %>

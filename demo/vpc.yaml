@@ -1,6 +1,6 @@
 ---
 appname: myvpc
-<% $azs = listAZs %>
+<% $azs = MU::Cloud::AWS.listAZs %>
 vpcs:
 - name: vpc
   route-tables:

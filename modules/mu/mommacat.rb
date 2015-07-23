@@ -1867,7 +1867,7 @@ MESSAGE_END
 				}
 			end
 			return if update_servers.size == 0
-puts update_servers.size
+
 			# Merge everyone's deploydata together
 			update_servers.each { |sibling|
 				if sibling.mu_name.nil? or sibling.deploydata.nil? or sibling.config.nil?

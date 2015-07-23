@@ -168,9 +168,11 @@ module MU
 	  end
 
 		# Output the dependencies of this BoK stack as a directed acyclic graph.
+		# Very useful for debugging.
 		def visualizeDependencies
-# XXX what the I don't even
-			$LOAD_PATH << "/opt/rubies/ruby212-2.1.2-p205/lib/ruby/gems/2.1.0/gems/ruby-graphviz-1.2.2/lib/"
+			# XXX no idea why this is necessary
+			$LOAD_PATH << "/usr/local/ruby-current/lib/ruby/gems/2.1.0/gems/ruby-graphviz-1.2.2/lib/"
+
 			g = GraphViz.new( :G, :type => :digraph )
 			# Generate a GraphViz node for each resource in this stack
 			nodes = {}
@@ -197,8 +199,8 @@ module MU
 				end
 			}
 			# Spew some output?
-			g.output(:plain => "foo.plain")
-			g.output(:jpg => "foo.jpg")
+			MU.log "Emitting dependency graph as /tmp/#{@config['appname']}.jpg", MU::NOTICE
+			g.output(:jpg => "/tmp/#{@config['appname']}.jpg")
 		end
 
 		# Take the schema we've defined and create a dummy Ruby class tree out of
@@ -721,6 +723,7 @@ module MU
 				end
 				# Check all of the non-special ones while we're at it
 				server['vault_access'].each { |v|
+					next if v['vault'] == "splunk" and v['item'] == "admin_user"
 					item = ChefVault::Item.load(v['vault'], v['item'])
 				}
 			rescue ChefVault::Exceptions::KeysNotFound => e
@@ -1073,7 +1076,8 @@ module MU
 				if !lb['ingress_rules'].nil?
 					fwname = "lb"+lb['name']
 					firewall_rule_names << fwname
-					acl = {"name"=> fwname, "rules" => lb['ingress_rules'], "vpc" => lb['vpc'].dup, "region" => lb['region']}
+					acl = {"name"=> fwname, "rules" => lb['ingress_rules'], "region" => lb['region']}
+					acl["vpc"] = lb['vpc'].dup if !lb['vpc'].nil?
 					firewall_rules << resolveFirewall.call(acl)
 					lb["add_firewall_rules"] = [] if lb["add_firewall_rules"].nil?
 					lb["add_firewall_rules"] << { "rule_name" => fwname }
@@ -1134,6 +1138,16 @@ module MU
 				ok = false if !check_vault_refs(pool)
 				if pool["basis"]["launch_config"] != nil
 					launch = pool["basis"]["launch_config"]
+					if !launch['generate_iam_role']
+						if !launch['iam_role']
+							MU.log "Must set iam_role if generate_iam_role set to false", MU::ERR
+							ok = false
+						end
+						if !launch['iam_policies'].nil? and launch['iam_policies'].size > 0
+							MU.log "Cannot mix iam_policies with generate_iam_role set to false", MU::ERR
+							ok = false
+						end
+					end
 					if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?
 						if MU::Config.amazon_images.has_key?(pool['platform']) and
 							 MU::Config.amazon_images[pool['platform']].has_key?(pool['region'])
@@ -1210,7 +1224,8 @@ module MU
 				if !pool['ingress_rules'].nil?
 					fwname = "pool"+pool['name']
 					firewall_rule_names << fwname
-					acl = {"name"=> fwname, "rules" => pool['ingress_rules'], "vpc" => pool['vpc'].dup, "region" => pool['region']}
+					acl = {"name"=> fwname, "rules" => pool['ingress_rules'], "region" => pool['region']}
+					acl["vpc"] = pool['vpc'].dup if !pool['vpc'].nil?
 					firewall_rules << resolveFirewall.call(acl)
 					pool["add_firewall_rules"] = [] if pool["add_firewall_rules"].nil?
 					pool["add_firewall_rules"] << { "rule_name" => fwname }
@@ -1229,10 +1244,13 @@ module MU
 				pool['dependencies'] << genAdminFirewallRuleset(vpc: pool['vpc'], region: pool['region'], cloud: pool['cloud'])
 			}
 
+			read_replicas = []
+			database_names = []
 			databases.each { |db|
 				db['region'] = config['region'] if db['region'].nil?
 				db["dependencies"] = Array.new if db["dependencies"].nil?
 				db["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Database")
+				database_names << db['name']
 				if db['collection'] != nil
 					# XXX don't do this if 'true' was explicitly asked for (as distinct
 					# from default)
@@ -1289,13 +1307,6 @@ module MU
 					end
 				end
 
-				if db["read_replica"]
-					if db["engine"] != "postgres" and db["engine"] != "mysql"
-						MU.log "Read replica(s) database instances only supported for postgres and mysql. #{db["engine"]} not supported.", MU::ERR
-						ok = false
-					end
-				end
-				
 				if db["engine"] == "postgres"
 					db["license_model"] = "postgresql-license"
 				elsif db["engine"] == "mysql"
@@ -1342,7 +1353,8 @@ module MU
 				if !db['ingress_rules'].nil?
 					fwname = "db"+db['name']
 					firewall_rule_names << fwname
-					acl = {"name"=> fwname, "rules" => db['ingress_rules'], "vpc" => db['vpc'].dup, "region" => db['region']}
+					acl = {"name"=> fwname, "rules" => db['ingress_rules'], "region" => db['region']}
+					acl["vpc"] = db['vpc'].dup if !db['vpc'].nil?
 					firewall_rules << resolveFirewall.call(acl)
 					db["add_firewall_rules"] = [] if db["add_firewall_rules"].nil?
 					db["add_firewall_rules"] << { "rule_name" => fwname }
@@ -1398,6 +1410,62 @@ module MU
 					end
 				end
 				db['dependencies'] << genAdminFirewallRuleset(vpc: db['vpc'], region: db['region'], cloud: db['cloud'])
+
+				if db["create_read_replica"] or db['read_replica_of']
+					if db["engine"] != "postgres" and db["engine"] != "mysql"
+						MU.log "Read replica(s) database instances only supported for postgres and mysql. #{db["engine"]} not supported.", MU::ERR
+						ok = false
+					end
+				end
+				
+				# Automatically manufacture another database object, which will serve
+				# as a read replica of this one, if we've asked for it.
+				if db['create_read_replica']
+					replica = Marshal.load(Marshal.dump(db)) 
+					replica['name'] = db['name']+"-replica"
+					database_names << replica['name']
+					replica['create_read_replica'] = false
+					replica['read_replica_of'] = {
+						"db_name" => db['name'],
+						"cloud" => db['cloud'],
+						"region" => db['region'] # XXX might want to allow override of this
+					}
+					replica['dependencies'] << {
+						"type" => "database",
+						"name" => db["name"],
+						"phase" => "groom"
+					}
+					read_replicas << replica
+				end
+			}
+			databases.concat(read_replicas)
+			databases.each { |db|
+				if !db['read_replica_of'].nil?
+					rr = db['read_replica_of']
+					if !rr['db_name'].nil?
+						if !database_names.include?(rr['db_name'])
+							MU.log "Read replica #{db['name']} references sibling source #{rr['db_name']}, but I have no such database", MU::ERR
+							ok = false
+						end
+					else
+						tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
+						found = MU::MommaCat.findStray(
+							rr['cloud'],
+							"database",
+							deploy_id: rr["deploy_id"],
+							cloud_id: rr["db_id"],
+							tag_key: tag_key,
+							tag_value: tag_value,
+							region: rr["region"],
+							dummy_ok: true
+						)
+						ext_database = found.first if found.size == 1
+						if !ext_database
+							MU.log "Couldn't resolve Database reference to a unique live Database in #{db['name']}", MU::ERR, details: rr
+							ok = false
+						end
+					end
+				end
 			}
 
 			servers.each { |server|
@@ -1410,6 +1478,16 @@ module MU
 				server["#MU_GROOMER"] = MU::Groomer.loadGroomer(server['groomer'])
 				server['region'] = config['region'] if server['region'].nil?
 				server["dependencies"] = Array.new if server["dependencies"].nil?
+				if !server['generate_iam_role']
+					if !server['iam_role']
+						MU.log "Must set iam_role if generate_iam_role set to false", MU::ERR
+						ok = false
+					end
+					if !server['iam_policies'].nil? and server['iam_policies'].size > 0
+						MU.log "Cannot mix iam_policies with generate_iam_role set to false", MU::ERR
+						ok = false
+					end
+				end
 				if !server['create_image'].nil?
 					if server['create_image'].has_key?('copy_to_regions') and
 						 (server['create_image']['copy_to_regions'].nil? or
@@ -1437,7 +1515,8 @@ module MU
 				if !server['ingress_rules'].nil?
 					fwname = "server"+server['name']
 					firewall_rule_names << fwname
-					acl = {"name"=> fwname, "rules" => server['ingress_rules'], "vpc" => server['vpc'].dup, "region" => server['region'] }
+					acl = {"name"=> fwname, "rules" => server['ingress_rules'], "region" => server['region'] }
+					acl["vpc"] = server['vpc'].dup if !server['vpc'].nil?
 					firewall_rules << resolveFirewall.call(acl)
 					server["add_firewall_rules"] = [] if server["add_firewall_rules"].nil?
 					server["add_firewall_rules"] << { "rule_name" => fwname }
@@ -1730,6 +1809,29 @@ module MU
 			
 			return vpc_ref_schema
 		end
+
+		@database_ref_primitive = {
+			"type" => "object",
+			"description" => "Incorporate a database object",
+			"minProperties" => 1,
+			"additionalProperties" => false,
+			"properties" => {
+				"db_id" => { "type" => "string" },
+				"db_name" => { "type" => "string" },
+				"region" => @region_primitive,
+				"cloud" => @cloud_primitive,
+				"tag" => {
+					"type" => "string",
+					"description" => "Identify this Database by a tag (key=value). Note that this tag must not match more than one resource.",
+					"pattern" => "^[^=]+=.+"
+				},
+				"deploy_id" => {
+					"type" => "string",
+					"description" => "Look for a Database fitting this description in another Mu deployment with this id.",
+				}
+			}
+		}
+
 
 #		@route_table_reference_primitive = {
 #			"type" => "object",
@@ -2728,14 +2830,19 @@ module MU
 				},
 				"size" => @ec2_size_primitive,
 				"storage" => @storage_primitive,
+				"generate_iam_role" => {
+					"type" => "boolean",
+					"default" => true,
+					"description" => "Generate a unique IAM profile for this Server or ServerPool.",
+				},
 				"iam_role" => {
 					"type" => "string",
-					"description" => "An Amazon IAM instance profile, from which to harvest role policies to merge into this node's own instance profile.",
+					"description" => "An Amazon IAM instance profile, from which to harvest role policies to merge into this node's own instance profile. If generate_iam_role is false, will simple use this profile.",
 				},
 				"iam_policies" => {
 					"type" => "array",
 					"items" => {
-						"description" => "Amazon-compatible role policies which will be merged into this node's own instance profile.  Our parser expects the role policy document to me embedded under a named container, e.g. { 'name_of_policy':'{ <policy document> } }",
+						"description" => "Amazon-compatible role policies which will be merged into this node's own instance profile.  Not valid with generate_iam_role set to false. Our parser expects the role policy document to me embedded under a named container, e.g. { 'name_of_policy':'{ <policy document> } }",
 						"type" => "object"
 					}
 				}
@@ -2757,6 +2864,7 @@ module MU
 				"tags" => @tags_primitive,
 				"engine_version" => { "type" => "string" },
 				"add_firewall_rules" => @additional_firewall_rules,
+				"read_replica_of" => @database_ref_primitive,
 				"engine" => {
 					"enum" => ["mysql", "postgres", "oracle-se1", "oracle-se", "oracle-ee", "sqlserver-ee", "sqlserver-se", "sqlserver-ex", "sqlserver-web" ],
 					"type" => "string",
@@ -2855,49 +2963,53 @@ module MU
 					"type" => "string",
 					"description" => "Set master password to this; if not specified, a random string will be generated. If you are creating from a snapshot, or using an existing database, you will almost certainly want to set this."
 				},
-				"read_replica" => {
-					"type" => "object",
-					"additionalProperties" => false,
-					"required" => ["name"],
-					"description" => "Create a read replica database server.",
-					"properties" => {
-						"name" => { "type" => "string" },
-						"tags" => @tags_primitive,
-						"dns_records" => dns_records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
-						"dns_sync_wait"=> {
-							"type" => "boolean",
-							"description" => "Wait for DNS record to propagate in DNS Zone.",
-							"default" => true,
-						},
-						"dependencies" => @dependencies_primitive,
-						"size" => @rds_size_primitive,
-						"storage_type" => {
-							"enum" => ["standard", "gp2", "io1"],
-							"type" => "string",
-							"default" => "gp2"
-						},
-						"port" => { "type" => "integer" },
-						"vpc" => vpc_reference_primitive(MANY_SUBNETS, NAT_OPTS, "all_public"),
-						"publicly_accessible"=> {
-							"type" => "boolean",
-							"default" => true,
-						},
-						"iops"=> {
-							"type" => "integer",
-							"description" => "The amount of IOPS to allocate to Provisioned IOPS (io1) volumes. Increments of 1,000",
-						},
-						"auto_minor_version_upgrade"=> { 
-							"type" => "boolean",
-							"default" => true
-						},
-						"identifier" => {
-							"type" => "string",
-						},
-						"source_identifier" => {
-							"type" => "string",
-						},
-					}
-				},
+				"create_read_replica"=> {
+					"type" => "boolean",
+					"default" => false
+				}#,
+#				"read_replica" => {
+#					"type" => "object",
+#					"additionalProperties" => false,
+#					"required" => ["name"],
+#					"description" => "Create a read replica database server.",
+#					"properties" => {
+#						"name" => { "type" => "string" },
+#						"tags" => @tags_primitive,
+#						"dns_records" => dns_records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
+#						"dns_sync_wait"=> {
+#							"type" => "boolean",
+#							"description" => "Wait for DNS record to propagate in DNS Zone.",
+#							"default" => true,
+#						},
+#						"dependencies" => @dependencies_primitive,
+#						"size" => @rds_size_primitive,
+#						"storage_type" => {
+#							"enum" => ["standard", "gp2", "io1"],
+#							"type" => "string",
+#							"default" => "gp2"
+#						},
+#						"port" => { "type" => "integer" },
+#						"vpc" => vpc_reference_primitive(MANY_SUBNETS, NAT_OPTS, "all_public"),
+#						"publicly_accessible"=> {
+#							"type" => "boolean",
+#							"default" => true,
+#						},
+#						"iops"=> {
+#							"type" => "integer",
+#							"description" => "The amount of IOPS to allocate to Provisioned IOPS (io1) volumes. Increments of 1,000",
+#						},
+#						"auto_minor_version_upgrade"=> { 
+#							"type" => "boolean",
+#							"default" => true
+#						},
+#						"identifier" => {
+#							"type" => "string",
+#						},
+#						"source_identifier" => {
+#							"type" => "string",
+#						}
+#					}
+#				}
 			}
 		}
 
@@ -3265,12 +3377,17 @@ module MU
 								},
 								"iam_role" => {
 									"type" => "string",
-									"description" => "An Amazon IAM instance profile, from which to harvest role policies to merge into this node's own instance profile.",
+									"description" => "An Amazon IAM instance profile, from which to harvest role policies to merge into this node's own instance profile. If generate_iam_role is false, will simple use this profile.",
+								},
+								"generate_iam_role" => {
+									"type" => "boolean",
+									"default" => true,
+									"description" => "Generate a unique IAM profile for this Server or ServerPool.",
 								},
 								"iam_policies" => {
 									"type" => "array",
 									"items" => {
-										"description" => "Amazon-comptabible role policies which will be merged into this node's own instance profile. Our parser expects the role policy document to me embedded under a named container, e.g. { 'name_of_policy':'{ <policy document> } }",
+										"description" => "Amazon-compatible role policies which will be merged into this node's own instance profile.  Not valid with generate_iam_role set to false. Our parser expects the role policy document to me embedded under a named container, e.g. { 'name_of_policy':'{ <policy document> } }",
 										"type" => "object"
 									}
 								},
