@@ -406,12 +406,7 @@ class Cloud
 			    :instance_type => @config["size"],
 			    :disable_api_termination => true,
 			    :min_count => 1,
-			    :max_count => 1,
-					:network_interfaces => [
-						{
-							:associate_public_ip_address => name["associate_public_ip"]
-						}
-					]
+			    :max_count => 1
 			  }
 
 				security_groups = []
@@ -453,6 +448,13 @@ class Cloud
 					punchAdminNAT
 
 					instance_descriptor[:subnet_id] = subnet.cloud_id
+				else
+					instance_descriptor[:network_interfaces] = [
+						{
+							:device_index => 0,
+							:associate_public_ip_address => @config["associate_public_ip"]
+						}
+					]
 				end
 
 			  if !@userdata.nil? and !@userdata.empty?

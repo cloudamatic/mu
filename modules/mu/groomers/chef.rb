@@ -365,7 +365,7 @@ module MU
 				if !@config['active_directory'].nil?
 					if @config['active_directory']['domain_operation'] == "join"
 						knifeAddToRunList("recipe[mu-activedirectory::domain-node]")
-						run(purpose: "Join Active Directory", update_runlist: false, max_retries: 10)
+						run(purpose: "Join Active Directory", update_runlist: false, max_retries: max_retries)
 					elsif @config['active_directory']['domain_operation'] == "create"
 						knifeAddToRunList("recipe[mu-activedirectory::domain]")
 						run(purpose: "Create Active Directory Domain", update_runlist: false, max_retries: 15)

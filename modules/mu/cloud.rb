@@ -601,7 +601,7 @@ module MU
 									if reboot_after_hostname_set
 										raise MU::Cloud::BootstrapTempFail, "Setting hostname to #{@config['mu_windows_name']}, possibly rebooting"
 									else
-										MU.log "Set local Windows hostname to #{@config['mu_windows_name']}"
+										MU.log "Set local Windows hostname of #{@mu_name} to #{@config['mu_windows_name']}"
 									end
 								end
 							else

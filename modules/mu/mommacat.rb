@@ -873,14 +873,11 @@ begin
 				end
 			end
 
-			MU.log "Called findStray(#{cloud}, #{type}, deploy_id: #{deploy_id}, name: #{name}, mu_name: #{mu_name}, cloud_id: #{cloud_id}, region: #{region}, tag_key: #{tag_key}, tag_value: #{tag_value})", MU::DEBUG, details: caller
-
 			if !deploy_id.nil? and !calling_deploy.nil? and
 					calling_deploy.deploy_id == deploy_id and (!name.nil? or !mu_name.nil?)
 				handle = calling_deploy.findLitterMate(type: type, name: name, mu_name: mu_name, cloud_id: cloud_id)
 				return [handle] if !handle.nil?
 			end
-
 
 			kittens = {}
 			# Search our deploys for matching resources
@@ -901,10 +898,6 @@ begin
 					else
 						straykitten = momma.findLitterMate(type: type, name: name, mu_name: mu_name)
 					end
-#					if straykitten.nil? and !matches.nil? and matches.size > 0
-#						MU.log "Failed to locate a kitten from deploy_id: #{deploy_id}, name: #{name}, mu_name: #{mu_name}, cloud_id, #{cloud_id} despite having found metadata", MU::WARN, details: matches
-#						raise MuError, "I can't find #{mu_name} anywhere" if !mu_name.nil?
-#					end
 					next if straykitten.nil?
 
 					kittens[straykitten.cloud_id] = straykitten
@@ -915,7 +908,7 @@ begin
 						return [straykitten]
 					end
 				}
-				if !mu_descs.nil? and mu_descs.size > 0 and !deploy_id.nil? and !deploy_id.empty?
+				if !mu_descs.nil? and mu_descs.size > 0 and !deploy_id.nil? and !deploy_id.empty? and !mu_descs.first.empty?
 					MU.log "I found descriptions that might match #{resourceclass.cfg_plural} name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}, but couldn't isolate my target kitten", MU::WARN, details: mu_descs
 #					puts File.read(deploy_dir(deploy_id)+"/deployment.json")
 				end
@@ -955,7 +948,7 @@ begin
 						elsif kittens.size == 0
 							# If we don't have a MU::Cloud object, manufacture a dummy one.
 							# Give it a fake name if we have to and have decided that's ok.
-							if name.nil? or name.empty? and !dummy_ok
+							if name.nil? or name.empty? or !dummy_ok
 								MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", MU::DEBUG, details: caller
 								next 
 							else
@@ -1012,7 +1005,7 @@ end
 					next if !name.nil? and name != sib_class
 					if has_multiples
 						if !name.nil? 
-							if data.size == 1
+							if data.size == 1 and (cloud_id.nil? or data.values.first.cloud_id == cloud_id)
 								return data.values.first
 							elsif mu_name.nil? and cloud_id.nil?
 								MU.log "Found multiple matches in findLitterMate based on #{type}: #{name}, and not enough info to narrow down further. Returning an arbitrary result.", MU::WARN, details: data.values
@@ -1254,11 +1247,11 @@ end
 				}
 				return matches
 			elsif !@deploy_cache[deploy_id].nil?
-				matches[deploy_id] = [] if !matches.has_key?(deploy_id)
 				if !@deploy_cache[deploy_id]['data'].nil? and
 						!@deploy_cache[deploy_id]['data'][type].nil? 
 					if !name.nil? 
 						if !@deploy_cache[deploy_id]['data'][type][name].nil?
+							matches[deploy_id] = [] if !matches.has_key?(deploy_id)
 							matches[deploy_id] << @deploy_cache[deploy_id]['data'][type][name].dup
 						else
 							return matches # nothing, actually
@@ -1888,7 +1881,11 @@ MESSAGE_END
 					MU.dupGlobals(parent_thread_id)
 					Thread.current.thread_variable_set("name", "sync-"+sibling.mu_name.downcase)
 					MU.setVar("syncLitterThread", true)
-					sibling.groomer.run
+					begin
+						sibling.groomer.run
+					rescue MU::Groomer::RunError => e
+						MU.log "Sync of #{sibling.mu_name} failed: #{e.inspect}", MU::WARN
+					end
 				}
 			}
 
