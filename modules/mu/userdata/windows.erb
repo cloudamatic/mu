@@ -1,109 +1,140 @@
 <powershell>
-	# Workaround for buggy userdata persistence?
 	Set-ExecutionPolicy Unrestricted -Force -Scope CurrentUser
 
+	$sshdUser = "sshd_service"
 	$logfile = "c:/Mu-Bootstrap-$([Environment]::UserName).log"
-	Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Invoked as $([Environment]::UserName)"
+	$base_dir = 'c:/bin'
+	$cygwin_dir = "$base_dir/cygwin"
+	$username = (whoami).Split('\')[1]
+
+	function log
+	{
+		$args
+		Add-Content "c:/Mu-Bootstrap-$([Environment]::UserName).log" "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) $args"
+		Add-Content "c:/Mu-Bootstrap-GLOBAL.log" "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) $args"
+	}
+
+	function Disable-SSHD
+	{
+		if ((Get-Service "sshd" -ErrorAction SilentlyContinue) -and (Test-Path "$cygwin_dir/bin/bash.exe")) {
+			log "Disabling pre-existing sshd"
+
+			Stop-Service -ErrorAction SilentlyContinue sshd
+			Stop-Process -ProcessName sshd -force -ErrorAction SilentlyContinue
+			Invoke-Expression '& $cygwin_dir/bin/bash --login -c "cygrunsrv --stop sshd; cygrunsrv --remove sshd; net user sshd /delete; net user sshd_service /delete; mkpasswd > /etc/passwd"'
+		}
+	}
+
+	log "----- Invoked as $([Environment]::UserName) (system started at $(Get-CimInstance -ClassName win32_operatingsystem | select lastbootuptime)) -----"
+
+	# If we'll be patching, don't let anyone in until we're done.
+	<% if !$mu.skipApplyUpdates %>
+	If (!(Test-Path "c:/mu-installer-ran-updates")){
+		Stop-Service -ErrorAction SilentlyContinue sshd
+	}
+	<% end %>
 
 	If ("$($myInvocation.MyCommand.Path)" -ne "$env:Temp/realuserdata_stripped.ps1"){
 		Invoke-WebRequest -Uri "http://169.254.169.254/latest/user-data" -OutFile $env:Temp/realuserdata.ps1
 		Get-Content $env:Temp/realuserdata.ps1 | Select-String -pattern '^#','^<' -notmatch | Set-Content $env:Temp/realuserdata_stripped.ps1
 		If (Compare-Object (Get-Content $myInvocation.MyCommand.Path) (Get-Content $env:Temp/realuserdata_stripped.ps1)){
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Invoking $env:Temp/realuserdata.ps1 in lieu of $($myInvocation.MyCommand.Path)"
+			log "Invoking $env:Temp/realuserdata.ps1 in lieu of $($myInvocation.MyCommand.Path)"
 			Invoke-Expression $env:Temp/realuserdata_stripped.ps1
 			exit
 		}
 	}
-	$username = (whoami).Split('\')[1]
-	New-Item $env:Temp/$username -type file -force
 
-	$local_admin_group_members = ([adsi]"WinNT://./Administrators, group").psbase.Invoke("Members")
-	$can_run_userdata = ($local_admin_group_members | foreach {$_.GetType().InvokeMember("Name", 'GetProperty', $null, $_, $null)}) -contains $username
-    # if ($can_run_userdata -eq $true){
-	# Userdata MUST be run under a user with local admin privileges. If not, at a minimum, cygwin/ssh will fail to install and configure correctly. 
-	# This only test if a user is in the local admin group, however in a domain a user could have local admin privileges without belonging to the local admin group.
+	$admin_username = (Get-WmiObject -Query 'Select * from Win32_UserAccount Where (LocalAccount=True and SID like "%-500")').name
+	log "Local admin account is $admin_username"
 
-		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) IT BEGINS on $env:computername"
-		$admin_username = (Get-WmiObject -Query 'Select * from Win32_UserAccount Where (LocalAccount=True and SID like "%-500")').name
-		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Local admin account is $admin_username"
+	Add-Type -Assembly System.Web
+	$password = [Web.Security.Membership]::GeneratePassword(15,2)
 
-		Set-Service BITS -startuptype "Automatic" -status Running -passthru
-		Add-Type -Assembly System.Web
-		$password = [Web.Security.Membership]::GeneratePassword(15,2)
-		$base_dir = 'c:/bin'
+	If (!(Test-Path $base_dir)){
+		New-Item -type directory -path $base_dir
+	}
 
-		If (!(Test-Path $base_dir)){
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Creating $base_dir"
-			New-Item -type directory -path $base_dir
-		}
+	# Make sure we're actually the right code, because Ec2Config gets this wrong sometimes.
+	Invoke-WebRequest -Uri "http://169.254.169.254/latest/user-data" -OutFile $env:Temp/realuserdata.ps1
+	Compare-Object (Get-Content "c:/Program Files/Amazon/Ec2ConfigService/Scripts/UserScript.ps1") (Get-Content $env:Temp/realuserdata.ps1)
 
-		# Make sure we're actually the right code, because Ec2Config gets this wrong sometimes.
-		Invoke-WebRequest -Uri "http://169.254.169.254/latest/user-data" -OutFile $env:Temp/realuserdata.ps1
-		Compare-Object (Get-Content "c:/Program Files/Amazon/Ec2ConfigService/Scripts/UserScript.ps1") (Get-Content $env:Temp/realuserdata.ps1)
-
-		$instanceid=(New-Object System.Net.WebClient).DownloadString("http://169.254.169.254/latest/meta-data/instance-id")
-		$cygwin_dir = "$base_dir/cygwin"
-		$sshdUser = "sshd_service"
+	$instanceid=(New-Object System.Net.WebClient).DownloadString("http://169.254.169.254/latest/meta-data/instance-id")
 		
-		# Ec2Config frequently fails to run us on reboot, too, so lets set up a scheduled task to make sure it happens.
-		If (!(Get-ScheduledTask -TaskName 'run-userdata')){
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Adding run-userdata scheduled task (user NT AUTHORITY\SYSTEM)"
-			Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/run-userdata_scheduledtask.xml" -OutFile $env:Temp/run-userdata_scheduledtask.xml
-			Register-ScheduledTask -Xml (Get-Content "$env:Temp/run-userdata_scheduledtask.xml" | out-string) -TaskName 'run-userdata' -Force -User "NT AUTHORITY\SYSTEM"
+	# Ec2Config frequently fails to run us on reboot, too, so lets set up a scheduled task to make sure it happens.
+	If (!(Get-ScheduledTask -TaskName 'run-userdata')){
+		log "Adding run-userdata scheduled task (user NT AUTHORITY\SYSTEM)"
+		Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/run-userdata_scheduledtask.xml" -OutFile $env:Temp/run-userdata_scheduledtask.xml
+		Register-ScheduledTask -Xml (Get-Content "$env:Temp/run-userdata_scheduledtask.xml" | out-string) -TaskName 'run-userdata' -Force -User "NT AUTHORITY\SYSTEM"
+	}
+
+	If (!(Test-Path $env:Temp/PSWindowsUpdate.zip)){
+		If (!(Test-Path c:/Users/$admin_username/Documents/WindowsPowerShell/Modules)){
+			mkdir c:/Users/$admin_username/Documents/WindowsPowerShell/Modules
 		}
 
-		If (!(Test-Path $env:Temp/PSWindowsUpdate.zip)){
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Powershell Windows Update module"
+		Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/PSWindowsUpdate.zip" -OutFile $env:Temp/PSWindowsUpdate.zip
+		Add-Type -A 'System.IO.Compression.FileSystem'
 
-			If (!(Test-Path c:/Users/$admin_username/Documents/WindowsPowerShell/Modules)){
-				mkdir c:/Users/$admin_username/Documents/WindowsPowerShell/Modules
-			}
-
-			Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/PSWindowsUpdate.zip" -OutFile $env:Temp/PSWindowsUpdate.zip
-			Add-Type -A 'System.IO.Compression.FileSystem'
-
-			If (!(Test-Path c:/windows/System32/WindowsPowerShell/v1.0/Modules/PSWindowsUpdate)){
-				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Extracting PSWindowsUpdate module to c:/windows/System32/WindowsPowerShell/v1.0/Modules"
-				[IO.Compression.ZipFile]::ExtractToDirectory("$env:Temp/PSWindowsUpdate.zip", "c:/windows/System32/WindowsPowerShell/v1.0/Modules")
-			}
-			If (!(Test-Path c:/Users/$admin_username/Documents/WindowsPowerShell/Modules/PSWindowsUpdate)){
-				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Extracting PSWindowsUpdate module to c:/Users/$admin_username/Documents/WindowsPowerShell"
-				[IO.Compression.ZipFile]::ExtractToDirectory("$env:Temp/PSWindowsUpdate.zip", "c:/Users/$admin_username/Documents/WindowsPowerShell/Modules")
-			}
+		If (!(Test-Path c:/windows/System32/WindowsPowerShell/v1.0/Modules/PSWindowsUpdate)){
+			log "Extracting PSWindowsUpdate module to c:/windows/System32/WindowsPowerShell/v1.0/Modules"
+			[IO.Compression.ZipFile]::ExtractToDirectory("$env:Temp/PSWindowsUpdate.zip", "c:/windows/System32/WindowsPowerShell/v1.0/Modules")
 		}
+		If (!(Test-Path c:/Users/$admin_username/Documents/WindowsPowerShell/Modules/PSWindowsUpdate)){
+			log "Extracting PSWindowsUpdate module to c:/Users/$admin_username/Documents/WindowsPowerShell"
+			[IO.Compression.ZipFile]::ExtractToDirectory("$env:Temp/PSWindowsUpdate.zip", "c:/Users/$admin_username/Documents/WindowsPowerShell/Modules")
+		}
+	}
 
-		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Setting Windows Update parameters in registry"
+		log "Setting Windows Update parameters in registry"
 		Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update" -Name AUOptions -Value 3
+
+		# This is a crappy workaround because even when we set all the right permissions/privileges ssh still doesn't always work, so we're removing on every instance
+#		If (!(Test-Path "c:/$instanceid")){
+#			log "I don't see c:/$instanceid"
+#			Disable-SSHD
+#		}
+
+		# even when we set all the right permissions/privileges ssh still doesn't always work, so we're removing if the user that installed ssh service changed
+#		if (!(Get-WmiObject win32_computersystem).partofdomain){
+#			if ((Test-Path $cygwin_dir\sshd_installed_by.txt) -and ((Get-Content $cygwin_dir\sshd_installed_by.txt) -ne $admin_username)){
+#				if ($username -ne "system"){
+#					log "I am not in a domain, my admin user is $admin_username, and sshd was last installed by $(Get-Content $cygwin_dir\sshd_installed_by.txt)"
+#					Disable-SSHD
+#				}
+#			}
+#		}
 
 		If (!(Test-Path "$cygwin_dir/Cygwin.bat")){
 			If (!(Test-Path $env:Temp/setup-x86_64.exe)){
-				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Cygwin setup"
 				Invoke-WebRequest -Uri "http://cygwin.com/setup-x86_64.exe" -OutFile $env:Temp/setup-x86_64.exe
 			}
 
 			If (!(Test-Path $env:Temp/cygwin.zip)){
-				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Cygwin packages"
+				log "Downloading Cygwin packages"
 				Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/cygwin_20150531.zip" -OutFile $env:Temp/cygwin.zip
 			}
 
 			Add-Type -A 'System.IO.Compression.FileSystem'
 			If (!(Test-Path $env:Temp/cygwin)){
-				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Extracting Cygwin packages"
 				[IO.Compression.ZipFile]::ExtractToDirectory("$env:Temp/cygwin.zip", "$env:Temp/cygwin")
 			}
 
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running Cygwin installer"
+			log "Running Cygwin installer"
 			Start-Process -wait -FilePath "$env:Temp/setup-x86_64.exe" -ArgumentList "-q -n -l $env:Temp -l $env:Temp\cygwin -L -R $cygwin_dir -P openssh,mintty,vim,curl,openssl"
 		}
 
 		if (!(Get-Service "sshd" -ErrorAction SilentlyContinue)){
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Invoking ssh-host-config"
+			log "Invoking ssh-host-config to enable sshd as $sshdUser (I am $admin_username)"
 			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "ssh-host-config -y -c ntsec -w ''$password'' -u $sshdUser" > $cygwin_dir/sshd_setup_log.txt'
 			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "sed -i.bak ''s/#.*StrictModes.*yes/StrictModes no/'' /etc/sshd_config" >> $cygwin_dir/sshd_setup_log.txt'
 			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "sed -i.bak ''s/#.*PasswordAuthentication.*yes/PasswordAuthentication no/'' /etc/sshd_config" >> $cygwin_dir/sshd_setup_log.txt'
+			New-Item $cygwin_dir/sshd_installed_by.txt -type file -force -value $admin_username
+			log "Creating c:/$instanceid (<%= $mu.muID %>)"
+			New-Item c:/$instanceid -type file -force -value "<%= $mu.muID %>"
+			log "Value in that file: $(Get-Content c:/$instanceid)"
 		}
 
-		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Ensuring domain or local users are in /etc/passwd for sshd"
+		log "Ensuring domain or local users are in /etc/passwd for sshd"
 		if((Get-WmiObject win32_computersystem).partofdomain){
 			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkpasswd -d > /etc/passwd"'
 			Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkgroup -l -d > /etc/group"'
@@ -115,7 +146,7 @@
 		# We're going to make sure the initial ssh user works. This should replace the need of removing and re-installing the ssh service.
 		if (!(Get-WmiObject win32_computersystem).partofdomain){
 			If (!(Test-Path "c:/mu-configure-initial-ssh-user")){
-				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) making sure the ssh user is configured correctly"
+				log "making sure the ssh user is configured correctly"
 				(([adsi]("WinNT://./$sshdUser, user")).psbase.invoke('SetPassword', "$password"))
 				$sshd_service = Get-WmiObject Win32_Service -Filter "Name='sshd'"
 				$sshd_service.Change($Null,$Null,$Null,$Null,$Null,$Null,".\$sshdUser",$password,$Null,$Null,$Null)
@@ -133,10 +164,10 @@
 		if ( $sshd_svc_user.contains("\") ){
 			$sshd_svc_user = $sshd_svc_user.substring($sshd_svc_user.LastIndexOf("\")+1)
 		}
-		Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "chown -R $sshd_svc_user /var/empty && chown $sshd_svc_user /var/log/sshd.log /etc/ssh*"'
+		log "Chowning /var/empty, /var/log/sshd.log, and /etc/ssh* to $sshd_svc_user"
+		Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "chown $sshd_svc_user /var/empty /var/log/sshd.log /etc/ssh*; chmod 755 /var/empty"'
 
 		If (!((Get-ItemProperty HKLM:/SYSTEM/CurrentControlSet/Control/Lsa)."Authentication Packages" | Select-String -pattern "cyglsa64.dll")){
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running cyglsa-config to grant Cygwin binaries privileges"
 			Invoke-Expression '& $cygwin_dir/bin/bash --login -c "echo yes | /usr/bin/cyglsa-config"'
 			$need_reboot = $TRUE
 		}
@@ -144,41 +175,38 @@
 		$python_path = 'c:\bin\python\python27'
 		$env:Path += ";$python_path\Scripts;$python_path"
 		If (!(Test-Path "$python_path\python.exe")){
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Installing Python"
 			If (!(Test-Path $env:Temp/python-2.7.9.msi)){
-				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Python installer"
+				log "Downloading Python installer"
 				Invoke-WebRequest -Uri "https://www.python.org/ftp/python/2.7.9/python-2.7.9.msi" -OutFile $env:Temp/python-2.7.9.msi
 			}
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running Python installer"
+			log "Running Python installer"
 			(Start-Process -FilePath msiexec -ArgumentList "/i $env:Temp\python-2.7.9.msi /qn ALLUSERS=1 TARGETDIR=$python_path" -Wait -Passthru).ExitCode
 		}
 
 		If (!(Test-Path "$python_path\Scripts\aws.cmd")){
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Installing awscli"
 			If (!(Test-Path $env:Temp/get-pip.py)){
-				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading get-pip.py"
+				log "Downloading get-pip.py"
 				Invoke-WebRequest -Uri "https://bootstrap.pypa.io/get-pip.py" -OutFile $env:Temp/get-pip.py
 			}
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running get-pip.py"
 			python $env:Temp/get-pip.py
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running pip install awscli"
+			log "Running pip install awscli"
 			pip install awscli
 		}
 
 		If (!(Test-Path "c:\opscode\chef\embedded\bin\ruby.exe")){
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Installing Chef"
+			log "Installing Chef"
 			If (!(Test-Path $env:Temp/chef-installer.msi)){
-				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Downloading Chef installer"
+				log "Downloading Chef installer"
 				Invoke-WebRequest -Uri "https://www.chef.io/chef/download?p=windows&pv=2012&m=x86_64&v=<%= MU.chefVersion %>" -OutFile $env:Temp/chef-installer.msi
 			}
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Running Chef installer"
+			log "Running Chef installer"
 			(Start-Process -FilePath msiexec -ArgumentList "/i $env:Temp\chef-installer.msi ALLUSERS=1 /le $env:Temp\chef-client-install.log /qn" -Wait -Passthru).ExitCode
 			Set-Content "c:/mu_installed_chef" "yup"
 		}
 
 	<% if !$mu.skipApplyUpdates %>
 		If (!(Test-Path "c:/mu-installer-ran-updates")){
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Applying Windows updates"
+			log "Applying Windows updates"
 			Import-Module PSWindowsUpdate
 			Get-WUInstall -AcceptAll -IgnoreReboot
 			If (Test-Path "HKLM:/SOFTWARE/Microsoft/Windows/CurrentVersion/WindowsUpdate/Auto Update/RebootRequired"){
@@ -187,21 +215,21 @@
 		}
 	<% end %>
 
-		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Fetching Mu deploy secret from s3://<%= MU.adminBucketName %>/<%= $mu.muID %>-secret"
+		log "Fetching Mu deploy secret from s3://<%= MU.adminBucketName %>/<%= $mu.muID %>-secret"
 		aws.cmd s3 cp s3://<%= MU.adminBucketName %>/<%= $mu.muID %>-secret $env:Temp/<%= $mu.muID %>-secret
 
-		Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Encrypting Mu deploy secret"
+		log "Encrypting Mu deploy secret"
 		$deploy_secret = & "c:\opscode\chef\embedded\bin\ruby" -ropenssl -rbase64 -e "key = OpenSSL::PKey::RSA.new(Base64.urlsafe_decode64('<%= $mu.deployKey %>'))" -e "print Base64.urlsafe_encode64(key.public_encrypt(File.read('$env:Temp/<%= $mu.muID %>-secret')))"
 
 		if (!(Get-NetFirewallRule -DisplayName "Allow SSH" -ErrorAction SilentlyContinue)){
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Opening port 22 in Windows Firewall"
+			log "Opening port 22 in Windows Firewall"
 			New-NetFirewallRule -DisplayName "Allow SSH" -Direction Inbound -LocalPort 22 -Protocol TCP -Action Allow
 		}
 
 <% if $mu.windowsAdminName %>
 		if ((Get-WmiObject win32_computersystem).partofdomain -ne $true){
 			if ("$admin_username" -ne "<%= $mu.windowsAdminName %>"){
-				Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Changing local admin account from $admin_username to <%= $mu.windowsAdminName %>"
+				log "Changing local admin account from $admin_username to <%= $mu.windowsAdminName %>"
 				([adsi]("WinNT://./$admin_username, user")).psbase.rename("<%= $mu.windowsAdminName %>")
 				$need_reboot = $TRUE
 			}
@@ -209,28 +237,31 @@
 <% end %>
 
 		if ($need_reboot){
+			log "----- REBOOT -----"
 			Restart-Computer -Force
 			exit
 		} else {
+			Add-Content c:/mu-installer-ran-updates "$(Get-Date -f MM-dd-yyyy_HH:mm:ss)"
+
 			# Moving ssh keys to after we installed all the updates so windows won't throw us out
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Enabling sshd service"
+			log "Enabling sshd service"
 			Start-Service sshd
 			Set-Service sshd -startuptype "Automatic"
 
 	<% if $mu.windowsAdminName %>
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Creating $cygwin_dir/home/<%= $mu.windowsAdminName %>/.ssh/authorized_keys"
+			log "Creating $cygwin_dir/home/<%= $mu.windowsAdminName %>/.ssh/authorized_keys"
 			New-Item $cygwin_dir/home/<%= $mu.windowsAdminName %>/.ssh/authorized_keys -type file -force -value "<%= $mu.deploySSHKey %>"
 	<% else %>
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Creating $cygwin_dir/home/$admin_username/.ssh/authorized_keys"
+			log "Creating $cygwin_dir/home/$admin_username/.ssh/authorized_keys"
 			New-Item $cygwin_dir/home/$admin_username/.ssh/authorized_keys -type file -force -value "<%= $mu.deploySSHKey %>"
 	<% end %>
 
-			Add-Content c:/mu-installer-ran-updates "$(Get-Date -f MM-dd-yyyy_HH:mm:ss)"
 			$url = 'https://<%= $mu.publicIP %>:2260'
-			Add-Content $logfile "$(Get-Date -f MM-dd-yyyy_HH:mm:ss) Calling home to $url"
+			log "Calling home to $url"
 			Start-Process -FilePath "c:\bin\cygwin\bin\curl.exe" -ArgumentList "-k --data mu_id='<%= $mu.muID %>' --data mu_resource_name='<%= $mu.resourceName %>' --data mu_resource_type='<%= $mu.resourceType %>' --data mu_instance_id='$instanceid' --data mu_bootstrap='1' --data mu_user='<%= $mu.muUser %>' --data mu_deploy_secret='$deploy_secret' $url" -Wait
+			log $(Get-Content $cygwin_dir/var/log/sshd.log)
 		}
-    # }
+
 	Set-Content "c:/mu_userdata_complete" "yup"
 	Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy Undefined
 </powershell>

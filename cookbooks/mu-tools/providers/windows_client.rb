@@ -141,13 +141,16 @@ def configure_users
 			end
 		else
 			[new_resource.ssh_user, new_resource.ec2config_user].each { |user|
-				powershell_script "Add domain SSH service user to local Administrators group" do
-					code <<-EOH
-						$domain_user = [ADSI]("WinNT://#{new_resource.netbios_name}/#{user}")
-						$local_admin_group = [ADSI]("WinNT://./Administrators")
-						$local_admin_group.PSBase.Invoke("Add",$domain_user.PSBase.Path)
+				unless user_in_local_admin_group?(user)
+					code =<<-EOH
+						$domain_user = [ADSI]('WinNT://#{new_resource.netbios_name}/#{user}')
+						$local_admin_group = [ADSI]('WinNT://./Administrators')
+						$local_admin_group.PSBase.Invoke('Add',$domain_user.PSBase.Path)
 					EOH
-					not_if "net localgroup Administrators | findstr #{new_resource.netbios_name}\\#{user}"
+
+					Chef::Log.info("Add domain user #{user} to local Admin group code: #{code}")
+					Chef::Log.info("Add domain user #{user} to local Administrators group")
+					powershell_out(code)
 				end
 			}
 		end
@@ -201,36 +204,41 @@ def configure_users
 end
 
 def set_ec2config_service
-	execute "Set ec2config service to login with ec2config user" do
-		not_if "sc qc Ec2Config | findstr SERVICE_START_NAME | findstr #{new_resource.ec2config_guard}"
-		command "sc config Ec2Config obj= \"#{new_resource.ec2config_service_user}\" password= \"#{new_resource.ec2config_password}\""
-		notifies :restart, "service[Ec2Config]", :delayed
-		# notifies :request, 'windows_reboot[1]'
-		sensitive true
-	end
+	unless service_user_set?("Ec2Config", new_resource.ec2config_service_user)
+		Chef::Log.info("Configuring Ec2Config service to run under #{new_resource.ec2config_service_user}")
+		cmd = powershell_out("$ec2config_service = Get-WmiObject Win32_service | Where-Object {$_.Name -eq 'Ec2Config'}; $ec2config_service.Change($Null,$Null,$Null,$Null,$Null,$Null,'#{new_resource.ec2config_service_user}','#{new_resource.ec2config_password}',$Null,$Null,$Null)")
 
-	service "Ec2Config" do
-		action :nothing
+		# service "Ec2Config" do
+			# action :restart
+		# end
 	end
 end
 
 def import_scheduled_tasks
 	# To do: Replace existing guard with guard that checks if the user running the task is admin.
 	# Or allow userdata to be rerun everytime the recipe is run
-	powershell_script "Import run-userdata scheduled task" do
-		guard_interpreter :powershell_script
-		code "Register-ScheduledTask -Xml (get-content '#{Chef::Config[:file_cache_path]}/run-userdata_scheduledtask.xml' | out-string) -TaskName 'run-userdata' -User #{new_resource.user_name} -Password '#{new_resource.password}' -Force"
-		only_if "((schtasks /TN 'run-userdata' /query /FO LIST -v | Select-String 'Run As User') -replace '`n|`r').split(':')[1].trim() -ne '#{new_resource.user_name}'"
-		# not_if "Get-ScheduledTask -TaskName 'run-userdata'"
-	end
+	# powershell_script "Import run-userdata scheduled task" do
+		# guard_interpreter :powershell_script
+		# code "Register-ScheduledTask -Xml (get-content '#{Chef::Config[:file_cache_path]}/run-userdata_scheduledtask.xml' | out-string) -TaskName 'run-userdata' -User #{new_resource.user_name} -Password '#{new_resource.password}' -Force"
+		# only_if "((schtasks /TN 'run-userdata' /query /FO LIST -v | Select-String 'Run As User') -replace '`n|`r').split(':')[1].trim() -ne '#{new_resource.user_name}'"
+		# # not_if "Get-ScheduledTask -TaskName 'run-userdata'"
+	# end
 
-	# Need to add a guard to this.
-	powershell_script "Import run-chef-client scheduled task" do
-		guard_interpreter :powershell_script
-		code "Register-ScheduledTask -Xml (get-content '#{Chef::Config[:file_cache_path]}/run_chefclient_scheduledtask.xml' | out-string) -TaskName 'run-chef-client' -User #{new_resource.user_name} -Password '#{new_resource.password}' -Force"
-		# only_if "((schtasks /TN 'run-chef-client' /query /FO LIST -v | Select-String 'Run As User') -replace '`n|`r').split(':')[1].trim() -ne '#{new_resource.user_name}'"
-		# not_if "Get-ScheduledTask -TaskName 'run-chef-client'"
-	end
+	# To do: Add guards
+	Chef::Log.info("Configuring run-userdata Scheduled Task")
+	cmd = powershell_out("Register-ScheduledTask -Xml (get-content '#{Chef::Config[:file_cache_path]}/run-userdata_scheduledtask.xml' | out-string) -TaskName 'run-userdata' -User #{new_resource.user_name} -Password '#{new_resource.password}' -Force")
+	Chef::Log.info("Configuring run-userdata Scheduled Task stdout : #{cmd.stdout}")
+	Chef::Log.info("Configuring run-userdata Scheduled Task stderr : #{cmd.stderr} ")
+	Chef::Log.info("Configuring run-chef-client Scheduled Task")
+	cmd = powershell_out("Register-ScheduledTask -Xml (get-content '#{Chef::Config[:file_cache_path]}/run_chefclient_scheduledtask.xml' | out-string) -TaskName 'run-chef-client' -User #{new_resource.user_name} -Password '#{new_resource.password}' -Force")
+	
+	# # Need to add a guard to this.
+	# powershell_script "Import run-chef-client scheduled task" do
+		# guard_interpreter :powershell_script
+		# code "Register-ScheduledTask -Xml (get-content '#{Chef::Config[:file_cache_path]}/run_chefclient_scheduledtask.xml' | out-string) -TaskName 'run-chef-client' -User #{new_resource.user_name} -Password '#{new_resource.password}' -Force"
+		# # only_if "((schtasks /TN 'run-chef-client' /query /FO LIST -v | Select-String 'Run As User') -replace '`n|`r').split(':')[1].trim() -ne '#{new_resource.user_name}'"
+		# # not_if "Get-ScheduledTask -TaskName 'run-chef-client'"
+	# end
 
 	windows_task 'run-userdata' do
 		action :nothing
@@ -243,10 +251,12 @@ end
 
 def set_sshd_service
 	ssh_user_set = ssh_user_set?(new_resource.ssh_guard)
+	Chef::Log.info("Configuring SSH service to start with #{new_resource.ssh_service_user} user")
 
 	cmd = powershell_out("$sshd_service = Get-WmiObject Win32_service | Where-Object {$_.Name -eq 'sshd'}; $sshd_service.Change($Null,$Null,$Null,$Null,$Null,$Null,'#{new_resource.ssh_service_user}','#{new_resource.ssh_password}',$Null,$Null,$Null)")
 	unless ssh_user_set
-		cmd = powershell_out("c:/bin/cygwin/bin/bash --login -c 'chown -R #{new_resource.ssh_user} /var/empty && chown #{new_resource.ssh_user} /var/log/sshd.log /etc/ssh*\'; Stop-Process -ProcessName sshd -force; Stop-Service sshd -Force; Start-Service sshd; sleep 5; Start-Service sshd")
+		cmd = powershell_out("c:/bin/cygwin/bin/bash --login -c 'chown -R #{new_resource.ssh_user} /var/empty && chown #{new_resource.ssh_user} /var/log/sshd.log /etc/ssh*\'; Restart-Computer -force")
+		kill_ssh
 		Chef::Application.fatal!("Cygwin sux")
 	end
 end

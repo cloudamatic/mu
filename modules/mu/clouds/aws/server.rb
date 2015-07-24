@@ -866,9 +866,7 @@ class Cloud
 				else
 					regions = MU::Cloud::AWS.listRegions
 				end
-if !cloud_id.nil?
-	MU.log "in Server.find for #{cloud_id}", MU::NOTICE, details: caller
-end
+
 				found_instances = {}
 				search_semaphore = Mutex.new
 				search_threads = []
