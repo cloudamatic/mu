@@ -440,6 +440,7 @@ module MU
 				begin
 					chef_node = ::Chef::Node.load(@server.mu_name)
 				rescue Net::HTTPServerException
+					raise MU::Groomer::RunError, "Couldn't load Chef node #{@server.mu_name}"
 				end
 
 				# Figure out what this node thinks its name is

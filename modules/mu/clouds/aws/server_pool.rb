@@ -362,7 +362,6 @@ class Cloud
 			# @param region [String]: The cloud provider region
 			# @return [void]
 			def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
-# XXX blow away IAM roles, they're getting missed right now
 				filters = [ { name: "key", values: ["MU-ID"] } ]
 				if !ignoremaster
 					filters << { name: "key", values: ["MU-MASTER-IP"] }
@@ -408,6 +407,8 @@ class Cloud
 							MU.log "Failed to delete AutoScale group #{resource_id}", MU::ERR
 						end
 					end
+
+					MU::Cloud::AWS::Server.removeIAMProfile(resource_id)
 
 					# Generally there should be a launch_configuration of the same name
 # XXX search for these independently, too?

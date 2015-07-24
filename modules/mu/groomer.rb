@@ -88,12 +88,16 @@ module MU
 				else
 					MU.log "Calling groomer method #{method}", MU::DEBUG, details: ["sensitive output suppress"]
 				end
-				if !args.nil? and args.size == 1
-					retval = @groomer_obj.method(method).call(args.first)
-				elsif !args.nil? and args.size > 0
-					retval = @groomer_obj.method(method).call(*args)
-				else
-					retval = @groomer_obj.method(method).call
+				begin
+					if !args.nil? and args.size == 1
+						retval = @groomer_obj.method(method).call(args.first)
+					elsif !args.nil? and args.size > 0
+						retval = @groomer_obj.method(method).call(*args)
+					else
+						retval = @groomer_obj.method(method).call
+					end
+				rescue Exception => e
+					raise MU::Groomer::RunError, e.message, e.backtrace
 				end
 				@groom_semaphore.synchronize {
 					@groom_locks.delete(method)
