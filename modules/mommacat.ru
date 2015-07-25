@@ -101,6 +101,30 @@ def throw500(msg = "", details = nil)
 	]
 end
 
+def throw404(msg = "", details = nil)
+	MU.log "Returning 404 to client: #{msg}", MU::ERR, details: details
+	[
+		404,
+		{
+			'Content-Type' => 'text/html',
+			'Content-Length' => msg.length
+		},
+		[msg]
+	]
+end
+
+def return200(data)
+	MU.log "Returning 200 to client", MU::NOTICE, details: data
+	[
+		200,
+		{
+			'Content-Type' => 'application/json',
+			'Content-Length' => data.length
+		},
+		[200]
+	]
+end
+
 @litters = Hash.new
 @litter_semaphore = Mutex.new
 
@@ -163,7 +187,33 @@ end
 app = proc do |env|
 	ok = false
 	begin
-		if !env["rack.input"].nil?
+		if !env.nil? and !env['REQUEST_PATH'].nil? and env['REQUEST_PATH'].match(/^\/rest\//)
+			# Don't give away the store. This can't be public until we can
+			# authenticate and access-control properly.
+			if env['REMOTE_ADDR'] != "127.0.0.1"
+				throw500 "Service not available"
+				next
+			end
+			action, filter, path = env['REQUEST_PATH'].sub(/^\/rest\/?/, "").split(/\//, 3)
+
+			if action == "deploy"
+				throw404 env['REQUEST_PATH'] if !filter
+				MU.log "Loading deploy data for #{filter} #{path}"
+				kittenpile = MU::MommaCat.getLitter(filter)
+				return200 JSON.generate(kittenpile.deployment)
+			elsif action == "config"
+				throw404 env['REQUEST_PATH'] if !filter
+				MU.log "Loading config #{filter} #{path}"
+				kittenpile = MU::MommaCat.getLitter(filter)
+				return200 JSON.generate(kittenpile.original_config)
+			elsif action == "list"
+				MU.log "Listing deployments"
+				return200 JSON.generate(MU::MommaCat.listDeploys)
+			else
+				throw404 env['REQUEST_PATH']
+			end
+
+		elsif !env["rack.input"].nil?
 			req = Rack::Utils.parse_nested_query(env["rack.input"].read)
 			ok = true
 #			required_vars.each { |var|
@@ -233,8 +283,10 @@ app = proc do |env|
 		throw500 "Invalid request: #{e.inspect} (#{req})", e.backtrace
 		ok = false
 	ensure
-		releaseKitten(req['mu_id'])
-		MU.purgeGlobals
+		if !req.nil?
+			releaseKitten(req['mu_id'])
+			MU.purgeGlobals
+		end
 	end
 	next if !ok
 

@@ -649,7 +649,7 @@ module MU
 						begin
 							if !nat_ssh_host.nil?
 								proxy_cmd = "ssh -q -o StrictHostKeyChecking=no -W %h:%p #{nat_ssh_user}@#{nat_ssh_host}"
-								MU.log "Attempting SSH to #{@config['mu_name']} (#{canonical_ip}) as #{ssh_user} with key #{@deploy.ssh_key_name} using proxy '#{proxy_cmd}'" if retries == 0
+								MU.log "Attempting SSH to #{canonical_ip} (#{@mu_name}) as #{ssh_user} with key #{@deploy.ssh_key_name} using proxy '#{proxy_cmd}'" if retries == 0
 								proxy = Net::SSH::Proxy::Command.new(proxy_cmd)
 								session = Net::SSH.start(
 									canonical_ip,
@@ -664,7 +664,7 @@ module MU
 									:proxy => proxy
 								)
 							else
-								MU.log "Attempting SSH to #{canonical_ip} as #{ssh_user} with key #{ssh_keydir}/#{@deploy.ssh_key_name}" if retries == 0
+								MU.log "Attempting SSH to #{canonical_ip} (#{@mu_name}) as #{ssh_user} with key #{ssh_keydir}/#{@deploy.ssh_key_name}" if retries == 0
 								session = Net::SSH.start(
 									canonical_ip,
 									ssh_user,
