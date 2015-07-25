@@ -1066,7 +1066,6 @@ add_chef_support_gems()
 {
 	rubydir=$1
 	# possibly unnecessary but ensure nokogiri
-	#/opt/chef/embedded/bin/gem install nokogiri --no-rdoc --no-ri
 	$rubydir/bin/gem install nokogiri --no-rdoc --no-ri
 	rm -rf /tmp/mu-gem-setup.$$
 	mkdir -p /tmp/mu-gem-setup.$$
