@@ -63,13 +63,14 @@ when "centos", "redhat"
             def hudsonRealm = new HudsonPrivateSecurityRealm(false)
             instance.setSecurityRealm(hudsonRealm)
             def strategy = new GlobalMatrixAuthorizationStrategy()
-            strategy.add(Jenkins.ADMINISTER, admin_vault['username'])
+            strategy.add(Jenkins.ADMINISTER,  "#{admin_vault['username']}")
             strategy.add(Jenkins.ADMINISTER, "mu_user")
             instance.setAuthorizationStrategy(strategy)
             instance.save()
           EOH
           notifies :create, 'ruby_block[set_configure_jenkins_auth]', :immediately
-          action :nothing
+          #action :nothing
+          #not_if "grep -cim1 hudson.security.GlobalMatrixAuthorizationStrategy /home/jenkins/config.xml"
         end
 
         # Set the security enabled flag and set the run_state to use the configured private key
@@ -92,33 +93,6 @@ when "centos", "redhat"
                         sensitive true
                 end
         }
-
-        jenkins_script 'configure_jenkins_auth' do
-                # Need to add a guard to this
-                command <<-EOH.gsub(/^ {4}/, '')
-                        import jenkins.model.*
-                        import hudson.security.*
-                        def instance = Jenkins.getInstance()
-                        def realm = new HudsonPrivateSecurityRealm(false)
-                        def strategy = new hudson.security.GlobalMatrixAuthorizationStrategy()
-                        instance.setSecurityRealm(realm)
-                        strategy.add(Jenkins.ADMINISTER,'authenticated')
-                        instance.setAuthorizationStrategy(strategy)
-                        instance.save()
-                EOH
-                notifies :create, 'ruby_block[set_jenkins_auth_attribute]', :immediately
-                action :nothing
-                not_if "grep -cim1 hudson.security.GlobalMatrixAuthorizationStrategy /home/jenkins/config.xml"
-        end
-
-        ruby_block 'set_jenkins_auth_attribute' do
-                block do
-                        node.run_state[:jenkins_private_key] = admin_vault['private_key'].strip
-                        node.normal.application_attributes.jenkins_auth = true
-                        node.save
-                end
-                action :nothing
-        end
 
         node.jenkins_plugins.each { |plugin|
                 jenkins_plugin plugin do
