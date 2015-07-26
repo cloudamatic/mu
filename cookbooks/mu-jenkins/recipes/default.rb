@@ -69,7 +69,7 @@ when "centos", "redhat"
             instance.save()
           EOH
           notifies :create, 'ruby_block[set_configure_jenkins_auth]', :immediately
-          #action :nothing
+          action :nothing
           #not_if "grep -cim1 hudson.security.GlobalMatrixAuthorizationStrategy /home/jenkins/config.xml"
         end
 
