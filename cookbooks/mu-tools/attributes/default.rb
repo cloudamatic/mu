@@ -129,3 +129,8 @@ default[:application_attributes][:var_log_audit][:label] = "#{disk_name_str} /va
 default[:application_attributes][:var_log_audit][:mount_directory] = "/var/log/audit"
 
 default['banner']['path'] = "etc/BANNER"
+if platform_family?("windows")
+	override['java']['install_flavor'] = 'windows'
+	override["java"]["jdk_version"] = 7
+	override["java"]["oracle"]["accept_oracle_download_terms"] = true
+end

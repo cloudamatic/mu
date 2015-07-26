@@ -20,7 +20,5 @@ attribute :ec2config_user, :kind_of => String, :required => true
 attribute :ec2config_password, :kind_of => String, :required => true
 attribute :domain_name, :kind_of => String
 attribute :netbios_name, :kind_of => String
-attribute :ec2config_guard, :kind_of => String, :required => true
 attribute :ec2config_service_user, :kind_of => String, :required => true
-attribute :ssh_guard, :kind_of => String, :required => true
 attribute :ssh_service_user, :kind_of => String, :required => true

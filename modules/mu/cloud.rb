@@ -318,9 +318,11 @@ module MU
 					# describe() cache
 					if !cloud_id.nil? or !mu_name.nil?
 						@cloudobj.describe(cloud_id: cloud_id)
-						@deploydata = @cloudobj.deploydata
-						@config = @cloudobj.config
 					end
+
+					# XXX maybe these guys should just be pass-through methods
+					@deploydata = @cloudobj.deploydata
+					@config = @cloudobj.config
 
 					# Register us with our parent deploy so that we can be found by our
 					# littermates if needed.

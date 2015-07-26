@@ -1130,9 +1130,22 @@ class Cloud
 			end
 
 			def cloud_desc
+				max_retries = 5
+				retries = 0
 				if !@cloud_id.nil?
-					return MU::Cloud::AWS.ec2(@config['region']).describe_instances(instance_ids: [@cloud_id]).reservations.first.instances.first
+					begin
+						return MU::Cloud::AWS.ec2(@config['region']).describe_instances(instance_ids: [@cloud_id]).reservations.first.instances.first
+					rescue NoMethodError => e
+						if retries >= max_retries 
+							raise MuError, "Couldn't get a cloud descriptor for #{@mu_name} (#{@cloud_id})"
+						else
+							retries = retries + 1
+							sleep 10
+							retry
+						end
+					end
 				end
+				nil
 			end
 
 			# Return the IP address that we, the Mu server, should be using to access

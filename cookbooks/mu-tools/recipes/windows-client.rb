@@ -42,11 +42,9 @@ when "windows"
 			netbios_name node.ad.netbios_name
 			ssh_user sshd_user
 			ssh_password sshd_password
-			ssh_guard "#{node.ad.netbios_name}\\#{sshd_user}"
 			ssh_service_user  "#{node.ad.netbios_name}\\#{sshd_user}"
 			ec2config_user ec2config_user
 			ec2config_password ec2config_password
-			ec2config_guard "#{node.ad.netbios_name}\\#{ec2config_user}"
 			ec2config_service_user "#{node.ad.netbios_name}\\#{ec2config_user}"
 		end
 	else
@@ -55,11 +53,9 @@ when "windows"
 			password ad_vault[node.ad.domain_admin_password_field]
 			ssh_user sshd_user
 			ssh_password sshd_password
-			ssh_guard ".\\#{sshd_user}"
 			ssh_service_user ".\\#{sshd_user}"
 			ec2config_user ec2config_user
 			ec2config_password ec2config_password
-			ec2config_guard ".\\#{ec2config_user}"
 			ec2config_service_user ".\\#{ec2config_user}"
 		end
 	end rescue NoMethodError
