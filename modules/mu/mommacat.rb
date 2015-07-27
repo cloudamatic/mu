@@ -58,6 +58,16 @@ module MU
 			@@litter_semaphore.synchronize {
 				if !@@litters.has_key?(deploy_id)
 					@@litters[deploy_id] = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
+				elsif set_context_to_me
+					MU.setVar("chef_user", @@litters[deploy_id].mu_user) if !@@litters[deploy_id].mu_user.nil?
+					if MU.chef_user != "mu"
+						MU.setVar("dataDir", Etc.getpwnam(MU.chef_user).dir+"/.mu/var")
+					else
+						MU.setVar("dataDir", MU.mainDataDir)
+					end
+					MU.setVar("mommacat", @@litters[deploy_id])
+					MU.setVar("deploy_id", deploy_id)
+					MU.setVar("environment", @@litters[deploy_id].environment)
 				end
 				return @@litters[deploy_id]
 			}
@@ -76,6 +86,7 @@ module MU
 		attr_reader :timestamp
 		attr_reader :appname
 		attr_reader :seed
+		attr_reader :mu_user
 		attr_accessor :kittens # really want a method only available to :Deploy
 		@myhome = Etc.getpwuid(Process.uid).dir
 		@nagios_home = "/home/nagios"
@@ -132,6 +143,7 @@ module MU
 			end
 
 			@deploy_id = deploy_id
+			@mu_user = mu_user
 			@kitten_semaphore = Mutex.new
 			@kittens = {}
 			@original_config = config
@@ -813,8 +825,9 @@ module MU
 									begin
 										server.destroy
 										deploy.sendAdminMail("Retired terminated node #{mu_name}", kitten: server)
-									rescue MuError => e
-										MU.log e.inspect, MU::ERR
+									rescue Exception => e
+										MU.log "Saw #{e.message} while retiring #{mu_name}", MU::ERR, details: e.backtrace
+										next
 									end
 									MU.log "Deletion of #{server} (#{nodeclass}), formerly #{server.cloud_id} complete", MU::NOTICE
 									purged = purged + 1
