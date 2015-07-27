@@ -8,7 +8,7 @@
 # rather than some random mirror
 EPEL_RPM="http://mirror.pnl.gov/epel/6/i386/epel-release-6-8.noarch.rpm"
 
-PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.7.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx mysql-devel postgresql-devel openssl libyaml"
+PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.7.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx mysql-devel postgresql-devel openssl libyaml autoconf"
 DEL_PACKAGES="nagios"
 
 OPSCODE_CHEF_PKG="chef-server-core-12.0.8-1.el6.x86_64"
@@ -1065,28 +1065,11 @@ punch_tcp_hole()
 add_chef_support_gems()
 {
 	rubydir=$1
-	# possibly unnecessary but ensure nokogiri
-	$rubydir/bin/gem install nokogiri --no-rdoc --no-ri
-	rm -rf /tmp/mu-gem-setup.$$
-	mkdir -p /tmp/mu-gem-setup.$$
-	$rubydir/bin/gem list > /tmp/mu-gem-setup.$$/gemlist.txt
-	grep '^bundler ' /tmp/mu-gem-setup.$$/gemlist.txt > /dev/null || $rubydir/bin/gem install bundler --no-rdoc --no-ri
+	$rubydir/bin/gem list | grep '^bundler' > /dev/null || $rubydir/bin/gem install bundler --no-rdoc --no-ri
 
 	status_message "Installing support gems in $rubydir"
 
-	echo 'source "https://rubygems.org"' > /tmp/mu-gem-setup.$$/Gemfile
-	# Bring nokogiri to an explicit bundle
-	for pkg in bundler ohai knife-ec2 chef-vault foodcritic yard colorize color json json-schema trollop fileutils aws-sdk-core knife-windows simple-password-gen netaddr nokogiri;do
-		if ! grep "^$pkg " /tmp/mu-gem-setup.$$/gemlist.txt > /dev/null;then
-			egrep "[\'\"]$pkg[\'\"]" $MU_LIBDIR/modules/Gemfile >> /tmp/mu-gem-setup.$$/Gemfile
-		elif grep "[\'\"]$pkg[\'\"], " $MU_LIBDIR/modules/Gemfile > /dev/null;then
-			egrep "[\'\"]$pkg[\'\"]" $MU_LIBDIR/modules/Gemfile >> /tmp/mu-gem-setup.$$/Gemfile
-		fi
-	done
-
-	cd /tmp/mu-gem-setup.$$ && $rubydir/bin/bundle install
-	cd
-	rm -rf /tmp/mu-gem-setup.$$
+	cd $MU_LIBDIR/modules && $rubydir/bin/bundle install
 
 	find $rubydir/ -type f -exec chmod go+r {} \;
 	find $rubydir/bin -type f -exec chmod go+rx {} \;
