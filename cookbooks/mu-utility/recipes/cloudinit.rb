@@ -50,7 +50,7 @@ if platform_family?("rhel")
 elsif platform_family?("debian")
 	package "cloud-init"
 elsif platform_family?("windows")
-	Chef::Log.info ("Windows should already have a cloud-init-esque package installed, I think")
+	Chef::Log.info ("Windows use ec2config, no cloud-init package is necessary")
 else
 	Chef::Log.info("Unsupported platform #{node[:platform]}")
 end

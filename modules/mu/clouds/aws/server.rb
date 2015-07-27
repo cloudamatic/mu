@@ -448,13 +448,13 @@ class Cloud
 					punchAdminNAT
 
 					instance_descriptor[:subnet_id] = subnet.cloud_id
-				else
-					instance_descriptor[:network_interfaces] = [
-						{
-							:device_index => 0,
-							:associate_public_ip_address => @config["associate_public_ip"]
-						}
-					]
+# XXX this needs to get done by a modify later, we can't do it on creation
+#					instance_descriptor[:network_interfaces] = [
+#						{
+#							:device_index => 0,
+#							:associate_public_ip_address => @config["associate_public_ip"]
+#						}
+#					]
 				end
 
 			  if !@userdata.nil? and !@userdata.empty?
