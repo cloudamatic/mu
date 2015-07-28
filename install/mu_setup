@@ -8,7 +8,7 @@
 # rather than some random mirror
 EPEL_RPM="http://mirror.pnl.gov/epel/6/i386/epel-release-6-8.noarch.rpm"
 
-PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.7.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx mysql-devel postgresql-devel openssl libyaml"
+PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.7.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx mysql-devel postgresql-devel openssl libyaml autoconf"
 DEL_PACKAGES="nagios"
 
 OPSCODE_CHEF_PKG="chef-server-core-12.0.8-1.el6.x86_64"
@@ -39,7 +39,7 @@ export PATH="/bin:/usr/bin:/sbin:/usr/sbin"
 
 # Non-root users can only customize certain configuration parameters
 if [ "root" == "`whoami`" ];then
-	CONFIG_VARS="AWS_ACCESS AWS_SECRET MU_ADMIN_EMAIL MU_ADMIN_PW MU_INSTALLDIR MU_DATADIR ADDTL_CHEF_REPOS MU_REPO CHEF_PUBLIC_IP HOSTNAME EC2SECGROUP LOG_BUCKET_NAME ALLOW_INVADE_FOREIGN_VPCS"
+	CONFIG_VARS="AWS_ACCESS AWS_SECRET MU_ADMIN_EMAIL MU_ADMIN_PW JENKINS_ADMIN_EMAIL JENKINS_ADMIN_PW MU_INSTALLDIR MU_DATADIR ADDTL_CHEF_REPOS MU_REPO CHEF_PUBLIC_IP HOSTNAME EC2SECGROUP LOG_BUCKET_NAME ALLOW_INVADE_FOREIGN_VPCS"
 	RO_CONFIG_VARS="AWS_ACCOUNT_NUMBER EC2_REGION"
 else
 	CONFIG_VARS="AWS_ACCESS AWS_SECRET MU_DATADIR ADDTL_CHEF_REPOS MU_REPO LOG_BUCKET_NAME"
@@ -234,6 +234,27 @@ status_message()
 		echo ""
 	fi
 }
+
+###############################################################################
+# Useful for accessing our parallel key/value structure.  
+# Accepts named key as argument
+# Returns value of target env variable from array structures
+# Uses stdout so do **not** echo or printf in this function
+###############################################################################
+
+return_targetvar_value()
+
+{
+    for i in "${!var_name[@]}"; do
+
+      if [ ${var_name[$i]}  = "$1" ]; then
+        printf ${var_val[$i]}
+        break
+      fi
+    done
+}
+
+
 
 ###############################################################################
 update_murc()
@@ -539,9 +560,27 @@ validate_setup_env_vars(){
 				warning_message "You must specify a password for the 'mu' user."
 				validate_errs=1
 			fi	
+		elif [ "${var_name[$n]}" == "JENKINS_ADMIN_EMAIL" ]; then
+			if [ "${var_val[$n]}" == "" ];then
+				warning_message "You must specify an email contact for the 'jenkins' user."
+				validate_errs=1
+			fi	
+		elif [ "${var_name[$n]}" == "JENKINS_ADMIN_PW" ]; then
+			if [ "${var_val[$n]}" == "" ];then
+				warning_message "You must specify a password for the 'jenkins' user."
+				validate_errs=1
+			fi	
 		fi
 		n=$[$n +1]
 	done
+
+	MU_ADMIN_EMAIL_VAL=$(return_targetvar_value "MU_ADMIN_EMAIL")
+  	JENKINS_ADMIN_EMAIL_VAL=$(return_targetvar_value "JENKINS_ADMIN_EMAIL")
+
+ 	if [ "$MU_ADMIN_EMAIL_VAL" == "$JENKINS_ADMIN_EMAIL_VAL" ]; then
+ 	 echo "EMail addresses for mu users must be unique and your Jenkins and Mu addresses are the same!"
+    	validate_errs=1
+  	fi
 }
 
 ###############################################################################
@@ -570,6 +609,14 @@ print_setup_env_vars(){
 			echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (required): ${GREEN}${var_val[$n]}${NORM}"
 		elif [ "${var_name[$n]}" == "MU_ADMIN_PW" ]; then
 			if [ "${var_val[$n]}" != "" -o -f "$MU_CHEF_CACHE/mu.user.key" ];then
+				echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (required): ********"
+			else
+				echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (required):"
+			fi
+		elif [ "${var_name[$n]}" == "JENKINS_ADMIN_EMAIL" ]; then
+			echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (required): ${GREEN}${var_val[$n]}${NORM}"
+		elif [ "${var_name[$n]}" == "JENKINS_ADMIN_PW" ]; then
+			if [ "${var_val[$n]}" != "" ];then
 				echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (required): ********"
 			else
 				echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (required):"
@@ -675,6 +722,14 @@ adjust_config_vars()
 			fi
 			if [ "${var_name[$config]}" == "MU_ADMIN_PW" ];then
 				read -s -p "Enter password for the ${BOLD}mu${NORM} admin user. `echo $'\n> '`" newval
+			fi
+			if [ "${var_name[$config]}" == "JENKINS_ADMIN_EMAIL" ];then
+				echo "Enter an email address for the administrative 'jenkins' user."
+				echo "Note that you won't be able to reuse this address for a regular user. See also:"
+				echo "https://github.com/chef/chef-server/issues/59"
+			fi
+			if [ "${var_name[$config]}" == "JENKINS_ADMIN_PW" ];then
+				read -s -p "Enter password for the ${BOLD}jenkins${NORM} admin user. `echo $'\n> '`" newval
 			else
 				read -p "Enter new value for ${BOLD}${var_name[$config]}${NORM}. `echo $'\n> '`" newval
 			fi
@@ -695,7 +750,7 @@ adjust_config_vars()
 					ok=0
 				fi
 				if [ $ok == 0 ];then
-					warning_message "You must specify one or more valid email addresses!"
+					warning_message "You must specify one or more valid and unique email addresses!"
 			    print_setup_env_vars
 					continue
 				fi
@@ -1010,25 +1065,11 @@ punch_tcp_hole()
 add_chef_support_gems()
 {
 	rubydir=$1
-	rm -rf /tmp/mu-gem-setup.$$
-	mkdir -p /tmp/mu-gem-setup.$$
-	$rubydir/bin/gem list > /tmp/mu-gem-setup.$$/gemlist.txt
-	grep '^bundler ' /tmp/mu-gem-setup.$$/gemlist.txt > /dev/null || $rubydir/bin/gem install bundler --no-rdoc --no-ri
+	$rubydir/bin/gem list | grep '^bundler' > /dev/null || $rubydir/bin/gem install bundler --no-rdoc --no-ri
 
 	status_message "Installing support gems in $rubydir"
 
-	echo 'source "https://rubygems.org"' > /tmp/mu-gem-setup.$$/Gemfile
-	for pkg in bundler ohai knife-ec2 chef-vault foodcritic yard colorize color json json-schema trollop fileutils aws-sdk-core knife-windows simple-password-gen netaddr;do
-		if ! grep "^$pkg " /tmp/mu-gem-setup.$$/gemlist.txt > /dev/null;then
-			egrep "[\'\"]$pkg[\'\"]" $MU_LIBDIR/modules/Gemfile >> /tmp/mu-gem-setup.$$/Gemfile
-		elif grep "[\'\"]$pkg[\'\"], " $MU_LIBDIR/modules/Gemfile > /dev/null;then
-			egrep "[\'\"]$pkg[\'\"]" $MU_LIBDIR/modules/Gemfile >> /tmp/mu-gem-setup.$$/Gemfile
-		fi
-	done
-
-	cd /tmp/mu-gem-setup.$$ && $rubydir/bin/bundle install
-	cd
-	rm -rf /tmp/mu-gem-setup.$$
+	cd $MU_LIBDIR/modules && $rubydir/bin/bundle install
 
 	find $rubydir/ -type f -exec chmod go+r {} \;
 	find $rubydir/bin -type f -exec chmod go+rx {} \;
@@ -1337,6 +1378,29 @@ configure_nagios_server()
 	/bin/cp -f $MU_LIBDIR/bin/mu-tunnel-nagios /home/nagios/mu-tunnel-nagios && chown nagios /home/nagios/mu-tunnel-nagios
 }
 
+###############################################################################
+preconfigure_jenkins_artifacts()
+{
+        status_message "Configuring the ${BOLD}Jenkins${NORM} artifacts"
+        punch_tcp_hole 9443
+        if [ "`/bin/ls $MU_DATADIR/users/`" == "" ];then
+                echo "${RED}Cannot enable Jenkins until at least one admin user is specified.${NORM}"
+                echo "${RED}Use ${BOLD}mu-user-manage${NORM}${RED} to create and manage users.${NORM}"
+                return
+        fi
+        # skip user and vault creation if we're being called from mu-self-update and have already
+        # done it
+        #
+        if [ "`grep ^jenkins: /etc/passwd`" == "" -o "`pgrep -u jenkins -f /usr/lib/jenkins`" == "" ];then
+        	# Create Jenkins Vault with admin and user items
+	        $MU_LIBDIR/install/jenkinskeys.rb
+	        knife vault create jenkins users "{\"mu_user_password\":\"$JENKINS_ADMIN_PW\"}" --mode client -F json -u mu --search name:MU-MASTER
+	        # Create the Jenkins user
+	        $MU_INSTALLDIR/bin/mu-user-manage -c -u jenkins -e $JENKINS_ADMIN_EMAIL -p $JENKINS_ADMIN_PW
+        fi
+}
+
+
 generate_docs()
 {
 	status_message "Generating documentation"
@@ -1451,10 +1515,11 @@ if [ "$library" != "1" ];then
 		generate_ssl_certs
 		setup_localhost_chef_client
 		configure_nagios_server
+		preconfigure_jenkins_artifacts
 		set_permissions
 	fi
-
-	chef-client
+	knife node run_list add MU-MASTER "role[mu-master-jenkins]"
+	chef-client -l info
 
 	echo ""
 	echo "You MUST source all of the changes I made to your environment:"
