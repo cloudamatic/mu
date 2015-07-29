@@ -291,5 +291,13 @@ cron "Sync client firewall allow rules" do
 	command "#{MU.installDir}/bin/mu-firewall-allow-clients"
 end
 
+cron "Rotate vault keys and purge MIA clients" do
+	action :create
+	minute "10"
+	hour "6"
+	user "root"
+	command "/opt/mu/bin/knife vault rotate all keys --clean-unknown-clients"
+end
+
 # This is stuff that can break for no damn reason at all
 include_recipe "mu-utility::cloudinit"

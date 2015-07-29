@@ -68,7 +68,7 @@ module MU
 						MU.log "Known deployments:\n#{Dir.entries(deploy_dir).reject{|item| item.match(/^\./) or !File.exists?(deploy_dir+"/"+item+"/public_key") }.join("\n")}", MU::WARN
 						MU.log "Searching for remnants of #{deploy_id}, though this may be an invalid MU-ID.", MU::WARN
 					end
-					@mommacat = MU::MommaCat.new(deploy_id)
+					@mommacat = MU::MommaCat.new(deploy_id, mu_user: MU.mu_user)
 				rescue Exception => e
 					MU.log "Can't load a deploy record for #{deploy_id} (#{e.inspect}), cleaning up resources by guesswork", MU::WARN, details: e.backtrace
 					MU.setVar("deploy_id", deploy_id)

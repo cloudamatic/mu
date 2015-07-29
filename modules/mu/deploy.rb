@@ -180,7 +180,8 @@ module MU
 					environment: @environment,
 					nocleanup: @nocleanup,
 					set_context_to_me: true,
-					deployment_data: metadata
+					deployment_data: metadata,
+					mu_user: MU.mu_user
 				)
 				MU.setVar("mommacat", mommacat)
 
@@ -254,7 +255,7 @@ module MU
 			end
 			if !MU.mommacat.deployment['servers'].nil? and MU.mommacat.deployment['servers'].keys.size > 0
 				# XXX some kind of filter (obey sync_siblings on nodes' configs)
-				syncLitter(MU.mommacat.deployment['servers'].keys)
+				MU.mommacat.syncLitter(MU.mommacat.deployment['servers'].keys)
 			end
 			deployment = MU.mommacat.deployment
 			deployment["deployment_end_time"]=Time.new.strftime("%I:%M %p on %A, %b %d, %Y").to_s;

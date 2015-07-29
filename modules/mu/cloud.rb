@@ -597,7 +597,8 @@ module MU
 								hostname = @config['active_directory']['domain_controller_hostname']
 								@mu_windows_name = hostname
 							end
-							reboot_after_hostname_set = false
+#							reboot_after_hostname_set = false
+							reboot_after_hostname_set = true # XXX AD joins still get this wrong sometimes, somehow, so let's reboot first to clear their heads
 						else
 							hostname = @mu_windows_name
 						end

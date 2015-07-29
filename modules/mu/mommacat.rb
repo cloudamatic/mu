@@ -149,9 +149,12 @@ module MU
 
 			@deploy_id = deploy_id
 			@mu_user = mu_user
+
+			# Make sure mu_user and chef_user are sane.
 			if @mu_user == "root"
 				@chef_user = "mu"
 			else
+				@mu_user = "root" if @mu_user == "mu"
 				@chef_user = @mu_user
 			end
 			@kitten_semaphore = Mutex.new
