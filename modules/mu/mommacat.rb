@@ -138,7 +138,7 @@ module MU
 				nocleanup: false,
 				set_context_to_me: true,
 				deployment_data: deployment_data = Hash.new,
-				mu_user: nil
+				mu_user: "root"
 			)
 			verbose = true
 			if deploy_id.nil? or deploy_id.empty?

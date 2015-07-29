@@ -71,8 +71,8 @@ module MU
 				if node.mu_name.nil? or node.mu_name.empty?
 					raise MuError, "Cannot groom a server that doesn't tell me its mu_name"
 				end
-				if File.exists?("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
-					::Chef::Config.from_file("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
+				if File.exists?("#{Etc.getpwnam(@server.deploy.mu_user).dir}/.chef/knife.rb")
+					::Chef::Config.from_file("#{Etc.getpwnam(@server.deploy.mu_user).dir}/.chef/knife.rb")
 				end
 				@secrets_semaphore = Mutex.new
 				@secrets_granted = {}
