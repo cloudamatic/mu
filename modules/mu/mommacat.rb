@@ -100,8 +100,10 @@ module MU
 				MU.setVar("chef_user", deploy.mu_user)
 				if MU.chef_user != "mu"
 					MU.setVar("dataDir", Etc.getpwnam(MU.chef_user).dir+"/.mu/var")
+					MU.setVar("mu_user", deploy.mu_user)
 				else
 					MU.setVar("dataDir", MU.mainDataDir)
+					MU.setVar("mu_user", "root")
 				end
 			end
 			MU.setVar("mommacat", deploy)
@@ -143,17 +145,6 @@ module MU
 				raise DeployInitializeError, "MommaCat objects must specify a deploy_id"
 			end
 			set_context_to_me = true if create
-			if set_context_to_me # XXX probably can use setThreadContext here
-				MU.setVar("chef_user", mu_user) if !mu_user.nil?
-				if MU.chef_user != "mu"
-					MU.setVar("dataDir", Etc.getpwnam(MU.chef_user).dir+"/.mu/var")
-				else
-					MU.setVar("dataDir", MU.mainDataDir)
-				end
-				MU.setVar("mommacat", self)
-				MU.setVar("deploy_id", deploy_id)
-				MU.setVar("environment", environment)
-			end
 
 			@deploy_id = deploy_id
 			@mu_user = mu_user
@@ -173,6 +164,10 @@ module MU
 			@ssh_key_name = ssh_key_name
 			@ssh_private_key = ssh_private_key
 			@ssh_public_key = ssh_public_key
+			@mu_user = mu_user
+			if set_context_to_me
+				MU::MommaCat.setThreadContext(self)
+			end
 			if create 
 				if !Dir.exist?(MU.dataDir+"/deployments")
 					MU.log "Creating #{MU.dataDir}/deployments", MU::DEBUG
@@ -204,6 +199,9 @@ module MU
 				rescue Aws::S3::Errors::PermanentRedirect => e
 					raise DeployInitializeError, "Got #{e.inspect} trying to write #{@deploy_id}-secret to #{MU.adminBucketName}"
 				end
+				if set_context_to_me
+					MU::MommaCat.setThreadContext(self)
+				end
 				save!
 			end
 
@@ -211,6 +209,9 @@ module MU
 			loadDeploy(set_context_to_me: set_context_to_me)
 			if !deploy_secret.nil?
 				if !authKey(deploy_secret)
+					pp @deployment
+					pp @original_config
+					puts MU.dataDir
 					raise DeployInitializeError, "Invalid or incorrect deploy key."
 				end
 			end
@@ -358,6 +359,10 @@ module MU
 		# @param ciphertext [String]: The text to decrypt.
 		# return [Boolean]: Whether the provided text was encrypted with the correct key
 		def authKey(ciphertext)
+			if @private_key.nil? or @deploy_secret.nil?
+				MU.log "Missing auth metadata, can't authorize node in authKey", MU::ERR
+				return false
+			end
 			my_key = OpenSSL::PKey::RSA.new(@private_key)
 
 			begin
@@ -670,18 +675,19 @@ module MU
 		def SSHKey
 			return [@ssh_key_name, @ssh_private_key, @ssh_public_key] if !@ssh_key_name.nil?
 		  @ssh_key_name="deploy-#{MU.deploy_id}"
+			ssh_dir = Etc.getpwnam(@mu_user).dir+"/.ssh"
 		
-		  if !File.directory?("#{Dir.home}/.ssh") then
-				MU.log "Creating #{Dir.home}/.ssh", MU::DEBUG
-		    Dir.mkdir("#{Dir.home}/.ssh", 0700)
+		  if !File.directory?(ssh_dir) then
+				MU.log "Creating #{ssh_dir}", MU::DEBUG
+		    Dir.mkdir(ssh_dir, 0700)
 		  end
-			if !File.exists?("#{Dir.home}/.ssh/#{@ssh_key_name}")
+			if !File.exists?("#{ssh_dir}/#{@ssh_key_name}")
 				MU.log "Generating SSH key #{@ssh_key_name}"
-				%x{/usr/bin/ssh-keygen -N "" -f #{Dir.home}/.ssh/#{@ssh_key_name}}
+				%x{/usr/bin/ssh-keygen -N "" -f #{ssh_dir}/#{@ssh_key_name}}
 			end
-			@ssh_public_key = File.read("#{Dir.home}/.ssh/#{@ssh_key_name}.pub")
+			@ssh_public_key = File.read("#{ssh_dir}/#{@ssh_key_name}.pub")
 			@ssh_public_key.chomp!
-			@ssh_private_key = File.read("#{Dir.home}/.ssh/#{@ssh_key_name}")
+			@ssh_private_key = File.read("#{ssh_dir}/#{@ssh_key_name}")
 			@ssh_private_key.chomp!
 
 			# XXX only call this if we're creating AWS EC2 resources
@@ -843,7 +849,7 @@ module MU
 								if !server.cloud_id
 									MU.log "Checking for deletion of #{mu_name}, but unable to fetch its cloud_id", MU::WARN, details: server
 								elsif !server.active?
-									next if File.exists?(deploy_dir(deploy_id)+"/.cleanup"+server.cloud_id)
+									next if File.exists?(deploy_dir(deploy_id)+"/.cleanup-"+server.cloud_id)
 									deletia << mu_name
 									MU.log "Deleting #{server} (#{nodeclass}), formerly #{server.cloud_id}", MU::NOTICE
 									begin
@@ -860,7 +866,7 @@ module MU
 							}
 							if purged_this_deploy > 0
 								# XXX some kind of filter (obey sync_siblings on nodes' configs)
-								syncLitter(servers.keys)
+								deploy.syncLitter(servers.keys)
 							end
 						}
 					end
@@ -1322,7 +1328,11 @@ end
 
 			MU::MommaCat.removeHostFromSSHConfig(node)
 # XXX add names paramater with useful stuff
-			MU::MommaCat.addHostToSSHConfig(server)
+			MU::MommaCat.addHostToSSHConfig(
+				server,
+				ssh_owner: server.deploy.mu_user,
+				ssh_dir: Etc.getpwnam(server.deploy.mu_user).dir+"/.ssh"
+			)
 		end
 
 		@ssh_semaphore = Mutex.new

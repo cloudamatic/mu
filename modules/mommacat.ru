@@ -265,15 +265,15 @@ app = proc do |env|
 				mu_name = instance.mu_name
 				MU.log "Found an existing node named #{mu_name}"
 			end
-			if !instance.nil?
+			if !req["mu_ssl_sign"].nil?
+				kittenpile.signSSLCert(req["mu_ssl_sign"])
+			elsif !instance.nil?
 				if !req["mu_bootstrap"].nil?
 					kittenpile.groomNode(req["mu_instance_id"], req["mu_resource_name"], req["mu_resource_type"], mu_name: mu_name, sync_wait: true)
 				else
 					throw500 "Didn't get 'mu_bootstrap' parameter from instance id '#{req["mu_instance_id"]}'"
 					ok = false
 				end
-			elsif !req["mu_ssl_sign"].nil?
-				kittenpile.signSSLCert(req["mu_ssl_sign"])
 			else
 				throw500 "No such instance id '#{req["mu_instance_id"]}' nor was this an SSL signing request"
 				ok = false

@@ -648,7 +648,7 @@ module MU
 					# @param retry_interval [Integer]: Number of seconds to wait between connection attempts
 					# @return [Net::SSH::Connection::Session]
 					def getSSHSession(max_retries = 12, retry_interval = 30)
-						ssh_keydir = Etc.getpwuid(Process.uid).dir+"/.ssh"
+						ssh_keydir = Etc.getpwnam(@deploy.mu_user).dir+"/.ssh"
 						nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
 						session = nil
 						retries = 0

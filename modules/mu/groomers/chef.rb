@@ -42,7 +42,7 @@ module MU
 		# Support for Chef as a host configuration management layer.
 		class Chef
 
-			@knife = "cd #{MU.myRoot} && env -i HOME=#{Etc.getpwuid(Process.uid).dir} #{MU.mu_env_vars} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin knife"
+			@knife = "cd #{MU.myRoot} && env -i HOME=#{Etc.getpwnam(MU.mu_user).dir} #{MU.mu_env_vars} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin knife"
 			# The canonical path to invoke Chef's *knife* utility with a clean environment.
 			# @return [String]
 			def self.knife; @knife;end
@@ -60,8 +60,8 @@ module MU
 			def self.chefclient; @chefclient;end
 			attr_reader :chefclient
 
-			if File.exists?("#{Etc.getpwuid(Process.uid).dir}/.chef/knife.rb")
-				::Chef::Config.from_file("#{Etc.getpwuid(Process.uid).dir}/.chef/knife.rb")
+			if File.exists?("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
+				::Chef::Config.from_file("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
 			end
 
 			# @param node [MU::Cloud::Server]: The server object on which we'll be operating
@@ -71,8 +71,8 @@ module MU
 				if node.mu_name.nil? or node.mu_name.empty?
 					raise MuError, "Cannot groom a server that doesn't tell me its mu_name"
 				end
-				if File.exists?("#{Etc.getpwuid(Process.uid).dir}/.chef/knife.rb")
-					::Chef::Config.from_file("#{Etc.getpwuid(Process.uid).dir}/.chef/knife.rb")
+				if File.exists?("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
+					::Chef::Config.from_file("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
 				end
 				@secrets_semaphore = Mutex.new
 				@secrets_granted = {}

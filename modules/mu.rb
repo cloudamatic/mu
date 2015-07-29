@@ -141,6 +141,8 @@ module MU
 	# Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
 	def self.chef_user; @@globals[Thread.current.object_id]['chef_user'] end
 	# Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
+	def self.mu_user; @@globals[Thread.current.object_id]['mu_user'] end
+	# Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
 	def self.curRegion
 		@@globals[Thread.current.object_id]['curRegion'] ||= ENV['EC2_REGION']
 	end
@@ -151,7 +153,11 @@ module MU
 	@myDataDir = File.expand_path(ENV['MU_DATADIR'])
 	@myDataDir = @@mainDataDir if @myDataDir.nil?
 	def self.dataDir
-		@myDataDir
+		if MU.chef_user.nil? or MU.chef_user.empty? or MU.chef_user == "mu" or MU.chef_user == "root"
+			return @myDataDir
+		else
+			return Etc.getpwnam(MU.chef_user).dir+"/.mu/var"
+		end
 	end
 
 	# The verbose logging flag merits a default value.
@@ -249,8 +255,10 @@ module MU
 
 
 	chef_user ||= Etc.getpwuid(Process.uid).name
+	mu_user = chef_user
 	chef_user = "mu" if chef_user == "root"
 	MU.setVar("chef_user", chef_user)
+	MU.setVar("mu_user", mu_user)
 
 	# Fetch the email address of a given Mu user
 	def self.userEmail(user = MU.chef_user)

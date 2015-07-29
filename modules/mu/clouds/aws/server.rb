@@ -568,6 +568,7 @@ class Cloud
 					if @mu_windows_name.nil?
 						@mu_windows_name = deploydata['mu_windows_name']
 					end
+				end
 
 				retries = -1
 				begin
