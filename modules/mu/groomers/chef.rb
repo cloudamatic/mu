@@ -466,7 +466,7 @@ module MU
 
 				# If AD integration has been requested for this node, give Chef what it'll need.
 				if !@config['active_directory'].nil?
-					chef_node.normal.ad.computer_name = @config['mu_windows_name']
+					chef_node.normal.ad.computer_name = @server.mu_windows_name
 					chef_node.normal.ad.node_class = @config['name']
 					chef_node.normal.ad.domain_name = @config['active_directory']['domain_name']
 					chef_node.normal.ad.node_type = @config['active_directory']['node_type']

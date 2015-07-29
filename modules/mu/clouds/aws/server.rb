@@ -86,6 +86,7 @@ class Cloud
 			attr_reader :cloud_id
 			attr_reader :cloud_desc
 			attr_reader :groomer
+			attr_accessor :mu_windows_name
 
 			# @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
 			# @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::servers}
@@ -97,7 +98,7 @@ class Cloud
 					@mu_name = mu_name
 					@config['mu_name'] = @mu_name
 					describe
-					@config['mu_windows_name'] = @deploydata['mu_windows_name'] if @config['mu_windows_name'].nil?
+					@mu_windows_name = @deploydata['mu_windows_name'] if @mu_windows_name.nil?
 				else
 					if kitten_cfg.has_key?("basis")
 						@mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
@@ -562,6 +563,12 @@ class Cloud
 				end
 				MU.log "Tagged #{node} (#{instance.instance_id}) with MU-ID=#{MU.deploy_id}", MU::DEBUG
 
+				# Make double sure we don't lose a cached mu_windows_name value.
+				if windows? or !@config['active_directory'].nil?
+					if @mu_windows_name.nil?
+						@mu_windows_name = deploydata['mu_windows_name']
+					end
+
 				retries = -1
 				begin
 					if instance.nil? or instance.state.name != "running"
@@ -812,12 +819,6 @@ class Cloud
 					notify
 				end
 
-				if !@config['active_directory'].nil?
-					if @config['mu_windows_name'].nil?
-						@config['mu_windows_name'] = @deploy.getResourceName(@config['name'], max_length: 15, need_unique_string: true)
-					end
-				end
-
 				windows? ? ssh_wait = 60 : ssh_wait = 30
 				windows? ? max_retries = 40 : max_retries = 25
 			  begin
@@ -993,8 +994,8 @@ class Cloud
 #				"config" => server
 				}
 
-				if !@config['mu_windows_name'].nil?
-					deploydata["mu_windows_name"] = @config['mu_windows_name']
+				if !@mu_windows_name.nil?
+					deploydata["mu_windows_name"] = @mu_windows_name
 				end
 				if !@config['chef_data'].nil?
 					deploydata.merge!(@config['chef_data'])
@@ -1042,8 +1043,8 @@ class Cloud
 
 				# Make double sure we don't lose a cached mu_windows_name value.
 				if windows? or !@config['active_directory'].nil?
-					if !@config['mu_windows_name'] and
-						@config['mu_windows_name'] = deploydata['mu_windows_name']
+					if @mu_windows_name.nil?
+						@mu_windows_name = deploydata['mu_windows_name']
 					end
 				end
 

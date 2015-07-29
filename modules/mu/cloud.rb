@@ -117,7 +117,7 @@ module MU
 				:deps_wait_on_my_creation => false,
 				:waits_on_parent_completion => false,
 				:class => generic_class_methods,
-				:instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP, :getWindowsAdminPassword, :active?, :groomer]
+				:instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP, :getWindowsAdminPassword, :active?, :groomer, :mu_windows_name, :mu_windows_name=]
 			},
 			:ServerPool => {
 				:has_multiples => false,
@@ -325,17 +325,17 @@ module MU
 
 					# If we're going to be integrated into AD or otherwise need a short
 					# hostname, generate it now.
-					if self.class.shortname == "Server" and (@cloudobj.windows? or @config['active_directory']) and @config['mu_windows_name'].nil?
+					if self.class.shortname == "Server" and (@cloudobj.windows? or @config['active_directory']) and @cloudobj.mu_windows_name.nil?
 						if !@deploydata.nil? and !@deploydata['mu_windows_name'].nil?
-							@config['mu_windows_name'] = @deploydata['mu_windows_name']
+							@cloudobj.mu_windows_name = @deploydata['mu_windows_name']
 						else
 							# Use the same random differentiator as the "real" name if we're
 							# from a ServerPool. Helpful for admin sanity.
 							unq = @cloudobj.mu_name.sub(/^.*?-(...)$/, '\1')
 							if @config['basis'] and !unq.nil? and !unq.empty?
-								@config['mu_windows_name'] = @deploy.getResourceName(@config['name'], max_length: 15, need_unique_string: true, use_unique_string: unq, reuse_unique_string: true)
+								@cloudobj.mu_windows_name = @deploy.getResourceName(@config['name'], max_length: 15, need_unique_string: true, use_unique_string: unq, reuse_unique_string: true)
 							else
-								@config['mu_windows_name'] = @deploy.getResourceName(@config['name'], max_length: 15, need_unique_string: true)
+								@cloudobj.mu_windows_name = @deploy.getResourceName(@config['name'], max_length: 15, need_unique_string: true)
 							end
 						end
 					end
@@ -595,11 +595,11 @@ module MU
 						if !@config['active_directory'].nil?
 							if @config['active_directory']['node_type'] == "domain_controller" && @config['active_directory']['domain_controller_hostname']
 								hostname = @config['active_directory']['domain_controller_hostname']
-								@config['mu_windows_name'] = hostname
+								@mu_windows_name = hostname
 							end
 							reboot_after_hostname_set = false
 						else
-							hostname = @config['mu_windows_name']
+							hostname = @mu_windows_name
 						end
 
 						win_set_hostname = %Q{powershell -Command "& {Rename-Computer -NewName "#{hostname}" -Force -PassThru -Restart}"}
@@ -615,14 +615,14 @@ module MU
 								if output.match(/InProgress/)
 									raise MU::Cloud::BootstrapTempFail, "Windows Installer service is still doing something, need to wait"
 								end
-								if !@config['hostname_set'] && @config['mu_windows_name']
+								if !@hostname_set && @mu_windows_name
 									# XXX need a better guard here, this pops off every time
 									ssh.exec!(win_set_hostname)
-									@config['hostname_set'] = true
+									@hostname_set = true
 									if reboot_after_hostname_set
-										raise MU::Cloud::BootstrapTempFail, "Setting hostname to #{@config['mu_windows_name']} and rebooting"
+										raise MU::Cloud::BootstrapTempFail, "Setting hostname to #{@mu_windows_name} and rebooting"
 									else
-										MU.log "Set local Windows hostname of #{@mu_name} to #{@config['mu_windows_name']}"
+										MU.log "Set local Windows hostname of #{@mu_name} to #{@mu_windows_name}"
 									end
 								end
 							else
