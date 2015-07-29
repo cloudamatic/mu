@@ -59,15 +59,7 @@ module MU
 				if !@@litters.has_key?(deploy_id)
 					@@litters[deploy_id] = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
 				elsif set_context_to_me
-					MU.setVar("chef_user", @@litters[deploy_id].mu_user) if !@@litters[deploy_id].mu_user.nil?
-					if MU.chef_user != "mu"
-						MU.setVar("dataDir", Etc.getpwnam(MU.chef_user).dir+"/.mu/var")
-					else
-						MU.setVar("dataDir", MU.mainDataDir)
-					end
-					MU.setVar("mommacat", @@litters[deploy_id])
-					MU.setVar("deploy_id", deploy_id)
-					MU.setVar("environment", @@litters[deploy_id].environment)
+					MU::MommaCat.setThreadContext(@@litters[deploy_id])
 				end
 				return @@litters[deploy_id]
 			}
@@ -98,6 +90,27 @@ module MU
 
 		@@deploy_struct_semaphore = Mutex.new
 		def self.deploy_struct_semaphore; @@deploy_struct_semaphore end
+
+		# Set the current threads' context (some knucklehead global variables) to
+		# values pertinent to the given deployment object.
+		# @param deploy [MU::MommaCat]: A deployment object
+		def self.setThreadContext(deploy)
+			raise MuError, "Didn't get a MU::MommaCat object in setThreadContext" if !deploy.is_a?(MU::MommaCat)
+			if !deploy.mu_user.nil?
+				MU.setVar("chef_user", deploy.mu_user)
+				if MU.chef_user != "mu"
+					MU.setVar("dataDir", Etc.getpwnam(MU.chef_user).dir+"/.mu/var")
+				else
+					MU.setVar("dataDir", MU.mainDataDir)
+				end
+			end
+			MU.setVar("mommacat", deploy)
+			MU.setVar("deploy_id", deploy.deploy_id)
+			MU.setVar("appname", deploy.appname)
+			MU.setVar("environment", deploy.environment)
+			MU.setVar("timestamp", deploy.timestamp)
+			MU.setVar("seed", deploy.seed)
+		end
 
 		# @param deploy_id [String]: The MU identifier of the deployment to load or create.
 		# @param create [Boolean]: Create a new deployment instead of searching for an existing one.
@@ -130,7 +143,7 @@ module MU
 				raise DeployInitializeError, "MommaCat objects must specify a deploy_id"
 			end
 			set_context_to_me = true if create
-			if set_context_to_me
+			if set_context_to_me # XXX probably can use setThreadContext here
 				MU.setVar("chef_user", mu_user) if !mu_user.nil?
 				if MU.chef_user != "mu"
 					MU.setVar("dataDir", Etc.getpwnam(MU.chef_user).dir+"/.mu/var")
@@ -535,10 +548,12 @@ module MU
 			if !MU::MommaCat.lock(cloud_id+"-mommagroom", true)
 				MU.log "Instance #{cloud_id} on #{MU.deploy_id} (#{type}: #{name}) is already being groomed, ignoring this extra request.", MU::NOTICE
 				MU::MommaCat.unlockAll
-				puts "------------------------------"
-				puts "Open flock() locks:"
-				pp MU::MommaCat.locks
-				puts "------------------------------"
+				if !MU::MommaCat.locks.nil? and MU::MommaCat.locks.size > 0
+					puts "------------------------------"
+					puts "Open flock() locks:"
+					pp MU::MommaCat.locks
+					puts "------------------------------"
+				end
 				return
 			end
 			loadDeploy
@@ -587,10 +602,12 @@ module MU
 				if !MU::MommaCat.lock(cloud_id+"-create", true)
 					MU.log "#{mu_name} is still in mid-creation, skipping", MU::NOTICE
 					MU::MommaCat.unlockAll
-					puts "------------------------------"
-					puts "Open flock() locks:"
-					pp MU::MommaCat.locks
-					puts "------------------------------"
+					if !MU::MommaCat.locks.nil? and MU::MommaCat.locks.size > 0
+						puts "------------------------------"
+						puts "Open flock() locks:"
+						pp MU::MommaCat.locks
+						puts "------------------------------"
+					end
 					return
 				end
 				MU::MommaCat.unlock(cloud_id+"-create")
@@ -598,10 +615,12 @@ module MU
 				if !kitten.postBoot(cloud_id)
 					MU.log "#{mu_name} is already being groomed, skipping", MU::NOTICE
 					MU::MommaCat.unlockAll
-					puts "------------------------------"
-					puts "Open flock() locks:"
-					pp MU::MommaCat.locks
-					puts "------------------------------"
+					if !MU::MommaCat.locks.nil? and MU::MommaCat.locks.size > 0
+						puts "------------------------------"
+						puts "Open flock() locks:"
+						pp MU::MommaCat.locks
+						puts "------------------------------"
+					end
 					return
 				end
 
@@ -631,6 +650,10 @@ module MU
 				return
 			end
 
+			if !@deployment['servers'].nil? and @deployment['servers'].keys.size > 0
+				# XXX some kind of filter (obey sync_siblings on nodes' configs)
+				syncLitter(@deployment['servers'].keys, triggering_node: kitten)
+			end
 			MU::MommaCat.unlock(cloud_id+"-mommagroom")
 			MU::MommaCat.syncMonitoringConfig(false)
 			MU::MommaCat.createStandardTags(cloud_id, region: kitten.config["region"])
@@ -811,6 +834,7 @@ module MU
 				cleanup_threads << Thread.new {
 					MU.dupGlobals(parent_thread_id)
 					deploy = MU::MommaCat.getLitter(deploy_id, set_context_to_me: true)
+					purged_this_deploy = 0
 					if deploy.kittens.has_key?("servers")
 						deploy.kittens["servers"].each_pair { |nodeclass, servers|
 							deletia = []
@@ -831,8 +855,13 @@ module MU
 									end
 									MU.log "Deletion of #{server} (#{nodeclass}), formerly #{server.cloud_id} complete", MU::NOTICE
 									purged = purged + 1
+									purged_this_deploy = purged_this_deploy + 1
 								end
 							}
+							if purged_this_deploy > 0
+								# XXX some kind of filter (obey sync_siblings on nodes' configs)
+								syncLitter(servers.keys)
+							end
 						}
 					end
 				}
@@ -928,7 +957,7 @@ begin
 					end
 				}
 				if !mu_descs.nil? and mu_descs.size > 0 and !deploy_id.nil? and !deploy_id.empty? and !mu_descs.first.empty?
-					MU.log "I found descriptions that might match #{resourceclass.cfg_plural} name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}, but couldn't isolate my target kitten", MU::WARN, details: mu_descs
+					MU.log "I found descriptions that might match #{resourceclass.cfg_plural} name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}, but couldn't isolate my target kitten", MU::WARN, details: caller
 #					puts File.read(deploy_dir(deploy_id)+"/deployment.json")
 				end
 				# We can't refine any further by asking the cloud provider...
@@ -1154,10 +1183,6 @@ end
 			if have_deploy
 				save!(key)
 				MU::MommaCat.unlock("deployment-notification")
-				if !@deployment['servers'].nil? and @deployment['servers'].keys.size > 0
-					# XXX some kind of filter (obey sync_siblings on nodes' configs)
-					syncLitter(@deployment['servers'].keys, triggering_node: triggering_node)
-				end
 			else
 				MU::MommaCat.unlock("deployment-notification")
 			end
@@ -1530,8 +1555,6 @@ MESSAGE_END
 			nagios_threads = []
 			nagios_threads << Thread.new {
 				MU.dupGlobals(parent_thread_id)
-				MU.log "Updating Nagios monitoring config, this may take a while..."
-				system("#{MU::Groomer::Chef.chefclient} -o 'recipe[mu-master::update_nagios_only]' 2>&1 > /dev/null")
 				if !Dir.exists?("#{@nagios_home}/.ssh")
 					Dir.mkdir("#{@nagios_home}/.ssh", 0711)
 				end
@@ -1563,6 +1586,7 @@ MESSAGE_END
 								nodes.each_pair { |mu_name, server|
 									MU.dupGlobals(parent_thread_id)
 									threads << Thread.new {
+										MU::MommaCat.setThreadContext(deploy)
 										MU.log "Adding #{server.mu_name} to #{@nagios_home}/.ssh/config", MU::DEBUG
 										MU::MommaCat.addHostToSSHConfig(
 											server,
@@ -1585,7 +1609,9 @@ MESSAGE_END
 				ssh_lock.close
 				File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{@nagios_home}/.ssh/config")
 				File.rename("#{@nagios_home}/.ssh/config.tmp", "#{@nagios_home}/.ssh/config")
-				puts ""
+
+				MU.log "Updating Nagios monitoring config, this may take a while..."
+				system("#{MU::Groomer::Chef.chefclient} -o 'recipe[mu-master::update_nagios_only]' 2>&1 > /dev/null")
 				MU.log "Nagios monitoring config update complete."
 			}
 
@@ -1723,8 +1749,6 @@ MESSAGE_END
 			end
 		end
 
-		private
-
 		# Make sure deployment data is synchronized to/from each node in the
 		# currently-loaded deployment.
 		def syncLitter(nodeclasses = [], triggering_node: nil)
@@ -1796,6 +1820,8 @@ MESSAGE_END
 			MU.log "Synchronization of #{@deploy_id} complete", MU::DEBUG, details: update_servers
 		end
 
+		private
+
 		# Check to see whether a given resource name is unique across all
 		# deployments on this Mu server. We only enforce this for certain classes
 		# of names. If the name in question is available, add it to our cache of
@@ -1814,8 +1840,12 @@ MESSAGE_END
 				begin
 					existing.each { |used|
 						if used.match(/^#{name}:/)
-							MU.log "#{name} is already reserved by another resource on this Mu server.", MU::WARN, details: caller
-							return false
+							if !used.match(/^#{name}:#{@deploy_id}$/)
+								MU.log "#{name} is already reserved by another resource on this Mu server.", MU::WARN, details: caller
+								return false
+							else
+								return true
+							end
 						end
 					}
 					f.puts name+":"+@deploy_id

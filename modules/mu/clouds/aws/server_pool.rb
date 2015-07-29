@@ -307,8 +307,18 @@ class Cloud
 							groomthreads << Thread.new {
 								Thread.abort_on_exception = true
 								MU.dupGlobals(parent_thread_id)
-								@deploy.groomNode(member.instance_id, @config['name'], "server_pool", reraise_fail: true, sync_wait: @config['dns_sync_wait'])
+								MU.log "Initializing #{member.instance_id} in ServerPool #{@mu_name}"
+								MU::MommaCat.lock(member.instance_id+"-mommagroom")
+								kitten = MU::Cloud::Server.new(mommacat: @deploy, kitten_cfg: @config, cloud_id: member.instance_id)
+								MU::MommaCat.lock("#{kitten.cloudclass.name}_#{kitten.config["name"]}-dependencies")
+								MU::MommaCat.unlock("#{kitten.cloudclass.name}_#{kitten.config["name"]}-dependencies")
+								kitten.postBoot(member.instance_id)
+								kitten.groom
+								MU::MommaCat.unlockAll
+#								@deploy.groomNode(member.instance_id, @config['name'], "server_pool", reraise_fail: true, sync_wait: @config['dns_sync_wait'])
 							}
+						rescue MU::Groomer::RunError => e
+							MU.log "Proceeding after failed initial Groomer run, but #{member.instance_id} may not behave as expected!", MU::WARN, details: e.inspect
 						rescue Exception => e
 							if !member.nil? and !done
 								MU.log "Aborted before I could finish setting up #{@config['name']}, cleaning it up. Stack trace will print once cleanup is complete.", MU::WARN if !@deploy.nocleanup
@@ -367,7 +377,8 @@ class Cloud
 					filters << { name: "key", values: ["MU-MASTER-IP"] }
 				end
 				resp = MU::Cloud::AWS.autoscale(region).describe_tags(
-					filters: filters
+					filters: filters,
+					max_records: 100
 				)
 
 				return nil if resp.tags.nil? or resp.tags.size == 0

@@ -39,7 +39,7 @@ if can_join_domain
 		computer_name node.ad.computer_name
 		join_user domain_creds[node.ad.join_auth[:username_field]]
 		join_password domain_creds[node.ad.join_auth[:password_field]]
-		ou node.ad.computer_ou if node.ad.computer_ou
+		computer_ou node.ad.computer_ou if node.ad.computer_ou
 		dc_ips node.ad.dc_ips
 		dc_names node.ad.dcs
 	end

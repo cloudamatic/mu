@@ -203,9 +203,12 @@ def configure_users
 end
 
 def set_ec2config_service
+		Chef::Log.info("Trying to configure Ec2Config service to run under #{new_resource.ec2config_service_user}")
+		Chef::Log.info("$ec2config_service = Get-WmiObject Win32_service | Where-Object {$_.Name -eq 'Ec2Config'}; $ec2config_service.Change($Null,$Null,$Null,$Null,$Null,$Null,'#{new_resource.ec2config_service_user}','#{new_resource.ec2config_password}',$Null,$Null,$Null)")
 	unless service_user_set?("Ec2Config", new_resource.ec2config_service_user)
 		Chef::Log.info("Configuring Ec2Config service to run under #{new_resource.ec2config_service_user}")
 		cmd = powershell_out("$ec2config_service = Get-WmiObject Win32_service | Where-Object {$_.Name -eq 'Ec2Config'}; $ec2config_service.Change($Null,$Null,$Null,$Null,$Null,$Null,'#{new_resource.ec2config_service_user}','#{new_resource.ec2config_password}',$Null,$Null,$Null)")
+		Chef::Log.info("ec2config stdout: #{cmd.stdout}")
 		Chef::Log.error("Error configuring Ec2Config service : #{cmd.stderr}") unless cmd.exitstatus == 0
 		# service "Ec2Config" do
 			# action :restart
@@ -215,13 +218,23 @@ end
 
 def import_scheduled_tasks
 	# To do: Add guards
+	Chef::Log.info("Configuring run-chef-client Scheduled Task")
+	cmd = powershell_out("Register-ScheduledTask -Xml (get-content '#{Chef::Config[:file_cache_path]}/run_chefclient_scheduledtask.xml' | out-string) -TaskName 'run-chef-client' -User #{new_resource.user_name} -Password '#{new_resource.password}' -Force")
+	Chef::Log.info("Register-ScheduledTask -Xml (get-content '#{Chef::Config[:file_cache_path]}/run_chefclient_scheduledtask.xml' | out-string) -TaskName 'run-chef-client' -User #{new_resource.user_name} -Password '#{new_resource.password}' -Force")
+			Chef::Log.info("run-chef-client stdout: #{cmd.stdout}")
+	# Chef::Application.fatal!("Failed to configure run-chef-client Scheduled Task: #{cmd.stderr}") unless cmd.exitstatus == 0
+
 	Chef::Log.info("Configuring run-userdata Scheduled Task")
 	cmd = powershell_out("Register-ScheduledTask -Xml (get-content '#{Chef::Config[:file_cache_path]}/run-userdata_scheduledtask.xml' | out-string) -TaskName 'run-userdata' -User #{new_resource.user_name} -Password '#{new_resource.password}' -Force")
 	Chef::Log.error("Failed to configuring run-userdata Scheduled Task: #{cmd.stderr}") unless cmd.exitstatus == 0
 
-	Chef::Log.info("Configuring run-chef-client Scheduled Task")
-	cmd = powershell_out("Register-ScheduledTask -Xml (get-content '#{Chef::Config[:file_cache_path]}/run_chefclient_scheduledtask.xml' | out-string) -TaskName 'run-chef-client' -User #{new_resource.user_name} -Password '#{new_resource.password}' -Force")
-	# Chef::Application.fatal!("Failed to configure run-chef-client Scheduled Task: #{cmd.stderr}") unless cmd.exitstatus == 0
+	# trying to make sure the run-chef-client scheduled task gets created because we can't SSH into a node that was added into a domain without changing the user the SSHD service is running under
+	powershell_script "Import run-chef-client scheduled task" do
+		guard_interpreter :powershell_script
+		code "Register-ScheduledTask -Xml (get-content '#{Chef::Config[:file_cache_path]}/run_chefclient_scheduledtask.xml' | out-string) -TaskName 'run-chef-client' -User #{new_resource.user_name} -Password '#{new_resource.password}' -Force"
+		# only_if "((schtasks /TN 'run-chef-client' /query /FO LIST -v | Select-String 'Run As User') -replace '`n|`r').split(':')[1].trim() -ne '#{new_resource.user_name}'"
+		# not_if "Get-ScheduledTask -TaskName 'run-chef-client'"
+	end
 
 	windows_task 'run-userdata' do
 		action :nothing

@@ -17,4 +17,4 @@ attribute :computer_name, :kind_of => String, :required => true
 attribute :netbios_name, :kind_of => String, :required => true
 attribute :join_user, :kind_of => String, :required => true
 attribute :join_password, :kind_of => String, :required => true
-attribute :ou, :kind_of => String, :required => false
+attribute :computer_ou, :kind_of => String, :required => false

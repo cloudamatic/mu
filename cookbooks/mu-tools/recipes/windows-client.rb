@@ -50,7 +50,7 @@ when "windows"
 	else
 		mu_tools_windows_client node.hostname do
 			user_name node.windows_admin_username
-			password ad_vault[node.ad.domain_admin_password_field]
+			password windows_vault[node.windows_auth_password_field]
 			ssh_user sshd_user
 			ssh_password sshd_password
 			ssh_service_user ".\\#{sshd_user}"

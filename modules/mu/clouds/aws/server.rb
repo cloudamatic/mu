@@ -97,7 +97,7 @@ class Cloud
 					@mu_name = mu_name
 					@config['mu_name'] = @mu_name
 					describe
-					@config['mu_windows_name'] = @deploydata['mu_windows_name']
+					@config['mu_windows_name'] = @deploydata['mu_windows_name'] if @config['mu_windows_name'].nil?
 				else
 					if kitten_cfg.has_key?("basis")
 						@mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
@@ -105,10 +105,6 @@ class Cloud
 						@mu_name = @deploy.getResourceName(@config['name'])
 					end
 					@config['mu_name'] = @mu_name
-
-					if windows? or @config['active_directory']
-						@config['mu_windows_name'] = @deploy.getResourceName(@config['name'], max_length: 15, need_unique_string: true)
-					end
 
 					@config['instance_secret'] = Password.random(50)
 				end
@@ -552,7 +548,7 @@ class Cloud
 				end
 				node, config, deploydata = describe(cloud_id: @cloud_id)
 				instance = cloud_desc
-				raise MuError, "Couldn't find instance id of #{@mu_name}" if !instance
+				raise MuError, "Couldn't find instance of #{@mu_name} (#{@cloud_id})" if !instance
 				@cloud_id = instance.instance_id
 				return false if !MU::MommaCat.lock(instance.instance_id+"-orchestrate", true)
 				return false if !MU::MommaCat.lock(instance.instance_id+"-groom", true)

@@ -121,7 +121,7 @@ module MU
 				# Don't use MU.log in here, it does a synchronize {} and that ain't
 				# legal inside a trap.
 				die = true if (Time.now.to_i - @last_sigterm) < 5
-				if !die
+				if !die and !MU::MommaCat.locks.nil? and MU::MommaCat.locks.size > 0
 					puts "------------------------------"
 					puts "Thread and lock debugging data"
 					puts "------------------------------"
@@ -251,6 +251,10 @@ module MU
 				end
 
 			  exit 1
+			end
+			if !MU.mommacat.deployment['servers'].nil? and MU.mommacat.deployment['servers'].keys.size > 0
+				# XXX some kind of filter (obey sync_siblings on nodes' configs)
+				syncLitter(MU.mommacat.deployment['servers'].keys)
 			end
 			deployment = MU.mommacat.deployment
 			deployment["deployment_end_time"]=Time.new.strftime("%I:%M %p on %A, %b %d, %Y").to_s;

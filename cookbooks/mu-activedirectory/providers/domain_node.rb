@@ -55,16 +55,16 @@ def join_domain_windows
 		new_name = nil
 		new_name = "-NewName #{new_resource.computer_name}" if node.hostname.downcase != new_resource.computer_name.downcase
 
-		begin
-			if new_resource.computer_ou
-				code = "Add-Computer -DomainName #{new_resource.dns_name} -Credential#{join_domain_creds} #{new_name} -OUPath '#{new_resource.computer_ou}' -PassThru -Restart -Verbose -Force"
-			end
-		rescue NoMethodError
+		if new_resource.computer_ou
+			code = "Add-Computer -DomainName #{new_resource.dns_name} -Credential#{join_domain_creds} #{new_name} -OUPath '#{new_resource.computer_ou}' -PassThru -Restart -Verbose -Force"
+		else
 			code = "Add-Computer -DomainName #{new_resource.dns_name} -Credential#{join_domain_creds} #{new_name} -PassThru -Restart -Verbose -Force"
 		end
 
 		Chef::Log.info("Joining #{new_resource.computer_name} node to #{new_resource.dns_name} domain")
 		cmd = powershell_out(code)
+		Chef::Log.info("Domain join stdout #{cmd.stdout}")
+		Chef::Log.info("Domain join stderr #{cmd.stderr}") unless cmd.exitstatus == 0
 		kill_ssh
 		Chef::Application.fatal!("Failed to join #{new_resource.computer_name} to #{new_resource.dns_name} domain") unless cmd.exitstatus == 0
 		Chef::Application.fatal!("Joined #{new_resource.computer_name} to #{new_resource.dns_name} domain, rebooting. Will have to run chef again")

@@ -320,9 +320,25 @@ module MU
 						@cloudobj.describe(cloud_id: cloud_id)
 					end
 
-					# XXX maybe these guys should just be pass-through methods
 					@deploydata = @cloudobj.deploydata
 					@config = @cloudobj.config
+
+					# If we're going to be integrated into AD or otherwise need a short
+					# hostname, generate it now.
+					if self.class.shortname == "Server" and (@cloudobj.windows? or @config['active_directory']) and @config['mu_windows_name'].nil?
+						if !@deploydata.nil? and !@deploydata['mu_windows_name'].nil?
+							@config['mu_windows_name'] = @deploydata['mu_windows_name']
+						else
+							# Use the same random differentiator as the "real" name if we're
+							# from a ServerPool. Helpful for admin sanity.
+							unq = @cloudobj.mu_name.sub(/^.*?-(...)$/, '\1')
+							if @config['basis'] and !unq.nil? and !unq.empty?
+								@config['mu_windows_name'] = @deploy.getResourceName(@config['name'], max_length: 15, need_unique_string: true, use_unique_string: unq, reuse_unique_string: true)
+							else
+								@config['mu_windows_name'] = @deploy.getResourceName(@config['name'], max_length: 15, need_unique_string: true)
+							end
+						end
+					end
 
 					# Register us with our parent deploy so that we can be found by our
 					# littermates if needed.
@@ -575,6 +591,7 @@ module MU
 
 						# There shouldn't be a use case where a domain joined computer goes through initialSSHTasks. Removing Active Directory specific computer rename.
 						reboot_after_hostname_set = true
+						hostname = nil
 						if !@config['active_directory'].nil?
 							if @config['active_directory']['node_type'] == "domain_controller" && @config['active_directory']['domain_controller_hostname']
 								hostname = @config['active_directory']['domain_controller_hostname']
@@ -603,7 +620,7 @@ module MU
 									ssh.exec!(win_set_hostname)
 									@config['hostname_set'] = true
 									if reboot_after_hostname_set
-										raise MU::Cloud::BootstrapTempFail, "Setting hostname to #{@config['mu_windows_name']}, possibly rebooting"
+										raise MU::Cloud::BootstrapTempFail, "Setting hostname to #{@config['mu_windows_name']} and rebooting"
 									else
 										MU.log "Set local Windows hostname of #{@mu_name} to #{@config['mu_windows_name']}"
 									end
@@ -779,6 +796,9 @@ module MU
 						@method_semaphore.synchronize {
 							@method_locks.delete(method)
 						}
+
+						@deploydata = @cloudobj.deploydata
+						@config = @cloudobj.config
 						retval
 					end
 				} # end instance method list
