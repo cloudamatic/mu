@@ -292,9 +292,7 @@ class Cloud
 				end
 				begin
 					MU::Cloud::AWS.iam.delete_role(role_name: rolename)
-				rescue Aws::IAM::Errors::ValidationError => e
-					MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
-				rescue Aws::IAM::Errors::NoSuchEntity => e
+				rescue Aws::IAM::Errors::DeleteConflict, Aws::IAM::Errors::NoSuchEntity, Aws::IAM::Errors::ValidationError => e
 					MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
 				end
 			end

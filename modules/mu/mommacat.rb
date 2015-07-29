@@ -79,6 +79,7 @@ module MU
 		attr_reader :appname
 		attr_reader :seed
 		attr_reader :mu_user
+		attr_reader :chef_user
 		attr_accessor :kittens # really want a method only available to :Deploy
 		@myhome = Etc.getpwuid(Process.uid).dir
 		@nagios_home = "/home/nagios"
@@ -97,7 +98,7 @@ module MU
 		def self.setThreadContext(deploy)
 			raise MuError, "Didn't get a MU::MommaCat object in setThreadContext" if !deploy.is_a?(MU::MommaCat)
 			if !deploy.mu_user.nil?
-				MU.setVar("chef_user", deploy.mu_user)
+				MU.setVar("chef_user", deploy.chef_user)
 				if MU.chef_user != "mu"
 					MU.setVar("dataDir", Etc.getpwnam(MU.chef_user).dir+"/.mu/var")
 					MU.setVar("mu_user", deploy.mu_user)
@@ -148,6 +149,11 @@ module MU
 
 			@deploy_id = deploy_id
 			@mu_user = mu_user
+			if @mu_user == "root"
+				@chef_user = "mu"
+			else
+				@chef_user = @mu_user
+			end
 			@kitten_semaphore = Mutex.new
 			@kittens = {}
 			@original_config = config
@@ -164,7 +170,6 @@ module MU
 			@ssh_key_name = ssh_key_name
 			@ssh_private_key = ssh_private_key
 			@ssh_public_key = ssh_public_key
-			@mu_user = mu_user
 			if set_context_to_me
 				MU::MommaCat.setThreadContext(self)
 			end

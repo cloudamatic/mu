@@ -72,6 +72,7 @@ module MU
 					raise MuError, "Cannot groom a server that doesn't tell me its mu_name"
 				end
 				if File.exists?("#{Etc.getpwnam(@server.deploy.mu_user).dir}/.chef/knife.rb")
+					MU.log "Loading Chef configuration from #{Etc.getpwnam(@server.deploy.mu_user).dir}/.chef/knife.rb", MU::DEBUG
 					::Chef::Config.from_file("#{Etc.getpwnam(@server.deploy.mu_user).dir}/.chef/knife.rb")
 				end
 				@secrets_semaphore = Mutex.new

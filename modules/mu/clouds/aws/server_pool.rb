@@ -305,7 +305,7 @@ class Cloud
 					desc.instances.each { |member|
 						begin
 							groomthreads << Thread.new {
-								Thread.abort_on_exception = true
+								Thread.abort_on_exception = false
 								MU.dupGlobals(parent_thread_id)
 								MU.log "Initializing #{member.instance_id} in ServerPool #{@mu_name}"
 								MU::MommaCat.lock(member.instance_id+"-mommagroom")
@@ -315,7 +315,6 @@ class Cloud
 								kitten.postBoot(member.instance_id)
 								kitten.groom
 								MU::MommaCat.unlockAll
-#								@deploy.groomNode(member.instance_id, @config['name'], "server_pool", reraise_fail: true, sync_wait: @config['dns_sync_wait'])
 							}
 						rescue MU::Groomer::RunError => e
 							MU.log "Proceeding after failed initial Groomer run, but #{member.instance_id} may not behave as expected!", MU::WARN, details: e.inspect
