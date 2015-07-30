@@ -597,13 +597,12 @@ module MU
 								hostname = @config['active_directory']['domain_controller_hostname']
 								@mu_windows_name = hostname
 							end
-#							reboot_after_hostname_set = false
-							reboot_after_hostname_set = true # XXX AD joins still get this wrong sometimes, somehow, so let's reboot first to clear their heads
+							reboot_after_hostname_set = false
 						else
 							hostname = @mu_windows_name
 						end
 
-						win_set_hostname = %Q{powershell -Command "& {Rename-Computer -NewName "#{hostname}" -Force -PassThru -Restart}"}
+						win_set_hostname = %Q{powershell -Command "& {Rename-Computer -NewName "#{hostname}" -Force -PassThru -Restart; Restart-Computer -Force}"}
 						begin
 							if !@config['set_windows_pass'] and !win_set_pw.nil?
 								MU.log "Setting Windows password for user #{@config['windows_admin_username']}", MU::NOTICE

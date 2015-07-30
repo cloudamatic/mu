@@ -113,6 +113,9 @@ module MU
 			# @param field [String]: OPTIONAL - A specific field within the item to return.
 			# @return [Hash]
 			def self.getSecret(vault: nil, item: nil, field: nil)
+				if File.exists?("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
+					::Chef::Config.from_file("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
+				end
 				item = ChefVault::Item.load(vault, item)
 
 				if item.nil?
@@ -409,6 +412,9 @@ module MU
 			# @param vaults_to_clean [Array<Hash>]: Some vaults to expunge
 			# @param noop [Boolean]: Skip actual deletion, just state what we'd do
 			def self.cleanup(node, vaults_to_clean = [], noop = false)
+				if File.exists?("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
+					::Chef::Config.from_file("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
+				end
 				MU.log "Deleting Chef resources associated with #{node}"
 				vaults_to_clean.each { |vault|
 					MU::MommaCat.lock("vault-#{vault['vault']}", false, true)

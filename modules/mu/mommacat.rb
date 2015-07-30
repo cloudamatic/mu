@@ -663,9 +663,8 @@ module MU
 				return
 			end
 
-			if !@deployment['servers'].nil? and @deployment['servers'].keys.size > 0
-				# XXX some kind of filter (obey sync_siblings on nodes' configs)
-				syncLitter(@deployment['servers'].keys, triggering_node: kitten)
+			if !@deployment['servers'].nil?
+				syncLitter(@deployment["servers"].keys, triggering_node: kitten)
 			end
 			MU::MommaCat.unlock(cloud_id+"-mommagroom")
 			MU::MommaCat.syncMonitoringConfig(false)
@@ -1777,7 +1776,7 @@ MESSAGE_END
 			svrs = MU::Cloud.resource_types[:Server][:cfg_plural] # legibility shorthand
 			if @kittens.nil? or
 					@kittens[svrs].nil?
-				MU.log "No #{svrs} as yet available in #{@deploy_id}", MU::WARN, details: @kittens
+				MU.log "No #{svrs} as yet available in #{@deploy_id}", MU::DEBUG, details: @kittens
 				return
 			end
 			MU.log "Updating these siblings in #{@deploy_id}: #{nodeclasses.join(', ')}", MU::DEBUG, details: @kittens[svrs]
