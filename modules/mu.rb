@@ -254,9 +254,9 @@ module MU
 	def self.mu_public_addr; @@mu_public_addr end
 
 
-	chef_user ||= Etc.getpwuid(Process.uid).name
-	mu_user = chef_user
+	chef_user = mu_user = Etc.getpwuid(Process.uid).name
 	chef_user = "mu" if chef_user == "root"
+
 	MU.setVar("chef_user", chef_user)
 	MU.setVar("mu_user", mu_user)
 

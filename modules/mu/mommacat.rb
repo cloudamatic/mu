@@ -98,6 +98,7 @@ module MU
 		def self.setThreadContext(deploy)
 			raise MuError, "Didn't get a MU::MommaCat object in setThreadContext" if !deploy.is_a?(MU::MommaCat)
 			if !deploy.mu_user.nil?
+				chef_user = "mu" if chef_user == "root"
 				MU.setVar("chef_user", deploy.chef_user)
 				if MU.chef_user != "mu"
 					MU.setVar("dataDir", Etc.getpwnam(MU.chef_user).dir+"/.mu/var")
@@ -154,8 +155,8 @@ module MU
 			if @mu_user == "root"
 				@chef_user = "mu"
 			else
-				@mu_user = "root" if @mu_user == "mu"
 				@chef_user = @mu_user
+				@mu_user = "root" if @mu_user == "mu"
 			end
 			@kitten_semaphore = Mutex.new
 			@kittens = {}
@@ -217,9 +218,6 @@ module MU
 			loadDeploy(set_context_to_me: set_context_to_me)
 			if !deploy_secret.nil?
 				if !authKey(deploy_secret)
-					pp @deployment
-					pp @original_config
-					puts MU.dataDir
 					raise DeployInitializeError, "Invalid or incorrect deploy key."
 				end
 			end
