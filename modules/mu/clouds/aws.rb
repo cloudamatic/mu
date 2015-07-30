@@ -344,7 +344,7 @@ module MU
 					if retries < 5 and retries > 2
 						debuglevel = MU::NOTICE
 						interval = 10 + Random.rand(6) - 3
-					else
+					elsif retries >= 5
 						debuglevel = MU::WARN
 						interval = 20 + Random.rand(10) - 5
 					end
