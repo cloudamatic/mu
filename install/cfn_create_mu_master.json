@@ -1,6 +1,6 @@
 {
     "AWSTemplateFormatVersion": "2010-09-09",
-    "Description": "Cloudamatic Mu Master Creation. Imaging only. v1.1.alpha1",
+    "Description": "Cloudamatic Mu Master Creation. v1.0",
     "Parameters": {
         "MasterAMIId": {
             "Description": "AMI for Cloudamatic Server",
@@ -8,12 +8,6 @@
             "MinLength": "0",
             "MaxLength": "255",
             "Default": "ami-845448ec"
-        },
-        "GithubKey": {
-            "Description": "S3 URL of a GitHub key for building the server",
-            "Type": "String",
-            "MinLength": "0",
-            "MaxLength": "255"
         },
         "GitMuTag": {
             "Description": "Git tag or branch to pull mu, default master",
@@ -835,13 +829,6 @@
                             "",
                             [
                                 "#!/bin/bash -vx\n",
-                                "aws s3 cp ",
-                                    {
-                                    "Ref": "GithubKey"
-                                    },
-                                " /root/.ssh/github_key \n",
-                                "chmod 400 /root/.ssh/github_key \n",
-                                "ssh-keyscan -t rsa,dsa github.com >> ~/.ssh/known_hosts \n",
                                 "CHEF_PUBLIC_IP=`curl -s http://169.254.169.254/latest/meta-data/public-ipv4`\n",
                                 "easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz \n",
                                 "mkdir /opt/mu\n",
