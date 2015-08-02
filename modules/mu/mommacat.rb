@@ -648,12 +648,12 @@ module MU
 				MU::MommaCat.unlockAll
 				if e.class.name != "MU::Cloud::AWS::Server::BootstrapTempFail" and !File.exists?(deploy_dir+"/.cleanup."+cloud_id) and !File.exists?(deploy_dir+"/.cleanup")
 					MU.log "Grooming FAILED for #{kitten.mu_name} (#{e.inspect})", MU::ERR, details: e.backtrace
-					sendAdminMail("Grooming FAILED for #{kitten.mu_name} on #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id})",
-						msg: e.inspect,
-						kitten: kitten,
-						data: e.backtrace,
-						debug: true
-					)
+#					sendAdminMail("Grooming FAILED for #{kitten.mu_name} on #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id})",
+#						msg: e.inspect,
+#						kitten: kitten,
+#						data: e.backtrace,
+#						debug: true
+#					)
 					raise e if reraise_fail
 				else
 					MU.log "Grooming of #{kitten.mu_name} interrupted by cleanup or planned reboot"
@@ -1602,7 +1602,7 @@ MESSAGE_END
 									MU.dupGlobals(parent_thread_id)
 									threads << Thread.new {
 										MU::MommaCat.setThreadContext(deploy)
-										MU.log "Adding #{server.mu_name} to #{@nagios_home}/.ssh/config", MU::DEBUG
+										MU.log "Adding #{server.mu_name} to #{@nagios_home}/.ssh/config", MU::NOTICE
 										MU::MommaCat.addHostToSSHConfig(
 											server,
 											ssh_dir: "#{@nagios_home}/.ssh",
@@ -1623,10 +1623,10 @@ MESSAGE_END
 				ssh_lock.flock(File::LOCK_UN)
 				ssh_lock.close
 				File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{@nagios_home}/.ssh/config")
-				File.rename("#{@nagios_home}/.ssh/config.tmp", "#{@nagios_home}/.ssh/config")
+#				File.rename("#{@nagios_home}/.ssh/config.tmp", "#{@nagios_home}/.ssh/config")
 
 				MU.log "Updating Nagios monitoring config, this may take a while..."
-				system("#{MU::Groomer::Chef.chefclient} -o 'recipe[mu-master::update_nagios_only]' 2>&1 > /dev/null")
+#				system("#{MU::Groomer::Chef.chefclient} -o 'recipe[mu-master::update_nagios_only]' 2>&1 > /dev/null")
 				MU.log "Nagios monitoring config update complete."
 			}
 

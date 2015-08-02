@@ -138,12 +138,20 @@
             <SID xmlns="http://www.microsoft.com/GroupPolicy/Types"><%= @ssh_sid %></SID>
             <Name xmlns="http://www.microsoft.com/GroupPolicy/Types"><%= @netbios_name %>\sshd_service</Name>
           </q1:Member>
+          <q1:Member>
+            <SID xmlns="http://www.microsoft.com/GroupPolicy/Types"><%= @admin_group_sid %></SID>
+            <Name xmlns="http://www.microsoft.com/GroupPolicy/Types">Administrators</Name>
+          </q1:Member>
         </q1:UserRightsAssignment>
         <q1:UserRightsAssignment>
           <q1:Name>SeCreateTokenPrivilege</q1:Name>
           <q1:Member>
             <SID xmlns="http://www.microsoft.com/GroupPolicy/Types"><%= @ssh_sid %></SID>
             <Name xmlns="http://www.microsoft.com/GroupPolicy/Types"><%= @netbios_name %>\sshd_service</Name>
+          </q1:Member>
+          <q1:Member>
+            <SID xmlns="http://www.microsoft.com/GroupPolicy/Types"><%= @admin_group_sid %></SID>
+            <Name xmlns="http://www.microsoft.com/GroupPolicy/Types">Administrators</Name>
           </q1:Member>
         </q1:UserRightsAssignment>
         <q1:UserRightsAssignment>
@@ -178,12 +186,20 @@
             <SID xmlns="http://www.microsoft.com/GroupPolicy/Types"><%= @ec2config_sid %></SID>
             <Name xmlns="http://www.microsoft.com/GroupPolicy/Types"><%= @netbios_name %>\ec2config</Name>
           </q1:Member>
+          <q1:Member>
+            <SID xmlns="http://www.microsoft.com/GroupPolicy/Types"><%= @admin_group_sid %></SID>
+            <Name xmlns="http://www.microsoft.com/GroupPolicy/Types">Administrators</Name>
+          </q1:Member>
         </q1:UserRightsAssignment>
         <q1:UserRightsAssignment>
           <q1:Name>SeTcbPrivilege</q1:Name>
           <q1:Member>
             <SID xmlns="http://www.microsoft.com/GroupPolicy/Types"><%= @ssh_sid %></SID>
             <Name xmlns="http://www.microsoft.com/GroupPolicy/Types"><%= @netbios_name %>\sshd_service</Name>
+          </q1:Member>
+          <q1:Member>
+            <SID xmlns="http://www.microsoft.com/GroupPolicy/Types"><%= @admin_group_sid %></SID>
+            <Name xmlns="http://www.microsoft.com/GroupPolicy/Types">Administrators</Name>
           </q1:Member>
         </q1:UserRightsAssignment>
       </Extension>

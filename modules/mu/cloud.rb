@@ -590,19 +590,23 @@ module MU
 						end
 
 						# There shouldn't be a use case where a domain joined computer goes through initialSSHTasks. Removing Active Directory specific computer rename.
-						reboot_after_hostname_set = true
+						set_hostname = true
 						hostname = nil
 						if !@config['active_directory'].nil?
 							if @config['active_directory']['node_type'] == "domain_controller" && @config['active_directory']['domain_controller_hostname']
 								hostname = @config['active_directory']['domain_controller_hostname']
 								@mu_windows_name = hostname
+								set_hostname = true
+							else 
+								# Do we have an AD specific hostname?
+								hostname = @mu_windows_name
+								set_hostname = true
 							end
-							reboot_after_hostname_set = false
 						else
 							hostname = @mu_windows_name
 						end
 
-						win_set_hostname = %Q{powershell -Command "& {Rename-Computer -NewName "#{hostname}" -Force -PassThru -Restart; Restart-Computer -Force}"}
+						win_set_hostname = %Q{powershell -Command "& {Rename-Computer -NewName '#{hostname}' -Force -PassThru -Restart; Restart-Computer -Force}"}
 						begin
 							if !@config['set_windows_pass'] and !win_set_pw.nil?
 								MU.log "Setting Windows password for user #{@config['windows_admin_username']}", MU::NOTICE
@@ -617,12 +621,11 @@ module MU
 								end
 								if !@hostname_set && @mu_windows_name
 									# XXX need a better guard here, this pops off every time
-									ssh.exec!(win_set_hostname)
-									@hostname_set = true
-									if reboot_after_hostname_set
+									if set_hostname
+										ssh.exec!(win_set_hostname)
+										# Should we set @hostname_set to true even if we don't actually set the hostname?
+										@hostname_set = true
 										raise MU::Cloud::BootstrapTempFail, "Setting hostname to #{@mu_windows_name} and rebooting"
-									else
-										MU.log "Set local Windows hostname of #{@mu_name} to #{@mu_windows_name}"
 									end
 								end
 							else

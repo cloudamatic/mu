@@ -63,11 +63,20 @@ def join_domain_windows
 
 		Chef::Log.info("Joining #{new_resource.computer_name} node to #{new_resource.dns_name} domain")
 		cmd = powershell_out(code)
-		Chef::Log.info("Domain join stdout #{cmd.stdout}")
-		Chef::Log.info("Domain join stderr #{cmd.stderr}") unless cmd.exitstatus == 0
-		kill_ssh
-		Chef::Application.fatal!("Failed to join #{new_resource.computer_name} to #{new_resource.dns_name} domain") unless cmd.exitstatus == 0
-		Chef::Application.fatal!("Joined #{new_resource.computer_name} to #{new_resource.dns_name} domain, rebooting. Will have to run chef again")
+
+		if cmd.stdout.include?("HasSucceeded") && cmd.stdout.include?("True")
+			Chef::Log.info("Domain Join was successful")
+			kill_ssh
+			Chef::Application.fatal!("Successfully joined #{new_resource.computer_name} to #{new_resource.dns_name} domain, rebooting. Will have to run chef again")
+		elsif cmd.stdout.include?("HasSucceeded") && cmd.stdout.include?("False")
+			Chef::Log.fatal("Domain Join was NOT successful")
+			Chef::Log.fatal("Domain join stderr #{cmd.stderr}")
+			Chef::Application.fatal!("Failed to join #{new_resource.computer_name} to #{new_resource.dns_name} domain")
+		else
+			Chef::Log.fatal("Something went wrong during domain join. Command to join domain was: #{code}")
+			Chef::Log.fatal("Domain join stderr #{cmd.stderr}")
+			Chef::Application.fatal!("Failed to join #{new_resource.computer_name} to #{new_resource.dns_name} domain")
+		end
 	end
 end
 

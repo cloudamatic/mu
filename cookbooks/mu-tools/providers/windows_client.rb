@@ -26,37 +26,36 @@ def configure_users
 	if in_domain?
 		if is_domain_controller?(new_resource.computer_name)
 			unless domain_user_exist?(new_resource.domain_admin_user)
-				powershell_script "Create User #{new_resource.domain_admin_user}" do
-					code <<-EOH
-						New-ADUser -Name #{new_resource.domain_admin_user} -UserPrincipalName #{new_resource.domain_admin_user}@#{new_resource.domain_name} -AccountPassword (ConvertTo-SecureString -AsPlainText '#{new_resource.password}' -force) -Enabled $true -PasswordNeverExpires $true
-						Add-ADGroupMember 'Domain Admins' -Members #{new_resource.domain_admin_user}
-					EOH
-				end
+				script =<<-EOH
+					New-ADUser -Name #{new_resource.domain_admin_user} -UserPrincipalName #{new_resource.domain_admin_user}@#{new_resource.domain_name} -AccountPassword (ConvertTo-SecureString -AsPlainText '#{new_resource.password}' -force) -Enabled $true -PasswordNeverExpires $true -PassThru
+					Add-ADGroupMember 'Domain Admins' -Members #{new_resource.domain_admin_user} -PassThru
+				EOH
+				cmd = powershell_out(script)
 			end
 
 			unless domain_user_exist?(new_resource.ssh_user)
-				powershell_script "Create User #{new_resource.ssh_user}" do
-					code <<-EOH
-						New-ADUser -Name #{new_resource.ssh_user} -UserPrincipalName #{new_resource.ssh_user}@#{new_resource.domain_name} -AccountPassword (ConvertTo-SecureString -AsPlainText '#{new_resource.ssh_password}' -force) -Enabled $true -PasswordNeverExpires $true
-						Add-ADGroupMember 'Domain Admins' -Members #{new_resource.ssh_user}
-					EOH
-				end
+				script =<<-EOH
+					New-ADUser -Name #{new_resource.ssh_user} -UserPrincipalName #{new_resource.ssh_user}@#{new_resource.domain_name} -AccountPassword (ConvertTo-SecureString -AsPlainText '#{new_resource.ssh_password}' -force) -Enabled $true -PasswordNeverExpires $true -PassThru
+					Add-ADGroupMember 'Domain Admins' -Members #{new_resource.ssh_user} -PassThru
+				EOH
+				cmd = powershell_out(script)
 				Chef::Log.info("Create Domain User #{new_resource.ssh_user}")
 			end
 
 			# This is a workaround because user data might re-install cygwin and use a random password that we don't know about. This is not idempotent, it just doesn't throw and error.
-			powershell_script "Add #{new_resource.ssh_user} user to Domain Admins group" do
-				code "Add-ADGroupMember 'Domain Admins' -Members #{new_resource.ssh_user}; Set-ADAccountPassword -Identity #{new_resource.ssh_user} -NewPassword (ConvertTo-SecureString -AsPlainText \"#{new_resource.ssh_password}\" -Force)"
-			end
-			Chef::Log.info("Added  #{new_resource.ssh_user} to Domain Admin group and reset its password")
+			script =<<-EOH
+				Add-ADGroupMember 'Domain Admins' -Members #{new_resource.ssh_user} -PassThru
+				Set-ADAccountPassword -Identity #{new_resource.ssh_user} -NewPassword (ConvertTo-SecureString -AsPlainText '#{new_resource.ssh_password}' -Force) -PassThru
+			EOH
+			cmd = powershell_out(script)
+			Chef::Log.info("Added #{new_resource.ssh_user} to Domain Admin group and reset its password")
 
 			unless domain_user_exist?(new_resource.ec2config_user)
-				powershell_script "Create User #{new_resource.ec2config_user}" do
-					code <<-EOH
-						New-ADUser -Name #{new_resource.ec2config_user} -UserPrincipalName #{new_resource.ec2config_user}@#{new_resource.domain_name} -AccountPassword (ConvertTo-SecureString -AsPlainText '#{new_resource.ec2config_password}' -force) -Enabled $true -PasswordNeverExpires $true
-						Add-ADGroupMember 'Administrators' -Members #{new_resource.ec2config_user}
-					EOH
-				end
+				script =<<-EOH
+						New-ADUser -Name #{new_resource.ec2config_user} -UserPrincipalName #{new_resource.ec2config_user}@#{new_resource.domain_name} -AccountPassword (ConvertTo-SecureString -AsPlainText '#{new_resource.ec2config_password}' -force) -Enabled $true -PasswordNeverExpires $true -PassThru
+						Add-ADGroupMember 'Administrators' -Members #{new_resource.ec2config_user} -PassThru
+				EOH
+				cmd = powershell_out(script)
 				Chef::Log.info("Create Domain User #{new_resource.ec2config_user}")
 			end
 
@@ -75,6 +74,8 @@ def configure_users
 
 					ssh_user_sid = powershell_out("(New-Object System.Security.Principal.NTAccount('#{new_resource.netbios_name}', '#{new_resource.ssh_user}')).Translate([System.Security.Principal.SecurityIdentifier]).value").stdout.strip
 					ec2config_user_sid = powershell_out("(New-Object System.Security.Principal.NTAccount('#{new_resource.netbios_name}', '#{new_resource.ec2config_user}')).Translate([System.Security.Principal.SecurityIdentifier]).value").stdout.strip
+					# We're giving the Administrators group all the privileges the SSH user needs to make sure the local SSH user still has privileges after joining the domain so we can complete our chef run without relying on the run-chef-client  scheduled task to exist/run
+					administrators_group_sid = powershell_out("(New-Object System.Security.Principal.NTAccount('Administrators')).Translate([System.Security.Principal.SecurityIdentifier]).value").stdout.strip
 					# ssh_user_sid = powershell_out("Invoke-Command -ScriptBlock { (New-Object System.Security.Principal.NTAccount('#{new_resource.netbios_name}', '#{new_resource.ssh_user}')).Translate([System.Security.Principal.SecurityIdentifier]).value } -ComputerName #{node.ipaddress} -Credential (New-Object System.Management.Automation.PSCredential('#{new_resource.netbios_name}\\#{new_resource.domain_admin_user}', (ConvertTo-SecureString '#{new_resource.password}' -AsPlainText -Force)))").stdout.strip
 					# ec2config_user_sid = powershell_out("Invoke-Command -ScriptBlock { (New-Object System.Security.Principal.NTAccount('#{new_resource.netbios_name}', '#{new_resource.ec2config_user}')).Translate([System.Security.Principal.SecurityIdentifier]).value } -ComputerName #{node.ipaddress} -Credential (New-Object System.Management.Automation.PSCredential('#{new_resource.netbios_name}\\#{new_resource.domain_admin_user}', (ConvertTo-SecureString '#{new_resource.password}' -AsPlainText -Force)))").stdout.strip
 
@@ -113,7 +114,8 @@ def configure_users
 							:computer_name => new_resource.computer_name,
 							:netbios_name => new_resource.netbios_name,
 							:ssh_sid => ssh_user_sid,
-							:ec2config_sid => ec2config_user_sid
+							:ec2config_sid => ec2config_user_sid,
+							:admin_group_sid => administrators_group_sid
 						)
 					end
 
@@ -121,11 +123,21 @@ def configure_users
 						source "gptmpl.inf.erb"
 						variables(
 							:ssh_sid => ssh_user_sid,
-							:ec2config_sid => ec2config_user_sid
+							:ec2config_sid => ec2config_user_sid,
+							:admin_group_sid => administrators_group_sid
 						)
 					end
 
 					# We might not have sufficient permissions to import the GPO correctly with Cygwin/SSH at this point. Lets use WinRM to authenticate to the local machine
+
+					# Chef::Log.info("import #{gpo_name} GPO")
+					# script =<<-EOH
+						# Invoke-Command -ScriptBlock { Import-GPO -BackupId 24E13F41-7118-4FB6-AE8B-45D48AFD6AFE -TargetName #{gpo_name} -path #{Chef::Config[:file_cache_path]}\\gpo -CreateIfNeeded } -ComputerName #{node.ipaddress} -Credential (New-Object System.Management.Automation.PSCredential('#{new_resource.netbios_name}\\#{new_resource.domain_admin_user}', (ConvertTo-SecureString '#{new_resource.password}' -AsPlainText -Force)))
+						# new-gplink -name #{gpo_name} -target 'dc=#{new_resource.domain_name.gsub(".", ",dc=")}'
+						# gpupdate /force
+					# EOH
+					# cmd = powershell_out(script)
+
 					powershell_script "import #{gpo_name} gpo" do
 						guard_interpreter :powershell_script
 						code <<-EOH
@@ -203,13 +215,15 @@ def configure_users
 end
 
 def set_ec2config_service
-		Chef::Log.info("Trying to configure Ec2Config service to run under #{new_resource.ec2config_service_user}")
-		Chef::Log.info("$ec2config_service = Get-WmiObject Win32_service | Where-Object {$_.Name -eq 'Ec2Config'}; $ec2config_service.Change($Null,$Null,$Null,$Null,$Null,$Null,'#{new_resource.ec2config_service_user}','#{new_resource.ec2config_password}',$Null,$Null,$Null)")
 	unless service_user_set?("Ec2Config", new_resource.ec2config_service_user)
-		Chef::Log.info("Configuring Ec2Config service to run under #{new_resource.ec2config_service_user}")
+		Chef::Log.info("Trying to configure Ec2Config service to run under #{new_resource.ec2config_service_user}")
+		cmd = powershell_out("(Get-WmiObject Win32_service | Where-Object {$_.Name -eq 'Ec2Config'}).StartName")
+		Chef::Log.info("ec2config Service start name before change: #{cmd.stdout}")
+
 		cmd = powershell_out("$ec2config_service = Get-WmiObject Win32_service | Where-Object {$_.Name -eq 'Ec2Config'}; $ec2config_service.Change($Null,$Null,$Null,$Null,$Null,$Null,'#{new_resource.ec2config_service_user}','#{new_resource.ec2config_password}',$Null,$Null,$Null)")
-		Chef::Log.info("ec2config stdout: #{cmd.stdout}")
-		Chef::Log.error("Error configuring Ec2Config service : #{cmd.stderr}") unless cmd.exitstatus == 0
+		Chef::Log.error("Error configuring Ec2Config service: #{cmd.stderr}") unless cmd.exitstatus == 0
+		cmd = powershell_out("(Get-WmiObject Win32_service | Where-Object {$_.Name -eq 'Ec2Config'}).StartName")
+		Chef::Log.info("ec2config Service start name after change: #{cmd.stdout}")
 		# service "Ec2Config" do
 			# action :restart
 		# end
@@ -220,13 +234,12 @@ def import_scheduled_tasks
 	# To do: Add guards
 	Chef::Log.info("Configuring run-chef-client Scheduled Task")
 	cmd = powershell_out("Register-ScheduledTask -Xml (get-content '#{Chef::Config[:file_cache_path]}/run_chefclient_scheduledtask.xml' | out-string) -TaskName 'run-chef-client' -User #{new_resource.user_name} -Password '#{new_resource.password}' -Force")
-	Chef::Log.info("Register-ScheduledTask -Xml (get-content '#{Chef::Config[:file_cache_path]}/run_chefclient_scheduledtask.xml' | out-string) -TaskName 'run-chef-client' -User #{new_resource.user_name} -Password '#{new_resource.password}' -Force")
-			Chef::Log.info("run-chef-client stdout: #{cmd.stdout}")
+	# Chef::Log.info("Register-ScheduledTask -Xml (get-content '#{Chef::Config[:file_cache_path]}/run_chefclient_scheduledtask.xml' | out-string) -TaskName 'run-chef-client' -User #{new_resource.user_name} -Password '#{new_resource.password}' -Force")
 	# Chef::Application.fatal!("Failed to configure run-chef-client Scheduled Task: #{cmd.stderr}") unless cmd.exitstatus == 0
 
 	Chef::Log.info("Configuring run-userdata Scheduled Task")
 	cmd = powershell_out("Register-ScheduledTask -Xml (get-content '#{Chef::Config[:file_cache_path]}/run-userdata_scheduledtask.xml' | out-string) -TaskName 'run-userdata' -User #{new_resource.user_name} -Password '#{new_resource.password}' -Force")
-	Chef::Log.error("Failed to configuring run-userdata Scheduled Task: #{cmd.stderr}") unless cmd.exitstatus == 0
+	Chef::Log.error("Failed to configure run-userdata Scheduled Task: #{cmd.stderr}") unless cmd.exitstatus == 0
 
 	# trying to make sure the run-chef-client scheduled task gets created because we can't SSH into a node that was added into a domain without changing the user the SSHD service is running under
 	powershell_script "Import run-chef-client scheduled task" do
@@ -246,12 +259,15 @@ def import_scheduled_tasks
 end
 
 def set_sshd_service
+	Chef::Log.info("Configuring SSH service to start under #{new_resource.ssh_service_user} user")
+	cmd = powershell_out("(Get-WmiObject Win32_service | Where-Object {$_.Name -eq 'sshd'}).StartName")
+	Chef::Log.info("SSHD Service start name before change : #{cmd.stdout}")
 	ssh_user_set =  service_user_set?("sshd", new_resource.ssh_service_user)
-	Chef::Log.info("Configuring SSH service to start with #{new_resource.ssh_service_user} user")
 
 	cmd = powershell_out("$sshd_service = Get-WmiObject Win32_service | Where-Object {$_.Name -eq 'sshd'}; $sshd_service.Change($Null,$Null,$Null,$Null,$Null,$Null,'#{new_resource.ssh_service_user}','#{new_resource.ssh_password}',$Null,$Null,$Null)")
 	# Chef::Application.fatal!("Failed to configure sshd service: #{cmd.stderr}") unless cmd.exitstatus == 0
-
+	cmd = powershell_out("(Get-WmiObject Win32_service | Where-Object {$_.Name -eq 'sshd'}).StartName")
+	Chef::Log.info("SSHD Service start name after change : #{cmd.stdout}")
 	# if cmd.exitstatus == 0 and !ssh_user_set
 	unless ssh_user_set
 		# cmd = powershell_out("c:/bin/cygwin/bin/bash --login -c 'chown -R #{new_resource.ssh_user} /var/empty && chown #{new_resource.ssh_user} /var/log/sshd.log /etc/ssh*\'; Stop-Process -ProcessName sshd -force; Stop-Service sshd -Force; Start-Service sshd; sleep 5; Start-Service sshd")

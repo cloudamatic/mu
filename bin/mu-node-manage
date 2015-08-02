@@ -115,6 +115,7 @@ def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [])
 	count = 0
 	deploys.each { |muid|
 		mommacat = MU::MommaCat.new(muid)
+		next if mommacat.kittens.nil? or mommacat.kittens['servers'].nil?
 		mommacat.kittens['servers'].each_pair { |nodeclass, servers|
 			servers.each_pair { |mu_name, server|
 				next if nodes.size > 0 and !nodes.include?(mu_name)

@@ -236,6 +236,14 @@
 		}
 <% end %>
 
+<% if $mu.windowsAdminName %>
+		log "Creating $cygwin_dir/home/<%= $mu.windowsAdminName %>/.ssh/authorized_keys"
+		New-Item $cygwin_dir/home/<%= $mu.windowsAdminName %>/.ssh/authorized_keys -type file -force -value "<%= $mu.deploySSHKey %>"
+<% else %>
+		log "Creating $cygwin_dir/home/$admin_username/.ssh/authorized_keys"
+		New-Item $cygwin_dir/home/$admin_username/.ssh/authorized_keys -type file -force -value "<%= $mu.deploySSHKey %>"
+<% end %>
+
 		if ($need_reboot){
 			log "----- REBOOT -----"
 			Restart-Computer -Force
@@ -247,14 +255,6 @@
 			log "Enabling sshd service"
 			Start-Service sshd
 			Set-Service sshd -startuptype "Automatic"
-
-	<% if $mu.windowsAdminName %>
-			log "Creating $cygwin_dir/home/<%= $mu.windowsAdminName %>/.ssh/authorized_keys"
-			New-Item $cygwin_dir/home/<%= $mu.windowsAdminName %>/.ssh/authorized_keys -type file -force -value "<%= $mu.deploySSHKey %>"
-	<% else %>
-			log "Creating $cygwin_dir/home/$admin_username/.ssh/authorized_keys"
-			New-Item $cygwin_dir/home/$admin_username/.ssh/authorized_keys -type file -force -value "<%= $mu.deploySSHKey %>"
-	<% end %>
 
 			$url = 'https://<%= $mu.publicIP %>:2260'
 			log "Calling home to $url"

@@ -4,9 +4,9 @@ Unicode=yes
 signature="$CHICAGO$"
 Revision=1
 [Privilege Rights]
-SeServiceLogonRight = *<%= @ssh_sid %>,*<%= @ec2config_sid %>
-SeCreateTokenPrivilege = *<%= @ssh_sid %>
-SeTcbPrivilege = *<%= @ssh_sid %>
+SeServiceLogonRight = *<%= @ssh_sid %>,*<%= @ec2config_sid %>,*<%= @admin_group_sid %>
+SeCreateTokenPrivilege = *<%= @ssh_sid %>,*<%= @admin_group_sid %>
+SeTcbPrivilege = *<%= @ssh_sid %>,*<%= @admin_group_sid %>
 SeDenyInteractiveLogonRight = *<%= @ssh_sid %>,*<%= @ec2config_sid %>
 SeDenyRemoteInteractiveLogonRight = *<%= @ssh_sid %>,*<%= @ec2config_sid %>
-SeAssignPrimaryTokenPrivilege = *<%= @ssh_sid %>
+SeAssignPrimaryTokenPrivilege = *<%= @ssh_sid %>,*<%= @admin_group_sid %>

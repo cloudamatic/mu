@@ -33,3 +33,4 @@ gem 'ruby-wmi'
 gem 'chef-vault', "~> 2.6.1"
 gem 'net-ssh', "~> 2.9.2"
 gem 'netaddr'
+gem 'nokogiri'

@@ -30,11 +30,11 @@ cookbook 'chef-splunk', path: "#{cookbookPath}/chef-splunk"
 cookbook 'chef-sugar', '~> 2.0.0'
 cookbook 'chef-vault', '~> 1.3.0'
 cookbook 'demo', path: "#{siteCookbookPath}/demo"
-cookbook 'database', '~> 4.0.5'
+cookbook 'database', '~> 4.0.7'
 cookbook 'dmg', '~> 2.2.0'
 cookbook 'ec2-s3-api-tools', path: "#{cookbookPath}/ec2-s3-api-tools"
 cookbook 'freebsd', '~> 0.1.9'
-cookbook 'git', '~> 4.2.2'
+cookbook 'git', '~> 4.2.4'
 cookbook 'gunicorn', '~> 1.1.2'
 cookbook 'iis', '~> 4.1.0'
 cookbook 'iptables', '~> 1.0.0'
@@ -69,7 +69,7 @@ cookbook 's3fs', path: "#{cookbookPath}/s3fs"
 cookbook 'simple_iptables', '~> 0.7.0'
 cookbook 'supervisor', '~> 0.4.10'
 cookbook 'unicorn', '~> 1.3.0'
-cookbook 'windows', '~> 1.37'
+cookbook 'windows', '~> 1.38.1'
 cookbook 'xfs', '~> 1.1.0'
 cookbook 'xml', '~> 1.2.4'
 cookbook 'yum', '~> 3.6.0'
