@@ -45,8 +45,6 @@ if ARGV.empty? and !$opts[:all] and !$opts[:platform] and !$opts[:environment] a
 	Trollop::educate
 	exit 1
 end
-if $opts[:mode] == "basketupdate"
-end
 
 # Run through our filters so we can pass flat lists into our methods that
 # actually do things.
@@ -216,16 +214,22 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
 		mommacat = MU::MommaCat.new(muid)
 
 		# Clean up the userdata of matching Autoscale groups by replacing their
-		# Launch Configurations with new ones.
+		# Launch Configurations with new ones,
 		if mommacat.original_config.has_key?("server_pools")
 			mommacat.original_config['server_pools'].each { |server|
 				svr_class = server['name']
 				server["platform"] = "linux" if !server.has_key?("platform")
 
 				pool_name = mommacat.getResourceName(svr_class)
-				MU::Cloud::AWS.autoscale.describe_auto_scaling_groups(
+
+				resp = MU::Cloud::AWS.autoscale.describe_auto_scaling_groups(
 					auto_scaling_group_names: [pool_name]
-				).auto_scaling_groups.each { |asg|
+				)
+				if resp.nil?
+					MU.log "Failed to locate any Autoscale Groups named #{pool_name}", MU::WARN
+					next
+				end
+				resp.auto_scaling_groups.each { |asg|
 					launch = MU::Cloud::AWS.autoscale.describe_launch_configurations(
 						launch_configuration_names: [asg.launch_configuration_name]
 					).launch_configurations.first
@@ -245,25 +249,38 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
 						},
 						custom_append: server['userdata_script']
 					)
-					if userdata == olduserdata
-						MU.log "Autoscale Group #{pool_name} has up-to-date userdata, skipping", MU::DEBUG
-						next
+					need_update = false
+					storage = []
+					server["basis"]["launch_config"]["storage"].each { |vol|
+						storage << MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
+					}
+					storage.concat(MU::Cloud::AWS::Server.ephemeral_mappings)
+					if userdata != olduserdata or
+							launch.image_id != server["basis"]["launch_config"]["ami_id"] or
+							launch.ebs_optimized != server["basis"]["launch_config"]["ebs_optimized"] or
+							launch.instance_type != server["basis"]["launch_config"]["size"] or
+							launch.instance_monitoring.enabled != server["basis"]["launch_config"]["monitoring"]
+#							launch.block_device_mappings != storage
+#							XXX block device comparison isn't this simple
+						need_update = true
 					end
+					next if !need_update
 
 					# Put our Autoscale group onto a temporary launch config
 					MU::Cloud::AWS.autoscale.create_launch_configuration(
 						launch_configuration_name: pool_name+"-TMP",
 						user_data: Base64.encode64(userdata),
-						image_id: launch.image_id,
+						image_id: server["basis"]["launch_config"]["ami_id"],
 						key_name: launch.key_name,
 						security_groups: launch.security_groups,
-						instance_type: launch.instance_type,
-						block_device_mappings: launch.block_device_mappings,
-						instance_monitoring: launch.instance_monitoring,
+						instance_type: server["basis"]["launch_config"]["size"],
+						block_device_mappings: storage,
+						instance_monitoring: { :enabled => server["basis"]["launch_config"]["monitoring"] },
 						iam_instance_profile: launch.iam_instance_profile,
-						ebs_optimized: launch.ebs_optimized,
+						ebs_optimized: server["basis"]["launch_config"]["ebs_optimized"],
 						associate_public_ip_address: launch.associate_public_ip_address
 					)
+
 					MU::Cloud::AWS.autoscale.update_auto_scaling_group(
 						auto_scaling_group_name: pool_name,
 						launch_configuration_name: pool_name+"-TMP"
@@ -276,14 +293,14 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
 					MU::Cloud::AWS.autoscale.create_launch_configuration(
 						launch_configuration_name: pool_name,
 						user_data: Base64.encode64(userdata),
-						image_id: launch.image_id,
+						image_id: server["basis"]["launch_config"]["ami_id"],
 						key_name: launch.key_name,
 						security_groups: launch.security_groups,
-						instance_type: launch.instance_type,
-						block_device_mappings: launch.block_device_mappings,
-						instance_monitoring: launch.instance_monitoring,
+						instance_type: server["basis"]["launch_config"]["size"],
+						block_device_mappings: storage,
+						instance_monitoring: { :enabled => server["basis"]["launch_config"]["monitoring"] },
 						iam_instance_profile: launch.iam_instance_profile,
-						ebs_optimized: launch.ebs_optimized,
+						ebs_optimized: server["basis"]["launch_config"]["ebs_optimized"],
 						associate_public_ip_address: launch.associate_public_ip_address
 					)
 					MU::Cloud::AWS.autoscale.update_auto_scaling_group(

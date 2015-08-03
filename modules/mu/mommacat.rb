@@ -328,6 +328,29 @@ module MU
 			@kittens
 		end
 
+		# Overwrite this deployment's configuration with a new version. Save the
+		# previous version as well.
+		# @param new_config [Hash]: A new configuration, fully resolved by {MU::Config}
+		def updateBasketofKittens(new_conf)
+			loadDeploy
+			if new_conf == @original_config
+				MU.log "#{@deploy_id}", MU::WARN
+				return
+			end
+
+			backup = "#{deploy_dir}/basket_of_kittens.json.#{Time.now.to_i.to_s}"
+			MU.log "Saving previous config of #{@deploy_id} to #{backup}"
+			config = File.new(backup, File::CREAT|File::TRUNC|File::RDWR, 0600)
+			config.flock(File::LOCK_EX)
+			config.puts JSON.pretty_generate(@original_config)
+			config.flock(File::LOCK_UN)
+			config.close
+
+			@original_config = new_conf
+			save!
+			MU.log "New config saved to #{deploy_dir}/basket_of_kittens.json"
+		end
+
 		# Keep tabs on a {MU::Cloud} object so that it can be found easily by
 		# #findLitterMate.
 		# @param type [String]:
