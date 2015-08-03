@@ -35,7 +35,7 @@ Usage:
 	opt :mode, "Action to perform on matching nodes. Valid actions: groom, chefrun, userdata", :require => false, :default => "groom", :type => :string
 end
 
-if !["groom", "chefrun", "userdata"].include?($opts[:mode]) 
+if !["groom", "chefrun", "basketupdate", "userdata"].include?($opts[:mode]) 
 	Trollop::die(:mode, "--mode must be one of: groom, chefrun, userdata")
 end
 if $opts[:platform] and !["linux", "windows"].include?($opts[:platform])
@@ -44,6 +44,8 @@ end
 if ARGV.empty? and !$opts[:all] and !$opts[:platform] and !$opts[:environment] and !$opts[:list]
 	Trollop::educate
 	exit 1
+end
+if $opts[:mode] == "basketupdate"
 end
 
 # Run through our filters so we can pass flat lists into our methods that
@@ -109,10 +111,16 @@ end
 
 exit 1 if !ok
 
+
 def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [])
 	children = {}
 	badnodes = []
 	count = 0
+	Signal.trap("INT") do
+		children.each { |pid|
+			Process.kill("INT", pid)
+		}
+	end
 	deploys.each { |muid|
 		mommacat = MU::MommaCat.new(muid)
 		next if mommacat.kittens.nil? or mommacat.kittens['servers'].nil?
@@ -155,6 +163,11 @@ end
 def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-client || ./chef-client ) 2>&1", print_output: false, noop: false)
 	children = {}
 	badnodes = []
+	Signal.trap("INT") do
+		children.each { |pid|
+			Process.kill("INT", pid)
+		}
+	end
 	count = 0
 	deploys.each { |muid|
 		mommacat = MU::MommaCat.new(muid)

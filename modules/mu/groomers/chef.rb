@@ -459,7 +459,7 @@ module MU
 				chef_node.normal.windows_admin_username = @config['windows_admin_username']
 				chef_node.chef_environment = MU.environment.downcase
 				if @server.config['cloud'] == "AWS"
-					chef_node.normal.ec2 = @server.cloud_desc
+					chef_node.normal.ec2 = MU.structToHash(@server.cloud_desc)
 				end
 
 				if @server.windows?
