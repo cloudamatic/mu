@@ -1617,6 +1617,10 @@ MESSAGE_END
 				MU::MommaCat.listDeploys.each { |deploy_id|
 					begin
 						deploy = MU::MommaCat.getLitter(deploy_id)
+						if deploy.ssh_key_name.nil? or deploy.ssh_key_name.empty?
+							MU.log "Failed to extract ssh key name from #{deploy_id} in syncMonitoringConfig", MU::ERR
+							next
+						end
 						FileUtils.cp("#{@myhome}/.ssh/#{deploy.ssh_key_name}", "#{@nagios_home}/.ssh/#{deploy.ssh_key_name}")
 						File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{@nagios_home}/.ssh/#{deploy.ssh_key_name}")
 						if deploy.kittens.has_key?("servers")
@@ -1646,10 +1650,10 @@ MESSAGE_END
 				ssh_lock.flock(File::LOCK_UN)
 				ssh_lock.close
 				File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{@nagios_home}/.ssh/config")
-#				File.rename("#{@nagios_home}/.ssh/config.tmp", "#{@nagios_home}/.ssh/config")
+				File.rename("#{@nagios_home}/.ssh/config.tmp", "#{@nagios_home}/.ssh/config")
 
 				MU.log "Updating Nagios monitoring config, this may take a while..."
-#				system("#{MU::Groomer::Chef.chefclient} -o 'recipe[mu-master::update_nagios_only]' 2>&1 > /dev/null")
+				system("#{MU::Groomer::Chef.chefclient} -o 'recipe[mu-master::update_nagios_only]' 2>&1 > /dev/null")
 				MU.log "Nagios monitoring config update complete."
 			}
 
@@ -1678,16 +1682,16 @@ MESSAGE_END
 			nodes = Hash.new
 			MU::MommaCat.deploy_struct_semaphore.synchronize {
 				MU::MommaCat.listDeploys.each { |deploy|
-					if !Dir.exists?(deploy_dir(deploy)) or
-						 !File.size?("#{deploy_dir(deploy)}/deployment.json")
+					if !Dir.exists?(MU::MommaCat.deploy_dir(deploy)) or
+						 !File.size?("#{MU::MommaCat.deploy_dir(deploy)}/deployment.json")
 						MU.log "Didn't see deployment metadata for '#{deploy}'", MU::WARN
 						next
 					end
-					data = File.open("#{deploy_dir(deploy)}/deployment.json", File::RDONLY)
-					MU.log "Getting lock to read #{deploy_dir(deploy)}/deployment.json", MU::DEBUG
+					data = File.open("#{MU::MommaCat.deploy_dir(deploy)}/deployment.json", File::RDONLY)
+					MU.log "Getting lock to read #{MU::MommaCat.deploy_dir(deploy)}/deployment.json", MU::DEBUG
 					data.flock(File::LOCK_EX)
 					begin					
-						deployment = JSON.parse(File.read("#{deploy_dir(deploy)}/deployment.json"))
+						deployment = JSON.parse(File.read("#{MU::MommaCat.deploy_dir(deploy)}/deployment.json"))
 						deployment["deploy_id"] = deploy
 						if deployment.has_key?("servers")
 							deployment["servers"].each_key { |nodeclass|
@@ -1697,7 +1701,7 @@ MESSAGE_END
 							}
 						end
 					rescue JSON::ParserError => e
-						MU.log "JSON parse failed on #{deploy_dir(deploy)}/deployment.json", MU::ERR
+						MU.log "JSON parse failed on #{MU::MommaCat.deploy_dir(deploy)}/deployment.json", MU::ERR
 					end
 					data.flock(File::LOCK_UN)
 					data.close
