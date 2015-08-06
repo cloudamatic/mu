@@ -168,11 +168,13 @@ module MU
 
 				# Getting engine specific names
 				dbname = getName(basename, type: "dbname")
-				@config['master_user'] = getName(basename, type: "dbuser")
+				@config['master_user'] = getName(basename, type: "dbuser") unless @config['master_user']
 				@config['identifier'] = getName(@mu_name, type: "dbidentifier")
 				MU.log "Truncated master username for #{@config['identifier']} (db #{dbname}) to #{@config['master_user']}", MU::NOTICE if @config['master_user'] != @config["name"] and @config["snapshot_id"].nil?
 
 				@config['password'] = Password.pronounceable(10..12) if @config['password'].nil?
+				
+				@config["db_parameter_group"]["name"] = @config['identifier'] unless @config["db_parameter_group"]["name"]
 
 				# Database instance config
 				config={
@@ -210,6 +212,12 @@ module MU
 					end
 				end
 
+				db_param_group = nil
+				if @config["db_parameter_group"]
+					createDBParameterGroup
+					db_param_group = getDBParameterGroup
+				end
+
 				if @config["snapshot_id"].nil?
 					config[:preferred_backup_window] = @config["preferred_backup_window"]
 					config[:backup_retention_period] = @config["backup_retention_period"]
@@ -220,6 +228,7 @@ module MU
 					config[:db_name] = dbname
 					config[:master_username] = @config['master_user']
 					config[:master_user_password] = @config['password']
+					config[:db_parameter_group_name] = db_param_group if db_param_group
 				end
 
 				config = createSubnetGroup(config) if source_db.nil? or @config['region'] != source_db.config['region']
@@ -234,7 +243,7 @@ module MU
 						MU.log "Creating database instance #{@config['identifier']} from snapshot #{@config["snapshot_id"]}", details: config
 						resp = MU::Cloud::AWS.rds(@config['region']).restore_db_instance_from_db_snapshot(config)
 					elsif @config["read_replica_of"]
-						[:engine, :multi_az, :license_model, :preferred_backup_window, :backup_retention_period, :storage_encrypted, :engine_version, :allocated_storage, :db_name, :master_username, :master_user_password, :vpc_security_group_ids].each { |param|
+						[:engine, :multi_az, :license_model, :preferred_backup_window, :backup_retention_period, :storage_encrypted, :engine_version, :allocated_storage, :db_name, :master_username, :master_user_password, :vpc_security_group_ids, :db_parameter_group_name].each { |param|
 							config.delete(param) # params inherited from the original
 						}
 						begin
@@ -297,6 +306,7 @@ module MU
 						mod_config[:engine_version] = @config["engine_version"]
 						mod_config[:allow_major_version_upgrade] = @config["allow_major_version_upgrade"] if @config['allow_major_version_upgrade']
 						mod_config[:apply_immediately] = true
+						mod_config[:db_parameter_group_name] = db_param_group if db_param_group
 
 						if database.db_subnet_group and database.db_subnet_group.subnets and !database.db_subnet_group.subnets.empty?
 							if !config.nil? and config.has_key?(:vpc_security_group_ids)
@@ -480,6 +490,69 @@ module MU
 				end
 
 				return config
+			end
+
+			# Create a database parameter group.
+			def createDBParameterGroup
+				MU.log "Creating a database parameter group #{@config["db_parameter_group"]["name"]}"
+				tags= []
+
+				MU::MommaCat.listStandardTags.each_pair { |name, value|
+					tags << { key: name, value: value }
+				}
+
+				resp = MU::Cloud::AWS.rds(@config['region']).create_db_parameter_group(
+					{
+						db_parameter_group_name: @config["db_parameter_group"]["name"],
+						db_parameter_group_family: @config["db_parameter_group"]["db_family"],
+						description: "Parameter group for #{@config["db_parameter_group"]["db_family"]}",
+						tags: tags
+					}
+				)
+
+				if @config["db_parameter_group"]["parameters"] && !@config["db_parameter_group"]["parameters"].empty?
+					params = []
+					@config["db_parameter_group"]["parameters"].each { |item|
+						params << { parameter_name: item['name'], parameter_value: item['value'], apply_method: item['apply_method']}
+					}
+
+					MU.log "Modifiying database parameter group #{@config["db_parameter_group"]["name"]}"
+					resp = MU::Cloud::AWS.rds(@config['region']).modify_db_parameter_group(
+						{
+							db_parameter_group_name: @config["db_parameter_group"]["name"],
+							parameters: params
+						}
+					)
+				end
+			end
+
+			# Retrieve a database parameter group name of on existing parameter group.
+			# @return [String]: database parameter group name.
+			def getDBParameterGroup
+				db_param_group = nil
+
+				attempts = 0
+				begin
+				resp = MU::Cloud::AWS.rds(@config['region']).describe_db_parameter_groups(
+					{
+						db_parameter_group_name: @config["db_parameter_group"]["name"]
+					}
+				)
+				rescue Aws::RDS::Errors::DBParameterGroupNotFound => e
+					if attempts < 5
+						MU.log "Got #{e.inspect} while retriving database parameter group #{@config["db_parameter_group"]["name"]}, will retry in case of transient errors.", MU::WARN
+						attempts += 1
+						sleep 10
+						retry
+					else
+						MU.log "Database parameter group #{@config["db_parameter_group"]["name"]} doesn't exist", MU::ERR, details: e.inspect
+					end
+				end
+
+				db_param_group = resp.db_parameter_groups.first.db_parameter_group_name
+				MU.log "Found database parameter group #{db_param_group}" if db_param_group
+
+				return db_param_group
 			end
 
 			# Called automatically by {MU::Deploy#createResources}
@@ -895,6 +968,8 @@ module MU
 
 				rdssecgroups << db_id if !secgroup.nil?
 				db = MU::Cloud::AWS.rds(region).describe_db_instances(db_instance_identifier: db_id).data.db_instances.first
+				
+				parameter_group = db.db_parameter_groups.first.db_parameter_group_name
 
 				while !noop and (db.nil? or db.db_instance_status == "creating" or db.db_instance_status == "modifying" or db.db_instance_status == "backing-up")
 					MU.log "Waiting for #{db_id} to be in a removable state...", MU::NOTICE
@@ -972,6 +1047,27 @@ module MU
 							retry
 						else
 							MU.log "#{subnet_group} is not in a removable state after several retries, giving up. #{e.inspect}", MU::ERR
+							return
+						end				
+					end
+				end
+
+				# We don't want to delete the default parameter group. We can limit this to parameter groups with a MU-ID tag
+				unless parameter_group.start_with?("default")
+					retries = 0
+					MU.log "Deleting DB parameter group #{parameter_group}"
+					begin
+						MU::Cloud::AWS.rds(region).delete_db_parameter_group(db_parameter_group_name: parameter_group)
+					rescue Aws::RDS::Errors::DBParameterGroupNotFound => e
+						MU.log "DB parameter group #{parameter_group} disappeared before we could remove it", MU::WARN
+					rescue Aws::RDS::Errors::InvalidDBParameterGroupStateFault => e
+						MU.log "DB parameter group #{parameter_group} is not in a removable state, retrying", MU::WARN
+						if retries < 5
+							retries += 1
+							sleep 30
+							retry
+						else
+							MU.log "DB parameter group #{parameter_group} is not in a removable state after several retries, giving up. #{e.inspect}", MU::ERR
 							return
 						end				
 					end
