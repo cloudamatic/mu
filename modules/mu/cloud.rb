@@ -619,8 +619,7 @@ module MU
 								if output.match(/InProgress/)
 									raise MU::Cloud::BootstrapTempFail, "Windows Installer service is still doing something, need to wait"
 								end
-								if !@hostname_set && @mu_windows_name
-									# XXX need a better guard here, this pops off every time
+								if !@hostname_set and @mu_windows_name and !@groomer.haveBootstrapped?
 									if set_hostname
 										ssh.exec!(win_set_hostname)
 										# Should we set @hostname_set to true even if we don't actually set the hostname?

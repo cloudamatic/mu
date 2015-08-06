@@ -1268,7 +1268,7 @@ module MU
 				# Adding rules for Database instance storage. This varies depending on storage type and database type. 
 				if db["storage_type"] == "standard" or db["storage_type"] == "gp2"
 					if db["engine"] == "postgres" or db["engine"] == "mysql"
-						if !(5..3072).include? db["storage"]
+						if !(5..6144).include? db["storage"]
 							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 5 to 3072 GB for #{db["storage_type"]} volume types", MU::ERR
 							ok = false
 						end
@@ -1283,14 +1283,14 @@ module MU
 							ok = false
 						end					
 					elsif %w{sqlserver-ee sqlserver-se}.include? db["engine"]
-						if !(200..1024).include? db["storage"]
+						if !(200..4096).include? db["storage"]
 							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 200 to 1024 GB for #{db["storage_type"]} volume types", MU::ERR
 							ok = false
 						end
 					end
 				elsif db["storage_type"] == "io1"
 					if %w{postgres mysql oracle-se1 oracle-se oracle-ee}.include? db["engine"]
-						if !(100..3072).include? db["storage"]
+						if !(100..6144).include? db["storage"]
 							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 3072 GB for #{db["storage_type"]} volume types", MU::ERR
 							ok = false
 						end
@@ -1300,7 +1300,7 @@ module MU
 							ok = false
 						end
 					elsif %w{sqlserver-ee sqlserver-se}.include? db["engine"]
-						if !(200..1000).step(100).include? db["storage"]
+						if !(200..4096).step(100).include? db["storage"]
 							MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 1000 GB  with 100 GB increments for #{db["storage_type"]} volume types", MU::ERR
 							ok = false
 						end
@@ -1448,6 +1448,7 @@ module MU
 							ok = false
 						end
 					else
+						rr['cloud'] = db['cloud'] if rr['cloud'].nil?
 						tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
 						found = MU::MommaCat.findStray(
 							rr['cloud'],
@@ -1459,7 +1460,7 @@ module MU
 							region: rr["region"],
 							dummy_ok: true
 						)
-						ext_database = found.first if found.size == 1
+						ext_database = found.first if !found.nil? and found.size == 1
 						if !ext_database
 							MU.log "Couldn't resolve Database reference to a unique live Database in #{db['name']}", MU::ERR, details: rr
 							ok = false
@@ -2098,6 +2099,31 @@ module MU
 			"pattern" => "^db\.(t|m|c|i|g|hi|hs|cr|cg|cc){1,2}[0-9]\\.(micro|small|medium|[248]?x?large)$",
 			"type" => "string",
 			"description" => "The Amazon RDS instance type to use when creating this database instance.",
+		}
+
+		@rds_parameter_group_parameters_primitive = {
+			"type" => "array",
+			"minItems" => 1,
+			"items" => {
+			"description" => "The database parameter to change and when to apply the change.",
+				"type" => "object",
+				"title" => "Database Parameter",
+				"required" => ["name", "value"],
+				"additionalProperties" => false,
+				"properties" => {
+					"name" => {
+						"type" => "string"
+					},
+					"value" => {
+						"type" => "string"
+					},
+					"apply_method" => {
+						"enum" => ["pending-reboot", "immediate"],
+						"default" => "immediate",
+						"type" => "string"
+					}
+				}
+			}
 		}
 
 		@firewall_ruleset_rule_primitive = {
@@ -2963,9 +2989,33 @@ module MU
 					"type" => "string",
 					"description" => "Set master password to this; if not specified, a random string will be generated. If you are creating from a snapshot, or using an existing database, you will almost certainly want to set this."
 				},
+				"master_user" => {
+					"type" => "string",
+					"description" => "Set master user name for this database instance; if not specified a random username will be generated"
+				},
 				"create_read_replica"=> {
 					"type" => "boolean",
 					"default" => false
+				},
+				"db_parameter_group" => {
+					"type" => "object",
+					"title" => "DB Parameter Group",
+					"required" => ["db_family"],
+					"additionalProperties" => false,
+					"description" => "Create a DB Parameter Group. Used to modify internal database settings.",
+					"properties" => {
+						"name" => {
+							"type" => "String",
+							"description" => "The name of the DB Parameter Group",
+						},
+						"db_family" => {
+							"type" => "String",
+							"enum" => ["postgres9.4", "postgres9.3", "mysql5.1", "mysql5.5", "mysql5.6", "oracle-ee-11.2", "oracle-ee-12.1", "oracle-se-11.2", "oracle-se-12.1", "oracle-se1-11.2", "oracle-se1-12.1", 
+												"aurora5.6", "sqlserver-ee-10.5", "sqlserver-ee-11.0", "sqlserver-ex-10.5", "sqlserver-ex-11.0", "sqlserver-se-10.5", "sqlserver-se-11.0", "sqlserver-web-10.5", "sqlserver-web-11.0"],
+							"description" => "The database family to create the DB Parameter Group for. The family type must be the same type as the database major version - eg if you set engine_version to 9.4.4 the db_family must be set to postgres9.4.",
+						},
+						"parameters" => @rds_parameter_group_parameters_primitive
+					}
 				}#,
 #				"read_replica" => {
 #					"type" => "object",
