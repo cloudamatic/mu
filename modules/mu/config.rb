@@ -1607,6 +1607,7 @@ module MU
 
 
 		def self.printSchema(dummy_kitten_class, class_hierarchy, schema, in_array = false, required = false)
+			return if schema.nil?
 			if schema["type"] == "object"
 				printme = Array.new
 				if !schema["properties"].nil?
