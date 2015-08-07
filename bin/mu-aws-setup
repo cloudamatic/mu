@@ -64,7 +64,7 @@ if $opts[:sg]
 	end
 	admin_sg = found.first if !found.nil? and found.size > 0
 
-	if admin_sg.nil?
+	if !admin_sg.nil?
 		MU.log "Using an existing Security Group, #{admin_sg}, already associated with this Mu server."
 		open_ports.each { |port|
 			admin_sg.addRule(["0.0.0.0/0"], port: port)
