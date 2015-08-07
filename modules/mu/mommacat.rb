@@ -1003,7 +1003,6 @@ begin
 					end
 				end
 			end
-
 			matches = []
 			if cloud_id or (tag_key and tag_value)
 				regions = []
@@ -1030,7 +1029,7 @@ begin
 						elsif kittens.size == 0
 							# If we don't have a MU::Cloud object, manufacture a dummy one.
 							# Give it a fake name if we have to and have decided that's ok.
-							if name.nil? or name.empty? or !dummy_ok
+							if (name.nil? or name.empty?) and !dummy_ok
 								MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", MU::DEBUG, details: caller
 								next 
 							else
@@ -1055,7 +1054,6 @@ begin
 rescue Exception => e
 MU.log e.inspect, MU::ERR, details: e.backtrace
 end
-#			pp matches
 			matches
 		end
 
