@@ -1051,7 +1051,7 @@ add_chef_support_gems()
 	status_message "Installing support gems in $rubydir"
 
 	echo 'source "https://rubygems.org"' > /tmp/mu-gem-setup.$$/Gemfile
-	for pkg in bundler ohai knife-ec2 chef-vault foodcritic yard colorize color json json-schema trollop fileutils aws-sdk-core knife-windows simple-password-gen netaddr;do
+	for pkg in bundler ohai knife-ec2 chef-vault foodcritic yard colorize color json json-schema trollop fileutils aws-sdk-core knife-windows simple-password-gen netaddr nokogiri;do
 		if ! grep "^$pkg " /tmp/mu-gem-setup.$$/gemlist.txt > /dev/null;then
 			egrep "[\'\"]$pkg[\'\"]" $MU_LIBDIR/modules/Gemfile >> /tmp/mu-gem-setup.$$/Gemfile
 		elif grep "[\'\"]$pkg[\'\"], " $MU_LIBDIR/modules/Gemfile > /dev/null;then

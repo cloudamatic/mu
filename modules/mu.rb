@@ -19,7 +19,6 @@ require 'net/http'
 gem 'aws-sdk-core'
 autoload :Aws, "aws-sdk-core"
 gem 'nokogiri'
-$LOAD_PATH << "/usr/local/ruby-current/lib/ruby/gems/2.1.0/gems/nokogiri-1.6.6.2"
 autoload :Nokogiri, "nokogiri"
 gem 'simple-password-gen'
 autoload :Password, "simple-password-gen"
