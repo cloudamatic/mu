@@ -1629,7 +1629,7 @@ MESSAGE_END
 									MU.dupGlobals(parent_thread_id)
 									threads << Thread.new {
 										MU::MommaCat.setThreadContext(deploy)
-										MU.log "Adding #{server.mu_name} to #{@nagios_home}/.ssh/config", MU::NOTICE
+										MU.log "Adding #{server.mu_name} to #{@nagios_home}/.ssh/config", MU::DEBUG
 										MU::MommaCat.addHostToSSHConfig(
 											server,
 											ssh_dir: "#{@nagios_home}/.ssh",

@@ -272,7 +272,7 @@ DEPENDENCIES
   mysql
   net-ssh (~> 2.9.2)
   netaddr
-  nokogiri
+  nokogiri (~> 1.6.6.2)
   pg
   rack
   ruby-graphviz (~> 1.2.2)
