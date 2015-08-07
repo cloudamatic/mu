@@ -164,8 +164,8 @@ module MU
 		# @return [Class]: The cloud-specific class implementing this resource
 		def self.loadCloudType(cloud, type)
 			raise MuError, "cloud argument to MU::Cloud.loadCloudType cannot be nil" if cloud.nil?
-			# If we've been asked to resolve this object, that means we plan to use it,
-			# so go ahead and load it.
+			# If we've been asked to resolve this object, that means we plan to use
+			# it, so go ahead and load it.
 			cfg_name = nil
 			@@resource_types.each_pair { |name, cloudclass|
 				if name == type.to_sym or
@@ -191,12 +191,9 @@ module MU
 			end
 			begin
 				myclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(type)
-				# XXX also test whether methods take the expected arguments
+
 				@@resource_types[type.to_sym][:class].each { |class_method|
-					begin
-						# XXX this is a hack, we really just want to check for existence
-						myclass.public_class_method(class_method)				
-					rescue NameError
+					if !myclass.respond_to?(class_method)
 						raise MuError, "MU::Cloud::#{cloud}::#{type} has not implemented required class method #{class_method}"
 					end
 				}

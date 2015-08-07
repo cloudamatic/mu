@@ -28,8 +28,10 @@ module MU
 		def self.requiredMethods
 			[:preClean, :bootstrap, :haveBootstrapped?, :run, :saveDeployData, :getSecret, :saveSecret]
 		end
-# XXX need the class versions of getSecret, cleanup
-
+		def self.requiredClassMethods
+			[:getSecret, :cleanup]
+		end
+		
 
 		class Chef; end
 		# @param groomer [String]: The grooming agent to load. 
@@ -45,6 +47,12 @@ module MU
 					raise MuError, "MU::Groom::#{groomer} has not implemented required instance method #{method}"
 				end
 			}
+			MU::Groomer.requiredClassMethods.each { |method|
+				if !myclass.respond_to?(method)
+					raise MuError, "#{myclass} doesn't implement #{method}"
+				end
+			}
+
 			return myclass
 		end
 
