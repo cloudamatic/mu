@@ -10,6 +10,7 @@
 
 case node[:platform]
   when "centos"
+		include_recipe "mu-glusterfs"
 
     %w{glusterfs glusterfs-fuse}.each do |pkg|
       package pkg

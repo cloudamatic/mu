@@ -10,7 +10,8 @@
 ::Chef::Recipe.send(:include, Chef::Mixin::ShellOut)
 
 case node[:platform]
-    when "centos"
+  when "centos"
+		include_recipe "mu-glusterfs"
 
     %w{samba-vfs-glusterfs samba-client samba}.each do |pkg|
       package pkg

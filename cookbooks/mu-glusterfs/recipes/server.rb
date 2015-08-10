@@ -11,8 +11,9 @@
 
 
 case node[:platform]
-    when "centos"
-	$nodeclass = node.gluster_node_class
+  when "centos"
+		include_recipe "mu-glusterfs"
+	  $nodeclass = node.gluster_node_class
 
         %w{xfsprogs mdadm glusterfs-server samba-vfs-glusterfs samba-client}.each do |pkg|
             package pkg
@@ -121,7 +122,7 @@ case node[:platform]
 					i_am_master = true
 				end
 			end
-		}
+		} rescue NoMethodError
 		if !found_master
 			node.normal['deployment']['servers'][$nodeclass][Chef::Config[:node_name]]['gluster_master'] = true
 			node.save
