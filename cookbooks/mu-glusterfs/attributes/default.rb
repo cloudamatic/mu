@@ -1,4 +1,4 @@
-default['gluster_node_class'] = "server"
+default['gluster_node_class'] = "glusterfs"
 
 default['glusterfs']['client']['mount_path'] = '/gluster'
 

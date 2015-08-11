@@ -117,7 +117,7 @@ case node[:platform]
 		i_am_master = false
 		node.deployment.servers[$nodeclass].each_pair { |name, data|
 			if data['gluster_master']
-			found_master = true
+			  found_master = true
 				if name == Chef::Config[:node_name]
 					i_am_master = true
 				end
@@ -132,6 +132,7 @@ case node[:platform]
 		if i_am_master
 			ips = []
 			node.deployment.servers[$nodeclass].each_pair do |name, data|
+				next if data['private_ip_address'].nil? or data['private_ip_address'].empty?
 				execute "gluster peer probe #{data['private_ip_address']}" do
 					not_if {data['private_ip_address'] == node.ipaddress}
 				end
