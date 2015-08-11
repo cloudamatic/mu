@@ -62,7 +62,7 @@ when "centos", "redhat"
 			def hudsonRealm = new HudsonPrivateSecurityRealm(false)
 			instance.setSecurityRealm(hudsonRealm)
 			def strategy = new GlobalMatrixAuthorizationStrategy()
-			strategy.add(Jenkins.ADMINISTER,  "#{admin_vault['username']}")
+			strategy.add(Jenkins.ADMINISTER,  admin_vault['username'])
 			strategy.add(Jenkins.ADMINISTER, "mu_user")
 			instance.setAuthorizationStrategy(strategy)
 			instance.save()
@@ -86,16 +86,16 @@ when "centos", "redhat"
 		user_vault = chef_vault_item(user[:vault], user[:vault_item])
 
 		jenkins_user user[:user_name] do
-				full_name user[:fullname]
-				email user[:email]
-				password user_vault["#{user[:user_name]}_password"]
-				sensitive true
+			full_name user[:fullname]
+			email user[:email]
+			password user_vault["#{user[:user_name]}_password"]
+			sensitive true
 		end
 	}
 
 	node.jenkins_plugins.each { |plugin|
 		jenkins_plugin plugin do
-				notifies :restart, 'service[jenkins]', :delayed
+			notifies :restart, 'service[jenkins]', :delayed
 		end
 	}
 else

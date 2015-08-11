@@ -15,7 +15,6 @@ license          '# Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights
 # See the License for the specific language governing permissions and
 # limitations under the License.'
 #
-# v0.8 - include Jenkins
 description      'Installs/Configures mu-master'
 long_description IO.read(File.join(File.dirname(__FILE__), 'README.md'))
 version          '0.8.0'
