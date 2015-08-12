@@ -11,11 +11,14 @@ include_recipe 'mu-utility::iptables'
 include_recipe "apache2"
 include_recipe "apache2::mod_proxy"
 include_recipe "apache2::mod_proxy_http"
+include_recipe "chef-vault"
 
 apache_port = node.jenkins_port_external
 
 case node.platform
 when "centos", "redhat"
+	admin_vault = chef_vault_item(node.jenkins_admin_vault[:vault], node.jenkins_admin_vault[:item])
+
 	execute "iptables -I INPUT -p tcp --dport #{apache_port} -j ACCEPT; service iptables save" do
 		not_if "iptables -nL | egrep '^ACCEPT.*dpt:#{apache_port}($| )'"
 	end
@@ -44,6 +47,14 @@ when "centos", "redhat"
 	execute "Allow net connect to local for apache" do
 		command "/usr/sbin/setsebool -P httpd_can_network_connect on"
 		not_if "/usr/sbin/getsebool httpd_can_network_connect | grep -cim1 ^.*on$"
+	end
+
+	# Adding it here, but it could fail
+	ruby_block 'set jenkins private key' do
+		block do
+			node.run_state[:jenkins_private_key] = admin_vault['private_key'].strip
+		end
+		only_if { node.application_attributes.attribute?('jenkins_auth') }
 	end
 
 	#Set up our standard Jenkins Jobs
