@@ -125,9 +125,10 @@ case node[:platform]
 		} rescue NoMethodError
 		if !found_master
 			node.normal['deployment']['servers'][$nodeclass][Chef::Config[:node_name]]['gluster_master'] = true
-			node.save
 			i_am_master = true
 		end
+		node.normal.glusterfs_is_server = true
+		node.save
 
 		if i_am_master
 			ips = []
