@@ -1,0 +1,972 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description": "Cloudamatic Mu Master Creation. v1.0",
+    "Parameters": {
+        "MasterAMIId": {
+            "Description": "AMI for Cloudamatic Server",
+            "Type": "String",
+            "MinLength": "0",
+            "MaxLength": "255",
+            "Default": "ami-845448ec"
+        },
+        "GitMuTag": {
+            "Description": "Git tag or branch to pull mu, default master",
+            "Type": "String",
+            "MinLength": "0",
+            "MaxLength": "255",
+            "Default": "master"
+        },      
+        "KeyName": {
+            "Description": "Name of an existing EC2 KeyPair to enable SSH access to Cloudamatic Server",
+            "Type": "String",
+            "MinLength": "1",
+            "MaxLength": "64",
+            "AllowedPattern": "[-_ a-zA-Z.@0-9]*",
+            "ConstraintDescription": "can contain only alphanumeric characters, spaces, dashes and underscores."
+        },
+        "AdminIPCIDR": {
+            "Description": "The IP address you will initially use to connect to the master for admin access, in CIDR format, e.g.. 50.1.1.1/32",
+            "Type": "String"
+        },
+        "masterIAMRole": {
+            "Description": "Existing IAM instance profile/role for Mu Server to access AWS Services",
+            "Type": "String"
+        },
+        "VpcCidr": {
+            "Description": "CIDR address space for the VPC to be created.",
+            "Type": "String",
+            "Default": "10.100.0.0/16"
+        },
+        "masterPrivateIP": {
+            "Description": "Private IP address (NOT CIDR) for the master instance, e.g. 10.100.1.100,",
+            "Type": "String",
+            "Default": "10.100.0.100"
+        },
+        "masterInstanceType": {
+            "Description": "Instance type for Master nodes.",
+            "Type": "String",
+            "Default": "t2.medium",
+            "AllowedValues": [
+                "t2.small",
+                "t2.medium",
+                "m3.medium",
+                "m3.large",
+                "m3.xlarge",
+                "m2.xlarge",
+                "m2.2xlarge",
+                "m2.4xlarge",
+                "c3.medium",
+                "c3.xlarge",
+                "c3.4xlarge",
+                "c3.8xlarge",
+                "cg1.4xlarge"
+            ],
+            "ConstraintDescription": "must be a valid EC2 instance type, at least medium."
+        },
+        "adminPassword": {
+            "Description": "Password used for mu and Jenkins admin users ",
+            "Type": "String",
+            "MinLength": "0",
+            "MaxLength": "255"
+        },
+        "adminEmail": {
+            "Description": "The e-mail address of the administrative user for the server, for notifications",
+            "Type": "String",
+            "MinLength": "0",
+            "MaxLength": "255"
+        },
+        "JenkinsAdminEmail": {
+            "Description": "The e-mail address for the administrative Jenkins user.  Sadly Chef requires this be different than admin email",
+            "Type": "String",
+            "MinLength": "0",
+            "MaxLength": "255"
+        },
+        "MasterSubnetCidr": {
+            "Description": "Address range for a public subnet to be created in AZ1.",
+            "Type": "String",
+            "Default": "10.100.0.0/24"
+        },
+        "TargetPublicSubnet1Cidr": {
+            "Description": "Address range for a public subnet to be created in AZ1.",
+            "Type": "String",
+            "Default": "10.100.2.0/24"
+        },
+        "TargetPublicSubnet2Cidr": {
+            "Description": "Address range for a public subnet to be created in AZ2.",
+            "Type": "String",
+            "Default": "10.100.4.0/24"
+        },
+        "TargetPrivateSubnet1Cidr": {
+            "Description": "Address range for a public subnet to be created in AZ2.",
+            "Type": "String",
+            "Default": "10.100.1.0/24"
+        },
+        "TargetPrivateSubnet2Cidr": {
+            "Description": "Address range for a public subnet to be created in AZ2.",
+            "Type": "String",
+            "Default": "10.100.3.0/24"
+        },
+        "AvailabilityZone1": {
+            "Description": "First AZ to use for Cloudamatic Server and public subnet.",
+            "Type": "String",
+            "Default": "us-east-1c"
+        },
+        "AvailabilityZone2": {
+            "Description": "Second AZ to use for private subnet 2",
+            "Type": "String",
+            "Default": "us-east-1d"
+        }
+    },
+    "Conditions": {
+        "DynamicMuPull": {
+            "Fn::Not": [
+                {
+                    "Fn::Equals": [
+                        {
+                            "Ref": "GitMuTag"
+                        },
+                        ""
+                    ]
+                }
+            ]
+        }
+    },
+    "Mappings": {
+        "muMasterAMIId": {
+            "us-east-1": {
+                "AMI": "FUTUREUSE"
+            }
+        }
+    },
+    "Resources": {
+        "VPC": {
+            "Type": "AWS::EC2::VPC",
+            "Properties": {
+                "CidrBlock": {
+                    "Ref": "VpcCidr"
+                },
+                "InstanceTenancy": "default",
+                "EnableDnsSupport": "true",
+                "EnableDnsHostnames": "true",
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "",
+                                [
+                                    {"Ref": "AWS::StackName"},
+                                    "muMaster",
+                                    "-VPC"
+                                ]
+                            ]
+                        }
+                    },
+                    {
+                        "Key": "StackName",
+                        "Value": {
+                            "Ref": "AWS::StackName"
+                        }
+                    }
+                ]
+            }
+        },
+        "MasterSubnet": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "AvailabilityZone": {
+                    "Ref": "AvailabilityZone1"
+                },
+                "CidrBlock": {
+                    "Ref": "MasterSubnetCidr"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "",
+                                [
+                                    {"Ref": "AWS::StackName"},
+                                    "muMaster",
+                                    "-MasterSubnet"
+                                ]
+                            ]
+                        }
+                    },
+                    {
+                        "Key": "SubnetName",
+                        "Value": "MasterSubnet"
+                    },
+                    {
+                        "Key": "NetworkVisibility",
+                        "Value": "Public"
+                    }
+                ]
+            }
+        },
+        "TargetPublicSubnet1": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "AvailabilityZone": {
+                    "Ref": "AvailabilityZone1"
+                },
+                "CidrBlock": {
+                    "Ref": "TargetPublicSubnet1Cidr"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "",
+                                [
+                                    {"Ref": "AWS::StackName"},
+                                    "muMaster",
+                                    "-TargetPrivateSubnet1"
+                                ]
+                            ]
+                        }
+                    },
+                    {
+                        "Key": "SubnetName",
+                        "Value": "TargetPublicSubnet1"
+                    },
+                    {
+                        "Key": "Network",
+                        "Value": "Public"
+                    }
+                ]
+            }
+        },
+        "TargetPublicSubnet2": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "AvailabilityZone": {
+                    "Ref": "AvailabilityZone1"
+                },
+                "CidrBlock": {
+                    "Ref": "TargetPublicSubnet2Cidr"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "",
+                                [
+                                    {"Ref": "AWS::StackName"},
+                                    "muMaster",
+                                    "-TargetPublicSubnet2"
+                                ]
+                            ]
+                        }
+                    },
+                    {
+                        "Key": "SubnetName",
+                        "Value": "TargetPublicSubnet2"
+                    },
+                    {
+                        "Key": "Network",
+                        "Value": "Public"
+                    }
+                ]
+            }
+        },
+        "TargetPrivateSubnet1": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "AvailabilityZone": {
+                    "Ref": "AvailabilityZone1"
+                },
+                "CidrBlock": {
+                    "Ref": "TargetPrivateSubnet1Cidr"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "",
+                                [
+                                    {"Ref": "AWS::StackName"},
+                                    "muMaster",
+                                    "-TargetPrivateSubnet1"
+                                ]
+                            ]
+                        }
+                    },
+                    {
+                        "Key": "SubnetName",
+                        "Value": "TargetPrivateSubnet1"
+                    },
+                    {
+                        "Key": "Network",
+                        "Value": "Private"
+                    }
+                ]
+            }
+        },
+        "TargetPrivateSubnet2": {
+            "Type": "AWS::EC2::Subnet",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "AvailabilityZone": {
+                    "Ref": "AvailabilityZone2"
+                },
+                "CidrBlock": {
+                    "Ref": "TargetPrivateSubnet2Cidr"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "",
+                                [
+                                    {"Ref": "AWS::StackName"},
+                                    "muMaster",
+                                    "-TargetPrivateSubnet2"
+                                ]
+                            ]
+                        }
+
+                    },
+                    {
+                        "Key": "SubnetName",
+                        "Value": "TargetPrivateSubnet2"
+                    },
+                    {
+                        "Key": "Network",
+                        "Value": "Private"
+                    }
+                ]
+            }
+        },
+        "InternetGateway": {
+            "Type": "AWS::EC2::InternetGateway",
+            "Properties": {
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "",
+                                [
+                                    {"Ref": "AWS::StackName"},
+                                    "muMaster",
+                                    "-InternetGateway"
+                                ]
+                            ]
+                        }
+                    },
+                    {
+                        "Key": "StackName",
+                        "Value": {
+                            "Ref": "AWS::StackName"
+                        }
+                    },
+                    {
+                        "Key": "Network",
+                        "Value": "Public"
+                    }
+                ]
+            }
+        },
+        "GatewayToInternet": {
+            "Type": "AWS::EC2::VPCGatewayAttachment",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "InternetGatewayId": {
+                    "Ref": "InternetGateway"
+                }
+            }
+        },
+        "MasterRouteTable": {
+            "Type": "AWS::EC2::RouteTable",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "",
+                                [
+                                    {"Ref": "AWS::StackName"},
+                                    "muMaster",
+                                    "-MasterRouteTable"
+                                ]
+                            ]
+                        }
+                    },
+                    {
+                        "Key": "StackName",
+                        "Value": {
+                            "Ref": "AWS::StackName"
+                        }
+                    },
+                    {
+                        "Key": "Network",
+                        "Value": "Public"
+                    }
+                ]
+            }
+        },
+        "PublicRouteTable1": {
+            "Type": "AWS::EC2::RouteTable",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "",
+                                [
+                                    {"Ref": "AWS::StackName"},
+                                    "muMaster",
+                                    "-PublicRouteTable1"
+                                ]
+                            ]
+                        }
+                    },
+                    {
+                        "Key": "StackName",
+                        "Value": {
+                            "Ref": "AWS::StackName"
+                        }
+                    },
+                    {
+                        "Key": "Network",
+                        "Value": "Public"
+                    }
+                ]
+            }
+        },
+        "PublicRouteTable2": {
+            "Type": "AWS::EC2::RouteTable",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "",
+                                [
+                                    {"Ref": "AWS::StackName"},
+                                    "muMaster",
+                                    "-PublicRouteTable2"
+                                ]
+                            ]
+                        }
+                    },
+                    {
+                        "Key": "StackName",
+                        "Value": {
+                            "Ref": "AWS::StackName"
+                        }
+                    },
+                    {
+                        "Key": "Network",
+                        "Value": "Public"
+                    }
+                ]
+            }
+        },
+        "PrivateRouteTable1": {
+            "Type": "AWS::EC2::RouteTable",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "",
+                                [
+                                    {"Ref": "AWS::StackName"},
+                                    "muMaster",
+                                    "-PrivateRouteTable1"
+                                ]
+                            ]
+                        }
+                    },
+                    {
+                        "Key": "StackName",
+                        "Value": {
+                            "Ref": "AWS::StackName"
+                        }
+                    },
+                    {
+                        "Key": "Network",
+                        "Value": "Private"
+                    }
+                ]
+            }
+        },
+        "PrivateRouteTable2": {
+            "Type": "AWS::EC2::RouteTable",
+            "Properties": {
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Fn::Join": [
+                                "",
+                                [
+                                    {"Ref": "AWS::StackName"},
+                                    "muMaster",
+                                    "-PrivateRouteTable2"
+                                ]
+                            ]
+                        }
+                    },
+                    {
+                        "Key": "StackName",
+                        "Value": {
+                            "Ref": "AWS::StackName"
+                        }
+                    },
+                    {
+                        "Key": "Network",
+                        "Value": "Private"
+                    }
+                ]
+            }
+        },
+        "MasterRoute": {
+            "Type": "AWS::EC2::Route",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "MasterRouteTable"
+                },
+                "DestinationCidrBlock": "0.0.0.0/0",
+                "GatewayId": {
+                    "Ref": "InternetGateway"
+                }
+            }
+        },
+        "PublicRoute1": {
+            "Type": "AWS::EC2::Route",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "PublicRouteTable1"
+                },
+                "DestinationCidrBlock": "0.0.0.0/0",
+                "GatewayId": {
+                    "Ref": "InternetGateway"
+                }
+            }
+        },
+        "PublicRoute2": {
+            "Type": "AWS::EC2::Route",
+            "Properties": {
+                "RouteTableId": {
+                    "Ref": "PublicRouteTable2"
+                },
+                "DestinationCidrBlock": "0.0.0.0/0",
+                "GatewayId": {
+                    "Ref": "InternetGateway"
+                }
+            }
+        },
+        "MasterSubnetRTAssoc": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "SubnetId": {
+                    "Ref": "MasterSubnet"
+                },
+                "RouteTableId": {
+                    "Ref": "MasterRouteTable"
+                }
+            }
+        },
+        "TargetPublicSubnet1RTAssoc": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "SubnetId": {
+                    "Ref": "TargetPublicSubnet1"
+                },
+                "RouteTableId": {
+                    "Ref": "PublicRouteTable1"
+                }
+            }
+        },
+        "TargetPublicSubnet2RTAssoc": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "SubnetId": {
+                    "Ref": "TargetPublicSubnet2"
+                },
+                "RouteTableId": {
+                    "Ref": "PublicRouteTable2"
+                }
+            }
+        },
+        "TargetPrivateSubnet1RTAssoc": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "SubnetId": {
+                    "Ref": "TargetPrivateSubnet1"
+                },
+                "RouteTableId": {
+                    "Ref": "PrivateRouteTable1"
+                }
+            }
+        },
+        "TargetPrivateSubnet2RTAssoc": {
+            "Type": "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties": {
+                "SubnetId": {
+                    "Ref": "TargetPrivateSubnet2"
+                },
+                "RouteTableId": {
+                    "Ref": "PrivateRouteTable2"
+                }
+            }
+        },
+        "MasterEIP" : {
+          "DependsOn" : "InternetGateway",
+          "Type" : "AWS::EC2::EIP",
+          "Properties" : {
+            "Domain" : "vpc"
+          }
+        },
+
+        "VpcEIPAssoc" : {
+             "Type" : "AWS::EC2::EIPAssociation",
+             "Properties" : {
+                 "NetworkInterfaceId" : { "Ref" : "MasterInstanceNetworkInterface" },
+                 "AllocationId" : { "Fn::GetAtt" : [ "MasterEIP", "AllocationId" ]}
+             }
+         },
+
+        "MasterInstanceNetworkInterface" : {
+            "Type" : "AWS::EC2::NetworkInterface",
+            "Properties" : {
+                "Description": "eth0",
+                "GroupSet" : [
+                    {
+                        "Ref": "MuServerSecurityGroup"
+                    },
+                    {
+                        "Ref": "MuAdminSecurityGroup"
+                    }
+                ],
+                "SubnetId": {
+                    "Ref": "MasterSubnet"
+                },
+                "SourceDestCheck"    : "true",
+                "Tags"               : [ {"Key" : "Name", "Value" : "Interface 0"}, {"Key" : "Interface", "Value" : "MasterInstance"} ]
+            }
+        },
+
+        "MasterInstance": {
+            "Type": "AWS::EC2::Instance",
+            "Metadata": {
+                "AWS::CloudFormation::Init": {
+                    "config": {
+                        "packages": {
+                            "yum": {
+                                "wget": []
+                            }
+                        },
+                        "files": {
+                            "/root/jenkinskeys.rb": {
+                                "source": {
+                                    "Fn::Join": [
+                                        "",
+                                        [
+                                            "https://github.com/cloudamatic/mu/raw/",
+                                            {"Ref": "GitMuTag"},
+                                            "/install/jenkinskeys.rb"
+                                        ]
+                                    ]
+                                },
+                                "mode": "000700",
+                                "owner": "root",
+                                "group": "root"
+                            },
+                            "/root/mu_setup": {
+                                "source": {
+                                    "Fn::Join": [
+                                        "",
+                                        [
+                                            "https://github.com/cloudamatic/mu/raw/",
+                                            {"Ref": "GitMuTag"},
+                                            "/install/mu_setup"
+                                        ]
+                                    ]
+                                },
+                                "mode": "000700",
+                                "owner": "root",
+                                "group": "root"
+                            },
+                            "/root/.ssh/config": {
+                                "content": {
+                                    "Fn::Join": [
+                                        "",
+                                        [
+                                            "Host github.com \n",
+                                            "  User git\n",
+                                            "  IdentityFile /root/.ssh/github_key\n",
+                                            "  StrictHostKeyChecking no\n"
+                                        ]
+                                    ]
+                                }
+                            },
+                            "/opt/mu/etc/mu.rc": {
+                                "content": {
+                                    "Fn::Join": [
+                                        "",
+                                        [
+                                            "export MU_ADMIN_EMAIL=\"",{"Ref": "adminEmail"},"\"\n",
+                                            "export JENKINS_ADMIN_EMAIL=\"",{"Ref": "JenkinsAdminEmail"},"\"\n",
+                                            "export MUTAG=\"",{"Ref": "GitMuTag"},"\"\n",
+                                            "export ADDTL_CHEF_REPOS=\"eGT-Labs/ecap_test_drive.git\"\n",
+                                            "export MU_REPO=\"cloudamatic/mu.git\"\n",
+                                            "export CHEF_PUBLIC_IP=\"",{"Ref": "MasterEIP"},"\"\n",
+                                            "export HOSTNAME=\"test-drive-master\"\n",
+                                            "export ALLOW_INVADE_FOREIGN_VPCS=\"1\"\n",
+                                            "export EC2_REGION=\"us-east-1\"\n",
+                                            "export MU_INSTALLDIR=\"/opt/mu\"\n",
+                                            "export MU_DATADIR=\"/opt/mu/var\"\n",
+                                            "export VPCID=\"",{"Ref": "VPC"},"\"\n",
+                                            "export TARGET_PUBLIC_SUBNET_1=\"",{"Ref": "TargetPublicSubnet1"},"\"\n",
+                                            "export TARGET_PUBLIC_SUBNET_2=\"",{"Ref": "TargetPublicSubnet2"},"\"\n",
+                                            "export TARGET_PRIVATE_SUBNET_1=\"",{"Ref": "TargetPrivateSubnet1"},"\"\n",                                            
+                                            "export TARGET_PRIVATE_SUBNET_2=\"",{"Ref": "TargetPrivateSubnet2"},"\"\n",
+                                            "export TARGET_PRIVATE_ROUTETABLE_1=\"",{"Ref": "PrivateRouteTable1"},"\"\n",
+                                            "export TARGET_PRIVATE_ROUTETABLE_2=\"",{"Ref": "PrivateRouteTable2"},"\"\n"
+                                        ]
+                                    ]
+                                }
+                            }
+                        },
+                        "commands": {
+                            "1_install_mu": {
+                                "command": {"Fn::Join": ["",
+                                    ["bash -x /root/mu_setup -d -b ",
+                                    {"Ref": "GitMuTag"},
+                                    " > /root/setup.out"]]},
+                                "env": {"MU_ADMIN_PW": {"Ref": "adminPassword"},
+                                        "JENKINS_ADMIN_PW": {"Ref": "adminPassword"},
+                                        "HOME": "/root",
+                                        "USER":"root",
+                                        "TERM":"xterm",
+                                        "SHELL":"/bin/bash",
+                                        "BASH":"/bin/bash",
+                                        "LANG":"en_US.UTF-8"
+                                        },
+                                "cwd": "/root",
+                                "test": "test -e /root/mu_setup",
+                                "ignoreErrors": "true"
+                            }
+                        },
+                        "services": {
+                            "sysvinit": {}
+                        }
+                    }
+                }
+            },
+            "Properties": {
+                "InstanceType": {
+                    "Ref": "masterInstanceType"
+                },
+                "KeyName": {
+                    "Ref": "KeyName"
+                },
+                "NetworkInterfaces" : [ { 
+                  "NetworkInterfaceId" : {"Ref" : "MasterInstanceNetworkInterface" },
+                  "DeviceIndex" : "0"
+                }],
+                "SourceDestCheck": "true",
+                "IamInstanceProfile": {
+                    "Ref": "masterIAMRole"
+                },
+                "ImageId": {
+                    "Ref": "MasterAMIId"
+                },
+                "SecurityGroupIds": [],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": "Test Drive Master"
+                    }
+                ],
+                "UserData": {
+                    "Fn::Base64": {
+                        "Fn::Join": [
+                            "",
+                            [
+                                "#!/bin/bash -vx\n",
+                                "CHEF_PUBLIC_IP=`curl -s http://169.254.169.254/latest/meta-data/public-ipv4`\n",
+                                "easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz \n",
+                                "mkdir /opt/mu\n",
+                                "mkdir /opt/mu/etc\n",
+                                "/usr/bin/cfn-init -v -s ",
+                                {
+                                    "Ref": "AWS::StackId"
+                                },
+                                " -r MasterInstance ",
+                                "    --region ",
+                                {
+                                    "Ref": "AWS::Region"
+                                },
+                                " || error_exit 'Failed to run cfn-init'\n"
+                            ]
+                        ]
+                    }
+                }
+            }
+        },
+        "MuAdminSecurityGroup": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Access to NAT",
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "SecurityGroupIngress": [
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": "22",
+                        "ToPort": "22",
+                        "CidrIp": {
+                            "Ref": "AdminIPCIDR"
+                        }
+                    }               
+                ],
+                "SecurityGroupEgress": [
+                    {
+                        "IpProtocol": "-1",
+                        "FromPort": "0",
+                        "ToPort": "65535",
+                        "CidrIp": "0.0.0.0/0"
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": { "Fn::Join" : [ "", [ {"Ref": "AWS::StackName"},
+                                    "muMaster", "-MuAdminSecurityGroup" ]] }
+                    }
+                ]   
+            }
+        },
+        "MuServerSecurityGroup": {
+            "Type": "AWS::EC2::SecurityGroup",
+            "Properties": {
+                "GroupDescription": "Access to Mu Server",
+                "VpcId": {
+                    "Ref": "VPC"
+                },
+                "SecurityGroupIngress": [
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": "80",
+                        "ToPort": "80",
+                        "CidrIp": "0.0.0.0/0"
+                    },
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": "443",
+                        "ToPort": "443",
+                        "CidrIp": "0.0.0.0/0"
+                    },
+                {
+                        "IpProtocol": "tcp",
+                        "FromPort": "8080",
+                        "ToPort": "8080",
+                        "CidrIp": "0.0.0.0/0"
+                    },
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": "8090",
+                        "ToPort": "8090",
+                        "CidrIp": "0.0.0.0/0"
+                    }
+                ],
+                "SecurityGroupEgress": [
+                    {
+                        "IpProtocol": "-1",
+                        "FromPort": "0",
+                        "ToPort": "65535",
+                        "CidrIp": "0.0.0.0/0"
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": { "Fn::Join" : [ "", [ "foo", "-MuServerSecurityGroup" ]] }
+                    }
+                ]   
+            }
+        },
+        "MuServerAllowSSHIngress": {
+            "Type": "AWS::EC2::SecurityGroupIngress",
+            "Properties": {
+                "GroupId": {
+                    "Ref": "MuServerSecurityGroup"
+                },
+                "IpProtocol": "tcp",
+                "FromPort": "22",
+                "ToPort": "22",
+                "SourceSecurityGroupId": {
+                    "Ref": "MuServerSecurityGroup"
+                }
+            }
+        }
+    },
+    
+    "Outputs": {
+        "sshURL" : {
+            "Value" : { "Fn::GetAtt" : [ "MasterInstance", "PublicDnsName" ] },
+            "Description" : "SSH Public/PrivateKey Interface"
+        },
+        "JenkinsURL" : {
+            "Value" :  { "Fn::Join" : [ "", [ "https://",{ "Fn::GetAtt" : [ "MasterInstance", "PublicDnsName" ] }, ":9443" ]] },
+            "Description" : "Jenkins Interface"
+        },
+        "MuDNS" : {
+            "Value" : { "Fn::GetAtt" : [ "MasterInstance", "PublicDnsName" ] }, 
+            "Description" : "DNS Name of your Mu server"
+        },
+        "MuServerPublicIP" : {
+          "Description" : "IP Address of your Mu Server",
+          "Value" :  { "Fn::Join" : [ "", [ { "Ref" : "MasterInstance" }, " (", { "Fn::GetAtt" : [ "MasterInstance", "PublicIp" ] }, ")" ]] }
+        }
+    }
+
+}
+
+

@@ -1,0 +1,31 @@
+<VirtualHost *:<%= @params[:apache_port] %>>
+    ProxyRequests off
+    ProxyPreserveHost on
+    AllowEncodedSlashes off
+
+    <Proxy *>
+<% if @params[:version] == "2.2" %>
+		Order allow,deny
+		Allow from all
+<% elsif @params[:version] == "2.4" %>
+		Require all granted
+<% end %>
+	</Proxy>
+
+    ProxyPass / http://localhost:<%= @params[:jenkins_port] %>/ nocanon
+    ProxyPassReverse / http://localhost:<%= @params[:jenkins_port] %>/
+    RequestHeader set X-Forwarded-Proto "https"
+    RequestHeader set X-Forwarded-Port "<%= @params[:jenkins_port] %>"
+
+    ServerName  <%= @params[:server_name] %>
+    ServerAlias  <%= @params[:server_aliases].join " " %>
+    ServerAdmin  <%= @params[:server_admin] %>
+
+    SSLEngine on
+    SSLCertificateFile <%= @params[:base_dir] %>/ssl/nagios.crt
+    SSLCertificateKeyFile <%= @params[:base_dir] %>/ssl/nagios.key
+
+    CustomLog <%= @params[:log_dir] %>/jenkins-ssl-access.log combined
+    ErrorLog <%= @params[:log_dir] %>/jenkins-error.log
+    LogLevel debug
+</VirtualHost>
