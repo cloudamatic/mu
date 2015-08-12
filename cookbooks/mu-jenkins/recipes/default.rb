@@ -62,7 +62,7 @@ when "centos", "redhat"
 			def hudsonRealm = new HudsonPrivateSecurityRealm(false)
 			instance.setSecurityRealm(hudsonRealm)
 			def strategy = new GlobalMatrixAuthorizationStrategy()
-			strategy.add(Jenkins.ADMINISTER,  admin_vault['username'])
+			strategy.add(Jenkins.ADMINISTER,  "#{admin_vault['username']}")
 			strategy.add(Jenkins.ADMINISTER, "mu_user")
 			instance.setAuthorizationStrategy(strategy)
 			instance.save()

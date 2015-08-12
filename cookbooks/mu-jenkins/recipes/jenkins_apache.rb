@@ -21,8 +21,17 @@ when "centos", "redhat"
 	end
 
 	# Upload mu artifacts so jenkins can be a deployer
-	execute "upload mu repository so jenkins can deploy" do
-		command "runuser -l jenkins -c 'cd #{node.jenkins.master.home} && mu-upload-chef-artifacts -n -r mu'"
+	execute "runuser -l jenkins -c 'cd #{node.jenkins.master.home} && mu-upload-chef-artifacts -n -r mu'" do
+		not_if { node.application_attributes.attribute?('jenkins_chef_initial_upload') }
+		notifies :create, 'ruby_block[set-jenkins-initial-chef-artifacts-upload]', :immediately
+	end
+
+	ruby_block "set-jenkins-initial-chef-artifacts-upload" do
+		block do
+			node.normal.application_attributes.jenkins_chef_initial_upload = true
+			node.save
+		end
+		action :nothing
 	end
 
 	# Set up SELinux for port

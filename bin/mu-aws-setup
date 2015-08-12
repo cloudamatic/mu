@@ -57,9 +57,12 @@ preferred_ip = MU.mu_public_ip
 if $opts[:sg]
 	open_ports = [80, 443, 2260, 8443, 9443]
 
-	found = MU::MommaCat.findStray("AWS", "firewall_rule", region: MU.myRegion, dummy_ok: true, tag_key: "Name", tag_value: "Mu Master")
+	# This doesn't make sense. we can have multiple security groups in our account with a name tag of "Mu Master". This will then find and modify a security group that has nothing to do with us.
+	# found = MU::MommaCat.findStray("AWS", "firewall_rule", region: MU.myRegion, dummy_ok: true, tag_key: "Name", tag_value: "Mu Master")
+	found = nil
 
 	if found.nil? or found.size < 1 and instance.security_groups.size > 0
+		# maybe we should make sure we don't use the "Mu Client Rules for" security group for this.
 		found = MU::MommaCat.findStray("AWS", "firewall_rule", region: MU.myRegion, dummy_ok: true, cloud_id: instance.security_groups.first.group_id)
 	end
 	admin_sg = found.first if !found.nil? and found.size > 0
