@@ -253,7 +253,7 @@
 
 			# Moving ssh keys to after we installed all the updates so windows won't throw us out
 			log "Enabling sshd service"
-			Start-Service sshd
+			sleep 30; Start-Service sshd
 			Set-Service sshd -startuptype "Automatic"
 
 			$url = 'https://<%= $mu.publicIP %>:2260'

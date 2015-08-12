@@ -173,8 +173,6 @@ module MU
 				MU.log "Truncated master username for #{@config['identifier']} (db #{dbname}) to #{@config['master_user']}", MU::NOTICE if @config['master_user'] != @config["name"] and @config["snapshot_id"].nil?
 
 				@config['password'] = Password.pronounceable(10..12) if @config['password'].nil?
-				
-				@config["db_parameter_group"]["name"] = @config['identifier'] unless @config["db_parameter_group"]["name"]
 
 				# Database instance config
 				config={
@@ -214,6 +212,7 @@ module MU
 
 				db_param_group = nil
 				if @config["db_parameter_group"]
+					@config["db_parameter_group"]["name"] = @config['identifier'] unless @config["db_parameter_group"]["name"]
 					createDBParameterGroup
 					db_param_group = getDBParameterGroup
 				end

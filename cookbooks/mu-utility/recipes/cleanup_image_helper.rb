@@ -70,14 +70,10 @@ when "centos", "redhat"
 		execute "sed -i '/^preserve_hostname/d' /etc/cloud/cloud.cfg" do
 			only_if "grep 'preserve_hostname: true' /etc/cloud/cloud.cfg"
 		end
+	end
 
-		execute "sed -i '_^/bin/sh /var/lib/cloud/instances/_d' /etc/rc.d/rc.local" do
-			only_if "grep '/bin/sh /var/lib/cloud/instances/' /etc/rc.d/rc.local"
-		end
-	elsif node.platform_version.to_i == 6
-		execute "sed -i '_^/bin/sh /var/lib/cloud/instance/_d' /etc/rc.d/rc.local" do
-			only_if "grep '/bin/sh /var/lib/cloud/instance/' /etc/rc.d/rc.local"
-		end
+	execute "sed -i '/user-data.*$/d' /etc/rc.d/rc.local" do
+		only_if "grep '/bin/sh /var/lib/cloud/' /etc/rc.d/rc.local"
 	end
 
 	file "/.mu-installer-ran-updates" do
