@@ -39,7 +39,7 @@ As general guidance the CloudFormation stack can serve as a model for more compl
 ### Setting up the Master
 1. Launch an AMI in the public subnet of a VPC for simplest deploy.  More secure and advanced deploys can be done in the private subnet of a VPC with a bastion.  We recommend our hardened public CentOS 6 AMI which you can find in the repository in *mu/modules/mu/defaults/amazon_images.yaml* as the CentOS 6 AMI.
 2. ssh to your instance using the key you launched with
-3. As a one-time operation put the installer in /root, from the install directory of our repository.  You can install wget and pull it there, or just paste it in an editor.
+3. As a one-time operation put the [mu_setup installer file](https://raw.githubusercontent.com/cloudamatic/mu/master/install/mu_setup) in /root, from the install directory of our repository.  You can install wget and pull it there, or just paste it in an editor.
 4. Make the installer executable and run it
 5. Fill in the required environmental variables in the display, along the lines of:
 
