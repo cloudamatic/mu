@@ -1090,10 +1090,7 @@ class Cloud
 				if !@config['create_image'].nil? and !@config['image_created']
 					img_cfg = @config['create_image']
 					if img_cfg['image_then_destroy']
-						# tear out Chef or Puppet or whatever we just installed
-						@groomer.preClean
-
-						# Scrub other things that don't belong on an AMI
+						# Scrub things that don't belong on an AMI
 						session = getSSHSession
 						if windows?
 							session.exec!("rm -rf /cygdrive/c/chef/ /home/#{@config['windows_admin_username']}/.ssh/authorized_keys /home/Administrator/.ssh/authorized_keys /cygdrive/c/mu-installer-ran-updates")
@@ -1101,7 +1098,7 @@ class Cloud
 						else
 							sudo = ""
 							sudo = "sudo" if @config['ssh_user'] != "root"
-							session.exec!("#{sudo} rm -rf /root/.ssh/authorized_keys /etc/ssh/ssh_host_*key* /etc/chef /etc/opscode /.mu-installer-ran-updates ; #{sudo} sed -i 's/^HOSTNAME=.*//' /etc/sysconfig/network")
+							session.exec!("#{sudo} rm -rf /root/.ssh/authorized_keys /etc/ssh/ssh_host_*key* /etc/chef /etc/opscode /.mu-installer-ran-updates /var/chef/* ; #{sudo} sed -i 's/^HOSTNAME=.*//' /etc/sysconfig/network")
 						end
 						session.close
 					end

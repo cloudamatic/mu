@@ -228,9 +228,9 @@ module MU
 				remove_cmd = nil
 				if !@server.windows?
 					if @server.config['ssh_user'] == "root"
-						remove_cmd = "rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; touch /opt/mu_installed_chef"
+						remove_cmd = "rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; yum -y erase chef; apt-get -y remove chef ; touch /opt/mu_installed_chef"
 					else
-						remove_cmd = "sudo rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; touch /opt/mu_installed_chef"
+						remove_cmd = "sudo rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; yum -y erase chef; apt-get -y remove chef ; touch /opt/mu_installed_chef"
 					end
 					guardfile = "/opt/mu_installed_chef"
 				else
