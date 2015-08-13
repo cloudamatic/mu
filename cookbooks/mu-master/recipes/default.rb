@@ -16,6 +16,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+directory "#{MU.mainDataDir}/deployments"
+
 cookbook_file "/root/.vimrc" do
 	source "vimrc"
 	action :create_if_missing

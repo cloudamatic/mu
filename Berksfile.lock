@@ -4,7 +4,7 @@ DEPENDENCIES
   application_python (~> 3.0.0)
   application_ruby (~> 2.1.4)
   apt (~> 2.7.0)
-  aws (~> 2.7.0)
+  aws (~> 2.7.2)
   awscli
     path: cookbooks/awscli
   bluepill (~> 2.3.1)
@@ -45,7 +45,7 @@ DEPENDENCIES
   mu-utility
     path: cookbooks/mu-utility
   mysql (~> 5.2.12)
-  nagios (~> 7.1.4)
+  nagios (~> 7.1.6)
   nginx (~> 2.7.6)
   nginx-passenger
     path: cookbooks/nginx-passenger
