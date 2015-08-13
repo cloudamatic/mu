@@ -54,9 +54,11 @@ module MU
 				raise MuError, "Cannot fetch a deployment without a deploy_id"
 			end
 # XXX this caching may be harmful, causing stale resource objects to stick
-# around. Have we fixed this?
+# around. Have we fixed this? Sort of. Bad entries seem to have no kittens,
+# so force a reload if we see that. That's probably not the root problem.
 			@@litter_semaphore.synchronize {
-				if !@@litters.has_key?(deploy_id)
+
+				if !@@litters.has_key?(deploy_id) or @@litters[deploy_id].kittens.nil? or @@litters[deploy_id].kittens.size == 0
 					@@litters[deploy_id] = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
 				elsif set_context_to_me
 					MU::MommaCat.setThreadContext(@@litters[deploy_id])
@@ -1612,7 +1614,7 @@ MESSAGE_END
 # XXX also grab things like mu_windows_name out of deploy data if we can
 
 				parent_thread_id = Thread.current.object_id
-				MU::MommaCat.listDeploys.each { |deploy_id|
+				MU::MommaCat.listDeploys.sort.each { |deploy_id|
 					begin
 						deploy = MU::MommaCat.getLitter(deploy_id)
 						if deploy.ssh_key_name.nil? or deploy.ssh_key_name.empty?
