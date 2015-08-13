@@ -755,11 +755,6 @@ adjust_config_vars()
 						echo "Note that you won't be able to reuse this address for a regular user. See also:"
 						echo "https://github.com/chef/chef-server/issues/59"
 						;;&
-					"HOSTNAME")
-						echo "Enter a hostname"
-	# 					FIX THIS - adjusts bucket to changed hostname.  Should not be position dependent.  Must be adjusted when add or remove parms
-						var_val[14]="Mu_Logs_${newval}_${MY_INSTANCE_ID}"
-						;;&
 					*)
 					# Everybody gets a read
 						read -p "Enter new value for ${BOLD}${var_name[$config]}${NORM}. `echo $'\n> '`" newval
