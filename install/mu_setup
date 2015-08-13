@@ -566,22 +566,29 @@ validate_setup_env_vars(){
 			fi	
 		elif [ "${var_name[$n]}" == "MU_ADMIN_EMAIL" ]; then
 			if [ "${var_val[$n]}" == "" ];then
-				warning_message "You must specify an email contact for the 'mu' user."
+				warning_message "You must specify an email contact for the 'mu' admin user."
+				validate_errs=1
+			elif ! ( echo ${var_val[$n]} | egrep -q '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,6}$' ) ; then
+				warning_message "The 'mu' admin user email contact is badly formed!"
 				validate_errs=1
 			fi	
+
 		elif [ "${var_name[$n]}" == "MU_ADMIN_PW" -a ! -f "$MU_CHEF_CACHE/mu.user.key" ]; then
 			if [ "${var_val[$n]}" == "" ];then
-				warning_message "You must specify a password for the 'mu' user."
+				warning_message "You must specify a password for the 'mu' admin user."
 				validate_errs=1
 			fi	
 		elif [ "${var_name[$n]}" == "JENKINS_ADMIN_EMAIL" ]; then
 			if [ "${var_val[$n]}" == "" ];then
-				warning_message "You must specify an email contact for the 'jenkins' user."
+				warning_message "You must specify an email contact for the 'jenkins' admin user."
+				validate_errs=1
+			elif ! ( echo ${var_val[$n]} | egrep -q '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,6}$' ) ; then
+				warning_message "The Jenkins admin email contact is badly formed!"
 				validate_errs=1
 			fi	
 		elif [ "${var_name[$n]}" == "JENKINS_ADMIN_PW" ]; then
 			if [ "${var_val[$n]}" == "" ];then
-				warning_message "You must specify a password for the 'jenkins' user."
+				warning_message "You must specify a password for the 'jenkins' admin user."
 				validate_errs=1
 			fi	
 		fi
@@ -592,7 +599,7 @@ validate_setup_env_vars(){
   	JENKINS_ADMIN_EMAIL_VAL=$(return_targetvar_value "JENKINS_ADMIN_EMAIL")
 
  	if [ "$MU_ADMIN_EMAIL_VAL" == "$JENKINS_ADMIN_EMAIL_VAL" ]; then
- 	 echo "EMail addresses for mu users must be unique and your Jenkins and Mu addresses are the same!"
+ 	 warning_message "EMail addresses for mu users must be unique and your Jenkins and Mu addresses are the same!"
     	validate_errs=1
   	fi
 }
@@ -608,7 +615,7 @@ print_setup_env_vars(){
 	while [ "${var_name[$n]}" != "" ];do
 		if [ "${var_name[$n]}" == "CHEF_PUBLIC_IP" ]; then
 			if [ "$MY_VPC_ID" != "" ];then
-			  echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (if in private sunbet, set to bastion public IP): ${GREEN}${var_val[$n]}${NORM}"
+			  echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (if in private subnet, set to bastion public IP): ${GREEN}${var_val[$n]}${NORM}"
 			else
 			  echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (OPTIONAL; will try to guess): ${GREEN}${var_val[$n]}${NORM}"
 			fi 
@@ -722,52 +729,42 @@ adjust_config_vars()
 			warning_message "Invalid option $config"
 			print_setup_env_vars
 			continue
-		elif [ "${var_name[$config]}" != "" ] 2>/dev/null ;then
-			if [ "${var_name[$config]}" == "ADDTL_CHEF_REPOS" ]; then
-				echo "Enter the Github repos from which we'll pull Chef artifacts additional to those "
-				echo "from $MU_REPO. Delineate multiple repositories with spaces. Example:"
-				echo "${BOLD}eGT-Labs/mu-internal.git HHS/healthdata_platform.git${NORM}"
-				echo ""
-			fi
-			if [ "${var_name[$config]}" == "MU_ADMIN_EMAIL" ];then
-				echo "Enter an email address for the internal 'mu' user."
-				echo "Note that you won't be able to reuse this address for a regular user. See also:"
-				echo "https://github.com/chef/chef-server/issues/59"
-			fi
+		else [ "${var_name[$config]}" != "" ] 2>/dev/null
+			# Process vars with password-style reads
 			if [ "${var_name[$config]}" == "MU_ADMIN_PW" ];then
 				read -s -p "Enter password for the ${BOLD}mu${NORM} admin user. `echo $'\n> '`" newval
-			fi
-			if [ "${var_name[$config]}" == "JENKINS_ADMIN_EMAIL" ];then
-				echo "Enter an email address for the administrative 'jenkins' user."
-				echo "Note that you won't be able to reuse this address for a regular user. See also:"
-				echo "https://github.com/chef/chef-server/issues/59"
-			fi
-			if [ "${var_name[$config]}" == "JENKINS_ADMIN_PW" ];then
+			elif [ "${var_name[$config]}" == "JENKINS_ADMIN_PW" ];then
 				read -s -p "Enter password for the ${BOLD}jenkins${NORM} admin user. `echo $'\n> '`" newval
-			else
-				read -p "Enter new value for ${BOLD}${var_name[$config]}${NORM}. `echo $'\n> '`" newval
-			fi
-#			if [ "${var_name[$config]}" == "CHEF_PUBLIC_IP" ];then
-#				if ! echo $newval | egrep '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$' ; then
-#					warning_message "You must specify a valid IP address!"
-#			    print_setup_env_vars
-#			    continue
-#			  fi
-#			elif [ "${var_name[$config]}" == "HOSTNAME" ];then
-			if [ "${var_name[$config]}" == "HOSTNAME" ];then
-				if [ "$LOG_BUCKET_NAME" == "Mu_Logs_${HOSTNAME}_${MY_INSTANCE_ID}" ];then
-					var_val[11]="Mu_Logs_${newval}_${MY_INSTANCE_ID}"
-				fi
-			elif [ "${var_name[$config]}" == "MU_ADMIN_EMAIL" ];then
-				ok=1
-				if ! ( echo $newval | egrep '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,6}$' ) ; then
-					ok=0
-				fi
-				if [ $ok == 0 ];then
-					warning_message "You must specify one or more valid and unique email addresses!"
-			    print_setup_env_vars
-					continue
-				fi
+			else 
+
+				# Process vars with normal style reads and special prompts
+				case ${var_name[$config]} in
+					"ADDTL_CHEF_REPOS")
+						echo "Enter the Github repos from which we'll pull Chef artifacts additional to those "
+						echo "from $MU_REPO. Delineate multiple repositories with spaces. Example:"
+						echo "${BOLD}eGT-Labs/mu-internal.git HHS/healthdata_platform.git${NORM}"
+						echo ""
+						;;&
+					"MU_ADMIN_EMAIL")
+						echo "Enter an email address for the internal 'mu' user."
+						echo "Note that you won't be able to reuse this address for a regular user. See also:"
+						echo "https://github.com/chef/chef-server/issues/59"
+						;;&
+					"JENKINS_ADMIN_EMAIL")
+						echo "Enter an email address for the administrative 'jenkins' user."
+						echo "Note that you won't be able to reuse this address for a regular user. See also:"
+						echo "https://github.com/chef/chef-server/issues/59"
+						;;&
+					"HOSTNAME")
+						echo "Enter a hostname"
+	# 					FIX THIS - adjusts bucket to changed hostname.  Should not be position dependent.  Must be adjusted when add or remove parms
+						var_val[14]="Mu_Logs_${newval}_${MY_INSTANCE_ID}"
+						;;&
+					*)
+					# Everybody gets a read
+						read -p "Enter new value for ${BOLD}${var_name[$config]}${NORM}. `echo $'\n> '`" newval
+						;;
+				esac
 			fi
 			var_val[$config]=$newval
 			print_setup_env_vars
@@ -785,7 +782,7 @@ adjust_config_vars()
 			echo "AWS_ACCESS is empty, leaving it unset" > /dev/null
 		elif [ "${var_name[$n]}" == "AWS_SECRET" -a "${var_val[$n]}" == "" ];then
 			echo "AWS_SECRET is empty, leaving it unset" > /dev/null
-		elif [ "${var_name[$n]}" != "MU_ADMIN_PW" ];then
+		elif [ "${var_name[$n]}" != "MU_ADMIN_PW" -a "${var_name[$n]}" != "JENKINS_ADMIN_PW" ];then
 			update_murc ${var_name[$n]} "${var_val[$n]}"
 		fi
 		n=$[$n +1]
