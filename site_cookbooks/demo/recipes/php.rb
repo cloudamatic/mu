@@ -20,15 +20,20 @@ include_recipe "apache2"
 include_recipe "php"
 include_recipe "apache2::mod_php5"
 
-apache_site "default" do
-  enable true
+document_root = '/var/www'
+server_name = node.ec2.public_ip_address
+
+web_app "default" do
+  enable  true
+  docroot document_root
+  server_name server_name
 end
 
-file '/var/www/index.html' do
+file "#{document_root}/index.html" do
   action :delete
 end
 
-file '/var/www/index.php' do
+file "#{document_root}/index.php" do
   content <<-EOH
 <?php phpinfo(); ?>
   EOH
