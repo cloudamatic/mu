@@ -262,7 +262,7 @@ return_targetvar_value()
     for i in "${!var_name[@]}"; do
 
       if [ ${var_name[$i]}  = "$1" ]; then
-        printf ${var_val[$i]}
+         printf '%s' ${var_val[$i]}
         break
       fi
     done
