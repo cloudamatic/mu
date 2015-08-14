@@ -41,7 +41,7 @@ def list = proc.text.readLines()
   <builders>
     <hudson.tasks.Shell>
       <command>source ~/.murc
-        mu-cleanup -f -c $Target_Deploy
+        mu-cleanup $Target_Deploy
       </command>
     </hudson.tasks.Shell>
   </builders>

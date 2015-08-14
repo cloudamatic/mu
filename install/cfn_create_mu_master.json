@@ -752,7 +752,6 @@
                                             "export MU_ADMIN_EMAIL=\"",{"Ref": "adminEmail"},"\"\n",
                                             "export JENKINS_ADMIN_EMAIL=\"",{"Ref": "JenkinsAdminEmail"},"\"\n",
                                             "export MUTAG=\"",{"Ref": "GitMuTag"},"\"\n",
-                                            "export ADDTL_CHEF_REPOS=\"eGT-Labs/ecap_test_drive.git\"\n",
                                             "export MU_REPO=\"cloudamatic/mu.git\"\n",
                                             "export CHEF_PUBLIC_IP=\"",{"Ref": "MasterEIP"},"\"\n",
                                             "export HOSTNAME=\"test-drive-master\"\n",
