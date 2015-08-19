@@ -1594,6 +1594,7 @@ MU.log "about to call wait_until"
 				end
 				instances = Array.new
 				unterminated = Array.new
+				name_tags = Array.new
 
 				# Build a list of instances we need to clean up. We guard against
 				# accidental deletion here by requiring someone to have hand-terminated
@@ -1605,9 +1606,12 @@ MU.log "about to call wait_until"
 				return if resp.data.reservations.nil?
 				resp.data.reservations.each { |reservation|
 					reservation.instances.each { |instance|
-					  if instance.state.name != "terminated"
+						if instance.state.name != "terminated"
 							unterminated << instance
-					  end
+							instance.tags.each { |tag|
+								name_tags << tag.value if tag.key == "Name"
+							}
+						end
 					}
 				}
 
@@ -1631,6 +1635,10 @@ MU.log "about to call wait_until"
 						Thread.abort_on_exception = true
 						MU::Cloud::AWS::Server.delete_volume(myvolume, noop, skipsnapshots)
 					}
+				}
+
+				name_tags.each { |mu_name|
+					MU::Cloud::AWS::Server.removeIAMProfile(mu_name)
 				}
 
 				# Wait for all of the instances to finish cleanup before proceeding
@@ -1705,10 +1713,6 @@ MU.log "about to call wait_until"
 							}
 						end
 
-						if !server_obj.nil? and !server_obj.mu_name.nil?
-							MU::Cloud::AWS::Server.removeIAMProfile(server_obj.mu_name)
-						end
-
 						# Expunge traces left in Chef, Puppet or what have you
 						MU::Groomer.supportedGroomers.each { |groomer|
 							groomclass = MU::Groomer.loadGroomer(groomer)
@@ -1719,6 +1723,7 @@ MU.log "about to call wait_until"
 							end
 						}
 
+						MU::Cloud::AWS::Server.removeIAMProfile(server_obj.mu_name) if mu_name
 						MU.mommacat.notify(MU::Cloud::Server.cfg_plural, mu_name, mu_name, remove: true) if !noop and MU.mommacat
 
 						# If we didn't manage to find this instance's Route53 entry by sifting

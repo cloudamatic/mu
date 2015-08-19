@@ -295,7 +295,7 @@ set_path_env_vars()
 	MU_CHEF_CACHE="$HOMEDIR/.chef"
 	SSHDIR="$HOMEDIR/.ssh"
 	ENVFILE="$HOMEDIR/.bash_profile"
-	mkdir -p $MU_INSTALLDIR/etc $MU_INSTALLDIR/bin $MU_DATADIR
+	mkdir -p $MU_INSTALLDIR/etc $MU_INSTALLDIR/bin $MU_DATADIR/deployments
 	chmod 755 $MU_INSTALLDIR $MU_DATADIR
 	DEVOPS_TMP_DIR='/tmp/.mu.$$'
 	update_murc MU_INSTALLDIR $MU_INSTALLDIR
