@@ -1723,7 +1723,7 @@ MU.log "about to call wait_until"
 							end
 						}
 
-						MU::Cloud::AWS::Server.removeIAMProfile(server_obj.mu_name) if mu_name
+						MU::Cloud::AWS::Server.removeIAMProfile(mu_name) if mu_name
 						MU.mommacat.notify(MU::Cloud::Server.cfg_plural, mu_name, mu_name, remove: true) if !noop and MU.mommacat
 
 						# If we didn't manage to find this instance's Route53 entry by sifting

@@ -51,7 +51,7 @@ cookbook 'mu-activedirectory', path: "#{cookbookPath}/mu-activedirectory"
 cookbook 'nginx-passenger', path: "#{cookbookPath}/nginx-passenger"
 cookbook 'nodejs', '~> 2.4.0'
 cookbook 'ohai', '~> 2.0.1'
-cookbook 'openssl', '~> 4.3.2'
+cookbook 'openssl', '~> 4.0.0'
 cookbook 'oracle-instantclient', '~> 1.1.0'
 cookbook 'pacman', '~> 1.1.1'
 cookbook 'passenger_apache2', '~> 2.1.2'
