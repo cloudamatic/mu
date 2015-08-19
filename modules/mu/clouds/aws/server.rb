@@ -1110,6 +1110,7 @@ class Cloud
 														copy_to_regions: img_cfg['copy_to_regions'],
 														make_public: img_cfg['public'],
 														region: @config['region'])
+					@deploy.notify("images", @config['name'], {"image_id" => ami_id})
 					@config['image_created'] = true
 					if img_cfg['image_then_destroy']
 						MU::Cloud::AWS::Server.waitForAMI(ami_id, region: @config['region'])
@@ -1688,7 +1689,7 @@ MU.log "about to call wait_until"
 				).first
 
 				begin
-					junk = MU::Cloud::Server.find(cloud_id: id, region: region)
+					MU::Cloud::AWS.ec2(region).describe_instances(instance_ids: [id])
 				rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
 					MU.log "Instance #{id} no longer exists", MU::DEBUG
 				end

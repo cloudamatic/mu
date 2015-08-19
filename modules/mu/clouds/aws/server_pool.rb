@@ -104,14 +104,14 @@ class Cloud
 				if basis["launch_config"]
 					nodes_name = @deploy.getResourceName(basis["launch_config"]["name"])
 					launch_desc = basis["launch_config"]
-					# XXX need to handle platform["windows"] in here
 
 					if !launch_desc["server"].nil?
-						 #XXX this isn't how we find these; do better
+						#XXX this isn't how we find these; use findStray or something
 						if @deploy.deployment["images"].nil? or @deploy.deployment["images"][launch_desc["server"]].nil?
 							raise MuError, "#{@mu_name} needs an AMI from server #{launch_desc["server"]}, but I don't see one anywhere"
 						end
 						launch_desc["ami_id"] = @deploy.deployment["images"][launch_desc["server"]]["image_id"]
+						MU.log "Using AMI '#{launch_desc["ami_id"]}' from sibling server #{launch_desc["server"]} in ServerPool #{@mu_name}"
 					elsif !launch_desc["instance_id"].nil?
 						launch_desc["ami_id"] = MU::Cloud::AWS::Server.createImage(
 																					name: @mu_name,
