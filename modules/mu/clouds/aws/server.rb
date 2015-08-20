@@ -1372,8 +1372,8 @@ class Cloud
         ssh_key_name = @deploy.ssh_key_name
 
 				retries = 0
+				MU.log "Waiting for Windows instance password to be set by Amazon and flagged as available from the API. Note- if you're using a source AMI that already has its password set, this may fail. You'll want to set use_cloud_provider_windows_password to false if this is the case.", MU::NOTICE
 				begin
-MU.log "about to call wait_until"
 				MU::Cloud::AWS.ec2(@config['region']).wait_until(:password_data_available, instance_id: @cloud_id) do |waiter|
 					waiter.max_attempts = 60
 					waiter.before_attempt do |attempts|
