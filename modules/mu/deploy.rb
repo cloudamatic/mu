@@ -284,7 +284,7 @@ From: #{MU.handle} <#{@fromName}>
 To:  #{admin_addrs.join(", ")}>
 MIME-Version: 1.0
 Content-type: text/html
-Subject: Mu deployment #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id}) succesfully completed
+Subject: Mu deployment #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id}) successfully completed
 		
 <br>
 <pre>#{$str}</pre>

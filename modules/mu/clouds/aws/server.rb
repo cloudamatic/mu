@@ -1016,8 +1016,8 @@ class Cloud
 					return nil
 				end
 				dependencies if @nat.nil?
-				if @nat.nil?
-					raise MuError, "#{@mu_name} (#{MU.deploy_id}) is configured to use #{@config['vpc']} but I can't find a matching NAT instance"
+				if @nat.nil? or @nat.cloud_desc.nil?
+					raise MuError, "#{@mu_name} (#{MU.deploy_id}) is configured to use #{@config['vpc']} but I can't find the cloud descriptor for a matching NAT instance"
 				end
 				MU.log "Adding administrative holes for NAT host #{@nat.cloud_desc.private_ip_address} to #{@mu_name}"
 				if !@deploy.kittens['firewall_rules'].nil?

@@ -1667,6 +1667,7 @@ MESSAGE_END
 		# Return a list of all currently active deploy identifiers.
 		# @return [Array<String>]
 		def self.listDeploys
+			return [] if !Dir.exists?("#{MU.dataDir}/deployments")
 			deploys = []
 			Dir.entries("#{MU.dataDir}/deployments").reverse_each { |muid|
 				next if !Dir.exists?("#{MU.dataDir}/deployments/#{muid}") or muid == "." or muid == ".."
