@@ -92,6 +92,8 @@ module MU
 		def self.locks; @locks end
 
 		@@deploy_struct_semaphore = Mutex.new
+		# Don't let things that modify the deploy struct Hash step on each other.
+		# @return [Mutex]
 		def self.deploy_struct_semaphore; @@deploy_struct_semaphore end
 
 		# Set the current threads' context (some knucklehead global variables) to
@@ -332,7 +334,7 @@ module MU
 
 		# Overwrite this deployment's configuration with a new version. Save the
 		# previous version as well.
-		# @param new_config [Hash]: A new configuration, fully resolved by {MU::Config}
+		# @param new_conf [Hash]: A new configuration, fully resolved by {MU::Config}
 		def updateBasketofKittens(new_conf)
 			loadDeploy
 			if new_conf == @original_config
@@ -431,6 +433,9 @@ module MU
 		def self.name_unique_str_map
 			@name_unique_str_map
 		end
+		# Keep a map of the uniqueness strings we assign to various full names, in
+		# case we want to reuse them later.
+		# @return [Mutex]
 		def self.unique_map_semaphore
 			@unique_map_semaphore
 		end

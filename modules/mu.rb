@@ -152,6 +152,7 @@ module MU
 	# Mu's deployment metadata directory.
 	@myDataDir = File.expand_path(ENV['MU_DATADIR'])
 	@myDataDir = @@mainDataDir if @myDataDir.nil?
+	# Mu's deployment metadata directory.
 	def self.dataDir
 		if MU.chef_user.nil? or MU.chef_user.empty? or MU.chef_user == "mu" or MU.chef_user == "root"
 			return @myDataDir
@@ -356,6 +357,8 @@ module MU
 	def self.myInstanceId; @@myInstanceId end
 
 	@@myCloudDescriptor = MU::Cloud::AWS.ec2(MU.myRegion).describe_instances(instance_ids: [@@myInstanceId]).reservations.first.instances.first
+	# If our Mu master is hosted in a cloud provider, we can use this to get its
+	# cloud API descriptor.
 	def self.myCloudDescriptor; @@myCloudDescriptor end
 
 	@@myAZ_var = nil
