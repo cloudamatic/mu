@@ -112,6 +112,18 @@ AllowUsers ubuntu
 end
 %>
 
+# Support SVN-only servers, while we're at it
+<%
+begin
+	if node.application_attributes.svn_only_group %>
+Match Group <%= node.application_attributes.svn_only_group %>
+	ForceCommand /usr/bin/svnserve -t
+<%
+	end
+rescue NoMethodError
+end
+%>
+
 # Support SFTP-only servers, while we're at it
 <%
 begin
