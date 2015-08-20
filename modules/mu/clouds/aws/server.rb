@@ -1129,6 +1129,8 @@ class Cloud
 				if !@cloud_id.nil?
 					begin
 						return MU::Cloud::AWS.ec2(@config['region']).describe_instances(instance_ids: [@cloud_id]).reservations.first.instances.first
+					rescue Aws::EC2::Errors::InvalidInstanceIDNotFound
+						return nil
 					rescue NoMethodError => e
 						if retries >= max_retries 
 							raise MuError, "Couldn't get a cloud descriptor for #{@mu_name} (#{@cloud_id})"
@@ -1471,19 +1473,23 @@ MU.log "about to call wait_until"
 					MU.log "#{self} didn't have a #{@cloud_id}, couldn't determine 'active?' status", MU::ERR
 					return true
 				end
-				MU::Cloud::AWS.ec2(@config['region']).describe_instances(
-					instance_ids: [@cloud_id]
-				).reservations.each { |resp|
-					if !resp.nil? and !resp.instances.nil?
-						resp.instances.each { |instance|
-							if instance.state.name == "terminated" or
-								 instance.state.name == "terminating"
-								return false
-							end
-							return true
-						}
-					end
-				}
+				begin
+  				MU::Cloud::AWS.ec2(@config['region']).describe_instances(
+  					instance_ids: [@cloud_id]
+  				).reservations.each { |resp|
+  					if !resp.nil? and !resp.instances.nil?
+  						resp.instances.each { |instance|
+  							if instance.state.name == "terminated" or
+  								 instance.state.name == "terminating"
+  								return false
+  							end
+  							return true
+  						}
+  					end
+  				}
+				rescue Aws::EC2::Errors::InvalidInstanceIDNotFound
+					return false
+				end
 				return false
 			end
 
