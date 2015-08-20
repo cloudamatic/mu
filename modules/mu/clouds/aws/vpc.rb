@@ -521,6 +521,7 @@ module MU
 			def findBastion(nat_name: nil, nat_cloud_id: nil, nat_tag_key: nil, nat_tag_value: nil, nat_ip: nil)
 				nat = nil
 				deploy_id = nil
+
 				# If we're searching by name, assume it's part of this here deploy.
 				if nat_cloud_id.nil? 
 					deploy_id = @deploy.deploy_id
@@ -543,7 +544,7 @@ module MU
 				if found.size > 1
 					found.each { |nat| 
 						# Try some AWS-specific criteria
-						cloud_desc = instance.cloud_desc
+						cloud_desc = nat.cloud_desc
 						if !nat_host_ip.nil? and
 							 (cloud_desc.private_ip_address == nat_host_ip or cloud_desc.public_ip_address == nat_host_ip)
 							return nat

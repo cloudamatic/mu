@@ -289,6 +289,7 @@ module MU
 					raise MuError, "Cannot invoke Cloud objects without a configuration" if kitten_cfg.nil?
 					@deploy = mommacat
 					@config = kitten_cfg
+					@cloud_id = cloud_id
 					if !@deploy.nil?
 						@deploy_id = @deploy.deploy_id
 						MU.log "Initializing an instance of #{self.class.name} in #{@deploy_id} #{mu_name}", MU::DEBUG, details: kitten_cfg

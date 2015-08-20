@@ -93,6 +93,7 @@ class Cloud
 			def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
 				@deploy = mommacat
 				@config = kitten_cfg
+				@cloud_id = cloud_id
 
 				if !mu_name.nil?
 					@mu_name = mu_name
@@ -516,6 +517,10 @@ class Cloud
 				nat_ssh_key = nat_ssh_user = nat_ssh_host = nil
 				if !@config["vpc"].nil? and !MU::Cloud::AWS::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'])
 					if !@nat.nil?
+						if @nat.cloud_desc.nil?
+							MU.log "NAT was missing cloud descriptor when called in #{@mu_name}'s getSSHConfig", MU::ERR
+							return nil
+						end
 						# XXX Yanking these things from the cloud descriptor will only work in AWS!
 						nat_ssh_key = @nat.cloud_desc.key_name
 						nat_ssh_host = @nat.cloud_desc.public_ip_address
@@ -1115,7 +1120,6 @@ class Cloud
 					if img_cfg['image_then_destroy']
 						MU::Cloud::AWS::Server.waitForAMI(ami_id, region: @config['region'])
 						MU.log "AMI #{ami_id} ready, removing source node #{node}"
-						MU::Cloud::AWS::Server.terminateInstance(id: @cloud_id, deploy_id: @deploy.deploy_id)
 						destroy
 					end
 				end

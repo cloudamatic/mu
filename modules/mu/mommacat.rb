@@ -695,6 +695,7 @@ module MU
 				syncLitter(@deployment["servers"].keys, triggering_node: kitten)
 			end
 			MU::MommaCat.unlock(cloud_id+"-mommagroom")
+			MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS...
 			MU::MommaCat.syncMonitoringConfig(false)
 			MU::MommaCat.createStandardTags(cloud_id, region: kitten.config["region"])
 			MU.log "Grooming complete for '#{name}' mu_name on \"#{MU.handle}\" (#{MU.deploy_id})"
@@ -911,7 +912,10 @@ module MU
 				t.join
 			}
 
-			MU::MommaCat.syncMonitoringConfig if purged > 0
+			if purged > 0
+				MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS...
+				MU::MommaCat.syncMonitoringConfig
+			end
 		end
 
 
@@ -2026,7 +2030,6 @@ MESSAGE_END
 					}
 				end
 			}
-			MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS... also this gets invoked too many times from here, find a better spot
 
 		end
 
