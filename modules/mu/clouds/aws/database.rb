@@ -307,16 +307,17 @@ module MU
 						mod_config[:apply_immediately] = true
 						mod_config[:db_parameter_group_name] = db_param_group if db_param_group
 
+						# Are we in a VPC? Do crazy stuff if we are.
+MU.log "#{@mu_name} in a VPC?", MU::WARN, details: @dependencies
 						if database.db_subnet_group and database.db_subnet_group.subnets and !database.db_subnet_group.subnets.empty?
+MU.log "#{@mu_name}: yaaaas", MU::WARN, details: config[:vpc_security_group_ids]
+							mod_config[:vpc_security_group_ids] = []
 							if !config.nil? and config.has_key?(:vpc_security_group_ids)
 								mod_config[:vpc_security_group_ids] = config[:vpc_security_group_ids]
 							end
 
-							if @dependencies.has_key?('firewall_ruleset')
-								if !mod_config.has_key?(:vpc_security_group_ids)
-									mod_config[:vpc_security_group_ids] = []
-								end
-								@dependencies['firewall_ruleset'].each { |sg|
+							if @dependencies.has_key?('firewall_rule')
+								@dependencies['firewall_rule'].each { |sg|
 									mod_config[:vpc_security_group_ids] << sg.cloud_id
 								}
 							end
