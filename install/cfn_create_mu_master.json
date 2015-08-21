@@ -9,6 +9,12 @@
       "MaxLength": "255",
       "Default": "ami-845448ec"
     },
+    "HostName": {
+      "Description": "Hostname for Cloudamatic Server",
+      "Type": "String",
+      "MinLength": "0",
+      "MaxLength": "255"
+    },
     "GitMuTag": {
       "Description": "Git tag or branch to pull mu, default master",
       "Type": "String",
@@ -810,7 +816,11 @@
                         "Ref": "MasterEIP"
                       },
                       "\"\n",
-                      "export HOSTNAME=\"test-drive-master\"\n",
+                      "export HOSTNAME=\"",
+                      {
+                        "Ref": "HostName"
+                      },
+                      "\"\n",
                       "export ALLOW_INVADE_FOREIGN_VPCS=\"1\"\n",
                       "export EC2_REGION=\"us-east-1\"\n",
                       "export MU_INSTALLDIR=\"/opt/mu\"\n",
