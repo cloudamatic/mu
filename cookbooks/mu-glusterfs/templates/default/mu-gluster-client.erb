@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# mu-gluster-client		Mounts <%= @path %>
+# mu-gluster-client        Mounts <%= @path %>
 #
 # chkconfig: 2345 55 25
 # description: Mounts <%= @path %>
@@ -36,35 +36,35 @@ RETVAL=0
 
 start()
 {
-	if ! grep ":<%= @volume %> <%= @path %> fuse.glusterfs" /etc/mtab > /dev/null;then
-		<%= @servers.map { |server| "mount -t glusterfs #{server.ec2.private_ip_address}:#{@volume} #{@path}" }.join(' || ') %> || exit 1
-	fi
+if ! grep ":<%= @volume %> <%= @path %> fuse.glusterfs" /etc/mtab > /dev/null;then
+<%= @servers.map { |server| "mount -t glusterfs #{server.ec2.private_ip_address}:#{@volume} #{@path}" }.join(' || ') %> || exit 1
+fi
 }
 
 stop()
 {
-	if grep ":<%= @volume %> <%= @path %> fuse.glusterfs" /etc/mtab > /dev/null;then
-		umount <%= @path %>
-	fi
+if grep ":<%= @volume %> <%= @path %> fuse.glusterfs" /etc/mtab > /dev/null;then
+umount <%= @path %>
+fi
 }
 
 restart() {
-	stop
-	start
+stop
+start
 }
 
 case "$1" in
-	start)
-		start
-		;;
-	stop)
-		stop
-		;;
-	restart)
-		restart
-		;;
-	*)
-		echo $"Usage: $0 {start|stop|restart}"
-		RETVAL=2
+start)
+start
+;;
+stop)
+stop
+;;
+restart)
+restart
+;;
+*)
+echo $"Usage: $0 {start|stop|restart}"
+RETVAL=2
 esac
 exit $RETVAL

@@ -25,7 +25,7 @@ require "json"
 include_recipe "mu-tools::aws_api"
 
 attribute_setter = ruby_block "set_application_attributes" do
-    extend CAPVolume
+  extend CAPVolume
   block do
     secure_location = node[:application_attributes][:secure_location]
     attributes_file = node[:application_attributes][:attributes_file]

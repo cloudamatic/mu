@@ -8,6 +8,6 @@
 #
 
 remote_file "/usr/local/bin/wp" do
-	source "https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar"
-	mode 0755
+  source "https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar"
+  mode 0755
 end

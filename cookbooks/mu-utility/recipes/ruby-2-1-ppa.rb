@@ -17,7 +17,6 @@
 # limitations under the License.
 
 
-
 bash "install ruby 2.1 private repo" do
   code <<-EOF
 

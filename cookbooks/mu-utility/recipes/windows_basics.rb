@@ -19,19 +19,19 @@
 # Installs basic programs we want on a windows node.  Good for testing windows functionality
 
 case node.platform
-when "windows"
-	windows_package "AWS Tools for Windows Powershell" do
-		source 'http://sdk-for-net.amazonwebservices.com/latest/AWSToolsAndSDKForNet.msi'
-	end
+  when "windows"
+    windows_package "AWS Tools for Windows Powershell" do
+      source 'http://sdk-for-net.amazonwebservices.com/latest/AWSToolsAndSDKForNet.msi'
+    end
 
-	windows_package 'Google Chrome' do
-		source 'https://dl-ssl.google.com/tag/s/appguid%3D%7B8A69D345-D564-463C-AFF1-A69D9E530F96%7D%26iid%3D%7B806F36C0-CB54-4A84-A3F3-0CF8A86575E0%7D%26lang%3Den%26browser%3D3%26usagestats%3D0%26appname%3DGoogle%2520Chrome%26needsadmin%3Dfalse/edgedl/chrome/install/GoogleChromeStandaloneEnterprise.msi'
-	end
+    windows_package 'Google Chrome' do
+      source 'https://dl-ssl.google.com/tag/s/appguid%3D%7B8A69D345-D564-463C-AFF1-A69D9E530F96%7D%26iid%3D%7B806F36C0-CB54-4A84-A3F3-0CF8A86575E0%7D%26lang%3Den%26browser%3D3%26usagestats%3D0%26appname%3DGoogle%2520Chrome%26needsadmin%3Dfalse/edgedl/chrome/install/GoogleChromeStandaloneEnterprise.msi'
+    end
 
-	windows_package "7-Zip" do
-		source 'http://downloads.sourceforge.net/sevenzip/7z920-x64.msi'
-	end
+    windows_package "7-Zip" do
+      source 'http://downloads.sourceforge.net/sevenzip/7z920-x64.msi'
+    end
 
-else
-	Chef::Log.info("Unsupported platform #{node.platform}")
+  else
+    Chef::Log.info("Unsupported platform #{node.platform}")
 end

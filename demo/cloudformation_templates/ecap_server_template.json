@@ -1,868 +1,996 @@
 {
-    "AWSTemplateFormatVersion": "2010-09-09",
-    "Description": "eCAP Server VPC Creation.  Mod for mommacat and monitor ports. NAT node doubling as bastion hosts in a new VPC NAT configuration. 4 subnets in 2 AZs (a pair of public/private subnets in each AZ), with a single NAT instances routing outbound traffic and inbound to Chef Server.  V2",
-    "Parameters": {
-        "KeyName": {
-            "Description": "Name of an existing EC2 KeyPair to enable SSH access to NAT/Bastion hosts",
-            "Type": "String",
-            "MinLength": "1",
-            "MaxLength": "64",
-            "AllowedPattern": "[-_ a-zA-Z.@0-9]*",
-            "ConstraintDescription": "can contain only alphanumeric characters, spaces, dashes and underscores."
-        },
-        "AdminIPCIDR": {
-            "Description": "Initial CIDR  address for admin access to NAT/Bastion, e.g.. 50.1.1.1/32,",
-            "Type": "String"
-        },
-        "ChefServerIAMRole" : {
-            "Description": "Existing IAM instance profile/role for Chef Server to access AWS Services",
-            "Type": "String"           
-        },
-        "VpcCidr": {
-            "Description": "CIDR address for the VPC to be created.",
-            "Type": "String",
-            "Default": "10.0.0.0/16"
-        },
-        "ChefServerPrivateIP": {
-            "Description": "Private IP address (NOT CIDR) for the Chef Server instance, e.g. 10.0.1.100,",
-            "Type": "String",
-            "Default": "10.0.1.100"
-        },
-        "PublicSubnet1": {
-            "Description": "Address range for a public subnet to be created in AZ1.",
-            "Type": "String",
-            "Default": "10.0.0.0/24"
-        },
-        "PublicSubnet2": {
-            "Description": "Address range for a public subnet to be created in AZ2.",
-            "Type": "String",
-            "Default": "10.0.2.0/24"
-        },
-        "PrivateSubnet1": {
-            "Description": "Address range for a public subnet to be created in AZ1.",
-            "Type": "String",
-            "Default": "10.0.1.0/24"
-        },
-        "PrivateSubnet2": {
-            "Description": "Address range for a public subnet to be created in AZ2.",
-            "Type": "String",
-            "Default": "10.0.3.0/24"
-        },
-        "NATNodeInstanceType": {
-            "Description": "Instance type for NAT nodes.",
-            "Type": "String",
-            "Default": "m1.small",
-            "AllowedValues": [
-                "t1.micro",
-                "m1.small",
-                "m1.medium",
-                "m1.large",
-                "m1.xlarge",
-                "m2.xlarge",
-                "m2.2xlarge",
-                "m2.4xlarge",
-                "c1.medium",
-                "c1.xlarge",
-                "cc1.4xlarge",
-                "cc2.8xlarge",
-                "cg1.4xlarge"
-            ],
-            "ConstraintDescription": "must be a valid EC2 instance type."
-        },
-        "AvailabilityZone1": {
-            "Description": "First AZ to use for PublicSubnet1/PrivateSubnet1.",
-            "Type": "String",
-            "Default": "us-east-1b"
-        },
-        "AvailabilityZone2": {
-            "Description": "Second AZ to use for PublicSubnet2/PrivateSubnet2.",
-            "Type": "String",
-            "Default": "us-east-1c"
-        },
-        "NumberOfPings": {
-            "Description": "The number of times the health check will ping the alternate NAT Node",
-            "Type": "String",
-            "Default": "3"
-        },
-        "PingTimeout": {
-            "Description": "The number of seconds to wait for each ping response before determining that the ping has failed",
-            "Type": "String",
-            "Default": "1"
-        },
-        "WaitBetweenPings": {
-            "Description": "The number of seconds to wait between health checks",
-            "Type": "String",
-            "Default": "2"
-        },
-        "WaitForInstanceStop": {
-            "Description": "The number of seconds to wait for alternate NAT Node to stop before attempting to stop it again",
-            "Type": "String",
-            "Default": "60"
-        },
-        "WaitForInstanceStart": {
-            "Description": "The number of seconds to wait for alternate NAT Node to restart before resuming health checks again",
-            "Type": "String",
-            "Default": "300"
-        }
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "eCAP Server VPC Creation.  Mod for mommacat and monitor ports. NAT node doubling as bastion hosts in a new VPC NAT configuration. 4 subnets in 2 AZs (a pair of public/private subnets in each AZ), with a single NAT instances routing outbound traffic and inbound to Chef Server.  V2",
+  "Parameters": {
+    "KeyName": {
+      "Description": "Name of an existing EC2 KeyPair to enable SSH access to NAT/Bastion hosts",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "64",
+      "AllowedPattern": "[-_ a-zA-Z.@0-9]*",
+      "ConstraintDescription": "can contain only alphanumeric characters, spaces, dashes and underscores."
     },
-    "Mappings": {
-        "AWSNATAMI": {
-            "us-east-1": {
-                "AMI": "ami-54cf5c3d"
-            },
-            "us-west-2": {
-                "AMI": "ami-8e27adbe"
-            },
-            "us-west-1": {
-                "AMI": "ami-b63210f3"
-            },
-            "eu-west-1": {
-                "AMI": "ami-3c5f5748"
-            },
-            "ap-southeast-1": {
-                "AMI": "ami-ba7538e8"
-            },
-            "ap-southeast-2": {
-                "AMI": "ami-b6df4e8c"
-            },
-            "ap-northeast-1": {
-                "AMI": "ami-5d7dfa5c"
-            },
-            "sa-east-1": {
-                "AMI": "ami-89c81394"
-            }
-        },
-        "CAPCHEFAMI": {
-            "us-east-1": {
-                "AMI": "ami-eb6b0182"
-            },
-            "us-west-2": {
-                "AMI": "ami-b158c981"
-            },
-            "us-west-1": {
-                "AMI": "ami-b9341afc"
-            },
-            "eu-west-1": {
-                "AMI": "ami-230b1b57"
-            },
-            "ap-southeast-1": {
-                "AMI": "ami-21682673"
-            },
-            "ap-southeast-2": {
-                "AMI": "ami-83cd5eb9"
-            },
-            "ap-northeast-1": {
-                "AMI": "ami-31e86030"
-            },
-            "sa-east-1": {
-                "AMI": "ami-eacd68f7"
-            }
-        }
+    "AdminIPCIDR": {
+      "Description": "Initial CIDR  address for admin access to NAT/Bastion, e.g.. 50.1.1.1/32,",
+      "Type": "String"
     },
-    "Resources": {
-        "NATRole": {
-            "Type": "AWS::IAM::Role",
-            "Properties": {
-                "AssumeRolePolicyDocument": {
-                    "Statement": [
-                        {
-                            "Effect": "Allow",
-                            "Principal": {
-                                "Service": [
-                                    "ec2.amazonaws.com"
-                                ]
-                            },
-                            "Action": [
-                                "sts:AssumeRole"
-                            ]
-                        }
-                    ]
-                },
-                "Path": "/",
-                "Policies": [
-                    {
-                        "PolicyName": "NAT_Takeover",
-                        "PolicyDocument": {
-                            "Statement": [
-                                {
-                                    "Effect": "Allow",
-                                    "Action": [
-                                        "ec2:DescribeInstances",
-                                        "ec2:DescribeRouteTables",
-                                        "ec2:CreateRoute",
-                                        "ec2:ReplaceRoute",
-                                        "ec2:StartInstances",
-                                        "ec2:StopInstances"
-                                    ],
-                                    "Resource": "*"
-                                }
-                            ]
-                        }
-                    }
-                ]
-            }
-        },
-        "NATRoleProfile": {
-            "Type": "AWS::IAM::InstanceProfile",
-            "Properties": {
-                "Path": "/",
-                "Roles": [
-                    {
-                        "Ref": "NATRole"
-                    }
-                ]
-            }
-        },
-        "VPC": {
-            "Type": "AWS::EC2::VPC",
-            "Properties": {
-                "CidrBlock": {
-                    "Ref": "VpcCidr"
-                },
-                "InstanceTenancy": "default",
-                "EnableDnsSupport": "true",
-                "EnableDnsHostnames": "true",
-                "Tags": [
-                    {
-                        "Key": "Application",
-                        "Value": {
-                            "Ref": "AWS::StackName"
-                        }
-                    },
-                    {
-                        "Key": "Network",
-                        "Value": "Public"
-                    }
-                ]
-            }
-        },
-        "PubSubnet1": {
-            "Type": "AWS::EC2::Subnet",
-            "Properties": {
-                "VpcId": {
-                    "Ref": "VPC"
-                },
-                "AvailabilityZone": {
-                    "Ref": "AvailabilityZone1"
-                },
-                "CidrBlock": {
-                    "Ref": "PublicSubnet1"
-                },
-                "Tags": [
-                    {
-                        "Key": "Application",
-                        "Value": {
-                            "Ref": "AWS::StackName"
-                        }
-                    },
-                    {
-                        "Key": "Network",
-                        "Value": "Public"
-                    }
-                ]
-            }
-        },
-        "PriSubnet1": {
-            "Type": "AWS::EC2::Subnet",
-            "Properties": {
-                "VpcId": {
-                    "Ref": "VPC"
-                },
-                "AvailabilityZone": {
-                    "Ref": "AvailabilityZone1"
-                },
-                "CidrBlock": {
-                    "Ref": "PrivateSubnet1"
-                },
-                "Tags": [
-                    {
-                        "Key": "Application",
-                        "Value": {
-                            "Ref": "AWS::StackName"
-                        }
-                    },
-                    {
-                        "Key": "Network",
-                        "Value": "Private"
-                    }
-                ]
-            }
-        },
-        "PubSubnet2": {
-            "Type": "AWS::EC2::Subnet",
-            "Properties": {
-                "VpcId": {
-                    "Ref": "VPC"
-                },
-                "AvailabilityZone": {
-                    "Ref": "AvailabilityZone2"
-                },
-                "CidrBlock": {
-                    "Ref": "PublicSubnet2"
-                },
-                "Tags": [
-                    {
-                        "Key": "Application",
-                        "Value": {
-                            "Ref": "AWS::StackName"
-                        }
-                    },
-                    {
-                        "Key": "Network",
-                        "Value": "Public"
-                    }
-                ]
-            }
-        },
-        "PriSubnet2": {
-            "Type": "AWS::EC2::Subnet",
-            "Properties": {
-                "VpcId": {
-                    "Ref": "VPC"
-                },
-                "AvailabilityZone": {
-                    "Ref": "AvailabilityZone2"
-                },
-                "CidrBlock": {
-                    "Ref": "PrivateSubnet2"
-                },
-                "Tags": [
-                    {
-                        "Key": "Application",
-                        "Value": {
-                            "Ref": "AWS::StackName"
-                        }
-                    },
-                    {
-                        "Key": "Network",
-                        "Value": "Private"
-                    }
-                ]
-            }
-        },
-        "InternetGateway": {
-            "Type": "AWS::EC2::InternetGateway",
-            "Properties": {
-                "Tags": [
-                    {
-                        "Key": "Application",
-                        "Value": {
-                            "Ref": "AWS::StackName"
-                        }
-                    },
-                    {
-                        "Key": "Network",
-                        "Value": "Public"
-                    }
-                ]
-            }
-        },
-        "GatewayToInternet": {
-            "Type": "AWS::EC2::VPCGatewayAttachment",
-            "Properties": {
-                "VpcId": {
-                    "Ref": "VPC"
-                },
-                "InternetGatewayId": {
-                    "Ref": "InternetGateway"
-                }
-            }
-        },
-        "PublicRouteTable": {
-            "Type": "AWS::EC2::RouteTable",
-            "Properties": {
-                "VpcId": {
-                    "Ref": "VPC"
-                },
-                "Tags": [
-                    {
-                        "Key": "Application",
-                        "Value": {
-                            "Ref": "AWS::StackName"
-                        }
-                    },
-                    {
-                        "Key": "Network",
-                        "Value": "Public"
-                    }
-                ]
-            }
-        },
-        "PrivateRouteTable1": {
-            "Type": "AWS::EC2::RouteTable",
-            "Properties": {
-                "VpcId": {
-                    "Ref": "VPC"
-                },
-                "Tags": [
-                    {
-                        "Key": "Application",
-                        "Value": {
-                            "Ref": "AWS::StackName"
-                        }
-                    },
-                    {
-                        "Key": "Network",
-                        "Value": "Private"
-                    }
-                ]
-            }
-        },
-        "PrivateRouteTable2": {
-            "Type": "AWS::EC2::RouteTable",
-            "Properties": {
-                "VpcId": {
-                    "Ref": "VPC"
-                },
-                "Tags": [
-                    {
-                        "Key": "Application",
-                        "Value": {
-                            "Ref": "AWS::StackName"
-                        }
-                    },
-                    {
-                        "Key": "Network",
-                        "Value": "Private"
-                    }
-                ]
-            }
-        },
-        "PublicRoute": {
-            "Type": "AWS::EC2::Route",
-            "Properties": {
-                "RouteTableId": {
-                    "Ref": "PublicRouteTable"
-                },
-                "DestinationCidrBlock": "0.0.0.0/0",
-                "GatewayId": {
-                    "Ref": "InternetGateway"
-                }
-            }
-        },
-        "PrivateRoute1": {
-            "Type": "AWS::EC2::Route",
-            "Properties": {
-                "RouteTableId": {
-                    "Ref": "PrivateRouteTable1"
-                },
-                "DestinationCidrBlock": "0.0.0.0/0",
-                "InstanceId": {
-                    "Ref": "NAT1Instance"
-                }
-            }
-        },
-        "PrivateRoute2": {
-            "Type": "AWS::EC2::Route",
-            "Properties": {
-                "RouteTableId": {
-                    "Ref": "PrivateRouteTable2"
-                },
-                "DestinationCidrBlock": "0.0.0.0/0",
-                "InstanceId": {
-                    "Ref": "NAT1Instance"
-                }
-            }
-        },
-        "PubSubnet1RTAssoc": {
-            "Type": "AWS::EC2::SubnetRouteTableAssociation",
-            "Properties": {
-                "SubnetId": {
-                    "Ref": "PubSubnet1"
-                },
-                "RouteTableId": {
-                    "Ref": "PublicRouteTable"
-                }
-            }
-        },
-        "PubSubnet2RTAssoc": {
-            "Type": "AWS::EC2::SubnetRouteTableAssociation",
-            "Properties": {
-                "SubnetId": {
-                    "Ref": "PubSubnet2"
-                },
-                "RouteTableId": {
-                    "Ref": "PublicRouteTable"
-                }
-            }
-        },
-        "PriSubnet1RTAssoc": {
-            "Type": "AWS::EC2::SubnetRouteTableAssociation",
-            "Properties": {
-                "SubnetId": {
-                    "Ref": "PriSubnet1"
-                },
-                "RouteTableId": {
-                    "Ref": "PrivateRouteTable1"
-                }
-            }
-        },
-        "PriSubnet2RTAssoc": {
-            "Type": "AWS::EC2::SubnetRouteTableAssociation",
-            "Properties": {
-                "SubnetId": {
-                    "Ref": "PriSubnet2"
-                },
-                "RouteTableId": {
-                    "Ref": "PrivateRouteTable1"
-                }
-            }
-        },
-        "NAT1EIP": {
-            "Type": "AWS::EC2::EIP",
-            "Properties": {
-                "Domain": "vpc"
-            }
-        },
-        "NAT1Instance": {
-            "Type": "AWS::EC2::Instance",
-            "DependsOn" : "NAT1EIP",
-            "Metadata": {
-                "Comment1": "Create NAT #1"
-            },
-            "Properties": {
-                "InstanceType": {
-                    "Ref": "NATNodeInstanceType"
-                },
-                "KeyName": {
-                    "Ref": "KeyName"
-                },
-                "IamInstanceProfile": {
-                    "Ref": "NATRoleProfile"
-                },
-                "SubnetId": {
-                    "Ref": "PubSubnet1"
-                },
-                "SourceDestCheck": "false",
-                "ImageId": {
-                    "Fn::FindInMap": [
-                        "AWSNATAMI",
-                        {
-                            "Ref": "AWS::Region"
-                        },
-                        "AMI"
-                    ]
-                },
-                "SecurityGroupIds": [
-                    {
-                        "Ref": "NATSecurityGroup"
-                    },
-                    {
-                        "Ref": "ChefAdminSecurityGroup"
-                    },
-                    {
-                        "Ref": "ChefServerSecurityGroup"
-                    }
-                ],
-                "Tags": [
-                    {
-                        "Key": "Name",
-                        "Value": {
-                            "Fn::Join": [
-                                "-",
-                                [
-                                    {
-                                        "Ref": "AWS::StackName"
-                                    },
-                                    "eCAP Server NAT #1"
-                                ]
-                            ]
-                        }
-                    }
-                ],
-                "UserData": {
-                    "Fn::Base64": {
-                        "Fn::Join": [
-                            "",
-                            [
-                                "#!/bin/bash -v\n",
-                                "yum update -y aws*\n",
-                                "# update ssl for heartbleed\n",
-                                "yum update -y openssl\n",
-                                ". /etc/profile.d/aws-apitools-common.sh\n",
-                                "# Configure iptables for NAT\n",
-                                "/sbin/iptables -t nat -A POSTROUTING -o eth0 -s 0.0.0.0/0 -j MASQUERADE\n",
-                                "# Get the local IP address for IPTABLES\n",
-                                "LOCAL_IP=`curl -s http://169.254.169.254/latest/meta-data/local-ipv4`\n",
-                                "echo 'ip is' $LOCAL_IP\n",
-                                "# Configure iptables for Port Forward to Chef\n",
-                                "/sbin/iptables -t nat -I PREROUTING -d ",
-                                    "$LOCAL_IP",
-                                    " -p tcp --dport 443 -j DNAT --to ",
-                                    {"Ref" : "ChefServerPrivateIP"},
-                                    ":443\n",
-                                    "/sbin/iptables -t nat -I PREROUTING -d ",
-                                    "$LOCAL_IP",
-                                    " -p tcp --dport 80 -j DNAT --to ",
-                                    {"Ref" : "ChefServerPrivateIP"},
-                                    ":80\n",
-                                 "/sbin/iptables -t nat -I PREROUTING -d ",
-                                    "$LOCAL_IP",
-                                    " -p tcp --dport 2260 -j DNAT --to ",
-                                    {"Ref" : "ChefServerPrivateIP"},
-                                    ":2260\n",
-                                "/sbin/iptables -t nat -I PREROUTING -d ",
-                                    "$LOCAL_IP",
-                                    " -p tcp --dport 8080 -j DNAT --to ",
-                                    {"Ref" : "ChefServerPrivateIP"},
-                                    ":8080\n",
-                                "/sbin/iptables-save > /etc/sysconfig/iptables\n",
-                                "# Configure ip forwarding and redirects\n",
-                                "echo 1 >  /proc/sys/net/ipv4/ip_forward && echo 0 >  /proc/sys/net/ipv4/conf/eth0/send_redirects\n",
-                                "mkdir -p /etc/sysctl.d/\n",
-                                "cat <<EOF > /etc/sysctl.d/nat.conf\n",
-                                "net.ipv4.ip_forward = 1\n",
-                                "net.ipv4.conf.eth0.send_redirects = 0\n",
-                                "EOF\n"
-                            ]
-                        ]
-                    }
-                }
-            }
-        },
-        "NAT1IPAssoc" : {
-            "Type" : "AWS::EC2::EIPAssociation",
-            "Properties" : {
-                "InstanceId" : { "Ref" : "NAT1Instance" },
-                "AllocationId" : { "Fn::GetAtt" : [ "NAT1EIP", "AllocationId" ]}
-            }
-        },
-        "ChefServerInstance": {
-            "Type": "AWS::EC2::Instance",
-            "Metadata": {
-                "Comment1": "Create Chef Server"
-            },
-            "Properties": {
-                "InstanceType": "m1.large",
-                "KeyName": {
-                    "Ref": "KeyName"
-                },
-                "SubnetId": {
-                    "Ref": "PriSubnet1"
-                },
-                "PrivateIpAddress":{
-                    "Ref" : "ChefServerPrivateIP"
-                },
-                "SourceDestCheck": "true",
-
-                "IamInstanceProfile": {
-                    "Ref": "ChefServerIAMRole"
-                },
-                "ImageId": {
-                    "Fn::FindInMap": [
-                        "CAPCHEFAMI",
-                        {
-                            "Ref": "AWS::Region"
-                        },
-                        "AMI"
-                    ]
-                },
-                "SecurityGroupIds": [
-                    {
-                        "Ref": "ChefServerSecurityGroup"
-                    },
-                    {
-                        "Ref": "ChefAdminSecurityGroup"
-                    }
-                ],
-                "Tags": [
-                    {
-                        "Key": "Name",
-                        "Value": {
-                            "Fn::Join": [
-                                "-",
-                                [
-                                    {
-                                        "Ref": "AWS::StackName"
-                                    },
-                                    "Chef Server"
-                                ]
-                            ]
-                        }
-                    }
-                ],
-                "UserData": {
-                    "Fn::Base64": {
-                        "Fn::Join": [
-                            "",
-                            [
-                                "#!/bin/bash -v\n",
-                                "ps -ax\n"
-                            ]
-                        ]
-                    }
-                }
-            }
-        },
-        "NATSecurityGroup": {
-            "Type": "AWS::EC2::SecurityGroup",
-            "Properties": {
-                "GroupDescription": "Rules for allowing access to HA Nodes",
-                "VpcId": {
-                    "Ref": "VPC"
-                },
-                "SecurityGroupIngress": [
-                    {
-                        "IpProtocol": "-1",
-                        "FromPort": "0",
-                        "ToPort": "65535",
-                        "CidrIp": {
-                            "Ref": "VpcCidr"
-                        }
-                    }
-                ],
-                "SecurityGroupEgress": [
-                    {
-                        "IpProtocol": "-1",
-                        "FromPort": "0",
-                        "ToPort": "65535",
-                        "CidrIp": "0.0.0.0/0"
-                    }
-                ]
-            }
-        },
-        "NATAllowICMP": {
-            "Type": "AWS::EC2::SecurityGroupIngress",
-            "Properties": {
-                "GroupId": {
-                    "Ref": "NATSecurityGroup"
-                },
-                "IpProtocol": "icmp",
-                "FromPort": "-1",
-                "ToPort": "-1",
-                "SourceSecurityGroupId": {
-                    "Ref": "NATSecurityGroup"
-                }
-            }
-        },
-        "ChefAdminSecurityGroup": {
-            "Type": "AWS::EC2::SecurityGroup",
-            "Properties": {
-                "GroupDescription": "Access to NAT as bastion host",
-                "VpcId": {
-                    "Ref": "VPC"
-                },
-                "SecurityGroupIngress": [
-                    {
-                        "IpProtocol": "tcp",
-                        "FromPort": "22",
-                        "ToPort": "22",
-                        "CidrIp": {
-                            "Ref": "AdminIPCIDR"
-                        }
-                    }               
-                ],
-                "SecurityGroupEgress": [
-                    {
-                        "IpProtocol": "-1",
-                        "FromPort": "0",
-                        "ToPort": "65535",
-                        "CidrIp": "0.0.0.0/0"
-                    }
-                ]
-            }
-        },
-        "ChefServerSecurityGroup": {
-            "Type": "AWS::EC2::SecurityGroup",
-            "Properties": {
-                "GroupDescription": "Access to Chef Server",
-                "VpcId": {
-                    "Ref": "VPC"
-                },
-                "SecurityGroupIngress": [
-                    {
-                        "IpProtocol": "tcp",
-                        "FromPort": "80",
-                        "ToPort": "80",
-                        "CidrIp": "0.0.0.0/0"
-                    },
-                    {
-                        "IpProtocol": "tcp",
-                        "FromPort": "443",
-                        "ToPort": "443",
-                        "CidrIp": "0.0.0.0/0"
-                    },
-                {
-                        "IpProtocol": "tcp",
-                        "FromPort": "2260",
-                        "ToPort": "2260",
-                        "CidrIp": "0.0.0.0/0"
-                    },
-                {
-                        "IpProtocol": "tcp",
-                        "FromPort": "10514",
-                        "ToPort": "10514",
-                        "CidrIp": "0.0.0.0/0"
-                    }
-                ],
-                "SecurityGroupEgress": [
-                    {
-                        "IpProtocol": "-1",
-                        "FromPort": "0",
-                        "ToPort": "65535",
-                        "CidrIp": "0.0.0.0/0"
-                    }
-                ]
-            }
-        },
-        "ChefServerAllowSSHIngress": {
-            "Type": "AWS::EC2::SecurityGroupIngress",
-            "Properties": {
-                "GroupId": {
-                    "Ref": "ChefServerSecurityGroup"
-                },
-                "IpProtocol": "tcp",
-                "FromPort": "22",
-                "ToPort": "22",
-                "SourceSecurityGroupId": {
-                    "Ref": "ChefServerSecurityGroup"
-                }
-            }
-        }
+    "ChefServerIAMRole": {
+      "Description": "Existing IAM instance profile/role for Chef Server to access AWS Services",
+      "Type": "String"
     },
-    
-    "Outputs": {
-        "NAT1" : {
-          "Description" : "NAT #1 EIP.",
-          "Value" :  { "Fn::Join" : [ "", [ { "Ref" : "NAT1Instance" }, " (", { "Ref" : "NAT1EIP" }, ")" ]] }
-        },
-        "VPCID" : {
-          "Description" : "VPC Info.",
-          "Value" : { "Fn::Join" : [ "", [ { "Ref" : "VPC" }, " (", { "Ref" : "VpcCidr" }, ")" ]] }
-        },  
-        "ServerSecurityGroup" : {
-          "Description" : "Security Group for Chef Server Access.",
-          "Value" : { "Fn::Join" : [ "", [ "Chef Server Security Group - ", { "Ref": "ChefServerSecurityGroup" } ]] }
-        },  
-        "AdminSecurityGroup" : {
-          "Description" : "Security Group for Chef Admin Access.",
-          "Value" : { "Fn::Join" : [ "", [ "Chef Admin Security Group - ", { "Ref": "ChefAdminSecurityGroup" } ]] }
-        },  
-        "ChefServerIP": {
-            "Description": "Private IP address of the newly created Chef Server",
-            "Value": {
-                "Fn::GetAtt": [
-                    "ChefServerInstance",
-                    "PrivateIp"
-                ]
-            }
-        },
-        "PublicSubnet1" : {
-          "Description" : "Public Subnet #1.",
-          "Value" : { "Fn::Join" : [ "", [ { "Ref" : "PubSubnet1" }, " (", { "Ref" : "PublicSubnet1" }, ") ", { "Ref" : "AvailabilityZone1" } ]] }
-        },
-        "PrivateSubnet1" : {
-          "Description" : "Private Subnet #1.",
-          "Value" : { "Fn::Join" : [ "", [ { "Ref" : "PriSubnet1" }, " (", { "Ref" : "PrivateSubnet1" }, ") ", { "Ref" : "AvailabilityZone1" } ]] }
-        },
-        "PublicSubnet2" : {
-          "Description" : "Public Subnet #2.",
-          "Value" : { "Fn::Join" : [ "", [ { "Ref" : "PubSubnet2" }, " (", { "Ref" : "PublicSubnet2" }, ") ", { "Ref" : "AvailabilityZone2" } ]] }
-        },
-        "PrivateSubnet2" : {
-          "Description" : "Private Subnet #2.",
-          "Value" : { "Fn::Join" : [ "", [ { "Ref" : "PriSubnet2" }, " (", { "Ref" : "PrivateSubnet2" }, ") ", { "Ref" : "AvailabilityZone2" } ]] }
-        }   
+    "VpcCidr": {
+      "Description": "CIDR address for the VPC to be created.",
+      "Type": "String",
+      "Default": "10.0.0.0/16"
+    },
+    "ChefServerPrivateIP": {
+      "Description": "Private IP address (NOT CIDR) for the Chef Server instance, e.g. 10.0.1.100,",
+      "Type": "String",
+      "Default": "10.0.1.100"
+    },
+    "PublicSubnet1": {
+      "Description": "Address range for a public subnet to be created in AZ1.",
+      "Type": "String",
+      "Default": "10.0.0.0/24"
+    },
+    "PublicSubnet2": {
+      "Description": "Address range for a public subnet to be created in AZ2.",
+      "Type": "String",
+      "Default": "10.0.2.0/24"
+    },
+    "PrivateSubnet1": {
+      "Description": "Address range for a public subnet to be created in AZ1.",
+      "Type": "String",
+      "Default": "10.0.1.0/24"
+    },
+    "PrivateSubnet2": {
+      "Description": "Address range for a public subnet to be created in AZ2.",
+      "Type": "String",
+      "Default": "10.0.3.0/24"
+    },
+    "NATNodeInstanceType": {
+      "Description": "Instance type for NAT nodes.",
+      "Type": "String",
+      "Default": "m1.small",
+      "AllowedValues": [
+        "t1.micro",
+        "m1.small",
+        "m1.medium",
+        "m1.large",
+        "m1.xlarge",
+        "m2.xlarge",
+        "m2.2xlarge",
+        "m2.4xlarge",
+        "c1.medium",
+        "c1.xlarge",
+        "cc1.4xlarge",
+        "cc2.8xlarge",
+        "cg1.4xlarge"
+      ],
+      "ConstraintDescription": "must be a valid EC2 instance type."
+    },
+    "AvailabilityZone1": {
+      "Description": "First AZ to use for PublicSubnet1/PrivateSubnet1.",
+      "Type": "String",
+      "Default": "us-east-1b"
+    },
+    "AvailabilityZone2": {
+      "Description": "Second AZ to use for PublicSubnet2/PrivateSubnet2.",
+      "Type": "String",
+      "Default": "us-east-1c"
+    },
+    "NumberOfPings": {
+      "Description": "The number of times the health check will ping the alternate NAT Node",
+      "Type": "String",
+      "Default": "3"
+    },
+    "PingTimeout": {
+      "Description": "The number of seconds to wait for each ping response before determining that the ping has failed",
+      "Type": "String",
+      "Default": "1"
+    },
+    "WaitBetweenPings": {
+      "Description": "The number of seconds to wait between health checks",
+      "Type": "String",
+      "Default": "2"
+    },
+    "WaitForInstanceStop": {
+      "Description": "The number of seconds to wait for alternate NAT Node to stop before attempting to stop it again",
+      "Type": "String",
+      "Default": "60"
+    },
+    "WaitForInstanceStart": {
+      "Description": "The number of seconds to wait for alternate NAT Node to restart before resuming health checks again",
+      "Type": "String",
+      "Default": "300"
     }
-
+  },
+  "Mappings": {
+    "AWSNATAMI": {
+      "us-east-1": {
+        "AMI": "ami-54cf5c3d"
+      },
+      "us-west-2": {
+        "AMI": "ami-8e27adbe"
+      },
+      "us-west-1": {
+        "AMI": "ami-b63210f3"
+      },
+      "eu-west-1": {
+        "AMI": "ami-3c5f5748"
+      },
+      "ap-southeast-1": {
+        "AMI": "ami-ba7538e8"
+      },
+      "ap-southeast-2": {
+        "AMI": "ami-b6df4e8c"
+      },
+      "ap-northeast-1": {
+        "AMI": "ami-5d7dfa5c"
+      },
+      "sa-east-1": {
+        "AMI": "ami-89c81394"
+      }
+    },
+    "CAPCHEFAMI": {
+      "us-east-1": {
+        "AMI": "ami-eb6b0182"
+      },
+      "us-west-2": {
+        "AMI": "ami-b158c981"
+      },
+      "us-west-1": {
+        "AMI": "ami-b9341afc"
+      },
+      "eu-west-1": {
+        "AMI": "ami-230b1b57"
+      },
+      "ap-southeast-1": {
+        "AMI": "ami-21682673"
+      },
+      "ap-southeast-2": {
+        "AMI": "ami-83cd5eb9"
+      },
+      "ap-northeast-1": {
+        "AMI": "ami-31e86030"
+      },
+      "sa-east-1": {
+        "AMI": "ami-eacd68f7"
+      }
+    }
+  },
+  "Resources": {
+    "NATRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": [
+                  "ec2.amazonaws.com"
+                ]
+              },
+              "Action": [
+                "sts:AssumeRole"
+              ]
+            }
+          ]
+        },
+        "Path": "/",
+        "Policies": [
+          {
+            "PolicyName": "NAT_Takeover",
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ec2:DescribeInstances",
+                    "ec2:DescribeRouteTables",
+                    "ec2:CreateRoute",
+                    "ec2:ReplaceRoute",
+                    "ec2:StartInstances",
+                    "ec2:StopInstances"
+                  ],
+                  "Resource": "*"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "NATRoleProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Path": "/",
+        "Roles": [
+          {
+            "Ref": "NATRole"
+          }
+        ]
+      }
+    },
+    "VPC": {
+      "Type": "AWS::EC2::VPC",
+      "Properties": {
+        "CidrBlock": {
+          "Ref": "VpcCidr"
+        },
+        "InstanceTenancy": "default",
+        "EnableDnsSupport": "true",
+        "EnableDnsHostnames": "true",
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": {
+              "Ref": "AWS::StackName"
+            }
+          },
+          {
+            "Key": "Network",
+            "Value": "Public"
+          }
+        ]
+      }
+    },
+    "PubSubnet1": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+          "Ref": "VPC"
+        },
+        "AvailabilityZone": {
+          "Ref": "AvailabilityZone1"
+        },
+        "CidrBlock": {
+          "Ref": "PublicSubnet1"
+        },
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": {
+              "Ref": "AWS::StackName"
+            }
+          },
+          {
+            "Key": "Network",
+            "Value": "Public"
+          }
+        ]
+      }
+    },
+    "PriSubnet1": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+          "Ref": "VPC"
+        },
+        "AvailabilityZone": {
+          "Ref": "AvailabilityZone1"
+        },
+        "CidrBlock": {
+          "Ref": "PrivateSubnet1"
+        },
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": {
+              "Ref": "AWS::StackName"
+            }
+          },
+          {
+            "Key": "Network",
+            "Value": "Private"
+          }
+        ]
+      }
+    },
+    "PubSubnet2": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+          "Ref": "VPC"
+        },
+        "AvailabilityZone": {
+          "Ref": "AvailabilityZone2"
+        },
+        "CidrBlock": {
+          "Ref": "PublicSubnet2"
+        },
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": {
+              "Ref": "AWS::StackName"
+            }
+          },
+          {
+            "Key": "Network",
+            "Value": "Public"
+          }
+        ]
+      }
+    },
+    "PriSubnet2": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+          "Ref": "VPC"
+        },
+        "AvailabilityZone": {
+          "Ref": "AvailabilityZone2"
+        },
+        "CidrBlock": {
+          "Ref": "PrivateSubnet2"
+        },
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": {
+              "Ref": "AWS::StackName"
+            }
+          },
+          {
+            "Key": "Network",
+            "Value": "Private"
+          }
+        ]
+      }
+    },
+    "InternetGateway": {
+      "Type": "AWS::EC2::InternetGateway",
+      "Properties": {
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": {
+              "Ref": "AWS::StackName"
+            }
+          },
+          {
+            "Key": "Network",
+            "Value": "Public"
+          }
+        ]
+      }
+    },
+    "GatewayToInternet": {
+      "Type": "AWS::EC2::VPCGatewayAttachment",
+      "Properties": {
+        "VpcId": {
+          "Ref": "VPC"
+        },
+        "InternetGatewayId": {
+          "Ref": "InternetGateway"
+        }
+      }
+    },
+    "PublicRouteTable": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": {
+          "Ref": "VPC"
+        },
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": {
+              "Ref": "AWS::StackName"
+            }
+          },
+          {
+            "Key": "Network",
+            "Value": "Public"
+          }
+        ]
+      }
+    },
+    "PrivateRouteTable1": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": {
+          "Ref": "VPC"
+        },
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": {
+              "Ref": "AWS::StackName"
+            }
+          },
+          {
+            "Key": "Network",
+            "Value": "Private"
+          }
+        ]
+      }
+    },
+    "PrivateRouteTable2": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": {
+          "Ref": "VPC"
+        },
+        "Tags": [
+          {
+            "Key": "Application",
+            "Value": {
+              "Ref": "AWS::StackName"
+            }
+          },
+          {
+            "Key": "Network",
+            "Value": "Private"
+          }
+        ]
+      }
+    },
+    "PublicRoute": {
+      "Type": "AWS::EC2::Route",
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "PublicRouteTable"
+        },
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "GatewayId": {
+          "Ref": "InternetGateway"
+        }
+      }
+    },
+    "PrivateRoute1": {
+      "Type": "AWS::EC2::Route",
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "PrivateRouteTable1"
+        },
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "InstanceId": {
+          "Ref": "NAT1Instance"
+        }
+      }
+    },
+    "PrivateRoute2": {
+      "Type": "AWS::EC2::Route",
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "PrivateRouteTable2"
+        },
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "InstanceId": {
+          "Ref": "NAT1Instance"
+        }
+      }
+    },
+    "PubSubnet1RTAssoc": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": {
+          "Ref": "PubSubnet1"
+        },
+        "RouteTableId": {
+          "Ref": "PublicRouteTable"
+        }
+      }
+    },
+    "PubSubnet2RTAssoc": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": {
+          "Ref": "PubSubnet2"
+        },
+        "RouteTableId": {
+          "Ref": "PublicRouteTable"
+        }
+      }
+    },
+    "PriSubnet1RTAssoc": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": {
+          "Ref": "PriSubnet1"
+        },
+        "RouteTableId": {
+          "Ref": "PrivateRouteTable1"
+        }
+      }
+    },
+    "PriSubnet2RTAssoc": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "SubnetId": {
+          "Ref": "PriSubnet2"
+        },
+        "RouteTableId": {
+          "Ref": "PrivateRouteTable1"
+        }
+      }
+    },
+    "NAT1EIP": {
+      "Type": "AWS::EC2::EIP",
+      "Properties": {
+        "Domain": "vpc"
+      }
+    },
+    "NAT1Instance": {
+      "Type": "AWS::EC2::Instance",
+      "DependsOn": "NAT1EIP",
+      "Metadata": {
+        "Comment1": "Create NAT #1"
+      },
+      "Properties": {
+        "InstanceType": {
+          "Ref": "NATNodeInstanceType"
+        },
+        "KeyName": {
+          "Ref": "KeyName"
+        },
+        "IamInstanceProfile": {
+          "Ref": "NATRoleProfile"
+        },
+        "SubnetId": {
+          "Ref": "PubSubnet1"
+        },
+        "SourceDestCheck": "false",
+        "ImageId": {
+          "Fn::FindInMap": [
+            "AWSNATAMI",
+            {
+              "Ref": "AWS::Region"
+            },
+            "AMI"
+          ]
+        },
+        "SecurityGroupIds": [
+          {
+            "Ref": "NATSecurityGroup"
+          },
+          {
+            "Ref": "ChefAdminSecurityGroup"
+          },
+          {
+            "Ref": "ChefServerSecurityGroup"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Join": [
+                "-",
+                [
+                  {
+                    "Ref": "AWS::StackName"
+                  },
+                  "eCAP Server NAT #1"
+                ]
+              ]
+            }
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash -v\n",
+                "yum update -y aws*\n",
+                "# update ssl for heartbleed\n",
+                "yum update -y openssl\n",
+                ". /etc/profile.d/aws-apitools-common.sh\n",
+                "# Configure iptables for NAT\n",
+                "/sbin/iptables -t nat -A POSTROUTING -o eth0 -s 0.0.0.0/0 -j MASQUERADE\n",
+                "# Get the local IP address for IPTABLES\n",
+                "LOCAL_IP=`curl -s http://169.254.169.254/latest/meta-data/local-ipv4`\n",
+                "echo 'ip is' $LOCAL_IP\n",
+                "# Configure iptables for Port Forward to Chef\n",
+                "/sbin/iptables -t nat -I PREROUTING -d ",
+                "$LOCAL_IP",
+                " -p tcp --dport 443 -j DNAT --to ",
+                {
+                  "Ref": "ChefServerPrivateIP"
+                },
+                ":443\n",
+                "/sbin/iptables -t nat -I PREROUTING -d ",
+                "$LOCAL_IP",
+                " -p tcp --dport 80 -j DNAT --to ",
+                {
+                  "Ref": "ChefServerPrivateIP"
+                },
+                ":80\n",
+                "/sbin/iptables -t nat -I PREROUTING -d ",
+                "$LOCAL_IP",
+                " -p tcp --dport 2260 -j DNAT --to ",
+                {
+                  "Ref": "ChefServerPrivateIP"
+                },
+                ":2260\n",
+                "/sbin/iptables -t nat -I PREROUTING -d ",
+                "$LOCAL_IP",
+                " -p tcp --dport 8080 -j DNAT --to ",
+                {
+                  "Ref": "ChefServerPrivateIP"
+                },
+                ":8080\n",
+                "/sbin/iptables-save > /etc/sysconfig/iptables\n",
+                "# Configure ip forwarding and redirects\n",
+                "echo 1 >  /proc/sys/net/ipv4/ip_forward && echo 0 >  /proc/sys/net/ipv4/conf/eth0/send_redirects\n",
+                "mkdir -p /etc/sysctl.d/\n",
+                "cat <<EOF > /etc/sysctl.d/nat.conf\n",
+                "net.ipv4.ip_forward = 1\n",
+                "net.ipv4.conf.eth0.send_redirects = 0\n",
+                "EOF\n"
+              ]
+            ]
+          }
+        }
+      }
+    },
+    "NAT1IPAssoc": {
+      "Type": "AWS::EC2::EIPAssociation",
+      "Properties": {
+        "InstanceId": {
+          "Ref": "NAT1Instance"
+        },
+        "AllocationId": {
+          "Fn::GetAtt": [
+            "NAT1EIP",
+            "AllocationId"
+          ]
+        }
+      }
+    },
+    "ChefServerInstance": {
+      "Type": "AWS::EC2::Instance",
+      "Metadata": {
+        "Comment1": "Create Chef Server"
+      },
+      "Properties": {
+        "InstanceType": "m1.large",
+        "KeyName": {
+          "Ref": "KeyName"
+        },
+        "SubnetId": {
+          "Ref": "PriSubnet1"
+        },
+        "PrivateIpAddress": {
+          "Ref": "ChefServerPrivateIP"
+        },
+        "SourceDestCheck": "true",
+        "IamInstanceProfile": {
+          "Ref": "ChefServerIAMRole"
+        },
+        "ImageId": {
+          "Fn::FindInMap": [
+            "CAPCHEFAMI",
+            {
+              "Ref": "AWS::Region"
+            },
+            "AMI"
+          ]
+        },
+        "SecurityGroupIds": [
+          {
+            "Ref": "ChefServerSecurityGroup"
+          },
+          {
+            "Ref": "ChefAdminSecurityGroup"
+          }
+        ],
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": {
+              "Fn::Join": [
+                "-",
+                [
+                  {
+                    "Ref": "AWS::StackName"
+                  },
+                  "Chef Server"
+                ]
+              ]
+            }
+          }
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash -v\n",
+                "ps -ax\n"
+              ]
+            ]
+          }
+        }
+      }
+    },
+    "NATSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Rules for allowing access to HA Nodes",
+        "VpcId": {
+          "Ref": "VPC"
+        },
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "-1",
+            "FromPort": "0",
+            "ToPort": "65535",
+            "CidrIp": {
+              "Ref": "VpcCidr"
+            }
+          }
+        ],
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "-1",
+            "FromPort": "0",
+            "ToPort": "65535",
+            "CidrIp": "0.0.0.0/0"
+          }
+        ]
+      }
+    },
+    "NATAllowICMP": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "NATSecurityGroup"
+        },
+        "IpProtocol": "icmp",
+        "FromPort": "-1",
+        "ToPort": "-1",
+        "SourceSecurityGroupId": {
+          "Ref": "NATSecurityGroup"
+        }
+      }
+    },
+    "ChefAdminSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Access to NAT as bastion host",
+        "VpcId": {
+          "Ref": "VPC"
+        },
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "22",
+            "ToPort": "22",
+            "CidrIp": {
+              "Ref": "AdminIPCIDR"
+            }
+          }
+        ],
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "-1",
+            "FromPort": "0",
+            "ToPort": "65535",
+            "CidrIp": "0.0.0.0/0"
+          }
+        ]
+      }
+    },
+    "ChefServerSecurityGroup": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Access to Chef Server",
+        "VpcId": {
+          "Ref": "VPC"
+        },
+        "SecurityGroupIngress": [
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "80",
+            "ToPort": "80",
+            "CidrIp": "0.0.0.0/0"
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "443",
+            "ToPort": "443",
+            "CidrIp": "0.0.0.0/0"
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "2260",
+            "ToPort": "2260",
+            "CidrIp": "0.0.0.0/0"
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "10514",
+            "ToPort": "10514",
+            "CidrIp": "0.0.0.0/0"
+          }
+        ],
+        "SecurityGroupEgress": [
+          {
+            "IpProtocol": "-1",
+            "FromPort": "0",
+            "ToPort": "65535",
+            "CidrIp": "0.0.0.0/0"
+          }
+        ]
+      }
+    },
+    "ChefServerAllowSSHIngress": {
+      "Type": "AWS::EC2::SecurityGroupIngress",
+      "Properties": {
+        "GroupId": {
+          "Ref": "ChefServerSecurityGroup"
+        },
+        "IpProtocol": "tcp",
+        "FromPort": "22",
+        "ToPort": "22",
+        "SourceSecurityGroupId": {
+          "Ref": "ChefServerSecurityGroup"
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "NAT1": {
+      "Description": "NAT #1 EIP.",
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            {
+              "Ref": "NAT1Instance"
+            },
+            " (",
+            {
+              "Ref": "NAT1EIP"
+            },
+            ")"
+          ]
+        ]
+      }
+    },
+    "VPCID": {
+      "Description": "VPC Info.",
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            {
+              "Ref": "VPC"
+            },
+            " (",
+            {
+              "Ref": "VpcCidr"
+            },
+            ")"
+          ]
+        ]
+      }
+    },
+    "ServerSecurityGroup": {
+      "Description": "Security Group for Chef Server Access.",
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            "Chef Server Security Group - ",
+            {
+              "Ref": "ChefServerSecurityGroup"
+            }
+          ]
+        ]
+      }
+    },
+    "AdminSecurityGroup": {
+      "Description": "Security Group for Chef Admin Access.",
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            "Chef Admin Security Group - ",
+            {
+              "Ref": "ChefAdminSecurityGroup"
+            }
+          ]
+        ]
+      }
+    },
+    "ChefServerIP": {
+      "Description": "Private IP address of the newly created Chef Server",
+      "Value": {
+        "Fn::GetAtt": [
+          "ChefServerInstance",
+          "PrivateIp"
+        ]
+      }
+    },
+    "PublicSubnet1": {
+      "Description": "Public Subnet #1.",
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            {
+              "Ref": "PubSubnet1"
+            },
+            " (",
+            {
+              "Ref": "PublicSubnet1"
+            },
+            ") ",
+            {
+              "Ref": "AvailabilityZone1"
+            }
+          ]
+        ]
+      }
+    },
+    "PrivateSubnet1": {
+      "Description": "Private Subnet #1.",
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            {
+              "Ref": "PriSubnet1"
+            },
+            " (",
+            {
+              "Ref": "PrivateSubnet1"
+            },
+            ") ",
+            {
+              "Ref": "AvailabilityZone1"
+            }
+          ]
+        ]
+      }
+    },
+    "PublicSubnet2": {
+      "Description": "Public Subnet #2.",
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            {
+              "Ref": "PubSubnet2"
+            },
+            " (",
+            {
+              "Ref": "PublicSubnet2"
+            },
+            ") ",
+            {
+              "Ref": "AvailabilityZone2"
+            }
+          ]
+        ]
+      }
+    },
+    "PrivateSubnet2": {
+      "Description": "Private Subnet #2.",
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            {
+              "Ref": "PriSubnet2"
+            },
+            " (",
+            {
+              "Ref": "PrivateSubnet2"
+            },
+            ") ",
+            {
+              "Ref": "AvailabilityZone2"
+            }
+          ]
+        ]
+      }
+    }
+  }
 }

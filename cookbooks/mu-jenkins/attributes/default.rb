@@ -1,5 +1,5 @@
 default.jenkins_users = [
-	{:user_name => "mu_user", :fullname => "Mu-Demo-User", :email => ENV['MU_ADMIN_EMAIL'], :vault => "jenkins", :vault_item => "users"}
+    {:user_name => "mu_user", :fullname => "Mu-Demo-User", :email => ENV['MU_ADMIN_EMAIL'], :vault => "jenkins", :vault_item => "users"}
 ]
 
 default.jenkins_ssh_urls = [node.ipaddress]
@@ -14,9 +14,9 @@ node.normal["java"]["jdk"]["8"]["x86_64"]["url"] = "http://download.oracle.com/o
 node.normal["java"]["jdk"]["8"]["x86_64"]["checksum"] = "b34ff02c5d98b6f372288c17e96c51cf"
 
 default.jenkins_ssh_vault = {
-	:vault => "jenkins", :item => "ssh"
+    :vault => "jenkins", :item => "ssh"
 }
 
 default.jenkins_admin_vault = {
-	:vault => "jenkins", :item => "admin"
+    :vault => "jenkins", :item => "admin"
 }

@@ -19,49 +19,51 @@
 include_recipe "chef-splunk::client"
 
 if node.splunk.discovery == "groupname"
-	splunk_servers = search(
-		:node,
-		"splunk_is_server:true AND splunk_groupname:#{node.splunk_groupname}"
-	).sort! do
-		|a, b| a.name <=> b.name
-	end
+  splunk_servers = search(
+      :node,
+      "splunk_is_server:true AND splunk_groupname:#{node.splunk_groupname}"
+  ).sort! do
+  |a, b|
+    a.name <=> b.name
+  end
 else
-	splunk_servers = search( # ~FC003
-		:node,
-		"splunk_is_server:true AND chef_environment:#{node.chef_environment}"
-	).sort! do
-		|a, b| a.name <=> b.name
-	end
+  splunk_servers = search(# ~FC003
+      :node,
+      "splunk_is_server:true AND chef_environment:#{node.chef_environment}"
+  ).sort! do
+  |a, b|
+    a.name <=> b.name
+  end
 end
 
 splunk_auth_info = chef_vault_item(node.splunk.auth.data_bag, node.splunk.auth.data_bag_item)['auth']
 user, pw = splunk_auth_info.split(':')
 
 if node['platform_family'] != "windows"
-	deploy_guard = "#{splunk_dir}/etc/.setup_deploy_poll"
-	file deploy_guard do
-		content 'true\n'
-		owner 'root'
-		group 'root'
-		mode 00600
-		action :nothing
-	end
+  deploy_guard = "#{splunk_dir}/etc/.setup_deploy_poll"
+  file deploy_guard do
+    content 'true\n'
+    owner 'root'
+    group 'root'
+    mode 00600
+    action :nothing
+  end
 else
-	deploy_guard = "#{splunk_dir}/etc/setup_deploy_poll"
-	file deploy_guard do
-		content 'true\n'
-		action :nothing
-	end
+  deploy_guard = "#{splunk_dir}/etc/setup_deploy_poll"
+  file deploy_guard do
+    content 'true\n'
+    action :nothing
+  end
 end
 
 deploy_svr = splunk_servers.first
 if !deploy_svr.nil?
-	execute 'Splunk client poll for deploy server' do
-		command "\"#{splunk_cmd}\" set deploy-poll #{deploy_svr['splunk']['receiver_ip']}:8089 -auth #{user}:#{pw}"
-		not_if { ::File.exists?(deploy_guard) }
-		notifies :create, "file[#{deploy_guard}]", :immediately
-		notifies :restart, "service[splunk]", :delayed
-	end
+  execute 'Splunk client poll for deploy server' do
+    command "\"#{splunk_cmd}\" set deploy-poll #{deploy_svr['splunk']['receiver_ip']}:8089 -auth #{user}:#{pw}"
+    not_if { ::File.exists?(deploy_guard) }
+    notifies :create, "file[#{deploy_guard}]", :immediately
+    notifies :restart, "service[splunk]", :delayed
+  end
 else
-	Chef::Log.info ("Configured to run a Splunk client, but no Splunk servers were found.")
+  Chef::Log.info ("Configured to run a Splunk client, but no Splunk servers were found.")
 end

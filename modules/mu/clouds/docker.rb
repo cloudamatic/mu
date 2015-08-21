@@ -13,9 +13,9 @@
 # limitations under the License.
 
 module MU
-	class Cloud
-		# Support for Docker as a provisioning layer.
-		class Docker
-		end
-	end
+  class Cloud
+    # Support for Docker as a provisioning layer.
+    class Docker
+    end
+  end
 end

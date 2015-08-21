@@ -2,17 +2,17 @@
 <%= $ipaddress %> <%= $hostname %>
 127.0.0.1 localhost
 <% if !node['deployment'].nil? and !node['deployment']['servers'].nil?
-	node['deployment']['servers'].each_pair { |nodetype, sibling_struct|
-		next if !sibling_struct.is_a?(Hash)
-		sibling = sibling_struct.values.each { |sibling|
-			next if !sibling.is_a?(Hash)
-			next if sibling['nodename'] == $hostname
-			if !sibling['public_ip_address'].nil? %>
-<%= sibling['public_ip_address'] %> <%= sibling['nodename'] %>
-<%		else %>
-<%= sibling['private_ip_address'] %> <%= sibling['nodename'] %>
-<%
-			end
-		}
-	}
-end %>
+     node['deployment']['servers'].each_pair { |nodetype, sibling_struct|
+       next if !sibling_struct.is_a?(Hash)
+       sibling = sibling_struct.values.each { |sibling|
+         next if !sibling.is_a?(Hash)
+         next if sibling['nodename'] == $hostname
+         if !sibling['public_ip_address'].nil? %>
+                <%= sibling['public_ip_address'] %> <%= sibling['nodename'] %>
+            <% else %>
+                <%= sibling['private_ip_address'] %> <%= sibling['nodename'] %>
+            <%
+               end
+               }
+               }
+               end %>

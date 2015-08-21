@@ -24,21 +24,21 @@ user, pw = splunk_auth_info.split(':')
 
 
 if node['platform_family'] != 'windows'
-	guard_path = "#{splunk_dir}/etc/.setup_#{user}_password"
+  guard_path = "#{splunk_dir}/etc/.setup_#{user}_password"
   file "guard setup_#{user}_password" do
     path guard_path
     content 'true\n'
     owner node['splunk']['user']['username']
     group node['splunk']['user']['username']
     mode 00600
-		action :nothing
+    action :nothing
   end
 else
-	guard_path = "#{splunk_dir}\\etc\\setup_#{user}_password"
+  guard_path = "#{splunk_dir}\\etc\\setup_#{user}_password"
   file "guard setup_#{user}_password" do
     path guard_path
-		content 'true\n'
-		action :nothing
+    content 'true\n'
+    action :nothing
   end
 end
 

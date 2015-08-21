@@ -72,19 +72,19 @@ if node['platform_family'] != 'windows'
     source 'splunk-init.erb'
     mode 0700
     variables(
-      :splunkdir => splunk_dir,
-      :runasroot => node['splunk']['server']['runasroot']
+        :splunkdir => splunk_dir,
+        :runasroot => node['splunk']['server']['runasroot']
     )
   end
 end
 
 service 'splunk' do
   if node['platform_family'] == 'windows'
-		service_name 'SplunkForwarder'
+    service_name 'SplunkForwarder'
     provider Chef::Provider::Service::Windows
-	else
+  else
     provider Chef::Provider::Service::Init
-	end
+  end
   supports :status => true, :restart => true
   action :start
 end

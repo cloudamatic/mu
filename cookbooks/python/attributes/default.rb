@@ -22,15 +22,15 @@ default['python']['install_method'] = 'package'
 
 if python['install_method'] == 'package'
   case platform
-  when "windows"
-    default['python']['prefix_dir']         = 'c:\\bin\\python'
-  when "smartos"
-    default['python']['prefix_dir']         = '/opt/local'
-  else
-    default['python']['prefix_dir']         = '/usr'
+    when "windows"
+      default['python']['prefix_dir'] = 'c:\\bin\\python'
+    when "smartos"
+      default['python']['prefix_dir'] = '/opt/local'
+    else
+      default['python']['prefix_dir'] = '/usr'
   end
 else
-  default['python']['prefix_dir']         = '/usr/local'
+  default['python']['prefix_dir'] = '/usr/local'
 end
 
 
@@ -63,7 +63,7 @@ elsif platform_family?("rhel", "fedora")
   default['python']['pip_binary'] = "/usr/bin/pip"
 elsif platform_family?("smartos")
   default['python']['pip_binary'] = "/opt/local/bin/pip"
- elsif platform_family?("windows")
+elsif platform_family?("windows")
   default['python']['pip_binary'] = node['python']['pip_location']
 else
   default['python']['pip_binary'] = "/usr/local/bin/pip"

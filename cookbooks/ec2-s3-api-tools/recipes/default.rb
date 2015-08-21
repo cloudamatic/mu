@@ -8,8 +8,8 @@
 #
 
 bash "install ec2-api-s3-tools" do
-        user "root"
-        code <<-EOH
+  user "root"
+  code <<-EOH
 
 	#get the s3 cli tool and install it
 	cd /tmp
@@ -23,5 +23,5 @@ bash "install ec2-api-s3-tools" do
 	echo 'export EC2_SECRET_KEY=DjFeUehEQrSsYX+gQTfa3E9WRQfsQsdIuY+OqqC9' >> ~/.bashrc
 	source ~/.bashrc
 
-        EOH
+  EOH
 end

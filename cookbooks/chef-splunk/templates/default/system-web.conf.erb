@@ -1,7 +1,7 @@
 [settings]
 httpport = <%= node['splunk']['web_port'] %>
 enableSplunkWebSSL = <%= @enable_ssl.inspect %>
-privKeyPath = etc/auth/splunkweb/<%= @keyfile%>
+privKeyPath = etc/auth/splunkweb/<%= @keyfile %>
 caCertPath = etc/auth/splunkweb/<%= @crtfile %>
 sslVersions = tls1.2
 cipherSuite = TLSv1.2:!eNULL:!aNULL

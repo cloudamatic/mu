@@ -12,9 +12,9 @@
           <__uuid>8a5d5b3c-c975-44f8-a1e2-7d3c4f3306f8</__uuid>
           <__remote>false</__remote>
           <__script>def proc = &quot;ls -1a /home/jenkins/.mu/var/deployments/&quot;.execute()
-def b = new StringBuffer()
-proc.consumeProcessErrorStream(b)
-def list = proc.text.readLines()
+            def b = new StringBuffer()
+            proc.consumeProcessErrorStream(b)
+            def list = proc.text.readLines()
           </__script>
           <__localBaseDirectory serialization="custom">
             <hudson.FilePath>

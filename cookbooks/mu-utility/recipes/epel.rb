@@ -20,8 +20,8 @@
 #
 
 case node.platform
-when "centos", "redhat"
-	include_recipe "yum-epel"
-else
-	Chef::Log.info("Unsupported platform #{node.platform}")
+  when "centos", "redhat"
+    include_recipe "yum-epel"
+  else
+    Chef::Log.info("Unsupported platform #{node.platform}")
 end

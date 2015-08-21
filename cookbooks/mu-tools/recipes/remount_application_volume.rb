@@ -27,31 +27,31 @@ mount_volume = node[:application_attributes][:application_volume][:volume_id]
 ruby_block "remount_app_volume" do
   extend CAPVolume
   block do
-      Chef::Log.info("Dumping node #{node[:application_attributes][:application_volume]}")
+    Chef::Log.info("Dumping node #{node[:application_attributes][:application_volume]}")
 
-      Chef::Log.info("Figuring out volume format enc or no")
-      ebs_keyfile = node[:application_attributes][:application_volume][:ebs_keyfile]
-      ebs_key_location=nil
-      if ebs_keyfile.nil?
-        Chef::Log.warn("No ebs_keyfile from creds store, UNENCRYPTED VOLUME REMOUNT")
-        `mount #{mount_device} #{mount_directory}`
-      else
-          temp_mount = "/tmp/ram3"
-          unless is_mounted?(temp_mount) 
-            make_temp_disk!("/dev/ram3", temp_mount)
-          end
-          ebs_keyfile = node[:application_attributes][:application_volume][:ebs_keyfile]
-          command = "aws s3 cp #{node[:application_attributes][:secure_location]}/#{ebs_keyfile} #{temp_mount}/#{ebs_keyfile}"
-          Chef::Log.info("Will execute #{command}")
-          `#{command}`
-          Chef::Log.info("Waking and remounting encrypted volume")
-           if volume_attached(mount_device)
-              alias_device = mount_directory.gsub("/","") #by convention
-              `cryptsetup luksOpen #{mount_device} #{alias_device} --key-file #{temp_mount}/#{ebs_keyfile}`
-              `mount "/dev/mapper/#{alias_device}" #{mount_directory}`
-          end
+    Chef::Log.info("Figuring out volume format enc or no")
+    ebs_keyfile = node[:application_attributes][:application_volume][:ebs_keyfile]
+    ebs_key_location=nil
+    if ebs_keyfile.nil?
+      Chef::Log.warn("No ebs_keyfile from creds store, UNENCRYPTED VOLUME REMOUNT")
+      `mount #{mount_device} #{mount_directory}`
+    else
+      temp_mount = "/tmp/ram3"
+      unless is_mounted?(temp_mount)
+        make_temp_disk!("/dev/ram3", temp_mount)
       end
-      action :create
-      not_if { is_mounted?(mount_directory) }
+      ebs_keyfile = node[:application_attributes][:application_volume][:ebs_keyfile]
+      command = "aws s3 cp #{node[:application_attributes][:secure_location]}/#{ebs_keyfile} #{temp_mount}/#{ebs_keyfile}"
+      Chef::Log.info("Will execute #{command}")
+      `#{command}`
+      Chef::Log.info("Waking and remounting encrypted volume")
+      if volume_attached(mount_device)
+        alias_device = mount_directory.gsub("/", "") #by convention
+        `cryptsetup luksOpen #{mount_device} #{alias_device} --key-file #{temp_mount}/#{ebs_keyfile}`
+        `mount "/dev/mapper/#{alias_device}" #{mount_directory}`
+      end
     end
+    action :create
+    not_if { is_mounted?(mount_directory) }
+  end
 end

@@ -27,7 +27,7 @@ if node['tomcat']['install_method'] == 'package'
         action :install
       end
     end
-    
+
     node['tomcat']['deploy_manager_packages'].each do |pkg|
       package pkg do
         action :install
@@ -36,152 +36,152 @@ if node['tomcat']['install_method'] == 'package'
   end
 
   case node['platform']
-  when 'centos', 'redhat'
-    if node['platform_version'].to_i == 6
-      if node['tomcat']['base_version'].to_i == 6
+    when 'centos', 'redhat'
+      if node['platform_version'].to_i == 6
+        if node['tomcat']['base_version'].to_i == 6
+          package_installation
+        elsif node['tomcat']['base_version'].to_i == 7
+          remote_file "#{Chef::Config[:file_cache_path]}/tomcat7-7.0.57-1.x86_64.rpm" do
+            source node['tomcat']['package_url']
+          end
+
+          package 'tomcat7' do
+            source "#{Chef::Config[:file_cache_path]}/tomcat7-7.0.57-1.x86_64.rpm"
+          end
+        else
+          Chef::Log.info("Tomcat package version #{node['tomcat']['base_version'].to_i} not supported on #{node['platform']} #{node['platform_version'].to_i} ")
+        end
+      elsif node['platform_version'].to_i == 7
         package_installation
-      elsif node['tomcat']['base_version'].to_i == 7
-        remote_file "#{Chef::Config[:file_cache_path]}/tomcat7-7.0.57-1.x86_64.rpm" do
-          source node['tomcat']['package_url']
-        end
-        
-        package 'tomcat7' do
-          source "#{Chef::Config[:file_cache_path]}/tomcat7-7.0.57-1.x86_64.rpm"
-        end
-      else
-        Chef::Log.info("Tomcat package version #{node['tomcat']['base_version'].to_i} not supported on #{node['platform']} #{node['platform_version'].to_i} ")
       end
-    elsif node['platform_version'].to_i == 7
+    when 'windows'
+      Chef::Log.info("Tomcat package installation not supported on #{node['platform']}")
+    else
       package_installation
-    end
-  when 'windows'
-    Chef::Log.info("Tomcat package installation not supported on #{node['platform']}")
-  else
-    package_installation
   end
 
 elsif node['tomcat']['install_method'] == 'archive'
   case node['platform']
-  when "windows"
-    windows_zipfile node.tomcat.home do
-      source node['tomcat']['archive_url']
-      action :unzip
-      not_if { File.exists?("#{node.tomcat.home}\\conf") }
-      not_if { File.exists?("#{node.tomcat.home}\\#{node.tomcat.version}\\conf") }
-    end
-
-    execute "powershell -Command \"& {robocopy #{node.tomcat.home}\\#{node.tomcat.version} #{node.tomcat.home} /e /move}\"" do
-      only_if { File.exists?("#{node.tomcat.home}\\#{node.tomcat.version}\\conf") }
-    end
-
-    directory "#{node.tomcat.home}\\#{node.tomcat.version}" do
-      action :delete
-    end
-
-    execute "service install" do
-      cwd "#{node.tomcat.home}\\bin"
-      not_if "sc qc tomcat#{node.tomcat.base_version} | findstr tomcat#{node.tomcat.base_version}"
-    end
-  else
-    group node['tomcat']['group']
-
-    user node['tomcat']['user'] do
-      gid node['tomcat']['group']
-      shell '/bin/false'
-    end
-
-    tomcat_archive_path = "#{Chef::Config[:file_cache_path]}/tomcat#{node['tomcat']['base_version'].to_i}.tar.gz"
-    tomcat_temp_path = "#{Chef::Config[:file_cache_path]}/tomcat#{node['tomcat']['base_version'].to_i}"
-
-    remote_file tomcat_archive_path do
-      source node['tomcat']['archive_url']
-    end
-
-    directory tomcat_temp_path
-
-    execute "tar xfz #{tomcat_archive_path} -C #{tomcat_temp_path} --strip-components=1" do
-      not_if { Dir.exists?("#{tomcat_temp_path}/bin") }
-    end
-
-    [node['tomcat']['home'], node['tomcat']['base'], node['tomcat']['config_dir'], node['tomcat']['log_dir'], node['tomcat']['tmp_dir'], node['tomcat']['work_dir'], node['tomcat']['context_dir'],
-      node['tomcat']['webapp_dir'], node['tomcat']['lib_dir'], node['tomcat']['endorsed_dir'], "#{node['tomcat']['home']}/bin", "#{node['tomcat']['home']}/temp", "#{node['tomcat']['home']}/work"].each { |dir|
-      directory dir do 
-        owner node['tomcat']['user']
-        group node['tomcat']['group']
-        mode 0755
-        recursive true
+    when "windows"
+      windows_zipfile node.tomcat.home do
+        source node['tomcat']['archive_url']
+        action :unzip
+        not_if { File.exists?("#{node.tomcat.home}\\conf") }
+        not_if { File.exists?("#{node.tomcat.home}\\#{node.tomcat.version}\\conf") }
       end
-    }
 
-    # Runs at runtime so can't use.
-    # Dir.glob("#{tomcat_temp_path}/conf/*").each { |f|
+      execute "powershell -Command \"& {robocopy #{node.tomcat.home}\\#{node.tomcat.version} #{node.tomcat.home} /e /move}\"" do
+        only_if { File.exists?("#{node.tomcat.home}\\#{node.tomcat.version}\\conf") }
+      end
+
+      directory "#{node.tomcat.home}\\#{node.tomcat.version}" do
+        action :delete
+      end
+
+      execute "service install" do
+        cwd "#{node.tomcat.home}\\bin"
+        not_if "sc qc tomcat#{node.tomcat.base_version} | findstr tomcat#{node.tomcat.base_version}"
+      end
+    else
+      group node['tomcat']['group']
+
+      user node['tomcat']['user'] do
+        gid node['tomcat']['group']
+        shell '/bin/false'
+      end
+
+      tomcat_archive_path = "#{Chef::Config[:file_cache_path]}/tomcat#{node['tomcat']['base_version'].to_i}.tar.gz"
+      tomcat_temp_path = "#{Chef::Config[:file_cache_path]}/tomcat#{node['tomcat']['base_version'].to_i}"
+
+      remote_file tomcat_archive_path do
+        source node['tomcat']['archive_url']
+      end
+
+      directory tomcat_temp_path
+
+      execute "tar xfz #{tomcat_archive_path} -C #{tomcat_temp_path} --strip-components=1" do
+        not_if { Dir.exists?("#{tomcat_temp_path}/bin") }
+      end
+
+      [node['tomcat']['home'], node['tomcat']['base'], node['tomcat']['config_dir'], node['tomcat']['log_dir'], node['tomcat']['tmp_dir'], node['tomcat']['work_dir'], node['tomcat']['context_dir'],
+       node['tomcat']['webapp_dir'], node['tomcat']['lib_dir'], node['tomcat']['endorsed_dir'], "#{node['tomcat']['home']}/bin", "#{node['tomcat']['home']}/temp", "#{node['tomcat']['home']}/work"].each { |dir|
+        directory dir do
+          owner node['tomcat']['user']
+          group node['tomcat']['group']
+          mode 0755
+          recursive true
+        end
+      }
+
+      # Runs at runtime so can't use.
+      # Dir.glob("#{tomcat_temp_path}/conf/*").each { |f|
       # remote_file "#{node['tomcat']['config_dir']}/#{File.basename(f)}" do 
-        # source "file://#{f}"
-        # owner 'tomcat'
-        # group 'tomcat'
-        # mode 0644
-        # action :create_if_missing
+      # source "file://#{f}"
+      # owner 'tomcat'
+      # group 'tomcat'
+      # mode 0644
+      # action :create_if_missing
       # end
-    # }
-
-    # %w{bin lib}.each { |dir|
-      # Dir.glob("#{tomcat_temp_path}/#{dir}/*").each { |f|
-        # remote_file "#{node['tomcat']['base']}/#{dir}/#{File.basename(f)}" do
-          # source "file://#{f}"
-          # owner 'tomcat'
-          # group 'tomcat'
-          # mode 0644 unless File.extname(f).include?("sh")
-          # mode 0755 if File.extname(f).include?("sh")
-          # action :create_if_missing
-        # end
       # }
-    # }
 
-    execute "cp #{tomcat_temp_path}/conf/* #{node['tomcat']['config_dir']}" do
-      not_if { File.exists?("#{node['tomcat']['config_dir']}/server.xml") }
-      only_if { File.exists?("#{tomcat_temp_path}/conf/server.xml") }
-    end
+      # %w{bin lib}.each { |dir|
+      # Dir.glob("#{tomcat_temp_path}/#{dir}/*").each { |f|
+      # remote_file "#{node['tomcat']['base']}/#{dir}/#{File.basename(f)}" do
+      # source "file://#{f}"
+      # owner 'tomcat'
+      # group 'tomcat'
+      # mode 0644 unless File.extname(f).include?("sh")
+      # mode 0755 if File.extname(f).include?("sh")
+      # action :create_if_missing
+      # end
+      # }
+      # }
 
-    execute "cp #{tomcat_temp_path}/bin/* #{node['tomcat']['base']}/bin" do
-      not_if { File.exists?("#{node['tomcat']['base']}/bin/catalina.sh") }
-      only_if { File.exists?("#{tomcat_temp_path}/bin/catalina.sh") }
-    end
+      execute "cp #{tomcat_temp_path}/conf/* #{node['tomcat']['config_dir']}" do
+        not_if { File.exists?("#{node['tomcat']['config_dir']}/server.xml") }
+        only_if { File.exists?("#{tomcat_temp_path}/conf/server.xml") }
+      end
 
-    execute "cp #{tomcat_temp_path}/lib/* #{node['tomcat']['base']}/lib" do
-      not_if { File.exists?("#{node['tomcat']['base']}/lib/tomcat-util.jar") }
-      only_if { File.exists?("#{tomcat_temp_path}/lib/tomcat-util.jar") }
-    end
+      execute "cp #{tomcat_temp_path}/bin/* #{node['tomcat']['base']}/bin" do
+        not_if { File.exists?("#{node['tomcat']['base']}/bin/catalina.sh") }
+        only_if { File.exists?("#{tomcat_temp_path}/bin/catalina.sh") }
+      end
 
-    execute "cp -r #{tomcat_temp_path}/webapps/* #{node['tomcat']['webapp_dir']}" do
-          not_if { Dir.exists?("#{node['tomcat']['webapp_dir']}/ROOT") }
-          only_if { Dir.exists?("#{tomcat_temp_path}/webapps/ROOT") }
-    end
+      execute "cp #{tomcat_temp_path}/lib/* #{node['tomcat']['base']}/lib" do
+        not_if { File.exists?("#{node['tomcat']['base']}/lib/tomcat-util.jar") }
+        only_if { File.exists?("#{tomcat_temp_path}/lib/tomcat-util.jar") }
+      end
 
-    execute "find #{node['tomcat']['base']} -type d -exec chmod 755 {} +; find #{node['tomcat']['base']} -type f -exec chmod 644 {} +; chown -R #{node['tomcat']['user']}:#{node['tomcat']['group']} #{node['tomcat']['base']} #{node['tomcat']['config_dir']}" do
-      returns [0,1]
-    end
+      execute "cp -r #{tomcat_temp_path}/webapps/* #{node['tomcat']['webapp_dir']}" do
+        not_if { Dir.exists?("#{node['tomcat']['webapp_dir']}/ROOT") }
+        only_if { Dir.exists?("#{tomcat_temp_path}/webapps/ROOT") }
+      end
 
-    execute "find #{node['tomcat']['base']}/bin -type f -name '*.sh' -exec chmod 755 {} +" do
-      returns [0,1]
-    end
+      execute "find #{node['tomcat']['base']} -type d -exec chmod 755 {} +; find #{node['tomcat']['base']} -type f -exec chmod 644 {} +; chown -R #{node['tomcat']['user']}:#{node['tomcat']['group']} #{node['tomcat']['base']} #{node['tomcat']['config_dir']}" do
+        returns [0, 1]
+      end
 
-    link "#{node['tomcat']['home']}/logs" do
-      to node['tomcat']['log_dir']
-    end
+      execute "find #{node['tomcat']['base']}/bin -type f -name '*.sh' -exec chmod 755 {} +" do
+        returns [0, 1]
+      end
 
-    link "#{node['tomcat']['home']}/conf" do
-      to node['tomcat']['config_dir']
-    end
+      link "#{node['tomcat']['home']}/logs" do
+        to node['tomcat']['log_dir']
+      end
 
-    template "/etc/logrotate.d/#{node['tomcat']['base_instance']}" do
-      source "logrotate.erb"
-      mode 0644
-    end
+      link "#{node['tomcat']['home']}/conf" do
+        to node['tomcat']['config_dir']
+      end
 
-    template "/etc/rc.d/init.d/#{node['tomcat']['base_instance']}" do
-      source "initd.erb"
-      mode 0755
-    end
+      template "/etc/logrotate.d/#{node['tomcat']['base_instance']}" do
+        source "logrotate.erb"
+        mode 0644
+      end
+
+      template "/etc/rc.d/init.d/#{node['tomcat']['base_instance']}" do
+        source "initd.erb"
+        mode 0755
+      end
   end
 end
 

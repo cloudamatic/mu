@@ -8,14 +8,14 @@ action :configure do
    :max_threads, :ssl_max_threads, :ssl_cert_file, :ssl_key_file, :generate_ssl_cert,
    :ssl_chain_files, :keystore_file, :keystore_type, :truststore_file,
    :truststore_type, :certificate_dn, :loglevel, :tomcat_auth, :user,
-   :group, :tmp_dir, :lib_dir, :endorsed_dir, :jndi_connections, :jndi, :cors_enabled, 
+   :group, :tmp_dir, :lib_dir, :endorsed_dir, :jndi_connections, :jndi, :cors_enabled,
    :app_base, :ldap_enabled, :ldap_servers, :ldap_port, :ldap_bind_user, :ldap_bind_pwd,
    :ldap_user_base, :ldap_role_base, :ldap_domain_name, :ldap_group, :ldap_user_search,
    :ldap_role_search].each do |attr|
     if not new_resource.instance_variable_get("@#{attr}")
       new_resource.instance_variable_set("@#{attr}", node['tomcat'][attr])
     end
-  end 
+  end
 
   if new_resource.name == 'base'
     instance = base_instance
@@ -90,10 +90,10 @@ action :configure do
       template "/usr/lib/systemd/system/#{instance}.service" do
         source 'tomcat.service.erb'
         variables ({
-          :instance => instance,
-          :user => new_resource.user,
-          :group => new_resource.group
-        })
+                      :instance => instance,
+                      :user => new_resource.user,
+                      :group => new_resource.group
+                  })
         owner 'root'
         group 'root'
         mode '0644'
@@ -122,157 +122,157 @@ action :configure do
   end
 
   case node['platform_family']
-  when 'rhel', 'fedora'
-    template "/etc/sysconfig/#{instance}" do
-      source 'sysconfig_tomcat6.erb'
-      variables ({
-        :user => new_resource.user,
-        :home => new_resource.home,
-        :base => new_resource.base,
-        :java_options => new_resource.java_options,
-        :use_security_manager => new_resource.use_security_manager,
-        :tmp_dir => new_resource.tmp_dir,
-        :catalina_options => new_resource.catalina_options,
-        :endorsed_dir => new_resource.endorsed_dir
-      })
-      owner 'root'
-      group 'root'
-      mode '0644'
-      notifies :restart, "service[#{instance}]"
-    end
-  when 'smartos'
-    # SmartOS doesn't support multiple instances
-    template "#{new_resource.base}/bin/setenv.sh" do
-      source 'setenv.sh.erb'
-      owner 'root'
-      group 'root'
-      mode '0644'
-      notifies :restart, "service[#{instance}]"
-    end
-  when 'windows'
-    registry_key "HKLM\\SOFTWARE\\Wow6432Node\\Apache Software Foundation\\Procrun 2.0\\Tomcat#{node.tomcat.base_version}\\Parameters\\Stop" do
-      values [{
-        :name => 'Timeout',
-        :type => :dword,
-        :data => 30
-      }]
-      recursive true
-      notifies :restart, "service[#{instance}]", :delayed
-    end
-
-    java_opts =  [
-      "-Dcatalina.home=#{new_resource.home}", "-Dcatalina.base=#{new_resource.base}", "-Djava.endorsed.dirs=#{new_resource.endorsed_dir}", "-Djava.io.tmpdir=#{new_resource.tmp_dir}", 
-      "-Djava.util.logging.manager=org.apache.juli.ClassLoaderLogManager", "-Djava.util.logging.config.file=#{new_resource.config_dir}\\logging.properties"
-    ]
-
-    # new_resource.java_options.split.each { |opt|
-      # java_opts << opt
-    # }
-  
-    max_heap = nil
-    min_heap = nil
-
-    new_resource.java_options.split.each { |opt|
-      if opt.downcase.start_with?("-xmx")
-        if opt.downcase.end_with?("g")
-          max_heap = opt.downcase.gsub(/[^\d]/, '').to_i * 1024
-        elsif opt.downcase.end_with?("m")
-          max_heap = opt.downcase.gsub(/[^\d]/, '').to_i
-        end
-      elsif opt.downcase.start_with?("-xms")
-        if opt.downcase.end_with?("g")
-          min_heap = opt.downcase.gsub(/[^\d]/, '').to_i * 1024
-        elsif opt.downcase.end_with?("m")
-          min_heap = opt.downcase.gsub(/[^\d]/, '').to_i
-        end
-      else
-        java_opts << opt
+    when 'rhel', 'fedora'
+      template "/etc/sysconfig/#{instance}" do
+        source 'sysconfig_tomcat6.erb'
+        variables ({
+                      :user => new_resource.user,
+                      :home => new_resource.home,
+                      :base => new_resource.base,
+                      :java_options => new_resource.java_options,
+                      :use_security_manager => new_resource.use_security_manager,
+                      :tmp_dir => new_resource.tmp_dir,
+                      :catalina_options => new_resource.catalina_options,
+                      :endorsed_dir => new_resource.endorsed_dir
+                  })
+        owner 'root'
+        group 'root'
+        mode '0644'
+        notifies :restart, "service[#{instance}]"
       end
-    }
+    when 'smartos'
+      # SmartOS doesn't support multiple instances
+      template "#{new_resource.base}/bin/setenv.sh" do
+        source 'setenv.sh.erb'
+        owner 'root'
+        group 'root'
+        mode '0644'
+        notifies :restart, "service[#{instance}]"
+      end
+    when 'windows'
+      registry_key "HKLM\\SOFTWARE\\Wow6432Node\\Apache Software Foundation\\Procrun 2.0\\Tomcat#{node.tomcat.base_version}\\Parameters\\Stop" do
+        values [{
+                    :name => 'Timeout',
+                    :type => :dword,
+                    :data => 30
+                }]
+        recursive true
+        notifies :restart, "service[#{instance}]", :delayed
+      end
 
-    min_heap = 128 if min_heap.nil?
-    max_heap = min_heap if max_heap.nil?
+      java_opts = [
+          "-Dcatalina.home=#{new_resource.home}", "-Dcatalina.base=#{new_resource.base}", "-Djava.endorsed.dirs=#{new_resource.endorsed_dir}", "-Djava.io.tmpdir=#{new_resource.tmp_dir}",
+          "-Djava.util.logging.manager=org.apache.juli.ClassLoaderLogManager", "-Djava.util.logging.config.file=#{new_resource.config_dir}\\logging.properties"
+      ]
 
-    registry_key "HKLM\\SOFTWARE\\Wow6432Node\\Apache Software Foundation\\Procrun 2.0\\Tomcat#{node.tomcat.base_version}\\Parameters\\Java" do
-      values [{
-        :name => 'JvmMs',
-        :type => :dword,
-        :data => min_heap
-        }]
-      recursive true
-      notifies :restart, "service[#{instance}]", :delayed
-    end
+      # new_resource.java_options.split.each { |opt|
+      # java_opts << opt
+      # }
 
-    registry_key "HKLM\\SOFTWARE\\Wow6432Node\\Apache Software Foundation\\Procrun 2.0\\Tomcat#{node.tomcat.base_version}\\Parameters\\Java" do
-      values [{
-        :name => 'JvmMx',
-        :type => :dword,
-        :data => max_heap
-      }]
-      recursive true
-      notifies :restart, "service[#{instance}]", :delayed
-    end
+      max_heap = nil
+      min_heap = nil
 
-    registry_key "HKLM\\SOFTWARE\\Wow6432Node\\Apache Software Foundation\\Procrun 2.0\\Tomcat#{node.tomcat.base_version}\\Parameters\\Java" do
-      values [{
-        :name => 'Options',
-        :type => :multi_string,
-        :data => java_opts
-      }]
-      recursive true
-      notifies :restart, "service[#{instance}]", :delayed
-    end
-  else
-    template "/etc/default/#{instance}" do
-      source 'default_tomcat6.erb'
-      variables ({
-        :user => new_resource.user,
-        :group => new_resource.group,
-        :home => new_resource.home,
-        :base => new_resource.base,
-        :java_options => new_resource.java_options,
-        :use_security_manager => new_resource.use_security_manager,
-        :tmp_dir => new_resource.tmp_dir,
-        :authbind => new_resource.authbind,
-        :catalina_options => new_resource.catalina_options,
-        :endorsed_dir => new_resource.endorsed_dir
-      })
-      owner 'root'
-      group 'root'
-      mode '0644'
-      notifies :restart, "service[#{instance}]"
-    end
+      new_resource.java_options.split.each { |opt|
+        if opt.downcase.start_with?("-xmx")
+          if opt.downcase.end_with?("g")
+            max_heap = opt.downcase.gsub(/[^\d]/, '').to_i * 1024
+          elsif opt.downcase.end_with?("m")
+            max_heap = opt.downcase.gsub(/[^\d]/, '').to_i
+          end
+        elsif opt.downcase.start_with?("-xms")
+          if opt.downcase.end_with?("g")
+            min_heap = opt.downcase.gsub(/[^\d]/, '').to_i * 1024
+          elsif opt.downcase.end_with?("m")
+            min_heap = opt.downcase.gsub(/[^\d]/, '').to_i
+          end
+        else
+          java_opts << opt
+        end
+      }
+
+      min_heap = 128 if min_heap.nil?
+      max_heap = min_heap if max_heap.nil?
+
+      registry_key "HKLM\\SOFTWARE\\Wow6432Node\\Apache Software Foundation\\Procrun 2.0\\Tomcat#{node.tomcat.base_version}\\Parameters\\Java" do
+        values [{
+                    :name => 'JvmMs',
+                    :type => :dword,
+                    :data => min_heap
+                }]
+        recursive true
+        notifies :restart, "service[#{instance}]", :delayed
+      end
+
+      registry_key "HKLM\\SOFTWARE\\Wow6432Node\\Apache Software Foundation\\Procrun 2.0\\Tomcat#{node.tomcat.base_version}\\Parameters\\Java" do
+        values [{
+                    :name => 'JvmMx',
+                    :type => :dword,
+                    :data => max_heap
+                }]
+        recursive true
+        notifies :restart, "service[#{instance}]", :delayed
+      end
+
+      registry_key "HKLM\\SOFTWARE\\Wow6432Node\\Apache Software Foundation\\Procrun 2.0\\Tomcat#{node.tomcat.base_version}\\Parameters\\Java" do
+        values [{
+                    :name => 'Options',
+                    :type => :multi_string,
+                    :data => java_opts
+                }]
+        recursive true
+        notifies :restart, "service[#{instance}]", :delayed
+      end
+    else
+      template "/etc/default/#{instance}" do
+        source 'default_tomcat6.erb'
+        variables ({
+                      :user => new_resource.user,
+                      :group => new_resource.group,
+                      :home => new_resource.home,
+                      :base => new_resource.base,
+                      :java_options => new_resource.java_options,
+                      :use_security_manager => new_resource.use_security_manager,
+                      :tmp_dir => new_resource.tmp_dir,
+                      :authbind => new_resource.authbind,
+                      :catalina_options => new_resource.catalina_options,
+                      :endorsed_dir => new_resource.endorsed_dir
+                  })
+        owner 'root'
+        group 'root'
+        mode '0644'
+        notifies :restart, "service[#{instance}]"
+      end
   end
 
   template "#{new_resource.config_dir}/server.xml" do
     source 'server.xml.erb'
     variables ({
-      :port => new_resource.port,
-      :proxy_port => new_resource.proxy_port,
-      :ssl_port => new_resource.ssl_port,
-      :app_base => new_resource.app_base,
-      :ssl_proxy_port => new_resource.ssl_proxy_port,
-      :ajp_port => new_resource.ajp_port,
-      :shutdown_port => new_resource.shutdown_port,
-      :max_threads => new_resource.max_threads,
-      :ssl_max_threads => new_resource.ssl_max_threads,
-      :keystore_file => new_resource.keystore_file,
-      :keystore_type => new_resource.keystore_type,
-      :tomcat_auth => new_resource.tomcat_auth,
-      :config_dir => new_resource.config_dir,
-      :app_base => new_resource.app_base,
-      :ldap_enabled => new_resource.ldap_enabled,
-      :ldap_servers => new_resource.ldap_servers,
-      :ldap_port => new_resource.ldap_port,
-      :ldap_bind_user => new_resource.ldap_bind_user,
-      :ldap_bind_pwd => new_resource.ldap_bind_pwd,
-      :ldap_user_base => new_resource.ldap_user_base,
-      :ldap_role_base => new_resource.ldap_role_base,
-      :ldap_domain_name => new_resource.ldap_domain_name,
-      :ldap_group => new_resource.ldap_group,
-      :ldap_user_search => new_resource.ldap_user_search,
-      :ldap_role_search => new_resource.ldap_role_search
-    })
+                  :port => new_resource.port,
+                  :proxy_port => new_resource.proxy_port,
+                  :ssl_port => new_resource.ssl_port,
+                  :app_base => new_resource.app_base,
+                  :ssl_proxy_port => new_resource.ssl_proxy_port,
+                  :ajp_port => new_resource.ajp_port,
+                  :shutdown_port => new_resource.shutdown_port,
+                  :max_threads => new_resource.max_threads,
+                  :ssl_max_threads => new_resource.ssl_max_threads,
+                  :keystore_file => new_resource.keystore_file,
+                  :keystore_type => new_resource.keystore_type,
+                  :tomcat_auth => new_resource.tomcat_auth,
+                  :config_dir => new_resource.config_dir,
+                  :app_base => new_resource.app_base,
+                  :ldap_enabled => new_resource.ldap_enabled,
+                  :ldap_servers => new_resource.ldap_servers,
+                  :ldap_port => new_resource.ldap_port,
+                  :ldap_bind_user => new_resource.ldap_bind_user,
+                  :ldap_bind_pwd => new_resource.ldap_bind_pwd,
+                  :ldap_user_base => new_resource.ldap_user_base,
+                  :ldap_role_base => new_resource.ldap_role_base,
+                  :ldap_domain_name => new_resource.ldap_domain_name,
+                  :ldap_group => new_resource.ldap_group,
+                  :ldap_user_search => new_resource.ldap_user_search,
+                  :ldap_role_search => new_resource.ldap_role_search
+              })
     owner new_resource.user if node.platform_family != 'windows'
     group new_resource.group if node.platform_family != 'windows'
     mode '0644' if node.platform_family != 'windows'
@@ -286,12 +286,12 @@ action :configure do
         notifies :stop, "service[#{instance}]", :immediately
       end
 
-      execute "powershell -Command \"& {rm #{new_resource.config_dir}/web.xml}\"" do 
+      execute "powershell -Command \"& {rm #{new_resource.config_dir}/web.xml}\"" do
         notifies :create, "file[#{new_resource.config_dir}\\first_run]", :immediately
       end
 
       # file "#{new_resource.config_dir}\\web.xml" do 
-        # action :delete
+      # action :delete
       # end
 
       file "#{new_resource.config_dir}\\first_run" do
@@ -307,16 +307,16 @@ action :configure do
     mode '0644' if node.platform_family != 'windows'
     notifies :restart, "service[#{instance}]"
     variables ({
-      :cors_enabled => new_resource.cors_enabled
-    })
+                  :cors_enabled => new_resource.cors_enabled
+              })
   end
 
   template "#{new_resource.config_dir}/context.xml" do
     source 'context.xml.erb'
     variables ({
-      :jndi => new_resource.jndi,
-      :jndi_connections => new_resource.jndi_connections
-    })
+                  :jndi => new_resource.jndi,
+                  :jndi_connections => new_resource.jndi_connections
+              })
     owner new_resource.user if node.platform_family != 'windows'
     group new_resource.group if node.platform_family != 'windows'
     mode '0644' if node.platform_family != 'windows'
@@ -336,7 +336,7 @@ action :configure do
       execute 'Create Tomcat SSL certificate' do
         group new_resource.group
         command <<-EOH
-          #{node['tomcat']['keytool']} \
+#{node['tomcat']['keytool']} \
            -genkey \
            -keystore "#{new_resource.config_dir}/#{new_resource.keystore_file}" \
            -storepass "#{node['tomcat']['keystore_password']}" \
@@ -393,18 +393,18 @@ action :configure do
 
   service "#{instance}" do
     case node['platform_family']
-    when 'rhel', 'fedora'
-      service_name "#{instance}"
-      supports :restart => true, :status => true
-    when 'debian'
-      service_name "#{instance}"
-      supports :restart => true, :reload => false, :status => true
-    when 'smartos'
-      # SmartOS doesn't support multiple instances
-      service_name 'tomcat'
-      supports :restart => false, :reload => false, :status => true
-    else
-      service_name "#{instance}"
+      when 'rhel', 'fedora'
+        service_name "#{instance}"
+        supports :restart => true, :status => true
+      when 'debian'
+        service_name "#{instance}"
+        supports :restart => true, :reload => false, :status => true
+      when 'smartos'
+        # SmartOS doesn't support multiple instances
+        service_name 'tomcat'
+        supports :restart => false, :reload => false, :status => true
+      else
+        service_name "#{instance}"
     end
     action [:start, :enable]
     notifies :run, "execute[wait for #{instance}]", :immediately

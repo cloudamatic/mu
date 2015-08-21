@@ -19,8 +19,8 @@
 require File.expand_path(File.dirname(__FILE__))+"/mu-load-murc.rb"
 
 if ARGV.size > 0
-	puts "#{$0}: Freshen the Mu Master's security groups to allow client nodes to connect back."
-	exit 1
+  puts "#{$0}: Freshen the Mu Master's security groups to allow client nodes to connect back."
+  exit 1
 end
 
 require 'rubygems'

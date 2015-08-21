@@ -14,5 +14,5 @@
 #Installs cryptsetup and luks for encrypted volumes
 package "luks" do
   package_name "cryptsetup-luks" # see attributes section below
-  action :install 
+  action :install
 end

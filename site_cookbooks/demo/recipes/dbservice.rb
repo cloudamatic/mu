@@ -35,8 +35,8 @@ cookbook_file "/root/.ssh/app-#{$service_name}" do
 end
 
 bash "ssh keys handling" do
-        user "root"
-                code <<-EOH
+  user "root"
+  code <<-EOH
 		chmod 400 /root/.ssh/app-#{$service_name}
 		eval `ssh-agent -s`
 		ssh-add /root/.ssh/app-#{$service_name}
@@ -46,7 +46,7 @@ bash "ssh keys handling" do
 		echo "StrictHostKeyChecking no" >> ~/.ssh/config
 		echo "IdentityFile /root/.ssh/app-#{$service_name}" >> ~/.ssh/config
 
-                EOH
+  EOH
 end
 
 # Set machine hostname
@@ -54,8 +54,8 @@ end
 $hostname = node.chef_environment.upcase + "-" + node.normal.service_name.upcase + "-" + node.name.split(/(\d+)/)[1].to_s;
 
 bash "set machine hostname" do
-        user "root"
-		code <<-EOH
+  user "root"
+  code <<-EOH
 
 		hostname="#{$hostname}";
 
@@ -63,21 +63,21 @@ bash "set machine hostname" do
 		/bin/cp tmphosts /etc/hosts
 		echo 127.0.0.1 localhost $hostname >> /etc/hosts
 		hostname $hostname
-		EOH
+  EOH
 end
 
 bash "SELinux settings" do
-        user "root"
-		code <<-EOH
+  user "root"
+  code <<-EOH
 
 		setenforce 0
 
-		EOH
+  EOH
 end
 
 bash "Pull application repo from github" do
-        user "root"
-		code <<-EOH
+  user "root"
+  code <<-EOH
 
 		application_repo=#{node[node.chef_environment][$service_name].application.github_repo}
 		application_repo_name=#{node[node.chef_environment][$service_name].application.github_repo_name}
@@ -86,7 +86,7 @@ bash "Pull application repo from github" do
 		
 		git clone --recursive git@github.com:$application_repo $apps_dir
 
-		EOH
+  EOH
 end
 
 bash "Remove existing httpd conf file" do
@@ -104,8 +104,8 @@ template "/etc/httpd/conf/httpd.conf" do
 end
 
 bash "Set permissions and start services" do
-	user "root"
-	code <<-EOH
+  user "root"
+  code <<-EOH
 
 	apps_dir=#{node[node.chef_environment][$service_name].apps_dir}
 
@@ -118,7 +118,7 @@ bash "Set permissions and start services" do
 
 	# Start at runtime
 	chkconfig --levels 235 httpd on
-	EOH
+  EOH
 end
 
 
@@ -143,5 +143,5 @@ bash "restore rds database" do
 
     mysql -h #{$endpoint} -u #{$username} -p#{$password} #{$database} < /tmp/backup.sql
 
-	EOH
+  EOH
 end

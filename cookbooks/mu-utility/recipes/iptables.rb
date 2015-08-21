@@ -13,14 +13,14 @@
 # limitations under the License.
 
 case node.platform
-when "centos", "redhat"
-	if node.platform_version.to_i == 7
-		package "firewalld" do 
-			action :remove
-		end
+  when "centos", "redhat"
+    if node.platform_version.to_i == 7
+      package "firewalld" do
+        action :remove
+      end
 
-		package "iptables-services"
-	end
-else
-	Chef::Log.info("Unsupported platform #{node.platform}")
+      package "iptables-services"
+    end
+  else
+    Chef::Log.info("Unsupported platform #{node.platform}")
 end

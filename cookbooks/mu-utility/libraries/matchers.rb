@@ -14,7 +14,7 @@
 
 if defined?(ChefSpec)
 
-	def create_utility_active_directory_domain(resource_name)
+  def create_utility_active_directory_domain(resource_name)
     ChefSpec::Matchers::ResourceMatcher.new(:utility_active_directory_domain, :create, resource_name)
   end
 

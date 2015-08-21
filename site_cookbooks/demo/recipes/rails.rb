@@ -21,13 +21,13 @@ packages = %w(sqlite3 libsqlite3-dev libmysqlclient-dev software-properties-comm
 package packages
 
 apt_repository "brightbox-ruby-ng-#{node['lsb']['codename']}" do
-  uri          "http://ppa.launchpad.net/brightbox/ruby-ng/ubuntu"
+  uri "http://ppa.launchpad.net/brightbox/ruby-ng/ubuntu"
   distribution node['lsb']['codename']
-  components   ["main"]
-  keyserver    "keyserver.ubuntu.com"
-  key          "C3173AA6"
-  action       :add
-  notifies     :run, "execute[apt-get update]", :immediately
+  components ["main"]
+  keyserver "keyserver.ubuntu.com"
+  key "C3173AA6"
+  action :add
+  notifies :run, "execute[apt-get update]", :immediately
 end
 
 include_recipe 'apt'
@@ -35,55 +35,55 @@ include_recipe 'runit'
 include_recipe 'nodejs'
 include_recipe 'nginx'
 
-service_name     = node.normal.service_name
+service_name = node.normal.service_name
 chef_environment = node.chef_environment
-application_dir  = node[chef_environment][service_name].apps_dir
+application_dir = node[chef_environment][service_name].apps_dir
 repo_path = node[chef_environment][service_name].application.rails_repo
-version = node[chef_environment][service_name].application.version 
+version = node[chef_environment][service_name].application.version
 application_repo = "https://github.com/#{repo_path}"
 
 # Unicorn config
-unicorn_log_dir   = '/var/log/unicorn'
-unicorn_log       = "#{unicorn_log_dir}/unicorn.log"
+unicorn_log_dir = '/var/log/unicorn'
+unicorn_log = "#{unicorn_log_dir}/unicorn.log"
 unicorn_error_log = "#{unicorn_log_dir}/error.log"
 
 # RDS cofig
-db_name     = node.deployment.databases.concerto.db_name
+db_name = node.deployment.databases.concerto.db_name
 db_username = node.deployment.databases.concerto.username
 db_password = node.deployment.databases.concerto.password
-db_host     = node.deployment.databases.concerto.endpoint
-db_port     = node.deployment.databases.concerto.port
+db_host = node.deployment.databases.concerto.endpoint
+db_port = node.deployment.databases.concerto.port
 
 node.set['nginx']['default_root'] = "#{application_dir}/"
 
 package %w(ruby2.2 ruby2.2-dev)
 
 gem_package 'bundler' do
-  options    '--no-ri --no-rdoc'
+  options '--no-ri --no-rdoc'
   gem_binary "/usr/bin/gem"
 end
 
 # Need to reload OHAI to ensure the newest ruby is loaded up
 ohai "reload" do
- action :reload
+  action :reload
 end
 
 directory unicorn_log_dir do
-  owner  'www-data'
-  group  'www-data'
-  mode   00555
+  owner 'www-data'
+  group 'www-data'
+  mode 00555
   action :create
 end
 
 file unicorn_log do
-  owner  'www-data'
-  group  'www-data'
+  owner 'www-data'
+  group 'www-data'
   action :create_if_missing
 end
 
 file unicorn_error_log do
-  owner  'www-data'
-  group  'www-data'
+  owner 'www-data'
+  group 'www-data'
   action :create_if_missing
 end
 
@@ -102,25 +102,25 @@ end
 
 directory application_dir do
   recursive true
-  owner     'www-data'
+  owner 'www-data'
 end
 
 git 'checkout application' do
   destination "#{application_dir}/rails"
-  user        'www-data'
-  group       'www-data'
-  repository  application_repo
-  revision    version
+  user 'www-data'
+  group 'www-data'
+  repository application_repo
+  revision version
 end
 
 rails_env = 'development'
 database = {
-  'adapter'  => 'mysql2',
-  'encoding' => 'utf8',
-  'database' => db_name,
-  'username' => db_username,
-  'password' => db_password,
-  'port'     => db_port
+    'adapter' => 'mysql2',
+    'encoding' => 'utf8',
+    'database' => db_name,
+    'username' => db_username,
+    'password' => db_password,
+    'port' => db_port
 }
 
 template 'config/database.yml' do

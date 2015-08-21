@@ -19,93 +19,92 @@
 # Apply security patterns for hardening
 
 case node[:platform]
-	when "centos","redhat"
-		include_recipe "mu-tools::aws_api"
+  when "centos", "redhat"
+    include_recipe "mu-tools::aws_api"
 
 
-		%w{ policycoreutils-python authconfig ntp aide }.each do |pkg|
-			package pkg
-		end
+    %w{ policycoreutils-python authconfig ntp aide }.each do |pkg|
+      package pkg
+    end
 
-		service "auditd" do
-			action :nothing
-		end
+    service "auditd" do
+      action :nothing
+    end
 
-		if node['platform_version'] .to_i < 7
-			cookbook_file "/etc/audit/audit.rules" do
-				source "etc/audit/stig.rules"
-				notifies :restart, "service[auditd]", :delayed
-			end
-		end
+    if node['platform_version'].to_i < 7
+      cookbook_file "/etc/audit/audit.rules" do
+        source "etc/audit/stig.rules"
+        notifies :restart, "service[auditd]", :delayed
+      end
+    end
 
-		file "/etc/profile.d/tmout.sh" do
-			content "TMOUT=900
+    file "/etc/profile.d/tmout.sh" do
+      content "TMOUT=900
 readonly TMOUT
 export TMOUT
 "
-		end
+    end
 
-		file "/etc/profile.d/autologout.csh" do
-			content "set -r autologout 15\n"
-		end
+    file "/etc/profile.d/autologout.csh" do
+      content "set -r autologout 15\n"
+    end
 
-		bash "NTP" do
-		 	user "root"
-		 	code <<-EOH
+    bash "NTP" do
+      user "root"
+      code <<-EOH
 				chkconfig ntpd on
 				ntpdate pool.ntp.org
 				service ntpd start
-			EOH
-		end
-		
-		#File integrity checking. Default configuration
-		bash "AIDE" do
-			code <<-EOH
+      EOH
+    end
+
+    #File integrity checking. Default configuration
+    bash "AIDE" do
+      code <<-EOH
 				aide --init
 				mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
-			EOH
-			not_if { File.exists?("/var/lib/aide/aide.db.gz") }
-		end
-		cron "AIDE daily scan" do
-			action :create
-			minute "0"
-			hour "5"
-			user "root"
-			command "aide --check"
-		end
+      EOH
+      not_if { File.exists?("/var/lib/aide/aide.db.gz") }
+    end
+    cron "AIDE daily scan" do
+      action :create
+      minute "0"
+      hour "5"
+      user "root"
+      command "aide --check"
+    end
 
-		cookbook_file "/etc/security/limits.conf" do
-			source "etc/security/limits.conf"
-				mode 0644
-				owner "root"
-				group "root"
-		end
-		cookbook_file "/etc/sysctl.conf" do
-			source "etc/sysctl.conf"
-			mode 0644
-			owner "root"
-			group "root"
-		end
+    cookbook_file "/etc/security/limits.conf" do
+      source "etc/security/limits.conf"
+      mode 0644
+      owner "root"
+      group "root"
+    end
+    cookbook_file "/etc/sysctl.conf" do
+      source "etc/sysctl.conf"
+      mode 0644
+      owner "root"
+      group "root"
+    end
 
-		cookbook_file "/etc/sysconfig/init" do
-			source "etc/sysconfig/init"
-			mode 0644
-			owner "root"
-			group "root"
-		end
-				
+    cookbook_file "/etc/sysconfig/init" do
+      source "etc/sysconfig/init"
+      mode 0644
+      owner "root"
+      group "root"
+    end
 
 
-		bash "Logging and Auditing" do
-			code <<-EOH
+    bash "Logging and Auditing" do
+      code <<-EOH
 				#4.1.4 Create and Set Permissions on rsyslog Log Files
 				#find `awk '/^ *[^#$]/ { print $2 }' /etc/rsyslog.conf | egrep -o "/.*"` -perm /o+rwx
 				chmod og-rwx /var/log/boot.log
-			EOH
-		end
-		
-		bash "Network Configuration and Firewalls" do
-			code <<-EOH
+      EOH
+    end
+
+    bash "Network Configuration and Firewalls" do
+      code <<-EOH
 				#5.1.2 Disable Send Packet Redirects
 				sysctl -w net.ipv4.conf.default.send_redirects=0
 				sysctl -w net.ipv4.conf.all.send_redirects=0
@@ -130,19 +129,18 @@ export TMOUT
 				sysctl -w net.ipv6.conf.all.accept_redirects=0
 				sysctl -w net.ipv6.conf.default.accept_redirects=0
 				sysctl -w net.ipv6.route.flush=1
-			EOH
-		end
-		
-		
-		if node.normal.root_login_disabled
-			#some code
-		end
+      EOH
+    end
 
-	
 
-		bash "System Access, Authentication and Authorization" do
-			user "root"
-			code <<-EOH
+    if node.normal.root_login_disabled
+      #some code
+    end
+
+
+    bash "System Access, Authentication and Authorization" do
+      user "root"
+      code <<-EOH
 				#6.1 Configure cron and anacron
 				
 				#6.1.11 Restrict at/cron to Authorized Users
@@ -179,252 +177,252 @@ export TMOUT
 				chown root:root /etc/cron.allow
 				chmod og-rwx /etc/cron.allow
 
-			EOH
-		end
-	
-		# 6.2 Configure SSH
-		service "sshd" do
-			action [ :enable, :start ]
-		end
-		template "/etc/ssh/sshd_config" do
-			source "sshd_config.erb"
-			owner "root"
-			group "root"
-			mode 0600
-			cookbook "mu-tools"
-			notifies :restart, "service[sshd]", :immediately
-		end
+      EOH
+    end
 
-		cookbook_file "/etc/issue.net" do
-			source node.banner.path
-			mode 0644
-			owner "root"
-			group "root"
-		end
+    # 6.2 Configure SSH
+    service "sshd" do
+      action [:enable, :start]
+    end
+    template "/etc/ssh/sshd_config" do
+      source "sshd_config.erb"
+      owner "root"
+      group "root"
+      mode 0600
+      cookbook "mu-tools"
+      notifies :restart, "service[sshd]", :immediately
+    end
 
-		cookbook_file "/etc/issue" do
-			source node.banner.path
-			mode 0644
-			owner "root"
-			group "root"
-		end
-#		cookbook_file "/etc/motd" do
-#			source node.banner.path
-#			mode 0644
-#			owner "root"
-#			group "root"
-#		end
-#		cookbook_file "/etc/pam.d/su" do
-#			source "etc/pam.d/su"
-#			mode 0644
-#			owner "root"
-#			group "root"
-#		end
-		# 6.3 Configure PAM
-		# 6.3.2 Set Password Creation Requirement Parameters Using pam_cracklib
-		template "/etc/pam.d/password-auth" do
-			source "etc_pamd_password-auth.erb"
-		end
-		#6.3.3 Set Lockout for Failed Password Attempts
-		template "/etc/pam.d/system-auth" do
-			source "etc_pamd_system-auth.erb"
-		end
-		
-		#SV-50303r1_rule/SV-50304r1_rule
-		execute "chown root:root /etc/shadow"
-		#SV-50305r1_rule
-		execute "chmod 0000 /etc/shadow"
-		#SV-50243r1_rule/SV-50248r1_rule
-		execute "chown root:root /etc/gshadow"
-		#SV-50249r1_rule
-		execute "chmod 0000 /etc/gshadow"
-		#SV-50250r1_rule/SV-50251r1_rule
-		execute "chown root:root /etc/passwd"
-		#SV-50257r1_rule
-		execute "chmod 0644 /etc/passwd"
-		#SV-50258r1_rule/SV-50259r1_rule
-		execute "chown root:root /etc/group"
-		#SV-50261r1_rule
-		execute "chmod 0644 /etc/group"
-		
-		%w{ /lib /lib64 /usr/lib /usr/lib64 }.each do |dir|
-			execute "chown -R root #{dir}"
-		end
+    cookbook_file "/etc/issue.net" do
+      source node.banner.path
+      mode 0644
+      owner "root"
+      group "root"
+    end
 
-		
-		# 7.1 Set Shadow Password Suite Parameters (/etc/login.defs)
-		cookbook_file "/etc/login.defs" do
-			source "etc/login.defs"
-			mode 0644
-			owner "root"
-			group "root"
-		end
+    cookbook_file "/etc/issue" do
+      source node.banner.path
+      mode 0644
+      owner "root"
+      group "root"
+    end
+    #		cookbook_file "/etc/motd" do
+    #			source node.banner.path
+    #			mode 0644
+    #			owner "root"
+    #			group "root"
+    #		end
+    #		cookbook_file "/etc/pam.d/su" do
+    #			source "etc/pam.d/su"
+    #			mode 0644
+    #			owner "root"
+    #			group "root"
+    #		end
+    # 6.3 Configure PAM
+    # 6.3.2 Set Password Creation Requirement Parameters Using pam_cracklib
+    template "/etc/pam.d/password-auth" do
+      source "etc_pamd_password-auth.erb"
+    end
+    #6.3.3 Set Lockout for Failed Password Attempts
+    template "/etc/pam.d/system-auth" do
+      source "etc_pamd_system-auth.erb"
+    end
 
-		# 7.4 Set default umask for users
-		cookbook_file "/etc/bashrc" do
-			source "etc/bashrc"
-			mode 0644
-			owner "root"
-			group "root"
-		end
+    #SV-50303r1_rule/SV-50304r1_rule
+    execute "chown root:root /etc/shadow"
+    #SV-50305r1_rule
+    execute "chmod 0000 /etc/shadow"
+    #SV-50243r1_rule/SV-50248r1_rule
+    execute "chown root:root /etc/gshadow"
+    #SV-50249r1_rule
+    execute "chmod 0000 /etc/gshadow"
+    #SV-50250r1_rule/SV-50251r1_rule
+    execute "chown root:root /etc/passwd"
+    #SV-50257r1_rule
+    execute "chmod 0644 /etc/passwd"
+    #SV-50258r1_rule/SV-50259r1_rule
+    execute "chown root:root /etc/group"
+    #SV-50261r1_rule
+    execute "chmod 0644 /etc/group"
 
-		cookbook_file "/etc/profile" do
-			source "etc/profile"
-			mode 0644
-			owner "root"
-			group "root"
-		end
+    %w{ /lib /lib64 /usr/lib /usr/lib64 }.each do |dir|
+      execute "chown -R root #{dir}"
+    end
 
-		# 7.5 Lock Inactive User Accounts
-		bash "Lock Inactive Accounts" do
-			user "root"
-			code <<-EOH
+
+    # 7.1 Set Shadow Password Suite Parameters (/etc/login.defs)
+    cookbook_file "/etc/login.defs" do
+      source "etc/login.defs"
+      mode 0644
+      owner "root"
+      group "root"
+    end
+
+    # 7.4 Set default umask for users
+    cookbook_file "/etc/bashrc" do
+      source "etc/bashrc"
+      mode 0644
+      owner "root"
+      group "root"
+    end
+
+    cookbook_file "/etc/profile" do
+      source "etc/profile"
+      mode 0644
+      owner "root"
+      group "root"
+    end
+
+    # 7.5 Lock Inactive User Accounts
+    bash "Lock Inactive Accounts" do
+      user "root"
+      code <<-EOH
 				useradd -D -f 35
-			EOH
-		end
+      EOH
+    end
 
-		# disable some filesystems
-		["cramfs", "freevxfs", "jffs2", "hfs", "hfsplus", "squashfs", "udf"].each { |fs|
-			execute "disable #{fs}" do
-				command "echo 'install #{fs} /bin/true' >> /etc/modprobe.d/dist.conf"
-				not_if "grep '^install #{fs} ' /etc/modprobe.d/dist.conf"
-			end
-		}
+    # disable some filesystems
+    ["cramfs", "freevxfs", "jffs2", "hfs", "hfsplus", "squashfs", "udf"].each { |fs|
+      execute "disable #{fs}" do
+        command "echo 'install #{fs} /bin/true' >> /etc/modprobe.d/dist.conf"
+        not_if "grep '^install #{fs} ' /etc/modprobe.d/dist.conf"
+      end
+    }
 
-		ruby_block "create /home" do
-			extend CAPVolume
-			block do
-				require 'aws-sdk-core'
-				if !File.open("/etc/mtab").read.match(/ #{node[:application_attributes][:home][:mount_directory]} /) and !volume_attached(node[:application_attributes][:home][:mount_device])
-					create_node_volume(:home)
-					result = attach_node_volume(:home)
-				end
-			end
-			not_if "tune2fs -l #{node[:application_attributes][:home][:mount_device]}" if node.platform_version.to_i == 6
-			not_if "xfs_info #{node[:application_attributes][:home][:mount_device]}" if node.platform_version.to_i == 7
-		end
-		ruby_block "label /home as #{node.application_attributes.home.label}" do
-			extend CAPVolume
-			block do
-			  tags = [ { key: "Name", value: node.application_attributes.home.label } ]
-			  if node.tags.is_a?(Hash)
-			    node.tags.each_pair { |key, value|
-			      tags << { key: key, value: value } if value.is_a?(String)
-			    }
-			  end
-			  tag_volume(node.application_attributes.home.mount_device, tags)
-			end
-		end rescue NoMethodError
+    ruby_block "create /home" do
+      extend CAPVolume
+      block do
+        require 'aws-sdk-core'
+        if !File.open("/etc/mtab").read.match(/ #{node[:application_attributes][:home][:mount_directory]} /) and !volume_attached(node[:application_attributes][:home][:mount_device])
+          create_node_volume(:home)
+          result = attach_node_volume(:home)
+        end
+      end
+      not_if "tune2fs -l #{node[:application_attributes][:home][:mount_device]}" if node.platform_version.to_i == 6
+      not_if "xfs_info #{node[:application_attributes][:home][:mount_device]}" if node.platform_version.to_i == 7
+    end
+    ruby_block "label /home as #{node.application_attributes.home.label}" do
+      extend CAPVolume
+      block do
+        tags = [{key: "Name", value: node.application_attributes.home.label}]
+        if node.tags.is_a?(Hash)
+          node.tags.each_pair { |key, value|
+            tags << {key: key, value: value} if value.is_a?(String)
+          }
+        end
+        tag_volume(node.application_attributes.home.mount_device, tags)
+      end
+    end rescue NoMethodError
 
-		if node.platform_version.to_i == 6
-			execute "mkfs.ext4 #{node[:application_attributes][:home][:mount_device]}" do
-				not_if "tune2fs -l #{node[:application_attributes][:home][:mount_device]}"
-			end
-		elsif node.platform_version.to_i == 7
-			execute "mkfs.xfs -i size=512 #{node[:application_attributes][:home][:mount_device]}" do
-				not_if "xfs_info #{node[:application_attributes][:home][:mount_device]}"
-			end
-		end
+    if node.platform_version.to_i == 6
+      execute "mkfs.ext4 #{node[:application_attributes][:home][:mount_device]}" do
+        not_if "tune2fs -l #{node[:application_attributes][:home][:mount_device]}"
+      end
+    elsif node.platform_version.to_i == 7
+      execute "mkfs.xfs -i size=512 #{node[:application_attributes][:home][:mount_device]}" do
+        not_if "xfs_info #{node[:application_attributes][:home][:mount_device]}"
+      end
+    end
 
-		Chef::Log.info("Value of login_disabled is #{node.normal.root_login_disabled}")
-		
-		if Dir.exist?("/home")
-			execute "tar up any old userdirs" do
-				command "tar czf /tmp/moveusers.tgz -C /home ."
+    Chef::Log.info("Value of login_disabled is #{node.normal.root_login_disabled}")
+
+    if Dir.exist?("/home")
+      execute "tar up any old userdirs" do
+        command "tar czf /tmp/moveusers.tgz -C /home ."
 #			not_if { ::File.exists?("/tmp/moveusers.tgz") }
-				not_if "grep '^#{node[:application_attributes][:home][:mount_device]} #{node[:application_attributes][:home][:mount_directory]}' /etc/mtab"
-			end
-		end
+        not_if "grep '^#{node[:application_attributes][:home][:mount_device]} #{node[:application_attributes][:home][:mount_directory]}' /etc/mtab"
+      end
+    end
 
-		mount node[:application_attributes][:home][:mount_directory] do
-			device node[:application_attributes][:home][:mount_device]
-			options "nodev"
-			action [ :mount, :enable ]
-			notifies :run, "ruby_block[restore userdirs]", :immediately
-		end
+    mount node[:application_attributes][:home][:mount_directory] do
+      device node[:application_attributes][:home][:mount_device]
+      options "nodev"
+      action [:mount, :enable]
+      notifies :run, "ruby_block[restore userdirs]", :immediately
+    end
 
-		ruby_block "restore userdirs" do
-			block do
-				`tar xzf /tmp/moveusers.tgz --preserve-permissions --same-owner --directory /home`
-				`chcon -Rv --type=user_home_t /home`
-				`rm -rf /tmp/moveusers.tgz`
-	 			valid_users="AllowUsers root"
-    		node['etc']['passwd'].each do |user, data|
-      		if data['uid'] >= 500 && data['shell'] !~ /nologin/ then
-						valid_users += " " + user
-					end
-      	end
-				Chef::Log.info("Enabling ssh users #{valid_users}")
-				fe = Chef::Util::FileEdit.new("/etc/ssh/sshd_config")
-				fe.search_file_replace_line(/^AllowUsers.*$/, "#{valid_users}")
-				fe.write_file
-			end
-			only_if { ::File.exists?("/tmp/moveusers.tgz") }
-		end
+    ruby_block "restore userdirs" do
+      block do
+        `tar xzf /tmp/moveusers.tgz --preserve-permissions --same-owner --directory /home`
+        `chcon -Rv --type=user_home_t /home`
+        `rm -rf /tmp/moveusers.tgz`
+        valid_users="AllowUsers root"
+        node['etc']['passwd'].each do |user, data|
+          if data['uid'] >= 500 && data['shell'] !~ /nologin/ then
+            valid_users += " " + user
+          end
+        end
+        Chef::Log.info("Enabling ssh users #{valid_users}")
+        fe = Chef::Util::FileEdit.new("/etc/ssh/sshd_config")
+        fe.search_file_replace_line(/^AllowUsers.*$/, "#{valid_users}")
+        fe.write_file
+      end
+      only_if { ::File.exists?("/tmp/moveusers.tgz") }
+    end
 
-		execute "mount -oremount /dev/shm" do
-			action :nothing
-		end
-		mount "/dev/shm" do
-			device "tmpfs"
-			options "nodev,nosuid,noexec"
-			action [ :enable, :mount ]
-			notifies :run, "execute[mount -oremount /dev/shm]", :immediately
-		end
+    execute "mount -oremount /dev/shm" do
+      action :nothing
+    end
+    mount "/dev/shm" do
+      device "tmpfs"
+      options "nodev,nosuid,noexec"
+      action [:enable, :mount]
+      notifies :run, "execute[mount -oremount /dev/shm]", :immediately
+    end
 
-		# XXX This is where ephemeral storage seems to land, usually. Usually. We'd
-		# probably like a more robust way of identifying it.
-		if !node.tmp_dev.nil?
-			if node.platform_version.to_i == 6
-				execute "mkfs.ext4 #{node.tmp_dev}" do
-					not_if "tune2fs -l #{node.tmp_dev}"
-				end
-			elsif node.platform_version.to_i == 7
-				execute "mkfs.xfs -i size=512 #{node.tmp_dev}" do
-					not_if "xfs_info #{node.tmp_dev}"
-				end
-			end
+    # XXX This is where ephemeral storage seems to land, usually. Usually. We'd
+    # probably like a more robust way of identifying it.
+    if !node.tmp_dev.nil?
+      if node.platform_version.to_i == 6
+        execute "mkfs.ext4 #{node.tmp_dev}" do
+          not_if "tune2fs -l #{node.tmp_dev}"
+        end
+      elsif node.platform_version.to_i == 7
+        execute "mkfs.xfs -i size=512 #{node.tmp_dev}" do
+          not_if "xfs_info #{node.tmp_dev}"
+        end
+      end
 
-			mount "/tmp" do
-				device node.tmp_dev
-				options "nodev,nosuid,noexec"
-				action [ :mount, :enable ]
-				notifies :run, "execute[fix /tmp permissions]", :immediately
-			end
-			mount "/var/tmp" do
-				device "/tmp"
-				options "bind"
-				action [ :mount, :enable ]
-			end
-			execute "fix /tmp permissions" do
-				command "chmod 1777 /tmp ; /sbin/restorecon -R /tmp"
-			end
-		end rescue NoMethodError
+      mount "/tmp" do
+        device node.tmp_dev
+        options "nodev,nosuid,noexec"
+        action [:mount, :enable]
+        notifies :run, "execute[fix /tmp permissions]", :immediately
+      end
+      mount "/var/tmp" do
+        device "/tmp"
+        options "bind"
+        action [:mount, :enable]
+      end
+      execute "fix /tmp permissions" do
+        command "chmod 1777 /tmp ; /sbin/restorecon -R /tmp"
+      end
+    end rescue NoMethodError
 
-	when "ubuntu"
-		template "/etc/ssh/sshd_config" do
-			source "sshd_config.erb"
-			owner "root"
-			group "root"
-			mode 0600
-			cookbook "mu-tools"
-			notifies :restart, "service[sshd]", :immediately
-		end
-		cookbook_file "/etc/issue.net" do
-			source "etc/BANNER"
-			mode 0644
-			owner "root"
-			group "root"
-		end
-		cookbook_file "/etc/motd.tail" do
-			source "etc/BANNER"
-			mode 0644
-			owner "root"
-			group "root"
-		end
+  when "ubuntu"
+    template "/etc/ssh/sshd_config" do
+      source "sshd_config.erb"
+      owner "root"
+      group "root"
+      mode 0600
+      cookbook "mu-tools"
+      notifies :restart, "service[sshd]", :immediately
+    end
+    cookbook_file "/etc/issue.net" do
+      source "etc/BANNER"
+      mode 0644
+      owner "root"
+      group "root"
+    end
+    cookbook_file "/etc/motd.tail" do
+      source "etc/BANNER"
+      mode 0644
+      owner "root"
+      group "root"
+    end
 
 
-	else
-		Chef::Log.info("Unsupported platform #{node[:platform]}")
+  else
+    Chef::Log.info("Unsupported platform #{node[:platform]}")
 end
 

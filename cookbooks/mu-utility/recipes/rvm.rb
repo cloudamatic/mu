@@ -18,14 +18,14 @@
 
 case node[:platform]
 
-	when "centos"
+  when "centos"
 
 
-	when "ubuntu"
+  when "ubuntu"
 
-		bash "install rvm on ubuntu" do
-	        user "root"
-	        code <<-EOH
+    bash "install rvm on ubuntu" do
+      user "root"
+      code <<-EOH
 
 curl -L https://get.rvm.io | bash -s stable
 
@@ -100,10 +100,10 @@ EOF
 # check version
 ruby --version
 			
-			EOH
-		end
+      EOH
+    end
 
-	else
-		Chef::Log.info("Unsupported platform #{node[:platform]}")
+  else
+    Chef::Log.info("Unsupported platform #{node[:platform]}")
 end
 

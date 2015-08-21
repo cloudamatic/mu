@@ -24,7 +24,7 @@ document_root = '/var/www'
 server_name = node.ec2.public_ip_address
 
 web_app "default" do
-  enable  true
+  enable true
   docroot document_root
   server_name server_name
 end

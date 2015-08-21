@@ -1,22 +1,22 @@
 [logging]
- default = FILE:/var/log/krb5libs.log
- kdc = FILE:/var/log/krb5kdc.log
+default = FILE:/var/log/krb5libs.log
+kdc = FILE:/var/log/krb5kdc.log
 
 [libdefaults]
- default_realm = <%= @domain_name.upcase %>
- dns_lookup_realm = true
- dns_lookup_kdc = true
- ticket_lifetime = 48h
- renew_lifetime = 7d
- forwardable = true
+default_realm = <%= @domain_name.upcase %>
+dns_lookup_realm = true
+dns_lookup_kdc = true
+ticket_lifetime = 48h
+renew_lifetime = 7d
+forwardable = true
 
 [realms]
- <%= @domain_name.upcase %> = {
+<%= @domain_name.upcase %> = {
 <% @dcs.each do |dc| %>
-  kdc = <%= dc %>
+    kdc = <%= dc %>
 <% end %>
- }
+}
 
 [domain_realm]
- <%= @domain_name.downcase %> = <%= @domain_name.upcase %>
- .<%= @domain_name.downcase %> = <%= @domain_name.upcase %>
+<%= @domain_name.downcase %> = <%= @domain_name.upcase %>
+.<%= @domain_name.downcase %> = <%= @domain_name.upcase %>

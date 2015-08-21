@@ -19,44 +19,44 @@
 # Installs maldetect and enables a cron job to scan all local filesystems at
 # a random time once per day.
 if node.maldet.install == true
-	include_recipe "mu-tools::clamav"
+  include_recipe "mu-tools::clamav"
 
-	if !platform_family?("windows")
-		execute "unpack maldetect" do
-		  cwd Chef::Config[:file_cache_path]
-		  command "tar xfz maldetect-current.tar.gz"
-			action :nothing
-		end
+  if !platform_family?("windows")
+    execute "unpack maldetect" do
+      cwd Chef::Config[:file_cache_path]
+      command "tar xfz maldetect-current.tar.gz"
+      action :nothing
+    end
 
-		# XXX Probably ought to pick a version and checksum it.
-		remote_file "#{Chef::Config[:file_cache_path]}/maldetect-current.tar.gz" do
-		  action :create
-		  source "https://www.rfxn.com/downloads/maldetect-current.tar.gz"
-		  owner "root"
-		  group "root"
-			notifies :run, "execute[unpack maldetect]", :immediately
-		end
+    # XXX Probably ought to pick a version and checksum it.
+    remote_file "#{Chef::Config[:file_cache_path]}/maldetect-current.tar.gz" do
+      action :create
+      source "https://www.rfxn.com/downloads/maldetect-current.tar.gz"
+      owner "root"
+      group "root"
+      notifies :run, "execute[unpack maldetect]", :immediately
+    end
 
 
-		execute "install maldetect" do
-		  command "dir=\"`tar -tzf #{Chef::Config[:file_cache_path]}/maldetect-current.tar.gz | head -1`\" ; cd #{Chef::Config[:file_cache_path]}/$dir && ./install.sh && /usr/local/maldetect/maldet --update ; rm -f /etc/cron.daily/maldet"
-			returns [0,1]
-		  not_if "test -f /usr/local/maldetect/maldet"
-		end
+    execute "install maldetect" do
+      command "dir=\"`tar -tzf #{Chef::Config[:file_cache_path]}/maldetect-current.tar.gz | head -1`\" ; cd #{Chef::Config[:file_cache_path]}/$dir && ./install.sh && /usr/local/maldetect/maldet --update ; rm -f /etc/cron.daily/maldet"
+      returns [0, 1]
+      not_if "test -f /usr/local/maldetect/maldet"
+    end
 
-		template "/usr/local/sbin/maldet_scanall.sh" do
-			source "maldet_scanall.sh.erb"
-			mode "0755"
-		end
+    template "/usr/local/sbin/maldet_scanall.sh" do
+      source "maldet_scanall.sh.erb"
+      mode "0755"
+    end
 
-		template "/usr/local/sbin/conf.maldet" do
-			source "conf.maldet.erb"
-		end
+    template "/usr/local/sbin/conf.maldet" do
+      source "conf.maldet.erb"
+    end
 
-		cron "update maldet" do
-			minute "#{Random.rand(0...59)}"
-			hour "#{Random.rand(0...23)}"
-			command "/usr/local/maldetect/maldet --update; /usr/local/sbin/maldet_scanall.sh"
-		end
-	end
+    cron "update maldet" do
+      minute "#{Random.rand(0...59)}"
+      hour "#{Random.rand(0...23)}"
+      command "/usr/local/maldetect/maldet --update; /usr/local/sbin/maldet_scanall.sh"
+    end
+  end
 end

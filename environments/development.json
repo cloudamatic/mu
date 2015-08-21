@@ -1,8 +1,8 @@
 {
-	"name": "development",
-	"default_attributes": {
-	  },
-	"json_class": "Chef::Environment",
-	"description": "Infrastructure development environment",
-	"chef_type": "environment"
+  "name": "development",
+  "default_attributes": {
+  },
+  "json_class": "Chef::Environment",
+  "description": "Infrastructure development environment",
+  "chef_type": "environment"
 }

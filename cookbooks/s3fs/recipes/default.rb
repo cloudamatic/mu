@@ -35,7 +35,7 @@ case node[:platform]
 
     bash "install fuse" do
       user 'root'
-      cwd  '/usr/local/src/'
+      cwd '/usr/local/src/'
       code <<-EOH
         unzip fuse-2.9.3.zip
         mv fuse-2.9.3 fuse

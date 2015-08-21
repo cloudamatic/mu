@@ -2,9 +2,12 @@
 #
 ##
 # Linux Malware Detect v1.4.2
-#             (C) 2002-2013, R-fx Networks <proj@r-fx.org>
-#             (C) 2013, Ryan MacDonald <ryan@r-fx.org>
-# inotifywait (C) 2007, Rohan McGovern  <rohan@mcgovern.id.au>
+#             (C) 2002-2013, R-fx Networks
+<proj@r-fx.org>
+#             (C) 2013, Ryan MacDonald
+<ryan@r-fx.org>
+# inotifywait (C) 2007, Rohan McGovern
+<rohan@mcgovern.id.au>
 # This program may be freely redistributed under the terms of the GNU GPL v2
 ##
 #
@@ -22,9 +25,9 @@ email_subj="maldet alert from $(hostname)"
 # The destination addresses for email alerts
 # [ values are comma (,) spaced ]
 <% if !node.nil? and !node.admins.nil? %>
-email_addr="<%= node.admins.join(', ') %>"
+    email_addr="<%= node.admins.join(', ') %>"
 <% else %>
-email_addr="root@localhost"
+    email_addr="root@localhost"
 <% end rescue NoMethodError %>
 
 # Ignore e-mail alerts for reports in which all hits have been cleaned.
@@ -76,7 +79,7 @@ hexdepth=61440
 # Use named pipe (FIFO) for passing file contents hex data
 # instead of stdin default; improved performance and greater
 # scanning depth
-# [ 0 = disabled, 1 = enabled; enabled by default ] 
+# [ 0 = disabled, 1 = enabled; enabled by default ]
 hex_fifo_scan=1
 
 # The maximum byte depth that the scanner will search into
@@ -89,7 +92,7 @@ hex_fifo_depth=524288
 # scan performance and superior hex analysis. This option
 # only uses ClamAV as the scanner engine, LMD signatures
 # are still the basis for detecting threats.
-# [ 0 = disabled, 1 = enabled; enabled by default ] 
+# [ 0 = disabled, 1 = enabled; enabled by default ]
 clamav_scan=1
 
 # Allow non-root users to perform malware scans. This must be
@@ -109,8 +112,8 @@ public_scan=0
 # useful as obfuscated code is often stored using encoding methods
 # that produce very long strings without spaces (e.g: base64)
 # [ string length in characters, default = 150000 ]
-string_length_scan="0"		# [ 0 = disabled, 1 = enabled ]
-string_length="150000"		# [ max string length ]
+string_length_scan="0"        # [ 0 = disabled, 1 = enabled ]
+string_length="150000"        # [ max string length ]
 
 ##
 # [ MONITORING OPTIONS ]

@@ -35,10 +35,10 @@ ruby_block "Pull App from Repo" do
     git_clone = "git clone https://#{$application_repo_username}:#{$application_repo_password}@#{$application_repo}"
     `#{git_clone}`
     unless $application_repo_branch == "master"
-        Chef::Log.info("Branching to #{$application_repo_branch}")
-         Dir.chdir("#{$application_mount_directory}/#{$application_repo_name}")
-        `git checkout -b remotes/origin/#{$application_repo_branch}`
-        `git pull origin #{$application_repo_branch}`
+      Chef::Log.info("Branching to #{$application_repo_branch}")
+      Dir.chdir("#{$application_mount_directory}/#{$application_repo_name}")
+      `git checkout -b remotes/origin/#{$application_repo_branch}`
+      `git pull origin #{$application_repo_branch}`
     end
   end
   action :create

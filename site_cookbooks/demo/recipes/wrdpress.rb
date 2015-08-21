@@ -38,17 +38,17 @@ package "mysql"
 
 # Create the db if brand new
 bash "Create mysql database in RDS" do
-	user "root"
-	code <<-EOH
+  user "root"
+  code <<-EOH
 		mysql -h #{$db_host} -u #{$db_user} -p#{$db_password} -e "CREATE DATABASE IF NOT EXISTS #{$db_name};"
-	EOH
+  EOH
 end
 
 # The apache2 cookbook doesn't support mod_ext_filter for some reason, but it
 # comes with the package, so that's easy enough.
 link "/etc/httpd/mods-enabled/ext_filter.load" do
-	to "/etc/httpd/mods-available/ext_filter.load"
-	notifies :reload, "service[apache2]", :delayed
+  to "/etc/httpd/mods-available/ext_filter.load"
+  notifies :reload, "service[apache2]", :delayed
 end
 =begin
 cookbook_file "/etc/fema_banner.html" do
@@ -58,67 +58,67 @@ end
 =end
 
 remote_file "#{Chef::Config[:file_cache_path]}/wordpress.tar.gz" do
-	source "http://wordpress.org/latest.tar.gz"
-	if node.deployment.environment == 'dev'
-		notifies :run, "execute[install latest Wordpress]", :immediately
-	end
+  source "http://wordpress.org/latest.tar.gz"
+  if node.deployment.environment == 'dev'
+    notifies :run, "execute[install latest Wordpress]", :immediately
+  end
 end
 
 execute "install latest Wordpress" do
-	command "tar --strip-components=1 -xzf #{Chef::Config[:file_cache_path]}/wordpress.tar.gz"
-	cwd "/var/www/html"
-	not_if { ::File.exists?("/var/www/html/wp-config.php") }
+  command "tar --strip-components=1 -xzf #{Chef::Config[:file_cache_path]}/wordpress.tar.gz"
+  cwd "/var/www/html"
+  not_if { ::File.exists?("/var/www/html/wp-config.php") }
 end
 
 # Install heartbeat for ELB
 template '/var/www/html/heartbeat.php' do
-owner 'root'
-group 'root'
-mode '0644'
-source "heartbeat.php.erb"
+  owner 'root'
+  group 'root'
+  mode '0644'
+  source "heartbeat.php.erb"
 end
 
 # Install .htaccess for redirects
 template '/var/www/html/.htaccess' do
-owner 'root'
-group 'root'
-mode '0644'
-source "wp-htaccess.erb"
+  owner 'root'
+  group 'root'
+  mode '0644'
+  source "wp-htaccess.erb"
 end
 
 execute "chown -R apache:apache /var/www/html"
 
 execute "setsebool -P httpd_can_network_connect on" do
-	not_if "getsebool httpd_can_network_connect | grep ' on$'"
-	notifies :reload, "service[apache2]", :delayed
+  not_if "getsebool httpd_can_network_connect | grep ' on$'"
+  notifies :reload, "service[apache2]", :delayed
 end
 
 [80, 443].each { |port|
-	bash "Allow #{port} through iptables" do
-	  user "root"
-	  not_if "/sbin/iptables -nL | egrep '^ACCEPT.*dpt:#{port}($| )'"
-	  code <<-EOH
+  bash "Allow #{port} through iptables" do
+    user "root"
+    not_if "/sbin/iptables -nL | egrep '^ACCEPT.*dpt:#{port}($| )'"
+    code <<-EOH
 		  iptables -I INPUT -p tcp --dport #{port} -j ACCEPT
 	    service iptables save
 	    service iptables restart
-		EOH
-	end
+    EOH
+  end
 }
 
 #include_recipe 'chef-vault'
 #dbpass = chef_vault_item("wordpress", "dbpass")['password']
 
 template "/var/www/html/wp-config.php" do
-	source "wp-config.php.erb"
-	variables(
-		:dbname => $db_name,
-		:dbuser => $db_user,
-		:dbpass => $db_password,
-		:dbhost => $db_endpoint,
-		:dbport => 3306
-	)
-	mode 0644
-	sensitive true
+  source "wp-config.php.erb"
+  variables(
+      :dbname => $db_name,
+      :dbuser => $db_user,
+      :dbpass => $db_password,
+      :dbhost => $db_endpoint,
+      :dbport => 3306
+  )
+  mode 0644
+  sensitive true
 end
 
 =begin
@@ -139,19 +139,19 @@ file "/etc/httpd/ssl/femadata.key" do
 end
 =end
 web_app "wordpress" do
-	server_name "www.cloudamatic.com"
-	server_aliases [ node.fqdn, node.hostname, node.hostname+".cloudamatic.com", $lb_url ]
+  server_name "www.cloudamatic.com"
+  server_aliases [node.fqdn, node.hostname, node.hostname+".cloudamatic.com", $lb_url]
 =begin
 	if node.deployment.environment == 'dev' or node.deployment.environment == 'development'
 		server_aliases [ node.fqdn, node.hostname, node.hostname+".cloudamatic.com", "www.dev.cloudamatic.com", node.ec2.public_ip_address ]
 	else
 		server_aliases [ node.fqdn, node.hostname, node.hostname+".cloudamatic.com", "cloudamatic.com", node.deployment.loadbalancers.wordpress.dns ]
 	end
-=end	#cookbook "femadata-mgmt"
-	docroot "/var/www/html"
-	allow_override "All"
-	template "wp-vhost.conf.erb"
-	notifies :reload, "service[apache2]", :delayed
+=end #cookbook "femadata-mgmt"
+  docroot "/var/www/html"
+  allow_override "All"
+  template "wp-vhost.conf.erb"
+  notifies :reload, "service[apache2]", :delayed
 end
 =begin
 # Parts and pieces for our LIDAR data S3 browser

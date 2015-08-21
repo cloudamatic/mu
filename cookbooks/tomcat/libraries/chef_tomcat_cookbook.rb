@@ -21,7 +21,8 @@
 
 class Chef
   module TomcatCookbook
-    class TomcatCookbookError < StandardError; end
+    class TomcatCookbookError < StandardError;
+    end
     class InvalidUserDataBagItem < TomcatCookbookError
       attr_reader :item
 
@@ -72,8 +73,8 @@ class Chef
         users = if Chef::Config[:solo]
                   data_bag = Chef::DataBag.load(USERS_DATA_BAG)
                   data_bag.keys.map do |name|
-            Chef::DataBagItem.load(USERS_DATA_BAG, name)
-          end
+                    Chef::DataBagItem.load(USERS_DATA_BAG, name)
+                  end
                 else
                   begin
                     items = Chef::Search::Query.new.search(USERS_DATA_BAG)[0]

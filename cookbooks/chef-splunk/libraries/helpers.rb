@@ -25,23 +25,23 @@ def splunk_file(uri)
 end
 
 def splunk_cmd
-	case node['platform_family']
-	when 'windows'
-	  "#{splunk_dir}\\bin\\splunk.exe"
-	else
-    "#{splunk_dir}/bin/splunk"
+  case node['platform_family']
+    when 'windows'
+      "#{splunk_dir}\\bin\\splunk.exe"
+    else
+      "#{splunk_dir}/bin/splunk"
   end
 end
 
 def splunk_dir
   # Splunk Enterprise (Server) will install in /opt/splunk.
   # Splunk Universal Forwarder (not Server) will install in /opt/splunkforwarder
-	case node['platform_family']
-	when 'windows'
-	  node['splunk']['is_server'] ? '/opt/splunk' : 'C:\\Program Files\\SplunkUniversalForwarder'
-	else
-    node['splunk']['is_server'] ? '/opt/splunk' : '/opt/splunkforwarder'
-	end
+  case node['platform_family']
+    when 'windows'
+      node['splunk']['is_server'] ? '/opt/splunk' : 'C:\\Program Files\\SplunkUniversalForwarder'
+    else
+      node['splunk']['is_server'] ? '/opt/splunk' : '/opt/splunkforwarder'
+  end
 end
 
 def splunk_auth(auth)
@@ -54,9 +54,9 @@ def splunk_auth(auth)
   # joined with a : to make it defined as a splunk authentication
   # string (as above.
   case auth
-  when String
-    auth
-  when Array
-    auth.join(':')
+    when String
+      auth
+    when Array
+      auth.join(':')
   end
 end

@@ -13,11 +13,11 @@
 # limitations under the License.
 
 if platform_family?("debian")
-	bash "Straighten out apt" do
-		user "root"
-		code <<-EOH
+  bash "Straighten out apt" do
+    user "root"
+    code <<-EOH
 		apt-get -y clean
 		apt-get -y update
-		EOH
-	end
+    EOH
+  end
 end

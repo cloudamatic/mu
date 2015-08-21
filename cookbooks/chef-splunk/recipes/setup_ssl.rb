@@ -27,8 +27,8 @@ include_recipe 'chef-vault'
 ssl_options = node['splunk']['ssl_options']
 
 certs = chef_vault_item(
-  ssl_options['data_bag'],
-  ssl_options['data_bag_item']
+    ssl_options['data_bag'],
+    ssl_options['data_bag_item']
 )['data']
 
 # ensure that the splunk service resource is available without cloning

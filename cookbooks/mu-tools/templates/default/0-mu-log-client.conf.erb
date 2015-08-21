@@ -1,13 +1,13 @@
 $LocalHostName <%= node.name %>
 
 <% if !node.deployment.nil? and !node.deployment.mu_public_ip.nil? %>
-# certificate files - just CA for a client
-$DefaultNetstreamDriverCAFile <%= $rsyslog_ssl_ca_path %>
+    # certificate files - just CA for a client
+    $DefaultNetstreamDriverCAFile <%= $rsyslog_ssl_ca_path %>
 
 
-# set up the action
-$DefaultNetstreamDriver gtls # use gtls netstream driver
-$ActionSendStreamDriverMode 1 # require TLS for the connection
-$ActionSendStreamDriverAuthMode anon # server is NOT authenticated
-*.* @@(o)<%= node.deployment.mu_public_ip %>:10514 # send (all) messages
+    # set up the action
+    $DefaultNetstreamDriver gtls # use gtls netstream driver
+    $ActionSendStreamDriverMode 1 # require TLS for the connection
+    $ActionSendStreamDriverAuthMode anon # server is NOT authenticated
+    *.* @@(o)<%= node.deployment.mu_public_ip %>:10514 # send (all) messages
 <% end rescue NoMethodError %>
