@@ -521,6 +521,11 @@ module MU
               nat_tag_value: nat_tag_value,
               nat_ip: vpc_block['nat_host_ip']
           )
+					ssh_keydir = Etc.getpwnam(MU.mu_user).dir+"/.ssh"
+					if !vpc_block['nat_ssh_key'].nil and !File.exists?(ssh_keydir+"/"+vpc_block['nat_ssh_key'])
+              MU.log "Couldn't find alternate NAT key #{ssh_keydir}/#{vpc_block['nat_ssh_key']} in #{parent_name}", MU::ERR, details: vpc_block
+              return false
+					end
 
           if !ext_nat
             if vpc_block["nat_host_id"].nil? and nat_tag_key.nil? and vpc_block['nat_host_ip'].nil? and vpc_block["deploy_id"].nil?
@@ -1758,6 +1763,10 @@ module MU
                 "nat_ssh_user" => {
                     "type" => "string",
                     "default" => "root",
+                },
+                "nat_ssh_key" => {
+                    "type" => "string",
+                    "description" => "An alternate SSH private key for access to the NAT. We'll expect to find this in ~/.ssh along with the regular keys.",
                 },
                 "nat_host_tag" => {
                     "type" => "string",

@@ -522,7 +522,9 @@ module MU
                 return nil
               end
               # XXX Yanking these things from the cloud descriptor will only work in AWS!
+
               nat_ssh_key = @nat.cloud_desc.key_name
+							nat_ssh_key = @config["vpc"]["nat_ssh_key"] if !@config["vpc"]["nat_ssh_key"].nil?
               nat_ssh_host = @nat.cloud_desc.public_ip_address
               nat_ssh_user = @config["vpc"]["nat_ssh_user"]
               if nat_ssh_user.nil? and !nat_ssh_host.nil?
