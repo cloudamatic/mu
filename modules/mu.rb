@@ -397,7 +397,6 @@ module MU
 	    user_list = MU::Cloud::AWS.iam.list_users.users
 		rescue Aws::IAM::Errors::AccessDenied => e
 			MU.log "Got #{e.inspect} while trying to figure out our account number", MU::WARN
-			return nil
 		end
     if user_list.nil? or user_list.size == 0
       mac = MU::Cloud::AWS.getAWSMetaData("network/interfaces/macs/").split(/\n/)[0]
