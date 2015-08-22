@@ -2,7 +2,7 @@ GEM
   remote: https://rubygems.org/
   specs:
     addressable (2.3.8)
-    aws-sdk-core (2.1.13)
+    aws-sdk-core (2.1.15)
       jmespath (~> 1.0)
     berkshelf (3.3.0)
       addressable (~> 2.3.4)
@@ -167,7 +167,7 @@ GEM
       slop (~> 3.4)
     rack (1.6.4)
     rake (10.4.2)
-    retryable (2.0.1)
+    retryable (2.0.2)
     ridley (4.2.0)
       addressable
       buff-config (~> 1.0)
@@ -185,7 +185,7 @@ GEM
       retryable (~> 2.0)
       semverse (~> 1.1)
       varia_model (~> 0.4)
-    rmagick (2.15.3)
+    rmagick (2.15.4)
     rspec (3.3.0)
       rspec-core (~> 3.3.0)
       rspec-expectations (~> 3.3.0)
@@ -212,7 +212,7 @@ GEM
       addressable (~> 2.3.5)
       faraday (~> 0.8, < 0.10)
     semverse (1.2.1)
-    serverspec (2.21.0)
+    serverspec (2.21.1)
       multi_json
       rspec (~> 3.0)
       rspec-its
@@ -223,7 +223,7 @@ GEM
     solve (1.2.1)
       dep_selector (~> 1.0)
       semverse (~> 1.1)
-    specinfra (2.40.1)
+    specinfra (2.41.1)
       net-scp
       net-ssh (~> 2.7)
       net-telnet
@@ -242,7 +242,7 @@ GEM
     varia_model (0.4.0)
       buff-extensions (~> 1.0)
       hashie (>= 2.0.2, < 3.0.0)
-    winrm (1.3.3)
+    winrm (1.3.4)
       builder (>= 2.1.2)
       gssapi (~> 1.2)
       gyoku (~> 1.0)
@@ -281,3 +281,6 @@ DEPENDENCIES
   thin
   trollop (~> 2.1.2)
   yard
+
+BUNDLED WITH
+   1.10.5
