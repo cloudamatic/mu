@@ -22,7 +22,7 @@ if [ $DIST_VERSION == 7 ];then
 	RUBY_VERSION="ruby-2.1.6"
 	GECODE_RPMS="https://s3.amazonaws.com/cap-public/gecode-3.7.3-2.el7.centos.x86_64.rpm https://s3.amazonaws.com/cap-public/gecode-devel-3.7.3-2.el7.centos.x86_64.rpm"
 else
-	PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.7.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx mysql-devel postgresql-devel openssl libyaml graphviz graphviz-devel"
+	PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.7.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx mysql-devel postgresql-devel openssl libyaml graphviz graphviz-devel autoconf"
 	OPSCODE_CHEF_PKG="chef-server-core-$CHEF_SERVER_VERSION.el6.x86_64"
 	OPSCODE_CHEF_DL="https://web-dl.packagecloud.io/chef/stable/packages/el/6/${OPSCODE_CHEF_PKG}.rpm"
 	CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el6.x86_64"
@@ -1094,20 +1094,6 @@ add_chef_support_gems()
 
 	status_message "Installing support gems in $rubydir"
 
-	rm -rf /tmp/mu-gem-setup.$$
-	mkdir -p /tmp/mu-gem-setup.$$
-	echo 'source "https://rubygems.org"' > /tmp/mu-gem-setup.$$/Gemfile
-	for pkg in bundler ohai knife-ec2 chef-vault foodcritic yard colorize color json json-schema trollop fileutils aws-sdk-core knife-windows simple-password-gen netaddr nokogiri;do
-		if ! grep "^$pkg " /tmp/mu-gem-setup.$$/gemlist.txt > /dev/null;then
-			egrep "[\'\"]$pkg[\'\"]" $MU_LIBDIR/modules/Gemfile >> /tmp/mu-gem-setup.$$/Gemfile
-		elif grep "[\'\"]$pkg[\'\"], " $MU_LIBDIR/modules/Gemfile > /dev/null;then
-			egrep "[\'\"]$pkg[\'\"]" $MU_LIBDIR/modules/Gemfile >> /tmp/mu-gem-setup.$$/Gemfile
-		fi
-	done
-
-	cd /tmp/mu-gem-setup.$$ && $rubydir/bin/bundle install
-	cd
-	rm -rf /tmp/mu-gem-setup.$$
 	cd $MU_LIBDIR/modules && $rubydir/bin/bundle install
 
 	find $rubydir/ -type f -exec chmod go+r {} \;
