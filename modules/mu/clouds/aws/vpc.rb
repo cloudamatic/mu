@@ -644,7 +644,7 @@ module MU
 
           @rtb_cache[my_subnets_key].route_tables.each { |route_table|
             route_table.routes.each { |route|
-              if route.destination_cidr_block != "0.0.0.0/0" and route.state == "active"
+              if route.destination_cidr_block != "0.0.0.0/0" and route.state == "active" and !route.destination_cidr_block.nil?
                 my_routes << NetAddr::CIDR.create(route.destination_cidr_block)
                 if !route.vpc_peering_connection_id.nil?
                   vpc_peer_mapping[route.vpc_peering_connection_id] = route.destination_cidr_block
@@ -657,7 +657,7 @@ module MU
           target_routes = []
           @rtb_cache[target_subnets_key].route_tables.each { |route_table|
             route_table.routes.each { |route|
-              next if route.destination_cidr_block == "0.0.0.0/0" or route.state != "active"
+              next if route.destination_cidr_block == "0.0.0.0/0" or route.state != "active" or route.destination_cidr_block.nil?
               cidr = NetAddr::CIDR.create(route.destination_cidr_block)
               shared_ip_space = false
               my_routes.each { |my_cidr|
