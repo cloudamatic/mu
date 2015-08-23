@@ -312,7 +312,6 @@ module MU
       if !object
         raise MuError, "Nil arguments to removeKitten are not allowed"
       end
-      newlitter = {}
       @kitten_semaphore.synchronize {
         MU::Cloud.resource_types.each_pair { |name, attrs|
           type = attrs[:cfg_plural]
@@ -335,7 +334,6 @@ module MU
           }
         }
       }
-      @kittens = newlitter
       @kittens
     end
 
