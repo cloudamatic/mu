@@ -282,6 +282,3 @@ DEPENDENCIES
   thin
   trollop (~> 2.1.2)
   yard
-
-BUNDLED WITH
-   1.10.6
