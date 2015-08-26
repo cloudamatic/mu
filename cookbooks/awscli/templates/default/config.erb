@@ -2,17 +2,17 @@
 
 <% default_profile = node[:awscli][:config_profiles]['default']
    unless default_profile.nil? %>
-    [default]
+[default]
     <% default_profile.each do |key, value| %>
-        <%= key %> = <%= value %>
+<%= key %> = <%= value %>
     <% end
        end %>
 
 <% node[:awscli][:config_profiles].each do |profile, options|
   next if profile=='default' %>
-    [profile <%= profile %>]
+[profile <%= profile %>]
     <% options.each do |key, value| %>
-        <%= key %> = <%= value %>
+<%= key %> = <%= value %>
     <% end %>
 
 <% end %>
