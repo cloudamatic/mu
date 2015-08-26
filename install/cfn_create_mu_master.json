@@ -73,7 +73,8 @@
       "Description": "Password used for mu and Jenkins admin users ",
       "Type": "String",
       "MinLength": "0",
-      "MaxLength": "255"
+      "MaxLength": "255",
+      "NoEcho": "true"
     },
     "adminEmail": {
       "Description": "The e-mail address of the administrative user for the server, for notifications",
