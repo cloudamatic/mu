@@ -105,7 +105,7 @@ remove_sudoer()
 add=0
 delete=0
 
-while getopts "u:p:n:e:o:m:z:dclrai" opt; do
+while getopts "u:p:n:e:o:m:z:dclrsai" opt; do
 	case $opt in
 		l)
 			list_users
@@ -136,7 +136,7 @@ while getopts "u:p:n:e:o:m:z:dclrai" opt; do
 			password=$OPTARG
 			;;
 		s)
-			skip_nagios_sync=$OPTARG
+			skip_nagios_sync=1
 			;;			
 		e)
 			email=$OPTARG
@@ -406,7 +406,7 @@ else
 fi
 
 
-if [ "$sync_nagios" == "1" && $skip_nagios_sync != "1" ];then
+if [ "$sync_nagios" == "1" -a "$skip_nagios_sync" != "1" ];then
 	status_message "Synchronizing Nagios"
 	$MU_INSTALLDIR/bin/mu-upload-chef-artifacts -g > /dev/null 2>&1
 	chef-client -o "recipe[mu-master::update_nagios_only]" > /dev/null 2>&1
