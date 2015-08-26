@@ -74,6 +74,8 @@ usage()
 	echo "        the 'mu' Chef organization."
 	echo "    -r: Flag the user as a regular (non-admin) user. Requires -u. Will"
 	echo "        remove from the 'mu' Chef organization."
+	echo "    -s: Skip Nagios sync.  For use when invoked from a Chef Client.  The calling chef client must "
+	echo "        subsequently run the update_nagios_only cookbook when using this option."
 	echo "    -i: Interactive mode. Will prompt for missing fields."
 	echo "    -e: Set the email address associated with this user. Requires -u."
 	echo "    -o: Add the user to the named Chef organization. Requires -u."
@@ -133,6 +135,9 @@ while getopts "u:p:n:e:o:m:z:dclrai" opt; do
 		p)
 			password=$OPTARG
 			;;
+		s)
+			skip_nagios_sync=$OPTARG
+			;;			
 		e)
 			email=$OPTARG
 			;;
@@ -401,7 +406,7 @@ else
 fi
 
 
-if [ "$sync_nagios" == "1" ];then
+if [ "$sync_nagios" == "1" && $skip_nagios_sync != "1" ];then
 	status_message "Synchronizing Nagios"
 	$MU_INSTALLDIR/bin/mu-upload-chef-artifacts -g > /dev/null 2>&1
 	chef-client -o "recipe[mu-master::update_nagios_only]" > /dev/null 2>&1
