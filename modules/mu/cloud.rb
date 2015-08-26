@@ -367,13 +367,16 @@ module MU
 
         # Remove all metadata and cloud resources associated with this object
         def destroy
-          MU.log "PLACEHOLDER in MU::Cloud::#{self.class.shortname} - implement cleanup method for individual cloud resource here as soon as we end up needing it", MU::DEBUG
           if !@cloudobj.nil? and !@cloudobj.groomer.nil?
             @cloudobj.groomer.cleanup
+					elsif !@groomer.nil?
+						@groomer.cleanup
           end
           if !@deploy.nil?
             if !@cloudobj.nil? and !@config.nil? and !@cloudobj.mu_name.nil?
               @deploy.notify(self.class.cfg_plural, @config['name'], nil, mu_name: @cloudobj.mu_name, remove: true, triggering_node: @cloudobj)
+						elsif !@mu_name.nil?
+							@deploy.notify(self.class.cfg_plural, @config['name'], nil, mu_name: @mu_name, remove: true, triggering_node: self)
             end
             @deploy.removeKitten(self)
           end

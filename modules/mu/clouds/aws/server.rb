@@ -1124,6 +1124,7 @@ module MU
             if img_cfg['image_then_destroy']
               MU::Cloud::AWS::Server.waitForAMI(ami_id, region: @config['region'])
               MU.log "AMI #{ami_id} ready, removing source node #{node}"
+              MU::Cloud::AWS::Server.terminateInstance(id: @cloud_id, region: @config['region'], deploy_id: @deploy.deploy_id, mu_name: @mu_name)
               destroy
             end
           end
@@ -1667,7 +1668,7 @@ module MU
         # @param id [String]: The cloud provider's identifier for the instance, to use if the full description is not available.
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.terminateInstance(instance = nil, noop: false, id: id, onlycloud: false, region: MU.curRegion, deploy_id: MU.deploy_id)
+        def self.terminateInstance(instance = nil, noop: false, id: id, onlycloud: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil)
           ips = Array.new
           if !instance
             if id
@@ -1699,7 +1700,8 @@ module MU
               "servers",
               region: region,
               deploy_id: deploy_id,
-              cloud_id: id
+              cloud_id: id,
+							mu_name: mu_name
           ).first
 
           begin
