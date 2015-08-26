@@ -602,7 +602,8 @@ module MU
                   item: "windows_credentials",
                   field: "password"
               )
-              win_set_pw = %Q{powershell -Command "&{ (([adsi]('WinNT://./#{@config["windows_admin_username"]}, user')).psbase.invoke('SetPassword', '#{pw}'))}"}
+              win_check_for_pw = %Q{powershell -Command '& {Add-Type -AssemblyName System.DirectoryServices.AccountManagement; $Creds = (New-Object System.Management.Automation.PSCredential("#{@config["windows_admin_username"]}", (ConvertTo-SecureString "#{pw}" -AsPlainText -Force)));$DS = New-Object System.DirectoryServices.AccountManagement.PrincipalContext([System.DirectoryServices.AccountManagement.ContextType]::Machine); $DS.ValidateCredentials($Creds.GetNetworkCredential().UserName, $Creds.GetNetworkCredential().password); echo $Result}'}
+              win_set_pw = %Q{powershell -Command "& {(([adsi]('WinNT://./#{@config["windows_admin_username"]}, user')).psbase.invoke('SetPassword', '#{pw}'))}"}
             end
 
             # There shouldn't be a use case where a domain joined computer goes through initialSSHTasks. Removing Active Directory specific computer rename.
@@ -621,13 +622,16 @@ module MU
             else
               hostname = @mu_windows_name
             end
-
+            win_check_for_hostname = %Q{powershell -Command '& {hostname}'}
             win_set_hostname = %Q{powershell -Command "& {Rename-Computer -NewName '#{hostname}' -Force -PassThru -Restart; Restart-Computer -Force}"}
+
             begin
-              if !@config['set_windows_pass'] and !win_set_pw.nil?
-                MU.log "Setting Windows password for user #{@config['windows_admin_username']}", MU::NOTICE
-                ssh.exec!(win_set_pw)
-                @config['set_windows_pass'] = true
+              # Set our admin password first, if we need to
+              if windows? and !win_set_pw.nil? and !win_check_for_pw.nil?
+                output = ssh.exec!(win_check_for_pw)
+                if !output.match(/True/)
+                  MU.log "Setting Windows password for user #{@config['windows_admin_username']}", details: ssh.exec!(win_set_pw)
+                end
               end
               if windows?
                 output = ssh.exec!(win_env_fix)
@@ -635,12 +639,12 @@ module MU
                 if output.match(/InProgress/)
                   raise MU::Cloud::BootstrapTempFail, "Windows Installer service is still doing something, need to wait"
                 end
-                if !@hostname_set and @mu_windows_name and !@groomer.haveBootstrapped?
-                  if set_hostname
-                    ssh.exec!(win_set_hostname)
-                    # Should we set @hostname_set to true even if we don't actually set the hostname?
+                if set_hostname and !@hostname_set and @mu_windows_name
+                  output = ssh.exec!(win_check_for_hostname)
+                  if !output.match(/#{@mu_windows_name}/)
+                    MU.log "Setting Windows hostname to #{@mu_windows_name}", details: ssh.exec!(win_set_hostname)
                     @hostname_set = true
-                    raise MU::Cloud::BootstrapTempFail, "Setting hostname to #{@mu_windows_name} and rebooting"
+                    raise MU::Cloud::BootstrapTempFail, "Set hostname in Windows, waiting for reboot"
                   end
                 end
               else
@@ -697,7 +701,7 @@ module MU
                     :keys_only => true,
                     :keys => [ssh_keydir+"/"+nat_ssh_key, ssh_keydir+"/"+@deploy.ssh_key_name],
                     :paranoid => false,
-                    #						:verbose => :info,
+                    #           :verbose => :info,
                     :port => 22,
                     :auth_methods => ['publickey'],
                     :proxy => proxy
@@ -711,7 +715,7 @@ module MU
                     :keys_only => true,
                     :keys => [ssh_keydir+"/"+@deploy.ssh_key_name],
                     :paranoid => false,
-                    #						:verbose => :info,
+                    #           :verbose => :info,
                     :port => 22,
                     :auth_methods => ['publickey']
                 )
