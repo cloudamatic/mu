@@ -1107,7 +1107,7 @@ module MU
               else
                 sudo = ""
                 sudo = "sudo" if @config['ssh_user'] != "root"
-                session.exec!("#{sudo} rm -rf /root/.ssh/authorized_keys /etc/ssh/ssh_host_*key* /etc/chef/* /etc/opscode/* /.mu-installer-ran-updates /var/chef/* ; #{sudo} sed -i 's/^HOSTNAME=.*//' /etc/sysconfig/network")
+                session.exec!("#{sudo} rm -rf /root/.ssh/authorized_keys /etc/ssh/ssh_host_*key* /etc/chef /etc/opscode/* /.mu-installer-ran-updates /var/chef /opt/mu_installed_chef /opt/chef ; #{sudo} sed -i 's/^HOSTNAME=.*//' /etc/sysconfig/network")
               end
               session.close
             end
