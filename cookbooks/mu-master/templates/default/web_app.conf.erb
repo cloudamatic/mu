@@ -1,44 +1,41 @@
 <VirtualHost *:<%= @params[:server_port] || node['apache']['listen_ports'].first %>>
   ServerName <%= @params[:server_name] %>
-  ServerAlias
-  <% @params[:server_aliases].each do |a| %><%= a %>
-  <% end %>
+  ServerAlias <% @params[:server_aliases].each do |a| %><%= a %> <% end %>
   DocumentRoot <%= @params[:docroot] %>
   RewriteEngine On
 
-  RewriteCond %{REQUEST_METHOD} ^(TRACE|TRACK)
-  RewriteRule .* - [F]
+	RewriteCond %{REQUEST_METHOD} ^(TRACE|TRACK)
+	RewriteRule .* - [F]
 
   <Directory <%= @params[:docroot] %>>
-    Options <%= [@params[:directory_options] || "FollowSymLinks"].flatten.join " " %>
-    AllowOverride <%= [@params[:allow_override] || "None"].flatten.join " " %>
-    <% if node.apache.version == "2.2" %>
-        Order allow,deny
-        Allow from all
-    <% elsif node.apache.version == "2.4" %>
-        Require all granted
-    <% end %>
+    Options <%= [@params[:directory_options] || "FollowSymLinks" ].flatten.join " " %>
+    AllowOverride <%= [@params[:allow_override] || "None" ].flatten.join " " %>
+<% if node.apache.version == "2.2" %>
+    Order allow,deny
+    Allow from all
+<% elsif node.apache.version == "2.4" %>
+	Require all granted
+<% end %>
   </Directory>
 
-  <Directory/>
-  Options FollowSymLinks
-  AllowOverride None
+  <Directory />
+    Options FollowSymLinks
+    AllowOverride None
   </Directory>
 
-  <Location
-  /server-status>
-  SetHandler server-status
-  <% if node.apache.version == "2.2" %>
-      Order Deny,Allow
-      Deny from all
-      Allow from 127.0.0.1
-  <% elsif node.apache.version == "2.4" %>
-      Require host 127.0.0.1
-  <% end %>
+  <Location /server-status>
+    SetHandler server-status
+<% if node.apache.version == "2.2" %>
+    Order Deny,Allow
+    Deny from all
+    Allow from 127.0.0.1
+<% elsif node.apache.version == "2.4" %>
+    Require host 127.0.0.1
+<% end %>
   </Location>
 
   <% if @params[:directory_index] -%>
-      DirectoryIndex <%= [@params[:directory_index]].flatten.join " " %>
+  DirectoryIndex <%= [@params[:directory_index]].flatten.join " " %>
   <% end -%>
 
 </VirtualHost>
