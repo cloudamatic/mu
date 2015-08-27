@@ -281,7 +281,7 @@ module MU
               end
               waiter.before_wait do |attempts, resp|
                 throw :success if resp.data.db_instances.first.db_instance_status == "available"
-                throw :failure if Time.now - wait_start_time > 2400
+                throw :failure if Time.now - wait_start_time > 3600
               end
             end
 
