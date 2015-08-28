@@ -19,6 +19,16 @@ centos7: &centos7
   ap-northeast-1: ami-ba57f9ba
   ap-southeast-1: ami-46cece14
   ap-southeast-2: ami-e50047df
+rhel71: &rhel71
+  us-east-1: ami-77cd771c
+  us-west-1: ami-7159a135
+  us-west-2: ami-25bbaa15
+  eu-west-1: ami-83b5eff4
+  eu-central-1: ami-1eb0b603
+  sa-east-1: ami-0b129916
+  ap-northeast-1: ami-366cee36
+  ap-southeast-1: ami-9aebe3c8
+  ap-southeast-2: ami-25b2ff1f
 ubuntu14: &ubuntu14
   us-east-1: ami-3b6a8050
   us-west-1: ami-fb05efbf
@@ -39,4 +49,6 @@ win2k12: *win2k12r2
 windows: *win2k12r2
 ubuntu: *ubuntu14
 centos: *centos6
+rhel7: *rhel71
+rhel: *rhel71
 linux: *centos6

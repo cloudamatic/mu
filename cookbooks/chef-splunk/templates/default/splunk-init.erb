@@ -17,58 +17,58 @@
 RETVAL=0
 
 splunk_start() {
-echo Starting Splunk...
-<% if @runasroot %>
-    "<%= @splunkdir %>/bin/splunk" start --no-prompt --answer-yes
-<% else %>
-    /bin/su - splunk -c "\"<%= @splunkdir %>/bin/splunk\" start --no-prompt --answer-yes"
-<% end %>
-RETVAL=$?
+  echo Starting Splunk...
+  <% if @runasroot %>
+  "<%= @splunkdir %>/bin/splunk" start --no-prompt --answer-yes
+  <% else %>
+  /bin/su - splunk -c "\"<%= @splunkdir %>/bin/splunk\" start --no-prompt --answer-yes"
+  <% end %>
+  RETVAL=$?
 }
 splunk_stop() {
-echo Stopping Splunk...
-<% if @runasroot %>
-    "<%= @splunkdir %>/bin/splunk" stop
-<% else %>
-    /bin/su - splunk -c "\"<%= @splunkdir %>/bin/splunk\" stop "
-<% end %>
-RETVAL=$?
+  echo Stopping Splunk...
+  <% if @runasroot %>
+  "<%= @splunkdir %>/bin/splunk" stop 
+  <% else %>
+  /bin/su - splunk -c "\"<%= @splunkdir %>/bin/splunk\" stop "
+  <% end %>
+  RETVAL=$?
 }
 splunk_restart() {
-echo Restarting Splunk...
-<% if @runasroot %>
-    "<%= @splunkdir %>/bin/splunk" restart  --no-prompt --answer-yes
-<% else %>
-    /bin/su - splunk -c "\"<%= @splunkdir %>/bin/splunk\" restart --no-prompt --answer-yes"
-<% end %>
-RETVAL=$?
+  echo Restarting Splunk...
+  <% if @runasroot %>
+  "<%= @splunkdir %>/bin/splunk" restart  --no-prompt --answer-yes
+  <% else %>
+  /bin/su - splunk -c "\"<%= @splunkdir %>/bin/splunk\" restart --no-prompt --answer-yes"
+  <% end %>
+  RETVAL=$?
 }
 splunk_status() {
-echo Splunk status:
-<% if @runasroot %>
-    "<%= @splunkdir %>/bin/splunk" status  --no-prompt --answer-yes
-<% else %>
-    /bin/su - splunk -c "\"<%= @splunkdir %>/bin/splunk\" status --no-prompt --answer-yes"
-<% end %>
-RETVAL=$?
+  echo Splunk status:
+  <% if @runasroot %>
+  "<%= @splunkdir %>/bin/splunk" status  --no-prompt --answer-yes
+  <% else %>
+  /bin/su - splunk -c "\"<%= @splunkdir %>/bin/splunk\" status --no-prompt --answer-yes"
+  <% end %>
+  RETVAL=$?
 }
 case "$1" in
-start)
-splunk_start
-;;
-stop)
-splunk_stop
-;;
-restart)
-splunk_restart
-;;
-status)
-splunk_status
-;;
-*)
-echo "Usage: $0 {start|stop|restart|status}"
-exit 1
-;;
+  start)
+    splunk_start
+    ;;
+  stop)
+    splunk_stop
+    ;;
+  restart)
+    splunk_restart
+    ;;
+  status)
+    splunk_status
+    ;;
+  *)
+    echo "Usage: $0 {start|stop|restart|status}"
+    exit 1
+    ;;
 esac
 
 exit $RETVAL

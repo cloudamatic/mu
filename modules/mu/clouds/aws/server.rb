@@ -152,7 +152,7 @@ module MU
             end
             $mu = OpenStruct.new(template_variables)
             userdata_dir = File.expand_path(MU.myRoot+"/modules/mu/userdata")
-            platform = "linux" if %w{centos centos6 centos7 ubuntu ubuntu14}.include? platform
+            platform = "linux" if %w{centos centos6 centos7 ubuntu ubuntu14 rhel rhel7 rhel71}.include? platform
             platform = "windows" if %w{win2k12r2 win2k12 win2k8 win2k8r2}.include? platform
             erbfile = "#{userdata_dir}/#{platform}.erb"
             if !File.exist?(erbfile)
@@ -826,7 +826,7 @@ module MU
           end
 
           windows? ? ssh_wait = 60 : ssh_wait = 30
-          windows? ? max_retries = 40 : max_retries = 25
+          windows? ? max_retries = 50 : max_retries = 25
           begin
             session = getSSHSession(max_retries, ssh_wait)
             initialSSHTasks(session)

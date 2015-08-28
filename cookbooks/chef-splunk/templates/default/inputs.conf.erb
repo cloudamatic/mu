@@ -6,8 +6,8 @@ sslVersions = tls1.2
 cipherSuite = TLSv1.2:!eNULL:!aNULL
 
 <% @inputs_conf['ports'].each do |port| -%>
-    [tcp://:<%= port['port_num'] %>]
-    <% port['config'].each_pair do |name, value| -%>
-        <%= name %> = <%= value %>
-    <% end -%>
+[tcp://:<%= port['port_num'] %>]
+  <% port['config'].each_pair do |name, value| -%>
+<%= name %> = <%= value %>
+  <% end -%>
 <% end -%>

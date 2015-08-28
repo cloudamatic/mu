@@ -38,7 +38,9 @@ if platform_family?("rhel")
 #		notifies :run, "execute[#{freshclam}]", :delayed
   end
   package "clamav-devel"
-  package "clamav-milter"
+  if node['platform_version'].to_i < 7
+	  package "clamav-milter"
+	end
 elsif platform_family?("debian")
   include_recipe "mu-utility::apt"
   package "clamav"

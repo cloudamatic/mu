@@ -653,7 +653,7 @@ module MU
               else
                 output = ssh.exec!(lnx_installer_check)
                 if !output.nil? and !output.empty?
-                  raise MU::Cloud::BootstrapTempFail, "Linux package manager is still doing something, need to wait"
+                  raise MU::Cloud::BootstrapTempFail, "Linux package manager is still doing something, need to wait (#{output})"
                 end
                 if !@config['skipinitialupdates']
                   output = ssh.exec!(lnx_updates_check)
