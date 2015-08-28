@@ -1400,7 +1400,11 @@ module MU
         MU.log "Called addHostToSSHConfig without a MU::Cloud::Server object", MU::ERR, details: caller
         return nil
       end
-      nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = server.getSSHConfig
+      begin
+        nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = server.getSSHConfig
+      rescue MU::MuError => e
+        return
+      end
 
       if ssh_user.nil? or ssh_user.empty?
         MU.log "Failed to extract ssh_user for #{server.mu_name} addHostToSSHConfig", MU::ERR
