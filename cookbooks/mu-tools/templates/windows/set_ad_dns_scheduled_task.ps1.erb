@@ -1,6 +1,6 @@
 if ((!(Get-DnsClientServerAddress| where-object {$_.InterfaceAlias -like "Ethernet*" -and $_.ServerAddresses -contains '<%= @dc_ips[0] %>' -and $_.ServerAddresses -contains '<%= @dc_ips[1] %>'})))
 {
-Get-NetAdapter | Set-DnsClientServerAddress -ServerAddresses <%= @dc_ips.join(", ") %>
-Restart-Computer -Force
+	Get-NetAdapter | Set-DnsClientServerAddress -ServerAddresses <%= @dc_ips.join(", ") %>
+	Restart-Computer -Force
 }
 
