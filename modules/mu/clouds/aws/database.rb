@@ -273,16 +273,23 @@ module MU
             # Calling this a second time after the DB instance is ready or DNS record creation will fail.
             wait_start_time = Time.now
 
-            MU::Cloud::AWS.rds(@config['region']).wait_until(:db_instance_available, db_instance_identifier: @config['identifier']) do |waiter|
-              # Does create_db_instance implement wait_until_available ?
-              waiter.max_attempts = nil
-              waiter.before_attempt do |attempts|
-                MU.log "Waiting for RDS database #{@config['identifier'] } to be ready..", MU::NOTICE if attempts % 10 == 0
+            retries = 0
+            begin
+              MU::Cloud::AWS.rds(@config['region']).wait_until(:db_instance_available, db_instance_identifier: @config['identifier']) do |waiter|
+                # Does create_db_instance implement wait_until_available ?
+                waiter.max_attempts = nil
+                waiter.before_attempt do |attempts|
+                  MU.log "Waiting for RDS database #{@config['identifier'] } to be ready..", MU::NOTICE if attempts % 10 == 0
+                end
+                waiter.before_wait do |attempts, resp|
+                  throw :success if resp.data.db_instances.first.db_instance_status == "available"
+                  throw :failure if Time.now - wait_start_time > 3600
+                end
               end
-              waiter.before_wait do |attempts, resp|
-                throw :success if resp.data.db_instances.first.db_instance_status == "available"
-                throw :failure if Time.now - wait_start_time > 3600
-              end
+            rescue Aws::Waiters::Errors::TooManyAttemptsError => e
+              raise e if retries > 2
+              retries = retries + 1
+              retry
             end
 
             database = MU::Cloud::AWS::Database.getDatabaseById(@config['identifier'], region: @config['region'])
