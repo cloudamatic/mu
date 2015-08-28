@@ -49,12 +49,12 @@ ChallengeResponseAuthentication no
 
 # Change to no to disable tunnelled clear text passwords
 <% begin
-     if node.application_attributes.sshd_allow_password_auth %>
-        PasswordAuthentication yes
-    <%
-       end
-       rescue NoMethodError %>
-    PasswordAuthentication no
+	if node.application_attributes.sshd_allow_password_auth %>
+PasswordAuthentication yes
+<%
+  end
+rescue NoMethodError %>
+PasswordAuthentication no
 <% end %>
 
 
@@ -97,49 +97,49 @@ PermitRootLogin without-password
 
 # If we've set AllowGroups, use that instead of restricting to ubuntu
 <%
-   begin
-     if !node.application_attributes.sshd_allow_groups.empty? %>
-        AllowGroups <%= node.application_attributes.sshd_allow_groups %>
-    <%
-       else
-    %>
-        AllowUsers ubuntu
-    <%
-       end
-       rescue NoMethodError %>
-    AllowUsers ubuntu
+begin
+	if !node.application_attributes.sshd_allow_groups.empty? %>
+AllowGroups <%= node.application_attributes.sshd_allow_groups %>
 <%
-   end
+	else
+	%>
+AllowUsers ubuntu
+<%
+	end
+rescue NoMethodError %>
+AllowUsers ubuntu
+<%
+end
 %>
 
 # Support SVN-only servers, while we're at it
 <%
-   begin
-     if node.application_attributes.svn_only_group %>
-        Match Group <%= node.application_attributes.svn_only_group %>
-        ForceCommand /usr/bin/svnserve -t
-    <%
-       end
-       rescue NoMethodError
-       end
-    %>
+begin
+	if node.application_attributes.svn_only_group %>
+Match Group <%= node.application_attributes.svn_only_group %>
+	ForceCommand /usr/bin/svnserve -t
+<%
+	end
+rescue NoMethodError
+end
+%>
 
 # Support SFTP-only servers, while we're at it
 <%
-   begin
-     if node.application_attributes.sftp_only_group %>
-        Match Group <%= node.application_attributes.sftp_only_group %>
-        ForceCommand internal-sftp
-        <% begin
-             if node.application_attributes.sftp_chroot %>
-                ChrootDirectory <%= node.application_attributes.sftp_chroot %>
-            <%
-               end
-               rescue NoMethodError %>
-            ChrootDirectory /home/
-        <%
-           end
-           end
-           rescue NoMethodError
-           end
-        %>
+begin
+	if node.application_attributes.sftp_only_group %>
+Match Group <%= node.application_attributes.sftp_only_group %>
+	ForceCommand internal-sftp
+<%  begin
+			if node.application_attributes.sftp_chroot %>
+	ChrootDirectory <%= node.application_attributes.sftp_chroot %>
+<%
+			end
+		rescue NoMethodError %>
+	ChrootDirectory /home/
+<%
+		end
+	end
+rescue NoMethodError
+end
+%>

@@ -19,86 +19,86 @@ updates_run=0
 need_reboot=0
 instance_id="`curl http://169.254.169.254/latest/meta-data/instance-id`"
 if [ -f /etc/debian_version ];then
-if ! grep '^/bin/sh /var/lib/cloud/instance/user-data.txt$' /etc/rc.local > /dev/null;then
-echo "/bin/sh /var/lib/cloud/instance/user-data.txt" >> /etc/rc.local
-fi
-apt-get update -y
-if [ ! -f /usr/bin/pip ] ;then /usr/bin/apt-get --fix-missing -y install python-pip;fi
-if [ ! -f /usr/bin/curl ] ;then /usr/bin/apt-get --fix-missing -y install curl;fi
-AWSCLI=/usr/local/bin/aws
+	if ! grep '^/bin/sh /var/lib/cloud/instance/user-data.txt$' /etc/rc.local > /dev/null;then
+		echo "/bin/sh /var/lib/cloud/instance/user-data.txt" >> /etc/rc.local
+	fi
+	apt-get update -y
+	if [ ! -f /usr/bin/pip ] ;then /usr/bin/apt-get --fix-missing -y install python-pip;fi
+	if [ ! -f /usr/bin/curl ] ;then /usr/bin/apt-get --fix-missing -y install curl;fi
+	AWSCLI=/usr/local/bin/aws
 <% if !$mu.skipApplyUpdates %>
-    if [ ! -f /.mu-installer-ran-updates ];then
-    service ssh stop
-    apt-get --fix-missing -y upgrade && touch /.mu-installer-ran-updates && updates_run=1
-    # XXX this logic works on Ubuntu, is it Debian-friendly?
-    latest_kernel="`ls -1 /boot/vmlinuz-* | sed -r 's/^\/boot\/vmlinuz-//' | tail -1`"
-    running_kernel="`uname -r`"
-    if [ "$running_kernel" != "$latest_kernel" -a "$latest_kernel" != "" ];then
-    need_reboot=1
-    else
-    service ssh start
-    fi
-    fi
+	if [ ! -f /.mu-installer-ran-updates ];then
+		service ssh stop
+		apt-get --fix-missing -y upgrade && touch /.mu-installer-ran-updates && updates_run=1
+		# XXX this logic works on Ubuntu, is it Debian-friendly?
+		latest_kernel="`ls -1 /boot/vmlinuz-* | sed -r 's/^\/boot\/vmlinuz-//' | tail -1`"
+		running_kernel="`uname -r`"
+		if [ "$running_kernel" != "$latest_kernel" -a "$latest_kernel" != "" ];then
+			need_reboot=1
+		else
+			service ssh start
+		fi
+	fi
 <% end %>
 elif [ -x /usr/bin/yum ];then
-version=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
-if [ $version == 7 ];then
-userdata_dir="/var/lib/cloud/instances/$instance_id"
-else
-userdata_dir="/var/lib/cloud/instance"
-fi
-if ! grep "^/bin/sh $userdata_dir/user-data.txt$" /etc/rc.d/rc.local > /dev/null;then
-echo "/bin/sh $userdata_dir/user-data.txt" >> /etc/rc.d/rc.local
-fi
-# /etc/rc.d/rc.local is not executable in CentOS7 which means userdata won't execute when we restart after patching the kernel, and bootstrap will fail
-if [ $version == 7 ];then
-chmod 755 /etc/rc.d/rc.local
-fi
-# Ugh, rando EPEL mirror
-if [ ! -f /etc/yum.repos.d/epel.repo ];then
-version=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
-/bin/rpm -ivh http://mirror.metrocast.net/fedora/epel/epel-release-latest-$version.noarch.rpm
-fi
-if [ ! -f /usr/bin/pip ] ;then /usr/bin/yum -y install python-pip;fi
-if [ ! -f /usr/bin/curl ] ;then /usr/bin/yum -y install curl;fi
-AWSCLI=/usr/bin/aws
+	version=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
+	if [ $version == 7 ];then
+		userdata_dir="/var/lib/cloud/instances/$instance_id"
+	else
+		userdata_dir="/var/lib/cloud/instance"
+	fi
+	if ! grep "^/bin/sh $userdata_dir/user-data.txt$" /etc/rc.d/rc.local > /dev/null;then
+		echo "/bin/sh $userdata_dir/user-data.txt" >> /etc/rc.d/rc.local
+	fi
+	# /etc/rc.d/rc.local is not executable in CentOS7 which means userdata won't execute when we restart after patching the kernel, and bootstrap will fail
+	if [ $version == 7 ];then
+		chmod 755 /etc/rc.d/rc.local
+	fi
+	# Ugh, rando EPEL mirror
+	if [ ! -f /etc/yum.repos.d/epel.repo ];then
+	     version=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
+		/bin/rpm -ivh http://mirror.metrocast.net/fedora/epel/epel-release-latest-$version.noarch.rpm
+	fi
+	if [ ! -f /usr/bin/pip ] ;then /usr/bin/yum -y install python-pip;fi
+	if [ ! -f /usr/bin/curl ] ;then /usr/bin/yum -y install curl;fi
+	AWSCLI=/usr/bin/aws
 <% if !$mu.skipApplyUpdates %>
-    if [ ! -f /.mu-installer-ran-updates ];then
-    service sshd stop
-    kernel_update=`yum list updates | grep kernel`
-    yum -y update && touch /.mu-installer-ran-updates && updates_run=1
-    if [ -n "$kernel_update" ]; then
-    need_reboot=1
-    else
-    service sshd start
-    fi
-    fi
+	if [ ! -f /.mu-installer-ran-updates ];then
+		service sshd stop
+		kernel_update=`yum list updates | grep kernel`
+		yum -y update && touch /.mu-installer-ran-updates && updates_run=1
+		if [ -n "$kernel_update" ]; then
+			need_reboot=1
+		else
+			service sshd start
+		fi
+	fi
 <% end %>
 fi
 set -e
 if [ ! -f $AWSCLI ];then
-/usr/bin/pip install awscli
+	/usr/bin/pip install awscli
 fi
 
 umask 0077
 
 # Install Chef now, because why not?
 if [ ! -f /opt/chef/embedded/bin/ruby ];then
-curl https://www.chef.io/chef/install.sh > chef-install.sh
-set +e
-# We may run afoul of a synchronous bootstrap process doing the same thing. So
-# wait until we've managed to run successfully.
-while ! sh chef-install.sh -v <%= MU.chefVersion %>;do
-sleep 10
-done
-touch /opt/mu_installed_chef
-set -e
+	curl https://www.chef.io/chef/install.sh > chef-install.sh
+	set +e
+	# We may run afoul of a synchronous bootstrap process doing the same thing. So
+	# wait until we've managed to run successfully.
+	while ! sh chef-install.sh -v <%= MU.chefVersion %>;do
+		sleep 10
+	done
+	touch /opt/mu_installed_chef
+	set -e
 fi
 
 <% if !$mu.skipApplyUpdates %>
-    if [ "$need_reboot" == "1" ];then
-    shutdown -r now "Applying new kernel"
-    fi
+if [ "$need_reboot" == "1" ];then
+	shutdown -r now "Applying new kernel"
+fi
 <% end %>
 
 $AWSCLI s3 cp s3://<%= MU.adminBucketName %>/<%= $mu.muID %>-secret .
