@@ -578,6 +578,16 @@ validate_setup_env_vars(){
 				warning_message "You must specify a password for the 'mu' admin user."
 				validate_errs=1
 			fi	
+
+		elif [ "${var_name[$n]}" == "LOG_BUCKET_NAME" ]; then
+			if [ "${var_val[$n]}" == "" ];then
+				warning_message "You must specify a dns-legal log bucket name ."
+				validate_errs=1
+			elif ! ( echo ${var_val[$n]} | egrep -q '^[a-z0-9.-]*$' ) ; then
+				warning_message "The log bucket name is badly formed!"
+				validate_errs=1
+			fi	
+
 		elif [ "${var_name[$n]}" == "JENKINS_ADMIN_EMAIL" ]; then
 			if [ "${var_val[$n]}" == "" ];then
 				warning_message "You must specify an email contact for the 'jenkins' admin user."
