@@ -19,7 +19,7 @@ centos7: &centos7
   ap-northeast-1: ami-ba57f9ba
   ap-southeast-1: ami-46cece14
   ap-southeast-2: ami-e50047df
-rhel71: & rhel71
+rhel71: &rhel71
   us-east-1: ami-77cd771c
   us-west-1: ami-7159a135
   us-west-2: ami-25bbaa15
