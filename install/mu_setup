@@ -194,7 +194,7 @@ if [ "$HOSTNAME" == "" ];then
 	HOSTNAME="`hostname -s`"
 fi
 if [ "$LOG_BUCKET_NAME" == "" ];then
-	LOG_BUCKET_NAME="Mu_Logs_${HOSTNAME}_${MY_INSTANCE_ID}"
+	LOG_BUCKET_NAME="mu_logs_${HOSTNAME}_${MY_INSTANCE_ID}"
 fi
 MY_VPC_ID=""
 # Figure out if we have at least one interface in a VPC
