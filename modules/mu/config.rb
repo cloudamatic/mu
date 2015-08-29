@@ -522,7 +522,7 @@ module MU
               nat_ip: vpc_block['nat_host_ip']
           )
 					ssh_keydir = Etc.getpwnam(MU.mu_user).dir+"/.ssh"
-					if !vpc_block['nat_ssh_key'].nil and !File.exists?(ssh_keydir+"/"+vpc_block['nat_ssh_key'])
+					if !vpc_block['nat_ssh_key'].nil? and !File.exists?(ssh_keydir+"/"+vpc_block['nat_ssh_key'])
               MU.log "Couldn't find alternate NAT key #{ssh_keydir}/#{vpc_block['nat_ssh_key']} in #{parent_name}", MU::ERR, details: vpc_block
               return false
 					end
