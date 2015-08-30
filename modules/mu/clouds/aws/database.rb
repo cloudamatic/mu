@@ -13,6 +13,8 @@
 # limitations under the License.
 
 autoload :Net, 'net/ssh/gateway'
+require 'chef-vault'
+autoload :ChefVault, 'chef-vault'
 
 module MU
 
@@ -173,7 +175,20 @@ module MU
           @config['identifier'] = getName(@mu_name, type: "dbidentifier")
           MU.log "Truncated master username for #{@config['identifier']} (db #{dbname}) to #{@config['master_user']}", MU::NOTICE if @config['master_user'] != @config["name"] and @config["snapshot_id"].nil?
 
-          @config['password'] = Password.pronounceable(10..12) if @config['password'].nil?
+          # Getting the password for the master user. We should remove the option to provide a password from the config
+          if @config['password'].nil?
+              if @config['auth_vault'] && !@config['auth_vault'].empty?
+                item = ChefVault::Item.load(@config['auth_vault']['vault'], @config['auth_vault']['item'])
+                @config['password'] = item[@config['auth_vault']['password_field']]
+              else
+              # Should we use random instead
+                @config['password'] = Password.pronounceable(10..12)
+              end
+          end
+
+          # Vault creation section. Maybe use saveSecret here even though we aren't a client/node. 
+          cmd = "vault create '#{@config['identifier']}' 'database_credentials' '{ \"password\":\"#{@config['password']}\", \"username\": \"#{@config['master_user']}\" }' #{MU::Groomer::Chef.vault_opts}"
+          output = `#{MU::Groomer::Chef.knife} #{cmd}`
 
           # Database instance config
           config={
@@ -797,7 +812,9 @@ module MU
                 "rds_sgs" => rds_sg_ids,
                 "vpc_sgs" => vpc_sg_ids,
                 "az" => database.availability_zone,
-                "password" => db['password'],
+                "vault_name" => database.db_instance_identifier.upcase,
+                "vault_item" => "database_credentials",
+                "password_field" => "password",
                 "create_style" => db['create_style'],
                 "db_name" => database.db_name,
                 "multi_az" => database.multi_az,
@@ -812,6 +829,8 @@ module MU
               }
               db_deploy_struct["subnets"] = subnet_ids
             end
+
+            db_deploy_struct["password"] = db['password'] if db['unecrypted_master_password']
 
             return db_deploy_struct
           }
@@ -941,7 +960,7 @@ module MU
             db_id = db.db_instance_identifier
           rescue NoMethodError => e
             if retries < 30
-              retries = retries + 1
+              retries += 1
               sleep 30
             else
               raise e
@@ -998,17 +1017,14 @@ module MU
               retries = 0
               begin
                 if !skipsnapshots
-                  MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id,
-                                                                final_db_snapshot_identifier: "#{db_id}MUfinal",
-                                                                skip_final_snapshot: false)
+                  MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id, final_db_snapshot_identifier: "#{db_id} MUfinal", skip_final_snapshot: false)
                 else
-                  MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id,
-                                                                skip_final_snapshot: true)
+                  MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id, skip_final_snapshot: true)
                 end
               rescue Aws::RDS::Errors::InvalidDBInstanceState => e
                 MU.log "#{db_id} is not in a removable state", MU::WARN
                 if retries < 5
-                  retries = retries + 1
+                  retries += 1
                   sleep 30
                   retry
                 else
@@ -1016,12 +1032,10 @@ module MU
                   return
                 end
               rescue Aws::RDS::Errors::DBSnapshotAlreadyExists
-                MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id,
-                                                              skip_final_snapshot: true)
+                MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id, skip_final_snapshot: true)
                 MU.log "Snapshot of #{db_id} already exists", MU::WARN
               rescue Aws::RDS::Errors::SnapshotQuotaExceeded
-                MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id,
-                                                              skip_final_snapshot: true)
+                MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id, skip_final_snapshot: true)
                 MU.log "Snapshot quota exceeded while deleting #{db_id}", MU::ERR
               end
             end
@@ -1088,6 +1102,10 @@ module MU
           rescue Aws::RDS::Errors::DBSecurityGroupNotFound
             MU.log "RDS Security Group #{sg} disappeared before we could remove it", MU::WARN
           end
+
+          MU.log "Deleting data bag #{db_id.upcase}"
+          `#{MU::Groomer::Chef.knife} data bag delete -y #{db_id.upcase}` if !noop
+
         end
 
       end #class

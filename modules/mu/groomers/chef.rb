@@ -366,7 +366,7 @@ module MU
         }
 
         splunkVaultInit
-        grantSecretAccess(@server.mu_name, "windows_credentials")
+        grantSecretAccess(@server.mu_name, "windows_credentials") if @server.windows?
         grantSecretAccess(@server.mu_name, "ssl_cert")
 
         # Making sure all Windows nodes get the mu-tools::windows-client recipe
@@ -534,6 +534,14 @@ module MU
         end
         chef_node.normal.tags = tags
         chef_node.save
+
+        # If we have a database make sure we grant access to that vault.
+        deploy = MU::MommaCat.getLitter(MU.deploy_id)
+        if deploy.deployment.has_key?("databases")
+          deploy.deployment["databases"].each { |name, database|
+            grantSecretAccess(database['vault_name'], database['vault_item'])
+          }
+        end
 
         # Finally, grant us access to some pre-existing Vaults.
         if !@config['vault_access'].nil?

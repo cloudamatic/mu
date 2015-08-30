@@ -1271,6 +1271,24 @@ module MU
           ok = false
         end
 
+        if db['auth_vault'] && !db['auth_vault'].empty?
+          if db['password']
+            MU.log "Database password and database auth_vault can't both be used.", MU::ERR
+            ok = false
+          end
+
+          begin
+            item = ChefVault::Item.load(db['auth_vault']['vault'], db['auth_vault']['item'])
+            if !item.has_key?(db['auth_vault']['password_field'])
+              MU.log "No value named password_field in Chef Vault #{db['auth_vault']['vault']}:#{db['auth_vault']['item']}, will use an auto generated password.", MU::NOTICE
+              db['auth_vault'].delete(field)
+            end
+          rescue ChefVault::Exceptions::KeysNotFound => e
+            MU.log "Can't load the Chef Vault '#{db['auth_vault']['vault']}' I was configured to use. Does it exist?", MU::ERR, details: e.inspect
+            ok = false
+          end
+        end
+
         # Adding rules for Database instance storage. This varies depending on storage type and database type. 
         if db["storage_type"] == "standard" or db["storage_type"] == "gp2"
           if db["engine"] == "postgres" or db["engine"] == "mysql"
@@ -3009,11 +3027,16 @@ module MU
             },
             "password" => {
                 "type" => "string",
-                "description" => "Set master password to this; if not specified, a random string will be generated. If you are creating from a snapshot, or using an existing database, you will almost certainly want to set this."
+                "description" => "DEPRECATED - Use auth_vault instead. Will be removed in future versions. Set master password to this; if not specified, a random string will be generated. If you are creating from a snapshot, or using an existing database, you will almost certainly want to set this."
             },
             "master_user" => {
                 "type" => "string",
                 "description" => "Set master user name for this database instance; if not specified a random username will be generated"
+            },
+            "unecrypted_master_password" => {
+                "type" => "boolean",
+                "default" => true,
+                "description" => "DEPRECATED - For backwards compatibility only. Will be removed in future versions. Rather to store the password of the master user unecrypted in the deployment and node structure. The password will be emailed unecrypted as well."
             },
             "create_read_replica" => {
                 "type" => "boolean",
@@ -3038,50 +3061,30 @@ module MU
                     },
                     "parameters" => @rds_parameter_group_parameters_primitive
                 }
-            } #,
-            #				"read_replica" => {
-            #					"type" => "object",
-            #					"additionalProperties" => false,
-            #					"required" => ["name"],
-            #					"description" => "Create a read replica database server.",
-            #					"properties" => {
-            #						"name" => { "type" => "string" },
-            #						"tags" => @tags_primitive,
-            #						"dns_records" => dns_records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
-            #						"dns_sync_wait"=> {
-            #							"type" => "boolean",
-            #							"description" => "Wait for DNS record to propagate in DNS Zone.",
-            #							"default" => true,
-            #						},
-            #						"dependencies" => @dependencies_primitive,
-            #						"size" => @rds_size_primitive,
-            #						"storage_type" => {
-            #							"enum" => ["standard", "gp2", "io1"],
-            #							"type" => "string",
-            #							"default" => "gp2"
-            #						},
-            #						"port" => { "type" => "integer" },
-            #						"vpc" => vpc_reference_primitive(MANY_SUBNETS, NAT_OPTS, "all_public"),
-            #						"publicly_accessible"=> {
-            #							"type" => "boolean",
-            #							"default" => true,
-            #						},
-            #						"iops"=> {
-            #							"type" => "integer",
-            #							"description" => "The amount of IOPS to allocate to Provisioned IOPS (io1) volumes. Increments of 1,000",
-            #						},
-            #						"auto_minor_version_upgrade"=> { 
-            #							"type" => "boolean",
-            #							"default" => true
-            #						},
-            #						"identifier" => {
-            #							"type" => "string",
-            #						},
-            #						"source_identifier" => {
-            #							"type" => "string",
-            #						}
-            #					}
-            #				}
+            },
+            "auth_vault" => {
+                "type" => "object",
+                "additionalProperties" => false,
+                "required" => ["vault", "item"],
+                "description" => "The vault storing the password of the database master user. a random password will be generated if not specified.",
+                "properties" => {
+                    "vault" => {
+                        "type" => "string",
+                        "default" => "database",
+                        "description" => "The vault where these credentials reside"
+                    },
+                    "item" => {
+                        "type" => "string",
+                        "default" => "credentials",
+                        "description" => "The vault item where these credentials reside"
+                    },
+                    "password_field" => {
+                        "type" => "string",
+                        "default" => "password",
+                        "description" => "The field within the Vault item where the password for database master user is stored"
+                    }
+                }
+            }
         }
     }
 
