@@ -101,7 +101,7 @@ module MU
       # @param item [String]: The item within the repository to create/save.
       # @param data [Hash]: Data to save
       # @param permissions [String]: An implementation-specific string describing what node or nodes should have access to this secret.
-      def saveSecret(vault: @server.mu_name, item: nil, data: nil, permissions: "name:#{@server.mu_name}")
+      def self.saveSecret(vault: @server.mu_name, item: nil, data: nil, permissions: nil)
         if item.nil? or !item.is_a?(String)
           raise MuError, "item argument to saveSecret must be a String"
         end
@@ -110,9 +110,18 @@ module MU
         end
 
         cmd = "update"
-        exitstatus, output = knifeCmd("vault show '#{vault}' '#{item}' #{MU::Groomer::Chef.vault_opts} 2>&1 /dev/null")
+        exitstatus, output = MU::Groomer::Chef.knifeCmd("vault show '#{vault}' '#{item}' #{MU::Groomer::Chef.vault_opts} 2>&1 /dev/null")
         cmd = "create" if exitstatus != 0
-        knifeCmd("vault '#{cmd}' '#{vault}' '#{item}' '#{JSON.generate(data).gsub(/'/, '\\1')}' --search '#{permissions}' #{MU::Groomer::Chef.vault_opts}")
+        if permissions
+            MU::Groomer::Chef.knifeCmd("vault '#{cmd}' '#{vault}' '#{item}' '#{JSON.generate(data).gsub(/'/, '\\1')}' --search '#{permissions}' #{MU::Groomer::Chef.vault_opts}")
+        else
+            MU::Groomer::Chef.knifeCmd("vault '#{cmd}' '#{vault}' '#{item}' '#{JSON.generate(data).gsub(/'/, '\\1')}' #{MU::Groomer::Chef.vault_opts}")
+        end
+      end
+
+      # see {MU::Groomer::Chef.saveSecret}
+      def saveSecret(vault: @server.mu_name, item: nil, data: nil, permissions: "name:#{@server.mu_name}")
+        self.class.saveSecret(vault: vault, item: item, data: data, permissions: permissions)
       end
 
       # Retrieve sensitive data, which hopefully we're storing and retrieving
@@ -125,7 +134,12 @@ module MU
         if File.exists?("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
           ::Chef::Config.from_file("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
         end
-        item = ChefVault::Item.load(vault, item)
+
+        begin
+          item = ChefVault::Item.load(vault, item)
+        rescue ChefVault::Exceptions::KeysNotFound => e
+          raise MuError, "Can't load the Chef Vault #{vault}:#{item}. Does it exist?"
+        end
 
         if item.nil?
           raise MuError, "Failed to retrieve Vault #{vault}:#{item}"
@@ -145,6 +159,18 @@ module MU
       # see {MU::Groomer::Chef.getSecret}
       def getSecret(vault: nil, item: nil, field: nil)
         self.class.getSecret(vault: vault, item: item, field: field)
+      end
+
+      # Delete a Chef data bag / Vault
+      # @param vault [String]: A repository of secrets to delete
+      def self.deleteSecret(vault: nil)
+        MU.log "Deleting vault #{vault}"
+        MU::Groomer::Chef.knifeCmd("data bag delete -y #{vault}")
+      end
+
+      # see {MU::Groomer::Chef.deleteSecret}
+      def deleteSecret(vault: nil)
+        self.class.deleteSecret(vault: vault)
       end
 
       # Invoke the Chef client on the node at the other end of a provided SSH
@@ -437,8 +463,7 @@ module MU
         `#{MU::Groomer::Chef.knife} node delete -y #{node}` if !noop
         MU.log "knife client delete -y #{node}"
         `#{MU::Groomer::Chef.knife} client delete -y #{node}` if !noop
-        MU.log "knife data bag delete -y #{node}"
-        `#{MU::Groomer::Chef.knife} data bag delete -y #{node}` if !noop
+        deleteSecret(vault: node) if !noop
         ["crt", "key", "csr"].each { |ext|
           if File.exists?("#{MU.mySSLDir}/#{node}.#{ext}")
             MU.log "Removing #{MU.mySSLDir}/#{node}.#{ext}"
@@ -586,7 +611,7 @@ module MU
         MU::MommaCat.unlock("vault-#{vault}")
       end
 
-      def knifeCmd(cmd, showoutput = false)
+      def self.knifeCmd(cmd, showoutput = false)
         MU.log "knife #{cmd}", MU::NOTICE if showoutput
         output = `#{MU::Groomer::Chef.knife} #{cmd}`
         exitstatus = $?.exitstatus
@@ -596,6 +621,10 @@ module MU
           puts "Exit status: #{exitstatus}"
         end
         return [exitstatus, output]
+      end
+
+      def knifeCmd(cmd, showoutput = false)
+        self.class.knifeCmd(cmd, showoutput)
       end
 
       def createGenericHostSSLCert

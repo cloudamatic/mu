@@ -2924,6 +2924,11 @@ module MU
         "additionalProperties" => false,
         "properties" => {
             "cloud" => @cloud_primitive,
+            "groomer" => {
+                "type" => "string",
+                "default" => MU::Config.defaultGroomer,
+                "enum" => MU.supportedGroomers
+            },
             "name" => {"type" => "string"},
             "region" => @region_primitive,
             "db_family" => {"type" => "string"},

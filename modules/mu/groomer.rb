@@ -28,12 +28,12 @@ module MU
 
     # Instance methods that any Groomer plugin must implement
     def self.requiredMethods
-      [:preClean, :bootstrap, :haveBootstrapped?, :run, :saveDeployData, :getSecret, :saveSecret]
+      [:preClean, :bootstrap, :haveBootstrapped?, :run, :saveDeployData, :getSecret, :saveSecret, :deleteSecret]
     end
 
     # Class methods that any Groomer plugin must implement
     def self.requiredClassMethods
-      [:getSecret, :cleanup]
+      [:getSecret, :cleanup, :saveSecret, :deleteSecret]
     end
 
 

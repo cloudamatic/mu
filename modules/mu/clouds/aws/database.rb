@@ -13,8 +13,6 @@
 # limitations under the License.
 
 autoload :Net, 'net/ssh/gateway'
-require 'chef-vault'
-autoload :ChefVault, 'chef-vault'
 
 module MU
 
@@ -28,6 +26,7 @@ module MU
         attr_reader :mu_name
         attr_reader :cloud_id
         attr_reader :config
+        attr_reader :groomer    
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::databases}
@@ -41,8 +40,9 @@ module MU
             !@deploy.nil?
             @mu_name = @deploy.getResourceName(@config["name"])
           end
+          @config["groomer"] = MU::Config.defaultGroomer unless @config["groomer"]
+          @groomclass = MU::Groomer.loadGroomer(@config["groomer"])
         end
-
 
         # Called automatically by {MU::Deploy#createResources}
         # @return [String]: The cloud provider's identifier for this database instance.
@@ -177,18 +177,23 @@ module MU
 
           # Getting the password for the master user. We should remove the option to provide a password from the config
           if @config['password'].nil?
-              if @config['auth_vault'] && !@config['auth_vault'].empty?
-                item = ChefVault::Item.load(@config['auth_vault']['vault'], @config['auth_vault']['item'])
-                @config['password'] = item[@config['auth_vault']['password_field']]
-              else
-              # Should we use random instead
-                @config['password'] = Password.pronounceable(10..12)
-              end
+            if @config['auth_vault'] && !@config['auth_vault'].empty?
+              @config['password'] = @groomclass.getSecret(
+                vault: @config['auth_vault']['vault'],
+                item: @config['auth_vault']['item'],
+                field: @config['auth_vault']['password_field']
+              )
+            else
+              # Should we use random instead?
+              @config['password'] = Password.pronounceable(10..12)
+            end
           end
 
-          # Vault creation section. Maybe use saveSecret here even though we aren't a client/node. 
-          cmd = "vault create '#{@config['identifier']}' 'database_credentials' '{ \"password\":\"#{@config['password']}\", \"username\": \"#{@config['master_user']}\" }' #{MU::Groomer::Chef.vault_opts}"
-          output = `#{MU::Groomer::Chef.knife} #{cmd}`
+          creds = {
+            "username" => @config['master_user'],
+            "password" => @config['password']
+          }
+          @groomclass.saveSecret(vault: @config['identifier'], item: "database_credentials", data: creds)
 
           # Database instance config
           config={
@@ -1103,9 +1108,7 @@ module MU
             MU.log "RDS Security Group #{sg} disappeared before we could remove it", MU::WARN
           end
 
-          MU.log "Deleting data bag #{db_id.upcase}"
-          `#{MU::Groomer::Chef.knife} data bag delete -y #{db_id.upcase}` if !noop
-
+          @groomclass.deleteSecret(vault: db_id.upcase) if !noop
         end
 
       end #class
