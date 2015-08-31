@@ -755,12 +755,6 @@ module MU
 
           MU.log "EC2 instance #{node} has id #{instance.instance_id}", MU::DEBUG
 
-          if !@config['dns_records'].nil?
-            @config['dns_records'].each { |dnsrec|
-              dnsrec['name'] = node.downcase if !dnsrec.has_key?('name')
-            }
-          end
-
           @config["private_dns_name"] = instance.private_dns_name
           @config["public_dns_name"] = instance.public_dns_name
           @config["private_ip_address"] = instance.private_ip_address
