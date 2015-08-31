@@ -760,12 +760,6 @@ module MU
               dnsrec['name'] = node.downcase if !dnsrec.has_key?('name')
             }
           end
-          if !instance.public_ip_address.nil? and !instance.public_ip_address.empty?
-# XXX
-#					MU::Cloud::DNSZone.createRecordsFromConfig(@config['dns_records'], target: instance.public_ip_address)
-          else
-#					MU::Cloud::DNSZone.createRecordsFromConfig(@config['dns_records'], target: instance.private_ip_address)
-          end
 
           @config["private_dns_name"] = instance.private_dns_name
           @config["public_dns_name"] = instance.public_dns_name

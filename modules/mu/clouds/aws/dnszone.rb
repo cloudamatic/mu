@@ -152,6 +152,7 @@ module MU
         def self.createRecordsFromConfig(cfg, target: nil)
           return if cfg.nil?
           record_threads = []
+
           cfg.each { |record|
             zone = nil
             if record['zone'].has_key?("id")
