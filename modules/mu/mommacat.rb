@@ -1151,16 +1151,16 @@ module MU
       }
 
       if mu_name.nil?
-        if !data.nil? and data.is_a?(Hash) and data.has_key?("mu_name")
+        if !data.nil? and !data["mu_name"].nil?
           mu_name = data["mu_name"]
         elsif !triggering_node.nil? and !triggering_node.mu_name.nil?
           mu_name = triggering_node.mu_name
         end
-      end
-      if mu_name.nil? and has_multiples
-        MU.log "MU::MommaCat.notify called to modify deployment struct for a type with :has_multiples, but no mu_name available", MU::WARN
-        MU::MommaCat.unlock("deployment-notification")
-        return
+	      if mu_name.nil? and has_multiples
+		      MU.log "MU::MommaCat.notify called to modify deployment struct for a type (#{type}) with :has_multiples, but no mu_name available to look under #{key}. Call was #{caller[0]}", MU::WARN, details: data
+			    MU::MommaCat.unlock("deployment-notification")
+				  return
+				end
       end
 
       if !remove
@@ -1197,39 +1197,17 @@ module MU
           return
         end
 
-        # XXX check against has_multiples
-        if has_multiples and have_deploy
-          MU.log "Removing @deployment[#{type}][#{key}][#{mu_name}]", MU::DEBUG, details: @deployment[type][key][mu_name]
-          @deployment[type][key].delete(mu_name)
-        else
-          MU.log "Removing @deployment[#{type}][#{key}]", MU::DEBUG, details: @deployment[type][key]
-          @deployment[type].delete(key)
-        end
+				if have_deploy
+	        if has_multiples
+			      MU.log "Removing @deployment[#{type}][#{key}][#{mu_name}]", MU::WARN, details: @deployment[type][key][mu_name]
+		        @deployment[type][key].delete(mu_name)
+	        else
+			      MU.log "Removing @deployment[#{type}][#{key}]", MU::WARN, details: @deployment[type][key]
+		        @deployment[type].delete(key)
+	        end
+				end
+				save!
 
-        # scrape vault traces out of basket_of_kittens.json too
-        # XXX this was a terrible place to store these, move them... somewhere
-        if type == "servers" or type == "server_pools" and !mu_name.nil?
-          ["servers", "server_pools"].each { |svr_class|
-            if !@original_config[svr_class].nil?
-              @original_config[svr_class].map! { |server|
-                if !server['vault_access'].nil?
-                  deletia = []
-                  server['vault_access'].each { |vault|
-                    if vault["vault"] == mu_name
-                      deletia << vault
-                    end
-                  }
-                  deletia.each { |drop_vault|
-                    MU.log "Removing vault references to #{mu_name} from #{svr_class} #{server['name']}"
-                    server['vault_access'].delete(drop_vault)
-                  }
-                end
-                server
-              }
-
-            end
-          }
-        end
       end
       if have_deploy
         save!(key)

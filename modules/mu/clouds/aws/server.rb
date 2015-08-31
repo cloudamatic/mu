@@ -1728,8 +1728,12 @@ module MU
                 end
               }
 
-              MU::Cloud::AWS::Server.removeIAMProfile(mu_name) if mu_name
-              MU.mommacat.notify(MU::Cloud::Server.cfg_plural, mu_name, mu_name: mu_name, remove: true) if !noop and MU.mommacat
+							if !noop
+	              MU::Cloud::AWS::Server.removeIAMProfile(mu_name) if mu_name
+                if !server_obj.nil? and !server_obj.config.nil?
+			            MU.mommacat.notify(MU::Cloud::Server.cfg_plural, server_obj.config['name'], {}, mu_name: server_obj.mu_name, remove: true) if MU.mommacat
+								end
+							end
 
               # If we didn't manage to find this instance's Route53 entry by sifting
               # deployment metadata, see if we can get it with the Name tag.
