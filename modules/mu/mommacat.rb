@@ -1372,7 +1372,11 @@ module MU
       end
 
       if !config.nil? and !config['dns_records'].nil?
-        MU::Cloud::DNSZone.createRecordsFromConfig(config['dns_records'], target: server.canonicalIP)
+        dnscfg = config['dns_records'].dup
+        dnscfg.each { |dnsrec|
+          dnsrec['name'] = node.downcase if !dnsrec.has_key?('name')
+        }
+        MU::Cloud::DNSZone.createRecordsFromConfig(dnscfg, target: server.canonicalIP)
       end
 
       MU::MommaCat.removeHostFromSSHConfig(node)
