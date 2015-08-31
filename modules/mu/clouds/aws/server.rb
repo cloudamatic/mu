@@ -1695,7 +1695,7 @@ module MU
               region: region,
               deploy_id: deploy_id,
               cloud_id: id,
-							mu_name: mu_name
+              mu_name: mu_name
           ).first
 
           begin

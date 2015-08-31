@@ -26,6 +26,7 @@ module MU
         attr_reader :mu_name
         attr_reader :cloud_id
         attr_reader :config
+        attr_reader :groomer    
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::databases}
@@ -39,8 +40,9 @@ module MU
             !@deploy.nil?
             @mu_name = @deploy.getResourceName(@config["name"])
           end
+          @config["groomer"] = MU::Config.defaultGroomer unless @config["groomer"]
+          @groomclass = MU::Groomer.loadGroomer(@config["groomer"])
         end
-
 
         # Called automatically by {MU::Deploy#createResources}
         # @return [String]: The cloud provider's identifier for this database instance.
@@ -173,7 +175,25 @@ module MU
           @config['identifier'] = getName(@mu_name, type: "dbidentifier")
           MU.log "Truncated master username for #{@config['identifier']} (db #{dbname}) to #{@config['master_user']}", MU::NOTICE if @config['master_user'] != @config["name"] and @config["snapshot_id"].nil?
 
-          @config['password'] = Password.pronounceable(10..12) if @config['password'].nil?
+          # Getting the password for the master user. We should remove the option to provide a password from the config
+          if @config['password'].nil?
+            if @config['auth_vault'] && !@config['auth_vault'].empty?
+              @config['password'] = @groomclass.getSecret(
+                vault: @config['auth_vault']['vault'],
+                item: @config['auth_vault']['item'],
+                field: @config['auth_vault']['password_field']
+              )
+            else
+              # Should we use random instead?
+              @config['password'] = Password.pronounceable(10..12)
+            end
+          end
+
+          creds = {
+            "username" => @config['master_user'],
+            "password" => @config['password']
+          }
+          @groomclass.saveSecret(vault: @config['identifier'], item: "database_credentials", data: creds)
 
           # Database instance config
           config={
@@ -353,7 +373,7 @@ module MU
             done = true
           ensure
             if !done and database
-              MU::Cloud::AWS::Database.terminate_rds_instance(database, false, true, region: @config['region'])
+              MU::Cloud::AWS::Database.terminate_rds_instance(database, false, true, region: @config['region'], deploy_id: MU.deploy_id, cloud_id: @config['identifier'])
             end
           end
 
@@ -797,7 +817,9 @@ module MU
                 "rds_sgs" => rds_sg_ids,
                 "vpc_sgs" => vpc_sg_ids,
                 "az" => database.availability_zone,
-                "password" => db['password'],
+                "vault_name" => database.db_instance_identifier.upcase,
+                "vault_item" => "database_credentials",
+                "password_field" => "password",
                 "create_style" => db['create_style'],
                 "db_name" => database.db_name,
                 "multi_az" => database.multi_az,
@@ -812,6 +834,8 @@ module MU
               }
               db_deploy_struct["subnets"] = subnet_ids
             end
+
+            db_deploy_struct["password"] = db['password'] if db['unecrypted_master_password']
 
             return db_deploy_struct
           }
@@ -916,7 +940,7 @@ module MU
               threads << Thread.new(db) { |mydb|
                 MU.dupGlobals(parent_thread_id)
                 Thread.abort_on_exception = true
-                MU::Cloud::AWS::Database.terminate_rds_instance(mydb, noop, skipsnapshots, region: region)
+                MU::Cloud::AWS::Database.terminate_rds_instance(mydb, noop, skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: db.db_instance_identifier)
               } # thread
             end # if found_muid and found_master
           } # resp.data.db_instances.each { |db|
@@ -932,7 +956,7 @@ module MU
         # Remove an RDS database and associated artifacts
         # @param db [OpenStruct]: The cloud provider's description of the database artifact
         # @return [void]
-        def self.terminate_rds_instance(db, noop = false, skipsnapshots = false, region: MU.curRegion)
+        def self.terminate_rds_instance(db, noop = false, skipsnapshots = false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil)
 # XXX try to id read replicas; can't save final snaps of those guys
           raise MuError, "terminate_rds_instance requires a non-nil database descriptor" if db.nil?
 
@@ -941,7 +965,7 @@ module MU
             db_id = db.db_instance_identifier
           rescue NoMethodError => e
             if retries < 30
-              retries = retries + 1
+              retries += 1
               sleep 30
             else
               raise e
@@ -951,6 +975,15 @@ module MU
             MU.log "Couldn't get db_instance_identifier from '#{db}'", MU::WARN, details: caller
             return
           end
+
+          database_obj = MU::MommaCat.findStray(
+              "AWS",
+              "database",
+              region: region,
+              deploy_id: deploy_id,
+              cloud_id: cloud_id.upcase,
+              mu_name: mu_name
+          ).first
 
           subnet_group = nil
           begin
@@ -998,17 +1031,14 @@ module MU
               retries = 0
               begin
                 if !skipsnapshots
-                  MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id,
-                                                                final_db_snapshot_identifier: "#{db_id}MUfinal",
-                                                                skip_final_snapshot: false)
+                  MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id, final_db_snapshot_identifier: "#{db_id} MUfinal", skip_final_snapshot: false)
                 else
-                  MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id,
-                                                                skip_final_snapshot: true)
+                  MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id, skip_final_snapshot: true)
                 end
               rescue Aws::RDS::Errors::InvalidDBInstanceState => e
                 MU.log "#{db_id} is not in a removable state", MU::WARN
                 if retries < 5
-                  retries = retries + 1
+                  retries += 1
                   sleep 30
                   retry
                 else
@@ -1016,12 +1046,10 @@ module MU
                   return
                 end
               rescue Aws::RDS::Errors::DBSnapshotAlreadyExists
-                MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id,
-                                                              skip_final_snapshot: true)
+                MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id, skip_final_snapshot: true)
                 MU.log "Snapshot of #{db_id} already exists", MU::WARN
               rescue Aws::RDS::Errors::SnapshotQuotaExceeded
-                MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id,
-                                                              skip_final_snapshot: true)
+                MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id, skip_final_snapshot: true)
                 MU.log "Snapshot quota exceeded while deleting #{db_id}", MU::ERR
               end
             end
@@ -1088,6 +1116,11 @@ module MU
           rescue Aws::RDS::Errors::DBSecurityGroupNotFound
             MU.log "RDS Security Group #{sg} disappeared before we could remove it", MU::WARN
           end
+
+          # Cleanup the database vault
+          grommer = database_obj.config.has_key?("groomer") ? database_obj.config['groomer'] : MU::Config.defaultGroomer
+          groomclass = MU::Groomer.loadGroomer(grommer)
+          groomclass.deleteSecret(vault: db_id.upcase) if !noop
         end
 
       end #class
