@@ -46,6 +46,27 @@ if ARGV.empty? and !$opts[:all] and !$opts[:platform] and !$opts[:environment] a
   exit 1
 end
 
+Thread.abort_on_exception = true
+$children = {}
+["EXIT", "HUP", "INT", "QUIT", "TRAP", "ABRT", "IOT", "KILL", "SYS", "PIPE", "ALRM", "TERM", "URG", "STOP", "TSTP", "CONT", "CHLD", "CLD", "TTIN", "TTOU", "IO", "XCPU", "XFSZ", "PROF", "WINCH", "USR1", "USR2", "PWR", "POLL"].each { |sig|
+
+  Signal.trap(sig) do
+    $children.each_pair { |pid, node|
+      if ["INT", "TERM", "EXIT", "ABRT"].include?(sig)
+        Process.kill("KILL", pid) # aka --dammit
+      else
+        begin
+          Process.kill(sig, pid)
+        rescue Errno::ESRCH
+        end
+      end
+    }
+    if ["INT", "TERM", "EXIT"].include?(sig)
+      Process.waitall
+    end
+  end
+}
+
 # Run through our filters so we can pass flat lists into our methods that
 # actually do things.
 avail_deploys = MU::MommaCat.listDeploys
@@ -111,14 +132,9 @@ exit 1 if !ok
 
 
 def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [])
-  children = {}
   badnodes = []
   count = 0
-  Signal.trap("INT") do
-    children.each { |pid|
-      Process.kill("INT", pid)
-    }
-  end
+
   deploys.each { |muid|
     mommacat = MU::MommaCat.new(muid)
     next if mommacat.kittens.nil? or mommacat.kittens['servers'].nil?
@@ -136,20 +152,20 @@ def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [])
             exit 1
           end
         }
-        children[child] = mu_name
+        $children[child] = mu_name
       }
-      while children.size >= $opts[:concurrent]-1
+      while $children.size >= $opts[:concurrent]-1
         child = Process.wait
         if !$?.success?
-          badnodes << children[child]
+          badnodes << $children[child]
         end
-        children.delete(child)
+        $children.delete(child)
       end
     }
   }
   Process.waitall.each { |child|
     if !child[1].success?
-      badnodes << children[child[0]]
+      badnodes << $children[child[0]]
     end
   }
 
@@ -159,13 +175,7 @@ def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [])
 end
 
 def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-client || ./chef-client ) 2>&1", print_output: false, noop: false)
-  children = {}
   badnodes = []
-  Signal.trap("INT") do
-    children.each { |pid|
-      Process.kill("INT", pid)
-    }
-  end
   count = 0
   deploys.each { |muid|
     mommacat = MU::MommaCat.new(muid)
@@ -188,13 +198,13 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-cli
         end
         puts "#{nodename} - #{output}" if print_output and output.match(/[^\s]/)
       }
-      children[child] = nodename
-      while children.size >= $opts[:concurrent] - 1
+      $children[child] = nodename
+      while $children.size >= $opts[:concurrent] - 1
         child = Process.wait
         if !$?.success?
-          badnodes << children[child]
+          badnodes << $children[child]
         end
-        children.delete(child)
+        $children.delete(child)
       end
     }
   }
