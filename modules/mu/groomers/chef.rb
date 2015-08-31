@@ -164,6 +164,7 @@ module MU
       # Delete a Chef data bag / Vault
       # @param vault [String]: A repository of secrets to delete
       def self.deleteSecret(vault: nil)
+        raise MuError, "No vault specified, nothing to delete" if vault.nil?
         MU.log "Deleting vault #{vault}"
         MU::Groomer::Chef.knifeCmd("data bag delete -y #{vault}")
       end
@@ -564,7 +565,7 @@ module MU
         deploy = MU::MommaCat.getLitter(MU.deploy_id)
         if deploy.deployment.has_key?("databases")
           deploy.deployment["databases"].each { |name, database|
-            grantSecretAccess(database['vault_name'], database['vault_item'])
+            grantSecretAccess(database['vault_name'], database['vault_item']) if database.has_key?("vault_name") && database.has_key?("vault_item")
           }
         end
 

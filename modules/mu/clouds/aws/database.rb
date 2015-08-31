@@ -373,7 +373,7 @@ module MU
             done = true
           ensure
             if !done and database
-              MU::Cloud::AWS::Database.terminate_rds_instance(database, false, true, region: @config['region'])
+              MU::Cloud::AWS::Database.terminate_rds_instance(database, false, true, region: @config['region'], deploy_id: MU.deploy_id, cloud_id: @config['identifier'])
             end
           end
 
@@ -940,7 +940,7 @@ module MU
               threads << Thread.new(db) { |mydb|
                 MU.dupGlobals(parent_thread_id)
                 Thread.abort_on_exception = true
-                MU::Cloud::AWS::Database.terminate_rds_instance(mydb, noop, skipsnapshots, region: region)
+                MU::Cloud::AWS::Database.terminate_rds_instance(mydb, noop, skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: db.db_instance_identifier)
               } # thread
             end # if found_muid and found_master
           } # resp.data.db_instances.each { |db|
@@ -956,7 +956,7 @@ module MU
         # Remove an RDS database and associated artifacts
         # @param db [OpenStruct]: The cloud provider's description of the database artifact
         # @return [void]
-        def self.terminate_rds_instance(db, noop = false, skipsnapshots = false, region: MU.curRegion)
+        def self.terminate_rds_instance(db, noop = false, skipsnapshots = false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil)
 # XXX try to id read replicas; can't save final snaps of those guys
           raise MuError, "terminate_rds_instance requires a non-nil database descriptor" if db.nil?
 
@@ -975,6 +975,15 @@ module MU
             MU.log "Couldn't get db_instance_identifier from '#{db}'", MU::WARN, details: caller
             return
           end
+
+          database_obj = MU::MommaCat.findStray(
+              "AWS",
+              "database",
+              region: region,
+              deploy_id: deploy_id,
+              cloud_id: cloud_id.upcase,
+              mu_name: mu_name
+          ).first
 
           subnet_group = nil
           begin
@@ -1108,7 +1117,10 @@ module MU
             MU.log "RDS Security Group #{sg} disappeared before we could remove it", MU::WARN
           end
 
-          @groomclass.deleteSecret(vault: db_id.upcase) if !noop
+          # Cleanup the database vault
+          grommer = database_obj.config.has_key?("groomer") ? database_obj.config['groomer'] : MU::Config.defaultGroomer
+          groomclass = MU::Groomer.loadGroomer(grommer)
+          groomclass.deleteSecret(vault: db_id.upcase) if !noop
         end
 
       end #class
