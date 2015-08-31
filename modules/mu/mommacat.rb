@@ -1371,6 +1371,10 @@ module MU
         MU::MommaCat.addInstanceToEtcHosts(server.canonicalIP, node)
       end
 
+      if !config.nil? and !config['dns_records'].nil?
+        MU::Cloud::DNSZone.createRecordsFromConfig(config['dns_records'], target: server.canonicalIP)
+      end
+
       MU::MommaCat.removeHostFromSSHConfig(node)
 # XXX add names paramater with useful stuff
       MU::MommaCat.addHostToSSHConfig(

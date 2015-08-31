@@ -93,7 +93,7 @@ module MU
             :interface => self.const_get("DNSZone"),
             :deps_wait_on_my_creation => true,
             :waits_on_parent_completion => false,
-            :class => generic_class_methods + [:genericMuDNSEntry],
+            :class => generic_class_methods + [:genericMuDNSEntry, :createRecordsFromConfig],
             :instance => generic_instance_methods
         },
         :FirewallRule => {
@@ -580,6 +580,14 @@ module MU
 # XXX have this switch on a global config for where Mu puts its DNS
             cloudclass = MU::Cloud.loadCloudType(MU::Config.defaultCloud, "DNSZone")
             cloudclass.genericMuDNSEntry(flags.first)
+          end
+          def self.createRecordsFromConfig(*flags)
+            cloudclass = MU::Cloud.loadCloudType(MU::Config.defaultCloud, "DNSZone")
+            if !flags.nil? and flags.size == 1
+              cloudclass.createRecordsFromConfig(flags.first)
+            else
+              cloudclass.createRecordsFromConfig(*flags)
+            end
           end
         end
 
