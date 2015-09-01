@@ -46,7 +46,13 @@ default['apache']['mod_ssl']['directives']['SSLProtocol'] = "all -SSLv2 -SSLv3"
 
 default['apache']['contact'] = default['mu']['user_map']['mu']
 default['apache']['traceenable'] = 'Off'
-override["apache"]["listen_ports"] = [80, 8443]
+
+# Conditionally add a Jenkins port
+if node.attribute?('jenkins_port_external') 
+  override["apache"]["listen_ports"] = [80, 8443, 9443]
+else
+  override["apache"]["listen_ports"] = [80, 8443]
+end
 
 override["nagios"]["http_port"] = 8443
 default['nagios']['enable_ssl'] = true
