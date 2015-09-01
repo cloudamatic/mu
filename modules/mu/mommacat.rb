@@ -68,7 +68,7 @@ module MU
         end
         return @@litters[deploy_id]
       }
-#			MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
+#     MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
     end
 
     attr_reader :public_key
@@ -300,11 +300,11 @@ module MU
       end
 
 # XXX this .owned? method may get changed by the Ruby maintainers
-#			if !@@litter_semaphore.owned?
-#				@@litter_semaphore.synchronize {
-#					@@litters[@deploy_id] = self
-#				}
-#			end
+#     if !@@litter_semaphore.owned?
+#       @@litter_semaphore.synchronize {
+#         @@litters[@deploy_id] = self
+#       }
+#     end
     end
 
     # @param object [MU::Cloud]:
@@ -685,12 +685,12 @@ module MU
         MU::MommaCat.unlockAll
         if e.class.name != "MU::Cloud::AWS::Server::BootstrapTempFail" and !File.exists?(deploy_dir+"/.cleanup."+cloud_id) and !File.exists?(deploy_dir+"/.cleanup")
           MU.log "Grooming FAILED for #{kitten.mu_name} (#{e.inspect})", MU::ERR, details: e.backtrace
-#					sendAdminMail("Grooming FAILED for #{kitten.mu_name} on #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id})",
-#						msg: e.inspect,
-#						kitten: kitten,
-#						data: e.backtrace,
-#						debug: true
-#					)
+#         sendAdminMail("Grooming FAILED for #{kitten.mu_name} on #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id})",
+#           msg: e.inspect,
+#           kitten: kitten,
+#           data: e.backtrace,
+#           debug: true
+#         )
           raise e if reraise_fail
         else
           MU.log "Grooming of #{kitten.mu_name} interrupted by cleanup or planned reboot"
@@ -1011,7 +1011,7 @@ module MU
           }
           if !mu_descs.nil? and mu_descs.size > 0 and !deploy_id.nil? and !deploy_id.empty? and !mu_descs.first.empty?
             MU.log "I found descriptions that might match #{resourceclass.cfg_plural} name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}, but couldn't isolate my target kitten", MU::WARN, details: caller
-#					puts File.read(deploy_dir(deploy_id)+"/deployment.json")
+#         puts File.read(deploy_dir(deploy_id)+"/deployment.json")
           end
           # We can't refine any further by asking the cloud provider...
           if !cloud_id and !tag_key and !tag_value and kittens.size > 1
@@ -1156,11 +1156,11 @@ module MU
         elsif !triggering_node.nil? and !triggering_node.mu_name.nil?
           mu_name = triggering_node.mu_name
         end
-	      if mu_name.nil? and has_multiples
-		      MU.log "MU::MommaCat.notify called to modify deployment struct for a type (#{type}) with :has_multiples, but no mu_name available to look under #{key}. Call was #{caller[0]}", MU::WARN, details: data
-			    MU::MommaCat.unlock("deployment-notification")
-				  return
-				end
+        if mu_name.nil? and has_multiples
+          MU.log "MU::MommaCat.notify called to modify deployment struct for a type (#{type}) with :has_multiples, but no mu_name available to look under #{key}. Call was #{caller[0]}", MU::WARN, details: data
+          MU::MommaCat.unlock("deployment-notification")
+          return
+        end
       end
 
       if !remove
@@ -1183,38 +1183,40 @@ module MU
           @deployment[type][key] = data
           MU.log "Adding to @deployment[#{type}][#{key}]", MU::DEBUG, details: data
         end
+        save!(key)
       else
         have_deploy = true
         if @deployment[type].nil? or @deployment[type][key].nil?
 
           if has_multiples
-            MU.log "MU::MommaCat.notify called to remove #{type} #{key} #{mu_name} deployment struct, but no such data exist", MU::WARN
+            MU.log "MU::MommaCat.notify called to remove #{type} #{key} #{mu_name} deployment struct, but no such data exist", MU::DEBUG
           else
-            MU.log "MU::MommaCat.notify called to remove #{type} #{key} deployment struct, but no such data exist", MU::WARN
+            MU.log "MU::MommaCat.notify called to remove #{type} #{key} deployment struct, but no such data exist", MU::DEBUG
           end
           MU::MommaCat.unlock("deployment-notification")
 
           return
         end
 
-				if have_deploy
-	        if has_multiples
-			      MU.log "Removing @deployment[#{type}][#{key}][#{mu_name}]", MU::WARN, details: @deployment[type][key][mu_name]
-		        @deployment[type][key].delete(mu_name)
-	        else
-			      MU.log "Removing @deployment[#{type}][#{key}]", MU::WARN, details: @deployment[type][key]
-		        @deployment[type].delete(key)
-	        end
-				end
-				save!
+        if have_deploy
+          if has_multiples
+            MU.log "Removing @deployment[#{type}][#{key}][#{mu_name}]", MU::DEBUG, details: @deployment[type][key][mu_name]
+            @deployment[type][key].delete(mu_name)
+            if @deployment[type][key].size == 0
+              @deployment[type].delete(key)
+            end
+          else
+            MU.log "Removing @deployment[#{type}][#{key}]", MU::DEBUG, details: @deployment[type][key]
+            @deployment[type].delete(key)
+          end
+          if @deployment[type].size == 0
+            @deployment.delete(type)
+          end
+        end
+        save!
 
       end
-      if have_deploy
-        save!(key)
-        MU::MommaCat.unlock("deployment-notification")
-      else
-        MU::MommaCat.unlock("deployment-notification")
-      end
+      MU::MommaCat.unlock("deployment-notification")
     end
 
     # Tag a resource. Defaults to applying our MU deployment identifier, if no
@@ -2091,9 +2093,9 @@ MESSAGE_END
                   @deploy_cache[deploy]['data'][attrs[:cfg_plural]].each_pair { |nodename, data|
 # XXX we don't actually store node names for some resources, need to farm them
 # and fix metadata
-#									if !mu_name.nil? and nodename == mu_name
-#										return { deploy => [data] }
-#									end
+#                 if !mu_name.nil? and nodename == mu_name
+#                   return { deploy => [data] }
+#                 end
                   }
                 else
                   @deploy_cache[deploy]['data'][attrs[:cfg_plural]].each_pair { |node_class, nodes|

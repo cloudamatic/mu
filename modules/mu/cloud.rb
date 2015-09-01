@@ -247,6 +247,7 @@ module MU
         attr_reader :cloud_id
         attr_reader :config
         attr_reader :deploydata
+        attr_reader :destroyed
 
         def self.shortname
           name.sub(/.*?::([^:]+)$/, '\1')
@@ -305,6 +306,7 @@ module MU
                        cloud_id: nil,
                        kitten_cfg: nil)
           raise MuError, "Cannot invoke Cloud objects without a configuration" if kitten_cfg.nil?
+          @live = true
           @deploy = mommacat
           @config = kitten_cfg
           @cloud_id = cloud_id
@@ -369,16 +371,28 @@ module MU
         def destroy
           if !@cloudobj.nil? and !@cloudobj.groomer.nil?
             @cloudobj.groomer.cleanup
-					elsif !@groomer.nil?
-						@groomer.cleanup
+          elsif !@groomer.nil?
+            @groomer.cleanup
           end
           if !@deploy.nil?
             if !@cloudobj.nil? and !@config.nil? and !@cloudobj.mu_name.nil?
               @deploy.notify(self.class.cfg_plural, @config['name'], nil, mu_name: @cloudobj.mu_name, remove: true, triggering_node: @cloudobj)
-						elsif !@mu_name.nil?
-							@deploy.notify(self.class.cfg_plural, @config['name'], nil, mu_name: @mu_name, remove: true, triggering_node: self)
+            elsif !@mu_name.nil?
+              @deploy.notify(self.class.cfg_plural, @config['name'], nil, mu_name: @mu_name, remove: true, triggering_node: self)
             end
             @deploy.removeKitten(self)
+          end
+          # Make sure that if notify gets called again it won't go returning a
+          # bunch of now-bogus metadata.
+          @destroyed = true
+          if !@cloudobj.nil?
+            def @cloudobj.notify
+              {}
+            end
+          else
+            def notify
+              {}
+            end
           end
         end
 
@@ -813,7 +827,8 @@ module MU
             else
               retval = @cloudobj.method(method).call
             end
-            if method == :create or method == :groom or method == :postBoot
+            if (method == :create or method == :groom or method == :postBoot) and
+               (!@destroyed and !@cloudobj.destroyed)
               deploydata = @cloudobj.method(:notify).call
               if deploydata.nil? or !deploydata.is_a?(Hash)
                 raise MuError, "#{self}'s notify method did not return a Hash of deployment data"
