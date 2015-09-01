@@ -2063,6 +2063,11 @@ module MU
                         # XXX what does the API do if we don't set this? pick one at random?
                         "availability_zone" => {"type" => "string"},
                         "route_table" => {"type" => "string"},
+                        "map_public_ips" => {
+                            "type" => "boolean",
+                            "description" => "If the cloud provider's instances should automatically be assigned publicly routable addresses.",
+                            "default" => false
+                        }
                     }
                 }
             },
