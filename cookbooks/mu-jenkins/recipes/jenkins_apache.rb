@@ -1,6 +1,6 @@
 #
 # Cookbook Name:: mu-jenkins
-# Recipe:: default
+# Recipe:: jenkins-apache
 #
 # Copyright 2015, eGlobalTech, Inc
 #
