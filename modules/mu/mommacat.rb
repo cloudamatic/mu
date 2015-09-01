@@ -51,8 +51,9 @@ module MU
     # on..
     # @param deploy_id [String]: The deploy ID of the deploy to load.
     # @param set_context_to_me [Boolean]: Whether new MommaCat objects should overwrite any existing per-thread global deploy variables.
+    # @param use_cache [Boolean]: If we have an existing object for this deploy, use that
     # @return [MU::MommaCat]
-    def self.getLitter(deploy_id, set_context_to_me: false)
+    def self.getLitter(deploy_id, set_context_to_me: false, use_cache: true)
       if deploy_id.nil? or deploy_id.empty?
         raise MuError, "Cannot fetch a deployment without a deploy_id"
       end
@@ -61,7 +62,7 @@ module MU
 # so force a reload if we see that. That's probably not the root problem.
       @@litter_semaphore.synchronize {
 
-        if !@@litters.has_key?(deploy_id) or @@litters[deploy_id].kittens.nil? or @@litters[deploy_id].kittens.size == 0
+        if !use_cache or !@@litters.has_key?(deploy_id) or @@litters[deploy_id].kittens.nil? or @@litters[deploy_id].kittens.size == 0
           @@litters[deploy_id] = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
         elsif set_context_to_me
           MU::MommaCat.setThreadContext(@@litters[deploy_id])
@@ -703,6 +704,7 @@ module MU
       end
       MU::MommaCat.unlock(cloud_id+"-mommagroom")
       MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS...
+      MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
       MU::MommaCat.syncMonitoringConfig(false)
       MU::MommaCat.createStandardTags(cloud_id, region: kitten.config["region"])
       MU.log "Grooming complete for '#{name}' mu_name on \"#{MU.handle}\" (#{MU.deploy_id})"

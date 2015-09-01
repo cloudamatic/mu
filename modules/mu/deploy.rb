@@ -260,6 +260,7 @@ module MU
       deployment = MU.mommacat.deployment
       deployment["deployment_end_time"]=Time.new.strftime("%I:%M %p on %A, %b %d, %Y").to_s;
       MU::Cloud::AWS.openFirewallForClients # XXX only invoke if we're in AWS
+      MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
       MU::MommaCat.syncMonitoringConfig
 
       # Send notifications
