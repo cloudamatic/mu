@@ -127,7 +127,7 @@ module MU
             :deps_wait_on_my_creation => false,
             :waits_on_parent_completion => false,
             :class => generic_class_methods,
-            :instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP, :getWindowsAdminPassword, :active?, :groomer, :mu_windows_name, :mu_windows_name=]
+            :instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP, :getWindowsAdminPassword, :active?, :groomer, :mu_windows_name, :mu_windows_name=, :reboot]
         },
         :ServerPool => {
             :has_multiples => false,
@@ -669,6 +669,12 @@ module MU
                   if !output.match(/#{@mu_windows_name}/)
                     MU.log "Setting Windows hostname to #{@mu_windows_name}", details: ssh.exec!(win_set_hostname)
                     @hostname_set = true
+                    # Reboot from the API too, in case Windows is flailing
+                    if !@cloudobj.nil?
+                      @cloudobj.reboot
+                    else
+                      reboot
+                    end
                     raise MU::Cloud::BootstrapTempFail, "Set hostname in Windows, waiting for reboot"
                   end
                 end
@@ -714,6 +720,7 @@ module MU
             Thread.handle_interrupt(Errno::ECONNREFUSED => :never) {
             }
 
+            forced_windows_reboot = false
             begin
               if !nat_ssh_host.nil?
                 proxy_cmd = "ssh -q -o StrictHostKeyChecking=no -W %h:%p #{nat_ssh_user}@#{nat_ssh_host}"
@@ -745,6 +752,7 @@ module MU
                     :auth_methods => ['publickey']
                 )
               end
+              forced_windows_reboot = false
             rescue Net::SSH::HostKeyMismatch => e
               MU.log("Remembering new key: #{e.fingerprint}")
               e.remember_host!
@@ -769,6 +777,10 @@ module MU
                   MU.log msg, MU::NOTICE
                 elsif retries/max_retries > 0.5
                   MU.log msg, MU::WARN, details: e.inspect
+                end
+                if e.message.match(/connection closed by remote host/) and windows? and !forced_windows_reboot
+                  forced_windows_reboot = true
+                  reboot
                 end
                 sleep retry_interval
                 retry

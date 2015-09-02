@@ -500,9 +500,17 @@ module MU
           instance = response.instances.first
           MU.log "#{node} (#{instance.instance_id}) coming online"
 
-
           return instance
 
+        end
+
+        # Ask the Amazon API to restart this node
+        def reboot
+          return if @cloud_id.nil?
+          MU.log "Rebooting #{@mu_name} (#{@cloud_id})"
+          MU::Cloud::AWS.ec2(@config['region']).reboot_instances(
+            instance_ids: [@cloud_id]
+          )
         end
 
         # Figure out what's needed to SSH into this server.
