@@ -932,10 +932,12 @@ set_hostname()
 set_logbucket()
 {
 if [ "$LOG_BUCKET_NAME" == "" ];then
-	LOG_BUCKET_NAME="mu-logs-${HOSTNAME}-${MY_INSTANCE_ID}"
+  LOG_BUCKET_NAME="mu-logs-${HOSTNAME}-${MY_INSTANCE_ID}"
 fi
 export LOG_BUCKET_NAME
+update_murc LOG_BUCKET_NAME $LOG_BUCKET_NAME
 }
+
 
 ###############################################################################
 install_system_packages()
