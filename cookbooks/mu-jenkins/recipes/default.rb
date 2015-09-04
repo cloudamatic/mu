@@ -11,7 +11,7 @@ include_recipe 'mu-utility::iptables'
 include_recipe 'chef-vault'
 
 admin_vault = chef_vault_item(node.jenkins_admin_vault[:vault], node.jenkins_admin_vault[:item])
-#puts "+++++++++++++++++++++++++", node.application_attributes.attribute?('jenkins_auth_set')
+
 case node.platform
   when "centos", "redhat"
 
@@ -93,6 +93,17 @@ case node.platform
         notifies :restart, 'service[jenkins]', :delayed
       end
     }
+
+# Specific version plugins that don't come as default
+      jenkins_plugin 'matrix-auth' do
+        version '1.2'
+        notifies :restart, 'service[jenkins]', :delayed
+      end
+
+      jenkins_plugin 'matrix-project' do
+        version '1.6'
+        notifies :restart, 'service[jenkins]', :delayed
+      end
 
     # Setup apache or else open direct ports
     if node.attribute?('jenkins_port_external')
