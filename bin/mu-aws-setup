@@ -148,7 +148,7 @@ elsif $opts[:ip]
 end
 
 if ENV['LOG_BUCKET_NAME'].nil? or ENV['LOG_BUCKET_NAME'].empty?
-  $bucketname = "Mu_Logs_"+Socket.gethostname+"_"+my_instance_id
+  $bucketname = "mu-logs-"+Socket.gethostname+"-"+my_instance_id
 else
   $bucketname = ENV['LOG_BUCKET_NAME']
 end
