@@ -817,15 +817,6 @@
                         "Ref": "MasterEIP"
                       },
                       "\"\n",
-                      "export LOG_BUCKET_NAME=\"mu-logs-",
-                      {
-                        "Ref": "HostName"
-                      },
-                      "-",
-                      {
-                        "Ref": "MasterInstance"
-                      },
-                      "\"\n",
                       "export HOSTNAME=\"",
                       {
                         "Ref": "HostName"
