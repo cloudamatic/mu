@@ -10,11 +10,11 @@
 
 case node[:platform]
 
-	when "centos"
+  when "centos"
 
-		bash "install rvm" do
-	        user "root"
-	        code <<-EOH
+    bash "install rvm" do
+      user "root"
+      code <<-EOH
 
 				curl -L https://get.rvm.io | bash -s stable --ruby
 				source /usr/local/rvm/scripts/rvm
@@ -26,20 +26,20 @@ case node[:platform]
 				rvm reinstall 2.0.0 --with-openssl-dir=$HOME/.rvm/usr --verify-downloads 1
 				rvm --default use 2.0.0
 
-			EOH
-		end
+      EOH
+    end
 
-	when "ubuntu"
+  when "ubuntu"
 
-		bash "install rvm" do
-	        user "root"
-	        code <<-EOH
+    bash "install rvm" do
+      user "root"
+      code <<-EOH
 
-			EOH
-		end
+      EOH
+    end
 
-	else
-		Chef::Log.info("Unsupported platform #{node[:platform]}")  
+  else
+    Chef::Log.info("Unsupported platform #{node[:platform]}")
 
 end
 

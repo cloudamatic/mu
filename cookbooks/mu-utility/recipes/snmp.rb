@@ -18,24 +18,24 @@
 
 case node[:platform]
 
-	when "centos"
+  when "centos"
 
 
-	when "ubuntu"
-		package "snmp"
-		package "snmpd"
-		bash "install snmp" do
-	        user "root"
-	        code <<-EOH
+  when "ubuntu"
+    package "snmp"
+    package "snmpd"
+    bash "install snmp" do
+      user "root"
+      code <<-EOH
 
 rm -rf /root/.snmp
 mkdir /root/.snmp
 sudo cp -rf /etc/snmp/*  /root/.snmp/
 
-			EOH
-		end
-	else
-		Chef::Log.info("Unsupported platform #{node[:platform]}")
+      EOH
+    end
+  else
+    Chef::Log.info("Unsupported platform #{node[:platform]}")
 end
 
 

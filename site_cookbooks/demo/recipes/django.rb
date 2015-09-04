@@ -30,13 +30,13 @@ gunicorn_access_log = "#{gunicorn_log_dir}/access.log"
 node.set['nginx']['default_root'] = "#{application_dir}/current"
 
 application 'demo' do
-  action     :deploy
-  path       application_dir
-  owner      'www-data'
-  group      'www-data'
+  action :deploy
+  path application_dir
+  owner 'www-data'
+  group 'www-data'
   repository application_repo
-  revision   'master'
-  migrate    false
+  revision 'master'
+  migrate false
 
   django do
     requirements 'requirements.txt'
@@ -55,11 +55,11 @@ file gunicorn_access_log do
 end
 
 gunicorn_config gunicorn_config do
-  pid       '/run/gunicorn.sock'
-  owner     'www-data'
-  group     'www-data'
-  listen    '127.0.0.1:9000'
-  action    :create
+  pid '/run/gunicorn.sock'
+  owner 'www-data'
+  group 'www-data'
+  listen '127.0.0.1:9000'
+  action :create
   accesslog gunicorn_access_log
 end
 
@@ -77,8 +77,8 @@ file '/etc/nginx/sites-available/default' do
 end
 
 bash "boot_gunicorn" do
-  cwd     "#{application_dir}/current"
+  cwd "#{application_dir}/current"
   code <<-EOH
-    #{application_dir}/shared/env/bin/gunicorn -D -c /etc/gunicorn/demo.py demo.wsgi:application
+#{application_dir}/shared/env/bin/gunicorn -D -c /etc/gunicorn/demo.py demo.wsgi:application
   EOH
 end

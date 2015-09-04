@@ -16,27 +16,27 @@ default['mu']['admin_emails'] = []
 default['mu']['user_list'] = []
 default['mu']['user_map'] = {}
 if !MU.mainDataDir.nil? and !MU.mainDataDir.empty? and
-		Dir.exists?("#{MU.mainDataDir}/users")
-	admin_list = []
-	Dir.foreach("#{MU.mainDataDir}/users") { |username|
-		next if username == "." or username == ".."
-		if File.exists?("#{MU.mainDataDir}/users/#{username}/email")
-			email = File.read("#{MU.mainDataDir}/users/#{username}/email").chomp
-			admin_list << "#{username} (#{email})"
-			default['mu']['admin_emails'] << email
-			default['mu']['user_map'][username] = email
-		else
-			admin_list << username
-		end
-	}
-	default['mu']['user_list'] = admin_list.join(", ")
+    Dir.exists?("#{MU.mainDataDir}/users")
+  admin_list = []
+  Dir.foreach("#{MU.mainDataDir}/users") { |username|
+    next if username == "." or username == ".."
+    if File.exists?("#{MU.mainDataDir}/users/#{username}/email")
+      email = File.read("#{MU.mainDataDir}/users/#{username}/email").chomp
+      admin_list << "#{username} (#{email})"
+      default['mu']['admin_emails'] << email
+      default['mu']['user_map'][username] = email
+    else
+      admin_list << username
+    end
+  }
+  default['mu']['user_list'] = admin_list.join(", ")
 # older machines
 elsif node['tags'].is_a?(Hash)
-	default['mu']['user_list'] = node['tags']['MU-ADMINS']
-	default['mu']['admin_emails'] = node['tags']['MU-ADMINS'].split(/,?\s+/)
+  default['mu']['user_list'] = node['tags']['MU-ADMINS']
+  default['mu']['admin_emails'] = node['tags']['MU-ADMINS'].split(/,?\s+/)
 elsif !ENV['MU_ADMINS'].nil? and !ENV['MU_ADMINS'].empty?
-	default['mu']['user_list'] = ENV['MU_ADMINS']
-	default['mu']['admin_emails'] = ENV['MU_ADMINS'].split(/,?\s+/)
+  default['mu']['user_list'] = ENV['MU_ADMINS']
+  default['mu']['admin_emails'] = ENV['MU_ADMINS'].split(/,?\s+/)
 end
 
 default['apache']['docroot_dir'] = "/var/www/html"
@@ -72,14 +72,25 @@ default['nagios']['default_host']['max_check_attempts'] = 4
 default['nagios']['default_host']['check_command'] = "check_node_ssh"
 default['nagios']['default_service']['check_interval'] = 180
 default['nagios']['default_service']['retry_interval'] = 30
+default['nagios']['server']['url'] = "https://assets.nagios.com/downloads/nagioscore/releases/nagios-4.0.8.tar.gz"
 
-# no idea why this attribute isn't set on MU-MASTER, but it isn't.
-default['chef_node_name'] = Chef::Config[:node_name]
+# No idea why this is set wrong by default
+default['chef_node_name'] = node.name
 default['nagios']['host_name_attribute'] = 'chef_node_name'
 
-default[:application_attributes][:logs]["volume_size_gb"] = 50
-default[:application_attributes][:logs][:mount_device] = "/dev/xvdl"
-default[:application_attributes][:logs][:label] = "#{node.hostname} /Mu_Logs"
-default[:application_attributes][:logs][:secure_location] = MU.adminBucketName
-default[:application_attributes][:logs][:ebs_keyfile] = "log_vol_ebs_key"
-default[:application_attributes][:logs][:mount_directory] = "/Mu_Logs"
+default['application_attributes']['logs']['volume_size_gb'] = 50
+default['application_attributes']['logs']['mount_device'] = "/dev/xvdl"
+default['application_attributes']['logs']['label'] = "#{node.hostname} /Mu_Logs"
+default['application_attributes']['logs']['secure_location'] = MU.adminBucketName
+default['application_attributes']['logs']['ebs_keyfile'] = "log_vol_ebs_key"
+default['application_attributes']['logs']['mount_directory'] = "/Mu_Logs"
+
+case node.platform
+  when "centos"
+    ssh_user = "root" if node.platform_version.to_i == 6
+    ssh_user = "centos" if node.platform_version.to_i == 7
+  when "redhat"
+    ssh_user = "ec2-user"
+end
+
+default['application_attributes']['sshd_allow_groups'] = "#{ssh_user} mu-users"

@@ -147,7 +147,7 @@ ClientAliveCountMax 0
 Banner /etc/issue.net
 
 # override default of no subsystems
-Subsystem       sftp    /usr/libexec/openssh/sftp-server
+Subsystem       sftp    internal-sftp
 
 # Example of overriding settings on a per-user basis
 #Match User anoncvs
@@ -159,12 +159,34 @@ UseDNS no
 
 Ciphers aes128-ctr,aes192-ctr,aes256-ctr
 
-# If we've set AllowGroups, use that instead of restricting to root
-<% begin %>
+# If we've set AllowGroups, use that instead of restricting to ec2-user
+<%
+begin
+	if !node.application_attributes.sshd_allow_groups.empty? %>
 AllowGroups <%= node.application_attributes.sshd_allow_groups %>
-<% rescue NoMethodError %>
-AllowUsers root
-<% end %>
+<%
+	else
+	%>
+AllowUsers ec2-user
+<%
+	end
+rescue NoMethodError %>
+AllowUsers ec2-user
+<%
+end
+%>
+
+# Support SVN-only servers, while we're at it
+<%
+begin
+	if node.application_attributes.svn_only_group %>
+Match Group <%= node.application_attributes.svn_only_group %>
+	ForceCommand /usr/bin/svnserve -t
+<%
+	end
+rescue NoMethodError
+end
+%>
 
 # Support SFTP-only servers, while we're at it
 <%

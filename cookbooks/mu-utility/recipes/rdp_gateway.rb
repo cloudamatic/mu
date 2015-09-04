@@ -17,20 +17,20 @@
 # limitations under the License.
 
 if !platform_family?("windows")
-	Chef::Log.info "I don't know how to enable RDP gateway behavior on a non-Windows host"
+  Chef::Log.info "I don't know how to enable RDP gateway behavior on a non-Windows host"
 else
 
-	powershell_script "Install Remote Desktop Gateway services" do
-		guard_interpreter :powershell_script
-		not_if "Import-Module RemoteDesktopServices"
-		code <<-EOH
+  powershell_script "Install Remote Desktop Gateway services" do
+    guard_interpreter :powershell_script
+    not_if "Import-Module RemoteDesktopServices"
+    code <<-EOH
 			Add-WindowsFeature -Name RDS-Gateway -IncludeAllSubFeature
-		EOH
-	end
+    EOH
+  end
 
-	powershell_script "Configure Remote Desktop Gateway services" do
-		guard_interpreter :powershell_script
-		code <<-EOH
+  powershell_script "Configure Remote Desktop Gateway services" do
+    guard_interpreter :powershell_script
+    code <<-EOH
 			Import-Module RemoteDesktopServices
 			cd RDS:\\GatewayServer\\CAP
 			New-Item -Name StandardAccess -UserGroups 'Remote Desktop Users@BUILTIN' -AuthMethod 1
@@ -78,6 +78,6 @@ else
 			Set-Item -Path RDS:\\GatewayServer\\SSLCertificate\\Thumbprint -Value $thumbprint
 
 			Restart-Service TSGateway
-		EOH
-	end
+    EOH
+  end
 end

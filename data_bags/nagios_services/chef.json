@@ -1,6 +1,6 @@
 {
-	"id": "chef",
-	"hostgroup_name": "mu-master",
-	"notification_interval": 7200,
-	"command_line": "$USER1$/check_http -I $HOSTADDRESS$ -S"
+  "id": "chef",
+  "hostgroup_name": "mu-master",
+  "notification_interval": 7200,
+  "command_line": "$USER1$/check_http -I $HOSTADDRESS$ -S"
 }

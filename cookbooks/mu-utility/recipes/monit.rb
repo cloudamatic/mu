@@ -17,15 +17,15 @@
 
 case node[:platform]
 
-	when "centos"
+  when "centos"
 
 
-	when "ubuntu"
+  when "ubuntu"
 
-		package "monit"
-		bash "monit" do
-	        user "root"
-	        code <<-EOH
+    package "monit"
+    bash "monit" do
+      user "root"
+      code <<-EOH
 
     		rm -rf /etc/default/monit
     
@@ -33,10 +33,10 @@ cat >> /etc/default/monit << EOF
     START=1
 EOF
 
-			EOH
-		end
-	else
-		Chef::Log.info("Unsupported platform #{node[:platform]}")
+      EOH
+    end
+  else
+    Chef::Log.info("Unsupported platform #{node[:platform]}")
 end
 
 

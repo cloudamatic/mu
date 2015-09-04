@@ -24,9 +24,9 @@ configure_options = node['python']['configure_options'].join(" ")
 make_options = node['python']['make_options'].join(" ")
 
 packages = value_for_platform_family(
-             "rhel" => ["openssl-devel","bzip2-devel","zlib-devel","expat-devel","db4-devel","sqlite-devel","ncurses-devel","readline-devel"],
-             "default" => ["libssl-dev","libbz2-dev","zlib1g-dev","libexpat1-dev","libdb-dev","libsqlite3-dev","libncursesw5-dev","libncurses5-dev","libreadline-dev","libsasl2-dev", "libgdbm-dev"]
-           )
+    "rhel" => ["openssl-devel", "bzip2-devel", "zlib-devel", "expat-devel", "db4-devel", "sqlite-devel", "ncurses-devel", "readline-devel"],
+    "default" => ["libssl-dev", "libbz2-dev", "zlib1g-dev", "libexpat1-dev", "libdb-dev", "libsqlite3-dev", "libncursesw5-dev", "libncurses5-dev", "libreadline-dev", "libsasl2-dev", "libgdbm-dev"]
+)
 #
 packages.each do |dev_pkg|
   package dev_pkg
@@ -50,11 +50,11 @@ bash "build-and-install-python" do
   (cd Python-#{version} && make && make #{make_options})
   EOF
   environment({
-      "LDFLAGS" => "-L#{node['python']['prefix_dir']} -L/usr/lib",
-      "CPPFLAGS" => "-I#{node['python']['prefix_dir']} -I/usr/lib",
-      "CXXFLAGS" => "-I#{node['python']['prefix_dir']} -I/usr/lib",
-      "CFLAGS" => "-I#{node['python']['prefix_dir']} -I/usr/lib"
-  }) if platform?("ubuntu") && node['platform_version'].to_f >= 12.04
+                  "LDFLAGS" => "-L#{node['python']['prefix_dir']} -L/usr/lib",
+                  "CPPFLAGS" => "-I#{node['python']['prefix_dir']} -I/usr/lib",
+                  "CXXFLAGS" => "-I#{node['python']['prefix_dir']} -I/usr/lib",
+                  "CFLAGS" => "-I#{node['python']['prefix_dir']} -I/usr/lib"
+              }) if platform?("ubuntu") && node['platform_version'].to_f >= 12.04
   not_if { ::File.exists?(install_path) }
 end
 

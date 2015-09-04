@@ -25,31 +25,31 @@ require 'json'
 $timestamp=node.deployment.timestamp
 
 bash "create env directory" do
-        user "root"
-		code <<-EOH
+  user "root"
+  code <<-EOH
 
 		mkdir /tmp/env
 
-		EOH
+  EOH
 end
 
 template "/tmp/env/deployment.json" do
-	source "#{node.chef_environment}/deployment.json.erb"
-	mode 0755
-	owner "root"
-	group "root"
+  source "#{node.chef_environment}/deployment.json.erb"
+  mode 0755
+  owner "root"
+  group "root"
 end
 
 $service_name = node.normal.service_name;
 
 bash "copy env directory to #{node[node.chef_environment][$service_name].apps_dir}" do
-        user "root"
-		code <<-EOH
+  user "root"
+  code <<-EOH
 
 		apps_dir=#{node[node.chef_environment][$service_name].apps_dir}
 
 		cp -rf /tmp/env $apps_dir
 
-		EOH
+  EOH
 end
 

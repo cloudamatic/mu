@@ -21,37 +21,37 @@ require 'etc'
 # @param path [String]: The path to a .murc file to load.
 # @return [void]
 def parseRCFile(path)
-	if File.readable?(path)
-		File.readlines(path).each {|line|
-			line.strip!
-			name, value = line.split(/=/, 2)
-			name.sub!(/^export /, "")
-			if !value.nil? and !value.empty?
-				value.gsub!(/(^"|"$)/, "")
-				ENV[name] = value if !value.match(/\$/)
-			end
-		}
-	end
+  if File.readable?(path)
+    File.readlines(path).each { |line|
+      line.strip!
+      name, value = line.split(/=/, 2)
+      name.sub!(/^export /, "")
+      if !value.nil? and !value.empty?
+        value.gsub!(/(^"|"$)/, "")
+        ENV[name] = value if !value.match(/\$/)
+      end
+    }
+  end
 end
 
 if ENV.include?('MU_INSTALLDIR')
-	parseRCFile ENV['MU_INSTALLDIR']+"/etc/mu.rc"
+  parseRCFile ENV['MU_INSTALLDIR']+"/etc/mu.rc"
 elsif File.readable?("/opt/mu/etc/mu.rc")
-	parseRCFile "/opt/mu/etc/mu.rc"
+  parseRCFile "/opt/mu/etc/mu.rc"
 end
 
 home = Etc.getpwuid(Process.uid).dir
 parseRCFile "#{home}/.murc"
 
 if !ENV.include?('MU_INSTALLDIR')
-	require 'pp'
-	puts "Environment isn't set and I can't find a useful .murc, aborting."
-	pp ENV
-	exit 1
+  require 'pp'
+  puts "Environment isn't set and I can't find a useful .murc, aborting."
+  pp ENV
+  exit 1
 end
 
 if !ENV.include?('MU_LIBDIR')
-	ENV['MU_LIBDIR'] = ENV['MU_INSTALLDIR']+"/lib"
+  ENV['MU_LIBDIR'] = ENV['MU_INSTALLDIR']+"/lib"
 end
 
 $MUDIR = ENV['MU_LIBDIR']

@@ -18,17 +18,17 @@
 
 case node[:platform]
 
-	when "centos"
+  when "centos"
 
 
-	when "ubuntu"
+  when "ubuntu"
 
-		include_recipe "apache2"
-		package "munin"
-		package "munin-node"
+    include_recipe "apache2"
+    package "munin"
+    package "munin-node"
 
-	else
-		Chef::Log.info("Unsupported platform #{node[:platform]}")
+  else
+    Chef::Log.info("Unsupported platform #{node[:platform]}")
 end
 
 

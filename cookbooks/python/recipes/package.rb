@@ -20,44 +20,44 @@
 
 case node[:platform]
 
-    when "windows"
-        version = node['python']['version']
-        major_version = node['python']['major_version']
-        dir="python#{major_version}"
-        windows_package "Python #{version}" do
-            source "#{node['python']['url']}/#{version}/python-#{version}.msi"
-            options "TARGETDIR=#{node['python']['prefix_dir']}\\#{dir} ALLUSERS=1"
-        end
-        windows_path "#{node['python']['prefix_dir']}\\#{dir}" do
-            action :add
-        end
-        windows_path "#{node['python']['prefix_dir']}\\#{dir}\\Scripts" do
-            action :add
-        end
+  when "windows"
+    version = node['python']['version']
+    major_version = node['python']['major_version']
+    dir="python#{major_version}"
+    windows_package "Python #{version}" do
+      source "#{node['python']['url']}/#{version}/python-#{version}.msi"
+      options "TARGETDIR=#{node['python']['prefix_dir']}\\#{dir} ALLUSERS=1"
+    end
+    windows_path "#{node['python']['prefix_dir']}\\#{dir}" do
+      action :add
+    end
+    windows_path "#{node['python']['prefix_dir']}\\#{dir}\\Scripts" do
+      action :add
+    end
 
+  else
+    major_version = node['platform_version'].split('.').first.to_i
+
+    # COOK-1016 Handle RHEL/CentOS namings of python packages, by installing EPEL
+    # repo & package
+    if platform_family?('rhel') && major_version < 6
+      include_recipe 'yum-epel'
+      python_pkgs = ["python26", "python26-devel"]
+      node.default['python']['binary'] = "/usr/bin/python26"
     else
-        major_version = node['platform_version'].split('.').first.to_i
+      python_pkgs = value_for_platform_family(
+          "debian" => ["python", "python-dev"],
+          "rhel" => ["python", "python-devel"],
+          "fedora" => ["python", "python-devel"],
+          "freebsd" => ["python"],
+          "smartos" => ["python27"],
+          "default" => ["python", "python-dev"]
+      )
+    end
 
-        # COOK-1016 Handle RHEL/CentOS namings of python packages, by installing EPEL
-        # repo & package
-        if platform_family?('rhel') && major_version < 6
-          include_recipe 'yum-epel'
-          python_pkgs = ["python26", "python26-devel"]
-          node.default['python']['binary'] = "/usr/bin/python26"
-        else
-          python_pkgs = value_for_platform_family(
-                          "debian"  => ["python","python-dev"],
-                          "rhel"    => ["python","python-devel"],
-                          "fedora"  => ["python","python-devel"],
-                          "freebsd" => ["python"],
-                          "smartos" => ["python27"],
-                          "default" => ["python","python-dev"]
-                        )
-        end
-
-        python_pkgs.each do |pkg|
-          package pkg do
-            action :install
-          end
-        end
+    python_pkgs.each do |pkg|
+      package pkg do
+        action :install
+      end
+    end
 end

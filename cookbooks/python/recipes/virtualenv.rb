@@ -24,7 +24,7 @@ case node[:platform]
   when "windows"
     execute "Upgrade virtualenv using pip full path" do
       not_if "echo %path% | find /I \"#{node.python.prefix_dir}\\python#{node.python.major_version}\\Scripts\""
-        command "#{node['python']['pip_binary']} install virtualenv --upgrade"
+      command "#{node['python']['pip_binary']} install virtualenv --upgrade"
     end
     python_pip 'virtualenv' do
       only_if "echo %path% | find /I \"#{node.python.prefix_dir}\\python#{node.python.major_version}\\Scripts\""

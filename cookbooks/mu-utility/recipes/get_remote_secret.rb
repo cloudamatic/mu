@@ -18,12 +18,12 @@
 remote_secret = "s3://icras-dev/credentials/icras_encrypted_databag_secret"
 local_secret = "/etc/chef/encrypted_data_bag_secret"
 get = bash "Get Secret Key" do
-    user "root"
-        action :nothing
-        code <<-EOH
+  user "root"
+  action :nothing
+  code <<-EOH
         aws s3 cp #{remote_secret} #{local_secret}
-        EOH
-        not_if {::File.exists?("#{local_secret}")}
+  EOH
+  not_if { ::File.exists?("#{local_secret}") }
 end
 
 get.run_action (:run)

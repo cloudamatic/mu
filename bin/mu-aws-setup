@@ -34,20 +34,20 @@ require 'mu'
 Dir.chdir(MU.installDir)
 
 $opts = Trollop::options do
-	banner <<-EOS
+  banner <<-EOS
 Usage:
 #{$0} [-i] [-s] [-l] [-u] [-d]
-EOS
+  EOS
   opt :ip, "Attempt to configure the IP requested in the CHEF_PUBLIC_IP environment variable, or if none is set, to associate an arbitrary Elastic IP.", :require => false, :default => false, :type => :boolean
   opt :sg, "Attempt to configure a Security Group with appropriate permissions.", :require => false, :default => false, :type => :boolean
   opt :logs, "Ensure the presence of an S3 bucket prefixed with 'Mu_Logs' for use with CloudTrails, syslog, etc.", :require => false, :default => false, :type => :boolean
   opt :dns, "Ensure the presence of a private DNS Zone called for internal amongst Mu resources.", :require => false, :default => false, :type => :boolean
-	opt :uploadlogs, "Push today's log files to the S3 bucket created by the -l option.", :require => false, :default => false, :type => :boolean
+  opt :uploadlogs, "Push today's log files to the S3 bucket created by the -l option.", :require => false, :default => false, :type => :boolean
 end
 
-my_instance_id = MU.getAWSMetaData("instance-id")
+my_instance_id = MU::Cloud::AWS.getAWSMetaData("instance-id")
 
-resp = MU.ec2.describe_instances(instance_ids: [my_instance_id])
+resp = MU::Cloud::AWS.ec2.describe_instances(instance_ids: [my_instance_id])
 instance = resp.reservations.first.instances.first
 
 preferred_ip = MU.mu_public_ip
@@ -55,260 +55,280 @@ preferred_ip = MU.mu_public_ip
 # Create a security group, or manipulate an existing one, so that we have all
 # of the appropriate network holes.
 if $opts[:sg]
-	open_ports = [80, 443, 2260, 8443]
+  open_ports = [80, 443, 2260, 8443, 9443]
 
-	sg_id = nil
-	if instance.security_groups.size > 0
-		sg_id = instance.security_groups.first.group_id
-		MU.log "Using an existing Security Group, #{sg_id}, already associated with this Mu server."
-		open_ports.each { |port|
-			MU::FirewallRule.addRule(sg_id, ["0.0.0.0/0"], port: port)
-		}
-		MU::FirewallRule.addRule(sg_id, ["#{preferred_ip}/32"], port: 22)
-	else
-		rules = Array.new
-		open_ports.each { |port|
-			rules << {
-				"port" => port,
-				"hosts" => ["0.0.0.0/0"]
-			}
-		}
-		rules << {
-			"port" => 22,
-			"hosts" => ["#{preferred_ip}/32"]
-		}
-		sg_id = MU::FirewallRule.createEc2SG("Mu Master", rules, description: "Mu Master", vpc_id: instance.vpc_id)
-	end
-	puts "SECURITY GROUP ID: #{sg_id}"
+  # This doesn't make sense. we can have multiple security groups in our account with a name tag of "Mu Master". This will then find and modify a security group that has nothing to do with us.
+  # found = MU::MommaCat.findStray("AWS", "firewall_rule", region: MU.myRegion, dummy_ok: true, tag_key: "Name", tag_value: "Mu Master")
+  found = nil
+
+  if found.nil? or found.size < 1 and instance.security_groups.size > 0
+    # maybe we should make sure we don't use the "Mu Client Rules for" security group for this.
+    found = MU::MommaCat.findStray("AWS", "firewall_rule", region: MU.myRegion, dummy_ok: true, cloud_id: instance.security_groups.first.group_id)
+  end
+  admin_sg = found.first if !found.nil? and found.size > 0
+
+  if !admin_sg.nil?
+    MU.log "Using an existing Security Group, #{admin_sg}, already associated with this Mu server."
+    open_ports.each { |port|
+      admin_sg.addRule(["0.0.0.0/0"], port: port)
+    }
+    admin_sg.addRule(["#{preferred_ip}/32"], port: 22)
+  else
+    rules = Array.new
+    open_ports.each { |port|
+      rules << {
+          "port" => port,
+          "hosts" => ["0.0.0.0/0"]
+      }
+    }
+    rules << {
+        "port" => 22,
+        "hosts" => ["#{preferred_ip}/32"]
+    }
+    cfg = {
+        "name" => "Mu Master",
+        "cloud" => "AWS",
+        "region" => MU.myRegion,
+        "rules" => rules
+    }
+
+    if !instance.vpc_id.nil?
+      cfg["vpc"] = {"vpc_id" => instance.vpc_id}
+    end
+    admin_sg = MU::Cloud::FirewallRule.new(kitten_cfg: cfg, mu_name: "Mu Master")
+    admin_sg.create
+    admin_sg.groom
+  end
 end
 
 # Muddle with our IP address
 if instance.public_ip_address != preferred_ip and !preferred_ip.nil? and !preferred_ip.empty? and $opts[:ip]
 
-	has_elastic_ip = false
-	if !instance.public_ip_address.nil?
-		filters = Array.new
-		filters << { name: "domain", values: ["vpc"] } if !instance.vpc_id.nil?
-		filters << { name: "public-ip", values: [instance.public_ip_address] }
-		resp = MU.ec2.describe_addresses(filters: filters)
-		pp resp
-		if resp.addresses.size > 0
-			has_elastic_ip
-		end
-	end
+  has_elastic_ip = false
+  if !instance.public_ip_address.nil?
+    filters = Array.new
+    filters << {name: "domain", values: ["vpc"]} if !instance.vpc_id.nil?
+    filters << {name: "public-ip", values: [instance.public_ip_address]}
+    resp = MU::Cloud::AWS.ec2.describe_addresses(filters: filters)
+    pp resp
+    if resp.addresses.size > 0
+      has_elastic_ip
+    end
+  end
 
-	if has_elastic_ip
-		MU.log "Public IP address is #{instance.public_ip_address}"
-	else
-		is_private = false
-		if !instance.vpc_id.nil?
-			is_private = MU::VPC.isSubnetPrivate?(instance.subnet_id)
-			public_ip = MU::Server.findFreeElasticIp if !is_private
-		else
-			public_ip = MU::Server.findFreeElasticIp(classic: true)
-		end
+  if has_elastic_ip
+    MU.log "Public IP address is #{instance.public_ip_address}"
+  else
+    is_private = false
+    if !instance.vpc_id.nil?
+      is_private = MU::VPC.isSubnetPrivate?(instance.subnet_id)
+      public_ip = MU::Cloud::AWS::Server.findFreeElasticIp if !is_private
+    else
+      public_ip = MU::Cloud::AWS::Server.findFreeElasticIp(classic: true)
+    end
 
-		if !is_private
-			if public_ip.nil?
-				MU.log "Warning: Could not find a free Elastic IP to associate, continuing to use #{instance.public_ip_address} for now", MU::NOTICE
-			else
-				MU.log "Warning: About to associate the IP address #{public_ip} with this instance. This will disconnect your session. It is safe to reconnect and restart configuration.", MU::NOTICE
-				sleep 5
-				if !instance.vpc_id.nil?
-					MU::Server.associateElasticIp(my_instance_id, ip: public_ip)
-				else
-					MU::Server.associateElasticIp(my_instance_id, classic: true, ip: public_ip)
-				end
-			end
-		else
-			MU.log "We are in a private subnet, will not attempt to assign a public IP."
-		end
-	end
+    if !is_private
+      if public_ip.nil?
+        MU.log "Warning: Could not find a free Elastic IP to associate, continuing to use #{instance.public_ip_address} for now", MU::NOTICE
+      else
+        MU.log "Warning: About to associate the IP address #{public_ip} with this instance. This will disconnect your session. It is safe to reconnect and restart configuration.", MU::NOTICE
+        sleep 5
+        if !instance.vpc_id.nil?
+          MU::Cloud::AWS::Server.associateElasticIp(my_instance_id, ip: public_ip)
+        else
+          MU::Cloud::AWS::Server.associateElasticIp(my_instance_id, classic: true, ip: public_ip)
+        end
+      end
+    else
+      MU.log "We are in a private subnet, will not attempt to assign a public IP."
+    end
+  end
 elsif $opts[:ip]
-	MU.log "Currently assigned IP address is #{instance.public_ip_address}"
+  MU.log "Currently assigned IP address is #{instance.public_ip_address}"
 end
 
 if ENV['LOG_BUCKET_NAME'].nil? or ENV['LOG_BUCKET_NAME'].empty?
-	$bucketname = "Mu_Logs_"+Socket.gethostname+"_"+my_instance_id
+  $bucketname = "Mu_Logs_"+Socket.gethostname+"_"+my_instance_id
 else
-	$bucketname = ENV['LOG_BUCKET_NAME']
+  $bucketname = ENV['LOG_BUCKET_NAME']
 end
 
 if $opts[:logs]
-	exists = false
+  exists = false
 
-	MU.log "Configuring audit log bucket '#{$bucketname}'"
+  MU.log "Configuring audit log bucket '#{$bucketname}'"
 
-	resp = MU.s3.list_buckets
-	resp.buckets.each { |bucket|
-		exists = true if bucket['name'] == $bucketname
-	}
-	if !exists
-		MU.log "Creating #{$bucketname} bucket"
-		begin
-			resp = MU.s3.create_bucket(bucket: $bucketname, acl: "private")
-		rescue Aws::S3::Errors::BucketAlreadyExists => e
-			MU.log "#{e.inspect}", MU::NOTICE
-		end
-	end
+  resp = MU::Cloud::AWS.s3.list_buckets
+  resp.buckets.each { |bucket|
+    exists = true if bucket['name'] == $bucketname
+  }
+  if !exists
+    MU.log "Creating #{$bucketname} bucket"
+    begin
+      resp = MU::Cloud::AWS.s3.create_bucket(bucket: $bucketname, acl: "private")
+    rescue Aws::S3::Errors::BucketAlreadyExists => e
+      MU.log "#{e.inspect}", MU::NOTICE
+    end
+  end
 
-	resp = MU.s3.list_objects(
-		bucket: $bucketname,
-		prefix: "log_vol_ebs_key"
-	)
-	found = false
-	resp.contents.each { |object|
-		found = true if object.key == "log_vol_ebs_key"
-	}
-	if !found
-		MU.log "Creating new key for encrypted EBS log volume"
-		key = SecureRandom.random_bytes(32)
-		MU.s3.put_object(
-			bucket: $bucketname,
-			key: "log_vol_ebs_key",
-			body: "#{key}"
-		)
-	end
+  resp = MU::Cloud::AWS.s3.list_objects(
+      bucket: $bucketname,
+      prefix: "log_vol_ebs_key"
+  )
+  found = false
+  resp.contents.each { |object|
+    found = true if object.key == "log_vol_ebs_key"
+  }
+  if !found
+    MU.log "Creating new key for encrypted EBS log volume"
+    key = SecureRandom.random_bytes(32)
+    MU::Cloud::AWS.s3.put_object(
+        bucket: $bucketname,
+        key: "log_vol_ebs_key",
+        body: "#{key}"
+    )
+  end
 
 #	MU.log "Uploading Mu_CA.pem to #{$bucketname}"
-#	MU.s3.put_object(
+#	MU::Cloud::AWS.s3.put_object(
 #		bucket: $bucketname,
 #		acl: "public-read",
 #		key: "Mu_CA.pem",
 #		body: File.read("#{ENV['MU_DATADIR']}/ssl/Mu_CA.pem")
 #	)
 
-	resp = MU.s3.list_objects(
-		bucket: $bucketname,
-		prefix: "log_vol_ebs_key"
-	)
-	owner = MU.structToHash(resp.contents.first.owner)
+  resp = MU::Cloud::AWS.s3.list_objects(
+      bucket: $bucketname,
+      prefix: "log_vol_ebs_key"
+  )
+  owner = MU.structToHash(resp.contents.first.owner)
 
-	MU.s3.put_bucket_acl(
-		bucket: $bucketname,
-		acl: "log-delivery-write"
-	)
+  MU::Cloud::AWS.s3.put_bucket_acl(
+      bucket: $bucketname,
+      acl: "log-delivery-write"
+  )
 
-	MU.s3.put_bucket_versioning(
-		bucket: $bucketname,
-		versioning_configuration: {
-			status: "Enabled"
-		}
-	)
+  MU::Cloud::AWS.s3.put_bucket_versioning(
+      bucket: $bucketname,
+      versioning_configuration: {
+          status: "Enabled"
+      }
+  )
 
-	MU.s3.put_bucket_lifecycle(
-		bucket: $bucketname,
-		lifecycle_configuration: {
-			rules: [
-				{
-					expiration: {
-						days: 180
-					},
-					prefix: "master.log/",
-					status: "Enabled"
-				},
-				{
-					expiration: {
-						days: 180
-					},
-					prefix: "nodes.log/",
-					status: "Enabled"
-				},
-				{
-					expiration: {
-						days: 180
-					},
-					prefix: "AWSLogs/",
-					status: "Enabled"
-				}
-			]
-		}
-	)
+  MU::Cloud::AWS.s3.put_bucket_lifecycle(
+      bucket: $bucketname,
+      lifecycle_configuration: {
+          rules: [
+              {
+                  expiration: {
+                      days: 180
+                  },
+                  prefix: "master.log/",
+                  status: "Enabled"
+              },
+              {
+                  expiration: {
+                      days: 180
+                  },
+                  prefix: "nodes.log/",
+                  status: "Enabled"
+              },
+              {
+                  expiration: {
+                      days: 180
+                  },
+                  prefix: "AWSLogs/",
+                  status: "Enabled"
+              }
+          ]
+      }
+  )
 
-	MU.s3.put_bucket_policy(
-		bucket: $bucketname,
-		policy: ERB.new(MU::CLOUDTRAIL_BUCKET_POLICY).result
-	)
+  MU::Cloud::AWS.s3.put_bucket_policy(
+      bucket: $bucketname,
+      policy: ERB.new(MU::CLOUDTRAIL_BUCKET_POLICY).result
+  )
 
 
-	resp = MU.cloudtrails.describe_trails(trail_name_list: ["Mu_Trails"])
-	if resp.trail_list.size == 0
-		MU.log "Enabling Cloud Trails, logged to bucket #{$bucketname}"
+  resp = MU::Cloud::AWS.cloudtrails.describe_trails(trail_name_list: ["Mu_Trails"])
+  if resp.trail_list.size == 0
+    MU.log "Enabling Cloud Trails, logged to bucket #{$bucketname}"
 
-		begin
-		MU.cloudtrails.create_trail(
-			name: "Mu_Trails",
-			s3_bucket_name: $bucketname,
-			s3_key_prefix: "AWSLogs",
-			include_global_service_events: true
-		)
-		rescue Aws::CloudTrail::Errors::MaximumNumberOfTrailsExceededException => e
-			MU.log e.inspect, MU::ERR
-		end
-	end
+    begin
+      MU::Cloud::AWS.cloudtrails.create_trail(
+          name: "Mu_Trails",
+          s3_bucket_name: $bucketname,
+          s3_key_prefix: "AWSLogs",
+          include_global_service_events: true
+      )
+    rescue Aws::CloudTrail::Errors::MaximumNumberOfTrailsExceededException => e
+      MU.log e.inspect, MU::ERR
+    end
+  end
 
-	# Now that we've got S3 logging, let's also create an Mu_Logs stack in
-	# CloudWatch logs.
-	# For instances to log to this, they need to invoke the Chef recipe
-	# aws-cloudwatch-logs.
-	# XXX this isn't supported on CentOS yet, ostensibly. Bother later.
+  # Now that we've got S3 logging, let's also create an Mu_Logs stack in
+  # CloudWatch logs.
+  # For instances to log to this, they need to invoke the Chef recipe
+  # aws-cloudwatch-logs.
+  # XXX this isn't supported on CentOS yet, ostensibly. Bother later.
 
 end
 
 if $opts[:dns]
-	if instance.vpc_id.nil? or instance.vpc_id.empty?
-		MU.log "This Mu master appears to be in EC2 Classic. Route53 private DNS zones are not supported. Falling back to old /etc/hosts chicanery.", MU::ERR
-	else
-		ext_zone, junk = MU::DNSZone.find(name: "platform-mu")
+  if instance.vpc_id.nil? or instance.vpc_id.empty?
+    MU.log "This Mu master appears to be in EC2 Classic. Route53 private DNS zones are not supported. Falling back to old /etc/hosts chicanery.", MU::ERR
+  else
+    ext_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu")
 
-		if ext_zone.nil?
-			params = {
-				:name => "platform-mu",
-				:vpc => {
-					:vpc_region => MU.myRegion,
-					:vpc_id => instance.vpc_id
-				},
-				:hosted_zone_config => {
-					:comment => $bucketname,
-				},
-				:caller_reference => $bucketname
-			}
+    if ext_zone.nil? or ext_zone.size == 0
+      params = {
+          :name => "platform-mu",
+          :vpc => {
+              :vpc_region => MU.myRegion,
+              :vpc_id => instance.vpc_id
+          },
+          :hosted_zone_config => {
+              :comment => $bucketname,
+          },
+          :caller_reference => $bucketname
+      }
 
-			begin
-				resp = MU.route53.create_hosted_zone(params)
-			rescue Aws::Route53::Errors::HostedZoneAlreadyExists => e
-				MU.log "#{e.inspect}, appending some gibberish...", MU::WARN
-				params[:caller_reference] = params[:caller_reference]+(0...2).map { ('a'..'z').to_a[rand(26)] }.join
-				retry
-			end
-			MU.log ".platform-mu private domain created"
-		else
-			begin
-				MU.route53.associate_vpc_with_hosted_zone(
-					hosted_zone_id: ext_zone.id,
-					vpc: {
-						vpc_region: MU.myRegion,
-						vpc_id: instance.vpc_id
-					}
-				)
-			rescue Aws::Route53::Errors::ConflictingDomainExists
-			end
-		end
-	end
+      begin
+        resp = MU::Cloud::AWS.route53.create_hosted_zone(params)
+      rescue Aws::Route53::Errors::HostedZoneAlreadyExists => e
+        MU.log "#{e.inspect}, appending some gibberish...", MU::WARN
+        params[:caller_reference] = params[:caller_reference]+(0...2).map { ('a'..'z').to_a[rand(26)] }.join
+        retry
+      end
+      MU.log ".platform-mu private domain created"
+    else
+      ext_zone = ext_zone.values.first
+      begin
+        MU::Cloud::AWS.route53.associate_vpc_with_hosted_zone(
+            hosted_zone_id: ext_zone.id,
+            vpc: {
+                vpc_region: MU.myRegion,
+                vpc_id: instance.vpc_id
+            }
+        )
+      rescue Aws::Route53::Errors::ConflictingDomainExists
+      end
+    end
+  end
 end
 
 if $opts[:uploadlogs]
-	today = Time.new.strftime("%Y%m%d").to_s
-	["master.log", "nodes.log"].each { |log|
-		if File.exists?("/Mu_Logs/#{log}-#{today}")
-			MU.log "Uploading /Mu_Logs/#{log}-#{today} to bucket #{$bucketname}"
-			MU.s3.put_object(
-				bucket: $bucketname,
-				key: "#{log}/#{today}",
-				body: File.read("/Mu_Logs/#{log}-#{today}")
-			)
-		else
-			MU.log "No log /Mu_Logs/#{log}-#{today} was found", MU::WARN
-		end
-	}
+  today = Time.new.strftime("%Y%m%d").to_s
+  ["master.log", "nodes.log"].each { |log|
+    if File.exists?("/Mu_Logs/#{log}-#{today}")
+      MU.log "Uploading /Mu_Logs/#{log}-#{today} to bucket #{$bucketname}"
+      MU::Cloud::AWS.s3.put_object(
+          bucket: $bucketname,
+          key: "#{log}/#{today}",
+          body: File.read("/Mu_Logs/#{log}-#{today}")
+      )
+    else
+      MU.log "No log /Mu_Logs/#{log}-#{today} was found", MU::WARN
+    end
+  }
 end

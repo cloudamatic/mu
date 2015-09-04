@@ -17,28 +17,28 @@
 # limitations under the License.
 
 if platform_family?("windows")
-	Chef::Log.info "I don't know how to make Windows be a NAT host"
+  Chef::Log.info "I don't know how to make Windows be a NAT host"
 else
-	$ip_block = "10.0.0.0/16"
-	if !node.application_attributes.nat.private_net.empty?
-		$ip_block = node.application_attributes.nat.private_net
-	end rescue NoMethodError
+  $ip_block = "10.0.0.0/16"
+  if !node.application_attributes.nat.private_net.empty?
+    $ip_block = node.application_attributes.nat.private_net
+  end rescue NoMethodError
 
-	if platform_family?("rhel")	
-		$ssh_service_name = "sshd"
+  if platform_family?("rhel")
+    $ssh_service_name = "sshd"
 
-		if node.platform_version.to_i == 7
-		# Iptables or FirewallD are not installed by default on CentOS7. Using iptables for backwards compatibility.
-		# Looks like only the AWS marketplace image doesn't have FirewallD installed by default. Clean installation of CentOS7 minimal does, so removing.
-			package "firewalld" do 
-				action :remove
-			end
+    if node.platform_version.to_i == 7
+      # Iptables or FirewallD are not installed by default on CentOS7. Using iptables for backwards compatibility.
+      # Looks like only the AWS marketplace image doesn't have FirewallD installed by default. Clean installation of CentOS7 minimal does, so removing.
+      package "firewalld" do
+        action :remove
+      end
 
-			package "iptables-services"
-		end
+      package "iptables-services"
+    end
 
-		bash "enable NAT with iptables" do
-			code <<-EOH
+    bash "enable NAT with iptables" do
+      code <<-EOH
 				if [ "`/sbin/iptables -n -L -t nat | tr -s ' '  | grep 'MASQUERADE all -- #{$ip_block} 0.0.0.0/0'`" == "" ];then
 					/sbin/iptables -t nat -A POSTROUTING -o eth0 -s #{$ip_block} -j MASQUERADE
 				fi
@@ -46,13 +46,13 @@ else
 				/sbin/iptables-save > /etc/sysconfig/iptables
 				sysctl -w net.ipv4.ip_forward=1
 				sysctl -w net.ipv4.conf.eth0.send_redirects=0
-			EOH
-		end
-	elsif platform_family?("debian")
-		$ssh_service_name = "ssh"
-		bash "enable NAT with ufw" do
-			not_if "grep '^*nat' /etc/ufw/before.rules"
-			code <<-EOH
+      EOH
+    end
+  elsif platform_family?("debian")
+    $ssh_service_name = "ssh"
+    bash "enable NAT with ufw" do
+      not_if "grep '^*nat' /etc/ufw/before.rules"
+      code <<-EOH
 				sed -i 's/DEFAULT_FORWARD_POLICY=.*/DEFAULT_FORWARD_POLICY="ACCEPT"/' /etc/default/ufw
 				echo "net.ipv4.ip_forward=1" >> /etc/ufw/sysctl.conf
 				echo '*nat' >> /etc/ufw/before.rules
@@ -60,22 +60,22 @@ else
 				echo ':POSTROUTING ACCEPT [0:0]' >> /etc/ufw/before.rules
 				echo '-A POSTROUTING -s #{$ip_block} -o eth0 -j MASQUERADE' >> /etc/ufw/before.rules
 				echo 'COMMIT' >> /etc/ufw/before.rules
-			EOH
-		end
-	end
+      EOH
+    end
+  end
 
-	execute "restart sshd" do
-		command "/sbin/service #{$ssh_service_name} restart"
-		action :nothing
-	end
-	bash "enable SSH tunneling" do
-		not_if "grep '^PermitTunnel yes' /etc/ssh/sshd_config"
-		code <<-EOH
+  execute "restart sshd" do
+    command "/sbin/service #{$ssh_service_name} restart"
+    action :nothing
+  end
+  bash "enable SSH tunneling" do
+    not_if "grep '^PermitTunnel yes' /etc/ssh/sshd_config"
+    code <<-EOH
 			echo "" >> /etc/ssh/sshd_config
 			echo "PermitTunnel yes" >> /etc/ssh/sshd_config
 			echo "" >> /etc/ssh/sshd_config
 			echo "AllowTcpForwarding yes" >> /etc/ssh/sshd_config
-		EOH
-		notifies :run, "execute[restart sshd]", :immediately
-	end
+    EOH
+    notifies :run, "execute[restart sshd]", :immediately
+  end
 end

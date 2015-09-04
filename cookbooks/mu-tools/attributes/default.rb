@@ -21,6 +21,8 @@ if disk_name_str == "CAP-MASTER" or disk_name_str == "MU-MASTER" and !node.hostn
   disk_name_str = node.hostname
 end rescue NoMethodError
 
+default.os_updates_using_chef = false
+
 default['application_attributes']['application_volume']['mount_directory'] = '/apps'
 default['application_attributes']['application_volume']['mount_device'] = '/dev/xvdf'
 default['application_attributes']['application_volume']['label'] = "#{disk_name_str} /apps"
@@ -38,30 +40,30 @@ override['nagios']['notifications_enabled'] = 1
 # no idea why this attribute isn't set on MU-MASTER, but it isn't.
 default['chef_node_name'] = Chef::Config[:node_name]
 if node.has_key?("deployment")
-	if node.deployment.has_key?("admins")
-		default['admins'] = []
-		node.deployment.admins.each_value { |data|
-			default['admins'] << data['email']
-		}
-	end
-	if node.deployment.has_key?("mu_public_ip")
-		default['nagios']['allowed_hosts'] = [node.deployment.mu_public_ip]
-	end
+  if node.deployment.has_key?("admins")
+    default['admins'] = []
+    node.deployment.admins.each_value { |data|
+      default['admins'] << data['email']
+    }
+  end
+  if node.deployment.has_key?("mu_public_ip")
+    default['nagios']['allowed_hosts'] = [node.deployment.mu_public_ip]
+  end
 end
 
 if (!node.has_key?("admins") or node.admins.size == 0) and node.tags.is_a?(Hash)
-	if node.tags.has_key?("MU-OWNER")
-		default['admins'] = []
-		default['admins'] << node['tags']['MU-OWNER']+"@localhost"
-	elsif node.tags.has_key?("MU-ADMINS")
-		default['admins'] = node['tags']['MU-ADMINS'].split(/\s+/)
-	end
+  if node.tags.has_key?("MU-OWNER")
+    default['admins'] = []
+    default['admins'] << node['tags']['MU-OWNER']+"@localhost"
+  elsif node.tags.has_key?("MU-ADMINS")
+    default['admins'] = node['tags']['MU-ADMINS'].split(/\s+/)
+  end
 end
 
 begin
-	default['splunk']['receiver_ip'] = node['ec2']['public_ip_address']
+  default['splunk']['receiver_ip'] = node['ec2']['public_ip_address']
 rescue NoMethodError
-	default['splunk']['receiver_ip'] = node['ipaddress']
+  default['splunk']['receiver_ip'] = node['ipaddress']
 end
 
 # Set this to a path to store Splunk's big databases somewhere besides
@@ -72,15 +74,15 @@ default['splunk']['minfreespace'] = 733
 default['splunk']['inputs_conf']['host'] = Chef::Config[:node_name]
 default['splunk']['accept_license'] = true
 default['splunk']['auth'] = {
-	'data_bag' => 'splunk',
-	'data_bag_item' => 'admin_user'
+    'data_bag' => 'splunk',
+    'data_bag_item' => 'admin_user'
 }
 default['splunk']['ssl_options'] = {
-	'enable_ssl' => true,
-	'data_bag' => Chef::Config[:node_name],
-	'data_bag_item' => 'ssl_cert',
-	'keyfile' => 'node.key',
-	'crtfile' => 'node.crt'
+    'enable_ssl' => true,
+    'data_bag' => Chef::Config[:node_name],
+    'data_bag_item' => 'ssl_cert',
+    'keyfile' => 'node.key',
+    'crtfile' => 'node.crt'
 }
 
 default['maldet']['install'] = true
@@ -89,21 +91,21 @@ default['sec']['root_login_disabled'] = false
 default['sec']['accnt_lckout'] = 5
 default['sec']['accnt_lckout_duration'] = 900
 default['sec']['pwd'] = {
-	'min_length' => 14,
-	'numeric' => -1 ,
-	'uppercase' => -1,
-	'lowercase' => -1,
-	'special' => -1,
-	'retry' => 3,
-	'remember' => 5
+    'min_length' => 14,
+    'numeric' => -1,
+    'uppercase' => -1,
+    'lowercase' => -1,
+    'special' => -1,
+    'retry' => 3,
+    'remember' => 5
 }
 
 # dumb hack, or dumbest hack?
-["r", "s", "t", "u", "v", "w", "x", "y", "z"].each { |drive|
-	if File.exist?("/dev/xvd#{drive}")
-		default[:tmp_dev] = "/dev/xvd#{drive}"
-		break
-	end
+["s", "t", "u", "v", "w", "x", "y", "z"].reverse_each { |drive|
+  if File.exist?("/dev/xvd#{drive}")
+    default[:tmp_dev] = "/dev/xvd#{drive}"
+    break
+  end
 }
 
 default[:application_attributes][:home]["volume_size_gb"] = 2
@@ -128,70 +130,9 @@ default[:application_attributes][:var_log_audit][:mount_directory] = "/var/log/a
 
 default['banner']['path'] = "etc/BANNER"
 
-# Active Directory defaults
-default['ad']['netbios_name'] = "mu"
-default['ad']['dns_name'] = "mu.local"
-default['ad']['site_name'] = "AZ1"
-default['ad']['dn_dc_ou'] = "Domain Controllers"
-default['ad']['dn_domain_cmpnt'] = "dc=mu,dc=local"
-node.deployment.servers.each_pair { |node_class, nodes|
-	nodes.each_pair { |name, data|
-		if name == Chef::Config[:node_name]
-			my_subnet_id = data['subnet_id']
-			if !data['mu_windows_name'].nil?
-				default['ad']['computer_name'] = data['mu_windows_name']
-				default['ad']['node_class'] = node_class
-			end
-		end
-	} rescue NoMethodError
-} rescue NoMethodError
-default['ad']['sites'] = []
-if node.deployment.vpcs.size > 0
-	vpc = node.deployment.vpcs[node.deployment.vpcs.keys.first]
-	vpc.subnets.each_pair { |name, data|
-		default['ad']['sites'] << {
-			"name" => data['name'],
-			"ip_block" => data['ip_block']
-		}
-		if !my_subnet_id.nil? and my_subnet_id == data['subnet_id']
-			default['ad']['site_name'] = data['name']+"_"+data['ip_block']
-		end
-	}
-end rescue NoMethodError
-if default['ad']['sites'].size == 0
-	default['ad']['sites'] = [
-		{"name" => "AZ1", "ip_block" => "10.20.4.0/24"},
-		{"name" => "AZ2", "ip_block" => "10.20.5.0/24"},
-		{"name" => "AZ3", "ip_block" => "10.20.6.0/24"}
-	]
-end
-
-default['ad']['ntds_static_port'] = 50152
-default['ad']['ntfrs_static_port'] = 50154
-default['ad']['dfsr_static_port'] = 50156
-
-default['windows_admin_username'] = "Administrator"
-# Credentials for joining an Active Directory domain should be stored in a Chef
-# Vault structured like so:
-# {
-#   "username": "join_domain_user",
-#   "password": "join_domain_password"
-# }
-default['ad']['auth'] = {
-	'data_bag' => 'active_directory',
-	'data_bag_item' => "join_domain"
-}
-
-default['ad']['dc_ips'] = [] 
-resolver = Resolv::DNS.new
-node.ad.dcs.each { |dc|
-	if dc.match(/^\d+\.\d+\.\d+\.\d+$/)
-		default['ad']['dc_ips'] << dc
-	else
-		begin
-			default['ad']['dc_ips'] << resolver.getaddress(dc)
-		rescue Resolv::ResolvError => e
-			Chef::Log.warn ("Couldn't resolve domain controller #{dc}!")
-		end
-	end
-} rescue NoMethodError
+# We probably don't want to set java defaults here. This may cause issues with attribute precedence when other cookbooks try to install a different version of Java (JDK 7 is not supported/patched)
+# if platform_family?("windows")
+# override['java']['install_flavor'] = 'windows'
+# override["java"]["jdk_version"] = 7
+# override["java"]["oracle"]["accept_oracle_download_terms"] = true
+# end

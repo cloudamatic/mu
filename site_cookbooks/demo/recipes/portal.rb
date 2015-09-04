@@ -50,20 +50,19 @@ $service_name = node.normal.service_name
 #end
 
 
-
 # Set machine hostname
 
 
 bash "Pull application repo from github" do
   user "root"
-	code <<-EOH
+  code <<-EOH
     application_repo=#{node[node.chef_environment][$service_name].application.github_repo}
     application_repo_name=#{node[node.chef_environment][$service_name].application.github_repo_name}
 
     apps_dir=#{node[node.chef_environment][$service_name].apps_dir}
                 
     git clone --recursive git@github.com:$application_repo $apps_dir
-		EOH
+  EOH
 end
 
 bash "Remove existing httpd conf file" do
@@ -81,8 +80,8 @@ template "/etc/apache2/sites-available/default" do
 end
 
 bash "Set permissions and start services" do
-	user "root"
-	code <<-EOH
+  user "root"
+  code <<-EOH
 
 	apps_dir=#{node[node.chef_environment][$service_name].apps_dir}
 
@@ -93,5 +92,5 @@ bash "Set permissions and start services" do
 
 	# Start at runtime
 	#chkconfig --levels 235 httpd on
-	EOH
+  EOH
 end

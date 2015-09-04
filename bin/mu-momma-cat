@@ -77,6 +77,7 @@ start()
 	[ -f $mudir/mommacat.ru ] || exit 5
 
 	echo -n $"Starting $prog: "
+	ulimit -s unlimited
 	$MU_RUBY $THIN --threaded --daemonize --port $PORT --pid $PID_FILE --log $LOG_FILE --ssl --ssl-key-file $MU_DATADIR/ssl/mommacat.key --ssl-cert-file $MU_DATADIR/ssl/mommacat.crt --tag "mu-momma-cat" -R mommacat.ru start && success || failure
 	RETVAL=$?
 	[ $RETVAL -eq 0 ] && touch $lockfile

@@ -18,14 +18,14 @@
 #
 
 case node[:platform]
-	when "centos"
-		execute "disable HTTP TRACE in Apache config" do
-			command "sed -i 's/^TraceEnable On$/TraceEnable Off/' /etc/httpd/conf.d/security.conf"
-			notifies :reload, "service[apache2]", :delayed
-			only_if "test -f /etc/httpd/conf.d/security.conf && grep '^TraceEnable On$' /etc/httpd/conf.d/security.conf"
-		end
-	else
-		Chef::Log.info("Unsupported platform #{node[:platform]}")
+  when "centos"
+    execute "disable HTTP TRACE in Apache config" do
+      command "sed -i 's/^TraceEnable On$/TraceEnable Off/' /etc/httpd/conf.d/security.conf"
+      notifies :reload, "service[apache2]", :delayed
+      only_if "test -f /etc/httpd/conf.d/security.conf && grep '^TraceEnable On$' /etc/httpd/conf.d/security.conf"
+    end
+  else
+    Chef::Log.info("Unsupported platform #{node[:platform]}")
 end
 
 

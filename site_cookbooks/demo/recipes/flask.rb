@@ -22,7 +22,7 @@ include_recipe 'supervisor'
 
 service_name = node.normal.service_name;
 application_dir = node[node.chef_environment][service_name].apps_dir
-virtual_environment =  "#{application_dir}/envs/demo"
+virtual_environment = "#{application_dir}/envs/demo"
 
 directories = virtual_environment.split('/')
 (0..directories.size).each do |i|
@@ -70,10 +70,10 @@ if __name__ == "__main__":
 end
 
 gunicorn_config '/etc/gunicorn/demo.py' do
-  owner     'www-data'
-  group     'www-data'
-  listen    '127.0.0.1:9000'
-  action    :create
+  owner 'www-data'
+  group 'www-data'
+  listen '127.0.0.1:9000'
+  action :create
 end
 
 file '/etc/nginx/sites-available/default' do
@@ -92,6 +92,6 @@ end
 bash "boot_gunicorn" do
   cwd virtual_environment
   code <<-EOH
-    #{virtual_environment}/bin/gunicorn -D -c /etc/gunicorn/demo.py demo:app
+#{virtual_environment}/bin/gunicorn -D -c /etc/gunicorn/demo.py demo:app
   EOH
 end

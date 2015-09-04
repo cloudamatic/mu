@@ -2,14 +2,14 @@
 # mod by rpc to include epel
 
 case node[:platform]
-when 'debian','ubuntu'
-  file = "/usr/local/bin/aws"
-  cmd = "apt-get install -y python-pip && pip install awscli"
-when 'redhat','centos','fedora','amazon','scientific'
-  # must include epel for centos.  For now do in roles until we fix egt-get-cookbooks.sh
-  #include_recipe "mu-utility::epel"
-  file = "/usr/bin/aws"
-  cmd = "yum -y install python-pip && pip install awscli"
+  when 'debian', 'ubuntu'
+    file = "/usr/local/bin/aws"
+    cmd = "apt-get install -y python-pip && pip install awscli"
+  when 'redhat', 'centos', 'fedora', 'amazon', 'scientific'
+    # must include epel for centos.  For now do in roles until we fix egt-get-cookbooks.sh
+    #include_recipe "mu-utility::epel"
+    file = "/usr/bin/aws"
+    cmd = "yum -y install python-pip && pip install awscli"
 end
 r = execute "install awscli" do
   command cmd
@@ -52,5 +52,5 @@ if node[:awscli][:config_profiles]
   if node[:awscli][:compile_time]
     r.run_action(:create)
   end
-  
+
 end

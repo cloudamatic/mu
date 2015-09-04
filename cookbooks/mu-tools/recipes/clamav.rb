@@ -19,32 +19,34 @@
 
 
 if platform_family?("rhel")
-	include_recipe "yum-epel"
-	if node['platform_version'].to_i >= 7
-		package "clamav-update"
-	end
-	cookbook_file "/etc/freshclam.conf" do
-		source "etc/freshclam.conf"
-		mode 0644
-		owner "root"
-		group "root"
-	end
-	freshclam = "/usr/bin/freshclam"
-	freshclam = "/bin/freshclam" if File.exist?("/bin/freshclam")
-	execute freshclam do
-		action :nothing
-	end
-	package "clamav" do
+  include_recipe "yum-epel"
+  if node['platform_version'].to_i >= 7
+    package "clamav-update"
+  end
+  cookbook_file "/etc/freshclam.conf" do
+    source "etc/freshclam.conf"
+    mode 0644
+    owner "root"
+    group "root"
+  end
+  freshclam = "/usr/bin/freshclam"
+  freshclam = "/bin/freshclam" if File.exist?("/bin/freshclam")
+  execute freshclam do
+    action :nothing
+  end
+  package "clamav" do
 #		notifies :run, "execute[#{freshclam}]", :delayed
+  end
+  package "clamav-devel"
+  if node['platform_version'].to_i < 7
+	  package "clamav-milter"
 	end
-	package "clamav-devel"
-	package "clamav-milter"
 elsif platform_family?("debian")
-	include_recipe "mu-utility::apt"
-	package "clamav"
-	package "clamav-daemon"
-	package "clamav-freshclam" # this is a daemon, no need to run explicitly
-	package "clamav-milter"
-	package "libclamav-dev"
+  include_recipe "mu-utility::apt"
+  package "clamav"
+  package "clamav-daemon"
+  package "clamav-freshclam" # this is a daemon, no need to run explicitly
+  package "clamav-milter"
+  package "libclamav-dev"
 else
 end

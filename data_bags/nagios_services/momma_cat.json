@@ -1,6 +1,6 @@
 {
-	"id": "momma_cat",
-	"hostgroup_name": "mu-master",
-	"notification_interval": 7200,
-	"command_line": "$USER1$/check_tcp -H $HOSTADDRESS$ -p 2260"
+  "id": "momma_cat",
+  "hostgroup_name": "mu-master",
+  "notification_interval": 7200,
+  "command_line": "$USER1$/check_tcp -H $HOSTADDRESS$ -p 2260"
 }

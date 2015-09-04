@@ -28,7 +28,7 @@ include_recipe 'chef-splunk::setup_auth'
 splunk_auth_info = chef_vault_item(node.splunk.auth.data_bag, node.splunk.auth.data_bag_item)['auth']
 
 execute 'enable-splunk-receiver-port' do
-	command "\"#{splunk_cmd}\" enable listen #{node['splunk']['receiver_port']} -auth '#{splunk_auth_info}'"
+  command "\"#{splunk_cmd}\" enable listen #{node['splunk']['receiver_port']} -auth '#{splunk_auth_info}'"
   not_if do
     # TCPSocket will return a file descriptor if it can open the
     # connection, and raise Errno::ECONNREFUSED if it can't. We rescue

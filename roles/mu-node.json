@@ -1,18 +1,20 @@
 {
-	"name": "mu-node",
-	"default_attributes": {
-	},
-	"json_class": "Chef::Role",
-	"run_list": [
-			"recipe[mu-tools::base_repositories]",
-			"recipe[mu-tools::set_mu_hostname]",
-			"recipe[mu-tools::add_admin_ssh_keys]",
-			"recipe[mu-tools::maldet]",
-			"recipe[mu-tools::rsyslog]",
-			"recipe[mu-utility::disable-requiretty]"
-	],
-	"description": "Run List for Mu client nodes",
-	"chef_type": "role",
-	"override_attributes": {
-	}
+  "name": "mu-node",
+  "default_attributes": {
+  },
+  "json_class": "Chef::Role",
+  "run_list": [
+    "recipe[mu-tools::base_repositories]",
+    "recipe[mu-tools::set_mu_hostname]",
+    "recipe[mu-tools::add_admin_ssh_keys]",
+    "recipe[mu-tools::maldet]",
+    "recipe[mu-tools::rsyslog]",
+    "recipe[mu-tools::rsyslog]",
+    "recipe[mu-utility::disable-requiretty]",
+    "recipe[mu-utility::cloudinit]"
+  ],
+  "description": "Run List for Mu client nodes",
+  "chef_type": "role",
+  "override_attributes": {
+  }
 }

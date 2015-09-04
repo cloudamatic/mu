@@ -36,37 +36,37 @@ include_recipe "mu-tools::aws_api"
 #	ENV['AWS_DEFAULT_REGION'] = region
 #end
 
-ENV.each {|e| Chef::Log.info( e.join(': ')) }
+ENV.each { |e| Chef::Log.info(e.join(': ')) }
 
 ruby_block "create_apps_volume" do
-        extend CAPVolume
-        block do
-        result=create_node_volume(:application_volume)
-        end
-        only_if {
-          create = true
-          device_status =  check_device_status(mount_device)
-          Chef::Log.info "device_status is #{device_status}"
-          if device_status != "unattached"
-            Chef::Log.info "Not executing because #{mount_device} is #{device_status}"
-            create = false
-          end
-          unless mount_volume.nil?
-            Chef::Log.info "Not executing because #{mount_volume} is already assigned to application_volume"
-            create = false
-          end
-          create
-        }
-        notifies :create, "ruby_block[attach_apps_volume]", :immediately
+  extend CAPVolume
+  block do
+    result=create_node_volume(:application_volume)
+  end
+  only_if {
+    create = true
+    device_status = check_device_status(mount_device)
+    Chef::Log.info "device_status is #{device_status}"
+    if device_status != "unattached"
+      Chef::Log.info "Not executing because #{mount_device} is #{device_status}"
+      create = false
+    end
+    unless mount_volume.nil?
+      Chef::Log.info "Not executing because #{mount_volume} is already assigned to application_volume"
+      create = false
+    end
+    create
+  }
+  notifies :create, "ruby_block[attach_apps_volume]", :immediately
 end
 ruby_block "attach_apps_volume" do
-        extend CAPVolume
-        block do
-                result=attach_node_volume(:application_volume)
-        end
-        action :nothing
-        notifies :create, "directory[mount_apps_dir]", :immediately
-        notifies :create, "ruby_block[format_default_volume]", :immediately
+  extend CAPVolume
+  block do
+    result=attach_node_volume(:application_volume)
+  end
+  action :nothing
+  notifies :create, "directory[mount_apps_dir]", :immediately
+  notifies :create, "ruby_block[format_default_volume]", :immediately
 end
 # Make the mountpoint, create encrypted volume and mount it
 directory "mount_apps_dir" do
@@ -80,8 +80,8 @@ end
 ruby_block "format_default_volume" do
   # Encrypt if you can, warn and create unencrypted if not.  Encryption requires credentials secret
   extend CAPVolume
-  block do 
-		require 'aws-sdk-core'
+  block do
+    require 'aws-sdk-core'
     Chef::Log.info("Figuring out volume format enc or no")
     ebs_keyfile = node[:application_attributes][:application_volume][:ebs_keyfile]
     ebs_key_location=nil
@@ -101,7 +101,7 @@ ruby_block "format_default_volume" do
 
     Chef::Log.info("Probing for attached volume then formatting")
     if volume_attached(mount_device)
-        mount_default_volume(ebs_key_location)
+      mount_default_volume(ebs_key_location)
     end
 
     #clean up creds

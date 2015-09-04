@@ -19,29 +19,3 @@ unless node[:recipes].include?("chef-server")
     only_if { ::File.exists?(Chef::Config[:client_key]) }
   end
 end
-
-include_recipe "mu-tools::updates"
-if !node.ad.nil? and node.ad.size > 1
-	include_recipe "mu-tools::ad-client"
-end rescue NoMethodError
-
-if node[:platform] == "windows"
-	include_recipe 'windows::reboot_handler'
-	::Chef::Recipe.send(:include, Chef::Mixin::PowershellOut)
-
-	windows_reboot 1 do
-		reason 'Applying updates'
-		action :nothing
-	end
-
-	if registry_key_exists?("HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired")
-		ruby_block "restart windows" do
-			block do
-				puts "Restarting Windows"
-			end
-			notifies :request, 'windows_reboot[1]'
-		end
-		execute "shutdown -r -f -t 0"
-	end
-
-end

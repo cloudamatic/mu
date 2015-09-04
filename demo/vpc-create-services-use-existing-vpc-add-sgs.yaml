@@ -14,7 +14,7 @@
 <% if $environment == "development" then %>
       size: "t1.micro",
 <% else %>
-      size: "m3.large"
+      size: "m4.large"
 <% end %>
       run_list: 
         - "recipe[utility::git]"
@@ -33,7 +33,7 @@
         vpc_name: "DEVELOPMENT-20140430181950-VPC"
         subnet_id: "subnet-15e6e053"
         nat_host_name: "DEVELOPMENT-20140430181950-NAT2Instance"
-      size: "m3.large"
+      size: "m4.large"
       run_list: 
         - "recipe[utility::git]"
       ingress_rules: 

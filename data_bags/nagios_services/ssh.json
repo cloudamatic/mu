@@ -1,6 +1,6 @@
 {
-	"id": "ssh",
-	"hostgroup_name": "mu-master",
-	"notification_interval": 7200,
-	"command_line": "$USER1$/check_ssh $ARG1$ $HOSTNAME"
+  "id": "ssh",
+  "hostgroup_name": "mu-master",
+  "notification_interval": 7200,
+  "command_line": "$USER1$/check_ssh $ARG1$ $HOSTNAME"
 }

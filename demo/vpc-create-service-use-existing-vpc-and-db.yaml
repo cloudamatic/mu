@@ -14,7 +14,7 @@
 <% if $environment == "development" then %>
       size: "t1.micro"
 <% else %>
-      size: "m3.large"
+      size: "m4.large"
 <% end %>
       run_list: 
         - "recipe[utility::git]"

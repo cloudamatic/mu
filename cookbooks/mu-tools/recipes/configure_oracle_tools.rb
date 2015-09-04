@@ -39,43 +39,43 @@
 #
 case node[:platform]
 
-        when "centos"
-                # Install sqlplus and the oracle development sdk, then set the oracle environment up
-                include_recipe "oracle-instantclient::sqlplus"
-                include_recipe "oracle-instantclient::devel"
+  when "centos"
+    # Install sqlplus and the oracle development sdk, then set the oracle environment up
+    include_recipe "oracle-instantclient::sqlplus"
+    include_recipe "oracle-instantclient::devel"
 
-                # Add a pull and setup for JDBC if driven by node
-                uses_jdbc = node['oracle-jdbc']
-                unless uses_jdbc.nil?
-                    directory node['oracle-jdbc']['jar-home'] do
-                      owner "root"
-                      group "root"
-                      mode 0755
-                      action :create
-                    end
+    # Add a pull and setup for JDBC if driven by node
+    uses_jdbc = node['oracle-jdbc']
+    unless uses_jdbc.nil?
+      directory node['oracle-jdbc']['jar-home'] do
+        owner "root"
+        group "root"
+        mode 0755
+        action :create
+      end
 
-                    remote_file File.join(node['oracle-jdbc']['jar-home'], node['oracle-jdbc']['oracle-jdbc-jar']) do
-                      source node['oracle-jdbc']['public-url'] + node['oracle-jdbc']['oracle-jdbc-jar']
-                      action :create
-                    end
+      remote_file File.join(node['oracle-jdbc']['jar-home'], node['oracle-jdbc']['oracle-jdbc-jar']) do
+        source node['oracle-jdbc']['public-url'] + node['oracle-jdbc']['oracle-jdbc-jar']
+        action :create
+      end
 
 
-                end
+    end
 
-                # Set up the configuration so oracle is in the path
-                file "/etc/ld.so.conf.d/oracle.conf" do
-                        content "/usr/lib/oracle/12.1/client64/lib\n"
-                        mode 0644
-                        owner "root"
-                        group "root"
-                        notifies :run, "execute[/sbin/ldconfig]", :immediately
-                end
+    # Set up the configuration so oracle is in the path
+    file "/etc/ld.so.conf.d/oracle.conf" do
+      content "/usr/lib/oracle/12.1/client64/lib\n"
+      mode 0644
+      owner "root"
+      group "root"
+      notifies :run, "execute[/sbin/ldconfig]", :immediately
+    end
 
-                execute "/sbin/ldconfig" do
-                        action :nothing
-                end
+    execute "/sbin/ldconfig" do
+      action :nothing
+    end
 
-        else
-                Chef::Log.info("Unsupported platform #{node[:platform]}")
+  else
+    Chef::Log.info("Unsupported platform #{node[:platform]}")
 
 end

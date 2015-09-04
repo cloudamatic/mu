@@ -1,0 +1,7 @@
+<%= node["tomcat"]["log_dir"] %>/catalina.out {
+  copytruncate
+  daily
+  rotate 7
+  compress
+  missingok
+}

@@ -16,18 +16,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-case node[:platform]
-
-	when "centos"
-		# The git package comes from EPEL on RHEL-flavored systems
-		include_recipe "mu-utility::epel"
-
-	when "ubuntu"
-
-
-	else
-		Chef::Log.info("Unsupported platform #{node[:platform]}")
+case node.platform
+  when "centos", "redhat"
+    # The git package comes from EPEL on RHEL-flavored systems
+    include_recipe "mu-utility::epel"
+    package "git"
+  when "ubuntu"
+    package "git"
+  else
+    Chef::Log.info("Unsupported platform #{node.platform}")
 end
-
-
-package "git"

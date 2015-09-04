@@ -1,5 +1,5 @@
 <%
-  $azs = listAZs
+  $azs = MU::Cloud::AWS.listAZs
   current_vpc = MU.myVPC
 %>
 ---
@@ -8,7 +8,7 @@
   servers:
     - name: "splunk"
       ssh_user: "root"
-      size: "m3.xlarge"
+      size: "m4.xlarge"
       static_ip: 
         assign_ip: true
       run_list: 

@@ -1,5 +1,5 @@
 <%
-  $azs = listAZs
+  $azs = MU::Cloud::AWS.listAZs
   current_vpc = MU.myVPC
 %>
 ---
@@ -9,7 +9,7 @@
       name: "windows"
       platform: "windows"
       winrm_user: "Administrator"
-      size: "m3.large"
+      size: "m4.large"
       storage: 
         - 
           size: 70

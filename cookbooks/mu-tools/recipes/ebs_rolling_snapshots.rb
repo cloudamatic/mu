@@ -23,45 +23,45 @@
 
 include_recipe "python"
 
-cookbook_file "#{Chef::Config[:file_cache_path]}/manage_snapshots.py" do 
-	source 'manage_snapshots.py'
+cookbook_file "#{Chef::Config[:file_cache_path]}/manage_snapshots.py" do
+  source 'manage_snapshots.py'
 end
 
 case node[:platform]
-	when "windows"
-		['boto', 'requests'].each do |pkg|
-			execute "Installing #{pkg}" do
-				command "#{node.python.pip_binary} install #{pkg} --upgrade"
-				not_if "echo %path% | find /I \"#{node.python.prefix_dir}\\python#{node.python.major_version}\\Scripts\""
-			end
-		end
+  when "windows"
+    ['boto', 'requests'].each do |pkg|
+      execute "Installing #{pkg}" do
+        command "#{node.python.pip_binary} install #{pkg} --upgrade"
+        not_if "echo %path% | find /I \"#{node.python.prefix_dir}\\python#{node.python.major_version}\\Scripts\""
+      end
+    end
 
-		['boto', 'requests'].each do |pkg|
-			python_pip pkg do
-				action :upgrade
-				only_if "echo %path% | find /I \"#{node.python.prefix_dir}\\python#{node.python.major_version}\\Scripts\""
-			end
-		end
+    ['boto', 'requests'].each do |pkg|
+      python_pip pkg do
+        action :upgrade
+        only_if "echo %path% | find /I \"#{node.python.prefix_dir}\\python#{node.python.major_version}\\Scripts\""
+      end
+    end
 
-		windows_task 'daily-snapshots' do
-			user "SYSTEM"
-			command "python #{Chef::Config[:file_cache_path]}\\manage_snapshots.py -n #{node.application_attributes.ebs_snapshots.days_to_keep} -nt #{node.name} -l #{Chef::Config[:file_cache_path]}"
-			run_level :highest
-			frequency :daily
-			start_time "06:00"
-		end
-	else
-		['boto', 'requests'].each do |pkg|
-			python_pip pkg do
-				action :upgrade
-			end
-		end
+    windows_task 'daily-snapshots' do
+      user "SYSTEM"
+      command "python #{Chef::Config[:file_cache_path]}\\manage_snapshots.py -n #{node.application_attributes.ebs_snapshots.days_to_keep} -nt #{node.name} -l #{Chef::Config[:file_cache_path]}"
+      run_level :highest
+      frequency :daily
+      start_time "06:00"
+    end
+  else
+    ['boto', 'requests'].each do |pkg|
+      python_pip pkg do
+        action :upgrade
+      end
+    end
 
-		cron "Nightly rotate snapshot" do
-			action :create
-			minute "10"
-			hour "6"
-			user "root"
-			command "python #{Chef::Config[:file_cache_path]}/manage_snapshots.py -n #{node.application_attributes.ebs_snapshots.days_to_keep} -nt #{node.name} -l #{Chef::Config[:file_cache_path]}"
-		end
+    cron "Nightly rotate snapshot" do
+      action :create
+      minute "10"
+      hour "6"
+      user "root"
+      command "python #{Chef::Config[:file_cache_path]}/manage_snapshots.py -n #{node.application_attributes.ebs_snapshots.days_to_keep} -nt #{node.name} -l #{Chef::Config[:file_cache_path]}"
+    end
 end

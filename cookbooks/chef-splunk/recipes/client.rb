@@ -25,18 +25,20 @@ include_recipe 'chef-splunk::user'
 include_recipe 'chef-splunk::install_forwarder'
 
 if node.splunk.discovery == 'groupname'
-	splunk_servers = search(
-	  :node,
-		"splunk_is_server:true AND splunk_groupname:#{node.splunk_groupname}"
-	).sort! do
-	  |a, b| a.name <=> b.name
-	end
-else
-  splunk_servers = search( # ~FC003
-    :node,
-    "splunk_is_server:true AND chef_environment:#{node.chef_environment}"
+  splunk_servers = search(
+      :node,
+      "splunk_is_server:true AND splunk_groupname:#{node.splunk_groupname}"
   ).sort! do
-    |a, b| a.name <=> b.name
+  |a, b|
+    a.name <=> b.name
+  end
+else
+  splunk_servers = search(# ~FC003
+      :node,
+      "splunk_is_server:true AND chef_environment:#{node.chef_environment}"
+  ).sort! do
+  |a, b|
+    a.name <=> b.name
   end
 end
 
@@ -48,43 +50,44 @@ begin
 rescue Chef::Exceptions::ResourceNotFound
   if node['platform_family'] != 'windows'
     service 'splunk'
-	else
-		service 'SplunkForwarder'
-	end
+  else
+    service 'SplunkForwarder'
+  end
 end
 
 directory "#{splunk_dir}/etc/system/local" do
   recursive true
-	if node['platform_family'] != 'windows'
+  if node['platform_family'] != 'windows'
     owner node['splunk']['user']['username']
     group node['splunk']['user']['username']
-	end
+  end
 end
 
 template "#{splunk_dir}/etc/system/local/outputs.conf" do
   source 'outputs.conf.erb'
-  mode 0644 if node['platform_family'] != 'windows'
+  mode 0644 unless platform_family?("windows")
   variables :splunk_servers => splunk_servers, :outputs_conf => node['splunk']['outputs_conf']
-  notifies :restart, 'service[splunk]', :immediately if node['platform_family'] == 'windows'
-  notifies :restart, 'service[splunk]' if node['platform_family'] != 'windows'
+  notifies :restart, 'service[splunk]', :immediately if platform_family?("windows")
+  notifies :restart, 'service[splunk]', :delayed unless platform_family?("windows")
 end
 
 template "#{splunk_dir}/etc/system/local/inputs.conf" do
   source 'inputs.conf.erb'
   mode 0644
   variables :inputs_conf => node['splunk']['inputs_conf']
-  notifies :restart, 'service[splunk]'
+  notifies :restart, 'service[splunk]', :immediately if platform_family?("windows")
+  notifies :restart, 'service[splunk]', :delayed unless platform_family?("windows")
   not_if { node['splunk']['inputs_conf'].nil? || node['splunk']['inputs_conf']['host'].empty? }
 end
 if node['platform_family'] != 'windows'
-	directory "/opt/splunkforwarder/etc/apps"
-	directory "/opt/splunkforwarder/etc/apps/base_logs_unix"
-	directory "/opt/splunkforwarder/etc/apps/base_logs_unix/local"
-	template "#{splunk_dir}/etc/apps/base_logs_unix/local/inputs.conf" do
-	  source 'base_logs_unix_inputs.conf.erb'
-	  mode 0644
-		notifies :restart, 'service[splunk]'
-	end
+  directory "/opt/splunkforwarder/etc/apps"
+  directory "/opt/splunkforwarder/etc/apps/base_logs_unix"
+  directory "/opt/splunkforwarder/etc/apps/base_logs_unix/local"
+  template "#{splunk_dir}/etc/apps/base_logs_unix/local/inputs.conf" do
+    source 'base_logs_unix_inputs.conf.erb'
+    mode 0644
+    notifies :restart, 'service[splunk]'
+  end
 end
 
 include_recipe 'chef-splunk::service'
@@ -92,20 +95,20 @@ include_recipe 'chef-splunk::setup_auth'
 
 svr_conf = "#{splunk_dir}/etc/system/local/server.conf"
 ruby_block "tighten SSL options in #{svr_conf}" do
-	block do
-		newfile = []
-		File.readlines(svr_conf).each { |line|
-			newfile << line
-			if line.match(/^\[sslConfig\]/)
-				newfile << "useClientSSLCompression = false\n"
-				newfile << "sslVersions = tls1.2\n"
-				newfile << "cipherSuite = TLSv1.2:!eNULL:!aNULL\n"
-			end
-		}
-		f = File.new(svr_conf, File::CREAT|File::TRUNC|File::RDWR)
-		f.puts newfile
-		f.close
-	end
-	not_if "grep ^sslVersions #{svr_conf}"
+  block do
+    newfile = []
+    File.readlines(svr_conf).each { |line|
+      newfile << line
+      if line.match(/^\[sslConfig\]/)
+        newfile << "useClientSSLCompression = false\n"
+        newfile << "sslVersions = tls1.2\n"
+        newfile << "cipherSuite = TLSv1.2:!eNULL:!aNULL\n"
+      end
+    }
+    f = File.new(svr_conf, File::CREAT|File::TRUNC|File::RDWR)
+    f.puts newfile
+    f.close
+  end
+  not_if "grep ^sslVersions #{svr_conf}"
   notifies :restart, 'service[splunk]'
 end

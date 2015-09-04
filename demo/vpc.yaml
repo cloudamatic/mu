@@ -1,6 +1,6 @@
 ---
 appname: myvpc
-<% $azs = listAZs %>
+<% $azs = MU::Cloud::AWS.listAZs %>
 vpcs:
 - name: vpc
   route-tables:
@@ -21,6 +21,7 @@ vpcs:
     ip_block: 10.0.<%= i %>.0/24
     availability-zone: "<%= az %>"
     route-table: internet
+    map_public_ips: true
 <%
 end
 offset = $azs.size

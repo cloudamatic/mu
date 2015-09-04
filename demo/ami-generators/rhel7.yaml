@@ -1,0 +1,16 @@
+---
+  appname: mu
+  servers: 
+    - 
+      name: rhel7
+      size: m3.medium
+      platform: rhel71
+      run_list:
+      - recipe[mu-tools::updates]
+      - recipe[mu-tools::apply_security]
+      - recipe[mu-tools::split_var_partitions]
+      create_image:
+        image_then_destroy: true
+        public: true
+        copy_to_regions:
+        - "#ALL"

@@ -22,14 +22,14 @@
 # For now, linux only.  Remove case statement if windows turns out to need it
 
 case node[:platform]
-        when "windows"
-        else
-                bash "update-pip" do
-								code <<-EOF
+  when "windows"
+  else
+    bash "update-pip" do
+      code <<-EOF
 #                   easy_install --upgrade setuptools
                     curl https://bootstrap.pypa.io/ez_setup.py | python
                     pip install pip --upgrade
-                EOF
-        end
+      EOF
+    end
 end
 

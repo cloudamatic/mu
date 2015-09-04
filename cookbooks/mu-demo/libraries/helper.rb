@@ -1,4 +1,3 @@
-
 require 'chef/mixin/shell_out'
 
 module WinFW

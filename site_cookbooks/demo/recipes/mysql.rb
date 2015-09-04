@@ -9,25 +9,25 @@
 
 case node[:platform_family]
 
-when "rhel"
+  when "rhel"
 
-	bash "install mysql" do
-		user "root"
-		code <<-EOH
+    bash "install mysql" do
+      user "root"
+      code <<-EOH
 		cd /opt
 		wget http://repo.mysql.com/mysql-community-release-el6-5.noarch.rpm
 		rpm -ivh mysql-community-release-el6-5.noarch.rpm
 		yum -y install mysql-server
 		rm -rf mysql-community-release-el6-5.noarch.rpm
 		/etc/init.d/mysqld start
-		EOH
-	end
+      EOH
+    end
 
-when "debian"
+  when "debian"
 
 
-else
+  else
 
-  raise '#{node[:platform_family]} not supported'
+    raise '#{node[:platform_family]} not supported'
 
 end

@@ -16,40 +16,40 @@
 #
 # Assume default use case is a Universal Forwarder (client).
 default['splunk']['accept_license'] = false
-default['splunk']['is_server']      = false
-default['splunk']['receiver_port']  = '9997'
-default['splunk']['web_port']       = '443'
-default['splunk']['discovery']      = 'environment'
+default['splunk']['is_server'] = false
+default['splunk']['receiver_port'] = '9997'
+default['splunk']['web_port'] = '443'
+default['splunk']['discovery'] = 'environment'
 
 default['splunk']['user'] = {
-  'username' => 'splunk',
-  'comment'  => 'Splunk Server',
-  'home'     => '/opt/splunkforwarder',
-  'shell'    => '/bin/bash',
-  'uid'      => 396
+    'username' => 'splunk',
+    'comment' => 'Splunk Server',
+    'home' => '/opt/splunkforwarder',
+    'shell' => '/bin/bash',
+    'uid' => 396
 }
 
 default['splunk']['auth'] = {
-  'data_bag' => 'vault',
-  'data_bag_item' => "splunk_#{node.chef_environment}"
+    'data_bag' => 'vault',
+    'data_bag_item' => "splunk_#{node.chef_environment}"
 }
 
 
 default['splunk']['ssl_options'] = {
-  'enable_ssl' => false,
-  'data_bag' => 'vault',
-  'data_bag_item' => 'splunk_certificates',
-  'keyfile' => 'self-signed.example.com.key',
-  'crtfile' => 'self-signed.example.com.crt'
+    'enable_ssl' => false,
+    'data_bag' => 'vault',
+    'data_bag_item' => 'splunk_certificates',
+    'keyfile' => 'self-signed.example.com.key',
+    'crtfile' => 'self-signed.example.com.crt'
 }
 
 # Add key value pairs to this to add configuration pairs to the output.conf file
 # 'sslCertPath' => '$SPLUNK_HOME/etc/certs/cert.pem'
 default['splunk']['outputs_conf'] = {
-  'forwardedindex.0.whitelist' => '.*',
-  'forwardedindex.1.blacklist' => '_.*',
-  'forwardedindex.2.whitelist' => '_audit',
-  'forwardedindex.filter.disable' => 'false'
+    'forwardedindex.0.whitelist' => '.*',
+    'forwardedindex.1.blacklist' => '_.*',
+    'forwardedindex.2.whitelist' => '_audit',
+    'forwardedindex.filter.disable' => 'false'
 }
 
 # Add a host name if you need inputs.conf file to be configured
@@ -66,31 +66,31 @@ default['splunk']['user']['home'] = '/opt/splunk' if node['splunk']['is_server']
 default['splunk']['server']['runasroot'] = true
 
 case node['platform_family']
-when 'rhel'
-  if node['kernel']['machine'] == 'x86_64'
-    default['splunk']['forwarder']['url'] = 'http://download.splunk.com/releases/6.2.3/universalforwarder/linux/splunkforwarder-6.2.3-264376-linux-2.6-x86_64.rpm'
-    default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.2.3/splunk/linux/splunk-6.2.3-264376-linux-2.6-x86_64.rpm'
-  else
-    default['splunk']['forwarder']['url'] = 'http://download.splunk.com/releases/6.2.3/universalforwarder/linux/splunkforwarder-6.2.3-264376.i386.rpm'
-    default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.2.3/splunk/linux/splunk-6.2.3-264376.i386.rpm'
-  end
-when 'debian'
-  if node['kernel']['machine'] == 'x86_64'
-    default['splunk']['forwarder']['url'] = 'http://download.splunk.com/releases/6.2.3/universalforwarder/linux/splunkforwarder-6.2.3-264376-linux-2.6-amd64.deb'
-    default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.2.3/splunk/linux/splunk-6.2.3-264376-linux-2.6-amd64.deb'
-  else
-    default['splunk']['forwarder']['url'] = 'http://download.splunk.com/releases/6.2.3/universalforwarder/linux/splunkforwarder-6.2.3-264376-linux-2.6-intel.deb'
-    default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.2.3/splunk/linux/splunk-6.2.3-264376-linux-2.6-intel.deb'
-  end
-when 'omnios'
-  default['splunk']['forwarder']['url'] = 'http://download.splunk.com/releases/6.2.3/universalforwarder/solaris/splunkforwarder-6.2.3-264376-solaris-10-intel.pkg.Z'
-  default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.2.3/splunk/solaris/splunk-6.2.3-264376-solaris-10-intel.pkg.Z'
-when 'windows'
-  if node['kernel']['machine'] == 'x86_64'
-    default['splunk']['forwarder']['url'] = 'http://download.splunk.com/releases/6.2.3/universalforwarder/windows/splunkforwarder-6.2.3-264376-x64-release.msi'
-    default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.2.3/splunk/windows/splunk-6.2.3-264376-x64-release.msi'
-  else
-    default['splunk']['forwarder']['url'] = 'http://download.splunk.com/releases/6.2.3/universalforwarder/windows/splunkforwarder-6.2.3-264376-x86-release.msi'
-    default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.2.3/splunk/windows/splunk-6.2.3-264376-x86-release.msi'
-  end
+  when 'rhel'
+    if node['kernel']['machine'] == 'x86_64'
+      default['splunk']['forwarder']['url'] = 'http://download.splunk.com/releases/6.2.3/universalforwarder/linux/splunkforwarder-6.2.3-264376-linux-2.6-x86_64.rpm'
+      default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.2.3/splunk/linux/splunk-6.2.3-264376-linux-2.6-x86_64.rpm'
+    else
+      default['splunk']['forwarder']['url'] = 'http://download.splunk.com/releases/6.2.3/universalforwarder/linux/splunkforwarder-6.2.3-264376.i386.rpm'
+      default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.2.3/splunk/linux/splunk-6.2.3-264376.i386.rpm'
+    end
+  when 'debian'
+    if node['kernel']['machine'] == 'x86_64'
+      default['splunk']['forwarder']['url'] = 'http://download.splunk.com/releases/6.2.3/universalforwarder/linux/splunkforwarder-6.2.3-264376-linux-2.6-amd64.deb'
+      default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.2.3/splunk/linux/splunk-6.2.3-264376-linux-2.6-amd64.deb'
+    else
+      default['splunk']['forwarder']['url'] = 'http://download.splunk.com/releases/6.2.3/universalforwarder/linux/splunkforwarder-6.2.3-264376-linux-2.6-intel.deb'
+      default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.2.3/splunk/linux/splunk-6.2.3-264376-linux-2.6-intel.deb'
+    end
+  when 'omnios'
+    default['splunk']['forwarder']['url'] = 'http://download.splunk.com/releases/6.2.3/universalforwarder/solaris/splunkforwarder-6.2.3-264376-solaris-10-intel.pkg.Z'
+    default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.2.3/splunk/solaris/splunk-6.2.3-264376-solaris-10-intel.pkg.Z'
+  when 'windows'
+    if node['kernel']['machine'] == 'x86_64'
+      default['splunk']['forwarder']['url'] = 'http://download.splunk.com/releases/6.2.3/universalforwarder/windows/splunkforwarder-6.2.3-264376-x64-release.msi'
+      default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.2.3/splunk/windows/splunk-6.2.3-264376-x64-release.msi'
+    else
+      default['splunk']['forwarder']['url'] = 'http://download.splunk.com/releases/6.2.3/universalforwarder/windows/splunkforwarder-6.2.3-264376-x86-release.msi'
+      default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.2.3/splunk/windows/splunk-6.2.3-264376-x86-release.msi'
+    end
 end

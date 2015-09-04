@@ -1,7 +1,7 @@
 module InstanceMetadata
 
   @metadata_ready = false
-  
+
   def self.wait_for_instance_IAM_metadata_to_be_available()
     unless @metadata_ready
       loop do
@@ -17,5 +17,5 @@ module InstanceMetadata
       end
     end
   end
-  
+
 end

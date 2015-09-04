@@ -4,19 +4,33 @@
 # setting up the Mu tools, Chef, and assorted support libraries and utilities.
 #
 
-# XXX should probably get this through their main site or a mirror redirector,
-# rather than some random mirror
-EPEL_RPM="http://mirror.pnl.gov/epel/6/i386/epel-release-6-8.noarch.rpm"
+DIST_VERSION=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
+EPEL_RPM="http://mirror.metrocast.net/fedora/epel/epel-release-latest-$DIST_VERSION.noarch.rpm"
 
-PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.7.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx mysql-devel postgresql-devel openssl libyaml"
-DEL_PACKAGES="nagios"
+CHEF_CLIENT_VERSION="12.4.1-1"
+CHEF_SERVER_VERSION="12.1.2-1"
 
-OPSCODE_CHEF_PKG="chef-server-core-12.0.8-1.el6.x86_64"
-OPSCODE_CHEF_DL="https://web-dl.packagecloud.io/chef/stable/packages/el/6/${OPSCODE_CHEF_PKG}.rpm"
-CHEF_CLIENT_PKG="chef-12.3.0-1.el6.x86_64"
-
-RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby212-2.1.2p205-1.el6.x86_64.rpm"
-RUBY_INSTALL_DIR="/opt/rubies/ruby212-2.1.2-p205"
+if [ $DIST_VERSION == 7 ];then
+	# mariadb replaces mysql, qt and qt-x11 are required by gecode which is required by the dep_selector gem. 
+	PACKAGES="git curl vim-enhanced zip unzip java-1.8.0-openjdk gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx postgresql-devel openssl libyaml graphviz graphviz-devel mariadb mariadb-devel qt qt-x11 iptables-services"
+	DEL_PACKAGES="nagios firewalld"
+	OPSCODE_CHEF_PKG="chef-server-core-$CHEF_SERVER_VERSION.el7.x86_64"
+	OPSCODE_CHEF_DL="https://web-dl.packagecloud.io/chef/stable/packages/el/7/${OPSCODE_CHEF_PKG}.rpm"
+	CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el7.x86_64"
+	RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby-2.1.6-1.el7.x86_64.rpm"
+	RUBY_INSTALL_DIR="/opt/rubies/ruby-2.1.6"
+	RUBY_VERSION="ruby-2.1.6"
+	GECODE_RPMS="https://s3.amazonaws.com/cap-public/gecode-3.7.3-2.el7.centos.x86_64.rpm https://s3.amazonaws.com/cap-public/gecode-devel-3.7.3-2.el7.centos.x86_64.rpm"
+else
+	PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.7.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx mysql-devel postgresql-devel openssl libyaml graphviz graphviz-devel autoconf"
+	OPSCODE_CHEF_PKG="chef-server-core-$CHEF_SERVER_VERSION.el6.x86_64"
+	OPSCODE_CHEF_DL="https://web-dl.packagecloud.io/chef/stable/packages/el/6/${OPSCODE_CHEF_PKG}.rpm"
+	CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el6.x86_64"
+	RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby-2.1.6-1.el6.x86_64.rpm"
+	RUBY_INSTALL_DIR="/opt/rubies/ruby-2.1.6"
+	RUBY_VERSION="ruby-2.1.6"
+	DEL_PACKAGES="nagios"
+fi
 
 GET_METADATA="curl --fail -s http://169.254.169.254/latest"
 RCFILE=".murc"
@@ -39,7 +53,7 @@ export PATH="/bin:/usr/bin:/sbin:/usr/sbin"
 
 # Non-root users can only customize certain configuration parameters
 if [ "root" == "`whoami`" ];then
-	CONFIG_VARS="AWS_ACCESS AWS_SECRET MU_ADMIN_EMAIL MU_ADMIN_PW MU_INSTALLDIR MU_DATADIR ADDTL_CHEF_REPOS MU_REPO CHEF_PUBLIC_IP HOSTNAME EC2SECGROUP LOG_BUCKET_NAME ALLOW_INVADE_FOREIGN_VPCS"
+	CONFIG_VARS="AWS_ACCESS AWS_SECRET MU_ADMIN_EMAIL MU_ADMIN_PW JENKINS_ADMIN_EMAIL JENKINS_ADMIN_PW MU_INSTALLDIR MU_DATADIR ADDTL_CHEF_REPOS MU_REPO CHEF_PUBLIC_IP HOSTNAME EC2SECGROUP LOG_BUCKET_NAME ALLOW_INVADE_FOREIGN_VPCS"
 	RO_CONFIG_VARS="AWS_ACCOUNT_NUMBER EC2_REGION"
 else
 	CONFIG_VARS="AWS_ACCESS AWS_SECRET MU_DATADIR ADDTL_CHEF_REPOS MU_REPO LOG_BUCKET_NAME"
@@ -180,7 +194,7 @@ if [ "$HOSTNAME" == "" ];then
 	HOSTNAME="`hostname -s`"
 fi
 if [ "$LOG_BUCKET_NAME" == "" ];then
-	LOG_BUCKET_NAME="Mu_Logs_${HOSTNAME}_${MY_INSTANCE_ID}"
+	LOG_BUCKET_NAME="mu-logs-${HOSTNAME}-${MY_INSTANCE_ID}"
 fi
 MY_VPC_ID=""
 # Figure out if we have at least one interface in a VPC
@@ -236,6 +250,27 @@ status_message()
 }
 
 ###############################################################################
+# Useful for accessing our parallel key/value structure.  
+# Accepts named key as argument
+# Returns value of target env variable from array structures
+# Uses stdout so do **not** echo or printf in this function
+###############################################################################
+
+return_targetvar_value()
+
+{
+    for i in "${!var_name[@]}"; do
+
+      if [ ${var_name[$i]}  = "$1" ]; then
+         printf '%s' ${var_val[$i]}
+        break
+      fi
+    done
+}
+
+
+
+###############################################################################
 update_murc()
 {
 	name="$1"
@@ -260,7 +295,7 @@ set_path_env_vars()
 	MU_CHEF_CACHE="$HOMEDIR/.chef"
 	SSHDIR="$HOMEDIR/.ssh"
 	ENVFILE="$HOMEDIR/.bash_profile"
-	mkdir -p $MU_INSTALLDIR/etc $MU_INSTALLDIR/bin $MU_DATADIR
+	mkdir -p $MU_INSTALLDIR/etc $MU_INSTALLDIR/bin $MU_DATADIR/deployments
 	chmod 755 $MU_INSTALLDIR $MU_DATADIR
 	DEVOPS_TMP_DIR='/tmp/.mu.$$'
 	update_murc MU_INSTALLDIR $MU_INSTALLDIR
@@ -531,17 +566,52 @@ validate_setup_env_vars(){
 			fi	
 		elif [ "${var_name[$n]}" == "MU_ADMIN_EMAIL" ]; then
 			if [ "${var_val[$n]}" == "" ];then
-				warning_message "You must specify an email contact for the 'mu' user."
+				warning_message "You must specify an email contact for the 'mu' admin user."
+				validate_errs=1
+			elif ! ( echo ${var_val[$n]} | egrep -q '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,6}$' ) ; then
+				warning_message "The 'mu' admin user email contact is badly formed!"
 				validate_errs=1
 			fi	
+
 		elif [ "${var_name[$n]}" == "MU_ADMIN_PW" -a ! -f "$MU_CHEF_CACHE/mu.user.key" ]; then
 			if [ "${var_val[$n]}" == "" ];then
-				warning_message "You must specify a password for the 'mu' user."
+				warning_message "You must specify a password for the 'mu' admin user."
+				validate_errs=1
+			fi	
+
+		elif [ "${var_name[$n]}" == "LOG_BUCKET_NAME" ]; then
+			if [ "${var_val[$n]}" == "" ];then
+				warning_message "You must specify a dns-legal log bucket name ."
+				validate_errs=1
+			elif ! ( echo ${var_val[$n]} | egrep -q '^[a-z0-9.-]*$' ) ; then
+				warning_message "The log bucket name is badly formed!"
+				validate_errs=1
+			fi	
+
+		elif [ "${var_name[$n]}" == "JENKINS_ADMIN_EMAIL" ]; then
+			if [ "${var_val[$n]}" == "" ];then
+				warning_message "You must specify an email contact for the 'jenkins' admin user."
+				validate_errs=1
+			elif ! ( echo ${var_val[$n]} | egrep -q '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,6}$' ) ; then
+				warning_message "The Jenkins admin email contact is badly formed!"
+				validate_errs=1
+			fi	
+		elif [ "${var_name[$n]}" == "JENKINS_ADMIN_PW" ]; then
+			if [ "${var_val[$n]}" == "" ];then
+				warning_message "You must specify a password for the 'jenkins' admin user."
 				validate_errs=1
 			fi	
 		fi
 		n=$[$n +1]
 	done
+
+	MU_ADMIN_EMAIL_VAL=$(return_targetvar_value "MU_ADMIN_EMAIL")
+  	JENKINS_ADMIN_EMAIL_VAL=$(return_targetvar_value "JENKINS_ADMIN_EMAIL")
+
+ 	if [ "$MU_ADMIN_EMAIL_VAL" == "$JENKINS_ADMIN_EMAIL_VAL" ]; then
+ 	 warning_message "EMail addresses for mu users must be unique and your Jenkins and Mu addresses are the same!"
+    	validate_errs=1
+  	fi
 }
 
 ###############################################################################
@@ -555,7 +625,7 @@ print_setup_env_vars(){
 	while [ "${var_name[$n]}" != "" ];do
 		if [ "${var_name[$n]}" == "CHEF_PUBLIC_IP" ]; then
 			if [ "$MY_VPC_ID" != "" ];then
-			  echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (if private VPC, set to bastion public IP): ${GREEN}${var_val[$n]}${NORM}"
+			  echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (if in private subnet, set to bastion public IP): ${GREEN}${var_val[$n]}${NORM}"
 			else
 			  echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (OPTIONAL; will try to guess): ${GREEN}${var_val[$n]}${NORM}"
 			fi 
@@ -570,6 +640,14 @@ print_setup_env_vars(){
 			echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (required): ${GREEN}${var_val[$n]}${NORM}"
 		elif [ "${var_name[$n]}" == "MU_ADMIN_PW" ]; then
 			if [ "${var_val[$n]}" != "" -o -f "$MU_CHEF_CACHE/mu.user.key" ];then
+				echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (required): ********"
+			else
+				echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (required):"
+			fi
+		elif [ "${var_name[$n]}" == "JENKINS_ADMIN_EMAIL" ]; then
+			echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (required): ${GREEN}${var_val[$n]}${NORM}"
+		elif [ "${var_name[$n]}" == "JENKINS_ADMIN_PW" ]; then
+			if [ "${var_val[$n]}" != "" ];then
 				echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (required): ********"
 			else
 				echo "  ${BOLD}$n${NORM}) ${var_name[$n]} (required):"
@@ -661,44 +739,37 @@ adjust_config_vars()
 			warning_message "Invalid option $config"
 			print_setup_env_vars
 			continue
-		elif [ "${var_name[$config]}" != "" ] 2>/dev/null ;then
-			if [ "${var_name[$config]}" == "ADDTL_CHEF_REPOS" ]; then
-				echo "Enter the Github repos from which we'll pull Chef artifacts additional to those "
-				echo "from $MU_REPO. Delineate multiple repositories with spaces. Example:"
-				echo "${BOLD}eGT-Labs/mu-internal.git HHS/healthdata_platform.git${NORM}"
-				echo ""
-			fi
-			if [ "${var_name[$config]}" == "MU_ADMIN_EMAIL" ];then
-				echo "Enter an email address for the internal 'mu' user."
-				echo "Note that you won't be able to reuse this address for a regular user. See also:"
-				echo "https://github.com/chef/chef-server/issues/59"
-			fi
+		else [ "${var_name[$config]}" != "" ] 2>/dev/null
+			# Process vars with password-style reads
 			if [ "${var_name[$config]}" == "MU_ADMIN_PW" ];then
 				read -s -p "Enter password for the ${BOLD}mu${NORM} admin user. `echo $'\n> '`" newval
-			else
-				read -p "Enter new value for ${BOLD}${var_name[$config]}${NORM}. `echo $'\n> '`" newval
-			fi
-#			if [ "${var_name[$config]}" == "CHEF_PUBLIC_IP" ];then
-#				if ! echo $newval | egrep '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$' ; then
-#					warning_message "You must specify a valid IP address!"
-#			    print_setup_env_vars
-#			    continue
-#			  fi
-#			elif [ "${var_name[$config]}" == "HOSTNAME" ];then
-			if [ "${var_name[$config]}" == "HOSTNAME" ];then
-				if [ "$LOG_BUCKET_NAME" == "Mu_Logs_${HOSTNAME}_${MY_INSTANCE_ID}" ];then
-					var_val[11]="Mu_Logs_${newval}_${MY_INSTANCE_ID}"
-				fi
-			elif [ "${var_name[$config]}" == "MU_ADMIN_EMAIL" ];then
-				ok=1
-				if ! ( echo $newval | egrep '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,6}$' ) ; then
-					ok=0
-				fi
-				if [ $ok == 0 ];then
-					warning_message "You must specify one or more valid email addresses!"
-			    print_setup_env_vars
-					continue
-				fi
+			elif [ "${var_name[$config]}" == "JENKINS_ADMIN_PW" ];then
+				read -s -p "Enter password for the ${BOLD}jenkins${NORM} admin user. `echo $'\n> '`" newval
+			else 
+
+				# Process vars with normal style reads and special prompts
+				case ${var_name[$config]} in
+					"ADDTL_CHEF_REPOS")
+						echo "Enter the Github repos from which we'll pull Chef artifacts additional to those "
+						echo "from $MU_REPO. Delineate multiple repositories with spaces. Example:"
+						echo "${BOLD}eGT-Labs/mu-internal.git HHS/healthdata_platform.git${NORM}"
+						echo ""
+						;;&
+					"MU_ADMIN_EMAIL")
+						echo "Enter an email address for the internal 'mu' user."
+						echo "Note that you won't be able to reuse this address for a regular user. See also:"
+						echo "https://github.com/chef/chef-server/issues/59"
+						;;&
+					"JENKINS_ADMIN_EMAIL")
+						echo "Enter an email address for the administrative 'jenkins' user."
+						echo "Note that you won't be able to reuse this address for a regular user. See also:"
+						echo "https://github.com/chef/chef-server/issues/59"
+						;;&
+					*)
+					# Everybody gets a read
+						read -p "Enter new value for ${BOLD}${var_name[$config]}${NORM}. `echo $'\n> '`" newval
+						;;
+				esac
 			fi
 			var_val[$config]=$newval
 			print_setup_env_vars
@@ -716,7 +787,7 @@ adjust_config_vars()
 			echo "AWS_ACCESS is empty, leaving it unset" > /dev/null
 		elif [ "${var_name[$n]}" == "AWS_SECRET" -a "${var_val[$n]}" == "" ];then
 			echo "AWS_SECRET is empty, leaving it unset" > /dev/null
-		elif [ "${var_name[$n]}" != "MU_ADMIN_PW" ];then
+		elif [ "${var_name[$n]}" != "MU_ADMIN_PW" -a "${var_name[$n]}" != "JENKINS_ADMIN_PW" ];then
 			update_murc ${var_name[$n]} "${var_val[$n]}"
 		fi
 		n=$[$n +1]
@@ -790,32 +861,41 @@ clone_repository()
 	clone_path=$2
 
 	clone_ssh="git clone git@github.com:$repo $clone_path"
+	# This is ugly. Adding a 30 second timeout for HTTPS clone so we don't hang if prompted for a username and/or password. 
+	clone_https="timeout 30 git clone https://github.com/$repo $clone_path"
 	mkdir -p $clone_path
 	if [ "$(ls -A $clone_path)" ];then
 		echo "$clone_path exists and is non-empty. I'm going to assume the repo has already been cloned..."
 		sleep 3
 	else
 		mkdir -p $SSHDIR
-		if [ "`grep ^github.com $SSHDIR/known_hosts 2>/dev/null`" != "" ];then
-			echo "Attempting to clone $repo with existing keys..."
-			echo $clone_ssh
-			$clone_ssh 2>&1 > /dev/null
-		fi
-		if [ $? != 0 -o "`grep ^github.com $SSHDIR/known_hosts 2>/dev/null`" == "" ];then
-			echo ""
-			authtype=""
-			echo "We'll need a key for access to ${BOLD}$repo${NORM}."
-			if [ "$use_defaults" != "" ];then
-			  fail_with_message "In non-interactive mode, but I need Git credentials! Run without -n."
+		echo "Attempting to clone $repo without private key."
+		echo $clone_https
+		$clone_https 2>&1 > /dev/null
+		if [ "$(ls -A $clone_path)" ];then
+			echo "$clone_path exists and is not empty. I'm going to assume $repo was cloned successfully without a private key"
+		else
+			if [ "`grep ^github.com $SSHDIR/known_hosts 2>/dev/null`" != "" ];then
+				echo "Attempting to clone $repo with existing keys..."
+				echo $clone_ssh
+				$clone_ssh 2>&1 > /dev/null
 			fi
-			while /bin/true ;do
-			    rm -rf $clone_path
-			    expunge_github_ssh_key $keyname
-			    echo ""
-			    set_up_github_ssh_key $repo
-			    echo $clone_ssh
-			    $clone_ssh && break
-			done
+			if [ $? != 0 -o "`grep ^github.com $SSHDIR/known_hosts 2>/dev/null`" == "" ];then
+				echo ""
+				authtype=""
+				echo "We'll need a key for access to ${BOLD}$repo${NORM}."
+				if [ "$use_defaults" != "" ];then
+				  fail_with_message "In non-interactive mode, but I need Git credentials! Run without -n."
+				fi
+				while /bin/true ;do
+					rm -rf $clone_path
+					expunge_github_ssh_key $keyname
+					echo ""
+					set_up_github_ssh_key $repo
+					echo $clone_ssh
+					$clone_ssh && break
+				done
+			fi
 		fi
 	fi
 
@@ -828,6 +908,10 @@ set_hostname()
 	if [ "$HOSTNAME" != "`hostname -s`" ];then
 		hostname $HOSTNAME
 		sed -i "s/^HOSTNAME=.*/HOSTNAME=$HOSTNAME/" /etc/sysconfig/network
+
+		if [ $DIST_VERSION == 7 ];then
+			hostnamectl set-hostname $HOSTNAME && systemctl restart systemd-hostnamed
+		fi
 	fi
 	if ! grep "^$MY_PRIVATE_IP $HOSTNAME MU-MASTER" /etc/hosts > /dev/null;then
 		sed -i "/ $HOSTNAME/d" /etc/hosts
@@ -853,6 +937,14 @@ install_system_packages()
 		rpm -ivh ${EPEL_RPM}
 	fi
 
+	uninstall_me=""
+	for pkg in $DEL_PACKAGES;do
+		rpm -q $pkg 2>&1 > /dev/null && uninstall_me="${install_me} $pkg"
+	done
+	if [ "$uninstall_me" != "" ];then
+		yum -y erase ${uninstall_me} || exit 1
+	fi
+
 	install_me=""
 	for pkg in $PACKAGES;do
 		rpm -q $pkg 2>&1 > /dev/null || install_me="${install_me} $pkg"
@@ -862,12 +954,10 @@ install_system_packages()
 		yum -y install ${install_me} || exit 1
 	fi
 
-	uninstall_me=""
-	for pkg in $DEL_PACKAGES;do
-		rpm -q $pkg 2>&1 > /dev/null && uninstall_me="${install_me} $pkg"
-	done
-	if [ "$uninstall_me" != "" ];then
-		yum -y erase ${uninstall_me} || exit 1
+	if [ $DIST_VERSION == 7 ];then
+		for pkg in $GECODE_RPMS;do
+			rpm -ivh $pkg
+		done
 	fi
 }
 
@@ -907,10 +997,10 @@ install_ruby()
 {
 	status_message "Installing latest ${BOLD}Ruby${NORM} stable snapshot"
 
-	if ! rpm -q ruby212 > /dev/null ;then
+	if ! rpm -q $RUBY_VERSION > /dev/null ;then
 		rpm -ivh $RUBY_RPM
 	fi
-	rm -f /usr/local/ruby-current 
+	rm -f /usr/local/ruby-current
 	ln -s $RUBY_INSTALL_DIR /usr/local/ruby-current
 
 	# Init Mu's gem library now that it has a Ruby to use.
@@ -991,7 +1081,7 @@ configure_ec2_security_group()
 {
 	status_message "Detecting ${BOLD}EC2 Security Group${NORM} configuration"
 	set -e
-	EC2SECGROUP="`$MU_INSTALLDIR/bin/mu-aws-setup -s | grep '^SECURITY GROUP ID:' | cut -d' ' -f4`"
+	EC2SECGROUP="`$MU_INSTALLDIR/bin/mu-aws-setup -s | grep 'Setting' | cut -d'(' -f2 | cut -d')' -f1`"
 	set +e
 	update_murc EC2SECGROUP $EC2SECGROUP
 }
@@ -1010,25 +1100,11 @@ punch_tcp_hole()
 add_chef_support_gems()
 {
 	rubydir=$1
-	rm -rf /tmp/mu-gem-setup.$$
-	mkdir -p /tmp/mu-gem-setup.$$
-	$rubydir/bin/gem list > /tmp/mu-gem-setup.$$/gemlist.txt
-	grep '^bundler ' /tmp/mu-gem-setup.$$/gemlist.txt > /dev/null || $rubydir/bin/gem install bundler --no-rdoc --no-ri
+	$rubydir/bin/gem list | grep '^bundler' > /dev/null || $rubydir/bin/gem install bundler --no-rdoc --no-ri
 
 	status_message "Installing support gems in $rubydir"
 
-	echo 'source "https://rubygems.org"' > /tmp/mu-gem-setup.$$/Gemfile
-	for pkg in bundler ohai knife-ec2 chef-vault foodcritic yard colorize color json json-schema trollop fileutils aws-sdk-core knife-windows simple-password-gen netaddr;do
-		if ! grep "^$pkg " /tmp/mu-gem-setup.$$/gemlist.txt > /dev/null;then
-			egrep "[\'\"]$pkg[\'\"]" $MU_LIBDIR/modules/Gemfile >> /tmp/mu-gem-setup.$$/Gemfile
-		elif grep "[\'\"]$pkg[\'\"], " $MU_LIBDIR/modules/Gemfile > /dev/null;then
-			egrep "[\'\"]$pkg[\'\"]" $MU_LIBDIR/modules/Gemfile >> /tmp/mu-gem-setup.$$/Gemfile
-		fi
-	done
-
-	cd /tmp/mu-gem-setup.$$ && $rubydir/bin/bundle install
-	cd
-	rm -rf /tmp/mu-gem-setup.$$
+	cd $MU_LIBDIR/modules && $rubydir/bin/bundle install
 
 	find $rubydir/ -type f -exec chmod go+r {} \;
 	find $rubydir/bin -type f -exec chmod go+rx {} \;
@@ -1050,7 +1126,8 @@ set_knife_rb()
 	fi
 	mkdir -p $chef_cache
 	cat /dev/null > $chef_cache/knife.rb
-
+# XXX verify_api_cert ssl_verify_mode shouldn't have to be set like this. 
+# don't release with this grotesquely insecure configuration.
 	cat > $chef_cache/knife.rb.tmp.$$ << EOF
 log_level                :info
 log_location             STDOUT
@@ -1064,6 +1141,8 @@ syntax_check_cache_path  '$chef_cache/syntax_check_cache'
 cookbook_path [ '$chef_cache/cookbooks', '$chef_cache/site_cookbooks' ]
 knife[:vault_mode] = 'client'
 knife[:vault_admins] = ['$knife_user']
+verify_api_cert    false
+ssl_verify_mode    :verify_none
 EOF
 	mv -f $chef_cache/knife.rb.tmp.$$ $chef_cache/knife.rb
 }
@@ -1088,8 +1167,8 @@ install_chef()
 	if ! rpm -q $CHEF_CLIENT_PKG > /dev/null ;then
 		status_message "Installing current Chef client"
 		yum -y erase chef
-		curl https://www.opscode.com/chef/install.sh > /root/chef-install.sh
-		sh /root/chef-install.sh
+		curl https://www.chef.io/chef/install.sh > /root/chef-install.sh
+		sh /root/chef-install.sh -v $CHEF_CLIENT_VERSION
 	fi
 	add_chef_support_gems /opt/chef/embedded
 	set_knife_rb organizations/mu
@@ -1337,6 +1416,29 @@ configure_nagios_server()
 	/bin/cp -f $MU_LIBDIR/bin/mu-tunnel-nagios /home/nagios/mu-tunnel-nagios && chown nagios /home/nagios/mu-tunnel-nagios
 }
 
+###############################################################################
+preconfigure_jenkins_artifacts()
+{
+        status_message "Configuring the ${BOLD}Jenkins${NORM} artifacts"
+        punch_tcp_hole 9443
+        if [ "`/bin/ls $MU_DATADIR/users/`" == "" ];then
+                echo "${RED}Cannot enable Jenkins until at least one admin user is specified.${NORM}"
+                echo "${RED}Use ${BOLD}mu-user-manage${NORM}${RED} to create and manage users.${NORM}"
+                return
+        fi
+        # skip user and vault creation if we're being called from mu-self-update and have already
+        # done it
+        #
+        if [ "`grep ^jenkins: /etc/passwd`" == "" -o "`pgrep -u jenkins -f /usr/lib/jenkins`" == "" ];then
+        	# Create Jenkins Vault with admin and user items
+	        $MU_LIBDIR/install/jenkinskeys.rb
+	        knife vault create jenkins users "{\"mu_user_password\":\"$JENKINS_ADMIN_PW\"}" --mode client -F json -u mu --search name:MU-MASTER
+	        # Create the Jenkins user
+	        $MU_INSTALLDIR/bin/mu-user-manage -c -u jenkins -e $JENKINS_ADMIN_EMAIL -p $JENKINS_ADMIN_PW
+        fi
+}
+
+
 generate_docs()
 {
 	status_message "Generating documentation"
@@ -1451,10 +1553,11 @@ if [ "$library" != "1" ];then
 		generate_ssl_certs
 		setup_localhost_chef_client
 		configure_nagios_server
+		preconfigure_jenkins_artifacts
 		set_permissions
 	fi
-
-	chef-client
+	knife node run_list add MU-MASTER "role[mu-master-jenkins]"
+	chef-client -l info
 
 	echo ""
 	echo "You MUST source all of the changes I made to your environment:"

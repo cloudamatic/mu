@@ -17,18 +17,18 @@
 # limitations under the License.
 
 package "make" do
-	action :install
+  action :install
 end
 
 case node[:platform]
 
-	when "centos"
+  when "centos"
 
 
-	when "ubuntu"
+  when "ubuntu"
 
 
-	else
-		Chef::Log.info("Unsupported platform #{node[:platform]}")
+  else
+    Chef::Log.info("Unsupported platform #{node[:platform]}")
 end
 

@@ -19,20 +19,20 @@ require 'trollop'
 SSH_CMD = "env -i /usr/bin/ssh"
 
 $opts = Trollop::options do
-	banner <<-EOS
+  banner <<-EOS
 A utility to run a command through a remote SSH tunnel. Intended to serve as an intermediary for Nagios plugins attempting to contact private nodes through a bastion host.
 Usage:
 #{$0} -d <host> -p <port> -c <command> [-a <arg>] [-k </path/to/key>] [-g <host> [-u <user>]]
-	EOS
-	opt :desthost, "The host to which we'll be connecting on the other side of the tunnel.", :require => true, :type => :string
-	opt :port, "The port to which we'll be connecting on the other side of the tunnel.", :require => true, :type => :integer
-	opt :command, "The command which we will be tunneling to the remote host.", :require => true, :type => :string
-	opt :argument, "An argument to append to our command to specify a (local tunnel) port.", :require => false, :default => "-p", :type => :string
-	opt :gateway, "The gateway host to use. If not specified, we'll assume we have something correct in our global ssh config.", :require => false, :type => :string
-	opt :key, "Path to an SSH private key to use when connecting to the gateway host. If not specified, we'll assume we have something correct in our global ssh config.", :require => false, :type => :string
-	opt :user, "The SSH user with which to connect to the gateway. If not specified, we'll assume we have something correct in our global ssh config.", :require => false, :type => :string, :default => nil
+  EOS
+  opt :desthost, "The host to which we'll be connecting on the other side of the tunnel.", :require => true, :type => :string
+  opt :port, "The port to which we'll be connecting on the other side of the tunnel.", :require => true, :type => :integer
+  opt :command, "The command which we will be tunneling to the remote host.", :require => true, :type => :string
+  opt :argument, "An argument to append to our command to specify a (local tunnel) port.", :require => false, :default => "-p", :type => :string
+  opt :gateway, "The gateway host to use. If not specified, we'll assume we have something correct in our global ssh config.", :require => false, :type => :string
+  opt :key, "Path to an SSH private key to use when connecting to the gateway host. If not specified, we'll assume we have something correct in our global ssh config.", :require => false, :type => :string
+  opt :user, "The SSH user with which to connect to the gateway. If not specified, we'll assume we have something correct in our global ssh config.", :require => false, :type => :string, :default => nil
 #	opt :local_ip, "The local (private) IP to which we'll be connecting on the other side of the tunnel.", :require => false, :type => :string, :default => "127.0.0.1"
-	opt :verbose, "Debugging noise.", :require => false, :type => :boolean, :default => false
+  opt :verbose, "Debugging noise.", :require => false, :type => :boolean, :default => false
 end
 
 dest_host = $opts[:desthost]
@@ -46,43 +46,43 @@ nat_ssh_key = $opts[:key]
 verbose = $opts[:verbose]
 
 if !dest_host or !dest_port or !cmd
-	Trollop::die "Missing required arguments"
+  Trollop::die "Missing required arguments"
 end
 nat_host = dest_host if !nat_host
 
 begin
-	# Degenerate "just work" case, where we assume our ssh config will take care
-	# of the complicated bits for us. We're actually tunneling all the way to the
-	# destination node.
-	gateway = Net::SSH::Gateway.new(
-		nat_host,
-		nil,
-		:config => ["/home/nagios/.ssh/config"],
-		:keys_only => true,
-		:auth_methods => ['publickey'],
-		:verbose => :info
-	)
-	port = gateway.open("127.0.0.1", dest_port)
-	if port_arg.empty?
-		full_cmd = cmd
-	else
-		full_cmd = "#{cmd} #{port_arg} #{port}"
-	end
-	if verbose
-		puts "Opening gateway to #{dest_host}:#{dest_port} by tunneling local #{port} to #{nat_host} and running #{full_cmd}"
-	end
-	output = %x{#{full_cmd}}
-	to_return = $?.exitstatus
-	puts output
+  # Degenerate "just work" case, where we assume our ssh config will take care
+  # of the complicated bits for us. We're actually tunneling all the way to the
+  # destination node.
+  gateway = Net::SSH::Gateway.new(
+      nat_host,
+      nil,
+      :config => ["/home/nagios/.ssh/config"],
+      :keys_only => true,
+      :auth_methods => ['publickey'],
+      :verbose => :info
+  )
+  port = gateway.open("127.0.0.1", dest_port)
+  if port_arg.empty?
+    full_cmd = cmd
+  else
+    full_cmd = "#{cmd} #{port_arg} #{port}"
+  end
+  if verbose
+    puts "Opening gateway to #{dest_host}:#{dest_port} by tunneling local #{port} to #{nat_host} and running #{full_cmd}"
+  end
+  output = %x{#{full_cmd}}
+  to_return = $?.exitstatus
+  puts output
 rescue Exception => e
-	puts e
-	to_return = 3
+  puts e
+  to_return = 3
 ensure
-	begin
-		gateway.shutdown! if !gateway.nil?
-	rescue Exception => e
-		puts "Got #{e.inspect} closing down gateway tunnel (remote port may have been dead)" if verbose
-	end
-	puts "Exiting with status #{to_return}" if verbose
-	exit to_return.to_i
+  begin
+    gateway.shutdown! if !gateway.nil?
+  rescue Exception => e
+    puts "Got #{e.inspect} closing down gateway tunnel (remote port may have been dead)" if verbose
+  end
+  puts "Exiting with status #{to_return}" if verbose
+  exit to_return.to_i
 end

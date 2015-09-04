@@ -10,33 +10,31 @@
 
 case node[:platform_family]
 
-when "rhel"	
+  when "rhel"
 
-ports=node.wordpress.global.ports
+    ports=node.wordpress.global.ports
 
-puts "node.wordpress.global.ports #{ports}"
+    puts "node.wordpress.global.ports #{ports}"
 
-node.wordpress.global.ports.each do |port|
+    node.wordpress.global.ports.each do |port|
 
-	bash "Open Port" do
-	user "root"
-	code <<-EOH
+      bash "Open Port" do
+        user "root"
+        code <<-EOH
 	    
 	    /sbin/iptables -I INPUT -p tcp --dport #{port} -j ACCEPT && service iptables save
 
-	EOH
-	end
-	 
-end
+        EOH
+      end
+
+    end
 
 
-
-when "debian"
-
+  when "debian"
 
 
-else
+  else
 
- raise '#{node[:platform_family]} not supported'
+    raise '#{node[:platform_family]} not supported'
 
 end 

@@ -16,9 +16,9 @@
 
 
 if ENV.include?('MU_INSTALLDIR')
-	require "#{ENV['MU_INSTALLDIR']}/bin/mu-load-murc.rb"
+  require "#{ENV['MU_INSTALLDIR']}/bin/mu-load-murc.rb"
 elsif File.readable?("/opt/mu/bin/mu-load-murc.rb")
-	require "/opt/mu/bin/mu-load-murc.rb"
+  require "/opt/mu/bin/mu-load-murc.rb"
 end
 
 require "mu"

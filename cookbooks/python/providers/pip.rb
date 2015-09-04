@@ -34,7 +34,7 @@ action :install do
   # If we specified a version, and it's not the current version, move to the specified version
   if new_resource.version != nil && new_resource.version != current_resource.version
     install_version = new_resource.version
-  # If it's not installed at all, install it
+    # If it's not installed at all, install it
   elsif current_resource.version == nil
     install_version = candidate_version
   end
@@ -59,16 +59,16 @@ action :upgrade do
       Chef::Log.info("Upgrading #{new_resource} version from #{orig_version} to #{candidate_version}")
       begin
         status = upgrade_package(candidate_version)
-	  rescue Exception => e
-	    # Ugly! rescuing all exceptions. 
-	    log "Tried to upgrade Python vrtualenv but got #{e.inspect}, trying to upgrade using easy_install and pip directly"
+      rescue Exception => e
+        # Ugly! rescuing all exceptions.
+        log "Tried to upgrade Python vrtualenv but got #{e.inspect}, trying to upgrade using easy_install and pip directly"
         execute "update-pip-manually" do
           command <<-EOF
             easy_install --upgrade setuptools
             pip install pip --upgrade
           EOF
+        end
       end
-	end
       if status
         new_resource.updated_by_last_action(true)
       end
@@ -129,9 +129,9 @@ end
 
 def candidate_version
   @candidate_version ||= begin
-    # `pip search` doesn't return versions yet
-    # `pip list` may be coming soon:
-    # https://bitbucket.org/ianb/pip/issue/197/option-to-show-what-version-would-be
+                           # `pip search` doesn't return versions yet
+                           # `pip list` may be coming soon:
+                           # https://bitbucket.org/ianb/pip/issue/197/option-to-show-what-version-would-be
     new_resource.version||'latest'
   end
 end
@@ -158,7 +158,7 @@ def remove_package(version)
 end
 
 def pip_cmd(subcommand, version='')
-  options = { :timeout => new_resource.timeout, :user => new_resource.user, :group => new_resource.group }
+  options = {:timeout => new_resource.timeout, :user => new_resource.user, :group => new_resource.group}
   environment = Hash.new
   environment['HOME'] = Dir.home(new_resource.user) if new_resource.user
   environment.merge!(new_resource.environment) if new_resource.environment && !new_resource.environment.empty?
@@ -170,7 +170,7 @@ end
 # this allows PythonPip to work with Chef::Resource::Package
 def which_pip(nr)
   if (nr.respond_to?("virtualenv") && nr.virtualenv)
-    ::File.join(nr.virtualenv,'/bin/pip')
+    ::File.join(nr.virtualenv, '/bin/pip')
   elsif ::File.exists?(node['python']['pip_location'])
     node['python']['pip_location']
   else
