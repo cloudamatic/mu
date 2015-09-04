@@ -384,11 +384,11 @@ module MU
 
         # Now that we're done, remove one-shot bootstrap recipes from the
         # node's final run list
-        ["mu-tools::newclient"].each { |recipe|
+        ["mu-tools::newclient", "mu-tools::updates"].each { |recipe|
           begin
             ::Chef::Knife.run(['node', 'run_list', 'remove', @server.mu_name, "recipe[#{recipe}]"], {})
           rescue SystemExit => e
-            MU.log "#{@server.mu_name}: Run list removal of recipe[#{recipe}] failed with #{e.inspect}", MU::ERR
+            MU.log "#{@server.mu_name}: Run list removal of recipe[#{recipe}] failed with #{e.inspect}", MU::WARN
           end
         }
 

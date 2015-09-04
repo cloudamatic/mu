@@ -500,9 +500,17 @@ module MU
           instance = response.instances.first
           MU.log "#{node} (#{instance.instance_id}) coming online"
 
-
           return instance
 
+        end
+
+        # Ask the Amazon API to restart this node
+        def reboot
+          return if @cloud_id.nil?
+          MU.log "Rebooting #{@mu_name} (#{@cloud_id})"
+          MU::Cloud::AWS.ec2(@config['region']).reboot_instances(
+            instance_ids: [@cloud_id]
+          )
         end
 
         # Figure out what's needed to SSH into this server.
@@ -754,18 +762,6 @@ module MU
           end
 
           MU.log "EC2 instance #{node} has id #{instance.instance_id}", MU::DEBUG
-
-          if !@config['dns_records'].nil?
-            @config['dns_records'].each { |dnsrec|
-              dnsrec['name'] = node.downcase if !dnsrec.has_key?('name')
-            }
-          end
-          if !instance.public_ip_address.nil? and !instance.public_ip_address.empty?
-# XXX
-#					MU::Cloud::DNSZone.createRecordsFromConfig(@config['dns_records'], target: instance.public_ip_address)
-          else
-#					MU::Cloud::DNSZone.createRecordsFromConfig(@config['dns_records'], target: instance.private_ip_address)
-          end
 
           @config["private_dns_name"] = instance.private_dns_name
           @config["public_dns_name"] = instance.public_dns_name
@@ -1740,8 +1736,12 @@ module MU
                 end
               }
 
-              MU::Cloud::AWS::Server.removeIAMProfile(mu_name) if mu_name
-              MU.mommacat.notify(MU::Cloud::Server.cfg_plural, mu_name, mu_name: mu_name, remove: true) if !noop and MU.mommacat
+							if !noop
+	              MU::Cloud::AWS::Server.removeIAMProfile(mu_name) if mu_name
+                if !server_obj.nil? and !server_obj.config.nil?
+			            MU.mommacat.notify(MU::Cloud::Server.cfg_plural, server_obj.config['name'], {}, mu_name: server_obj.mu_name, remove: true) if MU.mommacat
+								end
+							end
 
               # If we didn't manage to find this instance's Route53 entry by sifting
               # deployment metadata, see if we can get it with the Name tag.

@@ -270,6 +270,7 @@ module MU
           dnsthread.join # from genericMuDNS
 
           if !@config['dns_records'].nil?
+            # XXX this should be a call to @deploy.nameKitten
             @config['dns_records'].each { |dnsrec|
               dnsrec['name'] = @mu_name.downcase if !dnsrec.has_key?('name')
             }

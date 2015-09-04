@@ -51,8 +51,9 @@ module MU
     # on..
     # @param deploy_id [String]: The deploy ID of the deploy to load.
     # @param set_context_to_me [Boolean]: Whether new MommaCat objects should overwrite any existing per-thread global deploy variables.
+    # @param use_cache [Boolean]: If we have an existing object for this deploy, use that
     # @return [MU::MommaCat]
-    def self.getLitter(deploy_id, set_context_to_me: false)
+    def self.getLitter(deploy_id, set_context_to_me: false, use_cache: true)
       if deploy_id.nil? or deploy_id.empty?
         raise MuError, "Cannot fetch a deployment without a deploy_id"
       end
@@ -61,14 +62,14 @@ module MU
 # so force a reload if we see that. That's probably not the root problem.
       @@litter_semaphore.synchronize {
 
-        if !@@litters.has_key?(deploy_id) or @@litters[deploy_id].kittens.nil? or @@litters[deploy_id].kittens.size == 0
+        if !use_cache or !@@litters.has_key?(deploy_id) or @@litters[deploy_id].kittens.nil? or @@litters[deploy_id].kittens.size == 0
           @@litters[deploy_id] = MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
         elsif set_context_to_me
           MU::MommaCat.setThreadContext(@@litters[deploy_id])
         end
         return @@litters[deploy_id]
       }
-#			MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
+#     MU::MommaCat.new(deploy_id, set_context_to_me: set_context_to_me)
     end
 
     attr_reader :public_key
@@ -300,11 +301,11 @@ module MU
       end
 
 # XXX this .owned? method may get changed by the Ruby maintainers
-#			if !@@litter_semaphore.owned?
-#				@@litter_semaphore.synchronize {
-#					@@litters[@deploy_id] = self
-#				}
-#			end
+#     if !@@litter_semaphore.owned?
+#       @@litter_semaphore.synchronize {
+#         @@litters[@deploy_id] = self
+#       }
+#     end
     end
 
     # @param object [MU::Cloud]:
@@ -685,12 +686,12 @@ module MU
         MU::MommaCat.unlockAll
         if e.class.name != "MU::Cloud::AWS::Server::BootstrapTempFail" and !File.exists?(deploy_dir+"/.cleanup."+cloud_id) and !File.exists?(deploy_dir+"/.cleanup")
           MU.log "Grooming FAILED for #{kitten.mu_name} (#{e.inspect})", MU::ERR, details: e.backtrace
-#					sendAdminMail("Grooming FAILED for #{kitten.mu_name} on #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id})",
-#						msg: e.inspect,
-#						kitten: kitten,
-#						data: e.backtrace,
-#						debug: true
-#					)
+#         sendAdminMail("Grooming FAILED for #{kitten.mu_name} on #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id})",
+#           msg: e.inspect,
+#           kitten: kitten,
+#           data: e.backtrace,
+#           debug: true
+#         )
           raise e if reraise_fail
         else
           MU.log "Grooming of #{kitten.mu_name} interrupted by cleanup or planned reboot"
@@ -703,6 +704,7 @@ module MU
       end
       MU::MommaCat.unlock(cloud_id+"-mommagroom")
       MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS...
+      MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
       MU::MommaCat.syncMonitoringConfig(false)
       MU::MommaCat.createStandardTags(cloud_id, region: kitten.config["region"])
       MU.log "Grooming complete for '#{name}' mu_name on \"#{MU.handle}\" (#{MU.deploy_id})"
@@ -1011,7 +1013,7 @@ module MU
           }
           if !mu_descs.nil? and mu_descs.size > 0 and !deploy_id.nil? and !deploy_id.empty? and !mu_descs.first.empty?
             MU.log "I found descriptions that might match #{resourceclass.cfg_plural} name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}, but couldn't isolate my target kitten", MU::WARN, details: caller
-#					puts File.read(deploy_dir(deploy_id)+"/deployment.json")
+#         puts File.read(deploy_dir(deploy_id)+"/deployment.json")
           end
           # We can't refine any further by asking the cloud provider...
           if !cloud_id and !tag_key and !tag_value and kittens.size > 1
@@ -1151,16 +1153,16 @@ module MU
       }
 
       if mu_name.nil?
-        if !data.nil? and data.is_a?(Hash) and data.has_key?("mu_name")
+        if !data.nil? and !data["mu_name"].nil?
           mu_name = data["mu_name"]
         elsif !triggering_node.nil? and !triggering_node.mu_name.nil?
           mu_name = triggering_node.mu_name
         end
-      end
-      if mu_name.nil? and has_multiples
-        MU.log "MU::MommaCat.notify called to modify deployment struct for a type with :has_multiples, but no mu_name available", MU::WARN
-        MU::MommaCat.unlock("deployment-notification")
-        return
+        if mu_name.nil? and has_multiples
+          MU.log "MU::MommaCat.notify called to modify deployment struct for a type (#{type}) with :has_multiples, but no mu_name available to look under #{key}. Call was #{caller[0]}", MU::WARN, details: data
+          MU::MommaCat.unlock("deployment-notification")
+          return
+        end
       end
 
       if !remove
@@ -1183,60 +1185,40 @@ module MU
           @deployment[type][key] = data
           MU.log "Adding to @deployment[#{type}][#{key}]", MU::DEBUG, details: data
         end
+        save!(key)
       else
         have_deploy = true
         if @deployment[type].nil? or @deployment[type][key].nil?
 
           if has_multiples
-            MU.log "MU::MommaCat.notify called to remove #{type} #{key} #{mu_name} deployment struct, but no such data exist", MU::WARN
+            MU.log "MU::MommaCat.notify called to remove #{type} #{key} #{mu_name} deployment struct, but no such data exist", MU::DEBUG
           else
-            MU.log "MU::MommaCat.notify called to remove #{type} #{key} deployment struct, but no such data exist", MU::WARN
+            MU.log "MU::MommaCat.notify called to remove #{type} #{key} deployment struct, but no such data exist", MU::DEBUG
           end
           MU::MommaCat.unlock("deployment-notification")
 
           return
         end
 
-        # XXX check against has_multiples
-        if has_multiples and have_deploy
-          MU.log "Removing @deployment[#{type}][#{key}][#{mu_name}]", MU::DEBUG, details: @deployment[type][key][mu_name]
-          @deployment[type][key].delete(mu_name)
-        else
-          MU.log "Removing @deployment[#{type}][#{key}]", MU::DEBUG, details: @deployment[type][key]
-          @deployment[type].delete(key)
-        end
-
-        # scrape vault traces out of basket_of_kittens.json too
-        # XXX this was a terrible place to store these, move them... somewhere
-        if type == "servers" or type == "server_pools" and !mu_name.nil?
-          ["servers", "server_pools"].each { |svr_class|
-            if !@original_config[svr_class].nil?
-              @original_config[svr_class].map! { |server|
-                if !server['vault_access'].nil?
-                  deletia = []
-                  server['vault_access'].each { |vault|
-                    if vault["vault"] == mu_name
-                      deletia << vault
-                    end
-                  }
-                  deletia.each { |drop_vault|
-                    MU.log "Removing vault references to #{mu_name} from #{svr_class} #{server['name']}"
-                    server['vault_access'].delete(drop_vault)
-                  }
-                end
-                server
-              }
-
+        if have_deploy
+          if has_multiples
+            MU.log "Removing @deployment[#{type}][#{key}][#{mu_name}]", MU::DEBUG, details: @deployment[type][key][mu_name]
+            @deployment[type][key].delete(mu_name)
+            if @deployment[type][key].size == 0
+              @deployment[type].delete(key)
             end
-          }
+          else
+            MU.log "Removing @deployment[#{type}][#{key}]", MU::DEBUG, details: @deployment[type][key]
+            @deployment[type].delete(key)
+          end
+          if @deployment[type].size == 0
+            @deployment.delete(type)
+          end
         end
+        save!
+
       end
-      if have_deploy
-        save!(key)
-        MU::MommaCat.unlock("deployment-notification")
-      else
-        MU::MommaCat.unlock("deployment-notification")
-      end
+      MU::MommaCat.unlock("deployment-notification")
     end
 
     # Tag a resource. Defaults to applying our MU deployment identifier, if no
@@ -1369,6 +1351,14 @@ module MU
         MU::Cloud::DNSZone.genericMuDNSEntry(name: node, target: server.canonicalIP, cloudclass: MU::Cloud::Server, sync_wait: sync_wait)
       else
         MU::MommaCat.addInstanceToEtcHosts(server.canonicalIP, node)
+      end
+
+      if !config.nil? and !config['dns_records'].nil?
+        dnscfg = config['dns_records'].dup
+        dnscfg.each { |dnsrec|
+          dnsrec['name'] = node.downcase if !dnsrec.has_key?('name')
+        }
+        MU::Cloud::DNSZone.createRecordsFromConfig(dnscfg, target: server.canonicalIP)
       end
 
       MU::MommaCat.removeHostFromSSHConfig(node)
@@ -2105,9 +2095,9 @@ MESSAGE_END
                   @deploy_cache[deploy]['data'][attrs[:cfg_plural]].each_pair { |nodename, data|
 # XXX we don't actually store node names for some resources, need to farm them
 # and fix metadata
-#									if !mu_name.nil? and nodename == mu_name
-#										return { deploy => [data] }
-#									end
+#                 if !mu_name.nil? and nodename == mu_name
+#                   return { deploy => [data] }
+#                 end
                   }
                 else
                   @deploy_cache[deploy]['data'][attrs[:cfg_plural]].each_pair { |node_class, nodes|
