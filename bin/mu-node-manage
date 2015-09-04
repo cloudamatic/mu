@@ -210,7 +210,7 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-cli
   }
   Process.waitall.each { |child|
     if !child[1].success?
-      badnodes << children[child[0]]
+      badnodes << $children[child[0]]
     end
   }
 
