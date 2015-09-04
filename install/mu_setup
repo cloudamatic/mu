@@ -928,6 +928,14 @@ set_hostname()
 	export HOSTNAME
 }
 
+###############################################################################
+set_logbucket()
+{
+if [ "$LOG_BUCKET_NAME" == "" ];then
+	LOG_BUCKET_NAME="mu-logs-${HOSTNAME}-${MY_INSTANCE_ID}"
+fi
+export LOG_BUCKET_NAME
+}
 
 ###############################################################################
 install_system_packages()
@@ -1524,6 +1532,7 @@ if [ "$library" != "1" ];then
 	set_path_env_vars
 	set_bash_defaults
 	set_hostname
+	set_logbucket
 	create_ssh_config
 	umask 0022
 	clone_mu_repository
