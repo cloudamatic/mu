@@ -93,7 +93,7 @@ module MU
             :interface => self.const_get("DNSZone"),
             :deps_wait_on_my_creation => true,
             :waits_on_parent_completion => false,
-            :class => generic_class_methods + [:genericMuDNSEntry],
+            :class => generic_class_methods + [:genericMuDNSEntry, :createRecordsFromConfig],
             :instance => generic_instance_methods
         },
         :FirewallRule => {
@@ -127,7 +127,7 @@ module MU
             :deps_wait_on_my_creation => false,
             :waits_on_parent_completion => false,
             :class => generic_class_methods,
-            :instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP, :getWindowsAdminPassword, :active?, :groomer, :mu_windows_name, :mu_windows_name=]
+            :instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP, :getWindowsAdminPassword, :active?, :groomer, :mu_windows_name, :mu_windows_name=, :reboot]
         },
         :ServerPool => {
             :has_multiples => false,
@@ -247,6 +247,7 @@ module MU
         attr_reader :cloud_id
         attr_reader :config
         attr_reader :deploydata
+        attr_reader :destroyed
 
         def self.shortname
           name.sub(/.*?::([^:]+)$/, '\1')
@@ -305,6 +306,7 @@ module MU
                        cloud_id: nil,
                        kitten_cfg: nil)
           raise MuError, "Cannot invoke Cloud objects without a configuration" if kitten_cfg.nil?
+          @live = true
           @deploy = mommacat
           @config = kitten_cfg
           @cloud_id = cloud_id
@@ -369,16 +371,28 @@ module MU
         def destroy
           if !@cloudobj.nil? and !@cloudobj.groomer.nil?
             @cloudobj.groomer.cleanup
-					elsif !@groomer.nil?
-						@groomer.cleanup
+          elsif !@groomer.nil?
+            @groomer.cleanup
           end
           if !@deploy.nil?
             if !@cloudobj.nil? and !@config.nil? and !@cloudobj.mu_name.nil?
               @deploy.notify(self.class.cfg_plural, @config['name'], nil, mu_name: @cloudobj.mu_name, remove: true, triggering_node: @cloudobj)
-						elsif !@mu_name.nil?
-							@deploy.notify(self.class.cfg_plural, @config['name'], nil, mu_name: @mu_name, remove: true, triggering_node: self)
+            elsif !@mu_name.nil?
+              @deploy.notify(self.class.cfg_plural, @config['name'], nil, mu_name: @mu_name, remove: true, triggering_node: self)
             end
             @deploy.removeKitten(self)
+          end
+          # Make sure that if notify gets called again it won't go returning a
+          # bunch of now-bogus metadata.
+          @destroyed = true
+          if !@cloudobj.nil?
+            def @cloudobj.notify
+              {}
+            end
+          else
+            def notify
+              {}
+            end
           end
         end
 
@@ -581,6 +595,14 @@ module MU
             cloudclass = MU::Cloud.loadCloudType(MU::Config.defaultCloud, "DNSZone")
             cloudclass.genericMuDNSEntry(flags.first)
           end
+          def self.createRecordsFromConfig(*flags)
+            cloudclass = MU::Cloud.loadCloudType(MU::Config.defaultCloud, "DNSZone")
+            if !flags.nil? and flags.size == 1
+              cloudclass.createRecordsFromConfig(flags.first)
+            else
+              cloudclass.createRecordsFromConfig(*flags)
+            end
+          end
         end
 
         if shortname == "Server"
@@ -647,6 +669,12 @@ module MU
                   if !output.match(/#{@mu_windows_name}/)
                     MU.log "Setting Windows hostname to #{@mu_windows_name}", details: ssh.exec!(win_set_hostname)
                     @hostname_set = true
+                    # Reboot from the API too, in case Windows is flailing
+                    if !@cloudobj.nil?
+                      @cloudobj.reboot
+                    else
+                      reboot
+                    end
                     raise MU::Cloud::BootstrapTempFail, "Set hostname in Windows, waiting for reboot"
                   end
                 end
@@ -692,6 +720,7 @@ module MU
             Thread.handle_interrupt(Errno::ECONNREFUSED => :never) {
             }
 
+            forced_windows_reboot = false
             begin
               if !nat_ssh_host.nil?
                 proxy_cmd = "ssh -q -o StrictHostKeyChecking=no -W %h:%p #{nat_ssh_user}@#{nat_ssh_host}"
@@ -723,6 +752,7 @@ module MU
                     :auth_methods => ['publickey']
                 )
               end
+              forced_windows_reboot = false
             rescue Net::SSH::HostKeyMismatch => e
               MU.log("Remembering new key: #{e.fingerprint}")
               e.remember_host!
@@ -747,6 +777,10 @@ module MU
                   MU.log msg, MU::NOTICE
                 elsif retries/max_retries > 0.5
                   MU.log msg, MU::WARN, details: e.inspect
+                end
+                if e.message.match(/connection closed by remote host/) and windows? and !forced_windows_reboot
+                  forced_windows_reboot = true
+                  reboot
                 end
                 sleep retry_interval
                 retry
@@ -805,7 +839,8 @@ module MU
             else
               retval = @cloudobj.method(method).call
             end
-            if method == :create or method == :groom or method == :postBoot
+            if (method == :create or method == :groom or method == :postBoot) and
+               (!@destroyed and !@cloudobj.destroyed)
               deploydata = @cloudobj.method(:notify).call
               if deploydata.nil? or !deploydata.is_a?(Hash)
                 raise MuError, "#{self}'s notify method did not return a Hash of deployment data"

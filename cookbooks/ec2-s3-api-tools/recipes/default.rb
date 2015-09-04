@@ -7,6 +7,7 @@
 # All rights reserved - Do Not Redistribute
 #
 
+# XXX don't commit access keys to github, chuckleheads
 bash "install ec2-api-s3-tools" do
   user "root"
   code <<-EOH
@@ -19,8 +20,6 @@ bash "install ec2-api-s3-tools" do
 
 	# Add the environment variables to the bashrc for s3 cli tools
 	echo -e '\n#Set up aws-s3 tools Amazon access\n' >> ~/.bashrc
-	echo 'export EC2_ACCESS_KEY=AKIAJ6MR4T7UCS6CKWTQ' >> ~/.bashrc
-	echo 'export EC2_SECRET_KEY=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' >> ~/.bashrc
 	source ~/.bashrc
 
   EOH

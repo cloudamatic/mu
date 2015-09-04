@@ -320,6 +320,7 @@ module MU
                 dnsrec['name'] = database.db_instance_identifier.downcase if !dnsrec.has_key?('name')
               }
             end
+            # XXX this should be a call to @deploy.nameKitten
             MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@config['dns_records'], target: database.endpoint.address)
 
             # When creating from a snapshot, some of the create arguments aren't

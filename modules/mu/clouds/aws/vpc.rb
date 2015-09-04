@@ -184,11 +184,31 @@ module MU
                   end
                   raise MuError, e.inspect, e.backtrace
                 end
-#							subnet_semaphore.synchronize {
-#								deploy_struct['subnets'][subnet['name']] = subnet
-#							}
+
+                if subnet.has_key?("map_public_ips")
+                  retries = 0
+                  begin
+                    resp = MU::Cloud::AWS.ec2(@config['region']).modify_subnet_attribute(
+                      {
+                        subnet_id: subnet_id,
+                        map_public_ip_on_launch: {
+                          value: subnet['map_public_ips'],
+                        }
+                      }
+                    )
+                  rescue Aws::EC2::Errors::InvalidSubnetIDNotFound => e
+                    if retries < 10
+                      MU.log "Got #{e.inspect} while trying to enable map_public_ips on subnet, waiting and retrying", MU::WARN
+                      sleep 10
+                      retries += 1
+                      retry
+                    end
+                    raise MuError, "Got #{e.inspect}, #{e.backtrace} while trying to enable map_public_ips on subnet"
+                  end
+                end
               }
             }
+
             subnetthreads.each { |t|
               t.join
             }
