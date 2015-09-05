@@ -6,6 +6,7 @@ default.jenkins_ssh_urls = [node.ipaddress]
 default.jenkins_plugins = %w{github ssh deploy}
 default.jenkins_ports_direct = %w{8080 443}
 
+node.normal.jenkins_port_external = "9443"
 node.normal.java.oracle.accept_oracle_download_terms = true
 node.normal.java.java_home = "/usr/lib/jvm/java"
 node.normal.java.install_flavor = "oracle"
