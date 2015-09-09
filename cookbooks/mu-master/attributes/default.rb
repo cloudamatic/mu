@@ -54,9 +54,8 @@ default['apache']['traceenable'] = 'Off'
 #  override["apache"]["listen_ports"] = [80, 8443]
 #end
 # Don't override, instead set normal to set defaults, and reset elsewhere with each webapp added, adding its port
-unless node.attribute?["apache"]["listen_ports"]
-  node.normal.apache["listen_ports"] = [80, 8443]
-end
+# The set_unless sets a normal attribute
+node.set_unless["apache"]["listen_ports"] = [80, 8443]
 
 override["nagios"]["http_port"] = 8443
 default['nagios']['enable_ssl'] = true
