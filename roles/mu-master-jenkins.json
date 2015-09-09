@@ -1,30 +1,30 @@
 {
-  "name": "mu-master-jenkins",
-  "description": "Role for a Jenkins instance running on a mu master (only)",
-  "json_class": "Chef::Role",
-  "default_attributes": {
-    "jenkins_port_internal": 8080,
-    "jenkins_port_external": 9443,
-    "jenkins_plugins": [
-      "github",
-      "ssh",
-      "deploy",
-      "dynamicparameter",
-      "ansicolor"
-    ]
-  },
-  "override_attributes": {
-    "jenkins": {
-      "master": {
-        "home": "/home/jenkins"
-      }
+    "name": "mu-master-jenkins",
+    "description": "Role for a Jenkins instance running on a mu master (only)",
+    "json_class": "Chef::Role",
+    "default_attributes": {
+        "jenkins_port_external": 9443,
+        "jenkins_port_internal": 8080,
+        "jenkins_plugins": [
+            "github",
+            "ssh",
+            "deploy",
+            "dynamicparameter",
+            "ansicolor"
+        ]
     },
-  "chef_type": "role",
-  "run_list": [
-    "recipe[java]",
-    "recipe[jenkins::master]",
-    "recipe[mu-jenkins]"
-  ],
-  "env_run_lists": {
-  }
+    "override_attributes": {
+        "jenkins": {
+            "master": {
+                "home": "/home/jenkins"
+            }
+        }
+    },
+    "chef_type": "role",
+    "run_list": [
+        "recipe[java]",
+        "recipe[jenkins::master]",
+        "recipe[mu-jenkins]"
+    ],
+    "env_run_lists": {}
 }
