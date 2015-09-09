@@ -81,6 +81,12 @@ case node.platform
       base_dir node.apache.dir
       log_dir node.apache.log_dir
     end
+
+
+    # Finally, insert the jenkins_port_external into ports, and save the node
+    node.normal.jenkins_port_external = node.jenkins_port_external
+    node.normal.apache["listen_ports"] = [80, 8443, node.jenkins_port_external]
+    node.save
   else
     Chef::Log.info("Unsupported platform #{node.platform}")
 end
