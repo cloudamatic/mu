@@ -4,6 +4,7 @@
   "json_class": "Chef::Role",
   "default_attributes": {
     "jenkins_port_internal": "8080",
+    "jenkins_port_external = "9443",
     "jenkins_plugins": [
       "github",
       "ssh",
@@ -18,14 +19,6 @@
         "home": "/home/jenkins"
       }
     },
-    "apache": {
-      "listen_ports": [
-        "80",
-        "8443",
-        "9443"
-      ]
-    }
-  },
   "chef_type": "role",
   "run_list": [
     "recipe[java]",
