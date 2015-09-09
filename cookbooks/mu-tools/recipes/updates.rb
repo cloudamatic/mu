@@ -19,13 +19,13 @@ case node.platform
 # and initial Mu bootstrap (running updates), but this recipe is still
 # useful for updating existing hosts.
   when "windows"
-    include_recipe 'windows::reboot_handler'
+#    include_recipe 'windows::reboot_handler'
     ::Chef::Recipe.send(:include, Chef::Mixin::PowershellOut)
 
-    windows_reboot 5 do
-      reason 'Applying updates'
-      action :nothing
-    end
+#    windows_reboot 5 do
+#      reason 'Applying updates'
+#      action :nothing
+#    end
 
     ["C:\\Users\\#{node.windows_admin_username}", "C:\\Users\\#{node.windows_admin_username}\\Documents", "C:\\Users\\#{node.windows_admin_username}\\Documents\\WindowsPowerShell", "C:\\Users\\#{node.windows_admin_username}\\Documents\\WindowsPowerShell\\Modules"].each { |dir|
       directory dir
