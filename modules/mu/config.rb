@@ -810,6 +810,7 @@ module MU
       databases = config['databases']
       servers = config['servers']
       server_pools = config['server_pools']
+      cache_clusters = config['cache_clusters']
       loadbalancers = config['loadbalancers']
       collections = config['collections']
       firewall_rules = config['firewall_rules']
@@ -819,13 +820,14 @@ module MU
       databases = Array.new if databases.nil?
       servers = Array.new if servers.nil?
       server_pools = Array.new if server_pools.nil?
+      cache_clusters = Array.new if cache_clusters.nil?
       loadbalancers = Array.new if loadbalancers.nil?
       collections = Array.new if collections.nil?
       firewall_rules = Array.new if firewall_rules.nil?
       vpcs = Array.new if vpcs.nil?
       dnszones = Array.new if dnszones.nil?
 
-      if databases.size < 1 and servers.size < 1 and server_pools.size < 1 and loadbalancers.size < 1 and collections.size < 1 and firewall_rules.size < 1 and vpcs.size < 1 and dnszones.size < 1
+      if databases.size < 1 and servers.size < 1 and server_pools.size < 1 and loadbalancers.size < 1 and collections.size < 1 and firewall_rules.size < 1 and vpcs.size < 1 and dnszones.size < 1 and cache_clusters.size < 1
         MU.log "You must declare at least one resource to create", MU::ERR
         ok = false
       end
@@ -1289,46 +1291,57 @@ module MU
           end
         end
 
+        if db.has_key?("parameter_group_parameters") && db["parameter_group_family"].nil?
+          MU.log "parameter_group_family must be set when setting parameter_group_parameters", MU::ERR
+          ok = false
+        end
+
         # Adding rules for Database instance storage. This varies depending on storage type and database type. 
         if db["storage_type"] == "standard" or db["storage_type"] == "gp2"
           if db["engine"] == "postgres" or db["engine"] == "mysql"
             if !(5..6144).include? db["storage"]
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 5 to 3072 GB for #{db["storage_type"]} volume types", MU::ERR
+              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 5 to 6144 GB for #{db["storage_type"]} volume types", MU::ERR
               ok = false
             end
           elsif %w{oracle-se1 oracle-se oracle-ee}.include? db["engine"]
-            if !(10..3072).include? db["storage"]
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 10 to 3072 GB for #{db["storage_type"]} volume types", MU::ERR
+            if !(10..6144).include? db["storage"]
+              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 10 to 6144 GB for #{db["storage_type"]} volume types", MU::ERR
               ok = false
             end
           elsif %w{sqlserver-ex sqlserver-web}.include? db["engine"]
-            if !(20..1024).include? db["storage"]
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 20 to 1024 GB for #{db["storage_type"]} volume types", MU::ERR
+            if !(20..4096).include? db["storage"]
+              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 20 to 4096 GB for #{db["storage_type"]} volume types", MU::ERR
               ok = false
             end
           elsif %w{sqlserver-ee sqlserver-se}.include? db["engine"]
             if !(200..4096).include? db["storage"]
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 200 to 1024 GB for #{db["storage_type"]} volume types", MU::ERR
+              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 200 to 4096 GB for #{db["storage_type"]} volume types", MU::ERR
               ok = false
             end
           end
         elsif db["storage_type"] == "io1"
           if %w{postgres mysql oracle-se1 oracle-se oracle-ee}.include? db["engine"]
             if !(100..6144).include? db["storage"]
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 3072 GB for #{db["storage_type"]} volume types", MU::ERR
+              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 6144 GB for #{db["storage_type"]} volume types", MU::ERR
               ok = false
             end
           elsif %w{sqlserver-ex sqlserver-web}.include? db["engine"]
-            if !(100..1000).step(100).include? db["storage"]
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 1000 GB  with 100 GB increments for #{db["storage_type"]} volume types", MU::ERR
+            if !(100..4096).include? db["storage"]
+              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 4096 GB  with 100 GB increments for #{db["storage_type"]} volume types", MU::ERR
               ok = false
             end
           elsif %w{sqlserver-ee sqlserver-se}.include? db["engine"]
-            if !(200..4096).step(100).include? db["storage"]
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 1000 GB  with 100 GB increments for #{db["storage_type"]} volume types", MU::ERR
+            if !(200..4096).include? db["storage"]
+              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 200 to 4096 GB  with 100 GB increments for #{db["storage_type"]} volume types", MU::ERR
               ok = false
             end
           end
+        end
+
+        cluster_db_engines = %w{aurora}
+        if db["create_cluster"] && !cluster_db_engines.include?(db["engine"])
+          MU.log "Database Clusters are only supported for the following database engine types: #{cluster_db_engines.join(", ")}.", MU::ERR
+          ok = false
         end
 
         if db["engine"] == "postgres"
@@ -1417,11 +1430,13 @@ module MU
                 "name" => db["vpc"]["vpc_name"]
             }
 
-            if !processVPCReference(db["vpc"],
-                                    "database #{db['name']}",
-                                    dflt_region: config['region'],
-                                    is_sibling: true,
-                                    sibling_vpcs: vpcs)
+            if !processVPCReference(
+              db["vpc"],
+              "database #{db['name']}",
+              dflt_region: config['region'],
+              is_sibling: true,
+              sibling_vpcs: vpcs
+            )
               ok = false
             end
           else
@@ -1491,6 +1506,122 @@ module MU
             end
           end
         end
+      }
+
+      cache_clusters.each { |cluster|
+        cluster['region'] = config['region'] if cluster['region'].nil?
+        cluster["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("CacheCluster")
+        cluster["dependencies"] = Array.new if cluster["dependencies"].nil?
+        
+        if cluster["creation_style"] != "new" && cluster["identifier"].nil?
+          MU.log "creation_style is set to #{cluster['creation_style']}, but you haven't provided an identifier. Either set creation_style to new or provide an identifier", MU::ERR
+          ok = false
+        end
+
+        if cluster.has_key?("parameter_group_parameters") && cluster["parameter_group_family"].nil?
+          MU.log "set parameter_group_family must be set when setting parameter_group_parameters", MU::ERR
+          ok = false
+        end
+        
+        if cluster["size"].nil?
+          MU.log "You must specify 'size' when creating a cache cluster.", MU::ERR
+          ok = false
+        end
+
+        if cluster["engine"] == "redis"
+          # We aren't required to create a cache replication group for a single redis cache cluster, 
+          # however AWS console does exactly that, ss such we will follow that behavior.
+          cluster["create_replication_group"] = true
+          cluster["automatic_failover"] = cluster["multi_az"]
+
+          if cluster["cache_nodes"] > 1
+            MU.log "#{cluster['engine']} supports only one node per cache cluster", MU::ERR
+            ok = false
+          end
+
+          if !cluster.has_key?("cache_clusters")
+            MU.log "You must set the value of cache_clusters to at least 1", MU::ERR
+            ok = false
+          end
+
+          if cluster["cache_clusters"] > 1 && !cluster["multi_az"]
+            MU.log "cache_clusters is set to #{cluster["cache_clusters"]}, but multi_az is disbaled. either set multi_az to true or set cache_clusters to a value of 1", MU::ERR
+            ok = false
+          end
+          
+        elsif cluster["engine"] == "memcached"
+          cluster["create_replication_group"] = false
+          cluster["az_mode"] = cluster["multi_az"] ? "cross-az" : "single-az"
+
+          if cluster["cache_nodes"] > 20
+            MU.log "#{cluster['engine']} supports up to 20 nodes per cache cluster", MU::ERR
+            ok = false
+          end
+          
+          if cluster.has_key?("cache_clusters")
+            MU.log "cache_clusters can only be set on redis", MU::ERR
+            ok = false
+          end
+        end
+
+        if cluster['ingress_rules']
+          fwname = "cache#{cluster['name']}"
+          firewall_rule_names << fwname
+          acl = {"name" => fwname, "rules" => cluster['ingress_rules'], "region" => cluster['region']}
+          acl["vpc"] = cluster['vpc'].dup if cluster['vpc']
+          firewall_rules << resolveFirewall.call(acl)
+          cluster["add_firewall_rules"] = [] if cluster["add_firewall_rules"].nil?
+          cluster["add_firewall_rules"] << {"rule_name" => fwname}
+        end
+
+        if cluster["add_firewall_rules"]
+          cluster["add_firewall_rules"].each { |acl_include|
+            if firewall_rule_names.include?(acl_include["rule_name"])
+              cluster["dependencies"] << {
+                "type" => "firewall_rule",
+                "name" => acl_include["rule_name"]
+              }
+            end
+          }
+        end
+
+        if cluster["vpc"] && !cluster["vpc"].empty?
+          if cluster["vpc"]["subnet_pref"] and !cluster["vpc"]["subnets"]
+            if %w{all any public private}.include? cluster["vpc"]["subnet_pref"]
+              MU.log "subnet_pref #{cluster["vpc"]["subnet_pref"]} is not supported for cache clusters.", MU::ERR
+              ok = false
+            end
+          end
+
+          cluster['vpc']['region'] = cluster['region'] if cluster['vpc']['region'].nil?
+          cluster["vpc"]['cloud'] = cluster['cloud'] if cluster["vpc"]['cloud'].nil?
+          # If we're using a VPC in this deploy, set it as a dependency
+          if cluster["vpc"]["vpc_name"] and vpc_names.include?(cluster["vpc"]["vpc_name"]) and cluster["vpc"]["deploy_id"].nil?
+            cluster["dependencies"] << {
+              "type" => "vpc",
+              "name" => cluster["vpc"]["vpc_name"]
+            }
+
+            if !processVPCReference(
+              cluster["vpc"],
+              "cache_cluster #{cluster['name']}",
+              dflt_region: config['region'],
+              is_sibling: true,
+              sibling_vpcs: vpcs
+            )
+              ok = false
+            end
+          else
+            # If we're using a VPC from somewhere else, make sure the flippin'
+            # thing exists, and also fetch its id now so later search routines
+            # don't have to work so hard.
+            if !processVPCReference(cluster["vpc"], "cache_cluster #{cluster['name']}", dflt_region: config['region'])
+              ok = false
+            end
+          end
+        end
+      
+        cluster['dependencies'] << genAdminFirewallRuleset(vpc: cluster['vpc'], region: cluster['region'], cloud: cluster['cloud'])
       }
 
       servers.each { |server|
@@ -1907,7 +2038,7 @@ module MU
                 "name" => {"type" => "string"},
                 "type" => {
                     "type" => "string",
-                    "enum" => ["server", "database", "server_pool", "loadbalancer", "collection", "firewall_rule", "vpc", "dnszone"]
+                    "enum" => ["server", "database", "server_pool", "loadbalancer", "collection", "firewall_rule", "vpc", "dnszone", "cache_cluster"]
                 },
                 "phase" => {
                     "type" => "string",
@@ -2130,6 +2261,11 @@ module MU
         "description" => "The Amazon EC2 instance type to use when creating this server.",
         "type" => "string"
     }
+    @eleasticache_size_primitive = {
+        "pattern" => "^cache\.(t|m|c|i|g|hi|hs|cr|cg|cc){1,2}[0-9]\\.(micro|small|medium|[248]?x?large)$",
+        "type" => "string",
+        "description" => "The Amazon RDS instance type to use when creating this database instance.",
+    }
     @rds_size_primitive = {
         "pattern" => "^db\.(t|m|c|i|g|hi|hs|cr|cg|cc){1,2}[0-9]\\.(micro|small|medium|[248]?x?large)$",
         "type" => "string",
@@ -2155,6 +2291,26 @@ module MU
                 "apply_method" => {
                     "enum" => ["pending-reboot", "immediate"],
                     "default" => "immediate",
+                    "type" => "string"
+                }
+            }
+        }
+    }
+
+    @eleasticache_parameter_group_parameters_primitive = {
+        "type" => "array",
+        "minItems" => 1,
+        "items" => {
+            "description" => "The cache cluster parameter to change and when to apply the change.",
+            "type" => "object",
+            "title" => "Cache Cluster Parameter",
+            "required" => ["name", "value"],
+            "additionalProperties" => false,
+            "properties" => {
+                "name" => {
+                    "type" => "string"
+                },
+                "value" => {
                     "type" => "string"
                 }
             }
@@ -2942,14 +3098,19 @@ module MU
             "add_firewall_rules" => @additional_firewall_rules,
             "read_replica_of" => @database_ref_primitive,
             "engine" => {
-                "enum" => ["mysql", "postgres", "oracle-se1", "oracle-se", "oracle-ee", "sqlserver-ee", "sqlserver-se", "sqlserver-ex", "sqlserver-web"],
-                "type" => "string",
+                "enum" => ["mysql", "postgres", "oracle-se1", "oracle-se", "oracle-ee", "sqlserver-ee", "sqlserver-se", "sqlserver-ex", "sqlserver-web", "aurora"],
+                "type" => "string"
             },
             "dns_records" => dns_records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
             "dns_sync_wait" => {
                 "type" => "boolean",
                 "description" => "Wait for DNS record to propagate in DNS Zone.",
-                "default" => true,
+                "default" => true
+            },
+            "create_cluster" => {
+                "type" => "boolean",
+                "description" => "If this is a database cluster or a single database instance.",
+                "default" => false
             },
             "dependencies" => @dependencies_primitive,
             "size" => @rds_size_primitive,
@@ -2974,39 +3135,35 @@ module MU
             "vpc" => vpc_reference_primitive(MANY_SUBNETS, NAT_OPTS, "all_public"),
             "publicly_accessible" => {
                 "type" => "boolean",
-                "default" => true,
+                "default" => true
             },
             "multi_az_on_create" => {
                 "type" => "boolean",
+                "description" => "If to enable high availability when the database instance is created",
                 "default" => false
             },
             "multi_az_on_deploy" => {
                 "type" => "boolean",
-                "default" => true,
-                "default_if" => [
-                    {
-                        "creation_style" => "existing",
-                        "set" => false
-                    }
-                ]
+                "description" => "If to enable high availability after the database instance is created. This may make deployments based on creation_style other then 'new' faster.",
+                "default" => false
             },
             "backup_retention_period" => {
                 "type" => "integer",
                 "default" => 1,
-                "description" => "The number of days to retain an automatic database snapshot. If set to 0 and deployment is multi-az will be overridden to 35",
+                "description" => "The number of days to retain an automatic database snapshot. If set to 0 and deployment is multi-az will be overridden to 35"
             },
             "preferred_backup_window" => {
                 "type" => "string",
                 "default" => "05:00-05:30",
-                "description" => "The preferred time range to perform automatic database backups.",
+                "description" => "The preferred time range to perform automatic database backups."
             },
             "preferred_maintenance_window " => {
                 "type" => "string",
-                "description" => "The preferred data/time range to perform database maintenance.",
+                "description" => "The preferred data/time range to perform database maintenance."
             },
             "iops" => {
                 "type" => "integer",
-                "description" => "The amount of IOPS to allocate to Provisioned IOPS (io1) volumes. Increments of 1,000",
+                "description" => "The amount of IOPS to allocate to Provisioned IOPS (io1) volumes. Increments of 1,000"
             },
             "auto_minor_version_upgrade" => {
                 "type" => "boolean",
@@ -3033,7 +3190,7 @@ module MU
             },
             "identifier" => {
                 "type" => "string",
-                "description" => "For any creation_style other than 'new' this parameter identifies the database to use. In the case of new_snapshot it will create a snapshot from that database first; in the case of existing_snapshot, it will use the latest avaliable snapshot.",
+                "description" => "For any creation_style other than 'new' this parameter identifies the database to use. In the case of new_snapshot it will create a snapshot from that database first; in the case of existing_snapshot, it will use the latest avaliable snapshot."
             },
             "password" => {
                 "type" => "string",
@@ -3052,25 +3209,12 @@ module MU
                 "type" => "boolean",
                 "default" => false
             },
-            "db_parameter_group" => {
-                "type" => "object",
-                "title" => "DB Parameter Group",
-                "required" => ["db_family"],
-                "additionalProperties" => false,
-                "description" => "Create a DB Parameter Group. Used to modify internal database settings.",
-                "properties" => {
-                    "name" => {
-                        "type" => "String",
-                        "description" => "The name of the DB Parameter Group",
-                    },
-                    "db_family" => {
-                        "type" => "String",
-                        "enum" => ["postgres9.4", "postgres9.3", "mysql5.1", "mysql5.5", "mysql5.6", "oracle-ee-11.2", "oracle-ee-12.1", "oracle-se-11.2", "oracle-se-12.1", "oracle-se1-11.2", "oracle-se1-12.1",
+            "parameter_group_parameters" => @rds_parameter_group_parameters_primitive,
+            "parameter_group_family" => {
+                "type" => "String",
+                "enum" => ["postgres9.4", "postgres9.3", "mysql5.1", "mysql5.5", "mysql5.6", "oracle-ee-11.2", "oracle-ee-12.1", "oracle-se-11.2", "oracle-se-12.1", "oracle-se1-11.2", "oracle-se1-12.1",
                                    "aurora5.6", "sqlserver-ee-10.5", "sqlserver-ee-11.0", "sqlserver-ex-10.5", "sqlserver-ex-11.0", "sqlserver-se-10.5", "sqlserver-se-11.0", "sqlserver-web-10.5", "sqlserver-web-11.0"],
-                        "description" => "The database family to create the DB Parameter Group for. The family type must be the same type as the database major version - eg if you set engine_version to 9.4.4 the db_family must be set to postgres9.4.",
-                    },
-                    "parameters" => @rds_parameter_group_parameters_primitive
-                }
+                "description" => "The database family to create the DB Parameter Group for. The family type must be the same type as the database major version - eg if you set engine_version to 9.4.4 the db_family must be set to postgres9.4."
             },
             "auth_vault" => {
                 "type" => "object",
@@ -3094,6 +3238,115 @@ module MU
                         "description" => "The field within the Vault item where the password for database master user is stored"
                     }
                 }
+            }
+        }
+    }
+
+    @cache_cluster_primitive = {
+        "type" => "object",
+        "title" => "Cache Cluster",
+        "description" => "Create cache cluster(s).",
+        "required" => ["name", "engine", "size", "cloud"],
+        "additionalProperties" => false,
+        "properties" => {
+            "cloud" => @cloud_primitive,
+            "name" => {"type" => "string"},
+            "region" => @region_primitive,
+            "tags" => @tags_primitive,
+            "engine_version" => {"type" => "string"},
+            "cache_nodes" => {
+              "type" => "integer",
+                "description" => "The number of cache nodes in a cache cluster. Must be set to a value of 1 for redis",
+                "default" => 1
+            },
+            "cache_clusters" => {
+              "type" => "integer",
+                "description" => "The number of cache clusters in a cache group. Only applies to redis",
+                "default_if" => [
+                    {
+                      "key_is" => "engine",
+                      "value_is" => "redis",
+                      "set" => 1
+                    }
+                ]
+            },
+            "add_firewall_rules" => @additional_firewall_rules,
+            "engine" => {
+                "enum" => ["memcached", "redis"],
+                "type" => "string",
+                "default" => "redis"
+            },
+            "dns_records" => dns_records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
+            "dns_sync_wait" => {
+                "type" => "boolean",
+                "description" => "Wait for DNS record to propagate in DNS Zone.",
+                "default" => true
+            },
+            "dependencies" => @dependencies_primitive,
+            "size" => @eleasticache_size_primitive,
+            "port" => {
+                "type" => "integer",
+                "default" => 6379,
+                "default_if" => [
+                    {
+                        "key_is" => "engine",
+                        "value_is" => "memcached",
+                        "set" => 11211
+                    },
+                    {
+                      "key_is" => "engine",
+                        "value_is" => "redis",
+                        "set" => 6379
+                    }
+                ]
+            },
+            "vpc" => vpc_reference_primitive(MANY_SUBNETS, NAT_OPTS, "all_public"),
+            "multi_az" => {
+                "type" => "boolean",
+                "description" => "Rather to deploy the cache cluster/cache group in Multi AZ or Single AZ",
+                "default" => false
+            },
+            "snapshot_arn" => {
+                "type" => "string",
+                "description" => "The ARN (Resource Name) of the redis backup stored in S3. Applies only to redis"
+            },
+            "snapshot_retention_limit" => {
+                "type" => "integer",
+                "default" => 1,
+                "description" => "The number of days to retain an automatic cache cluster snapshot. Applies only to redis"
+            },
+            "snapshot_window" => {
+                "type" => "string",
+                "default" => "05:00-05:30",
+                "description" => "The preferred time range to perform automatic cache cluster backups. Time is in UTC. Applies only to redis."
+            },
+            "preferred_maintenance_window " => {
+                "type" => "string",
+                "description" => "The preferred data/time range to perform cache cluster maintenance."
+            },
+            "auto_minor_version_upgrade" => {
+                "type" => "boolean",
+                "default" => true
+            },
+            "creation_style" => {
+                "type" => "string",
+                "enum" => ["new", "new_snapshot", "existing_snapshot"],
+                "description" => "'new' - create a new cache cluster; 'new_snapshot' - create a snapshot of of an exisiting cache cluster, and build a new cache cluster from that snapshot; 'existing_snapshot' - create a cache cluster from an existing snapshot.",
+                "default" => "new"
+            },
+            "identifier" => {
+                "type" => "string",
+                "description" => "For any creation_style other than 'new' this parameter identifies the cache cluster to use. In the case of new_snapshot it will create a snapshot from that cache cluster first; in the case of existing_snapshot, it will use the latest avaliable snapshot."
+            },
+            "notification_arn" => {
+                "type" => "string",
+                "description" => "The AWS resource name of the AWS SNS notification topic alerts will be sent to.",
+            },
+            "parameter_group_parameters" => @eleasticache_parameter_group_parameters_primitive,
+            "parameter_group_family" => {
+                "type" => "String",
+                "enum" => ["memcached1.4", "redis2.6", "redis2.8"],
+                "description" => "The cache cluster family to create the Parameter Group for. The family type must be the same type as the cache cluster major version - eg if you set engine_version to 2.6 this parameter must be set to redis2.6."
             }
         }
     }
@@ -3517,6 +3770,10 @@ module MU
             "server_pools" => {
                 "type" => "array",
                 "items" => @server_pool_primitive
+            },
+            "cache_clusters" => {
+                "type" => "array",
+                "items" => @cache_cluster_primitive
             },
             "dnszones" => {
                 "type" => "array",

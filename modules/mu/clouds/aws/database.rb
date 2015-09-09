@@ -15,12 +15,10 @@
 autoload :Net, 'net/ssh/gateway'
 
 module MU
-
   class Cloud
     class AWS
       # A database as configured in {MU::Config::BasketofKittens::databases}
       class Database < MU::Cloud::Database
-
         @deploy = nil
         @config = nil
         attr_reader :mu_name
@@ -34,12 +32,7 @@ module MU
           @deploy = mommacat
           @config = kitten_cfg
           @cloud_id ||= cloud_id
-          if !mu_name.nil?
-            @mu_name = mu_name
-          else
-            !@deploy.nil?
-            @mu_name = @deploy.getResourceName(@config["name"])
-          end
+          @mu_name = mu_name ? mu_name : @deploy.getResourceName(@config["name"])
           @config["groomer"] = MU::Config.defaultGroomer unless @config["groomer"]
           @groomclass = MU::Groomer.loadGroomer(@config["groomer"])
         end
@@ -103,14 +96,12 @@ module MU
         # @param account_number [String]: The account in which the resource resides.
         # @return [String]
         def self.getARN(resource, resource_type, region: MU.curRegion, account_number: MU.account_number)
-          return "arn:aws:rds:#{region}:#{account_number}:#{resource_type}:#{resource}"
+          "arn:aws:rds:#{region}:#{account_number}:#{resource_type}:#{resource}"
         end
 
-        # Add our standard tag set to an Amazon RDS resource.
-        # @param resource [String]: The name of the resource
-        # @param resource_type [String]: The type of the resource (one of `db, es, og, pg, ri, secgrp, snapshot, subgrp`)
-        # @param region [String]: The cloud provider region
-        def addStandardTags(resource, resource_type, region: MU.curRegion)
+        # Construct all our tags.
+        # @return [Array]: All our standard tags and any custom tags.
+        def allTags
           tags = []
           MU::MommaCat.listStandardTags.each_pair { |name, value|
             tags << {key: name, value: value}
@@ -121,11 +112,19 @@ module MU
               tags << {key: tag['key'], value: tag['value']}
             }
           end
+          
+          return tags
+        end
 
-          MU.log "Adding tags to RDS resource #{resource}: #{tags}"
+        # Add our standard tag set to an Amazon RDS resource.
+        # @param resource [String]: The name of the resource
+        # @param resource_type [String]: The type of the resource (one of `db, es, og, pg, ri, secgrp, snapshot, subgrp`)
+        # @param region [String]: The cloud provider region
+        def addStandardTags(resource, resource_type, region: MU.curRegion)
+          MU.log "Adding tags to RDS resource #{resource}: #{allTags}"
           MU::Cloud::AWS.rds(region).add_tags_to_resource(
               resource_name: MU::Cloud::AWS::Database.getARN(resource, resource_type, region: region),
-              tags: tags
+              tags: allTags
           )
         end
 
@@ -208,15 +207,10 @@ module MU
               publicly_accessible: @config["publicly_accessible"],
               tags: []
           }
-          if !@config['source_identifier'].nil?
-            config[:source_db_instance_identifier] = @config['source_identifier']
-          end
 
-          MU::MommaCat.listStandardTags.each_pair { |name, value|
-            config[:tags] << {key: name, value: value}
-          }
-
+          config[:source_db_instance_identifier] = @config['source_identifier'] if @config['source_identifier']
           config[:iops] = @config["iops"] if @config['storage_type'] == "io1"
+          config[:tags] = allTags
 
           # Lets make sure automatic backups are enabled when DB instance is deployed in Multi-AZ so failover actually works. Maybe default to 1 instead?
           if @config['multi_az_on_create'] or @config['multi_az_on_deploy']
@@ -232,10 +226,10 @@ module MU
           end
 
           db_param_group = nil
-          if @config["db_parameter_group"]
-            @config["db_parameter_group"]["name"] = @config['identifier'] unless @config["db_parameter_group"]["name"]
-            createDBParameterGroup
-            db_param_group = getDBParameterGroup
+          if @config.has_key?("parameter_group_family")
+            @config["parameter_group_name"] = @config['identifier'] unless @config["parameter_group_name"]
+            createParameterGroup
+            db_param_group = @config["parameter_group_name"]
           end
 
           if @config["snapshot_id"].nil?
@@ -252,6 +246,32 @@ module MU
           end
 
           config = createSubnetGroup(config) if source_db.nil? or @config['region'] != source_db.config['region']
+
+          if @config['create_cluster']
+            cluster_config = config
+            [:multi_az, :license_model, :storage_encrypted, :allocated_storage, :db_name, :db_parameter_group_name, :iops, :db_instance_identifier, :db_instance_class, :auto_minor_version_upgrade, :storage_type, :publicly_accessible].each { |param|
+              cluster_config.delete(param)
+            }
+ 
+            # cluster_config[:availability_zones] = 
+            cluster_config[:database_name] = config[:db_name]
+            cluster_config[:db_cluster_parameter_group_name] = config[:db_parameter_group_name]
+            cluster_config[:db_cluster_identifier] = @config['identifier']
+
+            attempts = 0
+            begin
+              resp = MU::Cloud::AWS.rds(@config['region']).create_db_cluster(cluster_config)
+            rescue Aws::RDS::Errors::DBClusterNotFound, InvalidParameterValue => e
+              if attempts < 5
+                MU.log "Got #{e.inspect} while creating database cluster #{@config['identifier']}, will retry a few times in case of transient errors.", MU::WARN
+                attempts += 1
+                sleep 10
+                retry
+              else
+                MU.log "Exhausted retries trying to create database cluster #{@config['identifier']}", MU::ERR, details: e.inspect
+              end
+            end
+          end
 
           # Creating DB instance
           MU.log "RDS config: #{config}", MU::DEBUG
@@ -273,6 +293,7 @@ module MU
                 resp = MU::Cloud::AWS.rds(@config['region']).create_db_instance_read_replica(config)
               end
             else
+              config[:db_cluster_identifier] = @config['identifier'] if @config['create_cluster']
               MU.log "Creating database instance #{@config['identifier']}", details: config
               resp = MU::Cloud::AWS.rds(@config['region']).create_db_instance(config)
             end
@@ -439,9 +460,9 @@ module MU
               resp = MU::Cloud::AWS.rds(@config['region']).create_db_subnet_group(
                   db_subnet_group_name: config[:db_subnet_group_name],
                   db_subnet_group_description: config[:db_subnet_group_name],
-                  subnet_ids: subnet_ids
+                  subnet_ids: subnet_ids,
+                  tags: allTags
               )
-              addStandardTags(config[:db_subnet_group_name], "subgrp", region: @config['region'])
             end
 
             admin_sg = nil
@@ -465,7 +486,7 @@ module MU
               )
 
               if nat_instance.nil?
-                MU.log "#{node} (#{MU.deploy_id}) is configured to use #{@config['vpc']} but I can't find a matching NAT instance", MU::ERR
+                MU.log "#{@config['identifier']} (#{MU.deploy_id}) is configured to use #{@config['vpc']} but I can't find a matching NAT instance", MU::ERR
               end
               nat_name, nat_conf, nat_deploydata = @nat.describe
               admin_sg.addRule([nat_deploydata["private_ip_address"]], proto: "tcp")
@@ -503,14 +524,11 @@ module MU
               # Creating an RDS secuirty group if no VPC exist. Not sure if this actually works.
               db_sg_name = @config["name"]+@deploy.timestamp+MU.seed.downcase
               MU.log "Creating RDS security group #{db_sg_name}"
-              db_security_group=MU::Cloud::AWS.rds(@config['region']).create_db_security_group(
-                  {
-                      db_security_group_name: db_sg_name,
-                      db_security_group_description: MU.deploy_id
-                  }
+              db_security_group = MU::Cloud::AWS.rds(@config['region']).create_db_security_group(
+                db_security_group_name: db_sg_name,
+                db_security_group_description: MU.deploy_id,
+                tags: allTags
               )
-
-              addStandardTags(db_sg_name, "secgrp", region: @config['region'])
 
               config[:db_security_groups] = [db_sg_name]
             end
@@ -520,66 +538,84 @@ module MU
         end
 
         # Create a database parameter group.
-        def createDBParameterGroup
-          MU.log "Creating a database parameter group #{@config["db_parameter_group"]["name"]}"
-          tags= []
+        def createParameterGroup
+          if @config['create_cluster']
+            MU.log "Creating a cluster parameter group #{@config["parameter_group_name"]}"
 
-          MU::MommaCat.listStandardTags.each_pair { |name, value|
-            tags << {key: name, value: value}
-          }
+            MU::Cloud::AWS.rds(@config['region']).create_db_cluster_parameter_group(
+              db_cluster_parameter_group_name: @config["parameter_group_name"],
+              db_parameter_group_family: @config["parameter_group_family",
+              description: "Parameter group for #{@config["parameter_group_family"}",
+              tags: allTags
+            )
+          end
 
-          resp = MU::Cloud::AWS.rds(@config['region']).create_db_parameter_group(
-              {
-                  db_parameter_group_name: @config["db_parameter_group"]["name"],
-                  db_parameter_group_family: @config["db_parameter_group"]["db_family"],
-                  description: "Parameter group for #{@config["db_parameter_group"]["db_family"]}",
-                  tags: tags
-              }
+          MU.log "Creating a database parameter group #{@config["parameter_group_name"]}"
+          MU::Cloud::AWS.rds(@config['region']).create_db_parameter_group(
+            db_parameter_group_name: @config["parameter_group_name"],
+            db_parameter_group_family: @config["parameter_group_family",
+            description: "Parameter group for #{@config["parameter_group_family"}",
+            tags: allTags
           )
 
-          if @config["db_parameter_group"]["parameters"] && !@config["db_parameter_group"]["parameters"].empty?
+          if @config["parameter_group_parameters"] && !@config["parameter_group_parameters"].empty?
             params = []
-            @config["db_parameter_group"]["parameters"].each { |item|
+            @config["parameter_group_parameters"].each { |item|
               params << {parameter_name: item['name'], parameter_value: item['value'], apply_method: item['apply_method']}
             }
 
-            MU.log "Modifiying database parameter group #{@config["db_parameter_group"]["name"]}"
-            resp = MU::Cloud::AWS.rds(@config['region']).modify_db_parameter_group(
-                {
-                    db_parameter_group_name: @config["db_parameter_group"]["name"],
-                    parameters: params
-                }
+            if @config['create_cluster']
+              MU.log "Modifiying cluster parameter group #{@config["parameter_group_name"]}"
+              MU::Cloud::AWS.rds(@config['region']).modify_db_cluster_parameter_group(
+                db_cluster_parameter_group_name: @config["parameter_group_name"],
+                parameters: params
+              )
+            end
+
+            MU.log "Modifiying database parameter group #{@config["parameter_group_name"]}"
+            MU::Cloud::AWS.rds(@config['region']).modify_db_parameter_group(
+              db_parameter_group_name: @config["parameter_group_name"],
+              parameters: params
             )
+              
           end
         end
 
-        # Retrieve a database parameter group name of on existing parameter group.
+        # Retrieve a parameter group name of on existing parameter group.
+        # @param type [String]: The type of the parameter group to retrieve (database or cluster).
         # @return [String]: database parameter group name.
-        def getDBParameterGroup
-          db_param_group = nil
+        def getParameterGroup(type: "database")
+          param_group = nil
 
           attempts = 0
           begin
-            resp = MU::Cloud::AWS.rds(@config['region']).describe_db_parameter_groups(
-                {
-                    db_parameter_group_name: @config["db_parameter_group"]["name"]
-                }
-            )
-          rescue Aws::RDS::Errors::DBParameterGroupNotFound => e
+            resp = 
+              if type == "cluster"
+                MU::Cloud::AWS.rds(@config['region']).describe_db_cluster_parameter_groups(db_cluster_parameter_group_name: @config["parameter_group_name"])
+              else
+                MU::Cloud::AWS.rds(@config['region']).describe_db_parameter_groups(db_parameter_group_name: @config["parameter_group_name"])
+              end
+          rescue Aws::RDS::Errors::DBParameterGroupNotFound, DBClusterParameterGroupNotFound => e
             if attempts < 5
-              MU.log "Got #{e.inspect} while retriving database parameter group #{@config["db_parameter_group"]["name"]}, will retry in case of transient errors.", MU::WARN
+              MU.log "Got #{e.inspect} while retriving #{type} parameter group #{@config["parameter_group_name"]}, will retry in case of transient errors.", MU::WARN
               attempts += 1
               sleep 10
               retry
             else
-              MU.log "Database parameter group #{@config["db_parameter_group"]["name"]} doesn't exist", MU::ERR, details: e.inspect
+              MU.log "#{type} parameter group #{@config["parameter_group_name"]} doesn't exist", MU::ERR, details: e.inspect
             end
           end
 
-          db_param_group = resp.db_parameter_groups.first.db_parameter_group_name
-          MU.log "Found database parameter group #{db_param_group}" if db_param_group
+          param_group = 
+            if type == "cluster"
+              param_group = resp.db_cluster_parameter_groups.first.db_cluster_parameter_group_name
+            else
+              param_group = resp.db_parameter_groups.first.db_parameter_group_name
+            end
 
-          return db_param_group
+          MU.log "Found #{type} parameter group #{param_group}" if param_group
+
+          return param_group
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -704,6 +740,8 @@ module MU
               dbname = nil
             elsif @config["engine"].match(/^mysql/)
               dbname = basename[0..63]
+            elsif @config["engine"].match(/^aurora/)
+              dbname = (MU.seed.downcase+@config["name"])[0..7]
             else
               dbname = basename
             end
@@ -778,6 +816,15 @@ module MU
           return database
         end
 
+        # Retrieve the complete cloud provider description of a database cluster.
+        # @param db_id [String]: The cloud provider's identifier for this database cluster.
+        # @param region [String]: The cloud provider region
+        # @return [OpenStruct]
+        def self.getDatabaseClusterById(db_cluster_id, region: MU.curRegion)
+          resp = MU::Cloud::AWS.rds(region).describe_db_clusters(db_cluster_identifier: db_cluster_id)
+          resp.db_clusters.first
+        end
+
         # Register a description of this database instance with this deployment's
         # metadata. Register read replicas as separate instances, while we're
         # at it.
@@ -849,10 +896,20 @@ module MU
 
           attempts = 0
           begin
-            snapshot = MU::Cloud::AWS.rds(@config['region']).create_db_snapshot(
-                db_snapshot_identifier: snap_id,
-                db_instance_identifier: @config["identifier"]
-            )
+            snapshot = 
+              if @config['create_cluster']
+                MU::Cloud::AWS.rds(@config['region']).create_db_cluster_snapshot(
+                  db_cluster_snapshot_identifier: snap_id
+                  db_cluster_identifier: @config["identifier"],
+                  tags: allTags
+                )
+              else
+                MU::Cloud::AWS.rds(@config['region']).create_db_snapshot(
+                  db_snapshot_identifier: snap_id,
+                  db_instance_identifier: @config["identifier"],
+                  tags: allTags
+                )
+              end
           rescue Aws::RDS::Errors::InvalidDBInstanceState => e
             raise MuError, e.inspect if attempts >= 10
             attempts += 1
@@ -860,19 +917,23 @@ module MU
             retry
           end
 
-          addStandardTags(snap_id, "snapshot", region: @config['region'])
-
-
           attempts = 0
           loop do
-            MU.log "Waiting for RDS snapshot of #{@config["identifier"];} to be ready...", MU::NOTICE if attempts % 20 == 0
-            MU.log "Waiting for RDS snapshot of #{@config["identifier"];} to be ready...", MU::DEBUG
-            snapshot_resp = MU::Cloud::AWS.rds(@config['region']).describe_db_snapshots(
-                db_snapshot_identifier: snap_id,
-            )
+            MU.log "Waiting for RDS snapshot of #{@config["identifier"]} to be ready...", MU::NOTICE if attempts % 20 == 0
+            MU.log "Waiting for RDS snapshot of #{@config["identifier"]} to be ready...", MU::DEBUG
+            snapshot_resp =
+              if @config['create_cluster']
+                MU::Cloud::AWS.rds(@config['region']).describe_db_cluster_snapshots(db_cluster_snapshot_identifier: snap_id)
+              else
+                MU::Cloud::AWS.rds(@config['region']).describe_db_snapshots(db_snapshot_identifier: snap_id)
+              end
             attempts += 1
             sleep 15
-            break unless snapshot_resp.db_snapshots.first.status != "available"
+            if @config['create_cluster']
+              break unless snapshot_resp.db_cluster_snapshots.first.status != "available"
+            else
+              break unless snapshot_resp.db_snapshots.first.status != "available"
+            end
           end
 
           return snap_id
@@ -881,13 +942,33 @@ module MU
         # Fetch the latest snapshot of the database described in this instance.
         # @return [String]: The cloud provider's identifier for the snapshot.
         def getExistingSnapshot
-          resp = MU::Cloud::AWS.rds(@config['region']).describe_db_snapshots(db_snapshot_identifier: @config["identifier"])
-          snapshots = resp.db_snapshots
+          resp =
+            if @config['create_cluster']
+              MU::Cloud::AWS.rds(@config['region']).describe_db_cluster_snapshots(db_cluster_snapshot_identifier: @config["identifier"])
+            else
+              MU::Cloud::AWS.rds(@config['region']).describe_db_snapshots(db_snapshot_identifier: @config["identifier"])
+            end
+
+          snapshots = @config['create_cluster'] ? resp.db_cluster_snapshots : resp.db_snapshots
+          # snapshots = 
+            # if @config['create_cluster']
+              # resp.db_cluster_snapshots
+            # else
+              # resp.db_snapshots
+            # end
+
           if snapshots.empty?
             latest_snapshot = nil
           else
             sorted_snapshots = snapshots.sort_by { |snap| snap.snapshot_create_time }
-            latest_snapshot = sorted_snapshots.last.db_snapshot_identifier
+            latest_snapshot = @config['create_cluster'] ? sorted_snapshots.last.db_cluster_snapshot_identifier : sorted_snapshots.last.db_snapshot_identifier
+
+            # latest_snapshot = 
+              # if @config['create_cluster']
+                # sorted_snapshots.last.db_cluster_snapshot_identifier
+              # else
+                # sorted_snapshots.last.db_snapshot_identifier
+              # end
           end
 
           return latest_snapshot
@@ -997,24 +1078,18 @@ module MU
 
           rdssecgroups = Array.new
           begin
-            secgroup = MU::Cloud::AWS.rds(region).describe_db_security_groups(
-                {
-                    :db_security_group_name => db_id
-                }
-            )
+            secgroup = MU::Cloud::AWS.rds(region).describe_db_security_groups(db_security_group_name: db_id)
           rescue Aws::RDS::Errors::DBSecurityGroupNotFound
             # this is normal in VPC world
           end
 
           rdssecgroups << db_id if !secgroup.nil?
-          db = MU::Cloud::AWS.rds(region).describe_db_instances(db_instance_identifier: db_id).data.db_instances.first
-
           parameter_group = db.db_parameter_groups.first.db_parameter_group_name
 
           while !noop and (db.nil? or db.db_instance_status == "creating" or db.db_instance_status == "modifying" or db.db_instance_status == "backing-up")
             MU.log "Waiting for #{db_id} to be in a removable state...", MU::NOTICE
             sleep 60
-            db = MU::Cloud::AWS.rds(region).describe_db_instances(db_instance_identifier: db_id).data.db_instances.first
+            db = MU::Cloud::AWS::Database.getDatabaseById(db_id, region: region)
           end
 
           MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: db_id, target: db.endpoint.address, cloudclass: MU::Cloud::Database, delete: true)
@@ -1022,23 +1097,24 @@ module MU
           if db.db_instance_status == "deleting" or db.db_instance_status == "deleted" then
             MU.log "#{db_id} has already been terminated", MU::WARN
           else
-            if !skipsnapshots
-              MU.log "Terminating #{db_id} (final snapshot: #{db_id}MUfinal)"
-            else
+            def dbSkipSnap
+              # We're calling this several times so lets declare it once
               MU.log "Terminating #{db_id} (not saving final snapshot)"
+              MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id, skip_final_snapshot: true)
+            end
+
+            def dbCreateSnap
+              MU.log "Terminating #{db_id} (final snapshot: #{db_id}-MUfinal)"
+              MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id, final_db_snapshot_identifier: "#{db_id}-MUfinal", skip_final_snapshot: false)
             end
 
             if !noop
               retries = 0
               begin
-                if !skipsnapshots
-                  MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id, final_db_snapshot_identifier: "#{db_id} MUfinal", skip_final_snapshot: false)
-                else
-                  MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id, skip_final_snapshot: true)
-                end
+                resp = skipsnapshots ? dbSkipSnap : dbCreateSnap
               rescue Aws::RDS::Errors::InvalidDBInstanceState => e
-                MU.log "#{db_id} is not in a removable state", MU::WARN
                 if retries < 5
+                  MU.log "#{db_id} is not in a removable state, retrying several times", MU::WARN
                   retries += 1
                   sleep 30
                   retry
@@ -1047,24 +1123,84 @@ module MU
                   return
                 end
               rescue Aws::RDS::Errors::DBSnapshotAlreadyExists
-                MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id, skip_final_snapshot: true)
+                dbSkipSnap
                 MU.log "Snapshot of #{db_id} already exists", MU::WARN
               rescue Aws::RDS::Errors::SnapshotQuotaExceeded
-                MU::Cloud::AWS.rds(region).delete_db_instance(db_instance_identifier: db_id, skip_final_snapshot: true)
+                dbSkipSnap
                 MU.log "Snapshot quota exceeded while deleting #{db_id}", MU::ERR
               end
             end
           end
 
           begin
-            del_db = MU::Cloud::AWS.rds(region).describe_db_instances(db_instance_identifier: db_id).data.db_instances.first
+            del_db = MU::Cloud::AWS::Database.getDatabaseById(db_id, region: region)
             while !del_db.nil? and del_db.db_instance_status != "deleted" and !noop
               MU.log "Waiting for #{db_id} termination to complete", MU::NOTICE
               sleep 60
-              del_db = MU::Cloud::AWS.rds(region).describe_db_instances(db_instance_identifier: db_id).data.db_instances.first
+              del_db = MU::Cloud::AWS::Database.getDatabaseById(db_id, region: region)
             end
           rescue Aws::RDS::Errors::DBInstanceNotFound
             # we are ok with this
+          end
+
+          if db.db_cluster_identifier
+            unless noop
+              cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(db.db_cluster_identifier, region: region)
+              cluster_id = cluster.db_cluster_identifier
+              cluster_parameter_group = cluster.db_cluster_parameter_group
+              
+              def clusterSkipSnap
+                # We're calling this several times so lets declare it once
+                MU.log "Terminating Database cluster #{cluster_id}. Not saving final snapshot"
+                MU::Cloud::AWS.rds(region).delete_db_cluster(db_cluster_identifier: cluster_id, skip_final_snapshot: true)
+              end
+
+              def clusterCreateSnap
+                MU.log "Terminating Database cluster #{cluster_id}. Saving final snapshot: #{cluster_id}-MUfinal"
+                MU::Cloud::AWS.rds(region).delete_db_cluster(db_cluster_identifier: cluster_id, skip_final_snapshot: false, final_db_snapshot_identifier: "#{cluster_id}-MUfinal")
+              end
+                
+              retries = 0
+              begin
+                resp = skipsnapshots ? clusterSkipSnap : clusterCreateSnap
+              rescue Aws::RDS::Errors::InvalidDBClusterStateFault => e
+                if retries < 5
+                  MU.log "Database cluster #{cluster_id} is not in a removable state, retrying several times", MU::WARN
+                  retries += 1
+                  sleep 30
+                  retry
+                else
+                  MU.log "Database cluster #{cluster_id} is not in a removable state after several retries, giving up. #{e.inspect}", MU::ERR
+                end
+              rescue Aws::RDS::Errors::DBClusterSnapshotAlreadyExistsFault
+                clusterSkipSnap
+                MU.log "Database cluster snapshot of #{cluster_id} already exists", MU::WARN
+              rescue Aws::RDS::Errors::DBClusterQuotaExceededFault
+                clusterSkipSnap
+                MU.log "Database cluster snapshot quota exceeded while deleting #{cluster_id}", MU::ERR
+              end
+
+              # We don't want to delete the default parameter group. We can limit this to parameter groups with a MU-ID tag
+              unless cluster_parameter_group.start_with?("default")
+                retries = 0
+                MU.log "Deleting DB parameter group #{cluster_parameter_group}"
+                begin
+                  MU::Cloud::AWS.rds(region).delete_db_cluster_parameter_group(db_cluster_parameter_group_name: cluster_parameter_group)
+                rescue Aws::RDS::Errors::DBClusterParameterGroupNotFoundFault => e
+                  MU.log "DB parameter group #{cluster_parameter_group} disappeared before we could remove it", MU::WARN
+                rescue Aws::RDS::Errors::InvalidDBClusterParameterGroupStateFault => e
+                  if retries < 5
+                    MU.log "DB parameter group #{cluster_parameter_group} is not in a removable state, retrying", MU::WARN
+                    retries += 1
+                    sleep 30
+                    retry
+                  else
+                    MU.log "DB parameter group #{cluster_parameter_group} is not in a removable state after several retries, giving up. #{e.inspect}", MU::ERR
+                    return
+                  end
+                end
+              end
+            end
           end
 
           retries = 0
@@ -1077,7 +1213,7 @@ module MU
             rescue Aws::RDS::Errors::InvalidDBSubnetGroupStateFault => e
               MU.log "DB subnet group #{subnet_group} is not in a removable state, retrying", MU::WARN
               if retries < 5
-                retries = retries + 1
+                retries += 1
                 sleep 30
                 retry
               else
@@ -1093,11 +1229,11 @@ module MU
             MU.log "Deleting DB parameter group #{parameter_group}"
             begin
               MU::Cloud::AWS.rds(region).delete_db_parameter_group(db_parameter_group_name: parameter_group)
-            rescue Aws::RDS::Errors::DBParameterGroupNotFound => e
+            rescue Aws::RDS::Errors::DBParameterGroupNotFoundFault => e
               MU.log "DB parameter group #{parameter_group} disappeared before we could remove it", MU::WARN
             rescue Aws::RDS::Errors::InvalidDBParameterGroupStateFault => e
-              MU.log "DB parameter group #{parameter_group} is not in a removable state, retrying", MU::WARN
               if retries < 5
+                MU.log "DB parameter group #{parameter_group} is not in a removable state, retrying", MU::WARN
                 retries += 1
                 sleep 30
                 retry

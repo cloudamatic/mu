@@ -1058,6 +1058,7 @@ module MU
 
           # If we depend on database instances, make sure those database
           # instances' security groups will let us in.
+##### Bad form here. We REALLY shouldn't be setting any access rules between clients/nodes. This should only be done via the BoK!
           if @config["dependencies"] != nil then
             @config["dependencies"].each { |dependent_on|
               if dependent_on['type'] != nil and dependent_on['type'] == "database" then

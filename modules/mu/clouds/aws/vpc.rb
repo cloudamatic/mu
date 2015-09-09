@@ -189,11 +189,9 @@ module MU
                   retries = 0
                   begin
                     resp = MU::Cloud::AWS.ec2(@config['region']).modify_subnet_attribute(
-                      {
-                        subnet_id: subnet_id,
-                        map_public_ip_on_launch: {
-                          value: subnet['map_public_ips'],
-                        }
+                      subnet_id: subnet_id,
+                      map_public_ip_on_launch: {
+                        value: subnet['map_public_ips'],
                       }
                     )
                   rescue Aws::EC2::Errors::InvalidSubnetIDNotFound => e

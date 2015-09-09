@@ -151,6 +151,13 @@ module MU
         @@cloudfront_api[region]
       end
 
+      # Amazon's ElastiCache API
+      def self.elasticache(region = MU.curRegion)
+        region ||= MU.myRegion
+        @@elasticache_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ElastiCache", region: region)
+        @@elasticache_api[region]
+      end
+
       # Fetch an Amazon instance metadata parameter (example: public-ipv4).
       # @param param [String]: The parameter name to fetch
       # @return [String, nil]
@@ -366,6 +373,7 @@ module MU
       @@cloudwatch_api = {}
       @@cloudfront_api = {}
       @@cloudfront_api = {}
+      @@elasticache_api = {}
 
     end
   end
