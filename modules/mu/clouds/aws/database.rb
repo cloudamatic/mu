@@ -544,8 +544,8 @@ module MU
 
             MU::Cloud::AWS.rds(@config['region']).create_db_cluster_parameter_group(
               db_cluster_parameter_group_name: @config["parameter_group_name"],
-              db_parameter_group_family: @config["parameter_group_family",
-              description: "Parameter group for #{@config["parameter_group_family"}",
+              db_parameter_group_family: @config["parameter_group_family"],
+              description: "Parameter group for #{@config["parameter_group_family"]}",
               tags: allTags
             )
           end
@@ -553,8 +553,8 @@ module MU
           MU.log "Creating a database parameter group #{@config["parameter_group_name"]}"
           MU::Cloud::AWS.rds(@config['region']).create_db_parameter_group(
             db_parameter_group_name: @config["parameter_group_name"],
-            db_parameter_group_family: @config["parameter_group_family",
-            description: "Parameter group for #{@config["parameter_group_family"}",
+            db_parameter_group_family: @config["parameter_group_family"],
+            description: "Parameter group for #{@config["parameter_group_family"]}",
             tags: allTags
           )
 
@@ -899,7 +899,7 @@ module MU
             snapshot = 
               if @config['create_cluster']
                 MU::Cloud::AWS.rds(@config['region']).create_db_cluster_snapshot(
-                  db_cluster_snapshot_identifier: snap_id
+                  db_cluster_snapshot_identifier: snap_id,
                   db_cluster_identifier: @config["identifier"],
                   tags: allTags
                 )

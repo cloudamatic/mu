@@ -1511,20 +1511,35 @@ module MU
       cache_clusters.each { |cluster|
         cluster['region'] = config['region'] if cluster['region'].nil?
         cluster["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("CacheCluster")
-        cluster["dependencies"] = Array.new if cluster["dependencies"].nil?
+        cluster["dependencies"] = [] if cluster["dependencies"].nil?
         
         if cluster["creation_style"] != "new" && cluster["identifier"].nil?
-          MU.log "creation_style is set to #{cluster['creation_style']}, but you haven't provided an identifier. Either set creation_style to new or provide an identifier", MU::ERR
+          MU.log "creation_style is set to #{cluster['creation_style']} but no identifier was provided. Either set creation_style to new or provide an identifier", MU::ERR
           ok = false
         end
 
         if cluster.has_key?("parameter_group_parameters") && cluster["parameter_group_family"].nil?
-          MU.log "set parameter_group_family must be set when setting parameter_group_parameters", MU::ERR
+          MU.log "parameter_group_family must be set when setting parameter_group_parameters", MU::ERR
           ok = false
         end
         
         if cluster["size"].nil?
           MU.log "You must specify 'size' when creating a cache cluster.", MU::ERR
+          ok = false
+        end
+
+        if !cluster.has_key?("node_count")
+          MU.log "node_count not specified.", MU::ERR
+          ok = false
+        end
+
+        if cluster["node_count"] < 1
+          MU.log "node_count must be above 1.", MU::ERR
+          ok = false
+        end
+
+        if cluster["node_count"] > 1 && !cluster["multi_az"]
+          MU.log "node_count is set to #{cluster["node_count"]} but multi_az is disbaled. either set multi_az to true or set node_count to 1", MU::ERR
           ok = false
         end
 
@@ -1534,34 +1549,27 @@ module MU
           cluster["create_replication_group"] = true
           cluster["automatic_failover"] = cluster["multi_az"]
 
-          if cluster["cache_nodes"] > 1
-            MU.log "#{cluster['engine']} supports only one node per cache cluster", MU::ERR
-            ok = false
+          # Some instance types don't support snapshotting 
+          if %w{cache.t2.micro cache.t2.small cache.t2.medium}.include?(cluster["size"])
+            if cluster.has_key?("snapshot_retention_limit") || cluster.has_key?("snapshot_window")
+              MU.log "Can't set snapshot_retention_limit or snapshot_window on #{cluster["size"]}", MU::ERR
+              ok = false
+            end
           end
-
-          if !cluster.has_key?("cache_clusters")
-            MU.log "You must set the value of cache_clusters to at least 1", MU::ERR
-            ok = false
-          end
-
-          if cluster["cache_clusters"] > 1 && !cluster["multi_az"]
-            MU.log "cache_clusters is set to #{cluster["cache_clusters"]}, but multi_az is disbaled. either set multi_az to true or set cache_clusters to a value of 1", MU::ERR
-            ok = false
-          end
-          
         elsif cluster["engine"] == "memcached"
           cluster["create_replication_group"] = false
           cluster["az_mode"] = cluster["multi_az"] ? "cross-az" : "single-az"
 
-          if cluster["cache_nodes"] > 20
+          if cluster["node_count"] > 20
             MU.log "#{cluster['engine']} supports up to 20 nodes per cache cluster", MU::ERR
             ok = false
           end
-          
-          if cluster.has_key?("cache_clusters")
-            MU.log "cache_clusters can only be set on redis", MU::ERR
+
+          # memcached doesn't support snapshots
+          if cluster.has_key?("snapshot_retention_limit") || cluster.has_key?("snapshot_window")
+            MU.log "Can't set snapshot_retention_limit or snapshot_window on #{cluster["engine"]}", MU::ERR
             ok = false
-          end
+          end 
         end
 
         if cluster['ingress_rules']
@@ -1612,15 +1620,12 @@ module MU
               ok = false
             end
           else
-            # If we're using a VPC from somewhere else, make sure the flippin'
-            # thing exists, and also fetch its id now so later search routines
-            # don't have to work so hard.
             if !processVPCReference(cluster["vpc"], "cache_cluster #{cluster['name']}", dflt_region: config['region'])
               ok = false
             end
           end
         end
-      
+
         cluster['dependencies'] << genAdminFirewallRuleset(vpc: cluster['vpc'], region: cluster['region'], cloud: cluster['cloud'])
       }
 
@@ -2264,7 +2269,7 @@ module MU
     @eleasticache_size_primitive = {
         "pattern" => "^cache\.(t|m|c|i|g|hi|hs|cr|cg|cc){1,2}[0-9]\\.(micro|small|medium|[248]?x?large)$",
         "type" => "string",
-        "description" => "The Amazon RDS instance type to use when creating this database instance.",
+        "description" => "The Amazon EleastiCache instance type to use when creating this cache cluster.",
     }
     @rds_size_primitive = {
         "pattern" => "^db\.(t|m|c|i|g|hi|hs|cr|cg|cc){1,2}[0-9]\\.(micro|small|medium|[248]?x?large)$",
@@ -3254,21 +3259,10 @@ module MU
             "region" => @region_primitive,
             "tags" => @tags_primitive,
             "engine_version" => {"type" => "string"},
-            "cache_nodes" => {
+            "node_count" => {
               "type" => "integer",
-                "description" => "The number of cache nodes in a cache cluster. Must be set to a value of 1 for redis",
+                "description" => "The number of cache nodes in a cache cluster (memcached), or the number of cache clusters in a cache group (redis)",
                 "default" => 1
-            },
-            "cache_clusters" => {
-              "type" => "integer",
-                "description" => "The number of cache clusters in a cache group. Only applies to redis",
-                "default_if" => [
-                    {
-                      "key_is" => "engine",
-                      "value_is" => "redis",
-                      "set" => 1
-                    }
-                ]
             },
             "add_firewall_rules" => @additional_firewall_rules,
             "engine" => {
@@ -3312,17 +3306,15 @@ module MU
             },
             "snapshot_retention_limit" => {
                 "type" => "integer",
-                "default" => 1,
                 "description" => "The number of days to retain an automatic cache cluster snapshot. Applies only to redis"
             },
             "snapshot_window" => {
                 "type" => "string",
-                "default" => "05:00-05:30",
-                "description" => "The preferred time range to perform automatic cache cluster backups. Time is in UTC. Applies only to redis."
+                "description" => "The preferred time range to perform automatic cache cluster backups. Time is in UTC. Applies only to redis. Window must be at least 60 minutes long - 05:00-06:00."
             },
-            "preferred_maintenance_window " => {
+            "preferred_maintenance_window" => {
                 "type" => "string",
-                "description" => "The preferred data/time range to perform cache cluster maintenance."
+                "description" => "The preferred data/time range to perform cache cluster maintenance. Window must be at least 60 minutes long - sun:06:00-sun:07:00. "
             },
             "auto_minor_version_upgrade" => {
                 "type" => "boolean",

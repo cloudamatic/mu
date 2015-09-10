@@ -29,7 +29,16 @@ module MU
           @deploy = mommacat
           @config = kitten_cfg
           @cloud_id ||= cloud_id
-          @mu_name = mu_name ? mu_name : @deploy.getResourceName(@config["name"])
+          # @mu_name = mu_name ? mu_name : @deploy.getResourceName(@config["name"])
+
+          @mu_name =
+            if @config["create_replication_group"]
+              @deploy.getResourceName(@config["name"], max_length: 16, need_unique_string: true)
+            else
+              @deploy.getResourceName(@config["name"], max_length: 20, need_unique_string: true)
+            end
+
+          @mu_name.gsub!(/(--|-$)/i, "")
         end
 
         # Locate an existing Cache Cluster or Cache Clusters and return an array containing matching AWS resource descriptors for those that match.
@@ -111,9 +120,9 @@ module MU
             elsif @config["creation_style"] == "new_snapshot"
               createNewSnapshot
             end
-           
-          identifier = @mu_name.gsub(/^[^a-z]/i, "")[0..19]
-          @config['identifier'] = identifier.gsub(/(--|-$)/, "").gsub(/(_)/, "-")
+
+            # Should we base all our resource names on @mu_name even though only the cache cluster / cache replication group identifiers are the isssue? 
+          @config['identifier'] = @mu_name
           @config["subnet_group_name"] = @mu_name
 
           # Shared configuration elements between cache clusters and cache replication groups
@@ -121,7 +130,7 @@ module MU
             cache_node_type: @config["size"],
             engine: @config["engine"],
             engine_version: @config["engine_version"],
-            cache_subnet_group_name: @config["subnet_group_name"]
+            cache_subnet_group_name: @config["subnet_group_name"],
             preferred_maintenance_window: @config["preferred_maintenance_window"],
             port: @config["port"],
             auto_minor_version_upgrade: @config["auto_minor_version_upgrade"],
@@ -136,90 +145,116 @@ module MU
           end
 
           if @config.has_key?("parameter_group_family")
-            @config["parameter_group_name"] = @mu_name
+            # downcasing parameter_group_name because  AWS downcases the name for us and we won't be able to find it.
+            # AWS downcases all resource names in ElastiCache for some reason, 
+            # but other resources don't seem to be case sensitive when we try to retrieve them.
+            @config["parameter_group_name"] = @mu_name.downcase
             createParameterGroup
             config_struct[:cache_parameter_group_name] = @config["parameter_group_name"]
           end
 
           config_struct[:notification_topic_arn] = @config["notification_topic_arn"] if @config["notification_topic_arn"]
           config_struct = createSubnetGroup(config_struct)
-          
-          if @config["create_replication_group"]
-            config_struct[:automatic_failover_enabled] = @config['automatic_failover']
-            config_struct[:replication_group_id] = @config['identifier']
-            config_struct[:replication_group_description] = @mu_name
-            config_struct[:num_cache_clusters] = @config["cache_clusters"]
-            # config_struct[:primary_cluster_id] = @config["primary_cluster_id"]
-            # config_struct[:preferred_cache_cluster_a_zs] = @config["preferred_cache_cluster_azs"]
 
-            MU::Cloud::AWS.elasticache(@config['region']).create_replication_group(config_struct)
-            
-            wait_start_time = Time.now
-            retries = 0
-            begin
-              MU::Cloud::AWS.elasticache(@config['region']).wait_until(:replication_group_available, replication_group_id: @config['identifier']) do |waiter|
-                waiter.max_attempts = nil
-                waiter.before_attempt do |attempts|
-                  MU.log "Waiting for cache replication group #{@config['identifier']} to become available", MU::NOTICE if attempts % 10 == 0
-                end
-                waiter.before_wait do |attempts, resp|
-                  throw :success if resp.replication_groups.first.status == "available"
-                  throw :failure if Time.now - wait_start_time > 1800
-                end
-              end
-            rescue Aws::Waiters::Errors::TooManyAttemptsError => e
-              raise MuError, "Waited for #{(Time.now - wait_start_time).round/60*(retries+1)} minutes for cache replication group to become available, giving up. #{e}" if retries > 2
+          begin
+            if @config["create_replication_group"]
+              config_struct[:automatic_failover_enabled] = @config['automatic_failover']
+              config_struct[:replication_group_id] = @config['identifier']
+              config_struct[:replication_group_description] = @mu_name
+              config_struct[:num_cache_clusters] = @config["node_count"]
+              # config_struct[:primary_cluster_id] = @config["primary_cluster_id"]
+              # config_struct[:preferred_cache_cluster_a_zs] = @config["preferred_cache_cluster_azs"]
+
+              MU.log "Creating cache replication group #{@config['identifier']}"
+              MU::Cloud::AWS.elasticache(@config['region']).create_replication_group(config_struct)
+              
               wait_start_time = Time.now
-              retries += 1
-              retry
-            end
+              retries = 0
+              begin
+                MU::Cloud::AWS.elasticache(@config['region']).wait_until(:replication_group_available, replication_group_id: @config['identifier']) do |waiter|
+                  waiter.max_attempts = nil
+                  waiter.before_attempt do |attempts|
+                    MU.log "Waiting for cache replication group #{@config['identifier']} to become available", MU::NOTICE if attempts % 5 == 0
+                  end
+                  waiter.before_wait do |attempts, resp|
+                    throw :success if resp.replication_groups.first.status == "available"
+                    throw :failure if Time.now - wait_start_time > 1800
+                  end
+                end
+              rescue Aws::Waiters::Errors::TooManyAttemptsError => e
+                raise MuError, "Waited for #{(Time.now - wait_start_time).round/60*(retries+1)} minutes for cache replication group to become available, giving up. #{e}" if retries > 2
+                wait_start_time = Time.now
+                retries += 1
+                retry
+              end
 
-            replication_group = MU::Cloud::AWS::CacheCluster.getCacheReplicationGroupById(@config['identifier'], region: @config['region'])
+              resp = MU::Cloud::AWS::CacheCluster.getCacheReplicationGroupById(@config['identifier'], region: @config['region'])
 
-            MU::Cloud::AWS::DNSZone.genericMuDNSEntry(
-              name: replication_group.replication_group_id,
-              target: "#{replication_group.node_groups.first.primary_endpoint.address}.",
-              cloudclass: MU::Cloud::CacheCluster,
-              sync_wait: @config['dns_sync_wait']
-            )
+              # We want to make sure the clusters in the cache replication group get our tags
+              resp.member_clusters.each { |member|
+                addStandardTags(member, "cluster", region: @config['region'])
+              }
 
-            replication_group.node_groups.first.node_group_members.each { |member|
               MU::Cloud::AWS::DNSZone.genericMuDNSEntry(
-                name: member.cache_cluster_id,
-                target: "#{member.read_endpoint.address}.",
+                name: resp.replication_group_id,
+                target: "#{resp.node_groups.first.primary_endpoint.address}.",
                 cloudclass: MU::Cloud::CacheCluster,
                 sync_wait: @config['dns_sync_wait']
               )
-            }
 
-          else
-            config_struct[:cache_cluster_id] = @config['identifier']
-            config_struct[:az_mode] = @config["az_mode"]
-            config_struct[:num_cache_nodes] = @config["cache_nodes"]
-            # config_struct[:replication_group_id] = @config["replication_group_id"] if @config["replication_group_id"]
-            # config_struct[:preferred_availability_zone] = @config["preferred_availability_zone"] if @config["preferred_availability_zone"] && @config["az_mode"] == "single-az"
-            # config_struct[:preferred_availability_zones] = @config["preferred_availability_zones"] if @config["preferred_availability_zones"] && @config["az_mode"] == "cross-az"
-            
-            MU::Cloud::AWS.elasticache(@config['region']).create_cache_cluster(config_struct)
+              resp.node_groups.first.node_group_members.each { |member|
+                MU::Cloud::AWS::DNSZone.genericMuDNSEntry(
+                  name: member.cache_cluster_id,
+                  target: "#{member.read_endpoint.address}.",
+                  cloudclass: MU::Cloud::CacheCluster,
+                  sync_wait: @config['dns_sync_wait']
+                )
+              }
 
-            wait_start_time = Time.now
-            retries = 0
-            begin
-              MU::Cloud::AWS.elasticache(region).wait_until(:cache_cluster_available, cache_cluster_id: @config['identifier']) do |waiter|
-                waiter.max_attempts = nil
-                waiter.before_attempt do |attempts|
-                  MU.log "Waiting for cache cluster #{@config['identifier']} to become available", MU::NOTICE if attempts % 10 == 0
-                end
-                waiter.before_wait do |attempts, resp|
-                  throw :success if resp.cache_clusters.first.cache_cluster_status  == "available"
-                  throw :failure if Time.now - wait_start_time > 1800
-                end
-              end
-            rescue Aws::Waiters::Errors::TooManyAttemptsError => e
-              raise MuError, "Waited for #{(Time.now - wait_start_time).round/60*(retries+1)} minutes for cache cluster to become available, giving up. #{e}" if retries > 2
+              MU.log "Cache replication group #{@config['identifier']} is ready to use"
+            else
+              config_struct[:cache_cluster_id] = @config['identifier']
+              config_struct[:az_mode] = @config["az_mode"]
+              config_struct[:num_cache_nodes] = @config["node_count"]
+              # config_struct[:replication_group_id] = @config["replication_group_id"] if @config["replication_group_id"]
+              # config_struct[:preferred_availability_zone] = @config["preferred_availability_zone"] if @config["preferred_availability_zone"] && @config["az_mode"] == "single-az"
+              # config_struct[:preferred_availability_zones] = @config["preferred_availability_zones"] if @config["preferred_availability_zones"] && @config["az_mode"] == "cross-az"
+
+              MU.log "Creating cache cluster #{@config['identifier']}"
+              MU::Cloud::AWS.elasticache(@config['region']).create_cache_cluster(config_struct)
+
               wait_start_time = Time.now
-              retries += 1
-              retry
+              retries = 0
+              begin
+                MU::Cloud::AWS.elasticache(@config['region']).wait_until(:cache_cluster_available, cache_cluster_id: @config['identifier']) do |waiter|
+                  waiter.max_attempts = nil
+                  waiter.before_attempt do |attempts|
+                    MU.log "Waiting for cache cluster #{@config['identifier']} to become available", MU::NOTICE if attempts % 5 == 0
+                  end
+                  waiter.before_wait do |attempts, resp|
+                    throw :success if resp.cache_clusters.first.cache_cluster_status  == "available"
+                    throw :failure if Time.now - wait_start_time > 1800
+                  end
+                end
+              rescue Aws::Waiters::Errors::TooManyAttemptsError => e
+                raise MuError, "Waited for #{(Time.now - wait_start_time).round/60*(retries+1)} minutes for cache cluster to become available, giving up. #{e}" if retries > 2
+                wait_start_time = Time.now
+                retries += 1
+                retry
+              end
+              
+              resp = MU::Cloud::AWS::CacheCluster.getCacheClusterById(@config['identifier'], region: @config['region'])
+              MU.log "Cache cluster #{@config['identifier']} is ready to use"
+            end
+
+            done = true
+          ensure
+            if !done and resp
+              if @config["create_replication_group"]
+                MU::Cloud::AWS::CacheCluster.terminate_replication_group(resp, false, true, region: @config['region'], deploy_id: MU.deploy_id, cloud_id: @config['identifier'])
+              else
+                MU::Cloud::AWS::CacheCluster.terminate_cache_cluster(resp, false, true, region: @config['region'], deploy_id: MU.deploy_id, cloud_id: @config['identifier'])
+              end
             end
           end
 
@@ -233,7 +268,7 @@ module MU
           subnet_ids = []
 
           if @config["vpc"] && !@config["vpc"].empty?
-            raise MuError, "Didn't find the VPC specified in #{@config["vpc"]}" if @vpc.empty?
+            raise MuError, "Didn't find the VPC specified in #{@config["vpc"]}" unless @vpc
 
             vpc_id = @vpc.cloud_id
 
@@ -296,6 +331,14 @@ module MU
               subnet_ids: subnet_ids
             )
 
+            admin_sg = nil
+            @deploy.kittens['firewall_rules'].each_pair { |name, acl|
+              if acl.config["admin"]
+                admin_sg = acl
+                break
+              end
+            }
+
             # Find NAT and create holes in security groups.
             # Adding just for consistency, but do we really need this for cache clusters? I guess Nagios and such..
             if @config["vpc"]["nat_host_name"] || @config["vpc"]["nat_host_id"] || @config["vpc"]["nat_host_tag"] || @config["vpc"]["nat_host_ip"]
@@ -309,8 +352,8 @@ module MU
               )
 
               MU.log "#{@config['identifier']} (#{MU.deploy_id}) is configured to use #{@config["vpc"]} but I can't find a matching NAT instance", MU::ERR if nat_instance.nil?
-
               nat_name, nat_conf, nat_deploydata = @nat.describe
+
               admin_sg.addRule([nat_deploydata["private_ip_address"]], proto: "tcp")
               admin_sg.addRule([nat_deploydata["private_ip_address"]], proto: "udp")
             end
@@ -362,7 +405,6 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def groom
           # Do we have anything to do here??
-          cache_cluster = MU::Cloud::AWS::CacheCluster.getCacheClusterById(@config['identifier'], region: @config['region'])
         end
 
         # Retrieve the complete cloud provider description of a cache cluster.
@@ -370,7 +412,7 @@ module MU
         # @param region [String]: The cloud provider's region.
         # @return [OpenStruct]
         def self.getCacheClusterById(cc_id, region: MU.curRegion)
-          MU::Cloud::AWS.elasticache(@config['region']).describe_cache_clusters(cache_cluster_id: cc_id).cache_clusters.first
+          MU::Cloud::AWS.elasticache(region).describe_cache_clusters(cache_cluster_id: cc_id).cache_clusters.first
         end
         
         # Retrieve the complete cloud provider description of a cache replication group.
@@ -378,7 +420,7 @@ module MU
         # @param region [String]: The cloud provider's region.
         # @return [OpenStruct]
         def self.getCacheReplicationGroupById(repl_group_id, region: MU.curRegion)
-          MU::Cloud::AWS.elasticache(@config['region']).describe_replication_groups(replication_group_id: repl_group_id).replication_groups.first
+          MU::Cloud::AWS.elasticache(region).describe_replication_groups(replication_group_id: repl_group_id).replication_groups.first
         end
 
         # Register a description of this Cache Cluster instance with this deployment's metadata. 
@@ -418,12 +460,12 @@ module MU
                 "cache_node_type" => cluster.cache_node_type,
                 "engine" => cluster.engine,
                 "engine_version" => cluster.engine_version,
-                "num_cache_nodes" => num_cache_nodes,
+                "num_cache_nodes" => cluster.num_cache_nodes,
                 "preferred_maintenance_window" => cluster.preferred_maintenance_window,
                 "notification_configuration" => cluster.notification_configuration,
                 "cache_security_groups" => cache_sg_ids,
                 "cache_parameter_group" => cluster.cache_parameter_group.cache_parameter_group_name,
-                "cache_subnet_group_name", => cluster.cache_subnet_group_name,
+                "cache_subnet_group_name" => cluster.cache_subnet_group_name,
                 "cache_nodes" => cluster.cache_nodes,
                 "auto_minor_version_upgrade" => cluster.auto_minor_version_upgrade,
                 "vpc_security_groups" => vpc_sg_ids,
@@ -459,12 +501,12 @@ module MU
               "cache_node_type" => cluster.cache_node_type,
               "engine" => cluster.engine,
               "engine_version" => cluster.engine_version,
-              "num_cache_nodes" => num_cache_nodes,
+              "num_cache_nodes" => cluster.num_cache_nodes,
               "preferred_maintenance_window" => cluster.preferred_maintenance_window,
               "notification_configuration" => cluster.notification_configuration,
               "cache_security_groups" => cache_sg_ids,
               "cache_parameter_group" => cluster.cache_parameter_group.cache_parameter_group_name,
-              "cache_subnet_group_name", => cluster.cache_subnet_group_name,
+              "cache_subnet_group_name" => cluster.cache_subnet_group_name,
               "cache_nodes" => cluster.cache_nodes,
               "auto_minor_version_upgrade" => cluster.auto_minor_version_upgrade,
               "vpc_security_groups" => vpc_sg_ids,
@@ -540,9 +582,20 @@ module MU
           # So instead of searching for replication groups directly we'll get their IDs from the cache clusters.
           all_clusters.cache_clusters.each { |cluster|
             cluster_id = cluster.cache_cluster_id
-
             arn = MU::Cloud::AWS::CacheCluster.getARN(cluster_id, "cluster", "elasticache", region: region)
-            tags = MU::Cloud::AWS.elasticache(region).list_tags_for_resource(resource_name: arn).tag_list
+
+            attempts = 0
+            begin
+              tags = MU::Cloud::AWS.elasticache(region).list_tags_for_resource(resource_name: arn).tag_list
+            rescue Aws::ElastiCache::Errors::CacheClusterNotFound => e
+              if attempts < 10
+                attempts += 1
+                sleep 30
+                retry
+              else
+                raise MuError, "Failed to get tags for cache cluster #{cluster_id}, MU-ID #{MU.deploy_id}: #{e.inspect}"
+              end
+            end
 
             found_muid = false
             found_master = false
@@ -609,11 +662,13 @@ module MU
           parameter_group = cluster.cache_parameter_group.cache_parameter_group_name
 
           # hmmmmm we can use an AWS waiter for this...
-          loop do
-            MU.log "Waiting for #{cluster_id} to be in a removable state...", MU::NOTICE
-            sleep 60
-            cluster = MU::Cloud::AWS::CacheCluster.getCacheClusterById(cluster_id, region: region)
-            break unless !%w{creating modifying backing-up}.include?(cluster.cache_cluster_status)
+          unless cluster.cache_cluster_status == "available"
+            loop do
+              MU.log "Waiting for #{cluster_id} to be in a removable state...", MU::NOTICE
+              sleep 60
+              cluster = MU::Cloud::AWS::CacheCluster.getCacheClusterById(cluster_id, region: region)
+              break unless %w{creating modifying backing-up}.include?(cluster.cache_cluster_status)
+            end
           end
 
           # The API is broken, cluster.cache_nodes is returnning an empty array, and the only URL we can get is the config one with cluster.configuration_endpoint.address.
@@ -621,25 +676,21 @@ module MU
           
           if %w{deleting deleted}.include?(cluster.cache_cluster_status)
             MU.log "Cache Cluster #{cluster_id} has already been terminated", MU::WARN
-          else
-            def clusterSkipSnap
-              # We're calling this several times so lets declare it once
-              MU.log "Terminating Cache Cluster #{cluster_id}. Not saving final snapshot"
-              MU::Cloud::AWS.elasticache(region).delete_cache_cluster(cache_cluster_id: cluster_id)
-            end
-
-            def clusterCreateSnap
-              MU.log "Terminating Cache Cluster #{cluster_id}. Final snapshot name: #{cluster_id}-MUfinal"
-              MU::Cloud::AWS.elasticache(region).delete_cache_cluster(cache_cluster_id: cluster_id, final_snapshot_identifier: "#{cluster_id}-MUfinal" )
-            end
-          
+          else          
             unless noop
               retries = 0
               begin
                 if cluster.engine == "memcached"
-                  clusterSkipSnap
+                  MU.log "Terminating Cache Cluster #{cluster_id}. Not saving final snapshot"
+                  MU::Cloud::AWS.elasticache(region).delete_cache_cluster(cache_cluster_id: cluster_id)
                 else
-                  skipsnapshots ? clusterSkipSnap : clusterCreateSnap
+                  if skipsnapshots
+                    MU.log "Terminating Cache Cluster #{cluster_id}. Not saving final snapshot"
+                    MU::Cloud::AWS.elasticache(region).delete_cache_cluster(cache_cluster_id: cluster_id)
+                  else
+                    MU.log "Terminating Cache Cluster #{cluster_id}. Final snapshot name: #{cluster_id}-MUfinal"
+                    MU::Cloud::AWS.elasticache(region).delete_cache_cluster(cache_cluster_id: cluster_id, final_snapshot_identifier: "#{cluster_id}-MUfinal" )
+                  end
                 end
               rescue Aws::ElastiCache::Errors::InvalidCacheClusterStateFault => e
                 if retries < 5
@@ -653,10 +704,12 @@ module MU
                 end
               rescue Aws::ElastiCache::Errors::SnapshotAlreadyExistsFault
                 MU.log "Snapshot #{cluster_id}-MUfinal already exists", MU::WARN
-                clusterSkipSnap
+                MU.log "Terminating Cache Cluster #{cluster_id}. Not saving final snapshot"
+                MU::Cloud::AWS.elasticache(region).delete_cache_cluster(cache_cluster_id: cluster_id)
               rescue Aws::ElastiCache::Errors::SnapshotQuotaExceededFault
                 MU.log "Snapshot quota exceeded while deleting #{cluster_id}", MU::ERR
-                clusterSkipSnap
+                MU.log "Terminating Cache Cluster #{cluster_id}. Not saving final snapshot"
+                MU::Cloud::AWS.elasticache(region).delete_cache_cluster(cache_cluster_id: cluster_id)
               end
 
               wait_start_time = Time.now
@@ -677,6 +730,8 @@ module MU
                 wait_start_time = Time.now
                 retries += 1
                 retry
+              rescue Aws::Waiters::Errors::FailureStateError
+                MU.log "Cache cluster #{repl_group_id} disappeared on us"
               end
             end
           end
@@ -699,17 +754,19 @@ module MU
 
           repl_group_id = repl_group.replication_group_id
           # We're assuming that all clusters in this replication group where created in the same deployment so have the same subnet group, parameter group, etc...
-          cluster_id = repl_group_id.member_clusters.first
+          cluster_id = repl_group.member_clusters.first
           cluster = MU::Cloud::AWS::CacheCluster.getCacheClusterById(cluster_id, region: region)
           subnet_group = cluster.cache_subnet_group_name
           parameter_group = cluster.cache_parameter_group.cache_parameter_group_name
 
           # hmmmmm we can use an AWS waiter for this...
-          loop do
-            MU.log "Waiting for cache replication group #{repl_group_id} to be in a removable state...", MU::NOTICE
-            sleep 60
-            repl_group = MU::Cloud::AWS::CacheCluster.getCacheReplicationGroupById(repl_group_id, region: region)
-            break unless !%w{creating modifying backing-up}.include?(repl_group.status)
+          unless repl_group.status == "available"
+            loop do
+              MU.log "Waiting for cache replication group #{repl_group_id} to be in a removable state...", MU::NOTICE
+              sleep 60
+              repl_group = MU::Cloud::AWS::CacheCluster.getCacheReplicationGroupById(repl_group_id, region: region)
+              break unless %w{creating modifying backing-up}.include?(repl_group.status)
+            end
           end
 
           # What's the possibility of having more than one node group? maybe iterate over node_groups instead of assuming there is only one?
@@ -722,28 +779,23 @@ module MU
           if %w{deleting deleted}.include?(repl_group.status)
             MU.log "cache replication group #{repl_group_id} has already been terminated", MU::WARN
           else
-          def skipSnap
-              # We're calling this several times so lets declare it once
-              MU.log "Terminating cache replication group #{repl_group_id}. Not saving final snapshot"
-              MU::Cloud::AWS.elasticache(region).delete_replication_group(
-                replication_group_id: repl_group_id,
-                retain_primary_cluster: false
-              )
-            end
-
-            def createSnap
-              MU.log "Terminating cache replication group #{repl_group_id}. Final snapshot name: #{repl_group_id}-MUfinal"
-              MU::Cloud::AWS.elasticache(region).delete_replication_group(
-                replication_group_id: repl_group_id,
-                retain_primary_cluster: false,
-                final_snapshot_identifier: "#{repl_group_id}-MUfinal"
-              )
-            end
-
             unless noop
               retries = 0
               begin
-                skipsnapshots ? skipSnap : createSnap
+                if skipsnapshots
+                  MU.log "Terminating cache replication group #{repl_group_id}. Not saving final snapshot"
+                  MU::Cloud::AWS.elasticache(region).delete_replication_group(
+                    replication_group_id: repl_group_id,
+                    retain_primary_cluster: false
+                  )
+                else
+                  MU.log "Terminating cache replication group #{repl_group_id}. Final snapshot name: #{repl_group_id}-MUfinal"
+                  MU::Cloud::AWS.elasticache(region).delete_replication_group(
+                    replication_group_id: repl_group_id,
+                    retain_primary_cluster: false,
+                    final_snapshot_identifier: "#{repl_group_id}-MUfinal"
+                  )
+                end
               rescue Aws::ElastiCache::Errors::InvalidReplicationGroupStateFault => e
                 if retries < 5
                   MU.log "Cache cluster replication group #{repl_group_id} is not in a removable state, retrying several times", MU::WARN
@@ -756,10 +808,18 @@ module MU
                 end
               rescue Aws::ElastiCache::Errors::SnapshotAlreadyExistsFault
                 MU.log "Snapshot #{repl_group_id}-MUfinal already exists", MU::WARN
-                clusterSkipSnap
+                MU.log "Terminating cache replication group #{repl_group_id}. Not saving final snapshot"
+                MU::Cloud::AWS.elasticache(region).delete_replication_group(
+                  replication_group_id: repl_group_id,
+                  retain_primary_cluster: false
+                )
               rescue Aws::ElastiCache::Errors::SnapshotQuotaExceededFault
                 MU.log "Snapshot quota exceeded while deleting #{repl_group_id}", MU::ERR
-                clusterSkipSnap
+                MU.log "Terminating cache replication group #{repl_group_id}. Not saving final snapshot"
+                MU::Cloud::AWS.elasticache(region).delete_replication_group(
+                  replication_group_id: repl_group_id,
+                  retain_primary_cluster: false
+                )
               end
 
               wait_start_time = Time.now
@@ -780,6 +840,8 @@ module MU
                 wait_start_time = Time.now
                 retries += 1
                 retry
+              rescue Aws::Waiters::Errors::FailureStateError
+                MU.log "Cache replication group #{repl_group_id} disappeared on us"
               end
             end
           end
