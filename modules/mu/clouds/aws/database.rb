@@ -1119,9 +1119,11 @@ module MU
           end
 
           # Cleanup the database vault
-          grommer = database_obj.config.has_key?("groomer") ? database_obj.config['groomer'] : MU::Config.defaultGroomer
-          groomclass = MU::Groomer.loadGroomer(grommer)
-          groomclass.deleteSecret(vault: db_id.upcase) if !noop
+          if !database_obj.nil?
+            groomer = database_obj.config.has_key?("groomer") ? database_obj.config['groomer'] : MU::Config.defaultGroomer
+            groomclass = MU::Groomer.loadGroomer(groomer)
+            groomclass.deleteSecret(vault: db_id.upcase) if !noop
+          end
         end
 
       end #class
