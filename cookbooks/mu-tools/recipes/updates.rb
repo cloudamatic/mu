@@ -19,13 +19,7 @@ case node.platform
 # and initial Mu bootstrap (running updates), but this recipe is still
 # useful for updating existing hosts.
   when "windows"
-#    include_recipe 'windows::reboot_handler'
     ::Chef::Recipe.send(:include, Chef::Mixin::PowershellOut)
-
-#    windows_reboot 5 do
-#      reason 'Applying updates'
-#      action :nothing
-#    end
 
     ["C:\\Users\\#{node.windows_admin_username}", "C:\\Users\\#{node.windows_admin_username}\\Documents", "C:\\Users\\#{node.windows_admin_username}\\Documents\\WindowsPowerShell", "C:\\Users\\#{node.windows_admin_username}\\Documents\\WindowsPowerShell\\Modules"].each { |dir|
       directory dir
@@ -65,6 +59,14 @@ case node.platform
 				Import-Module PSWindowsUpdate
 				Get-WUInstall -AcceptAll -ignorereboot
         EOH
+      end
+
+      sleep 10 # takes a while for this key to pop up sometimes
+      if registry_key_exists?("HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired")
+        reboot "Windows updates" do
+          action :reboot_now
+          reason "Windows Update has requested a reboot"
+        end
       end
     end
   when "centos"
