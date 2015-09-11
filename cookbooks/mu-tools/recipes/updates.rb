@@ -61,6 +61,7 @@ case node.platform
         EOH
       end
 
+      sleep 10 # takes a while for this key to pop up sometimes
       if registry_key_exists?("HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired")
         reboot "Windows updates" do
           action :reboot_now
