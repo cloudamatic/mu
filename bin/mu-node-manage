@@ -214,8 +214,12 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-cli
     end
   }
 
-  if badnodes.size > 0 and !print_output
-    MU.log "Not all `#{cmd}` runs exited cleanly", MU::WARN, details: badnodes
+  if badnodes.size > 0
+    if !print_output
+      MU.log "Not all `#{cmd}` runs exited cleanly", MU::WARN, details: badnodes
+    else
+      MU.log "Not all `#{cmd}` runs exited cleanly", MU::WARN
+    end
   end
 end
 
