@@ -148,3 +148,13 @@ execute 'boot Webrick' do
   cwd "#{application_dir}/rails"
 end
 
+# Use this technique for end of run notifications
+ruby_block "Notify_Users" do
+    block do
+        puts "\n######################################## End of Run Information ########################################"
+        puts "# Your Concerto Server is running at http://#{node['ec2']['public_dns_name']}"
+        puts "########################################################################################################\n\n"
+    end
+    action :create
+end
+

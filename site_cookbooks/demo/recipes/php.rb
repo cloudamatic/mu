@@ -38,3 +38,12 @@ file "#{document_root}/index.php" do
 <?php phpinfo(); ?>
   EOH
 end
+
+ruby_block "Notify_Users" do
+    block do
+        puts "\n######################################## End of Run Information ########################################"
+        puts "# Your PHP Server is running at http://#{node['ec2']['public_dns_name']}"
+        puts "########################################################################################################\n\n"
+    end
+    action :create
+end

@@ -174,7 +174,7 @@ def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [])
   end
 end
 
-def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-client || ./chef-client ) 2>&1", print_output: false, noop: false)
+def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-client || chef-client.bat ) 2>&1", print_output: false, noop: false)
   badnodes = []
   count = 0
   deploys.each { |muid|
@@ -214,8 +214,12 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-cli
     end
   }
 
-  if badnodes.size > 0 and !print_output
-    MU.log "Not all `#{cmd}` runs exited cleanly", MU::WARN, details: badnodes
+  if badnodes.size > 0
+    if !print_output
+      MU.log "Not all `#{cmd}` runs exited cleanly", MU::WARN, details: badnodes
+    else
+      MU.log "Not all `#{cmd}` runs exited cleanly", MU::WARN
+    end
   end
 end
 
@@ -389,7 +393,7 @@ elsif $opts[:mode] == "groom"
   reGroom(do_deploys, do_nodes)
 elsif $opts[:mode] == "chefrun"
   if $opts[:override_chef_runlist]
-    runCommand(do_deploys, do_nodes, "( chef-client -o '#{$opts[:override_chef_runlist]}' || ./chef-client -o '#{$opts[:override_chef_runlist]}' ) 2>&1")
+    runCommand(do_deploys, do_nodes, "( chef-client -o '#{$opts[:override_chef_runlist]}' || chef-client.bat -o '#{$opts[:override_chef_runlist]}' ) 2>&1")
   else
     runCommand(do_deploys, do_nodes)
   end
