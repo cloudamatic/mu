@@ -60,7 +60,7 @@ module MU
                   resource_name: MU::Cloud::AWS::CacheCluster.getARN(cc.cache_cluster_id, "cluster", "elasticache", region: region)
               )
               if resp && resp.tag_list && !resp.tag_list.empty?
-                resp.tag_list { |tag|
+                resp.tag_list.each { |tag|
                     map[cc.cache_cluster_id] = cc if tag.key == tag_key and tag.value == tag_value
                 }
               end
@@ -182,7 +182,7 @@ module MU
                 end
               end
             rescue Aws::Waiters::Errors::TooManyAttemptsError => e
-              raise MuError, "Waited for #{(Time.now - wait_start_time).round/60*(retries+1)} minutes for cache replication group to become available, giving up. #{e}" if retries > 2
+              raise MuError, "Waited #{(Time.now - wait_start_time).round/60*(retries+1)} minutes for #{@config['identifier']} become available, giving up. #{e}" if retries > 2
               wait_start_time = Time.now
               retries += 1
               retry
@@ -201,6 +201,14 @@ module MU
               cloudclass: MU::Cloud::CacheCluster,
               sync_wait: @config['dns_sync_wait']
             )
+
+            if @config['dns_records']
+              @config['dns_records'].each { |dnsrec|
+                dnsrec['name'] = resp.node_groups.first.primary_endpoint.address.downcase if !dnsrec.has_key?('name')
+              }
+            end
+            # XXX this should be a call to @deploy.nameKitten
+            MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@config['dns_records'], target: resp.node_groups.first.primary_endpoint.address)
 
             resp.node_groups.first.node_group_members.each { |member|
               MU::Cloud::AWS::DNSZone.genericMuDNSEntry(
@@ -237,7 +245,7 @@ module MU
                 end
               end
             rescue Aws::Waiters::Errors::TooManyAttemptsError => e
-              raise MuError, "Waited for #{(Time.now - wait_start_time).round/60*(retries+1)} minutes for cache cluster to become available, giving up. #{e}" if retries > 2
+              raise MuError, "Waited #{(Time.now - wait_start_time).round/60*(retries+1)} minutes for #{@config['identifier']} to become available, giving up. #{e}" if retries > 2
               wait_start_time = Time.now
               retries += 1
               retry
@@ -247,7 +255,7 @@ module MU
             MU.log "Cache Cluster #{@config['identifier']} is ready to use"
           end
 
-          return @config['identifier']
+          @cloud_id = @config['identifier']
         end
 
         # Create a subnet group for a Cache Cluster with the given config.
@@ -854,7 +862,7 @@ module MU
           unless noop
             MU::Cloud::AWS::CacheCluster.delete_subnet_group(subnet_group, region: region) if subnet_group
             MU::Cloud::AWS::CacheCluster.delete_parameter_group(parameter_group, region: region) if parameter_group
-          end 
+          end
         end
 
         # Remove a Cache Cluster Subnet Group.
