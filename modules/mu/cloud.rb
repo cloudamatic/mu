@@ -78,7 +78,7 @@ module MU
             :instance => generic_instance_methods
         },
         :Database => {
-            :has_multiples => false,
+            :has_multiples => true,
             :can_live_in_vpc => true,
             :cfg_name => "database",
             :cfg_plural => "databases",

@@ -1291,9 +1291,11 @@ module MU
           end
         end
 
-        if db.has_key?("parameter_group_parameters") && db["parameter_group_family"].nil?
-          MU.log "parameter_group_family must be set when setting parameter_group_parameters", MU::ERR
-          ok = false
+        if db.has_key?("db_parameter_group_parameters") || db.has_key?("cluster_parameter_group_parameters")
+          if db["parameter_group_family"].nil?
+            MU.log "parameter_group_family must be set when setting db_parameter_group_parameters", MU::ERR
+            ok = false
+          end
         end
 
         # Adding rules for Database instance storage. This varies depending on storage type and database type. 
@@ -1338,41 +1340,48 @@ module MU
           end
         end
 
-        cluster_db_engines = %w{aurora}
-        if db["create_cluster"] && !cluster_db_engines.include?(db["engine"])
-          MU.log "Database Clusters are only supported for the following database engine types: #{cluster_db_engines.join(", ")}.", MU::ERR
+        db_cluster_engines = %w{aurora}
+        db["create_cluster"] = 
+          if db_cluster_engines.include?(db["engine"])
+            true
+          else
+            false
+          end
+
+        if db["create_cluster"] && db["cluster_node_count"] < 1
+          MU.log "You are trying to create a database cluster but cluster_node_count is set to #{db["cluster_node_count"]}", MU::ERR
           ok = false
         end
 
-        if db["engine"] == "postgres"
-          db["license_model"] = "postgresql-license"
-        elsif db["engine"] == "mysql"
-          db["license_model"] = "general-public-license"
-        end
+        db["license_model"] =
+          if db["engine"] == "postgres"
+            "postgresql-license"
+          elsif db["engine"] == "mysql"
+            "general-public-license"
+          end
 
-        if (db["creation_style"] == "new" or
-            db["creation_style"] == "new_snapshot" or
-            db["creation_style"] == "existing_snapshot") and
-            db["size"].nil?
+        if db["size"].nil?
           MU.log "You must specify 'size' when creating a new database or a database from a snapshot.", MU::ERR
           ok = false
         end
+
         if db["creation_style"] == "new" and db["storage"].nil?
-          MU.log "You must specify 'storage' when creating a new database.", MU::ERR
-          ok = false
+          unless db["create_cluster"]
+            MU.log "You must specify 'storage' when creating a new database.", MU::ERR
+            ok = false
+          end
         end
 
-        if db["creation_style"] == "existing" or db["creation_style"] == "new_snapshot" or db["creation_style"] == "existing_snapshot"
+        if db["creation_style"] == "point_in_time" && db["restore_time"].nil?
+          ok = false
+          MU.log "You must provide restore_time when creation_style is point_in_time", MU::ERR
+        end
+
+        if %w{existing new_snapshot existing_snapshot point_in_time}.include?(db["creation_style"])
           if db["identifier"].nil?
             ok = false
             MU.log "Using existing database (or snapshot thereof), but no identifier given", MU::ERR
           end
-          # XXX be nice to tell users that these parameters are invalid here,
-          # but only if they specified them.
-          ### Moving this back to MU::Cloud::AWS::Database 
-          # db.delete("storage_encrypted")
-          # db.delete("preferred_backup_window")
-          # db.delete("backup_retention_period")
         end
 
         if !db["run_sql_on_deploy"].nil? and (db["engine"] != "postgres" and db["engine"] != "mysql")
@@ -1380,7 +1389,7 @@ module MU
           MU.log "Running SQL on deploy is only supported for postgres and mysql databases", MU::ERR
         end
 
-        if db["collection"] != nil
+        if db["collection"]
           db["dependencies"] << {
               "type" => "collection",
               "name" => db["collection"]
@@ -2272,7 +2281,7 @@ module MU
         "description" => "The Amazon EleastiCache instance type to use when creating this cache cluster.",
     }
     @rds_size_primitive = {
-        "pattern" => "^db\.(t|m|c|i|g|hi|hs|cr|cg|cc){1,2}[0-9]\\.(micro|small|medium|[248]?x?large)$",
+        "pattern" => "^db\.(t|m|c|i|g|r|hi|hs|cr|cg|cc){1,2}[0-9]\\.(micro|small|medium|[248]?x?large)$"
         "type" => "string",
         "description" => "The Amazon RDS instance type to use when creating this database instance.",
     }
@@ -3112,11 +3121,6 @@ module MU
                 "description" => "Wait for DNS record to propagate in DNS Zone.",
                 "default" => true
             },
-            "create_cluster" => {
-                "type" => "boolean",
-                "description" => "If this is a database cluster or a single database instance.",
-                "default" => false
-            },
             "dependencies" => @dependencies_primitive,
             "size" => @rds_size_primitive,
             "storage" => {
@@ -3184,8 +3188,8 @@ module MU
             },
             "creation_style" => {
                 "type" => "string",
-                "enum" => ["existing", "new", "new_snapshot", "existing_snapshot"],
-                "description" => "'new' - create a pristine database instances; 'existing' - use an already-extant database instance; 'new_snapshot' - create a snapshot of an already-extant database, and build a new one from that snapshot; 'existing_snapshot' - create database from an existing snapshot.",
+                "enum" => ["existing", "new", "new_snapshot", "existing_snapshot", "point_in_time"],
+                "description" => "'new' - create a pristine database instances; 'existing' - use an existing database instance; 'new_snapshot' - create a snapshot of an existing database, and create a new one from that snapshot; 'existing_snapshot' - create database from an existing snapshot.; 'point_in_time' - create database from point in time backup of an existing database",
                 "default" => "new"
             },
             "license_model" => {
@@ -3195,26 +3199,33 @@ module MU
             },
             "identifier" => {
                 "type" => "string",
-                "description" => "For any creation_style other than 'new' this parameter identifies the database to use. In the case of new_snapshot it will create a snapshot from that database first; in the case of existing_snapshot, it will use the latest avaliable snapshot."
-            },
-            "password" => {
-                "type" => "string",
-                "description" => "DEPRECATED - Use auth_vault instead. Will be removed in future versions. Set master password to this; if not specified, a random string will be generated. If you are creating from a snapshot, or using an existing database, you will almost certainly want to set this."
+                "description" => "For any creation_style other than 'new' this parameter identifies the database to use. In the case of new_snapshot or point_in_time this is the identifier of an existing database instance; in the case of existing_snapshot this is the identifier of the snapshot."
             },
             "master_user" => {
                 "type" => "string",
                 "description" => "Set master user name for this database instance; if not specified a random username will be generated"
             },
-            "unecrypted_master_password" => {
-                "type" => "boolean",
-                "default" => true,
-                "description" => "DEPRECATED - For backwards compatibility only. Will be removed in future versions. Rather to store the password of the master user unecrypted in the deployment and node structure. The password will be emailed unecrypted as well."
+            "restore_time" => {
+              "type" => "string",
+              "description" => "Must either be set to 'latest' or date/time value in the following format: 2015-09-12T22:30:00Z. Applies only to point_in_time creation_style"
             },
             "create_read_replica" => {
                 "type" => "boolean",
                 "default" => false
             },
-            "parameter_group_parameters" => @rds_parameter_group_parameters_primitive,
+            "cluster_node_count" => {
+              "type" => "integer",
+                "description" => "The number of database instances to add to a database cluster. This only applies to aurora",
+                "default_if" => [
+                    {
+                        "key_is" => "engine",
+                        "value_is" => "aurora",
+                        "set" => 1
+                    }
+                ]
+            },
+            "db_parameter_group_parameters" => @rds_parameter_group_parameters_primitive,
+            "cluster_parameter_group_parameters" => @rds_parameter_group_parameters_primitive,
             "parameter_group_family" => {
                 "type" => "String",
                 "enum" => ["postgres9.4", "postgres9.3", "mysql5.1", "mysql5.5", "mysql5.6", "oracle-ee-11.2", "oracle-ee-12.1", "oracle-se-11.2", "oracle-se-12.1", "oracle-se1-11.2", "oracle-se1-12.1",
