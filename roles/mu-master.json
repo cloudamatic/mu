@@ -9,5 +9,9 @@
   ],
   "description": "Run List for Mu master servers",
   "chef_type": "role",
-  "override_attributes": {}
+  "override_attributes": {
+    "application_attributes":{
+      "sshd_allow_password_auth": true
+    }
+  }
 }
