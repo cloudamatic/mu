@@ -6,7 +6,6 @@
 #
 # All rights reserved - Do Not Redistribute
 #
-
 include_recipe "apache2::mod_proxy"
 include_recipe "apache2::mod_proxy_http"
 include_recipe "apache2::mod_expires"
@@ -202,3 +201,12 @@ if node.deployment.environment == 'dev' or node.deployment.environment == 'devel
 	include_recipe "femadata-ad::linux"
 end
 =end
+
+ruby_block "Notify_Users" do
+    block do
+        puts "\n######################################## End of Run Information ########################################"
+        puts "# Your WordPress deploy's loadbalancer is running at http://#{node['deployment']['loadbalancers']['lb']['dns']}"
+        puts "########################################################################################################\n\n"
+    end
+    action :create
+end
