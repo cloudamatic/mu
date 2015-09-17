@@ -180,9 +180,7 @@ module MU
       # @param max_retries [Integer] = The maximum number of attempts at a successful run to make before giving up.
       def run(purpose: "Chef run", update_runlist: true, max_retries: 5)
         if update_runlist and !@config['run_list'].nil?
-          @config['run_list'].each { |rl_entry|
-            knifeAddToRunList(rl_entry)
-          }
+          knifeAddToRunList(multiple: @config['run_list'])
         end
 
         if !@config['application_attributes'].nil?
@@ -417,9 +415,7 @@ module MU
         end
 
         if !@config['run_list'].nil?
-          @config['run_list'].each { |rl_entry|
-            knifeAddToRunList(rl_entry)
-          }
+          knifeAddToRunList(multiple: @config['run_list'])
         end
 
         saveDeployData
@@ -700,35 +696,63 @@ module MU
       # @param rl_entry [String]: The run-list entry to add.
       # @param type [String]: One of *role* or *recipe*.
       # @param ignore_missing [Boolean]: If set to true, will merely warn about missing recipes/roles instead of throwing an exception.
+      # @param multiple [Array<String>]: Add more than one run_list entry. Overrides rl_entry.
       # @return [void]
-      def knifeAddToRunList(rl_entry, type="role", ignore_missing=false)
-        return if rl_entry.nil?
+      def knifeAddToRunList(rl_entry = nil, type="role", ignore_missing: false, multiple: [])
+        return if rl_entry.nil? and multiple.size == 0
+        if multiple.size == 0
+          multiple = [rl_entry]
+        end
+        multiple.each { |rl_entry|
+          if !rl_entry.match(/^role|recipe\[/)
+            rl_entry = "#{type}[#{rl_entry}]"
+          end
+        }
 
-        # Rather than argue about whether to expect a bare rl_entry name or require
-        # rl_entry[rolename], let's just accomodate.
-        if rl_entry.match(/^role\[(.+?)\]/) then
-          type = "role"
-          rl_entry = Regexp.last_match(1)
-          query=%Q{#{MU::Groomer::Chef.knife} role show #{rl_entry}};
-        elsif rl_entry.match(/^recipe\[(.+?)\]/) then
-          type = "recipe"
-          rl_entry = Regexp.last_match(1)
-          query=%Q{#{MU::Groomer::Chef.knife} recipe list | grep '^#{rl_entry}$'};
+        if !ignore_missing
+          role_list = nil
+          recipe_list = nil
+          missing = false
+          multiple.each { |rl_entry|
+            # Rather than argue about whether to expect a bare rl_entry name or
+            # require rl_entry[rolename], let's just accomodate.
+            if rl_entry.match(/^role\[(.+?)\]/)
+              rl_entry_name = Regexp.last_match(1)
+              if role_list.nil?
+                query=%Q{#{MU::Groomer::Chef.knife} role list};
+                role_list = %x{#{query}}
+              end
+              if !role_list.match(/(^|\n)#{rl_entry_name}($|\n)/)
+                MU.log "Attempting to add non-existent #{rl_entry} to #{@server.mu_name}"
+                missing = true
+              end
+            elsif rl_entry.match(/^recipe\[(.+?)\]/)
+              rl_entry_name = Regexp.last_match(1)
+              if recipe_list.nil?
+                query=%Q{#{MU::Groomer::Chef.knife} recipe list};
+                recipe_list = %x{#{query}}
+              end
+              if !recipe_list.match(/(^|\n)#{rl_entry_name}($|\n)/)
+                MU.log "Attempting to add non-existent #{rl_entry} to #{@server.mu_name}"
+                missing = true
+              end
+            end
+
+            if missing and !ignore_missing
+              raise MuError, "Can't continue with missing roles/recipes for #{@server.mu_name}"
+            end
+          }
         end
 
-        %x{#{query}}
-        if $? != 0 then
-          raise MuError, "Attempted to add non-existing #{type} #{rl_entry}" if !ignore_missing
-        end
-
+        rl_string = multiple.join(",")
         begin
-          query=%Q{#{MU::Groomer::Chef.knife} node run_list add #{@server.mu_name} "#{type}[#{rl_entry}]"};
-          MU.log("Adding #{type} #{rl_entry} to #{@server.mu_name}")
+          query=%Q{#{MU::Groomer::Chef.knife} node run_list add #{@server.mu_name} "#{rl_string}"};
+          MU.log("Adding #{rl_string} to Chef run_list of #{@server.mu_name}")
           MU.log("Running #{query}", MU::DEBUG)
           output=%x{#{query}}
             # XXX rescue Exception is bad style
         rescue Exception => e
-          raise MuError, "FAIL: #{MU::Groomer::Chef.knife} node run_list add #{@server.mu_name} \"#{type}[#{rl_entry}]\": #{e.message} (output was #{output})"
+          raise MuError, "FAIL: #{MU::Groomer::Chef.knife} node run_list add #{@server.mu_name} \"#{rl_string}\": #{e.message} (output was #{output})"
         end
       end
 

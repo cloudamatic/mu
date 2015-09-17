@@ -136,15 +136,22 @@ module MU
                     MU::MommaCat.createTag(subnet_id, tag['key'], tag['value'], region: @config['region'])
                   }
                 end
-                if resp.state != "available"
-                  begin
-                    MU.log "Waiting for Subnet #{subnet_name} (#{subnet_id}) to be available", MU::NOTICE
-                    sleep 5
-                    resp = MU::Cloud::AWS.ec2(@config['region']).describe_subnets(subnet_ids: [subnet_id]).subnets.first
-                  rescue Aws::EC2::Errors::InvalidSubnetIDNotFound => e
-                    sleep 10
-                    retry
-                  end while resp.state != "available"
+
+                begin
+                  if resp.state != "available"
+                    begin
+                      MU.log "Waiting for Subnet #{subnet_name} (#{subnet_id}) to be available", MU::NOTICE
+                      sleep 5
+                      resp = MU::Cloud::AWS.ec2(@config['region']).describe_subnets(subnet_ids: [subnet_id]).subnets.first
+                    rescue Aws::EC2::Errors::InvalidSubnetIDNotFound => e
+                      sleep 10
+                      retry
+                    end while resp.state != "available"
+                  end
+                rescue NoMethodError => e
+                  MU.log "Got #{e.inspect} in description of subnet we just created, #{subnet_name} (#{subnet_id}). Waiting and retrying.", MU::WARN, details: resp
+                  sleep 10
+                  retry
                 end
                 if !subnet['route_table'].nil?
                   routes = {}
@@ -212,6 +219,7 @@ module MU
             subnetthreads.each { |t|
               t.join
             }
+
             notify
           end
 

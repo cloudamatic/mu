@@ -336,7 +336,6 @@ module MU
             else
               retval = @api.method(method_sym).call
             end
-            return nil if retval.class == Aws::EmptyStructure
             return retval
           rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException, Aws::EC2::Errors::IncorrectState => e
             retries = retries + 1
