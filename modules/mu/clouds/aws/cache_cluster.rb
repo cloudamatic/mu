@@ -124,6 +124,7 @@ module MU
             # Should we base all our resource names on @mu_name even though only the cache cluster / cache replication group identifiers are the isssue? 
           @config['identifier'] = @mu_name
           @config["subnet_group_name"] = @mu_name
+          createSubnetGroup
 
           # Shared configuration elements between cache clusters and cache replication groups
           config_struct = {
@@ -134,9 +135,10 @@ module MU
             preferred_maintenance_window: @config["preferred_maintenance_window"],
             port: @config["port"],
             auto_minor_version_upgrade: @config["auto_minor_version_upgrade"],
+            security_group_ids: @config["security_group_ids"],
             tags: allTags
           }
-          
+
           if @config["engine"] == "redis"
             config_struct[:snapshot_name] = @config["snapshot_id"] if @config["snapshot_id"]
             config_struct[:snapshot_arns] = @config["snapshot_arn"] if @config["snapshot_arn"]
@@ -154,7 +156,6 @@ module MU
           end
 
           config_struct[:notification_topic_arn] = @config["notification_topic_arn"] if @config["notification_topic_arn"]
-          config_struct = createSubnetGroup(config_struct)
 
           # Mu already cleans up our resources for us when we fail mid creation, so not doing begin/ensure to cleanup in case we fail.
           if @config["create_replication_group"]
@@ -201,14 +202,6 @@ module MU
               cloudclass: MU::Cloud::CacheCluster,
               sync_wait: @config['dns_sync_wait']
             )
-
-            if @config['dns_records']
-              @config['dns_records'].each { |dnsrec|
-                dnsrec['name'] = resp.node_groups.first.primary_endpoint.address.downcase if !dnsrec.has_key?('name')
-              }
-            end
-            # XXX this should be a call to @deploy.nameKitten
-            MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@config['dns_records'], target: resp.node_groups.first.primary_endpoint.address)
 
             resp.node_groups.first.node_group_members.each { |member|
               MU::Cloud::AWS::DNSZone.genericMuDNSEntry(
@@ -259,9 +252,7 @@ module MU
         end
 
         # Create a subnet group for a Cache Cluster with the given config.
-        # @param config [Hash]: The cloud provider configuration options.
-        # @return [Hash]: The modified cloud provider configuration options Hash.
-        def createSubnetGroup(config)
+        def createSubnetGroup
           subnet_ids = []
 
           if @config["vpc"] && !@config["vpc"].empty?
@@ -353,15 +344,12 @@ module MU
             end
 
             if @dependencies.has_key?('firewall_rule')
-              config[:security_group_ids] = [] unless config.has_key?(:security_group_ids)
-
-              @dependencies['firewall_rule'].values.each { |sg|
-                config[:security_group_ids] << sg.cloud_id
+              @config["security_group_ids"] = []
+                @dependencies['firewall_rule'].values.each { |sg|
+                  @config["security_group_ids"] << sg.cloud_id
               }
             end
           end
-
-          return config
         end
 
         # Create a Cache Cluster parameter group.
@@ -421,6 +409,15 @@ module MU
           ### TO DO: Flatten the replication group deployment metadata structure. It is probably waaaaaaay too nested.
           if @config["create_replication_group"]
             repl_group = MU::Cloud::AWS::CacheCluster.getCacheReplicationGroupById(@config['identifier'], region: @config['region'])
+            # DNS records for the "real" zone should always be registered as late as possible so override_existing only overwrites the records after the resource is ready to use.
+            if @config['dns_records']
+              @config['dns_records'].each { |dnsrec|
+                dnsrec['name'] = repl_group.node_groups.first.primary_endpoint.address.downcase if !dnsrec.has_key?('name')
+              }
+            end
+            # XXX this should be a call to @deploy.nameKitten
+            MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@config['dns_records'], target: repl_group.node_groups.first.primary_endpoint.address)
+
             deploy_struct = {
               "identifier" => repl_group.replication_group_id,
               "create_style" => @config["create_style"],
@@ -473,7 +470,7 @@ module MU
               deploy_struct[member.cache_cluster_id]["read_endpoint_port"] = member.read_endpoint.port
               deploy_struct[member.cache_cluster_id]["current_role"] = member.current_role
             }
-          elsif @config["engine"] == "memcached"
+          else
             cluster = MU::Cloud::AWS::CacheCluster.getCacheClusterById(@config['identifier'], region: @config['region'])
             vpc_sg_ids = []
             cluster.security_groups.each { |vpc_sg|
@@ -540,24 +537,18 @@ module MU
 
             snapshot_resp = MU::Cloud::AWS.elasticache(@config['region']).describe_snapshots(snapshot_name: snap_id)
             attempts += 1
-            sleep 15
             break unless snapshot_resp.snapshots.first.snapshot_status != "available"
+            sleep 15
           end
 
           return snap_id
         end
 
-        # Fetch the latest snapshot of the Cache Cluster described in this instance.
         # @return [String]: The cloud provider's identifier for the snapshot.
         def getExistingSnapshot
-          snapshots = MU::Cloud::AWS.elasticache(@config['region']).describe_snapshots(cache_cluster_id: @config["identifier"]).snapshots
-
-          if snapshots.empty?
-            nil
-          else
-            sorted_snapshots = snapshots.sort_by { |snapshot| snapshot.node_snapshots.first.snapshot_create_time }
-            sorted_snapshots.last.snapshot_name
-          end
+          MU::Cloud::AWS.elasticache(@config['region']).describe_snapshots(snapshot_name: @config["identifier"]).snapshots.first.snapshot_name
+        rescue NoMethodError
+          raise MuError, "Snapshot #{@config["identifier"]} doesn't exist, make sure you provided a valid snapshot ID/Name"
         end
 
         # Called by {MU::Cleanup}. Locates resources that were created by the currently-loaded deployment and purges them.
@@ -584,9 +575,9 @@ module MU
                 # We can replace this with an AWS waiter.
                 loop do
                   MU.log "Waiting for #{cluster_id} to be in a removable state", MU::NOTICE
-                  sleep 60
                   cluster = MU::Cloud::AWS::CacheCluster.getCacheClusterById(cluster_id, region: region)
                   break unless %w{creating modifying backing-up}.include?(cluster.cache_cluster_status)
+                  sleep 60
                 end
               end
             end
@@ -675,9 +666,9 @@ module MU
           unless cluster.cache_cluster_status == "available"
             loop do
               MU.log "Waiting for #{cluster_id} to be in a removable state...", MU::NOTICE
-              sleep 60
               cluster = MU::Cloud::AWS::CacheCluster.getCacheClusterById(cluster_id, region: region)
               break unless %w{creating modifying backing-up}.include?(cluster.cache_cluster_status)
+              sleep 60
             end
           end
 
@@ -688,19 +679,23 @@ module MU
             MU.log "#{cluster_id} has already been terminated", MU::WARN
           else          
             unless noop
+              def self.clusterSkipSnap(cluster_id, region)
+                # We're calling this several times so lets declare it once
+                MU.log "Terminating #{cluster_id}. Not saving final snapshot"
+                MU::Cloud::AWS.elasticache(region).delete_cache_cluster(cache_cluster_id: cluster_id)
+              end
+
+              def self.clusterCreateSnap(cluster_id, region)
+                MU.log "Terminating #{cluster_id}. Final snapshot name: #{cluster_id}-mufinal"
+                MU::Cloud::AWS.elasticache(region).delete_cache_cluster(cache_cluster_id: cluster_id, final_snapshot_identifier: "#{cluster_id}-MUfinal")
+              end
+
               retries = 0
               begin
                 if cluster.engine == "memcached"
-                  MU.log "Terminating #{cluster_id}. Not saving final snapshot"
-                  MU::Cloud::AWS.elasticache(region).delete_cache_cluster(cache_cluster_id: cluster_id)
+                  clusterSkipSnap(cluster_id, region)
                 else
-                  if skipsnapshots
-                    MU.log "Terminating #{cluster_id}. Not saving final snapshot"
-                    MU::Cloud::AWS.elasticache(region).delete_cache_cluster(cache_cluster_id: cluster_id)
-                  else
-                    MU.log "Terminating #{cluster_id}. Final snapshot name: #{cluster_id}-MUfinal"
-                    MU::Cloud::AWS.elasticache(region).delete_cache_cluster(cache_cluster_id: cluster_id, final_snapshot_identifier: "#{cluster_id}-MUfinal" )
-                  end
+                  skipsnapshots ? clusterSkipSnap(cluster_id, region) : clusterCreateSnap(cluster_id, region)
                 end
               rescue Aws::ElastiCache::Errors::InvalidCacheClusterState => e
                 if retries < 5
@@ -714,12 +709,10 @@ module MU
                 end
               rescue Aws::ElastiCache::Errors::SnapshotAlreadyExistsFault
                 MU.log "Snapshot #{cluster_id}-MUfinal already exists", MU::WARN
-                MU.log "Terminating #{cluster_id}. Not saving final snapshot"
-                MU::Cloud::AWS.elasticache(region).delete_cache_cluster(cache_cluster_id: cluster_id)
+                clusterSkipSnap(cluster_id, region)
               rescue Aws::ElastiCache::Errors::SnapshotQuotaExceededFault
                 MU.log "Snapshot quota exceeded while deleting #{cluster_id}", MU::ERR
-                MU.log "Terminating #{cluster_id}. Not saving final snapshot"
-                MU::Cloud::AWS.elasticache(region).delete_cache_cluster(cache_cluster_id: cluster_id)
+                clusterSkipSnap(cluster_id, region)
               end
 
               wait_start_time = Time.now
@@ -775,9 +768,9 @@ module MU
           unless repl_group.status == "available"
             loop do
               MU.log "Waiting for #{repl_group_id} to be in a removable state...", MU::NOTICE
-              sleep 60
               repl_group = MU::Cloud::AWS::CacheCluster.getCacheReplicationGroupById(repl_group_id, region: region)
               break unless %w{creating modifying backing-up}.include?(repl_group.status)
+              sleep 60
             end
           end
 
@@ -792,22 +785,27 @@ module MU
             MU.log "#{repl_group_id} has already been terminated", MU::WARN
           else
             unless noop
+              def self.skipSnap(repl_group_id, region)
+                # We're calling this several times so lets declare it once
+                MU.log "Terminating #{repl_group_id}. Not saving final snapshot"
+                MU::Cloud::AWS.elasticache(region).delete_replication_group(
+                  replication_group_id: repl_group_id,
+                  retain_primary_cluster: false
+                )
+              end
+
+              def self.createSnap(repl_group_id, region)
+                MU.log "Terminating #{repl_group_id}. Final snapshot name: #{repl_group_id}-mufinal"
+                MU::Cloud::AWS.elasticache(region).delete_replication_group(
+                  replication_group_id: repl_group_id,
+                  retain_primary_cluster: false,
+                  final_snapshot_identifier: "#{repl_group_id}-mufinal"
+                )
+              end
+
               retries = 0
               begin
-                if skipsnapshots
-                  MU.log "Terminating #{repl_group_id}. Not saving final snapshot"
-                  MU::Cloud::AWS.elasticache(region).delete_replication_group(
-                    replication_group_id: repl_group_id,
-                    retain_primary_cluster: false
-                  )
-                else
-                  MU.log "Terminating #{repl_group_id}. Final snapshot name: #{repl_group_id}-MUfinal"
-                  MU::Cloud::AWS.elasticache(region).delete_replication_group(
-                    replication_group_id: repl_group_id,
-                    retain_primary_cluster: false,
-                    final_snapshot_identifier: "#{repl_group_id}-MUfinal"
-                  )
-                end
+                skipsnapshots ? skipSnap(repl_group_id, region) : createSnap(repl_group_id, region)
               rescue Aws::ElastiCache::Errors::InvalidReplicationGroupState => e
                 if retries < 5
                   MU.log "#{repl_group_id} is not in a removable state, retrying several times", MU::WARN
@@ -820,18 +818,10 @@ module MU
                 end
               rescue Aws::ElastiCache::Errors::SnapshotAlreadyExistsFault
                 MU.log "Snapshot #{repl_group_id}-MUfinal already exists", MU::WARN
-                MU.log "Terminating #{repl_group_id}. Not saving final snapshot"
-                MU::Cloud::AWS.elasticache(region).delete_replication_group(
-                  replication_group_id: repl_group_id,
-                  retain_primary_cluster: false
-                )
+                skipSnap(repl_group_id, region)
               rescue Aws::ElastiCache::Errors::SnapshotQuotaExceededFault
                 MU.log "Snapshot quota exceeded while deleting #{repl_group_id}", MU::ERR
-                MU.log "Terminating #{repl_group_id}. Not saving final snapshot"
-                MU::Cloud::AWS.elasticache(region).delete_replication_group(
-                  replication_group_id: repl_group_id,
-                  retain_primary_cluster: false
-                )
+                skipSnap(repl_group_id, region)
               end
 
               wait_start_time = Time.now
@@ -870,23 +860,19 @@ module MU
         # @param region [String]: The cloud provider's region in which to operate.
         # @return [void]
         def self.delete_subnet_group(subnet_group_id, region: MU.curRegion)
-          if subnet_group_id
-            retries = 0
-            MU.log "Deleting Subnet group #{subnet_group_id}"
-            begin
-              MU::Cloud::AWS.elasticache(region).delete_cache_subnet_group(cache_subnet_group_name: subnet_group_id)
-            rescue Aws::ElastiCache::Errors::CacheSubnetGroupNotFoundFault
-              MU.log "Subnet group #{subnet_group_id} disappeared before we could remove it", MU::WARN
-            rescue Aws::ElastiCache::Errors::CacheSubnetGroupInUse => e
-              if retries < 5
-                MU.log "Subnet group #{subnet_group_id} is not in a removable state, retrying", MU::WARN
-                retries += 1
-                sleep 30
-                retry
-              else
-                MU.log "Subnet group #{subnet_group_id} is not in a removable state after several retries, giving up. #{e.inspect}", MU::ERR
-              end
-            end
+          retries ||= 0
+          MU.log "Deleting Subnet group #{subnet_group_id}"
+          MU::Cloud::AWS.elasticache(region).delete_cache_subnet_group(cache_subnet_group_name: subnet_group_id)
+        rescue Aws::ElastiCache::Errors::CacheSubnetGroupNotFoundFault
+          MU.log "Subnet group #{subnet_group_id} disappeared before we could remove it", MU::WARN
+        rescue Aws::ElastiCache::Errors::CacheSubnetGroupInUse => e
+          if retries < 5
+            MU.log "Subnet group #{subnet_group_id} is not in a removable state, retrying", MU::WARN
+            retries += 1
+            sleep 30
+            retry
+          else
+            MU.log "Subnet group #{subnet_group_id} is not in a removable state after several retries, giving up. #{e.inspect}", MU::ERR
           end
         end
 
@@ -895,26 +881,21 @@ module MU
         # @param region [String]: The cloud provider's region in which to operate.
         # @return [void]
         def self.delete_parameter_group(parameter_group_id, region: MU.curRegion)
-          if parameter_group_id && !parameter_group_id.start_with?("default")
-            retries = 0
-            MU.log "Deleting parameter group #{parameter_group_id}"
-
-            begin
-              MU::Cloud::AWS.elasticache(region).delete_cache_parameter_group(
-                cache_parameter_group_name: parameter_group_id
-              )
-            rescue Aws::ElastiCache::Errors::CacheParameterGroupNotFound
-              MU.log "Parameter group #{parameter_group_id} disappeared before we could remove it", MU::WARN
-            rescue Aws::ElastiCache::Errors::InvalidCacheParameterGroupState => e
-              if retries < 5
-                MU.log "Parameter group #{parameter_group_id} is not in a removable state, retrying", MU::WARN
-                retries += 1
-                sleep 30
-                retry
-              else
-                MU.log "Parameter group #{parameter_group_id} is not in a removable state after several retries, giving up. #{e.inspect}", MU::ERR
-              end
-            end
+          retries ||= 0
+          MU.log "Deleting parameter group #{parameter_group_id}"
+          MU::Cloud::AWS.elasticache(region).delete_cache_parameter_group(
+            cache_parameter_group_name: parameter_group_id
+          )
+        rescue Aws::ElastiCache::Errors::CacheParameterGroupNotFound
+          MU.log "Parameter group #{parameter_group_id} disappeared before we could remove it", MU::WARN
+        rescue Aws::ElastiCache::Errors::InvalidCacheParameterGroupState => e
+          if retries < 5
+            MU.log "Parameter group #{parameter_group_id} is not in a removable state, retrying", MU::WARN
+            retries += 1
+            sleep 30
+            retry
+          else
+            MU.log "Parameter group #{parameter_group_id} is not in a removable state after several retries, giving up. #{e.inspect}", MU::ERR
           end
         end
       end
