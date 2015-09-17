@@ -1254,6 +1254,7 @@ module MU
 
       read_replicas = []
       database_names = []
+      cluster_nodes = []
       databases.each { |db|
         db['region'] = config['region'] if db['region'].nil?
         db["dependencies"] = Array.new if db["dependencies"].nil?
@@ -1485,14 +1486,65 @@ module MU
           }
           read_replicas << replica
         end
+
+        # Do database cluster nodes the same way we do read replicas
+        if db["create_cluster"]
+          (1..db["cluster_node_count"]).each{ |num|
+            node = Marshal.load(Marshal.dump(db))
+            node["name"] = "#{db['name']}-#{num}"
+            database_names << node["name"]
+            node["create_cluster"] = false
+            node["creation_style"] = "new"
+            node["add_cluster_node"] = true
+            node["member_of_cluster"] = {
+              "db_name" => db['name'],
+              "cloud" => db['cloud'],
+              "region" => db['region']
+            }
+            # AWS will figure out for us which database instance is the writer/master so we can create all of them concurrently.
+            node['dependencies'] << {
+              "type" => "database",
+              "name" => db["name"],
+              "phase" => "groom"
+            }
+            cluster_nodes << node
+          }
+        end
       }
       databases.concat(read_replicas)
+      databases.concat(cluster_nodes)
       databases.each { |db|
         if !db['read_replica_of'].nil?
           rr = db['read_replica_of']
           if !rr['db_name'].nil?
             if !database_names.include?(rr['db_name'])
               MU.log "Read replica #{db['name']} references sibling source #{rr['db_name']}, but I have no such database", MU::ERR
+              ok = false
+            end
+          else
+            rr['cloud'] = db['cloud'] if rr['cloud'].nil?
+            tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
+            found = MU::MommaCat.findStray(
+                rr['cloud'],
+                "database",
+                deploy_id: rr["deploy_id"],
+                cloud_id: rr["db_id"],
+                tag_key: tag_key,
+                tag_value: tag_value,
+                region: rr["region"],
+                dummy_ok: true
+            )
+            ext_database = found.first if !found.nil? and found.size == 1
+            if !ext_database
+              MU.log "Couldn't resolve Database reference to a unique live Database in #{db['name']}", MU::ERR, details: rr
+              ok = false
+            end
+          end
+        elsif db["member_of_cluster"]
+          rr = db["member_of_cluster"]
+          if rr['db_name']
+            if !database_names.include?(rr['db_name'])
+              MU.log "Cluster node #{db['name']} references sibling source #{rr['db_name']}, but I have no such database", MU::ERR
               ok = false
             end
           else
@@ -2281,16 +2333,16 @@ module MU
         "description" => "The Amazon EleastiCache instance type to use when creating this cache cluster.",
     }
     @rds_size_primitive = {
-        "pattern" => "^db\.(t|m|c|i|g|r|hi|hs|cr|cg|cc){1,2}[0-9]\\.(micro|small|medium|[248]?x?large)$"
+        "pattern" => "^db\.(t|m|c|i|g|r|hi|hs|cr|cg|cc){1,2}[0-9]\\.(micro|small|medium|[248]?x?large)$",
         "type" => "string",
         "description" => "The Amazon RDS instance type to use when creating this database instance.",
     }
 
-    @rds_parameter_group_parameters_primitive = {
+    @rds_parameters_primitive = {
         "type" => "array",
         "minItems" => 1,
         "items" => {
-            "description" => "The database parameter to change and when to apply the change.",
+            "description" => "The database parameter group parameter to change and when to apply the change.",
             "type" => "object",
             "title" => "Database Parameter",
             "required" => ["name", "value"],
@@ -2311,11 +2363,11 @@ module MU
         }
     }
 
-    @eleasticache_parameter_group_parameters_primitive = {
+    @eleasticache_parameters_primitive = {
         "type" => "array",
         "minItems" => 1,
         "items" => {
-            "description" => "The cache cluster parameter to change and when to apply the change.",
+            "description" => "The cache cluster parameter group parameter to change and when to apply the change.",
             "type" => "object",
             "title" => "Cache Cluster Parameter",
             "required" => ["name", "value"],
@@ -3224,8 +3276,8 @@ module MU
                     }
                 ]
             },
-            "db_parameter_group_parameters" => @rds_parameter_group_parameters_primitive,
-            "cluster_parameter_group_parameters" => @rds_parameter_group_parameters_primitive,
+            "db_parameter_group_parameters" => @rds_parameters_primitive,
+            "cluster_parameter_group_parameters" => @rds_parameters_primitive,
             "parameter_group_family" => {
                 "type" => "String",
                 "enum" => ["postgres9.4", "postgres9.3", "mysql5.1", "mysql5.5", "mysql5.6", "oracle-ee-11.2", "oracle-ee-12.1", "oracle-se-11.2", "oracle-se-12.1", "oracle-se1-11.2", "oracle-se1-12.1",
@@ -3345,7 +3397,7 @@ module MU
                 "type" => "string",
                 "description" => "The AWS resource name of the AWS SNS notification topic alerts will be sent to.",
             },
-            "parameter_group_parameters" => @eleasticache_parameter_group_parameters_primitive,
+            "parameter_group_parameters" => @eleasticache_parameters_primitive,
             "parameter_group_family" => {
                 "type" => "String",
                 "enum" => ["memcached1.4", "redis2.6", "redis2.8"],

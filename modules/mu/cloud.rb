@@ -155,7 +155,7 @@ module MU
             :instance => generic_instance_methods + [:groom, :subnets, :getSubnet, :listSubnets, :findBastion]
         },
         :CacheCluster => {
-            :has_multiples => false,
+            :has_multiples => true,
             :can_live_in_vpc => true,
             :cfg_name => "cache_cluster",
             :cfg_plural => "cache_clusters",
