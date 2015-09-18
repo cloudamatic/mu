@@ -725,6 +725,9 @@ module MU
       if !File.directory?(ssh_dir) then
         MU.log "Creating #{ssh_dir}", MU::DEBUG
         Dir.mkdir(ssh_dir, 0700)
+        if Process.uid == 0 and @mu_user != "mu"
+          ssh_dir.chown(Etc.getpwnam(@mu_user).uid, Etc.getpwnam(@mu_user).gid)
+        end
       end
       if !File.exists?("#{ssh_dir}/#{@ssh_key_name}")
         MU.log "Generating SSH key #{@ssh_key_name}"
