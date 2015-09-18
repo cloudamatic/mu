@@ -1423,7 +1423,7 @@ module MU
           }
         end
 
-        File.open(ssh_conf, 'a') { |ssh_config|
+        File.open(ssh_conf, 'a', 0600) { |ssh_config|
           ssh_config.flock(File::LOCK_EX)
           host_str = "Host #{server.mu_name} #{server.canonicalIP}"
           if !names.nil? and names.size > 0
