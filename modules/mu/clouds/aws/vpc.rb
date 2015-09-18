@@ -1104,12 +1104,13 @@ module MU
             )
             resp.route_tables.each { |route_table|
               route_table.routes.each { |route|
-                if route.destination_cidr_block =="0.0.0.0/0" and !route.instance_id.nil?
-                  return true
+                if route.destination_cidr_block =="0.0.0.0/0"
+                  return true if !route.instance_id.nil?
+                  return false if !route.gateway_id.nil?
                 end
               }
             }
-            return false
+            return true
           end
         end
 
