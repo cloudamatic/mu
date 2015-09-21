@@ -753,6 +753,7 @@ module MU
                 )
               end
               forced_windows_reboot = false
+              retries = 0
             rescue Net::SSH::HostKeyMismatch => e
               MU.log("Remembering new key: #{e.fingerprint}")
               e.remember_host!
