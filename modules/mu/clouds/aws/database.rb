@@ -429,9 +429,9 @@ module MU
               subnets.each { |subnet|
                 # Make sure we aren't configuring publicly_accessible wrong.
                 if subnet.private? and @config["publicly_accessible"]
-                  raise MuError, "Found a private subnet but publicly_accessible is set to true on #{@config['identifier']}"
+                  raise MuError, "Found a private subnet but publicly_accessible is set to true on #{@config['identifier']} (#{subnet})"
                 elsif !subnet.private? and !@config["publicly_accessible"]
-                  raise MuError, "Found a public subnet but publicly_accessible is set to false on #{@config['identifier']}"
+                  raise MuError, "Found a public subnet but publicly_accessible is set to false on #{@config['identifier']} (#{subnet})"
                 end
                 subnet_ids << subnet.cloud_id
               }

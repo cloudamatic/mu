@@ -1,3 +1,14 @@
+- name: drupaldb
+  vpc:
+  <% if !$vpc_deploy_id  %>
+    vpc_name: vpc
+  <% else %>
+    deploy_id: <%= $vpc_deploy_id %>
+  <% end %>
+  rules:
+  - port: 3306
+    sgs:
+    - lnxapps
 - name: winapps_lb
   vpc:
   <% if !$vpc_deploy_id  %>
@@ -20,17 +31,6 @@
   - port: 80
     hosts:
     - 0.0.0.0/0
-- name: drupaldb
-  vpc:
-  <% if !$vpc_deploy_id  %>
-    vpc_name: vpc
-  <% else %>
-    deploy_id: <%= $vpc_deploy_id %>
-  <% end %>
-  rules:
-  - port: 3306
-    sgs:
-    - lnxapps
 - name: lnxapps_lb
   vpc:
   <% if !$vpc_deploy_id  %>
@@ -51,8 +51,8 @@
   <% end %>
   rules:
   - port-range: 0-65535
-    sgs:
-    - proxy_lb
+    lbs:
+    - proxylb
 - name: winapps
   vpc:
   <% if !$vpc_deploy_id  %>
@@ -62,8 +62,11 @@
   <% end %>
   rules:
   - port-range: 0-65535
+    lbs:
+    - winlb
+  - port-range: 0-65535
     sgs:
-    - winapps_lb
+    - proxy
 - name: lnxapps
   vpc:
   <% if !$vpc_deploy_id  %>
@@ -73,5 +76,8 @@
   <% end %>
   rules:
   - port-range: 0-65535
+    lbs:
+    - lnxlb
+  - port-range: 0-65535
     sgs:
-    - lnxapps_lb
+    - proxy

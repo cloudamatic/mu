@@ -136,6 +136,7 @@ module MU
                     MU::MommaCat.createTag(subnet_id, tag['key'], tag['value'], region: @config['region'])
                   }
                 end
+
                 if resp.state != "available"
                   begin
                     MU.log "Waiting for Subnet #{subnet_name} (#{subnet_id}) to be available", MU::NOTICE
@@ -212,6 +213,7 @@ module MU
             subnetthreads.each { |t|
               t.join
             }
+
             notify
           end
 
@@ -1096,12 +1098,13 @@ module MU
             )
             resp.route_tables.each { |route_table|
               route_table.routes.each { |route|
-                if route.destination_cidr_block =="0.0.0.0/0" and !route.instance_id.nil?
-                  return true
+                if route.destination_cidr_block =="0.0.0.0/0"
+                  return true if !route.instance_id.nil?
+                  return false if !route.gateway_id.nil?
                 end
               }
             }
-            return false
+            return true
           end
         end
 

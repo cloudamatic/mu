@@ -2,7 +2,7 @@ GEM
   remote: https://rubygems.org/
   specs:
     addressable (2.3.8)
-    aws-sdk-core (2.1.17)
+    aws-sdk-core (2.1.23)
       jmespath (~> 1.0)
     berkshelf (3.3.0)
       addressable (~> 2.3.4)
@@ -260,7 +260,7 @@ PLATFORMS
   ruby
 
 DEPENDENCIES
-  aws-sdk-core (~> 2.1.17)
+  aws-sdk-core (~> 2.1.23)
   berkshelf
   celluloid (= 0.16.0)
   chef (~> 12.4.1)

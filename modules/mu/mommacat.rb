@@ -725,6 +725,9 @@ module MU
       if !File.directory?(ssh_dir) then
         MU.log "Creating #{ssh_dir}", MU::DEBUG
         Dir.mkdir(ssh_dir, 0700)
+        if Process.uid == 0 and @mu_user != "mu"
+          ssh_dir.chown(Etc.getpwnam(@mu_user).uid, Etc.getpwnam(@mu_user).gid)
+        end
       end
       if !File.exists?("#{ssh_dir}/#{@ssh_key_name}")
         MU.log "Generating SSH key #{@ssh_key_name}"
@@ -1420,7 +1423,7 @@ module MU
           }
         end
 
-        File.open(ssh_conf, 'a') { |ssh_config|
+        File.open(ssh_conf, 'a', 0600) { |ssh_config|
           ssh_config.flock(File::LOCK_EX)
           host_str = "Host #{server.mu_name} #{server.canonicalIP}"
           if !names.nil? and names.size > 0

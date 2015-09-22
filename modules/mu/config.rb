@@ -1400,11 +1400,11 @@ module MU
               MU.log "subnet_pref #{db["vpc"]["subnet_pref"]} is not supported for database instance.", MU::ERR
               ok = false
             elsif db["vpc"]["subnet_pref"] == "all_public" and !db['publicly_accessible']
-              MU.log "publicly_accessible must be set to true when deploying into public subnets.", MU::ERR
-              ok = false
+              MU.log "Setting publicly_accessible to true, since deploying into public subnets.", MU::WARN
+              db['publicly_accessible'] = true
             elsif db["vpc"]["subnet_pref"] == "all_private" and db['publicly_accessible']
-              MU.log "publicly_accessible must be set to false when deploying into private subnets.", MU::ERR
-              ok = false
+              MU.log "Setting publicly_accessible to false, since  deploying into private subnets.", MU::NOTICE
+              db['publicly_accessible'] = false
             end
           end
 
