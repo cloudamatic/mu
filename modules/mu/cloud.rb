@@ -61,6 +61,12 @@ module MU
     # Stub base class; real implementations generated at runtime
     class CacheCluster;
     end
+    # Stub base class; real implementations generated at runtime
+    class Alert;
+    end
+    # Stub base class; real implementations generated at runtime
+    class Notification;
+    end
 
     # The types of cloud resources we can create, as class objects. Include
     # methods a class implementing this resource type must support to be
@@ -165,6 +171,28 @@ module MU
             :class => generic_class_methods,
             :instance => generic_instance_methods + [:groom]
         },
+        :Alert => {
+            :has_multiples => false,
+            :can_live_in_vpc => false,
+            :cfg_name => "alert",
+            :cfg_plural => "alerts",
+            :interface => self.const_get("Alert"),
+            :deps_wait_on_my_creation => false,
+            :waits_on_parent_completion => false,
+            :class => generic_class_methods,
+            :instance => generic_instance_methods + [:groom]
+        },
+        :Notification => {
+            :has_multiples => false,
+            :can_live_in_vpc => false,
+            :cfg_name => "notification",
+            :cfg_plural => "notifications",
+            :interface => self.const_get("Notification"),
+            :deps_wait_on_my_creation => false,
+            :waits_on_parent_completion => false,
+            :class => generic_class_methods,
+            :instance => generic_instance_methods + [:groom]
+        }
     }.freeze
 
 

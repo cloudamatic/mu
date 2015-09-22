@@ -811,6 +811,7 @@ module MU
       servers = config['servers']
       server_pools = config['server_pools']
       cache_clusters = config['cache_clusters']
+      alerts = config['alerts']
       loadbalancers = config['loadbalancers']
       collections = config['collections']
       firewall_rules = config['firewall_rules']
@@ -821,13 +822,14 @@ module MU
       servers = Array.new if servers.nil?
       server_pools = Array.new if server_pools.nil?
       cache_clusters = Array.new if cache_clusters.nil?
+      alerts = Array.new if alerts.nil?
       loadbalancers = Array.new if loadbalancers.nil?
       collections = Array.new if collections.nil?
       firewall_rules = Array.new if firewall_rules.nil?
       vpcs = Array.new if vpcs.nil?
       dnszones = Array.new if dnszones.nil?
 
-      if databases.size < 1 and servers.size < 1 and server_pools.size < 1 and loadbalancers.size < 1 and collections.size < 1 and firewall_rules.size < 1 and vpcs.size < 1 and dnszones.size < 1 and cache_clusters.size < 1
+      if databases.size < 1 and servers.size < 1 and server_pools.size < 1 and loadbalancers.size < 1 and collections.size < 1 and firewall_rules.size < 1 and vpcs.size < 1 and dnszones.size < 1 and cache_clusters.size < 1 and alerts.size < 1 
         MU.log "You must declare at least one resource to create", MU::ERR
         ok = false
       end
@@ -1178,11 +1180,31 @@ module MU
           ok = false
           MU.log "One of the following MUST be specified for Server Pools: region, zones, vpc_zone_identifier, vpc.", MU::ERR
         end
+
         if !pool["scaling_policies"].nil?
           pool["scaling_policies"].each { |policy|
-            if policy['type'] != "PercentChangeInCapacity" and !policy['min_adjustment_step'].nil?
-              MU.log "Cannot specify scaling policy min_adjustment_step if type is not PercentChangeInCapacity", MU::ERR
+            if policy['type'] != "PercentChangeInCapacity" and !policy['min_adjustment_magnitude'].nil?
+              MU.log "Cannot specify scaling policy min_adjustment_magnitude if type is not PercentChangeInCapacity", MU::ERR
               ok = false
+            end
+
+            if policy["policy_type"] == "SimpleScaling"
+              unless policy["cooldown"] && policy["adjustment"]
+                MU.log "You must specify 'cooldown' and 'adjustment' when using 'SimpleScaling'", MU::ERR
+                ok = false
+              end
+            elsif policy["policy_type"] == "StepScaling"
+              unless policy["metric_aggregation_type"] && policy["step_adjustments"] && policy["estimated_instance_warmup"]
+                MU.log "You must specify 'metric_aggregation_type' and 'step_adjustments' and 'estimated_instance_warmup' when using 'StepScaling'", MU::ERR
+                ok = false
+              end
+            end
+            
+            if policy["alarms"] && !policy["alarms"].empty?
+              policy["alarms"].each { |alarm|
+                alarm["metric_name"] = "CPUUtilization" if alarm["metric_name"].nil?
+                alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
+              }
             end
           }
         end
@@ -2516,6 +2538,143 @@ module MU
         }
     }
 
+
+    # We want to have a default email to send SNS notifications
+    sns_notification_email = 
+      if MU.chef_user == "mu"
+        ENV['MU_ADMIN_EMAIL']
+      else
+        MU.userEmail
+      end
+
+    @cloudwatch_alarm_primitive = {
+        "type" => "array",
+        "minItems" => 1,
+        "items" => {
+            "description" => "Create a CloudWatch Alarm.",
+            "type" => "object",
+            "title" => "CloudWatch Alarm Parameters",
+            "required" => ["name", "metric_name", "statistic", "period", "evaluation_periods", "threshold", "comparison_operator"],
+            "additionalProperties" => false,
+            "properties" => {
+                "name" => {
+                    "type" => "string"
+                },
+                "ok_actions" => {
+                    "type" => "array",
+                    "minItems" => 1,
+                    "description" => "What action(s) to take when alarm state transitions to 'OK'.",
+                    "items" => {
+                        "type" => "String"
+                    }
+                },
+                "alarm_actions" => {
+                    "type" => "array",
+                    "minItems" => 1,
+                    "description" => "What action(s) to take when alarm state transitions to 'ALARM'.",
+                    "items" => {
+                        "type" => "String"
+                    }
+                },
+                "no_data_actions" => {
+                    "type" => "array",
+                    "minItems" => 1,
+                    "description" => "What action(s) to take when alarm state transitions to 'INSUFFICIENT'.",
+                    "items" => {
+                        "type" => "String"
+                    }
+                },
+                "metric_name" => {
+                    "type" => "string",
+                    "description" => "The name of the attribute to monitor eg. CPUUtilization."
+                },
+                "namespace" => {
+                    "type" => "string",
+                    "description" => "The name of container 'metric_name' belongs to eg. 'AWS/EC2'"
+                },
+                "statistic" => {
+                    "type" => "string",
+                    "description" => "",
+                    "enum" => ["SampleCount", "Average", "Sum", "Minimum", "Maximum"]
+                },
+                "dimensions" => {
+                    "type" => "array",
+                    "description" => "What to monitor",
+                    "minItems" => 1,
+                    "items" => {
+                        "type" => "object",
+                        "required" => ["name", "value"],
+                        "additionalProperties" => false,
+                        "properties" => {
+                            "name" => {
+                                "type" => "string"
+                            },
+                            "value" => {
+                                "type" => "string"
+                            }
+                        }
+                    }  
+                },
+                "period" => {
+                    "type" => "integer",
+                    "description" => "The time, in seconds the 'statistic' is checked/tested. Must be multiples of 60"
+                },
+                "unit" => {
+                    "type" => "string",
+                    "description" => "Associtead with the 'metric'",
+                    "enum" => ["Seconds", "Microseconds", "Milliseconds", "Bytes", "Kilobytes", "Megabytes", "Gigabytes", "Terabytes", "Bits", "Kilobits", "Megabits", "Gigabits", "Terabits", "Percent", "Count", "Bytes/Second", 
+                                        "Kilobytes/Second", "Megabytes/Second", "Gigabytes/Second", "Terabytes/Second", "Bits/Second", "Kilobits/Second", "Megabits/Second", "Gigabits/Second", "Terabits/Second", "Count/Second", "nil"]
+                },
+                "evaluation_periods" => {
+                    "type" => "integer",
+                    "description" => "The number of times to repeat the 'period' before changing the state of an alarm. eg form 'OK' to 'ALARM' state"
+                },
+                "threshold" => {
+                # TO DO: This should be a float
+                    "type" => "integer",
+                    "description" => "The value the 'statistic' is compared to and action (eg 'alarm_actions') will be invoked "
+                },
+                "comparison_operator" => {
+                    "type" => "string",
+                    "description" => "The arithmetic operation to use when comparing 'statistic' and 'threshold'. The 'statistic' value is used as the first operand",
+                    "enum" => ["GreaterThanOrEqualToThreshold", "GreaterThanThreshold", "LessThanThreshold", "LessThanOrEqualToThreshold"]
+                },
+                # TO DO: Separate all of these to an SNS primitive
+                "enable_notifications" => {
+                    "type" => "boolean",
+                    "description" => "Rather to send notifications of change in alarm state"
+                },
+                "notification_group" => {
+                    "type" => "string",
+                    "description" => "The name of the notification group. Will be created if it doesn't exist. We use / create a default one if not specified. NOTE: because we can't confirm subscription to a group programmatically, you should use an existing group",
+                    "default" => "mu-default"
+                },
+                "notification_type" => {
+                    "type" => "string",
+                    "description" => "What type of notification endpoint will the notification be sent to. defaults to 'email'",
+                    "enum" => ["http", "https", "email", "email-json", "sms", "sqs", "application"],
+                    "default" => "email"
+                },
+                "notification_endpoint" => {
+                    "type" => "string",
+                    "description" => "The endpoint the notification will be sent to. eg. if notification_type is 'email'/'email-json' the endpoint will be the email address. A confirmation email will be sent to this email address if a new notification_group is created, if not specified and notification_type is set to 'email' we will use the mu-master email address",
+                    "default_if" => [
+                        {
+                            "key_is" => "notification_type",
+                            "value_is" => "email",
+                            "set" => sns_notification_email
+                        },
+                        {
+                            "key_is" => "notification_type",
+                            "value_is" => "email-json",
+                            "set" => sns_notification_email
+                        }
+                    ]              
+                }
+            }
+        }
+    }
+
     @cloudformation_primitive = {
         "type" => "object",
         "title" => "cloudformation",
@@ -2612,6 +2771,16 @@ module MU
                     "description" => "The DNS name of an existing Elastic Load Balancer. Must be in the same region as this deployment."
                 }
             }
+        }
+    }
+
+    @alert_primitive = {
+        "type" => "object",
+        "title" => "CloudWatch Monitoring",
+        "additionalProperties" => false,
+        "description" => "Create Amazon CloudWatch alarms.",
+        "properties" => {
+            "alarms" => @cloudwatch_alarm_primitive
         }
     }
 
@@ -2767,6 +2936,7 @@ module MU
         "name" => {"type" => "string"},
         "region" => @region_primitive,
         "cloud" => @cloud_primitive,
+        "alarms" => @cloudwatch_alarm_primitive,
         "async_groom" => {
             "type" => "boolean",
             "default" => false,
@@ -3157,6 +3327,7 @@ module MU
                 "enum" => MU.supportedGroomers
             },
             "name" => {"type" => "string"},
+            "alarms" => @cloudwatch_alarm_primitive,
             "region" => @region_primitive,
             "db_family" => {"type" => "string"},
             "tags" => @tags_primitive,
@@ -3321,6 +3492,7 @@ module MU
             "name" => {"type" => "string"},
             "region" => @region_primitive,
             "tags" => @tags_primitive,
+            "alarms" => @cloudwatch_alarm_primitive,
             "engine_version" => {"type" => "string"},
             "node_count" => {
               "type" => "integer",
@@ -3682,7 +3854,7 @@ module MU
                         "name" => {
                             "type" => "string"
                         },
-                        # XXX "alarm" - need some kind of reference capability to a CloudWatch alarm
+                        "alarms" => @cloudwatch_alarm_primitive,
                         "type" => {
                             "type" => "string",
                             "enum" => ["ChangeInCapacity", "ExactCapacity", "PercentChangeInCapacity"],
@@ -3690,18 +3862,57 @@ module MU
                         },
                         "adjustment" => {
                             "type" => "integer",
-                            "description" => "The number of instances by which to scale. 'type' determines the interpretation of this number (e.g., as an absolute number or as a percentage of the existing Auto Scaling group size). A positive increment adds to the current capacity and a negative value removes from the current capacity."
+                            "description" => "The number of instances by which to scale. 'type' determines the interpretation of this number (e.g., as an absolute number or as a percentage of the existing Auto Scaling group size). A positive increment adds to the current capacity and a negative value removes from the current capacity. Used only when policy_type is set to 'SimpleScaling'"
                         },
                         "cooldown" => {
                             "type" => "integer",
                             "default" => 1,
                             "description" => "The amount of time, in seconds, after a scaling activity completes and before the next scaling activity can start."
                         },
-                        "min_adjustment_step" => {
+                        "min_adjustment_magnitude" => {
                             "type" => "integer",
-                            "description" => "Used with 'type' with the value PercentChangeInCapacity, the scaling policy changes the DesiredCapacity of the Auto Scaling group by at least the number of instances specified in the value."
+                            "description" => "Used when 'type' is set to 'PercentChangeInCapacity', the scaling policy changes the DesiredCapacity of the Auto Scaling group by at least the number of instances specified in the value."
+                        },
+                        "policy_type" => {
+                          "type" => "string",
+                          "enum" => ["SimpleScaling", "StepScaling"],
+                          "description" => "'StepScaling' will add capacity based on the magnitude of the alarm breach, 'SimpleScaling' will add capacity based on the 'adjustment' value ypu provide. Defaults to 'SimpleScaling' if not specified.",
+                          "default" => "SimpleScaling"
+                        },
+                        "metric_aggregation_type" => {
+                          "type" => "string",
+                          "enum" => ["Minimum", "Maximum", "Average"],
+                          "description" => "Defaults to 'Average' if not specified. Requires policy_type 'StepScaling'"
+                        },
+                        "step_adjustments" => {
+                          "type" => "array",
+                          "minItems" => 1,
+                          "items" => {
+                            "type" => "object",
+                            "title" => "admin",
+                            "description" => "Requires policy_type 'StepScaling'",
+                            "required" => ["adjustment"],
+                            "additionalProperties" => false,
+                            "properties" => {
+                              "adjustment" => {
+                                  "type" => "integer",
+                                  "description" => "The number of instances by which to scale at this specific step"
+                              },
+                              "interval_lower_bound" => {
+                                  "type" => "string",
+                                  "description" => ""
+                              },
+                              "interval_upper_bound" => {
+                                  "type" => "string",
+                                  "description" => ""
+                              }
+                            }
+                          }
+                        },
+                        "estimated_instance_warmup" => {
+                          "type" => "integer",
+                          "description" => "Requires policy_type 'StepScaling'"
                         }
-
                     }
                 }
             },
@@ -3829,6 +4040,10 @@ module MU
             "cache_clusters" => {
                 "type" => "array",
                 "items" => @cache_cluster_primitive
+            },
+            "alerts" => {
+                "type" => "array",
+                "items" => @alert_primitive
             },
             "dnszones" => {
                 "type" => "array",

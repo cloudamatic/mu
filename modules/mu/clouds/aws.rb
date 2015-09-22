@@ -157,6 +157,13 @@ module MU
         @@elasticache_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ElastiCache", region: region)
         @@elasticache_api[region]
       end
+      
+      # Amazon's SNS API
+      def self.sns(region = MU.curRegion)
+        region ||= MU.myRegion
+        @@sns_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "SNS", region: region)
+        @@sns_api[region]
+      end
 
       # Fetch an Amazon instance metadata parameter (example: public-ipv4).
       # @param param [String]: The parameter name to fetch
@@ -372,8 +379,8 @@ module MU
       @@cloudtrails_api = {}
       @@cloudwatch_api = {}
       @@cloudfront_api = {}
-      @@cloudfront_api = {}
       @@elasticache_api = {}
+      @@sns_api = {}
 
     end
   end

@@ -273,16 +273,53 @@ module MU
           if @config["scaling_policies"] and @config["scaling_policies"].size > 0
             @config["scaling_policies"].each { |policy|
               policy_params = {
-                  :auto_scaling_group_name => @mu_name,
-                  :policy_name => @deploy.getResourceName("#{@config['name']}-#{policy['name']}"),
-                  :scaling_adjustment => policy['adjustment'],
-                  :adjustment_type => policy['type'],
-                  :cooldown => policy['cooldown']
+                :auto_scaling_group_name => @mu_name,
+                :policy_name => @deploy.getResourceName("#{@config['name']}-#{policy['name']}"),
+                :adjustment_type => policy['type'],
+                :policy_type => policy['policy_type']
               }
-              if !policy['min_adjustment_step'].nil?
-                policy_params[:min_adjustment_step] = policy['min_adjustment_step']
+
+              if policy["policy_type"] == "SimpleScaling"
+                policy_params[:cooldown] = policy['cooldown']
+                policy_params[:scaling_adjustment] = policy['adjustment']
+              elsif policy["policy_type"] == "StepScaling"
+                policy_params[:metric_aggregation_type] = policy['metric_aggregation_type']
+                policy_params[:step_adjustments] = policy['step_adjustments']
+                policy_params[:estimated_instance_warmup] = policy['estimated_instance_warmup']
               end
-              MU::Cloud::AWS.autoscale.put_scaling_policy(policy_params)
+
+              policy_params[:min_adjustment_magnitude] = policy['min_adjustment_magnitude'] if !policy['min_adjustment_magnitude'].nil?
+              resp = MU::Cloud::AWS.autoscale.put_scaling_policy(policy_params)
+
+              if policy["alarms"] && !policy["alarms"].empty?
+                policy["alarms"].each { |alarm|
+                  alarm["alarm_actions"] = [] if alarm["alarm_actions"].nil?
+                  alarm["alarm_actions"] << resp.policy_arn
+
+                  if alarm["enable_notifications"]
+                    topic_arn = MU::Cloud::AWS::Notification.createTopic(alarm["notification_group"], region: @config["region"])
+                    MU::Cloud::AWS::Notification.subscribeToTopic(arn: topic_arn, protocol: alarm["notification_type"], endpoint: alarm["notification_endpoint"], region: @config["region"])
+                    alarm["alarm_actions"] << topic_arn
+                  end
+
+                  MU::Cloud::AWS::Alert.createAlarm(
+                    name: @deploy.getResourceName("#{@config["name"]}-#{alarm["name"]}"),
+                    ok_actions: alarm["ok_actions"],
+                    alarm_actions: alarm["alarm_actions"],
+                    insufficient_data_actions: alarm["no_data_actions"],
+                    metric_name: alarm["metric_name"],
+                    namespace: alarm["namespace"],
+                    statistic: alarm["statistic"],
+                    dimensions: alarm["dimensions"],
+                    period: alarm["period"],
+                    unit: alarm["unit"],
+                    evaluation_periods: alarm["evaluation_periods"],
+                    threshold: alarm["threshold"],
+                    comparison_operator: alarm["comparison_operator"],
+                    region: @config["region"]
+                  )
+                }
+              end
             }
           end
 
