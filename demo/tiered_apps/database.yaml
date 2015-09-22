@@ -8,6 +8,7 @@
 <% else %>
       vpc_name: vpc
 <% end %>
+      subnet_pref: all_private
     size: db.t2.medium
     storage: 5
     port: 3306

@@ -131,16 +131,17 @@ projects[drupal][patch][1697570] = http://drupal.org/files/drupal7.menu-system.1
       end
     end
 
+    settings_vars = {
+      :db_name => node.deployment.databases.drupaldb.db_name,
+      :username => node.deployment.databases.drupaldb.username,
+      :password => node.deployment.databases.drupaldb.password,
+      :db_host_name => node.deployment.databases.drupaldb.endpoint,
+      :proxy_lb_url => node.deployment.loadbalancers.proxylb.dns
+    }
+
     template "#{node.apache.docroot_dir}/drupal/sites/default/settings.php" do
       source "settings.php.erb"
-      variables(
-          :db_name => node.deployment.databases.drupaldb.db_name,
-          :username => node.deployment.databases.drupaldb.username,
-          :password => node.deployment.databases.drupaldb.password,
-          :db_host_name => node.deployment.databases.drupaldb.endpoint,
-          :proxy_lb_url => node.deployment.loadbalancers.proxylb.dns
-      # :cookie_domain => node.deployment.loadbalancers.proxylb.dns
-      )
+      variables settings_vars
     end
 
     %w{httpd_can_network_connect httpd_can_network_connect_db httpd_can_sendmail}.each { |priv|
@@ -187,10 +188,22 @@ projects[drupal][patch][1697570] = http://drupal.org/files/drupal7.menu-system.1
     if first_node_struct['nodename'] == Chef::Config[:node_name]
       profile = "standard"
       profile = "openpublic" if node.application_attributes.drupal_distro == "openpublic"
+      real_base_url = settings_vars[:proxy_lb_url]
+      settings_vars[:proxy_lb_url] = "localhost"
+      template "#{node.apache.docroot_dir}/drupal/sites/default/settings.php" do
+        source "settings.php.erb"
+        variables settings_vars
+      end
       execute "drush -y si #{profile} --site-name='#{node.application_attributes.my_domain}'" do
         cwd "#{node.apache.docroot_dir}/drupal"
         not_if "cd #{node.apache.docroot_dir}/drupal && ( `drush sql-connect` -e \"SHOW TABLES\" | grep drupal_cache )"
       end
+      settings_vars[:proxy_lb_url] = real_base_url
+      template "#{node.apache.docroot_dir}/drupal/sites/default/settings.php" do
+        source "settings.php.erb"
+        variables settings_vars
+      end
+
       if profile == "standard"
         execute "drush vset theme_default nexus" do
           cwd "#{node.apache.docroot_dir}/drupal"
