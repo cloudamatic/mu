@@ -50,7 +50,7 @@ module MU
         # @return [String]: The cloud provider's identifier for this database instance.
         def create
           # RDS is picky, we can't just use our regular node names for things like
-            # the default schema or username. And it varies from engine to engine.
+          # the default schema or username. And it varies from engine to engine.
           basename = @config["name"]+@deploy.timestamp+MU.seed.downcase
           basename.gsub!(/[^a-z0-9]/i, "")
           @config["db_name"] = getName(basename, type: "dbname")
@@ -680,7 +680,7 @@ module MU
         end
 
         # Retrieve a complete description of a database cluster parameter group.
-        # @param subnet_id [String]: The cloud provider's identifier for this parameter group.
+        # @param param_group_id [String]: The cloud provider's identifier for this parameter group.
         # @param region [String]: The cloud provider region
         # @return [OpenStruct]
         def self.getDBClusterParameterGroup(param_group_id, region: MU.curRegion)
@@ -692,7 +692,7 @@ module MU
         end
 
         # Retrieve a complete description of a database parameter group.
-        # @param subnet_id [String]: The cloud provider's identifier for this parameter group.
+        # @param param_group_id [String]: The cloud provider's identifier for this parameter group.
         # @param region [String]: The cloud provider region
         # @return [OpenStruct]
         def self.getDBParameterGroup(param_group_id, region: MU.curRegion)
@@ -893,7 +893,7 @@ module MU
         end
 
         # Retrieve the complete cloud provider description of a database cluster.
-        # @param db_id [String]: The cloud provider's identifier for this database cluster.
+        # @param db_cluster_id [String]: The cloud provider's identifier for this database cluster.
         # @param region [String]: The cloud provider region
         # @return [OpenStruct]
         def self.getDatabaseClusterById(db_cluster_id, region: MU.curRegion)
@@ -1367,7 +1367,7 @@ module MU
         end
 
         # Remove an RDS database cluster and associated artifacts
-        # @param db [OpenStruct]: The cloud provider's description of the database artifact
+        # @param cluster [OpenStruct]: The cloud provider's description of the database artifact
         # @return [void]
         def self.terminate_rds_cluster(cluster, noop = false, skipsnapshots = false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil)
           raise MuError, "terminate_rds_cluster requires a non-nil database cluster descriptor" if cluster.nil?

@@ -796,6 +796,83 @@ module MU
       @admin_firewall_rules << acl if !@admin_firewall_rules.include?(acl)
       return {"type" => "firewall_rule", "name" => name}
     end
+    
+    def self.validate_alarm_config(alarm)
+      ok = true
+
+      if alarm["namespace"].nil?
+        MU.log "You must specify 'namespace' when creating an alarm", MU::ERR
+        ok = false
+      end
+
+      if alarm["metric_name"].nil?
+        MU.log "You must specify 'metric_name' when creating an alarm", MU::ERR
+        ok = false
+      end
+
+      if alarm["statistic"].nil?
+        MU.log "You must specify 'statistic' when creating an alarm", MU::ERR
+        ok = false
+      end
+
+      if alarm["period"].nil?
+        MU.log "You must specify 'period' when creating an alarm", MU::ERR
+        ok = false
+      end
+
+      if alarm["evaluation_periods"].nil?
+        MU.log "You must specify 'evaluation_periods' when creating an alarm", MU::ERR
+        ok = false
+      end
+
+      if alarm["threshold"].nil?
+        MU.log "You must specify 'threshold' when creating an alarm", MU::ERR
+        ok = false
+      end
+
+      if alarm["comparison_operator"].nil?
+        MU.log "You must specify 'comparison_operator' when creating an alarm", MU::ERR
+        ok = false
+      end
+
+      if alarm["enable_notifications"]
+        if alarm["comparison_operator"].nil?
+          MU.log "You must specify 'comparison_operator' when creating an alarm", MU::ERR
+          ok = false
+        end
+
+        if alarm["notification_group"].nil?
+          MU.log "You must specify 'notification_group' when 'enable_notifications' is set to true", MU::ERR
+          ok = false
+        end
+
+        if alarm["notification_type"].nil?
+          MU.log "You must specify 'notification_type' when 'enable_notifications' is set to true", MU::ERR
+          ok = false
+        end
+
+        if alarm["notification_endpoint"].nil?
+          MU.log "You must specify 'notification_endpoint' when 'enable_notifications' is set to true", MU::ERR
+          ok = false
+        end
+      end
+      
+      if alarm["dimensions"]
+        alarm["dimensions"].each{ |dimension|
+          if dimension["mu_name"] && dimension["cloud_id"]
+            MU.log "You can only specfiy 'mu_name' or 'cloud_id'", MU::ERR
+            ok = false
+          end
+
+          if dimension["cloud_class"].nil?
+            ok = false
+            MU.log "You must specify 'cloud_class'", MU::ERR
+          end
+        }
+      end
+
+      return ok
+    end
 
     def self.validate(config)
       ok = true
@@ -1199,11 +1276,11 @@ module MU
                 ok = false
               end
             end
-            
+
             if policy["alarms"] && !policy["alarms"].empty?
               policy["alarms"].each { |alarm|
-                alarm["metric_name"] = "CPUUtilization" if alarm["metric_name"].nil?
                 alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
+                ok = false unless validate_alarm_config(alarm)
               }
             end
           }
@@ -1352,12 +1429,12 @@ module MU
             end
           elsif %w{sqlserver-ex sqlserver-web}.include? db["engine"]
             if !(100..4096).include? db["storage"]
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 4096 GB  with 100 GB increments for #{db["storage_type"]} volume types", MU::ERR
+              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 4096 GB for #{db["storage_type"]} volume types", MU::ERR
               ok = false
             end
           elsif %w{sqlserver-ee sqlserver-se}.include? db["engine"]
             if !(200..4096).include? db["storage"]
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 200 to 4096 GB  with 100 GB increments for #{db["storage_type"]} volume types", MU::ERR
+              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 200 to 4096 GB #{db["storage_type"]} volume types", MU::ERR
               ok = false
             end
           end
@@ -1595,7 +1672,7 @@ module MU
         cluster['region'] = config['region'] if cluster['region'].nil?
         cluster["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("CacheCluster")
         cluster["dependencies"] = [] if cluster["dependencies"].nil?
-        
+
         if cluster["creation_style"] != "new" && cluster["identifier"].nil?
           MU.log "creation_style is set to #{cluster['creation_style']} but no identifier was provided. Either set creation_style to new or provide an identifier", MU::ERR
           ok = false
@@ -1710,6 +1787,36 @@ module MU
         end
 
         cluster['dependencies'] << genAdminFirewallRuleset(vpc: cluster['vpc'], region: cluster['region'], cloud: cluster['cloud'])
+      }
+
+      alerts.each { |alert|
+        alert['region'] = config['region'] if alert['region'].nil?
+        alert["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Alert")
+        alert["dependencies"] = [] if alert["dependencies"].nil?
+
+        if alert["dimensions"]
+          alert["dimensions"].each{ |dimension|
+            if dimension["cloud_class"].nil?
+              MU.log "You must specify 'cloud_class'", MU::ERR
+              ok = false
+            end
+
+            alert["namespace"] = 
+              if dimension["cloud_class"] == "InstanceId"
+                "AWS/EC2"
+              elsif dimension["cloud_class"] == "DBInstanceIdentifier"
+                "AWS/RDS"
+              elsif dimension["cloud_class"] == "LoadBalancerName"
+                "AWS/ELB"
+              elsif dimension["cloud_class"] == "CacheClusterId"
+                "AWS/ElastiCache"
+              elsif dimension["cloud_class"] == "VolumeId"
+                "AWS/EBS"
+              end
+          }
+        end
+
+        ok = false unless validate_alarm_config(alert)
       }
 
       servers.each { |server|
@@ -2538,7 +2645,6 @@ module MU
         }
     }
 
-
     # We want to have a default email to send SNS notifications
     sns_notification_email = 
       if MU.chef_user == "mu"
@@ -2547,7 +2653,146 @@ module MU
         MU.userEmail
       end
 
-    @cloudwatch_alarm_primitive = {
+    @alert_common_properties = {
+        "name" => {
+            "type" => "string"
+        },
+        "ok_actions" => {
+            "type" => "array",
+            "minItems" => 1,
+            "description" => "What action(s) to take when alarm state transitions to 'OK'.",
+            "items" => {
+                "type" => "String"
+            }
+        },
+        "alarm_actions" => {
+            "type" => "array",
+            "minItems" => 1,
+            "description" => "What action(s) to take when alarm state transitions to 'ALARM'.",
+            "items" => {
+                "type" => "String"
+            }
+        },
+        "no_data_actions" => {
+            "type" => "array",
+            "minItems" => 1,
+            "description" => "What action(s) to take when alarm state transitions to 'INSUFFICIENT'.",
+            "items" => {
+                "type" => "String"
+            }
+        },
+        "metric_name" => {
+            "type" => "string",
+            "description" => "The name of the attribute to monitor eg. CPUUtilization."
+        },
+        "namespace" => {
+            "type" => "string",
+            "description" => "The name of container 'metric_name' belongs to eg. 'AWS/EC2'"
+        },
+        "statistic" => {
+            "type" => "string",
+            "description" => "",
+            "enum" => ["SampleCount", "Average", "Sum", "Minimum", "Maximum"]
+        },
+        "dimensions" => {
+            "type" => "array",
+            "description" => "What to monitor",
+            "minItems" => 1,
+            "items" => {
+                "type" => "object",
+                "additionalProperties" => false,
+                "properties" => {
+                    "cloud_class" => {
+                        "type" => "string",
+                        "description" => "eg InstanceId, DBInstanceIdentifier",
+                    },
+                    "cloud_id" => {
+                        "type" => "string",
+                        "description" => "The cloud identifier of the item you are trying to create an alert for. eg - Instance ID. You can specify use 'cloud_id' OR 'mu_name' and 'deploy_id'"
+                    },
+                    "mu_name" => {
+                        "type" => "string",
+                        "description" => "Should also include 'deploy_id' so we will be able to identifiy a sinlge item. You can specify use 'cloud_id' OR 'mu_name' and 'deploy_id'"
+                    },
+                    "deploy_id" => {
+                        "type" => "string",
+                        "description" => "Should also include 'mu_name' so we will be able to identifiy a sinlge item. You can specify use 'cloud_id' OR 'mu_name' and 'deploy_id'"
+                    }
+                }
+            }  
+        },
+        "period" => {
+            "type" => "integer",
+            "description" => "The time, in seconds the 'statistic' is checked/tested. Must be multiples of 60"
+        },
+        "unit" => {
+            "type" => "string",
+            "description" => "Associtead with the 'metric'",
+            "enum" => ["Seconds", "Microseconds", "Milliseconds", "Bytes", "Kilobytes", "Megabytes", "Gigabytes", "Terabytes", "Bits", "Kilobits", "Megabits", "Gigabits", "Terabits", "Percent", "Count", "Bytes/Second", 
+                                "Kilobytes/Second", "Megabytes/Second", "Gigabytes/Second", "Terabytes/Second", "Bits/Second", "Kilobits/Second", "Megabits/Second", "Gigabits/Second", "Terabits/Second", "Count/Second", "nil"]
+        },
+        "evaluation_periods" => {
+            "type" => "integer",
+            "description" => "The number of times to repeat the 'period' before changing the state of an alarm. eg form 'OK' to 'ALARM' state"
+        },
+        "threshold" => {
+        # TO DO: This should be a float
+            "type" => "integer",
+            "description" => "The value the 'statistic' is compared to and action (eg 'alarm_actions') will be invoked "
+        },
+        "comparison_operator" => {
+            "type" => "string",
+            "description" => "The arithmetic operation to use when comparing 'statistic' and 'threshold'. The 'statistic' value is used as the first operand",
+            "enum" => ["GreaterThanOrEqualToThreshold", "GreaterThanThreshold", "LessThanThreshold", "LessThanOrEqualToThreshold"]
+        },
+        # TO DO: Separate all of these to an SNS primitive
+        "enable_notifications" => {
+            "type" => "boolean",
+            "description" => "Rather to send notifications when the alarm state changes"
+        },
+        "notification_group" => {
+            "type" => "string",
+            "description" => "The name of the notification group. Will be created if it doesn't exist. We use / create a default one if not specified. NOTE: because we can't confirm subscription to a group programmatically, you should use an existing group",
+            "default" => "mu-default"
+        },
+        "notification_type" => {
+            "type" => "string",
+            "description" => "What type of notification endpoint will the notification be sent to. defaults to 'email'",
+            "enum" => ["http", "https", "email", "email-json", "sms", "sqs", "application"],
+            "default" => "email"
+        },
+        "notification_endpoint" => {
+            "type" => "string",
+            "description" => "The endpoint the notification will be sent to. eg. if notification_type is 'email'/'email-json' the endpoint will be the email address. A confirmation email will be sent to this email address if a new notification_group is created, if not specified and notification_type is set to 'email' we will use the mu-master email address",
+            "default_if" => [
+                {
+                    "key_is" => "notification_type",
+                    "value_is" => "email",
+                    "set" => sns_notification_email
+                },
+                {
+                    "key_is" => "notification_type",
+                    "value_is" => "email-json",
+                    "set" => sns_notification_email
+                }
+            ]              
+        }
+    }
+
+    @alert_primitive = {
+        "type" => "object",
+        "title" => "CloudWatch Monitoring",
+        "additionalProperties" => false,
+        "description" => "Create Amazon CloudWatch alarms.",
+        "properties" => {
+          "cloud" => @cloud_primitive,
+          "region" => @region_primitive,
+          "dependencies" => @dependencies_primitive
+        }
+    }
+    @alert_primitive["properties"].merge!(@alert_common_properties)
+
+    @server_pool_alert_primitive = {
         "type" => "array",
         "minItems" => 1,
         "items" => {
@@ -2557,123 +2802,10 @@ module MU
             "required" => ["name", "metric_name", "statistic", "period", "evaluation_periods", "threshold", "comparison_operator"],
             "additionalProperties" => false,
             "properties" => {
-                "name" => {
-                    "type" => "string"
-                },
-                "ok_actions" => {
-                    "type" => "array",
-                    "minItems" => 1,
-                    "description" => "What action(s) to take when alarm state transitions to 'OK'.",
-                    "items" => {
-                        "type" => "String"
-                    }
-                },
-                "alarm_actions" => {
-                    "type" => "array",
-                    "minItems" => 1,
-                    "description" => "What action(s) to take when alarm state transitions to 'ALARM'.",
-                    "items" => {
-                        "type" => "String"
-                    }
-                },
-                "no_data_actions" => {
-                    "type" => "array",
-                    "minItems" => 1,
-                    "description" => "What action(s) to take when alarm state transitions to 'INSUFFICIENT'.",
-                    "items" => {
-                        "type" => "String"
-                    }
-                },
-                "metric_name" => {
-                    "type" => "string",
-                    "description" => "The name of the attribute to monitor eg. CPUUtilization."
-                },
-                "namespace" => {
-                    "type" => "string",
-                    "description" => "The name of container 'metric_name' belongs to eg. 'AWS/EC2'"
-                },
-                "statistic" => {
-                    "type" => "string",
-                    "description" => "",
-                    "enum" => ["SampleCount", "Average", "Sum", "Minimum", "Maximum"]
-                },
-                "dimensions" => {
-                    "type" => "array",
-                    "description" => "What to monitor",
-                    "minItems" => 1,
-                    "items" => {
-                        "type" => "object",
-                        "required" => ["name", "value"],
-                        "additionalProperties" => false,
-                        "properties" => {
-                            "name" => {
-                                "type" => "string"
-                            },
-                            "value" => {
-                                "type" => "string"
-                            }
-                        }
-                    }  
-                },
-                "period" => {
-                    "type" => "integer",
-                    "description" => "The time, in seconds the 'statistic' is checked/tested. Must be multiples of 60"
-                },
-                "unit" => {
-                    "type" => "string",
-                    "description" => "Associtead with the 'metric'",
-                    "enum" => ["Seconds", "Microseconds", "Milliseconds", "Bytes", "Kilobytes", "Megabytes", "Gigabytes", "Terabytes", "Bits", "Kilobits", "Megabits", "Gigabits", "Terabits", "Percent", "Count", "Bytes/Second", 
-                                        "Kilobytes/Second", "Megabytes/Second", "Gigabytes/Second", "Terabytes/Second", "Bits/Second", "Kilobits/Second", "Megabits/Second", "Gigabits/Second", "Terabits/Second", "Count/Second", "nil"]
-                },
-                "evaluation_periods" => {
-                    "type" => "integer",
-                    "description" => "The number of times to repeat the 'period' before changing the state of an alarm. eg form 'OK' to 'ALARM' state"
-                },
-                "threshold" => {
-                # TO DO: This should be a float
-                    "type" => "integer",
-                    "description" => "The value the 'statistic' is compared to and action (eg 'alarm_actions') will be invoked "
-                },
-                "comparison_operator" => {
-                    "type" => "string",
-                    "description" => "The arithmetic operation to use when comparing 'statistic' and 'threshold'. The 'statistic' value is used as the first operand",
-                    "enum" => ["GreaterThanOrEqualToThreshold", "GreaterThanThreshold", "LessThanThreshold", "LessThanOrEqualToThreshold"]
-                },
-                # TO DO: Separate all of these to an SNS primitive
-                "enable_notifications" => {
-                    "type" => "boolean",
-                    "description" => "Rather to send notifications of change in alarm state"
-                },
-                "notification_group" => {
-                    "type" => "string",
-                    "description" => "The name of the notification group. Will be created if it doesn't exist. We use / create a default one if not specified. NOTE: because we can't confirm subscription to a group programmatically, you should use an existing group",
-                    "default" => "mu-default"
-                },
-                "notification_type" => {
-                    "type" => "string",
-                    "description" => "What type of notification endpoint will the notification be sent to. defaults to 'email'",
-                    "enum" => ["http", "https", "email", "email-json", "sms", "sqs", "application"],
-                    "default" => "email"
-                },
-                "notification_endpoint" => {
-                    "type" => "string",
-                    "description" => "The endpoint the notification will be sent to. eg. if notification_type is 'email'/'email-json' the endpoint will be the email address. A confirmation email will be sent to this email address if a new notification_group is created, if not specified and notification_type is set to 'email' we will use the mu-master email address",
-                    "default_if" => [
-                        {
-                            "key_is" => "notification_type",
-                            "value_is" => "email",
-                            "set" => sns_notification_email
-                        },
-                        {
-                            "key_is" => "notification_type",
-                            "value_is" => "email-json",
-                            "set" => sns_notification_email
-                        }
-                    ]              
-                }
             }
         }
     }
+    @server_pool_alert_primitive["items"]["properties"].merge!(@alert_common_properties)
 
     @cloudformation_primitive = {
         "type" => "object",
@@ -2771,16 +2903,6 @@ module MU
                     "description" => "The DNS name of an existing Elastic Load Balancer. Must be in the same region as this deployment."
                 }
             }
-        }
-    }
-
-    @alert_primitive = {
-        "type" => "object",
-        "title" => "CloudWatch Monitoring",
-        "additionalProperties" => false,
-        "description" => "Create Amazon CloudWatch alarms.",
-        "properties" => {
-            "alarms" => @cloudwatch_alarm_primitive
         }
     }
 
@@ -2936,7 +3058,6 @@ module MU
         "name" => {"type" => "string"},
         "region" => @region_primitive,
         "cloud" => @cloud_primitive,
-        "alarms" => @cloudwatch_alarm_primitive,
         "async_groom" => {
             "type" => "boolean",
             "default" => false,
@@ -3327,7 +3448,6 @@ module MU
                 "enum" => MU.supportedGroomers
             },
             "name" => {"type" => "string"},
-            "alarms" => @cloudwatch_alarm_primitive,
             "region" => @region_primitive,
             "db_family" => {"type" => "string"},
             "tags" => @tags_primitive,
@@ -3438,13 +3558,24 @@ module MU
             },
             "cluster_node_count" => {
               "type" => "integer",
-                "description" => "The number of database instances to add to a database cluster. This only applies to aurora",
+              "description" => "The number of database instances to add to a database cluster. This only applies to aurora",
+              "default_if" => [
+                {
+                  "key_is" => "engine",
+                  "value_is" => "aurora",
+                  "set" => 1
+                }
+              ]
+            },
+            "create_cluster" => {
+              "type" => "boolean",
+                "description" => "Rather to create a database cluster. This only applies to aurora",
                 "default_if" => [
-                    {
-                        "key_is" => "engine",
-                        "value_is" => "aurora",
-                        "set" => 1
-                    }
+                  {
+                    "key_is" => "engine",
+                    "value_is" => "aurora",
+                    "set" => true
+                  }
                 ]
             },
             "db_parameter_group_parameters" => @rds_parameters_primitive,
@@ -3492,7 +3623,6 @@ module MU
             "name" => {"type" => "string"},
             "region" => @region_primitive,
             "tags" => @tags_primitive,
-            "alarms" => @cloudwatch_alarm_primitive,
             "engine_version" => {"type" => "string"},
             "node_count" => {
               "type" => "integer",
@@ -3854,7 +3984,7 @@ module MU
                         "name" => {
                             "type" => "string"
                         },
-                        "alarms" => @cloudwatch_alarm_primitive,
+                        "alarms" => @server_pool_alert_primitive,
                         "type" => {
                             "type" => "string",
                             "enum" => ["ChangeInCapacity", "ExactCapacity", "PercentChangeInCapacity"],

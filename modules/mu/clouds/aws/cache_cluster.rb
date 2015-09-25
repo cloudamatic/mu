@@ -213,6 +213,7 @@ module MU
             }
 
             MU.log "Cache replication group #{@config['identifier']} is ready to use"
+            @cloud_id = resp.cache_cluster_id
           else
             config_struct[:cache_cluster_id] = @config['identifier']
             config_struct[:az_mode] = @config["az_mode"]
@@ -246,9 +247,8 @@ module MU
 
             resp = MU::Cloud::AWS::CacheCluster.getCacheClusterById(@config['identifier'], region: @config['region'])
             MU.log "Cache Cluster #{@config['identifier']} is ready to use"
+            @cloud_id = resp.replication_group_id
           end
-
-          @cloud_id = @config['identifier']
         end
 
         # Create a subnet group for a Cache Cluster with the given config.
@@ -561,89 +561,95 @@ module MU
           our_clusters = []
           our_replication_group_ids = []
 
-          # The ElastiCache API and documentation are a mess, the replication group ARN resource_type is not documented, and is not easily guessable.
-          # So instead of searching for replication groups directly we'll get their IDs from the cache clusters.
-          all_clusters.cache_clusters.each { |cluster|
-            cluster_id = cluster.cache_cluster_id
+          # Because we can't run list_tags_for_resource on a cache cluster that isn't in "available" state we're loading the deploy to make sure we have a cache cluster to cleanup.
+          # To ensure we don't miss cache clusters that have been terminated mid creation we'll load the 'original_config'. We might want to find a better approach for this.
+          deploy = MU::MommaCat.getLitter(MU.deploy_id)
+          if deploy.original_config.has_key?("cache_clusters") && !deploy.original_config["cache_clusters"].empty?
 
-            # ElastiCache API is buggy... It will throw a CacheClusterNotFound if we run list_tags_for_resource on a cahe cluster that isn't in an "available" state.
-            if cluster.cache_cluster_status != "available"
-              if %w{deleting deleted}.include?(cluster.cache_cluster_status)
-                # The cahe cluster might not be ours so don't notify us about it.
-                next
-              else
-                # We can replace this with an AWS waiter.
-                loop do
-                  MU.log "Waiting for #{cluster_id} to be in a removable state", MU::NOTICE
-                  cluster = MU::Cloud::AWS::CacheCluster.getCacheClusterById(cluster_id, region: region)
-                  break unless %w{creating modifying backing-up}.include?(cluster.cache_cluster_status)
-                  sleep 60
+            # The ElastiCache API and documentation are a mess, the replication group ARN resource_type is not documented, and is not easily guessable.
+            # So instead of searching for replication groups directly we'll get their IDs from the cache clusters.
+            all_clusters.cache_clusters.each { |cluster|
+              cluster_id = cluster.cache_cluster_id
+
+              # ElastiCache API is buggy... It will throw a CacheClusterNotFound if we run list_tags_for_resource on a cahe cluster that isn't in an "available" state.
+              if cluster.cache_cluster_status != "available"
+                if %w{deleting deleted}.include?(cluster.cache_cluster_status)
+                  # The cahe cluster might not be ours so don't notify us about it.
+                  next
+                else
+                  # We can replace this with an AWS waiter.
+                  loop do
+                    MU.log "Waiting for #{cluster_id} to be in a removable state", MU::NOTICE
+                    cluster = MU::Cloud::AWS::CacheCluster.getCacheClusterById(cluster_id, region: region)
+                    break unless %w{creating modifying backing-up}.include?(cluster.cache_cluster_status)
+                    sleep 60
+                  end
                 end
               end
-            end
 
-            arn = MU::Cloud::AWS::CacheCluster.getARN(cluster_id, "cluster", "elasticache", region: region)
-            attempts = 0
+              arn = MU::Cloud::AWS::CacheCluster.getARN(cluster_id, "cluster", "elasticache", region: region)
+              attempts = 0
 
-            begin
-              tags = MU::Cloud::AWS.elasticache(region).list_tags_for_resource(resource_name: arn).tag_list
-            rescue Aws::ElastiCache::Errors::CacheClusterNotFound => e
-              if attempts < 10
-                MU.log "Can't get tags for #{cluster_id}, retrying a few times in case of a lagging resource", MU::WARN
-                MU.log "arn #{arn}", MU::WARN
-                attempts += 1
-                sleep 30
-                retry
-              else
-                raise MuError, "Failed to get tags for cache cluster #{cluster_id}, MU-ID #{MU.deploy_id}: #{e.inspect}"
+              begin
+                tags = MU::Cloud::AWS.elasticache(region).list_tags_for_resource(resource_name: arn).tag_list
+              rescue Aws::ElastiCache::Errors::CacheClusterNotFound => e
+                if attempts < 10
+                  MU.log "Can't get tags for #{cluster_id}, retrying a few times in case of a lagging resource", MU::WARN
+                  MU.log "arn #{arn}", MU::WARN
+                  attempts += 1
+                  sleep 30
+                  retry
+                else
+                  raise MuError, "Failed to get tags for cache cluster #{cluster_id}, MU-ID #{MU.deploy_id}: #{e.inspect}"
+                end
               end
+
+              found_muid = false
+              found_master = false
+              tags.each { |tag|
+                found_muid = true if tag.key == "MU-ID" && tag.value == MU.deploy_id
+                found_master = true if tag.key == "MU-MASTER-IP" && tag.value == MU.mu_public_ip
+              }
+              next if !found_muid
+
+              if found_muid && found_master
+                cluster.replication_group_id ? our_replication_group_ids << cluster.replication_group_id : our_clusters << cluster
+              end
+            }
+
+            threads = []
+
+            # Make sure we have only uniqe replication group IDs
+            our_replication_group_ids = our_replication_group_ids.uniq
+            if !our_replication_group_ids.empty?
+              our_replication_group_ids.each { |group_id|
+                replication_group = MU::Cloud::AWS::CacheCluster.getCacheReplicationGroupById(group_id, region: region)
+                parent_thread_id = Thread.current.object_id
+                threads << Thread.new(replication_group) { |myrepl_group|
+                  MU.dupGlobals(parent_thread_id)
+                  Thread.abort_on_exception = true
+                  MU::Cloud::AWS::CacheCluster.terminate_replication_group(myrepl_group, noop, skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: myrepl_group.replication_group_id)
+                }
+              }
             end
 
-            found_muid = false
-            found_master = false
-            tags.each { |tag|
-              found_muid = true if tag.key == "MU-ID" && tag.value == MU.deploy_id
-              found_master = true if tag.key == "MU-MASTER-IP" && tag.value == MU.mu_public_ip
-            }
-            next if !found_muid
-
-            if found_muid && found_master
-              cluster.replication_group_id ? our_replication_group_ids << cluster.replication_group_id : our_clusters << cluster
+            # Hmmmm. Do we need to have seperate thread groups for clusters and replication groups?
+            if !our_clusters.empty?
+              our_clusters.each { |cluster|
+                parent_thread_id = Thread.current.object_id
+                threads << Thread.new(cluster) { |mycluster|
+                  MU.dupGlobals(parent_thread_id)
+                  Thread.abort_on_exception = true
+                  MU::Cloud::AWS::CacheCluster.terminate_cache_cluster(mycluster, noop, skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: mycluster.cache_cluster_id)
+                }
+              }
             end
-          }
 
-          threads = []
-
-          # Make sure we have only uniqe replication group IDs
-          our_replication_group_ids = our_replication_group_ids.uniq
-          if !our_replication_group_ids.empty?
-            our_replication_group_ids.each { |group_id|
-              replication_group = MU::Cloud::AWS::CacheCluster.getCacheReplicationGroupById(group_id, region: region)
-              parent_thread_id = Thread.current.object_id
-              threads << Thread.new(replication_group) { |myrepl_group|
-                MU.dupGlobals(parent_thread_id)
-                Thread.abort_on_exception = true
-                MU::Cloud::AWS::CacheCluster.terminate_replication_group(myrepl_group, noop, skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: myrepl_group.replication_group_id)
-              }
+            # Wait for all of the cache cluster  and replication groups to finish cleanup before proceeding
+            threads.each { |t|
+              t.join
             }
           end
-
-          # Hmmmm. Do we need to have seperate thread groups for clusters and replication groups?
-          if !our_clusters.empty?
-            our_clusters.each { |cluster|
-              parent_thread_id = Thread.current.object_id
-              threads << Thread.new(cluster) { |mycluster|
-                MU.dupGlobals(parent_thread_id)
-                Thread.abort_on_exception = true
-                MU::Cloud::AWS::CacheCluster.terminate_cache_cluster(mycluster, noop, skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: mycluster.cache_cluster_id)
-              }
-            }
-          end
-
-          # Wait for all of the cache cluster  and replication groups to finish cleanup before proceeding
-          threads.each { |t|
-            t.join
-          }
         end
 
         private
