@@ -614,6 +614,7 @@ module MU
           # back to it later.
           if @config['static_ip'].nil?
             MU::MommaCat.nameKitten(self)
+            @named = true
           end
 
           if !@config['src_dst_check'] and !@config["vpc"].nil?
@@ -1005,7 +1006,10 @@ module MU
             deploydata.merge!(@config['chef_data'])
           end
           deploydata["region"] = @config['region'] if !@config['region'].nil?
-          MU::MommaCat.nameKitten(self)
+          if !@named
+            MU::MommaCat.nameKitten(self)
+            @named = true
+          end
 
           return deploydata
         end
