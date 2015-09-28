@@ -124,18 +124,25 @@ module MU
         deadnodes = []
         Chef::Config[:environment] = MU.environment
         q = Chef::Search::Query.new
-        q.search("node", "tags_MU-ID:#{MU.deploy_id}").each { |item|
-          next if item.is_a?(Fixnum)
-          item.each { |node|
-            deadnodes << node.name
+        begin
+          q.search("node", "tags_MU-ID:#{MU.deploy_id}").each { |item|
+            next if item.is_a?(Fixnum)
+            item.each { |node|
+              deadnodes << node.name
+            }
           }
-        }
-        q.search("node", "name:#{MU.deploy_id}-*").each { |item|
-          next if item.is_a?(Fixnum)
-          item.each { |node|
-            deadnodes << node.name
+        rescue Net::HTTPServerException
+        end
+
+        begin
+          q.search("node", "name:#{MU.deploy_id}-*").each { |item|
+            next if item.is_a?(Fixnum)
+            item.each { |node|
+              deadnodes << node.name
+            }
           }
-        }
+        rescue Net::HTTPServerException
+        end
         MU.log "Missed some Chef resources in node cleanup, purging now", MU::NOTICE if deadnodes.size > 0
         deadnodes.uniq.each { |node|
           MU::Groomer::Chef.cleanup(node, [], noop)
