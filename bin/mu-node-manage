@@ -184,18 +184,27 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-cli
       next if nodes.size > 0 and !nodes.include?(nodename)
 
       count = count + 1
-      MU.log "Running #{cmd} on #{nodename} (##{count})" if !print_output
       child = Process.fork {
-        output=`ssh -q #{nodename} "#{cmd}" 2>&1 < /dev/null`
-        if !$?.success?
-          if print_output
-            puts "#{nodename} - #{output}" if output.match(/[^\s]/)
-            MU.log "#{nodename} did not exit cleanly", MU::WARN
+        done = false
+        begin
+          MU.log "Running #{cmd} on #{nodename} (##{count})" if !print_output
+          output=`ssh -q #{nodename} "#{cmd}" 2>&1 < /dev/null`
+          if !$?.success?
+            if server['conf']["platform"] == "windows" and output.match(/NoMethodError: unknown property or method: `ConnectServer'/)
+              MU.log "#{nodename} encountered transient Windows/Chef ConnectServer error, retrying", MU::WARN
+            elsif print_output
+              done = true
+              puts "#{nodename} - #{output}" if output.match(/[^\s]/)
+              MU.log "#{nodename} did not exit cleanly", MU::WARN
+            else
+              done = true
+              MU.log "#{nodename} did not exit cleanly", MU::WARN, details: output.slice(-2000, 2000)
+            end
+            exit $?.exitstatus if done
           else
-            MU.log "#{nodename} did not exit cleanly", MU::WARN, details: output.slice(-2000, 2000)
+            done = true
           end
-          exit $?.exitstatus
-        end
+        end until done
         puts "#{nodename} - #{output}" if print_output and output.match(/[^\s]/)
       }
       $children[child] = nodename
