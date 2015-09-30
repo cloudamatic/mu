@@ -12,35 +12,43 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-gem "chef"
-autoload :Chef, 'chef'
-gem "knife-windows"
-gem "chef-vault"
-autoload :Chef, 'chef-vault'
-autoload :ChefVault, 'chef-vault'
-
-# Autoload is smart, but not that smart.
-class Chef
-  autoload :Knife, 'chef/knife'
-  autoload :Search, 'chef/search'
-  autoload :Node, 'chef/node'
-  autoload :Mixin, 'chef/mixin'
-  # Autoload is smart, but not that smart.
-  class Knife
-    autoload :Ssh, 'chef/knife/ssh'
-    autoload :Bootstrap, 'chef/knife/bootstrap'
-    autoload :BootstrapWindowsSsh, 'chef/knife/bootstrap_windows_ssh'
-    autoload :Bootstrap, 'chef/knife/core/bootstrap_context'
-    autoload :BootstrapWindowsSsh, 'chef/knife/core/bootstrap_context'
-  end
-end
-
 module MU
   # Plugins under this namespace serve as interfaces to host configuration
   # management tools, like Chef or Puppet.
   class Groomer
     # Support for Chef as a host configuration management layer.
     class Chef
+
+      @chefloaded = false
+      # Autoload is too brain-damaged to get Chef's subclasses/submodules, so
+      # implement our own lazy loading.
+      def self.loadChefLib
+        if !@chefloaded
+          MU.log "Loading Chef libraries..."
+          start = Time.now
+          require 'chef'
+          require 'chef/knife'
+          require 'chef-vault'
+          gem "knife-windows"
+          ::Chef.class_eval {
+            autoload :Search, 'chef/search'
+            autoload :Node, 'chef/node'
+            autoload :Mixin, 'chef/mixin'
+            ::Chef::Knife.class_eval {
+              autoload :Ssh, 'chef/knife/ssh'
+              autoload :Bootstrap, 'chef/knife/bootstrap'
+              autoload :BootstrapWindowsSsh, 'chef/knife/bootstrap_windows_ssh'
+              autoload :Bootstrap, 'chef/knife/core/bootstrap_context'
+              autoload :BootstrapWindowsSsh, 'chef/knife/core/bootstrap_context'
+            }
+          }
+          if File.exists?("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
+            ::Chef::Config.from_file("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
+          end
+          @chefloaded = true
+          MU.log "Chef libraries loaded (took #{(Time.now-start).to_s} seconds)"
+        end
+      end
 
       @knife = "cd #{MU.myRoot} && env -i HOME=#{Etc.getpwnam(MU.mu_user).dir} #{MU.mu_env_vars} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin knife"
       # The canonical path to invoke Chef's *knife* utility with a clean environment.
@@ -69,12 +77,10 @@ module MU
 
       attr_reader :chefclient
 
-      if File.exists?("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
-        ::Chef::Config.from_file("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
-      end
 
       # @param node [MU::Cloud::Server]: The server object on which we'll be operating
       def initialize(node)
+        self.class.loadChefLib
         @config = node.config
         @server = node
         if node.mu_name.nil? or node.mu_name.empty?
@@ -131,9 +137,7 @@ module MU
       # @param field [String]: OPTIONAL - A specific field within the item to return.
       # @return [Hash]
       def self.getSecret(vault: nil, item: nil, field: nil)
-        if File.exists?("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
-          ::Chef::Config.from_file("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
-        end
+        loadChefLib
 
         begin
           item = ChefVault::Item.load(vault, item)
@@ -445,9 +449,7 @@ module MU
       # @param vaults_to_clean [Array<Hash>]: Some vaults to expunge
       # @param noop [Boolean]: Skip actual deletion, just state what we'd do
       def self.cleanup(node, vaults_to_clean = [], noop = false)
-        if File.exists?("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
-          ::Chef::Config.from_file("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
-        end
+        loadChefLib
         MU.log "Deleting Chef resources associated with #{node}"
         vaults_to_clean.each { |vault|
           MU::MommaCat.lock("vault-#{vault['vault']}", false, true)
