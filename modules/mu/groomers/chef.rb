@@ -22,9 +22,10 @@ module MU
       @chefloaded = false
       # Autoload is too brain-damaged to get Chef's subclasses/submodules, so
       # implement our own lazy loading.
-      def self.loadChefLib
+      def self.loadChefLib(user = MU.mu_user, env = "dev")
         if !@chefloaded
           MU.log "Loading Chef libraries..."
+          pp caller
           start = Time.now
           require 'chef'
           require 'chef/knife'
@@ -42,9 +43,12 @@ module MU
               autoload :BootstrapWindowsSsh, 'chef/knife/core/bootstrap_context'
             }
           }
-          if File.exists?("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
-            ::Chef::Config.from_file("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
+          if File.exists?("#{Etc.getpwnam(user).dir}/.chef/knife.rb")
+            MU.log "Loading Chef configuration from #{Etc.getpwnam(user).dir}/.chef/knife.rb", MU::DEBUG
+            ::Chef::Config.from_file("#{Etc.getpwnam(user).dir}/.chef/knife.rb")
           end
+          ::Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}/organizations/#{MU.chef_user}"
+          ::Chef::Config[:environment] = env
           @chefloaded = true
           MU.log "Chef libraries loaded (took #{(Time.now-start).to_s} seconds)"
         end
@@ -80,24 +84,18 @@ module MU
 
       # @param node [MU::Cloud::Server]: The server object on which we'll be operating
       def initialize(node)
-        self.class.loadChefLib
         @config = node.config
         @server = node
         if node.mu_name.nil? or node.mu_name.empty?
           raise MuError, "Cannot groom a server that doesn't tell me its mu_name"
         end
-        if File.exists?("#{Etc.getpwnam(@server.deploy.mu_user).dir}/.chef/knife.rb")
-          MU.log "Loading Chef configuration from #{Etc.getpwnam(@server.deploy.mu_user).dir}/.chef/knife.rb", MU::DEBUG
-          ::Chef::Config.from_file("#{Etc.getpwnam(@server.deploy.mu_user).dir}/.chef/knife.rb")
-        end
         @secrets_semaphore = Mutex.new
         @secrets_granted = {}
-        ::Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}/organizations/#{MU.chef_user}"
-        ::Chef::Config[:environment] = node.deploy.environment
       end
 
       # Indicate whether our server has been bootstrapped with Chef
       def haveBootstrapped?
+        self.class.loadChefLib(@server.deploy.mu_user, @server.deploy.environment)
         MU.log "Chef config", MU::DEBUG, details: ::Chef::Config.inspect
         nodelist = ::Chef::Node.list()
         nodelist.has_key?(@server.mu_name)
@@ -183,6 +181,7 @@ module MU
       # @param purpose [String] = A string describing the purpose of this client run.
       # @param max_retries [Integer] = The maximum number of attempts at a successful run to make before giving up.
       def run(purpose: "Chef run", update_runlist: true, max_retries: 5)
+        self.class.loadChefLib(@server.deploy.mu_user, @server.deploy.environment)
         if update_runlist and !@config['run_list'].nil?
           knifeAddToRunList(multiple: @config['run_list'])
         end
@@ -291,6 +290,7 @@ module MU
 
       # Bootstrap our server with Chef
       def bootstrap
+        self.class.loadChefLib(@server.deploy.mu_user, @server.deploy.environment)
         createGenericHostSSLCert
         if !@config['cleaned_chef']
           begin
@@ -308,11 +308,6 @@ module MU
 
         run_list = ["role[mu-node]", "recipe[mu-tools::newclient]"]
         run_list << "recipe[mu-tools::updates]" if !@config['skipinitialupdates']
-
-        # XXX These shouldn't be needed, see Autoloads in mu.rb. Whyy Chef why?
-        require 'chef/knife/bootstrap'
-        require 'chef/knife/core/bootstrap_context'
-        require 'chef/knife/bootstrap_windows_ssh'
 
         json_attribs = {}
         if !@config['application_attributes'].nil?
@@ -429,6 +424,7 @@ module MU
       # so that nodes can access this metadata.
       # @return [Hash]: The data synchronized.
       def saveDeployData
+        self.class.loadChefLib(@server.deploy.mu_user, @server.deploy.environment)
         @server.describe(update_cache: true) # Make sure we're fresh
         saveChefMetadata
         begin
@@ -475,6 +471,7 @@ module MU
 
       # Save common Mu attributes to this node's Chef node structure.
       def saveChefMetadata
+        self.class.loadChefLib(@server.deploy.mu_user, @server.deploy.environment)
         nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = @server.getSSHConfig
         MU.log "Saving #{@server.mu_name} Chef artifacts"
 

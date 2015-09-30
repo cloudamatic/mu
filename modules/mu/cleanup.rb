@@ -115,7 +115,7 @@ module MU
 
       # Scrub any residual Chef records with matching tags
       if !@onlycloud
-        MU::Groomers::Chef.loadChefLib
+        MU::Groomer::Chef.loadChefLib
         if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
           Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
         end
