@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 module MU
   # Plugins under this namespace serve as interfaces to host configuration
   # management tools, like Chef or Puppet.
@@ -19,30 +20,35 @@ module MU
     # Support for Chef as a host configuration management layer.
     class Chef
 
+      Object.class_eval {
+        def self.const_missing(symbol)
+          if symbol.to_sym == :Chef or symbol.to_sym == :ChefVault
+            MU::Groomer::Chef.loadChefLib
+            return Object.const_get(symbol)
+          end
+        end
+        def const_missing(symbol)
+          if symbol.to_sym == :Chef or symbol.to_sym == :ChefVault
+            MU::Groomer::Chef.loadChefLib(@server.deploy.mu_user, @server.deploy.environment)
+            return Object.const_get(symbol)
+          end
+        end
+      }
+
       @chefloaded = false
       # Autoload is too brain-damaged to get Chef's subclasses/submodules, so
       # implement our own lazy loading.
       def self.loadChefLib(user = MU.mu_user, env = "dev")
         if !@chefloaded
           MU.log "Loading Chef libraries..."
-          pp caller
+#          pp caller
           start = Time.now
           require 'chef'
           require 'chef/knife'
+          require 'chef/knife/ssh'
+          require 'chef/knife/bootstrap'
+          require 'chef/knife/bootstrap_windows_ssh'
           require 'chef-vault'
-          gem "knife-windows"
-          ::Chef.class_eval {
-            autoload :Search, 'chef/search'
-            autoload :Node, 'chef/node'
-            autoload :Mixin, 'chef/mixin'
-            ::Chef::Knife.class_eval {
-              autoload :Ssh, 'chef/knife/ssh'
-              autoload :Bootstrap, 'chef/knife/bootstrap'
-              autoload :BootstrapWindowsSsh, 'chef/knife/bootstrap_windows_ssh'
-              autoload :Bootstrap, 'chef/knife/core/bootstrap_context'
-              autoload :BootstrapWindowsSsh, 'chef/knife/core/bootstrap_context'
-            }
-          }
           if File.exists?("#{Etc.getpwnam(user).dir}/.chef/knife.rb")
             MU.log "Loading Chef configuration from #{Etc.getpwnam(user).dir}/.chef/knife.rb", MU::DEBUG
             ::Chef::Config.from_file("#{Etc.getpwnam(user).dir}/.chef/knife.rb")
@@ -95,7 +101,6 @@ module MU
 
       # Indicate whether our server has been bootstrapped with Chef
       def haveBootstrapped?
-        self.class.loadChefLib(@server.deploy.mu_user, @server.deploy.environment)
         MU.log "Chef config", MU::DEBUG, details: ::Chef::Config.inspect
         nodelist = ::Chef::Node.list()
         nodelist.has_key?(@server.mu_name)
@@ -135,11 +140,10 @@ module MU
       # @param field [String]: OPTIONAL - A specific field within the item to return.
       # @return [Hash]
       def self.getSecret(vault: nil, item: nil, field: nil)
-        loadChefLib
 
         begin
-          item = ChefVault::Item.load(vault, item)
-        rescue ChefVault::Exceptions::KeysNotFound => e
+          item = ::ChefVault::Item.load(vault, item)
+        rescue ::ChefVault::Exceptions::KeysNotFound => e
           raise MuError, "Can't load the Chef Vault #{vault}:#{item}. Does it exist?"
         end
 
@@ -181,7 +185,6 @@ module MU
       # @param purpose [String] = A string describing the purpose of this client run.
       # @param max_retries [Integer] = The maximum number of attempts at a successful run to make before giving up.
       def run(purpose: "Chef run", update_runlist: true, max_retries: 5)
-        self.class.loadChefLib(@server.deploy.mu_user, @server.deploy.environment)
         if update_runlist and !@config['run_list'].nil?
           knifeAddToRunList(multiple: @config['run_list'])
         end
@@ -290,7 +293,6 @@ module MU
 
       # Bootstrap our server with Chef
       def bootstrap
-        self.class.loadChefLib(@server.deploy.mu_user, @server.deploy.environment)
         createGenericHostSSLCert
         if !@config['cleaned_chef']
           begin
@@ -424,7 +426,6 @@ module MU
       # so that nodes can access this metadata.
       # @return [Hash]: The data synchronized.
       def saveDeployData
-        self.class.loadChefLib(@server.deploy.mu_user, @server.deploy.environment)
         @server.describe(update_cache: true) # Make sure we're fresh
         saveChefMetadata
         begin
@@ -445,7 +446,6 @@ module MU
       # @param vaults_to_clean [Array<Hash>]: Some vaults to expunge
       # @param noop [Boolean]: Skip actual deletion, just state what we'd do
       def self.cleanup(node, vaults_to_clean = [], noop = false)
-        loadChefLib
         MU.log "Deleting Chef resources associated with #{node}"
         vaults_to_clean.each { |vault|
           MU::MommaCat.lock("vault-#{vault['vault']}", false, true)
@@ -471,7 +471,6 @@ module MU
 
       # Save common Mu attributes to this node's Chef node structure.
       def saveChefMetadata
-        self.class.loadChefLib(@server.deploy.mu_user, @server.deploy.environment)
         nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = @server.getSSHConfig
         MU.log "Saving #{@server.mu_name} Chef artifacts"
 
