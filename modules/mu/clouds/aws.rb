@@ -343,10 +343,10 @@ module MU
             interval = 5 + Random.rand(4) - 2
             if retries < 5 and retries > 2
               debuglevel = MU::NOTICE
-              interval = 10 + Random.rand(6) - 3
+              interval = 20 + Random.rand(10) - 3
             elsif retries >= 5
               debuglevel = MU::WARN
-              interval = 20 + Random.rand(10) - 5
+              interval = 40 + Random.rand(15) - 5
             end
             MU.log "Got #{e.inspect} calling EC2's #{method_sym} in #{@region}, waiting #{interval.to_s}s and retrying. Args were: #{arguments}", debuglevel, details: caller
             sleep interval
