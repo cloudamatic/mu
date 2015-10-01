@@ -137,16 +137,28 @@ module MU
                   }
                 end
 
-                if resp.state != "available"
-                  begin
-                    MU.log "Waiting for Subnet #{subnet_name} (#{subnet_id}) to be available", MU::NOTICE
+                retries = 0
+                begin
+                  if resp.state != "available"
+                    begin
+                      MU.log "Waiting for Subnet #{subnet_name} (#{subnet_id}) to be available", MU::NOTICE
+                      sleep 5
+                      resp = MU::Cloud::AWS.ec2(@config['region']).describe_subnets(subnet_ids: [subnet_id]).subnets.first
+                    rescue Aws::EC2::Errors::InvalidSubnetIDNotFound => e
+                      sleep 10
+                      retry
+                    end while resp.state != "available"
+                  end
+                rescue NoMethodError => e
+                  if retries < 3
+                    retries = retries + 1
+                    MU.log "Got bogus Aws::EmptyResponse error on #{subnet_id}. On retry #{retries}", MU::WARN
                     sleep 5
-                    resp = MU::Cloud::AWS.ec2(@config['region']).describe_subnets(subnet_ids: [subnet_id]).subnets.first
-                  rescue Aws::EC2::Errors::InvalidSubnetIDNotFound => e
-                    sleep 10
-                    retry
-                  end while resp.state != "available"
+                  else
+                    raise e
+                  end
                 end
+
                 if !subnet['route_table'].nil?
                   routes = {}
                   @config['route_tables'].each { |tbl|
