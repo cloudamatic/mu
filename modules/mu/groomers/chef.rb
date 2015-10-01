@@ -265,20 +265,23 @@ module MU
       # Make sure we've got a Splunk admin vault for any mu-splunk-servers to
       # use, and set it up if we don't.
       def splunkVaultInit
-        pw = Password.pronounceable(12..14)
-        # ...one of these is correct
-        creds = {
+        self.class.loadChefLib
+        begin
+          loaded = ::ChefVault::Item.load("splunk", "admin_user")
+        rescue ::ChefVault::Exceptions::KeysNotFound => e
+          pw = Password.pronounceable(12..14)
+          creds = {
             "username" => "admin",
             "password" => pw,
             "auth" => "admin:#{pw}"
-        }
-
-        saveSecret(
+          }
+          saveSecret(
             vault: "splunk",
             item: "admin_user",
             data: creds,
             permissions: "role:mu-splunk-server"
-        )
+          )
+        end
       end
 
       # Expunge
@@ -696,10 +699,10 @@ module MU
                 "node.key" => key.to_pem.chomp!.gsub(/\n/, "\\n")
             }
         }
-        saveSecret(item: "ssl_cert", data: certdata)
+        saveSecret(item: "ssl_cert", data: certdata, permissions: nil)
 
         # Any and all 'secrets' parameters should also be stuffed into our vault.
-        saveSecret(item: "secrets", data: @config['secrets']) if !@config['secrets'].nil?
+        saveSecret(item: "secrets", data: @config['secrets'], permissions: nil) if !@config['secrets'].nil?
       end
 
       # Add a role or recipe to a node. Optionally, throw a fit if it doesn't
