@@ -97,9 +97,10 @@ else
     end
   end
 end
+
 avail_nodes = []
 do_deploys.each { |muid|
-  mommacat = MU::MommaCat.new(muid)
+  mommacat = MU::MommaCat.new(muid, skip_resource_objects: true)
   mommacat.listNodes.each_pair { |nodename, server|
     id = server['instance_id']
     server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
@@ -108,6 +109,7 @@ do_deploys.each { |muid|
     avail_nodes << nodename
   }
 }
+pu
 if do_nodes.size > 0
   do_nodes.each { |node|
     if !avail_nodes.include?(node)

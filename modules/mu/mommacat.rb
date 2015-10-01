@@ -137,6 +137,7 @@ module MU
     # @param ssh_private_key [String]: Required when creating a new deployment.
     # @param ssh_public_key [String]: SSH public key for authorized_hosts on clients.
     # @param verbose [Boolean]: Enable verbose log output.
+    # @param skip_resource_objects [Boolean]: Whether preload the cloud resource objects from this deploy. Can save load time for simple MommaCat tasks.
     # @param nocleanup [Boolean]: Skip automatic cleanup of failed resources
     # @param deployment_data [Hash]: Known deployment data.
     # @return [void]
@@ -151,6 +152,7 @@ module MU
                    verbose: false,
                    nocleanup: false,
                    set_context_to_me: true,
+                   skip_resource_objects: false,
                    deployment_data: deployment_data = Hash.new,
                    mu_user: "root"
     )
@@ -237,7 +239,7 @@ module MU
       # Initialize a MU::Cloud object for each resource belonging to this
       # deploy, IF it already exists, which is to say if we're loading an
       # existing deploy instead of creating a new one.
-      if !create and @deployment and @original_config
+      if !create and @deployment and @original_config and !skip_resource_objects
         MU::Cloud.resource_types.each_pair { |res_type, attrs|
           type = attrs[:cfg_plural]
           if @deployment.has_key?(type)
