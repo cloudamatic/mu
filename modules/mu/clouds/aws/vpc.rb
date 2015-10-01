@@ -150,10 +150,12 @@ module MU
                     end while resp.state != "available"
                   end
                 rescue NoMethodError => e
-                  if retries < 3
+                  if retries <= 3
+                    MU.log "Got bogus Aws::EmptyResponse error on #{subnet_id} (retries used: #{retries}/3)", MU::WARN
                     retries = retries + 1
-                    MU.log "Got bogus Aws::EmptyResponse error on #{subnet_id}. On retry #{retries}", MU::WARN
                     sleep 5
+                    resp = MU::Cloud::AWS.ec2(@config['region']).describe_subnets(subnet_ids: [subnet_id]).subnets.first
+                    retry
                   else
                     raise e
                   end
@@ -400,7 +402,7 @@ module MU
                   end
                   raise MuError, "VPC peering connection from VPC #{@config['name']} (#{@config['vpc_id']}) to #{peer_id} #{cnxn.status.code}: #{cnxn.status.message}"
                 end
-              end while cnxn.status.code != "active" and !(cnxn.status.code == "pending-acceptance" and (peer_obj.nil? or peer_obj.deploydata.nil? or !peer_obj.deployment['auto_accept_peers']))
+              end while cnxn.status.code != "active" and !(cnxn.status.code == "pending-acceptance" and (peer_obj.nil? or peer_obj.deploydata.nil? or !peer_obj.deploydata['auto_accept_peers']))
 
             }
           end
