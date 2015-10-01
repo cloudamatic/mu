@@ -109,7 +109,7 @@ do_deploys.each { |muid|
     avail_nodes << nodename
   }
 }
-pu
+
 if do_nodes.size > 0
   do_nodes.each { |node|
     if !avail_nodes.include?(node)
