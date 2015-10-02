@@ -521,6 +521,7 @@ module MU
           if !@config.nil? and @config.has_key?("subnets")
             @config['subnets'].each { |subnet|
               subnet['mu_name'] = @mu_name+"-"+subnet['name'] if !subnet.has_key?("mu_name")
+              subnet['region'] = @config['region']
               resp.data.subnets.each { |desc|
                 if desc.cidr_block == subnet["ip_block"]
                   subnet["tags"] = MU.structToHash(desc.tags)
@@ -540,6 +541,7 @@ module MU
               subnet['mu_name'] = @mu_name+"-"+subnet['name']
               subnet["tags"] = MU.structToHash(desc.tags)
               subnet["cloud_id"] = desc.subnet_id
+              subnet['region'] = @config['region']
               @subnets << MU::Cloud::AWS::VPC::Subnet.new(self, subnet)
             }
           end
@@ -1112,7 +1114,7 @@ module MU
             )
             resp.route_tables.each { |route_table|
               route_table.routes.each { |route|
-                if route.destination_cidr_block =="0.0.0.0/0"
+                if route.destination_cidr_block == "0.0.0.0/0"
                   return true if !route.instance_id.nil?
                   return false if !route.gateway_id.nil?
                 end

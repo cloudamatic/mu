@@ -631,7 +631,12 @@ module MU
 
         case vpc_block['subnet_pref']
           when "public"
-            vpc_block.merge!(public_subnets[rand(public_subnets.length)])
+            if !public_subnets.nil? and public_subnets.size > 0
+              vpc_block.merge!(public_subnets[rand(public_subnets.length)])
+            else
+              MU.log "Public subnet requested for #{parent_name}, but none found in #{vpc_block}", MU::ERR
+              return false
+            end
           when "private"
             vpc_block.merge!(private_subnets[rand(private_subnets.length)])
             if !is_sibling

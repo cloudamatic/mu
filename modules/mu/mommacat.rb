@@ -1004,7 +1004,7 @@ module MU
                 straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: cloud_id)
               end
             else
-              straykitten = momma.findLitterMate(type: type, name: name, mu_name: mu_name)
+              straykitten = momma.findLitterMate(type: type, name: name, mu_name: mu_name, cloud_id: cloud_id)
             end
             next if straykitten.nil?
 
@@ -1049,6 +1049,8 @@ module MU
           regions.each { |r|
             next if cloud_descs[r].nil?
             cloud_descs[r].each_pair { |kitten_cloud_id, descriptor|
+puts "#{r}: #{kitten_cloud_id}"
+pp kittens.keys
               # We already have a MU::Cloud object for this guy, use it
               if kittens.has_key?(kitten_cloud_id)
                 matches << kitten[kitten_cloud_id]
