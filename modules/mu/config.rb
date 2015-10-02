@@ -18,12 +18,6 @@ require 'erb'
 require 'pp'
 require 'json-schema'
 require 'net/http'
-gem "chef"
-autoload :Chef, 'chef'
-gem "knife-windows"
-gem "chef-vault"
-autoload :Chef, 'chef-vault'
-autoload :ChefVault, 'chef-vault'
 autoload :GraphViz, 'graphviz'
 
 module MU
@@ -637,7 +631,12 @@ module MU
 
         case vpc_block['subnet_pref']
           when "public"
-            vpc_block.merge!(public_subnets[rand(public_subnets.length)])
+            if !public_subnets.nil? and public_subnets.size > 0
+              vpc_block.merge!(public_subnets[rand(public_subnets.length)])
+            else
+              MU.log "Public subnet requested for #{parent_name}, but none found in #{vpc_block}", MU::ERR
+              return false
+            end
           when "private"
             vpc_block.merge!(private_subnets[rand(private_subnets.length)])
             if !is_sibling
@@ -719,7 +718,10 @@ module MU
               "vault" => server['windows_auth_vault']['vault'],
               "item" => server['windows_auth_vault']['item']
           }
-          item = ChefVault::Item.load(server['windows_auth_vault']['vault'], server['windows_auth_vault']['item'])
+          item = groomclass.getSecret(
+            vault: server['windows_auth_vault']['vault'],
+            item: server['windows_auth_vault']['item']
+          )
           ["password_field", "ec2config_password_field", "sshd_password_field"].each { |field|
             if !item.has_key?(server['windows_auth_vault'][field])
               MU.log "No value named #{field} in Chef Vault #{server['windows_auth_vault']['vault']}:#{server['windows_auth_vault']['item']}, will use a generated password.", MU::NOTICE
@@ -730,10 +732,10 @@ module MU
         # Check all of the non-special ones while we're at it
         server['vault_access'].each { |v|
           next if v['vault'] == "splunk" and v['item'] == "admin_user"
-          item = ChefVault::Item.load(v['vault'], v['item'])
+          item = groomclass.getSecret(vault: v['vault'], item: v['item'])
         }
-      rescue ChefVault::Exceptions::KeysNotFound => e
-        MU.log "Can't load a Chef Vault I was configured to use. Does it exist?", MU::ERR, details: e.inspect
+      rescue MuError
+        MU.log "Can't load a Chef Vault I was configured to use. Does it exist?", MU::ERR
         ok = false
       end
       return ok
@@ -1272,19 +1274,19 @@ module MU
         end
 
         if db['auth_vault'] && !db['auth_vault'].empty?
+          groomclass = MU::Groomer.loadGroomer(db['groomer'])
           if db['password']
             MU.log "Database password and database auth_vault can't both be used.", MU::ERR
             ok = false
           end
 
           begin
-            item = ChefVault::Item.load(db['auth_vault']['vault'], db['auth_vault']['item'])
+            item = groomclass.getSecret(vault: db['auth_vault']['vault'], item: db['auth_vault']['item'])
             if !item.has_key?(db['auth_vault']['password_field'])
               MU.log "No value named password_field in Chef Vault #{db['auth_vault']['vault']}:#{db['auth_vault']['item']}, will use an auto generated password.", MU::NOTICE
               db['auth_vault'].delete(field)
             end
-          rescue ChefVault::Exceptions::KeysNotFound => e
-            MU.log "Can't load the Chef Vault '#{db['auth_vault']['vault']}' I was configured to use. Does it exist?", MU::ERR, details: e.inspect
+          rescue MuError
             ok = false
           end
         end

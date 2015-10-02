@@ -137,6 +137,7 @@ module MU
     # @param ssh_private_key [String]: Required when creating a new deployment.
     # @param ssh_public_key [String]: SSH public key for authorized_hosts on clients.
     # @param verbose [Boolean]: Enable verbose log output.
+    # @param skip_resource_objects [Boolean]: Whether preload the cloud resource objects from this deploy. Can save load time for simple MommaCat tasks.
     # @param nocleanup [Boolean]: Skip automatic cleanup of failed resources
     # @param deployment_data [Hash]: Known deployment data.
     # @return [void]
@@ -151,6 +152,7 @@ module MU
                    verbose: false,
                    nocleanup: false,
                    set_context_to_me: true,
+                   skip_resource_objects: false,
                    deployment_data: deployment_data = Hash.new,
                    mu_user: "root"
     )
@@ -237,7 +239,7 @@ module MU
       # Initialize a MU::Cloud object for each resource belonging to this
       # deploy, IF it already exists, which is to say if we're loading an
       # existing deploy instead of creating a new one.
-      if !create and @deployment and @original_config
+      if !create and @deployment and @original_config and !skip_resource_objects
         MU::Cloud.resource_types.each_pair { |res_type, attrs|
           type = attrs[:cfg_plural]
           if @deployment.has_key?(type)
@@ -1002,7 +1004,7 @@ module MU
                 straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: cloud_id)
               end
             else
-              straykitten = momma.findLitterMate(type: type, name: name, mu_name: mu_name)
+              straykitten = momma.findLitterMate(type: type, name: name, mu_name: mu_name, cloud_id: cloud_id)
             end
             next if straykitten.nil?
 
@@ -1047,6 +1049,8 @@ module MU
           regions.each { |r|
             next if cloud_descs[r].nil?
             cloud_descs[r].each_pair { |kitten_cloud_id, descriptor|
+puts "#{r}: #{kitten_cloud_id}"
+pp kittens.keys
               # We already have a MU::Cloud object for this guy, use it
               if kittens.has_key?(kitten_cloud_id)
                 matches << kitten[kitten_cloud_id]
@@ -1580,7 +1584,7 @@ MESSAGE_END
         first_ltr = @words.select { |word| word.match(/^#{seed[0]}/i) }
         word_one = first_ltr.shuffle.first
         # If we got a paired set that happen to match our letters, go with it
-        if !word_one.nil? and word_one.match(/-#{seed[1]}/)
+        if !word_one.nil? and word_one.match(/-#{seed[1]}/i)
           word_one, word_two = word_one.split(/-/)
         else
           second_ltr = @words.select { |word| word.match(/^#{seed[1]}/i) and !word.match(/-/i) }
@@ -2236,7 +2240,7 @@ MESSAGE_END
     end
 
 
-    @catwords = %w{abyssian acinonyx alley angora bastet bengal birman bobcat bobtail bombay burmese calico chartreux cheetah cheshire cornish-rex curl devon devon-rex dot egyptian-mau feline felix feral fuzzy ginger havana himilayan jaguar japanese-bobtail javanese kitty khao-manee leopard lion lynx maine-coon manx marmalade maru mau mittens moggy munchkin neko norwegian ocelot pallas panther patches paws persian peterbald phoebe polydactyl purr queen quick ragdoll roar russian-blue saber savannah scottish-fold sekhmet serengeti shorthair siamese siberian singapura snowshoe socks sphinx spot stray tabby tail tiger tom tonkinese tortoiseshell turkish-van tuxedo uncia whiskers wildcat yowl}
+    @catwords = %w{abyssian acinonyx alley angora bastet bengal birman bobcat bobtail bombay burmese calico chartreux cheetah cheshire cornish-rex curl devon devon-rex dot egyptian-mau feline felix feral fuzzy ginger havana himilayan jaguar japanese-bobtail javanese kitty khao-manee leopard lion lynx maine-coon manx marmalade maru mau mittens moggy munchkin neko norwegian ocelot pallas panther patches paws persian peterbald phoebe polydactyl purr queen quick ragdoll roar russian-blue saber savannah scottish-fold sekhmet serengeti shorthair siamese siberian singapura skogkatt snowshoe socks sphinx spot stray tabby tail tiger tom tonkinese tortoiseshell turkish-van tuxedo uncia whiskers wildcat yowl}
     @noncatwords = %w{alpha amber auburn azure beta brave bravo brawler charlie chocolate chrome cinnamon corinthian coyote crimson dancer danger dash delta don duet echo edge electric elite enigma eruption eureka fearless foxtrot galvanic gold grace grey horizon hulk hyperion illusion imperative india intercept ivory jade jaeger juliet kaleidoscope kilo lucky mammoth night nova november ocean olive oscar quiescent rhythm rogue romeo ronin royal tacit tango typhoon ultimatum ultra umber upward victor violet vivid vulcan watchman whirlwind wright xenon xray xylem yankee yearling yell yukon zeal zero zippy zodiac}
     @words = @catwords + @noncatwords
 

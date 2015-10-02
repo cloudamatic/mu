@@ -137,16 +137,30 @@ module MU
                   }
                 end
 
-                if resp.state != "available"
-                  begin
-                    MU.log "Waiting for Subnet #{subnet_name} (#{subnet_id}) to be available", MU::NOTICE
+                retries = 0
+                begin
+                  if resp.state != "available"
+                    begin
+                      MU.log "Waiting for Subnet #{subnet_name} (#{subnet_id}) to be available", MU::NOTICE
+                      sleep 5
+                      resp = MU::Cloud::AWS.ec2(@config['region']).describe_subnets(subnet_ids: [subnet_id]).subnets.first
+                    rescue Aws::EC2::Errors::InvalidSubnetIDNotFound => e
+                      sleep 10
+                      retry
+                    end while resp.state != "available"
+                  end
+                rescue NoMethodError => e
+                  if retries <= 3
+                    MU.log "Got bogus Aws::EmptyResponse error on #{subnet_id} (retries used: #{retries}/3)", MU::WARN
+                    retries = retries + 1
                     sleep 5
                     resp = MU::Cloud::AWS.ec2(@config['region']).describe_subnets(subnet_ids: [subnet_id]).subnets.first
-                  rescue Aws::EC2::Errors::InvalidSubnetIDNotFound => e
-                    sleep 10
                     retry
-                  end while resp.state != "available"
+                  else
+                    raise e
+                  end
                 end
+
                 if !subnet['route_table'].nil?
                   routes = {}
                   @config['route_tables'].each { |tbl|
@@ -388,7 +402,7 @@ module MU
                   end
                   raise MuError, "VPC peering connection from VPC #{@config['name']} (#{@config['vpc_id']}) to #{peer_id} #{cnxn.status.code}: #{cnxn.status.message}"
                 end
-              end while cnxn.status.code != "active" and !(cnxn.status.code == "pending-acceptance" and (peer_obj.nil? or peer_obj.deploydata.nil? or !peer_obj.deployment['auto_accept_peers']))
+              end while cnxn.status.code != "active" and !(cnxn.status.code == "pending-acceptance" and (peer_obj.nil? or peer_obj.deploydata.nil? or !peer_obj.deploydata['auto_accept_peers']))
 
             }
           end
@@ -507,6 +521,7 @@ module MU
           if !@config.nil? and @config.has_key?("subnets")
             @config['subnets'].each { |subnet|
               subnet['mu_name'] = @mu_name+"-"+subnet['name'] if !subnet.has_key?("mu_name")
+              subnet['region'] = @config['region']
               resp.data.subnets.each { |desc|
                 if desc.cidr_block == subnet["ip_block"]
                   subnet["tags"] = MU.structToHash(desc.tags)
@@ -526,6 +541,7 @@ module MU
               subnet['mu_name'] = @mu_name+"-"+subnet['name']
               subnet["tags"] = MU.structToHash(desc.tags)
               subnet["cloud_id"] = desc.subnet_id
+              subnet['region'] = @config['region']
               @subnets << MU::Cloud::AWS::VPC::Subnet.new(self, subnet)
             }
           end
@@ -1098,7 +1114,7 @@ module MU
             )
             resp.route_tables.each { |route_table|
               route_table.routes.each { |route|
-                if route.destination_cidr_block =="0.0.0.0/0"
+                if route.destination_cidr_block == "0.0.0.0/0"
                   return true if !route.instance_id.nil?
                   return false if !route.gateway_id.nil?
                 end
