@@ -26,9 +26,14 @@ unless node['splunk']['upgrade_enabled']
 end
 
 service 'splunk_stop' do
-  service_name 'splunk'
+  if node['platform_family'] != 'windows'
+    service_name 'splunk'
+    provider Chef::Provider::Service::Init
+  else
+    service_name 'SplunkForwarder'
+    provider Chef::Provider::Service::Windows
+  end
   supports :status => true
-  provider Chef::Provider::Service::Init
   action :stop
 end
 
@@ -41,12 +46,12 @@ else
 end
 
 splunk_installer splunk_package do
-  url node['splunk']['upgrade']["#{url_type}_url"]
+  url node['splunk'][url_type]["url"]
 end
 
 if node['splunk']['accept_license']
   execute 'splunk-unattended-upgrade' do
-    command "#{splunk_cmd} start --accept-license --answer-yes"
+    command "\"#{splunk_cmd}\" start --accept-license --answer-yes"
   end
 else
   Chef::Log.fatal('You did not accept the license (set node["splunk"]["accept_license"] to true)')

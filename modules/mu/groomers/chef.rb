@@ -12,28 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-gem "chef"
-autoload :Chef, 'chef'
-gem "knife-windows"
-gem "chef-vault"
-autoload :Chef, 'chef-vault'
-autoload :ChefVault, 'chef-vault'
-
-# Autoload is smart, but not that smart.
-class Chef
-  autoload :Knife, 'chef/knife'
-  autoload :Search, 'chef/search'
-  autoload :Node, 'chef/node'
-  autoload :Mixin, 'chef/mixin'
-  # Autoload is smart, but not that smart.
-  class Knife
-    autoload :Ssh, 'chef/knife/ssh'
-    autoload :Bootstrap, 'chef/knife/bootstrap'
-    autoload :BootstrapWindowsSsh, 'chef/knife/bootstrap_windows_ssh'
-    autoload :Bootstrap, 'chef/knife/core/bootstrap_context'
-    autoload :BootstrapWindowsSsh, 'chef/knife/core/bootstrap_context'
-  end
-end
 
 module MU
   # Plugins under this namespace serve as interfaces to host configuration
@@ -41,6 +19,51 @@ module MU
   class Groomer
     # Support for Chef as a host configuration management layer.
     class Chef
+
+      Object.class_eval {
+        def self.const_missing(symbol)
+          if symbol.to_sym == :Chef or symbol.to_sym == :ChefVault
+            MU::Groomer::Chef.loadChefLib
+            return Object.const_get(symbol)
+          end
+        end
+        def const_missing(symbol)
+          if symbol.to_sym == :Chef or symbol.to_sym == :ChefVault
+            MU::Groomer::Chef.loadChefLib(@server.deploy.mu_user, @server.deploy.environment)
+            return Object.const_get(symbol)
+          end
+        end
+      }
+
+      @chefloaded = false
+      # Autoload is too brain-damaged to get Chef's subclasses/submodules, so
+      # implement our own lazy loading.
+      def self.loadChefLib(user = MU.mu_user, env = "dev")
+        if !@chefloaded
+          MU.log "Loading Chef libraries..."
+          start = Time.now
+          require 'chef'
+          require 'chef/api_client_v1'
+          require 'chef/knife'
+          require 'chef/knife/ssh'
+          require 'chef/knife/bootstrap'
+          require 'chef/knife/bootstrap_windows_ssh'
+          require 'chef/knife/node_delete'
+          require 'chef/knife/client_delete'
+          require 'chef/knife/data_bag_delete'
+          require 'chef-vault'
+          require 'chef-vault/item'
+          if File.exists?("#{Etc.getpwnam(user).dir}/.chef/knife.rb")
+            MU.log "Loading Chef configuration from #{Etc.getpwnam(user).dir}/.chef/knife.rb", MU::DEBUG
+            ::Chef::Config.from_file("#{Etc.getpwnam(user).dir}/.chef/knife.rb")
+          end
+          ::Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}/organizations/#{MU.chef_user}"
+          ::Chef::Config[:environment] = env
+          ::Chef::Config[:yes] = true
+          @chefloaded = true
+          MU.log "Chef libraries loaded (took #{(Time.now-start).to_s} seconds)"
+        end
+      end
 
       @knife = "cd #{MU.myRoot} && env -i HOME=#{Etc.getpwnam(MU.mu_user).dir} #{MU.mu_env_vars} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin knife"
       # The canonical path to invoke Chef's *knife* utility with a clean environment.
@@ -69,9 +92,6 @@ module MU
 
       attr_reader :chefclient
 
-      if File.exists?("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
-        ::Chef::Config.from_file("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
-      end
 
       # @param node [MU::Cloud::Server]: The server object on which we'll be operating
       def initialize(node)
@@ -80,18 +100,13 @@ module MU
         if node.mu_name.nil? or node.mu_name.empty?
           raise MuError, "Cannot groom a server that doesn't tell me its mu_name"
         end
-        if File.exists?("#{Etc.getpwnam(@server.deploy.mu_user).dir}/.chef/knife.rb")
-          MU.log "Loading Chef configuration from #{Etc.getpwnam(@server.deploy.mu_user).dir}/.chef/knife.rb", MU::DEBUG
-          ::Chef::Config.from_file("#{Etc.getpwnam(@server.deploy.mu_user).dir}/.chef/knife.rb")
-        end
         @secrets_semaphore = Mutex.new
         @secrets_granted = {}
-        ::Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}/organizations/#{MU.chef_user}"
-        ::Chef::Config[:environment] = node.deploy.environment
       end
 
       # Indicate whether our server has been bootstrapped with Chef
       def haveBootstrapped?
+        self.class.loadChefLib
         MU.log "Chef config", MU::DEBUG, details: ::Chef::Config.inspect
         nodelist = ::Chef::Node.list()
         nodelist.has_key?(@server.mu_name)
@@ -102,6 +117,7 @@ module MU
       # @param data [Hash]: Data to save
       # @param permissions [String]: An implementation-specific string describing what node or nodes should have access to this secret.
       def self.saveSecret(vault: @server.mu_name, item: nil, data: nil, permissions: nil)
+        loadChefLib
         if item.nil? or !item.is_a?(String)
           raise MuError, "item argument to saveSecret must be a String"
         end
@@ -110,12 +126,18 @@ module MU
         end
 
         cmd = "update"
-        exitstatus, output = MU::Groomer::Chef.knifeCmd("vault show '#{vault}' '#{item}' #{MU::Groomer::Chef.vault_opts} 2>&1 /dev/null")
-        cmd = "create" if exitstatus != 0
+        begin
+          MU.log "Checking for existence of #{vault} #{item}", MU::DEBUG, details: caller
+          ::ChefVault::Item.load(vault, item)
+        rescue ::ChefVault::Exceptions::KeysNotFound
+          cmd = "create"
+        end
         if permissions
-            MU::Groomer::Chef.knifeCmd("vault '#{cmd}' '#{vault}' '#{item}' '#{JSON.generate(data).gsub(/'/, '\\1')}' --search '#{permissions}' #{MU::Groomer::Chef.vault_opts}")
+          MU.log "knife vault #{cmd} #{vault} #{item} --search #{permissions}"
+          ::Chef::Knife.run(['vault', cmd, vault, item, JSON.generate(data).gsub(/'/, '\\1'), '--search', permissions])
         else
-            MU::Groomer::Chef.knifeCmd("vault '#{cmd}' '#{vault}' '#{item}' '#{JSON.generate(data).gsub(/'/, '\\1')}' #{MU::Groomer::Chef.vault_opts}")
+          MU.log "knife vault #{cmd} #{vault} #{item}"
+          ::Chef::Knife.run(['vault', cmd, vault, item, JSON.generate(data).gsub(/'/, '\\1')])
         end
       end
 
@@ -131,28 +153,25 @@ module MU
       # @param field [String]: OPTIONAL - A specific field within the item to return.
       # @return [Hash]
       def self.getSecret(vault: nil, item: nil, field: nil)
-        if File.exists?("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
-          ::Chef::Config.from_file("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
-        end
-
+        loadChefLib
         begin
-          item = ChefVault::Item.load(vault, item)
-        rescue ChefVault::Exceptions::KeysNotFound => e
+          loaded = ::ChefVault::Item.load(vault, item)
+        rescue ::ChefVault::Exceptions::KeysNotFound => e
           raise MuError, "Can't load the Chef Vault #{vault}:#{item}. Does it exist?"
         end
 
-        if item.nil?
+        if loaded.nil?
           raise MuError, "Failed to retrieve Vault #{vault}:#{item}"
         end
 
         if !field.nil?
-          if item.has_key?(field)
-            return item[field]
+          if loaded.has_key?(field)
+            return loaded[field]
           else
             raise MuError, "No such field in Vault #{vault}:#{item}"
           end
         else
-          return item
+          return loaded
         end
       end
 
@@ -164,9 +183,12 @@ module MU
       # Delete a Chef data bag / Vault
       # @param vault [String]: A repository of secrets to delete
       def self.deleteSecret(vault: nil)
+        loadChefLib
         raise MuError, "No vault specified, nothing to delete" if vault.nil?
         MU.log "Deleting vault #{vault}"
-        MU::Groomer::Chef.knifeCmd("data bag delete -y #{vault}")
+        knife_db = ::Chef::Knife::DataBagDelete.new(['data', 'bag', 'delete', vault])
+        knife_db.config[:yes] = true
+        knife_db.run
       end
 
       # see {MU::Groomer::Chef.deleteSecret}
@@ -179,6 +201,7 @@ module MU
       # @param purpose [String] = A string describing the purpose of this client run.
       # @param max_retries [Integer] = The maximum number of attempts at a successful run to make before giving up.
       def run(purpose: "Chef run", update_runlist: true, max_retries: 5)
+        self.class.loadChefLib
         if update_runlist and !@config['run_list'].nil?
           knifeAddToRunList(multiple: @config['run_list'])
         end
@@ -242,20 +265,23 @@ module MU
       # Make sure we've got a Splunk admin vault for any mu-splunk-servers to
       # use, and set it up if we don't.
       def splunkVaultInit
-        pw = Password.pronounceable(12..14)
-        # ...one of these is correct
-        creds = {
+        self.class.loadChefLib
+        begin
+          loaded = ::ChefVault::Item.load("splunk", "admin_user")
+        rescue ::ChefVault::Exceptions::KeysNotFound => e
+          pw = Password.pronounceable(12..14)
+          creds = {
             "username" => "admin",
             "password" => pw,
             "auth" => "admin:#{pw}"
-        }
-
-        saveSecret(
+          }
+          saveSecret(
             vault: "splunk",
             item: "admin_user",
             data: creds,
             permissions: "role:mu-splunk-server"
-        )
+          )
+        end
       end
 
       # Expunge
@@ -287,6 +313,7 @@ module MU
 
       # Bootstrap our server with Chef
       def bootstrap
+        self.class.loadChefLib
         createGenericHostSSLCert
         if !@config['cleaned_chef']
           begin
@@ -304,11 +331,6 @@ module MU
 
         run_list = ["role[mu-node]", "recipe[mu-tools::newclient]"]
         run_list << "recipe[mu-tools::updates]" if !@config['skipinitialupdates']
-
-        # XXX These shouldn't be needed, see Autoloads in mu.rb. Whyy Chef why?
-        require 'chef/knife/bootstrap'
-        require 'chef/knife/core/bootstrap_context'
-        require 'chef/knife/bootstrap_windows_ssh'
 
         json_attribs = {}
         if !@config['application_attributes'].nil?
@@ -425,6 +447,7 @@ module MU
       # so that nodes can access this metadata.
       # @return [Hash]: The data synchronized.
       def saveDeployData
+        self.class.loadChefLib
         @server.describe(update_cache: true) # Make sure we're fresh
         saveChefMetadata
         begin
@@ -445,21 +468,33 @@ module MU
       # @param vaults_to_clean [Array<Hash>]: Some vaults to expunge
       # @param noop [Boolean]: Skip actual deletion, just state what we'd do
       def self.cleanup(node, vaults_to_clean = [], noop = false)
-        if File.exists?("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
-          ::Chef::Config.from_file("#{Etc.getpwnam(MU.mu_user).dir}/.chef/knife.rb")
-        end
+        loadChefLib
         MU.log "Deleting Chef resources associated with #{node}"
         vaults_to_clean.each { |vault|
           MU::MommaCat.lock("vault-#{vault['vault']}", false, true)
           MU.log "knife vault remove #{vault['vault']} #{vault['item']} --search name:#{node}", MU::NOTICE
-          `#{MU::Groomer::Chef.knife} vault remove #{vault['vault']} #{vault['item']} --search name:#{node} 2>&1 > /dev/null` if !noop
+          ::Chef::Knife.run(['vault', 'remove', vault['vault'], vault['item'], "--search", "name:#{node}"]) if !noop
           MU::MommaCat.unlock("vault-#{vault['vault']}")
         }
+        MU.log "knife node delete #{node}"
+        if !noop
+          knife_nd = ::Chef::Knife::NodeDelete.new(['node', 'delete', node])
+          knife_nd.config[:yes] = true
+          begin
+            knife_nd.run
+          rescue Net::HTTPServerException
+          end
+        end
+        MU.log "knife client delete #{node}"
+        if !noop
+          knife_cd = ::Chef::Knife::ClientDelete.new(['client', 'delete', node])
+          knife_cd.config[:yes] = true
+          begin
+            knife_cd.run
+          rescue Net::HTTPServerException
+          end
+        end
 
-        MU.log "knife node delete -y #{node}"
-        `#{MU::Groomer::Chef.knife} node delete -y #{node}` if !noop
-        MU.log "knife client delete -y #{node}"
-        `#{MU::Groomer::Chef.knife} client delete -y #{node}` if !noop
         deleteSecret(vault: node) if !noop
         ["crt", "key", "csr"].each { |ext|
           if File.exists?("#{MU.mySSLDir}/#{node}.#{ext}")
@@ -473,6 +508,7 @@ module MU
 
       # Save common Mu attributes to this node's Chef node structure.
       def saveChefMetadata
+        self.class.loadChefLib
         nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = @server.getSSHConfig
         MU.log "Saving #{@server.mu_name} Chef artifacts"
 
@@ -574,37 +610,15 @@ module MU
       end
 
       def grantSecretAccess(vault, item)
+        self.class.loadChefLib
         return if @secrets_granted["#{vault}:#{item}"]
         MU::MommaCat.lock("vault-#{vault}", false, true)
-        retries = 0
+        MU.log "Granting #{@server.mu_name} access to #{vault} #{item}"
         begin
-          retries += 1
-          exitstatus, output = knifeCmd("vault update #{vault} #{item} #{MU::Groomer::Chef.vault_opts} --search name:#{@server.mu_name}")
-          exitstatus, output = knifeCmd("vault show #{vault} #{item} clients -p clients -f yaml #{MU::Groomer::Chef.vault_opts} 2>&1")
-
-          if !output.match(/#{@server.mu_name}/)
-            MU.log "Didn't see #{@server.mu_name} in output of vault show #{vault} #{item}, trying again...", MU::WARN, details: output
-            if retries < 10
-              MU::MommaCat.unlock("vault-#{vault}")
-              sleep 5
-              redo
-            else
-              MU::MommaCat.unlock("vault-#{vault}")
-              raise MuError, "Unable to add node #{@server.mu_name} to #{vault} #{item}, aborting"
-            end
-          else
-            @secrets_semaphore.synchronize {
-              @secrets_granted["#{vault}:#{item}"] = true
-            }
-
-            MU.log "Granted #{@server.mu_name} access to #{vault} #{item} after #{retries} retries", MU::NOTICE
-            MU::MommaCat.unlock("vault-#{vault}")
-            return
-          end
-        ensure
-          MU::MommaCat.unlock("vault-#{vault}")
-        end while true
-
+          ::Chef::Knife.run(['vault', 'update', vault, item, "--search", "name:#{@server.mu_name}"])
+        rescue Exception => e
+          MU.log e.inspect, MU::ERR, details: caller
+        end
         MU::MommaCat.unlock("vault-#{vault}")
       end
 
@@ -685,10 +699,10 @@ module MU
                 "node.key" => key.to_pem.chomp!.gsub(/\n/, "\\n")
             }
         }
-        saveSecret(item: "ssl_cert", data: certdata)
+        saveSecret(item: "ssl_cert", data: certdata, permissions: nil)
 
         # Any and all 'secrets' parameters should also be stuffed into our vault.
-        saveSecret(item: "secrets", data: @config['secrets']) if !@config['secrets'].nil?
+        saveSecret(item: "secrets", data: @config['secrets'], permissions: nil) if !@config['secrets'].nil?
       end
 
       # Add a role or recipe to a node. Optionally, throw a fit if it doesn't
@@ -699,6 +713,7 @@ module MU
       # @param multiple [Array<String>]: Add more than one run_list entry. Overrides rl_entry.
       # @return [void]
       def knifeAddToRunList(rl_entry = nil, type="role", ignore_missing: false, multiple: [])
+        self.class.loadChefLib
         return if rl_entry.nil? and multiple.size == 0
         if multiple.size == 0
           multiple = [rl_entry]

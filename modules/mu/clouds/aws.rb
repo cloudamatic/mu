@@ -357,11 +357,11 @@ module MU
             interval = 5 + Random.rand(4) - 2
             if retries < 10 and retries > 2
               debuglevel = MU::NOTICE
-              interval = 10 + Random.rand(6) - 3
+              interval = 20 + Random.rand(10) - 3
             # elsif retries >= 10 and retries <= 100
             elsif retries >= 10
               debuglevel = MU::WARN
-              interval = 30 + Random.rand(10) - 5
+              interval = 40 + Random.rand(15) - 5
             # elsif retries > 100
               # raise MuError, "Exhausted retries after #{retries} attempts while calling EC2's #{method_sym} in #{@region}.  Args were: #{arguments}"
             end
