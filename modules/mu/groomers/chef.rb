@@ -36,33 +36,36 @@ module MU
       }
 
       @chefloaded = false
+      @chefload_semaphore = Mutex.new
       # Autoload is too brain-damaged to get Chef's subclasses/submodules, so
       # implement our own lazy loading.
       def self.loadChefLib(user = MU.mu_user, env = "dev")
-        if !@chefloaded
-          MU.log "Loading Chef libraries..."
-          start = Time.now
-          require 'chef'
-          require 'chef/api_client_v1'
-          require 'chef/knife'
-          require 'chef/knife/ssh'
-          require 'chef/knife/bootstrap'
-          require 'chef/knife/bootstrap_windows_ssh'
-          require 'chef/knife/node_delete'
-          require 'chef/knife/client_delete'
-          require 'chef/knife/data_bag_delete'
-          require 'chef-vault'
-          require 'chef-vault/item'
-          if File.exists?("#{Etc.getpwnam(user).dir}/.chef/knife.rb")
-            MU.log "Loading Chef configuration from #{Etc.getpwnam(user).dir}/.chef/knife.rb", MU::DEBUG
-            ::Chef::Config.from_file("#{Etc.getpwnam(user).dir}/.chef/knife.rb")
+        @chefload_semaphore.synchronize {
+          if !@chefloaded
+            MU.log "Loading Chef libraries..."
+            start = Time.now
+            require 'chef'
+            require 'chef/api_client_v1'
+            require 'chef/knife'
+            require 'chef/knife/ssh'
+            require 'chef/knife/bootstrap'
+            require 'chef/knife/bootstrap_windows_ssh'
+            require 'chef/knife/node_delete'
+            require 'chef/knife/client_delete'
+            require 'chef/knife/data_bag_delete'
+            require 'chef-vault'
+            require 'chef-vault/item'
+            if File.exists?("#{Etc.getpwnam(user).dir}/.chef/knife.rb")
+              MU.log "Loading Chef configuration from #{Etc.getpwnam(user).dir}/.chef/knife.rb", MU::DEBUG
+              ::Chef::Config.from_file("#{Etc.getpwnam(user).dir}/.chef/knife.rb")
+            end
+            ::Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}/organizations/#{MU.chef_user}"
+            ::Chef::Config[:environment] = env
+            ::Chef::Config[:yes] = true
+            @chefloaded = true
+            MU.log "Chef libraries loaded (took #{(Time.now-start).to_s} seconds)"
           end
-          ::Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}/organizations/#{MU.chef_user}"
-          ::Chef::Config[:environment] = env
-          ::Chef::Config[:yes] = true
-          @chefloaded = true
-          MU.log "Chef libraries loaded (took #{(Time.now-start).to_s} seconds)"
-        end
+        }
       end
 
       @knife = "cd #{MU.myRoot} && env -i HOME=#{Etc.getpwnam(MU.mu_user).dir} #{MU.mu_env_vars} PATH=/opt/chef/embedded/bin:/usr/bin:/usr/sbin knife"
