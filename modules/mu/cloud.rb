@@ -62,7 +62,7 @@ module MU
     class CacheCluster;
     end
     # Stub base class; real implementations generated at runtime
-    class Alert;
+    class Alarm;
     end
     # Stub base class; real implementations generated at runtime
     class Notification;
@@ -171,12 +171,12 @@ module MU
             :class => generic_class_methods,
             :instance => generic_instance_methods + [:groom]
         },
-        :Alert => {
+        :Alarm => {
             :has_multiples => false,
             :can_live_in_vpc => false,
-            :cfg_name => "alert",
-            :cfg_plural => "alerts",
-            :interface => self.const_get("Alert"),
+            :cfg_name => "alarm",
+            :cfg_plural => "alarms",
+            :interface => self.const_get("Alarm"),
             :deps_wait_on_my_creation => false,
             :waits_on_parent_completion => true,
             :class => generic_class_methods,

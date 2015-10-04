@@ -283,8 +283,12 @@ module MU
                 policy_params[:cooldown] = policy['cooldown']
                 policy_params[:scaling_adjustment] = policy['adjustment']
               elsif policy["policy_type"] == "StepScaling"
+                step_adjustments = []
+                policy['step_adjustments'].each{|step|
+                  step_adjustments << {:metric_interval_lower_bound => step["lower_bound"], :metric_interval_upper_bound => step["upper_bound"], :scaling_adjustment => step["adjustment"]}
+                }
                 policy_params[:metric_aggregation_type] = policy['metric_aggregation_type']
-                policy_params[:step_adjustments] = policy['step_adjustments']
+                policy_params[:step_adjustments] = step_adjustments
                 policy_params[:estimated_instance_warmup] = policy['estimated_instance_warmup']
               end
 
@@ -293,10 +297,12 @@ module MU
 
               if policy["alarms"] && !policy["alarms"].empty?
                 policy["alarms"].each { |alarm|
+                  alarm["dimensions"] = [] if alarm["dimensions"].nil?
                   alarm["alarm_actions"] = [] if alarm["alarm_actions"].nil?
                   alarm["ok_actions"] = [] if alarm["ok_actions"].nil?
 
                   alarm["alarm_actions"] << resp.policy_arn
+                  alarm["dimensions"] << {:name => "AutoScalingGroupName", :value => asg_options[:auto_scaling_group_name]}
 
                   if alarm["enable_notifications"]
                     topic_arn = MU::Cloud::AWS::Notification.createTopic(alarm["notification_group"], region: @config["region"])
@@ -305,7 +311,7 @@ module MU
                     alarm["ok_actions"] << topic_arn
                   end
 
-                  MU::Cloud::AWS::Alert.createAlarm(
+                  MU::Cloud::AWS::Alarm.createAlarm(
                     name: @deploy.getResourceName("#{@config["name"]}-#{alarm["name"]}"),
                     ok_actions: alarm["ok_actions"],
                     alarm_actions: alarm["alarm_actions"],

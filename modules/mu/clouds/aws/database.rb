@@ -261,16 +261,18 @@ module MU
             db_instance_class: @config["size"],
             engine: @config["engine"],
             auto_minor_version_upgrade: @config["auto_minor_version_upgrade"],
-            multi_az: @config['multi_az_on_create'],
             license_model: @config["license_model"],
             db_subnet_group_name: @config["subnet_group_name"],
             publicly_accessible: @config["publicly_accessible"],
             tags: allTags
           }
 
-          config[:storage_type] = @config["storage_type"] unless @config["add_cluster_node"]
-          config[:port] = @config["port"] if @config["port"]
-          config[:iops] = @config["iops"] if @config['storage_type'] == "io1"
+          unless @config["add_cluster_node"]
+            config[:storage_type] = @config["storage_type"] 
+            config[:port] = @config["port"] if @config["port"]
+            config[:iops] = @config["iops"] if @config['storage_type'] == "io1"
+            config[:multi_az] = @config['multi_az_on_create']
+          end
 
           if @config["creation_style"] == "new"
             unless @config["add_cluster_node"]
@@ -376,6 +378,36 @@ module MU
 
           database = MU::Cloud::AWS::Database.getDatabaseById(@config['identifier'], region: @config['region'])
           MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: database.db_instance_identifier, target: "#{database.endpoint.address}.", cloudclass: MU::Cloud::Database, sync_wait: @config['dns_sync_wait'])
+
+          if @config["alarms"] && !@config["alarms"].empty?
+            @config["alarms"].each { |alarm|
+              alarm["dimensions"] = [{:name => "DBInstanceIdentifier", :value => database.db_instance_identifier}]
+
+              if alarm["enable_notifications"]
+                topic_arn = MU::Cloud::AWS::Notification.createTopic(alarm["notification_group"], region: @config["region"])
+                MU::Cloud::AWS::Notification.subscribe(arn: topic_arn, protocol: alarm["notification_type"], endpoint: alarm["notification_endpoint"], region: @config["region"])
+                alarm["alarm_actions"] = [topic_arn]
+                alarm["ok_actions"] = [topic_arn]
+              end
+
+              MU::Cloud::AWS::Alarm.createAlarm(
+                name: @deploy.getResourceName("#{@config["name"]}-#{alarm["name"]}"),
+                ok_actions: alarm["ok_actions"],
+                alarm_actions: alarm["alarm_actions"],
+                insufficient_data_actions: alarm["no_data_actions"],
+                metric_name: alarm["metric_name"],
+                namespace: alarm["namespace"],
+                statistic: alarm["statistic"],
+                dimensions: alarm["dimensions"],
+                period: alarm["period"],
+                unit: alarm["unit"],
+                evaluation_periods: alarm["evaluation_periods"],
+                threshold: alarm["threshold"],
+                comparison_operator: alarm["comparison_operator"],
+                region: @config["region"]
+              )
+            }
+          end
 
           # When creating from a snapshot, some of the create arguments aren't
           # applicable- but we can apply them after the fact with a modify.

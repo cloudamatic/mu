@@ -210,10 +210,12 @@ module MU
                 cloudclass: MU::Cloud::CacheCluster,
                 sync_wait: @config['dns_sync_wait']
               )
+
+              createAlarm(member.cache_cluster_id) if @config["alarms"] && !@config["alarms"].empty?
             }
 
             MU.log "Cache replication group #{@config['identifier']} is ready to use"
-            @cloud_id = resp.cache_cluster_id
+            @cloud_id = resp.replication_group_id
           else
             config_struct[:cache_cluster_id] = @config['identifier']
             config_struct[:az_mode] = @config["az_mode"]
@@ -247,7 +249,8 @@ module MU
 
             resp = MU::Cloud::AWS::CacheCluster.getCacheClusterById(@config['identifier'], region: @config['region'])
             MU.log "Cache Cluster #{@config['identifier']} is ready to use"
-            @cloud_id = resp.replication_group_id
+            createAlarm(resp.cache_cluster_id) if @config["alarms"] && !@config["alarms"].empty?
+            @cloud_id = resp.cache_cluster_id
           end
         end
 
@@ -373,6 +376,36 @@ module MU
               parameter_name_values: params
             )
           end
+        end
+
+        def createAlarm(cluster_id)
+          @config["alarms"].each { |alarm|
+            alarm["dimensions"] = [{:name => "CacheClusterId", :value => cluster_id}]
+
+            if alarm["enable_notifications"]
+              topic_arn = MU::Cloud::AWS::Notification.createTopic(alarm["notification_group"], region: @config["region"])
+              MU::Cloud::AWS::Notification.subscribe(arn: topic_arn, protocol: alarm["notification_type"], endpoint: alarm["notification_endpoint"], region: @config["region"])
+              alarm["alarm_actions"] = [topic_arn]
+              alarm["ok_actions"] = [topic_arn]
+            end
+
+            MU::Cloud::AWS::Alarm.createAlarm(
+              name: @deploy.getResourceName("#{@config["name"]}-#{alarm["name"]}-#{cluster_id}"),
+              ok_actions: alarm["ok_actions"],
+              alarm_actions: alarm["alarm_actions"],
+              insufficient_data_actions: alarm["no_data_actions"],
+              metric_name: alarm["metric_name"],
+              namespace: alarm["namespace"],
+              statistic: alarm["statistic"],
+              dimensions: alarm["dimensions"],
+              period: alarm["period"],
+              unit: alarm["unit"],
+              evaluation_periods: alarm["evaluation_periods"],
+              threshold: alarm["threshold"],
+              comparison_operator: alarm["comparison_operator"],
+              region: @config["region"]
+            )
+          }
         end
 
         # Retrieve a Cache Cluster parameter group name of on existing parameter group.
@@ -564,7 +597,7 @@ module MU
           # Because we can't run list_tags_for_resource on a cache cluster that isn't in "available" state we're loading the deploy to make sure we have a cache cluster to cleanup.
           # To ensure we don't miss cache clusters that have been terminated mid creation we'll load the 'original_config'. We might want to find a better approach for this.
           deploy = MU::MommaCat.getLitter(MU.deploy_id)
-          if deploy.original_config.has_key?("cache_clusters") && !deploy.original_config["cache_clusters"].empty?
+          if deploy.original_config && deploy.original_config.has_key?("cache_clusters") && !deploy.original_config["cache_clusters"].empty?
 
             # The ElastiCache API and documentation are a mess, the replication group ARN resource_type is not documented, and is not easily guessable.
             # So instead of searching for replication groups directly we'll get their IDs from the cache clusters.
@@ -749,7 +782,7 @@ module MU
 
           unless noop
             MU::Cloud::AWS::CacheCluster.delete_subnet_group(subnet_group, region: region) if subnet_group
-            MU::Cloud::AWS::CacheCluster.delete_parameter_group(parameter_group, region: region) if parameter_group
+            MU::Cloud::AWS::CacheCluster.delete_parameter_group(parameter_group, region: region) if parameter_group && !parameter_group.start_with?("default")
           end
         end
 
@@ -857,7 +890,7 @@ module MU
           MU.log "#{repl_group_id} has been terminated"
           unless noop
             MU::Cloud::AWS::CacheCluster.delete_subnet_group(subnet_group, region: region) if subnet_group
-            MU::Cloud::AWS::CacheCluster.delete_parameter_group(parameter_group, region: region) if parameter_group
+            MU::Cloud::AWS::CacheCluster.delete_parameter_group(parameter_group, region: region) if parameter_group && !parameter_group.start_with?("default")
           end
         end
 

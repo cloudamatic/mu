@@ -1,0 +1,126 @@
+<%
+  raise "You must set deploy_id (e.g. -p deploy_id=UATSVCS-PROD-2015051501-RE)" unless $deploy_id
+  $nat_ssh_user = "root" unless $nat_ssh_user
+  $region = MU.curRegion unless $region
+%>
+
+appname: autoscale
+region: <%= $region %>
+server_pools:
+- name: test
+  dns_sync_wait: false
+  alarms:
+  - name: reboot
+    metric_name: StatusCheckFailed_Instance
+    statistic: Minimum
+    period: 60
+    evaluation_periods: 3
+    threshold: 0
+    comparison_operator: GreaterThanThreshold
+    enable_notifications: true
+    alarm_actions:
+    - arn:aws:swf:<%= $region %>:<%= MU.account_number %>:action/actions/AWS_EC2.InstanceId.Reboot/1.0
+  min-size: 1
+  max-size: 6
+  scaling_policies:
+  - name: scale-up
+    type: ChangeInCapacity
+    policy_type: StepScaling
+    estimated_instance_warmup: 60
+    step_adjustments:
+    - adjustment: 1
+      lower_bound: 0
+      upper_bound: 10
+    - adjustment: 2
+      lower_bound: 10
+      upper_bound: 20
+    - adjustment: 4
+      lower_bound: 20
+    alarms:
+    - name: up
+      metric_name: CPUUtilization
+      statistic: Average
+      period: 60
+      evaluation_periods: 1
+      threshold: 60
+      comparison_operator: GreaterThanOrEqualToThreshold
+      enable_notifications: true
+  - name: scale-down
+    type: ChangeInCapacity
+    policy_type: StepScaling
+    step_adjustments:
+    - adjustment: -1
+      upper_bound: 0
+      lower_bound: -10
+    - adjustment: -2
+      lower_bound: -20
+      upper_bound: -10
+    - adjustment: -4
+      upper_bound: -20
+    alarms:
+    - name: down
+      metric_name: CPUUtilization
+      statistic: Average
+      period: 900
+      evaluation_periods: 2
+      threshold: 40
+      comparison_operator: LessThanOrEqualToThreshold
+      enable_notifications: true
+  loadbalancers:
+  - concurrent-load-balancer: lb
+  ingress_rules:
+  - port: 80
+    lbs:
+    - lb
+  vpc:
+    deploy_id: <%= $deploy_id %>
+    subnet_pref: all_private
+    nat_ssh_user: <%= $nat_ssh_user %>
+  dependencies:
+  - name: lb
+    type: loadbalancer
+  basis:
+    launch-config:
+      name: autoscale
+      size: m4.large
+
+loadbalancers:
+- name: lb
+  dns_sync_wait: false
+  private: true
+  alarms:
+  - name: unhealthy-hosts
+    metric_name: UnHealthyHostCount
+    statistic: Average
+    period: 60
+    evaluation_periods: 1
+    threshold: 0
+    comparison_operator: GreaterThanThreshold
+    enable_notifications: true
+  - name: connection-errors
+    metric_name: BackendConnectionErrors
+    statistic: Average
+    period: 60
+    evaluation_periods: 1
+    unit: Count
+    threshold: 0
+    comparison_operator: GreaterThanThreshold
+    enable_notifications: true
+  vpc:
+    deploy_id: <%= $deploy_id %>
+    subnet_pref: all_public
+  cross_zone_unstickiness: true
+  idle_timeout: 240
+  healthcheck:
+    target: HTTP:80/heartbeat.html
+    unhealthy-threshold: 2
+    healthy-threshold: 3
+  listeners:
+  - lb-port: 80
+    lb-protocol: HTTP
+    instance-port: 80
+    instance-protocol: HTTP
+  ingress_rules:
+  - port: 80
+    hosts:
+    - 0.0.0.0/0

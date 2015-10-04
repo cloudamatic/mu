@@ -890,7 +890,7 @@ module MU
       servers = config['servers']
       server_pools = config['server_pools']
       cache_clusters = config['cache_clusters']
-      alerts = config['alerts']
+      alarms = config['alarms']
       loadbalancers = config['loadbalancers']
       collections = config['collections']
       firewall_rules = config['firewall_rules']
@@ -901,14 +901,14 @@ module MU
       servers = Array.new if servers.nil?
       server_pools = Array.new if server_pools.nil?
       cache_clusters = Array.new if cache_clusters.nil?
-      alerts = Array.new if alerts.nil?
+      alarms = Array.new if alarms.nil?
       loadbalancers = Array.new if loadbalancers.nil?
       collections = Array.new if collections.nil?
       firewall_rules = Array.new if firewall_rules.nil?
       vpcs = Array.new if vpcs.nil?
       dnszones = Array.new if dnszones.nil?
 
-      if databases.size < 1 and servers.size < 1 and server_pools.size < 1 and loadbalancers.size < 1 and collections.size < 1 and firewall_rules.size < 1 and vpcs.size < 1 and dnszones.size < 1 and cache_clusters.size < 1 and alerts.size < 1 
+      if databases.size < 1 and servers.size < 1 and server_pools.size < 1 and loadbalancers.size < 1 and collections.size < 1 and firewall_rules.size < 1 and vpcs.size < 1 and dnszones.size < 1 and cache_clusters.size < 1 and alarms.size < 1 
         MU.log "You must declare at least one resource to create", MU::ERR
         ok = false
       end
@@ -1197,6 +1197,13 @@ module MU
           end
         }
         lb['dependencies'] << genAdminFirewallRuleset(vpc: lb['vpc'], region: lb['region'], cloud: lb['cloud'])
+        
+        if lb["alarms"] && !lb["alarms"].empty?
+          lb["alarms"].each { |alarm|
+            alarm["namespace"] = "AWS/ELB" if alarm["namespace"].nil?
+            ok = false unless validate_alarm_config(alarm)
+          }
+        end
       }
 
       collections.each { |stack|
@@ -1225,6 +1232,14 @@ module MU
         pool['vault_access'] = [] if pool['vault_access'].nil?
         pool['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
         ok = false if !check_vault_refs(pool)
+
+        if pool["alarms"] && !pool["alarms"].empty?
+          pool["alarms"].each { |alarm|
+            alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
+            ok = false unless validate_alarm_config(alarm)
+          }
+        end
+
         if pool["basis"]["launch_config"] != nil
           launch = pool["basis"]["launch_config"]
           if !launch['generate_iam_role']
@@ -1273,8 +1288,9 @@ module MU
                 ok = false
               end
             elsif policy["policy_type"] == "StepScaling"
-              unless policy["metric_aggregation_type"] && policy["step_adjustments"] && policy["estimated_instance_warmup"]
-                MU.log "You must specify 'metric_aggregation_type' and 'step_adjustments' and 'estimated_instance_warmup' when using 'StepScaling'", MU::ERR
+              unless policy["step_adjustments"] 
+              # && policy["estimated_instance_warmup"]
+                MU.log "You must specify 'step_adjustments' and 'estimated_instance_warmup' when using 'StepScaling'", MU::ERR
                 ok = false
               end
             end
@@ -1491,6 +1507,13 @@ module MU
           MU.log "Running SQL on deploy is only supported for postgres and mysql databases", MU::ERR
         end
 
+        if db["alarms"] && !db["alarms"].empty?
+          db["alarms"].each { |alarm|
+            alarm["namespace"] = "AWS/RDS" if alarm["namespace"].nil?
+            ok = false unless validate_alarm_config(alarm)
+          }
+        end
+
         if db["collection"]
           db["dependencies"] << {
               "type" => "collection",
@@ -1609,7 +1632,16 @@ module MU
               "phase" => "groom"
             }
             cluster_nodes << node
+
+            # Alarms are set on each DB cluster node, not on the cluster iteslf 
+            if node.has_key?("alarms") && !node["alarms"].empty?
+              node["alarms"].each{ |alarm|
+                alarm["name"] = "#{alarm["name"]}-#{node["name"]}"
+              }
+            end
           }
+
+          db.delete("alarms") if db.has_key?("alarms")
         end
       }
       databases.concat(read_replicas)
@@ -1734,6 +1766,13 @@ module MU
           end 
         end
 
+        if cluster["alarms"] && !cluster["alarms"].empty?
+          cluster["alarms"].each { |alarm|
+            alarm["namespace"] = "AWS/ElastiCache" if alarm["namespace"].nil?
+            ok = false unless validate_alarm_config(alarm)
+          }
+        end
+
         if cluster['ingress_rules']
           fwname = "cache#{cluster['name']}"
           firewall_rule_names << fwname
@@ -1791,19 +1830,19 @@ module MU
         cluster['dependencies'] << genAdminFirewallRuleset(vpc: cluster['vpc'], region: cluster['region'], cloud: cluster['cloud'])
       }
 
-      alerts.each { |alert|
-        alert['region'] = config['region'] if alert['region'].nil?
-        alert["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Alert")
-        alert["dependencies"] = [] if alert["dependencies"].nil?
+      alarms.each { |alarm|
+        alarm['region'] = config['region'] if alarm['region'].nil?
+        alarm["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Alarm")
+        alarm["dependencies"] = [] if alarm["dependencies"].nil?
 
-        if alert["dimensions"]
-          alert["dimensions"].each{ |dimension|
+        if alarm["dimensions"]
+          alarm["dimensions"].each{ |dimension|
             if dimension["cloud_class"].nil?
               MU.log "You must specify 'cloud_class'", MU::ERR
               ok = false
             end
 
-            alert["namespace"] = 
+            alarm["namespace"] = 
               if dimension["cloud_class"] == "InstanceId"
                 "AWS/EC2"
               elsif dimension["cloud_class"] == "DBInstanceIdentifier"
@@ -1814,11 +1853,15 @@ module MU
                 "AWS/ElastiCache"
               elsif dimension["cloud_class"] == "VolumeId"
                 "AWS/EBS"
+              elsif dimension["cloud_class"] == "BucketName"
+                "AWS/S3"
+              elsif dimension["cloud_class"] == "TopicName"
+                "AWS/SNS"
               end
           }
         end
 
-        ok = false unless validate_alarm_config(alert)
+        ok = false unless validate_alarm_config(alarm)
       }
 
       servers.each { |server|
@@ -1858,6 +1901,13 @@ module MU
             MU.log "No AMI specified for #{server['name']} and no default available for platform #{server['platform']} in region #{server['region']}", MU::ERR, details: server
             ok = false
           end
+        end
+
+        if server["alarms"] && !server["alarms"].empty?
+          server["alarms"].each { |alarm|
+            alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
+            ok = false unless validate_alarm_config(alarm)
+          }
         end
 
         server['skipinitialupdates'] = true if @skipinitialupdates
@@ -2655,7 +2705,7 @@ module MU
         MU.userEmail
       end
 
-    @alert_common_properties = {
+    @alarm_common_properties = {
         "name" => {
             "type" => "string"
         },
@@ -2710,7 +2760,7 @@ module MU
                     },
                     "cloud_id" => {
                         "type" => "string",
-                        "description" => "The cloud identifier of the item you are trying to create an alert for. eg - Instance ID. You can specify use 'cloud_id' OR 'mu_name' and 'deploy_id'"
+                        "description" => "The cloud identifier of the item you are trying to create an alarm for. eg - Instance ID. You can specify use 'cloud_id' OR 'mu_name' and 'deploy_id'"
                     },
                     "mu_name" => {
                         "type" => "string",
@@ -2781,7 +2831,7 @@ module MU
         }
     }
 
-    @alert_primitive = {
+    @alarm_primitive = {
         "type" => "object",
         "title" => "CloudWatch Monitoring",
         "additionalProperties" => false,
@@ -2792,9 +2842,9 @@ module MU
           "dependencies" => @dependencies_primitive
         }
     }
-    @alert_primitive["properties"].merge!(@alert_common_properties)
+    @alarm_primitive["properties"].merge!(@alarm_common_properties)
 
-    @server_pool_alert_primitive = {
+    @alarm_common_primitive = {
         "type" => "array",
         "minItems" => 1,
         "items" => {
@@ -2807,7 +2857,7 @@ module MU
             }
         }
     }
-    @server_pool_alert_primitive["items"]["properties"].merge!(@alert_common_properties)
+    @alarm_common_primitive["items"]["properties"].merge!(@alarm_common_properties)
 
     @cloudformation_primitive = {
         "type" => "object",
@@ -3071,6 +3121,7 @@ module MU
             "enum" => MU.supportedGroomers
         },
         "tags" => @tags_primitive,
+        "alarms" => @alarm_common_primitive,
         "active_directory" => {
             "type" => "object",
             "additionalProperties" => false,
@@ -3453,6 +3504,7 @@ module MU
             "region" => @region_primitive,
             "db_family" => {"type" => "string"},
             "tags" => @tags_primitive,
+            "alarms" => @alarm_common_primitive,
             "engine_version" => {"type" => "string"},
             "add_firewall_rules" => @additional_firewall_rules,
             "read_replica_of" => @database_ref_primitive,
@@ -3643,6 +3695,7 @@ module MU
                 "description" => "Wait for DNS record to propagate in DNS Zone.",
                 "default" => true
             },
+            "alarms" => @alarm_common_primitive,
             "dependencies" => @dependencies_primitive,
             "size" => @eleasticache_size_primitive,
             "port" => {
@@ -3699,7 +3752,7 @@ module MU
             },
             "notification_arn" => {
                 "type" => "string",
-                "description" => "The AWS resource name of the AWS SNS notification topic alerts will be sent to.",
+                "description" => "The AWS resource name of the AWS SNS notification topic notifications will be sent to.",
             },
             "parameter_group_parameters" => @eleasticache_parameters_primitive,
             "parameter_group_family" => {
@@ -3729,6 +3782,7 @@ module MU
                 "description" => "Wait for DNS record to propagate in DNS Zone.",
                 "default" => true,
             },
+            "alarms" => @alarm_common_primitive,
             "ingress_rules" => {
                 "type" => "array",
                 "items" => @firewall_ruleset_rule_primitive
@@ -3979,14 +4033,14 @@ module MU
                 "minItems" => 1,
                 "items" => {
                     "type" => "object",
-                    "required" => ["name", "type", "adjustment"],
+                    "required" => ["name", "type"],
                     "additionalProperties" => false,
                     "description" => "A custom AWS Autoscale scaling policy for this pool.",
                     "properties" => {
                         "name" => {
                             "type" => "string"
                         },
-                        "alarms" => @server_pool_alert_primitive,
+                        "alarms" => @alarm_common_primitive,
                         "type" => {
                             "type" => "string",
                             "enum" => ["ChangeInCapacity", "ExactCapacity", "PercentChangeInCapacity"],
@@ -4014,7 +4068,8 @@ module MU
                         "metric_aggregation_type" => {
                           "type" => "string",
                           "enum" => ["Minimum", "Maximum", "Average"],
-                          "description" => "Defaults to 'Average' if not specified. Requires policy_type 'StepScaling'"
+                          "description" => "Defaults to 'Average' if not specified. Required when policy_type is set to 'StepScaling'",
+                          "default" => "Average"
                         },
                         "step_adjustments" => {
                           "type" => "array",
@@ -4028,22 +4083,22 @@ module MU
                             "properties" => {
                               "adjustment" => {
                                   "type" => "integer",
-                                  "description" => "The number of instances by which to scale at this specific step"
+                                  "description" => "The number of instances by which to scale at this specific step. Postive value when adding capacity, negative value when removing capacity"
                               },
-                              "interval_lower_bound" => {
-                                  "type" => "string",
-                                  "description" => ""
+                              "lower_bound" => {
+                                  "type" => "integer",
+                                  "description" => "The lower bound value in percentage points above/below the alarm threshold at which to add/remove capacity for this step. Positive value when adding capacity and negative when removing capacity. If this is the first step and capacity is being added this value will most likely be 0"
                               },
-                              "interval_upper_bound" => {
-                                  "type" => "string",
-                                  "description" => ""
+                              "upper_bound" => {
+                                  "type" => "integer",
+                                  "description" => "The upper bound value in percentage points above/below the alarm threshold at which to add/remove capacity for this step. Positive value when adding capacity and negative when removing capacity. If this is the first step and capacity is being removed this value will most likely be 0"
                               }
                             }
                           }
                         },
                         "estimated_instance_warmup" => {
                           "type" => "integer",
-                          "description" => "Requires policy_type 'StepScaling'"
+                          "description" => "Required when policy_type is set to 'StepScaling'"
                         }
                     }
                 }
@@ -4173,9 +4228,9 @@ module MU
                 "type" => "array",
                 "items" => @cache_cluster_primitive
             },
-            "alerts" => {
+            "alarms" => {
                 "type" => "array",
-                "items" => @alert_primitive
+                "items" => @alarm_primitive
             },
             "dnszones" => {
                 "type" => "array",

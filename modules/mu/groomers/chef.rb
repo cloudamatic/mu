@@ -188,7 +188,19 @@ module MU
         MU.log "Deleting vault #{vault}"
         knife_db = ::Chef::Knife::DataBagDelete.new(['data', 'bag', 'delete', vault])
         knife_db.config[:yes] = true
-        knife_db.run
+        retries = 0
+        begin
+          knife_db.run
+        rescue Net::HTTPServerException => e
+          if retries < 10
+            MU.log "Tried to delete vault #{vault} but got #{e.inspect}, retrying a few times" if retries % 10 == 0
+            retries += 1
+            sleep 15
+            retry
+          else
+            MU.log "Tried to delete vault #{vault} but got #{e.inspect}, giving up", MU::ERR
+          end
+        end
       end
 
       # see {MU::Groomer::Chef.deleteSecret}

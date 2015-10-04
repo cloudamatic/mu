@@ -96,7 +96,7 @@ module MU
           MU::Cloud::Database.cleanup(skipsnapshots: @skipsnapshots, noop: @noop, ignoremaster: @ignoremaster, region: r)
           MU::Cloud::CacheCluster.cleanup(skipsnapshots: @skipsnapshots, noop: @noop, ignoremaster: @ignoremaster, region: r)
           MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
-          MU::Cloud::Alert.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
+          MU::Cloud::Alarm.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
           MU::Cloud::Notification.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
           MU::Cloud::DNSZone.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
           MU::Cloud::VPC.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
