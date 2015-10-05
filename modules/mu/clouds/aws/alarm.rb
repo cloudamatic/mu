@@ -17,7 +17,6 @@ module MU
     class AWS
       # A alarm as configured in {MU::Config::BasketofKittens::alarms}
       class Alarm < MU::Cloud::Alarm
-
         @deploy = nil
         @config = nil
         attr_reader :mu_name
@@ -38,7 +37,8 @@ module MU
           if @config["dimensions"]
             dimensions = []
             @config["dimensions"].each { |dimension|
-              cloud_id = 
+              cloudid = 
+              # If we specified mu_name/deploy_id try to find the cloud_id of the resource. if we specified a cloud_id directly then use it.
                 if dimension["mu_name"] || dimension["deploy_id"]
                   deps_class = 
                     if dimension["cloud_class"] == "InstanceId"
@@ -63,7 +63,7 @@ module MU
                 else
                   dimension["cloud_id"]
                 end            
-              dimensions << {:name => dimension["cloud_class"], :value => cloud_id}
+              dimensions << {:name => dimension["cloud_class"], :value => cloudid}
             }
             @config["dimensions"] = dimensions
           end
@@ -125,7 +125,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
-        alarms = []
+          alarms = []
           MU::Cloud::AWS.cloudwatch(region).describe_alarms.metric_alarms.each { |alarm|
             # We don't have a way to tag alarms, so we try to delete them by the deploy ID. 
             # This can miss alarms in some cases (eg. cache_cluster) so we might want to delete alarms from each API as well.

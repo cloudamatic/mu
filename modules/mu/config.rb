@@ -891,6 +891,7 @@ module MU
       server_pools = config['server_pools']
       cache_clusters = config['cache_clusters']
       alarms = config['alarms']
+      logs = config['logs']
       loadbalancers = config['loadbalancers']
       collections = config['collections']
       firewall_rules = config['firewall_rules']
@@ -902,13 +903,14 @@ module MU
       server_pools = Array.new if server_pools.nil?
       cache_clusters = Array.new if cache_clusters.nil?
       alarms = Array.new if alarms.nil?
+      logs = Array.new if logs.nil?
       loadbalancers = Array.new if loadbalancers.nil?
       collections = Array.new if collections.nil?
       firewall_rules = Array.new if firewall_rules.nil?
       vpcs = Array.new if vpcs.nil?
       dnszones = Array.new if dnszones.nil?
 
-      if databases.size < 1 and servers.size < 1 and server_pools.size < 1 and loadbalancers.size < 1 and collections.size < 1 and firewall_rules.size < 1 and vpcs.size < 1 and dnszones.size < 1 and cache_clusters.size < 1 and alarms.size < 1 
+      if databases.size < 1 and servers.size < 1 and server_pools.size < 1 and loadbalancers.size < 1 and collections.size < 1 and firewall_rules.size < 1 and vpcs.size < 1 and dnszones.size < 1 and cache_clusters.size < 1 and alarms.size < 1 and logs.size < 1
         MU.log "You must declare at least one resource to create", MU::ERR
         ok = false
       end
@@ -1862,6 +1864,21 @@ module MU
         end
 
         ok = false unless validate_alarm_config(alarm)
+      }
+
+      logs.each { |log_rec|
+        log_rec['region'] = config['region'] if log_rec['region'].nil?
+        log_rec["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Log")
+        log_rec["dependencies"] = [] if log_rec["dependencies"].nil?
+        
+        if log_rec["filters"] && !log_rec["filters"].empty?
+          log_rec["filters"].each{ |filter|
+            if filter["namespace"].start_with?("AWS/")
+              MU.log "'namespace' can't be under the 'AWS/' namespace", MU::ERR
+              ok = false
+            end
+          }
+        end
       }
 
       servers.each { |server|
@@ -2858,6 +2875,65 @@ module MU
         }
     }
     @alarm_common_primitive["items"]["properties"].merge!(@alarm_common_properties)
+
+    @cloudwatchlogs_filter_primitive = {
+      "type" => "array",
+      "minItems" => 1,
+      "items" => {
+        "description" => "Create a filter on a CloudWachLogs log group.",
+        "type" => "object",
+        "title" => "CloudWatchLogs filter Parameters",
+        "required" => ["name", "search_pattern", "metric_name", "namespace", "value"],
+        "additionalProperties" => false,
+        "properties" => {
+          "name" => {
+              "type" => "string"
+          },
+          "search_pattern" => {
+              "type" => "string",
+              "description" => "A search pattern that will match values in the log"
+          },
+          "metric_name" => {
+              "type" => "string",
+              "description" => "A descriptive and easy to find name for the metric. This can be used to create Alarm(s)"
+          },
+          "namespace" => {
+              "type" => "string",
+              "description" => "A new or existing name space to add the metric to. Use the same namespace for all filters/metrics that are logically grouped together. Will be used to to create Alarm(s)"
+          },
+          "value" => {
+              "type" => "string",
+              "description" => ""
+          }
+        }
+      }
+    }
+
+    @log_primitive = {
+      "type" => "object",
+      "title" => "CloudWatch Logs",
+      "additionalProperties" => false,
+      "description" => "Log events using CloudWatch Logs.",
+      "properties" => {
+        "name" => {
+          "type" => "string"
+        },
+        "cloud" => @cloud_primitive,
+        "region" => @region_primitive,
+        "dependencies" => @dependencies_primitive,
+        "retention_period" => {
+          "type" => "integer",
+          "description" => "The number of days to keep log events in the log group before deleting them.",
+          "default" => 14,
+          "enum" => [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653]
+        },
+        "enable_cloudtrail_logging"=> {
+          "type" => "boolean",
+          "default" => false
+        },
+        "filters" => @cloudwatchlogs_filter_primitive
+      }
+    }
 
     @cloudformation_primitive = {
         "type" => "object",
@@ -4231,6 +4307,10 @@ module MU
             "alarms" => {
                 "type" => "array",
                 "items" => @alarm_primitive
+            },
+            "logs" => {
+                "type" => "array",
+                "items" => @log_primitive
             },
             "dnszones" => {
                 "type" => "array",

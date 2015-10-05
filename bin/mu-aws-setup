@@ -250,20 +250,24 @@ if $opts[:logs]
   )
 
 
-  resp = MU::Cloud::AWS.cloudtrails.describe_trails(trail_name_list: ["Mu_Trails"])
-  if resp.trail_list.size == 0
+  resp = MU::Cloud::AWS.cloudtrail.describe_trails.trail_list
+  if resp.empty?
     MU.log "Enabling Cloud Trails, logged to bucket #{$bucketname}"
 
     begin
-      MU::Cloud::AWS.cloudtrails.create_trail(
-          name: "Mu_Trails",
+      MU::Cloud::AWS.cloudtrail.create_trail(
+          name: "cloudtrail",
           s3_bucket_name: $bucketname,
-          s3_key_prefix: "AWSLogs",
           include_global_service_events: true
       )
     rescue Aws::CloudTrail::Errors::MaximumNumberOfTrailsExceededException => e
       MU.log e.inspect, MU::ERR
     end
+
+  # Make sure we actually enable cloudtrail logging
+  MU::Cloud::AWS.cloudtrail.start_logging(
+    name: "cloudtrail"
+  )
   end
 
   # Now that we've got S3 logging, let's also create an Mu_Logs stack in

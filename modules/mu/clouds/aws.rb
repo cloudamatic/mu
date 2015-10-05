@@ -131,10 +131,10 @@ module MU
       end
 
       # Amazon's CloudTrail API
-      def self.cloudtrails(region = MU.curRegion)
+      def self.cloudtrail(region = MU.curRegion)
         region ||= MU.myRegion
-        @@cloudtrails_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudTrail", region: region)
-        @@cloudtrails_api[region]
+        @@cloudtrail_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudTrail", region: region)
+        @@cloudtrail_api[region]
       end
 
       # Amazon's CloudWatch API
@@ -142,6 +142,13 @@ module MU
         region ||= MU.myRegion
         @@cloudwatch_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudWatch", region: region)
         @@cloudwatch_api[region]
+      end
+
+      # Amazon's CloudWatchLogs API
+      def self.cloudwatchlogs(region = MU.curRegion)
+        region ||= MU.myRegion
+        @@cloudwatchlogs_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudWatchLogs", region: region)
+        @@cloudwatchlogs_api[region]
       end
 
       # Amazon's CloudFront API
@@ -379,8 +386,9 @@ module MU
       @@rds_api = {}
       @@cloudformation_api = {}
       @@s3_api = {}
-      @@cloudtrails_api = {}
+      @@cloudtrail_api = {}
       @@cloudwatch_api = {}
+      @@cloudwatchlogs_api = {}
       @@cloudfront_api = {}
       @@elasticache_api = {}
       @@sns_api = {}
