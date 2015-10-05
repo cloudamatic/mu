@@ -517,7 +517,7 @@ validation_client_name '$user-validator'
 EOF
 		if [ "$user" != "mu" ];then
 			chown -R "$user" "$user_home/.chef/"
-			su - "$user" -c "/opt/chef/bin/knife ssl fetch" > /root/knifesslfetch.out 2>&1
+			runuser -l "$user" -c "cd $user_home && /opt/chef/bin/knife ssl fetch" > /root/knifesslfetch.out 2>&1
 		else
 			/opt/chef/bin/knife ssl fetch > /dev/null 2>&1
 		fi
