@@ -16,6 +16,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+response = Net::HTTP.get_response(URI("http://169.254.169.254/latest/meta-data/instance-id"))
+instance_id = response.body
+search_domains = ["ec2.internal", "server.#{instance_id}.platform-mu", "platform-mu"]
+
+if $MU_CFG.has_key?('ldap')
+  include_recipe 'chef-vault'
+  bind_creds = chef_vault_item($MU_CFG['ldap']['svc_acct_vault'], $MU_CFG['ldap']['svc_acct_item'])
+  node.normal.ad = {}
+  node.normal.ad.computer_name = "MU-MASTER"
+  node.normal.ad.node_class = "mumaster"
+  node.normal.ad.node_type = "domain_node"
+  node.normal.ad.domain_operation = "join"
+  node.normal.ad.domain_name = $MU_CFG['ldap']['domain_name']
+  search_domains << node.normal.ad.domain_name
+  node.normal.ad.netbios_name = $MU_CFG['ldap']['domain_netbios_name']
+  node.normal.ad.dcs = $MU_CFG['ldap']['dcs']
+  node.normal.ad.domain_join_vault = $MU_CFG['ldap']['join_creds']['vault']
+  node.normal.ad.domain_join_item = $MU_CFG['ldap']['join_creds']['item']
+  node.normal.ad.domain_join_username_field = $MU_CFG['ldap']['join_creds']['username_field']
+  node.normal.ad.domain_join_password_field = $MU_CFG['ldap']['join_creds']['password_field']
+  if !node.application_attributes.sshd_allow_groups.match(/(^|\s)#{$MU_CFG['ldap']['admin_group_name']}(\s|$)/i)
+    node.normal.application_attributes.sshd_allow_groups = node.application_attributes.sshd_allow_groups+" "+$MU_CFG['ldap']['admin_group_name'].downcase
+  end
+  node.save
+  log "'#{node.ad.domain_join_vault}' '#{node.ad.domain_join_item}' '#{node.ad.domain_join_username_field}' '#{node.ad.domain_join_password_field}'"
+  include_recipe "mu-activedirectory::domain-node"
+end
+
 directory "#{MU.mainDataDir}/deployments"
 
 cookbook_file "/root/.vimrc" do
@@ -52,19 +80,24 @@ execute "dhclient-script" do
   action :nothing
 end
 
-response = Net::HTTP.get_response(URI("http://169.254.169.254/latest/meta-data/instance-id"))
-instance_id = response.body
-
 service "network" do
   action :nothing
 end
 
+if !$MU_CFG['public_address'].match(/^\d+\.\d+\.\d+\.\d+$/)
+  my_name = $MU_CFG['public_address']
+  begin
+    search_domains << my_name.dup
+    my_name.sub!(/^[^\.]+?\./, "")
+  end while my_name.match(/\./)
+end
+log "************** #{search_domains.join(", ")} **************"
 template "/etc/dhcp/dhclient-eth0.conf" do
   source "dhclient-eth0.conf.erb"
   mode 0644
   notifies :restart, "service[network]", :immediately unless %w{redhat centos}.include?(node.platform) && node.platform_version.to_i == 7
   variables(
-      :instance_id => instance_id
+    :search_domains => search_domains
   )
 end
 

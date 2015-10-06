@@ -150,7 +150,7 @@ def set_selinux_policies
   # Disable SELinux. Need to test if existing policies below work without having to disabling SELinux.
   execute "setenforce 0"
   # Add Policies to SELinux to allow winbind and ssh to work correctly. TO DO - TEST THIS
-  %w{mypol sshd_pol}.each { |policy_file|
+  %w{winbindpol sshd_pol}.each { |policy_file|
     %w{te pp}.each { |ext|
       cookbook_file "#{Chef::Config[:file_cache_path]}/#{policy_file}.#{ext}" do
         source "#{policy_file}.#{ext}"

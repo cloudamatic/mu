@@ -169,6 +169,7 @@ GRAPH
     mu-utility (>= 0.0.0)
   mu-master (0.8.1)
     jenkins (>= 0.0.0)
+    mu-activedirectory (>= 0.0.0)
     mu-jenkins (>= 0.0.0)
     mu-tools (>= 0.0.0)
     mu-utility (>= 0.0.0)

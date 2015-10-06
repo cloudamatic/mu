@@ -23,7 +23,7 @@ if $MU_CFG.has_key?('ldap')
   node.normal.nagios.ldap_bind_dn = bind_creds["dn"]
   node.normal.nagios.ldap_bind_password = bind_creds["password"]
   node.normal.nagios.ldap_url = "ldap://#{$MU_CFG['ldap']['dcs'].first}/#{$MU_CFG['ldap']['base_dn']}?sAMAccountName?sub?(objectClass=*)"
-  node.normal.nagios.server_auth_require = "ldap-group #{$MU_CFG['ldap']['group_dn']}"
+  node.normal.nagios.server_auth_require = "ldap-group #{$MU_CFG['ldap']['admin_group_dn']}"
   node.normal.nagios.ldap_authoritative = "On"
   node.save
 end
