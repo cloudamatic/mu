@@ -48,12 +48,12 @@ default['apache']['contact'] = default['mu']['user_map']['mu']
 default['apache']['traceenable'] = 'Off'
 
 # Conditionally add a Jenkins port
-#if node.attribute?('jenkins_port_external') 
-#  override["apache"]["listen_ports"] = [80, 8443, 9443]
-#else
+if node.attribute?('jenkins_port_external') 
+  override["apache"]["listen_ports"] = [80, 8443, 9443]
+else
   override["apache"]["listen_ports"] = [80, 8443]
-#end
-# Don't override, instead set normal to set defaults, and reset elsewhere with each webapp added, adding its port
+end
+# In addition to override, set normal to set defaults, and reset elsewhere with each webapp added, adding its port
 # The set_unless sets a normal attribute
 #node.set_unless["apache"]["listen_ports"] = [80, 8443]
 

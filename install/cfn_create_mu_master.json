@@ -931,7 +931,7 @@
         "Tags": [
           {
             "Key": "Name",
-            "Value": "Test Drive Master"
+            "Value": {"Ref": "HostName"}
           }
         ],
         "UserData": {
