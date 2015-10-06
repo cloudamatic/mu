@@ -49,7 +49,7 @@ require 'mu'
 
 def createChefUser(user)
   rest = Chef::REST.new("https://"+$MU_CFG["public_address"], "pivotal", "/etc/opscode/pivotal.pem", {:api_version => "1"})
-#  rest = Chef::ServerAPI.new("https://"+$MU_CFG["public_address"], "pivotal", "/etc/opscode/pivotal.pem", {:api_version => "1"})
+  ldap_user = user
   begin
     # Check for existence
     rest.get("users/#{user}")
@@ -58,9 +58,9 @@ def createChefUser(user)
   rescue Net::HTTPServerException
   end
   MU.log "Creating Chef user #{user}"
-#  if user.gsub!(/\./, "")
-#    MU.log "Stripped . from username to #{user}, because Chef is stupid.", MU::NOTICE
-#  end
+  if user.gsub!(/\./, "")
+    MU.log "Stripped . from username to create Chef user #{user}.\nSee: https://github.com/chef/chef-server/issues/557", MU::NOTICE
+  end
   user_data = {
     :username => user,
     :first_name => "John",
@@ -68,10 +68,13 @@ def createChefUser(user)
     :last_name => "Stange",
     :display_name => "John Stange LDAP",
     :email => "john.stange@eglobaltech.com",
-    :password => "somedamnnonsense"
+    :recovery_authentication_enabled => false,
+    :external_authentication_uid => ldap_user,
+    :password => (0...8).map { ('a'..'z').to_a[rand(26)] }.join
   }
   begin
     puts rest.post("users", user_data)
+    pp user_data
   rescue Net::HTTPServerException => e
     # Work around Chef's baffling inability to use the same email address for
     # more than one user.
@@ -98,7 +101,7 @@ if $MU_CFG.has_key?("ldap")
     "bind_pw" => bind_creds["password"],
   }
   chef_cfgfile = "/etc/opscode/chef-server.rb"
-  chef_tmpfile = "#{chef_tmpfile}.tmp.#{Process.pid}"
+  chef_tmpfile = "#{chef_cfgfile}.tmp.#{Process.pid}"
   File.open(chef_tmpfile, File::CREAT|File::RDWR, 0644) { |f|
     f.puts Erubis::Eruby.new(File.read("chef-server.rb.erb")).result(vars)
   }
@@ -108,6 +111,8 @@ if $MU_CFG.has_key?("ldap")
     MU.log "Updating #{chef_cfgfile}", MU::NOTICE
     File.rename(chef_tmpfile, chef_cfgfile)
     system("/opt/opscode/bin/chef-server-ctl reconfigure")
+  else
+    File.unlink(chef_tmpfile)
   end
   createChefUser("john.stange.admin")
 end
