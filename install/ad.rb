@@ -12,57 +12,109 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-require 'config_load.rb'
 
-def createChefUser(user)
+require File.expand_path(File.dirname(__FILE__))+"/config_load.rb"
+
+
+def manageChefUser(user, pass: nil, name: nil, email: nil, org: nil, set_admin: false, set_normal: false, replace: false, ldap_user: nil)
+
   rest = Chef::REST.new("https://"+$MU_CFG["public_address"], "pivotal", "/etc/opscode/pivotal.pem", {:api_version => "1"})
-  ldap_user = user
-  begin
-    # Check for existence
-    rest.get("users/#{user}")
-    MU.log "Chef user #{user} already exists"
-    return
-  rescue Net::HTTPServerException
-  end
-  MU.log "Creating Chef user #{user}"
+
+  # In this shining future, there are no situations where we will *not* have
+  # an LDAP user to link to.
+  ldap_user = user.dup if ldap_user.nil?
   if user.gsub!(/\./, "")
     MU.log "Stripped . from username to create Chef user #{user}.\nSee: https://github.com/chef/chef-server/issues/557", MU::NOTICE
   end
-  user_data = {
-    :username => user,
-    :first_name => "John",
-    :middle_name => "LDAP",
-    :last_name => "Stange",
-    :display_name => "John Stange LDAP",
-    :email => "john.stange@eglobaltech.com",
-    :recovery_authentication_enabled => false,
-    :external_authentication_uid => ldap_user,
-    :password => (0...8).map { ('a'..'z').to_a[rand(26)] }.join
-  }
+
+  first = last = nil
+  if !name.nil?
+    last = name.split(/\s+/).pop
+    first = name.split(/\s+/).shift
+  end
+
+  # Check for existence
+  user_exists = false
   begin
-    puts rest.post("users", user_data)
-    pp user_data
-  rescue Net::HTTPServerException => e
-    # Work around Chef's baffling inability to use the same email address for
-    # more than one user.
-    # https://github.com/chef/chef-server/issues/59
-    if e.message.match(/409/) and !user_data[:email].match(/\+/)
-      user_data[:email].sub!(/@/, "+"+(0...8).map { ('a'..'z').to_a[rand(26)] }.join+"@")
-      retry
-    else
+    rest.get("users/#{user}")
+    user_exists = true
+  end rescue Net::HTTPServerException
+
+  # This user exists, modify it
+  if user_exists
+    begin
+      user_data = {
+        :username => user,
+        :recovery_authentication_enabled => false,
+        :external_authentication_uid => ldap_user
+      }
+      user_data[:display_name] = name if !name.nil?
+      user_data[:email] = email if !email.nil?
+      user_data[:first_name] = first if !first.nil?
+      user_data[:last_name] = last if !last.nil?
+      user_data[:password] = pass if !pass.nil?
+      response = rest.put("users/#{user}", user_data)
+      user_data[:password] = "********"
+      MU.log "Chef user #{user} already exists, modified", MU::NOTICE, details: user_data
+      return
+    rescue Net::HTTPServerException => e
+      # Work around Chef's baffling inability to use the same email address for
+      # more than one user.
+      # https://github.com/chef/chef-server/issues/59
+      if e.message.match(/409/) and !user_data[:email].match(/\+/)
+        user_data[:email].sub!(/@/, "+"+(0...8).map { ('a'..'z').to_a[rand(26)] }.join+"@")
+        retry
+      end
+      MU.log "Failed to update user #{user}: #{e.message}", MU::ERR, details: user_data
+      raise e
+    end
+  # This user doesn't exist, create it
+  else
+    if name.nil? or email.nil?
+      MU.log "Error creating Chef user #{user}: Must supply real name and email address", MU::ERR
+      return
+    end
+    MU.log "Creating Chef user #{user}"
+
+    # We don't ever really need this password, so generate a random one if none
+    # was supplied.
+    if pass.nil?
+      pass = (0...8).map { ('a'..'z').to_a[rand(26)] }.join
+    end
+    user_data = {
+      :username => user,
+      :first_name => first,
+      :last_name => last,
+      :display_name => name,
+      :email => email,
+      :recovery_authentication_enabled => false,
+      :external_authentication_uid => ldap_user,
+      :password => (0...8).map { ('a'..'z').to_a[rand(26)] }.join
+    }
+    begin
+      response = rest.post("users", user_data)
+      pp response
+    rescue Net::HTTPServerException => e
+      # Work around Chef's baffling inability to use the same email address for
+      # more than one user.
+      # https://github.com/chef/chef-server/issues/59
+      if e.message.match(/409/) and !user_data[:email].match(/\+/)
+        user_data[:email].sub!(/@/, "+"+(0...8).map { ('a'..'z').to_a[rand(26)] }.join+"@")
+        retry
+      end
       MU.log "Bad response when creating Chef user #{user}: #{e.message}", MU::ERR, details: user_data
     end
   end
 end
 
-
+# Mangle Chef's server config to speak to LDAP
 if $MU_CFG.has_key?("ldap")
   bind_creds = MU::Groomer::Chef.getSecret(vault: $MU_CFG["ldap"]["svc_acct_vault"], item: $MU_CFG["ldap"]["svc_acct_item"])
   vars = {
     "server_url" => $MU_CFG["public_address"],
     "ldap" => true,
     "base_dn" => $MU_CFG["ldap"]["base_dn"],
-    "group_dn" => $MU_CFG["ldap"]["group_dn"],
+    "group_dn" => $MU_CFG["ldap"]["admin_group_dn"],
     "dc" => $MU_CFG["ldap"]["dcs"].first,
     "bind_dn" => bind_creds["dn"],
     "bind_pw" => bind_creds["password"],
@@ -81,5 +133,8 @@ if $MU_CFG.has_key?("ldap")
   else
     File.unlink(chef_tmpfile)
   end
-  createChefUser("john.stange.admin")
 end
+
+manageChefUser("jstange", name: "John Stange", set_admin: true, ldap_user: "john.stange.admin")
+
+manageChefUser("testuser", pass: "fdg620ry1y2", name: "John Q. Public", email: "stange@johnstange.net", ldap_user: "john.stange")

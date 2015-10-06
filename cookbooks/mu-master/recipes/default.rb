@@ -91,7 +91,6 @@ if !$MU_CFG['public_address'].match(/^\d+\.\d+\.\d+\.\d+$/)
     my_name.sub!(/^[^\.]+?\./, "")
   end while my_name.match(/\./)
 end
-log "************** #{search_domains.join(", ")} **************"
 template "/etc/dhcp/dhclient-eth0.conf" do
   source "dhclient-eth0.conf.erb"
   mode 0644
