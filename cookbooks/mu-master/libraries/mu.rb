@@ -21,4 +21,13 @@ elsif File.readable?("/opt/mu/bin/mu-load-murc.rb")
   require "/opt/mu/bin/mu-load-murc.rb"
 end
 
+# Sets the $MU_CFG hash
+if ENV.include?('MU_LIBDIR')
+  require "#{ENV['MU_LIBDIR']}/install/config_load.rb"
+elsif ENV.include?('MU_INSTALLDIR')
+  require "#{ENV['MU_INSTALLDIR']}/lib/install/config_load.rb"
+elsif File.readable?("/opt/mu/lib/install/config_load.rb")
+  require "/opt/mu/lib/install/config_load.rb"
+end
+
 require "mu"
