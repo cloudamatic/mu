@@ -44,4 +44,3 @@ def loadMuConfig
 end
 
 $MU_CFG = loadMuConfig
-require 'mu'

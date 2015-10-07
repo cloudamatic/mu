@@ -1,1 +1,0 @@
-/opt/mu/lib/modules/mu-load-config.rb
