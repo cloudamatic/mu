@@ -95,7 +95,7 @@ def throw500(msg = "", details = nil)
       500,
       {
           'Content-Type' => 'text/html',
-          'Content-Length' => msg.length
+          'Content-Length' => msg.length.to_s
       },
       [msg]
   ]
@@ -107,7 +107,7 @@ def throw404(msg = "", details = nil)
       404,
       {
           'Content-Type' => 'text/html',
-          'Content-Length' => msg.length
+          'Content-Length' => msg.length.to_s
       },
       [msg]
   ]
@@ -119,9 +119,9 @@ def return200(data)
       200,
       {
           'Content-Type' => 'application/json',
-          'Content-Length' => data.length
+          'Content-Length' => data.length.to_s
       },
-      [200]
+      [data]
   ]
 end
 
@@ -186,31 +186,39 @@ end
 
 app = proc do |env|
   ok = false
+  returnval = [
+      200,
+      {
+          'Content-Type' => 'text/html',
+          'Content-Length' => '2'
+      },
+      ['hi']
+  ]
   begin
     if !env.nil? and !env['REQUEST_PATH'].nil? and env['REQUEST_PATH'].match(/^\/rest\//)
       # Don't give away the store. This can't be public until we can
       # authenticate and access-control properly.
       if env['REMOTE_ADDR'] != "127.0.0.1"
-        throw500 "Service not available"
+        returnval = throw500 "Service not available"
         next
       end
       action, filter, path = env['REQUEST_PATH'].sub(/^\/rest\/?/, "").split(/\//, 3)
 
       if action == "deploy"
-        throw404 env['REQUEST_PATH'] if !filter
+        returnval = throw404 env['REQUEST_PATH'] if !filter
         MU.log "Loading deploy data for #{filter} #{path}"
         kittenpile = MU::MommaCat.getLitter(filter)
-        return200 JSON.generate(kittenpile.deployment)
+        returnval = return200 JSON.generate(kittenpile.deployment)
       elsif action == "config"
-        throw404 env['REQUEST_PATH'] if !filter
+        returnval = throw404 env['REQUEST_PATH'] if !filter
         MU.log "Loading config #{filter} #{path}"
         kittenpile = MU::MommaCat.getLitter(filter)
-        return200 JSON.generate(kittenpile.original_config)
+        returnval = return200 JSON.generate(kittenpile.original_config)
       elsif action == "list"
         MU.log "Listing deployments"
-        return200 JSON.generate(MU::MommaCat.listDeploys)
+        returnval = return200 JSON.generate(MU::MommaCat.listDeploys)
       else
-        throw404 env['REQUEST_PATH']
+        returnval = throw404 env['REQUEST_PATH']
       end
 
     elsif !env["rack.input"].nil?
@@ -234,7 +242,7 @@ app = proc do |env|
       MU.log "Processing request from #{env["REMOTE_ADDR"]} (MU-ID #{req["mu_id"]}, #{req["mu_resource_type"]}: #{req["mu_resource_name"]}, instance: #{req["mu_instance_id"]}, mu_ssl_sign: #{req["mu_ssl_sign"]}, mu_user #{req['mu_user']})"
       kittenpile = getKittenPile(req)
       if kittenpile.nil? or kittenpile.original_config.nil? or kittenpile.original_config[req["mu_resource_type"]+"s"].nil?
-        throw500 "Couldn't find config data for #{req["mu_resource_type"]} in deploy_id #{req["mu_id"]}"
+        returnval = throw500 "Couldn't find config data for #{req["mu_resource_type"]} in deploy_id #{req["mu_id"]}"
         ok = false
         next
       end
@@ -246,7 +254,7 @@ app = proc do |env|
         end
       }
       if server_cfg.nil?
-        throw500 "Couldn't find config data for #{req["mu_resource_type"]} name: #{req["mu_resource_name"]} deploy_id: #{req["mu_id"]}"
+        returnval = throw500 "Couldn't find config data for #{req["mu_resource_type"]} name: #{req["mu_resource_name"]} deploy_id: #{req["mu_id"]}"
         ok = false
         next
       end
@@ -271,16 +279,16 @@ app = proc do |env|
         if !req["mu_bootstrap"].nil?
           kittenpile.groomNode(req["mu_instance_id"], req["mu_resource_name"], req["mu_resource_type"], mu_name: mu_name, sync_wait: true)
         else
-          throw500 "Didn't get 'mu_bootstrap' parameter from instance id '#{req["mu_instance_id"]}'"
+          returnval = throw500 "Didn't get 'mu_bootstrap' parameter from instance id '#{req["mu_instance_id"]}'"
           ok = false
         end
       else
-        throw500 "No such instance id '#{req["mu_instance_id"]}' nor was this an SSL signing request"
+        returnval = throw500 "No such instance id '#{req["mu_instance_id"]}' nor was this an SSL signing request"
         ok = false
       end
     end
   rescue Exception => e
-    throw500 "Invalid request: #{e.inspect} (#{req})", e.backtrace
+    returnval = throw500 "Invalid request: #{e.inspect} (#{req})", e.backtrace
     ok = false
   ensure
     if !req.nil?
@@ -288,17 +296,10 @@ app = proc do |env|
       MU.purgeGlobals
     end
   end
-  next if !ok
-
-  [
-      200,
-      {
-          'Content-Type' => 'text/html',
-          'Content-Length' => '2'
-      },
-      ['hi']
-  ]
-
+puts "******************"
+pp returnval
+puts "******************"
+  returnval
 end
 
 run app
