@@ -3,7 +3,7 @@ default.jenkins_users = [
 ]
 
 default.jenkins_ssh_urls = [node.ipaddress]
-default.jenkins_plugins = %w{github ssh deploy}
+default.jenkins_plugins = %w{github ssh deploy credentials ldap scm-api git git-client active-directory github}
 default.jenkins_ports_direct = %w{8080 443}
 
 node.normal.java.oracle.accept_oracle_download_terms = true
