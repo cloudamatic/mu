@@ -131,6 +131,7 @@ GEM
     multipart-post (2.0.0)
     mysql (2.9.1)
     net-http-persistent (2.9.4)
+    net-ldap (0.11)
     net-scp (1.2.1)
       net-ssh (>= 2.6.5)
     net-ssh (2.9.2)
@@ -271,6 +272,7 @@ DEPENDENCIES
   json-schema
   knife-windows (= 0.8.2)
   mysql
+  net-ldap
   net-ssh (~> 2.9.2)
   netaddr
   nokogiri (~> 1.6.6.2)
@@ -282,3 +284,6 @@ DEPENDENCIES
   thin
   trollop (~> 2.1.2)
   yard
+
+BUNDLED WITH
+   1.10.5

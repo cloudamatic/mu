@@ -43,6 +43,6 @@ Deleting users:
   opt :link_to_ldap, "Link to an existing LDAP user. Typically only needed to map pre-existing Chef users to a separate LDAP or Active Directory domain.", :require => false, :type => :string
 end
 
-
+pp listLDAPUsers
 #manageChefUser("jstange", name: "John Stange", set_admin: true, ldap_user: "john.stange.admin")
 #manageChefUser("testuser", pass: "fdg620ry1y2", name: "John Q. Public", email: "stange@johnstange.net", ldap_user: "john.stange")

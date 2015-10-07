@@ -18,7 +18,43 @@ require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.r
 require 'mu'
 require 'net-ldap'
 
+# @return [Net::LDAP]
+def getLDAPConnection
+  bind_creds = MU::Groomer::Chef.getSecret(vault: $MU_CFG["ldap"]["svc_acct_vault"], item: $MU_CFG["ldap"]["svc_acct_item"])
+  ldap = Net::LDAP.new(
+    :host => $MU_CFG["ldap"]["dcs"].first,
+#    :encryption => :simple_tls,
+    :base => $MU_CFG["ldap"]["base_dn"],
+    :auth => {
+      :method => :simple,
+      :username => bind_creds["dn"],
+      :password => bind_creds["password"]
+    }
+  )
+  groupname_filter = Net::LDAP::Filter.eq("sAMAccountName", $MU_CFG["ldap"]["admin_group_name"])
+  group_filter = Net::LDAP::Filter.eq("objectClass", "group")
+  member_cns = []
+  ldap.search(
+    :filter => Net::LDAP::Filter.join(groupname_filter, group_filter),
+    :attributes => ["member"]
+  ) do |item|
+    member_cns = item.member.dup
+  end
+  users = []
+  member_cns.each { |member|
+    cn = member.sub(/^CN=([^,]+),OU=.*/i, "#{$1}")
+    ldap.search(
+      :filter => Net::LDAP::Filter.eq("cn",cn),
+      :attributes => ["sAMAccountName"]
+    ) do |acct|
+      users << acct.samaccountname
+    end
+  }
+  users
+end
+
 def listLDAPUsers
+  conn = getLDAPConnection
 end
 
 ############# Work below. Zach, you might want to make this file a loader of
