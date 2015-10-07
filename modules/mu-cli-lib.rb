@@ -45,6 +45,7 @@ def getLDAPConnection
     cn = member.sub(/^CN=([^,]+),OU=.*/i, "#{$1}")
     ldap.search(
       :filter => Net::LDAP::Filter.eq("cn",cn),
+# :base
       :attributes => ["sAMAccountName"]
     ) do |acct|
       users << acct.samaccountname
