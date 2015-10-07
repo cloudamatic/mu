@@ -590,7 +590,7 @@ validate_setup_env_vars(){
 
     elif [ "${var_name[$n]}" == "JENKINS_ADMIN_PW" ]; then
       if [ "${var_val[$n]}" == "" ];then
-        warning_message "You must specify a password for the 'jenkins' admin user to enable the Jenkins front-end."
+        warning_message "You must specify a password for the 'jenkins' admin user to enable the Jenkins front-end. Jenkins will not be enabled at this time. Rerun mu-configure and supply a password if you wish to enable it."
         sleep 5
       fi  
     fi
