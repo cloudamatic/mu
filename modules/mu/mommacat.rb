@@ -94,7 +94,9 @@ module MU
     @nocleanup = false
     # List the currently held flock() locks.
     def self.locks;
-      @locks
+      @lock_semaphore.synchronize {
+        @locks
+      }
     end
 
     @@deploy_struct_semaphore = Mutex.new
