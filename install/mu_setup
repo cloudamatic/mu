@@ -1310,6 +1310,7 @@ install_mu_executables()
 
   /bin/cp -rf $MU_LIBDIR/bin $MU_INSTALLDIR
   /bin/cp -rf $MU_LIBDIR/install/mu_setup $MU_INSTALLDIR/bin/mu-configure
+  /bin/ln -s $MU_LIBDIR/modules/mu-load-config.rb $MU_INSTALLDIR/bin/mu-load-config.rb
 
   _files=$MU_INSTALLDIR/bin/*
   for f in $_files;do
