@@ -1445,6 +1445,11 @@ preconfigure_jenkins_artifacts()
 	        knife vault create jenkins users "{\"mu_user_password\":\"$JENKINS_ADMIN_PW\"}" --mode client -F json -u mu --search name:MU-MASTER
 	        # Create the Jenkins user
 	        $MU_INSTALLDIR/bin/mu-user-manage -c -u jenkins -e $JENKINS_ADMIN_EMAIL -p $JENKINS_ADMIN_PW
+
+	        # Knife ssl fetch if not already done by mu-user-manage because headless
+	        if [ ! -d "/home/jenkins/.chef/trusted_certs" ]; then
+  				runuser -l "jenkins" -c "cd /home/jenkins && source .bashrc && /opt/chef/bin/knife ssl fetch" > /root/knifesslfetchbyhand.out 2>&1
+			fi
         fi
 }
 
