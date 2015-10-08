@@ -15,15 +15,21 @@
 
 require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 # now we have our global config available as the read-only hash $MU_CFG
+
+
 require 'mu'
 require 'net-ldap'
+
+############# Work below. Zach, you might want to make this file a loader of
+############# some kind for plugins, instead of a big pile of methods.
 
 # @return [Net::LDAP]
 def getLDAPConnection
   bind_creds = MU::Groomer::Chef.getSecret(vault: $MU_CFG["ldap"]["svc_acct_vault"], item: $MU_CFG["ldap"]["svc_acct_item"])
-  ldap = Net::LDAP.new(
+  Net::LDAP.new(
     :host => $MU_CFG["ldap"]["dcs"].first,
-#    :encryption => :simple_tls,
+    :encryption => :simple_tls,
+    :port => 636,
     :base => $MU_CFG["ldap"]["base_dn"],
     :auth => {
       :method => :simple,
@@ -31,45 +37,109 @@ def getLDAPConnection
       :password => bind_creds["password"]
     }
   )
+end
+
+# @return [Array<String>]
+def listLDAPUsers
+  conn = getLDAPConnection
   groupname_filter = Net::LDAP::Filter.eq("sAMAccountName", $MU_CFG["ldap"]["admin_group_name"])
   group_filter = Net::LDAP::Filter.eq("objectClass", "group")
   member_cns = []
-  ldap.search(
+  conn.search(
     :filter => Net::LDAP::Filter.join(groupname_filter, group_filter),
     :attributes => ["member"]
   ) do |item|
     member_cns = item.member.dup
   end
-  users = []
+  users = {}
   member_cns.each { |member|
-    cn = member.sub(/^CN=([^,]+),OU=.*/i, "#{$1}")
-    ldap.search(
+    cn = member.dup.sub(/^CN=([^\,]+?),.*/i, "\\1")
+    searchbase = member.dup.sub(/^CN=[^\,]+?,(.*)/i, "\\1")
+    conn.search(
       :filter => Net::LDAP::Filter.eq("cn",cn),
-# :base
-      :attributes => ["sAMAccountName"]
+      :base => searchbase,
+      :attributes => ["sAMAccountName", "displayName", "mail"]
     ) do |acct|
-      users << acct.samaccountname
+      users[acct.samaccountname.first] = {}
+      begin
+        users[acct.samaccountname.first]['realname'] = acct.displayname.first
+      end rescue NoMethodError
+      begin
+        users[acct.samaccountname.first]['email'] = acct.mail.first
+      end rescue NoMethodError
     end
   }
   users
 end
 
-def listLDAPUsers
-  conn = getLDAPConnection
+# @param users [Hash]: User metadata of the type returned by listUsers
+def printUsersToTerminal(users)
+  users.keys.sort.each { |username|
+    data = users[username]
+    puts "#{username} - #{data['realname']} <#{data['email']}>"
+  }
 end
 
-############# Work below. Zach, you might want to make this file a loader of
-############# some kind for plugins, instead of a big pile of methods.
+# @return [Array<Hash>]: List of all Mu users
+def listUsers
+  if !Dir.exist?($MU_CFG['datadir']+"/users")
+    MU.log "#{$MU_CFG['datadir']}/users doesn't exist", MU::ERR
+    return []
+  end
+  # LDAP is canonical. Everything else is required to be in sync with it.
+  ldap_users = listLDAPUsers
+  all_user_data = {}
+  ldap_users['mu'] = {}
+  ldap_users.each_pair { |username, data|
+    all_user_data[username] = {}
+    userdir = $MU_CFG['datadir']+"/users/#{username}"
+    if !Dir.exist?(userdir)
+      MU.log "No metadata exists for user #{username}, creating stub directory #{userdir}", MU::WARN
+      Dir.mkdir(userdir, 0755)
+    end
+
+    ["email", "monitoring_email", "realname", "chef_user"].each { |field|
+      if data.has_key?(field)
+        all_user_data[username][field] = data[field]
+      elsif File.exist?(userdir+"/"+field)
+        all_user_data[username][field] = File.read(userdir+"/"+field).chomp
+      elsif ["email", "realname"].include?(field)
+        MU.log "Required user field '#{field}' for '#{username}' not set in LDAP or in Mu's disk cache.", MU::WARN
+      end
+    }
+  }
+  all_user_data
+end
+
+@chef_api = nil
+# Create and return a connection to the Chef REST API. If we've already opened
+# one, return that.
+# @return [Chef::REST]
+def chefAPI
+  @chef_api ||= Chef::REST.new("https://"+$MU_CFG["public_address"], "pivotal", "/etc/opscode/pivotal.pem", {:api_version => "1"})
+  @chef_api
+end
+
+# @param user [String]: The Chef username to check
+# @return [Boolean]
+def chefUserExists?(user)
+  begin
+    chefAPI.get("users/#{user}")
+    return true
+  end rescue Net::HTTPServerException
+  return false
+end
 
 def manageChefUser(user, pass: nil, name: nil, email: nil, org: nil, set_admin: false, set_normal: false, replace: false, ldap_user: nil)
-
-  rest = Chef::REST.new("https://"+$MU_CFG["public_address"], "pivotal", "/etc/opscode/pivotal.pem", {:api_version => "1"})
 
   # In this shining future, there are no situations where we will *not* have
   # an LDAP user to link to.
   ldap_user = user.dup if ldap_user.nil?
   if user.gsub!(/\./, "")
     MU.log "Stripped . from username to create Chef user #{user}.\nSee: https://github.com/chef/chef-server/issues/557", MU::NOTICE
+  end
+  if !Dir.exist?($MU_CFG['datadir']+"/users/#{ldap_user}")
+    Dir.mkdir($MU_CFG['datadir']+"/users/#{ldap_user}", 0755)
   end
 
   first = last = nil
@@ -78,12 +148,7 @@ def manageChefUser(user, pass: nil, name: nil, email: nil, org: nil, set_admin: 
     first = name.split(/\s+/).shift
   end
 
-  # Check for existence
-  user_exists = false
-  begin
-    rest.get("users/#{user}")
-    user_exists = true
-  end rescue Net::HTTPServerException
+  user_exists = chefUserExists?(user)
 
   # This user exists, modify it
   if user_exists
@@ -98,9 +163,9 @@ def manageChefUser(user, pass: nil, name: nil, email: nil, org: nil, set_admin: 
       user_data[:first_name] = first if !first.nil?
       user_data[:last_name] = last if !last.nil?
       user_data[:password] = pass if !pass.nil?
-      response = rest.put("users/#{user}", user_data)
+      response = chefAPI.put("users/#{user}", user_data)
       user_data[:password] = "********"
-      MU.log "Chef user #{user} already exists, modified", MU::NOTICE, details: user_data
+      MU.log "Chef user #{user} already exists, modifying", MU::NOTICE, details: user_data
       return
     rescue Net::HTTPServerException => e
       # Work around Chef's baffling inability to use the same email address for
@@ -137,7 +202,7 @@ def manageChefUser(user, pass: nil, name: nil, email: nil, org: nil, set_admin: 
       :password => (0...8).map { ('a'..'z').to_a[rand(26)] }.join
     }
     begin
-      response = rest.post("users", user_data)
+      response = chefAPI.post("users", user_data)
       pp response
     rescue Net::HTTPServerException => e
       # Work around Chef's baffling inability to use the same email address for
@@ -149,6 +214,11 @@ def manageChefUser(user, pass: nil, name: nil, email: nil, org: nil, set_admin: 
       end
       MU.log "Bad response when creating Chef user #{user}: #{e.message}", MU::ERR, details: user_data
     end
+  end
+  if ldap_user != user
+    File.open($MU_CFG['datadir']+"/users/#{ldap_user}/chef_user", File::CREAT|File::RDWR, 0644) { |f|
+      f.puts user
+    }
   end
 end
 

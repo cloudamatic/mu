@@ -32,11 +32,19 @@ def loadMuConfig
   end
   
   home = Etc.getpwuid(Process.uid).dir
+  username = Etc.getpwuid(Process.uid).name
   if File.readable?("#{home}/.mu.yaml")
     global_cfg.merge!(YAML.load(File.read("#{home}/.mu.yaml")))
   end
   if !global_cfg.has_key?("libdir")
     global_cfg["libdir"] = ENV['MU_INSTALLDIR']+"/lib"
+  end
+  if !global_cfg.has_key?("datadir")
+    if username != "root"
+      global_cfg["datadir"] = home+"/.mu"
+    else
+      global_cfg["datadir"] = ENV['MU_INSTALLDIR']+"/var"
+    end
   end
 
   $LOAD_PATH << "#{global_cfg["libdir"]}/modules"

@@ -507,36 +507,36 @@ done
 
 # Add some ad-hoc data bag contents for nagios_users. These are Mu logins
 # and contacts based on the Mu admins stored in $MU_DATADIR/users.
-if [ -d "$MU_DATADIR/users" -a "$USER" == "root" ];then
-	bagdir="$MU_CHEF_CACHE/data_bags/nagios_users"
-	test -d "$bagdir" || mkdir -p "$bagdir"
-
-	set +e
-
-	cd $MU_CHEF_CACHE
-	$knife data bag create nagios_users
-	for admin in `ls $MU_DATADIR/users/`;do
-		if [ ! -f "$bagdir/$admin.json" -a -f "$MU_DATADIR/users/$admin/htpasswd" ];then
-			id="`echo $admin | sed -e 's/@/_/'`"
-			crypt="`cat $MU_DATADIR/users/$admin/htpasswd | cut -d: -f2`"
-			if [ -f $MU_DATADIR/users/$admin/monitoring_email ];then
-				email="`cat $MU_DATADIR/users/$admin/monitoring_email`"
-			else
-				email="`cat $MU_DATADIR/users/$admin/email`"
-			fi
-			if [ "$email" != "none" ];then
-				echo "${GREEN}Adding $id to nagios_users data bag (email $email)${NORM}"
-				echo "{ \"id\": \"$id\", \"groups\": \"sysadmin\", \"htpasswd\": \"$crypt\", \"openid\": \"http://nagiosadmin.myopenid.com/\", \"nagios\": { \"pager\": \"$email\", \"email\": \"$email\" } }" > "$bagdir/$admin.json"
-			else
-				echo "${GREEN}Adding $id to nagios_users data bag (No email)${NORM}"
-				echo "{ \"id\": \"$id\", \"groups\": \"sysadmin\", \"htpasswd\": \"$crypt\", \"openid\": \"http://nagiosadmin.myopenid.com/\", \"nagios\": { \"pager\": \"devnull@localhost\", \"email\": \"devnull@localhost\" } }" > "$bagdir/$admin.json"
-			fi
-		fi
-		if [ -f "$bagdir/$admin.json" ];then
-			$knife data bag from file nagios_users $bagdir/$admin.json
-		fi
-	done
-fi
+#if [ -d "$MU_DATADIR/users" -a "$USER" == "root" ];then
+#	bagdir="$MU_CHEF_CACHE/data_bags/nagios_users"
+#	test -d "$bagdir" || mkdir -p "$bagdir"
+#
+#	set +e
+#
+#	cd $MU_CHEF_CACHE
+#	$knife data bag create nagios_users
+#	for admin in `ls $MU_DATADIR/users/`;do
+#		if [ ! -f "$bagdir/$admin.json" -a -f "$MU_DATADIR/users/$admin/htpasswd" ];then
+#			id="`echo $admin | sed -e 's/@/_/'`"
+#			crypt="`cat $MU_DATADIR/users/$admin/htpasswd | cut -d: -f2`"
+#			if [ -f $MU_DATADIR/users/$admin/monitoring_email ];then
+#				email="`cat $MU_DATADIR/users/$admin/monitoring_email`"
+#			else
+#				email="`cat $MU_DATADIR/users/$admin/email`"
+#			fi
+#			if [ "$email" != "none" ];then
+#				echo "${GREEN}Adding $id to nagios_users data bag (email $email)${NORM}"
+#				echo "{ \"id\": \"$id\", \"groups\": \"sysadmin\", \"htpasswd\": \"$crypt\", \"openid\": \"http://nagiosadmin.myopenid.com/\", \"nagios\": { \"pager\": \"$email\", \"email\": \"$email\" } }" > "$bagdir/$admin.json"
+#			else
+#				echo "${GREEN}Adding $id to nagios_users data bag (No email)${NORM}"
+#				echo "{ \"id\": \"$id\", \"groups\": \"sysadmin\", \"htpasswd\": \"$crypt\", \"openid\": \"http://nagiosadmin.myopenid.com/\", \"nagios\": { \"pager\": \"devnull@localhost\", \"email\": \"devnull@localhost\" } }" > "$bagdir/$admin.json"
+#			fi
+#		fi
+#		if [ -f "$bagdir/$admin.json" ];then
+#			$knife data bag from file nagios_users $bagdir/$admin.json
+#		fi
+#	done
+#fi
 
 # Somehow directory gets lost.  Set it to something sane
 cd $HOMEDIR

@@ -16,6 +16,11 @@
 
 require File.realpath(File.expand_path(File.dirname(__FILE__), "mu-cli-lib.rb"))
 
+if Etc.getpwuid(Process.uid).name != "root"
+  MU.log "#{$0} can only be run as root", MU::ERR
+  exit 1
+end
+
 require 'trollop'
 
 $opts = Trollop::options do
@@ -24,25 +29,174 @@ Listing users:
 #{$0}
 
 Adding/modifying users:
-#{$0} [-a|-r] [-u <username>] [-e <email>] [-n '<Real Name>'] [-p <password>] [-o <organization>] [-m <email>] <username>
+#{$0} [-i] [-a|-r] [-e <email>] [-n '<Real Name>'] [-p <password>|-g] [-o <chef_org>] [-v <chef_org>] [-m <email>] [-l <chef_user>] <username>
 
 Deleting users:
-#{$0} -d <username>
+#{$0} [-i] -d <username>
 
   EOS
   opt :delete, "Delete the user and all of their Chef and filesystem artifacts.", :require => false, :default => false, :type => :boolean
   opt :monitoring_alerts_to, "Send this user's monitoring alerts to an alternate address. Set to 'none' to disable monitoring alerts to this user.", :require => false, :type => :string
   opt :name, "The user's real name. Required when creating a new user.", :require => false, :type => :string
   opt :email, "The user's email address. Required when creating a new user.", :require => false, :type => :string
-  opt :admin, "Flag the user as a Mu admin. They will be granted access to the 'mu' (root's) Chef organization.", :require => false, :type => :boolean
-  opt :revoke_admin, "Revoke the user's status as a Mu admin. They will be granted access to the 'mu' (root's) Chef organization.", :require => false, :type => :boolean
-  opt :org, "Add the user to the named Chef organization, in addition to their default org or orgs.", :require => false, :type => :string
-  opt :remove_from_org, "Remove the user to the named Chef organization.", :require => false, :type => :string
+  opt :admin, "Flag the user as a Mu admin. They will be granted sudo access to the 'mu' (root's) Chef organization.", :require => false, :type => :boolean
+  opt :revoke_admin, "Revoke the user's status as a Mu admin. Access to the 'mu' (root) Chef organization and sudoers will be removed.", :require => false, :type => :boolean
+  opt :org, "Add the user to the named Chef organization, in addition to their default org or orgs.", :require => false, :type => :strings
+  opt :remove_from_org, "Remove the user to the named Chef organization.", :require => false, :type => :strings
   opt :password, "Set a specific password for this user.", :require => false, :type => :string
   opt :generate_password, "Generate and set a random password for this user.", :require => false, :type => :boolean, :default => false
-  opt :link_to_ldap, "Link to an existing LDAP user. Typically only needed to map pre-existing Chef users to a separate LDAP or Active Directory domain.", :require => false, :type => :string
+  opt :link_to_chef_user, "Link to an existing Chef user. Chef's naming restrictions sometimes necessitate having a different account name than everything else. Also useful for linking a pre-existing Chef user to the rest of a Mu account.", :require => false, :type => :string
+  opt :interactive, "Interactive mode. Will prompt for missing fields.", :require => false, :type => :boolean
 end
 
-pp listLDAPUsers
+Dir.mkdir($MU_CFG['datadir']+"/users", 0755) if !Dir.exist?($MU_CFG['datadir']+"/users")
+
+if $opts[:admin] and $opts[:revoke_admin]
+  MU.log "Cannot both add and revoke admin access", MU::ERR
+  Trollop::educate
+end
+if $opts[:password] and $opts[:generate_password]
+  MU.log "Cannot both specify a password and generate a password", MU::ERR
+  Trollop::educate
+end
+
+if $opts[:org] and $opts[:remove_from_org] and ($opts[:org] & $opts[:remove_from_org]).size > 0
+  MU.log "Cannot both add and remove from the same Chef org", MU::ERR
+  exit 1
+end
+
+cur_users = listUsers
+
+if !ARGV[0] or ARGV[0].empty?
+  bail = false
+  $opts.each_key { |opt|
+    if $opts[opt] and !opt.to_s.match(/_given$/)
+      MU.log "Must specify a username with the '#{opt.to_s}' option", MU::ERR
+      bail = true
+    end
+  }
+  Trollop::educate if bail
+  printUsersToTerminal(cur_users)
+  exit 0
+end
+$username = ARGV[0]
+
+[:org, :remove_from_org].each { |org_field|
+  bail = false
+  if $opts[org_field]
+    $opts[org_field].each { |org|
+      if !org.match(/^[a-z_][a-z0-9_]{0,30}$/i)
+        MU.log "'#{org}' is not a valid Chef org name", MU::ERR
+        bail = true
+      end
+    }
+  end
+  exit 1 if bail
+}
+
+[:email, :monitoring_alerts_to].each { |email_field|
+  bail = false
+  if $opts[email_field] and !$opts[email_field].match(/^[A-Z0-9\._%\+\-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,6}$/i)
+    MU.log "'#{$opts[email_field]}' is not a valid email address", MU::ERR
+    bail = true
+  end
+  exit 1 if bail
+}
+
+if $opts[:name] and !$opts[:name].match(/ /)
+  MU.log "'name' field must consist of at least two words (saw '#{$opts[:name]}')", MU::ERR
+  exit 1
+end
+
+if $opts[:link_to_chef_user] and !chefUserExists?($opts[:link_to_chef_user])
+  MU.log "Requested link to Chef user '#{$opts[:link_to_chef_user]}', but that user doesn't exist", MU::ERR
+  exit 1
+end
+
+# Delete an existing account
+if $opts[:delete]
+  bail = false
+  if !cur_users.has_key?($username)
+    MU.log "User #{$username} does not exist, cannot delete", MU::ERR
+    bail = true
+  end
+  $opts.each_key { |opt|
+    if opt.to_s != "delete" and $opts[opt] and !opt.to_s.match(/_given$/)
+      MU.log "Ignoring extraneous option '#{opt.to_s}' in delete", MU::WARN
+    end
+  }
+  exit 1 if bail
+
+# XXX need to be able to tell the difference between native LDAP and someone's pre-existing AD. Assume the latter for now.
+  MU.log "Note: You are using a third-party directory service. To really remove #{$username}, you will have to remove it from the group #{$MU_CFG['ldap']['admin_group_name']}", MU::NOTICE
+
+else
+
+  # Modify an existing account
+  if cur_users.has_key?($username)
+    bail = false
+    if !cur_users[$username].has_key?("email") and !$opts[:email]
+      MU.log "#{$username} does not have an email address set in LDAP, must supply one with -e to modify this account.", MU::ERR
+      bail = true
+    end
+    if !cur_users[$username].has_key?("realname") and !$opts[:name]
+      MU.log "#{$username} does not have a display name set in LDAP, must supply one with -n to modify this account.", MU::ERR
+      bail = true
+    end
+    exit 1 if bail
+
+    # XXX need to be able to tell the difference between native LDAP and someone's pre-existing AD. Assume the latter for now.
+    if $opts[:password] or $opts[:generate_password]
+      MU.log "Note: You are using a third-party directory service. You will have to set the password for #{$username} via your directory tools.", MU::NOTICE
+    end
+
+    cur_users[$username]['realname'] = $opts[:name] if $opts[:name]
+    cur_users[$username]['email'] = $opts[:email] if $opts[:email]
+
+    if $opts[:link_to_chef_user] and $opts[:link_to_chef_user] != $username
+      manageChefUser(
+        $opts[:link_to_chef_user].dup,
+        name: cur_users[$username]['realname'],
+        email: cur_users[$username]['email'],
+        set_admin: $opts[:admin],
+        set_normal: $opts[:revoke_admin],
+        ldap_user: $username
+      )
+    else
+      manageChefUser(
+        $username,
+        name: cur_users[$username]['realname'],
+        email: cur_users[$username]['email'],
+        set_admin: $opts[:admin],
+        set_normal: $opts[:revoke_admin],
+        ldap_user: $username
+      )
+    end
+
+  # Create a new account
+  else
+    bail = false
+
+    # XXX need to be able to tell the difference between native LDAP and someone's pre-existing AD. Assume the latter for now.
+    MU.log "Note: You are using a third-party directory service. You must first create #{$username} via your directory tools and add it to the group #{$MU_CFG['ldap']['admin_group_name']}.", MU::NOTICE
+
+    if !$opts[:email]
+      MU.log "#{$username} does not have an email address set in LDAP, must supply one with -e.", MU::ERR
+      bail = true
+    end
+    if !$opts[:name]
+      MU.log "#{$username} does not have a display name set in LDAP, must supply one with -n.", MU::ERR
+      bail = true
+    end
+    exit 1 if bail
+
+  end
+end
+
+
+# If we asked for interactive mode, fill in the blanks
+if $opts.interactive
+end
+
 #manageChefUser("jstange", name: "John Stange", set_admin: true, ldap_user: "john.stange.admin")
 #manageChefUser("testuser", pass: "fdg620ry1y2", name: "John Q. Public", email: "stange@johnstange.net", ldap_user: "john.stange")
