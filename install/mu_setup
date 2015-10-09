@@ -1053,7 +1053,7 @@ create_private_dns_zone()
 {
   status_message "Creating private ${BOLD}.platform-mu${NORM} DNS zone"
 
-  $MU_INSTALLDIR/bin/mu-aws-setup -d
+  $MU_LIBDIR/bin/mu-aws-setup -d
 
 }
 
@@ -1063,7 +1063,7 @@ associate_public_ip()
 {
   status_message "Setting IP to ${BOLD}$CHEF_PUBLIC_IP${NORM}"
 
-  $MU_INSTALLDIR/bin/mu-aws-setup -i
+  $MU_LIBDIR/bin/mu-aws-setup -i
 
 }
 
@@ -1072,7 +1072,7 @@ configure_ec2_security_group()
 {
   status_message "Detecting ${BOLD}EC2 Security Group${NORM} configuration"
   set -e
-  EC2SECGROUP="`$MU_INSTALLDIR/bin/mu-aws-setup -s | grep 'Setting' | cut -d'(' -f2 | cut -d')' -f1`"
+  EC2SECGROUP="`$MU_LIBDIR/bin/mu-aws-setup -s | grep 'Setting' | cut -d'(' -f2 | cut -d')' -f1`"
   set +e
   update_murc EC2SECGROUP $EC2SECGROUP
 }
@@ -1297,6 +1297,7 @@ install_mu_executables()
   status_message "Installing/updating Mu executables"
 
   if [ "$_me" == "mu-self-update" ];then
+# XXX need to test this a different way
     if [ "`diff $MU_LIBDIR/bin/$_me $MU_INSTALLDIR/bin/$_me`" != "" -o "`diff $MU_LIBDIR/install/mu_setup $MU_INSTALLDIR/bin/mu-configure`" != "" ];then
       status_message "We're updating $_me, and $_me has changed." "Re-invoking as ${BOLD}$MU_LIBDIR/bin/$_me $@${NORM}"
       /bin/cp -f $MU_LIBDIR/bin/$_me $MU_INSTALLDIR/bin/$_me
@@ -1430,7 +1431,7 @@ preconfigure_jenkins_artifacts()
           $MU_LIBDIR/install/jenkinskeys.rb
           knife vault create jenkins users "{\"mu_user_password\":\"$JENKINS_ADMIN_PW\"}" --mode client -F json -u mu --search name:MU-MASTER
           # Create the Jenkins user
-          $MU_INSTALLDIR/bin/mu-user-manage -c -u jenkins -e $JENKINS_ADMIN_EMAIL -p $JENKINS_ADMIN_PW
+          $MU_LIBDIR/bin/mu-user-manage -c -u jenkins -e $JENKINS_ADMIN_EMAIL -p $JENKINS_ADMIN_PW
         fi
   fi
 }
@@ -1439,7 +1440,7 @@ preconfigure_jenkins_artifacts()
 generate_docs()
 {
   status_message "Generating documentation"
-  $MU_INSTALLDIR/bin/mu-gen-docs
+  $MU_LIBDIR/bin/mu-gen-docs
 }
 
 generate_ssl_certs()
@@ -1479,7 +1480,7 @@ enable_audit_logs()
   status_message "Enabling Mu audit logs"
   punch_tcp_hole 10514
   set -e
-  $MU_INSTALLDIR/bin/mu-aws-setup -l
+  $MU_LIBDIR/bin/mu-aws-setup -l
   set +e
 }
 
@@ -1565,7 +1566,7 @@ if [ "$library" != "1" ];then
   echo "${BOLD}source $MURC${NORM}"
   echo ""
   echo "Users:"
-  $MU_INSTALLDIR/bin/mu-user-manage -l
+  $MU_LIBDIR/bin/mu-user-manage -l
   echo ""
   echo "To add more users, use ${BOLD}mu-user-manage${NORM}."
   echo ""
