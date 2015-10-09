@@ -1319,6 +1319,10 @@ set -x
     fi
   done
 
+  /bin/cp -f $MU_LIBDIR/bin/mu-self-update $MU_INSTALLDIR/bin/mu-self-update
+  /bin/cp -f $MU_LIBDIR/install/mu_setup $MU_INSTALLDIR/bin/mu-configure
+  chmod 0755 $MU_INSTALLDIR/bin/mu-self-update $MU_INSTALLDIR/bin/mu-configure
+
   # ...and make sure the flippin' link to mu-cli-lib.rb is right.
   /bin/rm -f $MU_INSTALLDIR/bin/mu-cli-lib.rb
   /bin/ln -s $MU_LIBDIR/modules/mu-cli-lib.rb $MU_INSTALLDIR/bin/mu-cli-lib.rb
