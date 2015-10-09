@@ -1295,13 +1295,14 @@ install_mu_executables()
 {
 
   status_message "Installing/updating Mu executables"
-
+set -x
   if [ "$_me" == "mu-self-update" ];then
 # XXX need to test this a different way
     if [ "`diff $MU_LIBDIR/bin/$_me $MU_INSTALLDIR/bin/$_me`" != "" -o "`diff $MU_LIBDIR/install/mu_setup $MU_INSTALLDIR/bin/mu-configure`" != "" ];then
       status_message "We're updating $_me, and $_me has changed." "Re-invoking as ${BOLD}$MU_LIBDIR/bin/$_me $@${NORM}"
       /bin/cp -f $MU_LIBDIR/bin/$_me $MU_INSTALLDIR/bin/$_me
       /bin/cp -f $MU_LIBDIR/install/mu_setup $MU_INSTALLDIR/bin/mu-configure
+      chmod 0755 $MU_INSTALLDIR/bin/$_me $MU_INSTALLDIR/bin/mu-configure
       exec $MU_LIBDIR/bin/$_me $1 $2 $3 $4 $5 $6 $7 $8 $9
       exit
     fi
@@ -1312,23 +1313,14 @@ install_mu_executables()
   # most executables should just be symlinks
   _files=$MU_LIBDIR/bin/*
   for f in $_files;do
-    ln -s $MU_LIBDIR/bin/$f $MU_INSTALLDIR/bin/$f
+    if [ "$f" != "mu-self-update" ];then
+      ln -s $MU_LIBDIR/bin/$f $MU_INSTALLDIR/bin/$f
+    fi
   done
-
-  # mu-self-update and mu_setup should be a copies, though, in case new
-  # versions are busted
-  /bin/cp -f $MU_LIBDIR/install/mu_setup $MU_INSTALLDIR/bin/mu-configure
-  /bin/rm -f $MU_INSTALLDIR/bin/mu-self-update
-  /bin/cp -f $MU_LIBDIR/bin/mu-self-update $MU_INSTALLDIR/bin/
 
   # ...and make sure the flippin' link to mu-cli-lib.rb is right.
   /bin/rm -f $MU_INSTALLDIR/bin/mu-cli-lib.rb
   /bin/ln -s $MU_LIBDIR/modules/mu-cli-lib.rb $MU_INSTALLDIR/bin/mu-cli-lib.rb
-
-  _files=$MU_INSTALLDIR/bin/*
-  for f in $_files;do
-    chmod 0755 $f
-  done
 
   chef_bin=/opt/chef/embedded/bin
   # We can get invoked before Chef is installed, so handle that gracefully
