@@ -1312,7 +1312,8 @@ set -x
 
   # most executables should just be symlinks
   _files=$MU_LIBDIR/bin/*
-  for f in $_files;do
+  for file in $_files;do
+    f="`basename $file`"
     if [ "$f" != "mu-self-update" ];then
       ln -s $MU_LIBDIR/bin/$f $MU_INSTALLDIR/bin/$f
     fi
