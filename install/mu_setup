@@ -1310,7 +1310,11 @@ install_mu_executables()
   rm -rf $MU_INSTALLDIR/bin/*
 
   # most executables should just be symlinks
-  /bin/cp -lf $MU_LIBDIR/bin/* $MU_INSTALLDIR/bin/
+  _files=$MU_LIBDIR/bin/*
+  for f in $_files;do
+    ln -s $MU_LIBDIR/bin/$f $MU_INSTALLDIR/bin/$f
+  done
+
   # mu-self-update and mu_setup should be a copies, though, in case new
   # versions are busted
   /bin/cp -f $MU_LIBDIR/install/mu_setup $MU_INSTALLDIR/bin/mu-configure
