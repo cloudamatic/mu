@@ -19,14 +19,20 @@ require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.r
 
 require 'mu'
 require 'net-ldap'
+require 'date'
+require 'colorize'
 
 ############# Work below. Zach, you might want to make this file a loader of
 ############# some kind for plugins, instead of a big pile of methods.
 
+# Create and return a connection to our directory service. If we've already
+# opened one, return that.
+@ldap_conn = nil
 # @return [Net::LDAP]
 def getLDAPConnection
+  return @ldap_conn if @ldap_conn
   bind_creds = MU::Groomer::Chef.getSecret(vault: $MU_CFG["ldap"]["svc_acct_vault"], item: $MU_CFG["ldap"]["svc_acct_item"])
-  Net::LDAP.new(
+  @ldap_conn = Net::LDAP.new(
     :host => $MU_CFG["ldap"]["dcs"].first,
     :encryption => :simple_tls,
     :port => 636,
@@ -37,46 +43,131 @@ def getLDAPConnection
       :password => bind_creds["password"]
     }
   )
+  @ldap_conn
+end
+
+# Approximate a current Microsoft timestamp. They count the number of
+# 100-nanoseconds intervals (1 nanosecond = one billionth of a second) since
+# Jan 1, 1601 UTC.
+def getMicrosoftTime
+  ms_epoch = DateTime.new(1601,1,1)
+  # this is in milliseconds, so multiply it for the right number of zeroes
+  elapsed = DateTime.now.strftime("%Q").to_i - ms_epoch.strftime("%Q").to_i
+  return elapsed*10000
+end
+
+@can_write = nil
+# Test whether our LDAP binding user has permissions to create other users,
+# manipulate groups, and set passwords. Note that it's *not* fatal if we can't,
+# simply a design where most account management happens on the directory side.
+# @return [Boolean]
+def canWriteLDAP?
+  return @can_write if !@can_write.nil?
+
+  conn = getLDAPConnection
+  dn = "CN=Mu Testuser #{Process.pid},#{$MU_CFG["ldap"]["base_dn"]}"
+  attr = {
+    :cn => "Mu Testuser #{Process.pid}",
+    :objectclass => ["user"],
+    :samaccountname => "mu.testuser.#{Process.pid}",
+    :userPrincipalName => "mu.testuser.#{Process.pid}@#{$MU_CFG["ldap"]["domain_name"]}",
+    :pwdLastSet => "-1"
+  }
+
+  @can_write = true
+  if !conn.add(:dn => dn, :attributes => attr)
+    MU.log "Couldn't create write-test user #{dn}, operating in read-only LDAP mode", MU::NOTICE, details: conn.get_operation_result.code.to_s+" "+conn.get_operation_result.message.to_s
+    return false
+  end
+
+  # Make sure we can write various fields that we might need to touch
+  [:displayName, :mail, :givenName, :sn].each { |field|
+    if !conn.replace_attribute(dn, field, "foo@bar.com")
+      MU.log "Couldn't modify write-test user #{dn} field #{field.to_s}, operating in read-only LDAP mode", MU::NOTICE, details: conn.get_operation_result.code.to_s+" "+conn.get_operation_result.message.to_s
+      @can_write = false
+      break
+    end
+  }
+
+  # Can we add them to the Mu membership group(s)
+  if !conn.modify(:dn => $MU_CFG["ldap"]["admin_group_dn"], :operations => [[:add, :member, dn]])
+    MU.log "Couldn't add write-test user #{dn} to group #{$MU_CFG["ldap"]["admin_group_dn"]}, operating in read-only LDAP mode", MU::NOTICE, details: conn.get_operation_result.code.to_s+" "+conn.get_operation_result.message.to_s
+    @can_write = false
+  end
+
+  if !conn.delete(:dn => dn)
+    MU.log "Couldn't delete write-test user #{dn}, operating in read-only LDAP mode", MU::NOTICE
+    @can_write = false
+  end
+
+  @can_write
 end
 
 # @return [Array<String>]
 def listLDAPUsers
   conn = getLDAPConnection
-  groupname_filter = Net::LDAP::Filter.eq("sAMAccountName", $MU_CFG["ldap"]["admin_group_name"])
-  group_filter = Net::LDAP::Filter.eq("objectClass", "group")
-  member_cns = []
-  conn.search(
-    :filter => Net::LDAP::Filter.join(groupname_filter, group_filter),
-    :attributes => ["member"]
-  ) do |item|
-    member_cns = item.member.dup
-  end
   users = {}
-  member_cns.each { |member|
-    cn = member.dup.sub(/^CN=([^\,]+?),.*/i, "\\1")
-    searchbase = member.dup.sub(/^CN=[^\,]+?,(.*)/i, "\\1")
+
+  ["admin_group_name", "user_group_name"].each { |group|
+    groupname_filter = Net::LDAP::Filter.eq("sAMAccountName", $MU_CFG["ldap"][group])
+    group_filter = Net::LDAP::Filter.eq("objectClass", "group")
+    member_cns = []
     conn.search(
-      :filter => Net::LDAP::Filter.eq("cn",cn),
-      :base => searchbase,
-      :attributes => ["sAMAccountName", "displayName", "mail"]
-    ) do |acct|
-      users[acct.samaccountname.first] = {}
-      begin
-        users[acct.samaccountname.first]['realname'] = acct.displayname.first
-      end rescue NoMethodError
-      begin
-        users[acct.samaccountname.first]['email'] = acct.mail.first
-      end rescue NoMethodError
+      :filter => Net::LDAP::Filter.join(groupname_filter, group_filter),
+      :attributes => ["member"]
+    ) do |item|
+      member_cns = item.member.dup
     end
+    member_cns.each { |member|
+      cn = member.dup.sub(/^CN=([^\,]+?),.*/i, "\\1")
+      searchbase = member.dup.sub(/^CN=[^\,]+?,(.*)/i, "\\1")
+      conn.search(
+        :filter => Net::LDAP::Filter.eq("cn",cn),
+        :base => searchbase,
+        :attributes => ["sAMAccountName", "displayName", "mail"]
+      ) do |acct|
+        next if users.has_key?(acct.samaccountname.first)
+        users[acct.samaccountname.first] = {}
+        if group == "admin_group_name"
+          users[acct.samaccountname.first]['admin'] = true
+        else
+          users[acct.samaccountname.first]['admin'] = false
+        end
+        begin
+          users[acct.samaccountname.first]['realname'] = acct.displayname.first
+        end rescue NoMethodError
+        begin
+          users[acct.samaccountname.first]['email'] = acct.mail.first
+        end rescue NoMethodError
+      end
+    }
   }
   users
 end
 
 # @param users [Hash]: User metadata of the type returned by listUsers
 def printUsersToTerminal(users)
+  labeled = false
   users.keys.sort.each { |username|
     data = users[username]
-    puts "#{username} - #{data['realname']} <#{data['email']}>"
+    if data['admin']
+      if !labeled
+        labeled = true
+        puts "Administrators".light_cyan.on_black.bold
+      end
+      puts "#{username.bold} - #{data['realname']} <#{data['email']}>"
+    end
+  }
+  labeled = false
+  users.keys.sort.each { |username|
+    data = users[username]
+    if !data['admin']
+      if !labeled
+        labeled = true
+        puts "Regular users".light_cyan.on_black.bold
+      end
+      puts "#{username.bold} - #{data['realname']} <#{data['email']}>"
+    end
   }
 end
 
@@ -90,6 +181,7 @@ def listUsers
   ldap_users = listLDAPUsers
   all_user_data = {}
   ldap_users['mu'] = {}
+  ldap_users['mu']['admin'] = true
   ldap_users.each_pair { |username, data|
     all_user_data[username] = {}
     userdir = $MU_CFG['datadir']+"/users/#{username}"
@@ -98,7 +190,7 @@ def listUsers
       Dir.mkdir(userdir, 0755)
     end
 
-    ["email", "monitoring_email", "realname", "chef_user"].each { |field|
+    ["email", "monitoring_email", "realname", "chef_user", "admin"].each { |field|
       if data.has_key?(field)
         all_user_data[username][field] = data[field]
       elsif File.exist?(userdir+"/"+field)
@@ -130,7 +222,110 @@ def chefUserExists?(user)
   return false
 end
 
-def manageChefUser(user, pass: nil, name: nil, email: nil, org: nil, set_admin: false, set_normal: false, replace: false, ldap_user: nil)
+
+def deleteLDAPUser(user)
+  cur_users = listLDAPUsers
+
+  if cur_users.has_key?(user)
+    # Creating a new user
+    if canWriteLDAP?
+      conn = getLDAPConnection
+      dn = "CN=#{cur_users[user]['realname']},#{$MU_CFG["ldap"]["base_dn"]}"
+      if !conn.delete(:dn => dn)
+        MU.log "Failed to delete #{user} from LDAP.", MU::WARN, details: conn.get_operation_result.code.to_s+" "+conn.get_operation_result.message.to_s
+        return false
+      end
+      return true
+    else
+      MU.log "We are in read-only LDAP mode. You must manually delete #{user} from your directory.", MU::WARN
+    end
+  else
+    MU.log "#{user} does not exist in LDAP.", MU::ERR
+  end
+  false
+end
+
+# Call when creating or modifying a user.
+# @param user [String]: The username on which to operate
+# @param admin [Boolean]: Whether to flag this user as an admin
+def manageLDAPUser(user, name: nil, password: nil, email: nil, admin: false)
+  cur_users = listLDAPUsers
+
+  first = last = nil
+  if !name.nil?
+    last = name.split(/\s+/).pop
+    first = name.split(/\s+/).shift
+  end
+
+  if !cur_users.has_key?(user)
+    # Creating a new user
+    if canWriteLDAP?
+      if password.nil? or email.nil? or name.nil?
+        raise MuError, "Missing one or more required fields (name, password, email) creating new user #{user}"
+      end
+      conn = getLDAPConnection
+      dn = "CN=#{name},#{$MU_CFG["ldap"]["base_dn"]}"
+      attr = {
+        :cn => name,
+        :displayName => name,
+        :objectclass => ["user"],
+        :samaccountname => user,
+        :givenName => first,
+        :sn => last,
+        :mail => email,
+        :userPassword => password,
+        :userPrincipalName => "#{user}@#{$MU_CFG["ldap"]["domain_name"]}",
+        :pwdLastSet => "-1"
+      }
+      if !conn.add(:dn => dn, :attributes => attr)
+        raise MuError, "Failed to create user #{user} (#{conn.get_operation_result.code.to_s} #{conn.get_operation_result.message.to_s})"
+      end
+      attr[:userPassword] = "********"
+      MU.log "Created new LDAP user #{user}", MU::NOTICE, details: attr
+      groups = [$MU_CFG["ldap"]["user_group_dn"]]
+      groups << $MU_CFG["ldap"]["admin_group_dn"] if admin
+      groups.each { |group|
+        if !conn.modify(:dn => group, :operations => [[:add, :member, dn]])
+          MU.log "Couldn't add new user #{user} to group #{group}. Access to services may be hampered.", MU::WARN, details: conn.get_operation_result.code.to_s+" "+conn.get_operation_result.message.to_s
+        end
+      }
+      userdir = $MU_CFG['datadir']+"/users/#{user}"
+      Dir.mkdir(userdir, 0755) if !Dir.exist?(userdir)
+    else
+      MU.log "We are in read-only LDAP mode. You must create #{user} in your directory and add it to #{$MU_CFG["ldap"]["user_group_dn"]}. If the user is intended to be an admin, also add it to #{$MU_CFG["ldap"]["admin_group_dn"]}.", MU::WARN
+      return
+    end
+  else
+    # Modifying an existing user
+    if canWriteLDAP?
+    else
+    end
+  end
+
+end
+
+# Manage the system-local attributes of a user.
+def manageLocalUser(user, name: nil, email: nil, admin: false)
+  if admin
+    MU.log "Granting sudo privileges to #{user}"
+    File.open("/etc/sudoers.d/01-mu-admin-#{user}", File::CREAT|File::RDWR, 0644) { |f|
+      f.puts "#{user} ALL=(ALL) NOPASSWD:ALL"
+    }
+  else
+    MU.log "Revoking sudo privileges from #{user}"
+    if File.exist?("/etc/sudoers.d/01-mu-admin-#{user}")
+      unlink("/etc/sudoers.d/01-mu-admin-#{user}")
+    end
+  end
+end
+
+# Call when creating or modifying a user. While Chef technically does
+# communicate with LDAP, it's only for the web UI, which we don't even use.
+# Keys still need to be managed, and sometimes the username can't even match
+# the LDAP one due to Chef's weird restrictions.
+def manageChefUser(user, name: nil, email: nil, org: nil, set_admin: false, set_normal: false, ldap_user: nil)
+
+  raise MuError, "Can't both add and revoke admin privileges from a Chef user" if set_admin and set_normal
 
   # In this shining future, there are no situations where we will *not* have
   # an LDAP user to link to.

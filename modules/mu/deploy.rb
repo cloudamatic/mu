@@ -16,7 +16,6 @@ require "net/http"
 require "net/smtp"
 require 'json'
 require 'rexml/document'
-require 'simple-password-gen'
 
 module MU
   # The Deploy class is the main interface for resource creation. It is

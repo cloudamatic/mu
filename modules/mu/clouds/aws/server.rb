@@ -681,9 +681,9 @@ module MU
               end
             end
 
-            win_admin_password = MU::Cloud::AWS::Server.generateWindowsPassword if win_admin_password.nil?
-            ec2config_password = MU::Cloud::AWS::Server.generateWindowsPassword if ec2config_password.nil?
-            sshd_password = MU::Cloud::AWS::Server.generateWindowsPassword if sshd_password.nil?
+            win_admin_password = MU.generateWindowsPassword if win_admin_password.nil?
+            ec2config_password = MU.generateWindowsPassword if ec2config_password.nil?
+            sshd_password = MU.generateWindowsPassword if sshd_password.nil?
 
             # We're creating the vault here so when we run
             # MU::Cloud::Server.initialSSHTasks and we need to set the Windows
@@ -1342,27 +1342,6 @@ module MU
           end
 
           return vol_struct
-        end
-
-        # Generate a random password which will satisfy the complexity requirements of stock Amazon Windows AMIs.
-        # return [String]: A password string.
-        # XXX this probably doesn't want to live inside a cloud provider
-        def self.generateWindowsPassword
-          # We have dopey complexity requirements, be stringent here.
-          # I'll be nice and not condense this into one elegant-but-unreadable regular expression
-          attempts = 0
-          safe_metachars = Regexp.escape('~!@#%^&*_-+=`|(){}[]:;<>,.?')
-          begin
-            if attempts > 25
-              MU.log "Failed to generate an adequate Windows password after #{attempts}", MU::ERR
-              raise MuError, "Failed to generate an adequate Windows password after #{attempts}"
-            end
-            winpass = Password.random(14..16)
-            attempts += 1
-          end while winpass.nil? or !winpass.match(/[A-Z]/) or !winpass.match(/[a-z]/) or !winpass.match(/\d/) or !winpass.match(/[#{safe_metachars}]/) or winpass.match(/[^\w\d#{safe_metachars}]/)
-
-          MU.log "Generated Windows password after #{attempts} attempts", MU::DEBUG
-          return winpass
         end
 
         # Retrieves the Cloud provider's randomly generated Windows password

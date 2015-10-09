@@ -1295,7 +1295,7 @@ install_mu_executables()
 {
 
   status_message "Installing/updating Mu executables"
-set -x
+
   if [ "$_me" == "mu-self-update" ];then
 # XXX need to test this a different way
     if [ "`diff $MU_LIBDIR/bin/$_me $MU_INSTALLDIR/bin/$_me`" != "" -o "`diff $MU_LIBDIR/install/mu_setup $MU_INSTALLDIR/bin/mu-configure`" != "" ];then

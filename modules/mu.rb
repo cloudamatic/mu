@@ -495,6 +495,27 @@ module MU
     end
   end
 
+  # Generate a random password which will satisfy the complexity requirements of stock Amazon Windows AMIs.
+  # return [String]: A password string.
+  def self.generateWindowsPassword
+    # We have dopey complexity requirements, be stringent here.
+    # I'll be nice and not condense this into one elegant-but-unreadable regular expression
+    attempts = 0
+    safe_metachars = Regexp.escape('~!@#%^&*_-+=`|(){}[]:;<>,.?')
+    begin
+      if attempts > 25
+        MU.log "Failed to generate an adequate Windows password after #{attempts}", MU::ERR
+        raise MuError, "Failed to generate an adequate Windows password after #{attempts}"
+      end
+      winpass = Password.random(14..16)
+      attempts += 1
+    end while winpass.nil? or !winpass.match(/[A-Z]/) or !winpass.match(/[a-z]/) or !winpass.match(/\d/) or !winpass.match(/[#{safe_metachars}]/) or winpass.match(/[^\w\d#{safe_metachars}]/)
+
+    MU.log "Generated Windows password after #{attempts} attempts", MU::DEBUG
+    return winpass
+  end
+
+
   # Return the name of the S3 Mu log and key bucket for this Mu server.
   # @return [String]
   def self.adminBucketName

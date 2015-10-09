@@ -22,6 +22,7 @@ if Etc.getpwuid(Process.uid).name != "root"
 end
 
 require 'trollop'
+require 'simple-password-gen'
 
 $opts = Trollop::options do
   banner <<-EOS
@@ -65,7 +66,15 @@ if $opts[:org] and $opts[:remove_from_org] and ($opts[:org] & $opts[:remove_from
   exit 1
 end
 
-cur_users = listUsers
+$password = nil
+if $opts[:generate_password]
+  $password = MU.generateWindowsPassword
+elsif $opts[:password]
+  $password = $opts[:password]
+end
+
+$cur_users = listUsers
+canWriteLDAP?
 
 if !ARGV[0] or ARGV[0].empty?
   bail = false
@@ -76,7 +85,7 @@ if !ARGV[0] or ARGV[0].empty?
     end
   }
   Trollop::educate if bail
-  printUsersToTerminal(cur_users)
+  printUsersToTerminal($cur_users)
   exit 0
 end
 $username = ARGV[0]
@@ -116,7 +125,7 @@ end
 # Delete an existing account
 if $opts[:delete]
   bail = false
-  if !cur_users.has_key?($username)
+  if !$cur_users.has_key?($username)
     MU.log "User #{$username} does not exist, cannot delete", MU::ERR
     bail = true
   end
@@ -127,58 +136,42 @@ if $opts[:delete]
   }
   exit 1 if bail
 
-# XXX need to be able to tell the difference between native LDAP and someone's pre-existing AD. Assume the latter for now.
-  MU.log "Note: You are using a third-party directory service. To really remove #{$username}, you will have to remove it from the group #{$MU_CFG['ldap']['admin_group_name']}", MU::NOTICE
+  deleteLDAPUser($username)
 
 else
+  create = false
+  if !$cur_users.has_key?($username)
+    $cur_users[$username] = {} if !$cur_users.has_key?($username)
+    create = true
+  end
 
-  # Modify an existing account
-  if cur_users.has_key?($username)
+  $cur_users[$username]['realname'] = $opts[:name] if $opts[:name]
+  $cur_users[$username]['email'] = $opts[:email] if $opts[:email]
+  $cur_users[$username]['admin'] = true if $opts[:admin]
+  $cur_users[$username]['admin'] = false if $opts[:revoke_admin]
+  if $opts[:link_to_chef_user]
+    $cur_users[$username]['chef_user'] = $opts[:link_to_chef_user].dup
+  else
+    $cur_users[$username]['chef_user'] = $username.dup
+  end
+
+  # Validate for modifying an existing account
+  if !create
+puts "modifying #{$username}"
     bail = false
-    if !cur_users[$username].has_key?("email") and !$opts[:email]
+    if !$cur_users[$username].has_key?("email") and !$opts[:email]
       MU.log "#{$username} does not have an email address set in LDAP, must supply one with -e to modify this account.", MU::ERR
       bail = true
     end
-    if !cur_users[$username].has_key?("realname") and !$opts[:name]
+    if !$cur_users[$username].has_key?("realname") and !$opts[:name]
       MU.log "#{$username} does not have a display name set in LDAP, must supply one with -n to modify this account.", MU::ERR
       bail = true
     end
     exit 1 if bail
 
-    # XXX need to be able to tell the difference between native LDAP and someone's pre-existing AD. Assume the latter for now.
-    if $opts[:password] or $opts[:generate_password]
-      MU.log "Note: You are using a third-party directory service. You will have to set the password for #{$username} via your directory tools.", MU::NOTICE
-    end
-
-    cur_users[$username]['realname'] = $opts[:name] if $opts[:name]
-    cur_users[$username]['email'] = $opts[:email] if $opts[:email]
-
-    if $opts[:link_to_chef_user] and $opts[:link_to_chef_user] != $username
-      manageChefUser(
-        $opts[:link_to_chef_user].dup,
-        name: cur_users[$username]['realname'],
-        email: cur_users[$username]['email'],
-        set_admin: $opts[:admin],
-        set_normal: $opts[:revoke_admin],
-        ldap_user: $username
-      )
-    else
-      manageChefUser(
-        $username,
-        name: cur_users[$username]['realname'],
-        email: cur_users[$username]['email'],
-        set_admin: $opts[:admin],
-        set_normal: $opts[:revoke_admin],
-        ldap_user: $username
-      )
-    end
-
-  # Create a new account
+  # Validate for creating a new account
   else
     bail = false
-
-    # XXX need to be able to tell the difference between native LDAP and someone's pre-existing AD. Assume the latter for now.
-    MU.log "Note: You are using a third-party directory service. You must first create #{$username} via your directory tools and add it to the group #{$MU_CFG['ldap']['admin_group_name']}.", MU::NOTICE
 
     if !$opts[:email]
       MU.log "#{$username} does not have an email address set in LDAP, must supply one with -e.", MU::ERR
@@ -188,15 +181,33 @@ else
       MU.log "#{$username} does not have a display name set in LDAP, must supply one with -n.", MU::ERR
       bail = true
     end
+    if $password.nil?
+      MU.log "Must supply a password for #{$username} with -p (raw string), -g (generate), or -i (interactive mode).", MU::ERR
+      bail = true
+    end
     exit 1 if bail
 
   end
+
+  # These routines gracefully figure out whether they're adding or modifying.
+  manageLDAPUser(
+    $username,
+    name: $cur_users[$username]['realname'],
+    email: $cur_users[$username]['email'],
+    password: $password,
+    admin: $cur_users[$username]['admin']
+  )
+#  manageChefUser(
+#    $cur_users[$username]['chef_user'],
+#    name: $cur_users[$username]['realname'],
+#    email: $cur_users[$username]['email'],
+#    admin: $cur_users[$username]['admin'],
+#    ldap_user: $username
+#  )
 end
 
+printUsersToTerminal(listUsers)
 
 # If we asked for interactive mode, fill in the blanks
 if $opts.interactive
 end
-
-#manageChefUser("jstange", name: "John Stange", set_admin: true, ldap_user: "john.stange.admin")
-#manageChefUser("testuser", pass: "fdg620ry1y2", name: "John Q. Public", email: "stange@johnstange.net", ldap_user: "john.stange")

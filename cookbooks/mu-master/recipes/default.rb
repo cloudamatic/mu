@@ -36,8 +36,8 @@ if $MU_CFG.has_key?('ldap')
   node.normal.ad.domain_join_item = $MU_CFG['ldap']['join_creds']['item']
   node.normal.ad.domain_join_username_field = $MU_CFG['ldap']['join_creds']['username_field']
   node.normal.ad.domain_join_password_field = $MU_CFG['ldap']['join_creds']['password_field']
-  if !node.application_attributes.sshd_allow_groups.match(/(^|\s)#{$MU_CFG['ldap']['admin_group_name']}(\s|$)/i)
-    node.normal.application_attributes.sshd_allow_groups = node.application_attributes.sshd_allow_groups+" "+$MU_CFG['ldap']['admin_group_name'].downcase
+  if !node.application_attributes.sshd_allow_groups.match(/(^|\s)#{$MU_CFG['ldap']['user_group_name']}(\s|$)/i)
+    node.normal.application_attributes.sshd_allow_groups = node.application_attributes.sshd_allow_groups+" "+$MU_CFG['ldap']['user_group_name'].downcase
   end
   node.save
   log "'#{node.ad.domain_join_vault}' '#{node.ad.domain_join_item}' '#{node.ad.domain_join_username_field}' '#{node.ad.domain_join_password_field}'"
