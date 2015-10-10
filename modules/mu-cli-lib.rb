@@ -46,6 +46,12 @@ def getLDAPConnection
   @ldap_conn
 end
 
+# Shorthand for fetching the most recent error on the active LDAP connection
+def getLDAPErr
+  return nil if !@ldap_conn
+  return @ldap_conn.get_operation_result.code.to_s+" "+@ldap_conn.get_operation_result.message.to_s
+end
+
 # Approximate a current Microsoft timestamp. They count the number of
 # 100-nanoseconds intervals (1 nanosecond = one billionth of a second) since
 # Jan 1, 1601 UTC.
@@ -76,14 +82,14 @@ def canWriteLDAP?
 
   @can_write = true
   if !conn.add(:dn => dn, :attributes => attr)
-    MU.log "Couldn't create write-test user #{dn}, operating in read-only LDAP mode", MU::NOTICE, details: conn.get_operation_result.code.to_s+" "+conn.get_operation_result.message.to_s
+    MU.log "Couldn't create write-test user #{dn}, operating in read-only LDAP mode", MU::NOTICE, details: getLDAPErr
     return false
   end
 
   # Make sure we can write various fields that we might need to touch
   [:displayName, :mail, :givenName, :sn].each { |field|
     if !conn.replace_attribute(dn, field, "foo@bar.com")
-      MU.log "Couldn't modify write-test user #{dn} field #{field.to_s}, operating in read-only LDAP mode", MU::NOTICE, details: conn.get_operation_result.code.to_s+" "+conn.get_operation_result.message.to_s
+      MU.log "Couldn't modify write-test user #{dn} field #{field.to_s}, operating in read-only LDAP mode", MU::NOTICE, details: getLDAPErr
       @can_write = false
       break
     end
@@ -91,7 +97,7 @@ def canWriteLDAP?
 
   # Can we add them to the Mu membership group(s)
   if !conn.modify(:dn => $MU_CFG["ldap"]["admin_group_dn"], :operations => [[:add, :member, dn]])
-    MU.log "Couldn't add write-test user #{dn} to group #{$MU_CFG["ldap"]["admin_group_dn"]}, operating in read-only LDAP mode", MU::NOTICE, details: conn.get_operation_result.code.to_s+" "+conn.get_operation_result.message.to_s
+    MU.log "Couldn't add write-test user #{dn} to group #{$MU_CFG["ldap"]["admin_group_dn"]}, operating in read-only LDAP mode", MU::NOTICE, details: getLDAPErr
     @can_write = false
   end
 
@@ -128,6 +134,7 @@ def listLDAPUsers
       ) do |acct|
         next if users.has_key?(acct.samaccountname.first)
         users[acct.samaccountname.first] = {}
+        users[acct.samaccountname.first]['dn'] = acct.dn
         if group == "admin_group_name"
           users[acct.samaccountname.first]['admin'] = true
         else
@@ -169,6 +176,19 @@ def printUsersToTerminal(users)
       puts "#{username.bold} - #{data['realname']} <#{data['email']}>"
     end
   }
+end
+
+# @param [String]: The account name to display
+def printUserDetails(user)
+  cur_users = listUsers
+
+  if cur_users.has_key?(user)
+    data = cur_users[user]
+    puts "#{user.bold} - #{data['realname']} <#{data['email']}>"
+    cur_users[user].each_pair { |key, val|
+      puts "#{key}: #{val}"
+    }
+  end
 end
 
 # @return [Array<Hash>]: List of all Mu users
@@ -222,6 +242,27 @@ def chefUserExists?(user)
   return false
 end
 
+# Update Mu's local cache/metadata for the given user, fixing permissions and
+# updating stored values. Create a single-user group for the user, as well.
+# @param user [String]: The user to update
+def setLocalDataPerms(user)
+  userdir = $MU_CFG['datadir']+"/users/#{user}"
+  begin
+    gid = Etc.getgrnam("#{user}.mu-user").gid
+    %x{/usr/sbin/usermod -a -G "#{user}.mu-user" "#{user}"}
+    Dir.mkdir(userdir, 2750) if !Dir.exist?(userdir)
+    Dir.foreach(userdir) { |file|
+      next if file == ".."
+      File.chown(nil, gid, userdir+"/"+file)
+      if File.file?(userdir+"/"+file)
+        File.chmod(0640, userdir+"/"+file)
+      end
+    }
+  rescue ArgumentError
+    %x{/usr/sbin/groupadd "#{user}.mu-user"}
+    retry
+  end
+end
 
 def deleteLDAPUser(user)
   cur_users = listLDAPUsers
@@ -232,9 +273,10 @@ def deleteLDAPUser(user)
       conn = getLDAPConnection
       dn = "CN=#{cur_users[user]['realname']},#{$MU_CFG["ldap"]["base_dn"]}"
       if !conn.delete(:dn => dn)
-        MU.log "Failed to delete #{user} from LDAP.", MU::WARN, details: conn.get_operation_result.code.to_s+" "+conn.get_operation_result.message.to_s
+        MU.log "Failed to delete #{user} from LDAP.", MU::WARN, details: getLDAPErr
         return false
       end
+      MU.log "Removed LDAP user #{user}", MU::NOTICE
       return true
     else
       MU.log "We are in read-only LDAP mode. You must manually delete #{user} from your directory.", MU::WARN
@@ -256,6 +298,7 @@ def manageLDAPUser(user, name: nil, password: nil, email: nil, admin: false)
     last = name.split(/\s+/).pop
     first = name.split(/\s+/).shift
   end
+  admin_group = $MU_CFG["ldap"]["admin_group_dn"]
 
   if !cur_users.has_key?(user)
     # Creating a new user
@@ -263,8 +306,8 @@ def manageLDAPUser(user, name: nil, password: nil, email: nil, admin: false)
       if password.nil? or email.nil? or name.nil?
         raise MuError, "Missing one or more required fields (name, password, email) creating new user #{user}"
       end
+      user_dn = "CN=#{name},#{$MU_CFG["ldap"]["base_dn"]}"
       conn = getLDAPConnection
-      dn = "CN=#{name},#{$MU_CFG["ldap"]["base_dn"]}"
       attr = {
         :cn => name,
         :displayName => name,
@@ -277,46 +320,69 @@ def manageLDAPUser(user, name: nil, password: nil, email: nil, admin: false)
         :userPrincipalName => "#{user}@#{$MU_CFG["ldap"]["domain_name"]}",
         :pwdLastSet => "-1"
       }
-      if !conn.add(:dn => dn, :attributes => attr)
-        raise MuError, "Failed to create user #{user} (#{conn.get_operation_result.code.to_s} #{conn.get_operation_result.message.to_s})"
+      if !conn.add(:dn => user_dn, :attributes => attr)
+        raise MuError, "Failed to create user #{user} (#{getLDAPErr})"
       end
       attr[:userPassword] = "********"
       MU.log "Created new LDAP user #{user}", MU::NOTICE, details: attr
       groups = [$MU_CFG["ldap"]["user_group_dn"]]
-      groups << $MU_CFG["ldap"]["admin_group_dn"] if admin
+      groups << admin_group if admin
       groups.each { |group|
-        if !conn.modify(:dn => group, :operations => [[:add, :member, dn]])
-          MU.log "Couldn't add new user #{user} to group #{group}. Access to services may be hampered.", MU::WARN, details: conn.get_operation_result.code.to_s+" "+conn.get_operation_result.message.to_s
+        if !conn.modify(:dn => group, :operations => [[:add, :member, user_dn]])
+          MU.log "Couldn't add new user #{user} to group #{group}. Access to services may be hampered.", MU::WARN, details: getLDAPErr
         end
       }
-      userdir = $MU_CFG['datadir']+"/users/#{user}"
-      Dir.mkdir(userdir, 0755) if !Dir.exist?(userdir)
+      setLocalDataPerms(user)
     else
-      MU.log "We are in read-only LDAP mode. You must create #{user} in your directory and add it to #{$MU_CFG["ldap"]["user_group_dn"]}. If the user is intended to be an admin, also add it to #{$MU_CFG["ldap"]["admin_group_dn"]}.", MU::WARN
+      MU.log "We are in read-only LDAP mode. You must create #{user} in your directory and add it to #{$MU_CFG["ldap"]["user_group_dn"]}. If the user is intended to be an admin, also add it to #{admin_group}.", MU::WARN
       return
     end
   else
+    setLocalDataPerms(user)
     # Modifying an existing user
     if canWriteLDAP?
+      conn = getLDAPConnection
+      user_dn = cur_users[user]['dn']
+      if !name.nil? and cur_users[user]['realname'] != name
+        MU.log "Updating display name for #{user} to #{name}", MU::NOTICE
+        conn.replace_attribute(user_dn, :displayName, name)
+        conn.replace_attribute(user_dn, :givenName, first)
+        conn.replace_attribute(user_dn, :sn, last)
+        cur_users[user]['realname'] = name
+      end
+      if !email.nil? and cur_users[user]['email'] != email
+        MU.log "Updating email for #{user} to #{email}", MU::NOTICE
+        conn.replace_attribute(user_dn, :mail, email)
+        cur_users[user]['email'] = email
+      end
+      if !password.nil?
+        MU.log "Updating password for #{user}", MU::NOTICE
+        if !conn.replace_attribute(user_dn, :userPassword, password)
+          MU.log "Couldn't update password for user #{user}.", MU::WARN, details: getLDAPErr
+        end
+      end
+      if admin and !cur_users[user]['admin']
+        MU.log "Granting Mu admin privileges to #{user}", MU::NOTICE
+        if !conn.modify(:dn => admin_group, :operations => [[:add, :member, user_dn]])
+          MU.log "Couldn't add user #{user} (#{user_dn}) to group #{admin_group}.", MU::WARN, details: getLDAPErr
+        end
+      elsif !admin and cur_users[user]['admin']
+        MU.log "Revoking Mu admin privileges from #{user}", MU::NOTICE
+        if !conn.modify(:dn => admin_group, :operations => [[:delete, :member, user_dn]])
+          MU.log "Couldn't remove user #{user} (#{user_dn}) from group #{admin_group}.", MU::WARN, details: getLDAPErr
+        end
+      end
     else
     end
   end
 
-end
-
-# Manage the system-local attributes of a user.
-def manageLocalUser(user, name: nil, email: nil, admin: false)
-  if admin
-    MU.log "Granting sudo privileges to #{user}"
-    File.open("/etc/sudoers.d/01-mu-admin-#{user}", File::CREAT|File::RDWR, 0644) { |f|
-      f.puts "#{user} ALL=(ALL) NOPASSWD:ALL"
+  ["realname", "email", "monitoring_email"].each { |field|
+    next if !cur_users[user].has_key?(field)
+    File.open($MU_CFG['datadir']+"/users/#{user}/#{field}", File::CREAT|File::RDWR, 0640) { |f|
+      f.puts cur_users[user][field]
     }
-  else
-    MU.log "Revoking sudo privileges from #{user}"
-    if File.exist?("/etc/sudoers.d/01-mu-admin-#{user}")
-      unlink("/etc/sudoers.d/01-mu-admin-#{user}")
-    end
-  end
+  }
+  setLocalDataPerms(user)
 end
 
 # Call when creating or modifying a user. While Chef technically does
@@ -333,9 +399,7 @@ def manageChefUser(user, name: nil, email: nil, org: nil, set_admin: false, set_
   if user.gsub!(/\./, "")
     MU.log "Stripped . from username to create Chef user #{user}.\nSee: https://github.com/chef/chef-server/issues/557", MU::NOTICE
   end
-  if !Dir.exist?($MU_CFG['datadir']+"/users/#{ldap_user}")
-    Dir.mkdir($MU_CFG['datadir']+"/users/#{ldap_user}", 0755)
-  end
+  setLocalDataPerms(ldap_user)
 
   first = last = nil
   if !name.nil?
@@ -415,6 +479,8 @@ def manageChefUser(user, name: nil, email: nil, org: nil, set_admin: false, set_
       f.puts user
     }
   end
+
+  setLocalDataPerms(user)
 end
 
 # Mangle Chef's server config to speak to LDAP

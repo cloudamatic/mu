@@ -29,6 +29,9 @@ $opts = Trollop::options do
 Listing users:
 #{$0}
 
+Show details for a specific user:
+#{$0} <username>
+
 Adding/modifying users:
 #{$0} [-i] [-a|-r] [-e <email>] [-n '<Real Name>'] [-p <password>|-g] [-o <chef_org>] [-v <chef_org>] [-m <email>] [-l <chef_user>] <username>
 
@@ -76,6 +79,8 @@ end
 $cur_users = listUsers
 canWriteLDAP?
 
+$opts.select { |opt| opt =~ /_given$/ }.size == 0
+
 if !ARGV[0] or ARGV[0].empty?
   bail = false
   $opts.each_key { |opt|
@@ -86,6 +91,9 @@ if !ARGV[0] or ARGV[0].empty?
   }
   Trollop::educate if bail
   printUsersToTerminal($cur_users)
+  exit 0
+elsif $opts.select { |opt| opt =~ /_given$/ }.size == 0
+  printUserDetails(ARGV[0])
   exit 0
 end
 $username = ARGV[0]
@@ -137,6 +145,7 @@ if $opts[:delete]
   exit 1 if bail
 
   deleteLDAPUser($username)
+# XXX rm -rf /opt/mu/var/users/$username
 
 else
   create = false
@@ -157,7 +166,6 @@ else
 
   # Validate for modifying an existing account
   if !create
-puts "modifying #{$username}"
     bail = false
     if !$cur_users[$username].has_key?("email") and !$opts[:email]
       MU.log "#{$username} does not have an email address set in LDAP, must supply one with -e to modify this account.", MU::ERR
@@ -186,7 +194,6 @@ puts "modifying #{$username}"
       bail = true
     end
     exit 1 if bail
-
   end
 
   # These routines gracefully figure out whether they're adding or modifying.

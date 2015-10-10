@@ -46,6 +46,11 @@ end
 
 directory "#{MU.mainDataDir}/deployments"
 
+sudoer_line = "%#{$MU_CFG['ldap']['admin_group_name']} ALL=(ALL) NOPASSWD: ALL"
+execute "echo '#{sudoer_line}' >> /etc/sudoers" do
+  not_if "grep '^#{sudoer_line}$' /etc/sudoers"
+end
+
 cookbook_file "/root/.vimrc" do
   source "vimrc"
   action :create_if_missing
