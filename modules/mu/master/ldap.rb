@@ -104,7 +104,7 @@ module MU
       end
 
       # @return [Array<String>]
-      def self.listLDAPUsers
+      def self.listUsers
         conn = getLDAPConnection
         users = {}
 
@@ -146,8 +146,8 @@ module MU
         users
       end
 
-      def self.deleteLDAPUser(user)
-        cur_users = listLDAPUsers
+      def self.deleteUser(user)
+        cur_users = listUsers
 
         if cur_users.has_key?(user)
           # Creating a new user
@@ -173,7 +173,8 @@ module MU
             MU.log "We are in read-only LDAP mode. You must manually delete #{user} from your directory.", MU::WARN
           end
         else
-          MU.log "#{user} does not exist in directory, cannot remove.", MU::ERR
+          MU.log "#{user} does not exist in directory, cannot remove.", MU::DEBUG
+          return false
         end
         false
       end
@@ -181,8 +182,8 @@ module MU
       # Call when creating or modifying a user.
       # @param user [String]: The username on which to operate
       # @param admin [Boolean]: Whether to flag this user as an admin
-      def self.manageLDAPUser(user, name: nil, password: nil, email: nil, admin: false)
-        cur_users = listLDAPUsers
+      def self.manageUser(user, name: nil, password: nil, email: nil, admin: false)
+        cur_users = listUsers
 
         first = last = nil
         if !name.nil?
@@ -233,15 +234,15 @@ module MU
               sleep 5
               retry
             end
-            setLocalDataPerms(user)
+            MU::Master.setLocalDataPerms(user)
             FileUtils.mkdir_p Etc.getpwnam(user).dir+"/.mu"
             FileUtils.chown_R(user, user+".mu-user", Etc.getpwnam(user).dir)
           else
             MU.log "We are in read-only LDAP mode. You must create #{user} in your directory and add it to #{$MU_CFG["ldap"]["user_group_dn"]}. If the user is intended to be an admin, also add it to #{admin_group}.", MU::WARN
-            return
+            return true
           end
         else
-          setLocalDataPerms(user)
+          MU::Master.setLocalDataPerms(user)
           # Modifying an existing user
           if canWriteLDAP?
             conn = getLDAPConnection
@@ -286,8 +287,8 @@ module MU
             f.puts cur_users[user][field]
           }
         }
-        setLocalDataPerms(user)
-
+        MU::Master.setLocalDataPerms(user)
+        true
       end
 
     end

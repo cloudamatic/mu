@@ -125,7 +125,7 @@ if $opts[:name] and !$opts[:name].match(/ /)
   exit 1
 end
 
-if $opts[:link_to_chef_user] and !MU::Master::Chef.getChefUser($opts[:link_to_chef_user])
+if $opts[:link_to_chef_user] and !MU::Master::Chef.getUser($opts[:link_to_chef_user])
   MU.log "Requested link to Chef user '#{$opts[:link_to_chef_user]}', but that user doesn't exist", MU::ERR
   exit 1
 end
@@ -191,25 +191,16 @@ else
     exit 1 if bail
   end
 
-  # These routines gracefully figure out whether they're adding or modifying.
-  MU::Master.LDAP.manageLDAPUser(
-    $username,
-    name: $cur_users[$username]['realname'],
-    email: $cur_users[$username]['email'],
-    password: $password,
-    admin: $cur_users[$username]['admin']
-  )
-  if !MU::Master::Chef.manageChefUser(
-    $cur_users[$username]['chef_user'],
-    name: $cur_users[$username]['realname'],
-    email: $cur_users[$username]['email'],
-    admin: $cur_users[$username]['admin'],
-    orgs: $opts[:orgs],
-    remove_orgs: $opts[:remove_from_orgs],
-    ldap_user: $username
-  ) and create
-    # if we bungled the creation of a new account, unroll the whole thing
-    MU::Master.deleteUser($username)
+  if !MU::Master.manageUser(
+      $username,
+      chef_username: $cur_users[$username]['chef_user'],
+      name: $cur_users[$username]['realname'],
+      email: $cur_users[$username]['email'],
+      admin: $cur_users[$username]['admin'],
+      password: $password,
+      orgs: $opts[:orgs],
+      remove_orgs: $opts[:remove_from_orgs]
+    )
     exit 1
   end
 end

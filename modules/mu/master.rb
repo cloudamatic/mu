@@ -62,11 +62,36 @@ module MU
       end
     end
 
+    # Create and/or update a user as appropriate.
+    def self.manageUser(
+      username,
+      chef_username: nil,
+      name: nil,
+      email: nil,
+      password: nil,
+      admin: false,
+      orgs: [],
+      remove_orgs: []
+    )
+      create = false
+      cur_users = listUsers
+      create = true if !cur_users.has_key?(username)
+      if !MU::Master::LDAP.manageUser(username, name: name, email: email, password: password, admin: admin)
+        return false
+      end
+      if !MU::Master::Chef.manageUser(chef_username, ldap_user: username, name: name, email: email, admin: admin, orgs: orgs, remove_orgs: remove_orgs) and create
+        deleteUser(username)
+        return false
+      end
+      setLocalDataPerms(username)
+    end
+
+
     # Remove a user from Chef, LDAP, and archive their home directory and
     # metadata. 
     def self.deleteUser(user)
-      MU::Master::Chef.deleteChefUser(user)
-      MU::Master::LDAP.deleteLDAPUser(user)
+      MU::Master::Chef.deleteUser(user)
+      MU::Master::LDAP.deleteUser(user)
       # XXX actually do those other two things
     end
 
@@ -77,7 +102,7 @@ module MU
         return []
       end
       # LDAP is canonical. Everything else is required to be in sync with it.
-      ldap_users = MU::Master::LDAP.listLDAPUsers
+      ldap_users = MU::Master::LDAP.listUsers
       all_user_data = {}
       ldap_users['mu'] = {}
       ldap_users['mu']['admin'] = true
