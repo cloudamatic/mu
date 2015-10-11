@@ -31,17 +31,15 @@ databases:
   cluster_node_count: 3
   parameter_group_family: aurora5.6
   engine: aurora
-  publicly_accessible: false
+  publicly_accessible: true
   size: db.r3.large
-  multi_az_on_create: true
   port: 3306
   backup_retention_period: 35
-  multi_az_on_deploy: false
   add_firewall_rules: 
   - rule_name: dbcluster
   vpc:
     deploy_id: <%= $deploy_id %>
-    subnet_pref: all_private
+    subnet_pref: all_public
 
 firewall_rules:
 - name: dbcluster

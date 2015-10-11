@@ -264,6 +264,7 @@ module MU
             license_model: @config["license_model"],
             db_subnet_group_name: @config["subnet_group_name"],
             publicly_accessible: @config["publicly_accessible"],
+            copy_tags_to_snapshot: true,
             tags: allTags
           }
 
@@ -570,20 +571,25 @@ module MU
             raise MuError, "Didn't find the VPC specified in #{@config["vpc"]}" unless @vpc
 
             vpc_id = @vpc.cloud_id
-
             # Getting subnet IDs
-            if @config["vpc"]["subnets"].empty?
-              @vpc.subnets.each { |subnet|
-                subnet_ids << subnet.cloud_id
-              }
-              MU.log "No subnets specified for #{@config['identifier']}, adding all subnets in #{@vpc}", MU::DEBUG
-            else
-              @config["vpc"]["subnets"].each { |subnet|
-                subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
-                raise MuError, "Couldn't find a live subnet matching #{subnet} in #{@vpc} (#{@vpc.subnets})" if subnet_obj.nil?
-                subnet_ids << subnet_obj.cloud_id
-              }
-            end
+            subnets =
+              if @config["vpc"]["subnets"].empty?
+                @vpc.subnets
+              else
+                subnet_objects= []
+                @config["vpc"]["subnets"].each { |subnet|
+                  subnet_objects << @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
+                }
+                subnet_objects
+              end
+
+            subnets.each{ |subnet|
+              if @config["publicly_accessible"]
+                subnet_ids << subnet.cloud_id if !subnet.private?
+              elsif !@config["publicly_accessible"]
+                subnet_ids << subnet.cloud_id if subnet.private?
+              end
+            }
           else
             # If we didn't specify a VPC try to figure out if the account has a default VPC
             vpc_id = nil
@@ -614,13 +620,15 @@ module MU
                   "vpc_id" => vpc_id,
                   "subnets" => mu_subnets
               }
+              # Default VPC has only public subnets by default so setting publicly_accessible = true
+              @config["publicly_accessible"] = true
               using_default_vpc = true
               MU.log "Using default VPC for cache cluster #{@config['identifier']}"
             end
           end
 
           if subnet_ids.empty?
-            raise MuError, "Couldn't find subnets in #{@vpc} to add to #{@config["subnet_group_name"]}"
+            raise MuError, "Couldn't find subnets in #{@vpc} to add to #{@config["subnet_group_name"]}. Make sure the subnets are valid and publicly_accessible is set correctly"
           else
             # Create subnet group
             resp = MU::Cloud::AWS.rds(@config['region']).create_db_subnet_group(
@@ -879,6 +887,8 @@ module MU
             elsif @config["engine"].match(/^sqlserver/)
               basename[0..127].gsub(/[^a-z0-9]/i, "")
             elsif @config["engine"].match(/^mysql/)
+              basename[0..15].gsub(/[^a-z0-9]/i, "")
+            elsif @config["engine"].match(/^aurora/)
               basename[0..15].gsub(/[^a-z0-9]/i, "")
             else
               basename.gsub(/[^a-z0-9]/i, "")
@@ -1150,7 +1160,16 @@ module MU
             }
             next if !found_muid
 
-            if found_muid && found_master
+            delete =
+              if ignoremaster && found_muid
+                true
+              elsif !ignoremaster && found_muid && found_master
+                true
+              else
+                false
+              end
+
+            if delete
               parent_thread_id = Thread.current.object_id
               threads << Thread.new(db) { |mydb|
                 MU.dupGlobals(parent_thread_id)
@@ -1181,7 +1200,16 @@ module MU
             }
             next if !found_muid
             
-            if found_muid && found_master
+            delete =
+              if ignoremaster && found_muid
+                true
+              elsif !ignoremaster && found_muid && found_master
+                true
+              else
+                false
+              end
+
+            if delete
               parent_thread_id = Thread.current.object_id
               threads << Thread.new(cluster) { |mydbcluster|
                 MU.dupGlobals(parent_thread_id)
@@ -1210,8 +1238,17 @@ module MU
               found_master = true if tag.key == "MU-MASTER-IP" && tag.value == MU.mu_public_ip
             }
             next if !found_muid
-            
-            if found_muid && found_master
+
+            delete =
+              if ignoremaster && found_muid
+                true
+              elsif !ignoremaster && found_muid && found_master
+                true
+              else
+                false
+              end
+
+            if delete
               parent_thread_id = Thread.current.object_id
               threads << Thread.new(sub_group) { |mysubgroup|
                 MU.dupGlobals(parent_thread_id)
@@ -1235,7 +1272,16 @@ module MU
             }
             next if !found_muid
             
-            if found_muid && found_master
+            delete =
+              if ignoremaster && found_muid
+                true
+              elsif !ignoremaster && found_muid && found_master
+                true
+              else
+                false
+              end
+
+            if delete
               parent_thread_id = Thread.current.object_id
               threads << Thread.new(param_group) { |myparamgroup|
                 MU.dupGlobals(parent_thread_id)
@@ -1259,7 +1305,16 @@ module MU
             }
             next if !found_muid
             
-            if found_muid && found_master
+            delete =
+              if ignoremaster && found_muid
+                true
+              elsif !ignoremaster && found_muid && found_master
+                true
+              else
+                false
+              end
+
+            if delete
               parent_thread_id = Thread.current.object_id
               threads << Thread.new(param_group) { |myparamgroup|
                 MU.dupGlobals(parent_thread_id)

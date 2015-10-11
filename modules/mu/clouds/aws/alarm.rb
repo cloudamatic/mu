@@ -133,7 +133,7 @@ module MU
           }
 
           if !alarms.empty?
-            MU::Cloud::AWS.cloudwatch(region).delete_alarms(alarm_names: alarms)
+            MU::Cloud::AWS.cloudwatch(region).delete_alarms(alarm_names: alarms) unless noop
             MU.log "Deleted alarms #{alarms.join(', ')}"
           end
         end

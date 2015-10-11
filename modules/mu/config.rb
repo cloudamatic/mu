@@ -1286,15 +1286,31 @@ module MU
 
             if policy["policy_type"] == "SimpleScaling"
               unless policy["cooldown"] && policy["adjustment"]
-                MU.log "You must specify 'cooldown' and 'adjustment' when using 'SimpleScaling'", MU::ERR
+                MU.log "You must specify 'cooldown' and 'adjustment' when 'policy_type' is set to 'SimpleScaling'", MU::ERR
                 ok = false
               end
             elsif policy["policy_type"] == "StepScaling"
-              unless policy["step_adjustments"] 
-              # && policy["estimated_instance_warmup"]
-                MU.log "You must specify 'step_adjustments' and 'estimated_instance_warmup' when using 'StepScaling'", MU::ERR
+              if policy["step_adjustments"].nil? || policy["step_adjustments"].empty?
+                MU.log "You must specify 'step_adjustments' when 'policy_type' is set to 'StepScaling'", MU::ERR
                 ok = false
               end
+
+              policy["step_adjustments"].each{ |step|
+                if step["adjustment"].nil?
+                  MU.log "You must specify 'adjustment' for 'step_adjustments' when 'policy_type' is set to 'StepScaling'", MU::ERR
+                  ok = false
+                end
+
+                if step["adjustment"] >= 1 && policy["estimated_instance_warmup"].nil?
+                  MU.log "You must specify 'estimated_instance_warmup' when 'policy_type' is set to 'StepScaling' and adding capacity", MU::ERR
+                  ok = false
+                end
+
+                if step["lower_bound"].nil? && step["upper_bound"].nil?
+                  MU.log "You must specify 'lower_bound' and/or upper_bound for 'step_adjustments' when 'policy_type' is set to 'StepScaling'", MU::ERR
+                  ok = false
+                end
+              }
             end
 
             if policy["alarms"] && !policy["alarms"].empty?
@@ -1332,11 +1348,7 @@ module MU
                   "phase" => "groom"
               }
             end
-            if !processVPCReference(pool["vpc"],
-                                    "server_pool #{pool['name']}",
-                                    dflt_region: config['region'],
-                                    is_sibling: true,
-                                    sibling_vpcs: vpcs)
+            if !processVPCReference(pool["vpc"], "server_pool #{pool['name']}", dflt_region: config['region'], is_sibling: true, sibling_vpcs: vpcs)
               ok = false
             end
           else
@@ -1379,7 +1391,7 @@ module MU
         db["dependencies"] = Array.new if db["dependencies"].nil?
         db["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Database")
         database_names << db['name']
-        if db['collection'] != nil
+        if db['collection']
           # XXX don't do this if 'true' was explicitly asked for (as distinct
           # from default)
           db['publicly_accessible'] = false
@@ -1468,9 +1480,14 @@ module MU
             false
           end
 
-        if db["create_cluster"] && db["cluster_node_count"] < 1
-          MU.log "You are trying to create a database cluster but cluster_node_count is set to #{db["cluster_node_count"]}", MU::ERR
-          ok = false
+        if db["create_cluster"]
+          if db["cluster_node_count"] < 1
+            MU.log "You are trying to create a database cluster but cluster_node_count is set to #{db["cluster_node_count"]}", MU::ERR
+            ok = false
+          end
+
+          MU.log "'storage' is not supported when creating a database cluster, disregarding", MU::NOTICE if db["storage"]
+          MU.log "'multi_az_on_create' and multi_az_on_deploy are not supported when creating a database cluster, disregarding", MU::NOTICE if db["storage"] if db["multi_az_on_create"] || db["multi_az_on_deploy"]
         end
 
         db["license_model"] =
@@ -2375,6 +2392,24 @@ module MU
         }
     }
 
+    @flowlogs_primitive = {
+      "traffic_type_to_log" => {
+        "type" => "string",
+        "description" => "The class of traffic to log - accepted traffic, rejected traffic or all traffic.",
+        "enum" => ["accept", "reject", "all"],
+        "default" => "all"
+      },
+      "log_group_name" => {
+        "type" => "string",
+        "description" => "An existing CloudWachLogs log group the traffic will be logged to. If not provided, a new one will be created"
+      },
+      "enable_traffic_logging" => {
+        "type" => "boolean",
+        "description" => "If traffic logging is enabled or disabled. Will be enabled on all subnets and network interfaces if set to true on a VPC",
+        "default" => false
+      }
+      }
+
     @vpc_primitive = {
         "type" => "object",
         "required" => ["name"],
@@ -2518,6 +2553,9 @@ module MU
             }
         }
     }
+
+    @vpc_primitive["properties"].merge!(@flowlogs_primitive)
+    @vpc_primitive["properties"]["subnets"]["items"]["properties"].merge!(@flowlogs_primitive)
 
     @ec2_size_primitive = {
         # XXX maybe we shouldn't validate this, but it makes a good example
@@ -2777,15 +2815,15 @@ module MU
                     },
                     "cloud_id" => {
                         "type" => "string",
-                        "description" => "The cloud identifier of the item you are trying to create an alarm for. eg - Instance ID. You can specify use 'cloud_id' OR 'mu_name' and 'deploy_id'"
+                        "description" => "The cloud identifier of the resource the alarm is being created for. eg - i-d96eca0d. Must use either 'cloud_id' OR 'mu_name' AND 'deploy_id'"
                     },
                     "mu_name" => {
                         "type" => "string",
-                        "description" => "Should also include 'deploy_id' so we will be able to identifiy a sinlge item. You can specify use 'cloud_id' OR 'mu_name' and 'deploy_id'"
+                        "description" => "Should also include 'deploy_id' so we will be able to identifiy a sinlge resource. Use either 'cloud_id' OR 'mu_name' and 'deploy_id'"
                     },
                     "deploy_id" => {
                         "type" => "string",
-                        "description" => "Should also include 'mu_name' so we will be able to identifiy a sinlge item. You can specify use 'cloud_id' OR 'mu_name' and 'deploy_id'"
+                        "description" => "Should also include 'mu_name' so we will be able to identifiy a sinlge resource. Use either 'cloud_id' OR 'mu_name' and 'deploy_id'"
                     }
                 }
             }  
@@ -3621,12 +3659,12 @@ module MU
             },
             "multi_az_on_create" => {
                 "type" => "boolean",
-                "description" => "If to enable high availability when the database instance is created",
+                "description" => "Rather to enable high availability when the database instance is created",
                 "default" => false
             },
             "multi_az_on_deploy" => {
                 "type" => "boolean",
-                "description" => "If to enable high availability after the database instance is created. This may make deployments based on creation_style other then 'new' faster.",
+                "description" => "Rather to enable high availability after the database instance is created. This may make deployments based on creation_style other then 'new' faster.",
                 "default" => false
             },
             "backup_retention_period" => {
@@ -4138,7 +4176,7 @@ module MU
                         "policy_type" => {
                           "type" => "string",
                           "enum" => ["SimpleScaling", "StepScaling"],
-                          "description" => "'StepScaling' will add capacity based on the magnitude of the alarm breach, 'SimpleScaling' will add capacity based on the 'adjustment' value ypu provide. Defaults to 'SimpleScaling' if not specified.",
+                          "description" => "'StepScaling' will add capacity based on the magnitude of the alarm breach, 'SimpleScaling' will add capacity based on the 'adjustment' value provided. Defaults to 'SimpleScaling'.",
                           "default" => "SimpleScaling"
                         },
                         "metric_aggregation_type" => {

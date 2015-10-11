@@ -645,7 +645,16 @@ module MU
               }
               next if !found_muid
 
-              if found_muid && found_master
+              delete =
+                if ignoremaster && found_muid
+                  true
+                elsif !ignoremaster && found_muid && found_master
+                  true
+                else
+                  false
+                end
+
+              if delete
                 cluster.replication_group_id ? our_replication_group_ids << cluster.replication_group_id : our_clusters << cluster
               end
             }

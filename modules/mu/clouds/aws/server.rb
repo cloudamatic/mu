@@ -263,6 +263,7 @@ module MU
         # @param rolename [String]: The name of the role to create, generally a {MU::Cloud::AWS::Server} mu_name
         # @return [void]
         def self.removeIAMProfile(rolename)
+        # TO DO - Move IAM role/policy removal to its own entity
           MU.log "Removing IAM role and policies for '#{rolename}'"
           begin
             MU::Cloud::AWS.iam.remove_role_from_instance_profile(

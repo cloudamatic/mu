@@ -77,12 +77,12 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param account_number [String]: The cloud provider account number.
         # @return [string]: The cloud provider's identifier.
-        def self.createTopic(topic_name, region: MU.curRegion)
-          unless topicExist(topic_name, region: region, account_number: MU.account_number)
+        def self.createTopic(topic_name, region: MU.curRegion, account_number: MU.account_number)
+          unless topicExist(topic_name, region: region, account_number: account_number)
             MU::Cloud::AWS.sns(region).create_topic(name: topic_name).topic_arn
             MU.log "Created SNS topic #{topic_name}"
           end
-            topicExist(topic_name, region: region, account_number: MU.account_number)
+            topicExist(topic_name, region: region, account_number: account_number)
         end
 
         # Subscribe to a notification group. This can either be an email address, SQS queue, application endpoint, etc...

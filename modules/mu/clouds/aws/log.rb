@@ -110,14 +110,15 @@ module MU
               ]
             }'
 
-            MU.log "Creating IAM role #{@mu_name}"
+            iam_role_name = "#{@mu_name}-CloudTrail"
+            MU.log "Creating IAM role #{iam_role_name}"
             iam_resp = MU::Cloud::AWS.iam(@config["region"]).create_role(
-              role_name: @mu_name,
+              role_name: iam_role_name,
               assume_role_policy_document: iam_assume_role_policy
             )
 
             MU::Cloud::AWS.iam(@config["region"]).put_role_policy(
-              role_name: @mu_name,
+              role_name: iam_role_name,
               policy_name: "CloudTrail_CloudWatchLogs",
               policy_document: iam_policy
             )
@@ -188,6 +189,14 @@ module MU
                 ) unless noop
                 MU.log "Deleted log group #{lg.log_group_name}"
               end
+            }
+          end
+
+          unless noop
+            MU::Cloud::AWS.iam.list_roles.roles.each{ |role|
+              match_string = "#{MU.deploy_id}.*CloudTrail"
+              # Maybe we should have a more generic way to delete IAM profiles and policies. The call itself should be moved from MU::Cloud::AWS::Server.
+              MU::Cloud::AWS::Server.removeIAMProfile(role.role_name) if role.role_name.match(match_string)
             }
           end
         end
