@@ -268,6 +268,7 @@ module MU
   autoload :Cleanup, 'mu/cleanup'
   autoload :Deploy, 'mu/deploy'
   autoload :MommaCat, 'mu/mommacat'
+  autoload :Master, 'mu/master'
   require 'mu/cloud'
   require 'mu/groomer'
 

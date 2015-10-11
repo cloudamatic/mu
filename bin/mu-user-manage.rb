@@ -13,16 +13,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
+# now we have our global config available as the read-only hash $MU_CFG
 
-require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-cli-lib.rb"))
+require 'mu'
+require 'trollop'
+require 'simple-password-gen'
 
 if Etc.getpwuid(Process.uid).name != "root"
   MU.log "#{$0} can only be run as root", MU::ERR
   exit 1
 end
-
-require 'trollop'
-require 'simple-password-gen'
 
 $opts = Trollop::options do
   banner <<-EOS
@@ -76,8 +77,7 @@ elsif $opts[:password]
   $password = $opts[:password]
 end
 
-$cur_users = listUsers
-canWriteLDAP?
+$cur_users = MU::Master.listUsers
 
 $opts.select { |opt| opt =~ /_given$/ }.size == 0
 
@@ -90,10 +90,10 @@ if !ARGV[0] or ARGV[0].empty?
     end
   }
   Trollop::educate if bail
-  printUsersToTerminal($cur_users)
+  MU::Master.printUsersToTerminal($cur_users)
   exit 0
 elsif $opts.select { |opt| opt =~ /_given$/ }.size == 0
-  printUserDetails(ARGV[0])
+  MU::Master.printUserDetails(ARGV[0])
   exit 0
 end
 $username = ARGV[0]
@@ -125,7 +125,7 @@ if $opts[:name] and !$opts[:name].match(/ /)
   exit 1
 end
 
-if $opts[:link_to_chef_user] and !getChefUser($opts[:link_to_chef_user])
+if $opts[:link_to_chef_user] and !MU::Master::Chef.getChefUser($opts[:link_to_chef_user])
   MU.log "Requested link to Chef user '#{$opts[:link_to_chef_user]}', but that user doesn't exist", MU::ERR
   exit 1
 end
@@ -140,9 +140,7 @@ if $opts[:delete]
   }
   exit 1 if bail
 
-  deleteChefUser($username)
-  deleteLDAPUser($username)
-# XXX rm -rf /opt/mu/var/users/$username
+  MU::Master.deleteUser($username)
 
 else
   create = false
@@ -194,14 +192,14 @@ else
   end
 
   # These routines gracefully figure out whether they're adding or modifying.
-  manageLDAPUser(
+  MU::Master.LDAP.manageLDAPUser(
     $username,
     name: $cur_users[$username]['realname'],
     email: $cur_users[$username]['email'],
     password: $password,
     admin: $cur_users[$username]['admin']
   )
-  if !manageChefUser(
+  if !MU::Master::Chef.manageChefUser(
     $cur_users[$username]['chef_user'],
     name: $cur_users[$username]['realname'],
     email: $cur_users[$username]['email'],
@@ -211,8 +209,7 @@ else
     ldap_user: $username
   ) and create
     # if we bungled the creation of a new account, unroll the whole thing
-    deleteChefUser($username)
-    deleteLDAPUser($username)
+    MU::Master.deleteUser($username)
     exit 1
   end
 end
@@ -220,7 +217,7 @@ if $opts[:generate_password]
   MU.log "Generated password for #{$username}: #{$password}", MU::NOTICE
 end
 
-printUsersToTerminal(listUsers)
+MU::Master.printUsersToTerminal(MU::Master.listUsers)
 
 # If we asked for interactive mode, fill in the blanks
 if $opts.interactive
