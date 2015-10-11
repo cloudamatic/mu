@@ -57,6 +57,7 @@ case node.platform
       only_if { node.application_attributes.attribute?('jenkins_auth') }
     end
 
+=begin
     #Set up our standard Jenkins Jobs
     %w{deploy cleanup_deploy}.each { |job|
       cookbook_file "#{Chef::Config[:file_cache_path]}/#{job}_config.xml" do
@@ -67,6 +68,7 @@ case node.platform
         config "#{Chef::Config[:file_cache_path]}/#{job}_config.xml"
       end
     }
+=end
 
     # Now the web app virtual host
     web_app "jenkins" do

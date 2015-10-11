@@ -517,7 +517,7 @@ validation_client_name '$user-validator'
 EOF
 		if [ "$user" != "mu" ];then
 			chown -R "$user" "$user_home/.chef/"
-			su - "$user" -c "/opt/chef/bin/knife ssl fetch" > /dev/null 2>&1
+			runuser -l "$user" -c "cd $user_home && /opt/chef/bin/knife ssl fetch" > /root/knifesslfetch.out 2>&1
 		else
 			/opt/chef/bin/knife ssl fetch > /dev/null 2>&1
 		fi
@@ -1564,8 +1564,8 @@ if [ "$library" != "1" ];then
 		generate_ssl_certs
 		setup_localhost_chef_client
 		configure_nagios_server
-		preconfigure_jenkins_artifacts
 		set_permissions
+		preconfigure_jenkins_artifacts
 	fi
 	knife node run_list add MU-MASTER "role[mu-master-jenkins]"
 	chef-client -l info
