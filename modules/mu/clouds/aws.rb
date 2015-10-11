@@ -131,10 +131,10 @@ module MU
       end
 
       # Amazon's CloudTrail API
-      def self.cloudtrails(region = MU.curRegion)
+      def self.cloudtrail(region = MU.curRegion)
         region ||= MU.myRegion
-        @@cloudtrails_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudTrail", region: region)
-        @@cloudtrails_api[region]
+        @@cloudtrail_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudTrail", region: region)
+        @@cloudtrail_api[region]
       end
 
       # Amazon's CloudWatch API
@@ -144,11 +144,32 @@ module MU
         @@cloudwatch_api[region]
       end
 
+      # Amazon's CloudWatchLogs API
+      def self.cloudwatchlogs(region = MU.curRegion)
+        region ||= MU.myRegion
+        @@cloudwatchlogs_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudWatchLogs", region: region)
+        @@cloudwatchlogs_api[region]
+      end
+
       # Amazon's CloudFront API
       def self.cloudfront(region = MU.curRegion)
         region ||= MU.myRegion
         @@cloudfront_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudFront", region: region)
         @@cloudfront_api[region]
+      end
+
+      # Amazon's ElastiCache API
+      def self.elasticache(region = MU.curRegion)
+        region ||= MU.myRegion
+        @@elasticache_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ElastiCache", region: region)
+        @@elasticache_api[region]
+      end
+      
+      # Amazon's SNS API
+      def self.sns(region = MU.curRegion)
+        region ||= MU.myRegion
+        @@sns_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "SNS", region: region)
+        @@sns_api[region]
       end
 
       # Fetch an Amazon instance metadata parameter (example: public-ipv4).
@@ -337,16 +358,19 @@ module MU
               retval = @api.method(method_sym).call
             end
             return retval
-          rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException, Aws::EC2::Errors::IncorrectState, Aws::EC2::Errors::Http503Error => e
+          rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException, Aws::EC2::Errors::IncorrectState, Aws::EC2::Errors::Http503Error, Aws::AutoScaling::Errors::Http503Error, Aws::AutoScaling::Errors::InternalFailure, Aws::AutoScaling::Errors::ServiceUnavailable => e
             retries = retries + 1
             debuglevel = MU::DEBUG
             interval = 5 + Random.rand(4) - 2
-            if retries < 5 and retries > 2
+            if retries < 10 and retries > 2
               debuglevel = MU::NOTICE
               interval = 20 + Random.rand(10) - 3
-            elsif retries >= 5
+            # elsif retries >= 10 and retries <= 100
+            elsif retries >= 10
               debuglevel = MU::WARN
               interval = 40 + Random.rand(15) - 5
+            # elsif retries > 100
+              # raise MuError, "Exhausted retries after #{retries} attempts while calling EC2's #{method_sym} in #{@region}.  Args were: #{arguments}"
             end
             MU.log "Got #{e.inspect} calling EC2's #{method_sym} in #{@region}, waiting #{interval.to_s}s and retrying. Args were: #{arguments}", debuglevel, details: caller
             sleep interval
@@ -362,10 +386,12 @@ module MU
       @@rds_api = {}
       @@cloudformation_api = {}
       @@s3_api = {}
-      @@cloudtrails_api = {}
+      @@cloudtrail_api = {}
       @@cloudwatch_api = {}
+      @@cloudwatchlogs_api = {}
       @@cloudfront_api = {}
-      @@cloudfront_api = {}
+      @@elasticache_api = {}
+      @@sns_api = {}
 
     end
   end

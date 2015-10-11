@@ -263,6 +263,7 @@ module MU
         # @param rolename [String]: The name of the role to create, generally a {MU::Cloud::AWS::Server} mu_name
         # @return [void]
         def self.removeIAMProfile(rolename)
+        # TO DO - Move IAM role/policy removal to its own entity
           MU.log "Removing IAM role and policies for '#{rolename}'"
           begin
             MU::Cloud::AWS.iam.remove_role_from_instance_profile(
@@ -608,6 +609,36 @@ module MU
           end while instance.nil? or (instance.state.name != "running" and retries < 30)
 
           punchAdminNAT
+
+          if @config["alarms"] && !@config["alarms"].empty?
+            @config["alarms"].each { |alarm|
+              alarm["dimensions"] = [{:name => "InstanceId", :value => @cloud_id}]
+
+              if alarm["enable_notifications"]
+                topic_arn = MU::Cloud::AWS::Notification.createTopic(alarm["notification_group"], region: @config["region"])
+                MU::Cloud::AWS::Notification.subscribe(arn: topic_arn, protocol: alarm["notification_type"], endpoint: alarm["notification_endpoint"], region: @config["region"])
+                alarm["alarm_actions"] = [topic_arn]
+                alarm["ok_actions"]  = [topic_arn]
+              end
+
+              MU::Cloud::AWS::Alarm.createAlarm(
+                name: @deploy.getResourceName("#{@config["name"]}-#{alarm["name"]}-#{@cloud_id}"),
+                ok_actions: alarm["ok_actions"],
+                alarm_actions: alarm["alarm_actions"],
+                insufficient_data_actions: alarm["no_data_actions"],
+                metric_name: alarm["metric_name"],
+                namespace: alarm["namespace"],
+                statistic: alarm["statistic"],
+                dimensions: alarm["dimensions"],
+                period: alarm["period"],
+                unit: alarm["unit"],
+                evaluation_periods: alarm["evaluation_periods"],
+                threshold: alarm["threshold"],
+                comparison_operator: alarm["comparison_operator"],
+                region: @config["region"]
+              )
+            }
+          end
 
           # Unless we're planning on associating a different IP later, set up a
           # DNS entry for this thing and let it sync in the background. We'll come
@@ -1062,6 +1093,7 @@ module MU
 
           # If we depend on database instances, make sure those database
           # instances' security groups will let us in.
+##### Bad form here. We REALLY shouldn't be setting any access rules between clients/nodes. This should only be done via the BoK!
           if @config["dependencies"] != nil then
             @config["dependencies"].each { |dependent_on|
               if dependent_on['type'] != nil and dependent_on['type'] == "database" then

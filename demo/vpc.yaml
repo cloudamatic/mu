@@ -3,6 +3,7 @@ appname: myvpc
 <% $azs = MU::Cloud::AWS.listAZs %>
 vpcs:
 - name: vpc
+  enable_traffic_logging: true
   route-tables:
   - name: internet
     routes:
