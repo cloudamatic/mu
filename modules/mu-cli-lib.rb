@@ -21,6 +21,7 @@ require 'mu'
 require 'net-ldap'
 require 'date'
 require 'colorize'
+require 'fileutils'
 
 ############# Work below. Zach, you might want to make this file a loader of
 ############# some kind for plugins, instead of a big pile of methods.
@@ -233,13 +234,18 @@ def chefAPI
 end
 
 # @param user [String]: The Chef username to check
-# @return [Boolean]
-def chefUserExists?(user)
+# @return [<Hash>]
+def getChefUser(user)
   begin
-    chefAPI.get("users/#{user}")
-    return true
+    Timeout::timeout(45) {
+      response = chefAPI.get("users/#{user}")
+      return response
+    }
+  rescue Timeout::Error
+    MU.log "Timed out fetching Chef user #{user}, retrying", MU::WARN
+    retry
   end rescue Net::HTTPServerException
-  return false
+  return nil
 end
 
 # Update Mu's local cache/metadata for the given user, fixing permissions and
@@ -304,7 +310,7 @@ def manageLDAPUser(user, name: nil, password: nil, email: nil, admin: false)
     # Creating a new user
     if canWriteLDAP?
       if password.nil? or email.nil? or name.nil?
-        raise MuError, "Missing one or more required fields (name, password, email) creating new user #{user}"
+        raise MU::MuError, "Missing one or more required fields (name, password, email) creating new user #{user}"
       end
       user_dn = "CN=#{name},#{$MU_CFG["ldap"]["base_dn"]}"
       conn = getLDAPConnection
@@ -321,10 +327,10 @@ def manageLDAPUser(user, name: nil, password: nil, email: nil, admin: false)
         :pwdLastSet => "-1"
       }
       if !conn.add(:dn => user_dn, :attributes => attr)
-        raise MuError, "Failed to create user #{user} (#{getLDAPErr})"
+        raise MU::MuError, "Failed to create user #{user} (#{getLDAPErr})"
       end
       attr[:userPassword] = "********"
-      MU.log "Created new LDAP user #{user}", MU::NOTICE, details: attr
+      MU.log "Created new LDAP user #{user}", details: attr
       groups = [$MU_CFG["ldap"]["user_group_dn"]]
       groups << admin_group if admin
       groups.each { |group|
@@ -332,7 +338,19 @@ def manageLDAPUser(user, name: nil, password: nil, email: nil, admin: false)
           MU.log "Couldn't add new user #{user} to group #{group}. Access to services may be hampered.", MU::WARN, details: getLDAPErr
         end
       }
+
+      # We now require the system to know that the user exists. Sometimes
+      # winbind takes a minute to catch on.
+      begin
+        %x{/usr/bin/getent passwd}
+        Etc.getpwnam(user)
+      rescue ArgumentError
+        sleep 5
+        retry
+      end
       setLocalDataPerms(user)
+      FileUtils.mkdir_p Etc.getpwnam(user).dir+"/.mu"
+      FileUtils.chown_R(user, user+".mu-user", Etc.getpwnam(user).dir)
     else
       MU.log "We are in read-only LDAP mode. You must create #{user} in your directory and add it to #{$MU_CFG["ldap"]["user_group_dn"]}. If the user is intended to be an admin, also add it to #{admin_group}.", MU::WARN
       return
@@ -375,6 +393,7 @@ def manageLDAPUser(user, name: nil, password: nil, email: nil, admin: false)
     else
     end
   end
+  cur_users = listUsers
 
   ["realname", "email", "monitoring_email"].each { |field|
     next if !cur_users[user].has_key?(field)
@@ -383,22 +402,138 @@ def manageLDAPUser(user, name: nil, password: nil, email: nil, admin: false)
     }
   }
   setLocalDataPerms(user)
+
+end
+
+def deleteChefUser(user)
+  cur_users = listUsers
+  chef_user = nil
+  if !cur_users.has_key?(user) and getChefUser(user) == nil
+    MU.log "No such Chef or LDAP user #{user}", MU::ERR
+    return false
+  elsif cur_users.has_key?(user) and cur_users[user].has_key?("chef_user")
+    chef_user = cur_users[user]["chef_user"]
+  else
+    chef_user = user
+  end
+
+  begin
+    Timeout::timeout(45) {
+      response = chefAPI.delete("users/#{chef_user}")
+    }
+    MU.log "Removed Chef user #{chef_user}", MU::NOTICE
+  rescue Timeout::Error
+    MU.log "Timed out removing Chef user #{chef_user}, retrying", MU::WARN
+    retry
+  rescue Net::HTTPServerException => e
+    if !e.message.match(/^404 /)
+      MU.log "Couldn't remove Chef user #{chef_user}: #{e.message}", MU::WARN
+    end
+  end
+#XXX delete the org that shares their name, too
+end
+
+# @param user [String]: The regular, system name of the user
+# @param chef_user [String]: The user's Chef username, which may differ
+def createUserClientCfg(user, chef_user)
+  chefdir = Etc.getpwnam(user).dir+"/.chef"
+  FileUtils.mkdir_p chefdir
+  File.open(chefdir+"/client.rb.tmp.#{Process.pid}", File::CREAT|File::RDWR, 0640) { |f|
+    f.puts "log_level        :info"
+    f.puts "log_location     STDOUT"
+    f.puts "chef_server_url  'https://#{$MU_CFG["public_address"]}/organizations/#{chef_user}'"
+    f.puts "validation_client_name '#{chef_user}-validator'"
+  }
+  if !File.exists?("#{chefdir}/client.rb") or
+      File.read("#{chefdir}/client.rb") != File.read("#{chefdir}/client.rb.tmp.#{Process.pid}")
+    File.rename(chefdir+"/client.rb.tmp.#{Process.pid}", chefdir+"/client.rb")
+    FileUtils.chown_R(user, user+".mu-user", Etc.getpwnam(user).dir+"/.chef")
+    MU.log "Generated #{chefdir}/client.rb"
+  else
+    File.unlink("#{chefdir}/client.rb.tmp.#{Process.pid}")
+  end
+end
+
+# @param user [String]: The regular, system name of the user
+# @param chef_user [String]: The user's Chef username, which may differ
+def createUserKnifeCfg(user, chef_user)
+  chefdir = Etc.getpwnam(user).dir+"/.chef"
+  FileUtils.mkdir_p chefdir
+  File.open(chefdir+"/knife.rb.tmp.#{Process.pid}", File::CREAT|File::RDWR, 0640) { |f|
+    f.puts "log_level                :info"
+    f.puts "log_location             STDOUT"
+    f.puts "node_name                '#{chef_user}'"
+    f.puts "client_key               '#{chefdir}/#{chef_user}.user.key'"
+    f.puts "validation_client_name   '#{chef_user}-validator'"
+    f.puts "validation_key           '$chef_cache/#{chef_user}.org.key'"
+    f.puts "chef_server_url 'https://#{$MU_CFG["public_address"]}/organizations/#{chef_user}'"
+    f.puts "chef_server_root 'https://#{$MU_CFG["public_address"]}/organizations/#{chef_user}'"
+    f.puts "syntax_check_cache_path  '#{chef_user}/syntax_check_cache'"
+    f.puts "cookbook_path [ '#{chef_user}/cookbooks', '#{chef_user}/site_cookbooks' ]"
+    f.puts "knife[:vault_mode] = 'client'"
+    f.puts "knife[:vault_admins] = ['#{chef_user}']"
+    f.puts "verify_api_cert    false"
+    f.puts "ssl_verify_mode    :verify_none"
+  }
+  if !File.exists?("#{chefdir}/knife.rb") or
+      File.read("#{chefdir}/knife.rb") != File.read("#{chefdir}/knife.rb.tmp.#{Process.pid}")
+    File.rename(chefdir+"/knife.rb.tmp.#{Process.pid}", chefdir+"/knife.rb")
+    FileUtils.chown_R(user, user+".mu-user", Etc.getpwnam(user).dir+"/.chef")
+    MU.log "Generated #{chefdir}/knife.rb"
+  else
+    File.unlink("#{chefdir}/knife.rb.tmp.#{Process.pid}")
+  end
+end
+
+# Save a Chef key into both Mu's user metadata cache and the user's ~/.chef.
+# @param user [String]: The (system) name of the user.
+# @param keyname [String]: The name of the key, e.g. myuser.user.key or myuser.org.key
+# @param key [String]: The Chef private key to save
+def saveChefKey(user, keyname, key)
+  FileUtils.mkdir_p $MU_CFG['datadir']+"/users/#{user}"
+  FileUtils.mkdir_p Etc.getpwnam(user).dir+"/.chef"
+  [$MU_CFG['datadir']+"/users/#{user}/#{keyname}", Etc.getpwnam(user).dir+"/.chef/#{keyname}"].each { |keyfile|
+    if File.exist?(keyfile)
+      File.rename(keyfile, keyfile+"."+Time.now.to_i.to_s)
+    end
+    File.open(keyfile, File::CREAT|File::RDWR, 0640) { |f|
+      f.puts key
+    }
+    MU.log "Wrote Chef key #{keyname} to #{keyfile}", MU::DEBUG
+  }
+  FileUtils.chown_R(user, user+".mu-user", Etc.getpwnam(user).dir+"/.chef")
 end
 
 # Call when creating or modifying a user. While Chef technically does
 # communicate with LDAP, it's only for the web UI, which we don't even use.
 # Keys still need to be managed, and sometimes the username can't even match
 # the LDAP one due to Chef's weird restrictions.
-def manageChefUser(user, name: nil, email: nil, org: nil, set_admin: false, set_normal: false, ldap_user: nil)
-
-  raise MuError, "Can't both add and revoke admin privileges from a Chef user" if set_admin and set_normal
+def manageChefUser(chef_user, name: nil, email: nil, orgs: [], remove_orgs: [], admin: false, ldap_user: nil, pass: nil)
+  orgs = [] if orgs.nil?
+  remove_orgs = [] if remove_orgs.nil?
 
   # In this shining future, there are no situations where we will *not* have
   # an LDAP user to link to.
-  ldap_user = user.dup if ldap_user.nil?
-  if user.gsub!(/\./, "")
-    MU.log "Stripped . from username to create Chef user #{user}.\nSee: https://github.com/chef/chef-server/issues/557", MU::NOTICE
+  ldap_user = chef_user.dup if ldap_user.nil?
+  if chef_user.gsub!(/\./, "")
+    MU.log "Stripped . from username to create Chef user #{chef_user}.\nSee: https://github.com/chef/chef-server/issues/557", MU::NOTICE
+    orgs.delete(ldap_user)
   end
+
+  orgs << chef_user if !orgs.include?(chef_user)
+  if admin
+    orgs << "mu"
+  else
+    remove_orgs << "mu"
+  end
+
+  if remove_orgs.include?(chef_user)
+    raise MU::MuError, "Can't remove Chef user #{chef_user} from the #{chef_user} org"
+  end
+  if (orgs & remove_orgs).size > 0
+    raise MU::MuError, "Cannot both add and remove from the same Chef org"
+  end
+
   setLocalDataPerms(ldap_user)
 
   first = last = nil
@@ -406,44 +541,72 @@ def manageChefUser(user, name: nil, email: nil, org: nil, set_admin: false, set_
     last = name.split(/\s+/).pop
     first = name.split(/\s+/).shift
   end
+  mangled_email = email.dup
 
-  user_exists = chefUserExists?(user)
+  ext = getChefUser(chef_user)
 
-  # This user exists, modify it
-  if user_exists
+  # This user exists and we've passed something new, so modify it
+  if ext
+    retries = 0
     begin
       user_data = {
-        :username => user,
+        :username => chef_user,
         :recovery_authentication_enabled => false,
         :external_authentication_uid => ldap_user
       }
-      user_data[:display_name] = name if !name.nil?
-      user_data[:email] = email if !email.nil?
+      ext.each_pair { |key, val| user_data[key.to_sym] = val }
+      user_data[:display_name] = name.dup if !name.nil?
       user_data[:first_name] = first if !first.nil?
       user_data[:last_name] = last if !last.nil?
-      user_data[:password] = pass if !pass.nil?
-      response = chefAPI.put("users/#{user}", user_data)
-      user_data[:password] = "********"
-      MU.log "Chef user #{user} already exists, modifying", MU::NOTICE, details: user_data
-      return
+      user_data[:password] = pass.dup if !pass.nil?
+      if !email.nil?
+        if !user_data[:email].nil?
+          mailbox, host = mangled_email.split(/@/)
+          if !user_data[:email].match(/^#{Regexp.escape(mailbox)}\+.+?@#{Regexp.escape(host)}$/)
+            user_data[:email] = mangled_email
+          end
+        else
+          user_data[:email] = mangled_email
+        end
+      end
+      Timeout::timeout(45) {
+        response = chefAPI.put("users/#{chef_user}", user_data)
+        user_data[:password] = "********"
+        MU.log "Chef user #{chef_user} already exists, updating", details: user_data
+        if response.has_key?("chef_key") and response["chef_key"].has_key?("private_key")
+          saveChefKey(ldap_user, "#{ldap_user}.user.key", response["chef_key"]["private_key"])
+        end
+      }
+      createUserKnifeCfg(ldap_user, chef_user)
+      createUserClientCfg(ldap_user, chef_user)
+      %{/bin/su "#{ldap_user}" -c "cd && /opt/chef/bin/knife ssl fetch"}
+      return true
+    rescue Timeout::Error
+      MU.log "Timed out modifying Chef user #{chef_user}, retrying", MU::WARN
+      retry
     rescue Net::HTTPServerException => e
       # Work around Chef's baffling inability to use the same email address for
       # more than one user.
       # https://github.com/chef/chef-server/issues/59
       if e.message.match(/409/) and !user_data[:email].match(/\+/)
-        user_data[:email].sub!(/@/, "+"+(0...8).map { ('a'..'z').to_a[rand(26)] }.join+"@")
+        if retries > 3
+          raise MU::MuError, "Got #{e.message} modifying Chef user #{chef_user} (#{user_data})"
+        end
+        sleep 5
+        retries = retries + 1
+        mangled_email.sub!(/@/, "+"+(0...8).map { ('a'..'z').to_a[rand(26)] }.join+"@")
         retry
       end
-      MU.log "Failed to update user #{user}: #{e.message}", MU::ERR, details: user_data
+      MU.log "Failed to update user #{chef_user}: #{e.message}", MU::ERR, details: user_data
       raise e
     end
+
   # This user doesn't exist, create it
   else
     if name.nil? or email.nil?
-      MU.log "Error creating Chef user #{user}: Must supply real name and email address", MU::ERR
+      MU.log "Error creating Chef user #{chef_user}: Must supply real name and email address", MU::ERR
       return
     end
-    MU.log "Creating Chef user #{user}"
 
     # We don't ever really need this password, so generate a random one if none
     # was supplied.
@@ -451,18 +614,29 @@ def manageChefUser(user, name: nil, email: nil, org: nil, set_admin: false, set_
       pass = (0...8).map { ('a'..'z').to_a[rand(26)] }.join
     end
     user_data = {
-      :username => user,
+      :username => chef_user.dup,
       :first_name => first,
       :last_name => last,
-      :display_name => name,
-      :email => email,
+      :display_name => name.dup,
+      :email => email.dup,
+      :create_key => true,
       :recovery_authentication_enabled => false,
-      :external_authentication_uid => ldap_user,
-      :password => (0...8).map { ('a'..'z').to_a[rand(26)] }.join
+      :external_authentication_uid => ldap_user.dup,
+      :password => pass.dup
     }
     begin
-      response = chefAPI.post("users", user_data)
-      pp response
+      Timeout::timeout(45) {
+        response = chefAPI.post("users", user_data)
+        MU.log "Created Chef user #{chef_user}", details: response
+        saveChefKey(ldap_user, "#{ldap_user}.user.key", response["chef_key"]["private_key"])
+        createUserKnifeCfg(ldap_user, chef_user)
+        createUserClientCfg(ldap_user, chef_user)
+      }
+      %{/bin/su "#{ldap_user}" -c "cd && /opt/chef/bin/knife ssl fetch"}
+      return true
+    rescue Timeout::Error
+      MU.log "Timed out creating Chef user #{chef_user}, retrying", MU::WARN
+      retry
     rescue Net::HTTPServerException => e
       # Work around Chef's baffling inability to use the same email address for
       # more than one user.
@@ -471,16 +645,21 @@ def manageChefUser(user, name: nil, email: nil, org: nil, set_admin: false, set_
         user_data[:email].sub!(/@/, "+"+(0...8).map { ('a'..'z').to_a[rand(26)] }.join+"@")
         retry
       end
-      MU.log "Bad response when creating Chef user #{user}: #{e.message}", MU::ERR, details: user_data
+      MU.log "Bad response when creating Chef user #{chef_user}: #{e.message}", MU::ERR, details: user_data
+      return false
     end
   end
-  if ldap_user != user
-    File.open($MU_CFG['datadir']+"/users/#{ldap_user}/chef_user", File::CREAT|File::RDWR, 0644) { |f|
-      f.puts user
+  if ldap_user != chef_user
+    File.open($MU_CFG['datadir']+"/users/#{ldap_user}/chef_user", File::CREAT|File::RDWR, 0640) { |f|
+      f.puts chef_user
     }
   end
 
-  setLocalDataPerms(user)
+  # Meddling in the user's home directory
+  # Make sure they'll trust the Chef server's SSL certificate
+
+  setLocalDataPerms(ldap_user)
+  true
 end
 
 # Mangle Chef's server config to speak to LDAP
