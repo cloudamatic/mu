@@ -330,7 +330,6 @@ module MU
               createUserKnifeCfg(ldap_user, chef_user)
               createUserClientCfg(ldap_user, chef_user)
             }
-            %{/bin/su "#{ldap_user}" -c "cd && /opt/chef/bin/knife ssl fetch"}
           rescue Timeout::Error
             MU.log "Timed out creating Chef user #{chef_user}, retrying", MU::WARN
             retry

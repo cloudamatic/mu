@@ -26,8 +26,10 @@ def loadMuConfig
   global_cfg = local_cfg = {}
   if ENV.include?('MU_INSTALLDIR')
     global_cfg = YAML.load(File.read(ENV['MU_INSTALLDIR']+"/etc/mu.yaml"))
+    global_cfg["installdir"] = ENV['MU_INSTALLDIR']
   elsif File.readable?("/opt/mu/etc/mu.yaml")
     global_cfg = YAML.load(File.read("/opt/mu/etc/mu.yaml"))
+    global_cfg["installdir"] = "/opt/mu"
 # XXX have more guesses, e.g. assume this file's being loaded from somewhere in the install. That's mean picking where this thing lives, deciding whether's a stub or the full library...
   end
   

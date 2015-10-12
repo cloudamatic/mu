@@ -79,20 +79,54 @@ module MU
       if !MU::Master::LDAP.manageUser(username, name: name, email: email, password: password, admin: admin)
         return false
       end
+      %x{/bin/su - #{username} -c "ls > /dev/null"}
       if !MU::Master::Chef.manageUser(chef_username, ldap_user: username, name: name, email: email, admin: admin, orgs: orgs, remove_orgs: remove_orgs) and create
         deleteUser(username)
         return false
       end
+      %x{/bin/su - #{username} -c "/opt/chef/bin/knife ssl fetch 2>&1 > /dev/null"}
       setLocalDataPerms(username)
+      if create
+        home = Etc.getpwnam(username).dir
+        FileUtils.mkdir_p home+"/.mu/var"
+        FileUtils.chown_R(username, username+".mu-user", Etc.getpwnam(username).dir)
+        %x{/bin/su - #{username} -c "ls > /dev/null"}
+        File.open(home+"/.murc", "w+", 0640){ |f|
+          f.puts "export MU_DATADIR=\"#{home}/.mu/var\""
+          f.puts "export MU_CHEF_CACHE=\"#{home}/.chef\""
+          f.puts "export PATH=\"#{$MU_CFG['installdir']}/bin:/usr/local/ruby-current/bin:${PATH}:/opt/opscode/embedded/bin\""
+        }
+        File.open(home+"/.bashrc", "a"){ |f|
+          f.puts "source #{home}/.murc"
+        }
+        FileUtils.chown_R(username, username+".mu-user", Etc.getpwnam(username).dir)
+        %x{/sbin/restorecon -r /home}
+      end
     end
 
 
     # Remove a user from Chef, LDAP, and archive their home directory and
     # metadata. 
     def self.deleteUser(user)
+      deletia = []
+      begin
+        home = Etc.getpwnam(user).dir
+        if Dir.exist?(home)
+          archive = "/home/#{user}.home.#{Time.now.to_i.to_s}.tar.gz"
+          %x{/bin/tar -czpf #{archive} #{home}}
+          MU.log "Archived #{user}'s home directory to #{archive}"
+          deletia << home
+        end
+      end rescue ArgumentError
+      if Dir.exist?("#{$MU_CFG['datadir']}/users/#{user}")
+        archive = "#{$MU_CFG['datadir']}/#{user}.metadata.#{Time.now.to_i.to_s}.tar.gz"
+        %x{/bin/tar -czpf #{archive} #{$MU_CFG['datadir']}/users/#{user}}
+        MU.log "Archived #{user}'s Mu metadata cache to #{archive}"
+        deletia << "#{$MU_CFG['datadir']}/users/#{user}"
+      end
       MU::Master::Chef.deleteUser(user)
       MU::Master::LDAP.deleteUser(user)
-      # XXX actually do those other two things
+      FileUtils.rm_rf(deletia)
     end
 
     # @return [Array<Hash>]: List of all Mu users

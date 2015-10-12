@@ -227,16 +227,17 @@ module MU
 
             # We now require the system to know that the user exists. Sometimes
             # winbind takes a minute to catch on.
+            wait = 5
             begin
               %x{/usr/bin/getent passwd}
               Etc.getpwnam(user)
             rescue ArgumentError
-              sleep 5
+              MU.log "User #{user} has been created in LDAP, but not yet visible to local system, waiting #{wait}s and checking again.", MU::WARN
+              sleep wait
+              wait = wait + 5
               retry
             end
             MU::Master.setLocalDataPerms(user)
-            FileUtils.mkdir_p Etc.getpwnam(user).dir+"/.mu"
-            FileUtils.chown_R(user, user+".mu-user", Etc.getpwnam(user).dir)
           else
             MU.log "We are in read-only LDAP mode. You must create #{user} in your directory and add it to #{$MU_CFG["ldap"]["user_group_dn"]}. If the user is intended to be an admin, also add it to #{admin_group}.", MU::WARN
             return true
