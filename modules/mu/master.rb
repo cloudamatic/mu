@@ -91,10 +91,12 @@ module MU
         FileUtils.mkdir_p home+"/.mu/var"
         FileUtils.chown_R(username, username+".mu-user", Etc.getpwnam(username).dir)
         %x{/bin/su - #{username} -c "ls > /dev/null"}
+        vars = {
+          "home" => home,
+          "installdir" => $MU_CFG['installdir']
+        }
         File.open(home+"/.murc", "w+", 0640){ |f|
-          f.puts "export MU_DATADIR=\"#{home}/.mu/var\""
-          f.puts "export MU_CHEF_CACHE=\"#{home}/.chef\""
-          f.puts "export PATH=\"#{$MU_CFG['installdir']}/bin:/usr/local/ruby-current/bin:${PATH}:/opt/opscode/embedded/bin\""
+          f.puts Erubis::Eruby.new(File.read("#{$MU_CFG['libdir']}/install/dot-murc.erb")).result(vars)
         }
         File.open(home+"/.bashrc", "a"){ |f|
           f.puts "source #{home}/.murc"

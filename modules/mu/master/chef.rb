@@ -436,7 +436,7 @@ module MU
           chef_cfgfile = "/etc/opscode/chef-server.rb"
           chef_tmpfile = "#{chef_cfgfile}.tmp.#{Process.pid}"
           File.open(chef_tmpfile, File::CREAT|File::RDWR, 0644) { |f|
-            f.puts Erubis::Eruby.new(File.read("chef-server.rb.erb")).result(vars)
+            f.puts Erubis::Eruby.new(File.read("#{$MU_CFG['libdir']}/install/chef-server.rb.erb")).result(vars)
           }
           new = File.read(chef_tmpfile)
           current = File.read(chef_cfgfile)

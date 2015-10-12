@@ -41,6 +41,7 @@ Deleting users:
 
   EOS
   opt :delete, "Delete the user and all of their Chef and filesystem artifacts.", :require => false, :default => false, :type => :boolean
+  opt :skipupload, "Do not upload Chef artifacts to new users' orgs for them. The user's dotfiles will be configured to do so automatically on their first interactive login.", :require => false, :default => false, :type => :boolean
   opt :monitoring_alerts_to, "Send this user's monitoring alerts to an alternate address. Set to 'none' to disable monitoring alerts to this user.", :require => false, :type => :string
   opt :name, "The user's real name. Required when creating a new user.", :require => false, :type => :string
   opt :email, "The user's email address. Required when creating a new user.", :require => false, :type => :string
@@ -202,6 +203,11 @@ else
       remove_orgs: $opts[:remove_from_orgs]
     )
     exit 1
+  end
+  if create
+    home = Etc.getpwnam(username).dir
+    MU.log "Uploading Chef artifacts to #{$username} org. This may take a while.", MU::NOTICE
+    %x{su - #{$username} -c "#{$MU_CFG['installdir']}/bin/mu-upload-chef-artifacts 2>&1 > /dev/null && touch #{home}/.first_chef_upload"}
   end
 end
 if $opts[:generate_password]

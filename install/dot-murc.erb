@@ -1,0 +1,14 @@
+export MU_DATADIR="<%= home %>/.mu/var"
+export MU_CHEF_CACHE="<%= home %>/.chef"
+export PATH="<%= installdir %>/bin:/usr/local/ruby-current/bin:${PATH}:/opt/opscode/embedded/bin"
+
+if [ ! -f "<%= home %>/.first_chef_upload" -a "`tty`" != "not a tty" ];then
+  touch "<%= home %>/.first_chef_upload"
+  echo "******************************************"
+  echo "This is your first login. Uploading Chef artifacts to your private Chef org"
+  echo "******************************************"
+  sleep 5
+  set -x
+  <%= installdir %>/bin/mu-upload-chef-artifacts
+  set +x
+fi
