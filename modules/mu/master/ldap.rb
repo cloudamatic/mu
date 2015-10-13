@@ -18,10 +18,11 @@ require 'net-ldap'
 module MU
   class Master
     class LDAP
+      require 'date'
 
-      # Create and return a connection to our directory service. If we've already
-      # opened one, return that.
       @ldap_conn = nil
+      # Create and return a connection to our directory service. If we've
+      # already opened one, return that.
       # @return [Net::LDAP]
       def self.getLDAPConnection
         return @ldap_conn if @ldap_conn
@@ -40,15 +41,16 @@ module MU
         @ldap_conn
       end
 
-      # Shorthand for fetching the most recent error on the active LDAP connection
+      # Shorthand for fetching the most recent error on the active LDAP
+      # connection
       def self.getLDAPErr
         return nil if !@ldap_conn
         return @ldap_conn.get_operation_result.code.to_s+" "+@ldap_conn.get_operation_result.message.to_s
       end
 
       # Approximate a current Microsoft timestamp. They count the number of
-      # 100-nanoseconds intervals (1 nanosecond = one billionth of a second) since
-      # Jan 1, 1601 UTC.
+      # 100-nanoseconds intervals (1 nanosecond = one billionth of a second)
+      # since Jan 1, 1601 UTC.
       def self.getMicrosoftTime
         ms_epoch = DateTime.new(1601,1,1)
         # this is in milliseconds, so multiply it for the right number of zeroes
@@ -56,10 +58,20 @@ module MU
         return elapsed*10000
       end
 
+      # Convert a Microsoft timestamp to a Ruby Time object. See also #getMicrosoftTime.
+      # @param stamp [Integer]: The MS-style timestamp, e.g. 130838184558490696
+      # @return [Time]
+      def self.convertMicrosoftTime(stamp)
+        ms_epoch = DateTime.new(1601,1,1).strftime("%Q").to_i
+        unixtime = (stamp.to_i/10000) + DateTime.new(1601,1,1).strftime("%Q").to_i
+        Time.at(unixtime/1000)
+      end
+
       @can_write = nil
-      # Test whether our LDAP binding user has permissions to create other users,
-      # manipulate groups, and set passwords. Note that it's *not* fatal if we can't,
-      # simply a design where most account management happens on the directory side.
+      # Test whether our LDAP binding user has permissions to create other
+      # users, manipulate groups, and set passwords. Note that it's *not* fatal
+      # if we can't, simply a design where most account management happens on
+      # the directory side.
       # @return [Boolean]
       def self.canWriteLDAP?
         return @can_write if !@can_write.nil?
@@ -101,6 +113,140 @@ module MU
         end
 
         @can_write
+      end
+
+      # Search for groups whose names contain any of the given search terms and
+      # return their full DNs.
+      # @param search [Array<String>]: Strings to search for.
+      # @param exact [Boolean]: Return only exact matches for whole fields.
+      # @param searchbase [String]: The DN under which to search.
+      # @return [Array<String>]
+      def self.findGroups(search = [], exact: false, searchbase: $MU_CFG['ldap']['base_dn'])
+        if search.nil? or search.size == 0
+          raise MuError, "Need something to search for in MU::Master::LDAP.findGroups"
+        end
+        conn = getLDAPConnection
+        filter = nil
+        search.each { |term|
+          curfilter = Net::LDAP::Filter.contains("sAMAccountName", "#{term}")
+          if exact
+            curfilter = Net::LDAP::Filter.eq("sAMAccountName", "#{term}")
+          end
+
+          if !filter
+            filter = curfilter
+          else
+            filter = filter | curfilter
+          end
+        }
+        filter = Net::LDAP::Filter.ne("objectclass", "computer") & (filter)
+        groups = []
+        conn.search(
+          :filter => filter,
+          :base => searchbase,
+          :attributes => ["objectclass"]
+        ) do |group|
+          groups << group.dn
+        end
+        groups
+      end
+
+      # See https://technet.microsoft.com/en-us/library/ee198831.aspx
+      AD_PW_ATTRS = {
+        'noPwdRequired' => 0x0020, #ADS_UF_PASSWD_NOTREQD
+        'cantChangePwd' => 0x0040, #ADS_UF_PASSWD_CANT_CHANGE
+        'pwdStoredReversible' => 0x0080, #ADS_UF_ENCRYPTED_TEXT_PASSWORD_ALLOWED
+        'pwdNeverExpires' => 0x10000, #ADS_UF_DONT_EXPIRE_PASSWD
+        'pwdExpired' => 0x80000 #ADS_UF_PASSWORD_EXPIRED
+      }.freeze
+
+      # Find a directory user with fuzzy string matching on sAMAccountName, displayName, group memberships, or email
+      # @param search [Array<String>]: Strings to search for.
+      # @param exact [Boolean]: Return only exact matches for whole fields.
+      # @param searchbase [String]: The DN under which to search.
+      # @return [Array<Hash>]
+      def self.findUsers(search = [], exact: false, searchbase: $MU_CFG['ldap']['base_dn'], extra_attrs: [])
+        # We want to search groups, but can't search on memberOf with wildcards.
+        # So search groups independently, build a list of full CNs, and use
+        # those.
+        if search.size > 0
+          groups = findGroups(search, exact: exact, searchbase: searchbase)
+        end
+        searchattrs = ["sAMAccountName", "displayName", "mail"] + extra_attrs
+        getattrs = searchattrs + ["lastLogon", "lockoutTime", "pwdLastSet", "memberOf", "userAccountControl"]
+        conn = getLDAPConnection
+        users = {}
+        filter = nil
+        rejected = 0
+        if search.size > 0
+          search.each { |term|
+            if term.length < 4 and !exact
+              MU.log "Search term '#{term}' is too short, ignoring.", MU::WARN
+              rejected = rejected + 1
+              next
+            end
+            searchattrs.each { |attr|
+              if !filter
+                if exact
+                  filter = Net::LDAP::Filter.eq(attr, "#{term}")
+                else
+                  filter = Net::LDAP::Filter.contains(attr, "#{term}")
+                end
+              else
+                if exact
+                  filter = filter |Net::LDAP::Filter.eq(attr, "#{term}")
+                else
+                  filter = filter |Net::LDAP::Filter.contains(attr, "#{term}")
+                end
+              end
+            }
+          }
+          if rejected == search.size
+            MU.log "No valid search strings provided.", MU::ERR
+            return nil
+          end
+        end
+        if groups
+          groups.each { |group|
+            filter = filter |Net::LDAP::Filter.eq("memberOf", group)
+          }
+        end
+        if filter 
+          filter = Net::LDAP::Filter.ne("objectclass", "computer") & Net::LDAP::Filter.ne("objectclass", "group") & (filter)
+        else
+          filter = Net::LDAP::Filter.ne("objectclass", "computer") & Net::LDAP::Filter.ne("objectclass", "group")
+        end
+        conn.search(
+          :filter => filter,
+          :base => searchbase,
+          :attributes => getattrs
+        ) do |acct|
+          begin
+            next if users.has_key?(acct.samaccountname.first)
+          rescue NoMethodError
+            next
+          end
+          users[acct.samaccountname.first] = {}
+          users[acct.samaccountname.first]['dn'] = acct.dn
+          getattrs.each { |attr|
+            begin
+              if acct[attr].size == 1
+                users[acct.samaccountname.first][attr] = acct[attr].first
+              else
+                users[acct.samaccountname.first][attr] = acct[attr]
+              end
+              if attr == "userAccountControl"
+                AD_PW_ATTRS.each_pair { |pw_attr, bitmask|
+                  if (bitmask | acct[attr].first.to_i) == acct[attr].first.to_i
+                    users[acct.samaccountname.first][pw_attr] = true
+                  end
+                }
+                users[acct.samaccountname.first][attr] = acct[attr].first.to_i.to_s(2)
+              end
+            end rescue NoMethodError
+          }
+        end
+        users
       end
 
       # @return [Array<String>]

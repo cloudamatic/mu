@@ -205,9 +205,9 @@ else
     exit 1
   end
   if create
-    home = Etc.getpwnam(username).dir
-    MU.log "Uploading Chef artifacts to #{$username} org. This may take a while.", MU::NOTICE
-    %x{su - #{$username} -c "#{$MU_CFG['installdir']}/bin/mu-upload-chef-artifacts 2>&1 > /dev/null && touch #{home}/.first_chef_upload"}
+    home = Etc.getpwnam($username).dir
+    MU.log "Uploading Chef artifacts to the new '#{$username}' organization. This may take a while.", MU::NOTICE
+    %x{su - #{$username} -c "#{$MU_CFG['installdir']}/bin/mu-upload-chef-artifacts -n 2>&1 > /dev/null && touch #{home}/.first_chef_upload"}
   end
 end
 if $opts[:generate_password]

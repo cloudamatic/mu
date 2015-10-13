@@ -49,7 +49,7 @@ module MU
       }
     end
 
-    # @param [String]: The account name to display
+    # @param user [String]: The account name to display
     def self.printUserDetails(user)
       cur_users = listUsers
 
@@ -62,7 +62,15 @@ module MU
       end
     end
 
-    # Create and/or update a user as appropriate.
+    # Create and/or update a user as appropriate (Chef, LDAP, et al).
+    # @param username [String]: The canonical username to modify.
+    # @param chef_username [String]: The Chef username, if different
+    # @param name [String]: Real name (Given Surname). Required for new accounts.
+    # @param email [String]: Email address of the user. Required for new accounts.
+    # @param password [String]: A password to set. Required for new accounts.
+    # @param admin [Boolean]: Whether or not the user should be a Mu admin.
+    # @param orgs [Array<String>]: Extra Chef organizations to which to add the user.
+    # @param remove_orgs [Array<String>]: Chef organizations from which to remove the user.
     def self.manageUser(
       username,
       chef_username: nil,
