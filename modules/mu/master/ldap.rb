@@ -172,8 +172,11 @@ module MU
         if search.size > 0
           groups = findGroups(search, exact: exact, searchbase: searchbase)
         end
-        searchattrs = ["sAMAccountName", "displayName", "mail"] + extra_attrs
-        getattrs = searchattrs + ["lastLogon", "lockoutTime", "pwdLastSet", "memberOf", "userAccountControl"]
+        searchattrs = ["sAMAccountName"]
+        if !exact
+          searchattrs = searchattrs + ["displayName", "mail"] + extra_attrs
+        end
+        getattrs = ["sAMAccountName", "displayName", "mail", "lastLogon", "lockoutTime", "pwdLastSet", "memberOf", "userAccountControl"] + extra_attrs
         conn = getLDAPConnection
         users = {}
         filter = nil
@@ -327,8 +330,11 @@ module MU
 
       # Call when creating or modifying a user.
       # @param user [String]: The username on which to operate
+      # @param password [String]: Set the user's password
+      # @param email [String]: Set the user's email address
       # @param admin [Boolean]: Whether to flag this user as an admin
-      def self.manageUser(user, name: nil, password: nil, email: nil, admin: false)
+      # @param mu_only [Boolean]: Whether to operate on users outside of Mu (generic directory users)
+      def self.manageUser(user, name: nil, password: nil, email: nil, admin: false, mu_only: true)
         cur_users = listUsers
 
         first = last = nil
@@ -337,6 +343,22 @@ module MU
           first = name.split(/\s+/).shift
         end
         admin_group = $MU_CFG["ldap"]["admin_group_dn"]
+        conn = getLDAPConnection
+
+        # If we're operating on users that aren't specifically Mu users,
+        # fetch generic directory information about them instead of the Mu
+        # user descriptor.
+        if !mu_only
+          cur_users = findUsers([user], exact: true)
+        end
+
+        # Oh, Microsoft. Slap quotes around it, convert it to Unicode, and call
+        # it Sally. *Then* it's a password.
+        if !password.nil?
+          ascii_pw = '"'+password+'"'
+          password = ""
+          ascii_pw.length.times{|i| password+= "#{ascii_pw[i..i]}\000" }
+        end
 
         if !cur_users.has_key?(user)
           # Creating a new user
@@ -408,7 +430,7 @@ module MU
             end
             if !password.nil?
               MU.log "Updating password for #{user}", MU::NOTICE
-              if !conn.replace_attribute(user_dn, :userPassword, password)
+              if !conn.replace_attribute(user_dn, :unicodePwd, [password])
                 MU.log "Couldn't update password for user #{user}.", MU::WARN, details: getLDAPErr
               end
             end
@@ -427,6 +449,7 @@ module MU
           end
         end
         cur_users = MU::Master.listUsers
+        return true if !mu_only # everything below is Mu-specific
 
         ["realname", "email", "monitoring_email"].each { |field|
           next if !cur_users[user].has_key?(field)

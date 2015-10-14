@@ -117,6 +117,7 @@ module MU
 
     # Remove a user from Chef, LDAP, and archive their home directory and
     # metadata. 
+    # @param user [String]
     def self.deleteUser(user)
       deletia = []
       begin
@@ -139,7 +140,40 @@ module MU
       FileUtils.rm_rf(deletia)
     end
 
-    # @return [Array<Hash>]: List of all Mu users
+    @scratchpad_semaphore = Mutex.new
+    # Store a secret for end-user retrieval via MommaCat's public interface.
+    # @param text [String]: 
+    def self.storeScratchPadSecret(text)
+      raise MuError, "Cannot store an empty secret in scratchpad" if text.nil? or text.empty?
+      @scratchpad_semaphore.synchronize {
+        itemname = nil
+        data = {
+          "secret" => Base64.urlsafe_encode64(text),
+          "timestamp" => Time.now.to_i.to_s
+        }
+        begin
+          itemname = Password.pronounceable(32)
+          # Make sure this itemname isn't already in use
+          MU::Groomer::Chef.getSecret(vault: "scratchpad", item: itemname)
+        rescue MU::Groomer::Chef::MuNoSuchSecret
+          MU::Groomer::Chef.saveSecret(vault: "scratchpad", item: itemname, data: data)
+          return itemname
+        end while true
+      }
+    end
+
+    # Retrieve a secret stored by #storeScratchPadSecret, then delete it.
+    # @param itemname [String]: The identifier of the scratchpad secret.
+    def self.fetchScratchPadSecret(itemname)
+      @scratchpad_semaphore.synchronize {
+        data = MU::Groomer::Chef.getSecret(vault: "scratchpad", item: itemname)
+        raise MuError, "Malformed scratchpad secret #{itemname}" if !data.has_key?("secret")
+        MU::Groomer::Chef.deleteSecret(vault: "scratchpad", item: itemname)
+        return Base64.urlsafe_decode64(data["secret"])
+      }
+    end
+
+    # @return [Array<Hash>]: List of all Mu users, with pertinent metadata.
     def self.listUsers
       if !Dir.exist?($MU_CFG['datadir']+"/users")
         MU.log "#{$MU_CFG['datadir']}/users doesn't exist", MU::ERR
