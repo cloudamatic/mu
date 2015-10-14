@@ -198,7 +198,7 @@ app = proc do |env|
       ['hi']
   ]
   begin
-    if !env.nil? and !env['REQUEST_PATH'].nil? and env['REQUEST_PATH'].match(/^\/scratchpad\//)
+    if !env.nil? and !env['REQUEST_PATH'].nil? and env['REQUEST_PATH'].match(/^\/scratchpad/)
       itemname = env['REQUEST_PATH'].sub(/^\/scratchpad\//, "")
       begin
         secret = MU::Master.fetchScratchPadSecret(itemname)
@@ -212,7 +212,7 @@ app = proc do |env|
           },
           [page]
         ]
-      rescue MU::Groomer::Chef::NoSuchSecret
+      rescue MU::Groomer::Chef::MuNoSuchSecret
         msg = "No such secret found. Has it already been retrieved?\n"
         returnval = [
           200,
