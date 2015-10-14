@@ -1360,12 +1360,20 @@ module MU
         MU::MommaCat.addInstanceToEtcHosts(server.canonicalIP, node)
       end
 
-      if !config.nil? and !config['dns_records'].nil?
+## TO DO: Do DNS registration of "real" records as the last stage after the groomer completes
+      if config && config['dns_records'] && !config['dns_records'].empty?
         dnscfg = config['dns_records'].dup
         dnscfg.each { |dnsrec|
           dnsrec['name'] = node.downcase if !dnsrec.has_key?('name')
+          if !dnsrec.has_key?("target")
+            if dnsrec["type"] == "CNAME"
+              dnsrec["target"] = server.cloud_desc.public_dns_name.empty? ? server.cloud_desc.private_dns_name : server.cloud_desc.public_dns_name
+            elsif dnsrec["type"] == "A"
+              dnsrec["target"] = server.cloud_desc.public_ip_address ? server.cloud_desc.public_ip_address : server.cloud_desc.private_ip_address
+            end
+          end
         }
-        MU::Cloud::DNSZone.createRecordsFromConfig(dnscfg, target: server.canonicalIP)
+        MU::Cloud::DNSZone.createRecordsFromConfig(dnscfg)
       end
 
       MU::MommaCat.removeHostFromSSHConfig(node)
