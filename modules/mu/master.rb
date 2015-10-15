@@ -205,8 +205,9 @@ module MU
       all_user_data
     end
 
-    # Update Mu's local cache/metadata for the given user, fixing permissions and
-    # updating stored values. Create a single-user group for the user, as well.
+    # Update Mu's local cache/metadata for the given user, fixing permissions
+    # and updating stored values. Create a single-user group for the user, as
+    # well.
     # @param user [String]: The user to update
     def self.setLocalDataPerms(user)
       userdir = $MU_CFG['datadir']+"/users/#{user}"

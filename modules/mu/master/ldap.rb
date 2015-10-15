@@ -328,13 +328,49 @@ module MU
         false
       end
 
+      # Add/remove users to/from a group.
+      # @param group [String]: The short name of the group
+      # @param add_users [Array<String>]: The short names of users to add to the group
+      # @param remove_users [Array<String>]: The short names of users to remove from the group
+      def self.manageGroup(group, add_users: [], remove_users: [])
+        group_dn = findGroups([group], exact: true).first
+        if !group_dn or group_dn.empty?
+          raise MuError, "Failed to find a Distinguished Name for group #{group}"
+        end
+        if (add_users & remove_users).size > 0
+          raise MuError, "Can't both add and remove the same user (#{(add_users & remove_users).join(", ")}) from a group"
+        end
+        add_users = findUsers(add_users, exact: true) if add_users.size > 0
+        remove_users = findUsers(remove_users, exact: true) if remove_users.size > 0
+        conn = getLDAPConnection
+        if add_users.size > 0
+          add_users.each_pair { |user, data|
+            if !conn.modify(:dn => group_dn, :operations => [[:add, :member, data["dn"]]])
+              MU.log "Couldn't add user #{user} (#{data['dn']}) to group #{group} (#{group_dn}).", MU::WARN, details: getLDAPErr
+            else
+              MU.log "Added #{user} to group #{group}", MU::NOTICE
+            end
+          }
+        end
+        if remove_users.size > 0
+          remove_users.each_pair { |user, data|
+            if !conn.modify(:dn => group_dn, :operations => [[:delete, :member, data["dn"]]])
+              MU.log "Couldn't remove user #{user} (#{data['dn']}) from group #{group} (#{group_dn}).", MU::WARN, details: getLDAPErr
+            else
+              MU.log "Removed #{user} from group #{group}", MU::NOTICE
+            end
+          }
+        end
+      end
+
       # Call when creating or modifying a user.
       # @param user [String]: The username on which to operate
       # @param password [String]: Set the user's password
       # @param email [String]: Set the user's email address
       # @param admin [Boolean]: Whether to flag this user as an admin
       # @param mu_only [Boolean]: Whether to operate on users outside of Mu (generic directory users)
-      def self.manageUser(user, name: nil, password: nil, email: nil, admin: false, mu_only: true)
+      # @param ou [String]: The OU into which to deposit new users.
+      def self.manageUser(user, name: nil, password: nil, email: nil, admin: false, mu_only: true, ou: $MU_CFG["ldap"]["base_dn"])
         cur_users = listUsers
 
         first = last = nil
@@ -342,7 +378,6 @@ module MU
           last = name.split(/\s+/).pop
           first = name.split(/\s+/).shift
         end
-        admin_group = $MU_CFG["ldap"]["admin_group_dn"]
         conn = getLDAPConnection
 
         # If we're operating on users that aren't specifically Mu users,
@@ -360,13 +395,14 @@ module MU
           ascii_pw.length.times{|i| password+= "#{ascii_pw[i..i]}\000" }
         end
 
+        ok = true
         if !cur_users.has_key?(user)
           # Creating a new user
           if canWriteLDAP?
             if password.nil? or email.nil? or name.nil?
               raise MU::MuError, "Missing one or more required fields (name, password, email) creating new user #{user}"
             end
-            user_dn = "CN=#{name},#{$MU_CFG["ldap"]["base_dn"]}"
+            user_dn = "CN=#{name},#{ou}"
             conn = getLDAPConnection
             attr = {
               :cn => name,
@@ -381,16 +417,15 @@ module MU
               :pwdLastSet => "-1"
             }
             if !conn.add(:dn => user_dn, :attributes => attr)
+              pp attr
               raise MU::MuError, "Failed to create user #{user} (#{getLDAPErr})"
             end
             attr[:userPassword] = "********"
             MU.log "Created new LDAP user #{user}", details: attr
-            groups = [$MU_CFG["ldap"]["user_group_dn"]]
-            groups << admin_group if admin
+            groups = [$MU_CFG["ldap"]["user_group_name"]]
+            groups << $MU_CFG["ldap"]["admin_group_name"] if admin
             groups.each { |group|
-              if !conn.modify(:dn => group, :operations => [[:add, :member, user_dn]])
-                MU.log "Couldn't add new user #{user} to group #{group}. Access to services may be hampered.", MU::WARN, details: getLDAPErr
-              end
+              manageGroup(group, add_users: [user])
             }
 
             # We now require the system to know that the user exists. Sometimes
@@ -407,7 +442,7 @@ module MU
             end
             MU::Master.setLocalDataPerms(user)
           else
-            MU.log "We are in read-only LDAP mode. You must create #{user} in your directory and add it to #{$MU_CFG["ldap"]["user_group_dn"]}. If the user is intended to be an admin, also add it to #{admin_group}.", MU::WARN
+            MU.log "We are in read-only LDAP mode. You must create #{user} in your directory and add it to #{$MU_CFG["ldap"]["user_group_dn"]}. If the user is intended to be an admin, also add it to #{$MU_CFG["ldap"]["admin_group_dn"]}.", MU::WARN
             return true
           end
         else
@@ -432,24 +467,22 @@ module MU
               MU.log "Updating password for #{user}", MU::NOTICE
               if !conn.replace_attribute(user_dn, :unicodePwd, [password])
                 MU.log "Couldn't update password for user #{user}.", MU::WARN, details: getLDAPErr
+                ok = false
               end
             end
             if admin and !cur_users[user]['admin']
               MU.log "Granting Mu admin privileges to #{user}", MU::NOTICE
-              if !conn.modify(:dn => admin_group, :operations => [[:add, :member, user_dn]])
-                MU.log "Couldn't add user #{user} (#{user_dn}) to group #{admin_group}.", MU::WARN, details: getLDAPErr
-              end
+              manageGroup($MU_CFG["ldap"]["admin_group_name"], add_users: [user])
             elsif !admin and cur_users[user]['admin']
               MU.log "Revoking Mu admin privileges from #{user}", MU::NOTICE
-              if !conn.modify(:dn => admin_group, :operations => [[:delete, :member, user_dn]])
-                MU.log "Couldn't remove user #{user} (#{user_dn}) from group #{admin_group}.", MU::WARN, details: getLDAPErr
-              end
+              manageGroup($MU_CFG["ldap"]["admin_group_name"], remove_users: [user])
             end
           else
+            MU.log "We are in read-only LDAP mode. You must manage #{user} in your directory.", MU::WARN
           end
         end
+        return ok if !mu_only # everything below is Mu-specific
         cur_users = MU::Master.listUsers
-        return true if !mu_only # everything below is Mu-specific
 
         ["realname", "email", "monitoring_email"].each { |field|
           next if !cur_users[user].has_key?(field)
@@ -458,7 +491,7 @@ module MU
           }
         }
         MU::Master.setLocalDataPerms(user)
-        true
+        ok
       end
 
     end
