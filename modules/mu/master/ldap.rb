@@ -26,7 +26,7 @@ module MU
       # @return [Net::LDAP]
       def self.getLDAPConnection
         return @ldap_conn if @ldap_conn
-        bind_creds = MU::Groomer::Chef.getSecret(vault: $MU_CFG["ldap"]["svc_acct_vault"], item: $MU_CFG["ldap"]["svc_acct_item"])
+        bind_creds = MU::Groomer::Chef.getSecret(vault: $MU_CFG["ldap"]["bind_creds"]["vault"], item: $MU_CFG["ldap"]["bind_creds"]["item"])
         @ldap_conn = Net::LDAP.new(
           :host => $MU_CFG["ldap"]["dcs"].first,
           :encryption => :simple_tls,
@@ -34,8 +34,8 @@ module MU
           :base => $MU_CFG["ldap"]["base_dn"],
           :auth => {
             :method => :simple,
-            :username => bind_creds["dn"],
-            :password => bind_creds["password"]
+            :username => bind_creds[$MU_CFG["ldap"]["bind_creds"]["username_field"]],
+            :password => bind_creds[$MU_CFG["ldap"]["bind_creds"]["password_field"]]
           }
         )
         @ldap_conn

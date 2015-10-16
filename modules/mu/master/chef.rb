@@ -422,16 +422,16 @@ module MU
       # Mangle Chef's server config to speak to LDAP. Technically this only
       # impacts logins for their web UI, which we currently don't use.
       def self.configureChefForLDAP
-      if $MU_CFG.has_key?("ldap")
-          bind_creds = MU::Groomer::Chef.getSecret(vault: $MU_CFG["ldap"]["svc_acct_vault"], item: $MU_CFG["ldap"]["svc_acct_item"])
+        if $MU_CFG.has_key?("ldap")
+          bind_creds = MU::Groomer::Chef.getSecret(vault: $MU_CFG["ldap"]["bind_creds"]["vault"], item: $MU_CFG["ldap"]["bind_creds"]["item"])
           vars = {
             "server_url" => $MU_CFG["public_address"],
             "ldap" => true,
             "base_dn" => $MU_CFG["ldap"]["base_dn"],
             "group_dn" => $MU_CFG["ldap"]["admin_group_dn"],
             "dc" => $MU_CFG["ldap"]["dcs"].first,
-            "bind_dn" => bind_creds["dn"],
-            "bind_pw" => bind_creds["password"],
+            "bind_dn" => bind_creds[$MU_CFG["ldap"]["bind_creds"]["username_field"]],
+            "bind_pw" => bind_creds[$MU_CFG["ldap"]["bind_creds"]["password_field"]],
           }
           chef_cfgfile = "/etc/opscode/chef-server.rb"
           chef_tmpfile = "#{chef_cfgfile}.tmp.#{Process.pid}"

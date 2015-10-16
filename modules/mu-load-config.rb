@@ -23,16 +23,61 @@ require 'erubis'
 # into the Ruby $LOAD_PATH.
 # @return [Hash]
 def loadMuConfig
-  global_cfg = local_cfg = {}
+  # Start with sane defaults
+  default_cfg = {
+    "installdir" => "/opt/mu",
+    "libdir" => "/opt/mu/lib",
+    "hostname" => "mu-master",
+    "mu_admin_email" => "root@localhost",
+    "jenkins_admin_email" => "root@localhost",
+    "allow_invade_foreign_vpcs" => false,
+    "mu_repo" => "cloudamatic/mu.git",
+    "banner" => "Mu Master",
+    "scratchpad" => {
+      "template_path" => "/opt/mu/lib/modules/scratchpad.erb"
+    },
+    "aws" => {
+      "log_bucket_name" => "mu-master-logs"
+    },
+    "ldap" => {
+      "base_dn" => "OU=Mu,DC=localhost",
+      "bind_creds" => {
+        "vault" => "mu_ldap",
+        "item" => "mu_bind_acct",
+        "username_field" => "username",
+        "password_field" => "password"
+      },
+      "join_creds" => {
+        "vault" => "mu_ldap",
+        "item" => "mu_join_acct",
+        "username_field" => "username",
+        "password_field" => "password"
+      },
+      "domain_name" => "mu",
+      "domain_netbios_name" => "mu",
+      "user_group_dn" => "CN=Mu-Users,OU=Groups,OU=Mu,DC=localhost",
+      "user_group_name" => "mu-users",
+      "admin_group_dn" => "CN=Mu-Admins,OU=Groups,OU=Mu,DC=localhost",
+      "admin_group_name" => "mu-admins",
+      "dcs" => ["localhost"]
+    }
+  }
   if ENV.include?('MU_INSTALLDIR')
-    global_cfg = YAML.load(File.read(ENV['MU_INSTALLDIR']+"/etc/mu.yaml"))
-    global_cfg["installdir"] = ENV['MU_INSTALLDIR']
+    cfg_file = ENV['MU_INSTALLDIR']+"/etc/mu.yaml"
+    default_cfg["installdir"] = ENV['MU_INSTALLDIR']
+    if !File.exists?(cfg_file)
+      puts "**** Master config #{cfg_file} does not exist, initializing *****"
+      File.open(cfg_file, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
+        f.puts default_cfg.to_yaml
+      }
+    end
+    global_cfg = YAML.load(File.read(cfg_file))
   elsif File.readable?("/opt/mu/etc/mu.yaml")
     global_cfg = YAML.load(File.read("/opt/mu/etc/mu.yaml"))
     global_cfg["installdir"] = "/opt/mu"
 # XXX have more guesses, e.g. assume this file's being loaded from somewhere in the install. That's mean picking where this thing lives, deciding whether's a stub or the full library...
   end
-  
+
   home = Etc.getpwuid(Process.uid).dir
   username = Etc.getpwuid(Process.uid).name
   if File.readable?("#{home}/.mu.yaml")
@@ -50,7 +95,7 @@ def loadMuConfig
   end
 
   $LOAD_PATH << "#{global_cfg["libdir"]}/modules"
-  return global_cfg.freeze
+  return default_cfg.merge(global_cfg).freeze
 end
 
 $MU_CFG = loadMuConfig

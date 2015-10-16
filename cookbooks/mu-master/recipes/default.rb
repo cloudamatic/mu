@@ -22,7 +22,6 @@ search_domains = ["ec2.internal", "server.#{instance_id}.platform-mu", "platform
 
 if $MU_CFG.has_key?('ldap')
   include_recipe 'chef-vault'
-  bind_creds = chef_vault_item($MU_CFG['ldap']['svc_acct_vault'], $MU_CFG['ldap']['svc_acct_item'])
   node.normal.ad = {}
   node.normal.ad.computer_name = "MU-MASTER"
   node.normal.ad.node_class = "mumaster"
