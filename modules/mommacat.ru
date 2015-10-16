@@ -203,7 +203,17 @@ app = proc do |env|
       begin
         secret = MU::Master.fetchScratchPadSecret(itemname)
         MU.log "Retrieved scratchpad secret #{itemname} for #{env['REMOTE_ADDR']}"
-        page = Erubis::Eruby.new(File.read("#{$MU_CFG['libdir']}/modules/scratchpad.erb")).result({"secret"=>secret})
+        page = nil
+        if $MU_CFG.has_key?('scratchpad') and
+           $MU_CFG['scratchpad'].has_key?("template_path") and
+           File.exist?($MU_CFG['scratchpad']['template_path']) and
+           File.readable?($MU_CFG['scratchpad']['template_path'])
+          page = Erubis::Eruby.new(File.read($MU_CFG['scratchpad']['template_path'])).result({"secret"=>secret})
+        elsif File.exist?("#{$MU_CFG['libdir']}/modules/scratchpad.erb") and
+           File.readable?("#{$MU_CFG['libdir']}/modules/scratchpad.erb")
+          page = Erubis::Eruby.new(File.read("#{$MU_CFG['libdir']}/modules/scratchpad.erb")).result({"secret"=>secret})
+        end
+
         returnval = [
           200,
           {
