@@ -572,6 +572,35 @@ module MU
               end
             end
           }
+
+          # Lets try cleaning MU DNS records in all zones.
+          MU::Cloud::AWS.route53(region).list_hosted_zones.hosted_zones.each { |zone|
+            zone_rrsets = []
+            rrsets = MU::Cloud::AWS.route53(region).list_resource_record_sets(hosted_zone_id: zone.id)
+            rrsets.resource_record_sets.each { |record|
+              zone_rrsets << record
+            }
+
+            # AWS API returns a maximum of 100 results. DNS zones are likely to have more than 100 records, lets page and make sure we grab all records in a given zone
+            while rrsets.next_record_name && rrsets.next_record_type
+              rrsets = MU::Cloud::AWS.route53(region).list_resource_record_sets(hosted_zone_id: zone.id, start_record_name: rrsets.next_record_name, start_record_type: rrsets.next_record_type)
+              rrsets.resource_record_sets.each { |record|
+                zone_rrsets << record
+              }
+            end
+
+            # TO DO: if we have more than one record it will retry the deletion multiple times and will throw Aws::Route53::Errors::InvalidChangeBatch / record not found even though the record was deleted
+            zone_rrsets.each { |record|
+              if record.name.match(MU.deploy_id.downcase)
+                resource_records = []
+                record.resource_records.each { |rrecord|
+                  resource_records << rrecord.value
+                }
+
+                MU::Cloud::AWS::DNSZone.manageRecord(zone.id, record.name, record.type, targets: resource_records, sync_wait: false, delete: true) if !noop
+              end
+            }
+          }
         end
 
         # Locate an existing DNSZone or DNSZones and return an array containing matching AWS resource descriptors for those that match.

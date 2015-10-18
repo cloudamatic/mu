@@ -34,6 +34,7 @@ default['tomcat']['generate_ssl_cert'] = true
 default['tomcat']['ssl_max_threads'] = 150
 default['tomcat']['ssl_cert_file'] = nil
 default['tomcat']['ssl_key_file'] = nil
+default['tomcat']['redirect_http_to_https'] = false
 default['tomcat']['ssl_chain_files'] = []
 default['tomcat']['keystore_file'] = 'keystore.jks'
 default['tomcat']['keystore_type'] = 'jks'

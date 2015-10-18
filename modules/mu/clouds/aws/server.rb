@@ -1743,17 +1743,30 @@ module MU
           end
 
           if !server_obj.nil?
+            # DNS cleanup is now done in MU::Cloud::DNSZone. Keeping this for now
             cleaned_dns = false
             mu_name = server_obj.mu_name
             mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
             if !mu_zone.nil?
-              dns_targets = []
+              zone_rrsets = []
               rrsets = MU::Cloud::AWS.route53(region).list_resource_record_sets(hosted_zone_id: mu_zone.id)
+              rrsets.resource_record_sets.each{ |record|
+                zone_rrsets << record
+              }
+
+            # AWS API returns a maximum of 100 results. DNS zones are likely to have more than 100 records, lets page and make sure we grab all records in a given zone
+              while rrsets.next_record_name && rrsets.next_record_type
+                rrsets = MU::Cloud::AWS.route53(region).list_resource_record_sets(hosted_zone_id: mu_zone.id, start_record_name: rrsets.next_record_name, start_record_type: rrsets.next_record_type)
+                rrsets.resource_record_sets.each{ |record|
+                  zone_rrsets << record
+                }
+              end
             end
             if !onlycloud and !mu_name.nil?
-              if !rrsets.nil?
-                rrsets.resource_record_sets.each { |rrset|
-                  if rrset.name.match(/^#{mu_name.downcase}\.server\.#{MU.myInstanceId}\.mu/i)
+              # DNS cleanup is now done in MU::Cloud::DNSZone. Keeping this for now
+              if !zone_rrsets.empty?
+                zone_rrsets.each { |rrset|
+                  if rrset.name.match(/^#{mu_name.downcase}\.server\.#{MU.myInstanceId}\.platform-mu/i)
                     rrset.resource_records.each { |record|
                       MU::Cloud::DNSZone.genericMuDNSEntry(name: mu_name, target: record.value, cloudclass: MU::Cloud::Server, delete: true)
                       cleaned_dns = true
@@ -1784,8 +1797,8 @@ module MU
               if !mu_zone.nil? and !cleaned_dns and !instance.nil?
                 instance.tags.each { |tag|
                   if tag.key == "Name"
-                    rrsets.resource_record_sets.each { |rrset|
-                      if rrset.name.match(/^#{tag.value.downcase}\.server\.#{MU.myInstanceId}\.mu/i)
+                    zone_rrsets.each { |rrset|
+                      if rrset.name.match(/^#{tag.value.downcase}\.server\.#{MU.myInstanceId}\.platform-mu/i)
                         rrset.resource_records.each { |record|
                           MU::Cloud::DNSZone.genericMuDNSEntry(name: tag.value, target: record.value, cloudclass: MU::Cloud::Server, delete: true) if !noop
                         }

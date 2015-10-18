@@ -608,8 +608,10 @@ module MU
         # If we have a database make sure we grant access to that vault.
         deploy = MU::MommaCat.getLitter(MU.deploy_id)
         if deploy.deployment.has_key?("databases")
-          deploy.deployment["databases"].each { |name, database|
-            grantSecretAccess(database['vault_name'], database['vault_item']) if database.has_key?("vault_name") && database.has_key?("vault_item")
+          deploy.deployment["databases"].each { |node_class, data|
+            data.each{ |name, database|
+              grantSecretAccess(database['vault_name'], database['vault_item']) if database.has_key?("vault_name") && database.has_key?("vault_item")
+            }
           }
         end
 
