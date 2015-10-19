@@ -140,6 +140,9 @@ module MU
             }
           end
 
+          @config['records'].each { |dnsrec|
+            dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
+          }
           MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@config['records'])
 
           return resp.hosted_zone
@@ -597,7 +600,7 @@ module MU
                   resource_records << rrecord.value
                 }
 
-                MU::Cloud::AWS::DNSZone.manageRecord(zone.id, record.name, record.type, targets: resource_records, sync_wait: false, delete: true) if !noop
+                MU::Cloud::AWS::DNSZone.manageRecord(zone.id, record.name, record.type, targets: resource_records, ttl: record.ttl, sync_wait: false, delete: true) if !noop
               end
             }
           }

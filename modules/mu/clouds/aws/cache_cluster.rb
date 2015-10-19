@@ -446,6 +446,7 @@ module MU
             if @config['dns_records']
               @config['dns_records'].each { |dnsrec|
                 dnsrec['name'] = repl_group.node_groups.first.primary_endpoint.address.downcase if !dnsrec.has_key?('name')
+                dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
               }
             end
             # XXX this should be a call to @deploy.nameKitten

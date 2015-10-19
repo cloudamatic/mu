@@ -304,6 +304,7 @@ module MU
             # XXX this should be a call to @deploy.nameKitten
             @config['dns_records'].each { |dnsrec|
               dnsrec['name'] = @mu_name.downcase if !dnsrec.has_key?('name')
+              dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
             }
             MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@config['dns_records'], target: resp.dns_name)
           end
