@@ -32,6 +32,7 @@ def loadMuConfig
     "jenkins_admin_email" => "root@localhost",
     "allow_invade_foreign_vpcs" => false,
     "mu_repo" => "cloudamatic/mu.git",
+    "public_address" => "localhost", # need to overwrite later with user input or pulling from AWS
     "banner" => "Mu Master",
     "scratchpad" => {
       "template_path" => "/opt/mu/lib/modules/scratchpad.erb"
@@ -40,7 +41,9 @@ def loadMuConfig
       "log_bucket_name" => "mu-master-logs"
     },
     "ldap" => {
-      "base_dn" => "OU=Mu,DC=localhost",
+      "type" => "389",
+      "base_dn" => "OU=Mu,DC=platform-mu",
+      "user_ou" => "OU=Users,OU=Mu,DC=platform-mu",
       "bind_creds" => {
         "vault" => "mu_ldap",
         "item" => "mu_bind_acct",
@@ -53,11 +56,11 @@ def loadMuConfig
         "username_field" => "username",
         "password_field" => "password"
       },
-      "domain_name" => "mu",
+      "domain_name" => "platform-mu",
       "domain_netbios_name" => "mu",
-      "user_group_dn" => "CN=Mu-Users,OU=Groups,OU=Mu,DC=localhost",
+      "user_group_dn" => "CN=Mu-Users,OU=Groups,OU=Mu,DC=platform-mu",
       "user_group_name" => "mu-users",
-      "admin_group_dn" => "CN=Mu-Admins,OU=Groups,OU=Mu,DC=localhost",
+      "admin_group_dn" => "CN=Mu-Admins,OU=Groups,OU=Mu,DC=platform-mu",
       "admin_group_name" => "mu-admins",
       "dcs" => ["localhost"]
     }
@@ -72,16 +75,20 @@ def loadMuConfig
       }
     end
     global_cfg = YAML.load(File.read(cfg_file))
+    global_cfg["config_files"] = [cfg_file]
   elsif File.readable?("/opt/mu/etc/mu.yaml")
     global_cfg = YAML.load(File.read("/opt/mu/etc/mu.yaml"))
+    global_cfg["config_files"] = ["/opt/mu/etc/mu.yaml"]
     global_cfg["installdir"] = "/opt/mu"
 # XXX have more guesses, e.g. assume this file's being loaded from somewhere in the install. That's mean picking where this thing lives, deciding whether's a stub or the full library...
   end
 
   home = Etc.getpwuid(Process.uid).dir
   username = Etc.getpwuid(Process.uid).name
+  global_cfg["config_files"] = [] if !global_cfg["config_files"]
   if File.readable?("#{home}/.mu.yaml")
     global_cfg.merge!(YAML.load(File.read("#{home}/.mu.yaml")))
+    global_cfg["config_files"] << "#{home}/.mu.yaml"
   end
   if !global_cfg.has_key?("libdir")
     global_cfg["libdir"] = ENV['MU_INSTALLDIR']+"/lib"

@@ -18,7 +18,56 @@ require 'net-ldap'
 module MU
   class Master
     class LDAP
+      class MuLDAPError < MU::MuError;end
       require 'date'
+
+      # Make sure the LDAP section of $MU_CFG makes sense.
+      def self.validateConfig
+        ok = true
+        supported = ["Active Directory", "389 Directory Services"]
+        if !$MU_CFG
+          raise "Configuration not loaded yet, but MU::Master::LDAP.validateConfig was called!"
+        end
+        if !$MU_CFG.has_key?("ldap")
+          raise MuLDAPError "Missing 'ldap' section of config (files: #{$MU_CFG['config_files']})"
+        end
+        ldap = $MU_CFG["ldap"] # shorthand
+        if !ldap.has_key?("type") or !supported.include?(ldap["type"])
+          ok = false
+          MU.log "Bad or missing 'type' of LDAP server (should be one of #{supported})", MU::ERR
+        end
+        ["base_dn", "user_ou", "domain_name", "domain_netbios_name", "user_group_dn", "user_group_name", "admin_group_dn", "admin_group_name"].each { |var|
+          if !ldap.has_key?(var) or !ldap[var].is_a?(String)
+            ok = false
+            MU.log "LDAP config section parameter '#{var}' is missing or is not a String", MU::ERR
+          end
+        }
+        if !ldap.has_key?("dcs") or !ldap["dcs"].is_a?(Array) or ldap["dcs"].size < 1
+          ok = false
+          MU.log "Missing or empty 'dcs' section of LDAP config"
+        end
+        ["bind_creds", "join_creds"].each { |creds|
+          if !ldap.has_key?(creds) or !ldap[creds].is_a?(Hash) or
+             !ldap[creds].has_key?("vault") or !ldap[creds].has_key?("item") or
+             !ldap[creds].has_key?("username_field") or
+             !ldap[creds].has_key?("password_field")
+            MU.log "LDAP config subsection '#{creds}' misconfigured, should be hash containing: vault, item, username_field, password_field", MU::ERR
+            ok = false
+            next
+          end
+          loaded = MU::Groomer::Chef.getSecret(vault: ldap[creds]["vault"], item: ldap[creds]["item"])
+          if !loaded or !loaded.has_key?(ldap[creds]["username_field"]) or
+              loaded[ldap[creds]["username_field"]].empty? or
+              !loaded.has_key?(ldap[creds]["password_field"]) or
+              loaded[ldap[creds]["password_field"]].empty?
+            MU.log "LDAP config subsection '#{creds}' refers to a bogus vault or incorrect/missing item fields", MU::ERR, details: ldap[creds]
+            ok = false
+          end
+        }
+        if !ok
+          raise MuLDAPError, "One or more LDAP configuration errors from files #{$MU_CFG['config_files']}"
+        end
+      end
 
       @ldap_conn = nil
       # Create and return a connection to our directory service. If we've
@@ -26,6 +75,7 @@ module MU
       # @return [Net::LDAP]
       def self.getLDAPConnection
         return @ldap_conn if @ldap_conn
+        validateConfig
         bind_creds = MU::Groomer::Chef.getSecret(vault: $MU_CFG["ldap"]["bind_creds"]["vault"], item: $MU_CFG["ldap"]["bind_creds"]["item"])
         @ldap_conn = Net::LDAP.new(
           :host => $MU_CFG["ldap"]["dcs"].first,
@@ -39,6 +89,130 @@ module MU
           }
         )
         @ldap_conn
+      end
+
+      # Intended to run when Mu's local LDAP server has been created. Use the
+      # root credentials to populate our OU structure, create other users, etc.
+      # This only needs to understand a 389 Directory style schema, since
+      # obviously we're not running Active Directory locally on Linux.
+      def self.initLocalLDAP
+        validateConfig
+        if $MU_CFG["ldap"]["type"] != "389 Directory Services" or
+            !$MU_CFG["ldap"]["dcs"].include?("localhost")
+          MU.log "Custom directory service configured, not initializing bundled schema", MU::NOTICE
+          return
+        end
+        root_creds = MU::Groomer::Chef.getSecret(vault: "mu_ldap", item: "root_dn_user")
+        @ldap_conn = Net::LDAP.new(
+          :host => "127.0.0.1",
+          :encryption => :simple_tls,
+          :port => 636,
+          :base => "",
+          :auth => {
+            :method => :simple,
+            :username => root_creds["username"],
+            :password => root_creds["password"]
+          }
+        )
+
+        # Manufacture our OU tree and groups
+        [$MU_CFG["ldap"]["base_dn"],
+          "OU=Mu-System,#{$MU_CFG["ldap"]["base_dn"]}",
+          $MU_CFG["ldap"]["user_ou"],
+          $MU_CFG["ldap"]["user_group_dn"],
+          $MU_CFG["ldap"]["admin_group_dn"]
+        ].each { |full_dn|
+          dn = ""
+          full_dn.split(/,/).reverse.each { |chunk|
+            if dn.empty?
+              dn = chunk
+            else
+              dn = "#{chunk},#{dn}"
+            end
+            next if chunk.match(/^DC=/i)
+            if chunk.match(/^OU=(.*)/i)
+              ou = $1
+              if !@ldap_conn.add(
+                    :dn => dn,
+                    :attributes => {
+                      :ou => ou, 
+                      :objectclass =>"organizationalUnit"
+                    }
+                  ) and @ldap_conn.get_operation_result.code != 68 # "already exists"
+                MU.log "Error creating #{dn}: "+getLDAPErr, MU::ERR
+                return false
+              elsif @ldap_conn.get_operation_result.code != 68
+                MU.log "Created OU #{dn}", MU::NOTICE
+              end
+            elsif chunk.match(/^CN=(.*)/i)
+              group = $1
+              attr = {
+                :cn => group,
+                :description => "#{group} Group",
+                :objectclass => ["top", "groupofuniquenames"]
+              }
+              if !@ldap_conn.add(
+                    :dn => dn,
+                    :attributes => attr
+                  ) and @ldap_conn.get_operation_result.code != 68
+                MU.log "Error creating #{dn}: "+getLDAPErr, MU::ERR, details: attr
+                return false
+              elsif @ldap_conn.get_operation_result.code != 68
+                MU.log "Created group #{dn}", MU::NOTICE
+              end
+            end
+          }
+        }
+         
+        ["bind_creds", "join_creds"].each { |creds|
+          data = MU::Groomer::Chef.getSecret(vault: $MU_CFG["ldap"][creds]["vault"], item: $MU_CFG["ldap"][creds]["item"])
+          user_dn = data[$MU_CFG["ldap"][creds]["username_field"]]
+          user_dn.match(/^CN=(.*?),/i)
+          username = $1
+          pw = data[$MU_CFG["ldap"][creds]["password_field"]]
+
+          attr = {
+            :cn => username,
+            :displayName => "Mu Service Account",
+            :objectclass => ["top", "person", "organizationalPerson", "inetorgperson"],
+            :uid => username,
+            :mail => $MU_CFG['mu_admin_email'],
+            :givenName => "Mu",
+            :sn => "Service",
+            :userPassword => pw
+          }
+          if !@ldap_conn.add(
+                :dn => data[$MU_CFG["ldap"][creds]["username_field"]],
+                :attributes => attr
+              ) and @ldap_conn.get_operation_result.code != 68
+            pp attr
+            raise MU::MuError, "Failed to create user #{user_dn} (#{getLDAPErr})"
+          elsif @ldap_conn.get_operation_result.code != 68
+            MU.log "Created #{username} (#{user_dn})", MU::NOTICE
+          end
+
+          # Set the password
+          if !@ldap_conn.replace_attribute(user_dn, :userPassword, [pw])
+            MU.log "Couldn't update password for user #{username}.", MU::ERR, details: getLDAPErr
+          end
+
+          # Grant this user appropriate privileges
+          targets = []
+          if creds == "bind_creds"
+            targets << $MU_CFG["ldap"]["user_ou"]
+            targets << $MU_CFG["ldap"]["user_group_dn"]
+            targets << $MU_CFG["ldap"]["admin_group_dn"]
+          elsif creds == "join_creds"
+          end
+          targets.each { | target|
+            aci = "(targetattr=\"*\")(target=\"ldap:///#{target}\")(version 3.0; acl \"#{username} admin privileges for #{target}\"; allow (all) userdn=\"ldap:///#{user_dn}\";)"
+            if !@ldap_conn.modify(:dn => $MU_CFG["ldap"]["base_dn"], :operations => [[:add, :aci, aci]]) and @ldap_conn.get_operation_result.code != 20
+              MU.log "Couldn't modify permissions for user #{username}.", MU::ERR, details: getLDAPErr
+            elsif @ldap_conn.get_operation_result.code != 20
+              MU.log "Granted #{username} user admin privileges over #{target}", MU::NOTICE
+            end
+          }
+        }
       end
 
       # Shorthand for fetching the most recent error on the active LDAP
@@ -370,7 +544,7 @@ module MU
       # @param admin [Boolean]: Whether to flag this user as an admin
       # @param mu_only [Boolean]: Whether to operate on users outside of Mu (generic directory users)
       # @param ou [String]: The OU into which to deposit new users.
-      def self.manageUser(user, name: nil, password: nil, email: nil, admin: false, mu_only: true, ou: $MU_CFG["ldap"]["base_dn"])
+      def self.manageUser(user, name: nil, password: nil, email: nil, admin: false, mu_only: true, ou: $MU_CFG["ldap"]["user_ou"])
         cur_users = listUsers
 
         first = last = nil

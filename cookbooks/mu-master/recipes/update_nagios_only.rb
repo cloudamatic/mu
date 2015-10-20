@@ -1,6 +1,6 @@
 #
 # Cookbook Name:: mu-master
-# Recipe:: update_nagios_bonly
+# Recipe:: update_nagios_only
 #
 # Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
 #

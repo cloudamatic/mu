@@ -894,13 +894,13 @@ set_hostname()
       hostnamectl set-hostname $HOSTNAME && systemctl restart systemd-hostnamed
     fi
   fi
-  if ! grep "^$MY_PRIVATE_IP $HOSTNAME MU-MASTER" /etc/hosts > /dev/null;then
+  if ! grep "^$MY_PRIVATE_IP $HOSTNAME.platform-mu $HOSTNAME MU-MASTER" /etc/hosts > /dev/null;then
     sed -i "/ $HOSTNAME/d" /etc/hosts
     sed -i "/^$MY_PRIVATE_IP/d" /etc/hosts
-    echo "$MY_PRIVATE_IP $HOSTNAME MU-MASTER" >> /etc/hosts
+    echo "$MY_PRIVATE_IP $HOSTNAME.platform-mu $HOSTNAME MU-MASTER" >> /etc/hosts
     if [ "$MY_PRIVATE_IP" != "$MY_PUBLIC_IP" -a "$MY_PUBLIC_IP" != "" ];then
       sed -i "/^$MY_PUBLIC_IP/d" /etc/hosts
-      echo "$MY_PUBLIC_IP $HOSTNAME MU-MASTER" >> /etc/hosts
+      echo "$MY_PUBLIC_IP $HOSTNAME.platform-mu $HOSTNAME MU-MASTER" >> /etc/hosts
     fi
 #   if [ "$CHEF_PUBLIC_IP" != "$MY_PUBLIC_IP" -a "$CHEF_PUBLIC_IP" != "" ];then
 #     echo "$CHEF_PUBLIC_IP $HOSTNAME MU-MASTER" >> /etc/hosts
@@ -1470,13 +1470,16 @@ generate_ssl_certs()
   fi
 
   # XXX should use set_serial option and maniuplate "serial"
-  for cert in rsyslog mommacat nagios;do
+  for cert in rsyslog mommacat nagios ldap;do
     if [ ! -f $cert.crt -o $regen_all == 1 ];then
       status_message "Creating self-signed $cert SSL certificate"
       openssl genrsa -out $cert.key 4096
       chmod 400 $cert.key
       openssl req -subj "/CN=$CHEF_PUBLIC_IP/O=eGlobalTech/C=US" -new -key $cert.key -out $cert.csr
       openssl x509 -req -in $cert.csr -CA Mu_CA.pem -CAkey Mu_CA.key -CAcreateserial -out $cert.crt -days 500
+    fi
+    if [ ! -f $cert.p12 -o $regen_all == 1 ];then
+      openssl pkcs12 -export -inkey $cert.key -in $cert.crt -out $cert.p12 -nodes -name "$cert" -passout pass:""
     fi
   done
 }
@@ -1572,7 +1575,7 @@ if [ "$library" != "1" ];then
   echo "${BOLD}source $MURC${NORM}"
   echo ""
   echo "Users:"
-  $MU_LIBDIR/bin/mu-user-manage -l
+  $MU_LIBDIR/bin/mu-user-manage
   echo ""
   echo "To add more users, use ${BOLD}mu-user-manage${NORM}."
   echo ""

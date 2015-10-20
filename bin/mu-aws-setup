@@ -22,7 +22,7 @@
 require 'etc'
 require 'securerandom'
 
-require File.expand_path(File.dirname(__FILE__))+"/mu-load-murc.rb"
+require File.expand_path(File.dirname(__FILE__))+"/mu-load-config.rb"
 
 require 'rubygems'
 require 'bundler/setup'
@@ -318,6 +318,14 @@ if $opts[:dns]
       rescue Aws::Route53::Errors::ConflictingDomainExists
       end
     end
+    resolver = Resolv::DNS.new
+    my_ip = ""
+    begin
+      my_ip = resolver.getaddress($MU_CFG['hostname']).to_s
+    end rescue Resolv::ResolvError
+    if my_ip != MU.mu_public_ip
+      MU::Cloud::AWS::DNSZone.manageRecord(ext_zone.id, $MU_CFG['hostname'], "A", targets: [MU.mu_public_ip])
+   end
   end
 end
 

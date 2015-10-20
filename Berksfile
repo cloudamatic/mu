@@ -16,6 +16,8 @@ cookbook 'application_ruby', '~> 2.1.4'
 cookbook 'apt', '~> 2.7.0'
 cookbook 'aws', '~> 2.7.2'
 cookbook 'awscli', path: "#{cookbookPath}/awscli"
+cookbook 'bind', '~> 1.1.2'
+cookbook 'bind9-ng', '~> 0.1.0'
 cookbook 'bluepill', '~> 2.3.1'
 cookbook 'build-essential', '~> 2.2.3'
 cookbook 'mu-master', path: "#{cookbookPath}/mu-master"
