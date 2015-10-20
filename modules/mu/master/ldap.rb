@@ -596,8 +596,11 @@ module MU
             end
             attr[:userPassword] = "********"
             MU.log "Created new LDAP user #{user}", details: attr
-            groups = [$MU_CFG["ldap"]["user_group_name"]]
-            groups << $MU_CFG["ldap"]["admin_group_name"] if admin
+            groups = []
+            if mu_only
+              groups << $MU_CFG["ldap"]["user_group_name"]
+              groups << $MU_CFG["ldap"]["admin_group_name"] if admin
+            end
             groups.each { |group|
               manageGroup(group, add_users: [user])
             }
