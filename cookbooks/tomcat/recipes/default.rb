@@ -262,6 +262,7 @@ node['tomcat']['instances'].each do |name, attrs|
     jndi_connections attrs['jndi_connections']
     jndi attrs['jndi']
     cors_enabled attrs['cors_enabled']
+    redirect_http_to_https attrs['redirect_http_to_https']
     ldap_enabled attrs['ldap_enabled']
     ldap_servers attrs['ldap_servers']
     ldap_port attrs['ldap_port']

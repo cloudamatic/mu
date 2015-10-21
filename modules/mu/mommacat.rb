@@ -1365,6 +1365,7 @@ module MU
         dnscfg = config['dns_records'].dup
         dnscfg.each { |dnsrec|
           dnsrec['name'] = node.downcase if !dnsrec.has_key?('name')
+          dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
           if !dnsrec.has_key?("target")
             if dnsrec["type"] == "CNAME"
               dnsrec["target"] = server.cloud_desc.public_dns_name.empty? ? server.cloud_desc.private_dns_name : server.cloud_desc.public_dns_name

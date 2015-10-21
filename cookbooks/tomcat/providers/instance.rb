@@ -8,7 +8,7 @@ action :configure do
    :max_threads, :ssl_max_threads, :ssl_cert_file, :ssl_key_file, :generate_ssl_cert,
    :ssl_chain_files, :keystore_file, :keystore_type, :truststore_file,
    :truststore_type, :certificate_dn, :loglevel, :tomcat_auth, :user,
-   :group, :tmp_dir, :lib_dir, :endorsed_dir, :jndi_connections, :jndi, :cors_enabled,
+   :group, :tmp_dir, :lib_dir, :endorsed_dir, :jndi_connections, :jndi, :cors_enabled, :redirect_http_to_https,
    :app_base, :ldap_enabled, :ldap_servers, :ldap_port, :ldap_bind_user, :ldap_bind_pwd,
    :ldap_user_base, :ldap_role_base, :ldap_domain_name, :ldap_group, :ldap_user_search,
    :ldap_role_search].each do |attr|
@@ -307,16 +307,17 @@ action :configure do
     mode '0644' if node.platform_family != 'windows'
     notifies :restart, "service[#{instance}]"
     variables ({
-                  :cors_enabled => new_resource.cors_enabled
-              })
+      :cors_enabled => new_resource.cors_enabled,
+      :redirect_http_to_https => new_resource.redirect_http_to_https
+    })
   end
 
   template "#{new_resource.config_dir}/context.xml" do
     source 'context.xml.erb'
     variables ({
-                  :jndi => new_resource.jndi,
-                  :jndi_connections => new_resource.jndi_connections
-              })
+      :jndi => new_resource.jndi,
+      :jndi_connections => new_resource.jndi_connections
+    })
     owner new_resource.user if node.platform_family != 'windows'
     group new_resource.group if node.platform_family != 'windows'
     mode '0644' if node.platform_family != 'windows'

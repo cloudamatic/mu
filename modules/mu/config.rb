@@ -3124,6 +3124,11 @@ module MU
                       "type" => "string",
                       "pattern" => "^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$"
                   },
+                  "append_environment_name" => {
+                      "description" => "If to append the environment name (eg mydnsname.dev.mudomain.com). to the DNS name",
+                      "type" => "boolean",
+                      "default" => false
+                  },
                   "geo_location" => {
                       "type" => "object",
                       "description" => "Set location for location-based routing.",

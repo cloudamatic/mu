@@ -80,6 +80,9 @@ attribute :tomcat_auth,
 attribute :cors_enabled,
           :kind_of => String,
           :equal_to => ['true', 'false']
+attribute :redirect_http_to_https,
+          :kind_of => String,
+          :equal_to => ['true', 'false']
 attribute :ldap_enabled,
           :kind_of => String,
           :equal_to => ['true', 'false']

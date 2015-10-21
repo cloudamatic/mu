@@ -964,6 +964,7 @@ module MU
               if db['dns_records']
                 db['dns_records'].each { |dnsrec|
                   dnsrec['name'] = cluster.db_cluster_identifier if !dnsrec.has_key?('name')
+                  dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
                 }
                 end
               # XXX this should be a call to @deploy.nameKitten
@@ -1005,6 +1006,7 @@ module MU
                 if db['dns_records']
                   db['dns_records'].each { |dnsrec|
                     dnsrec['name'] = database.db_instance_identifier if !dnsrec.has_key?('name')
+                    dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
                   }
                 end
                 # XXX this should be a call to @deploy.nameKitten
