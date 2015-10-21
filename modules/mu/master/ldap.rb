@@ -70,12 +70,22 @@ module MU
       end
 
       @ldap_conn = nil
+      @gid_attr = "cn"
+      @member_attr = "uniqueMember"
+      @uid_attr = "uid"
+      @group_class = "groupofuniquenames"
       # Create and return a connection to our directory service. If we've
       # already opened one, return that.
       # @return [Net::LDAP]
       def self.getLDAPConnection
         return @ldap_conn if @ldap_conn
         validateConfig
+        if $MU_CFG["ldap"]["type"] == "Active Directory"
+          @gid_attr = "sAMAccountName"
+          @member_attr = "member"
+          @uid_attr = "sAMAccountName"
+          @group_class = "group"
+        end
         bind_creds = MU::Groomer::Chef.getSecret(vault: $MU_CFG["ldap"]["bind_creds"]["vault"], item: $MU_CFG["ldap"]["bind_creds"]["item"])
         @ldap_conn = Net::LDAP.new(
           :host => $MU_CFG["ldap"]["dcs"].first,
@@ -203,6 +213,7 @@ module MU
             targets << $MU_CFG["ldap"]["user_group_dn"]
             targets << $MU_CFG["ldap"]["admin_group_dn"]
           elsif creds == "join_creds"
+# XXX Some machine-related OU?
           end
           targets.each { | target|
             aci = "(targetattr=\"*\")(target=\"ldap:///#{target}\")(version 3.0; acl \"#{username} admin privileges for #{target}\"; allow (all) userdn=\"ldap:///#{user_dn}\";)"
@@ -251,14 +262,25 @@ module MU
         return @can_write if !@can_write.nil?
 
         conn = getLDAPConnection
-        dn = "CN=Mu Testuser #{Process.pid},#{$MU_CFG["ldap"]["base_dn"]}"
+        dn = "CN=Mu Testuser #{Process.pid},#{$MU_CFG["ldap"]["user_ou"]}"
         attr = {
           :cn => "Mu Testuser #{Process.pid}",
-          :objectclass => ["user"],
-          :samaccountname => "mu.testuser.#{Process.pid}",
-          :userPrincipalName => "mu.testuser.#{Process.pid}@#{$MU_CFG["ldap"]["domain_name"]}",
-          :pwdLastSet => "-1"
+          @uid_attr.to_sym => "mu.testuser.#{Process.pid}"
         }
+        group_attr = :uniqueMember
+        if $MU_CFG["ldap"]["type"] == "Active Directory"
+          attr[:objectclass] = ["user"]
+          attr[:userPrincipalName] = "mu.testuser.#{Process.pid}@#{$MU_CFG["ldap"]["domain_name"]}"
+          attr[:pwdLastSet] = "-1"
+          group_attr = :member
+        elsif $MU_CFG["ldap"]["type"] == "389 Directory Services"
+          attr[:objectclass] = ["top", "person", "organizationalPerson", "inetorgperson"]
+          attr[:userPassword] = Password.pronounceable(12..14)
+          attr[:displayName] = "Mu Test User #{Process.pid}"
+          attr[:mail] = $MU_CFG['mu_admin_email']
+          attr[:givenName] = "Mu"
+          attr[:sn] = "TestUser"
+        end
 
         @can_write = true
         if !conn.add(:dn => dn, :attributes => attr)
@@ -276,10 +298,12 @@ module MU
         }
 
         # Can we add them to the Mu membership group(s)
-        if !conn.modify(:dn => $MU_CFG["ldap"]["admin_group_dn"], :operations => [[:add, :member, dn]])
-          MU.log "Couldn't add write-test user #{dn} to group #{$MU_CFG["ldap"]["admin_group_dn"]}, operating in read-only LDAP mode", MU::NOTICE, details: getLDAPErr
-          @can_write = false
-        end
+        [$MU_CFG["ldap"]["user_group_dn"], $MU_CFG["ldap"]["admin_group_dn"]].each { |group|
+          if !conn.modify(:dn => group, :operations => [[:add, group_attr, dn]])
+            MU.log "Couldn't add write-test user #{dn} to group #{group}, operating in read-only LDAP mode", MU::NOTICE, details: getLDAPErr
+            @can_write = false
+          end
+        }
 
         if !conn.delete(:dn => dn)
           MU.log "Couldn't delete write-test user #{dn}, operating in read-only LDAP mode", MU::NOTICE
@@ -302,9 +326,9 @@ module MU
         conn = getLDAPConnection
         filter = nil
         search.each { |term|
-          curfilter = Net::LDAP::Filter.contains("sAMAccountName", "#{term}")
+          curfilter = Net::LDAP::Filter.contains(@gid_attr, "#{term}")
           if exact
-            curfilter = Net::LDAP::Filter.eq("sAMAccountName", "#{term}")
+            curfilter = Net::LDAP::Filter.eq(@gid_attr, "#{term}")
           end
 
           if !filter
@@ -341,7 +365,7 @@ module MU
         'trustedToAuthForDelegation' => 0x1000000 #TRUSTED_TO_AUTH_FOR_DELEGATION
       }.freeze
 
-      # Find a directory user with fuzzy string matching on sAMAccountName, displayName, group memberships, or email
+      # Find a directory user with fuzzy string matching on sAMAccountName/uid, displayName, group memberships, or email
       # @param search [Array<String>]: Strings to search for.
       # @param exact [Boolean]: Return only exact matches for whole fields.
       # @param searchbase [String]: The DN under which to search.
@@ -353,11 +377,17 @@ module MU
         if search.size > 0
           groups = findGroups(search, exact: exact, searchbase: searchbase)
         end
-        searchattrs = ["sAMAccountName"]
+        searchattrs = [@uid_attr]
+        getattrs = []
+        if $MU_CFG["ldap"]["type"] == "389 Directory Services"
+          getattrs = ["uid", "displayName", "mail"] + extra_attrs
+        elsif $MU_CFG["ldap"]["type"] == "Active Directory"
+          getattrs = ["sAMAccountName", "displayName", "mail", "lastLogon", "lockoutTime", "pwdLastSet", "memberOf", "userAccountControl"] + extra_attrs
+        end
         if !exact
           searchattrs = searchattrs + ["displayName", "mail"] + extra_attrs
         end
-        getattrs = ["sAMAccountName", "displayName", "mail", "lastLogon", "lockoutTime", "pwdLastSet", "memberOf", "userAccountControl"] + extra_attrs
+
         conn = getLDAPConnection
         users = {}
         filter = nil
@@ -406,26 +436,26 @@ module MU
           :attributes => getattrs
         ) do |acct|
           begin
-            next if users.has_key?(acct.samaccountname.first)
+            next if users.has_key?(acct[@uid_attr].first)
           rescue NoMethodError
             next
           end
-          users[acct.samaccountname.first] = {}
-          users[acct.samaccountname.first]['dn'] = acct.dn
+          users[acct[@uid_attr].first] = {}
+          users[acct[@uid_attr].first]['dn'] = acct.dn
           getattrs.each { |attr|
             begin
               if acct[attr].size == 1
-                users[acct.samaccountname.first][attr] = acct[attr].first
+                users[acct[@uid_attr].first][attr] = acct[attr].first
               else
-                users[acct.samaccountname.first][attr] = acct[attr]
+                users[acct[@uid_attr].first][attr] = acct[attr]
               end
               if attr == "userAccountControl"
                 AD_PW_ATTRS.each_pair { |pw_attr, bitmask|
                   if (bitmask | acct[attr].first.to_i) == acct[attr].first.to_i
-                    users[acct.samaccountname.first][pw_attr] = true
+                    users[acct[@uid_attr].first][pw_attr] = true
                   end
                 }
-                users[acct.samaccountname.first][attr] = acct[attr].first.to_i.to_s(2)
+                users[acct[@uid_attr].first][attr] = acct[attr].first.to_i.to_s(2)
               end
             end rescue NoMethodError
           }
@@ -439,14 +469,14 @@ module MU
         users = {}
 
         ["admin_group_name", "user_group_name"].each { |group|
-          groupname_filter = Net::LDAP::Filter.eq("sAMAccountName", $MU_CFG["ldap"][group])
-          group_filter = Net::LDAP::Filter.eq("objectClass", "group")
+          groupname_filter = Net::LDAP::Filter.eq(@gid_attr, $MU_CFG["ldap"][group])
+          group_filter = Net::LDAP::Filter.eq("objectClass", @group_class)
           member_cns = []
           conn.search(
             :filter => Net::LDAP::Filter.join(groupname_filter, group_filter),
-            :attributes => ["member"]
+            :attributes => [@member_attr]
           ) do |item|
-            member_cns = item.member.dup
+            member_cns = item[@member_attr].dup
           end
           member_cns.each { |member|
             cn = member.dup.sub(/^CN=([^\,]+?),.*/i, "\\1")
@@ -454,21 +484,21 @@ module MU
             conn.search(
               :filter => Net::LDAP::Filter.eq("cn",cn),
               :base => searchbase,
-              :attributes => ["sAMAccountName", "displayName", "mail"]
+              :attributes => [@uid_attr, "displayName", "mail"]
             ) do |acct|
-              next if users.has_key?(acct.samaccountname.first)
-              users[acct.samaccountname.first] = {}
-              users[acct.samaccountname.first]['dn'] = acct.dn
+              next if users.has_key?(acct[@uid_attr].first)
+              users[acct[@uid_attr].first] = {}
+              users[acct[@uid_attr].first]['dn'] = acct.dn
               if group == "admin_group_name"
-                users[acct.samaccountname.first]['admin'] = true
+                users[acct[@uid_attr].first]['admin'] = true
               else
-                users[acct.samaccountname.first]['admin'] = false
+                users[acct[@uid_attr].first]['admin'] = false
               end
               begin
-                users[acct.samaccountname.first]['realname'] = acct.displayname.first
+                users[acct[@uid_attr].first]['realname'] = acct.displayname.first
               end rescue NoMethodError
               begin
-                users[acct.samaccountname.first]['email'] = acct.mail.first
+                users[acct[@uid_attr].first]['email'] = acct.mail.first
               end rescue NoMethodError
             end
           }
@@ -477,35 +507,28 @@ module MU
       end
 
       def self.deleteUser(user)
-        cur_users = listUsers
-
-        if cur_users.has_key?(user)
-          # Creating a new user
-          if canWriteLDAP?
-            conn = getLDAPConnection
-            dn = nil
-            conn.search(
-              :filter => Net::LDAP::Filter.eq("sAMAccountName",user),
-              :base => $MU_CFG["ldap"]["base_dn"],
-              :attributes => ["sAMAccountName"]
-            ) do |acct|
-              dn = acct.dn
-              break
-            end
-            return false if dn.nil?
-            if !conn.delete(:dn => dn)
-              MU.log "Failed to delete #{user} from LDAP: #{getLDAPErr}", MU::WARN, details: dn
-              return false
-            end
-            MU.log "Removed LDAP user #{user}", MU::NOTICE
-            return true
-          else
-            MU.log "We are in read-only LDAP mode. You must manually delete #{user} from your directory.", MU::WARN
+        if canWriteLDAP?
+          conn = getLDAPConnection
+          dn = nil
+          conn.search(
+            :filter => Net::LDAP::Filter.eq(@uid_attr, user),
+            :base => $MU_CFG["ldap"]["base_dn"],
+            :attributes => [@uid_attr]
+          ) do |acct|
+            dn = acct.dn
+            break
           end
+          return false if dn.nil?
+          if !conn.delete(:dn => dn)
+            MU.log "Failed to delete #{user} from LDAP: #{getLDAPErr}", MU::WARN, details: dn
+            return false
+          end
+          MU.log "Removed LDAP user #{user}", MU::NOTICE
+          return true
         else
-          MU.log "#{user} does not exist in directory, cannot remove.", MU::DEBUG
-          return false
+          MU.log "We are in read-only LDAP mode. You must manually delete #{user} from your directory.", MU::WARN
         end
+
         false
       end
 
@@ -523,10 +546,13 @@ module MU
         end
         add_users = findUsers(add_users, exact: true) if add_users.size > 0
         remove_users = findUsers(remove_users, exact: true) if remove_users.size > 0
+        group_attr = :uniqueMember
+        group_attr = :member if $MU_CFG["ldap"]["type"] == "Active Directory"
+
         conn = getLDAPConnection
         if add_users.size > 0
           add_users.each_pair { |user, data|
-            if !conn.modify(:dn => group_dn, :operations => [[:add, :member, data["dn"]]])
+            if !conn.modify(:dn => group_dn, :operations => [[:add, group_attr, data["dn"]]])
               MU.log "Couldn't add user #{user} (#{data['dn']}) to group #{group} (#{group_dn}).", MU::WARN, details: getLDAPErr
             else
               MU.log "Added #{user} to group #{group}", MU::NOTICE
@@ -535,7 +561,7 @@ module MU
         end
         if remove_users.size > 0
           remove_users.each_pair { |user, data|
-            if !conn.modify(:dn => group_dn, :operations => [[:delete, :member, data["dn"]]])
+            if !conn.modify(:dn => group_dn, :operations => [[:delete, group_attr, data["dn"]]])
               MU.log "Couldn't remove user #{user} (#{data['dn']}) from group #{group} (#{group_dn}).", MU::WARN, details: getLDAPErr
             else
               MU.log "Removed #{user} from group #{group}", MU::NOTICE
@@ -570,10 +596,12 @@ module MU
 
         # Oh, Microsoft. Slap quotes around it, convert it to Unicode, and call
         # it Sally. *Then* it's a password.
-        if !password.nil?
+        password_attr = :userPassword
+        if !password.nil? and $MU_CFG["ldap"]["type"] == "Active Directory"
           ascii_pw = '"'+password+'"'
           password = ""
           ascii_pw.length.times{|i| password+= "#{ascii_pw[i..i]}\000" }
+          password_attr = :unicodePwd
         end
 
         ok = true
@@ -588,19 +616,23 @@ module MU
             attr = {
               :cn => name,
               :displayName => name,
-              :objectclass => ["user"],
-              :samaccountname => user,
               :givenName => first,
-              :userAccountControl => AD_PW_ATTRS['normal'].to_s,
               :sn => last,
               :mail => email,
               :userPassword => password,
-              :unicodePwd => password,
-              :userPrincipalName => "#{user}@#{$MU_CFG["ldap"]["domain_name"]}",
-              :pwdLastSet => "-1"
             }
-            if mu_acct
-              attr[:userAccountControl] = (attr[:userAccountControl].to_i & AD_PW_ATTRS['pwdNeverExpires']).to_s
+            if $MU_CFG["ldap"]["type"] == "389 Directory Services"
+              attr[:objectclass] = ["top", "person", "organizationalPerson", "inetorgperson"]
+              attr[:uid] = user
+            elsif $MU_CFG["ldap"]["type"] == "Active Directory"
+              attr[:objectclass] = ["user"]
+              attr[:samaccountname] = user
+              attr[:userAccountControl] = AD_PW_ATTRS['normal'].to_s
+              attr[:userPrincipalName] = "#{user}@#{$MU_CFG["ldap"]["domain_name"]}"
+              attr[:pwdLastSet] = "-1"
+              if mu_acct
+                attr[:userAccountControl] = (attr[:userAccountControl].to_i & AD_PW_ATTRS['pwdNeverExpires']).to_s
+              end
             end
             if !conn.add(:dn => user_dn, :attributes => attr)
               pp attr
@@ -631,7 +663,7 @@ module MU
             end
             MU::Master.setLocalDataPerms(user)
           else
-            MU.log "We are in read-only LDAP mode. You must create #{user} in your directory and add it to #{$MU_CFG["ldap"]["user_group_dn"]}. If the user is intended to be an admin, also add it to #{$MU_CFG["ldap"]["admin_group_dn"]}.", MU::WARN
+            MU.log "We are in read-only LDAP mode. You must first create #{user} in your directory and add it to #{$MU_CFG["ldap"]["user_group_dn"]}. If the user is intended to be an admin, also add it to #{$MU_CFG["ldap"]["admin_group_dn"]}.", MU::WARN
             return true
           end
         else
@@ -654,7 +686,7 @@ module MU
             end
             if !password.nil?
               MU.log "Updating password for #{user}", MU::NOTICE
-              if !conn.replace_attribute(user_dn, :unicodePwd, [password])
+              if !conn.replace_attribute(user_dn, password_attr, [password])
                 MU.log "Couldn't update password for user #{user}.", MU::WARN, details: getLDAPErr
                 ok = false
               end

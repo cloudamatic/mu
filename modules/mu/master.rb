@@ -87,6 +87,11 @@ module MU
       if !MU::Master::LDAP.manageUser(username, name: name, email: email, password: password, admin: admin)
         return false
       end
+      begin
+        Etc.getpwnam(username)
+      rescue ArgumentError
+        return false
+      end
       %x{/bin/su - #{username} -c "ls > /dev/null"}
       if !MU::Master::Chef.manageUser(chef_username, ldap_user: username, name: name, email: email, admin: admin, orgs: orgs, remove_orgs: remove_orgs) and create
         deleteUser(username)
