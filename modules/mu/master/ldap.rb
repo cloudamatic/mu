@@ -327,11 +327,18 @@ module MU
 
       # See https://technet.microsoft.com/en-us/library/ee198831.aspx
       AD_PW_ATTRS = {
+        'script' => 0x0001, #SCRIPT
+        'disable' => 0x0002, #ACCOUNTDISABLE
+        'homedirRequired' => 0x0008, #HOMEDIR_REQUIRED
+        'lockout' => 0x0010, #LOCKOUT
         'noPwdRequired' => 0x0020, #ADS_UF_PASSWD_NOTREQD
         'cantChangePwd' => 0x0040, #ADS_UF_PASSWD_CANT_CHANGE
         'pwdStoredReversible' => 0x0080, #ADS_UF_ENCRYPTED_TEXT_PASSWORD_ALLOWED
+        'tempDuplicateAccount' => 0x0100, #NORMAL_ACCOUNT
+        'normal' => 0x0200, #NORMAL_ACCOUNT
         'pwdNeverExpires' => 0x10000, #ADS_UF_DONT_EXPIRE_PASSWD
-        'pwdExpired' => 0x80000 #ADS_UF_PASSWORD_EXPIRED
+        'pwdExpired' => 0x80000, #ADS_UF_PASSWORD_EXPIRED
+        'trustedToAuthForDelegation' => 0x1000000 #TRUSTED_TO_AUTH_FOR_DELEGATION
       }.freeze
 
       # Find a directory user with fuzzy string matching on sAMAccountName, displayName, group memberships, or email
@@ -542,9 +549,9 @@ module MU
       # @param password [String]: Set the user's password
       # @param email [String]: Set the user's email address
       # @param admin [Boolean]: Whether to flag this user as an admin
-      # @param mu_only [Boolean]: Whether to operate on users outside of Mu (generic directory users)
+      # @param mu_acct [Boolean]: Whether to operate on users outside of Mu (generic directory users)
       # @param ou [String]: The OU into which to deposit new users.
-      def self.manageUser(user, name: nil, password: nil, email: nil, admin: false, mu_only: true, ou: $MU_CFG["ldap"]["user_ou"])
+      def self.manageUser(user, name: nil, password: nil, email: nil, admin: false, mu_acct: true, ou: $MU_CFG["ldap"]["user_ou"])
         cur_users = listUsers
 
         first = last = nil
@@ -557,7 +564,7 @@ module MU
         # If we're operating on users that aren't specifically Mu users,
         # fetch generic directory information about them instead of the Mu
         # user descriptor.
-        if !mu_only
+        if !mu_acct
           cur_users = findUsers([user], exact: true)
         end
 
@@ -584,12 +591,17 @@ module MU
               :objectclass => ["user"],
               :samaccountname => user,
               :givenName => first,
+              :userAccountControl => AD_PW_ATTRS['normal'].to_s,
               :sn => last,
               :mail => email,
               :userPassword => password,
+              :unicodePwd => password,
               :userPrincipalName => "#{user}@#{$MU_CFG["ldap"]["domain_name"]}",
               :pwdLastSet => "-1"
             }
+            if mu_acct
+              attr[:userAccountControl] = (attr[:userAccountControl].to_i & AD_PW_ATTRS['pwdNeverExpires']).to_s
+            end
             if !conn.add(:dn => user_dn, :attributes => attr)
               pp attr
               raise MU::MuError, "Failed to create user #{user} (#{getLDAPErr})"
@@ -597,7 +609,7 @@ module MU
             attr[:userPassword] = "********"
             MU.log "Created new LDAP user #{user}", details: attr
             groups = []
-            if mu_only
+            if mu_acct
               groups << $MU_CFG["ldap"]["user_group_name"]
               groups << $MU_CFG["ldap"]["admin_group_name"] if admin
             end
@@ -658,7 +670,7 @@ module MU
             MU.log "We are in read-only LDAP mode. You must manage #{user} in your directory.", MU::WARN
           end
         end
-        return ok if !mu_only # everything below is Mu-specific
+        return ok if !mu_acct # everything below is Mu-specific
         cur_users = MU::Master.listUsers
 
         ["realname", "email", "monitoring_email"].each { |field|
