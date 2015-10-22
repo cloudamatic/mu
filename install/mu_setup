@@ -831,6 +831,12 @@ fix_platform_repo_permissions()
         find "$chefdir/$subdir" -type f -exec chmod go+r {} \;
       fi
     done
+    for subdir in bin utils;do
+      if [ -e "$chefdir/$subdir" ];then
+        find "$chefdir/$subdir" -type d -exec chmod go+rx {} \;
+        find "$chefdir/$subdir" -type f -exec chmod go+rx {} \;
+      fi
+    done
   fi
 }
 
