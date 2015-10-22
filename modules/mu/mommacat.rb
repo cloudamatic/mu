@@ -824,12 +824,18 @@ module MU
 
     # Release a flock() lock.
     # @param id [String]: The lock identifier to release.
-    def self.unlock(id)
+    def self.unlock(id, global = false)
       raise MuError, "Can't pass a nil id to MU::MommaCat.unlock" if id.nil?
+      lockdir = nil
+      if !global
+        lockdir = "#{deploy_dir(MU.deploy_id)}/locks"
+      else
+        lockdir = File.expand_path(MU.dataDir+"/locks")
+      end
       @lock_semaphore.synchronize {
         return if @locks.nil? or @locks[Thread.current.object_id].nil? or @locks[Thread.current.object_id][id].nil?
       }
-      MU.log "Releasing lock on #{deploy_dir(MU.deploy_id)}/locks/#{id}.lock (thread #{Thread.current.object_id})", MU::DEBUG
+      MU.log "Releasing lock on #{lockdir}/#{id}.lock (thread #{Thread.current.object_id})", MU::DEBUG
       begin
         @locks[Thread.current.object_id][id].flock(File::LOCK_UN)
         @locks[Thread.current.object_id][id].close

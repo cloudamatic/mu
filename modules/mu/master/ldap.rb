@@ -74,6 +74,7 @@ module MU
       @member_attr = "uniqueMember"
       @uid_attr = "uid"
       @group_class = "groupofuniquenames"
+      @uid_range_start = 10000
       # Create and return a connection to our directory service. If we've
       # already opened one, return that.
       # @return [Net::LDAP]
@@ -519,6 +520,21 @@ module MU
             break
           end
           return false if dn.nil?
+          # Our default LDAP server doesn't cascade user deletes through groups,
+          # so help it out.
+          if $MU_CFG["ldap"]["type"] == "389 Directory Services"
+            conn.search(
+              :filter => Net::LDAP::Filter.eq("objectclass", "groupofuniquenames"),
+              :base => $MU_CFG["ldap"]["base_dn"],
+              :attributes => ["cn", "uniqueMember"]
+            ) do |group|
+              group.uniquemember.each { |member|
+                if member.downcase == dn.downcase
+                  manageGroup(group.cn.first, remove_users: [user])
+                end
+              }
+            end
+          end
           if !conn.delete(:dn => dn)
             MU.log "Failed to delete #{user} from LDAP: #{getLDAPErr}", MU::WARN, details: dn
             return false
@@ -624,6 +640,22 @@ module MU
             if $MU_CFG["ldap"]["type"] == "389 Directory Services"
               attr[:objectclass] = ["top", "person", "organizationalPerson", "inetorgperson"]
               attr[:uid] = user
+              # Nothing stops external programs from stealing a uid from under
+              # us. Ugh. A mapping might be n
+              MU::MommaCat.lock("uid_generator", false, true)
+              used_uids = []
+              Etc.passwd{ |u|
+                if u.name == user and mu_acct
+                  raise "Username #{user} already exists as a system user, cannot allocate in directory"
+                end
+                used_uids << u.uid
+              }
+              for x in @uid_range_start..65535 do
+                if !used_uids.include?(x)
+                  attr[:employeeNumber] = x.to_s
+                  break
+                end
+              end
             elsif $MU_CFG["ldap"]["type"] == "Active Directory"
               attr[:objectclass] = ["user"]
               attr[:samaccountname] = user
@@ -635,9 +667,10 @@ module MU
               end
             end
             if !conn.add(:dn => user_dn, :attributes => attr)
-              pp attr
+              MU::MommaCat.unlock("uid_generator", true)
               raise MU::MuError, "Failed to create user #{user} (#{getLDAPErr})"
             end
+            MU::MommaCat.unlock("uid_generator", true)
             attr[:userPassword] = "********"
             MU.log "Created new LDAP user #{user}", details: attr
             groups = []
@@ -656,6 +689,10 @@ module MU
               %x{/usr/bin/getent passwd}
               Etc.getpwnam(user)
             rescue ArgumentError
+              if wait >= 30
+                MU.log "User #{user} has been created in LDAP, but local system can't see it. Are PAM/LDAP/Winbind configured correctly?", MU::ERR
+                return false
+              end
               MU.log "User #{user} has been created in LDAP, but not yet visible to local system, waiting #{wait}s and checking again.", MU::WARN
               sleep wait
               wait = wait + 5
