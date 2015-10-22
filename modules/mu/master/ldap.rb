@@ -698,6 +698,7 @@ module MU
               wait = wait + 5
               retry
             end
+            %x{/sbin/restorecon -r /home} # SELinux stupidity that oddjob misses
             gid = MU::Master.setLocalDataPerms(user)
             if $MU_CFG["ldap"]["type"] == "389 Directory Services"
               # Make sure we have a sensible default gid

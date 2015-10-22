@@ -19,6 +19,7 @@ require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.r
 require 'mu'
 require 'trollop'
 require 'simple-password-gen'
+require 'net/smtp'
 
 if Etc.getpwuid(Process.uid).name != "root"
   MU.log "#{$0} can only be run as root", MU::ERR
@@ -53,7 +54,52 @@ Deleting users:
   opt :generate_password, "Generate and set a random password for this user.", :require => false, :type => :boolean, :default => false
   opt :link_to_chef_user, "Link to an existing Chef user. Chef's naming restrictions sometimes necessitate having a different account name than everything else. Also useful for linking a pre-existing Chef user to the rest of a Mu account.", :require => false, :type => :string
   opt :interactive, "Interactive mode. Will prompt for missing fields.", :require => false, :type => :boolean
+  opt :scratchpad, "Use Mu's Scratchpad to securely share user passwords instead of printing the password directly to the terminal.", :require => false, :type => :boolean, :default => true
+  opt :notify_user, "Share the Scratchpad link for new passwords to users via email, instead of printing to the screen.", :require => false, :type => :boolean, :default => false
 end
+
+def mailUser(to, subject, message)
+  from = "root@#{$MU_CFG['hostname']}"
+  fullmsg = <<MESSAGE_END
+From: Mu <#{from}>
+To: #{to}
+MIME-Version: 1.0
+Content-type: text/html
+Subject: #{subject}
+
+<br>
+<pre>#{message}</pre>
+MESSAGE_END
+  Net::SMTP.start('localhost') do |smtp|
+    smtp.send_message(fullmsg, from, to)
+  end
+end
+
+def sendPassword(username, password, scratchpad: true, notify: true)
+  users = MU::Master::LDAP.findUsers
+  if scratchpad
+    scratchitem = MU::Master.storeScratchPadSecret("Mu password for user #{username}: #{password}")
+    url = "https://#{$MU_CFG['public_address']}:2260/scratchpad/#{scratchitem}"
+    MU.log "Stored in scratchpad, public URL: #{url}", MU::NOTICE
+    if users[username]["mail"] and
+       users[username]["mail"].match(/^[A-Z0-9\._%\+\-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,6}$/i)
+      if notify
+        message = "Your Mu development credentials have been set.\nYou can access your new password ONCE by visiting the following url:\n\n<a href='#{url}'>#{url}</a>"
+        mailUser(users[username]["mail"], "Your Mu password password", message)
+        MU.log "Sent new password notification to #{users[username]["mail"]}."
+        MU.log "IMPORTANT: Be sure that your Mu Master is able to send mail (see /var/log/maillog)", MU::NOTICE
+      else
+        MU.log "Email notification disabled by default. Don't forget to share the Scratchpad URL with the user.", MU::WARN
+      end
+    else
+      MU.log "No email address found for #{username}, you will have to share the Scratchpad URL some other way.", MU::WARN
+    end
+  else
+# XXX skip this message if we read the password interactively
+    MU.log "Password for #{username}: #{password}", MU::NOTICE
+  end
+end
+
 
 Dir.mkdir($MU_CFG['datadir']+"/users", 0755) if !Dir.exist?($MU_CFG['datadir']+"/users")
 
@@ -135,7 +181,8 @@ end
 if $opts[:delete]
   bail = false
   $opts.each_key { |opt|
-    if opt.to_s != "delete" and $opts[opt] and !opt.to_s.match(/_given$/)
+    if !["delete", "scratchpad", "notify_user"].include?(opt.to_s) and
+        $opts[opt] and !opt.to_s.match(/_given$/)
       MU.log "Ignoring extraneous option '#{opt.to_s}' in delete", MU::WARN
     end
   }
@@ -204,14 +251,18 @@ else
     )
     exit 1
   end
-  if create
+  if create and !$opts[:skipupload]
     home = Etc.getpwnam($username).dir
     MU.log "Uploading Chef artifacts to the new '#{$username}' organization. This may take a while.", MU::NOTICE
-    %x{su - #{$username} -c "#{$MU_CFG['installdir']}/bin/mu-upload-chef-artifacts -n 2>&1 > /dev/null && touch #{home}/.first_chef_upload"}
+    %x{/sbin/su - #{$username} -c "#{$MU_CFG['installdir']}/bin/mu-upload-chef-artifacts -n 2>&1 > /dev/null && touch #{home}/.first_chef_upload"}
   end
 end
-if $opts[:generate_password]
-  MU.log "Generated password for #{$username}: #{$password}", MU::NOTICE
+if $password
+  if $opts[:notify_user] or $opts[:scratchpad]
+    sendPassword($username, $password, scratchpad: $opts[:scratchpad], notify: $opts[:notify_user])
+  elsif $opts[:generate_password]
+    MU.log "Generated password for #{$username}: #{$password}", MU::NOTICE
+  end
 end
 
 MU::Master.printUsersToTerminal(MU::Master.listUsers)
