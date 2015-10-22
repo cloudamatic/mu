@@ -85,6 +85,7 @@ module MU
       cur_users = listUsers
       create = true if !cur_users.has_key?(username)
       if !MU::Master::LDAP.manageUser(username, name: name, email: email, password: password, admin: admin)
+        deleteUser(username)
         return false
       end
       begin
@@ -143,6 +144,7 @@ module MU
       MU::Master::Chef.deleteUser(user)
       MU::Master::LDAP.deleteUser(user)
       FileUtils.rm_rf(deletia)
+      %x{/usr/sbin/groupdel "#{user}.mu-user"}
     end
 
     @scratchpad_semaphore = Mutex.new
@@ -214,6 +216,7 @@ module MU
     # and updating stored values. Create a single-user group for the user, as
     # well.
     # @param user [String]: The user to update
+    # @return [Integer]: The gid of the user's default group
     def self.setLocalDataPerms(user)
       userdir = $MU_CFG['datadir']+"/users/#{user}"
       begin
@@ -227,6 +230,7 @@ module MU
             File.chmod(0640, userdir+"/"+file)
           end
         }
+        return gid
       rescue ArgumentError
         %x{/usr/sbin/groupadd "#{user}.mu-user"}
         retry

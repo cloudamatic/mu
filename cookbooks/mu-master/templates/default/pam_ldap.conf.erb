@@ -291,6 +291,6 @@ ssl start_tls
 tls_cacertdir /etc/openldap/cacerts
 pam_password md5
 nss_map_attribute    passwd uidNumber        employeeNumber
-nss_map_attribute    passwd gidNumber        employeeNumber
+nss_map_attribute    passwd gidNumber        "${departmentNumber:-$employeeNumber}"
 nss_map_attribute homeDirectory    "${homeDirectory:-/home/$uid}"
 nss_map_attribute loginShell    "/bin/bash"

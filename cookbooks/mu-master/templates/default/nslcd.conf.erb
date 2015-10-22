@@ -130,7 +130,7 @@ gid ldap
 # This comment prevents repeated auto-migration of settings.
 filter passwd (objectClass=inetorgperson)
 map    passwd uidNumber        employeeNumber
-map    passwd gidNumber        employeeNumber
+map    passwd gidNumber        "${departmentNumber:-$employeeNumber}"
 map    passwd homeDirectory    "${homeDirectory:-/home/$uid}"
 map    passwd loginShell    "/bin/bash"
 uri ldap://<%= @dc %>/

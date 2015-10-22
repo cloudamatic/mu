@@ -698,17 +698,25 @@ module MU
               wait = wait + 5
               retry
             end
-            MU::Master.setLocalDataPerms(user)
+            gid = MU::Master.setLocalDataPerms(user)
+            if $MU_CFG["ldap"]["type"] == "389 Directory Services"
+              # Make sure we have a sensible default gid
+              conn.replace_attribute(user_dn, :departmentNumber, gid.to_s)
+            end
           else
             MU.log "We are in read-only LDAP mode. You must first create #{user} in your directory and add it to #{$MU_CFG["ldap"]["user_group_dn"]}. If the user is intended to be an admin, also add it to #{$MU_CFG["ldap"]["admin_group_dn"]}.", MU::WARN
             return true
           end
         else
-          MU::Master.setLocalDataPerms(user)
+          gid = MU::Master.setLocalDataPerms(user)
           # Modifying an existing user
           if canWriteLDAP?
             conn = getLDAPConnection
             user_dn = cur_users[user]['dn']
+            if $MU_CFG["ldap"]["type"] == "389 Directory Services"
+              # Make sure we have a sensible default gid
+              conn.replace_attribute(user_dn, :departmentNumber, gid.to_s)
+            end
             if !name.nil? and cur_users[user]['realname'] != name
               MU.log "Updating display name for #{user} to #{name}", MU::NOTICE
               conn.replace_attribute(user_dn, :displayName, name)
