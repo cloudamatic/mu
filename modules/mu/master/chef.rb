@@ -22,7 +22,7 @@ module MU
       # one, return that.
       # @return [Chef::REST]
       def self.chefAPI
-        @chef_api ||= ::Chef::REST.new("https://"+$MU_CFG["public_address"], "pivotal", "/etc/opscode/pivotal.pem", {:api_version => "1"})
+        @chef_api ||= ::Chef::REST.new("https://"+$MU_CFG["public_address"]+":7443", "pivotal", "/etc/opscode/pivotal.pem", {:api_version => "1"})
         @chef_api
       end
 
@@ -132,8 +132,8 @@ module MU
           f.puts "client_key               '#{chefdir}/#{chef_user}.user.key'"
           f.puts "validation_client_name   '#{chef_user}-validator'"
           f.puts "validation_key           '$chef_cache/#{chef_user}.org.key'"
-          f.puts "chef_server_url 'https://#{$MU_CFG["public_address"]}/organizations/#{chef_user}'"
-          f.puts "chef_server_root 'https://#{$MU_CFG["public_address"]}/organizations/#{chef_user}'"
+          f.puts "chef_server_url 'https://#{$MU_CFG["public_address"]}:7443/organizations/#{chef_user}'"
+          f.puts "chef_server_root 'https://#{$MU_CFG["public_address"]}:7443/organizations/#{chef_user}'"
           f.puts "syntax_check_cache_path  '#{chef_user}/syntax_check_cache'"
           f.puts "cookbook_path [ '#{chef_user}/cookbooks', '#{chef_user}/site_cookbooks' ]"
           f.puts "knife[:vault_mode] = 'client'"

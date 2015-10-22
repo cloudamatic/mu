@@ -35,7 +35,7 @@ Show details for a specific user:
 #{$0} <username>
 
 Adding/modifying users:
-#{$0} [-i] [-a|-r] [-e <email>] [-n '<Real Name>'] [-p <password>|-g] [-o <chef_org>] [-v <chef_org>] [-m <email>] [-l <chef_user>] <username>
+#{$0} [-a|-r] [-e <email>] [-n '<Real Name>'] [-i|-p <password>|-g] [-o <chef_org>] [-v <chef_org>] [-m <email>] [-l <chef_user>] <username>
 
 Deleting users:
 #{$0} [-i] -d <username>
@@ -53,7 +53,7 @@ Deleting users:
   opt :password, "Set a specific password for this user.", :require => false, :type => :string
   opt :generate_password, "Generate and set a random password for this user.", :require => false, :type => :boolean, :default => false
   opt :link_to_chef_user, "Link to an existing Chef user. Chef's naming restrictions sometimes necessitate having a different account name than everything else. Also useful for linking a pre-existing Chef user to the rest of a Mu account.", :require => false, :type => :string
-  opt :interactive, "Interactive mode. Will prompt for missing fields.", :require => false, :type => :boolean
+  opt :interactive, "Interactive prompt to set a password.", :require => false, :type => :boolean
   opt :scratchpad, "Use Mu's Scratchpad to securely share user passwords instead of printing the password directly to the terminal.", :require => false, :type => :boolean, :default => true
   opt :notify_user, "Share the Scratchpad link for new passwords to users via email, instead of printing to the screen.", :require => false, :type => :boolean, :default => false
 end
@@ -122,6 +122,11 @@ if $opts[:generate_password]
   $password = MU.generateWindowsPassword
 elsif $opts[:password]
   $password = $opts[:password]
+elsif $opts[:interactive]
+  STDOUT.print "Enter password for #{$username}: "
+  $password = STDIN.noecho(&:gets)
+  puts
+  MU.log "Note: If this password does not comply with complexity requirements, you may get an 'Unwilling to perform' response", MU::NOTICE
 end
 
 $cur_users = MU::Master.listUsers
@@ -131,7 +136,7 @@ $opts.select { |opt| opt =~ /_given$/ }.size == 0
 if !ARGV[0] or ARGV[0].empty?
   bail = false
   $opts.each_key { |opt|
-    if $opts[opt] and !opt.to_s.match(/_given$/)
+    if $opts[opt] and !opt.to_s.match(/_given$/) and !["notify_user", "scratchpad"].include?(opt.to_s)
       MU.log "Must specify a username with the '#{opt.to_s}' option", MU::ERR
       bail = true
     end
@@ -233,8 +238,8 @@ else
       bail = true
     end
     if $password.nil?
-      MU.log "Must supply a password for #{$username} with -p (raw string), -g (generate), or -i (interactive mode).", MU::ERR
-      bail = true
+      $password = MU.generateWindowsPassword
+      MU.log "Creating a new account but no password supplied, invoking -g (generate) behavior.", MU::NOTICE
     end
     exit 1 if bail
   end
@@ -266,7 +271,3 @@ if $password
 end
 
 MU::Master.printUsersToTerminal(MU::Master.listUsers)
-
-# If we asked for interactive mode, fill in the blanks
-if $opts.interactive
-end

@@ -512,7 +512,7 @@ manage_chef_user()
 #
 log_level        :info
 log_location     STDOUT
-chef_server_url  "https://#{ENV['CHEF_PUBLIC_IP']}/organizations/$user"
+chef_server_url  "https://${CHEF_PUBLIC_IP}:7443/organizations/$user"
 validation_client_name '$user-validator'
 EOF
     if [ "$user" != "mu" ];then
@@ -1132,8 +1132,8 @@ node_name                '$knife_user'
 client_key               '$chef_cache/$knife_user.user.key'
 validation_client_name   '$knife_user-validator'
 validation_key           '$chef_cache/$knife_user.org.key'
-chef_server_url "https://$CHEF_PUBLIC_IP:443/$basepath"
-chef_server_root "https://$CHEF_PUBLIC_IP:443/$basepath"
+chef_server_url "https://${CHEF_PUBLIC_IP}:7443/$basepath"
+chef_server_root "https://${CHEF_PUBLIC_IP}:7443/$basepath"
 syntax_check_cache_path  '$chef_cache/syntax_check_cache'
 cookbook_path [ '$chef_cache/cookbooks', '$chef_cache/site_cookbooks' ]
 knife[:vault_mode] = 'client'
@@ -1150,6 +1150,7 @@ install_chef()
 {
   punch_tcp_hole 80
   punch_tcp_hole 443
+  punch_tcp_hole 7443
   if ! grep '^mu-users:' /etc/group > /dev/null ;then
     /usr/sbin/groupadd mu-users
   fi
@@ -1185,7 +1186,7 @@ install_chef()
     status_message "Hostname or IP may have changed, reconfiguring Chef"
     /opt/opscode/bin/chef-server-ctl restart
     /opt/opscode/bin/chef-server-ctl reconfigure
-    knife ssl fetch -u pivotal -k /etc/opscode/pivotal.pem -s https://${CHEF_PUBLIC_IP} > /dev/null 2>&1
+    knife ssl fetch -u pivotal -k /etc/opscode/pivotal.pem -s https://${CHEF_PUBLIC_IP}:7443 > /dev/null 2>&1
     rm -f /etc/chef/client.*
     knife node delete -y MU-MASTER
     knife client delete -y MU-MASTER
@@ -1193,7 +1194,7 @@ install_chef()
   fi
 # add_chef_support_gems /opt/opscode/embedded
 
-  pivotal_cfg="-u pivotal -k /etc/opscode/pivotal.pem -s https://$HOSTNAME"
+  pivotal_cfg="-u pivotal -k /etc/opscode/pivotal.pem -s https://${CHEF_PUBLIC_IP}:7443"
   knife ssl fetch $pivotal_cfg > /dev/null 2>&1
 
   list_chef_users ext_chef_users 
@@ -1252,6 +1253,7 @@ api_fqdn server_name
 nginx['server_name'] = server_name
 nginx['enable_non_ssl'] = false
 nginx['non_ssl_port'] = 81
+nginx['ssl_port'] = 7443
 EOF
   if [ ! -f /etc/opscode/chef-server.rb -o "`diff /etc/opscode/chef-server.rb /etc/opscode/chef-server.rb.tmp.$$`" != "" ];then
     /bin/mv -f /etc/opscode/chef-server.rb.tmp.$$ /etc/opscode/chef-server.rb
@@ -1276,6 +1278,7 @@ upload_chef_artifacts()
     fi
     /opt/chef/bin/knife ssl fetch -s https://$CHEF_PUBLIC_IP > /dev/null 2>&1
     /opt/chef/bin/knife ssl fetch -s https://$HOSTNAME > /dev/null 2>&1
+    /opt/chef/bin/knife ssl fetch -s https://localhost > /dev/null 2>&1
     /opt/chef/bin/knife ssl fetch -s https://127.0.0.1 > /dev/null 2>&1
     status_message "Syncing Chef artifacts to running server..."
     $MU_LIBDIR/bin/mu-upload-chef-artifacts $@
@@ -1395,7 +1398,7 @@ setup_localhost_chef_client()
       upload_chef_artifacts -n -r $MU_REPO_NAME
     fi
     mkdir -p /etc/chef
-    /opt/chef/bin/knife bootstrap -N MU-MASTER -r "role[mu-master]" $CHEF_PUBLIC_IP
+    /opt/chef/bin/knife bootstrap -N MU-MASTER -r "role[mu-master]" https://${CHEF_PUBLIC_IP}:7443
     run_chef_client=0
   fi
 

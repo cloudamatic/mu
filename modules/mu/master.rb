@@ -88,6 +88,7 @@ module MU
         deleteUser(username)
         return false
       end
+      %x{sh -x /etc/init.d/oddjobd start 2>&1 > /dev/null} # oddjobd dies, like a lot
       begin
         Etc.getpwnam(username)
       rescue ArgumentError

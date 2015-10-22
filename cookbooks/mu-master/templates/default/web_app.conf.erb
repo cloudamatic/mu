@@ -34,6 +34,16 @@
 <% end %>
   </Location>
 
+  <Proxy *>
+    Order allow,deny
+    Allow from all
+  </Proxy>
+
+   ProxyPass /scratchpad https://localhost:2260/scratchpad
+   ProxyPassReverse /scratchpad https://localhost:2260/scratchpad
+   ProxyPass / http://localhost:7443/
+   ProxyPassReverse / http://localhost:7443/
+
   <% if @params[:directory_index] -%>
   DirectoryIndex <%= [@params[:directory_index]].flatten.join " " %>
   <% end -%>

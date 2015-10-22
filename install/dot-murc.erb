@@ -9,6 +9,6 @@ if [ ! -f "<%= home %>/.first_chef_upload" -a "`tty`" != "not a tty" ];then
   echo "******************************************"
   sleep 5
   set -x
-  <%= installdir %>/bin/mu-upload-chef-artifacts
+  <%= installdir %>/bin/mu-upload-chef-artifacts -n
   set +x
 fi

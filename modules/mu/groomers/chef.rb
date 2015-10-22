@@ -67,7 +67,7 @@ module MU
               MU.log "Loading Chef configuration from #{Etc.getpwnam(user).dir}/.chef/knife.rb", MU::DEBUG
               ::Chef::Config.from_file("#{Etc.getpwnam(user).dir}/.chef/knife.rb")
             end
-            ::Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}/organizations/#{MU.chef_user}"
+            ::Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}:7443/organizations/#{MU.chef_user}"
             ::Chef::Config[:environment] = env
             ::Chef::Config[:yes] = true
             @chefloaded = true
