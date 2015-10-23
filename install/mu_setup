@@ -1436,6 +1436,7 @@ setup_localhost_chef_client()
     run_chef_client=0
   fi
   status_message "Configuring local LDAP directory"
+  upload_chef_artifacts -n -r $MU_REPO_NAME
   $MU_LIBDIR/install/ldap_setup.rb
   /opt/chef/bin/knife node run_list add MU-MASTER "role[mu-master]"
   chef-client
