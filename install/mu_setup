@@ -502,7 +502,7 @@ manage_chef_user()
     /bin/cp -f "$keypath" "$user_home/.chef/"
 
     manage_chef_org "$user" "$user" "" "$user"
-    set_knife_rb "organizations/$user" "$user" "$user_home/.chef"
+    set_knife_rb "organizations/$user" "$user" "https://${CHEF_PUBLIC_IP}:7443"
 
     status_message "Configuring ${BOLD}$user_home/.chef/client.rb${NORM}"
     cat /dev/null > "$user_home/.chef/client.rb"
@@ -1114,6 +1114,7 @@ set_knife_rb()
 {
   basepath="$1"
   knife_user="$2"
+  url="$3"
   chef_cache="$MU_CHEF_CACHE"
 
   if [ "$knife_user" == "" ];then
@@ -1169,32 +1170,48 @@ install_chef()
     sh /root/chef-install.sh -v $CHEF_CLIENT_VERSION
   fi
   add_chef_support_gems /opt/chef/embedded
-  set_knife_rb organizations/mu
+  port="`grep \"'ssl_port'\" /etc/opscode/chef-server.rb | cut -d= -f2`"
+  if [ "$port" == "" ];then
+    port="443"
+    service httpd stop # sits on 443, and Chef is stupid; disable temporarily
+  fi
+
+  set_knife_rb organizations/mu mu "https://${CHEF_PUBLIC_IP}:$port"
 
   # Now Chef server
   if ! rpm -q chef-server-core > /dev/null ;then
     if rpm -q chef-server > /dev/null ;then
       /opt/chef-server/bin/chef-server-ctl stop
     fi
-    status_message "Installing ${BOLD}Chef Server${NORM}"
+    status_message "Installing ${BOLD}Chef Server${NORM} (listen port: ${port})"
     rpm -ivh $OPSCODE_CHEF_DL
     find /opt/opscode/embedded/lib/ruby -type f -exec chmod o+r {} \;
     find /opt/opscode/embedded/lib/ruby -type d -exec chmod o+rx {} \;
     /opt/opscode/bin/chef-server-ctl reconfigure
     chef_self_test=1
-  elif [ ! -f "/var/opt/opscode/nginx/ca/${CHEF_PUBLIC_IP}-ssl.conf" ];then
-    status_message "Hostname or IP may have changed, reconfiguring Chef"
+  elif [ ! -f "/var/opt/opscode/nginx/ca/${CHEF_PUBLIC_IP}.crt" ];then
+    status_message "Hostname or IP may have changed, reconfiguring Chef (listen port: ${port})"
     /opt/opscode/bin/chef-server-ctl restart
     /opt/opscode/bin/chef-server-ctl reconfigure
-    knife ssl fetch -u pivotal -k /etc/opscode/pivotal.pem -s https://${CHEF_PUBLIC_IP}:7443 > /dev/null 2>&1
+    knife ssl fetch -u pivotal -k /etc/opscode/pivotal.pem -s https://${CHEF_PUBLIC_IP}:$port > /dev/null 2>&1
     rm -f /etc/chef/client.*
     knife node delete -y MU-MASTER
     knife client delete -y MU-MASTER
     chef_self_test=1
   fi
 # add_chef_support_gems /opt/opscode/embedded
+  cat >> /etc/opscode/pivotal.rb.tmp.$$ << EOF
+node_name "pivotal"
+chef_server_url "https://127.0.0.1:$port"
+chef_server_root "https://127.0.0.1:$port"
+client_key "/etc/opscode/pivotal.pem"
+ssl_verify_mode :verify_none
+EOF
+  if [ ! -f /etc/opscode/pivotal.rb -o "`diff /etc/opscode/pivotal.rb /etc/opscode/pivotal.rb.tmp.$$`" != "" ];then
+    /bin/mv -f /etc/opscode/pivotal.rb.tmp.$$ /etc/opscode/pivotal.rb
+  fi
 
-  pivotal_cfg="-u pivotal -k /etc/opscode/pivotal.pem -s https://${CHEF_PUBLIC_IP}:7443"
+  pivotal_cfg="-u pivotal -k /etc/opscode/pivotal.pem -s https://${CHEF_PUBLIC_IP}:$port"
   knife ssl fetch $pivotal_cfg > /dev/null 2>&1
 
   list_chef_users ext_chef_users 
@@ -1212,7 +1229,7 @@ install_chef()
     /usr/bin/htpasswd -c -b -m "$MU_DATADIR/users/mu/htpasswd" "mu" "$MU_ADMIN_PW"
   fi
 
-  set_knife_rb organizations/mu
+  set_knife_rb organizations/mu mu "https://${CHEF_PUBLIC_IP}:$port"
 
   /opt/chef/bin/knife ssl fetch -s https://$CHEF_PUBLIC_IP > /dev/null 2>&1
   /opt/chef/bin/knife ssl fetch -s https://$HOSTNAME > /dev/null 2>&1
@@ -1241,6 +1258,7 @@ install_chef()
     export PATH="$MU_INSTALLDIR/bin:${PATH}:/opt/opscode/embedded/bin"
   fi
 
+
   mkdir -p /etc/opscode
   cat >> /etc/opscode/chef-server.rb.tmp.$$ << EOF
 #
@@ -1257,16 +1275,32 @@ nginx['ssl_port'] = 7443
 EOF
   if [ ! -f /etc/opscode/chef-server.rb -o "`diff /etc/opscode/chef-server.rb /etc/opscode/chef-server.rb.tmp.$$`" != "" ];then
     /bin/mv -f /etc/opscode/chef-server.rb.tmp.$$ /etc/opscode/chef-server.rb
+    status_message "Switching ${BOLD}Chef Server${NORM} to port ${BOLD}7443${NORM}"
+    # XXX workaround for vile chef bug, see:
+    # https://github.com/chef/chef-server/issues/50
+    sed -i "s/s3_url, \"https:\/\/${HOSTNAME}.platform-mu\"/s3_url, \"https:\/\/${HOSTNAME}.platform-mu:7443\"/" /var/opt/opscode/opscode-erchef/sys.config
     chef_server_ctl reconfigure
 
     chef_server_ctl restart
   else
     /bin/rm -f /etc/opscode/chef-server.rb.tmp.$$
   fi
-  # XXX workaround for vile chef bug, see:
-  # https://github.com/chef/chef-server/issues/50
-  sed -i "s/s3_url, \"https:\/\/${HOSTNAME}.platform-mu\"/s3_url, \"https:\/\/${HOSTNAME}.platform-mu:7443\"/" /var/opt/opscode/opscode-erchef/sys.config
-  chef_server_ctl restart
+
+  set_knife_rb organizations/mu mu "https://${CHEF_PUBLIC_IP}:7443"
+  /opt/chef/bin/knife ssl fetch -s https://$CHEF_PUBLIC_IP:7443 > /dev/null 2>&1
+  /opt/chef/bin/knife ssl fetch -s https://localhost:7443 > /dev/null 2>&1
+  /opt/chef/bin/knife ssl fetch -s https://127.0.0.1:7443 > /dev/null 2>&1
+  cat >> /etc/opscode/pivotal.rb.tmp.$$ << EOF
+node_name "pivotal"
+chef_server_url "https://127.0.0.1:7443"
+chef_server_root "https://127.0.0.1:7443"
+client_key "/etc/opscode/pivotal.pem"
+ssl_verify_mode :verify_none
+EOF
+  if [ ! -f /etc/opscode/pivotal.rb -o "`diff /etc/opscode/pivotal.rb /etc/opscode/pivotal.rb.tmp.$$`" != "" ];then
+    /bin/mv -f /etc/opscode/pivotal.rb.tmp.$$ /etc/opscode/pivotal.rb
+  fi
+  service httpd start
 }
 
 
@@ -1297,7 +1331,6 @@ setup_chef_cache()
   upload_chef_artifacts=$1
   status_message "Setting up local Chef cache in ${BOLD}$MU_CHEF_CACHE${NORM}"
   mkdir -p $MU_CHEF_CACHE
-
 }
 
 
@@ -1396,15 +1429,16 @@ setup_localhost_chef_client()
     status_message "Bootstrapping localhost as Chef node 'MU-MASTER'"
     chef_artifacts_uploaded=0
     if [ "$chef_artifacts_uploaded_by_installer" != "1" ];then
-      upload_chef_artifacts -r $MU_REPO_NAME
-    else
       upload_chef_artifacts -n -r $MU_REPO_NAME
     fi
     mkdir -p /etc/chef
-    /opt/chef/bin/knife bootstrap -N MU-MASTER -r "role[mu-master]" https://${CHEF_PUBLIC_IP}:7443
+    /opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none ${CHEF_PUBLIC_IP}
     run_chef_client=0
   fi
-
+  status_message "Configuring local LDAP directory"
+  $MU_LIBDIR/install/ldap_setup.rb
+  /opt/chef/bin/knife node run_list add MU-MASTER "role[mu-master]"
+  chef-client
 }
 
 ###############################################################################
@@ -1420,7 +1454,7 @@ configure_nagios_server()
   if [ "`grep ^nagios: /etc/passwd`" == "" -o "`pgrep -u nagios -f /usr/sbin/nagios`" == "" ];then
     # skip this if we're being called from mu-self-update and have already
     # done it
-    if [ update_chef_artifacts != 1 ];then
+    if [ "$chef_artifacts_uploaded" != 1 ];then
       upload_chef_artifacts
     fi
     chef-client -o "recipe[mu-master::update_nagios_only]"
@@ -1586,7 +1620,6 @@ if [ "$library" != "1" ];then
   echo ""
   echo "${BOLD}source $MURC${NORM}"
   echo ""
-  echo "Users:"
   $MU_LIBDIR/bin/mu-user-manage
   echo ""
   echo "To add more users, use ${BOLD}mu-user-manage${NORM}."

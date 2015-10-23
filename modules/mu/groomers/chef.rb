@@ -528,6 +528,22 @@ module MU
         }
       end
 
+      # Allow a node access to a vault.
+      # @param host [String]:
+      # @param vault [String]:
+      # @param item [String]:
+      def self.grantSecretAccess(host, vault, item)
+        loadChefLib
+        MU::MommaCat.lock("vault-#{vault}", false, true)
+        MU.log "Granting #{host} access to #{vault} #{item}"
+        begin
+          ::Chef::Knife.run(['vault', 'update', vault, item, "--search", "name:#{host}"])
+        rescue Exception => e
+          MU.log e.inspect, MU::ERR, details: caller
+        end
+        MU::MommaCat.unlock("vault-#{vault}", true)
+      end
+
       private
 
       # Save common Mu attributes to this node's Chef node structure.
@@ -636,16 +652,8 @@ module MU
       end
 
       def grantSecretAccess(vault, item)
-        self.class.loadChefLib
         return if @secrets_granted["#{vault}:#{item}"]
-        MU::MommaCat.lock("vault-#{vault}", false, true)
-        MU.log "Granting #{@server.mu_name} access to #{vault} #{item}"
-        begin
-          ::Chef::Knife.run(['vault', 'update', vault, item, "--search", "name:#{@server.mu_name}"])
-        rescue Exception => e
-          MU.log e.inspect, MU::ERR, details: caller
-        end
-        MU::MommaCat.unlock("vault-#{vault}")
+        self.class.grantSecretAccess(@server.mu_name, vault, item)
       end
 
       def self.knifeCmd(cmd, showoutput = false)

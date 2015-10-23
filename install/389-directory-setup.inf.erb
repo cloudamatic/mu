@@ -11,8 +11,8 @@ ConfigDirectoryLdapURL= ldap://<%= hostname+"."+domain %>:389/o=NetscapeRoot
 [admin] 
 Port= 9830
 ServerIpAddress= 0.0.0.0
-ServerAdminID= <%= creds["admin_svr_user"]["user"] %> 
-ServerAdminPwd= <%= creds["admin_svr_user"]["pw"] %>
+ServerAdminID= <%= creds["cfg_directory_adm"]["user"] %> 
+ServerAdminPwd= <%= creds["cfg_directory_adm"]["pw"] %>
 
 [slapd] 
 AddOrgEntries = Yes

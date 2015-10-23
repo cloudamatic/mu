@@ -19,6 +19,8 @@ require File.realpath(File.expand_path(File.dirname(__FILE__)+"/../modules/mu-lo
 require 'mu'
 require 'simple-password-gen'
 
+# How to completely undo all of this: service dirsrv stop ; pkill ns-slapd ; yum erase -y 389-ds 389-ds-console 389-ds-base 389-admin 389-adminutil 389-console 389-ds-base-libs; rm -rf /etc/dirsrv /var/lib/dirsrv /var/log/dirsrv /var/lock/dirsrv /var/run/dirsrv /etc/sysconfig/dirsrv* /usr/lib64/dirsrv /usr/share/dirsrv; knife data bag delete -y mu_ldap
+
 # Retrieve credentials we need to do LDAP things. Generate from scratch if they
 # haven't been provided.
 $CREDS = {
@@ -33,14 +35,12 @@ $CREDS = {
   },
   "root_dn_user" => {
     "user" => "CN=root_dn_user"
-  },
-  "admin_svr_user" => {
-    "user" => "admin"
   }
 } 
 $CREDS.each_pair { |creds, cfg|
   user = pw = nil
   begin
+    data = nil
     if $MU_CFG["ldap"].has_key?(creds)
       data = MU::Groomer::Chef.getSecret(
         vault: $MU_CFG["ldap"][creds]["vault"],
@@ -48,10 +48,12 @@ $CREDS.each_pair { |creds, cfg|
       )
       user = data[$MU_CFG["ldap"][creds]["username_field"]]
       pw = data[$MU_CFG["ldap"][creds]["password_field"]]
+      MU::Groomer::Chef.grantSecretAccess("MU-MASTER", $MU_CFG["ldap"][creds]["vault"], $MU_CFG["ldap"][creds]["item"])
     else
       data = MU::Groomer::Chef.getSecret(vault: "mu_ldap", item: creds)
       user = data["username"]
       pw = data["password"]
+      MU::Groomer::Chef.grantSecretAccess("MU-MASTER", "mu_ldap", creds)
     end
   rescue MU::Groomer::Chef::MuNoSuchSecret
     user = cfg["user"]
@@ -71,7 +73,8 @@ $CREDS.each_pair { |creds, cfg|
       MU::Groomer::Chef.saveSecret(
         vault: "mu_ldap",
         item: creds,
-        data: { "username" => user, "password" => pw }
+        data: { "username" => user, "password" => pw },
+        permissions: "name:MU-MASTER"
       )
     end
   end
@@ -88,20 +91,33 @@ if !Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}")
     "domain_dn" => $MU_CFG["ldap"]["domain_name"].split(/\./).map{ |x| "DC=#{x}" }.join(","),
     "creds" => $CREDS
   }
+  cfg = Erubis::Eruby.new(File.read("#{$MU_CFG['libdir']}/install/389-directory-setup.inf.erb")).result(vars)
   File.open("/root/389-directory-setup.inf", File::CREAT|File::TRUNC|File::RDWR, 0600) { |f|
-    f.puts Erubis::Eruby.new(File.read("#{$MU_CFG['libdir']}/install/389-directory-setup.inf.erb")).result(vars)
+    f.puts cfg
   }
   output = %x{/usr/sbin/setup-ds-admin.pl -s -f /root/389-directory-setup.inf}
   if $?.exitstatus != 0
+    puts cfg
     MU.log "Error setting up LDAP services with /usr/sbin/setup-ds-admin.pl -s -f /root/389-directory-setup.inf", MU::ERR, details: output
     exit 1
   end
   puts output
-  File.unlink("/root/389-directory-setup.inf")
+#  File.unlink("/root/389-directory-setup.inf")
 end
 # Ram TLS into the LDAP server's snout
-puts certimportcmd = "echo "" > /root/blank && /usr/bin/pk12util -i /opt/mu/var/ssl/ldap.p12 -d /etc/dirsrv/slapd-#{$MU_CFG["hostname"]} -w /root/blank"
-%x{#{certimportcmd}}
+
+# Why is this utility interactive-only? So much hate.
+puts certimportcmd = "echo "" > /root/blank && /usr/bin/pk12util -i /opt/mu/var/ssl/ldap.p12 -d /etc/dirsrv/slapd-#{$MU_CFG["hostname"]} -w /root/blank -W \"\""
+require 'pty'
+require 'expect'
+PTY.spawn(certimportcmd) { |r, w, pid|
+  r.expect("Enter new password:") do
+    w.puts
+  end
+  r.expect("Re-enter password:") do
+    w.puts
+  end
+}
 
 puts caimportcmd = "/usr/bin/certutil -d /etc/dirsrv/slapd-#{$MU_CFG["hostname"]} -A -n \"Mu Master CA\" -t CT,, -a -i /opt/mu/var/ssl/Mu_CA.pem"
 puts %x{#{caimportcmd}}
@@ -117,5 +133,5 @@ puts %x{#{caimportcmd}}
 # Manufacture some groups and management users.
 MU::Master::LDAP.initLocalLDAP
 
-# XXX uncomment when you actually have a working directory server
+# XXX figure out how to do this without mu_setup stepping on it
 #MU::Master::Chef.configureChefForLDAP
