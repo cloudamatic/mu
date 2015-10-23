@@ -1263,6 +1263,10 @@ EOF
   else
     /bin/rm -f /etc/opscode/chef-server.rb.tmp.$$
   fi
+  # XXX workaround for vile chef bug, see:
+  # https://github.com/chef/chef-server/issues/50
+  sed -i "s/s3_url, \"https:\/\/${HOSTNAME}.platform-mu\"/s3_url, \"https:\/\/${HOSTNAME}.platform-mu:7443\"/" /var/opt/opscode/opscode-erchef/sys.config
+  chef_server_ctl restart
 }
 
 
@@ -1278,7 +1282,6 @@ upload_chef_artifacts()
     fi
     /opt/chef/bin/knife ssl fetch -s https://$CHEF_PUBLIC_IP > /dev/null 2>&1
     /opt/chef/bin/knife ssl fetch -s https://$HOSTNAME > /dev/null 2>&1
-    /opt/chef/bin/knife ssl fetch -s https://localhost > /dev/null 2>&1
     /opt/chef/bin/knife ssl fetch -s https://127.0.0.1 > /dev/null 2>&1
     status_message "Syncing Chef artifacts to running server..."
     $MU_LIBDIR/bin/mu-upload-chef-artifacts $@

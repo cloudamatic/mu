@@ -41,7 +41,7 @@ def loadMuConfig
       "log_bucket_name" => "mu-master-logs"
     },
     "ldap" => {
-      "type" => "389",
+      "type" => "389 Directory Services",
       "base_dn" => "OU=Mu,DC=platform-mu",
       "user_ou" => "OU=Users,OU=Mu,DC=platform-mu",
       "bind_creds" => {
