@@ -111,11 +111,15 @@ puts certimportcmd = "echo "" > /root/blank && /usr/bin/pk12util -i /opt/mu/var/
 require 'pty'
 require 'expect'
 PTY.spawn(certimportcmd) { |r, w, pid|
-  r.expect("Enter new password:") do
-    w.puts
-  end
-  r.expect("Re-enter password:") do
-    w.puts
+  begin
+    r.expect("Enter new password:") do
+      w.puts
+    end
+    r.expect("Re-enter password:") do
+      w.puts
+    end
+  Errno::EIO
+    break
   end
 }
 
