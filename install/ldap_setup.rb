@@ -82,60 +82,62 @@ $CREDS.each_pair { |creds, cfg|
   $CREDS[creds]['pw'] = pw if !$CREDS[creds]['pw']
 }
 
-# Install and bootstrap the LDAP server
-%x{/usr/bin/yum -y install 389-ds 389-ds-console}
-if !Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}")
-  vars = {
-    "hostname" => $MU_CFG["hostname"],
-    "domain" => $MU_CFG["ldap"]["domain_name"],
-    "domain_dn" => $MU_CFG["ldap"]["domain_name"].split(/\./).map{ |x| "DC=#{x}" }.join(","),
-    "creds" => $CREDS
-  }
-  cfg = Erubis::Eruby.new(File.read("#{$MU_CFG['libdir']}/install/389-directory-setup.inf.erb")).result(vars)
-  File.open("/root/389-directory-setup.inf", File::CREAT|File::TRUNC|File::RDWR, 0600) { |f|
-    f.puts cfg
-  }
-  output = %x{/usr/sbin/setup-ds-admin.pl -s -f /root/389-directory-setup.inf}
-  if $?.exitstatus != 0
-    puts cfg
-    MU.log "Error setting up LDAP services with /usr/sbin/setup-ds-admin.pl -s -f /root/389-directory-setup.inf", MU::ERR, details: output
-    exit 1
+if $MU_CFG["ldap"]["type"] == "389 Directory Services"
+  # Install and bootstrap the LDAP server
+  %x{/usr/bin/yum -y install 389-ds 389-ds-console}
+  if !Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}")
+    vars = {
+      "hostname" => $MU_CFG["hostname"],
+      "domain" => $MU_CFG["ldap"]["domain_name"],
+      "domain_dn" => $MU_CFG["ldap"]["domain_name"].split(/\./).map{ |x| "DC=#{x}" }.join(","),
+      "creds" => $CREDS
+    }
+    cfg = Erubis::Eruby.new(File.read("#{$MU_CFG['libdir']}/install/389-directory-setup.inf.erb")).result(vars)
+    File.open("/root/389-directory-setup.inf", File::CREAT|File::TRUNC|File::RDWR, 0600) { |f|
+      f.puts cfg
+    }
+    output = %x{/usr/sbin/setup-ds-admin.pl -s -f /root/389-directory-setup.inf}
+    if $?.exitstatus != 0
+      puts cfg
+      MU.log "Error setting up LDAP services with /usr/sbin/setup-ds-admin.pl -s -f /root/389-directory-setup.inf", MU::ERR, details: output
+      exit 1
+    end
+    puts output
+  #  File.unlink("/root/389-directory-setup.inf")
   end
-  puts output
-#  File.unlink("/root/389-directory-setup.inf")
+  # Ram TLS into the LDAP server's snout
+
+  # Why is this utility interactive-only? So much hate.
+  puts certimportcmd = "echo "" > /root/blank && /usr/bin/pk12util -i /opt/mu/var/ssl/ldap.p12 -d /etc/dirsrv/slapd-#{$MU_CFG["hostname"]} -w /root/blank -W \"\""
+  require 'pty'
+  require 'expect'
+  PTY.spawn(certimportcmd) { |r, w, pid|
+    begin
+      r.expect("Enter new password:") do
+        w.puts
+      end
+      r.expect("Re-enter password:") do
+        w.puts
+      end
+    Errno::EIO
+      break
+    end
+  }
+
+  puts caimportcmd = "/usr/bin/certutil -d /etc/dirsrv/slapd-#{$MU_CFG["hostname"]} -A -n \"Mu Master CA\" -t CT,, -a -i /opt/mu/var/ssl/Mu_CA.pem"
+  puts %x{#{caimportcmd}}
+
+  ["ssl_enable.ldif", "addRSA.ldif"].each { |ldif|
+    puts ldapmodcmd = "/usr/bin/ldapmodify -x -D #{$CREDS["root_dn_user"]['user']} -w #{$CREDS["root_dn_user"]['pw']} -f #{$MU_CFG['libdir']}/install/#{ldif}"
+    puts %x{#{ldapmodcmd}}
+  }
+  %x{/sbin/service dirsrv restart}
+  %x{/sbin/chkconfig dirsrv on}
+  %x{/sbin/chkconfig dirsrv-admin on}
+
+  # Manufacture some groups and management users.
+  MU::Master::LDAP.initLocalLDAP
 end
-# Ram TLS into the LDAP server's snout
-
-# Why is this utility interactive-only? So much hate.
-puts certimportcmd = "echo "" > /root/blank && /usr/bin/pk12util -i /opt/mu/var/ssl/ldap.p12 -d /etc/dirsrv/slapd-#{$MU_CFG["hostname"]} -w /root/blank -W \"\""
-require 'pty'
-require 'expect'
-PTY.spawn(certimportcmd) { |r, w, pid|
-  begin
-    r.expect("Enter new password:") do
-      w.puts
-    end
-    r.expect("Re-enter password:") do
-      w.puts
-    end
-  Errno::EIO
-    break
-  end
-}
-
-puts caimportcmd = "/usr/bin/certutil -d /etc/dirsrv/slapd-#{$MU_CFG["hostname"]} -A -n \"Mu Master CA\" -t CT,, -a -i /opt/mu/var/ssl/Mu_CA.pem"
-puts %x{#{caimportcmd}}
-
-["ssl_enable.ldif", "addRSA.ldif"].each { |ldif|
-  puts ldapmodcmd = "/usr/bin/ldapmodify -x -D #{$CREDS["root_dn_user"]['user']} -w #{$CREDS["root_dn_user"]['pw']} -f #{$MU_CFG['libdir']}/install/#{ldif}"
-  puts %x{#{ldapmodcmd}}
-}
-%x{/sbin/service dirsrv restart}
-%x{/sbin/chkconfig dirsrv on}
-%x{/sbin/chkconfig dirsrv-admin on}
-
-# Manufacture some groups and management users.
-MU::Master::LDAP.initLocalLDAP
 
 # XXX figure out how to do this without mu_setup stepping on it
 #MU::Master::Chef.configureChefForLDAP
