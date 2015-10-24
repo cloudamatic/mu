@@ -81,7 +81,8 @@ default['nagios']['default_host']['max_check_attempts'] = 4
 default['nagios']['default_host']['check_command'] = "check_node_ssh"
 default['nagios']['default_service']['check_interval'] = 180
 default['nagios']['default_service']['retry_interval'] = 30
-default['nagios']['server']['url'] = "https://assets.nagios.com/downloads/nagioscore/releases/nagios-4.0.8.tar.gz"
+default['nagios']['server']['url'] = "https://assets.nagios.com/downloads/nagioscore/releases/nagios-4.1.1.tar.gz"
+#default['nagios']['url'] = "https://#{$MU_CFG['public_address']}/nagios"
 
 # No idea why this is set wrong by default
 default['chef_node_name'] = node.name

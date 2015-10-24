@@ -22,7 +22,7 @@ search_domains = ["ec2.internal", "server.#{instance_id}.platform-mu", "platform
 
 if $MU_CFG.has_key?('ldap')
   include_recipe 'chef-vault'
-  if $MU_CFG['ldap']['type'] == "389 Directory Services"
+  if $MU_CFG['ldap']['type'] == "389 Directory Services" and Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG['hostname']}")
     package "pam_ldap"
     package "nss-pam-ldapd"
     service "nslcd" do
