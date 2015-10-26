@@ -32,7 +32,7 @@ def loadMuConfig
     "jenkins_admin_email" => "root@localhost",
     "allow_invade_foreign_vpcs" => false,
     "mu_repo" => "cloudamatic/mu.git",
-    "public_address" => "localhost", # need to overwrite later with user input or pulling from AWS
+    "public_address" => "localhost",
     "banner" => "Mu Master",
     "scratchpad" => {
       "template_path" => "/opt/mu/lib/modules/scratchpad.erb"
@@ -65,6 +65,17 @@ def loadMuConfig
       "dcs" => ["localhost"]
     }
   }
+  ["HOSTNAME", "MU_ADMIN_EMAIL", "JENKINS_ADMIN_EMAIL"].each { |var|
+    if ENV.has_key?(var) and !ENV[var].empty?
+      default_cfg[var.downcase] = ENV[var]
+    end
+  }
+  if ENV.has_key?("CHEF_PUBLIC_IP")
+    default_cfg["public_address"] = ENV['CHEF_PUBLIC_IP']
+  end
+  if ENV.has_key?("ALLOW_INVADE_FOREIGN_VPCS") and !ENV['ALLOW_INVADE_FOREIGN_VPCS'].empty?
+    default_cfg["allow_invade_foreign_vpcs"] = true
+  end
   if ENV.include?('MU_INSTALLDIR')
     cfg_file = ENV['MU_INSTALLDIR']+"/etc/mu.yaml"
     default_cfg["installdir"] = ENV['MU_INSTALLDIR']
