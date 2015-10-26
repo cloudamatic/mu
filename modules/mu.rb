@@ -390,6 +390,18 @@ module MU
     return Object.const_get("MU").const_get("Groomer").const_get(groomer)
   end
 
+  @@myRegion_var = nil
+  # Find our AWS Region and Availability Zone
+  def self.myRegion
+    if !ENV.has_key?("EC2_REGION") or ENV['EC2_REGION'].empty?
+      @@myRegion_var ||= MU::Cloud::AWS.ec2(ENV['EC2_REGION']).describe_availability_zones.availability_zones.first.region_name
+    else
+      # hacky, but useful in a pinch
+      @@myRegion_var = MU::Cloud::AWS.getAWSMetaData("placement/availability-zone").sub(/[a-z]$/i)
+    end
+    @@myRegion_var
+  end
+
   require 'mu/config'
 
   # Figure out our account number, by hook or by crook
@@ -412,13 +424,6 @@ module MU
     end
     MU.setVar("account_number", account_number)
     account_number
-  end
-
-  @@myRegion_var = nil
-  # Find our AWS Region and Availability Zone
-  def self.myRegion
-    @@myRegion_var ||= MU::Cloud::AWS.ec2(ENV['EC2_REGION']).describe_availability_zones.availability_zones.first.region_name
-    @@myRegion_var
   end
 
   # XXX is there a better way to get this?
