@@ -1302,6 +1302,20 @@ EOF
   if [ ! -f /etc/opscode/pivotal.rb -o "`diff /etc/opscode/pivotal.rb /etc/opscode/pivotal.rb.tmp.$$`" != "" ];then
     /bin/mv -f /etc/opscode/pivotal.rb.tmp.$$ /etc/opscode/pivotal.rb
   fi
+  cat >> /etc/chef/client.rb.tmp.$$ << EOF
+log_location     STDOUT
+chef_server_url  "https://${CHEF_PUBLIC_IP}:7443/organizations/mu"
+validation_client_name "mu-validator"
+node_name "MU-MASTER"
+trusted_certs_dir "/etc/chef/trusted_certs"
+EOF
+  if [ -f /etc/chef/client.rb -a "`diff /etc/chef/client.rb /etc/chef/client.rb.tmp.$$`" != "" ];then
+    /bin/cp -f /etc/chef/client.rb.tmp.$$ /etc/chef/client.rb
+  fi
+  if [ -f /root/.chef/client.rb -a "`diff /root/.chef/client.rb /etc/chef/client.rb.tmp.$$`" != "" ];then
+    /bin/cp -f /etc/chef/client.rb.tmp.$$ /root/.chef/client.rb
+  fi
+  /bin/rm -f /etc/chef/client.rb.tmp.$$
   service httpd start
 }
 
