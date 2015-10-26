@@ -49,9 +49,9 @@ default['apache']['traceenable'] = 'Off'
 
 # Conditionally add a Jenkins port
 if node.attribute?('jenkins_port_external') 
-  override["apache"]["listen_ports"] = [80, 443, 9443]
+  override["apache"]["listen_ports"] = [80, 443, 8443, 9443]
 else
-  override["apache"]["listen_ports"] = [80, 443]
+  override["apache"]["listen_ports"] = [80, 443, 8443]
 end
 # In addition to override, set normal to set defaults, and reset elsewhere with each webapp added, adding its port
 # The set_unless sets a normal attribute
@@ -64,7 +64,7 @@ default['nagios']['ssl_cert_file'] = "/etc/httpd/ssl/nagios.crt"
 default['nagios']['ssl_cert_key'] = "/etc/httpd/ssl/nagios.key"
 default["nagios"]["log_dir"] = "/var/log/httpd"
 default['nagios']['cgi-bin'] = "/usr/lib/cgi-bin/"
-default['nagios']['cgi-path'] = "/cgi-bin/"
+default['nagios']['cgi-path'] = "/nagios/cgi-bin/"
 default['nagios']['server_role'] = "mu-master"
 default['nagios']['server']['install_method'] = 'source'
 default['nagios']['multi_environment_monitoring'] = true
@@ -82,7 +82,10 @@ default['nagios']['default_host']['check_command'] = "check_node_ssh"
 default['nagios']['default_service']['check_interval'] = 180
 default['nagios']['default_service']['retry_interval'] = 30
 default['nagios']['server']['url'] = "https://assets.nagios.com/downloads/nagioscore/releases/nagios-4.1.1.tar.gz"
-#default['nagios']['url'] = "https://#{$MU_CFG['public_address']}/nagios"
+default['nagios']['server']['version'] = "4.1.1"
+default['nagios']['server']['src_dir'] = "nagios-4.1.1"
+default['nagios']['server']['checksum'] = "986c93476b0fee2b2feb7a29ccf857cc691bed7ca4e004a5361ba11f467b0401"
+default['nagios']['url'] = "https://#{$MU_CFG['public_address']}/nagios"
 
 # No idea why this is set wrong by default
 default['chef_node_name'] = node.name

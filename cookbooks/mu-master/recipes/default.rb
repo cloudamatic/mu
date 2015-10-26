@@ -91,6 +91,12 @@ package "nagios" do
   action :remove
 end
 
+# The Nagios cookbook will only rebuild if the main executable is missing, so
+# remove it if we've got a version bump coming down the pike.
+execute "remove old Nagios binary" do
+  command "rm -f /usr/sbin/nagios"
+  not_if "/usr/sbin/nagios -V | grep 'Nagios Core #{node.nagios.server.version}'"
+end
 include_recipe "nagios::server_source"
 include_recipe "nagios"
 
@@ -197,7 +203,7 @@ file "/etc/motd" do
 
  This is a Mu Master server. Mu is installed in #{MU.myRoot}.
 
- Nagios monitoring GUI: https://#{MU.mu_public_addr}:8443/
+ Nagios monitoring GUI: https://#{MU.mu_public_addr}/nagios/
 
  Jenkins interface GUI: https://#{MU.mu_public_addr}:9443/
 
@@ -220,7 +226,7 @@ file "/var/www/html/index.html" do
  <h1>This is a Mu Master server</h2>
 
 <p>
- <a href='https://#{MU.mu_public_addr}:8443/'>Nagios monitoring GUI</a>
+ <a href='https://#{MU.mu_public_addr}/nagios/'>Nagios monitoring GUI</a>
 </p>
 <p>
  <a href='https://#{MU.mu_public_addr}:443/'>Jenkins interface GUI</a>

@@ -3,6 +3,9 @@
   ServerAlias <% @params[:server_aliases].each do |a| %><%= a %> <% end %>
   DocumentRoot <%= @params[:docroot] %>
   RewriteEngine On
+  RewriteLog /var/log/httpd/rewrite.log
+  # This doesn't work. /nagios still falls through to the default proxy rule.
+  RewriteRule ^/nagios$ https://%{HTTP_HOST}/nagios/ [R=301,NC,L]
 
 <% if @params[:server_port].to_s.match(/443$/) %>
   SSLEngine On
@@ -14,12 +17,15 @@
     Allow from all
   </Proxy>
 
+  
   ProxyPass /scratchpad https://localhost:2260/scratchpad
   ProxyPassReverse /scratchpad https://localhost:2260/scratchpad
+  ProxyPass /nagios/ https://localhost:8443/nagios/
+  ProxyPassReverse /nagios/ https://localhost:8443/nagios/
   ProxyPass /jenkins https://localhost:9443/
   ProxyPassReverse /jenkins https://localhost:8443/
-  ProxyPass /nagios https://localhost:8443/
-  ProxyPassReverse /nagios https://localhost:8443/
+  ProxyPass /nagios/ https://localhost:8443/nagios/
+  ProxyPassReverse /nagios/ https://localhost:8443/nagios/
   ProxyPass / https://localhost:7443/
   ProxyPassReverse / https://localhost:7443/
 <% end %>
