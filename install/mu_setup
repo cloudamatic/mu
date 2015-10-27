@@ -1202,8 +1202,8 @@ install_chef()
 # add_chef_support_gems /opt/opscode/embedded
   cat >> /etc/opscode/pivotal.rb.tmp.$$ << EOF
 node_name "pivotal"
-chef_server_url "https://127.0.0.1:$port"
-chef_server_root "https://127.0.0.1:$port"
+chef_server_url "https://${CHEF_PUBLIC_IP}:$port"
+chef_server_root "https://${CHEF_PUBLIC_IP}:$port"
 client_key "/etc/opscode/pivotal.pem"
 ssl_verify_mode :verify_none
 EOF
@@ -1272,6 +1272,7 @@ nginx['server_name'] = server_name
 nginx['enable_non_ssl'] = false
 nginx['non_ssl_port'] = 81
 nginx['ssl_port'] = 7443
+bookshelf['external_url'] = "https://"+server_name
 EOF
   if [ ! -f /etc/opscode/chef-server.rb -o "`diff /etc/opscode/chef-server.rb /etc/opscode/chef-server.rb.tmp.$$`" != "" ];then
     /bin/mv -f /etc/opscode/chef-server.rb.tmp.$$ /etc/opscode/chef-server.rb
@@ -1294,8 +1295,8 @@ EOF
   /opt/chef/bin/knife ssl fetch -s https://127.0.0.1:7443 > /dev/null 2>&1
   cat >> /etc/opscode/pivotal.rb.tmp.$$ << EOF
 node_name "pivotal"
-chef_server_url "https://127.0.0.1:7443"
-chef_server_root "https://127.0.0.1:7443"
+chef_server_url "https://${CHEF_PUBLIC_IP}:7443"
+chef_server_root "https://${CHEF_PUBLIC_IP}:7443"
 client_key "/etc/opscode/pivotal.pem"
 ssl_verify_mode :verify_none
 EOF

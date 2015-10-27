@@ -12,32 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-default['mu']['admin_emails'] = []
+default['mu']['user_map'] = MU::Master.listUsers
 default['mu']['user_list'] = []
-default['mu']['user_map'] = {}
-if !MU.mainDataDir.nil? and !MU.mainDataDir.empty? and
-    Dir.exists?("#{MU.mainDataDir}/users")
-  admin_list = []
-  Dir.foreach("#{MU.mainDataDir}/users") { |username|
-    next if username == "." or username == ".."
-    if File.exists?("#{MU.mainDataDir}/users/#{username}/email")
-      email = File.read("#{MU.mainDataDir}/users/#{username}/email").chomp
-      admin_list << "#{username} (#{email})"
-      default['mu']['admin_emails'] << email
-      default['mu']['user_map'][username] = email
-    else
-      admin_list << username
-    end
-  }
-  default['mu']['user_list'] = admin_list.join(", ")
-# older machines
-elsif node['tags'].is_a?(Hash)
-  default['mu']['user_list'] = node['tags']['MU-ADMINS']
-  default['mu']['admin_emails'] = node['tags']['MU-ADMINS'].split(/,?\s+/)
-elsif !ENV['MU_ADMINS'].nil? and !ENV['MU_ADMINS'].empty?
-  default['mu']['user_list'] = ENV['MU_ADMINS']
-  default['mu']['admin_emails'] = ENV['MU_ADMINS'].split(/,?\s+/)
-end
+node.mu.user_map.each_pair { |user, data|
+  node.default.mu.user_list << "#{user} (#{data['email']})"
+}
 
 default['apache']['docroot_dir'] = "/var/www/html"
 default['apache']['default_site_enabled'] = true

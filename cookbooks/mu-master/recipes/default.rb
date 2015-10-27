@@ -142,15 +142,20 @@ template "/etc/dhcp/dhclient-eth0.conf" do
   )
 end
 
+svrname = node.hostname
+if !$MU_CFG['mu_public_addr'].match(/^\d+\.\d+\.\d+\.\d+$/)
+  svrname = $MU_CFG['mu_public_addr']
+end
+
 # nagios keeps disabling the default vhost, so let's make another one
 web_app "mu_docs" do
-  server_name node.hostname
+  server_name svrname
   server_aliases [node.fqdn, node.hostname, node['local_hostname'], node['local_ipv4'], node['public_hostname'], node['public_ipv4']]
   docroot "/var/www/html"
   cookbook "mu-master"
 end
 web_app "https_proxy" do
-  server_name node.hostname
+  server_name svrname
   server_port "443"
   server_aliases [node.fqdn, node.hostname, node['local_hostname'], node['local_ipv4'], node['public_hostname'], node['public_ipv4']]
   docroot "/var/www/html"
@@ -211,7 +216,7 @@ file "/etc/motd" do
 
  Mu metadata are stored in #{MU.mainDataDir}
 
- Users: #{node.mu.user_list}
+ Users: #{node.mu.user_list.join(", ")}
 
 *******************************************************************************
 
@@ -241,9 +246,9 @@ execute "echo 'devnull: /dev/null' >> /etc/aliases" do
   not_if "grep '^devnull: /dev/null$' /etc/aliases"
 end
 
-node.mu.user_map.each_pair { |mu_user, mu_email|
-  execute "echo '#{mu_user}: #{mu_email}' >> /etc/aliases" do
-    not_if "grep '^#{mu_user}: #{mu_email}$' /etc/aliases"
+node.mu.user_map.each_pair { |mu_user, data|
+  execute "echo '#{mu_user}: #{data['email']}' >> /etc/aliases" do
+    not_if "grep '^#{mu_user}: #{data['email']}$' /etc/aliases"
   end
 }
 execute "/usr/bin/newaliases"
