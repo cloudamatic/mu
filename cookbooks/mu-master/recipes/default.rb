@@ -210,7 +210,7 @@ file "/etc/motd" do
 
  Nagios monitoring GUI: https://#{MU.mu_public_addr}/nagios/
 
- Jenkins interface GUI: https://#{MU.mu_public_addr}:9443/
+ Jenkins interface GUI: https://#{MU.mu_public_addr}/jenkins/
 
  Mu API documentation: http://#{MU.mu_public_addr}/docs/frames.html
 
@@ -234,7 +234,7 @@ file "/var/www/html/index.html" do
  <a href='https://#{MU.mu_public_addr}/nagios/'>Nagios monitoring GUI</a>
 </p>
 <p>
- <a href='https://#{MU.mu_public_addr}:443/'>Jenkins interface GUI</a>
+ <a href='https://#{MU.mu_public_addr}/jenkins/'>Jenkins interface GUI</a>
 </p>
 <p>
  <a href='http://#{MU.mu_public_addr}/docs/frames.html'>Mu API documentation</a>

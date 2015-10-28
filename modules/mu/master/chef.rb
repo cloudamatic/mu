@@ -194,6 +194,7 @@ module MU
       # @return [Boolean]
       def self.manageOrg(org, fullname: nil, add_users: [], remove_users: [])
         existing_org = getOrg(org)
+        orgkey = nil
         add_users << "mu" if !add_users.include?("mu") and org != "mu"
 
         # This organization does not yet exist, create it
@@ -208,6 +209,7 @@ module MU
               response = chefAPI.post("organizations", org_data)
               MU.log "Created Chef organization #{org}", details: response
               orgkey = response["private_key"]
+
               add_users.each { |user|
                 if getUser(user) == nil
                   MU.log "Requested addition of Chef user #{user} to organization #{org}, but no such user exists", MU::WARN
@@ -217,7 +219,6 @@ module MU
                 association_id = response["uri"].split("/").last
                 response = chefAPI.put("users/#{user}/association_requests/#{association_id}", { :response => 'accept' })
                 next if user == "mu"
-                saveKey(user, "#{org}.org.key", org)
                 MU.log "Added user #{user} to Chef organization #{org}", details: response
               }
             }
@@ -241,7 +242,6 @@ module MU
                 association_id = response["uri"].split("/").last
                 response = chefAPI.put("users/#{user}/association_requests/#{association_id}", { :response => 'accept' })
                 next if user == "mu"
-                saveKey(user, "#{org}.org.key", org)
                 MU.log "Added user #{user} to Chef organization #{org}", details: response
               }
               remove_users.each { |user|
@@ -257,6 +257,7 @@ module MU
             retry
           end
         end
+        return orgkey
       end
 
       # Call when creating or modifying a user. While Chef technically does
@@ -325,8 +326,11 @@ module MU
             Timeout::timeout(45) {
               response = chefAPI.post("users", user_data)
               MU.log "Created Chef user #{chef_user}", details: response
-              saveKey(ldap_user, "#{ldap_user}.user.key", response["chef_key"]["private_key"])
-              manageOrg(chef_user, fullname: "#{name}'s Chef Organization", add_users: [chef_user])
+              saveKey(ldap_user, "#{chef_user}.user.key", response["chef_key"]["private_key"])
+              key = manageOrg(chef_user, fullname: "#{name}'s Chef Organization", add_users: [chef_user])
+              if key
+                saveKey(ldap_user, "#{chef_user}.org.key", key)
+              end
               createUserKnifeCfg(ldap_user, chef_user)
               createUserClientCfg(ldap_user, chef_user)
             }
@@ -373,7 +377,7 @@ module MU
               user_data[:password] = "********"
               MU.log "Chef user #{chef_user} already exists, updating", details: user_data
               if response.has_key?("chef_key") and response["chef_key"].has_key?("private_key")
-                saveKey(ldap_user, "#{ldap_user}.user.key", response["chef_key"]["private_key"])
+                saveKey(ldap_user, "#{chef_user}.user.key", response["chef_key"]["private_key"])
               end
             }
             createUserKnifeCfg(ldap_user, chef_user)
@@ -406,7 +410,10 @@ module MU
           }
         end
         orgs.each { |org|
-          manageOrg(org, add_users: [chef_user])
+          key = manageOrg(org, add_users: [chef_user])
+          if key
+            saveKey(ldap_user, "#{org}.org.key", key)
+          end
         }
         remove_orgs.each { |org|
           manageOrg(org, remove_users: [chef_user])

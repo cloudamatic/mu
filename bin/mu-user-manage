@@ -79,7 +79,7 @@ def sendPassword(username, password, scratchpad: true, notify: true)
   users = MU::Master::LDAP.findUsers
   if scratchpad
     scratchitem = MU::Master.storeScratchPadSecret("Mu password for user #{username}: #{password}")
-    url = "https://#{$MU_CFG['public_address']}:2260/scratchpad/#{scratchitem}"
+    url = "https://#{$MU_CFG['public_address']}/scratchpad/#{scratchitem}"
     MU.log "Stored in scratchpad, public URL: #{url}", MU::NOTICE
     if users[username]["mail"] and
        users[username]["mail"].match(/^[A-Z0-9\._%\+\-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,6}$/i)
@@ -259,7 +259,7 @@ else
   if create and !$opts[:skipupload]
     home = Etc.getpwnam($username).dir
     MU.log "Uploading Chef artifacts to the new '#{$username}' organization. This may take a while.", MU::NOTICE
-    %x{/sbin/su - #{$username} -c "#{$MU_CFG['installdir']}/bin/mu-upload-chef-artifacts -n 2>&1 > /dev/null && touch #{home}/.first_chef_upload"}
+    %x{/bin/su - #{$username} -c "#{$MU_CFG['installdir']}/bin/mu-upload-chef-artifacts -n 2>&1 > /dev/null && touch #{home}/.first_chef_upload"}
   end
 end
 if $password

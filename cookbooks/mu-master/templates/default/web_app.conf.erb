@@ -3,7 +3,7 @@
   ServerAlias <% @params[:server_aliases].each do |a| %><%= a %> <% end %>
   DocumentRoot <%= @params[:docroot] %>
   RewriteEngine On
-  RewriteRule ^/nagios$ https://%{HTTP_HOST}/nagios/ [R=301,NC,L]
+  RewriteRule ^/(nagios|jenkins|scratchpad)$ https://%{HTTP_HOST}/$1/ [R=301,NC,L]
 
 <% if @params[:server_port].to_s.match(/443$/) %>
   SSLEngine On
@@ -18,17 +18,26 @@
     Allow from all
   </Proxy>
 
+  ProxyPreserveHost on
+  AllowEncodedSlashes off
   
+  # Scratchpad, the Mu secret-sharer
   ProxyPass /scratchpad https://localhost:2260/scratchpad
   ProxyPassReverse /scratchpad https://localhost:2260/scratchpad
+
+  # Jenkins CI web interface
+  ProxyPass /jenkins http://localhost:8080/
+  ProxyPassReverse /jenkins http://localhost:8080/
+
+  # Nagios web UI
   ProxyPass /nagios/ https://localhost:8443/nagios/
   ProxyPassReverse /nagios/ https://localhost:8443/nagios/
-  ProxyPass /jenkins https://localhost:9443/
-  ProxyPassReverse /jenkins https://localhost:8443/
-  ProxyPass /nagios/ https://localhost:8443/nagios/
-  ProxyPassReverse /nagios/ https://localhost:8443/nagios/
+
+  # Everything else should go to the Chef API endpoint
   ProxyPass / https://localhost:7443/
   ProxyPassReverse / https://localhost:7443/
+
+  RequestHeader set X-Forwarded-Proto "https"
 <% end %>
 
 	RewriteCond %{REQUEST_METHOD} ^(TRACE|TRACK)
