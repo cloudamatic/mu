@@ -1555,12 +1555,17 @@ generate_ssl_certs()
 
   # XXX should use set_serial option and maniuplate "serial"
   for cert in rsyslog mommacat ldap;do
+    if [ -f $cert.crt ];then
+      # Force us to clean up crusty old certs that we generated badly
+      ( grep "BEGIN CERTIFICATE" $MU_DATADIR/ssl/$cert.crt | wc -l | grep '^1$' ) || /bin/rm -f $cert.crt
+    fi
     if [ ! -f $cert.crt -o $regen_all == 1 ];then
       status_message "Creating self-signed $cert SSL certificate"
       openssl genrsa -out $cert.key 4096
       chmod 400 $cert.key
       openssl req -subj "/CN=$CHEF_PUBLIC_IP/OU=Mu $cert/O=eGlobalTech/C=US" -new -key $cert.key -out $cert.csr
       openssl x509 -req -in $cert.csr -CA Mu_CA.pem -CAkey Mu_CA.key -CAcreateserial -out $cert.crt -days 500
+      cat Mu_CA.pem >> $cert.key
       if [ "$cert" == "mommacat" -a "$skip_chef" == "" ];then
         chef_server_ctl restart
         /bin/rm -f /etc/chef/trusted_certs/*.crt /root/.chef/trusted_certs/*.crt
