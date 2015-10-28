@@ -143,8 +143,8 @@ template "/etc/dhcp/dhclient-eth0.conf" do
 end
 
 svrname = node.hostname
-if !$MU_CFG['mu_public_addr'].match(/^\d+\.\d+\.\d+\.\d+$/)
-  svrname = $MU_CFG['mu_public_addr']
+if !$MU_CFG['public_address'].match(/^\d+\.\d+\.\d+\.\d+$/)
+  svrname = $MU_CFG['public_address']
 end
 
 # nagios keeps disabling the default vhost, so let's make another one

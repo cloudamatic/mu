@@ -7,8 +7,8 @@
 
 <% if @params[:server_port].to_s.match(/443$/) %>
   SSLEngine On
-  SSLCertificateFile /etc/httpd/ssl/nagios.crt
-  SSLCertificateKeyFile /etc/httpd/ssl/nagios.key
+  SSLCertificateFile <%= $MU_CFG['ssl']['cert'] %>
+  SSLCertificateKeyFile <%= $MU_CFG['ssl']['key'] %>
   SSLProxyEngine on
   <Proxy *>
     Order allow,deny

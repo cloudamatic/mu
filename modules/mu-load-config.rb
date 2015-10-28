@@ -28,6 +28,10 @@ def loadMuConfig
     "installdir" => "/opt/mu",
     "libdir" => "/opt/mu/lib",
     "hostname" => "mu-master",
+    "ssl" => {
+      "cert" => "/opt/mu/var/ssl/mommacat.crt",
+      "key" => "/opt/mu/var/ssl/mommacat.key"
+    },
     "mu_admin_email" => "root@localhost",
     "jenkins_admin_email" => "root@localhost",
     "allow_invade_foreign_vpcs" => false,
@@ -72,6 +76,12 @@ def loadMuConfig
   }
   if ENV.has_key?("CHEF_PUBLIC_IP")
     default_cfg["public_address"] = ENV['CHEF_PUBLIC_IP']
+  end
+  if ENV.has_key?("SSL_CERT")
+    default_cfg["ssl"]["cert"] = ENV['SSL_CERT']
+  end
+  if ENV.has_key?("SSL_KEY")
+    default_cfg["ssl"]["key"] = ENV['SSL_KEY']
   end
   if ENV.has_key?("ALLOW_INVADE_FOREIGN_VPCS") and !ENV['ALLOW_INVADE_FOREIGN_VPCS'].empty?
     default_cfg["allow_invade_foreign_vpcs"] = true

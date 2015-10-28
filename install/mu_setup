@@ -53,7 +53,7 @@ export PATH="/bin:/usr/bin:/sbin:/usr/sbin"
 
 # Non-root users can only customize certain configuration parameters
 if [ "root" == "`whoami`" ];then
-  CONFIG_VARS="AWS_ACCESS AWS_SECRET MU_ADMIN_EMAIL MU_ADMIN_PW JENKINS_ADMIN_PW MU_INSTALLDIR MU_DATADIR ADDTL_CHEF_REPOS MU_REPO CHEF_PUBLIC_IP HOSTNAME EC2SECGROUP LOG_BUCKET_NAME ALLOW_INVADE_FOREIGN_VPCS"
+  CONFIG_VARS="AWS_ACCESS AWS_SECRET MU_ADMIN_EMAIL MU_ADMIN_PW JENKINS_ADMIN_PW MU_INSTALLDIR MU_DATADIR ADDTL_CHEF_REPOS MU_REPO CHEF_PUBLIC_IP HOSTNAME EC2SECGROUP LOG_BUCKET_NAME ALLOW_INVADE_FOREIGN_VPCS MU_SSL_CERT MU_SSL_KEY"
   RO_CONFIG_VARS="AWS_ACCOUNT_NUMBER EC2_REGION"
 else
   CONFIG_VARS="AWS_ACCESS AWS_SECRET MU_DATADIR ADDTL_CHEF_REPOS MU_REPO LOG_BUCKET_NAME"
@@ -125,6 +125,15 @@ umask 0077
 # environment we've inherited, and failing that, see if we can extract some of
 # them from this instance's EC2 metadata.
 USER=`whoami`
+if [ "$MU_INSTALLDIR" == "" ];then
+  MU_INSTALLDIR="/opt/mu"
+fi
+if [ "$MU_SSL_CERT" == "" ];then
+  MU_SSL_CERT="/opt/mu/var/ssl/mommacat.crt"
+fi
+if [ "$MU_SSL_KEY" == "" ];then
+  MU_SSL_KEY="/opt/mu/var/ssl/mommacat.key"
+fi
 if [ "$MU_INSTALLDIR" == "" ];then
   MU_INSTALLDIR="/opt/mu"
 fi
@@ -1231,9 +1240,7 @@ EOF
 
   set_knife_rb organizations/mu mu "https://${CHEF_PUBLIC_IP}:$port"
 
-  /opt/chef/bin/knife ssl fetch -s https://$CHEF_PUBLIC_IP > /dev/null 2>&1
-  /opt/chef/bin/knife ssl fetch -s https://$HOSTNAME > /dev/null 2>&1
-  /opt/chef/bin/knife ssl fetch -s https://127.0.0.1 > /dev/null 2>&1
+  /opt/chef/bin/knife ssl fetch -s https://$CHEF_PUBLIC_IP:$port > /dev/null 2>&1
   umask 0022
 
   cur_chef="`rpm -q chef-server-core`"
@@ -1264,7 +1271,7 @@ EOF
 #
 # Mu Chef Server Settings
 #
-server_name="#{ENV['CHEF_PUBLIC_IP']}"
+server_name="$CHEF_PUBLIC_IP"
 
 api_fqdn server_name
 
@@ -1272,7 +1279,11 @@ nginx['server_name'] = server_name
 nginx['enable_non_ssl'] = false
 nginx['non_ssl_port'] = 81
 nginx['ssl_port'] = 7443
-bookshelf['external_url'] = "https://"+server_name
+nginx['ssl_ciphers'] = "HIGH:MEDIUM:!LOW:!kEDH:!aNULL:!ADH:!eNULL:!EXP:!SSLv2:!SEED:!CAMELLIA:!PSK"
+nginx['ssl_protocols'] = "TLSv1 TLSv1.1 TLSv1.2"
+nginx['ssl_certificate'] = "$MU_SSL_CERT"
+nginx['ssl_certificate_key'] = "$MU_SSL_KEY"
+bookshelf['external_url'] = "https://"+server_name+":7443"
 EOF
   if [ ! -f /etc/opscode/chef-server.rb -o "`diff /etc/opscode/chef-server.rb /etc/opscode/chef-server.rb.tmp.$$`" != "" ];then
     /bin/mv -f /etc/opscode/chef-server.rb.tmp.$$ /etc/opscode/chef-server.rb
@@ -1283,7 +1294,7 @@ EOF
 
   # XXX workaround for vile chef bug, see:
   # https://github.com/chef/chef-server/issues/50
-  if ! grep "s3_url, \"https:\/\/${HOSTNAME}.platform-mu:7443\"" /var/opt/opscode/opscode-erchef/sys.config;then
+  if ! grep "s3_url, \"https:\/\/${HOSTNAME}.platform-mu:7443\"" /var/opt/opscode/opscode-erchef/sys.config > /dev/null;then
     status_message "Switching ${BOLD}Chef Server${NORM} to port ${BOLD}7443${NORM}"
     /bin/sed -i "s/s3_url, \"https:\/\/${HOSTNAME}.platform-mu\"/s3_url, \"https:\/\/${HOSTNAME}.platform-mu:7443\"/" /var/opt/opscode/opscode-erchef/sys.config
     chef_server_ctl restart
@@ -1515,36 +1526,53 @@ generate_docs()
 
 generate_ssl_certs()
 {
+  skip_chef="$1"
   mkdir -p $MU_DATADIR/ssl
   cd $MU_DATADIR/ssl
+  if [ -f Mu_CA.pem ];then
+    # Force us to clean up crusty old certs that we generated badly
+    ( /usr/bin/openssl x509 -in $MU_DATADIR/ssl/Mu_CA.pem -text -noout | grep "Subject: CN=$CHEF_PUBLIC_IP, OU=Mu Server $CHEF_PUBLIC_IP," > /dev/null ) || /bin/rm -f Mu_CA.*
+  fi
   regen_all=0
   if [ ! -f Mu_CA.pem ];then
     regen_all=1
     status_message "Creating internal-use SSL certificate authority"
     openssl genrsa -out Mu_CA.key 4096
     chmod 400 Mu_CA.key
-    openssl req -subj "/CN=$CHEF_PUBLIC_IP/O=eGlobalTech/C=US" -x509 -new -nodes -key Mu_CA.key -days 1024 -out Mu_CA.pem
+    openssl req -subj "/CN=$CHEF_PUBLIC_IP/OU=Mu Server $CHEF_PUBLIC_IP/O=eGlobalTech/C=US" -x509 -new -nodes -key Mu_CA.key -days 1024 -out Mu_CA.pem
     /bin/cp -f Mu_CA.pem $MU_LIBDIR/cookbooks/mu-tools/files/default/Mu_CA.pem
-    chef_artifacts_uploaded=0
-    upload_chef_artifacts -r $MU_REPO_NAME -n -s
+    if [ "$skip_chef" == "" ];then
+      chef_artifacts_uploaded=0
+      upload_chef_artifacts -r $MU_REPO_NAME -n -s
+    fi
   elif [ ! -f $MU_LIBDIR/cookbooks/mu-tools/files/default/Mu_CA.pem ];then
     /bin/cp -f Mu_CA.pem $MU_LIBDIR/cookbooks/mu-tools/files/default/Mu_CA.pem
-    chef_artifacts_uploaded=0
-    upload_chef_artifacts -r $MU_REPO_NAME -n -s
+    if [ "$skip_chef" == "" ];then
+      chef_artifacts_uploaded=0
+      upload_chef_artifacts -r $MU_REPO_NAME -n -s
+    fi
   fi
 
   # XXX should use set_serial option and maniuplate "serial"
-  for cert in rsyslog mommacat nagios ldap;do
+  for cert in rsyslog mommacat ldap;do
     if [ ! -f $cert.crt -o $regen_all == 1 ];then
       status_message "Creating self-signed $cert SSL certificate"
       openssl genrsa -out $cert.key 4096
       chmod 400 $cert.key
-      openssl req -subj "/CN=$CHEF_PUBLIC_IP/O=eGlobalTech/C=US" -new -key $cert.key -out $cert.csr
+      openssl req -subj "/CN=$CHEF_PUBLIC_IP/OU=Mu $cert/O=eGlobalTech/C=US" -new -key $cert.key -out $cert.csr
       openssl x509 -req -in $cert.csr -CA Mu_CA.pem -CAkey Mu_CA.key -CAcreateserial -out $cert.crt -days 500
+      if [ "$cert" == "mommacat" -a "$skip_chef" == "" ];then
+        chef_server_ctl restart
+        /bin/rm -f /etc/chef/trusted_certs/*.crt /root/.chef/trusted_certs/*.crt
+        /opt/chef/bin/knife ssl fetch -s https://$CHEF_PUBLIC_IP > /dev/null 2>&1
+        /bin/cp -f /root/.chef/trusted_certs/*.crt /etc/chef/trusted_certs/
+      fi
     fi
     if [ ! -f $cert.p12 -o $regen_all == 1 ];then
       openssl pkcs12 -export -inkey $cert.key -in $cert.crt -out $cert.p12 -nodes -name "$cert" -passout pass:""
     fi
+    /bin/cp -f /opt/mu/var/ssl/Mu_CA.pem /etc/pki/ca-trust/source/anchors/
+    /usr/bin/update-ca-trust extract
   done
 }
 

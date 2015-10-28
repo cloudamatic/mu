@@ -119,7 +119,7 @@ if $MU_CFG["ldap"]["type"] == "389 Directory Services"
       r.expect("Re-enter password:") do
         w.puts
       end
-    Errno::EIO
+    rescue Errno::EIO
       break
     end
   }

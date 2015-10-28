@@ -23,7 +23,7 @@ default['apache']['default_site_enabled'] = true
 default['apache']['mod_ssl']['cipher_suite'] = "ALL:!ADH:!EXPORT:!SSLv2:!RC4+RSA:+HIGH:!MEDIUM:!LOW"
 default['apache']['mod_ssl']['directives']['SSLProtocol'] = "all -SSLv2 -SSLv3"
 
-default['apache']['contact'] = default['mu']['user_map']['mu']
+default['apache']['contact'] = $MU_CFG['mu_admin_email']
 default['apache']['traceenable'] = 'Off'
 
 # Conditionally add a Jenkins port
@@ -38,7 +38,7 @@ end
 
 override["nagios"]["http_port"] = 8443
 default['nagios']['enable_ssl'] = true
-default['nagios']['sysadmin_email'] = default['mu']['user_map']['mu']
+default['nagios']['sysadmin_email'] = $MU_CFG['mu_admin_email']
 default['nagios']['ssl_cert_file'] = "/etc/httpd/ssl/nagios.crt"
 default['nagios']['ssl_cert_key'] = "/etc/httpd/ssl/nagios.key"
 default["nagios"]["log_dir"] = "/var/log/httpd"
