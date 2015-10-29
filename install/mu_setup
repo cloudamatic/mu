@@ -1646,6 +1646,7 @@ if [ "$library" != "1" ];then
   associate_public_ip
   create_private_dns_zone
   configure_ec2_security_group
+  generate_ssl_certs skip_chef
   install_chef
   patch_knife_windows
   if [ "$USER" == "root" ];then
@@ -1655,8 +1656,8 @@ if [ "$library" != "1" ];then
     generate_docs
     umask 0077
     start_momma_cat
-    generate_ssl_certs
     setup_localhost_chef_client
+    generate_ssl_certs
     configure_nagios_server
     set_permissions
     preconfigure_jenkins_artifacts
