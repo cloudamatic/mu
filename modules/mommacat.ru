@@ -82,6 +82,7 @@ Thread.new {
   MU.dupGlobals(parent_thread_id)
   begin
     MU::MommaCat.cleanTerminatedInstances
+    MU::Master.cleanExpiredScratchpads
     sleep 60
   rescue Exception => e
     MU.log "Error in cleanTerminatedInstances thread: #{e.inspect}", MU::ERR, details: e.backtrace

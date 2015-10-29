@@ -40,7 +40,8 @@ def loadMuConfig
     "public_address" => "localhost",
     "banner" => "Mu Master",
     "scratchpad" => {
-      "template_path" => "/opt/mu/lib/modules/scratchpad.erb"
+      "template_path" => "/opt/mu/lib/modules/scratchpad.erb",
+      "max_age" => 3600
     },
     "aws" => {
       "log_bucket_name" => "mu-master-logs"

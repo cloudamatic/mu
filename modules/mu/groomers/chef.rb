@@ -165,10 +165,21 @@ module MU
       # @return [Hash]
       def self.getSecret(vault: nil, item: nil, field: nil)
         loadChefLib
-        begin
-          loaded = ::ChefVault::Item.load(vault, item)
-        rescue ::ChefVault::Exceptions::KeysNotFound => e
-          raise MuNoSuchSecret, "Can't load the Chef Vault #{vault}:#{item}. Does it exist?"
+        loaded = nil
+
+        if !item.nil?
+          begin
+            loaded = ::ChefVault::Item.load(vault, item)
+          rescue ::ChefVault::Exceptions::KeysNotFound => e
+            raise MuNoSuchSecret, "Can't load the Chef Vault #{vault}:#{item}. Does it exist?"
+          end
+        else
+          # If we didn't ask for a particular item, list what we have.
+          begin
+            loaded = ::Chef::DataBag.load(vault).keys.select { |k, v| !k.match(/_keys$/) }
+          rescue Net::HTTPServerException
+            raise MuNoSuchSecret, "Failed to retrieve Vault #{vault}"
+          end
         end
 
         if loaded.nil?
@@ -196,7 +207,7 @@ module MU
       def self.deleteSecret(vault: nil, item: nil)
         loadChefLib
         raise MuError, "No vault specified, nothing to delete" if vault.nil?
-        MU.log "Deleting vault #{vault}"
+        MU.log "Deleting #{vault}:#{item} from vaults"
         knife_db = nil
         knife_cmds = []
         if item.nil?

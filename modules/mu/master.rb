@@ -181,6 +181,21 @@ module MU
       }
     end
 
+    # Remove Scratchpad entries which have exceeded their maximum age.
+    def self.cleanExpiredScratchpads
+      return if !$MU_CFG['scratchpad'].has_key?('max_age') or $MU_CFG['scratchpad']['max_age'] < 1
+      @scratchpad_semaphore.synchronize {
+        entries = MU::Groomer::Chef.getSecret(vault: "scratchpad")
+        entries.each { |pad|
+          data = MU::Groomer::Chef.getSecret(vault: "scratchpad", item: pad)
+          if data["timestamp"].to_i < (Time.now.to_i - $MU_CFG['scratchpad']['max_age'])
+            MU.log "Deleting expired Scratchpad entry #{pad}", MU::NOTICE
+            MU::Groomer::Chef.deleteSecret(vault: "scratchpad", item: pad)
+          end
+        }
+      }
+    end
+
     # @return [Array<Hash>]: List of all Mu users, with pertinent metadata.
     def self.listUsers
       if !Dir.exist?($MU_CFG['datadir']+"/users")
