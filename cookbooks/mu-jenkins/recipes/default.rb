@@ -106,15 +106,15 @@ case node.platform
       end
 
     # Setup apache or else open direct ports
-    if node.attribute?('jenkins_port_external')
-          include_recipe "mu-jenkins::jenkins_apache"
-    else
-      %w{node.jenkins_ports_direct}.each { |port|
-        execute "iptables -I INPUT -p tcp --dport #{port} -j ACCEPT; service iptables save" do
-          not_if "iptables -nL | egrep '^ACCEPT.*dpt:#{port}($| )'"
-        end
-      }
-    end
+#    if node.attribute?('jenkins_port_external')
+#          include_recipe "mu-jenkins::jenkins_apache"
+#    else
+#      %w{node.jenkins_ports_direct}.each { |port|
+#        execute "iptables -I INPUT -p tcp --dport #{port} -j ACCEPT; service iptables save" do
+#          not_if "iptables -nL | egrep '^ACCEPT.*dpt:#{port}($| )'"
+#        end
+#      }
+#    end
   else
     Chef::Log.info("Unsupported platform #{node.platform}")
 end
