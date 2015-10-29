@@ -30,8 +30,7 @@ def loadMuConfig
     "hostname" => "mu-master",
     "ssl" => {
       "cert" => "/opt/mu/var/ssl/mommacat.crt",
-      "key" => "/opt/mu/var/ssl/mommacat.key",
-      "chain" => ""
+      "key" => "/opt/mu/var/ssl/mommacat.key"
     },
     "mu_admin_email" => "root@localhost",
     "jenkins_admin_email" => "root@localhost",
