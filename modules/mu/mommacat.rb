@@ -273,6 +273,7 @@ module MU
               end
               begin
                 # Load up MU::Cloud objects for all our kittens in this deploy
+                orig_cfg['environment'] = @environment # not always set in old deploys
                 if attrs[:has_multiples]
                   data.each_pair { |mu_name, actual_data|
                     attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: mu_name)
