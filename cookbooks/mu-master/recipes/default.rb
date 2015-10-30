@@ -187,18 +187,6 @@ directory "/var/www/html/docs" do
   group "apache"
 end
 
-include_recipe "mu-master::update_nagios_only"
-
-remote_file "/etc/httpd/ssl/nagios.crt" do
-  source "file:///#{MU.mainDataDir}/ssl/nagios.crt"
-  mode 0444
-end
-
-remote_file "/etc/httpd/ssl/nagios.key" do
-  source "file:///#{MU.mainDataDir}/ssl/nagios.key"
-  mode 0400
-end
-
 include_recipe "postfix"
 
 # Use a real hostname for mail if we happen to have one assigned
@@ -399,6 +387,8 @@ cron "Rotate vault keys and purge MIA clients" do
   user "root"
   command "/opt/mu/bin/knife vault rotate all keys --clean-unknown-clients"
 end
+
+include_recipe "mu-master::update_nagios_only"
 
 # This is stuff that can break for no damn reason at all
 include_recipe "mu-utility::cloudinit"
