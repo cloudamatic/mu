@@ -39,8 +39,8 @@ end
 override["nagios"]["http_port"] = 8443
 default['nagios']['enable_ssl'] = true
 default['nagios']['sysadmin_email'] = $MU_CFG['mu_admin_email']
-default['nagios']['ssl_cert_file'] = "/etc/httpd/ssl/nagios.crt"
-default['nagios']['ssl_cert_key'] = "/etc/httpd/ssl/nagios.key"
+default['nagios']['ssl_cert_file'] = $MU_CFG['ssl']['cert']
+default['nagios']['ssl_cert_key'] = $MU_CFG['ssl']['key']
 default["nagios"]["log_dir"] = "/var/log/httpd"
 default['nagios']['cgi-bin'] = "/usr/lib/cgi-bin/"
 default['nagios']['cgi-path'] = "/nagios/cgi-bin/"

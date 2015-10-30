@@ -32,13 +32,11 @@ if $MU_CFG.has_key?('ldap')
   node.save
 end
 
-# Workaround for dopey init problems with current Nagios and its cookbook
-service "nagios" do
-  start_command "sh -x /etc/init.d/nagios start"
-  reload_command "sh -x /etc/init.d/nagios reload"
-end
+# XXX Workaround for dopey init problems with current Nagios and its cookbook
+node.override.nagios.server.name = "crond"
+node.override.nagios.server.service_name = "crond"
+node.save
 include_recipe "nagios"
-package "nagios-plugins-nrpe"
 
 cookbook_file "nagios_fifo.pp" do
   path "#{Chef::Config[:file_cache_path]}/nagios_fifo.pp"
@@ -108,3 +106,12 @@ execute "sed -i s/^interval_length=.*/interval_length=1/ || echo 'interval_lengt
   not_if "grep '^interval_length=1$' /etc/nagios/nagios.cfg"
   notifies :reload, "service[nagios]", :delayed
 end
+
+# Workaround for dopey init problems with current Nagios and its cookbook
+service "nagios" do
+  start_command "sh -x /etc/init.d/nagios start"
+  reload_command "sh -x /etc/init.d/nagios reload"
+  supports :status => true, :restart => true, :reload => true
+  action [:enable, :start]
+end
+package "nagios-plugins-nrpe"

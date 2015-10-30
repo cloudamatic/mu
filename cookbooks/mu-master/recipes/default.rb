@@ -32,6 +32,9 @@ if $MU_CFG.has_key?('ldap')
     service "nslcd" do
       action [:enable, :start]
     end
+    service "messagebus" do
+      action [:enable, :start]
+    end
     package "oddjob-mkhomedir"
     execute "restorecon -r /usr/sbin"
     service "oddjobd" do
@@ -193,18 +196,6 @@ end
 directory "/var/www/html/docs" do
   owner "apache"
   group "apache"
-end
-
-include_recipe "mu-master::update_nagios_only"
-
-remote_file "/etc/httpd/ssl/nagios.crt" do
-  source "file:///#{MU.mainDataDir}/ssl/nagios.crt"
-  mode 0444
-end
-
-remote_file "/etc/httpd/ssl/nagios.key" do
-  source "file:///#{MU.mainDataDir}/ssl/nagios.key"
-  mode 0400
 end
 
 include_recipe "postfix"
@@ -403,6 +394,8 @@ cron "Rotate vault keys and purge MIA clients" do
   user "root"
   command "/opt/mu/bin/knife vault rotate all keys --clean-unknown-clients"
 end
+
+include_recipe "mu-master::update_nagios_only"
 
 # This is stuff that can break for no damn reason at all
 include_recipe "mu-utility::cloudinit"
