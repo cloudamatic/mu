@@ -12,46 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-default['mu']['admin_emails'] = []
+default['mu']['user_map'] = MU::Master.listUsers
 default['mu']['user_list'] = []
-default['mu']['user_map'] = {}
-if !MU.mainDataDir.nil? and !MU.mainDataDir.empty? and
-    Dir.exists?("#{MU.mainDataDir}/users")
-  admin_list = []
-  Dir.foreach("#{MU.mainDataDir}/users") { |username|
-    next if username == "." or username == ".."
-    if File.exists?("#{MU.mainDataDir}/users/#{username}/email")
-      email = File.read("#{MU.mainDataDir}/users/#{username}/email").chomp
-      admin_list << "#{username} (#{email})"
-      default['mu']['admin_emails'] << email
-      default['mu']['user_map'][username] = email
-    else
-      admin_list << username
-    end
-  }
-  default['mu']['user_list'] = admin_list.join(", ")
-# older machines
-elsif node['tags'].is_a?(Hash)
-  default['mu']['user_list'] = node['tags']['MU-ADMINS']
-  default['mu']['admin_emails'] = node['tags']['MU-ADMINS'].split(/,?\s+/)
-elsif !ENV['MU_ADMINS'].nil? and !ENV['MU_ADMINS'].empty?
-  default['mu']['user_list'] = ENV['MU_ADMINS']
-  default['mu']['admin_emails'] = ENV['MU_ADMINS'].split(/,?\s+/)
-end
+node.mu.user_map.each_pair { |user, data|
+  node.default.mu.user_list << "#{user} (#{data['email']})"
+}
 
 default['apache']['docroot_dir'] = "/var/www/html"
 default['apache']['default_site_enabled'] = true
 default['apache']['mod_ssl']['cipher_suite'] = "ALL:!ADH:!EXPORT:!SSLv2:!RC4+RSA:+HIGH:!MEDIUM:!LOW"
 default['apache']['mod_ssl']['directives']['SSLProtocol'] = "all -SSLv2 -SSLv3"
 
-default['apache']['contact'] = default['mu']['user_map']['mu']
+default['apache']['contact'] = $MU_CFG['mu_admin_email']
 default['apache']['traceenable'] = 'Off'
 
 # Conditionally add a Jenkins port
 if node.attribute?('jenkins_port_external') 
-  override["apache"]["listen_ports"] = [80, 8443, 9443]
+  override["apache"]["listen_ports"] = [80, 443, 8443, 9443]
 else
-  override["apache"]["listen_ports"] = [80, 8443]
+  override["apache"]["listen_ports"] = [80, 443, 8443]
 end
 # In addition to override, set normal to set defaults, and reset elsewhere with each webapp added, adding its port
 # The set_unless sets a normal attribute
@@ -59,12 +38,12 @@ end
 
 override["nagios"]["http_port"] = 8443
 default['nagios']['enable_ssl'] = true
-default['nagios']['sysadmin_email'] = default['mu']['user_map']['mu']
+default['nagios']['sysadmin_email'] = $MU_CFG['mu_admin_email']
 default['nagios']['ssl_cert_file'] = "/etc/httpd/ssl/nagios.crt"
 default['nagios']['ssl_cert_key'] = "/etc/httpd/ssl/nagios.key"
 default["nagios"]["log_dir"] = "/var/log/httpd"
 default['nagios']['cgi-bin'] = "/usr/lib/cgi-bin/"
-default['nagios']['cgi-path'] = "/cgi-bin/"
+default['nagios']['cgi-path'] = "/nagios/cgi-bin/"
 default['nagios']['server_role'] = "mu-master"
 default['nagios']['server']['install_method'] = 'source'
 default['nagios']['multi_environment_monitoring'] = true
@@ -81,7 +60,11 @@ default['nagios']['default_host']['max_check_attempts'] = 4
 default['nagios']['default_host']['check_command'] = "check_node_ssh"
 default['nagios']['default_service']['check_interval'] = 180
 default['nagios']['default_service']['retry_interval'] = 30
-default['nagios']['server']['url'] = "https://assets.nagios.com/downloads/nagioscore/releases/nagios-4.0.8.tar.gz"
+default['nagios']['server']['url'] = "https://assets.nagios.com/downloads/nagioscore/releases/nagios-4.1.1.tar.gz"
+default['nagios']['server']['version'] = "4.1.1"
+default['nagios']['server']['src_dir'] = "nagios-4.1.1"
+default['nagios']['server']['checksum'] = "986c93476b0fee2b2feb7a29ccf857cc691bed7ca4e004a5361ba11f467b0401"
+default['nagios']['url'] = "https://#{$MU_CFG['public_address']}/nagios"
 
 # No idea why this is set wrong by default
 default['chef_node_name'] = node.name

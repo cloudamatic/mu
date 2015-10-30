@@ -47,7 +47,7 @@ DEFAULT_BRANCH="master"
 
 usage()
 {
-  echo "Updates CAP scripts in $MU_INSTALLDIR/bin. Optionally refreshes from git."
+  echo "Updates Mu scripts in $MU_INSTALLDIR/bin. Optionally refreshes from git."
   echo "Usage: $0 [-b <branch>] [-f [-c <commit>] ] [-d] [-u] [-r]"
   echo "    -f: Forcibly re-sync $MU_LIBDIR from Git.  Saves your"
   echo "        working changes unless -d is specified."
@@ -190,6 +190,7 @@ generate_docs
 set +e
 install_ruby
 patch_knife_windows
+generate_ssl_certs skip_chef
 install_chef
 set_bash_defaults
 setup_chef_cache $update_chef_artifacts

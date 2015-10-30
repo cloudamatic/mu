@@ -1,0 +1,4 @@
+dn: cn=config
+changetype: modify
+add: nsslapd-security
+nsslapd-security: on

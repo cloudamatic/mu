@@ -798,6 +798,83 @@ module MU
       @admin_firewall_rules << acl if !@admin_firewall_rules.include?(acl)
       return {"type" => "firewall_rule", "name" => name}
     end
+    
+    def self.validate_alarm_config(alarm)
+      ok = true
+
+      if alarm["namespace"].nil?
+        MU.log "You must specify 'namespace' when creating an alarm", MU::ERR
+        ok = false
+      end
+
+      if alarm["metric_name"].nil?
+        MU.log "You must specify 'metric_name' when creating an alarm", MU::ERR
+        ok = false
+      end
+
+      if alarm["statistic"].nil?
+        MU.log "You must specify 'statistic' when creating an alarm", MU::ERR
+        ok = false
+      end
+
+      if alarm["period"].nil?
+        MU.log "You must specify 'period' when creating an alarm", MU::ERR
+        ok = false
+      end
+
+      if alarm["evaluation_periods"].nil?
+        MU.log "You must specify 'evaluation_periods' when creating an alarm", MU::ERR
+        ok = false
+      end
+
+      if alarm["threshold"].nil?
+        MU.log "You must specify 'threshold' when creating an alarm", MU::ERR
+        ok = false
+      end
+
+      if alarm["comparison_operator"].nil?
+        MU.log "You must specify 'comparison_operator' when creating an alarm", MU::ERR
+        ok = false
+      end
+
+      if alarm["enable_notifications"]
+        if alarm["comparison_operator"].nil?
+          MU.log "You must specify 'comparison_operator' when creating an alarm", MU::ERR
+          ok = false
+        end
+
+        if alarm["notification_group"].nil?
+          MU.log "You must specify 'notification_group' when 'enable_notifications' is set to true", MU::ERR
+          ok = false
+        end
+
+        if alarm["notification_type"].nil?
+          MU.log "You must specify 'notification_type' when 'enable_notifications' is set to true", MU::ERR
+          ok = false
+        end
+
+        if alarm["notification_endpoint"].nil?
+          MU.log "You must specify 'notification_endpoint' when 'enable_notifications' is set to true", MU::ERR
+          ok = false
+        end
+      end
+      
+      if alarm["dimensions"]
+        alarm["dimensions"].each{ |dimension|
+          if dimension["mu_name"] && dimension["cloud_id"]
+            MU.log "You can only specfiy 'mu_name' or 'cloud_id'", MU::ERR
+            ok = false
+          end
+
+          if dimension["cloud_class"].nil?
+            ok = false
+            MU.log "You must specify 'cloud_class'", MU::ERR
+          end
+        }
+      end
+
+      return ok
+    end
 
     def self.validate(config)
       ok = true
@@ -812,6 +889,9 @@ module MU
       databases = config['databases']
       servers = config['servers']
       server_pools = config['server_pools']
+      cache_clusters = config['cache_clusters']
+      alarms = config['alarms']
+      logs = config['logs']
       loadbalancers = config['loadbalancers']
       collections = config['collections']
       firewall_rules = config['firewall_rules']
@@ -821,13 +901,16 @@ module MU
       databases = Array.new if databases.nil?
       servers = Array.new if servers.nil?
       server_pools = Array.new if server_pools.nil?
+      cache_clusters = Array.new if cache_clusters.nil?
+      alarms = Array.new if alarms.nil?
+      logs = Array.new if logs.nil?
       loadbalancers = Array.new if loadbalancers.nil?
       collections = Array.new if collections.nil?
       firewall_rules = Array.new if firewall_rules.nil?
       vpcs = Array.new if vpcs.nil?
       dnszones = Array.new if dnszones.nil?
 
-      if databases.size < 1 and servers.size < 1 and server_pools.size < 1 and loadbalancers.size < 1 and collections.size < 1 and firewall_rules.size < 1 and vpcs.size < 1 and dnszones.size < 1
+      if databases.size < 1 and servers.size < 1 and server_pools.size < 1 and loadbalancers.size < 1 and collections.size < 1 and firewall_rules.size < 1 and vpcs.size < 1 and dnszones.size < 1 and cache_clusters.size < 1 and alarms.size < 1 and logs.size < 1
         MU.log "You must declare at least one resource to create", MU::ERR
         ok = false
       end
@@ -1116,6 +1199,13 @@ module MU
           end
         }
         lb['dependencies'] << genAdminFirewallRuleset(vpc: lb['vpc'], region: lb['region'], cloud: lb['cloud'])
+        
+        if lb["alarms"] && !lb["alarms"].empty?
+          lb["alarms"].each { |alarm|
+            alarm["namespace"] = "AWS/ELB" if alarm["namespace"].nil?
+            ok = false unless validate_alarm_config(alarm)
+          }
+        end
       }
 
       collections.each { |stack|
@@ -1144,6 +1234,14 @@ module MU
         pool['vault_access'] = [] if pool['vault_access'].nil?
         pool['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
         ok = false if !check_vault_refs(pool)
+
+        if pool["alarms"] && !pool["alarms"].empty?
+          pool["alarms"].each { |alarm|
+            alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
+            ok = false unless validate_alarm_config(alarm)
+          }
+        end
+
         if pool["basis"]["launch_config"] != nil
           launch = pool["basis"]["launch_config"]
           if !launch['generate_iam_role']
@@ -1178,11 +1276,48 @@ module MU
           ok = false
           MU.log "One of the following MUST be specified for Server Pools: region, zones, vpc_zone_identifier, vpc.", MU::ERR
         end
+
         if !pool["scaling_policies"].nil?
           pool["scaling_policies"].each { |policy|
-            if policy['type'] != "PercentChangeInCapacity" and !policy['min_adjustment_step'].nil?
-              MU.log "Cannot specify scaling policy min_adjustment_step if type is not PercentChangeInCapacity", MU::ERR
+            if policy['type'] != "PercentChangeInCapacity" and !policy['min_adjustment_magnitude'].nil?
+              MU.log "Cannot specify scaling policy min_adjustment_magnitude if type is not PercentChangeInCapacity", MU::ERR
               ok = false
+            end
+
+            if policy["policy_type"] == "SimpleScaling"
+              unless policy["cooldown"] && policy["adjustment"]
+                MU.log "You must specify 'cooldown' and 'adjustment' when 'policy_type' is set to 'SimpleScaling'", MU::ERR
+                ok = false
+              end
+            elsif policy["policy_type"] == "StepScaling"
+              if policy["step_adjustments"].nil? || policy["step_adjustments"].empty?
+                MU.log "You must specify 'step_adjustments' when 'policy_type' is set to 'StepScaling'", MU::ERR
+                ok = false
+              end
+
+              policy["step_adjustments"].each{ |step|
+                if step["adjustment"].nil?
+                  MU.log "You must specify 'adjustment' for 'step_adjustments' when 'policy_type' is set to 'StepScaling'", MU::ERR
+                  ok = false
+                end
+
+                if step["adjustment"] >= 1 && policy["estimated_instance_warmup"].nil?
+                  MU.log "You must specify 'estimated_instance_warmup' when 'policy_type' is set to 'StepScaling' and adding capacity", MU::ERR
+                  ok = false
+                end
+
+                if step["lower_bound"].nil? && step["upper_bound"].nil?
+                  MU.log "You must specify 'lower_bound' and/or upper_bound for 'step_adjustments' when 'policy_type' is set to 'StepScaling'", MU::ERR
+                  ok = false
+                end
+              }
+            end
+
+            if policy["alarms"] && !policy["alarms"].empty?
+              policy["alarms"].each { |alarm|
+                alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
+                ok = false unless validate_alarm_config(alarm)
+              }
             end
           }
         end
@@ -1213,11 +1348,7 @@ module MU
                   "phase" => "groom"
               }
             end
-            if !processVPCReference(pool["vpc"],
-                                    "server_pool #{pool['name']}",
-                                    dflt_region: config['region'],
-                                    is_sibling: true,
-                                    sibling_vpcs: vpcs)
+            if !processVPCReference(pool["vpc"], "server_pool #{pool['name']}", dflt_region: config['region'], is_sibling: true, sibling_vpcs: vpcs)
               ok = false
             end
           else
@@ -1254,12 +1385,13 @@ module MU
 
       read_replicas = []
       database_names = []
+      cluster_nodes = []
       databases.each { |db|
         db['region'] = config['region'] if db['region'].nil?
         db["dependencies"] = Array.new if db["dependencies"].nil?
         db["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Database")
         database_names << db['name']
-        if db['collection'] != nil
+        if db['collection']
           # XXX don't do this if 'true' was explicitly asked for (as distinct
           # from default)
           db['publicly_accessible'] = false
@@ -1291,77 +1423,102 @@ module MU
           end
         end
 
+        if db.has_key?("db_parameter_group_parameters") || db.has_key?("cluster_parameter_group_parameters")
+          if db["parameter_group_family"].nil?
+            MU.log "parameter_group_family must be set when setting db_parameter_group_parameters", MU::ERR
+            ok = false
+          end
+        end
+
         # Adding rules for Database instance storage. This varies depending on storage type and database type. 
         if db["storage_type"] == "standard" or db["storage_type"] == "gp2"
           if db["engine"] == "postgres" or db["engine"] == "mysql"
             if !(5..6144).include? db["storage"]
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 5 to 3072 GB for #{db["storage_type"]} volume types", MU::ERR
+              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 5 to 6144 GB for #{db["storage_type"]} volume types", MU::ERR
               ok = false
             end
           elsif %w{oracle-se1 oracle-se oracle-ee}.include? db["engine"]
-            if !(10..3072).include? db["storage"]
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 10 to 3072 GB for #{db["storage_type"]} volume types", MU::ERR
+            if !(10..6144).include? db["storage"]
+              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 10 to 6144 GB for #{db["storage_type"]} volume types", MU::ERR
               ok = false
             end
           elsif %w{sqlserver-ex sqlserver-web}.include? db["engine"]
-            if !(20..1024).include? db["storage"]
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 20 to 1024 GB for #{db["storage_type"]} volume types", MU::ERR
+            if !(20..4096).include? db["storage"]
+              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 20 to 4096 GB for #{db["storage_type"]} volume types", MU::ERR
               ok = false
             end
           elsif %w{sqlserver-ee sqlserver-se}.include? db["engine"]
             if !(200..4096).include? db["storage"]
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 200 to 1024 GB for #{db["storage_type"]} volume types", MU::ERR
+              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 200 to 4096 GB for #{db["storage_type"]} volume types", MU::ERR
               ok = false
             end
           end
         elsif db["storage_type"] == "io1"
           if %w{postgres mysql oracle-se1 oracle-se oracle-ee}.include? db["engine"]
             if !(100..6144).include? db["storage"]
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 3072 GB for #{db["storage_type"]} volume types", MU::ERR
+              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 6144 GB for #{db["storage_type"]} volume types", MU::ERR
               ok = false
             end
           elsif %w{sqlserver-ex sqlserver-web}.include? db["engine"]
-            if !(100..1000).step(100).include? db["storage"]
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 1000 GB  with 100 GB increments for #{db["storage_type"]} volume types", MU::ERR
+            if !(100..4096).include? db["storage"]
+              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 4096 GB for #{db["storage_type"]} volume types", MU::ERR
               ok = false
             end
           elsif %w{sqlserver-ee sqlserver-se}.include? db["engine"]
-            if !(200..4096).step(100).include? db["storage"]
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 1000 GB  with 100 GB increments for #{db["storage_type"]} volume types", MU::ERR
+            if !(200..4096).include? db["storage"]
+              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 200 to 4096 GB #{db["storage_type"]} volume types", MU::ERR
               ok = false
             end
           end
         end
 
-        if db["engine"] == "postgres"
-          db["license_model"] = "postgresql-license"
-        elsif db["engine"] == "mysql"
-          db["license_model"] = "general-public-license"
+        db_cluster_engines = %w{aurora}
+        db["create_cluster"] = 
+          if db_cluster_engines.include?(db["engine"])
+            true
+          else
+            false
+          end
+
+        if db["create_cluster"]
+          if db["cluster_node_count"] < 1
+            MU.log "You are trying to create a database cluster but cluster_node_count is set to #{db["cluster_node_count"]}", MU::ERR
+            ok = false
+          end
+
+          MU.log "'storage' is not supported when creating a database cluster, disregarding", MU::NOTICE if db["storage"]
+          MU.log "'multi_az_on_create' and multi_az_on_deploy are not supported when creating a database cluster, disregarding", MU::NOTICE if db["storage"] if db["multi_az_on_create"] || db["multi_az_on_deploy"]
         end
 
-        if (db["creation_style"] == "new" or
-            db["creation_style"] == "new_snapshot" or
-            db["creation_style"] == "existing_snapshot") and
-            db["size"].nil?
+        db["license_model"] =
+          if db["engine"] == "postgres"
+            "postgresql-license"
+          elsif db["engine"] == "mysql"
+            "general-public-license"
+          end
+
+        if db["size"].nil?
           MU.log "You must specify 'size' when creating a new database or a database from a snapshot.", MU::ERR
           ok = false
         end
+
         if db["creation_style"] == "new" and db["storage"].nil?
-          MU.log "You must specify 'storage' when creating a new database.", MU::ERR
-          ok = false
+          unless db["create_cluster"]
+            MU.log "You must specify 'storage' when creating a new database.", MU::ERR
+            ok = false
+          end
         end
 
-        if db["creation_style"] == "existing" or db["creation_style"] == "new_snapshot" or db["creation_style"] == "existing_snapshot"
+        if db["creation_style"] == "point_in_time" && db["restore_time"].nil?
+          ok = false
+          MU.log "You must provide restore_time when creation_style is point_in_time", MU::ERR
+        end
+
+        if %w{existing new_snapshot existing_snapshot point_in_time}.include?(db["creation_style"])
           if db["identifier"].nil?
             ok = false
             MU.log "Using existing database (or snapshot thereof), but no identifier given", MU::ERR
           end
-          # XXX be nice to tell users that these parameters are invalid here,
-          # but only if they specified them.
-          ### Moving this back to MU::Cloud::AWS::Database 
-          # db.delete("storage_encrypted")
-          # db.delete("preferred_backup_window")
-          # db.delete("backup_retention_period")
         end
 
         if !db["run_sql_on_deploy"].nil? and (db["engine"] != "postgres" and db["engine"] != "mysql")
@@ -1369,7 +1526,14 @@ module MU
           MU.log "Running SQL on deploy is only supported for postgres and mysql databases", MU::ERR
         end
 
-        if db["collection"] != nil
+        if db["alarms"] && !db["alarms"].empty?
+          db["alarms"].each { |alarm|
+            alarm["namespace"] = "AWS/RDS" if alarm["namespace"].nil?
+            ok = false unless validate_alarm_config(alarm)
+          }
+        end
+
+        if db["collection"]
           db["dependencies"] << {
               "type" => "collection",
               "name" => db["collection"]
@@ -1419,11 +1583,13 @@ module MU
                 "name" => db["vpc"]["vpc_name"]
             }
 
-            if !processVPCReference(db["vpc"],
-                                    "database #{db['name']}",
-                                    dflt_region: config['region'],
-                                    is_sibling: true,
-                                    sibling_vpcs: vpcs)
+            if !processVPCReference(
+              db["vpc"],
+              "database #{db['name']}",
+              dflt_region: config['region'],
+              is_sibling: true,
+              sibling_vpcs: vpcs
+            )
               ok = false
             end
           else
@@ -1463,8 +1629,42 @@ module MU
           }
           read_replicas << replica
         end
+
+        # Do database cluster nodes the same way we do read replicas
+        if db["create_cluster"]
+          (1..db["cluster_node_count"]).each{ |num|
+            node = Marshal.load(Marshal.dump(db))
+            node["name"] = "#{db['name']}-#{num}"
+            database_names << node["name"]
+            node["create_cluster"] = false
+            node["creation_style"] = "new"
+            node["add_cluster_node"] = true
+            node["member_of_cluster"] = {
+              "db_name" => db['name'],
+              "cloud" => db['cloud'],
+              "region" => db['region']
+            }
+            # AWS will figure out for us which database instance is the writer/master so we can create all of them concurrently.
+            node['dependencies'] << {
+              "type" => "database",
+              "name" => db["name"],
+              "phase" => "groom"
+            }
+            cluster_nodes << node
+
+            # Alarms are set on each DB cluster node, not on the cluster iteslf 
+            if node.has_key?("alarms") && !node["alarms"].empty?
+              node["alarms"].each{ |alarm|
+                alarm["name"] = "#{alarm["name"]}-#{node["name"]}"
+              }
+            end
+          }
+
+          db.delete("alarms") if db.has_key?("alarms")
+        end
       }
       databases.concat(read_replicas)
+      databases.concat(cluster_nodes)
       databases.each { |db|
         if !db['read_replica_of'].nil?
           rr = db['read_replica_of']
@@ -1492,6 +1692,209 @@ module MU
               ok = false
             end
           end
+        elsif db["member_of_cluster"]
+          rr = db["member_of_cluster"]
+          if rr['db_name']
+            if !database_names.include?(rr['db_name'])
+              MU.log "Cluster node #{db['name']} references sibling source #{rr['db_name']}, but I have no such database", MU::ERR
+              ok = false
+            end
+          else
+            rr['cloud'] = db['cloud'] if rr['cloud'].nil?
+            tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
+            found = MU::MommaCat.findStray(
+                rr['cloud'],
+                "database",
+                deploy_id: rr["deploy_id"],
+                cloud_id: rr["db_id"],
+                tag_key: tag_key,
+                tag_value: tag_value,
+                region: rr["region"],
+                dummy_ok: true
+            )
+            ext_database = found.first if !found.nil? and found.size == 1
+            if !ext_database
+              MU.log "Couldn't resolve Database reference to a unique live Database in #{db['name']}", MU::ERR, details: rr
+              ok = false
+            end
+          end
+        end
+      }
+
+      cache_clusters.each { |cluster|
+        cluster['region'] = config['region'] if cluster['region'].nil?
+        cluster["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("CacheCluster")
+        cluster["dependencies"] = [] if cluster["dependencies"].nil?
+
+        if cluster["creation_style"] != "new" && cluster["identifier"].nil?
+          MU.log "creation_style is set to #{cluster['creation_style']} but no identifier was provided. Either set creation_style to new or provide an identifier", MU::ERR
+          ok = false
+        end
+
+        if cluster.has_key?("parameter_group_parameters") && cluster["parameter_group_family"].nil?
+          MU.log "parameter_group_family must be set when setting parameter_group_parameters", MU::ERR
+          ok = false
+        end
+        
+        if cluster["size"].nil?
+          MU.log "You must specify 'size' when creating a cache cluster.", MU::ERR
+          ok = false
+        end
+
+        if !cluster.has_key?("node_count")
+          MU.log "node_count not specified.", MU::ERR
+          ok = false
+        end
+
+        if cluster["node_count"] < 1
+          MU.log "node_count must be above 1.", MU::ERR
+          ok = false
+        end
+
+        if cluster["node_count"] > 1 && !cluster["multi_az"]
+          MU.log "node_count is set to #{cluster["node_count"]} but multi_az is disbaled. either set multi_az to true or set node_count to 1", MU::ERR
+          ok = false
+        end
+
+        if cluster["engine"] == "redis"
+          # We aren't required to create a cache replication group for a single redis cache cluster, 
+          # however AWS console does exactly that, ss such we will follow that behavior.
+          cluster["create_replication_group"] = true
+          cluster["automatic_failover"] = cluster["multi_az"]
+
+          # Some instance types don't support snapshotting 
+          if %w{cache.t2.micro cache.t2.small cache.t2.medium}.include?(cluster["size"])
+            if cluster.has_key?("snapshot_retention_limit") || cluster.has_key?("snapshot_window")
+              MU.log "Can't set snapshot_retention_limit or snapshot_window on #{cluster["size"]}", MU::ERR
+              ok = false
+            end
+          end
+        elsif cluster["engine"] == "memcached"
+          cluster["create_replication_group"] = false
+          cluster["az_mode"] = cluster["multi_az"] ? "cross-az" : "single-az"
+
+          if cluster["node_count"] > 20
+            MU.log "#{cluster['engine']} supports up to 20 nodes per cache cluster", MU::ERR
+            ok = false
+          end
+
+          # memcached doesn't support snapshots
+          if cluster.has_key?("snapshot_retention_limit") || cluster.has_key?("snapshot_window")
+            MU.log "Can't set snapshot_retention_limit or snapshot_window on #{cluster["engine"]}", MU::ERR
+            ok = false
+          end 
+        end
+
+        if cluster["alarms"] && !cluster["alarms"].empty?
+          cluster["alarms"].each { |alarm|
+            alarm["namespace"] = "AWS/ElastiCache" if alarm["namespace"].nil?
+            ok = false unless validate_alarm_config(alarm)
+          }
+        end
+
+        if cluster['ingress_rules']
+          fwname = "cache#{cluster['name']}"
+          firewall_rule_names << fwname
+          acl = {"name" => fwname, "rules" => cluster['ingress_rules'], "region" => cluster['region']}
+          acl["vpc"] = cluster['vpc'].dup if cluster['vpc']
+          firewall_rules << resolveFirewall.call(acl)
+          cluster["add_firewall_rules"] = [] if cluster["add_firewall_rules"].nil?
+          cluster["add_firewall_rules"] << {"rule_name" => fwname}
+        end
+
+        if cluster["add_firewall_rules"]
+          cluster["add_firewall_rules"].each { |acl_include|
+            if firewall_rule_names.include?(acl_include["rule_name"])
+              cluster["dependencies"] << {
+                "type" => "firewall_rule",
+                "name" => acl_include["rule_name"]
+              }
+            end
+          }
+        end
+
+        if cluster["vpc"] && !cluster["vpc"].empty?
+          if cluster["vpc"]["subnet_pref"] and !cluster["vpc"]["subnets"]
+            if %w{all any public private}.include? cluster["vpc"]["subnet_pref"]
+              MU.log "subnet_pref #{cluster["vpc"]["subnet_pref"]} is not supported for cache clusters.", MU::ERR
+              ok = false
+            end
+          end
+
+          cluster['vpc']['region'] = cluster['region'] if cluster['vpc']['region'].nil?
+          cluster["vpc"]['cloud'] = cluster['cloud'] if cluster["vpc"]['cloud'].nil?
+          # If we're using a VPC in this deploy, set it as a dependency
+          if cluster["vpc"]["vpc_name"] and vpc_names.include?(cluster["vpc"]["vpc_name"]) and cluster["vpc"]["deploy_id"].nil?
+            cluster["dependencies"] << {
+              "type" => "vpc",
+              "name" => cluster["vpc"]["vpc_name"]
+            }
+
+            if !processVPCReference(
+              cluster["vpc"],
+              "cache_cluster #{cluster['name']}",
+              dflt_region: config['region'],
+              is_sibling: true,
+              sibling_vpcs: vpcs
+            )
+              ok = false
+            end
+          else
+            if !processVPCReference(cluster["vpc"], "cache_cluster #{cluster['name']}", dflt_region: config['region'])
+              ok = false
+            end
+          end
+        end
+
+        cluster['dependencies'] << genAdminFirewallRuleset(vpc: cluster['vpc'], region: cluster['region'], cloud: cluster['cloud'])
+      }
+
+      alarms.each { |alarm|
+        alarm['region'] = config['region'] if alarm['region'].nil?
+        alarm["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Alarm")
+        alarm["dependencies"] = [] if alarm["dependencies"].nil?
+
+        if alarm["dimensions"]
+          alarm["dimensions"].each{ |dimension|
+            if dimension["cloud_class"].nil?
+              MU.log "You must specify 'cloud_class'", MU::ERR
+              ok = false
+            end
+
+            alarm["namespace"] = 
+              if dimension["cloud_class"] == "InstanceId"
+                "AWS/EC2"
+              elsif dimension["cloud_class"] == "DBInstanceIdentifier"
+                "AWS/RDS"
+              elsif dimension["cloud_class"] == "LoadBalancerName"
+                "AWS/ELB"
+              elsif dimension["cloud_class"] == "CacheClusterId"
+                "AWS/ElastiCache"
+              elsif dimension["cloud_class"] == "VolumeId"
+                "AWS/EBS"
+              elsif dimension["cloud_class"] == "BucketName"
+                "AWS/S3"
+              elsif dimension["cloud_class"] == "TopicName"
+                "AWS/SNS"
+              end
+          }
+        end
+
+        ok = false unless validate_alarm_config(alarm)
+      }
+
+      logs.each { |log_rec|
+        log_rec['region'] = config['region'] if log_rec['region'].nil?
+        log_rec["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Log")
+        log_rec["dependencies"] = [] if log_rec["dependencies"].nil?
+        
+        if log_rec["filters"] && !log_rec["filters"].empty?
+          log_rec["filters"].each{ |filter|
+            if filter["namespace"].start_with?("AWS/")
+              MU.log "'namespace' can't be under the 'AWS/' namespace", MU::ERR
+              ok = false
+            end
+          }
         end
       }
 
@@ -1532,6 +1935,13 @@ module MU
             MU.log "No AMI specified for #{server['name']} and no default available for platform #{server['platform']} in region #{server['region']}", MU::ERR, details: server
             ok = false
           end
+        end
+
+        if server["alarms"] && !server["alarms"].empty?
+          server["alarms"].each { |alarm|
+            alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
+            ok = false unless validate_alarm_config(alarm)
+          }
         end
 
         server['skipinitialupdates'] = true if @skipinitialupdates
@@ -1909,7 +2319,7 @@ module MU
                 "name" => {"type" => "string"},
                 "type" => {
                     "type" => "string",
-                    "enum" => ["server", "database", "server_pool", "loadbalancer", "collection", "firewall_rule", "vpc", "dnszone"]
+                    "enum" => ["server", "database", "server_pool", "loadbalancer", "collection", "firewall_rule", "vpc", "dnszone", "cache_cluster"]
                 },
                 "phase" => {
                     "type" => "string",
@@ -1981,6 +2391,24 @@ module MU
             }
         }
     }
+
+    @flowlogs_primitive = {
+      "traffic_type_to_log" => {
+        "type" => "string",
+        "description" => "The class of traffic to log - accepted traffic, rejected traffic or all traffic.",
+        "enum" => ["accept", "reject", "all"],
+        "default" => "all"
+      },
+      "log_group_name" => {
+        "type" => "string",
+        "description" => "An existing CloudWachLogs log group the traffic will be logged to. If not provided, a new one will be created"
+      },
+      "enable_traffic_logging" => {
+        "type" => "boolean",
+        "description" => "If traffic logging is enabled or disabled. Will be enabled on all subnets and network interfaces if set to true on a VPC",
+        "default" => false
+      }
+      }
 
     @vpc_primitive = {
         "type" => "object",
@@ -2126,23 +2554,31 @@ module MU
         }
     }
 
+    @vpc_primitive["properties"].merge!(@flowlogs_primitive)
+    @vpc_primitive["properties"]["subnets"]["items"]["properties"].merge!(@flowlogs_primitive)
+
     @ec2_size_primitive = {
         # XXX maybe we shouldn't validate this, but it makes a good example
         "pattern" => "^(t|m|c|i|g|r|hi|hs|cr|cg|cc){1,2}[0-9]\\.(micro|small|medium|[248]?x?large)$",
         "description" => "The Amazon EC2 instance type to use when creating this server.",
         "type" => "string"
     }
+    @eleasticache_size_primitive = {
+        "pattern" => "^cache\.(t|m|c|i|g|hi|hs|cr|cg|cc){1,2}[0-9]\\.(micro|small|medium|[248]?x?large)$",
+        "type" => "string",
+        "description" => "The Amazon EleastiCache instance type to use when creating this cache cluster.",
+    }
     @rds_size_primitive = {
-        "pattern" => "^db\.(t|m|c|i|g|hi|hs|cr|cg|cc){1,2}[0-9]\\.(micro|small|medium|[248]?x?large)$",
+        "pattern" => "^db\.(t|m|c|i|g|r|hi|hs|cr|cg|cc){1,2}[0-9]\\.(micro|small|medium|[248]?x?large)$",
         "type" => "string",
         "description" => "The Amazon RDS instance type to use when creating this database instance.",
     }
 
-    @rds_parameter_group_parameters_primitive = {
+    @rds_parameters_primitive = {
         "type" => "array",
         "minItems" => 1,
         "items" => {
-            "description" => "The database parameter to change and when to apply the change.",
+            "description" => "The database parameter group parameter to change and when to apply the change.",
             "type" => "object",
             "title" => "Database Parameter",
             "required" => ["name", "value"],
@@ -2157,6 +2593,26 @@ module MU
                 "apply_method" => {
                     "enum" => ["pending-reboot", "immediate"],
                     "default" => "immediate",
+                    "type" => "string"
+                }
+            }
+        }
+    }
+
+    @eleasticache_parameters_primitive = {
+        "type" => "array",
+        "minItems" => 1,
+        "items" => {
+            "description" => "The cache cluster parameter group parameter to change and when to apply the change.",
+            "type" => "object",
+            "title" => "Cache Cluster Parameter",
+            "required" => ["name", "value"],
+            "additionalProperties" => false,
+            "properties" => {
+                "name" => {
+                    "type" => "string"
+                },
+                "value" => {
                     "type" => "string"
                 }
             }
@@ -2294,6 +2750,227 @@ module MU
                 }
             }
         }
+    }
+
+    # We want to have a default email to send SNS notifications
+    sns_notification_email = 
+      if MU.chef_user == "mu"
+        ENV['MU_ADMIN_EMAIL']
+      else
+        MU.userEmail
+      end
+
+    @alarm_common_properties = {
+        "name" => {
+            "type" => "string"
+        },
+        "ok_actions" => {
+            "type" => "array",
+            "minItems" => 1,
+            "description" => "What action(s) to take when alarm state transitions to 'OK'.",
+            "items" => {
+                "type" => "String"
+            }
+        },
+        "alarm_actions" => {
+            "type" => "array",
+            "minItems" => 1,
+            "description" => "What action(s) to take when alarm state transitions to 'ALARM'.",
+            "items" => {
+                "type" => "String"
+            }
+        },
+        "no_data_actions" => {
+            "type" => "array",
+            "minItems" => 1,
+            "description" => "What action(s) to take when alarm state transitions to 'INSUFFICIENT'.",
+            "items" => {
+                "type" => "String"
+            }
+        },
+        "metric_name" => {
+            "type" => "string",
+            "description" => "The name of the attribute to monitor eg. CPUUtilization."
+        },
+        "namespace" => {
+            "type" => "string",
+            "description" => "The name of container 'metric_name' belongs to eg. 'AWS/EC2'"
+        },
+        "statistic" => {
+            "type" => "string",
+            "description" => "",
+            "enum" => ["SampleCount", "Average", "Sum", "Minimum", "Maximum"]
+        },
+        "dimensions" => {
+            "type" => "array",
+            "description" => "What to monitor",
+            "minItems" => 1,
+            "items" => {
+                "type" => "object",
+                "additionalProperties" => false,
+                "properties" => {
+                    "cloud_class" => {
+                        "type" => "string",
+                        "description" => "eg InstanceId, DBInstanceIdentifier",
+                    },
+                    "cloud_id" => {
+                        "type" => "string",
+                        "description" => "The cloud identifier of the resource the alarm is being created for. eg - i-d96eca0d. Must use either 'cloud_id' OR 'mu_name' AND 'deploy_id'"
+                    },
+                    "mu_name" => {
+                        "type" => "string",
+                        "description" => "Should also include 'deploy_id' so we will be able to identifiy a sinlge resource. Use either 'cloud_id' OR 'mu_name' and 'deploy_id'"
+                    },
+                    "deploy_id" => {
+                        "type" => "string",
+                        "description" => "Should also include 'mu_name' so we will be able to identifiy a sinlge resource. Use either 'cloud_id' OR 'mu_name' and 'deploy_id'"
+                    }
+                }
+            }  
+        },
+        "period" => {
+            "type" => "integer",
+            "description" => "The time, in seconds the 'statistic' is checked/tested. Must be multiples of 60"
+        },
+        "unit" => {
+            "type" => "string",
+            "description" => "Associtead with the 'metric'",
+            "enum" => ["Seconds", "Microseconds", "Milliseconds", "Bytes", "Kilobytes", "Megabytes", "Gigabytes", "Terabytes", "Bits", "Kilobits", "Megabits", "Gigabits", "Terabits", "Percent", "Count", "Bytes/Second", 
+                                "Kilobytes/Second", "Megabytes/Second", "Gigabytes/Second", "Terabytes/Second", "Bits/Second", "Kilobits/Second", "Megabits/Second", "Gigabits/Second", "Terabits/Second", "Count/Second", "nil"]
+        },
+        "evaluation_periods" => {
+            "type" => "integer",
+            "description" => "The number of times to repeat the 'period' before changing the state of an alarm. eg form 'OK' to 'ALARM' state"
+        },
+        "threshold" => {
+        # TO DO: This should be a float
+            "type" => "integer",
+            "description" => "The value the 'statistic' is compared to and action (eg 'alarm_actions') will be invoked "
+        },
+        "comparison_operator" => {
+            "type" => "string",
+            "description" => "The arithmetic operation to use when comparing 'statistic' and 'threshold'. The 'statistic' value is used as the first operand",
+            "enum" => ["GreaterThanOrEqualToThreshold", "GreaterThanThreshold", "LessThanThreshold", "LessThanOrEqualToThreshold"]
+        },
+        # TO DO: Separate all of these to an SNS primitive
+        "enable_notifications" => {
+            "type" => "boolean",
+            "description" => "Rather to send notifications when the alarm state changes"
+        },
+        "notification_group" => {
+            "type" => "string",
+            "description" => "The name of the notification group. Will be created if it doesn't exist. We use / create a default one if not specified. NOTE: because we can't confirm subscription to a group programmatically, you should use an existing group",
+            "default" => "mu-default"
+        },
+        "notification_type" => {
+            "type" => "string",
+            "description" => "What type of notification endpoint will the notification be sent to. defaults to 'email'",
+            "enum" => ["http", "https", "email", "email-json", "sms", "sqs", "application"],
+            "default" => "email"
+        },
+        "notification_endpoint" => {
+            "type" => "string",
+            "description" => "The endpoint the notification will be sent to. eg. if notification_type is 'email'/'email-json' the endpoint will be the email address. A confirmation email will be sent to this email address if a new notification_group is created, if not specified and notification_type is set to 'email' we will use the mu-master email address",
+            "default_if" => [
+                {
+                    "key_is" => "notification_type",
+                    "value_is" => "email",
+                    "set" => sns_notification_email
+                },
+                {
+                    "key_is" => "notification_type",
+                    "value_is" => "email-json",
+                    "set" => sns_notification_email
+                }
+            ]              
+        }
+    }
+
+    @alarm_primitive = {
+        "type" => "object",
+        "title" => "CloudWatch Monitoring",
+        "additionalProperties" => false,
+        "description" => "Create Amazon CloudWatch alarms.",
+        "properties" => {
+          "cloud" => @cloud_primitive,
+          "region" => @region_primitive,
+          "dependencies" => @dependencies_primitive
+        }
+    }
+    @alarm_primitive["properties"].merge!(@alarm_common_properties)
+
+    @alarm_common_primitive = {
+        "type" => "array",
+        "minItems" => 1,
+        "items" => {
+            "description" => "Create a CloudWatch Alarm.",
+            "type" => "object",
+            "title" => "CloudWatch Alarm Parameters",
+            "required" => ["name", "metric_name", "statistic", "period", "evaluation_periods", "threshold", "comparison_operator"],
+            "additionalProperties" => false,
+            "properties" => {
+            }
+        }
+    }
+    @alarm_common_primitive["items"]["properties"].merge!(@alarm_common_properties)
+
+    @cloudwatchlogs_filter_primitive = {
+      "type" => "array",
+      "minItems" => 1,
+      "items" => {
+        "description" => "Create a filter on a CloudWachLogs log group.",
+        "type" => "object",
+        "title" => "CloudWatchLogs filter Parameters",
+        "required" => ["name", "search_pattern", "metric_name", "namespace", "value"],
+        "additionalProperties" => false,
+        "properties" => {
+          "name" => {
+              "type" => "string"
+          },
+          "search_pattern" => {
+              "type" => "string",
+              "description" => "A search pattern that will match values in the log"
+          },
+          "metric_name" => {
+              "type" => "string",
+              "description" => "A descriptive and easy to find name for the metric. This can be used to create Alarm(s)"
+          },
+          "namespace" => {
+              "type" => "string",
+              "description" => "A new or existing name space to add the metric to. Use the same namespace for all filters/metrics that are logically grouped together. Will be used to to create Alarm(s)"
+          },
+          "value" => {
+              "type" => "string",
+              "description" => ""
+          }
+        }
+      }
+    }
+
+    @log_primitive = {
+      "type" => "object",
+      "title" => "CloudWatch Logs",
+      "additionalProperties" => false,
+      "description" => "Log events using CloudWatch Logs.",
+      "properties" => {
+        "name" => {
+          "type" => "string"
+        },
+        "cloud" => @cloud_primitive,
+        "region" => @region_primitive,
+        "dependencies" => @dependencies_primitive,
+        "retention_period" => {
+          "type" => "integer",
+          "description" => "The number of days to keep log events in the log group before deleting them.",
+          "default" => 14,
+          "enum" => [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653]
+        },
+        "enable_cloudtrail_logging"=> {
+          "type" => "boolean",
+          "default" => false
+        },
+        "filters" => @cloudwatchlogs_filter_primitive
+      }
     }
 
     @cloudformation_primitive = {
@@ -2447,6 +3124,11 @@ module MU
                       "type" => "string",
                       "pattern" => "^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$"
                   },
+                  "append_environment_name" => {
+                      "description" => "If to append the environment name (eg mydnsname.dev.mudomain.com). to the DNS name",
+                      "type" => "boolean",
+                      "default" => false
+                  },
                   "geo_location" => {
                       "type" => "object",
                       "description" => "Set location for location-based routing.",
@@ -2558,6 +3240,7 @@ module MU
             "enum" => MU.supportedGroomers
         },
         "tags" => @tags_primitive,
+        "alarms" => @alarm_common_primitive,
         "active_directory" => {
             "type" => "object",
             "additionalProperties" => false,
@@ -2940,18 +3623,19 @@ module MU
             "region" => @region_primitive,
             "db_family" => {"type" => "string"},
             "tags" => @tags_primitive,
+            "alarms" => @alarm_common_primitive,
             "engine_version" => {"type" => "string"},
             "add_firewall_rules" => @additional_firewall_rules,
             "read_replica_of" => @database_ref_primitive,
             "engine" => {
-                "enum" => ["mysql", "postgres", "oracle-se1", "oracle-se", "oracle-ee", "sqlserver-ee", "sqlserver-se", "sqlserver-ex", "sqlserver-web"],
-                "type" => "string",
+                "enum" => ["mysql", "postgres", "oracle-se1", "oracle-se", "oracle-ee", "sqlserver-ee", "sqlserver-se", "sqlserver-ex", "sqlserver-web", "aurora"],
+                "type" => "string"
             },
             "dns_records" => dns_records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
             "dns_sync_wait" => {
                 "type" => "boolean",
                 "description" => "Wait for DNS record to propagate in DNS Zone.",
-                "default" => true,
+                "default" => true
             },
             "dependencies" => @dependencies_primitive,
             "size" => @rds_size_primitive,
@@ -2976,39 +3660,35 @@ module MU
             "vpc" => vpc_reference_primitive(MANY_SUBNETS, NAT_OPTS, "all_public"),
             "publicly_accessible" => {
                 "type" => "boolean",
-                "default" => true,
+                "default" => true
             },
             "multi_az_on_create" => {
                 "type" => "boolean",
+                "description" => "Rather to enable high availability when the database instance is created",
                 "default" => false
             },
             "multi_az_on_deploy" => {
                 "type" => "boolean",
-                "default" => true,
-                "default_if" => [
-                    {
-                        "creation_style" => "existing",
-                        "set" => false
-                    }
-                ]
+                "description" => "Rather to enable high availability after the database instance is created. This may make deployments based on creation_style other then 'new' faster.",
+                "default" => false
             },
             "backup_retention_period" => {
                 "type" => "integer",
                 "default" => 1,
-                "description" => "The number of days to retain an automatic database snapshot. If set to 0 and deployment is multi-az will be overridden to 35",
+                "description" => "The number of days to retain an automatic database snapshot. If set to 0 and deployment is multi-az will be overridden to 35"
             },
             "preferred_backup_window" => {
                 "type" => "string",
                 "default" => "05:00-05:30",
-                "description" => "The preferred time range to perform automatic database backups.",
+                "description" => "The preferred time range to perform automatic database backups."
             },
             "preferred_maintenance_window " => {
                 "type" => "string",
-                "description" => "The preferred data/time range to perform database maintenance.",
+                "description" => "The preferred data/time range to perform database maintenance."
             },
             "iops" => {
                 "type" => "integer",
-                "description" => "The amount of IOPS to allocate to Provisioned IOPS (io1) volumes. Increments of 1,000",
+                "description" => "The amount of IOPS to allocate to Provisioned IOPS (io1) volumes. Increments of 1,000"
             },
             "auto_minor_version_upgrade" => {
                 "type" => "boolean",
@@ -3024,8 +3704,8 @@ module MU
             },
             "creation_style" => {
                 "type" => "string",
-                "enum" => ["existing", "new", "new_snapshot", "existing_snapshot"],
-                "description" => "'new' - create a pristine database instances; 'existing' - use an already-extant database instance; 'new_snapshot' - create a snapshot of an already-extant database, and build a new one from that snapshot; 'existing_snapshot' - create database from an existing snapshot.",
+                "enum" => ["existing", "new", "new_snapshot", "existing_snapshot", "point_in_time"],
+                "description" => "'new' - create a pristine database instances; 'existing' - use an existing database instance; 'new_snapshot' - create a snapshot of an existing database, and create a new one from that snapshot; 'existing_snapshot' - create database from an existing snapshot.; 'point_in_time' - create database from point in time backup of an existing database",
                 "default" => "new"
             },
             "license_model" => {
@@ -3035,44 +3715,49 @@ module MU
             },
             "identifier" => {
                 "type" => "string",
-                "description" => "For any creation_style other than 'new' this parameter identifies the database to use. In the case of new_snapshot it will create a snapshot from that database first; in the case of existing_snapshot, it will use the latest avaliable snapshot.",
-            },
-            "password" => {
-                "type" => "string",
-                "description" => "DEPRECATED - Use auth_vault instead. Will be removed in future versions. Set master password to this; if not specified, a random string will be generated. If you are creating from a snapshot, or using an existing database, you will almost certainly want to set this."
+                "description" => "For any creation_style other than 'new' this parameter identifies the database to use. In the case of new_snapshot or point_in_time this is the identifier of an existing database instance; in the case of existing_snapshot this is the identifier of the snapshot."
             },
             "master_user" => {
                 "type" => "string",
                 "description" => "Set master user name for this database instance; if not specified a random username will be generated"
             },
-            "unecrypted_master_password" => {
-                "type" => "boolean",
-                "default" => true,
-                "description" => "DEPRECATED - For backwards compatibility only. Will be removed in future versions. Rather to store the password of the master user unecrypted in the deployment and node structure. The password will be emailed unecrypted as well."
+            "restore_time" => {
+              "type" => "string",
+              "description" => "Must either be set to 'latest' or date/time value in the following format: 2015-09-12T22:30:00Z. Applies only to point_in_time creation_style"
             },
             "create_read_replica" => {
                 "type" => "boolean",
                 "default" => false
             },
-            "db_parameter_group" => {
-                "type" => "object",
-                "title" => "DB Parameter Group",
-                "required" => ["db_family"],
-                "additionalProperties" => false,
-                "description" => "Create a DB Parameter Group. Used to modify internal database settings.",
-                "properties" => {
-                    "name" => {
-                        "type" => "String",
-                        "description" => "The name of the DB Parameter Group",
-                    },
-                    "db_family" => {
-                        "type" => "String",
-                        "enum" => ["postgres9.4", "postgres9.3", "mysql5.1", "mysql5.5", "mysql5.6", "oracle-ee-11.2", "oracle-ee-12.1", "oracle-se-11.2", "oracle-se-12.1", "oracle-se1-11.2", "oracle-se1-12.1",
-                                   "aurora5.6", "sqlserver-ee-10.5", "sqlserver-ee-11.0", "sqlserver-ex-10.5", "sqlserver-ex-11.0", "sqlserver-se-10.5", "sqlserver-se-11.0", "sqlserver-web-10.5", "sqlserver-web-11.0"],
-                        "description" => "The database family to create the DB Parameter Group for. The family type must be the same type as the database major version - eg if you set engine_version to 9.4.4 the db_family must be set to postgres9.4.",
-                    },
-                    "parameters" => @rds_parameter_group_parameters_primitive
+            "cluster_node_count" => {
+              "type" => "integer",
+              "description" => "The number of database instances to add to a database cluster. This only applies to aurora",
+              "default_if" => [
+                {
+                  "key_is" => "engine",
+                  "value_is" => "aurora",
+                  "set" => 1
                 }
+              ]
+            },
+            "create_cluster" => {
+              "type" => "boolean",
+                "description" => "Rather to create a database cluster. This only applies to aurora",
+                "default_if" => [
+                  {
+                    "key_is" => "engine",
+                    "value_is" => "aurora",
+                    "set" => true
+                  }
+                ]
+            },
+            "db_parameter_group_parameters" => @rds_parameters_primitive,
+            "cluster_parameter_group_parameters" => @rds_parameters_primitive,
+            "parameter_group_family" => {
+                "type" => "String",
+                "enum" => ["postgres9.4", "postgres9.3", "mysql5.1", "mysql5.5", "mysql5.6", "oracle-ee-11.2", "oracle-ee-12.1", "oracle-se-11.2", "oracle-se-12.1", "oracle-se1-11.2", "oracle-se1-12.1",
+                                   "aurora5.6", "sqlserver-ee-10.5", "sqlserver-ee-11.0", "sqlserver-ex-10.5", "sqlserver-ex-11.0", "sqlserver-se-10.5", "sqlserver-se-11.0", "sqlserver-web-10.5", "sqlserver-web-11.0"],
+                "description" => "The database family to create the DB Parameter Group for. The family type must be the same type as the database major version - eg if you set engine_version to 9.4.4 the db_family must be set to postgres9.4."
             },
             "auth_vault" => {
                 "type" => "object",
@@ -3100,6 +3785,103 @@ module MU
         }
     }
 
+    @cache_cluster_primitive = {
+        "type" => "object",
+        "title" => "Cache Cluster",
+        "description" => "Create cache cluster(s).",
+        "required" => ["name", "engine", "size", "cloud"],
+        "additionalProperties" => false,
+        "properties" => {
+            "cloud" => @cloud_primitive,
+            "name" => {"type" => "string"},
+            "region" => @region_primitive,
+            "tags" => @tags_primitive,
+            "engine_version" => {"type" => "string"},
+            "node_count" => {
+              "type" => "integer",
+                "description" => "The number of cache nodes in a cache cluster (memcached), or the number of cache clusters in a cache group (redis)",
+                "default" => 1
+            },
+            "add_firewall_rules" => @additional_firewall_rules,
+            "engine" => {
+                "enum" => ["memcached", "redis"],
+                "type" => "string",
+                "default" => "redis"
+            },
+            "dns_records" => dns_records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
+            "dns_sync_wait" => {
+                "type" => "boolean",
+                "description" => "Wait for DNS record to propagate in DNS Zone.",
+                "default" => true
+            },
+            "alarms" => @alarm_common_primitive,
+            "dependencies" => @dependencies_primitive,
+            "size" => @eleasticache_size_primitive,
+            "port" => {
+                "type" => "integer",
+                "default" => 6379,
+                "default_if" => [
+                    {
+                        "key_is" => "engine",
+                        "value_is" => "memcached",
+                        "set" => 11211
+                    },
+                    {
+                      "key_is" => "engine",
+                        "value_is" => "redis",
+                        "set" => 6379
+                    }
+                ]
+            },
+            "vpc" => vpc_reference_primitive(MANY_SUBNETS, NAT_OPTS, "all_public"),
+            "multi_az" => {
+                "type" => "boolean",
+                "description" => "Rather to deploy the cache cluster/cache group in Multi AZ or Single AZ",
+                "default" => false
+            },
+            "snapshot_arn" => {
+                "type" => "string",
+                "description" => "The ARN (Resource Name) of the redis backup stored in S3. Applies only to redis"
+            },
+            "snapshot_retention_limit" => {
+                "type" => "integer",
+                "description" => "The number of days to retain an automatic cache cluster snapshot. Applies only to redis"
+            },
+            "snapshot_window" => {
+                "type" => "string",
+                "description" => "The preferred time range to perform automatic cache cluster backups. Time is in UTC. Applies only to redis. Window must be at least 60 minutes long - 05:00-06:00."
+            },
+            "preferred_maintenance_window" => {
+                "type" => "string",
+                "description" => "The preferred data/time range to perform cache cluster maintenance. Window must be at least 60 minutes long - sun:06:00-sun:07:00. "
+            },
+            "auto_minor_version_upgrade" => {
+                "type" => "boolean",
+                "default" => true
+            },
+            "creation_style" => {
+                "type" => "string",
+                "enum" => ["new", "new_snapshot", "existing_snapshot"],
+                "description" => "'new' - create a new cache cluster; 'new_snapshot' - create a snapshot of of an exisiting cache cluster, and build a new cache cluster from that snapshot; 'existing_snapshot' - create a cache cluster from an existing snapshot.",
+                "default" => "new"
+            },
+            "identifier" => {
+                "type" => "string",
+                "description" => "For any creation_style other than 'new' this parameter identifies the cache cluster to use. In the case of new_snapshot it will create a snapshot from that cache cluster first; in the case of existing_snapshot, it will use the latest avaliable snapshot."
+            },
+            "notification_arn" => {
+                "type" => "string",
+                "description" => "The AWS resource name of the AWS SNS notification topic notifications will be sent to.",
+            },
+            "parameter_group_parameters" => @eleasticache_parameters_primitive,
+            "parameter_group_family" => {
+                "type" => "String",
+                "enum" => ["memcached1.4", "redis2.6", "redis2.8"],
+                "description" => "The cache cluster family to create the Parameter Group for. The family type must be the same type as the cache cluster major version - eg if you set engine_version to 2.6 this parameter must be set to redis2.6."
+            }
+        }
+    }
+
     @loadbalancer_primitive = {
         "type" => "object",
         "title" => "loadbalancer",
@@ -3119,6 +3901,7 @@ module MU
                 "description" => "Wait for DNS record to propagate in DNS Zone.",
                 "default" => true,
             },
+            "alarms" => @alarm_common_primitive,
             "ingress_rules" => {
                 "type" => "array",
                 "items" => @firewall_ruleset_rule_primitive
@@ -3369,14 +4152,14 @@ module MU
                 "minItems" => 1,
                 "items" => {
                     "type" => "object",
-                    "required" => ["name", "type", "adjustment"],
+                    "required" => ["name", "type"],
                     "additionalProperties" => false,
                     "description" => "A custom AWS Autoscale scaling policy for this pool.",
                     "properties" => {
                         "name" => {
                             "type" => "string"
                         },
-                        # XXX "alarm" - need some kind of reference capability to a CloudWatch alarm
+                        "alarms" => @alarm_common_primitive,
                         "type" => {
                             "type" => "string",
                             "enum" => ["ChangeInCapacity", "ExactCapacity", "PercentChangeInCapacity"],
@@ -3384,18 +4167,58 @@ module MU
                         },
                         "adjustment" => {
                             "type" => "integer",
-                            "description" => "The number of instances by which to scale. 'type' determines the interpretation of this number (e.g., as an absolute number or as a percentage of the existing Auto Scaling group size). A positive increment adds to the current capacity and a negative value removes from the current capacity."
+                            "description" => "The number of instances by which to scale. 'type' determines the interpretation of this number (e.g., as an absolute number or as a percentage of the existing Auto Scaling group size). A positive increment adds to the current capacity and a negative value removes from the current capacity. Used only when policy_type is set to 'SimpleScaling'"
                         },
                         "cooldown" => {
                             "type" => "integer",
                             "default" => 1,
                             "description" => "The amount of time, in seconds, after a scaling activity completes and before the next scaling activity can start."
                         },
-                        "min_adjustment_step" => {
+                        "min_adjustment_magnitude" => {
                             "type" => "integer",
-                            "description" => "Used with 'type' with the value PercentChangeInCapacity, the scaling policy changes the DesiredCapacity of the Auto Scaling group by at least the number of instances specified in the value."
+                            "description" => "Used when 'type' is set to 'PercentChangeInCapacity', the scaling policy changes the DesiredCapacity of the Auto Scaling group by at least the number of instances specified in the value."
+                        },
+                        "policy_type" => {
+                          "type" => "string",
+                          "enum" => ["SimpleScaling", "StepScaling"],
+                          "description" => "'StepScaling' will add capacity based on the magnitude of the alarm breach, 'SimpleScaling' will add capacity based on the 'adjustment' value provided. Defaults to 'SimpleScaling'.",
+                          "default" => "SimpleScaling"
+                        },
+                        "metric_aggregation_type" => {
+                          "type" => "string",
+                          "enum" => ["Minimum", "Maximum", "Average"],
+                          "description" => "Defaults to 'Average' if not specified. Required when policy_type is set to 'StepScaling'",
+                          "default" => "Average"
+                        },
+                        "step_adjustments" => {
+                          "type" => "array",
+                          "minItems" => 1,
+                          "items" => {
+                            "type" => "object",
+                            "title" => "admin",
+                            "description" => "Requires policy_type 'StepScaling'",
+                            "required" => ["adjustment"],
+                            "additionalProperties" => false,
+                            "properties" => {
+                              "adjustment" => {
+                                  "type" => "integer",
+                                  "description" => "The number of instances by which to scale at this specific step. Postive value when adding capacity, negative value when removing capacity"
+                              },
+                              "lower_bound" => {
+                                  "type" => "integer",
+                                  "description" => "The lower bound value in percentage points above/below the alarm threshold at which to add/remove capacity for this step. Positive value when adding capacity and negative when removing capacity. If this is the first step and capacity is being added this value will most likely be 0"
+                              },
+                              "upper_bound" => {
+                                  "type" => "integer",
+                                  "description" => "The upper bound value in percentage points above/below the alarm threshold at which to add/remove capacity for this step. Positive value when adding capacity and negative when removing capacity. If this is the first step and capacity is being removed this value will most likely be 0"
+                              }
+                            }
+                          }
+                        },
+                        "estimated_instance_warmup" => {
+                          "type" => "integer",
+                          "description" => "Required when policy_type is set to 'StepScaling'"
                         }
-
                     }
                 }
             },
@@ -3519,6 +4342,18 @@ module MU
             "server_pools" => {
                 "type" => "array",
                 "items" => @server_pool_primitive
+            },
+            "cache_clusters" => {
+                "type" => "array",
+                "items" => @cache_cluster_primitive
+            },
+            "alarms" => {
+                "type" => "array",
+                "items" => @alarm_primitive
+            },
+            "logs" => {
+                "type" => "array",
+                "items" => @log_primitive
             },
             "dnszones" => {
                 "type" => "array",

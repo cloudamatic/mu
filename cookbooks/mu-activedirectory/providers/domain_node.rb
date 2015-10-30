@@ -96,7 +96,7 @@ def unjoin_domain_windows
 end
 
 def join_domain_linux
-  %w{sshd winbind}.each { |svc|
+  %w{sshd winbind smb}.each { |svc|
     service svc do
       action :nothing
     end
@@ -118,16 +118,22 @@ def join_domain_linux
     not_if "net ads testjoin | grep OK"
   end
 
-  template "/etc/samba/smb.conf" do
+  directory "#{node.ad.samba_conf_dir}/includes" do
+    mode 0755
+  end
+
+  template "#{node.ad.samba_conf_dir}/smb.conf" do
     source "smb.conf.erb"
     owner "root"
     group "root"
     mode 0644
+    notifies :restart, "service[smb]"
     notifies :restart, "service[winbind]"
     variables(
         :domain_name => new_resource.dns_name,
         :dcs => new_resource.dc_names,
-        :netbios_name => new_resource.netbios_name
+        :netbios_name => new_resource.netbios_name,
+        :include_file => "#{node.ad.samba_conf_dir}/includes/#{node.ad.samba_include_file}"
     )
   end
 end
@@ -257,6 +263,7 @@ def configure_winbind_kerberos_authentication
         :domain_name => new_resource.dns_name,
         :dcs => new_resource.dc_names
     )
+    notifies :restart, "service[winbind]"
   end
 
   # Because authconfig doesn't always update those

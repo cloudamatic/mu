@@ -22,29 +22,65 @@ search_domains = ["ec2.internal", "server.#{instance_id}.platform-mu", "platform
 
 if $MU_CFG.has_key?('ldap')
   include_recipe 'chef-vault'
-  bind_creds = chef_vault_item($MU_CFG['ldap']['svc_acct_vault'], $MU_CFG['ldap']['svc_acct_item'])
-  node.normal.ad = {}
-  node.normal.ad.computer_name = "MU-MASTER"
-  node.normal.ad.node_class = "mumaster"
-  node.normal.ad.node_type = "domain_node"
-  node.normal.ad.domain_operation = "join"
-  node.normal.ad.domain_name = $MU_CFG['ldap']['domain_name']
-  search_domains << node.normal.ad.domain_name
-  node.normal.ad.netbios_name = $MU_CFG['ldap']['domain_netbios_name']
-  node.normal.ad.dcs = $MU_CFG['ldap']['dcs']
-  node.normal.ad.domain_join_vault = $MU_CFG['ldap']['join_creds']['vault']
-  node.normal.ad.domain_join_item = $MU_CFG['ldap']['join_creds']['item']
-  node.normal.ad.domain_join_username_field = $MU_CFG['ldap']['join_creds']['username_field']
-  node.normal.ad.domain_join_password_field = $MU_CFG['ldap']['join_creds']['password_field']
-  if !node.application_attributes.sshd_allow_groups.match(/(^|\s)#{$MU_CFG['ldap']['user_group_name']}(\s|$)/i)
-    node.normal.application_attributes.sshd_allow_groups = node.application_attributes.sshd_allow_groups+" "+$MU_CFG['ldap']['user_group_name'].downcase
+  if $MU_CFG['ldap']['type'] == "389 Directory Services" and Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG['hostname']}")
+    package "pam_ldap"
+    package "nss-pam-ldapd"
+    service "nslcd" do
+      action [:enable, :start]
+    end
+    package "oddjob-mkhomedir"
+    execute "restorecon -r /usr/sbin"
+    service "oddjobd" do
+      start_command "sh -x /etc/init.d/oddjobd start" # seems to actually work
+      action [:enable, :start]
+    end
+    execute "/usr/sbin/authconfig --enableldap --enableldapauth --disablenis --enablecache --ldapserver=#{$MU_CFG['ldap']['dcs'].first} --ldapbasedn=\"#{$MU_CFG['ldap']['base_dn']}\" --disablewinbind --disablewinbindauth --enablemkhomedir --disablekrb5 --enableldaptls --updateall"
+    template "/etc/pam_ldap.conf" do
+      source "pam_ldap.conf.erb"
+      mode 0644
+      variables(
+        :base_dn => $MU_CFG['ldap']['base_dn'],
+        :dc => $MU_CFG['ldap']['dcs'].first
+      )
+    end
+    template "/etc/nslcd.conf" do
+      source "nslcd.conf.erb"
+      mode 0600
+      notifies :restart, "service[nslcd]", :immediately
+      variables(
+        :base_dn => $MU_CFG['ldap']['base_dn'],
+        :dc => $MU_CFG['ldap']['dcs'].first
+      )
+    end
+  elsif $MU_CFG['ldap']['type'] == "Active Directory"
+    node.normal.ad = {}
+    node.normal.ad.computer_name = "MU-MASTER"
+    node.normal.ad.node_class = "mumaster"
+    node.normal.ad.node_type = "domain_node"
+    node.normal.ad.domain_operation = "join"
+    node.normal.ad.domain_name = $MU_CFG['ldap']['domain_name']
+    search_domains << node.normal.ad.domain_name
+    node.normal.ad.netbios_name = $MU_CFG['ldap']['domain_netbios_name']
+    node.normal.ad.dcs = $MU_CFG['ldap']['dcs']
+    node.normal.ad.domain_join_vault = $MU_CFG['ldap']['join_creds']['vault']
+    node.normal.ad.domain_join_item = $MU_CFG['ldap']['join_creds']['item']
+    node.normal.ad.domain_join_username_field = $MU_CFG['ldap']['join_creds']['username_field']
+    node.normal.ad.domain_join_password_field = $MU_CFG['ldap']['join_creds']['password_field']
+    if !node.application_attributes.sshd_allow_groups.match(/(^|\s)#{$MU_CFG['ldap']['user_group_name']}(\s|$)/i)
+      node.normal.application_attributes.sshd_allow_groups = node.application_attributes.sshd_allow_groups+" "+$MU_CFG['ldap']['user_group_name'].downcase
+    end
+    node.save
+    log "'#{node.ad.domain_join_vault}' '#{node.ad.domain_join_item}' '#{node.ad.domain_join_username_field}' '#{node.ad.domain_join_password_field}'"
+    include_recipe "mu-activedirectory::domain-node"
   end
-  node.save
-  log "'#{node.ad.domain_join_vault}' '#{node.ad.domain_join_item}' '#{node.ad.domain_join_username_field}' '#{node.ad.domain_join_password_field}'"
-  include_recipe "mu-activedirectory::domain-node"
 end
 
 directory "#{MU.mainDataDir}/deployments"
+
+sudoer_line = "%#{$MU_CFG['ldap']['admin_group_name']} ALL=(ALL) NOPASSWD: ALL"
+execute "echo '#{sudoer_line}' >> /etc/sudoers" do
+  not_if "grep '^#{sudoer_line}$' /etc/sudoers"
+end
 
 cookbook_file "/root/.vimrc" do
   source "vimrc"
@@ -55,6 +91,12 @@ package "nagios" do
   action :remove
 end
 
+# The Nagios cookbook will only rebuild if the main executable is missing, so
+# remove it if we've got a version bump coming down the pike.
+execute "remove old Nagios binary" do
+  command "rm -f /usr/sbin/nagios"
+  not_if "/usr/sbin/nagios -V | grep 'Nagios Core #{node.nagios.server.version}'"
+end
 include_recipe "nagios::server_source"
 include_recipe "nagios"
 
@@ -100,9 +142,21 @@ template "/etc/dhcp/dhclient-eth0.conf" do
   )
 end
 
+svrname = node.hostname
+if !$MU_CFG['public_address'].match(/^\d+\.\d+\.\d+\.\d+$/)
+  svrname = $MU_CFG['public_address']
+end
+
 # nagios keeps disabling the default vhost, so let's make another one
 web_app "mu_docs" do
-  server_name node.hostname
+  server_name svrname
+  server_aliases [node.fqdn, node.hostname, node['local_hostname'], node['local_ipv4'], node['public_hostname'], node['public_ipv4']]
+  docroot "/var/www/html"
+  cookbook "mu-master"
+end
+web_app "https_proxy" do
+  server_name svrname
+  server_port "443"
   server_aliases [node.fqdn, node.hostname, node['local_hostname'], node['local_ipv4'], node['public_hostname'], node['public_ipv4']]
   docroot "/var/www/html"
   cookbook "mu-master"
@@ -154,15 +208,15 @@ file "/etc/motd" do
 
  This is a Mu Master server. Mu is installed in #{MU.myRoot}.
 
- Nagios monitoring GUI: https://#{MU.mu_public_addr}:8443/
+ Nagios monitoring GUI: https://#{MU.mu_public_addr}/nagios/
 
- Jenkins interface GUI: https://#{MU.mu_public_addr}:9443/
+ Jenkins interface GUI: https://#{MU.mu_public_addr}/jenkins/
 
  Mu API documentation: http://#{MU.mu_public_addr}/docs/frames.html
 
  Mu metadata are stored in #{MU.mainDataDir}
 
- Users: #{node.mu.user_list}
+ Users: #{node.mu.user_list.join(", ")}
 
 *******************************************************************************
 
@@ -177,10 +231,10 @@ file "/var/www/html/index.html" do
  <h1>This is a Mu Master server</h2>
 
 <p>
- <a href='https://#{MU.mu_public_addr}:8443/'>Nagios monitoring GUI</a>
+ <a href='https://#{MU.mu_public_addr}/nagios/'>Nagios monitoring GUI</a>
 </p>
 <p>
- <a href='https://#{MU.mu_public_addr}:443/'>Jenkins interface GUI</a>
+ <a href='https://#{MU.mu_public_addr}/jenkins/'>Jenkins interface GUI</a>
 </p>
 <p>
  <a href='http://#{MU.mu_public_addr}/docs/frames.html'>Mu API documentation</a>
@@ -192,9 +246,9 @@ execute "echo 'devnull: /dev/null' >> /etc/aliases" do
   not_if "grep '^devnull: /dev/null$' /etc/aliases"
 end
 
-node.mu.user_map.each_pair { |mu_user, mu_email|
-  execute "echo '#{mu_user}: #{mu_email}' >> /etc/aliases" do
-    not_if "grep '^#{mu_user}: #{mu_email}$' /etc/aliases"
+node.mu.user_map.each_pair { |mu_user, data|
+  execute "echo '#{mu_user}: #{data['email']}' >> /etc/aliases" do
+    not_if "grep '^#{mu_user}: #{data['email']}$' /etc/aliases"
   end
 }
 execute "/usr/bin/newaliases"
@@ -299,13 +353,13 @@ file "/etc/logrotate.d/Mu_audit_logs" do
   content "/Mu_Logs/master.log
 /Mu_Logs/nodes.log
 {
-	sharedscripts
-	daily
-	delaycompress
-	postrotate
-		#{MU.mainDataDir}/bin/mu-aws-setup -u
-		/bin/kill -HUP `cat /var/run/syslogd.pid 2> /dev/null` 2> /dev/null || true
-	endscript
+  sharedscripts
+  daily
+  delaycompress
+  postrotate
+    #{MU.mainDataDir}/bin/mu-aws-setup -u
+    /bin/kill -HUP `cat /var/run/syslogd.pid 2> /dev/null` 2> /dev/null || true
+  endscript
 }
 "
 end

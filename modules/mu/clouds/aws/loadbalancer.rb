@@ -267,12 +267,44 @@ module MU
               end
             end
           end
+
+          if @config["alarms"] && !@config["alarms"].empty?
+            @config["alarms"].each { |alarm|
+              alarm["dimensions"] = [{:name => "LoadBalancerName", :value => @mu_name}]
+
+              if alarm["enable_notifications"]
+                topic_arn = MU::Cloud::AWS::Notification.createTopic(alarm["notification_group"], region: @config["region"])
+                MU::Cloud::AWS::Notification.subscribe(arn: topic_arn, protocol: alarm["notification_type"], endpoint: alarm["notification_endpoint"], region: @config["region"])
+                alarm["alarm_actions"] = [topic_arn]
+                alarm["ok_actions"] = [topic_arn]
+              end
+
+              MU::Cloud::AWS::Alarm.createAlarm(
+                name: @deploy.getResourceName("#{@config["name"]}-#{alarm["name"]}"),
+                ok_actions: alarm["ok_actions"],
+                alarm_actions: alarm["alarm_actions"],
+                insufficient_data_actions: alarm["no_data_actions"],
+                metric_name: alarm["metric_name"],
+                namespace: alarm["namespace"],
+                statistic: alarm["statistic"],
+                dimensions: alarm["dimensions"],
+                period: alarm["period"],
+                unit: alarm["unit"],
+                evaluation_periods: alarm["evaluation_periods"],
+                threshold: alarm["threshold"],
+                comparison_operator: alarm["comparison_operator"],
+                region: @config["region"]
+              )
+            }
+          end
+
           dnsthread.join # from genericMuDNS
 
           if !@config['dns_records'].nil?
             # XXX this should be a call to @deploy.nameKitten
             @config['dns_records'].each { |dnsrec|
               dnsrec['name'] = @mu_name.downcase if !dnsrec.has_key?('name')
+              dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
             }
             MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@config['dns_records'], target: resp.dns_name)
           end

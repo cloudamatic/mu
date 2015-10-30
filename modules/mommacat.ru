@@ -57,7 +57,10 @@ $MUDIR = ENV['MU_LIBDIR']
 
 $LOAD_PATH << "#{$MUDIR}/modules"
 
+require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 require 'mu'
+
+MU::Groomer::Chef.loadChefLib # pre-cache this so we don't take a hit on a user-interactive need
 #MU.setLogging($opts[:verbose], $opts[:web])
 
 Signal.trap("URG") do
@@ -79,6 +82,7 @@ Thread.new {
   MU.dupGlobals(parent_thread_id)
   begin
     MU::MommaCat.cleanTerminatedInstances
+    MU::Master.cleanExpiredScratchpads
     sleep 60
   rescue Exception => e
     MU.log "Error in cleanTerminatedInstances thread: #{e.inspect}", MU::ERR, details: e.backtrace
@@ -195,7 +199,42 @@ app = proc do |env|
       ['hi']
   ]
   begin
-    if !env.nil? and !env['REQUEST_PATH'].nil? and env['REQUEST_PATH'].match(/^\/rest\//)
+    if !env.nil? and !env['REQUEST_PATH'].nil? and env['REQUEST_PATH'].match(/^\/scratchpad/)
+      itemname = env['REQUEST_PATH'].sub(/^\/scratchpad\//, "")
+      begin
+        secret = MU::Master.fetchScratchPadSecret(itemname)
+        MU.log "Retrieved scratchpad secret #{itemname} for #{env['REMOTE_ADDR']}"
+        page = nil
+        if $MU_CFG.has_key?('scratchpad') and
+           $MU_CFG['scratchpad'].has_key?("template_path") and
+           File.exist?($MU_CFG['scratchpad']['template_path']) and
+           File.readable?($MU_CFG['scratchpad']['template_path'])
+          page = Erubis::Eruby.new(File.read($MU_CFG['scratchpad']['template_path'])).result({"secret"=>secret})
+        elsif File.exist?("#{$MU_CFG['libdir']}/modules/scratchpad.erb") and
+           File.readable?("#{$MU_CFG['libdir']}/modules/scratchpad.erb")
+          page = Erubis::Eruby.new(File.read("#{$MU_CFG['libdir']}/modules/scratchpad.erb")).result({"secret"=>secret})
+        end
+
+        returnval = [
+          200,
+          {
+            'Content-Type' => 'text/html',
+            'Content-Length' => page.length.to_s
+          },
+          [page]
+        ]
+      rescue MU::Groomer::Chef::MuNoSuchSecret
+        msg = "No such secret found. Has it already been retrieved?\n"
+        returnval = [
+          200,
+          {
+            'Content-Type' => 'text/html',
+            'Content-Length' => msg.length.to_s
+          },
+          [msg]
+        ]
+      end
+    elsif !env.nil? and !env['REQUEST_PATH'].nil? and env['REQUEST_PATH'].match(/^\/rest\//)
       # Don't give away the store. This can't be public until we can
       # authenticate and access-control properly.
       if env['REMOTE_ADDR'] != "127.0.0.1"
@@ -239,7 +278,7 @@ app = proc do |env|
         req["mu_user"] = "mu"
       end
 
-      MU.log "Processing request from #{env["REMOTE_ADDR"]} (MU-ID #{req["mu_id"]}, #{req["mu_resource_type"]}: #{req["mu_resource_name"]}, instance: #{req["mu_instance_id"]}, mu_ssl_sign: #{req["mu_ssl_sign"]}, mu_user #{req['mu_user']})"
+      MU.log "Processing request from #{env["REMOTE_ADDR"]} (MU-ID #{req["mu_id"]}, #{req["mu_resource_type"]}: #{req["mu_resource_name"]}, instance: #{req["mu_instance_id"]}, mu_ssl_sign: #{req["mu_ssl_sign"]}, mu_user #{req['mu_user']}, path #{env['REQUEST_PATH']})"
       kittenpile = getKittenPile(req)
       if kittenpile.nil? or kittenpile.original_config.nil? or kittenpile.original_config[req["mu_resource_type"]+"s"].nil?
         returnval = throw500 "Couldn't find config data for #{req["mu_resource_type"]} in deploy_id #{req["mu_id"]}"
@@ -296,9 +335,6 @@ app = proc do |env|
       MU.purgeGlobals
     end
   end
-puts "******************"
-pp returnval
-puts "******************"
   returnval
 end
 

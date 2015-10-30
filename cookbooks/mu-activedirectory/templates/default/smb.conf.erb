@@ -25,5 +25,8 @@
    encrypt passwords = yes
 
 # --------------------------- Logging Options -----------------------------
-	log file = /var/log/samba/log.%m
-	max log size = 5000
+   log file = /var/log/samba/log.%m
+   max log size = 5000
+
+# --------------------------- External Configuration File -----------------------------
+  include = <%= @include_file %>

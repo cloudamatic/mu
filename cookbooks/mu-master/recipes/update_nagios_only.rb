@@ -1,6 +1,6 @@
 #
 # Cookbook Name:: mu-master
-# Recipe:: update_nagios_bonly
+# Recipe:: update_nagios_only
 #
 # Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
 #
@@ -18,16 +18,25 @@
 
 if $MU_CFG.has_key?('ldap')
   include_recipe 'chef-vault'
-  bind_creds = chef_vault_item($MU_CFG['ldap']['svc_acct_vault'], $MU_CFG['ldap']['svc_acct_item'])
+  bind_creds = chef_vault_item($MU_CFG['ldap']['bind_creds']['vault'], $MU_CFG['ldap']['bind_creds']['item'])
   node.normal.nagios.server_auth_method = "ldap"
-  node.normal.nagios.ldap_bind_dn = bind_creds["dn"]
-  node.normal.nagios.ldap_bind_password = bind_creds["password"]
-  node.normal.nagios.ldap_url = "ldap://#{$MU_CFG['ldap']['dcs'].first}/#{$MU_CFG['ldap']['base_dn']}?sAMAccountName?sub?(objectClass=*)"
+  node.normal.nagios.ldap_bind_dn = bind_creds[$MU_CFG['ldap']['bind_creds']['username_field']]
+  node.normal.nagios.ldap_bind_password = bind_creds[$MU_CFG['ldap']['bind_creds']['password_field']]
+  if $MU_CFG['ldap']['type'] == "Active Directory"
+    node.normal.nagios.ldap_url = "ldap://#{$MU_CFG['ldap']['dcs'].first}/#{$MU_CFG['ldap']['base_dn']}?sAMAccountName?sub?(objectClass=*)"
+  else
+    node.normal.nagios.ldap_url = "ldap://#{$MU_CFG['ldap']['dcs'].first}/#{$MU_CFG['ldap']['base_dn']}?uid?sub?(objectClass=*)"
+  end
   node.normal.nagios.server_auth_require = "ldap-group #{$MU_CFG['ldap']['user_group_dn']}"
   node.normal.nagios.ldap_authoritative = "On"
   node.save
 end
 
+# Workaround for dopey init problems with current Nagios and its cookbook
+service "nagios" do
+  start_command "sh -x /etc/init.d/nagios start"
+  reload_command "sh -x /etc/init.d/nagios reload"
+end
 include_recipe "nagios"
 package "nagios-plugins-nrpe"
 

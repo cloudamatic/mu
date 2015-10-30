@@ -80,10 +80,10 @@ case node[:platform]
       directory "#{$gluster_mnt_pt}/brick"
 
     else
-      $gluster_mnt_pts []
+      $gluster_mnt_pts = []
       node.glusterfs.server.devices.each do |dev|
         execute "mkfs -t xfs -i size=512 #{dev}" do
-          not_if "xfs_info -l #{dev}"
+          not_if "xfs_info #{dev}"
         end
         directory "#{node.glusterfs.server.brick_base_mount_path}#{dev}" do
           recursive true
@@ -161,6 +161,16 @@ case node[:platform]
         bash "Start gluster volume #{node.glusterfs.server.volume}" do
           not_if "gluster volume info #{node.glusterfs.server.volume} | grep Started"
           code "gluster volume start #{node.glusterfs.server.volume}"
+        end
+
+        bash "Set network timeout on #{node.glusterfs.server.volume}" do
+          not_if "gluster volume info #{node.glusterfs.server.volume} | grep 'network.ping-timeout: #{node.glusterfs.server.network_timeout}'"
+          code "gluster volume set #{node.glusterfs.server.volume} network.ping-timeout #{node.glusterfs.server.network_timeout}"
+        end
+
+        bash "Set read cache max size on #{node.glusterfs.server.volume}" do
+          not_if "gluster volume info #{node.glusterfs.server.volume} | grep 'performance.cache-size: #{node.glusterfs.server.read_cache_size}'"
+          code "gluster volume set #{node.glusterfs.server.volume} performance.cache-size #{node.glusterfs.server.read_cache_size}"
         end
 
         # gluster_vol_exists = shell_out("gluster volume info #{node.glusterfs.server.volume}")

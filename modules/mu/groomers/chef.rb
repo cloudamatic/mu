@@ -20,6 +20,11 @@ module MU
     # Support for Chef as a host configuration management layer.
     class Chef
 
+      # Wrapper class for temporary Exceptions. Gives our internals something
+      # to inherit that will log a notice message appropriately before
+      # bubbling up.
+      class MuNoSuchSecret < StandardError;end
+
       Object.class_eval {
         def self.const_missing(symbol)
           if symbol.to_sym == :Chef or symbol.to_sym == :ChefVault
@@ -53,13 +58,16 @@ module MU
             require 'chef/knife/node_delete'
             require 'chef/knife/client_delete'
             require 'chef/knife/data_bag_delete'
+            require 'chef/knife/vault_delete'
+            require 'chef/scan_access_control'
+            require 'chef/file_access_control/unix'
             require 'chef-vault'
             require 'chef-vault/item'
             if File.exists?("#{Etc.getpwnam(user).dir}/.chef/knife.rb")
               MU.log "Loading Chef configuration from #{Etc.getpwnam(user).dir}/.chef/knife.rb", MU::DEBUG
               ::Chef::Config.from_file("#{Etc.getpwnam(user).dir}/.chef/knife.rb")
             end
-            ::Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}/organizations/#{MU.chef_user}"
+            ::Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}:7443/organizations/#{MU.chef_user}"
             ::Chef::Config[:environment] = env
             ::Chef::Config[:yes] = true
             @chefloaded = true
@@ -157,21 +165,32 @@ module MU
       # @return [Hash]
       def self.getSecret(vault: nil, item: nil, field: nil)
         loadChefLib
-        begin
-          loaded = ::ChefVault::Item.load(vault, item)
-        rescue ::ChefVault::Exceptions::KeysNotFound => e
-          raise MuError, "Can't load the Chef Vault #{vault}:#{item}. Does it exist?"
+        loaded = nil
+
+        if !item.nil?
+          begin
+            loaded = ::ChefVault::Item.load(vault, item)
+          rescue ::ChefVault::Exceptions::KeysNotFound => e
+            raise MuNoSuchSecret, "Can't load the Chef Vault #{vault}:#{item}. Does it exist?"
+          end
+        else
+          # If we didn't ask for a particular item, list what we have.
+          begin
+            loaded = ::Chef::DataBag.load(vault).keys.select { |k, v| !k.match(/_keys$/) }
+          rescue Net::HTTPServerException
+            raise MuNoSuchSecret, "Failed to retrieve Vault #{vault}"
+          end
         end
 
         if loaded.nil?
-          raise MuError, "Failed to retrieve Vault #{vault}:#{item}"
+          raise MuNoSuchSecret, "Failed to retrieve Vault #{vault}:#{item}"
         end
 
         if !field.nil?
           if loaded.has_key?(field)
             return loaded[field]
           else
-            raise MuError, "No such field in Vault #{vault}:#{item}"
+            raise MuNoSuchSecret, "No such field in Vault #{vault}:#{item}"
           end
         else
           return loaded
@@ -185,13 +204,26 @@ module MU
 
       # Delete a Chef data bag / Vault
       # @param vault [String]: A repository of secrets to delete
-      def self.deleteSecret(vault: nil)
+      def self.deleteSecret(vault: nil, item: nil)
         loadChefLib
         raise MuError, "No vault specified, nothing to delete" if vault.nil?
-        MU.log "Deleting vault #{vault}"
-        knife_db = ::Chef::Knife::DataBagDelete.new(['data', 'bag', 'delete', vault])
-        knife_db.config[:yes] = true
-        knife_db.run
+        MU.log "Deleting #{vault}:#{item} from vaults"
+        knife_db = nil
+        knife_cmds = []
+        if item.nil?
+          knife_cmds << ::Chef::Knife::DataBagDelete.new(['data', 'bag', 'delete', vault])
+        else
+          knife_cmds << ::Chef::Knife::DataBagDelete.new(['data', 'bag', 'delete', vault, item])
+          knife_cmds << ::Chef::Knife::DataBagDelete.new(['data', 'bag', 'delete', vault, item+"_keys"])
+        end
+        begin
+          knife_cmds.each { |knife_db|
+            knife_db.config[:yes] = true
+            knife_db.run
+          }
+        rescue Net::HTTPServerException => e
+          raise MuNoSuchSecret, "Tried to delete vault #{vault} but got #{e.inspect}, giving up"
+        end
       end
 
       # see {MU::Groomer::Chef.deleteSecret}
@@ -507,6 +539,22 @@ module MU
         }
       end
 
+      # Allow a node access to a vault.
+      # @param host [String]:
+      # @param vault [String]:
+      # @param item [String]:
+      def self.grantSecretAccess(host, vault, item)
+        loadChefLib
+        MU::MommaCat.lock("vault-#{vault}", false, true)
+        MU.log "Granting #{host} access to #{vault} #{item}"
+        begin
+          ::Chef::Knife.run(['vault', 'update', vault, item, "--search", "name:#{host}"])
+        rescue Exception => e
+          MU.log e.inspect, MU::ERR, details: caller
+        end
+        MU::MommaCat.unlock("vault-#{vault}", true)
+      end
+
       private
 
       # Save common Mu attributes to this node's Chef node structure.
@@ -599,8 +647,10 @@ module MU
         # If we have a database make sure we grant access to that vault.
         deploy = MU::MommaCat.getLitter(MU.deploy_id)
         if deploy.deployment.has_key?("databases")
-          deploy.deployment["databases"].each { |name, database|
-            grantSecretAccess(database['vault_name'], database['vault_item']) if database.has_key?("vault_name") && database.has_key?("vault_item")
+          deploy.deployment["databases"].each { |node_class, data|
+            data.each{ |name, database|
+              grantSecretAccess(database['vault_name'], database['vault_item']) if database.has_key?("vault_name") && database.has_key?("vault_item")
+            }
           }
         end
 
@@ -613,16 +663,8 @@ module MU
       end
 
       def grantSecretAccess(vault, item)
-        self.class.loadChefLib
         return if @secrets_granted["#{vault}:#{item}"]
-        MU::MommaCat.lock("vault-#{vault}", false, true)
-        MU.log "Granting #{@server.mu_name} access to #{vault} #{item}"
-        begin
-          ::Chef::Knife.run(['vault', 'update', vault, item, "--search", "name:#{@server.mu_name}"])
-        rescue Exception => e
-          MU.log e.inspect, MU::ERR, details: caller
-        end
-        MU::MommaCat.unlock("vault-#{vault}")
+        self.class.grantSecretAccess(@server.mu_name, vault, item)
       end
 
       def self.knifeCmd(cmd, showoutput = false)

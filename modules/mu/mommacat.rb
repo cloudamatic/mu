@@ -273,6 +273,7 @@ module MU
               end
               begin
                 # Load up MU::Cloud objects for all our kittens in this deploy
+                orig_cfg['environment'] = @environment # not always set in old deploys
                 if attrs[:has_multiples]
                   data.each_pair { |mu_name, actual_data|
                     attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: mu_name)
@@ -824,12 +825,18 @@ module MU
 
     # Release a flock() lock.
     # @param id [String]: The lock identifier to release.
-    def self.unlock(id)
+    def self.unlock(id, global = false)
       raise MuError, "Can't pass a nil id to MU::MommaCat.unlock" if id.nil?
+      lockdir = nil
+      if !global
+        lockdir = "#{deploy_dir(MU.deploy_id)}/locks"
+      else
+        lockdir = File.expand_path(MU.dataDir+"/locks")
+      end
       @lock_semaphore.synchronize {
         return if @locks.nil? or @locks[Thread.current.object_id].nil? or @locks[Thread.current.object_id][id].nil?
       }
-      MU.log "Releasing lock on #{deploy_dir(MU.deploy_id)}/locks/#{id}.lock (thread #{Thread.current.object_id})", MU::DEBUG
+      MU.log "Releasing lock on #{lockdir}/#{id}.lock (thread #{Thread.current.object_id})", MU::DEBUG
       begin
         @locks[Thread.current.object_id][id].flock(File::LOCK_UN)
         @locks[Thread.current.object_id][id].close
@@ -1360,12 +1367,21 @@ module MU
         MU::MommaCat.addInstanceToEtcHosts(server.canonicalIP, node)
       end
 
-      if !config.nil? and !config['dns_records'].nil?
+## TO DO: Do DNS registration of "real" records as the last stage after the groomer completes
+      if config && config['dns_records'] && !config['dns_records'].empty?
         dnscfg = config['dns_records'].dup
         dnscfg.each { |dnsrec|
           dnsrec['name'] = node.downcase if !dnsrec.has_key?('name')
+          dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
+          if !dnsrec.has_key?("target")
+            if dnsrec["type"] == "CNAME"
+              dnsrec["target"] = server.cloud_desc.public_dns_name.empty? ? server.cloud_desc.private_dns_name : server.cloud_desc.public_dns_name
+            elsif dnsrec["type"] == "A"
+              dnsrec["target"] = server.cloud_desc.public_ip_address ? server.cloud_desc.public_ip_address : server.cloud_desc.private_ip_address
+            end
+          end
         }
-        MU::Cloud::DNSZone.createRecordsFromConfig(dnscfg, target: server.canonicalIP)
+        MU::Cloud::DNSZone.createRecordsFromConfig(dnscfg)
       end
 
       MU::MommaCat.removeHostFromSSHConfig(node)
@@ -2238,7 +2254,6 @@ MESSAGE_END
         end
       }
     end
-
 
     @catwords = %w{abyssian acinonyx alley angora bastet bengal birman bobcat bobtail bombay burmese calico chartreux cheetah cheshire cornish-rex curl devon devon-rex dot egyptian-mau feline felix feral fuzzy ginger havana himilayan jaguar japanese-bobtail javanese kitty khao-manee leopard lion lynx maine-coon manx marmalade maru mau mittens moggy munchkin neko norwegian ocelot pallas panther patches paws persian peterbald phoebe polydactyl purr queen quick ragdoll roar russian-blue saber savannah scottish-fold sekhmet serengeti shorthair siamese siberian singapura skogkatt snowshoe socks sphinx spot stray tabby tail tiger tom tonkinese tortoiseshell turkish-van tuxedo uncia whiskers wildcat yowl}
     @noncatwords = %w{alpha amber auburn azure beta brave bravo brawler charlie chocolate chrome cinnamon corinthian coyote crimson dancer danger dash delta don duet echo edge electric elite enigma eruption eureka fearless foxtrot galvanic gold grace grey horizon hulk hyperion illusion imperative india intercept ivory jade jaeger juliet kaleidoscope kilo lucky mammoth night nova november ocean olive oscar quiescent rhythm rogue romeo ronin royal tacit tango typhoon ultimatum ultra umber upward victor violet vivid vulcan watchman whirlwind wright xenon xray xylem yankee yearling yell yukon zeal zero zippy zodiac}
