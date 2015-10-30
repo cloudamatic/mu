@@ -20,6 +20,10 @@ response = Net::HTTP.get_response(URI("http://169.254.169.254/latest/meta-data/i
 instance_id = response.body
 search_domains = ["ec2.internal", "server.#{instance_id}.platform-mu", "platform-mu"]
 
+service "sshd" do
+  action :nothing
+end
+
 if $MU_CFG.has_key?('ldap')
   include_recipe 'chef-vault'
   if $MU_CFG['ldap']['type'] == "389 Directory Services" and Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG['hostname']}")
@@ -52,6 +56,13 @@ if $MU_CFG.has_key?('ldap')
         :dc => $MU_CFG['ldap']['dcs'].first
       )
     end
+
+    cookbook_file "/etc/pam.d/sshd" do
+      source "pam_sshd"
+      mode 0644
+      notifies :reload, "service[sshd]", :delayed
+    end
+
   elsif $MU_CFG['ldap']['type'] == "Active Directory"
     node.normal.ad = {}
     node.normal.ad.computer_name = "MU-MASTER"
@@ -367,10 +378,6 @@ file "/etc/logrotate.d/Mu_audit_logs" do
   endscript
 }
 "
-end
-
-service "sshd" do
-  action :nothing
 end
 
 template "/etc/ssh/sshd_config" do
