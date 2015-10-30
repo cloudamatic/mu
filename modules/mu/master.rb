@@ -85,7 +85,7 @@ module MU
       cur_users = listUsers
       create = true if !cur_users.has_key?(username)
       if !MU::Master::LDAP.manageUser(username, name: name, email: email, password: password, admin: admin)
-        deleteUser(username)
+        deleteUser(username) if create
         return false
       end
       %x{sh -x /etc/init.d/oddjobd start 2>&1 > /dev/null} # oddjobd dies, like a lot
@@ -96,7 +96,7 @@ module MU
       end
       %x{/bin/su - #{username} -c "ls > /dev/null"}
       if !MU::Master::Chef.manageUser(chef_username, ldap_user: username, name: name, email: email, admin: admin, orgs: orgs, remove_orgs: remove_orgs) and create
-        deleteUser(username)
+        deleteUser(username) if create
         return false
       end
       %x{/bin/su - #{username} -c "/opt/chef/bin/knife ssl fetch 2>&1 > /dev/null"}
@@ -119,6 +119,7 @@ module MU
         FileUtils.chown_R(username, username+".mu-user", Etc.getpwnam(username).dir)
         %x{/sbin/restorecon -r /home}
       end
+      true
     end
 
 

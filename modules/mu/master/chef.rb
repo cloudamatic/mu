@@ -238,7 +238,15 @@ module MU
                   MU.log "Requested addition of Chef user #{user} to organization #{org}, but no such user exists", MU::WARN
                   next
                 end
-                response = chefAPI.post("organizations/#{org}/association_requests", {:user => user})
+                begin
+                  response = chefAPI.post("organizations/#{org}/association_requests", {:user => user})
+                rescue Net::HTTPServerException => e
+                  if e.message == '409 "Conflict"'
+                    next
+                  else
+                    raise e
+                  end
+                end
                 association_id = response["uri"].split("/").last
                 response = chefAPI.put("users/#{user}/association_requests/#{association_id}", { :response => 'accept' })
                 next if user == "mu"
