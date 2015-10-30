@@ -116,7 +116,6 @@ add_berkshelf_cookbooks()
 	berkstmp="$berksdir/tmp"
 	mkdir -p $berkstmp
 	cookbook_path=$berkstmp
-  rm -rf $berksdir/cookbooks
 
 	cd $repodir && ( /usr/local/ruby-current/bin/berks install || /usr/local/ruby-current/bin/berks update )
 
@@ -126,6 +125,7 @@ add_berkshelf_cookbooks()
 	cp -r $berksdir/cookbooks $berkstmp
 	cd $berkstmp
 
+# XXX we need to remove older cookbook versions from $berksdir/cookbooks individually
 	for i in `find cookbooks/ -maxdepth 1 -type d | egrep '^.*-[[:digit:]][[:digit:]\.]*$'`
 	do
 		echo "mv $i \$(echo $berkstmp/$i | sed 's/-[[:digit:]][[:digit:]\.]*$//' )" | sh
