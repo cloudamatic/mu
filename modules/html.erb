@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title><%= title %></title>
+  </head>
+  <body style="font-family: Helvetica, Arial, Helvetica, sans-serif;color:black;background-color:white;">
+    <a href="https://github.com/cloudamatic"><img src="<%= logo %>" title="Cloudamatic" style="margin:0px;"></a>
+    <div style="margin-left:3em;">
+      <h1><%= title %></h1>
+<% if headline and !headline.empty? %>
+      <p><%= headline %></p>
+<% end %>
+      <blockquote style="text-align:center;width:50%;background-color:#0a304d;color:white;font-size:large;border-radius:1em;padding:1em;border:2px solid #ddb426;">
+        <%= msg %>
+      </blockquote>
+    </div>
+  </body>
+</html>

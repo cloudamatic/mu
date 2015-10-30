@@ -116,6 +116,7 @@ add_berkshelf_cookbooks()
 	berkstmp="$berksdir/tmp"
 	mkdir -p $berkstmp
 	cookbook_path=$berkstmp
+  rm -rf $berksdir/cookbooks
 
 	cd $repodir && ( /usr/local/ruby-current/bin/berks install || /usr/local/ruby-current/bin/berks update )
 
@@ -136,7 +137,7 @@ add_berkshelf_cookbooks()
 			type="`echo $resource | cut -d: -f1`"
 			name="`echo $resource | cut -d: -f2`"
 			set +e
-			/bin/rm -rf "$MU_CHEF_CACHE/cookbooks/$name"
+			/bin/rm -rf "$MU_CHEF_CACHE/cookbooks/$name*"
 			$knife cookbook delete $name --yes
 			set -e
 		done

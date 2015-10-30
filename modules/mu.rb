@@ -393,7 +393,7 @@ module MU
   @@myRegion_var = nil
   # Find our AWS Region and Availability Zone
   def self.myRegion
-    if !ENV.has_key?("EC2_REGION") or ENV['EC2_REGION'].empty?
+    if ENV.has_key?("EC2_REGION") and !ENV['EC2_REGION'].empty?
       @@myRegion_var ||= MU::Cloud::AWS.ec2(ENV['EC2_REGION']).describe_availability_zones.availability_zones.first.region_name
     else
       # hacky, but useful in a pinch

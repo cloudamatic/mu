@@ -87,6 +87,11 @@ cookbook_file "/root/.vimrc" do
   action :create_if_missing
 end
 
+cookbook_file "/var/www/html/cloudamatic.png" do
+  source "cloudamatic.png"
+  mode 0644
+end
+
 package "nagios" do
   action :remove
 end

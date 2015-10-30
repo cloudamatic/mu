@@ -92,32 +92,56 @@ Thread.new {
 
 required_vars = ["mu_id", "mu_deploy_secret", "mu_resource_name", "mu_resource_type", "mu_instance_id"]
 
+# Use a template to generate a pleasant-looking HTML page for simple messages
+# and errors.
+def genHTMLMessage(title: "", headline: "", msg: "", template: $MU_CFG['html_template'], extra_vars: {})
+  logo_url = "http://#{$MU_CFG['public_address']}/cloudamatic.png"
+  page = "<img src='#{logo_url}'><h1>#{title}</h1>#{msg}"
+  vars = {
+    "title" => title,
+    "msg" => msg,
+    "headline" => headline,
+    "logo" => logo_url
+  }.merge(extra_vars)
+  if $MU_CFG.has_key?('html_template') and
+     File.exist?($MU_CFG['html_template']) and
+     File.readable?($MU_CFG['html_template'])
+    page = Erubis::Eruby.new(File.read($MU_CFG['html_template'])).result(vars)
+  elsif File.exist?("#{$MU_CFG['libdir']}/modules/html.erb") and
+     File.readable?("#{$MU_CFG['libdir']}/modules/html.erb")
+    page = Erubis::Eruby.new(File.read("#{$MU_CFG['libdir']}/modules/html.erb")).result(vars)
+  end
+  page
+end
+
 # Return an error message to web clients.
 def throw500(msg = "", details = nil)
   MU.log "Returning 500 to client: #{msg}", MU::ERR, details: details
+  page = genHTMLMessage(title: "500 Error", headline: msg, msg: details)
   [
       500,
       {
           'Content-Type' => 'text/html',
-          'Content-Length' => msg.length.to_s
+          'Content-Length' => page.length.to_s
       },
-      [msg]
+      [page]
   ]
 end
 
 def throw404(msg = "", details = nil)
   MU.log "Returning 404 to client: #{msg}", MU::ERR, details: details
+  page = genHTMLMessage(title: "404 Not Found", headline: msg, msg: details)
   [
       404,
       {
           'Content-Type' => 'text/html',
-          'Content-Length' => msg.length.to_s
+          'Content-Length' => page.length.to_s
       },
-      [msg]
+      [page]
   ]
 end
 
-def return200(data)
+def returnRawJSON(data)
   MU.log "Returning 200 to client", MU::NOTICE, details: data
   [
       200,
@@ -187,7 +211,6 @@ def releaseKitten(mu_id)
   }
 end
 
-
 app = proc do |env|
   ok = false
   returnval = [
@@ -209,10 +232,19 @@ app = proc do |env|
            $MU_CFG['scratchpad'].has_key?("template_path") and
            File.exist?($MU_CFG['scratchpad']['template_path']) and
            File.readable?($MU_CFG['scratchpad']['template_path'])
-          page = Erubis::Eruby.new(File.read($MU_CFG['scratchpad']['template_path'])).result({"secret"=>secret})
-        elsif File.exist?("#{$MU_CFG['libdir']}/modules/scratchpad.erb") and
-           File.readable?("#{$MU_CFG['libdir']}/modules/scratchpad.erb")
-          page = Erubis::Eruby.new(File.read("#{$MU_CFG['libdir']}/modules/scratchpad.erb")).result({"secret"=>secret})
+          page = genHTMLMessage(
+            title: "Your Scratchpad Secret",
+            headline:"<strong>YOU MAY ONLY RETRIVE THIS SECRET ONCE!</strong> Be sure to copy it somewhere safe before reloading, browsing away, or closing your browser window.",
+            msg: secret,
+            template: $MU_CFG['scratchpad']['template_path'],
+            extra_vars: { "secret" => secret }
+          )
+        else
+          page = genHTMLMessage(
+            title: "Your Scratchpad Secret",
+            headline:"<strong>YOU MAY ONLY RETRIVE THIS SECRET ONCE!</strong> Be sure to copy it somewhere safe before reloading, browsing away, or closing your browser window.",
+            msg: secret
+          )
         end
 
         returnval = [
@@ -224,14 +256,14 @@ app = proc do |env|
           [page]
         ]
       rescue MU::Groomer::Chef::MuNoSuchSecret
-        msg = "No such secret found. Has it already been retrieved?\n"
+        page = genHTMLMessage(title: "No such secret", msg: "The secret '#{itemname}' does not exist or has already been retrieved")
         returnval = [
           200,
           {
             'Content-Type' => 'text/html',
-            'Content-Length' => msg.length.to_s
+            'Content-Length' => page.length.to_s
           },
-          [msg]
+          [page]
         ]
       end
     elsif !env.nil? and !env['REQUEST_PATH'].nil? and env['REQUEST_PATH'].match(/^\/rest\//)
@@ -247,15 +279,15 @@ app = proc do |env|
         returnval = throw404 env['REQUEST_PATH'] if !filter
         MU.log "Loading deploy data for #{filter} #{path}"
         kittenpile = MU::MommaCat.getLitter(filter)
-        returnval = return200 JSON.generate(kittenpile.deployment)
+        returnval = returnRawJSON JSON.generate(kittenpile.deployment)
       elsif action == "config"
         returnval = throw404 env['REQUEST_PATH'] if !filter
         MU.log "Loading config #{filter} #{path}"
         kittenpile = MU::MommaCat.getLitter(filter)
-        returnval = return200 JSON.generate(kittenpile.original_config)
+        returnval = returnRawJSON JSON.generate(kittenpile.original_config)
       elsif action == "list"
         MU.log "Listing deployments"
-        returnval = return200 JSON.generate(MU::MommaCat.listDeploys)
+        returnval = returnRawJSON JSON.generate(MU::MommaCat.listDeploys)
       else
         returnval = throw404 env['REQUEST_PATH']
       end
