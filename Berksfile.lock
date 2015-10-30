@@ -47,7 +47,7 @@ DEPENDENCIES
   mu-utility
     path: cookbooks/mu-utility
   mysql (~> 6.1.0)
-  nagios (~> 7.1.8)
+  nagios (~> 7.2.4)
   nginx (~> 2.7.6)
   nginx-passenger
     path: cookbooks/nginx-passenger
@@ -215,7 +215,7 @@ GRAPH
   mysql (6.1.2)
     smf (>= 0.0.0)
     yum-mysql-community (>= 0.0.0)
-  nagios (7.1.8)
+  nagios (7.2.4)
     apache2 (>= 2.0)
     build-essential (>= 0.0.0)
     nginx (>= 0.0.0)
@@ -301,8 +301,8 @@ GRAPH
     build-essential (>= 0.0.0)
     chef-sugar (>= 0.0.0)
   yum (3.6.3)
-  yum-epel (0.6.3)
+  yum-epel (0.6.4)
     yum (~> 3.2)
-  yum-mysql-community (0.1.18)
-    yum (>= 3.0)
+  yum-mysql-community (0.1.19)
+    yum (>= 3.2)
   zap (0.8.7)
