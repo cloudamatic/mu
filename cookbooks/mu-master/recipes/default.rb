@@ -28,6 +28,9 @@ if $MU_CFG.has_key?('ldap')
     service "nslcd" do
       action [:enable, :start]
     end
+    service "messagebus" do
+      action [:enable, :start]
+    end
     package "oddjob-mkhomedir"
     execute "restorecon -r /usr/sbin"
     service "oddjobd" do
