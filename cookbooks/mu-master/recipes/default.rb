@@ -49,7 +49,7 @@ if $MU_CFG.has_key?('ldap')
     end
     execute "/usr/sbin/authconfig --disablenis --enablecache --disablewinbind --disablewinbindauth --enablemkhomedir --disablekrb5 --enablesssd --enablesssdauth --enablelocauthorize --disableforcelegacy --disableldap --disableldapauth --updateall"
     service "sssd" do
-      action [:enable, :start]
+      action :nothing
     end
     template "/etc/sssd/sssd.conf" do
       source "sssd.conf.erb"
@@ -60,6 +60,9 @@ if $MU_CFG.has_key?('ldap')
         :user_ou => $MU_CFG['ldap']['user_ou'],
         :dcs => $MU_CFG['ldap']['dcs']
       )
+    end
+    service "sssd" do
+      action [:enable, :start]
     end
 
 #    cookbook_file "/etc/pam.d/sshd" do
@@ -120,7 +123,7 @@ execute "remove old Nagios binary" do
 end
 include_recipe "nagios::server_source"
 include_recipe "nagios"
-
+include_recipe "mu-master::update_nagios_only"
 package "nagios-plugins-all"
 
 directory "/home/nagios" do
@@ -396,8 +399,6 @@ cron "Rotate vault keys and purge MIA clients" do
   user "root"
   command "/opt/mu/bin/knife vault rotate all keys --clean-unknown-clients"
 end
-
-include_recipe "mu-master::update_nagios_only"
 
 # This is stuff that can break for no damn reason at all
 include_recipe "mu-utility::cloudinit"

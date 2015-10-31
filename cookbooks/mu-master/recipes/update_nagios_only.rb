@@ -98,8 +98,10 @@ Dir.glob("/usr/lib/cgi-bin/*.cgi").each { |script|
     end
   end
 }
-execute "chcon -R -h -t nagios_unconfined_plugin_exec_t /usr/lib64/nagios/plugins/check_nagios" do
-  not_if "ls -aZ /usr/lib64/nagios/plugins/check_nagios | grep ':nagios_unconfined_plugin_exec_t:'"
+if File.exist?("/usr/lib64/nagios/plugins/check_nagios")
+  execute "chcon -R -h -t nagios_unconfined_plugin_exec_t /usr/lib64/nagios/plugins/check_nagios" do
+    not_if "ls -aZ /usr/lib64/nagios/plugins/check_nagios | grep ':nagios_unconfined_plugin_exec_t:'"
+  end
 end
 
 execute "chgrp apache /var/log/nagios"
@@ -110,11 +112,4 @@ execute "sed -i s/^interval_length=.*/interval_length=1/ || echo 'interval_lengt
   notifies :reload, "service[nagios]", :delayed
 end
 
-# Workaround for dopey init problems with current Nagios and its cookbook
-service "nagios" do
-  start_command "sh -x /etc/init.d/nagios start"
-  reload_command "sh -x /etc/init.d/nagios reload"
-  supports :status => true, :restart => true, :reload => true
-  action [:enable, :start]
-end
 package "nagios-plugins-nrpe"
