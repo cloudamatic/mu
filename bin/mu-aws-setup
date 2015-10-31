@@ -324,7 +324,7 @@ if $opts[:dns]
       my_ip = resolver.getaddress($MU_CFG['hostname']).to_s
     end rescue Resolv::ResolvError
     if my_ip != MU.mu_public_ip
-      MU::Cloud::AWS::DNSZone.manageRecord(ext_zone.id, $MU_CFG['hostname'], "A", targets: [MU.mu_public_ip])
+      MU::Cloud::AWS::DNSZone.manageRecord(ext_zone.id, $MU_CFG['hostname'], "A", targets: [MU.mu_public_ip], sync_wait: false)
    end
   end
 end
