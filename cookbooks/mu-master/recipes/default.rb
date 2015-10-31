@@ -27,13 +27,19 @@ end
 if $MU_CFG.has_key?('ldap')
   include_recipe 'chef-vault'
   if $MU_CFG['ldap']['type'] == "389 Directory Services" and Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG['hostname']}")
-    package "pam_ldap"
-    package "nss-pam-ldapd"
-    service "nslcd" do
-      action [:enable, :start]
+    package "sssd"
+    package "sssd-ldap"
+    package "nss-pam-ldapd" do
+      action :remove
+    end
+    package "pam_ldap" do
+      action :remove
     end
     service "messagebus" do
       action [:enable, :start]
+    end
+    service "nscd" do
+      action [:disable, :stop]
     end
     package "oddjob-mkhomedir"
     execute "restorecon -r /usr/sbin"
@@ -41,30 +47,26 @@ if $MU_CFG.has_key?('ldap')
       start_command "sh -x /etc/init.d/oddjobd start" # seems to actually work
       action [:enable, :start]
     end
-    execute "/usr/sbin/authconfig --enableldap --enableldapauth --disablenis --enablecache --ldapserver=#{$MU_CFG['ldap']['dcs'].first} --ldapbasedn=\"#{$MU_CFG['ldap']['base_dn']}\" --disablewinbind --disablewinbindauth --enablemkhomedir --disablekrb5 --enableldaptls --updateall"
-    template "/etc/pam_ldap.conf" do
-      source "pam_ldap.conf.erb"
-      mode 0644
-      variables(
-        :base_dn => $MU_CFG['ldap']['base_dn'],
-        :dc => $MU_CFG['ldap']['dcs'].first
-      )
+    execute "/usr/sbin/authconfig --disablenis --enablecache --disablewinbind --disablewinbindauth --enablemkhomedir --disablekrb5 --enablesssd --enablesssdauth --enablelocauthorize --disableforcelegacy --disableldap --disableldapauth --updateall"
+    service "sssd" do
+      action [:enable, :start]
     end
-    template "/etc/nslcd.conf" do
-      source "nslcd.conf.erb"
+    template "/etc/sssd/sssd.conf" do
+      source "sssd.conf.erb"
       mode 0600
-      notifies :restart, "service[nslcd]", :immediately
+      notifies :restart, "service[sssd]", :immediately
       variables(
         :base_dn => $MU_CFG['ldap']['base_dn'],
-        :dc => $MU_CFG['ldap']['dcs'].first
+        :user_ou => $MU_CFG['ldap']['user_ou'],
+        :dcs => $MU_CFG['ldap']['dcs']
       )
     end
 
-    cookbook_file "/etc/pam.d/sshd" do
-      source "pam_sshd"
-      mode 0644
-      notifies :reload, "service[sshd]", :delayed
-    end
+#    cookbook_file "/etc/pam.d/sshd" do
+#      source "pam_sshd"
+#      mode 0644
+#      notifies :reload, "service[sshd]", :delayed
+#    end
 
   elsif $MU_CFG['ldap']['type'] == "Active Directory"
     node.normal.ad = {}

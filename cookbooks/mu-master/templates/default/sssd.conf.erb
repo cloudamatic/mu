@@ -1,0 +1,47 @@
+[domain/default]
+debug_level = 6
+autofs_provider = ldap
+cache_credentials = True
+ldap_search_base = <%= @base_dn %>
+ldap_user_search_base = <%= @user_ou %>
+id_provider = ldap
+auth_provider = ldap
+access_provider = permit
+chpass_provider = ldap
+sudo_provider = ldap
+ldap_uri = <%= @dcs.map { |dc| "ldaps://"+dc+"/" }.join(",") %>
+ldap_tls_reqcert = allow
+ldap_id_use_start_tls = True
+ldap_tls_cacertdir = /etc/openldap/cacerts
+ldap_user_object_class = inetorgperson
+ldap_user_uid_number = employeeNumber
+ldap_user_gid_number = departmentNumber
+ldap_group_objectclass = groupofuniquenames
+ldap_group_member = uniqueMember
+ldap_group_gid_number = gid
+
+[sssd]
+debug_level = 6
+services = nss, pam, autofs
+config_file_version = 2
+
+domains = default
+[nss]
+debug_level = 6
+override_homedir = /home/%u
+default_shell = /bin/bash
+
+[pam]
+debug_level = 6
+pam_verbosity = 2
+
+[sudo]
+
+[autofs]
+
+[ssh]
+
+[pac]
+
+[ifp]
+
