@@ -32,10 +32,13 @@ if $MU_CFG.has_key?('ldap')
   node.save
 end
 
-# XXX Workaround for dopey init problems with current Nagios and its cookbook
-node.override.nagios.server.name = "crond"
-node.override.nagios.server.service_name = "crond"
-node.save
+# XXX The Nagios init script from source is buggy; config test always fails
+# when invoked via "service nagios start," which is what the cookbook does.
+# This at least keeps it from trashing our Chef runs.
+file "/etc/sysconfig/nagios" do
+  content "checkconfig=\"false\"\n"
+  mode 0600
+end
 include_recipe "nagios"
 
 cookbook_file "nagios_fifo.pp" do
