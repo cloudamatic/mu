@@ -175,6 +175,8 @@ end
 include_recipe "apache2::mod_proxy"
 include_recipe "apache2::mod_proxy_http"
 include_recipe "apache2::mod_rewrite"
+include_recipe "apache2::mod_ldap"
+include_recipe "apache2::mod_authnz_ldap"
 apache_site "default" do
   enable false
 end
