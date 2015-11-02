@@ -1,0 +1,50 @@
+<%
+
+  raise "You must set deploy_id (e.g. -p deploy_id=UATSVCS-PROD-2015051501-RE)" unless $deploy_id
+  $region = MU.curRegion unless $region
+
+%>
+
+appname: cache
+region: <%= $region %>
+cache_clusters:
+- name: test
+  dns_sync_wait: false
+  engine_version: 2.8.22
+  node_count: 2
+  alarms:
+  - name: cpu-usage
+    metric_name: CPUUtilization
+    statistic: Average
+    period: 60
+    evaluation_periods: 2
+    threshold: 60
+    comparison_operator: GreaterThanOrEqualToThreshold
+    enable_notifications: true
+  - name: cache-hits
+    metric_name: CacheHits
+    statistic: Average
+    period: 60
+    evaluation_periods: 2
+    threshold: 10
+    comparison_operator: GreaterThanOrEqualToThreshold
+    enable_notifications: true
+  engine: redis
+  size: cache.m3.large
+  multi_az: true
+  preferred_maintenance_window: sun:06:00-sun:07:00
+  parameter_group_family: redis2.8
+  add_firewall_rules: 
+  - rule_name: elasticache
+  vpc:
+    deploy_id: <%= $deploy_id %>
+    subnet_pref: all_private
+
+firewall_rules:
+- name: elasticache
+  vpc:
+    deploy_id: <%= $deploy_id %>
+  rules: 
+  - port: 6379
+    hosts:
+    - 0.0.0.0/0

@@ -1,4 +1,4 @@
-default.openvpn.version = "2.0.17"
+default.openvpn.version = "2.0.20"
 case node.platform_family
   when "rhel"
     default.openvpn.package = "openvpn-as-#{node.openvpn.version}-CentOS#{node.platform_version.to_i}.x86_64.rpm"
@@ -6,7 +6,7 @@ end
 
 default.openvpn.vpc_networks = %w{172.31.0.0/16 10.0.0.0/16}
 default.openvpn.base_url = "http://swupdate.openvpn.org/as"
-default.openvpn.url = node.aws.public_ip_address
+default.openvpn.url = node.ec2.public_ip_address
 default.openvpn.base_dir = "/usr/local/openvpn_as"
 default.openvpn.scripts = "#{node.openvpn.base_dir}/scripts"
 default.openvpn.bin = "#{node.openvpn.base_dir}/bin"
@@ -14,14 +14,15 @@ default.openvpn.cert_dir = "#{node.openvpn.base_dir}/etc/web-ssl"
 default.openvpn.use_ca_signed_cert = false
 default.openvpn.configure_ladp_auth = false
 default.openvpn.ldap_bind_dn = "OU=org, DC=example, DC=net"
-default.openvpn.ldap_bind_pw = "password"
 default.openvpn.ldap_display_name = "My LDAP servers"
 default.openvpn.ldap_server1 = "ldapsvr1"
 default.openvpn.ldap_server2 = "ldapsvr2"
 default.openvpn.ldap_username_attr = "sAMAccountName"
 default.openvpn.ldap_users_base_dn = "CN=Users, DC=example, DC=net"
-default.openvpn.ldap_ssl_verify = false
-default.openvpn.ldap_use_ssl = false
+default.openvpn.ldap_ssl_verify = "never"
+# ldap_ssl_verify can be set to: demand, allow or never
+default.openvpn.ldap_use_ssl = "never"
+# ldap_use_ssl can be set to: always, adaptive or never
 default.openvpn.auth_type = "pam"
 default.openvpn.tls_version_server = 1.0
 default.openvpn.tls_version_client = 1.2
@@ -33,6 +34,8 @@ default.openvpn.internal_network_ip = "172.27.224.0"
 default.openvpn.internal_network_netmask = 20
 default.openvpn.routing_method = "nat"
 default.openvpn.reroute_all_traffic = false
+default.openvpn.ssl_ciphersuites = "DEFAULT:!EXP:!PSK:!SRP:!MEDIUM:!LOW:!RC4:!3DES"
+default.openvpn.multiple_user_sessions = false
 
 default.openvpn.fw_rules = [
     {:port => 443, :protocol => "tcp"},
@@ -62,9 +65,9 @@ default.openvpn.config = {
     "auth.ldap.0.timeout" => 4,
     "auth.ldap.0.use_ssl" => node.openvpn.ldap_use_ssl,
     "auth.ldap.0.bind_dn" => "'#{node.openvpn.ldap_bind_dn}'",
-    "auth.ldap.0.bind_pw" => node.openvpn.ldap_bind_pw,
     "auth.ldap.0.server.0.host" => node.openvpn.ldap_server1,
     "auth.ldap.0.server.1.host" => node.openvpn.ldap_server2,
+    # "auth.ldap.0.ssl_ca_cert" => node.openvpn.ldap_ssl_ca_cert,
     "auth.ldap.0.uname_attr" => node.openvpn.ldap_username_attr,
     "auth.ldap.0.users_base_dn" => "'#{node.openvpn.ldap_users_base_dn}'",
     "auth.module.type" => node.openvpn.auth_type,
@@ -76,6 +79,7 @@ default.openvpn.config = {
     "cs.https.port" => node.openvpn.https_port,
     "cs.prof_sign_web" => true,
     "cs.ssl_method" => "SSLv3",
+    "cs.openssl_ciphersuites" => node.openvpn.ssl_ciphersuites,
     "sa.initial_run_groups.0" => "web_group",
     "sa.initial_run_groups.1" => "openvpn_group",
     "vpn.daemon.0.client.netmask_bits" => node.openvpn.internal_network_netmask,
@@ -85,6 +89,7 @@ default.openvpn.config = {
     "vpn.daemon.0.listen.protocol" => "tcp",
     "vpn.general.osi_layer" => "3",
     "vpn.daemon.0.server.ip_address" => "eth0",
+    "vpn.server.duplicate_cn" => node.openvpn.multiple_user_sessions,
     "vpn.server.daemon.enable" => true,
     "vpn.server.daemon.tcp.n_daemons" => 2,
     "vpn.server.daemon.tcp.port" => node.openvpn.daemon_tcp_port,
@@ -110,5 +115,5 @@ default.openvpn.cert_vault = {
     :vault => "certs", :item => "star_muplatform"
 }
 default.openvpn.ldap_vault = {
-    :vault => "active_directory", :item => "openvpn"
+    :vault => "openvpn", :item => "ldap", :field => "bind_password"
 }

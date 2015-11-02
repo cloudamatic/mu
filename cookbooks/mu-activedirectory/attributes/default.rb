@@ -1,3 +1,5 @@
+default.ad.samba_include_file = "smb_extra.conf"
+default.ad.samba_conf_dir = "/etc/samba"
 default.ad.netbios_name = "cloudamatic"
 default.ad.dns_name = "ad.cloudamatic.com"
 default.ad.site_name = "AZ1"

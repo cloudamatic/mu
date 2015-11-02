@@ -188,7 +188,19 @@ module MU
         MU.log "Deleting vault #{vault}"
         knife_db = ::Chef::Knife::DataBagDelete.new(['data', 'bag', 'delete', vault])
         knife_db.config[:yes] = true
-        knife_db.run
+        retries = 0
+        begin
+          knife_db.run
+        rescue Net::HTTPServerException => e
+          if retries < 10
+            MU.log "Tried to delete vault #{vault} but got #{e.inspect}, retrying a few times" if retries % 10 == 0
+            retries += 1
+            sleep 15
+            retry
+          else
+            MU.log "Tried to delete vault #{vault} but got #{e.inspect}, giving up", MU::ERR
+          end
+        end
       end
 
       # see {MU::Groomer::Chef.deleteSecret}
@@ -596,8 +608,10 @@ module MU
         # If we have a database make sure we grant access to that vault.
         deploy = MU::MommaCat.getLitter(MU.deploy_id)
         if deploy.deployment.has_key?("databases")
-          deploy.deployment["databases"].each { |name, database|
-            grantSecretAccess(database['vault_name'], database['vault_item']) if database.has_key?("vault_name") && database.has_key?("vault_item")
+          deploy.deployment["databases"].each { |node_class, data|
+            data.each{ |name, database|
+              grantSecretAccess(database['vault_name'], database['vault_item']) if database.has_key?("vault_name") && database.has_key?("vault_item")
+            }
           }
         end
 

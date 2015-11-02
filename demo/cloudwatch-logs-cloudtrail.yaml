@@ -1,0 +1,56 @@
+<%
+  $region = MU.curRegion unless $region
+%>
+  
+appname: cloudwatchlogs
+region: <%= $region %>
+logs:
+- name: cloudtrail
+  retention_period: 30
+  enable_cloudtrail_logging: true
+  filters:
+  - name: iampolicychanges
+    search_pattern: "{($.eventName=DeleteGroupPolicy)||($.eventName=DeleteRolePolicy)||($.eventName=DeleteUserPolicy)||($.eventName=PutGroupPolicy)||($.eventName=PutRolePolicy)||($.eventName=PutUserPolicy)||($.eventName=CreatePolicy)||($.eventName=DeletePolicy)||($.eventName=CreatePolicyVersion)||($.eventName=DeletePolicyVersion)||($.eventName=AttachRolePolicy)||($.eventName=DetachRolePolicy)||($.eventName=AttachUserPolicy)||($.eventName=DetachUserPolicy)||($.eventName=AttachGroupPolicy)||($.eventName=DetachGroupPolicy)}"
+    metric_name: IAMPolicyEventCount
+    namespace: CloudTrail
+    value: "1"
+  - name: CloudTrailChanges
+    search_pattern: "{($.eventName=CreateTrail)||($.eventName=UpdateTrail)||($.eventName=DeleteTrail)||($.eventName=StartLogging)||($.eventName=StopLogging)}"
+    metric_name: CloudTrailEventCount
+    namespace: CloudTrail
+    value: "1"
+  - name: EC2InstanceChanges
+    search_pattern: "{($.eventName=RunInstances)||($.eventName=RebootInstances)||($.eventName=StartInstances)||($.eventName=StopInstances)||($.eventName=TerminateInstances)}"
+    metric_name: EC2InstanceEventCount
+    namespace: CloudTrail
+    value: "1"
+
+alarms:
+- name: iampolicychanges
+  metric_name: IAMPolicyEventCount
+  namespace: CloudTrail
+  statistic: Sum
+  period: 300
+  evaluation_periods: 1
+  threshold: 1
+  comparison_operator: GreaterThanOrEqualToThreshold
+  enable_notifications: true
+- name: CloudTrailChanges
+  metric_name: CloudTrailEventCount
+  namespace: CloudTrail
+  statistic: Sum
+  period: 300
+  evaluation_periods: 1
+  threshold: 1
+  comparison_operator: GreaterThanOrEqualToThreshold
+  enable_notifications: true
+- name: EC2InstanceChanges
+  metric_name: EC2InstanceEventCount
+  namespace: CloudTrail
+  statistic: Sum
+  period: 300
+  evaluation_periods: 1
+  threshold: 1
+  comparison_operator: GreaterThanOrEqualToThreshold
+  enable_notifications: true
+ 

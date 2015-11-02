@@ -456,7 +456,7 @@ module MU
 
   # The version of Chef we will install on nodes (note- not the same as what
   # we intall on ourself, which comes from install/mu_setup).
-  @@chefVersion = "12.4.1-1"
+  @@chefVersion = "12.5.1-1"
   # The version of Chef we will install on nodes.
   # @return [String]
   def self.chefVersion;
@@ -512,38 +512,22 @@ module MU
 			{
 				"Sid": "AWSCloudTrailAclCheck20131101",
 				"Effect": "Allow",
-				"Principal": {
-					"AWS": [
-						"arn:aws:iam::086441151436:root",
-						"arn:aws:iam::113285607260:root",
-						"arn:aws:iam::388731089494:root",
-						"arn:aws:iam::284668455005:root",
-						"arn:aws:iam::903692715234:root",
-						"arn:aws:iam::216624486486:root",
-						"arn:aws:iam::859597730677:root",
-						"arn:aws:iam::814480443879:root"
-					]
-				},
+        "Principal": {
+          "AWS": "arn:aws:iam::<%= MU.account_number %>:root",
+          "Service": "cloudtrail.amazonaws.com"
+        },
 				"Action": "s3:GetBucketAcl",
 				"Resource": "arn:aws:s3:::<%= $bucketname %>"
 			},
 			{
 				"Sid": "AWSCloudTrailWrite20131101",
 				"Effect": "Allow",
-				"Principal": {
-					"AWS": [
-						"arn:aws:iam::086441151436:root",
-						"arn:aws:iam::113285607260:root",
-						"arn:aws:iam::388731089494:root",
-						"arn:aws:iam::284668455005:root",
-						"arn:aws:iam::903692715234:root",
-						"arn:aws:iam::216624486486:root",
-						"arn:aws:iam::859597730677:root",
-						"arn:aws:iam::814480443879:root"
-					]
-				},
+        "Principal": {
+          "AWS": "arn:aws:iam::<%= MU.account_number %>:root",
+          "Service": "cloudtrail.amazonaws.com"
+        },
 				"Action": "s3:PutObject",
-				"Resource": "arn:aws:s3:::<%= $bucketname %>/AWSLogs/*",
+				"Resource": "arn:aws:s3:::<%= $bucketname %>/AWSLogs/<%= MU.account_number %>/*",
 				"Condition": {
 					"StringEquals": {
 						"s3:x-amz-acl": "bucket-owner-full-control"

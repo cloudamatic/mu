@@ -58,6 +58,18 @@ module MU
     # Stub base class; real implementations generated at runtime
     class VPC;
     end
+    # Stub base class; real implementations generated at runtime
+    class CacheCluster;
+    end
+    # Stub base class; real implementations generated at runtime
+    class Alarm;
+    end
+    # Stub base class; real implementations generated at runtime
+    class Notification;
+    end
+    # Stub base class; real implementations generated at runtime
+    class Log;
+    end
 
     # The types of cloud resources we can create, as class objects. Include
     # methods a class implementing this resource type must support to be
@@ -75,7 +87,7 @@ module MU
             :instance => generic_instance_methods
         },
         :Database => {
-            :has_multiples => false,
+            :has_multiples => true,
             :can_live_in_vpc => true,
             :cfg_name => "database",
             :cfg_plural => "databases",
@@ -92,7 +104,7 @@ module MU
             :cfg_plural => "dnszones",
             :interface => self.const_get("DNSZone"),
             :deps_wait_on_my_creation => true,
-            :waits_on_parent_completion => false,
+            :waits_on_parent_completion => true,
             :class => generic_class_methods + [:genericMuDNSEntry, :createRecordsFromConfig],
             :instance => generic_instance_methods
         },
@@ -151,6 +163,50 @@ module MU
             :class => generic_class_methods,
             :instance => generic_instance_methods + [:groom, :subnets, :getSubnet, :listSubnets, :findBastion]
         },
+        :CacheCluster => {
+            :has_multiples => true,
+            :can_live_in_vpc => true,
+            :cfg_name => "cache_cluster",
+            :cfg_plural => "cache_clusters",
+            :interface => self.const_get("CacheCluster"),
+            :deps_wait_on_my_creation => true,
+            :waits_on_parent_completion => false,
+            :class => generic_class_methods,
+            :instance => generic_instance_methods + [:groom]
+        },
+        :Alarm => {
+            :has_multiples => false,
+            :can_live_in_vpc => false,
+            :cfg_name => "alarm",
+            :cfg_plural => "alarms",
+            :interface => self.const_get("Alarm"),
+            :deps_wait_on_my_creation => false,
+            :waits_on_parent_completion => true,
+            :class => generic_class_methods,
+            :instance => generic_instance_methods + [:groom]
+        },
+        :Notification => {
+            :has_multiples => false,
+            :can_live_in_vpc => false,
+            :cfg_name => "notification",
+            :cfg_plural => "notifications",
+            :interface => self.const_get("Notification"),
+            :deps_wait_on_my_creation => false,
+            :waits_on_parent_completion => false,
+            :class => generic_class_methods,
+            :instance => generic_instance_methods + [:groom]
+        },
+        :Log => {
+            :has_multiples => false,
+            :can_live_in_vpc => false,
+            :cfg_name => "log",
+            :cfg_plural => "logs",
+            :interface => self.const_get("Log"),
+            :deps_wait_on_my_creation => false,
+            :waits_on_parent_completion => true,
+            :class => generic_class_methods,
+            :instance => generic_instance_methods + [:groom]
+        }
     }.freeze
 
 
