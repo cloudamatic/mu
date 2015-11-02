@@ -913,13 +913,14 @@ set_hostname()
     sed -i "/ $HOSTNAME/d" /etc/hosts
     sed -i "/^$MY_PRIVATE_IP/d" /etc/hosts
     echo "$MY_PRIVATE_IP $HOSTNAME.platform-mu $HOSTNAME MU-MASTER" >> /etc/hosts
-    if [ "$MY_PRIVATE_IP" != "$MY_PUBLIC_IP" -a "$MY_PUBLIC_IP" != "" ];then
+  fi
+  if [ "$MY_PRIVATE_IP" != "$MY_PUBLIC_IP" -a "$MY_PUBLIC_IP" != "" ];then
+    if ! grep "^$MY_PUBLIC_IP $HOSTNAME.platform-mu $HOSTNAME MU-MASTER" /etc/hosts > /dev/null;then
+      sed -i "/ $HOSTNAME/d" /etc/hosts
       sed -i "/^$MY_PUBLIC_IP/d" /etc/hosts
+      echo "$MY_PRIVATE_IP $HOSTNAME.platform-mu $HOSTNAME MU-MASTER" >> /etc/hosts
       echo "$MY_PUBLIC_IP $HOSTNAME.platform-mu $HOSTNAME MU-MASTER" >> /etc/hosts
     fi
-#   if [ "$CHEF_PUBLIC_IP" != "$MY_PUBLIC_IP" -a "$CHEF_PUBLIC_IP" != "" ];then
-#     echo "$CHEF_PUBLIC_IP $HOSTNAME MU-MASTER" >> /etc/hosts
-#   fi
   fi
   export HOSTNAME
 }
