@@ -50,6 +50,7 @@ def loadMuConfig
       "type" => "389 Directory Services",
       "base_dn" => "OU=Mu,DC=platform-mu",
       "user_ou" => "OU=Users,OU=Mu,DC=platform-mu",
+      "group_ou" => "OU=Groups,OU=Mu,DC=platform-mu",
       "bind_creds" => {
         "vault" => "mu_ldap",
         "item" => "mu_bind_acct",

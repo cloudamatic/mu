@@ -1162,14 +1162,6 @@ install_chef()
   punch_tcp_hole 80
   punch_tcp_hole 443
   punch_tcp_hole 7443
-  if ! grep '^mu-users:' /etc/group > /dev/null ;then
-    /usr/sbin/groupadd mu-users
-  fi
-  for u in `ls $MU_DATADIR/users/`;do
-    if [ "$u" != "mu" ];then
-      /usr/sbin/usermod -a -G mu-users $u
-    fi
-  done
 
   # Chef Server 12 inexplicably ships with old, broken versions of the
   # client. Install something sane.

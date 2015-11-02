@@ -146,7 +146,6 @@ module MU
       MU::Master::Chef.deleteUser(user)
       MU::Master::LDAP.deleteUser(user)
       FileUtils.rm_rf(deletia)
-      %x{/usr/sbin/groupdel "#{user}.mu-user"}
     end
 
     @scratchpad_semaphore = Mutex.new
@@ -249,7 +248,8 @@ module MU
         }
         return gid
       rescue ArgumentError
-        %x{/usr/sbin/groupadd "#{user}.mu-user"}
+#        %x{/usr/sbin/groupadd "#{user}.mu-user"}
+        sleep 5
         retry
       end
     end

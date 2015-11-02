@@ -38,6 +38,7 @@ if $MU_CFG.has_key?('ldap')
     service "messagebus" do
       action [:enable, :start]
     end
+    package "nscd"
     service "nscd" do
       action [:disable, :stop]
     end
@@ -47,7 +48,9 @@ if $MU_CFG.has_key?('ldap')
       start_command "sh -x /etc/init.d/oddjobd start" # seems to actually work
       action [:enable, :start]
     end
-    execute "/usr/sbin/authconfig --disablenis --enablecache --disablewinbind --disablewinbindauth --enablemkhomedir --disablekrb5 --enablesssd --enablesssdauth --enablelocauthorize --disableforcelegacy --disableldap --disableldapauth --updateall"
+    execute "/usr/sbin/authconfig --disablenis --disablecache --disablewinbind --disablewinbindauth --enablemkhomedir --disablekrb5 --enablesssd --enablesssdauth --enablelocauthorize --disableforcelegacy --disableldap --disableldapauth --updateall" do
+      notifies :restart, "service[oddjobd]", :immediately
+    end
     service "sssd" do
       action :nothing
     end

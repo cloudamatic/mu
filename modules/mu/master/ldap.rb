@@ -71,10 +71,11 @@ module MU
 
       @ldap_conn = nil
       @gid_attr = "cn"
-      @member_attr = "uniqueMember"
+      @member_attr = "memberUid"
       @uid_attr = "uid"
-      @group_class = "groupofuniquenames"
+      @group_class = "posixGroup"
       @uid_range_start = 10000
+      @gid_range_start = 10000
       # Create and return a connection to our directory service. If we've
       # already opened one, return that.
       # @return [Net::LDAP]
@@ -100,6 +101,73 @@ module MU
           }
         )
         @ldap_conn
+      end
+
+      # Find a user ID not currently in use from the local system's perspective
+      # XXX this is vulnerable to a race condition, and may not account for
+      # things in the directory
+      def self.allocateUID(user: nil)
+        MU::MommaCat.lock("uid_generator", false, true)
+        used_uids = []
+        Etc.passwd{ |u|
+          if !user.nil? and u.name == user and mu_acct
+            raise "Username #{user} already exists as a system user, cannot allocate in directory"
+          end
+          used_uids << u.uid
+        }
+        for x in @uid_range_start..65535 do
+          if !used_uids.include?(x)
+            MU::MommaCat.unlock("uid_generator", true)
+            return x.to_s
+          end
+        end
+        MU::MommaCat.unlock("uid_generator", true)
+        return nil
+      end
+
+      # Find a group ID not currently in use from the local system's perspective
+      # XXX this is vulnerable to a race condition, and may not account for
+      # things in the directory
+      def self.allocateGID(group: nil)
+        MU::MommaCat.lock("gid_generator", false, true)
+        used_gids = []
+        Etc.group{ |g|
+          if !group.nil? and g.name == group
+            raise "Group #{group} already exists as a local system group, cannot allocate in directory"
+          end
+          used_gids << g.gid
+        }
+        for x in @gid_range_start..65535 do
+          if !used_gids.include?(x)
+            MU::MommaCat.unlock("gid_generator", true)
+            return x.to_s
+          end
+        end
+        MU::MommaCat.unlock("gid_generator", true)
+        return nil
+      end
+
+      # Create a directory group. Valid for 389 DS only, will fail on AD.
+      def self.createGroup(group, full_dn: nil)
+        dn = "CN=#{group},"+$MU_CFG["ldap"]["group_ou"]
+        dn = full_dn if !full_dn.nil?
+        gid = allocateGID
+        attr = {
+          :cn => group,
+          :description => "#{group} Group",
+          :gidNumber => gid,
+          :objectclass => ["top", "posixGroup"]
+        }
+        if !@ldap_conn.add(
+              :dn => dn,
+              :attributes => attr
+            ) and @ldap_conn.get_operation_result.code != 68
+          MU.log "Error creating #{dn}: "+getLDAPErr, MU::ERR, details: attr
+          return false
+        elsif @ldap_conn.get_operation_result.code != 68
+          MU.log "Created group #{dn}", MU::NOTICE
+        end
+        return gid
       end
 
       # Intended to run when Mu's local LDAP server has been created. Use the
@@ -156,21 +224,7 @@ module MU
                 MU.log "Created OU #{dn}", MU::NOTICE
               end
             elsif chunk.match(/^CN=(.*)/i)
-              group = $1
-              attr = {
-                :cn => group,
-                :description => "#{group} Group",
-                :objectclass => ["top", "groupofuniquenames"]
-              }
-              if !@ldap_conn.add(
-                    :dn => dn,
-                    :attributes => attr
-                  ) and @ldap_conn.get_operation_result.code != 68
-                MU.log "Error creating #{dn}: "+getLDAPErr, MU::ERR, details: attr
-                return false
-              elsif @ldap_conn.get_operation_result.code != 68
-                MU.log "Created group #{dn}", MU::NOTICE
-              end
+              createGroup($1, full_dn: dn)
             end
           }
         }
@@ -211,6 +265,7 @@ module MU
           targets = []
           if creds == "bind_creds"
             targets << $MU_CFG["ldap"]["user_ou"]
+            targets << $MU_CFG["ldap"]["group_ou"]
             targets << $MU_CFG["ldap"]["user_group_dn"]
             targets << $MU_CFG["ldap"]["admin_group_dn"]
           elsif creds == "join_creds"
@@ -264,16 +319,15 @@ module MU
 
         conn = getLDAPConnection
         dn = "CN=Mu Testuser #{Process.pid},#{$MU_CFG["ldap"]["user_ou"]}"
+        uid = "mu.testuser.#{Process.pid}"
         attr = {
           :cn => "Mu Testuser #{Process.pid}",
-          @uid_attr.to_sym => "mu.testuser.#{Process.pid}"
+          @uid_attr.to_sym => uid
         }
-        group_attr = :uniqueMember
         if $MU_CFG["ldap"]["type"] == "Active Directory"
           attr[:objectclass] = ["user"]
-          attr[:userPrincipalName] = "mu.testuser.#{Process.pid}@#{$MU_CFG["ldap"]["domain_name"]}"
+          attr[:userPrincipalName] = "#{uid}@#{$MU_CFG["ldap"]["domain_name"]}"
           attr[:pwdLastSet] = "-1"
-          group_attr = :member
         elsif $MU_CFG["ldap"]["type"] == "389 Directory Services"
           attr[:objectclass] = ["top", "person", "organizationalPerson", "inetorgperson"]
           attr[:userPassword] = Password.pronounceable(12..14)
@@ -300,8 +354,8 @@ module MU
 
         # Can we add them to the Mu membership group(s)
         [$MU_CFG["ldap"]["user_group_dn"], $MU_CFG["ldap"]["admin_group_dn"]].each { |group|
-          if !conn.modify(:dn => group, :operations => [[:add, group_attr, dn]])
-            MU.log "Couldn't add write-test user #{dn} to group #{group}, operating in read-only LDAP mode", MU::NOTICE, details: getLDAPErr
+          if !conn.modify(:dn => group, :operations => [[:add, @member_attr, uid]])
+            MU.log "Couldn't add write-test user #{dn} to #{@member_attr} in group #{group}, operating in read-only LDAP mode", MU::NOTICE, details: getLDAPErr
             @can_write = false
           end
         }
@@ -472,19 +526,18 @@ module MU
         ["admin_group_name", "user_group_name"].each { |group|
           groupname_filter = Net::LDAP::Filter.eq(@gid_attr, $MU_CFG["ldap"][group])
           group_filter = Net::LDAP::Filter.eq("objectClass", @group_class)
-          member_cns = []
+          member_uids = []
+
           conn.search(
             :filter => Net::LDAP::Filter.join(groupname_filter, group_filter),
             :attributes => [@member_attr]
           ) do |item|
-            member_cns = item[@member_attr].dup
+            member_uids = item[@member_attr].dup
           end
-          member_cns.each { |member|
-            cn = member.dup.sub(/^CN=([^\,]+?),.*/i, "\\1")
-            searchbase = member.dup.sub(/^CN=[^\,]+?,(.*)/i, "\\1")
+          member_uids.each { |uid|
             conn.search(
-              :filter => Net::LDAP::Filter.eq("cn",cn),
-              :base => searchbase,
+              :filter => Net::LDAP::Filter.eq(@uid_attr, uid),
+              :base => $MU_CFG["ldap"]["user_ou"],
               :attributes => [@uid_attr, "displayName", "mail"]
             ) do |acct|
               next if users.has_key?(acct[@uid_attr].first)
@@ -519,23 +572,29 @@ module MU
             dn = acct.dn
             break
           end
-          return false if dn.nil?
+
           # Our default LDAP server doesn't cascade user deletes through groups,
           # so help it out.
           if $MU_CFG["ldap"]["type"] == "389 Directory Services"
             conn.search(
-              :filter => Net::LDAP::Filter.eq("objectclass", "groupofuniquenames"),
+              :filter => Net::LDAP::Filter.eq("objectclass", @group_class),
               :base => $MU_CFG["ldap"]["base_dn"],
-              :attributes => ["cn", "uniqueMember"]
+              :attributes => ["cn", @member_attr]
             ) do |group|
-              group.uniquemember.each { |member|
-                if member.downcase == dn.downcase
+              group[@member_attr].each { |member|
+                next if member.nil?
+                if member.downcase == user or (!dn.nil? and member.downcase == dn.downcase)
                   manageGroup(group.cn.first, remove_users: [user])
                 end
               }
+              if group.cn.first.downcase == "#{user}.mu-user" and !conn.delete(:dn => group.dn)
+                MU.log "Couldn't delete user's default group #{group.dn}", MU::WARN, details: getLDAPErr
+              else
+                MU.log "Removed user's default group #{user}.mu-user", MU::NOTICE
+              end
             end
           end
-          if !conn.delete(:dn => dn)
+          if !dn.nil? and !conn.delete(:dn => dn)
             MU.log "Failed to delete #{user} from LDAP: #{getLDAPErr}", MU::WARN, details: dn
             return false
           end
@@ -562,14 +621,13 @@ module MU
         end
         add_users = findUsers(add_users, exact: true) if add_users.size > 0
         remove_users = findUsers(remove_users, exact: true) if remove_users.size > 0
-        group_attr = :uniqueMember
-        group_attr = :member if $MU_CFG["ldap"]["type"] == "Active Directory"
 
         conn = getLDAPConnection
         if add_users.size > 0
           add_users.each_pair { |user, data|
-            if !conn.modify(:dn => group_dn, :operations => [[:add, group_attr, data["dn"]]])
-              MU.log "Couldn't add user #{user} (#{data['dn']}) to group #{group} (#{group_dn}).", MU::WARN, details: getLDAPErr
+#            if !conn.modify(:dn => group_dn, :operations => [[:add, @member_attr, data["dn"]]])
+            if !conn.modify(:dn => group_dn, :operations => [[:add, @member_attr, user]]) and @ldap_conn.get_operation_result.code != 20
+              MU.log "Couldn't add user #{user} (#{data['dn']}) to #{@member_attr} of group #{group} (#{group_dn}).", MU::WARN, details: getLDAPErr
             else
               MU.log "Added #{user} to group #{group}", MU::NOTICE
             end
@@ -577,8 +635,8 @@ module MU
         end
         if remove_users.size > 0
           remove_users.each_pair { |user, data|
-            if !conn.modify(:dn => group_dn, :operations => [[:delete, group_attr, data["dn"]]])
-              MU.log "Couldn't remove user #{user} (#{data['dn']}) from group #{group} (#{group_dn}).", MU::WARN, details: getLDAPErr
+            if !conn.modify(:dn => group_dn, :operations => [[:delete, @member_attr, user]])
+              MU.log "Couldn't remove user #{user} from group #{group} (#{group_dn}) via #{@member_attr}.", MU::WARN, details: getLDAPErr
             else
               MU.log "Removed #{user} from group #{group}", MU::NOTICE
             end
@@ -637,25 +695,20 @@ module MU
               :mail => email,
               :userPassword => password,
             }
+            gid = nil
+            groups = []
             if $MU_CFG["ldap"]["type"] == "389 Directory Services"
               attr[:objectclass] = ["top", "person", "organizationalPerson", "inetorgperson"]
               attr[:uid] = user
-              # Nothing stops external programs from stealing a uid from under
-              # us. Ugh. A mapping might be n
-              MU::MommaCat.lock("uid_generator", false, true)
-              used_uids = []
-              Etc.passwd{ |u|
-                if u.name == user and mu_acct
-                  raise "Username #{user} already exists as a system user, cannot allocate in directory"
-                end
-                used_uids << u.uid
-              }
-              for x in @uid_range_start..65535 do
-                if !used_uids.include?(x)
-                  attr[:employeeNumber] = x.to_s
-                  break
-                end
+              attr[:employeeNumber] = allocateUID
+              if mu_acct
+                gid = createGroup("#{user}.mu-user")
+                groups << "#{user}.mu-user"
+              else
+                gid = createGroup(user)
+                groups << user
               end
+              attr[:departmentNumber] = gid
             elsif $MU_CFG["ldap"]["type"] == "Active Directory"
               attr[:objectclass] = ["user"]
               attr[:samaccountname] = user
@@ -667,13 +720,10 @@ module MU
               end
             end
             if !conn.add(:dn => user_dn, :attributes => attr)
-              MU::MommaCat.unlock("uid_generator", true)
               raise MU::MuError, "Failed to create user #{user} (#{getLDAPErr})"
             end
-            MU::MommaCat.unlock("uid_generator", true)
             attr[:userPassword] = "********"
             MU.log "Created new LDAP user #{user}", details: attr
-            groups = []
             if mu_acct
               groups << $MU_CFG["ldap"]["user_group_name"]
               groups << $MU_CFG["ldap"]["admin_group_name"] if admin
@@ -682,15 +732,13 @@ module MU
               manageGroup(group, add_users: [user])
             }
 
-            # We now require the system to know that the user exists. Sometimes
-            # winbind takes a minute to catch on.
             wait = 5
             begin
-              %x{/usr/bin/getent passwd}
+              %x{/usr/bin/getent passwd ; /usr/bin/getent group} # winbind is slow sometimes
               Etc.getpwnam(user)
             rescue ArgumentError
               if wait >= 30
-                MU.log "User #{user} has been created in LDAP, but local system can't see it. Are PAM/LDAP/Winbind configured correctly?", MU::ERR
+                MU.log "User #{user} has been created in LDAP, but local system can't see it. Are PAM/LDAP configured correctly?", MU::ERR
                 return false
               end
               MU.log "User #{user} has been created in LDAP, but not yet visible to local system, waiting #{wait}s and checking again.", MU::WARN
@@ -699,11 +747,7 @@ module MU
               retry
             end
             %x{/sbin/restorecon -r /home} # SELinux stupidity that oddjob misses
-            gid = MU::Master.setLocalDataPerms(user)
-            if $MU_CFG["ldap"]["type"] == "389 Directory Services"
-              # Make sure we have a sensible default gid
-              conn.replace_attribute(user_dn, :departmentNumber, gid.to_s)
-            end
+            MU::Master.setLocalDataPerms(user)
           else
             MU.log "We are in read-only LDAP mode. You must first create #{user} in your directory and add it to #{$MU_CFG["ldap"]["user_group_dn"]}. If the user is intended to be an admin, also add it to #{$MU_CFG["ldap"]["admin_group_dn"]}.", MU::WARN
             return true
@@ -751,12 +795,16 @@ module MU
         return ok if !mu_acct # everything below is Mu-specific
         cur_users = MU::Master.listUsers
 
-        ["realname", "email", "monitoring_email"].each { |field|
-          next if !cur_users[user].has_key?(field)
-          File.open($MU_CFG['datadir']+"/users/#{user}/#{field}", File::CREAT|File::RDWR, 0640) { |f|
-            f.puts cur_users[user][field]
+        if cur_users.has_key?(user)
+          ["realname", "email", "monitoring_email"].each { |field|
+            next if !cur_users[user].has_key?(field)
+            File.open($MU_CFG['datadir']+"/users/#{user}/#{field}", File::CREAT|File::RDWR, 0640) { |f|
+              f.puts cur_users[user][field]
+            }
           }
-        }
+        else
+          MU.log "Load of current user list didn't include #{user}, even though we just created them!", MU::WARN
+        end
         MU::Master.setLocalDataPerms(user)
         ok
       end
