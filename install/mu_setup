@@ -1329,7 +1329,9 @@ EOF
     /bin/cp -f /etc/chef/client.rb.tmp.$$ /root/.chef/client.rb
   fi
   /bin/rm -f /etc/chef/client.rb.tmp.$$
-  service httpd start
+  /sbin/service httpd start 2>&1 > /dev/null
+  knife vault create scratchpad dummy '{ "merp":"meep" }'
+  knife vault delete -y scratchpad dummy
 }
 
 
