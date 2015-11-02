@@ -1000,12 +1000,12 @@ module MU
       dnszones.each { |zone|
         zone["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("DNSZone")
         zone['region'] = config['region'] if zone['region'].nil?
-        ext_zone = MU::Cloud::DNSZone.find(cloud_id: zone['name']).values.first
+        # ext_zone = MU::Cloud::DNSZone.find(cloud_id: zone['name']).values.first
 
-        if !ext_zone.nil?
-          MU.log "DNS zone #{zone['name']} already exists", MU::ERR
-          ok = false
-        end
+        # if !ext_zone.nil?
+          # MU.log "DNS zone #{zone['name']} already exists", MU::ERR
+          # ok = false
+        # end
         if !zone["records"].nil?
           zone["records"].each { |record|
             route_types = 0
@@ -3096,6 +3096,20 @@ module MU
                       "type" => "string",
                       "description" => "If using a type of R53ALIAS, this is the hosted zone ID of the target. Defaults to the zone to which this record is being added."
                   },
+                  "deploy_id" => {
+                    "type" => "string",
+                    "description" => "Look for a resource in another Mu deployment with this id. Requires mu_type",
+                  },
+                  "mu_type" => {
+                    "type" => "string",
+                    "description" => "The Mu resource type to search the deployment for.",
+                      "enum" => ["loadbalancer", "server", "database", "cache_cluster"]
+                  },
+                  "target_type" => {
+                      "description" => "If the target is a public or a private resource. This only applies to servers/server_pools when using automatic DNS registration. If set to public but the target only has a private address, the private address will be used",
+                      "type" => "string",
+                      "enum" => ["public", "private"]
+                  },
                   "weight" => {
                       "type" => "integer",
                       "description" => "Set the proportion of traffic directed to this target, based on the relative weight of other records with the same DNS name and type."
@@ -3117,7 +3131,7 @@ module MU
                   },
                   "target" => {
                       "type" => "string",
-                      "description" => "The value of this record. Must be valid for the 'type' field, e.g. A records must point to an IP address.",
+                      "description" => "The value of this record. Must be valid for the 'type' field, e.g. A records must point to an IP address. If creating a record for an existing deployment, specify the mu_name of the resource, you must also specifiy deploy_id and mu_type",
                   },
                   "name" => {
                       "description" => "Name of the record to create. If not specified, will default to the Mu resource name.",
@@ -4101,6 +4115,7 @@ module MU
                 "description" => "If this zone is private, make sure it is resolvable from all VPCs in this account. Will supercede the list in {MU::Config::BasketofKittens::dnszones.vpcs} for VPCs in this account."
             },
             "records" => dns_records_primitive(),
+            "dependencies" => @dependencies_primitive,
             "vpcs" => {
                 "type" => "array",
                 "items" => vpc_reference_primitive(NO_SUBNETS, NO_NAT_OPTS)
