@@ -187,6 +187,10 @@ if ! bundle install > /dev/null;then
 fi
 generate_docs
 
+# Drop old local groups in favor of LDAP's versions
+/usr/sbin/groupdel mu-users > /dev/null 2>&1
+/usr/sbin/groupdel mu-admins > /dev/null 2>&1
+
 set +e
 install_ruby
 patch_knife_windows

@@ -184,6 +184,12 @@ include_recipe "apache2::mod_authnz_ldap"
 apache_site "default" do
   enable false
 end
+execute "Allow net connect to local for apache" do
+  command "/usr/sbin/setsebool -P httpd_can_network_connect on"
+  not_if "/usr/sbin/getsebool httpd_can_network_connect | grep -cim1 ^.*on$"
+  notifies :reload, "service[apache2]", :delayed
+end
+
 web_app "mu_docs" do
   server_name svrname
   server_aliases [node.fqdn, node.hostname, node['local_hostname'], node['local_ipv4'], node['public_hostname'], node['public_ipv4']]
