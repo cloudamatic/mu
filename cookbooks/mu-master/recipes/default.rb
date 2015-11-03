@@ -54,6 +54,7 @@ if $MU_CFG.has_key?('ldap')
     end
     service "sssd" do
       action :nothing
+      notifies :restart, "service[sshd]", :immediately
     end
     template "/etc/sssd/sssd.conf" do
       source "sssd.conf.erb"
@@ -67,6 +68,7 @@ if $MU_CFG.has_key?('ldap')
     end
     service "sssd" do
       action [:enable, :start]
+      notifies :restart, "service[sshd]", :immediately
     end
 
 #    cookbook_file "/etc/pam.d/sshd" do
