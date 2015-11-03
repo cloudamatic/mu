@@ -141,9 +141,11 @@ module MU
         conn = getLDAPConnection
         conn.search(
           :filter => Net::LDAP::Filter.eq("objectClass", @group_class),
+          :base => $MU_CFG['ldap']['base_dn'],
           :attributes => [@gidnum_attr]
         ) { |item|
-          used_gids = used_gids + item[@gidnum_attr]
+          puts "#{item[@gidnum_attr]} from LDAP (#{item.dn})"
+          used_gids = used_gids + item[@gidnum_attr].map { |x| x.to_i }
         }
         for x in @gid_range_start..65535 do
           if !used_gids.include?(x)
@@ -173,7 +175,7 @@ module MU
           MU.log "Error creating #{dn}: "+getLDAPErr, MU::ERR, details: attr
           return false
         elsif @ldap_conn.get_operation_result.code != 68
-          MU.log "Created group #{dn}", MU::NOTICE
+          MU.log "Created group #{dn} with gid #{gid}", MU::NOTICE
         end
         return gid
       end
@@ -206,6 +208,7 @@ module MU
         [$MU_CFG["ldap"]["base_dn"],
           "OU=Mu-System,#{$MU_CFG["ldap"]["base_dn"]}",
           $MU_CFG["ldap"]["user_ou"],
+          $MU_CFG["ldap"]["group_ou"],
           $MU_CFG["ldap"]["user_group_dn"],
           $MU_CFG["ldap"]["admin_group_dn"]
         ].each { |full_dn|
@@ -232,6 +235,7 @@ module MU
                 MU.log "Created OU #{dn}", MU::NOTICE
               end
             elsif chunk.match(/^CN=(.*)/i)
+puts "******** MAKING GROUP #{$1} ********"
               createGroup($1, full_dn: dn)
             end
           }
