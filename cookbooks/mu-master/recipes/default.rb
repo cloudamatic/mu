@@ -50,6 +50,7 @@ if $MU_CFG.has_key?('ldap')
     end
     execute "/usr/sbin/authconfig --disablenis --disablecache --disablewinbind --disablewinbindauth --enablemkhomedir --disablekrb5 --enablesssd --enablesssdauth --enablelocauthorize --disableforcelegacy --disableldap --disableldapauth --updateall" do
       notifies :restart, "service[oddjobd]", :immediately
+      notifies :reload, "service[sshd]", :delayed
     end
     service "sssd" do
       action :nothing
