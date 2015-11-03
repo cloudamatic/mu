@@ -1,7 +1,8 @@
 [domain/platform-mu]
 debug_level = 0x03e0
 autofs_provider = ldap
-cache_credentials = True
+cache_credentials = False
+enumerate = True
 ldap_search_base = <%= @base_dn %>
 ldap_user_search_base = <%= @base_dn %>
 ldap_group_search_base = <%= @base_dn %>

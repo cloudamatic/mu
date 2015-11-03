@@ -71,6 +71,7 @@ module MU
 
       @ldap_conn = nil
       @gid_attr = "cn"
+      @gidnum_attr = "gidNumber"
       @member_attr = "memberUid"
       @uid_attr = "uid"
       @group_class = "posixGroup"
@@ -136,6 +137,13 @@ module MU
             raise "Group #{group} already exists as a local system group, cannot allocate in directory"
           end
           used_gids << g.gid
+        }
+        conn = getLDAPConnection
+        conn.search(
+          :filter => Net::LDAP::Filter.eq("objectClass", @group_class),
+          :attributes => [@gidnum_attr]
+        ) { |item|
+          used_gids = used_gids + item[@gidnum_attr]
         }
         for x in @gid_range_start..65535 do
           if !used_gids.include?(x)

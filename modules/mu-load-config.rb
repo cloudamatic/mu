@@ -65,9 +65,9 @@ def loadMuConfig
       },
       "domain_name" => "platform-mu",
       "domain_netbios_name" => "mu",
-      "user_group_dn" => "CN=Mu-Users,OU=Groups,OU=Mu,DC=platform-mu",
+      "user_group_dn" => "CN=mu-users,OU=Groups,OU=Mu,DC=platform-mu",
       "user_group_name" => "mu-users",
-      "admin_group_dn" => "CN=Mu-Admins,OU=Groups,OU=Mu,DC=platform-mu",
+      "admin_group_dn" => "CN=mu-admins,OU=Groups,OU=Mu,DC=platform-mu",
       "admin_group_name" => "mu-admins",
       "dcs" => ["localhost"]
     }
