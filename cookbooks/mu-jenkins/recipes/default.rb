@@ -19,6 +19,10 @@ case node.platform
     %w{git bzip2}.each { |pkg|
       package pkg
     }
+    execute "pin standard Credentials plugin" do
+      command "touch #{node.jenkins.master.home}/plugins/credentials.jpi.pinned ; curl -o #{node.jenkins.master.home}/credentials.jpi http://updates.jenkins-ci.org/latest/credentials.hpi"
+      not_if "test -f #{node.jenkins.master.home}/plugins/credentials.jpi.pinned"
+    end
 
     # If security was enabled in a previous chef run then set the private key in the run_state
     # now as required by the Jenkins cookbook
@@ -26,8 +30,14 @@ case node.platform
       block do
         Chef::Log.info("Setting the previously enabled jenkins private key")
         node.run_state[:jenkins_private_key] = admin_vault['private_key'].strip
+#        node.run_state[:jenkins_username] = "john.stange"
+#        node.run_state[:jenkins_password] = "JMz66gkq,CxFNz"
       end
     end
+
+    chef_gem "simple-password-gen"
+    # The Jenkins service user that this cookbook uses MUST exist in our directory
+    MU::Master::LDAP.manageUser(admin_vault['username'], name: admin_vault['username'], password: MU.generateWindowsPassword, admin: false, email: "mu-developers@googlegroups.com")
 
     # Add the admin user only if it has not been added already then notify the resource
     # to configure the permissions for the admin user.  Note that we check for existence of jenkins_auth_set,
@@ -37,8 +47,19 @@ case node.platform
       email "mu-developers@googlegroups.com"
       public_keys [admin_vault['public_key'].strip]
       not_if { node.application_attributes.attribute?('jenkins_auth_set') }
-      #notifies :execute, 'jenkins_script[configure_jenkins_auth]', :immediately
-      #For some reason notifies not working on jenkins_script so using guard
+    end
+
+
+    node.jenkins_plugins.each { |plugin|
+      jenkins_plugin plugin do
+        notifies :restart, 'service[jenkins]', :delayed
+        not_if { ::File.exists?("#{node.jenkins.master.home}/plugins/#{plugin}.jpi") }
+      end
+    }
+
+    jenkins_private_key_credentials admin_vault['username'] do
+      description admin_vault['username']
+      private_key admin_vault['private_key'].strip
     end
 
     # Configure the permissions so that login is required and the admin user is an administrator
@@ -46,17 +67,30 @@ case node.platform
     # if users exist) so we notify the `set the security_enabled flag` resource to set this up.
     # Also note that since Jenkins 1.556 the private key cannot be used until after the admin user
     # has been added to the security realm
-
+    uidsearch = "uid={0}"
+    uidsearch = "sAMAccountName={0}" if $MU_CFG['ldap']['type'] == "Active Directory"
+    bind_creds = chef_vault_item($MU_CFG['ldap']['bind_creds']['vault'], $MU_CFG['ldap']['bind_creds']['item'])
     jenkins_script 'configure_jenkins_auth' do
       command <<-EOH.gsub(/^ {4}/, '')
       import jenkins.model.*
       import hudson.security.*
+      import org.jenkinsci.plugins.*
       def instance = Jenkins.getInstance()
       def hudsonRealm = new HudsonPrivateSecurityRealm(false)
-      instance.setSecurityRealm(hudsonRealm)
+      String server = 'ldap://#{$MU_CFG['ldap']['dcs'].first}'
+      String rootDN = '#{$MU_CFG['ldap']['base_dn']}'
+      String userSearchBase = '#{$MU_CFG['ldap']['user_ou'].sub(/,.*/, "")}'
+      String userSearch = '#{uidsearch}'
+      String groupSearchBase = '#{$MU_CFG['ldap']['group_ou'].sub(/,.*/, "")}'
+      String managerDN = '#{bind_creds[$MU_CFG['ldap']['bind_creds']['username_field']]}'
+      String managerPassword = '#{bind_creds[$MU_CFG['ldap']['bind_creds']['password_field']]}'
+      SecurityRealm ldapRealm = new LDAPSecurityRealm(server, rootDN, userSearchBase, userSearch, groupSearchBase, managerDN, managerPassword, false)
+      instance.setSecurityRealm(ldapRealm)
       def strategy = new ProjectMatrixAuthorizationStrategy()
-      strategy.add(Jenkins.ADMINISTER,  "#{admin_vault['username']}")
+      strategy.add(Jenkins.ADMINISTER, "#{$MU_CFG['ldap']['admin_group_name']}")
+      strategy.add(Jenkins.ADMINISTER, "#{admin_vault['username']}")
       strategy.add(Jenkins.ADMINISTER, "mu_user")
+      strategy.add(Jenkins.ADMINISTER, "master_user")
       strategy.add(Jenkins.READ, "authenticated")
       instance.setAuthorizationStrategy(strategy)
       instance.save()
@@ -88,11 +122,6 @@ case node.platform
       end
     }
 
-    node.jenkins_plugins.each { |plugin|
-      jenkins_plugin plugin do
-        notifies :restart, 'service[jenkins]', :delayed
-      end
-    }
 
 # Specific version plugins that don't come as default
       jenkins_plugin 'matrix-auth' do
@@ -105,16 +134,6 @@ case node.platform
         notifies :restart, 'service[jenkins]', :delayed
       end
 
-    # Setup apache or else open direct ports
-#    if node.attribute?('jenkins_port_external')
-#          include_recipe "mu-jenkins::jenkins_apache"
-#    else
-#      %w{node.jenkins_ports_direct}.each { |port|
-#        execute "iptables -I INPUT -p tcp --dport #{port} -j ACCEPT; service iptables save" do
-#          not_if "iptables -nL | egrep '^ACCEPT.*dpt:#{port}($| )'"
-#        end
-#      }
-#    end
   else
     Chef::Log.info("Unsupported platform #{node.platform}")
 end

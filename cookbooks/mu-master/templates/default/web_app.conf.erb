@@ -26,8 +26,8 @@
   ProxyPassReverse /scratchpad https://localhost:2260/scratchpad
 
   # Jenkins CI web interface
-  ProxyPass /jenkins http://localhost:8080/
-  ProxyPassReverse /jenkins http://localhost:8080/
+  ProxyPass /jenkins http://localhost:8080/jenkins
+  ProxyPassReverse /jenkins http://localhost:8080/jenkins
 
   # Nagios web UI
   ProxyPass /nagios/ https://localhost:8443/nagios/

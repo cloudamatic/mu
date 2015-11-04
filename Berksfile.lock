@@ -170,6 +170,7 @@ GRAPH
     chef-vault (>= 0.0.0)
     java (>= 0.0.0)
     jenkins (>= 0.0.0)
+    mu-master (>= 0.0.0)
     mu-utility (>= 0.0.0)
   mu-master (0.8.1)
     bind (>= 0.0.0)

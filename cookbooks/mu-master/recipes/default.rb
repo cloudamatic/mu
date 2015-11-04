@@ -24,8 +24,8 @@ service "sshd" do
   action :nothing
 end
 
+include_recipe 'chef-vault'
 if $MU_CFG.has_key?('ldap')
-  include_recipe 'chef-vault'
   if $MU_CFG['ldap']['type'] == "389 Directory Services" and Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG['hostname']}")
     package "sssd"
     package "sssd-ldap"
