@@ -247,8 +247,12 @@ module MU
           end
         }
         return gid
-      rescue ArgumentError
-#        %x{/usr/sbin/groupadd "#{user}.mu-user"}
+      rescue ArgumentError => e
+        if $MU_CFG["ldap"]["type"] == "Active Directory"
+          %x{/usr/sbin/groupadd "#{user}.mu-user"}
+        else
+          MU.log "Got #{e.message} trying to set permissions on local files, will retry", MU::WARN
+        end
         sleep 5
         retry
       end
