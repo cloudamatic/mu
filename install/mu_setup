@@ -1654,7 +1654,6 @@ if [ "$library" != "1" ];then
     # set up executables again to enable Chef aliases
     install_mu_executables
     enable_audit_logs
-    generate_docs
     umask 0077
     start_momma_cat
     setup_localhost_chef_client
@@ -1667,6 +1666,7 @@ if [ "$library" != "1" ];then
     knife node run_list add MU-MASTER "role[mu-master-jenkins]"
     chef-client -l info
   fi
+  generate_docs
 
   # Chef's reloads of sshd don't seem to cause it to re-read its config for
   # some reason. This means regular user logins don't work on new installs
