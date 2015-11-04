@@ -1502,12 +1502,12 @@ preconfigure_jenkins_artifacts()
         # skip user and vault creation if we're being called from mu-self-update and have already
         # done it
         #
-        if [ "`grep ^jenkins: /etc/passwd`" == "" -o "`pgrep -u jenkins -f /usr/lib/jenkins`" == "" ];then
+        if ! (knife vault show jenkins > /dev/null 2>&1) ;then
           # Create Jenkins Vault with admin and user items
           $MU_LIBDIR/install/jenkinskeys.rb
           knife vault create jenkins users "{\"mu_user_password\":\"$JENKINS_ADMIN_PW\"}" --mode client -F json -u mu --search name:MU-MASTER
           # Create the Jenkins user
-          $MU_LIBDIR/bin/mu-user-manage -c -u jenkins -e $JENKINS_ADMIN_EMAIL -p $JENKINS_ADMIN_PW
+          $MU_LIBDIR/bin/mu-user-manage jenkins -e $JENKINS_ADMIN_EMAIL -p $JENKINS_ADMIN_PW -n "Jenkins Service" -s --no-notify --no-scratchpad
         fi
   fi
 }

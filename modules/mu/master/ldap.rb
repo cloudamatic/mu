@@ -144,7 +144,6 @@ module MU
           :base => $MU_CFG['ldap']['base_dn'],
           :attributes => [@gidnum_attr]
         ) { |item|
-          puts "#{item[@gidnum_attr]} from LDAP (#{item.dn})"
           used_gids = used_gids + item[@gidnum_attr].map { |x| x.to_i }
         }
         for x in @gid_range_start..65535 do
@@ -235,7 +234,6 @@ module MU
                 MU.log "Created OU #{dn}", MU::NOTICE
               end
             elsif chunk.match(/^CN=(.*)/i)
-puts "******** MAKING GROUP #{$1} ********"
               createGroup($1, full_dn: dn)
             end
           }
