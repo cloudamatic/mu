@@ -1091,25 +1091,6 @@ module MU
 
           MU::Cloud::AWS::Server.tagVolumes(@cloud_id)
 
-          # If we depend on database instances, make sure those database
-          # instances' security groups will let us in.
-##### Bad form here. We REALLY shouldn't be setting any access rules between clients/nodes. This should only be done via the BoK!
-          if @config["dependencies"] != nil then
-            @config["dependencies"].each { |dependent_on|
-              if dependent_on['type'] != nil and dependent_on['type'] == "database" then
-                database = @deploy.findLitterMate(type: dependent_on['type'], name: dependent_on["name"])
-                if database.nil?
-                  raise MuError, "Couldn't find dependent database #{dependent_on['name']} for server #{@config["name"]}"
-                end
-                private_ip = @config['private_ip_address']
-                if private_ip != nil and database.cloud_id != nil then
-                  MU.log "Adding #{private_ip}/32 to database security groups for #{database.cloud_id}"
-                  database.allowHost("#{private_ip}/32")
-                end
-              end
-            }
-          end
-
           # If we have a loadbalancer configured, attach us to it
           if !@config['loadbalancers'].nil?
             if @loadbalancers.nil?

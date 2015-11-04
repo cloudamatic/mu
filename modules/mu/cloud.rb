@@ -104,7 +104,7 @@ module MU
             :cfg_plural => "dnszones",
             :interface => self.const_get("DNSZone"),
             :deps_wait_on_my_creation => true,
-            :waits_on_parent_completion => false,
+            :waits_on_parent_completion => true,
             :class => generic_class_methods + [:genericMuDNSEntry, :createRecordsFromConfig],
             :instance => generic_instance_methods
         },

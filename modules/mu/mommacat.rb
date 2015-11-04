@@ -22,6 +22,7 @@ autoload :Chef, 'chef'
 gem "chef-vault"
 autoload :ChefVault, 'chef-vault'
 gem "knife-windows"
+require 'timeout'
 
 module MU
 
@@ -1373,12 +1374,34 @@ module MU
         dnscfg.each { |dnsrec|
           dnsrec['name'] = node.downcase if !dnsrec.has_key?('name')
           dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
+
           if !dnsrec.has_key?("target")
-            if dnsrec["type"] == "CNAME"
-              dnsrec["target"] = server.cloud_desc.public_dns_name.empty? ? server.cloud_desc.private_dns_name : server.cloud_desc.public_dns_name
-            elsif dnsrec["type"] == "A"
-              dnsrec["target"] = server.cloud_desc.public_ip_address ? server.cloud_desc.public_ip_address : server.cloud_desc.private_ip_address
+            # Default to register public endpoint
+            public = true
+
+            if dnsrec.has_key?("target_type")
+              # See if we have a preference for pubic/private endpoint
+              public = dnsrec["target_type"] == "private" ? false : true
             end
+  
+            dnsrec["target"] =
+              if dnsrec["type"] == "CNAME"
+                if public
+                  # Make sure we have a public canonical name to register. Use the private one if we don't
+                  server.cloud_desc.public_dns_name.empty? ? server.cloud_desc.private_dns_name : server.cloud_desc.public_dns_name
+                else
+                  # If we specifically requested to register the private canonical name lets use that
+                  server.cloud_desc.private_dns_name
+                end
+              elsif dnsrec["type"] == "A"
+                if public
+                  # Make sure we have a public IP address to register. Use the private one if we don't
+                  server.cloud_desc.public_ip_address ? server.cloud_desc.public_ip_address : server.cloud_desc.private_ip_address
+                else
+                  # If we specifically requested to register the private IP lets use that
+                  server.cloud_desc.private_ip_address
+                end
+              end
           end
         }
         MU::Cloud::DNSZone.createRecordsFromConfig(dnscfg)
@@ -2107,6 +2130,8 @@ MESSAGE_END
 
             begin
               @deploy_cache[deploy]['data'] = JSON.parse(File.read("#{this_deploy_dir}/deployment.json"))
+              lock.flock(File::LOCK_UN)
+
               next if @deploy_cache[deploy].nil? or @deploy_cache[deploy]['data'].nil?
               # Populate some generable entries that should be in the deploy
               # data. Also, bounce out if we realize we've found exactly what
@@ -2190,12 +2215,19 @@ MESSAGE_END
         if File.size?(deploy_dir+"/deployment.json")
           deploy = File.open("#{deploy_dir}/deployment.json", File::RDONLY)
           MU.log "Getting lock to read #{deploy_dir}/deployment.json", MU::DEBUG
-          deploy.flock(File::LOCK_EX)
+          # deploy.flock(File::LOCK_EX)
+          begin
+            Timeout::timeout(90) {deploy.flock(File::LOCK_EX)}
+          rescue Timeout::Error
+            raise MuError, "Timed out trying to get an exclusive lock on #{deploy_dir}/deployment.json"
+          end
+
           begin
             @deployment = JSON.parse(File.read("#{deploy_dir}/deployment.json"))
           rescue JSON::ParserError => e
             MU.log "JSON parse failed on #{deploy_dir}/deployment.json", MU::ERR
           end
+
           deploy.flock(File::LOCK_UN)
           deploy.close
           if set_context_to_me
