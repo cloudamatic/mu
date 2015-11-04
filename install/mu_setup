@@ -1461,6 +1461,7 @@ setup_localhost_chef_client()
   status_message "Configuring local LDAP directory"
   upload_chef_artifacts -n -r $MU_REPO_NAME
   $MU_LIBDIR/install/ldap_setup.rb
+  /opt/chef/bin/knife node run_list remove MU-MASTER "role[mu-master-jenkins]" > /dev/null 2>&1 # buggy prior invocations get fouled up on subsequent runs
   /opt/chef/bin/knife node run_list add MU-MASTER "role[mu-master]"
   chef-client
 }
@@ -1507,7 +1508,12 @@ preconfigure_jenkins_artifacts()
           $MU_LIBDIR/install/jenkinskeys.rb
           knife vault create jenkins users "{\"mu_user_password\":\"$JENKINS_ADMIN_PW\"}" --mode client -F json -u mu --search name:MU-MASTER
           # Create the Jenkins user
-          $MU_LIBDIR/bin/mu-user-manage jenkins -e $JENKINS_ADMIN_EMAIL -p $JENKINS_ADMIN_PW -n "Jenkins Service" -s --no-notify --no-scratchpad
+        fi
+        if [ ! -d /home/jenkins ];then
+          $MU_LIBDIR/bin/mu-user-manage jenkins -e $JENKINS_ADMIN_EMAIL -p "$JENKINS_ADMIN_PW" -n "Jenkins Service" -s --no-scratchpad
+          su - jenkins -c "ls"
+          mkdir -p /home/jenkins
+          chown jenkins /home/jenkins
         fi
   fi
 }
