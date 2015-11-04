@@ -26,15 +26,7 @@ default['apache']['mod_ssl']['directives']['SSLProtocol'] = "all -SSLv2 -SSLv3"
 default['apache']['contact'] = $MU_CFG['mu_admin_email']
 default['apache']['traceenable'] = 'Off'
 
-# Conditionally add a Jenkins port
-if node.attribute?('jenkins_port_external') 
-  override["apache"]["listen_ports"] = [80, 443, 8443, 9443]
-else
-  override["apache"]["listen_ports"] = [80, 443, 8443]
-end
-# In addition to override, set normal to set defaults, and reset elsewhere with each webapp added, adding its port
-# The set_unless sets a normal attribute
-#node.set_unless["apache"]["listen_ports"] = [80, 8443]
+override["apache"]["listen_ports"] = [80, 443, 8443]
 
 override["nagios"]["http_port"] = 8443
 default['nagios']['enable_ssl'] = true

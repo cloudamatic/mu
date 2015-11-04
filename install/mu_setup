@@ -1512,10 +1512,10 @@ preconfigure_jenkins_artifacts()
         if [ ! -d /home/jenkins ];then
           $MU_LIBDIR/bin/mu-user-manage jenkins -e $JENKINS_ADMIN_EMAIL -p "$JENKINS_ADMIN_PW" -n "Jenkins Service" -s --no-scratchpad
           su - jenkins -c "ls"
-          mkdir -p /home/jenkins
-          chown jenkins /home/jenkins
         fi
   fi
+  mkdir -p /home/jenkins
+  chown jenkins /home/jenkins
 }
 
 
