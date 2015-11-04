@@ -338,6 +338,7 @@ module MU
           attr[:objectclass] = ["user"]
           attr[:userPrincipalName] = "#{uid}@#{$MU_CFG["ldap"]["domain_name"]}"
           attr[:pwdLastSet] = "-1"
+          uid = dn
         elsif $MU_CFG["ldap"]["type"] == "389 Directory Services"
           attr[:objectclass] = ["top", "person", "organizationalPerson", "inetorgperson"]
           attr[:userPassword] = Password.pronounceable(12..14)
@@ -349,14 +350,14 @@ module MU
 
         @can_write = true
         if !conn.add(:dn => dn, :attributes => attr)
-          MU.log "Couldn't create write-test user #{dn}, operating in read-only LDAP mode", MU::NOTICE, details: getLDAPErr
+          MU.log "Couldn't create write-test user #{dn}, operating in read-only LDAP mode (#{getLDAPErr})", MU::NOTICE, details: attr
           return false
         end
 
         # Make sure we can write various fields that we might need to touch
         [:displayName, :mail, :givenName, :sn].each { |field|
           if !conn.replace_attribute(dn, field, "foo@bar.com")
-            MU.log "Couldn't modify write-test user #{dn} field #{field.to_s}, operating in read-only LDAP mode", MU::NOTICE, details: getLDAPErr
+            MU.log "Couldn't modify write-test user #{dn} field #{field.to_s}, operating in read-only LDAP mode (#{getLDAPErr})", MU::NOTICE
             @can_write = false
             break
           end
@@ -365,7 +366,7 @@ module MU
         # Can we add them to the Mu membership group(s)
         [$MU_CFG["ldap"]["user_group_dn"], $MU_CFG["ldap"]["admin_group_dn"]].each { |group|
           if !conn.modify(:dn => group, :operations => [[:add, @member_attr, uid]])
-            MU.log "Couldn't add write-test user #{dn} to #{@member_attr} in group #{group}, operating in read-only LDAP mode", MU::NOTICE, details: getLDAPErr
+            MU.log "Couldn't add write-test user #{dn} to #{@member_attr} in group #{group}, operating in read-only LDAP mode (#{getLDAPErr})", MU::NOTICE
             @can_write = false
           end
         }
@@ -635,8 +636,9 @@ module MU
         conn = getLDAPConnection
         if add_users.size > 0
           add_users.each_pair { |user, data|
-#            if !conn.modify(:dn => group_dn, :operations => [[:add, @member_attr, data["dn"]]])
-            if !conn.modify(:dn => group_dn, :operations => [[:add, @member_attr, user]]) and @ldap_conn.get_operation_result.code != 20
+            uid = user
+            uid = data["dn"] if $MU_CFG["ldap"]["type"] == "Active Directory"
+            if !conn.modify(:dn => group_dn, :operations => [[:add, @member_attr, uid]]) and @ldap_conn.get_operation_result.code != 20
               MU.log "Couldn't add user #{user} (#{data['dn']}) to #{@member_attr} of group #{group} (#{group_dn}).", MU::WARN, details: getLDAPErr
             else
               MU.log "Added #{user} to group #{group}", MU::NOTICE
@@ -645,7 +647,9 @@ module MU
         end
         if remove_users.size > 0
           remove_users.each_pair { |user, data|
-            if !conn.modify(:dn => group_dn, :operations => [[:delete, @member_attr, user]])
+            uid = user
+            uid = data["dn"] if $MU_CFG["ldap"]["type"] == "Active Directory"
+            if !conn.modify(:dn => group_dn, :operations => [[:delete, @member_attr, uid]])
               MU.log "Couldn't remove user #{user} from group #{group} (#{group_dn}) via #{@member_attr}.", MU::WARN, details: getLDAPErr
             else
               MU.log "Removed #{user} from group #{group}", MU::NOTICE
