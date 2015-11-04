@@ -30,8 +30,6 @@ case node.platform
       block do
         Chef::Log.info("Setting the previously enabled jenkins private key")
         node.run_state[:jenkins_private_key] = admin_vault['private_key'].strip
-#        node.run_state[:jenkins_username] = "john.stange"
-#        node.run_state[:jenkins_password] = "JMz66gkq,CxFNz"
       end
     end
 
@@ -90,7 +88,6 @@ case node.platform
       strategy.add(Jenkins.ADMINISTER, "#{$MU_CFG['ldap']['admin_group_name']}")
       strategy.add(Jenkins.ADMINISTER, "#{admin_vault['username']}")
       strategy.add(Jenkins.ADMINISTER, "mu_user")
-      strategy.add(Jenkins.ADMINISTER, "master_user")
       strategy.add(Jenkins.READ, "authenticated")
       instance.setAuthorizationStrategy(strategy)
       instance.save()
@@ -114,6 +111,9 @@ case node.platform
     node.jenkins_users.each { |user|
       user_vault = chef_vault_item(user[:vault], user[:vault_item])
 
+      # XXX This is dangerous. What if we stupidly step on the account of a
+      # "real" user?
+      MU::Master::LDAP.manageUser(user[:user_name], name: user[:fullname], password: MU.generateWindowsPassword, admin: false, email: user[:email])
       jenkins_user user[:user_name] do
         full_name user[:fullname]
         email user[:email]
