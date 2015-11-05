@@ -16,6 +16,7 @@
 
 module MU
 
+  # Routines for use management and configuration on the Mu Master.
   class Master
     require 'date'
     require 'colorize'

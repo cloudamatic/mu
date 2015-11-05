@@ -378,6 +378,8 @@ module MU
           end
         end
 
+        # Set a CloudWatch alarm for this cache cluster.
+        # @param cluster_id [String]: The AWS identifier for the cluster to alarm.
         def createAlarm(cluster_id)
           @config["alarms"].each { |alarm|
             alarm["dimensions"] = [{:name => "CacheClusterId", :value => cluster_id}]

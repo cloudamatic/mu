@@ -2808,6 +2808,7 @@ module MU
             "items" => {
                 "type" => "object",
                 "additionalProperties" => false,
+                "description" => "What to monitor",
                 "properties" => {
                     "cloud_class" => {
                         "type" => "string",
@@ -2834,7 +2835,7 @@ module MU
         },
         "unit" => {
             "type" => "string",
-            "description" => "Associtead with the 'metric'",
+            "description" => "Associated with the 'metric'",
             "enum" => ["Seconds", "Microseconds", "Milliseconds", "Bytes", "Kilobytes", "Megabytes", "Gigabytes", "Terabytes", "Bits", "Kilobits", "Megabits", "Gigabits", "Terabits", "Percent", "Count", "Bytes/Second", 
                                 "Kilobytes/Second", "Megabytes/Second", "Gigabytes/Second", "Terabytes/Second", "Bits/Second", "Kilobits/Second", "Megabits/Second", "Gigabits/Second", "Terabits/Second", "Count/Second", "nil"]
         },

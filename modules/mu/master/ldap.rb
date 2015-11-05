@@ -17,7 +17,10 @@ require 'net-ldap'
 
 module MU
   class Master
+    # Routines for manipulating users and groups in 389 Directory Services or Active Directory.
     class LDAP
+
+      # Exception class specifically for LDAP-related errors
       class MuLDAPError < MU::MuError;end
       require 'date'
 
@@ -571,6 +574,9 @@ module MU
         users
       end
 
+      # Delete a user from our directory
+      # @param user [String]: The username to remove.
+      # @return [Boolean]: Success/Failure
       def self.deleteUser(user)
         if canWriteLDAP?
           conn = getLDAPConnection

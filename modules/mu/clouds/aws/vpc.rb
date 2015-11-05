@@ -297,7 +297,6 @@ module MU
           MU.log "VPC #{@mu_name} created", details: @config
         end
 
-        
         def trafficLogging(log_group_name: nil, resource_id: nil, resource_type: "VPC", traffic_type: "ALL")
           if log_group_name == @mu_name
             log_group = MU::Cloud::AWS::Log.getLogGroupByName(log_group_name, region: @config["region"])

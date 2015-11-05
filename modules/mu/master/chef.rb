@@ -15,6 +15,8 @@
 
 module MU
   class Master
+
+    # Routines for managing Chef users and orgs on the Mu Master.
     class Chef
 
       @chef_api = nil
