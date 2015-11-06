@@ -17,37 +17,6 @@ module MU
     class AWS
       # Support for AWS SNS
       class Notification < MU::Cloud::Notification
-
-        @deploy = nil
-        @config = nil
-        attr_reader :mu_name
-        attr_reader :config
-        attr_reader :cloud_id
-
-        # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::notification}
-        # def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
-          # @deploy = mommacat
-          # @config = kitten_cfg
-          # @cloud_id ||= cloud_id
-          # @mu_name ||= @deploy.getResourceName(@config["name"])
-        # end
-
-        # Called automatically by {MU::Deploy#createResources}
-        # def create
-
-
-          # @cloud_id = @mu_name
-        # end
-
-        # Return the metadata for this notification(s)
-        # @return [Hash]
-        def notify
-          deploy_struct = {
-          }
-          return deploy_struct
-        end
-
         # Remove all notifications associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
