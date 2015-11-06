@@ -1579,7 +1579,7 @@ generate_ssl_certs()
       chmod 400 $cert.key
       openssl req -subj "/CN=$CHEF_PUBLIC_IP/OU=Mu $cert/O=eGlobalTech/C=US" -new -key $cert.key -out $cert.csr
       openssl x509 -req -in $cert.csr -CA Mu_CA.pem -CAkey Mu_CA.key -CAcreateserial -out $cert.crt -days 500
-      cat Mu_CA.pem >> $cert.key
+      cat Mu_CA.pem >> $cert.crt
       if [ "$cert" == "mommacat" -a "$skip_chef" == "" ];then
         chef_server_ctl restart
         /bin/rm -f /etc/chef/trusted_certs/*.crt /root/.chef/trusted_certs/*.crt
@@ -1593,8 +1593,6 @@ generate_ssl_certs()
   done
   /bin/cp -f /opt/mu/var/ssl/Mu_CA.pem /etc/pki/ca-trust/source/anchors/
   /usr/bin/update-ca-trust extract
-  /bin/cp -f /opt/mu/var/ssl/Mu_CA.pem /root/.chef/trusted_certs/
-  /bin/cp -f /opt/mu/var/ssl/Mu_CA.pem /etc/chef/trusted_certs/
 }
 
 enable_audit_logs()
