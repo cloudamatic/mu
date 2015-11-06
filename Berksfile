@@ -46,7 +46,7 @@ cookbook 'jenkins', '~> 2.3.1'
 cookbook 'memcached', '~> 1.7.2'
 cookbook 'mongodb', '~> 0.16.2'
 cookbook 'mysql', '~> 6.1.0'
-cookbook 'nagios', '~> 7.2.4'
+cookbook 'nagios', path: "#{cookbookPath}/nagios"
 cookbook 'nginx', '~> 2.7.6'
 cookbook 'nginx_simplecgi', '~> 0.1.2'
 cookbook 'mu-activedirectory', path: "#{cookbookPath}/mu-activedirectory"
