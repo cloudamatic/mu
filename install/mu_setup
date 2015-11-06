@@ -1461,6 +1461,8 @@ setup_localhost_chef_client()
   status_message "Configuring local LDAP directory"
   upload_chef_artifacts -n -r $MU_REPO_NAME
   $MU_LIBDIR/install/ldap_setup.rb
+  /opt/chef/bin/knife ssl fetch -s https://$CHEF_PUBLIC_IP > /dev/null 2>&1
+  /bin/cp -f /root/.chef/trusted_certs/*.crt /etc/chef/trusted_certs/
   /opt/chef/bin/knife node run_list remove MU-MASTER "role[mu-master-jenkins]" > /dev/null 2>&1 # buggy prior invocations get fouled up on subsequent runs
   /opt/chef/bin/knife node run_list add MU-MASTER "role[mu-master]"
   chef-client
@@ -1482,6 +1484,8 @@ configure_nagios_server()
     if [ "$chef_artifacts_uploaded" != 1 ];then
       upload_chef_artifacts
     fi
+    /opt/chef/bin/knife ssl fetch -s https://$CHEF_PUBLIC_IP > /dev/null 2>&1
+    /bin/cp -f /root/.chef/trusted_certs/*.crt /etc/chef/trusted_certs/
     chef-client -o "recipe[mu-master::update_nagios_only]"
     run_chef_client=0
   fi
@@ -1527,12 +1531,17 @@ generate_docs()
 
 generate_ssl_certs()
 {
+  status_message "Managing internal SSL certificates"
   skip_chef="$1"
   mkdir -p $MU_DATADIR/ssl
   cd $MU_DATADIR/ssl
   if [ -f Mu_CA.pem ];then
     # Force us to clean up crusty old certs that we generated badly
-    ( /usr/bin/openssl x509 -in $MU_DATADIR/ssl/Mu_CA.pem -text -noout | grep "Subject: CN=$CHEF_PUBLIC_IP, OU=Mu Server $CHEF_PUBLIC_IP," > /dev/null ) || /bin/rm -f Mu_CA.*
+    if ! ( /usr/bin/openssl x509 -in $MU_DATADIR/ssl/Mu_CA.pem -text -noout | grep "Subject: CN=$CHEF_PUBLIC_IP, OU=Mu Server $CHEF_PUBLIC_IP," > /dev/null );then
+      status_message "Forcing regeneration of Mu's self-signed SSL certificate authority"
+      /usr/bin/openssl x509 -in $MU_DATADIR/ssl/Mu_CA.pem -text -noout | grep "Subject: " 
+      /bin/rm -f Mu_CA.*
+    fi
   fi
   regen_all=0
   if [ ! -f Mu_CA.pem ];then
@@ -1558,7 +1567,10 @@ generate_ssl_certs()
   for cert in rsyslog mommacat ldap;do
     if [ -f $cert.crt ];then
       # Force us to clean up crusty old certs that we generated badly
-      ( grep "BEGIN CERTIFICATE" $MU_DATADIR/ssl/$cert.crt | wc -l | grep '^1$' ) || /bin/rm -f $cert.crt
+      if ! ( grep "BEGIN CERTIFICATE" $MU_DATADIR/ssl/$cert.crt | wc -l | grep '^1$' );then
+        status_message "Forcing regeneration of $MU_DATADIR/ssl/$cert.crt"
+        /bin/rm -f $cert.crt
+      fi
     fi
     if [ ! -f $cert.crt -o $regen_all == 1 ];then
       status_message "Creating self-signed $cert SSL certificate"
@@ -1577,9 +1589,9 @@ generate_ssl_certs()
     if [ ! -f $cert.p12 -o $regen_all == 1 ];then
       openssl pkcs12 -export -inkey $cert.key -in $cert.crt -out $cert.p12 -nodes -name "$cert" -passout pass:""
     fi
-    /bin/cp -f /opt/mu/var/ssl/Mu_CA.pem /etc/pki/ca-trust/source/anchors/
-    /usr/bin/update-ca-trust extract
   done
+  /bin/cp -f /opt/mu/var/ssl/Mu_CA.pem /etc/pki/ca-trust/source/anchors/
+  /usr/bin/update-ca-trust extract
 }
 
 enable_audit_logs()
@@ -1664,6 +1676,8 @@ if [ "$library" != "1" ];then
   fi
   if [ "$JENKINS_ADMIN_PW" != "" ];then
     knife node run_list add MU-MASTER "role[mu-master-jenkins]"
+    /opt/chef/bin/knife ssl fetch -s https://$CHEF_PUBLIC_IP > /dev/null 2>&1
+    /bin/cp -f /root/.chef/trusted_certs/*.crt /etc/chef/trusted_certs/
     chef-client -l info
   fi
   generate_docs
