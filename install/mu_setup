@@ -1526,6 +1526,7 @@ preconfigure_jenkins_artifacts()
 generate_docs()
 {
   status_message "Generating documentation"
+  cd $MU_LIBDIR/modules && /usr/local/ruby-current/bin/bundle install
   $MU_LIBDIR/bin/mu-gen-docs
 }
 
@@ -1567,7 +1568,7 @@ generate_ssl_certs()
   for cert in rsyslog mommacat ldap;do
     if [ -f $cert.crt ];then
       # Force us to clean up crusty old certs that we generated badly
-      if ! ( grep "BEGIN CERTIFICATE" $MU_DATADIR/ssl/$cert.crt | wc -l | grep '^1$' );then
+      if ! ( grep "BEGIN CERTIFICATE" $MU_DATADIR/ssl/$cert.crt | wc -l | grep '^1$' > /dev/null );then
         status_message "Forcing regeneration of $MU_DATADIR/ssl/$cert.crt"
         /bin/rm -f $cert.crt
       fi
