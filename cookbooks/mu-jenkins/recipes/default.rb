@@ -15,6 +15,11 @@ admin_vault = chef_vault_item(node.jenkins_admin_vault[:vault], node.jenkins_adm
 case node.platform
   when "centos", "redhat"
 
+    directory node.jenkins.master.home do
+      owner "jenkins"
+      recursive true
+      notifies :restart, 'service[jenkins]', :immediately
+    end
 
     %w{git bzip2}.each { |pkg|
       package pkg
