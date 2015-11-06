@@ -1338,8 +1338,6 @@ upload_chef_artifacts()
       done
     fi
     /opt/chef/bin/knife ssl fetch -s https://$CHEF_PUBLIC_IP > /dev/null 2>&1
-    /opt/chef/bin/knife ssl fetch -s https://$HOSTNAME > /dev/null 2>&1
-    /opt/chef/bin/knife ssl fetch -s https://127.0.0.1 > /dev/null 2>&1
     status_message "Syncing Chef artifacts to running server..."
     $MU_LIBDIR/bin/mu-upload-chef-artifacts $@
     chef_artifacts_uploaded_by_installer=1
@@ -1595,6 +1593,8 @@ generate_ssl_certs()
   done
   /bin/cp -f /opt/mu/var/ssl/Mu_CA.pem /etc/pki/ca-trust/source/anchors/
   /usr/bin/update-ca-trust extract
+  /bin/cp -f /opt/mu/var/ssl/Mu_CA.pem /root/.chef/trusted_certs/
+  /bin/cp -f /opt/mu/var/ssl/Mu_CA.pem /etc/chef/trusted_certs/
 }
 
 enable_audit_logs()
