@@ -14,8 +14,12 @@
 <% end %>
   SSLProxyEngine on
   <Proxy *>
+<% if node.apache.version == "2.2" %>
     Order allow,deny
     Allow from all
+<% elsif node.apache.version == "2.4" %>
+    Require all granted
+<% end %>
   </Proxy>
 
   ProxyPreserveHost on

@@ -297,6 +297,11 @@ module MU
           MU.log "VPC #{@mu_name} created", details: @config
         end
 
+        # Configure IP traffic logging on a given VPC/Subnet. Logs are saved in cloudwatch based on the network interface ID of each instance.
+        # @param log_group_name [String]: The name of the CloudWatch log group all logs will be saved in.
+        # @param resource_id [String]: The cloud provider's identifier of the resource that traffic logging will be enabled on.
+        # @param resource_type [String]: What resource type to enable logging on (VPC or Subnet).
+        # @param traffic_type [String]: What traffic to log (ALL, ACCEPT or REJECT).
         def trafficLogging(log_group_name: nil, resource_id: nil, resource_type: "VPC", traffic_type: "ALL")
           if log_group_name == @mu_name
             log_group = MU::Cloud::AWS::Log.getLogGroupByName(log_group_name, region: @config["region"])
