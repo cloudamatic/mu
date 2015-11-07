@@ -83,6 +83,11 @@ $CREDS.each_pair { |creds, cfg|
 }
 
 if $MU_CFG["ldap"]["type"] == "389 Directory Services"
+  File.open("/root/ldap_setup_env_vars.#{Process.pid}", File::CREAT|File::TRUNC|File::RDWR, 0600) { |f|
+    ENV.each_pair { |k,v|
+      f.puts "#{k} = #{v}"
+    }
+  }
   # Install and bootstrap the LDAP server
   %x{/usr/bin/yum -y install 389-ds 389-ds-console}
   if !Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}")
@@ -100,6 +105,7 @@ if $MU_CFG["ldap"]["type"] == "389 Directory Services"
     if $?.exitstatus != 0
       puts cfg
       MU.log "Error setting up LDAP services with /usr/sbin/setup-ds-admin.pl -s -f /root/389-directory-setup.inf", MU::ERR, details: output
+      %x{/sbin/service dirsrv stop ; pkill ns-slapd ; yum erase -y 389-ds 389-ds-console 389-ds-base 389-admin 389-adminutil 389-console 389-ds-base-libs; rm -rf /etc/dirsrv /var/lib/dirsrv /var/log/dirsrv /var/lock/dirsrv /var/run/dirsrv /etc/sysconfig/dirsrv* /usr/lib64/dirsrv /usr/share/dirsrv; knife data bag delete -y mu_ldap}
       exit 1
     end
     puts output
