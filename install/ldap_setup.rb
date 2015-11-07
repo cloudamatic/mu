@@ -85,6 +85,7 @@ ENV['PATH'] = "/opt/mu/bin:/usr/local/ruby-current/bin:/usr/local/sbin:/usr/loca
 ENV['LOGNAME'] = "root"
 
 if $MU_CFG["ldap"]["type"] == "389 Directory Services"
+  %x{/usr/sbin/setenforce 0}
   log = File.open("/root/ldap_setup_log.#{Process.pid}", File::CREAT|File::TRUNC|File::RDWR, 0600)
   ENV.each_pair { |k,v|
     log.puts "#{k} = #{v}"
@@ -148,6 +149,7 @@ if $MU_CFG["ldap"]["type"] == "389 Directory Services"
   # Manufacture some groups and management users.
   MU::Master::LDAP.initLocalLDAP
   log.close
+  %x{/usr/sbin/setenforce 1}
 end
 
 # XXX figure out how to do this without mu_setup stepping on it
