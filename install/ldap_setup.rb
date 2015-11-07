@@ -81,12 +81,13 @@ $CREDS.each_pair { |creds, cfg|
   $CREDS[creds]['user'] = user if !$CREDS[creds]['user']
   $CREDS[creds]['pw'] = pw if !$CREDS[creds]['pw']
 }
+ENV['PATH'] = "/opt/mu/bin:/usr/local/ruby-current/bin:/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin:/opt/opscode/embedded/bin:/root/bin:#{ENV['PATH']}"
+ENV['LOGNAME'] = "root"
 
 if $MU_CFG["ldap"]["type"] == "389 Directory Services"
-  File.open("/root/ldap_setup_env_vars.#{Process.pid}", File::CREAT|File::TRUNC|File::RDWR, 0600) { |f|
-    ENV.each_pair { |k,v|
-      f.puts "#{k} = #{v}"
-    }
+  log = File.open("/root/ldap_setup_log.#{Process.pid}", File::CREAT|File::TRUNC|File::RDWR, 0600)
+  ENV.each_pair { |k,v|
+    log.puts "#{k} = #{v}"
   }
   # Install and bootstrap the LDAP server
   %x{/usr/bin/yum -y install 389-ds 389-ds-console}
@@ -104,11 +105,14 @@ if $MU_CFG["ldap"]["type"] == "389 Directory Services"
     output = %x{/usr/sbin/setup-ds-admin.pl -s -f /root/389-directory-setup.inf}
     if $?.exitstatus != 0
       puts cfg
+      log.puts cfg
+      log.puts output
       MU.log "Error setting up LDAP services with /usr/sbin/setup-ds-admin.pl -s -f /root/389-directory-setup.inf", MU::ERR, details: output
       %x{/sbin/service dirsrv stop ; pkill ns-slapd ; yum erase -y 389-ds 389-ds-console 389-ds-base 389-admin 389-adminutil 389-console 389-ds-base-libs; rm -rf /etc/dirsrv /var/lib/dirsrv /var/log/dirsrv /var/lock/dirsrv /var/run/dirsrv /etc/sysconfig/dirsrv* /usr/lib64/dirsrv /usr/share/dirsrv; knife data bag delete -y mu_ldap}
       exit 1
     end
     puts output
+    log.puts output
   #  File.unlink("/root/389-directory-setup.inf")
   end
   # Ram TLS into the LDAP server's snout
@@ -143,6 +147,7 @@ if $MU_CFG["ldap"]["type"] == "389 Directory Services"
 
   # Manufacture some groups and management users.
   MU::Master::LDAP.initLocalLDAP
+  log.close
 end
 
 # XXX figure out how to do this without mu_setup stepping on it
