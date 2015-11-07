@@ -658,6 +658,29 @@ print_setup_env_vars(){
   done
 }
 
+chef_client()
+{
+  status_message "chef-client $@"
+
+  chef_cert_name="`echo $CHEF_PUBLIC_IP | sed 's/\./_/g'`"
+
+  /bin/cp -f /opt/mu/var/ssl/Mu_CA.pem /etc/chef/trusted_certs/
+  if (knife ssl check -c /etc/chef/client.rb | egrep "^ERROR.*certificate");then
+    /bin/rm -f /etc/chef/trusted_certs/${chef_cert_name}.crt
+    /bin/rm -f /etc/chef/trusted_certs/${HOSTNAME}_platform-mu.crt
+    /opt/chef/bin/knife ssl fetch -c /etc/chef/client.rb
+  fi
+  # Same, but for /root/.chef/trusted_certs
+  /bin/cp -f /opt/mu/var/ssl/Mu_CA.pem /root/.chef/trusted_certs/
+  if (knife ssl check | egrep "^ERROR.*certificate");then
+    /bin/rm -f /root/.chef/trusted_certs/${chef_cert_name}.crt
+    /bin/rm -f /root/.chef/trusted_certs/${HOSTNAME}_platform-mu.crt
+    /opt/chef/bin/knife ssl fetch
+  fi
+  chef-client $@
+
+}
+
 ###############################################################################
 chef_server_ctl()
 {
@@ -1459,19 +1482,9 @@ setup_localhost_chef_client()
   status_message "Configuring local LDAP directory"
   upload_chef_artifacts -n -r $MU_REPO_NAME
   $MU_LIBDIR/install/ldap_setup.rb
-  chef_cert_name="`echo $CHEF_PUBLIC_IP | sed 's/\./_/g'`"
-
-  if (knife ssl check -c /etc/chef/client.rb | egrep "^ERROR.*certificate");then
-    /opt/chef/bin/knife ssl fetch -c /etc/chef/client.rb
-    /bin/cp -f /root/.chef/trusted_certs/*.crt /etc/chef/trusted_certs/
-  fi
-  if (knife ssl check | egrep "^ERROR.*certificate");then
-    /opt/chef/bin/knife ssl fetch
-    /bin/cp -f /root/.chef/trusted_certs/*.crt /etc/chef/trusted_certs/
-  fi
   /opt/chef/bin/knife node run_list remove MU-MASTER "role[mu-master-jenkins]" > /dev/null 2>&1 # buggy prior invocations get fouled up on subsequent runs
   /opt/chef/bin/knife node run_list add MU-MASTER "role[mu-master]"
-  chef-client
+  chef_client
 }
 
 ###############################################################################
@@ -1490,9 +1503,7 @@ configure_nagios_server()
     if [ "$chef_artifacts_uploaded" != 1 ];then
       upload_chef_artifacts
     fi
-    /opt/chef/bin/knife ssl fetch -s https://$CHEF_PUBLIC_IP > /dev/null 2>&1
-    /bin/cp -f /root/.chef/trusted_certs/*.crt /etc/chef/trusted_certs/
-    chef-client -o "recipe[mu-master::update_nagios_only]"
+    chef_client -o "recipe[mu-master::update_nagios_only]"
     run_chef_client=0
   fi
   mkdir -p /home/nagios
@@ -1689,9 +1700,7 @@ if [ "$library" != "1" ];then
   fi
   if [ "$JENKINS_ADMIN_PW" != "" ];then
     knife node run_list add MU-MASTER "role[mu-master-jenkins]"
-    /opt/chef/bin/knife ssl fetch -s https://$CHEF_PUBLIC_IP > /dev/null 2>&1
-    /bin/cp -f /root/.chef/trusted_certs/*.crt /etc/chef/trusted_certs/
-    chef-client -l info
+    chef_client -l info
   fi
   generate_docs
 
