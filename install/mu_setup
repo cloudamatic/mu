@@ -53,7 +53,7 @@ export PATH="/bin:/usr/bin:/sbin:/usr/sbin"
 
 # Non-root users can only customize certain configuration parameters
 if [ "root" == "`whoami`" ];then
-  CONFIG_VARS="AWS_ACCESS AWS_SECRET MU_ADMIN_EMAIL MU_ADMIN_PW JENKINS_ADMIN_PW MU_INSTALLDIR MU_DATADIR ADDTL_CHEF_REPOS MU_REPO CHEF_PUBLIC_IP HOSTNAME EC2SECGROUP LOG_BUCKET_NAME ALLOW_INVADE_FOREIGN_VPCS MU_SSL_CERT MU_SSL_KEY"
+  CONFIG_VARS="AWS_ACCESS AWS_SECRET MU_ADMIN_EMAIL MU_ADMIN_PW JENKINS_ADMIN_PW MU_INSTALLDIR MU_DATADIR ADDTL_CHEF_REPOS MU_REPO CHEF_PUBLIC_IP HOSTNAME EC2SECGROUP LOG_BUCKET_NAME ALLOW_INVADE_FOREIGN_VPCS MU_SSL_CERT MU_SSL_KEY MU_SSL_CHAIN"
   RO_CONFIG_VARS="AWS_ACCOUNT_NUMBER EC2_REGION"
 else
   CONFIG_VARS="AWS_ACCESS AWS_SECRET MU_DATADIR ADDTL_CHEF_REPOS MU_REPO LOG_BUCKET_NAME"
@@ -134,8 +134,8 @@ fi
 if [ "$MU_SSL_KEY" == "" ];then
   MU_SSL_KEY="/opt/mu/var/ssl/mommacat.key"
 fi
-if [ "$MU_INSTALLDIR" == "" ];then
-  MU_INSTALLDIR="/opt/mu"
+if [ "$MU_SSL_CHAIN" == "" ];then
+  MU_SSL_CHAIN="/opt/mu/var/ssl/Mu_CA.pem"
 fi
 HOMEDIR="`getent passwd \"$USER\" |cut -d: -f6`"
 MU_CHEF_CACHE="$HOMEDIR/.chef"
@@ -1149,8 +1149,8 @@ syntax_check_cache_path  '$chef_cache/syntax_check_cache'
 cookbook_path [ '$chef_cache/cookbooks', '$chef_cache/site_cookbooks' ]
 knife[:vault_mode] = 'client'
 knife[:vault_admins] = ['$knife_user']
-verify_api_cert    false
-ssl_verify_mode    :verify_none
+# verify_api_cert    false
+# ssl_verify_mode    :verify_none
 EOF
   mv -f $chef_cache/knife.rb.tmp.$$ $chef_cache/knife.rb
 }
@@ -1207,7 +1207,7 @@ node_name "pivotal"
 chef_server_url "https://${CHEF_PUBLIC_IP}:$port"
 chef_server_root "https://${CHEF_PUBLIC_IP}:$port"
 client_key "/etc/opscode/pivotal.pem"
-ssl_verify_mode :verify_none
+# ssl_verify_mode :verify_none
 EOF
   if [ ! -f /etc/opscode/pivotal.rb -o "`diff /etc/opscode/pivotal.rb /etc/opscode/pivotal.rb.tmp.$$`" != "" ];then
     /bin/mv -f /etc/opscode/pivotal.rb.tmp.$$ /etc/opscode/pivotal.rb
@@ -1302,7 +1302,7 @@ node_name "pivotal"
 chef_server_url "https://${CHEF_PUBLIC_IP}:7443"
 chef_server_root "https://${CHEF_PUBLIC_IP}:7443"
 client_key "/etc/opscode/pivotal.pem"
-ssl_verify_mode :verify_none
+# ssl_verify_mode :verify_none
 EOF
   if [ ! -f /etc/opscode/pivotal.rb -o "`diff /etc/opscode/pivotal.rb /etc/opscode/pivotal.rb.tmp.$$`" != "" ];then
     /bin/mv -f /etc/opscode/pivotal.rb.tmp.$$ /etc/opscode/pivotal.rb
@@ -1466,6 +1466,13 @@ setup_localhost_chef_client()
   /opt/chef/bin/knife node run_list remove MU-MASTER "role[mu-master-jenkins]" > /dev/null 2>&1 # buggy prior invocations get fouled up on subsequent runs
   /opt/chef/bin/knife node run_list add MU-MASTER "role[mu-master]"
   chef-client
+
+  if (knife ssl check -c /etc/chef/client.rb | egrep "^ERROR.*certificate");then
+    /opt/chef/bin/knife ssl fetch -c /etc/chef/client.rb
+  fi
+  if (knife ssl check | egrep "^ERROR.*certificate");then
+    /opt/chef/bin/knife ssl fetch
+  fi
 }
 
 ###############################################################################
@@ -1585,6 +1592,12 @@ generate_ssl_certs()
         /bin/rm -f /etc/chef/trusted_certs/*.crt /root/.chef/trusted_certs/*.crt
         /opt/chef/bin/knife ssl fetch -s https://$CHEF_PUBLIC_IP > /dev/null 2>&1
         /bin/cp -f /root/.chef/trusted_certs/*.crt /etc/chef/trusted_certs/
+        if (knife ssl check -c /etc/chef/client.rb | egrep "^ERROR.*certificate");then
+          /opt/chef/bin/knife ssl fetch -c /etc/chef/client.rb
+        fi
+        if (knife ssl check | egrep "^ERROR.*certificate");then
+          /opt/chef/bin/knife ssl fetch
+        fi
       fi
     fi
     if [ ! -f $cert.p12 -o $regen_all == 1 ];then

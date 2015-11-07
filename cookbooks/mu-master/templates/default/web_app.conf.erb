@@ -9,9 +9,7 @@
   SSLEngine On
   SSLCertificateFile <%= $MU_CFG['ssl']['cert'] %>
   SSLCertificateKeyFile <%= $MU_CFG['ssl']['key'] %>
-<% if $MU_CFG['ssl'].has_key?('chain') and !$MU_CFG['ssl']['chain'].empty? %>
   SSLCertificateChainFile <%= $MU_CFG['ssl']['chain'] %>
-<% end %>
   SSLProxyEngine on
   <Proxy *>
 <% if node.apache.version == "2.2" %>

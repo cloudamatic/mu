@@ -31,7 +31,7 @@ def loadMuConfig
     "ssl" => {
       "cert" => "/opt/mu/var/ssl/mommacat.crt",
       "key" => "/opt/mu/var/ssl/mommacat.key",
-      "chain" => ""
+      "chain" => "/opt/mu/var/ssl/Mu_CA.pem"
     },
     "mu_admin_email" => "root@localhost",
     "jenkins_admin_email" => "root@localhost",
@@ -85,6 +85,9 @@ def loadMuConfig
   end
   if ENV.has_key?("SSL_KEY")
     default_cfg["ssl"]["key"] = ENV['SSL_KEY']
+  end
+  if ENV.has_key?("SSL_CHAIN")
+    default_cfg["ssl"]["chain"] = ENV['SSL_CHAIN']
   end
   if ENV.has_key?("ALLOW_INVADE_FOREIGN_VPCS") and !ENV['ALLOW_INVADE_FOREIGN_VPCS'].empty?
     default_cfg["allow_invade_foreign_vpcs"] = true

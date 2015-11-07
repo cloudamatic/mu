@@ -387,8 +387,8 @@ module MU
           kb = ::Chef::Knife::BootstrapWindowsSsh.new([canonical_addr])
           kb.config[:cygwin] = true
           kb.config[:distro] = 'windows-chef-client-msi'
-          kb.config[:node_ssl_verify_mode] = 'none'
-          kb.config[:node_verify_api_cert] = false
+          # kb.config[:node_ssl_verify_mode] = 'none'
+          # kb.config[:node_verify_api_cert] = false
         end
 
         # XXX this seems to break Knife Bootstrap for the moment

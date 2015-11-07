@@ -140,8 +140,8 @@ module MU
           f.puts "cookbook_path [ '#{chef_user}/cookbooks', '#{chef_user}/site_cookbooks' ]"
           f.puts "knife[:vault_mode] = 'client'"
           f.puts "knife[:vault_admins] = ['#{chef_user}']"
-          f.puts "verify_api_cert    false"
-          f.puts "ssl_verify_mode    :verify_none"
+          # f.puts "verify_api_cert    false"
+          # f.puts "ssl_verify_mode    :verify_none"
         }
         if !File.exists?("#{chefdir}/knife.rb") or
             File.read("#{chefdir}/knife.rb") != File.read("#{chefdir}/knife.rb.tmp.#{Process.pid}")
