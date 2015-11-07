@@ -1542,9 +1542,10 @@ preconfigure_jenkins_artifacts()
 
 generate_docs()
 {
+  env
   status_message "Generating documentation"
   cd $MU_LIBDIR/modules && /usr/local/ruby-current/bin/bundle install
-  /usr/local/ruby-current/bin/ruby $MU_LIBDIR/bin/mu-gen-docs
+  /usr/local/ruby-current/bin/ruby $MU_INSTALLDIR/bin/mu-gen-docs
 }
 
 generate_ssl_certs()
