@@ -1460,19 +1460,18 @@ setup_localhost_chef_client()
   upload_chef_artifacts -n -r $MU_REPO_NAME
   $MU_LIBDIR/install/ldap_setup.rb
   chef_cert_name="`echo $CHEF_PUBLIC_IP | sed 's/\./_/g'`"
-  rm -f /root/.chef/trusted_certs/${chef_cert_name}.crt /etc/chef/trusted_certs/${chef_cert_name} /root/.chef/trusted_certs/${HOSTNAME}_platform-mu.crt /etc/chef/trusted_certs/${HOSTNAME}_platform-mu.crt
-  /opt/chef/bin/knife ssl fetch -s https://$CHEF_PUBLIC_IP > /dev/null 2>&1
-  /bin/cp -f /root/.chef/trusted_certs/*.crt /etc/chef/trusted_certs/
-  /opt/chef/bin/knife node run_list remove MU-MASTER "role[mu-master-jenkins]" > /dev/null 2>&1 # buggy prior invocations get fouled up on subsequent runs
-  /opt/chef/bin/knife node run_list add MU-MASTER "role[mu-master]"
-  chef-client
 
   if (knife ssl check -c /etc/chef/client.rb | egrep "^ERROR.*certificate");then
     /opt/chef/bin/knife ssl fetch -c /etc/chef/client.rb
+    /bin/cp -f /root/.chef/trusted_certs/*.crt /etc/chef/trusted_certs/
   fi
   if (knife ssl check | egrep "^ERROR.*certificate");then
     /opt/chef/bin/knife ssl fetch
+    /bin/cp -f /root/.chef/trusted_certs/*.crt /etc/chef/trusted_certs/
   fi
+  /opt/chef/bin/knife node run_list remove MU-MASTER "role[mu-master-jenkins]" > /dev/null 2>&1 # buggy prior invocations get fouled up on subsequent runs
+  /opt/chef/bin/knife node run_list add MU-MASTER "role[mu-master]"
+  chef-client
 }
 
 ###############################################################################
