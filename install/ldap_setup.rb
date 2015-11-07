@@ -102,7 +102,7 @@ if $MU_CFG["ldap"]["type"] == "389 Directory Services"
     File.open("/root/389-directory-setup.inf", File::CREAT|File::TRUNC|File::RDWR, 0600) { |f|
       f.puts cfg
     }
-    output = %x{/usr/sbin/setup-ds-admin.pl -s -f /root/389-directory-setup.inf}
+    output = %x{/usr/sbin/setup-ds-admin.pl -s --debug --logfile /root/setup_ds_admin_log.#{Process.pid} -f /root/389-directory-setup.inf}
     if $?.exitstatus != 0
       puts cfg
       log.puts cfg
