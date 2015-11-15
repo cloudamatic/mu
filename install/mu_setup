@@ -1545,7 +1545,6 @@ preconfigure_jenkins_artifacts()
 
 generate_docs()
 {
-  env
   status_message "Generating documentation"
   cd $MU_LIBDIR/modules && /usr/local/ruby-current/bin/bundle install
   /usr/local/ruby-current/bin/ruby $MU_INSTALLDIR/bin/mu-gen-docs
@@ -1706,6 +1705,8 @@ if [ "$library" != "1" ];then
     knife node run_list add MU-MASTER "role[mu-master-jenkins]"
     chef_client -l info
   fi
+  cd
+  source $MURC
   generate_docs
 
   # Chef's reloads of sshd don't seem to cause it to re-read its config for
