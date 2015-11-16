@@ -26,6 +26,11 @@ class Nagios
                   :name,
                   :use
 
+    def initialize
+      @add_modifiers = {}
+      @not_modifiers = Hash.new { |h, k| h[k] = {} }
+    end
+
     def merge!(obj)
       merge_members(obj)
       merge_attributes(obj)
@@ -138,21 +143,21 @@ class Nagios
       obj.map(&:to_s).join(',')
     end
 
-    def configured_option(method)
+    def configured_option(method, option)
       value = send(method)
       return nil if blank?(value)
-      if value.class == Array
-        value.join(',')
-      else
-        value
-      end
+      value = value.split(',') if value.is_a? String
+      value = value.map do |e|
+        (@not_modifiers[option][e] || '') + e
+      end.join(',') if value.is_a? Array
+      value
     end
 
     def configured_options
       configured = {}
       config_options.each do |m, o|
         next if o.nil?
-        value = configured_option(m)
+        value = configured_option(m, o)
         next if value.nil?
         configured[o] = value
       end
@@ -171,7 +176,7 @@ class Nagios
       longest = get_longest_option(options)
       options.each do |k, v|
         k = k.to_s
-        v = v.to_s
+        v = (@add_modifiers[k] || '') + v.to_s
         diff = longest - k.length
         r.push(k.rjust(k.length + 2) + v.rjust(v.length + diff + 2))
       end
@@ -224,6 +229,10 @@ class Nagios
 
     def merge_members(obj)
       Chef::Log.debug("Nagios debug: The method merge_members is not supported by #{obj.class}")
+    end
+
+    def push(obj)
+      Chef::Log.debug("Nagios debug: Cannot push #{obj} into #{self.class}")
     end
 
     def push_object(obj, hash)
@@ -279,14 +288,24 @@ class Nagios
       end
     end
 
+    # rubocop:disable MethodLength
     def update_members(hash, option, object, remote = false)
       return if blank?(hash) || hash[option].nil?
+      if hash[option].is_a?(String) && hash[option].start_with?('+')
+        @add_modifiers[option] = '+'
+        hash[option] = hash[option][1..-1]
+      end
       get_members(hash[option], object).each do |member|
+        if member.start_with?('!')
+          member = member[1..-1]
+          @not_modifiers[option][member] = '!'
+        end
         n = Nagios.instance.find(object.new(member))
         push(n)
         n.push(self) if remote
       end
     end
+    # rubocop:enable MethodLength
 
     def update_dependency_members(hash, option, object)
       return if blank?(hash) || hash[option].nil?

@@ -33,6 +33,16 @@ default['nagios']['enable_ssl'] = true
 default['nagios']['sysadmin_email'] = $MU_CFG['mu_admin_email']
 default['nagios']['ssl_cert_file'] = $MU_CFG['ssl']['cert']
 default['nagios']['ssl_cert_key'] = $MU_CFG['ssl']['key']
+if $MU_CFG['ssl'].has_key?("chain") and !$MU_CFG['ssl']['chain'].empty?
+  default['nagios']['ssl_cert_chain_file'] = $MU_CFG['ssl']['chain']
+end
+if !$MU_CFG['public_address'].match(/^\d+\.\d+\.\d+\.\d+$/)
+  default["nagios"]["server_name"] = $MU_CFG['public_address']
+else
+  default["nagios"]["server_name"] = node.hostname
+  default['nagios']['server']['server_alias'] = $MU_CFG['public_address']
+end
+#default['nagios']['server']['server_alias'] = node.fqdn+", "+node.hostname+", "+node['local_hostname']+", "+node['local_ipv4']+", "+node['public_hostname']+", "+node['public_ipv4']
 default["nagios"]["log_dir"] = "/var/log/httpd"
 default['nagios']['cgi-bin'] = "/usr/lib/cgi-bin/"
 default['nagios']['cgi-path'] = "/nagios/cgi-bin/"

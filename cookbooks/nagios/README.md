@@ -11,7 +11,7 @@ Installs and configures Nagios server. Chef nodes are automatically discovered u
 Requirements
 ------------
 ### Chef
-Chef version 0.10.10+ and Ohai 0.6.12+ are required.
+Chef version 11+ is required
 
 Because of the heavy use of search, this recipe will not work with Chef Solo, as it cannot do any searches without a server.
 
@@ -22,8 +22,8 @@ The system running this cookbooks should have a role named 'monitoring' so that 
 The functionality that was previously in the nagios::client recipe has been moved to its own NRPE cookbook at https://github.com/schubergphilis/nrpe
 
 ### Platform
-* Debian 6.X, 7.X
-* Ubuntu 10.04, 12.04, 13.04
+* Debian 7+
+* Ubuntu 12.04+
 * Red Hat Enterprise Linux (CentOS/Amazon/Scientific/Oracle) 5.X, 6.X
 
 **Notes**: This cookbook has been tested on the listed platforms. It may work on other platforms with or without modification.
@@ -65,7 +65,6 @@ Example: `default['nagios']['conf']['cfg_dir'] = [ '/etc/nagios/conf.d' , '/usr/
 * `node['nagios']['state_dir']` - Nagios runtime state information, default "/var/lib/nagios3"
 * `node['nagios']['run_dir']` - where pidfiles are stored, default "/var/run/nagios3"
 * `node['nagios']['docroot']` - Nagios webui docroot, default "/usr/share/nagios3/htdocs"
-* `node['nagios']['timezone']` - Nagios timezone, defaults to UTC
 * `node['nagios']['enable_ssl]` - boolean for whether Nagios web server should be https, default false
 * `node['nagios']['ssl_cert_file']` = Location of SSL Certificate File. default "/etc/nagios3/certificates/nagios-server.pem"
 * `node['nagios']['ssl_cert_chain_file']` = Optional location of SSL Intermediate Certificate File. No default.
@@ -84,9 +83,11 @@ Example: `default['nagios']['conf']['cfg_dir'] = [ '/etc/nagios/conf.d' , '/usr/
 
 * `node['nagios']['conf']['enable_notifications']` - set to 1 to enable notification.
 * `node['nagios']['conf']['interval_length']` - minimum interval. Defaults to '1'.
+* `node['nagios']['conf']['use_timezone']` - set the timezone for nagios AND apache.  Defaults to UTC.
 
 * `node['nagios']['check_external_commands']`
 * `node['nagios']['default_contact_groups']`
+* `node['nagios']['default_user_name']` - Specify a defaut guest user to allow page access without authentication.  **Only** use this if nagios is running behind a secure webserver and users have been authenticated in some manner.  You'll likely want to change `node['nagios']['server_auth_require']` to `all granted`.  Defaults to `nil`.
 * `node['nagios']['sysadmin_email']` - default notification email.
 * `node['nagios']['sysadmin_sms_email']` - default notification sms.
 * `node['nagios']['server_auth_method']` - authentication with the server can be done with openid (using `apache2::mod_auth_openid`), cas (using `apache2::mod_auth_cas`),ldap (using `apache2::mod_authnz_ldap`), or htauth (basic). The default is htauth. "openid" will utilize openid authentication, "cas" will utilize cas authentication, "ldap" will utilize LDAP authentication, and any other value will use htauth (basic).
@@ -293,7 +294,7 @@ License & Authors
 - Author:: Nathan Haneysmith <nathan@chef.io>
 - Author:: Joshua Timberman <joshua@chef.io>
 - Author:: Seth Chisamore <schisamo@chef.io>
-- Author:: Tim Smith <tim@cozy.co>
+- Author:: Tim Smith <tsmith@chef.io>
 
 ```text
 Copyright 2009, 37signals
