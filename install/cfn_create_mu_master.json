@@ -881,6 +881,9 @@
                   "JENKINS_ADMIN_PW": {
                     "Ref": "adminPassword"
                   },
+                  "MU_SSL_CERT": "/opt/mu/var/ssl/mommacat.crt",
+                  "MU_SSL_KEY": "/opt/mu/var/ssl/mommacat.key",
+                  "MU_SSL_CHAIN": "/opt/mu/var/ssl/Mu_CA.pem",
                   "HOME": "/root",
                   "USER": "root",
                   "TERM": "xterm",
@@ -1092,7 +1095,7 @@
                 "PublicDnsName"
               ]
             },
-            ":9443"
+            "/jenkins"
           ]
         ]
       },
