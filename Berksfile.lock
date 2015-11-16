@@ -82,7 +82,7 @@ DEPENDENCIES
   windows (~> 1.38.1)
   xfs (~> 1.1.0)
   xml (~> 1.2.4)
-  yum (~> 3.6.3)
+  yum (~> 3.8.2)
   yum-epel (~> 0.6.3)
 
 GRAPH
@@ -302,7 +302,7 @@ GRAPH
   xml (1.2.13)
     build-essential (>= 0.0.0)
     chef-sugar (>= 0.0.0)
-  yum (3.6.3)
+  yum (3.8.2)
   yum-epel (0.6.4)
     yum (~> 3.2)
   yum-mysql-community (0.1.19)
