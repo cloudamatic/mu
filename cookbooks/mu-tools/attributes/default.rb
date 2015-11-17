@@ -36,7 +36,6 @@ default['application_attributes']['ebs_snapshots']['days_to_keep'] = '7'
 
 default['nagios']['server_role'] = "mu-master"
 default['nagios']['multi_environment_monitoring'] = true
-override['nagios']['notifications_enabled'] = 1
 # no idea why this attribute isn't set on MU-MASTER, but it isn't.
 default['chef_node_name'] = Chef::Config[:node_name]
 if node.has_key?("deployment")
