@@ -25,7 +25,7 @@ module MU
     autoload :LDAP, 'mu/master/ldap'
 
     # @param users [Hash]: User metadata of the type returned by listUsers
-    def self.printUsersToTerminal(users)
+    def self.printUsersToTerminal(users = MU::Master.listUsers)
       labeled = false
       users.keys.sort.each { |username|
         data = users[username]
@@ -34,7 +34,9 @@ module MU
             labeled = true
             puts "Administrators".light_cyan.on_black.bold
           end
-          puts "#{username.bold} - #{data['realname']} <#{data['email']}>"
+          append = ""
+          append = " (Chef and local system ONLY)".bold if data['non_ldap']
+          puts "#{username.bold} - #{data['realname']} <#{data['email']}>"+append
         end
       }
       labeled = false
@@ -208,6 +210,7 @@ module MU
       all_user_data = {}
       ldap_users['mu'] = {}
       ldap_users['mu']['admin'] = true
+      ldap_users['mu']['non_ldap'] = true
       ldap_users.each_pair { |username, data|
         all_user_data[username] = {}
         userdir = $MU_CFG['datadir']+"/users/#{username}"
@@ -216,7 +219,7 @@ module MU
           Dir.mkdir(userdir, 0755)
         end
 
-        ["email", "monitoring_email", "realname", "chef_user", "admin"].each { |field|
+        ["non_ldap", "email", "monitoring_email", "realname", "chef_user", "admin"].each { |field|
           if data.has_key?(field)
             all_user_data[username][field] = data[field]
           elsif File.exist?(userdir+"/"+field)

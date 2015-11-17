@@ -142,7 +142,7 @@ if !ARGV[0] or ARGV[0].empty?
     end
   }
   Trollop::educate if bail
-  MU::Master.printUsersToTerminal($cur_users)
+  MU::Master.printUsersToTerminal
   exit 0
 elsif $opts.select { |opt| opt =~ /_given$/ }.size == 0
   MU::Master.printUserDetails(ARGV[0])
@@ -270,4 +270,4 @@ if $password
   end
 end
 
-MU::Master.printUsersToTerminal(MU::Master.listUsers)
+MU::Master.printUsersToTerminal
