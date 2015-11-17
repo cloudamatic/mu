@@ -28,6 +28,8 @@ if $MU_CFG.has_key?('ldap')
     node.normal.nagios.ldap_url = "ldap://#{$MU_CFG['ldap']['dcs'].first}/#{$MU_CFG['ldap']['base_dn']}?uid?sub?(objectClass=*)"
     node.normal.nagios.ldap_group_attribute = "memberUid"
     node.normal.nagios.ldap_group_attribute_is_dn = false
+    node.normal.nagios.ldap_trusted_global_cert = "CA_BASE64 #{$MU_CFG['ssl']['chain']}"
+    node.normal.nagios.ldap_trusted_mode = "SSL"
   end
   node.normal.nagios.server_auth_require = "ldap-group #{$MU_CFG['ldap']['user_group_dn']}"
   node.normal.nagios.ldap_authoritative = "On"
