@@ -82,7 +82,7 @@ DEPENDENCIES
   windows (~> 1.38.1)
   xfs (~> 1.1.0)
   xml (~> 1.2.4)
-  yum (~> 3.6.3)
+  yum (~> 3.8.2)
   yum-epel (~> 0.6.3)
 
 GRAPH
@@ -217,8 +217,8 @@ GRAPH
   mysql (6.1.2)
     smf (>= 0.0.0)
     yum-mysql-community (>= 0.0.0)
-  nagios (7.2.4)
-    apache2 (>= 2.0)
+  nagios (7.2.5)
+    apache2 (>= 2.0.0)
     build-essential (>= 0.0.0)
     nginx (>= 0.0.0)
     nginx_simplecgi (>= 0.0.0)
@@ -302,7 +302,7 @@ GRAPH
   xml (1.2.13)
     build-essential (>= 0.0.0)
     chef-sugar (>= 0.0.0)
-  yum (3.6.3)
+  yum (3.8.2)
   yum-epel (0.6.4)
     yum (~> 3.2)
   yum-mysql-community (0.1.19)

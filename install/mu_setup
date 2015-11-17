@@ -1036,11 +1036,12 @@ install_ruby()
   # Init Mu's gem library now that it has a Ruby to use.
   export USE_SYSTEM_GECODE=1
   if [ ! -f $RUBY_INSTALL_DIR/bin/bundle ];then
+    set -e
     $RUBY_INSTALL_DIR/bin/gem install bundler
     cd $MU_LIBDIR/modules && $RUBY_INSTALL_DIR/bin/bundle install
+    set +e
   fi
   add_chef_support_gems $RUBY_INSTALL_DIR
-
 }
 
 ###############################################################################
@@ -1130,11 +1131,13 @@ punch_tcp_hole()
 add_chef_support_gems()
 {
   rubydir=$1
+  set -e
   $rubydir/bin/gem list | grep '^bundler' > /dev/null || $rubydir/bin/gem install bundler --no-rdoc --no-ri
 
   status_message "Installing support gems in $rubydir"
 
-  cd $MU_LIBDIR/modules && $rubydir/bin/bundle install
+	cd $MU_LIBDIR/modules && $rubydir/bin/bundle install
+  set +e
 
   find $rubydir/ -type f -exec chmod go+r {} \;
   find $rubydir/bin -type f -exec chmod go+rx {} \;
@@ -1542,7 +1545,6 @@ preconfigure_jenkins_artifacts()
 
 generate_docs()
 {
-  env
   status_message "Generating documentation"
   cd $MU_LIBDIR/modules && /usr/local/ruby-current/bin/bundle install
   /usr/local/ruby-current/bin/ruby $MU_INSTALLDIR/bin/mu-gen-docs
@@ -1703,6 +1705,8 @@ if [ "$library" != "1" ];then
     knife node run_list add MU-MASTER "role[mu-master-jenkins]"
     chef_client -l info
   fi
+  cd
+  source $MURC
   generate_docs
 
   # Chef's reloads of sshd don't seem to cause it to re-read its config for

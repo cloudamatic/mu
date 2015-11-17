@@ -93,7 +93,6 @@ else
 end
 
 # webserver configuration
-default['nagios']['timezone']      = 'UTC'
 default['nagios']['enable_ssl']    = false
 default['nagios']['http_port']     = node['nagios']['enable_ssl'] ? '443' : '80'
 default['nagios']['server_name']   = node['fqdn']
@@ -130,6 +129,7 @@ end
 
 default['nagios']['check_external_commands']     = true
 default['nagios']['default_contact_groups']      = %w(admins)
+default['nagios']['default_user_name']           = nil
 default['nagios']['sysadmin_email']              = 'root@localhost'
 default['nagios']['sysadmin_sms_email']          = 'root@localhost'
 default['nagios']['server_auth_method']          = 'htauth'
@@ -165,6 +165,11 @@ default['nagios']['ldap_bind_dn']       = nil
 default['nagios']['ldap_bind_password'] = nil
 default['nagios']['ldap_url']           = nil
 default['nagios']['ldap_authoritative'] = nil
+default['nagios']['ldap_group_attribute'] = nil
+default['nagios']['ldap_group_attribute_is_dn'] = nil
+default['nagios']['ldap_verify_cert'] = nil
+default['nagios']['ldap_trusted_mode'] = nil
+default['nagios']['ldap_trusted_global_cert'] = nil
 
 default['nagios']['templates'] = Mash.new
 

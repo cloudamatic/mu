@@ -72,6 +72,8 @@ case node.platform
     # has been added to the security realm
     uidsearch = "uid={0}"
     uidsearch = "sAMAccountName={0}" if $MU_CFG['ldap']['type'] == "Active Directory"
+    membersearch = "(| (member={0}) (uniqueMember={0}) (memberUid={1}))"
+    membersearch = "memberUid={0}" if $MU_CFG['ldap']['type'] == "389 Directory Services"
     bind_creds = chef_vault_item($MU_CFG['ldap']['bind_creds']['vault'], $MU_CFG['ldap']['bind_creds']['item'])
     jenkins_script 'configure_jenkins_auth' do
       command <<-EOH.gsub(/^ {4}/, '')
@@ -80,14 +82,8 @@ case node.platform
       import org.jenkinsci.plugins.*
       def instance = Jenkins.getInstance()
       def hudsonRealm = new HudsonPrivateSecurityRealm(false)
-      String server = 'ldap://#{$MU_CFG['ldap']['dcs'].first}'
-      String rootDN = '#{$MU_CFG['ldap']['base_dn']}'
-      String userSearchBase = '#{$MU_CFG['ldap']['user_ou'].sub(/,.*/, "")}'
-      String userSearch = '#{uidsearch}'
-      String groupSearchBase = '#{$MU_CFG['ldap']['group_ou'].sub(/,.*/, "")}'
-      String managerDN = '#{bind_creds[$MU_CFG['ldap']['bind_creds']['username_field']]}'
-      String managerPassword = '#{bind_creds[$MU_CFG['ldap']['bind_creds']['password_field']]}'
-      SecurityRealm ldapRealm = new LDAPSecurityRealm(server, rootDN, userSearchBase, userSearch, groupSearchBase, managerDN, managerPassword, false)
+      String groupSearchFilter = 'memberUid={0}'
+      SecurityRealm ldapRealm = new LDAPSecurityRealm(server='ldap://#{$MU_CFG['ldap']['dcs'].first}', rootDN = '#{$MU_CFG['ldap']['base_dn']}', userSearchBase='#{$MU_CFG['ldap']['user_ou'].sub(/,.*/, "")}', userSearch="#{uidsearch}", groupSearchBase='#{$MU_CFG['ldap']['group_ou'].sub(/,.*/, "")}', groupSearchFilter="", groupMembershipFilter = '#{membersearch}', managerDN = '#{bind_creds[$MU_CFG['ldap']['bind_creds']['username_field']]}', managerPasswordSecret = '#{bind_creds[$MU_CFG['ldap']['bind_creds']['password_field']]}', inhibitInferRootDN = false, disableMailAddressResolver = false, cache = null)
       instance.setSecurityRealm(ldapRealm)
       def strategy = new ProjectMatrixAuthorizationStrategy()
       strategy.add(Jenkins.ADMINISTER, "#{$MU_CFG['ldap']['admin_group_name']}")
