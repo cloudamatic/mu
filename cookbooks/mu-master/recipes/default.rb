@@ -44,6 +44,19 @@ if $MU_CFG.has_key?('ldap')
     end
     package "oddjob-mkhomedir"
     execute "restorecon -r /usr/sbin"
+
+    # SELinux Policy for oddjobd and its interaction with syslogd
+    cookbook_file "syslogd_oddjobd.pp" do
+      path "#{Chef::Config[:file_cache_path]}/syslogd_oddjobd.pp"
+    end
+
+    execute "Add oddjobd and syslogd interaction to SELinux allow list" do
+      command "/usr/sbin/semodule -i syslogd_oddjobd.pp"
+      cwd Chef::Config[:file_cache_path]
+      not_if "/usr/sbin/semodule -l | grep syslogd_oddjobd"
+      notifies :reload, "service[oddjobd]", :delayed
+    end
+
     service "oddjobd" do
       start_command "sh -x /etc/init.d/oddjobd start" # seems to actually work
       action [:enable, :start]
