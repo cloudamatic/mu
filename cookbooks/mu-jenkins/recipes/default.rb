@@ -114,7 +114,7 @@ case node.platform
 
       # XXX This is dangerous. What if we stupidly step on the account of a
       # "real" user?
-      MU::Master::LDAP.manageUser(user[:user_name], name: user[:fullname], password: MU.generateWindowsPassword, admin: false, email: user[:email])
+      MU::Master::LDAP.manageUser(user[:user_name], name: user[:fullname], password: user_vault[user[:user_name]+"_password"], admin: false, email: user[:email])
       jenkins_user user[:user_name] do
         full_name user[:fullname]
         email user[:email]
