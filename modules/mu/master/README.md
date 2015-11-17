@@ -19,7 +19,7 @@ Users (**inetorgperson**) are in `OU=Users,OU=Mu,DC=platform-mu`:
 - `mail`: email address
 - `userPassword`: password (write-only)
 
-Groups (posixGroup) are in `OU=Groups,OU=Mu,DC=platform-mu`:
+Groups (**posixGroup**) are in `OU=Groups,OU=Mu,DC=platform-mu`:
 - `cn`: group name
 - `description`: Human-friendly descriptive string
 - `gidNumber`: Numeric POSIX gid
