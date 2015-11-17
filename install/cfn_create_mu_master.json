@@ -772,7 +772,7 @@
                 "owner": "root",
                 "group": "root"
               },
-              "/root/.ssh/config": {
+              "/tmp/tmp_ssh_config": {
                 "content": {
                   "Fn::Join": [
                     "",
@@ -783,7 +783,10 @@
                       "  StrictHostKeyChecking no\n"
                     ]
                   ]
-                }
+                },
+                "mode": "000600",
+                "owner": "root",
+                "group": "root"
               },
               "/opt/mu/etc/mu.rc": {
                 "content": {
@@ -861,7 +864,13 @@
               }
             },
             "commands": {
-              "1_install_mu": {
+              "1_write_first_ssh_config": {
+                  "command": "mv /tmp/tmp_ssh_config /root/.ssh/config",
+                  "cwd": "/root",
+                  "test": "test ! -e ~/.ssh/config",
+                  "ignoreErrors": "false"
+              },
+              "2_install_mu": {
                 "command": {
                   "Fn::Join": [
                     "",
