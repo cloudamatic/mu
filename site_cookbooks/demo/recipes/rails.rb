@@ -16,7 +16,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-packages = %w(sqlite3 libsqlite3-dev libmysqlclient-dev software-properties-common libxml2-dev libxslt-dev libmagickwand-dev)
+include_recipe 'chef-vault'
+packages = %w(sqlite3 libsqlite3-dev libmysqlclient-dev software-properties-common libxml2-dev libxslt-dev libmagickwand-dev make build-essential g++)
 
 package packages
 
@@ -47,13 +48,13 @@ unicorn_log_dir = '/var/log/unicorn'
 unicorn_log = "#{unicorn_log_dir}/unicorn.log"
 unicorn_error_log = "#{unicorn_log_dir}/error.log"
 
-# RDS cofig
-db_name = node.deployment.databases.concerto.db_name
-db_username = node.deployment.databases.concerto.username
-db_password = node.deployment.databases.concerto.password
-db_host = node.deployment.databases.concerto.endpoint
-db_port = node.deployment.databases.concerto.port
-
+# RDS config
+db = node.deployment.databases.concerto.first.last
+db_name = db.db_name
+db_username = db.username
+db_host = db.endpoint
+db_port = db.port
+db_password = chef_vault_item(db.vault_name, db.vault_item)[db.password_field]
 node.set['nginx']['default_root'] = "#{application_dir}/"
 
 package %w(ruby2.2 ruby2.2-dev)
@@ -138,7 +139,7 @@ execute 'bundle install' do
   command "#{application_dir}/rails/bin/bundle install --path vendor/bundle"
 end
 
-execute 'mirgate databvase' do
+execute 'migrate database' do
   cwd "#{application_dir}/rails"
   command "/usr/local/bin/bundle exec rake db:migrate"
 end
