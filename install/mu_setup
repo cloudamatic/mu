@@ -1559,7 +1559,8 @@ generate_ssl_certs()
   if [ -f Mu_CA.pem ];then
     # Force us to clean up crusty old certs that we generated badly
     if ! ( /usr/bin/openssl x509 -in $MU_DATADIR/ssl/Mu_CA.pem -text -noout | grep "Subject: CN=$CHEF_PUBLIC_IP, OU=Mu Server $CHEF_PUBLIC_IP," > /dev/null );then
-      status_message "Forcing regeneration of Mu's self-signed SSL certificate authority"
+      /usr/bin/openssl x509 -in $MU_DATADIR/ssl/Mu_CA.pem -text -noout | grep "Subject: "
+      status_message "Forcing regeneration of Mu's self-signed SSL certificate authority (didn't see ${BOLD}Subject: CN=$CHEF_PUBLIC_IP, OU=Mu Server $CHEF_PUBLIC_IP,${NORM})"
       /usr/bin/openssl x509 -in $MU_DATADIR/ssl/Mu_CA.pem -text -noout | grep "Subject: " 
       /bin/rm -f Mu_CA.*
     fi
@@ -1587,8 +1588,9 @@ generate_ssl_certs()
   # XXX should use set_serial option and maniuplate "serial"
   for cert in rsyslog mommacat ldap;do
     if [ -f $cert.crt ];then
-      # Force us to clean up crusty old certs that we generated badly
-      if ! ( grep "BEGIN CERTIFICATE" $MU_DATADIR/ssl/$cert.crt | wc -l | grep '^1$' > /dev/null );then
+      # Force us to clean up crusty old certs that we generated badly,
+      # making sure the CA cert is bundled while we're at it.
+      if ! ( grep "BEGIN CERTIFICATE" $MU_DATADIR/ssl/$cert.crt | wc -l | grep '^2$' > /dev/null );then
         status_message "Forcing regeneration of $MU_DATADIR/ssl/$cert.crt"
         /bin/rm -f $cert.crt
       fi

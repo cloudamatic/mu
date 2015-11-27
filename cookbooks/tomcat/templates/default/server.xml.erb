@@ -24,7 +24,7 @@
      Documentation at /docs/config/server.html
  -->
 <Server port="<%= @shutdown_port %>" shutdown="SHUTDOWN">
-<% unless node.platform_family?("rhel") and node['platform_version'].to_i == 7 and node['tomcat']['install_method'] == 'package' %>
+<% if node['tomcat']['install_method'] == 'archive' %>
   <Listener className="org.apache.catalina.startup.VersionLoggerListener" />
 <% end %>
   <!-- Security listener. Documentation at /docs/config/listeners.html

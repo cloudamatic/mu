@@ -427,7 +427,7 @@ module MU
           vpc_id = subnet = nil
           if !@vpc.nil? and @config.has_key?("vpc")
             subnet_conf = @config['vpc']
-            subnet_conf = @config['vpc']['subnets'].first if @config['vpc'].has_key?("subnets")
+            subnet_conf = @config['vpc']['subnets'].first if @config['vpc'].has_key?("subnets") and !@config['vpc']['subnets'].empty?
             tag_key, tag_value = subnet_conf['tag'].split(/=/, 2) if !subnet_conf['tag'].nil?
 
             subnet = @vpc.getSubnet(
