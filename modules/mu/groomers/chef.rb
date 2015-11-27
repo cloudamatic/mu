@@ -530,7 +530,10 @@ module MU
           end
         end
 
-        deleteSecret(vault: node) if !noop
+        begin
+          deleteSecret(vault: node) if !noop
+        rescue MuNoSuchSecret
+        end
         ["crt", "key", "csr"].each { |ext|
           if File.exists?("#{MU.mySSLDir}/#{node}.#{ext}")
             MU.log "Removing #{MU.mySSLDir}/#{node}.#{ext}"
