@@ -16,6 +16,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+include_recipe "nagios::server_source"
+include_recipe "nagios"
+
 if $MU_CFG.has_key?('ldap')
   include_recipe 'chef-vault'
   bind_creds = chef_vault_item($MU_CFG['ldap']['bind_creds']['vault'], $MU_CFG['ldap']['bind_creds']['item'])
