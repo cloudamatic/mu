@@ -121,7 +121,7 @@ GRAPH
   cpan (0.0.34)
   database (4.0.9)
     postgresql (>= 1.0.0)
-  demo (0.2.3)
+  demo (0.3.0)
     application (>= 0.0.0)
     application_python (>= 0.0.0)
     application_ruby (>= 0.0.0)

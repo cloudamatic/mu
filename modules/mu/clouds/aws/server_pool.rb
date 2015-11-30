@@ -149,10 +149,6 @@ module MU
             @config['iam_role'] = launch_options[:iam_instance_profile]
             MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'])
 
-            if !@config["vpc_zone_identifier"].nil? or !@config["vpc"].nil?
-              launch_options[:associate_public_ip_address] = @config["associate_public_ip"]
-            end
-
             instance_secret = Password.random(50)
             @deploy.saveNodeSecret("default", instance_secret, "instance_secret")
 
@@ -194,10 +190,20 @@ module MU
             asg_options[:vpc_zone_identifier] = @config["vpc_zone_identifier"]
           elsif @config["vpc"]
             subnet_ids = []
-            @config["vpc"]["subnets"].each { |subnet|
-              subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
-              subnet_ids << subnet_obj.cloud_id
-            }
+            if !@config["vpc"]["subnets"].nil? and @config["vpc"]["subnets"].size > 0
+              @config["vpc"]["subnets"].each { |subnet|
+                subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
+                subnet_ids << subnet_obj.cloud_id
+              }
+            else
+              @vpc.subnets.each { |subnet_obj|
+              puts subnet_obj
+              puts subnet_obj.private?
+                next if subnet_obj.private? and ["all_public", "public"].include?(@config["vpc"]["subnet_pref"])
+                next if !subnet_obj.private? and ["all_private", "private"].include?(@config["vpc"]["subnet_pref"])
+                subnet_ids << subnet_obj.cloud_id
+              }
+            end
             asg_options[:vpc_zone_identifier] = subnet_ids.join(",")
           end
 
@@ -230,10 +236,16 @@ module MU
             end
             asg_options[:launch_configuration_name] = @mu_name
           end
+          if !asg_options[:vpc_zone_identifier].nil? and asg_options[:vpc_zone_identifier].empty?
+            asg_options.delete(:vpc_zone_identifier)
+          end
+          if !asg_options[:vpc_zone_identifier].nil?# or !@config["vpc"].nil?
+            launch_options[:associate_public_ip_address] = @config["associate_public_ip"]
+          end
 
           # Do the dance of specifying individual zones if we haven't asked to
           # use particular VPC subnets.
-          if @config['zones'] == nil and asg_options[:vpc_zone_identifier] == nil
+          if @config['zones'].nil? and asg_options[:vpc_zone_identifier].nil?
             @config["zones"] = MU::Cloud::AWS.listAZs(@config['region'])
             MU.log "Using zones from #{@config['region']}", MU::DEBUG, details: @config['zones']
           end
@@ -250,6 +262,7 @@ module MU
               asg_options[:availability_zones] = [zones_to_try.pop]
               retry
             else
+              MU.log e.message, MU::ERR, details: asg_options
               raise MuError, "#{e.message} creating AutoScale group #{@mu_name}"
             end
           end

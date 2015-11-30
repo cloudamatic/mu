@@ -1214,6 +1214,11 @@ module MU
             resp = MU::Cloud::AWS.ec2(@config['region']).describe_route_tables(
                 filters: [{name: "association.subnet-id", values: [@cloud_id]}]
             )
+            if resp.route_tables.size == 0 # use default route table for the VPC
+              resp = MU::Cloud::AWS.ec2(@config['region']).describe_route_tables(
+                 filters: [{name: "vpc-id", values: [@parent.cloud_id]}]
+              )
+            end
             resp.route_tables.each { |route_table|
               route_table.routes.each { |route|
                 if route.destination_cidr_block =="0.0.0.0/0" and route.state != "blackhole"
@@ -1234,11 +1239,16 @@ module MU
             resp = MU::Cloud::AWS.ec2(@config['region']).describe_route_tables(
                 filters: [{name: "association.subnet-id", values: [@cloud_id]}]
             )
+            if resp.route_tables.size == 0 # use default route table for the VPC
+              resp = MU::Cloud::AWS.ec2(@config['region']).describe_route_tables(
+                 filters: [{name: "vpc-id", values: [@parent.cloud_id]}]
+              )
+            end
             resp.route_tables.each { |route_table|
               route_table.routes.each { |route|
                 if route.destination_cidr_block == "0.0.0.0/0"
-                  return true if !route.instance_id.nil?
                   return false if !route.gateway_id.nil?
+                  return true if !route.instance_id.nil?
                 end
               }
             }
