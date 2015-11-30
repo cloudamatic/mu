@@ -1710,7 +1710,11 @@ MESSAGE_END
         File.rename("#{@nagios_home}/.ssh/config.tmp", "#{@nagios_home}/.ssh/config")
 
         MU.log "Updating Nagios monitoring config, this may take a while..."
-        system("#{MU::Groomer::Chef.chefclient} -o 'recipe[mu-master::update_nagios_only]' 2>&1 > /dev/null")
+        if !$MU_CFG['master_runlist_extras'].nil?
+          system("#{MU::Groomer::Chef.chefclient} -o 'recipe[mu-master::update_nagios_only],#{$MU_CFG['master_runlist_extras'].join(",")}' 2>&1 > /dev/null")
+        else
+          system("#{MU::Groomer::Chef.chefclient} -o 'recipe[mu-master::update_nagios_only]}' 2>&1 > /dev/null")
+        end
         MU.log "Nagios monitoring config update complete."
       }
 
