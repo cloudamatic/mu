@@ -184,6 +184,21 @@ export TMOUT
     service "sshd" do
       action [:enable, :start]
     end
+
+    # Make sure we don't lock ourselves out of nodes when setting AllowGroups
+    # in sshd.
+    if !node.application_attributes.sshd_allow_groups.empty?
+      group "mu_sshd_system_login"
+      ['root', 'centos', 'ec2-user'].each { |sys_login|
+        group "mu_sshd_system_login" do
+          members sys_login
+          append true
+          ignore_failure true
+        end
+      }
+      node.override.application_attributes.sshd_allow_groups = "mu_sshd_system_login "+node.application_attributes.sshd_allow_groups
+    end rescue NoMethodError
+
     template "/etc/ssh/sshd_config" do
       source "sshd_config.erb"
       owner "root"
@@ -400,6 +415,20 @@ export TMOUT
     end rescue NoMethodError
 
   when "ubuntu"
+    # Make sure we don't lock ourselves out of nodes when setting AllowGroups
+    # in sshd.
+    if !node.application_attributes.sshd_allow_groups.empty?
+      group "mu_sshd_system_login"
+      ['root', 'ubuntu'].each { |sys_login|
+        group "mu_sshd_system_login" do
+          members sys_login
+          append true
+          ignore_failure true
+        end
+      }
+      node.override.application_attributes.sshd_allow_groups = "mu_sshd_system_login "+node.application_attributes.sshd_allow_groups
+    end rescue NoMethodError
+
     template "/etc/ssh/sshd_config" do
       source "sshd_config.erb"
       owner "root"

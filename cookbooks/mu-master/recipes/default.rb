@@ -140,8 +140,6 @@ execute "remove old Nagios binary" do
   command "rm -f /usr/sbin/nagios"
   not_if "/usr/sbin/nagios -V | grep 'Nagios Core #{node.nagios.server.version}'"
 end
-include_recipe "nagios::server_source"
-include_recipe "nagios"
 include_recipe "mu-master::update_nagios_only"
 package "nagios-plugins-all"
 

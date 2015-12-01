@@ -1427,9 +1427,9 @@ module MU
           }
           if ip != nil
             if !classic
-              raise MuError, "Requested EIP #{ip}, but no such IP exists in VPC domain"
+              raise MuError, "Requested EIP #{ip}, but no such IP exists or is avaulable in VPC"
             else
-              raise MuError, "Requested EIP #{ip}, but no such IP exists in Classic domain"
+              raise MuError, "Requested EIP #{ip}, but no such IP exists or is available in EC2 Classic"
             end
           end
           if !classic

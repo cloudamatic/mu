@@ -222,7 +222,8 @@ module MU
             knife_db.run
           }
         rescue Net::HTTPServerException => e
-          raise MuNoSuchSecret, "Tried to delete vault #{vault} but got #{e.inspect}, giving up"
+          # We don't want to raise an error here. As an example we might be cleaning up a dead node in a server pool and this will then fail for no god reasons.
+          MU.log "Tried to delete vault #{vault} but got #{e.inspect}, giving up", MU::ERR
         end
       end
 
@@ -530,7 +531,10 @@ module MU
           end
         end
 
-        deleteSecret(vault: node) if !noop
+        begin
+          deleteSecret(vault: node) if !noop
+        rescue MuNoSuchSecret
+        end
         ["crt", "key", "csr"].each { |ext|
           if File.exists?("#{MU.mySSLDir}/#{node}.#{ext}")
             MU.log "Removing #{MU.mySSLDir}/#{node}.#{ext}"
@@ -645,12 +649,15 @@ module MU
         chef_node.save
 
         # If we have a database make sure we grant access to that vault.
-        deploy = MU::MommaCat.getLitter(MU.deploy_id)
-        if deploy.deployment.has_key?("databases")
-          deploy.deployment["databases"].each { |node_class, data|
-            data.each{ |name, database|
-              grantSecretAccess(database['vault_name'], database['vault_item']) if database.has_key?("vault_name") && database.has_key?("vault_item")
-            }
+        # In some cases the cached getLitter response will not have all the resources in the deploy, so lets not use the cache.
+        if @config.has_key?('dependencies')
+          deploy = MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
+          @config['dependencies'].each{ |dep|
+            if dep['type'] == "database" && deploy.deployment.has_key?("databases")
+                deploy.deployment["databases"][dep['name']].each { |name, database|
+                grantSecretAccess(database['vault_name'], database['vault_item']) if database.has_key?("vault_name") && database.has_key?("vault_item")
+              }
+            end
           }
         end
 

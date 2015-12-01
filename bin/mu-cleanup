@@ -16,6 +16,9 @@
 
 require File.expand_path(File.dirname(__FILE__))+"/mu-load-murc.rb"
 
+require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
+# now we have our global config available as the read-only hash $MU_CFG
+
 require 'rubygems'
 require 'bundler/setup'
 require 'trollop'
