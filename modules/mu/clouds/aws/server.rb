@@ -98,7 +98,7 @@ module MU
           if !mu_name.nil?
             @mu_name = mu_name
             @config['mu_name'] = @mu_name
-            describe
+            # describe
             @mu_windows_name = @deploydata['mu_windows_name'] if @mu_windows_name.nil? and @deploydata
           else
             if kitten_cfg.has_key?("basis")
@@ -643,7 +643,7 @@ module MU
           # Unless we're planning on associating a different IP later, set up a
           # DNS entry for this thing and let it sync in the background. We'll come
           # back to it later.
-          if @config['static_ip'].nil?
+          if @config['static_ip'].nil? && !@named
             MU::MommaCat.nameKitten(self)
             @named = true
           end
@@ -878,7 +878,10 @@ module MU
           @groomer.bootstrap
 
           # Make sure we got our name written everywhere applicable
-          MU::MommaCat.nameKitten(self)
+          if !@named
+            MU::MommaCat.nameKitten(self)
+            @named = true
+          end
 
           MU::MommaCat.unlock(instance.instance_id+"-groom")
           MU::MommaCat.unlock(instance.instance_id+"-orchestrate")
@@ -1171,24 +1174,30 @@ module MU
         # bastion hosts that may be in the path, see getSSHConfig if that's what
         # you need.
         def canonicalIP
-          mu_name, config, deploydata = describe
+          mu_name, config, deploydata = describe(cloud_id: @cloud_id)
 
+          instance = cloud_desc
           if deploydata.nil? or
               (!deploydata.has_key?("private_ip_address") and
                   !deploydata.has_key?("public_ip_address"))
-            instance = cloud_desc
             return nil if instance.nil?
             @deploydata = {} if @deploydata.nil?
             @deploydata["public_ip_address"] = instance.public_ip_address
             @deploydata["private_ip_address"] = instance.private_ip_address
             notify
           end
+
+          # Our deploydata gets corrupted often with server pools, this will cause us to use the wrong IP to identify a node
+          # which will cause us to create certificates, DNS records and other artifacts with incorrect information which will cause our deploy to fail.
+          # The cloud_id is always correct so lets use 'cloud_desc' to get the correct IPs
           if MU::Cloud::AWS::VPC.haveRouteToInstance?(cloud_desc, region: @config['region']) or @deploydata["public_ip_address"].nil?
-            @config['canonical_ip'] = @deploydata["private_ip_address"]
-            return @deploydata["private_ip_address"]
+            @config['canonical_ip'] = instance.private_ip_address
+            @deploydata["private_ip_address"] = instance.private_ip_address
+            return instance.private_ip_address
           else
-            @config['canonical_ip'] = @deploydata["public_ip_address"]
-            return @deploydata["public_ip_address"]
+            @config['canonical_ip'] = instance.public_ip_address
+            @deploydata["public_ip_address"] = instance.public_ip_address
+            return instance.public_ip_address
           end
         end
 
