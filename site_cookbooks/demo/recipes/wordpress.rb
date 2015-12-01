@@ -6,6 +6,7 @@
 #
 # All rights reserved - Do Not Redistribute
 #
+include_recipe 'chef-vault'
 include_recipe "apache2::mod_proxy"
 include_recipe "apache2::mod_proxy_http"
 include_recipe "apache2::mod_expires"
@@ -15,22 +16,19 @@ include_recipe "apache2::mod_php5"
 include_recipe "apache2::mod_cgi"
 
 # Fetch important values from node
-$database=node['deployment']['databases']
+$database=node['deployment']['databases'].first.last.first.last
 $loadbalancer=node['deployment']['loadbalancers']
 $lb_url=$loadbalancer['lb']['dns'].downcase
-$db_name="wordpress_db"
-$db_host=$database['db']['endpoint']
-$db_user=$database['db']['username']
-$db_password=$database['db']['password']
-$db_endpoint=$database['db']['endpoint']
+$db_schema_name="wordpress_db"
+$db_user=$database.username
+$db_password=chef_vault_item($database.vault_name, $database.vault_item)[$database.password_field]
+$db_endpoint=$database.endpoint
 $loadbalancer=node['deployment']['loadbalancers']
 $app_url=$loadbalancer['lb']['dns'].downcase
 $title="mu wordpress demo"
 $admin_user="admin"
 $admin_password="admin"
 $admin_email="admin@example.com"
-
-puts $database, $loadbalancer
 
 package "php-mysql"
 package "mysql"
@@ -39,7 +37,7 @@ package "mysql"
 bash "Create mysql database in RDS" do
   user "root"
   code <<-EOH
-		mysql -h #{$db_host} -u #{$db_user} -p#{$db_password} -e "CREATE DATABASE IF NOT EXISTS #{$db_name};"
+                mysql -h #{$db_endpoint} -u #{$db_user} -p#{$db_password} -e "CREATE DATABASE IF NOT EXISTS #{$db_schema_name};"
   EOH
 end
 
@@ -51,8 +49,8 @@ link "/etc/httpd/mods-enabled/ext_filter.load" do
 end
 =begin
 cookbook_file "/etc/fema_banner.html" do
-	source "fema_banner.html"
-	mode "0644"
+        source "fema_banner.html"
+        mode "0644"
 end
 =end
 
@@ -97,9 +95,9 @@ end
     user "root"
     not_if "/sbin/iptables -nL | egrep '^ACCEPT.*dpt:#{port}($| )'"
     code <<-EOH
-		  iptables -I INPUT -p tcp --dport #{port} -j ACCEPT
-	    service iptables save
-	    service iptables restart
+                  iptables -I INPUT -p tcp --dport #{port} -j ACCEPT
+            service iptables save
+            service iptables restart
     EOH
   end
 }
@@ -110,7 +108,7 @@ end
 template "/var/www/html/wp-config.php" do
   source "wp-config.php.erb"
   variables(
-      :dbname => $db_name,
+      :dbname => $db_schema_name,
       :dbuser => $db_user,
       :dbpass => $db_password,
       :dbhost => $db_endpoint,
@@ -125,27 +123,27 @@ femadata_cert_auth_info = chef_vault_item("certs", ".femadata.crt")
 femadata_cert_key_auth_info = chef_vault_item("certs", ".femadata.key")
 
 file "/etc/httpd/ssl/femadata.crt" do
-	content femadata_cert_auth_info['file-content']
-	mode 0600
-	sensitive true
-	notifies :reload, "service[apache2]", :delayed
+        content femadata_cert_auth_info['file-content']
+        mode 0600
+        sensitive true
+        notifies :reload, "service[apache2]", :delayed
 end
 file "/etc/httpd/ssl/femadata.key" do
-	content femadata_cert_key_auth_info['file-content']
-	mode 0600
-	sensitive true
-	notifies :reload, "service[apache2]", :delayed
+        content femadata_cert_key_auth_info['file-content']
+        mode 0600
+        sensitive true
+        notifies :reload, "service[apache2]", :delayed
 end
 =end
 web_app "wordpress" do
   server_name "www.cloudamatic.com"
   server_aliases [node.fqdn, node.hostname, node.hostname+".cloudamatic.com", $lb_url]
 =begin
-	if node.deployment.environment == 'dev' or node.deployment.environment == 'development'
-		server_aliases [ node.fqdn, node.hostname, node.hostname+".cloudamatic.com", "www.dev.cloudamatic.com", node.ec2.public_ip_address ]
-	else
-		server_aliases [ node.fqdn, node.hostname, node.hostname+".cloudamatic.com", "cloudamatic.com", node.deployment.loadbalancers.wordpress.dns ]
-	end
+        if node.deployment.environment == 'dev' or node.deployment.environment == 'development'
+                server_aliases [ node.fqdn, node.hostname, node.hostname+".cloudamatic.com", "www.dev.cloudamatic.com", node.ec2.public_ip_address ]
+        else
+                server_aliases [ node.fqdn, node.hostname, node.hostname+".cloudamatic.com", "cloudamatic.com", node.deployment.loadbalancers.wordpress.dns ]
+        end
 =end #cookbook "femadata-mgmt"
   docroot "/var/www/html"
   allow_override "All"
@@ -155,50 +153,50 @@ end
 =begin
 # Parts and pieces for our LIDAR data S3 browser
 remote_file "#{Chef::Config[:file_cache_path]}/ruby-2.1.rpm" do
-	action :create
-	source "https://s3.amazonaws.com/cap-public/ruby212-2.1.2p205-1.el6.x86_64.rpm"
+        action :create
+        source "https://s3.amazonaws.com/cap-public/ruby212-2.1.2p205-1.el6.x86_64.rpm"
 end
 
 execute "fix perms on Ruby" do
-	command "chmod -R 755 /opt/rubies ; chcon -R -h -t httpd_sys_content_t /opt/rubies"
-	action :nothing
+        command "chmod -R 755 /opt/rubies ; chcon -R -h -t httpd_sys_content_t /opt/rubies"
+        action :nothing
 end
 
 rpm_package "Ruby RPM" do
-	source "#{Chef::Config[:file_cache_path]}/ruby-2.1.rpm"
-	notifies :run, "execute[fix perms on Ruby]", :immediately
+        source "#{Chef::Config[:file_cache_path]}/ruby-2.1.rpm"
+        notifies :run, "execute[fix perms on Ruby]", :immediately
 end
 
 gem_package "aws-sdk-core" do
-	gem_binary "/opt/rubies/ruby212-2.1.2-p205/bin/gem"
-	notifies :run, "execute[fix perms on Ruby]", :immediately
+        gem_binary "/opt/rubies/ruby212-2.1.2-p205/bin/gem"
+        notifies :run, "execute[fix perms on Ruby]", :immediately
 end
 
 directory "/var/www/lidar" do
-	mode 0755
+        mode 0755
 end
 execute "chcon -h -t httpd_sys_content_t /var/www/lidar"
 
 cookbook_file "/var/www/lidar/index.rb" do
   source "index.rb"
-	mode 0755
+        mode 0755
 end
 execute "chcon -h -t httpd_sys_content_t /var/www/lidar/index.rb"
 
 
 web_app "lidar" do
-	server_name "lidar.femadata.com"
-	server_aliases [ "www.lidar.femadata.com" ]
-	directory_index [ "index.rb" ]
-	cookbook "femadata-mgmt"
-	docroot "/var/www/lidar"
-	allow_override "All"
-	template "lidar.conf.erb"
-	notifies :reload, "service[apache2]", :delayed
+        server_name "lidar.femadata.com"
+        server_aliases [ "www.lidar.femadata.com" ]
+        directory_index [ "index.rb" ]
+        cookbook "femadata-mgmt"
+        docroot "/var/www/lidar"
+        allow_override "All"
+        template "lidar.conf.erb"
+        notifies :reload, "service[apache2]", :delayed
 end
 
 if node.deployment.environment == 'dev' or node.deployment.environment == 'development'
-	include_recipe "femadata-ad::linux"
+        include_recipe "femadata-ad::linux"
 end
 =end
 
