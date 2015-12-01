@@ -56,7 +56,11 @@ if node.maldet.install == true
     cron "update maldet" do
       minute "#{Random.rand(0...59)}"
       hour "#{Random.rand(0...23)}"
-      command "/usr/local/maldetect/maldet --update; /usr/local/sbin/maldet_scanall.sh"
+      command "/usr/local/maldetect/maldet --update > /dev/null; /usr/local/sbin/maldet_scanall.sh > /dev/null"
     end
+  end
+elsif !platform_family?("windows")
+  cron "update maldet" do
+    action :delete
   end
 end
