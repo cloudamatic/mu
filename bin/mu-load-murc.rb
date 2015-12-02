@@ -24,6 +24,7 @@ def parseRCFile(path)
   if File.readable?(path)
     File.readlines(path).each { |line|
       line.strip!
+      next if !line.match(/^export.*?=/)
       name, value = line.split(/=/, 2)
       name.sub!(/^export /, "")
       if !value.nil? and !value.empty?

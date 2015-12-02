@@ -201,9 +201,9 @@ module MU
 
     # @return [Array<Hash>]: List of all Mu users, with pertinent metadata.
     def self.listUsers
-      if !Dir.exist?($MU_CFG['datadir']+"/users")
-        MU.log "#{$MU_CFG['datadir']}/users doesn't exist", MU::ERR
-        return []
+      if Etc.getpwuid(Process.uid).name != "root" or !Dir.exist?($MU_CFG['datadir']+"/users")
+        MU.log "Running with insufficient permissions or user directory does not exist", MU::ERR
+        return {}
       end
       # LDAP is canonical. Everything else is required to be in sync with it.
       ldap_users = MU::Master::LDAP.listUsers

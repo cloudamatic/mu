@@ -323,10 +323,15 @@ module MU
   MU.setVar("chef_user", chef_user)
   MU.setVar("mu_user", mu_user)
 
+  @userlist = nil
+
   # Fetch the email address of a given Mu user
   def self.userEmail(user = MU.chef_user)
+    @userlist ||= MU::Master.listUsers
     if Dir.exists?("#{MU.mainDataDir}/users/#{user}")
       return File.read("#{MU.mainDataDir}/users/#{user}/email").chomp
+    elsif @userlist.has_key?(user)
+      return @userlist[user]['email']
     else
       MU.log "Attempted to load nonexistent user #{user}", MU::ERR
       return nil
@@ -335,8 +340,11 @@ module MU
 
   # Fetch the real-world name of a given Mu user
   def self.userName(user = MU.chef_user)
+    @userlist ||= MU::Master.listUsers
     if Dir.exists?("#{MU.mainDataDir}/users/#{user}")
       return File.read("#{MU.mainDataDir}/users/#{user}/realname").chomp
+    elsif @userlist.has_key?(user)
+      return @userlist[user]['email']
     else
       MU.log "Attempted to load nonexistent user #{user}", MU::ERR
       return nil
