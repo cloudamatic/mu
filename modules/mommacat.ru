@@ -103,7 +103,7 @@ def genHTMLMessage(title: "", headline: "", msg: "", template: $MU_CFG['html_tem
     "headline" => headline,
     "logo" => logo_url
   }.merge(extra_vars)
-  if File.exist?(template) and File.readable?(template)
+  if !template.nil? and File.exist?(template) and File.readable?(template)
     page = Erubis::Eruby.new(File.read(template)).result(vars)
   elsif $MU_CFG.has_key?('html_template') and
      File.exist?($MU_CFG['html_template']) and
