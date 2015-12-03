@@ -1,6 +1,15 @@
 #!/usr/local/ruby-current/bin/ruby
 
 require 'thread'
+require 'trollop'
+
+$opts = Trollop::options do
+  banner <<-EOS
+Usage:
+#{$0} [-s <skip_az>]  
+  EOS
+  opt :skip_az, "skip an availability zone", :require => false, :type => :string
+end
 
 def test(file)
   bok = "/opt/mu/lib/demo/#{file}"
@@ -8,11 +17,16 @@ def test(file)
   output = "~/#{filename}.out"
 
   puts "deploying #{bok} and outputing to #{output}"
-  `/opt/mu/bin/mu-deploy #{bok} > #{output}`
+  cmd="/opt/mu/bin/mu-deploy #{bok}"
+  if $opts[:skip_az]
+    cmd+= " -p azskip=#{$opts[:skip_az]}"
+  end
+  
+  `#{cmd} > #{output}`
   status = $?.to_i
 
   message = "error deploying #{bok}. See #{output} for details" unless status == 0
-  message ||= "Deployment of #{bok} was sucessfull"
+  message ||= "Deployment of #{bok} was sucessful"
   puts message
 
   status
