@@ -1128,19 +1128,25 @@ module MU
 
           if !@config['create_image'].nil? and !@config['image_created']
             img_cfg = @config['create_image']
+            # Scrub things that don't belong on an AMI
+            session = getSSHSession
+            sudo = purgecmd = ""
+            sudo = "sudo" if @config['ssh_user'] != "root"
+            if windows?
+              purgecmd = "rm -rf /cygdrive/c/mu_installed_chef"
+            else
+              purgecmd = "rm -rf /opt/mu_installed_chef"
+            end
             if img_cfg['image_then_destroy']
-              # Scrub things that don't belong on an AMI
-              session = getSSHSession
               if windows?
-                session.exec!("rm -rf /cygdrive/c/chef/ /home/#{@config['windows_admin_username']}/.ssh/authorized_keys /home/Administrator/.ssh/authorized_keys /cygdrive/c/mu-installer-ran-updates")
+                purgecmd = "rm -rf /cygdrive/c/chef/ /home/#{@config['windows_admin_username']}/.ssh/authorized_keys /home/Administrator/.ssh/authorized_keys /cygdrive/c/mu-installer-ran-updates /cygdrive/c/mu_installed_chef"
                 # session.exec!("powershell -Command \"& {(Get-WmiObject -Class Win32_Product -Filter \"Name='UniversalForwarder'\").Uninstall()}\"")
               else
-                sudo = ""
-                sudo = "sudo" if @config['ssh_user'] != "root"
-                session.exec!("#{sudo} rm -rf /root/.ssh/authorized_keys /etc/ssh/ssh_host_*key* /etc/chef /etc/opscode/* /.mu-installer-ran-updates /var/chef /opt/mu_installed_chef /opt/chef ; #{sudo} sed -i 's/^HOSTNAME=.*//' /etc/sysconfig/network")
+                purgecmd = "#{sudo} rm -rf /root/.ssh/authorized_keys /etc/ssh/ssh_host_*key* /etc/chef /etc/opscode/* /.mu-installer-ran-updates /var/chef /opt/mu_installed_chef /opt/chef ; #{sudo} sed -i 's/^HOSTNAME=.*//' /etc/sysconfig/network"
               end
-              session.close
             end
+            session.exec!(purgecmd)
+            session.close
             ami_id = MU::Cloud::AWS::Server.createImage(
                 name: @mu_name,
                 instance_id: @cloud_id,
