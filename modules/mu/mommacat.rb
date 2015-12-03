@@ -641,6 +641,19 @@ module MU
         @original_config[type+"s"].each { |svr|
           if svr['name'] == name
             svr["instance_id"] = cloud_id
+
+            # This will almost always be true in server pools, but lets be safe. Somewhat problematic because we are only
+            # looking at deploy_id, but we still know this is our DNS record and not a custom one.
+            if svr['dns_records'] && !svr['dns_records'].empty?
+              svr['dns_records'].each { |dnsrec|
+                if dnsrec.has_key?("name") && dnsrec['name'].start_with?(MU.deploy_id.downcase)
+                  MU.log "DNS record for #{MU.deploy_id.downcase}, #{name} is probably wrong, deleting", MU::WARN, details: dnsrec
+                  dnsrec.delete('name')
+                  dnsrec.delete('target')
+                end
+              }
+            end
+
             kitten = MU::Cloud::Server.new(mommacat: self, kitten_cfg: svr, cloud_id: cloud_id)
             mu_name = kitten.mu_name if mu_name.nil?
             MU.log "Grooming #{mu_name} for the first time", details: svr
@@ -890,7 +903,6 @@ module MU
     # Iterate over all known deployments and look for instances that have been
     # terminated, but not yet cleaned up, then clean them up.
     def self.cleanTerminatedInstances
-
       MU.log "Checking for harvested instances in need of cleanup", MU::DEBUG
       parent_thread_id = Thread.current.object_id
       cleanup_threads = []
@@ -900,7 +912,8 @@ module MU
         MU.log "Checking for dead wood in #{deploy_id}", MU::DEBUG
         cleanup_threads << Thread.new {
           MU.dupGlobals(parent_thread_id)
-          deploy = MU::MommaCat.getLitter(deploy_id, set_context_to_me: true)
+          # We can't use cached litter information because we will then try to delete the same node over and over again until we restart the service
+          deploy = MU::MommaCat.getLitter(deploy_id, set_context_to_me: true, use_cache: false)
           purged_this_deploy = 0
           if deploy.kittens.has_key?("servers")
             deploy.kittens["servers"].each_pair { |nodeclass, servers|
@@ -1372,8 +1385,10 @@ module MU
       if config && config['dns_records'] && !config['dns_records'].empty?
         dnscfg = config['dns_records'].dup
         dnscfg.each { |dnsrec|
-          dnsrec['name'] = node.downcase if !dnsrec.has_key?('name')
-          dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
+          if !dnsrec.has_key?('name')
+            dnsrec['name'] = node.downcase
+            dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
+          end
 
           if !dnsrec.has_key?("target")
             # Default to register public endpoint
@@ -1673,7 +1688,8 @@ MESSAGE_END
         parent_thread_id = Thread.current.object_id
         MU::MommaCat.listDeploys.sort.each { |deploy_id|
           begin
-            deploy = MU::MommaCat.getLitter(deploy_id)
+            # We don't want to use cached litter information here because this is also called by cleanTerminatedInstances.
+            deploy = MU::MommaCat.getLitter(deploy_id, use_cache: false)
             if deploy.ssh_key_name.nil? or deploy.ssh_key_name.empty?
               MU.log "Failed to extract ssh key name from #{deploy_id} in syncMonitoringConfig", MU::ERR
               next
@@ -1881,7 +1897,15 @@ MESSAGE_END
           servers.each_pair { |mu_name, node|
             next if !triggering_node.nil? and mu_name == triggering_node.mu_name
             if nodeclasses.include?(node.config['name']) and !node.groomer.nil?
-              update_servers << node
+              if !node.deploydata.keys.include?('nodename')
+                # Our deploydata gets corrupted often with server pools, in this case the the deploy data structure of some nodes is corrupt the hashes can become too nested and also invalid.
+                # When we try to synchronize all our nodes we may get a 'stack level too deep' error.
+                # The choice here is to either fail more gracefully or try to clean up our deployment data. This is an attempt to implement the second option
+                MU.log "#{nodeclass}, #{mu_name} deploy data is corrupt not syncing", MU::ERR, details: node.deploydata
+                @kittens[svrs][nodeclass].delete(mu_name)
+              else
+                update_servers << node
+              end
             end
           }
         }
@@ -1897,7 +1921,7 @@ MESSAGE_END
         @deployment[svrs][sibling.config['name']][sibling.mu_name] = sibling.deploydata
       }
 
-      return if update_servers.size < 2
+      return if update_servers.size < 1
       threads = []
       parent_thread_id = Thread.current.object_id
       # XXX apparently we teeter dangerously close to outrunning the system call stack

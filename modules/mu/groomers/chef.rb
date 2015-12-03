@@ -489,9 +489,31 @@ module MU
         begin
           chef_node = ::Chef::Node.load(@server.mu_name)
 
+          # Our deploydata gets corrupted often with server pools, in this case the the deploy data structure of some nodes is corrupt the hashes can become too nested and also invalid.
+          # When we try to merge this invalid structure with our chef node structure we get a 'stack level too deep' error.
+          # The choice here is to either fail more gracefully or try to clean up our deployment data. This is an attempt to implement the second option
+          nodes_to_delete = []
+          node_class = nil
+          if @server.deploy.deployment.has_key?('servers')
+            @server.deploy.deployment['servers'].each_pair { |nodeclass, server_struct|
+              node_class = nodeclass
+              server_struct.each_pair { |name, server|
+                if server.is_a?(Hash) && !server.has_key?('nodename')
+                  MU.log "#{name} deploy data is corrupt, trying to delete section before merging deployment metadata", MU::ERR, details: server
+                  nodes_to_delete << name
+                end
+              }
+            }
+          end
+
+          if !nodes_to_delete.empty?
+            nodes_to_delete.each { |name|
+              @server.deploy.deployment['servers'][node_class].delete(name)
+            }
+          end
+
           MU.log "Updating node: #{@server.mu_name} deployment attributes", details: @server.deploy.deployment
           chef_node.normal.deployment.merge!(@server.deploy.deployment)
-
           chef_node.save
           return chef_node.deployment
         rescue Net::HTTPServerException => e
