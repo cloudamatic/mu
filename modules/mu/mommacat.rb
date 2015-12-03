@@ -641,6 +641,19 @@ module MU
         @original_config[type+"s"].each { |svr|
           if svr['name'] == name
             svr["instance_id"] = cloud_id
+
+            # This will almost always be true in server pools, but lets be safe. Somewhat problematic because we are only
+            # looking at deploy_id, but we still know this is our DNS record and not a custom one.
+            if svr['dns_records'] && !svr['dns_records'].empty?
+              svr['dns_records'].each { |dnsrec|
+                if dnsrec.has_key?("name") && dnsrec['name'].start_with?(MU.deploy_id.downcase)
+                  MU.log "DNS record for #{MU.deploy_id.downcase}, #{name} is probably wrong, deleting", MU::WARN, details: dnsrec
+                  dnsrec.delete('name')
+                  dnsrec.delete('target')
+                end
+              }
+            end
+
             kitten = MU::Cloud::Server.new(mommacat: self, kitten_cfg: svr, cloud_id: cloud_id)
             mu_name = kitten.mu_name if mu_name.nil?
             MU.log "Grooming #{mu_name} for the first time", details: svr
@@ -1372,8 +1385,10 @@ module MU
       if config && config['dns_records'] && !config['dns_records'].empty?
         dnscfg = config['dns_records'].dup
         dnscfg.each { |dnsrec|
-          dnsrec['name'] = node.downcase if !dnsrec.has_key?('name')
-          dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
+          if !dnsrec.has_key?('name')
+            dnsrec['name'] = node.downcase
+            dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
+          end
 
           if !dnsrec.has_key?("target")
             # Default to register public endpoint

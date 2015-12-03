@@ -640,6 +640,20 @@ module MU
             }
           end
 
+          # We have issues sometimes where our dns_records are pointing at the wrong node name and IP address.
+          # Make sure that doesn't happen. Happens with server pools only
+          if @config['dns_records'] && !@config['dns_records'].empty?
+            @config['dns_records'].each { |dnsrec|
+              if dnsrec.has_key?("name")
+                if dnsrec['name'].start_with?(MU.deploy_id.downcase) && !dnsrec['name'].start_with?(node.downcase)
+                  MU.log "DNS records for #{node} seem to be wrong, deleting from current config", MU::WARN, details: dnsrec
+                  dnsrec.delete('name')
+                  dnsrec.delete('target')
+                end
+              end
+            }
+          end
+
           # Unless we're planning on associating a different IP later, set up a
           # DNS entry for this thing and let it sync in the background. We'll come
           # back to it later.
@@ -1183,7 +1197,9 @@ module MU
             return nil if instance.nil?
             @deploydata = {} if @deploydata.nil?
             @deploydata["public_ip_address"] = instance.public_ip_address
+            @deploydata["public_dns_name"] = instance.public_dns_name
             @deploydata["private_ip_address"] = instance.private_ip_address
+            @deploydata["private_dns_name"] = instance.private_dns_name
             notify
           end
 
