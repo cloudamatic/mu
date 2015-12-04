@@ -1197,6 +1197,11 @@ module MU
           mu_name, config, deploydata = describe(cloud_id: @cloud_id)
 
           instance = cloud_desc
+
+          if !instance
+            raise MuError, "Couldn't retrieve cloud descriptor for server #{self}"
+          end
+
           if deploydata.nil? or
               (!deploydata.has_key?("private_ip_address") and
                   !deploydata.has_key?("public_ip_address"))
