@@ -3,7 +3,7 @@
 require 'thread'
 require 'trollop'
 
-$opts = Trollop::options do
+opts = Trollop::options do
   banner <<-EOS
 Usage:
 #{$0} [-s <skip_az>]  
@@ -18,8 +18,8 @@ def test(file)
 
   puts "deploying #{bok} and outputing to #{output}"
   cmd="/opt/mu/bin/mu-deploy #{bok}"
-  if $opts[:skip_az]
-    cmd+= " -p azskip=#{$opts[:skip_az]}"
+  if opts[:skip_az]
+    cmd += " -p azskip=#{opts[:skip_az]}"
   end
   
   `#{cmd} > #{output}`
@@ -33,7 +33,7 @@ def test(file)
 end
 
 def main
-  boks = %w(simple-server-php.yaml simple-server-rails.yaml simple-server.yaml not_a_deploy.yaml)
+  boks = %w(simple-server-php.yaml simple-server-rails.yaml simple-server.yaml)
   successes = 0
   failures = 0
 
