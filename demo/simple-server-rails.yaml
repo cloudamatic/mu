@@ -29,8 +29,6 @@ servers:
     <% else %>
       vpc_name: vpc
     <% end %>
-    add_firewall_rules:
-    - rule_name: server
     dependencies:
       -
         name: "concerto"
@@ -56,10 +54,10 @@ databases:
     name: "concerto"
     engine: "mysql"
     size: "db.t1.micro"
+    multi_az_on_deploy: false
+    multi_az_on_create: false
     storage: 5
     port: 3306
-    add_firewall_rules:
-    - rule_name: db
     vpc:
     <% if $vpc_deploy_id %>
       deploy_id: <%= $vpc_deploy_id %>
@@ -73,34 +71,6 @@ databases:
       <% (1..$azs.size).each do |i| %>
         - subnet_name: Subnet<%= i-1 %>Public
       <% end %>
-  <% end %>
-
-firewall_rules:
-- name: db
-  rules: 
-  - port: 3306
-    sgs:
-    - server
-  vpc:
-  <% if $vpc_deploy_id %>
-    deploy_id: <%= $vpc_deploy_id %>
-  <% elsif $use_current %>
-    vpc_id: <%= current_vpc %>
-  <% else %>
-    vpc_name: vpc
-  <% end %>
-- name: server
-  rules: 
-  - port: 80
-    hosts:
-    - 0.0.0.0/0
-  vpc:
-  <% if $vpc_deploy_id %>
-    deploy_id: <%= $vpc_deploy_id %>
-  <% elsif $use_current %>
-    vpc_id: <%= current_vpc %>
-  <% else %>
-    vpc_name: vpc
   <% end %>
 
 admins:

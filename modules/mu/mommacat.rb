@@ -94,6 +94,10 @@ module MU
     @deploy_cache = Hash.new
     @nocleanup = false
     # List the currently held flock() locks.
+    def self.trapSafeLocks;
+      @locks
+    end
+    # List the currently held flock() locks.
     def self.locks;
       @lock_semaphore.synchronize {
         @locks

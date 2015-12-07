@@ -918,7 +918,7 @@ module MU
           # Otherwise go get our generic EC2 ruleset and punch a hole in it
           if @dependencies.has_key?('firewall_rule')
             @dependencies['firewall_rule'].values.each { |sg|
-              sg.addRule([cidr], proto: "tcp")
+              sg.addRule([cidr], proto: "tcp", port: cloud_desc.endpoint.port)
               break
             }
           end

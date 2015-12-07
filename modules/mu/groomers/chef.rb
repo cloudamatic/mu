@@ -812,7 +812,7 @@ module MU
                 role_list = %x{#{query}}
               end
               if !role_list.match(/(^|\n)#{rl_entry_name}($|\n)/)
-                MU.log "Attempting to add non-existent #{rl_entry} to #{@server.mu_name}"
+                MU.log "Attempting to add non-existent #{rl_entry} to #{@server.mu_name}", MU::WARN
                 missing = true
               end
             elsif rl_entry.match(/^recipe\[(.+?)\]/)
@@ -822,7 +822,7 @@ module MU
                 recipe_list = %x{#{query}}
               end
               if !recipe_list.match(/(^|\n)#{rl_entry_name}($|\n)/)
-                MU.log "Attempting to add non-existent #{rl_entry} to #{@server.mu_name}"
+                MU.log "Attempting to add non-existent #{rl_entry} to #{@server.mu_name}", MU::WARN
                 missing = true
               end
             end

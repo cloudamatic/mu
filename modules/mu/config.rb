@@ -1391,6 +1391,7 @@ module MU
         db["dependencies"] = Array.new if db["dependencies"].nil?
         db["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Database")
         database_names << db['name']
+        db['ingress_rules'] ||= []
         if db['collection']
           # XXX don't do this if 'true' was explicitly asked for (as distinct
           # from default)
@@ -3642,6 +3643,10 @@ module MU
             "engine_version" => {"type" => "string"},
             "add_firewall_rules" => @additional_firewall_rules,
             "read_replica_of" => @database_ref_primitive,
+            "ingress_rules" => {
+                "type" => "array",
+                "items" => @firewall_ruleset_rule_primitive
+            },
             "engine" => {
                 "enum" => ["mysql", "postgres", "oracle-se1", "oracle-se", "oracle-ee", "sqlserver-ee", "sqlserver-se", "sqlserver-ex", "sqlserver-web", "aurora"],
                 "type" => "string"

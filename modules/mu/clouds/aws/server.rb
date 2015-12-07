@@ -1118,6 +1118,16 @@ module MU
             }
           end
 
+          # Let us into any databases we depend on.
+          if @dependencies.has_key?("database")
+            @dependencies['database'].values.each { |db|
+              db.allowHost(@deploydata["private_ip_address"]+"/32")
+              if @deploydata["public_ip_address"]
+                db.allowHost(@deploydata["public_ip_address"]+"/32")
+              end
+            }
+          end
+
           @groomer.saveDeployData
 
           begin
