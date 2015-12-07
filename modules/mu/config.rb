@@ -3684,12 +3684,12 @@ module MU
             },
             "multi_az_on_create" => {
                 "type" => "boolean",
-                "description" => "Rather to enable high availability when the database instance is created",
+                "description" => "Enable high availability when the database instance is created",
                 "default" => false
             },
             "multi_az_on_deploy" => {
                 "type" => "boolean",
-                "description" => "Rather to enable high availability after the database instance is created. This may make deployments based on creation_style other then 'new' faster.",
+                "description" => "Enable high availability after the database instance is created. This may make deployments based on creation_style other then 'new' faster.",
                 "default" => false
             },
             "backup_retention_period" => {
