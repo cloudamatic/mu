@@ -122,3 +122,21 @@ execute "sed -i s/^interval_length=.*/interval_length=1/ || echo 'interval_lengt
 end
 
 package "nagios-plugins-nrpe"
+include_recipe "nrpe"
+
+cookbook_file "/usr/lib64/nagios/plugins/check_mem" do
+  source "check_mem.pl"
+  mode 0755
+  owner "root"
+end
+
+file "/etc/sysconfig/nrpe" do
+  content "NRPE_SSL_OPT=\"-n\"\n"
+end
+
+nrpe_check "check_mem" do
+  command "#{node['nrpe']['plugin_dir']}/check_mem"
+  warning_condition '80'
+  critical_condition '95'
+  action :add
+end

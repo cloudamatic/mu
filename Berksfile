@@ -48,6 +48,7 @@ cookbook 'mongodb', '~> 0.16.2'
 cookbook 'mysql', '~> 6.1.0'
 cookbook 'nagios', path: "#{cookbookPath}/nagios"
 cookbook 'nginx', '~> 2.7.6'
+cookbook 'nrpe', '~> 1.5.2'
 cookbook 'nginx_simplecgi', '~> 0.1.2'
 cookbook 'mu-activedirectory', path: "#{cookbookPath}/mu-activedirectory"
 cookbook 'nginx-passenger', path: "#{cookbookPath}/nginx-passenger"

@@ -54,6 +54,7 @@ DEPENDENCIES
     path: cookbooks/nginx-passenger
   nginx_simplecgi (~> 0.1.2)
   nodejs (~> 2.4.0)
+  nrpe (~> 1.5.2)
   ohai (~> 2.0.1)
   openssl (~> 4.0.0)
   oracle-instantclient (~> 1.1.0)
@@ -183,6 +184,7 @@ GRAPH
     mu-tools (>= 0.0.0)
     mu-utility (>= 0.0.0)
     nagios (>= 0.0.0)
+    nrpe (>= 0.0.0)
     postfix (>= 0.0.0)
     s3fs (>= 0.0.0)
   mu-openvpn (0.1.0)
