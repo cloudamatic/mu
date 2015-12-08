@@ -1917,20 +1917,23 @@ MESSAGE_END
       return if update_servers.size == 0
 
       # Merge everyone's deploydata together
+      skip = []
       update_servers.each { |sibling|
         if sibling.mu_name.nil? or sibling.deploydata.nil? or sibling.config.nil?
           MU.log "Missing mu_name #{sibling.mu_name}, deploydata, or config from #{sibling} in syncLitter", MU::ERR, details: sibling.deploydata
           next
         end
-        @deployment[svrs][sibling.config['name']][sibling.mu_name] = sibling.deploydata
+        if !@deployment[svrs][sibling.config['name']].has_key?(sibling.mu_name) or @deployment[svrs][sibling.config['name']][sibling.mu_name] != sibling.deploydata
+          @deployment[svrs][sibling.config['name']][sibling.mu_name] = sibling.deploydata
+        else
+          skip << sibling
+        end
       }
+      update_servers = update_servers - skip
 
       return if update_servers.size < 1
       threads = []
       parent_thread_id = Thread.current.object_id
-      # XXX apparently we teeter dangerously close to outrunning the system call stack
-      # here, even though we're not doing anything recursive or even that deep.
-      # Beware future surprises.
       update_servers.each { |sibling|
         threads << Thread.new {
           Thread.abort_on_exception = true
@@ -1938,7 +1941,7 @@ MESSAGE_END
           Thread.current.thread_variable_set("name", "sync-"+sibling.mu_name.downcase)
           MU.setVar("syncLitterThread", true)
           begin
-            sibling.groomer.run
+            sibling.groomer.run(purpose: "Synchronizing sibling kittens")
           rescue MU::Groomer::RunError => e
             MU.log "Sync of #{sibling.mu_name} failed: #{e.inspect}", MU::WARN
           end
