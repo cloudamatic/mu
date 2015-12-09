@@ -1,6 +1,6 @@
 #
 # Cookbook Name:: mu-master
-# Recipe:: update_nagios_bonly
+# Recipe:: update_nagios_only
 #
 # Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
 #
@@ -16,8 +16,39 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+include_recipe "nagios::server_source"
 include_recipe "nagios"
-package "nagios-plugins-nrpe"
+
+if $MU_CFG.has_key?('ldap')
+  include_recipe 'chef-vault'
+  bind_creds = chef_vault_item($MU_CFG['ldap']['bind_creds']['vault'], $MU_CFG['ldap']['bind_creds']['item'])
+  node.normal.nagios.server_auth_method = "ldap"
+  node.normal.nagios.ldap_bind_dn = bind_creds[$MU_CFG['ldap']['bind_creds']['username_field']]
+  node.normal.nagios.ldap_bind_password = bind_creds[$MU_CFG['ldap']['bind_creds']['password_field']]
+  if $MU_CFG['ldap']['type'] == "Active Directory"
+    node.normal.nagios.ldap_url = "ldap://#{$MU_CFG['ldap']['dcs'].first}/#{$MU_CFG['ldap']['base_dn']}?sAMAccountName?sub?(objectClass=*)"
+  else
+    node.normal.nagios.ldap_url = "ldap://#{$MU_CFG['ldap']['dcs'].first}/#{$MU_CFG['ldap']['base_dn']}?uid?sub?(objectClass=*)"
+    node.normal.nagios.ldap_group_attribute = "memberUid"
+    node.normal.nagios.ldap_group_attribute_is_dn = "Off"
+# Trying to use SSL seems to cause mod_ldap to die without logging any errors,
+# currently. Probably an Apache bug? XXX
+#    node.normal.nagios.ldap_trusted_global_cert = "CA_BASE64 #{$MU_CFG['ssl']['chain']}"
+#    node.normal.nagios.ldap_trusted_mode = "SSL"
+  end
+  node.normal.nagios.server_auth_require = "ldap-group #{$MU_CFG['ldap']['user_group_dn']}"
+  node.normal.nagios.ldap_authoritative = "On"
+  node.save
+end
+
+# XXX The Nagios init script from source is buggy; config test always fails
+# when invoked via "service nagios start," which is what the cookbook does.
+# This at least keeps it from trashing our Chef runs.
+file "/etc/sysconfig/nagios" do
+  content "checkconfig=\"false\"\n"
+  mode 0600
+end
+include_recipe "nagios"
 
 cookbook_file "nagios_fifo.pp" do
   path "#{Chef::Config[:file_cache_path]}/nagios_fifo.pp"
@@ -76,8 +107,10 @@ Dir.glob("/usr/lib/cgi-bin/*.cgi").each { |script|
     end
   end
 }
-execute "chcon -R -h -t nagios_unconfined_plugin_exec_t /usr/lib64/nagios/plugins/check_nagios" do
-  not_if "ls -aZ /usr/lib64/nagios/plugins/check_nagios | grep ':nagios_unconfined_plugin_exec_t:'"
+if File.exist?("/usr/lib64/nagios/plugins/check_nagios")
+  execute "chcon -R -h -t nagios_unconfined_plugin_exec_t /usr/lib64/nagios/plugins/check_nagios" do
+    not_if "ls -aZ /usr/lib64/nagios/plugins/check_nagios | grep ':nagios_unconfined_plugin_exec_t:'"
+  end
 end
 
 execute "chgrp apache /var/log/nagios"
@@ -86,4 +119,24 @@ execute "chgrp apache /var/log/nagios"
 execute "sed -i s/^interval_length=.*/interval_length=1/ || echo 'interval_length=1' >> /etc/nagios/nagios.cfg" do
   not_if "grep '^interval_length=1$' /etc/nagios/nagios.cfg"
   notifies :reload, "service[nagios]", :delayed
+end
+
+package "nagios-plugins-nrpe"
+include_recipe "nrpe"
+
+cookbook_file "/usr/lib64/nagios/plugins/check_mem" do
+  source "check_mem.pl"
+  mode 0755
+  owner "root"
+end
+
+file "/etc/sysconfig/nrpe" do
+  content "NRPE_SSL_OPT=\"-n\"\n"
+end
+
+nrpe_check "check_mem" do
+  command "#{node['nrpe']['plugin_dir']}/check_mem"
+  warning_condition '80'
+  critical_condition '95'
+  action :add
 end

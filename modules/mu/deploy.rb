@@ -16,7 +16,6 @@ require "net/http"
 require "net/smtp"
 require 'json'
 require 'rexml/document'
-require 'simple-password-gen'
 
 module MU
   # The Deploy class is the main interface for resource creation. It is
@@ -121,12 +120,12 @@ module MU
         # Don't use MU.log in here, it does a synchronize {} and that ain't
         # legal inside a trap.
         die = true if (Time.now.to_i - @last_sigterm) < 5
-        if !die and !MU::MommaCat.locks.nil? and MU::MommaCat.locks.size > 0
+        if !die and !MU::MommaCat.trapSafeLocks.nil? and MU::MommaCat.trapSafeLocks.size > 0
           puts "------------------------------"
           puts "Thread and lock debugging data"
           puts "------------------------------"
           puts "Open flock() locks:"
-          pp MU::MommaCat.locks
+          pp MU::MommaCat.trapSafeLocks
           puts "------------------------------"
         end
         Thread.list.each do |t|

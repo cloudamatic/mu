@@ -1,3 +1,9 @@
 interface "eth0" {
-	supersede domain-search "ec2.internal", "server.<%= @instance_id %>.platform-mu", "platform-mu";
+#  <%= @search_domains.join(", ") %>
+<% if @search_domains.size > 0 %>
+  supersede domain-search <%= @search_domains.map{|dom| dom = '"'+dom+'"' }.join(", ") %>;
+<% end %>
+<% if node.ad.dc_ips.size > 0 %>
+  prepend domain-name-servers <%= node.ad.dc_ips.join(", ") %>;
+<% end rescue NoMethodError %>
 }

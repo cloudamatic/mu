@@ -181,7 +181,11 @@ module MU
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
   def self.mu_user;
-    @@globals[Thread.current.object_id]['mu_user']
+    if @@globals.has_key?(Thread.current.object_id) and @@globals[Thread.current.object_id].has_key?('mu_user')
+      return @@globals[Thread.current.object_id]['mu_user']
+    else
+      return "mu"
+    end
   end
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
@@ -268,6 +272,7 @@ module MU
   autoload :Cleanup, 'mu/cleanup'
   autoload :Deploy, 'mu/deploy'
   autoload :MommaCat, 'mu/mommacat'
+  autoload :Master, 'mu/master'
   require 'mu/cloud'
   require 'mu/groomer'
 
@@ -318,10 +323,15 @@ module MU
   MU.setVar("chef_user", chef_user)
   MU.setVar("mu_user", mu_user)
 
+  @userlist = nil
+
   # Fetch the email address of a given Mu user
   def self.userEmail(user = MU.chef_user)
+    @userlist ||= MU::Master.listUsers
     if Dir.exists?("#{MU.mainDataDir}/users/#{user}")
       return File.read("#{MU.mainDataDir}/users/#{user}/email").chomp
+    elsif @userlist.has_key?(user)
+      return @userlist[user]['email']
     else
       MU.log "Attempted to load nonexistent user #{user}", MU::ERR
       return nil
@@ -330,8 +340,11 @@ module MU
 
   # Fetch the real-world name of a given Mu user
   def self.userName(user = MU.chef_user)
+    @userlist ||= MU::Master.listUsers
     if Dir.exists?("#{MU.mainDataDir}/users/#{user}")
       return File.read("#{MU.mainDataDir}/users/#{user}/realname").chomp
+    elsif @userlist.has_key?(user)
+      return @userlist[user]['email']
     else
       MU.log "Attempted to load nonexistent user #{user}", MU::ERR
       return nil
@@ -385,6 +398,18 @@ module MU
     return Object.const_get("MU").const_get("Groomer").const_get(groomer)
   end
 
+  @@myRegion_var = nil
+  # Find our AWS Region and Availability Zone
+  def self.myRegion
+    if ENV.has_key?("EC2_REGION") and !ENV['EC2_REGION'].empty?
+      @@myRegion_var ||= MU::Cloud::AWS.ec2(ENV['EC2_REGION']).describe_availability_zones.availability_zones.first.region_name
+    else
+      # hacky, but useful in a pinch
+      @@myRegion_var = MU::Cloud::AWS.getAWSMetaData("placement/availability-zone").sub(/[a-z]$/i, "")
+    end
+    @@myRegion_var
+  end
+
   require 'mu/config'
 
   # Figure out our account number, by hook or by crook
@@ -407,13 +432,6 @@ module MU
     end
     MU.setVar("account_number", account_number)
     account_number
-  end
-
-  @@myRegion_var = nil
-  # Find our AWS Region and Availability Zone
-  def self.myRegion
-    @@myRegion_var ||= MU::Cloud::AWS.ec2(ENV['EC2_REGION']).describe_availability_zones.availability_zones.first.region_name
-    @@myRegion_var
   end
 
   # XXX is there a better way to get this?
@@ -456,7 +474,7 @@ module MU
 
   # The version of Chef we will install on nodes (note- not the same as what
   # we intall on ourself, which comes from install/mu_setup).
-  @@chefVersion = "12.4.1-1"
+  @@chefVersion = "12.5.1-1"
   # The version of Chef we will install on nodes.
   # @return [String]
   def self.chefVersion;
@@ -495,6 +513,27 @@ module MU
     end
   end
 
+  # Generate a random password which will satisfy the complexity requirements of stock Amazon Windows AMIs.
+  # return [String]: A password string.
+  def self.generateWindowsPassword
+    # We have dopey complexity requirements, be stringent here.
+    # I'll be nice and not condense this into one elegant-but-unreadable regular expression
+    attempts = 0
+    safe_metachars = Regexp.escape('~!@#%^&*_-+=`|(){}[]:;<>,.?')
+    begin
+      if attempts > 25
+        MU.log "Failed to generate an adequate Windows password after #{attempts}", MU::ERR
+        raise MuError, "Failed to generate an adequate Windows password after #{attempts}"
+      end
+      winpass = Password.random(14..16)
+      attempts += 1
+    end while winpass.nil? or !winpass.match(/[A-Z]/) or !winpass.match(/[a-z]/) or !winpass.match(/\d/) or !winpass.match(/[#{safe_metachars}]/) or winpass.match(/[^\w\d#{safe_metachars}]/)
+
+    MU.log "Generated Windows password after #{attempts} attempts", MU::DEBUG
+    return winpass
+  end
+
+
   # Return the name of the S3 Mu log and key bucket for this Mu server.
   # @return [String]
   def self.adminBucketName
@@ -512,38 +551,22 @@ module MU
 			{
 				"Sid": "AWSCloudTrailAclCheck20131101",
 				"Effect": "Allow",
-				"Principal": {
-					"AWS": [
-						"arn:aws:iam::086441151436:root",
-						"arn:aws:iam::113285607260:root",
-						"arn:aws:iam::388731089494:root",
-						"arn:aws:iam::284668455005:root",
-						"arn:aws:iam::903692715234:root",
-						"arn:aws:iam::216624486486:root",
-						"arn:aws:iam::859597730677:root",
-						"arn:aws:iam::814480443879:root"
-					]
-				},
+        "Principal": {
+          "AWS": "arn:aws:iam::<%= MU.account_number %>:root",
+          "Service": "cloudtrail.amazonaws.com"
+        },
 				"Action": "s3:GetBucketAcl",
 				"Resource": "arn:aws:s3:::<%= $bucketname %>"
 			},
 			{
 				"Sid": "AWSCloudTrailWrite20131101",
 				"Effect": "Allow",
-				"Principal": {
-					"AWS": [
-						"arn:aws:iam::086441151436:root",
-						"arn:aws:iam::113285607260:root",
-						"arn:aws:iam::388731089494:root",
-						"arn:aws:iam::284668455005:root",
-						"arn:aws:iam::903692715234:root",
-						"arn:aws:iam::216624486486:root",
-						"arn:aws:iam::859597730677:root",
-						"arn:aws:iam::814480443879:root"
-					]
-				},
+        "Principal": {
+          "AWS": "arn:aws:iam::<%= MU.account_number %>:root",
+          "Service": "cloudtrail.amazonaws.com"
+        },
 				"Action": "s3:PutObject",
-				"Resource": "arn:aws:s3:::<%= $bucketname %>/AWSLogs/*",
+				"Resource": "arn:aws:s3:::<%= $bucketname %>/AWSLogs/<%= MU.account_number %>/*",
 				"Condition": {
 					"StringEquals": {
 						"s3:x-amz-acl": "bucket-owner-full-control"

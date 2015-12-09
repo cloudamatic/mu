@@ -98,8 +98,8 @@ module MU
           if !mu_name.nil?
             @mu_name = mu_name
             @config['mu_name'] = @mu_name
-            describe
-            @mu_windows_name = @deploydata['mu_windows_name'] if @mu_windows_name.nil?
+            # describe
+            @mu_windows_name = @deploydata['mu_windows_name'] if @mu_windows_name.nil? and @deploydata
           else
             if kitten_cfg.has_key?("basis")
               @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
@@ -263,6 +263,7 @@ module MU
         # @param rolename [String]: The name of the role to create, generally a {MU::Cloud::AWS::Server} mu_name
         # @return [void]
         def self.removeIAMProfile(rolename)
+        # TO DO - Move IAM role/policy removal to its own entity
           MU.log "Removing IAM role and policies for '#{rolename}'"
           begin
             MU::Cloud::AWS.iam.remove_role_from_instance_profile(
@@ -426,7 +427,7 @@ module MU
           vpc_id = subnet = nil
           if !@vpc.nil? and @config.has_key?("vpc")
             subnet_conf = @config['vpc']
-            subnet_conf = @config['vpc']['subnets'].first if @config['vpc'].has_key?("subnets")
+            subnet_conf = @config['vpc']['subnets'].first if @config['vpc'].has_key?("subnets") and !@config['vpc']['subnets'].empty?
             tag_key, tag_value = subnet_conf['tag'].split(/=/, 2) if !subnet_conf['tag'].nil?
 
             subnet = @vpc.getSubnet(
@@ -609,10 +610,54 @@ module MU
 
           punchAdminNAT
 
+          if @config["alarms"] && !@config["alarms"].empty?
+            @config["alarms"].each { |alarm|
+              alarm["dimensions"] = [{:name => "InstanceId", :value => @cloud_id}]
+
+              if alarm["enable_notifications"]
+                topic_arn = MU::Cloud::AWS::Notification.createTopic(alarm["notification_group"], region: @config["region"])
+                MU::Cloud::AWS::Notification.subscribe(arn: topic_arn, protocol: alarm["notification_type"], endpoint: alarm["notification_endpoint"], region: @config["region"])
+                alarm["alarm_actions"] = [topic_arn]
+                alarm["ok_actions"]  = [topic_arn]
+              end
+
+              MU::Cloud::AWS::Alarm.createAlarm(
+                name: @deploy.getResourceName("#{@config["name"]}-#{alarm["name"]}-#{@cloud_id}"),
+                ok_actions: alarm["ok_actions"],
+                alarm_actions: alarm["alarm_actions"],
+                insufficient_data_actions: alarm["no_data_actions"],
+                metric_name: alarm["metric_name"],
+                namespace: alarm["namespace"],
+                statistic: alarm["statistic"],
+                dimensions: alarm["dimensions"],
+                period: alarm["period"],
+                unit: alarm["unit"],
+                evaluation_periods: alarm["evaluation_periods"],
+                threshold: alarm["threshold"],
+                comparison_operator: alarm["comparison_operator"],
+                region: @config["region"]
+              )
+            }
+          end
+
+          # We have issues sometimes where our dns_records are pointing at the wrong node name and IP address.
+          # Make sure that doesn't happen. Happens with server pools only
+          if @config['dns_records'] && !@config['dns_records'].empty?
+            @config['dns_records'].each { |dnsrec|
+              if dnsrec.has_key?("name")
+                if dnsrec['name'].start_with?(MU.deploy_id.downcase) && !dnsrec['name'].start_with?(node.downcase)
+                  MU.log "DNS records for #{node} seem to be wrong, deleting from current config", MU::WARN, details: dnsrec
+                  dnsrec.delete('name')
+                  dnsrec.delete('target')
+                end
+              end
+            }
+          end
+
           # Unless we're planning on associating a different IP later, set up a
           # DNS entry for this thing and let it sync in the background. We'll come
           # back to it later.
-          if @config['static_ip'].nil?
+          if @config['static_ip'].nil? && !@named
             MU::MommaCat.nameKitten(self)
             @named = true
           end
@@ -681,9 +726,9 @@ module MU
               end
             end
 
-            win_admin_password = MU::Cloud::AWS::Server.generateWindowsPassword if win_admin_password.nil?
-            ec2config_password = MU::Cloud::AWS::Server.generateWindowsPassword if ec2config_password.nil?
-            sshd_password = MU::Cloud::AWS::Server.generateWindowsPassword if sshd_password.nil?
+            win_admin_password = MU.generateWindowsPassword if win_admin_password.nil?
+            ec2config_password = MU.generateWindowsPassword if ec2config_password.nil?
+            sshd_password = MU.generateWindowsPassword if sshd_password.nil?
 
             # We're creating the vault here so when we run
             # MU::Cloud::Server.initialSSHTasks and we need to set the Windows
@@ -847,7 +892,10 @@ module MU
           @groomer.bootstrap
 
           # Make sure we got our name written everywhere applicable
-          MU::MommaCat.nameKitten(self)
+          if !@named
+            MU::MommaCat.nameKitten(self)
+            @named = true
+          end
 
           MU::MommaCat.unlock(instance.instance_id+"-groom")
           MU::MommaCat.unlock(instance.instance_id+"-orchestrate")
@@ -1060,24 +1108,6 @@ module MU
 
           MU::Cloud::AWS::Server.tagVolumes(@cloud_id)
 
-          # If we depend on database instances, make sure those database
-          # instances' security groups will let us in.
-          if @config["dependencies"] != nil then
-            @config["dependencies"].each { |dependent_on|
-              if dependent_on['type'] != nil and dependent_on['type'] == "database" then
-                database = @deploy.findLitterMate(type: dependent_on['type'], name: dependent_on["name"])
-                if database.nil?
-                  raise MuError, "Couldn't find dependent database #{dependent_on['name']} for server #{@config["name"]}"
-                end
-                private_ip = @config['private_ip_address']
-                if private_ip != nil and database.cloud_id != nil then
-                  MU.log "Adding #{private_ip}/32 to database security groups for #{database.cloud_id}"
-                  database.allowHost("#{private_ip}/32")
-                end
-              end
-            }
-          end
-
           # If we have a loadbalancer configured, attach us to it
           if !@config['loadbalancers'].nil?
             if @loadbalancers.nil?
@@ -1085,6 +1115,16 @@ module MU
             end
             @loadbalancers.each { |lb|
               lb.registerNode(@cloud_id)
+            }
+          end
+
+          # Let us into any databases we depend on.
+          if @dependencies.has_key?("database")
+            @dependencies['database'].values.each { |db|
+              db.allowHost(@deploydata["private_ip_address"]+"/32")
+              if @deploydata["public_ip_address"]
+                db.allowHost(@deploydata["public_ip_address"]+"/32")
+              end
             }
           end
 
@@ -1098,19 +1138,25 @@ module MU
 
           if !@config['create_image'].nil? and !@config['image_created']
             img_cfg = @config['create_image']
+            # Scrub things that don't belong on an AMI
+            session = getSSHSession
+            sudo = purgecmd = ""
+            sudo = "sudo" if @config['ssh_user'] != "root"
+            if windows?
+              purgecmd = "rm -rf /cygdrive/c/mu_installed_chef"
+            else
+              purgecmd = "rm -rf /opt/mu_installed_chef"
+            end
             if img_cfg['image_then_destroy']
-              # Scrub things that don't belong on an AMI
-              session = getSSHSession
               if windows?
-                session.exec!("rm -rf /cygdrive/c/chef/ /home/#{@config['windows_admin_username']}/.ssh/authorized_keys /home/Administrator/.ssh/authorized_keys /cygdrive/c/mu-installer-ran-updates")
+                purgecmd = "rm -rf /cygdrive/c/chef/ /home/#{@config['windows_admin_username']}/.ssh/authorized_keys /home/Administrator/.ssh/authorized_keys /cygdrive/c/mu-installer-ran-updates /cygdrive/c/mu_installed_chef"
                 # session.exec!("powershell -Command \"& {(Get-WmiObject -Class Win32_Product -Filter \"Name='UniversalForwarder'\").Uninstall()}\"")
               else
-                sudo = ""
-                sudo = "sudo" if @config['ssh_user'] != "root"
-                session.exec!("#{sudo} rm -rf /root/.ssh/authorized_keys /etc/ssh/ssh_host_*key* /etc/chef /etc/opscode/* /.mu-installer-ran-updates /var/chef /opt/mu_installed_chef /opt/chef ; #{sudo} sed -i 's/^HOSTNAME=.*//' /etc/sysconfig/network")
+                purgecmd = "#{sudo} rm -rf /root/.ssh/authorized_keys /etc/ssh/ssh_host_*key* /etc/chef /etc/opscode/* /.mu-installer-ran-updates /var/chef /opt/mu_installed_chef /opt/chef ; #{sudo} sed -i 's/^HOSTNAME=.*//' /etc/sysconfig/network"
               end
-              session.close
             end
+            session.exec!(purgecmd)
+            session.close
             ami_id = MU::Cloud::AWS::Server.createImage(
                 name: @mu_name,
                 instance_id: @cloud_id,
@@ -1158,24 +1204,37 @@ module MU
         # bastion hosts that may be in the path, see getSSHConfig if that's what
         # you need.
         def canonicalIP
-          mu_name, config, deploydata = describe
+          mu_name, config, deploydata = describe(cloud_id: @cloud_id)
+
+          instance = cloud_desc
+
+          if !instance
+            raise MuError, "Couldn't retrieve cloud descriptor for server #{self}"
+          end
 
           if deploydata.nil? or
               (!deploydata.has_key?("private_ip_address") and
                   !deploydata.has_key?("public_ip_address"))
-            instance = cloud_desc
             return nil if instance.nil?
             @deploydata = {} if @deploydata.nil?
             @deploydata["public_ip_address"] = instance.public_ip_address
+            @deploydata["public_dns_name"] = instance.public_dns_name
             @deploydata["private_ip_address"] = instance.private_ip_address
+            @deploydata["private_dns_name"] = instance.private_dns_name
             notify
           end
+
+          # Our deploydata gets corrupted often with server pools, this will cause us to use the wrong IP to identify a node
+          # which will cause us to create certificates, DNS records and other artifacts with incorrect information which will cause our deploy to fail.
+          # The cloud_id is always correct so lets use 'cloud_desc' to get the correct IPs
           if MU::Cloud::AWS::VPC.haveRouteToInstance?(cloud_desc, region: @config['region']) or @deploydata["public_ip_address"].nil?
-            @config['canonical_ip'] = @deploydata["private_ip_address"]
-            return @deploydata["private_ip_address"]
+            @config['canonical_ip'] = instance.private_ip_address
+            @deploydata["private_ip_address"] = instance.private_ip_address
+            return instance.private_ip_address
           else
-            @config['canonical_ip'] = @deploydata["public_ip_address"]
-            return @deploydata["public_ip_address"]
+            @config['canonical_ip'] = instance.public_ip_address
+            @deploydata["public_ip_address"] = instance.public_ip_address
+            return instance.public_ip_address
           end
         end
 
@@ -1344,27 +1403,6 @@ module MU
           return vol_struct
         end
 
-        # Generate a random password which will satisfy the complexity requirements of stock Amazon Windows AMIs.
-        # return [String]: A password string.
-        # XXX this probably doesn't want to live inside a cloud provider
-        def self.generateWindowsPassword
-          # We have dopey complexity requirements, be stringent here.
-          # I'll be nice and not condense this into one elegant-but-unreadable regular expression
-          attempts = 0
-          safe_metachars = Regexp.escape('~!@#%^&*_-+=`|(){}[]:;<>,.?')
-          begin
-            if attempts > 25
-              MU.log "Failed to generate an adequate Windows password after #{attempts}", MU::ERR
-              raise MuError, "Failed to generate an adequate Windows password after #{attempts}"
-            end
-            winpass = Password.random(14..16)
-            attempts += 1
-          end while winpass.nil? or !winpass.match(/[A-Z]/) or !winpass.match(/[a-z]/) or !winpass.match(/\d/) or !winpass.match(/[#{safe_metachars}]/) or winpass.match(/[^\w\d#{safe_metachars}]/)
-
-          MU.log "Generated Windows password after #{attempts} attempts", MU::DEBUG
-          return winpass
-        end
-
         # Retrieves the Cloud provider's randomly generated Windows password
         # Will only work on stock Amazon Windows AMIs or custom AMIs that where created with Administrator Password set to random in EC2Config
         # return [String]: A password string.
@@ -1435,9 +1473,9 @@ module MU
           }
           if ip != nil
             if !classic
-              raise MuError, "Requested EIP #{ip}, but no such IP exists in VPC domain"
+              raise MuError, "Requested EIP #{ip}, but no such IP exists or is avaulable in VPC"
             else
-              raise MuError, "Requested EIP #{ip}, but no such IP exists in Classic domain"
+              raise MuError, "Requested EIP #{ip}, but no such IP exists or is available in EC2 Classic"
             end
           end
           if !classic
@@ -1711,17 +1749,30 @@ module MU
           end
 
           if !server_obj.nil?
+            # DNS cleanup is now done in MU::Cloud::DNSZone. Keeping this for now
             cleaned_dns = false
             mu_name = server_obj.mu_name
             mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
             if !mu_zone.nil?
-              dns_targets = []
+              zone_rrsets = []
               rrsets = MU::Cloud::AWS.route53(region).list_resource_record_sets(hosted_zone_id: mu_zone.id)
+              rrsets.resource_record_sets.each{ |record|
+                zone_rrsets << record
+              }
+
+            # AWS API returns a maximum of 100 results. DNS zones are likely to have more than 100 records, lets page and make sure we grab all records in a given zone
+              while rrsets.next_record_name && rrsets.next_record_type
+                rrsets = MU::Cloud::AWS.route53(region).list_resource_record_sets(hosted_zone_id: mu_zone.id, start_record_name: rrsets.next_record_name, start_record_type: rrsets.next_record_type)
+                rrsets.resource_record_sets.each{ |record|
+                  zone_rrsets << record
+                }
+              end
             end
             if !onlycloud and !mu_name.nil?
-              if !rrsets.nil?
-                rrsets.resource_record_sets.each { |rrset|
-                  if rrset.name.match(/^#{mu_name.downcase}\.server\.#{MU.myInstanceId}\.mu/i)
+              # DNS cleanup is now done in MU::Cloud::DNSZone. Keeping this for now
+              if !zone_rrsets.empty?
+                zone_rrsets.each { |rrset|
+                  if rrset.name.match(/^#{mu_name.downcase}\.server\.#{MU.myInstanceId}\.platform-mu/i)
                     rrset.resource_records.each { |record|
                       MU::Cloud::DNSZone.genericMuDNSEntry(name: mu_name, target: record.value, cloudclass: MU::Cloud::Server, delete: true)
                       cleaned_dns = true
@@ -1752,8 +1803,8 @@ module MU
               if !mu_zone.nil? and !cleaned_dns and !instance.nil?
                 instance.tags.each { |tag|
                   if tag.key == "Name"
-                    rrsets.resource_record_sets.each { |rrset|
-                      if rrset.name.match(/^#{tag.value.downcase}\.server\.#{MU.myInstanceId}\.mu/i)
+                    zone_rrsets.each { |rrset|
+                      if rrset.name.match(/^#{tag.value.downcase}\.server\.#{MU.myInstanceId}\.platform-mu/i)
                         rrset.resource_records.each { |record|
                           MU::Cloud::DNSZone.genericMuDNSEntry(name: tag.value, target: record.value, cloudclass: MU::Cloud::Server, delete: true) if !noop
                         }

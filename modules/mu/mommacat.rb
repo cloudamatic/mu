@@ -22,6 +22,7 @@ autoload :Chef, 'chef'
 gem "chef-vault"
 autoload :ChefVault, 'chef-vault'
 gem "knife-windows"
+require 'timeout'
 
 module MU
 
@@ -92,6 +93,10 @@ module MU
     @locks = Hash.new
     @deploy_cache = Hash.new
     @nocleanup = false
+    # List the currently held flock() locks.
+    def self.trapSafeLocks;
+      @locks
+    end
     # List the currently held flock() locks.
     def self.locks;
       @lock_semaphore.synchronize {
@@ -273,6 +278,7 @@ module MU
               end
               begin
                 # Load up MU::Cloud objects for all our kittens in this deploy
+                orig_cfg['environment'] = @environment # not always set in old deploys
                 if attrs[:has_multiples]
                   data.each_pair { |mu_name, actual_data|
                     attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: mu_name)
@@ -639,6 +645,19 @@ module MU
         @original_config[type+"s"].each { |svr|
           if svr['name'] == name
             svr["instance_id"] = cloud_id
+
+            # This will almost always be true in server pools, but lets be safe. Somewhat problematic because we are only
+            # looking at deploy_id, but we still know this is our DNS record and not a custom one.
+            if svr['dns_records'] && !svr['dns_records'].empty?
+              svr['dns_records'].each { |dnsrec|
+                if dnsrec.has_key?("name") && dnsrec['name'].start_with?(MU.deploy_id.downcase)
+                  MU.log "DNS record for #{MU.deploy_id.downcase}, #{name} is probably wrong, deleting", MU::WARN, details: dnsrec
+                  dnsrec.delete('name')
+                  dnsrec.delete('target')
+                end
+              }
+            end
+
             kitten = MU::Cloud::Server.new(mommacat: self, kitten_cfg: svr, cloud_id: cloud_id)
             mu_name = kitten.mu_name if mu_name.nil?
             MU.log "Grooming #{mu_name} for the first time", details: svr
@@ -824,12 +843,18 @@ module MU
 
     # Release a flock() lock.
     # @param id [String]: The lock identifier to release.
-    def self.unlock(id)
+    def self.unlock(id, global = false)
       raise MuError, "Can't pass a nil id to MU::MommaCat.unlock" if id.nil?
+      lockdir = nil
+      if !global
+        lockdir = "#{deploy_dir(MU.deploy_id)}/locks"
+      else
+        lockdir = File.expand_path(MU.dataDir+"/locks")
+      end
       @lock_semaphore.synchronize {
         return if @locks.nil? or @locks[Thread.current.object_id].nil? or @locks[Thread.current.object_id][id].nil?
       }
-      MU.log "Releasing lock on #{deploy_dir(MU.deploy_id)}/locks/#{id}.lock (thread #{Thread.current.object_id})", MU::DEBUG
+      MU.log "Releasing lock on #{lockdir}/#{id}.lock (thread #{Thread.current.object_id})", MU::DEBUG
       begin
         @locks[Thread.current.object_id][id].flock(File::LOCK_UN)
         @locks[Thread.current.object_id][id].close
@@ -882,7 +907,6 @@ module MU
     # Iterate over all known deployments and look for instances that have been
     # terminated, but not yet cleaned up, then clean them up.
     def self.cleanTerminatedInstances
-
       MU.log "Checking for harvested instances in need of cleanup", MU::DEBUG
       parent_thread_id = Thread.current.object_id
       cleanup_threads = []
@@ -892,7 +916,8 @@ module MU
         MU.log "Checking for dead wood in #{deploy_id}", MU::DEBUG
         cleanup_threads << Thread.new {
           MU.dupGlobals(parent_thread_id)
-          deploy = MU::MommaCat.getLitter(deploy_id, set_context_to_me: true)
+          # We can't use cached litter information because we will then try to delete the same node over and over again until we restart the service
+          deploy = MU::MommaCat.getLitter(deploy_id, set_context_to_me: true, use_cache: false)
           purged_this_deploy = 0
           if deploy.kittens.has_key?("servers")
             deploy.kittens["servers"].each_pair { |nodeclass, servers|
@@ -1051,8 +1076,6 @@ module MU
           regions.each { |r|
             next if cloud_descs[r].nil?
             cloud_descs[r].each_pair { |kitten_cloud_id, descriptor|
-puts "#{r}: #{kitten_cloud_id}"
-pp kittens.keys
               # We already have a MU::Cloud object for this guy, use it
               if kittens.has_key?(kitten_cloud_id)
                 matches << kitten[kitten_cloud_id]
@@ -1362,12 +1385,45 @@ pp kittens.keys
         MU::MommaCat.addInstanceToEtcHosts(server.canonicalIP, node)
       end
 
-      if !config.nil? and !config['dns_records'].nil?
+## TO DO: Do DNS registration of "real" records as the last stage after the groomer completes
+      if config && config['dns_records'] && !config['dns_records'].empty?
         dnscfg = config['dns_records'].dup
         dnscfg.each { |dnsrec|
-          dnsrec['name'] = node.downcase if !dnsrec.has_key?('name')
+          if !dnsrec.has_key?('name')
+            dnsrec['name'] = node.downcase
+            dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
+          end
+
+          if !dnsrec.has_key?("target")
+            # Default to register public endpoint
+            public = true
+
+            if dnsrec.has_key?("target_type")
+              # See if we have a preference for pubic/private endpoint
+              public = dnsrec["target_type"] == "private" ? false : true
+            end
+  
+            dnsrec["target"] =
+              if dnsrec["type"] == "CNAME"
+                if public
+                  # Make sure we have a public canonical name to register. Use the private one if we don't
+                  server.cloud_desc.public_dns_name.empty? ? server.cloud_desc.private_dns_name : server.cloud_desc.public_dns_name
+                else
+                  # If we specifically requested to register the private canonical name lets use that
+                  server.cloud_desc.private_dns_name
+                end
+              elsif dnsrec["type"] == "A"
+                if public
+                  # Make sure we have a public IP address to register. Use the private one if we don't
+                  server.cloud_desc.public_ip_address ? server.cloud_desc.public_ip_address : server.cloud_desc.private_ip_address
+                else
+                  # If we specifically requested to register the private IP lets use that
+                  server.cloud_desc.private_ip_address
+                end
+              end
+          end
         }
-        MU::Cloud::DNSZone.createRecordsFromConfig(dnscfg, target: server.canonicalIP)
+        MU::Cloud::DNSZone.createRecordsFromConfig(dnscfg)
       end
 
       MU::MommaCat.removeHostFromSSHConfig(node)
@@ -1636,7 +1692,8 @@ MESSAGE_END
         parent_thread_id = Thread.current.object_id
         MU::MommaCat.listDeploys.sort.each { |deploy_id|
           begin
-            deploy = MU::MommaCat.getLitter(deploy_id)
+            # We don't want to use cached litter information here because this is also called by cleanTerminatedInstances.
+            deploy = MU::MommaCat.getLitter(deploy_id, use_cache: false)
             if deploy.ssh_key_name.nil? or deploy.ssh_key_name.empty?
               MU.log "Failed to extract ssh key name from #{deploy_id} in syncMonitoringConfig", MU::ERR
               next
@@ -1673,7 +1730,11 @@ MESSAGE_END
         File.rename("#{@nagios_home}/.ssh/config.tmp", "#{@nagios_home}/.ssh/config")
 
         MU.log "Updating Nagios monitoring config, this may take a while..."
-        system("#{MU::Groomer::Chef.chefclient} -o 'recipe[mu-master::update_nagios_only]' 2>&1 > /dev/null")
+        if $MU_CFG and !$MU_CFG['master_runlist_extras'].nil?
+          system("#{MU::Groomer::Chef.chefclient} -o 'recipe[mu-master::update_nagios_only],#{$MU_CFG['master_runlist_extras'].join(",")}' 2>&1 > /dev/null")
+        else
+          system("#{MU::Groomer::Chef.chefclient} -o 'recipe[mu-master::update_nagios_only]' 2>&1 > /dev/null")
+        end
         MU.log "Nagios monitoring config update complete."
       }
 
@@ -1840,7 +1901,15 @@ MESSAGE_END
           servers.each_pair { |mu_name, node|
             next if !triggering_node.nil? and mu_name == triggering_node.mu_name
             if nodeclasses.include?(node.config['name']) and !node.groomer.nil?
-              update_servers << node
+              if !node.deploydata.keys.include?('nodename')
+                # Our deploydata gets corrupted often with server pools, in this case the the deploy data structure of some nodes is corrupt the hashes can become too nested and also invalid.
+                # When we try to synchronize all our nodes we may get a 'stack level too deep' error.
+                # The choice here is to either fail more gracefully or try to clean up our deployment data. This is an attempt to implement the second option
+                MU.log "#{nodeclass}, #{mu_name} deploy data is corrupt not syncing", MU::ERR, details: node.deploydata
+                @kittens[svrs][nodeclass].delete(mu_name)
+              else
+                update_servers << node
+              end
             end
           }
         }
@@ -1848,20 +1917,23 @@ MESSAGE_END
       return if update_servers.size == 0
 
       # Merge everyone's deploydata together
+      skip = []
       update_servers.each { |sibling|
         if sibling.mu_name.nil? or sibling.deploydata.nil? or sibling.config.nil?
           MU.log "Missing mu_name #{sibling.mu_name}, deploydata, or config from #{sibling} in syncLitter", MU::ERR, details: sibling.deploydata
           next
         end
-        @deployment[svrs][sibling.config['name']][sibling.mu_name] = sibling.deploydata
+        if !@deployment[svrs][sibling.config['name']].has_key?(sibling.mu_name) or @deployment[svrs][sibling.config['name']][sibling.mu_name] != sibling.deploydata
+          @deployment[svrs][sibling.config['name']][sibling.mu_name] = sibling.deploydata
+        else
+          skip << sibling
+        end
       }
+      update_servers = update_servers - skip
 
-      return if update_servers.size < 2
+      return if update_servers.size < 1
       threads = []
       parent_thread_id = Thread.current.object_id
-      # XXX apparently we teeter dangerously close to outrunning the system call stack
-      # here, even though we're not doing anything recursive or even that deep.
-      # Beware future surprises.
       update_servers.each { |sibling|
         threads << Thread.new {
           Thread.abort_on_exception = true
@@ -1869,7 +1941,7 @@ MESSAGE_END
           Thread.current.thread_variable_set("name", "sync-"+sibling.mu_name.downcase)
           MU.setVar("syncLitterThread", true)
           begin
-            sibling.groomer.run
+            sibling.groomer.run(purpose: "Synchronizing sibling kittens")
           rescue MU::Groomer::RunError => e
             MU.log "Sync of #{sibling.mu_name} failed: #{e.inspect}", MU::WARN
           end
@@ -2093,6 +2165,8 @@ MESSAGE_END
 
             begin
               @deploy_cache[deploy]['data'] = JSON.parse(File.read("#{this_deploy_dir}/deployment.json"))
+              lock.flock(File::LOCK_UN)
+
               next if @deploy_cache[deploy].nil? or @deploy_cache[deploy]['data'].nil?
               # Populate some generable entries that should be in the deploy
               # data. Also, bounce out if we realize we've found exactly what
@@ -2176,12 +2250,19 @@ MESSAGE_END
         if File.size?(deploy_dir+"/deployment.json")
           deploy = File.open("#{deploy_dir}/deployment.json", File::RDONLY)
           MU.log "Getting lock to read #{deploy_dir}/deployment.json", MU::DEBUG
-          deploy.flock(File::LOCK_EX)
+          # deploy.flock(File::LOCK_EX)
+          begin
+            Timeout::timeout(90) {deploy.flock(File::LOCK_EX)}
+          rescue Timeout::Error
+            raise MuError, "Timed out trying to get an exclusive lock on #{deploy_dir}/deployment.json"
+          end
+
           begin
             @deployment = JSON.parse(File.read("#{deploy_dir}/deployment.json"))
           rescue JSON::ParserError => e
             MU.log "JSON parse failed on #{deploy_dir}/deployment.json", MU::ERR
           end
+
           deploy.flock(File::LOCK_UN)
           deploy.close
           if set_context_to_me
@@ -2240,7 +2321,6 @@ MESSAGE_END
         end
       }
     end
-
 
     @catwords = %w{abyssian acinonyx alley angora bastet bengal birman bobcat bobtail bombay burmese calico chartreux cheetah cheshire cornish-rex curl devon devon-rex dot egyptian-mau feline felix feral fuzzy ginger havana himilayan jaguar japanese-bobtail javanese kitty khao-manee leopard lion lynx maine-coon manx marmalade maru mau mittens moggy munchkin neko norwegian ocelot pallas panther patches paws persian peterbald phoebe polydactyl purr queen quick ragdoll roar russian-blue saber savannah scottish-fold sekhmet serengeti shorthair siamese siberian singapura skogkatt snowshoe socks sphinx spot stray tabby tail tiger tom tonkinese tortoiseshell turkish-van tuxedo uncia whiskers wildcat yowl}
     @noncatwords = %w{alpha amber auburn azure beta brave bravo brawler charlie chocolate chrome cinnamon corinthian coyote crimson dancer danger dash delta don duet echo edge electric elite enigma eruption eureka fearless foxtrot galvanic gold grace grey horizon hulk hyperion illusion imperative india intercept ivory jade jaeger juliet kaleidoscope kilo lucky mammoth night nova november ocean olive oscar quiescent rhythm rogue romeo ronin royal tacit tango typhoon ultimatum ultra umber upward victor violet vivid vulcan watchman whirlwind wright xenon xray xylem yankee yearling yell yukon zeal zero zippy zodiac}

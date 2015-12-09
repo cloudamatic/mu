@@ -1,0 +1,14 @@
+Headless CheatSheet:
+
+Mail: robert.patt-corner@eglobaltech.com
+AdminIPCIDR: 108.48.38.181/32
+GitMuTag: internal_wrangler
+KeyName   testdrive_admin_20141017 (tddev ok) or 20140714-ecap-server-egtlabs-prod or(prod) testdrive_admin_20141017
+masterIAMRole: mu_test_drive_server_role
+				mu-master-role
+ami: ami-69a00b02
+s3://cjo-deploy/github/mu_testdrive
+
+Others
+robert.patt-corner@eglobaltech.com_20140421
+GitHubKey s3://test-drive-dev-mu/github/mu_testdrivevi 

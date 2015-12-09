@@ -8,7 +8,8 @@
     #Specify DB Creation Style 
     $db_creationstyle="new" if !$db_creationstyle
     if $db_creationstyle != "new"
-      raise ArgumentError, 'You must specify dbpw' if $dbpw.nil?
+      raise ArgumentError, 'You must specify dbvault' if $dbvault.nil?
+      raise ArgumentError, 'You must specify dbvaultitem' if $dbvaultitem.nil?
       raise ArgumentError, 'You must specify dbid' if $dbid.nil?
     end
 
@@ -79,10 +80,12 @@ loadbalancers:
 databases:
 - name: "db"
   creation_style: "<%=$db_creationstyle %>"
-  create_read_replica: true
+  create_read_replica: false
   <% if $db_creationstyle != "new" %>
   identifier: "<%=$dbid%>"
-  password: "<%=$dbpw%>"  
+  auth_vault:
+    vault: "<%=dbvault %>"
+    item: "<%=dbvaultitem %>"
   <% end %>
   db_family: mysql5.6
   engine: mysql
@@ -95,6 +98,8 @@ databases:
     <% if $deploy_id %>
     deploy_id: "<%=$deploy_id %>"
     <% end %>
+  add_firewall_rules:
+  - rule_name: "database_secgroup"
 servers:
   <% if !$deploy_id then %>
   - name: "bastion"
@@ -178,7 +183,7 @@ server_pools:
     - name: "lb"
       type: "loadbalancer"
     - name: "db"
-      type: "database"    
+      type: "database"
     basis: 
       launch-config: 
         name: "wpress-launch"

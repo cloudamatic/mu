@@ -149,10 +149,6 @@ module MU
             @config['iam_role'] = launch_options[:iam_instance_profile]
             MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'])
 
-            if !@config["vpc_zone_identifier"].nil? or !@config["vpc"].nil?
-              launch_options[:associate_public_ip_address] = @config["associate_public_ip"]
-            end
-
             instance_secret = Password.random(50)
             @deploy.saveNodeSecret("default", instance_secret, "instance_secret")
 
@@ -194,10 +190,20 @@ module MU
             asg_options[:vpc_zone_identifier] = @config["vpc_zone_identifier"]
           elsif @config["vpc"]
             subnet_ids = []
-            @config["vpc"]["subnets"].each { |subnet|
-              subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
-              subnet_ids << subnet_obj.cloud_id
-            }
+            if !@config["vpc"]["subnets"].nil? and @config["vpc"]["subnets"].size > 0
+              @config["vpc"]["subnets"].each { |subnet|
+                subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
+                subnet_ids << subnet_obj.cloud_id
+              }
+            else
+              @vpc.subnets.each { |subnet_obj|
+              puts subnet_obj
+              puts subnet_obj.private?
+                next if subnet_obj.private? and ["all_public", "public"].include?(@config["vpc"]["subnet_pref"])
+                next if !subnet_obj.private? and ["all_private", "private"].include?(@config["vpc"]["subnet_pref"])
+                subnet_ids << subnet_obj.cloud_id
+              }
+            end
             asg_options[:vpc_zone_identifier] = subnet_ids.join(",")
           end
 
@@ -230,10 +236,16 @@ module MU
             end
             asg_options[:launch_configuration_name] = @mu_name
           end
+          if !asg_options[:vpc_zone_identifier].nil? and asg_options[:vpc_zone_identifier].empty?
+            asg_options.delete(:vpc_zone_identifier)
+          end
+          if !asg_options[:vpc_zone_identifier].nil?# or !@config["vpc"].nil?
+            launch_options[:associate_public_ip_address] = @config["associate_public_ip"]
+          end
 
           # Do the dance of specifying individual zones if we haven't asked to
           # use particular VPC subnets.
-          if @config['zones'] == nil and asg_options[:vpc_zone_identifier] == nil
+          if @config['zones'].nil? and asg_options[:vpc_zone_identifier].nil?
             @config["zones"] = MU::Cloud::AWS.listAZs(@config['region'])
             MU.log "Using zones from #{@config['region']}", MU::DEBUG, details: @config['zones']
           end
@@ -250,6 +262,7 @@ module MU
               asg_options[:availability_zones] = [zones_to_try.pop]
               retry
             else
+              MU.log e.message, MU::ERR, details: asg_options
               raise MuError, "#{e.message} creating AutoScale group #{@mu_name}"
             end
           end
@@ -273,16 +286,62 @@ module MU
           if @config["scaling_policies"] and @config["scaling_policies"].size > 0
             @config["scaling_policies"].each { |policy|
               policy_params = {
-                  :auto_scaling_group_name => @mu_name,
-                  :policy_name => @deploy.getResourceName("#{@config['name']}-#{policy['name']}"),
-                  :scaling_adjustment => policy['adjustment'],
-                  :adjustment_type => policy['type'],
-                  :cooldown => policy['cooldown']
+                :auto_scaling_group_name => @mu_name,
+                :policy_name => @deploy.getResourceName("#{@config['name']}-#{policy['name']}"),
+                :adjustment_type => policy['type'],
+                :policy_type => policy['policy_type']
               }
-              if !policy['min_adjustment_step'].nil?
-                policy_params[:min_adjustment_step] = policy['min_adjustment_step']
+
+              if policy["policy_type"] == "SimpleScaling"
+                policy_params[:cooldown] = policy['cooldown']
+                policy_params[:scaling_adjustment] = policy['adjustment']
+              elsif policy["policy_type"] == "StepScaling"
+                step_adjustments = []
+                policy['step_adjustments'].each{|step|
+                  step_adjustments << {:metric_interval_lower_bound => step["lower_bound"], :metric_interval_upper_bound => step["upper_bound"], :scaling_adjustment => step["adjustment"]}
+                }
+                policy_params[:metric_aggregation_type] = policy['metric_aggregation_type']
+                policy_params[:step_adjustments] = step_adjustments
+                policy_params[:estimated_instance_warmup] = policy['estimated_instance_warmup']
               end
-              MU::Cloud::AWS.autoscale.put_scaling_policy(policy_params)
+
+              policy_params[:min_adjustment_magnitude] = policy['min_adjustment_magnitude'] if !policy['min_adjustment_magnitude'].nil?
+              resp = MU::Cloud::AWS.autoscale.put_scaling_policy(policy_params)
+
+              if policy["alarms"] && !policy["alarms"].empty?
+                policy["alarms"].each { |alarm|
+                  alarm["dimensions"] = [] if alarm["dimensions"].nil?
+                  alarm["alarm_actions"] = [] if alarm["alarm_actions"].nil?
+                  alarm["ok_actions"] = [] if alarm["ok_actions"].nil?
+
+                  alarm["alarm_actions"] << resp.policy_arn
+                  alarm["dimensions"] << {:name => "AutoScalingGroupName", :value => asg_options[:auto_scaling_group_name]}
+
+                  if alarm["enable_notifications"]
+                    topic_arn = MU::Cloud::AWS::Notification.createTopic(alarm["notification_group"], region: @config["region"])
+                    MU::Cloud::AWS::Notification.subscribe(arn: topic_arn, protocol: alarm["notification_type"], endpoint: alarm["notification_endpoint"], region: @config["region"])
+                    alarm["alarm_actions"] << topic_arn
+                    alarm["ok_actions"] << topic_arn
+                  end
+
+                  MU::Cloud::AWS::Alarm.createAlarm(
+                    name: @deploy.getResourceName("#{@config["name"]}-#{alarm["name"]}"),
+                    ok_actions: alarm["ok_actions"],
+                    alarm_actions: alarm["alarm_actions"],
+                    insufficient_data_actions: alarm["no_data_actions"],
+                    metric_name: alarm["metric_name"],
+                    namespace: alarm["namespace"],
+                    statistic: alarm["statistic"],
+                    dimensions: alarm["dimensions"],
+                    period: alarm["period"],
+                    unit: alarm["unit"],
+                    evaluation_periods: alarm["evaluation_periods"],
+                    threshold: alarm["threshold"],
+                    comparison_operator: alarm["comparison_operator"],
+                    region: @config["region"]
+                  )
+                }
+              end
             }
           end
 

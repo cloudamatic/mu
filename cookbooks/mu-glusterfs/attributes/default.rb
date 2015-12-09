@@ -2,6 +2,8 @@ default['gluster_node_class'] = "glusterfs"
 
 default['glusterfs']['client']['mount_path'] = '/gluster'
 
+default['glusterfs']['server']['network_timeout'] = 10
+default['glusterfs']['server']['read_cache_size'] = "128MB"
 default['glusterfs']['server']['brick_base_mount_path'] = '/gluster'
 default['glusterfs']['server']['volume_type'] = "replica"
 default['glusterfs']['server']['num_replicas'] = 2

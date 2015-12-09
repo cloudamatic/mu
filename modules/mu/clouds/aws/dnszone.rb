@@ -29,120 +29,155 @@ module MU
         def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
           @deploy = mommacat
           @config = kitten_cfg
-          if !mu_name.nil?
-            @mu_name = mu_name
+          unless @mu_name
+            @mu_name = mu_name ? mu_name : @deploy.getResourceName(@config["name"])
           end
+
           MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
-          params = {
-              :name => @config['name'],
-              :hosted_zone_config => {
-                  :comment => MU.deploy_id
-              },
-              :caller_reference => @deploy.getResourceName(@config['name'])
-          }
+          ext_zone = MU::Cloud::DNSZone.find(cloud_id: @config['name']).values.first
+          @config["create_zone"] =
+            if ext_zone
+              false
+            else
+              true
+            end
 
-          # Private zones have their lookup restricted by VPC
-          add_vpcs = Hash.new
-          if @config['private']
-            default_vpc = nil
+          if @config["create_zone"]
+            params = {
+                :name => @config['name'],
+                :hosted_zone_config => {
+                    :comment => MU.deploy_id
+                },
+                :caller_reference => @deploy.getResourceName(@config['name'])
+            }
 
-            MU::Cloud::AWS.listRegions.each { |region|
-
-              known_vpcs = MU::Cloud::AWS.ec2.describe_vpcs
-
-              MU.log "Enumerating VPCs in #{region}", MU::DEBUG, details: known_vpcs.vpcs
-
-              known_vpcs.vpcs.each { |vpc|
-                if vpc.is_default and default_vpc.nil?
-                  default_vpc = vpc.vpc_id
-                end
-              }
-
-              # If we've been told to make this domain available account-wide, do so
+            # Private zones have their lookup restricted by VPC
+            add_vpcs = []
+            if @config['private']
               if @config['all_account_vpcs']
-                known_vpcs.vpcs.each { |vpc|
-                  add_vpcs[vpc.vpc_id] = region
+                # If we've been told to make this domain available account-wide, do so
+                MU::Cloud::AWS.listRegions.each { |region|
+                  known_vpcs = MU::Cloud::AWS.ec2(region).describe_vpcs.vpcs
+
+                  MU.log "Enumerating VPCs in #{region}", MU::DEBUG, details: known_vpcs
+
+                  known_vpcs.each { |vpc|
+                    add_vpcs << { :vpc_id => vpc.vpc_id, :region => region }
+                  }
                 }
               else
-                break
+                # Or if we were given a list of VPCs add them
+                raise MuError, "DNS Zone #{@config['name']} is flagged as private, you must either provide a VPC, or set 'all_account_vpcs' to true" if @config['vpcs'].nil? || @config['vpcs'].empty?
+                @config['vpcs'].each { |vpc|
+                  add_vpcs << { :vpc_id => vpc['vpc_id'], :region => vpc['region'] }
+                }
               end
 
-            }
+              raise MuError, "DNS Zone #{@config['name']} is flagged as private, but I can't find any VPCs in which to put it" if add_vpcs.empty?
 
-            # Now add any other VPCs we specified in our config, if we haven't
-            # already picked them up.
-            if !@config['vpcs'].nil? and @config['vpcs'].size > 0
-              @config['vpcs'].each { |vpc|
-                if !add_vpcs.has_key?(vpc['vpc_id'])
-                  add_vpcs[vpc['vpc_id']] = vpc['region']
-                end
+              # We can only specify one VPC when creating a private zone. We'll add the rest later
+              params[:vpc] = {
+                :vpc_region => add_vpcs.first[:region],
+                :vpc_id => add_vpcs.first[:vpc_id]
               }
             end
 
-            if add_vpcs.size == 0
-              MU.log "DNS Zone #{@config['name']} is flagged as private, but I can't find any VPCs in which to put it", MU::ERR
-              raise MuError, "DNS Zone #{@config['name']} is flagged as private, but I can't find any VPCs in which to put it"
-            end
+            MU.log "Creating DNS Zone '#{@config['name']}'", details: params
 
-            if !default_vpc.nil? and add_vpcs.has_key?(default_vpc)
-              params[:vpc] = {
-                  :vpc_region => add_vpcs[default_vpc],
-                  :vpc_id => default_vpc
-              }
-            elsif !MU.myVPC.nil? and add_vpcs.include?(MU.myVPC)
-              params[:vpc] = {
-                  :vpc_region => add_vpcs[MU.myVPC],
-                  :vpc_id => MU.myVPC
-              }
-            else
-              params[:vpc] = {
-                  :vpc_region => add_vpcs[add_vpcs.keys.first],
-                  :vpc_id => add_vpcs.keys.first
-              }
-            end
+            resp = MU::Cloud::AWS.route53.create_hosted_zone(params)
+            id = resp.hosted_zone.id
+            @config['zone_id'] = id
 
-          end
+            begin
+              resp = MU::Cloud::AWS.route53.get_hosted_zone(id: id)
+              sleep 10
+            end while resp.nil? or resp.size == 0
 
-          MU.log "Creating DNS Zone '#{@config['name']}'", details: params
-
-          resp = MU::Cloud::AWS.route53.create_hosted_zone(params)
-          id = resp.hosted_zone.id
-          @config['zone_id'] = id
-
-          begin
-            resp = MU::Cloud::AWS.route53.get_hosted_zone(
-                id: id
-            )
-            sleep 10
-          end while resp.nil? or resp.size == 0
-
-          if add_vpcs.size > 0
-            add_vpcs.each_pair { |vpc_id, region|
-              if vpc_id != params[:vpc][:vpc_id]
-                MU.log "Associating VPC #{vpc_id} in #{region} with DNS Zone #{@config['name']}", MU::DEBUG
-                begin
-                  MU::Cloud::AWS.route53.associate_vpc_with_hosted_zone(
+            if !add_vpcs.empty?
+              add_vpcs.each { |vpc|
+                if vpc[:vpc_id] != params[:vpc][:vpc_id]
+                  MU.log "Associating VPC #{vpc[:vpc_id]} in #{vpc[:region]} with DNS Zone #{@config['name']}", MU::DEBUG
+                  begin
+                    MU::Cloud::AWS.route53.associate_vpc_with_hosted_zone(
                       hosted_zone_id: id,
                       vpc: {
-                          :vpc_region => region,
-                          :vpc_id => vpc_id
+                        :vpc_region => vpc[:region],
+                        :vpc_id => vpc[:vpc_id]
                       }
-                  )
-                rescue Aws::Route53::Errors::InvalidVPCId => e
-                  MU.log "Unable to associate #{vpc_id} in #{region} with DNS Zone #{@config['name']}: #{e.inspect}", MU::WARN
+                    )
+                  rescue Aws::Route53::Errors::InvalidVPCId => e
+                    MU.log "Unable to associate #{vpc[:vpc_id]} in #{vpc[:region]} with DNS Zone #{@config['name']}: #{e.inspect}", MU::WARN
+                  end
                 end
-              end
-            }
+              }
+            end
           end
 
-          MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@config['records'])
+          @config['records'].each { |dnsrec|
+            dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
 
-          return resp.hosted_zone
+            if dnsrec.has_key?('mu_type')
+              dnsrec['target'] =
+                if dnsrec['mu_type'] == "loadbalancer"
+                  if @dependencies.has_key?(dnsrec['mu_type']) && dnsrec['deploy_id'].nil?
+                    @dependencies['loadbalancer'][dnsrec['target']].deploydata['dns']
+                  elsif dnsrec['deploy_id']
+                    found = MU::MommaCat.findStray("AWS", "loadbalancer", deploy_id: dnsrec["deploy_id"], mu_name: dnsrec["target"], region: @config["region"])
+                    raise MuError, "Couldn't find #{dnsrec['mu_type']} #{dnsrec["target"]}" if found.nil? || found.empty?
+                    found.first.deploydata['dns']
+                  end
+                elsif dnsrec['mu_type'] == "server"
+                  if @dependencies.has_key?(dnsrec['mu_type']) && dnsrec['deploy_id'].nil?
+                    MU.log "dnsrec['target'] #{dnsrec['target']}"
+                    deploydata = @dependencies['server'][dnsrec['target']].deploydata
+                  elsif dnsrec['deploy_id']
+                    found = MU::MommaCat.findStray("AWS", "server", deploy_id: dnsrec["deploy_id"], mu_name: dnsrec["target"], region: @config["region"])
+                    raise MuError, "Couldn't find #{dnsrec['mu_type']} #{dnsrec["target"]}" if found.nil? || found.empty?
+                    deploydata = found.first.deploydata
+                  end
+
+                  public = true
+                  if dnsrec.has_key?("target_type")
+                    public = dnsrec["target_type"] == "private" ? false : true
+                  end
+
+                  if dnsrec["type"] == "CNAME"
+                    if public
+                      # Make sure we have a public canonical name to register. Use the private one if we don't
+                      deploydata['public_dns_name'].empty? ? deploydata['private_dns_name'] : deploydata['public_dns_name']
+                    else
+                      # If we specifically requested to register the private canonical name lets use that
+                      deploydata['private_dns_name']
+                    end
+                  elsif dnsrec["type"] == "A"
+                    if public
+                      # Make sure we have a public IP address to register. Use the private one if we don't
+                      deploydata['public_ip_address'] ? deploydata['public_ip_address'] : deploydata['private_ip_address']
+                    else
+                      # If we specifically requested to register the private IP lets use that
+                      deploydata['private_ip_address']
+                    end
+                  end
+                elsif dnsrec['mu_type'] == "database"
+                  if @dependencies.has_key?(dnsrec['mu_type']) && dnsrec['deploy_id'].nil?
+                    @dependencies[dnsrec['mu_type']][dnsrec['target']].deploydata['endpoint']
+                  elsif dnsrec['deploy_id']
+                    found = MU::MommaCat.findStray("AWS", "database", deploy_id: dnsrec["deploy_id"], mu_name: dnsrec["target"], region: @config["region"])
+                    raise MuError, "Couldn't find #{dnsrec['mu_type']} #{dnsrec["target"]}" if found.nil? || found.empty?
+                    found.first.deploydata['endpoint']
+                  end
+                end
+              end
+
+            dnsrec["zone"] = {"name" => @config['name']}
+          }
+
+          MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@config['records'])
+          return resp.hosted_zone if @config["create_zone"]
         end
 
         # Wrapper for {MU::Cloud::AWS::DNSZone.manageRecord}. Spawns threads to create all
@@ -501,25 +536,43 @@ module MU
 
         # Log DNS zone metadata to the deployment struct for the current deploy.
         def notify
+          if @config["create_zone"]
+# # XXX this wants generalization
+            # if !@deploy.deployment[MU::Cloud::DNSZone.cfg_plural].nil? and !@deploy.deployment[MU::Cloud::DNSZone.cfg_plural][name].nil?
+              # deploydata = @deploy.deployment[MU::Cloud::DNSZone.cfg_plural][name].dup
+            # else
+              # deploydata = Hash.new
+            # end
 
-# XXX this wants generalization
-          if !@deploy.deployment[MU::Cloud::DNSZone.cfg_plural].nil? and !@deploy.deployment[MU::Cloud::DNSZone.cfg_plural][name].nil?
-            deploydata = @deploy.deployment[MU::Cloud::DNSZone.cfg_plural][name].dup
+            # resp = MU::Cloud::AWS.route53.get_hosted_zone(
+                # id: @config['zone_id']
+            # )
+            # deploydata.merge!(MU.structToHash(resp.hosted_zone))
+            # deploydata['vpcs'] = @config['vpcs'] if !@config['vpcs'].nil?
+            # deploydata["region"] = @config['region'] if !@config['region'].nil?
+            # @deploy.notify(MU::Cloud::DNSZone.cfg_plural, mu_name, deploydata)
+            # return deploydata
+
+            resp = MU::Cloud::AWS.route53.get_hosted_zone(id: @config['zone_id'])
+            vpcs = []
+            hosted_zone_vpcs = resp.vp_cs
+            if !hosted_zone_vpcs.empty?
+              hosted_zone_vpcs.each{ |vpc|
+                vpcs << vpc.to_h
+              }
+            end
+
+            {
+              "name" => resp.hosted_zone.name,
+              "id" => resp.hosted_zone.id,
+              "private" => resp.hosted_zone.config.private_zone,
+              "vpcs" => vpcs,
+            }
+
           else
-            deploydata = Hash.new
+            # We should probably return the records we created
+            {}
           end
-
-          resp = MU::Cloud::AWS.route53.get_hosted_zone(
-              id: @config['zone_id']
-          )
-          deploydata.merge!(MU.structToHash(resp.hosted_zone))
-          deploydata['vpcs'] = @config['vpcs'] if !@config['vpcs'].nil?
-
-          deploydata["region"] = @config['region'] if !@config['region'].nil?
-
-          @deploy.notify(MU::Cloud::DNSZone.cfg_plural, name, deploydata)
-
-          return deploydata
         end
 
         # Called by {MU::Cleanup}. Locates resources that were created by the
@@ -564,7 +617,14 @@ module MU
                       }
                   )
                 }
+
                 MU::Cloud::AWS.route53(region).delete_hosted_zone(id: zone.id)
+              rescue Aws::Route53::Errors::PriorRequestNotComplete
+                MU.log "Still waiting for all records in DNS Zone '#{zone.name}' (#{zone.id}) to delete", MU::WARN
+                sleep 20
+                retry
+              rescue Aws::Route53::Errors::InvalidChangeBatch
+                # Just skip this
               rescue Aws::Route53::Errors::NoSuchHostedZone => e
                 MU.log "DNS Zone '#{zone.name}' (#{zone.id}) disappeared before I could remove it", MU::WARN, details: e.inspect
               rescue Aws::Route53::Errors::HostedZoneNotEmpty => e
@@ -572,6 +632,39 @@ module MU
               end
             end
           }
+
+          # Lets try cleaning MU DNS records in all zones.
+          begin 
+            MU::Cloud::AWS.route53(region).list_hosted_zones.hosted_zones.each { |zone|
+              zone_rrsets = []
+              rrsets = MU::Cloud::AWS.route53(region).list_resource_record_sets(hosted_zone_id: zone.id)
+              rrsets.resource_record_sets.each { |record|
+                zone_rrsets << record
+              }
+
+              # AWS API returns a maximum of 100 results. DNS zones are likely to have more than 100 records, lets page and make sure we grab all records in a given zone
+              while rrsets.next_record_name && rrsets.next_record_type
+                rrsets = MU::Cloud::AWS.route53(region).list_resource_record_sets(hosted_zone_id: zone.id, start_record_name: rrsets.next_record_name, start_record_type: rrsets.next_record_type)
+                rrsets.resource_record_sets.each { |record|
+                  zone_rrsets << record
+                }
+              end
+
+              # TO DO: if we have more than one record it will retry the deletion multiple times and will throw Aws::Route53::Errors::InvalidChangeBatch / record not found even though the record was deleted
+              zone_rrsets.each { |record|
+                if record.name.match(MU.deploy_id.downcase)
+                  resource_records = []
+                  record.resource_records.each { |rrecord|
+                    resource_records << rrecord.value
+                  }
+
+                  MU::Cloud::AWS::DNSZone.manageRecord(zone.id, record.name, record.type, targets: resource_records, ttl: record.ttl, sync_wait: false, delete: true) if !noop
+                end
+              }
+            }
+          rescue Aws::Route53::Errors::NoSuchHostedZone
+            MU.log "DNS Zone '#{zone.name}' #{zone.id} disappeared while was looking at", MU::WARN
+          end
         end
 
         # Locate an existing DNSZone or DNSZones and return an array containing matching AWS resource descriptors for those that match.
@@ -588,13 +681,25 @@ module MU
           resp.hosted_zones.each { |zone|
             if !cloud_id.nil? and !cloud_id.empty?
               if zone.id == cloud_id
-                matches[zone.id] = MU::Cloud::AWS.route53(region).get_hosted_zone(id: zone.id).hosted_zone
+                begin 
+                  matches[zone.id] = MU::Cloud::AWS.route53(region).get_hosted_zone(id: zone.id).hosted_zone
+                rescue Aws::Route53::Errors::NoSuchHostedZone
+                  MU.log "Hosted zone #{zone.id} doesn't exist"
+                end
               elsif zone.name == cloud_id or zone.name == cloud_id+"."
-                matches[zone.id] = MU::Cloud::AWS.route53(region).get_hosted_zone(id: zone.id).hosted_zone
+                begin 
+                  matches[zone.id] = MU::Cloud::AWS.route53(region).get_hosted_zone(id: zone.id).hosted_zone
+                rescue Aws::Route53::Errors::NoSuchHostedZone
+                  MU.log "Hosted zone #{zone.id} doesn't exist"
+                end
               end
             end
             if !deploy_id.nil? and !deploy_id.empty? and zone.config.comment == deploy_id
-              matches[zone.id] = MU::Cloud::AWS.route53(region).get_hosted_zone(id: zone.id).hosted_zone
+              begin 
+                matches[zone.id] = MU::Cloud::AWS.route53(region).get_hosted_zone(id: zone.id).hosted_zone
+              rescue Aws::Route53::Errors::NoSuchHostedZone
+                MU.log "Hosted zone #{zone.id} doesn't exist"
+              end
             end
           }
 

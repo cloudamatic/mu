@@ -1,5 +1,5 @@
 
-module mypol 1.0;
+module winbindpol 1.0;
 
 require {
 	type postfix_pickup_t;

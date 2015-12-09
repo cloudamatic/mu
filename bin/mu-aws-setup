@@ -22,7 +22,7 @@
 require 'etc'
 require 'securerandom'
 
-require File.expand_path(File.dirname(__FILE__))+"/mu-load-murc.rb"
+require File.expand_path(File.dirname(__FILE__))+"/mu-load-config.rb"
 
 require 'rubygems'
 require 'bundler/setup'
@@ -55,7 +55,7 @@ preferred_ip = MU.mu_public_ip
 # Create a security group, or manipulate an existing one, so that we have all
 # of the appropriate network holes.
 if $opts[:sg]
-  open_ports = [80, 443, 2260, 8443, 9443]
+  open_ports = [80, 443, 2260, 7443, 8443, 9443]
 
   # This doesn't make sense. we can have multiple security groups in our account with a name tag of "Mu Master". This will then find and modify a security group that has nothing to do with us.
   # found = MU::MommaCat.findStray("AWS", "firewall_rule", region: MU.myRegion, dummy_ok: true, tag_key: "Name", tag_value: "Mu Master")
@@ -250,20 +250,24 @@ if $opts[:logs]
   )
 
 
-  resp = MU::Cloud::AWS.cloudtrails.describe_trails(trail_name_list: ["Mu_Trails"])
-  if resp.trail_list.size == 0
+  resp = MU::Cloud::AWS.cloudtrail.describe_trails.trail_list
+  if resp.empty?
     MU.log "Enabling Cloud Trails, logged to bucket #{$bucketname}"
 
     begin
-      MU::Cloud::AWS.cloudtrails.create_trail(
-          name: "Mu_Trails",
+      MU::Cloud::AWS.cloudtrail.create_trail(
+          name: "cloudtrail",
           s3_bucket_name: $bucketname,
-          s3_key_prefix: "AWSLogs",
           include_global_service_events: true
       )
     rescue Aws::CloudTrail::Errors::MaximumNumberOfTrailsExceededException => e
       MU.log e.inspect, MU::ERR
     end
+
+  # Make sure we actually enable cloudtrail logging
+  MU::Cloud::AWS.cloudtrail.start_logging(
+    name: "cloudtrail"
+  )
   end
 
   # Now that we've got S3 logging, let's also create an Mu_Logs stack in
@@ -314,6 +318,14 @@ if $opts[:dns]
       rescue Aws::Route53::Errors::ConflictingDomainExists
       end
     end
+    resolver = Resolv::DNS.new
+    my_ip = ""
+    begin
+      my_ip = resolver.getaddress($MU_CFG['hostname']).to_s
+    end rescue Resolv::ResolvError
+    if my_ip != MU.mu_public_ip
+      MU::Cloud::AWS::DNSZone.manageRecord(ext_zone.id, $MU_CFG['hostname'], "A", targets: [MU.mu_public_ip], sync_wait: false)
+   end
   end
 end
 

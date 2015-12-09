@@ -1,0 +1,18 @@
+#%PAM-1.0
+auth	   required	pam_sepermit.so
+auth       include      password-auth
+auth        sufficient    pam_ldap.so use_first_pass
+account    required     pam_nologin.so
+account    include      password-auth
+account     [default=bad success=ok user_unknown=ignore] pam_ldap.so
+password   include      password-auth
+password    sufficient    pam_ldap.so use_authtok
+# pam_selinux.so close should be the first session rule
+session    required     pam_selinux.so close
+session    required     pam_loginuid.so
+# pam_selinux.so open should only be followed by sessions to be executed in the user context
+session    required     pam_selinux.so open env_params
+session    optional     pam_keyinit.so force revoke
+session    include      password-auth
+session optional pam_umask.so umask=0077
+session     optional      pam_ldap.so

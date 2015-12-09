@@ -1,0 +1,19 @@
+#
+# Mu Chef Server Settings
+#
+server_name="<%= server_url %>"
+
+api_fqdn server_name
+
+nginx['server_name'] = server_name
+nginx['enable_non_ssl'] = false
+nginx['non_ssl_port'] = 81
+nginx['ssl_port'] = 7443
+<% if ldap %>
+ldap['base_dn'] = "<%= base_dn %>"
+ldap['bind_dn'] = "<%= bind_dn %>"
+ldap['bind_password'] = "<%= bind_pw %>"
+ldap['group_dn'] = "<%= group_dn %>"
+ldap['host'] = "<%= dc %>"
+ldap['tls_enabled'] = true
+<% end %>
