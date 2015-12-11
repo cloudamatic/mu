@@ -89,3 +89,4 @@ end
 
 default['application_attributes']['sshd_allow_groups'] = "#{ssh_user} mu-users"
 default['application_attributes']['sshd_allow_password_auth'] = true
+default['update_nagios_only'] = false

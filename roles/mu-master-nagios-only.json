@@ -1,0 +1,13 @@
+{
+  "name": "mu-master-nagios-only",
+  "default_attributes": {},
+  "json_class": "Chef::Role",
+  "run_list": [
+    "role[mu-master]"
+  ],
+  "description": "Run List for Mu master servers",
+  "chef_type": "role",
+  "override_attributes":{
+    "update_nagios_only":true
+  }
+}

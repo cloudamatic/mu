@@ -952,6 +952,7 @@ module MU
       }
       cleanup_threads.each { |t|
         t.join
+        t.exit
       }
 
       if purged > 0
@@ -1731,9 +1732,9 @@ MESSAGE_END
 
         MU.log "Updating Nagios monitoring config, this may take a while..."
         if $MU_CFG and !$MU_CFG['master_runlist_extras'].nil?
-          system("#{MU::Groomer::Chef.chefclient} -o 'recipe[mu-master::update_nagios_only],#{$MU_CFG['master_runlist_extras'].join(",")}' 2>&1 > /dev/null")
+          system("#{MU::Groomer::Chef.chefclient} -o 'role[mu-master-nagios-only],#{$MU_CFG['master_runlist_extras'].join(",")}' 2>&1 > /dev/null")
         else
-          system("#{MU::Groomer::Chef.chefclient} -o 'recipe[mu-master::update_nagios_only]' 2>&1 > /dev/null")
+          system("#{MU::Groomer::Chef.chefclient} -o 'role[mu-master-nagios-only]' 2>&1 > /dev/null")
         end
         MU.log "Nagios monitoring config update complete."
       }
