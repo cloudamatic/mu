@@ -904,9 +904,12 @@ module MU
       MU::MommaCat.purge(MU.deploy_id)
     end
 
+    @cleanup_threads = []
+
     # Iterate over all known deployments and look for instances that have been
     # terminated, but not yet cleaned up, then clean them up.
     def self.cleanTerminatedInstances
+      MU::MommaCat.lock("clean-terminated-instances", false, true)
       MU.log "Checking for harvested instances in need of cleanup", MU::DEBUG
       parent_thread_id = Thread.current.object_id
       cleanup_threads = []
@@ -914,7 +917,7 @@ module MU
       MU::MommaCat.listDeploys.each { |deploy_id|
         next if File.exists?(deploy_dir(deploy_id)+"/.cleanup")
         MU.log "Checking for dead wood in #{deploy_id}", MU::DEBUG
-        cleanup_threads << Thread.new {
+        @cleanup_threads << Thread.new {
           MU.dupGlobals(parent_thread_id)
           # We can't use cached litter information because we will then try to delete the same node over and over again until we restart the service
           deploy = MU::MommaCat.getLitter(deploy_id, set_context_to_me: true, use_cache: false)
@@ -948,17 +951,19 @@ module MU
               end
             }
           end
+          MU.purgeGlobals
         }
       }
-      cleanup_threads.each { |t|
+      @cleanup_threads.each { |t|
         t.join
-        t.exit
       }
+      @cleanup_threads = []
 
       if purged > 0
         MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS...
         MU::MommaCat.syncMonitoringConfig
       end
+      MU::MommaCat.unlock("clean-terminated-instances", true)
     end
 
 
@@ -1714,6 +1719,7 @@ MESSAGE_END
                         ssh_conf: "#{@nagios_home}/.ssh/config.tmp",
                         ssh_owner: "nagios"
                     )
+                    MU.purgeGlobals
                   }
                 }
               }
@@ -1946,6 +1952,7 @@ MESSAGE_END
           rescue MU::Groomer::RunError => e
             MU.log "Sync of #{sibling.mu_name} failed: #{e.inspect}", MU::WARN
           end
+          MU.purgeGlobals
         }
       }
 

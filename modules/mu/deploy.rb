@@ -204,6 +204,7 @@ module MU
               createResources(@main_config[data[:cfg_plural]], "create")
             end
           }
+          MU.purgeGlobals
         }
 
         # Some resources have a "groom" phase too
@@ -218,6 +219,7 @@ module MU
               createResources(@main_config[data[:cfg_plural]], "groom")
             end
           }
+          MU.purgeGlobals
         }
 
         # Poke child threads to make sure they're awake
@@ -451,6 +453,7 @@ MESSAGE_END
             end
             raise MuError, e.inspect, e.backtrace
           end
+          MU.purgeGlobals
         }
       end
     end
