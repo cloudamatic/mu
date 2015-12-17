@@ -6,9 +6,10 @@ require 'trollop'
 $opts = Trollop::options do
   banner <<-EOS
 Usage:
-#{$0} [-s <skip_az>]  
+#{$0} [-s <skipaz>] [-n <nocleanup>]
   EOS
-  opt :skip_az, "skip an availability zone", :require => false, :type => :string
+  opt :skipaz, "skip an availability zone", :require => false, :type => :string
+  opt :nocleanup, "no cleanup on successful run"
 end
 
 def test(file)
@@ -19,8 +20,8 @@ def test(file)
    puts "deploying #{bok} and sending output to #{output}"
 
   cmd="/opt/mu/bin/mu-deploy #{bok}"
-  if $opts[:skip_az]
-    cmd += " -p azskip=#{opts[:skip_az]}"
+  if $opts[:skipaz]
+    cmd += " -p azskip=#{$opts[:skipaz]}"
   end
   
   `#{cmd} >& #{output}`
@@ -28,8 +29,11 @@ def test(file)
 
   deploy_id = File.foreach(output).grep(/Deployment id:/)[0].scan(/\(([^\)]+)\)/).last.first
   if status == 0
-    message = "Deployment of #{bok} as #{deploy_id} was successful, tearing down #{deploy_id}"
-    `/opt/mu/bin/mu-cleanup -s #{deploy_id} >> #{output}`
+    message = "Deployment of #{bok} as #{deploy_id} was successful"
+    if !$opts[:nocleanup] 
+      message += ", tore down #{deploy_id}" 
+      `/opt/mu/bin/mu-cleanup -s #{deploy_id} >> #{output}`
+    end
   else
     message = "error deploying #{bok}. See #{output} for details" 
   end
