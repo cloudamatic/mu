@@ -3,7 +3,7 @@
 require 'thread'
 require 'trollop'
 
-opts = Trollop::options do
+$opts = Trollop::options do
   banner <<-EOS
 Usage:
 #{$0} [-s <skip_az>]  
@@ -14,19 +14,25 @@ end
 def test(file)
   bok = "/opt/mu/lib/demo/#{file}"
   filename = file.split('.').first
-  output = "~/#{filename}.out"
+  output = "#{Dir.home}/#{filename}.out"
 
-  puts "deploying #{bok} and outputing to #{output}"
+   puts "deploying #{bok} and sending output to #{output}"
+
   cmd="/opt/mu/bin/mu-deploy #{bok}"
-  if opts[:skip_az]
+  if $opts[:skip_az]
     cmd += " -p azskip=#{opts[:skip_az]}"
   end
   
-  `#{cmd} > #{output}`
+  `#{cmd} >& #{output}`
   status = $?.to_i
 
-  message = "error deploying #{bok}. See #{output} for details" unless status == 0
-  message ||= "Deployment of #{bok} was sucessful"
+  deploy_id = File.foreach(output).grep(/Deployment id:/)[0].scan(/\(([^\)]+)\)/).last.first
+  if status == 0
+    message = "Deployment of #{bok} as #{deploy_id} was successful, tearing down #{deploy_id}"
+    `/opt/mu/bin/mu-cleanup -s #{deploy_id} >> #{output}`
+  else
+    message = "error deploying #{bok}. See #{output} for details" 
+  end
   puts message
 
   status
