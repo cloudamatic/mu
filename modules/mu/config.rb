@@ -674,7 +674,7 @@ module MU
 
       if ok
         vpc_block.delete('deploy_id')
-        vpc_block.delete('nat_host_id') if vpc_block.has_key?('nat_host_id') and !vpc_block['nat_host_id'].match(/^i-/)
+        vpc_block.delete('nat_host_id') if vpc_block.has_key?('nat_host_id') and !vpc_block['nat_host_id'].nil? and !vpc_block['nat_host_id'].match(/^i-/)
         vpc_block.delete('vpc_name') if vpc_block.has_key?('vpc_id')
         vpc_block.delete('deploy_id')
         vpc_block.delete('tag')

@@ -661,6 +661,7 @@ module MU
             nat_name, nat_conf, nat_deploydata = @nat.describe
 
             @deploy.kittens['firewall_rules'].each_pair { |name, acl|
+# XXX if a user doesn't set up dependencies correctly, this can die horribly on a NAT that's still in mid-creation. Fix this... possibly in the config parser.
               if acl.config["admin"]
                 acl.addRule([nat_deploydata["private_ip_address"]], proto: "tcp")
                 acl.addRule([nat_deploydata["private_ip_address"]], proto: "udp")
