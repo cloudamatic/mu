@@ -29,7 +29,17 @@ if [ -f /etc/debian_version ];then
 <% if !$mu.skipApplyUpdates %>
 	if [ ! -f /.mu-installer-ran-updates ];then
 		service ssh stop
-		apt-get --fix-missing -y upgrade && touch /.mu-installer-ran-updates && updates_run=1
+		apt-get --fix-missing -y upgrade 
+		if [ $? -eq 0 ]
+		then
+		  echo "Successfully updated packages"
+		  updates_run=1
+		else
+		  echo "FAILED PACKAGE UPDATE" >&2
+		fi
+		# Proceed regardless
+		touch /.mu-installer-ran-updates
+
 		# XXX this logic works on Ubuntu, is it Debian-friendly?
 		latest_kernel="`ls -1 /boot/vmlinuz-* | sed -r 's/^\/boot\/vmlinuz-//' | tail -1`"
 		running_kernel="`uname -r`"
@@ -66,7 +76,16 @@ elif [ -x /usr/bin/yum ];then
 	if [ ! -f /.mu-installer-ran-updates ];then
 		service sshd stop
 		kernel_update=`yum list updates | grep kernel`
-		yum -y update && touch /.mu-installer-ran-updates && updates_run=1
+		yum -y update
+		if [ $? -eq 0 ]
+		then
+		  echo "Successfully updated packages"
+		  updates_run=1
+		else
+		  echo "FAILED PACKAGE UPDATE" >&2
+		fi
+		# Proceed regardless
+		touch /.mu-installer-ran-updates
 		if [ -n "$kernel_update" ]; then
 			need_reboot=1
 		else
