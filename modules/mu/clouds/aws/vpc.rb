@@ -251,13 +251,13 @@ module MU
                     if eip.private_ip_address.nil? || eip.private_ip_address.empty?
                       if !allocation_ids.include?(eip.allocation_id)
                         allocation_id = eip.allocation_id
-                        allocation_ids << eip.allocation_id
                         break
                       end
                     end
                   }
 
                   allocation_id = MU::Cloud::AWS.ec2(@config['region']).allocate_address(domain: "vpc").allocation_id if allocation_id.nil?
+                  allocation_ids << allocation_id
                   resp = MU::Cloud::AWS.ec2(@config['region']).create_nat_gateway(
                     subnet_id: subnet['subnet_id'],
                     allocation_id: allocation_id
