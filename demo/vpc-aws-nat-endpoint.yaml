@@ -8,9 +8,6 @@ appname: vpc
 region: <%= $region %>
 vpcs:
 - name: vpc
-  tags:
-  - key: PROJECT
-    value: NETJETS
   ip_block: <%= $vpc_cidr %>
   enable_traffic_logging: true
   nat_gateway_multi_az: true
