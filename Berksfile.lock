@@ -294,7 +294,7 @@ GRAPH
     rbac (>= 1.0.1)
   supervisor (0.4.12)
     python (>= 0.0.0)
-  tomcat (0.17.3)
+  tomcat (1.0.1)
     java (>= 0.0.0)
     openssl (>= 0.0.0)
     yum-epel (>= 0.0.0)
