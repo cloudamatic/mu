@@ -26,7 +26,7 @@ case node[:platform]
 
     remirepo=yum_repository "remi" do
       description "Les RPM de Remi"
-      mirrorlist "http://rpms.famillecollet.com/enterprise/6/remi/mirror"
+      mirrorlist "http://rpms.famillecollet.com/enterprise/#{node['platform_version'].to_i.to_s}/remi/mirror"
       enabled false
       gpgkey "http://rpms.famillecollet.com/RPM-GPG-KEY-remi"
       if node[:cap_global_compile_run] then
