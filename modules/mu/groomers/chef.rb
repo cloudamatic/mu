@@ -512,9 +512,11 @@ module MU
             }
           end
 
-          MU.log "Updating node: #{@server.mu_name} deployment attributes", details: @server.deploy.deployment
-          chef_node.normal.deployment.merge!(@server.deploy.deployment)
-          chef_node.save
+          if chef_node.normal.deployment != @server.deploy.deployment
+            MU.log "Updating node: #{@server.mu_name} deployment attributes", details: @server.deploy.deployment
+            chef_node.normal.deployment.merge!(@server.deploy.deployment)
+            chef_node.save
+          end
           return chef_node.deployment
         rescue Net::HTTPServerException => e
           MU.log "Attempted to save deployment to Chef node #{@server.mu_name} before it was bootstrapped.", MU::DEBUG
@@ -692,8 +694,9 @@ module MU
       end
 
       def grantSecretAccess(vault, item)
-        return if @secrets_granted["#{vault}:#{item}"]
+        return if @secrets_granted["#{vault}:#{item}"] == item
         self.class.grantSecretAccess(@server.mu_name, vault, item)
+        @secrets_granted["#{vault}:#{item}"] = item
       end
 
       def self.knifeCmd(cmd, showoutput = false)

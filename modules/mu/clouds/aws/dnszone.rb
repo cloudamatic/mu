@@ -195,7 +195,9 @@ module MU
             else
               zone = MU::Cloud::DNSZone.find(cloud_id: record['zone']['name']).values.first
             end
-            raise MuError, "Failed to locate Route53 DNS Zone for domain #{record['zone']['name']}"
+
+            raise MuError, "Failed to locate Route53 DNS Zone for domain #{record['zone']['name']}" if zone.nil?
+
             healthcheck_id = nil
             record['target'] = target if !target.nil?
             if !record['healthcheck'].nil?
