@@ -1509,6 +1509,7 @@ module MU
           ssh_config.puts "  User #{ssh_user}"
 # XXX I'd rather add the host key to known_hosts, but Net::SSH is a little dumb
           ssh_config.puts "  StrictHostKeyChecking no"
+          ssh_config.puts "  ServerAliveInterval 60"
 
           ssh_config.puts "  IdentityFile #{ssh_dir}/#{ssh_key_name}"
           if !File.exist?("#{ssh_dir}/#{ssh_key_name}")
