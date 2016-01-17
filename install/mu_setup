@@ -699,7 +699,7 @@ chef_server_ctl()
 ## Patch knife-windows to deal with Cygwin
 patch_knife_windows()
 {
-  kw_version="0.8.2"
+  kw_version="1.1.4"
 
   for rubydir in $RUBY_INSTALL_DIR /opt/chef/embedded;do
     # Remove gem versions other than the one we're mangling
@@ -719,10 +719,10 @@ patch_knife_windows()
       status_message "Patching Cygwin support into knife-windows-$kw_version in $rubydir"
       cd $knife_win_dir && patch -p1 < $MU_LIBDIR/install/knife-windows-cygwin-$kw_version.patch || warning_message "Failed to patch knife-windows gem! Cygwin-based deploys of Windows hosts may not work!"
     fi
-    if [ "`grep -i '@config\[:node_ssl_verify_mode\]' $knife_win_dir/lib/chef/knife/core/windows_bootstrap_context.rb`" == "" ];then
-      status_message "Patching Chef 12 support into knife-windows-$kw_version in $rubydir"
-      cd $knife_win_dir && patch -p1 < $MU_LIBDIR/install/knife-windows-chef12-$kw_version.patch || warning_message "Failed to patch knife-windows gem! Cygwin-based deploys of Windows hosts may not work!"
-    fi
+#    if [ "`grep -i '@config\[:node_ssl_verify_mode\]' $knife_win_dir/lib/chef/knife/core/windows_bootstrap_context.rb`" == "" ];then
+#      status_message "Patching Chef 12 support into knife-windows-$kw_version in $rubydir"
+#      cd $knife_win_dir && patch -p1 < $MU_LIBDIR/install/knife-windows-chef12-$kw_version.patch || warning_message "Failed to patch knife-windows gem! Cygwin-based deploys of Windows hosts may not work!"
+#    fi
     if [ -e $rubydir ];then
       find $rubydir/lib/ruby/gems -type f -exec chmod o+r {} \;
       find $rubydir/lib/ruby/gems -type d -exec chmod o+rx {} \;
