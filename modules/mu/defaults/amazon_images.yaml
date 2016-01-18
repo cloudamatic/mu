@@ -49,7 +49,6 @@ win2k12r2: &win2k12r2
   ap-northeast-2: ami-afc709c1
   ap-southeast-1: ami-d9f23eba
   ap-southeast-2: ami-3df2d75e
->>>>>>> 164d3d8ae2291c9e32b09b783141a8d1c0ba274b
 win2k12: *win2k12r2
 windows: *win2k12r2
 ubuntu: *ubuntu14
