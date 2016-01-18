@@ -1,21 +1,19 @@
-diff -BbruPN knife-windows-1.1.4/lib/chef/knife/bootstrap_windows_base.rb knife-windows-1.1.4-patched/lib/chef/knife/bootstrap_windows_base.rb
 --- knife-windows-1.1.4/lib/chef/knife/bootstrap_windows_base.rb	2016-01-17 09:56:09.290955029 -0500
-+++ knife-windows-1.1.4-patched/lib/chef/knife/bootstrap_windows_base.rb	2016-01-17 09:55:51.825500167 -0500
-@@ -324,7 +324,12 @@
++++ knife-windows-1.1.4-morepatched/lib/chef/knife/bootstrap_windows_base.rb	2016-01-17 19:31:21.258876191 -0500
+@@ -324,7 +324,11 @@
          # we have to run the remote commands in 2047 char chunks
          create_bootstrap_bat_command do |command_chunk|
            begin
 -            render_command_result = run_command(command_chunk)
++            render_command = command_chunk
 +            if locate_config_value(:cygwin)
-+              render_command = %q!cd $TEMP && cmd.exe /C 'echo "Rendering !+bootstrap_bat_file+%q! chunk !+chunk_num.to_s+%q!" && !+command_chunk+%q!'!
-+            else
-+              render_command = %q!cmd.exe /C echo "Rendering !+bootstrap_bat_file+%q! chunk !+chunk_num.to_s+%q!" && !+command_chunk
++              render_command = %q!cd $TEMP && !+command_chunk
 +            end
 +            render_command_result = run_command(render_command)
              ui.error("Batch render command returned #{render_command_result}") if render_command_result != 0
              render_command_result
            rescue SystemExit => e
-@@ -346,8 +351,13 @@
+@@ -346,11 +350,20 @@
        end
  
        def bootstrap_command
@@ -28,8 +26,36 @@ diff -BbruPN knife-windows-1.1.4/lib/chef/knife/bootstrap_windows_base.rb knife-
 +      end
  
        def bootstrap_render_banner_command(chunk_num)
-         "cmd.exe /C echo Rendering #{bootstrap_bat_file} chunk #{chunk_num}"
-@@ -394,8 +404,12 @@
+-        "cmd.exe /C echo Rendering #{bootstrap_bat_file} chunk #{chunk_num}"
++        if locate_config_value(:cygwin)
++          return "echo 'Rendering #{bootstrap_bat_file} chunk #{chunk_num}'"
++        else
++          return "cmd.exe /C echo Rendering #{bootstrap_bat_file} chunk #{chunk_num}"
++        end
+       end
+ 
+       def escape_windows_batch_characters(line)
+@@ -363,11 +376,18 @@
+         bootstrap_bat = ""
+         banner = bootstrap_render_banner_command(chunk_num += 1)
+         render_template(load_template(config[:bootstrap_template])).each_line do |line|
+-          escape_windows_batch_characters(line)
+           # We are guaranteed to have a prefix "banner" command that echo's chunk number.  We can
+           # confidently prefix every actual command with &&.
+           # TODO: Why does ^\n&& work directly through the commandline but not through SOAP?
++          if locate_config_value(:cygwin)
++            render_line = ""
++            if !line.nil? and !line.chomp.strip.nil?
++              render_line = " && echo '#{line.chomp.strip.gsub(/'/, '\'\\\\\1\'\'')}' >> #{bootstrap_bat_file}"
++            end
++          else
++            escape_windows_batch_characters(line)
+           render_line = " && >> #{bootstrap_bat_file} (echo.#{line.chomp.strip})"
++          end
+           # Windows commands are limited to 8191 characters for machines running XP or higher but
+           # this includes the length of environment variables after they have been expanded.
+           # Since we don't actually know how long %TEMP% (and it's used twice - once in the banner
+@@ -394,8 +414,12 @@
        end
  
        def bootstrap_bat_file
@@ -42,33 +68,3 @@ diff -BbruPN knife-windows-1.1.4/lib/chef/knife/bootstrap_windows_base.rb knife-
  
        def warn_chef_config_secret_key
          ui.info "* " * 40
-Binary files knife-windows-1.1.4/lib/chef/knife/.bootstrap_windows_base.rb.rej.swp and knife-windows-1.1.4-patched/lib/chef/knife/.bootstrap_windows_base.rb.rej.swp differ
-diff -BbruPN knife-windows-1.1.4/lib/chef/knife/bootstrap_windows_ssh.rb knife-windows-1.1.4-patched/lib/chef/knife/bootstrap_windows_ssh.rb
---- knife-windows-1.1.4/lib/chef/knife/bootstrap_windows_ssh.rb	2016-01-17 09:56:09.290955029 -0500
-+++ knife-windows-1.1.4-patched/lib/chef/knife/bootstrap_windows_ssh.rb	2016-01-17 09:51:03.336984675 -0500
-@@ -91,12 +91,25 @@
-         :boolean => true,
-         :default => true
- 
-+      option :cygwin,
-+        :long => "--[no-]cygwin",
-+       :short => "-c",
-+        :description => "Assume that we have Cygwin (and a bash shell) at the client end.",
-+        :boolean => true,
-+        :default => false
-+
-+
-       def run
-         bootstrap
-       end
- 
-       def run_command(command = '')
-         ssh = Chef::Knife::Ssh.new
-+        if locate_config_value(:cygwin)
-+          # Harvest crucial env variables that don't exist by default in
-+          # Cygwin shells.
-+          command = %q{export CYGWIN=nodosfilewarning && for __dir in /proc/registry/HKEY_LOCAL_MACHINE/SYSTEM/CurrentControlSet/Control/Session\ Manager/Environment;do cd "$__dir";for __var in *;do __var=`echo $__var | tr "[a-z]" "[A-Z]"` ; test -z "${!__var}" && export $__var="`cat $__var`" >/dev/null 2>&1;done;/bin/true;done && export TEMP="$SYSTEMROOT/TEMP" && export TMP="$TEMP"} + " && cd && " + command
-+        end
-         ssh.name_args = [ server_name, command ]
-         ssh.config[:ssh_user] = locate_config_value(:ssh_user)
-         ssh.config[:ssh_password] = locate_config_value(:ssh_password)
