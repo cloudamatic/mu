@@ -1,5 +1,32 @@
+diff -BbruPN knife-windows-1.1.4/lib/chef/knife/bootstrap/windows-chef-client-msi.erb knife-windows-1.1.4-morepatched/lib/chef/knife/bootstrap/windows-chef-client-msi.erb
+--- knife-windows-1.1.4/lib/chef/knife/bootstrap/windows-chef-client-msi.erb	2016-01-17 09:56:09.290955029 -0500
++++ knife-windows-1.1.4-morepatched/lib/chef/knife/bootstrap/windows-chef-client-msi.erb	2016-01-21 12:35:30.051270076 -0500
+@@ -181,6 +181,17 @@
+ 
+   <%= install_chef %>
+ 
++SET LookForFile="c:\opscode\chef\bin\chef-client.bat"
++@echo off
++
++:CheckForFile
++IF EXIST %LookForFile% GOTO FoundIt
++c:\Windows\System32\timeout.exe /t 30
++GOTO CheckForFile
++
++:FoundIt
++@echo on
++
+   @if ERRORLEVEL 1 (
+       echo Chef-client package failed to install with status code !ERRORLEVEL!. > "&2"
+       echo See installation log for additional detail: %CHEF_CLIENT_MSI_LOG_PATH%. > "&2"
+@@ -245,3 +256,4 @@
+ @echo Starting chef to bootstrap the node...
+ <%= start_chef %>
+ 
++
+diff -BbruPN knife-windows-1.1.4/lib/chef/knife/bootstrap_windows_base.rb knife-windows-1.1.4-morepatched/lib/chef/knife/bootstrap_windows_base.rb
 --- knife-windows-1.1.4/lib/chef/knife/bootstrap_windows_base.rb	2016-01-17 09:56:09.290955029 -0500
-+++ knife-windows-1.1.4-morepatched/lib/chef/knife/bootstrap_windows_base.rb	2016-01-17 19:31:21.258876191 -0500
++++ knife-windows-1.1.4-morepatched/lib/chef/knife/bootstrap_windows_base.rb	2016-01-17 19:30:53.722165146 -0500
 @@ -324,7 +324,11 @@
          # we have to run the remote commands in 2047 char chunks
          create_bootstrap_bat_command do |command_chunk|
@@ -68,3 +95,48 @@
  
        def warn_chef_config_secret_key
          ui.info "* " * 40
+diff -BbruPN knife-windows-1.1.4/lib/chef/knife/bootstrap_windows_ssh.rb knife-windows-1.1.4-morepatched/lib/chef/knife/bootstrap_windows_ssh.rb
+--- knife-windows-1.1.4/lib/chef/knife/bootstrap_windows_ssh.rb	2016-01-17 09:56:09.290955029 -0500
++++ knife-windows-1.1.4-morepatched/lib/chef/knife/bootstrap_windows_ssh.rb	2016-01-17 17:32:33.916538468 -0500
+@@ -91,12 +91,25 @@
+         :boolean => true,
+         :default => true
+ 
++      option :cygwin,
++        :long => "--[no-]cygwin",
++        :short => "-c",
++        :description => "Assume that we have Cygwin (and a bash shell) at the client end.",
++        :boolean => true,
++        :default => false
++
++
+       def run
+         bootstrap
+       end
+ 
+       def run_command(command = '')
+         ssh = Chef::Knife::Ssh.new
++        if locate_config_value(:cygwin)
++          # Harvest crucial env variables that don't exist by default in
++          # Cygwin shells.
++          command = %q{export CYGWIN=nodosfilewarning && for __dir in /proc/registry/HKEY_LOCAL_MACHINE/SYSTEM/CurrentControlSet/Control/Session\ Manager/Environment;do cd "$__dir";for __var in *;do __var=`echo $__var | tr "[a-z]" "[A-Z]"` ; test -z "${!__var}" && export $__var="`cat $__var`" >/dev/null 2>&1;done;/bin/true;done && export TEMP="$SYSTEMROOT/TEMP" && export TMP="$TEMP"} + " && cd && " + command
++        end
+         ssh.name_args = [ server_name, command ]
+         ssh.config[:ssh_user] = locate_config_value(:ssh_user)
+         ssh.config[:ssh_password] = locate_config_value(:ssh_password)
+diff -BbruPN knife-windows-1.1.4/lib/chef/knife/core/windows_bootstrap_context.rb knife-windows-1.1.4-morepatched/lib/chef/knife/core/windows_bootstrap_context.rb
+--- knife-windows-1.1.4/lib/chef/knife/core/windows_bootstrap_context.rb	2016-01-17 09:56:09.291955055 -0500
++++ knife-windows-1.1.4-morepatched/lib/chef/knife/core/windows_bootstrap_context.rb	2016-01-21 11:41:32.941202376 -0500
+@@ -275,7 +275,12 @@
+             url += "&pv=#{machine_os}" unless machine_os.nil?
+             url += "&m=#{machine_arch}" unless machine_arch.nil?
+             url += "&DownloadContext=#{download_context}" unless download_context.nil?
++            if !@config[:bootstrap_version].nil? and @config[:bootstrap_version]
++              require 'uri'
++              url += "&v=#{URI.escape(@config[:bootstrap_version])}"
++            else
+             url += latest_current_windows_chef_version_query
++            end
+           else
+             @config[:msi_url]
+           end
