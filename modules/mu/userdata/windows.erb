@@ -209,7 +209,9 @@
 			log "Applying Windows updates"
 			Import-Module PSWindowsUpdate
 			Get-WUInstall -AcceptAll -IgnoreReboot
+      Start-Sleep -s 60
 			If (Test-Path "HKLM:/SOFTWARE/Microsoft/Windows/CurrentVersion/WindowsUpdate/Auto Update/RebootRequired"){
+        log "Registry fiddling says I need a reboot"
 				$need_reboot = $TRUE
 			}
 		}
@@ -244,6 +246,11 @@
 		New-Item $cygwin_dir/home/$admin_username/.ssh/authorized_keys -type file -force -value "<%= $mu.deploySSHKey %>"
 <% end %>
 
+    if((Get-WURebootStatus -Silent) -eq $true){
+      log "Get-WURebootStatus telling me I need a reboot for real"
+			$need_reboot = $TRUE
+    }
+
 		if ($need_reboot){
 			log "----- REBOOT -----"
 			Restart-Computer -Force
@@ -255,6 +262,7 @@
 			log "Enabling sshd service"
 			sleep 30; Start-Service sshd
 			Set-Service sshd -startuptype "Automatic"
+      Get-WUInstall -AcceptAll -AutoReboot
 
 			$url = 'https://<%= $mu.publicIP %>:2260'
 			log "Calling home to $url"
