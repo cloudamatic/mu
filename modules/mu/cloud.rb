@@ -739,13 +739,11 @@ module MU
                 end
               else
                 output = ssh.exec!(lnx_installer_check)
-                raise MU::Cloud::BootstrapTempFail, "Got nil output from ssh session, waiting and retrying" if output.nil?
                 if !output.nil? and !output.empty?
                   raise MU::Cloud::BootstrapTempFail, "Linux package manager is still doing something, need to wait (#{output})"
                 end
                 if !@config['skipinitialupdates']
                   output = ssh.exec!(lnx_updates_check)
-                  raise MU::Cloud::BootstrapTempFail, "Got nil output from ssh session, waiting and retrying" if output.nil?
                   if !output.nil? and output.match(/userdata still running/)
                     raise MU::Cloud::BootstrapTempFail, "Waiting for initial userdata system updates to complete"
                   end
