@@ -1,0 +1,10 @@
+
+module syslogd_oddjobd 1.0;
+
+require {
+	type oddjob_t;
+	class capability dac_override;
+}
+
+#============= oddjob_t ==============
+allow oddjob_t self:capability dac_override;
