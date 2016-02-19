@@ -22,6 +22,7 @@ case node.platform
       action :nothing
     end
     package "adcli"
+    package "dbus"
     package "sssd"
     package "sssd-ldap"
     package "sssd-ad"
@@ -63,7 +64,13 @@ case node.platform
     end
     include_recipe 'chef-vault'
     domain_creds = chef_vault_item(node.ad.join_auth[:vault], node.ad.join_auth[:item])
-    execute "echo '#{domain_creds[node.ad.join_auth[:password_field]]}' | /usr/sbin/adcli join #{node.ad.dns_name} -U #{domain_creds[node.ad.join_auth[:username_field]]} --stdin-password" do
+    node.ad.dc_ips.each { |ip|
+      # XXX there's a more correct way to touch resolv.conf
+      execute "sed -i '2i nameserver #{ip}' /etc/resolv.conf" do
+        not_if "grep #{ip} /etc/resolv.conf"
+      end
+    }
+    execute "echo -n '#{domain_creds[node.ad.join_auth[:password_field]]}' | /usr/sbin/adcli join #{node.ad.domain_name} -U #{domain_creds[node.ad.join_auth[:username_field]]} --stdin-password" do
       not_if { ::File.exists?("/etc/krb5.keytab") }
     end
     service "sssd" do
