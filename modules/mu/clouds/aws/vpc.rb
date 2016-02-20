@@ -769,6 +769,29 @@ module MU
           return @subnets
         end
 
+        # Given some search criteria try locating a NAT Gaateway in this VPC.
+        # @param nat_cloud_id [String]: The cloud provider's identifier for this NAT.
+        # @param nat_filter_key [String]: A cloud provider filter to help identify the resource, used in conjunction with nat_filter_value.
+        # @param nat_filter_value [String]: A cloud provider filter to help identify the resource, used in conjunction with nat_filter_key.
+        # @param region [String]: The cloud provider region of the target instance.
+        def findNat(nat_cloud_id: nil, nat_filter_key: nil, nat_filter_value: nil, region: MU.curRegion)
+          gateways = 
+            if nat_cloud_id
+              MU::Cloud::AWS.ec2(region).describe_nat_gateways(nat_gateway_ids: [nat_cloud_id])
+            elsif nat_filter_key && nat_filter_value
+              MU::Cloud::AWS.ec2(region).describe_nat_gateways(
+                filter: [
+                  {
+                    name: nat_filter_key,
+                    values: [nat_filter_value]
+                  }
+                ]
+              ).nat_gateways
+            end
+            
+            gateways ? gateways.first : nil
+        end
+
         # Given some search criteria for a {MU::Cloud::Server}, see if we can
         # locate a NAT host in this VPC.
         # @param nat_name [String]: The name of the resource as defined in its 'name' Basket of Kittens field, typically used in conjunction with deploy_id.
@@ -1105,7 +1128,7 @@ module MU
           gateways = MU::Cloud::AWS.ec2(region).describe_nat_gateways(
             filter: [
               {
-                name:"vpc-id",
+                name: "vpc-id",
                 values: [vpc_id],
               }
             ]

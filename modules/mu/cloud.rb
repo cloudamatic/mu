@@ -161,7 +161,7 @@ module MU
             :deps_wait_on_my_creation => true,
             :waits_on_parent_completion => false,
             :class => generic_class_methods,
-            :instance => generic_instance_methods + [:groom, :subnets, :getSubnet, :listSubnets, :findBastion]
+            :instance => generic_instance_methods + [:groom, :subnets, :getSubnet, :listSubnets, :findBastion, :findNat]
         },
         :CacheCluster => {
             :has_multiples => true,
@@ -589,13 +589,23 @@ module MU
                 @config['vpc'].has_key?("nat_host_ip") or
                 @config['vpc'].has_key?("nat_host_name"))
               nat_tag_key, nat_tag_value = @config['vpc']['nat_host_tag'].split(/=/, 2) if !@config['vpc']['nat_host_tag'].nil?
-              @nat = @vpc.findBastion(
-                  nat_name: @config['vpc']['nat_host_name'],
+              if @vpc.cloudobj.config['create_nat_gateway']
+                @nat = "aws-nat"
+                @nat = @vpc.findNat(
                   nat_cloud_id: @config['vpc']['nat_host_id'],
-                  nat_tag_key: nat_tag_key,
-                  nat_tag_value: nat_tag_value,
-                  nat_ip: @config['vpc']['nat_host_ip']
-              )
+                  nat_filter_key: "vpc-id",
+                  region: @config['vpc']["region"],
+                  nat_filter_value: @vpc.cloud_desc.vpc_id
+                )
+              else
+                @nat = @vpc.findBastion(
+                    nat_name: @config['vpc']['nat_host_name'],
+                    nat_cloud_id: @config['vpc']['nat_host_id'],
+                    nat_tag_key: nat_tag_key,
+                    nat_tag_value: nat_tag_value,
+                    nat_ip: @config['vpc']['nat_host_ip']
+                )
+              end
             end
           elsif self.class.cfg_name == "vpc"
             @vpc = self

@@ -474,7 +474,7 @@ module MU
 
   # The version of Chef we will install on nodes (note- not the same as what
   # we intall on ourself, which comes from install/mu_setup).
-  @@chefVersion = "12.6.0-1"
+  @@chefVersion = "12.7.2-1"
   # The version of Chef we will install on nodes.
   # @return [String]
   def self.chefVersion;

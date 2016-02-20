@@ -7,8 +7,8 @@
 DIST_VERSION=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
 EPEL_RPM="http://mirror.metrocast.net/fedora/epel/epel-release-latest-$DIST_VERSION.noarch.rpm"
 
-CHEF_CLIENT_VERSION="12.6.0-1"
-CHEF_SERVER_VERSION="12.3.1-1"
+CHEF_CLIENT_VERSION="12.7.2-1"
+CHEF_SERVER_VERSION="12.4.1-1"
 
 if [ $DIST_VERSION == 7 ];then
   # mariadb replaces mysql, qt and qt-x11 are required by gecode which is required by the dep_selector gem. 
