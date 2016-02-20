@@ -103,7 +103,8 @@ do_deploys.each { |muid|
   mommacat = MU::MommaCat.new(muid, skip_resource_objects: true)
   mommacat.listNodes.each_pair { |nodename, server|
     id = server['instance_id']
-    server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
+    server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform") or %w{centos centos6 centos7 ubuntu ubuntu14 rhel rhel7 rhel71 linux}.include?(server['conf']["platform"])
+    server['conf']["platform"] = "windows" if %w{win2k12r2 win2k12 win2k8 win2k8r2}.include?(server['conf']["platform"])
     next if !$opts[:platform].nil? and server['conf']["platform"] != $opts[:platform]
     next if !$opts[:environment].nil? and MU.environment.upcase != $opts[:environment].upcase
     avail_nodes << nodename

@@ -95,7 +95,10 @@ module MU
         bind_creds = MU::Groomer::Chef.getSecret(vault: $MU_CFG["ldap"]["bind_creds"]["vault"], item: $MU_CFG["ldap"]["bind_creds"]["item"])
         @ldap_conn = Net::LDAP.new(
           :host => $MU_CFG["ldap"]["dcs"].first,
-          :encryption => :simple_tls,
+          :encryption => {
+            :method => :simple_tls,
+            :tls_options => {}
+          },
           :port => 636,
           :base => $MU_CFG["ldap"]["base_dn"],
           :auth => {
@@ -196,7 +199,10 @@ module MU
         root_creds = MU::Groomer::Chef.getSecret(vault: "mu_ldap", item: "root_dn_user")
         @ldap_conn = Net::LDAP.new(
           :host => "127.0.0.1",
-          :encryption => :simple_tls,
+          :encryption => {
+            :method => :simple_tls,
+            :tls_options => {}
+          },
           :port => 636,
           :base => "",
           :auth => {
@@ -463,7 +469,7 @@ module MU
         rejected = 0
         if search.size > 0
           search.each { |term|
-            if term.length < 4 and !exact
+            if term.nil? or (term.length < 4 and !exact)
               MU.log "Search term '#{term}' is too short, ignoring.", MU::WARN
               rejected = rejected + 1
               next

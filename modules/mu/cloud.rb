@@ -710,6 +710,7 @@ module MU
               # Set our admin password first, if we need to
               if windows? and !win_set_pw.nil? and !win_check_for_pw.nil?
                 output = ssh.exec!(win_check_for_pw)
+                raise MU::Cloud::BootstrapTempFail, "Got nil output from ssh session, waiting and retrying" if output.nil?
                 if !output.match(/True/)
                   MU.log "Setting Windows password for user #{@config['windows_admin_username']}", details: ssh.exec!(win_set_pw)
                 end
@@ -717,11 +718,13 @@ module MU
               if windows?
                 output = ssh.exec!(win_env_fix)
                 output = ssh.exec!(win_installer_check)
+                raise MU::Cloud::BootstrapTempFail, "Got nil output from ssh session, waiting and retrying" if output.nil?
                 if output.match(/InProgress/)
                   raise MU::Cloud::BootstrapTempFail, "Windows Installer service is still doing something, need to wait"
                 end
                 if set_hostname and !@hostname_set and @mu_windows_name
                   output = ssh.exec!(win_check_for_hostname)
+                  raise MU::Cloud::BootstrapTempFail, "Got nil output from ssh session, waiting and retrying" if output.nil?
                   if !output.match(/#{@mu_windows_name}/)
                     MU.log "Setting Windows hostname to #{@mu_windows_name}", details: ssh.exec!(win_set_hostname)
                     @hostname_set = true
@@ -809,6 +812,7 @@ module MU
                 )
               end
               forced_windows_reboot = false
+              forced_windows_reboot_twice = false
               retries = 0
             rescue Net::SSH::HostKeyMismatch => e
               MU.log("Remembering new key: #{e.fingerprint}")
@@ -829,6 +833,10 @@ module MU
 
               if retries < max_retries
                 retries = retries + 1
+                if retries > max_retries/2 and !forced_windows_reboot_twice
+                  forced_windows_reboot = false # another chance to unscrew Windows if it's been flailing for a while
+                  forced_windows_reboot_twice = true
+                end
                 msg = "ssh #{ssh_user}@#{@config['mu_name']}: #{e.message}, waiting #{retry_interval}s (attempt #{retries}/#{max_retries})", MU::WARN
                 if retries == 1 or (retries/max_retries <= 0.5 and (retries % 3) == 0)
                   MU.log msg, MU::NOTICE
