@@ -1,6 +1,6 @@
 <%
   $region = MU.curRegion unless $region
-  $vpc_cidr = "10.10.0.0/16" if !$vpc_cidr
+  $vpc_cidr = "10.23.0.0/16" if !$vpc_cidr
   $azs = MU::Cloud::AWS.listAZs
 %>
 
@@ -13,6 +13,9 @@ vpcs:
   nat_gateway_multi_az: true
   create_nat_gateway: true
   endpoint: com.amazonaws.<%= $region %>.s3
+  peers:
+  - vpc:
+      vpc_id: <%= MU.myVPC %>
   route-tables:
   - name: internet
     routes:
