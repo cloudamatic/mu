@@ -3289,6 +3289,10 @@ module MU
                     "enum" => ["join", "create", "add_controller"],
                     "description" => "Rather to join, create or add a Domain Controller"
                 },
+                "domain_sid" => {
+                    "type" => "string",
+                    "description" => "SID of a known domain. Used to help Linux clients map uids and gids properly with SSSD."
+                },
                 "node_type" => {
                     "type" => "string",
                     "enum" => ["domain_node", "domain_controller"],
