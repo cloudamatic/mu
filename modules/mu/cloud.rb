@@ -590,7 +590,6 @@ module MU
                 @config['vpc'].has_key?("nat_host_name"))
               nat_tag_key, nat_tag_value = @config['vpc']['nat_host_tag'].split(/=/, 2) if !@config['vpc']['nat_host_tag'].nil?
               if @vpc.cloudobj.config['create_nat_gateway']
-                @nat = "aws-nat"
                 @nat = @vpc.findNat(
                   nat_cloud_id: @config['vpc']['nat_host_id'],
                   nat_filter_key: "vpc-id",
