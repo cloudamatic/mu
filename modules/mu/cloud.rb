@@ -828,7 +828,7 @@ module MU
               e.remember_host!
               session.close
               retry
-            rescue SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError => e
+            rescue SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::SSH::ConnectionTimeout => e
               begin
                 session.close if !session.nil?
               rescue Net::SSH::Disconnect, IOError => e
