@@ -28,6 +28,10 @@ module MU
         attr_reader :config
         attr_reader :cloud_id
 
+        @cloudformation_data = {}
+        attr_reader :cloudformation_data
+
+
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::firewall_rules}
         def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
@@ -41,6 +45,16 @@ module MU
           else
             @mu_name = @deploy.getResourceName(@config['name'])
           end
+
+          @cloudformation_data = {
+            @mu_name => {
+              "Type" => "AWS::EC2::SecurityGroup",
+              "Properties" => {
+                "GroupDescription" => "",
+                "SecurityGroupIngress" => []
+              }
+            }
+          }
         end
 
         # Called by {MU::Deploy#createResources}
@@ -59,32 +73,34 @@ module MU
             sg_struct[:vpc_id] = vpc_id
           end
 
-          begin
-            secgroup = MU::Cloud::AWS.ec2(@config['region']).create_security_group(sg_struct)
-            @cloud_id = secgroup.group_id
-          rescue Aws::EC2::Errors::InvalidGroupDuplicate => e
-            MU.log "EC2 Security Group #{groupname} already exists, using it", MU::NOTICE
-            filters = [{name: "group-name", values: [groupname]}]
-            filters << {name: "vpc-id", values: [vpc_id]} if !vpc_id.nil?
-
-            secgroup = MU::Cloud::AWS.ec2(@config['region']).describe_security_groups(filters: filters).security_groups.first
-            deploy_id = @deploy.deploy_id if !@deploy_id.nil?
-            if secgroup.nil?
-              raise MuError, "Failed to locate security group named #{groupname}, even though EC2 says it already exists", caller
+          if MU::Cloud::AWS.emitCloudformation
+            begin
+              secgroup = MU::Cloud::AWS.ec2(@config['region']).create_security_group(sg_struct)
+              @cloud_id = secgroup.group_id
+            rescue Aws::EC2::Errors::InvalidGroupDuplicate => e
+              MU.log "EC2 Security Group #{groupname} already exists, using it", MU::NOTICE
+              filters = [{name: "group-name", values: [groupname]}]
+              filters << {name: "vpc-id", values: [vpc_id]} if !vpc_id.nil?
+  
+              secgroup = MU::Cloud::AWS.ec2(@config['region']).describe_security_groups(filters: filters).security_groups.first
+              deploy_id = @deploy.deploy_id if !@deploy_id.nil?
+              if secgroup.nil?
+                raise MuError, "Failed to locate security group named #{groupname}, even though EC2 says it already exists", caller
+              end
+              @cloud_id = secgroup.group_id
             end
-            @cloud_id = secgroup.group_id
+
+            begin
+              MU::Cloud::AWS.ec2(@config['region']).describe_security_groups(group_ids: [secgroup.group_id])
+            rescue Aws::EC2::Errors::InvalidGroupNotFound => e
+              MU.log "#{secgroup.group_id} not yet ready, waiting...", MU::NOTICE
+              sleep 10
+              retry
+            end
           end
 
-          begin
-            MU::Cloud::AWS.ec2(@config['region']).describe_security_groups(group_ids: [secgroup.group_id])
-          rescue Aws::EC2::Errors::InvalidGroupNotFound => e
-            MU.log "#{secgroup.group_id} not yet ready, waiting...", MU::NOTICE
-            sleep 10
-            retry
-          end
-
-          MU::MommaCat.createStandardTags secgroup.group_id, region: @config['region']
-          MU::MommaCat.createTag secgroup.group_id, "Name", groupname, region: @config['region']
+#XXX temp          MU::MommaCat.createStandardTags secgroup.group_id, region: @config['region']
+#XXX temp         MU::MommaCat.createTag secgroup.group_id, "Name", groupname, region: @config['region']
 
           egress = false
           egress = true if !vpc_id.nil?
@@ -327,7 +343,7 @@ module MU
           # add_to_self means that this security is a "member" of its own rules
           # (which is to say, objects that have this SG are allowed in my these
           # rules)
-          if add_to_self
+          if add_to_self and !MU::Cloud::AWS.emitCloudformation
             rules.each { |rule|
               if rule['sgs'].nil? or !rule['sgs'].include?(secgroup.group_id)
                 new_rule = rule.clone
@@ -343,33 +359,46 @@ module MU
 
           # Creating an empty security group is ok, so don't freak out if we get
           # a null rule list.
-          retries = 0
-          if rules != nil
-            MU.log "Rules for EC2 Security Group #{@mu_name} (#{@cloud_id}): #{ec2_rules}", MU::DEBUG
-            begin
-              if ingress
-                MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_ingress(
-                    group_id: @cloud_id,
-                    ip_permissions: ec2_rules
-                )
+          if MU::Cloud::AWS.emitCloudformation
+            ec2_rules.each { |rule|
+              rule[:ip_ranges].each { |cidr|
+                @cloudformation_data[@mu_name]["Properties"]["SecurityGroupIngress"] << {
+                  "IpProtocol" => rule[:ip_protocol],
+                  "FromPort" => rule[:from_port],
+                  "ToPort" => rule[:to_port],
+                  "CidrIP" => cidr[:cidr_ip]
+                }
+              }
+            }
+          else
+            retries = 0
+            if rules != nil
+              MU.log "Rules for EC2 Security Group #{@mu_name} (#{@cloud_id}): #{ec2_rules}", MU::DEBUG
+              begin
+                if ingress
+                  MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_ingress(
+                      group_id: @cloud_id,
+                      ip_permissions: ec2_rules
+                  )
+                end
+                if egress
+                  MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_egress(
+                      group_id: @cloud_id,
+                      ip_permissions: ec2_rules
+                  )
+                end
+              rescue Aws::EC2::Errors::InvalidGroupNotFound => e
+                MU.log "#{@mu_name} does not yet exist", MU::WARN
+                retries = retries + 1
+                if retries < 10
+                  sleep 10
+                  retry
+                else
+                  raise MuError, "#{@mu_name} does not exist", e.backtrace
+                end
+              rescue Aws::EC2::Errors::InvalidPermissionDuplicate => e
+                MU.log "Attempt to add duplicate rule to #{@mu_name}", MU::DEBUG, details: ec2_rules
               end
-              if egress
-                MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_egress(
-                    group_id: @cloud_id,
-                    ip_permissions: ec2_rules
-                )
-              end
-            rescue Aws::EC2::Errors::InvalidGroupNotFound => e
-              MU.log "#{@mu_name} does not yet exist", MU::WARN
-              retries = retries + 1
-              if retries < 10
-                sleep 10
-                retry
-              else
-                raise MuError, "#{@mu_name} does not exist", e.backtrace
-              end
-            rescue Aws::EC2::Errors::InvalidPermissionDuplicate => e
-              MU.log "Attempt to add duplicate rule to #{@mu_name}", MU::DEBUG, details: ec2_rules
             end
           end
 

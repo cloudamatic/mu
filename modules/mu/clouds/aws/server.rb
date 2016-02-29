@@ -80,6 +80,9 @@ module MU
           @ephemeral_mappings
         end
 
+        @cloudformation_data = {}
+        attr_reader :cloudformation_data
+
         attr_reader :mu_name
         attr_reader :config
         attr_reader :deploy
@@ -130,6 +133,17 @@ module MU
           @groomer = MU::Groomer.new(self)
           @disk_devices = MU::Cloud::AWS::Server.disk_devices
           @ephemeral_mappings = MU::Cloud::AWS::Server.ephemeral_mappings
+          @cloudformation_data = {
+            @mu_name => {
+              "Type" => "AWS::EC2::Instance",
+              "Properties" => {
+                "SourceDestCheck" => @config['src_dst_check'].to_s,
+                "InstanceType" => @config['size'],
+                "ImageId" => @config['ami_id'],
+                "DependsOn" => []
+              }
+            }
+          }
         end
 
         # Fetch our baseline userdata argument (read: "script that runs on first
@@ -221,6 +235,9 @@ module MU
           begin
             done = false
             instance = createEc2Instance
+            if MU::Cloud::AWS.emitCloudformation
+              return @config
+            end
 
             @cloud_id = instance.instance_id
             @deploy.saveNodeSecret(@cloud_id, @config['instance_secret'], "instance_secret")
@@ -300,11 +317,15 @@ module MU
         end
 
         # Insert a Server's standard IAM role needs into an arbitrary IAM profile
-        def self.addStdPoliciesToIAMProfile(rolename)
+        def self.addStdPoliciesToIAMProfile(rolename, cloudformation_data: {})
           policies = Hash.new
           policies['Mu_Bootstrap_Secret_'+MU.deploy_id] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{MU.deploy_id}-secret"+'"}]}'
           policies['Mu_Volume_Management'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ec2:CreateTags","ec2:CreateVolume","ec2:AttachVolume","ec2:DescribeInstanceAttribute","ec2:DescribeVolumeAttribute","ec2:DescribeVolumeStatus","ec2:DescribeVolumes"],"Resource":"*"}]}'
           policies.each_pair { |name, doc|
+            if MU::Cloud::AWS.emitCloudformation
+              cloudformation_data['iamrole_'+rolename]["Properties"]["Policies"] << JSON.parse(doc)
+              next 
+            end
             MU.log "Merging policy #{name} into #{rolename}", MU::NOTICE, details: doc
             MU::Cloud::AWS.iam.put_role_policy(
                 role_name: rolename,
@@ -312,6 +333,9 @@ module MU
                 policy_document: doc
             )
           }
+          if MU::Cloud::AWS.emitCloudformation
+            return cloudformation_data
+          end
         end
 
         # Create an Amazon IAM instance profile. One of these should get created
@@ -320,9 +344,27 @@ module MU
         # are requested.
         # @param rolename [String]: The name of the role to create, generally a {MU::Cloud::AWS::Server} mu_name
         # @return [String]: The name of the instance profile.
-        def self.createIAMProfile(rolename, base_profile: nil, extra_policies: nil)
+        def self.createIAMProfile(rolename, base_profile: nil, extra_policies: nil, cloudformation_data: {})
           MU.log "Creating IAM role and policies for '#{name}' nodes"
           policies = Hash.new
+
+          if MU::Cloud::AWS.emitCloudformation
+            cloudformation_data['iamrole_'+rolename] = {
+              "Type" => "AWS::IAM::Role",
+              "Properties" => {
+                "AssumeRolePolicyDocument" => JSON.parse('{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":["ec2.amazonaws.com"]},"Action":["sts:AssumeRole"]}]}'),
+                "Path" => "/",
+                "Policies" => []
+              }
+            }
+            cloudformation_data['iamprofile_'+rolename] = {
+              "Type" => "AWS::IAM::InstanceProfile",
+              "Properties" => {
+                "Path" => "/",
+                "Roles" => [ { "Ref" => 'iamrole_'+rolename }]
+              }
+            }
+          end
 
           if base_profile
             MU.log "Incorporating policies from existing IAM profile '#{base_profile}'"
@@ -350,13 +392,19 @@ module MU
               }
             }
           end
-          resp = MU::Cloud::AWS.iam.create_role(
+          if !MU::Cloud::AWS.emitCloudformation
+            resp = MU::Cloud::AWS.iam.create_role(
               role_name: rolename,
               assume_role_policy_document: '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":["ec2.amazonaws.com"]},"Action":["sts:AssumeRole"]}]}'
-          )
+            )
+          end
           begin
             name=doc=nil
             policies.each_pair { |name, doc|
+              if MU::Cloud::AWS.emitCloudformation
+                cloudformation_data['iamrole_'+rolename]["Properties"]["Policies"] << JSON.parse(doc)
+                next 
+              end
               MU.log "Merging policy #{name} into #{rolename}", MU::NOTICE, details: doc
               MU::Cloud::AWS.iam.put_role_policy(
                   role_name: rolename,
@@ -368,6 +416,7 @@ module MU
             MU.log "Malformed policy when creating IAM Role #{rolename}: #{e.inspect}", MU::ERR
             raise MuError, "Malformed policy when creating IAM Role #{rolename}: #{e.inspect}"
           end
+          return rolename if MU::Cloud::AWS.emitCloudformation
           MU::Cloud::AWS.iam.create_instance_profile(
               instance_profile_name: rolename
           )
@@ -391,12 +440,21 @@ module MU
         def createEc2Instance
           name = @config["name"]
           node = @config['mu_name']
+# XXX this is generic, factor it out to... somewhere else
+          if MU::Cloud::AWS.emitCloudformation
+            @dependencies.each_pair { |resource_classname, resources|
+              resources.each_pair { |sibling_name, sibling_obj|
+                @cloudformation_data[@mu_name]["Properties"]["DependsOn"] << resource_classname+"_"+sibling_obj.cloudobj.mu_name
+              }
+            }
+          end
+
           if @config['generate_iam_role']
-            @config['iam_role'] = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'])
+            @config['iam_role'] = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'], cloudformation_data: @cloudformation_data)
           elsif @config['iam_role'].nil?
             raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
           end
-          MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'])
+          MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'], cloudformation_data: @cloudformation_data)
           instance_descriptor = {
               :image_id => @config["ami_id"],
               :key_name => @deploy.ssh_key_name,
@@ -405,6 +463,10 @@ module MU
               :min_count => 1,
               :max_count => 1
           }
+
+          @cloudformation_data[@mu_name]["Properties"]["DependsOn"] << "iamrole_"+@config['iam_role']
+          @cloudformation_data[@mu_name]["Properties"]["DependsOn"] << "iamprofile_"+@config['iam_role']
+          return if MU::Cloud::AWS.emitCloudformation
 
           security_groups = []
           if @dependencies.has_key?("firewall_rule")
@@ -1010,6 +1072,7 @@ module MU
         def notify
           node, config, deploydata = describe(cloud_id: @cloud_id, update_cache: true)
           deploydata = {} if deploydata.nil?
+          return deploydata if MU::Cloud::AWS.emitCloudformation
 
           if cloud_desc.nil?
             raise MuError, "Failed to load instance metadata for #{@config['mu_name']}/#{@cloud_id}"
@@ -1090,6 +1153,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          return if MU::Cloud::AWS.emitCloudformation
           MU::MommaCat.lock(@cloud_id+"-groom")
           node, config, deploydata = describe(cloud_id: @cloud_id)
 

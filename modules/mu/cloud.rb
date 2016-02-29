@@ -527,7 +527,7 @@ module MU
 
         # Fetch MU::Cloud objects for each of this object's dependencies, and
         # return in an easily-navigable Hash. This can include things listed in
-        # @config['dependencies'], implicitly-defined depdendencies such as
+        # @config['dependencies'], implicitly-defined dependencies such as
         # add_firewall_rules or vpc stanzas, and may refer to objects internal
         # to this deployment or external.  Will populate the instance variables
         # @dependencies (general dependencies, which can only be sibling

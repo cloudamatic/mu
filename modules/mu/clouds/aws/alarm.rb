@@ -23,6 +23,9 @@ module MU
         attr_reader :config
         attr_reader :cloud_id
 
+        @cloudformation_data = {}
+        attr_reader :cloudformation_data
+
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::alarms}
         def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)

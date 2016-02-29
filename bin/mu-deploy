@@ -40,6 +40,7 @@ Usage:
   opt :parameter, "Pass a parameter to the configuration parser (Name=Value). This will be presented to your config file as the ERB variable $Name.", :require => false, :type => :string, :multi => true
   opt :update, "Update the stored configuration of an existing deployment, instead of creating a new deploy.", :require => false, :type => :string
   opt :verbose, "Display debugging output.", :require => false, :default => false, :type => :boolean
+  opt :cloudformation, "When building resources with Amazon Web Services as a target, emit a CloudFormation template instead of building real services.", :require => false, :default => false, :type => :boolean
 end
 
 MU.setVar("curRegion", $opts[:region]) if $opts[:region]
@@ -99,6 +100,7 @@ deployer = MU::Deploy.new(
     verbosity: $opts[:verbose],
     webify_logs: $opts[:web],
     nocleanup: $opts[:nocleanup],
+    cloudformation: $opts[:cloudformation],
     stack_conf: stack_conf
 )
 

@@ -53,14 +53,17 @@ module MU
     # @param nocleanup [Boolean]: Toggles whether to skip cleanup of resources if this deployment fails.
     # @param stack_conf [Hash]: A full application stack configuration parsed by {MU::Config}
     def initialize(environment,
-                   verbosity: nil,
-                   webify_logs: nil,
-                   nocleanup: nil,
+                   verbosity: false,
+                   webify_logs: false,
+                   nocleanup: false,
+                   cloudformation: false,
                    stack_conf: nil)
       MU.setVar("verbose", verbosity)
       @webify_logs = webify_logs
       @nocleanup = nocleanup
       MU.setLogging(verbosity, webify_logs)
+
+      MU::Cloud::AWS.emitCloudformation(set: cloudformation)
 
       if stack_conf.nil? or !stack_conf.is_a?(Hash)
         raise MuError, "Deploy objects require a stack_conf hash"
@@ -231,6 +234,24 @@ module MU
         @my_threads.each do |t|
           t.join
         end
+
+        if MU::Cloud::AWS.emitCloudformation
+          cfm_template = {
+            "Resources" => {}
+          }
+          MU::Cloud.resource_types.each { |cloudclass, data|
+            if !@main_config[data[:cfg_plural]].nil? and
+                @main_config[data[:cfg_plural]].size > 0
+              @main_config[data[:cfg_plural]].each { |resource|
+                if resource['#MUOBJECT'].cloudobj.respond_to?(:cloudformation_data)
+                  cfm_template["Resources"].merge!(resource['#MUOBJECT'].cloudobj.cloudformation_data)
+                end
+              }
+            end
+          }
+          puts JSON.pretty_generate(cfm_template)
+          raise "whatever yo"
+        end
       rescue Exception => e
 
         @my_threads.each do |t|
@@ -246,6 +267,7 @@ module MU
           MU.log e.inspect, MU::ERR, details: e.backtrace
           if !@nocleanup
             MU::Cleanup.run(MU.deploy_id, false, true, mommacat: mommacat)
+            @nocleanup = true # so we don't run this again later
           end
           MU.log e.inspect, MU::ERR
         end
@@ -448,6 +470,7 @@ MESSAGE_END
             end
             if !@nocleanup
               MU::Cleanup.run(MU.deploy_id, false, true)
+              @nocleanup = true # so we don't run this again later
             end
             raise MuError, e.inspect, e.backtrace
           end

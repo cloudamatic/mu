@@ -18,6 +18,28 @@ module MU
     # Support for Amazon Web Services as a provisioning layer.
     class AWS
 
+      @@cloudformation_mode = false
+
+      # Toggle ourselves into a mode that will emit a CloudFormation template
+      # instead of actual infrastructure.
+      # @param set [Boolean]: Set the mode
+      # @return [Boolean]: The Availability Zones in this region.
+      def self.emitCloudformation(set: @@cloudformation_mode)
+        @@cloudformation_mode = set
+        @@cloudformation_mode
+      end
+
+      @@cloudformation_deploy = {}
+
+      # @param set [Hash]: Data to add to the Cloudformation template we're
+      # building.
+      # @return [Hash]: The current state of the Cloudformation template we're
+      # building.
+      def self.mergeToCloudformation(data: {})
+        @@cloudformation_deploy.merge!(data)
+        @@cloudformation_deploy
+      end
+
       # List the Availability Zones associated with a given Amazon Web Services
       # region. If no region is given, search the one in which this MU master
       # server resides.
