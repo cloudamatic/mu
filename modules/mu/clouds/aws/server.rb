@@ -134,13 +134,16 @@ module MU
           @disk_devices = MU::Cloud::AWS::Server.disk_devices
           @ephemeral_mappings = MU::Cloud::AWS::Server.ephemeral_mappings
           @cloudformation_data = {
-            @mu_name => {
+            MU::Cloud::Server.cfg_name+"_"+@mu_name => {
               "Type" => "AWS::EC2::Instance",
               "Properties" => {
                 "SourceDestCheck" => @config['src_dst_check'].to_s,
                 "InstanceType" => @config['size'],
                 "ImageId" => @config['ami_id'],
-                "DependsOn" => []
+                "KeyName" => { "Ref" => "SSHKeyName" },
+                "DependsOn" => [],
+                "Tags" => [],
+                "SecurityGroupIds" => []
               }
             }
           }
@@ -440,11 +443,12 @@ module MU
         def createEc2Instance
           name = @config["name"]
           node = @config['mu_name']
+          cfm_props = @cloudformation_data[MU::Cloud::Server.cfg_name+"_"+@mu_name]["Properties"]
 # XXX this is generic, factor it out to... somewhere else
           if MU::Cloud::AWS.emitCloudformation
             @dependencies.each_pair { |resource_classname, resources|
               resources.each_pair { |sibling_name, sibling_obj|
-                @cloudformation_data[@mu_name]["Properties"]["DependsOn"] << resource_classname+"_"+sibling_obj.cloudobj.mu_name
+                cfm_props["DependsOn"] << resource_classname+"_"+sibling_obj.cloudobj.mu_name
               }
             }
           end
@@ -464,27 +468,45 @@ module MU
               :max_count => 1
           }
 
-          @cloudformation_data[@mu_name]["Properties"]["DependsOn"] << "iamrole_"+@config['iam_role']
-          @cloudformation_data[@mu_name]["Properties"]["DependsOn"] << "iamprofile_"+@config['iam_role']
-          return if MU::Cloud::AWS.emitCloudformation
+          cfm_props["DependsOn"] << "iamrole_"+@config['iam_role']
+          cfm_props["DependsOn"] << "iamprofile_"+@config['iam_role']
+          cfm_props["IamInstanceProfile"] = {
+            "Ref" => "iamprofile_"+@config['iam_role']
+          }
 
           security_groups = []
           if @dependencies.has_key?("firewall_rule")
             @dependencies['firewall_rule'].values.each { |sg|
-              security_groups << sg.cloud_id
+              if !MU::Cloud::AWS.emitCloudformation
+                security_groups << sg.cloud_id
+              else
+                cfm_props["SecurityGroupIds"] << {
+                  "Ref" => MU::Cloud::FirewallRule.cfg_name+"_"+sg.mu_name
+                }
+              end
+
             }
           end
 
-          if security_groups.size > 0
-            instance_descriptor[:security_group_ids] = security_groups
-          else
-            raise MuError, "Didn't get any security groups assigned to be in #{@mu_name}, that shouldn't happen"
+
+          if !MU::Cloud::AWS.emitCloudformation
+            if security_groups.size > 0
+              instance_descriptor[:security_group_ids] = security_groups
+            else
+              raise MuError, "Didn't get any security groups assigned to be in #{@mu_name}, that shouldn't happen"
+            end
           end
 
 
           if !@config['private_ip'].nil?
-            instance_descriptor[:private_ip_address] = @config['private_ip']
+            if !MU::Cloud::AWS.emitCloudformation
+              instance_descriptor[:private_ip_address] = @config['private_ip']
+            else
+              cfm_props["PrivateIpAddress"] = @config['private_ip']
+            end
           end
+
+          return if MU::Cloud::AWS.emitCloudformation
 
           vpc_id = subnet = nil
           if !@vpc.nil? and @config.has_key?("vpc")

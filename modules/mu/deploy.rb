@@ -235,8 +235,19 @@ module MU
           t.join
         end
 
+# XXX this logic belongs in aws.rb
         if MU::Cloud::AWS.emitCloudformation
           cfm_template = {
+            "Parameters" => {
+              "SSHKeyName" => {
+                "Description" => "Name of an existing EC2 KeyPair to enable SSH access to hosts",
+                "Type" => "String",
+                "MinLength" => "1",
+                "MaxLength" => "64",
+                "AllowedPattern" => "[-_ a-zA-Z.@0-9]*",
+                "ConstraintDescription" => "can contain only alphanumeric characters, spaces, dashes and underscores."
+              }
+            },
             "Resources" => {}
           }
           MU::Cloud.resource_types.each { |cloudclass, data|

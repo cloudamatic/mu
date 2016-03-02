@@ -1,7 +1,11 @@
 ---
-  appname: "demo"
+  parameters:
+    - name: appname
+      default: demo
+    - name: instance_type
+  appname: <%= $appname %>
   servers: 
     - 
-      name: "simple"
-      size: "m3.medium"
+      name: simple
+      size: <%= $instance_type %>
       skipinitialupdates: true

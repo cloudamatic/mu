@@ -80,48 +80,47 @@ module MU
 
     attr_reader :config
 
+    @parameters = []
 
-    # Load a configuration file ("Basket of Kittens").
-    # @param path [String]: The path to the master config file to load. Note that this can include other configuration files via ERB.
-    # @param skipinitialupdates [Boolean]: Whether to forcibly apply the *skipinitialupdates* flag to nodes created by this configuration.
-    # @param params [Hash]: Optional name-value parameter pairs, which will be passed to our configuration files as ERB variables.
-    # @return [Hash]: The complete validated configuration for a deployment.
-    def initialize(path, skipinitialupdates = false, params: params = Hash.new)
-      $myPublicIp = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
-      $myRoot = MU.myRoot
+    # A wrapper for config leaves that came from ERB parameters instead of raw
+    # YAML or JSON. Will behave like a string for things that expect that
+    # sort of thing. Code that needs to know that this leaf was the result of
+    # a parameter will be able to tell by the object class being something
+    # other than a plain string, array, or hash.
+    class Tail
+      @value = nil
+      def initialize(value)
+        @value = value
+      end
+      
+      def to_s
+        @value
+      end
+    end
 
-      $myAZ = MU.myAZ
-      $myRegion = MU.curRegion
-
-      @@config_path = path
-      @skipinitialupdates = skipinitialupdates
-
-      ok = true
-      params.each_pair { |name, value|
-        begin
-          raise DeployParamError, "Parameter must be formatted as name=value" if value.nil? or value.empty?
-          raise DeployParamError, "Parameter name must be a legal Ruby variable name" if name.match(/[^A-Za-z0-9_]/)
-          raise DeployParamError, "Parameter values cannot contain quotes" if value.match(/["']/)
-          eval("defined? $#{name} and raise DeployParamError, 'Parameter name reserved'")
-          eval("$#{name} = '#{value}'")
-          MU.log "Passing variable $#{name} into #{@@config_path} with value '#{value}'"
-        rescue RuntimeError, SyntaxError => e
-          ok = false
-          MU.log "Error setting $#{name}='#{value}': #{e.message}", MU::ERR
-        end
-      }
-      raise ValidationError if !ok
-
-      # Figure out what kind of fail we're loading. We handle includes 
-      # differently if YAML is involved.
-      $file_format = MU::Config.guessFormat(@@config_path)
+    # Load up our YAML or JSON and parse it through ERB, optionally substituting
+    # externally-supplied parameters.
+    def resolveConfig(path: @@config_path, resolve_params: true)
+puts "--------"
+pp @parameters
+puts "++++++++"
+      config = nil
+      if resolve_params
+        @parameters.each_pair { |name, val|
+          MU.log "Passing variable $#{name} into #{@@config_path} with value '#{val}'"
+          eval("$#{name} = '#{val}'")
+          # XXX make this some horrible identifier, then crawl the hash after we've made it to replace with MU::Config::Tail objects
+        }
+      end
+      # Figure out what kind of file we're loading. We handle includes 
+      # differently if YAML is involved. These globals get used inside
+      # templates. They're globals on purpose. Stop whining.
+      $file_format = MU::Config.guessFormat(path)
       $yaml_refs = {}
-
-      # Run our input through the ERB renderer.
-      erb = ERB.new(File.read(@@config_path))
+      erb = ERB.new(File.read(path))
       raw_text = erb.result(get_binding)
       raw_json = nil
-
+puts raw_text
       # If we're working in YAML, do some magic to make includes work better.
       yaml_parse_error = nil
       if $file_format == :yaml
@@ -136,19 +135,73 @@ module MU
       end
 
       begin
-        @config = JSON.parse(raw_json)
+        config = JSON.parse(raw_json)
       rescue JSON::ParserError => e
         badconf = File.new("/tmp/badconf.#{$$}", File::CREAT|File::TRUNC|File::RDWR, 0400)
         badconf.puts raw_text
         badconf.close
-        if !yaml_parse_error.nil? and !@@config_path.match(/\.json/)
-          MU.log "YAML Error parsing #{@@config_path}! Complete file dumped to /tmp/badconf.#{$$}", MU::ERR, details: yaml_parse_error
+        if !yaml_parse_error.nil? and !path.match(/\.json/)
+          MU.log "YAML Error parsing #{path}! Complete file dumped to /tmp/badconf.#{$$}", MU::ERR, details: yaml_parse_error
         else
-          MU.log "JSON Error parsing #{@@config_path}! Complete file dumped to /tmp/badconf.#{$$}", MU::ERR, details: e.message
+          MU.log "JSON Error parsing #{path}! Complete file dumped to /tmp/badconf.#{$$}", MU::ERR, details: e.message
         end
         raise ValidationError
       end
-      @config = MU::Config.fixDashes(@config)
+      return MU::Config.fixDashes(config)
+    end
+
+
+    # Load, resolve, and validate a configuration file ("Basket of Kittens").
+    # @param path [String]: The path to the master config file to load. Note that this can include other configuration files via ERB.
+    # @param skipinitialupdates [Boolean]: Whether to forcibly apply the *skipinitialupdates* flag to nodes created by this configuration.
+    # @param params [Hash]: Optional name-value parameter pairs, which will be passed to our configuration files as ERB variables.
+    # @return [Hash]: The complete validated configuration for a deployment.
+    def initialize(path, skipinitialupdates = false, params: params = Hash.new)
+      $myPublicIp = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
+      $myRoot = MU.myRoot
+
+      $myAZ = MU.myAZ
+      $myRegion = MU.curRegion
+
+      @@config_path = path
+      @skipinitialupdates = skipinitialupdates
+      @parameters = {}
+
+      ok = true
+      params.each_pair { |name, value|
+        begin
+          raise DeployParamError, "Parameter must be formatted as name=value" if value.nil? or value.empty?
+          raise DeployParamError, "Parameter name must be a legal Ruby variable name" if name.match(/[^A-Za-z0-9_]/)
+          raise DeployParamError, "Parameter values cannot contain quotes" if value.match(/["']/)
+          eval("defined? $#{name} and raise DeployParamError, 'Parameter name reserved'")
+#          eval("$#{name} = '#{value}'")
+          @parameters[name] = value
+          MU.log "Passing variable $#{name} into #{@@config_path} with value '#{value}'"
+        rescue RuntimeError, SyntaxError => e
+          ok = false
+          MU.log "Error setting $#{name}='#{value}': #{e.message}", MU::ERR
+        end
+      }
+      raise ValidationError if !ok
+
+      # Run our input through the ERB renderer.
+      tmp_cfg = resolveConfig(path: @@config_path, resolve_params: false)
+      if tmp_cfg.has_key?("parameters") and tmp_cfg["parameters"].size > 0
+        tmp_cfg["parameters"].each { |param|
+          if !@parameters.has_key?(param['name'])
+            if param.has_key?("default")
+              @parameters[param['name']] = param['default']
+            elsif param["required"] or !param.has_key?("required")
+              MU.log "Required parameter '#{param['name']}' not supplied", MU::ERR
+              ok = false
+            end
+          end
+        }
+      end
+      raise ValidationError if !ok
+
+      @config = resolveConfig(path: @@config_path)
+pp @config
       if !@config.has_key?('admins') or @config['admins'].size == 0
         if MU.chef_user == "mu"
           @config['admins'] = [{"name" => "Mu Administrator", "email" => ENV['MU_ADMIN_EMAIL']}]
@@ -515,11 +568,11 @@ module MU
               nat_tag_value: nat_tag_value,
               nat_ip: vpc_block['nat_host_ip']
           )
-					ssh_keydir = Etc.getpwnam(MU.mu_user).dir+"/.ssh"
-					if !vpc_block['nat_ssh_key'].nil? and !File.exists?(ssh_keydir+"/"+vpc_block['nat_ssh_key'])
+          ssh_keydir = Etc.getpwnam(MU.mu_user).dir+"/.ssh"
+          if !vpc_block['nat_ssh_key'].nil? and !File.exists?(ssh_keydir+"/"+vpc_block['nat_ssh_key'])
               MU.log "Couldn't find alternate NAT key #{ssh_keydir}/#{vpc_block['nat_ssh_key']} in #{parent_name}", MU::ERR, details: vpc_block
               return false
-					end
+          end
 
           if !ext_nat
             if vpc_block["nat_host_id"].nil? and nat_tag_key.nil? and vpc_block['nat_host_ip'].nil? and vpc_block["deploy_id"].nil?
@@ -2277,25 +2330,25 @@ module MU
     }
 
 
-    #		@route_table_reference_primitive = {
-    #			"type" => "object",
-    #			"description" => "Deploy, attach, or peer this resource with a VPC.",
-    #			"minProperties" => 1,
-    #			"additionalProperties" => false,
-    #			"properties" => {
-    #				"vpc_id" => { "type" => "string" },
-    #				"vpc_name" => { "type" => "string" },
-    #				"tag" => {
-    #					"type" => "string",
-    #					"description" => "Identify this VPC by a tag (key=value). Note that this tag must not match more than one resource.",
-    #					"pattern" => "^[^=]+=.+"
-    #				},
-    #				"deploy_id" => {
-    #					"type" => "string",
-    #					"description" => "Look for a VPC fitting this description in another Mu deployment with this id.",
-    #				}
-    #			}
-    #		}
+    #   @route_table_reference_primitive = {
+    #     "type" => "object",
+    #     "description" => "Deploy, attach, or peer this resource with a VPC.",
+    #     "minProperties" => 1,
+    #     "additionalProperties" => false,
+    #     "properties" => {
+    #       "vpc_id" => { "type" => "string" },
+    #       "vpc_name" => { "type" => "string" },
+    #       "tag" => {
+    #         "type" => "string",
+    #         "description" => "Identify this VPC by a tag (key=value). Note that this tag must not match more than one resource.",
+    #         "pattern" => "^[^=]+=.+"
+    #       },
+    #       "deploy_id" => {
+    #         "type" => "string",
+    #         "description" => "Look for a VPC fitting this description in another Mu deployment with this id.",
+    #       }
+    #     }
+    #   }
 
 
     @region_primitive = {
@@ -2457,13 +2510,13 @@ module MU
                             "description" => "The AWS account which owns the target VPC."
                         },
                         "vpc" => vpc_reference_primitive(MANY_SUBNETS, NO_NAT_OPTS, "all")
-                        #							"route_tables" => {
-                        #								"type" => "array",
-                        #								"items" => {
-                        #									"type" => "string",
-                        #									"description" => "The name of a route to which to add a route for this peering connection. If none are specified, all available route tables will have approprite routes added."
-                        #								}
-                        #							}
+                        #             "route_tables" => {
+                        #               "type" => "array",
+                        #               "items" => {
+                        #                 "type" => "string",
+                        #                 "description" => "The name of a route to which to add a route for this peering connection. If none are specified, all available route tables will have approprite routes added."
+                        #               }
+                        #             }
                     }
                 }
             },
@@ -4034,13 +4087,13 @@ module MU
                         "pattern" => "^(TCP:\\d+|SSL:\\d+|HTTP:\\d+\\/.*|HTTPS:\\d+\\/.*)$",
                         "description" => 'Specifies the instance being checked. The protocol is either TCP, HTTP, HTTPS, or SSL. The range of valid ports is one (1) through 65535.
 
-							TCP is the default, specified as a TCP: port pair, for example "TCP:5000". In this case a healthcheck simply attempts to open a TCP connection to the instance on the specified port. Failure to connect within the configured timeout is considered unhealthy.
+              TCP is the default, specified as a TCP: port pair, for example "TCP:5000". In this case a healthcheck simply attempts to open a TCP connection to the instance on the specified port. Failure to connect within the configured timeout is considered unhealthy.
 
-							SSL is also specified as SSL: port pair, for example, SSL:5000.
+              SSL is also specified as SSL: port pair, for example, SSL:5000.
 
-							For HTTP or HTTPS protocol, the situation is different. You have to include a ping path in the string. HTTP is specified as a HTTP:port;/;PathToPing; grouping, for example "HTTP:80/weather/us/wa/seattle". In this case, a HTTP GET request is issued to the instance on the given port and path. Any answer other than "200 OK" within the timeout period is considered unhealthy.
+              For HTTP or HTTPS protocol, the situation is different. You have to include a ping path in the string. HTTP is specified as a HTTP:port;/;PathToPing; grouping, for example "HTTP:80/weather/us/wa/seattle". In this case, a HTTP GET request is issued to the instance on the given port and path. Any answer other than "200 OK" within the timeout period is considered unhealthy.
 
-							The total length of the HTTP ping target needs to be 1024 16-bit Unicode characters or less.'
+              The total length of the HTTP ping target needs to be 1024 16-bit Unicode characters or less.'
                     },
                     "timeout" => {
                         "type" => "integer",
@@ -4085,8 +4138,8 @@ module MU
                             "type" => "string",
                             "enum" => ["HTTP", "HTTPS", "TCP", "SSL"],
                             "description" => "Specifies the protocol to use for routing traffic to back-end instances - HTTP, HTTPS, TCP, or SSL. This property cannot be modified for the life of the load balancer.
-	
-								If the front-end protocol is HTTP or HTTPS, InstanceProtocol has to be at the same protocol layer, i.e., HTTP or HTTPS. Likewise, if the front-end protocol is TCP or SSL, InstanceProtocol has to be TCP or SSL."
+  
+                If the front-end protocol is HTTP or HTTPS, InstanceProtocol has to be at the same protocol layer, i.e., HTTP or HTTPS. Likewise, if the front-end protocol is TCP or SSL, InstanceProtocol has to be TCP or SSL."
                         },
                         "ssl_certificate_name" => {
                             "type" => "string",
@@ -4170,7 +4223,7 @@ module MU
                 "type" => "string",
                 "description" => "A comma-separated list of subnet identifiers of Amazon Virtual Private Clouds (Amazon VPCs).
 
-					If you specify subnets and Availability Zones with this call, ensure that the subnets' Availability Zones match the Availability Zones specified."
+          If you specify subnets and Availability Zones with this call, ensure that the subnets' Availability Zones match the Availability Zones specified."
             },
             "scaling_policies" => {
                 "type" => "array",
@@ -4356,6 +4409,23 @@ module MU
             "appname" => {
                 "type" => "string",
                 "description" => "A name for your application stack. Should be short, but easy to differentiate from other applications.",
+            },
+            "parameters" => {
+                "type" => "array",
+                "items" => {
+                    "type" => "object",
+                    "title" => "parameter",
+                    "description" => "Parameters to be substituted elsewhere in this Basket of Kittens as ERB variables (<%= varname %>)",
+                    "additionalProperties" => false,
+                    "properties" => {
+                        "name" => {"required" => true},
+                        "default" => {"type" => "string"},
+                        "required" => {
+                          "type" => "boolean",
+                          "default" => true
+                         }
+                    }
+                }
             },
             "region" => @region_primitive,
             # TODO availability zones (or an array thereof) 

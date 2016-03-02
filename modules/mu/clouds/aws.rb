@@ -29,17 +29,6 @@ module MU
         @@cloudformation_mode
       end
 
-      @@cloudformation_deploy = {}
-
-      # @param set [Hash]: Data to add to the Cloudformation template we're
-      # building.
-      # @return [Hash]: The current state of the Cloudformation template we're
-      # building.
-      def self.mergeToCloudformation(data: {})
-        @@cloudformation_deploy.merge!(data)
-        @@cloudformation_deploy
-      end
-
       # List the Availability Zones associated with a given Amazon Web Services
       # region. If no region is given, search the one in which this MU master
       # server resides.
@@ -87,13 +76,15 @@ module MU
       # @return [Array<String>]: keypairname, ssh_private_key, ssh_public_key
       def self.createEc2SSHKey(keyname, public_key)
         # We replicate this key in all regions
-        MU::Cloud::AWS.listRegions.each { |region|
-          MU.log "Replicating #{keyname} to EC2 in #{region}", MU::DEBUG, details: @ssh_public_key
-          MU::Cloud::AWS.ec2(region).import_key_pair(
-              key_name: keyname,
-              public_key_material: public_key
-          )
-        }
+        if !MU::Cloud::AWS.emitCloudformation
+          MU::Cloud::AWS.listRegions.each { |region|
+            MU.log "Replicating #{keyname} to EC2 in #{region}", MU::DEBUG, details: @ssh_public_key
+            MU::Cloud::AWS.ec2(region).import_key_pair(
+                key_name: keyname,
+                public_key_material: public_key
+            )
+          }
+        end
       end
 
       # Amazon's IAM API

@@ -1267,33 +1267,40 @@ module MU
     # @param tag_value [String]: The value of the tag
     # @param region [String]: The cloud provider region
     # @return [void]
-    def self.createTag(resource,
+    def self.createTag(resource = nil,
         tag_name="MU-ID",
         tag_value=MU.deploy_id,
         region: MU.curRegion)
       attempts = 0
 
-      begin
-        MU::Cloud::AWS.ec2(region).create_tags(
+      if !MU::Cloud::AWS.emitCloudformation
+        begin
+          MU::Cloud::AWS.ec2(region).create_tags(
             resources: [resource],
             tags: [
-                {
-                    key: tag_name,
-                    value: tag_value
-                }
+              {
+                key: tag_name,
+                value: tag_value
+              }
             ]
-        )
-      rescue Aws::EC2::Errors::ServiceError => e
-        MU.log "Got #{e.inspect} tagging #{resource} with #{tag_name}=#{tag_value}", MU::WARN if attempts > 1
-        if attempts < 5
-          attempts = attempts + 1
-          sleep 15
-          retry
-        else
-          raise e
+          )
+        rescue Aws::EC2::Errors::ServiceError => e
+          MU.log "Got #{e.inspect} tagging #{resource} with #{tag_name}=#{tag_value}", MU::WARN if attempts > 1
+          if attempts < 5
+            attempts = attempts + 1
+            sleep 15
+            retry
+          else
+            raise e
+          end
         end
+        MU.log "Created tag #{tag_name} with value #{tag_value} for resource #{resource}", MU::DEBUG
+      else
+        return {
+          "Key" =>  tag_name,
+          "Value" => tag_value
+        }
       end
-      MU.log "Created tag #{tag_name} with value #{tag_value} for resource #{resource}", MU::DEBUG
     end
 
     # Tag a resource with all of our standard identifying tags.
@@ -1301,19 +1308,22 @@ module MU
     # @param resource [String]: The cloud provider identifier of the resource to tag
     # @param region [String]: The cloud provider region
     # @return [void]
-    def self.createStandardTags(resource, region: MU.curRegion)
+    def self.createStandardTags(resource = nil, region: MU.curRegion)
       tags = []
       listStandardTags.each_pair { |name, value|
         if !value.nil?
           tags << {key: name, value: value}
         end
       }
+      if MU::Cloud::AWS.emitCloudformation
+        return tags
+      end
 
       attempts = 0
       begin
         MU::Cloud::AWS.ec2(region).create_tags(
-            resources: [resource],
-            tags: tags
+          resources: [resource],
+          tags: tags
         )
       rescue Aws::EC2::Errors::ServiceError => e
         MU.log "Got #{e.inspect} tagging #{resource} in #{region}, will retry", MU::WARN, details: caller.concat(tags) if attempts > 1

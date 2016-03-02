@@ -47,10 +47,11 @@ module MU
           end
 
           @cloudformation_data = {
-            @mu_name => {
+            MU::Cloud::FirewallRule.cfg_name+"_"+@mu_name => {
               "Type" => "AWS::EC2::SecurityGroup",
               "Properties" => {
                 "GroupDescription" => "",
+                "Tags" => [],
                 "SecurityGroupIngress" => []
               }
             }
@@ -73,7 +74,7 @@ module MU
             sg_struct[:vpc_id] = vpc_id
           end
 
-          if MU::Cloud::AWS.emitCloudformation
+          if !MU::Cloud::AWS.emitCloudformation
             begin
               secgroup = MU::Cloud::AWS.ec2(@config['region']).create_security_group(sg_struct)
               @cloud_id = secgroup.group_id
@@ -99,8 +100,15 @@ module MU
             end
           end
 
-#XXX temp          MU::MommaCat.createStandardTags secgroup.group_id, region: @config['region']
-#XXX temp         MU::MommaCat.createTag secgroup.group_id, "Name", groupname, region: @config['region']
+          if MU::Cloud::AWS.emitCloudformation
+            MU::MommaCat.listStandardTags.each_pair { |key, val|
+              @cloudformation_data[MU::Cloud::FirewallRule.cfg_name+"_"+@mu_name]["Properties"]["Tags"] << { "Key" => key, "Value" => val }
+            }
+            @cloudformation_data[MU::Cloud::FirewallRule.cfg_name+"_"+@mu_name]["Properties"]["Tags"] << { "Key" => "Name", "Value" => @mu_name }
+          else
+            MU::MommaCat.createStandardTags secgroup.group_id, region: @config['region']
+            MU::MommaCat.createTag secgroup.group_id, "Name", groupname, region: @config['region']
+          end
 
           egress = false
           egress = true if !vpc_id.nil?
@@ -112,6 +120,9 @@ module MU
               ingress: true,
               egress: egress
           )
+          if MU::Cloud::AWS.emitCloudformation
+            return nil
+          end
 
           MU.log "EC2 Security Group #{groupname} is #{secgroup.group_id}", MU::DEBUG
           return secgroup.group_id
@@ -362,7 +373,7 @@ module MU
           if MU::Cloud::AWS.emitCloudformation
             ec2_rules.each { |rule|
               rule[:ip_ranges].each { |cidr|
-                @cloudformation_data[@mu_name]["Properties"]["SecurityGroupIngress"] << {
+                @cloudformation_data[MU::Cloud::FirewallRule.cfg_name+"_"+@mu_name]["Properties"]["SecurityGroupIngress"] << {
                   "IpProtocol" => rule[:ip_protocol],
                   "FromPort" => rule[:from_port],
                   "ToPort" => rule[:to_port],
