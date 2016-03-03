@@ -80,8 +80,7 @@ module MU
           @ephemeral_mappings
         end
 
-        @cloudformation_data = {}
-        attr_reader :cloudformation_data
+        attr_reader :cfm_template
 
         attr_reader :mu_name
         attr_reader :config
@@ -133,20 +132,12 @@ module MU
           @groomer = MU::Groomer.new(self)
           @disk_devices = MU::Cloud::AWS::Server.disk_devices
           @ephemeral_mappings = MU::Cloud::AWS::Server.ephemeral_mappings
-          @cloudformation_data = {
-            MU::Cloud::Server.cfg_name+"_"+@mu_name => {
-              "Type" => "AWS::EC2::Instance",
-              "Properties" => {
-                "SourceDestCheck" => @config['src_dst_check'].to_s,
-                "InstanceType" => @config['size'],
-                "ImageId" => @config['ami_id'],
-                "KeyName" => { "Ref" => "SSHKeyName" },
-                "DependsOn" => [],
-                "Tags" => [],
-                "SecurityGroupIds" => []
-              }
-            }
-          }
+          @cfm_name, @cfm_template = MU::Cloud::AWS.cloudFormationBase(self.class.cfg_name, self)
+
+          MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "SourceDestCheck", @config['src_dst_check'].to_s)
+          MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "InstanceType", @config['size'])
+          MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "ImageId", @config['ami_id'])
+          MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "KeyName", { "Ref" => "SSHKeyName" })
         end
 
         # Fetch our baseline userdata argument (read: "script that runs on first
@@ -443,22 +434,14 @@ module MU
         def createEc2Instance
           name = @config["name"]
           node = @config['mu_name']
-          cfm_props = @cloudformation_data[MU::Cloud::Server.cfg_name+"_"+@mu_name]["Properties"]
-# XXX this is generic, factor it out to... somewhere else
-          if MU::Cloud::AWS.emitCloudformation
-            @dependencies.each_pair { |resource_classname, resources|
-              resources.each_pair { |sibling_name, sibling_obj|
-                cfm_props["DependsOn"] << resource_classname+"_"+sibling_obj.cloudobj.mu_name
-              }
-            }
-          end
+          cfm_props = @cfm_template[@cfm_name]["Properties"]
 
           if @config['generate_iam_role']
-            @config['iam_role'] = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'], cloudformation_data: @cloudformation_data)
+            @config['iam_role'] = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'], cloudformation_data: @cfm_template)
           elsif @config['iam_role'].nil?
             raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
           end
-          MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'], cloudformation_data: @cloudformation_data)
+          MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'], cloudformation_data: @cfm_template)
           instance_descriptor = {
               :image_id => @config["ami_id"],
               :key_name => @deploy.ssh_key_name,

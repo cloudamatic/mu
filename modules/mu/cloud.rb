@@ -304,6 +304,7 @@ module MU
         attr_reader :config
         attr_reader :deploydata
         attr_reader :destroyed
+        attr_reader :cfm_template
 
         def self.shortname
           name.sub(/.*?::([^:]+)$/, '\1')
@@ -352,6 +353,8 @@ module MU
           end
           return fullname
         end
+
+
 
         # @param mommacat [MU::MommaCat]: The deployment containing this cloud resource
         # @param mu_name [String]: Optional- specify the full Mu resource name of an existing resource to load, instead of creating a new one
@@ -421,6 +424,7 @@ module MU
           elsif !@deploy.nil?
             MU.log "#{self} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR
           end
+
         end
 
         # Remove all metadata and cloud resources associated with this object

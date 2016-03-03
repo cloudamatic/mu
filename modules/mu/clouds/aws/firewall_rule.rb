@@ -27,10 +27,7 @@ module MU
         attr_reader :mu_name
         attr_reader :config
         attr_reader :cloud_id
-
-        @cloudformation_data = {}
-        attr_reader :cloudformation_data
-
+        attr_reader :cfm_template
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::firewall_rules}
@@ -46,16 +43,7 @@ module MU
             @mu_name = @deploy.getResourceName(@config['name'])
           end
 
-          @cloudformation_data = {
-            MU::Cloud::FirewallRule.cfg_name+"_"+@mu_name => {
-              "Type" => "AWS::EC2::SecurityGroup",
-              "Properties" => {
-                "GroupDescription" => "",
-                "Tags" => [],
-                "SecurityGroupIngress" => []
-              }
-            }
-          }
+          @cfm_name, @cfm_template = MU::Cloud::AWS.cloudFormationBase(self.class.cfg_name, self)
         end
 
         # Called by {MU::Deploy#createResources}
@@ -100,12 +88,7 @@ module MU
             end
           end
 
-          if MU::Cloud::AWS.emitCloudformation
-            MU::MommaCat.listStandardTags.each_pair { |key, val|
-              @cloudformation_data[MU::Cloud::FirewallRule.cfg_name+"_"+@mu_name]["Properties"]["Tags"] << { "Key" => key, "Value" => val }
-            }
-            @cloudformation_data[MU::Cloud::FirewallRule.cfg_name+"_"+@mu_name]["Properties"]["Tags"] << { "Key" => "Name", "Value" => @mu_name }
-          else
+          if !MU::Cloud::AWS.emitCloudformation
             MU::MommaCat.createStandardTags secgroup.group_id, region: @config['region']
             MU::MommaCat.createTag secgroup.group_id, "Name", groupname, region: @config['region']
           end
@@ -373,12 +356,16 @@ module MU
           if MU::Cloud::AWS.emitCloudformation
             ec2_rules.each { |rule|
               rule[:ip_ranges].each { |cidr|
-                @cloudformation_data[MU::Cloud::FirewallRule.cfg_name+"_"+@mu_name]["Properties"]["SecurityGroupIngress"] << {
-                  "IpProtocol" => rule[:ip_protocol],
-                  "FromPort" => rule[:from_port],
-                  "ToPort" => rule[:to_port],
-                  "CidrIP" => cidr[:cidr_ip]
-                }
+                MU::Cloud::AWS.setCloudFormationProp(
+                  @cfm_template[@cfm_name],
+                  "SecurityGroupIngress",
+                  {
+                    "IpProtocol" => rule[:ip_protocol],
+                    "FromPort" => rule[:from_port],
+                    "ToPort" => rule[:to_port],
+                    "CidrIP" => cidr[:cidr_ip]
+                  }
+                )
               }
             }
           else

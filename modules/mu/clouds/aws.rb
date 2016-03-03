@@ -29,6 +29,62 @@ module MU
         @@cloudformation_mode
       end
 
+      # Generate and return a skeletal CloudFormation resource entry for the
+      # caller.
+      def self.cloudFormationBase(type, cloudobj)
+        desc = {}
+        tags = []
+        MU::MommaCat.listStandardTags.each_pair { |key, val|
+          tags << { "Key" => key, "Value" => val }
+        }
+# XXX figure out whether we can use Fn::Join here with DeployID so the names are parameterized, instead of using cloudobj.mu_name
+        name = type+"_"+cloudobj.mu_name
+        tags << { "Key" => "Name", "Value" => cloudobj.mu_name }
+
+        case type
+        when "server"
+          desc = {
+            "Type" => "AWS::EC2::Instance",
+            "Properties" => {
+              "DependsOn" => [],
+              "Tags" => tags,
+              "SecurityGroupIds" => []
+            }
+          }
+        when "firewall_rule"
+          desc = {
+            "Type" => "AWS::EC2::SecurityGroup",
+            "Properties" => {
+              "DependsOn" => [],
+              "Tags" => tags,
+              "SecurityGroupIngress" => []
+            }
+          }
+        else
+MU.log "Dunno how to make a CloudFormation chunk for #{type} yet", MU::WARN
+        end
+        if !cloudobj.nil?
+          cloudobj.dependencies.first.each_pair { |resource_classname, resources|
+            resources.each_pair { |sibling_name, sibling_obj|
+              desc["Properties"]["DependsOn"] << resource_classname+"_"+sibling_obj.cloudobj.mu_name
+            }
+          }
+        end
+        return [name, { name => desc }]
+      end
+
+      def self.setCloudFormationProp(resource, name, value)
+        realvalue = value
+        if value.class.to_s == "MU::Config::Tail"
+          realvalue = { "Ref" => "#{value.getPrettyName}" }
+        end
+        if !resource["Properties"][name].nil? and resource["Properties"][name].is_a?(Array)
+          resource["Properties"][name] << realvalue
+        else
+          resource["Properties"][name] = realvalue
+        end
+      end
+
       # List the Availability Zones associated with a given Amazon Web Services
       # region. If no region is given, search the one in which this MU master
       # server resides.

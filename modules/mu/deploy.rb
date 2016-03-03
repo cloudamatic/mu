@@ -239,6 +239,12 @@ module MU
         if MU::Cloud::AWS.emitCloudformation
           cfm_template = {
             "Parameters" => {
+              "DeployID" => {
+                "Description" => "A name with which to tag and describe all resources created by this deployment.",
+                "Type" => "String",
+                "MinLength" => "1",
+                "MaxLength" => "25",
+              },
               "SSHKeyName" => {
                 "Description" => "Name of an existing EC2 KeyPair to enable SSH access to hosts",
                 "Type" => "String",
@@ -250,12 +256,19 @@ module MU
             },
             "Resources" => {}
           }
+          MU::Config.tails.each_pair { |param, data|
+            cfm_template["Parameters"][data.getPrettyName] = {
+              "Type" => "String",
+              "MinLength" => "1",
+              "MaxLength" => "64",
+            }
+          }
           MU::Cloud.resource_types.each { |cloudclass, data|
             if !@main_config[data[:cfg_plural]].nil? and
                 @main_config[data[:cfg_plural]].size > 0
               @main_config[data[:cfg_plural]].each { |resource|
-                if resource['#MUOBJECT'].cloudobj.respond_to?(:cloudformation_data)
-                  cfm_template["Resources"].merge!(resource['#MUOBJECT'].cloudobj.cloudformation_data)
+                if resource['#MUOBJECT'].cloudobj.respond_to?(:cfm_template)
+                  cfm_template["Resources"].merge!(resource['#MUOBJECT'].cloudobj.cfm_template)
                 end
               }
             end

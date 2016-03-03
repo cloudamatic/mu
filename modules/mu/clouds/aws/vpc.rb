@@ -43,12 +43,27 @@ module MU
             # generate it any time we're loaded up.
             @mu_name = @deploy.getResourceName(@config['name'])
           end
+
+          @cloudformation_data = {
+            MU::Cloud::VPC.cfg_name+"_"+@mu_name => {
+              "Type" => "AWS::EC2::VPC",
+              "Properties" => {
+                "DependsOn" => [],
+                "Tags" => []
+              }
+            }
+          }
+
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def create
 
           MU.log "Creating VPC #{@mu_name}", details: @config
+          cfm_props = @cloudformation_data[MU::Cloud::VPC.cfg_name+"_"+@mu_name]["Properties"]
+          if MU::Cloud::AWS.emitCloudformation
+            cfm_props["DependsOn"].concat(MU::Cloud::AWS.addCloudformationDepends(@dependencies))
+          end
           resp = MU::Cloud::AWS.ec2(@config['region']).create_vpc(cidr_block: @config['ip_block']).vpc
           vpc_id = @config['vpc_id'] = resp.vpc_id
 

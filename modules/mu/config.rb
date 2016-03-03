@@ -80,7 +80,20 @@ module MU
 
     attr_reader :config
 
-    @parameters = []
+    @@parameters = {}
+    attr_reader :parameters
+    # Accessor for parameters to our Basket of Kittens
+    def self.parameters
+      @@parameters
+    end
+    @@tails = {}
+    attr_reader :tails
+    # Accessor for tails in our Basket of Kittens. This should be a superset of
+    # user-supplied parameters. It also has machine-generated parameterized
+    # behaviors.
+    def self.tails
+      @@tails
+    end
 
     # A wrapper for config leaves that came from ERB parameters instead of raw
     # YAML or JSON. Will behave like a string for things that expect that
@@ -89,29 +102,62 @@ module MU
     # other than a plain string, array, or hash.
     class Tail
       @value = nil
-      def initialize(value)
+      @name = nil
+      @prettyname = nil
+      def initialize(name, value, prettyname = nil)
+        @name = name
         @value = value
+        if !prettyname.nil?
+          @prettyname = prettyname
+        else
+          @prettyname = @name
+        end
       end
       
+      def getName
+        @name
+      end
+      def getPrettyName
+        @prettyname
+      end
+      # Walk like a String
       def to_s
         @value
       end
+      # Quack like a String
+      def to_str
+        @value
+      end
+      def upcase
+        @value.upcase
+      end
+      def downcase
+        @value.downcase
+      end
+    end
+
+    def getTail(param, value = nil, prettyname = nil)
+      if value.nil?
+        if $parameters.nil? or !$parameters.has_key?(param)
+          MU.log "Parameter '#{param}' referenced in config but not provided", MU::ERR, details: $parameters
+          raise DeployParamError
+        else
+          value = $parameters[param]
+        end
+      end
+      tail = MU::Config::Tail.new(param, value, prettyname)
+      @@tails[param] = tail
+      tail
     end
 
     # Load up our YAML or JSON and parse it through ERB, optionally substituting
     # externally-supplied parameters.
-    def resolveConfig(path: @@config_path, resolve_params: true)
-puts "--------"
-pp @parameters
-puts "++++++++"
+    def resolveConfig(path: @@config_path)
       config = nil
-      if resolve_params
-        @parameters.each_pair { |name, val|
-          MU.log "Passing variable $#{name} into #{@@config_path} with value '#{val}'"
-          eval("$#{name} = '#{val}'")
-          # XXX make this some horrible identifier, then crawl the hash after we've made it to replace with MU::Config::Tail objects
-        }
+      def method_missing(var_name)
+        "<%= getTail('#{var_name}') %>"
       end
+
       # Figure out what kind of file we're loading. We handle includes 
       # differently if YAML is involved. These globals get used inside
       # templates. They're globals on purpose. Stop whining.
@@ -120,7 +166,7 @@ puts "++++++++"
       erb = ERB.new(File.read(path))
       raw_text = erb.result(get_binding)
       raw_json = nil
-puts raw_text
+
       # If we're working in YAML, do some magic to make includes work better.
       yaml_parse_error = nil
       if $file_format == :yaml
@@ -147,7 +193,7 @@ puts raw_text
         end
         raise ValidationError
       end
-      return MU::Config.fixDashes(config)
+      return [MU::Config.fixDashes(config), raw_text]
     end
 
 
@@ -159,13 +205,16 @@ puts raw_text
     def initialize(path, skipinitialupdates = false, params: params = Hash.new)
       $myPublicIp = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
       $myRoot = MU.myRoot
+      $myRoot.freeze
 
-      $myAZ = MU.myAZ
-      $myRegion = MU.curRegion
+      $myAZ = MU.myAZ.freeze
+      $myAZ.freeze
+      $myRegion = MU.curRegion.freeze
+      $myRegion.freeze
 
       @@config_path = path
+      @admin_firewall_rules = []
       @skipinitialupdates = skipinitialupdates
-      @parameters = {}
 
       ok = true
       params.each_pair { |name, value|
@@ -174,8 +223,7 @@ puts raw_text
           raise DeployParamError, "Parameter name must be a legal Ruby variable name" if name.match(/[^A-Za-z0-9_]/)
           raise DeployParamError, "Parameter values cannot contain quotes" if value.match(/["']/)
           eval("defined? $#{name} and raise DeployParamError, 'Parameter name reserved'")
-#          eval("$#{name} = '#{value}'")
-          @parameters[name] = value
+          @@parameters[name] = value
           MU.log "Passing variable $#{name} into #{@@config_path} with value '#{value}'"
         rescue RuntimeError, SyntaxError => e
           ok = false
@@ -184,13 +232,14 @@ puts raw_text
       }
       raise ValidationError if !ok
 
-      # Run our input through the ERB renderer.
-      tmp_cfg = resolveConfig(path: @@config_path, resolve_params: false)
+      # Run our input through the ERB renderer, a first pass without parameters.
+      tmp_cfg, raw_erb_sans_params = resolveConfig(path: @@config_path)
+
       if tmp_cfg.has_key?("parameters") and tmp_cfg["parameters"].size > 0
         tmp_cfg["parameters"].each { |param|
-          if !@parameters.has_key?(param['name'])
+          if !@@parameters.has_key?(param['name'])
             if param.has_key?("default")
-              @parameters[param['name']] = param['default']
+              @@parameters[param['name']] = param['default']
             elsif param["required"] or !param.has_key?("required")
               MU.log "Required parameter '#{param['name']}' not supplied", MU::ERR
               ok = false
@@ -199,9 +248,36 @@ puts raw_text
         }
       end
       raise ValidationError if !ok
+      @@parameters.each_pair { |name, val|
+        if respond_to?(name.to_sym)
+          MU.log "Parameter name '#{name}' reserved", MU::ERR
+          ok = false
+          next
+        end
+        MU.log "Passing variable '#{name}' into #{path} with value '#{val}'"
+      }
+      raise DeployParamError, "One or more invalid parameters specified" if !ok
+      $parameters = @@parameters
+      $parameters.freeze
 
-      @config = resolveConfig(path: @@config_path)
-pp @config
+      # Convert parameter entries that constitute whole config keys into
+      # MU::Config::Tail objects.
+      def resolveTails(tree, indent= "")
+        if tree.is_a?(Hash)
+          tree.each_pair { |key, val|
+            tree[key] = resolveTails(val, indent+" ")
+          }
+        elsif tree.is_a?(Array)
+          tree.each { |item|
+            item = resolveTails(item, indent+" ")
+          }
+        elsif tree.is_a?(String) and tree.match(/^<%= getTail\('(.+)'\) %>$/)
+          tree = getTail($1)
+        end
+        return tree
+      end
+      @config = resolveTails(tmp_cfg)
+
       if !@config.has_key?('admins') or @config['admins'].size == 0
         if MU.chef_user == "mu"
           @config['admins'] = [{"name" => "Mu Administrator", "email" => ENV['MU_ADMIN_EMAIL']}]
@@ -210,8 +286,7 @@ pp @config
         end
       end
       MU::Config.set_defaults(@config, MU::Config.schema)
-      MU::Config.validate(@config)
-
+      validate
       return @config.freeze
     end
 
@@ -794,7 +869,6 @@ pp @config
       return ok
     end
 
-    @admin_firewall_rules = []
     # Generate configuration for the general-pursose ADMIN firewall rulesets
     # (security groups in AWS). Note that these are unique to regions and
     # individual VPCs (as well as Classic, which is just a degenerate case of
@@ -804,7 +878,7 @@ pp @config
     # @param cloud [String]: The parent resource's cloud plugin identifier
     # @param region [String]: Cloud provider region, if applicable.
     # @return [Hash<String>]: A dependency description that the calling resource can then add to itself.
-    def self.genAdminFirewallRuleset(vpc: nil, admin_ip: nil, region: nil, cloud: nil)
+    def genAdminFirewallRuleset(vpc: nil, admin_ip: nil, region: nil, cloud: nil)
       if !cloud or !region
         raise MuError, "Cannot call genAdminFirewallRuleset without specifying the parent's region and cloud provider"
       end
@@ -929,14 +1003,23 @@ pp @config
       return ok
     end
 
-    def self.validate(config)
+    def validate(config = @config)
       ok = true
+      pp config
       begin
         JSON::Validator.validate!(MU::Config.schema, config)
       rescue JSON::Schema::ValidationError => e
         # Use fully_validate to get the complete error list, save some time
-        errors = JSON::Validator.fully_validate(schema, config)
-        raise ValidationError, "Validation error in #{@@config_path}!\n"+errors.join("\t\n")
+        errors = JSON::Validator.fully_validate(MU::Config.schema, config)
+        realerrors = []
+        errors.each { |err|
+          if !err.match(/The property '.+?' of type MU::Config::Tail did not match the following type: string in schema/)
+            realerrors << err
+          end
+        }
+        if realerrors.size > 0
+          raise ValidationError, "Validation error in #{@@config_path}!\n"+realerrors.join("\n")
+        end
       end
 
       databases = config['databases']
@@ -1286,7 +1369,7 @@ pp @config
         end
         pool['vault_access'] = [] if pool['vault_access'].nil?
         pool['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
-        ok = false if !check_vault_refs(pool)
+        ok = false if !MU::Config.check_vault_refs(pool)
 
         if pool["alarms"] && !pool["alarms"].empty?
           pool["alarms"].each { |alarm|
@@ -1310,7 +1393,7 @@ pp @config
           if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?
             if MU::Config.amazon_images.has_key?(pool['platform']) and
                 MU::Config.amazon_images[pool['platform']].has_key?(pool['region'])
-              launch['ami_id'] = MU::Config.amazon_images[pool['platform']][pool['region']]
+              launch['ami_id'] = getTail("ami_id", MU::Config.amazon_images[pool['platform']][pool['region']], "AMI-"+pool['name'])
             else
               ok = false
               MU.log "One of the following MUST be specified for launch_config: server, ami_id, instance_id.", MU::ERR
@@ -1984,7 +2067,7 @@ pp @config
         if server['ami_id'].nil?
           if MU::Config.amazon_images.has_key?(server['platform']) and
               MU::Config.amazon_images[server['platform']].has_key?(server['region'])
-            server['ami_id'] = MU::Config.amazon_images[server['platform']][server['region']]
+            server['ami_id'] = getTail("ami_id", MU::Config.amazon_images[server['platform']][server['region']], "AMI-"+server['name'])
           else
             MU.log "No AMI specified for #{server['name']} and no default available for platform #{server['platform']} in region #{server['region']}", MU::ERR, details: server
             ok = false
@@ -2001,7 +2084,7 @@ pp @config
         server['skipinitialupdates'] = true if @skipinitialupdates
         server['vault_access'] = [] if server['vault_access'].nil?
         server['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
-        ok = false if !check_vault_refs(server)
+        ok = false if !MU::Config.check_vault_refs(server)
 
         if !server['ingress_rules'].nil?
           fwname = "server"+server['name']
