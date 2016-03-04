@@ -37,13 +37,15 @@ module MU
           @cloud_id ||= cloud_id
           if !mu_name.nil?
             @mu_name = mu_name
-          elsif !@vpc.nil?
-            @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
           else
-            @mu_name = @deploy.getResourceName(@config['name'])
+            if !@vpc.nil?
+              @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
+            else
+              @mu_name = @deploy.getResourceName(@config['name'])
+            end
+            @cfm_name, @cfm_template = MU::Cloud::AWS.cloudFormationBase(self.class.cfg_name, self)
           end
 
-          @cfm_name, @cfm_template = MU::Cloud::AWS.cloudFormationBase(self.class.cfg_name, self)
         end
 
         # Called by {MU::Deploy#createResources}
@@ -52,17 +54,16 @@ module MU
           groupname = @mu_name
           description = groupname
 
-          MU.log "Creating EC2 Security Group #{groupname}"
+          if !MU::Cloud::AWS.emitCloudformation
+            MU.log "Creating EC2 Security Group #{groupname}"
 
-          sg_struct = {
+            sg_struct = {
               :group_name => groupname,
               :description => description
-          }
-          if !vpc_id.nil?
-            sg_struct[:vpc_id] = vpc_id
-          end
-
-          if !MU::Cloud::AWS.emitCloudformation
+            }
+            if !vpc_id.nil?
+              sg_struct[:vpc_id] = vpc_id
+            end
             begin
               secgroup = MU::Cloud::AWS.ec2(@config['region']).create_security_group(sg_struct)
               @cloud_id = secgroup.group_id
@@ -85,6 +86,14 @@ module MU
               MU.log "#{secgroup.group_id} not yet ready, waiting...", MU::NOTICE
               sleep 10
               retry
+            end
+          else
+            if !@config['vpc'].nil? and !@config['vpc']['vpc_id'].nil?
+              MU::Cloud::AWS.setCloudFormationProp(
+                @cfm_template[@cfm_name],
+                "VpcId",
+                @config['vpc']['vpc_id']
+              )
             end
           end
 
@@ -349,7 +358,6 @@ module MU
           end
 
           ec2_rules = convertToEc2(rules)
-          MU.log "Setting rules in Security Group #{@mu_name} (#{@cloud_id})", details: ec2_rules
 
           # Creating an empty security group is ok, so don't freak out if we get
           # a null rule list.
@@ -369,6 +377,7 @@ module MU
               }
             }
           else
+            MU.log "Setting rules in Security Group #{@mu_name} (#{@cloud_id})", details: ec2_rules
             retries = 0
             if rules != nil
               MU.log "Rules for EC2 Security Group #{@mu_name} (#{@cloud_id}): #{ec2_rules}", MU::DEBUG

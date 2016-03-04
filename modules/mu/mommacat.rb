@@ -995,6 +995,12 @@ module MU
         dummy_ok: false
     )
       begin
+        deploy_id = deploy_id.to_s if deploy_id.class.to_s == "MU::Config::Tail"
+        name = name.to_s if name.class.to_s == "MU::Config::Tail"
+        cloud_id = cloud_id.to_s if !cloud_id.nil?
+        mu_name = mu_name.to_s if mu_name.class.to_s == "MU::Config::Tail"
+        tag_key = tag_key.to_s if tag_key.class.to_s == "MU::Config::Tail"
+        tag_value = tag_value.to_s if tag_value.class.to_s == "MU::Config::Tail"
         resourceclass = MU::Cloud.loadCloudType(cloud, type)
         cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
         if (tag_key and !tag_value) or (!tag_key and tag_value)

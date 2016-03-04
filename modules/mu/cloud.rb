@@ -538,10 +538,13 @@ module MU
         # resources in this deployment), as well as for certain config stanzas
         # which can refer to external resources (@vpc, @loadbalancers,
         # @add_firewall_rules)
-        def dependencies
+        def dependencies(use_cache: false)
           @dependencies = {} if @dependencies.nil?
           @loadbalancers = [] if @loadbalancers.nil?
           if @config.nil?
+            return [@dependencies, @vpc, @loadbalancers]
+          end
+          if use_cache and @dependencies.size > 0
             return [@dependencies, @vpc, @loadbalancers]
           end
           @config['dependencies'] = [] if @config['dependencies'].nil?

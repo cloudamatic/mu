@@ -145,6 +145,9 @@ module MU
           value = $parameters[param]
         end
       end
+      if !prettyname.nil?
+        prettyname.gsub!(/[^a-z0-9]/i, "") # comply with CloudFormation restrictions
+      end
       tail = MU::Config::Tail.new(param, value, prettyname)
       @@tails[param] = tail
       tail
@@ -287,6 +290,8 @@ module MU
       end
       MU::Config.set_defaults(@config, MU::Config.schema)
       validate
+#pp @config
+#raise "DERP"
       return @config.freeze
     end
 
@@ -587,7 +592,7 @@ module MU
 
     # Pick apart an external VPC reference, validate it, and resolve it and its
     # various subnets and NAT hosts to live resources.
-    def self.processVPCReference(vpc_block, parent_name, is_sibling: false, sibling_vpcs: [], dflt_region: MU.curRegion)
+    def processVPCReference(vpc_block, parent_name, is_sibling: false, sibling_vpcs: [], dflt_region: MU.curRegion)
       puts vpc_block.ancestors if !vpc_block.is_a?(Hash)
       if !vpc_block.is_a?(Hash) and vpc_block.kind_of?(MU::Cloud::VPC)
         return true
@@ -597,6 +602,7 @@ module MU
       if vpc_block['region'].nil? or
           vpc_block['region'] = dflt_region
       end
+
 
       # First, dig up the enclosing VPC 
       tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !vpc_block['tag'].nil?
@@ -623,7 +629,7 @@ module MU
             return false
           elsif !vpc_block["vpc_id"]
             MU.log "Resolved VPC to #{ext_vpc.cloud_id} in #{parent_name}", MU::DEBUG, details: vpc_block
-            vpc_block["vpc_id"] = ext_vpc.cloud_id
+            vpc_block["vpc_id"] = getTail("vpc_id", ext_vpc.cloud_id, "#{parent_name} Target VPC")
           end
         end
 
@@ -809,6 +815,10 @@ module MU
         MU.log "Resolved VPC resources for #{parent_name}", MU::DEBUG, details: vpc_block
       end
 
+      if !vpc_block["vpc_id"].nil? and vpc_block["vpc_id"].is_a?(String)
+        vpc_block["vpc_id"] = getTail("vpc_id", vpc_block["vpc_id"], "#{parent_name} Target VPC")
+      end
+
       return ok
     end
 
@@ -896,6 +906,7 @@ module MU
         realvpc['vpc_name'] = vpc['vpc_name']
         if !realvpc['vpc_id'].nil?
           name = name + "-" + realvpc['vpc_id']
+          realvpc['vpc_id'] = getTail("vpc_id", realvpc['vpc_id'], "Admin Firewall Ruleset #{name} Target VPC") if realvpc["vpc_id"].is_a?(String)
         elsif !realvpc['vpc_name'].nil?
           name = name + "-" + realvpc['vpc_name']
         end
@@ -1005,7 +1016,6 @@ module MU
 
     def validate(config = @config)
       ok = true
-      pp config
       begin
         JSON::Validator.validate!(MU::Config.schema, config)
       rescue JSON::Schema::ValidationError => e
@@ -1210,8 +1220,11 @@ module MU
 
         if !acl["vpc_name"].nil? or !acl["vpc_id"].nil?
           acl['vpc'] = Hash.new
-          acl['vpc']['vpc_id'] = acl["vpc_id"] if !acl["vpc_id"].nil?
-          acl['vpc']['vpc_name'] = acl["vpc_name"] if !acl["vpc_name"].nil?
+          if acl["vpc_id"].nil?
+            acl['vpc']["vpc_id"] = getTail("vpc_id", acl["vpc_id"], "Firewall Ruleset #{acl['name']} Target VPC") if acl["vpc_id"].is_a?(String)
+          elsif !acl["vpc_name"].nil?
+            acl['vpc']['vpc_name'] = acl["vpc_name"]
+          end
         end
         if !acl["vpc"].nil?
           acl['vpc']['region'] = acl['region'] if acl['vpc']['region'].nil?
@@ -1393,7 +1406,7 @@ module MU
           if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?
             if MU::Config.amazon_images.has_key?(pool['platform']) and
                 MU::Config.amazon_images[pool['platform']].has_key?(pool['region'])
-              launch['ami_id'] = getTail("ami_id", MU::Config.amazon_images[pool['platform']][pool['region']], "AMI-"+pool['name'])
+              launch['ami_id'] = getTail("ami_id", MU::Config.amazon_images[pool['platform']][pool['region']], "AMI"+pool['name'])
             else
               ok = false
               MU.log "One of the following MUST be specified for launch_config: server, ami_id, instance_id.", MU::ERR
@@ -2067,7 +2080,7 @@ module MU
         if server['ami_id'].nil?
           if MU::Config.amazon_images.has_key?(server['platform']) and
               MU::Config.amazon_images[server['platform']].has_key?(server['region'])
-            server['ami_id'] = getTail("ami_id", MU::Config.amazon_images[server['platform']][server['region']], "AMI-"+server['name'])
+            server['ami_id'] = getTail("ami_id", MU::Config.amazon_images[server['platform']][server['region']], "AMI"+server['name'])
           else
             MU.log "No AMI specified for #{server['name']} and no default available for platform #{server['platform']} in region #{server['region']}", MU::ERR, details: server
             ok = false
@@ -2085,16 +2098,6 @@ module MU
         server['vault_access'] = [] if server['vault_access'].nil?
         server['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
         ok = false if !MU::Config.check_vault_refs(server)
-
-        if !server['ingress_rules'].nil?
-          fwname = "server"+server['name']
-          firewall_rule_names << fwname
-          acl = {"name" => fwname, "rules" => server['ingress_rules'], "region" => server['region']}
-          acl["vpc"] = server['vpc'].dup if !server['vpc'].nil?
-          firewall_rules << resolveFirewall.call(acl)
-          server["add_firewall_rules"] = [] if server["add_firewall_rules"].nil?
-          server["add_firewall_rules"] << {"rule_name" => fwname}
-        end
 
         if server["collection"] != nil
           server["dependencies"] << {
@@ -2141,6 +2144,16 @@ module MU
               ok = false
             end
           end
+        end
+
+        if !server['ingress_rules'].nil?
+          fwname = "server"+server['name']
+          firewall_rule_names << fwname
+          acl = {"name" => fwname, "rules" => server['ingress_rules'], "region" => server['region']}
+          acl["vpc"] = server['vpc'].dup if !server['vpc'].nil?
+          firewall_rules << resolveFirewall.call(acl)
+          server["add_firewall_rules"] = [] if server["add_firewall_rules"].nil?
+          server["add_firewall_rules"] << {"rule_name" => fwname}
         end
 
         if !server["add_firewall_rules"].nil?

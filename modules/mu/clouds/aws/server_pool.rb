@@ -143,7 +143,7 @@ module MU
             launch_options[:kernel_id] = launch_desc["kernel_id"] if launch_desc["kernel_id"]
             launch_options[:ramdisk_id] = launch_desc["ramdisk_id"] if launch_desc["ramdisk_id"]
             if launch_desc['generate_iam_role']
-              launch_options[:iam_instance_profile] = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'])
+              launch_options[:iam_instance_profile], @cfm_role_name, @cfm_prof_name = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'])
             elsif launch_desc['iam_role'].nil?
               raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
             else

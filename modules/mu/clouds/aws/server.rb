@@ -97,22 +97,6 @@ module MU
           @config = kitten_cfg
           @cloud_id = cloud_id
 
-          if !mu_name.nil?
-            @mu_name = mu_name
-            @config['mu_name'] = @mu_name
-            # describe
-            @mu_windows_name = @deploydata['mu_windows_name'] if @mu_windows_name.nil? and @deploydata
-          else
-            if kitten_cfg.has_key?("basis")
-              @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
-            else
-              @mu_name = @deploy.getResourceName(@config['name'])
-            end
-            @config['mu_name'] = @mu_name
-
-            @config['instance_secret'] = Password.random(50)
-          end
-
           @userdata = MU::Cloud::AWS::Server.fetchUserdata(
               platform: @config["platform"],
               template_variables: {
@@ -129,15 +113,32 @@ module MU
               custom_append: @config['userdata_script']
           )
 
-          @groomer = MU::Groomer.new(self)
           @disk_devices = MU::Cloud::AWS::Server.disk_devices
           @ephemeral_mappings = MU::Cloud::AWS::Server.ephemeral_mappings
-          @cfm_name, @cfm_template = MU::Cloud::AWS.cloudFormationBase(self.class.cfg_name, self)
 
-          MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "SourceDestCheck", @config['src_dst_check'].to_s)
-          MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "InstanceType", @config['size'])
-          MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "ImageId", @config['ami_id'])
-          MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "KeyName", { "Ref" => "SSHKeyName" })
+          if !mu_name.nil?
+            @mu_name = mu_name
+            @config['mu_name'] = @mu_name
+            # describe
+            @mu_windows_name = @deploydata['mu_windows_name'] if @mu_windows_name.nil? and @deploydata
+          else
+            if kitten_cfg.has_key?("basis")
+              @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
+            else
+              @mu_name = @deploy.getResourceName(@config['name'])
+            end
+            @config['mu_name'] = @mu_name
+
+            @config['instance_secret'] = Password.random(50)
+            @cfm_name, @cfm_template = MU::Cloud::AWS.cloudFormationBase(self.class.cfg_name, self)
+            @role_cfm_name = @prof_cfm_name = nil
+            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "SourceDestCheck", @config['src_dst_check'].to_s)
+            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "InstanceType", @config['size'])
+            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "ImageId", @config['ami_id'])
+            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "KeyName", { "Ref" => "SSHKeyName" })
+          end
+          @groomer = MU::Groomer.new(self)
+
         end
 
         # Fetch our baseline userdata argument (read: "script that runs on first
@@ -311,13 +312,15 @@ module MU
         end
 
         # Insert a Server's standard IAM role needs into an arbitrary IAM profile
-        def self.addStdPoliciesToIAMProfile(rolename, cloudformation_data: {})
+        def self.addStdPoliciesToIAMProfile(rolename, cloudformation_data: {}, cfm_role_name: nil)
           policies = Hash.new
           policies['Mu_Bootstrap_Secret_'+MU.deploy_id] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{MU.deploy_id}-secret"+'"}]}'
           policies['Mu_Volume_Management'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ec2:CreateTags","ec2:CreateVolume","ec2:AttachVolume","ec2:DescribeInstanceAttribute","ec2:DescribeVolumeAttribute","ec2:DescribeVolumeStatus","ec2:DescribeVolumes"],"Resource":"*"}]}'
           policies.each_pair { |name, doc|
             if MU::Cloud::AWS.emitCloudformation
-              cloudformation_data['iamrole_'+rolename]["Properties"]["Policies"] << JSON.parse(doc)
+              if !cfm_role_name.nil?
+                MU::Cloud::AWS.setCloudFormationProp(cloudformation_data[cfm_role_name], "Policies", JSON.parse(doc))
+              end
               next 
             end
             MU.log "Merging policy #{name} into #{rolename}", MU::NOTICE, details: doc
@@ -339,25 +342,16 @@ module MU
         # @param rolename [String]: The name of the role to create, generally a {MU::Cloud::AWS::Server} mu_name
         # @return [String]: The name of the instance profile.
         def self.createIAMProfile(rolename, base_profile: nil, extra_policies: nil, cloudformation_data: {})
-          MU.log "Creating IAM role and policies for '#{name}' nodes"
           policies = Hash.new
 
+          cfm_role_name = cfm_prof_name = nil
           if MU::Cloud::AWS.emitCloudformation
-            cloudformation_data['iamrole_'+rolename] = {
-              "Type" => "AWS::IAM::Role",
-              "Properties" => {
-                "AssumeRolePolicyDocument" => JSON.parse('{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":["ec2.amazonaws.com"]},"Action":["sts:AssumeRole"]}]}'),
-                "Path" => "/",
-                "Policies" => []
-              }
-            }
-            cloudformation_data['iamprofile_'+rolename] = {
-              "Type" => "AWS::IAM::InstanceProfile",
-              "Properties" => {
-                "Path" => "/",
-                "Roles" => [ { "Ref" => 'iamrole_'+rolename }]
-              }
-            }
+            cfm_role_name, role_cfm_template = MU::Cloud::AWS.cloudFormationBase("iamrole", name: 'iamrole'+rolename)
+            cfm_prof_name, prof_cfm_template = MU::Cloud::AWS.cloudFormationBase("iamprofile", name: 'iamprofile'+rolename)
+            cloudformation_data.merge!(role_cfm_template)
+            cloudformation_data.merge!(prof_cfm_template)
+          else
+            MU.log "Creating IAM role and policies for '#{name}' nodes"
           end
 
           if base_profile
@@ -396,7 +390,7 @@ module MU
             name=doc=nil
             policies.each_pair { |name, doc|
               if MU::Cloud::AWS.emitCloudformation
-                cloudformation_data['iamrole_'+rolename]["Properties"]["Policies"] << JSON.parse(doc)
+                MU::Cloud::AWS.setCloudFormationProp(cloudformation_data[cfm_role_name], "Policies", JSON.parse(doc))
                 next 
               end
               MU.log "Merging policy #{name} into #{rolename}", MU::NOTICE, details: doc
@@ -410,7 +404,7 @@ module MU
             MU.log "Malformed policy when creating IAM Role #{rolename}: #{e.inspect}", MU::ERR
             raise MuError, "Malformed policy when creating IAM Role #{rolename}: #{e.inspect}"
           end
-          return rolename if MU::Cloud::AWS.emitCloudformation
+          return [rolename, cfm_role_name, cfm_prof_name] if MU::Cloud::AWS.emitCloudformation
           MU::Cloud::AWS.iam.create_instance_profile(
               instance_profile_name: rolename
           )
@@ -427,21 +421,20 @@ module MU
             retry
           end
 
-          return rolename
+          return [rolename, cfm_role_name, cfm_prof_name]
         end
 
         # Create an Amazon EC2 instance.
         def createEc2Instance
           name = @config["name"]
           node = @config['mu_name']
-          cfm_props = @cfm_template[@cfm_name]["Properties"]
 
           if @config['generate_iam_role']
-            @config['iam_role'] = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'], cloudformation_data: @cfm_template)
+            @config['iam_role'], @cfm_role_name, @cfm_prof_name = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'], cloudformation_data: @cfm_template)
           elsif @config['iam_role'].nil?
             raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
           end
-          MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'], cloudformation_data: @cfm_template)
+          MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'], cloudformation_data: @cfm_template, cfm_role_name: @cfm_role_name)
           instance_descriptor = {
               :image_id => @config["ami_id"],
               :key_name => @deploy.ssh_key_name,
@@ -451,26 +444,19 @@ module MU
               :max_count => 1
           }
 
-          cfm_props["DependsOn"] << "iamrole_"+@config['iam_role']
-          cfm_props["DependsOn"] << "iamprofile_"+@config['iam_role']
-          cfm_props["IamInstanceProfile"] = {
-            "Ref" => "iamprofile_"+@config['iam_role']
-          }
-
           security_groups = []
           if @dependencies.has_key?("firewall_rule")
-            @dependencies['firewall_rule'].values.each { |sg|
-              if !MU::Cloud::AWS.emitCloudformation
+            if !MU::Cloud::AWS.emitCloudformation
+              @dependencies['firewall_rule'].values.each { |sg|
                 security_groups << sg.cloud_id
-              else
-                cfm_props["SecurityGroupIds"] << {
-                  "Ref" => MU::Cloud::FirewallRule.cfg_name+"_"+sg.mu_name
-                }
+              }
+            end
+            @cfm_template[@cfm_name]["Properties"]["DependsOn"].each { |sg|
+              if sg.match(/^firewallrule/)
+                MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "SecurityGroupIds", { "Ref" => sg })
               end
-
             }
           end
-
 
           if !MU::Cloud::AWS.emitCloudformation
             if security_groups.size > 0
@@ -485,48 +471,50 @@ module MU
             if !MU::Cloud::AWS.emitCloudformation
               instance_descriptor[:private_ip_address] = @config['private_ip']
             else
-              cfm_props["PrivateIpAddress"] = @config['private_ip']
+              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "PrivateIpAddress", config['private_ip'])
             end
           end
 
-          return if MU::Cloud::AWS.emitCloudformation
 
           vpc_id = subnet = nil
           if !@vpc.nil? and @config.has_key?("vpc")
-            subnet_conf = @config['vpc']
-            subnet_conf = @config['vpc']['subnets'].first if @config['vpc'].has_key?("subnets") and !@config['vpc']['subnets'].empty?
-            tag_key, tag_value = subnet_conf['tag'].split(/=/, 2) if !subnet_conf['tag'].nil?
+            if !MU::Cloud::AWS.emitCloudformation
+              subnet_conf = @config['vpc']
+              subnet_conf = @config['vpc']['subnets'].first if @config['vpc'].has_key?("subnets") and !@config['vpc']['subnets'].empty?
+              tag_key, tag_value = subnet_conf['tag'].split(/=/, 2) if !subnet_conf['tag'].nil?
 
-            subnet = @vpc.getSubnet(
-                cloud_id: subnet_conf['subnet_id'],
-                name: subnet_conf['subnet_name'],
-                tag_key: tag_key,
-                tag_value: tag_value
-            )
-            if subnet.nil?
-              raise MuError, "Got null subnet id out of #{subnet_conf['vpc']}"
+              subnet = @vpc.getSubnet(
+                  cloud_id: subnet_conf['subnet_id'],
+                  name: subnet_conf['subnet_name'],
+                  tag_key: tag_key,
+                  tag_value: tag_value
+              )
+              if subnet.nil?
+                raise MuError, "Got null subnet id out of #{subnet_conf['vpc']}"
+              end
+              MU.log "Deploying #{node} into VPC #{@vpc.cloud_id} Subnet #{subnet.cloud_id}"
+              punchAdminNAT
+              instance_descriptor[:subnet_id] = subnet.cloud_id
+            else
+              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "VpcId", @config['vpc']['vpc_id']) # XXX iff vpc_id is what's set
             end
-
-            MU.log "Deploying #{node} into VPC #{@vpc.cloud_id} Subnet #{subnet.cloud_id}"
-
-            punchAdminNAT
-
-            instance_descriptor[:subnet_id] = subnet.cloud_id
-# XXX this needs to get done by a modify later, we can't do it on creation
-#					instance_descriptor[:network_interfaces] = [
-#						{
-#							:device_index => 0,
-#							:associate_public_ip_address => @config["associate_public_ip"]
-#						}
-#					]
           end
 
           if !@userdata.nil? and !@userdata.empty?
-            instance_descriptor[:user_data] = Base64.encode64(@userdata)
+            if !MU::Cloud::AWS.emitCloudformation
+              instance_descriptor[:user_data] = Base64.encode64(@userdata)
+            else
+            end
           end
 
           if !@config["iam_role"].nil?
-            instance_descriptor[:iam_instance_profile] = {name: @config["iam_role"]}
+            if !MU::Cloud::AWS.emitCloudformation
+              instance_descriptor[:iam_instance_profile] = {name: @config["iam_role"]}
+            else
+              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @cfm_role_name)
+              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @cfm_prof_name)
+              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "IamInstanceProfile", { "Ref" => @cfm_prof_name })
+            end
           end
 
           configured_storage = Array.new
@@ -536,12 +524,16 @@ module MU
             }
           end
 
-          MU::Cloud::AWS::Server.waitForAMI(@config["ami_id"], region: @config['region'])
+          if !MU::Cloud::AWS.emitCloudformation
+            MU::Cloud::AWS::Server.waitForAMI(@config["ami_id"], region: @config['region'])
+          end
 
           instance_descriptor[:block_device_mappings] = configured_storage
           instance_descriptor[:block_device_mappings].concat(@ephemeral_mappings)
 
           instance_descriptor[:monitoring] = {enabled: @config['monitoring']}
+
+          return if MU::Cloud::AWS.emitCloudformation
 
           MU.log "Creating EC2 instance #{node}"
           MU.log "Instance details for #{node}: #{instance_descriptor}", MU::DEBUG

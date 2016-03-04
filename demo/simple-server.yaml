@@ -3,9 +3,10 @@
     - name: appname
       default: demo
     - name: instance_type
-  appname: <%= $appname %>
+      default: t2.micro
+  appname: <%= appname %>
   servers: 
     - 
       name: simple
-      size: <%= $instance_type %>
+      size: <%= instance_type %>
       skipinitialupdates: true

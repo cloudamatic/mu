@@ -210,18 +210,20 @@ module MU
         }
 
         # Some resources have a "groom" phase too
-        @my_threads << Thread.new {
-          MU.dupGlobals(parent_thread_id)
-          Thread.current.thread_variable_set("name", "mu_groom_container")
-          Thread.abort_on_exception = true
-          MU::Cloud.resource_types.each { |cloudclass, data|
-            if !@main_config[data[:cfg_plural]].nil? and
-                @main_config[data[:cfg_plural]].size > 0 and
-                data[:instance].include?(:groom)
-              createResources(@main_config[data[:cfg_plural]], "groom")
-            end
+        if !MU::Cloud::AWS.emitCloudformation
+          @my_threads << Thread.new {
+            MU.dupGlobals(parent_thread_id)
+            Thread.current.thread_variable_set("name", "mu_groom_container")
+            Thread.abort_on_exception = true
+            MU::Cloud.resource_types.each { |cloudclass, data|
+              if !@main_config[data[:cfg_plural]].nil? and
+                  @main_config[data[:cfg_plural]].size > 0 and
+                  data[:instance].include?(:groom)
+                createResources(@main_config[data[:cfg_plural]], "groom")
+              end
+            }
           }
-        }
+        end
 
         # Poke child threads to make sure they're awake
         @my_threads.each do |t|
@@ -235,46 +237,10 @@ module MU
           t.join
         end
 
-# XXX this logic belongs in aws.rb
         if MU::Cloud::AWS.emitCloudformation
-          cfm_template = {
-            "Parameters" => {
-              "DeployID" => {
-                "Description" => "A name with which to tag and describe all resources created by this deployment.",
-                "Type" => "String",
-                "MinLength" => "1",
-                "MaxLength" => "25",
-              },
-              "SSHKeyName" => {
-                "Description" => "Name of an existing EC2 KeyPair to enable SSH access to hosts",
-                "Type" => "String",
-                "MinLength" => "1",
-                "MaxLength" => "64",
-                "AllowedPattern" => "[-_ a-zA-Z.@0-9]*",
-                "ConstraintDescription" => "can contain only alphanumeric characters, spaces, dashes and underscores."
-              }
-            },
-            "Resources" => {}
-          }
-          MU::Config.tails.each_pair { |param, data|
-            cfm_template["Parameters"][data.getPrettyName] = {
-              "Type" => "String",
-              "MinLength" => "1",
-              "MaxLength" => "64",
-            }
-          }
-          MU::Cloud.resource_types.each { |cloudclass, data|
-            if !@main_config[data[:cfg_plural]].nil? and
-                @main_config[data[:cfg_plural]].size > 0
-              @main_config[data[:cfg_plural]].each { |resource|
-                if resource['#MUOBJECT'].cloudobj.respond_to?(:cfm_template)
-                  cfm_template["Resources"].merge!(resource['#MUOBJECT'].cloudobj.cfm_template)
-                end
-              }
-            end
-          }
-          puts JSON.pretty_generate(cfm_template)
-          raise "whatever yo"
+          MU::Cloud::AWS.writeCloudFormationTemplate(tails: MU::Config.tails, config: @main_config, path: "/tmp/cloudformation-#{MU.deploy_id}.json")
+#          MU::Cleanup.run(MU.deploy_id, false, true, mommacat: mommacat)
+          exit
         end
       rescue Exception => e
 
