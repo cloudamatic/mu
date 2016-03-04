@@ -714,9 +714,13 @@ module MU
       # First decide whether we should pay attention to subnet_prefs.
       honor_subnet_prefs = true
       if vpc_block['subnets']
+        count = 0
         vpc_block['subnets'].each { |subnet|
           if subnet['subnet_id'] or subnet['subnet_name']
             honor_subnet_prefs=false
+          end
+          if !subnet['subnet_id'].nil? and subnet['subnet_id'].is_a?(String)
+            subnet['subnet_id'] << getTail("subnet_id", subnet['subnet_id'], "Subnet #{count} for #{parent_name}")
           end
         }
       elsif (vpc_block['subnet_name'] or vpc_block['subnet_id'])
@@ -730,12 +734,17 @@ module MU
         nat_routes = {}
         subnet_ptr = "subnet_id"
         if !is_sibling
+          pub = priv = 0
           ext_vpc.subnets.each { |subnet|
             if subnet.private?
-              private_subnets << {"subnet_id" => subnet.cloud_id}
+#              private_subnets << { "subnet_id" => subnet.cloud_id }
+              private_subnets << { "subnet_id" => getTail("subnet_id", subnet.cloud_id, "#{parent_name} Private Subnet #{priv}") }
               private_subnets_map[subnet.cloud_id] = subnet
+              priv = priv + 1
             else
-              public_subnets << {"subnet_id" => subnet.cloud_id}
+#              public_subnets << { "subnet_id" => subnet.cloud_id }
+              public_subnets << { "subnet_id" => getTail("subnet_id", subnet.cloud_id, "#{parent_name} Public Subnet #{pub}") }
+              pub = pub + 1
             end
           }
         else

@@ -51,6 +51,7 @@ module MU
             "Type" => "AWS::EC2::Instance",
             "Properties" => {
               "DependsOn" => [],
+              "Volumes" => [],
               "Tags" => tags,
               "SecurityGroupIds" => []
             }
@@ -62,6 +63,13 @@ module MU
               "DependsOn" => [],
               "Tags" => tags,
               "SecurityGroupIngress" => []
+            }
+          }
+        when "volume"
+          desc = {
+            "Type" => "AWS::EC2::Volume",
+            "Properties" => {
+              "Tags" => tags
             }
           }
         when "iamprofile"

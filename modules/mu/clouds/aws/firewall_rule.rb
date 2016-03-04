@@ -138,6 +138,7 @@ module MU
 
         # Log metadata about this ruleset to the currently running deployment
         def notify
+          return {} if MU::Cloud::AWS.emitCloudformation
           sg_data = MU.structToHash(
               MU::Cloud::FirewallRule.find(cloud_id: @cloud_id, region: @config['region'])
           )
