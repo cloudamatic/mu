@@ -1193,6 +1193,10 @@ install_chef()
   punch_tcp_hole 443
   punch_tcp_hole 7443
 
+  # Sometimes we get a half-deleted Chef package in our way
+  if [ ! -d /opt/chef ];then
+    rpm -e chef
+  fi
   # Chef Server 12 inexplicably ships with old, broken versions of the
   # client. Install something sane.
   if ! rpm -q $CHEF_CLIENT_PKG > /dev/null ;then
