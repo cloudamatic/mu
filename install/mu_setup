@@ -309,6 +309,8 @@ set_path_env_vars()
   DEVOPS_TMP_DIR='/tmp/.mu.$$'
   update_murc MU_INSTALLDIR $MU_INSTALLDIR
   update_murc MU_DATADIR $MU_DATADIR
+  AWS_ACCESS_KEY_ID=$AWS_ACCESS
+  AWS_SECRET_ACCESS_KEY=$AWS_SECRET
 }
 
 pivotal_cfg_setup(){
@@ -1197,7 +1199,9 @@ install_chef()
     curl https://www.chef.io/chef/install.sh > /root/chef-install.sh
     sh /root/chef-install.sh -v $CHEF_CLIENT_VERSION
   fi
-  add_chef_support_gems /opt/chef/embedded
+  if [ -f /opt/chef/embedded/bin/gem ];then
+    add_chef_support_gems /opt/chef/embedded
+  fi
   port="`grep \"'ssl_port'\" /etc/opscode/chef-server.rb | cut -d= -f2`"
   if [ "$port" == "" ];then
     port="443"
