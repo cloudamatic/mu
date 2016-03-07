@@ -72,6 +72,18 @@ module MU
               "Tags" => tags
             }
           }
+        when "eip"
+          desc = {
+            "Type" => "AWS::EC2::EIP",
+            "Properties" => {
+            }
+          }
+        when "eipassoc"
+          desc = {
+            "Type" => "AWS::EC2::EIPAssociation",
+            "Properties" => {
+            }
+          }
         when "iamprofile"
           desc = {
             "Type" => "AWS::IAM::InstanceProfile",

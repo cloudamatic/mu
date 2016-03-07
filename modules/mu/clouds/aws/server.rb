@@ -506,6 +506,20 @@ module MU
             end
           end
 
+          if MU::Cloud::AWS.emitCloudformation
+            if !@config['static_ip'].nil?
+              eip_name = eip_template = nil
+              if !@config['static_ip']['ip'].nil?
+                eip_name, eip_template = MU::Cloud::AWS.cloudFormationBase("eipassoc", name: @cfm_name+"EIP")
+                MU::Cloud::AWS.setCloudFormationProp(eip_template[eip_name], "EIP", @config['static_ip']['ip'])
+              else
+                eip_name, eip_template = MU::Cloud::AWS.cloudFormationBase("eip", name: @cfm_name+"EIP")
+              end
+              MU::Cloud::AWS.setCloudFormationProp(eip_template[eip_name], "InstanceId", { "Ref" => @cfm_name })
+              @cfm_template.merge!(eip_template)
+            end
+          end
+
           if !@userdata.nil? and !@userdata.empty?
             if !MU::Cloud::AWS.emitCloudformation
               instance_descriptor[:user_data] = Base64.encode64(@userdata)
@@ -549,6 +563,10 @@ module MU
           if MU::Cloud::AWS.emitCloudformation
             cfm_volume_map.each_pair{ |dev, vol|
               MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "Volumes", { "Device" => dev, "VolumeId" => vol })
+#              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "BlockDeviceMappings", { "DeviceName" => dev, "VirtualName" => virtualname })
+            }
+            @ephemeral_mappings.each { |mapping|
+              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "BlockDeviceMappings", { "DeviceName" => mapping[:device_name], "VirtualName" => mapping[:virtual_name] })
             }
           end
 #pp @cfm_template[@cfm_name]
@@ -1171,7 +1189,9 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          return if MU::Cloud::AWS.emitCloudformation
+          if MU::Cloud::AWS.emitCloudformation
+            return
+          end
           MU::MommaCat.lock(@cloud_id+"-groom")
           node, config, deploydata = describe(cloud_id: @cloud_id)
 

@@ -237,7 +237,7 @@ module MU
 
         if MU::Cloud::AWS.emitCloudformation
           MU::Cloud::AWS.writeCloudFormationTemplate(tails: MU::Config.tails, config: @main_config, path: "/tmp/cloudformation-#{MU.deploy_id}.json")
-#          MU::Cleanup.run(MU.deploy_id, false, true, mommacat: mommacat)
+          MU::Cleanup.run(MU.deploy_id, skipcloud: true, mommacat: mommacat)
           exit
         end
       rescue Exception => e
@@ -254,7 +254,7 @@ module MU
         if e.class.to_s != "SystemExit"
           MU.log e.inspect, MU::ERR, details: e.backtrace
           if !@nocleanup
-            MU::Cleanup.run(MU.deploy_id, false, true, mommacat: mommacat)
+            MU::Cleanup.run(MU.deploy_id, skipsnapshots: true, mommacat: mommacat)
             @nocleanup = true # so we don't run this again later
           end
           MU.log e.inspect, MU::ERR
@@ -457,7 +457,7 @@ MESSAGE_END
               end
             end
             if !@nocleanup
-              MU::Cleanup.run(MU.deploy_id, false, true)
+              MU::Cleanup.run(MU.deploy_id, skipsnapshots: true)
               @nocleanup = true # so we don't run this again later
             end
             raise MuError, e.inspect, e.backtrace
