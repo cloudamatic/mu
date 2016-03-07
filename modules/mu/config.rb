@@ -104,9 +104,10 @@ module MU
       @value = nil
       @name = nil
       @prettyname = nil
-      def initialize(name, value, prettyname = nil)
+      def initialize(name, value, prettyname = nil, cloud_type = "String")
         @name = name
         @value = value
+        @cloud_type = cloud_type
         if !prettyname.nil?
           @prettyname = prettyname
         else
@@ -116,6 +117,9 @@ module MU
       
       def getName
         @name
+      end
+      def getCloudType
+        @cloud_type
       end
       def getPrettyName
         @prettyname
@@ -136,7 +140,7 @@ module MU
       end
     end
 
-    def getTail(param, value = nil, prettyname = nil)
+    def getTail(param, value: nil, prettyname: nil, cloud_type: "String")
       if value.nil?
         if $parameters.nil? or !$parameters.has_key?(param)
           MU.log "Parameter '#{param}' referenced in config but not provided", MU::ERR, details: $parameters
@@ -148,7 +152,7 @@ module MU
       if !prettyname.nil?
         prettyname.gsub!(/[^a-z0-9]/i, "") # comply with CloudFormation restrictions
       end
-      tail = MU::Config::Tail.new(param, value, prettyname)
+      tail = MU::Config::Tail.new(param, value, prettyname, cloud_type)
       @@tails[param] = tail
       tail
     end
@@ -629,7 +633,7 @@ module MU
             return false
           elsif !vpc_block["vpc_id"]
             MU.log "Resolved VPC to #{ext_vpc.cloud_id} in #{parent_name}", MU::DEBUG, details: vpc_block
-            vpc_block["vpc_id"] = getTail("vpc_id", ext_vpc.cloud_id, "#{parent_name} Target VPC")
+            vpc_block["vpc_id"] = getTail("vpc_id", value: ext_vpc.cloud_id, prettyname: "#{parent_name} Target VPC", cloud_type: "AWS::EC2::VPC::Id")
           end
         end
 
@@ -720,7 +724,7 @@ module MU
             honor_subnet_prefs=false
           end
           if !subnet['subnet_id'].nil? and subnet['subnet_id'].is_a?(String)
-            subnet['subnet_id'] << getTail("subnet_id", subnet['subnet_id'], "Subnet #{count} for #{parent_name}")
+            subnet['subnet_id'] << getTail("subnet_id", value: subnet['subnet_id'], prettyname: "Subnet #{count} for #{parent_name}", cloud_type: "AWS::EC2::Subnet::Id")
           end
         }
       elsif (vpc_block['subnet_name'] or vpc_block['subnet_id'])
@@ -738,12 +742,12 @@ module MU
           ext_vpc.subnets.each { |subnet|
             if subnet.private?
 #              private_subnets << { "subnet_id" => subnet.cloud_id }
-              private_subnets << { "subnet_id" => getTail("subnet_id", subnet.cloud_id, "#{parent_name} Private Subnet #{priv}") }
+              private_subnets << { "subnet_id" => getTail("subnet_id", value: subnet.cloud_id, prettyname: "#{parent_name} Private Subnet #{priv}",  cloud_type:  "AWS::EC2::Subnet::Id") }
               private_subnets_map[subnet.cloud_id] = subnet
               priv = priv + 1
             else
 #              public_subnets << { "subnet_id" => subnet.cloud_id }
-              public_subnets << { "subnet_id" => getTail("subnet_id", subnet.cloud_id, "#{parent_name} Public Subnet #{pub}") }
+              public_subnets << { "subnet_id" => getTail("subnet_id", value: subnet.cloud_id, prettyname: "#{parent_name} Public Subnet #{pub}",  cloud_type: "AWS::EC2::Subnet::Id") }
               pub = pub + 1
             end
           }
@@ -825,7 +829,7 @@ module MU
       end
 
       if !vpc_block["vpc_id"].nil? and vpc_block["vpc_id"].is_a?(String)
-        vpc_block["vpc_id"] = getTail("vpc_id", vpc_block["vpc_id"], "#{parent_name} Target VPC")
+        vpc_block["vpc_id"] = getTail("vpc_id", value: vpc_block["vpc_id"], prettyname: "#{parent_name} Target VPC",  cloud_type: "AWS::EC2::VPC::Id")
       end
 
       return ok
@@ -915,7 +919,7 @@ module MU
         realvpc['vpc_name'] = vpc['vpc_name']
         if !realvpc['vpc_id'].nil?
           name = name + "-" + realvpc['vpc_id']
-          realvpc['vpc_id'] = getTail("vpc_id", realvpc['vpc_id'], "Admin Firewall Ruleset #{name} Target VPC") if realvpc["vpc_id"].is_a?(String)
+          realvpc['vpc_id'] = getTail("vpc_id", value: realvpc['vpc_id'], prettyname: "Admin Firewall Ruleset #{name} Target VPC",  cloud_type: "AWS::EC2::VPC::Id") if realvpc["vpc_id"].is_a?(String)
         elsif !realvpc['vpc_name'].nil?
           name = name + "-" + realvpc['vpc_name']
         end
@@ -1230,7 +1234,7 @@ module MU
         if !acl["vpc_name"].nil? or !acl["vpc_id"].nil?
           acl['vpc'] = Hash.new
           if acl["vpc_id"].nil?
-            acl['vpc']["vpc_id"] = getTail("vpc_id", acl["vpc_id"], "Firewall Ruleset #{acl['name']} Target VPC") if acl["vpc_id"].is_a?(String)
+            acl['vpc']["vpc_id"] = getTail("vpc_id", value: acl["vpc_id"], prettyname: "Firewall Ruleset #{acl['name']} Target VPC",  cloud_type: "AWS::EC2::VPC::Id") if acl["vpc_id"].is_a?(String)
           elsif !acl["vpc_name"].nil?
             acl['vpc']['vpc_name'] = acl["vpc_name"]
           end
@@ -1415,7 +1419,7 @@ module MU
           if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?
             if MU::Config.amazon_images.has_key?(pool['platform']) and
                 MU::Config.amazon_images[pool['platform']].has_key?(pool['region'])
-              launch['ami_id'] = getTail("ami_id", MU::Config.amazon_images[pool['platform']][pool['region']], "AMI"+pool['name'])
+              launch['ami_id'] = getTail("ami_id", value: MU::Config.amazon_images[pool['platform']][pool['region']], prettyname: "pool"+pool['name']+"AMI", cloud_type: "AWS::EC2::Image::Id")
             else
               ok = false
               MU.log "One of the following MUST be specified for launch_config: server, ami_id, instance_id.", MU::ERR
@@ -2089,7 +2093,7 @@ module MU
         if server['ami_id'].nil?
           if MU::Config.amazon_images.has_key?(server['platform']) and
               MU::Config.amazon_images[server['platform']].has_key?(server['region'])
-            server['ami_id'] = getTail("ami_id", MU::Config.amazon_images[server['platform']][server['region']], "AMI"+server['name'])
+            server['ami_id'] = getTail("ami_id", value: MU::Config.amazon_images[server['platform']][server['region']], prettyname: "server"+server['name']+"AMI", cloud_type: "AWS::EC2::Image::Id")
           else
             MU.log "No AMI specified for #{server['name']} and no default available for platform #{server['platform']} in region #{server['region']}", MU::ERR, details: server
             ok = false

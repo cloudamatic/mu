@@ -128,20 +128,16 @@ MU.log "Dunno how to make a CloudFormation chunk for #{type} yet", MU::WARN
             },
             "SSHKeyName" => {
               "Description" => "Name of an existing EC2 KeyPair to enable SSH access to hosts",
-              "Type" => "String",
-              "MinLength" => "1",
-              "MaxLength" => "64",
-              "AllowedPattern" => "[-_ a-zA-Z.@0-9]*",
-              "ConstraintDescription" => "can contain only alphanumeric characters, spaces, dashes and underscores."
+              "Type" => "AWS::EC2::KeyPair::KeyName"#,
             }
           },
           "Resources" => {}
         }
         tails.each_pair { |param, data|
           cfm_template["Parameters"][data.getPrettyName] = {
-            "Type" => "String",
-            "MinLength" => "1",
-            "MaxLength" => "64",
+            "Type" => data.getCloudType,
+#            "MinLength" => "1",
+#            "MaxLength" => "64",
             "Default" => data.to_s
           }
         }
