@@ -24,9 +24,6 @@ module MU
         attr_reader :cloud_id
         attr_reader :config
 
-        @cloudformation_data = {}
-        attr_reader :cloudformation_data
-
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::server_pools}
         def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
@@ -37,19 +34,161 @@ module MU
             @mu_name = mu_name
           else
             @mu_name = @deploy.getResourceName(@config['name'])
+            if MU::Cloud::AWS.emitCloudformation
+              @cfm_name, @cfm_template = MU::Cloud::AWS.cloudFormationBase(self.class.cfg_name, self)
+              @cfm_launch_name, launch_template = MU::Cloud::AWS.cloudFormationBase("launch_config", name: "launchconfig"+@mu_name)
+              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "LaunchConfigurationName", @cfm_launch_name)
+              @cfm_template.merge!(launch_template)
+              return
+            end
           end
+        end
+
+        # Populate @cfm_template with a resource description for this server
+        # pool in CloudFormation language.
+        def createCloudFormationDescriptor
+          if @dependencies.has_key?("loadbalancer")
+            @cfm_template[@cfm_name]["Properties"]["DependsOn"].each { |lb|
+              if lb.match(/^loadbalancer/)
+                MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "LoadBalancerNames", lb )
+              end
+            }
+          end
+
+          @config["cooldown"] = @config["default_cooldown"]
+          ["min_size", "max_size", "cooldown", "desired_capacity", "health_check_type", "health_check_grace_period"].each { |arg|
+            if !@config[arg].nil?
+              key = ""
+              arg.split(/_/).each { |chunk| key = key + chunk.capitalize }
+              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], key, @config[arg])
+            end
+          }
+
+          basis = @config["basis"]
+
+          if basis["launch_config"]
+            nodes_name = @deploy.getResourceName(basis["launch_config"]["name"])
+            launch_desc = basis["launch_config"]
+            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_launch_name], "KeyName", { "Ref" => "SSHKeyName" })
+            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_launch_name], "InstanceType", launch_desc['size'])
+            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_launch_name], "InstanceMonitoring", launch_desc["monitoring"])
+            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_launch_name], "EbsOptimized", launch_desc["ebs_optimized"])
+
+            if !launch_desc["server"].nil?
+# XXX this may or may not be a supported use case, figure it out
+#                MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_launch_name], "Instance_Id", { "Ref" => } )
+            elsif !launch_desc["instance_id"].nil?
+              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_launch_name], "InstanceId", @config['ami_id'])
+            else
+              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_launch_name], "ImageId", launch_desc["ami_id"])
+            end
+
+            if launch_desc["storage"]
+              launch_desc["storage"].each { |vol|
+                mapping, cfm_mapping = MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
+                if cfm_mapping.size > 0
+                  MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_launch_name], "BlockDeviceMappings", cfm_mapping)
+                end
+              }
+            end
+            MU::Cloud::AWS::Server.ephemeral_mappings.each { |mapping|
+              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_launch_name], "BlockDeviceMappings", { "DeviceName" => mapping[:device_name], "VirtualName" => mapping[:virtual_name] })
+            }
+
+            ["kernel_id", "ramdisk_id", "spot_price"].each { |arg|
+              if launch_desc[arg]
+                key = ""
+                arg.split(/_/).each { |chunk| key = key + chunk.capitalize }
+                MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_launch_name], key, launch_desc[arg])
+              end
+            }
+
+            if launch_desc['generate_iam_role']
+              @config['iam_role'], @cfm_role_name, @cfm_prof_name = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'], cloudformation_data: @cfm_template)
+            elsif launch_desc['iam_role'].nil?
+              raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
+            else
+              @config['iam_role'] = launch_desc['iam_role']
+            end
+            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'], cloudformation_data: @cfm_template, cfm_role_name: @cfm_role_name)
+            if !@config["iam_role"].nil?
+              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_launch_name], "DependsOn", @cfm_role_name)
+              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_launch_name], "DependsOn", @cfm_prof_name)
+              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_launch_name], "IamInstanceProfile", { "Ref" => @cfm_prof_name })
+            end
+
+            userdata = Base64.encode64(
+              MU::Cloud::AWS::Server.fetchUserdata(
+                platform: @config["platform"],
+                template_variables: {
+                  "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
+                  "deploySSHKey" => @deploy.ssh_public_key,
+                  "muID" => MU.deploy_id,
+                  "muUser" => MU.chef_user,
+                  "publicIP" => MU.mu_public_ip,
+                  "skipApplyUpdates" => @config['skipinitialupdates'],
+                  "windowsAdminName" => @config['windows_admin_username'],
+                  "resourceName" => @config["name"],
+                  "resourceType" => "server_pool"
+                },
+                custom_append: @config['userdata_script']
+              )
+            )
+
+            if launch_desc["user_data"]
+              userdata = launch_desc["user_data"]
+            end
+            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_launch_name], "UserData", userdata)
+
+          elsif basis["server"]
+# XXX cloudformation bits
+          elsif basis["instance_id"]
+# XXX cloudformation bits
+          end
+
+
+          set_public_ip_pref = true
+          if @config["vpc_zone_identifier"]
+            set_public_ip_pref = false
+# XXX cloudformation bits bits
+          elsif @config["vpc"]
+            if !@config["vpc"]["subnets"].nil? and @config["vpc"]["subnets"].size > 0
+              set_public_ip_pref = false
+              @config["vpc"]["subnets"].each { |subnet|
+                if !subnet["subnet_id"].nil?
+                  MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_launch_name], "VPCZoneIdentifier", subnet["subnet_id"])
+                else
+# XXX cloudformation: iterate over DependsOn and look for a VPC/subnets
+                end
+              }
+            end
+          end
+          if set_public_ip_pref
+            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_launch_name], "AssociatePublicIpAddress", @config["associate_public_ip"])
+          end
+
+          if @dependencies.has_key?("firewall_rule")
+            @cfm_template[@cfm_name]["Properties"]["DependsOn"].each { |sg|
+              if sg.match(/^firewallrule/)
+                MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_launch_name], "SecurityGroupIds", { "Ref" => sg })
+              end
+            }
+          end
+
+# XXX cloudformation bits
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def create
+          return createCloudFormationDescriptor if MU::Cloud::AWS.emitCloudformation
           MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
 
           asg_options = {
-              :auto_scaling_group_name => @mu_name,
-              :default_cooldown => @config["default_cooldown"],
-              :health_check_type => @config["health_check_type"],
-              :health_check_grace_period => @config["health_check_grace_period"],
-              :tags => []
+            :auto_scaling_group_name => @mu_name,
+            :default_cooldown => @config["default_cooldown"],
+            :health_check_type => @config["health_check_type"],
+            :health_check_grace_period => @config["health_check_grace_period"],
+            :tags => []
           }
 
           MU::MommaCat.listStandardTags.each_pair { |name, value|
@@ -70,7 +209,6 @@ module MU
             asg_options[:min_size] = @config["min_size"]
             asg_options[:max_size] = @config["max_size"]
           end
-
 
           if @config["loadbalancers"]
             lbs = Array.new
@@ -117,68 +255,79 @@ module MU
               MU.log "Using AMI '#{launch_desc["ami_id"]}' from sibling server #{launch_desc["server"]} in ServerPool #{@mu_name}"
             elsif !launch_desc["instance_id"].nil?
               launch_desc["ami_id"] = MU::Cloud::AWS::Server.createImage(
-                  name: @mu_name,
-                  instance_id: launch_desc["instance_id"]
+                name: @mu_name,
+                instance_id: launch_desc["instance_id"]
               )
             end
             MU::Cloud::AWS::Server.waitForAMI(launch_desc["ami_id"])
 
             launch_options = {
-                :launch_configuration_name => @mu_name,
-                :image_id => launch_desc["ami_id"],
-                :instance_type => launch_desc["size"],
-                :key_name => @deploy.ssh_key_name,
-                :ebs_optimized => launch_desc["ebs_optimized"],
-                :instance_monitoring => {:enabled => launch_desc["monitoring"]},
+              :launch_configuration_name => @mu_name,
+              :image_id => launch_desc["ami_id"],
+              :instance_type => launch_desc["size"],
+              :key_name => @deploy.ssh_key_name,
+              :ebs_optimized => launch_desc["ebs_optimized"],
+              :instance_monitoring => {:enabled => launch_desc["monitoring"]},
             }
+
             if launch_desc["storage"]
               storage = Array.new
               launch_desc["storage"].each { |vol|
-                storage << MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
+                mapping, cfm_mapping = MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
+                storage << mapping
               }
               launch_options[:block_device_mappings] = storage
-              launch_options[:block_device_mappings].concat(MU::Cloud::AWS::Server.ephemeral_mappings)
             end
-            launch_options[:spot_price] = launch_desc["spot_price"] if launch_desc["spot_price"]
-            launch_options[:kernel_id] = launch_desc["kernel_id"] if launch_desc["kernel_id"]
-            launch_options[:ramdisk_id] = launch_desc["ramdisk_id"] if launch_desc["ramdisk_id"]
+
+            # Map ephemeral disk devices too, in case our AMI wasn't smart
+            # enough to do it for us.
+            launch_options[:block_device_mappings].concat(MU::Cloud::AWS::Server.ephemeral_mappings)
+
+            ["kernel_id", "ramdisk_id", "spot_price"].each { |arg|
+              if launch_desc[arg]
+                launch_options[arg.to_sym] = launch_desc[arg]
+              end
+            }
+
             if launch_desc['generate_iam_role']
-              launch_options[:iam_instance_profile], @cfm_role_name, @cfm_prof_name = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'])
+              launch_options[:iam_instance_profile], @cfm_role_name, @cfm_prof_name = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'], cloudformation_data: @cfm_template)
             elsif launch_desc['iam_role'].nil?
               raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
             else
               launch_options[:iam_instance_profile] = launch_desc['iam_role']
             end
             @config['iam_role'] = launch_options[:iam_instance_profile]
-            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'])
+            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'], cloudformation_data: @cfm_template, cfm_role_name: @cfm_role_name)
 
             instance_secret = Password.random(50)
             @deploy.saveNodeSecret("default", instance_secret, "instance_secret")
 
             launch_options[:user_data] = Base64.encode64(
-                MU::Cloud::AWS::Server.fetchUserdata(
-                    platform: @config["platform"],
-                    template_variables: {
-                        "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
-                        "deploySSHKey" => @deploy.ssh_public_key,
-                        "muID" => MU.deploy_id,
-                        "muUser" => MU.chef_user,
-                        "publicIP" => MU.mu_public_ip,
-                        "skipApplyUpdates" => @config['skipinitialupdates'],
-                        "windowsAdminName" => @config['windows_admin_username'],
-                        "resourceName" => @config["name"],
-                        "resourceType" => "server_pool"
-                    },
-                    custom_append: @config['userdata_script']
-                )
+              MU::Cloud::AWS::Server.fetchUserdata(
+                platform: @config["platform"],
+                template_variables: {
+                  "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
+                  "deploySSHKey" => @deploy.ssh_public_key,
+                  "muID" => MU.deploy_id,
+                  "muUser" => MU.chef_user,
+                  "publicIP" => MU.mu_public_ip,
+                  "skipApplyUpdates" => @config['skipinitialupdates'],
+                  "windowsAdminName" => @config['windows_admin_username'],
+                  "resourceName" => @config["name"],
+                  "resourceType" => "server_pool"
+                },
+                custom_append: @config['userdata_script']
+              )
             )
 
-            launch_options[:user_data] = launch_desc["user_data"] if launch_desc["user_data"]
+            if launch_desc["user_data"]
+              launch_options[:user_data] = launch_desc["user_data"]
+            end
 
           elsif basis["server"]
             nodes_name = @deploy.getResourceName(basis["server"])
             srv_name = basis["server"]
-
+# XXX cloudformation bits
             if @deploy.deployment['servers'] != nil and
                 @deploy.deployment['servers'][srv_name] != nil
               asg_options[:instance_id] = @deploy.deployment['servers'][srv_name]["instance_id"]
@@ -186,6 +335,7 @@ module MU
           elsif basis["instance_id"]
             # TODO should go fetch the name tag or something
             nodes_name = @deploy.getResourceName(basis["instance_id"].gsub(/-/, ""))
+# XXX cloudformation bits
             asg_options[:instance_id] = basis["instance_id"]
           end
 
@@ -200,8 +350,6 @@ module MU
               }
             else
               @vpc.subnets.each { |subnet_obj|
-              puts subnet_obj
-              puts subnet_obj.private?
                 next if subnet_obj.private? and ["all_public", "public"].include?(@config["vpc"]["subnet_pref"])
                 next if !subnet_obj.private? and ["all_private", "private"].include?(@config["vpc"]["subnet_pref"])
                 subnet_ids << subnet_obj.cloud_id
@@ -212,12 +360,21 @@ module MU
 
           sgs = []
           if @dependencies.has_key?("firewall_rule")
-            @dependencies['firewall_rule'].values.each { |sg|
-              sgs << sg.cloud_id
-            }
+            if !MU::Cloud::AWS.emitCloudformation
+              @dependencies['firewall_rule'].values.each { |sg|
+                sgs << sg.cloud_id
+              }
+            end
           end
 
-          if launch_options
+          if !asg_options[:vpc_zone_identifier].nil? and asg_options[:vpc_zone_identifier].empty?
+            asg_options.delete(:vpc_zone_identifier)
+          end
+          if !asg_options[:vpc_zone_identifier].nil?# or !@config["vpc"].nil?
+            launch_options[:associate_public_ip_address] = @config["associate_public_ip"]
+          end
+
+          if launch_options and !MU::Cloud::AWS.emitCloudformation
             launch_options[:security_groups] = sgs
             MU.log "Creating AutoScale Launch Configuration #{@mu_name}", details: launch_options
             retries = 0
@@ -238,12 +395,6 @@ module MU
               end
             end
             asg_options[:launch_configuration_name] = @mu_name
-          end
-          if !asg_options[:vpc_zone_identifier].nil? and asg_options[:vpc_zone_identifier].empty?
-            asg_options.delete(:vpc_zone_identifier)
-          end
-          if !asg_options[:vpc_zone_identifier].nil?# or !@config["vpc"].nil?
-            launch_options[:associate_public_ip_address] = @config["associate_public_ip"]
           end
 
           # Do the dance of specifying individual zones if we haven't asked to

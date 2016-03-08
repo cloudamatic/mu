@@ -152,8 +152,6 @@ servers:
       name: "bastion"
       phase: "groom"
     <% end %>
-    create_image:
-      image_then_destroy: true
     add_firewall_rules:
       - rule_name: "wpress_secgroup"
     run_list:

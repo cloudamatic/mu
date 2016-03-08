@@ -243,7 +243,7 @@ module MU
         MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS...
       end
 
-      MU::MommaCat.syncMonitoringConfig if !@noop
+      MU::MommaCat.syncMonitoringConfig if !@noop and !@skipcloud
 
     end
   end #class

@@ -49,11 +49,11 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def create
 
-          MU.log "Creating VPC #{@mu_name}", details: @config
-          cfm_props = @cloudformation_data[MU::Cloud::VPC.cfg_name+"_"+@mu_name]["Properties"]
           if MU::Cloud::AWS.emitCloudformation
 #            cfm_props["DependsOn"].concat(MU::Cloud::AWS.addCloudformationDepends(@dependencies))
+            return
           end
+          MU.log "Creating VPC #{@mu_name}", details: @config
           resp = MU::Cloud::AWS.ec2(@config['region']).create_vpc(cidr_block: @config['ip_block']).vpc
           vpc_id = @config['vpc_id'] = resp.vpc_id
 
@@ -420,6 +420,9 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          if MU::Cloud::AWS.emitCloudformation
+            return
+          end
           vpc_name = @deploy.getResourceName(@config['name'])
 
           # Generate peering connections

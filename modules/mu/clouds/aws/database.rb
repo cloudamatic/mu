@@ -52,6 +52,7 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         # @return [String]: The cloud provider's identifier for this database instance.
         def create
+          return if MU::Cloud::AWS.emitCloudformation
           # RDS is picky, we can't just use our regular node names for things like
           # the default schema or username. And it varies from engine to engine.
           basename = @config["name"]+@deploy.timestamp+MU.seed.downcase
@@ -757,6 +758,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          return if MU::Cloud::AWS.emitCloudformation
           unless @config["create_cluster"]
             database = MU::Cloud::AWS::Database.getDatabaseById(@config['identifier'], region: @config['region'])
 

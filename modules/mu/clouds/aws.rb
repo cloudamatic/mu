@@ -39,8 +39,10 @@ module MU
         }
 # XXX figure out whether we can use Fn::Join here with DeployID so the names are parameterized, instead of using cloudobj.mu_name
         if name.nil?
-          name = (type+cloudobj.mu_name).gsub!(/[^a-z0-9]/i, "")
-          tags << { "Key" => "Name", "Value" => cloudobj.mu_name }
+          basename = ""
+          basename = cloudobj.mu_name if !cloudobj.nil?
+          name = (type+basename).gsub!(/[^a-z0-9]/i, "")
+          tags << { "Key" => "Name", "Value" => basename }
         else
           name.gsub!(/[^a-z0-9]/i, "")
         end
@@ -53,7 +55,28 @@ module MU
               "DependsOn" => [],
               "Volumes" => [],
               "Tags" => tags,
-              "SecurityGroupIds" => []
+              "SecurityGroupIds" => [],
+              "BlockDeviceMappings" => []
+            }
+          }
+        when "launch_config"
+          desc = {
+            "Type" => "AWS::AutoScaling::LaunchConfiguration",
+            "Properties" => {
+              "DependsOn" => [],
+              "SecurityGroupIds" => [],
+              "BlockDeviceMappings" => [],
+              "VPCZoneIdentifier" => []
+            }
+          }
+        when "server_pool"
+          desc = {
+            "Type" => "AWS::AutoScaling::AutoScalingGroup",
+            "Properties" => {
+              "DependsOn" => [],
+              "Tags" => tags,
+              "AvailabilityZones" => [],
+              "LoadBalancerNames" => []
             }
           }
         when "firewall_rule"
@@ -157,7 +180,7 @@ MU.log "Dunno how to make a CloudFormation chunk for #{type} yet", MU::WARN
           if !config[data[:cfg_plural]].nil? and
               config[data[:cfg_plural]].size > 0
             config[data[:cfg_plural]].each { |resource|
-              if resource['#MUOBJECT'].cloudobj.respond_to?(:cfm_template)
+              if resource['#MUOBJECT'].cloudobj.respond_to?(:cfm_template) and !resource['#MUOBJECT'].cloudobj.cfm_template.nil?
                 cfm_template["Resources"].merge!(resource['#MUOBJECT'].cloudobj.cfm_template)
               end
             }

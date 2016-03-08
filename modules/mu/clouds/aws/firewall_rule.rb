@@ -362,8 +362,9 @@ module MU
 
           # Creating an empty security group is ok, so don't freak out if we get
           # a null rule list.
-          if MU::Cloud::AWS.emitCloudformation
+          if MU::Cloud::AWS.emitCloudformation and !ec2_rules.nil?
             ec2_rules.each { |rule|
+              next if rule.nil? or rule[:ip_ranges].nil? # XXX whaaat
               rule[:ip_ranges].each { |cidr|
                 MU::Cloud::AWS.setCloudFormationProp(
                   @cfm_template[@cfm_name],
@@ -461,7 +462,7 @@ module MU
                 }
               end
 
-              if !rule['lbs'].nil?
+              if !rule['lbs'].nil? and !MU::Cloud::AWS.emitCloudformation
 # XXX This is a dopey place for this, dependencies() should be doing our legwork
                 rule['lbs'].each { |lb_name|
 # XXX The language for addressing ELBs should be as flexible as VPCs. This sauce

@@ -43,6 +43,9 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
+          if MU::Cloud::AWS.emitCloudformation
+            return
+          end
 
           if @config["zones"] == nil
             @config["zones"] = MU::Cloud::AWS.listAZs(@config['region'])
@@ -318,6 +321,7 @@ module MU
         # Return the metadata for this LoadBalancer
         # @return [Hash]
         def notify
+          return {} if MU::Cloud::AWS.emitCloudformation
           deploy_struct = {
               "awsname" => @mu_name,
               "dns" => cloud_desc.dns_name
