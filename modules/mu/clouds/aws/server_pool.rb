@@ -167,14 +167,6 @@ module MU
             MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_launch_name], "AssociatePublicIpAddress", @config["associate_public_ip"])
           end
 
-          if @dependencies.has_key?("firewall_rule")
-            @cfm_template[@cfm_name]["Properties"]["DependsOn"].each { |sg|
-              if sg.match(/^firewallrule/)
-                MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_launch_name], "SecurityGroupIds", { "Ref" => sg })
-              end
-            }
-          end
-
 # XXX cloudformation bits
         end
 

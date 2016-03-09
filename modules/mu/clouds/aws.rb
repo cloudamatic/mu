@@ -79,6 +79,18 @@ module MU
               "LoadBalancerNames" => []
             }
           }
+        when "loadbalancer"
+          desc = {
+            "Type" => "AWS::ElasticLoadBalancing::LoadBalancer",
+            "Properties" => {
+              "DependsOn" => [],
+              "Tags" => tags,
+              "SecurityGroups" => [],
+              "LBCookieStickinessPolicy" => [],
+              "Subnets" => [],
+              "Listeners" => []
+            }
+          }
         when "firewall_rule"
           desc = {
             "Type" => "AWS::EC2::SecurityGroup",
@@ -131,6 +143,14 @@ MU.log "Dunno how to make a CloudFormation chunk for #{type} yet", MU::WARN
           cloudobj.dependencies(use_cache: true).first.each_pair { |resource_classname, resources|
             resources.each_pair { |sibling_name, sibling_obj|
               desc["Properties"]["DependsOn"] << (resource_classname+sibling_obj.cloudobj.mu_name).gsub!(/[^a-z0-9]/i, "")
+              if resource_classname == "firewall_rule"
+                # Common resource-specific references to dependencies
+                ["SecurityGroupIds", "SecurityGroups"].each { |key|
+                  if desc["Properties"].has_key?(key)
+                    desc["Properties"][key] << { "Ref" => (resource_classname+sibling_obj.cloudobj.mu_name).gsub!(/[^a-z0-9]/i, "") }
+                  end
+                }
+              end
             }
           }
         end

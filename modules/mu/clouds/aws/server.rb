@@ -443,12 +443,6 @@ module MU
             MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "IamInstanceProfile", { "Ref" => @cfm_prof_name })
           end
 
-          @cfm_template[@cfm_name]["Properties"]["DependsOn"].each { |sg|
-            if sg.match(/^firewallrule/)
-              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "SecurityGroupIds", { "Ref" => sg })
-            end
-          }
-
           if !@config['private_ip'].nil?
             MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "PrivateIpAddress", config['private_ip'])
           end
