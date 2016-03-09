@@ -31,28 +31,91 @@ module MU
 
       # Generate and return a skeletal CloudFormation resource entry for the
       # caller.
+      # param type [String]: The resource type, in Mu parlance
+      # param cloudobj [MU::Clouds::AWS]: The resource object
+      # param name [String]: An alternative name for resources which are not first-class Mu classes with their own objects
       def self.cloudFormationBase(type, cloudobj = nil, name: nil)
         desc = {}
         tags = []
         MU::MommaCat.listStandardTags.each_pair { |key, val|
+          next if ["MU-OWNER", "MU-MASTER-IP", "MU-MASTER-NAME"].include?(key)
+          if key == "MU-ID"
+            val = { "Fn::Join" => ["", [{ "Ref" => "AWS::StackName" }, "-", { "Ref" => "Environment" }, "-", { "Ref" => "DeployID" } ] ] }
+          elsif key == "MU-ENV"
+            val =  { "Ref" => "Environment" }
+          end
           tags << { "Key" => key, "Value" => val }
         }
-# XXX figure out whether we can use Fn::Join here with DeployID so the names are parameterized, instead of using cloudobj.mu_name
+
+        res_name = ""
+        res_name = cloudobj.config["name"] if !cloudobj.nil?
         if name.nil?
+          nametag = { "Fn::Join" => ["", [{ "Ref" => "AWS::StackName" }, "-", { "Ref" => "Environment" }, "-", { "Ref" => "DeployID" }, "-", res_name.gsub(/[^a-z0-9]/i, "").upcase ] ] }
           basename = ""
-          basename = cloudobj.mu_name if !cloudobj.nil?
+          basename = cloudobj.mu_name if !cloudobj.nil? and !cloudobj.mu_name.nil?
           name = (type+basename).gsub!(/[^a-z0-9]/i, "")
-          tags << { "Key" => "Name", "Value" => basename }
+          tags << { "Key" => "Name", "Value" => nametag }
         else
-          name.gsub!(/[^a-z0-9]/i, "")
+          name = (type+name).gsub(/[^a-z0-9]/i, "")
         end
 
         case type
+        when "vpc"
+          desc = {
+            "Type" => "AWS::EC2::VPC",
+            "Properties" => {
+              "Tags" => tags
+            }
+          }
+        when "subnet"
+          desc = {
+            "Type" => "AWS::EC2::Subnet",
+            "Properties" => {
+              "Tags" => tags
+            }
+          }
+        when "vpcgwattach"
+          desc = {
+            "Type" => "AWS::EC2::VPCGatewayAttachment",
+            "Properties" => {
+            }
+          }
+        when "loggroup"
+          desc = {
+            "Type" => "AWS::EC2::LogGroup",
+            "Properties" => {
+            }
+          }
+        when "igw"
+          desc = {
+            "Type" => "AWS::EC2::InternetGateway",
+            "Properties" => {
+              "Tags" => tags
+            }
+          }
+        when "rtb"
+          desc = {
+            "Type" => "AWS::EC2::RouteTable",
+            "Properties" => {
+              "Tags" => tags
+            }
+          }
+        when "rtbassoc"
+          desc = {
+            "Type" => "AWS::EC2::SubnetRouteTableAssociation",
+            "Properties" => {
+            }
+          }
+        when "route"
+          desc = {
+            "Type" => "AWS::EC2::Route",
+            "Properties" => {
+            }
+          }
         when "server"
           desc = {
             "Type" => "AWS::EC2::Instance",
             "Properties" => {
-              "DependsOn" => [],
               "Volumes" => [],
               "Tags" => tags,
               "SecurityGroupIds" => [],
@@ -63,18 +126,20 @@ module MU
           desc = {
             "Type" => "AWS::AutoScaling::LaunchConfiguration",
             "Properties" => {
-              "DependsOn" => [],
               "SecurityGroupIds" => [],
               "BlockDeviceMappings" => [],
               "VPCZoneIdentifier" => []
             }
           }
         when "server_pool"
+          pool_tags = tags.dup
+          pool_tags.each { |tag|
+            tag["PropagateAtLaunch"] = true
+          }
           desc = {
             "Type" => "AWS::AutoScaling::AutoScalingGroup",
             "Properties" => {
-              "DependsOn" => [],
-              "Tags" => tags,
+              "Tags" => pool_tags,
               "AvailabilityZones" => [],
               "LoadBalancerNames" => []
             }
@@ -83,7 +148,6 @@ module MU
           desc = {
             "Type" => "AWS::ElasticLoadBalancing::LoadBalancer",
             "Properties" => {
-              "DependsOn" => [],
               "Tags" => tags,
               "SecurityGroups" => [],
               "LBCookieStickinessPolicy" => [],
@@ -95,7 +159,6 @@ module MU
           desc = {
             "Type" => "AWS::EC2::SecurityGroup",
             "Properties" => {
-              "DependsOn" => [],
               "Tags" => tags,
               "SecurityGroupIngress" => []
             }
@@ -137,12 +200,14 @@ module MU
             }
           }
         else
-MU.log "Dunno how to make a CloudFormation chunk for #{type} yet", MU::WARN
+          MU.log "Dunno how to make a CloudFormation chunk for #{type} yet", MU::WARN
+          return
         end
-        if !cloudobj.nil?
+        desc["DependsOn"] = []
+        if !cloudobj.nil? and cloudobj.respond_to?(:dependencies) and type != "subnet"
           cloudobj.dependencies(use_cache: true).first.each_pair { |resource_classname, resources|
             resources.each_pair { |sibling_name, sibling_obj|
-              desc["Properties"]["DependsOn"] << (resource_classname+sibling_obj.cloudobj.mu_name).gsub!(/[^a-z0-9]/i, "")
+              desc["DependsOn"] << (resource_classname+sibling_obj.cloudobj.mu_name).gsub!(/[^a-z0-9]/i, "")
               if resource_classname == "firewall_rule"
                 # Common resource-specific references to dependencies
                 ["SecurityGroupIds", "SecurityGroups"].each { |key|
@@ -162,25 +227,46 @@ MU.log "Dunno how to make a CloudFormation chunk for #{type} yet", MU::WARN
         if value.class.to_s == "MU::Config::Tail"
           realvalue = { "Ref" => "#{value.getPrettyName}" }
         end
-#        pp resource
-        if !resource["Properties"][name].nil? and resource["Properties"][name].is_a?(Array)
+
+        if resource.has_key?(name)
+          if resource[name].is_a?(Array)
+            resource[name] << realvalue
+            resource[name].uniq!
+          else
+            resource[name] = realvalue
+          end
+        elsif !resource["Properties"][name].nil? and resource["Properties"][name].is_a?(Array)
           resource["Properties"][name] << realvalue
+          resource["Properties"][name].uniq!
         else
           resource["Properties"][name] = realvalue
         end
       end
 
+      # Generate a CloudFormation template that mimics what the "real" output
+      # of this deployment would be.
+      # @param tails [Array<MU::Config::Tail>]: Mu configuration "tails," which we turn into template parameters
+      # @param config [Hash]: The fully resolved Basket of Kittens for this deployment
+      # @param path [String]: An output path for the resulting template.
       def self.writeCloudFormationTemplate(tails: MU::Config.tails, config: {}, path: nil)
         cfm_template = {
           "AWSTemplateFormatVersion" => "2010-09-09",
           "Description" =>  "Automatically generated by Mu",
           "Parameters" => {
             "DeployID" => {
-              "Description" => "A name with which to tag and describe all resources created by this deployment.",
+              "Description" => "A string to differentiate individual deployments of this stack when tagging.",
               "Type" => "String",
               "MinLength" => "1",
-              "MaxLength" => "25",
+              "MaxLength" => "25"
             },
+            "Environment" => {
+              "Description" => "Typically DEV or PROD, this may be used at the application level to control certain behaviors.",
+              "Type" => "String",
+              "Default" => MU.environment,
+              "MinLength" => "1",
+              "MaxLength" => "25"
+            },
+# XXX only require this if we have a Server or ServerPool in this stack
             "SSHKeyName" => {
               "Description" => "Name of an existing EC2 KeyPair to enable SSH access to hosts",
               "Type" => "AWS::EC2::KeyPair::KeyName"#,

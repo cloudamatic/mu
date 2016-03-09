@@ -47,8 +47,9 @@ module MU
         # balancer in CloudFormation language.
         def createCloudFormationDescriptor
           @config["cross_zone"] = @config["cross_zone_unstickiness"]
+          @config["health_check"] = @config["healthcheck"]
           @config["access_logging_policy"] = @config["access_log"]
-          ["cross_zone", "healthcheck"].each { |arg|
+          ["cross_zone", "health_check"].each { |arg|
             if !@config[arg].nil?
               key = ""
               val = @config[arg]
@@ -66,17 +67,21 @@ module MU
           }
 
           @config['listeners'].each { |listener|
+            prop = {
+              "InstancePort" => listener['instance_port'].to_s,
+              "InstanceProtocol" => listener['instance_protocol'],
+              "LoadBalancerPort" => listener['lb_port'].to_s,
+              "Protocol" => listener['lb_protocol']
+            }
+            if !listener['ssl_certificate_id'].nil?
+              prop["SSLCertificateId"] = listener['ssl_certificate_id'] # XXX resolve ssl_certificate_name if we get that instead
+            end
             MU::Cloud::AWS.setCloudFormationProp(
               @cfm_template[@cfm_name],
               "Listeners",
-              {
-                "InstancePort" => listener['instance_port'].to_s,
-                "InstanceProtocol" => listener['instance_protocol'],
-                "LoadBalancerPort" => listener['lb_port'].to_s,
-                "Protocol" => listener['lb_protocol'],
-                "SSLCertificateId" => listener['ssl_certificate_id'] # XXX resolve ssl_certificate_name if we get that instead
-              }
+              prop
             )
+
           }
 
           ["lb_cookie_stickiness_policy", "app_cookie_stickiness_policy"].each { |policy|
@@ -108,12 +113,17 @@ module MU
             MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "ConnectionDrainingPolicy", { "Enabled" => true, "Timeout" => @config['connection_draining_timeout'] })
           end
 
-          if @config['vpc'].nil? and !@config["vpc"]["subnets"].nil? and @config["vpc"]["subnets"].size > 0
+          if !@config['vpc'].nil? and !@config["vpc"]["subnets"].nil? and @config["vpc"]["subnets"].size > 0
             @config["vpc"]["subnets"].each { |subnet|
               if !subnet["subnet_id"].nil?
                 MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_launch_name], "VPCZoneIdentifier", subnet["subnet_id"])
-              else
-# XXX cloudformation: iterate over DependsOn and look for a VPC/subnets
+              elsif @dependencies.has_key?("vpc") and @dependencies["vpc"].has_key?(@config["vpc"]["vpc_name"])
+                @dependencies["vpc"][@config["vpc"]["vpc_name"]].subnets.each { |subnet_obj|
+                  if subnet_obj.name == subnet['subnet_name']
+                    MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", subnet_obj.cfm_name)
+                    MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "Subnets", { "Ref" => subnet_obj.cfm_name } )
+                  end
+                }
               end
             }
 # XXX cloudformation: something about AZs
@@ -218,8 +228,8 @@ module MU
             zones_to_try.each { |zone|
               begin
                 MU::Cloud::AWS.elb.enable_availability_zones_for_load_balancer(
-                    load_balancer_name: @mu_name,
-                    availability_zones: [zone]
+                  load_balancer_name: @mu_name,
+                  availability_zones: [zone]
                 )
               rescue Aws::ElasticLoadBalancing::Errors::ValidationError => e
                 MU.log "Couldn't enable Availability Zone #{zone} for Load Balancer #{@mu_name} (#{e.message})", MU::WARN

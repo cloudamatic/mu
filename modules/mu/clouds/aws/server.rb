@@ -320,7 +320,7 @@ module MU
           policies.each_pair { |name, doc|
             if MU::Cloud::AWS.emitCloudformation
               if !cfm_role_name.nil?
-                MU::Cloud::AWS.setCloudFormationProp(cloudformation_data[cfm_role_name], "Policies", JSON.parse(doc))
+                MU::Cloud::AWS.setCloudFormationProp(cloudformation_data[cfm_role_name], "Policies", { "PolicyName" => name, "PolicyDocument" => JSON.parse(doc) })
               end
               next 
             end
@@ -347,8 +347,8 @@ module MU
 
           cfm_role_name = cfm_prof_name = nil
           if MU::Cloud::AWS.emitCloudformation
-            cfm_role_name, role_cfm_template = MU::Cloud::AWS.cloudFormationBase("iamrole", name: 'iamrole'+rolename)
-            cfm_prof_name, prof_cfm_template = MU::Cloud::AWS.cloudFormationBase("iamprofile", name: 'iamprofile'+rolename)
+            cfm_role_name, role_cfm_template = MU::Cloud::AWS.cloudFormationBase("iamrole", name: rolename)
+            cfm_prof_name, prof_cfm_template = MU::Cloud::AWS.cloudFormationBase("iamprofile", name: rolename)
             cloudformation_data.merge!(role_cfm_template)
             cloudformation_data.merge!(prof_cfm_template)
           else
@@ -391,7 +391,7 @@ module MU
             name=doc=nil
             policies.each_pair { |name, doc|
               if MU::Cloud::AWS.emitCloudformation
-                MU::Cloud::AWS.setCloudFormationProp(cloudformation_data[cfm_role_name], "Policies", JSON.parse(doc))
+                MU::Cloud::AWS.setCloudFormationProp(cloudformation_data[cfm_role_name], "Policies", { "PolicyName" => name, "PolicyDocument" => JSON.parse(doc) })
                 next 
               end
               MU.log "Merging policy #{name} into #{rolename}", MU::NOTICE, details: doc
@@ -407,6 +407,7 @@ module MU
           end
           if MU::Cloud::AWS.emitCloudformation
             MU::Cloud::AWS.setCloudFormationProp(cloudformation_data[cfm_prof_name], "Roles", cfm_role_name)
+            MU::Cloud::AWS.setCloudFormationProp(cloudformation_data[cfm_prof_name], "DependsOn", cfm_role_name)
             return [rolename, cfm_role_name, cfm_prof_name]
           end
           MU::Cloud::AWS.iam.create_instance_profile(
@@ -459,10 +460,10 @@ module MU
           if !@config['static_ip'].nil?
             eip_name = eip_template = nil
             if !@config['static_ip']['ip'].nil?
-              eip_name, eip_template = MU::Cloud::AWS.cloudFormationBase("eipassoc", name: @cfm_name+"EIP")
+              eip_name, eip_template = MU::Cloud::AWS.cloudFormationBase("eipassoc", name: @config['name']+"EIP")
               MU::Cloud::AWS.setCloudFormationProp(eip_template[eip_name], "EIP", @config['static_ip']['ip'])
             else
-              eip_name, eip_template = MU::Cloud::AWS.cloudFormationBase("eip", name: @cfm_name+"EIP")
+              eip_name, eip_template = MU::Cloud::AWS.cloudFormationBase("eip", name: @config['name']+"EIP")
             end
             MU::Cloud::AWS.setCloudFormationProp(eip_template[eip_name], "InstanceId", { "Ref" => @cfm_name })
             @cfm_template.merge!(eip_template)

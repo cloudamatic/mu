@@ -42,65 +42,72 @@ module MU
               @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
             else
               @mu_name = @deploy.getResourceName(@config['name'])
+              @cfm_name, @cfm_template = MU::Cloud::AWS.cloudFormationBase(self.class.cfg_name, self)
+              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "GroupDescription", @mu_name)
             end
-            @cfm_name, @cfm_template = MU::Cloud::AWS.cloudFormationBase(self.class.cfg_name, self)
           end
 
         end
 
+        def createCloudFormationDescriptor
+          if !@config['vpc'].nil? and !@config['vpc']['vpc_id'].nil?
+            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "VpcId", @config['vpc']['vpc_id'])
+          end
+          egress = false
+          egress = true if !@cfm_template[@cfm_name]["VpcId"].nil?
+          # XXX the egress logic here is a crude hack, this really needs to be
+          # done at config level
+          setRules(
+            [],
+            add_to_self: @config['self_referencing'],
+            ingress: true,
+            egress: egress
+          )
+#          pp @cfm_template
+        end
+
         # Called by {MU::Deploy#createResources}
         def create
+          return if MU::Cloud::AWS.emitCloudformation
           vpc_id = @vpc.cloud_id if !@vpc.nil?
           groupname = @mu_name
           description = groupname
 
-          if !MU::Cloud::AWS.emitCloudformation
-            MU.log "Creating EC2 Security Group #{groupname}"
+          MU.log "Creating EC2 Security Group #{groupname}"
 
-            sg_struct = {
-              :group_name => groupname,
-              :description => description
-            }
-            if !vpc_id.nil?
-              sg_struct[:vpc_id] = vpc_id
-            end
-            begin
-              secgroup = MU::Cloud::AWS.ec2(@config['region']).create_security_group(sg_struct)
-              @cloud_id = secgroup.group_id
-            rescue Aws::EC2::Errors::InvalidGroupDuplicate => e
-              MU.log "EC2 Security Group #{groupname} already exists, using it", MU::NOTICE
-              filters = [{name: "group-name", values: [groupname]}]
-              filters << {name: "vpc-id", values: [vpc_id]} if !vpc_id.nil?
-  
-              secgroup = MU::Cloud::AWS.ec2(@config['region']).describe_security_groups(filters: filters).security_groups.first
-              deploy_id = @deploy.deploy_id if !@deploy_id.nil?
-              if secgroup.nil?
-                raise MuError, "Failed to locate security group named #{groupname}, even though EC2 says it already exists", caller
-              end
-              @cloud_id = secgroup.group_id
-            end
+          sg_struct = {
+            :group_name => groupname,
+            :description => description
+          }
+          if !vpc_id.nil?
+            sg_struct[:vpc_id] = vpc_id
+          end
+          begin
+            secgroup = MU::Cloud::AWS.ec2(@config['region']).create_security_group(sg_struct)
+            @cloud_id = secgroup.group_id
+          rescue Aws::EC2::Errors::InvalidGroupDuplicate => e
+            MU.log "EC2 Security Group #{groupname} already exists, using it", MU::NOTICE
+            filters = [{name: "group-name", values: [groupname]}]
+            filters << {name: "vpc-id", values: [vpc_id]} if !vpc_id.nil?
 
-            begin
-              MU::Cloud::AWS.ec2(@config['region']).describe_security_groups(group_ids: [secgroup.group_id])
-            rescue Aws::EC2::Errors::InvalidGroupNotFound => e
-              MU.log "#{secgroup.group_id} not yet ready, waiting...", MU::NOTICE
-              sleep 10
-              retry
+            secgroup = MU::Cloud::AWS.ec2(@config['region']).describe_security_groups(filters: filters).security_groups.first
+            deploy_id = @deploy.deploy_id if !@deploy_id.nil?
+            if secgroup.nil?
+              raise MuError, "Failed to locate security group named #{groupname}, even though EC2 says it already exists", caller
             end
-          else
-            if !@config['vpc'].nil? and !@config['vpc']['vpc_id'].nil?
-              MU::Cloud::AWS.setCloudFormationProp(
-                @cfm_template[@cfm_name],
-                "VpcId",
-                @config['vpc']['vpc_id']
-              )
-            end
+            @cloud_id = secgroup.group_id
           end
 
-          if !MU::Cloud::AWS.emitCloudformation
-            MU::MommaCat.createStandardTags secgroup.group_id, region: @config['region']
-            MU::MommaCat.createTag secgroup.group_id, "Name", groupname, region: @config['region']
+          begin
+            MU::Cloud::AWS.ec2(@config['region']).describe_security_groups(group_ids: [secgroup.group_id])
+          rescue Aws::EC2::Errors::InvalidGroupNotFound => e
+            MU.log "#{secgroup.group_id} not yet ready, waiting...", MU::NOTICE
+            sleep 10
+            retry
           end
+
+          MU::MommaCat.createStandardTags secgroup.group_id, region: @config['region']
+          MU::MommaCat.createTag secgroup.group_id, "Name", groupname, region: @config['region']
 
           egress = false
           egress = true if !vpc_id.nil?
@@ -112,9 +119,6 @@ module MU
               ingress: true,
               egress: egress
           )
-          if MU::Cloud::AWS.emitCloudformation
-            return nil
-          end
 
           MU.log "EC2 Security Group #{groupname} is #{secgroup.group_id}", MU::DEBUG
           return secgroup.group_id
@@ -122,6 +126,7 @@ module MU
 
         # Called by {MU::Deploy#createResources}
         def groom
+          return createCloudFormationDescriptor if MU::Cloud::AWS.emitCloudformation
           if !@config['rules'].nil? and @config['rules'].size > 0
             egress = false
             egress = true if !@vpc.nil?

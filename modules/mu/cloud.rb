@@ -305,6 +305,7 @@ module MU
         attr_reader :deploydata
         attr_reader :destroyed
         attr_reader :cfm_template
+        attr_reader :cfm_name
 
         def self.shortname
           name.sub(/.*?::([^:]+)$/, '\1')

@@ -655,8 +655,8 @@ module MU
           )
           ssh_keydir = Etc.getpwnam(MU.mu_user).dir+"/.ssh"
           if !vpc_block['nat_ssh_key'].nil? and !File.exists?(ssh_keydir+"/"+vpc_block['nat_ssh_key'])
-              MU.log "Couldn't find alternate NAT key #{ssh_keydir}/#{vpc_block['nat_ssh_key']} in #{parent_name}", MU::ERR, details: vpc_block
-              return false
+            MU.log "Couldn't find alternate NAT key #{ssh_keydir}/#{vpc_block['nat_ssh_key']} in #{parent_name}", MU::ERR, details: vpc_block
+            return false
           end
 
           if !ext_nat
@@ -829,7 +829,10 @@ module MU
       end
 
       if !vpc_block["vpc_id"].nil? and vpc_block["vpc_id"].is_a?(String)
-        vpc_block["vpc_id"] = getTail("vpc_id", value: vpc_block["vpc_id"], prettyname: "#{parent_name} Target VPC",  cloud_type: "AWS::EC2::VPC::Id")
+        vpc_block["vpc_id"] = getTail("#{parent_name}vpc_id", value: vpc_block["vpc_id"], prettyname: "#{parent_name} Target VPC",  cloud_type: "AWS::EC2::VPC::Id")
+      elsif !vpc_block["nat_host_name"].nil? and vpc_block["nat_host_name"].is_a?(String)
+        vpc_block["nat_host_name"] = MU::Config::Tail.new("#{parent_name}nat_host_name", vpc_block["nat_host_name"])
+
       end
 
       return ok
@@ -1082,7 +1085,6 @@ module MU
         server_names << server['name']
       }
 
-      server_names = Array.new
       vpc_names = Array.new
       nat_routes = Hash.new
       vpcs.each { |vpc|
@@ -1105,8 +1107,8 @@ module MU
                 nat_routes[subnet] = route['nat_host_name']
               }
               vpc['dependencies'] << {
-                  "type" => "server",
-                  "name" => route['nat_host_name']
+                "type" => "server",
+                "name" => route['nat_host_name']
               }
             end
             if route['gateway'] == '#INTERNET'
@@ -1375,6 +1377,7 @@ module MU
         stack["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Collection")
       }
 
+      server_names = Array.new
       server_pools.each { |pool|
         if server_names.include?(pool['name'])
           MU.log "Can't use name #{pool['name']} more than once in servers/server_pools"
@@ -1419,7 +1422,8 @@ module MU
           if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?
             if MU::Config.amazon_images.has_key?(pool['platform']) and
                 MU::Config.amazon_images[pool['platform']].has_key?(pool['region'])
-              launch['ami_id'] = getTail("ami_id", value: MU::Config.amazon_images[pool['platform']][pool['region']], prettyname: "pool"+pool['name']+"AMI", cloud_type: "AWS::EC2::Image::Id")
+              launch['ami_id'] = getTail("pool"+pool['name']+"AMI", value: MU::Config.amazon_images[pool['platform']][pool['region']], prettyname: "pool"+pool['name']+"AMI", cloud_type: "AWS::EC2::Image::Id")
+
             else
               ok = false
               MU.log "One of the following MUST be specified for launch_config: server, ami_id, instance_id.", MU::ERR
@@ -2093,7 +2097,7 @@ module MU
         if server['ami_id'].nil?
           if MU::Config.amazon_images.has_key?(server['platform']) and
               MU::Config.amazon_images[server['platform']].has_key?(server['region'])
-            server['ami_id'] = getTail("ami_id", value: MU::Config.amazon_images[server['platform']][server['region']], prettyname: "server"+server['name']+"AMI", cloud_type: "AWS::EC2::Image::Id")
+            server['ami_id'] = getTail("server"+server['name']+"AMI", value: MU::Config.amazon_images[server['platform']][server['region']], prettyname: "server"+server['name']+"AMI", cloud_type: "AWS::EC2::Image::Id")
           else
             MU.log "No AMI specified for #{server['name']} and no default available for platform #{server['platform']} in region #{server['region']}", MU::ERR, details: server
             ok = false
