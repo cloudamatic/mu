@@ -52,6 +52,9 @@ module MU
         def createCloudFormationDescriptor
           if !@config['vpc'].nil? and !@config['vpc']['vpc_id'].nil?
             MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "VpcId", @config['vpc']['vpc_id'])
+          elsif !@config["vpc"]["vpc_name"].nil? and @dependencies.has_key?("vpc") and @dependencies["vpc"].has_key?(@config["vpc"]["vpc_name"])
+            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @dependencies["vpc"][@config["vpc"]["vpc_name"]].cloudobj.cfm_name)
+            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "VpcId", { "Ref" => @dependencies["vpc"][@config["vpc"]["vpc_name"]].cloudobj.cfm_name })
           end
           egress = false
           egress = true if !@cfm_template[@cfm_name]["VpcId"].nil?

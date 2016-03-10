@@ -39,26 +39,68 @@ module MU
           @config["groomer"] = MU::Config.defaultGroomer unless @config["groomer"]
           @groomclass = MU::Groomer.loadGroomer(@config["groomer"])
 
-          @mu_name ||=
-            if @config["engine"].match(/^sqlserver/)
-              @deploy.getResourceName(@config["name"], max_length: 15)
-            else
-              @deploy.getResourceName(@config["name"], max_length: 63)
-            end
+          if !mu_name.nil?
+            @mu_name = mu_name
+          else
+            @mu_name ||=
+              if @config["engine"].match(/^sqlserver/)
+                @deploy.getResourceName(@config["name"], max_length: 15)
+              else
+                @deploy.getResourceName(@config["name"], max_length: 63)
+              end
 
-          @mu_name.gsub(/(--|-$)/i, "").gsub(/(_)/, "-").gsub!(/^[^a-z]/i, "")
+            @mu_name.gsub(/(--|-$)/i, "").gsub(/(_)/, "-").gsub!(/^[^a-z]/i, "")
+            @cfm_name, @cfm_template = MU::Cloud::AWS.cloudFormationBase(self.class.cfg_name, self)
+            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DBInstanceClass", @config['size'])
+            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "AllocatedStorage", @config['storage'].to_s)
+          end
+        end
+
+        def createCloudFormationDescriptor
+          MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DBName", @config['db_name'])
+          MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "Engine", @config['engine'])
+          MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "MasterUsername", @config['master_user'])
+
+# XXX optional when building from a snap
+          getPassword
+# XXX grotesquely insecure!
+          MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "MasterUserPassword", @config['password'])
+
+          if @config["vpc"]
+            subnets_name, subnets_template = MU::Cloud::AWS.cloudFormationBase("dbsubnetgroup", name: @mu_name)
+            MU::Cloud::AWS.setCloudFormationProp(subnets_template[subnets_name], "DBSubnetGroupDescription", @mu_name)
+            if !@config["vpc"]["subnets"].nil? and @config["vpc"]["subnets"].size > 0
+              @config["vpc"]["subnets"].each { |subnet|
+                if !subnet["subnet_id"].nil?
+                  MU::Cloud::AWS.setCloudFormationProp(subnets_template[subnets_name], "SubnetIds", subnet["subnet_id"])
+                elsif @dependencies.has_key?("vpc") and @dependencies["vpc"].has_key?(@config["vpc"]["vpc_name"])
+                  @dependencies["vpc"][@config["vpc"]["vpc_name"]].subnets.each { |subnet_obj|
+                    if subnet_obj.name == subnet['subnet_name']
+                      MU::Cloud::AWS.setCloudFormationProp(subnets_template[subnets_name], "DependsOn", subnet_obj.cfm_name)
+                      MU::Cloud::AWS.setCloudFormationProp(subnets_template[subnets_name], "SubnetIds", { "Ref" => subnet_obj.cfm_name } )
+                    end
+                  }
+                end
+              }
+            end
+            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DBSubnetGroupName", { "Ref" => subnets_name } )
+            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", subnets_name)
+            @cfm_template.merge!(subnets_template)
+          end
+
         end
 
         # Called automatically by {MU::Deploy#createResources}
         # @return [String]: The cloud provider's identifier for this database instance.
         def create
-          return if MU::Cloud::AWS.emitCloudformation
           # RDS is picky, we can't just use our regular node names for things like
           # the default schema or username. And it varies from engine to engine.
           basename = @config["name"]+@deploy.timestamp+MU.seed.downcase
           basename.gsub!(/[^a-z0-9]/i, "")
           @config["db_name"] = getName(basename, type: "dbname")
           @config['master_user'] = getName(basename, type: "dbuser") unless @config['master_user']
+
+          return createCloudFormationDescriptor if MU::Cloud::AWS.emitCloudformation
 
           # Lets make sure automatic backups are enabled when DB instance is deployed in Multi-AZ so failover actually works. Maybe default to 1 instead?
           if @config['multi_az_on_create'] or @config['multi_az_on_deploy'] or config["create_cluster"]
@@ -253,7 +295,7 @@ module MU
             "username" => @config["master_user"],
             "password" => @config["password"]
           }
-          @groomclass.saveSecret(vault: @config['identifier'], item: "database_credentials", data: creds)
+          @groomclass.saveSecret(vault: @mu_name, item: "database_credentials", data: creds)
         end
 
         # Create the database described in this instance

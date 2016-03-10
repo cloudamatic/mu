@@ -59,10 +59,10 @@ module MU
 
           igw_name = nil
           if @config['create_internet_gateway']
-            igw_name, igw_template = MU::Cloud::AWS.cloudFormationBase("igw", self)
-            MU::Cloud::AWS.setCloudFormationProp(igw_template[igw_name], "DependsOn", @cfm_name)
-            attach_name, attach_template = MU::Cloud::AWS.cloudFormationBase("vpcgwattach", self)
+            igw_name, igw_template = MU::Cloud::AWS.cloudFormationBase("igw", name: @mu_name)
+            attach_name, attach_template = MU::Cloud::AWS.cloudFormationBase("vpcgwattach", name: @mu_name)
             MU::Cloud::AWS.setCloudFormationProp(attach_template[attach_name], "DependsOn", igw_name)
+            MU::Cloud::AWS.setCloudFormationProp(attach_template[attach_name], "DependsOn", @cfm_name)
             MU::Cloud::AWS.setCloudFormationProp(attach_template[attach_name], "InternetGatewayId", { "Ref" => igw_name } )
             MU::Cloud::AWS.setCloudFormationProp(attach_template[attach_name], "VpcId", { "Ref" => @cfm_name })
             @cfm_template.merge!(igw_template)
@@ -130,7 +130,6 @@ module MU
 
               @cfm_template.merge!(assoc_template)
               @cfm_template.merge!(subnet.cfm_template)
-              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[subnet.cfm_name], "DependsOn", rtb_map[subnet_cfg['route_table']])
             }
           end
           

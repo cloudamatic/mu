@@ -112,6 +112,23 @@ module MU
             "Properties" => {
             }
           }
+        when "database"
+          desc = {
+            "Type" => "AWS::RDS::DBInstance",
+            "Properties" => {
+              "Tags" => tags,
+              "VPCSecurityGroups" => [],
+              "DBSecurityGroups" => []
+            }
+          }
+        when "dbsubnetgroup"
+          desc = {
+            "Type" => "AWS::RDS::DBSubnetGroup",
+            "Properties" => {
+              "Tags" => tags,
+              "SubnetIds" => []
+            }
+          }
         when "server"
           desc = {
             "Type" => "AWS::EC2::Instance",
@@ -126,9 +143,8 @@ module MU
           desc = {
             "Type" => "AWS::AutoScaling::LaunchConfiguration",
             "Properties" => {
-              "SecurityGroupIds" => [],
-              "BlockDeviceMappings" => [],
-              "VPCZoneIdentifier" => []
+              "SecurityGroups" => [],
+              "BlockDeviceMappings" => []
             }
           }
         when "server_pool"
@@ -141,6 +157,7 @@ module MU
             "Properties" => {
               "Tags" => pool_tags,
               "AvailabilityZones" => [],
+              "VPCZoneIdentifier" => [],
               "LoadBalancerNames" => []
             }
           }
@@ -208,13 +225,21 @@ module MU
           cloudobj.dependencies(use_cache: true).first.each_pair { |resource_classname, resources|
             resources.each_pair { |sibling_name, sibling_obj|
               desc["DependsOn"] << (resource_classname+sibling_obj.cloudobj.mu_name).gsub!(/[^a-z0-9]/i, "")
+              # Common resource-specific references to dependencies
               if resource_classname == "firewall_rule"
-                # Common resource-specific references to dependencies
-                ["SecurityGroupIds", "SecurityGroups"].each { |key|
-                  if desc["Properties"].has_key?(key)
-                    desc["Properties"][key] << { "Ref" => (resource_classname+sibling_obj.cloudobj.mu_name).gsub!(/[^a-z0-9]/i, "") }
-                  end
-                }
+                if type == "database" and cloudobj.config.has_key?("vpc")
+                  desc["Properties"]["VPCSecurityGroups"] << { "Fn::GetAtt" => [(resource_classname+sibling_obj.cloudobj.mu_name).gsub!(/[^a-z0-9]/i, ""), "GroupId"] }
+                else
+                  ["SecurityGroupIds", "SecurityGroups"].each { |key|
+                    if desc["Properties"].has_key?(key)
+                      desc["Properties"][key] << { "Fn::GetAtt" => [(resource_classname+sibling_obj.cloudobj.mu_name).gsub!(/[^a-z0-9]/i, ""), "GroupId"] }
+                    end
+                  }
+                end
+              elsif resource_classname == "loadbalancer"
+                if desc["Properties"].has_key?("LoadBalancerNames")
+                  desc["Properties"]["LoadBalancerNames"] << { "Ref" => (resource_classname+sibling_obj.cloudobj.mu_name).gsub!(/[^a-z0-9]/i, "") }
+                end
               end
             }
           }
@@ -292,10 +317,36 @@ module MU
             }
           end
         }
-        if path.nil?
+        if path.nil? or path == "-"
           puts JSON.pretty_generate(cfm_template)
+        elsif path.match(/^s3:\/\/(.+?)\/(.*)/i)
+          bucket = $1
+          target = $2
+          MU.log "Writing CloudFormation template to S3 bucket #{bucket} path /#{target}"
+          resp = MU::Cloud::AWS.s3.list_buckets
+          uploaded = false
+          resp.buckets.each { |b|
+            if b['name'] == bucket
+              MU::Cloud::AWS.s3.put_object(
+                acl: "public-read",
+                bucket: bucket,
+                key: target,
+                body: JSON.pretty_generate(cfm_template)
+              )
+              uploaded = true
+              break
+            end
+          }
+          if !uploaded
+            MU.log "Failed to write CloudFormation template to #{path}", MU::ERR
+            path = "/tmp/cloudformation-#{MU.deploy_id}.json"
+            MU.log "Writing to #{path}", MU::WARN
+            template = File.new(path, File::CREAT|File::TRUNC|File::RDWR, 0400)
+            template.puts JSON.pretty_generate(cfm_template)
+            template.close
+          end
         else
-          MU.log "Writing CloudFormation template to #{path}"
+          MU.log "Writing CloudFormation template to local file #{path}"
           template = File.new(path, File::CREAT|File::TRUNC|File::RDWR, 0400)
           template.puts JSON.pretty_generate(cfm_template)
           template.close

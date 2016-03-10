@@ -56,14 +56,17 @@ module MU
                    verbosity: false,
                    webify_logs: false,
                    nocleanup: false,
-                   cloudformation: false,
+                   cloudformation: nil,
                    stack_conf: nil)
       MU.setVar("verbose", verbosity)
       @webify_logs = webify_logs
       @nocleanup = nocleanup
       MU.setLogging(verbosity, webify_logs)
 
-      MU::Cloud::AWS.emitCloudformation(set: cloudformation)
+      if !cloudformation.nil?
+        MU::Cloud::AWS.emitCloudformation(set: true)
+        @cloudformation_output = cloudformation
+      end
 
       if stack_conf.nil? or !stack_conf.is_a?(Hash)
         raise MuError, "Deploy objects require a stack_conf hash"
@@ -236,7 +239,7 @@ module MU
         end
 
         if MU::Cloud::AWS.emitCloudformation
-          MU::Cloud::AWS.writeCloudFormationTemplate(tails: MU::Config.tails, config: @main_config, path: "/tmp/cloudformation-#{MU.deploy_id}.json")
+          MU::Cloud::AWS.writeCloudFormationTemplate(tails: MU::Config.tails, config: @main_config, path: @cloudformation_output)
           MU::Cleanup.run(MU.deploy_id, skipcloud: true, mommacat: mommacat)
           exit
         end

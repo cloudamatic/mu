@@ -406,7 +406,7 @@ module MU
             raise MuError, "Malformed policy when creating IAM Role #{rolename}: #{e.inspect}"
           end
           if MU::Cloud::AWS.emitCloudformation
-            MU::Cloud::AWS.setCloudFormationProp(cloudformation_data[cfm_prof_name], "Roles", cfm_role_name)
+            MU::Cloud::AWS.setCloudFormationProp(cloudformation_data[cfm_prof_name], "Roles", { "Ref" => cfm_role_name } )
             MU::Cloud::AWS.setCloudFormationProp(cloudformation_data[cfm_prof_name], "DependsOn", cfm_role_name)
             return [rolename, cfm_role_name, cfm_prof_name]
           end
@@ -449,24 +449,54 @@ module MU
           end
 
           if !@vpc.nil? and @config.has_key?("vpc")
+            if !@config["vpc"]["vpc_name"].nil? and @dependencies.has_key?("vpc") and @dependencies["vpc"].has_key?(@config["vpc"]["vpc_name"])
+              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @dependencies["vpc"][@config["vpc"]["vpc_name"]].cloudobj.cfm_name)
+            end
+
             if !@config['vpc']['subnet_id'].nil?
-#              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "VpcId", @config['vpc']['vpc_id']) # XXX iff vpc_id is what's set
               MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "SubnetId", @config['vpc']['subnet_id'])
-            else
-# XXX cloudformation: iterate over DependsOn and look for a VPC/subnets
+            elsif @dependencies.has_key?("vpc") and @dependencies["vpc"].has_key?(@config["vpc"]["vpc_name"])
+              @dependencies["vpc"][@config["vpc"]["vpc_name"]].subnets.each { |subnet_obj|
+                if subnet_obj.name == @config["vpc"]["subnet_name"]
+                  MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", subnet_obj.cfm_name)
+                  MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "SubnetId", { "Ref" => subnet_obj.cfm_name } )
+                end
+              }
             end
           end
 
           if !@config['static_ip'].nil?
             eip_name = eip_template = nil
-            if !@config['static_ip']['ip'].nil?
-              eip_name, eip_template = MU::Cloud::AWS.cloudFormationBase("eipassoc", name: @config['name']+"EIP")
-              MU::Cloud::AWS.setCloudFormationProp(eip_template[eip_name], "EIP", @config['static_ip']['ip'])
-            else
+
+            eipassoc_name, eipassoc_template = MU::Cloud::AWS.cloudFormationBase("eipassoc", name: @config['name']+"EIP")
+
+            if @config['static_ip']['ip'].nil?
               eip_name, eip_template = MU::Cloud::AWS.cloudFormationBase("eip", name: @config['name']+"EIP")
+              MU::Cloud::AWS.setCloudFormationProp(eipassoc_template[eipassoc_name], "DependsOn", eip_name)
+              if !@config['vpc'].nil?
+                MU::Cloud::AWS.setCloudFormationProp(eip_template[eip_name], "Domain", "vpc")
+                MU::Cloud::AWS.setCloudFormationProp(eipassoc_template[eipassoc_name], "AllocationId", { "Fn::GetAtt" => [eip_name, "AllocationId"] })
+                if !@vpc.nil? and @config.has_key?("vpc")
+                  if !@config["vpc"]["vpc_name"].nil? and @dependencies.has_key?("vpc") and @dependencies["vpc"].has_key?(@config["vpc"]["vpc_name"])
+                    igw_name, igw_template = MU::Cloud::AWS.cloudFormationBase("vpcgwattach", name: @dependencies["vpc"][@config["vpc"]["vpc_name"]].cloudobj.mu_name)
+                    MU::Cloud::AWS.setCloudFormationProp(eip_template[eip_name], "DependsOn", igw_name)
+                  end
+                end
+#                @cfm_template[@cfm_name]["DependsOn"].dup.each { |parent_dep|
+#                  MU::Cloud::AWS.setCloudFormationProp(eip_template[eip_name], "DependsOn", parent_dep)
+#
+#                }
+              else
+                MU::Cloud::AWS.setCloudFormationProp(eipassoc_template[eipassoc_name], "EIP", @config['static_ip']['ip'])
+              end
+            else
+              raise MuError, "Cannot currently target a pre-existing EIP by name when targeting CloudFormation"
             end
-            MU::Cloud::AWS.setCloudFormationProp(eip_template[eip_name], "InstanceId", { "Ref" => @cfm_name })
-            @cfm_template.merge!(eip_template)
+            MU::Cloud::AWS.setCloudFormationProp(eipassoc_template[eipassoc_name], "InstanceId", { "Ref" => @cfm_name })
+
+#            MU::Cloud::AWS.setCloudFormationProp(eip_template[eip_name], "EIP", @config['static_ip']['ip'])
+            @cfm_template.merge!(eip_template) if !eip_template.nil?
+            @cfm_template.merge!(eipassoc_template)
           end
 
           if !@userdata.nil? and !@userdata.empty?
@@ -1494,10 +1524,10 @@ module MU
 
           if storage["device"]
             vol_struct[:device_name] = storage["device"]
-            cfm_mapping["Device"] = storage["device"]
+            cfm_mapping["DeviceName"] = storage["device"]
           elsif storage["no_device"].nil?
             vol_struct[:device_name] = @disk_devices.shift
-            cfm_mapping["Device"] = @disk_devices.shift
+            cfm_mapping["DeviceName"] = @disk_devices.shift
           end
 
           vol_struct[:virtual_name] = storage["virtual_name"] if storage["virtual_name"]
@@ -1514,6 +1544,7 @@ module MU
                 cfm_mapping["Ebs"][key] = storage[arg.to_s]
               end
             }
+            cfm_mapping["Ebs"].delete("Encrypted") if !cfm_mapping["Ebs"]["Encrypted"]
 
             if storage["iops"] and storage["volume_type"] == "io1"
               vol_struct[:ebs][:iops] = storage["iops"] 

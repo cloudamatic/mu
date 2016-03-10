@@ -37,7 +37,7 @@ module MU
             if MU::Cloud::AWS.emitCloudformation
               @cfm_name, @cfm_template = MU::Cloud::AWS.cloudFormationBase(self.class.cfg_name, self)
               @cfm_launch_name, launch_template = MU::Cloud::AWS.cloudFormationBase("launch_config", name: @mu_name)
-              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "LaunchConfigurationName", @cfm_launch_name)
+              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "LaunchConfigurationName", { "Ref" => @cfm_launch_name } )
               MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @cfm_launch_name)
               @cfm_template.merge!(launch_template)
               return
@@ -48,13 +48,6 @@ module MU
         # Populate @cfm_template with a resource description for this server
         # pool in CloudFormation language.
         def createCloudFormationDescriptor
-          if @dependencies.has_key?("loadbalancer")
-            @cfm_template[@cfm_name]["DependsOn"].each { |lb|
-              if lb.match(/^loadbalancer/)
-                MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "LoadBalancerNames", lb )
-              end
-            }
-          end
 
           @config["cooldown"] = @config["default_cooldown"]
           ["min_size", "max_size", "cooldown", "desired_capacity", "health_check_type", "health_check_grace_period"].each { |arg|
@@ -147,7 +140,6 @@ module MU
 # XXX cloudformation bits
           end
 
-
           set_public_ip_pref = true
           if @config["vpc_zone_identifier"]
             set_public_ip_pref = false
@@ -157,12 +149,12 @@ module MU
               set_public_ip_pref = false
               @config["vpc"]["subnets"].each { |subnet|
                 if !subnet["subnet_id"].nil?
-                  MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_launch_name], "VPCZoneIdentifier", subnet["subnet_id"])
+                   MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "VPCZoneIdentifier", subnet["subnet_id"])
                 elsif @dependencies.has_key?("vpc") and @dependencies["vpc"].has_key?(@config["vpc"]["vpc_name"])
                   @dependencies["vpc"][@config["vpc"]["vpc_name"]].subnets.each { |subnet_obj|
                     if subnet_obj.name == subnet['subnet_name']
                       MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", subnet_obj.cfm_name)
-                      MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "Subnets", { "Ref" => subnet_obj.cfm_name } )
+                      MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "VPCZoneIdentifier", { "Ref" => subnet_obj.cfm_name } )
                     end
                   }
                 end

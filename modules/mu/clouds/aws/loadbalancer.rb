@@ -116,7 +116,7 @@ module MU
           if !@config['vpc'].nil? and !@config["vpc"]["subnets"].nil? and @config["vpc"]["subnets"].size > 0
             @config["vpc"]["subnets"].each { |subnet|
               if !subnet["subnet_id"].nil?
-                MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_launch_name], "VPCZoneIdentifier", subnet["subnet_id"])
+                MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "Subnets", subnet["subnet_id"])
               elsif @dependencies.has_key?("vpc") and @dependencies["vpc"].has_key?(@config["vpc"]["vpc_name"])
                 @dependencies["vpc"][@config["vpc"]["vpc_name"]].subnets.each { |subnet_obj|
                   if subnet_obj.name == subnet['subnet_name']
