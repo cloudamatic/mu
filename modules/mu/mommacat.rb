@@ -1279,7 +1279,7 @@ module MU
         region: MU.curRegion)
       attempts = 0
 
-      if !MU::Cloud::AWS.emitCloudformation
+      if !MU::Cloud::CloudFormation.emitCloudformation
         begin
           MU::Cloud::AWS.ec2(region).create_tags(
             resources: [resource],
@@ -1321,7 +1321,7 @@ module MU
           tags << {key: name, value: value}
         end
       }
-      if MU::Cloud::AWS.emitCloudformation
+      if MU::Cloud::CloudFormation.emitCloudformation
         return tags
       end
 

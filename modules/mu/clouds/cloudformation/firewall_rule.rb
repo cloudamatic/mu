@@ -43,8 +43,8 @@ module MU
               @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
             else
               @mu_name = @deploy.getResourceName(@config['name'])
-              @cfm_name, @cfm_template = MU::Cloud::AWS.cloudFormationBase(self.class.cfg_name, self)
-              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "GroupDescription", @mu_name)
+              @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self)
+              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "GroupDescription", @mu_name)
             end
           end
 
@@ -52,10 +52,10 @@ module MU
 
         def create
           if !@config['vpc'].nil? and !@config['vpc']['vpc_id'].nil?
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "VpcId", @config['vpc']['vpc_id'])
-          elsif !@config["vpc"]["vpc_name"].nil? and @dependencies.has_key?("vpc") and @dependencies["vpc"].has_key?(@config["vpc"]["vpc_name"])
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @dependencies["vpc"][@config["vpc"]["vpc_name"]].cloudobj.cfm_name)
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "VpcId", { "Ref" => @dependencies["vpc"][@config["vpc"]["vpc_name"]].cloudobj.cfm_name })
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "VpcId", @config['vpc']['vpc_id'])
+          elsif @dependencies.has_key?("vpc") and !@config["vpc"]["vpc_name"].nil? and @dependencies["vpc"].has_key?(@config["vpc"]["vpc_name"])
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @dependencies["vpc"][@config["vpc"]["vpc_name"]].cloudobj.cfm_name)
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "VpcId", { "Ref" => @dependencies["vpc"][@config["vpc"]["vpc_name"]].cloudobj.cfm_name })
           end
           egress = false
           egress = true if !@cfm_template[@cfm_name]["VpcId"].nil?
@@ -139,7 +139,7 @@ module MU
           # add_to_self means that this security is a "member" of its own rules
           # (which is to say, objects that have this SG are allowed in my these
           # rules)
-          if add_to_self and !MU::Cloud::AWS.emitCloudformation
+          if add_to_self and !MU::Cloud::CloudFormation.emitCloudformation
             rules.each { |rule|
               if rule['sgs'].nil? or !rule['sgs'].include?(secgroup.group_id)
                 new_rule = rule.clone
@@ -154,11 +154,11 @@ module MU
 
           # Creating an empty security group is ok, so don't freak out if we get
           # a null rule list.
-          if MU::Cloud::AWS.emitCloudformation and !ec2_rules.nil?
+          if MU::Cloud::CloudFormation.emitCloudformation and !ec2_rules.nil?
             ec2_rules.each { |rule|
               next if rule.nil? or rule[:ip_ranges].nil? # XXX whaaat
               rule[:ip_ranges].each { |cidr|
-                MU::Cloud::AWS.setCloudFormationProp(
+                MU::Cloud::CloudFormation.setCloudFormationProp(
                   @cfm_template[@cfm_name],
                   "SecurityGroupIngress",
                   {
@@ -254,7 +254,7 @@ module MU
                 }
               end
 
-              if !rule['lbs'].nil? and !MU::Cloud::AWS.emitCloudformation
+              if !rule['lbs'].nil? and !MU::Cloud::CloudFormation.emitCloudformation
 # XXX This is a dopey place for this, dependencies() should be doing our legwork
                 rule['lbs'].each { |lb_name|
 # XXX The language for addressing ELBs should be as flexible as VPCs. This sauce

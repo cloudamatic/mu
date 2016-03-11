@@ -64,7 +64,7 @@ module MU
       MU.setLogging(verbosity, webify_logs)
 
       if !cloudformation.nil?
-        MU::Cloud::AWS.emitCloudformation(set: true)
+        MU::Cloud::CloudFormation.emitCloudformation(set: true)
         @cloudformation_output = cloudformation
       end
 
@@ -113,7 +113,7 @@ module MU
 
       MU::Cloud.resource_types.each { |cloudclass, data|
         if !@main_config[data[:cfg_plural]].nil? and @main_config[data[:cfg_plural]].size > 0
-          if MU::Cloud::AWS.emitCloudformation
+          if MU::Cloud::CloudFormation.emitCloudformation
             @main_config[data[:cfg_plural]].each { |resource|
               resource['cloud'] = "CloudFormation" if resource['cloud'] = "AWS"
             }
@@ -243,8 +243,8 @@ module MU
           t.join
         end
 
-        if MU::Cloud::AWS.emitCloudformation
-          MU::Cloud::AWS.writeCloudFormationTemplate(tails: MU::Config.tails, config: @main_config, path: @cloudformation_output)
+        if MU::Cloud::CloudFormation.emitCloudformation
+          MU::Cloud::CloudFormation.writeCloudFormationTemplate(tails: MU::Config.tails, config: @main_config, path: @cloudformation_output)
           MU::Cleanup.run(MU.deploy_id, skipcloud: true, mommacat: mommacat)
           exit
         end

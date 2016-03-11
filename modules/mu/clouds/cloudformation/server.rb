@@ -75,12 +75,12 @@ module MU
             @config['mu_name'] = @mu_name
 
             @config['instance_secret'] = Password.random(50)
-            @cfm_name, @cfm_template = MU::Cloud::AWS.cloudFormationBase(self.class.cfg_name, self)
+            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self)
             @role_cfm_name = @prof_cfm_name = nil
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "SourceDestCheck", @config['src_dst_check'].to_s)
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "InstanceType", @config['size'])
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "ImageId", @config['ami_id'])
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "KeyName", { "Ref" => "SSHKeyName" })
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "SourceDestCheck", @config['src_dst_check'].to_s)
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "InstanceType", @config['size'])
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "ImageId", @config['ami_id'])
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "KeyName", { "Ref" => "SSHKeyName" })
           end
           @groomer = MU::Groomer.new(self)
 
@@ -97,27 +97,27 @@ module MU
           end
           MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'], cloudformation_data: @cfm_template, cfm_role_name: @cfm_role_name)
           if !@config["iam_role"].nil?
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @cfm_role_name)
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @cfm_prof_name)
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "IamInstanceProfile", { "Ref" => @cfm_prof_name })
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @cfm_role_name)
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @cfm_prof_name)
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "IamInstanceProfile", { "Ref" => @cfm_prof_name })
           end
 
           if !@config['private_ip'].nil?
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "PrivateIpAddress", config['private_ip'])
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "PrivateIpAddress", config['private_ip'])
           end
 
           if !@vpc.nil? and @config.has_key?("vpc")
             if !@config["vpc"]["vpc_name"].nil? and @dependencies.has_key?("vpc") and @dependencies["vpc"].has_key?(@config["vpc"]["vpc_name"])
-              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @dependencies["vpc"][@config["vpc"]["vpc_name"]].cloudobj.cfm_name)
+              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @dependencies["vpc"][@config["vpc"]["vpc_name"]].cloudobj.cfm_name)
             end
 
             if !@config['vpc']['subnet_id'].nil?
-              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "SubnetId", @config['vpc']['subnet_id'])
+              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "SubnetId", @config['vpc']['subnet_id'])
             elsif @dependencies.has_key?("vpc") and @dependencies["vpc"].has_key?(@config["vpc"]["vpc_name"])
               @dependencies["vpc"][@config["vpc"]["vpc_name"]].subnets.each { |subnet_obj|
                 if subnet_obj.name == @config["vpc"]["subnet_name"]
-                  MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", subnet_obj.cfm_name)
-                  MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "SubnetId", { "Ref" => subnet_obj.cfm_name } )
+                  MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", subnet_obj.cfm_name)
+                  MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "SubnetId", { "Ref" => subnet_obj.cfm_name } )
                 end
               }
             end
@@ -126,39 +126,39 @@ module MU
           if !@config['static_ip'].nil?
             eip_name = eip_template = nil
 
-            eipassoc_name, eipassoc_template = MU::Cloud::AWS.cloudFormationBase("eipassoc", name: @config['name']+"EIP")
+            eipassoc_name, eipassoc_template = MU::Cloud::CloudFormation.cloudFormationBase("eipassoc", name: @config['name']+"EIP")
 
             if @config['static_ip']['ip'].nil?
-              eip_name, eip_template = MU::Cloud::AWS.cloudFormationBase("eip", name: @config['name']+"EIP")
-              MU::Cloud::AWS.setCloudFormationProp(eipassoc_template[eipassoc_name], "DependsOn", eip_name)
+              eip_name, eip_template = MU::Cloud::CloudFormation.cloudFormationBase("eip", name: @config['name']+"EIP")
+              MU::Cloud::CloudFormation.setCloudFormationProp(eipassoc_template[eipassoc_name], "DependsOn", eip_name)
               if !@config['vpc'].nil?
-                MU::Cloud::AWS.setCloudFormationProp(eip_template[eip_name], "Domain", "vpc")
-                MU::Cloud::AWS.setCloudFormationProp(eipassoc_template[eipassoc_name], "AllocationId", { "Fn::GetAtt" => [eip_name, "AllocationId"] })
+                MU::Cloud::CloudFormation.setCloudFormationProp(eip_template[eip_name], "Domain", "vpc")
+                MU::Cloud::CloudFormation.setCloudFormationProp(eipassoc_template[eipassoc_name], "AllocationId", { "Fn::GetAtt" => [eip_name, "AllocationId"] })
                 if !@vpc.nil? and @config.has_key?("vpc")
                   if !@config["vpc"]["vpc_name"].nil? and @dependencies.has_key?("vpc") and @dependencies["vpc"].has_key?(@config["vpc"]["vpc_name"])
-                    igw_name, igw_template = MU::Cloud::AWS.cloudFormationBase("vpcgwattach", name: @dependencies["vpc"][@config["vpc"]["vpc_name"]].cloudobj.mu_name)
-                    MU::Cloud::AWS.setCloudFormationProp(eip_template[eip_name], "DependsOn", igw_name)
+                    igw_name, igw_template = MU::Cloud::CloudFormation.cloudFormationBase("vpcgwattach", name: @dependencies["vpc"][@config["vpc"]["vpc_name"]].cloudobj.mu_name)
+                    MU::Cloud::CloudFormation.setCloudFormationProp(eip_template[eip_name], "DependsOn", igw_name)
                   end
                 end
 #                @cfm_template[@cfm_name]["DependsOn"].dup.each { |parent_dep|
-#                  MU::Cloud::AWS.setCloudFormationProp(eip_template[eip_name], "DependsOn", parent_dep)
+#                  MU::Cloud::CloudFormation.setCloudFormationProp(eip_template[eip_name], "DependsOn", parent_dep)
 #
 #                }
               else
-                MU::Cloud::AWS.setCloudFormationProp(eipassoc_template[eipassoc_name], "EIP", @config['static_ip']['ip'])
+                MU::Cloud::CloudFormation.setCloudFormationProp(eipassoc_template[eipassoc_name], "EIP", @config['static_ip']['ip'])
               end
             else
               raise MuError, "Cannot currently target a pre-existing EIP by name when targeting CloudFormation"
             end
-            MU::Cloud::AWS.setCloudFormationProp(eipassoc_template[eipassoc_name], "InstanceId", { "Ref" => @cfm_name })
+            MU::Cloud::CloudFormation.setCloudFormationProp(eipassoc_template[eipassoc_name], "InstanceId", { "Ref" => @cfm_name })
 
-#            MU::Cloud::AWS.setCloudFormationProp(eip_template[eip_name], "EIP", @config['static_ip']['ip'])
+#            MU::Cloud::CloudFormation.setCloudFormationProp(eip_template[eip_name], "EIP", @config['static_ip']['ip'])
             @cfm_template.merge!(eip_template) if !eip_template.nil?
             @cfm_template.merge!(eipassoc_template)
           end
 
           if !@userdata.nil? and !@userdata.empty?
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "UserData", Base64.encode64(@userdata))
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "UserData", Base64.encode64(@userdata))
           end
 
           configured_storage = Array.new
@@ -167,22 +167,22 @@ module MU
             @config["storage"].each { |vol|
               mapping, cfm_mapping = MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
               configured_storage << mapping
-#                vol_name, vol_template = MU::Cloud::AWS.cloudFormationBase("volume", name: "volume"+@cfm_name+mapping[:device_name])
-#                MU::Cloud::AWS.setCloudFormationProp(vol_template[vol_name], "Size", mapping[:ebs][:volume_size].to_s)
-#                MU::Cloud::AWS.setCloudFormationProp(vol_template[vol_name], "VolumeType", mapping[:ebs][:volume_type])
+#                vol_name, vol_template = MU::Cloud::CloudFormation.cloudFormationBase("volume", name: "volume"+@cfm_name+mapping[:device_name])
+#                MU::Cloud::CloudFormation.setCloudFormationProp(vol_template[vol_name], "Size", mapping[:ebs][:volume_size].to_s)
+#                MU::Cloud::CloudFormation.setCloudFormationProp(vol_template[vol_name], "VolumeType", mapping[:ebs][:volume_type])
 #                @cfm_template.merge!(vol_template)
 #                cfm_volume_map[mapping[:device_name]] = { "Ref" => vol_name }
               if cfm_mapping.size > 0
-                MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "BlockDeviceMappings", cfm_mapping)
+                MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "BlockDeviceMappings", cfm_mapping)
               end
             }
           end
 
           cfm_volume_map.each_pair{ |dev, vol|
-#            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "Volumes", { "Device" => dev, "VolumeId" => vol })
+#            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Volumes", { "Device" => dev, "VolumeId" => vol })
           }
           @ephemeral_mappings.each { |mapping|
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "BlockDeviceMappings", { "DeviceName" => mapping[:device_name], "VirtualName" => mapping[:virtual_name] })
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "BlockDeviceMappings", { "DeviceName" => mapping[:device_name], "VirtualName" => mapping[:virtual_name] })
           }
 
           return @config

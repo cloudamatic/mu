@@ -40,8 +40,8 @@ module MU
             loadSubnets if !@cloud_id.nil?
           else
             @mu_name = @deploy.getResourceName(@config['name'])
-            @cfm_name, @cfm_template = MU::Cloud::AWS.cloudFormationBase(self.class.cfg_name, self)
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "CidrBlock", @config['ip_block'])
+            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self)
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "CidrBlock", @config['ip_block'])
           end
 
         end
@@ -53,18 +53,18 @@ module MU
             if !@config[arg].nil?
               key = ""
               arg.split(/_/).each { |chunk| key = key + chunk.capitalize }
-              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], key, @config[arg])
+              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], key, @config[arg])
             end
           }
 
           igw_name = nil
           if @config['create_internet_gateway']
-            igw_name, igw_template = MU::Cloud::AWS.cloudFormationBase("igw", name: @mu_name)
-            attach_name, attach_template = MU::Cloud::AWS.cloudFormationBase("vpcgwattach", name: @mu_name)
-            MU::Cloud::AWS.setCloudFormationProp(attach_template[attach_name], "DependsOn", igw_name)
-            MU::Cloud::AWS.setCloudFormationProp(attach_template[attach_name], "DependsOn", @cfm_name)
-            MU::Cloud::AWS.setCloudFormationProp(attach_template[attach_name], "InternetGatewayId", { "Ref" => igw_name } )
-            MU::Cloud::AWS.setCloudFormationProp(attach_template[attach_name], "VpcId", { "Ref" => @cfm_name })
+            igw_name, igw_template = MU::Cloud::CloudFormation.cloudFormationBase("igw", name: @mu_name)
+            attach_name, attach_template = MU::Cloud::CloudFormation.cloudFormationBase("vpcgwattach", name: @mu_name)
+            MU::Cloud::CloudFormation.setCloudFormationProp(attach_template[attach_name], "DependsOn", igw_name)
+            MU::Cloud::CloudFormation.setCloudFormationProp(attach_template[attach_name], "DependsOn", @cfm_name)
+            MU::Cloud::CloudFormation.setCloudFormationProp(attach_template[attach_name], "InternetGatewayId", { "Ref" => igw_name } )
+            MU::Cloud::CloudFormation.setCloudFormationProp(attach_template[attach_name], "VpcId", { "Ref" => @cfm_name })
             @cfm_template.merge!(igw_template)
             @cfm_template.merge!(attach_template)
           end
@@ -72,36 +72,36 @@ module MU
           rtb_map = {}
           if !@config['route_tables'].nil?
             @config['route_tables'].each { |rtb|
-              rtb_name, rtb_template = MU::Cloud::AWS.cloudFormationBase("rtb", name: rtb['name']+@config['name'])
+              rtb_name, rtb_template = MU::Cloud::CloudFormation.cloudFormationBase("rtb", name: rtb['name']+@config['name'])
               rtb_map[rtb['name']] = rtb_name
-              MU::Cloud::AWS.setCloudFormationProp(rtb_template[rtb_name], "VpcId", { "Ref" => @cfm_name })
-              MU::Cloud::AWS.setCloudFormationProp(rtb_template[rtb_name], "DependsOn", @cfm_name)
+              MU::Cloud::CloudFormation.setCloudFormationProp(rtb_template[rtb_name], "VpcId", { "Ref" => @cfm_name })
+              MU::Cloud::CloudFormation.setCloudFormationProp(rtb_template[rtb_name], "DependsOn", @cfm_name)
               rtb['routes'].each { |route|
-                route_name, route_template = MU::Cloud::AWS.cloudFormationBase("route", name: rtb['name']+@config['name']+route['destination_network'])
-                MU::Cloud::AWS.setCloudFormationProp(route_template[route_name], "DependsOn", rtb_name)
-                MU::Cloud::AWS.setCloudFormationProp(route_template[route_name], "RouteTableId", { "Ref" => rtb_name } )
-                MU::Cloud::AWS.setCloudFormationProp(route_template[route_name], "DestinationCidrBlock", route['destination_network'])
+                route_name, route_template = MU::Cloud::CloudFormation.cloudFormationBase("route", name: rtb['name']+@config['name']+route['destination_network'])
+                MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "DependsOn", rtb_name)
+                MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "RouteTableId", { "Ref" => rtb_name } )
+                MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "DestinationCidrBlock", route['destination_network'])
                 if !route['interface'].nil?
-                  MU::Cloud::AWS.setCloudFormationProp(route_template[route_name], "NetworkInterfaceId", route['interface'] )
+                  MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "NetworkInterfaceId", route['interface'] )
                 end
                 if route['gateway'] == '#INTERNET'
                   if igw_name.nil?
                     raise MuError, "Requested an internet gateway in route table #{rtb_name}, but none is degined"
                   end
-                  MU::Cloud::AWS.setCloudFormationProp(route_template[route_name], "GatewayId", { "Ref" => igw_name } )
-                  MU::Cloud::AWS.setCloudFormationProp(rtb_template[rtb_name], "DependsOn", igw_name )
-                  MU::Cloud::AWS.setCloudFormationProp(route_template[route_name], "DependsOn", igw_name )
+                  MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "GatewayId", { "Ref" => igw_name } )
+                  MU::Cloud::CloudFormation.setCloudFormationProp(rtb_template[rtb_name], "DependsOn", igw_name )
+                  MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "DependsOn", igw_name )
                 elsif !route['nat_host_id'].nil?
-                  MU::Cloud::AWS.setCloudFormationProp(route_template[route_name], "InstanceId", route['nat_host_id'] )
+                  MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "InstanceId", route['nat_host_id'] )
                 elsif !route['nat_host_name'].nil?
                   if !@dependencies.has_key?("server") or !@dependencies["server"][route['nat_host_name']] or @dependencies["server"][route['nat_host_name']].cloudobj.nil?
 #                    raise MuError, "VPC #{@config['name']} is missing NAT host dependency #{route['nat_host_name']}"
                     next
                   end
-                  MU::Cloud::AWS.setCloudFormationProp(route_template[route_name], "InstanceId", { "Ref" => @dependencies["server"][route['nat_host_name']].cloudobj.cfm_name } )
-                  MU::Cloud::AWS.setCloudFormationProp(route_template[route_name], "DependsOn", @dependencies["server"][route['nat_host_name']].cloudobj.cfm_name)
+                  MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "InstanceId", { "Ref" => @dependencies["server"][route['nat_host_name']].cloudobj.cfm_name } )
+                  MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "DependsOn", @dependencies["server"][route['nat_host_name']].cloudobj.cfm_name)
                 elsif !route['peer_id'].nil?
-                  MU::Cloud::AWS.setCloudFormationProp(route_template[route_name], "VpcPeeringConnectionId", route['peer_id'] )
+                  MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "VpcPeeringConnectionId", route['peer_id'] )
                 end
                 @cfm_template.merge!(route_template)
               }
@@ -113,7 +113,7 @@ module MU
 # XXX get back to this flowlogs stuff later
 #          if @config["enable_traffic_logging"]
 #            @config["log_group_name"] = @mu_name unless @config["log_group_name"]
-#            loggroup_name, loggroup_template = MU::Cloud::AWS.cloudFormationBase("loggroup", name: @config["log_group_name"])
+#            loggroup_name, loggroup_template = MU::Cloud::CloudFormation.cloudFormationBase("loggroup", name: @config["log_group_name"])
 #          end
 
           if !@config['subnets'].nil?
@@ -123,10 +123,10 @@ module MU
 
               subnet = MU::Cloud::CloudFormation::VPC::Subnet.new(self, subnet_cfg)
               @subnets << subnet
-              assoc_name, assoc_template = MU::Cloud::AWS.cloudFormationBase("rtbassoc", name: subnet.cfm_name+subnet_cfg['route_table'])
-              MU::Cloud::AWS.setCloudFormationProp(assoc_template[assoc_name], "SubnetId", { "Ref" => subnet.cfm_name })
-              MU::Cloud::AWS.setCloudFormationProp(assoc_template[assoc_name], "RouteTableId", { "Ref" => rtb_map[subnet_cfg['route_table']] })
-              MU::Cloud::AWS.setCloudFormationProp(assoc_template[assoc_name], "DependsOn", rtb_map[subnet_cfg['route_table']])
+              assoc_name, assoc_template = MU::Cloud::CloudFormation.cloudFormationBase("rtbassoc", name: subnet.cfm_name+subnet_cfg['route_table'])
+              MU::Cloud::CloudFormation.setCloudFormationProp(assoc_template[assoc_name], "SubnetId", { "Ref" => subnet.cfm_name })
+              MU::Cloud::CloudFormation.setCloudFormationProp(assoc_template[assoc_name], "RouteTableId", { "Ref" => rtb_map[subnet_cfg['route_table']] })
+              MU::Cloud::CloudFormation.setCloudFormationProp(assoc_template[assoc_name], "DependsOn", rtb_map[subnet_cfg['route_table']])
 
               @cfm_template.merge!(assoc_template)
               @cfm_template.merge!(subnet.cfm_template)
@@ -186,13 +186,13 @@ module MU
             @name = config['name']
             @deploydata = config # This is a dummy for the sake of describe()
 
-            @cfm_name, @cfm_template = MU::Cloud::AWS.cloudFormationBase("subnet", self)
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "VpcId", { "Ref" => parent.cfm_name })
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", parent.cfm_name)
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "CidrBlock", config['ip_block'])
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "MapPublicIpOnLaunch", config['map_public_ips'])
+            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("subnet", self)
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "VpcId", { "Ref" => parent.cfm_name })
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", parent.cfm_name)
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "CidrBlock", config['ip_block'])
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "MapPublicIpOnLaunch", config['map_public_ips'])
             if config['availability_zone']
-              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "AvailabilityZone", config['availability_zone'])
+              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "AvailabilityZone", config['availability_zone'])
             end
           end
 

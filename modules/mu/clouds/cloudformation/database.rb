@@ -50,9 +50,9 @@ module MU
               end
 
             @mu_name.gsub(/(--|-$)/i, "").gsub(/(_)/, "-").gsub!(/^[^a-z]/i, "")
-            @cfm_name, @cfm_template = MU::Cloud::AWS.cloudFormationBase(self.class.cfg_name, self)
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DBInstanceClass", @config['size'])
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "AllocatedStorage", @config['storage'].to_s)
+            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self)
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBInstanceClass", @config['size'])
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "AllocatedStorage", @config['storage'].to_s)
           end
         end
 
@@ -68,46 +68,56 @@ module MU
           @config["db_name"] = MU::Cloud::AWS::Database.getName(basename, type: "dbname", config: @config)
           @config['master_user'] = MU::Cloud::AWS::Database.getName(basename, type: "dbuser", config: @config) unless @config['master_user']
 
-          MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DBName", @config['db_name'])
-          MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "Engine", @config['engine'])
-          MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "MasterUsername", @config['master_user'])
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBName", @config['db_name'])
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Engine", @config['engine'])
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "MasterUsername", @config['master_user'])
 
 # XXX optional when building from a snap
-          # Note this this will be stored in plain text somewhere. Probably
-          # best off making it a parameter in most use cases.
-          if @config['password'].nil?
-            if @config['auth_vault'] && !@config['auth_vault'].empty?
-              @config['password'] = @groomclass.getSecret(
-                vault: @config['auth_vault']['vault'],
-                item: @config['auth_vault']['item'],
-                field: @config['auth_vault']['password_field']
-              )
-            else
-              # Should we use random instead?
-              @config['password'] = Password.pronounceable(10..12)
+          if @config["creation_style"] == "existing" or @config["creation_style"] == "new_snapshot"
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "SourceDBInstanceIdentifier", @config['identifier'])
+          elsif @config["creation_style"] == "existing_snapshot"
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBSnapshotIdentifier", @config['identifier'])
+          else
+            # This password will be stored in plain text somewhere. Probably
+            # best off making it a parameter in most use cases, because whoa
+            # nelly is that insecure
+            if @config['password'].nil?
+              if @config['auth_vault'] && !@config['auth_vault'].empty?
+                @config['password'] = @groomclass.getSecret(
+                  vault: @config['auth_vault']['vault'],
+                  item: @config['auth_vault']['item'],
+                  field: @config['auth_vault']['password_field']
+                )
+              else
+                # Should we use random instead?
+                @config['password'] = Password.pronounceable(10..12)
+              end
             end
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "MasterUserPassword", @config['password'])
           end
-          MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "MasterUserPassword", @config['password'])
 
           if @config["vpc"]
-            subnets_name, subnets_template = MU::Cloud::AWS.cloudFormationBase("dbsubnetgroup", name: @mu_name)
-            MU::Cloud::AWS.setCloudFormationProp(subnets_template[subnets_name], "DBSubnetGroupDescription", @mu_name)
+            subnets_name, subnets_template = MU::Cloud::CloudFormation.cloudFormationBase("dbsubnetgroup", name: @mu_name)
+            MU::Cloud::CloudFormation.setCloudFormationProp(subnets_template[subnets_name], "DBSubnetGroupDescription", @mu_name)
             if !@config["vpc"]["subnets"].nil? and @config["vpc"]["subnets"].size > 0
               @config["vpc"]["subnets"].each { |subnet|
                 if !subnet["subnet_id"].nil?
-                  MU::Cloud::AWS.setCloudFormationProp(subnets_template[subnets_name], "SubnetIds", subnet["subnet_id"])
+                  MU::Cloud::CloudFormation.setCloudFormationProp(subnets_template[subnets_name], "SubnetIds", subnet["subnet_id"])
                 elsif @dependencies.has_key?("vpc") and @dependencies["vpc"].has_key?(@config["vpc"]["vpc_name"])
                   @dependencies["vpc"][@config["vpc"]["vpc_name"]].subnets.each { |subnet_obj|
                     if subnet_obj.name == subnet['subnet_name']
-                      MU::Cloud::AWS.setCloudFormationProp(subnets_template[subnets_name], "DependsOn", subnet_obj.cfm_name)
-                      MU::Cloud::AWS.setCloudFormationProp(subnets_template[subnets_name], "SubnetIds", { "Ref" => subnet_obj.cfm_name } )
+                      MU::Cloud::CloudFormation.setCloudFormationProp(subnets_template[subnets_name], "DependsOn", subnet_obj.cfm_name)
+                      MU::Cloud::CloudFormation.setCloudFormationProp(subnets_template[subnets_name], "SubnetIds", { "Ref" => subnet_obj.cfm_name } )
                     end
                   }
                 end
               }
             end
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DBSubnetGroupName", { "Ref" => subnets_name } )
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", subnets_name)
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBSubnetGroupName", { "Ref" => subnets_name } )
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", subnets_name)
+    
+
+
             @cfm_template.merge!(subnets_template)
           end
 

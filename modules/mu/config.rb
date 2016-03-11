@@ -152,6 +152,12 @@ module MU
       if !prettyname.nil?
         prettyname.gsub!(/[^a-z0-9]/i, "") # comply with CloudFormation restrictions
       end
+      if @@tails.has_key?(param)
+        value = @@tails[param].to_s if value.nil?
+        prettyname = @@tails[param].getPrettyName if prettyname.nil?
+        cloud_type = @@tails[param].getCloudType if @@tails[param].getCloudType != "String"
+      end
+
       tail = MU::Config::Tail.new(param, value, prettyname, cloud_type)
       @@tails[param] = tail
       tail
@@ -250,6 +256,9 @@ module MU
             elsif param["required"] or !param.has_key?("required")
               MU.log "Required parameter '#{param['name']}' not supplied", MU::ERR
               ok = false
+            end
+            if param.has_key?("cloudtype")
+              getTail(param['name'], value: @@parameters[param['name']], cloud_type: param["cloudtype"])
             end
           end
         }
@@ -4543,6 +4552,10 @@ module MU
                     "properties" => {
                         "name" => {"required" => true},
                         "default" => {"type" => "string"},
+                        "cloudtype" => {
+                          "type" => "string",
+                          "description" => "A platform-specific string describing the type of validation to use for this parameter. E.g. when generating a CloudFormation template, set to AWS::EC2::Image::Id to validate input as an AMI identifier."
+                        },
                         "required" => {
                           "type" => "boolean",
                           "default" => true

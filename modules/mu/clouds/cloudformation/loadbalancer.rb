@@ -38,8 +38,8 @@ module MU
           else
             @mu_name = @deploy.getResourceName(@config["name"], max_length: 32, need_unique_string: true)
             @mu_name.gsub!(/[^\-a-z0-9]/i, "-") # AWS ELB naming rules
-            @cfm_name, @cfm_template = MU::Cloud::AWS.cloudFormationBase(self.class.cfg_name, self)
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "LoadBalancerName", @mu_name)
+            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self)
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "LoadBalancerName", @mu_name)
           end
         end
 
@@ -62,7 +62,7 @@ module MU
                   val[newkey] = value.to_s
                 }
               end
-              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], key, val)
+              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], key, val)
             end
           }
 
@@ -76,7 +76,7 @@ module MU
             if !listener['ssl_certificate_id'].nil?
               prop["SSLCertificateId"] = listener['ssl_certificate_id'] # XXX resolve ssl_certificate_name if we get that instead
             end
-            MU::Cloud::AWS.setCloudFormationProp(
+            MU::Cloud::CloudFormation.setCloudFormationProp(
               @cfm_template[@cfm_name],
               "Listeners",
               prop
@@ -88,7 +88,7 @@ module MU
             if @config[policy]
               key = ""
               policy.split(/_/).each { |chunk| key = key + chunk.capitalize }
-              MU::Cloud::AWS.setCloudFormationProp(
+              MU::Cloud::CloudFormation.setCloudFormationProp(
                 @cfm_template[@cfm_name],
                 key,
                 {
@@ -100,28 +100,28 @@ module MU
           }
 
           if @config['idle_timeout']
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "ConnectionSettings", { "IdleTimeout" => @config['idle_timeout'] })
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "ConnectionSettings", { "IdleTimeout" => @config['idle_timeout'] })
           end
 
           if @config['private']
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "Scheme", "internal")
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Scheme", "internal")
           else
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "Scheme", "internet-facing")
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Scheme", "internet-facing")
           end
 
           if @config['connection_draining_timeout'] and @config['connection_draining_timeout'] >= 0
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "ConnectionDrainingPolicy", { "Enabled" => true, "Timeout" => @config['connection_draining_timeout'] })
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "ConnectionDrainingPolicy", { "Enabled" => true, "Timeout" => @config['connection_draining_timeout'] })
           end
 
           if !@config['vpc'].nil? and !@config["vpc"]["subnets"].nil? and @config["vpc"]["subnets"].size > 0
             @config["vpc"]["subnets"].each { |subnet|
               if !subnet["subnet_id"].nil?
-                MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "Subnets", subnet["subnet_id"])
+                MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Subnets", subnet["subnet_id"])
               elsif @dependencies.has_key?("vpc") and @dependencies["vpc"].has_key?(@config["vpc"]["vpc_name"])
                 @dependencies["vpc"][@config["vpc"]["vpc_name"]].subnets.each { |subnet_obj|
                   if subnet_obj.name == subnet['subnet_name']
-                    MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", subnet_obj.cfm_name)
-                    MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "Subnets", { "Ref" => subnet_obj.cfm_name } )
+                    MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", subnet_obj.cfm_name)
+                    MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Subnets", { "Ref" => subnet_obj.cfm_name } )
                   end
                 }
               end

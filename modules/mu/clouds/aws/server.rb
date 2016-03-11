@@ -308,7 +308,7 @@ module MU
           policies.each_pair { |name, doc|
             if cloudformation_data.size > 0
               if !cfm_role_name.nil?
-                MU::Cloud::AWS.setCloudFormationProp(cloudformation_data[cfm_role_name], "Policies", { "PolicyName" => name, "PolicyDocument" => JSON.parse(doc) })
+                MU::Cloud::CloudFormation.setCloudFormationProp(cloudformation_data[cfm_role_name], "Policies", { "PolicyName" => name, "PolicyDocument" => JSON.parse(doc) })
               end
               next 
             end
@@ -335,8 +335,8 @@ module MU
 
           cfm_role_name = cfm_prof_name = nil
           if cloudformation_data.size > 0
-            cfm_role_name, role_cfm_template = MU::Cloud::AWS.cloudFormationBase("iamrole", name: rolename)
-            cfm_prof_name, prof_cfm_template = MU::Cloud::AWS.cloudFormationBase("iamprofile", name: rolename)
+            cfm_role_name, role_cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("iamrole", name: rolename)
+            cfm_prof_name, prof_cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("iamprofile", name: rolename)
             cloudformation_data.merge!(role_cfm_template)
             cloudformation_data.merge!(prof_cfm_template)
           else
@@ -379,7 +379,7 @@ module MU
             name=doc=nil
             policies.each_pair { |name, doc|
               if cloudformation_data.size > 0
-                MU::Cloud::AWS.setCloudFormationProp(cloudformation_data[cfm_role_name], "Policies", { "PolicyName" => name, "PolicyDocument" => JSON.parse(doc) })
+                MU::Cloud::CloudFormation.setCloudFormationProp(cloudformation_data[cfm_role_name], "Policies", { "PolicyName" => name, "PolicyDocument" => JSON.parse(doc) })
                 next 
               end
               MU.log "Merging policy #{name} into #{rolename}", MU::NOTICE, details: doc
@@ -394,8 +394,8 @@ module MU
             raise MuError, "Malformed policy when creating IAM Role #{rolename}: #{e.inspect}"
           end
           if cloudformation_data.size > 0
-            MU::Cloud::AWS.setCloudFormationProp(cloudformation_data[cfm_prof_name], "Roles", { "Ref" => cfm_role_name } )
-            MU::Cloud::AWS.setCloudFormationProp(cloudformation_data[cfm_prof_name], "DependsOn", cfm_role_name)
+            MU::Cloud::CloudFormation.setCloudFormationProp(cloudformation_data[cfm_prof_name], "Roles", { "Ref" => cfm_role_name } )
+            MU::Cloud::CloudFormation.setCloudFormationProp(cloudformation_data[cfm_prof_name], "DependsOn", cfm_role_name)
             return [rolename, cfm_role_name, cfm_prof_name]
           end
           MU::Cloud::AWS.iam.create_instance_profile(
