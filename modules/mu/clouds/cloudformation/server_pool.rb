@@ -38,7 +38,7 @@ module MU
           else
             @mu_name = @deploy.getResourceName(@config['name'])
             @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self)
-            @cfm_launch_name, launch_template = MU::Cloud::CloudFormation.cloudFormationBase("launch_config", name: @mu_name)
+            @cfm_launch_name, launch_template = MU::Cloud::CloudFormation.cloudFormationBase("launch_config", self)
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "LaunchConfigurationName", { "Ref" => @cfm_launch_name } )
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @cfm_launch_name)
             @cfm_template.merge!(launch_template)
@@ -98,41 +98,58 @@ module MU
             }
 
             if launch_desc['generate_iam_role']
-              @config['iam_role'], @cfm_role_name, @cfm_prof_name = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'], cloudformation_data: @cfm_template)
+              @config['iam_role'], @cfm_role_name, @cfm_prof_name = MU::Cloud::CloudFormation::Server.createIAMProfile(@mu_name, base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'], cloudformation_data: @cfm_template)
             elsif launch_desc['iam_role'].nil?
               raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
             else
               @config['iam_role'] = launch_desc['iam_role']
             end
-            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'], cloudformation_data: @cfm_template, cfm_role_name: @cfm_role_name)
+            MU::Cloud::CloudFormation::Server.addStdPoliciesToIAMProfile(@cfm_role_name, cloudformation_data: @cfm_template)
             if !@config["iam_role"].nil?
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_launch_name], "DependsOn", @cfm_role_name)
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_launch_name], "DependsOn", @cfm_prof_name)
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_launch_name], "IamInstanceProfile", { "Ref" => @cfm_prof_name })
             end
 
-            userdata = Base64.encode64(
-              MU::Cloud::AWS::Server.fetchUserdata(
-                platform: @config["platform"],
-                template_variables: {
-                  "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
-                  "deploySSHKey" => @deploy.ssh_public_key,
-                  "muID" => MU.deploy_id,
-                  "muUser" => MU.chef_user,
-                  "publicIP" => MU.mu_public_ip,
-                  "skipApplyUpdates" => @config['skipinitialupdates'],
-                  "windowsAdminName" => @config['windows_admin_username'],
-                  "resourceName" => @config["name"],
-                  "resourceType" => "server_pool"
-                },
-                custom_append: @config['userdata_script']
-              )
+            userdata = MU::Cloud::AWS::Server.fetchUserdata(
+              platform: @config["platform"],
+              template_variables: {
+                "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
+                "deploySSHKey" => @deploy.ssh_public_key,
+                "muID" => MU.deploy_id,
+                "muUser" => MU.chef_user,
+                "publicIP" => MU.mu_public_ip,
+                "skipApplyUpdates" => @config['skipinitialupdates'],
+                "windowsAdminName" => @config['windows_admin_username'],
+                "resourceName" => @config["name"],
+                "resourceType" => "server_pool"
+              },
+              custom_append: @config['userdata_script']
             )
 
             if launch_desc["user_data"]
-              userdata = launch_desc["user_data"]
+              userdata = Base64.encode64(launch_desc["user_data"])
             end
-            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_launch_name], "UserData", userdata)
+            MU::Cloud::CloudFormation.setCloudFormationProp(
+              @cfm_template[@cfm_launch_name],
+              "UserData",
+              {
+                "Fn::Base64" => {
+                  "Fn::Join" => [
+                    "",
+                    [
+                      "#!/bin/bash\n",
+                      "echo '",
+                      {
+                        "Ref" => "AWS::StackName"
+                      },
+                      "' > /etc/aws_cloudformation_stack\n\n",
+                      userdata
+                    ]
+                  ]
+                }
+              }
+            )
 
           elsif basis["server"]
 # XXX cloudformation bits
@@ -140,14 +157,15 @@ module MU
 # XXX cloudformation bits
           end
 
-          set_public_ip_pref = true
+          public_ip_pref = true
           if @config["vpc_zone_identifier"]
-            set_public_ip_pref = false
+            public_ip_pref = false
 # XXX cloudformation bits bits
           elsif @config["vpc"]
             if !@config["vpc"]["subnets"].nil? and @config["vpc"]["subnets"].size > 0
-              set_public_ip_pref = false
+              public_ip_pref = false
               @config["vpc"]["subnets"].each { |subnet|
+                # XXX can we infer AssociatePublicIpAddress from here?
                 if !subnet["subnet_id"].nil?
                    MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "VPCZoneIdentifier", subnet["subnet_id"])
                 elsif @dependencies.has_key?("vpc") and @dependencies["vpc"].has_key?(@config["vpc"]["vpc_name"])
@@ -160,8 +178,12 @@ module MU
                 end
               }
             end
+          else
+            # Default to "sit in every possible AZ"
+            public_ip_pref = false
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "AvailabilityZones", { "Fn::GetAZs" => { "Ref" => "AWS::Region" } } )
           end
-          if set_public_ip_pref
+          if public_ip_pref
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_launch_name], "AssociatePublicIpAddress", @config["associate_public_ip"])
           end
 

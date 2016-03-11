@@ -90,12 +90,12 @@ module MU
         # in CloudFormation language.
         def create
           if @config['generate_iam_role'] and !@role_generated
-            @config['iam_role'], @cfm_role_name, @cfm_prof_name = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'], cloudformation_data: @cfm_template)
+            @config['iam_role'], @cfm_role_name, @cfm_prof_name = MU::Cloud::CloudFormation::Server.createIAMProfile(@mu_name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'], cloudformation_data: @cfm_template)
             @role_generated = true
           elsif @config['iam_role'].nil?
             raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
           end
-          MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'], cloudformation_data: @cfm_template, cfm_role_name: @cfm_role_name)
+          MU::Cloud::CloudFormation::Server.addStdPoliciesToIAMProfile(@cfm_role_name, cloudformation_data: @cfm_template)
           if !@config["iam_role"].nil?
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @cfm_role_name)
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @cfm_prof_name)
@@ -158,7 +158,26 @@ module MU
           end
 
           if !@userdata.nil? and !@userdata.empty?
-            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "UserData", Base64.encode64(@userdata))
+            MU::Cloud::CloudFormation.setCloudFormationProp(
+              @cfm_template[@cfm_name],
+              "UserData",
+              {
+                "Fn::Base64" => {
+                  "Fn::Join" => [
+                    "",
+                    [
+                      "#!/bin/bash\n",
+                      "echo '",
+                      {
+                        "Ref" => "AWS::StackName"
+                      },
+                      "' > /etc/aws_cloudformation_stack\n\n",
+                      @userdata
+                    ]
+                  ]
+                }
+              }
+            )
           end
 
           configured_storage = Array.new
@@ -216,6 +235,75 @@ module MU
 
         def notify
           {}
+        end
+
+        # Insert a Server's standard IAM role needs into an arbitrary IAM profile
+        def self.addStdPoliciesToIAMProfile(rolename, cloudformation_data: {})
+          policies = Hash.new
+          policies['Mu_Bootstrap_Secret_'+MU.deploy_id] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{MU.deploy_id}-secret"+'"}]}'
+# XXX this doesn't work unless we can deliver the stack name somehow, and also make the ARN look like arn:aws:cloudformation:us-east-1:144333873908:stack/CATAPULT/*
+#          policies['Mu_Describe_Own_CloudFormation_Stack'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["cloudformation:DescribeStacks", "cloudformation:ListStacks"],"Resource": {"Ref":"AWS::StackId"}}]}'
+          policies['Mu_Describe_Own_CloudFormation_Stack'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["cloudformation:DescribeStacks", "cloudformation:ListStacks"],"Resource": "*"}]}'
+          policies['Mu_Volume_Management'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ec2:CreateTags","ec2:CreateVolume","ec2:AttachVolume","ec2:DescribeInstanceAttribute","ec2:DescribeVolumeAttribute","ec2:DescribeVolumeStatus","ec2:DescribeVolumes"],"Resource":"*"}]}'
+          policies.each_pair { |name, doc|
+            MU::Cloud::CloudFormation.setCloudFormationProp(
+              cloudformation_data[rolename],
+              "Policies",
+              {
+                "PolicyName" => name,
+                "PolicyDocument" => JSON.parse(doc)
+              }
+            )
+          }
+          return cloudformation_data
+        end
+
+        # Create an Amazon IAM instance profile. One of these should get created
+        # for each class of instance (each {MU::Cloud::AWS::Server} or {MU::Cloud::AWS::ServerPool}),
+        # and will include both baseline Mu policies and whatever other policies
+        # are requested.
+        # @param rolename [String]: The name of the role to create, generally a {MU::Cloud::AWS::Server} mu_name
+        # @return [String]: The name of the instance profile.
+        def self.createIAMProfile(rolename, base_profile: nil, extra_policies: nil, cloudformation_data: {})
+          policies = Hash.new
+
+          cfm_role_name, role_cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("iamrole", name: rolename)
+          cfm_prof_name, prof_cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("iamprofile", name: rolename)
+          cloudformation_data.merge!(role_cfm_template)
+          cloudformation_data.merge!(prof_cfm_template)
+
+          if base_profile
+            MU.log "Incorporating policies from existing IAM profile '#{base_profile}'"
+            resp = MU::Cloud::AWS.iam.get_instance_profile(instance_profile_name: base_profile)
+            resp.instance_profile.roles.each { |baserole|
+              role_policies = MU::Cloud::AWS.iam.list_role_policies(role_name: baserole.role_name).policy_names
+              role_policies.each { |name|
+                resp = MU::Cloud::AWS.iam.get_role_policy(
+                    role_name: baserole.role_name,
+                    policy_name: name
+                )
+                policies[name] = URI.unescape(resp.policy_document)
+              }
+            }
+          end
+          if extra_policies
+            MU.log "Incorporating other specified policies", details: extra_policies
+            extra_policies.each { |policy_set|
+              policy_set.each_pair { |name, policy|
+                if policies.has_key?(name)
+                  MU.log "Attempt to add duplicate node policy '#{name}' to '#{rolename}'", MU::WARN, details: policy
+                  next
+                end
+                policies[name] = JSON.generate(policy)
+              }
+            }
+          end
+          policies.each_pair { |name, doc|
+            MU::Cloud::CloudFormation.setCloudFormationProp(cloudformation_data[cfm_role_name], "Policies", { "PolicyName" => name, "PolicyDocument" => JSON.parse(doc) })
+          }
+          MU::Cloud::CloudFormation.setCloudFormationProp(cloudformation_data[cfm_prof_name], "Roles", { "Ref" => cfm_role_name } )
+          MU::Cloud::CloudFormation.setCloudFormationProp(cloudformation_data[cfm_prof_name], "DependsOn", cfm_role_name)
+            return [rolename, cfm_role_name, cfm_prof_name]
         end
 
       end #class

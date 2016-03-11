@@ -72,9 +72,11 @@ module MU
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Engine", @config['engine'])
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "MasterUsername", @config['master_user'])
 
-# XXX optional when building from a snap
-          if @config["creation_style"] == "existing" or @config["creation_style"] == "new_snapshot"
-            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "SourceDBInstanceIdentifier", @config['identifier'])
+# XXX this is a read replica thing
+#            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "SourceDBInstanceIdentifier", @config['identifier'])
+
+          if @config["creation_style"] == "new_snapshot"
+            raise MuError, "Database creation node 'new_snapshot' is not supported for CloudFormation targets"
           elsif @config["creation_style"] == "existing_snapshot"
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBSnapshotIdentifier", @config['identifier'])
           else

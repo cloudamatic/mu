@@ -56,22 +56,22 @@ module MU
         # See that we get our ephemeral storage devices with AMIs that don't do it
         # for us
         @ephemeral_mappings = [
-            {
-                :device_name => "/dev/sdr",
-                :virtual_name => "ephemeral0"
-            },
-            {
-                :device_name => "/dev/sds",
-                :virtual_name => "ephemeral1"
-            },
-            {
-                :device_name => "/dev/sdt",
-                :virtual_name => "ephemeral2"
-            },
-            {
-                :device_name => "/dev/sdu",
-                :virtual_name => "ephemeral3"
-            }
+          {
+            :device_name => "/dev/sdr",
+            :virtual_name => "ephemeral0"
+          },
+          {
+            :device_name => "/dev/sds",
+            :virtual_name => "ephemeral1"
+          },
+          {
+            :device_name => "/dev/sdt",
+            :virtual_name => "ephemeral2"
+          },
+          {
+            :device_name => "/dev/sdu",
+            :virtual_name => "ephemeral3"
+          }
         ]
         # Ephemeral storage device mappings. Useful for AMIs that don't do this
         # for us.
@@ -143,9 +143,9 @@ module MU
         # @return [String]
         def self.fetchUserdata(
             platform: "linux",
-                template_variables: {},
-                custom_append: nil
-        )
+            template_variables: {},
+            custom_append: nil
+          )
           return nil if platform.nil? or platform.empty?
           userdata_mutex.synchronize {
             if template_variables.nil? or !template_variables.is_a?(Hash)
@@ -177,13 +177,21 @@ module MU
               if custom_append['use_erb']
                 begin
                   erb = ERB.new(erbfile, 1)
-                  script = script+"\n"+erb.result
+                  if custom_append['skip_std']
+                    script = +erb.result
+                  else
+                    script = script+"\n"+erb.result
+                  end
                 rescue NameError => e
                   raise MuError, "Error parsing userdata script #{erbfile} as an ERB template: #{e.inspect}"
                 end
                 MU.log "Parsed #{custom_append['path']} as ERB", MU::DEBUG, details: script
               else
-                script = script+"\n"+erb.result
+                if custom_append['skip_std']
+                  script = erbfile
+                else
+                  script = script+"\n"+erbfile
+                end
                 MU.log "Parsed #{custom_append['path']} as flat file", MU::DEBUG, details: script
               end
             end
@@ -432,11 +440,11 @@ module MU
           }
 
           if @config['generate_iam_role']
-            @config['iam_role'], @cfm_role_name, @cfm_prof_name = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'], cloudformation_data: @cfm_template)
+            @config['iam_role'], @cfm_role_name, @cfm_prof_name = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'])
           elsif @config['iam_role'].nil?
             raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
           end
-          MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'], cloudformation_data: @cfm_template, cfm_role_name: @cfm_role_name)
+          MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'])
           if !@config["iam_role"].nil?
             instance_descriptor[:iam_instance_profile] = {name: @config["iam_role"]}
           end

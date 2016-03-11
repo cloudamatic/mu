@@ -127,6 +127,9 @@ module MU
               end
             }
 # XXX cloudformation: something about AZs
+          else
+            # Default to "sit in every possible AZ"
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "AvailabilityZones", { "Fn::GetAZs" => { "Ref" => "AWS::Region" } } )
           end
         end
 

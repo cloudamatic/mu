@@ -23,7 +23,6 @@ module MU
       # Toggle ourselves into a mode that will emit a CloudFormation template
       # instead of actual infrastructure.
       # @param set [Boolean]: Set the mode
-      # @return [Boolean]: The Availability Zones in this region.
       def self.emitCloudformation(set: @@cloudformation_mode)
         @@cloudformation_mode = set
         @@cloudformation_mode
@@ -156,7 +155,6 @@ module MU
             "Type" => "AWS::AutoScaling::AutoScalingGroup",
             "Properties" => {
               "Tags" => pool_tags,
-              "AvailabilityZones" => [],
               "VPCZoneIdentifier" => [],
               "LoadBalancerNames" => []
             }
@@ -291,14 +289,16 @@ module MU
               "Type" => "AWS::EC2::KeyPair::KeyName"#,
             }
           },
-          "Resources" => {}
+          "Resources" => {},
+          "Outputs" => {}
         }
         tails.each_pair { |param, data|
           cfm_template["Parameters"][data.getPrettyName] = {
             "Type" => data.getCloudType,
-#            "MinLength" => "1",
-#            "MaxLength" => "64",
             "Default" => data.to_s
+          }
+          cfm_template["Outputs"][data.getPrettyName] = {
+            "Value" => { "Ref" => data.getPrettyName }
           }
         }
         MU::Cloud.resource_types.each { |cloudclass, data|
@@ -307,6 +307,38 @@ module MU
             config[data[:cfg_plural]].each { |resource|
               if resource['#MUOBJECT'].cloudobj.respond_to?(:cfm_template) and !resource['#MUOBJECT'].cloudobj.cfm_template.nil?
                 cfm_template["Resources"].merge!(resource['#MUOBJECT'].cloudobj.cfm_template)
+                if data[:cfg_name] == "loadbalancer"
+                  cfm_template["Outputs"]["loadbalancer"+resource['name']] =
+                    {
+                      "Value" =>
+                        { "Fn::GetAtt" =>
+                          [ resource['#MUOBJECT'].cloudobj.cfm_name, "DNSName" ]
+                        }
+                    }
+                elsif data[:cfg_name] == "database"
+                  cfm_template["Outputs"]["database"+resource['name']] =
+                    {
+                      "Value" =>
+                        { "Fn::GetAtt" =>
+                          [ resource['#MUOBJECT'].cloudobj.cfm_name, "Endpoint.Address" ]
+                        }
+                    }
+                elsif data[:cfg_name] == "server"
+                  cfm_template["Outputs"]["server"+resource['name']+"privateip"] =
+                    {
+                      "Value" =>
+                        { "Fn::GetAtt" =>
+                          [ resource['#MUOBJECT'].cloudobj.cfm_name, "PrivateIp" ]
+                        }
+                    }
+                  cfm_template["Outputs"]["server"+resource['name']+"publicip"] =
+                    {
+                      "Value" =>
+                        { "Fn::GetAtt" =>
+                          [ resource['#MUOBJECT'].cloudobj.cfm_name, "PublicIp" ]
+                        }
+                    }
+                end
               end
             }
           end

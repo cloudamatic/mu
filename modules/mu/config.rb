@@ -259,6 +259,8 @@ module MU
             end
             if param.has_key?("cloudtype")
               getTail(param['name'], value: @@parameters[param['name']], cloud_type: param["cloudtype"])
+            else
+              getTail(param['name'], value: @@parameters[param['name']])
             end
           end
         }
@@ -3212,6 +3214,11 @@ module MU
                 "type" => "boolean",
                 "default" => true,
                 "description" => "Assume that this script is an ERB template and parse it as one before passing to the instance."
+            },
+            "skip_std" => {
+                "type" => "boolean",
+                "default" => false,
+                "description" => "Omit the standard Mu userdata entirely in favor of this custom script (normally we'd run both)."
             },
             "path" => {
                 "type" => "string",

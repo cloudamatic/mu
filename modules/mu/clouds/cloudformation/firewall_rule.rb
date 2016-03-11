@@ -62,7 +62,7 @@ module MU
           # XXX the egress logic here is a crude hack, this really needs to be
           # done at config level
           setRules(
-            [],
+            @config['rules'],
             add_to_self: @config['self_referencing'],
             ingress: true,
             egress: egress
@@ -139,7 +139,7 @@ module MU
           # add_to_self means that this security is a "member" of its own rules
           # (which is to say, objects that have this SG are allowed in my these
           # rules)
-          if add_to_self and !MU::Cloud::CloudFormation.emitCloudformation
+          if add_to_self
             rules.each { |rule|
               if rule['sgs'].nil? or !rule['sgs'].include?(secgroup.group_id)
                 new_rule = rule.clone
@@ -154,7 +154,7 @@ module MU
 
           # Creating an empty security group is ok, so don't freak out if we get
           # a null rule list.
-          if MU::Cloud::CloudFormation.emitCloudformation and !ec2_rules.nil?
+          if !ec2_rules.nil?
             ec2_rules.each { |rule|
               next if rule.nil? or rule[:ip_ranges].nil? # XXX whaaat
               rule[:ip_ranges].each { |cidr|
@@ -165,42 +165,11 @@ module MU
                     "IpProtocol" => rule[:ip_protocol],
                     "FromPort" => rule[:from_port],
                     "ToPort" => rule[:to_port],
-                    "CidrIP" => cidr[:cidr_ip]
+                    "CidrIp" => cidr[:cidr_ip]
                   }
                 )
               }
             }
-          else
-            MU.log "Setting rules in Security Group #{@mu_name} (#{@cloud_id})", details: ec2_rules
-            retries = 0
-            if rules != nil
-              MU.log "Rules for EC2 Security Group #{@mu_name} (#{@cloud_id}): #{ec2_rules}", MU::DEBUG
-              begin
-                if ingress
-                  MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_ingress(
-                      group_id: @cloud_id,
-                      ip_permissions: ec2_rules
-                  )
-                end
-                if egress
-                  MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_egress(
-                      group_id: @cloud_id,
-                      ip_permissions: ec2_rules
-                  )
-                end
-              rescue Aws::EC2::Errors::InvalidGroupNotFound => e
-                MU.log "#{@mu_name} does not yet exist", MU::WARN
-                retries = retries + 1
-                if retries < 10
-                  sleep 10
-                  retry
-                else
-                  raise MuError, "#{@mu_name} does not exist", e.backtrace
-                end
-              rescue Aws::EC2::Errors::InvalidPermissionDuplicate => e
-                MU.log "Attempt to add duplicate rule to #{@mu_name}", MU::DEBUG, details: ec2_rules
-              end
-            end
           end
 
         end
