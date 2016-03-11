@@ -1089,6 +1089,7 @@ module MU
       nat_routes = Hash.new
       vpcs.each { |vpc|
         vpc["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("VPC")
+        vpc['cloud'] = MU::Config.defaultCloud if vpc['cloud'].nil?
         vpc['region'] = config['region'] if vpc['region'].nil?
         vpc["dependencies"] = Array.new if vpc["dependencies"].nil?
         subnet_routes = Hash.new
@@ -1160,6 +1161,7 @@ module MU
 
       dnszones.each { |zone|
         zone["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("DNSZone")
+        zone['cloud'] = MU::Config.defaultCloud if zone['cloud'].nil?
         zone['region'] = config['region'] if zone['region'].nil?
         # ext_zone = MU::Cloud::DNSZone.find(cloud_id: zone['name']).values.first
 
@@ -1230,6 +1232,7 @@ module MU
       resolveFirewall = Proc.new { |acl|
         firewall_rule_names << acl['name']
         acl['region'] = config['region'] if acl['region'].nil?
+        acl['cloud'] = MU::Config.defaultCloud if acl['cloud'].nil?
         acl["dependencies"] = Array.new if acl["dependencies"].nil?
         acl["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("FirewallRule")
 
@@ -1298,6 +1301,7 @@ module MU
 
       loadbalancers.each { |lb|
         lb['region'] = config['region'] if lb['region'].nil?
+        lb['cloud'] = MU::Config.defaultCloud if lb['cloud'].nil?
         lb["dependencies"] = Array.new if lb["dependencies"].nil?
         lb["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("LoadBalancer")
         if !lb["vpc"].nil?
@@ -1373,6 +1377,7 @@ module MU
       }
 
       collections.each { |stack|
+        stack['cloud'] = MU::Config.defaultCloud if stack['cloud'].nil?
         stack['region'] = config['region'] if stack['region'].nil?
         stack["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Collection")
       }
@@ -1385,6 +1390,7 @@ module MU
         end
         server_names << pool['name']
         pool['region'] = config['region'] if pool['region'].nil?
+        pool['cloud'] = MU::Config.defaultCloud if pool['cloud'].nil?
         pool["dependencies"] = Array.new if pool["dependencies"].nil?
         pool["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("ServerPool")
         pool["#MU_GROOMER"] = MU::Groomer.loadGroomer(pool['groomer'])
@@ -1554,6 +1560,7 @@ module MU
       cluster_nodes = []
       databases.each { |db|
         db['region'] = config['region'] if db['region'].nil?
+        db['cloud'] = MU::Config.defaultCloud if db['cloud'].nil?
         db["dependencies"] = Array.new if db["dependencies"].nil?
         db["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Database")
         database_names << db['name']
@@ -1890,6 +1897,7 @@ module MU
 
       cache_clusters.each { |cluster|
         cluster['region'] = config['region'] if cluster['region'].nil?
+        cluster['cloud'] = MU::Config.defaultCloud if cluster['cloud'].nil?
         cluster["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("CacheCluster")
         cluster["dependencies"] = [] if cluster["dependencies"].nil?
 
@@ -2018,6 +2026,7 @@ module MU
 
       alarms.each { |alarm|
         alarm['region'] = config['region'] if alarm['region'].nil?
+        alarm['cloud'] = MU::Config.defaultCloud if alarm['cloud'].nil?
         alarm["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Alarm")
         alarm["dependencies"] = [] if alarm["dependencies"].nil?
 
@@ -2052,6 +2061,7 @@ module MU
 
       logs.each { |log_rec|
         log_rec['region'] = config['region'] if log_rec['region'].nil?
+        log_rec['cloud'] = MU::Config.defaultCloud if log_rec['cloud'].nil?
         log_rec["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Log")
         log_rec["dependencies"] = [] if log_rec["dependencies"].nil?
         
@@ -2073,6 +2083,7 @@ module MU
         server_names << server['name']
         server["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Server")
         server["#MU_GROOMER"] = MU::Groomer.loadGroomer(server['groomer'])
+        server['cloud'] = MU::Config.defaultCloud if server['cloud'].nil?
         server['region'] = config['region'] if server['region'].nil?
         server["dependencies"] = Array.new if server["dependencies"].nil?
         if !server['generate_iam_role']
@@ -2463,16 +2474,15 @@ module MU
     #     }
     #   }
 
-
     @region_primitive = {
-        "type" => "string",
-        "enum" => MU::Cloud::AWS.listRegions
+      "type" => "string",
+      "enum" => MU::Cloud::AWS.listRegions
     }
 
     @cloud_primitive = {
-        "type" => "string",
-        "default" => MU::Config.defaultCloud,
-        "enum" => MU::Cloud.supportedClouds
+      "type" => "string",
+      "default" => MU::Config.defaultCloud,
+      "enum" => MU::Cloud.supportedClouds
     }
 
     @dependencies_primitive = {

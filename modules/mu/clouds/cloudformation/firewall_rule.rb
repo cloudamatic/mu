@@ -15,7 +15,7 @@
 module MU
 
   class Cloud
-    class AWS
+    class CloudFormation
       # A firewall ruleset as configured in {MU::Config::BasketofKittens::firewall_rules}
       class FirewallRule < MU::Cloud::FirewallRule
 
@@ -27,6 +27,8 @@ module MU
         attr_reader :mu_name
         attr_reader :config
         attr_reader :cloud_id
+        attr_reader :cfm_name
+        attr_reader :cfm_template
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::firewall_rules}
@@ -41,91 +43,41 @@ module MU
               @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
             else
               @mu_name = @deploy.getResourceName(@config['name'])
+              @cfm_name, @cfm_template = MU::Cloud::AWS.cloudFormationBase(self.class.cfg_name, self)
+              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "GroupDescription", @mu_name)
             end
           end
 
         end
 
-        # Called by {MU::Deploy#createResources}
         def create
-          vpc_id = @vpc.cloud_id if !@vpc.nil?
-          groupname = @mu_name
-          description = groupname
-
-          MU.log "Creating EC2 Security Group #{groupname}"
-
-          sg_struct = {
-            :group_name => groupname,
-            :description => description
-          }
-          if !vpc_id.nil?
-            sg_struct[:vpc_id] = vpc_id
+          if !@config['vpc'].nil? and !@config['vpc']['vpc_id'].nil?
+            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "VpcId", @config['vpc']['vpc_id'])
+          elsif !@config["vpc"]["vpc_name"].nil? and @dependencies.has_key?("vpc") and @dependencies["vpc"].has_key?(@config["vpc"]["vpc_name"])
+            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @dependencies["vpc"][@config["vpc"]["vpc_name"]].cloudobj.cfm_name)
+            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "VpcId", { "Ref" => @dependencies["vpc"][@config["vpc"]["vpc_name"]].cloudobj.cfm_name })
           end
-          begin
-            secgroup = MU::Cloud::AWS.ec2(@config['region']).create_security_group(sg_struct)
-            @cloud_id = secgroup.group_id
-          rescue Aws::EC2::Errors::InvalidGroupDuplicate => e
-            MU.log "EC2 Security Group #{groupname} already exists, using it", MU::NOTICE
-            filters = [{name: "group-name", values: [groupname]}]
-            filters << {name: "vpc-id", values: [vpc_id]} if !vpc_id.nil?
-
-            secgroup = MU::Cloud::AWS.ec2(@config['region']).describe_security_groups(filters: filters).security_groups.first
-            deploy_id = @deploy.deploy_id if !@deploy_id.nil?
-            if secgroup.nil?
-              raise MuError, "Failed to locate security group named #{groupname}, even though EC2 says it already exists", caller
-            end
-            @cloud_id = secgroup.group_id
-          end
-
-          begin
-            MU::Cloud::AWS.ec2(@config['region']).describe_security_groups(group_ids: [secgroup.group_id])
-          rescue Aws::EC2::Errors::InvalidGroupNotFound => e
-            MU.log "#{secgroup.group_id} not yet ready, waiting...", MU::NOTICE
-            sleep 10
-            retry
-          end
-
-          MU::MommaCat.createStandardTags secgroup.group_id, region: @config['region']
-          MU::MommaCat.createTag secgroup.group_id, "Name", groupname, region: @config['region']
-
           egress = false
-          egress = true if !vpc_id.nil?
+          egress = true if !@cfm_template[@cfm_name]["VpcId"].nil?
           # XXX the egress logic here is a crude hack, this really needs to be
           # done at config level
           setRules(
-              [],
-              add_to_self: @config['self_referencing'],
-              ingress: true,
-              egress: egress
+            [],
+            add_to_self: @config['self_referencing'],
+            ingress: true,
+            egress: egress
           )
-
-          MU.log "EC2 Security Group #{groupname} is #{secgroup.group_id}", MU::DEBUG
-          return secgroup.group_id
+#          pp @cfm_template
         end
 
         # Called by {MU::Deploy#createResources}
         def groom
-          if !@config['rules'].nil? and @config['rules'].size > 0
-            egress = false
-            egress = true if !@vpc.nil?
-            # XXX the egress logic here is a crude hack, this really needs to be
-            # done at config level
-            setRules(
-                @config['rules'],
-                add_to_self: @config['self_referencing'],
-                ingress: true,
-                egress: egress
-            )
-          end
+          create
         end
 
         # Log metadata about this ruleset to the currently running deployment
         def notify
-          sg_data = MU.structToHash(
-              MU::Cloud::FirewallRule.find(cloud_id: @cloud_id, region: @config['region'])
-          )
-          sg_data["group_id"] = @cloud_id
-          return sg_data
+          {}
         end
 
         # Insert a rule into an existing security group.
@@ -174,148 +126,6 @@ module MU
           end
         end
 
-        # Locate an existing security group or groups and return an array containing matching AWS resource descriptors for those that match.
-        # @param cloud_id [String]: The cloud provider's identifier for this resource.
-        # @param region [String]: The cloud provider region
-        # @param tag_key [String]: A tag key to search.
-        # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching FirewallRules
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil)
-
-          if !cloud_id.nil? and !cloud_id.empty?
-            begin
-              resp = MU::Cloud::AWS.ec2(region).describe_security_groups(group_ids: [cloud_id])
-              return {cloud_id => resp.data.security_groups.first}
-            rescue ArgumentError => e
-              MU.log "Attempting to load #{cloud_id}: #{e.inspect}", MU::WARN, details: caller
-              return {}
-            rescue Aws::EC2::Errors::InvalidGroupNotFound => e
-              MU.log "Attempting to load #{cloud_id}: #{e.inspect}", MU::DEBUG, details: caller
-              return {}
-            end
-          end
-
-          map = {}
-          if !tag_key.nil? and !tag_value.nil?
-            resp = MU::Cloud::AWS.ec2(region).describe_security_groups(
-                filters: [
-                    {name: "tag:#{tag_key}", values: [tag_value]}
-                ]
-            )
-            if !resp.nil?
-              resp.data.security_groups.each { |sg|
-                map[sg.group_id] = sg
-              }
-            end
-          end
-
-          map
-        end
-
-        # Remove all security groups (firewall rulesets) associated with the currently loaded deployment.
-        # @param noop [Boolean]: If true, will only print what would be done
-        # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
-        # @param region [String]: The cloud provider region
-        # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
-          tagfilters = [
-              {name: "tag:MU-ID", values: [MU.deploy_id]}
-          ]
-          if !ignoremaster
-            tagfilters << {name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip]}
-          end
-
-          resp = MU::Cloud::AWS.ec2(region).describe_security_groups(
-              filters: tagfilters
-          )
-
-          resp.data.security_groups.each { |sg|
-            MU.log "Revoking rules in EC2 Security Group #{sg.group_name} (#{sg.group_id})"
-
-            if !noop
-              ingress_to_revoke = Array.new
-              egress_to_revoke = Array.new
-              sg.ip_permissions.each { |hole|
-
-                hole_hash = MU.structToHash(hole)
-                if !hole_hash[:user_id_group_pairs].nil?
-                  hole[:user_id_group_pairs].each { |group_ref|
-                    group_ref.delete(:group_name) if group_ref.is_a?(Hash)
-                  }
-                end
-                ingress_to_revoke << MU.structToHash(hole)
-                ingress_to_revoke.each { |rule|
-                  if !rule[:user_id_group_pairs].nil? and rule[:user_id_group_pairs].size == 0
-                    rule.delete(:user_id_group_pairs)
-                  end
-                  if !rule[:ip_ranges].nil? and rule[:ip_ranges].size == 0
-                    rule.delete(:ip_ranges)
-                  end
-                  if !rule[:prefix_list_ids].nil? and rule[:prefix_list_ids].size == 0
-                    rule.delete(:prefix_list_ids)
-                  end
-                }
-              }
-              sg.ip_permissions_egress.each { |hole|
-                hole_hash = MU.structToHash(hole)
-                if !hole_hash[:user_id_group_pairs].nil? and hole_hash[:user_id_group_pairs].is_a?(Hash)
-                  hole[:user_id_group_pairs].each { |group_ref|
-                    group_ref.delete(:group_name)
-                  }
-                end
-                egress_to_revoke << MU.structToHash(hole)
-                egress_to_revoke.each { |rule|
-                  if !rule[:user_id_group_pairs].nil? and rule[:user_id_group_pairs].size == 0
-                    rule.delete(:user_id_group_pairs)
-                  end
-                  if !rule[:ip_ranges].nil? and rule[:ip_ranges].size == 0
-                    rule.delete(:ip_ranges)
-                  end
-                  if !rule[:prefix_list_ids].nil? and rule[:prefix_list_ids].size == 0
-                    rule.delete(:prefix_list_ids)
-                  end
-                }
-              }
-              begin
-                if ingress_to_revoke.size > 0
-                  MU::Cloud::AWS.ec2(region).revoke_security_group_ingress(
-                      group_id: sg.group_id,
-                      ip_permissions: ingress_to_revoke
-                  )
-                end
-                if egress_to_revoke.size > 0
-                  MU::Cloud::AWS.ec2(region).revoke_security_group_egress(
-                      group_id: sg.group_id,
-                      ip_permissions: egress_to_revoke
-                  )
-                end
-              rescue Aws::EC2::Errors::InvalidPermissionNotFound
-                MU.log "Rule in #{sg.group_id} disappeared before I could remove it", MU::WARN
-              end
-            end
-          }
-
-          resp.data.security_groups.each { |sg|
-            MU.log "Removing EC2 Security Group #{sg.group_name}"
-
-            retries = 0
-            begin
-              MU::Cloud::AWS.ec2(region).delete_security_group(group_id: sg.group_id) if !noop
-            rescue Aws::EC2::Errors::InvalidGroupNotFound
-              MU.log "EC2 Security Group #{sg.group_name} disappeared before I could delete it!", MU::WARN
-            rescue Aws::EC2::Errors::DependencyViolation, Aws::EC2::Errors::InvalidGroupInUse
-              if retries < 10
-                MU.log "EC2 Security Group #{sg.group_name} is still in use, waiting...", MU::NOTICE
-                sleep 10
-                retries = retries + 1
-                retry
-              else
-                MU.log "Failed to delete #{sg.group_name}", MU::ERR
-              end
-            end
-          }
-        end
-
         private
 
         #########################################################################
@@ -329,7 +139,7 @@ module MU
           # add_to_self means that this security is a "member" of its own rules
           # (which is to say, objects that have this SG are allowed in my these
           # rules)
-          if add_to_self
+          if add_to_self and !MU::Cloud::AWS.emitCloudformation
             rules.each { |rule|
               if rule['sgs'].nil? or !rule['sgs'].include?(secgroup.group_id)
                 new_rule = rule.clone
@@ -344,7 +154,23 @@ module MU
 
           # Creating an empty security group is ok, so don't freak out if we get
           # a null rule list.
-          if !ec2_rules.nil?
+          if MU::Cloud::AWS.emitCloudformation and !ec2_rules.nil?
+            ec2_rules.each { |rule|
+              next if rule.nil? or rule[:ip_ranges].nil? # XXX whaaat
+              rule[:ip_ranges].each { |cidr|
+                MU::Cloud::AWS.setCloudFormationProp(
+                  @cfm_template[@cfm_name],
+                  "SecurityGroupIngress",
+                  {
+                    "IpProtocol" => rule[:ip_protocol],
+                    "FromPort" => rule[:from_port],
+                    "ToPort" => rule[:to_port],
+                    "CidrIP" => cidr[:cidr_ip]
+                  }
+                )
+              }
+            }
+          else
             MU.log "Setting rules in Security Group #{@mu_name} (#{@cloud_id})", details: ec2_rules
             retries = 0
             if rules != nil
@@ -428,7 +254,7 @@ module MU
                 }
               end
 
-              if !rule['lbs'].nil?
+              if !rule['lbs'].nil? and !MU::Cloud::AWS.emitCloudformation
 # XXX This is a dopey place for this, dependencies() should be doing our legwork
                 rule['lbs'].each { |lb_name|
 # XXX The language for addressing ELBs should be as flexible as VPCs. This sauce

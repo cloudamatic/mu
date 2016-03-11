@@ -113,6 +113,11 @@ module MU
 
       MU::Cloud.resource_types.each { |cloudclass, data|
         if !@main_config[data[:cfg_plural]].nil? and @main_config[data[:cfg_plural]].size > 0
+          if MU::Cloud::AWS.emitCloudformation
+            @main_config[data[:cfg_plural]].each { |resource|
+              resource['cloud'] = "CloudFormation" if resource['cloud'] = "AWS"
+            }
+          end
           setThreadDependencies(@main_config[data[:cfg_plural]])
         end
       }

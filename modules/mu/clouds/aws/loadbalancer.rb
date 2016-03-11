@@ -38,102 +38,11 @@ module MU
           else
             @mu_name = @deploy.getResourceName(@config["name"], max_length: 32, need_unique_string: true)
             @mu_name.gsub!(/[^\-a-z0-9]/i, "-") # AWS ELB naming rules
-            @cfm_name, @cfm_template = MU::Cloud::AWS.cloudFormationBase(self.class.cfg_name, self)
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "LoadBalancerName", @mu_name)
-          end
-        end
-
-        # Populate @cfm_template with a resource description for this load
-        # balancer in CloudFormation language.
-        def createCloudFormationDescriptor
-          @config["cross_zone"] = @config["cross_zone_unstickiness"]
-          @config["health_check"] = @config["healthcheck"]
-          @config["access_logging_policy"] = @config["access_log"]
-          ["cross_zone", "health_check"].each { |arg|
-            if !@config[arg].nil?
-              key = ""
-              val = @config[arg]
-              arg.split(/_/).each { |chunk| key = key + chunk.capitalize }
-              if val.is_a?(Hash)
-                val = {}
-                @config[arg].each_pair { |name, value|
-                  newkey = ""
-                  name.split(/_/).each { |chunk| newkey = newkey + chunk.capitalize }
-                  val[newkey] = value.to_s
-                }
-              end
-              MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], key, val)
-            end
-          }
-
-          @config['listeners'].each { |listener|
-            prop = {
-              "InstancePort" => listener['instance_port'].to_s,
-              "InstanceProtocol" => listener['instance_protocol'],
-              "LoadBalancerPort" => listener['lb_port'].to_s,
-              "Protocol" => listener['lb_protocol']
-            }
-            if !listener['ssl_certificate_id'].nil?
-              prop["SSLCertificateId"] = listener['ssl_certificate_id'] # XXX resolve ssl_certificate_name if we get that instead
-            end
-            MU::Cloud::AWS.setCloudFormationProp(
-              @cfm_template[@cfm_name],
-              "Listeners",
-              prop
-            )
-
-          }
-
-          ["lb_cookie_stickiness_policy", "app_cookie_stickiness_policy"].each { |policy|
-            if @config[policy]
-              key = ""
-              policy.split(/_/).each { |chunk| key = key + chunk.capitalize }
-              MU::Cloud::AWS.setCloudFormationProp(
-                @cfm_template[@cfm_name],
-                key,
-                {
-                  "PolicyName" => @config[policy]['name'],
-                  "CookieExpirationPeriod" => @config[policy]['timeout']
-                }
-              )
-            end
-          }
-
-          if @config['idle_timeout']
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "ConnectionSettings", { "IdleTimeout" => @config['idle_timeout'] })
-          end
-
-          if @config['private']
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "Scheme", "internal")
-          else
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "Scheme", "internet-facing")
-          end
-
-          if @config['connection_draining_timeout'] and @config['connection_draining_timeout'] >= 0
-            MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "ConnectionDrainingPolicy", { "Enabled" => true, "Timeout" => @config['connection_draining_timeout'] })
-          end
-
-          if !@config['vpc'].nil? and !@config["vpc"]["subnets"].nil? and @config["vpc"]["subnets"].size > 0
-            @config["vpc"]["subnets"].each { |subnet|
-              if !subnet["subnet_id"].nil?
-                MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "Subnets", subnet["subnet_id"])
-              elsif @dependencies.has_key?("vpc") and @dependencies["vpc"].has_key?(@config["vpc"]["vpc_name"])
-                @dependencies["vpc"][@config["vpc"]["vpc_name"]].subnets.each { |subnet_obj|
-                  if subnet_obj.name == subnet['subnet_name']
-                    MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", subnet_obj.cfm_name)
-                    MU::Cloud::AWS.setCloudFormationProp(@cfm_template[@cfm_name], "Subnets", { "Ref" => subnet_obj.cfm_name } )
-                  end
-                }
-              end
-            }
-# XXX cloudformation: something about AZs
           end
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          return createCloudFormationDescriptor if MU::Cloud::AWS.emitCloudformation
-
           if @config["zones"] == nil
             @config["zones"] = MU::Cloud::AWS.listAZs(@config['region'])
             MU.log "Using zones from #{@config['region']}", MU::DEBUG, details: @config['zones']
@@ -408,7 +317,6 @@ module MU
         # Return the metadata for this LoadBalancer
         # @return [Hash]
         def notify
-          return {} if MU::Cloud::AWS.emitCloudformation
           deploy_struct = {
               "awsname" => @mu_name,
               "dns" => cloud_desc.dns_name

@@ -75,138 +75,138 @@ module MU
     # methods a class implementing this resource type must support to be
     # considered valid.
     @@resource_types = {
-        :Collection => {
-            :has_multiples => false,
-            :can_live_in_vpc => false,
-            :cfg_name => "collection",
-            :cfg_plural => "collections",
-            :interface => self.const_get("Collection"),
-            :deps_wait_on_my_creation => true,
-            :waits_on_parent_completion => false,
-            :class => generic_class_methods,
-            :instance => generic_instance_methods
-        },
-        :Database => {
-            :has_multiples => true,
-            :can_live_in_vpc => true,
-            :cfg_name => "database",
-            :cfg_plural => "databases",
-            :interface => self.const_get("Database"),
-            :deps_wait_on_my_creation => true,
-            :waits_on_parent_completion => false,
-            :class => generic_class_methods,
-            :instance => generic_instance_methods + [:groom, :allowHost]
-        },
-        :DNSZone => {
-            :has_multiples => false,
-            :can_live_in_vpc => false,
-            :cfg_name => "dnszone",
-            :cfg_plural => "dnszones",
-            :interface => self.const_get("DNSZone"),
-            :deps_wait_on_my_creation => true,
-            :waits_on_parent_completion => true,
-            :class => generic_class_methods + [:genericMuDNSEntry, :createRecordsFromConfig],
-            :instance => generic_instance_methods
-        },
-        :FirewallRule => {
-            :has_multiples => false,
-            :can_live_in_vpc => true,
-            :cfg_name => "firewall_rule",
-            :cfg_plural => "firewall_rules",
-            :interface => self.const_get("FirewallRule"),
-            :deps_wait_on_my_creation => true,
-            :waits_on_parent_completion => false,
-            :class => generic_class_methods,
-            :instance => generic_instance_methods + [:groom, :addRule]
-        },
-        :LoadBalancer => {
-            :has_multiples => false,
-            :can_live_in_vpc => true,
-            :cfg_name => "loadbalancer",
-            :cfg_plural => "loadbalancers",
-            :interface => self.const_get("LoadBalancer"),
-            :deps_wait_on_my_creation => true,
-            :waits_on_parent_completion => false,
-            :class => generic_class_methods,
-            :instance => generic_instance_methods + [:registerNode]
-        },
-        :Server => {
-            :has_multiples => true,
-            :can_live_in_vpc => true,
-            :cfg_name => "server",
-            :cfg_plural => "servers",
-            :interface => self.const_get("Server"),
-            :deps_wait_on_my_creation => false,
-            :waits_on_parent_completion => false,
-            :class => generic_class_methods,
-            :instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP, :getWindowsAdminPassword, :active?, :groomer, :mu_windows_name, :mu_windows_name=, :reboot]
-        },
-        :ServerPool => {
-            :has_multiples => false,
-            :can_live_in_vpc => true,
-            :cfg_name => "server_pool",
-            :cfg_plural => "server_pools",
-            :interface => self.const_get("ServerPool"),
-            :deps_wait_on_my_creation => false,
-            :waits_on_parent_completion => true,
-            :class => generic_class_methods,
-            :instance => generic_instance_methods
-        },
-        :VPC => {
-            :has_multiples => false,
-            :can_live_in_vpc => false,
-            :cfg_name => "vpc",
-            :cfg_plural => "vpcs",
-            :interface => self.const_get("VPC"),
-            :deps_wait_on_my_creation => true,
-            :waits_on_parent_completion => false,
-            :class => generic_class_methods,
-            :instance => generic_instance_methods + [:groom, :subnets, :getSubnet, :listSubnets, :findBastion]
-        },
-        :CacheCluster => {
-            :has_multiples => true,
-            :can_live_in_vpc => true,
-            :cfg_name => "cache_cluster",
-            :cfg_plural => "cache_clusters",
-            :interface => self.const_get("CacheCluster"),
-            :deps_wait_on_my_creation => true,
-            :waits_on_parent_completion => false,
-            :class => generic_class_methods,
-            :instance => generic_instance_methods + [:groom]
-        },
-        :Alarm => {
-            :has_multiples => false,
-            :can_live_in_vpc => false,
-            :cfg_name => "alarm",
-            :cfg_plural => "alarms",
-            :interface => self.const_get("Alarm"),
-            :deps_wait_on_my_creation => false,
-            :waits_on_parent_completion => true,
-            :class => generic_class_methods,
-            :instance => generic_instance_methods + [:groom]
-        },
-        :Notification => {
-            :has_multiples => false,
-            :can_live_in_vpc => false,
-            :cfg_name => "notification",
-            :cfg_plural => "notifications",
-            :interface => self.const_get("Notification"),
-            :deps_wait_on_my_creation => false,
-            :waits_on_parent_completion => false,
-            :class => generic_class_methods,
-            :instance => generic_instance_methods + [:groom]
-        },
-        :Log => {
-            :has_multiples => false,
-            :can_live_in_vpc => false,
-            :cfg_name => "log",
-            :cfg_plural => "logs",
-            :interface => self.const_get("Log"),
-            :deps_wait_on_my_creation => false,
-            :waits_on_parent_completion => true,
-            :class => generic_class_methods,
-            :instance => generic_instance_methods + [:groom]
-        }
+      :Collection => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "collection",
+        :cfg_plural => "collections",
+        :interface => self.const_get("Collection"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => false,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods
+      },
+      :Database => {
+        :has_multiples => true,
+        :can_live_in_vpc => true,
+        :cfg_name => "database",
+        :cfg_plural => "databases",
+        :interface => self.const_get("Database"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => false,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom, :allowHost]
+      },
+      :DNSZone => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "dnszone",
+        :cfg_plural => "dnszones",
+        :interface => self.const_get("DNSZone"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods + [:genericMuDNSEntry, :createRecordsFromConfig],
+        :instance => generic_instance_methods
+      },
+      :FirewallRule => {
+        :has_multiples => false,
+        :can_live_in_vpc => true,
+        :cfg_name => "firewall_rule",
+        :cfg_plural => "firewall_rules",
+        :interface => self.const_get("FirewallRule"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => false,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom, :addRule]
+      },
+      :LoadBalancer => {
+        :has_multiples => false,
+        :can_live_in_vpc => true,
+        :cfg_name => "loadbalancer",
+        :cfg_plural => "loadbalancers",
+        :interface => self.const_get("LoadBalancer"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => false,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:registerNode]
+      },
+      :Server => {
+        :has_multiples => true,
+        :can_live_in_vpc => true,
+        :cfg_name => "server",
+        :cfg_plural => "servers",
+        :interface => self.const_get("Server"),
+        :deps_wait_on_my_creation => false,
+        :waits_on_parent_completion => false,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP, :getWindowsAdminPassword, :active?, :groomer, :mu_windows_name, :mu_windows_name=, :reboot]
+      },
+      :ServerPool => {
+        :has_multiples => false,
+        :can_live_in_vpc => true,
+        :cfg_name => "server_pool",
+        :cfg_plural => "server_pools",
+        :interface => self.const_get("ServerPool"),
+        :deps_wait_on_my_creation => false,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods
+      },
+      :VPC => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "vpc",
+        :cfg_plural => "vpcs",
+        :interface => self.const_get("VPC"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => false,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom, :subnets, :getSubnet, :listSubnets, :findBastion]
+      },
+      :CacheCluster => {
+        :has_multiples => true,
+        :can_live_in_vpc => true,
+        :cfg_name => "cache_cluster",
+        :cfg_plural => "cache_clusters",
+        :interface => self.const_get("CacheCluster"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => false,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom]
+      },
+      :Alarm => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "alarm",
+        :cfg_plural => "alarms",
+        :interface => self.const_get("Alarm"),
+        :deps_wait_on_my_creation => false,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom]
+      },
+      :Notification => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "notification",
+        :cfg_plural => "notifications",
+        :interface => self.const_get("Notification"),
+        :deps_wait_on_my_creation => false,
+        :waits_on_parent_completion => false,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom]
+      },
+      :Log => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "log",
+        :cfg_plural => "logs",
+        :interface => self.const_get("Log"),
+        :deps_wait_on_my_creation => false,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom]
+      }
     }.freeze
 
 
@@ -217,7 +217,7 @@ module MU
 
     # List of known/supported Cloud providers
     def self.supportedClouds
-      ["AWS", "Docker"]
+      ["AWS", "CloudFormation", "Docker"]
     end
 
     # Load the container class for each cloud we know about, and inject autoload
@@ -425,6 +425,7 @@ module MU
           elsif !@deploy.nil?
             MU.log "#{self} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR
           end
+          @cloudobj.dependencies
 
         end
 
@@ -553,7 +554,7 @@ module MU
           # First, general dependencies. These should all be fellow members of
           # the current deployment.
           @config['dependencies'].each { |dep|
-            @dependencies[dep['type']] = {} if !@dependencies.has_key?(dep['type'])
+            @dependencies[dep['type']] = {} if !@dependencies.include?(dep['type'])
             next if @dependencies[dep['type']].has_key?(dep['name'])
             handle = @deploy.findLitterMate(type: dep['type'], name: dep['name']) if !@deploy.nil?
             if !handle.nil?
@@ -873,6 +874,7 @@ module MU
               MU.log "Invoking #{cloudclass}.cleanup", MU::DEBUG, details: flags
               cloudclass.cleanup(flags.first)
             rescue MuCloudResourceNotImplemented
+              MU.log "No #{cloud} implementation #{cloudclass}.cleanup", MU::WARN, details: flags
             end
           }
           MU::MommaCat.unlockAll
