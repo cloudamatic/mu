@@ -65,7 +65,7 @@ module MU
       # @return [Array<String>]: keypairname, ssh_private_key, ssh_public_key
       def self.createEc2SSHKey(keyname, public_key)
         # We replicate this key in all regions
-        if !MU::Cloud::CloudFormation.emitCloudformation
+        if !MU::Cloud::CloudFormation.emitCloudFormation
           MU::Cloud::AWS.listRegions.each { |region|
             MU.log "Replicating #{keyname} to EC2 in #{region}", MU::DEBUG, details: @ssh_public_key
             MU::Cloud::AWS.ec2(region).import_key_pair(

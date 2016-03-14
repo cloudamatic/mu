@@ -23,7 +23,7 @@ module MU
       # Toggle ourselves into a mode that will emit a CloudFormation template
       # instead of actual infrastructure.
       # @param set [Boolean]: Set the mode
-      def self.emitCloudformation(set: @@cloudformation_mode)
+      def self.emitCloudFormation(set: @@cloudformation_mode)
         @@cloudformation_mode = set
         @@cloudformation_mode
       end

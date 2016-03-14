@@ -1348,6 +1348,7 @@ module MU
           firewall_rule_names << fwname
           acl = {"name" => fwname, "rules" => lb['ingress_rules'], "region" => lb['region']}
           acl["vpc"] = lb['vpc'].dup if !lb['vpc'].nil?
+          acl["cloud"] = lb["cloud"]
           firewall_rules << resolveFirewall.call(acl)
           lb["add_firewall_rules"] = [] if lb["add_firewall_rules"].nil?
           lb["add_firewall_rules"] << {"rule_name" => fwname}
@@ -1548,6 +1549,7 @@ module MU
           firewall_rule_names << fwname
           acl = {"name" => fwname, "rules" => pool['ingress_rules'], "region" => pool['region']}
           acl["vpc"] = pool['vpc'].dup if !pool['vpc'].nil?
+          acl["cloud"] = pool["cloud"]
           firewall_rules << resolveFirewall.call(acl)
           pool["add_firewall_rules"] = [] if pool["add_firewall_rules"].nil?
           pool["add_firewall_rules"] << {"rule_name" => fwname}
@@ -1730,6 +1732,7 @@ module MU
           firewall_rule_names << fwname
           acl = {"name" => fwname, "rules" => db['ingress_rules'], "region" => db['region']}
           acl["vpc"] = db['vpc'].dup if !db['vpc'].nil?
+          acl["cloud"] = db["cloud"]
           firewall_rules << resolveFirewall.call(acl)
           db["add_firewall_rules"] = [] if db["add_firewall_rules"].nil?
           db["add_firewall_rules"] << {"rule_name" => fwname}
@@ -1983,6 +1986,7 @@ module MU
           firewall_rule_names << fwname
           acl = {"name" => fwname, "rules" => cluster['ingress_rules'], "region" => cluster['region']}
           acl["vpc"] = cluster['vpc'].dup if cluster['vpc']
+          acl["cloud"] = cluster["cloud"]
           firewall_rules << resolveFirewall.call(acl)
           cluster["add_firewall_rules"] = [] if cluster["add_firewall_rules"].nil?
           cluster["add_firewall_rules"] << {"rule_name" => fwname}
@@ -2190,6 +2194,7 @@ module MU
           firewall_rule_names << fwname
           acl = {"name" => fwname, "rules" => server['ingress_rules'], "region" => server['region']}
           acl["vpc"] = server['vpc'].dup if !server['vpc'].nil?
+          acl["cloud"] = server["cloud"]
           firewall_rules << resolveFirewall.call(acl)
           server["add_firewall_rules"] = [] if server["add_firewall_rules"].nil?
           server["add_firewall_rules"] << {"rule_name" => fwname}

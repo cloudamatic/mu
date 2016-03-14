@@ -64,7 +64,7 @@ module MU
       MU.setLogging(verbosity, webify_logs)
 
       if !cloudformation.nil?
-        MU::Cloud::CloudFormation.emitCloudformation(set: true)
+        MU::Cloud::CloudFormation.emitCloudFormation(set: true)
         @cloudformation_output = cloudformation
       end
 
@@ -87,7 +87,6 @@ module MU
       @timestamp.freeze
       @timestart = time.to_s;
       @timestart.freeze
-
 
       retries = 0
       begin
@@ -113,11 +112,11 @@ module MU
 
       MU::Cloud.resource_types.each { |cloudclass, data|
         if !@main_config[data[:cfg_plural]].nil? and @main_config[data[:cfg_plural]].size > 0
-          if MU::Cloud::CloudFormation.emitCloudformation
-            @main_config[data[:cfg_plural]].each { |resource|
+          @main_config[data[:cfg_plural]].each { |resource|
+            if MU::Cloud::CloudFormation.emitCloudFormation
               resource['cloud'] = "CloudFormation" if resource['cloud'] = "AWS"
-            }
-          end
+            end
+          }
           setThreadDependencies(@main_config[data[:cfg_plural]])
         end
       }
@@ -243,10 +242,14 @@ module MU
           t.join
         end
 
-        if MU::Cloud::CloudFormation.emitCloudformation
+        if mommacat.numKittens(clouds: ["CloudFormation"]) > 0
           MU::Cloud::CloudFormation.writeCloudFormationTemplate(tails: MU::Config.tails, config: @main_config, path: @cloudformation_output)
-          MU::Cleanup.run(MU.deploy_id, skipcloud: true, mommacat: mommacat)
-          exit
+          # If we didn't build anything besides CloudFormation, purge useless
+          # metadata.
+          if mommacat.numKittens(clouds: ["CloudFormation"], negate: true) == 0
+            MU::Cleanup.run(MU.deploy_id, skipcloud: true, mommacat: mommacat)
+            exit
+          end
         end
       rescue Exception => e
 
@@ -278,7 +281,9 @@ module MU
       deployment["deployment_end_time"]=Time.new.strftime("%I:%M %p on %A, %b %d, %Y").to_s;
       MU::Cloud::AWS.openFirewallForClients # XXX only invoke if we're in AWS
       MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
-      MU::MommaCat.syncMonitoringConfig
+      if mommacat.numKittens(types: ["Server", "ServerPool"]) > 0
+        MU::MommaCat.syncMonitoringConfig
+      end
 
       # Send notifications
       sendMail

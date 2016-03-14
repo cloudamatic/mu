@@ -871,10 +871,11 @@ module MU
           MU::Cloud.supportedClouds.each { |cloud|
             begin
               cloudclass = MU::Cloud.loadCloudType(cloud, shortname)
+              raise MuCloudResourceNotImplemented if !cloudclass.instance_methods(false).include?(:cleanup)
               MU.log "Invoking #{cloudclass}.cleanup", MU::DEBUG, details: flags
               cloudclass.cleanup(flags.first)
             rescue MuCloudResourceNotImplemented
-              MU.log "No #{cloud} implementation #{cloudclass}.cleanup", MU::WARN, details: flags
+              MU.log "No #{cloud} implementation of #{shortname}.cleanup, skipping", MU::DEBUG, details: flags
             end
           }
           MU::MommaCat.unlockAll

@@ -223,7 +223,7 @@ module MU
                 }
               end
 
-              if !rule['lbs'].nil? and !MU::Cloud::CloudFormation.emitCloudformation
+              if !rule['lbs'].nil? and !MU::Cloud::CloudFormation.emitCloudFormation
 # XXX This is a dopey place for this, dependencies() should be doing our legwork
                 rule['lbs'].each { |lb_name|
 # XXX The language for addressing ELBs should be as flexible as VPCs. This sauce

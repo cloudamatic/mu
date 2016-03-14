@@ -86,6 +86,7 @@ module MU
     attr_reader :appname
     attr_reader :seed
     attr_reader :mu_user
+    attr_reader :clouds
     attr_reader :chef_user
     attr_accessor :kittens # really want a method only available to :Deploy
     @myhome = Etc.getpwuid(Process.uid).dir
@@ -195,6 +196,7 @@ module MU
       @ssh_key_name = ssh_key_name
       @ssh_private_key = ssh_private_key
       @ssh_public_key = ssh_public_key
+      @clouds = {}
       if set_context_to_me
         MU::MommaCat.setThreadContext(self)
       end
@@ -213,6 +215,14 @@ module MU
         end
         @seed = MU.seed # pass this in
         @appname = @original_config['name']
+      MU::Cloud.resource_types.each { |cloudclass, data|
+        if !@original_config[data[:cfg_plural]].nil? and @original_config[data[:cfg_plural]].size > 0
+           @original_config[data[:cfg_plural]].each { |resource|
+             @clouds[resource['cloud']] = 0 if !@clouds.has_key?(resource['cloud'])
+             @clouds[resource['cloud']] = @clouds[resource['cloud']] + 1
+           }
+        end
+      }
         @ssh_key_name, @ssh_private_key, @ssh_public_key = self.SSHKey
         if !File.exist?(deploy_dir+"/private_key")
           @private_key, @public_key = createDeployKey
@@ -242,6 +252,7 @@ module MU
           raise DeployInitializeError, "Invalid or incorrect deploy key."
         end
       end
+
 
       # Initialize a MU::Cloud object for each resource belonging to this
       # deploy, IF it already exists, which is to say if we're loading an
@@ -316,6 +327,41 @@ module MU
 #         @@litters[@deploy_id] = self
 #       }
 #     end
+    end
+
+    # Tell us the number of first-class resources we've configured, optionally
+    # filtering results to only include a given type and/or in a given cloud
+    # environment.
+    # @param clouds [Array<String>]: The cloud environment(s) to check for. If unspecified, will match all environments in this deployment.
+    # @param types [Array<String>]: The type of resource(s) to check for. If unspecified, will match all resources in this deployment.
+    # @param negate [Boolean]: Invert logic of the other filters if they are specified, e.g. search for all cloud resources that are *not* AWS.
+    def numKittens(clouds: [], types: [], negate: false)
+      realtypes = []
+      return 0 if @original_config.nil?
+      if !types.nil? and types.size > 0
+        types.each { |type|
+          MU::Cloud.resource_types.each_pair { |name, cloudclass|
+            if name == type.to_sym or
+                cloudclass[:cfg_name] == type or
+                cloudclass[:cfg_plural] == type or negate
+              realtypes << cloudclass[:cfg_plural]
+              break
+            end
+          }
+        }
+      end
+
+      count = 0
+      MU::Cloud.resource_types.each { |cloudclass, data|
+        next if @original_config[data[:cfg_plural]].nil?
+        next if realtypes.size > 0 and (!negate and !realtypes.include?(data[:cfg_plural]))
+        @original_config[data[:cfg_plural]].each { |resource|
+          if clouds.nil? or clouds.size == 0 or (!negate and clouds.include?(resource["cloud"])) or (negate and !clouds.include?(resource["cloud"]))
+            count = count + 1
+          end
+        }
+      }
+      count
     end
 
     # @param object [MU::Cloud]:
@@ -742,6 +788,9 @@ module MU
     # or load if that hasn't been done already.
     def SSHKey
       return [@ssh_key_name, @ssh_private_key, @ssh_public_key] if !@ssh_key_name.nil?
+      if numKittens(types: ["Server", "ServerPool"]) == 0
+        return []
+      end
       @ssh_key_name="deploy-#{MU.deploy_id}"
       ssh_dir = Etc.getpwnam(@mu_user).dir+"/.ssh"
 
@@ -761,8 +810,9 @@ module MU
       @ssh_private_key = File.read("#{ssh_dir}/#{@ssh_key_name}")
       @ssh_private_key.chomp!
 
-      # XXX only call this if we're creating AWS EC2 resources
-      MU::Cloud::AWS.createEc2SSHKey(@ssh_key_name, @ssh_public_key)
+      if numKittens(clouds: ["AWS"], types: ["Server", "ServerPool"]) > 0
+        MU::Cloud::AWS.createEc2SSHKey(@ssh_key_name, @ssh_public_key)
+      end
 
       return [@ssh_key_name, @ssh_private_key, @ssh_public_key]
     end
@@ -1279,7 +1329,7 @@ module MU
         region: MU.curRegion)
       attempts = 0
 
-      if !MU::Cloud::CloudFormation.emitCloudformation
+      if !MU::Cloud::CloudFormation.emitCloudFormation
         begin
           MU::Cloud::AWS.ec2(region).create_tags(
             resources: [resource],
@@ -1321,7 +1371,7 @@ module MU
           tags << {key: name, value: value}
         end
       }
-      if MU::Cloud::CloudFormation.emitCloudformation
+      if MU::Cloud::CloudFormation.emitCloudFormation
         return tags
       end
 

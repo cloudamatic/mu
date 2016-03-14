@@ -88,6 +88,7 @@ module MU
         deleted_nodes = 0
         @regionthreads = []
         keyname = "deploy-#{MU.deploy_id}"
+# XXX blindly checking for all of these resources in all clouds is now prohibitively slow. We should only do this when we don't see deployment metadata to work from.
         regions.each { |r|
           @regionthreads << Thread.new {
             MU.dupGlobals(parent_thread_id)
@@ -97,19 +98,19 @@ module MU
             # We do these in an order that unrolls dependent resources sensibly,
             # and we hit :Collection twice because AWS CloudFormation sometimes
             # fails internally.
-            MU::Cloud::Collection.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
-            MU::Cloud::ServerPool.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
-            MU::Cloud::LoadBalancer.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
-            MU::Cloud::Server.cleanup(skipsnapshots: @skipsnapshots, onlycloud: @onlycloud, noop: @noop, ignoremaster: @ignoremaster, region: r)
-            MU::Cloud::Database.cleanup(skipsnapshots: @skipsnapshots, noop: @noop, ignoremaster: @ignoremaster, region: r)
-            MU::Cloud::CacheCluster.cleanup(skipsnapshots: @skipsnapshots, noop: @noop, ignoremaster: @ignoremaster, region: r)
-            MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
-            MU::Cloud::Alarm.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
-            MU::Cloud::Notification.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
-            MU::Cloud::Log.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
-            MU::Cloud::DNSZone.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
-            MU::Cloud::VPC.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r)
-            MU::Cloud::Collection.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, wait: true)
+            MU::Cloud::Collection.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["Collection"]) > 0
+            MU::Cloud::ServerPool.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["ServerPool"]) > 0
+            MU::Cloud::LoadBalancer.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["LoadBalancer"]) > 0
+            MU::Cloud::Server.cleanup(skipsnapshots: @skipsnapshots, onlycloud: @onlycloud, noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["Server"]) > 0
+            MU::Cloud::Database.cleanup(skipsnapshots: @skipsnapshots, noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["Database"]) > 0
+            MU::Cloud::CacheCluster.cleanup(skipsnapshots: @skipsnapshots, noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["CacheCluster"]) > 0
+            MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["FirewallRule", "Server", "ServerPool", "Database"]) > 0
+            MU::Cloud::Alarm.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["Alarm"]) > 0 # XXX other resources can make these appear, I think- which ones?
+            MU::Cloud::Notification.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["Notification"]) > 0 # XXX other resources can make these appear, I think- which ones?
+            MU::Cloud::Log.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["Log"]) > 0 # XXX other resources can make these appear, I think- which ones?
+            MU::Cloud::DNSZone.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["DNSZone"]) > 0
+            MU::Cloud::VPC.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["VPC"]) > 0
+            MU::Cloud::Collection.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, wait: true) if @mommacat.nil? or @mommacat.numKittens(types: ["Collection"]) > 0
 
             resp = MU::Cloud::AWS.ec2(r).describe_key_pairs(
                 filters: [{name: "key-name", values: [keyname]}]
@@ -127,7 +128,7 @@ module MU
       end
 
       # Scrub any residual Chef records with matching tags
-      if !@onlycloud
+      if !@onlycloud and (@mommacat.nil? or @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0)
         MU::Groomer::Chef.loadChefLib
         if File.exists?(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
           Chef::Config.from_file(Etc.getpwuid(Process.uid).dir+"/.chef/knife.rb")
@@ -243,7 +244,9 @@ module MU
         MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS...
       end
 
-      MU::MommaCat.syncMonitoringConfig if !@noop and !@skipcloud
+      if !@noop and !@skipcloud and (@mommacat.nil? or @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0)
+        MU::MommaCat.syncMonitoringConfig
+      end
 
     end
   end #class

@@ -96,13 +96,9 @@ end
 $application_cookbook = stack_conf["application_cookbook"]
 Dir.chdir(MU.installDir)
 
-cfm_path = nil
-if $opts[:cloudformation]
-  if !$opts[:cloudformation_output].nil?
-    cfm_path = $opts[:cloudformation_output]
-  else
-    cfm_path = "/tmp/cloudformation-#{stack_conf['appname']}.json"
-  end
+cfm_path = "/tmp/cloudformation-#{stack_conf['appname']}.json"
+if !$opts[:cloudformation_output].nil?
+  cfm_path = $opts[:cloudformation_output]
 end
 
 deployer = MU::Deploy.new(
