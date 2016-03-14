@@ -13,12 +13,10 @@
 # limitations under the License.
 
 case node.platform
-  when "centos", "redhat"
-    if node.platform_version.to_i == 7
-      execute "sed -i 's/^Defaults.*requiretty$/Defaults   !requiretty/' /etc/sudoers" do
-        not_if "grep '!requiretty' /etc/sudoers"
-      end
-    end
-  else
-    Chef::Log.info("Unsupported platform #{node.platform}")
+when "centos", "redhat"
+  execute "sed -i 's/^Defaults.*requiretty$/Defaults   !requiretty/' /etc/sudoers" do
+    not_if "grep '!requiretty' /etc/sudoers"
+  end
+else
+  Chef::Log.info("Unsupported platform #{node.platform}")
 end

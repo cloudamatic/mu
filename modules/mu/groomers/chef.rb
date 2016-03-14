@@ -412,7 +412,7 @@ module MU
         # XXX key off of MU verbosity level
         kb.config[:log_level] = :debug
         kb.config[:identity_file] = "#{Etc.getpwuid(Process.uid).dir}/.ssh/#{ssh_key_name}"
-        kb.config[:ssh_gateway] = "#{nat_ssh_user}@#{nat_ssh_host}" if !nat_ssh_host.nil?
+        # kb.config[:ssh_gateway] = "#{nat_ssh_user}@#{nat_ssh_host}" if !nat_ssh_host.nil? # Breaking bootsrap
         # This defaults to localhost for some reason sometimes. Brute-force it.
 
         MU.log "Knife Bootstrap settings for #{@server.mu_name} (#{canonical_addr})", MU::NOTICE, details: kb.config
@@ -512,9 +512,11 @@ module MU
             }
           end
 
-          MU.log "Updating node: #{@server.mu_name} deployment attributes", details: @server.deploy.deployment
-          chef_node.normal.deployment.merge!(@server.deploy.deployment)
-          chef_node.save
+          if chef_node.normal.deployment != @server.deploy.deployment
+            MU.log "Updating node: #{@server.mu_name} deployment attributes", details: @server.deploy.deployment
+            chef_node.normal.deployment.merge!(@server.deploy.deployment)
+            chef_node.save
+          end
           return chef_node.deployment
         rescue Net::HTTPServerException => e
           MU.log "Attempted to save deployment to Chef node #{@server.mu_name} before it was bootstrapped.", MU::DEBUG
@@ -692,8 +694,9 @@ module MU
       end
 
       def grantSecretAccess(vault, item)
-        return if @secrets_granted["#{vault}:#{item}"]
+        return if @secrets_granted["#{vault}:#{item}"] == item
         self.class.grantSecretAccess(@server.mu_name, vault, item)
+        @secrets_granted["#{vault}:#{item}"] = item
       end
 
       def self.knifeCmd(cmd, showoutput = false)

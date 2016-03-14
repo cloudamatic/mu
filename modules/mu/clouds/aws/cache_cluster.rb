@@ -325,25 +325,20 @@ module MU
             # Find NAT and create holes in security groups.
             # Adding just for consistency, but do we really need this for cache clusters? I guess Nagios and such..
             if @config["vpc"]["nat_host_name"] || @config["vpc"]["nat_host_id"] || @config["vpc"]["nat_host_tag"] || @config["vpc"]["nat_host_ip"]
-              nat_tag_key, nat_tag_value = @config['vpc']['nat_host_tag'].split(/=/, 2) if @config['vpc']['nat_host_tag']
-              nat_instance = @vpc.findBastion(
-                nat_name: @config["vpc"]["nat_host_name"],
-                nat_cloud_id: @config["vpc"]["nat_host_id"],
-                nat_tag_key: nat_tag_key,
-                nat_tag_value: nat_tag_value,
-                nat_ip: @config['vpc']['nat_host_ip']
-              )
-
-              MU.log "#{@config['identifier']} (#{MU.deploy_id}) is configured to use #{@config["vpc"]} but I can't find a matching NAT instance", MU::ERR if nat_instance.nil?
-              nat_name, nat_conf, nat_deploydata = @nat.describe
-
-              @deploy.kittens['firewall_rules'].each_pair { |name, acl|
-                if acl.config["admin"]
-                  acl.addRule([nat_deploydata["private_ip_address"]], proto: "tcp")
-                  acl.addRule([nat_deploydata["private_ip_address"]], proto: "udp")
-                  break
-                end
-              }
+              nat = @nat
+              if nat.is_a?(Struct) && nat.nat_gateway_id && nat.nat_gateway_id.start_with?("nat-")
+                MU.log "Using NAT Gateway, not modifying security groups"
+              else
+                nat_name, nat_conf, nat_deploydata = @nat.describe
+                @deploy.kittens['firewall_rules'].each_pair { |name, acl|
+  # XXX if a user doesn't set up dependencies correctly, this can die horribly on a NAT that's still in mid-creation. Fix this... possibly in the config parser.
+                  if acl.config["admin"]
+                    acl.addRule([nat_deploydata["private_ip_address"]], proto: "tcp")
+                    acl.addRule([nat_deploydata["private_ip_address"]], proto: "udp")
+                    break
+                  end
+                }
+              end
             end
 
             if @dependencies.has_key?('firewall_rule')
