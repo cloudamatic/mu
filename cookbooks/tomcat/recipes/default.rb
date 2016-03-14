@@ -2,7 +2,7 @@
 # Cookbook Name:: tomcat
 # Recipe:: default
 #
-# Copyright 2010, Chef Software, Inc.
+# Copyright 2010-2015, Chef Software, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -113,30 +113,6 @@ elsif node['tomcat']['install_method'] == 'archive'
         end
       }
 
-      # Runs at runtime so can't use.
-      # Dir.glob("#{tomcat_temp_path}/conf/*").each { |f|
-      # remote_file "#{node['tomcat']['config_dir']}/#{File.basename(f)}" do 
-      # source "file://#{f}"
-      # owner 'tomcat'
-      # group 'tomcat'
-      # mode 0644
-      # action :create_if_missing
-      # end
-      # }
-
-      # %w{bin lib}.each { |dir|
-      # Dir.glob("#{tomcat_temp_path}/#{dir}/*").each { |f|
-      # remote_file "#{node['tomcat']['base']}/#{dir}/#{File.basename(f)}" do
-      # source "file://#{f}"
-      # owner 'tomcat'
-      # group 'tomcat'
-      # mode 0644 unless File.extname(f).include?("sh")
-      # mode 0755 if File.extname(f).include?("sh")
-      # action :create_if_missing
-      # end
-      # }
-      # }
-
       execute "cp #{tomcat_temp_path}/conf/* #{node['tomcat']['config_dir']}" do
         not_if { File.exists?("#{node['tomcat']['config_dir']}/server.xml") }
         only_if { File.exists?("#{tomcat_temp_path}/conf/server.xml") }
@@ -205,29 +181,66 @@ unless node['tomcat']['deploy_manager_apps']
   end
 end
 
-node.set['tomcat']['keystore_password'] = secure_password unless node['tomcat']['keystore_password']
-node.set['tomcat']['truststore_password'] = secure_password unless node['tomcat']['truststore_password']
+node.set_unless['tomcat']['keystore_password'] = secure_password
+node.set_unless['tomcat']['truststore_password'] = secure_password
 node.save
 
+def create_service(instance)
+  service instance do
+    case node['platform_family']
+    when 'rhel', 'fedora'
+      service_name instance
+      supports restart: true, status: true
+    when 'debian'
+      service_name instance
+      supports restart: true, reload: false, status: true
+    when 'suse'
+      service_name 'tomcat'
+      supports restart: true, status: true
+      init_command '/usr/sbin/rctomcat'
+    when 'smartos'
+      # SmartOS doesn't support multiple instances
+      service_name 'tomcat'
+      supports restart: false, reload: false, status: true
+    else
+      service_name instance
+    end
+    action [:start, :enable]
+    notifies :run, "execute[wait for #{instance}]", :immediately
+    retries 4
+    retry_delay 30
+  end
+end
+
 if node['tomcat']['run_base_instance']
-  tomcat_instance "base" do
+  tomcat_instance 'base' do
     port node['tomcat']['port']
     proxy_port node['tomcat']['proxy_port']
+    proxy_name node['tomcat']['proxy_name']
+    secure node['tomcat']['secure']
+    scheme node['tomcat']['scheme']
     ssl_port node['tomcat']['ssl_port']
     app_base node['tomcat']['app_base']
     ssl_proxy_port node['tomcat']['ssl_proxy_port']
     ajp_port node['tomcat']['ajp_port']
+    ajp_redirect_port node['tomcat']['ajp_redirect_port']
     shutdown_port node['tomcat']['shutdown_port']
   end
+  instance = node['tomcat']['base_instance']
+  create_service(instance)
 end
 
 node['tomcat']['instances'].each do |name, attrs|
-  tomcat_instance "#{name}" do
+  tomcat_instance name do
     port attrs['port']
     proxy_port attrs['proxy_port']
+    proxy_name attrs['proxy_name']
+    secure attrs['secure']
+    scheme attrs['scheme']
     ssl_port attrs['ssl_port']
     ssl_proxy_port attrs['ssl_proxy_port']
     ajp_port attrs['ajp_port']
+    ajp_redirect_port attrs['ajp_redirect_port']
     shutdown_port attrs['shutdown_port']
     config_dir attrs['config_dir']
     log_dir attrs['log_dir']
@@ -252,6 +265,7 @@ node['tomcat']['instances'].each do |name, attrs|
     certificate_dn attrs['certificate_dn']
     loglevel attrs['loglevel']
     tomcat_auth attrs['tomcat_auth']
+    client_auth attrs['client_auth']
     user attrs['user']
     group attrs['group']
     home attrs['home']
@@ -259,6 +273,8 @@ node['tomcat']['instances'].each do |name, attrs|
     tmp_dir attrs['tmp_dir']
     lib_dir attrs['lib_dir']
     endorsed_dir attrs['endorsed_dir']
+    ajp_packetsize attrs['ajp_packetsize']
+    uriencoding attrs['uriencoding']
     jndi_connections attrs['jndi_connections']
     jndi attrs['jndi']
     cors_enabled attrs['cors_enabled']
@@ -275,4 +291,13 @@ node['tomcat']['instances'].each do |name, attrs|
     ldap_user_search attrs['ldap_user_search']
     ldap_role_search attrs['ldap_role_search']
   end
+
+  instance = "#{node['tomcat']['base_instance']}-#{name}"
+  create_service(instance)
+end
+
+execute "wait for #{instance}" do
+  command 'sleep 5' if node.platform_family != 'windows'
+  command 'powershell -Command "& {sleep 5}"' if node.platform_family == 'windows'
+  action :nothing
 end

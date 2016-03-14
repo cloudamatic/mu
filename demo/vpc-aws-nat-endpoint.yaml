@@ -1,0 +1,53 @@
+<%
+  $region = MU.curRegion unless $region
+  $vpc_cidr = "10.23.0.0/16" if !$vpc_cidr
+  $azs = MU::Cloud::AWS.listAZs
+%>
+
+appname: vpc
+region: <%= $region %>
+vpcs:
+- name: vpc
+  ip_block: <%= $vpc_cidr %>
+  enable_traffic_logging: true
+  nat_gateway_multi_az: true
+  create_nat_gateway: true
+  endpoint: com.amazonaws.<%= $region %>.s3
+  peers:
+  - vpc:
+      vpc_id: <%= MU.myVPC %>
+  route-tables:
+  - name: internet
+    routes:
+    - destination_network: 0.0.0.0/0
+      gateway: #INTERNET
+<%
+$azs.each.with_index { |az, i|
+%>
+  - name: private<%= i %>
+    routes:
+    - destination_network: 0.0.0.0/0
+      gateway: '#NAT'
+<%
+}
+%>
+  subnets:
+<%
+$azs.each.with_index { |az, i|
+%>
+  - name: Public<%= i %>
+    ip_block: <%= $vpc_cidr.split('.')[0..1].join('.') %>.<%= i %>.0/24
+    availability-zone: <%= az %>
+    route-table: internet
+    map_public_ips: true
+<%
+}
+$azs.each.with_index { |az, i|
+%>
+  - name: Private<%= i %>
+    ip_block: <%= $vpc_cidr.split('.')[0..1].join('.') %>.<%= i + $azs.size %>.0/24
+    availability-zone: <%= az %>
+    route-table: private<%= i %>
+<%
+}
+%>
