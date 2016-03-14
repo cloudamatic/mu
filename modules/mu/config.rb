@@ -1177,7 +1177,7 @@ module MU
               elsif route['gateway'] == '#NAT'
                 if table['name'] == subnet['route_table']
                   if route['nat_host_name'] or route['nat_host_id']
-                    MU.log "You can either use a NAT gateway ir a NAT server, not both.", MU::ERR
+                    MU.log "You can either use a NAT gateway or a NAT server, not both.", MU::ERR
                     ok = false
                   end
 
@@ -1191,12 +1191,12 @@ module MU
 
         nat_gateway_route_tables.uniq!
         if nat_gateway_route_tables.size < 2 && vpc['nat_gateway_multi_az']
-          MU.log "'nat_gateway_multi_az'. is enabled but only one route table exists. For multi-az support create one private route table per AZ", MU::ERR
+          MU.log "'nat_gateway_multi_az' is enabled but only one route table exists. For multi-az support create one private route table per AZ", MU::ERR
           ok = false
         end
 
         if nat_gateway_route_tables.size > 0 && !vpc['create_nat_gateway']
-          MU.log "There are route tables with a NAT gateway route, but create_nat_gateway is set to false. Seeting to true", MU::NOTICE
+          MU.log "There are route tables with a NAT gateway route, but create_nat_gateway is set to false. Setting to true", MU::NOTICE
           vpc['create_nat_gateway'] = true
         end
 

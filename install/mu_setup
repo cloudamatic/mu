@@ -309,6 +309,8 @@ set_path_env_vars()
   DEVOPS_TMP_DIR='/tmp/.mu.$$'
   update_murc MU_INSTALLDIR $MU_INSTALLDIR
   update_murc MU_DATADIR $MU_DATADIR
+  AWS_ACCESS_KEY_ID=$AWS_ACCESS
+  AWS_SECRET_ACCESS_KEY=$AWS_SECRET
 }
 
 pivotal_cfg_setup(){
@@ -702,30 +704,32 @@ patch_knife_windows()
   kw_version="1.1.4"
 
   for rubydir in $RUBY_INSTALL_DIR /opt/chef/embedded;do
-    # Remove gem versions other than the one we're mangling
-    for gem in `find $rubydir/lib/ruby/gems -type d -name 'knife-windows-*' | grep -v "knife-windows-$kw_version" | sed 's/.*\///'`;do
-      kw_badversion="`echo $gem | cut -d\- -f3`"
-      status_message "Removing knife-windows $kw_badversion from $rubydir"
-      $rubydir/bin/gem uninstall --force knife-windows --version $kw_badversion
-    done
-    knife_win_dir=`find $rubydir/lib/ruby/gems -type d -name knife-windows-$kw_version | grep -v /doc/knife-windows`
-
-    if [ "$knife_win_dir" == "" ];then
-      status_message "Installing knife-windows-$kw_version in $rubydir"
-      $rubydir/bin/gem install --force knife-windows --version $kw_version
+    if [ -d "$rubydir/lib/ruby/gems" ];then
+      # Remove gem versions other than the one we're mangling
+      for gem in `find $rubydir/lib/ruby/gems -type d -name 'knife-windows-*' | grep -v "knife-windows-$kw_version" | sed 's/.*\///'`;do
+        kw_badversion="`echo $gem | cut -d\- -f3`"
+        status_message "Removing knife-windows $kw_badversion from $rubydir"
+        $rubydir/bin/gem uninstall --force knife-windows --version $kw_badversion
+      done
       knife_win_dir=`find $rubydir/lib/ruby/gems -type d -name knife-windows-$kw_version | grep -v /doc/knife-windows`
-    fi
-    if [ "`grep -i 'locate_config_value(:cygwin)' $knife_win_dir/lib/chef/knife/bootstrap_windows_base.rb`" == "" ];then
-      status_message "Patching Cygwin support into knife-windows-$kw_version in $rubydir"
-      cd $knife_win_dir && patch -p1 < $MU_LIBDIR/install/knife-windows-cygwin-$kw_version.patch || warning_message "Failed to patch knife-windows gem! Cygwin-based deploys of Windows hosts may not work!"
-    fi
+
+      if [ "$knife_win_dir" == "" ];then
+        status_message "Installing knife-windows-$kw_version in $rubydir"
+        $rubydir/bin/gem install --force knife-windows --version $kw_version
+        knife_win_dir=`find $rubydir/lib/ruby/gems -type d -name knife-windows-$kw_version | grep -v /doc/knife-windows`
+      fi
+      if [ "`grep -i 'locate_config_value(:cygwin)' $knife_win_dir/lib/chef/knife/bootstrap_windows_base.rb`" == "" ];then
+        status_message "Patching Cygwin support into knife-windows-$kw_version in $rubydir"
+        cd $knife_win_dir && patch -p1 < $MU_LIBDIR/install/knife-windows-cygwin-$kw_version.patch || warning_message "Failed to patch knife-windows gem! Cygwin-based deploys of Windows hosts may not work!"
+      fi
 #    if [ "`grep -i '@config\[:node_ssl_verify_mode\]' $knife_win_dir/lib/chef/knife/core/windows_bootstrap_context.rb`" == "" ];then
 #      status_message "Patching Chef 12 support into knife-windows-$kw_version in $rubydir"
 #      cd $knife_win_dir && patch -p1 < $MU_LIBDIR/install/knife-windows-chef12-$kw_version.patch || warning_message "Failed to patch knife-windows gem! Cygwin-based deploys of Windows hosts may not work!"
 #    fi
-    if [ -e $rubydir ];then
-      find $rubydir/lib/ruby/gems -type f -exec chmod o+r {} \;
-      find $rubydir/lib/ruby/gems -type d -exec chmod o+rx {} \;
+      if [ -e $rubydir ];then
+        find $rubydir/lib/ruby/gems -type f -exec chmod o+r {} \;
+        find $rubydir/lib/ruby/gems -type d -exec chmod o+rx {} \;
+      fi
     fi
   done
   cd
@@ -1189,6 +1193,10 @@ install_chef()
   punch_tcp_hole 443
   punch_tcp_hole 7443
 
+  # Sometimes we get a half-deleted Chef package in our way
+  if [ ! -d /opt/chef ];then
+    rpm -e chef
+  fi
   # Chef Server 12 inexplicably ships with old, broken versions of the
   # client. Install something sane.
   if ! rpm -q $CHEF_CLIENT_PKG > /dev/null ;then
@@ -1197,7 +1205,9 @@ install_chef()
     curl https://www.chef.io/chef/install.sh > /root/chef-install.sh
     sh /root/chef-install.sh -v $CHEF_CLIENT_VERSION
   fi
-  add_chef_support_gems /opt/chef/embedded
+  if [ -f /opt/chef/embedded/bin/gem ];then
+    add_chef_support_gems /opt/chef/embedded
+  fi
   port="`grep \"'ssl_port'\" /etc/opscode/chef-server.rb | cut -d= -f2`"
   if [ "$port" == "" ];then
     port="443"
