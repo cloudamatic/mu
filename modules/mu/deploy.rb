@@ -243,7 +243,7 @@ module MU
         end
 
         if mommacat.numKittens(clouds: ["CloudFormation"]) > 0
-          MU::Cloud::CloudFormation.writeCloudFormationTemplate(tails: MU::Config.tails, config: @main_config, path: @cloudformation_output)
+          MU::Cloud::CloudFormation.writeCloudFormationTemplate(tails: MU::Config.tails, config: @main_config, path: @cloudformation_output, mommacat: mommacat)
           # If we didn't build anything besides CloudFormation, purge useless
           # metadata.
           if mommacat.numKittens(clouds: ["CloudFormation"], negate: true) == 0

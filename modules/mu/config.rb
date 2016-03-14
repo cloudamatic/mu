@@ -248,7 +248,7 @@ module MU
       # Run our input through the ERB renderer, a first pass without parameters.
       tmp_cfg, raw_erb_sans_params = resolveConfig(path: @@config_path)
 
-      if tmp_cfg.has_key?("parameters") and tmp_cfg["parameters"].size > 0
+      if tmp_cfg.has_key?("parameters") and !tmp_cfg["parameters"].nil? and tmp_cfg["parameters"].size > 0
         tmp_cfg["parameters"].each { |param|
           if !@@parameters.has_key?(param['name'])
             if param.has_key?("default")
@@ -1191,7 +1191,7 @@ module MU
 
         nat_gateway_route_tables.uniq!
         if nat_gateway_route_tables.size < 2 && vpc['nat_gateway_multi_az']
-          MU.log "'nat_gateway_multi_az'. is enabled but only one route table exist. For multi-az support create one private route table per AZ", MU::ERR
+          MU.log "'nat_gateway_multi_az'. is enabled but only one route table exists. For multi-az support create one private route table per AZ", MU::ERR
           ok = false
         end
 
