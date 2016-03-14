@@ -2646,7 +2646,7 @@ module MU
 
     @ec2_size_primitive = {
         # XXX maybe we shouldn't validate this, but it makes a good example
-        "pattern" => "^(t|m|c|i|g|r|hi|hs|cr|cg|cc){1,2}[0-9]\\.(micro|small|medium|[248]?x?large)$",
+        "pattern" => "^(t|m|c|i|g|r|hi|hs|cr|cg|cc){1,2}[0-9]\\.(nano|micro|small|medium|[248]?x?large)$",
         "description" => "The Amazon EC2 instance type to use when creating this server.",
         "type" => "string"
     }

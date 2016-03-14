@@ -775,6 +775,9 @@ module MU
         # @param nat_filter_value [String]: A cloud provider filter to help identify the resource, used in conjunction with nat_filter_key.
         # @param region [String]: The cloud provider region of the target instance.
         def findNat(nat_cloud_id: nil, nat_filter_key: nil, nat_filter_value: nil, region: MU.curRegion)
+          # Discard the nat_cloud_id if it's an AWS instance ID
+          nat_cloud_id = nil if nat_cloud_id && nat_cloud_id.start_with?("i-")
+
           gateways = 
             if nat_cloud_id
               MU::Cloud::AWS.ec2(region).describe_nat_gateways(nat_gateway_ids: [nat_cloud_id])
