@@ -1,28 +1,31 @@
 AllCops:
-  Excludes:
-    - vendor/**
+  Exclude:
+    - vendor/**/*
+    - Guardfile
 
+AlignParameters:
+  Enabled: false
 ClassLength:
+  Enabled: false
+CyclomaticComplexity:
   Enabled: false
 Documentation:
   Enabled: false
 Encoding:
   Enabled: false
+Style/FileName:
+  Enabled: false
 LineLength:
   Enabled: false
 MethodLength:
   Enabled: false
-TrailingComma:
-  EnforcedStyleForMultiline: comma
-
-HashSyntax:
-  EnforcedStyle: hash_rockets
-
-AlignParameters:
+Metrics/AbcSize:
   Enabled: false
-
-CyclomaticComplexity:
+PerceivedComplexity:
   Enabled: false
-
-BlockAlignment:
+SingleSpaceBeforeFirstArg:
+  Enabled: false
+Style/ClassAndModuleChildren:
+  Enabled: false
+Style/FileName:
   Enabled: false

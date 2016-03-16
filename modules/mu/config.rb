@@ -936,9 +936,37 @@ module MU
           subnet_routes[subnet['route_table']] = Array.new if subnet_routes[subnet['route_table']].nil?
           subnet_routes[subnet['route_table']] << subnet['name']
         }
+        
+        if vpc['endpoint_policy'] && !vpc['endpoint_policy'].empty?
+          if !vpc['endpoint']
+            MU.log "'endpoint_policy' is declared however endpoint is not set", MU::ERR
+            ok = false
+          end
+
+          attributes = %w{Effect Action Resource Principal Sid}
+          vpc['endpoint_policy'].each { |rule|
+            rule.keys.each { |key|
+              if !attributes.include?(key)
+                MU.log "'Attribute #{key} can't be used in 'endpoint_policy'", MU::ERR
+                ok = false
+              end
+            }
+          }
+        end
+
+        nat_gateway_route_tables = []
+        nat_gateway_added = false
         vpc['route_tables'].each { |table|
+          routes = []
           table['routes'].each { |route|
-            if (!route['nat_host_name'].nil? or !route['nat_host_id'].nil?)
+            if routes.include?(route['destination_network'])
+              MU.log "Duplicate routes to #{route['destination_network']} in route table #{table['name']}", MU::ERR
+              ok = false
+            else
+              routes << route['destination_network']
+            end
+
+            if (route['nat_host_name'] or route['nat_host_id'])
               route.delete("gateway") if route['gateway'] == '#INTERNET'
             end
             if !route['nat_host_name'].nil? and server_names.include?(route['nat_host_name'])
@@ -950,18 +978,55 @@ module MU
                   "name" => route['nat_host_name']
               }
             end
-            if route['gateway'] == '#INTERNET'
-              vpc['subnets'].each { |subnet|
+            
+            vpc['subnets'].each { |subnet|
+              if route['gateway'] == '#INTERNET'
                 if table['name'] == subnet['route_table']
                   subnet['is_public'] = true
+                  if vpc['create_nat_gateway']
+                    if vpc['nat_gateway_multi_az']
+                      subnet['create_nat_gateway'] = true
+                    else
+                      if nat_gateway_added
+                        subnet['create_nat_gateway'] = false
+                      else
+                        subnet['create_nat_gateway'] = true 
+                        nat_gateway_added = true
+                      end
+                    end
+                  end
+                else
+                  subnet['is_public'] = false
                 end
                 if !nat_routes[subnet['name']].nil?
                   subnet['nat_host_name'] = nat_routes[subnet['name']]
                 end
-              }
-            end
+              elsif route['gateway'] == '#NAT'
+                if table['name'] == subnet['route_table']
+                  if route['nat_host_name'] or route['nat_host_id']
+                    MU.log "You can either use a NAT gateway or a NAT server, not both.", MU::ERR
+                    ok = false
+                  end
+
+                  subnet['is_public'] = false
+                  nat_gateway_route_tables << table
+                end
+              end
+            }
           }
         }
+
+        nat_gateway_route_tables.uniq!
+        if nat_gateway_route_tables.size < 2 && vpc['nat_gateway_multi_az']
+          MU.log "'nat_gateway_multi_az' is enabled but only one route table exists. For multi-az support create one private route table per AZ", MU::ERR
+          ok = false
+        end
+
+        if nat_gateway_route_tables.size > 0 && !vpc['create_nat_gateway']
+          MU.log "There are route tables with a NAT gateway route, but create_nat_gateway is set to false. Setting to true", MU::NOTICE
+          vpc['create_nat_gateway'] = true
+        end
+
         vpc_names << vpc['name']
       }
 
@@ -2375,7 +2440,7 @@ module MU
             },
             "gateway" => {
                 "type" => "string",
-                "description" => "The ID of a VPN or Internet gateway attached to your VPC. You must provide either gateway or NAT host, but not both. #INTERNET will refer to this VPN's default internet gateway, if one exists.",
+                "description" => "The ID of a VPN or Internet gateway attached to your VPC. You must provide either gateway or NAT host, but not both. #INTERNET will refer to this VPC's default internet gateway, if one exists. #NAT will refer to a this VPC's NAT gwateway",
                 "default" => "#INTERNET"
             },
             "nat_host_id" => {
@@ -2430,13 +2495,34 @@ module MU
                 "type" => "boolean",
                 "default" => true
             },
+            "create_nat_gateway" => {
+                "type" => "boolean",
+                "description" => "If set to 'true' will create a NAT gateway to enable traffic in private subnets to be routed to the internet.",
+                "default" => false
+            },
             "enable_dns_support" => {
                 "type" => "boolean",
                 "default" => true
             },
+            "endpoint_policy" => {
+                "type" => "array",
+                "items" => {
+                    "description" => "Amazon-compatible endpoint policy that controls access to the endpoint by other resources in the VPC. If not provided Amazon will create a default policy that provides full access.",
+                    "type" => "object"
+                }
+            },
+            "endpoint" => {
+                "type" => "string",
+                "description" => "An Amazon service specific endpoint that resources within a VPC can route to without going through a NAT or an internet gateway. Currently only S3 is supported. an example S3 endpoint in the us-east-1 region: com.amazonaws.us-east-1.s3."
+            },
             "enable_dns_hostnames" => {
                 "type" => "boolean",
                 "default" => true
+            },
+            "nat_gateway_multi_az" => {
+              "type" => "boolean",
+              "description" => "If set to 'true' will create a separate NAT gateway in each availability zone and configure subnet route tables appropriately",
+              "default" => false
             },
             "dependencies" => @dependencies_primitive,
             "auto_accept_peers" => {
@@ -2560,7 +2646,7 @@ module MU
 
     @ec2_size_primitive = {
         # XXX maybe we shouldn't validate this, but it makes a good example
-        "pattern" => "^(t|m|c|i|g|r|hi|hs|cr|cg|cc){1,2}[0-9]\\.(micro|small|medium|[248]?x?large)$",
+        "pattern" => "^(t|m|c|i|g|r|hi|hs|cr|cg|cc){1,2}[0-9]\\.(nano|micro|small|medium|[248]?x?large)$",
         "description" => "The Amazon EC2 instance type to use when creating this server.",
         "type" => "string"
     }

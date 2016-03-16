@@ -101,10 +101,45 @@ module MU
             @config['internet_gateway_id'] = internet_gateway_id
           end
 
+          route_table_ids = [] 
           if !@config['route_tables'].nil?
             @config['route_tables'].each { |rtb|
               rtb = createRouteTable(rtb)
+              route_table_ids << rtb['route_table_id']
             }
+          end
+          
+          if @config['endpoint']
+            config = {
+              :vpc_id => @config['vpc_id'],
+              :service_name => @config['endpoint'],
+              :route_table_ids => route_table_ids
+            }
+
+            if @config['endpoint_policy'] && !@config['endpoint_policy'].empty?
+              statement = {:Statement => @config['endpoint_policy']}
+              config[:policy_document] = statement.to_json
+            end
+
+            resp = MU::Cloud::AWS.ec2(@config['region']).create_vpc_endpoint(config).vpc_endpoint
+            endpoint_id = resp.vpc_endpoint_id
+            MU.log "Creating VPC endpoint #{endpoint_id}"
+            attempts = 0
+
+            while resp.state == "pending"
+              MU.log "Waiting for VPC endpoint #{endpoint_id} to become available" if attempts % 5 == 0
+              sleep 10
+              begin
+                resp = MU::Cloud::AWS.ec2(@config['region']).describe_vpc_endpoints(vpc_endpoint_ids: [endpoint_id]).vpc_endpoints.first
+              rescue Aws::EmptyStructure, NoMethodError
+                sleep 5
+                retry
+              end
+              raise MuError, "Timed out while waiting for VPC endpoint #{endpoint_id}: #{resp}" if attempts > 30
+              attempts += 1
+            end
+
+            raise MuError, "VPC endpoint failed #{endpoint_id}: #{resp}" if resp.state == "failed"
           end
 
           if @config["enable_traffic_logging"]
@@ -112,7 +147,9 @@ module MU
             trafficLogging(log_group_name: @config["log_group_name"], resource_id: vpc_id, traffic_type: @config["traffic_type_to_log"])
           end
 
+          nat_gateways = []
           if !@config['subnets'].nil?
+            allocation_ids = []
             subnet_semaphore = Mutex.new
             subnetthreads = Array.new
             parent_thread_id = Thread.current.object_id
@@ -126,6 +163,7 @@ module MU
               else
                 az = azs.pop
               end
+
               subnetthreads << Thread.new {
                 MU.dupGlobals(parent_thread_id)
                 resp = MU::Cloud::AWS.ec2(@config['region']).create_subnet(
@@ -205,6 +243,45 @@ module MU
                   raise MuError, e.inspect, e.backtrace
                 end
 
+                if subnet['is_public'] && subnet['create_nat_gateway']
+                  filters = [{name: "domain", values: ["vpc"]}]
+                  eips = MU::Cloud::AWS.ec2(@config['region']).describe_addresses(filters: filters).addresses
+                  allocation_id = nil
+                  eips.each { |eip|
+                    if eip.private_ip_address.nil? || eip.private_ip_address.empty?
+                      if !allocation_ids.include?(eip.allocation_id)
+                        allocation_id = eip.allocation_id
+                        break
+                      end
+                    end
+                  }
+
+                  allocation_id = MU::Cloud::AWS.ec2(@config['region']).allocate_address(domain: "vpc").allocation_id if allocation_id.nil?
+                  allocation_ids << allocation_id
+                  resp = MU::Cloud::AWS.ec2(@config['region']).create_nat_gateway(
+                    subnet_id: subnet['subnet_id'],
+                    allocation_id: allocation_id
+                  ).nat_gateway
+
+                  nat_gateway_id = resp.nat_gateway_id
+                  attempts = 0
+                  while resp.state == "pending"
+                    MU.log "Waiting for nat gateway #{nat_gateway_id} to become available" if attempts % 5 == 0
+                    sleep 30
+                    begin
+                      resp = MU::Cloud::AWS.ec2(@config['region']).describe_nat_gateways(nat_gateway_ids: [nat_gateway_id]).nat_gateways.first
+                    rescue Aws::EmptyStructure, NoMethodError
+                      sleep 5
+                      retry
+                    end
+                    raise MuError, "Timed out while waiting for NAT Gateway #{nat_gateway_id}: #{resp}" if attempts > 30
+                    attempts += 1
+                  end
+
+                  raise MuError, "NAT Gateway failed #{nat_gateway_id}: #{resp}" if resp.state == "failed"
+                  nat_gateways << {'id' => nat_gateway_id, 'availability_zone' => subnet['availability_zone']}
+                end
+
                 if subnet.has_key?("map_public_ips")
                   retries = 0
                   begin
@@ -237,6 +314,35 @@ module MU
             }
 
             notify
+          end
+
+          if !nat_gateways.empty?
+            nat_gateways.each { |gateway|
+              @config['subnets'].each { |subnet|
+                if subnet['is_public'] == false && subnet['availability_zone'] == gateway['availability_zone']
+                  @config['route_tables'].each { |rtb|
+                    if rtb['name'] == subnet['route_table']
+                      rtb['routes'].each { |route|
+                        if route['gateway'] == '#NAT'
+                          route_config = {
+                            :route_table_id => rtb['route_table_id'],
+                            :destination_cidr_block => route['destination_network'],
+                            :nat_gateway_id => gateway['id']
+                          }
+
+                          MU.log "Creating route for #{route['destination_network']} through NAT gatway #{gateway['id']}", details: route_config
+                          begin
+                            resp = MU::Cloud::AWS.ec2(@config['region']).create_route(route_config)
+                          rescue Aws::EC2::Errors::RouteAlreadyExists => e
+                            MU.log "Attempt to create duplicate route to #{route['destination_network']} for #{gateway['id']} in #{rtb['route_table_id']}", MU::WARN
+                          end
+                        end
+                      }
+                    end
+                  }
+                end
+              }
+            }
           end
 
           if @config['enable_dns_support']
@@ -663,6 +769,32 @@ module MU
           return @subnets
         end
 
+        # Given some search criteria try locating a NAT Gaateway in this VPC.
+        # @param nat_cloud_id [String]: The cloud provider's identifier for this NAT.
+        # @param nat_filter_key [String]: A cloud provider filter to help identify the resource, used in conjunction with nat_filter_value.
+        # @param nat_filter_value [String]: A cloud provider filter to help identify the resource, used in conjunction with nat_filter_key.
+        # @param region [String]: The cloud provider region of the target instance.
+        def findNat(nat_cloud_id: nil, nat_filter_key: nil, nat_filter_value: nil, region: MU.curRegion)
+          # Discard the nat_cloud_id if it's an AWS instance ID
+          nat_cloud_id = nil if nat_cloud_id && nat_cloud_id.start_with?("i-")
+
+          gateways = 
+            if nat_cloud_id
+              MU::Cloud::AWS.ec2(region).describe_nat_gateways(nat_gateway_ids: [nat_cloud_id])
+            elsif nat_filter_key && nat_filter_value
+              MU::Cloud::AWS.ec2(region).describe_nat_gateways(
+                filter: [
+                  {
+                    name: nat_filter_key,
+                    values: [nat_filter_value]
+                  }
+                ]
+              ).nat_gateways
+            end
+            
+            gateways ? gateways.first : nil
+        end
+
         # Given some search criteria for a {MU::Cloud::Server}, see if we can
         # locate a NAT host in this VPC.
         # @param nat_name [String]: The name of the resource as defined in its 'name' Basket of Kittens field, typically used in conjunction with deploy_id.
@@ -845,6 +977,27 @@ module MU
             tagfilters << {name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip]}
           end
 
+          vpcs = []
+          retries = 0
+          begin
+            resp = MU::Cloud::AWS.ec2(region).describe_vpcs(filters: tagfilters).vpcs
+            vpcs = resp if !resp.empty?
+          rescue Aws::EC2::Errors::InvalidVpcIDNotFound => e
+            if retries < 5
+              sleep 5
+              retries += 1
+              retry
+            end
+          end
+
+          if !vpcs.empty?
+          vpcs.each { |vpc|
+            # NAT gateways don't have any tags, and we can't assign them a name. Lets find them based on a VPC ID
+            purge_nat_gateways(noop, vpc_id: vpc.vpc_id, region: region)
+            purge_endpoints(noop, vpc_id: vpc.vpc_id, region: region)
+          }
+          end
+
           purge_gateways(noop, tagfilters, region: region)
           purge_routetables(noop, tagfilters, region: region)
           purge_interfaces(noop, tagfilters, region: region)
@@ -926,8 +1079,11 @@ module MU
                 route_config[:gateway_id] = @config['internet_gateway_id']
               end
               # XXX how do the network interfaces work with this?
-              MU.log "Creating route for #{route['destination_network']}", details: route_config
-              resp = MU::Cloud::AWS.ec2.create_route(route_config)
+              unless route['gateway'] == '#NAT'
+                # Need to change the order of how things are created to create the route here
+                MU.log "Creating route for #{route['destination_network']}", details: route_config
+                resp = MU::Cloud::AWS.ec2.create_route(route_config)
+              end
             end
           }
           return rtb
@@ -963,6 +1119,122 @@ module MU
               MU.log "Gateway #{gateway.internet_gateway_id} was already destroyed by the time I got to it", MU::WARN
             end
           }
+          return nil
+        end
+
+        # Remove all NAT gateways associated with the VPC of the currently loaded deployment.
+        # @param noop [Boolean]: If true, will only print what would be done
+        # @param vpc_id [String]: The cloud provider's unique VPC identifier
+        # @param region [String]: The cloud provider region
+        # @return [void]
+        def self.purge_nat_gateways(noop = false, vpc_id: vpc_id, region: MU.curRegion)
+          gateways = MU::Cloud::AWS.ec2(region).describe_nat_gateways(
+            filter: [
+              {
+                name: "vpc-id",
+                values: [vpc_id],
+              }
+            ]
+          ).nat_gateways
+
+          threads = []
+          parent_thread_id = Thread.current.object_id
+          if !gateways.empty?
+            gateways.each { |gateway|
+              threads << Thread.new {
+                MU.dupGlobals(parent_thread_id)
+                MU.log "Deleting NAT Gateway #{gateway.nat_gateway_id}"
+                if !noop
+                  begin
+                    MU::Cloud::AWS.ec2(region).delete_nat_gateway(nat_gateway_id: gateway.nat_gateway_id)
+                    resp = MU::Cloud::AWS.ec2(region).describe_nat_gateways(nat_gateway_ids: [gateway.nat_gateway_id]).nat_gateways.first
+
+                    attempts = 0
+                    while resp.state != "deleted"
+                      MU.log "Waiting for nat gateway #{gateway.nat_gateway_id} to delete" if attempts % 5 == 0
+                      sleep 30
+                      begin
+                        resp = MU::Cloud::AWS.ec2(region).describe_nat_gateways(nat_gateway_ids: [gateway.nat_gateway_id]).nat_gateways.first
+                      rescue Aws::EmptyStructure, NoMethodError
+                        sleep 5
+                        retry
+                      rescue Aws::EC2::Errors::NatGatewayNotFound
+                        MU.log "NAT gateway #{gateway.nat_gateway_id} already deleted", MU::NOTICE
+                      end
+                      MU.log "Timed out while waiting for NAT Gateway to delete #{gateway.nat_gateway_id}: #{resp}", MU::WARN if attempts > 50
+                      attempts += 1
+                    end
+                  rescue Aws::EC2::Errors::NatGatewayMalformed
+                    MU.log "NAT Gateway #{gateway.nat_gateway_id} was already deleted", MU::NOTICE
+                  end
+                end
+              }
+            }
+          end
+
+          threads.each { |t|
+            t.join
+          }
+
+          return nil
+        end
+
+        # Remove all VPC endpoints associated with the VPC of the currently loaded deployment.
+        # @param noop [Boolean]: If true, will only print what would be done
+        # @param vpc_id [String]: The cloud provider's unique VPC identifier
+        # @param region [String]: The cloud provider region
+        # @return [void]
+        def self.purge_endpoints(noop = false, vpc_id: vpc_id, region: MU.curRegion)
+          vpc_endpoints = MU::Cloud::AWS.ec2(region).describe_vpc_endpoints(
+            filters: [
+              {
+                name:"vpc-id",
+                values: [vpc_id],
+              }
+            ]
+          ).vpc_endpoints
+
+          threads = []
+          parent_thread_id = Thread.current.object_id
+          if !vpc_endpoints.empty?
+            vpc_endpoints.each { |endpoint|
+              threads << Thread.new {
+                MU.dupGlobals(parent_thread_id)
+                MU.log "Deleting VPC endpoint #{endpoint.vpc_endpoint_id}"
+                if !noop
+                  begin
+                    MU::Cloud::AWS.ec2(region).delete_vpc_endpoints(vpc_endpoint_ids: [endpoint.vpc_endpoint_id])
+                    resp = MU::Cloud::AWS.ec2(region).describe_vpc_endpoints(vpc_endpoint_ids: [endpoint.vpc_endpoint_id]).vpc_endpoints.first
+
+                    attempts = 0
+                    while resp.state != "deleted"
+                      MU.log "Waiting for VPC endpoint #{endpoint.vpc_endpoint_id} to delete" if attempts % 5 == 0
+                      sleep 30
+                      begin
+                        resp = MU::Cloud::AWS.ec2(region).describe_vpc_endpoints(vpc_endpoint_ids: [endpoint.vpc_endpoint_id]).vpc_endpoints.first
+                      rescue Aws::EmptyStructure, NoMethodError
+                        sleep 5
+                        retry
+                      rescue Aws::EC2::Errors::InvalidVpcEndpointIdNotFound
+                        MU.log "VPC endpoint #{endpoint.vpc_endpoint_id} already deleted", MU::NOTICE
+                      end
+                      MU.log "Timed out while waiting for VPC endpoint to delete #{endpoint.vpc_endpoint_id}: #{resp}", MU::WARN if attempts > 50
+                      attempts += 1
+                    end
+                  rescue Aws::EC2::Errors::VpcEndpointIdMalformed
+                    MU.log "VPC endpoint #{endpoint.vpc_endpoint_id} was already deleted", MU::NOTICE
+                  rescue Aws::EC2::Errors::InvalidVpcEndpointIdNotFound
+                    MU.log "VPC endpoint #{endpoint.vpc_endpoint_id} already deleted", MU::NOTICE
+                  end
+                end
+              }
+            }
+          end
+
+          threads.each { |t|
+            t.join
+          }
+
           return nil
         end
 
@@ -1249,6 +1521,7 @@ module MU
                 if route.destination_cidr_block == "0.0.0.0/0"
                   return false if !route.gateway_id.nil?
                   return true if !route.instance_id.nil?
+                  return true if route.nat_gateway_id
                 end
               }
             }

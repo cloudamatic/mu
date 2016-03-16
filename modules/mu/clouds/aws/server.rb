@@ -526,6 +526,10 @@ module MU
           nat_ssh_key = nat_ssh_user = nat_ssh_host = nil
           if !@config["vpc"].nil? and !MU::Cloud::AWS::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'])
             if !@nat.nil?
+              if @nat.is_a?(Struct) && @nat.nat_gateway_id && @nat.nat_gateway_id.start_with?("nat-")
+                raise MuError, "Configured to use NAT Gateway, but I have no route to instance. Either use Bastion, or configure VPC peering"
+              end
+
               if @nat.cloud_desc.nil?
                 MU.log "NAT was missing cloud descriptor when called in #{@mu_name}'s getSSHConfig", MU::ERR
                 return nil
@@ -1065,13 +1069,18 @@ module MU
         # If the specified server is in a VPC, and has a NAT, make sure we'll
         # be letting ssh traffic in from said NAT.
         def punchAdminNAT
-          if @config['vpc'].nil? or
-              (!@config['vpc'].has_key?("nat_host_id") and
-                  !@config['vpc'].has_key?("nat_host_tag") and
-                  !@config['vpc'].has_key?("nat_host_ip") and
-                  !@config['vpc'].has_key?("nat_host_name"))
+          if @config['vpc'].nil? or 
+            (
+              !@config['vpc'].has_key?("nat_host_id") and
+              !@config['vpc'].has_key?("nat_host_tag") and
+              !@config['vpc'].has_key?("nat_host_ip") and
+              !@config['vpc'].has_key?("nat_host_name")
+            )
             return nil
           end
+
+          return nil if @nat.is_a?(Struct) && @nat.nat_gateway_id && @nat.nat_gateway_id.start_with?("nat-")
+
           dependencies if @nat.nil?
           if @nat.nil? or @nat.cloud_desc.nil?
             raise MuError, "#{@mu_name} (#{MU.deploy_id}) is configured to use #{@config['vpc']} but I can't find the cloud descriptor for a matching NAT instance"
@@ -1469,7 +1478,7 @@ module MU
             resp = MU::Cloud::AWS.ec2(region).describe_addresses()
           end
           resp.addresses.each { |address|
-            return address if (address.instance_id.nil? or address.instance_id.empty?) and address.network_interface_id.nil? and !@eips_used.include?(address.public_ip)
+            return address if (address.network_interface_id.nil? || address.network_interface_id.empty?) && !@eips_used.include?(address.public_ip)
           }
           if ip != nil
             if !classic

@@ -150,6 +150,14 @@ def install_ad_client_packages
   %w{samba-winbind-modules authconfig krb5-workstation pam_krb5 samba-common oddjob-mkhomedir samba-winbind-clients}.each { |pkg|
     package pkg
   }
+
+  if %w{centos redhat}.include?(node.platform) && node.platform_version.to_i == 7
+    # execute "systemctl enable smb.service "
+    package "samba"
+    service "smb" do 
+      action :enable
+    end
+  end
 end
 
 def set_selinux_policies

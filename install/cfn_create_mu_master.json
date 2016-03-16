@@ -3,11 +3,10 @@
   "Description": "Cloudamatic Mu Master Creation. v1.0",
   "Parameters": {
     "MasterAMIId": {
-      "Description": "AMI for Cloudamatic Server",
+      "Description": "AMI for Cloudamatic Server, e.g. ami-b3e2c7d9.  See amazon_images.yaml for latest CentOS6",
       "Type": "String",
       "MinLength": "0",
-      "MaxLength": "255",
-      "Default": "ami-6bffa30e"
+      "MaxLength": "255"
     },
     "HostName": {
       "Description": "Hostname for Cloudamatic Server",

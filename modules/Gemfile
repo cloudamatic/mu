@@ -15,8 +15,8 @@
 source "https://rubygems.org"
 gem 'yard'
 gem 'ruby-graphviz', "~> 1.2.2"
-gem 'chef', "~> 12.5.1"
-gem "aws-sdk-core", "~> 2.1.29"
+gem 'chef', "~> 12.8.1"
+gem "aws-sdk-core", "~> 2.2.26"
 gem 'simple-password-gen'
 gem 'trollop', "~> 2.1.2"
 gem 'knife-windows', '1.1.4'
@@ -30,9 +30,9 @@ gem 'berkshelf'
 gem 'pg'
 gem 'mysql'
 gem 'ruby-wmi'
-gem 'chef-vault', "~> 2.6.1"
-gem 'net-ssh', "~> 2.9.2"
+gem 'chef-vault', "~> 2.8.0"
+gem 'net-ssh', "~> 3.0.2"
 gem 'netaddr'
-gem 'nokogiri', "~> 1.6.6.2"
+gem 'nokogiri', "~> 1.6.6.4"
 gem 'celluloid', "= 0.16.0"
 gem 'net-ldap'
