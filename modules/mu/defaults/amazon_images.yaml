@@ -1,15 +1,15 @@
 ---
 centos6: &centos6
-  us-east-1: ami-b3e2c7d9
-  us-west-1: ami-8c1266ec
-  us-west-2: ami-53bea432
-  eu-west-1: ami-645df617
-  eu-central-1: ami-994950f5
-  sa-east-1: ami-31b9385d
-  ap-northeast-1: ami-0119256f
-  ap-northeast-2: ami-53dd133d
-  ap-southeast-1: ami-15c30f76
-  ap-southeast-2: ami-540a2f37
+  us-east-1: ami-127d7d78
+  us-west-1: ami-cc0e7cac
+  us-west-2: ami-e5db3285
+  eu-west-1: ami-113c8662
+  eu-central-1: ami-6dd43302
+  sa-east-1: ami-0f169b63
+  ap-northeast-1: ami-157b707b
+  ap-northeast-2: ami-5d844d33
+  ap-southeast-1: ami-8c0ac1ef
+  ap-southeast-2: ami-b62101d5
 centos7: &centos7
   us-east-1: ami-99e0c5f3
   us-west-2: ami-93bea4f2

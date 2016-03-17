@@ -580,38 +580,43 @@ module MU
                 @config['vpc']["deploy_id"] = @deploy.deploy_id
               end
               vpcs = MU::MommaCat.findStray(
-                  @config['cloud'],
-                  "vpc",
-                  deploy_id: @config['vpc']["deploy_id"],
-                  cloud_id: @config['vpc']["vpc_id"],
-                  name: @config['vpc']["vpc_name"],
-                  tag_key: tag_key,
-                  tag_value: tag_value,
-                  region: @config['vpc']["region"],
-                  calling_deploy: @deploy,
-                  dummy_ok: true
+                @config['cloud'],
+                "vpc",
+                deploy_id: @config['vpc']["deploy_id"],
+                cloud_id: @config['vpc']["vpc_id"],
+                name: @config['vpc']["vpc_name"],
+                tag_key: tag_key,
+                tag_value: tag_value,
+                region: @config['vpc']["region"],
+                calling_deploy: @deploy,
+                dummy_ok: true
               )
               @vpc = vpcs.first if !vpcs.nil? and vpcs.size > 0
             end
-            if !@vpc.nil? and (@config['vpc'].has_key?("nat_host_id") or
-                @config['vpc'].has_key?("nat_host_tag") or
-                @config['vpc'].has_key?("nat_host_ip") or
-                @config['vpc'].has_key?("nat_host_name"))
+            if !@vpc.nil? and (
+              @config['vpc'].has_key?("nat_host_id") or
+              @config['vpc'].has_key?("nat_host_tag") or
+              @config['vpc'].has_key?("nat_host_ip") or
+              @config['vpc'].has_key?("nat_host_name")
+              )
+
               nat_tag_key, nat_tag_value = @config['vpc']['nat_host_tag'].split(/=/, 2) if !@config['vpc']['nat_host_tag'].nil?
-              if @vpc.cloudobj.config['create_nat_gateway']
-                @nat = @vpc.findNat(
-                  nat_cloud_id: @config['vpc']['nat_host_id'],
-                  nat_filter_key: "vpc-id",
-                  region: @config['vpc']["region"],
-                  nat_filter_value: @vpc.cloud_desc.vpc_id
-                )
-              else
+
+              # Try to see if we have a NAT Gateway, if not find our NAT Instance 
+              @nat = @vpc.findNat(
+                nat_cloud_id: @config['vpc']['nat_host_id'],
+                nat_filter_key: "vpc-id",
+                region: @config['vpc']["region"],
+                nat_filter_value: @vpc.cloud_desc.vpc_id
+              )
+
+              if @nat.nil?
                 @nat = @vpc.findBastion(
-                    nat_name: @config['vpc']['nat_host_name'],
-                    nat_cloud_id: @config['vpc']['nat_host_id'],
-                    nat_tag_key: nat_tag_key,
-                    nat_tag_value: nat_tag_value,
-                    nat_ip: @config['vpc']['nat_host_ip']
+                  nat_name: @config['vpc']['nat_host_name'],
+                  nat_cloud_id: @config['vpc']['nat_host_id'],
+                  nat_tag_key: nat_tag_key,
+                  nat_tag_value: nat_tag_value,
+                  nat_ip: @config['vpc']['nat_host_ip']
                 )
               end
             end
