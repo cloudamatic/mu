@@ -105,11 +105,15 @@ module MU
       @name = nil
       @prettyname = nil
       @description = nil
+      @is_list_element = false
       attr_reader :description
-      def initialize(name, value, prettyname = nil, cloud_type = "String", description = "")
+      attr_reader :is_list_element
+
+      def initialize(name, value, prettyname = nil, cloud_type = "String", description = "", is_list_element = false)
         @name = name
         @value = value
         @cloud_type = cloud_type
+        @is_list_element = is_list_element
         @description ||= 
           if !description.nil?
             description
@@ -149,7 +153,7 @@ module MU
       end
     end
 
-    def getTail(param, value: nil, prettyname: nil, cloud_type: "String", description: nil)
+    def getTail(param, value: nil, prettyname: nil, cloud_type: "String", description: nil, list_of: nil)
       if value.nil?
         if $parameters.nil? or !$parameters.has_key?(param)
           MU.log "Parameter '#{param}' referenced in config but not provided", MU::ERR, details: $parameters
@@ -161,14 +165,31 @@ module MU
       if !prettyname.nil?
         prettyname.gsub!(/[^a-z0-9]/i, "") # comply with CloudFormation restrictions
       end
-      if @@tails.has_key?(param)
-        value = @@tails[param].to_s if value.nil?
-        prettyname = @@tails[param].getPrettyName if prettyname.nil?
-        description = @@tails[param].description if description.nil?
-        cloud_type = @@tails[param].getCloudType if @@tails[param].getCloudType != "String"
-      end
+      if !list_of.nil? or (@@tails.has_key?(param) and @@tails[param].is_a?(Array))
+        tail = []
+        count = 0
+        value.split(/\s*,\s*/).each { |subval|
+          if @@tails.has_key?(param) and !@@tails[param][count].nil?
+            subval = @@tails[param][count].values.first.to_s if subval.nil?
+            list_of = @@tails[param][count].values.first.getName if list_of.nil?
+            prettyname = @@tails[param][count].values.first.getPrettyName if prettyname.nil?
+            description = @@tails[param][count].values.first.description if description.nil?
+            cloud_type = @@tails[param][count].values.first.getCloudType if @@tails[param][count].values.first.getCloudType != "String"
+          end
+          prettyname = param.capitalize if prettyname.nil?
+          tail << { list_of => MU::Config::Tail.new(list_of, subval, prettyname, cloud_type, description, true) }
+          count = count + 1
+        }
+      else
+        if @@tails.has_key?(param)
+          value = @@tails[param].to_s if value.nil?
+          prettyname = @@tails[param].getPrettyName if prettyname.nil?
+          description = @@tails[param].description if description.nil?
+          cloud_type = @@tails[param].getCloudType if @@tails[param].getCloudType != "String"
+        end
 
-      tail = MU::Config::Tail.new(param, value, prettyname, cloud_type, description)
+        tail = MU::Config::Tail.new(param, value, prettyname, cloud_type, description)
+      end
       @@tails[param] = tail
       tail
     end
@@ -268,9 +289,9 @@ module MU
               ok = false
             end
             if param.has_key?("cloudtype")
-              getTail(param['name'], value: @@parameters[param['name']], cloud_type: param["cloudtype"], description: param['description'], prettyname: param['prettyname'])
+              getTail(param['name'], value: @@parameters[param['name']], cloud_type: param["cloudtype"], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
             else
-              getTail(param['name'], value: @@parameters[param['name']], description: param['description'], prettyname: param['prettyname'])
+              getTail(param['name'], value: @@parameters[param['name']], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
             end
           end
         }
@@ -649,7 +670,7 @@ module MU
         rescue Exception => e
           raise MuError, e.inspect, e.backtrace
         ensure
-          if !ext_vpc
+          if !ext_vpc and vpc_block['cloud'] != "CloudFormation"
             MU.log "Couldn't resolve VPC reference to a unique live VPC in #{parent_name}", MU::ERR, details: vpc_block
             return false
           elsif !vpc_block["vpc_id"]
@@ -700,12 +721,14 @@ module MU
         if vpc_block.has_key?("subnets")
           vpc_block['subnets'].each { |subnet|
             tag_key, tag_value = subnet['tag'].split(/=/, 2) if !subnet['tag'].nil?
-            begin
-              ext_subnet = ext_vpc.getSubnet(cloud_id: subnet['subnet_id'], name: subnet['subnet_name'], tag_key: tag_key, tag_value: tag_value)
-            rescue MuError
+            if !ext_vpc.nil?
+              begin
+                ext_subnet = ext_vpc.getSubnet(cloud_id: subnet['subnet_id'], name: subnet['subnet_name'], tag_key: tag_key, tag_value: tag_value)
+              rescue MuError
+              end
             end
 
-            if ext_subnet.nil?
+            if ext_subnet.nil? and vpc_block["cloud"] != "CloudFormation"
               ok = false
               MU.log "Couldn't resolve subnet reference in #{parent_name}'s list to a live subnet (#{vpc_block})", MU::ERR, details: caller
             elsif !subnet['subnet_id']
@@ -1332,7 +1355,7 @@ module MU
         end
         if !acl["vpc"].nil?
           acl['vpc']['region'] = acl['region'] if acl['vpc']['region'].nil?
-          acl["vpc"]['cloud'] = acl['cloud'] if acl["vpc"]['cloud'].nil?
+          acl["vpc"]['cloud'] = acl['cloud']
           # If we're using a VPC in this deploy, set it as a dependency
           if !acl["vpc"]["vpc_name"].nil? and vpc_names.include?(acl["vpc"]["vpc_name"]) and acl["vpc"]['deploy_id'].nil?
             acl["dependencies"] << {
@@ -1392,7 +1415,7 @@ module MU
         lb["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("LoadBalancer")
         if !lb["vpc"].nil?
           lb['vpc']['region'] = lb['region'] if lb['vpc']['region'].nil?
-          lb['vpc']['cloud'] = lb['cloud'] if lb['vpc']['cloud'].nil?
+          lb['vpc']['cloud'] = lb['cloud']
           # If we're using a VPC in this deploy, set it as a dependency
           if !lb["vpc"]["vpc_name"].nil? and vpc_names.include?(lb["vpc"]["vpc_name"]) and lb["vpc"]['deploy_id'].nil?
             lb["dependencies"] << {
@@ -1593,7 +1616,7 @@ module MU
         end
         if !pool["vpc"].nil?
           pool['vpc']['region'] = pool['region'] if pool['vpc']['region'].nil?
-          pool["vpc"]['cloud'] = pool['cloud'] if pool["vpc"]['cloud'].nil?
+          pool["vpc"]['cloud'] = pool['cloud']
           # If we're using a VPC in this deploy, set it as a dependency
           if !pool["vpc"]["vpc_name"].nil? and vpc_names.include?(pool["vpc"]["vpc_name"]) and pool["vpc"]["deploy_id"].nil?
             pool["dependencies"] << {
@@ -1838,7 +1861,7 @@ module MU
           end
 
           db['vpc']['region'] = db['region'] if db['vpc']['region'].nil?
-          db["vpc"]['cloud'] = db['cloud'] if db["vpc"]['cloud'].nil?
+          db["vpc"]['cloud'] = db['cloud']
           # If we're using a VPC in this deploy, set it as a dependency
           if !db["vpc"]["vpc_name"].nil? and vpc_names.include?(db["vpc"]["vpc_name"]) and db["vpc"]["deploy_id"].nil?
             db["dependencies"] << {
@@ -2087,7 +2110,8 @@ module MU
           end
 
           cluster['vpc']['region'] = cluster['region'] if cluster['vpc']['region'].nil?
-          cluster["vpc"]['cloud'] = cluster['cloud'] if cluster["vpc"]['cloud'].nil?
+          cluster["vpc"]['cloud'] = cluster['cloud']
+
           # If we're using a VPC in this deploy, set it as a dependency
           if cluster["vpc"]["vpc_name"] and vpc_names.include?(cluster["vpc"]["vpc_name"]) and cluster["vpc"]["deploy_id"].nil?
             cluster["dependencies"] << {
@@ -2226,7 +2250,7 @@ module MU
 
         if !server["vpc"].nil?
           server['vpc']['region'] = server['region'] if server['vpc']['region'].nil?
-          server['vpc']['cloud'] = server['cloud'] if server['vpc']['cloud'].nil?
+          server['vpc']['cloud'] = server['cloud']
           # If we're using a local VPC in this deploy, set it as a dependency and get the subnets right
           if !server["vpc"]["vpc_name"].nil? and vpc_names.include?(server["vpc"]["vpc_name"]) and server["vpc"]["deploy_id"].nil?
             server["dependencies"] << {
@@ -4660,7 +4684,14 @@ module MU
                     "properties" => {
                         "name" => {"required" => true},
                         "default" => {"type" => "string"},
-                        "prettyname" => {"type" => "string"},
+                        "list_of" => {
+                          "type" => "string",
+                          "description" => "Treat the value as a comma-separated list of values with this key name, equivalent to CloudFormation's various List<> types. For example, set to 'subnet_id' to pass values as an array of subnet identifiers as the 'subnets' argument of a VPC stanza."
+                        },
+                        "prettyname" => {
+                          "type" => "string",
+                          "description" => "An alternative name to use when generating parameter fields in, for example, CloudFormation templates"
+                        },
                         "description" => {"type" => "string"},
                         "cloudtype" => {
                           "type" => "string",

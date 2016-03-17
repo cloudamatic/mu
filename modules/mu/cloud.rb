@@ -370,6 +370,7 @@ module MU
           @deploy = mommacat
           @config = kitten_cfg
           @cloud_id = cloud_id
+          
           if !@deploy.nil?
             @deploy_id = @deploy.deploy_id
             MU.log "Initializing an instance of #{self.class.name} in #{@deploy_id} #{mu_name}", MU::DEBUG, details: kitten_cfg
@@ -425,7 +426,12 @@ module MU
           elsif !@deploy.nil?
             MU.log "#{self} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR
           end
-          @cloudobj.dependencies
+
+          # Resolve dependencies so they're available in initialize(), unless
+          # we're just reloading an already-extant object.
+          if cloud_id.nil? and mu_name.nil?
+            @cloudobj.dependencies
+          end
 
         end
 

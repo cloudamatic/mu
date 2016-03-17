@@ -55,6 +55,26 @@ module MU
         # Populate @cfm_template with a resource description for this cache
         # cluster in CloudFormation language.
         def create
+          if !@config['vpc'].nil?
+            subnets_name, subnets_template = MU::Cloud::CloudFormation.cloudFormationBase("cache_subnets", name: @mu_name)
+            if !@config['vpc']['subnets'].nil?
+              @config['vpc']['subnets'].each { |subnet|
+                if !subnet["subnet_id"].nil?
+                  MU::Cloud::CloudFormation.setCloudFormationProp(subnets_template[subnets_name], "SubnetIds", subnet["subnet_id"])
+                elsif @dependencies.has_key?("vpc") and @dependencies["vpc"].has_key?(@config["vpc"]["vpc_name"])
+                  @dependencies["vpc"][@config["vpc"]["vpc_name"]].subnets.each { |subnet_obj|
+                    if subnet_obj.name == subnet['subnet_name']
+                      MU::Cloud::CloudFormation.setCloudFormationProp(subnets_template[subnets_name], "DependsOn", subnet_obj.cfm_name)
+                      MU::Cloud::CloudFormation.setCloudFormationProp(subnets_template[subnets_name], "SubnetIds", { "Ref" => subnet_obj.cfm_name } )
+                    end
+                  }
+                end
+              }
+            end
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "CacheSubnetGroupName", { "Ref" => subnets_name } )
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", subnets_name)
+            @cfm_template.merge!(subnets_template)
+          end
         end
 
         # Return the metadata for this CacheCluster

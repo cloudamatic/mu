@@ -94,6 +94,14 @@ module MU
             "Properties" => {
             }
           }
+        when "cache_subnets"
+          desc = {
+            "Type" => "AWS::ElastiCache::SubnetGroup",
+            "Properties" => {
+              "Description" => name,
+              "SubnetIds" => []
+            }
+          }
         when "cache_cluster"
           desc = {
             "Type" => "AWS::ElastiCache::CacheCluster",
@@ -269,21 +277,29 @@ module MU
       end
 
       def self.setCloudFormationProp(resource, name, value)
-        realvalue = value
+        realvalue = value.dup
+        is_list_element = false
         if value.class.to_s == "MU::Config::Tail"
-          realvalue = { "Ref" => "#{value.getPrettyName}" }
+          if value.is_list_element
+            realvalue = { "Fn::Select" => [0, { "Ref" => "#{value.getPrettyName}" }] }
+            is_list_element = true
+          else
+            realvalue = { "Ref" => "#{value.getPrettyName}" }
+          end
         end
 
         if resource.has_key?(name)
           if resource[name].is_a?(Array)
-            resource[name] << realvalue
-            resource[name].uniq!
+            realvalue["Fn::Select"][0] = resource[name].size if is_list_element
+            resource[name] << realvalue if !resource[name].include?(realvalue)
           else
             resource[name] = realvalue
           end
         elsif !resource["Properties"][name].nil? and resource["Properties"][name].is_a?(Array)
-          resource["Properties"][name] << realvalue
-          resource["Properties"][name].uniq!
+          realvalue["Fn::Select"][0] = resource["Properties"][name].size if is_list_element
+          if !resource["Properties"][name].include?(realvalue)
+            resource["Properties"][name] << realvalue
+          end
         else
           resource["Properties"][name] = realvalue
         end
@@ -317,20 +333,30 @@ module MU
           }
         end
         tails.each_pair { |param, data|
-          if cfm_template["Parameters"].has_key?(data.getPrettyName)
-            cfm_template["Parameters"][data.getPrettyName]["Type"] = data.getCloudType
-            cfm_template["Parameters"][data.getPrettyName]["Description"] = data.description if !data.description.nil? and !data.description.empty?
-            cfm_template["Parameters"][data.getPrettyName]["Default"] = data.to_s if !data.to_s.nil? and !data.to_s.empty?
+          tail = data
+          default = ""
+          if data.is_a?(Array)
+            realval = []
+            tail = data.first.values.first
+            data.each { |bit| realval << bit.values.first }
+            default = realval.join(",")
           else
-            cfm_template["Parameters"][data.getPrettyName] = {
-              "Type" => data.getCloudType,
-              "Description" => data.description,
-              "Default" => data.to_s
+            default = tail.to_s
+          end
+          if cfm_template["Parameters"].has_key?(tail.getPrettyName)
+            cfm_template["Parameters"][tail.getPrettyName]["Type"] = tail.getCloudType
+            cfm_template["Parameters"][tail.getPrettyName]["Description"] = tail.description if !tail.description.nil? and !tail.description.empty?
+            cfm_template["Parameters"][tail.getPrettyName]["Default"] = tail.to_s if !tail.to_s.nil? and !tail.to_s.empty?
+          else
+            cfm_template["Parameters"][tail.getPrettyName] = {
+              "Type" => tail.getCloudType,
+              "Description" => tail.description,
+              "Default" => default
             }
           end
-          if !data.getCloudType.match(/^List<|^CommaDelimitedList</)
-            cfm_template["Outputs"][data.getPrettyName] = {
-              "Value" => { "Ref" => data.getPrettyName }
+          if !tail.getCloudType.match(/^List<|^CommaDelimitedList</)
+            cfm_template["Outputs"][tail.getPrettyName] = {
+              "Value" => { "Ref" => tail.getPrettyName }
             }
           end
         }
@@ -354,6 +380,21 @@ module MU
                       "Value" =>
                         { "Fn::GetAtt" =>
                           [ resource['#MUOBJECT'].cloudobj.cfm_name, "Endpoint.Address" ]
+                        }
+                    }
+                elsif data[:cfg_name] == "cache_cluster"
+                  cfm_template["Outputs"]["cachecluster"+resource['name']+"endpoint"] =
+                    {
+                      "Value" =>
+                        { "Fn::GetAtt" =>
+                          [ resource['#MUOBJECT'].cloudobj.cfm_name, "ConfigurationEndpoint.Address" ]
+                        }
+                    }
+                  cfm_template["Outputs"]["cachecluster"+resource['name']+"port"] =
+                    {
+                      "Value" =>
+                        { "Fn::GetAtt" =>
+                          [ resource['#MUOBJECT'].cloudobj.cfm_name, "ConfigurationEndpoint.Port" ]
                         }
                     }
                 elsif data[:cfg_name] == "server"
