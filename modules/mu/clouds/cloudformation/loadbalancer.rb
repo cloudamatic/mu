@@ -38,7 +38,7 @@ module MU
           else
             @mu_name = @deploy.getResourceName(@config["name"], max_length: 32, need_unique_string: true)
             @mu_name.gsub!(/[^\-a-z0-9]/i, "-") # AWS ELB naming rules
-            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self)
+            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags'])
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "LoadBalancerName", @mu_name)
           end
         end

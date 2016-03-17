@@ -43,7 +43,7 @@ module MU
               @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
             else
               @mu_name = @deploy.getResourceName(@config['name'])
-              @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self)
+              @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags'])
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "GroupDescription", @mu_name)
             end
           end

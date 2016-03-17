@@ -33,9 +33,17 @@ module MU
       # param type [String]: The resource type, in Mu parlance
       # param cloudobj [MU::Clouds::AWS]: The resource object
       # param name [String]: An alternative name for resources which are not first-class Mu classes with their own objects
-      def self.cloudFormationBase(type, cloudobj = nil, name: nil)
+      def self.cloudFormationBase(type, cloudobj = nil, name: nil, tags: [])
         desc = {}
-        tags = []
+        tags = [] if tags.nil?
+        realtags = []
+        tags.each { |tag|
+          if tag['value'].class.to_s == "MU::Config::Tail"
+            tag['value'] = { "Ref" => "#{tag['value'].getPrettyName}" }
+          end
+          realtags << { "Key" => tag['key'], "Value" => tag['value'] }
+        }
+        tags = realtags
         MU::MommaCat.listStandardTags.each_pair { |key, val|
           next if ["MU-OWNER", "MU-MASTER-IP", "MU-MASTER-NAME"].include?(key)
           if key == "MU-ID"
@@ -84,6 +92,14 @@ module MU
           desc = {
             "Type" => "AWS::EC2::LogGroup",
             "Properties" => {
+            }
+          }
+        when "cache_cluster"
+          desc = {
+            "Type" => "AWS::ElastiCache::CacheCluster",
+            "Properties" => {
+              "Tags" => tags,
+              "VpcSecurityGroupIds" => []
             }
           }
         when "nat"
@@ -235,7 +251,7 @@ module MU
                 if type == "database" and cloudobj.config.has_key?("vpc")
                   desc["Properties"]["VPCSecurityGroups"] << { "Fn::GetAtt" => [(resource_classname+sibling_obj.cloudobj.mu_name).gsub!(/[^a-z0-9]/i, ""), "GroupId"] }
                 else
-                  ["SecurityGroupIds", "SecurityGroups"].each { |key|
+                  ["VpcSecurityGroupIds", "SecurityGroupIds", "SecurityGroups"].each { |key|
                     if desc["Properties"].has_key?(key)
                       desc["Properties"][key] << { "Fn::GetAtt" => [(resource_classname+sibling_obj.cloudobj.mu_name).gsub!(/[^a-z0-9]/i, ""), "GroupId"] }
                     end
@@ -301,10 +317,17 @@ module MU
           }
         end
         tails.each_pair { |param, data|
-          cfm_template["Parameters"][data.getPrettyName] = {
-            "Type" => data.getCloudType,
-            "Default" => data.to_s
-          }
+          if cfm_template["Parameters"].has_key?(data.getPrettyName)
+            cfm_template["Parameters"][data.getPrettyName]["Type"] = data.getCloudType
+            cfm_template["Parameters"][data.getPrettyName]["Description"] = data.description if !data.description.nil? and !data.description.empty?
+            cfm_template["Parameters"][data.getPrettyName]["Default"] = data.to_s if !data.to_s.nil? and !data.to_s.empty?
+          else
+            cfm_template["Parameters"][data.getPrettyName] = {
+              "Type" => data.getCloudType,
+              "Description" => data.description,
+              "Default" => data.to_s
+            }
+          end
           if !data.getCloudType.match(/^List<|^CommaDelimitedList</)
             cfm_template["Outputs"][data.getPrettyName] = {
               "Value" => { "Ref" => data.getPrettyName }

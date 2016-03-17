@@ -104,15 +104,24 @@ module MU
       @value = nil
       @name = nil
       @prettyname = nil
-      def initialize(name, value, prettyname = nil, cloud_type = "String")
+      @description = nil
+      attr_reader :description
+      def initialize(name, value, prettyname = nil, cloud_type = "String", description = "")
         @name = name
         @value = value
         @cloud_type = cloud_type
-        if !prettyname.nil?
-          @prettyname = prettyname
-        else
-          @prettyname = @name
-        end
+        @description ||= 
+          if !description.nil?
+            description
+          else
+            ""
+          end
+        @prettyname ||= 
+          if !prettyname.nil?
+            prettyname
+          else
+            @name.capitalize
+          end
       end
       
       def getName
@@ -140,7 +149,7 @@ module MU
       end
     end
 
-    def getTail(param, value: nil, prettyname: nil, cloud_type: "String")
+    def getTail(param, value: nil, prettyname: nil, cloud_type: "String", description: nil)
       if value.nil?
         if $parameters.nil? or !$parameters.has_key?(param)
           MU.log "Parameter '#{param}' referenced in config but not provided", MU::ERR, details: $parameters
@@ -155,10 +164,11 @@ module MU
       if @@tails.has_key?(param)
         value = @@tails[param].to_s if value.nil?
         prettyname = @@tails[param].getPrettyName if prettyname.nil?
+        description = @@tails[param].description if description.nil?
         cloud_type = @@tails[param].getCloudType if @@tails[param].getCloudType != "String"
       end
 
-      tail = MU::Config::Tail.new(param, value, prettyname, cloud_type)
+      tail = MU::Config::Tail.new(param, value, prettyname, cloud_type, description)
       @@tails[param] = tail
       tail
     end
@@ -258,9 +268,9 @@ module MU
               ok = false
             end
             if param.has_key?("cloudtype")
-              getTail(param['name'], value: @@parameters[param['name']], cloud_type: param["cloudtype"])
+              getTail(param['name'], value: @@parameters[param['name']], cloud_type: param["cloudtype"], description: param['description'], prettyname: param['prettyname'])
             else
-              getTail(param['name'], value: @@parameters[param['name']])
+              getTail(param['name'], value: @@parameters[param['name']], description: param['description'], prettyname: param['prettyname'])
             end
           end
         }
@@ -2006,7 +2016,7 @@ module MU
         end
 
         if cluster["node_count"] > 1 && !cluster["multi_az"]
-          MU.log "node_count is set to #{cluster["node_count"]} but multi_az is disbaled. either set multi_az to true or set node_count to 1", MU::ERR
+          MU.log "node_count is set to #{cluster["node_count"]} but multi_az is disabled. either set multi_az to true or set node_count to 1", MU::ERR
           ok = false
         end
 
@@ -2838,7 +2848,7 @@ module MU
 
     @ec2_size_primitive = {
         # XXX maybe we shouldn't validate this, but it makes a good example
-        "pattern" => "^(t|m|c|i|g|r|hi|hs|cr|cg|cc){1,2}[0-9]\\.(micro|small|medium|[248]?x?large)$",
+        "pattern" => "^(t|m|c|i|g|r|hi|hs|cr|cg|cc){1,2}[0-9]\\.(nano|micro|small|medium|[248]?x?large)$",
         "description" => "The Amazon EC2 instance type to use when creating this server.",
         "type" => "string"
     }
@@ -4650,6 +4660,8 @@ module MU
                     "properties" => {
                         "name" => {"required" => true},
                         "default" => {"type" => "string"},
+                        "prettyname" => {"type" => "string"},
+                        "description" => {"type" => "string"},
                         "cloudtype" => {
                           "type" => "string",
                           "description" => "A platform-specific string describing the type of validation to use for this parameter. E.g. when generating a CloudFormation template, set to AWS::EC2::Image::Id to validate input as an AMI identifier."

@@ -50,7 +50,7 @@ module MU
               end
 
             @mu_name.gsub(/(--|-$)/i, "").gsub(/(_)/, "-").gsub!(/^[^a-z]/i, "")
-            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self)
+            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags'])
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBInstanceClass", @config['size'])
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "AllocatedStorage", @config['storage'].to_s)
           end
@@ -99,7 +99,7 @@ module MU
           end
 
           if @config["vpc"]
-            subnets_name, subnets_template = MU::Cloud::CloudFormation.cloudFormationBase("dbsubnetgroup", name: @mu_name)
+            subnets_name, subnets_template = MU::Cloud::CloudFormation.cloudFormationBase("dbsubnetgroup", name: @mu_name, tags: @config['tags'])
             MU::Cloud::CloudFormation.setCloudFormationProp(subnets_template[subnets_name], "DBSubnetGroupDescription", @mu_name)
             if !@config["vpc"]["subnets"].nil? and @config["vpc"]["subnets"].size > 0
               @config["vpc"]["subnets"].each { |subnet|

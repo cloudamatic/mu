@@ -40,7 +40,7 @@ module MU
             loadSubnets if !@cloud_id.nil?
           else
             @mu_name = @deploy.getResourceName(@config['name'])
-            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self)
+            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags'])
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "CidrBlock", @config['ip_block'])
           end
 
@@ -59,7 +59,7 @@ module MU
 
           igw_name = attach_name = nil
           if @config['create_internet_gateway']
-            igw_name, igw_template = MU::Cloud::CloudFormation.cloudFormationBase("igw", name: @mu_name)
+            igw_name, igw_template = MU::Cloud::CloudFormation.cloudFormationBase("igw", name: @mu_name, tags: @config['tags'])
             attach_name, attach_template = MU::Cloud::CloudFormation.cloudFormationBase("vpcgwattach", name: @mu_name)
             MU::Cloud::CloudFormation.setCloudFormationProp(attach_template[attach_name], "DependsOn", igw_name)
             MU::Cloud::CloudFormation.setCloudFormationProp(attach_template[attach_name], "DependsOn", @cfm_name)
@@ -74,7 +74,7 @@ module MU
           route_needs_nat = {}
           if !@config['route_tables'].nil?
             @config['route_tables'].each { |rtb|
-              rtb_name, rtb_template = MU::Cloud::CloudFormation.cloudFormationBase("rtb", name: rtb['name']+@config['name'])
+              rtb_name, rtb_template = MU::Cloud::CloudFormation.cloudFormationBase("rtb", name: rtb['name']+@config['name'], tags: @config['tags'])
               rtb_map[rtb['name']] = rtb_name
               MU::Cloud::CloudFormation.setCloudFormationProp(rtb_template[rtb_name], "VpcId", { "Ref" => @cfm_name })
               MU::Cloud::CloudFormation.setCloudFormationProp(rtb_template[rtb_name], "DependsOn", @cfm_name)
@@ -229,7 +229,7 @@ module MU
             @name = config['name']
             @deploydata = config # This is a dummy for the sake of describe()
 
-            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("subnet", self)
+            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("subnet", self, tags: @config['tags'])
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "VpcId", { "Ref" => parent.cfm_name })
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", parent.cfm_name)
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "CidrBlock", config['ip_block'])
