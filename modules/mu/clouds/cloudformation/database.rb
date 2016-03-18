@@ -50,9 +50,6 @@ module MU
               end
 
             @mu_name.gsub(/(--|-$)/i, "").gsub(/(_)/, "-").gsub!(/^[^a-z]/i, "")
-            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags'])
-            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBInstanceClass", @config['size'])
-            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "AllocatedStorage", @config['storage'].to_s)
           end
         end
 
@@ -61,6 +58,9 @@ module MU
         end
 
         def create
+          @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags']) if @cfm_template.nil?
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBInstanceClass", @config['size'])
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "AllocatedStorage", @config['storage'].to_s)
           # RDS is picky, we can't just use our regular node names for things like
           # the default schema or username. And it varies from engine to engine.
           basename = @config["name"]+@deploy.timestamp+MU.seed.downcase

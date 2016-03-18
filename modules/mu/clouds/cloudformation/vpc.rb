@@ -40,8 +40,6 @@ module MU
             loadSubnets if !@cloud_id.nil?
           else
             @mu_name = @deploy.getResourceName(@config['name'])
-            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags'])
-            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "CidrBlock", @config['ip_block'])
           end
 
         end
@@ -49,6 +47,8 @@ module MU
         # Populate @cfm_template with a resource description for this VPC
         # in CloudFormation language.
         def create
+          @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags']) if @cfm_template.nil?
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "CidrBlock", @config['ip_block'])
           ["enable_dns_support", "enable_dns_hostnames"].each { |arg|
             if !@config[arg].nil?
               key = ""

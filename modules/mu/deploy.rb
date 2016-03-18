@@ -427,6 +427,7 @@ MESSAGE_END
       return if services.nil?
 
       parent_thread_id = Thread.current.object_id
+      services.uniq!
       services.each do |service|
         @my_threads << Thread.new(service) { |myservice|
           MU.dupGlobals(parent_thread_id)

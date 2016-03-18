@@ -427,12 +427,6 @@ module MU
             MU.log "#{self} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR
           end
 
-          # Resolve dependencies so they're available in initialize(), unless
-          # we're just reloading an already-extant object.
-          if cloud_id.nil? and mu_name.nil?
-            @cloudobj.dependencies
-          end
-
         end
 
         # Remove all metadata and cloud resources associated with this object

@@ -44,17 +44,18 @@ module MU
 
             @mu_name.gsub!(/(--|-$)/i, "")
 
-            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags'])
-            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "ClusterName", @mu_name)
-            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Engine", @config['engine'])
-            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "CacheNodeType", @config['size'])
-            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "NumCacheNodes", @config['node_count'].to_s)
           end
         end
 
         # Populate @cfm_template with a resource description for this cache
         # cluster in CloudFormation language.
         def create
+          @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags']) if @cfm_template.nil?
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "ClusterName", @mu_name)
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Engine", @config['engine'])
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "CacheNodeType", @config['size'])
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "NumCacheNodes", @config['node_count'].to_s)
+
           if !@config['vpc'].nil?
             subnets_name, subnets_template = MU::Cloud::CloudFormation.cloudFormationBase("cache_subnets", name: @mu_name)
             if !@config['vpc']['subnets'].nil?

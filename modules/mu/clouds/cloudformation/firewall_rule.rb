@@ -43,14 +43,14 @@ module MU
               @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
             else
               @mu_name = @deploy.getResourceName(@config['name'])
-              @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags'])
-              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "GroupDescription", @mu_name)
             end
           end
 
         end
 
         def create
+          @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags']) if @cfm_template.nil?
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "GroupDescription", @mu_name)
           if !@config['vpc'].nil? and !@config['vpc']['vpc_id'].nil?
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "VpcId", @config['vpc']['vpc_id'])
           elsif @dependencies.has_key?("vpc") and !@config["vpc"]["vpc_name"].nil? and @dependencies["vpc"].has_key?(@config["vpc"]["vpc_name"])

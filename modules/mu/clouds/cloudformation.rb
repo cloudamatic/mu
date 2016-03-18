@@ -277,7 +277,7 @@ module MU
       end
 
       def self.setCloudFormationProp(resource, name, value)
-        realvalue = value.dup
+        realvalue = value
         is_list_element = false
         if value.class.to_s == "MU::Config::Tail"
           if value.is_list_element

@@ -37,17 +37,17 @@ module MU
             @mu_name = mu_name
           else
             @mu_name = @deploy.getResourceName(@config['name'])
-            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags'])
-            @cfm_launch_name, launch_template = MU::Cloud::CloudFormation.cloudFormationBase("launch_config", self)
-            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "LaunchConfigurationName", { "Ref" => @cfm_launch_name } )
-            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @cfm_launch_name)
-            @cfm_template.merge!(launch_template)
           end
         end
 
         # Populate @cfm_template with a resource description for this server
         # pool in CloudFormation language.
         def create
+          @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags']) if @cfm_template.nil?
+          @cfm_launch_name, launch_template = MU::Cloud::CloudFormation.cloudFormationBase("launch_config", self)
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "LaunchConfigurationName", { "Ref" => @cfm_launch_name } )
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @cfm_launch_name)
+          @cfm_template.merge!(launch_template)
 
           @config["cooldown"] = @config["default_cooldown"]
           ["min_size", "max_size", "cooldown", "desired_capacity", "health_check_type", "health_check_grace_period"].each { |arg|

@@ -1044,6 +1044,7 @@ module MU
         calling_deploy: MU.mommacat,
         dummy_ok: false
     )
+      return nil if cloud == "CloudFormation" and !cloud_id.nil?
       begin
         deploy_id = deploy_id.to_s if deploy_id.class.to_s == "MU::Config::Tail"
         name = name.to_s if name.class.to_s == "MU::Config::Tail"

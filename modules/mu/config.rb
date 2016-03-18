@@ -277,6 +277,7 @@ module MU
       raise ValidationError if !ok
 
       # Run our input through the ERB renderer, a first pass without parameters.
+      # XXX figure out how to make include() add parameters for us
       tmp_cfg, raw_erb_sans_params = resolveConfig(path: @@config_path)
 
       if tmp_cfg.has_key?("parameters") and !tmp_cfg["parameters"].nil? and tmp_cfg["parameters"].size > 0
@@ -655,7 +656,8 @@ module MU
       if !is_sibling
         begin
 
-          found = MU::MommaCat.findStray(
+          if vpc_block['cloud'] != "CloudFormation"
+            found = MU::MommaCat.findStray(
               vpc_block['cloud'],
               "vpc",
               deploy_id: vpc_block["deploy_id"],
@@ -665,8 +667,9 @@ module MU
               tag_value: tag_value,
               region: vpc_block["region"],
               dummy_ok: true
-          )
-          ext_vpc = found.first if found.size == 1
+            )
+            ext_vpc = found.first if found.size == 1
+          end
         rescue Exception => e
           raise MuError, e.inspect, e.backtrace
         ensure
@@ -2323,8 +2326,12 @@ module MU
         server["dependencies"].uniq!
       }
 
+      seen = []
+      # XXX seem to be not detecting duplicate admin firewall_rules in genAdminFirewallRuleset
       @admin_firewall_rules.each { |acl|
+        next if seen.include?(acl['name'])
         firewall_rules << resolveFirewall.call(acl)
+        seen << acl['name']
       }
 
       config['firewall_rules'] = firewall_rules
