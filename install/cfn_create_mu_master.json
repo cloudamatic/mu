@@ -4,7 +4,7 @@
   "Parameters": {
     "MasterAMIId": {
       "Description": "AMI for Cloudamatic Server, e.g. ami-b3e2c7d9.  See amazon_images.yaml for latest CentOS6",
-      "Type": "String",
+      "Type": "AWS::EC2::Image::Id",
       "MinLength": "0",
       "MaxLength": "255"
     },
@@ -23,7 +23,7 @@
     },
     "KeyName": {
       "Description": "Name of an existing EC2 KeyPair to enable SSH access to Cloudamatic Server",
-      "Type": "String",
+      "Type": "AWS::EC2::KeyPair::KeyName",
       "MinLength": "1",
       "MaxLength": "64",
       "AllowedPattern": "[-_ a-zA-Z.@0-9]*",
@@ -108,12 +108,12 @@
     },
     "AvailabilityZone1": {
       "Description": "First AZ to use for Cloudamatic Server and public subnet.",
-      "Type": "String",
+      "Type": "AWS::EC2::AvailabilityZone::Name",
       "Default": "us-east-1c"
     },
     "AvailabilityZone2": {
       "Description": "Second AZ to use for private subnet 2",
-      "Type": "String",
+      "Type": "AWS::EC2::AvailabilityZone::Name",
       "Default": "us-east-1b"
     }
   },
