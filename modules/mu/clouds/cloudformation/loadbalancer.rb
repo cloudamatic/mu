@@ -74,7 +74,9 @@ module MU
               "Protocol" => listener['lb_protocol']
             }
             if !listener['ssl_certificate_id'].nil?
-              prop["SSLCertificateId"] = listener['ssl_certificate_id'] # XXX resolve ssl_certificate_name if we get that instead
+              prop["SSLCertificateId"] = listener['ssl_certificate_id']
+            elsif !listener['ssl_certificate_name'].nil?
+              raise "Cannot use ssl_certificate_name when targeting CloudFormation, bust use ssl_certificate_id with full ARN"
             end
             MU::Cloud::CloudFormation.setCloudFormationProp(
               @cfm_template[@cfm_name],
