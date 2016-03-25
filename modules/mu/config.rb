@@ -1718,8 +1718,13 @@ module MU
           end
         end
 
+        if !db["storage"].nil? and db["creation_style"] = "new"
+          MU.log "Must provide a value for 'storage' when creating a new database.", MU::ERR
+          ok = false
+        end
+
         # Adding rules for Database instance storage. This varies depending on storage type and database type. 
-        if db["storage_type"] == "standard" or db["storage_type"] == "gp2"
+        if !db["storage"].nil? and (db["storage_type"] == "standard" or db["storage_type"] == "gp2")
           if db["engine"] == "postgres" or db["engine"] == "mysql"
             if !(5..6144).include? db["storage"]
               MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 5 to 6144 GB for #{db["storage_type"]} volume types", MU::ERR
