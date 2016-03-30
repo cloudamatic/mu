@@ -26,6 +26,7 @@ case node.platform
     package "sssd"
     package "sssd-ldap"
     package "sssd-ad"
+    package "authconfig"
     package "nss-pam-ldapd" do
       action :remove
     end
@@ -70,13 +71,12 @@ case node.platform
         not_if "grep #{ip} /etc/resolv.conf"
       end
     }
-    execute "echo -n '#{domain_creds[node.ad.join_auth[:password_field]]}' | /usr/sbin/adcli join #{node.ad.domain_name} -U #{domain_creds[node.ad.join_auth[:username_field]]} --stdin-password" do
-      not_if { ::File.exists?("/etc/krb5.keytab") }
-    end
     service "sssd" do
       action :nothing
       notifies :restart, "service[sshd]", :immediately
+      only_if { ::File.exists?("/etc/krb5.keytab") }
     end
+    directory "/etc/sssd"
     template "/etc/sssd/sssd.conf" do
       source "sssd.conf.erb"
       mode 0600
@@ -89,9 +89,12 @@ case node.platform
         :dcs => node.ad.dc_ips
       )
     end
-    service "sssd" do
-      action [:enable, :start]
-      notifies :restart, "service[sshd]", :immediately
+    # If adcli fails mysteriously, look for bogus /etc/hosts entries pointing
+    # to your DCs. It seems to dumbly trust any reverse mapping it sees,
+    # whether or not the name matches the actual Kerberos tickets you et.
+    execute "echo -n '#{domain_creds[node.ad.join_auth[:password_field]]}' | /usr/sbin/adcli join #{node.ad.domain_name} --domain-realm=#{node.ad.domain_name.upcase} -U #{domain_creds[node.ad.join_auth[:username_field]]} --stdin-password" do
+      not_if { ::File.exists?("/etc/krb5.keytab") }
+      notifies :restart, "service[sssd]", :immediately
     end
 
   else
