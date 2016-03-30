@@ -1,26 +1,14 @@
 #%PAM-1.0
-auth        required      pam_env.so
 auth        required      pam_faillock.so preauth audit silent deny=<%= node.sec.accnt_lckout %> unlock_time=<%= node.sec.accnt_lckout_duration %>
-auth        [success=1 default=bad] pam_unix.so
+account     include       system-auth-ac
 auth        [default=die] pam_faillock.so authfail audit deny=<%= node.sec.accnt_lckout %> unlock_time=<%= node.sec.accnt_lckout_duration %>
 auth        sufficient    pam_faillock.so authsucc audit deny=<%= node.sec.accnt_lckout %> unlock_time=<%= node.sec.accnt_lckout_duration %>
-auth        sufficient    pam_sss.so use_first_pass
-auth        required      pam_deny.so
 
-account     required      pam_unix.so
-account     sufficient    pam_localuser.so
-account     sufficient    pam_succeed_if.so uid < 500 quiet
-account     [default=bad success=ok user_unknown=ignore] pam_sss.so
-account     required      pam_permit.so
+account     required      pam_faillock.so
+account     include       system-auth-ac
 
 password    requisite     pam_cracklib.so try_first_pass retry=<%= node.sec.pwd.retry %> minlen=<%= node.sec.pwd.min_length %> dcredit=<%= node.sec.pwd.numeric %> ucredit=<%= node.sec.pwd.uppercase %> ocredit=<%= node.sec.pwd.special %> lcredit=<%= node.sec.pwd.lowercase %>
-password    sufficient    pam_unix.so sha512 shadow try_first_pass use_authtok
-password    required      pam_deny.so
-password    sufficient    pam_sss.so use_authtok
+account     include       system-auth-ac
 password    sufficient    pam_unix.so remember=<%= node.sec.pwd.remember %>
 
-session     optional      pam_keyinit.so revoke
-session     required      pam_limits.so
-session     [success=1 default=ignore] pam_succeed_if.so service in crond quiet use_uid
-session     required      pam_unix.so
-session     optional      pam_sss.so
+session     include       system-auth-ac
