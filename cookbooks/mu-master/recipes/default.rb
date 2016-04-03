@@ -66,6 +66,7 @@ if !node.update_nagios_only
       execute "/usr/sbin/authconfig --disablenis --disablecache --disablewinbind --disablewinbindauth --enablemkhomedir --disablekrb5 --enablesssd --enablesssdauth --enablelocauthorize --disableforcelegacy --disableldap --disableldapauth --updateall" do
         notifies :restart, "service[oddjobd]", :immediately
         notifies :reload, "service[sshd]", :delayed
+        not_if "grep pam_sss.so /etc/pam.d/password-auth"
       end
       service "sssd" do
         action :nothing
@@ -302,7 +303,8 @@ if !node.update_nagios_only
       not_if "grep '^#{mu_user}: #{data['email']}$' /etc/aliases"
     end
   }
-  execute "/usr/bin/newaliases"
+
+  # execute "/usr/bin/newaliases"
 
   include_recipe "mu-tools::aws_api"
 
@@ -315,6 +317,7 @@ if !node.update_nagios_only
         result = attach_node_volume("logs")
       end
     end
+    not_if "grep #{node.application_attributes.logs.mount_directory} /etc/mtab"
     notifies :restart, "service[rsyslog]", :delayed
   end
 
@@ -356,6 +359,7 @@ if !node.update_nagios_only
       end
     end
     notifies :restart, "service[rsyslog]", :delayed
+    not_if "grep #{node.application_attributes.logs.mount_directory} /etc/mtab"
   end
 
   ruby_block "label #{node.application_attributes.logs.mount_device} as #{node.application_attributes.logs.label}" do

@@ -18,7 +18,7 @@
 #
 # Install the EPEL yum repository for CentOS.
 #
-case node[:platform]
-  when "centos"
-    include_recipe "yum-epel"
+case node.platform
+when "centos", "redhat"
+  include_recipe "yum-epel"
 end

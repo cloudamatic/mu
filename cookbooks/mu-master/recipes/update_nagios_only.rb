@@ -89,7 +89,7 @@ Dir.glob("/usr/lib/cgi-bin/*.cgi").each { |script|
   end
 }
 
-["/usr/lib/nagios", "/etc/nagios", "/etc/nagios3", "/var/log/nagios", "/var/www/html/docs"].each { |dir|
+["/usr/lib/nagios", "/etc/nagios", "/etc/nagios3", "/var/www/html/docs"].each { |dir|
   if Dir.exist?(dir)
     execute "chcon -R -h -t httpd_sys_content_t #{dir}" do
       not_if "ls -aZ #{dir} | grep ':httpd_sys_content_t:'"
@@ -113,7 +113,7 @@ if File.exist?("/usr/lib64/nagios/plugins/check_nagios")
   end
 end
 
-execute "chgrp apache /var/log/nagios"
+# execute "chgrp apache /var/log/nagios"
 
 # The Nagios cookbook currently screws up this setting, so work around it.
 execute "sed -i s/^interval_length=.*/interval_length=1/ || echo 'interval_length=1' >> /etc/nagios/nagios.cfg" do

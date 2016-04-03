@@ -4,7 +4,6 @@
   "json_class": "Chef::Role",
   "run_list": [
     "recipe[mu-tools::base_repositories]",
-    "recipe[mu-tools::maldet]",
     "recipe[mu-master]"
   ],
   "description": "Run List for Mu master servers",

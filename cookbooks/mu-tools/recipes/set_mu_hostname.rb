@@ -41,8 +41,11 @@ case node[:platform]
     end
 
     if node.platform_version.to_i == 7
-      # nah, stil not saved across reboots. cloud-init needs to be configured to keep the hostname
-      include_recipe "mu-utility::cloudinit"
+      execute "sed -i '/ssh_pwauth/a preserve_hostname: true' /etc/cloud/cloud.cfg" do
+        not_if "grep 'preserve_hostname: true' /etc/cloud/cloud.cfg"
+      end
+      
+      # include_recipe "mu-utility::cloudinit"
 
       execute "hostnamectl set-hostname #{$hostname} && systemctl restart systemd-hostnamed" do
         # not_if "hostnamectl | grep Static | grep #{$hostname.downcase}"
