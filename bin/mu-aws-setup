@@ -121,7 +121,9 @@ if instance.public_ip_address != preferred_ip and !preferred_ip.nil? and !prefer
   else
     is_private = false
     if !instance.vpc_id.nil?
-      is_private = MU::VPC.isSubnetPrivate?(instance.subnet_id)
+      # Fix this to actually verify the subnet is private
+      is_private = true if instance.public_ip_address.nil? && instance.public_dns_name.empty?
+      # is_private = MU::VPC.isSubnetPrivate?(instance.subnet_id)
       public_ip = MU::Cloud::AWS::Server.findFreeElasticIp if !is_private
     else
       public_ip = MU::Cloud::AWS::Server.findFreeElasticIp(classic: true)
