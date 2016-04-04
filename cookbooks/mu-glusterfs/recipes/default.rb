@@ -20,7 +20,7 @@ case node[:platform]
     yum_repository "glusterfs-samba" do
       description 'Glusterfs Samba repo'
       url "http://download.gluster.org/pub/gluster/glusterfs/samba/EPEL.repo/epel-$releasever/$basearch/"
-      enabled true
+      enabled false
       gpgkey "http://download.gluster.org/pub/gluster/glusterfs/samba/EPEL.repo/pub.key"
     end
 

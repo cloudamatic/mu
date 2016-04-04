@@ -235,12 +235,20 @@ export TMOUT
     #		end
     # 6.3 Configure PAM
     # 6.3.2 Set Password Creation Requirement Parameters Using pam_cracklib
-    template "/etc/pam.d/password-auth" do
+    template "/etc/pam.d/password-auth-local" do
       source "etc_pamd_password-auth.erb"
+      mode 0644
+    end
+    link "/etc/pam.d/password-auth" do
+      to "/etc/pam.d/password-auth-local"
     end
     #6.3.3 Set Lockout for Failed Password Attempts
-    template "/etc/pam.d/system-auth" do
+    template "/etc/pam.d/system-auth-local" do
       source "etc_pamd_system-auth.erb"
+      mode 0644
+    end
+    link "/etc/pam.d/system-auth" do
+      to "/etc/pam.d/system-auth-local"
     end
 
     #SV-50303r1_rule/SV-50304r1_rule

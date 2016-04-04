@@ -777,21 +777,23 @@ module MU
           # Discard the nat_cloud_id if it's an AWS instance ID
           nat_cloud_id = nil if nat_cloud_id && nat_cloud_id.start_with?("i-")
 
-          gateways = 
-            if nat_cloud_id
-              MU::Cloud::AWS.ec2(region).describe_nat_gateways(nat_gateway_ids: [nat_cloud_id])
-            elsif nat_filter_key && nat_filter_value
-              MU::Cloud::AWS.ec2(region).describe_nat_gateways(
-                filter: [
-                  {
-                    name: nat_filter_key,
-                    values: [nat_filter_value]
-                  }
-                ]
-              ).nat_gateways
+          if @gateways.nil?
+            @gateways = 
+              if nat_cloud_id
+                MU::Cloud::AWS.ec2(region).describe_nat_gateways(nat_gateway_ids: [nat_cloud_id])
+              elsif nat_filter_key && nat_filter_value
+                MU::Cloud::AWS.ec2(region).describe_nat_gateways(
+                  filter: [
+                    {
+                      name: nat_filter_key,
+                      values: [nat_filter_value]
+                    }
+                  ]
+                ).nat_gateways
+              end
             end
             
-            gateways ? gateways.first : nil
+            @gateways ? @gateways.first : nil
         end
 
         # Given some search criteria for a {MU::Cloud::Server}, see if we can

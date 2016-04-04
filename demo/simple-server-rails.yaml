@@ -13,7 +13,6 @@ servers:
     storage:
       -
         size: 15
-    ami-id: ami-498f4e22
     skipinitialupdates: true
     run_list:
       - "recipe[demo::rails]"

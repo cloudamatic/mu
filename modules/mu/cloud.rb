@@ -598,25 +598,24 @@ module MU
               @config['vpc'].has_key?("nat_host_tag") or
               @config['vpc'].has_key?("nat_host_ip") or
               @config['vpc'].has_key?("nat_host_name")
-              )
+            )
 
               nat_tag_key, nat_tag_value = @config['vpc']['nat_host_tag'].split(/=/, 2) if !@config['vpc']['nat_host_tag'].nil?
 
-              # Try to see if we have a NAT Gateway, if not find our NAT Instance 
-              @nat = @vpc.findNat(
+              @nat = @vpc.findBastion(
+                nat_name: @config['vpc']['nat_host_name'],
                 nat_cloud_id: @config['vpc']['nat_host_id'],
-                nat_filter_key: "vpc-id",
-                region: @config['vpc']["region"],
-                nat_filter_value: @vpc.cloud_desc.vpc_id
+                nat_tag_key: nat_tag_key,
+                nat_tag_value: nat_tag_value,
+                nat_ip: @config['vpc']['nat_host_ip']
               )
 
               if @nat.nil?
-                @nat = @vpc.findBastion(
-                  nat_name: @config['vpc']['nat_host_name'],
+                @nat = @vpc.findNat(
                   nat_cloud_id: @config['vpc']['nat_host_id'],
-                  nat_tag_key: nat_tag_key,
-                  nat_tag_value: nat_tag_value,
-                  nat_ip: @config['vpc']['nat_host_ip']
+                  nat_filter_key: "vpc-id",
+                  region: @config['vpc']["region"],
+                  nat_filter_value: @vpc.cloud_desc.vpc_id
                 )
               end
             end
