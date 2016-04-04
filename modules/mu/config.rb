@@ -1401,6 +1401,10 @@ module MU
         acl['rules'].each { |rule|
           if !rule['sgs'].nil?
             rule['sgs'].each { |sg_name|
+              if sg_name == acl['name']
+                acl['self_referencing'] = true
+                next
+              end
               if firewall_rule_names.include?(sg_name)
                 acl["dependencies"] << {
                     "type" => "firewall_rule",
