@@ -1657,7 +1657,7 @@ set_permissions()
   fix_platform_repo_permissions "$MU_LIBDIR"
   if [ "$1" != "skip_rubies" ] ;then
     /sbin/restorecon -r /home
-    for rubydir in /opt/opscode/embedded /opt/chef/embedded /opt/rubies;do
+    for rubydir in /opt/opscode/embedded /opt/chef/embedded `find /opt/rubies -maxdepth 1 -mindepth 1 -type d`;do
       find $rubydir/lib/ruby/gems -type f -exec chmod o+r {} \;
       find $rubydir/lib/ruby/gems -type d -exec chmod o+rx {} \;
     done
