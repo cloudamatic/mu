@@ -98,6 +98,7 @@ if $opts[:dryrun]
     verbosity: MU::Logger::QUIET,
     force_cloudformation: true,
     cloudformation_path: "/dev/null",
+    nocleanup: true,
     stack_conf: stack_conf
   )
   cost_dummy_deploy.run

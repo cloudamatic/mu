@@ -253,6 +253,7 @@ module MU
         if !cloudobj.nil? and cloudobj.respond_to?(:dependencies) and type != "subnet"
           cloudobj.dependencies(use_cache: true).first.each_pair { |resource_classname, resources|
             resources.each_pair { |sibling_name, sibling_obj|
+              next if sibling_obj == cloudobj
               desc["DependsOn"] << (resource_classname+sibling_obj.cloudobj.mu_name).gsub!(/[^a-z0-9]/i, "")
               # Common resource-specific references to dependencies
               if resource_classname == "firewall_rule"
@@ -448,12 +449,23 @@ module MU
         begin
           # XXX don't assume MU.deploy_id is actually set
           cfm_template["Parameters"]["SSHKeyName"]["Default"] = "deploy-"+MU.deploy_id
+          # Strip out userdata scripts. No bearing on cost, and they tend to
+          # make templates enormous.
+          cfm_template["Resources"].each_value { |res|
+            if res.has_key?("Properties") and res["Properties"].has_key?("UserData")
+              res["Properties"].delete("UserData")
+            end
+          }
           resp = MU::Cloud::AWS.cloudformation.estimate_template_cost(
             template_body: JSON.generate(cfm_template)
           )
           MU.log "Review estimated monthly cost for AWS resources in this stack: #{resp.url}", MU::NOTICE
         rescue Aws::CloudFormation::Errors::ValidationError => e
-          MU.log "Unable to calculate resource costs: #{e.inspect}", MU::WARN
+          if !e.message.match(/Member must have length less than or equal to 51200/)
+            MU.log "Unable to calculate resource costs: #{e.message}", MU::WARN
+          else
+            MU.log "Unable to calculate resource costs: deployment too complex to convert to CloudFormation template.", MU::WARN
+          end
         end
 
       end

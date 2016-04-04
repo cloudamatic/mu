@@ -105,11 +105,13 @@ module MU
       @name = nil
       @prettyname = nil
       @description = nil
+      @prefix = ""
+      @suffix = ""
       @is_list_element = false
       attr_reader :description
       attr_reader :is_list_element
 
-      def initialize(name, value, prettyname = nil, cloud_type = "String", description = "", is_list_element = false)
+      def initialize(name, value, prettyname = nil, cloud_type = "String", description = "", is_list_element = false, prefix: "", suffix: "")
         @name = name
         @value = value
         @cloud_type = cloud_type
@@ -124,8 +126,10 @@ module MU
           if !prettyname.nil?
             prettyname
           else
-            @name.capitalize
+            @name.capitalize.gsub(/[^a-z0-9]/i, "")
           end
+        @prefix = prefix if !prefix.nil?
+        @suffix = suffix if !suffix.nil?
       end
       
       def getName
@@ -139,21 +143,31 @@ module MU
       end
       # Walk like a String
       def to_s
-        @value
+        @prefix+@value+@suffix
       end
       # Quack like a String
       def to_str
-        @value
+        to_s
       end
+      # Upcase like a String
       def upcase
-        @value.upcase
+        to_s.upcase
       end
+      # Downcase like a String
       def downcase
-        @value.downcase
+        to_s.downcase
+      end
+      # Check for quality like a String
+      def ==(o)
+        (o.class == self.class or o.class == "String") && o.to_s == to_s
+      end
+      # Perform global substitutions like a String
+      def gsub(*args)
+        to_s.gsub(*args)
       end
     end
 
-    def getTail(param, value: nil, prettyname: nil, cloud_type: "String", description: nil, list_of: nil)
+    def getTail(param, value: nil, prettyname: nil, cloud_type: "String", description: nil, list_of: nil, prefix: "", suffix: "")
       if value.nil?
         if $parameters.nil? or !$parameters.has_key?(param)
           MU.log "Parameter '#{param}' referenced in config but not provided", MU::ERR, details: $parameters
@@ -188,7 +202,7 @@ module MU
           cloud_type = @@tails[param].getCloudType if @@tails[param].getCloudType != "String"
         end
 
-        tail = MU::Config::Tail.new(param, value, prettyname, cloud_type, description)
+        tail = MU::Config::Tail.new(param, value, prettyname, cloud_type, description, prefix: prefix, suffix: suffix)
       end
       @@tails[param] = tail
       tail
@@ -198,8 +212,10 @@ module MU
     # externally-supplied parameters.
     def resolveConfig(path: @@config_path)
       config = nil
+# XXX this is a placeholder until we've gone through the parameters array
       def method_missing(var_name)
-        "<%= getTail('#{var_name}') %>"
+#        "<%= getTail('#{var_name}') %>"
+        "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
       end
 
       # Figure out what kind of file we're loading. We handle includes 
@@ -237,6 +253,7 @@ module MU
         end
         raise ValidationError
       end
+
       return [MU::Config.fixDashes(config), raw_text]
     end
 
@@ -268,6 +285,7 @@ module MU
           raise DeployParamError, "Parameter values cannot contain quotes" if value.match(/["']/)
           eval("defined? $#{name} and raise DeployParamError, 'Parameter name reserved'")
           @@parameters[name] = value
+          eval("$#{name}='#{value}'") # support old-style $global parameter refs
           MU.log "Passing variable $#{name} into #{@@config_path} with value '#{value}'"
         rescue RuntimeError, SyntaxError => e
           ok = false
@@ -321,8 +339,8 @@ module MU
           tree.each { |item|
             item = resolveTails(item, indent+" ")
           }
-        elsif tree.is_a?(String) and tree.match(/^<%= getTail\('(.+)'\) %>$/)
-          tree = getTail($1)
+        elsif tree.is_a?(String) and tree.match(/^(.*?)MU::Config.getTail PLACEHOLDER (.+?) REDLOHECALP(.*)/)
+          tree = getTail($2, prefix: $1, suffix: $3)
         end
         return tree
       end
@@ -678,7 +696,7 @@ module MU
             return false
           elsif !vpc_block["vpc_id"]
             MU.log "Resolved VPC to #{ext_vpc.cloud_id} in #{parent_name}", MU::DEBUG, details: vpc_block
-            vpc_block["vpc_id"] = getTail("vpc_id", value: ext_vpc.cloud_id, prettyname: "#{parent_name} Target VPC", cloud_type: "AWS::EC2::VPC::Id")
+            vpc_block["vpc_id"] = getTail("#{parent_name} Target VPC", value: ext_vpc.cloud_id, prettyname: "#{parent_name} Target VPC", cloud_type: "AWS::EC2::VPC::Id")
           end
         end
 
@@ -771,7 +789,7 @@ module MU
             honor_subnet_prefs=false
           end
           if !subnet['subnet_id'].nil? and subnet['subnet_id'].is_a?(String)
-            subnet['subnet_id'] << getTail("subnet_id", value: subnet['subnet_id'], prettyname: "Subnet #{count} for #{parent_name}", cloud_type: "AWS::EC2::Subnet::Id")
+            subnet['subnet_id'] << getTail("Subnet #{count} for #{parent_name}", value: subnet['subnet_id'], prettyname: "Subnet #{count} for #{parent_name}", cloud_type: "AWS::EC2::Subnet::Id")
           end
         }
       elsif (vpc_block['subnet_name'] or vpc_block['subnet_id'])
@@ -789,12 +807,12 @@ module MU
           ext_vpc.subnets.each { |subnet|
             if subnet.private?
 #              private_subnets << { "subnet_id" => subnet.cloud_id }
-              private_subnets << { "subnet_id" => getTail("subnet_id", value: subnet.cloud_id, prettyname: "#{parent_name} Private Subnet #{priv}",  cloud_type:  "AWS::EC2::Subnet::Id") }
+              private_subnets << { "subnet_id" => getTail("#{parent_name} Private Subnet #{priv}", value: subnet.cloud_id, prettyname: "#{parent_name} Private Subnet #{priv}",  cloud_type:  "AWS::EC2::Subnet::Id") }
               private_subnets_map[subnet.cloud_id] = subnet
               priv = priv + 1
             else
 #              public_subnets << { "subnet_id" => subnet.cloud_id }
-              public_subnets << { "subnet_id" => getTail("subnet_id", value: subnet.cloud_id, prettyname: "#{parent_name} Public Subnet #{pub}",  cloud_type: "AWS::EC2::Subnet::Id") }
+              public_subnets << { "subnet_id" => getTail("#{parent_name} Public Subnet #{pub}", value: subnet.cloud_id, prettyname: "#{parent_name} Public Subnet #{pub}",  cloud_type: "AWS::EC2::Subnet::Id") }
               pub = pub + 1
             end
           }
@@ -857,7 +875,7 @@ module MU
             vpc_block['subnets'] = []
             private_subnets.each { |subnet|
               vpc_block['subnets'] << subnet
-              if !is_sibling and vpc_block['nat_host_id'].nil?
+              if !is_sibling and vpc_block['nat_host_id'].nil? and private_subnets_map.has_key?(subnet[subnet_ptr]) and !private_subnets_map[subnet[subnet_ptr]].nil?
                 vpc_block['nat_host_id'] = private_subnets_map[subnet[subnet_ptr]].defaultRoute
               elsif nat_routes.has_key?(subnet) and vpc_block['nat_host_name'].nil?
                 vpc_block['nat_host_name'] == nat_routes[subnet]

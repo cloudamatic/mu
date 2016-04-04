@@ -51,6 +51,7 @@ module MU
         def create
           @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags']) if @cfm_template.nil?
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "GroupDescription", @mu_name)
+
           if !@config['vpc'].nil? and !@config['vpc']['vpc_id'].nil?
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "VpcId", @config['vpc']['vpc_id'])
           elsif @dependencies.has_key?("vpc") and !@config["vpc"]["vpc_name"].nil? and @dependencies["vpc"].has_key?(@config["vpc"]["vpc_name"])
@@ -226,54 +227,18 @@ module MU
               if !rule['lbs'].nil?
 # XXX This is a dopey place for this, dependencies() should be doing our legwork
                 rule['lbs'].each { |lb_name|
-# XXX The language for addressing ELBs should be as flexible as VPCs. This sauce
-# is weak.
-# Try to find one by name in this deploy
-                  found = MU::MommaCat.findStray("AWS", "loadbalancers",
-                                                 name: lb_name,
-                                                 deploy_id: @deploy.deploy_id
-                  )
-                  # Ok, let's try it with the name being an AWS identifier
-                  if found.nil? or found.size < 1
-                    found = MU::MommaCat.findStray("AWS", "loadbalancers",
-                                                   cloud_id: lb_name,
-                                                   dummy_ok: true
-                    )
-                    if found.nil? or found.size < 1
-                      raise MuError, "Couldn't find a LoadBalancer with #{lb_name} for #{@mu_name}"
-                    end
+                  if @dependencies.has_key?("loadbalancer") and @dependencies["loadbalancer"].has_key?(lb_name)
+#                    MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @dependencies["loadbalancer"][lb_name].cloudobj.cfm_name)
                   end
-                  lb = found.first
-                  lb.cloud_desc.security_groups.each { |lb_sg|
-                    ec2_rule[:user_id_group_pairs] << {
-                        user_id: MU.account_number,
-                        group_id: lb_sg
-                    }
-                  }
                 }
               end
 
               if !rule['sgs'].nil?
                 rule['sgs'].each { |sg_name|
-                  dependencies # Make sure our cache is fresh
-                  if @dependencies.has_key?("firewall_rule") and
-                      @dependencies["firewall_rule"].has_key?(sg_name)
-                    sg = @dependencies["firewall_rule"][sg_name]
-                  else
-                    if sg_name.match(/^sg-/)
-                      found_sgs = MU::MommaCat.findStray("AWS", "firewall_rule", cloud_id: sg_name, region: @config['region'], calling_deploy: @deploy, dummy_ok: true)
-                    else
-                      found_sgs = MU::MommaCat.findStray("AWS", "firewall_rule", name: sg_name, region: @config['region'], calling_deploy: @deploy)
-                    end
-                    if found_sgs.nil? or found_sgs.size == 0
-                      raise MuError, "Attempted to reference non-existing Security Group #{sg_name} while building #{@mu_name}"
-                    end
-                    sg = found_sgs.first
+# XXX This is a dopey place for this, dependencies() should be doing our legwork
+                  if @dependencies.has_key?("firewall_rule") and @dependencies["firewall_rule"].has_key?(sg_name)
+#                    MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @dependencies["firewall_rule"][sg_name].cloudobj.cfm_name)
                   end
-                  ec2_rule[:user_id_group_pairs] << {
-                      user_id: MU.account_number,
-                      group_id: sg.cloud_id
-                  }
                 }
               end
 

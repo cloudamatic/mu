@@ -295,6 +295,7 @@ module MU
           verbosity: MU::Logger::QUIET,
           force_cloudformation: true,
           cloudformation_path: "/dev/null",
+          nocleanup: true,
           stack_conf: @main_config
         )
       end
