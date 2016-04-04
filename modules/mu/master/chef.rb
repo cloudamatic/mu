@@ -22,9 +22,9 @@ module MU
       @chef_api = nil
       # Create and return a connection to the Chef REST API. If we've already opened
       # one, return that.
-      # @return [Chef::REST]
+      # @return [Chef::ServerAPI]
       def self.chefAPI
-        @chef_api ||= ::Chef::REST.new("https://"+$MU_CFG["public_address"]+":7443", "pivotal", "/etc/opscode/pivotal.pem", {:api_version => "1"})
+        @chef_api ||= ::Chef::ServerAPI.new("https://#{$MU_CFG["public_address"]}:7443", client_name: "pivotal", signing_key_filename: "/etc/opscode/pivotal.pem")
         @chef_api
       end
 

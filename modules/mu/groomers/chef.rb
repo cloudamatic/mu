@@ -49,6 +49,7 @@ module MU
           if !@chefloaded
             MU.log "Loading Chef libraries..."
             start = Time.now
+            # need to find which classes are actually needed instead of loading chef
             require 'chef'
             require 'chef/api_client_v1'
             require 'chef/knife'
