@@ -148,7 +148,7 @@ module MU
                 MU::Cloud::CloudFormation.setCloudFormationProp(eipassoc_template[eipassoc_name], "EIP", @config['static_ip']['ip'])
               end
             else
-              raise MuError, "Cannot currently target a pre-existing EIP by name when targeting CloudFormation"
+              MU.log "Cannot currently target a pre-existing EIP by name when targeting CloudFormation", MU::WARN
             end
             MU::Cloud::CloudFormation.setCloudFormationProp(eipassoc_template[eipassoc_name], "InstanceId", { "Ref" => @cfm_name })
 

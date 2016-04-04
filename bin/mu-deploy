@@ -39,13 +39,22 @@ Usage:
   opt :skipinitialupdates, "Node bootstrapping normally runs an internal recipe that does a full system update. This disables that behavior.", :require => false, :default => false, :type => :boolean
   opt :parameter, "Pass a parameter to the configuration parser (Name=Value). This will be presented to your config file as the ERB variable $Name.", :require => false, :type => :string, :multi => true
   opt :update, "Update the stored configuration of an existing deployment, instead of creating a new deploy.", :require => false, :type => :string
-  opt :verbose, "Display debugging output.", :require => false, :default => false, :type => :boolean
-  opt :cloudformation, "When building resources with Amazon Web Services as a target, emit a CloudFormation template instead of building real services.", :require => false, :default => false, :type => :boolean
+  opt :cloudformation, "Emit Amazon Web Services targets into a CloudFormation template instead of building real services.", :require => false, :default => false, :type => :boolean
   opt :cloudformation_output, "When emitting a CloudFormation template, put the final product in this location instead of in /tmp. Takes a local file path or an s3:// URI. Note that S3 uploads will be made PUBLIC-READ by default", :require => false, :type => :string
+  opt :verbose, "Display debugging output.", :require => false, :default => false, :type => :boolean
+  opt :quiet, "Display minimal output.", :require => false, :default => false, :type => :boolean
+end
+verbosity = MU::Logger::NORMAL
+verbosity = MU::Logger::LOUD if $opts[:verbose]
+verbosity = MU::Logger::QUIET if $opts[:quiet]
+
+if $opts[:verbose] and $opts[:quiet]
+  MU.log "Cannot set both --verbose and --quiet", MU::ERR
+  exit 1
 end
 
 MU.setVar("curRegion", $opts[:region]) if $opts[:region]
-MU.setLogging($opts[:verbose], $opts[:web])
+MU.setLogging(verbosity, $opts[:web])
 
 # Parse any paramater options into something useable.
 params = Hash.new
@@ -84,6 +93,15 @@ end
 
 if $opts[:dryrun]
   MU.log("#{$config} loaded successfully.", html: $opts[:web])
+  cost_dummy_deploy = MU::Deploy.new(
+    $opts[:environment],
+    verbosity: MU::Logger::QUIET,
+    force_cloudformation: true,
+    cloudformation_path: "/dev/null",
+    stack_conf: stack_conf
+  )
+  cost_dummy_deploy.run
+
   exit
 end
 
@@ -103,10 +121,11 @@ end
 
 deployer = MU::Deploy.new(
   $opts[:environment],
-  verbosity: $opts[:verbose],
+  verbosity: verbosity,
   webify_logs: $opts[:web],
   nocleanup: $opts[:nocleanup],
-  cloudformation: cfm_path,
+  cloudformation_path: cfm_path,
+  force_cloudformation: $opts[:cloudformation],
   stack_conf: stack_conf
 )
 

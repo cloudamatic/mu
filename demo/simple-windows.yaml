@@ -9,7 +9,6 @@ servers:
   size: m4.large
   static_ip:
     assign_ip: true
-    ip: 1.2.3.4
   storage:
   - size: 70
   ingress_rules:

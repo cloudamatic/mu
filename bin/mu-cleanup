@@ -36,10 +36,19 @@ Usage:
   opt :onlycloud, "Only purge cloud resources, and skip all Mu master deployment metadata cleanup.", :require => false, :default => false, :type => :boolean
   opt :skipcloud, "Only purge Mu master deployment metadata, and skip all cloud resources.", :require => false, :default => false, :type => :boolean
   opt :web, "Generate web-friendly (HTML) output.", :require => false, :default => false, :type => :boolean
-  opt :verbose, "Display debugging output", :require => false, :default => false, :type => :boolean
+  opt :verbose, "Display debugging output.", :require => false, :default => false, :type => :boolean
+  opt :quiet, "Display minimal output.", :require => false, :default => false, :type => :boolean
+end
+verbosity = MU::Logger::NORMAL
+verbosity = MU::Logger::LOUD if $opts[:verbose]
+verbosity = MU::Logger::QUIET if $opts[:quiet]
+
+if $opts[:verbose] and $opts[:quiet]
+  MU.log "Cannot set both --verbose and --quiet", MU::ERR
+  exit 1
 end
 
-MU.setLogging($opts[:verbose], $opts[:web])
+MU.setLogging(verbosity, $opts[:web])
 
 if (!ARGV[0] or ARGV[0].empty?) and !$opts[:deploy]
   MU.log("You must specify a deploy id!", MU::ERR, html: $opts[:web])
@@ -54,7 +63,7 @@ MU::Cleanup.run(
     noop: $opts[:noop],
     skipsnapshots: $opts[:skipsnapshots],
     onlycloud: $opts[:onlycloud],
-    verbose: $opts[:verbose],
+    verbosity: verbosity,
     web: $opts[:web],
     skipcloud: $opts[:skipcloud],
     ignoremaster: $opts[:ignoremaster]

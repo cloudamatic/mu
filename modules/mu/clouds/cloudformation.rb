@@ -444,6 +444,18 @@ module MU
           template.puts JSON.pretty_generate(cfm_template)
           template.close
         end
+
+        begin
+          # XXX don't assume MU.deploy_id is actually set
+          cfm_template["Parameters"]["SSHKeyName"]["Default"] = "deploy-"+MU.deploy_id
+          resp = MU::Cloud::AWS.cloudformation.estimate_template_cost(
+            template_body: JSON.generate(cfm_template)
+          )
+          MU.log "Review estimated monthly cost for AWS resources in this stack: #{resp.url}", MU::NOTICE
+        rescue Aws::CloudFormation::Errors::ValidationError => e
+          MU.log "Unable to calculate resource costs: #{e.inspect}", MU::WARN
+        end
+
       end
 
     end

@@ -144,7 +144,6 @@ module MU
     # @param ssh_key_name [String]: Required when creating a new deployment.
     # @param ssh_private_key [String]: Required when creating a new deployment.
     # @param ssh_public_key [String]: SSH public key for authorized_hosts on clients.
-    # @param verbose [Boolean]: Enable verbose log output.
     # @param skip_resource_objects [Boolean]: Whether preload the cloud resource objects from this deploy. Can save load time for simple MommaCat tasks.
     # @param nocleanup [Boolean]: Skip automatic cleanup of failed resources
     # @param deployment_data [Hash]: Known deployment data.
@@ -157,14 +156,12 @@ module MU
                    ssh_key_name: ssh_key_name = nil,
                    ssh_private_key: ssh_private_key = nil,
                    ssh_public_key: ssh_public_key = nil,
-                   verbose: false,
                    nocleanup: false,
                    set_context_to_me: true,
                    skip_resource_objects: false,
                    deployment_data: deployment_data = Hash.new,
                    mu_user: "root"
     )
-      verbose = true
       if deploy_id.nil? or deploy_id.empty?
         raise DeployInitializeError, "MommaCat objects must specify a deploy_id"
       end

@@ -37,12 +37,12 @@ module MU
     # @param noop [Boolean]: Do not delete resources, merely list what would be deleted.
     # @param skipsnapshots [Boolean]: Refrain from saving final snapshots of volumes and databases before deletion.
     # @param onlycloud [Boolean]: Purge cloud resources, but skip purging all Mu master metadata, ssh keys, etc.
-    # @param verbose [Boolean]: Generate verbose output.
+    # @param verbosity [Integer]: Debug level for MU.log output
     # @param web [Boolean]: Generate web-friendly output.
     # @param ignoremaster [Boolean]: Ignore the tags indicating the originating MU master server when deleting.
     # @return [void]
-    def self.run(deploy_id, noop: false, skipsnapshots: false, onlycloud: false, verbose: false, web: false, ignoremaster: false, skipcloud: false, mommacat: nil)
-      MU.setLogging(verbose, web)
+    def self.run(deploy_id, noop: false, skipsnapshots: false, onlycloud: false, verbosity: MU::Logger::NORMAL, web: false, ignoremaster: false, skipcloud: false, mommacat: nil)
+      MU.setLogging(verbosity, web)
       @noop = noop
       @skipsnapshots = skipsnapshots
       @onlycloud = onlycloud

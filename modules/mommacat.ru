@@ -171,7 +171,7 @@ def getKittenPile(req)
             mu_id,
             deploy_secret: Base64.urlsafe_decode64(req["mu_deploy_secret"]),
             set_context_to_me: true,
-            verbose: true,
+            verbosity: 2,
             mu_user: req['mu_user']
         )
       rescue MU::MommaCat::DeployInitializeError => e

@@ -48,25 +48,24 @@ module MU
     attr_reader :nocleanup
 
     # @param environment [String]: The environment name for this application stack (e.g. "dev" or "prod")
-    # @param verbosity [Boolean]: Toggles debug-level log verbosity
+    # @param verbosity [Integer]: Debug level for MU.log output
     # @param webify_logs [Boolean]: Toggles web-friendly log output
     # @param nocleanup [Boolean]: Toggles whether to skip cleanup of resources if this deployment fails.
     # @param stack_conf [Hash]: A full application stack configuration parsed by {MU::Config}
     def initialize(environment,
-                   verbosity: false,
+                   verbosity: MU::Logger::NORMAL,
                    webify_logs: false,
                    nocleanup: false,
-                   cloudformation: nil,
+                   cloudformation_path: nil,
+                   force_cloudformation: false,
                    stack_conf: nil)
-      MU.setVar("verbose", verbosity)
+      MU.setVar("verbosity", verbosity)
       @webify_logs = webify_logs
       @nocleanup = nocleanup
       MU.setLogging(verbosity, webify_logs)
 
-      if !cloudformation.nil?
-        MU::Cloud::CloudFormation.emitCloudFormation(set: true)
-        @cloudformation_output = cloudformation
-      end
+      MU::Cloud::CloudFormation.emitCloudFormation(set: force_cloudformation)
+      @cloudformation_output = cloudformation_path
 
       if stack_conf.nil? or !stack_conf.is_a?(Hash)
         raise MuError, "Deploy objects require a stack_conf hash"
@@ -185,7 +184,6 @@ module MU
             MU.deploy_id,
             create: true,
             config: @main_config,
-            verbose: MU.verbose,
             environment: @environment,
             nocleanup: @nocleanup,
             set_context_to_me: true,
@@ -247,7 +245,7 @@ module MU
           # If we didn't build anything besides CloudFormation, purge useless
           # metadata.
           if mommacat.numKittens(clouds: ["CloudFormation"], negate: true) == 0
-            MU::Cleanup.run(MU.deploy_id, skipcloud: true, mommacat: mommacat)
+            MU::Cleanup.run(MU.deploy_id, skipcloud: true, verbosity: MU::Logger::QUIET, mommacat: mommacat)
             exit
           end
         end
@@ -265,7 +263,7 @@ module MU
         if e.class.to_s != "SystemExit"
           MU.log e.inspect, MU::ERR, details: e.backtrace
           if !@nocleanup
-            MU::Cleanup.run(MU.deploy_id, skipsnapshots: true, mommacat: mommacat)
+            MU::Cleanup.run(MU.deploy_id, skipsnapshots: true, verbosity: @verbosity, mommacat: mommacat)
             @nocleanup = true # so we don't run this again later
           end
           MU.log e.inspect, MU::ERR
@@ -279,7 +277,9 @@ module MU
       end
       deployment = MU.mommacat.deployment
       deployment["deployment_end_time"]=Time.new.strftime("%I:%M %p on %A, %b %d, %Y").to_s;
-      MU::Cloud::AWS.openFirewallForClients # XXX only invoke if we're in AWS
+      if mommacat.numKittens(clouds: ["AWS"]) > 0
+        MU::Cloud::AWS.openFirewallForClients
+      end
       MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
       if mommacat.numKittens(types: ["Server", "ServerPool"]) > 0
         MU::MommaCat.syncMonitoringConfig
@@ -288,6 +288,16 @@ module MU
       # Send notifications
       sendMail
       MU.log "Deployment complete", details: deployment
+      if mommacat.numKittens(clouds: ["AWS"]) > 0
+        MU.log "Generating cost calculation URL for all Amazon Web Services resources.", details: deployment
+        cost_dummy_deploy = MU::Deploy.new(
+          @environment,
+          verbosity: MU::Logger::QUIET,
+          force_cloudformation: true,
+          cloudformation_path: "/dev/null",
+          stack_conf: @main_config
+        )
+      end
 
     end
 
@@ -471,7 +481,7 @@ MESSAGE_END
               end
             end
             if !@nocleanup
-              MU::Cleanup.run(MU.deploy_id, skipsnapshots: true)
+              MU::Cleanup.run(MU.deploy_id, verbosity: @verbosity, skipsnapshots: true)
               @nocleanup = true # so we don't run this again later
             end
             raise MuError, e.inspect, e.backtrace
