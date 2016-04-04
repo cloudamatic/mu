@@ -423,22 +423,15 @@ module MU
           bucket = $1
           target = $2
           MU.log "Writing CloudFormation template to S3 bucket #{bucket} path /#{target}"
-          resp = MU::Cloud::AWS.s3.list_buckets
-          uploaded = false
-          resp.buckets.each { |b|
-            if b['name'] == bucket
-              MU::Cloud::AWS.s3.put_object(
-                acl: "public-read",
-                bucket: bucket,
-                key: target,
-                body: JSON.pretty_generate(cfm_template)
-              )
-              uploaded = true
-              break
-            end
-          }
-          if !uploaded
-            MU.log "Failed to write CloudFormation template to #{path}", MU::ERR
+          begin
+            MU::Cloud::AWS.s3.put_object(
+              acl: "public-read",
+              bucket: bucket,
+              key: target,
+              body: JSON.pretty_generate(cfm_template)
+            )
+          rescue Aws::S3::Errors::NoSuchBucket, Aws::S3::Errors::AccessDenied => e
+            MU.log "Failed to write CloudFormation template to #{path} (#{e.inspect})", MU::ERR
             path = "/tmp/cloudformation-#{MU.deploy_id}.json"
             MU.log "Writing to #{path}", MU::WARN
             template = File.new(path, File::CREAT|File::TRUNC|File::RDWR, 0400)

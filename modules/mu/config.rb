@@ -4156,6 +4156,10 @@ module MU
                 "default" => 1
             },
             "add_firewall_rules" => @additional_firewall_rules,
+            "ingress_rules" => {
+              "type" => "array",
+              "items" => @firewall_ruleset_rule_primitive
+            },
             "engine" => {
                 "enum" => ["memcached", "redis"],
                 "type" => "string",
