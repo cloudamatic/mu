@@ -309,6 +309,19 @@ module MU
             return [rolename, cfm_role_name, cfm_prof_name]
         end
 
+        # Placeholder. This is a NOOP for CloudFormation, which doesn't build
+        # resources directly.
+        def self.find(*args)
+          MU.log "find() not implemented for CloudFormation layer", MU::DEBUG
+          nil
+        end
+        # Placeholder. This is a NOOP for CloudFormation, which doesn't build
+        # resources directly.
+        def self.cleanup(*args)
+          MU.log "cleanup() not implemented for CloudFormation layer", MU::DEBUG
+          nil
+        end
+
       end #class
     end #class
   end

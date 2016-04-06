@@ -226,6 +226,7 @@ module MU
       require "mu/clouds/#{cloud.downcase}"
     }
 
+    @cloud_class_cache = {}
     # Given a cloud layer and resource type, return the class which implements it.
     # @param cloud [String]: The Cloud layer
     # @param type [String]: The resource type. Can be the full class name, symbolic name, or Basket of Kittens configuration shorthand for the resource type.
@@ -245,8 +246,14 @@ module MU
           break
         end
       }
+      if @cloud_class_cache.has_key?(cloud) and @cloud_class_cache[cloud].has_key?(type)
+        if @cloud_class_cache[cloud][type].nil?
+          raise MuError, "The '#{type}' resource is not supported in cloud #{cloud} (tried MU::#{cloud}::#{type})", caller
+        end
+        return @cloud_class_cache[cloud][type]
+      end
+
       if cfg_name.nil?
-        puts caller
         raise MuError, "Can't find a cloud resource type named '#{type}'"
       end
       if !File.size?(MU.myRoot+"/modules/mu/clouds/#{cloud.downcase}.rb")
@@ -257,11 +264,11 @@ module MU
       rescue LoadError => e
         raise MuCloudResourceNotImplemented
       end
+      @cloud_class_cache[cloud] = {} if !@cloud_class_cache.has_key?(cloud)
       begin
         myclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(type)
-
         @@resource_types[type.to_sym][:class].each { |class_method|
-          if !myclass.respond_to?(class_method)
+          if !myclass.respond_to?(class_method) or myclass.method(class_method).owner.to_s != "#<Class:#{myclass}>"
             raise MuError, "MU::Cloud::#{cloud}::#{type} has not implemented required class method #{class_method}"
           end
         }
@@ -270,9 +277,10 @@ module MU
             raise MuError, "MU::Cloud::#{cloud}::#{type} has not implemented required instance method #{instance_method}"
           end
         }
-
+        @cloud_class_cache[cloud][type] = myclass
         return myclass
       rescue NameError => e
+        @cloud_class_cache[cloud][type] = nil
         raise MuError, "The '#{type}' resource is not supported in cloud #{cloud} (tried MU::#{cloud}::#{type})", e.backtrace
       end
     end
@@ -777,7 +785,6 @@ module MU
 
           end
 
-
           # @param max_retries [Integer]: Number of connection attempts to make before giving up
           # @param retry_interval [Integer]: Number of seconds to wait between connection attempts
           # @return [Net::SSH::Connection::Session]
@@ -884,8 +891,8 @@ module MU
           MU::Cloud.supportedClouds.each { |cloud|
             begin
               cloudclass = MU::Cloud.loadCloudType(cloud, shortname)
-              raise MuCloudResourceNotImplemented if !cloudclass.respond_to?(:cleanup)
-              MU.log "Invoking #{cloudclass}.cleanup", MU::DEBUG, details: flags
+              raise MuCloudResourceNotImplemented if !cloudclass.respond_to?(:cleanup) or cloudclass.method(:cleanup).owner.to_s != "#<Class:#{cloudclass}>"
+              MU.log "Invoking #{cloudclass}.cleanup from #{shortname}", MU::DEBUG, details: flags
               cloudclass.cleanup(flags.first)
             rescue MuCloudResourceNotImplemented
               MU.log "No #{cloud} implementation of #{shortname}.cleanup, skipping", MU::DEBUG, details: flags
