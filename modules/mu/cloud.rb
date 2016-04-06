@@ -884,7 +884,7 @@ module MU
           MU::Cloud.supportedClouds.each { |cloud|
             begin
               cloudclass = MU::Cloud.loadCloudType(cloud, shortname)
-              raise MuCloudResourceNotImplemented if !cloudclass.instance_methods(false).include?(:cleanup)
+              raise MuCloudResourceNotImplemented if !cloudclass.respond_to?(:cleanup)
               MU.log "Invoking #{cloudclass}.cleanup", MU::DEBUG, details: flags
               cloudclass.cleanup(flags.first)
             rescue MuCloudResourceNotImplemented
