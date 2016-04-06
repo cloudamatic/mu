@@ -383,7 +383,7 @@ module MU
                           [ resource['#MUOBJECT'].cloudobj.cfm_name, "Endpoint.Address" ]
                         }
                     }
-                elsif data[:cfg_name] == "cache_cluster"
+                elsif data[:cfg_name] == "cache_cluster" and resource["engine"] != "redis"
                   cfm_template["Outputs"]["cachecluster"+resource['name']+"endpoint"] =
                     {
                       "Value" =>
@@ -448,7 +448,9 @@ module MU
 
         begin
           # XXX don't assume MU.deploy_id is actually set
-          cfm_template["Parameters"]["SSHKeyName"]["Default"] = "deploy-"+MU.deploy_id
+          if cfm_template["Parameters"].has_key?("SSHKeyName")
+            cfm_template["Parameters"]["SSHKeyName"]["Default"] = "deploy-"+MU.deploy_id
+          end
           # Strip out userdata scripts. No bearing on cost, and they tend to
           # make templates enormous.
           cfm_template["Resources"].each_value { |res|
