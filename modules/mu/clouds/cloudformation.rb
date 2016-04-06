@@ -365,10 +365,11 @@ module MU
           if !config[data[:cfg_plural]].nil? and
               config[data[:cfg_plural]].size > 0
             config[data[:cfg_plural]].each { |resource|
+              namestr = resource['name'].gsub(/[^a-z0-9]/i, "")
               if resource['#MUOBJECT'].cloudobj.respond_to?(:cfm_template) and !resource['#MUOBJECT'].cloudobj.cfm_template.nil?
                 cfm_template["Resources"].merge!(resource['#MUOBJECT'].cloudobj.cfm_template)
                 if data[:cfg_name] == "loadbalancer"
-                  cfm_template["Outputs"]["loadbalancer"+resource['name']] =
+                  cfm_template["Outputs"]["loadbalancer"+namestr] =
                     {
                       "Value" =>
                         { "Fn::GetAtt" =>
@@ -376,7 +377,7 @@ module MU
                         }
                     }
                 elsif data[:cfg_name] == "database"
-                  cfm_template["Outputs"]["database"+resource['name']] =
+                  cfm_template["Outputs"]["database"+namestr] =
                     {
                       "Value" =>
                         { "Fn::GetAtt" =>
@@ -384,14 +385,14 @@ module MU
                         }
                     }
                 elsif data[:cfg_name] == "cache_cluster"
-                  cfm_template["Outputs"]["cachecluster"+resource['name']+"endpoint"] =
+                  cfm_template["Outputs"]["cachecluster"+namestr+"endpoint"] =
                     {
                       "Value" =>
                         { "Fn::GetAtt" =>
                           [ resource['#MUOBJECT'].cloudobj.cfm_name, "ConfigurationEndpoint.Address" ]
                         }
                     }
-                  cfm_template["Outputs"]["cachecluster"+resource['name']+"port"] =
+                  cfm_template["Outputs"]["cachecluster"+namestr+"port"] =
                     {
                       "Value" =>
                         { "Fn::GetAtt" =>
@@ -399,14 +400,14 @@ module MU
                         }
                     }
                 elsif data[:cfg_name] == "server"
-                  cfm_template["Outputs"]["server"+resource['name']+"privateip"] =
+                  cfm_template["Outputs"]["server"+namestr+"privateip"] =
                     {
                       "Value" =>
                         { "Fn::GetAtt" =>
                           [ resource['#MUOBJECT'].cloudobj.cfm_name, "PrivateIp" ]
                         }
                     }
-                  cfm_template["Outputs"]["server"+resource['name']+"publicip"] =
+                  cfm_template["Outputs"]["server"+namestr+"publicip"] =
                     {
                       "Value" =>
                         { "Fn::GetAtt" =>
@@ -449,11 +450,18 @@ module MU
         begin
           # XXX don't assume MU.deploy_id is actually set
           cfm_template["Parameters"]["SSHKeyName"]["Default"] = "deploy-"+MU.deploy_id
-          # Strip out userdata scripts. No bearing on cost, and they tend to
-          # make templates enormous.
+          # Strip out extra properties that have no bearing on cost. There's a
+          # very low size ceiling on templates.
           cfm_template["Resources"].each_value { |res|
-            if res.has_key?("Properties") and res["Properties"].has_key?("UserData")
+            if res.has_key?("Properties")
+#              res["Properties"].has_key?("UserData")
               res["Properties"].delete("UserData")
+              res["Properties"].delete("Tags")
+              res["Properties"].delete("SecurityGroupIngress")
+              res["Properties"].delete("BlockDeviceMappings")
+              if res["Properties"].has_key?("Policies")
+                res["Properties"]["Policies"] = []
+              end
             end
           }
           resp = MU::Cloud::AWS.cloudformation.estimate_template_cost(
@@ -464,7 +472,7 @@ module MU
           if !e.message.match(/Member must have length less than or equal to 51200/)
             MU.log "Unable to calculate resource costs: #{e.message}", MU::WARN
           else
-            MU.log "Unable to calculate resource costs: deployment too complex to convert to CloudFormation template.", MU::WARN
+            MU.log "Unable to calculate resource costs: deployment too complex to for CloudFormation to handle.", MU::WARN
           end
         end
 

@@ -782,10 +782,6 @@ module MU
 
       # First decide whether we should pay attention to subnet_prefs.
       honor_subnet_prefs = true
-if parent_name.match(/loadbalancer/)
-puts parent_name
-pp vpc_block
-end
       if vpc_block['subnets']
         count = 0
         vpc_block['subnets'].each { |subnet|
