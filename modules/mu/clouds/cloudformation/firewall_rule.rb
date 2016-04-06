@@ -136,17 +136,13 @@ module MU
         def setRules(rules, add_to_self: add_to_self = false, ingress: ingress = true, egress: egress = false)
           return if rules.nil? or rules.size == 0
 
-
-          # add_to_self means that this security is a "member" of its own rules
-          # (which is to say, objects that have this SG are allowed in my these
-          # rules)
           if add_to_self
             rules.each { |rule|
-              if rule['sgs'].nil? or !rule['sgs'].include?(secgroup.group_id)
+              if rule['sgs'].nil?
                 new_rule = rule.clone
                 new_rule.delete('hosts')
                 rule['sgs'] = Array.new if rule['sgs'].nil?
-                rule['sgs'] << @cloud_id
+                rule['sgs'] << { "Ref" => @cfm_name }
               end
             }
           end

@@ -800,19 +800,21 @@ module MU
         private_subnets = []
         private_subnets_map = {}
         public_subnets = []
+        public_subnets_map = {}
         nat_routes = {}
         subnet_ptr = "subnet_id"
         if !is_sibling
           pub = priv = 0
           ext_vpc.subnets.each { |subnet|
-            if subnet.private?
+            if subnet.private? and (vpc_block['subnet_pref'] != "all_public" and vpc_block['subnet_pref'] != "public")
 #              private_subnets << { "subnet_id" => subnet.cloud_id }
               private_subnets << { "subnet_id" => getTail("#{parent_name} Private Subnet #{priv}", value: subnet.cloud_id, prettyname: "#{parent_name} Private Subnet #{priv}",  cloud_type:  "AWS::EC2::Subnet::Id") }
               private_subnets_map[subnet.cloud_id] = subnet
               priv = priv + 1
-            else
+            elsif vpc_block['subnet_pref'] != "all_private" and vpc_block['subnet_pref'] != "private"
 #              public_subnets << { "subnet_id" => subnet.cloud_id }
               public_subnets << { "subnet_id" => getTail("#{parent_name} Public Subnet #{pub}", value: subnet.cloud_id, prettyname: "#{parent_name} Public Subnet #{pub}",  cloud_type: "AWS::EC2::Subnet::Id") }
+              public_subnets_map[subnet.cloud_id] = subnet
               pub = pub + 1
             end
           }
