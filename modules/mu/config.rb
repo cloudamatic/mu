@@ -873,7 +873,7 @@ module MU
             end
           when "private"
             vpc_block.merge!(private_subnets[rand(private_subnets.length)])
-            if !is_sibling
+            if !is_sibling and !private_subnets_map[vpc_block[subnet_ptr]].nil?
               vpc_block['nat_host_id'] = private_subnets_map[vpc_block[subnet_ptr]].defaultRoute
             elsif nat_routes.has_key?(vpc_block[subnet_ptr])
               vpc_block['nat_host_name'] == nat_routes[vpc_block[subnet_ptr]]
@@ -1762,8 +1762,8 @@ module MU
           end
         end
 
-        if !db["storage"].nil? and db["creation_style"] = "new"
-          MU.log "Must provide a value for 'storage' when creating a new database.", MU::ERR
+        if db["storage"].nil? and db["creation_style"] = "new"
+          MU.log "Must provide a value for 'storage' when creating a new database.", MU::ERR, details: db
           ok = false
         end
 

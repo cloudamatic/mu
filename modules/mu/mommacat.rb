@@ -1201,7 +1201,7 @@ module MU
               if data.size == 1 and (cloud_id.nil? or data.values.first.cloud_id == cloud_id)
                 return data.values.first
               elsif mu_name.nil? and cloud_id.nil?
-                MU.log "Found multiple matches in findLitterMate based on #{type}: #{name}, and not enough info to narrow down further. Returning an arbitrary result.", MU::WARN, details: data.values
+                MU.log "#{@deploy_id}: Found multiple matches in findLitterMate based on #{type}: #{name}, and not enough info to narrow down further. Returning an arbitrary result. Caller: #{caller[0]}", MU::WARN, details: data.values
                 return data.values.first
               end
             end
