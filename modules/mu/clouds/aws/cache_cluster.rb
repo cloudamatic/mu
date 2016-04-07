@@ -30,7 +30,7 @@ module MU
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::cache_clusters}
         def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
           @deploy = mommacat
-          @config = kitten_cfg
+          @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
           # @mu_name = mu_name ? mu_name : @deploy.getResourceName(@config["name"])
 
@@ -274,7 +274,7 @@ module MU
               MU.log "No subnets specified for #{@config['identifier']}, adding all subnets in #{@vpc}", MU::DEBUG
             else
               @config["vpc"]["subnets"].each { |subnet|
-                subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
+                subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"].to_s, name: subnet["subnet_name"].to_s)
                 raise MuError, "Couldn't find a live subnet matching #{subnet} in #{@vpc} (#{@vpc.subnets})" if subnet_obj.nil?
                 subnet_ids << subnet_obj.cloud_id
               }

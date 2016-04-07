@@ -33,7 +33,7 @@ module MU
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::databases}
         def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
           @deploy = mommacat
-          @config = kitten_cfg
+          @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
           # @mu_name = mu_name ? mu_name : @deploy.getResourceName(@config["name"])
           @config["groomer"] = MU::Config.defaultGroomer unless @config["groomer"]

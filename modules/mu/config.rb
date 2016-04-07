@@ -95,6 +95,26 @@ module MU
       @@tails
     end
 
+    # Run through a config hash and return a version with all
+    # {MU::Config::Tail} endpoints converted to plain strings. Useful for cloud
+    # layers that don't care about the metadata in Tails.
+    # @param config [Hash]: The configuration tree to convert
+    # @return [Hash]: The modified configuration
+    def self.manxify(config)
+      if config.is_a?(Hash)
+        config.each_pair { |key, val|
+          config[key] = self.manxify(val)
+        }
+      elsif config.is_a?(Array)
+        config.each { |val|
+          val = self.manxify(val)
+        }
+      elsif config.is_a?(MU::Config::Tail)
+        return config.to_s
+      end
+      return config
+    end
+
     # A wrapper for config leaves that came from ERB parameters instead of raw
     # YAML or JSON. Will behave like a string for things that expect that
     # sort of thing. Code that needs to know that this leaf was the result of
