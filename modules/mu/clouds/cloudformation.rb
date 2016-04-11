@@ -68,6 +68,25 @@ module MU
         end
 
         case type
+        when "logmetricfilter"
+          desc = {
+            "Type" => "AWS::Logs::MetricFilter",
+            "Properties" => {
+              "MetricTransformations" => []
+            }
+          }
+        when "loggroup"
+          desc = {
+            "Type" => "AWS::Logs::LogGroup",
+            "Properties" => {
+            }
+          }
+        when "logstream"
+          desc = {
+            "Type" => "AWS::Logs::LogStream",
+            "Properties" => {
+            }
+          }
         when "alarm"
           desc = {
             "Type" => "AWS::CloudWatch::Alarm",
