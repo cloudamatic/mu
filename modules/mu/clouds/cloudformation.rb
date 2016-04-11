@@ -68,6 +68,23 @@ module MU
         end
 
         case type
+        when "alarm"
+          desc = {
+            "Type" => "AWS::CloudWatch::Alarm",
+            "Properties" => {
+              "AlarmActions" => [],
+              "Dimensions" => [],
+              "InsufficientDataActions" => [],
+              "OKActions" => []
+            }
+          }
+        when "notification"
+          desc = {
+            "Type" => "AWS::SNS::Topic",
+            "Properties" => {
+              "Subscription" => []
+            }
+          }
         when "vpc"
           desc = {
             "Type" => "AWS::EC2::VPC",

@@ -1529,7 +1529,7 @@ module MU
         if lb["alarms"] && !lb["alarms"].empty?
           lb["alarms"].each { |alarm|
             alarm["namespace"] = "AWS/ELB" if alarm["namespace"].nil?
-            ok = false unless validate_alarm_config(alarm)
+            ok = false unless MU::Config.validate_alarm_config(alarm)
           }
         end
       }
@@ -1567,7 +1567,7 @@ module MU
         if pool["alarms"] && !pool["alarms"].empty?
           pool["alarms"].each { |alarm|
             alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
-            ok = false unless validate_alarm_config(alarm)
+            ok = false unless MU::Config.validate_alarm_config(alarm)
           }
         end
 
@@ -1646,7 +1646,7 @@ module MU
             if policy["alarms"] && !policy["alarms"].empty?
               policy["alarms"].each { |alarm|
                 alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
-                ok = false unless validate_alarm_config(alarm)
+                ok = false unless MU::Config.validate_alarm_config(alarm)
               }
             end
           }
@@ -1867,7 +1867,7 @@ module MU
         if db["alarms"] && !db["alarms"].empty?
           db["alarms"].each { |alarm|
             alarm["namespace"] = "AWS/RDS" if alarm["namespace"].nil?
-            ok = false unless validate_alarm_config(alarm)
+            ok = false unless MU::Config.validate_alarm_config(alarm)
           }
         end
 
@@ -2128,7 +2128,7 @@ module MU
         if cluster["alarms"] && !cluster["alarms"].empty?
           cluster["alarms"].each { |alarm|
             alarm["namespace"] = "AWS/ElastiCache" if alarm["namespace"].nil?
-            ok = false unless validate_alarm_config(alarm)
+            ok = false unless MU::Config.validate_alarm_config(alarm)
           }
         end
 
@@ -2223,7 +2223,7 @@ module MU
           }
         end
 
-        ok = false unless validate_alarm_config(alarm)
+        ok = false unless MU::Config.validate_alarm_config(alarm)
       }
 
       logs.each { |log_rec|
@@ -2285,7 +2285,7 @@ module MU
         if server["alarms"] && !server["alarms"].empty?
           server["alarms"].each { |alarm|
             alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
-            ok = false unless validate_alarm_config(alarm)
+            ok = false unless MU::Config.validate_alarm_config(alarm)
           }
         end
 

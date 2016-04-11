@@ -15,7 +15,7 @@
 module MU
   class Cloud
     class CloudFormation
-      # A load balancer as configured in {MU::Config::BasketofKittens::cache_clusters}
+      # An ElastiCache node or cluster as configured in {MU::Config::BasketofKittens::cache_clusters}
       class CacheCluster < MU::Cloud::CacheCluster
 
         @deploy = nil
@@ -27,7 +27,7 @@ module MU
         attr_reader :cfm_name
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::loadbalancers}
+        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::cache_clusters}
         def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
           @deploy = mommacat
           @config = kitten_cfg
