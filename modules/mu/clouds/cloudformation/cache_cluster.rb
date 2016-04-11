@@ -50,11 +50,45 @@ module MU
         # Populate @cfm_template with a resource description for this cache
         # cluster in CloudFormation language.
         def create
-          @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags']) if @cfm_template.nil?
-          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "ClusterName", @mu_name)
+          @config['identifier'] = @mu_name
+
+          if @config["create_replication_group"]
+            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("cache_repl_group", self, name: @config['identifier']) if @cfm_template.nil?
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "ReplicationGroupDescription", @mu_name)
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "NumCacheClusters", @config['node_count'].to_s)
+          else
+            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags']) if @cfm_template.nil?
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "ClusterName", @mu_name)
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "AZMode", @config["az_mode"]) if @config["az_mode"]
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "NumCacheNodes", @config['node_count'].to_s)
+          end
+
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Engine", @config['engine'])
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "EngineVersion", @config['engine_version'])
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Port", @config['port'])
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "CacheNodeType", @config['size'])
-          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "NumCacheNodes", @config['node_count'].to_s)
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "PreferredMaintenanceWindow", @config["preferred_maintenance_window"])
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "AutoMinorVersionUpgrade", @config["auto_minor_version_upgrade"])
+
+          if @config["notification_topic_arn"]
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "NotificationTopicArn", @config["notification_topic_arn"])
+          end
+
+          if @config["engine"] == "redis"
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "SnapshotArns", @config["snapshot_arn"]) if @config["snapshot_arn"]
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "SnapshotRetentionLimit", @config["snapshot_retention_limit"]) if @config["snapshot_retention_limit"]
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "SnapshotWindow", @config["snapshot_window"]) if @config["snapshot_window"]
+            if !@config["create_replication_group"]
+              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "SnapshotName", @config["snapshot_id"]) if @config["snapshot_id"]
+            end
+          end
+
+          if @config.has_key?("parameter_group_family")
+# XXX
+#            @config["parameter_group_name"] = @mu_name.downcase
+#            createParameterGroup
+#            config_struct[:cache_parameter_group_name] = @config["parameter_group_name"]
+          end
 
           if !@config['vpc'].nil?
             subnets_name, subnets_template = MU::Cloud::CloudFormation.cloudFormationBase("cache_subnets", name: @mu_name)

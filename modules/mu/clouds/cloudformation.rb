@@ -102,6 +102,13 @@ module MU
               "SubnetIds" => []
             }
           }
+        when "cache_repl_group"
+          desc = {
+            "Type" => "AWS::ElastiCache::ReplicationGroup",
+            "Properties" => {
+              "SecurityGroupIds" => []
+            }
+          }
         when "cache_cluster"
           desc = {
             "Type" => "AWS::ElastiCache::CacheCluster",
