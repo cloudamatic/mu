@@ -1763,7 +1763,7 @@ module MU
           end
         end
 
-        if db["storage"].nil? and db["creation_style"] = "new"
+        if db["storage"].nil? and db["creation_style"] == "new"
           MU.log "Must provide a value for 'storage' when creating a new database.", MU::ERR, details: db
           ok = false
         end

@@ -64,10 +64,10 @@ module MU
           end
 
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Engine", @config['engine'])
-          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "EngineVersion", @config['engine_version'])
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "EngineVersion", @config['engine_version']) if @config['engine_version']
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Port", @config['port'])
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "CacheNodeType", @config['size'])
-          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "PreferredMaintenanceWindow", @config["preferred_maintenance_window"])
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "PreferredMaintenanceWindow", @config["preferred_maintenance_window"]) if @config["preferred_maintenance_window"]
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "AutoMinorVersionUpgrade", @config["auto_minor_version_upgrade"])
 
           if @config["notification_topic_arn"]
