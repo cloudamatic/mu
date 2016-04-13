@@ -58,6 +58,41 @@ module MU
             end
           }
 
+          if @config['termination_policies']
+            @config['termination_policies'].each { |pol|
+              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "TerminationPolicies", pol)
+            }
+          end
+
+          if @config["scaling_policies"] and @config["scaling_policies"].size > 0
+            @config["scaling_policies"].each { |pol|
+              pol_name, pol_template = MU::Cloud::CloudFormation.cloudFormationBase("scaling_policy", name: pol['name']+@mu_name)
+              MU::Cloud::CloudFormation.setCloudFormationProp(pol_template[pol_name], "AdjustmentType", pol['type'])
+              MU::Cloud::CloudFormation.setCloudFormationProp(pol_template[pol_name], "AutoScalingGroupName", @cfm_name)
+
+              pol["scaling_adjustment"] = pol["adjustment"]
+              ["cooldown", "estimated_instance_warmup", "metric_aggregation_type", "min_adjustment_magnitude", "policy_type", "scaling_adjustment"].each { |arg|
+                if !pol[arg].nil?
+                  key = ""
+                  arg.split(/_/).each { |chunk| key = key + chunk.capitalize }
+                  MU::Cloud::CloudFormation.setCloudFormationProp(pol_template[pol_name], key, pol[arg])
+                end
+              }
+
+              if pol['step_adjustments'] and pol['step_adjustments'].size > 0
+                pol['step_adjustments'].each { |adj|
+                  adjust = { "ScalingAdjustment" => adj['adjustment'] }
+                  adjust["MetricIntervalLowerBound"] = adj['lower_bound'] if adj['lower_bound']
+                  adjust["MetricIntervalUpperBound"] = adj['upper_bound'] if adj['upper_bound']
+                  MU::Cloud::CloudFormation.setCloudFormationProp(pol_template[pol_name], "StepAdjustments", adjust)
+                }
+              end
+
+              MU::Cloud::CloudFormation.setCloudFormationProp(pol_template[pol_name], "DependsOn", @cfm_name)
+              @cfm_template.merge!(pol_template)
+            }
+          end
+
           basis = @config["basis"]
 
           if basis["launch_config"]
@@ -69,8 +104,11 @@ module MU
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_launch_name], "EbsOptimized", launch_desc["ebs_optimized"])
 
             if !launch_desc["server"].nil?
-# XXX this may or may not be a supported use case, figure it out
-#                MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_launch_name], "Instance_Id", { "Ref" => } )
+              sibling = @deploy.findLitterMate(type: "server", name: launch_desc["server"])
+              if sibling.nil? or sibling.cloudobj.nil? or sibling.cloudobj.cfm_name.nil?
+                raise MuError, "ServerPool #{@config['name']} references a Server named #{aunch_desc["server"]}, but I can't find the appropriate CloudFormation name."
+              end
+              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_launch_name], "Instance_Id", { "Ref" => sibling.cloudobj.cfm_name } )
             elsif !launch_desc["instance_id"].nil?
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_launch_name], "InstanceId", @config['ami_id'])
             else
@@ -152,15 +190,15 @@ module MU
             )
 
           elsif basis["server"]
-# XXX cloudformation bits
+            raise MuError, "Basis 'server' not valid for CloudFormation target. Instead, use a launch_config with a 'server' argument."
           elsif basis["instance_id"]
-# XXX cloudformation bits
+            raise MuError, "Basis 'instance_id' not valid for CloudFormation target. Instead, use a launch_config with an 'instance_id' argument."
           end
 
           public_ip_pref = true
           if @config["vpc_zone_identifier"]
             public_ip_pref = false
-# XXX cloudformation bits bits
+# XXX cloudformation bits
           elsif @config["vpc"]
             if !@config["vpc"]["subnets"].nil? and @config["vpc"]["subnets"].size > 0
               public_ip_pref = false

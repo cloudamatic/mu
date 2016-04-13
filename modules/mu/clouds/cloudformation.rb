@@ -230,7 +230,15 @@ module MU
             "Properties" => {
               "Tags" => pool_tags,
               "VPCZoneIdentifier" => [],
+              "TerminationPolicies" => [],
               "LoadBalancerNames" => []
+            }
+          }
+        when "scaling_policy"
+          desc = {
+            "Type" => "AWS::AutoScaling::ScalingPolicy",
+            "Properties" => {
+              "StepAdjustments" => []
             }
           }
         when "loadbalancer"

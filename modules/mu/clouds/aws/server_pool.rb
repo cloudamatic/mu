@@ -128,6 +128,7 @@ module MU
               :instance_monitoring => {:enabled => launch_desc["monitoring"]},
             }
 
+            launch_options[:block_device_mappings] = []
             if launch_desc["storage"]
               storage = Array.new
               launch_desc["storage"].each { |vol|
@@ -148,14 +149,14 @@ module MU
             }
 
             if launch_desc['generate_iam_role']
-              launch_options[:iam_instance_profile], @cfm_role_name, @cfm_prof_name = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'], cloudformation_data: @cfm_template)
+              launch_options[:iam_instance_profile], tmp, tmp2 = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'])
             elsif launch_desc['iam_role'].nil?
               raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
             else
               launch_options[:iam_instance_profile] = launch_desc['iam_role']
             end
             @config['iam_role'] = launch_options[:iam_instance_profile]
-            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'], cloudformation_data: @cfm_template, cfm_role_name: @cfm_role_name)
+            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'])
 
             instance_secret = Password.random(50)
             @deploy.saveNodeSecret("default", instance_secret, "instance_secret")

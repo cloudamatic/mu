@@ -342,7 +342,7 @@ module MU
           policies = Hash.new
 
           cfm_role_name = cfm_prof_name = nil
-          if cloudformation_data.size > 0
+          if !cloudformation_data.nil? and cloudformation_data.size > 0
             cfm_role_name, role_cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("iamrole", name: rolename)
             cfm_prof_name, prof_cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("iamprofile", name: rolename)
             cloudformation_data.merge!(role_cfm_template)
@@ -377,7 +377,7 @@ module MU
               }
             }
           end
-          if cloudformation_data.size == 0
+          if !cloudformation_data.nil? and cloudformation_data.size == 0
             resp = MU::Cloud::AWS.iam.create_role(
               role_name: rolename,
               assume_role_policy_document: '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":["ec2.amazonaws.com"]},"Action":["sts:AssumeRole"]}]}'

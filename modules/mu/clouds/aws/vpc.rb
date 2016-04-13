@@ -1500,7 +1500,7 @@ module MU
           # @param config [Hash<String>]:
           def initialize(parent, config)
             @parent = parent
-            @config = config
+            @config = MU::Config.manxify(config)
             @cloud_id = config['cloud_id']
             @mu_name = config['mu_name']
             @name = config['name']

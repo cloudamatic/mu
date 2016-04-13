@@ -31,7 +31,7 @@ module MU
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::loadbalancers}
         def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
           @deploy = mommacat
-          @config = kitten_cfg
+          @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
           if !mu_name.nil?
             @mu_name = mu_name
@@ -79,6 +79,9 @@ module MU
             lb_options[:subnets] = []
             @config["vpc"]["subnets"].each { |subnet|
               subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
+              if subnet_obj.nil?
+                raise MuError, "Failed to locate subnet from #{subnet} in LoadBalancer #{@config['name']}"
+              end
               lb_options[:subnets] << subnet_obj.cloud_id
             }
             if @config["private"]
