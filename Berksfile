@@ -38,7 +38,7 @@ cookbook 'ec2-s3-api-tools', path: "#{cookbookPath}/ec2-s3-api-tools"
 cookbook 'freebsd', '~> 0.1.9'
 cookbook 'git', '~> 4.3.7'
 cookbook 'gunicorn', '~> 1.1.2'
-cookbook 'iis', '~> 4.1.1'
+cookbook 'iis', '~> 4.1.6'
 cookbook 'iptables', '~> 1.0.0'
 cookbook 'logrotate', '~> 1.9.2'
 cookbook 'java', '~> 1.39.0'
