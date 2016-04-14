@@ -88,22 +88,6 @@
 		log "Setting Windows Update parameters in registry"
 		Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update" -Name AUOptions -Value 3
 
-		# This is a crappy workaround because even when we set all the right permissions/privileges ssh still doesn't always work, so we're removing on every instance
-#		If (!(Test-Path "c:/$instanceid")){
-#			log "I don't see c:/$instanceid"
-#			Disable-SSHD
-#		}
-
-		# even when we set all the right permissions/privileges ssh still doesn't always work, so we're removing if the user that installed ssh service changed
-#		if (!(Get-WmiObject win32_computersystem).partofdomain){
-#			if ((Test-Path $cygwin_dir\sshd_installed_by.txt) -and ((Get-Content $cygwin_dir\sshd_installed_by.txt) -ne $admin_username)){
-#				if ($username -ne "system"){
-#					log "I am not in a domain, my admin user is $admin_username, and sshd was last installed by $(Get-Content $cygwin_dir\sshd_installed_by.txt)"
-#					Disable-SSHD
-#				}
-#			}
-#		}
-
 		If (!(Test-Path "$cygwin_dir/Cygwin.bat")){
 			If (!(Test-Path $env:Temp/setup-x86_64.exe)){
 				Invoke-WebRequest -Uri "http://cygwin.com/setup-x86_64.exe" -OutFile $env:Temp/setup-x86_64.exe
@@ -194,13 +178,41 @@
 		}
 
 		If (!(Test-Path "c:\opscode\chef\embedded\bin\ruby.exe")){
+      $install_chef = $true
+		} else {
+      if (removeChef("HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*") -or removeChef("HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*")){
+        $install_chef = $true
+      } else {
+        $install_chef = $false
+      }
+    }
+
+    function removeChef($location){
+      $install_chef = $false
+      $my_chef = (Get-ItemProperty $location | Where-Object {$_.DisplayName -like "chef client*"}).DisplayName
+      if ($my_chef) {
+        if ($my_chef -match '<%= MU.chefVersion %>') {
+          $install_chef = $false
+        } else{
+          log "Uninstalling Chef"
+          $uninstall_string = (Get-ItemProperty $location | Where-Object {$_.DisplayName -like "chef client*"}).UninstallString
+          $uninstall_string = ($uninstall_string -Replace "msiexec.exe","" -Replace "/I","" -Replace "/X","").Trim()
+          start-process "msiexec.exe" -arg "/X $uninstall_string /qn" -Wait
+          $install_chef = $true
+        }
+      }
+      
+      return $install_chef
+    }
+
+		If ($install_chef){
 			log "Installing Chef"
-			If (!(Test-Path $env:Temp/chef-installer.msi)){
+			If (!(Test-Path $env:Temp/chef-installer-<%= MU.chefVersion %>.msi)){
 				log "Downloading Chef installer"
-				Invoke-WebRequest -Uri "https://www.chef.io/chef/download?p=windows&pv=2012&m=x86_64&v=<%= MU.chefVersion %>" -OutFile $env:Temp/chef-installer.msi
+				Invoke-WebRequest -Uri "https://www.chef.io/chef/download?p=windows&pv=2012&m=x86_64&v=<%= MU.chefVersion %>" -OutFile $env:Temp/chef-installer-<%= MU.chefVersion %>.msi
 			}
 			log "Running Chef installer"
-			(Start-Process -FilePath msiexec -ArgumentList "/i $env:Temp\chef-installer.msi ALLUSERS=1 /le $env:Temp\chef-client-install.log /qn" -Wait -Passthru).ExitCode
+			(Start-Process -FilePath msiexec -ArgumentList "/i $env:Temp\chef-installer-<%= MU.chefVersion %>.msi ALLUSERS=1 /le $env:Temp\chef-client-install.log /qn" -Wait -Passthru).ExitCode
 			Set-Content "c:/mu_installed_chef" "yup"
 		}
 
