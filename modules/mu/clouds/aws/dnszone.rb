@@ -51,11 +51,11 @@ module MU
 
           if @config["create_zone"]
             params = {
-                :name => @config['name'],
-                :hosted_zone_config => {
-                    :comment => MU.deploy_id
-                },
-                :caller_reference => @deploy.getResourceName(@config['name'])
+              :name => @config['name'],
+              :hosted_zone_config => {
+                :comment => MU.deploy_id
+              },
+              :caller_reference => @deploy.getResourceName(@config['name'])
             }
 
             # Private zones have their lookup restricted by VPC

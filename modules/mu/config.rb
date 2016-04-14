@@ -1316,6 +1316,7 @@ module MU
         zone["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("DNSZone")
         zone['cloud'] = MU::Config.defaultCloud if zone['cloud'].nil?
         zone['region'] = config['region'] if zone['region'].nil?
+        zone["dependencies"] = [] if zone['dependencies'].nil?
         # ext_zone = MU::Cloud::DNSZone.find(cloud_id: zone['name']).values.first
 
         # if !ext_zone.nil?
@@ -1332,6 +1333,15 @@ module MU
             if route_types > 1
               MU.log "At most one of weight, location, region, and failover can be specified in a record.", MU::ERR, details: record
               ok = false
+            end
+            if !record['mu_type'].nil?
+              case record['mu_type']
+              when "loadbalancer"
+                zone["dependencies"] << {
+                  "type" => "loadbalancer",
+                  "name" => record['target']
+                }
+              end
             end
             if !record['healthcheck'].nil?
               if route_types == 0

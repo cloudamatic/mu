@@ -68,6 +68,22 @@ module MU
         end
 
         case type
+        when "dnszone"
+          desc = {
+            "Type" => "AWS::Route53::HostedZone",
+            "Properties" => {
+              "HostedZoneTags" => tags,
+              "VPCs" => [],
+            }
+          }
+        when "dnsrecord"
+          desc = {
+            "Type" => "AWS::Route53::RecordSet",
+            "Properties" => {
+              "ResourceRecords" => [],
+              "GeoLocation" => []
+            }
+          }
         when "logmetricfilter"
           desc = {
             "Type" => "AWS::Logs::MetricFilter",
