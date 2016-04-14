@@ -60,19 +60,161 @@ module MU
           end
 
           @config['records'].each { |dnsrec|
-            realtarget =
+            dnsrec['realtarget'] =
               if dnsrec['mu_type'] == "loadbalancer"
-                pp dnsrec
-                pp @dependencies.keys
 
                 if @dependencies.has_key?("loadbalancer") && dnsrec['deploy_id'].nil?
-                  { "Fn::GetAtt" => [@dependencies["loadbalancer"][dnsrec['target']].cloudobj.cfm_name, "DNSZone"] }
+# XXX This fails with a mysterious permission error. Probably Amazon's fault.
+                  if dnsrec['type'] == "R53ALIAS"
+                    dnsrec['alias_zone'] = { "Fn::GetAtt" => [@dependencies["loadbalancer"][dnsrec['target']].cloudobj.cfm_name, "CanonicalHostedZoneNameID"] }
+                  end
+                  { "Fn::GetAtt" => [@dependencies["loadbalancer"][dnsrec['target']].cloudobj.cfm_name, "DNSName"] }
+                elsif dnsrec['deploy_id']
+                  found = MU::MommaCat.findStray("AWS", "loadbalancer", deploy_id: dnsrec["deploy_id"], mu_name: dnsrec["target"], region: @config["region"])
+                  raise MuError, "Couldn't find #{dnsrec['mu_type']} #{dnsrec["target"]}" if found.nil? || found.empty?
+                  found.first.deploydata['dns']
+                end
+              elsif dnsrec['mu_type'] == "server"
+                public = true
+                if dnsrec.has_key?("target_type")
+                  public = dnsrec["target_type"] == "private" ? false : true
+                end
+                if @dependencies.has_key?("server") && dnsrec['deploy_id'].nil?
+                  if dnsrec["type"] == "CNAME"
+                    if public
+                      { "Fn::GetAtt" => [@dependencies["server"][dnsrec['target']].cloudobj.cfm_name, "PublicDnsName"] }
+                    else
+                      { "Fn::GetAtt" => [@dependencies["server"][dnsrec['target']].cloudobj.cfm_name, "PrivateDnsName"] }
+                    end
+                  elsif dnsrec["type"] == "A"
+                    if public
+                      { "Fn::GetAtt" => [@dependencies["server"][dnsrec['target']].cloudobj.cfm_name, "PublicIp"] }
+                    else
+                      { "Fn::GetAtt" => [@dependencies["server"][dnsrec['target']].cloudobj.cfm_name, "PrivateIp"] }
+                    end
+                  end
+                elsif dnsrec['deploy_id']
+                  found = MU::MommaCat.findStray("AWS", "server", deploy_id: dnsrec["deploy_id"], mu_name: dnsrec["target"], region: @config["region"])
+                  raise MuError, "Couldn't find #{dnsrec['mu_type']} #{dnsrec["target"]}" if found.nil? || found.empty?
+                  deploydata = found.first.deploydata
+                  if dnsrec["type"] == "CNAME"
+                    if public
+                      deploydata['public_dns_name'].empty? ? deploydata['private_dns_name'] : deploydata['public_dns_name']
+                    else
+                      deploydata['private_dns_name']
+                    end
+                  elsif dnsrec["type"] == "A"
+                    if public
+                      deploydata['public_ip_address'] ? deploydata['public_ip_address'] : deploydata['private_ip_address']
+                    else
+                      deploydata['private_ip_address']
+                    end
+                  end
+                end
+              elsif dnsrec['mu_type'] == "database"
+                if @dependencies.has_key?(dnsrec['mu_type']) && dnsrec['deploy_id'].nil?
+                  { "Fn::GetAtt" => [@dependencies["database"][dnsrec['target']].cloudobj.cfm_name, "Endpoint.Address"] }
+                elsif dnsrec['deploy_id']
+                  found = MU::MommaCat.findStray("AWS", "database", deploy_id: dnsrec["deploy_id"], mu_name: dnsrec["target"], region: @config["region"])
+                  raise MuError, "Couldn't find #{dnsrec['mu_type']} #{dnsrec["target"]}" if found.nil? || found.empty?
+                  found.first.deploydata['endpoint']
                 end
               end
+            if !dnsrec['hosted_zone_id']
+              dnsrec['hosted_zone_id'] = { "Ref" => @cfm_name }
+            end
+            dnsrec['hosted_zone_name'] = @config['name']
 
-            rec_name, rec_template = MU::Cloud::CloudFormation.cloudFormationBase("dnsrecord", name: dnsrec['target'])
-            pp rec_template
+            if dnsrec['append_environment_name']
+              dnsrec['name'] = dnsrec['name'] + "." + @deploy.environment.downcase
+            end
+            dnsrec['name'] = dnsrec['name'] + "." + @config['name'] + "."
           }
+          records = MU::Cloud::CloudFormation::DNSZone.createRecordsFromConfig(@config['records'])
+          records.each_pair { |name, rec|
+            MU::Cloud::CloudFormation.setCloudFormationProp(records[name], "DependsOn", @cfm_name)
+
+          }
+          @cfm_template.merge!(records)
+        end
+
+        # @param cfg [Array]: An array of parsed {MU::Config::BasketofKittens::dnszones::records} objects.
+        # @param target [String]: Optional target for the records to be created. Overrides targets embedded in cfg records.
+        def self.createRecordsFromConfig(cfg, target: nil)
+          templates = {}
+          cfg.each { |dnsrec|
+            dnsrec['realtarget'] = dnsrec['target'] if !dnsrec['realtarget']
+            rec_name, rec_template = MU::Cloud::CloudFormation.cloudFormationBase("dnsrecord", name: dnsrec['name']+dnsrec['target']+dnsrec['type'])
+            MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "Name", dnsrec['name'])
+            MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "SetIdentifier", rec_name)
+
+            if dnsrec['type'] == "R53ALIAS"
+              alias_target = {
+                "DNSName" => dnsrec['realtarget'],
+                "HostedZoneId" => dnsrec['alias_zone']
+              }
+              MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "AliasTarget", alias_target)
+              MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "Type", "CNAME")
+            else
+              MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "ResourceRecords", dnsrec['realtarget'])
+              MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "TTL", dnsrec['ttl'].to_s)
+              MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "Type", dnsrec['type'])
+            end
+
+            if dnsrec['geo_location']
+              loc = {}
+              ["continent_code", "country_code", "subdivision_code"].each { |arg|
+                if !dnsrec['geo_location'][arg].nil?
+                  key = ""
+                  arg.split(/_/).each { |chunk| key = key + chunk.capitalize }
+                  loc[key] = dnsrec['geo_location'][arg]
+                end
+              }
+              MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "GeoLocation", loc)
+            end
+
+            if dnsrec['healthcheck']
+              check_name, check_template = MU::Cloud::CloudFormation.cloudFormationBase("dnshealthcheck", name: dnsrec['name']+dnsrec['target']+dnsrec['type'])
+              check = {
+                "Type" => dnsrec['healthcheck']['method']
+              }
+              dnsrec['healthcheck']["request_interval"] = dnsrec['healthcheck']["check_interval"]
+              dnsrec['healthcheck']["resource_path"] = dnsrec['healthcheck']["path"]
+              ["failure_threshold", "resource_path", "port", "search_string", "request_internal"].each { |arg|
+                if !dnsrec['healthcheck'][arg].nil?
+                  key = ""
+                  arg.split(/_/).each { |chunk| key = key + chunk.capitalize }
+                  check[key] = dnsrec['healthcheck'][arg].to_s
+                end
+              }
+              if ["A", "AAAA"].include?(dnsrec['type'])
+                check["IPAddress"] = dnsrec['realtarget']
+              else
+                check["FullyQualifiedDomainName"] = dnsrec['realtarget']
+              end
+              MU::Cloud::CloudFormation.setCloudFormationProp(check_template[check_name], "HealthCheckConfig", check)
+
+              MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "HealthCheckId", { "Ref" => check_name })
+              MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "DependsOn", check_name)
+              rec_template.merge!(check_template)
+            end
+
+            MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "Failover", dnsrec['failover']) if dnsrec['failover']
+            MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "Region", dnsrec['region']) if dnsrec['region']
+            MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "Weight", dnsrec['weight']) if dnsrec['weight']
+            if dnsrec['hosted_zone_id']
+              MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "HostedZoneId", dnsrec['hosted_zone_id'])
+            elsif dnsrec['hosted_zone_name']
+              MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "HostedZoneName", dnsrec['hosted_zone_name'])
+            else
+              raise MuError, "Records must have either hosted_zone_name or hosted_zone_id into MU::Clouds::CloudFormation::DNSZone.createRecordsFromConfig"
+            end
+            if rec_template[rec_name]["Properties"]["ResourceRecords"].size == 0
+              rec_template[rec_name]["Properties"].delete("ResourceRecords")
+            end
+            templates.merge!(rec_template)
+          }
+          templates
         end
 
         # Return the metadata for this CacheCluster
@@ -95,12 +237,6 @@ module MU
         # Placeholder. This is a NOOP for CloudFormation, which doesn't build
         # resources directly.
         def self.genericMuDNSEntry(*args)
-          MU.log "find() not implemented for CloudFormation layer", MU::DEBUG
-          nil
-        end
-        # Placeholder. This is a NOOP for CloudFormation, which doesn't build
-        # resources directly.
-        def self.createRecordsFromConfig(*args)
           MU.log "find() not implemented for CloudFormation layer", MU::DEBUG
           nil
         end

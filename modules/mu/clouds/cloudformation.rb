@@ -68,6 +68,13 @@ module MU
         end
 
         case type
+        when "dnshealthcheck"
+          desc = {
+            "Type" => "AWS::Route53::HealthCheck",
+            "Properties" => {
+              "HealthCheckTags" => tags
+            }
+          }
         when "dnszone"
           desc = {
             "Type" => "AWS::Route53::HostedZone",
@@ -80,8 +87,7 @@ module MU
           desc = {
             "Type" => "AWS::Route53::RecordSet",
             "Properties" => {
-              "ResourceRecords" => [],
-              "GeoLocation" => []
+              "ResourceRecords" => []
             }
           }
         when "logmetricfilter"
@@ -356,7 +362,7 @@ module MU
           end
         end
 
-        if resource.has_key?(name)
+        if resource.has_key?(name) and name != "Type"
           if resource[name].is_a?(Array)
             realvalue["Fn::Select"][0] = resource[name].size if is_list_element
             resource[name] << realvalue if !resource[name].include?(realvalue)

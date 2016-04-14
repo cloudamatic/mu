@@ -1335,13 +1335,10 @@ module MU
               ok = false
             end
             if !record['mu_type'].nil?
-              case record['mu_type']
-              when "loadbalancer"
-                zone["dependencies"] << {
-                  "type" => "loadbalancer",
-                  "name" => record['target']
-                }
-              end
+              zone["dependencies"] << {
+                "type" => record['mu_type'],
+                "name" => record['target']
+              }
             end
             if !record['healthcheck'].nil?
               if route_types == 0
@@ -3476,7 +3473,24 @@ module MU
                   "type" => {
                       "type" => "string",
                       "description" => "The class of DNS record to create. The R53ALIAS type is not traditional DNS, but instead refers to AWS Route53's alias functionality. An R53ALIAS is only valid if the target is an Elastic LoadBalancer, CloudFront, S3 bucket (configured as a public web server), or another record in the same Route53 hosted zone.",
-                      "enum" => ["SOA", "A", "TXT", "NS", "CNAME", "MX", "PTR", "SRV", "SPF", "AAAA", "R53ALIAS"]
+                      "enum" => ["SOA", "A", "TXT", "NS", "CNAME", "MX", "PTR", "SRV", "SPF", "AAAA", "R53ALIAS"],
+                      "default_if" => [
+                        {
+                          "key_is" => "mu_type",
+                          "value_is" => "loadbalancer",
+                          "set" => "R53ALIAS"
+                        },
+                        {
+                          "key_is" => "mu_type",
+                          "value_is" => "database",
+                          "set" => "CNAME"
+                        },
+                        {
+                          "key_is" => "mu_type",
+                          "value_is" => "server",
+                          "set" => "A"
+                        }
+                      ]
                   },
                   "alias_zone" => {
                       "type" => "string",
