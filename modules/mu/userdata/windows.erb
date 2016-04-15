@@ -6,6 +6,7 @@
 	$base_dir = 'c:/bin'
 	$cygwin_dir = "$base_dir/cygwin"
 	$username = (whoami).Split('\')[1]
+	$WebClient = New-Object System.Net.WebClient
 
 	function log
 	{
@@ -72,7 +73,7 @@
 			mkdir c:/Users/$admin_username/Documents/WindowsPowerShell/Modules
 		}
 
-		Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/PSWindowsUpdate.zip" -OutFile $env:Temp/PSWindowsUpdate.zip
+		$WebClient.DownloadFile("https://s3.amazonaws.com/cap-public/PSWindowsUpdate.zip","$env:Temp/PSWindowsUpdate.zip")
 		Add-Type -A 'System.IO.Compression.FileSystem'
 
 		If (!(Test-Path c:/windows/System32/WindowsPowerShell/v1.0/Modules/PSWindowsUpdate)){
@@ -88,30 +89,14 @@
 		log "Setting Windows Update parameters in registry"
 		Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update" -Name AUOptions -Value 3
 
-		# This is a crappy workaround because even when we set all the right permissions/privileges ssh still doesn't always work, so we're removing on every instance
-#		If (!(Test-Path "c:/$instanceid")){
-#			log "I don't see c:/$instanceid"
-#			Disable-SSHD
-#		}
-
-		# even when we set all the right permissions/privileges ssh still doesn't always work, so we're removing if the user that installed ssh service changed
-#		if (!(Get-WmiObject win32_computersystem).partofdomain){
-#			if ((Test-Path $cygwin_dir\sshd_installed_by.txt) -and ((Get-Content $cygwin_dir\sshd_installed_by.txt) -ne $admin_username)){
-#				if ($username -ne "system"){
-#					log "I am not in a domain, my admin user is $admin_username, and sshd was last installed by $(Get-Content $cygwin_dir\sshd_installed_by.txt)"
-#					Disable-SSHD
-#				}
-#			}
-#		}
-
 		If (!(Test-Path "$cygwin_dir/Cygwin.bat")){
 			If (!(Test-Path $env:Temp/setup-x86_64.exe)){
-				Invoke-WebRequest -Uri "http://cygwin.com/setup-x86_64.exe" -OutFile $env:Temp/setup-x86_64.exe
+				$WebClient.DownloadFile("http://cygwin.com/setup-x86_64.exe","$env:Temp/setup-x86_64.exe")
 			}
 
 			If (!(Test-Path $env:Temp/cygwin.zip)){
 				log "Downloading Cygwin packages"
-				Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/cygwin_20150531.zip" -OutFile $env:Temp/cygwin.zip
+				$WebClient.DownloadFile("https://s3.amazonaws.com/cap-public/cygwin_20150531.zip","$env:Temp/cygwin.zip")
 			}
 
 			Add-Type -A 'System.IO.Compression.FileSystem'
@@ -177,7 +162,7 @@
 		If (!(Test-Path "$python_path\python.exe")){
 			If (!(Test-Path $env:Temp/python-2.7.9.msi)){
 				log "Downloading Python installer"
-				Invoke-WebRequest -Uri "https://www.python.org/ftp/python/2.7.9/python-2.7.9.msi" -OutFile $env:Temp/python-2.7.9.msi
+				$WebClient.DownloadFile("https://www.python.org/ftp/python/2.7.9/python-2.7.9.msi","$env:Temp/python-2.7.9.msi")
 			}
 			log "Running Python installer"
 			(Start-Process -FilePath msiexec -ArgumentList "/i $env:Temp\python-2.7.9.msi /qn ALLUSERS=1 TARGETDIR=$python_path" -Wait -Passthru).ExitCode
@@ -186,21 +171,51 @@
 		If (!(Test-Path "$python_path\Scripts\aws.cmd")){
 			If (!(Test-Path $env:Temp/get-pip.py)){
 				log "Downloading get-pip.py"
-				Invoke-WebRequest -Uri "https://bootstrap.pypa.io/get-pip.py" -OutFile $env:Temp/get-pip.py
+				$WebClient.DownloadFile("https://bootstrap.pypa.io/get-pip.py","$env:Temp/get-pip.py")
 			}
 			python $env:Temp/get-pip.py
 			log "Running pip install awscli"
 			pip install awscli
 		}
 
+		function removeChef($location){
+			$install_chef = $false
+			$my_chef = (Get-ItemProperty $location | Where-Object {$_.DisplayName -like "chef client*"}).DisplayName
+			if ($my_chef) {
+				if ($my_chef -match '<%= MU.chefVersion %>'.split('-')[0]) {
+					$install_chef = $false
+				} else{
+					log "Uninstalling Chef"
+					$uninstall_string = (Get-ItemProperty $location | Where-Object {$_.DisplayName -like "chef client*"}).UninstallString
+					$uninstall_string = ($uninstall_string -Replace "msiexec.exe","" -Replace "/I","" -Replace "/X","").Trim()
+					start-process "msiexec.exe" -arg "/X $uninstall_string /qn" -Wait
+					$install_chef = $true
+				}
+			}
+			
+			return $install_chef
+		}
+
 		If (!(Test-Path "c:\opscode\chef\embedded\bin\ruby.exe")){
+			$install_chef = $true
+		} else {
+			if (removeChef("HKLM:\Software\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*")){
+				$install_chef = $true
+			} elseif (removeChef("HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*")) {
+				$install_chef = $true
+			} else {
+				$install_chef = $false
+			}
+		}
+
+		If ($install_chef){
 			log "Installing Chef"
-			If (!(Test-Path $env:Temp/chef-installer.msi)){
+			If (!(Test-Path $env:Temp/chef-installer-<%= MU.chefVersion %>.msi)){
 				log "Downloading Chef installer"
-				Invoke-WebRequest -Uri "https://www.chef.io/chef/download?p=windows&pv=2012&m=x86_64&v=<%= MU.chefVersion %>" -OutFile $env:Temp/chef-installer.msi
+				$WebClient.DownloadFile("https://www.chef.io/chef/download?p=windows&pv=2012&m=x86_64&v=<%= MU.chefVersion %>","$env:Temp/chef-installer-<%= MU.chefVersion %>.msi")
 			}
 			log "Running Chef installer"
-			(Start-Process -FilePath msiexec -ArgumentList "/i $env:Temp\chef-installer.msi ALLUSERS=1 /le $env:Temp\chef-client-install.log /qn" -Wait -Passthru).ExitCode
+			(Start-Process -FilePath msiexec -ArgumentList "/i $env:Temp\chef-installer-<%= MU.chefVersion %>.msi ALLUSERS=1 /le $env:Temp\chef-client-install.log /qn" -Wait -Passthru).ExitCode
 			Set-Content "c:/mu_installed_chef" "yup"
 		}
 
@@ -209,9 +224,9 @@
 			log "Applying Windows updates"
 			Import-Module PSWindowsUpdate
 			Get-WUInstall -AcceptAll -IgnoreReboot
-      Start-Sleep -s 60
+			Start-Sleep -s 60
 			If (Test-Path "HKLM:/SOFTWARE/Microsoft/Windows/CurrentVersion/WindowsUpdate/Auto Update/RebootRequired"){
-        log "Registry fiddling says I need a reboot"
+				log "Registry fiddling says I need a reboot"
 				$need_reboot = $TRUE
 			}
 		}
@@ -246,10 +261,10 @@
 		New-Item $cygwin_dir/home/$admin_username/.ssh/authorized_keys -type file -force -value "<%= $mu.deploySSHKey %>"
 <% end %>
 
-    if((Get-WURebootStatus -Silent) -eq $true){
-      log "Get-WURebootStatus telling me I need a reboot for real"
+		if((Get-WURebootStatus -Silent) -eq $true){
+			log "Get-WURebootStatus telling me I need a reboot for real"
 			$need_reboot = $TRUE
-    }
+		}
 
 		if ($need_reboot){
 			log "----- REBOOT -----"
@@ -262,7 +277,7 @@
 			log "Enabling sshd service"
 			sleep 30; Start-Service sshd
 			Set-Service sshd -startuptype "Automatic"
-      Get-WUInstall -AcceptAll -AutoReboot
+			Get-WUInstall -AcceptAll -AutoReboot
 
 			$url = 'https://<%= $mu.publicIP %>:2260'
 			log "Calling home to $url"
