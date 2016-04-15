@@ -487,6 +487,12 @@ module MU
                           [ resource['#MUOBJECT'].cloudobj.cfm_name, "PublicIp" ]
                         }
                     }
+                else
+                  cfm_template["Outputs"][data[:cfg_name].gsub(/[^a-z0-9]/i, "")+namestr] = {
+                    "Value" => {
+                      "Ref" => resource['#MUOBJECT'].cloudobj.cfm_name
+                    }
+                  }
                 end
               end
             }
