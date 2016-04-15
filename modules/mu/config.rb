@@ -2098,16 +2098,17 @@ module MU
           ok = false
         end
 
-        if cluster["node_count"] > 1 && !cluster["multi_az"]
-          MU.log "node_count is set to #{cluster["node_count"]} but multi_az is disabled. either set multi_az to true or set node_count to 1", MU::ERR
-          ok = false
+        if cluster["node_count"] > 1
+          cluster["multi_az"] = true
         end
 
         if cluster["engine"] == "redis"
           # We aren't required to create a cache replication group for a single redis cache cluster, 
           # however AWS console does exactly that, ss such we will follow that behavior.
-          cluster["create_replication_group"] = true
-          cluster["automatic_failover"] = cluster["multi_az"]
+          if cluster["node_count"] > 1
+            cluster["create_replication_group"] = true
+            cluster["automatic_failover"] = cluster["multi_az"]
+          end
 
           # Some instance types don't support snapshotting 
           if %w{cache.t2.micro cache.t2.small cache.t2.medium}.include?(cluster["size"])
