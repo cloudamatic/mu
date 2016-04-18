@@ -151,13 +151,16 @@ module MU
         @prefix = prefix if !prefix.nil?
         @suffix = suffix if !suffix.nil?
       end
-      
+ 
+      # Return the parameter name of this Tail
       def getName
         @name
       end
+      # Return the platform-specific cloud type of this Tail
       def getCloudType
         @cloud_type
       end
+      # Return the human-friendly name of this Tail
       def getPrettyName
         @prettyname
       end
@@ -177,7 +180,7 @@ module MU
       def downcase
         to_s.downcase
       end
-      # Check for quality like a String
+      # Check for equality like a String
       def ==(o)
         (o.class == self.class or o.class == "String") && o.to_s == to_s
       end
@@ -187,6 +190,16 @@ module MU
       end
     end
 
+    # Wrapper method for creating a {MU::Config::Tail} object as a reference to
+    # a parameter that's valid in the loaded configuration.
+    # @param param [<String>]: The name of the parameter to which this should be tied.
+    # @param value [<String>]: The value of the parameter to return when asked
+    # @param prettyname [<String>]: A human-friendly parameter name to be used when generating CloudFormation templates and the like
+    # @param cloud_type [<String>]: A platform-specific identifier used by cloud layers to identify a parameter's type, e.g. AWS::EC2::VPC::Id
+    # @param description [<String>]: A long-form description of what the parameter does.
+    # @param list_of [<String>]: Indicates that the value should be treated as a member of a list (array) by the cloud layer.
+    # @param prefix [<String>]: A static String that should be prefixed to the stored value when queried
+    # @param suffix [<String>]:  A static String that should be appended to the stored value when queried
     def getTail(param, value: nil, prettyname: nil, cloud_type: "String", description: nil, list_of: nil, prefix: "", suffix: "")
       if value.nil?
         if $parameters.nil? or !$parameters.has_key?(param)

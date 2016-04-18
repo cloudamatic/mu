@@ -15,7 +15,7 @@
 module MU
   class Cloud
     class CloudFormation
-      # A Cloud Watch alarm as configured in {MU::Config::BasketofKittens::alarm}
+      # A Cloud Watch alarm as configured in {MU::Config::BasketofKittens::alarms}
       class Alarm < MU::Cloud::Alarm
 
         @deploy = nil
