@@ -71,7 +71,7 @@ module MU
           @config["ok_actions"].uniq!
           @config["alarm_actions"].uniq!
 
-          MU::Cloud::AWS::Alarm.createAlarm(
+          MU::Cloud::AWS::Alarm.setAlarm(
             name: @mu_name,
             ok_actions: @config["ok_actions"],
             alarm_actions: @config["alarm_actions"],
@@ -139,13 +139,37 @@ module MU
         end
 
         # Create an alarm.
-        def self.createAlarm(
+        def self.setAlarm(
                 name: nil, ok_actions: [], alarm_actions: [], insufficient_data_actions: [], metric_name: nil, namespace: nil, statistic: nil,
                 dimensions: [], period: nil, unit: nil, evaluation_periods: nil, threshold: nil, comparison_operator: nil, region: MU.curRegion
                )
 
-          unless getAlarmByName(name, region: region)
-            begin
+          # If the alarm already exists, then assume we're updating it and
+          # munge in potentially new arguments.
+          ext_alarm = getAlarmByName(name, region: region)
+          if ext_alarm
+            if dimensions
+              dimensions.concat(ext_alarm.dimensions)
+              dimensions.uniq!
+            end
+            if alarm_actions
+              alarm_actions.concat(ext_alarm.alarm_actions)
+              alarm_actions.uniq!
+            end
+            if ok_actions
+              ok_actions.concat(ext_alarm.ok_actions)
+              ok_actions.uniq!
+            end
+            if insufficient_data_actions
+              insufficient_data_actions.concat(ext_alarm.insufficient_data_actions)
+              insufficient_data_actions.uniq!
+            end
+            MU.log "Modifying alarm #{name}"
+          else
+            MU.log "Creating alarm #{name}"
+          end
+
+          begin
             MU::Cloud::AWS.cloudwatch(region).put_metric_alarm(
               alarm_name: name,
               alarm_description: name,
@@ -163,17 +187,17 @@ module MU
               threshold: threshold,
               comparison_operator: comparison_operator
             )
-            rescue Aws::CloudWatch::Errors::ValidationError => e
-              # Dopey but ultimately harmless race condition
-              if e.message.match(/A separate request to update this alarm is in progress/)
-                MU.log "Duplicate request to create alarm #{name}. This one came from #{caller[0]}", MU::WARN
-              else
-                raise e
-              end
+          rescue Aws::CloudWatch::Errors::ValidationError => e
+            # Dopey but ultimately harmless race condition
+            if e.message.match(/A separate request to update this alarm is in progress/)
+              MU.log "Duplicate request to create alarm #{name}. This one came from #{caller[0]}", MU::WARN
+              sleep 15
+              retry
+            else
+              raise e
             end
-
-            MU.log "Alarm #{name} created"
           end
+
         end
 
         # Retrieve the complete cloud provider description of a alarm.
