@@ -142,11 +142,19 @@ module MU
         # @param target [String]: Optional target for the records to be created. Overrides targets embedded in cfg records.
         def self.createRecordsFromConfig(cfg, target: nil)
           templates = {}
+          counts = {}
           cfg.each { |dnsrec|
-            dnsrec['realtarget'] = dnsrec['target'] if !dnsrec['realtarget']
+          target = dnsrec['realtarget'] ? dnsrec['realtarget'] : dnsrec['target']
+            dnsrec['realtarget'] = target if !dnsrec['realtarget']
+            if !counts.has_key?(target)
+              counts[target] = 1
+            else
+              counts[target] = counts[target] + 1
+            end
+          }
+          cfg.each { |dnsrec|
             rec_name, rec_template = MU::Cloud::CloudFormation.cloudFormationBase("dnsrecord", name: dnsrec['name']+dnsrec['target']+dnsrec['type'])
             MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "Name", dnsrec['name'])
-            MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "SetIdentifier", rec_name)
 
             if dnsrec['type'] == "R53ALIAS"
               alias_target = {
@@ -154,14 +162,19 @@ module MU
                 "HostedZoneId" => dnsrec['alias_zone']
               }
               MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "AliasTarget", alias_target)
-              MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "Type", "CNAME")
+              MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "Type", "A")
             else
               MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "ResourceRecords", dnsrec['realtarget'])
               MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "TTL", dnsrec['ttl'].to_s)
               MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "Type", dnsrec['type'])
             end
 
+            if counts[dnsrec['realtarget']] > 1
+              MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "SetIdentifier", rec_name)
+            end
+
             if dnsrec['geo_location']
+            MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "SetIdentifier", rec_name)
               loc = {}
               ["continent_code", "country_code", "subdivision_code"].each { |arg|
                 if !dnsrec['geo_location'][arg].nil?
