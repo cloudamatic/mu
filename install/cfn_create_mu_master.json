@@ -819,7 +819,11 @@
                       },
                       "\"\n",
                       "export ALLOW_INVADE_FOREIGN_VPCS=\"1\"\n",
-                      "export EC2_REGION=\"us-east-1\"\n",
+                      "export EC2_REGION=\"",
+											{
+												"Ref" : "AWS::Region"
+											},
+											"\"\n",
                       "export MU_INSTALLDIR=\"/opt/mu\"\n",
                       "export MU_DATADIR=\"/opt/mu/var\"\n",
                       "export VPCID=\"",

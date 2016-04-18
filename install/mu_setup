@@ -701,7 +701,7 @@ chef_server_ctl()
 ## Patch knife-windows to deal with Cygwin
 patch_knife_windows()
 {
-  kw_version="1.1.4"
+  kw_version="1.4.0"
 
   for rubydir in $RUBY_INSTALL_DIR /opt/chef/embedded;do
     if [ -d "$rubydir/lib/ruby/gems" ];then

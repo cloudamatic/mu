@@ -17,7 +17,7 @@
 # limitations under the License.
 
 include_recipe 'chef-vault'
-packages = %w(sqlite3 libsqlite3-dev libmysqlclient-dev software-properties-common libxml2-dev libxslt-dev libmagickwand-dev make build-essential g++)
+packages = %w(sqlite3 libsqlite3-dev libmysqlclient-dev software-properties-common libxml2-dev libxslt-dev libmagickwand-dev make build-essential g++ git)
 
 package packages
 

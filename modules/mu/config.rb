@@ -897,6 +897,7 @@ module MU
       firewall_rules = config['firewall_rules']
       dnszones = config['dnszones']
       vpcs = config['vpcs']
+      storage_pools = config['storage_pools']
 
       databases = Array.new if databases.nil?
       servers = Array.new if servers.nil?
@@ -909,8 +910,9 @@ module MU
       firewall_rules = Array.new if firewall_rules.nil?
       vpcs = Array.new if vpcs.nil?
       dnszones = Array.new if dnszones.nil?
+      storage_pools = Array.new if storage_pools.nil?
 
-      if databases.size < 1 and servers.size < 1 and server_pools.size < 1 and loadbalancers.size < 1 and collections.size < 1 and firewall_rules.size < 1 and vpcs.size < 1 and dnszones.size < 1 and cache_clusters.size < 1 and alarms.size < 1 and logs.size < 1
+      if databases.empty? and servers.empty? and server_pools.empty? and loadbalancers.empty? and collections.empty? and firewall_rules.empty? and vpcs.empty? and dnszones.empty? and cache_clusters.empty? and alarms.empty? and logs.empty? and storage_pools.empty?
         MU.log "You must declare at least one resource to create", MU::ERR
         ok = false
       end
@@ -1397,6 +1399,18 @@ module MU
             end
           }
         end
+        
+        if pool.has_key?("storage_pools")
+          pool["storage_pools"].each { |sp|
+            if sp["name"]
+              pool["dependencies"] << {
+                "type" => "storage_pool",
+                "name" => sp["name"]
+              }
+            end
+          }
+        end
+
         if !pool["vpc"].nil?
           pool['vpc']['region'] = pool['region'] if pool['vpc']['region'].nil?
           pool["vpc"]['cloud'] = pool['cloud'] if pool["vpc"]['cloud'].nil?
@@ -1915,6 +1929,78 @@ module MU
         cluster['dependencies'] << genAdminFirewallRuleset(vpc: cluster['vpc'], region: cluster['region'], cloud: cluster['cloud'])
       }
 
+      storage_pools.each { |pool|
+        pool['region'] = config['region'] if pool['region'].nil?
+        pool["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("StoragePool")
+        pool["dependencies"] = [] if pool["dependencies"].nil?
+
+        supported_regions = %w{us-west-2}
+        if !supported_regions.include?(pool['region'])
+          MU.log "Region #{pool['region']} not supported. Only #{supported_regions.join(',  ')} are supported", MU::ERR
+          ok = false
+        end
+
+        if pool['mount_points'] && !pool['mount_points'].empty?
+          pool['mount_points'].each{ |mp|
+            if mp['ingress_rules']
+              fwname = "storage-#{mp['name']}"
+              firewall_rule_names << fwname
+              acl = {"name" => fwname, "rules" => mp['ingress_rules'], "region" => pool['region']}
+              acl["vpc"] = mp['vpc'].dup if mp['vpc']
+              firewall_rules << resolveFirewall.call(acl)
+              mp["add_firewall_rules"] = [] if mp["add_firewall_rules"].nil?
+              mp["add_firewall_rules"] << {"rule_name" => fwname}
+            end
+
+            if mp["add_firewall_rules"]
+              mp["add_firewall_rules"].each { |acl_include|
+                if firewall_rule_names.include?(acl_include["rule_name"])
+                  pool["dependencies"] << {
+                    "type" => "firewall_rule",
+                    "name" => acl_include["rule_name"]
+                  }
+                end
+              }
+            end
+
+            if mp["vpc"] && !mp["vpc"].empty?
+              if mp["vpc"]["subnet_pref"] and !mp["vpc"]["subnets"]
+                if %w{all any all_public all_private}.include? mp["vpc"]["subnet_pref"]
+                  MU.log "subnet_pref #{mp["vpc"]["subnet_pref"]} is not supported for storage pools.", MU::ERR
+                  ok = false
+                end
+              end
+
+              mp['vpc']['region'] = pool['region'] if mp['vpc']['region'].nil?
+              mp["vpc"]['cloud'] = pool['cloud'] if mp["vpc"]['cloud'].nil?
+              # If we're using a VPC in this deploy, set it as a dependency
+              if mp["vpc"]["vpc_name"] and vpc_names.include?(mp["vpc"]["vpc_name"]) and mp["vpc"]["deploy_id"].nil?
+                pool["dependencies"] << {
+                  "type" => "vpc",
+                  "name" => mp["vpc"]["vpc_name"]
+                }
+
+                if !processVPCReference(
+                  mp["vpc"],
+                  "storage_pool #{pool['name']}",
+                  dflt_region: config['region'],
+                  is_sibling: true,
+                  sibling_vpcs: vpcs
+                )
+                  ok = false
+                end
+              else
+                if !processVPCReference(mp["vpc"], "storage_pool #{pool['name']}", dflt_region: config['region'])
+                  ok = false
+                end
+              end
+            end
+          }
+        end
+
+        # pool['dependencies'] << genAdminFirewallRuleset(vpc: pool['vpc'], region: pool['region'], cloud: pool['cloud'])
+      }
+      
       alarms.each { |alarm|
         alarm['region'] = config['region'] if alarm['region'].nil?
         alarm["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Alarm")
@@ -2092,6 +2178,18 @@ module MU
             end
           }
         end
+        
+        if server.has_key?("storage_pools")
+          server["storage_pools"].each { |sp|
+            if sp["name"]
+              server["dependencies"] << {
+                "type" => "storage_pool",
+                "name" => sp["name"]
+              }
+            end
+          }
+        end
+
         server['dependencies'] << genAdminFirewallRuleset(vpc: server['vpc'], region: server['region'], cloud: server['cloud'])
         server["dependencies"].uniq!
       }
@@ -2385,7 +2483,7 @@ module MU
                 "name" => {"type" => "string"},
                 "type" => {
                     "type" => "string",
-                    "enum" => ["server", "database", "server_pool", "loadbalancer", "collection", "firewall_rule", "vpc", "dnszone", "cache_cluster"]
+                    "enum" => ["server", "database", "server_pool", "loadbalancer", "collection", "firewall_rule", "vpc", "dnszone", "cache_cluster", "storage_pool"]
                 },
                 "phase" => {
                     "type" => "string",
@@ -3628,6 +3726,31 @@ module MU
                     }
                 }
             }
+        },
+        "storage_pools" => {
+          "type" => "array",
+          "minItems" => 1,
+          "items" => {
+            "type" => "object",
+            "minProperties" => 1,
+            "maxProperties" => 1,
+            "additionalProperties" => false,
+            "description" => "One or more storage pools to use in this deployment.",
+            "properties" => {
+              "name" => {
+                "type" => "string",
+                "description" => "The name of a MU storage pool object that should also be defined in this stack. Will be added as a dependency."
+              },
+              "mu_name" => {
+                "type" => "string",
+                "description" => "The MU name of an existing storage pool that is not part of this deployment. Must be in the same VPC as this deployment. Use either mu_name or cloud_id"
+              },
+              "cloud_id" => {
+                "type" => "string",
+                "description" => "The cloud provider’s native name of an existing storage pool that is not part of this deployment. Must be in the same VPC as this deployment. Use either cloud_id or mu_name"
+              }
+            }
+          }
         }
     }
 
@@ -4428,6 +4551,51 @@ module MU
     }
     @server_pool_primitive["properties"].merge!(@server_common_properties)
 
+    @storage_pool_primitive = {
+      "type" => "object",
+      "title" => "Storage Pool",
+      "description" => "Create a storage pool.",
+      "required" => ["name", "cloud"],
+      "additionalProperties" => false,
+      "properties" => {
+        "cloud" => @cloud_primitive,
+        "name" => {"type" => "string"},
+        "region" => @region_primitive,
+        "tags" => @tags_primitive,
+        "dependencies" => @dependencies_primitive
+      }
+    }
+
+    @storage_pool_mount_points_primitive = {
+      "mount_points" => {
+        "type" => "array",
+        "minItems" => 1,
+        "items" => {
+          "type" => "object",
+          "required" => ["name"],
+          "additionalProperties" => false,
+          "description" => "Mount points for AWS EFS.",
+          "properties" => {
+            "name" => {
+              "type" => "string"
+            },
+            "vpc" => vpc_reference_primitive(ONE_SUBNET, NO_NAT_OPTS, "private"),
+            "add_firewall_rules" => @additional_firewall_rules,
+            "ingress_rules" => {
+              "type" => "array",
+              "items" => @firewall_ruleset_rule_primitive
+            },
+            "ip_address" => {
+              "type" => "string",
+              "pattern" => "^\\d+\\.\\d+\\.\\d+\\.\\d+$",
+              "description" => "The private IP address to assign to the mount point."
+            }
+          }
+        }
+      }
+    }
+    @storage_pool_primitive["properties"].merge!(@storage_pool_mount_points_primitive)
+
     @@schema = {
         "$schema" => "http://json-schema.org/draft-04/schema#",
         "title" => "MU Application",
@@ -4485,6 +4653,10 @@ module MU
             "vpcs" => {
                 "type" => "array",
                 "items" => @vpc_primitive
+            },
+            "storage_pools" => {
+              "type" => "array",
+              "items" => @storage_pool_primitive
             },
             "admins" => {
                 "type" => "array",

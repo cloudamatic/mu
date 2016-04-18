@@ -1,0 +1,34 @@
+<%
+  $region = MU.curRegion unless $region
+  $deploy_id = "MGMG-SVCS-DEV-2016040222-SP" unless $deploy_id
+%>
+
+appname: efs
+region: <%= $region %>
+storage_pools:
+- name: test
+  mount_points:
+  - name: mountpoint1
+    vpc:
+      deploy_id: <%= $deploy_id %>
+      subnet_name: PRIVATE0
+    ingress_rules:
+    - port: 2049
+      hosts:
+      - 0.0.0.0/0
+  - name: mountpoint2
+    vpc:
+      deploy_id: <%= $deploy_id %>
+      subnet_name: PRIVATE1
+    ingress_rules:
+    - port: 2049
+      hosts:
+      - 0.0.0.0/0
+  - name: mountpoint3
+    vpc:
+      deploy_id: <%= $deploy_id %>
+      subnet_name: PRIVATE2
+    ingress_rules:
+    - port: 2049
+      hosts:
+      - 0.0.0.0/0
