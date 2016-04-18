@@ -655,13 +655,15 @@ module MU
                   resource["dependencies"].each { |dependency|
                     collection = dependency["type"]+"s"
                     found = false
+                    names_seen = []
                     if config[collection] != nil
-                      config[collection].each { |server|
-                        found = true if server["name"] == dependency["name"]
+                      config[collection].each { |service|
+                        names_seen << service["name"]
+                        found = true if service["name"] == dependency["name"]
                       }
                     end
                     if !found
-                      MU.log "Missing dependency: #{type[0]}{#{resource['name']}} needs #{collection}{#{dependency['name']}}", MU::ERR
+                      MU.log "Missing dependency: #{type[0]}{#{resource['name']}} needs #{collection}{#{dependency['name']}}", MU::ERR, details: names_seen
                       ok = false
                     end
                   }
@@ -1535,8 +1537,12 @@ module MU
         
         if lb["alarms"] && !lb["alarms"].empty?
           lb["alarms"].each { |alarm|
+            alarm["name"] = "lb"+lb["name"]+alarm["name"]
+            alarm['dimensions'] = [] if !alarm['dimensions']
+            alarm['dimensions'] << { "name" => lb["name"], "cloud_class" => "LoadBalancerName" }
             alarm["namespace"] = "AWS/ELB" if alarm["namespace"].nil?
-            ok = false unless MU::Config.validate_alarm_config(alarm)
+            alarm['cloud'] = lb['cloud']
+            alarms << alarm.dup
           }
         end
       }
@@ -1573,8 +1579,13 @@ module MU
 
         if pool["alarms"] && !pool["alarms"].empty?
           pool["alarms"].each { |alarm|
+            alarm["name"] = "pool"+pool["name"]+alarm["name"]
             alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
-            ok = false unless MU::Config.validate_alarm_config(alarm)
+            # We don't add dimension placeholders here, because the individual
+            # Servers will have to do that themselves.
+            pool["dependencies"] << { "name" => alarm["name"], "type" => "alarm" }
+            alarm['cloud'] = pool['cloud']
+            alarms << alarm.dup
           }
         end
 
@@ -1652,8 +1663,12 @@ module MU
 
             if policy["alarms"] && !policy["alarms"].empty?
               policy["alarms"].each { |alarm|
+                alarm["name"] = "policy"+pool["name"]+policy["name"]+alarm["name"]
+                alarm['dimensions'] = [] if !alarm['dimensions']
+                alarm['dimensions'] << { "name" => pool["name"], "cloud_class" => "AutoScalingGroupName" }
                 alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
-                ok = false unless MU::Config.validate_alarm_config(alarm)
+                alarm['cloud'] = pool['cloud']
+                alarms << alarm.dup
               }
             end
           }
@@ -1873,15 +1888,19 @@ module MU
 
         if db["alarms"] && !db["alarms"].empty?
           db["alarms"].each { |alarm|
+            alarm["name"] = "db"+db["name"]+alarm["name"]
+            alarm['dimensions'] = [] if !alarm['dimensions']
+            alarm['dimensions'] = { "name" => db["name"], "cloud_class" => "DBInstanceIdentifier" }
             alarm["namespace"] = "AWS/RDS" if alarm["namespace"].nil?
-            ok = false unless MU::Config.validate_alarm_config(alarm)
+            alarm['cloud'] = db['cloud']
+            alarms << alarm.dup
           }
         end
 
         if db["collection"]
           db["dependencies"] << {
-              "type" => "collection",
-              "name" => db["collection"]
+            "type" => "collection",
+            "name" => db["collection"]
           }
         end
 
@@ -2135,8 +2154,12 @@ module MU
 
         if cluster["alarms"] && !cluster["alarms"].empty?
           cluster["alarms"].each { |alarm|
+            alarm["name"] = "cache"+cluster["name"]+alarm["name"]
+            alarm['dimensions'] = [] if !alarm['dimensions']
+            alarm['dimensions'] << { "name" => cluster["name"], "cloud_class" => "CacheClusterId" }
             alarm["namespace"] = "AWS/ElastiCache" if alarm["namespace"].nil?
-            ok = false unless MU::Config.validate_alarm_config(alarm)
+            alarm['cloud'] = cluster['cloud']
+            alarms << alarm.dup
           }
         end
 
@@ -2199,40 +2222,6 @@ module MU
         cluster['dependencies'] << genAdminFirewallRuleset(vpc: cluster['vpc'], region: cluster['region'], cloud: cluster['cloud'])
       }
 
-      alarms.each { |alarm|
-        alarm['region'] = config['region'] if alarm['region'].nil?
-        alarm['cloud'] = MU::Config.defaultCloud if alarm['cloud'].nil?
-        alarm["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Alarm")
-        alarm["dependencies"] = [] if alarm["dependencies"].nil?
-
-        if alarm["dimensions"]
-          alarm["dimensions"].each{ |dimension|
-            if dimension["cloud_class"].nil?
-              MU.log "You must specify 'cloud_class'", MU::ERR
-              ok = false
-            end
-
-            alarm["namespace"] = 
-              if dimension["cloud_class"] == "InstanceId"
-                "AWS/EC2"
-              elsif dimension["cloud_class"] == "DBInstanceIdentifier"
-                "AWS/RDS"
-              elsif dimension["cloud_class"] == "LoadBalancerName"
-                "AWS/ELB"
-              elsif dimension["cloud_class"] == "CacheClusterId"
-                "AWS/ElastiCache"
-              elsif dimension["cloud_class"] == "VolumeId"
-                "AWS/EBS"
-              elsif dimension["cloud_class"] == "BucketName"
-                "AWS/S3"
-              elsif dimension["cloud_class"] == "TopicName"
-                "AWS/SNS"
-              end
-          }
-        end
-
-        ok = false unless MU::Config.validate_alarm_config(alarm)
-      }
 
       logs.each { |log_rec|
         log_rec['region'] = config['region'] if log_rec['region'].nil?
@@ -2292,8 +2281,12 @@ module MU
 
         if server["alarms"] && !server["alarms"].empty?
           server["alarms"].each { |alarm|
+            alarm["name"] = "server"+server["name"]+alarm["name"]
+            alarm["dimensions"] = [] if !alarm["dimensions"]
+            alarm['dimensions'] = { "name" => server["name"], "type" => "InstanceId" }
             alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
-            ok = false unless MU::Config.validate_alarm_config(alarm)
+            alarm['cloud'] = server['cloud']
+            alarms << alarm.dup
           }
         end
 
@@ -2384,6 +2377,58 @@ module MU
         server["dependencies"].uniq!
       }
 
+      alarms.each { |alarm|
+        alarm['region'] = config['region'] if alarm['region'].nil?
+        alarm['cloud'] = MU::Config.defaultCloud if alarm['cloud'].nil?
+        alarm["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Alarm")
+        alarm["dependencies"] = [] if alarm["dependencies"].nil?
+
+        if alarm["dimensions"]
+          alarm["dimensions"].each{ |dimension|
+            if dimension["cloud_class"].nil?
+              MU.log "You must specify 'cloud_class'", MU::ERR
+              ok = false
+            end
+
+            alarm["namespace"], depclass = 
+              if ["InstanceId", "server", "Server"].include?(dimension["cloud_class"])
+                dimension["cloud_class"] = "InstanceId"
+                ["AWS/EC2", "server"]
+              elsif ["AutoScalingGroupName", "server_pool", "ServerPool"].include?(dimension["cloud_class"])
+                dimension["cloud_class"] = "AutoScalingGroupName"
+                ["AWS/EC2", "server_pool"]
+              elsif ["DBInstanceIdentifier", "database", "Database"].include?(dimension["cloud_class"])
+                dimension["cloud_class"] = "DBInstanceIdentifier"
+                ["AWS/RDS", "database"]
+              elsif ["LoadBalancerName", "loadbalancer", "LoadBalancer"].include?(dimension["cloud_class"])
+                dimension["cloud_class"] = "LoadBalancerName"
+                ["AWS/ELB", "loadbalancer"]
+              elsif ["CacheClusterId", "cache_cluster", "CacheCluster"].include?(dimension["cloud_class"])
+                dimension["cloud_class"] = "CacheClusterId"
+                ["AWS/ElastiCache", "cache_cluster"]
+              elsif ["VolumeId", "volume", "Volume"].include?(dimension["cloud_class"])
+                dimension["cloud_class"] = "VolumeId"
+                ["AWS/EBS", nil]
+              elsif ["BucketName", "bucket", "Bucket"].include?(dimension["cloud_class"])
+                dimension["cloud_class"] = "BucketName"
+                ["AWS/S3", nil]
+              elsif ["TopicName", "notification", "Notification"].include?(dimension["cloud_class"])
+                dimension["cloud_class"] = "TopicName"
+                ["AWS/SNS", nil]
+              end
+
+            if !depclass.nil?
+              dimension["depclass"] = depclass
+              if !dimension["name"].nil? and !dimension["name"].empty?
+                alarm["dependencies"] << { "name" => dimension["name"], "type" => depclass }
+              end
+            end
+          }
+        end
+
+        ok = false unless MU::Config.validate_alarm_config(alarm)
+      }
+
       seen = []
       # XXX seem to be not detecting duplicate admin firewall_rules in genAdminFirewallRuleset
       @admin_firewall_rules.each { |acl|
@@ -2393,6 +2438,7 @@ module MU
       }
 
       config['firewall_rules'] = firewall_rules
+      config['alarms'] = alarms
       ok = false if !MU::Config.check_dependencies(config)
 
       # TODO enforce uniqueness of resource names
@@ -2941,7 +2987,7 @@ module MU
         "description" => "The Amazon EC2 instance type to use when creating this server.",
         "type" => "string"
     }
-    @eleasticache_size_primitive = {
+    @elasticache_size_primitive = {
         "pattern" => "^cache\.(t|m|c|i|g|hi|hs|cr|cg|cc){1,2}[0-9]\\.(micro|small|medium|[248]?x?large)$",
         "type" => "string",
         "description" => "The Amazon EleastiCache instance type to use when creating this cache cluster.",
@@ -2977,7 +3023,7 @@ module MU
         }
     }
 
-    @eleasticache_parameters_primitive = {
+    @elasticache_parameters_primitive = {
         "type" => "array",
         "minItems" => 1,
         "items" => {
@@ -3186,11 +3232,13 @@ module MU
             "items" => {
                 "type" => "object",
                 "additionalProperties" => false,
+                "required" => ["cloud_class"],
                 "description" => "What to monitor",
                 "properties" => {
                     "cloud_class" => {
                         "type" => "string",
-                        "description" => "eg InstanceId, DBInstanceIdentifier",
+                        "description" => "The type of resource we're checking",
+                        "enum" => ["InstanceId", "server", "Server", "DBInstanceIdentifier", "database", "Database", "LoadBalancerName", "loadbalancer", "LoadBalancer", "CacheClusterId", "cache_cluster", "CacheCluster", "VolumeId", "volume", "Volume", "BucketName", "bucket", "Bucket", "TopicName", "notification", "Notification", "AutoScalingGroupName", "server_pool", "ServerPool"]
                     },
                     "cloud_id" => {
                         "type" => "string",
@@ -3198,11 +3246,15 @@ module MU
                     },
                     "mu_name" => {
                         "type" => "string",
-                        "description" => "Should also include 'deploy_id' so we will be able to identifiy a sinlge resource. Use either 'cloud_id' OR 'mu_name' and 'deploy_id'"
+                        "description" => "The full name of a resource in a foreign deployment which we should monitor. You should also include 'deploy_id' so we will be able to identifiy a single resource. Use either 'cloud_id' OR 'mu_name' and 'deploy_id'"
                     },
                     "deploy_id" => {
                         "type" => "string",
-                        "description" => "Should also include 'mu_name' so we will be able to identifiy a sinlge resource. Use either 'cloud_id' OR 'mu_name' and 'deploy_id'"
+                        "description" => "Should be used with 'mu_name' to identifiy a single resource."
+                    },
+                    "name" => {
+                        "type" => "string",
+                        "description" => "The name of another resource in this stack with which to associate this alarm."
                     }
                 }
             }  
@@ -4243,7 +4295,7 @@ module MU
             },
             "alarms" => @alarm_common_primitive,
             "dependencies" => @dependencies_primitive,
-            "size" => @eleasticache_size_primitive,
+            "size" => @elasticache_size_primitive,
             "port" => {
                 "type" => "integer",
                 "default" => 6379,
@@ -4300,7 +4352,7 @@ module MU
                 "type" => "string",
                 "description" => "The AWS resource name of the AWS SNS notification topic notifications will be sent to.",
             },
-            "parameter_group_parameters" => @eleasticache_parameters_primitive,
+            "parameter_group_parameters" => @elasticache_parameters_primitive,
             "parameter_group_family" => {
                 "type" => "String",
                 "enum" => ["memcached1.4", "redis2.6", "redis2.8"],
@@ -4768,8 +4820,8 @@ module MU
                     "description" => "Parameters to be substituted elsewhere in this Basket of Kittens as ERB variables (<%= varname %>)",
                     "additionalProperties" => false,
                     "properties" => {
-                        "name" => {"required" => true},
-                        "default" => {"type" => "string"},
+                        "name" => { "required" => true, "type" => "string" },
+                        "default" => { "type" => "string" },
                         "list_of" => {
                           "type" => "string",
                           "description" => "Treat the value as a comma-separated list of values with this key name, equivalent to CloudFormation's various List<> types. For example, set to 'subnet_id' to pass values as an array of subnet identifiers as the 'subnets' argument of a VPC stanza."

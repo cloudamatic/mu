@@ -57,7 +57,7 @@ module MU
           ["alarm_actions", "ok_actions", "insufficient_data_actions"].each { |arg|
             if @config[arg]
               key = ""
-              arg.split(/_/).each { |chunk| key = key + (chunk == "ok") ? chunk.upcase : chunk.capitalize }
+              arg.split(/_/).each { |chunk| key = key + ((chunk == "ok") ? chunk.upcase : chunk.capitalize) }
               @config[arg].each { |action|
                 MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], key, action)
               }
@@ -78,31 +78,23 @@ module MU
           end
 
           if @config["dimensions"]
-            dimensions = []
             @config["dimensions"].each { |dimension|
               cloudid =
               # If we specified mu_name/deploy_id try to find the cloud_id of the resource. if we specified a cloud_id directly then use it.
-                if dimension["mu_name"] || dimension["deploy_id"]
-                  deps_class =
-                    if dimension["cloud_class"] == "InstanceId"
-                      "server"
-                    elsif dimension["cloud_class"] == "DBInstanceIdentifier"
-                      "database"
-                    elsif dimension["cloud_class"] == "LoadBalancerName"
-                      "loadbalancer"
-                    elsif dimension["cloud_class"] == "CacheClusterId"
-                      "cache_cluster"
-                    end
-
-                    if @dependencies.has_key?(deps_class)
-                      { "Ref" => @dependencies[deps_class][dimension["mu_name"]].cloudobj.cfm_name }
+                if dimension["name"] and dimension["depclass"]
+                    if @dependencies.has_key?(dimension["depclass"])
+                      { "Ref" => @dependencies[dimension["depclass"]][dimension["name"]].cloudobj.cfm_name }
 
                     else
                       raise MuError, "Couldn't find cloud resource referenced by dimension in alarm #{@mu_name} (#{dimension})"
                     end
-                else
+                elsif dimension["cloud_id"]
                   dimension["cloud_id"]
+                else
+                  MU.log "Cannot identify a resource from #{dimension} when targeting CloudFormation output", MU::WARN
+                  nil
                 end
+              next if cloudid.nil?
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Dimensions", {"Name" => dimension["cloud_class"], "Value" => cloudid})
             }
           end

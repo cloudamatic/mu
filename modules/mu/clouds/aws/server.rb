@@ -643,33 +643,42 @@ module MU
 
           punchAdminNAT
 
+
           if @config["alarms"] && !@config["alarms"].empty?
             @config["alarms"].each { |alarm|
-              alarm["dimensions"] = [{:name => "InstanceId", :value => @cloud_id}]
-
-              if alarm["enable_notifications"]
-                topic_arn = MU::Cloud::AWS::Notification.createTopic(alarm["notification_group"], region: @config["region"])
-                MU::Cloud::AWS::Notification.subscribe(arn: topic_arn, protocol: alarm["notification_type"], endpoint: alarm["notification_endpoint"], region: @config["region"])
-                alarm["alarm_actions"] = [topic_arn]
-                alarm["ok_actions"]  = [topic_arn]
-              end
-
-              MU::Cloud::AWS::Alarm.createAlarm(
-                name: @deploy.getResourceName("#{@config["name"]}-#{alarm["name"]}-#{@cloud_id}"),
-                ok_actions: alarm["ok_actions"],
-                alarm_actions: alarm["alarm_actions"],
-                insufficient_data_actions: alarm["no_data_actions"],
-                metric_name: alarm["metric_name"],
-                namespace: alarm["namespace"],
-                statistic: alarm["statistic"],
-                dimensions: alarm["dimensions"],
-                period: alarm["period"],
-                unit: alarm["unit"],
-                evaluation_periods: alarm["evaluation_periods"],
-                threshold: alarm["threshold"],
-                comparison_operator: alarm["comparison_operator"],
-                region: @config["region"]
-              )
+          alarm_obj = MU::MommaCat.findStray(
+              "AWS",
+              "alarms",
+              region: @config["region"],
+              deploy_id: @deploy.deploy_id,
+              name: alarm['name']
+          ).first
+MU.log "Found alarm object grooming #{@mu_name} from #{alarm}", MU::NOTICE, details: alarm_obj
+#              alarm["dimensions"] = [{:name => "InstanceId", :value => @cloud_id}]
+#
+#              if alarm["enable_notifications"]
+#                topic_arn = MU::Cloud::AWS::Notification.createTopic(alarm["notification_group"], region: @config["region"])
+#                MU::Cloud::AWS::Notification.subscribe(arn: topic_arn, protocol: alarm["notification_type"], endpoint: alarm["notification_endpoint"], region: @config["region"])
+#                alarm["alarm_actions"] = [topic_arn]
+#                alarm["ok_actions"]  = [topic_arn]
+#              end
+#
+#              MU::Cloud::AWS::Alarm.createAlarm(
+#                name: @deploy.getResourceName("#{@config["name"]}-#{alarm["name"]}-#{@cloud_id}"),
+#                ok_actions: alarm["ok_actions"],
+#                alarm_actions: alarm["alarm_actions"],
+#                insufficient_data_actions: alarm["no_data_actions"],
+#                metric_name: alarm["metric_name"],
+#                namespace: alarm["namespace"],
+#                statistic: alarm["statistic"],
+#                dimensions: alarm["dimensions"],
+#                period: alarm["period"],
+#                unit: alarm["unit"],
+#                evaluation_periods: alarm["evaluation_periods"],
+#                threshold: alarm["threshold"],
+#                comparison_operator: alarm["comparison_operator"],
+#                region: @config["region"]
+#              )
             }
           end
 

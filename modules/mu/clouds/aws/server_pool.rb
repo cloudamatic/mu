@@ -214,6 +214,9 @@ module MU
                 subnet_ids << subnet_obj.cloud_id
               }
             end
+            if subnet_ids.size == 0
+              raise MuError, "No valid subnets found for #{@mu_name} from #{@config["vpc"]}"
+            end
             asg_options[:vpc_zone_identifier] = subnet_ids.join(",")
           end
 
@@ -319,40 +322,6 @@ module MU
               policy_params[:min_adjustment_magnitude] = policy['min_adjustment_magnitude'] if !policy['min_adjustment_magnitude'].nil?
               resp = MU::Cloud::AWS.autoscale.put_scaling_policy(policy_params)
 
-              if policy["alarms"] && !policy["alarms"].empty?
-                policy["alarms"].each { |alarm|
-                  alarm["dimensions"] = [] if alarm["dimensions"].nil?
-                  alarm["alarm_actions"] = [] if alarm["alarm_actions"].nil?
-                  alarm["ok_actions"] = [] if alarm["ok_actions"].nil?
-
-                  alarm["alarm_actions"] << resp.policy_arn
-                  alarm["dimensions"] << {:name => "AutoScalingGroupName", :value => asg_options[:auto_scaling_group_name]}
-
-                  if alarm["enable_notifications"]
-                    topic_arn = MU::Cloud::AWS::Notification.createTopic(alarm["notification_group"], region: @config["region"])
-                    MU::Cloud::AWS::Notification.subscribe(arn: topic_arn, protocol: alarm["notification_type"], endpoint: alarm["notification_endpoint"], region: @config["region"])
-                    alarm["alarm_actions"] << topic_arn
-                    alarm["ok_actions"] << topic_arn
-                  end
-
-                  MU::Cloud::AWS::Alarm.createAlarm(
-                    name: @deploy.getResourceName("#{@config["name"]}-#{alarm["name"]}"),
-                    ok_actions: alarm["ok_actions"],
-                    alarm_actions: alarm["alarm_actions"],
-                    insufficient_data_actions: alarm["no_data_actions"],
-                    metric_name: alarm["metric_name"],
-                    namespace: alarm["namespace"],
-                    statistic: alarm["statistic"],
-                    dimensions: alarm["dimensions"],
-                    period: alarm["period"],
-                    unit: alarm["unit"],
-                    evaluation_periods: alarm["evaluation_periods"],
-                    threshold: alarm["threshold"],
-                    comparison_operator: alarm["comparison_operator"],
-                    region: @config["region"]
-                  )
-                }
-              end
             }
           end
 

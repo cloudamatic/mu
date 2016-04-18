@@ -41,31 +41,18 @@ module MU
             dimensions = []
             @config["dimensions"].each { |dimension|
               cloudid = 
-              # If we specified mu_name/deploy_id try to find the cloud_id of the resource. if we specified a cloud_id directly then use it.
-                if dimension["mu_name"] || dimension["deploy_id"]
-                  deps_class = 
-                    if dimension["cloud_class"] == "InstanceId"
-                      "server"
-                    elsif dimension["cloud_class"] == "DBInstanceIdentifier"
-                      "database"
-                    elsif dimension["cloud_class"] == "LoadBalancerName"
-                      "loadbalancer"
-                    elsif dimension["cloud_class"] == "CacheClusterId"
-                      "cache_cluster"
-                    end
-
-                    if @dependencies.has_key?(deps_class)
-                      # instance_id = @dependencies["server"][dimension["mu_name"]].cloud_desc.instance_id
-                      @dependencies[deps_class][dimension["mu_name"]].deploydata["cloud_id"]
-                    else
-                      found = MU::MommaCat.findStray("AWS", deps_class, deploy_id: dimension["deploy_id"], mu_name: dimension["mu_name"], region: @config["region"])
-                      raise MuError, "Couldn't find #{deps_class} #{dimension["mu_name"]}" if found.nil? || found.empty?
-                      resp = found.first.deploydata["cloud_id"]
-                      resp.downcase if %w{database cache_cluster}.include?(deps_class)
-                    end
+                if dimension["name"] and dimension["depclass"]
+                  if @dependencies.has_key?(dimension["depclass"])
+                    @dependencies[dimension["depclass"]][dimension["name"]].cloudobj.cloud_id
+                  end
+                elsif dimension["mu_name"] and dimension["deploy_id"]
+                  found = MU::MommaCat.findStray("AWS", deps_class, deploy_id: dimension["deploy_id"], mu_name: dimension["mu_name"], region: @config["region"])
+                  raise MuError, "Couldn't find #{deps_class} #{dimension["mu_name"]}" if found.nil? || found.empty?
+                  resp = found.first.deploydata["cloud_id"]
+                  resp.downcase if %w{database cache_cluster}.include?(deps_class)
                 else
                   dimension["cloud_id"]
-                end            
+                end
               dimensions << {:name => dimension["cloud_class"], :value => cloudid}
             }
             @config["dimensions"] = dimensions
@@ -81,6 +68,8 @@ module MU
             @config["alarm_actions"] << topic_arn
             @config["ok_actions"] << topic_arn
           end
+          @config["ok_actions"].uniq!
+          @config["alarm_actions"].uniq!
 
           MU::Cloud::AWS::Alarm.createAlarm(
             name: @mu_name,
@@ -156,6 +145,7 @@ module MU
                )
 
           unless getAlarmByName(name, region: region)
+            begin
             MU::Cloud::AWS.cloudwatch(region).put_metric_alarm(
               alarm_name: name,
               alarm_description: name,
@@ -173,6 +163,14 @@ module MU
               threshold: threshold,
               comparison_operator: comparison_operator
             )
+            rescue Aws::CloudWatch::Errors::ValidationError => e
+              # Dopey but ultimately harmless race condition
+              if e.message.match(/A separate request to update this alarm is in progress/)
+                MU.log "Duplicate request to create alarm #{name}. This one came from #{caller[0]}", MU::WARN
+              else
+                raise e
+              end
+            end
 
             MU.log "Alarm #{name} created"
           end
