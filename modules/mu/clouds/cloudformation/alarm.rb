@@ -97,6 +97,10 @@ module MU
               next if cloudid.nil?
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Dimensions", {"Name" => dimension["cloud_class"], "Value" => cloudid})
             }
+          elsif @config['namespace'] == "AWS/EC2"
+            MU.log "Will create Alarm #{@mu_name} with no associated Dimensions. If this Alarm is part of a ServerPool, you may need to manually associate individual instances once they are created.", MU::NOTICE
+          else
+            MU.log "Will create Alarm #{@mu_name} with no associated Dimensions", MU::WARN
           end
 
         end

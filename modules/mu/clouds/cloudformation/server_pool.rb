@@ -49,12 +49,11 @@ module MU
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @cfm_launch_name)
           @cfm_template.merge!(launch_template)
 
-          @config["cooldown"] = @config["default_cooldown"]
           ["min_size", "max_size", "cooldown", "desired_capacity", "health_check_type", "health_check_grace_period"].each { |arg|
             if !@config[arg].nil?
               key = ""
               arg.split(/_/).each { |chunk| key = key + chunk.capitalize }
-              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], key, @config[arg])
+              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], key, @config[arg].to_s)
             end
           }
 
@@ -71,6 +70,7 @@ module MU
               MU::Cloud::CloudFormation.setCloudFormationProp(pol_template[pol_name], "AutoScalingGroupName", @cfm_name)
 
               pol["scaling_adjustment"] = pol["adjustment"]
+              pol.delete("cooldown") if pol["policy_type"] == "StepScaling"
               ["cooldown", "estimated_instance_warmup", "metric_aggregation_type", "min_adjustment_magnitude", "policy_type", "scaling_adjustment"].each { |arg|
                 if !pol[arg].nil?
                   key = ""
