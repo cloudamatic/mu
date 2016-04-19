@@ -216,6 +216,13 @@ module MU
               "DBSecurityGroups" => []
             }
           }
+        when "dbparametergroup"
+          desc = {
+            "Type" => "AWS::RDS::DBParameterGroup",
+            "Properties" => {
+              "Tags" => tags
+            }
+          }
         when "dbsubnetgroup"
           desc = {
             "Type" => "AWS::RDS::DBSubnetGroup",

@@ -70,11 +70,53 @@ module MU
           @config["db_name"] = MU::Cloud::AWS::Database.getName(basename, type: "dbname", config: @config)
           @config['master_user'] = MU::Cloud::AWS::Database.getName(basename, type: "dbuser", config: @config) unless @config['master_user']
 
-          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Engine", @config['engine'])
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBInstanceIdentifier", @config['db_name'])
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "MasterUsername", @config['master_user'])
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "StorageEncrypted", @config['storage_encrypted'])
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "PubliclyAccessible", @config['publicly_accessible'])
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Iops", @config['iops']) if @config['iops']
 
-# XXX this is a read replica thing
-#            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "SourceDBInstanceIdentifier", @config['identifier'])
+          ["engine", "allow_major_version_upgrade", "auto_minor_version_upgrade", "backup_retention_period", "license_model", "preferred_backup_window", "engine_version", "preferred_maintenance_window", "port", "storage_type"].each { |arg|
+            if !@config[arg].nil?
+              key = ""
+              arg.split(/_/).each { |chunk| key = key + chunk.capitalize }
+              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], key, @config[arg])
+            end
+          }
+
+          if @config['multi_az_on_create'] or @config['multi_az_on_deploy']
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "MultiAZ", true)
+          end
+
+          if @config['parameter_group_family']
+            params_name, params_template = MU::Cloud::CloudFormation.cloudFormationBase("dbparametergroup", name: @mu_name, tags: @config['tags'])
+            MU::Cloud::CloudFormation.setCloudFormationProp(params_template[params_name], "Description", "Parameter group for database #{@mu_name}")
+            MU::Cloud::CloudFormation.setCloudFormationProp(params_template[params_name], "Family", @config['parameter_group_family'])
+            if @config["db_parameter_group_parameters"] && !@config["db_parameter_group_parameters"].empty?
+              params = {}
+              @config["db_parameter_group_parameters"].each { |item|
+                params[item['name']] = item['value']
+              }
+              MU::Cloud::CloudFormation.setCloudFormationProp(params_template[params_name], "Parameters", params)
+            end
+
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBParameterGroupName", { "Ref" => params_name })
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", params_name)
+            @cfm_template.merge!(params_template)
+          end
+
+          if @config['read_replica_of']
+            rr = @config['read_replica_of']
+            if rr['db_name']
+              if @dependencies.has_key?("database") and @dependencies["database"].has_key?(rr['db_name'])
+              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "SourceDBInstanceIdentifier", { "Ref" => @dependencies["database"][rr['db_name']] } )
+              else
+                raise MuError, "Couldn't find database by name in read_replica_of stanza of #{@mu_name} (#{@config['read_replica_of']})"
+              end
+            elsif rr['db_id']
+              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "SourceDBInstanceIdentifier", rr['db_id'])
+            end
+          end
 
           if @config["creation_style"] == "new_snapshot"
             raise MuError, "Database creation node 'new_snapshot' is not supported for CloudFormation targets"
@@ -119,8 +161,6 @@ module MU
             end
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBSubnetGroupName", { "Ref" => subnets_name } )
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", subnets_name)
-    
-
 
             @cfm_template.merge!(subnets_template)
           end
