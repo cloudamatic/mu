@@ -1417,11 +1417,13 @@ module MU
           end
 
           begin
-            del_db = MU::Cloud::AWS::Database.getDatabaseById(db_id, region: region)
-            while !del_db.nil? and del_db.db_instance_status != "deleted" and !noop
-              MU.log "Waiting for #{db_id} termination to complete", MU::NOTICE
-              sleep 60
+            attempts = 0
+            loop do
+              MU.log "Waiting for #{db_id} termination to complete", MU::NOTICE if attempts % 6 == 0
               del_db = MU::Cloud::AWS::Database.getDatabaseById(db_id, region: region)
+              break if del_db.nil? || del_db.db_instance_status == "deleted"
+              sleep 10
+              attempts += 1
             end
           rescue Aws::RDS::Errors::DBInstanceNotFound
             # we are ok with this

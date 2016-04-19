@@ -826,7 +826,7 @@ module MU
               calling_deploy: @deploy
           )
 
-          return nil if found.nil?
+          return nil if found.nil? || found.empty?
           if found.size > 1
             found.each { |nat|
               # Try some AWS-specific criteria
