@@ -184,7 +184,7 @@ module MU
 
           attempts = 0
           loop do
-            MU.log "Waiting for #{resp.mount_target_id} to become available", MU::NOTICE if attempts % 5 == 0
+            MU.log "Waiting for #{resp.mount_target_id} to become available", MU::NOTICE if attempts % 10 == 0
             mount_target = MU::Cloud::AWS.efs(region).describe_mount_targets(
               mount_target_id: resp.mount_target_id 
             ).mount_targets.first
