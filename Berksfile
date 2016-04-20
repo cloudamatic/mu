@@ -19,7 +19,7 @@ cookbook 'awscli', path: "#{cookbookPath}/awscli"
 cookbook 'bind', '~> 1.1.2'
 cookbook 'bind9-ng', '~> 0.1.0'
 cookbook 'bluepill', '~> 2.3.1'
-cookbook 'build-essential', '~> 2.3.1'
+cookbook 'build-essential', '~> 2.4.0'
 cookbook 'mu-master', path: "#{cookbookPath}/mu-master"
 cookbook 'mu-php54', path: "#{cookbookPath}/mu-php54"
 cookbook 'mu-tools', path: "#{cookbookPath}/mu-tools"
@@ -72,7 +72,7 @@ cookbook 's3fs', path: "#{cookbookPath}/s3fs"
 cookbook 'simple_iptables', '~> 0.7.2'
 cookbook 'supervisor', '~> 0.4.12'
 cookbook 'unicorn', '~> 1.3.0'
-cookbook 'windows', '~> 1.39.1'
+cookbook 'windows', '~> 1.39.2'
 cookbook 'xfs', '~> 1.1.0'
 cookbook 'xml', '~> 1.2.4'
 cookbook 'yum', '~> 3.10.0'
