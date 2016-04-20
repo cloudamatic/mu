@@ -4401,7 +4401,8 @@ module MU
             "cloud" => @cloud_primitive,
             "cross_zone_unstickiness" => {
                 "type" => "boolean",
-                "default" => false
+                "default" => false,
+                "description" => "Set true to disable Cross-Zone load balancing, which we enable by default: http://docs.aws.amazon.com/ElasticLoadBalancing/latest/DeveloperGuide/how-elb-works.html#request-routing"
             },
             "idle_timeout" => {
                 "type" => "integer",
