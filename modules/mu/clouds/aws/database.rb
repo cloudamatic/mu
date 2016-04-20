@@ -64,7 +64,7 @@ module MU
           @config['master_user'] = MU::Cloud::AWS::Database.getName(basename, type: "dbuser", config: @config) unless @config['master_user']
 
           # Lets make sure automatic backups are enabled when DB instance is deployed in Multi-AZ so failover actually works. Maybe default to 1 instead?
-          if @config['multi_az_on_create'] or @config['multi_az_on_deploy'] or config["create_cluster"]
+          if @config['multi_az_on_create'] or @config['multi_az_on_deploy'] or @config["create_cluster"]
             if @config["backup_retention_period"].nil? or @config["backup_retention_period"] == 0
               @config["backup_retention_period"] = 35
               MU.log "Multi-AZ deployment specified but backup retention period disabled or set to 0. Changing to #{@config["backup_retention_period"]} ", MU::WARN
@@ -87,7 +87,7 @@ module MU
           @config['identifier'] = @mu_name
           @config["subnet_group_name"] = @mu_name
 
-          if config["create_cluster"]
+          if @config["create_cluster"]
             getPassword
             createSubnetGroup
 

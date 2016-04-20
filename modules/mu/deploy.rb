@@ -447,7 +447,7 @@ MESSAGE_END
           Thread.abort_on_exception = true
           waitOnThreadDependencies(threadname)
 
-          if service["#MU_CLOUDCLASS"].instance_methods(false).include?(:groom)
+          if service["#MU_CLOUDCLASS"].instance_methods(false).include?(:groom) and !service['dependencies'].nil? and !service['dependencies'].size == 0
             if mode == "create"
               MU::MommaCat.lock(service["#MU_CLOUDCLASS"].cfg_name+"_"+myservice["name"]+"-dependencies")
             elsif mode == "groom"

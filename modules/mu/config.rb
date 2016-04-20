@@ -1798,7 +1798,7 @@ module MU
           end
         end
 
-        if db["storage"].nil? and db["creation_style"] == "new"
+        if db["storage"].nil? and db["creation_style"] == "new" and !db['create_cluster']
           MU.log "Must provide a value for 'storage' when creating a new database.", MU::ERR, details: db
           ok = false
         end
@@ -1903,7 +1903,7 @@ module MU
           db["alarms"].each { |alarm|
             alarm["name"] = "db"+db["name"]+alarm["name"]
             alarm['dimensions'] = [] if !alarm['dimensions']
-            alarm['dimensions'] = { "name" => db["name"], "cloud_class" => "DBInstanceIdentifier" }
+            alarm['dimensions'] << { "name" => db["name"], "cloud_class" => "DBInstanceIdentifier" }
             alarm["namespace"] = "AWS/RDS" if alarm["namespace"].nil?
             alarm['cloud'] = db['cloud']
             alarms << alarm.dup
@@ -2040,6 +2040,7 @@ module MU
 
           db.delete("alarms") if db.has_key?("alarms")
         end
+        db['dependencies'].uniq!
       }
       databases.concat(read_replicas)
       databases.concat(cluster_nodes)
@@ -2047,10 +2048,7 @@ module MU
         if !db['read_replica_of'].nil?
           rr = db['read_replica_of']
           if !rr['db_name'].nil?
-            if !database_names.include?(rr['db_name'])
-              MU.log "Read replica #{db['name']} references sibling source #{rr['db_name']}, but I have no such database", MU::ERR
-              ok = false
-            end
+            db['dependencies'] << { "name" => rr['db_name'], "type" => "database" }
           else
             rr['cloud'] = db['cloud'] if rr['cloud'].nil?
             tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
@@ -2097,6 +2095,7 @@ module MU
             end
           end
         end
+        db['dependencies'].uniq!
       }
 
       cache_clusters.each { |cluster|

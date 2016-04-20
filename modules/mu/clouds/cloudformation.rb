@@ -216,9 +216,24 @@ module MU
               "DBSecurityGroups" => []
             }
           }
+        when "dbcluster"
+          desc = {
+            "Type" => "AWS::RDS::DBCluster",
+            "Properties" => {
+              "Tags" => tags,
+              "VPCSecurityGroups" => []
+            }
+          }
         when "dbparametergroup"
           desc = {
             "Type" => "AWS::RDS::DBParameterGroup",
+            "Properties" => {
+              "Tags" => tags
+            }
+          }
+        when "dbclusterparametergroup"
+          desc = {
+            "Type" => "AWS::RDS::DBClusterParameterGroup",
             "Properties" => {
               "Tags" => tags
             }
@@ -334,7 +349,8 @@ module MU
           cloudobj.dependencies(use_cache: true).first.each_pair { |resource_classname, resources|
             resources.each_pair { |sibling_name, sibling_obj|
               next if sibling_obj == cloudobj
-              desc["DependsOn"] << (resource_classname+sibling_obj.cloudobj.mu_name).gsub!(/[^a-z0-9]/i, "")
+#              desc["DependsOn"] << (resource_classname+sibling_obj.cloudobj.mu_name).gsub!(/[^a-z0-9]/i, "")
+              desc["DependsOn"] << sibling_obj.cloudobj.cfm_name
               # Common resource-specific references to dependencies
               if resource_classname == "firewall_rule"
                 if type == "database" and cloudobj.config.has_key?("vpc")
