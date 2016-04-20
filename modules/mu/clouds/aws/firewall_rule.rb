@@ -331,7 +331,7 @@ module MU
           # rules)
           if add_to_self
             rules.each { |rule|
-              if rule['sgs'].nil? or !rule['sgs'].include?(secgroup.group_id)
+              if rule['sgs'].nil? or !rule['sgs'].include?(@cloud_id)
                 new_rule = rule.clone
                 new_rule.delete('hosts')
                 rule['sgs'] = Array.new if rule['sgs'].nil?
@@ -345,10 +345,12 @@ module MU
           # Creating an empty security group is ok, so don't freak out if we get
           # a null rule list.
           if !ec2_rules.nil?
+            ec2_rules.uniq!
             MU.log "Setting rules in Security Group #{@mu_name} (#{@cloud_id})", details: ec2_rules
             retries = 0
             if rules != nil
-              MU.log "Rules for EC2 Security Group #{@mu_name} (#{@cloud_id}): #{ec2_rules}", MU::DEBUG
+              MU.log "Rules for EC2 Security Group #{@mu_name} (#{@cloud_id}): #{ec2_rules}", MU::NOTICE
+              pp ec2_rules
               begin
                 if ingress
                   MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_ingress(
@@ -386,6 +388,7 @@ module MU
         def convertToEc2(rules)
           ec2_rules = []
           if rules != nil
+            rules.uniq!
             rules.each { |rule|
               ec2_rule = Hash.new
               rule['proto'] = "tcp" if rule['proto'].nil? or rule['proto'].empty?
@@ -421,6 +424,7 @@ module MU
               ec2_rule[:user_id_group_pairs] = []
 
               if !rule['hosts'].nil?
+                rule['hosts'].uniq!
                 rule['hosts'].each { |cidr|
                   next if cidr.nil? # XXX where is that coming from?
                   cidr = cidr + "/32" if cidr.match(/^\d+\.\d+\.\d+\.\d+$/)
@@ -430,6 +434,7 @@ module MU
 
               if !rule['lbs'].nil?
 # XXX This is a dopey place for this, dependencies() should be doing our legwork
+                rule['lbs'].uniq!
                 rule['lbs'].each { |lb_name|
 # XXX The language for addressing ELBs should be as flexible as VPCs. This sauce
 # is weak.
@@ -459,9 +464,12 @@ module MU
               end
 
               if !rule['sgs'].nil?
+                rule['sgs'].uniq!
                 rule['sgs'].each { |sg_name|
                   dependencies # Make sure our cache is fresh
-                  if @dependencies.has_key?("firewall_rule") and
+                  if sg_name == @config['name']
+                    sg = self
+                  elsif @dependencies.has_key?("firewall_rule") and
                       @dependencies["firewall_rule"].has_key?(sg_name)
                     sg = @dependencies["firewall_rule"][sg_name]
                   else
@@ -476,8 +484,8 @@ module MU
                     sg = found_sgs.first
                   end
                   ec2_rule[:user_id_group_pairs] << {
-                      user_id: MU.account_number,
-                      group_id: sg.cloud_id
+                    user_id: MU.account_number,
+                    group_id: sg.cloud_id
                   }
                 }
               end
@@ -496,13 +504,16 @@ module MU
               if !ec2_rule[:user_id_group_pairs].nil? and
                   ec2_rule[:user_id_group_pairs].size > 0
                 ec2_rule.delete(:ip_ranges)
+                ec2_rule[:user_id_group_pairs].uniq!
               elsif !ec2_rule[:ip_ranges].nil? and
                   ec2_rule[:ip_ranges].size > 0
                 ec2_rule.delete(:user_id_group_pairs)
+                ec2_rule[:ip_ranges].uniq!
               end
               ec2_rules << ec2_rule
             }
           end
+          ec2_rules.uniq!
           return ec2_rules
         end
 
