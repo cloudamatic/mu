@@ -48,6 +48,8 @@ module MU
 
         end
 
+        # Populate @cfm_template with a resource description for this security
+        # group in CloudFormation language.
         def create
           @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags']) if @cfm_template.nil?
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "GroupDescription", @mu_name)

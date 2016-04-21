@@ -349,8 +349,7 @@ module MU
             MU.log "Setting rules in Security Group #{@mu_name} (#{@cloud_id})", details: ec2_rules
             retries = 0
             if rules != nil
-              MU.log "Rules for EC2 Security Group #{@mu_name} (#{@cloud_id}): #{ec2_rules}", MU::NOTICE
-              pp ec2_rules
+              MU.log "Rules for EC2 Security Group #{@mu_name} (#{@cloud_id}): #{ec2_rules}", MU::DEBUG
               begin
                 if ingress
                   MU::Cloud::AWS.ec2(@config['region']).authorize_security_group_ingress(

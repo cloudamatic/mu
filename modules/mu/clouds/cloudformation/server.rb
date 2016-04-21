@@ -207,32 +207,44 @@ module MU
           return @config
         end
 
+        # Placeholder. This is a NOOP for CloudFormation, which doesn't build
+        # resources directly.
         def groom
           return create
         end
 
-        # Everything below here is essentially a dummy method that doesn't
-        # apply because we don't groom or maintenance nodes in CloudFormation,
-        # we simply "create" them (emit a chunk of code to create them later).
-
+        # Placeholder. This is a NOOP for CloudFormation, which doesn't build
+        # resources directly.
         def postBoot
         end
 
+        # Placeholder. This is a NOOP for CloudFormation, which doesn't build
+        # resources directly.
         def getSSHConfig
         end
 
+        # Placeholder. This is a NOOP for CloudFormation, which doesn't build
+        # resources directly.
         def canonicalIP
         end
 
+        # Placeholder. This is a NOOP for CloudFormation, which doesn't build
+        # resources directly.
         def getWindowsAdminPassword
         end
 
+        # Placeholder. This is a NOOP for CloudFormation, which doesn't build
+        # resources directly.
         def active?
         end
 
+        # Placeholder. This is a NOOP for CloudFormation, which doesn't build
+        # resources directly.
         def reboot
         end
 
+        # Placeholder. This is a NOOP for CloudFormation, which doesn't build
+        # resources directly.
         def notify
           {}
         end

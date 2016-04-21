@@ -181,24 +181,38 @@ module MU
           end
         end
 
+        # Placeholder. This is a NOOP for CloudFormation, which doesn't build
+        # resources directly.
         def groom
           return create
         end
 
+        # Return an array of MU::Cloud::CloudFormation::VPC::Subnet objects
+        # describe the member subnets of this VPC.
+        # @return [Array<MU::Cloud::AWS::CloudFormation::Subnet>]
         def subnets
           @subnets
         end
+        # Return an array of MU::Cloud::CloudFormation::VPC::Subnet objects
+        # describe the member subnets of this VPC.
+        # @return [Array<MU::Cloud::AWS::CloudFormation::Subnet>]
         def listSubnets
           @subnets
         end
+        # Placeholder. This is a NOOP for CloudFormation, which doesn't build
+        # resources directly.
         def getSubnet
         end
+        # Placeholder. This is a NOOP for CloudFormation, which doesn't build
+        # resources directly.
         def findBastion(nat_name: nil, nat_cloud_id: nil, nat_tag_key: nil, nat_tag_value: nil, nat_ip: nil)
           # XXX should probably use findSibling, since that's the only
           # valid case.
           return nil
         end
 
+        # Placeholder. This is a NOOP for CloudFormation, which doesn't build
+        # resources directly.
         def notify
           {}
         end

@@ -112,7 +112,8 @@ module MU
           end
         end
 
-        # Return the metadata for this CacheCluster
+        # Placeholder. This is a NOOP for CloudFormation, which doesn't build
+        # resources directly.
         # @return [Hash]
         def notify
           {}

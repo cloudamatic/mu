@@ -53,10 +53,8 @@ module MU
           end
         end
 
-        def notify
-          {}
-        end
-
+        # Populate @cfm_template with a resource description for this database
+        # in CloudFormation language.
         def create
           # RDS is picky, we can't just use our regular node names for things
           # like the default schema or username. And it varies from engine to
@@ -219,8 +217,12 @@ module MU
           end
         end
 
+        # Placeholder. This is a NOOP for CloudFormation, which doesn't build
+        # resources directly.
         def groom
         end
+        # Placeholder. This is a NOOP for CloudFormation, which doesn't build
+        # resources directly.
         def allowHost
         end
         # Placeholder. This is a NOOP for CloudFormation, which doesn't build
@@ -234,6 +236,11 @@ module MU
         def self.cleanup(*args)
           MU.log "cleanup() not implemented for CloudFormation layer", MU::DEBUG
           nil
+        end
+        # Placeholder. This is a NOOP for CloudFormation, which doesn't build
+        # resources directly.
+        def notify
+          {}
         end
 
       end #class
