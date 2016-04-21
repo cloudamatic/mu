@@ -490,16 +490,35 @@ module MU
             instance_descriptor[:user_data] = Base64.encode64(@userdata)
           end
 
+          MU::Cloud::AWS::Server.waitForAMI(@config["ami_id"], region: @config['region'])
+
+          # Figure out which devices are embedded in the AMI already.
+          image = MU::Cloud::AWS.ec2(@config['region']).describe_images(image_ids: [@config["ami_id"]]).images.first
+          ext_disks = {}
+          if !image.block_device_mappings.nil?
+            image.block_device_mappings.each { |disk|
+              if !disk.device_name.nil? and !disk.device_name.empty? and !disk.ebs.nil? and !disk.ebs.empty?
+                ext_disks[disk.device_name] = MU.structToHash(disk.ebs)
+              end
+            }
+          end
+
           configured_storage = Array.new
           cfm_volume_map = {}
           if @config["storage"]
             @config["storage"].each { |vol|
+              # Drop the "encrypted" flag if a snapshot for this device exists
+              # in the AMI, even if they both agree about the value of said
+              # flag. Apparently that's a thing now.
+              if ext_disks.has_key?(vol["device"])
+                if ext_disks[vol["device"]].has_key?(:snapshot_id)
+                  vol.delete("encrypted")
+                end
+              end
               mapping, cfm_mapping = MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
               configured_storage << mapping
             }
           end
-
-          MU::Cloud::AWS::Server.waitForAMI(@config["ami_id"], region: @config['region'])
 
           instance_descriptor[:block_device_mappings] = configured_storage
           instance_descriptor[:block_device_mappings].concat(@ephemeral_mappings)
@@ -510,7 +529,7 @@ module MU
 #				if instance_descriptor[:block_device_mappings].empty?
 #					instance_descriptor.delete(:block_device_mappings)
 #				end
-#pp instance_descriptor[:block_device_mappings]
+
           retries = 0
           begin
             response = MU::Cloud::AWS.ec2(@config['region']).run_instances(instance_descriptor)
