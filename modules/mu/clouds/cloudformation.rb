@@ -374,7 +374,7 @@ module MU
       end
 
       # Set the named value in a CloudFormation resource tree.
-      # @param resource [<Hash>]: The chunk of template created by {MU::Clouds::CloudFormation.cloudFormationBase} into which we'll insert this value
+      # @param resource [<Hash>]: The chunk of template created by {MU::Cloud::CloudFormation.cloudFormationBase} into which we'll insert this value
       # @param name [String]: The name of key we're creating/appending
       # @param value [MU::Config::Tail|String]: The value to set. If it's a {MU::Config::Tail} object, we'll treat it as a reference to a parameter.
       def self.setCloudFormationProp(resource, name, value)
