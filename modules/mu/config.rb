@@ -3180,7 +3180,7 @@ module MU
                     "default" => false
                 },
                 "volume_type" => {
-                    "enum" => ["standard", "io1", "gp2"],
+                    "enum" => ["standard", "io1", "gp2", "st1", "sc1"],
                     "type" => "string",
                     "default" => "gp2"
                 }
