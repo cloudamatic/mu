@@ -256,7 +256,18 @@ module MU
         if @param_pass
           "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
         else
-          getTail(var_name.to_s)
+          tail = getTail(var_name.to_s)
+          if tail.is_a?(Array)
+            if @param_pass
+              return tail.map {|f| f.values.first.to_s }.join(",")
+            else
+              # Don't try to jam complex types into a string file format, just
+              # sub them back in later from a placeholder.
+              return "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
+            end
+          else
+            return tail.to_s
+          end
         end
       end
 
@@ -290,6 +301,8 @@ module MU
               config.delete(key)
             end
           }
+        else
+          config.delete("parameters")
         end
       rescue JSON::ParserError => e
         badconf = File.new("/tmp/badconf.#{$$}", File::CREAT|File::TRUNC|File::RDWR, 0400)
@@ -348,10 +361,10 @@ module MU
       # the parameters section so that we can resolve all of those to variables
       # for the rest of the config to reference.
       # XXX figure out how to make include() add parameters for us
-      tmp_cfg, raw_erb_params_only = resolveConfig(path: @@config_path, param_pass: true)
+      param_cfg, raw_erb_params_only = resolveConfig(path: @@config_path, param_pass: true)
 
-      if tmp_cfg.has_key?("parameters") and !tmp_cfg["parameters"].nil? and tmp_cfg["parameters"].size > 0
-        tmp_cfg["parameters"].each { |param|
+      if param_cfg.has_key?("parameters") and !param_cfg["parameters"].nil? and param_cfg["parameters"].size > 0
+        param_cfg["parameters"].each { |param|
           if !@@parameters.has_key?(param['name'])
             if param.has_key?("default")
               @@parameters[param['name']] = param['default']
@@ -380,25 +393,25 @@ module MU
       $parameters = @@parameters
       $parameters.freeze
 
-      @config, raw_erb = resolveConfig(path: @@config_path)
-
+      tmp_cfg, raw_erb = resolveConfig(path: @@config_path)
       # Convert parameter entries that constitute whole config keys into
       # MU::Config::Tail objects.
-#      def resolveTails(tree, indent= "")
-#        if tree.is_a?(Hash)
-#          tree.each_pair { |key, val|
-#            tree[key] = resolveTails(val, indent+" ")
-#          }
-#        elsif tree.is_a?(Array)
-#          tree.each { |item|
-#            item = resolveTails(item, indent+" ")
-#          }
-#        elsif tree.is_a?(String) and tree.match(/^(.*?)MU::Config.getTail PLACEHOLDER (.+?) REDLOHECALP(.*)/)
-#          tree = getTail($2, prefix: $1, suffix: $3)
-#        end
-#        return tree
-#      end
-#      @config = resolveTails(tmp_cfg)
+      def resolveTails(tree, indent= "")
+        if tree.is_a?(Hash)
+          tree.each_pair { |key, val|
+            tree[key] = resolveTails(val, indent+" ")
+          }
+        elsif tree.is_a?(Array)
+          tree.each { |item|
+            item = resolveTails(item, indent+" ")
+          }
+        elsif tree.is_a?(String) and tree.match(/^(.*?)MU::Config.getTail PLACEHOLDER (.+?) REDLOHECALP(.*)/)
+          tree = getTail($2, prefix: $1, suffix: $3)
+        end
+        return tree
+      end
+      @config = resolveTails(tmp_cfg)
+      @config.merge!(param_cfg)
 
       if !@config.has_key?('admins') or @config['admins'].size == 0
         if MU.chef_user == "mu"
@@ -1168,6 +1181,7 @@ module MU
           end
         }
         if realerrors.size > 0
+          pp config
           raise ValidationError, "Validation error in #{@@config_path}!\n"+realerrors.join("\n")
         end
       end
@@ -1326,7 +1340,7 @@ module MU
             peer['cloud'] = vpc['cloud'] if peer['cloud'].nil?
             peer["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("VPC")
             # If we're peering with a VPC in this deploy, set it as a dependency
-            if !peer['vpc']["vpc_name"].nil? and vpc_names.include?(peer['vpc']["vpc_name"]) and peer['deploy_id'].nil?
+            if !peer['vpc']["vpc_name"].nil? and vpc_names.include?(peer['vpc']["vpc_name"]) and peer["vpc"]['deploy_id'].nil? and peer["vpc"]['vpc_id'].nil?
               vpc["dependencies"] << {
                   "type" => "vpc",
                   "name" => peer['vpc']["vpc_name"]
@@ -1444,7 +1458,7 @@ module MU
           acl['vpc']['region'] = acl['region'] if acl['vpc']['region'].nil?
           acl["vpc"]['cloud'] = acl['cloud']
           # If we're using a VPC in this deploy, set it as a dependency
-          if !acl["vpc"]["vpc_name"].nil? and vpc_names.include?(acl["vpc"]["vpc_name"]) and acl["vpc"]['deploy_id'].nil?
+          if !acl["vpc"]["vpc_name"].nil? and vpc_names.include?(acl["vpc"]["vpc_name"]) and acl["vpc"]['deploy_id'].nil? and acl["vpc"]['vpc_id'].nil?
             acl["dependencies"] << {
                 "type" => "vpc",
                 "name" => acl["vpc"]["vpc_name"]
@@ -1508,7 +1522,7 @@ module MU
           lb['vpc']['region'] = lb['region'] if lb['vpc']['region'].nil?
           lb['vpc']['cloud'] = lb['cloud']
           # If we're using a VPC in this deploy, set it as a dependency
-          if !lb["vpc"]["vpc_name"].nil? and vpc_names.include?(lb["vpc"]["vpc_name"]) and lb["vpc"]['deploy_id'].nil?
+          if !lb["vpc"]["vpc_name"].nil? and vpc_names.include?(lb["vpc"]["vpc_name"]) and lb["vpc"]['deploy_id'].nil? and lb["vpc"]['vpc_id'].nil?
             lb["dependencies"] << {
                 "type" => "vpc",
                 "name" => lb["vpc"]["vpc_name"]
@@ -1722,7 +1736,7 @@ module MU
           pool['vpc']['region'] = pool['region'] if pool['vpc']['region'].nil?
           pool["vpc"]['cloud'] = pool['cloud']
           # If we're using a VPC in this deploy, set it as a dependency
-          if !pool["vpc"]["vpc_name"].nil? and vpc_names.include?(pool["vpc"]["vpc_name"]) and pool["vpc"]["deploy_id"].nil?
+          if !pool["vpc"]["vpc_name"].nil? and vpc_names.include?(pool["vpc"]["vpc_name"]) and pool["vpc"]["deploy_id"].nil? and pool["vpc"]['vpc_id'].nil?
             pool["dependencies"] << {
                 "type" => "vpc",
                 "name" => pool["vpc"]["vpc_name"]
@@ -1976,7 +1990,7 @@ module MU
           db['vpc']['region'] = db['region'] if db['vpc']['region'].nil?
           db["vpc"]['cloud'] = db['cloud']
           # If we're using a VPC in this deploy, set it as a dependency
-          if !db["vpc"]["vpc_name"].nil? and vpc_names.include?(db["vpc"]["vpc_name"]) and db["vpc"]["deploy_id"].nil?
+          if !db["vpc"]["vpc_name"].nil? and vpc_names.include?(db["vpc"]["vpc_name"]) and db["vpc"]["deploy_id"].nil? and db["vpc"]['vpc_id'].nil?
             db["dependencies"] << {
                 "type" => "vpc",
                 "name" => db["vpc"]["vpc_name"]
@@ -2230,7 +2244,7 @@ module MU
           cluster["vpc"]['cloud'] = cluster['cloud']
 
           # If we're using a VPC in this deploy, set it as a dependency
-          if cluster["vpc"]["vpc_name"] and vpc_names.include?(cluster["vpc"]["vpc_name"]) and cluster["vpc"]["deploy_id"].nil?
+          if cluster["vpc"]["vpc_name"] and vpc_names.include?(cluster["vpc"]["vpc_name"]) and cluster["vpc"]["deploy_id"].nil? and cluster["vpc"]['vpc_id'].nil?
             cluster["dependencies"] << {
               "type" => "vpc",
               "name" => cluster["vpc"]["vpc_name"]
@@ -2339,7 +2353,7 @@ module MU
           server['vpc']['region'] = server['region'] if server['vpc']['region'].nil?
           server['vpc']['cloud'] = server['cloud']
           # If we're using a local VPC in this deploy, set it as a dependency and get the subnets right
-          if !server["vpc"]["vpc_name"].nil? and vpc_names.include?(server["vpc"]["vpc_name"]) and server["vpc"]["deploy_id"].nil?
+          if !server["vpc"]["vpc_name"].nil? and vpc_names.include?(server["vpc"]["vpc_name"]) and server["vpc"]["deploy_id"].nil? and server["vpc"]['vpc_id'].nil?
             server["dependencies"] << {
                 "type" => "vpc",
                 "name" => server["vpc"]["vpc_name"]
@@ -4148,8 +4162,8 @@ module MU
             "dependencies" => @dependencies_primitive,
             "size" => @rds_size_primitive,
             "storage" => {
-                "type" => "integer",
-                "description" => "Storage space for this database instance (GB)."
+              "type" => "integer",
+              "description" => "Storage space for this database instance (GB)."
             },
             "storage_type" => {
                 "enum" => ["standard", "gp2", "io1"],

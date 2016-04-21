@@ -27,11 +27,14 @@ parameters:
   - name: vpc_deploy_id
     required: false
     description: The Mu deploy identifier for an existing deploy with a single VPC, into which we'll attempt to insert this deployment.
+  - name: vpc_name
+    default: vpc
+    description: Use this parameter to specify a Mu resource name other than 'vpc' when also setting 'vpc_deploy_id.'
   - name: vpc_id
     cloudtype: AWS::EC2::VPC::Id
     description: A simple VPC cloud id into which we'll attempt to insert this deployment.
     default: <%= MU.myVPC %>
-<% if !vpc_deploy_id and (!vpc or vpc.empty?) then %>
+<% if (!vpc_deploy_id or vpc_deploy_id.empty?) and (!vpc_name or vpc_name.empty?) then %>
 vpcs:
 - name: "vpc"
   route-tables:
@@ -71,7 +74,7 @@ $azs.each.with_index { |az, i|
 loadbalancers:
 - name: "lb"
   vpc:
-    vpc_name: "vpc"
+    vpc_name: <%= vpc_name %>
     <% if vpc_deploy_id %>
     deploy_id: <%= vpc_deploy_id %>
     <% elsif vpc_id %>
@@ -109,7 +112,7 @@ databases:
   storage: 5
   engine_version: 5.6.23
   vpc: 
-    vpc_name: "vpc"
+    vpc_name: <%= vpc_name %>
     <% if vpc_deploy_id %>
     deploy_id: <%=vpc_deploy_id %>
     <% elsif vpc_id %>
@@ -118,7 +121,7 @@ databases:
   add_firewall_rules:
   - rule_name: "database_secgroup"
 servers:
-  <% if !vpc_deploy_id and (!vpc or vpc.empty?) then %>
+  <% if !vpc_deploy_id and (!vpc_name or vpc_name.empty?) then %>
   - name: "bastion"
     ssh_user: "root"
     size: "t2.micro"
@@ -127,7 +130,7 @@ servers:
     static_ip: 
       assign_ip: true
     vpc: 
-      vpc_name: "vpc"
+      vpc_name: <%= vpc_name %>
       subnet_pref: "public"
     ingress_rules: 
     - proto: "icmp"
@@ -148,11 +151,12 @@ servers:
     loadbalancers:
     - concurrent-load-balancer: "lb"
     size: t2.medium
+    create_image: true
     storage:
     - device: /dev/sda1
       size: 70
     vpc:
-      vpc_name: "vpc"
+      vpc_name: <%= vpc_name %>
       subnet_pref: private
       nat_host_name: "bastion"
       nat_ssh_user: <%= nat_ssh_user %>
@@ -166,7 +170,7 @@ servers:
       name: "lb"
     - type: database
       name: "db"
-    <% if !vpc_deploy_id and (!vpc or vpc.empty?) %>
+    <% if !vpc_deploy_id and (!vpc_name or vpc_name.empty?) %>
     - type: "server"
       name: "bastion"
       phase: "groom"
@@ -187,7 +191,7 @@ server_pools:
     add_firewall_rules: 
       - rule_name: "wpress_secgroup"
     vpc:
-      vpc_name: "vpc"
+      vpc_name: <%= vpc_name %>
       subnet_pref: all_private
       nat_host_name: "bastion"
       nat_ssh_user: <%= nat_ssh_user %>
@@ -211,12 +215,11 @@ server_pools:
 firewall_rules:
   - name: "database_secgroup"
     vpc:
+      vpc_name: <%= vpc_name %>
       <% if vpc_deploy_id %>
       deploy_id: <%=vpc_deploy_id %>
       <% elsif vpc_id %>
       vpc_id: <%= vpc_id %>
-      <% else %>
-      vpc_name: vpc
       <% end %>
     rules: 
     - port: 3306
@@ -224,12 +227,11 @@ firewall_rules:
       - "wpress_secgroup"
   - name: "wpress_secgroup"
     vpc:
+      vpc_name: <%= vpc_name %>
       <% if vpc_deploy_id %>
       deploy_id: <%=vpc_deploy_id %>
       <% elsif vpc_id %>
       vpc_id: <%= vpc_id %>
-      <% else %>
-      vpc_name: vpc
       <% end %>
     rules: 
     - port: 80
