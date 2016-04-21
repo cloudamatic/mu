@@ -180,6 +180,10 @@ module MU
       def downcase
         to_s.downcase
       end
+      # Check for emptiness like a String
+      def empty?
+        to_s.empty?
+      end
       # Check for equality like a String
       def ==(o)
         (o.class == self.class or o.class == "String") && o.to_s == to_s
@@ -203,8 +207,9 @@ module MU
     def getTail(param, value: nil, prettyname: nil, cloud_type: "String", description: nil, list_of: nil, prefix: "", suffix: "")
       if value.nil?
         if $parameters.nil? or !$parameters.has_key?(param)
-          MU.log "Parameter '#{param}' referenced in config but not provided", MU::ERR, details: $parameters
-          raise DeployParamError
+          MU.log "Parameter '#{param}' (#{param.class.name}) referenced in config but not provided (#{caller[0]})", MU::DEBUG, details: $parameters
+          return nil
+#          raise DeployParamError
         else
           value = $parameters[param]
         end
@@ -243,12 +248,16 @@ module MU
 
     # Load up our YAML or JSON and parse it through ERB, optionally substituting
     # externally-supplied parameters.
-    def resolveConfig(path: @@config_path)
+    def resolveConfig(path: @@config_path, param_pass: false)
       config = nil
-# XXX this is a placeholder until we've gone through the parameters array
+      @param_pass = param_pass
+
       def method_missing(var_name)
-#        "<%= getTail('#{var_name}') %>"
-        "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
+        if @param_pass
+          "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
+        else
+          getTail(var_name.to_s)
+        end
       end
 
       # Figure out what kind of file we're loading. We handle includes 
@@ -275,6 +284,13 @@ module MU
 
       begin
         config = JSON.parse(raw_json)
+        if param_pass
+          config.keys.each { |key|
+            if key != "parameters"
+              config.delete(key)
+            end
+          }
+        end
       rescue JSON::ParserError => e
         badconf = File.new("/tmp/badconf.#{$$}", File::CREAT|File::TRUNC|File::RDWR, 0400)
         badconf.puts raw_text
@@ -287,6 +303,7 @@ module MU
         raise ValidationError
       end
 
+      undef :method_missing
       return [MU::Config.fixDashes(config), raw_text]
     end
 
@@ -327,9 +344,11 @@ module MU
       }
       raise ValidationError if !ok
 
-      # Run our input through the ERB renderer, a first pass without parameters.
+      # Run our input through the ERB renderer, a first pass just to extract
+      # the parameters section so that we can resolve all of those to variables
+      # for the rest of the config to reference.
       # XXX figure out how to make include() add parameters for us
-      tmp_cfg, raw_erb_sans_params = resolveConfig(path: @@config_path)
+      tmp_cfg, raw_erb_params_only = resolveConfig(path: @@config_path, param_pass: true)
 
       if tmp_cfg.has_key?("parameters") and !tmp_cfg["parameters"].nil? and tmp_cfg["parameters"].size > 0
         tmp_cfg["parameters"].each { |param|
@@ -361,23 +380,25 @@ module MU
       $parameters = @@parameters
       $parameters.freeze
 
+      @config, raw_erb = resolveConfig(path: @@config_path)
+
       # Convert parameter entries that constitute whole config keys into
       # MU::Config::Tail objects.
-      def resolveTails(tree, indent= "")
-        if tree.is_a?(Hash)
-          tree.each_pair { |key, val|
-            tree[key] = resolveTails(val, indent+" ")
-          }
-        elsif tree.is_a?(Array)
-          tree.each { |item|
-            item = resolveTails(item, indent+" ")
-          }
-        elsif tree.is_a?(String) and tree.match(/^(.*?)MU::Config.getTail PLACEHOLDER (.+?) REDLOHECALP(.*)/)
-          tree = getTail($2, prefix: $1, suffix: $3)
-        end
-        return tree
-      end
-      @config = resolveTails(tmp_cfg)
+#      def resolveTails(tree, indent= "")
+#        if tree.is_a?(Hash)
+#          tree.each_pair { |key, val|
+#            tree[key] = resolveTails(val, indent+" ")
+#          }
+#        elsif tree.is_a?(Array)
+#          tree.each { |item|
+#            item = resolveTails(item, indent+" ")
+#          }
+#        elsif tree.is_a?(String) and tree.match(/^(.*?)MU::Config.getTail PLACEHOLDER (.+?) REDLOHECALP(.*)/)
+#          tree = getTail($2, prefix: $1, suffix: $3)
+#        end
+#        return tree
+#      end
+#      @config = resolveTails(tmp_cfg)
 
       if !@config.has_key?('admins') or @config['admins'].size == 0
         if MU.chef_user == "mu"

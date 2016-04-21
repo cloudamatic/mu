@@ -824,7 +824,7 @@ module MU
           deploy_id = nil
 
           # If we're searching by name, assume it's part of this here deploy.
-          if nat_cloud_id.nil?
+          if nat_cloud_id.nil? and !@deploy.nil?
             deploy_id = @deploy.deploy_id
           end
           found = MU::MommaCat.findStray(

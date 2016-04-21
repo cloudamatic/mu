@@ -17,9 +17,21 @@
 %>
 
 ---
-appname: "<%=$appname %>"
-region: "<%= $region %>"
-<% if !$deploy_id then %>
+appname: <%=appname %>
+region: <%= $region %>
+parameters:
+  - name: appname
+    default: demo
+  - name: instance_type
+    default: t2.micro
+  - name: vpc_deploy_id
+    required: false
+    description: The Mu deploy identifier for an existing deploy with a single VPC, into which we'll attempt to insert this deployment.
+  - name: vpc
+    cloudtype: AWS::EC2::VPC::Id
+    description: A simple VPC cloud id into which we'll attempt to insert this deployment.
+    default: <%= MU.myVPC %>
+<% if !vpc_deploy_id and (!vpc or vpc.empty?) then %>
 vpcs:
 - name: "vpc"
   route-tables:
@@ -59,8 +71,10 @@ loadbalancers:
 - name: "lb"
   vpc:
     vpc_name: "vpc"
-    <% if $deploy_id %>
-    deploy_id: "<%=$deploy_id %>"
+    <% if vpc_deploy_id %>
+    deploy_id: <%= vpc_deploy_id %>
+    <% elsif vpc %>
+    vpc_id: <%= vpc %>
     <% end %>
   ingress_rules:
   - port: 80
@@ -95,13 +109,15 @@ databases:
   engine_version: 5.6.23
   vpc: 
     vpc_name: "vpc"
-    <% if $deploy_id %>
-    deploy_id: "<%=$deploy_id %>"
+    <% if vpc_deploy_id %>
+    deploy_id: <%=vpc_deploy_id %>
+    <% elsif vpc %>
+    vpc_id: <%= vpc %>
     <% end %>
   add_firewall_rules:
   - rule_name: "database_secgroup"
 servers:
-  <% if !$deploy_id then %>
+  <% if !vpc_deploy_id and (!vpc or vpc.empty?) then %>
   - name: "bastion"
     ssh_user: "root"
     size: "t2.micro"
@@ -139,15 +155,17 @@ servers:
       subnet_pref: private
       nat_host_name: "bastion"
       nat_ssh_user: "root"
-      <% if $deploy_id %>
-      deploy_id: "<%=$deploy_id %>"
+      <% if vpc_deploy_id %>
+      deploy_id: <%=vpc_deploy_id %>
+      <% elsif vpc %>
+      vpc_id: <%= vpc %>
       <% end %>
     dependencies:
     - type: loadbalancer
       name: "lb"
     - type: database
       name: "db"
-    <% if !$deploy_id %>
+    <% if !vpc_deploy_id and (!vpc or vpc.empty?) %>
     - type: "server"
       name: "bastion"
       phase: "groom"
@@ -172,8 +190,10 @@ server_pools:
       subnet_pref: all_private
       nat_host_name: "bastion"
       nat_ssh_user: "root"
-      <% if $deploy_id %>
-      deploy_id: "<%=$deploy_id %>"
+      <% if vpc_deploy_id %>
+      deploy_id: <%=vpc_deploy_id %>
+      <% elsif vpc %>
+      vpc_id: <%= vpc %>
       <% end %>
     run_list: 
     - recipe[demo::wordpress]
@@ -190,9 +210,12 @@ server_pools:
 firewall_rules:
   - name: "database_secgroup"
     vpc:
-      vpc_name: "vpc"
-      <% if $deploy_id %>
-      deploy_id: "<%=$deploy_id %>"
+      <% if vpc_deploy_id %>
+      deploy_id: <%=vpc_deploy_id %>
+      <% elsif vpc %>
+      vpc_id: <%= vpc %>
+      <% else %>
+      vpc_name: vpc
       <% end %>
     rules: 
     - port: 3306
@@ -200,9 +223,12 @@ firewall_rules:
       - "wpress_secgroup"
   - name: "wpress_secgroup"
     vpc:
-      vpc_name: "vpc"
-      <% if $deploy_id %>
-      deploy_id: "<%=$deploy_id %>"
+      <% if vpc_deploy_id %>
+      deploy_id: <%=vpc_deploy_id %>
+      <% elsif vpc %>
+      vpc_id: <%= vpc %>
+      <% else %>
+      vpc_name: vpc
       <% end %>
     rules: 
     - port: 80
