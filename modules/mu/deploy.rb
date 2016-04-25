@@ -48,19 +48,24 @@ module MU
     attr_reader :nocleanup
 
     # @param environment [String]: The environment name for this application stack (e.g. "dev" or "prod")
-    # @param verbosity [Boolean]: Toggles debug-level log verbosity
+    # @param verbosity [Integer]: Debug level for MU.log output
     # @param webify_logs [Boolean]: Toggles web-friendly log output
     # @param nocleanup [Boolean]: Toggles whether to skip cleanup of resources if this deployment fails.
     # @param stack_conf [Hash]: A full application stack configuration parsed by {MU::Config}
     def initialize(environment,
-                   verbosity: nil,
-                   webify_logs: nil,
-                   nocleanup: nil,
+                   verbosity: MU::Logger::NORMAL,
+                   webify_logs: false,
+                   nocleanup: false,
+                   cloudformation_path: nil,
+                   force_cloudformation: false,
                    stack_conf: nil)
-      MU.setVar("verbose", verbosity)
+      MU.setVar("verbosity", verbosity)
       @webify_logs = webify_logs
       @nocleanup = nocleanup
       MU.setLogging(verbosity, webify_logs)
+
+      MU::Cloud::CloudFormation.emitCloudFormation(set: force_cloudformation)
+      @cloudformation_output = cloudformation_path
 
       if stack_conf.nil? or !stack_conf.is_a?(Hash)
         raise MuError, "Deploy objects require a stack_conf hash"
@@ -81,7 +86,6 @@ module MU
       @timestamp.freeze
       @timestart = time.to_s;
       @timestart.freeze
-
 
       retries = 0
       begin
@@ -107,6 +111,11 @@ module MU
 
       MU::Cloud.resource_types.each { |cloudclass, data|
         if !@main_config[data[:cfg_plural]].nil? and @main_config[data[:cfg_plural]].size > 0
+          @main_config[data[:cfg_plural]].each { |resource|
+            if MU::Cloud::CloudFormation.emitCloudFormation
+              resource['cloud'] = "CloudFormation" if resource['cloud'] = "AWS"
+            end
+          }
           setThreadDependencies(@main_config[data[:cfg_plural]])
         end
       }
@@ -175,7 +184,6 @@ module MU
             MU.deploy_id,
             create: true,
             config: @main_config,
-            verbose: MU.verbose,
             environment: @environment,
             nocleanup: @nocleanup,
             set_context_to_me: true,
@@ -231,6 +239,16 @@ module MU
         @my_threads.each do |t|
           t.join
         end
+
+        if mommacat.numKittens(clouds: ["CloudFormation"]) > 0
+          MU::Cloud::CloudFormation.writeCloudFormationTemplate(tails: MU::Config.tails, config: @main_config, path: @cloudformation_output, mommacat: mommacat)
+          # If we didn't build anything besides CloudFormation, purge useless
+          # metadata.
+          if mommacat.numKittens(clouds: ["CloudFormation"], negate: true) == 0
+            MU::Cleanup.run(MU.deploy_id, skipcloud: true, verbosity: MU::Logger::QUIET, mommacat: mommacat)
+            exit
+          end
+        end
       rescue Exception => e
 
         @my_threads.each do |t|
@@ -245,7 +263,8 @@ module MU
         if e.class.to_s != "SystemExit"
           MU.log e.inspect, MU::ERR, details: e.backtrace
           if !@nocleanup
-            MU::Cleanup.run(MU.deploy_id, false, true, mommacat: mommacat)
+            MU::Cleanup.run(MU.deploy_id, skipsnapshots: true, verbosity: @verbosity, mommacat: mommacat)
+            @nocleanup = true # so we don't run this again later
           end
           MU.log e.inspect, MU::ERR
         end
@@ -258,13 +277,28 @@ module MU
       end
       deployment = MU.mommacat.deployment
       deployment["deployment_end_time"]=Time.new.strftime("%I:%M %p on %A, %b %d, %Y").to_s;
-      MU::Cloud::AWS.openFirewallForClients # XXX only invoke if we're in AWS
+      if mommacat.numKittens(clouds: ["AWS"]) > 0
+        MU::Cloud::AWS.openFirewallForClients
+      end
       MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
-      MU::MommaCat.syncMonitoringConfig
+      if mommacat.numKittens(types: ["Server", "ServerPool"]) > 0
+        MU::MommaCat.syncMonitoringConfig
+      end
 
       # Send notifications
       sendMail
       MU.log "Deployment complete", details: deployment
+      if mommacat.numKittens(clouds: ["AWS"]) > 0
+        MU.log "Generating cost calculation URL for all Amazon Web Services resources.", details: deployment
+        cost_dummy_deploy = MU::Deploy.new(
+          @environment,
+          verbosity: MU::Logger::QUIET,
+          force_cloudformation: true,
+          cloudformation_path: "/dev/null",
+          nocleanup: true,
+          stack_conf: @main_config
+        )
+      end
 
     end
 
@@ -404,6 +438,7 @@ MESSAGE_END
       return if services.nil?
 
       parent_thread_id = Thread.current.object_id
+      services.uniq!
       services.each do |service|
         @my_threads << Thread.new(service) { |myservice|
           MU.dupGlobals(parent_thread_id)
@@ -412,7 +447,7 @@ MESSAGE_END
           Thread.abort_on_exception = true
           waitOnThreadDependencies(threadname)
 
-          if service["#MU_CLOUDCLASS"].instance_methods(false).include?(:groom)
+          if service["#MU_CLOUDCLASS"].instance_methods(false).include?(:groom) and !service['dependencies'].nil? and !service['dependencies'].size == 0
             if mode == "create"
               MU::MommaCat.lock(service["#MU_CLOUDCLASS"].cfg_name+"_"+myservice["name"]+"-dependencies")
             elsif mode == "groom"
@@ -447,7 +482,8 @@ MESSAGE_END
               end
             end
             if !@nocleanup
-              MU::Cleanup.run(MU.deploy_id, false, true)
+              MU::Cleanup.run(MU.deploy_id, verbosity: @verbosity, skipsnapshots: true)
+              @nocleanup = true # so we don't run this again later
             end
             raise MuError, e.inspect, e.backtrace
           end

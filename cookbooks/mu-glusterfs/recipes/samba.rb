@@ -13,9 +13,12 @@ case node[:platform]
   when "centos"
     include_recipe "mu-glusterfs"
 
-    %w{samba-vfs-glusterfs samba-client samba}.each do |pkg|
+#    %w{samba-vfs-glusterfs samba-client samba}.each do |pkg|
+#      package pkg
+#    end
+    %w{samba4 samba4-client samba4-winbind samba4-winbind-clients samba4-winbind-krb5-locator}.each { |pkg|
       package pkg
-    end
+    }
 
     service "smb"
 

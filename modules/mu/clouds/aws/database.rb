@@ -26,24 +26,31 @@ module MU
         attr_reader :config
         attr_reader :groomer    
 
+        @cloudformation_data = {}
+        attr_reader :cloudformation_data
+
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::databases}
         def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
           @deploy = mommacat
-          @config = kitten_cfg
+          @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
           # @mu_name = mu_name ? mu_name : @deploy.getResourceName(@config["name"])
           @config["groomer"] = MU::Config.defaultGroomer unless @config["groomer"]
           @groomclass = MU::Groomer.loadGroomer(@config["groomer"])
 
-          @mu_name ||=
-            if @config["engine"].match(/^sqlserver/)
-              @deploy.getResourceName(@config["name"], max_length: 15)
-            else
-              @deploy.getResourceName(@config["name"], max_length: 63)
-            end
+          if !mu_name.nil?
+            @mu_name = mu_name
+          else
+            @mu_name ||=
+              if @config["engine"].match(/^sqlserver/)
+                @deploy.getResourceName(@config["name"], max_length: 15)
+              else
+                @deploy.getResourceName(@config["name"], max_length: 63)
+              end
 
-          @mu_name.gsub(/(--|-$)/i, "").gsub(/(_)/, "-").gsub!(/^[^a-z]/i, "")
+            @mu_name.gsub(/(--|-$)/i, "").gsub(/(_)/, "-").gsub!(/^[^a-z]/i, "")
+          end
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -53,11 +60,11 @@ module MU
           # the default schema or username. And it varies from engine to engine.
           basename = @config["name"]+@deploy.timestamp+MU.seed.downcase
           basename.gsub!(/[^a-z0-9]/i, "")
-          @config["db_name"] = getName(basename, type: "dbname")
-          @config['master_user'] = getName(basename, type: "dbuser") unless @config['master_user']
+          @config["db_name"] = MU::Cloud::AWS::Database.getName(basename, type: "dbname", config: @config)
+          @config['master_user'] = MU::Cloud::AWS::Database.getName(basename, type: "dbuser", config: @config) unless @config['master_user']
 
           # Lets make sure automatic backups are enabled when DB instance is deployed in Multi-AZ so failover actually works. Maybe default to 1 instead?
-          if @config['multi_az_on_create'] or @config['multi_az_on_deploy'] or config["create_cluster"]
+          if @config['multi_az_on_create'] or @config['multi_az_on_deploy'] or @config["create_cluster"]
             if @config["backup_retention_period"].nil? or @config["backup_retention_period"] == 0
               @config["backup_retention_period"] = 35
               MU.log "Multi-AZ deployment specified but backup retention period disabled or set to 0. Changing to #{@config["backup_retention_period"]} ", MU::WARN
@@ -80,7 +87,7 @@ module MU
           @config['identifier'] = @mu_name
           @config["subnet_group_name"] = @mu_name
 
-          if config["create_cluster"]
+          if @config["create_cluster"]
             getPassword
             createSubnetGroup
 
@@ -249,7 +256,7 @@ module MU
             "username" => @config["master_user"],
             "password" => @config["password"]
           }
-          @groomclass.saveSecret(vault: @config['identifier'], item: "database_credentials", data: creds)
+          @groomclass.saveSecret(vault: @mu_name, item: "database_credentials", data: creds)
         end
 
         # Create the database described in this instance
@@ -379,36 +386,6 @@ module MU
 
           database = MU::Cloud::AWS::Database.getDatabaseById(@config['identifier'], region: @config['region'])
           MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: database.db_instance_identifier, target: "#{database.endpoint.address}.", cloudclass: MU::Cloud::Database, sync_wait: @config['dns_sync_wait'])
-
-          if @config["alarms"] && !@config["alarms"].empty?
-            @config["alarms"].each { |alarm|
-              alarm["dimensions"] = [{:name => "DBInstanceIdentifier", :value => database.db_instance_identifier}]
-
-              if alarm["enable_notifications"]
-                topic_arn = MU::Cloud::AWS::Notification.createTopic(alarm["notification_group"], region: @config["region"])
-                MU::Cloud::AWS::Notification.subscribe(arn: topic_arn, protocol: alarm["notification_type"], endpoint: alarm["notification_endpoint"], region: @config["region"])
-                alarm["alarm_actions"] = [topic_arn]
-                alarm["ok_actions"] = [topic_arn]
-              end
-
-              MU::Cloud::AWS::Alarm.createAlarm(
-                name: @deploy.getResourceName("#{@config["name"]}-#{alarm["name"]}"),
-                ok_actions: alarm["ok_actions"],
-                alarm_actions: alarm["alarm_actions"],
-                insufficient_data_actions: alarm["no_data_actions"],
-                metric_name: alarm["metric_name"],
-                namespace: alarm["namespace"],
-                statistic: alarm["statistic"],
-                dimensions: alarm["dimensions"],
-                period: alarm["period"],
-                unit: alarm["unit"],
-                evaluation_periods: alarm["evaluation_periods"],
-                threshold: alarm["threshold"],
-                comparison_operator: alarm["comparison_operator"],
-                region: @config["region"]
-              )
-            }
-          end
 
           # When creating from a snapshot, some of the create arguments aren't
           # applicable- but we can apply them after the fact with a modify.
@@ -861,29 +838,29 @@ module MU
 
         # Generate database user, database identifier, database name based on engine-specific constraints
         # @return [String]: Name
-        def getName(basename, type: 'dbname')
+        def self.getName(basename, type: 'dbname', config: nil)
           if type == 'dbname'
             # Apply engine-specific db name constraints
-            if @config["engine"].match(/^oracle/)
-              (MU.seed.downcase+@config["name"])[0..7]
-            elsif @config["engine"].match(/^sqlserver/)
+            if config["engine"].match(/^oracle/)
+              (MU.seed.downcase+config["name"])[0..7]
+            elsif config["engine"].match(/^sqlserver/)
               nil
-            elsif @config["engine"].match(/^mysql/)
+            elsif config["engine"].match(/^mysql/)
               basename[0..63]
-            elsif @config["engine"].match(/^aurora/)
-              (MU.seed.downcase+@config["name"])[0..7]
+            elsif config["engine"].match(/^aurora/)
+              (MU.seed.downcase+config["name"])[0..7]
             else
               basename
             end
           elsif type == 'dbuser'
             # Apply engine-specific master username constraints
-            if @config["engine"].match(/^oracle/)
+            if config["engine"].match(/^oracle/)
               basename[0..29].gsub(/[^a-z0-9]/i, "")
-            elsif @config["engine"].match(/^sqlserver/)
+            elsif config["engine"].match(/^sqlserver/)
               basename[0..127].gsub(/[^a-z0-9]/i, "")
-            elsif @config["engine"].match(/^mysql/)
+            elsif config["engine"].match(/^mysql/)
               basename[0..15].gsub(/[^a-z0-9]/i, "")
-            elsif @config["engine"].match(/^aurora/)
+            elsif config["engine"].match(/^aurora/)
               basename[0..15].gsub(/[^a-z0-9]/i, "")
             else
               basename.gsub(/[^a-z0-9]/i, "")

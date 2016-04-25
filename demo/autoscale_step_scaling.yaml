@@ -1,14 +1,25 @@
 <%
-  raise "You must set deploy_id (e.g. -p deploy_id=UATSVCS-PROD-2015051501-RE)" unless $deploy_id
-  $nat_ssh_user = "root" unless $nat_ssh_user
   $region = MU.curRegion unless $region
 %>
 
-appname: autoscale
+appname: <%= appname %>
 region: <%= $region %>
+parameters:
+  - name: appname
+    default: autoscale
+  - name: vpc
+    cloudtype: AWS::EC2::VPC::Id
+    default: <%= MU.myVPC %>
+  - name: nat_ssh_user
+    default: ubuntu
 server_pools:
 - name: test
   dns_sync_wait: false
+  platform: ubuntu
+  vpc:
+    vpc_id: <%= vpc %>
+    subnet_pref: all_private
+    nat_ssh_user: <%= nat_ssh_user %>
   alarms:
   - name: reboot
     metric_name: StatusCheckFailed_Instance
@@ -72,17 +83,16 @@ server_pools:
   - port: 80
     lbs:
     - lb
-  vpc:
-    deploy_id: <%= $deploy_id %>
-    subnet_pref: all_private
-    nat_ssh_user: <%= $nat_ssh_user %>
   dependencies:
   - name: lb
     type: loadbalancer
+  run_list:
+    - recipe[apache2]
+    - recipe[demo::php]
   basis:
     launch-config:
       name: autoscale
-      size: m4.large
+      size: t2.small
 
 loadbalancers:
 - name: lb
@@ -107,7 +117,7 @@ loadbalancers:
     comparison_operator: GreaterThanThreshold
     enable_notifications: true
   vpc:
-    deploy_id: <%= $deploy_id %>
+    vpc_id: <%= vpc %>
     subnet_pref: all_public
   cross_zone_unstickiness: true
   idle_timeout: 240

@@ -25,7 +25,8 @@ case node.platform
     end
   when "centos", "redhat"
     if node.platform_version.to_i >= 6
-      can_join_domain = true
+      can_join_domain = false # XXX just to get it to skip the winbind business
+      include_recipe "mu-activedirectory::sssd"
     else
       Chef::Log.info "Requires CentOS/RedHat 6/7. Current version is #{node.platform} #{node.platform_version.to_i}"
     end

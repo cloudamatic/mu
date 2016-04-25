@@ -1,0 +1,54 @@
+[domain/<%= @domain %>]
+enumerate = True
+#ldap_search_base = <%= @base_dn %>
+#ldap_user_search_base = <%= @base_dn %>
+#ldap_group_search_base = <%= @base_dn %>
+krb5_server = <%= @domain.upcase %>
+krb5_realm = <%= @domain.upcase %>
+#ldap_tls_reqcert = allow
+#ldap_id_use_start_tls = True
+#ldap_tls_cacertdir = /etc/openldap/cacerts
+#krb5_canonicalize = false
+ldap_id_mapping = True
+ldap_schema = ad
+<% if node.ad.domain_sid %>
+ldap_idmap_default_domain_sid = <%= node.ad.domain_sid %>
+<% end rescue NoMethodError %>
+ldap_idmap_range_min = 10000
+id_provider = ad
+auth_provider = ad
+access_provider = ad
+# ldap_user_object_class = user
+# ldap_user_object_class = user
+# ldap_user_name = sAMAccountName
+# ldap_user_uid_number = msSFU30UidNumber
+# ldap_user_gid_number = msSFU30GidNumber
+# ldap_user_gecos = displayName
+# ldap_user_home_directory = msSFU30HomeDirectory
+# ldap_user_shell = msSFU30LoginShell
+# ldap_user_principal = userPrincipalName
+# ldap_group_object_class = group
+# ldap_group_name = cn
+# ldap_group_gid_number = msSFU30GidNumber
+
+[sssd]
+services = nss, pam, ssh
+config_file_version = 2
+domains = <%= @domain %>
+
+[nss]
+nss_filter_groups = root
+nss_filter_users = root, apache, postfix, bin, daemon, sshd, ftp, clam, centos, mysql, clam, saslauth, dbus, nagios, rpc, nscd
+override_homedir = /home/%u
+default_shell = /bin/bash
+
+[pam]
+pam_verbosity = 2
+
+[sudo]
+
+[ssh]
+
+[pac]
+
+[ifp]

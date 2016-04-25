@@ -31,14 +31,24 @@ Usage:
 #{$0} [-i] [-n] [-s] [-o] [-w] [-v] <deploy_id>
   EOS
   opt :ignoremaster, "Ignore the MU-MASTER-IP tag when identifying resources to terminate. Caution- this can result in accidentally terminating someone else's resources.", :default => false, :type => :boolean
-  opt :noop, "Don't actually do anything, just show what we would do", :default => false, :type => :boolean
+  opt :noop, "Don't actually do anything, just show what we would do. Equivalent to specifying -o and -k together.", :default => false, :type => :boolean
   opt :skipsnapshots, "Skip creation of final snapshots for EBS volumes and RDS instances.", :default => false, :type => :boolean
-  opt :onlycloud, "Only purge cloud resources, and skip all Mu master metadata cleanup.", :require => false, :default => false, :type => :boolean
+  opt :onlycloud, "Only purge cloud resources, and skip all Mu master deployment metadata cleanup.", :require => false, :default => false, :type => :boolean
+  opt :skipcloud, "Only purge Mu master deployment metadata, and skip all cloud resources.", :require => false, :default => false, :type => :boolean
   opt :web, "Generate web-friendly (HTML) output.", :require => false, :default => false, :type => :boolean
-  opt :verbose, "Display debugging output", :require => false, :default => false, :type => :boolean
+  opt :verbose, "Display debugging output.", :require => false, :default => false, :type => :boolean
+  opt :quiet, "Display minimal output.", :require => false, :default => false, :type => :boolean
+end
+verbosity = MU::Logger::NORMAL
+verbosity = MU::Logger::LOUD if $opts[:verbose]
+verbosity = MU::Logger::QUIET if $opts[:quiet]
+
+if $opts[:verbose] and $opts[:quiet]
+  MU.log "Cannot set both --verbose and --quiet", MU::ERR
+  exit 1
 end
 
-MU.setLogging($opts[:verbose], $opts[:web])
+MU.setLogging(verbosity, $opts[:web])
 
 if (!ARGV[0] or ARGV[0].empty?) and !$opts[:deploy]
   MU.log("You must specify a deploy id!", MU::ERR, html: $opts[:web])
@@ -50,10 +60,11 @@ end
 
 MU::Cleanup.run(
     $opts[:deploy],
-    $opts[:noop],
-    $opts[:skipsnapshots],
-    $opts[:onlycloud],
-    $opts[:verbose],
-    $opts[:web],
-    $opts[:ignoremaster]
+    noop: $opts[:noop],
+    skipsnapshots: $opts[:skipsnapshots],
+    onlycloud: $opts[:onlycloud],
+    verbosity: verbosity,
+    web: $opts[:web],
+    skipcloud: $opts[:skipcloud],
+    ignoremaster: $opts[:ignoremaster]
 )

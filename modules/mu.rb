@@ -211,33 +211,33 @@ module MU
   end
 
   # The verbose logging flag merits a default value.
-  def self.verbose
-    if @@globals[Thread.current.object_id].nil? or @@globals[Thread.current.object_id]['verbose'].nil?
-      MU.setVar("verbose", false)
+  def self.verbosity
+    if @@globals[Thread.current.object_id].nil? or @@globals[Thread.current.object_id]['verbosity'].nil?
+      MU.setVar("verbosity", MU::Logger::NORMAL)
     end
-    @@globals[Thread.current.object_id]['verbose']
+    @@globals[Thread.current.object_id]['verbosity']
   end
 
   # Set parameters parameters for calls to {MU#log}
-  def self.setLogging(verbose, webify_logs)
-    @@logger = MU::Logger.new(verbose, webify_logs)
+  def self.setLogging(verbosity, webify_logs)
+    @@logger = MU::Logger.new(verbosity, webify_logs)
   end
 
-  setLogging(false, false)
+  setLogging(MU::Logger::NORMAL, false)
 
   # Shortcut to invoke {MU::Logger#log}
   def self.log(msg, level=MU::INFO, details: nil, html: html = false)
-    return if (level == MU::DEBUG and !MU.verbose)
+    return if (level == MU::DEBUG and MU.verbosity <= MU::Logger::LOUD)
 
     if (level == MU::ERR or
         level == MU::WARN or
         level == MU::DEBUG or
-        MU.verbose or
+        MU.verbosity >= MU::Logger::LOUD or
         (level == MU::NOTICE and !details.nil?)
     )
       # TODO add more stuff to details here (e.g. call stack)
       extra = nil
-      if Thread.current.thread_variable_get("name") and (level > MU::NOTICE or MU.verbose)
+      if Thread.current.thread_variable_get("name") and (level > MU::NOTICE or MU.verbosity >= MU::Logger::LOUD)
         extra = Hash.new
         extra = {
             :thread => Thread.current.object_id,
@@ -248,7 +248,7 @@ module MU
         extra = Hash.new if extra.nil?
         extra[:details] = details
       end
-      @@logger.log(msg, level, details: extra, verbose: true, html: html)
+      @@logger.log(msg, level, details: extra, verbosity: MU::Logger::LOUD, html: html)
     else
       @@logger.log(msg, level, html: html)
     end

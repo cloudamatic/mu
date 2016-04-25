@@ -80,45 +80,203 @@ module MU
 
     attr_reader :config
 
+    @@parameters = {}
+    attr_reader :parameters
+    # Accessor for parameters to our Basket of Kittens
+    def self.parameters
+      @@parameters
+    end
+    @@tails = {}
+    attr_reader :tails
+    # Accessor for tails in our Basket of Kittens. This should be a superset of
+    # user-supplied parameters. It also has machine-generated parameterized
+    # behaviors.
+    def self.tails
+      @@tails
+    end
 
-    # Load a configuration file ("Basket of Kittens").
-    # @param path [String]: The path to the master config file to load. Note that this can include other configuration files via ERB.
-    # @param skipinitialupdates [Boolean]: Whether to forcibly apply the *skipinitialupdates* flag to nodes created by this configuration.
-    # @param params [Hash]: Optional name-value parameter pairs, which will be passed to our configuration files as ERB variables.
-    # @return [Hash]: The complete validated configuration for a deployment.
-    def initialize(path, skipinitialupdates = false, params: params = Hash.new)
-      $myPublicIp = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
-      $myRoot = MU.myRoot
+    # Run through a config hash and return a version with all
+    # {MU::Config::Tail} endpoints converted to plain strings. Useful for cloud
+    # layers that don't care about the metadata in Tails.
+    # @param config [Hash]: The configuration tree to convert
+    # @return [Hash]: The modified configuration
+    def self.manxify(config)
+      if config.is_a?(Hash)
+        config.each_pair { |key, val|
+          config[key] = self.manxify(val)
+        }
+      elsif config.is_a?(Array)
+        config.each { |val|
+          val = self.manxify(val)
+        }
+      elsif config.is_a?(MU::Config::Tail)
+        return config.to_s
+      end
+      return config
+    end
 
-      $myAZ = MU.myAZ
-      $myRegion = MU.curRegion
+    # A wrapper for config leaves that came from ERB parameters instead of raw
+    # YAML or JSON. Will behave like a string for things that expect that
+    # sort of thing. Code that needs to know that this leaf was the result of
+    # a parameter will be able to tell by the object class being something
+    # other than a plain string, array, or hash.
+    class Tail
+      @value = nil
+      @name = nil
+      @prettyname = nil
+      @description = nil
+      @prefix = ""
+      @suffix = ""
+      @is_list_element = false
+      attr_reader :description
+      attr_reader :is_list_element
 
-      @@config_path = path
-      @skipinitialupdates = skipinitialupdates
+      def initialize(name, value, prettyname = nil, cloud_type = "String", description = "", is_list_element = false, prefix: "", suffix: "")
+        @name = name
+        @value = value
+        @cloud_type = cloud_type
+        @is_list_element = is_list_element
+        @description ||= 
+          if !description.nil?
+            description
+          else
+            ""
+          end
+        @prettyname ||= 
+          if !prettyname.nil?
+            prettyname
+          else
+            @name.capitalize.gsub(/[^a-z0-9]/i, "")
+          end
+        @prefix = prefix if !prefix.nil?
+        @suffix = suffix if !suffix.nil?
+      end
+ 
+      # Return the parameter name of this Tail
+      def getName
+        @name
+      end
+      # Return the platform-specific cloud type of this Tail
+      def getCloudType
+        @cloud_type
+      end
+      # Return the human-friendly name of this Tail
+      def getPrettyName
+        @prettyname
+      end
+      # Walk like a String
+      def to_s
+        @prefix+@value+@suffix
+      end
+      # Quack like a String
+      def to_str
+        to_s
+      end
+      # Upcase like a String
+      def upcase
+        to_s.upcase
+      end
+      # Downcase like a String
+      def downcase
+        to_s.downcase
+      end
+      # Check for emptiness like a String
+      def empty?
+        to_s.empty?
+      end
+      # Check for equality like a String
+      def ==(o)
+        (o.class == self.class or o.class == "String") && o.to_s == to_s
+      end
+      # Perform global substitutions like a String
+      def gsub(*args)
+        to_s.gsub(*args)
+      end
+    end
 
-      ok = true
-      params.each_pair { |name, value|
-        begin
-          raise DeployParamError, "Parameter must be formatted as name=value" if value.nil? or value.empty?
-          raise DeployParamError, "Parameter name must be a legal Ruby variable name" if name.match(/[^A-Za-z0-9_]/)
-          raise DeployParamError, "Parameter values cannot contain quotes" if value.match(/["']/)
-          eval("defined? $#{name} and raise DeployParamError, 'Parameter name reserved'")
-          eval("$#{name} = '#{value}'")
-          MU.log "Passing variable $#{name} into #{@@config_path} with value '#{value}'"
-        rescue RuntimeError, SyntaxError => e
-          ok = false
-          MU.log "Error setting $#{name}='#{value}': #{e.message}", MU::ERR
+    # Wrapper method for creating a {MU::Config::Tail} object as a reference to
+    # a parameter that's valid in the loaded configuration.
+    # @param param [<String>]: The name of the parameter to which this should be tied.
+    # @param value [<String>]: The value of the parameter to return when asked
+    # @param prettyname [<String>]: A human-friendly parameter name to be used when generating CloudFormation templates and the like
+    # @param cloud_type [<String>]: A platform-specific identifier used by cloud layers to identify a parameter's type, e.g. AWS::EC2::VPC::Id
+    # @param description [<String>]: A long-form description of what the parameter does.
+    # @param list_of [<String>]: Indicates that the value should be treated as a member of a list (array) by the cloud layer.
+    # @param prefix [<String>]: A static String that should be prefixed to the stored value when queried
+    # @param suffix [<String>]:  A static String that should be appended to the stored value when queried
+    def getTail(param, value: nil, prettyname: nil, cloud_type: "String", description: nil, list_of: nil, prefix: "", suffix: "")
+      if value.nil?
+        if $parameters.nil? or !$parameters.has_key?(param)
+          MU.log "Parameter '#{param}' (#{param.class.name}) referenced in config but not provided (#{caller[0]})", MU::DEBUG, details: $parameters
+          return nil
+#          raise DeployParamError
+        else
+          value = $parameters[param]
         end
-      }
-      raise ValidationError if !ok
+      end
+      if !prettyname.nil?
+        prettyname.gsub!(/[^a-z0-9]/i, "") # comply with CloudFormation restrictions
+      end
+      if !list_of.nil? or (@@tails.has_key?(param) and @@tails[param].is_a?(Array))
+        tail = []
+        count = 0
+        value.split(/\s*,\s*/).each { |subval|
+          if @@tails.has_key?(param) and !@@tails[param][count].nil?
+            subval = @@tails[param][count].values.first.to_s if subval.nil?
+            list_of = @@tails[param][count].values.first.getName if list_of.nil?
+            prettyname = @@tails[param][count].values.first.getPrettyName if prettyname.nil?
+            description = @@tails[param][count].values.first.description if description.nil?
+            cloud_type = @@tails[param][count].values.first.getCloudType if @@tails[param][count].values.first.getCloudType != "String"
+          end
+          prettyname = param.capitalize if prettyname.nil?
+          tail << { list_of => MU::Config::Tail.new(list_of, subval, prettyname, cloud_type, description, true) }
+          count = count + 1
+        }
+      else
+        if @@tails.has_key?(param)
+          value = @@tails[param].to_s if value.nil?
+          prettyname = @@tails[param].getPrettyName if prettyname.nil?
+          description = @@tails[param].description if description.nil?
+          cloud_type = @@tails[param].getCloudType if @@tails[param].getCloudType != "String"
+        end
 
-      # Figure out what kind of fail we're loading. We handle includes 
-      # differently if YAML is involved.
-      $file_format = MU::Config.guessFormat(@@config_path)
+        tail = MU::Config::Tail.new(param, value, prettyname, cloud_type, description, prefix: prefix, suffix: suffix)
+      end
+      @@tails[param] = tail
+      tail
+    end
+
+    # Load up our YAML or JSON and parse it through ERB, optionally substituting
+    # externally-supplied parameters.
+    def resolveConfig(path: @@config_path, param_pass: false)
+      config = nil
+      @param_pass = param_pass
+
+      def method_missing(var_name)
+        if @param_pass
+          "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
+        else
+          tail = getTail(var_name.to_s)
+          if tail.is_a?(Array)
+            if @param_pass
+              return tail.map {|f| f.values.first.to_s }.join(",")
+            else
+              # Don't try to jam complex types into a string file format, just
+              # sub them back in later from a placeholder.
+              return "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
+            end
+          else
+            return tail.to_s
+          end
+        end
+      end
+
+      # Figure out what kind of file we're loading. We handle includes 
+      # differently if YAML is involved. These globals get used inside
+      # templates. They're globals on purpose. Stop whining.
+      $file_format = MU::Config.guessFormat(path)
       $yaml_refs = {}
-
-      # Run our input through the ERB renderer.
-      erb = ERB.new(File.read(@@config_path))
+      erb = ERB.new(File.read(path))
       raw_text = erb.result(get_binding)
       raw_json = nil
 
@@ -136,19 +294,125 @@ module MU
       end
 
       begin
-        @config = JSON.parse(raw_json)
+        config = JSON.parse(raw_json)
+        if param_pass
+          config.keys.each { |key|
+            if key != "parameters"
+              config.delete(key)
+            end
+          }
+        else
+          config.delete("parameters")
+        end
       rescue JSON::ParserError => e
         badconf = File.new("/tmp/badconf.#{$$}", File::CREAT|File::TRUNC|File::RDWR, 0400)
         badconf.puts raw_text
         badconf.close
-        if !yaml_parse_error.nil? and !@@config_path.match(/\.json/)
-          MU.log "YAML Error parsing #{@@config_path}! Complete file dumped to /tmp/badconf.#{$$}", MU::ERR, details: yaml_parse_error
+        if !yaml_parse_error.nil? and !path.match(/\.json/)
+          MU.log "YAML Error parsing #{path}! Complete file dumped to /tmp/badconf.#{$$}", MU::ERR, details: yaml_parse_error
         else
-          MU.log "JSON Error parsing #{@@config_path}! Complete file dumped to /tmp/badconf.#{$$}", MU::ERR, details: e.message
+          MU.log "JSON Error parsing #{path}! Complete file dumped to /tmp/badconf.#{$$}", MU::ERR, details: e.message
         end
         raise ValidationError
       end
-      @config = MU::Config.fixDashes(@config)
+
+      undef :method_missing
+      return [MU::Config.fixDashes(config), raw_text]
+    end
+
+
+    # Load, resolve, and validate a configuration file ("Basket of Kittens").
+    # @param path [String]: The path to the master config file to load. Note that this can include other configuration files via ERB.
+    # @param skipinitialupdates [Boolean]: Whether to forcibly apply the *skipinitialupdates* flag to nodes created by this configuration.
+    # @param params [Hash]: Optional name-value parameter pairs, which will be passed to our configuration files as ERB variables.
+    # @return [Hash]: The complete validated configuration for a deployment.
+    def initialize(path, skipinitialupdates = false, params: params = Hash.new)
+      $myPublicIp = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
+      $myRoot = MU.myRoot
+      $myRoot.freeze
+
+      $myAZ = MU.myAZ.freeze
+      $myAZ.freeze
+      $myRegion = MU.curRegion.freeze
+      $myRegion.freeze
+
+      @@config_path = path
+      @admin_firewall_rules = []
+      @skipinitialupdates = skipinitialupdates
+
+      ok = true
+      params.each_pair { |name, value|
+        begin
+          raise DeployParamError, "Parameter must be formatted as name=value" if value.nil? or value.empty?
+          raise DeployParamError, "Parameter name must be a legal Ruby variable name" if name.match(/[^A-Za-z0-9_]/)
+          raise DeployParamError, "Parameter values cannot contain quotes" if value.match(/["']/)
+          eval("defined? $#{name} and raise DeployParamError, 'Parameter name reserved'")
+          @@parameters[name] = value
+          eval("$#{name}='#{value}'") # support old-style $global parameter refs
+          MU.log "Passing variable $#{name} into #{@@config_path} with value '#{value}'"
+        rescue RuntimeError, SyntaxError => e
+          ok = false
+          MU.log "Error setting $#{name}='#{value}': #{e.message}", MU::ERR
+        end
+      }
+      raise ValidationError if !ok
+
+      # Run our input through the ERB renderer, a first pass just to extract
+      # the parameters section so that we can resolve all of those to variables
+      # for the rest of the config to reference.
+      # XXX figure out how to make include() add parameters for us
+      param_cfg, raw_erb_params_only = resolveConfig(path: @@config_path, param_pass: true)
+
+      if param_cfg.has_key?("parameters") and !param_cfg["parameters"].nil? and param_cfg["parameters"].size > 0
+        param_cfg["parameters"].each { |param|
+          if !@@parameters.has_key?(param['name'])
+            if param.has_key?("default")
+              @@parameters[param['name']] = param['default']
+            elsif param["required"] or !param.has_key?("required")
+              MU.log "Required parameter '#{param['name']}' not supplied", MU::ERR
+              ok = false
+            end
+            if param.has_key?("cloudtype")
+              getTail(param['name'], value: @@parameters[param['name']], cloud_type: param["cloudtype"], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
+            else
+              getTail(param['name'], value: @@parameters[param['name']], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
+            end
+          end
+        }
+      end
+      raise ValidationError if !ok
+      @@parameters.each_pair { |name, val|
+        if respond_to?(name.to_sym)
+          MU.log "Parameter name '#{name}' reserved", MU::ERR
+          ok = false
+          next
+        end
+        MU.log "Passing variable '#{name}' into #{path} with value '#{val}'"
+      }
+      raise DeployParamError, "One or more invalid parameters specified" if !ok
+      $parameters = @@parameters
+      $parameters.freeze
+
+      tmp_cfg, raw_erb = resolveConfig(path: @@config_path)
+      # Convert parameter entries that constitute whole config keys into
+      # MU::Config::Tail objects.
+      def resolveTails(tree, indent= "")
+        if tree.is_a?(Hash)
+          tree.each_pair { |key, val|
+            tree[key] = resolveTails(val, indent+" ")
+          }
+        elsif tree.is_a?(Array)
+          tree.each { |item|
+            item = resolveTails(item, indent+" ")
+          }
+        elsif tree.is_a?(String) and tree.match(/^(.*?)MU::Config.getTail PLACEHOLDER (.+?) REDLOHECALP(.*)/)
+          tree = getTail($2, prefix: $1, suffix: $3)
+        end
+        return tree
+      end
+      @config = resolveTails(tmp_cfg)
+      @config.merge!(param_cfg)
+
       if !@config.has_key?('admins') or @config['admins'].size == 0
         if MU.chef_user == "mu"
           @config['admins'] = [{"name" => "Mu Administrator", "email" => ENV['MU_ADMIN_EMAIL']}]
@@ -157,8 +421,9 @@ module MU
         end
       end
       MU::Config.set_defaults(@config, MU::Config.schema)
-      MU::Config.validate(@config)
-
+      validate
+#pp @config
+#raise "DERP"
       return @config.freeze
     end
 
@@ -437,13 +702,15 @@ module MU
                   resource["dependencies"].each { |dependency|
                     collection = dependency["type"]+"s"
                     found = false
+                    names_seen = []
                     if config[collection] != nil
-                      config[collection].each { |server|
-                        found = true if server["name"] == dependency["name"]
+                      config[collection].each { |service|
+                        names_seen << service["name"]
+                        found = true if service["name"] == dependency["name"]
                       }
                     end
                     if !found
-                      MU.log "Missing dependency: #{type[0]}{#{resource['name']}} needs #{collection}{#{dependency['name']}}", MU::ERR
+                      MU.log "Missing dependency: #{type[0]}{#{resource['name']}} needs #{collection}{#{dependency['name']}}", MU::ERR, details: names_seen
                       ok = false
                     end
                   }
@@ -459,7 +726,7 @@ module MU
 
     # Pick apart an external VPC reference, validate it, and resolve it and its
     # various subnets and NAT hosts to live resources.
-    def self.processVPCReference(vpc_block, parent_name, is_sibling: false, sibling_vpcs: [], dflt_region: MU.curRegion)
+    def processVPCReference(vpc_block, parent_name, is_sibling: false, sibling_vpcs: [], dflt_region: MU.curRegion)
       puts vpc_block.ancestors if !vpc_block.is_a?(Hash)
       if !vpc_block.is_a?(Hash) and vpc_block.kind_of?(MU::Cloud::VPC)
         return true
@@ -470,12 +737,14 @@ module MU
           vpc_block['region'] = dflt_region
       end
 
+
       # First, dig up the enclosing VPC 
       tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !vpc_block['tag'].nil?
       if !is_sibling
         begin
 
-          found = MU::MommaCat.findStray(
+          if vpc_block['cloud'] != "CloudFormation"
+            found = MU::MommaCat.findStray(
               vpc_block['cloud'],
               "vpc",
               deploy_id: vpc_block["deploy_id"],
@@ -485,17 +754,18 @@ module MU
               tag_value: tag_value,
               region: vpc_block["region"],
               dummy_ok: true
-          )
-          ext_vpc = found.first if found.size == 1
+            )
+            ext_vpc = found.first if found.size == 1
+          end
         rescue Exception => e
           raise MuError, e.inspect, e.backtrace
         ensure
-          if !ext_vpc
+          if !ext_vpc and vpc_block['cloud'] != "CloudFormation"
             MU.log "Couldn't resolve VPC reference to a unique live VPC in #{parent_name}", MU::ERR, details: vpc_block
             return false
           elsif !vpc_block["vpc_id"]
             MU.log "Resolved VPC to #{ext_vpc.cloud_id} in #{parent_name}", MU::DEBUG, details: vpc_block
-            vpc_block["vpc_id"] = ext_vpc.cloud_id
+            vpc_block["vpc_id"] = getTail("#{parent_name} Target VPC", value: ext_vpc.cloud_id, prettyname: "#{parent_name} Target VPC", cloud_type: "AWS::EC2::VPC::Id")
           end
         end
 
@@ -515,11 +785,11 @@ module MU
               nat_tag_value: nat_tag_value,
               nat_ip: vpc_block['nat_host_ip']
           )
-					ssh_keydir = Etc.getpwnam(MU.mu_user).dir+"/.ssh"
-					if !vpc_block['nat_ssh_key'].nil? and !File.exists?(ssh_keydir+"/"+vpc_block['nat_ssh_key'])
-              MU.log "Couldn't find alternate NAT key #{ssh_keydir}/#{vpc_block['nat_ssh_key']} in #{parent_name}", MU::ERR, details: vpc_block
-              return false
-					end
+          ssh_keydir = Etc.getpwnam(MU.mu_user).dir+"/.ssh"
+          if !vpc_block['nat_ssh_key'].nil? and !File.exists?(ssh_keydir+"/"+vpc_block['nat_ssh_key'])
+            MU.log "Couldn't find alternate NAT key #{ssh_keydir}/#{vpc_block['nat_ssh_key']} in #{parent_name}", MU::ERR, details: vpc_block
+            return false
+          end
 
           if !ext_nat
             if vpc_block["nat_host_id"].nil? and nat_tag_key.nil? and vpc_block['nat_host_ip'].nil? and vpc_block["deploy_id"].nil?
@@ -541,12 +811,14 @@ module MU
         if vpc_block.has_key?("subnets")
           vpc_block['subnets'].each { |subnet|
             tag_key, tag_value = subnet['tag'].split(/=/, 2) if !subnet['tag'].nil?
-            begin
-              ext_subnet = ext_vpc.getSubnet(cloud_id: subnet['subnet_id'], name: subnet['subnet_name'], tag_key: tag_key, tag_value: tag_value)
-            rescue MuError
+            if !ext_vpc.nil?
+              begin
+                ext_subnet = ext_vpc.getSubnet(cloud_id: subnet['subnet_id'], name: subnet['subnet_name'], tag_key: tag_key, tag_value: tag_value)
+              rescue MuError
+              end
             end
 
-            if ext_subnet.nil?
+            if ext_subnet.nil? and vpc_block["cloud"] != "CloudFormation"
               ok = false
               MU.log "Couldn't resolve subnet reference in #{parent_name}'s list to a live subnet (#{vpc_block})", MU::ERR, details: caller
             elsif !subnet['subnet_id']
@@ -580,9 +852,13 @@ module MU
       # First decide whether we should pay attention to subnet_prefs.
       honor_subnet_prefs = true
       if vpc_block['subnets']
+        count = 0
         vpc_block['subnets'].each { |subnet|
           if subnet['subnet_id'] or subnet['subnet_name']
             honor_subnet_prefs=false
+          end
+          if !subnet['subnet_id'].nil? and subnet['subnet_id'].is_a?(String)
+            subnet['subnet_id'] << getTail("Subnet #{count} for #{parent_name}", value: subnet['subnet_id'], prettyname: "Subnet #{count} for #{parent_name}", cloud_type: "AWS::EC2::Subnet::Id")
           end
         }
       elsif (vpc_block['subnet_name'] or vpc_block['subnet_id'])
@@ -593,15 +869,23 @@ module MU
         private_subnets = []
         private_subnets_map = {}
         public_subnets = []
+        public_subnets_map = {}
         nat_routes = {}
         subnet_ptr = "subnet_id"
         if !is_sibling
+          pub = priv = 0
+
           ext_vpc.subnets.each { |subnet|
-            if subnet.private?
-              private_subnets << {"subnet_id" => subnet.cloud_id}
+            if subnet.private? and (vpc_block['subnet_pref'] != "all_public" and vpc_block['subnet_pref'] != "public")
+#              private_subnets << { "subnet_id" => subnet.cloud_id }
+              private_subnets << { "subnet_id" => getTail("#{parent_name} Private Subnet #{priv}", value: subnet.cloud_id, prettyname: "#{parent_name} Private Subnet #{priv}",  cloud_type:  "AWS::EC2::Subnet::Id") }
               private_subnets_map[subnet.cloud_id] = subnet
-            else
-              public_subnets << {"subnet_id" => subnet.cloud_id}
+              priv = priv + 1
+            elsif !subnet.private? and vpc_block['subnet_pref'] != "all_private" and vpc_block['subnet_pref'] != "private"
+#              public_subnets << { "subnet_id" => subnet.cloud_id }
+              public_subnets << { "subnet_id" => getTail("#{parent_name} Public Subnet #{pub}", value: subnet.cloud_id, prettyname: "#{parent_name} Public Subnet #{pub}",  cloud_type: "AWS::EC2::Subnet::Id") }
+              public_subnets_map[subnet.cloud_id] = subnet
+              pub = pub + 1
             end
           }
         else
@@ -639,7 +923,7 @@ module MU
             end
           when "private"
             vpc_block.merge!(private_subnets[rand(private_subnets.length)])
-            if !is_sibling
+            if !is_sibling and !private_subnets_map[vpc_block[subnet_ptr]].nil?
               vpc_block['nat_host_id'] = private_subnets_map[vpc_block[subnet_ptr]].defaultRoute
             elsif nat_routes.has_key?(vpc_block[subnet_ptr])
               vpc_block['nat_host_name'] == nat_routes[vpc_block[subnet_ptr]]
@@ -663,7 +947,7 @@ module MU
             vpc_block['subnets'] = []
             private_subnets.each { |subnet|
               vpc_block['subnets'] << subnet
-              if !is_sibling and vpc_block['nat_host_id'].nil?
+              if !is_sibling and vpc_block['nat_host_id'].nil? and private_subnets_map.has_key?(subnet[subnet_ptr]) and !private_subnets_map[subnet[subnet_ptr]].nil?
                 vpc_block['nat_host_id'] = private_subnets_map[subnet[subnet_ptr]].defaultRoute
               elsif nat_routes.has_key?(subnet) and vpc_block['nat_host_name'].nil?
                 vpc_block['nat_host_name'] == nat_routes[subnet]
@@ -679,6 +963,13 @@ module MU
         vpc_block.delete('deploy_id')
         vpc_block.delete('tag')
         MU.log "Resolved VPC resources for #{parent_name}", MU::DEBUG, details: vpc_block
+      end
+
+      if !vpc_block["vpc_id"].nil? and vpc_block["vpc_id"].is_a?(String)
+        vpc_block["vpc_id"] = getTail("#{parent_name}vpc_id", value: vpc_block["vpc_id"], prettyname: "#{parent_name} Target VPC",  cloud_type: "AWS::EC2::VPC::Id")
+      elsif !vpc_block["nat_host_name"].nil? and vpc_block["nat_host_name"].is_a?(String)
+        vpc_block["nat_host_name"] = MU::Config::Tail.new("#{parent_name}nat_host_name", vpc_block["nat_host_name"])
+
       end
 
       return ok
@@ -741,7 +1032,6 @@ module MU
       return ok
     end
 
-    @admin_firewall_rules = []
     # Generate configuration for the general-pursose ADMIN firewall rulesets
     # (security groups in AWS). Note that these are unique to regions and
     # individual VPCs (as well as Classic, which is just a degenerate case of
@@ -751,7 +1041,7 @@ module MU
     # @param cloud [String]: The parent resource's cloud plugin identifier
     # @param region [String]: Cloud provider region, if applicable.
     # @return [Hash<String>]: A dependency description that the calling resource can then add to itself.
-    def self.genAdminFirewallRuleset(vpc: nil, admin_ip: nil, region: nil, cloud: nil)
+    def genAdminFirewallRuleset(vpc: nil, admin_ip: nil, region: nil, cloud: nil)
       if !cloud or !region
         raise MuError, "Cannot call genAdminFirewallRuleset without specifying the parent's region and cloud provider"
       end
@@ -769,6 +1059,7 @@ module MU
         realvpc['vpc_name'] = vpc['vpc_name']
         if !realvpc['vpc_id'].nil?
           name = name + "-" + realvpc['vpc_id']
+          realvpc['vpc_id'] = getTail("vpc_id", value: realvpc['vpc_id'], prettyname: "Admin Firewall Ruleset #{name} Target VPC",  cloud_type: "AWS::EC2::VPC::Id") if realvpc["vpc_id"].is_a?(String)
         elsif !realvpc['vpc_name'].nil?
           name = name + "-" + realvpc['vpc_name']
         end
@@ -876,14 +1167,23 @@ module MU
       return ok
     end
 
-    def self.validate(config)
+    def validate(config = @config)
       ok = true
       begin
         JSON::Validator.validate!(MU::Config.schema, config)
       rescue JSON::Schema::ValidationError => e
         # Use fully_validate to get the complete error list, save some time
-        errors = JSON::Validator.fully_validate(schema, config)
-        raise ValidationError, "Validation error in #{@@config_path}!\n"+errors.join("\t\n")
+        errors = JSON::Validator.fully_validate(MU::Config.schema, config)
+        realerrors = []
+        errors.each { |err|
+          if !err.match(/The property '.+?' of type MU::Config::Tail did not match the following type: string in schema/)
+            realerrors << err
+          end
+        }
+        if realerrors.size > 0
+          pp config
+          raise ValidationError, "Validation error in #{@@config_path}!\n"+realerrors.join("\n")
+        end
       end
 
       databases = config['databases']
@@ -925,11 +1225,11 @@ module MU
         server_names << server['name']
       }
 
-      server_names = Array.new
       vpc_names = Array.new
       nat_routes = Hash.new
       vpcs.each { |vpc|
         vpc["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("VPC")
+        vpc['cloud'] = MU::Config.defaultCloud if vpc['cloud'].nil?
         vpc['region'] = config['region'] if vpc['region'].nil?
         vpc["dependencies"] = Array.new if vpc["dependencies"].nil?
         subnet_routes = Hash.new
@@ -976,8 +1276,8 @@ module MU
                 nat_routes[subnet] = route['nat_host_name']
               }
               vpc['dependencies'] << {
-                  "type" => "server",
-                  "name" => route['nat_host_name']
+                "type" => "server",
+                "name" => route['nat_host_name']
               }
             end
             
@@ -1042,7 +1342,7 @@ module MU
             peer['cloud'] = vpc['cloud'] if peer['cloud'].nil?
             peer["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("VPC")
             # If we're peering with a VPC in this deploy, set it as a dependency
-            if !peer['vpc']["vpc_name"].nil? and vpc_names.include?(peer['vpc']["vpc_name"]) and peer['deploy_id'].nil?
+            if !peer['vpc']["vpc_name"].nil? and vpc_names.include?(peer['vpc']["vpc_name"]) and peer["vpc"]['deploy_id'].nil? and peer["vpc"]['vpc_id'].nil?
               vpc["dependencies"] << {
                   "type" => "vpc",
                   "name" => peer['vpc']["vpc_name"]
@@ -1066,7 +1366,9 @@ module MU
 
       dnszones.each { |zone|
         zone["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("DNSZone")
+        zone['cloud'] = MU::Config.defaultCloud if zone['cloud'].nil?
         zone['region'] = config['region'] if zone['region'].nil?
+        zone["dependencies"] = [] if zone['dependencies'].nil?
         # ext_zone = MU::Cloud::DNSZone.find(cloud_id: zone['name']).values.first
 
         # if !ext_zone.nil?
@@ -1083,6 +1385,12 @@ module MU
             if route_types > 1
               MU.log "At most one of weight, location, region, and failover can be specified in a record.", MU::ERR, details: record
               ok = false
+            end
+            if !record['mu_type'].nil?
+              zone["dependencies"] << {
+                "type" => record['mu_type'],
+                "name" => record['target']
+              }
             end
             if !record['healthcheck'].nil?
               if route_types == 0
@@ -1136,19 +1444,23 @@ module MU
       resolveFirewall = Proc.new { |acl|
         firewall_rule_names << acl['name']
         acl['region'] = config['region'] if acl['region'].nil?
+        acl['cloud'] = MU::Config.defaultCloud if acl['cloud'].nil?
         acl["dependencies"] = Array.new if acl["dependencies"].nil?
         acl["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("FirewallRule")
 
         if !acl["vpc_name"].nil? or !acl["vpc_id"].nil?
           acl['vpc'] = Hash.new
-          acl['vpc']['vpc_id'] = acl["vpc_id"] if !acl["vpc_id"].nil?
-          acl['vpc']['vpc_name'] = acl["vpc_name"] if !acl["vpc_name"].nil?
+          if acl["vpc_id"].nil?
+            acl['vpc']["vpc_id"] = getTail("vpc_id", value: acl["vpc_id"], prettyname: "Firewall Ruleset #{acl['name']} Target VPC",  cloud_type: "AWS::EC2::VPC::Id") if acl["vpc_id"].is_a?(String)
+          elsif !acl["vpc_name"].nil?
+            acl['vpc']['vpc_name'] = acl["vpc_name"]
+          end
         end
         if !acl["vpc"].nil?
           acl['vpc']['region'] = acl['region'] if acl['vpc']['region'].nil?
-          acl["vpc"]['cloud'] = acl['cloud'] if acl["vpc"]['cloud'].nil?
+          acl["vpc"]['cloud'] = acl['cloud']
           # If we're using a VPC in this deploy, set it as a dependency
-          if !acl["vpc"]["vpc_name"].nil? and vpc_names.include?(acl["vpc"]["vpc_name"]) and acl["vpc"]['deploy_id'].nil?
+          if !acl["vpc"]["vpc_name"].nil? and vpc_names.include?(acl["vpc"]["vpc_name"]) and acl["vpc"]['deploy_id'].nil? and acl["vpc"]['vpc_id'].nil?
             acl["dependencies"] << {
                 "type" => "vpc",
                 "name" => acl["vpc"]["vpc_name"]
@@ -1171,6 +1483,10 @@ module MU
         acl['rules'].each { |rule|
           if !rule['sgs'].nil?
             rule['sgs'].each { |sg_name|
+              if sg_name == acl['name']
+                acl['self_referencing'] = true
+                next
+              end
               if firewall_rule_names.include?(sg_name)
                 acl["dependencies"] << {
                     "type" => "firewall_rule",
@@ -1201,13 +1517,14 @@ module MU
 
       loadbalancers.each { |lb|
         lb['region'] = config['region'] if lb['region'].nil?
+        lb['cloud'] = MU::Config.defaultCloud if lb['cloud'].nil?
         lb["dependencies"] = Array.new if lb["dependencies"].nil?
         lb["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("LoadBalancer")
         if !lb["vpc"].nil?
           lb['vpc']['region'] = lb['region'] if lb['vpc']['region'].nil?
-          lb['vpc']['cloud'] = lb['cloud'] if lb['vpc']['cloud'].nil?
+          lb['vpc']['cloud'] = lb['cloud']
           # If we're using a VPC in this deploy, set it as a dependency
-          if !lb["vpc"]["vpc_name"].nil? and vpc_names.include?(lb["vpc"]["vpc_name"]) and lb["vpc"]['deploy_id'].nil?
+          if !lb["vpc"]["vpc_name"].nil? and vpc_names.include?(lb["vpc"]["vpc_name"]) and lb["vpc"]['deploy_id'].nil? and lb["vpc"]['vpc_id'].nil?
             lb["dependencies"] << {
                 "type" => "vpc",
                 "name" => lb["vpc"]["vpc_name"]
@@ -1236,6 +1553,7 @@ module MU
           firewall_rule_names << fwname
           acl = {"name" => fwname, "rules" => lb['ingress_rules'], "region" => lb['region']}
           acl["vpc"] = lb['vpc'].dup if !lb['vpc'].nil?
+          acl["cloud"] = lb["cloud"]
           firewall_rules << resolveFirewall.call(acl)
           lb["add_firewall_rules"] = [] if lb["add_firewall_rules"].nil?
           lb["add_firewall_rules"] << {"rule_name" => fwname}
@@ -1269,17 +1587,23 @@ module MU
         
         if lb["alarms"] && !lb["alarms"].empty?
           lb["alarms"].each { |alarm|
+            alarm["name"] = "lb"+lb["name"]+alarm["name"]
+            alarm['dimensions'] = [] if !alarm['dimensions']
+            alarm['dimensions'] << { "name" => lb["name"], "cloud_class" => "LoadBalancerName" }
             alarm["namespace"] = "AWS/ELB" if alarm["namespace"].nil?
-            ok = false unless validate_alarm_config(alarm)
+            alarm['cloud'] = lb['cloud']
+            alarms << alarm.dup
           }
         end
       }
 
       collections.each { |stack|
+        stack['cloud'] = MU::Config.defaultCloud if stack['cloud'].nil?
         stack['region'] = config['region'] if stack['region'].nil?
         stack["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Collection")
       }
 
+      server_names = Array.new
       server_pools.each { |pool|
         if server_names.include?(pool['name'])
           MU.log "Can't use name #{pool['name']} more than once in servers/server_pools"
@@ -1287,6 +1611,7 @@ module MU
         end
         server_names << pool['name']
         pool['region'] = config['region'] if pool['region'].nil?
+        pool['cloud'] = MU::Config.defaultCloud if pool['cloud'].nil?
         pool["dependencies"] = Array.new if pool["dependencies"].nil?
         pool["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("ServerPool")
         pool["#MU_GROOMER"] = MU::Groomer.loadGroomer(pool['groomer'])
@@ -1300,12 +1625,17 @@ module MU
         end
         pool['vault_access'] = [] if pool['vault_access'].nil?
         pool['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
-        ok = false if !check_vault_refs(pool)
+        ok = false if !MU::Config.check_vault_refs(pool)
 
         if pool["alarms"] && !pool["alarms"].empty?
           pool["alarms"].each { |alarm|
+            alarm["name"] = "pool"+pool["name"]+alarm["name"]
             alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
-            ok = false unless validate_alarm_config(alarm)
+            # We don't add dimension placeholders here, because the individual
+            # Servers will have to do that themselves.
+            pool["dependencies"] << { "name" => alarm["name"], "type" => "alarm" }
+            alarm['cloud'] = pool['cloud']
+            alarms << alarm.dup
           }
         end
 
@@ -1324,7 +1654,8 @@ module MU
           if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?
             if MU::Config.amazon_images.has_key?(pool['platform']) and
                 MU::Config.amazon_images[pool['platform']].has_key?(pool['region'])
-              launch['ami_id'] = MU::Config.amazon_images[pool['platform']][pool['region']]
+              launch['ami_id'] = getTail("pool"+pool['name']+"AMI", value: MU::Config.amazon_images[pool['platform']][pool['region']], prettyname: "pool"+pool['name']+"AMI", cloud_type: "AWS::EC2::Image::Id")
+
             else
               ok = false
               MU.log "One of the following MUST be specified for launch_config: server, ami_id, instance_id.", MU::ERR
@@ -1382,8 +1713,12 @@ module MU
 
             if policy["alarms"] && !policy["alarms"].empty?
               policy["alarms"].each { |alarm|
+                alarm["name"] = "policy"+pool["name"]+policy["name"]+alarm["name"]
+                alarm['dimensions'] = [] if !alarm['dimensions']
+                alarm['dimensions'] << { "name" => pool["name"], "cloud_class" => "AutoScalingGroupName" }
                 alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
-                ok = false unless validate_alarm_config(alarm)
+                alarm['cloud'] = pool['cloud']
+                alarms << alarm.dup
               }
             end
           }
@@ -1413,9 +1748,9 @@ module MU
 
         if !pool["vpc"].nil?
           pool['vpc']['region'] = pool['region'] if pool['vpc']['region'].nil?
-          pool["vpc"]['cloud'] = pool['cloud'] if pool["vpc"]['cloud'].nil?
+          pool["vpc"]['cloud'] = pool['cloud']
           # If we're using a VPC in this deploy, set it as a dependency
-          if !pool["vpc"]["vpc_name"].nil? and vpc_names.include?(pool["vpc"]["vpc_name"]) and pool["vpc"]["deploy_id"].nil?
+          if !pool["vpc"]["vpc_name"].nil? and vpc_names.include?(pool["vpc"]["vpc_name"]) and pool["vpc"]["deploy_id"].nil? and pool["vpc"]['vpc_id'].nil?
             pool["dependencies"] << {
                 "type" => "vpc",
                 "name" => pool["vpc"]["vpc_name"]
@@ -1444,6 +1779,7 @@ module MU
           firewall_rule_names << fwname
           acl = {"name" => fwname, "rules" => pool['ingress_rules'], "region" => pool['region']}
           acl["vpc"] = pool['vpc'].dup if !pool['vpc'].nil?
+          acl["cloud"] = pool["cloud"]
           firewall_rules << resolveFirewall.call(acl)
           pool["add_firewall_rules"] = [] if pool["add_firewall_rules"].nil?
           pool["add_firewall_rules"] << {"rule_name" => fwname}
@@ -1467,6 +1803,7 @@ module MU
       cluster_nodes = []
       databases.each { |db|
         db['region'] = config['region'] if db['region'].nil?
+        db['cloud'] = MU::Config.defaultCloud if db['cloud'].nil?
         db["dependencies"] = Array.new if db["dependencies"].nil?
         db["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Database")
         database_names << db['name']
@@ -1510,8 +1847,13 @@ module MU
           end
         end
 
+        if db["storage"].nil? and db["creation_style"] == "new" and !db['create_cluster']
+          MU.log "Must provide a value for 'storage' when creating a new database.", MU::ERR, details: db
+          ok = false
+        end
+
         # Adding rules for Database instance storage. This varies depending on storage type and database type. 
-        if db["storage_type"] == "standard" or db["storage_type"] == "gp2"
+        if !db["storage"].nil? and (db["storage_type"] == "standard" or db["storage_type"] == "gp2")
           if db["engine"] == "postgres" or db["engine"] == "mysql"
             if !(5..6144).include? db["storage"]
               MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 5 to 6144 GB for #{db["storage_type"]} volume types", MU::ERR
@@ -1608,15 +1950,19 @@ module MU
 
         if db["alarms"] && !db["alarms"].empty?
           db["alarms"].each { |alarm|
+            alarm["name"] = "db"+db["name"]+alarm["name"]
+            alarm['dimensions'] = [] if !alarm['dimensions']
+            alarm['dimensions'] << { "name" => db["name"], "cloud_class" => "DBInstanceIdentifier" }
             alarm["namespace"] = "AWS/RDS" if alarm["namespace"].nil?
-            ok = false unless validate_alarm_config(alarm)
+            alarm['cloud'] = db['cloud']
+            alarms << alarm.dup
           }
         end
 
         if db["collection"]
           db["dependencies"] << {
-              "type" => "collection",
-              "name" => db["collection"]
+            "type" => "collection",
+            "name" => db["collection"]
           }
         end
 
@@ -1625,6 +1971,7 @@ module MU
           firewall_rule_names << fwname
           acl = {"name" => fwname, "rules" => db['ingress_rules'], "region" => db['region']}
           acl["vpc"] = db['vpc'].dup if !db['vpc'].nil?
+          acl["cloud"] = db["cloud"]
           firewall_rules << resolveFirewall.call(acl)
           db["add_firewall_rules"] = [] if db["add_firewall_rules"].nil?
           db["add_firewall_rules"] << {"rule_name" => fwname}
@@ -1655,9 +2002,9 @@ module MU
           end
 
           db['vpc']['region'] = db['region'] if db['vpc']['region'].nil?
-          db["vpc"]['cloud'] = db['cloud'] if db["vpc"]['cloud'].nil?
+          db["vpc"]['cloud'] = db['cloud']
           # If we're using a VPC in this deploy, set it as a dependency
-          if !db["vpc"]["vpc_name"].nil? and vpc_names.include?(db["vpc"]["vpc_name"]) and db["vpc"]["deploy_id"].nil?
+          if !db["vpc"]["vpc_name"].nil? and vpc_names.include?(db["vpc"]["vpc_name"]) and db["vpc"]["deploy_id"].nil? and db["vpc"]['vpc_id'].nil?
             db["dependencies"] << {
                 "type" => "vpc",
                 "name" => db["vpc"]["vpc_name"]
@@ -1742,6 +2089,7 @@ module MU
 
           db.delete("alarms") if db.has_key?("alarms")
         end
+        db['dependencies'].uniq!
       }
       databases.concat(read_replicas)
       databases.concat(cluster_nodes)
@@ -1749,10 +2097,7 @@ module MU
         if !db['read_replica_of'].nil?
           rr = db['read_replica_of']
           if !rr['db_name'].nil?
-            if !database_names.include?(rr['db_name'])
-              MU.log "Read replica #{db['name']} references sibling source #{rr['db_name']}, but I have no such database", MU::ERR
-              ok = false
-            end
+            db['dependencies'] << { "name" => rr['db_name'], "type" => "database" }
           else
             rr['cloud'] = db['cloud'] if rr['cloud'].nil?
             tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
@@ -1799,10 +2144,12 @@ module MU
             end
           end
         end
+        db['dependencies'].uniq!
       }
 
       cache_clusters.each { |cluster|
         cluster['region'] = config['region'] if cluster['region'].nil?
+        cluster['cloud'] = MU::Config.defaultCloud if cluster['cloud'].nil?
         cluster["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("CacheCluster")
         cluster["dependencies"] = [] if cluster["dependencies"].nil?
 
@@ -1831,16 +2178,17 @@ module MU
           ok = false
         end
 
-        if cluster["node_count"] > 1 && !cluster["multi_az"]
-          MU.log "node_count is set to #{cluster["node_count"]} but multi_az is disbaled. either set multi_az to true or set node_count to 1", MU::ERR
-          ok = false
+        if cluster["node_count"] > 1
+          cluster["multi_az"] = true
         end
 
         if cluster["engine"] == "redis"
           # We aren't required to create a cache replication group for a single redis cache cluster, 
           # however AWS console does exactly that, ss such we will follow that behavior.
-          cluster["create_replication_group"] = true
-          cluster["automatic_failover"] = cluster["multi_az"]
+          if cluster["node_count"] > 1
+            cluster["create_replication_group"] = true
+            cluster["automatic_failover"] = cluster["multi_az"]
+          end
 
           # Some instance types don't support snapshotting 
           if %w{cache.t2.micro cache.t2.small cache.t2.medium}.include?(cluster["size"])
@@ -1867,8 +2215,12 @@ module MU
 
         if cluster["alarms"] && !cluster["alarms"].empty?
           cluster["alarms"].each { |alarm|
+            alarm["name"] = "cache"+cluster["name"]+alarm["name"]
+            alarm['dimensions'] = [] if !alarm['dimensions']
+            alarm['dimensions'] << { "name" => cluster["name"], "cloud_class" => "CacheClusterId" }
             alarm["namespace"] = "AWS/ElastiCache" if alarm["namespace"].nil?
-            ok = false unless validate_alarm_config(alarm)
+            alarm['cloud'] = cluster['cloud']
+            alarms << alarm.dup
           }
         end
 
@@ -1877,6 +2229,7 @@ module MU
           firewall_rule_names << fwname
           acl = {"name" => fwname, "rules" => cluster['ingress_rules'], "region" => cluster['region']}
           acl["vpc"] = cluster['vpc'].dup if cluster['vpc']
+          acl["cloud"] = cluster["cloud"]
           firewall_rules << resolveFirewall.call(acl)
           cluster["add_firewall_rules"] = [] if cluster["add_firewall_rules"].nil?
           cluster["add_firewall_rules"] << {"rule_name" => fwname}
@@ -1902,9 +2255,10 @@ module MU
           end
 
           cluster['vpc']['region'] = cluster['region'] if cluster['vpc']['region'].nil?
-          cluster["vpc"]['cloud'] = cluster['cloud'] if cluster["vpc"]['cloud'].nil?
+          cluster["vpc"]['cloud'] = cluster['cloud']
+
           # If we're using a VPC in this deploy, set it as a dependency
-          if cluster["vpc"]["vpc_name"] and vpc_names.include?(cluster["vpc"]["vpc_name"]) and cluster["vpc"]["deploy_id"].nil?
+          if cluster["vpc"]["vpc_name"] and vpc_names.include?(cluster["vpc"]["vpc_name"]) and cluster["vpc"]["deploy_id"].nil? and cluster["vpc"]['vpc_id'].nil?
             cluster["dependencies"] << {
               "type" => "vpc",
               "name" => cluster["vpc"]["vpc_name"]
@@ -2000,43 +2354,10 @@ module MU
 
         # pool['dependencies'] << genAdminFirewallRuleset(vpc: pool['vpc'], region: pool['region'], cloud: pool['cloud'])
       }
-      
-      alarms.each { |alarm|
-        alarm['region'] = config['region'] if alarm['region'].nil?
-        alarm["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Alarm")
-        alarm["dependencies"] = [] if alarm["dependencies"].nil?
-
-        if alarm["dimensions"]
-          alarm["dimensions"].each{ |dimension|
-            if dimension["cloud_class"].nil?
-              MU.log "You must specify 'cloud_class'", MU::ERR
-              ok = false
-            end
-
-            alarm["namespace"] = 
-              if dimension["cloud_class"] == "InstanceId"
-                "AWS/EC2"
-              elsif dimension["cloud_class"] == "DBInstanceIdentifier"
-                "AWS/RDS"
-              elsif dimension["cloud_class"] == "LoadBalancerName"
-                "AWS/ELB"
-              elsif dimension["cloud_class"] == "CacheClusterId"
-                "AWS/ElastiCache"
-              elsif dimension["cloud_class"] == "VolumeId"
-                "AWS/EBS"
-              elsif dimension["cloud_class"] == "BucketName"
-                "AWS/S3"
-              elsif dimension["cloud_class"] == "TopicName"
-                "AWS/SNS"
-              end
-          }
-        end
-
-        ok = false unless validate_alarm_config(alarm)
-      }
 
       logs.each { |log_rec|
         log_rec['region'] = config['region'] if log_rec['region'].nil?
+        log_rec['cloud'] = MU::Config.defaultCloud if log_rec['cloud'].nil?
         log_rec["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Log")
         log_rec["dependencies"] = [] if log_rec["dependencies"].nil?
         
@@ -2058,6 +2379,7 @@ module MU
         server_names << server['name']
         server["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Server")
         server["#MU_GROOMER"] = MU::Groomer.loadGroomer(server['groomer'])
+        server['cloud'] = MU::Config.defaultCloud if server['cloud'].nil?
         server['region'] = config['region'] if server['region'].nil?
         server["dependencies"] = Array.new if server["dependencies"].nil?
         if !server['generate_iam_role']
@@ -2082,7 +2404,7 @@ module MU
         if server['ami_id'].nil?
           if MU::Config.amazon_images.has_key?(server['platform']) and
               MU::Config.amazon_images[server['platform']].has_key?(server['region'])
-            server['ami_id'] = MU::Config.amazon_images[server['platform']][server['region']]
+            server['ami_id'] = getTail("server"+server['name']+"AMI", value: MU::Config.amazon_images[server['platform']][server['region']], prettyname: "server"+server['name']+"AMI", cloud_type: "AWS::EC2::Image::Id")
           else
             MU.log "No AMI specified for #{server['name']} and no default available for platform #{server['platform']} in region #{server['region']}", MU::ERR, details: server
             ok = false
@@ -2091,25 +2413,19 @@ module MU
 
         if server["alarms"] && !server["alarms"].empty?
           server["alarms"].each { |alarm|
+            alarm["name"] = "server"+server["name"]+alarm["name"]
+            alarm["dimensions"] = [] if !alarm["dimensions"]
+            alarm['dimensions'] = { "name" => server["name"], "type" => "InstanceId" }
             alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
-            ok = false unless validate_alarm_config(alarm)
+            alarm['cloud'] = server['cloud']
+            alarms << alarm.dup
           }
         end
 
         server['skipinitialupdates'] = true if @skipinitialupdates
         server['vault_access'] = [] if server['vault_access'].nil?
         server['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
-        ok = false if !check_vault_refs(server)
-
-        if !server['ingress_rules'].nil?
-          fwname = "server"+server['name']
-          firewall_rule_names << fwname
-          acl = {"name" => fwname, "rules" => server['ingress_rules'], "region" => server['region']}
-          acl["vpc"] = server['vpc'].dup if !server['vpc'].nil?
-          firewall_rules << resolveFirewall.call(acl)
-          server["add_firewall_rules"] = [] if server["add_firewall_rules"].nil?
-          server["add_firewall_rules"] << {"rule_name" => fwname}
-        end
+        ok = false if !MU::Config.check_vault_refs(server)
 
         if server["collection"] != nil
           server["dependencies"] << {
@@ -2120,9 +2436,9 @@ module MU
 
         if !server["vpc"].nil?
           server['vpc']['region'] = server['region'] if server['vpc']['region'].nil?
-          server['vpc']['cloud'] = server['cloud'] if server['vpc']['cloud'].nil?
+          server['vpc']['cloud'] = server['cloud']
           # If we're using a local VPC in this deploy, set it as a dependency and get the subnets right
-          if !server["vpc"]["vpc_name"].nil? and vpc_names.include?(server["vpc"]["vpc_name"]) and server["vpc"]["deploy_id"].nil?
+          if !server["vpc"]["vpc_name"].nil? and vpc_names.include?(server["vpc"]["vpc_name"]) and server["vpc"]["deploy_id"].nil? and server["vpc"]['vpc_id'].nil?
             server["dependencies"] << {
                 "type" => "vpc",
                 "name" => server["vpc"]["vpc_name"]
@@ -2156,6 +2472,17 @@ module MU
               ok = false
             end
           end
+        end
+
+        if !server['ingress_rules'].nil?
+          fwname = "server"+server['name']
+          firewall_rule_names << fwname
+          acl = {"name" => fwname, "rules" => server['ingress_rules'], "region" => server['region']}
+          acl["vpc"] = server['vpc'].dup if !server['vpc'].nil?
+          acl["cloud"] = server["cloud"]
+          firewall_rules << resolveFirewall.call(acl)
+          server["add_firewall_rules"] = [] if server["add_firewall_rules"].nil?
+          server["add_firewall_rules"] << {"rule_name" => fwname}
         end
 
         if !server["add_firewall_rules"].nil?
@@ -2194,11 +2521,68 @@ module MU
         server["dependencies"].uniq!
       }
 
+      alarms.each { |alarm|
+        alarm['region'] = config['region'] if alarm['region'].nil?
+        alarm['cloud'] = MU::Config.defaultCloud if alarm['cloud'].nil?
+        alarm["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Alarm")
+        alarm["dependencies"] = [] if alarm["dependencies"].nil?
+
+        if alarm["dimensions"]
+          alarm["dimensions"].each{ |dimension|
+            if dimension["cloud_class"].nil?
+              MU.log "You must specify 'cloud_class'", MU::ERR
+              ok = false
+            end
+
+            alarm["namespace"], depclass = 
+              if ["InstanceId", "server", "Server"].include?(dimension["cloud_class"])
+                dimension["cloud_class"] = "InstanceId"
+                ["AWS/EC2", "server"]
+              elsif ["AutoScalingGroupName", "server_pool", "ServerPool"].include?(dimension["cloud_class"])
+                dimension["cloud_class"] = "AutoScalingGroupName"
+                ["AWS/EC2", "server_pool"]
+              elsif ["DBInstanceIdentifier", "database", "Database"].include?(dimension["cloud_class"])
+                dimension["cloud_class"] = "DBInstanceIdentifier"
+                ["AWS/RDS", "database"]
+              elsif ["LoadBalancerName", "loadbalancer", "LoadBalancer"].include?(dimension["cloud_class"])
+                dimension["cloud_class"] = "LoadBalancerName"
+                ["AWS/ELB", "loadbalancer"]
+              elsif ["CacheClusterId", "cache_cluster", "CacheCluster"].include?(dimension["cloud_class"])
+                dimension["cloud_class"] = "CacheClusterId"
+                ["AWS/ElastiCache", "cache_cluster"]
+              elsif ["VolumeId", "volume", "Volume"].include?(dimension["cloud_class"])
+                dimension["cloud_class"] = "VolumeId"
+                ["AWS/EBS", nil]
+              elsif ["BucketName", "bucket", "Bucket"].include?(dimension["cloud_class"])
+                dimension["cloud_class"] = "BucketName"
+                ["AWS/S3", nil]
+              elsif ["TopicName", "notification", "Notification"].include?(dimension["cloud_class"])
+                dimension["cloud_class"] = "TopicName"
+                ["AWS/SNS", nil]
+              end
+
+            if !depclass.nil?
+              dimension["depclass"] = depclass
+              if !dimension["name"].nil? and !dimension["name"].empty?
+                alarm["dependencies"] << { "name" => dimension["name"], "type" => depclass }
+              end
+            end
+          }
+        end
+
+        ok = false unless MU::Config.validate_alarm_config(alarm)
+      }
+
+      seen = []
+      # XXX seem to be not detecting duplicate admin firewall_rules in genAdminFirewallRuleset
       @admin_firewall_rules.each { |acl|
+        next if seen.include?(acl['name'])
         firewall_rules << resolveFirewall.call(acl)
+        seen << acl['name']
       }
 
       config['firewall_rules'] = firewall_rules
+      config['alarms'] = alarms
       ok = false if !MU::Config.check_dependencies(config)
 
       # TODO enforce uniqueness of resource names
@@ -2440,36 +2824,35 @@ module MU
     }
 
 
-    #		@route_table_reference_primitive = {
-    #			"type" => "object",
-    #			"description" => "Deploy, attach, or peer this resource with a VPC.",
-    #			"minProperties" => 1,
-    #			"additionalProperties" => false,
-    #			"properties" => {
-    #				"vpc_id" => { "type" => "string" },
-    #				"vpc_name" => { "type" => "string" },
-    #				"tag" => {
-    #					"type" => "string",
-    #					"description" => "Identify this VPC by a tag (key=value). Note that this tag must not match more than one resource.",
-    #					"pattern" => "^[^=]+=.+"
-    #				},
-    #				"deploy_id" => {
-    #					"type" => "string",
-    #					"description" => "Look for a VPC fitting this description in another Mu deployment with this id.",
-    #				}
-    #			}
-    #		}
-
+    #   @route_table_reference_primitive = {
+    #     "type" => "object",
+    #     "description" => "Deploy, attach, or peer this resource with a VPC.",
+    #     "minProperties" => 1,
+    #     "additionalProperties" => false,
+    #     "properties" => {
+    #       "vpc_id" => { "type" => "string" },
+    #       "vpc_name" => { "type" => "string" },
+    #       "tag" => {
+    #         "type" => "string",
+    #         "description" => "Identify this VPC by a tag (key=value). Note that this tag must not match more than one resource.",
+    #         "pattern" => "^[^=]+=.+"
+    #       },
+    #       "deploy_id" => {
+    #         "type" => "string",
+    #         "description" => "Look for a VPC fitting this description in another Mu deployment with this id.",
+    #       }
+    #     }
+    #   }
 
     @region_primitive = {
-        "type" => "string",
-        "enum" => MU::Cloud::AWS.listRegions
+      "type" => "string",
+      "enum" => MU::Cloud::AWS.listRegions
     }
 
     @cloud_primitive = {
-        "type" => "string",
-        "default" => MU::Config.defaultCloud,
-        "enum" => MU::Cloud.supportedClouds
+      "type" => "string",
+      "default" => MU::Config.defaultCloud,
+      "enum" => MU::Cloud.supportedClouds
     }
 
     @dependencies_primitive = {
@@ -2641,13 +3024,13 @@ module MU
                             "description" => "The AWS account which owns the target VPC."
                         },
                         "vpc" => vpc_reference_primitive(MANY_SUBNETS, NO_NAT_OPTS, "all")
-                        #							"route_tables" => {
-                        #								"type" => "array",
-                        #								"items" => {
-                        #									"type" => "string",
-                        #									"description" => "The name of a route to which to add a route for this peering connection. If none are specified, all available route tables will have approprite routes added."
-                        #								}
-                        #							}
+                        #             "route_tables" => {
+                        #               "type" => "array",
+                        #               "items" => {
+                        #                 "type" => "string",
+                        #                 "description" => "The name of a route to which to add a route for this peering connection. If none are specified, all available route tables will have approprite routes added."
+                        #               }
+                        #             }
                     }
                 }
             },
@@ -2748,7 +3131,7 @@ module MU
         "description" => "The Amazon EC2 instance type to use when creating this server.",
         "type" => "string"
     }
-    @eleasticache_size_primitive = {
+    @elasticache_size_primitive = {
         "pattern" => "^cache\.(t|m|c|i|g|hi|hs|cr|cg|cc){1,2}[0-9]\\.(micro|small|medium|[248]?x?large)$",
         "type" => "string",
         "description" => "The Amazon EleastiCache instance type to use when creating this cache cluster.",
@@ -2784,7 +3167,7 @@ module MU
         }
     }
 
-    @eleasticache_parameters_primitive = {
+    @elasticache_parameters_primitive = {
         "type" => "array",
         "minItems" => 1,
         "items" => {
@@ -2929,7 +3312,7 @@ module MU
                     "default" => false
                 },
                 "volume_type" => {
-                    "enum" => ["standard", "io1", "gp2"],
+                    "enum" => ["standard", "io1", "gp2", "st1", "sc1"],
                     "type" => "string",
                     "default" => "gp2"
                 }
@@ -2993,11 +3376,13 @@ module MU
             "items" => {
                 "type" => "object",
                 "additionalProperties" => false,
+                "required" => ["cloud_class"],
                 "description" => "What to monitor",
                 "properties" => {
                     "cloud_class" => {
                         "type" => "string",
-                        "description" => "eg InstanceId, DBInstanceIdentifier",
+                        "description" => "The type of resource we're checking",
+                        "enum" => ["InstanceId", "server", "Server", "DBInstanceIdentifier", "database", "Database", "LoadBalancerName", "loadbalancer", "LoadBalancer", "CacheClusterId", "cache_cluster", "CacheCluster", "VolumeId", "volume", "Volume", "BucketName", "bucket", "Bucket", "TopicName", "notification", "Notification", "AutoScalingGroupName", "server_pool", "ServerPool"]
                     },
                     "cloud_id" => {
                         "type" => "string",
@@ -3005,11 +3390,15 @@ module MU
                     },
                     "mu_name" => {
                         "type" => "string",
-                        "description" => "Should also include 'deploy_id' so we will be able to identifiy a sinlge resource. Use either 'cloud_id' OR 'mu_name' and 'deploy_id'"
+                        "description" => "The full name of a resource in a foreign deployment which we should monitor. You should also include 'deploy_id' so we will be able to identifiy a single resource. Use either 'cloud_id' OR 'mu_name' and 'deploy_id'"
                     },
                     "deploy_id" => {
                         "type" => "string",
-                        "description" => "Should also include 'mu_name' so we will be able to identifiy a sinlge resource. Use either 'cloud_id' OR 'mu_name' and 'deploy_id'"
+                        "description" => "Should be used with 'mu_name' to identifiy a single resource."
+                    },
+                    "name" => {
+                        "type" => "string",
+                        "description" => "The name of another resource in this stack with which to associate this alarm."
                     }
                 }
             }  
@@ -3212,6 +3601,11 @@ module MU
                 "default" => true,
                 "description" => "Assume that this script is an ERB template and parse it as one before passing to the instance."
             },
+            "skip_std" => {
+                "type" => "boolean",
+                "default" => false,
+                "description" => "Omit the standard Mu userdata entirely in favor of this custom script (normally we'd run both)."
+            },
             "path" => {
                 "type" => "string",
                 "description" => "A local path or URL to a file which will be loaded and passed to the instance. Relative paths will be resolved from the current working directory of the deploy tool when invoked."
@@ -3276,7 +3670,24 @@ module MU
                   "type" => {
                       "type" => "string",
                       "description" => "The class of DNS record to create. The R53ALIAS type is not traditional DNS, but instead refers to AWS Route53's alias functionality. An R53ALIAS is only valid if the target is an Elastic LoadBalancer, CloudFront, S3 bucket (configured as a public web server), or another record in the same Route53 hosted zone.",
-                      "enum" => ["SOA", "A", "TXT", "NS", "CNAME", "MX", "PTR", "SRV", "SPF", "AAAA", "R53ALIAS"]
+                      "enum" => ["SOA", "A", "TXT", "NS", "CNAME", "MX", "PTR", "SRV", "SPF", "AAAA", "R53ALIAS"],
+                      "default_if" => [
+                        {
+                          "key_is" => "mu_type",
+                          "value_is" => "loadbalancer",
+                          "set" => "R53ALIAS"
+                        },
+                        {
+                          "key_is" => "mu_type",
+                          "value_is" => "database",
+                          "set" => "CNAME"
+                        },
+                        {
+                          "key_is" => "mu_type",
+                          "value_is" => "server",
+                          "set" => "A"
+                        }
+                      ]
                   },
                   "alias_zone" => {
                       "type" => "string",
@@ -3472,6 +3883,10 @@ module MU
                     "default" => "join",
                     "enum" => ["join", "create", "add_controller"],
                     "description" => "Rather to join, create or add a Domain Controller"
+                },
+                "domain_sid" => {
+                    "type" => "string",
+                    "description" => "SID of a known domain. Used to help Linux clients map uids and gids properly with SSSD."
                 },
                 "node_type" => {
                     "type" => "string",
@@ -3869,8 +4284,8 @@ module MU
             "dependencies" => @dependencies_primitive,
             "size" => @rds_size_primitive,
             "storage" => {
-                "type" => "integer",
-                "description" => "Storage space for this database instance (GB)."
+              "type" => "integer",
+              "description" => "Storage space for this database instance (GB)."
             },
             "storage_type" => {
                 "enum" => ["standard", "gp2", "io1"],
@@ -4032,6 +4447,10 @@ module MU
                 "default" => 1
             },
             "add_firewall_rules" => @additional_firewall_rules,
+            "ingress_rules" => {
+              "type" => "array",
+              "items" => @firewall_ruleset_rule_primitive
+            },
             "engine" => {
                 "enum" => ["memcached", "redis"],
                 "type" => "string",
@@ -4045,7 +4464,7 @@ module MU
             },
             "alarms" => @alarm_common_primitive,
             "dependencies" => @dependencies_primitive,
-            "size" => @eleasticache_size_primitive,
+            "size" => @elasticache_size_primitive,
             "port" => {
                 "type" => "integer",
                 "default" => 6379,
@@ -4102,7 +4521,7 @@ module MU
                 "type" => "string",
                 "description" => "The AWS resource name of the AWS SNS notification topic notifications will be sent to.",
             },
-            "parameter_group_parameters" => @eleasticache_parameters_primitive,
+            "parameter_group_parameters" => @elasticache_parameters_primitive,
             "parameter_group_family" => {
                 "type" => "String",
                 "enum" => ["memcached1.4", "redis2.6", "redis2.8"],
@@ -4139,7 +4558,8 @@ module MU
             "cloud" => @cloud_primitive,
             "cross_zone_unstickiness" => {
                 "type" => "boolean",
-                "default" => false
+                "default" => false,
+                "description" => "Set true to disable Cross-Zone load balancing, which we enable by default: http://docs.aws.amazon.com/ElasticLoadBalancing/latest/DeveloperGuide/how-elb-works.html#request-routing"
             },
             "idle_timeout" => {
                 "type" => "integer",
@@ -4239,13 +4659,13 @@ module MU
                         "pattern" => "^(TCP:\\d+|SSL:\\d+|HTTP:\\d+\\/.*|HTTPS:\\d+\\/.*)$",
                         "description" => 'Specifies the instance being checked. The protocol is either TCP, HTTP, HTTPS, or SSL. The range of valid ports is one (1) through 65535.
 
-							TCP is the default, specified as a TCP: port pair, for example "TCP:5000". In this case a healthcheck simply attempts to open a TCP connection to the instance on the specified port. Failure to connect within the configured timeout is considered unhealthy.
+              TCP is the default, specified as a TCP: port pair, for example "TCP:5000". In this case a healthcheck simply attempts to open a TCP connection to the instance on the specified port. Failure to connect within the configured timeout is considered unhealthy.
 
-							SSL is also specified as SSL: port pair, for example, SSL:5000.
+              SSL is also specified as SSL: port pair, for example, SSL:5000.
 
-							For HTTP or HTTPS protocol, the situation is different. You have to include a ping path in the string. HTTP is specified as a HTTP:port;/;PathToPing; grouping, for example "HTTP:80/weather/us/wa/seattle". In this case, a HTTP GET request is issued to the instance on the given port and path. Any answer other than "200 OK" within the timeout period is considered unhealthy.
+              For HTTP or HTTPS protocol, the situation is different. You have to include a ping path in the string. HTTP is specified as a HTTP:port;/;PathToPing; grouping, for example "HTTP:80/weather/us/wa/seattle". In this case, a HTTP GET request is issued to the instance on the given port and path. Any answer other than "200 OK" within the timeout period is considered unhealthy.
 
-							The total length of the HTTP ping target needs to be 1024 16-bit Unicode characters or less.'
+              The total length of the HTTP ping target needs to be 1024 16-bit Unicode characters or less.'
                     },
                     "timeout" => {
                         "type" => "integer",
@@ -4290,8 +4710,8 @@ module MU
                             "type" => "string",
                             "enum" => ["HTTP", "HTTPS", "TCP", "SSL"],
                             "description" => "Specifies the protocol to use for routing traffic to back-end instances - HTTP, HTTPS, TCP, or SSL. This property cannot be modified for the life of the load balancer.
-	
-								If the front-end protocol is HTTP or HTTPS, InstanceProtocol has to be at the same protocol layer, i.e., HTTP or HTTPS. Likewise, if the front-end protocol is TCP or SSL, InstanceProtocol has to be TCP or SSL."
+  
+                If the front-end protocol is HTTP or HTTPS, InstanceProtocol has to be at the same protocol layer, i.e., HTTP or HTTPS. Likewise, if the front-end protocol is TCP or SSL, InstanceProtocol has to be TCP or SSL."
                         },
                         "ssl_certificate_name" => {
                             "type" => "string",
@@ -4375,7 +4795,7 @@ module MU
                 "type" => "string",
                 "description" => "A comma-separated list of subnet identifiers of Amazon Virtual Private Clouds (Amazon VPCs).
 
-					If you specify subnets and Availability Zones with this call, ensure that the subnets' Availability Zones match the Availability Zones specified."
+          If you specify subnets and Availability Zones with this call, ensure that the subnets' Availability Zones match the Availability Zones specified."
             },
             "scaling_policies" => {
                 "type" => "array",
@@ -4606,6 +5026,36 @@ module MU
             "appname" => {
                 "type" => "string",
                 "description" => "A name for your application stack. Should be short, but easy to differentiate from other applications.",
+            },
+            "parameters" => {
+                "type" => "array",
+                "items" => {
+                    "type" => "object",
+                    "title" => "parameter",
+                    "description" => "Parameters to be substituted elsewhere in this Basket of Kittens as ERB variables (<%= varname %>)",
+                    "additionalProperties" => false,
+                    "properties" => {
+                        "name" => { "required" => true, "type" => "string" },
+                        "default" => { "type" => "string" },
+                        "list_of" => {
+                          "type" => "string",
+                          "description" => "Treat the value as a comma-separated list of values with this key name, equivalent to CloudFormation's various List<> types. For example, set to 'subnet_id' to pass values as an array of subnet identifiers as the 'subnets' argument of a VPC stanza."
+                        },
+                        "prettyname" => {
+                          "type" => "string",
+                          "description" => "An alternative name to use when generating parameter fields in, for example, CloudFormation templates"
+                        },
+                        "description" => {"type" => "string"},
+                        "cloudtype" => {
+                          "type" => "string",
+                          "description" => "A platform-specific string describing the type of validation to use for this parameter. E.g. when generating a CloudFormation template, set to AWS::EC2::Image::Id to validate input as an AMI identifier."
+                        },
+                        "required" => {
+                          "type" => "boolean",
+                          "default" => true
+                         }
+                    }
+                }
             },
             "region" => @region_primitive,
             # TODO availability zones (or an array thereof) 

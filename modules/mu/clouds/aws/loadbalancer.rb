@@ -24,11 +24,14 @@ module MU
         attr_reader :config
         attr_reader :cloud_id
 
+        @cloudformation_data = {}
+        attr_reader :cloudformation_data
+
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::loadbalancers}
         def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
           @deploy = mommacat
-          @config = kitten_cfg
+          @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
           if !mu_name.nil?
             @mu_name = mu_name
@@ -40,15 +43,14 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-
           if @config["zones"] == nil
             @config["zones"] = MU::Cloud::AWS.listAZs(@config['region'])
             MU.log "Using zones from #{@config['region']}", MU::DEBUG, details: @config['zones']
           end
 
           lb_options = {
-              load_balancer_name: @mu_name,
-              tags: []
+            load_balancer_name: @mu_name,
+            tags: []
           }
           MU::MommaCat.listStandardTags.each_pair { |name, value|
             lb_options[:tags] << {key: name, value: value}
@@ -77,6 +79,9 @@ module MU
             lb_options[:subnets] = []
             @config["vpc"]["subnets"].each { |subnet|
               subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
+              if subnet_obj.nil?
+                raise MuError, "Failed to locate subnet from #{subnet} in LoadBalancer #{@config['name']}"
+              end
               lb_options[:subnets] << subnet_obj.cloud_id
             }
             if @config["private"]
@@ -135,8 +140,8 @@ module MU
             zones_to_try.each { |zone|
               begin
                 MU::Cloud::AWS.elb.enable_availability_zones_for_load_balancer(
-                    load_balancer_name: @mu_name,
-                    availability_zones: [zone]
+                  load_balancer_name: @mu_name,
+                  availability_zones: [zone]
                 )
               rescue Aws::ElasticLoadBalancing::Errors::ValidationError => e
                 MU.log "Couldn't enable Availability Zone #{zone} for Load Balancer #{@mu_name} (#{e.message})", MU::WARN
@@ -266,36 +271,6 @@ module MU
                 MU::Cloud::AWS.elb.set_load_balancer_policies_of_listener(listener_policy)
               end
             end
-          end
-
-          if @config["alarms"] && !@config["alarms"].empty?
-            @config["alarms"].each { |alarm|
-              alarm["dimensions"] = [{:name => "LoadBalancerName", :value => @mu_name}]
-
-              if alarm["enable_notifications"]
-                topic_arn = MU::Cloud::AWS::Notification.createTopic(alarm["notification_group"], region: @config["region"])
-                MU::Cloud::AWS::Notification.subscribe(arn: topic_arn, protocol: alarm["notification_type"], endpoint: alarm["notification_endpoint"], region: @config["region"])
-                alarm["alarm_actions"] = [topic_arn]
-                alarm["ok_actions"] = [topic_arn]
-              end
-
-              MU::Cloud::AWS::Alarm.createAlarm(
-                name: @deploy.getResourceName("#{@config["name"]}-#{alarm["name"]}"),
-                ok_actions: alarm["ok_actions"],
-                alarm_actions: alarm["alarm_actions"],
-                insufficient_data_actions: alarm["no_data_actions"],
-                metric_name: alarm["metric_name"],
-                namespace: alarm["namespace"],
-                statistic: alarm["statistic"],
-                dimensions: alarm["dimensions"],
-                period: alarm["period"],
-                unit: alarm["unit"],
-                evaluation_periods: alarm["evaluation_periods"],
-                threshold: alarm["threshold"],
-                comparison_operator: alarm["comparison_operator"],
-                region: @config["region"]
-              )
-            }
           end
 
           dnsthread.join # from genericMuDNS

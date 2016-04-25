@@ -86,6 +86,7 @@ module MU
     attr_reader :appname
     attr_reader :seed
     attr_reader :mu_user
+    attr_reader :clouds
     attr_reader :chef_user
     attr_accessor :kittens # really want a method only available to :Deploy
     @myhome = Etc.getpwuid(Process.uid).dir
@@ -143,7 +144,6 @@ module MU
     # @param ssh_key_name [String]: Required when creating a new deployment.
     # @param ssh_private_key [String]: Required when creating a new deployment.
     # @param ssh_public_key [String]: SSH public key for authorized_hosts on clients.
-    # @param verbose [Boolean]: Enable verbose log output.
     # @param skip_resource_objects [Boolean]: Whether preload the cloud resource objects from this deploy. Can save load time for simple MommaCat tasks.
     # @param nocleanup [Boolean]: Skip automatic cleanup of failed resources
     # @param deployment_data [Hash]: Known deployment data.
@@ -156,14 +156,12 @@ module MU
                    ssh_key_name: ssh_key_name = nil,
                    ssh_private_key: ssh_private_key = nil,
                    ssh_public_key: ssh_public_key = nil,
-                   verbose: false,
                    nocleanup: false,
                    set_context_to_me: true,
                    skip_resource_objects: false,
                    deployment_data: deployment_data = Hash.new,
                    mu_user: "root"
     )
-      verbose = true
       if deploy_id.nil? or deploy_id.empty?
         raise DeployInitializeError, "MommaCat objects must specify a deploy_id"
       end
@@ -195,6 +193,7 @@ module MU
       @ssh_key_name = ssh_key_name
       @ssh_private_key = ssh_private_key
       @ssh_public_key = ssh_public_key
+      @clouds = {}
       if set_context_to_me
         MU::MommaCat.setThreadContext(self)
       end
@@ -213,6 +212,14 @@ module MU
         end
         @seed = MU.seed # pass this in
         @appname = @original_config['name']
+      MU::Cloud.resource_types.each { |cloudclass, data|
+        if !@original_config[data[:cfg_plural]].nil? and @original_config[data[:cfg_plural]].size > 0
+           @original_config[data[:cfg_plural]].each { |resource|
+             @clouds[resource['cloud']] = 0 if !@clouds.has_key?(resource['cloud'])
+             @clouds[resource['cloud']] = @clouds[resource['cloud']] + 1
+           }
+        end
+      }
         @ssh_key_name, @ssh_private_key, @ssh_public_key = self.SSHKey
         if !File.exist?(deploy_dir+"/private_key")
           @private_key, @public_key = createDeployKey
@@ -242,6 +249,7 @@ module MU
           raise DeployInitializeError, "Invalid or incorrect deploy key."
         end
       end
+
 
       # Initialize a MU::Cloud object for each resource belonging to this
       # deploy, IF it already exists, which is to say if we're loading an
@@ -316,6 +324,41 @@ module MU
 #         @@litters[@deploy_id] = self
 #       }
 #     end
+    end
+
+    # Tell us the number of first-class resources we've configured, optionally
+    # filtering results to only include a given type and/or in a given cloud
+    # environment.
+    # @param clouds [Array<String>]: The cloud environment(s) to check for. If unspecified, will match all environments in this deployment.
+    # @param types [Array<String>]: The type of resource(s) to check for. If unspecified, will match all resources in this deployment.
+    # @param negate [Boolean]: Invert logic of the other filters if they are specified, e.g. search for all cloud resources that are *not* AWS.
+    def numKittens(clouds: [], types: [], negate: false)
+      realtypes = []
+      return 0 if @original_config.nil?
+      if !types.nil? and types.size > 0
+        types.each { |type|
+          MU::Cloud.resource_types.each_pair { |name, cloudclass|
+            if name == type.to_sym or
+                cloudclass[:cfg_name] == type or
+                cloudclass[:cfg_plural] == type or negate
+              realtypes << cloudclass[:cfg_plural]
+              break
+            end
+          }
+        }
+      end
+
+      count = 0
+      MU::Cloud.resource_types.each { |cloudclass, data|
+        next if @original_config[data[:cfg_plural]].nil?
+        next if realtypes.size > 0 and (!negate and !realtypes.include?(data[:cfg_plural]))
+        @original_config[data[:cfg_plural]].each { |resource|
+          if clouds.nil? or clouds.size == 0 or (!negate and clouds.include?(resource["cloud"])) or (negate and !clouds.include?(resource["cloud"]))
+            count = count + 1
+          end
+        }
+      }
+      count
     end
 
     # @param object [MU::Cloud]:
@@ -742,6 +785,9 @@ module MU
     # or load if that hasn't been done already.
     def SSHKey
       return [@ssh_key_name, @ssh_private_key, @ssh_public_key] if !@ssh_key_name.nil?
+      if numKittens(types: ["Server", "ServerPool"]) == 0
+        return []
+      end
       @ssh_key_name="deploy-#{MU.deploy_id}"
       ssh_dir = Etc.getpwnam(@mu_user).dir+"/.ssh"
 
@@ -761,8 +807,9 @@ module MU
       @ssh_private_key = File.read("#{ssh_dir}/#{@ssh_key_name}")
       @ssh_private_key.chomp!
 
-      # XXX only call this if we're creating AWS EC2 resources
-      MU::Cloud::AWS.createEc2SSHKey(@ssh_key_name, @ssh_public_key)
+      if numKittens(clouds: ["AWS"], types: ["Server", "ServerPool"]) > 0
+        MU::Cloud::AWS.createEc2SSHKey(@ssh_key_name, @ssh_public_key)
+      end
 
       return [@ssh_key_name, @ssh_private_key, @ssh_public_key]
     end
@@ -994,7 +1041,14 @@ module MU
         calling_deploy: MU.mommacat,
         dummy_ok: false
     )
+      return nil if cloud == "CloudFormation" and !cloud_id.nil?
       begin
+        deploy_id = deploy_id.to_s if deploy_id.class.to_s == "MU::Config::Tail"
+        name = name.to_s if name.class.to_s == "MU::Config::Tail"
+        cloud_id = cloud_id.to_s if !cloud_id.nil?
+        mu_name = mu_name.to_s if mu_name.class.to_s == "MU::Config::Tail"
+        tag_key = tag_key.to_s if tag_key.class.to_s == "MU::Config::Tail"
+        tag_value = tag_value.to_s if tag_value.class.to_s == "MU::Config::Tail"
         resourceclass = MU::Cloud.loadCloudType(cloud, type)
         cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
         if (tag_key and !tag_value) or (!tag_key and tag_value)
@@ -1147,7 +1201,7 @@ module MU
               if data.size == 1 and (cloud_id.nil? or data.values.first.cloud_id == cloud_id)
                 return data.values.first
               elsif mu_name.nil? and cloud_id.nil?
-                MU.log "Found multiple matches in findLitterMate based on #{type}: #{name}, and not enough info to narrow down further. Returning an arbitrary result.", MU::WARN, details: data.values
+                MU.log "#{@deploy_id}: Found multiple matches in findLitterMate based on #{type}: #{name}, and not enough info to narrow down further. Returning an arbitrary result. Caller: #{caller[0]}", MU::WARN, details: data.values
                 return data.values.first
               end
             end
@@ -1267,33 +1321,40 @@ module MU
     # @param tag_value [String]: The value of the tag
     # @param region [String]: The cloud provider region
     # @return [void]
-    def self.createTag(resource,
+    def self.createTag(resource = nil,
         tag_name="MU-ID",
         tag_value=MU.deploy_id,
         region: MU.curRegion)
       attempts = 0
 
-      begin
-        MU::Cloud::AWS.ec2(region).create_tags(
+      if !MU::Cloud::CloudFormation.emitCloudFormation
+        begin
+          MU::Cloud::AWS.ec2(region).create_tags(
             resources: [resource],
             tags: [
-                {
-                    key: tag_name,
-                    value: tag_value
-                }
+              {
+                key: tag_name,
+                value: tag_value
+              }
             ]
-        )
-      rescue Aws::EC2::Errors::ServiceError => e
-        MU.log "Got #{e.inspect} tagging #{resource} with #{tag_name}=#{tag_value}", MU::WARN if attempts > 1
-        if attempts < 5
-          attempts = attempts + 1
-          sleep 15
-          retry
-        else
-          raise e
+          )
+        rescue Aws::EC2::Errors::ServiceError => e
+          MU.log "Got #{e.inspect} tagging #{resource} with #{tag_name}=#{tag_value}", MU::WARN if attempts > 1
+          if attempts < 5
+            attempts = attempts + 1
+            sleep 15
+            retry
+          else
+            raise e
+          end
         end
+        MU.log "Created tag #{tag_name} with value #{tag_value} for resource #{resource}", MU::DEBUG
+      else
+        return {
+          "Key" =>  tag_name,
+          "Value" => tag_value
+        }
       end
-      MU.log "Created tag #{tag_name} with value #{tag_value} for resource #{resource}", MU::DEBUG
     end
 
     # Tag a resource with all of our standard identifying tags.
@@ -1301,19 +1362,22 @@ module MU
     # @param resource [String]: The cloud provider identifier of the resource to tag
     # @param region [String]: The cloud provider region
     # @return [void]
-    def self.createStandardTags(resource, region: MU.curRegion)
+    def self.createStandardTags(resource = nil, region: MU.curRegion)
       tags = []
       listStandardTags.each_pair { |name, value|
         if !value.nil?
           tags << {key: name, value: value}
         end
       }
+      if MU::Cloud::CloudFormation.emitCloudFormation
+        return tags
+      end
 
       attempts = 0
       begin
         MU::Cloud::AWS.ec2(region).create_tags(
-            resources: [resource],
-            tags: tags
+          resources: [resource],
+          tags: tags
         )
       rescue Aws::EC2::Errors::ServiceError => e
         MU.log "Got #{e.inspect} tagging #{resource} in #{region}, will retry", MU::WARN, details: caller.concat(tags) if attempts > 1

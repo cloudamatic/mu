@@ -276,9 +276,11 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
           )
           need_update = false
           storage = []
-          server["basis"]["launch_config"]["storage"].each { |vol|
-            storage << MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
-          }
+          if !server["basis"]["launch_config"]["storage"].nil?
+            server["basis"]["launch_config"]["storage"].each { |vol|
+              storage << MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
+            }
+          end
           storage.concat(MU::Cloud::AWS::Server.ephemeral_mappings)
           if userdata != olduserdata or
               launch.image_id != server["basis"]["launch_config"]["ami_id"] or

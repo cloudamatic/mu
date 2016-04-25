@@ -632,6 +632,7 @@ module MU
           chef_node.normal.ad.domain_controller_hostname = @config['active_directory']['domain_controller_hostname'] if @config['active_directory'].has_key?('domain_controller_hostname')
           chef_node.normal.ad.netbios_name = @config['active_directory']['short_domain_name']
           chef_node.normal.ad.computer_ou = @config['active_directory']['computer_ou'] if @config['active_directory'].has_key?('computer_ou')
+          chef_node.normal.ad.domain_sid = @config['active_directory']['domain_sid'] if @config['active_directory'].has_key?('domain_sid')
           chef_node.normal.ad.dcs = @config['active_directory']['domain_controllers']
           chef_node.normal.ad.domain_join_vault = @config['active_directory']['domain_join_vault']['vault']
           chef_node.normal.ad.domain_join_item = @config['active_directory']['domain_join_vault']['item']
