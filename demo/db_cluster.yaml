@@ -1,10 +1,15 @@
 <%
-  raise "You must set deploy_id (e.g. -p deploy_id=UATSVCS-PROD-2015051501-RE)" unless $deploy_id
   $region = MU.curRegion unless $region
 %>
 
 appname: db
 region: <%= $region %>
+parameters:
+  - name: appname
+    default: autoscale
+  - name: vpc
+    cloudtype: AWS::EC2::VPC::Id
+    default: <%= MU.myVPC %>
 databases:
 - name: cluster
   dns_sync_wait: false
@@ -38,13 +43,13 @@ databases:
   add_firewall_rules: 
   - rule_name: dbcluster
   vpc:
-    deploy_id: <%= $deploy_id %>
+    vpc_id: <%= vpc %>
     subnet_pref: all_public
 
 firewall_rules:
 - name: dbcluster
   vpc:
-    deploy_id: <%= $deploy_id %>
+    vpc_id: <%= vpc %>
   rules: 
   - port: 3306
     hosts:

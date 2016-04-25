@@ -23,11 +23,14 @@ module MU
         attr_reader :config
         attr_reader :cloud_id
 
+        @cloudformation_data = {}
+        attr_reader :cloudformation_data
+
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::alarms}
         def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
           @deploy = mommacat
-          @config = kitten_cfg
+          @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
@@ -38,31 +41,18 @@ module MU
             dimensions = []
             @config["dimensions"].each { |dimension|
               cloudid = 
-              # If we specified mu_name/deploy_id try to find the cloud_id of the resource. if we specified a cloud_id directly then use it.
-                if dimension["mu_name"] || dimension["deploy_id"]
-                  deps_class = 
-                    if dimension["cloud_class"] == "InstanceId"
-                      "server"
-                    elsif dimension["cloud_class"] == "DBInstanceIdentifier"
-                      "database"
-                    elsif dimension["cloud_class"] == "LoadBalancerName"
-                      "loadbalancer"
-                    elsif dimension["cloud_class"] == "CacheClusterId"
-                      "cache_cluster"
-                    end
-
-                    if @dependencies.has_key?(deps_class)
-                      # instance_id = @dependencies["server"][dimension["mu_name"]].cloud_desc.instance_id
-                      @dependencies[deps_class][dimension["mu_name"]].deploydata["cloud_id"]
-                    else
-                      found = MU::MommaCat.findStray("AWS", deps_class, deploy_id: dimension["deploy_id"], mu_name: dimension["mu_name"], region: @config["region"])
-                      raise MuError, "Couldn't find #{deps_class} #{dimension["mu_name"]}" if found.nil? || found.empty?
-                      resp = found.first.deploydata["cloud_id"]
-                      resp.downcase if %w{database cache_cluster}.include?(deps_class)
-                    end
+                if dimension["name"] and dimension["depclass"]
+                  if @dependencies.has_key?(dimension["depclass"])
+                    @dependencies[dimension["depclass"]][dimension["name"]].cloudobj.cloud_id
+                  end
+                elsif dimension["mu_name"] and dimension["deploy_id"]
+                  found = MU::MommaCat.findStray("AWS", deps_class, deploy_id: dimension["deploy_id"], mu_name: dimension["mu_name"], region: @config["region"])
+                  raise MuError, "Couldn't find #{deps_class} #{dimension["mu_name"]}" if found.nil? || found.empty?
+                  resp = found.first.deploydata["cloud_id"]
+                  resp.downcase if %w{database cache_cluster}.include?(deps_class)
                 else
                   dimension["cloud_id"]
-                end            
+                end
               dimensions << {:name => dimension["cloud_class"], :value => cloudid}
             }
             @config["dimensions"] = dimensions
@@ -78,8 +68,10 @@ module MU
             @config["alarm_actions"] << topic_arn
             @config["ok_actions"] << topic_arn
           end
+          @config["ok_actions"].uniq!
+          @config["alarm_actions"].uniq!
 
-          MU::Cloud::AWS::Alarm.createAlarm(
+          MU::Cloud::AWS::Alarm.setAlarm(
             name: @mu_name,
             ok_actions: @config["ok_actions"],
             alarm_actions: @config["alarm_actions"],
@@ -147,12 +139,37 @@ module MU
         end
 
         # Create an alarm.
-        def self.createAlarm(
+        def self.setAlarm(
                 name: nil, ok_actions: [], alarm_actions: [], insufficient_data_actions: [], metric_name: nil, namespace: nil, statistic: nil,
                 dimensions: [], period: nil, unit: nil, evaluation_periods: nil, threshold: nil, comparison_operator: nil, region: MU.curRegion
                )
 
-          unless getAlarmByName(name, region: region)
+          # If the alarm already exists, then assume we're updating it and
+          # munge in potentially new arguments.
+          ext_alarm = getAlarmByName(name, region: region)
+          if ext_alarm
+            if dimensions
+              dimensions.concat(ext_alarm.dimensions)
+              dimensions.uniq!
+            end
+            if alarm_actions
+              alarm_actions.concat(ext_alarm.alarm_actions)
+              alarm_actions.uniq!
+            end
+            if ok_actions
+              ok_actions.concat(ext_alarm.ok_actions)
+              ok_actions.uniq!
+            end
+            if insufficient_data_actions
+              insufficient_data_actions.concat(ext_alarm.insufficient_data_actions)
+              insufficient_data_actions.uniq!
+            end
+            MU.log "Modifying alarm #{name}"
+          else
+            MU.log "Creating alarm #{name}"
+          end
+
+          begin
             MU::Cloud::AWS.cloudwatch(region).put_metric_alarm(
               alarm_name: name,
               alarm_description: name,
@@ -170,9 +187,17 @@ module MU
               threshold: threshold,
               comparison_operator: comparison_operator
             )
-
-            MU.log "Alarm #{name} created"
+          rescue Aws::CloudWatch::Errors::ValidationError => e
+            # Dopey but ultimately harmless race condition
+            if e.message.match(/A separate request to update this alarm is in progress/)
+              MU.log "Duplicate request to create alarm #{name}. This one came from #{caller[0]}", MU::WARN
+              sleep 15
+              retry
+            else
+              raise e
+            end
           end
+
         end
 
         # Retrieve the complete cloud provider description of a alarm.

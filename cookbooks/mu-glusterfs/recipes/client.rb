@@ -17,11 +17,18 @@ case node[:platform]
     end
 
     node.glusterfs.fw.each do |rule|
-      bash "Allow TCP #{rule['port_range']} through iptables" do
+      real_range = rule['port_range'].sub(/:.*/, "")
+      if rule['port_range'] != "#{real_range}:#{real_range}"
+        real_range = rule['port_range']
+        pattern = "dpts:#{real_range}"
+      else
+        pattern = "dpt:#{real_range}"
+      end
+      bash "Allow TCP #{real_range} through iptables" do
         user "root"
-        not_if "/sbin/iptables -nL | egrep '^ACCEPT.*dpts:#{rule['port_range']}($| )'"
+        not_if "/sbin/iptables -nL | egrep '^ACCEPT.*#{pattern}($| )'"
         code <<-EOH
-					iptables -I INPUT -p tcp --dport #{rule['port_range']} -j ACCEPT
+					iptables -I INPUT -p tcp --dport #{real_range} -j ACCEPT
 					service iptables save
         EOH
       end

@@ -7,8 +7,8 @@
 DIST_VERSION=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
 EPEL_RPM="http://mirror.metrocast.net/fedora/epel/epel-release-latest-$DIST_VERSION.noarch.rpm"
 
-CHEF_CLIENT_VERSION="12.8.1-1"
-CHEF_SERVER_VERSION="12.4.1-1"
+CHEF_CLIENT_VERSION="12.9.38-1"
+CHEF_SERVER_VERSION="12.5.0-1"
 
 if [ $DIST_VERSION == 7 ];then
   # mariadb replaces mysql, qt and qt-x11 are required by gecode which is required by the dep_selector gem. 
@@ -1657,7 +1657,7 @@ set_permissions()
   fix_platform_repo_permissions "$MU_LIBDIR"
   if [ "$1" != "skip_rubies" ] ;then
     /sbin/restorecon -r /home
-    for rubydir in /opt/opscode/embedded /opt/chef/embedded $RUBY_INSTALLDIR;do
+    for rubydir in /opt/opscode/embedded /opt/chef/embedded `find /opt/rubies -maxdepth 1 -mindepth 1 -type d`;do
       find $rubydir/lib/ruby/gems -type f -exec chmod o+r {} \;
       find $rubydir/lib/ruby/gems -type d -exec chmod o+rx {} \;
     done

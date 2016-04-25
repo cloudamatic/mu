@@ -174,8 +174,8 @@ if $opts[:logs]
   end
 
   resp = MU::Cloud::AWS.s3.list_objects(
-      bucket: $bucketname,
-      prefix: "log_vol_ebs_key"
+    bucket: $bucketname,
+    prefix: "log_vol_ebs_key"
   )
   found = false
   resp.contents.each { |object|
@@ -185,9 +185,9 @@ if $opts[:logs]
     MU.log "Creating new key for encrypted EBS log volume"
     key = SecureRandom.random_bytes(32)
     MU::Cloud::AWS.s3.put_object(
-        bucket: $bucketname,
-        key: "log_vol_ebs_key",
-        body: "#{key}"
+      bucket: $bucketname,
+      key: "log_vol_ebs_key",
+      body: "#{key}"
     )
   end
 
