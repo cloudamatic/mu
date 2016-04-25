@@ -533,7 +533,7 @@ module MU
           MU.log "Writing CloudFormation template to S3 bucket #{bucket} path /#{target}"
           begin
             MU::Cloud::AWS.s3.put_object(
-              acl: "public-read",
+              acl: "authenticated-read",
               bucket: bucket,
               key: target,
               body: JSON.pretty_generate(cfm_template)
