@@ -126,8 +126,8 @@ module MU
             if dnsrec.has_key?('mu_type')
               dnsrec['target'] =
                 if dnsrec['mu_type'] == "loadbalancer"
-                  if @dependencies.has_key?(dnsrec['mu_type']) && dnsrec['deploy_id'].nil?
-                    @dependencies['loadbalancer'][dnsrec['target']].deploydata['dns']
+                  if @dependencies.has_key?('loadbalancer') and @dependencies['loadbalancer'].has_key?(dnsrec['target']) and !@dependencies['loadbalancer'][dnsrec['target']].cloudobj.nil? and dnsrec['deploy_id'].nil?
+                    @dependencies['loadbalancer'][dnsrec['target']].cloudobj.notify['dns']
                   elsif dnsrec['deploy_id']
                     found = MU::MommaCat.findStray("AWS", "loadbalancer", deploy_id: dnsrec["deploy_id"], mu_name: dnsrec["target"], region: @config["region"])
                     raise MuError, "Couldn't find #{dnsrec['mu_type']} #{dnsrec["target"]}" if found.nil? || found.empty?
@@ -245,7 +245,7 @@ module MU
 
           MU.log "Creating health check for #{target}", details: check
           id = MU::Cloud::AWS.route53.create_health_check(
-              caller_reference: @deploy.getResourceName(cfg['method']+"-"+Time.now.to_i.to_s),
+              caller_reference: MU.deploy_id+target.gsub(/[^a-z0-9]/i, "")+cfg['method']+"-"+Time.now.to_i.to_s,
               health_check_config: check
           ).health_check.id
 
@@ -586,21 +586,26 @@ module MU
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
           checks_to_clean = []
           MU::Cloud::AWS.route53(region).list_health_checks().health_checks.each { |check|
-            tags = MU::Cloud::AWS.route53(region).list_tags_for_resource(
-                resource_type: "healthcheck",
-                resource_id: check.id
-            ).resource_tag_set.tags
-            muid_match = false
-            mumaster_match = false
-            tags.each { |tag|
-              muid_match = true if tag.key == "MU-ID" and tag.value == MU.deploy_id
-              mumaster_match = true if tag.key == "MU-MASTER-IP" and tag.value == MU.mu_public_ip
-            }
-            if muid_match and mumaster_match
-              MU.log "Removing health check #{check.id}"
-              MU::Cloud::AWS.route53(region).delete_health_check(health_check_id: check.id) if !noop
+            begin
+              tags = MU::Cloud::AWS.route53(region).list_tags_for_resource(
+                  resource_type: "healthcheck",
+                  resource_id: check.id
+              ).resource_tag_set.tags
+              muid_match = false
+              mumaster_match = false
+              tags.each { |tag|
+                muid_match = true if tag.key == "MU-ID" and tag.value == MU.deploy_id
+                mumaster_match = true if tag.key == "MU-MASTER-IP" and tag.value == MU.mu_public_ip
+              }
+              if muid_match and mumaster_match
+                MU.log "Removing health check #{check.id}"
+                MU::Cloud::AWS.route53(region).delete_health_check(health_check_id: check.id) if !noop
+              end
+            rescue Aws::Route53::Errors::NoSuchHealthCheck => e
+              MU.log "Health Check '#{check.id}' disappeared before I could remove it", MU::WARN, details: e.inspect
             end
           }
+
           zones = MU::Cloud::DNSZone.find(deploy_id: MU.deploy_id, region: region)
           zones.each_pair { |id, zone|
             MU.log "Purging DNS Zone '#{zone.name}' (#{zone.id})"
@@ -640,8 +645,8 @@ module MU
           }
 
           # Lets try cleaning MU DNS records in all zones.
-          begin 
-            MU::Cloud::AWS.route53(region).list_hosted_zones.hosted_zones.each { |zone|
+          MU::Cloud::AWS.route53(region).list_hosted_zones.hosted_zones.each { |zone|
+            begin 
               zone_rrsets = []
               rrsets = MU::Cloud::AWS.route53(region).list_resource_record_sets(hosted_zone_id: zone.id)
               rrsets.resource_record_sets.each { |record|
@@ -667,10 +672,10 @@ module MU
                   MU::Cloud::AWS::DNSZone.manageRecord(zone.id, record.name, record.type, targets: resource_records, ttl: record.ttl, sync_wait: false, delete: true) if !noop
                 end
               }
-            }
-          rescue Aws::Route53::Errors::NoSuchHostedZone
-            MU.log "DNS Zone '#{zone.name}' #{zone.id} disappeared while was looking at", MU::WARN
-          end
+            rescue Aws::Route53::Errors::NoSuchHostedZone
+              MU.log "DNS Zone '#{zone.name}' #{zone.id} disappeared while was looking at", MU::WARN
+            end
+          }
         end
 
         # Locate an existing DNSZone or DNSZones and return an array containing matching AWS resource descriptors for those that match.
