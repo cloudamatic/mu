@@ -507,8 +507,9 @@ module MU
     # @param name [String]: The shorthand name of the resource, usually the value of the "name" field in an Mu resource declaration.
     # @param max_length [Integer]: The maximum length of the resulting resource name.
     # @param need_unique_string [Boolean]: Whether to forcibly append a random three-character string to the name to ensure it's unique. Note that this behavior will be automatically invoked if the name must be truncated.
+    # @param scrub_mu_isms [Boolean]: Don't bother with generating names specific to this deployment. Used to generate generic CloudFormation templates, amongst other purposes.
     # @return [String]: A full name string for this resource
-    def getResourceName(name, max_length: 255, need_unique_string: false, use_unique_string: nil, reuse_unique_string: false)
+    def getResourceName(name, max_length: 255, need_unique_string: false, use_unique_string: nil, reuse_unique_string: false, scrub_mu_isms: @original_config['scrub_mu_isms'])
       if name.nil?
         raise MuError, "Got no argument to MU::MommaCat.getResourceName"
       end
@@ -516,6 +517,7 @@ module MU
         MU.log "Missing global deploy variables in thread #{Thread.current.object_id}, using bare name '#{name}' (appname: #{@appname}, environment: #{@environment}, timestamp: #{@timestamp}, seed: #{@seed}", MU::WARN, details: caller
         return name
       end
+      need_unique_string = false if scrub_mu_isms
 
       muname = nil
       if need_unique_string
@@ -526,6 +528,10 @@ module MU
 
       # First, pare down the base name string until it will fit
       basename = @appname.upcase + "-" + @environment.upcase + "-" + @timestamp + "-" + @seed.upcase + "-" + name.upcase
+      if scrub_mu_isms
+        basename = @appname.upcase + "-" + @environment.upcase + name.upcase
+      end
+
       begin
         if (basename.length + reserved) > max_length
           MU.log "Stripping name down from #{basename}[#{basename.length.to_s}] (reserved: #{reserved.to_s}, max_length: #{max_length.to_s})", MU::DEBUG

@@ -47,7 +47,7 @@ module MU
         # Populate @cfm_template with a resource description for this VPC
         # in CloudFormation language.
         def create
-          @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags']) if @cfm_template.nil?
+          @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags'], scrub_mu_isms: @config['scrub_mu_isms']) if @cfm_template.nil?
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "CidrBlock", @config['ip_block'])
           ["enable_dns_support", "enable_dns_hostnames"].each { |arg|
             if !@config[arg].nil?
@@ -59,8 +59,8 @@ module MU
 
           igw_name = attach_name = nil
           if @config['create_internet_gateway']
-            igw_name, igw_template = MU::Cloud::CloudFormation.cloudFormationBase("igw", name: @mu_name, tags: @config['tags'])
-            attach_name, attach_template = MU::Cloud::CloudFormation.cloudFormationBase("vpcgwattach", name: @mu_name)
+            igw_name, igw_template = MU::Cloud::CloudFormation.cloudFormationBase("igw", name: @mu_name, tags: @config['tags'], scrub_mu_isms: @config['scrub_mu_isms'])
+            attach_name, attach_template = MU::Cloud::CloudFormation.cloudFormationBase("vpcgwattach", name: @mu_name, scrub_mu_isms: @config['scrub_mu_isms'])
             MU::Cloud::CloudFormation.setCloudFormationProp(attach_template[attach_name], "DependsOn", igw_name)
             MU::Cloud::CloudFormation.setCloudFormationProp(attach_template[attach_name], "DependsOn", @cfm_name)
             MU::Cloud::CloudFormation.setCloudFormationProp(attach_template[attach_name], "InternetGatewayId", { "Ref" => igw_name } )
@@ -74,12 +74,12 @@ module MU
           route_needs_nat = {}
           if !@config['route_tables'].nil?
             @config['route_tables'].each { |rtb|
-              rtb_name, rtb_template = MU::Cloud::CloudFormation.cloudFormationBase("rtb", name: rtb['name']+@config['name'], tags: @config['tags'])
+              rtb_name, rtb_template = MU::Cloud::CloudFormation.cloudFormationBase("rtb", name: rtb['name']+@config['name'], tags: @config['tags'], scrub_mu_isms: @config['scrub_mu_isms'])
               rtb_map[rtb['name']] = rtb_name
               MU::Cloud::CloudFormation.setCloudFormationProp(rtb_template[rtb_name], "VpcId", { "Ref" => @cfm_name })
               MU::Cloud::CloudFormation.setCloudFormationProp(rtb_template[rtb_name], "DependsOn", @cfm_name)
               rtb['routes'].each { |route|
-                route_name, route_template = MU::Cloud::CloudFormation.cloudFormationBase("route", name: rtb['name']+@config['name']+route['destination_network'])
+                route_name, route_template = MU::Cloud::CloudFormation.cloudFormationBase("route", name: rtb['name']+@config['name']+route['destination_network'], scrub_mu_isms: @config['scrub_mu_isms'])
                 MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "DependsOn", rtb_name)
                 MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "RouteTableId", { "Ref" => rtb_name } )
                 MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "DestinationCidrBlock", route['destination_network'])
@@ -133,10 +133,10 @@ module MU
               @subnets << subnet
 
               if subnet_cfg['create_nat_gateway']
-                eip_name, eip_template = MU::Cloud::CloudFormation.cloudFormationBase("eip", name: subnet_cfg['mu_name']+"NATIP")
+                eip_name, eip_template = MU::Cloud::CloudFormation.cloudFormationBase("eip", name: subnet_cfg['mu_name']+"NATIP", scrub_mu_isms: @config['scrub_mu_isms'])
                 MU::Cloud::CloudFormation.setCloudFormationProp(eip_template[eip_name], "Domain", "vpc")
 
-                nat_name, nat_template = MU::Cloud::CloudFormation.cloudFormationBase("nat", name: subnet_cfg['mu_name'])
+                nat_name, nat_template = MU::Cloud::CloudFormation.cloudFormationBase("nat", name: subnet_cfg['mu_name'], scrub_mu_isms: @config['scrub_mu_isms'])
                 MU::Cloud::CloudFormation.setCloudFormationProp(nat_template[nat_name], "AllocationId", { "Fn::GetAtt" => [eip_name, "AllocationId"] })
                 MU::Cloud::CloudFormation.setCloudFormationProp(nat_template[nat_name], "DependsOn", eip_name)
                 MU::Cloud::CloudFormation.setCloudFormationProp(nat_template[nat_name], "DependsOn", attach_name) # XXX make sure config parser catches this requirement
@@ -146,7 +146,7 @@ module MU
                 nats[subnet_cfg["availability_zone"]] = nat_name
               end
 
-              assoc_name, assoc_template = MU::Cloud::CloudFormation.cloudFormationBase("rtbassoc", name: subnet.cfm_name+subnet_cfg['route_table'])
+              assoc_name, assoc_template = MU::Cloud::CloudFormation.cloudFormationBase("rtbassoc", name: subnet.cfm_name+subnet_cfg['route_table'], scrub_mu_isms: @config['scrub_mu_isms'])
               MU::Cloud::CloudFormation.setCloudFormationProp(assoc_template[assoc_name], "SubnetId", { "Ref" => subnet.cfm_name })
               MU::Cloud::CloudFormation.setCloudFormationProp(assoc_template[assoc_name], "RouteTableId", { "Ref" => rtb_map[subnet_cfg['route_table']] })
               MU::Cloud::CloudFormation.setCloudFormationProp(assoc_template[assoc_name], "DependsOn", rtb_map[subnet_cfg['route_table']])
@@ -243,7 +243,7 @@ module MU
             @name = config['name']
             @deploydata = config # This is a dummy for the sake of describe()
 
-            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("subnet", self, tags: @config['tags'])
+            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("subnet", self, tags: @config['tags'], scrub_mu_isms: @config['scrub_mu_isms'])
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "VpcId", { "Ref" => parent.cfm_name })
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", parent.cfm_name)
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "CidrBlock", config['ip_block'])

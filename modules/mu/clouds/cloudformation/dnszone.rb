@@ -42,7 +42,7 @@ module MU
         # Populate @cfm_template with a resource description for this dnszone
         # in CloudFormation language.
         def create
-          @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("dnszone", self)
+          @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("dnszone", self, scrub_mu_isms: @config['scrub_mu_isms'])
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Name", @config['name'])
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "HostedZoneConfig", { "Comment" => MU.deploy_id })
 
@@ -152,7 +152,7 @@ module MU
             end
           }
           cfg.each { |dnsrec|
-            rec_name, rec_template = MU::Cloud::CloudFormation.cloudFormationBase("dnsrecord", name: dnsrec['name']+dnsrec['target']+dnsrec['type'])
+            rec_name, rec_template = MU::Cloud::CloudFormation.cloudFormationBase("dnsrecord", name: dnsrec['name']+dnsrec['target']+dnsrec['type'], scrub_mu_isms: @config['scrub_mu_isms'])
             MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "Name", dnsrec['name'])
 
             if dnsrec['type'] == "R53ALIAS"
@@ -186,7 +186,7 @@ module MU
             end
 
             if dnsrec['healthcheck']
-              check_name, check_template = MU::Cloud::CloudFormation.cloudFormationBase("dnshealthcheck", name: dnsrec['name']+dnsrec['target']+dnsrec['type'])
+              check_name, check_template = MU::Cloud::CloudFormation.cloudFormationBase("dnshealthcheck", name: dnsrec['name']+dnsrec['target']+dnsrec['type'], scrub_mu_isms: @config['scrub_mu_isms'])
               check = {
                 "Type" => dnsrec['healthcheck']['method']
               }

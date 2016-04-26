@@ -43,8 +43,8 @@ module MU
         # Populate @cfm_template with a resource description for this server
         # pool in CloudFormation language.
         def create
-          @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags']) if @cfm_template.nil?
-          @cfm_launch_name, launch_template = MU::Cloud::CloudFormation.cloudFormationBase("launch_config", self)
+          @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags'], scrub_mu_isms: @config['scrub_mu_isms']) if @cfm_template.nil?
+          @cfm_launch_name, launch_template = MU::Cloud::CloudFormation.cloudFormationBase("launch_config", self, scrub_mu_isms: @config['scrub_mu_isms'])
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "LaunchConfigurationName", { "Ref" => @cfm_launch_name } )
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @cfm_launch_name)
           @cfm_template.merge!(launch_template)
@@ -65,7 +65,7 @@ module MU
 
           if @config["scaling_policies"] and @config["scaling_policies"].size > 0
             @config["scaling_policies"].each { |pol|
-              pol_name, pol_template = MU::Cloud::CloudFormation.cloudFormationBase("scaling_policy", name: pol['name']+@mu_name)
+              pol_name, pol_template = MU::Cloud::CloudFormation.cloudFormationBase("scaling_policy", name: pol['name']+@mu_name, scrub_mu_isms: @config['scrub_mu_isms'])
               MU::Cloud::CloudFormation.setCloudFormationProp(pol_template[pol_name], "AdjustmentType", pol['type'])
               MU::Cloud::CloudFormation.setCloudFormationProp(pol_template[pol_name], "AutoScalingGroupName", @cfm_name)
 
@@ -142,7 +142,7 @@ module MU
             else
               @config['iam_role'] = launch_desc['iam_role']
             end
-            MU::Cloud::CloudFormation::Server.addStdPoliciesToIAMProfile(@cfm_role_name, cloudformation_data: @cfm_template)
+            MU::Cloud::CloudFormation::Server.addStdPoliciesToIAMProfile(@cfm_role_name, cloudformation_data: @cfm_template) if !@config['scrub_mu_isms']
             if !@config["iam_role"].nil?
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_launch_name], "DependsOn", @cfm_role_name)
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_launch_name], "DependsOn", @cfm_prof_name)
@@ -162,7 +162,8 @@ module MU
                 "resourceName" => @config["name"],
                 "resourceType" => "server_pool"
               },
-              custom_append: @config['userdata_script']
+              custom_append: @config['userdata_script'],
+              scrub_mu_isms: @config['scrub_mu_isms']
             )
 
             if launch_desc["user_data"]

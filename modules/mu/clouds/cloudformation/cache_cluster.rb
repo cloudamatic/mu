@@ -53,11 +53,11 @@ module MU
           @config['identifier'] = @mu_name
 
           if @config["create_replication_group"]
-            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("cache_repl_group", self, name: @config['identifier']) if @cfm_template.nil?
+            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("cache_repl_group", self, name: @config['identifier'], scrub_mu_isms: @config['scrub_mu_isms']) if @cfm_template.nil?
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "ReplicationGroupDescription", @mu_name)
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "NumCacheClusters", @config['node_count'].to_s)
           else
-            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags']) if @cfm_template.nil?
+            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags'], scrub_mu_isms: @config['scrub_mu_isms']) if @cfm_template.nil?
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "ClusterName", @mu_name)
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "AZMode", @config["az_mode"]) if @config["az_mode"]
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "NumCacheNodes", @config['node_count'].to_s)
@@ -91,7 +91,7 @@ module MU
           end
 
           if !@config['vpc'].nil?
-            subnets_name, subnets_template = MU::Cloud::CloudFormation.cloudFormationBase("cache_subnets", name: @mu_name)
+            subnets_name, subnets_template = MU::Cloud::CloudFormation.cloudFormationBase("cache_subnets", name: @mu_name, scrub_mu_isms: @config['scrub_mu_isms'])
             if !@config['vpc']['subnets'].nil?
               @config['vpc']['subnets'].each { |subnet|
                 if !subnet["subnet_id"].nil?
