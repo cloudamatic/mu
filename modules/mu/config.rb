@@ -1181,7 +1181,6 @@ module MU
           end
         }
         if realerrors.size > 0
-          pp config
           raise ValidationError, "Validation error in #{@@config_path}!\n"+realerrors.join("\n")
         end
       end

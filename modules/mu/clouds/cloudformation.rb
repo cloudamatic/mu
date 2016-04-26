@@ -574,7 +574,7 @@ module MU
           resp = MU::Cloud::AWS.cloudformation.estimate_template_cost(
             template_body: JSON.generate(cfm_template)
           )
-          MU.log "Review estimated monthly cost for AWS resources in this stack: #{resp.url}", MU::NOTICE
+          MU.log "Review estimated monthly cost for AWS resources in this stack: #{resp.url}", MU::NOTICE, verbosity: MU::Logger::NORMAL
         rescue Aws::CloudFormation::Errors::ValidationError => e
           if !e.message.match(/Member must have length less than or equal to 51200/)
             MU.log "Unable to calculate resource costs: #{e.message}", MU::WARN

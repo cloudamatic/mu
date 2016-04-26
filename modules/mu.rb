@@ -226,22 +226,22 @@ module MU
   setLogging(MU::Logger::NORMAL, false)
 
   # Shortcut to invoke {MU::Logger#log}
-  def self.log(msg, level=MU::INFO, details: nil, html: html = false)
-    return if (level == MU::DEBUG and MU.verbosity <= MU::Logger::LOUD)
+  def self.log(msg, level=MU::INFO, details: nil, html: html = false, verbosity: MU.verbosity)
+    return if (level == MU::DEBUG and verbosity <= MU::Logger::LOUD)
 
     if (level == MU::ERR or
         level == MU::WARN or
         level == MU::DEBUG or
-        MU.verbosity >= MU::Logger::LOUD or
+        verbosity >= MU::Logger::LOUD or
         (level == MU::NOTICE and !details.nil?)
     )
       # TODO add more stuff to details here (e.g. call stack)
       extra = nil
-      if Thread.current.thread_variable_get("name") and (level > MU::NOTICE or MU.verbosity >= MU::Logger::LOUD)
+      if Thread.current.thread_variable_get("name") and (level > MU::NOTICE or verbosity >= MU::Logger::LOUD)
         extra = Hash.new
         extra = {
-            :thread => Thread.current.object_id,
-            :name => Thread.current.thread_variable_get("name")
+          :thread => Thread.current.object_id,
+          :name => Thread.current.thread_variable_get("name")
         }
       end
       if !details.nil?

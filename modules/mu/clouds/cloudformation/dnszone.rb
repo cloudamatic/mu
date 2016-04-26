@@ -64,7 +64,6 @@ module MU
               if dnsrec['mu_type'] == "loadbalancer"
 
                 if @dependencies.has_key?("loadbalancer") && dnsrec['deploy_id'].nil?
-# XXX This fails with a mysterious permission error. Probably Amazon's fault.
                   if dnsrec['type'] == "R53ALIAS"
                     dnsrec['alias_zone'] = { "Fn::GetAtt" => [@dependencies["loadbalancer"][dnsrec['target']].cloudobj.cfm_name, "CanonicalHostedZoneNameID"] }
                   end

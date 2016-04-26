@@ -77,6 +77,8 @@ module MU
       @dependency_semaphore = Mutex.new
 
       @main_config = stack_conf
+      @original_config = Marshal.load(Marshal.dump(stack_conf))
+      @original_config.freeze
       @admins = stack_conf["admins"]
 
       @environment = environment
@@ -112,8 +114,15 @@ module MU
       MU::Cloud.resource_types.each { |cloudclass, data|
         if !@main_config[data[:cfg_plural]].nil? and @main_config[data[:cfg_plural]].size > 0
           @main_config[data[:cfg_plural]].each { |resource|
-            if MU::Cloud::CloudFormation.emitCloudFormation
-              resource['cloud'] = "CloudFormation" if resource['cloud'] = "AWS"
+            if force_cloudformation
+              if resource['cloud'] = "AWS"
+                resource['cloud'] = "CloudFormation"
+                if resource.has_key?("vpc") and resource["vpc"].is_a?(Hash)
+                  resource["vpc"]['cloud'] = "CloudFormation"
+                elsif resource.has_key?("vpcs") and resource["vpcs"].is_a?(Array)
+                  resource['vpcs'].each { |v| v['cloud'] = "CloudFormation" }
+                end
+              end
             end
           }
           setThreadDependencies(@main_config[data[:cfg_plural]])
@@ -250,7 +259,6 @@ module MU
           end
         end
       rescue Exception => e
-
         @my_threads.each do |t|
           if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread"
             MU::MommaCat.unlockAll
@@ -287,17 +295,21 @@ module MU
 
       # Send notifications
       sendMail
-      MU.log "Deployment complete", details: deployment
+#      MU.log "Deployment complete", details: deployment
       if mommacat.numKittens(clouds: ["AWS"]) > 0
-        MU.log "Generating cost calculation URL for all Amazon Web Services resources.", details: deployment
-        cost_dummy_deploy = MU::Deploy.new(
-          @environment,
-          verbosity: MU::Logger::QUIET,
-          force_cloudformation: true,
-          cloudformation_path: "/dev/null",
-          nocleanup: true,
-          stack_conf: @main_config
-        )
+        t = Thread.new(@original_config) { |config|
+          MU.log "Generating cost calculation URL for all Amazon Web Services resources."
+          cost_dummy_deploy = MU::Deploy.new(
+            @environment.dup,
+            verbosity: MU::Logger::QUIET,
+            force_cloudformation: true,
+            cloudformation_path: "/dev/null",
+            nocleanup: true,
+            stack_conf: @original_config
+          )
+          cost_dummy_deploy.run
+        }
+        t.join
       end
 
     end
