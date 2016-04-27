@@ -55,7 +55,8 @@ module MU
               "resourceName" => @config["name"],
               "resourceType" => "server"
             },
-            custom_append: @config['userdata_script']
+            custom_append: @config['userdata_script'],
+            scrub_mu_isms: @config['scrub_mu_isms']
           )
 
           @disk_devices = MU::Cloud::AWS::Server.disk_devices
@@ -83,7 +84,7 @@ module MU
         # Populate @cfm_template with a resource description for this server
         # in CloudFormation language.
         def create
-          @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags']) if @cfm_template.nil?
+          @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags'], scrub_mu_isms: @config['scrub_mu_isms']) if @cfm_template.nil?
           @role_cfm_name = @prof_cfm_name = nil
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "SourceDestCheck", @config['src_dst_check'].to_s)
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "InstanceType", @config['size'])
@@ -95,7 +96,7 @@ module MU
           elsif @config['iam_role'].nil?
             raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
           end
-          MU::Cloud::CloudFormation::Server.addStdPoliciesToIAMProfile(@cfm_role_name, cloudformation_data: @cfm_template)
+          MU::Cloud::CloudFormation::Server.addStdPoliciesToIAMProfile(@cfm_role_name, cloudformation_data: @cfm_template) if !@config['scrub_mu_isms']
           if !@config["iam_role"].nil?
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @cfm_role_name)
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @cfm_prof_name)
@@ -126,17 +127,17 @@ module MU
           if !@config['static_ip'].nil?
             eip_name = eip_template = nil
 
-            eipassoc_name, eipassoc_template = MU::Cloud::CloudFormation.cloudFormationBase("eipassoc", name: @config['name']+"EIP")
+            eipassoc_name, eipassoc_template = MU::Cloud::CloudFormation.cloudFormationBase("eipassoc", name: @config['name']+"EIP", scrub_mu_isms: @config['scrub_mu_isms'])
 
             if @config['static_ip']['ip'].nil?
-              eip_name, eip_template = MU::Cloud::CloudFormation.cloudFormationBase("eip", name: @config['name']+"EIP")
+              eip_name, eip_template = MU::Cloud::CloudFormation.cloudFormationBase("eip", name: @config['name']+"EIP", scrub_mu_isms: @config['scrub_mu_isms'])
               MU::Cloud::CloudFormation.setCloudFormationProp(eipassoc_template[eipassoc_name], "DependsOn", eip_name)
               if !@config['vpc'].nil?
                 MU::Cloud::CloudFormation.setCloudFormationProp(eip_template[eip_name], "Domain", "vpc")
                 MU::Cloud::CloudFormation.setCloudFormationProp(eipassoc_template[eipassoc_name], "AllocationId", { "Fn::GetAtt" => [eip_name, "AllocationId"] })
                 if !@vpc.nil? and @config.has_key?("vpc")
                   if !@config["vpc"]["vpc_name"].nil? and @dependencies.has_key?("vpc") and @dependencies["vpc"].has_key?(@config["vpc"]["vpc_name"])
-                    igw_name, igw_template = MU::Cloud::CloudFormation.cloudFormationBase("vpcgwattach", name: @dependencies["vpc"][@config["vpc"]["vpc_name"]].cloudobj.mu_name)
+                    igw_name, igw_template = MU::Cloud::CloudFormation.cloudFormationBase("vpcgwattach", name: @dependencies["vpc"][@config["vpc"]["vpc_name"]].cloudobj.mu_name, scrub_mu_isms: @config['scrub_mu_isms'])
                     MU::Cloud::CloudFormation.setCloudFormationProp(eip_template[eip_name], "DependsOn", igw_name)
                   end
                 end

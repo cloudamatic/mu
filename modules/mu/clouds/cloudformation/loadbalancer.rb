@@ -44,7 +44,7 @@ module MU
         # Populate @cfm_template with a resource description for this load
         # balancer in CloudFormation language.
         def create
-          @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags']) if @cfm_template.nil?
+          @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags'], scrub_mu_isms: @config['scrub_mu_isms']) if @cfm_template.nil?
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "LoadBalancerName", @mu_name)
           @config["cross_zone"] = @config["cross_zone_unstickiness"]
           @config["health_check"] = @config["healthcheck"]

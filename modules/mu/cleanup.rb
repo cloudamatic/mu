@@ -109,7 +109,6 @@ module MU
             MU::Cloud::Alarm.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["Alarm"]) > 0 # XXX other resources can make these appear, I think- which ones?
             MU::Cloud::Notification.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["Notification"]) > 0 # XXX other resources can make these appear, I think- which ones?
             MU::Cloud::Log.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["Log"]) > 0 # XXX other resources can make these appear, I think- which ones?
-            MU::Cloud::DNSZone.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["DNSZone"]) > 0
             MU::Cloud::VPC.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["VPC"]) > 0
             MU::Cloud::Collection.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, wait: true) if @mommacat.nil? or @mommacat.numKittens(types: ["Collection"]) > 0
 
@@ -126,6 +125,7 @@ module MU
         @regionthreads.each do |t|
           t.join
         end
+        MU::Cloud::DNSZone.cleanup(noop: @noop, ignoremaster: @ignoremaster) if @mommacat.nil? or @mommacat.numKittens(types: ["DNSZone"]) > 0
       end
 
       # Scrub any residual Chef records with matching tags

@@ -42,7 +42,7 @@ module MU
         # Populate @cfm_template with a resource description for this alarm
         # in CloudFormation language.
         def create
-          @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self)
+          @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, scrub_mu_isms: @config['scrub_mu_isms'])
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "AlarmName", @mu_name)
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "AlarmDescription", @mu_name)
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "ComparisonOperator", @config['comparison_operator'])
@@ -68,7 +68,7 @@ module MU
 
           notif_name = notif_template = nil
           if @config["enable_notifications"]
-            notif_name, notif_template = MU::Cloud::CloudFormation.cloudFormationBase("notification", name: @config["notification_group"])
+            notif_name, notif_template = MU::Cloud::CloudFormation.cloudFormationBase("notification", name: @config["notification_group"], scrub_mu_isms: @config['scrub_mu_isms'])
             MU::Cloud::CloudFormation.setCloudFormationProp(notif_template[notif_name], "TopicName", @config["notification_group"])
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "AlarmActions", { "Ref" => notif_name } )
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "OKActions", { "Ref" => notif_name } )

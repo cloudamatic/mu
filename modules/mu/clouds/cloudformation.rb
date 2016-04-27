@@ -33,33 +33,42 @@ module MU
       # param type [String]: The resource type, in Mu parlance
       # param cloudobj [MU::Clouds::AWS]: The resource object
       # param name [String]: An alternative name for resources which are not first-class Mu classes with their own objects
-      def self.cloudFormationBase(type, cloudobj = nil, name: nil, tags: [])
+      def self.cloudFormationBase(type, cloudobj = nil, name: nil, tags: [], scrub_mu_isms: false)
         desc = {}
         tags = [] if tags.nil?
         realtags = []
         tags.each { |tag|
           if tag['value'].class.to_s == "MU::Config::Tail"
-            tag['value'] = { "Ref" => "#{tag['value'].getPrettyName}" }
+            if tag['value'].pseudo and tag['value'].getName == "myAppName"
+              tag['value'] = { "Ref" => "AWS::StackName" }
+            else
+              tag['value'] = { "Ref" => "#{tag['value'].getPrettyName}" }
+            end
           end
           realtags << { "Key" => tag['key'], "Value" => tag['value'] }
         }
         tags = realtags
-        MU::MommaCat.listStandardTags.each_pair { |key, val|
-          next if ["MU-OWNER", "MU-MASTER-IP", "MU-MASTER-NAME"].include?(key)
-          if key == "MU-ID"
-            val = { "Fn::Join" => ["", [ { "Ref" => "Environment" }, "-", { "Ref" => "AWS::StackName" } ] ] }
-          elsif key == "MU-ENV"
-            val =  { "Ref" => "Environment" }
-          end
-          tags << { "Key" => key, "Value" => val }
-        }
+        if !scrub_mu_isms
+          MU::MommaCat.listStandardTags.each_pair { |key, val|
+            if key == "MU-ID" # approximate in a CloudFormationy way
+              val = { "Fn::Join" => ["", [ { "Ref" => "Environment" }, "-", { "Ref" => "AWS::StackName" } ] ] }
+            elsif key == "MU-ENV"
+              val =  { "Ref" => "Environment" }
+            end
+            tags << { "Key" => key, "Value" => val }
+          }
+        end
 
         res_name = ""
         res_name = cloudobj.config["name"] if !cloudobj.nil?
         if name.nil?
           nametag = { "Fn::Join" => ["", [ { "Ref" => "Environment" }, "-", { "Ref" => "AWS::StackName" }, "-", res_name.gsub(/[^a-z0-9]/i, "").upcase ] ] }
           basename = ""
-          basename = cloudobj.mu_name if !cloudobj.nil? and !cloudobj.mu_name.nil?
+          if !cloudobj.nil? and !cloudobj.mu_name.nil?
+            basename = cloudobj.mu_name
+          elsif !cloudobj.nil? and !cloudobj.config.nil?
+            basename = cloudobj.config["name"]
+          end
           name = (type+basename).gsub!(/[^a-z0-9]/i, "")
           tags << { "Key" => "Name", "Value" => nametag }
         else
@@ -385,7 +394,11 @@ module MU
             realvalue = { "Fn::Select" => [0, { "Ref" => "#{value.getPrettyName}" }] }
             is_list_element = true
           else
-            realvalue = { "Ref" => "#{value.getPrettyName}" }
+            if value.pseudo and value.getName == "myAppName"
+              realvalue = { "Ref" => "AWS::StackName" }
+            else
+              realvalue = { "Ref" => "#{value.getPrettyName}" }
+            end
           end
         end
 
@@ -435,6 +448,7 @@ module MU
         end
         tails.each_pair { |param, data|
           tail = data
+          next if tail.is_a?(MU::Config::Tail) and tail.pseudo
           default = ""
           if data.is_a?(Array)
             realval = []
@@ -574,7 +588,7 @@ module MU
           resp = MU::Cloud::AWS.cloudformation.estimate_template_cost(
             template_body: JSON.generate(cfm_template)
           )
-          MU.log "Review estimated monthly cost for AWS resources in this stack: #{resp.url}", MU::NOTICE
+          MU.log "Review estimated monthly cost for AWS resources in this stack: #{resp.url}", MU::NOTICE, verbosity: MU::Logger::NORMAL
         rescue Aws::CloudFormation::Errors::ValidationError => e
           if !e.message.match(/Member must have length less than or equal to 51200/)
             MU.log "Unable to calculate resource costs: #{e.message}", MU::WARN
