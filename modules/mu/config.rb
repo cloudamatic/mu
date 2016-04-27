@@ -128,12 +128,15 @@ module MU
       @prefix = ""
       @suffix = ""
       @is_list_element = false
+      @pseudo = false
       attr_reader :description
+      attr_reader :pseudo
       attr_reader :is_list_element
 
-      def initialize(name, value, prettyname = nil, cloud_type = "String", description = "", is_list_element = false, prefix: "", suffix: "")
+      def initialize(name, value, prettyname = nil, cloud_type = "String", description = "", is_list_element = false, prefix: "", suffix: "", pseudo: false)
         @name = name
         @value = value
+        @pseudo = pseudo
         @cloud_type = cloud_type
         @is_list_element = is_list_element
         @description ||= 
@@ -203,8 +206,9 @@ module MU
     # @param description [<String>]: A long-form description of what the parameter does.
     # @param list_of [<String>]: Indicates that the value should be treated as a member of a list (array) by the cloud layer.
     # @param prefix [<String>]: A static String that should be prefixed to the stored value when queried
-    # @param suffix [<String>]:  A static String that should be appended to the stored value when queried
-    def getTail(param, value: nil, prettyname: nil, cloud_type: "String", description: nil, list_of: nil, prefix: "", suffix: "")
+    # @param suffix [<String>]: A static String that should be appended to the stored value when queried
+    # @param pseudo [<Boolean>]: This is a pseudo-parameter, automatically provided, and not available as user input.
+    def getTail(param, value: nil, prettyname: nil, cloud_type: "String", description: nil, list_of: nil, prefix: "", suffix: "", pseudo: false)
       if value.nil?
         if $parameters.nil? or !$parameters.has_key?(param)
           MU.log "Parameter '#{param}' (#{param.class.name}) referenced in config but not provided (#{caller[0]})", MU::DEBUG, details: $parameters
@@ -229,18 +233,19 @@ module MU
             cloud_type = @@tails[param][count].values.first.getCloudType if @@tails[param][count].values.first.getCloudType != "String"
           end
           prettyname = param.capitalize if prettyname.nil?
-          tail << { list_of => MU::Config::Tail.new(list_of, subval, prettyname, cloud_type, description, true) }
+          tail << { list_of => MU::Config::Tail.new(list_of, subval, prettyname, cloud_type, description, true, pseudo: pseudo) }
           count = count + 1
         }
       else
         if @@tails.has_key?(param)
+          pseudo = @@tails[param].pseudo
           value = @@tails[param].to_s if value.nil?
           prettyname = @@tails[param].getPrettyName if prettyname.nil?
           description = @@tails[param].description if description.nil?
           cloud_type = @@tails[param].getCloudType if @@tails[param].getCloudType != "String"
         end
 
-        tail = MU::Config::Tail.new(param, value, prettyname, cloud_type, description, prefix: prefix, suffix: suffix)
+        tail = MU::Config::Tail.new(param, value, prettyname, cloud_type, description, prefix: prefix, suffix: suffix, pseudo: pseudo)
       end
       @@tails[param] = tail
       tail
@@ -266,7 +271,7 @@ module MU
               return "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
             end
           else
-            return tail.to_s
+            return "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
           end
         end
       end
@@ -298,6 +303,11 @@ module MU
         if param_pass
           config.keys.each { |key|
             if key != "parameters"
+              if key == "appname" and @@parameters["myAppName"].nil?
+                $myAppName = config["appname"].upcase.dup
+                $myAppName.freeze
+                @@parameters["myAppName"] = getTail("myAppName", value: config["appname"].upcase, pseudo: true).to_s
+              end
               config.delete(key)
             end
           }
@@ -335,6 +345,8 @@ module MU
       $myAZ.freeze
       $myRegion = MU.curRegion.freeze
       $myRegion.freeze
+      
+      $myAppName = nil
 
       @@config_path = path
       @admin_firewall_rules = []
@@ -363,6 +375,12 @@ module MU
       # XXX figure out how to make include() add parameters for us
       param_cfg, raw_erb_params_only = resolveConfig(path: @@config_path, param_pass: true)
 
+      # Set up special Tail objects for our automatic pseudo-parameters
+      getTail("myPublicIp", value: $myPublicIp, pseudo: true)
+      getTail("myRoot", value: $myRoot, pseudo: true)
+      getTail("myAZ", value: $myAZ, pseudo: true)
+      getTail("myRegion", value: $myRegion, pseudo: true)
+
       if param_cfg.has_key?("parameters") and !param_cfg["parameters"].nil? and param_cfg["parameters"].size > 0
         param_cfg["parameters"].each { |param|
           if !@@parameters.has_key?(param['name'])
@@ -382,6 +400,7 @@ module MU
       end
       raise ValidationError if !ok
       @@parameters.each_pair { |name, val|
+        next if @@tails.has_key?(name) and @@tails[name].is_a?(MU::Config::Tail) and @@tails[name].pseudo
         if respond_to?(name.to_sym)
           MU.log "Parameter name '#{name}' reserved", MU::ERR
           ok = false
@@ -1181,7 +1200,6 @@ module MU
           end
         }
         if realerrors.size > 0
-          pp config
           raise ValidationError, "Validation error in #{@@config_path}!\n"+realerrors.join("\n")
         end
       end
@@ -1230,6 +1248,7 @@ module MU
       vpcs.each { |vpc|
         vpc["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("VPC")
         vpc['cloud'] = MU::Config.defaultCloud if vpc['cloud'].nil?
+        vpc['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
         vpc['region'] = config['region'] if vpc['region'].nil?
         vpc["dependencies"] = Array.new if vpc["dependencies"].nil?
         subnet_routes = Hash.new
@@ -1367,6 +1386,7 @@ module MU
       dnszones.each { |zone|
         zone["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("DNSZone")
         zone['cloud'] = MU::Config.defaultCloud if zone['cloud'].nil?
+        zone['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
         zone['region'] = config['region'] if zone['region'].nil?
         zone["dependencies"] = [] if zone['dependencies'].nil?
         # ext_zone = MU::Cloud::DNSZone.find(cloud_id: zone['name']).values.first
@@ -1445,6 +1465,7 @@ module MU
         firewall_rule_names << acl['name']
         acl['region'] = config['region'] if acl['region'].nil?
         acl['cloud'] = MU::Config.defaultCloud if acl['cloud'].nil?
+        acl['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
         acl["dependencies"] = Array.new if acl["dependencies"].nil?
         acl["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("FirewallRule")
 
@@ -1518,6 +1539,7 @@ module MU
       loadbalancers.each { |lb|
         lb['region'] = config['region'] if lb['region'].nil?
         lb['cloud'] = MU::Config.defaultCloud if lb['cloud'].nil?
+        lb['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
         lb["dependencies"] = Array.new if lb["dependencies"].nil?
         lb["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("LoadBalancer")
         if !lb["vpc"].nil?
@@ -1612,6 +1634,7 @@ module MU
         server_names << pool['name']
         pool['region'] = config['region'] if pool['region'].nil?
         pool['cloud'] = MU::Config.defaultCloud if pool['cloud'].nil?
+        pool['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
         pool["dependencies"] = Array.new if pool["dependencies"].nil?
         pool["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("ServerPool")
         pool["#MU_GROOMER"] = MU::Groomer.loadGroomer(pool['groomer'])
@@ -1804,6 +1827,7 @@ module MU
       databases.each { |db|
         db['region'] = config['region'] if db['region'].nil?
         db['cloud'] = MU::Config.defaultCloud if db['cloud'].nil?
+        db['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
         db["dependencies"] = Array.new if db["dependencies"].nil?
         db["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Database")
         database_names << db['name']
@@ -2150,6 +2174,7 @@ module MU
       cache_clusters.each { |cluster|
         cluster['region'] = config['region'] if cluster['region'].nil?
         cluster['cloud'] = MU::Config.defaultCloud if cluster['cloud'].nil?
+        cluster['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
         cluster["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("CacheCluster")
         cluster["dependencies"] = [] if cluster["dependencies"].nil?
 
@@ -2358,6 +2383,7 @@ module MU
       logs.each { |log_rec|
         log_rec['region'] = config['region'] if log_rec['region'].nil?
         log_rec['cloud'] = MU::Config.defaultCloud if log_rec['cloud'].nil?
+        log['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
         log_rec["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Log")
         log_rec["dependencies"] = [] if log_rec["dependencies"].nil?
         
@@ -2380,6 +2406,7 @@ module MU
         server["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Server")
         server["#MU_GROOMER"] = MU::Groomer.loadGroomer(server['groomer'])
         server['cloud'] = MU::Config.defaultCloud if server['cloud'].nil?
+        server['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
         server['region'] = config['region'] if server['region'].nil?
         server["dependencies"] = Array.new if server["dependencies"].nil?
         if !server['generate_iam_role']
@@ -3838,6 +3865,11 @@ module MU
     # properties common to both server and server_pool resources
     @server_common_properties = {
         "name" => {"type" => "string"},
+        "scrub_mu_isms" => {
+            "type" => "boolean",
+            "default" => false,
+            "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template."
+        },
         "region" => @region_primitive,
         "cloud" => @cloud_primitive,
         "async_groom" => {
@@ -4260,6 +4292,11 @@ module MU
                 "enum" => MU.supportedGroomers
             },
             "name" => {"type" => "string"},
+            "scrub_mu_isms" => {
+                "type" => "boolean",
+                "default" => false,
+                "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template."
+            },
             "region" => @region_primitive,
             "db_family" => {"type" => "string"},
             "tags" => @tags_primitive,
@@ -4438,6 +4475,11 @@ module MU
         "properties" => {
             "cloud" => @cloud_primitive,
             "name" => {"type" => "string"},
+            "scrub_mu_isms" => {
+                "type" => "boolean",
+                "default" => false,
+                "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template."
+            },
             "region" => @region_primitive,
             "tags" => @tags_primitive,
             "engine_version" => {"type" => "string"},
@@ -4540,6 +4582,11 @@ module MU
             "name" => {
                 "type" => "string",
                 "description" => "Note that Amazon Elastic Load Balancer names must be relatively short. Brevity is recommended here."
+            },
+            "scrub_mu_isms" => {
+                "type" => "boolean",
+                "default" => false,
+                "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template."
             },
             "tags" => @tags_primitive,
             "add_firewall_rules" => @additional_firewall_rules,
@@ -4739,6 +4786,11 @@ module MU
                 "description" => "The domain name to create. Must comply with RFC 1123",
                 "pattern" => "^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$"
             },
+            "scrub_mu_isms" => {
+                "type" => "boolean",
+                "default" => false,
+                "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template."
+            },
             "private" => {
                 "type" => "boolean",
                 "default" => true,
@@ -4765,6 +4817,11 @@ module MU
         "required" => ["name", "min_size", "max_size", "basis", "cloud"],
         "properties" => {
             "dns_records" => dns_records_primitive(need_target: false, default_type: "A", need_zone: true),
+            "scrub_mu_isms" => {
+                "type" => "boolean",
+                "default" => false,
+                "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template."
+            },
             "wait_for_nodes" => {
                 "type" => "integer",
                 "description" => "Use this parameter to force a certain number of nodes to come up and be fully bootstrapped before the rest of the pool is initialized.",
@@ -5026,6 +5083,10 @@ module MU
             "appname" => {
                 "type" => "string",
                 "description" => "A name for your application stack. Should be short, but easy to differentiate from other applications.",
+            },
+            "scrub_mu_isms" => {
+                "type" => "boolean",
+                "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template. Setting this flag here will override declarations in individual resources."
             },
             "parameters" => {
                 "type" => "array",

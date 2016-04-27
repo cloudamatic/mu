@@ -42,7 +42,7 @@ module MU
         # Populate @cfm_template with a resource description for this log
         # in CloudFormation language.
         def create
-          @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("loggroup", self)
+          @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("loggroup", self, scrub_mu_isms: @config['scrub_mu_isms'])
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "RetentionInDays", @config["retention_period"])
 
           @config["log_stream_name"] =
@@ -60,7 +60,7 @@ module MU
               @mu_name
             end
 
-          stream_name, stream_template = MU::Cloud::CloudFormation.cloudFormationBase("logstream", self)
+          stream_name, stream_template = MU::Cloud::CloudFormation.cloudFormationBase("logstream", self, scrub_mu_isms: @config['scrub_mu_isms'])
           MU::Cloud::CloudFormation.setCloudFormationProp(stream_template[stream_name], "LogGroupName", { "Ref" => @cfm_name })
           MU::Cloud::CloudFormation.setCloudFormationProp(stream_template[stream_name], "LogStreamName", @config["log_stream_name"])
           MU::Cloud::CloudFormation.setCloudFormationProp(stream_template[stream_name], "DependsOn", @cfm_name)
@@ -68,7 +68,7 @@ module MU
 
           if @config["filters"] && !@config["filters"].empty?
             @config["filters"].each{ |filter|
-              metric_name, metric_template = MU::Cloud::CloudFormation.cloudFormationBase("logmetricfilter", self, name: @mu_name+"filter"+filter["name"])
+              metric_name, metric_template = MU::Cloud::CloudFormation.cloudFormationBase("logmetricfilter", self, name: @mu_name+"filter"+filter["name"], scrub_mu_isms: @config['scrub_mu_isms'])
               MU::Cloud::CloudFormation.setCloudFormationProp(metric_template[metric_name], "FilterPattern", filter["search_pattern"])
               MU::Cloud::CloudFormation.setCloudFormationProp(metric_template[metric_name], "MetricTransformations", { "MetricName" => filter["metric_name"], "MetricNamespace" => filter["namespace"], "MetricValue" => filter["value"] } )
               MU::Cloud::CloudFormation.setCloudFormationProp(metric_template[metric_name], "LogGroupName", { "Ref" => @cfm_name })
@@ -79,7 +79,7 @@ module MU
 
 
           if @config["enable_cloudtrail_logging"]
-            role_name, role_template = MU::Cloud::CloudFormation.cloudFormationBase("iamrole", name: @mu_name)
+            role_name, role_template = MU::Cloud::CloudFormation.cloudFormationBase("iamrole", name: @mu_name, scrub_mu_isms: @config['scrub_mu_isms'])
             iam_policy = {
               "Version" => "2012-10-17",
               "Statement" => [

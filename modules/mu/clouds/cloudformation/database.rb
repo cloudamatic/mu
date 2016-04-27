@@ -65,10 +65,10 @@ module MU
           @config['master_user'] = MU::Cloud::AWS::Database.getName(basename, type: "dbuser", config: @config) unless @config['master_user']
 
           if @config["create_cluster"]
-            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("dbcluster", self, tags: @config['tags']) if @cfm_template.nil?
+            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("dbcluster", self, tags: @config['tags'], scrub_mu_isms: @config['scrub_mu_isms']) if @cfm_template.nil?
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Port", @config['port']) if @config['port']
           else
-            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags']) if @cfm_template.nil?
+            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags'], scrub_mu_isms: @config['scrub_mu_isms']) if @cfm_template.nil?
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBInstanceClass", @config['size'])
             if !@config['storage'].nil?
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "AllocatedStorage", @config['storage'].to_s)
@@ -128,10 +128,10 @@ module MU
           if @config['parameter_group_family']
             params_name = params_template = nil
             if @config["create_cluster"]
-              params_name, params_template = MU::Cloud::CloudFormation.cloudFormationBase("dbclusterparametergroup", name: @mu_name, tags: @config['tags'])
+              params_name, params_template = MU::Cloud::CloudFormation.cloudFormationBase("dbclusterparametergroup", name: @mu_name, tags: @config['tags'], scrub_mu_isms: @config['scrub_mu_isms'])
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBClusterParameterGroupName", { "Ref" => params_name })
             else
-              params_name, params_template = MU::Cloud::CloudFormation.cloudFormationBase("dbparametergroup", name: @mu_name, tags: @config['tags'])
+              params_name, params_template = MU::Cloud::CloudFormation.cloudFormationBase("dbparametergroup", name: @mu_name, tags: @config['tags'], scrub_mu_isms: @config['scrub_mu_isms'])
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBParameterGroupName", { "Ref" => params_name })
             end
             MU::Cloud::CloudFormation.setCloudFormationProp(params_template[params_name], "Description", "Parameter group for database #{@mu_name}")
@@ -150,7 +150,7 @@ module MU
 
           # DB Subnet groups also common between clusters and instances
           if @config["vpc"]
-            subnets_name, subnets_template = MU::Cloud::CloudFormation.cloudFormationBase("dbsubnetgroup", name: @mu_name, tags: @config['tags'])
+            subnets_name, subnets_template = MU::Cloud::CloudFormation.cloudFormationBase("dbsubnetgroup", name: @mu_name, tags: @config['tags'], scrub_mu_isms: @config['scrub_mu_isms'])
             MU::Cloud::CloudFormation.setCloudFormationProp(subnets_template[subnets_name], "DBSubnetGroupDescription", @mu_name)
             if !@config["vpc"]["subnets"].nil? and @config["vpc"]["subnets"].size > 0
               @config["vpc"]["subnets"].each { |subnet|
