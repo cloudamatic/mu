@@ -191,9 +191,9 @@ module MU
             )
 
           elsif basis["server"]
-            raise MuError, "Basis 'server' not valid for CloudFormation target. Instead, use a launch_config with a 'server' argument."
+            raise MuCloudFlagNotImplemented, "Basis 'server' not valid for CloudFormation target. Instead, use a launch_config with a 'server' argument."
           elsif basis["instance_id"]
-            raise MuError, "Basis 'instance_id' not valid for CloudFormation target. Instead, use a launch_config with an 'instance_id' argument."
+            raise MuCloudFlagNotImplemented, "Basis 'instance_id' not valid for CloudFormation target. Instead, use a launch_config with an 'instance_id' argument."
           end
 
           public_ip_pref = true

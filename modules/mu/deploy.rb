@@ -58,10 +58,13 @@ module MU
                    nocleanup: false,
                    cloudformation_path: nil,
                    force_cloudformation: false,
+                   reraise_thread: nil,
                    stack_conf: nil)
       MU.setVar("verbosity", verbosity)
       @webify_logs = webify_logs
+      @verbosity = verbosity
       @nocleanup = nocleanup
+      @reraise_thread = reraise_thread
       MU.setLogging(verbosity, webify_logs)
 
       MU::Cloud::CloudFormation.emitCloudFormation(set: force_cloudformation)
@@ -208,6 +211,7 @@ module MU
         @deploy_semaphore = Mutex.new
 
         parent_thread_id = Thread.current.object_id
+        @main_thread = Thread.current
 
         # Kick off threads to create each of our new servers.
         @my_threads << Thread.new {
@@ -248,19 +252,9 @@ module MU
         @my_threads.each do |t|
           t.join
         end
-
-        if mommacat.numKittens(clouds: ["CloudFormation"]) > 0
-          MU::Cloud::CloudFormation.writeCloudFormationTemplate(tails: MU::Config.tails, config: @main_config, path: @cloudformation_output, mommacat: mommacat)
-          # If we didn't build anything besides CloudFormation, purge useless
-          # metadata.
-          if mommacat.numKittens(clouds: ["CloudFormation"], negate: true) == 0
-            MU::Cleanup.run(MU.deploy_id, skipcloud: true, verbosity: MU::Logger::QUIET, mommacat: mommacat)
-            exit
-          end
-        end
       rescue Exception => e
         @my_threads.each do |t|
-          if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread"
+          if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread" and t.object_id != parent_thread_id
             MU::MommaCat.unlockAll
             t.kill
           end
@@ -269,15 +263,24 @@ module MU
         # If it was a regular old exit, we assume something deeper in already
         # handled logging and cleanup for us, and just quietly go away.
         if e.class.to_s != "SystemExit"
-          MU.log e.inspect, MU::ERR, details: e.backtrace
+          MU.log e.inspect, MU::ERR, details: e.backtrace if @verbosity != MU::Logger::SILENT
           if !@nocleanup
             MU::Cleanup.run(MU.deploy_id, skipsnapshots: true, verbosity: @verbosity, mommacat: mommacat)
             @nocleanup = true # so we don't run this again later
           end
-          MU.log e.inspect, MU::ERR
         end
-
-        exit 1
+        @reraise_thread.raise MuError, e.inspect, e.backtrace if @reraise_thread
+        Thread.current.exit
+      ensure
+        if mommacat.numKittens(clouds: ["CloudFormation"]) > 0
+          MU::Cloud::CloudFormation.writeCloudFormationTemplate(tails: MU::Config.tails, config: @main_config, path: @cloudformation_output, mommacat: mommacat)
+          # If we didn't build anything besides CloudFormation, purge useless
+          # metadata.
+          if mommacat.numKittens(clouds: ["CloudFormation"], negate: true) == 0
+            MU::Cleanup.run(MU.deploy_id, skipcloud: true, verbosity: MU::Logger::SILENT, mommacat: mommacat)
+            return
+          end
+        end
       end
       if !MU.mommacat.deployment['servers'].nil? and MU.mommacat.deployment['servers'].keys.size > 0
         # XXX some kind of filter (obey sync_siblings on nodes' configs)
@@ -295,23 +298,33 @@ module MU
 
       # Send notifications
       sendMail
-#      MU.log "Deployment complete", details: deployment
       if mommacat.numKittens(clouds: ["AWS"]) > 0
-        t = Thread.new(@original_config) { |config|
-          MU.log "Generating cost calculation URL for all Amazon Web Services resources."
+        MU.log "Generating cost calculation URL for all Amazon Web Services resources."
+        MU.setLogging(MU::Logger::SILENT)
+        begin
+        t = Thread.new {
           cost_dummy_deploy = MU::Deploy.new(
             @environment.dup,
-            verbosity: MU::Logger::QUIET,
+            verbosity: MU::Logger::SILENT,
             force_cloudformation: true,
             cloudformation_path: "/dev/null",
             nocleanup: true,
-            stack_conf: @original_config
+            stack_conf: @original_config,
+            reraise_thread: @main_thread
           )
           cost_dummy_deploy.run
         }
         t.join
+        rescue MU::Cloud::MuCloudFlagNotImplemented, MU::Cloud::MuCloudResourceNotImplemented => e
+          MU.log "Failed to generate AWS cost-calculation URL. Skipping.", MU::WARN, details: "Deployment uses a feature not available in CloudFormation layer.", verbosity: MU::Logger::NORMAL
+        rescue Exception => e
+#          MU.log "Failed to generate AWS cost-calculation URL, skipping", MU::WARN, verbosity: MU::Logger::NORMAL
+          MU.log "Failed to generate AWS cost-calculation URL. Skipping.", MU::WARN, details: "Deployment uses a feature not available in CloudFormation layer.", verbosity: MU::Logger::NORMAL
+        end
+        MU.setLogging(@verbosity)
       end
 
+      MU.log "Deployment complete", details: deployment
     end
 
     private
@@ -450,6 +463,7 @@ MESSAGE_END
       return if services.nil?
 
       parent_thread_id = Thread.current.object_id
+      parent_thread = Thread.current
       services.uniq!
       services.each do |service|
         @my_threads << Thread.new(service) { |myservice|
@@ -474,22 +488,22 @@ MESSAGE_END
             end
           rescue Exception => e
             MU::MommaCat.unlockAll
-            raise MuError, "Error instantiating object from #{service["#MU_CLOUDCLASS"]} (#{e.inspect})", e.backtrace
+            @main_thread.raise MuError, "Error instantiating object from #{service["#MU_CLOUDCLASS"]} (#{e.inspect})", e.backtrace
           end
           begin
             run_this_method = service['#MUOBJECT'].method(mode)
           rescue Exception => e
             MU::MommaCat.unlockAll
-            raise MuError, "Error invoking #{service["#MU_CLOUDCLASS"]}.#{mode} for #{myservice['name']} (#{e.inspect})", e.backtrace
+            @main_thread.raise MuError, "Error invoking #{service["#MU_CLOUDCLASS"]}.#{mode} for #{myservice['name']} (#{e.inspect})", e.backtrace
           end
           begin
             MU.log "Running #{service['#MUOBJECT']}.#{mode}", MU::DEBUG
             myservice = run_this_method.call
           rescue Exception => e
-            MU.log e.inspect, MU::ERR, details: e.backtrace
+            MU.log e.inspect, MU::ERR, details: e.backtrace if @verbosity != MU::Logger::SILENT
             MU::MommaCat.unlockAll
             @my_threads.each do |t|
-              if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread"
+              if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread" and t.object_id != parent_thread_id
                 t.kill
               end
             end
@@ -497,7 +511,7 @@ MESSAGE_END
               MU::Cleanup.run(MU.deploy_id, verbosity: @verbosity, skipsnapshots: true)
               @nocleanup = true # so we don't run this again later
             end
-            raise MuError, e.inspect, e.backtrace
+            @main_thread.raise MuError, e.message, e.backtrace
           end
           MU.purgeGlobals
         }

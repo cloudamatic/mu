@@ -50,9 +50,9 @@ module MU
             if @config['all_account_vpcs']
 # XXX would need a way to add tails (CloudFormation paramaters, effectively) here in order to prompt the user for stuff like which pre-existing VPCs to plug in. Maybe we can have the config parser do that for is and pass it all in as @config['vpcs'], which would in turn be Refs to parameters? It'd need to know about the -c flag for AWS resources being converted on the fly.
 #            MU::Config.getTail("#{parent_name}vpc_id", value: vpc_block["vpc_id"], prettyname: "#{parent_name} Target VPC",  cloud_type: "AWS::EC2::VPC::Id")
-              raise MuError, "DNSZone parameter 'all_account_vpcs' currently not supported for CloudFormation targets"
+              raise MuCloudFlagNotImplemented, "DNSZone parameter 'all_account_vpcs' currently not supported for CloudFormation targets"
             else
-              raise MuError, "DNS Zone #{@config['name']} is flagged as private, you must either provide a VPC, or set 'all_account_vpcs' to true" if @config['vpcs'].nil? || @config['vpcs'].empty?
+              raise MuError, "DNS Zone #{@config['name']} is flagged as private, you must provide a VPC to allow access." if @config['vpcs'].nil? || @config['vpcs'].empty?
               @config['vpcs'].each { |vpc|
                 MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "VPCs", { "VPCId" => vpc['vpc_id'], "VPCRegion" => vpc['region'] })
               }

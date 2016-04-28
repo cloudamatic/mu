@@ -120,6 +120,7 @@ module MU
             end
           end
 
+          @config['records'] = [] if !@config['records']
           @config['records'].each { |dnsrec|
             dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
 

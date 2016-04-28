@@ -480,6 +480,7 @@ module MU
               config[data[:cfg_plural]].size > 0
             config[data[:cfg_plural]].each { |resource|
               namestr = resource['name'].gsub(/[^a-z0-9]/i, "")
+              next if resource['#MUOBJECT'].nil?
               if resource['#MUOBJECT'].cloudobj.respond_to?(:cfm_template) and !resource['#MUOBJECT'].cloudobj.cfm_template.nil?
                 cfm_template["Resources"].merge!(resource['#MUOBJECT'].cloudobj.cfm_template)
                 if data[:cfg_name] == "loadbalancer"
