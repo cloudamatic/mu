@@ -27,6 +27,11 @@ module MU
     class MuCloudResourceNotImplemented < StandardError;
     end
 
+    # Exception thrown when a request is made for an unsupported flag or feature
+    # in a cloud resource.
+    class MuCloudFlagNotImplemented < StandardError;
+    end
+
     generic_class_methods = [:find, :cleanup]
     generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config]
 

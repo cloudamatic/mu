@@ -4,17 +4,6 @@
  
    <%= install_chef %>
  
-+   SET LookForFile="c:\opscode\chef\bin\chef-client.bat"
-+   @echo off
-+
-+   :CheckForFile
-+   IF EXIST %LookForFile% GOTO FoundIt
-+   c:\Windows\System32\timeout.exe /t 30
-+   GOTO CheckForFile
-+
-+   :FoundIt
-+   @echo on
-+
    @if ERRORLEVEL 1 (
        echo Chef-client package failed to install with status code !ERRORLEVEL!. > "&2"
        echo See installation log for additional detail: %CHEF_CLIENT_MSI_LOG_PATH%. > "&2"

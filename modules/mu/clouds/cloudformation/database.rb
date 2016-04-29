@@ -185,7 +185,7 @@ module MU
 
           # Source snapshots and passwords work almost the same
           if @config["creation_style"] == "new_snapshot"
-            raise MuError, "Database creation node 'new_snapshot' is not supported for CloudFormation targets"
+            raise MuCloudFlagNotImplemented, "Database creation node 'new_snapshot' is not supported for CloudFormation targets"
           elsif @config["creation_style"] == "existing_snapshot"
             if !@config["create_cluster"]
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBSnapshotIdentifier", @config['identifier'])

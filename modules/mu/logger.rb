@@ -23,6 +23,8 @@ module MU
   # This class should be used for all output from MU. By default it logs to
   # stdout with human-friendly ANSI coloring, and to syslog.
   class Logger
+    # Show nothing at all
+    SILENT = -1.freeze
     # Only show NOTICE, WARN, and ERROR log entries
     QUIET = 0.freeze
     # Show INFO log entries
@@ -55,6 +57,7 @@ module MU
             verbosity: @verbosity
     )
       verbosity = MU::Logger::NORMAL if verbosity.nil?
+      return if verbosity == MU::Logger::SILENT
 
       # By which we mean, "get the filename (with the .rb stripped off) which
       # originated the call to this method. Which, for our purposes, is the
