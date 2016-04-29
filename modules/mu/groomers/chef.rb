@@ -332,7 +332,7 @@ module MU
           end
           guardfile = "/opt/mu_installed_chef"
         else
-          remove_cmd = "rm -rf /cygdrive/c/opscode /cygdrive/c/chef"
+          remove_cmd = "/cygdrive/c/Windows/system32/reg query HKLM\\\SOFTWARE\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ /f 'Chef Client' /s /t REG_SZ | grep '}$' | cut -d{ -f2 | cut -d} -f1 | xargs msiexec /qn /x"
           guardfile = "/cygdrive/c/mu_installed_chef"
         end
 

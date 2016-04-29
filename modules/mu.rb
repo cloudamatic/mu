@@ -219,15 +219,17 @@ module MU
   end
 
   # Set parameters parameters for calls to {MU#log}
-  def self.setLogging(verbosity, webify_logs)
+  def self.setLogging(verbosity, webify_logs = false)
+    MU.setVar("verbosity", verbosity)
     @@logger = MU::Logger.new(verbosity, webify_logs)
   end
 
   setLogging(MU::Logger::NORMAL, false)
 
   # Shortcut to invoke {MU::Logger#log}
-  def self.log(msg, level=MU::INFO, details: nil, html: html = false, verbosity: MU.verbosity)
+  def self.log(msg, level = MU::INFO, details: nil, html: html = false, verbosity: MU.verbosity)
     return if (level == MU::DEBUG and verbosity <= MU::Logger::LOUD)
+    return if verbosity == MU::Logger::SILENT
 
     if (level == MU::ERR or
         level == MU::WARN or

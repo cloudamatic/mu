@@ -129,7 +129,7 @@ module MU
             }
 
             # Figure out which devices are embedded in the AMI already.
-            image = MU::Cloud::AWS.ec2(@config['region']).describe_images(image_ids: [@config["ami_id"]]).images.first
+            image = MU::Cloud::AWS.ec2(@config['region']).describe_images(image_ids: [launch_desc["ami_id"]]).images.first
             ext_disks = {}
             if !image.block_device_mappings.nil?
               image.block_device_mappings.each { |disk|
