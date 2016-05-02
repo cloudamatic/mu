@@ -2357,7 +2357,7 @@ module MU
           server["alarms"].each { |alarm|
             alarm["name"] = "server"+server["name"]+alarm["name"]
             alarm["dimensions"] = [] if !alarm["dimensions"]
-            alarm['dimensions'] = { "name" => server["name"], "type" => "InstanceId" }
+            alarm['dimensions'] << { "name" => server["name"], "cloud_class" => "InstanceId" }
             alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
             alarm['cloud'] = server['cloud']
             alarms << alarm.dup
