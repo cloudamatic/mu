@@ -243,7 +243,7 @@ module MU
             @name = config['name']
             @deploydata = config # This is a dummy for the sake of describe()
 
-            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("subnet", self, tags: @config['tags'], scrub_mu_isms: @config['scrub_mu_isms'])
+            @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("subnet", self, tags: @config['tags'], scrub_mu_isms: @parent.config['scrub_mu_isms'])
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "VpcId", { "Ref" => parent.cfm_name })
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", parent.cfm_name)
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "CidrBlock", config['ip_block'])
