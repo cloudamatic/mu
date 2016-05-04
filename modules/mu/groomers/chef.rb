@@ -34,7 +34,7 @@ module MU
         end
         def const_missing(symbol)
           if symbol.to_sym == :Chef or symbol.to_sym == :ChefVault
-            MU::Groomer::Chef.loadChefLib(@server.deploy.mu_user, @server.deploy.environment)
+            MU::Groomer::Chef.loadChefLib(@server.deploy.chef_user, @server.deploy.environment, @server.deploy.mu_user)
             return Object.const_get(symbol)
           end
         end
@@ -758,7 +758,7 @@ module MU
               "mu_resource_name" => @config['name'],
               "mu_resource_type" => res_type,
               "mu_ssl_sign" => "#{MU.mySSLDir}/#{@server.mu_name}.csr",
-              "mu_user" => MU.chef_user,
+              "mu_user" => MU.mu_user,
               "mu_deploy_secret" => deploysecret
           )
           http = Net::HTTP.new(uri.hostname, uri.port)

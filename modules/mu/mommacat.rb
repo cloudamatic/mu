@@ -121,7 +121,7 @@ module MU
         chef_user = "mu" if chef_user == "root"
         MU.setVar("chef_user", deploy.chef_user)
         if MU.chef_user != "mu"
-          MU.setVar("dataDir", Etc.getpwnam(MU.chef_user).dir+"/.mu/var")
+          MU.setVar("dataDir", Etc.getpwnam(MU.mu_user).dir+"/.mu/var")
           MU.setVar("mu_user", deploy.mu_user)
         else
           MU.setVar("dataDir", MU.mainDataDir)
@@ -174,7 +174,7 @@ module MU
       if @mu_user == "root"
         @chef_user = "mu"
       else
-        @chef_user = @mu_user
+        @chef_user = @mu_user.dup.gsub(/\./, "")
         @mu_user = "root" if @mu_user == "mu"
       end
       @kitten_semaphore = Mutex.new
