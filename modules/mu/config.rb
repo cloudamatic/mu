@@ -1590,9 +1590,9 @@ module MU
         end
 
         lb['listeners'].each { |listener|
-          if !listener["ssl_certificate_name"].nil?
+          if !listener["ssl_certificate_name"].nil? and !listener["ssl_certificate_name"].empty?
             if lb['cloud'] == "AWS"
-              resp = MU::Cloud::AWS.iam.get_server_certificate(server_certificate_name: listener["ssl_certificate_name"])
+              resp = MU::Cloud::AWS.iam.get_server_certificate(server_certificate_name: listener["ssl_certificate_name"].to_s)
               if resp.nil?
                 MU.log "Requested SSL certificate #{listener["ssl_certificate_name"]}, but no such cert exists", MU::ERR
                 ok = false
@@ -2006,7 +2006,7 @@ module MU
               MU.log "Setting publicly_accessible to true, since deploying into public subnets.", MU::WARN
               db['publicly_accessible'] = true
             elsif db["vpc"]["subnet_pref"] == "all_private" and db['publicly_accessible']
-              MU.log "Setting publicly_accessible to false, since  deploying into private subnets.", MU::NOTICE
+              MU.log "Setting publicly_accessible to false, since deploying into private subnets.", MU::NOTICE
               db['publicly_accessible'] = false
             end
           end

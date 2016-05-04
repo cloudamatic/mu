@@ -75,7 +75,7 @@ module MU
             end
 
 
-            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBInstanceIdentifier", @config['db_name'])
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBInstanceIdentifier", @config['db_name']) if @config['db_name']
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "PubliclyAccessible", @config['publicly_accessible'])
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Iops", @config['iops']) if @config['iops']
 
@@ -198,7 +198,7 @@ module MU
             # nelly is that insecure
             if @config["create_cluster"]
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DatabaseName", @config['db_name'])
-            else
+            elsif @config['db_name']
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBName", @config['db_name'])
             end
             if @config['password'].nil?
