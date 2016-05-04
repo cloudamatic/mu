@@ -187,6 +187,10 @@ module MU
       def empty?
         to_s.empty?
       end
+      # Match like a String
+      def match(*args)
+        to_s.match(*args)
+      end
       # Check for equality like a String
       def ==(o)
         (o.class == self.class or o.class == "String") && o.to_s == to_s
