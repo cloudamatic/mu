@@ -29,13 +29,13 @@ def test(file, flags = "")
 
   deploy_id = File.foreach(output).grep(/Deployment id:/)[0].scan(/\(([^\)]+)\)/).last.first
   if status == 0
-    message = "Deployment of #{bok} as #{deploy_id} was successful"
+    message = "Deployment of #{bok} #{flags} as #{deploy_id} was successful"
     if !$opts[:nocleanup] 
       message += ", tore down #{deploy_id}" 
       `/opt/mu/bin/mu-cleanup -s #{deploy_id} >> #{output}`
     end
   else
-    message = "error deploying #{bok}. See #{output} for details" 
+    message = "error deploying #{bok} #{flags}. See #{output} for details" 
   end
   puts message
 
