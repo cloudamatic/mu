@@ -4232,6 +4232,11 @@ module MU
             },
             "multi_az_on_deploy" => {
                 "type" => "boolean",
+                "description" => "See multi_az_on_groom", 
+                "default" => false
+            },
+            "multi_az_on_groom" => {
+                "type" => "boolean",
                 "description" => "Enable high availability after the database instance is created. This may make deployments based on creation_style other then 'new' faster.",
                 "default" => false
             },
