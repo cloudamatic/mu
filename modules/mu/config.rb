@@ -187,6 +187,10 @@ module MU
       def empty?
         to_s.empty?
       end
+      # Match like a String
+      def match(*args)
+        to_s.match(*args)
+      end
       # Check for equality like a String
       def ==(o)
         (o.class == self.class or o.class == "String") && o.to_s == to_s
@@ -257,6 +261,9 @@ module MU
       config = nil
       @param_pass = param_pass
 
+      # Catch calls to missing variables in Basket of Kittens files when being
+      # parsed by ERB, and replace with placeholders for parameters. This
+      # method_missing is only defined innside {MU::Config.resolveConfig}
       def method_missing(var_name)
         if @param_pass
           "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
@@ -602,7 +609,8 @@ module MU
     # <%= Config.include("drupal.json") %>
     # It will first try the literal path you pass it, and if it fails to find
     # that it will look in the directory containing the main (top-level) config.
-    def self.include(file, binding = nil)
+    def self.include(file, binding = nil, param_pass = false)
+      loglevel = param_pass ? MU::NOTICE : MU::DEBUG
       retries = 0
       orig_filename = file
       assume_type = nil
@@ -629,7 +637,7 @@ module MU
         # Include as just a drop-in block of text if the filename doesn't imply
         # a particular format, or if we're melding JSON into JSON.
         if ($file_format == :json and assume_type == :json) or assume_type.nil?
-          MU.log "Including #{file} as uninterpreted text", MU::NOTICE
+          MU.log "Including #{file} as uninterpreted text", loglevel
           return erb.result(binding)
         end
         # ...otherwise, try to parse into something useful so we can meld
@@ -646,15 +654,15 @@ module MU
             parsed_as = :yaml
           rescue Psych::SyntaxError => e
             MU.log e.inspect, MU::DEBUG
-            MU.log "#{file} parsed neither as JSON nor as YAML, including as raw text", MU::WARN
+            MU.log "#{file} parsed neither as JSON nor as YAML, including as raw text", MU::WARN if @param_pass
             return erb.result(binding)
           end
         end
         if $file_format == :json
-          MU.log "Including #{file} as interpreted JSON", MU::NOTICE
+          MU.log "Including #{file} as interpreted JSON", loglevel
           return JSON.generate(parsed_cfg)
         else
-          MU.log "Including #{file} as interpreted YAML", MU::NOTICE
+          MU.log "Including #{file} as interpreted YAML", loglevel
           $yaml_refs[file] = ""+YAML.dump(parsed_cfg).sub(/^---\n/, "")
           return "# MU::Config.include PLACEHOLDER #{file} REDLOHECALP"
         end
@@ -665,7 +673,7 @@ module MU
 
     # (see #include)
     def include(file)
-      MU::Config.include(file, get_binding)
+      MU::Config.include(file, get_binding, param_pass = @param_pass)
     end
 
     # Namespace magic to pass to ERB's result method.
@@ -1592,9 +1600,9 @@ module MU
         end
 
         lb['listeners'].each { |listener|
-          if !listener["ssl_certificate_name"].nil?
+          if !listener["ssl_certificate_name"].nil? and !listener["ssl_certificate_name"].empty?
             if lb['cloud'] == "AWS"
-              resp = MU::Cloud::AWS.iam.get_server_certificate(server_certificate_name: listener["ssl_certificate_name"])
+              resp = MU::Cloud::AWS.iam.get_server_certificate(server_certificate_name: listener["ssl_certificate_name"].to_s)
               if resp.nil?
                 MU.log "Requested SSL certificate #{listener["ssl_certificate_name"]}, but no such cert exists", MU::ERR
                 ok = false
@@ -2020,7 +2028,7 @@ module MU
               MU.log "Setting publicly_accessible to true, since deploying into public subnets.", MU::WARN
               db['publicly_accessible'] = true
             elsif db["vpc"]["subnet_pref"] == "all_private" and db['publicly_accessible']
-              MU.log "Setting publicly_accessible to false, since  deploying into private subnets.", MU::NOTICE
+              MU.log "Setting publicly_accessible to false, since deploying into private subnets.", MU::NOTICE
               db['publicly_accessible'] = false
             end
           end
@@ -2442,7 +2450,7 @@ module MU
           server["alarms"].each { |alarm|
             alarm["name"] = "server"+server["name"]+alarm["name"]
             alarm["dimensions"] = [] if !alarm["dimensions"]
-            alarm['dimensions'] = { "name" => server["name"], "type" => "InstanceId" }
+            alarm['dimensions'] << { "name" => server["name"], "cloud_class" => "InstanceId" }
             alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
             alarm['cloud'] = server['cloud']
             alarms << alarm.dup
@@ -4349,6 +4357,11 @@ module MU
                 "default" => false
             },
             "multi_az_on_deploy" => {
+                "type" => "boolean",
+                "description" => "See multi_az_on_groom", 
+                "default" => false
+            },
+            "multi_az_on_groom" => {
                 "type" => "boolean",
                 "description" => "Enable high availability after the database instance is created. This may make deployments based on creation_style other then 'new' faster.",
                 "default" => false

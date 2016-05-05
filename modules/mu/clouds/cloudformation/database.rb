@@ -59,10 +59,11 @@ module MU
           # RDS is picky, we can't just use our regular node names for things
           # like the default schema or username. And it varies from engine to
           # engine.
-          basename = @config["name"]+@deploy.timestamp+MU.seed.downcase
+          basename = @config["name"]
+          basename = basename+@deploy.timestamp+MU.seed.downcase if !@config['scrub_mu_isms']
           basename.gsub!(/[^a-z0-9]/i, "")
           @config["db_name"] = MU::Cloud::AWS::Database.getName(basename, type: "dbname", config: @config)
-          @config['master_user'] = MU::Cloud::AWS::Database.getName(basename, type: "dbuser", config: @config) unless @config['master_user']
+          @config['master_user'] = MU::Cloud::AWS::Database.getName(basename, type: "dbuser", config: @config)
 
           if @config["create_cluster"]
             @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("dbcluster", self, tags: @config['tags'], scrub_mu_isms: @config['scrub_mu_isms']) if @cfm_template.nil?
@@ -75,7 +76,7 @@ module MU
             end
 
 
-            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBInstanceIdentifier", @config['db_name'])
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBInstanceIdentifier", @config['db_name']) if @config['db_name']
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "PubliclyAccessible", @config['publicly_accessible'])
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Iops", @config['iops']) if @config['iops']
 
@@ -198,7 +199,7 @@ module MU
             # nelly is that insecure
             if @config["create_cluster"]
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DatabaseName", @config['db_name'])
-            else
+            elsif @config['db_name']
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBName", @config['db_name'])
             end
             if @config['password'].nil?

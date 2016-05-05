@@ -54,8 +54,8 @@ module MU
         @noop = true
       end
 
-      if MU.chef_user != "mu"
-        MU.setVar("dataDir", Etc.getpwnam(MU.chef_user).dir+"/.mu/var")
+      if MU.mu_user != "mu"
+        MU.setVar("dataDir", Etc.getpwnam(MU.mu_user).dir+"/.mu/var")
       else
         MU.setVar("dataDir", MU.mainDataDir)
       end

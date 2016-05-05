@@ -121,14 +121,14 @@ module MU
                 MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Subnets", subnet["subnet_id"])
               elsif @dependencies.has_key?("vpc") and @dependencies["vpc"].has_key?(@config["vpc"]["vpc_name"])
                 @dependencies["vpc"][@config["vpc"]["vpc_name"]].subnets.each { |sibling_subnet|
-                  if sibling_subnet.name == subnet['subnet_name']
+                  if sibling_subnet.name == subnet['subnet_name'] and !sibling_subnet.cloudobj.nil?
                     MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", sibling_subnet.cloudobj.cfm_name)
                     MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Subnets", { "Ref" => sibling_subnet.cloudobj.cfm_name } )
                   end
                 }
               end
             }
-# XXX cloudformation: something about AZs
+# XXX something about AZs
           else
             # Default to "sit in every possible AZ"
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "AvailabilityZones", { "Fn::GetAZs" => { "Ref" => "AWS::Region" } } )
