@@ -12,14 +12,14 @@ Usage:
   opt :nocleanup, "no cleanup on successful run"
 end
 
-def test(file)
+def test(file, flags = "")
   bok = "/opt/mu/lib/demo/#{file}"
-  filename = file.split('.').first
+  filename = file.split('.').first+flags.gsub(/ /, "")
   output = "#{Dir.home}/#{filename}.out"
 
-   puts "deploying #{bok} and sending output to #{output}"
+  puts "deploying #{bok} #{flags}; sending output to #{output}"
 
-  cmd="/opt/mu/bin/mu-deploy #{bok}"
+  cmd="/opt/mu/bin/mu-deploy #{bok} #{flags}"
   if $opts[:skipaz]
     cmd += " -p azskip=#{$opts[:skipaz]}"
   end
@@ -43,17 +43,20 @@ def test(file)
 end
 
 def main
-  boks = %w(simple-server-php.yaml simple-server-rails.yaml simple-server.yaml)
+  boks = %w(simple-server-rails.yaml simple-windows.yaml simple-server.yaml dnszone.yaml cache_cluster.yaml aurora_cluster.yaml simple-server-wordpress.yaml)
   successes = 0
   failures = 0
 
   work_q = Queue.new
-  boks.each{|x| work_q.push x }
+  boks.each{ |x|
+    work_q.push({ "bok" => x, "arg" => "-c" })
+    work_q.push({ "bok" => x, "arg" => "" })
+  }
   workers = (0...4).map do
     Thread.new do
       begin
-        while bok = work_q.pop(true)
-          status = test bok
+        while job = work_q.pop(true)
+          status = test job["bok"], job["arg"]
           if status == 0
             successes += 1
           else

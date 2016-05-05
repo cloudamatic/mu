@@ -34,7 +34,7 @@ $azs.each_with_index do |az, i|
     route-table: private
 <% end %>
   tags:
-  - key:   vpc_name
+  - key: vpc_name
     value: demo
 servers:
   - name: bastion

@@ -81,6 +81,7 @@ module MU
     attr_reader :config
 
     @@parameters = {}
+    @@user_supplied_parameters = {}
     attr_reader :parameters
     # Accessor for parameters to our Basket of Kittens
     def self.parameters
@@ -283,6 +284,12 @@ module MU
         end
       end
 
+      # A check for the existence of a user-supplied parameter value that can
+      # be easily run in an ERB block in a Basket of Kittens.
+      def parameter?(var_name)
+        @@user_supplied_parameters.has_key?(var_name)
+      end
+
       # Figure out what kind of file we're loading. We handle includes 
       # differently if YAML is involved. These globals get used inside
       # templates. They're globals on purpose. Stop whining.
@@ -367,6 +374,7 @@ module MU
           raise DeployParamError, "Parameter values cannot contain quotes" if value.match(/["']/)
           eval("defined? $#{name} and raise DeployParamError, 'Parameter name reserved'")
           @@parameters[name] = value
+          @@user_supplied_parameters[name] = value
           eval("$#{name}='#{value}'") # support old-style $global parameter refs
           MU.log "Passing variable $#{name} into #{@@config_path} with value '#{value}'"
         rescue RuntimeError, SyntaxError => e
@@ -458,35 +466,40 @@ module MU
     def visualizeDependencies
       # XXX no idea why this is necessary
       $LOAD_PATH << "/usr/local/ruby-current/lib/ruby/gems/2.1.0/gems/ruby-graphviz-1.2.2/lib/"
-
-      g = GraphViz.new(:G, :type => :digraph)
-      # Generate a GraphViz node for each resource in this stack
-      nodes = {}
-      MU::Cloud.resource_types.each_pair { |classname, attrs|
-        nodes[attrs[:cfg_name]] = {}
-        if @config.has_key?(attrs[:cfg_plural])
-          @config[attrs[:cfg_plural]].each { |resource|
-            nodes[attrs[:cfg_name]][resource['name']] = g.add_nodes("#{classname}: #{resource['name']}")
-          }
-        end
-      }
-      # Now add edges corresponding to the dependencies they list
-      MU::Cloud.resource_types.each_pair { |classname, attrs|
-        if @config.has_key?(attrs[:cfg_plural])
-          @config[attrs[:cfg_plural]].each { |resource|
-            if resource.has_key?("dependencies")
-              me = nodes[attrs[:cfg_name]][resource['name']]
-              resource["dependencies"].each { |dep|
-                parent = nodes[dep['type']][dep['name']]
-                g.add_edges(me, parent)
-              }
-            end
-          }
-        end
-      }
-      # Spew some output?
-      MU.log "Emitting dependency graph as /tmp/#{@config['appname']}.jpg", MU::NOTICE
-      g.output(:jpg => "/tmp/#{@config['appname']}.jpg")
+      # GraphViz won't like MU::Config::Tail, pare down to plain Strings
+      config = MU::Config.manxify(Marshal.load(Marshal.dump(@config)))
+      begin
+        g = GraphViz.new(:G, :type => :digraph)
+        # Generate a GraphViz node for each resource in this stack
+        nodes = {}
+        MU::Cloud.resource_types.each_pair { |classname, attrs|
+          nodes[attrs[:cfg_name]] = {}
+          if config.has_key?(attrs[:cfg_plural])
+            config[attrs[:cfg_plural]].each { |resource|
+              nodes[attrs[:cfg_name]][resource['name']] = g.add_nodes("#{classname}: #{resource['name']}")
+            }
+          end
+        }
+        # Now add edges corresponding to the dependencies they list
+        MU::Cloud.resource_types.each_pair { |classname, attrs|
+          if config.has_key?(attrs[:cfg_plural])
+            config[attrs[:cfg_plural]].each { |resource|
+              if resource.has_key?("dependencies")
+                me = nodes[attrs[:cfg_name]][resource['name']]
+                resource["dependencies"].each { |dep|
+                  parent = nodes[dep['type']][dep['name']]
+                  g.add_edges(me, parent)
+                }
+              end
+            }
+          end
+        }
+        # Spew some output?
+        MU.log "Emitting dependency graph as /tmp/#{config['appname']}.jpg", MU::NOTICE
+        g.output(:jpg => "/tmp/#{config['appname']}.jpg")
+      rescue Exception => e
+        MU.log "Failed to generate GraphViz dependency tree: #{e.inspect}. This should only matter to developers.", MU::WARN, details: e.backtrace
+      end
     end
 
     # Take the schema we've defined and create a dummy Ruby class tree out of
@@ -732,8 +745,8 @@ module MU
                     names_seen = []
                     if config[collection] != nil
                       config[collection].each { |service|
-                        names_seen << service["name"]
-                        found = true if service["name"] == dependency["name"]
+                        names_seen << service["name"].to_s
+                        found = true if service["name"].to_s == dependency["name"].to_s
                       }
                     end
                     if !found
@@ -761,9 +774,10 @@ module MU
       ok = true
 
       if vpc_block['region'].nil? or
-          vpc_block['region'] = dflt_region
+        vpc_block['region'] = dflt_region
       end
-
+      # Don't want to deal with MU::Config::Tail in here anywhere
+      vpc_block = MU::Config.manxify(Marshal.load(Marshal.dump(vpc_block)))
 
       # First, dig up the enclosing VPC 
       tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !vpc_block['tag'].nil?
@@ -1367,7 +1381,7 @@ module MU
             peer['cloud'] = vpc['cloud'] if peer['cloud'].nil?
             peer["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("VPC")
             # If we're peering with a VPC in this deploy, set it as a dependency
-            if !peer['vpc']["vpc_name"].nil? and vpc_names.include?(peer['vpc']["vpc_name"]) and peer["vpc"]['deploy_id'].nil? and peer["vpc"]['vpc_id'].nil?
+            if !peer['vpc']["vpc_name"].nil? and vpc_names.include?(peer['vpc']["vpc_name"].to_s) and peer["vpc"]['deploy_id'].nil? and peer["vpc"]['vpc_id'].nil?
               vpc["dependencies"] << {
                   "type" => "vpc",
                   "name" => peer['vpc']["vpc_name"]
@@ -1403,6 +1417,7 @@ module MU
         # end
         if !zone["records"].nil?
           zone["records"].each { |record|
+            record['scrub_mu_isms'] = zone['scrub_mu_isms'] if zone.has_key?('scrub_mu_isms')
             route_types = 0
             route_types = route_types + 1 if !record['weight'].nil?
             route_types = route_types + 1 if !record['geo_location'].nil?
@@ -1440,7 +1455,7 @@ module MU
           zone["vpcs"].each { |vpc|
             vpc['region'] = config['region'] if vpc['region'].nil?
             vpc['cloud'] = zone['cloud'] if vpc['cloud'].nil?
-            if !vpc["vpc_name"].nil? and vpc_names.include?(vpc["vpc_name"]) and zone['deploy_id'].nil?
+            if !vpc["vpc_name"].nil? and vpc_names.include?(vpc["vpc_name"].to_s) and zone['deploy_id'].nil?
               zone["dependencies"] << {
                   "type" => "vpc",
                   "name" => vpc["vpc_name"]
@@ -1487,7 +1502,7 @@ module MU
           acl['vpc']['region'] = acl['region'] if acl['vpc']['region'].nil?
           acl["vpc"]['cloud'] = acl['cloud']
           # If we're using a VPC in this deploy, set it as a dependency
-          if !acl["vpc"]["vpc_name"].nil? and vpc_names.include?(acl["vpc"]["vpc_name"]) and acl["vpc"]['deploy_id'].nil? and acl["vpc"]['vpc_id'].nil?
+          if !acl["vpc"]["vpc_name"].nil? and vpc_names.include?(acl["vpc"]["vpc_name"].to_s) and acl["vpc"]['deploy_id'].nil? and acl["vpc"]['vpc_id'].nil?
             acl["dependencies"] << {
                 "type" => "vpc",
                 "name" => acl["vpc"]["vpc_name"]
@@ -1552,7 +1567,7 @@ module MU
           lb['vpc']['region'] = lb['region'] if lb['vpc']['region'].nil?
           lb['vpc']['cloud'] = lb['cloud']
           # If we're using a VPC in this deploy, set it as a dependency
-          if !lb["vpc"]["vpc_name"].nil? and vpc_names.include?(lb["vpc"]["vpc_name"]) and lb["vpc"]['deploy_id'].nil? and lb["vpc"]['vpc_id'].nil?
+          if !lb["vpc"]["vpc_name"].nil? and vpc_names.include?(lb["vpc"]["vpc_name"].to_s) and lb["vpc"]['deploy_id'].nil? and lb["vpc"]['vpc_id'].nil?
             lb["dependencies"] << {
                 "type" => "vpc",
                 "name" => lb["vpc"]["vpc_name"]
@@ -1767,7 +1782,7 @@ module MU
           pool['vpc']['region'] = pool['region'] if pool['vpc']['region'].nil?
           pool["vpc"]['cloud'] = pool['cloud']
           # If we're using a VPC in this deploy, set it as a dependency
-          if !pool["vpc"]["vpc_name"].nil? and vpc_names.include?(pool["vpc"]["vpc_name"]) and pool["vpc"]["deploy_id"].nil? and pool["vpc"]['vpc_id'].nil?
+          if !pool["vpc"]["vpc_name"].nil? and vpc_names.include?(pool["vpc"]["vpc_name"].to_s) and pool["vpc"]["deploy_id"].nil? and pool["vpc"]['vpc_id'].nil?
             pool["dependencies"] << {
                 "type" => "vpc",
                 "name" => pool["vpc"]["vpc_name"]
@@ -2022,7 +2037,7 @@ module MU
           db['vpc']['region'] = db['region'] if db['vpc']['region'].nil?
           db["vpc"]['cloud'] = db['cloud']
           # If we're using a VPC in this deploy, set it as a dependency
-          if !db["vpc"]["vpc_name"].nil? and vpc_names.include?(db["vpc"]["vpc_name"]) and db["vpc"]["deploy_id"].nil? and db["vpc"]['vpc_id'].nil?
+          if !db["vpc"]["vpc_name"].nil? and vpc_names.include?(db["vpc"]["vpc_name"].to_s) and db["vpc"]["deploy_id"].nil? and db["vpc"]['vpc_id'].nil?
             db["dependencies"] << {
                 "type" => "vpc",
                 "name" => db["vpc"]["vpc_name"]
@@ -2277,7 +2292,7 @@ module MU
           cluster["vpc"]['cloud'] = cluster['cloud']
 
           # If we're using a VPC in this deploy, set it as a dependency
-          if cluster["vpc"]["vpc_name"] and vpc_names.include?(cluster["vpc"]["vpc_name"]) and cluster["vpc"]["deploy_id"].nil? and cluster["vpc"]['vpc_id'].nil?
+          if cluster["vpc"]["vpc_name"] and vpc_names.include?(cluster["vpc"]["vpc_name"].to_s) and cluster["vpc"]["deploy_id"].nil? and cluster["vpc"]['vpc_id'].nil?
             cluster["dependencies"] << {
               "type" => "vpc",
               "name" => cluster["vpc"]["vpc_name"]
@@ -2388,7 +2403,7 @@ module MU
           server['vpc']['region'] = server['region'] if server['vpc']['region'].nil?
           server['vpc']['cloud'] = server['cloud']
           # If we're using a local VPC in this deploy, set it as a dependency and get the subnets right
-          if !server["vpc"]["vpc_name"].nil? and vpc_names.include?(server["vpc"]["vpc_name"]) and server["vpc"]["deploy_id"].nil? and server["vpc"]['vpc_id'].nil?
+          if !server["vpc"]["vpc_name"].nil? and vpc_names.include?(server["vpc"]["vpc_name"].to_s) and server["vpc"]["deploy_id"].nil? and server["vpc"]['vpc_id'].nil?
             server["dependencies"] << {
                 "type" => "vpc",
                 "name" => server["vpc"]["vpc_name"]

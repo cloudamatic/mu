@@ -14,12 +14,9 @@
 
 ---
 appname: <%= appname %>
-region: <%= region %>
 parameters:
   - name: nat_ssh_user
     default: root
-  - name: region
-    default: us-east-1
   - name: appname
     default: demo
   - name: instance_type
@@ -34,50 +31,17 @@ parameters:
     cloudtype: AWS::EC2::VPC::Id
     description: A simple VPC cloud id into which we'll attempt to insert this deployment.
     default: <%= MU.myVPC %>
-<% if (!vpc_deploy_id or vpc_deploy_id.empty?) and (!vpc_name or vpc_name.empty?) then %>
+<% if !parameter?('vpc_deploy_id') then %>
 vpcs:
-- name: "vpc"
-  route-tables:
-  - name: internet
-    routes:
-    - destination_network: 0.0.0.0/0
-      gateway: #INTERNET
-  - name: private
-    routes:
-    - destination_network: 0.0.0.0/0
-      nat_host_name: "bastion"
-  dependencies:
-  - type: server
-    name: "bastion"
-  subnets:
-<%
-$azs = MU::Cloud::AWS.listAZs
-$azs.each.with_index { |az, i|
-%>
-  - name: Public<%= i %>
-    ip_block: 10.0.<%= i %>.0/24
-    availability-zone: <%= az %>
-    route-table: internet
-<%
-}
-offset = $azs.size
-$azs.each.with_index { |az, i|
-%>
-  - name: Private<%= i %>
-    ip_block: 10.0.<%= i + offset %>.0/24
-    availability-zone: <%= az %>
-    route-table: private
-<%
-}
-%>
+<%= include("generic_vpc.inc") %>
 <% end %>
 loadbalancers:
 - name: "lb"
   vpc:
     vpc_name: <%= vpc_name %>
-    <% if vpc_deploy_id and !vpc_deploy_id.empty? %>
+    <% if parameter?('vpc_deploy_id') %>
     deploy_id: <%= vpc_deploy_id %>
-    <% elsif vpc_id and !vpc_id.empty? %>
+    <% elsif parameter?('vpc_id') %>
     vpc_id: <%= vpc_id %>
     <% end %>
   ingress_rules:
@@ -113,129 +77,105 @@ databases:
   engine_version: 5.6.23
   vpc: 
     vpc_name: <%= vpc_name %>
-    <% if vpc_deploy_id and !vpc_deploy_id.empty? %>
-    deploy_id: <%=vpc_deploy_id %>
-    <% elsif vpc_id and !vpc_id.empty? %>
+    <% if parameter?('vpc_deploy_id') %>
+    deploy_id: <%= vpc_deploy_id %>
+    <% elsif parameter?('vpc_id') %>
     vpc_id: <%= vpc_id %>
     <% end %>
   add_firewall_rules:
   - rule_name: "database_secgroup"
 servers:
-  <% if !vpc_deploy_id and (!vpc_name or vpc_name.empty?) then %>
-  - name: "bastion"
-    ssh_user: "root"
-    size: "t2.micro"
-    skipinitialupdates: true
-    src-dst-check: false
-    static_ip: 
-      assign_ip: true
-    vpc: 
-      vpc_name: <%= vpc_name %>
-      subnet_pref: "public"
-    ingress_rules: 
-    - proto: "icmp"
-      hosts: 
-      - "10.0.0.0/16"
-    - proto: "tcp"
-      port-range: "1-65535"
-      hosts: 
-      - "10.0.0.0/16"
-    - proto: "udp"
-      port-range: "1-65535"
-      hosts: 
-      - "10.0.0.0/16"
-    run_list: 
-    - "recipe[mu-utility::nat]"
-  <% end %>
-  - name: "wpress"
-    loadbalancers:
-    - concurrent-load-balancer: "lb"
-    size: t2.medium
-    storage:
-    - device: /dev/sda1
-      size: 70
-    vpc:
-      vpc_name: <%= vpc_name %>
-      subnet_pref: private
-      nat_host_name: "bastion"
-      nat_ssh_user: <%= nat_ssh_user %>
-      <% if vpc_deploy_id and !vpc_deploy_id.empty? %>
-      deploy_id: <%=vpc_deploy_id %>
-      <% elsif vpc_id and !vpc_id.empty? %>
-      vpc_id: <%= vpc_id %>
-      <% end %>
-    dependencies:
-    - type: loadbalancer
-      name: "lb"
-    - type: database
-      name: "db"
-    <% if !vpc_deploy_id and (!vpc_name or vpc_name.empty?) %>
-    - type: "server"
-      name: "bastion"
-      phase: "groom"
+<% if !parameter?('vpc_deploy_id') then %>
+<%= include("generic_bastion.inc") %>
+<% end %>
+- name: "wpress"
+  loadbalancers:
+  - concurrent-load-balancer: "lb"
+  size: t2.medium
+  storage:
+  - device: /dev/sda1
+    size: 70
+  vpc:
+    subnet_pref: private
+    nat_host_name: "bastion"
+    nat_ssh_user: <%= nat_ssh_user %>
+    vpc_name: <%= vpc_name %>
+    <% if parameter?('vpc_deploy_id') %>
+    deploy_id: <%= vpc_deploy_id %>
+    <% elsif parameter?('vpc_id') %>
+    vpc_id: <%= vpc_id %>
     <% end %>
-    add_firewall_rules:
-      - rule_name: "wpress_secgroup"
-    run_list:
-    - recipe[demo::wordpress]
-
+  dependencies:
+  - type: loadbalancer
+    name: "lb"
+  - type: database
+    name: "db"
+  <% if !parameter?('vpc_deploy_id') %>
+  - type: "server"
+    name: "bastion"
+    phase: "groom"
+  <% end %>
+  add_firewall_rules:
+    - rule_name: "wpress_secgroup"
+  run_list:
+  - recipe[demo::wordpress]
 server_pools:
-  - name: "wpressbase"
-    min-size: 1
-    max-size: 1
-    ssh_user: "root"
-    skipinitialupdates: true
-    loadbalancers: 
-    - concurrent-load-balancer: "lb"
-    add_firewall_rules: 
-      - rule_name: "wpress_secgroup"
-    vpc:
-      vpc_name: <%= vpc_name %>
-      subnet_pref: all_private
-      nat_host_name: "bastion"
-      nat_ssh_user: <%= nat_ssh_user %>
-      <% if vpc_deploy_id and !vpc_deploy_id.empty? %>
-      deploy_id: <%=vpc_deploy_id %>
-      <% elsif vpc_id and !vpc_id.empty? %>
-      vpc_id: <%= vpc_id %>
-      <% end %>
-    run_list: 
-    - recipe[demo::wordpress]
-    dependencies: 
-    - name: "lb"
-      type: "loadbalancer"
-    - name: "db"
-      type: "database"
-    basis: 
-      launch-config: 
-        name: "wpress-launch"
-        size: "t2.medium"
-        server: "wpress"
+- name: "wpressbase"
+  min-size: 1
+  max-size: 1
+  ssh_user: "root"
+  skipinitialupdates: true
+  loadbalancers: 
+  - concurrent-load-balancer: "lb"
+  add_firewall_rules: 
+    - rule_name: "wpress_secgroup"
+  vpc:
+    subnet_pref: all_private
+    nat_host_name: "bastion"
+    nat_ssh_user: <%= nat_ssh_user %>
+    vpc_name: <%= vpc_name %>
+    <% if parameter?('vpc_deploy_id') %>
+    deploy_id: <%= vpc_deploy_id %>
+    <% elsif parameter?('vpc_id') %>
+    vpc_id: <%= vpc_id %>
+    <% end %>
+  run_list: 
+  - recipe[demo::wordpress]
+  dependencies: 
+  - name: "lb"
+    type: "loadbalancer"
+  - name: "db"
+    type: "database"
+  basis: 
+    launch-config: 
+      name: "wpress-launch"
+      size: "t2.medium"
+      server: "wpress"
 firewall_rules:
-  - name: "database_secgroup"
-    vpc:
-      vpc_name: <%= vpc_name %>
-      <% if vpc_deploy_id and !vpc_deploy_id.empty? %>
-      deploy_id: <%=vpc_deploy_id %>
-      <% elsif vpc_id and !vpc_id.empty? %>
-      vpc_id: <%= vpc_id %>
-      <% end %>
-    rules: 
-    - port: 3306
-      sgs: 
-      - "wpress_secgroup"
-  - name: "wpress_secgroup"
-    vpc:
-      vpc_name: <%= vpc_name %>
-      <% if vpc_deploy_id and !vpc_deploy_id.empty? %>
-      deploy_id: <%=vpc_deploy_id %>
-      <% elsif vpc_id and !vpc_id.empty? %>
-      vpc_id: <%= vpc_id %>
-      <% end %>
-    rules: 
-    - port: 80
-      lbs: 
-      - "lb"
-    dependencies: 
-    - type: "loadbalancer"
-      name: "lb"
+- name: "database_secgroup"
+  vpc:
+    vpc_name: <%= vpc_name %>
+    <% if parameter?('vpc_deploy_id') %>
+    deploy_id: <%= vpc_deploy_id %>
+    <% elsif parameter?('vpc_id') %>
+    vpc_id: <%= vpc_id %>
+    <% end %>
+  rules: 
+  - port: 3306
+    sgs: 
+    - "wpress_secgroup"
+- name: "wpress_secgroup"
+  vpc:
+    vpc_name: <%= vpc_name %>
+    <% if parameter?('vpc_deploy_id') %>
+    deploy_id: <%= vpc_deploy_id %>
+    <% elsif parameter?('vpc_id') %>
+    vpc_id: <%= vpc_id %>
+    <% end %>
+  rules: 
+  - port: 80
+    lbs: 
+    - "lb"
+  dependencies: 
+  - type: "loadbalancer"
+    name: "lb"
