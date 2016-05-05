@@ -62,8 +62,8 @@ module MU
           basename = @config["name"]
           basename = basename+@deploy.timestamp+MU.seed.downcase if !@config['scrub_mu_isms']
           basename.gsub!(/[^a-z0-9]/i, "")
-          @config["db_name"] = MU::Cloud::AWS::Database.getName(basename, type: "dbname", config: @config, scrub_mu_isms: @config['scrub_mu_isms'])
-          @config['master_user'] = MU::Cloud::AWS::Database.getName(basename, type: "dbuser", config: @config, scrub_mu_isms: @config['scrub_mu_isms']) unless @config['master_user']
+          @config["db_name"] = MU::Cloud::AWS::Database.getName(basename, type: "dbname", config: @config)
+          @config['master_user'] = MU::Cloud::AWS::Database.getName(basename, type: "dbuser", config: @config)
 
           if @config["create_cluster"]
             @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("dbcluster", self, tags: @config['tags'], scrub_mu_isms: @config['scrub_mu_isms']) if @cfm_template.nil?

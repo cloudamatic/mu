@@ -261,6 +261,9 @@ module MU
       config = nil
       @param_pass = param_pass
 
+      # Catch calls to missing variables in Basket of Kittens files when being
+      # parsed by ERB, and replace with placeholders for parameters. This
+      # method_missing is only defined innside {MU::Config.resolveConfig}
       def method_missing(var_name)
         if @param_pass
           "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
@@ -606,7 +609,8 @@ module MU
     # <%= Config.include("drupal.json") %>
     # It will first try the literal path you pass it, and if it fails to find
     # that it will look in the directory containing the main (top-level) config.
-    def self.include(file, binding = nil)
+    def self.include(file, binding = nil, param_pass = false)
+      loglevel = param_pass ? MU::NOTICE : MU::DEBUG
       retries = 0
       orig_filename = file
       assume_type = nil
@@ -633,7 +637,7 @@ module MU
         # Include as just a drop-in block of text if the filename doesn't imply
         # a particular format, or if we're melding JSON into JSON.
         if ($file_format == :json and assume_type == :json) or assume_type.nil?
-          MU.log "Including #{file} as uninterpreted text", MU::NOTICE
+          MU.log "Including #{file} as uninterpreted text", loglevel
           return erb.result(binding)
         end
         # ...otherwise, try to parse into something useful so we can meld
@@ -650,15 +654,15 @@ module MU
             parsed_as = :yaml
           rescue Psych::SyntaxError => e
             MU.log e.inspect, MU::DEBUG
-            MU.log "#{file} parsed neither as JSON nor as YAML, including as raw text", MU::WARN
+            MU.log "#{file} parsed neither as JSON nor as YAML, including as raw text", MU::WARN if @param_pass
             return erb.result(binding)
           end
         end
         if $file_format == :json
-          MU.log "Including #{file} as interpreted JSON", MU::NOTICE
+          MU.log "Including #{file} as interpreted JSON", loglevel
           return JSON.generate(parsed_cfg)
         else
-          MU.log "Including #{file} as interpreted YAML", MU::NOTICE
+          MU.log "Including #{file} as interpreted YAML", loglevel
           $yaml_refs[file] = ""+YAML.dump(parsed_cfg).sub(/^---\n/, "")
           return "# MU::Config.include PLACEHOLDER #{file} REDLOHECALP"
         end
@@ -669,7 +673,7 @@ module MU
 
     # (see #include)
     def include(file)
-      MU::Config.include(file, get_binding)
+      MU::Config.include(file, get_binding, param_pass = @param_pass)
     end
 
     # Namespace magic to pass to ERB's result method.

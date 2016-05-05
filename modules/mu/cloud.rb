@@ -624,12 +624,19 @@ module MU
               )
 
               if @nat.nil?
-                @nat = @vpc.findNat(
-                  nat_cloud_id: @config['vpc']['nat_host_id'],
-                  nat_filter_key: "vpc-id",
-                  region: @config['vpc']["region"],
-                  nat_filter_value: @vpc.cloud_desc.vpc_id
-                )
+                if !@vpc.cloud_desc.nil?
+                  @nat = @vpc.findNat(
+                    nat_cloud_id: @config['vpc']['nat_host_id'],
+                    nat_filter_key: "vpc-id",
+                    region: @config['vpc']["region"],
+                    nat_filter_value: @vpc.cloud_desc.vpc_id
+                  )
+                else
+                  @nat = @vpc.findNat(
+                    nat_cloud_id: @config['vpc']['nat_host_id'],
+                    region: @config['vpc']["region"]
+                  )
+                end
               end
             end
           elsif self.class.cfg_name == "vpc"
