@@ -274,7 +274,13 @@ module MU
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
           if region == "us-west-2"
-            storage_pools = MU::Cloud::AWS.efs(region).describe_file_systems.file_systems
+            begin 
+              storage_pools = MU::Cloud::AWS.efs(region).describe_file_systems.file_systems
+            rescue Aws::EFS::Errors::AccessDeniedException
+              MU.log "Storage Pools not supported in this account", MU::NOTICE
+              return nil
+            end
+
             our_pools = []
             our_replication_group_ids = []
 
