@@ -187,6 +187,10 @@ module MU
       def empty?
         to_s.empty?
       end
+      # Match like a String
+      def match(*args)
+        to_s.match(*args)
+      end
       # Check for equality like a String
       def ==(o)
         (o.class == self.class or o.class == "String") && o.to_s == to_s
@@ -1590,9 +1594,9 @@ module MU
         end
 
         lb['listeners'].each { |listener|
-          if !listener["ssl_certificate_name"].nil?
+          if !listener["ssl_certificate_name"].nil? and !listener["ssl_certificate_name"].empty?
             if lb['cloud'] == "AWS"
-              resp = MU::Cloud::AWS.iam.get_server_certificate(server_certificate_name: listener["ssl_certificate_name"])
+              resp = MU::Cloud::AWS.iam.get_server_certificate(server_certificate_name: listener["ssl_certificate_name"].to_s)
               if resp.nil?
                 MU.log "Requested SSL certificate #{listener["ssl_certificate_name"]}, but no such cert exists", MU::ERR
                 ok = false
@@ -2006,7 +2010,7 @@ module MU
               MU.log "Setting publicly_accessible to true, since deploying into public subnets.", MU::WARN
               db['publicly_accessible'] = true
             elsif db["vpc"]["subnet_pref"] == "all_private" and db['publicly_accessible']
-              MU.log "Setting publicly_accessible to false, since  deploying into private subnets.", MU::NOTICE
+              MU.log "Setting publicly_accessible to false, since deploying into private subnets.", MU::NOTICE
               db['publicly_accessible'] = false
             end
           end
@@ -4227,6 +4231,11 @@ module MU
                 "default" => false
             },
             "multi_az_on_deploy" => {
+                "type" => "boolean",
+                "description" => "See multi_az_on_groom", 
+                "default" => false
+            },
+            "multi_az_on_groom" => {
                 "type" => "boolean",
                 "description" => "Enable high availability after the database instance is created. This may make deployments based on creation_style other then 'new' faster.",
                 "default" => false

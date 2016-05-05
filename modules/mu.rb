@@ -183,8 +183,10 @@ module MU
   def self.mu_user;
     if @@globals.has_key?(Thread.current.object_id) and @@globals[Thread.current.object_id].has_key?('mu_user')
       return @@globals[Thread.current.object_id]['mu_user']
-    else
+    elsif Etc.getpwuid(Process.uid).name == "root"
       return "mu"
+    else
+      return Etc.getpwuid(Process.uid).name
     end
   end
 
@@ -203,10 +205,10 @@ module MU
   @myDataDir = @@mainDataDir if @myDataDir.nil?
   # Mu's deployment metadata directory.
   def self.dataDir
-    if MU.chef_user.nil? or MU.chef_user.empty? or MU.chef_user == "mu" or MU.chef_user == "root"
+    if MU.mu_user.nil? or MU.mu_user.empty? or MU.mu_user == "mu" or MU.mu_user == "root"
       return @myDataDir
     else
-      return Etc.getpwnam(MU.chef_user).dir+"/.mu/var"
+      return Etc.getpwnam(MU.mu_user).dir+"/.mu/var"
     end
   end
 
@@ -319,7 +321,8 @@ module MU
   end
 
 
-  chef_user = mu_user = Etc.getpwuid(Process.uid).name
+  mu_user = Etc.getpwuid(Process.uid).name
+  chef_user = Etc.getpwuid(Process.uid).name.gsub(/\./, "")
   chef_user = "mu" if chef_user == "root"
 
   MU.setVar("chef_user", chef_user)
@@ -328,7 +331,7 @@ module MU
   @userlist = nil
 
   # Fetch the email address of a given Mu user
-  def self.userEmail(user = MU.chef_user)
+  def self.userEmail(user = MU.mu_user)
     @userlist ||= MU::Master.listUsers
     if Dir.exists?("#{MU.mainDataDir}/users/#{user}")
       return File.read("#{MU.mainDataDir}/users/#{user}/email").chomp
@@ -341,7 +344,7 @@ module MU
   end
 
   # Fetch the real-world name of a given Mu user
-  def self.userName(user = MU.chef_user)
+  def self.userName(user = MU.mu_user)
     @userlist ||= MU::Master.listUsers
     if Dir.exists?("#{MU.mainDataDir}/users/#{user}")
       return File.read("#{MU.mainDataDir}/users/#{user}/realname").chomp

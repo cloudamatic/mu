@@ -133,11 +133,11 @@ module MU
           f.puts "node_name                '#{chef_user}'"
           f.puts "client_key               '#{chefdir}/#{chef_user}.user.key'"
           f.puts "validation_client_name   '#{chef_user}-validator'"
-          f.puts "validation_key           '$chef_cache/#{chef_user}.org.key'"
+          f.puts "validation_key           '#{chefdir}/#{chef_user}.org.key'"
           f.puts "chef_server_url 'https://#{$MU_CFG["public_address"]}:7443/organizations/#{chef_user}'"
           f.puts "chef_server_root 'https://#{$MU_CFG["public_address"]}:7443/organizations/#{chef_user}'"
-          f.puts "syntax_check_cache_path  '#{chef_user}/syntax_check_cache'"
-          f.puts "cookbook_path [ '#{chef_user}/cookbooks', '#{chef_user}/site_cookbooks' ]"
+          f.puts "syntax_check_cache_path  '#{chefdir}/syntax_check_cache'"
+          f.puts "cookbook_path [ '#{chefdir}/cookbooks', '#{chefdir}/site_cookbooks' ]"
           f.puts "knife[:vault_mode] = 'client'"
           f.puts "knife[:vault_admins] = ['#{chef_user}']"
           # f.puts "verify_api_cert    false"
@@ -224,7 +224,7 @@ module MU
                 MU.log "Added user #{user} to Chef organization #{org}", details: response
               }
             }
-            return true
+            return orgkey
           rescue Net::HTTPServerException => e
             MU.log "Error setting up Chef organization #{org}: #{e.message}", MU::ERR, details: org_data
             return false

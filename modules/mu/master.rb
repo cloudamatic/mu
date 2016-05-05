@@ -201,8 +201,8 @@ module MU
 
     # @return [Array<Hash>]: List of all Mu users, with pertinent metadata.
     def self.listUsers
-      if Etc.getpwuid(Process.uid).name != "root" or !Dir.exist?($MU_CFG['datadir']+"/users")
-        MU.log "Running with insufficient permissions or user directory does not exist", MU::ERR
+      if Etc.getpwuid(Process.uid).name != "root" or !Dir.exist?($MU_CFG['installdir']+"/var/users")
+        MU.log "Running with insufficient permissions to list users (#{Etc.getpwuid(Process.uid).name}) or user directory #{$MU_CFG['installdir']+"/var/users"} does not exist", MU::NOTICE
         return {}
       end
       # LDAP is canonical. Everything else is required to be in sync with it.
@@ -213,7 +213,7 @@ module MU
       ldap_users['mu']['non_ldap'] = true
       ldap_users.each_pair { |username, data|
         all_user_data[username] = {}
-        userdir = $MU_CFG['datadir']+"/users/#{username}"
+        userdir = $MU_CFG['installdir']+"/var/users/#{username}"
         if !Dir.exist?(userdir)
           MU.log "No metadata exists for user #{username}, creating stub directory #{userdir}", MU::WARN
           Dir.mkdir(userdir, 0755)
@@ -243,6 +243,8 @@ module MU
         gid = Etc.getgrnam("#{user}.mu-user").gid
         %x{/usr/sbin/usermod -a -G "#{user}.mu-user" "#{user}"}
         Dir.mkdir(userdir, 2750) if !Dir.exist?(userdir)
+				# XXX mkdir gets the perms wrong for some reason
+        %x{/bin/chmod 2750 #{userdir}}
         Dir.foreach(userdir) { |file|
           next if file == ".."
           File.chown(nil, gid, userdir+"/"+file)
