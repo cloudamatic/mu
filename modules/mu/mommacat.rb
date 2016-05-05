@@ -1409,7 +1409,7 @@ module MU
           "MU-ENV" => MU.environment,
           "MU-MASTER-NAME" => Socket.gethostname,
           "MU-MASTER-IP" => MU.mu_public_ip,
-          "MU-OWNER" => MU.chef_user
+          "MU-OWNER" => MU.mu_user
       }
     end
 
@@ -1598,7 +1598,7 @@ module MU
     # @param node [String]: The node's name
     # @return [void]
     def self.removeInstanceFromEtcHosts(node)
-      return if MU.chef_user != "mu"
+      return if MU.mu_user != "mu"
       hostsfile = "/etc/hosts"
       FileUtils.copy(hostsfile, "#{hostsfile}.bak-#{MU.deploy_id}")
       File.open(hostsfile, File::CREAT|File::RDWR, 0644) { |f|
@@ -1625,7 +1625,7 @@ module MU
     # @param system_name [String]: The node's local system name
     # @return [void]
     def self.addInstanceToEtcHosts(public_ip, chef_name = nil, system_name = nil)
-      return if MU.chef_user != "mu"
+      return if MU.mu_user != "mu"
 
       # XXX cover ipv6 case
       if public_ip.nil? or !public_ip.match(/^\d+\.\d+\.\d+\.\d+$/) or (chef_name.nil? and system_name.nil?)
@@ -1741,7 +1741,7 @@ MESSAGE_END
     # to client nodes.
     # @return [void]
     def self.syncMonitoringConfig(blocking = true)
-      return if Etc.getpwuid(Process.uid).name != "root" or MU.chef_user != "mu"
+      return if Etc.getpwuid(Process.uid).name != "root" or MU.mu_user != "mu"
       parent_thread_id = Thread.current.object_id
       nagios_threads = []
       nagios_threads << Thread.new {
@@ -1945,8 +1945,8 @@ MESSAGE_END
       open("#{certdir}/#{certname}.crt", 'w', 0644) { |io|
         io.write cert.to_pem
       }
-      if MU.chef_user != "mu"
-        owner_uid = Etc.getpwnam(MU.chef_user).uid
+      if MU.mu_user != "mu"
+        owner_uid = Etc.getpwnam(MU.mu_user).uid
         File.chown(owner_uid, nil, "#{certdir}/#{certname}.crt")
       end
     end
