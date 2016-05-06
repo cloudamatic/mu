@@ -112,9 +112,11 @@ case node.platform_family
     # If adcli fails mysteriously, look for bogus /etc/hosts entries pointing
     # to your DCs. It seems to dumbly trust any reverse mapping it sees,
     # whether or not the name matches the actual Kerberos tickets you et.
-    execute "echo -n '#{domain_creds[node.ad.join_auth[:password_field]]}' | /usr/sbin/adcli join #{node.ad.domain_name} --domain-realm=#{node.ad.domain_name.upcase} -U #{domain_creds[node.ad.join_auth[:username_field]]} --stdin-password" do
+    execute "Run ADCLI" do
       not_if { ::File.exists?("/etc/krb5.keytab") }
+      command "echo -n '#{domain_creds[node.ad.join_auth[:password_field]]}' | /usr/sbin/adcli join #{node.ad.domain_name} --domain-realm=#{node.ad.domain_name.upcase} -U #{domain_creds[node.ad.join_auth[:username_field]]} --stdin-password"
       notifies :restart, "service[sssd]", :immediately
+      sensitive true
     end
 
   else
