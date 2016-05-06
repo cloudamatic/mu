@@ -774,10 +774,9 @@ module MU
       ok = true
 
       if vpc_block['region'].nil? or
-        vpc_block['region'] = dflt_region
+        vpc_block['region'] = dflt_region.to_s
       end
-      # Don't want to deal with MU::Config::Tail in here anywhere
-      vpc_block = MU::Config.manxify(Marshal.load(Marshal.dump(vpc_block)))
+      vpc_block = Marshal.load(Marshal.dump(vpc_block))
 
       # First, dig up the enclosing VPC 
       tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !vpc_block['tag'].nil?
@@ -900,6 +899,7 @@ module MU
           end
           if !subnet['subnet_id'].nil? and subnet['subnet_id'].is_a?(String)
             subnet['subnet_id'] << getTail("Subnet #{count} for #{parent_name}", value: subnet['subnet_id'], prettyname: "Subnet #{count} for #{parent_name}", cloud_type: "AWS::EC2::Subnet::Id")
+            count = count + 1
           end
         }
       elsif (vpc_block['subnet_name'] or vpc_block['subnet_id'])
@@ -931,16 +931,16 @@ module MU
           }
         else
           sibling_vpcs.each { |ext_vpc|
-            if ext_vpc['name'] == vpc_block['vpc_name']
+            if ext_vpc['name'] == vpc_block['vpc_name'].to_s
               subnet_ptr = "subnet_name"
               ext_vpc['subnets'].each { |subnet|
                 if subnet['is_public'] # NAT nonsense calculated elsewhere, ew
-                  public_subnets << {"subnet_name" => subnet['name']}
+                  public_subnets << {"subnet_name" => subnet['name'].to_s}
                 else
-                  private_subnets << {"subnet_name" => subnet['name']}
-                  nat_routes[subnet['name']] = [] if nat_routes[subnet['name']].nil?
+                  private_subnets << {"subnet_name" => subnet['name'].to_s}
+                  nat_routes[subnet['name'].to_s] = [] if nat_routes[subnet['name'].to_s].nil?
                   if !subnet['nat_host_name'].nil?
-                    nat_routes[subnet['name']] << subnet['nat_host_name']
+                    nat_routes[subnet['name'].to_s] << subnet['nat_host_name'].to_s
                   end
                 end
               }
