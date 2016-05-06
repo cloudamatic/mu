@@ -776,7 +776,6 @@ module MU
       if vpc_block['region'].nil? or
         vpc_block['region'] = dflt_region.to_s
       end
-      vpc_block = Marshal.load(Marshal.dump(vpc_block))
 
       # First, dig up the enclosing VPC 
       tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !vpc_block['tag'].nil?
@@ -813,9 +812,9 @@ module MU
         # Next, the NAT host, if there is one
         if (vpc_block['nat_host_name'] or vpc_block['nat_host_ip'] or vpc_block['nat_host_tag'])
           if !vpc_block['nat_host_tag'].nil?
-            nat_tag_key, nat_tag_value = vpc_block['nat_host_tag'].split(/=/, 2)
+            nat_tag_key, nat_tag_value = vpc_block['nat_host_tag'].to_s.split(/=/, 2)
           else
-            nat_tag_key, nat_tag_value = [tag_key, tag_value]
+            nat_tag_key, nat_tag_value = [tag_key.to_s, tag_value.to_s]
           end
 
           ext_nat = ext_vpc.findBastion(
@@ -918,12 +917,10 @@ module MU
 
           ext_vpc.subnets.each { |subnet|
             if subnet.private? and (vpc_block['subnet_pref'] != "all_public" and vpc_block['subnet_pref'] != "public")
-#              private_subnets << { "subnet_id" => subnet.cloud_id }
               private_subnets << { "subnet_id" => getTail("#{parent_name} Private Subnet #{priv}", value: subnet.cloud_id, prettyname: "#{parent_name} Private Subnet #{priv}",  cloud_type:  "AWS::EC2::Subnet::Id") }
               private_subnets_map[subnet.cloud_id] = subnet
               priv = priv + 1
             elsif !subnet.private? and vpc_block['subnet_pref'] != "all_private" and vpc_block['subnet_pref'] != "private"
-#              public_subnets << { "subnet_id" => subnet.cloud_id }
               public_subnets << { "subnet_id" => getTail("#{parent_name} Public Subnet #{pub}", value: subnet.cloud_id, prettyname: "#{parent_name} Public Subnet #{pub}",  cloud_type: "AWS::EC2::Subnet::Id") }
               public_subnets_map[subnet.cloud_id] = subnet
               pub = pub + 1
@@ -931,7 +928,7 @@ module MU
           }
         else
           sibling_vpcs.each { |ext_vpc|
-            if ext_vpc['name'] == vpc_block['vpc_name'].to_s
+            if ext_vpc['name'].to_s == vpc_block['vpc_name'].to_s
               subnet_ptr = "subnet_name"
               ext_vpc['subnets'].each { |subnet|
                 if subnet['is_public'] # NAT nonsense calculated elsewhere, ew
