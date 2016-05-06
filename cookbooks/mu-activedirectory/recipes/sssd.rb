@@ -16,8 +16,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-case node.platform
-  when "centos", "redhat"
+case node.platform_family
+  when "rhel"
     service "sshd" do
       action :nothing
     end
@@ -55,10 +55,19 @@ case node.platform
       notifies :reload, "service[oddjobd]", :delayed
     end
 
-    service "oddjobd" do
-      start_command "sh -x /etc/init.d/oddjobd start" # seems to actually work
-      action [:enable, :start]
+    case elversion
+    when 6
+      service "oddjobd" do
+        start_command "sh -x /etc/init.d/oddjobd start" # seems to actually work
+        action [:enable, :start]
+      end
+    when 7
+      # Seems to work on CentOS7
+      service "oddjobd" do
+        action [:enable, :start]
+        end
     end
+
     execute "/usr/sbin/authconfig --disablenis --disablecache --disablewinbind --disablewinbindauth --enablemkhomedir --disablekrb5 --enablesssd --enablesssdauth --enablelocauthorize --disableforcelegacy --disableldap --disableldapauth --updateall" do
       notifies :restart, "service[oddjobd]", :immediately
       notifies :reload, "service[sshd]", :delayed
