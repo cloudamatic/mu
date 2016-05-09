@@ -131,11 +131,14 @@ projects[drupal][patch][1697570] = http://drupal.org/files/drupal7.menu-system.1
       end
     end
 
+		db_vault = chef_vault_item(node.deployment.databases.drupaldb.values.first.vault_name, node.deployment.databases.drupaldb.values.first.vault_item)
+		db_pw = db_vault[node.deployment.databases.drupaldb.values.first.password_field]
+
     settings_vars = {
-      :db_name => node.deployment.databases.drupaldb.db_name,
-      :username => node.deployment.databases.drupaldb.username,
-      :password => node.deployment.databases.drupaldb.password,
-      :db_host_name => node.deployment.databases.drupaldb.endpoint,
+      :db_name => node.deployment.databases.drupaldb.values.first.db_name,
+      :username => node.deployment.databases.drupaldb.values.first.username,
+      :password => db_pw,
+      :db_host_name => node.deployment.databases.drupaldb.values.first.endpoint,
       :proxy_lb_url => node.deployment.loadbalancers.proxylb.dns
     }
 
