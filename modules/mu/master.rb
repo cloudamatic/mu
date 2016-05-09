@@ -201,8 +201,8 @@ module MU
 
     # @return [Array<Hash>]: List of all Mu users, with pertinent metadata.
     def self.listUsers
-      if Etc.getpwuid(Process.uid).name != "root" or !Dir.exist?(MU.dataDir++"/var/users")
-        MU.log "Running with insufficient permissions to list users (#{Etc.getpwuid(Process.uid).name}) or user directory #{MU.dataDir+"/var/users"} does not exist", MU::NOTICE
+      if Etc.getpwuid(Process.uid).name != "root" or !Dir.exist?(MU.dataDir+"/users")
+        MU.log "Running with insufficient permissions to list users (#{Etc.getpwuid(Process.uid).name}) or user directory #{MU.dataDir+"/users"} does not exist", MU::NOTICE
         return {}
       end
       # LDAP is canonical. Everything else is required to be in sync with it.
