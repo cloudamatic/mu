@@ -118,10 +118,9 @@ module MU
     def self.setThreadContext(deploy)
       raise MuError, "Didn't get a MU::MommaCat object in setThreadContext" if !deploy.is_a?(MU::MommaCat)
       if !deploy.mu_user.nil?
-        chef_user = "mu" if chef_user == "root"
         MU.setVar("chef_user", deploy.chef_user)
-        if MU.chef_user != "mu"
-          MU.setVar("dataDir", Etc.getpwnam(MU.mu_user).dir+"/.mu/var")
+        if deploy.mu_user != "mu" and deploy.mu_user != "root"
+          MU.setVar("dataDir", Etc.getpwnam(deploy.mu_user).dir+"/.mu/var")
           MU.setVar("mu_user", deploy.mu_user)
         else
           MU.setVar("dataDir", MU.mainDataDir)
@@ -168,7 +167,7 @@ module MU
       set_context_to_me = true if create
 
       @deploy_id = deploy_id
-      @mu_user = mu_user
+      @mu_user = mu_user.dup
 
       # Make sure mu_user and chef_user are sane.
       if @mu_user == "root"
@@ -212,14 +211,14 @@ module MU
         end
         @seed = MU.seed # pass this in
         @appname = @original_config['name']
-      MU::Cloud.resource_types.each { |cloudclass, data|
-        if !@original_config[data[:cfg_plural]].nil? and @original_config[data[:cfg_plural]].size > 0
-           @original_config[data[:cfg_plural]].each { |resource|
-             @clouds[resource['cloud']] = 0 if !@clouds.has_key?(resource['cloud'])
-             @clouds[resource['cloud']] = @clouds[resource['cloud']] + 1
-           }
-        end
-      }
+        MU::Cloud.resource_types.each { |cloudclass, data|
+          if !@original_config[data[:cfg_plural]].nil? and @original_config[data[:cfg_plural]].size > 0
+            @original_config[data[:cfg_plural]].each { |resource|
+              @clouds[resource['cloud']] = 0 if !@clouds.has_key?(resource['cloud'])
+              @clouds[resource['cloud']] = @clouds[resource['cloud']] + 1
+            }
+          end
+        }
         @ssh_key_name, @ssh_private_key, @ssh_public_key = self.SSHKey
         if !File.exist?(deploy_dir+"/private_key")
           @private_key, @public_key = createDeployKey

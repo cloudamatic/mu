@@ -33,6 +33,15 @@ case node.platform_family
     package "pam_ldap" do
       action :remove
     end
+
+    case elversion
+    when 7
+      # trying to make sure Chef doesn’t try to start the service if it's already started
+      execute "sed -i 's/--nopidfile//' /usr/lib/systemd/system/messagebus.service && systemctl daemon-reload" do
+        only_if "grep '\--nopidfile' /usr/lib/systemd/system/messagebus.service"
+      end
+    end
+
     service "messagebus" do
       action [:enable, :start]
     end
@@ -65,13 +74,15 @@ case node.platform_family
       # Seems to work on CentOS7
       service "oddjobd" do
         action [:enable, :start]
-        end
+      end
     end
 
     execute "/usr/sbin/authconfig --disablenis --disablecache --disablewinbind --disablewinbindauth --enablemkhomedir --disablekrb5 --enablesssd --enablesssdauth --enablelocauthorize --disableforcelegacy --disableldap --disableldapauth --updateall" do
       notifies :restart, "service[oddjobd]", :immediately
       notifies :reload, "service[sshd]", :delayed
+      not_if "grep pam_sss.so /etc/pam.d/password-auth"
     end
+
     include_recipe 'chef-vault'
     domain_creds = chef_vault_item(node.ad.join_auth[:vault], node.ad.join_auth[:item])
     node.ad.dc_ips.each { |ip|
@@ -101,9 +112,11 @@ case node.platform_family
     # If adcli fails mysteriously, look for bogus /etc/hosts entries pointing
     # to your DCs. It seems to dumbly trust any reverse mapping it sees,
     # whether or not the name matches the actual Kerberos tickets you et.
-    execute "echo -n '#{domain_creds[node.ad.join_auth[:password_field]]}' | /usr/sbin/adcli join #{node.ad.domain_name} --domain-realm=#{node.ad.domain_name.upcase} -U #{domain_creds[node.ad.join_auth[:username_field]]} --stdin-password" do
+    execute "Run ADCLI" do
       not_if { ::File.exists?("/etc/krb5.keytab") }
+      command "echo -n '#{domain_creds[node.ad.join_auth[:password_field]]}' | /usr/sbin/adcli join #{node.ad.domain_name} --domain-realm=#{node.ad.domain_name.upcase} -U #{domain_creds[node.ad.join_auth[:username_field]]} --stdin-password"
       notifies :restart, "service[sssd]", :immediately
+      sensitive true
     end
 
   else

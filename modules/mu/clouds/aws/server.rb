@@ -101,7 +101,7 @@ module MU
               "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
               "deploySSHKey" => @deploy.ssh_public_key,
               "muID" => MU.deploy_id,
-              "muUser" => MU.chef_user,
+              "muUser" => MU.mu_user,
               "publicIP" => MU.mu_public_ip,
               "skipApplyUpdates" => @config['skipinitialupdates'],
               "windowsAdminName" => @config['windows_admin_username'],
