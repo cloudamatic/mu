@@ -148,8 +148,12 @@ module MU
           # munge in potentially new arguments.
           ext_alarm = getAlarmByName(name, region: region)
           if ext_alarm
-            if dimensions
-              dimensions.concat(ext_alarm.dimensions)
+            if !ext_alarm.dimensions.empty?
+              ext_alarm.dimensions.each { |dim|
+                # dimensions << dim.to_h
+                # Below is just a really bad workaround for none unique alarm names in server pools. Use above once fixed
+                dimensions << dim.to_h if dim.name != "InstanceId"
+              }
               dimensions.uniq!
             end
             if alarm_actions
