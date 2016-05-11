@@ -118,10 +118,12 @@ module MU
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
           alarms = []
-          MU::Cloud::AWS.cloudwatch(region).describe_alarms.metric_alarms.each { |alarm|
-            # We don't have a way to tag alarms, so we try to delete them by the deploy ID. 
-            # This can miss alarms in some cases (eg. cache_cluster) so we might want to delete alarms from each API as well.
-            alarms << alarm.alarm_name if alarm.alarm_name.match(MU.deploy_id)
+          # We don't have a way to tag alarms, so we try to delete them by the deploy ID. 
+          # This can miss alarms in some cases (eg. cache_cluster) so we might want to delete alarms from each API as well.
+          MU::Cloud::AWS.cloudwatch(region).describe_alarms.each { |page|
+            page.metric_alarms.map(&:alarm_name).each { |alarm_name|
+              alarms << alarm_name if alarm_name.match(MU.deploy_id)
+            }
           }
 
           if !alarms.empty?
@@ -148,8 +150,12 @@ module MU
           # munge in potentially new arguments.
           ext_alarm = getAlarmByName(name, region: region)
           if ext_alarm
-            if dimensions
-              dimensions.concat(ext_alarm.dimensions)
+            if !ext_alarm.dimensions.empty?
+              ext_alarm.dimensions.each { |dim|
+                # dimensions << dim.to_h
+                # Below is just a really bad workaround for none unique alarm names in server pools. Use above once fixed
+                dimensions << dim.to_h if dim.name != "InstanceId"
+              }
               dimensions.uniq!
             end
             if alarm_actions
