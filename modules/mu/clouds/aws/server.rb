@@ -101,7 +101,7 @@ module MU
               "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
               "deploySSHKey" => @deploy.ssh_public_key,
               "muID" => MU.deploy_id,
-              "muUser" => MU.chef_user,
+              "muUser" => MU.mu_user,
               "publicIP" => MU.mu_public_ip,
               "skipApplyUpdates" => @config['skipinitialupdates'],
               "windowsAdminName" => @config['windows_admin_username'],
@@ -688,22 +688,26 @@ module MU
                 alarm["ok_actions"]  = [topic_arn]
               end
 
-              MU::Cloud::AWS::Alarm.setAlarm(
-                name: alarm_obj.cloud_id,
-                ok_actions: alarm["ok_actions"],
-                alarm_actions: alarm["alarm_actions"],
-                insufficient_data_actions: alarm["no_data_actions"],
-                metric_name: alarm["metric_name"],
-                namespace: alarm["namespace"],
-                statistic: alarm["statistic"],
-                dimensions: alarm["dimensions"],
-                period: alarm["period"],
-                unit: alarm["unit"],
-                evaluation_periods: alarm["evaluation_periods"],
-                threshold: alarm["threshold"],
-                comparison_operator: alarm["comparison_operator"],
-                region: @config["region"]
-              )
+              if alarm_obj
+                MU::Cloud::AWS::Alarm.setAlarm(
+                  name: alarm_obj.cloud_id,
+                  ok_actions: alarm["ok_actions"],
+                  alarm_actions: alarm["alarm_actions"],
+                  insufficient_data_actions: alarm["no_data_actions"],
+                  metric_name: alarm["metric_name"],
+                  namespace: alarm["namespace"],
+                  statistic: alarm["statistic"],
+                  dimensions: alarm["dimensions"],
+                  period: alarm["period"],
+                  unit: alarm["unit"],
+                  evaluation_periods: alarm["evaluation_periods"],
+                  threshold: alarm["threshold"],
+                  comparison_operator: alarm["comparison_operator"],
+                  region: @config["region"]
+                )
+              else
+                MU.log "Can't find alarm #{alarm['name']}", MU::NOTICE
+              end
             }
           end
 

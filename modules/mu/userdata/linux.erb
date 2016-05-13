@@ -64,13 +64,21 @@ elif [ -x /usr/bin/yum ];then
 	if [ $version == 7 ];then
 		chmod 755 /etc/rc.d/rc.local
 	fi
+	if [ ! -f /usr/bin/curl ] ;then /usr/bin/yum -y install curl;fi
 	# Ugh, rando EPEL mirror
 	if [ ! -f /etc/yum.repos.d/epel.repo ];then
 	     version=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
 		/bin/rpm -ivh http://mirror.metrocast.net/fedora/epel/epel-release-latest-$version.noarch.rpm
 	fi
-	if [ ! -f /usr/bin/pip ] ;then /usr/bin/yum -y install python-pip;fi
-	if [ ! -f /usr/bin/curl ] ;then /usr/bin/yum -y install curl;fi
+  if [ ! -f /usr/bin/pip ];then
+    epel=`rpm -qa \*-release | grep -Ei "epel"`
+    if [ $epel ];then
+      /usr/bin/yum -y install python-pip
+    else
+      /usr/bin/curl -o get-pip.py https://bootstrap.pypa.io/get-pip.py
+      /usr/bin/python get-pip.py
+    fi
+  fi
 	AWSCLI=/usr/bin/aws
 <% if !$mu.skipApplyUpdates %>
 	if [ ! -f /.mu-installer-ran-updates ];then
@@ -134,7 +142,6 @@ instance_id="`curl http://169.254.169.254/latest/meta-data/instance-id`"
 
 # Make double-sure sshd is actually up
 service sshd restart
-service ssh restart
 
 /usr/bin/curl -k --data mu_id="<%= $mu.muID %>" --data mu_resource_name="<%= $mu.resourceName %>" --data mu_resource_type="<%= $mu.resourceType %>" --data mu_instance_id="$instance_id" --data mu_bootstrap="1" --data mu_user="<%= $mu.muUser %>" --data mu_deploy_secret="`/opt/chef/embedded/bin/ruby encrypt_deploy_secret.rb`" https://<%= $mu.publicIP %>:2260/
 /bin/rm -f <%= $mu.muID %>-secret mu_deploy_key.pub chef-install.sh encrypt_deploy_secret.rb
