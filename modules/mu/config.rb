@@ -1676,9 +1676,9 @@ module MU
             alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
             # We don't add dimension placeholders here, because the individual
             # Servers will have to do that themselves.
-            pool["dependencies"] << { "name" => alarm["name"], "type" => "alarm" }
+#            pool["dependencies"] << { "name" => alarm["name"], "type" => "alarm" }
             alarm['cloud'] = pool['cloud']
-            alarms << alarm.dup
+#            alarms << alarm.dup
           }
         end
 

@@ -152,9 +152,7 @@ module MU
           if ext_alarm
             if !ext_alarm.dimensions.empty?
               ext_alarm.dimensions.each { |dim|
-                # dimensions << dim.to_h
-                # Below is just a really bad workaround for none unique alarm names in server pools. Use above once fixed
-                dimensions << dim.to_h if dim.name != "InstanceId"
+                dimensions << dim.to_h
               }
               dimensions.uniq!
             end
