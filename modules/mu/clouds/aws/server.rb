@@ -688,26 +688,24 @@ module MU
                 alarm["ok_actions"]  = [topic_arn]
               end
 
-              if alarm_obj
-                MU::Cloud::AWS::Alarm.setAlarm(
-                  name: alarm_obj.cloud_id,
-                  ok_actions: alarm["ok_actions"],
-                  alarm_actions: alarm["alarm_actions"],
-                  insufficient_data_actions: alarm["no_data_actions"],
-                  metric_name: alarm["metric_name"],
-                  namespace: alarm["namespace"],
-                  statistic: alarm["statistic"],
-                  dimensions: alarm["dimensions"],
-                  period: alarm["period"],
-                  unit: alarm["unit"],
-                  evaluation_periods: alarm["evaluation_periods"],
-                  threshold: alarm["threshold"],
-                  comparison_operator: alarm["comparison_operator"],
-                  region: @config["region"]
-                )
-              else
-                MU.log "Can't find alarm #{alarm['name']}", MU::NOTICE
-              end
+              alarm_name = alarm_obj ? alarm_obj.cloud_id : node
+
+              MU::Cloud::AWS::Alarm.setAlarm(
+                name: alarm_name,
+                ok_actions: alarm["ok_actions"],
+                alarm_actions: alarm["alarm_actions"],
+                insufficient_data_actions: alarm["no_data_actions"],
+                metric_name: alarm["metric_name"],
+                namespace: alarm["namespace"],
+                statistic: alarm["statistic"],
+                dimensions: alarm["dimensions"],
+                period: alarm["period"],
+                unit: alarm["unit"],
+                evaluation_periods: alarm["evaluation_periods"],
+                threshold: alarm["threshold"],
+                comparison_operator: alarm["comparison_operator"],
+                region: @config["region"]
+              )
             }
           end
 
