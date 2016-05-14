@@ -687,7 +687,7 @@ module MU
                 alarm["ok_actions"]  = [topic_arn]
               end
 
-              alarm_name = alarm_obj ? alarm_obj.cloud_id : node
+              alarm_name = alarm_obj ? alarm_obj.cloud_id : "#{node}-#{alarm['name']}".upcase
 
               MU::Cloud::AWS::Alarm.setAlarm(
                 name: alarm_name,
