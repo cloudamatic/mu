@@ -1627,7 +1627,7 @@ module MU
         
         if lb["alarms"] && !lb["alarms"].empty?
           lb["alarms"].each { |alarm|
-            alarm["name"] = "lb"+lb["name"]+alarm["name"]
+            alarm["name"] = "lb-#{lb["name"]}-#{alarm["name"]}"
             alarm['dimensions'] = [] if !alarm['dimensions']
             alarm['dimensions'] << { "name" => lb["name"], "cloud_class" => "LoadBalancerName" }
             alarm["namespace"] = "AWS/ELB" if alarm["namespace"].nil?
@@ -1670,7 +1670,7 @@ module MU
 
         if pool["alarms"] && !pool["alarms"].empty?
           pool["alarms"].each { |alarm|
-            alarm["name"] = "pool"+pool["name"]+alarm["name"]
+            alarm["name"] = "server-#{pool['name']}-#{alarm["name"]}"
             alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
             # We don't add dimension placeholders here, because the individual
             # Servers will have to do that themselves.
@@ -1754,7 +1754,7 @@ module MU
 
             if policy["alarms"] && !policy["alarms"].empty?
               policy["alarms"].each { |alarm|
-                alarm["name"] = "policy"+pool["name"]+policy["name"]+alarm["name"]
+                alarm["name"] = "scaling-policy-#{pool["name"]}-#{alarm["name"]}"
                 alarm['dimensions'] = [] if !alarm['dimensions']
                 alarm['dimensions'] << { "name" => pool["name"], "cloud_class" => "AutoScalingGroupName" }
                 alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
@@ -1980,7 +1980,7 @@ module MU
 
         if db["alarms"] && !db["alarms"].empty?
           db["alarms"].each { |alarm|
-            alarm["name"] = "db"+db["name"]+alarm["name"]
+            alarm["name"] = "db-#{db["name"]}-#{alarm["name"]}"
             alarm['dimensions'] = [] if !alarm['dimensions']
             alarm['dimensions'] << { "name" => db["name"], "cloud_class" => "DBInstanceIdentifier" }
             alarm["namespace"] = "AWS/RDS" if alarm["namespace"].nil?
@@ -2246,7 +2246,7 @@ module MU
 
         if cluster["alarms"] && !cluster["alarms"].empty?
           cluster["alarms"].each { |alarm|
-            alarm["name"] = "cache"+cluster["name"]+alarm["name"]
+            alarm["name"] = "cachecluster-#{cluster["name"]}-#{alarm["name"]}"
             alarm['dimensions'] = [] if !alarm['dimensions']
             alarm['dimensions'] << { "name" => cluster["name"], "cloud_class" => "CacheClusterId" }
             alarm["namespace"] = "AWS/ElastiCache" if alarm["namespace"].nil?
@@ -2375,7 +2375,7 @@ module MU
 
         if server["alarms"] && !server["alarms"].empty?
           server["alarms"].each { |alarm|
-            alarm["name"] = "server"+server["name"]+alarm["name"]
+            alarm["name"] = "server-#{server["name"]}-#{alarm["name"]}"
             alarm["dimensions"] = [] if !alarm["dimensions"]
             alarm['dimensions'] << { "name" => server["name"], "cloud_class" => "InstanceId" }
             alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
