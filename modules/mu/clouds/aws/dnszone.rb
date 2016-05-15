@@ -193,6 +193,7 @@ module MU
           record_threads = []
 
           cfg.each { |record|
+            record['name'] = "#{record['name']}.#{MU.environment.downcase}" if record["append_environment_name"] && !record['name'].match(/\.#{MU.environment.downcase}$/)
             zone = nil
             if record['zone'].has_key?("id")
               zone = MU::Cloud::DNSZone.find(cloud_id: record['zone']['id']).values.first
@@ -210,12 +211,21 @@ module MU
             parent_thread_id = Thread.current.object_id
             record_threads << Thread.new {
               MU.dupGlobals(parent_thread_id)
-              MU::Cloud::AWS::DNSZone.manageRecord(zone.id, record['name'], record['type'],
-                                                   targets: [record['target']], ttl: record['ttl'],
-                                                   failover: record['failover'], healthcheck: healthcheck_id,
-                                                   weight: record['weight'], overwrite: record['override_existing'],
-                                                   location: record['geo_location'], region: record['region'],
-                                                   alias_zone: record['alias_zone'], sync_wait: false)
+              MU::Cloud::AWS::DNSZone.manageRecord(
+                zone.id,
+                record['name'],
+                record['type'],
+                targets: [record['target']],
+                ttl: record['ttl'],
+                failover: record['failover'],
+                healthcheck: healthcheck_id,
+                weight: record['weight'],
+                overwrite: record['override_existing'],
+                location: record['geo_location'],
+                region: record['region'],
+                alias_zone: record['alias_zone'],
+                sync_wait: false
+              )
             }
           }
 # we probably don't have to wait for these
