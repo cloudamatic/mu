@@ -23,7 +23,7 @@ case node.platform_family
       action :nothing
     end
 
-    packages = %w(epel-release adcli dbus sssd sssd-ldap sssd-ad authconfig nscd oddjob-mkhomedir)
+    packages = %w(epel-release dbus sssd sssd-ldap sssd-ad authconfig nscd oddjob-mkhomedir git automake libtool openldap-devel libxslt-devel)
 
     package packages
 
@@ -31,6 +31,26 @@ case node.platform_family
     
     package packages_uninstall do
       action :remove
+    end
+
+    execute "git clone git://anongit.freedesktop.org/realmd/adcli" do
+      cwd "/root"
+      not_if { ::Dir.exists?("/root/adcli") }
+    end
+
+    execute "git fetch && git pull" do
+      cwd "/root/adcli"
+    end
+
+    include_recipe "build-essential"
+
+    # This is our workaround until the RPM makes it way back into a repo
+    # somewhere. It was removed from EPEL after it became part of mainstream
+    # RHEL 6.8, but CentOS doesn't have it yet.
+    execute "compile adcli" do
+      cwd "/root/adcli"
+      command "./autogen.sh --disable-doc --prefix=/usr && make && make install"
+      not_if { ::File.exists?("/usr/sbin/adcli") }
     end
 
     case elversion
