@@ -14,14 +14,14 @@ case node[:platform]
       description 'Glusterfs latest release repo'
       url "http://download.gluster.org/pub/gluster/glusterfs/LATEST/EPEL.repo/epel-$releasever/$basearch/"
       enabled true
-      gpgkey "http://download.gluster.org/pub/gluster/glusterfs/LATEST/EPEL.repo/pub.key"
+      gpgkey "http://download.gluster.org/pub/gluster/glusterfs/LATEST/EPEL.repo/rsa.pub"
     end
 
     yum_repository "glusterfs-samba" do
       description 'Glusterfs Samba repo'
       url "http://download.gluster.org/pub/gluster/glusterfs/samba/EPEL.repo/epel-$releasever/$basearch/"
-      enabled true
-      gpgkey "http://download.gluster.org/pub/gluster/glusterfs/samba/EPEL.repo/pub.key"
+      enabled false
+      gpgkey "http://download.gluster.org/pub/gluster/glusterfs/LATEST/EPEL.repo/rsa.pub"
     end
 
   else

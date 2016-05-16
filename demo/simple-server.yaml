@@ -1,7 +1,24 @@
 ---
-  appname: "demo"
+  parameters:
+  - name: appname
+    default: demo
+  - name: instance_type
+    default: t2.micro
+  - name: vpc
+    cloudtype: AWS::EC2::VPC::Id
+    default: <%= MU.myVPC %>
+  appname: <%= appname %>
   servers: 
     - 
-      name: "simple"
-      size: "m3.medium"
+      name: simple
+      size: <%= instance_type %>
       skipinitialupdates: true
+      vpc:
+        vpc_id: <%= vpc %>
+        subnet_pref: all_public
+      storage:
+      - device: /dev/sda1
+        size: 70
+      - device: /dev/xvdg
+        size: 500
+        volume_type: sc1

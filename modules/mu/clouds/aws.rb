@@ -65,13 +65,15 @@ module MU
       # @return [Array<String>]: keypairname, ssh_private_key, ssh_public_key
       def self.createEc2SSHKey(keyname, public_key)
         # We replicate this key in all regions
-        MU::Cloud::AWS.listRegions.each { |region|
-          MU.log "Replicating #{keyname} to EC2 in #{region}", MU::DEBUG, details: @ssh_public_key
-          MU::Cloud::AWS.ec2(region).import_key_pair(
-              key_name: keyname,
-              public_key_material: public_key
-          )
-        }
+        if !MU::Cloud::CloudFormation.emitCloudFormation
+          MU::Cloud::AWS.listRegions.each { |region|
+            MU.log "Replicating #{keyname} to EC2 in #{region}", MU::DEBUG, details: @ssh_public_key
+            MU::Cloud::AWS.ec2(region).import_key_pair(
+                key_name: keyname,
+                public_key_material: public_key
+            )
+          }
+        end
       end
 
       # Amazon's IAM API
@@ -265,7 +267,7 @@ module MU
 
         allow_ips = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
         MU::MommaCat.listAllNodes.each_pair { |node, data|
-					next if data.nil?
+					next if data.nil? or !data.is_a?(Hash)
           ["public_ip_address"].each { |key|
             if data.has_key?(key) and !data[key].nil? and !data[key].empty?
               allow_ips << data[key] + "/32"
@@ -359,7 +361,7 @@ module MU
               retval = @api.method(method_sym).call
             end
             return retval
-          rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException, Aws::EC2::Errors::IncorrectState, Aws::EC2::Errors::Http503Error, Aws::AutoScaling::Errors::Http503Error, Aws::AutoScaling::Errors::InternalFailure, Aws::AutoScaling::Errors::ServiceUnavailable, Aws::Route53::Errors::ServiceUnavailable, Aws::ElasticLoadBalancing::Errors::Throttling, Aws::RDS::Errors::ClientUnavailable, Aws::Waiters::Errors::UnexpectedError => e
+          rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException, Aws::EC2::Errors::IncorrectState, Aws::EC2::Errors::Http503Error, Aws::AutoScaling::Errors::Http503Error, Aws::AutoScaling::Errors::InternalFailure, Aws::AutoScaling::Errors::ServiceUnavailable, Aws::Route53::Errors::ServiceUnavailable, Aws::ElasticLoadBalancing::Errors::Throttling, Aws::RDS::Errors::ClientUnavailable, Aws::Waiters::Errors::UnexpectedError, Aws::ElasticLoadBalancing::Errors::ServiceUnavailable => e
             retries = retries + 1
             debuglevel = MU::DEBUG
             interval = 5 + Random.rand(4) - 2

@@ -29,17 +29,16 @@ module MU
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::vpcs}
         def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
           @deploy = mommacat
-          @config = kitten_cfg
+          @config = MU::Config.manxify(kitten_cfg)
           @subnets = []
           @cloud_id = cloud_id
           if !mu_name.nil?
             @mu_name = mu_name
             loadSubnets if !@cloud_id.nil?
           else
-            # Names for this resource are deterministic, so it's ok to just
-            # generate it any time we're loaded up.
             @mu_name = @deploy.getResourceName(@config['name'])
           end
+
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -65,12 +64,12 @@ module MU
             end while resp.state != "available"
             # There's a default route table that comes with. Let's tag it.
             resp = MU::Cloud::AWS.ec2(@config['region']).describe_route_tables(
-                filters: [
-                    {
-                        name: "vpc-id",
-                        values: [vpc_id]
-                    }
-                ]
+              filters: [
+                {
+                  name: "vpc-id",
+                  values: [vpc_id]
+                }
+              ]
             )
             resp.route_tables.each { |rtb|
               MU::MommaCat.createTag(rtb.route_table_id, "Name", @mu_name+"-#DEFAULTPRIV", region: @config['region'])
@@ -244,11 +243,13 @@ module MU
                 end
 
                 if subnet['is_public'] && subnet['create_nat_gateway']
+                  MU::MommaCat.lock("nat-gateway-eipalloc")
                   filters = [{name: "domain", values: ["vpc"]}]
                   eips = MU::Cloud::AWS.ec2(@config['region']).describe_addresses(filters: filters).addresses
                   allocation_id = nil
                   eips.each { |eip|
-                    if eip.private_ip_address.nil? || eip.private_ip_address.empty?
+                    next if !eip.association_id.nil? and !eip.association_id.empty?
+                    if (eip.private_ip_address.nil? || eip.private_ip_address.empty?) and MU::MommaCat.lock(eip.allocation_id, true, true)
                       if !allocation_ids.include?(eip.allocation_id)
                         allocation_id = eip.allocation_id
                         break
@@ -256,7 +257,11 @@ module MU
                     end
                   }
 
-                  allocation_id = MU::Cloud::AWS.ec2(@config['region']).allocate_address(domain: "vpc").allocation_id if allocation_id.nil?
+                  if allocation_id.nil?
+                    allocation_id = MU::Cloud::AWS.ec2(@config['region']).allocate_address(domain: "vpc").allocation_id
+                    MU::MommaCat.lock(allocation_id, false, true)
+                  end
+
                   allocation_ids << allocation_id
                   resp = MU::Cloud::AWS.ec2(@config['region']).create_nat_gateway(
                     subnet_id: subnet['subnet_id'],
@@ -265,8 +270,9 @@ module MU
 
                   nat_gateway_id = resp.nat_gateway_id
                   attempts = 0
+                  MU::MommaCat.unlock("nat-gateway-eipalloc")
                   while resp.state == "pending"
-                    MU.log "Waiting for nat gateway #{nat_gateway_id} to become available" if attempts % 5 == 0
+                    MU.log "Waiting for nat gateway #{nat_gateway_id} () to become available (EIP allocation: #{allocation_id})" if attempts % 5 == 0
                     sleep 30
                     begin
                       resp = MU::Cloud::AWS.ec2(@config['region']).describe_nat_gateways(nat_gateway_ids: [nat_gateway_id]).nat_gateways.first
@@ -274,9 +280,13 @@ module MU
                       sleep 5
                       retry
                     end
-                    raise MuError, "Timed out while waiting for NAT Gateway #{nat_gateway_id}: #{resp}" if attempts > 30
+                    if attempts > 30
+                      MU::MommaCat.unlock(allocation_id, true)
+                      raise MuError, "Timed out while waiting for NAT Gateway #{nat_gateway_id}: #{resp}"
+                    end
                     attempts += 1
                   end
+                  MU::MommaCat.unlock(allocation_id, true)
 
                   raise MuError, "NAT Gateway failed #{nat_gateway_id}: #{resp}" if resp.state == "failed"
                   nat_gateways << {'id' => nat_gateway_id, 'availability_zone' => subnet['availability_zone']}
@@ -527,6 +537,9 @@ module MU
               begin
                 if peer['account'].nil? or peer['account'] == MU.account_number
                   tag_key, tag_value = peer['vpc']['tag'].split(/=/, 2) if !peer['vpc']['tag'].nil?
+                  if peer['vpc']['deploy_id'].nil? and peer['vpc']['vpc_id'].nil? and tag_key.nil?
+                    peer['vpc']['deploy_id'] = @deploy.deploy_id
+                  end
                   peer_obj = MU::MommaCat.findStray(
                       "AWS",
                       "vpcs",
@@ -537,7 +550,9 @@ module MU
                       tag_value: tag_value,
                       dummy_ok: true,
                       region: peer['vpc']['region']
-                  ).first
+                  )
+                  raise MuError, "No result looking for #{@mu_name}'s peer VPCs (#{peer['vpc']})" if peer_obj.nil? or peer_obj.first.nil?
+                  peer_obj = peer_obj.first
                   peer_id = peer_obj.cloud_id
 
                   MU.log "Initiating peering connection from VPC #{@config['name']} (#{@config['vpc_id']}) to #{peer_id}"
@@ -692,7 +707,7 @@ module MU
             if !cloud_id.nil?
               MU.log "Searching for VPC id '#{cloud_id}' in #{region}", MU::DEBUG
               begin
-                resp = MU::Cloud::AWS.ec2(region).describe_vpcs(vpc_ids: [cloud_id])
+                resp = MU::Cloud::AWS.ec2(region).describe_vpcs(vpc_ids: [cloud_id.to_s])
                 resp.vpcs.each { |vpc|
                   map[vpc.vpc_id] = vpc
                 }
@@ -807,9 +822,14 @@ module MU
         def findBastion(nat_name: nil, nat_cloud_id: nil, nat_tag_key: nil, nat_tag_value: nil, nat_ip: nil)
           nat = nil
           deploy_id = nil
+          nat_name = nat_name.to_s if !nat_name.nil? and nat_name.class.to_s == "MU::Config::Tail"
+          nat_ip = nat_ip.to_s if !nat_ip.nil? and nat_ip.class.to_s == "MU::Config::Tail"
+          nat_cloud_id = nat_cloud_id.to_s if !nat_cloud_id.nil? and nat_cloud_id.class.to_s == "MU::Config::Tail"
+          nat_tag_key = nat_tag_key.to_s if !nat_tag_key.nil? and nat_tag_key.class.to_s == "MU::Config::Tail"
+          nat_tag_value = nat_tag_value.to_s if !nat_tag_value.nil? and nat_tag_value.class.to_s == "MU::Config::Tail"
 
           # If we're searching by name, assume it's part of this here deploy.
-          if nat_cloud_id.nil?
+          if nat_cloud_id.nil? and !@deploy.nil?
             deploy_id = @deploy.deploy_id
           end
           found = MU::MommaCat.findStray(
@@ -972,6 +992,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
+
           tagfilters = [
               {name: "tag:MU-ID", values: [MU.deploy_id]}
           ]
@@ -993,11 +1014,17 @@ module MU
           end
 
           if !vpcs.empty?
-          vpcs.each { |vpc|
-            # NAT gateways don't have any tags, and we can't assign them a name. Lets find them based on a VPC ID
-            purge_nat_gateways(noop, vpc_id: vpc.vpc_id, region: region)
-            purge_endpoints(noop, vpc_id: vpc.vpc_id, region: region)
-          }
+            gwthreads = []
+            vpcs.each { |vpc|
+              # NAT gateways don't have any tags, and we can't assign them a name. Lets find them based on a VPC ID
+              gwthreads << Thread.new {
+                purge_nat_gateways(noop, vpc_id: vpc.vpc_id, region: region)
+                purge_endpoints(noop, vpc_id: vpc.vpc_id, region: region)
+              }
+            }
+            gwthreads.each { |t|
+              t.join
+            }
           end
 
           purge_gateways(noop, tagfilters, region: region)
@@ -1152,8 +1179,8 @@ module MU
                     resp = MU::Cloud::AWS.ec2(region).describe_nat_gateways(nat_gateway_ids: [gateway.nat_gateway_id]).nat_gateways.first
 
                     attempts = 0
-                    while resp.state != "deleted"
-                      MU.log "Waiting for nat gateway #{gateway.nat_gateway_id} to delete" if attempts % 5 == 0
+                    while resp.state != "deleted" and resp.state != "failed"
+                      MU.log "Waiting for nat gateway #{gateway.nat_gateway_id} to delete" if attempts % 2 == 0
                       sleep 30
                       begin
                         resp = MU::Cloud::AWS.ec2(region).describe_nat_gateways(nat_gateway_ids: [gateway.nat_gateway_id]).nat_gateways.first
@@ -1450,7 +1477,8 @@ module MU
             rescue Aws::EC2::Errors::InvalidVpcIDNotFound
               MU.log "VPC #{vpc.vpc_id} has already been deleted", MU::WARN
             rescue Aws::EC2::Errors::DependencyViolation => e
-              MU.log "Couldn't delete VPC #{vpc.vpc_id}: #{e.inspect}", MU::ERR
+              MU.log "Couldn't delete VPC #{vpc.vpc_id} from #{region}: #{e.inspect}", MU::ERR#, details: caller
+              next
             end
 
             mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu", region: region).values.first
@@ -1472,15 +1500,17 @@ module MU
           attr_reader :mu_name
           attr_reader :name
 
+
           # @param parent [MU::Cloud::AWS::VPC]: The parent VPC of this subnet.
           # @param config [Hash<String>]:
           def initialize(parent, config)
             @parent = parent
-            @config = config
+            @config = MU::Config.manxify(config)
             @cloud_id = config['cloud_id']
             @mu_name = config['mu_name']
             @name = config['name']
             @deploydata = config # This is a dummy for the sake of describe()
+
           end
 
           # Return the cloud identifier for the default route of this subnet.

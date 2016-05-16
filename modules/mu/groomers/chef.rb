@@ -34,7 +34,7 @@ module MU
         end
         def const_missing(symbol)
           if symbol.to_sym == :Chef or symbol.to_sym == :ChefVault
-            MU::Groomer::Chef.loadChefLib(@server.deploy.mu_user, @server.deploy.environment)
+            MU::Groomer::Chef.loadChefLib(@server.deploy.chef_user, @server.deploy.environment, @server.deploy.mu_user)
             return Object.const_get(symbol)
           end
         end
@@ -44,10 +44,10 @@ module MU
       @chefload_semaphore = Mutex.new
       # Autoload is too brain-damaged to get Chef's subclasses/submodules, so
       # implement our own lazy loading.
-      def self.loadChefLib(user = MU.mu_user, env = "dev")
+      def self.loadChefLib(user = MU.chef_user, env = "dev", mu_user = MU.mu_user)
         @chefload_semaphore.synchronize {
           if !@chefloaded
-            MU.log "Loading Chef libraries..."
+            MU.log "Loading Chef libraries as user #{user}..."
             start = Time.now
             # need to find which classes are actually needed instead of loading chef
             require 'chef'
@@ -64,11 +64,11 @@ module MU
             require 'chef/file_access_control/unix'
             require 'chef-vault'
             require 'chef-vault/item'
-            if File.exists?("#{Etc.getpwnam(user).dir}/.chef/knife.rb")
-              MU.log "Loading Chef configuration from #{Etc.getpwnam(user).dir}/.chef/knife.rb", MU::DEBUG
-              ::Chef::Config.from_file("#{Etc.getpwnam(user).dir}/.chef/knife.rb")
+            if File.exists?("#{Etc.getpwnam(mu_user).dir}/.chef/knife.rb")
+              MU.log "Loading Chef configuration from #{Etc.getpwnam(mu_user).dir}/.chef/knife.rb", MU::DEBUG
+              ::Chef::Config.from_file("#{Etc.getpwnam(mu_user).dir}/.chef/knife.rb")
             end
-            ::Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}:7443/organizations/#{MU.chef_user}"
+            ::Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}:7443/organizations/#{user}"
             ::Chef::Config[:environment] = env
             ::Chef::Config[:yes] = true
             @chefloaded = true
@@ -172,7 +172,7 @@ module MU
           begin
             loaded = ::ChefVault::Item.load(vault, item)
           rescue ::ChefVault::Exceptions::KeysNotFound => e
-            raise MuNoSuchSecret, "Can't load the Chef Vault #{vault}:#{item}. Does it exist?"
+            raise MuNoSuchSecret, "Can't load the Chef Vault #{vault}:#{item}. Does it exist? Chef user: #{MU.chef_user}"
           end
         else
           # If we didn't ask for a particular item, list what we have.
@@ -332,7 +332,7 @@ module MU
           end
           guardfile = "/opt/mu_installed_chef"
         else
-          remove_cmd = "rm -rf /cygdrive/c/opscode /cygdrive/c/chef"
+          remove_cmd = "( /cygdrive/c/Windows/system32/reg query HKLM\\\SOFTWARE\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ /f 'Chef Client' /s /t REG_SZ | grep '}$' | cut -d{ -f2 | cut -d} -f1 | xargs msiexec /qn /x ) ;  /cygdrive/c/Windows/system32/reg query HKLM\\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ /f 'Chef Client' /s /t REG_SZ | grep '}$' | cut -d{ -f2 | cut -d} -f1 | xargs msiexec /qn /x )"
           guardfile = "/cygdrive/c/mu_installed_chef"
         end
 
@@ -632,6 +632,7 @@ module MU
           chef_node.normal.ad.domain_controller_hostname = @config['active_directory']['domain_controller_hostname'] if @config['active_directory'].has_key?('domain_controller_hostname')
           chef_node.normal.ad.netbios_name = @config['active_directory']['short_domain_name']
           chef_node.normal.ad.computer_ou = @config['active_directory']['computer_ou'] if @config['active_directory'].has_key?('computer_ou')
+          chef_node.normal.ad.domain_sid = @config['active_directory']['domain_sid'] if @config['active_directory'].has_key?('domain_sid')
           chef_node.normal.ad.dcs = @config['active_directory']['domain_controllers']
           chef_node.normal.ad.domain_join_vault = @config['active_directory']['domain_join_vault']['vault']
           chef_node.normal.ad.domain_join_item = @config['active_directory']['domain_join_vault']['item']
@@ -757,7 +758,7 @@ module MU
               "mu_resource_name" => @config['name'],
               "mu_resource_type" => res_type,
               "mu_ssl_sign" => "#{MU.mySSLDir}/#{@server.mu_name}.csr",
-              "mu_user" => MU.chef_user,
+              "mu_user" => MU.mu_user,
               "mu_deploy_secret" => deploysecret
           )
           http = Net::HTTP.new(uri.hostname, uri.port)

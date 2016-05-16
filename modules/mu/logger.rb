@@ -23,16 +23,25 @@ module MU
   # This class should be used for all output from MU. By default it logs to
   # stdout with human-friendly ANSI coloring, and to syslog.
   class Logger
+    # Show nothing at all
+    SILENT = -1.freeze
+    # Only show NOTICE, WARN, and ERROR log entries
+    QUIET = 0.freeze
+    # Show INFO log entries
+    NORMAL = 1.freeze
+    # Show DEBUG log entries and extra call stack and threading info
+    LOUD = 2.freeze
 
-    @verbose = false
+    @verbosity = MU::Logger::NORMAL
+    @quiet = false
     @html = false
 
     @@log_semaphere = Mutex.new
 
-    # @param verbose [Boolean]: Enable verbose logging.
+    # @param verbosity [Integer]: See {MU::Logger.QUIET}, {MU::Logger.NORMAL}, {MU::Logger.LOUD}
     # @param html [Boolean]: Enable web-friendly log output.
-    def initialize(verbose=false, html=false)
-      @verbose = verbose
+    def initialize(verbosity=MU::Logger::NORMAL, html=false)
+      @verbosity = verbosity
       @html = html
     end
 
@@ -40,13 +49,15 @@ module MU
     # @param level [Integer]: The level at which to log (DEBUG, INFO, NOTICE, WARN, ERR)
     # @param details [String,Hash,Array]: Extra information for verbose logging modes.
     # @param html [Boolean]: Toggle web-friendly output.
-    # @param verbose [Boolean]: Explicitly enable verbose logging.
+    # @param verbosity [Integer]: Explicit verbosity settings for this message
     def log(msg,
             level=INFO,
             details: nil,
-            html: html = @html,
-            verbose: verbose = @verbose
+            html: @html,
+            verbosity: @verbosity
     )
+      verbosity = MU::Logger::NORMAL if verbosity.nil?
+      return if verbosity == MU::Logger::SILENT
 
       # By which we mean, "get the filename (with the .rb stripped off) which
       # originated the call to this method. Which, for our purposes, is the
@@ -89,7 +100,7 @@ module MU
       @@log_semaphere.synchronize {
         case level
           when DEBUG
-            if verbose
+            if verbosity >= MU::Logger::LOUD
               if @html
                 html_out "#{time} - #{caller_name} - #{msg}", "orange"
                 html_out "&nbsp;#{details}" if details
@@ -101,27 +112,29 @@ module MU
               Syslog.log(Syslog::LOG_DEBUG, details.gsub(/%/, '')) if details
             end
           when INFO
-            if @html
-              html_out "#{time} - #{caller_name} - #{msg}", "green"
-            else
-              puts "#{time} - #{caller_name} - #{msg}".green.on_black
-            end
-            if verbose
+            if verbosity >= MU::Logger::NORMAL
               if @html
-                html_out "&nbsp;#{details}"
+                html_out "#{time} - #{caller_name} - #{msg}", "green"
               else
-                puts "\t#{details}".white.on_black if details
+                puts "#{time} - #{caller_name} - #{msg}".green.on_black
               end
+              if verbosity >= MU::Logger::LOUD
+                if @html
+                  html_out "&nbsp;#{details}"
+                else
+                  puts "\t#{details}".white.on_black if details
+                end
+              end
+              Syslog.log(Syslog::LOG_NOTICE, msg.gsub(/%/, ''))
+              Syslog.log(Syslog::LOG_NOTICE, details.gsub(/%/, '')) if details
             end
-            Syslog.log(Syslog::LOG_NOTICE, msg.gsub(/%/, ''))
-            Syslog.log(Syslog::LOG_NOTICE, details.gsub(/%/, '')) if details
           when NOTICE
             if @html
               html_out "#{time} - #{caller_name} - #{msg}", "yellow"
             else
               puts "#{time} - #{caller_name} - #{msg}".yellow.on_black
             end
-            if verbose
+            if verbosity >= MU::Logger::LOUD
               if @html
                 html_out "#{caller_name} - #{msg}"
               else
@@ -136,7 +149,7 @@ module MU
             else
               puts "#{time} - #{caller_name} - #{msg}".light_red.on_black
             end
-            if verbose
+            if verbosity >= MU::Logger::LOUD
               if @html
                 html_out "#{caller_name} - #{msg}"
               else

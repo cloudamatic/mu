@@ -28,7 +28,7 @@ module MU
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::server_pools}
         def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
           @deploy = mommacat
-          @config = kitten_cfg
+          @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
           if !mu_name.nil?
             @mu_name = mu_name
@@ -42,11 +42,11 @@ module MU
           MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
 
           asg_options = {
-              :auto_scaling_group_name => @mu_name,
-              :default_cooldown => @config["default_cooldown"],
-              :health_check_type => @config["health_check_type"],
-              :health_check_grace_period => @config["health_check_grace_period"],
-              :tags => []
+            :auto_scaling_group_name => @mu_name,
+            :default_cooldown => @config["default_cooldown"],
+            :health_check_type => @config["health_check_type"],
+            :health_check_grace_period => @config["health_check_grace_period"],
+            :tags => []
           }
 
           MU::MommaCat.listStandardTags.each_pair { |name, value|
@@ -67,7 +67,6 @@ module MU
             asg_options[:min_size] = @config["min_size"]
             asg_options[:max_size] = @config["max_size"]
           end
-
 
           if @config["loadbalancers"]
             lbs = Array.new
@@ -114,33 +113,62 @@ module MU
               MU.log "Using AMI '#{launch_desc["ami_id"]}' from sibling server #{launch_desc["server"]} in ServerPool #{@mu_name}"
             elsif !launch_desc["instance_id"].nil?
               launch_desc["ami_id"] = MU::Cloud::AWS::Server.createImage(
-                  name: @mu_name,
-                  instance_id: launch_desc["instance_id"]
+                name: @mu_name,
+                instance_id: launch_desc["instance_id"]
               )
             end
             MU::Cloud::AWS::Server.waitForAMI(launch_desc["ami_id"])
 
             launch_options = {
-                :launch_configuration_name => @mu_name,
-                :image_id => launch_desc["ami_id"],
-                :instance_type => launch_desc["size"],
-                :key_name => @deploy.ssh_key_name,
-                :ebs_optimized => launch_desc["ebs_optimized"],
-                :instance_monitoring => {:enabled => launch_desc["monitoring"]},
+              :launch_configuration_name => @mu_name,
+              :image_id => launch_desc["ami_id"],
+              :instance_type => launch_desc["size"],
+              :key_name => @deploy.ssh_key_name,
+              :ebs_optimized => launch_desc["ebs_optimized"],
+              :instance_monitoring => {:enabled => launch_desc["monitoring"]},
             }
+
+            # Figure out which devices are embedded in the AMI already.
+            image = MU::Cloud::AWS.ec2(@config['region']).describe_images(image_ids: [launch_desc["ami_id"]]).images.first
+            ext_disks = {}
+            if !image.block_device_mappings.nil?
+              image.block_device_mappings.each { |disk|
+                if !disk.device_name.nil? and !disk.device_name.empty? and !disk.ebs.nil? and !disk.ebs.empty?
+                  ext_disks[disk.device_name] = MU.structToHash(disk.ebs)
+                end
+              }
+            end
+
+            launch_options[:block_device_mappings] = []
             if launch_desc["storage"]
               storage = Array.new
               launch_desc["storage"].each { |vol|
-                storage << MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
+                # Drop the "encrypted" flag if a snapshot for this device exists
+                # in the AMI, even if they both agree about the value of said
+                # flag. Apparently that's a thing now.
+                if ext_disks.has_key?(vol["device"])
+                  if ext_disks[vol["device"]].has_key?(:snapshot_id)
+                    vol.delete("encrypted")
+                  end
+                end
+                mapping, cfm_mapping = MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
+                storage << mapping
               }
               launch_options[:block_device_mappings] = storage
-              launch_options[:block_device_mappings].concat(MU::Cloud::AWS::Server.ephemeral_mappings)
             end
-            launch_options[:spot_price] = launch_desc["spot_price"] if launch_desc["spot_price"]
-            launch_options[:kernel_id] = launch_desc["kernel_id"] if launch_desc["kernel_id"]
-            launch_options[:ramdisk_id] = launch_desc["ramdisk_id"] if launch_desc["ramdisk_id"]
+
+            # Map ephemeral disk devices too, in case our AMI wasn't smart
+            # enough to do it for us.
+            launch_options[:block_device_mappings].concat(MU::Cloud::AWS::Server.ephemeral_mappings)
+
+            ["kernel_id", "ramdisk_id", "spot_price"].each { |arg|
+              if launch_desc[arg]
+                launch_options[arg.to_sym] = launch_desc[arg]
+              end
+            }
+
             if launch_desc['generate_iam_role']
-              launch_options[:iam_instance_profile] = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'])
+              launch_options[:iam_instance_profile], tmp, tmp2 = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'])
             elsif launch_desc['iam_role'].nil?
               raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
             else
@@ -153,29 +181,31 @@ module MU
             @deploy.saveNodeSecret("default", instance_secret, "instance_secret")
 
             launch_options[:user_data] = Base64.encode64(
-                MU::Cloud::AWS::Server.fetchUserdata(
-                    platform: @config["platform"],
-                    template_variables: {
-                        "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
-                        "deploySSHKey" => @deploy.ssh_public_key,
-                        "muID" => MU.deploy_id,
-                        "muUser" => MU.chef_user,
-                        "publicIP" => MU.mu_public_ip,
-                        "skipApplyUpdates" => @config['skipinitialupdates'],
-                        "windowsAdminName" => @config['windows_admin_username'],
-                        "resourceName" => @config["name"],
-                        "resourceType" => "server_pool"
-                    },
-                    custom_append: @config['userdata_script']
-                )
+              MU::Cloud::AWS::Server.fetchUserdata(
+                platform: @config["platform"],
+                template_variables: {
+                  "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
+                  "deploySSHKey" => @deploy.ssh_public_key,
+                  "muID" => MU.deploy_id,
+                  "muUser" => MU.mu_user,
+                  "publicIP" => MU.mu_public_ip,
+                  "skipApplyUpdates" => @config['skipinitialupdates'],
+                  "windowsAdminName" => @config['windows_admin_username'],
+                  "resourceName" => @config["name"],
+                  "resourceType" => "server_pool"
+                },
+                custom_append: @config['userdata_script']
+              )
             )
 
-            launch_options[:user_data] = launch_desc["user_data"] if launch_desc["user_data"]
+            if launch_desc["user_data"]
+              launch_options[:user_data] = launch_desc["user_data"]
+            end
 
           elsif basis["server"]
             nodes_name = @deploy.getResourceName(basis["server"])
             srv_name = basis["server"]
-
+# XXX cloudformation bits
             if @deploy.deployment['servers'] != nil and
                 @deploy.deployment['servers'][srv_name] != nil
               asg_options[:instance_id] = @deploy.deployment['servers'][srv_name]["instance_id"]
@@ -183,6 +213,7 @@ module MU
           elsif basis["instance_id"]
             # TODO should go fetch the name tag or something
             nodes_name = @deploy.getResourceName(basis["instance_id"].gsub(/-/, ""))
+# XXX cloudformation bits
             asg_options[:instance_id] = basis["instance_id"]
           end
 
@@ -197,12 +228,13 @@ module MU
               }
             else
               @vpc.subnets.each { |subnet_obj|
-              puts subnet_obj
-              puts subnet_obj.private?
                 next if subnet_obj.private? and ["all_public", "public"].include?(@config["vpc"]["subnet_pref"])
                 next if !subnet_obj.private? and ["all_private", "private"].include?(@config["vpc"]["subnet_pref"])
                 subnet_ids << subnet_obj.cloud_id
               }
+            end
+            if subnet_ids.size == 0
+              raise MuError, "No valid subnets found for #{@mu_name} from #{@config["vpc"]}"
             end
             asg_options[:vpc_zone_identifier] = subnet_ids.join(",")
           end
@@ -212,6 +244,13 @@ module MU
             @dependencies['firewall_rule'].values.each { |sg|
               sgs << sg.cloud_id
             }
+          end
+
+          if !asg_options[:vpc_zone_identifier].nil? and asg_options[:vpc_zone_identifier].empty?
+            asg_options.delete(:vpc_zone_identifier)
+          end
+          if !asg_options[:vpc_zone_identifier].nil?# or !@config["vpc"].nil?
+            launch_options[:associate_public_ip_address] = @config["associate_public_ip"]
           end
 
           if launch_options
@@ -235,12 +274,6 @@ module MU
               end
             end
             asg_options[:launch_configuration_name] = @mu_name
-          end
-          if !asg_options[:vpc_zone_identifier].nil? and asg_options[:vpc_zone_identifier].empty?
-            asg_options.delete(:vpc_zone_identifier)
-          end
-          if !asg_options[:vpc_zone_identifier].nil?# or !@config["vpc"].nil?
-            launch_options[:associate_public_ip_address] = @config["associate_public_ip"]
           end
 
           # Do the dance of specifying individual zones if we haven't asked to
@@ -308,40 +341,6 @@ module MU
               policy_params[:min_adjustment_magnitude] = policy['min_adjustment_magnitude'] if !policy['min_adjustment_magnitude'].nil?
               resp = MU::Cloud::AWS.autoscale.put_scaling_policy(policy_params)
 
-              if policy["alarms"] && !policy["alarms"].empty?
-                policy["alarms"].each { |alarm|
-                  alarm["dimensions"] = [] if alarm["dimensions"].nil?
-                  alarm["alarm_actions"] = [] if alarm["alarm_actions"].nil?
-                  alarm["ok_actions"] = [] if alarm["ok_actions"].nil?
-
-                  alarm["alarm_actions"] << resp.policy_arn
-                  alarm["dimensions"] << {:name => "AutoScalingGroupName", :value => asg_options[:auto_scaling_group_name]}
-
-                  if alarm["enable_notifications"]
-                    topic_arn = MU::Cloud::AWS::Notification.createTopic(alarm["notification_group"], region: @config["region"])
-                    MU::Cloud::AWS::Notification.subscribe(arn: topic_arn, protocol: alarm["notification_type"], endpoint: alarm["notification_endpoint"], region: @config["region"])
-                    alarm["alarm_actions"] << topic_arn
-                    alarm["ok_actions"] << topic_arn
-                  end
-
-                  MU::Cloud::AWS::Alarm.createAlarm(
-                    name: @deploy.getResourceName("#{@config["name"]}-#{alarm["name"]}"),
-                    ok_actions: alarm["ok_actions"],
-                    alarm_actions: alarm["alarm_actions"],
-                    insufficient_data_actions: alarm["no_data_actions"],
-                    metric_name: alarm["metric_name"],
-                    namespace: alarm["namespace"],
-                    statistic: alarm["statistic"],
-                    dimensions: alarm["dimensions"],
-                    period: alarm["period"],
-                    unit: alarm["unit"],
-                    evaluation_periods: alarm["evaluation_periods"],
-                    threshold: alarm["threshold"],
-                    comparison_operator: alarm["comparison_operator"],
-                    region: @config["region"]
-                  )
-                }
-              end
             }
           end
 

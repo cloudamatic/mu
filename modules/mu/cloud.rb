@@ -27,6 +27,11 @@ module MU
     class MuCloudResourceNotImplemented < StandardError;
     end
 
+    # Exception thrown when a request is made for an unsupported flag or feature
+    # in a cloud resource.
+    class MuCloudFlagNotImplemented < StandardError;
+    end
+
     generic_class_methods = [:find, :cleanup]
     generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config]
 
@@ -75,138 +80,138 @@ module MU
     # methods a class implementing this resource type must support to be
     # considered valid.
     @@resource_types = {
-        :Collection => {
-            :has_multiples => false,
-            :can_live_in_vpc => false,
-            :cfg_name => "collection",
-            :cfg_plural => "collections",
-            :interface => self.const_get("Collection"),
-            :deps_wait_on_my_creation => true,
-            :waits_on_parent_completion => false,
-            :class => generic_class_methods,
-            :instance => generic_instance_methods
-        },
-        :Database => {
-            :has_multiples => true,
-            :can_live_in_vpc => true,
-            :cfg_name => "database",
-            :cfg_plural => "databases",
-            :interface => self.const_get("Database"),
-            :deps_wait_on_my_creation => true,
-            :waits_on_parent_completion => false,
-            :class => generic_class_methods,
-            :instance => generic_instance_methods + [:groom, :allowHost]
-        },
-        :DNSZone => {
-            :has_multiples => false,
-            :can_live_in_vpc => false,
-            :cfg_name => "dnszone",
-            :cfg_plural => "dnszones",
-            :interface => self.const_get("DNSZone"),
-            :deps_wait_on_my_creation => true,
-            :waits_on_parent_completion => true,
-            :class => generic_class_methods + [:genericMuDNSEntry, :createRecordsFromConfig],
-            :instance => generic_instance_methods
-        },
-        :FirewallRule => {
-            :has_multiples => false,
-            :can_live_in_vpc => true,
-            :cfg_name => "firewall_rule",
-            :cfg_plural => "firewall_rules",
-            :interface => self.const_get("FirewallRule"),
-            :deps_wait_on_my_creation => true,
-            :waits_on_parent_completion => false,
-            :class => generic_class_methods,
-            :instance => generic_instance_methods + [:groom, :addRule]
-        },
-        :LoadBalancer => {
-            :has_multiples => false,
-            :can_live_in_vpc => true,
-            :cfg_name => "loadbalancer",
-            :cfg_plural => "loadbalancers",
-            :interface => self.const_get("LoadBalancer"),
-            :deps_wait_on_my_creation => true,
-            :waits_on_parent_completion => false,
-            :class => generic_class_methods,
-            :instance => generic_instance_methods + [:registerNode]
-        },
-        :Server => {
-            :has_multiples => true,
-            :can_live_in_vpc => true,
-            :cfg_name => "server",
-            :cfg_plural => "servers",
-            :interface => self.const_get("Server"),
-            :deps_wait_on_my_creation => false,
-            :waits_on_parent_completion => false,
-            :class => generic_class_methods,
-            :instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP, :getWindowsAdminPassword, :active?, :groomer, :mu_windows_name, :mu_windows_name=, :reboot]
-        },
-        :ServerPool => {
-            :has_multiples => false,
-            :can_live_in_vpc => true,
-            :cfg_name => "server_pool",
-            :cfg_plural => "server_pools",
-            :interface => self.const_get("ServerPool"),
-            :deps_wait_on_my_creation => false,
-            :waits_on_parent_completion => true,
-            :class => generic_class_methods,
-            :instance => generic_instance_methods
-        },
-        :VPC => {
-            :has_multiples => false,
-            :can_live_in_vpc => false,
-            :cfg_name => "vpc",
-            :cfg_plural => "vpcs",
-            :interface => self.const_get("VPC"),
-            :deps_wait_on_my_creation => true,
-            :waits_on_parent_completion => false,
-            :class => generic_class_methods,
-            :instance => generic_instance_methods + [:groom, :subnets, :getSubnet, :listSubnets, :findBastion, :findNat]
-        },
-        :CacheCluster => {
-            :has_multiples => true,
-            :can_live_in_vpc => true,
-            :cfg_name => "cache_cluster",
-            :cfg_plural => "cache_clusters",
-            :interface => self.const_get("CacheCluster"),
-            :deps_wait_on_my_creation => true,
-            :waits_on_parent_completion => false,
-            :class => generic_class_methods,
-            :instance => generic_instance_methods + [:groom]
-        },
-        :Alarm => {
-            :has_multiples => false,
-            :can_live_in_vpc => false,
-            :cfg_name => "alarm",
-            :cfg_plural => "alarms",
-            :interface => self.const_get("Alarm"),
-            :deps_wait_on_my_creation => false,
-            :waits_on_parent_completion => true,
-            :class => generic_class_methods,
-            :instance => generic_instance_methods + [:groom]
-        },
-        :Notification => {
-            :has_multiples => false,
-            :can_live_in_vpc => false,
-            :cfg_name => "notification",
-            :cfg_plural => "notifications",
-            :interface => self.const_get("Notification"),
-            :deps_wait_on_my_creation => false,
-            :waits_on_parent_completion => false,
-            :class => generic_class_methods,
-            :instance => generic_instance_methods + [:groom]
-        },
-        :Log => {
-            :has_multiples => false,
-            :can_live_in_vpc => false,
-            :cfg_name => "log",
-            :cfg_plural => "logs",
-            :interface => self.const_get("Log"),
-            :deps_wait_on_my_creation => false,
-            :waits_on_parent_completion => true,
-            :class => generic_class_methods,
-            :instance => generic_instance_methods + [:groom]
-        }
+      :Collection => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "collection",
+        :cfg_plural => "collections",
+        :interface => self.const_get("Collection"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => false,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods
+      },
+      :Database => {
+        :has_multiples => true,
+        :can_live_in_vpc => true,
+        :cfg_name => "database",
+        :cfg_plural => "databases",
+        :interface => self.const_get("Database"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => false,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom, :allowHost]
+      },
+      :DNSZone => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "dnszone",
+        :cfg_plural => "dnszones",
+        :interface => self.const_get("DNSZone"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods + [:genericMuDNSEntry, :createRecordsFromConfig],
+        :instance => generic_instance_methods
+      },
+      :FirewallRule => {
+        :has_multiples => false,
+        :can_live_in_vpc => true,
+        :cfg_name => "firewall_rule",
+        :cfg_plural => "firewall_rules",
+        :interface => self.const_get("FirewallRule"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => false,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom, :addRule]
+      },
+      :LoadBalancer => {
+        :has_multiples => false,
+        :can_live_in_vpc => true,
+        :cfg_name => "loadbalancer",
+        :cfg_plural => "loadbalancers",
+        :interface => self.const_get("LoadBalancer"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => false,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:registerNode]
+      },
+      :Server => {
+        :has_multiples => true,
+        :can_live_in_vpc => true,
+        :cfg_name => "server",
+        :cfg_plural => "servers",
+        :interface => self.const_get("Server"),
+        :deps_wait_on_my_creation => false,
+        :waits_on_parent_completion => false,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP, :getWindowsAdminPassword, :active?, :groomer, :mu_windows_name, :mu_windows_name=, :reboot]
+      },
+      :ServerPool => {
+        :has_multiples => false,
+        :can_live_in_vpc => true,
+        :cfg_name => "server_pool",
+        :cfg_plural => "server_pools",
+        :interface => self.const_get("ServerPool"),
+        :deps_wait_on_my_creation => false,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods
+      },
+      :VPC => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "vpc",
+        :cfg_plural => "vpcs",
+        :interface => self.const_get("VPC"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => false,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom, :subnets, :getSubnet, :listSubnets, :findBastion, :findNat]
+      },
+      :CacheCluster => {
+        :has_multiples => true,
+        :can_live_in_vpc => true,
+        :cfg_name => "cache_cluster",
+        :cfg_plural => "cache_clusters",
+        :interface => self.const_get("CacheCluster"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => false,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom]
+      },
+      :Alarm => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "alarm",
+        :cfg_plural => "alarms",
+        :interface => self.const_get("Alarm"),
+        :deps_wait_on_my_creation => false,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom]
+      },
+      :Notification => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "notification",
+        :cfg_plural => "notifications",
+        :interface => self.const_get("Notification"),
+        :deps_wait_on_my_creation => false,
+        :waits_on_parent_completion => false,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom]
+      },
+      :Log => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "log",
+        :cfg_plural => "logs",
+        :interface => self.const_get("Log"),
+        :deps_wait_on_my_creation => false,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom]
+      }
     }.freeze
 
 
@@ -217,7 +222,7 @@ module MU
 
     # List of known/supported Cloud providers
     def self.supportedClouds
-      ["AWS", "Docker"]
+      ["AWS", "CloudFormation", "Docker"]
     end
 
     # Load the container class for each cloud we know about, and inject autoload
@@ -226,6 +231,7 @@ module MU
       require "mu/clouds/#{cloud.downcase}"
     }
 
+    @cloud_class_cache = {}
     # Given a cloud layer and resource type, return the class which implements it.
     # @param cloud [String]: The Cloud layer
     # @param type [String]: The resource type. Can be the full class name, symbolic name, or Basket of Kittens configuration shorthand for the resource type.
@@ -245,8 +251,14 @@ module MU
           break
         end
       }
+      if @cloud_class_cache.has_key?(cloud) and @cloud_class_cache[cloud].has_key?(type)
+        if @cloud_class_cache[cloud][type].nil?
+          raise MuError, "The '#{type}' resource is not supported in cloud #{cloud} (tried MU::#{cloud}::#{type})", caller
+        end
+        return @cloud_class_cache[cloud][type]
+      end
+
       if cfg_name.nil?
-        puts caller
         raise MuError, "Can't find a cloud resource type named '#{type}'"
       end
       if !File.size?(MU.myRoot+"/modules/mu/clouds/#{cloud.downcase}.rb")
@@ -257,11 +269,11 @@ module MU
       rescue LoadError => e
         raise MuCloudResourceNotImplemented
       end
+      @cloud_class_cache[cloud] = {} if !@cloud_class_cache.has_key?(cloud)
       begin
         myclass = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(type)
-
         @@resource_types[type.to_sym][:class].each { |class_method|
-          if !myclass.respond_to?(class_method)
+          if !myclass.respond_to?(class_method) or myclass.method(class_method).owner.to_s != "#<Class:#{myclass}>"
             raise MuError, "MU::Cloud::#{cloud}::#{type} has not implemented required class method #{class_method}"
           end
         }
@@ -270,9 +282,10 @@ module MU
             raise MuError, "MU::Cloud::#{cloud}::#{type} has not implemented required instance method #{instance_method}"
           end
         }
-
+        @cloud_class_cache[cloud][type] = myclass
         return myclass
       rescue NameError => e
+        @cloud_class_cache[cloud][type] = nil
         raise MuError, "The '#{type}' resource is not supported in cloud #{cloud} (tried MU::#{cloud}::#{type})", e.backtrace
       end
     end
@@ -304,6 +317,8 @@ module MU
         attr_reader :config
         attr_reader :deploydata
         attr_reader :destroyed
+        attr_reader :cfm_template
+        attr_reader :cfm_name
 
         def self.shortname
           name.sub(/.*?::([^:]+)$/, '\1')
@@ -353,6 +368,8 @@ module MU
           return fullname
         end
 
+
+
         # @param mommacat [MU::MommaCat]: The deployment containing this cloud resource
         # @param mu_name [String]: Optional- specify the full Mu resource name of an existing resource to load, instead of creating a new one
         # @param cloud_id [String]: Optional- specify the cloud provider's identifier for an existing resource to load, instead of creating a new one
@@ -366,6 +383,7 @@ module MU
           @deploy = mommacat
           @config = kitten_cfg
           @cloud_id = cloud_id
+          
           if !@deploy.nil?
             @deploy_id = @deploy.deploy_id
             MU.log "Initializing an instance of #{self.class.name} in #{@deploy_id} #{mu_name}", MU::DEBUG, details: kitten_cfg
@@ -421,6 +439,7 @@ module MU
           elsif !@deploy.nil?
             MU.log "#{self} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR
           end
+
         end
 
         # Remove all metadata and cloud resources associated with this object
@@ -527,17 +546,20 @@ module MU
 
         # Fetch MU::Cloud objects for each of this object's dependencies, and
         # return in an easily-navigable Hash. This can include things listed in
-        # @config['dependencies'], implicitly-defined depdendencies such as
+        # @config['dependencies'], implicitly-defined dependencies such as
         # add_firewall_rules or vpc stanzas, and may refer to objects internal
         # to this deployment or external.  Will populate the instance variables
         # @dependencies (general dependencies, which can only be sibling
         # resources in this deployment), as well as for certain config stanzas
         # which can refer to external resources (@vpc, @loadbalancers,
         # @add_firewall_rules)
-        def dependencies
+        def dependencies(use_cache: false)
           @dependencies = {} if @dependencies.nil?
           @loadbalancers = [] if @loadbalancers.nil?
           if @config.nil?
+            return [@dependencies, @vpc, @loadbalancers]
+          end
+          if use_cache and @dependencies.size > 0
             return [@dependencies, @vpc, @loadbalancers]
           end
           @config['dependencies'] = [] if @config['dependencies'].nil?
@@ -545,7 +567,7 @@ module MU
           # First, general dependencies. These should all be fellow members of
           # the current deployment.
           @config['dependencies'].each { |dep|
-            @dependencies[dep['type']] = {} if !@dependencies.has_key?(dep['type'])
+            @dependencies[dep['type']] = {} if !@dependencies.include?(dep['type'])
             next if @dependencies[dep['type']].has_key?(dep['name'])
             handle = @deploy.findLitterMate(type: dep['type'], name: dep['name']) if !@deploy.nil?
             if !handle.nil?
@@ -602,12 +624,19 @@ module MU
               )
 
               if @nat.nil?
-                @nat = @vpc.findNat(
-                  nat_cloud_id: @config['vpc']['nat_host_id'],
-                  nat_filter_key: "vpc-id",
-                  region: @config['vpc']["region"],
-                  nat_filter_value: @vpc.cloud_desc.vpc_id
-                )
+                if !@vpc.cloud_desc.nil?
+                  @nat = @vpc.findNat(
+                    nat_cloud_id: @config['vpc']['nat_host_id'],
+                    nat_filter_key: "vpc-id",
+                    region: @config['vpc']["region"],
+                    nat_filter_value: @vpc.cloud_desc.vpc_id
+                  )
+                else
+                  @nat = @vpc.findNat(
+                    nat_cloud_id: @config['vpc']['nat_host_id'],
+                    region: @config['vpc']["region"]
+                  )
+                end
               end
             end
           elsif self.class.cfg_name == "vpc"
@@ -768,7 +797,6 @@ module MU
 
           end
 
-
           # @param max_retries [Integer]: Number of connection attempts to make before giving up
           # @param retry_interval [Integer]: Number of seconds to wait between connection attempts
           # @return [Net::SSH::Connection::Session]
@@ -875,9 +903,11 @@ module MU
           MU::Cloud.supportedClouds.each { |cloud|
             begin
               cloudclass = MU::Cloud.loadCloudType(cloud, shortname)
-              MU.log "Invoking #{cloudclass}.cleanup", MU::DEBUG, details: flags
+              raise MuCloudResourceNotImplemented if !cloudclass.respond_to?(:cleanup) or cloudclass.method(:cleanup).owner.to_s != "#<Class:#{cloudclass}>"
+              MU.log "Invoking #{cloudclass}.cleanup from #{shortname}", MU::DEBUG, details: flags
               cloudclass.cleanup(flags.first)
             rescue MuCloudResourceNotImplemented
+              MU.log "No #{cloud} implementation of #{shortname}.cleanup, skipping", MU::DEBUG, details: flags
             end
           }
           MU::MommaCat.unlockAll

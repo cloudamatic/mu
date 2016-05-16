@@ -1,12 +1,15 @@
-<%
-
-  raise "You must set deploy_id (e.g. -p deploy_id=UATSVCS-PROD-2015051501-RE)" unless $deploy_id
-  $region = MU.curRegion unless $region
-
-%>
-
 appname: cache
-region: <%= $region %>
+parameters:
+- name: vpc_deploy_id
+  required: false
+  description: The Mu deploy identifier for an existing deploy with a single VPC, into which we'll attempt to insert this deployment.
+- name: vpc_name
+  default: vpc
+  description: Use this parameter to specify a Mu resource name other than 'vpc' when also setting 'vpc_deploy_id.'
+- name: vpc_id
+  cloudtype: AWS::EC2::VPC::Id
+  description: A simple VPC cloud id into which we'll attempt to insert this deployment.
+  default: <%= MU.myVPC %>
 cache_clusters:
 - name: test
   dns_sync_wait: false
@@ -37,14 +40,30 @@ cache_clusters:
   add_firewall_rules: 
   - rule_name: elasticache
   vpc:
-    deploy_id: <%= $deploy_id %>
+    vpc_name: <%= vpc_name %>
+    <% if parameter?('vpc_deploy_id') %>
+    deploy_id: <%= vpc_deploy_id %>
+    <% elsif parameter?('vpc_id') %>
+    vpc_id: <%= vpc_id %>
+    <% end %>
     subnet_pref: all_private
 
 firewall_rules:
 - name: elasticache
   vpc:
-    deploy_id: <%= $deploy_id %>
+    vpc_name: <%= vpc_name %>
+    <% if parameter?('vpc_deploy_id') %>
+    deploy_id: <%= vpc_deploy_id %>
+    <% elsif parameter?('vpc_id') %>
+    vpc_id: <%= vpc_id %>
+    <% end %>
   rules: 
   - port: 6379
     hosts:
     - 0.0.0.0/0
+<% if !parameter?('vpc_deploy_id') then %>
+vpcs:
+<%= include("generic_vpc.inc") %>
+servers:
+<%= include("generic_bastion.inc") %>
+<% end %>

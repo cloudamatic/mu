@@ -56,22 +56,22 @@ module MU
         # See that we get our ephemeral storage devices with AMIs that don't do it
         # for us
         @ephemeral_mappings = [
-            {
-                :device_name => "/dev/sdr",
-                :virtual_name => "ephemeral0"
-            },
-            {
-                :device_name => "/dev/sds",
-                :virtual_name => "ephemeral1"
-            },
-            {
-                :device_name => "/dev/sdt",
-                :virtual_name => "ephemeral2"
-            },
-            {
-                :device_name => "/dev/sdu",
-                :virtual_name => "ephemeral3"
-            }
+          {
+            :device_name => "/dev/sdr",
+            :virtual_name => "ephemeral0"
+          },
+          {
+            :device_name => "/dev/sds",
+            :virtual_name => "ephemeral1"
+          },
+          {
+            :device_name => "/dev/sdt",
+            :virtual_name => "ephemeral2"
+          },
+          {
+            :device_name => "/dev/sdu",
+            :virtual_name => "ephemeral3"
+          }
         ]
         # Ephemeral storage device mappings. Useful for AMIs that don't do this
         # for us.
@@ -92,8 +92,27 @@ module MU
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::servers}
         def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
           @deploy = mommacat
-          @config = kitten_cfg
+          @config = MU::Config.manxify(kitten_cfg)
           @cloud_id = cloud_id
+
+          @userdata = MU::Cloud::AWS::Server.fetchUserdata(
+            platform: @config["platform"],
+            template_variables: {
+              "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
+              "deploySSHKey" => @deploy.ssh_public_key,
+              "muID" => MU.deploy_id,
+              "muUser" => MU.mu_user,
+              "publicIP" => MU.mu_public_ip,
+              "skipApplyUpdates" => @config['skipinitialupdates'],
+              "windowsAdminName" => @config['windows_admin_username'],
+              "resourceName" => @config["name"],
+              "resourceType" => "server"
+            },
+            custom_append: @config['userdata_script']
+          )
+
+          @disk_devices = MU::Cloud::AWS::Server.disk_devices
+          @ephemeral_mappings = MU::Cloud::AWS::Server.ephemeral_mappings
 
           if !mu_name.nil?
             @mu_name = mu_name
@@ -110,26 +129,8 @@ module MU
 
             @config['instance_secret'] = Password.random(50)
           end
-
-          @userdata = MU::Cloud::AWS::Server.fetchUserdata(
-              platform: @config["platform"],
-              template_variables: {
-                  "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
-                  "deploySSHKey" => @deploy.ssh_public_key,
-                  "muID" => MU.deploy_id,
-                  "muUser" => MU.chef_user,
-                  "publicIP" => MU.mu_public_ip,
-                  "skipApplyUpdates" => @config['skipinitialupdates'],
-                  "windowsAdminName" => @config['windows_admin_username'],
-                  "resourceName" => @config["name"],
-                  "resourceType" => "server"
-              },
-              custom_append: @config['userdata_script']
-          )
-
           @groomer = MU::Groomer.new(self)
-          @disk_devices = MU::Cloud::AWS::Server.disk_devices
-          @ephemeral_mappings = MU::Cloud::AWS::Server.ephemeral_mappings
+
         end
 
         # Fetch our baseline userdata argument (read: "script that runs on first
@@ -142,31 +143,36 @@ module MU
         # @return [String]
         def self.fetchUserdata(
             platform: "linux",
-                template_variables: {},
-                custom_append: nil
-        )
+            template_variables: {},
+            custom_append: nil,
+            scrub_mu_isms: false
+          )
           return nil if platform.nil? or platform.empty?
           userdata_mutex.synchronize {
-            if template_variables.nil? or !template_variables.is_a?(Hash)
-              raise MuError, "My second argument should be a hash of variables to pass into ERB templates"
+            script = ""
+            if !scrub_mu_isms
+              if template_variables.nil? or !template_variables.is_a?(Hash)
+                raise MuError, "My second argument should be a hash of variables to pass into ERB templates"
+              end
+              $mu = OpenStruct.new(template_variables)
+              userdata_dir = File.expand_path(MU.myRoot+"/modules/mu/userdata")
+              platform = "linux" if %w{centos centos6 centos7 ubuntu ubuntu14 rhel rhel7 rhel71}.include? platform
+              platform = "windows" if %w{win2k12r2 win2k12 win2k8 win2k8r2}.include? platform
+              erbfile = "#{userdata_dir}/#{platform}.erb"
+              if !File.exist?(erbfile)
+                MU.log "No such userdata template '#{erbfile}'", MU::WARN, details: caller
+                return ""
+              end
+              userdata = File.read(erbfile)
+              begin
+                erb = ERB.new(userdata)
+                script = erb.result
+              rescue NameError => e
+                raise MuError, "Error parsing userdata script #{erbfile} as an ERB template: #{e.inspect}"
+              end
+              MU.log "Parsed #{erbfile} as ERB", MU::DEBUG, details: script
             end
-            $mu = OpenStruct.new(template_variables)
-            userdata_dir = File.expand_path(MU.myRoot+"/modules/mu/userdata")
-            platform = "linux" if %w{centos centos6 centos7 ubuntu ubuntu14 rhel rhel7 rhel71}.include? platform
-            platform = "windows" if %w{win2k12r2 win2k12 win2k8 win2k8r2}.include? platform
-            erbfile = "#{userdata_dir}/#{platform}.erb"
-            if !File.exist?(erbfile)
-              MU.log "No such userdata template '#{erbfile}'", MU::WARN, details: caller
-              return ""
-            end
-            userdata = File.read(erbfile)
-            begin
-              erb = ERB.new(userdata)
-              script = erb.result
-            rescue NameError => e
-              raise MuError, "Error parsing userdata script #{erbfile} as an ERB template: #{e.inspect}"
-            end
-            MU.log "Parsed #{erbfile} as ERB", MU::DEBUG, details: script
+
             if !custom_append.nil?
               if custom_append['path'].nil?
                 raise MuError, "Got a custom userdata script argument, but no ['path'] component"
@@ -176,13 +182,21 @@ module MU
               if custom_append['use_erb']
                 begin
                   erb = ERB.new(erbfile, 1)
-                  script = script+"\n"+erb.result
+                  if custom_append['skip_std']
+                    script = +erb.result
+                  else
+                    script = script+"\n"+erb.result
+                  end
                 rescue NameError => e
                   raise MuError, "Error parsing userdata script #{erbfile} as an ERB template: #{e.inspect}"
                 end
                 MU.log "Parsed #{custom_append['path']} as ERB", MU::DEBUG, details: script
               else
-                script = script+"\n"+erb.result
+                if custom_append['skip_std']
+                  script = erbfile
+                else
+                  script = script+"\n"+erbfile
+                end
                 MU.log "Parsed #{custom_append['path']} as flat file", MU::DEBUG, details: script
               end
             end
@@ -300,11 +314,17 @@ module MU
         end
 
         # Insert a Server's standard IAM role needs into an arbitrary IAM profile
-        def self.addStdPoliciesToIAMProfile(rolename)
+        def self.addStdPoliciesToIAMProfile(rolename, cloudformation_data: {}, cfm_role_name: nil)
           policies = Hash.new
           policies['Mu_Bootstrap_Secret_'+MU.deploy_id] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{MU.deploy_id}-secret"+'"}]}'
           policies['Mu_Volume_Management'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ec2:CreateTags","ec2:CreateVolume","ec2:AttachVolume","ec2:DescribeInstanceAttribute","ec2:DescribeVolumeAttribute","ec2:DescribeVolumeStatus","ec2:DescribeVolumes"],"Resource":"*"}]}'
           policies.each_pair { |name, doc|
+            if cloudformation_data.size > 0
+              if !cfm_role_name.nil?
+                MU::Cloud::CloudFormation.setCloudFormationProp(cloudformation_data[cfm_role_name], "Policies", { "PolicyName" => name, "PolicyDocument" => JSON.parse(doc) })
+              end
+              next 
+            end
             MU.log "Merging policy #{name} into #{rolename}", MU::NOTICE, details: doc
             MU::Cloud::AWS.iam.put_role_policy(
                 role_name: rolename,
@@ -312,6 +332,9 @@ module MU
                 policy_document: doc
             )
           }
+          if cloudformation_data.size > 0
+            return cloudformation_data
+          end
         end
 
         # Create an Amazon IAM instance profile. One of these should get created
@@ -320,9 +343,18 @@ module MU
         # are requested.
         # @param rolename [String]: The name of the role to create, generally a {MU::Cloud::AWS::Server} mu_name
         # @return [String]: The name of the instance profile.
-        def self.createIAMProfile(rolename, base_profile: nil, extra_policies: nil)
-          MU.log "Creating IAM role and policies for '#{name}' nodes"
+        def self.createIAMProfile(rolename, base_profile: nil, extra_policies: nil, cloudformation_data: {})
           policies = Hash.new
+
+          cfm_role_name = cfm_prof_name = nil
+          if !cloudformation_data.nil? and cloudformation_data.size > 0
+            cfm_role_name, role_cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("iamrole", name: rolename)
+            cfm_prof_name, prof_cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("iamprofile", name: rolename)
+            cloudformation_data.merge!(role_cfm_template)
+            cloudformation_data.merge!(prof_cfm_template)
+          else
+            MU.log "Creating IAM role and policies for '#{name}' nodes"
+          end
 
           if base_profile
             MU.log "Incorporating policies from existing IAM profile '#{base_profile}'"
@@ -350,13 +382,19 @@ module MU
               }
             }
           end
-          resp = MU::Cloud::AWS.iam.create_role(
+          if !cloudformation_data.nil? and cloudformation_data.size == 0
+            resp = MU::Cloud::AWS.iam.create_role(
               role_name: rolename,
               assume_role_policy_document: '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":["ec2.amazonaws.com"]},"Action":["sts:AssumeRole"]}]}'
-          )
+            )
+          end
           begin
             name=doc=nil
             policies.each_pair { |name, doc|
+              if cloudformation_data.size > 0
+                MU::Cloud::CloudFormation.setCloudFormationProp(cloudformation_data[cfm_role_name], "Policies", { "PolicyName" => name, "PolicyDocument" => JSON.parse(doc) })
+                next 
+              end
               MU.log "Merging policy #{name} into #{rolename}", MU::NOTICE, details: doc
               MU::Cloud::AWS.iam.put_role_policy(
                   role_name: rolename,
@@ -367,6 +405,11 @@ module MU
           rescue Aws::IAM::Errors::MalformedPolicyDocument => e
             MU.log "Malformed policy when creating IAM Role #{rolename}: #{e.inspect}", MU::ERR
             raise MuError, "Malformed policy when creating IAM Role #{rolename}: #{e.inspect}"
+          end
+          if cloudformation_data.size > 0
+            MU::Cloud::CloudFormation.setCloudFormationProp(cloudformation_data[cfm_prof_name], "Roles", { "Ref" => cfm_role_name } )
+            MU::Cloud::CloudFormation.setCloudFormationProp(cloudformation_data[cfm_prof_name], "DependsOn", cfm_role_name)
+            return [rolename, cfm_role_name, cfm_prof_name]
           end
           MU::Cloud::AWS.iam.create_instance_profile(
               instance_profile_name: rolename
@@ -384,27 +427,32 @@ module MU
             retry
           end
 
-          return rolename
+          return [rolename, cfm_role_name, cfm_prof_name]
         end
 
         # Create an Amazon EC2 instance.
         def createEc2Instance
           name = @config["name"]
           node = @config['mu_name']
+
+          instance_descriptor = {
+            :image_id => @config["ami_id"],
+            :key_name => @deploy.ssh_key_name,
+            :instance_type => @config["size"],
+            :disable_api_termination => true,
+            :min_count => 1,
+            :max_count => 1
+          }
+
           if @config['generate_iam_role']
-            @config['iam_role'] = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'])
+            @config['iam_role'], @cfm_role_name, @cfm_prof_name = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'])
           elsif @config['iam_role'].nil?
             raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
           end
           MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'])
-          instance_descriptor = {
-              :image_id => @config["ami_id"],
-              :key_name => @deploy.ssh_key_name,
-              :instance_type => @config["size"],
-              :disable_api_termination => true,
-              :min_count => 1,
-              :max_count => 1
-          }
+          if !@config["iam_role"].nil?
+            instance_descriptor[:iam_instance_profile] = {name: @config["iam_role"]}
+          end
 
           security_groups = []
           if @dependencies.has_key?("firewall_rule")
@@ -419,7 +467,6 @@ module MU
             raise MuError, "Didn't get any security groups assigned to be in #{@mu_name}, that shouldn't happen"
           end
 
-
           if !@config['private_ip'].nil?
             instance_descriptor[:private_ip_address] = @config['private_ip']
           end
@@ -431,49 +478,55 @@ module MU
             tag_key, tag_value = subnet_conf['tag'].split(/=/, 2) if !subnet_conf['tag'].nil?
 
             subnet = @vpc.getSubnet(
-                cloud_id: subnet_conf['subnet_id'],
-                name: subnet_conf['subnet_name'],
-                tag_key: tag_key,
-                tag_value: tag_value
+              cloud_id: subnet_conf['subnet_id'],
+              name: subnet_conf['subnet_name'],
+              tag_key: tag_key,
+              tag_value: tag_value
             )
             if subnet.nil?
               raise MuError, "Got null subnet id out of #{subnet_conf['vpc']}"
             end
-
             MU.log "Deploying #{node} into VPC #{@vpc.cloud_id} Subnet #{subnet.cloud_id}"
-
             punchAdminNAT
-
             instance_descriptor[:subnet_id] = subnet.cloud_id
-# XXX this needs to get done by a modify later, we can't do it on creation
-#					instance_descriptor[:network_interfaces] = [
-#						{
-#							:device_index => 0,
-#							:associate_public_ip_address => @config["associate_public_ip"]
-#						}
-#					]
           end
 
           if !@userdata.nil? and !@userdata.empty?
             instance_descriptor[:user_data] = Base64.encode64(@userdata)
           end
 
-          if !@config["iam_role"].nil?
-            instance_descriptor[:iam_instance_profile] = {name: @config["iam_role"]}
-          end
+          MU::Cloud::AWS::Server.waitForAMI(@config["ami_id"], region: @config['region'])
 
-          configured_storage = Array.new
-          if @config["storage"]
-            @config["storage"].each { |vol|
-              configured_storage << MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
+          # Figure out which devices are embedded in the AMI already.
+          image = MU::Cloud::AWS.ec2(@config['region']).describe_images(image_ids: [@config["ami_id"]]).images.first
+          ext_disks = {}
+          if !image.block_device_mappings.nil?
+            image.block_device_mappings.each { |disk|
+              if !disk.device_name.nil? and !disk.device_name.empty? and !disk.ebs.nil? and !disk.ebs.empty?
+                ext_disks[disk.device_name] = MU.structToHash(disk.ebs)
+              end
             }
           end
 
-          MU::Cloud::AWS::Server.waitForAMI(@config["ami_id"], region: @config['region'])
+          configured_storage = Array.new
+          cfm_volume_map = {}
+          if @config["storage"]
+            @config["storage"].each { |vol|
+              # Drop the "encrypted" flag if a snapshot for this device exists
+              # in the AMI, even if they both agree about the value of said
+              # flag. Apparently that's a thing now.
+              if ext_disks.has_key?(vol["device"])
+                if ext_disks[vol["device"]].has_key?(:snapshot_id)
+                  vol.delete("encrypted")
+                end
+              end
+              mapping, cfm_mapping = MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
+              configured_storage << mapping
+            }
+          end
 
           instance_descriptor[:block_device_mappings] = configured_storage
           instance_descriptor[:block_device_mappings].concat(@ephemeral_mappings)
-
           instance_descriptor[:monitoring] = {enabled: @config['monitoring']}
 
           MU.log "Creating EC2 instance #{node}"
@@ -481,7 +534,7 @@ module MU
 #				if instance_descriptor[:block_device_mappings].empty?
 #					instance_descriptor.delete(:block_device_mappings)
 #				end
-#pp instance_descriptor[:block_device_mappings]
+
           retries = 0
           begin
             response = MU::Cloud::AWS.ec2(@config['region']).run_instances(instance_descriptor)
@@ -614,8 +667,18 @@ module MU
 
           punchAdminNAT
 
-          if @config["alarms"] && !@config["alarms"].empty?
+
+          # If we came up via AutoScale, the Alarm module won't have had our
+          # instance ID to associate us with itself. So invoke that here.
+          if !@config['basis'].nil? and @config["alarms"] and !@config["alarms"].empty?
             @config["alarms"].each { |alarm|
+              alarm_obj = MU::MommaCat.findStray(
+                "AWS",
+                "alarms",
+                region: @config["region"],
+                deploy_id: @deploy.deploy_id,
+                name: alarm['name']
+              ).first
               alarm["dimensions"] = [{:name => "InstanceId", :value => @cloud_id}]
 
               if alarm["enable_notifications"]
@@ -625,8 +688,10 @@ module MU
                 alarm["ok_actions"]  = [topic_arn]
               end
 
-              MU::Cloud::AWS::Alarm.createAlarm(
-                name: @deploy.getResourceName("#{@config["name"]}-#{alarm["name"]}-#{@cloud_id}"),
+              alarm_name = alarm_obj ? alarm_obj.cloud_id : "#{node}-#{alarm['name']}".upcase
+
+              MU::Cloud::AWS::Alarm.setAlarm(
+                name: alarm_name,
                 ok_actions: alarm["ok_actions"],
                 alarm_actions: alarm["alarm_actions"],
                 insufficient_data_actions: alarm["no_data_actions"],
@@ -1272,17 +1337,18 @@ module MU
             instance = MU::Cloud::Server.find(cloud_id: instance_id, region: region)
             instance.block_device_mappings.each { |vol|
               if vol.device_name != instance.root_device_name
+                
                 storage_list << MU::Cloud::AWS::Server.convertBlockDeviceMapping(
                     {
                         "device" => vol.device_name,
                         "no-device" => ""
                     }
-                )
+                )[0]
               end
             }
           elsif !storage.nil?
             storage.each { |vol|
-              storage_list << MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
+              storage_list << MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)[0]
             }
           end
           ami_descriptor[:block_device_mappings] = storage_list
@@ -1386,30 +1452,44 @@ module MU
         # @param storage [Hash]: The {MU::Config}-style storage description.
         # @return [Hash]: The Amazon-style storage description.
         def self.convertBlockDeviceMapping(storage)
-          vol_struct = Hash.new
+          vol_struct = {}
+          cfm_mapping = {}
           if storage["no_device"]
             vol_struct[:no_device] = storage["no_device"]
+            cfm_mapping["NoDevice"] = storage["no_device"]
           end
 
           if storage["device"]
             vol_struct[:device_name] = storage["device"]
+            cfm_mapping["DeviceName"] = storage["device"]
           elsif storage["no_device"].nil?
             vol_struct[:device_name] = @disk_devices.shift
+            cfm_mapping["DeviceName"] = @disk_devices.shift
           end
 
           vol_struct[:virtual_name] = storage["virtual_name"] if storage["virtual_name"]
 
+          storage["volume_size"] = storage["size"]
           if storage["snapshot_id"] or storage["size"]
-            vol_struct[:ebs] = Hash.new
-            vol_struct[:ebs][:snapshot_id] = storage["snapshot_id"] if storage["snapshot_id"]
-            vol_struct[:ebs][:volume_size] = storage["size"] if storage["size"]
-            vol_struct[:ebs][:volume_type] = storage["volume_type"] if storage["volume_type"]
-            vol_struct[:ebs][:iops] = storage["iops"] if storage["iops"] and storage["volume_type"] == "io1"
-            vol_struct[:ebs][:delete_on_termination] = storage["delete_on_termination"]
-            vol_struct[:ebs][:encrypted] = storage["encrypted"] if storage["encrypted"]
+            vol_struct[:ebs] = {}
+            cfm_mapping["Ebs"] = {}
+            [:delete_on_termination, :snapshot_id, :volume_size, :volume_type, :encrypted].each { |arg|
+              if storage.has_key?(arg.to_s) and !storage[arg.to_s].nil?
+                vol_struct[:ebs][arg] = storage[arg.to_s]
+                key = ""
+                arg.to_s.split(/_/).each { |chunk| key = key + chunk.capitalize }
+                cfm_mapping["Ebs"][key] = storage[arg.to_s]
+              end
+            }
+            cfm_mapping["Ebs"].delete("Encrypted") if !cfm_mapping["Ebs"]["Encrypted"]
+
+            if storage["iops"] and storage["volume_type"] == "io1"
+              vol_struct[:ebs][:iops] = storage["iops"] 
+              cfm_mapping["Ebs"]["Iops"] = storage["iops"]
+            end
           end
 
-          return vol_struct
+          return [vol_struct, cfm_mapping]
         end
 
         # Retrieves the Cloud provider's randomly generated Windows password
