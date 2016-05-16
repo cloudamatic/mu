@@ -18,19 +18,18 @@
 
 case node.platform_family
   when "rhel"
+
     service "sshd" do
       action :nothing
     end
-    package "adcli"
-    package "dbus"
-    package "sssd"
-    package "sssd-ldap"
-    package "sssd-ad"
-    package "authconfig"
-    package "nss-pam-ldapd" do
-      action :remove
-    end
-    package "pam_ldap" do
+
+    packages = %w(epel-release adcli dbus sssd sssd-ldap sssd-ad authconfig nscd oddjob-mkhomedir)
+
+    package packages
+
+    packages_uninstall = %w(nss-pam-ldapd pam_ldap)
+    
+    package packages_uninstall do
       action :remove
     end
 
@@ -45,11 +44,11 @@ case node.platform_family
     service "messagebus" do
       action [:enable, :start]
     end
-    package "nscd"
+
     service "nscd" do
       action [:disable, :stop]
     end
-    package "oddjob-mkhomedir"
+
     execute "restorecon -r /usr/sbin"
 
     # SELinux Policy for oddjobd and its interaction with syslogd
