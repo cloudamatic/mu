@@ -23,7 +23,7 @@ case node.platform_family
       action :nothing
     end
 
-    packages = %w(epel-release dbus sssd sssd-ldap sssd-ad authconfig nscd oddjob-mkhomedir git automake libtool openldap-devel libxslt-devel)
+    packages = %w(epel-release dbus sssd sssd-ldap sssd-ad authconfig nscd oddjob-mkhomedir)
 
     package packages
 
@@ -33,28 +33,10 @@ case node.platform_family
       action :remove
     end
 
-    execute "git clone git://anongit.freedesktop.org/realmd/adcli" do
-      cwd "/root"
-      not_if { ::Dir.exists?("/root/adcli") }
-    end
-
-    execute "git fetch && git pull" do
-      cwd "/root/adcli"
-    end
-
-    include_recipe "build-essential"
-
-    # This is our workaround until the RPM makes it way back into a repo
-    # somewhere. It was removed from EPEL after it became part of mainstream
-    # RHEL 6.8, but CentOS doesn't have it yet.
-    execute "compile adcli" do
-      cwd "/root/adcli"
-      command "./autogen.sh --disable-doc --prefix=/usr && make && make install"
-      not_if { ::File.exists?("/usr/sbin/adcli") }
-    end
 
     case elversion
     when 7
+      package "adcli"
       # trying to make sure Chef doesn’t try to start the service if it's already started
       execute "sed -i 's/--nopidfile//' /usr/lib/systemd/system/messagebus.service && systemctl daemon-reload" do
         only_if "grep '\--nopidfile' /usr/lib/systemd/system/messagebus.service"
@@ -88,6 +70,27 @@ case node.platform_family
       service "oddjobd" do
         start_command "sh -x /etc/init.d/oddjobd start" # seems to actually work
         action [:enable, :start]
+      end
+      package %w(git automake libtool openldap-devel libxslt-devel)
+
+      execute "git clone git://anongit.freedesktop.org/realmd/adcli" do
+        cwd "/root"
+        not_if { ::Dir.exists?("/root/adcli") }
+      end
+
+      execute "git fetch && git pull" do
+        cwd "/root/adcli"
+      end
+
+      include_recipe "build-essential"
+
+      # This is our workaround until the RPM makes it way back into a repo
+      # somewhere. It was removed from EPEL after it became part of mainstream
+      # RHEL 6.8, but CentOS doesn't have it yet.
+      execute "compile adcli" do
+        cwd "/root/adcli"
+        command "./autogen.sh --disable-doc --prefix=/usr && make && make install"
+        not_if { ::File.exists?("/usr/sbin/adcli") }
       end
     when 7
       # Seems to work on CentOS7
