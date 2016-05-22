@@ -23,8 +23,23 @@ end rescue NoMethodError
 $ipaddress = node.ipaddress
 
 if !platform_family?("windows")
+  my_deploy_id = nil
+  node.tags.map{ |key, value| my_deploy_id = value if key == 'MU-ID' } if node.respond_to?('tags')
+
+  my_nodes = []
+  # Searching for tags doesn’t seem to work properly so searching for all nodes
+  nodes = search(:node, "*")
+  nodes.each { |n|
+    n.tags.map { |key, value| my_nodes << n if key == 'MU-ID' && value == my_deploy_id}
+  }
+
   template "/etc/hosts" do
     source "etc_hosts.erb"
+    variables(
+      hostname: $hostname,
+      ipaddress: $ipaddress,
+      nodes: my_nodes
+    )
   end
 
   execute "set hostname" do
@@ -34,18 +49,20 @@ if !platform_family?("windows")
 end
 
 case node[:platform]
-  when "centos", "redhat"
+  when "centos", "redhat", "amazon"
     template "/etc/sysconfig/network" do
       source "etc_sysconfig_network.erb"
       notifies :run, "execute[set hostname]", :immediately
+      variables(
+        hostname: $hostname,
+        platform: node.platform
+      )
     end
 
-    if node.platform_version.to_i == 7
+    if elversion == 7
       execute "sed -i '/ssh_pwauth/a preserve_hostname: true' /etc/cloud/cloud.cfg" do
         not_if "grep 'preserve_hostname: true' /etc/cloud/cloud.cfg"
       end
-      
-      # include_recipe "mu-utility::cloudinit"
 
       execute "hostnamectl set-hostname #{$hostname} && systemctl restart systemd-hostnamed" do
         # not_if "hostnamectl | grep Static | grep #{$hostname.downcase}"

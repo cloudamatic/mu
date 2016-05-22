@@ -4,6 +4,14 @@ include Chef::Mixin::ShellOut
 
 module Mutools
   module Helper
+    def elversion
+      return 6 if node.platform_version.to_i == 2013
+      return 6 if node.platform_version.to_i == 2014
+      return 6 if node.platform_version.to_i == 2015
+      return 6 if node.platform_version.to_i == 2016
+      node.platform_version.to_i
+    end
+
     def service_user_set?(service, user)
       cmd = powershell_out("$service = Get-WmiObject Win32_service | Where-Object {$_.Name -eq '#{service}'}; $service.startname -eq '#{user}'")
       return cmd.stdout.match(/True/)

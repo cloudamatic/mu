@@ -6,7 +6,7 @@
 # All rights reserved - Do Not Redistribute
 #
 
-include_recipe 'mu-utility::disable-requiretty'
+include_recipe 'mu-tools::disable-requiretty'
 include_recipe 'mu-utility::iptables'
 include_recipe 'chef-vault'
 

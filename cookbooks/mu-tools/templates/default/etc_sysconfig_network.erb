@@ -1,3 +1,12 @@
 NETWORKING_IPV6=no
-HOSTNAME=<%= $hostname %>
+HOSTNAME=<%= @hostname %>
 NETWORKING=yes
+<% if @platform == "amazon" %>
+NOZEROCONF=yes
+IPV6INIT=no
+IPV6_ROUTER=no
+IPV6_AUTOCONF=no
+IPV6FORWARDING=no
+IPV6TO4INIT=no
+IPV6_CONTROL_RADVD=no
+<% end %>

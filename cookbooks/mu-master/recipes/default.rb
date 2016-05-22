@@ -444,5 +444,5 @@ if !node.update_nagios_only
   end
 
   # This is stuff that can break for no damn reason at all
-  include_recipe "mu-utility::cloudinit"
+  include_recipe "mu-tools::cloudinit"
   end

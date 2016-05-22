@@ -8,7 +8,7 @@
 #
 
 include_recipe 'mu-jenkins::public_key'
-include_recipe 'mu-utility::disable-requiretty'
+include_recipe 'mu-tools::disable-requiretty'
 include_recipe 'chef-vault'
 
 ssh_vault = chef_vault_item(node.jenkins_ssh_vault[:vault], node.jenkins_ssh_vault[:item])

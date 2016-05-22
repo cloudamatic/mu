@@ -7,7 +7,7 @@
     "recipe[mu-tools::base_repositories]",
     "recipe[mu-tools::set_mu_hostname]",
     "recipe[mu-tools::add_admin_ssh_keys]",
-    "recipe[mu-utility::disable-requiretty]"
+    "recipe[mu-tools::disable-requiretty]"
   ],
   "description": "Run List for Mu client nodes",
   "chef_type": "role",

@@ -4138,6 +4138,11 @@ module MU
                     "key_is" => "platform",
                     "value_is" => "rhel71",
                     "set" => "ec2-user"
+                },
+                {
+                    "key_is" => "platform",
+                    "value_is" => "amazon",
+                    "set" => "ec2-user"
                 }
             ]
         },
@@ -4148,7 +4153,7 @@ module MU
         "platform" => {
             "type" => "string",
             "default" => "linux",
-            "enum" => ["linux", "windows", "centos", "ubuntu", "centos6", "ubuntu14", "win2k12", "win2k12r2", "centos7", "rhel7", "rhel71"],
+            "enum" => ["linux", "windows", "centos", "ubuntu", "centos6", "ubuntu14", "win2k12", "win2k12r2", "centos7", "rhel7", "rhel71", "amazon"],
             "description" => "Helps select default AMIs, and enables correct grooming behavior based on operating system type.",
         },
         "run_list" => {

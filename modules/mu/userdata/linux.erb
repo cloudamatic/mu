@@ -52,6 +52,12 @@ if [ -f /etc/debian_version ];then
 <% end %>
 elif [ -x /usr/bin/yum ];then
 	version=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
+	if [ -z $version ];then
+		amazon_version=`rpm -qa \*-release | grep -Ei "system-release"| cut -d"-" -f3 | cut -d"." -f1`
+		if [ $amazon_version == 2014 ] || [ $amazon_version == 2015 ] || [ $amazon_version == 2016 ];then
+			version=6
+		fi
+	fi
 	if [ $version == 7 ];then
 		userdata_dir="/var/lib/cloud/instances/$instance_id"
 	else
@@ -67,7 +73,6 @@ elif [ -x /usr/bin/yum ];then
 	if [ ! -f /usr/bin/curl ] ;then /usr/bin/yum -y install curl;fi
 	# Ugh, rando EPEL mirror
 	if [ ! -f /etc/yum.repos.d/epel.repo ];then
-	     version=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
 		/bin/rpm -ivh http://mirror.metrocast.net/fedora/epel/epel-release-latest-$version.noarch.rpm
 	fi
   if [ ! -f /usr/bin/pip ];then
