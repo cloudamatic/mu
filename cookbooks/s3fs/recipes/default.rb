@@ -17,7 +17,7 @@
 # limitations under the License.
 
 include_recipe "mu-utility::zip"
-include_recipe "mu-utility::make"
+package "make"
 include_recipe "build-essential"
 
 case node[:platform]

@@ -20,7 +20,7 @@
 # common Linux platforms.
 # 
 if platform_family?("rhel")
-  include_recipe "mu-utility::epel"
+  include_recipe "yum-epel"
   package "cloud-init" do
     ignore_failure true
   end
