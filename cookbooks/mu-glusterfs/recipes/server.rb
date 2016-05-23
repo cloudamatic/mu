@@ -13,6 +13,7 @@
 case node[:platform]
   when "centos"
     include_recipe "mu-glusterfs"
+    include_recipe "mu-utility::iptables"
     $nodeclass = node.gluster_node_class
 
     %w{xfsprogs mdadm glusterfs-server samba-vfs-glusterfs samba-client}.each do |pkg|
