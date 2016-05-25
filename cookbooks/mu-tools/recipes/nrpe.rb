@@ -25,20 +25,34 @@ case node[:platform]
       action [:enable, :start]
     end
 
+    master_ips = []
+    master_ips << "127.0.0.1" if Chef::Config[:node_name] == "MU-MASTER"
+    master = search(:node, "name:MU-MASTER")
+    master.each { |server|
+      master_ips << server.ec2.public_ipv4 if !server.ec2.public_ipv4.nil? and !server.ec2.public_ipv4.empty?
+      master_ips << server.ec2.local_ipv4 if !server.ec2.local_ipv4.nil? and !server.ec2.local_ipv4.empty?
+    }
+
+    if node['platform_version'].to_i < 7
+      master_ips.each { |ip|
+        bash "Allow NRPE through iptables from #{ip}" do
+          user "root"
+          not_if "/sbin/iptables -nL | egrep '^ACCEPT.*#{ip}.*dpt:5666($| )'"
+          code <<-EOH
+            /sbin/iptables -I INPUT -s #{ip} -p tcp --dport 5666 -j ACCEPT
+            service iptables save
+          EOH
+        end
+      }
+    end
+
     template "/etc/nagios/nrpe.cfg" do
       source "nrpe.cfg.erb"
       mode 0644
+      variables(
+        :master_ips => master_ips
+      )
       notifies :restart, "service[nrpe]", :immediately
-    end
-
-    bash "Allow Nagios server through iptables" do
-      user "root"
-      not_if "/sbin/iptables -nL | egrep '^ACCEPT.*dpt:5666($| )'"
-      code <<-EOH
-        /sbin/iptables -I INPUT -s 10.0.0.0/8 -p tcp --dport 5666 -j ACCEPT
-        /sbin/iptables -I INPUT -s 52.0.111.223 -p tcp --dport 5666 -j ACCEPT
-        service iptables save
-      EOH
     end
 
     directory "/etc/nagios/nrpe.d" do

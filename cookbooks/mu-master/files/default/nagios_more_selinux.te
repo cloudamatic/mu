@@ -15,6 +15,7 @@ require {
 }
 
 allow httpd_sys_script_t nagios_log_t:dir search;
+allow httpd_sys_script_t nagios_log_t:file { read open };
 allow nagios_t nagios_exec_t:file execute_no_trans;
 allow nagios_t self:capability chown;
 allow nagios_t httpd_sys_content_t:dir { read write remove_name add_name };
