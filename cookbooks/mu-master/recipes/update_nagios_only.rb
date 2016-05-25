@@ -122,6 +122,7 @@ execute "sed -i s/^interval_length=.*/interval_length=1/ || echo 'interval_lengt
 end
 
 package "nagios-plugins-nrpe"
+package "nagios-plugins-disk"
 include_recipe "nrpe"
 
 cookbook_file "/usr/lib64/nagios/plugins/check_mem" do
@@ -131,12 +132,19 @@ cookbook_file "/usr/lib64/nagios/plugins/check_mem" do
 end
 
 file "/etc/sysconfig/nrpe" do
-  content "NRPE_SSL_OPT=\"-n\"\n"
+  content "NRPE_SSL_OPT=\"\"\n"
 end
 
 nrpe_check "check_mem" do
   command "#{node['nrpe']['plugin_dir']}/check_mem"
   warning_condition '80'
   critical_condition '95'
+  action :add
+end
+
+nrpe_check "check_disk" do
+  command "#{node['nrpe']['plugin_dir']}/check_disk"
+  warning_condition '15%'
+  critical_condition '5%'
   action :add
 end
