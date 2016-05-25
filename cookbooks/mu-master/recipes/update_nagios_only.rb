@@ -53,6 +53,9 @@ include_recipe "nagios"
 cookbook_file "nagios_fifo.pp" do
   path "#{Chef::Config[:file_cache_path]}/nagios_fifo.pp"
 end
+cookbook_file "nagios_more_selinux.pp" do
+  path "#{Chef::Config[:file_cache_path]}/nagios_more_selinux.pp"
+end
 
 execute "Add Nagios cmd FIFO to SELinux allow list" do
   command "/usr/sbin/semodule -i nagios_fifo.pp"
@@ -60,6 +63,14 @@ execute "Add Nagios cmd FIFO to SELinux allow list" do
   not_if "/usr/sbin/semodule -l | grep nagios_fifo"
   notifies :reload, "service[apache2]", :delayed
 end
+
+execute "Add Nagios cmd FIFO to SELinux allow list for Nagios daemon" do
+  command "/usr/sbin/semodule -i nagios_more_selinux.pp"
+  cwd Chef::Config[:file_cache_path]
+  not_if "/usr/sbin/semodule -l | grep nagios_more_selinux"
+end
+
+
 
 
 # Workaround for minor Nagios (cookbook?) bug. It looks for this at the wrong
@@ -114,6 +125,12 @@ if File.exist?("/usr/lib64/nagios/plugins/check_nagios")
 end
 
 execute "chgrp apache /var/log/nagios"
+["/etc/nagios/conf.d/", "/etc/nagios/*.cfg", "/var/run/nagios.pid"].each { |dir|
+  execute "/sbin/restorecon -R #{dir}" do
+    not_if "ls -aZ #{dir} | grep ':nagios_etc_t:'"
+  end
+}
+execute "restorecon -R /var/log/nagios"
 
 # The Nagios cookbook currently screws up this setting, so work around it.
 execute "sed -i s/^interval_length=.*/interval_length=1/ || echo 'interval_length=1' >> /etc/nagios/nagios.cfg" do
