@@ -394,7 +394,6 @@ if !node.update_nagios_only
   }
 
   execute "chcon -R -h -t var_log_t /Mu_Logs" do
-    not_if "ls -aZ /Mu_Logs | grep ':var_log_t:'"
     notifies :restart, "service[rsyslog]", :delayed
   end
 

@@ -140,7 +140,7 @@ end
 
 package "nagios-plugins-nrpe"
 package "nagios-plugins-disk"
-include_recipe "nrpe"
+include_recipe "mu-tools::nrpe"
 
 cookbook_file "/usr/lib64/nagios/plugins/check_mem" do
   source "check_mem.pl"
@@ -165,3 +165,5 @@ nrpe_check "check_disk" do
   critical_condition '5%'
   action :add
 end
+
+execute "chgrp nrpe /etc/nagios/nrpe.d/*"

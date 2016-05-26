@@ -13,10 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+require 'syslog'
+require 'syslog/logger'
+
+logger = Syslog::Logger.new "mu-tunnel-nagios"
+
+#Syslog.open("mu-tunnel-nagios", Syslog::LOG_PID, Syslog::LOG_DAEMON | Syslog::LOG_LOCAL3)
+
 require 'net/ssh/gateway'
 require 'trollop'
-
+require 'etc'
 SSH_CMD = "env -i /usr/bin/ssh"
+NAGIOS_HOME = "/opt/mu/var/nagios_user_home"
 
 $opts = Trollop::options do
   banner <<-EOS
@@ -51,16 +59,26 @@ end
 nat_host = dest_host if !nat_host
 
 begin
+  ssh_conf = File.read("#{NAGIOS_HOME}/.ssh/config")
+rescue Errno::EACCES => e
+  Syslog.log(Syslog::LOG_NOTICE, "Couldn't read #{NAGIOS_HOME}/.ssh/config: #{e.message}")
+  puts "Couldn't read #{NAGIOS_HOME}/.ssh/config: #{e.message}"
+  exit 3
+end
+
+full_cmd = output = nil
+begin
   # Degenerate "just work" case, where we assume our ssh config will take care
   # of the complicated bits for us. We're actually tunneling all the way to the
   # destination node.
   gateway = Net::SSH::Gateway.new(
       nat_host,
       nil,
-      :config => ["/home/nagios/.ssh/config"],
+      :config => ["#{NAGIOS_HOME}/.ssh/config"],
       :keys_only => true,
+#      :logger => logger,
       :auth_methods => ['publickey'],
-      :verbose => :info
+#      :verbose => :debug
   )
   port = gateway.open("127.0.0.1", dest_port)
   if port_arg.empty?
@@ -71,10 +89,15 @@ begin
   if verbose
     puts "Opening gateway to #{dest_host}:#{dest_port} by tunneling local #{port} to #{nat_host} and running #{full_cmd}"
   end
-  output = %x{#{full_cmd}}
-  to_return = $?.exitstatus
+  output = %x{#{full_cmd} 2>&1}
+  to_return = $?.exitstatus > 3 ? 3 : $?.exitstatus
   puts output
+rescue Net::SSH::AuthenticationFailed => e
+  Syslog.log(Syslog::LOG_NOTICE, e.message)
+  puts e
+  to_return = 2
 rescue Exception => e
+  Syslog.log(Syslog::LOG_NOTICE, "Tunnel failure for #{dest_host}:#{dest_port} `#{full_cmd}`: #{e.inspect} **** #{output} ****")
   puts e
   to_return = 3
 ensure

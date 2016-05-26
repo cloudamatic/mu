@@ -8,17 +8,24 @@ require {
   type httpd_sys_content_t;
 	type nagios_exec_t;
   type initrc_var_run_t;
+  type port_t;
+  type ssh_exec_t;
 	class capability chown;
 	class dir { search read write remove_name add_name };
-	class file { create open execute_no_trans read append write getattr setattr lock };
+	class file { create open execute_no_trans read append write getattr setattr lock unlink rename execute };
+	class fifo_file { read open getattr write };
   class sock_file { create write unlink };
+  class tcp_socket { name_bind };
 }
 
 allow httpd_sys_script_t nagios_log_t:dir search;
 allow httpd_sys_script_t nagios_log_t:file { read open };
+allow httpd_sys_script_t nagios_log_t:fifo_file { read open getattr write };
 allow nagios_t nagios_exec_t:file execute_no_trans;
+allow nagios_t ssh_exec_t:file { getattr execute read open execute_no_trans };
 allow nagios_t self:capability chown;
 allow nagios_t httpd_sys_content_t:dir { read write remove_name add_name };
-allow nagios_t httpd_sys_content_t:file { open read append getattr setattr create };
+allow nagios_t httpd_sys_content_t:file { open read append getattr setattr create write rename };
 allow nagios_t httpd_sys_content_t:sock_file { unlink create write };
-allow nagios_t initrc_var_run_t:file { read write open lock };
+allow nagios_t initrc_var_run_t:file { read write open lock unlink };
+allow nagios_t port_t:tcp_socket { name_bind };

@@ -90,7 +90,7 @@ module MU
     attr_reader :chef_user
     attr_accessor :kittens # really want a method only available to :Deploy
     @myhome = Etc.getpwuid(Process.uid).dir
-    @nagios_home = "/home/nagios"
+    @nagios_home = "/opt/mu/var/nagios_user_home"
     @locks = Hash.new
     @deploy_cache = Hash.new
     @nocleanup = false
@@ -1745,8 +1745,14 @@ MESSAGE_END
       nagios_threads = []
       nagios_threads << Thread.new {
         MU.dupGlobals(parent_thread_id)
-        if !Dir.exists?("#{@nagios_home}/.ssh")
-          Dir.mkdir("#{@nagios_home}/.ssh", 0711)
+        realhome = Etc.getpwnam("nagios").dir
+        [@nagios_home, "#{@nagios_home}/.ssh"].each { |dir|
+          Dir.mkdir(dir, 0711) if !Dir.exists?(dir)
+          File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, dir)
+        }
+        if realhome != @nagios_home and Dir.exists?(realhome) and !File.symlink?("#{realhome}/.ssh")
+          File.rename("#{realhome}/.ssh", "#{realhome}/.ssh.#{$$}") if Dir.exists?("#{realhome}/.ssh")
+          File.symlink("#{@nagios_home}/.ssh", Etc.getpwnam("nagios").dir+"/.ssh")
         end
         MU.log "Updating #{@nagios_home}/.ssh/config..."
         ssh_lock = File.new("#{@nagios_home}/.ssh/config.mu.lock", File::CREAT|File::TRUNC|File::RDWR, 0600)
@@ -1803,7 +1809,7 @@ MESSAGE_END
         }
         ssh_lock.flock(File::LOCK_UN)
         ssh_lock.close
-        File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{@nagios_home}/.ssh/config")
+        File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{@nagios_home}/.ssh/config.tmp")
         File.rename("#{@nagios_home}/.ssh/config.tmp", "#{@nagios_home}/.ssh/config")
 
         MU.log "Updating Nagios monitoring config, this may take a while..."
