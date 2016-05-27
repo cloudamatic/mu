@@ -275,10 +275,28 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
               custom_append: server['userdata_script']
           )
           need_update = false
+
+          # Figure out which devices are embedded in the AMI already.
+          image = MU::Cloud::AWS.ec2.describe_images(image_ids: [server["basis"]["launch_config"]["ami_id"]]).images.first
+          ext_disks = {}
+          if !image.block_device_mappings.nil?
+            image.block_device_mappings.each { |disk|
+              if !disk.device_name.nil? and !disk.device_name.empty? and !disk.ebs.nil? and !disk.ebs.empty?
+                ext_disks[disk.device_name] = MU.structToHash(disk.ebs)
+              end
+            }
+          end
+
           storage = []
           if !server["basis"]["launch_config"]["storage"].nil?
             server["basis"]["launch_config"]["storage"].each { |vol|
-              storage << MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
+              if ext_disks.has_key?(vol["device"])
+                if ext_disks[vol["device"]].has_key?(:snapshot_id)
+                  vol.delete("encrypted")
+                end
+              end
+              mapping, cfm_mapping = MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
+              storage << mapping
             }
           end
           storage.concat(MU::Cloud::AWS::Server.ephemeral_mappings)
