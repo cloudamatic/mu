@@ -92,7 +92,7 @@ begin
   output = %x{#{full_cmd} 2>&1}
   to_return = $?.exitstatus > 3 ? 3 : $?.exitstatus
   puts output
-rescue Net::SSH::AuthenticationFailed => e
+rescue Net::SSH::AuthenticationFailed, Net::SSH::ConnectionTimeout  => e
   Syslog.log(Syslog::LOG_NOTICE, e.message)
   puts e
   to_return = 2
