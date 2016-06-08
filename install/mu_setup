@@ -1523,6 +1523,8 @@ configure_nagios_server()
   chown nagios:nagios /opt/mu/var/nagios_user_home
   if [ "`grep ^nagios: /etc/passwd | grep /opt/mu/var/nagios_user_home`" = "" ];then
     /sbin/service nagios stop
+    sleep 5
+    /usr/bin/pkill -u nagios
     /usr/sbin/usermod -d /opt/mu/var/nagios_user_home nagios
     /sbin/service nagios start
   fi
