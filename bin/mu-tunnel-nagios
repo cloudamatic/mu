@@ -58,6 +58,9 @@ if !dest_host or !dest_port or !cmd
 end
 nat_host = dest_host if !nat_host
 
+ENV.clear
+ENV['HOME'] = NAGIOS_HOME
+
 begin
   ssh_conf = File.read("#{NAGIOS_HOME}/.ssh/config")
 rescue Errno::EACCES => e
@@ -78,6 +81,8 @@ begin
       :keys_only => true,
 #      :logger => logger,
       :auth_methods => ['publickey'],
+      :use_agent => false,
+#      :paranoid => false,
 #      :verbose => :debug
   )
   port = gateway.open("127.0.0.1", dest_port)
@@ -97,7 +102,7 @@ rescue Net::SSH::AuthenticationFailed, Net::SSH::ConnectionTimeout  => e
   puts e
   to_return = 2
 rescue Exception => e
-  Syslog.log(Syslog::LOG_NOTICE, "Tunnel failure for #{dest_host}:#{dest_port} `#{full_cmd}`: #{e.inspect} **** #{output} ****")
+  Syslog.log(Syslog::LOG_NOTICE, "Tunnel failure for #{dest_host}:#{dest_port} from config #{NAGIOS_HOME}/.ssh/config, `#{full_cmd}`: #{e.inspect} **** #{output} **** ENV: #{envhash.to_s}")
   puts e
   to_return = 3
 ensure
@@ -109,3 +114,4 @@ ensure
   puts "Exiting with status #{to_return}" if verbose
   exit to_return.to_i
 end
+
