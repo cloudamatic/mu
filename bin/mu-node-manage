@@ -40,7 +40,7 @@ end
 if $opts[:platform] and !["linux", "windows"].include?($opts[:platform])
   Trollop::die(:platform, "--platform must be one of: linux, windows")
 end
-if !$opts[:xecute] and !$opts[:all] and !$opts[:platform] and !$opts[:environment] and !$opts[:override_chef_runlist] and !$opts[:mode_given]
+if !$opts[:xecute] and !$opts[:override_chef_runlist] and !$opts[:mode_given]
   $opts[:list] = true
 end
 if $opts[:override_chef_runlist] and !$opts[:mode_given]
