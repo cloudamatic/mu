@@ -21,7 +21,11 @@
 def splunk_file(uri)
   require 'pathname'
   require 'uri'
-  Pathname.new(URI.parse(uri).path).basename.to_s
+  if URI.parse(uri).query.to_s.match(/filename=/)
+    Pathname.new(URI.parse(uri).query).to_s.gsub(/^.*?filename=(.*?)\&.*/, '\1')
+  else
+    Pathname.new(URI.parse(uri).path).basename.to_s
+  end
 end
 
 def splunk_cmd

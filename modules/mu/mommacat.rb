@@ -1740,7 +1740,7 @@ MESSAGE_END
     # to client nodes.
     # @return [void]
     def self.syncMonitoringConfig(blocking = true)
-      return if Etc.getpwuid(Process.uid).name != "root" or MU.mu_user != "mu"
+      return if Etc.getpwuid(Process.uid).name != "root" or (MU.mu_user != "mu" and MU.mu_user != "root")
       parent_thread_id = Thread.current.object_id
       nagios_threads = []
       nagios_threads << Thread.new {

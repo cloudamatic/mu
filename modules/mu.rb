@@ -176,7 +176,14 @@ module MU
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
   def self.chef_user;
-    @@globals[Thread.current.object_id]['chef_user']
+    user = 'mu'
+
+    thread_globals = @@globals[Thread.current.object_id]
+    if thread_globals
+      user = thread_globals['chef_user']
+    end
+
+    user
   end
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.

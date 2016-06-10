@@ -58,6 +58,7 @@ cookbook 'runit', '~> 1.7.2'
 cookbook 's3fs', path: "#{cookbookPath}/s3fs"
 cookbook 'simple_iptables', '~> 0.7.4'
 cookbook 'supervisor', '~> 0.4.12'
-cookbook 'windows', '~> 1.41'
+cookbook 'windows', '~> 1.41.0'
 cookbook 'yum', '~> 3.10.0'
 cookbook 'yum-epel', '~> 0.7.0'
+cookbook 'tar', '~> 0.7.0'
