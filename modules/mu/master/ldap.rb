@@ -697,7 +697,6 @@ module MU
         # Oh, Microsoft. Slap quotes around it, convert it to Unicode, and call
         # it Sally. *Then* it's a password.
         password_attr = :userPassword
-        orig_password = password.dup
         if !password.nil? and $MU_CFG["ldap"]["type"] == "Active Directory"
           password = ('"'+password+'"').encode("utf-16le").force_encoding("utf-8")
           password_attr = :unicodePwd
