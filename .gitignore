@@ -6,3 +6,4 @@ doc
 kittens.rb
 Mu_CA.pem
 install/headlesscheatsheet
+Berksfile.lock
