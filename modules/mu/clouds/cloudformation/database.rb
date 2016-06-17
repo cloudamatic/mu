@@ -59,7 +59,7 @@ module MU
           # RDS is picky, we can't just use our regular node names for things
           # like the default schema or username. And it varies from engine to
           # engine.
-          basename = @config["name"]
+          basename = @config["name"].to_s
           basename = basename+@deploy.timestamp+MU.seed.downcase if !@config['scrub_mu_isms']
           basename.gsub!(/[^a-z0-9]/i, "")
           @config["db_name"] = MU::Cloud::AWS::Database.getName(basename, type: "dbname", config: @config)
