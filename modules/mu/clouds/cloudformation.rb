@@ -173,6 +173,7 @@ module MU
           desc = {
             "Type" => "AWS::ElastiCache::ReplicationGroup",
             "Properties" => {
+              "SnapshotArns" => [],
               "SecurityGroupIds" => []
             }
           }
@@ -181,6 +182,7 @@ module MU
             "Type" => "AWS::ElastiCache::CacheCluster",
             "Properties" => {
               "Tags" => tags,
+              "SnapshotArns" => [],
               "VpcSecurityGroupIds" => []
             }
           }
