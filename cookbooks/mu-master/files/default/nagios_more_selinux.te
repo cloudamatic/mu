@@ -3,6 +3,7 @@ module nagios_more_selinux 1.0;
 
 require {
 	type nagios_t;
+	type usr_t;
 	type nagios_log_t;
 	type httpd_sys_script_t;
   type httpd_sys_content_t;
@@ -41,3 +42,5 @@ allow nagios_t port_t:tcp_socket { name_bind };
 allow nagios_t nagios_t:capability { chown };
 allow nagios_t httpd_sys_script_exec_t:fifo_file { read open getattr write create };
 allow nagios_t nagios_log_t:fifo_file { read open getattr write create };
+allow nagios_t nagios_log_t:fifo_file { read open getattr write create };
+allow nagios_t usr_t:file { read open getattr execute execute_no_trans };
