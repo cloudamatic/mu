@@ -9,6 +9,7 @@
     "recipe[mu-tools::add_admin_ssh_keys]",
     "recipe[mu-tools::maldet]",
     "recipe[mu-tools::rsyslog]",
+    "recipe[mu-tools::nrpe]",
     "recipe[mu-utility::disable-requiretty]",
     "recipe[mu-utility::cloudinit]"
   ],

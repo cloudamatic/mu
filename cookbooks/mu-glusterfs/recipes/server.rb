@@ -15,7 +15,7 @@ case node[:platform]
     include_recipe "mu-glusterfs"
     $nodeclass = node.gluster_node_class
 
-    %w{xfsprogs mdadm glusterfs-server samba-vfs-glusterfs samba-client}.each do |pkg|
+    %w{xfsprogs mdadm glusterfs-server}.each do |pkg|
       package pkg
     end
 
@@ -194,10 +194,6 @@ case node[:platform]
           not_if { data['private_ip_address'] == node.ipaddress }
         end
       end
-    end
-    execute "skip glusterfs packages during automated yum updates" do
-      command "echo 'exclude=gluster*' >> /etc/yum.conf"
-      not_if "grep ^exclude=gluster /etc/yum.conf"
     end
 
   else

@@ -176,14 +176,13 @@ module MU
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
   def self.chef_user;
-    user = 'mu'
-
-    thread_globals = @@globals[Thread.current.object_id]
-    if thread_globals
-      user = thread_globals['chef_user']
+    if @@globals.has_key?(Thread.current.object_id) and @@globals[Thread.current.object_id].has_key?('chef_user')
+      @@globals[Thread.current.object_id]['chef_user']
+    elsif Etc.getpwuid(Process.uid).name == "root"
+      return "mu"
+    else
+      return Etc.getpwuid(Process.uid).name
     end
-
-    user
   end
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.

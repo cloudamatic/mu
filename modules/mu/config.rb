@@ -4266,9 +4266,9 @@ module MU
                 "default" => "05:00-05:30",
                 "description" => "The preferred time range to perform automatic database backups."
             },
-            "preferred_maintenance_window " => {
+            "preferred_maintenance_window" => {
                 "type" => "string",
-                "description" => "The preferred data/time range to perform database maintenance."
+                "description" => "The preferred data/time range to perform database maintenance. Ex. Sun:02:00-Sun:03:00"
             },
             "iops" => {
                 "type" => "integer",

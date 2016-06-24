@@ -1,6 +1,23 @@
 nagios Cookbook CHANGELOG
 =========================
 This file is used to list changes made in each version of the nagios cookbook.
+7.2.6
+-----
+### Bug
+- #445 Fixing escalation_periods.
+- #448 Fixing service escalations.
+- #459 Fixing undefined method `push'.
+- #453 Fixing nodes without any tags.
+
+### Improvement
+- #443 Merging the timezone settings.
+- #450 Allowing default guest user.
+- #454 Adding inheritance modifiers.
+- #462 Adding Apache LDAP settings.
+- #463 Adding '*' and 'null' as options.
+- #470 Adding option for wrapper cookbooks.
+- #470 Adding result_limit to cgi.cfg.
+ 
 7.2.4
 -----
 ### Bug

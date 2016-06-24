@@ -698,9 +698,7 @@ module MU
         # it Sally. *Then* it's a password.
         password_attr = :userPassword
         if !password.nil? and $MU_CFG["ldap"]["type"] == "Active Directory"
-          ascii_pw = '"'+password+'"'
-          password = ""
-          ascii_pw.length.times{|i| password+= "#{ascii_pw[i..i]}\000" }
+          password = ('"'+password+'"').encode("utf-16le").force_encoding("utf-8")
           password_attr = :unicodePwd
         end
 
@@ -718,9 +716,9 @@ module MU
               :displayName => name,
               :givenName => first,
               :sn => last,
-              :mail => email,
-              :userPassword => password,
+              :mail => email
             }
+            attr[password_attr] = password
             gid = nil
             groups = []
             if $MU_CFG["ldap"]["type"] == "389 Directory Services"
@@ -741,14 +739,19 @@ module MU
               attr[:userAccountControl] = AD_PW_ATTRS['normal'].to_s
               attr[:userPrincipalName] = "#{user}@#{$MU_CFG["ldap"]["domain_name"]}"
               attr[:pwdLastSet] = "-1"
+              attr.delete(:userPassword)
               if mu_acct
                 attr[:userAccountControl] = (attr[:userAccountControl].to_i & AD_PW_ATTRS['pwdNeverExpires']).to_s
               end
             end
             if !conn.add(:dn => user_dn, :attributes => attr)
-              raise MU::MuError, "Failed to create user #{user} (#{getLDAPErr})"
+              if getLDAPErr.match(/53 Unwilling to perform/)
+                raise MU::MuError, "Failed to create user #{user} (#{getLDAPErr}). Most likely the LDAP password policy objected to the password '#{password}'"
+              else
+                raise MU::MuError, "Failed to create user #{user} (#{getLDAPErr})"
+              end
             end
-            attr[:userPassword] = "********"
+            attr[password_attr] = "********"
             MU.log "Created new LDAP user #{user}", details: attr
             if mu_acct
               groups << $MU_CFG["ldap"]["user_group_name"]
