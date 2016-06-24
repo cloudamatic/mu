@@ -43,4 +43,4 @@ allow nagios_t nagios_t:capability { chown };
 allow nagios_t httpd_sys_script_exec_t:fifo_file { read open getattr write create };
 allow nagios_t nagios_log_t:fifo_file { read open getattr write create };
 allow nagios_t nagios_log_t:fifo_file { read open getattr write create };
-allow nagios_t usr_t:file { read open getattr execute execute_no_trans };
+allow nagios_t usr_t:file { read open getattr execute execute_no_trans append };

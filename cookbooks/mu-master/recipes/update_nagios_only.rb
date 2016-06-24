@@ -152,6 +152,23 @@ file "/etc/sysconfig/nrpe" do
   content "NRPE_SSL_OPT=\"\"\n"
 end
 
+directory "/opt/mu/var/nagios_user_home/.ssh" do
+  owner "nagios"
+	group "nagios"
+	mode 0711
+end
+file "/opt/mu/var/nagios_user_home/.ssh/known_hosts" do
+  owner "nagios"
+	group "nagios"
+	mode 0600
+end
+file "/opt/mu/var/nagios_user_home/.ssh/known_hosts2" do
+  owner "nagios"
+	group "nagios"
+	mode 0600
+end
+
+
 nrpe_check "check_mem" do
   command "#{node['nrpe']['plugin_dir']}/check_mem"
   warning_condition '80'
