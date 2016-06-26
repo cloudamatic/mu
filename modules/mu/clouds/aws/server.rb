@@ -947,6 +947,38 @@ module MU
             session.close if !session.nil?
           end
 
+          if @config["existing_deploys"] && !@config["existing_deploys"].empty?
+            @config["existing_deploys"].each { |ext_deploy|
+              if ext_deploy["cloud_id"]
+                found = MU::MommaCat.findStray(
+                  @config['cloud'],
+                  ext_deploy["cloud_type"],
+                  cloud_id: ext_deploy["cloud_id"],
+                  region: @config['region'],
+                  dummy_ok: false
+                ).first
+
+                MU.log "Couldn't find exisiting resource #{ext_deploy["cloud_id"]}, #{ext_deploy["cloud_type"]}", MU::ERR if found.nil?
+                @deploy.notify(ext_deploy["cloud_type"], found.deploy_id, found.notify, mu_name: found.mu_name, triggering_node: @mu_name)
+              elsif ext_deploy["mu_name"] && ext_deploy["deploy_id"]
+                MU.log "#{ext_deploy["mu_name"]} / #{ext_deploy["deploy_id"]}"
+                found = MU::MommaCat.findStray(
+                  @config['cloud'],
+                  ext_deploy["cloud_type"],
+                  deploy_id: ext_deploy["deploy_id"],
+                  mu_name: ext_deploy["mu_name"],
+                  region: @config['region'],
+                  dummy_ok: false
+                ).first
+
+                MU.log "Couldn't find exisiting resource #{ext_deploy["mu_name"]}/#{ext_deploy["deploy_id"]}, #{ext_deploy["cloud_type"]}", MU::ERR if found.nil?
+                @deploy.notify(ext_deploy["cloud_type"], ext_deploy["deploy_id"], found.notify, mu_name: ext_deploy["mu_name"], triggering_node: @mu_name)
+              else
+                MU.log "Trying to find existing deploy, but either the cloud_id is not valid or no mu_name and deploy_id where provided", MU::ERR
+              end
+            }
+          end
+
           # See if this node already exists in our config management. If it does,
           # we're done.
           if @groomer.haveBootstrapped?
@@ -1294,6 +1326,7 @@ module MU
             @deploydata["public_dns_name"] = instance.public_dns_name
             @deploydata["private_ip_address"] = instance.private_ip_address
             @deploydata["private_dns_name"] = instance.private_dns_name
+
             notify
           end
 

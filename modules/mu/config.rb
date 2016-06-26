@@ -1682,6 +1682,46 @@ module MU
           }
         end
 
+        if pool["existing_deploys"] && !pool["existing_deploys"].empty?
+          pool["existing_deploys"].each { |ext_deploy|
+            if ext_deploy["cloud_type"].nil?
+              MU.log "You must provide a cloud_type", MU::ERR
+              ok = false
+            end
+            if ext_deploy["cloud_id"]
+              found = MU::MommaCat.findStray(
+                pool['cloud'],
+                ext_deploy["cloud_type"],
+                cloud_id: ext_deploy["cloud_id"],
+                region: pool['region'],
+                dummy_ok: false
+              ).first
+
+              if found.nil?
+                MU.log "Couldn't find exisiting #{ext_deploy["cloud_type"]} resource #{ext_deploy["cloud_id"]}", MU::ERR
+                ok = false
+              end
+            elsif ext_deploy["mu_name"] && ext_deploy["deploy_id"]
+              found = MU::MommaCat.findStray(
+                pool['cloud'],
+                ext_deploy["cloud_type"],
+                deploy_id: ext_deploy["deploy_id"],
+                mu_name: ext_deploy["mu_name"],
+                region: pool['region'],
+                dummy_ok: false
+              ).first
+
+              if found.nil?
+                MU.log "Couldn't find exisiting #{ext_deploy["cloud_type"]} resource - #{ext_deploy["mu_name"]} / #{ext_deploy["deploy_id"]}", MU::ERR
+                ok = false
+              end
+            else
+              MU.log "Trying to find existing deploy, but either the cloud_id is not valid or no mu_name and deploy_id where provided", MU::ERR
+              ok = false
+            end
+          }
+        end
+
         if pool["basis"]["launch_config"] != nil
           launch = pool["basis"]["launch_config"]
           if !launch['generate_iam_role']
@@ -2478,6 +2518,46 @@ module MU
           server["dependencies"] << {
               "type" => "collection",
               "name" => server["collection"]
+          }
+        end
+
+        if server["existing_deploys"] && !server["existing_deploys"].empty?
+          server["existing_deploys"].each { |ext_deploy|
+            if ext_deploy["cloud_type"].nil?
+              MU.log "You must provide a cloud_type", MU::ERR
+              ok = false
+            end
+            if ext_deploy["cloud_id"]
+              found = MU::MommaCat.findStray(
+                server['cloud'],
+                ext_deploy["cloud_type"],
+                cloud_id: ext_deploy["cloud_id"],
+                region: server['region'],
+                dummy_ok: false
+              ).first
+
+              if found.nil?
+                MU.log "Couldn't find exisiting #{ext_deploy["cloud_type"]} resource #{ext_deploy["cloud_id"]}", MU::ERR
+                ok = false
+              end
+            elsif ext_deploy["mu_name"] && ext_deploy["deploy_id"]
+              found = MU::MommaCat.findStray(
+                server['cloud'],
+                ext_deploy["cloud_type"],
+                deploy_id: ext_deploy["deploy_id"],
+                mu_name: ext_deploy["mu_name"],
+                region: server['region'],
+                dummy_ok: false
+              ).first
+
+              if found.nil?
+                MU.log "Couldn't find exisiting #{ext_deploy["cloud_type"]} resource - #{ext_deploy["mu_name"]} / #{ext_deploy["deploy_id"]}", MU::ERR
+                ok = false
+              end
+            else
+              MU.log "Trying to find existing deploy, but either the cloud_id is not valid or no mu_name and deploy_id where provided", MU::ERR
+              ok = false
+            end
           }
         end
 
@@ -4199,28 +4279,31 @@ module MU
                 }
             }
         },
-        "storage_pools" => {
+        "existing_deploys" => {
           "type" => "array",
           "minItems" => 1,
           "items" => {
             "type" => "object",
-            "minProperties" => 1,
-            "maxProperties" => 1,
             "additionalProperties" => false,
-            "description" => "One or more storage pools to use in this deployment.",
+            "description" => "Existing deploys that will be loaded into the new deployment metadata. This metadata will be saved on the Chef node",
             "properties" => {
-              "name" => {
-                "type" => "string",
-                "description" => "The name of a MU storage pool object that should also be defined in this stack. Will be added as a dependency."
-              },
-              "mu_name" => {
-                "type" => "string",
-                "description" => "The MU name of an existing storage pool that is not part of this deployment. Must be in the same VPC as this deployment. Use either mu_name or cloud_id"
-              },
-              "cloud_id" => {
-                "type" => "string",
-                "description" => "The cloud provider’s native name of an existing storage pool that is not part of this deployment. Must be in the same VPC as this deployment. Use either cloud_id or mu_name"
-              }
+                "cloud_type" => {
+                  "type" => "string",
+                  "description" => "The type of resource we will parse metdata for",
+                  "enum" => ["server", "database", "storage_pool", "cache_cluster"]
+                },
+                "cloud_id" => {
+                  "type" => "string",
+                  "description" => "The cloud identifier of the resource you would like to metadata to this deployment for. eg - i-d96eca0d. Must use either 'cloud_id' OR 'mu_name' AND 'deploy_id'"
+                },
+                "mu_name" => {
+                  "type" => "string",
+                  "description" => "The full name of a resource in a foreign deployment which we should add the metdata to this deployment for. You should also include 'deploy_id' so we will be able to identifiy a single resource. Use either 'cloud_id' OR 'mu_name' and 'deploy_id'"
+                },
+                "deploy_id" => {
+                  "type" => "string",
+                  "description" => "Should be used with 'mu_name' to identifiy a single resource."
+                }
             }
           }
         }

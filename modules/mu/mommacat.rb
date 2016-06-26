@@ -280,7 +280,7 @@ module MU
                 }
               end
               if orig_cfg.nil?
-                MU.log "Failed to locate original config for #{attrs[:cfg_name]} #{res_name} in #{@deploy_id}", MU::WARN if type != "firewall_rules" # XXX shaddap
+                MU.log "Failed to locate original config for #{attrs[:cfg_name]} #{res_name} in #{@deploy_id}", MU::WARN if !["firewall_rules", "databases"].include?(type) # XXX shaddap
                 next
               end
               begin
@@ -2271,7 +2271,7 @@ MESSAGE_END
                       end
                       data['#MU_NAME'] = nodename
                       if !mu_name.nil? and nodename == mu_name
-                        return {deploy => [data]}
+                        return {deploy => [data]} if deploy_id && deploy == deploy_id
                       end
                     }
                   }
