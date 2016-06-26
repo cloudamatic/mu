@@ -21,10 +21,6 @@ case node[:platform]
       package pkg 
     end
 
-    service "nrpe" do
-      action [:enable, :start]
-    end
-
     master_ips = ["127.0.0.1"]
     master = search(:node, "name:MU-MASTER")
     master.each { |server|
@@ -93,5 +89,9 @@ case node[:platform]
     execute "chmod o+r /etc/nagios/nrpe.d/check_disk.cfg"
     execute "/usr/bin/chcon -R -t nrpe_etc_t /etc/nagios/nrpe.d/" do
       notifies :restart, "service[nrpe]", :delayed
+    end
+
+    service "nrpe" do
+      action [:enable, :start]
     end
 end
