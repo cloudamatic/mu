@@ -1,5 +1,5 @@
 {
 	"id": "mu_master_memory",
 	"hostgroup_name": "mu-master",
-	"command_line": "$USER1$/check_nrpe -H $HOSTADDRESS$ -c check_mem -n"
+	"command_line": "$USER1$/check_nrpe -H $HOSTADDRESS$ -c check_mem"
 }

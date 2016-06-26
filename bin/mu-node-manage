@@ -24,14 +24,14 @@ Usage:
 #{$0} [-c] [-w] [-l] [-d] [-a] [-e <environment>] [-p <platform>] [-m <mode>] [-o <chefopts>] [-x <command>] [ deploy_id|node_name [ ... ] ]
   EOS
   opt :concurrent, "Max number of processes to run concurrently when invoking Chef or MommaCat on multiple nodes.", :require => false, :default => 10, :type => :integer
-  opt :list, "Perform no action, but instead return a list of matching hosts.", :require => false, :default => false, :type => :boolean
+  opt :list, "Perform no action, but instead return a list of matching hosts. Default behavior with no other flags.", :require => false, :default => false, :type => :boolean
   opt :deploys, "Operate on matching deploy IDs instead of node names.", :require => false, :default => false, :type => :boolean
   opt :all, "Operate on all nodes/deploys. Use with caution.", :require => false, :default => false, :type => :boolean
   opt :platform, "Operate exclusively on one nodes of a particular operating system. Can be used in conjunction with -a or -d. Valid platforms: linux, windows", :require => false, :type => :string
   opt :environment, "Operate exclusively on one nodes with a particular environment (e.g. dev, prod). Can be used in conjunction with -a or -d.", :require => false, :type => :string
   opt :override_chef_runlist, "An alternate runlist to pass to Chef, in chefrun mode.", :require => false, :type => :string
   opt :xecute, "Run a shell command on matching nodes. Overrides --mode and suppresses some informational output in favor of scriptability.", :require => false, :type => :string
-  opt :mode, "Action to perform on matching nodes. Valid actions: groom, chefrun, userdata", :require => false, :default => "groom", :type => :string
+  opt :mode, "Action to perform on matching nodes. Valid actions: groom, chefrun, userdata", :require => false, :default => "chefrun", :type => :string
 end
 
 if !["groom", "chefrun", "basketupdate", "userdata"].include?($opts[:mode])
@@ -39,6 +39,12 @@ if !["groom", "chefrun", "basketupdate", "userdata"].include?($opts[:mode])
 end
 if $opts[:platform] and !["linux", "windows"].include?($opts[:platform])
   Trollop::die(:platform, "--platform must be one of: linux, windows")
+end
+if !$opts[:xecute] and !$opts[:override_chef_runlist] and !$opts[:mode_given]
+  $opts[:list] = true
+end
+if $opts[:override_chef_runlist] and !$opts[:mode_given]
+  $opts[:mode_given] = true
 end
 if ARGV.empty? and !$opts[:all] and !$opts[:platform] and !$opts[:environment] and !$opts[:list]
   Trollop::educate
@@ -77,24 +83,25 @@ if $opts[:all]
 else
   if $opts[:deploys] and !$opts[:all]
     ARGV.each { |arg|
-      if !avail_deploys.include?(arg)
-        MU.log "Deploy ID '#{arg}' does not appear to be valid", MU::ERR
-        ok = false
+      matched = avail_deploys.select { |deploy| deploy.match(/#{Regexp.quote(arg)}/i) }
+      if matched.size == 0
+        MU.log "Deploy pattern '#{arg}' doesn't appear to match anything", MU::ERR
       end
-      do_deploys << arg
+      do_deploys = do_deploys.concat(matched).uniq
     }
   else
     do_nodes = ARGV
+    do_deploys = []
     if do_nodes.size > 0
       # Just load the deploys we need
-      do_deploys = []
       do_nodes.each { |node|
-        do_deploys << node.sub(/^(.*?-[^\-]+?-\d{10}-[A-Z]{2})-.*/, '\1')
+        if node.match(/^(.*?-[^\-]+?-\d{10}-[A-Z]{2})-.*/)
+          do_deploys << node.sub(/^(.*?-[^\-]+?-\d{10}-[A-Z]{2})-.*/, '\1')
+        end
       }
       do_deploys.uniq!
-    else
-      do_deploys = avail_deploys
     end
+    do_deploys = avail_deploys if do_deploys.size == 0
   end
 end
 
@@ -112,13 +119,17 @@ do_deploys.each { |muid|
 }
 
 if do_nodes.size > 0
-  do_nodes.each { |node|
-    if !avail_nodes.include?(node)
-      ok = false
-      MU.log "Node #{node} requested, but no such node exists.", MU::ERR
-      do_nodes.delete(node)
-    end
+  matching = avail_nodes.select { |node|
+    matched = false
+    do_nodes.each { |pattern|
+      if node.match(/#{Regexp.quote(pattern)}/i)
+        matched = true
+        break
+      end
+    }
+    matched
   }
+  do_nodes = matching
 else
   do_nodes = avail_nodes
 end
@@ -275,10 +286,28 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
               custom_append: server['userdata_script']
           )
           need_update = false
+
+          # Figure out which devices are embedded in the AMI already.
+          image = MU::Cloud::AWS.ec2.describe_images(image_ids: [server["basis"]["launch_config"]["ami_id"]]).images.first
+          ext_disks = {}
+          if !image.block_device_mappings.nil?
+            image.block_device_mappings.each { |disk|
+              if !disk.device_name.nil? and !disk.device_name.empty? and !disk.ebs.nil? and !disk.ebs.empty?
+                ext_disks[disk.device_name] = MU.structToHash(disk.ebs)
+              end
+            }
+          end
+
           storage = []
           if !server["basis"]["launch_config"]["storage"].nil?
             server["basis"]["launch_config"]["storage"].each { |vol|
-              storage << MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
+              if ext_disks.has_key?(vol["device"])
+                if ext_disks[vol["device"]].has_key?(:snapshot_id)
+                  vol.delete("encrypted")
+                end
+              end
+              mapping, cfm_mapping = MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
+              storage << mapping
             }
           end
           storage.concat(MU::Cloud::AWS::Server.ephemeral_mappings)

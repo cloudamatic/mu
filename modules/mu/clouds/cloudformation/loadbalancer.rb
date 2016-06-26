@@ -46,10 +46,10 @@ module MU
         def create
           @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags'], scrub_mu_isms: @config['scrub_mu_isms']) if @cfm_template.nil?
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "LoadBalancerName", @mu_name)
-          @config["cross_zone"] = @config["cross_zone_unstickiness"]
+          @config["cross_zone"] = !@config["cross_zone_unstickiness"]
           @config["health_check"] = @config["healthcheck"]
           @config["access_logging_policy"] = @config["access_log"]
-          ["cross_zone", "health_check"].each { |arg|
+          ["cross_zone", "health_check", "access_logging_policy"].each { |arg|
             if !@config[arg].nil?
               key = ""
               val = @config[arg]

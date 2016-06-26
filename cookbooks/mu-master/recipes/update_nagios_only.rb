@@ -53,6 +53,9 @@ include_recipe "nagios"
 cookbook_file "nagios_fifo.pp" do
   path "#{Chef::Config[:file_cache_path]}/nagios_fifo.pp"
 end
+cookbook_file "nagios_more_selinux.pp" do
+  path "#{Chef::Config[:file_cache_path]}/nagios_more_selinux.pp"
+end
 
 execute "Add Nagios cmd FIFO to SELinux allow list" do
   command "/usr/sbin/semodule -i nagios_fifo.pp"
@@ -60,6 +63,14 @@ execute "Add Nagios cmd FIFO to SELinux allow list" do
   not_if "/usr/sbin/semodule -l | grep nagios_fifo"
   notifies :reload, "service[apache2]", :delayed
 end
+
+execute "Add Nagios cmd FIFO to SELinux allow list for Nagios daemon" do
+  command "/usr/sbin/semodule -i nagios_more_selinux.pp"
+  cwd Chef::Config[:file_cache_path]
+  not_if "/usr/sbin/semodule -l | grep nagios_more_selinux"
+end
+
+
 
 
 # Workaround for minor Nagios (cookbook?) bug. It looks for this at the wrong
@@ -114,6 +125,13 @@ if File.exist?("/usr/lib64/nagios/plugins/check_nagios")
 end
 
 # execute "chgrp apache /var/log/nagios"
+["/etc/nagios/conf.d/", "/etc/nagios/*.cfg", "/var/run/nagios.pid"].each { |dir|
+  execute "/sbin/restorecon -R #{dir}" do
+    not_if "ls -aZ #{dir} | grep ':nagios_etc_t:'"
+  end
+}
+
+execute "restorecon -R /var/log/nagios"
 
 # The Nagios cookbook currently screws up this setting, so work around it.
 execute "sed -i s/^interval_length=.*/interval_length=1/ || echo 'interval_length=1' >> /etc/nagios/nagios.cfg" do
@@ -122,7 +140,8 @@ execute "sed -i s/^interval_length=.*/interval_length=1/ || echo 'interval_lengt
 end
 
 package "nagios-plugins-nrpe"
-include_recipe "nrpe"
+package "nagios-plugins-disk"
+include_recipe "mu-tools::nrpe"
 
 cookbook_file "/usr/lib64/nagios/plugins/check_mem" do
   source "check_mem.pl"
@@ -131,8 +150,25 @@ cookbook_file "/usr/lib64/nagios/plugins/check_mem" do
 end
 
 file "/etc/sysconfig/nrpe" do
-  content "NRPE_SSL_OPT=\"-n\"\n"
+  content "NRPE_SSL_OPT=\"\"\n"
 end
+
+directory "/opt/mu/var/nagios_user_home/.ssh" do
+  owner "nagios"
+	group "nagios"
+	mode 0711
+end
+file "/opt/mu/var/nagios_user_home/.ssh/known_hosts" do
+  owner "nagios"
+	group "nagios"
+	mode 0600
+end
+file "/opt/mu/var/nagios_user_home/.ssh/known_hosts2" do
+  owner "nagios"
+	group "nagios"
+	mode 0600
+end
+
 
 nrpe_check "check_mem" do
   command "#{node['nrpe']['plugin_dir']}/check_mem"
@@ -140,3 +176,12 @@ nrpe_check "check_mem" do
   critical_condition '95'
   action :add
 end
+
+nrpe_check "check_disk" do
+  command "#{node['nrpe']['plugin_dir']}/check_disk"
+  warning_condition '15%'
+  critical_condition '5%'
+  action :add
+end
+
+execute "chgrp nrpe /etc/nagios/nrpe.d/*"

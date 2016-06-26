@@ -1519,8 +1519,19 @@ configure_nagios_server()
     chef_client -o "recipe[mu-master::update_nagios_only]"
     run_chef_client=0
   fi
-  mkdir -p /home/nagios
-  /bin/cp -f $MU_LIBDIR/bin/mu-tunnel-nagios /home/nagios/mu-tunnel-nagios && chown nagios /home/nagios/mu-tunnel-nagios
+  mkdir -p /opt/mu/var/nagios_user_home
+  chown nagios:nagios /opt/mu/var/nagios_user_home
+  if [ "`grep ^nagios: /etc/passwd | grep /opt/mu/var/nagios_user_home`" = "" ];then
+    /sbin/service nagios stop
+    sleep 5
+    /usr/bin/pkill -u nagios
+    /usr/sbin/usermod -d /opt/mu/var/nagios_user_home nagios
+    /sbin/service nagios start
+  fi
+  if [ -d /home/nagios ];then
+    /bin/mv -f /home/nagios /home/nagios.old
+    /bin/ln -s /opt/mu/var/nagios_user_home /home/nagios
+  fi
 }
 
 ###############################################################################
