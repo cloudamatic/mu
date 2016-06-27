@@ -5169,6 +5169,11 @@ module MU
             "name" => {
               "type" => "string"
             },
+            "directory" => {
+              "type" => "string",
+              "description" => "The local directory this mount point will be mounted to",
+              "default" => "/efs"
+            },
             "vpc" => vpc_reference_primitive(ONE_SUBNET, NO_NAT_OPTS, "private"),
             "add_firewall_rules" => @additional_firewall_rules,
             "ingress_rules" => {

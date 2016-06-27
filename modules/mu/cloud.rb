@@ -216,7 +216,7 @@ module MU
         :instance => generic_instance_methods + [:groom]
       },
       :StoragePool => {
-        :has_multiples => true,
+        :has_multiples => false,
         :can_live_in_vpc => true,
         :cfg_name => "storage_pool",
         :cfg_plural => "storage_pools",

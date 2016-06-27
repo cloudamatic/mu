@@ -17,9 +17,7 @@
 case node[:platform]
   when "centos"
 
-    ['nrpe', 'nagios-plugins-disk', 'nagios-plugins-nrpe', 'nagios-plugins-ssh'].each do |pkg|
-      package pkg 
-    end
+    package ['nrpe', 'nagios-plugins-disk', 'nagios-plugins-nrpe', 'nagios-plugins-ssh'] 
 
     master_ips = ["127.0.0.1"]
     master = search(:node, "name:MU-MASTER")
@@ -84,11 +82,22 @@ case node[:platform]
       warning_condition '15%'
       critical_condition '5%'
       action :add
+      notifies :run, 'execute[selinux permissions]', :immediately
       notifies :restart, "service[nrpe]", :delayed
     end
-    execute "chmod o+r /etc/nagios/nrpe.d/check_disk.cfg"
-    execute "/usr/bin/chcon -R -t nrpe_etc_t /etc/nagios/nrpe.d/" do
+
+    # execute "chmod o+r /etc/nagios/nrpe.d/check_disk.cfg"
+    file "/etc/nagios/nrpe.d/check_disk.cfg" do
+      mode 0640
+      owner "nagios"
+      group "nagios"
+    end
+
+    # don't run this every time so it won't restart the NRPE service on every chef run
+    execute "selinux permissions" do
+      command "/usr/bin/chcon -R -t nrpe_etc_t /etc/nagios/nrpe.d/"
       notifies :restart, "service[nrpe]", :delayed
+      action :nothing
     end
 
     service "nrpe" do

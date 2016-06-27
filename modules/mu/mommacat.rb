@@ -280,7 +280,7 @@ module MU
                 }
               end
               if orig_cfg.nil?
-                MU.log "Failed to locate original config for #{attrs[:cfg_name]} #{res_name} in #{@deploy_id}", MU::WARN if !["firewall_rules", "databases"].include?(type) # XXX shaddap
+                MU.log "Failed to locate original config for #{attrs[:cfg_name]} #{res_name} in #{@deploy_id}", MU::WARN if !["firewall_rules", "databases", "storage_pools", "cache_clusters"].include?(type) # XXX shaddap
                 next
               end
               begin

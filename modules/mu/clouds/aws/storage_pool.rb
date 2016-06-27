@@ -71,13 +71,14 @@ module MU
 
               mp_threads << Thread.new {
                 MU.dupGlobals(parent_thread_id)
-                MU::Cloud::AWS::StoragePool.create_mount_target(
+                mount_target = MU::Cloud::AWS::StoragePool.create_mount_target(
                   cloud_id: @cloud_id,
                   ip_address: target['ip_address'],
                   subnet_id: target['vpc']['subnet_id'],
                   security_groups: sgs,
                   region: @config['region']
                 )
+                target['cloud_id'] = mount_target.mount_target_id
               }
             }
 
@@ -195,6 +196,8 @@ module MU
             attempts += 1
             raise MuError, "timed out waiting for #{resp.mount_target_id }" if attempts >= 40
           end
+          
+          return resp
         end
 
         # Modify the security groups associated with an existing mount point 
@@ -225,29 +228,37 @@ module MU
             creation_token: @mu_name
           ).file_systems.first
 
-          mount_targets = MU::Cloud::AWS.efs(@config['region']).describe_mount_targets(
-            file_system_id: storage_pool.file_system_id
-          ).mount_targets
-
           targets = {}
-          if !mount_targets.empty?
 
-            mount_targets.each{ |mp|
+          if @config['mount_points'] && !@config['mount_points'].empty?
+            @config['mount_points'].each { |mp|
+              mount_targets = MU::Cloud::AWS.efs(@config['region']).describe_mount_targets(
+                file_system_id: storage_pool.file_system_id
+              ).mount_targets
+
+              mount_target = nil
+              mount_targets.map{ |t| mount_target = t if t.subnet_id == mp['vpc']['subnet_id']}
+
+              # mount_target = MU::Cloud::AWS.efs(@config['region']).describe_mount_targets(
+                # mount_target_id: mp["cloud_id"]
+              # ).mount_targets.first
+
               subnet = MU::Cloud::AWS.ec2(@config['region']).describe_subnets(
-                subnet_ids: [mp.subnet_id]
+                subnet_ids: [mount_target.subnet_id]
               ).subnets.first
 
-              targets[mp.mount_target_id] = {
-                "owner_id" => mp.owner_id,
-                "cloud_id" => mp.mount_target_id,
-                "file_system_id" => mp.file_system_id,
-                "subnet_id" => mp.subnet_id,
+              targets[mp["name"]] = {
+                "owner_id" => mount_target.owner_id,
+                "cloud_id" => mount_target.mount_target_id,
+                "file_system_id" => mount_target.file_system_id,
+                "mount_directory" => mp["directory"],
+                "subnet_id" => mount_target.subnet_id,
                 "vpc_id" => subnet.vpc_id,
                 "availability_zone" => subnet.availability_zone,
-                "state" => mp.life_cycle_state,
-                "ip_address" => mp.ip_address,
-                "dns_name" => "#{subnet.availability_zone}.#{storage_pool.file_system_id}.efs.#{@config['region']}.amazonaws.com",
-                "network_interface_id" => mp.network_interface_id
+                "state" => mount_target.life_cycle_state,
+                "ip_address" => mount_target.ip_address,
+                "endpoint" => "#{subnet.availability_zone}.#{mount_target.file_system_id}.efs.#{@config['region']}.amazonaws.com",
+                "network_interface_id" => mount_target.network_interface_id
               }
             }
           end

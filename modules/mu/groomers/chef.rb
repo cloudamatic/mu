@@ -339,7 +339,14 @@ module MU
         ssh = @server.getSSHSession(15)
         if leave_ours
           MU.log "Expunging pre-existing Chef install on #{@server.mu_name}, if we didn't create it", MU::NOTICE
-          ssh.exec!(%Q{test -f #{guardfile} || (#{remove_cmd}) ; touch #{guardfile}})
+          begin 
+            ssh.exec!(%Q{test -f #{guardfile} || (#{remove_cmd}) ; touch #{guardfile}})
+          rescue IOError => e
+            # TO DO - retry this in a cleaner way
+            MU.log "Got #{e.inspect} while trying to clean up chef, retrying", MU::NOTICE
+            ssh = @server.getSSHSession(15)
+            ssh.exec!(%Q{test -f #{guardfile} || (#{remove_cmd}) ; touch #{guardfile}})
+          end
         else
           MU.log "Expunging pre-existing Chef install on #{@server.mu_name}", MU::NOTICE
           ssh.exec!(remove_cmd)
