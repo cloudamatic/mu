@@ -15,7 +15,7 @@ case node[:platform]
     include_recipe "mu-glusterfs"
     $nodeclass = node.gluster_node_class
 
-    %w{xfsprogs mdadm glusterfs-server}.each do |pkg|
+    %w{xfsprogs mdadm centos-release-gluster glusterfs-server}.each do |pkg|
       package pkg
     end
 
