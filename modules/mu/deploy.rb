@@ -308,7 +308,7 @@ module MU
             verbosity: MU::Logger::SILENT,
             force_cloudformation: true,
             cloudformation_path: "/dev/null",
-            nocleanup: true,
+            nocleanup: false, # make sure we clean up the cost allocation deploy
             stack_conf: @original_config,
             reraise_thread: @main_thread
           )

@@ -268,7 +268,6 @@ module MU
             "creation_token" => storage_pool.creation_token,
             "identifier" => storage_pool.file_system_id,
             "creation_time" => storage_pool.creation_time,
-            "name" => storage_pool.name,
             "number_of_mount_targets" => storage_pool.number_of_mount_targets,
             "size_in_bytes" => storage_pool.size_in_bytes.value,
             "mount_targets" => targets

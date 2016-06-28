@@ -2527,6 +2527,7 @@ module MU
               MU.log "You must provide a cloud_type", MU::ERR
               ok = false
             end
+
             if ext_deploy["cloud_id"]
               found = MU::MommaCat.findStray(
                 server['cloud'],

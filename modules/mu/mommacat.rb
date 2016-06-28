@@ -1777,7 +1777,7 @@ MESSAGE_END
             # We don't want to use cached litter information here because this is also called by cleanTerminatedInstances.
             deploy = MU::MommaCat.getLitter(deploy_id, use_cache: false)
             if deploy.ssh_key_name.nil? or deploy.ssh_key_name.empty?
-              MU.log "Failed to extract ssh key name from #{deploy_id} in syncMonitoringConfig", MU::ERR
+              MU.log "Failed to extract ssh key name from #{deploy_id} in syncMonitoringConfig", MU::ERR if deploy.kittens.has_key?("servers")
               next
             end
             FileUtils.cp("#{@myhome}/.ssh/#{deploy.ssh_key_name}", "#{@nagios_home}/.ssh/#{deploy.ssh_key_name}")
