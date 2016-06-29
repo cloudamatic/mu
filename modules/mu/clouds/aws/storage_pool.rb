@@ -283,7 +283,8 @@ module MU
         # @param region [String]: The cloud provider region in which to operate
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
-          if region == "us-west-2"
+          supported_regions = %w{us-west-2 us-east-1 eu-west-1}
+          if supported_regions.include?(region)
             begin 
               storage_pools = MU::Cloud::AWS.efs(region).describe_file_systems.file_systems
             rescue Aws::EFS::Errors::AccessDeniedException

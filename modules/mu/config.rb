@@ -2373,7 +2373,7 @@ module MU
         pool["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("StoragePool")
         pool["dependencies"] = [] if pool["dependencies"].nil?
 
-        supported_regions = %w{us-west-2}
+        supported_regions = %w{us-west-2 us-east-1 eu-west-1}
         if !supported_regions.include?(pool['region'])
           MU.log "Region #{pool['region']} not supported. Only #{supported_regions.join(',  ')} are supported", MU::ERR
           ok = false
