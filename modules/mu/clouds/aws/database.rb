@@ -901,6 +901,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [OpenStruct]
         def self.getDatabaseById(db_id, region: MU.curRegion)
+          raise MuError, "You must provide a db_id" if db_id.nil?
           MU::Cloud::AWS.rds(region).describe_db_instances(db_instance_identifier: db_id).db_instances.first
         rescue Aws::RDS::Errors::DBInstanceNotFound => e
           # We're fine with this returning nil when searching for a database instance the doesn't exist.
@@ -931,6 +932,7 @@ module MU
           my_dbs.each { |db|
           deploy_struct = 
             if db["create_cluster"]
+              db["identifier"] = @mu_name.downcase if db["identifier"].nil?
               cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(db["identifier"], region: db['region'])
               # DNS records for the "real" zone should always be registered as late as possible so override_existing only overwrites the records after the resource is ready to use.
               if db['dns_records']
@@ -971,6 +973,7 @@ module MU
                 "db_cluster_members" => cluster.db_cluster_members
               }
             else
+              db["identifier"] = @mu_name.downcase if db["identifier"].nil? # Is this still valid if we have read replicas?
               database = MU::Cloud::AWS::Database.getDatabaseById(db["identifier"], region: db['region'])
               # DNS records for the "real" zone should always be registered as late as possible so override_existing only overwrites the records after the resource is ready to use.
               unless db["add_cluster_node"]
