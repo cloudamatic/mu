@@ -438,15 +438,19 @@ module MU
 # XXX The language for addressing ELBs should be as flexible as VPCs. This sauce
 # is weak.
 # Try to find one by name in this deploy
-                  found = MU::MommaCat.findStray("AWS", "loadbalancers",
-                                                 name: lb_name,
-                                                 deploy_id: @deploy.deploy_id
+                  found = MU::MommaCat.findStray(
+                    "AWS",
+                    "loadbalancers",
+                    name: lb_name,
+                    deploy_id: @deploy.deploy_id
                   )
                   # Ok, let's try it with the name being an AWS identifier
                   if found.nil? or found.size < 1
-                    found = MU::MommaCat.findStray("AWS", "loadbalancers",
-                                                   cloud_id: lb_name,
-                                                   dummy_ok: true
+                    found = MU::MommaCat.findStray(
+                      "AWS",
+                      "loadbalancers",
+                      cloud_id: lb_name,
+                      dummy_ok: true
                     )
                     if found.nil? or found.size < 1
                       raise MuError, "Couldn't find a LoadBalancer with #{lb_name} for #{@mu_name}"
@@ -455,8 +459,8 @@ module MU
                   lb = found.first
                   lb.cloud_desc.security_groups.each { |lb_sg|
                     ec2_rule[:user_id_group_pairs] << {
-                        user_id: MU.account_number,
-                        group_id: lb_sg
+                      user_id: MU.account_number,
+                      group_id: lb_sg
                     }
                   }
                 }
@@ -489,26 +493,28 @@ module MU
                 }
               end
 
-              if !ec2_rule[:user_id_group_pairs].nil? and
-                  ec2_rule[:user_id_group_pairs].size > 0 and
-                  !ec2_rule[:ip_ranges].nil? and
-                  ec2_rule[:ip_ranges].size > 0
-                MU.log "Cannot specify ip_ranges and user_id_group_pairs", MU::ERR
-                raise MuError, "Cannot specify ip_ranges and user_id_group_pairs"
-              end
+              ec2_rule[:user_id_group_pairs].uniq!
+              ec2_rule[:ip_ranges].uniq!
+              ec2_rule.delete(:ip_ranges) if ec2_rule[:ip_ranges].empty?
+              ec2_rule.delete(:user_id_group_pairs) if ec2_rule[:user_id_group_pairs].empty?
 
-              ec2_rule.delete(:ip_ranges) if ec2_rule[:ip_ranges].size == 0
-              ec2_rule.delete(:user_id_group_pairs) if ec2_rule[:user_id_group_pairs].size == 0
+              # if !ec2_rule[:user_id_group_pairs].nil? and
+                # ec2_rule[:user_id_group_pairs].size > 0 and
+                  # !ec2_rule[:ip_ranges].nil? and
+                  # ec2_rule[:ip_ranges].size > 0
+                # MU.log "Cannot specify ip_ranges and user_id_group_pairs", MU::ERR
+                # raise MuError, "Cannot specify ip_ranges and user_id_group_pairs"
+              # end
 
-              if !ec2_rule[:user_id_group_pairs].nil? and
-                  ec2_rule[:user_id_group_pairs].size > 0
-                ec2_rule.delete(:ip_ranges)
-                ec2_rule[:user_id_group_pairs].uniq!
-              elsif !ec2_rule[:ip_ranges].nil? and
-                  ec2_rule[:ip_ranges].size > 0
-                ec2_rule.delete(:user_id_group_pairs)
-                ec2_rule[:ip_ranges].uniq!
-              end
+              # if !ec2_rule[:user_id_group_pairs].nil? and
+                  # ec2_rule[:user_id_group_pairs].size > 0
+                # ec2_rule.delete(:ip_ranges)
+                # ec2_rule[:user_id_group_pairs].uniq!
+              # elsif !ec2_rule[:ip_ranges].nil? and
+                  # ec2_rule[:ip_ranges].size > 0
+                # ec2_rule.delete(:user_id_group_pairs)
+                # ec2_rule[:ip_ranges].uniq!
+              # end
               ec2_rules << ec2_rule
             }
           end

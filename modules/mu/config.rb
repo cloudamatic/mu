@@ -1525,7 +1525,7 @@ module MU
           if !rule['sgs'].nil?
             rule['sgs'].each { |sg_name|
               if sg_name == acl['name']
-                acl['self_referencing'] = true
+                # acl['self_referencing'] = true
                 next
               end
               if firewall_rule_names.include?(sg_name)
