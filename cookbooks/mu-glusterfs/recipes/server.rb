@@ -16,9 +16,7 @@ case node[:platform]
     include_recipe "mu-utility::iptables"
     $nodeclass = node.gluster_node_class
 
-    %w{xfsprogs mdadm centos-release-gluster glusterfs-server}.each do |pkg|
-      package pkg
-    end
+    package node.glusterfs.server.packages
 
     if node.glusterfs.server.raid
       def raid_no_spare(mount_dev, level, num_devices, devices)

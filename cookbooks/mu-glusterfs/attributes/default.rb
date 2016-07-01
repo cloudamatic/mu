@@ -14,6 +14,7 @@ default['glusterfs']['server']['raid_spare_vol'] = false
 default['glusterfs']['server']['volume'] = "gv0"
 default['glusterfs']['server']['portmapper'] = 111
 default['glusterfs']['server']['devices'] = ["/dev/xvdf", "/dev/xvdg"]
+default['glusterfs']['server']['packages'] = %w{xfsprogs mdadm centos-release-gluster glusterfs-server}
 
 default['glusterfs']['fw'] = [
     {'usage' => 'management', 'port_range' => "24007:24008"},
