@@ -16,7 +16,7 @@ case node[:platform]
     include_recipe "mu-utility::iptables"
     $nodeclass = node.gluster_node_class
 
-    %w{xfsprogs mdadm glusterfs-server}.each do |pkg|
+    %w{xfsprogs mdadm centos-release-gluster glusterfs-server}.each do |pkg|
       package pkg
     end
 
