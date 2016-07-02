@@ -15,92 +15,80 @@
 # See the License for the specific language governing permissions and
 
 case node[:platform]
-  when "centos"
+when "centos"
+  package ['nrpe', 'nagios-plugins-disk', 'nagios-plugins-nrpe', 'nagios-plugins-ssh'] 
+  master_ips = get_mu_master_ips
+  include_recipe "mu-tools::set_local_fw"
 
-    package ['nrpe', 'nagios-plugins-disk', 'nagios-plugins-nrpe', 'nagios-plugins-ssh'] 
-
-    master_ips = ["127.0.0.1"]
-    master = search(:node, "name:MU-MASTER")
-    master.each { |server|
-      master_ips << server.ec2.public_ipv4 if !server.ec2.public_ipv4.nil? and !server.ec2.public_ipv4.empty?
-      master_ips << server.ec2.local_ipv4 if !server.ec2.local_ipv4.nil? and !server.ec2.local_ipv4.empty?
-    }
-
-    include_recipe "mu-tools::set_local_fw"
-
-    master_ips.each { |ip|
-      bash "Allow NRPE through iptables from #{ip}" do
-        user "root"
-        not_if "/sbin/iptables -nL | egrep '^ACCEPT.*#{ip}.*dpt:5666($| )'"
-        if node['platform_version'].to_i < 7
-          code <<-EOH
-            /sbin/iptables -I INPUT -s #{ip} -p tcp --dport 5666 -j ACCEPT
-            service iptables save
-          EOH
-        else
-          code <<-EOH
-#            /bin/firewall-cmd --permanent --zone=public --add-rich-rule='rule family="ipv4" source address="#{ip}/32" port protocol="tcp" port="5666" accept'
-            /bin/firewall-cmd --reload
-          EOH
-        end
+  master_ips.each { |ip|
+    case elversion
+    when 6
+      execute "iptables -I INPUT -s #{ip} -p tcp --dport 5666 -j ACCEPT && service iptables save" do
+        not_if "iptables -nL | egrep '^ACCEPT.*#{ip}.*dpt:5666($| )'"
       end
-    }
+    when 7
+      execute "/bin/firewall-cmd --permanent --zone=mu --add-port=5666/tcp" do
+        notifies :run, "execute[/bin/firewall-cmd --reload]", :immediately
+        not_if "/bin/firewall-cmd --list-ports --zone=mu | /bin/egrep '(^| )5666/tcp( |$)'"
+      end
+    end
+  }
 
-    template "/etc/nagios/nrpe.cfg" do
-      source "nrpe.cfg.erb"
-      mode 0644
-      variables(
-        :master_ips => master_ips
-      )
-      notifies :restart, "service[nrpe]", :delayed
-    end
+  template "/etc/nagios/nrpe.cfg" do
+    source "nrpe.cfg.erb"
+    mode 0644
+    variables(
+      :master_ips => master_ips
+    )
+    notifies :restart, "service[nrpe]", :delayed
+  end
 
-    directory "/etc/nagios/nrpe.d" do
-      owner "nrpe"
-      group "nrpe"
-      mode 0755
-    end
+  directory "/etc/nagios/nrpe.d" do
+    owner "nrpe"
+    group "nrpe"
+    mode 0755
+  end
 
-    cookbook_file "nrpe_disk.pp" do
-      path "#{Chef::Config[:file_cache_path]}/nrpe_disk.pp"
-    end
-    
-    execute "Allow NRPE disk checks through SELinux" do
-      command "/usr/sbin/semodule -i nrpe_disk.pp"
-      cwd Chef::Config[:file_cache_path]
-      not_if "/usr/sbin/semodule -l | grep nrpe_disk"
-      notifies :restart, "service[nrpe]", :delayed
-    end
+  cookbook_file "nrpe_disk.pp" do
+    path "#{Chef::Config[:file_cache_path]}/nrpe_disk.pp"
+  end
 
-    # don't trip up on devices created by our basic gluster recipes
-    if Dir.exists?("/gluster/dev/md0")
-      execute "chmod go+rx /gluster /gluster/dev /gluster/dev/md0"
-    end
+  execute "Allow NRPE disk checks through SELinux" do
+    command "/usr/sbin/semodule -i nrpe_disk.pp"
+    cwd Chef::Config[:file_cache_path]
+    not_if "/usr/sbin/semodule -l | grep nrpe_disk"
+    notifies :restart, "service[nrpe]", :delayed
+  end
 
-    nrpe_check "check_disk" do
-      command "#{node['nrpe']['plugin_dir']}/check_disk"
-      warning_condition '15%'
-      critical_condition '5%'
-      action :add
-      notifies :run, 'execute[selinux permissions]', :immediately
-      notifies :restart, "service[nrpe]", :delayed
-    end
+  # don't trip up on devices created by our basic gluster recipes
+  if Dir.exists?("/gluster/dev/md0")
+    execute "chmod go+rx /gluster /gluster/dev /gluster/dev/md0"
+  end
 
-    # execute "chmod o+r /etc/nagios/nrpe.d/check_disk.cfg"
-    file "/etc/nagios/nrpe.d/check_disk.cfg" do
-      mode 0640
-      owner "nagios"
-      group "nagios"
-    end
+  nrpe_check "check_disk" do
+    command "#{node['nrpe']['plugin_dir']}/check_disk"
+    warning_condition '15%'
+    critical_condition '5%'
+    action :add
+    notifies :run, 'execute[selinux permissions]', :immediately
+    notifies :restart, "service[nrpe]", :delayed
+  end
 
-    # don't run this every time so it won't restart the NRPE service on every chef run
-    execute "selinux permissions" do
-      command "/usr/bin/chcon -R -t nrpe_etc_t /etc/nagios/nrpe.d/"
-      notifies :restart, "service[nrpe]", :delayed
-      action :nothing
-    end
+  # execute "chmod o+r /etc/nagios/nrpe.d/check_disk.cfg"
+  # file "/etc/nagios/nrpe.d/check_disk.cfg" do
+    # mode 0640
+    # owner "nagios"
+    # group "nagios"
+  # end
 
-    service "nrpe" do
-      action [:enable, :start]
-    end
+  # don't run this every time so it won't restart the NRPE service on every chef run
+  execute "selinux permissions" do
+    command "/usr/bin/chcon -R -t nrpe_etc_t /etc/nagios/nrpe.d/"
+    notifies :restart, "service[nrpe]", :delayed
+    action :nothing
+  end
+
+  service "nrpe" do
+    action [:enable, :start]
+  end
 end
