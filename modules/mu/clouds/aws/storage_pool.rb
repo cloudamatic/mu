@@ -34,10 +34,11 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         # @return [String]: The cloud provider's identifier for this storage pool.
-        def create            
+        def create
           MU.log "Creating storage pool #{@mu_name}"
           resp = MU::Cloud::AWS.efs(@config['region']).create_file_system(
-            creation_token: @mu_name
+            creation_token: @mu_name,
+            performance_mode: @config['storage_type']
           )
 
           attempts = 0
@@ -270,6 +271,7 @@ module MU
             "creation_time" => storage_pool.creation_time,
             "number_of_mount_targets" => storage_pool.number_of_mount_targets,
             "size_in_bytes" => storage_pool.size_in_bytes.value,
+            "type" => storage_pool.performance_mode,
             "mount_targets" => targets
           }
 

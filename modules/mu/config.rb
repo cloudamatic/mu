@@ -5153,7 +5153,13 @@ module MU
         "name" => {"type" => "string"},
         "region" => @region_primitive,
         "tags" => @tags_primitive,
-        "dependencies" => @dependencies_primitive
+        "dependencies" => @dependencies_primitive,
+        "storage_type" => {
+          "type" => "string",
+          "enum" => ["generalPurpose", "maxIO"],
+          "description" => "The storage type / performance mode of this storage pool. Defaults to generalPurpose",
+          "default" => "generalPurpose"
+        }
       }
     }
 
