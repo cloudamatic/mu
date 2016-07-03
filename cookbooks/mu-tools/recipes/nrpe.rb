@@ -20,20 +20,6 @@ when "centos"
   master_ips = get_mu_master_ips
   include_recipe "mu-tools::set_local_fw"
 
-  master_ips.each { |ip|
-    case elversion
-    when 6
-      execute "iptables -I INPUT -s #{ip} -p tcp --dport 5666 -j ACCEPT && service iptables save" do
-        not_if "iptables -nL | egrep '^ACCEPT.*#{ip}.*dpt:5666($| )'"
-      end
-    when 7
-      execute "/bin/firewall-cmd --permanent --zone=mu --add-port=5666/tcp" do
-        notifies :run, "execute[/bin/firewall-cmd --reload]", :immediately
-        not_if "/bin/firewall-cmd --list-ports --zone=mu | /bin/egrep '(^| )5666/tcp( |$)'"
-      end
-    end
-  }
-
   template "/etc/nagios/nrpe.cfg" do
     source "nrpe.cfg.erb"
     mode 0644
@@ -49,15 +35,42 @@ when "centos"
     mode 0755
   end
 
-  cookbook_file "nrpe_disk.pp" do
-    path "#{Chef::Config[:file_cache_path]}/nrpe_disk.pp"
-  end
+  case elversion
+  when 7
+    execute "/bin/firewall-cmd --permanent --zone=mu --add-port=5666/tcp" do
+      notifies :run, "execute[/bin/firewall-cmd --reload]", :immediately
+      not_if "/bin/firewall-cmd --list-ports --zone=mu | /bin/egrep '(^| )5666/tcp( |$)'"
+    end
 
-  execute "Allow NRPE disk checks through SELinux" do
-    command "/usr/sbin/semodule -i nrpe_disk.pp"
-    cwd Chef::Config[:file_cache_path]
-    not_if "/usr/sbin/semodule -l | grep nrpe_disk"
-    notifies :restart, "service[nrpe]", :delayed
+    %w{nrpe_file.pp nrpe_file.te}.each { |f|
+      cookbook_file "#{Chef::Config[:file_cache_path]}/#{f}" do
+        source f
+      end
+    }
+
+    execute "Allow NRPE checks through SELinux" do
+      command "/usr/sbin/semodule -i nrpe_file.pp"
+      cwd Chef::Config[:file_cache_path]
+      not_if "/usr/sbin/semodule -l | grep nrpe_file"
+      notifies :restart, "service[nrpe]", :delayed
+    end
+  when 6
+    master_ips.each { |ip|
+      execute "iptables -I INPUT -s #{ip} -p tcp --dport 5666 -j ACCEPT && service iptables save" do
+        not_if "iptables -nL | egrep '^ACCEPT.*#{ip}.*dpt:5666($| )'"
+      end
+    }
+
+    cookbook_file "nrpe_disk.pp" do
+      path "#{Chef::Config[:file_cache_path]}/nrpe_disk.pp"
+    end
+
+    execute "Allow NRPE disk checks through SELinux" do
+      command "/usr/sbin/semodule -i nrpe_disk.pp"
+      cwd Chef::Config[:file_cache_path]
+      not_if "/usr/sbin/semodule -l | grep nrpe_disk"
+      notifies :restart, "service[nrpe]", :delayed
+    end
   end
 
   # don't trip up on devices created by our basic gluster recipes
