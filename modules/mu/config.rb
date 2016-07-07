@@ -3501,11 +3501,12 @@ module MU
     @cloudformation_primitive = {
         "type" => "object",
         "title" => "cloudformation",
-        "required" => ["name", "on_failure"],
+        "required" => ["name"],
         "additionalProperties" => false,
         "description" => "Create an Amazon CloudFormation stack.",
         "properties" => {
             "name" => {"type" => "string"},
+            "cloud" => @cloud_primitive,
             "parameters" => {
                 "type" => "array",
                 "items" => {
@@ -3523,12 +3524,22 @@ module MU
                 "type" => "string",
                 "description" => "Pass in the deploy key for this stack as a CloudFormation parameter. Set this to the CloudFormation parameter name.",
             },
+            "pass_parent_parameters" => {
+              "type" => "boolean",
+              "default" => true,
+              "description" => "If targeting CloudFormation, this will pass all of the parent template's parameters to the nested template"
+            },
             "on_failure" => {
                 "type" => "string",
-                "enum" => ["DO_NOTHING", "ROLLBACK", "DELETE"]
+                "enum" => ["DO_NOTHING", "ROLLBACK", "DELETE"],
+                "default" => "ROLLBACK"
             },
             "template_file" => {"type" => "string"},
-            "time" => {"type" => "string"},
+            "timeout" => {
+              "type" => "string",
+              "description" => "Timeout (in minutes) for building this Collection.",
+              "default" => "45"
+            },
             "template_url" => {
                 "type" => "string",
                 "pattern" => "^#{URI::regexp(%w(http https))}$"

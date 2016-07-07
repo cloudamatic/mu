@@ -77,6 +77,14 @@ module MU
         end
 
         case type
+        when "collection"
+          desc = {
+            "Type" => "AWS::CloudFormation::Stack",
+            "Properties" => {
+              "NotificationARNs" => [],
+              "Tags" => tags
+            }
+          }
         when "dnshealthcheck"
           desc = {
             "Type" => "AWS::Route53::HealthCheck",
@@ -485,7 +493,18 @@ module MU
               next if resource['#MUOBJECT'].nil?
               if resource['#MUOBJECT'].cloudobj.respond_to?(:cfm_template) and !resource['#MUOBJECT'].cloudobj.cfm_template.nil?
                 cfm_template["Resources"].merge!(resource['#MUOBJECT'].cloudobj.cfm_template)
-                if data[:cfg_name] == "loadbalancer"
+                if data[:cfg_name] == "collection"
+                  if resource['pass_parent_parameters']
+                    child_template = resource['#MUOBJECT'].cloudobj.cfm_template
+                    child_name = resource['#MUOBJECT'].cloudobj.cfm_name
+                    child_params = child_template[child_name]["Properties"]["Parameters"]
+                    child_params = Hash.new if child_params.nil?
+                    cfm_template["Parameters"].each { |key, data|
+                      child_params[key] = { "Ref" => key }
+                    }
+                    MU::Cloud::CloudFormation.setCloudFormationProp(child_template[child_name], "Parameters", child_params)
+                  end
+                elsif data[:cfg_name] == "loadbalancer"
                   cfm_template["Outputs"]["loadbalancer"+namestr] =
                     {
                       "Value" =>
