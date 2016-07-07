@@ -13,7 +13,6 @@
 case node[:platform]
   when "centos"
     include_recipe "mu-glusterfs"
-    include_recipe "mu-utility::iptables"
     $nodeclass = node.gluster_node_class
 
     package node.glusterfs.server.packages
@@ -98,16 +97,15 @@ case node[:platform]
       end
     end
 
-    node.glusterfs.fw.each do |rule|
-      bash "Allow TCP #{rule['port_range']} through iptables" do
-        user "root"
-        not_if "/sbin/iptables -nL | egrep '^ACCEPT.*dpts:#{rule['port_range']}($| )'"
-        code <<-EOH
-					iptables -I INPUT -p tcp --dport #{rule['port_range']} -j ACCEPT
-					service iptables save
-        EOH
-      end
+    firewall 'default' do
+      action :nothing
     end
+
+    node.glusterfs.fw.each { |rule|
+      firewall_rule "Allow glusterfs #{rule['usage']}" do
+        port rule['port_range']
+      end
+    }
 
     service "glusterd" do
       action [:enable, :start]

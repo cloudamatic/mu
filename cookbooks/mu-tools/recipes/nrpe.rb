@@ -18,6 +18,9 @@ case node[:platform]
 when "centos"
   package ['nrpe', 'nagios-plugins-disk', 'nagios-plugins-nrpe', 'nagios-plugins-ssh'] 
   master_ips = get_mu_master_ips
+  master_ips << "127.0.0.1"
+  master_ips.uniq!
+
   include_recipe "mu-tools::set_local_fw"
 
   template "/etc/nagios/nrpe.cfg" do
@@ -42,7 +45,7 @@ when "centos"
       not_if "/bin/firewall-cmd --list-ports --zone=mu | /bin/egrep '(^| )5666/tcp( |$)'"
     end
 
-    %w{nrpe_file.pp nrpe_file.te}.each { |f|
+    %w{nrpe_file.pp nrpe_file.te nrpe_check_disk.te nrpe_check_disk.pp}.each { |f|
       cookbook_file "#{Chef::Config[:file_cache_path]}/#{f}" do
         source f
       end
@@ -52,6 +55,13 @@ when "centos"
       command "/usr/sbin/semodule -i nrpe_file.pp"
       cwd Chef::Config[:file_cache_path]
       not_if "/usr/sbin/semodule -l | grep nrpe_file"
+      notifies :restart, "service[nrpe]", :delayed
+    end
+
+    execute "Allow NRPE check_disk through SELinux" do
+      command "/usr/sbin/semodule -i nrpe_check_disk.pp"
+      cwd Chef::Config[:file_cache_path]
+      not_if "/usr/sbin/semodule -l | grep nrpe_check_disk"
       notifies :restart, "service[nrpe]", :delayed
     end
   when 6

@@ -22,6 +22,11 @@ when "rhel"
   when 7
     master_ips = get_mu_master_ips
 
+    package "firewalld"
+    service "firewalld" do
+      action [ :enable, :start ]
+    end
+
     execute "/bin/firewall-cmd --reload" do
       action :nothing
     end

@@ -8,17 +8,18 @@
 #
 
 include_recipe 'chef-vault'
-include_recipe 'mu-utility::iptables'
 
 users_vault = chef_vault_item(node.openvpn.users_vault[:vault], node.openvpn.users_vault[:item])
 
 case node.platform
-  when "centos", "redhat"
-    node.openvpn.fw_rules.each { |rule|
-      execute "iptables -I INPUT -p #{rule[:protocol]} --dport #{rule[:port]} -j ACCEPT; service iptables save" do
-        not_if "iptables -nL | egrep '^ACCEPT.*#{rule[:protocol]}.*dpt:#{rule[:port]}($| )'"
-      end
-    }
+  when "centos", "redhat"    
+    firewall 'default' do
+      action :nothing
+    end
+
+    firewall_rule "Allow openvpn" do
+      port node.openvpn.fw_rules
+    end
 
     remote_file "#{Chef::Config[:file_cache_path]}/#{node.openvpn.package}" do
       source "#{node.openvpn.base_url}/#{node.openvpn.package}"
@@ -90,6 +91,7 @@ case node.platform
 
     template "#{Chef::Config[:file_cache_path]}/openvpn_users.json" do
       source "users.json.erb"
+      cookbook "netjets-openvpn"
       variables(
           :users => node.openvpn.users
       )
