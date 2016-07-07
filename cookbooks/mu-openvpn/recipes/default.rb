@@ -91,7 +91,6 @@ case node.platform
 
     template "#{Chef::Config[:file_cache_path]}/openvpn_users.json" do
       source "users.json.erb"
-      cookbook "netjets-openvpn"
       variables(
           :users => node.openvpn.users
       )
