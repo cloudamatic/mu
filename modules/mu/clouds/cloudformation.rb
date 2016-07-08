@@ -65,7 +65,7 @@ module MU
 
         res_name = ""
         res_name = cloudobj.config["name"] if !cloudobj.nil?
-        if name.nil?
+        if name.nil? or name.empty?
           nametag = { "Fn::Join" => ["", [ { "Ref" => "Environment" }, "-", { "Ref" => "AWS::StackName" }, "-", res_name.gsub(/[^a-z0-9]/i, "").upcase ] ] }
           basename = ""
           if !cloudobj.nil? and !cloudobj.mu_name.nil?
@@ -73,10 +73,18 @@ module MU
           elsif !cloudobj.nil? and !cloudobj.config.nil?
             basename = cloudobj.config["name"]
           end
-          name = (type+basename).gsub!(/[^a-z0-9]/i, "")
+#          if !scrub_mu_isms
+            name = (type+basename).gsub(/[^a-z0-9]/i, "")
+#          else
+#            name = res_name
+#          end
           tags << { "Key" => "Name", "Value" => nametag } if !havenametag
         else
-          name = (type+name).gsub(/[^a-z0-9]/i, "")
+#          if !scrub_mu_isms
+            name = (type+name).gsub(/[^a-z0-9]/i, "")
+#          else
+#            name = res_name
+#          end
           tags << { "Key" => "Name", "Value" => name } if !havenametag
         end
 
@@ -377,22 +385,23 @@ module MU
               # Common resource-specific references to dependencies
               if resource_classname == "firewall_rule"
                 if type == "database" and cloudobj.config.has_key?("vpc")
-                  desc["Properties"]["VPCSecurityGroups"] << { "Fn::GetAtt" => [(resource_classname+sibling_obj.cloudobj.mu_name).gsub!(/[^a-z0-9]/i, ""), "GroupId"] }
+                  desc["Properties"]["VPCSecurityGroups"] << { "Fn::GetAtt" => [(resource_classname+sibling_obj.cloudobj.mu_name).gsub(/[^a-z0-9]/i, ""), "GroupId"] }
                 else
                   ["VpcSecurityGroupIds", "SecurityGroupIds", "SecurityGroups"].each { |key|
                     if desc["Properties"].has_key?(key)
-                      desc["Properties"][key] << { "Fn::GetAtt" => [(resource_classname+sibling_obj.cloudobj.mu_name).gsub!(/[^a-z0-9]/i, ""), "GroupId"] }
+                      desc["Properties"][key] << { "Fn::GetAtt" => [(resource_classname+sibling_obj.cloudobj.mu_name).gsub(/[^a-z0-9]/i, ""), "GroupId"] }
                     end
                   }
                 end
               elsif resource_classname == "loadbalancer"
                 if desc["Properties"].has_key?("LoadBalancerNames")
-                  desc["Properties"]["LoadBalancerNames"] << { "Ref" => (resource_classname+sibling_obj.cloudobj.mu_name).gsub!(/[^a-z0-9]/i, "") }
+                  desc["Properties"]["LoadBalancerNames"] << { "Ref" => (resource_classname+sibling_obj.cloudobj.mu_name).gsub(/[^a-z0-9]/i, "") }
                 end
               end
             }
           }
         end
+
         return [name, { name => desc }]
       end
 
