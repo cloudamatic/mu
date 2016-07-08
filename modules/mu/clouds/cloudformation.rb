@@ -41,6 +41,8 @@ module MU
           if tag['value'].class.to_s == "MU::Config::Tail"
             if tag['value'].pseudo and tag['value'].getName == "myAppName"
               tag['value'] = { "Ref" => "AWS::StackName" }
+            elsif !tag['value'].runtimecode.nil?
+              tag['value'] = JSON.parse(tag['value'].runtimecode)
             else
               tag['value'] = { "Ref" => "#{tag['value'].getPrettyName}" }
             end
@@ -406,6 +408,8 @@ module MU
           else
             if value.pseudo and value.getName == "myAppName"
               realvalue = { "Ref" => "AWS::StackName" }
+            elsif !value.runtimecode.nil?
+              realvalue = JSON.parse(value.runtimecode)
             else
               realvalue = { "Ref" => "#{value.getPrettyName}" }
             end
@@ -458,7 +462,7 @@ module MU
         end
         tails.each_pair { |param, data|
           tail = data
-          next if tail.is_a?(MU::Config::Tail) and tail.pseudo
+          next if tail.is_a?(MU::Config::Tail) and (tail.pseudo or !tail.runtimecode.nil?)
           default = ""
           if data.is_a?(Array)
             realval = []

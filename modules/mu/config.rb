@@ -130,14 +130,17 @@ module MU
       @suffix = ""
       @is_list_element = false
       @pseudo = false
+      @runtimecode = nil
       attr_reader :description
       attr_reader :pseudo
+      attr_reader :runtimecode
       attr_reader :is_list_element
 
-      def initialize(name, value, prettyname = nil, cloud_type = "String", description = "", is_list_element = false, prefix: "", suffix: "", pseudo: false)
+      def initialize(name, value, prettyname = nil, cloud_type = "String", description = "", is_list_element = false, prefix: "", suffix: "", pseudo: false, runtimecode: nil)
         @name = name
         @value = value
         @pseudo = pseudo
+        @runtimecode = runtimecode
         @cloud_type = cloud_type
         @is_list_element = is_list_element
         @description ||= 
@@ -213,7 +216,8 @@ module MU
     # @param prefix [<String>]: A static String that should be prefixed to the stored value when queried
     # @param suffix [<String>]: A static String that should be appended to the stored value when queried
     # @param pseudo [<Boolean>]: This is a pseudo-parameter, automatically provided, and not available as user input.
-    def getTail(param, value: nil, prettyname: nil, cloud_type: "String", description: nil, list_of: nil, prefix: "", suffix: "", pseudo: false)
+    # @param runtimecode [<String>]: Actual code to allow the cloud layer to interpret literally in its own idiom, e.g. '"Ref" : "AWS::StackName"' for CloudFormation
+    def getTail(param, value: nil, prettyname: nil, cloud_type: "String", description: nil, list_of: nil, prefix: "", suffix: "", pseudo: false, runtimecode: nil)
       if value.nil?
         if $parameters.nil? or !$parameters.has_key?(param)
           MU.log "Parameter '#{param}' (#{param.class.name}) referenced in config but not provided (#{caller[0]})", MU::DEBUG, details: $parameters
@@ -249,8 +253,8 @@ module MU
           description = @@tails[param].description if description.nil?
           cloud_type = @@tails[param].getCloudType if @@tails[param].getCloudType != "String"
         end
+        tail = MU::Config::Tail.new(param, value, prettyname, cloud_type, description, prefix: prefix, suffix: suffix, pseudo: pseudo, runtimecode: runtimecode)
 
-        tail = MU::Config::Tail.new(param, value, prettyname, cloud_type, description, prefix: prefix, suffix: suffix, pseudo: pseudo)
       end
       @@tails[param] = tail
       tail
@@ -288,6 +292,19 @@ module MU
       # be easily run in an ERB block in a Basket of Kittens.
       def parameter?(var_name)
         @@user_supplied_parameters.has_key?(var_name)
+      end
+
+      # Instead of resolving a parameter, leave a placeholder for a
+      # cloud-specific variable that will be generated at runtime. Canonical
+      # use case: referring to a CloudFormation variable by reference, like
+      # "AWS::StackName" or "SomeChildTemplate.OutputVariableName."
+      # @param code [String]: A string consistent of code which will be understood by the Cloud layer, e.g. '"Ref" : "AWS::StackName"' (CloudFormation)
+      # @param placeholder [Object]: A placeholder value to use at the config parser stage, if the default string will not pass validation.
+      def cloudCode(code, placeholder = "CLOUDCODEPLACEHOLDER")
+        var_name = code.gsub(/[^a-z0-9]/i, "_")
+        placeholder = code if placeholder.nil?
+        getTail(var_name, value: placeholder, runtimecode: code)
+        "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
       end
 
       # Figure out what kind of file we're loading. We handle includes 
@@ -428,6 +445,7 @@ module MU
       $parameters.freeze
 
       tmp_cfg, raw_erb = resolveConfig(path: @@config_path)
+
       # Convert parameter entries that constitute whole config keys into
       # MU::Config::Tail objects.
       def resolveTails(tree, indent= "")
@@ -441,6 +459,9 @@ module MU
           }
         elsif tree.is_a?(String) and tree.match(/^(.*?)MU::Config.getTail PLACEHOLDER (.+?) REDLOHECALP(.*)/)
           tree = getTail($2, prefix: $1, suffix: $3)
+          if tree.nil? and @@tails.has_key?($2) # XXX why necessary?
+            tree = @@tails[$2]
+          end
         end
         return tree
       end
