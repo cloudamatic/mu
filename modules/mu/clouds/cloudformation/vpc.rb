@@ -38,6 +38,8 @@ module MU
           if !mu_name.nil?
             @mu_name = mu_name
             loadSubnets if !@cloud_id.nil?
+          elsif @config['scrub_mu_isms']
+            @mu_name = @config['name']
           else
             @mu_name = @deploy.getResourceName(@config['name'])
           end

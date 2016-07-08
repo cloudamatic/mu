@@ -67,6 +67,8 @@ module MU
             @config['mu_name'] = @mu_name
             # describe
             @mu_windows_name = @deploydata['mu_windows_name'] if @mu_windows_name.nil? and @deploydata
+          elsif @config['scrub_mu_isms']
+            @mu_name = @config['name']
           else
             if kitten_cfg.has_key?("basis")
               @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)

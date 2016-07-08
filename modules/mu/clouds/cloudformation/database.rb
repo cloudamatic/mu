@@ -41,6 +41,8 @@ module MU
 
           if !mu_name.nil?
             @mu_name = mu_name
+          elsif @config['scrub_mu_isms']
+            @mu_name = @config['name']
           else
             @mu_name ||=
               if @config["engine"].match(/^sqlserver/)
