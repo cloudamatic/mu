@@ -131,17 +131,20 @@ module MU
       @is_list_element = false
       @pseudo = false
       @runtimecode = nil
+      @valid_values = []
       attr_reader :description
       attr_reader :pseudo
       attr_reader :runtimecode
+      attr_reader :valid_values
       attr_reader :is_list_element
 
-      def initialize(name, value, prettyname = nil, cloud_type = "String", description = "", is_list_element = false, prefix: "", suffix: "", pseudo: false, runtimecode: nil)
+      def initialize(name, value, prettyname = nil, cloudtype = "String", valid_values = [], description = "", is_list_element = false, prefix: "", suffix: "", pseudo: false, runtimecode: nil)
         @name = name
         @value = value
+        @valid_values = valid_values
         @pseudo = pseudo
         @runtimecode = runtimecode
-        @cloud_type = cloud_type
+        @cloudtype = cloudtype
         @is_list_element = is_list_element
         @description ||= 
           if !description.nil?
@@ -165,7 +168,7 @@ module MU
       end
       # Return the platform-specific cloud type of this Tail
       def getCloudType
-        @cloud_type
+        @cloudtype
       end
       # Return the human-friendly name of this Tail
       def getPrettyName
@@ -210,14 +213,15 @@ module MU
     # @param param [<String>]: The name of the parameter to which this should be tied.
     # @param value [<String>]: The value of the parameter to return when asked
     # @param prettyname [<String>]: A human-friendly parameter name to be used when generating CloudFormation templates and the like
-    # @param cloud_type [<String>]: A platform-specific identifier used by cloud layers to identify a parameter's type, e.g. AWS::EC2::VPC::Id
+    # @param cloudtype [<String>]: A platform-specific identifier used by cloud layers to identify a parameter's type, e.g. AWS::EC2::VPC::Id
+    # @param valid_values [Array<String>]: A list of acceptable String values for the given parameter.
     # @param description [<String>]: A long-form description of what the parameter does.
     # @param list_of [<String>]: Indicates that the value should be treated as a member of a list (array) by the cloud layer.
     # @param prefix [<String>]: A static String that should be prefixed to the stored value when queried
     # @param suffix [<String>]: A static String that should be appended to the stored value when queried
     # @param pseudo [<Boolean>]: This is a pseudo-parameter, automatically provided, and not available as user input.
     # @param runtimecode [<String>]: Actual code to allow the cloud layer to interpret literally in its own idiom, e.g. '"Ref" : "AWS::StackName"' for CloudFormation
-    def getTail(param, value: nil, prettyname: nil, cloud_type: "String", description: nil, list_of: nil, prefix: "", suffix: "", pseudo: false, runtimecode: nil)
+    def getTail(param, value: nil, prettyname: nil, cloudtype: "String", valid_values: [], description: nil, list_of: nil, prefix: "", suffix: "", pseudo: false, runtimecode: nil)
       if value.nil?
         if $parameters.nil? or !$parameters.has_key?(param)
           MU.log "Parameter '#{param}' (#{param.class.name}) referenced in config but not provided (#{caller[0]})", MU::DEBUG, details: $parameters
@@ -239,10 +243,10 @@ module MU
             list_of = @@tails[param][count].values.first.getName if list_of.nil?
             prettyname = @@tails[param][count].values.first.getPrettyName if prettyname.nil?
             description = @@tails[param][count].values.first.description if description.nil?
-            cloud_type = @@tails[param][count].values.first.getCloudType if @@tails[param][count].values.first.getCloudType != "String"
+            cloudtype = @@tails[param][count].values.first.getCloudType if @@tails[param][count].values.first.getCloudType != "String"
           end
           prettyname = param.capitalize if prettyname.nil?
-          tail << { list_of => MU::Config::Tail.new(list_of, subval, prettyname, cloud_type, description, true, pseudo: pseudo) }
+          tail << { list_of => MU::Config::Tail.new(list_of, subval, prettyname, cloudtype, valid_values, description, true, pseudo: pseudo) }
           count = count + 1
         }
       else
@@ -251,9 +255,9 @@ module MU
           value = @@tails[param].to_s if value.nil?
           prettyname = @@tails[param].getPrettyName if prettyname.nil?
           description = @@tails[param].description if description.nil?
-          cloud_type = @@tails[param].getCloudType if @@tails[param].getCloudType != "String"
+          cloudtype = @@tails[param].getCloudType if @@tails[param].getCloudType != "String"
         end
-        tail = MU::Config::Tail.new(param, value, prettyname, cloud_type, description, prefix: prefix, suffix: suffix, pseudo: pseudo, runtimecode: runtimecode)
+        tail = MU::Config::Tail.new(param, value, prettyname, cloudtype, valid_values, description, prefix: prefix, suffix: suffix, pseudo: pseudo, runtimecode: runtimecode)
 
       end
       @@tails[param] = tail
@@ -415,6 +419,7 @@ module MU
 
       if param_cfg.has_key?("parameters") and !param_cfg["parameters"].nil? and param_cfg["parameters"].size > 0
         param_cfg["parameters"].each { |param|
+          param['valid_values'] ||= []
           if !@@parameters.has_key?(param['name'])
             if param.has_key?("default")
               @@parameters[param['name']] = param['default']
@@ -423,15 +428,16 @@ module MU
               ok = false
             end
             if param.has_key?("cloudtype")
-              getTail(param['name'], value: @@parameters[param['name']], cloud_type: param["cloudtype"], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
+              getTail(param['name'], value: @@parameters[param['name']], cloudtype: param["cloudtype"], valid_values: param['valid_values'], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
             else
-              getTail(param['name'], value: @@parameters[param['name']], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
+              getTail(param['name'], value: @@parameters[param['name']], valid_values: param['valid_values'], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
             end
           end
         }
       end
       raise ValidationError if !ok
       @@parameters.each_pair { |name, val|
+# XXX do valid_values validation stuff here
         next if @@tails.has_key?(name) and @@tails[name].is_a?(MU::Config::Tail) and @@tails[name].pseudo
         if respond_to?(name.to_sym)
           MU.log "Parameter name '#{name}' reserved", MU::ERR
@@ -825,7 +831,7 @@ module MU
             return false
           elsif !vpc_block["vpc_id"]
             MU.log "Resolved VPC to #{ext_vpc.cloud_id} in #{parent_name}", MU::DEBUG, details: vpc_block
-            vpc_block["vpc_id"] = getTail("#{parent_name} Target VPC", value: ext_vpc.cloud_id, prettyname: "#{parent_name} Target VPC", cloud_type: "AWS::EC2::VPC::Id")
+            vpc_block["vpc_id"] = getTail("#{parent_name} Target VPC", value: ext_vpc.cloud_id, prettyname: "#{parent_name} Target VPC", cloudtype: "AWS::EC2::VPC::Id")
           end
         end
 
@@ -918,7 +924,7 @@ module MU
             honor_subnet_prefs=false
           end
           if !subnet['subnet_id'].nil? and subnet['subnet_id'].is_a?(String)
-            subnet['subnet_id'] << getTail("Subnet #{count} for #{parent_name}", value: subnet['subnet_id'], prettyname: "Subnet #{count} for #{parent_name}", cloud_type: "AWS::EC2::Subnet::Id")
+            subnet['subnet_id'] << getTail("Subnet #{count} for #{parent_name}", value: subnet['subnet_id'], prettyname: "Subnet #{count} for #{parent_name}", cloudtype: "AWS::EC2::Subnet::Id")
             count = count + 1
           end
         }
@@ -938,11 +944,11 @@ module MU
 
           ext_vpc.subnets.each { |subnet|
             if subnet.private? and (vpc_block['subnet_pref'] != "all_public" and vpc_block['subnet_pref'] != "public")
-              private_subnets << { "subnet_id" => getTail("#{parent_name} Private Subnet #{priv}", value: subnet.cloud_id, prettyname: "#{parent_name} Private Subnet #{priv}",  cloud_type:  "AWS::EC2::Subnet::Id") }
+              private_subnets << { "subnet_id" => getTail("#{parent_name} Private Subnet #{priv}", value: subnet.cloud_id, prettyname: "#{parent_name} Private Subnet #{priv}",  cloudtype:  "AWS::EC2::Subnet::Id") }
               private_subnets_map[subnet.cloud_id] = subnet
               priv = priv + 1
             elsif !subnet.private? and vpc_block['subnet_pref'] != "all_private" and vpc_block['subnet_pref'] != "private"
-              public_subnets << { "subnet_id" => getTail("#{parent_name} Public Subnet #{pub}", value: subnet.cloud_id, prettyname: "#{parent_name} Public Subnet #{pub}",  cloud_type: "AWS::EC2::Subnet::Id") }
+              public_subnets << { "subnet_id" => getTail("#{parent_name} Public Subnet #{pub}", value: subnet.cloud_id, prettyname: "#{parent_name} Public Subnet #{pub}",  cloudtype: "AWS::EC2::Subnet::Id") }
               public_subnets_map[subnet.cloud_id] = subnet
               pub = pub + 1
             end
@@ -1025,7 +1031,7 @@ module MU
       end
 
       if !vpc_block["vpc_id"].nil? and vpc_block["vpc_id"].is_a?(String)
-        vpc_block["vpc_id"] = getTail("#{parent_name}vpc_id", value: vpc_block["vpc_id"], prettyname: "#{parent_name} Target VPC",  cloud_type: "AWS::EC2::VPC::Id")
+        vpc_block["vpc_id"] = getTail("#{parent_name}vpc_id", value: vpc_block["vpc_id"], prettyname: "#{parent_name} Target VPC",  cloudtype: "AWS::EC2::VPC::Id")
       elsif !vpc_block["nat_host_name"].nil? and vpc_block["nat_host_name"].is_a?(String)
         vpc_block["nat_host_name"] = MU::Config::Tail.new("#{parent_name}nat_host_name", vpc_block["nat_host_name"])
 
@@ -1118,7 +1124,7 @@ module MU
         realvpc['vpc_name'] = vpc['vpc_name']
         if !realvpc['vpc_id'].nil?
           name = name + "-" + realvpc['vpc_id']
-          realvpc['vpc_id'] = getTail("vpc_id", value: realvpc['vpc_id'], prettyname: "Admin Firewall Ruleset #{name} Target VPC",  cloud_type: "AWS::EC2::VPC::Id") if realvpc["vpc_id"].is_a?(String)
+          realvpc['vpc_id'] = getTail("vpc_id", value: realvpc['vpc_id'], prettyname: "Admin Firewall Ruleset #{name} Target VPC",  cloudtype: "AWS::EC2::VPC::Id") if realvpc["vpc_id"].is_a?(String)
         elsif !realvpc['vpc_name'].nil?
           name = name + "-" + realvpc['vpc_name']
         end
@@ -1511,7 +1517,7 @@ module MU
         if !acl["vpc_name"].nil? or !acl["vpc_id"].nil?
           acl['vpc'] = Hash.new
           if acl["vpc_id"].nil?
-            acl['vpc']["vpc_id"] = getTail("vpc_id", value: acl["vpc_id"], prettyname: "Firewall Ruleset #{acl['name']} Target VPC",  cloud_type: "AWS::EC2::VPC::Id") if acl["vpc_id"].is_a?(String)
+            acl['vpc']["vpc_id"] = getTail("vpc_id", value: acl["vpc_id"], prettyname: "Firewall Ruleset #{acl['name']} Target VPC",  cloudtype: "AWS::EC2::VPC::Id") if acl["vpc_id"].is_a?(String)
           elsif !acl["vpc_name"].nil?
             acl['vpc']['vpc_name'] = acl["vpc_name"]
           end
@@ -1716,7 +1722,7 @@ module MU
           if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?
             if MU::Config.amazon_images.has_key?(pool['platform']) and
                 MU::Config.amazon_images[pool['platform']].has_key?(pool['region'])
-              launch['ami_id'] = getTail("pool"+pool['name']+"AMI", value: MU::Config.amazon_images[pool['platform']][pool['region']], prettyname: "pool"+pool['name']+"AMI", cloud_type: "AWS::EC2::Image::Id")
+              launch['ami_id'] = getTail("pool"+pool['name']+"AMI", value: MU::Config.amazon_images[pool['platform']][pool['region']], prettyname: "pool"+pool['name']+"AMI", cloudtype: "AWS::EC2::Image::Id")
 
             else
               ok = false
@@ -2387,7 +2393,7 @@ module MU
         if server['ami_id'].nil?
           if MU::Config.amazon_images.has_key?(server['platform']) and
               MU::Config.amazon_images[server['platform']].has_key?(server['region'])
-            server['ami_id'] = getTail("server"+server['name']+"AMI", value: MU::Config.amazon_images[server['platform']][server['region']], prettyname: "server"+server['name']+"AMI", cloud_type: "AWS::EC2::Image::Id")
+            server['ami_id'] = getTail("server"+server['name']+"AMI", value: MU::Config.amazon_images[server['platform']][server['region']], prettyname: "server"+server['name']+"AMI", cloudtype: "AWS::EC2::Image::Id")
           else
             MU.log "No AMI specified for #{server['name']} and no default available for platform #{server['platform']} in region #{server['region']}", MU::ERR, details: server
             ok = false
@@ -4986,25 +4992,32 @@ module MU
                     "description" => "Parameters to be substituted elsewhere in this Basket of Kittens as ERB variables (<%= varname %>)",
                     "additionalProperties" => false,
                     "properties" => {
-                        "name" => { "required" => true, "type" => "string" },
-                        "default" => { "type" => "string" },
-                        "list_of" => {
-                          "type" => "string",
-                          "description" => "Treat the value as a comma-separated list of values with this key name, equivalent to CloudFormation's various List<> types. For example, set to 'subnet_id' to pass values as an array of subnet identifiers as the 'subnets' argument of a VPC stanza."
-                        },
-                        "prettyname" => {
-                          "type" => "string",
-                          "description" => "An alternative name to use when generating parameter fields in, for example, CloudFormation templates"
-                        },
-                        "description" => {"type" => "string"},
-                        "cloudtype" => {
-                          "type" => "string",
-                          "description" => "A platform-specific string describing the type of validation to use for this parameter. E.g. when generating a CloudFormation template, set to AWS::EC2::Image::Id to validate input as an AMI identifier."
-                        },
-                        "required" => {
-                          "type" => "boolean",
-                          "default" => true
-                         }
+                      "name" => { "required" => true, "type" => "string" },
+                      "default" => { "type" => "string" },
+                      "list_of" => {
+                        "type" => "string",
+                        "description" => "Treat the value as a comma-separated list of values with this key name, equivalent to CloudFormation's various List<> types. For example, set to 'subnet_id' to pass values as an array of subnet identifiers as the 'subnets' argument of a VPC stanza."
+                      },
+                      "prettyname" => {
+                        "type" => "string",
+                        "description" => "An alternative name to use when generating parameter fields in, for example, CloudFormation templates"
+                      },
+                      "description" => {"type" => "string"},
+                      "cloudtype" => {
+                        "type" => "string",
+                        "description" => "A platform-specific string describing the type of validation to use for this parameter. E.g. when generating a CloudFormation template, set to AWS::EC2::Image::Id to validate input as an AMI identifier."
+                      },
+                      "required" => {
+                        "type" => "boolean",
+                        "default" => true
+                      },
+                      "valid_values" => {
+                        "type" => "array",
+                        "description" => "List of valid values for this parameter. Can only be a list of static strings, for now.",
+                        "items" => {
+                          "type" => "string"
+                        }
+                      }
                     }
                 }
             },

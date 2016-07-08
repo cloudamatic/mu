@@ -37,7 +37,9 @@ module MU
         desc = {}
         tags = [] if tags.nil?
         realtags = []
+        havenametag = false
         tags.each { |tag|
+          havenametag = true if tag['key'] == "Name"
           if tag['value'].class.to_s == "MU::Config::Tail"
             if tag['value'].pseudo and tag['value'].getName == "myAppName"
               tag['value'] = { "Ref" => "AWS::StackName" }
@@ -72,10 +74,10 @@ module MU
             basename = cloudobj.config["name"]
           end
           name = (type+basename).gsub!(/[^a-z0-9]/i, "")
-          tags << { "Key" => "Name", "Value" => nametag }
+          tags << { "Key" => "Name", "Value" => nametag } if !havenametag
         else
           name = (type+name).gsub(/[^a-z0-9]/i, "")
-          tags << { "Key" => "Name", "Value" => name }
+          tags << { "Key" => "Name", "Value" => name } if !havenametag
         end
 
         case type
@@ -483,6 +485,7 @@ module MU
               "Default" => default
             }
           end
+          cfm_template["Parameters"][tail.getPrettyName]["AllowedValues"] = tail.valid_values if !tail.valid_values.nil? and !tail.valid_values.empty?
           if !tail.getCloudType.match(/^List<|^CommaDelimitedList</)
             cfm_template["Outputs"][tail.getPrettyName] = {
               "Value" => { "Ref" => tail.getPrettyName }
