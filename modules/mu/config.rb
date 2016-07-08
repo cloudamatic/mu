@@ -1623,7 +1623,7 @@ module MU
             end
           end
         }
-        lb['dependencies'] << genAdminFirewallRuleset(vpc: lb['vpc'], region: lb['region'], cloud: lb['cloud'])
+        lb['dependencies'] << genAdminFirewallRuleset(vpc: lb['vpc'], region: lb['region'], cloud: lb['cloud']) if !lb['scrub_mu_isms']
         
         if lb["alarms"] && !lb["alarms"].empty?
           lb["alarms"].each { |alarm|
@@ -1824,7 +1824,7 @@ module MU
             end
           }
         end
-        pool['dependencies'] << genAdminFirewallRuleset(vpc: pool['vpc'], region: pool['region'], cloud: pool['cloud'])
+        pool['dependencies'] << genAdminFirewallRuleset(vpc: pool['vpc'], region: pool['region'], cloud: pool['cloud']) if !pool['scrub_mu_isms']
       }
 
       read_replicas = []
@@ -2058,7 +2058,7 @@ module MU
             end
           end
         end
-        db['dependencies'] << genAdminFirewallRuleset(vpc: db['vpc'], region: db['region'], cloud: db['cloud'])
+        db['dependencies'] << genAdminFirewallRuleset(vpc: db['vpc'], region: db['region'], cloud: db['cloud']) if !db['scrub_mu_isms']
 
         if db["create_read_replica"] or db['read_replica_of']
           if db["engine"] != "postgres" and db["engine"] != "mysql"
@@ -2311,7 +2311,7 @@ module MU
           end
         end
 
-        cluster['dependencies'] << genAdminFirewallRuleset(vpc: cluster['vpc'], region: cluster['region'], cloud: cluster['cloud'])
+        cluster['dependencies'] << genAdminFirewallRuleset(vpc: cluster['vpc'], region: cluster['region'], cloud: cluster['cloud']) if !cluster['scrub_mu_isms']
       }
 
 
@@ -2467,7 +2467,7 @@ module MU
             end
           }
         end
-        server['dependencies'] << genAdminFirewallRuleset(vpc: server['vpc'], region: server['region'], cloud: server['cloud'])
+        server['dependencies'] << genAdminFirewallRuleset(vpc: server['vpc'], region: server['region'], cloud: server['cloud']) if !server['scrub_mu_isms']
         server["dependencies"].uniq!
       }
 
