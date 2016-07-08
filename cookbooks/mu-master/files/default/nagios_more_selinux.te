@@ -5,6 +5,7 @@ require {
 	type nagios_t;
 	type usr_t;
 	type nagios_log_t;
+	type httpd_t;
 	type httpd_sys_script_t;
   type httpd_sys_content_t;
   type httpd_sys_script_exec_t;
@@ -21,6 +22,11 @@ require {
   class capability { chown };
 }
 
+allow httpd_t nagios_log_t:dir search;
+allow httpd_t nagios_log_t:file { read open };
+allow httpd_t nagios_log_t:fifo_file { read open getattr write };
+allow httpd_t httpd_sys_script_exec_t:fifo_file { read open getattr write };
+allow nagios_t nagios_exec_t:file execute_no_trans;
 allow httpd_sys_script_t nagios_log_t:dir search;
 allow httpd_sys_script_t nagios_log_t:file { read open };
 allow httpd_sys_script_t nagios_log_t:fifo_file { read open getattr write };
