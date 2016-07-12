@@ -105,14 +105,14 @@ module MU
             if @config[policy]
               key = ""
               policy.split(/_/).each { |chunk| key = key + chunk.capitalize }
-              MU::Cloud::CloudFormation.setCloudFormationProp(
-                @cfm_template[@cfm_name],
-                key,
-                {
-                  "PolicyName" => @config[policy]['name'],
-                  "CookieExpirationPeriod" => @config[policy]['timeout']
-                }
-              )
+              desc = { "PolicyName" => @config[policy]['name'] }
+              if @config[policy]['timeout']
+                desc["CookieExpirationPeriod"] = @config[policy]['timeout']
+              end
+              if @config[policy]['cookie']
+                desc["CookieName"] = @config[policy]['cookie']
+              end
+              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], key, desc)
             end
           }
 

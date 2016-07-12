@@ -243,6 +243,7 @@ module MU
             list_of = @@tails[param][count].values.first.getName if list_of.nil?
             prettyname = @@tails[param][count].values.first.getPrettyName if prettyname.nil?
             description = @@tails[param][count].values.first.description if description.nil?
+            valid_values = @@tails[param][count].values.first.valid_values if valid_values.nil?
             cloudtype = @@tails[param][count].values.first.getCloudType if @@tails[param][count].values.first.getCloudType != "String"
           end
           prettyname = param.capitalize if prettyname.nil?
@@ -255,12 +256,19 @@ module MU
           value = @@tails[param].to_s if value.nil?
           prettyname = @@tails[param].getPrettyName if prettyname.nil?
           description = @@tails[param].description if description.nil?
+          valid_values = @@tails[param].valid_values if valid_values.nil?
           cloudtype = @@tails[param].getCloudType if @@tails[param].getCloudType != "String"
         end
         tail = MU::Config::Tail.new(param, value, prettyname, cloudtype, valid_values, description, prefix: prefix, suffix: suffix, pseudo: pseudo, runtimecode: runtimecode)
+      end
 
+      if valid_values and valid_values.size > 0 and value
+        if !valid_values.include?(value)
+          raise DeployParamError, "Invalid parameter value '#{value}' supplied for '#{param}'"
+        end
       end
       @@tails[param] = tail
+
       tail
     end
 
@@ -5005,10 +5013,10 @@ module MU
             },
             "conditions" => {
                 "type" => "array",
-                "description" => "CloudFormation-specific. Define Conditions as in http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/conditions-section-structure.html. Arguments must use the cloudCode() macro.",
                 "items" => {
                   "type" => "object",
                   "required" => ["name", "cloudcode"],
+                  "description" => "CloudFormation-specific. Define Conditions as in http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/conditions-section-structure.html. Arguments must use the cloudCode() macro.",
                   "properties" => {
                     "name" => { "required" => true, "type" => "string" },
                     "cloudcode" => { "required" => true, "type" => "string" },
