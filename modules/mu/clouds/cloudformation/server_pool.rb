@@ -64,7 +64,7 @@ module MU
             if !@config[arg].nil?
               key = ""
               arg.split(/_/).each { |chunk| key = key + chunk.capitalize }
-              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], key, @config[arg].to_s)
+              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], key, @config[arg])
             end
           }
 

@@ -164,7 +164,7 @@ module MU
               MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "Type", "A")
             else
               MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "ResourceRecords", dnsrec['realtarget'])
-              MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "TTL", dnsrec['ttl'].to_s)
+              MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "TTL", dnsrec['ttl'])
               MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "Type", dnsrec['type'])
             end
 
@@ -196,7 +196,7 @@ module MU
                 if !dnsrec['healthcheck'][arg].nil?
                   key = ""
                   arg.split(/_/).each { |chunk| key = key + chunk.capitalize }
-                  check[key] = dnsrec['healthcheck'][arg].to_s
+                  check[key] = dnsrec['healthcheck'][arg]
                 end
               }
               if ["A", "AAAA"].include?(dnsrec['type'])

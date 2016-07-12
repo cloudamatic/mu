@@ -65,7 +65,7 @@ module MU
                 @config[arg].each_pair { |name, value|
                   newkey = ""
                   name.split(/_/).each { |chunk| newkey = newkey + chunk.capitalize }
-                  val[newkey] = value.to_s
+                  val[newkey] = value
                 }
               end
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], key, val)

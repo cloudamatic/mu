@@ -412,20 +412,39 @@ module MU
       def self.setCloudFormationProp(resource, name, value)
         realvalue = value
         is_list_element = false
-        if value.class.to_s == "MU::Config::Tail"
-          if value.is_list_element
-            realvalue = { "Fn::Select" => [0, { "Ref" => "#{value.getPrettyName}" }] }
-            is_list_element = true
-          else
-            if value.pseudo and value.getName == "myAppName"
-              realvalue = { "Ref" => "AWS::StackName" }
-            elsif !value.runtimecode.nil?
-              realvalue = JSON.parse(value.runtimecode)
+
+        # Recursively resolve MU::Config::Tail references
+        def self.resolveTails(tree)
+          if tree.is_a?(Hash)
+            tree.each_pair { |key, val|
+              tree[key] = self.resolveTails(val)
+            }
+          elsif tree.is_a?(Array)
+            tree.each { |elt|
+              elt = self.resolveTails(elt)
+            }
+          elsif tree.class.to_s == "MU::Config::Tail"
+            if tree.is_list_element
+              return { "Fn::Select" => [0, { "Ref" => "#{tree.getPrettyName}" }] }
             else
-              realvalue = { "Ref" => "#{value.getPrettyName}" }
+              if tree.pseudo and tree.getName == "myAppName"
+                return { "Ref" => "AWS::StackName" }
+              elsif !tree.runtimecode.nil?
+                return JSON.parse(tree.runtimecode)
+              else
+                return { "Ref" => "#{tree.getPrettyName}" }
+              end
             end
+          else
+            return tree
           end
         end
+
+        if value.class.to_s == "MU::Config::Tail" and value.is_list_element
+          is_list_element = true
+        end
+        realvalue = resolveTails(value)
+
 
         if resource.has_key?(name) and name != "Type"
           if resource[name].is_a?(Array)

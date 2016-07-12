@@ -88,7 +88,7 @@ module MU
         def create
           @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags'], scrub_mu_isms: @config['scrub_mu_isms']) if @cfm_template.nil?
           @role_cfm_name = @prof_cfm_name = nil
-          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "SourceDestCheck", @config['src_dst_check'].to_s)
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "SourceDestCheck", @config['src_dst_check'])
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "InstanceType", @config['size'])
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "ImageId", @config['ami_id'])
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "KeyName", { "Ref" => "SSHKeyName" })
