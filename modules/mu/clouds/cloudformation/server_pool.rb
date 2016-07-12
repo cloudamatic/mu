@@ -49,6 +49,15 @@ module MU
           @cfm_launch_name, launch_template = MU::Cloud::CloudFormation.cloudFormationBase("launch_config", self, scrub_mu_isms: @config['scrub_mu_isms'])
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "LaunchConfigurationName", { "Ref" => @cfm_launch_name } )
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @cfm_launch_name)
+          if @config['add_firewall_rules']
+            @config['add_firewall_rules'].each { |acl|
+              if acl["rule_id"]
+                MU::Cloud::CloudFormation.setCloudFormationProp(launch_template[@cfm_launch_name], "SecurityGroups", acl["rule_id"])
+              else
+                MU::Cloud::CloudFormation.setCloudFormationProp(launch_template[@cfm_launch_name], "SecurityGroups", @dependencies["firewall_rule"][acl["rule_name"]].cloudobj.cfm_name)
+              end
+            }
+          end
           @cfm_template.merge!(launch_template)
 
           ["min_size", "max_size", "cooldown", "desired_capacity", "health_check_type", "health_check_grace_period"].each { |arg|
@@ -58,6 +67,7 @@ module MU
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], key, @config[arg].to_s)
             end
           }
+
 
           if @config['termination_policies']
             @config['termination_policies'].each { |pol|

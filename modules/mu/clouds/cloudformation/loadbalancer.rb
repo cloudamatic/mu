@@ -33,11 +33,10 @@ module MU
           @deploy = mommacat
           @config = kitten_cfg
           @cloud_id ||= cloud_id
-
           if !mu_name.nil?
             @mu_name = mu_name
           elsif @config['scrub_mu_isms']
-            @mu_name = @config['name']
+            @mu_name = @config['name'].dup
           else
             @mu_name = @deploy.getResourceName(@config["name"], max_length: 32, need_unique_string: true)
             @mu_name.gsub!(/[^\-a-z0-9]/i, "-") # AWS ELB naming rules
@@ -48,7 +47,11 @@ module MU
         # balancer in CloudFormation language.
         def create
           @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags'], scrub_mu_isms: @config['scrub_mu_isms']) if @cfm_template.nil?
-          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "LoadBalancerName", @mu_name)
+          if @config['override_name']
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "LoadBalancerName", @config['override_name'])
+          else
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "LoadBalancerName", @mu_name)
+          end
           @config["cross_zone"] = !@config["cross_zone_unstickiness"]
           @config["health_check"] = @config["healthcheck"]
           @config["access_logging_policy"] = @config["access_log"]
@@ -68,6 +71,15 @@ module MU
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], key, val)
             end
           }
+          if @config['add_firewall_rules']
+            @config['add_firewall_rules'].each { |acl|
+              if acl["rule_id"]
+                MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "SecurityGroups", acl["rule_id"])
+              else
+                MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "SecurityGroups", @dependencies["firewall_rule"][acl["rule_name"]].cloudobj.cfm_name)
+              end
+            }
+          end
 
           @config['listeners'].each { |listener|
             prop = {

@@ -172,6 +172,16 @@ module MU
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBSubnetGroupName", { "Ref" => subnets_name } )
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", subnets_name)
 
+            if @config['add_firewall_rules']
+              @config['add_firewall_rules'].each { |acl|
+                if acl["rule_id"]
+                  MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "VPCSecurityGroups", acl["rule_id"])
+                else
+                  MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "VPCSecurityGroups", @dependencies["firewall_rule"][acl["rule_name"]].cloudobj.cfm_name)
+                end
+              }
+            end
+
             @cfm_template.merge!(subnets_template)
           end
 

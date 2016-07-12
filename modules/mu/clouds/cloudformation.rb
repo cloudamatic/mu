@@ -463,12 +463,18 @@ module MU
             }
           },
           "Resources" => {},
-          "Outputs" => {}
+          "Outputs" => {},
+          "Conditions" => {}
         }
         if mommacat.nil? or mommacat.numKittens(types: ["Server", "ServerPool"]) > 0
           cfm_template["Parameters"]["SSHKeyName"] = {
             "Description" => "Name of an existing EC2 KeyPair to allow SSH access into hosts.",
             "Type" => "AWS::EC2::KeyPair::KeyName"
+          }
+        end
+        if config.has_key?("conditions")
+          config["conditions"].each { |cond|
+            cfm_template["Conditions"][cond['name']] = JSON.parse(cond['cloudcode'])
           }
         end
         tails.each_pair { |param, data|

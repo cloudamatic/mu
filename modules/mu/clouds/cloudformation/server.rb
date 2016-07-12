@@ -104,6 +104,15 @@ module MU
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @cfm_prof_name)
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "IamInstanceProfile", { "Ref" => @cfm_prof_name })
           end
+          if @config['add_firewall_rules']
+            @config['add_firewall_rules'].each { |acl|
+              if acl["rule_id"]
+                MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "SecurityGroupIds", acl["rule_id"])
+              else
+                MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "SecurityGroupIds", @dependencies["firewall_rule"][acl["rule_name"]].cloudobj.cfm_name)
+              end
+            }
+          end
 
           if !@config['private_ip'].nil?
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "PrivateIpAddress", config['private_ip'])

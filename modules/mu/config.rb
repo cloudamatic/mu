@@ -1632,6 +1632,9 @@ module MU
                   "type" => "firewall_rule",
                   "name" => acl_include["rule_name"]
               }
+            elsif acl_include["rule_name"]
+              MU.log "LoadBalancer #{lb['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
+              ok = false
             end
           }
         end
@@ -1848,6 +1851,9 @@ module MU
                   "type" => "firewall_rule",
                   "name" => acl_include["rule_name"]
               }
+            elsif acl_include["rule_name"]
+              MU.log "ServerPool #{pool['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
+              ok = false
             end
           }
         end
@@ -2040,6 +2046,9 @@ module MU
                   "type" => "firewall_rule",
                   "name" => acl_include["rule_name"]
               }
+            elsif acl_include["rule_name"]
+              MU.log "Database #{db['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
+              ok = false
             end
           }
         end
@@ -2300,6 +2309,9 @@ module MU
                 "type" => "firewall_rule",
                 "name" => acl_include["rule_name"]
               }
+            elsif acl_include["rule_name"]
+              MU.log "CacheCluster #{cluster['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
+              ok = false
             end
           }
         end
@@ -2481,6 +2493,9 @@ module MU
                   "type" => "firewall_rule",
                   "name" => acl_include["rule_name"]
               }
+            elsif acl_include["rule_name"]
+              MU.log "Server #{server['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
+              ok = false
             end
           }
         end
@@ -4524,6 +4539,10 @@ module MU
                 "type" => "string",
                 "description" => "Note that Amazon Elastic Load Balancer names must be relatively short. Brevity is recommended here."
             },
+            "override_name" => {
+                "type" => "string",
+                "description" => "Normally an ELB's Amazon identifier will be named the same as its internal Mu identifier. This allows you to override that name with a specific value. Note that Amazon Elastic Load Balancer names must be relatively short. Brevity is recommended here. Note also that setting a static name here may result in deploy failures due to name collision with existing ELBs."
+            },
             "scrub_mu_isms" => {
                 "type" => "boolean",
                 "default" => false,
@@ -4983,6 +5002,18 @@ module MU
             "scrub_mu_isms" => {
                 "type" => "boolean",
                 "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template. Setting this flag here will override declarations in individual resources."
+            },
+            "conditions" => {
+                "type" => "array",
+                "description" => "CloudFormation-specific. Define Conditions as in http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/conditions-section-structure.html. Arguments must use the cloudCode() macro.",
+                "items" => {
+                  "type" => "object",
+                  "required" => ["name", "cloudcode"],
+                  "properties" => {
+                    "name" => { "required" => true, "type" => "string" },
+                    "cloudcode" => { "required" => true, "type" => "string" },
+                  }
+                }
             },
             "parameters" => {
                 "type" => "array",
