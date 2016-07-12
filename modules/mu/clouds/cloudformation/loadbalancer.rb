@@ -121,7 +121,11 @@ module MU
           end
 
           if @config['private']
-            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Scheme", "internal")
+            if @config['private'].class.to_s == "MU::Config::Tail"
+              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Scheme", @config['private'])
+            else
+              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Scheme", "internal")
+            end
           else
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Scheme", "internet-facing")
           end

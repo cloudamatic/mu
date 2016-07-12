@@ -1249,7 +1249,7 @@ module MU
         errors = JSON::Validator.fully_validate(MU::Config.schema, config)
         realerrors = []
         errors.each { |err|
-          if !err.match(/The property '.+?' of type MU::Config::Tail did not match the following type: string in schema/)
+          if !err.match(/The property '.+?' of type MU::Config::Tail did not match the following type:/)
             realerrors << err
           end
         }
