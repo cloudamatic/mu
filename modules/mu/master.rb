@@ -204,7 +204,7 @@ module MU
       if Etc.getpwuid(Process.uid).name != "root" or !Dir.exist?(MU.dataDir+"/users")
         username = Etc.getpwuid(Process.uid).name
         MU.log "Running without LDAP permissions to list users (#{username}), relying on Mu local cache", MU::NOTICE
-        userdir = $MU_CFG['installdir']+"/var/users/#{username}"
+        userdir = MU.mainDataDir+"/users/#{username}"
         all_user_data = {}
         all_user_data[username] = {}
         ["non_ldap", "email", "monitoring_email", "realname", "chef_user", "admin"].each { |field|
