@@ -20,16 +20,6 @@ response = Net::HTTP.get_response(URI("http://169.254.169.254/latest/meta-data/i
 instance_id = response.body
 search_domains = ["ec2.internal", "server.#{instance_id}.platform-mu", "platform-mu"]
 
-include_recipe 'mu-firewall'
-
-firewall_rule "MU-Master deafult ports" do
-  port [2260, 8443, 9443, 10514, 443, 80]
-end
-
-firewall_rule "Chef Server deafult ports" do
-  port [4321, 7443, 9463, 16379, 8983, 8000]
-end
-
 if !node.update_nagios_only
 
   service "sshd" do
