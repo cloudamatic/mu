@@ -1593,7 +1593,8 @@ module MU
         if !lb['ingress_rules'].nil?
           fwname = "lb"+lb['name']
           firewall_rule_names << fwname
-          acl = {"name" => fwname, "rules" => lb['ingress_rules'], "region" => lb['region']}
+          acl = {"name" => fwname, "rules" => lb['ingress_rules'], "region" => lb['region'], "optional_tags" => lb['optional_tags']}
+          acl["tags"] = lb['tags'] if lb['tags'] && !lb['tags'].empty?
           acl["vpc"] = lb['vpc'].dup if !lb['vpc'].nil?
           acl["cloud"] = lb["cloud"]
           firewall_rules << resolveFirewall.call(acl)
@@ -1860,7 +1861,8 @@ module MU
         if !pool['ingress_rules'].nil?
           fwname = "pool"+pool['name']
           firewall_rule_names << fwname
-          acl = {"name" => fwname, "rules" => pool['ingress_rules'], "region" => pool['region']}
+          acl = {"name" => fwname, "rules" => pool['ingress_rules'], "region" => pool['region'], "optional_tags" => pool['optional_tags']}
+          acl["tags"] = pool['tags'] if pool['tags'] && !pool['tags'].empty?
           acl["vpc"] = pool['vpc'].dup if !pool['vpc'].nil?
           acl["cloud"] = pool["cloud"]
           firewall_rules << resolveFirewall.call(acl)
@@ -2053,7 +2055,8 @@ module MU
         if !db['ingress_rules'].nil?
           fwname = "db"+db['name']
           firewall_rule_names << fwname
-          acl = {"name" => fwname, "rules" => db['ingress_rules'], "region" => db['region']}
+          acl = {"name" => fwname, "rules" => db['ingress_rules'], "region" => db['region'], "optional_tags" => db['optional_tags']}
+          acl["tags"] = db['tags'] if db['tags'] && !db['tags'].empty?
           acl["vpc"] = db['vpc'].dup if !db['vpc'].nil?
           acl["cloud"] = db["cloud"]
           firewall_rules << resolveFirewall.call(acl)
@@ -2312,7 +2315,8 @@ module MU
         if cluster['ingress_rules']
           fwname = "cache#{cluster['name']}"
           firewall_rule_names << fwname
-          acl = {"name" => fwname, "rules" => cluster['ingress_rules'], "region" => cluster['region']}
+          acl = {"name" => fwname, "rules" => cluster['ingress_rules'], "region" => cluster['region'], "optional_tags" => cluster['optional_tags']}
+          acl["tags"] = cluster['tags'] if cluster['tags'] && !cluster['tags'].empty?
           acl["vpc"] = cluster['vpc'].dup if cluster['vpc']
           acl["cloud"] = cluster["cloud"]
           firewall_rules << resolveFirewall.call(acl)
@@ -2384,7 +2388,8 @@ module MU
             if mp['ingress_rules']
               fwname = "storage-#{mp['name']}"
               firewall_rule_names << fwname
-              acl = {"name" => fwname, "rules" => mp['ingress_rules'], "region" => pool['region']}
+              acl = {"name" => fwname, "rules" => mp['ingress_rules'], "region" => pool['region'], "optional_tags" => pool['optional_tags']}
+              acl["tags"] = pool['tags'] if pool['tags'] && !pool['tags'].empty?
               acl["vpc"] = mp['vpc'].dup if mp['vpc']
               firewall_rules << resolveFirewall.call(acl)
               mp["add_firewall_rules"] = [] if mp["add_firewall_rules"].nil?
@@ -2605,7 +2610,13 @@ module MU
         if !server['ingress_rules'].nil?
           fwname = "server"+server['name']
           firewall_rule_names << fwname
-          acl = {"name" => fwname, "rules" => server['ingress_rules'], "region" => server['region']}
+          acl = {
+            "name" => fwname, 
+            "rules" => server['ingress_rules'], 
+            "region" => server['region'],
+            "optional_tags" => server['optional_tags']
+          }
+          acl["tags"] = server['tags'] if server['tags'] && !server['tags'].empty?
           acl["vpc"] = server['vpc'].dup if !server['vpc'].nil?
           acl["cloud"] = server["cloud"]
           firewall_rules << resolveFirewall.call(acl)
@@ -3100,6 +3111,11 @@ module MU
                 "default" => "10.0.0.0/16"
             },
             "tags" => @tags_primitive,
+            "optional_tags" => {
+                "type" => "boolean",
+                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
+                "default" => true
+            },
             "create_internet_gateway" => {
                 "type" => "boolean",
                 "default" => true
@@ -3375,6 +3391,11 @@ module MU
             },
             "vpc" => vpc_reference_primitive(NO_SUBNETS, NO_NAT_OPTS),
             "tags" => @tags_primitive,
+            "optional_tags" => {
+                "type" => "boolean",
+                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
+                "default" => true
+            },
             "dependencies" => @dependencies_primitive,
             "self_referencing" => {
                 "type" => "boolean",
@@ -3984,6 +4005,11 @@ module MU
             "enum" => MU.supportedGroomers
         },
         "tags" => @tags_primitive,
+        "optional_tags" => {
+            "type" => "boolean",
+            "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
+            "default" => true
+        },
         "alarms" => @alarm_common_primitive,
         "active_directory" => {
             "type" => "object",
@@ -4409,6 +4435,11 @@ module MU
             "region" => @region_primitive,
             "db_family" => {"type" => "string"},
             "tags" => @tags_primitive,
+            "optional_tags" => {
+                "type" => "boolean",
+                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
+                "default" => true
+            },
             "alarms" => @alarm_common_primitive,
             "engine_version" => {"type" => "string"},
             "add_firewall_rules" => @additional_firewall_rules,
@@ -4596,6 +4627,11 @@ module MU
             },
             "region" => @region_primitive,
             "tags" => @tags_primitive,
+            "optional_tags" => {
+                "type" => "boolean",
+                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
+                "default" => true
+            },
             "engine_version" => {"type" => "string"},
             "node_count" => {
               "type" => "integer",
@@ -4703,6 +4739,11 @@ module MU
                 "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template."
             },
             "tags" => @tags_primitive,
+            "optional_tags" => {
+                "type" => "boolean",
+                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
+                "default" => true
+            },
             "add_firewall_rules" => @additional_firewall_rules,
             "dns_records" => dns_records_primitive(need_target: false, default_type: "R53ALIAS", need_zone: true),
             "dns_sync_wait" => {
@@ -4945,6 +4986,11 @@ module MU
             "min_size" => {"type" => "integer"},
             "max_size" => {"type" => "integer"},
             "tags" => @tags_primitive,
+            "optional_tags" => {
+                "type" => "boolean",
+                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
+                "default" => true
+            },
             "desired_capacity" => {
                 "type" => "integer",
                 "description" => "The number of Amazon EC2 instances that should be running in the group. Should be between min_size and max_size."
@@ -5153,6 +5199,11 @@ module MU
         "name" => {"type" => "string"},
         "region" => @region_primitive,
         "tags" => @tags_primitive,
+        "optional_tags" => {
+          "type" => "boolean",
+          "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
+          "default" => true
+        },
         "dependencies" => @dependencies_primitive,
         "storage_type" => {
           "type" => "string",

@@ -265,7 +265,20 @@ module MU
           MU::MommaCat.listStandardTags.each_pair { |name, value|
             tags << {key: name, value: value}
           }
+
           tags << {key: "Name", value: MU.deploy_id+"-"+target.upcase}
+
+          if cfg['optional_tags']
+            MU::MommaCat.listOptionalTags.each_pair { |name, value|
+              tags << {key: name, value: value}
+            }
+          end
+
+          if cfg['tags']
+            cfg['tags'].each { |tag|
+              tags << {key: tag['key'], value: tag['value']}
+            }
+          end
 
           MU::Cloud::AWS.route53.change_tags_for_resource(
               resource_type: "healthcheck",

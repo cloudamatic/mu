@@ -85,8 +85,20 @@ module MU
             retry
           end
 
-          MU::MommaCat.createStandardTags secgroup.group_id, region: @config['region']
-          MU::MommaCat.createTag secgroup.group_id, "Name", groupname, region: @config['region']
+          MU::MommaCat.createStandardTags(secgroup.group_id, region: @config['region'])
+          MU::MommaCat.createTag(secgroup.group_id, "Name", groupname, region: @config['region'])
+
+          if @config['optional_tags']
+            MU::MommaCat.listOptionalTags.each { |key, value|
+              MU::MommaCat.createTag(secgroup.group_id, key, value, region: @config['region'])
+            }
+          end
+
+          if @config['tags']
+            @config['tags'].each { |tag|
+              MU::MommaCat.createTag(secgroup.group_id, tag['key'], tag['value'], region: @config['region'])
+            }
+          end
 
           egress = false
           egress = true if !vpc_id.nil?

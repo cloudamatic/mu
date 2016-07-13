@@ -52,7 +52,7 @@ module MU
         def self.disk_devices
           @disk_devices
         end
-
+        
         # See that we get our ephemeral storage devices with AMIs that don't do it
         # for us
         @ephemeral_mappings = [
@@ -626,6 +626,13 @@ module MU
 
           MU::MommaCat.createStandardTags(instance.instance_id, region: @config['region'])
           MU::MommaCat.createTag(instance.instance_id, "Name", node, region: @config['region'])
+
+          if @config['optional_tags']
+            MU::MommaCat.listOptionalTags.each { |key, value|
+              MU::MommaCat.createTag(instance.instance_id, key, value, region: @config['region'])
+            }
+          end
+
           if !@config['tags'].nil?
             @config['tags'].each { |tag|
               MU::MommaCat.createTag(instance.instance_id, tag['key'], tag['value'], region: @config['region'])
@@ -849,11 +856,19 @@ module MU
                 iface = MU::Cloud::AWS.ec2(@config['region']).create_network_interface(subnet_id: subnet_id).network_interface
                 MU::MommaCat.createStandardTags(iface.network_interface_id, region: @config['region'])
                 MU::MommaCat.createTag(iface.network_interface_id, "Name", node+"-ETH"+device_index.to_s, region: @config['region'])
+
+                if @config['optional_tags']
+                  MU::MommaCat.listOptionalTags.each { |key, value|
+                    MU::MommaCat.createTag(iface.network_interface_id, key, value, region: @config['region'])
+                  }
+                end
+
                 if !@config['tags'].nil?
                   @config['tags'].each { |tag|
                     MU::MommaCat.createTag(iface.network_interface_id, tag['key'], tag['value'], region: @config['region'])
                   }
                 end
+
                 MU::Cloud::AWS.ec2(@config['region']).attach_network_interface(
                     network_interface_id: iface.network_interface_id,
                     instance_id: instance.instance_id,
@@ -907,6 +922,12 @@ module MU
                     MU::MommaCat.createTag(attachment.volume_id, "Name", "#{MU.deploy_id}-#{@config["name"].upcase}-#{attachment.device.upcase}", region: @config['region'])
                   end
                 }
+
+                if @config['optional_tags']
+                  MU::MommaCat.listOptionalTags.each { |key, value|
+                    MU::MommaCat.createTag(attachment.volume_id, key, value, region: @config['region'])
+                  }
+                end
 
                 if @config['tags']
                   @config['tags'].each { |tag|

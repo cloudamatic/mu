@@ -97,9 +97,7 @@ case node[:platform]
       end
     end
 
-    firewall 'default' do
-      action :nothing
-    end
+    include_recipe 'mu-firewall'
 
     node.glusterfs.fw.each { |rule|
       firewall_rule "Allow glusterfs #{rule['usage']}" do

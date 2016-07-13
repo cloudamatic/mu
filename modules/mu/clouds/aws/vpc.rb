@@ -43,16 +43,22 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-
           MU.log "Creating VPC #{@mu_name}", details: @config
           resp = MU::Cloud::AWS.ec2(@config['region']).create_vpc(cidr_block: @config['ip_block']).vpc
           vpc_id = @config['vpc_id'] = resp.vpc_id
 
           MU::MommaCat.createStandardTags(vpc_id, region: @config['region'])
           MU::MommaCat.createTag(vpc_id, "Name", @mu_name, region: @config['region'])
+
           if @config['tags']
             @config['tags'].each { |tag|
               MU::MommaCat.createTag(vpc_id, tag['key'], tag['value'], region: @config['region'])
+            }
+          end
+
+          if @config['optional_tags']
+            MU::MommaCat.listOptionalTags.each { |key, value|
+              MU::MommaCat.createTag(vpc_id, key, value, region: @config['region'])
             }
           end
 
@@ -78,7 +84,14 @@ module MU
                   MU::MommaCat.createTag(rtb.route_table_id, tag['key'], tag['value'], region: @config['region'])
                 }
               end
+
               MU::MommaCat.createStandardTags(rtb.route_table_id, region: @config['region'])
+
+              if @config['optional_tags']
+                MU::MommaCat.listOptionalTags.each { |key, value|
+                  MU::MommaCat.createTag(rtb.route_table_id, key, value, region: @config['region'])
+                }
+              end
             }
           end
           @config['vpc_id'] = vpc_id
@@ -96,6 +109,13 @@ module MU
                 MU::MommaCat.createTag(internet_gateway_id, tag['key'], tag['value'], region: @config['region'])
               }
             end
+
+            if @config['optional_tags']
+              MU::MommaCat.listOptionalTags.each { |key, value|
+                MU::MommaCat.createTag(internet_gateway_id, key, value, region: @config['region'])
+              }
+            end
+
             MU::Cloud::AWS.ec2(@config['region']).attach_internet_gateway(vpc_id: vpc_id, internet_gateway_id: internet_gateway_id)
             @config['internet_gateway_id'] = internet_gateway_id
           end
@@ -176,6 +196,12 @@ module MU
                 if @config['tags']
                   @config['tags'].each { |tag|
                     MU::MommaCat.createTag(subnet_id, tag['key'], tag['value'], region: @config['region'])
+                  }
+                end
+
+                if @config['optional_tags']
+                  MU::MommaCat.listOptionalTags.each { |key, value|
+                    MU::MommaCat.createTag(subnet_id, key, value, region: @config['region'])
                   }
                 end
 
@@ -396,11 +422,19 @@ module MU
             dhcpopt_id = resp.dhcp_options.dhcp_options_id
             MU::MommaCat.createStandardTags(dhcpopt_id, region: @config['region'])
             MU::MommaCat.createTag(dhcpopt_id, "Name", @mu_name, region: @config['region'])
+
             if @config['tags']
               @config['tags'].each { |tag|
                 MU::MommaCat.createTag(dhcpopt_id, tag['key'], tag['value'], region: @config['region'])
               }
             end
+
+            if @config['optional_tags']
+              MU::MommaCat.listOptionalTags.each { |key, value|
+                MU::MommaCat.createTag(dhcpopt_id, key, value, region: @config['region'])
+              }
+            end
+
             MU::Cloud::AWS.ec2(@config['region']).associate_dhcp_options(dhcp_options_id: dhcpopt_id, vpc_id: vpc_id)
           end
           notify
@@ -577,6 +611,18 @@ module MU
               peering_id = resp.vpc_peering_connection.vpc_peering_connection_id
               MU::MommaCat.createStandardTags(peering_id, region: @config['region'])
               MU::MommaCat.createTag(peering_id, "Name", peering_name, region: @config['region'])
+
+              if @config['optional_tags']
+                MU::MommaCat.listOptionalTags.each { |key, value|
+                  MU::MommaCat.createTag(peering_id, key, value, region: @config['region'])
+                }
+              end
+
+              if @config['tags']
+                @config['tags'].each { |tag|
+                  MU::MommaCat.createTag(peering_id, tag['key'], tag['value'], region: @config['region'])
+                }
+              end
 
               # Create routes to our new friend.
               MU::Cloud::AWS::VPC.listAllSubnetRouteTables(@config['vpc_id'], region: @config['region']).each { |rtb_id|
@@ -1090,11 +1136,19 @@ module MU
           route_table_id = rtb['route_table_id'] = resp.route_table_id
           sleep 5
           MU::MommaCat.createTag(route_table_id, "Name", vpc_name+"-"+rtb['name'].upcase)
+
           if @config['tags']
             @config['tags'].each { |tag|
               MU::MommaCat.createTag(route_table_id, tag['key'], tag['value'])
             }
           end
+
+          if @config['optional_tags']
+            MU::MommaCat.listOptionalTags.each { |key, value|
+              MU::MommaCat.createTag(route_table_id, key, value, region: @config['region'])
+            }
+          end
+
           MU::MommaCat.createStandardTags(route_table_id)
           rtb['routes'].each { |route|
             if route['nat_host_id'].nil? and route['nat_host_name'].nil?

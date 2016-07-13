@@ -12,10 +12,8 @@ include_recipe 'chef-vault'
 users_vault = chef_vault_item(node.openvpn.users_vault[:vault], node.openvpn.users_vault[:item])
 
 case node.platform
-  when "centos", "redhat"    
-    firewall 'default' do
-      action :nothing
-    end
+  when "centos", "redhat"
+    include_recipe 'mu-firewall'
 
     firewall_rule "Allow openvpn" do
       port node.openvpn.fw_rules

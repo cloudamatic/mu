@@ -1397,18 +1397,26 @@ module MU
       MU.log "Created standard tags for resource #{resource}", MU::DEBUG, details: caller
     end
 
-    # List the name/value pairs for our standard set of resource tags, which
+    # List the name/value pairs for our mandatory standard set of resource tags, which
     # should be applied to all taggable cloud provider resources.
     # @return [Hash<String,String>]
     def self.listStandardTags
       return {
           "MU-ID" => MU.deploy_id,
-          "MU-HANDLE" => MU.handle,
           "MU-APP" => MU.appname,
           "MU-ENV" => MU.environment,
-          "MU-MASTER-NAME" => Socket.gethostname,
-          "MU-MASTER-IP" => MU.mu_public_ip,
-          "MU-OWNER" => MU.mu_user
+          "MU-MASTER-IP" => MU.mu_public_ip
+      }
+    end
+
+    # List the name/value pairs of our optional set of resource tags which
+    # should be applied to all taggable cloud provider resources.
+    # @return [Hash<String,String>]
+    def self.listOptionalTags
+      return {
+        "MU-HANDLE" => MU.handle,
+        "MU-MASTER-NAME" => Socket.gethostname,
+        "MU-OWNER" => MU.mu_user
       }
     end
 

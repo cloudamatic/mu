@@ -216,6 +216,12 @@ module MU
             tags << {key: name, value: value}
           }
 
+          if @config['optional_tags']
+            MU::MommaCat.listOptionalTags.each_pair { |name, value|
+              tags << {key: name, value: value}
+            }
+          end
+
           if @config['tags']
             @config['tags'].each { |tag|
               tags << {key: tag['key'], value: tag['value']}

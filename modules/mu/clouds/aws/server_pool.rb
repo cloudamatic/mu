@@ -53,6 +53,12 @@ module MU
             asg_options[:tags] << {key: name, value: value, propagate_at_launch: true}
           }
 
+          if @config['optional_tags']
+            MU::MommaCat.listOptionalTags.each_pair { |name, value|
+              asg_options[:tags] << {key: name, value: value, propagate_at_launch: true}
+            }
+          end
+
           if @config['tags']
             @config['tags'].each { |tag|
               asg_options[:tags] << {key: tag['key'], value: tag['value'], propagate_at_launch: true}

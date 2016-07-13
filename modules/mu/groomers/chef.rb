@@ -673,11 +673,14 @@ module MU
         end
 
         tags = MU::MommaCat.listStandardTags
+        tags.merge!(MU::MommaCat.listOptionalTags) if @config['optional_tags']
+
         if !@config['tags'].nil?
           @config['tags'].each { |tag|
             tags[tag['key']] = tag['value']
           }
         end
+
         chef_node.normal.tags = tags
         chef_node.save
 

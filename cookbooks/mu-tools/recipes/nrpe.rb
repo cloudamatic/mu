@@ -21,7 +21,7 @@ when "centos"
   master_ips << "127.0.0.1"
   master_ips.uniq!
 
-  include_recipe "mu-tools::set_local_fw"
+  # include_recipe "mu-tools::set_local_fw"
 
   template "/etc/nagios/nrpe.cfg" do
     source "nrpe.cfg.erb"
@@ -38,13 +38,19 @@ when "centos"
     mode 0755
   end
 
+  include_recipe 'mu-firewall'
+
+  master_ips.each { |ip|
+    next if ip == "127.0.0.1"
+
+    firewall_rule "Allow nrpe from #{ip}" do
+      port 5666
+      source ip
+    end
+  }
+
   case elversion
   when 7
-    execute "/bin/firewall-cmd --permanent --zone=mu --add-port=5666/tcp" do
-      notifies :run, "execute[/bin/firewall-cmd --reload]", :immediately
-      not_if "/bin/firewall-cmd --list-ports --zone=mu | /bin/egrep '(^| )5666/tcp( |$)'"
-    end
-
     %w{nrpe_file.pp nrpe_file.te nrpe_check_disk.te nrpe_check_disk.pp}.each { |f|
       cookbook_file "#{Chef::Config[:file_cache_path]}/#{f}" do
         source f
@@ -65,12 +71,6 @@ when "centos"
       notifies :restart, "service[nrpe]", :delayed
     end
   when 6
-    master_ips.each { |ip|
-      execute "iptables -I INPUT -s #{ip} -p tcp --dport 5666 -j ACCEPT && service iptables save" do
-        not_if "iptables -nL | egrep '^ACCEPT.*#{ip}.*dpt:5666($| )'"
-      end
-    }
-
     cookbook_file "nrpe_disk.pp" do
       path "#{Chef::Config[:file_cache_path]}/nrpe_disk.pp"
     end

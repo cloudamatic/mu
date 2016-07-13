@@ -153,6 +153,12 @@ module MU
               }
             end
 
+            if @config['optional_tags']
+              MU::MommaCat.listOptionalTags.each_pair { |name, value|
+                tags << {key: name, value: value}
+              }
+            end
+
             tags << {key: "Name", value: @mu_name} unless name_tag
 
             MU::Cloud::AWS.efs(region).create_tags(
