@@ -133,6 +133,7 @@ GRAPH
     bind9-ng (>= 0.0.0)
     jenkins (>= 0.0.0)
     mu-activedirectory (>= 0.0.0)
+    mu-firewall (>= 0.0.0)
     mu-jenkins (>= 0.0.0)
     mu-tools (>= 0.0.0)
     mu-utility (>= 0.0.0)
