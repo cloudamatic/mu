@@ -436,9 +436,11 @@ module MU
             tree[key] = resolveTails(val, indent+" ")
           }
         elsif tree.is_a?(Array)
+          newtree = []
           tree.each { |item|
-            item = resolveTails(item, indent+" ")
+            newtree << resolveTails(item, indent+" ")
           }
+          tree = newtree
         elsif tree.is_a?(String) and tree.match(/^(.*?)MU::Config.getTail PLACEHOLDER (.+?) REDLOHECALP(.*)/)
           tree = getTail($2, prefix: $1, suffix: $3)
         end
