@@ -463,6 +463,8 @@ manage_chef_user()
   fi
 
   mkdir -p "$MU_DATADIR/users/$user"
+  /bin/chmod g+rsx "$MU_DATADIR/users"
+  /bin/chgrp mu-users "$MU_DATADIR/users"
   pivotal_cfg_setup pivotal_cfg
   # chef-server-ctl generates a spectcular amount of stupid noise
   filter="(ffi-yajl|falling back to ffi)"
@@ -1655,6 +1657,8 @@ enable_audit_logs()
 
 set_permissions()
 {
+  /bin/chmod g+rsx "$MU_DATADIR/users"
+  /bin/chgrp mu-users "$MU_DATADIR/users"
   cp -a $MU_LIBDIR/extras/git-fix-permissions-hook $MU_LIBDIR/.git/hooks/post-merge
   cp -a $MU_LIBDIR/extras/git-fix-permissions-hook $MU_LIBDIR/.git/hooks/post-checkout
   cp -a $MU_LIBDIR/extras/git-fix-permissions-hook $MU_LIBDIR/.git/hooks/post-rewrite
