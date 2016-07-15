@@ -202,8 +202,19 @@ module MU
     # @return [Array<Hash>]: List of all Mu users, with pertinent metadata.
     def self.listUsers
       if Etc.getpwuid(Process.uid).name != "root" or !Dir.exist?(MU.dataDir+"/users")
-        MU.log "Running with insufficient permissions to list users (#{Etc.getpwuid(Process.uid).name}) or user directory #{MU.dataDir+"/users"} does not exist", MU::NOTICE
-        return {}
+        username = Etc.getpwuid(Process.uid).name
+        MU.log "Running without LDAP permissions to list users (#{username}), relying on Mu local cache", MU::NOTICE
+        userdir = MU.mainDataDir+"/users/#{username}"
+        all_user_data = {}
+        all_user_data[username] = {}
+        ["non_ldap", "email", "monitoring_email", "realname", "chef_user", "admin"].each { |field|
+          if File.exist?(userdir+"/"+field)
+            all_user_data[username][field] = File.read(userdir+"/"+field).chomp
+          elsif ["email", "realname"].include?(field)
+            MU.log "Required user field '#{field}' for '#{username}' not set in LDAP or in Mu's disk cache.", MU::WARN
+          end
+        }
+        return all_user_data
       end
       # LDAP is canonical. Everything else is required to be in sync with it.
       ldap_users = MU::Master::LDAP.listUsers
