@@ -1745,8 +1745,10 @@ module MU
 
       collections.each { |stack|
         stack['cloud'] = MU::Config.defaultCloud if stack['cloud'].nil?
+        stack['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
         stack['region'] = config['region'] if stack['region'].nil?
         stack["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Collection")
+        stack["dependencies"] = Array.new if stack["dependencies"].nil?
       }
 
       server_names = Array.new
@@ -3643,6 +3645,8 @@ module MU
         "properties" => {
             "name" => {"type" => "string"},
             "cloud" => @cloud_primitive,
+            "tags" => @tags_primitive,
+            "dependencies" => @dependencies_primitive,
             "parameters" => {
                 "type" => "array",
                 "items" => {

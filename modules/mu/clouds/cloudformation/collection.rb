@@ -44,12 +44,24 @@ module MU
         # Populate @cfm_template with a resource description for this alarm
         # in CloudFormation language.
         def create
-          @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, scrub_mu_isms: @config['scrub_mu_isms'])
+          @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags'], scrub_mu_isms: @config['scrub_mu_isms'])
           if @config["template_url"].nil?
             raise MuError, "You must specify template_url when creating a Collection and targeting CloudFormation (note: the template_file parameter is not supported when nesting CloudFormation templates)."
           end
-          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "TemplateUrl", @config["template_url"])
+          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "TemplateURL", @config["template_url"])
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "TimeoutInMinutes", @config["timeout"])
+          if @config['cfm_deps']
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "TimeoutInMinutes", @config["timeout"])
+          end
+          # XXX Should do this for any resource that can depend on a VPC
+          @config['dependencies'].each { |dep|
+            if dep['type'] == "vpc"
+              subnets = @dependencies["vpc"][dep['name']].cloudobj.subnets
+              subnets.each { |subnet|
+                MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", subnet.cfm_name)
+              }
+            end
+          }
 
           parameters = Hash.new
           if !@config["parameters"].nil?
