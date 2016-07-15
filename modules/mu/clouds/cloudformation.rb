@@ -425,7 +425,7 @@ module MU
             }
           elsif tree.class.to_s == "MU::Config::Tail"
             if tree.is_list_element
-              return { "Fn::Select" => [0, { "Ref" => "#{tree.getPrettyName}" }] }
+              return { "Fn::Select" => [tree.index, { "Ref" => "#{tree.getPrettyName}" }] }
             else
               if tree.pseudo and tree.getName == "myAppName"
                 return { "Ref" => "AWS::StackName" }
@@ -503,10 +503,20 @@ module MU
           if data.is_a?(Array)
             realval = []
             tail = data.first.values.first
-            data.each { |bit| realval << bit.values.first }
-            default = realval.join(",")
+            default = nil
+            if tail.value.is_a?(MU::Config::Tail) and tail.value.runtimecode
+              default = JSON.parse(tail.value.runtimecode)
+            else
+              data.each { |bit| realval << bit.values.first }
+              default = realval.join(",")
+            end
           else
-            default = tail.to_s
+            default = nil
+            if tail.value.is_a?(MU::Config::Tail) and tail.value.runtimecode
+              default = JSON.parse(tail.value.runtimecode)
+            else
+              default = tail.to_s
+            end
           end
           if cfm_template["Parameters"].has_key?(tail.getPrettyName)
             cfm_template["Parameters"][tail.getPrettyName]["Type"] = tail.getCloudType
@@ -520,7 +530,7 @@ module MU
             }
           end
           cfm_template["Parameters"][tail.getPrettyName]["AllowedValues"] = tail.valid_values if !tail.valid_values.nil? and !tail.valid_values.empty?
-          if !tail.getCloudType.match(/^List<|^CommaDelimitedList</)
+          if !tail.getCloudType.match(/^List<|^CommaDelimitedList$/)
             cfm_template["Outputs"][tail.getPrettyName] = {
               "Value" => { "Ref" => tail.getPrettyName }
             }

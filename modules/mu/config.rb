@@ -132,17 +132,21 @@ module MU
       @pseudo = false
       @runtimecode = nil
       @valid_values = []
+      @index = 0
       attr_reader :description
       attr_reader :pseudo
+      attr_reader :index
+      attr_reader :value
       attr_reader :runtimecode
       attr_reader :valid_values
       attr_reader :is_list_element
 
-      def initialize(name, value, prettyname = nil, cloudtype = "String", valid_values = [], description = "", is_list_element = false, prefix: "", suffix: "", pseudo: false, runtimecode: nil)
+      def initialize(name, value, prettyname = nil, cloudtype = "String", valid_values = [], description = "", is_list_element = false, prefix: "", suffix: "", pseudo: false, runtimecode: nil, index: 0)
         @name = name
         @value = value
         @valid_values = valid_values
         @pseudo = pseudo
+        @index = index
         @runtimecode = runtimecode
         @cloudtype = cloudtype
         @is_list_element = is_list_element
@@ -234,7 +238,10 @@ module MU
       if !prettyname.nil?
         prettyname.gsub!(/[^a-z0-9]/i, "") # comply with CloudFormation restrictions
       end
-      if !list_of.nil? or (@@tails.has_key?(param) and @@tails[param].is_a?(Array))
+      if value.is_a?(MU::Config::Tail)
+        MU.log "Parameter #{param} is using a nested parameter as a value. This rarely works, depending on the target cloud. YMMV.", MU::WARN
+        tail = MU::Config::Tail.new(param, value, prettyname, cloudtype, valid_values, description, prefix: prefix, suffix: suffix, pseudo: pseudo, runtimecode: runtimecode)
+      elsif !list_of.nil? or (@@tails.has_key?(param) and @@tails[param].is_a?(Array))
         tail = []
         count = 0
         value.split(/\s*,\s*/).each { |subval|
@@ -247,7 +254,7 @@ module MU
             cloudtype = @@tails[param][count].values.first.getCloudType if @@tails[param][count].values.first.getCloudType != "String"
           end
           prettyname = param.capitalize if prettyname.nil?
-          tail << { list_of => MU::Config::Tail.new(list_of, subval, prettyname, cloudtype, valid_values, description, true, pseudo: pseudo) }
+          tail << { list_of => MU::Config::Tail.new(list_of, subval, prettyname, cloudtype, valid_values, description, true, pseudo: pseudo, index: count) }
           count = count + 1
         }
       else
@@ -447,6 +454,11 @@ module MU
       @@parameters.each_pair { |name, val|
 # XXX do valid_values validation stuff here
         next if @@tails.has_key?(name) and @@tails[name].is_a?(MU::Config::Tail) and @@tails[name].pseudo
+        # Parameters can have limited parameterization of their own
+        if @@tails[name].to_s.match(/^(.*?)MU::Config.getTail PLACEHOLDER (.+?) REDLOHECALP(.*)/)
+          @@tails[name] = getTail(name, value: @@tails[$2])
+        end
+
         if respond_to?(name.to_sym)
           MU.log "Parameter name '#{name}' reserved", MU::ERR
           ok = false
@@ -1305,10 +1317,12 @@ module MU
         vpc["dependencies"] = Array.new if vpc["dependencies"].nil?
         subnet_routes = Hash.new
         public_routes = Array.new
-        vpc['subnets'].each { |subnet|
-          subnet_routes[subnet['route_table']] = Array.new if subnet_routes[subnet['route_table']].nil?
-          subnet_routes[subnet['route_table']] << subnet['name']
-        }
+        if vpc['subnets']
+          vpc['subnets'].each { |subnet|
+            subnet_routes[subnet['route_table']] = Array.new if subnet_routes[subnet['route_table']].nil?
+            subnet_routes[subnet['route_table']] << subnet['name']
+          }
+        end
         
         if vpc['endpoint_policy'] && !vpc['endpoint_policy'].empty?
           if !vpc['endpoint']
@@ -1329,6 +1343,8 @@ module MU
 
         nat_gateway_route_tables = []
         nat_gateway_added = false
+        public_rtbs = []
+        private_rtbs = []
         vpc['route_tables'].each { |table|
           routes = []
           table['routes'].each { |route|
@@ -1340,6 +1356,7 @@ module MU
             end
 
             if (route['nat_host_name'] or route['nat_host_id'])
+              private_rtbs << table['name']
               route.delete("gateway") if route['gateway'] == '#INTERNET'
             end
             if !route['nat_host_name'].nil? and server_names.include?(route['nat_host_name'])
@@ -1350,7 +1367,12 @@ module MU
                 "type" => "server",
                 "name" => route['nat_host_name']
               }
+            elsif route['gateway'] == '#NAT'
+              private_rtbs << table['name']
+            elsif route['gateway'] == '#INTERNET'
+              public_rtbs << table['name']
             end
+            next if !vpc['subnets']
             
             vpc['subnets'].each { |subnet|
               if route['gateway'] == '#INTERNET'
@@ -1388,6 +1410,52 @@ module MU
             }
           }
         }
+
+        if (!vpc['subnets'] or vpc['subnets'].empty?) and vpc['create_standard_subnets']
+          if ["AWS", "CloudFormation"].include?(vpc['cloud'])
+            if vpc['availability_zones'].nil? or vpc['availability_zones'].empty?
+              vpc['availability_zones'] = MU::Cloud::AWS.listAZs(vpc['region'])
+            else
+              # parses as a hash so we can use list parameters easily
+              vpc['availability_zones'] = vpc['availability_zones'].map { |val| val['zone'] }
+            end
+          end
+          cidr = NetAddr::CIDR.create(vpc['ip_block'].to_s)
+          subnet_size = (cidr.enumerate.size/(vpc['availability_zones'].size*2)) - 2
+          subnets = cidr.subnet(:IPCount => subnet_size, :NumSubnets => vpc['availability_zones'].size*2)
+          subnets = getTail("subnetblocks", value: subnets.join(","), cloudtype: "CommaDelimitedList", description: "IP Address ranges to be used for VPC subnets", prettyname: "SubnetIpBlocks", list_of: "ip_block").map { |tail| tail["ip_block"] }
+          vpc['subnets'] = []
+          count = 0
+          vpc['availability_zones'].each { |az|
+            addnat = false
+            if vpc['create_nat_gateway'] and (vpc['nat_gateway_multi_az'] or nat_gateway_added) and public_rtbs.size > 0
+              addnat = true
+              nat_gateway_added = true
+            end
+            if private_rtbs.size > 0
+              vpc['subnets'] << {
+                "name" => "Subnet#{count}Private",
+                "availability_zone" => az,
+                "ip_block" => subnets.shift,
+                "route_table" => private_rtbs[count].nil? ? private_rtbs.first : private_rtbs[count],
+                "map_public_ips" => false,
+                "is_public" => false
+              }
+            end
+            if public_rtbs.size > 0
+              vpc['subnets'] << {
+                "name" => "Subnet#{count}Public",
+                "availability_zone" => az,
+                "ip_block" => subnets.shift,
+                "route_table" => public_rtbs[count].nil? ? public_rtbs.first : public_rtbs[count],
+                "map_public_ips" => true,
+                "is_public" => true,
+                "create_nat_gateway" => addnat
+              }
+            end
+            count = count + 1
+          }
+        end
 
         nat_gateway_route_tables.uniq!
         if nat_gateway_route_tables.size < 2 && vpc['nat_gateway_multi_az']
@@ -2972,6 +3040,24 @@ module MU
                 "default" => "10.0.0.0/16"
             },
             "tags" => @tags_primitive,
+            "create_standard_subnets" => {
+              "type" => "boolean",
+              "description" => "If the 'subnets' parameter to this VPC is not specified, we will instead create one set of public subnets and one set of private, with a public/private pair in each Availability Zone in the target region.",
+              "default" => true
+            },
+            "availability_zones" => {
+                "type" => "array",
+                "items" => {
+                    "description" => "When the 'create_standard_subnets' flag is set, use this to target a specific set of availability zones across which to spread those subnets. Will attempt to guess based on the target region, if not specified.",
+                    "type" => "object",
+                    "required" => ["zone"],
+                    "properties" => {
+                        "zone" => {
+                          "type" => "string"
+                        }
+                    }
+                }
+            },
             "create_internet_gateway" => {
                 "type" => "boolean",
                 "default" => true
