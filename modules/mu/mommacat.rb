@@ -225,15 +225,17 @@ module MU
         end
         MU.log "Creating deploy secret for #{MU.deploy_id}"
         @deploy_secret = Password.random(256)
-        begin
-          MU::Cloud::AWS.s3(MU.myRegion).put_object(
+        if !@original_config['scrub_mu_isms']
+          begin
+            MU::Cloud::AWS.s3(MU.myRegion).put_object(
               acl: "private",
               bucket: MU.adminBucketName,
               key: "#{@deploy_id}-secret",
               body: "#{@deploy_secret}"
-          )
-        rescue Aws::S3::Errors::PermanentRedirect => e
-          raise DeployInitializeError, "Got #{e.inspect} trying to write #{@deploy_id}-secret to #{MU.adminBucketName}"
+            )
+          rescue Aws::S3::Errors::PermanentRedirect => e
+            raise DeployInitializeError, "Got #{e.inspect} trying to write #{@deploy_id}-secret to #{MU.adminBucketName}"
+          end
         end
         if set_context_to_me
           MU::MommaCat.setThreadContext(self)
