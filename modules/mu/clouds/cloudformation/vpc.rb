@@ -260,7 +260,14 @@ module MU
             end
           end
 
+          # Is this subnet privately-routable only, or public?
+          # @return [Boolean]
+          def private?
+            (!@config['is_public'])
+          end
+
         end
+
         # Placeholder. This is a NOOP for CloudFormation, which doesn't build
         # resources directly.
         def self.find(*args)

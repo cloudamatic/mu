@@ -149,13 +149,11 @@ module MU
 
             if launch_desc['generate_iam_role']
               @config['iam_role'], @cfm_role_name, @cfm_prof_name = MU::Cloud::CloudFormation::Server.createIAMProfile(@mu_name, base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'], cloudformation_data: @cfm_template)
-            elsif launch_desc['iam_role'].nil?
-              raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
-            else
+            elsif !launch_desc['iam_role'].nil?
               @config['iam_role'] = launch_desc['iam_role']
             end
-            MU::Cloud::CloudFormation::Server.addStdPoliciesToIAMProfile(@cfm_role_name, cloudformation_data: @cfm_template) if !@config['scrub_mu_isms']
             if !@config["iam_role"].nil?
+              MU::Cloud::CloudFormation::Server.addStdPoliciesToIAMProfile(@cfm_role_name, cloudformation_data: @cfm_template) if !@config['scrub_mu_isms']
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_launch_name], "DependsOn", @cfm_role_name)
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_launch_name], "DependsOn", @cfm_prof_name)
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_launch_name], "IamInstanceProfile", { "Ref" => @cfm_prof_name })

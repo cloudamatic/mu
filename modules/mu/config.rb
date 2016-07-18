@@ -1361,7 +1361,7 @@ module MU
               private_rtbs << table['name']
               route.delete("gateway") if route['gateway'] == '#INTERNET'
             end
-            if !route['nat_host_name'].nil? and server_names.include?(route['nat_host_name'])
+            if !route['nat_host_name'].nil? and server_names.include?(route['nat_host_name']) and !subnet_routes.nil? and !subnet_routes.empty?
               subnet_routes[table['name']].each { |subnet|
                 nat_routes[subnet] = route['nat_host_name']
               }
@@ -1793,7 +1793,7 @@ module MU
         if pool["basis"]["launch_config"] != nil
           launch = pool["basis"]["launch_config"]
           if !launch['generate_iam_role']
-            if !launch['iam_role']
+            if !launch['iam_role'] and pool['cloud'] != "CloudFormation"
               MU.log "Must set iam_role if generate_iam_role set to false", MU::ERR
               ok = false
             end
@@ -2464,7 +2464,7 @@ module MU
         server['region'] = config['region'] if server['region'].nil?
         server["dependencies"] = Array.new if server["dependencies"].nil?
         if !server['generate_iam_role']
-          if !server['iam_role']
+          if !server['iam_role'] and server['cloud'] != "CloudFormation"
             MU.log "Must set iam_role if generate_iam_role set to false", MU::ERR
             ok = false
           end

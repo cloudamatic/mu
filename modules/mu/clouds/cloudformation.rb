@@ -500,6 +500,7 @@ module MU
           tail = data
           next if tail.is_a?(MU::Config::Tail) and (tail.pseudo or !tail.runtimecode.nil?)
           default = ""
+          arrayref = nil
           if data.is_a?(Array)
             realval = []
             tail = data.first.values.first
@@ -507,8 +508,15 @@ module MU
             if tail.value.is_a?(MU::Config::Tail) and tail.value.runtimecode
               default = JSON.parse(tail.value.runtimecode)
             else
-              data.each { |bit| realval << bit.values.first }
+              selects = []
+              count = 0
+              data.each { |bit|
+                selects << { "Fn::Select" => [count, { "Ref" => "#{bit.values.first.getPrettyName}" }] }
+                realval << bit.values.first
+                count = count + 1
+              }
               default = realval.join(",")
+              arrayref = { "Fn::Join" => [",", selects ] }
             end
           else
             default = nil
@@ -533,6 +541,10 @@ module MU
           if !tail.getCloudType.match(/^List<|^CommaDelimitedList$/)
             cfm_template["Outputs"][tail.getPrettyName] = {
               "Value" => { "Ref" => tail.getPrettyName }
+            }
+          elsif arrayref
+            cfm_template["Outputs"][tail.getPrettyName] = {
+              "Value" => arrayref
             }
           end
         }
@@ -601,6 +613,27 @@ module MU
                           [ resource['#MUOBJECT'].cloudobj.cfm_name, "PublicIp" ]
                         }
                     }
+                elsif data[:cfg_name] == "vpc"
+                  cfm_template["Outputs"][data[:cfg_name].gsub(/[^a-z0-9]/i, "")+namestr] = {
+                    "Value" => {
+                      "Ref" => resource['#MUOBJECT'].cloudobj.cfm_name
+                    }
+                  }
+                  priv_nets = []
+                  pub_nets = []
+                  resource['#MUOBJECT'].cloudobj.subnets.each { |subnet|
+                    subnet.private? ? priv_nets << { "Ref" => "#{subnet.cfm_name}" } : pub_nets << { "Ref" => "#{subnet.cfm_name}" }
+                  }
+                  cfm_template["Outputs"][data[:cfg_name].gsub(/[^a-z0-9]/i, "")+namestr+"privatesubnets"] = {
+                    "Value" => {
+                      "Fn::Join" => [",", priv_nets ]
+                    }
+                  }
+                  cfm_template["Outputs"][data[:cfg_name].gsub(/[^a-z0-9]/i, "")+namestr+"publicsubnets"] = {
+                    "Value" => {
+                      "Fn::Join" => [",", pub_nets ]
+                    }
+                  }
                 else
                   cfm_template["Outputs"][data[:cfg_name].gsub(/[^a-z0-9]/i, "")+namestr] = {
                     "Value" => {
