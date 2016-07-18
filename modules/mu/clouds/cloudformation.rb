@@ -323,6 +323,7 @@ module MU
               "Tags" => tags,
               "SecurityGroups" => [],
               "LBCookieStickinessPolicy" => [],
+              "AppCookieStickinessPolicy" => [],
               "Subnets" => [],
               "Listeners" => []
             }
@@ -533,9 +534,11 @@ module MU
           else
             cfm_template["Parameters"][tail.getPrettyName] = {
               "Type" => tail.getCloudType,
-              "Description" => tail.description,
-              "Default" => default
+              "Description" => tail.description
             }
+            if !default.nil?
+              cfm_template["Parameters"][tail.getPrettyName]["Default"] = default
+            end
           end
           cfm_template["Parameters"][tail.getPrettyName]["AllowedValues"] = tail.valid_values if !tail.valid_values.nil? and !tail.valid_values.empty?
           if !tail.getCloudType.match(/^List<|^CommaDelimitedList$/)
@@ -626,12 +629,12 @@ module MU
                   }
                   cfm_template["Outputs"][data[:cfg_name].gsub(/[^a-z0-9]/i, "")+namestr+"privatesubnets"] = {
                     "Value" => {
-                      "Fn::Join" => [",", priv_nets ]
+                      "Fn::Join" => [",", priv_nets.uniq ]
                     }
                   }
                   cfm_template["Outputs"][data[:cfg_name].gsub(/[^a-z0-9]/i, "")+namestr+"publicsubnets"] = {
                     "Value" => {
-                      "Fn::Join" => [",", pub_nets ]
+                      "Fn::Join" => [",", pub_nets.uniq ]
                     }
                   }
                 else
