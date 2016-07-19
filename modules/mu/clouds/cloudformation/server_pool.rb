@@ -54,7 +54,7 @@ module MU
               if acl["rule_id"]
                 MU::Cloud::CloudFormation.setCloudFormationProp(launch_template[@cfm_launch_name], "SecurityGroups", acl["rule_id"])
               else
-                MU::Cloud::CloudFormation.setCloudFormationProp(launch_template[@cfm_launch_name], "SecurityGroups", @dependencies["firewall_rule"][acl["rule_name"]].cloudobj.cfm_name)
+                MU::Cloud::CloudFormation.setCloudFormationProp(launch_template[@cfm_launch_name], "SecurityGroups", { "Ref" => @dependencies["firewall_rule"][acl["rule_name"]].cloudobj.cfm_name })
               end
             }
           end
