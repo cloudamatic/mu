@@ -27,7 +27,7 @@ firewall_rule "MU-Master deafult ports" do
 end
 
 firewall_rule "Chef Server deafult ports" do
-  port [4321, 7443, 9463, 16379, 8983, 8000]
+  port [4321, 7443, 9463, 16379, 8983, 8000, 9683, 9090, 5432, 5672]
 end
 
 if !node.update_nagios_only
