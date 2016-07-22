@@ -19,14 +19,14 @@ node.mu.user_map.each_pair { |user, data|
 }
 
 default['apache']['docroot_dir'] = "/var/www/html"
-default['apache']['default_site_enabled'] = true
+default['apache']['default_site_enabled'] = false
 default['apache']['mod_ssl']['cipher_suite'] = "ALL:!ADH:!EXPORT:!SSLv2:!RC4+RSA:+HIGH:!MEDIUM:!LOW"
 default['apache']['mod_ssl']['directives']['SSLProtocol'] = "all -SSLv2 -SSLv3"
 
 default['apache']['contact'] = $MU_CFG['mu_admin_email']
 default['apache']['traceenable'] = 'Off'
 
-override["apache"]["listen_ports"] = [80, 443, 8443]
+override["apache"]["listen"] = ["*:80", "*:443", "*:8443"]
 
 override["nagios"]["http_port"] = 8443
 default['nagios']['enable_ssl'] = true
