@@ -9,6 +9,7 @@ siteCookbookPath = "#{ENV['MU_LIBDIR']}/site_cookbooks"
 
 source "https://supermarket.getchef.com"
 
+cookbook 'apache2', '~> 3.2.2'
 cookbook 'aws', '~> 2.9.3'
 cookbook 'awscli', path: "#{cookbookPath}/awscli"
 cookbook 'chef-splunk', path: "#{cookbookPath}/chef-splunk"
