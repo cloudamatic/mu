@@ -205,9 +205,26 @@ module MU
 
             healthcheck_id = nil
             record['target'] = target if !target.nil?
-            if !record['healthcheck'].nil?
-              healthcheck_id = MU::Cloud::AWS::DNSZone.createHealthCheck(record['healthcheck'], record['target'])
+            child_check_ids = []
+            if record.has_key?('healthchecks')
+              record['healthchecks'].each { |check|
+                if check['type'] == "secondary"
+                   id = MU::Cloud::AWS::DNSZone.createHealthCheck(check, record['target'])
+                   child_check_ids << id
+                end
+              }
+
+              if !child_check_ids.empty?
+                record['healthchecks'].each { |check|
+                  if check['type'] == "primary"
+                    check["health_check_ids"] = child_check_ids if !check.has_key?("health_check_ids") || check['health_check_ids'].empty?
+                    healthcheck_id = MU::Cloud::AWS::DNSZone.createHealthCheck(check, record['target'])
+                    break
+                  end
+                }
+              end
             end
+
             parent_thread_id = Thread.current.object_id
             record_threads << Thread.new {
               MU.dupGlobals(parent_thread_id)
@@ -238,25 +255,40 @@ module MU
         # @param cfg [Hash]: Parsed hash of {MU::Config::BasketofKittens::dnszones::records::healthcheck}
         # @param target [String]: The IP address of FQDN of the target resource to check.
         def self.createHealthCheck(cfg, target)
-
           check = {
-              :type => cfg['method'],
-              :request_interval => cfg['check_interval'],
-              :failure_threshold => cfg['failure_threshold']
+            type: cfg['method'],
+            inverted: cfg['inverted']
           }
-          check[:resource_path] = cfg['path'] if !cfg['path'].nil?
-          check[:search_string] = cfg['search_string'] if !cfg['search_string'].nil?
-          check[:port] = cfg['port'] if !cfg['port'].nil?
-
-          if target.match(/^\d+\.\d+\.\d+\.\d+$/)
-            check[:ip_address] = target
+          
+          if cfg['method'] == "CALCULATED"
+            check[:health_threshold] = cfg['health_threshold'] if cfg.has_key?('health_threshold')
+            check[:child_health_checks] = cfg['health_check_ids'] if cfg.has_key?('health_check_ids')
+          elsif cfg['method'] == "CLOUDWATCH_METRIC"
+            check[:insufficient_data] = cfg['insufficient_data'] if cfg.has_key?('insufficient_data')
+            check[:alarm_identifier] = {
+              region: cfg['alarm_region'],
+              name: cfg['alarm_name']
+            }
           else
-            check[:fully_qualified_domain_name] = target
+            check[:resource_path] = cfg['path'] if cfg.has_key?('path')
+            check[:search_string] = cfg['search_string'] if cfg.has_key?('search_string')
+            check[:port] = cfg['port'] if cfg.has_key?('port')
+            check[:enable_sni] = cfg['enable_sni'] if cfg.has_key?('enable_sni')
+            check[:regions] = cfg['regions'] if cfg.has_key?('regions')
+            check[:measure_latency] = cfg['latency'] if cfg.has_key?('latency')
+            check[:check_interval] = cfg['check_interval']
+            check[:failure_threshold] = cfg['failure_threshold']
+
+            if target.match(/^\d+\.\d+\.\d+\.\d+$/)
+              check[:ip_address] = target
+            else
+              check[:fully_qualified_domain_name] = target
+            end
           end
 
-          MU.log "Creating health check for #{target}", details: check
+          MU.log "Creating health check for #{cfg['name']}", details: check
           id = MU::Cloud::AWS.route53.create_health_check(
-              caller_reference: MU.deploy_id+target.gsub(/[^a-z0-9]/i, "")+cfg['method']+"-"+Time.now.to_i.to_s,
+              caller_reference: "#{MU.deploy_id}-#{cfg['method']}-#{cfg['name']}-#{Time.now.to_i.to_s}",
               health_check_config: check
           ).health_check.id
 
@@ -266,7 +298,7 @@ module MU
             tags << {key: name, value: value}
           }
 
-          tags << {key: "Name", value: MU.deploy_id+"-"+target.upcase}
+          tags << {key: "Name", value: "#{MU.deploy_id}-#{cfg['name']}".upcase}
 
           if cfg['optional_tags']
             MU::MommaCat.listOptionalTags.each_pair { |name, value|
@@ -350,15 +382,7 @@ module MU
 
           MU.setVar("curRegion", region) if !region.nil?
           zone = MU::Cloud::DNSZone.find(cloud_id: id).values.first
-          if zone.nil?
-            raise MuError, "Hosted DNS Zone #{id} not found"
-          end
-
-          if zone.nil?
-            MU.log "Attempting to add record to nonexistent DNS zone #{id}", MU::ERR
-            raise MuError, "Attempting to add record to nonexistent DNS zone #{id}"
-          end
-
+          raise MuError, "Attempting to add record to nonexistent DNS zone #{id}" if zone.nil?
           name = name + "." + zone.name if !name.match(/(^|\.)#{zone.name}$/)
 
           action = "CREATE"
@@ -369,11 +393,12 @@ module MU
             target_zone = id
             target_name = targets[0].downcase
             target_name.chomp!(".")
+
             if !alias_zone.nil?
               target_zone = "/hostedzone/"+alias_zone if !alias_zone.match(/^\/hostedzone\//)
             else
               MU::Cloud::AWS.listRegions.each { |region|
-                MU::Cloud::AWS.elb.describe_load_balancers().load_balancer_descriptions.each { |elb|
+                MU::Cloud::AWS.elb(region).describe_load_balancers.load_balancer_descriptions.each { |elb|
                   elb_dns = elb.dns_name.downcase
                   elb_dns.chomp!(".")
                   if target_name == elb_dns
@@ -385,52 +410,81 @@ module MU
                 break if target_zone != id
               }
             end
+
             base_rrset = {
-                :name => name,
-                :type => "A",
-                :alias_target => {
-                    :hosted_zone_id => target_zone,
-                    :dns_name => targets[0],
-                    :evaluate_target_health => true
-                }
+              name: name,
+              type: "A",
+              alias_target: {
+                hosted_zone_id: target_zone,
+                dns_name: targets[0],
+                evaluate_target_health: true
+              }
             }
           else
             rrsets = []
             if !targets.nil?
               targets.each { |target|
-                rrsets << {:value => target}
+                rrsets << {value: target}
               }
             end
+
             base_rrset = {
-                :name => name,
-                :type => type,
-                :ttl => ttl,
-                :resource_records => rrsets
+              name: name,
+              type: type,
+              ttl: ttl,
+              resource_records: rrsets
             }
+
             if !healthcheck.nil?
               base_rrset[:health_check_id] = healthcheck
             end
           end
 
           params = {
-              :hosted_zone_id => id,
-              :change_batch => {
-                  :changes => [
-                      {
-                          :action => action,
-                          :resource_record_set => base_rrset
-                      }
-                  ]
-              }
+            hosted_zone_id: id,
+            change_batch: {
+              changes: [
+                {
+                  action: action,
+                  resource_record_set: base_rrset
+                }
+              ]
+            }
           }
 
+          # Doing an UPSERT with a new set_identifier will fail with a record already exist error, so lets try and get it from an existing record. 
+          # This can be an issue with multiple secondary failover records
+          if (location || failover || region || weight) && set_identifier.nil?
+            record_sets = MU::Cloud::AWS.route53.list_resource_record_sets(
+              hosted_zone_id: id,
+              start_record_name: name
+            ).resource_record_sets
+
+            record_sets.each { |r|
+              if r.name == name
+                if location && location == r.location
+                  set_identifier = r.set_identifier
+                  break
+                elsif failover && failover == r.failover
+                  set_identifier = r.set_identifier
+                  break
+                elsif region && region == r.region
+                  set_identifier = r.set_identifier
+                  break
+                elsif weight && weight == r.weight
+                  set_identifier = r.set_identifier
+                  break
+                end
+              end
+            }
+          end
 
           if !failover.nil?
             base_rrset[:failover] = failover
-            base_rrset[:set_identifier] = MU.deploy_id+"-failover-"+failover.downcase
+            set_identifier ||= "#{MU.deploy_id}-failover-#{failover}".upcase
           elsif !weight.nil?
             base_rrset[:weight] = weight
-            base_rrset[:set_identifier] = MU.deploy_id+"-weighted-"+weight.to_s
+            set_identifier ||= "#{MU.deploy_id}-weighted-#{weight.to_s}".upcase
           elsif !location.nil?
             loc_arg = Hash.new
             location.each_pair { |key, val|
@@ -438,21 +492,18 @@ module MU
               loc_arg[sym] = val
             }
             base_rrset[:geo_location] = loc_arg
-            base_rrset[:set_identifier] = MU.deploy_id+"-location-"+location.values.join("-")
+            set_identifier ||= "#{MU.deploy_id}-location-#{location.values.join("-")}".upcase
           elsif !region.nil?
             base_rrset[:region] = region
-            base_rrset[:set_identifier] = MU.deploy_id+"-latency-"+region
+            set_identifier ||= "#{MU.deploy_id}-latency-#{region}".upcase
           end
 
-          if !set_identifier.nil?
-            base_rrset[:set_identifier] = set_identifier
-          end
+          base_rrset[:set_identifier] = set_identifier if set_identifier
 
-
-          if !delete
-            MU.log "Adding DNS record #{name} => #{targets} (#{type}) to #{id}", details: params
-          else
+          if delete
             MU.log "Deleting DNS record #{name} (#{type}) from #{id}", details: params
+          else
+            MU.log "Adding DNS record #{name} => #{targets} (#{type}) to #{id}", details: params
           end
 
           begin
@@ -481,7 +532,6 @@ module MU
               attempts = attempts + 1
             end while change_info.status != "INSYNC"
           end
-
         end
 
         #		@resolver = Resolv::DNS.new
@@ -609,7 +659,8 @@ module MU
         # currently-loaded deployment, and purges them.
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
           checks_to_clean = []
-          MU::Cloud::AWS.route53(region).list_health_checks().health_checks.each { |check|
+          threads = []
+          MU::Cloud::AWS.route53(region).list_health_checks.health_checks.each { |check|
             begin
               tags = MU::Cloud::AWS.route53(region).list_tags_for_resource(
                   resource_type: "healthcheck",
@@ -621,13 +672,45 @@ module MU
                 muid_match = true if tag.key == "MU-ID" and tag.value == MU.deploy_id
                 mumaster_match = true if tag.key == "MU-MASTER-IP" and tag.value == MU.mu_public_ip
               }
-              if muid_match and mumaster_match
-                MU.log "Removing health check #{check.id}"
-                MU::Cloud::AWS.route53(region).delete_health_check(health_check_id: check.id) if !noop
+
+              delete = false
+              if muid_match
+                if ignoremaster
+                  delete = true
+                else
+                  delete = true if mumaster_match
+                end
+              end
+
+              if delete
+                parent_thread_id = Thread.current.object_id
+                threads << Thread.new(check) { |mycheck|
+                  MU.dupGlobals(parent_thread_id)
+                  Thread.abort_on_exception = true
+                  MU.log "Removing health check #{check.id}"
+                  retries = 5
+                  begin 
+                    MU::Cloud::AWS.route53(region).delete_health_check(health_check_id: check.id) if !noop
+                  rescue Aws::Route53::Errors::NoSuchHealthCheck => e
+                    MU.log "Health Check '#{check.id}' disappeared before I could remove it", MU::WARN, details: e.inspect
+                  rescue Aws::Route53::Errors::InvalidInput => e
+                    if e.message.match(/is still referenced from parent health check/) && retries <= 5
+                      sleep 5
+                      retries += 1
+                      retry
+                     else
+                      raise MuError, e.inspect
+                    end
+                  end
+                }
               end
             rescue Aws::Route53::Errors::NoSuchHealthCheck => e
               MU.log "Health Check '#{check.id}' disappeared before I could remove it", MU::WARN, details: e.inspect
             end
+          }
+
+          threads.each { |t|
+            t.join
           }
 
           zones = MU::Cloud::DNSZone.find(deploy_id: MU.deploy_id, region: region)

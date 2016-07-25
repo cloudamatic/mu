@@ -1422,22 +1422,39 @@ module MU
             route_types = route_types + 1 if !record['geo_location'].nil?
             route_types = route_types + 1 if !record['region'].nil?
             route_types = route_types + 1 if !record['failover'].nil?
+
             if route_types > 1
               MU.log "At most one of weight, location, region, and failover can be specified in a record.", MU::ERR, details: record
               ok = false
             end
+
             if !record['mu_type'].nil?
               zone["dependencies"] << {
                 "type" => record['mu_type'],
                 "name" => record['target']
               }
             end
-            if !record['healthcheck'].nil?
+
+            if record.has_key?('healthchecks') && !record['healthchecks'].empty?
+              primary_alarms_set = []
+              record['healthchecks'].each { |check|
+                check['alarm_region'] ||= zone['region'] if check['method'] == "CLOUDWATCH_METRIC"
+                primary_alarms_set << true if check['type'] == 'primary'
+              }
+
+              if primary_alarms_set.size != 1
+                MU.log "Must have only one primary health check, but #{primary_alarms_set.size} are set.", MU::ERR, details: record
+                ok = false
+              end
+
+              # record['healthcheck']['alarm_region'] ||= zone['region'] if record['healthcheck']['method'] == "CLOUDWATCH_METRIC"
+
               if route_types == 0
                 MU.log "Health check in a DNS zone only valid with Weighted, Location-based, Latency-based, or Failover routing.", MU::ERR, details: record
                 ok = false
               end
             end
+
             if !record['geo_location'].nil?
               if !record['geo_location']['continent_code'].nil? and (!record['geo_location']['country_code'].nil? or !record['geo_location']['subdivision_code'].nil?)
                 MU.log "Location routing cannot mix continent_code with other location specifiers.", MU::ERR, details: record
@@ -3909,16 +3926,18 @@ module MU
                           }
                       }
                   },
-                  "healthcheck" => {
-                      "type" => "object",
-                      "required" => ["method"],
-                      "description" => "Check used to determine instance health for failover routing.",
-                      "additionalProperties" => false,
-                      "properties" => {
+                  "healthchecks" => {
+                    "type" => "array",
+                    "items" => {
+                        "type" => "object",
+                        "required" => ["method", "name"],
+                        "additionalProperties" => false,
+                        "description" => "Check used to determine instance health for failover routing.",
+                        "properties" => {
                           "method" => {
                               "type" => "string",
                               "description" => "The health check method to use",
-                              "enum" => ["HTTP", "HTTPS", "HTTP_STR_MATCH", "HTTPS_STR_MATCH", "TCP"]
+                              "enum" => ["HTTP", "HTTPS", "HTTP_STR_MATCH", "HTTPS_STR_MATCH", "TCP", "CALCULATED", "CLOUDWATCH_METRIC"]
                           },
                           "port" => {
                               "type" => "integer",
@@ -3928,24 +3947,95 @@ module MU
                               "type" => "string",
                               "description" => "Path to check for HTTP-based health checks."
                           },
+                          "type" => {
+                            "type" => "string",
+                            "description" => "When using CALCULATED based health checks make sure to set only the CALCULATED health check to primary while setting all other health checks to secondary.",
+                            "default" => "primary",
+                            "enum" => ["primary", "secondary"]
+                          },
+                          "name" => {
+                              "type" => "string",
+                              "description" => "The health check name."
+                          },
                           "search_string" => {
                               "type" => "string",
                               "description" => "Path to check for STR_MATCH-based health checks."
                           },
                           "check_interval" => {
                               "type" => "integer",
-                              "description" => "The frequency of health checks.",
+                              "description" => "The frequency of health checks in seconds.",
                               "default" => 30,
                               "enum" => [10, 30]
                           },
                           "failure_threshold" => {
                               "type" => "integer",
-                              "description" => "The number of failed health checks before we consider this entry in failure.",
+                              "description" => "The number of failed health checks before we consider this entry in failure. Values can be between 1-10.",
                               "default" => 2,
-                              "pattern" => "^[01]?\\d$"
+                              "pattern" => "^([1-9]|10)$"
+                          },
+                          "insufficient_data" => {
+                            "type" => "string",
+                            "description" => "What should the health check status be set to if there is insufficient data return from the CloudWatch alarm. Used only with CLOUDWATCH_METRIC based health checks.",
+                            "enum" => ["Healthy", "Unhealthy", "LastKnownStatus"]
+                          },
+                          "regions" => {
+                            "type" => "array",
+                            "description" => "The cloud provider's regions from which to test the status of the health check. If not specified will use all regions. Used only with HTTP/HTTPS/TCP based health checks.",
+                            "items" => {
+                              "type" => "string"
+                            }
+                          },
+                          "latency" => {
+                            "description" => "If to measure and graph latency between the health checkers and the endpoint. Used only with HTTP/HTTPS/TCP based health checks.",
+                            "type" => "boolean",
+                            "default" => false
+                          },
+                          "inverted" => {
+                            "description" => "If the status of the health check should be inverted, eg. if health check status is healthy but you would like it to be evaluated as not healthy",
+                            "type" => "boolean",
+                            "default" => false
+                          },
+                          "enable_sni" => {
+                            "description" => "Enabled by default on HTTPS or HTTPS_STR_MATCH",
+                            "type" => "boolean",
+                            "default" => false,
+                            "default_if" => [
+                              {
+                                "key_is" => "method",
+                                "value_is" => "HTTPS",
+                                "set" => true
+                              },
+                              {
+                                "key_is" => "method",
+                                "value_is" => "HTTPS_STR_MATCH",
+                                "set" => true
+                              }
+                            ]
+                          },
+                          "health_threshold" => {
+                            "type" => "integer",
+                            "description" => "The minimum number of health checks that must be healthy when configuring a health check of type CALCULATED. Values can be between 0-256.",
+                            "default" => 1,
+                            "pattern" => "^[\\d]?{3}$"
+                          },
+                          "health_check_ids" => {
+                            "type" => "array",
+                            "description" => "The IDs of existing health checks to use when method is set to CALCULATED.",
+                            "items" => {
+                              "type" => "string"
+                            }
+                          },
+                          "alarm_region" => {
+                            "type" => "string",
+                            "description" => "The cloud provider's region the cloudwatch alarm was created in. Used with CLOUDWATCH_METRIC health checks"
+                          },
+                          "alarm_name" => {
+                            "type" => "string",
+                            "description" => "The cloudwatch alarm name. Used with CLOUDWATCH_METRIC health checks"
                           }
-                      }
-                  }
+                        }
+                    }
+                }
               }
           }
       }
