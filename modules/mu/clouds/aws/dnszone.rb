@@ -211,15 +211,13 @@ module MU
                 child_check_ids << MU::Cloud::AWS::DNSZone.createHealthCheck(check, record['target']) if check['type'] == "secondary"
               }
 
-              if !child_check_ids.empty?
-                record['healthchecks'].each { |check|
-                  if check['type'] == "primary"
-                    check["health_check_ids"] = child_check_ids if !check.has_key?("health_check_ids") || check['health_check_ids'].empty?
-                    healthcheck_id = MU::Cloud::AWS::DNSZone.createHealthCheck(check, record['target'])
-                    break
-                  end
-                }
-              end
+              record['healthchecks'].each { |check|
+                if check['type'] == "primary"
+                  check["health_check_ids"] = child_check_ids if !check.has_key?("health_check_ids") || check['health_check_ids'].empty?
+                  healthcheck_id = MU::Cloud::AWS::DNSZone.createHealthCheck(check, record['target'])
+                  break
+                end
+              }
             end
 
             # parent_thread_id seems to be nil sometimes, try to make sure we don't fail
