@@ -208,10 +208,7 @@ module MU
             child_check_ids = []
             if record.has_key?('healthchecks')
               record['healthchecks'].each { |check|
-                if check['type'] == "secondary"
-                   id = MU::Cloud::AWS::DNSZone.createHealthCheck(check, record['target'])
-                   child_check_ids << id
-                end
+                child_check_ids << MU::Cloud::AWS::DNSZone.createHealthCheck(check, record['target']) if check['type'] == "secondary"
               }
 
               if !child_check_ids.empty?
@@ -225,7 +222,14 @@ module MU
               end
             end
 
+            # parent_thread_id seems to be nil sometimes, try to make sure we don't fail
+            # There has got to be a better way to deal with this than this
             parent_thread_id = Thread.current.object_id
+            while parent_thread_id.nil?
+              parent_thread_id = Thread.current.object_id
+              sleep 3
+            end
+
             record_threads << Thread.new {
               MU.dupGlobals(parent_thread_id)
               MU::Cloud::AWS::DNSZone.manageRecord(
@@ -698,8 +702,8 @@ module MU
                       sleep 5
                       retries += 1
                       retry
-                     else
-                      raise MuError, e.inspect
+                    else
+                      MU.log "Health Check #{check.id} still has a parent health check associated with it, skipping", MU::WARN, details: e.inspect
                     end
                   end
                 }
