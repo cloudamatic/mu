@@ -14,8 +14,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 
-case node[:platform]
-  when "centos"
+case node[:platform_family]
+  when "rhel"
 
     ['nrpe', 'nagios-plugins-disk', 'nagios-plugins-nrpe', 'nagios-plugins-ssh'].each do |pkg|
       package pkg 
