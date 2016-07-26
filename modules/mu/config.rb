@@ -227,12 +227,12 @@ module MU
     # @param runtimecode [<String>]: Actual code to allow the cloud layer to interpret literally in its own idiom, e.g. '"Ref" : "AWS::StackName"' for CloudFormation
     def getTail(param, value: nil, prettyname: nil, cloudtype: "String", valid_values: [], description: nil, list_of: nil, prefix: "", suffix: "", pseudo: false, runtimecode: nil)
       if value.nil?
-        if $parameters.nil? or !$parameters.has_key?(param)
-          MU.log "Parameter '#{param}' (#{param.class.name}) referenced in config but not provided (#{caller[0]})", MU::DEBUG, details: $parameters
+        if @@parameters.nil? or !@@parameters.has_key?(param)
+          MU.log "Parameter '#{param}' (#{param.class.name}) referenced in config but not provided (#{caller[0]})", MU::DEBUG, details: @@parameters
           return nil
 #          raise DeployParamError
         else
-          value = $parameters[param]
+          value = @@parameters[param]
         end
       end
       if !prettyname.nil?
@@ -425,6 +425,13 @@ module MU
       # for the rest of the config to reference.
       # XXX figure out how to make include() add parameters for us
       param_cfg, raw_erb_params_only = resolveConfig(path: @@config_path, param_pass: true)
+      if param_cfg.has_key?("parameters")
+        param_cfg["parameters"].each { |param|
+          if param.has_key?("default") and param["default"].nil?
+            param["default"] = ""
+          end
+        }
+      end
 
       # Set up special Tail objects for our automatic pseudo-parameters
       getTail("myPublicIp", value: $myPublicIp, pseudo: true)
@@ -437,7 +444,7 @@ module MU
           param['valid_values'] ||= []
           if !@@parameters.has_key?(param['name'])
             if param.has_key?("default")
-              @@parameters[param['name']] = param['default']
+              @@parameters[param['name']] = param['default'].nil? ? "" : param['default']
             elsif param["required"] or !param.has_key?("required")
               MU.log "Required parameter '#{param['name']}' not supplied", MU::ERR
               ok = false
