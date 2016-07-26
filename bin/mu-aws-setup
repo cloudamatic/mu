@@ -260,7 +260,7 @@ if $opts[:logs]
           s3_bucket_name: $bucketname,
           include_global_service_events: true
       )
-    rescue Aws::CloudTrail::Errors::MaximumNumberOfTrailsExceededException => e
+    rescue Aws::CloudTrail::Errors::MaximumNumberOfTrailsExceededException, Aws::CloudTrail::Errors::AccessDeniedException => e
       MU.log e.inspect, MU::ERR
     end
 
