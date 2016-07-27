@@ -170,15 +170,15 @@ Ciphers aes128-ctr,aes192-ctr,aes256-ctr
 <%
 begin
 	if !node.application_attributes.sshd_allow_groups.empty? %>
-AllowGroups <%= node.application_attributes.sshd_allow_groups %>
+AllowGroups <%= node.application_attributes.sshd_allow_groups %> root
 <%
 	else
 	%>
-AllowUsers ec2-user
+AllowUsers ec2-user root
 <%
 	end
 rescue NoMethodError %>
-AllowUsers ec2-user
+AllowUsers ec2-user root
 <%
 end
 %>
