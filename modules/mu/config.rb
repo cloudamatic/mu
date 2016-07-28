@@ -250,7 +250,7 @@ module MU
             list_of = @@tails[param][count].values.first.getName if list_of.nil?
             prettyname = @@tails[param][count].values.first.getPrettyName if prettyname.nil?
             description = @@tails[param][count].values.first.description if description.nil?
-            valid_values = @@tails[param][count].values.first.valid_values if valid_values.nil?
+            valid_values = @@tails[param][count].values.first.valid_values if valid_values.nil? or valid_values.empty?
             cloudtype = @@tails[param][count].values.first.getCloudType if @@tails[param][count].values.first.getCloudType != "String"
           end
           prettyname = param.capitalize if prettyname.nil?
@@ -263,7 +263,7 @@ module MU
           value = @@tails[param].to_s if value.nil?
           prettyname = @@tails[param].getPrettyName if prettyname.nil?
           description = @@tails[param].description if description.nil?
-          valid_values = @@tails[param].valid_values if valid_values.nil?
+          valid_values = @@tails[param].valid_values if valid_values.nil? or valid_values.empty?
           cloudtype = @@tails[param].getCloudType if @@tails[param].getCloudType != "String"
         end
         tail = MU::Config::Tail.new(param, value, prettyname, cloudtype, valid_values, description, prefix: prefix, suffix: suffix, pseudo: pseudo, runtimecode: runtimecode)
