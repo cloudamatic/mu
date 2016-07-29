@@ -1437,7 +1437,7 @@ module MU
           count = 0
           vpc['availability_zones'].each { |az|
             addnat = false
-            if vpc['create_nat_gateway'] and (vpc['nat_gateway_multi_az'] or nat_gateway_added) and public_rtbs.size > 0
+            if vpc['create_nat_gateway'] and (vpc['nat_gateway_multi_az'] or !nat_gateway_added) and public_rtbs.size > 0
               addnat = true
               nat_gateway_added = true
             end
