@@ -276,7 +276,7 @@ module MU
           MU::Cloud::CloudFormation.writeCloudFormationTemplate(tails: MU::Config.tails, config: @main_config, path: @cloudformation_output, mommacat: mommacat)
           # If we didn't build anything besides CloudFormation, purge useless
           # metadata.
-          if mommacat.numKittens(clouds: ["CloudFormation"], negate: true) > 0
+          if mommacat.numKittens(clouds: ["CloudFormation"], negate: true) == 0
             MU::Cleanup.run(MU.deploy_id, skipcloud: true, verbosity: MU::Logger::SILENT, mommacat: mommacat)
             return
           end

@@ -328,7 +328,7 @@ module MU
           if @server.config['ssh_user'] == "root"
             remove_cmd = "rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; rpm -e chef; apt-get -y remove chef ; touch /opt/mu_installed_chef"
           else
-            remove_cmd = "sudo rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; rpm -e erase chef; apt-get -y remove chef ; touch /opt/mu_installed_chef"
+            remove_cmd = "sudo rpm -e erase chef ; sudo rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; sudo apt-get -y remove chef ; sudo touch /opt/mu_installed_chef"
           end
           guardfile = "/opt/mu_installed_chef"
         else
@@ -435,6 +435,7 @@ module MU
             # bad Chef installs are possible culprits of bootstrap failures
             if !@config['forced_preclean']
               preClean(false)
+              MU::Groomer::Chef.cleanup(@server.mu_name)
               @config['forced_preclean'] = true
             end
             sleep 10*retries
