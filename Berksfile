@@ -30,6 +30,7 @@ cookbook 'mu-php54', path: "#{cookbookPath}/mu-php54"
 cookbook 'mu-tools', path: "#{cookbookPath}/mu-tools"
 cookbook 'mu-utility', path: "#{cookbookPath}/mu-utility"
 cookbook 'mysql-chef_gem', path: "#{cookbookPath}/mysql-chef_gem"
+cookbook 'mysql', '< 8.0'
 cookbook 'nagios', path: "#{cookbookPath}/nagios"
 cookbook 'nginx-passenger', path: "#{cookbookPath}/nginx-passenger"
 cookbook 'pacman', '~> 1.1.1'
