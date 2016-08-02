@@ -436,6 +436,7 @@ module MU
             if !@config['forced_preclean']
               preClean(false)
               MU::Groomer::Chef.cleanup(@server.mu_name)
+              createGenericHostSSLCert
               @config['forced_preclean'] = true
             end
             sleep 10*retries
