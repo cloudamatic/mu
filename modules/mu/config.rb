@@ -2562,7 +2562,7 @@ module MU
                   newmp = Marshal.load(Marshal.dump(mp))
                   newmp['vpc'].delete("subnets")
                   newmp['vpc'].delete("subnet_pref")
-                  newmp['vpc']['subnets'] = [subnet]
+                  newmp['vpc'].merge!(subnet)
                   newmp['name'] = newmp['name']+count.to_s
                   newmp['directory'] = newmp['directory']+count.to_s
                   count = count + 1

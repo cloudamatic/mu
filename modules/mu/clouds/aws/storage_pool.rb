@@ -70,6 +70,17 @@ module MU
                 }
               end
 
+              if target.has_key?("vpc") and target['vpc'].has_key?("vpc_name")
+                vpc = @dependencies["vpc"][target['vpc']["vpc_name"]]
+                if target['vpc']["subnet_name"]
+                  subnet_obj = vpc.getSubnet(name: target['vpc']["subnet_name"])
+                  if subnet_obj.nil?
+                    raise MuError, "Failed to locate subnet from #{subnet} in StoragePool #{@config['name']}:#{target['name']}"
+                  end
+                  target['vpc']['subnet_id'] = subnet_obj.cloud_id
+                end
+              end
+
               mp_threads << Thread.new {
                 MU.dupGlobals(parent_thread_id)
                 mount_target = MU::Cloud::AWS::StoragePool.create_mount_target(
