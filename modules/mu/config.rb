@@ -2790,7 +2790,6 @@ module MU
             end
           }
         end
-<<<<<<< HEAD
         
         if server.has_key?("storage_pools")
           server["storage_pools"].each { |sp|
