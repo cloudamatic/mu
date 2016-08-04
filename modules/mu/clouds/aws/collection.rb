@@ -32,6 +32,8 @@ module MU
           @config = MU::Config.manxify(kitten_cfg)
           if !mu_name.nil?
             @mu_name = mu_name
+          else
+            @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
           end
           MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
         end
@@ -56,6 +58,7 @@ module MU
             stack_descriptor = {
                 :stack_name => stack_name,
                 :on_failure => @config["on_failure"],
+                :timeout_in_minutes => @config["timeout"],
                 :tags => [
                     {
                         :key => "Name",

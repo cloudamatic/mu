@@ -1290,7 +1290,8 @@ module MU
                 exclude_storage: img_cfg['image_exclude_storage'],
                 copy_to_regions: img_cfg['copy_to_regions'],
                 make_public: img_cfg['public'],
-                region: @config['region'])
+                region: @config['region'],
+                tags: @config['tags'])
             @deploy.notify("images", @config['name'], {"image_id" => ami_id})
             @config['image_created'] = true
             if img_cfg['image_then_destroy']
@@ -1371,6 +1372,8 @@ module MU
         # @param storage [Hash]: The storage devices to include in this image.
         # @param exclude_storage [Boolean]: Do not include the storage device profile of the running instance when creating this image.
         # @param region [String]: The cloud provider region
+        # @param copy_to_regions [Array<String>]: Copy the resulting AMI into the listed regions.
+        # @param tags [Array<String>]: Extra/override tags to apply to the image.
         # @return [String]: The cloud provider identifier of the new machine image.
         def self.createImage(name: name,
             instance_id: instance_id,
@@ -1378,7 +1381,8 @@ module MU
             exclude_storage: exclude_storage,
             make_public: false,
             region: MU.curRegion,
-            copy_to_regions: [])
+            copy_to_regions: [],
+            tags: [])
           ami_descriptor = {
               :instance_id => instance_id,
               :name => name,
@@ -1446,6 +1450,11 @@ module MU
 
                 MU::MommaCat.createStandardTags(copy.image_id, region: r)
                 MU::MommaCat.createTag(copy.image_id, "Name", name, region: r)
+                if !tags.nil?
+                  tags.each { |tag|
+                    MU::MommaCat.createTag(instance.instance_id, tag['key'], tag['value'], region: r)
+                  }
+                end
                 MU::Cloud::AWS::Server.waitForAMI(copy.image_id, region: r)
                 if make_public
                   MU::Cloud::AWS.ec2(r).modify_image_attribute(

@@ -4,7 +4,10 @@
 # setting up the Mu tools, Chef, and assorted support libraries and utilities.
 #
 
-DIST_VERSION=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
+DIST_VERSION=`rpm -qa \*-release\* | grep -Ei "redhat|centos" | cut -d"-" -f3`
+if [ "$DIST_VERSION" == "server" ];then # funny package name in RHEL6
+  DIST_VERSION="6"
+fi
 EPEL_RPM="http://mirror.metrocast.net/fedora/epel/epel-release-latest-$DIST_VERSION.noarch.rpm"
 
 CHEF_CLIENT_VERSION="12.11.18-1"
@@ -22,7 +25,7 @@ if [ $DIST_VERSION == 7 ];then
   RUBY_VERSION="ruby-2.1.6"
   GECODE_RPMS="https://s3.amazonaws.com/cap-public/gecode-3.7.3-2.el7.centos.x86_64.rpm https://s3.amazonaws.com/cap-public/gecode-devel-3.7.3-2.el7.centos.x86_64.rpm"
 else
-  PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.8.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx mysql-devel postgresql-devel openssl libyaml graphviz graphviz-devel autoconf"
+  PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.8.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel diffutils patch bind-utils httpd-tools gecode-devel mailx mysql-devel postgresql-devel openssl libyaml graphviz autoconf ImageMagick-devel graphviz-devel"
   OPSCODE_CHEF_PKG="chef-server-core-$CHEF_SERVER_VERSION.el6.x86_64"
   OPSCODE_CHEF_DL="https://packages.chef.io/stable/el/6/${OPSCODE_CHEF_PKG}.rpm"
   CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el6.x86_64"
@@ -463,6 +466,8 @@ manage_chef_user()
   fi
 
   mkdir -p "$MU_DATADIR/users/$user"
+  /bin/chmod g+rsx "$MU_DATADIR/users"
+  /bin/chgrp mu-users "$MU_DATADIR/users"
   pivotal_cfg_setup pivotal_cfg
   # chef-server-ctl generates a spectcular amount of stupid noise
   filter="(ffi-yajl|falling back to ffi)"
@@ -983,9 +988,15 @@ install_system_packages()
   for pkg in $PACKAGES;do
     rpm -q $pkg 2>&1 > /dev/null || install_me="${install_me} $pkg"
   done
+  enables=""
+  for r in rhui-REGION-rhel-server-releases-optional epel extras;do
+    if grep $r /etc/yum.repos.d/* > /dev/null;then
+      enables="${enables} --enablerepo=$r"
+    fi
+  done
   if [ "$install_me" != "" ];then
     status_message "Installing ${BOLD}base packages${NORM}"
-    yum -y install ${install_me} || exit 1
+    yum -y install ${enables} ${install_me} || exit 1
   fi
 
   if [ $DIST_VERSION == 7 ];then
@@ -1655,6 +1666,8 @@ enable_audit_logs()
 
 set_permissions()
 {
+  /bin/chmod g+rsx "$MU_DATADIR/users"
+  /bin/chgrp mu-users "$MU_DATADIR/users"
   cp -a $MU_LIBDIR/extras/git-fix-permissions-hook $MU_LIBDIR/.git/hooks/post-merge
   cp -a $MU_LIBDIR/extras/git-fix-permissions-hook $MU_LIBDIR/.git/hooks/post-checkout
   cp -a $MU_LIBDIR/extras/git-fix-permissions-hook $MU_LIBDIR/.git/hooks/post-rewrite

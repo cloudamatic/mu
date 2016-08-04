@@ -34,6 +34,8 @@ module MU
           @cloud_id ||= cloud_id
           if !mu_name.nil?
             @mu_name = mu_name
+          elsif @config['scrub_mu_isms']
+            @mu_name = @config['name']
           else
             @mu_name ||=
               if @config["create_replication_group"]
@@ -52,15 +54,28 @@ module MU
         def create
           @config['identifier'] = @mu_name
 
+          sg_param_name = nil
           if @config["create_replication_group"]
             @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("cache_repl_group", self, name: @config['identifier'], scrub_mu_isms: @config['scrub_mu_isms']) if @cfm_template.nil?
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "ReplicationGroupDescription", @mu_name)
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "NumCacheClusters", @config['node_count'].to_s)
+            sg_param_name = "SecurityGroupIds"
           else
             @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags'], scrub_mu_isms: @config['scrub_mu_isms']) if @cfm_template.nil?
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "ClusterName", @mu_name)
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "AZMode", @config["az_mode"]) if @config["az_mode"]
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "NumCacheNodes", @config['node_count'].to_s)
+            sg_param_name = "VpcSecurityGroupIds"
+          end
+
+          if @config['add_firewall_rules']
+            @config['add_firewall_rules'].each { |acl|
+              if acl["rule_id"]
+                MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], sg_param_name, acl["rule_id"])
+              else
+                MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], sg_param_name, { "Ref" => @dependencies["firewall_rule"][acl["rule_name"]].cloudobj.cfm_name })
+              end
+            }
           end
 
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Engine", @config['engine'])

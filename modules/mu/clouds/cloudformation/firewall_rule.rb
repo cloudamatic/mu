@@ -38,6 +38,8 @@ module MU
           @cloud_id ||= cloud_id
           if !mu_name.nil?
             @mu_name = mu_name
+          elsif @config['scrub_mu_isms']
+            @mu_name = @config['name']
           else
             if !@vpc.nil?
               @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)

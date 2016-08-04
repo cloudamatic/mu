@@ -282,18 +282,20 @@ module MU
           end
         end
       end
-      if !MU.mommacat.deployment['servers'].nil? and MU.mommacat.deployment['servers'].keys.size > 0
-        # XXX some kind of filter (obey sync_siblings on nodes' configs)
-        MU.mommacat.syncLitter(MU.mommacat.deployment['servers'].keys)
-      end
-      deployment = MU.mommacat.deployment
-      deployment["deployment_end_time"]=Time.new.strftime("%I:%M %p on %A, %b %d, %Y").to_s;
-      if mommacat.numKittens(clouds: ["AWS"]) > 0
-        MU::Cloud::AWS.openFirewallForClients
-      end
-      MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
-      if mommacat.numKittens(types: ["Server", "ServerPool"]) > 0
-        MU::MommaCat.syncMonitoringConfig
+      if mommacat.numKittens(clouds: ["CloudFormation"], negate: true) > 0
+        if !MU.mommacat.deployment['servers'].nil? and MU.mommacat.deployment['servers'].keys.size > 0
+          # XXX some kind of filter (obey sync_siblings on nodes' configs)
+          MU.mommacat.syncLitter(MU.mommacat.deployment['servers'].keys)
+        end
+        deployment = MU.mommacat.deployment
+        deployment["deployment_end_time"]=Time.new.strftime("%I:%M %p on %A, %b %d, %Y").to_s;
+        if mommacat.numKittens(clouds: ["AWS"]) > 0
+          MU::Cloud::AWS.openFirewallForClients
+        end
+        MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
+        if mommacat.numKittens(types: ["Server", "ServerPool"]) > 0
+          MU::MommaCat.syncMonitoringConfig
+        end
       end
 
       # Send notifications
@@ -318,7 +320,6 @@ module MU
         rescue MU::Cloud::MuCloudFlagNotImplemented, MU::Cloud::MuCloudResourceNotImplemented => e
           MU.log "Failed to generate AWS cost-calculation URL. Skipping.", MU::WARN, details: "Deployment uses a feature not available in CloudFormation layer.", verbosity: MU::Logger::NORMAL
         rescue Exception => e
-#          MU.log "Failed to generate AWS cost-calculation URL, skipping", MU::WARN, verbosity: MU::Logger::NORMAL
           MU.log "Failed to generate AWS cost-calculation URL. Skipping.", MU::WARN, details: "Deployment uses a feature not available in CloudFormation layer.", verbosity: MU::Logger::NORMAL
         end
         MU.setLogging(@verbosity)

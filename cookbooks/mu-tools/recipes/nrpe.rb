@@ -14,8 +14,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 
-case node[:platform]
-when "centos"
+case node[:platform_family]
+  when "rhel"
   package ['nrpe', 'nagios-plugins-disk', 'nagios-plugins-nrpe', 'nagios-plugins-ssh'] 
   master_ips = get_mu_master_ips
   master_ips << "127.0.0.1"

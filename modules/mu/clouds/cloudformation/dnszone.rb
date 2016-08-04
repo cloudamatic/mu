@@ -49,7 +49,7 @@ module MU
           if @config['private']
             if @config['all_account_vpcs']
 # XXX would need a way to add tails (CloudFormation paramaters, effectively) here in order to prompt the user for stuff like which pre-existing VPCs to plug in. Maybe we can have the config parser do that for is and pass it all in as @config['vpcs'], which would in turn be Refs to parameters? It'd need to know about the -c flag for AWS resources being converted on the fly.
-#            MU::Config.getTail("#{parent_name}vpc_id", value: vpc_block["vpc_id"], prettyname: "#{parent_name} Target VPC",  cloud_type: "AWS::EC2::VPC::Id")
+#            MU::Config.getTail("#{parent_name}vpc_id", value: vpc_block["vpc_id"], prettyname: "#{parent_name} Target VPC",  cloudtype: "AWS::EC2::VPC::Id")
               raise MuCloudFlagNotImplemented, "DNSZone parameter 'all_account_vpcs' currently not supported for CloudFormation targets"
             else
               raise MuError, "DNS Zone #{@config['name']} is flagged as private, you must provide a VPC to allow access." if @config['vpcs'].nil? || @config['vpcs'].empty?
@@ -164,7 +164,7 @@ module MU
               MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "Type", "A")
             else
               MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "ResourceRecords", dnsrec['realtarget'])
-              MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "TTL", dnsrec['ttl'].to_s)
+              MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "TTL", dnsrec['ttl'])
               MU::Cloud::CloudFormation.setCloudFormationProp(rec_template[rec_name], "Type", dnsrec['type'])
             end
 
@@ -196,7 +196,7 @@ module MU
                 if !dnsrec['healthcheck'][arg].nil?
                   key = ""
                   arg.split(/_/).each { |chunk| key = key + chunk.capitalize }
-                  check[key] = dnsrec['healthcheck'][arg].to_s
+                  check[key] = dnsrec['healthcheck'][arg]
                 end
               }
               if ["A", "AAAA"].include?(dnsrec['type'])

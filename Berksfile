@@ -9,8 +9,15 @@ siteCookbookPath = "#{ENV['MU_LIBDIR']}/site_cookbooks"
 
 source "https://supermarket.getchef.com"
 
+cookbook 'apache2', '~> 3.2.2'
+cookbook 'aws', '~> 2.9.3'
 cookbook 'chef-splunk', path: "#{cookbookPath}/chef-splunk"
 cookbook 'demo', path: "#{siteCookbookPath}/demo"
+cookbook 'freebsd', '~> 0.1.9'
+cookbook 'gunicorn', '~> 1.1.2'
+cookbook 'logrotate', '~> 1.9.2'
+cookbook 'jenkins', '~> 2.6.0'
+cookbook 'memcached', '~> 1.7.2'
 cookbook 'mu-activedirectory', path: "#{cookbookPath}/mu-activedirectory"
 cookbook 'mu-demo', path: "#{cookbookPath}/mu-demo"
 cookbook 'mu-firewall', path: "#{cookbookPath}/mu-firewall"
@@ -23,7 +30,9 @@ cookbook 'mu-php54', path: "#{cookbookPath}/mu-php54"
 cookbook 'mu-tools', path: "#{cookbookPath}/mu-tools"
 cookbook 'mu-utility', path: "#{cookbookPath}/mu-utility"
 cookbook 'mysql-chef_gem', path: "#{cookbookPath}/mysql-chef_gem"
+cookbook 'mysql', '< 8.0'
 cookbook 'nagios', path: "#{cookbookPath}/nagios"
 cookbook 'nginx-passenger', path: "#{cookbookPath}/nginx-passenger"
 cookbook 'python', path: "#{cookbookPath}/python"
+cookbook 'runit', '~> 1.7'
 cookbook 's3fs', path: "#{cookbookPath}/s3fs"
