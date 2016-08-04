@@ -2527,6 +2527,58 @@ module MU
         end
 
         if pool['mount_points'] && !pool['mount_points'].empty?
+          # Pass 1: Resolve VPC references, and expand into multiple mount
+          # points if we've been asked to do so with subnet_pref.
+          new_mount_points = []
+          pool['mount_points'].each{ |mp|
+            if mp["vpc"] && !mp["vpc"].empty?
+              mp['vpc']['region'] = pool['region'] if mp['vpc']['region'].nil?
+              mp["vpc"]['cloud'] = pool['cloud'] if mp["vpc"]['cloud'].nil?
+              # If we're using a VPC in this deploy, set it as a dependency
+              if mp["vpc"]["vpc_name"] and vpc_names.include?(mp["vpc"]["vpc_name"]) and mp["vpc"]["deploy_id"].nil?
+                pool["dependencies"] << {
+                  "type" => "vpc",
+                  "name" => mp["vpc"]["vpc_name"]
+                }
+
+                if !processVPCReference(
+                      mp["vpc"],
+                      "storage_pool #{pool['name']}",
+                      dflt_region: config['region'],
+                      is_sibling: true,
+                      sibling_vpcs: vpcs
+                    )
+                  ok = false
+                end
+              else
+                if !processVPCReference(mp["vpc"], "storage_pool #{pool['name']}", dflt_region: config['region'])
+                  ok = false
+                end
+              end
+              if mp['vpc']['subnets'].size > 1
+                MU.log "Using subnet_pref in Storage Pool mountpoint resulted in multiple subnets, generating new set of mount points to match.", MU::NOTICE
+                count = 0
+                mp['vpc']['subnets'].each { |subnet|
+                  newmp = Marshal.load(Marshal.dump(mp))
+                  newmp['vpc'].delete("subnets")
+                  newmp['vpc'].delete("subnet_pref")
+                  newmp['vpc']['subnets'] = [subnet]
+                  newmp['name'] = newmp['name']+count.to_s
+                  newmp['directory'] = newmp['directory']+count.to_s
+                  count = count + 1
+                  new_mount_points << newmp
+                }
+              else
+                new_mount_points << mp
+              end
+            else
+              new_mount_points << mp
+            end
+          }
+          pool['mount_points'] = new_mount_points
+
+          # Pass 2: Resolve everything else in our (potentially generated) set
+          # of mount points.
           pool['mount_points'].each{ |mp|
             if mp['ingress_rules']
               fwname = "storage-#{mp['name']}"
@@ -2550,38 +2602,6 @@ module MU
               }
             end
 
-            if mp["vpc"] && !mp["vpc"].empty?
-              if mp["vpc"]["subnet_pref"] and !mp["vpc"]["subnets"]
-                if %w{all any all_public all_private}.include? mp["vpc"]["subnet_pref"]
-                  MU.log "subnet_pref #{mp["vpc"]["subnet_pref"]} is not supported for storage pools.", MU::ERR
-                  ok = false
-                end
-              end
-
-              mp['vpc']['region'] = pool['region'] if mp['vpc']['region'].nil?
-              mp["vpc"]['cloud'] = pool['cloud'] if mp["vpc"]['cloud'].nil?
-              # If we're using a VPC in this deploy, set it as a dependency
-              if mp["vpc"]["vpc_name"] and vpc_names.include?(mp["vpc"]["vpc_name"]) and mp["vpc"]["deploy_id"].nil?
-                pool["dependencies"] << {
-                  "type" => "vpc",
-                  "name" => mp["vpc"]["vpc_name"]
-                }
-
-                if !processVPCReference(
-                  mp["vpc"],
-                  "storage_pool #{pool['name']}",
-                  dflt_region: config['region'],
-                  is_sibling: true,
-                  sibling_vpcs: vpcs
-                )
-                  ok = false
-                end
-              else
-                if !processVPCReference(mp["vpc"], "storage_pool #{pool['name']}", dflt_region: config['region'])
-                  ok = false
-                end
-              end
-            end
           }
         end
 
@@ -3144,7 +3164,7 @@ module MU
         "type" => "array",
         "items" => {
             "type" => "object",
-            "description" => "Declare other server or database objects which this server requires. This server will wait to finish bootstrapping until those dependent resources become available.",
+            "description" => "Declare other objects which this resource requires. This resource will wait until the others are available to create itself.",
             "required" => ["name", "type"],
             "additionalProperties" => false,
             "properties" => {
@@ -5486,7 +5506,7 @@ module MU
               "description" => "The local directory this mount point will be mounted to",
               "default" => "/efs"
             },
-            "vpc" => vpc_reference_primitive(ONE_SUBNET, NO_NAT_OPTS, "private"),
+            "vpc" => vpc_reference_primitive(ONE_SUBNET+MANY_SUBNETS, NO_NAT_OPTS, "all_private"),
             "add_firewall_rules" => @additional_firewall_rules,
             "ingress_rules" => {
               "type" => "array",
