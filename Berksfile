@@ -18,6 +18,7 @@ cookbook 'ec2-s3-api-tools', path: "#{cookbookPath}/ec2-s3-api-tools"
 cookbook 'freebsd', '~> 0.1.9'
 cookbook 'gunicorn', '~> 1.1.2'
 cookbook 'logrotate', '~> 1.9.2'
+cookbook 'jenkins', '~> 2.6.0'
 cookbook 'memcached', '~> 1.7.2'
 cookbook 'mu-activedirectory', path: "#{cookbookPath}/mu-activedirectory"
 cookbook 'mu-demo', path: "#{cookbookPath}/mu-demo"
@@ -37,6 +38,7 @@ cookbook 'pacman', '~> 1.1.1'
 cookbook 'passenger_apache2', '~> 2.1.2'
 cookbook 'python', path: "#{cookbookPath}/python"
 cookbook 'ruby-cookbook', path: "#{cookbookPath}/ruby-cookbook"
+cookbook 'runit', '~> 1.7'
 cookbook 'rvm', path: "#{cookbookPath}/rvm"
 cookbook 's3fs', path: "#{cookbookPath}/s3fs"
 cookbook 'supervisor', '~> 0.4.12'

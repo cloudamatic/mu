@@ -11,6 +11,7 @@ DEPENDENCIES
     path: cookbooks/ec2-s3-api-tools
   freebsd (~> 0.1.9)
   gunicorn (~> 1.1.2)
+  jenkins (~> 2.6.0)
   logrotate (~> 1.9.2)
   memcached (~> 1.7.2)
   mu-activedirectory
@@ -46,6 +47,7 @@ DEPENDENCIES
     path: cookbooks/python
   ruby-cookbook
     path: cookbooks/ruby-cookbook
+  runit (~> 1.7)
   rvm
     path: cookbooks/rvm
   s3fs
@@ -59,8 +61,6 @@ DEPENDENCIES
   zipfile (~> 0.1.0)
 
 GRAPH
-  7-zip (1.0.2)
-    windows (>= 1.2.2)
   apache2 (3.2.2)
   application (5.1.0)
     poise (~> 2.4)
@@ -75,7 +75,8 @@ GRAPH
     poise (~> 2.0)
     poise-ruby (~> 2.1)
     poise-service (~> 1.0)
-  apt (2.9.2)
+  apt (4.0.1)
+    compat_resource (>= 12.10)
   ark (1.2.0)
     build-essential (>= 0.0.0)
     seven_zip (>= 0.0.0)
@@ -87,8 +88,10 @@ GRAPH
   bind9-ng (0.1.0)
   bluepill (2.4.3)
     rsyslog (>= 2.0)
-  build-essential (2.4.0)
-    7-zip (>= 0.0.0)
+  build-essential (6.0.3)
+    compat_resource (>= 12.10)
+    mingw (>= 1.1)
+    seven_zip (>= 0.0.0)
   chef-splunk (1.3.0)
     chef-vault (>= 1.0.4)
   chef-sugar (3.4.0)
@@ -136,6 +139,9 @@ GRAPH
     runit (~> 1.0)
     yum (~> 3.0)
     yum-epel (>= 0.0.0)
+  mingw (1.2.4)
+    compat_resource (>= 0.0.0)
+    seven_zip (>= 0.0.0)
   mongodb (0.16.2)
     apt (>= 1.8.2)
     python (>= 0.0.0)
@@ -217,13 +223,12 @@ GRAPH
     php (>= 0.0.0)
     yum-epel (>= 0.0.0)
     zap (>= 0.6.0)
-  nginx (2.7.6)
-    apt (~> 2.2)
-    bluepill (~> 2.3)
-    build-essential (~> 2.0)
-    ohai (~> 2.0)
-    runit (~> 1.2)
-    yum-epel (~> 0.3)
+  nginx (1.8.0)
+    apt (>= 0.0.0)
+    build-essential (>= 0.0.0)
+    ohai (>= 1.1.4)
+    runit (>= 0.0.0)
+    yum (>= 0.0.0)
   nginx-passenger (0.1.0)
   nginx_simplecgi (0.1.2)
     bluepill (>= 0.0.0)
@@ -239,7 +244,8 @@ GRAPH
   nrpe (1.6.0)
     build-essential (>= 0.0.0)
     yum-epel (>= 0.0.0)
-  ohai (2.1.0)
+  ohai (4.2.0)
+    compat_resource (>= 12.10)
   openssl (4.4.0)
     chef-sugar (>= 3.1.1)
   oracle-instantclient (1.1.0)
@@ -261,7 +267,7 @@ GRAPH
     xml (>= 0.0.0)
     yum-epel (>= 0.0.0)
   poise (2.7.1)
-  poise-archive (1.2.0)
+  poise-archive (1.3.0)
     poise (~> 2.6)
   poise-languages (1.4.0)
     poise (~> 2.5)
