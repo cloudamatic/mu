@@ -1505,6 +1505,8 @@ setup_localhost_chef_client()
   fi
   status_message "Configuring local LDAP directory"
   upload_chef_artifacts -n -r $MU_REPO_NAME
+  punch_tcp_hole 389
+  punch_tcp_hole 636
   $MU_LIBDIR/install/ldap_setup.rb
   /opt/chef/bin/knife node run_list remove MU-MASTER "role[mu-master-jenkins]" > /dev/null 2>&1 # buggy prior invocations get fouled up on subsequent runs
   /opt/chef/bin/knife node run_list add MU-MASTER "role[mu-master]"

@@ -23,11 +23,11 @@ search_domains = ["ec2.internal", "server.#{instance_id}.platform-mu", "platform
 include_recipe 'mu-firewall'
 
 # TODO Move all mu firewall rules to a mu specific chain
-firewall_rule "MU-Master deafult ports" do
-  port [2260, 8443, 9443, 10514, 443, 80, 25]
+firewall_rule "MU-Master default ports" do
+  port [2260, 8443, 9443, 10514, 443, 80, 25, 389, 636]
 end
 
-firewall_rule "Chef Server deafult ports" do
+firewall_rule "Chef Server default ports" do
   port [4321, 7443, 9463, 16379, 8983, 8000, 9683, 9090, 5432, 5672]
 end
 

@@ -223,20 +223,21 @@ module MU
       ldap_users['mu']['admin'] = true
       ldap_users['mu']['non_ldap'] = true
       ldap_users.each_pair { |username, data|
-        all_user_data[username] = {}
-        userdir = $MU_CFG['installdir']+"/var/users/#{username}"
+        key = username.to_s
+        all_user_data[key] = {}
+        userdir = $MU_CFG['installdir']+"/var/users/#{key}"
         if !Dir.exist?(userdir)
-          MU.log "No metadata exists for user #{username}, creating stub directory #{userdir}", MU::WARN
+          MU.log "No metadata exists for user #{key}, creating stub directory #{userdir}", MU::WARN
           Dir.mkdir(userdir, 0755)
         end
 
         ["non_ldap", "email", "monitoring_email", "realname", "chef_user", "admin"].each { |field|
           if data.has_key?(field)
-            all_user_data[username][field] = data[field]
+            all_user_data[key][field] = data[field]
           elsif File.exist?(userdir+"/"+field)
-            all_user_data[username][field] = File.read(userdir+"/"+field).chomp
+            all_user_data[key][field] = File.read(userdir+"/"+field).chomp
           elsif ["email", "realname"].include?(field)
-            MU.log "Required user field '#{field}' for '#{username}' not set in LDAP or in Mu's disk cache.", MU::WARN
+            MU.log "Required user field '#{field}' for '#{key}' not set in LDAP or in Mu's disk cache.", MU::WARN
           end
         }
       }

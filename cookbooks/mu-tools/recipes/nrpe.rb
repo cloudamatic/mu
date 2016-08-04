@@ -92,6 +92,10 @@ case node[:platform_family]
     execute "chmod go+rx /gluster /gluster/dev /gluster/dev/md0"
   end
 
+  service "nrpe" do
+    action [:enable, :start]
+  end
+
   nrpe_check "check_disk" do
     command "#{node['nrpe']['plugin_dir']}/check_disk"
     warning_condition '15%'
