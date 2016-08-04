@@ -941,8 +941,18 @@ module MU
             [my_subnets_key, target_subnets_key].each { |key|
               if !@rtb_cache.has_key?(key)
                 resp = MU::Cloud::AWS.ec2(MU.myRegion).describe_route_tables(
-                    filters: [{name: "association.subnet-id", values: key.split(",")}]
+                  filters: [{name: "association.subnet-id", values: key.split(",")}]
                 )
+                if resp.nil? or resp.route_tables.size == 0
+                  vpc_id = MU::Cloud::AWS.ec2(MU.myRegion).describe_subnets(subnet_ids: key.split(",")).subnets.first.vpc_id
+                  MU.log "No route table associations found for #{key}, falling back to the default table for #{vpc_id}", MU::NOTICE
+                  resp = MU::Cloud::AWS.ec2(MU.myRegion).describe_route_tables(
+                    filters: [
+                      {name: "vpc-id", values: [vpc_id]},
+                      {name: "association.main", values: ["true"]},
+                    ]
+                  )
+                end
                 @rtb_cache[key] = resp
               end
             }
@@ -1070,6 +1080,16 @@ module MU
                   }
               ]
           )
+
+          if tables.nil? or tables.route_tables.size == 0
+            MU.log "No route table associations found for #{subnets}, falling back to the default table for #{vpc_id}", MU::NOTICE
+            tables = MU::Cloud::AWS.ec2(MU.myRegion).describe_route_tables(
+              filters: [
+                {name: "vpc-id", values: [vpc_id]},
+                {name: "association.main", values: ["true"]},
+              ]
+            )
+          end
 
           table_ids = []
           tables.route_tables.each { |rtb|
