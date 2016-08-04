@@ -490,6 +490,7 @@ MESSAGE_END
           rescue Exception => e
             MU::MommaCat.unlockAll
             @main_thread.raise MuError, "Error instantiating object from #{service["#MU_CLOUDCLASS"]} (#{e.inspect})", e.backtrace
+            raise e
           end
           begin
             run_this_method = service['#MUOBJECT'].method(mode)
