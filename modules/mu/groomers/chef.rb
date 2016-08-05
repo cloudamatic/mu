@@ -366,7 +366,7 @@ module MU
         nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = @server.getSSHConfig
         MU.log "Bootstrapping #{@server.mu_name} (#{canonical_addr}) with knife"
 
-        run_list = ["role[mu-node]", "recipe[mu-tools::newclient]"]
+        run_list = ["recipe[mu-tools::newclient]"]
         run_list << "recipe[mu-tools::updates]" if !@config['skipinitialupdates']
 
         json_attribs = {}
@@ -455,6 +455,7 @@ module MU
             MU.log "#{@server.mu_name}: Run list removal of recipe[#{recipe}] failed with #{e.inspect}", MU::WARN
           end
         }
+        knifeAddToRunList("role[mu-node]")
 
         splunkVaultInit
         grantSecretAccess(@server.mu_name, "windows_credentials") if @server.windows?

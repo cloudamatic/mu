@@ -19,9 +19,11 @@
 # Install the EPEL yum repository for CentOS.
 #
 
-case node.platform
-  when "centos", "redhat"
-    include_recipe "yum-epel"
-  else
-    Chef::Log.info("Unsupported platform #{node.platform}")
+if !node[:application_attributes][:skip_recipes].include?('epel') and !node[:application_attributes][:skip_recipes].include?('base_repositories')
+  case node.platform
+    when "centos", "redhat"
+      include_recipe "yum-epel"
+    else
+      Chef::Log.info("Unsupported platform #{node.platform}")
+  end
 end

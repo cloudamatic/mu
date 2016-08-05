@@ -16,101 +16,102 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-case node[:platform]
-  when "centos", "redhat"
-
-    include_recipe "mu-tools::aws_api"
-
-    execute "reboot for /var" do
-      command "/sbin/shutdown -r +1 'Adjusting partitions under /var' > /dev/null < /dev/null &"
-      action :nothing
-    end
-
-    # Create the volumes here. Moving data around and setting up the mounts will
-    # require us to be in single-user mode, however.
-    ["var", "var_log", "var_log_audit"].each { |volume|
-      ruby_block "create #{volume}" do
-        extend CAPVolume
-        block do
-          require 'aws-sdk-core'
-          if !File.open("/etc/mtab").read.match(/ #{node[:application_attributes][volume][:mount_directory]} /) and !volume_attached(node[:application_attributes][volume][:mount_device])
-            create_node_volume(volume)
-            result = attach_node_volume(volume)
-          end
-        end
-        not_if "tune2fs -l #{node[:application_attributes][volume][:mount_device]}" if node.platform_version.to_i == 6
-        not_if "xfs_info #{node[:application_attributes][volume][:mount_device]}" if node.platform_version.to_i == 7
+if !node[:application_attributes][:skip_recipes].include?('split_var_partitions')
+  case node[:platform]
+    when "centos", "redhat"
+  
+      include_recipe "mu-tools::aws_api"
+  
+      execute "reboot for /var" do
+        command "/sbin/shutdown -r +1 'Adjusting partitions under /var' > /dev/null < /dev/null &"
+        action :nothing
       end
-
-      ruby_block "label #{volume} as #{node.application_attributes[volume].label}" do
-        extend CAPVolume
-        block do
-          tags = [{key: "Name", value: node.application_attributes[volume].label}]
-          if node.tags.is_a?(Hash)
-            node.tags.each_pair { |key, value|
-              next if !value.is_a?(String)
-              tags << {key: key, value: value}
-            }
+  
+      # Create the volumes here. Moving data around and setting up the mounts will
+      # require us to be in single-user mode, however.
+      ["var", "var_log", "var_log_audit"].each { |volume|
+        ruby_block "create #{volume}" do
+          extend CAPVolume
+          block do
+            require 'aws-sdk-core'
+            if !File.open("/etc/mtab").read.match(/ #{node[:application_attributes][volume][:mount_directory]} /) and !volume_attached(node[:application_attributes][volume][:mount_device])
+              create_node_volume(volume)
+              result = attach_node_volume(volume)
+            end
           end
-          tag_volume(node.application_attributes[volume].mount_device, tags)
+          not_if "tune2fs -l #{node[:application_attributes][volume][:mount_device]}" if node.platform_version.to_i == 6
+          not_if "xfs_info #{node[:application_attributes][volume][:mount_device]}" if node.platform_version.to_i == 7
         end
-      end rescue NoMethodError
-
+  
+        ruby_block "label #{volume} as #{node.application_attributes[volume].label}" do
+          extend CAPVolume
+          block do
+            tags = [{key: "Name", value: node.application_attributes[volume].label}]
+            if node.tags.is_a?(Hash)
+              node.tags.each_pair { |key, value|
+                next if !value.is_a?(String)
+                tags << {key: key, value: value}
+              }
+            end
+            tag_volume(node.application_attributes[volume].mount_device, tags)
+          end
+        end rescue NoMethodError
+  
+        if node.platform_version.to_i == 6
+          execute "mkfs.ext4 #{node[:application_attributes][volume][:mount_device]}" do
+            not_if "tune2fs -l #{node[:application_attributes][volume][:mount_device]}"
+            notifies :run, "execute[reboot for /var]", :delayed
+          end
+        elsif node.platform_version.to_i == 7
+          execute "mkfs.xfs -i size=512 #{node[:application_attributes][volume][:mount_device]}" do
+            not_if "xfs_info #{node[:application_attributes][volume][:mount_device]}"
+            notifies :run, "execute[reboot for /var]", :delayed
+          end
+  
+          # doing something stoopid because CentOS7 dosen't like our init.d script. Should fix that instead
+          directory "/mnt#{node[:application_attributes][volume][:mount_directory]}" do
+            recursive true
+          end
+  
+          execute "mount #{node[:application_attributes][volume][:mount_device]} /mnt#{node[:application_attributes][volume][:mount_directory]}" do
+            not_if "df -h | grep #{node[:application_attributes][volume][:mount_device]}"
+          end
+        end
+      }
+  
+      if node.platform_version.to_i == 7
+        # Copying var on a live system, should refactor mu-migrate-var-partitions to work on CentOS7
+        execute "cd /var && tar -cpf - . | ( cd /mnt/var && tar -xvpf - )" do
+          only_if "df -h | grep /dev/xvdo | grep /mnt/var"
+        end
+  
+        %w{/mnt/var/log/audit /mnt/var/log /mnt/var}.each { |mount_point|
+          execute "umount #{mount_point}" do
+            only_if "df -h | grep #{mount_point}"
+          end
+        }
+  
+        %w{var var_log var_log_audit}.each { |volume|
+          mount node[:application_attributes][volume][:mount_directory] do
+            device node[:application_attributes][volume][:mount_device]
+            fstype "xfs"
+            options "defaults"
+            action [:mount, :enable]
+          end
+        }
+  
+        execute "restorecon -Rv /var" do
+          not_if "ls -aZ /var | grep ':var_t:'"
+        end
+      end
+  
       if node.platform_version.to_i == 6
-        execute "mkfs.ext4 #{node[:application_attributes][volume][:mount_device]}" do
-          not_if "tune2fs -l #{node[:application_attributes][volume][:mount_device]}"
-          notifies :run, "execute[reboot for /var]", :delayed
-        end
-      elsif node.platform_version.to_i == 7
-        execute "mkfs.xfs -i size=512 #{node[:application_attributes][volume][:mount_device]}" do
-          not_if "xfs_info #{node[:application_attributes][volume][:mount_device]}"
-          notifies :run, "execute[reboot for /var]", :delayed
-        end
-
-        # doing something stoopid because CentOS7 dosen't like our init.d script. Should fix that instead
-        directory "/mnt#{node[:application_attributes][volume][:mount_directory]}" do
-          recursive true
-        end
-
-        execute "mount #{node[:application_attributes][volume][:mount_device]} /mnt#{node[:application_attributes][volume][:mount_directory]}" do
-          not_if "df -h | grep #{node[:application_attributes][volume][:mount_device]}"
-        end
-      end
-    }
-
-    if node.platform_version.to_i == 7
-      # Copying var on a live system, should refactor mu-migrate-var-partitions to work on CentOS7
-      execute "cd /var && tar -cpf - . | ( cd /mnt/var && tar -xvpf - )" do
-        only_if "df -h | grep /dev/xvdo | grep /mnt/var"
-      end
-
-      %w{/mnt/var/log/audit /mnt/var/log /mnt/var}.each { |mount_point|
-        execute "umount #{mount_point}" do
-          only_if "df -h | grep #{mount_point}"
-        end
-      }
-
-      %w{var var_log var_log_audit}.each { |volume|
-        mount node[:application_attributes][volume][:mount_directory] do
-          device node[:application_attributes][volume][:mount_device]
-          fstype "xfs"
-          options "defaults"
-          action [:mount, :enable]
-        end
-      }
-
-      execute "restorecon -Rv /var" do
-        not_if "ls -aZ /var | grep ':var_t:'"
-      end
-    end
-
-    if node.platform_version.to_i == 6
-      # CentOS 7 seems to be freaking out on this, even when changing fstab to xfs and UUID
-      package "lsof"
-
-      file "/etc/init.d/mu-migrate-var-partitions" do
-        mode 0755
-        content '#!/bin/sh
+        # CentOS 7 seems to be freaking out on this, even when changing fstab to xfs and UUID
+        package "lsof"
+  
+        file "/etc/init.d/mu-migrate-var-partitions" do
+          mode 0755
+          content '#!/bin/sh
 # mu-migrate-var-partitions Move /var and friends off of the root partition and onto their own
 #
 # chkconfig: 12345 00 99
@@ -158,11 +159,12 @@ init 3
 
 '
 
+        end
+  
+        execute "/sbin/chkconfig --add mu-migrate-var-partitions && /sbin/chkconfig mu-migrate-var-partitions on"
+        # XXX Trigger a reboot! Ye gods, we're basically Windows now.
       end
-
-      execute "/sbin/chkconfig --add mu-migrate-var-partitions && /sbin/chkconfig mu-migrate-var-partitions on"
-      # XXX Trigger a reboot! Ye gods, we're basically Windows now.
-    end
-  else
-    Chef::Log.info("Unsupported platform #{node[:platform]}")
+    else
+      Chef::Log.info("Unsupported platform #{node[:platform]}")
+  end
 end

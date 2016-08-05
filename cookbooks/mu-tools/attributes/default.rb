@@ -33,6 +33,7 @@ default['application_attributes']['ebs_snapshots']['boto_path'] = '/usr/lib/pyth
 default['application_attributes']['ebs_snapshots']['minute'] = '10'
 default['application_attributes']['ebs_snapshots']['hour'] = '6'
 default['application_attributes']['ebs_snapshots']['days_to_keep'] = '7'
+default['application_attributes']['skip_recipes'] = []
 
 default['nagios']['server_role'] = "mu-master"
 default['nagios']['multi_environment_monitoring'] = true
