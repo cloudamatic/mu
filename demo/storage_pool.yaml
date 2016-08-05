@@ -1,11 +1,3 @@
-<%
-  $region = MU.curRegion unless $region
-  subnets = MU.mySubnets
-  subnets.uniq! { |subnet| subnet.availability_zone }
-  subnet_ids = []
-  subnets.map { |subnet| subnet_ids << subnet.subnet_id}
-%>
-
 parameters:
 - name: instance_type
   default: t2.small
@@ -14,22 +6,18 @@ parameters:
   default: <%= MU.myVPC %>
 
 appname: efs
-region: <%= $region %>
 storage_pools:
 - name: demo
   mount_points:
-  <% subnet_ids.each.with_index { |subnet, i| %>
-  - name: mountpoint<%= i %>
+  - name: mountpoint
     directory: /efs/demo
     vpc:
       vpc_id: <%= vpc %>
-      subnet_id: <%= subnet %>
+      subnet_pref: all_private
     ingress_rules:
     - port: 2049
       hosts:
       - 0.0.0.0/0
-<% } %>
-
 servers:
 - name: demo
   dns_sync_wait: false

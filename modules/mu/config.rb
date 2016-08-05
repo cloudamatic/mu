@@ -828,7 +828,6 @@ module MU
         return true
       end
       ok = true
-
       if vpc_block['region'].nil? or
         vpc_block['region'] = dflt_region.to_s
       end
@@ -915,7 +914,7 @@ module MU
 
             if ext_subnet.nil? and vpc_block["cloud"] != "CloudFormation"
               ok = false
-              MU.log "Couldn't resolve subnet reference in #{parent_name}'s list to a live subnet (#{vpc_block})", MU::ERR, details: caller
+              MU.log "Couldn't resolve subnet reference in #{parent_name} to a live subnet", MU::ERR, details: vpc_block
             elsif !subnet['subnet_id']
               subnet['subnet_id'] = ext_subnet.cloud_id
               subnet.delete('subnet_name')
@@ -928,7 +927,7 @@ module MU
           tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !vpc_block['tag'].nil?
           begin
             ext_subnet = ext_vpc.getSubnet(cloud_id: vpc_block['subnet_id'], name: vpc_block['subnet_name'], tag_key: tag_key, tag_value: tag_value)
-          rescue MuError
+          rescue MuError => e
           end
 
           if ext_subnet.nil?
@@ -980,6 +979,8 @@ module MU
               public_subnets << { "subnet_id" => getTail("#{parent_name} Public Subnet #{pub}", value: subnet.cloud_id, prettyname: "#{parent_name} Public Subnet #{pub}",  cloudtype: "AWS::EC2::Subnet::Id") }
               public_subnets_map[subnet.cloud_id] = subnet
               pub = pub + 1
+            else
+              MU.log "#{subnet} didn't match subnet_pref: '#{vpc_block['subnet_pref']}' (private? returned #{subnet.private?})", MU::DEBUG
             end
           }
         else
@@ -1010,20 +1011,25 @@ module MU
         case vpc_block['subnet_pref']
           when "public"
             if !public_subnets.nil? and public_subnets.size > 0
-              vpc_block.merge!(public_subnets[rand(public_subnets.length)])
+              vpc_block.merge!(public_subnets[rand(public_subnets.length)]) if public_subnets
             else
               MU.log "Public subnet requested for #{parent_name}, but none found in #{vpc_block}", MU::ERR
               return false
             end
           when "private"
-            vpc_block.merge!(private_subnets[rand(private_subnets.length)])
+            if !private_subnets.nil? and private_subnets.size > 0
+              vpc_block.merge!(private_subnets[rand(private_subnets.length)])
+            else
+              MU.log "Private subnet requested for #{parent_name}, but none found in #{vpc_block}", MU::ERR
+              return false
+            end
             if !is_sibling and !private_subnets_map[vpc_block[subnet_ptr]].nil?
               vpc_block['nat_host_id'] = private_subnets_map[vpc_block[subnet_ptr]].defaultRoute
             elsif nat_routes.has_key?(vpc_block[subnet_ptr])
               vpc_block['nat_host_name'] == nat_routes[vpc_block[subnet_ptr]]
             end
           when "any"
-            vpc_block.merge!(public_subnets.concat(private_subnets)[rand(public_subnets.length+private_subnets.length)])
+            vpc_block.merge!(public_subnets.concat(private_subnets)[rand(public_subnets.length+private_subnets.length)]) if public_subnets
           when "all"
             vpc_block['subnets'] = []
             public_subnets.each { |subnet|
@@ -2555,7 +2561,7 @@ module MU
                   ok = false
                 end
               end
-              if mp['vpc']['subnets'].size > 1
+              if mp["vpc"] and mp['vpc']['subnets'] and mp['vpc']['subnets'].size > 1
                 MU.log "Using subnet_pref in Storage Pool mountpoint resulted in multiple subnets, generating new set of mount points to match.", MU::NOTICE
                 count = 0
                 mp['vpc']['subnets'].each { |subnet|
@@ -2564,11 +2570,11 @@ module MU
                   newmp['vpc'].delete("subnet_pref")
                   newmp['vpc'].merge!(subnet)
                   newmp['name'] = newmp['name']+count.to_s
-                  newmp['directory'] = newmp['directory']+count.to_s
                   count = count + 1
                   new_mount_points << newmp
                 }
               else
+                mp['vpc'].delete("subnet_pref") if mp["vpc"]
                 new_mount_points << mp
               end
             else

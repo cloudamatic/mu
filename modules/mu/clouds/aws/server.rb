@@ -822,10 +822,10 @@ module MU
           subnet = nil
           if !@vpc.nil? and @config.has_key?("vpc") and !instance.subnet_id.nil?
             subnet = @vpc.getSubnet(
-                cloud_id: instance.subnet_id
+              cloud_id: instance.subnet_id
             )
             if subnet.nil?
-              raise MuError, "Got null subnet id out of #{subnet_conf['vpc']}"
+              raise MuError, "Got null subnet id out of #{@config['vpc']}/#{instance.subnet_id}"
             end
           end
 
