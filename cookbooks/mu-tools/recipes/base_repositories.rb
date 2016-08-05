@@ -17,8 +17,10 @@
 # limitations under the License.
 #
 # Install the EPEL yum repository for CentOS.
-#
-case node.platform_family
-when "rhel"
-  include_recipe "yum-epel"
+
+if !node[:application_attributes][:skip_recipes].include?('base_repositories')
+  case node.platform_family
+    when "rhel"
+      include_recipe "yum-epel"
+  end
 end

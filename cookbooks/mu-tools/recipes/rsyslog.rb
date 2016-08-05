@@ -16,33 +16,35 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-case node.platform_family
-when "rhel", "debian"
-  package "rsyslog"
-  package "rsyslog-gnutls"
-  service "rsyslog" do
-    action [:enable, :start]
-  end
-  if platform_family?("rhel")
-    $rsyslog_ssl_ca_path = "/etc/pki/Mu_CA.pem"
-    if !platform?("amazon")
-      package "policycoreutils-python"
-      execute "allow rsyslog to meddle with port 10514" do
-        command "/usr/sbin/semanage port -a -t syslogd_port_t -p tcp 10514"
-        not_if "/usr/sbin/semanage port -l | grep '^syslogd_port_t.*10514'"
-      end
+if !node[:application_attributes][:skip_recipes].include?('rsyslog')
+  case node.platform_family
+  when "rhel", "debian"
+    package "rsyslog"
+    package "rsyslog-gnutls"
+    service "rsyslog" do
+      action [:enable, :start]
     end
-
-  elsif platform_family?("debian")
-    include_recipe "mu-utility::apt"
-    $rsyslog_ssl_ca_path = "/etc/ssl/Mu_CA.pem"
-    package "policycoreutils"
-  end
-  template "/etc/rsyslog.d/0-mu-log-client.conf" do
-    source "0-mu-log-client.conf.erb"
-    notifies :restart, "service[rsyslog]", :delayed
-  end
-  cookbook_file "Mu_CA.pem" do
-    path $rsyslog_ssl_ca_path
+    if platform_family?("rhel")
+      $rsyslog_ssl_ca_path = "/etc/pki/Mu_CA.pem"
+      if !platform?("amazon")
+        package "policycoreutils-python"
+        execute "allow rsyslog to meddle with port 10514" do
+          command "/usr/sbin/semanage port -a -t syslogd_port_t -p tcp 10514"
+          not_if "/usr/sbin/semanage port -l | grep '^syslogd_port_t.*10514'"
+        end
+      end
+  
+    elsif platform_family?("debian")
+      include_recipe "mu-utility::apt"
+      $rsyslog_ssl_ca_path = "/etc/ssl/Mu_CA.pem"
+      package "policycoreutils"
+    end
+    template "/etc/rsyslog.d/0-mu-log-client.conf" do
+      source "0-mu-log-client.conf.erb"
+      notifies :restart, "service[rsyslog]", :delayed
+    end
+    cookbook_file "Mu_CA.pem" do
+      path $rsyslog_ssl_ca_path
+    end
   end
 end

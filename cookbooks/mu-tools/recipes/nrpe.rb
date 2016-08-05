@@ -14,112 +14,114 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 
-case node[:platform_family]
-  when "rhel"
-  package ['nrpe', 'nagios-plugins-disk', 'nagios-plugins-nrpe', 'nagios-plugins-ssh'] 
-  master_ips = get_mu_master_ips
-  master_ips << "127.0.0.1"
-  master_ips.uniq!
-
-  service "nrpe" do
-    action [:enable, :start]
-  end
-
-  # include_recipe "mu-tools::set_local_fw"
-
-  template "/etc/nagios/nrpe.cfg" do
-    source "nrpe.cfg.erb"
-    mode 0644
-    variables(
-      :master_ips => master_ips
-    )
-    notifies :restart, "service[nrpe]", :delayed
-  end
-
-  directory "/etc/nagios/nrpe.d" do
-    owner "nrpe"
-    group "nrpe"
-    mode 0755
-  end
-
-  include_recipe 'mu-firewall'
-
-  master_ips.each { |ip|
-    next if ip == "127.0.0.1"
-
-    firewall_rule "Allow nrpe from #{ip}" do
-      port 5666
-      source ip
+if !node[:application_attributes][:skip_recipes].include?('nrpe')
+  case node[:platform_family]
+    when "rhel"
+    package ['nrpe', 'nagios-plugins-disk', 'nagios-plugins-nrpe', 'nagios-plugins-ssh'] 
+    master_ips = get_mu_master_ips
+    master_ips << "127.0.0.1"
+    master_ips.uniq!
+  
+    service "nrpe" do
+      action [:enable, :start]
     end
-  }
-
-  case elversion
-  when 7
-    %w{nrpe_file.pp nrpe_file.te nrpe_check_disk.te nrpe_check_disk.pp}.each { |f|
-      cookbook_file "#{Chef::Config[:file_cache_path]}/#{f}" do
-        source f
+  
+    # include_recipe "mu-tools::set_local_fw"
+  
+    template "/etc/nagios/nrpe.cfg" do
+      source "nrpe.cfg.erb"
+      mode 0644
+      variables(
+        :master_ips => master_ips
+      )
+      notifies :restart, "service[nrpe]", :delayed
+    end
+  
+    directory "/etc/nagios/nrpe.d" do
+      owner "nrpe"
+      group "nrpe"
+      mode 0755
+    end
+  
+    include_recipe 'mu-firewall'
+  
+    master_ips.each { |ip|
+      next if ip == "127.0.0.1"
+  
+      firewall_rule "Allow nrpe from #{ip}" do
+        port 5666
+        source ip
       end
     }
-
-    execute "Allow NRPE checks through SELinux" do
-      command "/usr/sbin/semodule -i nrpe_file.pp"
-      cwd Chef::Config[:file_cache_path]
-      not_if "/usr/sbin/semodule -l | grep nrpe_file"
+  
+    case elversion
+    when 7
+      %w{nrpe_file.pp nrpe_file.te nrpe_check_disk.te nrpe_check_disk.pp}.each { |f|
+        cookbook_file "#{Chef::Config[:file_cache_path]}/#{f}" do
+          source f
+        end
+      }
+  
+      execute "Allow NRPE checks through SELinux" do
+        command "/usr/sbin/semodule -i nrpe_file.pp"
+        cwd Chef::Config[:file_cache_path]
+        not_if "/usr/sbin/semodule -l | grep nrpe_file"
+        notifies :restart, "service[nrpe]", :delayed
+      end
+  
+      execute "Allow NRPE check_disk through SELinux" do
+        command "/usr/sbin/semodule -i nrpe_check_disk.pp"
+        cwd Chef::Config[:file_cache_path]
+        not_if "/usr/sbin/semodule -l | grep nrpe_check_disk"
+        notifies :restart, "service[nrpe]", :delayed
+      end
+    when 6
+      cookbook_file "nrpe_disk.pp" do
+        path "#{Chef::Config[:file_cache_path]}/nrpe_disk.pp"
+      end
+  
+      execute "Allow NRPE disk checks through SELinux" do
+        command "/usr/sbin/semodule -i nrpe_disk.pp"
+        cwd Chef::Config[:file_cache_path]
+        not_if "/usr/sbin/semodule -l | grep nrpe_disk"
+        notifies :restart, "service[nrpe]", :delayed
+      end
+    end
+  
+    # don't trip up on devices created by our basic gluster recipes
+    if Dir.exists?("/gluster/dev/md0")
+      execute "chmod go+rx /gluster /gluster/dev /gluster/dev/md0"
+    end
+  
+    service "nrpe" do
+      action [:enable, :start]
+    end
+  
+    nrpe_check "check_disk" do
+      command "#{node['nrpe']['plugin_dir']}/check_disk"
+      warning_condition '15%'
+      critical_condition '5%'
+      action :add
+      notifies :run, 'execute[selinux permissions]', :immediately
       notifies :restart, "service[nrpe]", :delayed
     end
-
-    execute "Allow NRPE check_disk through SELinux" do
-      command "/usr/sbin/semodule -i nrpe_check_disk.pp"
-      cwd Chef::Config[:file_cache_path]
-      not_if "/usr/sbin/semodule -l | grep nrpe_check_disk"
+  
+    # execute "chmod o+r /etc/nagios/nrpe.d/check_disk.cfg"
+    # file "/etc/nagios/nrpe.d/check_disk.cfg" do
+      # mode 0640
+      # owner "nagios"
+      # group "nagios"
+    # end
+  
+    # don't run this every time so it won't restart the NRPE service on every chef run
+    execute "selinux permissions" do
+      command "/usr/bin/chcon -R -t nrpe_etc_t /etc/nagios/nrpe.d/"
       notifies :restart, "service[nrpe]", :delayed
+      action :nothing
     end
-  when 6
-    cookbook_file "nrpe_disk.pp" do
-      path "#{Chef::Config[:file_cache_path]}/nrpe_disk.pp"
+  
+    service "nrpe" do
+      action [:enable, :start]
     end
-
-    execute "Allow NRPE disk checks through SELinux" do
-      command "/usr/sbin/semodule -i nrpe_disk.pp"
-      cwd Chef::Config[:file_cache_path]
-      not_if "/usr/sbin/semodule -l | grep nrpe_disk"
-      notifies :restart, "service[nrpe]", :delayed
-    end
-  end
-
-  # don't trip up on devices created by our basic gluster recipes
-  if Dir.exists?("/gluster/dev/md0")
-    execute "chmod go+rx /gluster /gluster/dev /gluster/dev/md0"
-  end
-
-  service "nrpe" do
-    action [:enable, :start]
-  end
-
-  nrpe_check "check_disk" do
-    command "#{node['nrpe']['plugin_dir']}/check_disk"
-    warning_condition '15%'
-    critical_condition '5%'
-    action :add
-    notifies :run, 'execute[selinux permissions]', :immediately
-    notifies :restart, "service[nrpe]", :delayed
-  end
-
-  # execute "chmod o+r /etc/nagios/nrpe.d/check_disk.cfg"
-  # file "/etc/nagios/nrpe.d/check_disk.cfg" do
-    # mode 0640
-    # owner "nagios"
-    # group "nagios"
-  # end
-
-  # don't run this every time so it won't restart the NRPE service on every chef run
-  execute "selinux permissions" do
-    command "/usr/bin/chcon -R -t nrpe_etc_t /etc/nagios/nrpe.d/"
-    notifies :restart, "service[nrpe]", :delayed
-    action :nothing
-  end
-
-  service "nrpe" do
-    action [:enable, :start]
   end
 end
