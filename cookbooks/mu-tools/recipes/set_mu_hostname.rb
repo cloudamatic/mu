@@ -16,47 +16,49 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-$hostname = node.name
-if !node.ad.computer_name.nil? and !node.ad.computer_name.empty?
-  $hostname = node.ad.computer_name
-end rescue NoMethodError
-$ipaddress = node.ipaddress
-
-if !platform_family?("windows")
-  template "/etc/hosts" do
-    source "etc_hosts.erb"
-  end
-
-  execute "set hostname" do
-    command "hostname #{$hostname}"
-    not_if "test \"`hostname`\" = \"#{$hostname}\" "
-  end
-end
-
-case node[:platform]
-  when "centos", "redhat"
-    template "/etc/sysconfig/network" do
-      source "etc_sysconfig_network.erb"
-      notifies :run, "execute[set hostname]", :immediately
+if !node[:application_attributes][:skip_recipes].include?('set_mu_hostname')
+  $hostname = node.name
+  if !node.ad.computer_name.nil? and !node.ad.computer_name.empty?
+    $hostname = node.ad.computer_name
+  end rescue NoMethodError
+  $ipaddress = node.ipaddress
+  
+  if !platform_family?("windows")
+    template "/etc/hosts" do
+      source "etc_hosts.erb"
     end
-
-    if node.platform_version.to_i == 7
-      # nah, stil not saved across reboots. cloud-init needs to be configured to keep the hostname
-      include_recipe "mu-utility::cloudinit"
-
-      execute "hostnamectl set-hostname #{$hostname} && systemctl restart systemd-hostnamed" do
-        # not_if "hostnamectl | grep Static | grep #{$hostname.downcase}"
-        not_if "grep #{$hostname} /etc/hostname"
+  
+    execute "set hostname" do
+      command "hostname #{$hostname}"
+      not_if "test \"`hostname`\" = \"#{$hostname}\" "
+    end
+  end
+  
+  case node[:platform]
+    when "centos", "redhat"
+      template "/etc/sysconfig/network" do
+        source "etc_sysconfig_network.erb"
+        notifies :run, "execute[set hostname]", :immediately
       end
-
+  
+      if node.platform_version.to_i == 7
+        # nah, stil not saved across reboots. cloud-init needs to be configured to keep the hostname
+        include_recipe "mu-utility::cloudinit"
+  
+        execute "hostnamectl set-hostname #{$hostname} && systemctl restart systemd-hostnamed" do
+          # not_if "hostnamectl | grep Static | grep #{$hostname.downcase}"
+          not_if "grep #{$hostname} /etc/hostname"
+        end
+  
+        file "/etc/hostname" do
+          content $hostname
+        end
+      end
+    when "ubuntu"
       file "/etc/hostname" do
         content $hostname
       end
-    end
-  when "ubuntu"
-    file "/etc/hostname" do
-      content $hostname
-    end
-  else
-    Chef::Log.info("Unsupported platform #{node[:platform]}")
+    else
+      Chef::Log.info("Unsupported platform #{node[:platform]}")
+  end
 end

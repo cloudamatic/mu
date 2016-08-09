@@ -15,38 +15,39 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-#
 
 
-if platform_family?("rhel")
-  include_recipe "yum-epel"
-  if node['platform_version'].to_i >= 7
-    package "clamav-update"
+if !node[:application_attributes][:skip_recipes].include?('clamav')
+  if platform_family?("rhel")
+    include_recipe "yum-epel"
+    if node['platform_version'].to_i >= 7
+      package "clamav-update"
+    end
+    cookbook_file "/etc/freshclam.conf" do
+      source "etc/freshclam.conf"
+      mode 0644
+      owner "root"
+      group "root"
+    end
+    freshclam = "/usr/bin/freshclam"
+    freshclam = "/bin/freshclam" if File.exist?("/bin/freshclam")
+    execute freshclam do
+      action :nothing
+    end
+    package "clamav" do
+  #		notifies :run, "execute[#{freshclam}]", :delayed
+    end
+    package "clamav-devel"
+    if node['platform_version'].to_i < 7
+  	  package "clamav-milter"
+  	end
+  elsif platform_family?("debian")
+    include_recipe "mu-utility::apt"
+    package "clamav"
+    package "clamav-daemon"
+    package "clamav-freshclam" # this is a daemon, no need to run explicitly
+    package "clamav-milter"
+    package "libclamav-dev"
+  else
   end
-  cookbook_file "/etc/freshclam.conf" do
-    source "etc/freshclam.conf"
-    mode 0644
-    owner "root"
-    group "root"
-  end
-  freshclam = "/usr/bin/freshclam"
-  freshclam = "/bin/freshclam" if File.exist?("/bin/freshclam")
-  execute freshclam do
-    action :nothing
-  end
-  package "clamav" do
-#		notifies :run, "execute[#{freshclam}]", :delayed
-  end
-  package "clamav-devel"
-  if node['platform_version'].to_i < 7
-	  package "clamav-milter"
-	end
-elsif platform_family?("debian")
-  include_recipe "mu-utility::apt"
-  package "clamav"
-  package "clamav-daemon"
-  package "clamav-freshclam" # this is a daemon, no need to run explicitly
-  package "clamav-milter"
-  package "libclamav-dev"
-else
 end
