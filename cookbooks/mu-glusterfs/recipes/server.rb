@@ -15,7 +15,7 @@ case node[:platform]
     include_recipe "mu-glusterfs"
     $nodeclass = node.gluster_node_class
 
-    package node.glusterfs.server.packages
+    package node[:glusterfs][:server][:packages]
 
     if node.glusterfs.server.raid
       def raid_no_spare(mount_dev, level, num_devices, devices)
