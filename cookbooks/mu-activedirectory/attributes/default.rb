@@ -8,6 +8,7 @@ default.ad.dn_domain_cmpnt = "dc=ad,dc=cloudamatic,dc=com"
 default.ad.computer_ou = nil
 default.ad.domain_controller_names = []
 default.ad.computer_name = nil
+default.ad.homedir = "/home/%u"
 
 # This is done in Mu.
 # node.deployment.servers.each_pair { |node_class, nodes|

@@ -98,7 +98,7 @@ end
 def join_domain_linux
   %w{sshd winbind smb}.each { |svc|
     service svc do
-      action :nothing
+      action :enable
     end
   }
 
@@ -112,12 +112,6 @@ def join_domain_linux
   pam_winbind_lib
   configure_winbind_kerberos_authentication
 
-  execute "Join domain #{new_resource.dns_name}" do
-    command "net ads join #{new_resource.dns_name.downcase} -U #{new_resource.join_user}%#{new_resource.join_password}"
-    sensitive true
-    not_if "net ads testjoin | grep OK"
-  end
-
   directory "#{node.ad.samba_conf_dir}/includes" do
     mode 0755
   end
@@ -127,19 +121,30 @@ def join_domain_linux
     owner "root"
     group "root"
     mode 0644
-    notifies :restart, "service[smb]"
-    notifies :restart, "service[winbind]"
+    notifies :restart, "service[smb]", :delayed
+    notifies :restart, "service[winbind]", :delayed
     variables(
         :domain_name => new_resource.dns_name,
         :dcs => new_resource.dc_names,
+        :computer_name => new_resource.computer_name,
         :netbios_name => new_resource.netbios_name,
         :include_file => "#{node.ad.samba_conf_dir}/includes/#{node.ad.samba_include_file}"
     )
+  end
+
+  # We no longer user Winbind to integrate with AD, but Samba relies on it, so
+  # we run it on top of adcli's Kerberos creds so that you can still use SMB.
+  execute "Join Winbind to domain #{new_resource.dns_name}" do
+    command "net ads join #{new_resource.dns_name.downcase} -k -d 4"
+    sensitive true
+    not_if "net ads testjoin -k | grep OK"
+    notifies :restart, "service[winbind]", :delayed
   end
 end
 
 def install_ad_client_packages
 # This is repo with a copy of the Samba packages hosted in the GlusterFS repo at http://download.gluster.org/pub/gluster/glusterfs/samba/EPEL.repo/epel-6/x86_64
+# XXX may no longer be necessary
   yum_repository "mu-platform" do
     description 'Mu-Platform Repo'
     url "https://s3.amazonaws.com/cap-public/repo/el/$releasever/$basearch/"
@@ -147,7 +152,7 @@ def install_ad_client_packages
     gpgcheck false
   end
 
-  %w{samba-winbind-modules authconfig krb5-workstation pam_krb5 samba-common oddjob-mkhomedir samba-winbind-clients}.each { |pkg|
+  %w{samba4-winbind authconfig krb5-workstation pam_krb5 samba4-common oddjob-mkhomedir samba4-winbind-clients samba4-winbind-krb5-locator krb5-devel}.each { |pkg|
     package pkg
   }
 
@@ -259,29 +264,13 @@ def pam_winbind_lib
 end
 
 def configure_winbind_kerberos_authentication
-  execute "authconfig --disablecache --enablewinbind --enablewinbindauth --smbsecurity=ads --smbworkgroup=#{new_resource.netbios_name.upcase} --smbrealm=#{new_resource.dns_name.upcase} --enablewinbindusedefaultdomain --winbindtemplatehomedir=/home/#{new_resource.dns_name.downcase}/%U --winbindtemplateshell=/bin/bash --enablekrb5 --krb5realm=#{new_resource.dns_name.upcase} --smbservers='#{new_resource.dc_names.join(" ")}' --enablekrb5kdcdns --enablekrb5realmdns --enablelocauthorize --enablemkhomedir --enablepamaccess --updateall" do
-    not_if "grep pam_krb5.so /etc/pam.d/system-auth"
-  end
-
-  template "/etc/krb5.conf" do
-    source "krb5.conf.erb"
-    owner "root"
-    group "root"
-    mode 0644
-    variables(
-        :domain_name => new_resource.dns_name,
-        :dcs => new_resource.dc_names
-    )
-    notifies :restart, "service[winbind]"
-  end
-
   # Because authconfig doesn't always update those
-  %w{password-auth system-auth}.each { |file|
-    cookbook_file "/etc/pam.d/#{file}" do
-      source file
-      manage_symlink_source true
-    end
-  }
+#  %w{password-auth system-auth}.each { |file|
+#    cookbook_file "/etc/pam.d/#{file}" do
+#      source file
+#      manage_symlink_source true
+#    end
+#  }
 end
 
 def unjoin_domain_linux
