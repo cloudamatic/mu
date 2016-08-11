@@ -41,7 +41,7 @@ domains = <%= @domain %>
 [nss]
 nss_filter_groups = root
 nss_filter_users = root, apache, postfix, bin, daemon, sshd, ftp, clam, centos, mysql, clam, saslauth, dbus, nagios, rpc, nscd
-override_homedir = /home/%u
+override_homedir = <%= @homedir %>
 default_shell = /bin/bash
 
 [pam]
