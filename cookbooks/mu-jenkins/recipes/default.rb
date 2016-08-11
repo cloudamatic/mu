@@ -40,7 +40,7 @@ case node.platform
 
     chef_gem "simple-password-gen"
     # The Jenkins service user that this cookbook uses MUST exist in our directory
-    MU::Master::LDAP.manageUser(admin_vault['username'], name: admin_vault['username'], password: MU.generateWindowsPassword, admin: false, email: "mu-developers@googlegroups.com")
+    ::MU::Master::LDAP.manageUser(admin_vault['username'], name: admin_vault['username'], password: MU.generateWindowsPassword, admin: false, email: "mu-developers@googlegroups.com")
 
     # Add the admin user only if it has not been added already then notify the resource
     # to configure the permissions for the admin user.  Note that we check for existence of jenkins_auth_set,
@@ -114,7 +114,7 @@ case node.platform
 
       # XXX This is dangerous. What if we stupidly step on the account of a
       # "real" user?
-      MU::Master::LDAP.manageUser(user[:user_name], name: user[:fullname], password: user_vault[user[:user_name]+"_password"], admin: false, email: user[:email])
+      ::MU::Master::LDAP.manageUser(user[:user_name], name: user[:fullname], password: user_vault[user[:user_name]+"_password"], admin: false, email: user[:email])
       jenkins_user user[:user_name] do
         full_name user[:fullname]
         email user[:email]

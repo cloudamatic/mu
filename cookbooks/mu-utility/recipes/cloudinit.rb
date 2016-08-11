@@ -18,35 +18,36 @@
 #
 # Make sure cloud-init or equivalent gets installed. Kind of trivial for the
 # common Linux platforms.
-# 
+ 
 if platform_family?("rhel")
-  include_recipe "mu-utility::epel"
-  package "cloud-init" do
-    ignore_failure true
-  end
-
-  if node.platform_version.to_i == 6
-    bash "allow ssh as root" do
-      only_if "grep 'disable_root: 1' /etc/cloud/cloud.cfg"
-      code <<-EOH
-				sed -i 's/disable_root: 1/disable_root: 0/' /etc/cloud/cloud.cfg
-      EOH
+  if !node[:application_attributes][:skip_recipes].include?('epel') and !node[:application_attributes][:skip_recipes].include?('base_repositories')
+    include_recipe "mu-utility::epel"
+    package "cloud-init" do
+      ignore_failure true
     end
-    ["puppet", "chef", "salt-minion", "mcollective", "disable-ec2-metadata"].each { |cfgline|
-      bash "disabled cloudinit #{cfgline} module" do
-        only_if "grep '^ - #{cfgline}$' /etc/cloud/cloud.cfg"
+  
+    if node.platform_version.to_i == 6
+      bash "allow ssh as root" do
+        only_if "grep 'disable_root: 1' /etc/cloud/cloud.cfg"
         code <<-EOH
-					sed -i 's/^ - #{cfgline}$//' /etc/cloud/cloud.cfg
+  				sed -i 's/disable_root: 1/disable_root: 0/' /etc/cloud/cloud.cfg
         EOH
       end
-    }
-  elsif node.platform_version.to_i == 7
-    # making sure hostname  is kept across reboot
-    execute "sed -i '/ssh_pwauth/a preserve_hostname: true' /etc/cloud/cloud.cfg" do
-      not_if "grep 'preserve_hostname: true' /etc/cloud/cloud.cfg"
+      ["puppet", "chef", "salt-minion", "mcollective", "disable-ec2-metadata"].each { |cfgline|
+        bash "disabled cloudinit #{cfgline} module" do
+          only_if "grep '^ - #{cfgline}$' /etc/cloud/cloud.cfg"
+          code <<-EOH
+  					sed -i 's/^ - #{cfgline}$//' /etc/cloud/cloud.cfg
+          EOH
+        end
+      }
+    elsif node.platform_version.to_i == 7
+      # making sure hostname  is kept across reboot
+      execute "sed -i '/ssh_pwauth/a preserve_hostname: true' /etc/cloud/cloud.cfg" do
+        not_if "grep 'preserve_hostname: true' /etc/cloud/cloud.cfg"
+      end
     end
   end
-
 elsif platform_family?("debian")
   package "cloud-init"
 elsif platform_family?("windows")

@@ -250,7 +250,11 @@ if $opts[:logs]
   )
 
 
-  resp = MU::Cloud::AWS.cloudtrail.describe_trails.trail_list
+  begin
+    resp = MU::Cloud::AWS.cloudtrail.describe_trails.trail_list
+  rescue Aws::CloudTrail::Errors::AccessDeniedException => e
+    MU.log e.inspect, MU::WARN
+  end
   if resp.empty?
     MU.log "Enabling Cloud Trails, logged to bucket #{$bucketname}"
 
@@ -260,8 +264,8 @@ if $opts[:logs]
           s3_bucket_name: $bucketname,
           include_global_service_events: true
       )
-    rescue Aws::CloudTrail::Errors::MaximumNumberOfTrailsExceededException => e
-      MU.log e.inspect, MU::ERR
+    rescue Aws::CloudTrail::Errors::MaximumNumberOfTrailsExceededException, Aws::CloudTrail::Errors::AccessDeniedException => e
+      MU.log e.inspect, MU::WARN
     end
 
   # Make sure we actually enable cloudtrail logging

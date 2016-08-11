@@ -12,10 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-unless node[:recipes].include?("chef-server")
-  file Chef::Config[:validation_key] do
-    action :delete
-    backup false
-    only_if { ::File.exists?(Chef::Config[:client_key]) }
+if !node[:application_attributes][:skip_recipes].include?('newclient')
+  unless node[:recipes].include?("chef-server")
+    file Chef::Config[:validation_key] do
+      action :delete
+      backup false
+      only_if { ::File.exists?(Chef::Config[:client_key]) }
+    end
   end
 end

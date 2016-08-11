@@ -227,12 +227,12 @@ module MU
     # @param runtimecode [<String>]: Actual code to allow the cloud layer to interpret literally in its own idiom, e.g. '"Ref" : "AWS::StackName"' for CloudFormation
     def getTail(param, value: nil, prettyname: nil, cloudtype: "String", valid_values: [], description: nil, list_of: nil, prefix: "", suffix: "", pseudo: false, runtimecode: nil)
       if value.nil?
-        if $parameters.nil? or !$parameters.has_key?(param)
-          MU.log "Parameter '#{param}' (#{param.class.name}) referenced in config but not provided (#{caller[0]})", MU::DEBUG, details: $parameters
+        if @@parameters.nil? or !@@parameters.has_key?(param)
+          MU.log "Parameter '#{param}' (#{param.class.name}) referenced in config but not provided (#{caller[0]})", MU::DEBUG, details: @@parameters
           return nil
 #          raise DeployParamError
         else
-          value = $parameters[param]
+          value = @@parameters[param]
         end
       end
       if !prettyname.nil?
@@ -250,7 +250,7 @@ module MU
             list_of = @@tails[param][count].values.first.getName if list_of.nil?
             prettyname = @@tails[param][count].values.first.getPrettyName if prettyname.nil?
             description = @@tails[param][count].values.first.description if description.nil?
-            valid_values = @@tails[param][count].values.first.valid_values if valid_values.nil?
+            valid_values = @@tails[param][count].values.first.valid_values if valid_values.nil? or valid_values.empty?
             cloudtype = @@tails[param][count].values.first.getCloudType if @@tails[param][count].values.first.getCloudType != "String"
           end
           prettyname = param.capitalize if prettyname.nil?
@@ -263,7 +263,7 @@ module MU
           value = @@tails[param].to_s if value.nil?
           prettyname = @@tails[param].getPrettyName if prettyname.nil?
           description = @@tails[param].description if description.nil?
-          valid_values = @@tails[param].valid_values if valid_values.nil?
+          valid_values = @@tails[param].valid_values if valid_values.nil? or valid_values.empty?
           cloudtype = @@tails[param].getCloudType if @@tails[param].getCloudType != "String"
         end
         tail = MU::Config::Tail.new(param, value, prettyname, cloudtype, valid_values, description, prefix: prefix, suffix: suffix, pseudo: pseudo, runtimecode: runtimecode)
@@ -425,6 +425,13 @@ module MU
       # for the rest of the config to reference.
       # XXX figure out how to make include() add parameters for us
       param_cfg, raw_erb_params_only = resolveConfig(path: @@config_path, param_pass: true)
+      if param_cfg.has_key?("parameters")
+        param_cfg["parameters"].each { |param|
+          if param.has_key?("default") and param["default"].nil?
+            param["default"] = ""
+          end
+        }
+      end
 
       # Set up special Tail objects for our automatic pseudo-parameters
       getTail("myPublicIp", value: $myPublicIp, pseudo: true)
@@ -437,7 +444,7 @@ module MU
           param['valid_values'] ||= []
           if !@@parameters.has_key?(param['name'])
             if param.has_key?("default")
-              @@parameters[param['name']] = param['default']
+              @@parameters[param['name']] = param['default'].nil? ? "" : param['default']
             elsif param["required"] or !param.has_key?("required")
               MU.log "Required parameter '#{param['name']}' not supplied", MU::ERR
               ok = false
@@ -1430,7 +1437,7 @@ module MU
           count = 0
           vpc['availability_zones'].each { |az|
             addnat = false
-            if vpc['create_nat_gateway'] and (vpc['nat_gateway_multi_az'] or nat_gateway_added) and public_rtbs.size > 0
+            if vpc['create_nat_gateway'] and (vpc['nat_gateway_multi_az'] or !nat_gateway_added) and public_rtbs.size > 0
               addnat = true
               nat_gateway_added = true
             end

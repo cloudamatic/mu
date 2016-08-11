@@ -165,7 +165,7 @@ $username = ARGV[0]
 
 [:email, :monitoring_alerts_to].each { |email_field|
   bail = false
-  if $opts[email_field] and !$opts[email_field].match(/^[A-Z0-9\._%\+\-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,6}$/i)
+  if $opts[email_field] and !$opts[email_field].match(/^[A-Z0-9\._%\+\-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,6}$/i) and !(email_field == :monitoring_alerts_to and $opts[email_field] == "none")
     MU.log "'#{$opts[email_field]}' is not a valid email address", MU::ERR
     bail = true
   end

@@ -443,7 +443,7 @@ module MU
     end
     MU.setVar("account_number", account_number)
     account_number
-    end
+  end
 
   # XXX is there a better way to get this?
   @@myInstanceId = MU::Cloud::AWS.getAWSMetaData("instance-id")
@@ -457,7 +457,7 @@ module MU
     # XXX it's ok not to be in AWS, or to target an account other than the one
     # we live in.
     @@myCloudDescriptor = MU::Cloud::AWS.ec2(MU.myRegion).describe_instances(instance_ids: [@@myInstanceId]).reservations.first.instances.first
-  rescue Aws::EC2::Errors::InvalidInstanceIDNotFound
+  rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
   end
   # If our Mu master is hosted in a cloud provider, we can use this to get its
   # cloud API descriptor.
@@ -481,6 +481,7 @@ module MU
   @@myVPC_var = nil
   # The AWS Availability Zone in which this Mu master resides
   def self.myVPC
+    return nil if MU.myCloudDescriptor.nil?
     begin
       @@myVPC_var ||= MU.myCloudDescriptor.vpc_id
     rescue Aws::EC2::Errors::InternalError => e

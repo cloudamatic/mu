@@ -289,6 +289,12 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
 
           # Figure out which devices are embedded in the AMI already.
           image = MU::Cloud::AWS.ec2.describe_images(image_ids: [server["basis"]["launch_config"]["ami_id"]]).images.first
+
+          if image.nil?
+            MU.log "#{server["basis"]["launch_config"]["ami_id"]} does not exist, skipping launch config #{asg.launch_configuration_name}", MU::ERR
+            next
+          end
+
           ext_disks = {}
           if !image.block_device_mappings.nil?
             image.block_device_mappings.each { |disk|

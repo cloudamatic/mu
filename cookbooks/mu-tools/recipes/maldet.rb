@@ -18,7 +18,8 @@
 #
 # Installs maldetect and enables a cron job to scan all local filesystems at
 # a random time once per day.
-if node.maldet.install == true
+
+if node[:maldet][:install] == true and !node[:application_attributes][:skip_recipes].include?('maldet')
   include_recipe "mu-tools::clamav"
 
   if !platform_family?("windows")
