@@ -84,8 +84,9 @@ module MU
             end
 
           @config['source_identifier'] = @config['identifier'] if @config["creation_style"] == "point_in_time"
-          @config['identifier'] = @mu_name
+          @config['identifier'] = @mu_name unless @config["creation_style"] == "existing"
           @config["subnet_group_name"] = @mu_name
+          MU.log "Using the database identifier #{@config['identifier']}"
 
           if @config["create_cluster"]
             getPassword
@@ -333,6 +334,7 @@ module MU
           attempts = 0
 
           begin
+            # Note, no case for 'existing' since just uses the supplied parameter dbid in identifier
             if %w{existing_snapshot new_snapshot}.include?(@config["creation_style"])
               MU.log "Creating database instance #{@config['identifier']} from snapshot #{@config["snapshot_id"]}"
               resp = MU::Cloud::AWS.rds(@config['region']).restore_db_instance_from_db_snapshot(config)
@@ -347,7 +349,7 @@ module MU
                 read_replica_struct.delete(:db_subnet_group_name)
                 resp = MU::Cloud::AWS.rds(@config['region']).create_db_instance_read_replica(read_replica_struct)
               end
-            else
+            elsif @config["creation_style"] == "new"
               MU.log "Creating database instance #{@config['identifier']}"
               resp = MU::Cloud::AWS.rds(@config['region']).create_db_instance(config)
             end
