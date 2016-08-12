@@ -11,6 +11,7 @@ krb5_realm = <%= @domain.upcase %>
 #krb5_canonicalize = false
 ldap_id_mapping = True
 ldap_schema = ad
+ldap_use_tokengroups = False
 <% if node.ad.domain_sid %>
 ldap_idmap_default_domain_sid = <%= node.ad.domain_sid %>
 <% end rescue NoMethodError %>
