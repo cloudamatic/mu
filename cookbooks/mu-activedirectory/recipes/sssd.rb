@@ -144,7 +144,7 @@ case node.platform_family
 
     template "/etc/krb5.conf" do
       source "krb5.conf.erb"
-      mode 0600
+      mode 0444
       cookbook "mu-activedirectory"
       notifies :restart, "service[sssd]", :immediately
       variables(

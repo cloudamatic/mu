@@ -3024,18 +3024,24 @@ module MU
           "minProperties" => 1,
           "additionalProperties" => false,
           "properties" => {
-              "vpc_id" => {"type" => "string"},
-              "vpc_name" => {"type" => "string"},
+              "vpc_id" => {
+                "type" => "string",
+                "description" => "Discover this VPC by looking for this cloud provider identifier."
+              },
+              "vpc_name" => {
+                "type" => "string",
+                "description" => "Discover this VPC by Mu-internal name; typically the shorthand 'name' field of a VPC declared elsewhere in the deploy, or in another deploy that's being referenced with 'deploy_id'."
+              },
               "region" => @region_primitive,
               "cloud" => @cloud_primitive,
               "tag" => {
                   "type" => "string",
-                  "description" => "Identify this VPC by a tag (key=value). Note that this tag must not match more than one resource.",
+                  "description" => "Discover this VPC by a cloud provider tag (key=value); note that this tag must not match more than one resource.",
                   "pattern" => "^[^=]+=.+"
               },
               "deploy_id" => {
                   "type" => "string",
-                  "description" => "Look for a VPC fitting this description in another Mu deployment with this id.",
+                  "description" => "Search for this VPC in an existing Mu deploy; specify a Mu deploy id (e.g. DEMO-DEV-2014111400-NG)."
               }
           }
       }
@@ -3043,10 +3049,17 @@ module MU
       if nat_opts
         vpc_ref_schema["properties"].merge!(
             {
-                "nat_host_name" => {"type" => "string"},
-                "nat_host_id" => {"type" => "string"},
+                "nat_host_name" => {
+                  "type" => "string",
+                  "description" => "The Mu-internal name of a NAT host to use; Typically the shorthand 'name' field of a Server declared elsewhere in the deploy, or in another deploy that's being referenced with 'deploy_id'."
+                },
+                "nat_host_id" => {
+                  "type" => "string",
+                  "description" => "Discover a Server to use as a NAT by looking for this cloud provider identifier."
+                 },
                 "nat_host_ip" => {
                     "type" => "string",
+                    "description" => "Discover a Server to use as a NAT by looking for an associated IP.",
                     "pattern" => "^\\d+\\.\\d+\\.\\d+\\.\\d+$"
                 },
                 "nat_ssh_user" => {
@@ -3059,7 +3072,7 @@ module MU
                 },
                 "nat_host_tag" => {
                     "type" => "string",
-                    "description" => "Identify a NAT host by a tag (key=value). Note that this tag must not match more than one server.",
+                    "description" => "Discover a Server to use as a NAT by looking for a cloud provider tag (key=value); Note that this tag must not match more than one server.",
                     "pattern" => "^[^=]+=.+"
                 }
             }
