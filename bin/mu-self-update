@@ -206,6 +206,7 @@ start_momma_cat
 for extra in $ADDTL_CHEF_REPOS;do
 	extra_repo_name="`echo $extra | sed 's/^.*\///' | cut -d. -f1`"
 	clone_repository "$extra" "$MU_DATADIR/$extra_repo_name"
+  generate_repo_berksfile "$MU_DATADIR/$extra_repo_name"
 done
 
 if [ $update_chef_artifacts == 1 ];then
