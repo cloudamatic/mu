@@ -1705,15 +1705,18 @@ if !ENV.include? 'MU_DATADIR'
 
   ENV['MU_DATADIR'] = "#{ENV['MU_INSTALLDIR']}/var"
 end
-instance_eval(File.read(File.expand_path("${MU_LIBDIR}/Berksfile", __FILE__)))
+instance_eval(File.read(File.expand_path("#{ENV['MU_INSTALLDIR']}/lib/Berksfile", __FILE__)))
 source "https://supermarket.getchef.com"
 EOF
     for d in cookbooks site_cookbooks;do
-      cd "$repodir/$d"
-      for c in `ls -1`;do
-        echo "cookbook '$c', path: '$repodir/$d/$c'" >> "$repodir/Berksfile"
-      done
+      if [ -d "$repodir/$d" ];then
+        cd "$repodir/$d"
+        for c in `ls -1`;do
+          echo "cookbook '$c', path: '$repodir/$d/$c'" >> "$repodir/Berksfile"
+        done
+      fi
     done
+    cd "$repodir" && berks install
   fi
 }
 
