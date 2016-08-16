@@ -1691,6 +1691,32 @@ set_permissions()
   fi
 }
 
+generate_repo_berksfile()
+{
+  repodir=$1
+  cd $repodir || return
+  if [ ! -f "Berksfile" ];then
+    warning_message "Generating a Berksfile in ${BOLD}$repodir${NORM}"
+    cat > "$repodir/Berksfile" << EOF
+if !ENV.include? 'MU_DATADIR'
+  if !ENV.include? 'MU_INSTALLDIR'
+    raise "Can't find MU_DATADIR or MU_INSTALLDIR in my environment!"
+  end
+
+  ENV['MU_DATADIR'] = "#{ENV['MU_INSTALLDIR']}/var"
+end
+instance_eval(File.read(File.expand_path("${MU_LIBDIR}/Berksfile", __FILE__)))
+source "https://supermarket.getchef.com"
+EOF
+    for d in cookbooks site_cookbooks;do
+      cd "$repodir/$d"
+      for c in `ls -1`;do
+        echo "cookbook '$c', path: '$repodir/$d/$c'" >> "$repodir/Berksfile"
+      done
+    done
+  fi
+}
+
 ###############################################################################
 ###############################################################################
 ###############################################################################
@@ -1714,6 +1740,7 @@ if [ "$library" != "1" ];then
   for extra in $ADDTL_CHEF_REPOS;do
     extra_repo_name="`echo $extra | sed 's/^.*\///' | cut -d. -f1`"
     clone_repository "$extra" "$MU_DATADIR/$extra_repo_name"
+    generate_repo_berksfile "$MU_DATADIR/$extra_repo_name"
   done
   if [ "$USER" == "root" ];then
     install_system_packages
