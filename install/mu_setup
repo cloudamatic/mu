@@ -1379,7 +1379,9 @@ upload_chef_artifacts()
 {
   if [ "$chef_artifacts_uploaded" != "1" ];then
     if ! echo "$@" | egrep -- "-n" ;then
-      rm -rf $HOMEDIR/.berkshelf/cookbooks/*
+      rm -rf $HOMEDIR/.berkshelf
+      rm -rf $HOMEDIR/.chef/cookbooks
+      rm -rf $HOMEDIR/.chef/site_cookbooks
       rm -rf $MU_LIBDIR/cookbooks/cap-*
       for a in cookbooks site_bookbooks data_bags roles environments;do
         /bin/rm -rf $MU_CHEF_CACHE/$a
