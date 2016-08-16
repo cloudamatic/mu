@@ -210,7 +210,8 @@ for extra in $ADDTL_CHEF_REPOS;do
 done
 
 if [ $update_chef_artifacts == 1 ];then
-	upload_chef_artifacts
+	upload_chef_artifacts -r mu
+	upload_chef_artifacts -n
 fi
 setup_localhost_chef_client
 configure_nagios_server

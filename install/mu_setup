@@ -1528,7 +1528,8 @@ configure_nagios_server()
     # skip this if we're being called from mu-self-update and have already
     # done it
     if [ "$chef_artifacts_uploaded" != 1 ];then
-      upload_chef_artifacts
+	    upload_chef_artifacts -r mu
+    	upload_chef_artifacts -n
     fi
     chef_client -o "recipe[mu-master::update_nagios_only]"
     run_chef_client=0
