@@ -74,17 +74,28 @@ begin
   # Degenerate "just work" case, where we assume our ssh config will take care
   # of the complicated bits for us. We're actually tunneling all the way to the
   # destination node.
-  gateway = Net::SSH::Gateway.new(
+  gateway = nil
+  if verbose
+    gateway = Net::SSH::Gateway.new(
       nat_host,
       nil,
       :config => ["#{NAGIOS_HOME}/.ssh/config"],
       :keys_only => true,
-#      :logger => logger,
+      :logger => logger,
       :auth_methods => ['publickey'],
       :use_agent => false,
-#      :paranoid => false,
-#      :verbose => :debug
-  )
+      :verbose => :debug
+    )
+  else
+    gateway = Net::SSH::Gateway.new(
+      nat_host,
+      nil,
+      :config => ["#{NAGIOS_HOME}/.ssh/config"],
+      :keys_only => true,
+      :auth_methods => ['publickey'],
+      :use_agent => false
+    )
+  end
   port = gateway.open("127.0.0.1", dest_port)
   if port_arg.empty?
     full_cmd = cmd
@@ -93,6 +104,7 @@ begin
   end
   if verbose
     puts "Opening gateway to #{dest_host}:#{dest_port} by tunneling local #{port} to #{nat_host} and running #{full_cmd}"
+    Syslog.log(Syslog::LOG_NOTICE, "Opening gateway to #{dest_host}:#{dest_port} by tunneling local #{port} to #{nat_host} and running #{full_cmd}")
   end
   output = %x{#{full_cmd} 2>&1}
   to_return = $?.exitstatus > 3 ? 3 : $?.exitstatus
@@ -109,9 +121,15 @@ ensure
   begin
     gateway.shutdown! if !gateway.nil?
   rescue Exception => e
-    puts "Got #{e.inspect} closing down gateway tunnel (remote port may have been dead)" if verbose
+    if verbose
+      puts "Got #{e.inspect} closing down gateway tunnel (remote port may have been dead)"
+      Syslog.log(Syslog::LOG_NOTICE, "Got #{e.inspect} closing down gateway tunnel (remote port may have been dead)")
+    end
   end
-  puts "Exiting with status #{to_return}" if verbose
+  if verbose
+    puts "Exiting with status #{to_return}"
+    Syslog.log(Syslog::LOG_NOTICE, "Exiting with status #{to_return}")
+  end
   exit to_return.to_i
 end
 

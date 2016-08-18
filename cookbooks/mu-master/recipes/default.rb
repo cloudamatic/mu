@@ -32,7 +32,6 @@ master_ips << "127.0.0.1"
 master_ips.uniq!
 master_ips.each { |host|
   firewall_rule "Mu Master ports for self (#{host})" do
-    port [389, 636, 5666]
     source "#{host}/32"
   end
 }
