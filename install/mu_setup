@@ -1325,6 +1325,7 @@ nginx['ssl_protocols'] = "TLSv1 TLSv1.1 TLSv1.2"
 nginx['ssl_certificate'] = "$MU_SSL_CERT"
 nginx['ssl_certificate_key'] = "$MU_SSL_KEY"
 bookshelf['external_url'] = "https://"+server_name+":7443"
+bookshelf['vip_port'] = 7443
 EOF
   if [ ! -f /etc/opscode/chef-server.rb -o "`diff /etc/opscode/chef-server.rb /etc/opscode/chef-server.rb.tmp.$$`" != "" ];then
     /bin/mv -f /etc/opscode/chef-server.rb.tmp.$$ /etc/opscode/chef-server.rb
@@ -1335,11 +1336,11 @@ EOF
 
   # XXX workaround for vile chef bug, see:
   # https://github.com/chef/chef-server/issues/50
-  if ! grep "s3_url, \"https:\/\/${HOSTNAME}.platform-mu:7443\"" /var/opt/opscode/opscode-erchef/sys.config > /dev/null;then
-    status_message "Switching ${BOLD}Chef Server${NORM} to port ${BOLD}7443${NORM}"
-    /bin/sed -i "s/s3_url, \"https:\/\/${HOSTNAME}.platform-mu\"/s3_url, \"https:\/\/${HOSTNAME}.platform-mu:7443\"/" /var/opt/opscode/opscode-erchef/sys.config
-    chef_server_ctl restart
-  fi
+#  if ! grep "s3_url, \"https:\/\/${HOSTNAME}.platform-mu:7443\"" /var/opt/opscode/opscode-erchef/sys.config > /dev/null;then
+#    status_message "Switching ${BOLD}Chef Server${NORM} to port ${BOLD}7443${NORM}"
+#    /bin/sed -i "s/s3_url, \"https:\/\/${HOSTNAME}.platform-mu\"/s3_url, \"https:\/\/${HOSTNAME}.platform-mu:7443\"/" /var/opt/opscode/opscode-erchef/sys.config
+#    chef_server_ctl restart
+#  fi
 
   set_knife_rb organizations/mu mu "https://${CHEF_PUBLIC_IP}:7443"
   /opt/chef/bin/knife ssl fetch -s https://$CHEF_PUBLIC_IP:7443 > /dev/null 2>&1
