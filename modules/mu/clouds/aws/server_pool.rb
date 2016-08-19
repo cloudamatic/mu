@@ -347,6 +347,40 @@ module MU
               policy_params[:min_adjustment_magnitude] = policy['min_adjustment_magnitude'] if !policy['min_adjustment_magnitude'].nil?
               resp = MU::Cloud::AWS.autoscale.put_scaling_policy(policy_params)
 
+              # If we are creating alarms for scaling policies we need to have the autoscaling policy ARN
+              # To make life easier we're creating the alarms here
+              if policy.has_key?("alarms") && !policy["alarms"].empty?
+                policy["alarms"].each { |alarm|
+                  alarm["alarm_actions"] = [] if !alarm.has_key?("alarm_actions")
+                  alarm["ok_actions"] = [] if !alarm.has_key?("ok_actions")
+                  alarm["alarm_actions"] << resp.policy_arn
+                  alarm["dimensions"] = [{name: "AutoScalingGroupName", value: asg_options[:auto_scaling_group_name]}]
+
+                  if alarm["enable_notifications"]
+                    topic_arn = MU::Cloud::AWS::Notification.createTopic(alarm["notification_group"], region: @config["region"])
+                    MU::Cloud::AWS::Notification.subscribe(arn: topic_arn, protocol: alarm["notification_type"], endpoint: alarm["notification_endpoint"], region: @config["region"])
+                    alarm["alarm_actions"] << topic_arn
+                    alarm["ok_actions"] << topic_arn
+                  end
+
+                  MU::Cloud::AWS::Alarm.setAlarm(
+                    name: "#{MU.deploy_id}-#{alarm["name"]}".upcase,
+                    ok_actions: alarm["ok_actions"],
+                    alarm_actions: alarm["alarm_actions"],
+                    insufficient_data_actions: alarm["no_data_actions"],
+                    metric_name: alarm["metric_name"],
+                    namespace: alarm["namespace"],
+                    statistic: alarm["statistic"],
+                    dimensions: alarm["dimensions"],
+                    period: alarm["period"],
+                    unit: alarm["unit"],
+                    evaluation_periods: alarm["evaluation_periods"],
+                    threshold: alarm["threshold"],
+                    comparison_operator: alarm["comparison_operator"],
+                    region: @config["region"]
+                  )
+                }
+              end
             }
           end
 

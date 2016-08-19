@@ -66,6 +66,9 @@ elif [ -x /usr/bin/yum ];then
 	if ! grep "^/bin/sh $userdata_dir/user-data.txt$" /etc/rc.d/rc.local > /dev/null;then
 		echo "/bin/sh $userdata_dir/user-data.txt" >> /etc/rc.d/rc.local
 	fi
+
+  sed -i 's/^Defaults.*requiretty$/Defaults   !requiretty/' /etc/sudoers
+
 	# /etc/rc.d/rc.local is not executable in CentOS7 which means userdata won't execute when we restart after patching the kernel, and bootstrap will fail
 	if [ $version == 7 ];then
 		chmod 755 /etc/rc.d/rc.local

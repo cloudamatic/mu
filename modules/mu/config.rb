@@ -1942,7 +1942,7 @@ module MU
                 alarm['dimensions'] << { "name" => pool["name"], "cloud_class" => "AutoScalingGroupName" }
                 alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
                 alarm['cloud'] = pool['cloud']
-                alarms << alarm.dup
+                # alarms << alarm.dup
               }
             end
           }
