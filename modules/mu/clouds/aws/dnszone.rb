@@ -254,7 +254,7 @@ module MU
         end
 
         # Create a Route53 health check.
-        # @param cfg [Hash]: Parsed hash of {MU::Config::BasketofKittens::dnszones::records::healthcheck}
+        # @param cfg [Hash]: Parsed hash of {MU::Config::BasketofKittens::dnszones::records::healthchecks}
         # @param target [String]: The IP address of FQDN of the target resource to check.
         def self.createHealthCheck(cfg, target)
           check = {
@@ -371,7 +371,7 @@ module MU
         # @param overwrite [Boolean]: Whether to overwrite existing records which match this description, as opposed to creating an entirely new one.
         # @param sync_wait [Boolean]: Wait until the record change has fully propagated throughout Route53 before returning.
         # @param failover [String]: "PRIMARY" or "SECONDARY" for Route53 failover. See also {MU::Config::BasketofKittens::dnszones::records}.
-        # @param healthcheck [String]: A Route53 healthcheck identifier for use with failover. Typically created by {MU::Config::BasketofKittens::dnszones::records::healthcheck}.
+        # @param healthcheck [String]: A Route53 healthcheck identifier for use with failover. Typically created by {MU::Config::BasketofKittens::dnszones::records::healthchecks}.
         # @param region [String]: An Amazon Web Services region for use with latency-based routing. See also {MU::Config::BasketofKittens::dnszones::records}.
         # @param weight [Integer]: A weight value used for weighted routing, used to determine proportion of traffic with other matching weighted records. See also {MU::Config::BasketofKittens::dnszones::records}.
         # @param location [Hash<String>]: A parsed Hash of {MU::Config::BasketofKittens::dnszones::records::geo_location}.
