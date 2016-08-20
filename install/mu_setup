@@ -667,6 +667,7 @@ print_setup_env_vars(){
 
 chef_client()
 {
+  punch_tcp_hole 7443 # sometimes this isn't ready
   status_message "chef-client $@"
 
   chef_cert_name="`echo $CHEF_PUBLIC_IP | sed 's/\./_/g'`"
@@ -1371,6 +1372,7 @@ EOF
   fi
   /bin/rm -f /etc/chef/client.rb.tmp.$$
   /sbin/service httpd start 2>&1 > /dev/null
+  punch_tcp_hole 7443 # sometimes this isn't ready
   knife vault create scratchpad dummy '{ "merp":"meep" }'
   knife vault delete -y scratchpad dummy
 }
@@ -1378,6 +1380,7 @@ EOF
 
 upload_chef_artifacts()
 {
+  punch_tcp_hole 7443 # sometimes this isn't ready
   if [ "$chef_artifacts_uploaded" != "1" ];then
     if ! echo "$@" | egrep -- "-n" ;then
       rm -rf $HOMEDIR/.berkshelf
@@ -1479,6 +1482,7 @@ start_momma_cat()
 ###############################################################################
 setup_localhost_chef_client()
 {
+  punch_tcp_hole 7443 # sometimes this isn't ready
   if [ ! -f $HOMEDIR/.ssh/id_rsa.pub ];then
     ssh-keygen -N '' -f $HOMEDIR/.ssh/id_rsa
     chmod 600 $HOMEDIR/.ssh/id_rsa
@@ -1555,6 +1559,7 @@ configure_nagios_server()
 ###############################################################################
 preconfigure_jenkins_artifacts()
 {
+  punch_tcp_hole 7443 # sometimes this isn't ready
   if [ "$JENKINS_ADMIN_PW" != "" ];then
         status_message "Configuring the ${BOLD}Jenkins${NORM} artifacts"
         punch_tcp_hole 9443
@@ -1775,6 +1780,7 @@ if [ "$library" != "1" ];then
     preconfigure_jenkins_artifacts
   fi
   if [ "$JENKINS_ADMIN_PW" != "" ];then
+    punch_tcp_hole 7443 # sometimes this isn't ready
     knife node run_list add MU-MASTER "role[mu-master-jenkins]"
     chef_client -l info
   fi
