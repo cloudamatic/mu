@@ -104,7 +104,7 @@ if !node[:application_attributes][:skip_recipes].include?('nrpe')
       warning_condition '15%'
       critical_condition '5%'
       action :add
-      notifies :run, 'execute[selinux permissions]', :immediately
+      notifies :run, 'execute[selinux permissions]', :immediately if node['platform'] != 'amazon'
       notifies :restart, "service[nrpe]", :delayed
     end
   
