@@ -1219,7 +1219,8 @@ install_chef()
   if [ -f /opt/chef/embedded/bin/gem ];then
     add_chef_support_gems /opt/chef/embedded
   fi
-  port="`grep \"'ssl_port'\" /etc/opscode/chef-server.rb | cut -d= -f2`"
+  port="`grep \"'ssl_port'\" /etc/opscode/chef-server.rb | awk '{print $3}'`"
+
   if [ "$port" == "" ];then
     port="443"
     service httpd stop # sits on 443, and Chef is stupid; disable temporarily
@@ -1261,6 +1262,7 @@ EOF
   fi
 
   pivotal_cfg="-u pivotal -k /etc/opscode/pivotal.pem -s https://${CHEF_PUBLIC_IP}:$port"
+
   knife ssl fetch $pivotal_cfg > /dev/null 2>&1
 
   list_chef_users ext_chef_users 
