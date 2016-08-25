@@ -10,7 +10,7 @@ if [ "$DIST_VERSION" == "server" ];then # funny package name in RHEL6
 fi
 EPEL_RPM="http://mirror.metrocast.net/fedora/epel/epel-release-latest-$DIST_VERSION.noarch.rpm"
 
-CHEF_CLIENT_VERSION="12.11.18-1"
+CHEF_CLIENT_VERSION="12.13.37-1"
 CHEF_SERVER_VERSION="12.7.0-1"
 
 if [ $DIST_VERSION == 7 ];then
