@@ -88,10 +88,12 @@ servers:
 <% if !parameter?('vpc_deploy_id') then %>
 <%= include("generic_bastion.inc") %>
 <% end %>
-- name: "wpress"
+- name: wpress
   loadbalancers:
   - concurrent-load-balancer: "lb"
   size: t2.medium
+  create_image:
+    image_then_destroy: true
   storage:
   - device: /dev/sda1
     size: 70
