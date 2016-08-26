@@ -1041,7 +1041,12 @@ clone_mu_repository()
 ## will reside in its own /opt/chef sandbox and should be left unmolested.
 install_ruby()
 {
-  status_message "Installing latest ${BOLD}Ruby${NORM} stable snapshot"
+  if [ "$1" == "purgeold" ];then
+    status_message "Purging existing ${BOLD}$RUBY_VERSION${NORM} package"
+    rpm -e $RUBY_VERSION
+    rm -rf $RUBY_INSTALL_DIR
+  fi
+  status_message "Installing ${BOLD}$RUBY_VERSION${NORM}"
 
   if ! rpm -q $RUBY_VERSION > /dev/null ;then
     rpm -ivh $RUBY_RPM

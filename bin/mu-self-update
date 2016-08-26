@@ -192,7 +192,7 @@ generate_docs
 /usr/sbin/groupdel mu-admins > /dev/null 2>&1
 
 set +e
-install_ruby
+install_ruby purgeold
 patch_knife_windows
 generate_ssl_certs skip_chef
 install_chef
