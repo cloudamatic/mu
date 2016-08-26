@@ -99,7 +99,7 @@ GRAPH
     php (>= 0.0.0)
     ruby_build (>= 0.0.0)
   dmg (2.4.0)
-  firewall (2.5.2)
+  firewall (2.5.3)
     chef-sugar (>= 0.0.0)
   freebsd (0.1.10)
   git (4.6.0)
