@@ -989,7 +989,7 @@ module MU
                 resp = MU::Cloud::AWS.ec2(MU.myRegion).describe_route_tables(
                   filters: [{name: "association.subnet-id", values: key.split(",")}]
                 )
-                if resp.nil? or resp.route_tables.size == 0
+                if (resp.nil? or resp.route_tables.size == 0) and !key.empty?
                   vpc_id = MU::Cloud::AWS.ec2(MU.myRegion).describe_subnets(subnet_ids: key.split(",")).subnets.first.vpc_id
                   MU.log "No route table associations found for #{key}, falling back to the default table for #{vpc_id}", MU::NOTICE
                   resp = MU::Cloud::AWS.ec2(MU.myRegion).describe_route_tables(

@@ -43,7 +43,7 @@ def test(file, flags = "")
 end
 
 def main
-  boks = %w(simple-server-rails.yaml simple-windows.yaml simple-server.yaml dnszone.yaml cache_cluster.yaml aurora_cluster.yaml simple-server-wordpress.yaml)
+  boks = %w(simple-server-rails.yaml simple-windows.yaml simple-server.yaml dnszone.yaml cache_cluster.yaml aurora_cluster.yaml wordpress.yaml)
   successes = 0
   failures = 0
 
