@@ -130,15 +130,25 @@ module MU
       @suffix = ""
       @is_list_element = false
       @pseudo = false
+      @runtimecode = nil
+      @valid_values = []
+      @index = 0
       attr_reader :description
       attr_reader :pseudo
+      attr_reader :index
+      attr_reader :value
+      attr_reader :runtimecode
+      attr_reader :valid_values
       attr_reader :is_list_element
 
-      def initialize(name, value, prettyname = nil, cloud_type = "String", description = "", is_list_element = false, prefix: "", suffix: "", pseudo: false)
+      def initialize(name, value, prettyname = nil, cloudtype = "String", valid_values = [], description = "", is_list_element = false, prefix: "", suffix: "", pseudo: false, runtimecode: nil, index: 0)
         @name = name
         @value = value
+        @valid_values = valid_values
         @pseudo = pseudo
-        @cloud_type = cloud_type
+        @index = index
+        @runtimecode = runtimecode
+        @cloudtype = cloudtype
         @is_list_element = is_list_element
         @description ||= 
           if !description.nil?
@@ -162,7 +172,7 @@ module MU
       end
       # Return the platform-specific cloud type of this Tail
       def getCloudType
-        @cloud_type
+        @cloudtype
       end
       # Return the human-friendly name of this Tail
       def getPrettyName
@@ -207,26 +217,31 @@ module MU
     # @param param [<String>]: The name of the parameter to which this should be tied.
     # @param value [<String>]: The value of the parameter to return when asked
     # @param prettyname [<String>]: A human-friendly parameter name to be used when generating CloudFormation templates and the like
-    # @param cloud_type [<String>]: A platform-specific identifier used by cloud layers to identify a parameter's type, e.g. AWS::EC2::VPC::Id
+    # @param cloudtype [<String>]: A platform-specific identifier used by cloud layers to identify a parameter's type, e.g. AWS::EC2::VPC::Id
+    # @param valid_values [Array<String>]: A list of acceptable String values for the given parameter.
     # @param description [<String>]: A long-form description of what the parameter does.
     # @param list_of [<String>]: Indicates that the value should be treated as a member of a list (array) by the cloud layer.
     # @param prefix [<String>]: A static String that should be prefixed to the stored value when queried
     # @param suffix [<String>]: A static String that should be appended to the stored value when queried
     # @param pseudo [<Boolean>]: This is a pseudo-parameter, automatically provided, and not available as user input.
-    def getTail(param, value: nil, prettyname: nil, cloud_type: "String", description: nil, list_of: nil, prefix: "", suffix: "", pseudo: false)
+    # @param runtimecode [<String>]: Actual code to allow the cloud layer to interpret literally in its own idiom, e.g. '"Ref" : "AWS::StackName"' for CloudFormation
+    def getTail(param, value: nil, prettyname: nil, cloudtype: "String", valid_values: [], description: nil, list_of: nil, prefix: "", suffix: "", pseudo: false, runtimecode: nil)
       if value.nil?
-        if $parameters.nil? or !$parameters.has_key?(param)
-          MU.log "Parameter '#{param}' (#{param.class.name}) referenced in config but not provided (#{caller[0]})", MU::DEBUG, details: $parameters
+        if @@parameters.nil? or !@@parameters.has_key?(param)
+          MU.log "Parameter '#{param}' (#{param.class.name}) referenced in config but not provided (#{caller[0]})", MU::DEBUG, details: @@parameters
           return nil
 #          raise DeployParamError
         else
-          value = $parameters[param]
+          value = @@parameters[param]
         end
       end
       if !prettyname.nil?
         prettyname.gsub!(/[^a-z0-9]/i, "") # comply with CloudFormation restrictions
       end
-      if !list_of.nil? or (@@tails.has_key?(param) and @@tails[param].is_a?(Array))
+      if value.is_a?(MU::Config::Tail)
+        MU.log "Parameter #{param} is using a nested parameter as a value. This rarely works, depending on the target cloud. YMMV.", MU::WARN
+        tail = MU::Config::Tail.new(param, value, prettyname, cloudtype, valid_values, description, prefix: prefix, suffix: suffix, pseudo: pseudo, runtimecode: runtimecode)
+      elsif !list_of.nil? or (@@tails.has_key?(param) and @@tails[param].is_a?(Array))
         tail = []
         count = 0
         value.split(/\s*,\s*/).each { |subval|
@@ -235,10 +250,11 @@ module MU
             list_of = @@tails[param][count].values.first.getName if list_of.nil?
             prettyname = @@tails[param][count].values.first.getPrettyName if prettyname.nil?
             description = @@tails[param][count].values.first.description if description.nil?
-            cloud_type = @@tails[param][count].values.first.getCloudType if @@tails[param][count].values.first.getCloudType != "String"
+            valid_values = @@tails[param][count].values.first.valid_values if valid_values.nil? or valid_values.empty?
+            cloudtype = @@tails[param][count].values.first.getCloudType if @@tails[param][count].values.first.getCloudType != "String"
           end
           prettyname = param.capitalize if prettyname.nil?
-          tail << { list_of => MU::Config::Tail.new(list_of, subval, prettyname, cloud_type, description, true, pseudo: pseudo) }
+          tail << { list_of => MU::Config::Tail.new(list_of, subval, prettyname, cloudtype, valid_values, description, true, pseudo: pseudo, index: count) }
           count = count + 1
         }
       else
@@ -247,12 +263,19 @@ module MU
           value = @@tails[param].to_s if value.nil?
           prettyname = @@tails[param].getPrettyName if prettyname.nil?
           description = @@tails[param].description if description.nil?
-          cloud_type = @@tails[param].getCloudType if @@tails[param].getCloudType != "String"
+          valid_values = @@tails[param].valid_values if valid_values.nil? or valid_values.empty?
+          cloudtype = @@tails[param].getCloudType if @@tails[param].getCloudType != "String"
         end
+        tail = MU::Config::Tail.new(param, value, prettyname, cloudtype, valid_values, description, prefix: prefix, suffix: suffix, pseudo: pseudo, runtimecode: runtimecode)
+      end
 
-        tail = MU::Config::Tail.new(param, value, prettyname, cloud_type, description, prefix: prefix, suffix: suffix, pseudo: pseudo)
+      if valid_values and valid_values.size > 0 and value
+        if !valid_values.include?(value)
+          raise DeployParamError, "Invalid parameter value '#{value}' supplied for '#{param}'"
+        end
       end
       @@tails[param] = tail
+
       tail
     end
 
@@ -288,6 +311,19 @@ module MU
       # be easily run in an ERB block in a Basket of Kittens.
       def parameter?(var_name)
         @@user_supplied_parameters.has_key?(var_name)
+      end
+
+      # Instead of resolving a parameter, leave a placeholder for a
+      # cloud-specific variable that will be generated at runtime. Canonical
+      # use case: referring to a CloudFormation variable by reference, like
+      # "AWS::StackName" or "SomeChildTemplate.OutputVariableName."
+      # @param code [String]: A string consistent of code which will be understood by the Cloud layer, e.g. '"Ref" : "AWS::StackName"' (CloudFormation)
+      # @param placeholder [Object]: A placeholder value to use at the config parser stage, if the default string will not pass validation.
+      def cloudCode(code, placeholder = "CLOUDCODEPLACEHOLDER")
+        var_name = code.gsub(/[^a-z0-9]/i, "_")
+        placeholder = code if placeholder.nil?
+        getTail(var_name, value: placeholder, runtimecode: code)
+        "MU::Config.getTail PLACEHOLDER #{var_name} REDLOHECALP"
       end
 
       # Figure out what kind of file we're loading. We handle includes 
@@ -389,6 +425,13 @@ module MU
       # for the rest of the config to reference.
       # XXX figure out how to make include() add parameters for us
       param_cfg, raw_erb_params_only = resolveConfig(path: @@config_path, param_pass: true)
+      if param_cfg.has_key?("parameters")
+        param_cfg["parameters"].each { |param|
+          if param.has_key?("default") and param["default"].nil?
+            param["default"] = ""
+          end
+        }
+      end
 
       # Set up special Tail objects for our automatic pseudo-parameters
       getTail("myPublicIp", value: $myPublicIp, pseudo: true)
@@ -398,24 +441,31 @@ module MU
 
       if param_cfg.has_key?("parameters") and !param_cfg["parameters"].nil? and param_cfg["parameters"].size > 0
         param_cfg["parameters"].each { |param|
+          param['valid_values'] ||= []
           if !@@parameters.has_key?(param['name'])
             if param.has_key?("default")
-              @@parameters[param['name']] = param['default']
+              @@parameters[param['name']] = param['default'].nil? ? "" : param['default']
             elsif param["required"] or !param.has_key?("required")
               MU.log "Required parameter '#{param['name']}' not supplied", MU::ERR
               ok = false
             end
             if param.has_key?("cloudtype")
-              getTail(param['name'], value: @@parameters[param['name']], cloud_type: param["cloudtype"], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
+              getTail(param['name'], value: @@parameters[param['name']], cloudtype: param["cloudtype"], valid_values: param['valid_values'], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
             else
-              getTail(param['name'], value: @@parameters[param['name']], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
+              getTail(param['name'], value: @@parameters[param['name']], valid_values: param['valid_values'], description: param['description'], prettyname: param['prettyname'], list_of: param['list_of'])
             end
           end
         }
       end
       raise ValidationError if !ok
       @@parameters.each_pair { |name, val|
+# XXX do valid_values validation stuff here
         next if @@tails.has_key?(name) and @@tails[name].is_a?(MU::Config::Tail) and @@tails[name].pseudo
+        # Parameters can have limited parameterization of their own
+        if @@tails[name].to_s.match(/^(.*?)MU::Config.getTail PLACEHOLDER (.+?) REDLOHECALP(.*)/)
+          @@tails[name] = getTail(name, value: @@tails[$2])
+        end
+
         if respond_to?(name.to_sym)
           MU.log "Parameter name '#{name}' reserved", MU::ERR
           ok = false
@@ -428,6 +478,7 @@ module MU
       $parameters.freeze
 
       tmp_cfg, raw_erb = resolveConfig(path: @@config_path)
+
       # Convert parameter entries that constitute whole config keys into
       # MU::Config::Tail objects.
       def resolveTails(tree, indent= "")
@@ -443,6 +494,9 @@ module MU
           tree = newtree
         elsif tree.is_a?(String) and tree.match(/^(.*?)MU::Config.getTail PLACEHOLDER (.+?) REDLOHECALP(.*)/)
           tree = getTail($2, prefix: $1, suffix: $3)
+          if tree.nil? and @@tails.has_key?($2) # XXX why necessary?
+            tree = @@tails[$2]
+          end
         end
         return tree
       end
@@ -806,7 +860,7 @@ module MU
             return false
           elsif !vpc_block["vpc_id"]
             MU.log "Resolved VPC to #{ext_vpc.cloud_id} in #{parent_name}", MU::DEBUG, details: vpc_block
-            vpc_block["vpc_id"] = getTail("#{parent_name} Target VPC", value: ext_vpc.cloud_id, prettyname: "#{parent_name} Target VPC", cloud_type: "AWS::EC2::VPC::Id")
+            vpc_block["vpc_id"] = getTail("#{parent_name} Target VPC", value: ext_vpc.cloud_id, prettyname: "#{parent_name} Target VPC", cloudtype: "AWS::EC2::VPC::Id")
           end
         end
 
@@ -899,7 +953,7 @@ module MU
             honor_subnet_prefs=false
           end
           if !subnet['subnet_id'].nil? and subnet['subnet_id'].is_a?(String)
-            subnet['subnet_id'] << getTail("Subnet #{count} for #{parent_name}", value: subnet['subnet_id'], prettyname: "Subnet #{count} for #{parent_name}", cloud_type: "AWS::EC2::Subnet::Id")
+            subnet['subnet_id'] << getTail("Subnet #{count} for #{parent_name}", value: subnet['subnet_id'], prettyname: "Subnet #{count} for #{parent_name}", cloudtype: "AWS::EC2::Subnet::Id")
             count = count + 1
           end
         }
@@ -919,11 +973,11 @@ module MU
 
           ext_vpc.subnets.each { |subnet|
             if subnet.private? and (vpc_block['subnet_pref'] != "all_public" and vpc_block['subnet_pref'] != "public")
-              private_subnets << { "subnet_id" => getTail("#{parent_name} Private Subnet #{priv}", value: subnet.cloud_id, prettyname: "#{parent_name} Private Subnet #{priv}",  cloud_type:  "AWS::EC2::Subnet::Id") }
+              private_subnets << { "subnet_id" => getTail("#{parent_name} Private Subnet #{priv}", value: subnet.cloud_id, prettyname: "#{parent_name} Private Subnet #{priv}",  cloudtype:  "AWS::EC2::Subnet::Id") }
               private_subnets_map[subnet.cloud_id] = subnet
               priv = priv + 1
             elsif !subnet.private? and vpc_block['subnet_pref'] != "all_private" and vpc_block['subnet_pref'] != "private"
-              public_subnets << { "subnet_id" => getTail("#{parent_name} Public Subnet #{pub}", value: subnet.cloud_id, prettyname: "#{parent_name} Public Subnet #{pub}",  cloud_type: "AWS::EC2::Subnet::Id") }
+              public_subnets << { "subnet_id" => getTail("#{parent_name} Public Subnet #{pub}", value: subnet.cloud_id, prettyname: "#{parent_name} Public Subnet #{pub}",  cloudtype: "AWS::EC2::Subnet::Id") }
               public_subnets_map[subnet.cloud_id] = subnet
               pub = pub + 1
             end
@@ -1006,7 +1060,7 @@ module MU
       end
 
       if !vpc_block["vpc_id"].nil? and vpc_block["vpc_id"].is_a?(String)
-        vpc_block["vpc_id"] = getTail("#{parent_name}vpc_id", value: vpc_block["vpc_id"], prettyname: "#{parent_name} Target VPC",  cloud_type: "AWS::EC2::VPC::Id")
+        vpc_block["vpc_id"] = getTail("#{parent_name}vpc_id", value: vpc_block["vpc_id"], prettyname: "#{parent_name} Target VPC",  cloudtype: "AWS::EC2::VPC::Id")
       elsif !vpc_block["nat_host_name"].nil? and vpc_block["nat_host_name"].is_a?(String)
         vpc_block["nat_host_name"] = MU::Config::Tail.new("#{parent_name}nat_host_name", vpc_block["nat_host_name"])
 
@@ -1099,7 +1153,7 @@ module MU
         realvpc['vpc_name'] = vpc['vpc_name']
         if !realvpc['vpc_id'].nil?
           name = name + "-" + realvpc['vpc_id']
-          realvpc['vpc_id'] = getTail("vpc_id", value: realvpc['vpc_id'], prettyname: "Admin Firewall Ruleset #{name} Target VPC",  cloud_type: "AWS::EC2::VPC::Id") if realvpc["vpc_id"].is_a?(String)
+          realvpc['vpc_id'] = getTail("vpc_id", value: realvpc['vpc_id'], prettyname: "Admin Firewall Ruleset #{name} Target VPC",  cloudtype: "AWS::EC2::VPC::Id") if realvpc["vpc_id"].is_a?(String)
         elsif !realvpc['vpc_name'].nil?
           name = name + "-" + realvpc['vpc_name']
         end
@@ -1216,7 +1270,7 @@ module MU
         errors = JSON::Validator.fully_validate(MU::Config.schema, config)
         realerrors = []
         errors.each { |err|
-          if !err.match(/The property '.+?' of type MU::Config::Tail did not match the following type: string in schema/)
+          if !err.match(/The property '.+?' of type MU::Config::Tail did not match the following type:/)
             realerrors << err
           end
         }
@@ -1272,10 +1326,12 @@ module MU
         vpc["dependencies"] = Array.new if vpc["dependencies"].nil?
         subnet_routes = Hash.new
         public_routes = Array.new
-        vpc['subnets'].each { |subnet|
-          subnet_routes[subnet['route_table']] = Array.new if subnet_routes[subnet['route_table']].nil?
-          subnet_routes[subnet['route_table']] << subnet['name']
-        }
+        if vpc['subnets']
+          vpc['subnets'].each { |subnet|
+            subnet_routes[subnet['route_table']] = Array.new if subnet_routes[subnet['route_table']].nil?
+            subnet_routes[subnet['route_table']] << subnet['name']
+          }
+        end
         
         if vpc['endpoint_policy'] && !vpc['endpoint_policy'].empty?
           if !vpc['endpoint']
@@ -1296,6 +1352,8 @@ module MU
 
         nat_gateway_route_tables = []
         nat_gateway_added = false
+        public_rtbs = []
+        private_rtbs = []
         vpc['route_tables'].each { |table|
           routes = []
           table['routes'].each { |route|
@@ -1307,9 +1365,10 @@ module MU
             end
 
             if (route['nat_host_name'] or route['nat_host_id'])
+              private_rtbs << table['name']
               route.delete("gateway") if route['gateway'] == '#INTERNET'
             end
-            if !route['nat_host_name'].nil? and server_names.include?(route['nat_host_name'])
+            if !route['nat_host_name'].nil? and server_names.include?(route['nat_host_name']) and !subnet_routes.nil? and !subnet_routes.empty?
               subnet_routes[table['name']].each { |subnet|
                 nat_routes[subnet] = route['nat_host_name']
               }
@@ -1317,7 +1376,12 @@ module MU
                 "type" => "server",
                 "name" => route['nat_host_name']
               }
+            elsif route['gateway'] == '#NAT'
+              private_rtbs << table['name']
+            elsif route['gateway'] == '#INTERNET'
+              public_rtbs << table['name']
             end
+            next if !vpc['subnets']
             
             vpc['subnets'].each { |subnet|
               if route['gateway'] == '#INTERNET'
@@ -1355,6 +1419,52 @@ module MU
             }
           }
         }
+
+        if (!vpc['subnets'] or vpc['subnets'].empty?) and vpc['create_standard_subnets']
+          if ["AWS", "CloudFormation"].include?(vpc['cloud'])
+            if vpc['availability_zones'].nil? or vpc['availability_zones'].empty?
+              vpc['availability_zones'] = MU::Cloud::AWS.listAZs(vpc['region'])
+            else
+              # parses as a hash so we can use list parameters easily
+              vpc['availability_zones'] = vpc['availability_zones'].map { |val| val['zone'] }
+            end
+          end
+          cidr = NetAddr::CIDR.create(vpc['ip_block'].to_s)
+          subnet_size = (cidr.enumerate.size/(vpc['availability_zones'].size*2)) - 2
+          subnets = cidr.subnet(:IPCount => subnet_size, :NumSubnets => vpc['availability_zones'].size*2)
+          subnets = getTail("subnetblocks", value: subnets.join(","), cloudtype: "CommaDelimitedList", description: "IP Address ranges to be used for VPC subnets", prettyname: "SubnetIpBlocks", list_of: "ip_block").map { |tail| tail["ip_block"] }
+          vpc['subnets'] = []
+          count = 0
+          vpc['availability_zones'].each { |az|
+            addnat = false
+            if vpc['create_nat_gateway'] and (vpc['nat_gateway_multi_az'] or !nat_gateway_added) and public_rtbs.size > 0
+              addnat = true
+              nat_gateway_added = true
+            end
+            if private_rtbs.size > 0
+              vpc['subnets'] << {
+                "name" => "Subnet#{count}Private",
+                "availability_zone" => az,
+                "ip_block" => subnets.shift,
+                "route_table" => private_rtbs[count].nil? ? private_rtbs.first : private_rtbs[count],
+                "map_public_ips" => false,
+                "is_public" => false
+              }
+            end
+            if public_rtbs.size > 0
+              vpc['subnets'] << {
+                "name" => "Subnet#{count}Public",
+                "availability_zone" => az,
+                "ip_block" => subnets.shift,
+                "route_table" => public_rtbs[count].nil? ? public_rtbs.first : public_rtbs[count],
+                "map_public_ips" => true,
+                "is_public" => true,
+                "create_nat_gateway" => addnat
+              }
+            end
+            count = count + 1
+          }
+        end
 
         nat_gateway_route_tables.uniq!
         if nat_gateway_route_tables.size < 2 && vpc['nat_gateway_multi_az']
@@ -1492,7 +1602,7 @@ module MU
         if !acl["vpc_name"].nil? or !acl["vpc_id"].nil?
           acl['vpc'] = Hash.new
           if acl["vpc_id"].nil?
-            acl['vpc']["vpc_id"] = getTail("vpc_id", value: acl["vpc_id"], prettyname: "Firewall Ruleset #{acl['name']} Target VPC",  cloud_type: "AWS::EC2::VPC::Id") if acl["vpc_id"].is_a?(String)
+            acl['vpc']["vpc_id"] = getTail("vpc_id", value: acl["vpc_id"], prettyname: "Firewall Ruleset #{acl['name']} Target VPC",  cloudtype: "AWS::EC2::VPC::Id") if acl["vpc_id"].is_a?(String)
           elsif !acl["vpc_name"].nil?
             acl['vpc']['vpc_name'] = acl["vpc_name"]
           end
@@ -1607,6 +1717,9 @@ module MU
                   "type" => "firewall_rule",
                   "name" => acl_include["rule_name"]
               }
+            elsif acl_include["rule_name"]
+              MU.log "LoadBalancer #{lb['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
+              ok = false
             end
           }
         end
@@ -1625,7 +1738,7 @@ module MU
             end
           end
         }
-        lb['dependencies'] << genAdminFirewallRuleset(vpc: lb['vpc'], region: lb['region'], cloud: lb['cloud'])
+        lb['dependencies'] << genAdminFirewallRuleset(vpc: lb['vpc'], region: lb['region'], cloud: lb['cloud']) if !lb['scrub_mu_isms']
         
         if lb["alarms"] && !lb["alarms"].empty?
           lb["alarms"].each { |alarm|
@@ -1641,8 +1754,10 @@ module MU
 
       collections.each { |stack|
         stack['cloud'] = MU::Config.defaultCloud if stack['cloud'].nil?
+        stack['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
         stack['region'] = config['region'] if stack['region'].nil?
         stack["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Collection")
+        stack["dependencies"] = Array.new if stack["dependencies"].nil?
       }
 
       server_names = Array.new
@@ -1685,7 +1800,7 @@ module MU
         if pool["basis"]["launch_config"] != nil
           launch = pool["basis"]["launch_config"]
           if !launch['generate_iam_role']
-            if !launch['iam_role']
+            if !launch['iam_role'] and pool['cloud'] != "CloudFormation"
               MU.log "Must set iam_role if generate_iam_role set to false", MU::ERR
               ok = false
             end
@@ -1697,7 +1812,7 @@ module MU
           if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?
             if MU::Config.amazon_images.has_key?(pool['platform']) and
                 MU::Config.amazon_images[pool['platform']].has_key?(pool['region'])
-              launch['ami_id'] = getTail("pool"+pool['name']+"AMI", value: MU::Config.amazon_images[pool['platform']][pool['region']], prettyname: "pool"+pool['name']+"AMI", cloud_type: "AWS::EC2::Image::Id")
+              launch['ami_id'] = getTail("pool"+pool['name']+"AMI", value: MU::Config.amazon_images[pool['platform']][pool['region']], prettyname: "pool"+pool['name']+"AMI", cloudtype: "AWS::EC2::Image::Id")
 
             else
               ok = false
@@ -1823,10 +1938,13 @@ module MU
                   "type" => "firewall_rule",
                   "name" => acl_include["rule_name"]
               }
+            elsif acl_include["rule_name"]
+              MU.log "ServerPool #{pool['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
+              ok = false
             end
           }
         end
-        pool['dependencies'] << genAdminFirewallRuleset(vpc: pool['vpc'], region: pool['region'], cloud: pool['cloud'])
+        pool['dependencies'] << genAdminFirewallRuleset(vpc: pool['vpc'], region: pool['region'], cloud: pool['cloud']) if !pool['scrub_mu_isms']
       }
 
       read_replicas = []
@@ -2015,6 +2133,9 @@ module MU
                   "type" => "firewall_rule",
                   "name" => acl_include["rule_name"]
               }
+            elsif acl_include["rule_name"]
+              MU.log "Database #{db['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
+              ok = false
             end
           }
         end
@@ -2060,7 +2181,7 @@ module MU
             end
           end
         end
-        db['dependencies'] << genAdminFirewallRuleset(vpc: db['vpc'], region: db['region'], cloud: db['cloud'])
+        db['dependencies'] << genAdminFirewallRuleset(vpc: db['vpc'], region: db['region'], cloud: db['cloud']) if !db['scrub_mu_isms']
 
         if db["create_read_replica"] or db['read_replica_of']
           if db["engine"] != "postgres" and db["engine"] != "mysql"
@@ -2275,6 +2396,9 @@ module MU
                 "type" => "firewall_rule",
                 "name" => acl_include["rule_name"]
               }
+            elsif acl_include["rule_name"]
+              MU.log "CacheCluster #{cluster['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
+              ok = false
             end
           }
         end
@@ -2313,7 +2437,7 @@ module MU
           end
         end
 
-        cluster['dependencies'] << genAdminFirewallRuleset(vpc: cluster['vpc'], region: cluster['region'], cloud: cluster['cloud'])
+        cluster['dependencies'] << genAdminFirewallRuleset(vpc: cluster['vpc'], region: cluster['region'], cloud: cluster['cloud']) if !cluster['scrub_mu_isms']
       }
 
 
@@ -2347,7 +2471,7 @@ module MU
         server['region'] = config['region'] if server['region'].nil?
         server["dependencies"] = Array.new if server["dependencies"].nil?
         if !server['generate_iam_role']
-          if !server['iam_role']
+          if !server['iam_role'] and server['cloud'] != "CloudFormation"
             MU.log "Must set iam_role if generate_iam_role set to false", MU::ERR
             ok = false
           end
@@ -2368,7 +2492,7 @@ module MU
         if server['ami_id'].nil?
           if MU::Config.amazon_images.has_key?(server['platform']) and
               MU::Config.amazon_images[server['platform']].has_key?(server['region'])
-            server['ami_id'] = getTail("server"+server['name']+"AMI", value: MU::Config.amazon_images[server['platform']][server['region']], prettyname: "server"+server['name']+"AMI", cloud_type: "AWS::EC2::Image::Id")
+            server['ami_id'] = getTail("server"+server['name']+"AMI", value: MU::Config.amazon_images[server['platform']][server['region']], prettyname: "server"+server['name']+"AMI", cloudtype: "AWS::EC2::Image::Id")
           else
             MU.log "No AMI specified for #{server['name']} and no default available for platform #{server['platform']} in region #{server['region']}", MU::ERR, details: server
             ok = false
@@ -2456,6 +2580,9 @@ module MU
                   "type" => "firewall_rule",
                   "name" => acl_include["rule_name"]
               }
+            elsif acl_include["rule_name"]
+              MU.log "Server #{server['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
+              ok = false
             end
           }
         end
@@ -2469,7 +2596,7 @@ module MU
             end
           }
         end
-        server['dependencies'] << genAdminFirewallRuleset(vpc: server['vpc'], region: server['region'], cloud: server['cloud'])
+        server['dependencies'] << genAdminFirewallRuleset(vpc: server['vpc'], region: server['region'], cloud: server['cloud']) if !server['scrub_mu_isms']
         server["dependencies"].uniq!
       }
 
@@ -2665,18 +2792,24 @@ module MU
           "minProperties" => 1,
           "additionalProperties" => false,
           "properties" => {
-              "vpc_id" => {"type" => "string"},
-              "vpc_name" => {"type" => "string"},
+              "vpc_id" => {
+                "type" => "string",
+                "description" => "Discover this VPC by looking for this cloud provider identifier."
+              },
+              "vpc_name" => {
+                "type" => "string",
+                "description" => "Discover this VPC by Mu-internal name; typically the shorthand 'name' field of a VPC declared elsewhere in the deploy, or in another deploy that's being referenced with 'deploy_id'."
+              },
               "region" => @region_primitive,
               "cloud" => @cloud_primitive,
               "tag" => {
                   "type" => "string",
-                  "description" => "Identify this VPC by a tag (key=value). Note that this tag must not match more than one resource.",
+                  "description" => "Discover this VPC by a cloud provider tag (key=value); note that this tag must not match more than one resource.",
                   "pattern" => "^[^=]+=.+"
               },
               "deploy_id" => {
                   "type" => "string",
-                  "description" => "Look for a VPC fitting this description in another Mu deployment with this id.",
+                  "description" => "Search for this VPC in an existing Mu deploy; specify a Mu deploy id (e.g. DEMO-DEV-2014111400-NG)."
               }
           }
       }
@@ -2684,10 +2817,17 @@ module MU
       if nat_opts
         vpc_ref_schema["properties"].merge!(
             {
-                "nat_host_name" => {"type" => "string"},
-                "nat_host_id" => {"type" => "string"},
+                "nat_host_name" => {
+                  "type" => "string",
+                  "description" => "The Mu-internal name of a NAT host to use; Typically the shorthand 'name' field of a Server declared elsewhere in the deploy, or in another deploy that's being referenced with 'deploy_id'."
+                },
+                "nat_host_id" => {
+                  "type" => "string",
+                  "description" => "Discover a Server to use as a NAT by looking for this cloud provider identifier."
+                 },
                 "nat_host_ip" => {
                     "type" => "string",
+                    "description" => "Discover a Server to use as a NAT by looking for an associated IP.",
                     "pattern" => "^\\d+\\.\\d+\\.\\d+\\.\\d+$"
                 },
                 "nat_ssh_user" => {
@@ -2700,7 +2840,7 @@ module MU
                 },
                 "nat_host_tag" => {
                     "type" => "string",
-                    "description" => "Identify a NAT host by a tag (key=value). Note that this tag must not match more than one server.",
+                    "description" => "Discover a Server to use as a NAT by looking for a cloud provider tag (key=value); Note that this tag must not match more than one server.",
                     "pattern" => "^[^=]+=.+"
                 }
             }
@@ -2924,6 +3064,24 @@ module MU
                 "default" => "10.0.0.0/16"
             },
             "tags" => @tags_primitive,
+            "create_standard_subnets" => {
+              "type" => "boolean",
+              "description" => "If the 'subnets' parameter to this VPC is not specified, we will instead create one set of public subnets and one set of private, with a public/private pair in each Availability Zone in the target region.",
+              "default" => true
+            },
+            "availability_zones" => {
+                "type" => "array",
+                "items" => {
+                    "description" => "When the 'create_standard_subnets' flag is set, use this to target a specific set of availability zones across which to spread those subnets. Will attempt to guess based on the target region, if not specified.",
+                    "type" => "object",
+                    "required" => ["zone"],
+                    "properties" => {
+                        "zone" => {
+                          "type" => "string"
+                        }
+                    }
+                }
+            },
             "create_internet_gateway" => {
                 "type" => "boolean",
                 "default" => true
@@ -3503,11 +3661,14 @@ module MU
     @cloudformation_primitive = {
         "type" => "object",
         "title" => "cloudformation",
-        "required" => ["name", "on_failure"],
+        "required" => ["name"],
         "additionalProperties" => false,
         "description" => "Create an Amazon CloudFormation stack.",
         "properties" => {
             "name" => {"type" => "string"},
+            "cloud" => @cloud_primitive,
+            "tags" => @tags_primitive,
+            "dependencies" => @dependencies_primitive,
             "parameters" => {
                 "type" => "array",
                 "items" => {
@@ -3525,12 +3686,22 @@ module MU
                 "type" => "string",
                 "description" => "Pass in the deploy key for this stack as a CloudFormation parameter. Set this to the CloudFormation parameter name.",
             },
+            "pass_parent_parameters" => {
+              "type" => "boolean",
+              "default" => true,
+              "description" => "If targeting CloudFormation, this will pass all of the parent template's parameters to the nested template"
+            },
             "on_failure" => {
                 "type" => "string",
-                "enum" => ["DO_NOTHING", "ROLLBACK", "DELETE"]
+                "enum" => ["DO_NOTHING", "ROLLBACK", "DELETE"],
+                "default" => "ROLLBACK"
             },
             "template_file" => {"type" => "string"},
-            "time" => {"type" => "string"},
+            "timeout" => {
+              "type" => "string",
+              "description" => "Timeout (in minutes) for building this Collection.",
+              "default" => "45"
+            },
             "template_url" => {
                 "type" => "string",
                 "pattern" => "^#{URI::regexp(%w(http https))}$"
@@ -4488,6 +4659,10 @@ module MU
                 "type" => "string",
                 "description" => "Note that Amazon Elastic Load Balancer names must be relatively short. Brevity is recommended here."
             },
+            "override_name" => {
+                "type" => "string",
+                "description" => "Normally an ELB's Amazon identifier will be named the same as its internal Mu identifier. This allows you to override that name with a specific value. Note that Amazon Elastic Load Balancer names must be relatively short. Brevity is recommended here. Note also that setting a static name here may result in deploy failures due to name collision with existing ELBs."
+            },
             "scrub_mu_isms" => {
                 "type" => "boolean",
                 "default" => false,
@@ -4948,6 +5123,18 @@ module MU
                 "type" => "boolean",
                 "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template. Setting this flag here will override declarations in individual resources."
             },
+            "conditions" => {
+                "type" => "array",
+                "items" => {
+                  "type" => "object",
+                  "required" => ["name", "cloudcode"],
+                  "description" => "CloudFormation-specific. Define Conditions as in http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/conditions-section-structure.html. Arguments must use the cloudCode() macro.",
+                  "properties" => {
+                    "name" => { "required" => true, "type" => "string" },
+                    "cloudcode" => { "required" => true, "type" => "string" },
+                  }
+                }
+            },
             "parameters" => {
                 "type" => "array",
                 "items" => {
@@ -4956,25 +5143,32 @@ module MU
                     "description" => "Parameters to be substituted elsewhere in this Basket of Kittens as ERB variables (<%= varname %>)",
                     "additionalProperties" => false,
                     "properties" => {
-                        "name" => { "required" => true, "type" => "string" },
-                        "default" => { "type" => "string" },
-                        "list_of" => {
-                          "type" => "string",
-                          "description" => "Treat the value as a comma-separated list of values with this key name, equivalent to CloudFormation's various List<> types. For example, set to 'subnet_id' to pass values as an array of subnet identifiers as the 'subnets' argument of a VPC stanza."
-                        },
-                        "prettyname" => {
-                          "type" => "string",
-                          "description" => "An alternative name to use when generating parameter fields in, for example, CloudFormation templates"
-                        },
-                        "description" => {"type" => "string"},
-                        "cloudtype" => {
-                          "type" => "string",
-                          "description" => "A platform-specific string describing the type of validation to use for this parameter. E.g. when generating a CloudFormation template, set to AWS::EC2::Image::Id to validate input as an AMI identifier."
-                        },
-                        "required" => {
-                          "type" => "boolean",
-                          "default" => true
-                         }
+                      "name" => { "required" => true, "type" => "string" },
+                      "default" => { "type" => "string" },
+                      "list_of" => {
+                        "type" => "string",
+                        "description" => "Treat the value as a comma-separated list of values with this key name, equivalent to CloudFormation's various List<> types. For example, set to 'subnet_id' to pass values as an array of subnet identifiers as the 'subnets' argument of a VPC stanza."
+                      },
+                      "prettyname" => {
+                        "type" => "string",
+                        "description" => "An alternative name to use when generating parameter fields in, for example, CloudFormation templates"
+                      },
+                      "description" => {"type" => "string"},
+                      "cloudtype" => {
+                        "type" => "string",
+                        "description" => "A platform-specific string describing the type of validation to use for this parameter. E.g. when generating a CloudFormation template, set to AWS::EC2::Image::Id to validate input as an AMI identifier."
+                      },
+                      "required" => {
+                        "type" => "boolean",
+                        "default" => true
+                      },
+                      "valid_values" => {
+                        "type" => "array",
+                        "description" => "List of valid values for this parameter. Can only be a list of static strings, for now.",
+                        "items" => {
+                          "type" => "string"
+                        }
+                      }
                     }
                 }
             },

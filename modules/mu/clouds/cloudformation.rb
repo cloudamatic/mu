@@ -37,10 +37,14 @@ module MU
         desc = {}
         tags = [] if tags.nil?
         realtags = []
+        havenametag = false
         tags.each { |tag|
+          havenametag = true if tag['key'] == "Name"
           if tag['value'].class.to_s == "MU::Config::Tail"
             if tag['value'].pseudo and tag['value'].getName == "myAppName"
               tag['value'] = { "Ref" => "AWS::StackName" }
+            elsif !tag['value'].runtimecode.nil?
+              tag['value'] = JSON.parse(tag['value'].runtimecode)
             else
               tag['value'] = { "Ref" => "#{tag['value'].getPrettyName}" }
             end
@@ -61,7 +65,7 @@ module MU
 
         res_name = ""
         res_name = cloudobj.config["name"] if !cloudobj.nil?
-        if name.nil?
+        if name.nil? or name.empty?
           nametag = { "Fn::Join" => ["", [ { "Ref" => "Environment" }, "-", { "Ref" => "AWS::StackName" }, "-", res_name.gsub(/[^a-z0-9]/i, "").upcase ] ] }
           basename = ""
           if !cloudobj.nil? and !cloudobj.mu_name.nil?
@@ -69,14 +73,30 @@ module MU
           elsif !cloudobj.nil? and !cloudobj.config.nil?
             basename = cloudobj.config["name"]
           end
-          name = (type+basename).gsub!(/[^a-z0-9]/i, "")
-          tags << { "Key" => "Name", "Value" => nametag }
+#          if !scrub_mu_isms
+            name = (type+basename).gsub(/[^a-z0-9]/i, "")
+#          else
+#            name = res_name
+#          end
+          tags << { "Key" => "Name", "Value" => nametag } if !havenametag
         else
-          name = (type+name).gsub(/[^a-z0-9]/i, "")
-          tags << { "Key" => "Name", "Value" => name }
+#          if !scrub_mu_isms
+            name = (type+name).gsub(/[^a-z0-9]/i, "")
+#          else
+#            name = res_name
+#          end
+          tags << { "Key" => "Name", "Value" => name } if !havenametag
         end
 
         case type
+        when "collection"
+          desc = {
+            "Type" => "AWS::CloudFormation::Stack",
+            "Properties" => {
+              "NotificationARNs" => [],
+              "Tags" => tags
+            }
+          }
         when "dnshealthcheck"
           desc = {
             "Type" => "AWS::Route53::HealthCheck",
@@ -303,6 +323,7 @@ module MU
               "Tags" => tags,
               "SecurityGroups" => [],
               "LBCookieStickinessPolicy" => [],
+              "AppCookieStickinessPolicy" => [],
               "Subnets" => [],
               "Listeners" => []
             }
@@ -365,22 +386,23 @@ module MU
               # Common resource-specific references to dependencies
               if resource_classname == "firewall_rule"
                 if type == "database" and cloudobj.config.has_key?("vpc")
-                  desc["Properties"]["VPCSecurityGroups"] << { "Fn::GetAtt" => [(resource_classname+sibling_obj.cloudobj.mu_name).gsub!(/[^a-z0-9]/i, ""), "GroupId"] }
+                  desc["Properties"]["VPCSecurityGroups"] << { "Fn::GetAtt" => [(resource_classname+sibling_obj.cloudobj.mu_name).gsub(/[^a-z0-9]/i, ""), "GroupId"] }
                 else
                   ["VpcSecurityGroupIds", "SecurityGroupIds", "SecurityGroups"].each { |key|
                     if desc["Properties"].has_key?(key)
-                      desc["Properties"][key] << { "Fn::GetAtt" => [(resource_classname+sibling_obj.cloudobj.mu_name).gsub!(/[^a-z0-9]/i, ""), "GroupId"] }
+                      desc["Properties"][key] << { "Fn::GetAtt" => [(resource_classname+sibling_obj.cloudobj.mu_name).gsub(/[^a-z0-9]/i, ""), "GroupId"] }
                     end
                   }
                 end
               elsif resource_classname == "loadbalancer"
                 if desc["Properties"].has_key?("LoadBalancerNames")
-                  desc["Properties"]["LoadBalancerNames"] << { "Ref" => (resource_classname+sibling_obj.cloudobj.mu_name).gsub!(/[^a-z0-9]/i, "") }
+                  desc["Properties"]["LoadBalancerNames"] << { "Ref" => (resource_classname+sibling_obj.cloudobj.mu_name).gsub(/[^a-z0-9]/i, "") }
                 end
               end
             }
           }
         end
+
         return [name, { name => desc }]
       end
 
@@ -391,18 +413,39 @@ module MU
       def self.setCloudFormationProp(resource, name, value)
         realvalue = value
         is_list_element = false
-        if value.class.to_s == "MU::Config::Tail"
-          if value.is_list_element
-            realvalue = { "Fn::Select" => [0, { "Ref" => "#{value.getPrettyName}" }] }
-            is_list_element = true
-          else
-            if value.pseudo and value.getName == "myAppName"
-              realvalue = { "Ref" => "AWS::StackName" }
+
+        # Recursively resolve MU::Config::Tail references
+        def self.resolveTails(tree)
+          if tree.is_a?(Hash)
+            tree.each_pair { |key, val|
+              tree[key] = self.resolveTails(val)
+            }
+          elsif tree.is_a?(Array)
+            tree.each { |elt|
+              elt = self.resolveTails(elt)
+            }
+          elsif tree.class.to_s == "MU::Config::Tail"
+            if tree.is_list_element
+              return { "Fn::Select" => [tree.index, { "Ref" => "#{tree.getPrettyName}" }] }
             else
-              realvalue = { "Ref" => "#{value.getPrettyName}" }
+              if tree.pseudo and tree.getName == "myAppName"
+                return { "Ref" => "AWS::StackName" }
+              elsif !tree.runtimecode.nil?
+                return JSON.parse(tree.runtimecode)
+              else
+                return { "Ref" => "#{tree.getPrettyName}" }
+              end
             end
+          else
+            return tree
           end
         end
+
+        if value.class.to_s == "MU::Config::Tail" and value.is_list_element
+          is_list_element = true
+        end
+        realvalue = resolveTails(value)
+
 
         if resource.has_key?(name) and name != "Type"
           if resource[name].is_a?(Array)
@@ -440,7 +483,8 @@ module MU
             }
           },
           "Resources" => {},
-          "Outputs" => {}
+          "Outputs" => {},
+          "Conditions" => {}
         }
         if mommacat.nil? or mommacat.numKittens(types: ["Server", "ServerPool"]) > 0
           cfm_template["Parameters"]["SSHKeyName"] = {
@@ -448,17 +492,40 @@ module MU
             "Type" => "AWS::EC2::KeyPair::KeyName"
           }
         end
+        if config.has_key?("conditions")
+          config["conditions"].each { |cond|
+            cfm_template["Conditions"][cond['name']] = JSON.parse(cond['cloudcode'])
+          }
+        end
         tails.each_pair { |param, data|
           tail = data
-          next if tail.is_a?(MU::Config::Tail) and tail.pseudo
+          next if tail.is_a?(MU::Config::Tail) and (tail.pseudo or !tail.runtimecode.nil?)
           default = ""
+          arrayref = nil
           if data.is_a?(Array)
             realval = []
             tail = data.first.values.first
-            data.each { |bit| realval << bit.values.first }
-            default = realval.join(",")
+            default = nil
+            if tail.value.is_a?(MU::Config::Tail) and tail.value.runtimecode
+              default = JSON.parse(tail.value.runtimecode)
+            else
+              selects = []
+              count = 0
+              data.each { |bit|
+                selects << { "Fn::Select" => [count, { "Ref" => "#{bit.values.first.getPrettyName}" }] }
+                realval << bit.values.first
+                count = count + 1
+              }
+              default = realval.join(",")
+              arrayref = { "Fn::Join" => [",", selects ] }
+            end
           else
-            default = tail.to_s
+            default = nil
+            if tail.value.is_a?(MU::Config::Tail) and tail.value.runtimecode
+              default = JSON.parse(tail.value.runtimecode)
+            else
+              default = tail.to_s
+            end
           end
           if cfm_template["Parameters"].has_key?(tail.getPrettyName)
             cfm_template["Parameters"][tail.getPrettyName]["Type"] = tail.getCloudType
@@ -467,13 +534,20 @@ module MU
           else
             cfm_template["Parameters"][tail.getPrettyName] = {
               "Type" => tail.getCloudType,
-              "Description" => tail.description,
-              "Default" => default
+              "Description" => tail.description
             }
+            if !default.nil?
+              cfm_template["Parameters"][tail.getPrettyName]["Default"] = default
+            end
           end
-          if !tail.getCloudType.match(/^List<|^CommaDelimitedList</)
+          cfm_template["Parameters"][tail.getPrettyName]["AllowedValues"] = tail.valid_values if !tail.valid_values.nil? and !tail.valid_values.empty?
+          if !tail.getCloudType.match(/^List<|^CommaDelimitedList$/)
             cfm_template["Outputs"][tail.getPrettyName] = {
               "Value" => { "Ref" => tail.getPrettyName }
+            }
+          elsif arrayref
+            cfm_template["Outputs"][tail.getPrettyName] = {
+              "Value" => arrayref
             }
           end
         }
@@ -485,7 +559,18 @@ module MU
               next if resource['#MUOBJECT'].nil?
               if resource['#MUOBJECT'].cloudobj.respond_to?(:cfm_template) and !resource['#MUOBJECT'].cloudobj.cfm_template.nil?
                 cfm_template["Resources"].merge!(resource['#MUOBJECT'].cloudobj.cfm_template)
-                if data[:cfg_name] == "loadbalancer"
+                if data[:cfg_name] == "collection"
+                  if resource['pass_parent_parameters']
+                    child_template = resource['#MUOBJECT'].cloudobj.cfm_template
+                    child_name = resource['#MUOBJECT'].cloudobj.cfm_name
+                    child_params = child_template[child_name]["Properties"]["Parameters"]
+                    child_params = Hash.new if child_params.nil?
+                    cfm_template["Parameters"].each { |key, data|
+                      child_params[key] = { "Ref" => key }
+                    }
+                    MU::Cloud::CloudFormation.setCloudFormationProp(child_template[child_name], "Parameters", child_params)
+                  end
+                elsif data[:cfg_name] == "loadbalancer"
                   cfm_template["Outputs"]["loadbalancer"+namestr] =
                     {
                       "Value" =>
@@ -531,6 +616,27 @@ module MU
                           [ resource['#MUOBJECT'].cloudobj.cfm_name, "PublicIp" ]
                         }
                     }
+                elsif data[:cfg_name] == "vpc"
+                  cfm_template["Outputs"][data[:cfg_name].gsub(/[^a-z0-9]/i, "")+namestr] = {
+                    "Value" => {
+                      "Ref" => resource['#MUOBJECT'].cloudobj.cfm_name
+                    }
+                  }
+                  priv_nets = []
+                  pub_nets = []
+                  resource['#MUOBJECT'].cloudobj.subnets.each { |subnet|
+                    subnet.private? ? priv_nets << { "Ref" => "#{subnet.cfm_name}" } : pub_nets << { "Ref" => "#{subnet.cfm_name}" }
+                  }
+                  cfm_template["Outputs"][data[:cfg_name].gsub(/[^a-z0-9]/i, "")+namestr+"privatesubnets"] = {
+                    "Value" => {
+                      "Fn::Join" => [",", priv_nets.uniq ]
+                    }
+                  }
+                  cfm_template["Outputs"][data[:cfg_name].gsub(/[^a-z0-9]/i, "")+namestr+"publicsubnets"] = {
+                    "Value" => {
+                      "Fn::Join" => [",", pub_nets.uniq ]
+                    }
+                  }
                 else
                   cfm_template["Outputs"][data[:cfg_name].gsub(/[^a-z0-9]/i, "")+namestr] = {
                     "Value" => {

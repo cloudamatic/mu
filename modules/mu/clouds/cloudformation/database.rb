@@ -41,6 +41,8 @@ module MU
 
           if !mu_name.nil?
             @mu_name = mu_name
+          elsif @config['scrub_mu_isms']
+            @mu_name = @config['name']
           else
             @mu_name ||=
               if @config["engine"].match(/^sqlserver/)
@@ -169,6 +171,16 @@ module MU
             end
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DBSubnetGroupName", { "Ref" => subnets_name } )
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", subnets_name)
+
+            if @config['add_firewall_rules']
+              @config['add_firewall_rules'].each { |acl|
+                if acl["rule_id"]
+                  MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "VPCSecurityGroups", acl["rule_id"])
+                else
+                  MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "VPCSecurityGroups", { "Ref" => @dependencies["firewall_rule"][acl["rule_name"]].cloudobj.cfm_name })
+                end
+              }
+            end
 
             @cfm_template.merge!(subnets_template)
           end

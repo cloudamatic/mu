@@ -23,7 +23,7 @@ case node.platform_family
       action :nothing
     end
 
-    packages = %w(epel-release dbus sssd sssd-ldap sssd-ad authconfig nscd oddjob-mkhomedir)
+    packages = %w(epel-release dbus sssd sssd-ldap sssd-ad authconfig nscd oddjob-mkhomedir krb5-devel)
 
     package packages
 
@@ -126,6 +126,7 @@ case node.platform_family
       notifies :restart, "service[sssd]", :immediately
       variables(
         :domain => node.ad.domain_name,
+        :homedir => node.ad.homedir,
         :short_domain => node.ad.netbios_name,
         :base_dn => node.ad.domain_name.split(/\./).map { |x| "dc=#{x}" }.join(","),
         :dcs => node.ad.dc_ips
@@ -139,6 +140,17 @@ case node.platform_family
       command "echo -n '#{domain_creds[node.ad.join_auth[:password_field]]}' | /usr/sbin/adcli join #{node.ad.domain_name} --domain-realm=#{node.ad.domain_name.upcase} -U #{domain_creds[node.ad.join_auth[:username_field]]} --stdin-password"
       notifies :restart, "service[sssd]", :immediately
       sensitive true
+    end
+
+    template "/etc/krb5.conf" do
+      source "krb5.conf.erb"
+      mode 0444
+      cookbook "mu-activedirectory"
+      notifies :restart, "service[sssd]", :immediately
+      variables(
+        :domain_name => node.ad.domain_name,
+        :dcs => node.ad.dc_ips
+      )
     end
 
   else

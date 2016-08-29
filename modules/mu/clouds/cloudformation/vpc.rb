@@ -38,6 +38,8 @@ module MU
           if !mu_name.nil?
             @mu_name = mu_name
             loadSubnets if !@cloud_id.nil?
+          elsif @config['scrub_mu_isms']
+            @mu_name = @config['name']
           else
             @mu_name = @deploy.getResourceName(@config['name'])
           end
@@ -129,6 +131,7 @@ module MU
             @config['subnets'].each { |subnet_cfg|
 #              subnet_name = @config['name']+"-"+subnet['name']
               subnet_cfg['mu_name'] = @deploy.getResourceName(@config['name']+"-"+subnet_cfg['name'])
+              subnet_cfg['tags'] = @config['tags']
               subnet = MU::Cloud::CloudFormation::VPC::Subnet.new(self, subnet_cfg)
               @subnets << subnet
 
@@ -239,7 +242,11 @@ module MU
             @parent = parent
             @config = config
             @cloud_id = config['cloud_id']
-            @mu_name = config['mu_name']
+            if @parent.config['scrub_mu_isms']
+              @mu_name = @config['name']
+            else
+              @mu_name = config['mu_name']
+            end
             @name = config['name']
             @deploydata = config # This is a dummy for the sake of describe()
 
@@ -253,7 +260,14 @@ module MU
             end
           end
 
+          # Is this subnet privately-routable only, or public?
+          # @return [Boolean]
+          def private?
+            (!@config['is_public'])
+          end
+
         end
+
         # Placeholder. This is a NOOP for CloudFormation, which doesn't build
         # resources directly.
         def self.find(*args)

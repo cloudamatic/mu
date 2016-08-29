@@ -35,6 +35,8 @@ module MU
           @cloud_id ||= cloud_id
           if !mu_name.nil?
             @mu_name = mu_name
+          elsif @config['scrub_mu_isms']
+            @mu_name = @config['name']
           else
             @mu_name = @deploy.getResourceName(@config['name'])
           end
@@ -47,15 +49,25 @@ module MU
           @cfm_launch_name, launch_template = MU::Cloud::CloudFormation.cloudFormationBase("launch_config", self, scrub_mu_isms: @config['scrub_mu_isms'])
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "LaunchConfigurationName", { "Ref" => @cfm_launch_name } )
           MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @cfm_launch_name)
+          if @config['add_firewall_rules']
+            @config['add_firewall_rules'].each { |acl|
+              if acl["rule_id"]
+                MU::Cloud::CloudFormation.setCloudFormationProp(launch_template[@cfm_launch_name], "SecurityGroups", acl["rule_id"])
+              else
+                MU::Cloud::CloudFormation.setCloudFormationProp(launch_template[@cfm_launch_name], "SecurityGroups", { "Ref" => @dependencies["firewall_rule"][acl["rule_name"]].cloudobj.cfm_name })
+              end
+            }
+          end
           @cfm_template.merge!(launch_template)
 
           ["min_size", "max_size", "cooldown", "desired_capacity", "health_check_type", "health_check_grace_period"].each { |arg|
             if !@config[arg].nil?
               key = ""
               arg.split(/_/).each { |chunk| key = key + chunk.capitalize }
-              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], key, @config[arg].to_s)
+              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], key, @config[arg])
             end
           }
+
 
           if @config['termination_policies']
             @config['termination_policies'].each { |pol|
@@ -137,13 +149,11 @@ module MU
 
             if launch_desc['generate_iam_role']
               @config['iam_role'], @cfm_role_name, @cfm_prof_name = MU::Cloud::CloudFormation::Server.createIAMProfile(@mu_name, base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'], cloudformation_data: @cfm_template)
-            elsif launch_desc['iam_role'].nil?
-              raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
-            else
+            elsif !launch_desc['iam_role'].nil?
               @config['iam_role'] = launch_desc['iam_role']
             end
-            MU::Cloud::CloudFormation::Server.addStdPoliciesToIAMProfile(@cfm_role_name, cloudformation_data: @cfm_template) if !@config['scrub_mu_isms']
             if !@config["iam_role"].nil?
+              MU::Cloud::CloudFormation::Server.addStdPoliciesToIAMProfile(@cfm_role_name, cloudformation_data: @cfm_template) if !@config['scrub_mu_isms']
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_launch_name], "DependsOn", @cfm_role_name)
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_launch_name], "DependsOn", @cfm_prof_name)
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_launch_name], "IamInstanceProfile", { "Ref" => @cfm_prof_name })

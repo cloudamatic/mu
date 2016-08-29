@@ -35,6 +35,8 @@ module MU
           @cloud_id ||= cloud_id
           if !mu_name.nil?
             @mu_name = mu_name
+          elsif @config['scrub_mu_isms']
+            @mu_name = @config['name'].dup
           else
             @mu_name = @deploy.getResourceName(@config["name"], max_length: 32, need_unique_string: true)
             @mu_name.gsub!(/[^\-a-z0-9]/i, "-") # AWS ELB naming rules
@@ -45,7 +47,11 @@ module MU
         # balancer in CloudFormation language.
         def create
           @cfm_name, @cfm_template = MU::Cloud::CloudFormation.cloudFormationBase(self.class.cfg_name, self, tags: @config['tags'], scrub_mu_isms: @config['scrub_mu_isms']) if @cfm_template.nil?
-          MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "LoadBalancerName", @mu_name)
+          if @config['override_name']
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "LoadBalancerName", @config['override_name'])
+          else
+            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "LoadBalancerName", @mu_name)
+          end
           @config["cross_zone"] = !@config["cross_zone_unstickiness"]
           @config["health_check"] = @config["healthcheck"]
           @config["access_logging_policy"] = @config["access_log"]
@@ -59,12 +65,21 @@ module MU
                 @config[arg].each_pair { |name, value|
                   newkey = ""
                   name.split(/_/).each { |chunk| newkey = newkey + chunk.capitalize }
-                  val[newkey] = value.to_s
+                  val[newkey] = value
                 }
               end
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], key, val)
             end
           }
+          if @config['add_firewall_rules']
+            @config['add_firewall_rules'].each { |acl|
+              if acl["rule_id"]
+                MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "SecurityGroups", acl["rule_id"])
+              else
+                MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "SecurityGroups", { "Ref" => @dependencies["firewall_rule"][acl["rule_name"]].cloudobj.cfm_name } )
+              end
+            }
+          end
 
           @config['listeners'].each { |listener|
             prop = {
@@ -90,14 +105,14 @@ module MU
             if @config[policy]
               key = ""
               policy.split(/_/).each { |chunk| key = key + chunk.capitalize }
-              MU::Cloud::CloudFormation.setCloudFormationProp(
-                @cfm_template[@cfm_name],
-                key,
-                {
-                  "PolicyName" => @config[policy]['name'],
-                  "CookieExpirationPeriod" => @config[policy]['timeout']
-                }
-              )
+              desc = { "PolicyName" => @config[policy]['name'] }
+              if @config[policy]['timeout']
+                desc["CookieExpirationPeriod"] = @config[policy]['timeout']
+              end
+              if @config[policy]['cookie']
+                desc["CookieName"] = @config[policy]['cookie']
+              end
+              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], key, desc)
             end
           }
 
@@ -106,7 +121,11 @@ module MU
           end
 
           if @config['private']
-            MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Scheme", "internal")
+            if @config['private'].class.to_s == "MU::Config::Tail"
+              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Scheme", @config['private'])
+            else
+              MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Scheme", "internal")
+            end
           else
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "Scheme", "internet-facing")
           end

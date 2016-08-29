@@ -11,24 +11,3 @@
   dependencies:
   - type: server
     name: "bastion"
-  subnets:
-<%
-$azs = MU::Cloud::AWS.listAZs
-$azs.each.with_index { |az, i|
-%>
-  - name: Public<%= i %>
-    ip_block: 10.0.<%= i %>.0/24
-    availability-zone: <%= az %>
-    route-table: internet
-<%
-}
-offset = $azs.size
-$azs.each.with_index { |az, i|
-%>
-  - name: Private<%= i %>
-    ip_block: 10.0.<%= i + offset %>.0/24
-    availability-zone: <%= az %>
-    route-table: private
-<%
-}
-%>

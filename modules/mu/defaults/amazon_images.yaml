@@ -1,26 +1,28 @@
 ---
 centos6: &centos6
-  us-east-1: ami-01c7376c
-  us-west-1: ami-f6b5ce96
-  us-west-2: ami-61847d01
-  eu-west-1: ami-382ebf4b
-  eu-central-1: ami-5cdb3433
-  sa-east-1: ami-b9f67dd5
-  ap-northeast-1: ami-0a806d6b
-  ap-northeast-2: ami-16ce0578
-  ap-southeast-1: ami-4d30e12e
-  ap-southeast-2: ami-4c4b652f
+  us-east-1: ami-f1355ae6
+  us-west-1: ami-38733e58
+  us-west-2: ami-46d50326
+  eu-west-1: ami-31f88842
+  eu-central-1: ami-cb07f7a4
+  sa-east-1: ami-5c7ced30
+  ap-northeast-1: ami-a3ca02c2
+  ap-northeast-2: ami-edc71283
+  ap-southeast-1: ami-45449c26
+  ap-southeast-2: ami-6b3b0d08
+  ap-south-1: ami-33bfca5c
 centos7: &centos7
-  us-east-1: ami-d9d632b4
-  us-west-2: ami-6c4cbc0c
-  us-west-1: ami-ada6d8cd
-  eu-west-1: ami-17c14864
-  eu-central-1: ami-e89b7987
-  ap-southeast-1: ami-38b86f5b
-  ap-northeast-1: ami-db978fb5
-  sa-east-1: ami-e1f9708d
-  ap-northeast-2: ami-d63ef6b8
-  ap-southeast-2: ami-2e89a44d
+  us-east-1: ami-9778ef80
+  us-west-2: ami-f0d21c90
+  us-west-1: ami-17521277
+  eu-west-1: ami-39dcb04a
+  eu-central-1: ami-9b9c6bf4
+  ap-southeast-1: ami-365f8055
+  ap-northeast-1: ami-e93aff88
+  sa-east-1: ami-b442d5d8
+  ap-northeast-2: ami-c505cfab
+  ap-southeast-2: ami-3c1f2a5f
+  ap-south-1: ami-ff3a4f90
 rhel71: &rhel71
   us-east-1: ami-21d0344c
   eu-west-1: ami-10c14863
@@ -44,16 +46,17 @@ ubuntu14: &ubuntu14
   ap-southeast-1: ami-2855964b  
   ap-southeast-2: ami-d19fc4b2
 win2k12r2: &win2k12r2
-  us-east-1: ami-99b072f4
-  us-west-1: ami-59672339
-  us-west-2: ami-54814634
-  eu-central-1: ami-133cd47c
-  eu-west-1: ami-62c55d11
-  sa-east-1: ami-0df46161
-  ap-northeast-1: ami-47ad5a26
-  ap-northeast-2: ami-4b458e25
-  ap-southeast-1: ami-e0845683
-  ap-southeast-2: ami-7a002819
+  us-east-1: ami-08fc9e1f
+  us-west-1: ami-913479f1
+  us-west-2: ami-2d0fd84d
+  eu-central-1: ami-39c03056
+  eu-west-1: ami-7d8afb0e
+  sa-east-1: ami-5d910031
+  ap-northeast-1: ami-919158f0
+  ap-northeast-2: ami-65dc090b
+  ap-southeast-1: ami-e217cf81
+  ap-southeast-2: ami-36605655
+  ap-south-1: ami-1c483d73
 win2k12: *win2k12r2
 windows: *win2k12r2
 ubuntu: *ubuntu14

@@ -326,13 +326,13 @@ module MU
         remove_cmd = nil
         if !@server.windows?
           if @server.config['ssh_user'] == "root"
-            remove_cmd = "rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; yum -y erase chef; apt-get -y remove chef ; touch /opt/mu_installed_chef"
+            remove_cmd = "rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; rpm -e chef; apt-get -y remove chef ; touch /opt/mu_installed_chef"
           else
-            remove_cmd = "sudo rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; yum -y erase chef; apt-get -y remove chef ; touch /opt/mu_installed_chef"
+            remove_cmd = "sudo rpm -e erase chef ; sudo rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; sudo apt-get -y remove chef ; sudo touch /opt/mu_installed_chef"
           end
           guardfile = "/opt/mu_installed_chef"
         else
-          remove_cmd = "( /cygdrive/c/Windows/system32/reg query HKLM\\\SOFTWARE\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ /f 'Chef Client' /s /t REG_SZ | grep '}$' | cut -d{ -f2 | cut -d} -f1 | xargs msiexec /qn /x ) ;  /cygdrive/c/Windows/system32/reg query HKLM\\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ /f 'Chef Client' /s /t REG_SZ | grep '}$' | cut -d{ -f2 | cut -d} -f1 | xargs msiexec /qn /x )"
+          remove_cmd = "( rm -rf /cygdrive/c/chef/*.pem ; /cygdrive/c/Windows/system32/reg query HKLM\\\SOFTWARE\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ /f 'Chef Client' /s /t REG_SZ | grep '}$' | cut -d{ -f2 | cut -d} -f1 | xargs msiexec /qn /x ) ;  /cygdrive/c/Windows/system32/reg query HKLM\\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ /f 'Chef Client' /s /t REG_SZ | grep '}$' | cut -d{ -f2 | cut -d} -f1 | xargs msiexec /qn /x )"
           guardfile = "/cygdrive/c/mu_installed_chef"
         end
 
@@ -366,8 +366,7 @@ module MU
         nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = @server.getSSHConfig
         MU.log "Bootstrapping #{@server.mu_name} (#{canonical_addr}) with knife"
 
-        run_list = ["role[mu-node]", "recipe[mu-tools::newclient]"]
-        run_list << "recipe[mu-tools::updates]" if !@config['skipinitialupdates']
+        run_list = ["recipe[mu-tools::newclient]"]
 
         json_attribs = {}
         if !@config['application_attributes'].nil?
@@ -432,6 +431,12 @@ module MU
           if retries < max_retries
             retries += 1
             MU.log "#{@server.mu_name}: Knife Bootstrap failed #{e.inspect}, retrying (#{retries} of #{max_retries})", MU::WARN, details: e.backtrace
+            # bad Chef installs are possible culprits of bootstrap failures
+            if !@config['forced_preclean']
+              preClean(false)
+              MU::Groomer::Chef.cleanup(@server.mu_name, nodeonly: true)
+              @config['forced_preclean'] = true
+            end
             sleep 10*retries
             retry
           else
@@ -441,23 +446,29 @@ module MU
 
         # Now that we're done, remove one-shot bootstrap recipes from the
         # node's final run list
-        ["mu-tools::newclient", "mu-tools::updates"].each { |recipe|
+        ["mu-tools::newclient"].each { |recipe|
           begin
             ::Chef::Knife.run(['node', 'run_list', 'remove', @server.mu_name, "recipe[#{recipe}]"], {})
           rescue SystemExit => e
             MU.log "#{@server.mu_name}: Run list removal of recipe[#{recipe}] failed with #{e.inspect}", MU::WARN
           end
         }
+        knifeAddToRunList("role[mu-node]")
 
         splunkVaultInit
         grantSecretAccess(@server.mu_name, "windows_credentials") if @server.windows?
         grantSecretAccess(@server.mu_name, "ssl_cert")
 
+        saveChefMetadata
+        knifeAddToRunList("recipe[mu-tools::updates]") if !@config['skipinitialupdates']
         # Making sure all Windows nodes get the mu-tools::windows-client recipe
         if @server.windows?
           knifeAddToRunList("recipe[mu-tools::windows-client]")
           run(purpose: "Base Windows configuration", update_runlist: false, max_retries: 20)
+        elsif !@config['skipinitialupdates']
+          run(purpose: "Base configuration", update_runlist: false, max_retries: 20)
         end
+        ::Chef::Knife.run(['node', 'run_list', 'remove', @server.mu_name, "recipe[mu-tools::updates]"], {}) if !@config['skipinitialupdates']
 
         # This will deal with Active Directory integration.
         if !@config['active_directory'].nil?
@@ -528,15 +539,18 @@ module MU
       # @param node [String]: The Mu name of the node in question.
       # @param vaults_to_clean [Array<Hash>]: Some vaults to expunge
       # @param noop [Boolean]: Skip actual deletion, just state what we'd do
-      def self.cleanup(node, vaults_to_clean = [], noop = false)
+      # @param nodeonly [Boolean]: Just delete the node and its keys, but leave other artifacts
+      def self.cleanup(node, vaults_to_clean = [], noop = false, nodeonly: false)
         loadChefLib
         MU.log "Deleting Chef resources associated with #{node}"
-        vaults_to_clean.each { |vault|
-          MU::MommaCat.lock("vault-#{vault['vault']}", false, true)
-          MU.log "knife vault remove #{vault['vault']} #{vault['item']} --search name:#{node}", MU::NOTICE
-          ::Chef::Knife.run(['vault', 'remove', vault['vault'], vault['item'], "--search", "name:#{node}"]) if !noop
-          MU::MommaCat.unlock("vault-#{vault['vault']}")
-        }
+        if !nodeonly
+          vaults_to_clean.each { |vault|
+            MU::MommaCat.lock("vault-#{vault['vault']}", false, true)
+            MU.log "knife vault remove #{vault['vault']} #{vault['item']} --search name:#{node}", MU::NOTICE
+            ::Chef::Knife.run(['vault', 'remove', vault['vault'], vault['item'], "--search", "name:#{node}"]) if !noop
+            MU::MommaCat.unlock("vault-#{vault['vault']}")
+          }
+        end
         MU.log "knife node delete #{node}"
         if !noop
           knife_nd = ::Chef::Knife::NodeDelete.new(['node', 'delete', node])
@@ -555,6 +569,8 @@ module MU
           rescue Net::HTTPServerException
           end
         end
+
+        return if nodeonly
 
         begin
           deleteSecret(vault: node) if !noop
