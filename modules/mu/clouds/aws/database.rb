@@ -394,15 +394,14 @@ module MU
             database.vpc_security_groups.each { |vpc_sg|
               vpc_sg_ids << vpc_sg.vpc_security_group_id
             }
-            localdeploy_rule =  @deploy.findLitterMate(type: "firewall_rule")
-            MU.log "Found this deploy's DB security group: #{localdeploy_rule.cloud_id}"
+            localdeploy_rule =  @deploy.findLitterMate(type: "firewall_rule", name: "db"+@config['name'])
+            MU.log "Found this deploy's DB security group: #{localdeploy_rule.cloud_id}", MU::DEBUG
             vpc_sg_ids << localdeploy_rule.cloud_id
             mod_config = Hash.new
             mod_config[:vpc_security_group_ids] = vpc_sg_ids
             mod_config[:db_instance_identifier] = @config["identifier"]
-            MU.log "mod config is #{mod_config}"
             MU::Cloud::AWS.rds(@config['region']).modify_db_instance(mod_config)
-            MU.log "Modified database #{@config['identifier']} with new security groups: #{mod_config}"
+            MU.log "Modified database #{@config['identifier']} with new security groups: #{mod_config}", MU::NOTICE
           end
 
           # When creating from a snapshot, some of the create arguments aren't
@@ -1052,7 +1051,7 @@ module MU
                 "storage" => database.allocated_storage
               }
             end
-            MU.log "Deploy structure is now #{deploy_struct}"
+            MU.log "Deploy structure is now #{deploy_struct}", MU::DEBUG
           }
 
           raise MuError, "Can't find any deployment metadata" if deploy_struct.empty?
