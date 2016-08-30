@@ -952,7 +952,7 @@ module MU
             honor_subnet_prefs=false
           end
           if !subnet['subnet_id'].nil? and subnet['subnet_id'].is_a?(String)
-            subnet['subnet_id'] << getTail("Subnet #{count} for #{parent_name}", value: subnet['subnet_id'], prettyname: "Subnet #{count} for #{parent_name}", cloudtype: "AWS::EC2::Subnet::Id")
+            # subnet['subnet_id'] << getTail("Subnet #{count} for #{parent_name}", value: subnet['subnet_id'], prettyname: "Subnet #{count} for #{parent_name}", cloudtype: "AWS::EC2::Subnet::Id")
             count = count + 1
           end
         }
