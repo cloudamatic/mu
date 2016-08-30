@@ -260,7 +260,7 @@ module MU
       end
       @@logger.log(msg, level, details: extra, verbosity: MU::Logger::LOUD, html: html)
     else
-      @@logger.log(msg, level, html: html)
+      @@logger.log(msg, level, html: html, verbosity: verbosity)
     end
   end
 

@@ -99,6 +99,7 @@ def join_domain_linux
   %w{sshd winbind smb}.each { |svc|
     service svc do
       action :enable
+      only_if { ::File.exists?("/etc/init.d/#{svc}") }
     end
   }
 
@@ -135,7 +136,7 @@ def join_domain_linux
   # We no longer user Winbind to integrate with AD, but Samba relies on it, so
   # we run it on top of adcli's Kerberos creds so that you can still use SMB.
   execute "Join Winbind to domain #{new_resource.dns_name}" do
-    command "net ads join #{new_resource.dns_name.downcase} -k -d 4"
+    command "( echo '#{new_resource.join_password}' | kinit #{new_resource.join_user} ) ; net ads join #{new_resource.dns_name.downcase} -k -d 4"
     sensitive true
     not_if "net ads testjoin -k | grep OK"
     notifies :restart, "service[winbind]", :delayed
