@@ -84,8 +84,9 @@ module MU
             end
 
           @config['source_identifier'] = @config['identifier'] if @config["creation_style"] == "point_in_time"
-          @config['identifier'] = @mu_name
+          @config['identifier'] = @mu_name unless @config["creation_style"] == "existing"
           @config["subnet_group_name"] = @mu_name
+          MU.log "Using the database identifier #{@config['identifier']}"
 
           if @config["create_cluster"]
             getPassword
@@ -347,7 +348,7 @@ module MU
                 read_replica_struct.delete(:db_subnet_group_name)
                 resp = MU::Cloud::AWS.rds(@config['region']).create_db_instance_read_replica(read_replica_struct)
               end
-            else
+            elsif @config["creation_style"] == "new"
               MU.log "Creating database instance #{@config['identifier']}"
               resp = MU::Cloud::AWS.rds(@config['region']).create_db_instance(config)
             end
@@ -386,6 +387,22 @@ module MU
 
           database = MU::Cloud::AWS::Database.getDatabaseById(@config['identifier'], region: @config['region'])
           MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: database.db_instance_identifier, target: "#{database.endpoint.address}.", cloudclass: MU::Cloud::Database, sync_wait: @config['dns_sync_wait'])
+
+          # If referencing an existing DB, insert this deploy's DB security group so it can access db
+          if @config["creation_style"] == 'existing'
+            vpc_sg_ids = Array.new
+            database.vpc_security_groups.each { |vpc_sg|
+              vpc_sg_ids << vpc_sg.vpc_security_group_id
+            }
+            localdeploy_rule =  @deploy.findLitterMate(type: "firewall_rule", name: "db"+@config['name'])
+            MU.log "Found this deploy's DB security group: #{localdeploy_rule.cloud_id}", MU::DEBUG
+            vpc_sg_ids << localdeploy_rule.cloud_id
+            mod_config = Hash.new
+            mod_config[:vpc_security_group_ids] = vpc_sg_ids
+            mod_config[:db_instance_identifier] = @config["identifier"]
+            MU::Cloud::AWS.rds(@config['region']).modify_db_instance(mod_config)
+            MU.log "Modified database #{@config['identifier']} with new security groups: #{mod_config}", MU::NOTICE
+          end
 
           # When creating from a snapshot, some of the create arguments aren't
           # applicable- but we can apply them after the fact with a modify.
@@ -1034,6 +1051,7 @@ module MU
                 "storage" => database.allocated_storage
               }
             end
+            MU.log "Deploy structure is now #{deploy_struct}", MU::DEBUG
           }
 
           raise MuError, "Can't find any deployment metadata" if deploy_struct.empty?

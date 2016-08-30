@@ -211,7 +211,7 @@ command[check_users]=/usr/lib64/nagios/plugins/check_users -w 5 -c 10
 command[check_load]=/usr/lib64/nagios/plugins/check_load -w 15,10,5 -c 30,25,20
 command[check_zombie_procs]=/usr/lib64/nagios/plugins/check_procs -w 5 -c 10 -s Z
 command[check_total_procs]=/usr/lib64/nagios/plugins/check_procs -w 150 -c 200 
-command[check_disk]=/usr/lib64/nagios/plugins/check_disk -w 15% -c 5%
+command[check_disk]=/usr/lib64/nagios/plugins/check_disk -w 15% -c 5% -X nfs
 
 
 # The following examples allow user-supplied arguments and can
