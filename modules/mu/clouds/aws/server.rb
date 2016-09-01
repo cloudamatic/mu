@@ -1245,14 +1245,15 @@ module MU
           end
 
           # Let us into any databases we depend on.
-          if @dependencies.has_key?("database")
-            @dependencies['database'].values.each { |db|
-              db.allowHost(@deploydata["private_ip_address"]+"/32")
-              if @deploydata["public_ip_address"]
-                db.allowHost(@deploydata["public_ip_address"]+"/32")
-              end
-            }
-          end
+          # This is probelmtic with autscaling - old ips are not removed, and access to the database can easily be given at the BoK level
+          # if @dependencies.has_key?("database")
+            # @dependencies['database'].values.each { |db|
+              # db.allowHost(@deploydata["private_ip_address"]+"/32")
+              # if @deploydata["public_ip_address"]
+                # db.allowHost(@deploydata["public_ip_address"]+"/32")
+              # end
+            # }
+          # end
 
           @groomer.saveDeployData
 
