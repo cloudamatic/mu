@@ -1145,7 +1145,7 @@ module MU
             cloud_descs[r].each_pair { |kitten_cloud_id, descriptor|
               # We already have a MU::Cloud object for this guy, use it
               if kittens.has_key?(kitten_cloud_id)
-                matches << kitten[kitten_cloud_id]
+                matches << cloud_descs[r][kitten_cloud_id]
               elsif kittens.size == 0
                 # If we don't have a MU::Cloud object, manufacture a dummy one.
                 # Give it a fake name if we have to and have decided that's ok.
