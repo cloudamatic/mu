@@ -1839,7 +1839,7 @@ module MU
               ).first
 
               if found.nil?
-                MU.log "Couldn't find exisiting #{ext_deploy["cloud_type"]} resource #{ext_deploy["cloud_id"]}", MU::ERR
+                MU.log "Couldn't find existing #{ext_deploy["cloud_type"]} resource #{ext_deploy["cloud_id"]}", MU::ERR
                 ok = false
               end
             elsif ext_deploy["mu_name"] && ext_deploy["deploy_id"]
@@ -1853,7 +1853,7 @@ module MU
               ).first
 
               if found.nil?
-                MU.log "Couldn't find exisiting #{ext_deploy["cloud_type"]} resource - #{ext_deploy["mu_name"]} / #{ext_deploy["deploy_id"]}", MU::ERR
+                MU.log "Couldn't find existing #{ext_deploy["cloud_type"]} resource - #{ext_deploy["mu_name"]} / #{ext_deploy["deploy_id"]}", MU::ERR
                 ok = false
               end
             else
@@ -2712,7 +2712,7 @@ module MU
               ).first
 
               if found.nil?
-                MU.log "Couldn't find exisiting #{ext_deploy["cloud_type"]} resource #{ext_deploy["cloud_id"]}", MU::ERR
+                MU.log "Couldn't find existing #{ext_deploy["cloud_type"]} resource #{ext_deploy["cloud_id"]}", MU::ERR
                 ok = false
               end
             elsif ext_deploy["mu_name"] && ext_deploy["deploy_id"]
@@ -2726,7 +2726,7 @@ module MU
               ).first
 
               if found.nil?
-                MU.log "Couldn't find exisiting #{ext_deploy["cloud_type"]} resource - #{ext_deploy["mu_name"]} / #{ext_deploy["deploy_id"]}", MU::ERR
+                MU.log "Couldn't find existing #{ext_deploy["cloud_type"]} resource - #{ext_deploy["mu_name"]} / #{ext_deploy["deploy_id"]}", MU::ERR
                 ok = false
               end
             else
@@ -4610,11 +4610,11 @@ module MU
                 },
                 "cloud_id" => {
                   "type" => "string",
-                  "description" => "The cloud identifier of the resource you would like to metadata to this deployment for. eg - i-d96eca0d. Must use either 'cloud_id' OR 'mu_name' AND 'deploy_id'"
+                  "description" => "The cloud identifier of the resource from which you would like to add metadata to this deployment. eg - i-d96eca0d. Must use either 'cloud_id' OR 'mu_name' AND 'deploy_id'"
                 },
                 "mu_name" => {
                   "type" => "string",
-                  "description" => "The full name of a resource in a foreign deployment which we should add the metdata to this deployment for. You should also include 'deploy_id' so we will be able to identifiy a single resource. Use either 'cloud_id' OR 'mu_name' and 'deploy_id'"
+                  "description" => "The full name of a resource in a foreign deployment from which we should add the metdata to this deployment. You should also include 'deploy_id' so we will be able to identifiy a single resource. Use either 'cloud_id' OR 'mu_name' and 'deploy_id'"
                 },
                 "deploy_id" => {
                   "type" => "string",
@@ -4991,7 +4991,7 @@ module MU
             "creation_style" => {
                 "type" => "string",
                 "enum" => ["new", "new_snapshot", "existing_snapshot"],
-                "description" => "'new' - create a new cache cluster; 'new_snapshot' - create a snapshot of of an exisiting cache cluster, and build a new cache cluster from that snapshot; 'existing_snapshot' - create a cache cluster from an existing snapshot.",
+                "description" => "'new' - create a new cache cluster; 'new_snapshot' - create a snapshot of of an existing cache cluster, and build a new cache cluster from that snapshot; 'existing_snapshot' - create a cache cluster from an existing snapshot.",
                 "default" => "new"
             },
             "identifier" => {
