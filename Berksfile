@@ -21,6 +21,7 @@ cookbook 'jenkins', '~> 2.6.0'
 cookbook 'memcached', '~> 1.7.2'
 cookbook 'mu-activedirectory', path: "#{cookbookPath}/mu-activedirectory"
 cookbook 'mu-demo', path: "#{cookbookPath}/mu-demo"
+cookbook 'firewall', path: "#{cookbookPath}/firewall"
 cookbook 'mu-firewall', path: "#{cookbookPath}/mu-firewall"
 cookbook 'mu-glusterfs', path: "#{cookbookPath}/mu-glusterfs"
 cookbook 'mu-jenkins', path: "#{cookbookPath}/mu-jenkins"

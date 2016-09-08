@@ -76,15 +76,17 @@ if !node[:application_attributes][:skip_recipes].include?('nrpe')
         notifies :restart, "service[nrpe]", :delayed
       end
     when 6
-      cookbook_file "nrpe_disk.pp" do
-        path "#{Chef::Config[:file_cache_path]}/nrpe_disk.pp"
-      end
-  
-      execute "Allow NRPE disk checks through SELinux" do
-        command "/usr/sbin/semodule -i nrpe_disk.pp"
-        cwd Chef::Config[:file_cache_path]
-        not_if "/usr/sbin/semodule -l | grep nrpe_disk"
-        notifies :restart, "service[nrpe]", :delayed
+      if node['platform'] != 'amazon'
+        cookbook_file "nrpe_disk.pp" do
+          path "#{Chef::Config[:file_cache_path]}/nrpe_disk.pp"
+        end
+    
+        execute "Allow NRPE disk checks through SELinux" do
+          command "/usr/sbin/semodule -i nrpe_disk.pp"
+          cwd Chef::Config[:file_cache_path]
+          not_if "/usr/sbin/semodule -l | grep nrpe_disk"
+          notifies :restart, "service[nrpe]", :delayed
+        end
       end
     end
   
@@ -102,7 +104,7 @@ if !node[:application_attributes][:skip_recipes].include?('nrpe')
       warning_condition '15%'
       critical_condition '5%'
       action :add
-      notifies :run, 'execute[selinux permissions]', :immediately
+      notifies :run, 'execute[selinux permissions]', :immediately if node['platform'] != 'amazon'
       notifies :restart, "service[nrpe]", :delayed
     end
   
@@ -114,12 +116,14 @@ if !node[:application_attributes][:skip_recipes].include?('nrpe')
     # end
   
     # don't run this every time so it won't restart the NRPE service on every chef run
-    execute "selinux permissions" do
-      command "/usr/bin/chcon -R -t nrpe_etc_t /etc/nagios/nrpe.d/"
-      notifies :restart, "service[nrpe]", :delayed
-      action :nothing
+    if node['platform'] != 'amazon'
+      execute "selinux permissions" do
+        command "/usr/bin/chcon -R -t nrpe_etc_t /etc/nagios/nrpe.d/"
+        notifies :restart, "service[nrpe]", :delayed
+        action :nothing
+      end
     end
-  
+
     service "nrpe" do
       action [:enable, :start]
     end

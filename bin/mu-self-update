@@ -192,7 +192,7 @@ generate_docs
 /usr/sbin/groupdel mu-admins > /dev/null 2>&1
 
 set +e
-install_ruby
+install_ruby purgeold
 patch_knife_windows
 generate_ssl_certs skip_chef
 install_chef
@@ -203,6 +203,7 @@ create_private_dns_zone
 update_murc LOG_BUCKET_NAME $LOG_BUCKET_NAME
 enable_audit_logs
 start_momma_cat
+rm -rf /root/.berkshelf /root/.chef/cookbooks /root/.chef/site_cookbooks
 for extra in $ADDTL_CHEF_REPOS;do
 	extra_repo_name="`echo $extra | sed 's/^.*\///' | cut -d. -f1`"
 	clone_repository "$extra" "$MU_DATADIR/$extra_repo_name"

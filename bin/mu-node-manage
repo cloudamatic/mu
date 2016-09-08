@@ -187,7 +187,7 @@ def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [])
   end
 end
 
-def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-client || chef-client.bat ) 2>&1", print_output: false, noop: false)
+def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-client || sudo chef-client || chef-client.bat ) 2>&1", print_output: false, noop: false)
   badnodes = []
   count = 0
   deploys.each { |muid|
@@ -281,6 +281,7 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
                   "muUser" => MU.chef_user,
                   "publicIP" => MU.mu_public_ip,
                   "resourceName" => svr_class,
+                  "skipApplyUpdates" => server['skipinitialupdates'],
                   "resourceType" => "server_pool"
               },
               custom_append: server['userdata_script']
@@ -404,6 +405,7 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
               "muUser" => MU.chef_user,
               "publicIP" => MU.mu_public_ip,
               "resourceName" => server['conf']['name'],
+              "skipApplyUpdates" => server['conf']['skipinitialupdates'],
               "resourceType" => mytype
           },
           custom_append: server['userdata_script']
@@ -441,7 +443,7 @@ elsif $opts[:mode] == "groom"
   reGroom(do_deploys, do_nodes)
 elsif $opts[:mode] == "chefrun"
   if $opts[:override_chef_runlist]
-    runCommand(do_deploys, do_nodes, "( chef-client -o '#{$opts[:override_chef_runlist]}' || chef-client.bat -o '#{$opts[:override_chef_runlist]}' ) 2>&1")
+    runCommand(do_deploys, do_nodes, "( chef-client -o '#{$opts[:override_chef_runlist]}' || sudo chef-client -o '#{$opts[:override_chef_runlist]}' || chef-client.bat -o '#{$opts[:override_chef_runlist]}' ) 2>&1")
   else
     runCommand(do_deploys, do_nodes)
   end

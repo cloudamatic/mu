@@ -15,7 +15,7 @@
       skipinitialupdates: true
       vpc:
         vpc_id: <%= vpc %>
-        subnet_pref: all_public
+        subnet_pref: public
       storage:
       - device: /dev/sda1
         size: 70
