@@ -1145,7 +1145,7 @@ module MU
             cloud_descs[r].each_pair { |kitten_cloud_id, descriptor|
               # We already have a MU::Cloud object for this guy, use it
               if kittens.has_key?(kitten_cloud_id)
-                matches << cloud_descs[r][kitten_cloud_id]
+                matches << kittens[kitten_cloud_id]
               elsif kittens.size == 0
                 # If we don't have a MU::Cloud object, manufacture a dummy one.
                 # Give it a fake name if we have to and have decided that's ok.
@@ -1208,7 +1208,7 @@ module MU
               if data.size == 1 and (cloud_id.nil? or data.values.first.cloud_id == cloud_id)
                 return data.values.first
               elsif mu_name.nil? and cloud_id.nil?
-                MU.log "#{@deploy_id}: Found multiple matches in findLitterMate based on #{type}: #{name}, and not enough info to narrow down further. Returning an arbitrary result. Caller: #{caller[0]}", MU::WARN, details: data.values
+                MU.log "#{@deploy_id}: Found multiple matches in findLitterMate based on #{type}: #{name}, and not enough info to narrow down further. Returning an arbitrary result. Caller: #{caller[1]}", MU::WARN, details: data.values
                 return data.values.first
               end
             end
