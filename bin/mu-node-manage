@@ -194,6 +194,7 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-cli
   deploys.each { |muid|
     mommacat = MU::MommaCat.new(muid)
     mommacat.listNodes.each_pair { |nodename, server|
+      next if server['conf'].nil?
       server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
       next if nodes.size > 0 and !nodes.include?(nodename)
 

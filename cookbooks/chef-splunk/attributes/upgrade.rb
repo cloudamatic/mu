@@ -18,30 +18,30 @@ if node['splunk']['upgrade_enabled']
   case node['platform_family']
   when 'rhel'
     if node['kernel']['machine'] == 'x86_64'
-      default['splunk']['forwarder']['url'] = 'https://www.splunk.com/bin/splunk/DownloadActivityServlet?architecture=x86_64&platform=linux&version=6.4.1&product=universalforwarder&filename=splunkforwarder-6.4.1-debde650d26e-linux-2.6-x86_64.rpm&wget=true'
-      default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.4.1/splunk/linux/splunk-6.4.1-debde650d26e-linux-2.6-x86_64.rpm'
+      default['splunk']['forwarder']['url'] = 'https://www.splunk.com/bin/splunk/DownloadActivityServlet?architecture=x86_64&platform=linux&version=6.4.3&product=universalforwarder&filename=splunkforwarder-6.4.3-b03109c2bad4-linux-2.6-x86_64.rpm&wget=true'
+      default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.4.1/splunk/linux/splunk-6.4.3-b03109c2bad4-linux-2.6-x86_64.rpm'
     else
-      default['splunk']['forwarder']['url'] = 'https://www.splunk.com/bin/splunk/DownloadActivityServlet?architecture=x86_64&platform=linux&version=6.4.1&product=universalforwarder&filename=splunkforwarder-6.4.1-debde650d26e.i386.rpm&wget=true'
-      default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.4.1/splunk/linux/splunk-6.4.1-debde650d26e.i386.rpm'
+      default['splunk']['forwarder']['url'] = 'https://www.splunk.com/bin/splunk/DownloadActivityServlet?architecture=x86_64&platform=linux&version=6.4.3&product=universalforwarder&filename=splunkforwarder-6.4.3-b03109c2bad4.i386.rpm&wget=true'
+      default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.4.1/splunk/linux/splunk-6.4.3-b03109c2bad4.i386.rpm'
     end
   when 'debian'
     if node['kernel']['machine'] == 'x86_64'
-      default['splunk']['forwarder']['url'] = 'https://www.splunk.com/bin/splunk/DownloadActivityServlet?architecture=x86_64&platform=linux&version=6.4.1&product=universalforwarder&filename=splunk-6.4.1-debde650d26e-linux-2.6-amd64.deb&wget=true'
-      default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.4.1/splunk/linux/splunk-6.4.1-debde650d26e-linux-2.6-amd64.deb'
+      default['splunk']['forwarder']['url'] = 'https://www.splunk.com/bin/splunk/DownloadActivityServlet?architecture=x86_64&platform=linux&version=6.4.3&product=universalforwarder&filename=splunk-6.4.3-b03109c2bad4-linux-2.6-amd64.deb&wget=true'
+      default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.4.1/splunk/linux/splunk-6.4.3-b03109c2bad4-linux-2.6-amd64.deb'
     else
-      default['splunk']['forwarder']['url'] = 'https://www.splunk.com/bin/splunk/DownloadActivityServlet?architecture=x86_64&platform=linux&version=6.4.1&product=universalforwarder&filename=splunk-6.4.1-debde650d26e-linux-2.6-intel.deb&wget=true'
-      default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.4.1/splunk/linux/splunk-6.4.1-debde650d26e-linux-2.6-intel.deb'
+      default['splunk']['forwarder']['url'] = 'https://www.splunk.com/bin/splunk/DownloadActivityServlet?architecture=x86_64&platform=linux&version=6.4.3&product=universalforwarder&filename=splunk-6.4.3-b03109c2bad4-linux-2.6-intel.deb&wget=true'
+      default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.4.1/splunk/linux/splunk-6.4.3-b03109c2bad4-linux-2.6-intel.deb'
     end
   when 'omnios'
-    default['splunk']['forwarder']['url'] = 'http://download.splunk.com/releases/6.4.1/universalforwarder/solaris/splunkforwarder-6.4.1-debde650d26e-solaris-10-intel.pkg.Z'
-    default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.4.1/splunk/solaris/splunk-6.4.1-debde650d26e-solaris-10-intel.pkg.Z'
+    default['splunk']['forwarder']['url'] = 'http://download.splunk.com/releases/6.4.1/universalforwarder/solaris/splunkforwarder-6.4.3-b03109c2bad4-solaris-10-intel.pkg.Z'
+    default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.4.1/splunk/solaris/splunk-6.4.3-b03109c2bad4-solaris-10-intel.pkg.Z'
   when 'windows'
     if node['kernel']['machine'] == 'x86_64'
-      default['splunk']['forwarder']['url'] = 'https://www.splunk.com/bin/splunk/DownloadActivityServlet?architecture=x86_64&platform=windows&version=6.4.1&product=universalforwarder&filename=splunkforwarder-6.4.1-debde650d26e-x64-release.msi&wget=true'
-      default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.4.1/splunk/windows/splunk-6.4.1-debde650d26e-x64-release.msi'
+      default['splunk']['forwarder']['url'] = 'https://www.splunk.com/bin/splunk/DownloadActivityServlet?architecture=x86_64&platform=windows&version=6.4.3&product=universalforwarder&filename=splunkforwarder-6.4.3-b03109c2bad4-x64-release.msi&wget=true'
+      default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.4.1/splunk/windows/splunk-6.4.3-b03109c2bad4-x64-release.msi'
     else
-      default['splunk']['forwarder']['url'] = 'https://www.splunk.com/bin/splunk/DownloadActivityServlet?architecture=x86_64&platform=windows&version=6.4.1&product=universalforwarder&filename=splunkforwarder-6.4.1-debde650d26e-x86-release.msi&wget=true'
-      default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.4.1/splunk/windows/splunk-6.4.1-debde650d26e-x86-release.msi'
+      default['splunk']['forwarder']['url'] = 'https://www.splunk.com/bin/splunk/DownloadActivityServlet?architecture=x86_64&platform=windows&version=6.4.3&product=universalforwarder&filename=splunkforwarder-6.4.3-b03109c2bad4-x86-release.msi&wget=true'
+      default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.4.1/splunk/windows/splunk-6.4.3-b03109c2bad4-x86-release.msi'
     end
   end
 end
