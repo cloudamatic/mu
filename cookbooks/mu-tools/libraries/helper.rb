@@ -28,8 +28,8 @@ module Mutools
       master = search(:node, "name:MU-MASTER")
       master.each { |server|
         next if !server.has_key?("ec2")
-        master_ips << server.ec2.public_ipv4 if server.ec2.has_key?("public_ipv4") and !server.ec2.public_ipv4.nil? and !server.ec2.public_ipv4.empty?
-        master_ips << server.ec2.local_ipv4 if !server.ec2.local_ipv4.nil? and !server.ec2.local_ipv4.empty?
+        master_ips << server['ec2']['public_ipv4'] if server['ec2'].has_key?('public_ipv4') and !server['ec2']['public_ipv4'].nil? and !server['ec2']['public_ipv4'].empty?
+        master_ips << server['ec2']['local_ipv4'] if !server['ec2']['local_ipv4'].nil? and !server['ec2']['local_ipv4'].empty?
       }
 
       return master_ips

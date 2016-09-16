@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-case node.platform
+case node['platform']
 when "centos", "redhat"
   execute "sed -i 's/^Defaults.*requiretty$/Defaults   !requiretty/' /etc/sudoers" do
     not_if "grep '!requiretty' /etc/sudoers"

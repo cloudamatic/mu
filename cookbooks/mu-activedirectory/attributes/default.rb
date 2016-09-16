@@ -26,7 +26,7 @@ default.ad.homedir = "/home/%u"
 # } rescue NoMethodError
 
 default.ad.sites = []
-if !node.deployment.vpcs.empty?
+if !node['deployment']['vpcs'].empty?
   vpc = node.deployment.vpcs[node.deployment.vpcs.keys.first]
   vpc.subnets.each_pair { |name, data|
     default.ad.sites << {
@@ -51,10 +51,10 @@ default.windows_admin_username = "Administrator"
 
 begin
   default.ad.admin_auth = {
-      :vault => node.ad.domain_admin_vault,
-      :item => node.ad.domain_admin_item,
-      :password_field => node.ad.domain_admin_password_field,
-      :username_field => node.ad.domain_admin_username_field
+      :vault          => node['ad']['domain_admin_vault'],
+      :item           => node['ad']['domain_admin_item'],
+      :password_field => node['ad']['domain_admin_password_field'],
+      :username_field => node['ad']['domain_admin_username_field']
   }
 rescue NoMethodError => e
   default.ad.admin_auth = {
@@ -67,10 +67,10 @@ end
 
 begin
   default.ad.join_auth = {
-      :vault => node.ad.domain_join_vault,
-      :item => node.ad.domain_join_item,
-      :password_field => node.ad.domain_join_password_field,
-      :username_field => node.ad.domain_join_username_field
+      :vault          => node['ad']['domain_join_vault'],
+      :item           => node['ad']['domain_join_item'],
+      :password_field => node['ad']['domain_join_password_field'],
+      :username_field => node['ad']['domain_join_username_field']
   }
 rescue NoMethodError => e
   default.ad.join_auth = {
@@ -82,9 +82,9 @@ rescue NoMethodError => e
 end
 
 default.ad.dc_ips = []
-if node.ad.dc_ips.empty?
+if node['ad']['dc_ips'].empty?
   resolver = Resolv::DNS.new
-  node.ad.dcs.each { |dc|
+  node['ad']['dcs'].each { |dc|
     if dc.match(/^\d+\.\d+\.\d+\.\d+$/)
       default.ad.dc_ips << dc
     else

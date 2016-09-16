@@ -18,10 +18,10 @@
 
 if !node[:application_attributes][:skip_recipes].include?('set_mu_hostname')
   $hostname = node.name
-  if !node.ad.computer_name.nil? and !node.ad.computer_name.empty?
-    $hostname = node.ad.computer_name
+  if !node['ad']['computer_name']['nil? and !node']['ad']['computer_name'].empty?
+    $hostname = node['ad']['computer_name']
   end rescue NoMethodError
-  $ipaddress = node.ipaddress
+  $ipaddress = node['ipaddress']
   
   if !platform_family?("windows")
     my_deploy_id = nil
@@ -56,7 +56,7 @@ if !node[:application_attributes][:skip_recipes].include?('set_mu_hostname')
         notifies :run, "execute[set hostname]", :immediately
         variables(
           hostname: $hostname,
-          platform: node.platform
+          platform: node['platform']
         )
       end
   
