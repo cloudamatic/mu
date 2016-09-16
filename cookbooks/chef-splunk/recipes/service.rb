@@ -82,6 +82,7 @@ service 'splunk' do
   if node['platform_family'] == 'windows'
     service_name 'SplunkForwarder'
     provider Chef::Provider::Service::Windows
+    timeout 90
   else
     provider Chef::Provider::Service::Init
   end

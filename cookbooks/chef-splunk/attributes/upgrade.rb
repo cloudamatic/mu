@@ -19,10 +19,10 @@ if node['splunk']['upgrade_enabled']
   when 'rhel'
     if node['kernel']['machine'] == 'x86_64'
       default['splunk']['forwarder']['url'] = 'https://www.splunk.com/bin/splunk/DownloadActivityServlet?architecture=x86_64&platform=linux&version=6.4.3&product=universalforwarder&filename=splunkforwarder-6.4.3-b03109c2bad4-linux-2.6-x86_64.rpm&wget=true'
-      default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.4.1/splunk/linux/splunk-6.4.3-b03109c2bad4-linux-2.6-x86_64.rpm'
+      default['splunk']['server']['url'] = 'https://www.splunk.com/bin/splunk/DownloadActivityServlet?architecture=x86_64&platform=linux&version=6.4.3&product=splunk&filename=splunk-6.4.3-b03109c2bad4-linux-2.6-x86_64.rpm&wget=true'
     else
       default['splunk']['forwarder']['url'] = 'https://www.splunk.com/bin/splunk/DownloadActivityServlet?architecture=x86_64&platform=linux&version=6.4.3&product=universalforwarder&filename=splunkforwarder-6.4.3-b03109c2bad4.i386.rpm&wget=true'
-      default['splunk']['server']['url'] = 'http://download.splunk.com/releases/6.4.1/splunk/linux/splunk-6.4.3-b03109c2bad4.i386.rpm'
+      default['splunk']['server']['url'] = 'https://www.splunk.com/bin/splunk/DownloadActivityServlet?architecture=i386&platform=linux&version=6.4.3&product=splunk&filename=splunk-6.4.3-b03109c2bad4-linux-2.6-i386.rpm&wget=true'
     end
   when 'debian'
     if node['kernel']['machine'] == 'x86_64'
