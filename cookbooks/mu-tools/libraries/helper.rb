@@ -2,14 +2,109 @@ require 'chef/mixin/shell_out'
 include Chef::Mixin::PowershellOut
 include Chef::Mixin::ShellOut
 
+require 'net/http'
+
 module Mutools
   module Helper
+
+    @region = nil
+    def set_aws_cfg_params
+      begin
+        require 'aws-sdk-core'
+        instance_identity = Net::HTTP.get(URI("http://169.254.169.254/latest/dynamic/instance-identity/document"))
+        @region = JSON.parse(instance_identity)["region"]
+        ENV['AWS_DEFAULT_REGION'] = @region
+  
+        if ENV['AWS_ACCESS_KEY_ID'] == nil or ENV['AWS_ACCESS_KEY_ID'].empty?
+          ENV.delete('AWS_ACCESS_KEY_ID')
+          ENV.delete('AWS_SECRET_ACCESS_KEY')
+          Aws.config = {region: @region}
+        else
+          Aws.config = {access_key_id: ENV['AWS_ACCESS_KEY_ID'], secret_access_key: ENV['AWS_SECRET_ACCESS_KEY'], region: @region}
+        end
+      rescue LoadError
+        Chef::Log.info("aws-sdk-gem hasn't been installed yet!")
+      end
+    end
+
+    @ec2 = nil
+    def ec2
+      require 'aws-sdk-core'
+      set_aws_cfg_params
+      @ec2 ||= Aws::EC2::Client.new(region: @region)
+      @ec2
+    end
+    @s3 = nil
+    def s3
+      require 'aws-sdk-core'
+      set_aws_cfg_params
+      @s3 ||= Aws::S3::Client.new(region: @region)
+      @s3
+    end
+
     def elversion
       return 6 if node.platform_version.to_i == 2013
       return 6 if node.platform_version.to_i == 2014
       return 6 if node.platform_version.to_i == 2015
       return 6 if node.platform_version.to_i == 2016
       node.platform_version.to_i
+    end
+
+    # Extra the tags that Mu typically sticks in a node's Chef metadata
+    def get_tag(key)
+      if node.has_key?(:tags)
+        if node[:tags].is_a?(Array)
+          node[:tags].each { |tag|
+            if tag.is_a?(Array)
+              return tag[1] if tag[0] == key
+            end
+          }
+        elsif node[:tags].is_a?(Hash)
+          return node[:tags][key]
+        end
+      end
+      nil
+    end
+
+    def get_deploy_secret
+      uri = URI("https://#{get_mu_master_ips.first}:2260/rest/bucketname")
+      http = Net::HTTP.new(uri.hostname, uri.port)
+      http.use_ssl = true
+      http.verify_mode = ::OpenSSL::SSL::VERIFY_NONE # XXX this sucks
+      response = http.get(uri)
+      bucket = response.body
+
+      resp = nil
+      begin
+        resp = s3.get_object(bucket: bucket, key: get_tag("MU-ID")+"-secret")
+      rescue ::Aws::S3::Errors::PermanentRedirect => e
+        tmps3 = Aws::S3::Client.new(region: "us-east-1")
+        resp = tmps3.get_object(bucket: bucket, key: get_tag("MU-ID")+"-secret")
+      end
+
+      deploykey = OpenSSL::PKey::RSA.new(node[:deployment][:public_key])
+      Base64.urlsafe_encode64(deploykey.public_encrypt(resp.body.read))
+    end
+
+    def mommacat_request(action, arg)
+require 'pp'
+      uri = URI("https://#{get_mu_master_ips.first}:2260/")
+      req = Net::HTTP::Post.new(uri)
+      res_type = (node[:deployment].has_key?(:servers) and node[:deployment][:servers].has_key?(node[:service_name])) ? "server" : "server_pool"
+      req.set_form_data(
+        "mu_id" => get_tag("MU-ID"),
+        "mu_resource_name" => node[:service_name],
+        "mu_resource_type" => res_type,
+        "mu_user" => node[:deployment][:chef_user],
+        "mu_deploy_secret" => get_deploy_secret,
+        action => arg
+      )
+      http = Net::HTTP.new(uri.hostname, uri.port)
+      http.use_ssl = true
+      http.verify_mode = OpenSSL::SSL::VERIFY_NONE # XXX this sucks
+      response = http.request(req)
+pp response.body
+
     end
 
     def service_user_set?(service, user)
@@ -24,7 +119,7 @@ module Mutools
 
     def get_mu_master_ips
       master_ips = []
-      master_ips << "127.0.0.1" if node.name == "MU-MASTER"
+      master_ips << "127.0.0.1" if node[:name] == "MU-MASTER"
       master = search(:node, "name:MU-MASTER")
       master.each { |server|
         next if !server.has_key?("ec2")

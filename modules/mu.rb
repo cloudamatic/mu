@@ -153,8 +153,6 @@ module MU
   end
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
-
-  # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
   def self.environment;
     @@globals[Thread.current.object_id]['environment']
   end

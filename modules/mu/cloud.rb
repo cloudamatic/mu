@@ -147,7 +147,7 @@ module MU
         :deps_wait_on_my_creation => false,
         :waits_on_parent_completion => false,
         :class => generic_class_methods,
-        :instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP, :getWindowsAdminPassword, :active?, :groomer, :mu_windows_name, :mu_windows_name=, :reboot]
+        :instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP, :getWindowsAdminPassword, :active?, :groomer, :mu_windows_name, :mu_windows_name=, :reboot, :addVolume]
       },
       :ServerPool => {
         :has_multiples => false,

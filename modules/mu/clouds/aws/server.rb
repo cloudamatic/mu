@@ -1664,6 +1664,65 @@ module MU
           return addr
         end
 
+        # Add a volume to this instance
+        # @param dev [String]: Device name to use when attaching to instance
+        # @param size [String]: Size (in gb) of the new volume
+        # @param type [String]: Cloud storage type of the volume, if applicable
+        def addVolume(dev, size, type = "gp2")
+          if @cloud_id.nil? or @cloud_id.empty?
+            MU.log "#{self} didn't have a #{@cloud_id}, couldn't determine 'active?' status", MU::ERR
+            return true
+          end
+          az = nil
+          MU::Cloud::AWS.ec2(@config['region']).describe_instances(
+            instance_ids: [@cloud_id]
+          ).reservations.each { |resp|
+            if !resp.nil? and !resp.instances.nil?
+              resp.instances.each { |instance|
+              az = instance.placement.availability_zone
+                instance.block_device_mappings.each { |vol|
+                  if vol.device_name == dev
+                    MU.log "A volume #{dev} already attached to #{self}, skipping", MU::NOTICE
+                    return
+                  end
+                }
+              }
+            end
+          }
+          MU.log "Creating #{size}GB #{type} volume on #{dev} for #{@cloud_id}"
+          creation = MU::Cloud::AWS.ec2(@config['region']).create_volume(
+            availability_zone: az,
+            size: size,
+            volume_type: type
+          )
+          begin
+            sleep 3
+            creation = MU::Cloud::AWS.ec2(@config['region']).describe_volumes(volume_ids: [creation.volume_id]).volumes.first
+            if !["creating", "available"].include?(creation.state)
+              raise MuError, "Saw state '#{creation.state}' while creating #{size}GB #{type} volume on #{dev} for #{@cloud_id}"
+            end
+          end while creation.state != "available"
+
+          MU::MommaCat.listStandardTags.each_pair { |key, value|
+            MU::MommaCat.createTag(creation.volume_id, key, value, region: @config['region'])
+          }
+          MU::MommaCat.createTag(creation.volume_id, "Name", "#{MU.deploy_id}-#{@config["name"].upcase}-#{dev.upcase}", region: @config['region'])
+
+          attachment = MU::Cloud::AWS.ec2(@config['region']).attach_volume(
+            device: dev,
+            instance_id: @cloud_id,
+            volume_id: creation.volume_id
+          )
+
+          begin
+            sleep 3
+            attachment = MU::Cloud::AWS.ec2(@config['region']).describe_volumes(volume_ids: [attachment.volume_id]).volumes.first.attachments.first
+            if !["attaching", "attached"].include?(attachment.state)
+              raise MuError, "Saw state '#{creation.state}' while creating #{size}GB #{type} volume on #{dev} for #{@cloud_id}"
+            end
+          end while attachment.state != "attached"
+        end
+
         # Determine whether the node in question exists at the Cloud provider
         # layer.
         # @return [Boolean]

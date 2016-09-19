@@ -536,7 +536,7 @@ module MU
             chef_node.normal.deployment.merge!(@server.deploy.deployment)
             chef_node.save
           end
-          return chef_node.deployment
+          return chef_node[:deployment]
         rescue Net::HTTPServerException => e
           MU.log "Attempted to save deployment to Chef node #{@server.mu_name} before it was bootstrapped.", MU::DEBUG
         end
@@ -790,7 +790,7 @@ module MU
           http = Net::HTTP.new(uri.hostname, uri.port)
           http.ca_file = "/etc/pki/Mu_CA.pem" # XXX why no worky?
           http.use_ssl = true
-          http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+          http.verify_mode = OpenSSL::SSL::VERIFY_NONE # XXX this sucks
           response = http.request(req)
 
           MU.log "Got error back on signing request for #{MU.mySSLDir}/#{@server.mu_name}.csr", MU::ERR if response.code != "200"

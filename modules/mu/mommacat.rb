@@ -1968,7 +1968,7 @@ MESSAGE_END
 
     # Make sure deployment data is synchronized to/from each node in the
     # currently-loaded deployment.
-    def syncLitter(nodeclasses = [], triggering_node: nil)
+    def syncLitter(nodeclasses = [], triggering_node: nil, save_all_only: false)
 # XXX take some config logic to decide what nodeclasses to hit
 # XXX don't run on triggering node, duh
       return if MU.syncLitterThread
@@ -1979,6 +1979,7 @@ MESSAGE_END
         MU.log "No #{svrs} as yet available in #{@deploy_id}", MU::DEBUG, details: @kittens
         return
       end
+
       MU.log "Updating these siblings in #{@deploy_id}: #{nodeclasses.join(', ')}", MU::DEBUG, details: @kittens[svrs]
 
       update_servers = []
@@ -2010,19 +2011,21 @@ MESSAGE_END
       return if update_servers.size == 0
 
       # Merge everyone's deploydata together
-      skip = []
-      update_servers.each { |sibling|
-        if sibling.mu_name.nil? or sibling.deploydata.nil? or sibling.config.nil?
-          MU.log "Missing mu_name #{sibling.mu_name}, deploydata, or config from #{sibling} in syncLitter", MU::ERR, details: sibling.deploydata
-          next
-        end
-        if !@deployment[svrs][sibling.config['name']].has_key?(sibling.mu_name) or @deployment[svrs][sibling.config['name']][sibling.mu_name] != sibling.deploydata
-          @deployment[svrs][sibling.config['name']][sibling.mu_name] = sibling.deploydata
-        else
-          skip << sibling
-        end
-      }
-      update_servers = update_servers - skip
+      if !save_all_only
+        skip = []
+        update_servers.each { |sibling|
+          if sibling.mu_name.nil? or sibling.deploydata.nil? or sibling.config.nil?
+            MU.log "Missing mu_name #{sibling.mu_name}, deploydata, or config from #{sibling} in syncLitter", MU::ERR, details: sibling.deploydata
+            next
+          end
+          if !@deployment[svrs][sibling.config['name']].has_key?(sibling.mu_name) or @deployment[svrs][sibling.config['name']][sibling.mu_name] != sibling.deploydata
+            @deployment[svrs][sibling.config['name']][sibling.mu_name] = sibling.deploydata
+          else
+            skip << sibling
+          end
+        }
+        update_servers = update_servers - skip
+      end
 
       return if update_servers.size < 1
       threads = []
@@ -2034,7 +2037,8 @@ MESSAGE_END
           Thread.current.thread_variable_set("name", "sync-"+sibling.mu_name.downcase)
           MU.setVar("syncLitterThread", true)
           begin
-            sibling.groomer.run(purpose: "Synchronizing sibling kittens")
+            sibling.groomer.saveDeployData
+            sibling.groomer.run(purpose: "Synchronizing sibling kittens") if !save_all_only
           rescue MU::Groomer::RunError => e
             MU.log "Sync of #{sibling.mu_name} failed: #{e.inspect}", MU::WARN
           end
@@ -2148,6 +2152,7 @@ MESSAGE_END
 
         if !@deployment.nil? and @deployment.size > 0
           @deployment['handle'] = MU.handle if @deployment['handle'].nil? and !MU.handle.nil?
+          @deployment['public_key'] = @public_key
           begin
             # XXX doing this to trigger JSON errors before stomping the stored
             # file...
@@ -2210,6 +2215,8 @@ MESSAGE_END
         end
       }
 
+      # Update groomer copies of this metadata
+      syncLitter(@deployment['servers'].keys, save_all_only: true) if @deployment.has_key?("servers")
     end
 
     # Find one or more resources by their Mu resource name, and return
