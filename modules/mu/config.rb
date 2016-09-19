@@ -917,6 +917,7 @@ module MU
               MU.log "Couldn't resolve subnet reference in #{parent_name} to a live subnet", MU::ERR, details: vpc_block
             elsif !subnet['subnet_id']
               subnet['subnet_id'] = ext_subnet.cloud_id
+              subnet['az'] = ext_subnet.az
               subnet.delete('subnet_name')
               subnet.delete('tag')
               MU.log "Resolved subnet reference in #{parent_name} to #{ext_subnet.cloud_id}", MU::DEBUG, details: subnet
@@ -935,6 +936,7 @@ module MU
             MU.log "Couldn't resolve subnet reference in #{parent_name} to a live subnet", MU::ERR, details: vpc_block
           elsif !vpc_block['subnet_id']
             vpc_block['subnet_id'] = ext_subnet.cloud_id
+            vpc_block['az'] = ext_subnet.az
             vpc_block.delete('subnet_name')
             MU.log "Resolved subnet reference in #{parent_name} to #{ext_subnet.cloud_id}", MU::DEBUG, details: vpc_block
           end
@@ -972,11 +974,11 @@ module MU
 
           ext_vpc.subnets.each { |subnet|
             if subnet.private? and (vpc_block['subnet_pref'] != "all_public" and vpc_block['subnet_pref'] != "public")
-              private_subnets << { "subnet_id" => getTail("#{parent_name} Private Subnet #{priv}", value: subnet.cloud_id, prettyname: "#{parent_name} Private Subnet #{priv}",  cloudtype:  "AWS::EC2::Subnet::Id") }
+              private_subnets << { "subnet_id" => getTail("#{parent_name} Private Subnet #{priv}", value: subnet.cloud_id, prettyname: "#{parent_name} Private Subnet #{priv}",  cloudtype:  "AWS::EC2::Subnet::Id"), "az" => subnet.az }
               private_subnets_map[subnet.cloud_id] = subnet
               priv = priv + 1
             elsif !subnet.private? and vpc_block['subnet_pref'] != "all_private" and vpc_block['subnet_pref'] != "private"
-              public_subnets << { "subnet_id" => getTail("#{parent_name} Public Subnet #{pub}", value: subnet.cloud_id, prettyname: "#{parent_name} Public Subnet #{pub}",  cloudtype: "AWS::EC2::Subnet::Id") }
+              public_subnets << { "subnet_id" => getTail("#{parent_name} Public Subnet #{pub}", value: subnet.cloud_id, prettyname: "#{parent_name} Public Subnet #{pub}",  cloudtype: "AWS::EC2::Subnet::Id"), "az" => subnet.az }
               public_subnets_map[subnet.cloud_id] = subnet
               pub = pub + 1
             else
@@ -2564,7 +2566,15 @@ module MU
               if mp["vpc"] and mp['vpc']['subnets'] and mp['vpc']['subnets'].size > 1
                 MU.log "Using subnet_pref in Storage Pool mountpoint resulted in multiple subnets, generating new set of mount points to match.", MU::NOTICE
                 count = 0
+
+                seen_azs = []
                 mp['vpc']['subnets'].each { |subnet|
+                  if subnet['az'] and seen_azs.include?(subnet['az'])
+                    MU.log "VPC config for Storage Pool #{pool['name']} has multiple matching subnets per Availability Zone. Only one mount point per AZ is allowed, so you must explicitly declare which subnets to use.", MU::ERR
+                    ok = false
+                    break
+                  end
+                  seen_azs << subnet['az']
                   newmp = Marshal.load(Marshal.dump(mp))
                   newmp['vpc'].delete("subnets")
                   newmp['vpc'].delete("subnet_pref")

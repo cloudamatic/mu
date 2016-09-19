@@ -1575,6 +1575,7 @@ module MU
           attr_reader :ip_block
           attr_reader :mu_name
           attr_reader :name
+          attr_reader :az
 
 
           # @param parent [MU::Cloud::AWS::VPC]: The parent VPC of this subnet.
@@ -1586,6 +1587,10 @@ module MU
             @mu_name = config['mu_name']
             @name = config['name']
             @deploydata = config # This is a dummy for the sake of describe()
+
+            resp = MU::Cloud::AWS.ec2(@config['region']).describe_subnets(subnet_ids: [@cloud_id]).subnets.first
+            @az = resp.availability_zone
+            @ip_block = resp.cidr_block
 
           end
 
