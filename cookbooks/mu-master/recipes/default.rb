@@ -80,7 +80,7 @@ if !node.update_nagios_only
       end
 
       service "oddjobd" do
-        start_command "sh -x /etc/init.d/oddjobd start" # seems to actually work
+        start_command "sh -x /etc/init.d/oddjobd start" if %w{redhat centos}.include?(node['platform']) && node['platform_version'].to_i == 6  # seems to actually work
         action [:enable, :start]
       end
       execute "/usr/sbin/authconfig --disablenis --disablecache --disablewinbind --disablewinbindauth --enablemkhomedir --disablekrb5 --enablesssd --enablesssdauth --enablelocauthorize --disableforcelegacy --disableldap --disableldapauth --updateall" do

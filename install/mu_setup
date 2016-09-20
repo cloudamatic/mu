@@ -1000,11 +1000,11 @@ install_system_packages()
     yum -y install ${enables} ${install_me} || exit 1
   fi
 
-  if [ $DIST_VERSION == 7 ];then
-    for pkg in $GECODE_RPMS;do
-      rpm -ivh $pkg
-    done
-  fi
+  # if [ $DIST_VERSION == 7 ];then
+    # for pkg in $GECODE_RPMS;do
+      # rpm -ivh $pkg
+    # done
+  # fi
 }
 
 ###############################################################################

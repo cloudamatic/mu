@@ -109,7 +109,7 @@ if $MU_CFG["ldap"]["type"] == "389 Directory Services"
       log.puts cfg
       log.puts output
       MU.log "Error setting up LDAP services with /usr/sbin/setup-ds-admin.pl -s -f /root/389-directory-setup.inf", MU::ERR, details: output
-      %x{/sbin/service dirsrv stop ; pkill ns-slapd ; yum erase -y 389-ds 389-ds-console 389-ds-base 389-admin 389-adminutil 389-console 389-ds-base-libs; rm -rf /etc/dirsrv /var/lib/dirsrv /var/log/dirsrv /var/lock/dirsrv /var/run/dirsrv /etc/sysconfig/dirsrv* /usr/lib64/dirsrv /usr/share/dirsrv; knife data bag delete -y mu_ldap}
+      %x{/sbin/service dirsrv stop ; /usr/sbin/stop-dirsrv ; pkill ns-slapd ; yum erase -y 389-ds 389-ds-console 389-ds-base 389-admin 389-adminutil 389-console 389-ds-base-libs; rm -rf /etc/dirsrv /var/lib/dirsrv /var/log/dirsrv /var/lock/dirsrv /var/run/dirsrv /etc/sysconfig/dirsrv* /usr/lib64/dirsrv /usr/share/dirsrv; knife data bag delete -y mu_ldap}
       exit 1
     end
     puts output
@@ -145,6 +145,9 @@ if $MU_CFG["ldap"]["type"] == "389 Directory Services"
   %x{/sbin/service dirsrv restart}
   %x{/sbin/chkconfig dirsrv on}
   %x{/sbin/chkconfig dirsrv-admin on}
+  %x{/usr/sbin/stop-dirsrv}
+  %x{/usr/sbin/start-dirsrv}
+  %x{/usr/bin/systemctl enable dirsrv-admin}
 
   # Manufacture some groups and management users.
   MU::Master::LDAP.initLocalLDAP
