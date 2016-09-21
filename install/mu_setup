@@ -1377,7 +1377,7 @@ EOF
   if [ -f /root/.chef/client.rb -a "`diff /root/.chef/client.rb /etc/chef/client.rb.tmp.$$`" != "" ];then
     /bin/cp -f /etc/chef/client.rb.tmp.$$ /root/.chef/client.rb
   fi
-  /bin/rm -f /etc/chef/client.rb.tmp.$$
+  /bin/rm -f /etc/chef/client.rb.tmp.$$ /etc/chef/validation.pem
   /sbin/service httpd start 2>&1 > /dev/null
   punch_tcp_hole 7443 # sometimes this isn't ready
   knife vault create scratchpad dummy '{ "merp":"meep" }'
