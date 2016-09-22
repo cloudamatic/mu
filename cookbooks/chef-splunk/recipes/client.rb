@@ -77,8 +77,7 @@ template "#{splunk_dir}/etc/system/local/inputs.conf" do
   source 'inputs.conf.erb'
   mode 0644
   variables :inputs_conf => node['splunk']['inputs_conf']
-  notifies :restart, 'service[splunk]', :immediately if platform_family?("windows")
-  notifies :restart, 'service[splunk]', :delayed unless platform_family?("windows")
+  notifies :restart, 'service[splunk]', :delayed
   not_if { node['splunk']['inputs_conf'].nil? || node['splunk']['inputs_conf']['host'].empty? }
 end
 if node['platform_family'] != 'windows'
@@ -88,7 +87,7 @@ if node['platform_family'] != 'windows'
   template "#{splunk_dir}/etc/apps/base_logs_unix/local/inputs.conf" do
     source 'base_logs_unix_inputs.conf.erb'
     mode 0644
-    notifies :restart, 'service[splunk]'
+    notifies :restart, 'service[splunk]', :delayed
   end
 end
 
@@ -111,6 +110,6 @@ ruby_block "tighten SSL options in #{svr_conf}" do
     f.puts newfile
     f.close
   end
-  not_if "grep ^sslVersions #{svr_conf}"
-  notifies :restart, 'service[splunk]'
+  not_if "grep ^sslVersions '#{svr_conf}'"
+  notifies :restart, 'service[splunk]', :delayed
 end

@@ -83,9 +83,11 @@ service 'splunk' do
     service_name 'SplunkForwarder'
     provider Chef::Provider::Service::Windows
     timeout 90
+    supports :status => false, :restart => false
+    pattern "splunkd.exe"
   else
     provider Chef::Provider::Service::Init
+    supports :status => true, :restart => true
   end
-  supports :status => true, :restart => true
-  action :start
+  action [:enable, :start]
 end
