@@ -89,5 +89,5 @@ service 'splunk' do
     provider Chef::Provider::Service::Init
     supports :status => true, :restart => true
   end
-  action [:enable, :start]
+  action :start
 end
