@@ -32,6 +32,13 @@ service 'splunk_stop' do
   else
     service_name 'SplunkForwarder'
     provider Chef::Provider::Service::Windows
+    timeout 90
+    retries 3
+    retry_delay 10
+    supports :status => false, :restart => false
+    start_command "c:/Windows/system32/sc.exe start SplunkForwarder"
+    stop_command "c:/Windows/system32/sc.exe stop SplunkForwarder"
+    pattern "splunkd.exe"
   end
   supports :status => true
   action :stop
