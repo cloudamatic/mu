@@ -2526,6 +2526,7 @@ module MU
       storage_pools.each { |pool|
         pool['region'] = config['region'] if pool['region'].nil?
         pool["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("StoragePool")
+        pool['cloud'] = MU::Config.defaultCloud if pool['cloud'].nil?
         pool["dependencies"] = [] if pool["dependencies"].nil?
 
         supported_regions = %w{us-west-2 us-east-1 eu-west-1}
