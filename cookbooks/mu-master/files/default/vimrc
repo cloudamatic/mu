@@ -7,6 +7,7 @@ set shiftwidth=2
 set expandtab
 set softtabstop=2
 set smarttab
+set nopaste
 set autoindent
 set smartindent
 set cinwords=if,else,while,do,for,switch,def,class,elif,try,except,finally
