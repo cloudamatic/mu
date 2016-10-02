@@ -19,7 +19,6 @@ end
 
 package %w{git bzip2}
 
-Chef::Log.warn("home #{node['jenkins']['master']['home']}")
 #remote_file "#{node['jenkins']['master']['home']}/plugins/mailer.jpi" do
 #  source "http://updates.jenkins-ci.org/latest/mailer.hpi"
 #  owner "jenkins"
