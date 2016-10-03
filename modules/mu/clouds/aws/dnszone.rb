@@ -247,10 +247,10 @@ module MU
               )
             }
           }
-# we probably don't have to wait for these
-#			record_threads.each { |t|
-#				t.join
-#			}
+
+            record_threads.each { |t|
+              t.join
+            }
         end
 
         # Create a Route53 health check.
@@ -516,8 +516,7 @@ module MU
           rescue Aws::Route53::Errors::InvalidChangeBatch, Aws::Route53::Errors::InvalidInput, Exception => e
             return if e.message.match(/ but it already exists$/) and !delete
             MU.log "Failed to change DNS records, #{e.inspect}", MU::ERR, details: params
-            raise e if !delete
-            MU.log "Record #{name} (#{type}) in #{id} can't be deleted. Already removed? #{e.inspect}", MU::WARN, details: params
+            MU.log "Record #{name} (#{type}) in #{id} can't be deleted. Already removed? #{e.inspect}", MU::WARN, details: params if delete
             return
           end
 

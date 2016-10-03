@@ -15,7 +15,7 @@ CHEF_SERVER_VERSION="12.7.0-1"
 
 if [ $DIST_VERSION == 7 ];then
   # mariadb replaces mysql, qt and qt-x11 are required by gecode which is required by the dep_selector gem. 
-  PACKAGES="git curl vim-enhanced zip unzip java-1.8.0-openjdk gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx postgresql-devel openssl libyaml graphviz graphviz-devel mariadb mariadb-devel qt qt-x11 iptables-services"
+  PACKAGES="git curl vim-enhanced zip unzip java-1.8.0-openjdk gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx postgresql-devel openssl libyaml graphviz graphviz-devel mariadb mariadb-devel qt qt-x11 iptables-services jq"
   DEL_PACKAGES="nagios firewalld"
   OPSCODE_CHEF_PKG="chef-server-core-$CHEF_SERVER_VERSION.el7.x86_64"
   OPSCODE_CHEF_DL="https://packages.chef.io/stable/el/7/${OPSCODE_CHEF_PKG}.rpm"
@@ -25,7 +25,7 @@ if [ $DIST_VERSION == 7 ];then
   RUBY_VERSION="ruby-2.1.6"
   GECODE_RPMS="https://s3.amazonaws.com/cap-public/gecode-3.7.3-2.el7.centos.x86_64.rpm https://s3.amazonaws.com/cap-public/gecode-devel-3.7.3-2.el7.centos.x86_64.rpm"
 else
-  PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.8.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel diffutils patch bind-utils httpd-tools gecode-devel mailx mysql-devel postgresql-devel openssl libyaml graphviz autoconf ImageMagick-devel graphviz-devel"
+  PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.8.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel diffutils patch bind-utils httpd-tools gecode-devel mailx mysql-devel postgresql-devel openssl libyaml graphviz autoconf ImageMagick-devel graphviz-devel jq"
   OPSCODE_CHEF_PKG="chef-server-core-$CHEF_SERVER_VERSION.el6.x86_64"
   OPSCODE_CHEF_DL="https://packages.chef.io/stable/el/6/${OPSCODE_CHEF_PKG}.rpm"
   CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el6.x86_64"

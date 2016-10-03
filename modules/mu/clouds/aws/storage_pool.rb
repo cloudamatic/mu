@@ -202,19 +202,29 @@ module MU
           )
 
           attempts = 0
+          retries = 0
           loop do
             MU.log "Waiting for #{resp.mount_target_id} to become available", MU::NOTICE if attempts % 10 == 0
-            mount_target = MU::Cloud::AWS.efs(region).describe_mount_targets(
-              mount_target_id: resp.mount_target_id 
-            ).mount_targets.first
+            begin
+              mount_target = MU::Cloud::AWS.efs(region).describe_mount_targets(
+                mount_target_id: resp.mount_target_id 
+              ).mount_targets.first
+            rescue Aws::EFS::Errors::MountTargetNotFound
+              if retries <= 3
+                sleep 5
+                retry
+              else
+                return nil
+              end
+            end
 
             break if mount_target.life_cycle_state == "available"
-            raise MuError, "Failed to create mount target #{resp.mount_target_id }" if %w{deleting deleted}.include? mount_target.life_cycle_state
+            # raise MuError, "Failed to create mount target #{resp.mount_target_id }" if %w{deleting deleted}.include? mount_target.life_cycle_state
             sleep 10
             attempts += 1
             raise MuError, "timed out waiting for #{resp.mount_target_id }" if attempts >= 40
           end
-          
+
           return resp
         end
 

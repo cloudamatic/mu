@@ -16,22 +16,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-if !node[:application_attributes][:skip_recipes].include?('set_mu_hostname')
+if !node['application_attributes']['skip_recipes'].include?('set_mu_hostname')
   $hostname = node.name
-  if !node['ad']['computer_name']['nil? and !node']['ad']['computer_name'].empty?
+  if !node['ad']['computer_name'].nil? and !node['ad']['computer_name'].empty?
     $hostname = node['ad']['computer_name']
   end rescue NoMethodError
   $ipaddress = node['ipaddress']
   
   if !platform_family?("windows")
     my_deploy_id = nil
-    node.tags.map{ |key, value| my_deploy_id = value if key == 'MU-ID' } if node.respond_to?('tags')
+    node['tags'].map{ |key, value| my_deploy_id = value if key == 'MU-ID' } if node.respond_to?('tags')
   
     my_nodes = []
     # Searching for tags doesn’t seem to work properly so searching for all nodes
     nodes = search(:node, "*")
     nodes.each { |n|
-      n.tags.map { |key, value| my_nodes << n if key == 'MU-ID' && value == my_deploy_id}
+      n['tags'].map { |key, value| my_nodes << n if key == 'MU-ID' && value == my_deploy_id}
     }
   
     template "/etc/hosts" do
@@ -79,6 +79,6 @@ if !node[:application_attributes][:skip_recipes].include?('set_mu_hostname')
         content $hostname
       end
     else
-      Chef::Log.info("Unsupported platform #{node[:platform]}")
+      Chef::Log.info("Unsupported platform #{node['platform']}")
   end
 end
