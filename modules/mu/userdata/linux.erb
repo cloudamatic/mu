@@ -78,16 +78,6 @@ elif [ -x /usr/bin/yum ];then
 	if [ ! -f /etc/yum.repos.d/epel.repo ];then
 		/bin/rpm -ivh http://mirror.metrocast.net/fedora/epel/epel-release-latest-$version.noarch.rpm
 	fi
-  if [ ! -f /usr/bin/pip ];then
-    epel=`rpm -qa \*-release | grep -Ei "epel"`
-    if [ $epel ];then
-      /usr/bin/yum -y install python-pip
-    else
-      /usr/bin/curl -o get-pip.py https://bootstrap.pypa.io/get-pip.py
-      /usr/bin/python get-pip.py
-    fi
-  fi
-	AWSCLI=/usr/bin/aws
 <% if !$mu.skipApplyUpdates %>
 	if [ ! -f /.mu-installer-ran-updates ];then
 		service sshd stop
@@ -110,9 +100,34 @@ elif [ -x /usr/bin/yum ];then
 	fi
 <% end %>
 fi
-set -e
-if [ ! -f $AWSCLI ];then
-	/usr/bin/pip install awscli
+
+AWSCLI='command -v aws'
+PIP='command -v pip'
+
+if ! $AWSCLI > /dev/null;then
+  if ! $PIP > /dev/null;then
+    amazon=`rpm -qa \*yum | grep amzn`
+    epel=`rpm -qa \*-release | grep -Ei "epel"`
+    if [ $amazon ];then
+      yum -y install python27-pip
+    elif [ $epel ];then
+      /usr/bin/yum -y install python-pip
+    else
+      /usr/bin/curl -o get-pip.py https://bootstrap.pypa.io/get-pip.py
+      /usr/bin/python get-pip.py
+    fi
+    PIP='command -v pip'
+  fi
+  `$PIP` install awscli
+fi
+
+# TO DO - This should use "command" instead
+if [ -f /usr/bin/aws ];then
+  AWSCLI=/usr/bin/aws
+elif [ -f /usr/local/bin/aws ];then
+  AWSCLI=/usr/local/bin/aws
+else
+  AWSCLI=/bin/aws
 fi
 
 umask 0077
