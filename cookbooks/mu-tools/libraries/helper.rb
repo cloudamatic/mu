@@ -43,14 +43,14 @@ module Mutools
     end
 
     def elversion
-      return 6 if node.platform_version.to_i == 2013
-      return 6 if node.platform_version.to_i == 2014
-      return 6 if node.platform_version.to_i == 2015
-      return 6 if node.platform_version.to_i == 2016
-      node.platform_version.to_i
+      return 6 if node['platform_version'].to_i == 2013
+      return 6 if node['platform_version'].to_i == 2014
+      return 6 if node['platform_version'].to_i == 2015
+      return 6 if node['platform_version'].to_i == 2016
+      node['platform_version'].to_i
     end
 
-    # Extra the tags that Mu typically sticks in a node's Chef metadata
+    # Extract the tags that Mu typically sticks in a node's Chef metadata
     def get_tag(key)
       if node.has_key?(:tags)
         if node[:tags].is_a?(Array)

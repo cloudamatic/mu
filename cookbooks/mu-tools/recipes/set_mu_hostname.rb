@@ -24,9 +24,7 @@ if !node['application_attributes']['skip_recipes'].include?('set_mu_hostname')
   $ipaddress = node['ipaddress']
   
   if !platform_family?("windows")
-    my_deploy_id = nil
-    node['tags'].map{ |key, value| my_deploy_id = value if key == 'MU-ID' } if node.respond_to?('tags')
-  
+    my_deploy_id = get_tag('MU-ID')
     my_nodes = []
     # Searching for tags doesn’t seem to work properly so searching for all nodes
     nodes = search(:node, "*")
