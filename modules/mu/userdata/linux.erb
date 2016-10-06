@@ -52,9 +52,9 @@ if [ -f /etc/debian_version ];then
 <% end %>
 elif [ -x /usr/bin/yum ];then
 	version=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
-	if [ -z $version ];then
+	if [ -z "$version" ];then
 		amazon_version=`rpm -qa \*-release | grep -Ei "system-release"| cut -d"-" -f3 | cut -d"." -f1`
-		if [ $amazon_version == 2014 ] || [ $amazon_version == 2015 ] || [ $amazon_version == 2016 ];then
+		if [ "$amazon_version" == "2014" ] || [ "$amazon_version" == "2015" ] || [ "$amazon_version" == "2016" ];then
 			version=6
 		fi
 	fi
