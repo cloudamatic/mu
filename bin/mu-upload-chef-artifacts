@@ -113,31 +113,70 @@ add_berkshelf_cookbooks()
 	user="`whoami`"
 	user_home="`getent passwd \"$user\" |cut -d: -f6`"
 	berksdir="$user_home/.berkshelf"
+	berkstmp="$berksdir/tmp"
+	mkdir -p $berkstmp
+	cookbook_path=$berkstmp
 
 	cd $repodir && ( /usr/local/ruby-current/bin/berks install || /usr/local/ruby-current/bin/berks update )
 
-  for name in $(/usr/local/ruby-current/bin/berks list -F json | jq -r '.cookbooks | .[] | .name')
-  do 
-    berkshelf_cookbooks="$berkshelf_cookbooks $name"
-  done
+	if [ ! -d $berkstmp ];then
+		mkdir $berkstmp
+	fi
+	cp -r $berksdir/cookbooks $berkstmp
+	cd $berkstmp
 
 # XXX we need to remove older cookbook versions from $berksdir/cookbooks individually
+	for i in `find cookbooks/ -maxdepth 1 -type d | egrep '^.*-[[:digit:]][[:digit:]\.]*$'`
+	do
+		echo "mv $i \$(echo $berkstmp/$i | sed 's/-[[:digit:]][[:digit:]\.]*$//' )" | sh
+	done
+
 	if [ "$nopurge" == "" -a "$all" != "1" ];then
 		echo "${GREEN}Purging old Chef resources derived from Berkshelf${NORM}"
-    cd $repodir
-    for name in $berkshelf_cookbooks
-    do 
-      set +e
-      $knife cookbook delete $name --yes -a
-      set -e
-    done
+		for resource in `grep ":$berkstmp$" $manifest`;do
+			type="`echo $resource | cut -d: -f1`"
+			name="`echo $resource | cut -d: -f2`"
+			set +e
+			/bin/rm -rf "$MU_CHEF_CACHE/cookbooks/$name*"
+			$knife cookbook delete $name --yes
+			set -e
+		done
 	fi
 
 	echo ""
-	echo "${BOLD}Installing Berkshelf Chef cookbooks from $repodir to Chef Server${NORM}"
+	echo "${BOLD}Installing Berkshelf Chef cookbooks from $cookbook_path to $MU_CHEF_CACHE${NORM}"
+
+	artifact='cookbooks'
 
 	purge_manifest $repo_name $artifact
-	cd $repodir && /usr/local/ruby-current/bin/berks upload --no-freeze
+	if [ -e $cookbook_path/$artifact ];then
+		# Overwrite anything from earlier in the stream with a conflicting name
+		for f in `ls $cookbook_path/$artifact/`;do
+			shortname=$f
+			if [ -e "$MU_CHEF_CACHE/$artifact/$f" -a "$artifact" != "data_bags" ];then
+				set +e
+				oldsrc="`grep "^$artifact:$shortname:" $manifest`"
+				set -e
+				if [ "`diff -r $cookbook_path/$artifact/$f $MU_CHEF_CACHE/$artifact/$f`" != "" ];then
+					if [ "$oldsrc" == "" ];then
+						echo "${YELLOW}Overriding $artifact/$shortname with ${BOLD}$repo_name/$artifact/$shortname${NORM}"
+					else
+						echo "${YELLOW}Overriding $artifact/$shortname from ${BOLD}$oldsrc${NORM} with ${BOLD}$repo_name/$artifact/$shortname${NORM}"
+					fi
+					/bin/rm -rf $MU_CHEF_CACHE/$artifact/$f
+				elif [ "$oldsrc" != "" ];then
+					echo "${YELLOW}Duplicate artifact ${BOLD}$artifact/$shortname${NORM} from ${BOLD}$oldsrc${NORM}, ignoring"
+				fi
+			else
+				echo "${GREEN}Adding ${BOLD}$repo_name/$artifact/$shortname${NORM}"
+			fi
+			update_manifest $repo $artifact $f
+			upload_cookbooks="$upload_cookbooks $shortname"
+		done
+
+		/bin/cp -rf $berkstmp/$artifact $MU_CHEF_CACHE
+		rm -rf $berkstmp
+	fi
 	cd $MU_CHEF_CACHE
 }
 
@@ -271,7 +310,6 @@ fi
 
 
 upload_cookbooks=""
-berkshelf_cookbooks=""
 upload_roles=""
 upload_environments=""
 upload_data_bags=""
@@ -401,10 +439,6 @@ for repo in $REPOS;do
 		fi
 	fi
 
-	if [ -f "$artifact_source/Berksfile" -a "$bags_only" != "1" ];then
-		add_berkshelf_cookbooks "$artifact_source"
-	fi
-
 	for artifact in $chef_artifacts;do
 		purge_manifest $repo_name $artifact
 		if [ -e $artifact_source/$artifact ];then
@@ -430,21 +464,11 @@ for repo in $REPOS;do
 						echo "${YELLOW}Duplicate artifact ${BOLD}$artifact/$shortname${NORM} from ${BOLD}$oldsrc${NORM}, ignoring"
 					fi
 				else
-          if [ "$artifact" == "cookbooks" -o "$artifact" == "site_cookbooks" ];then
-            if ! [[ "$berkshelf_cookbooks" =~ "$shortname" ]];then
-              echo "${GREEN}Adding ${BOLD}$repo_name/$artifact/$shortname${NORM}"
-            fi
-          else
-            echo "${GREEN}Adding ${BOLD}$repo_name/$artifact/$shortname${NORM}"
-          fi
+					echo "${GREEN}Adding ${BOLD}$repo_name/$artifact/$shortname${NORM}"
 				fi
 				update_manifest $repo $artifact $f
 				if [ "$artifact" == "cookbooks" -o "$artifact" == "site_cookbooks" ];then
-          if ! [[ "$berkshelf_cookbooks" =~ "$shortname" ]];then
-            upload_cookbooks="$upload_cookbooks $shortname"
-            test -d "$MU_CHEF_CACHE/$artifact/$shortname" || mkdir -p "$MU_CHEF_CACHE/$artifact/$shortname"
-            /bin/cp -rf $artifact_source/$artifact/$shortname $MU_CHEF_CACHE/$artifact
-          fi
+					upload_cookbooks="$upload_cookbooks $shortname"
 				elif [ "$artifact" == "roles" ];then
 					upload_roles="$upload_roles $shortname"
 				elif [ "$artifact" == "environments" ];then
@@ -453,11 +477,13 @@ for repo in $REPOS;do
 					upload_data_bags="$upload_data_bags $shortname"
 				fi
 			done
-      if [ "$artifact" != "cookbooks" -a "$artifact" != "site_cookbooks" ];then
-        /bin/cp -rf $artifact_source/$artifact $MU_CHEF_CACHE
-      fi
+			/bin/cp -rf $artifact_source/$artifact $MU_CHEF_CACHE
 		fi
 	done
+
+	if [ -f "$artifact_source/Berksfile" -a "$bags_only" != "1" ];then
+		add_berkshelf_cookbooks "$artifact_source"
+	fi
 
 	set +x
 	
@@ -518,7 +544,7 @@ fi
 cd $HOMEDIR
 echo "${YELLOW}Working from $STARTDIR ${NORM}"
 if [ "$all" != "1" ];then
-	if [ "$cookbooks_only" == "1" -a "$upload_cookbooks" != "" ];then
+	if [ "$cookbooks_only" == "1" ];then
 		$knife cookbook upload $upload_cookbooks --cookbook-path $MU_CHEF_CACHE/cookbooks:$MU_CHEF_CACHE/site_cookbooks || fail_with_message "Cookbook upload failed"
 	elif [ "$bags_only" == "1" ];then
 		for bag in $upload_data_bags;do
@@ -528,9 +554,7 @@ if [ "$all" != "1" ];then
 			done
 		done
 	else
-    if [ "$upload_cookbooks" != "" ];then
-      $knife cookbook upload $upload_cookbooks --cookbook-path $MU_CHEF_CACHE/cookbooks:$MU_CHEF_CACHE/site_cookbooks || fail_with_message "Cookbook upload failed"
-    fi
+		$knife cookbook upload $upload_cookbooks --cookbook-path $MU_CHEF_CACHE/cookbooks:$MU_CHEF_CACHE/site_cookbooks --include-dependencies || fail_with_message "Cookbook upload failed"
 		for role in $upload_roles;do
 			$knife role from file $MU_CHEF_CACHE/roles/$role.json
 		done
@@ -547,11 +571,11 @@ if [ "$all" != "1" ];then
 else
 	databagdir="$MU_CHEF_CACHE/data_bags/"
 
-	if [ "$cookbooks_only" == "1"  -a "$upload_cookbooks" != "" ];then
+	if [ "$cookbooks_only" == "1" ];then
 		echo "Uploading selected cookbooks..."
 		cd $MU_CHEF_CACHE
-		# cookbooks="`$knife deps /cookbooks/* /site_cookbooks/* 2>/dev/null | sed -re 's/^\/\w+\/|-[[:digit:]][[:digit:]\.]*$//g' | sed -re 's/^[^\.]+\///'`"
-		$knife cookbook upload $upload_cookbooks --cookbook-path $MU_CHEF_CACHE/cookbooks:$MU_CHEF_CACHE/site_cookbooks || fail_with_message "Cookbook upload failed"
+		cookbooks="`$knife deps /cookbooks/* /site_cookbooks/* 2>/dev/null | sed -re 's/^\/\w+\/|-[[:digit:]][[:digit:]\.]*$//g' | sed -re 's/^[^\.]+\///'`"
+		$knife cookbook upload $cookbooks --cookbook-path $MU_CHEF_CACHE/cookbooks:$MU_CHEF_CACHE/site_cookbooks || fail_with_message "Cookbook upload failed"
 #		$knife cookbook upload --all --cookbook-path $MU_CHEF_CACHE/cookbooks:$MU_CHEF_CACHE/site_cookbooks > /dev/null || $knife cookbook upload --all --cookbook-path $MU_CHEF_CACHE/cookbooks:$MU_CHEF_CACHE/site_cookbooks -c /etc/opscode/pivotal.rb || fail_with_message "Cookbook upload failed"
 	elif [ "$bags_only" == "1" ];then
 		for Dir in $(find $databagdir* -mindepth 0 -maxdepth 1 -type d );do
@@ -565,8 +589,8 @@ else
 	else
 		echo "Uploading all cookbooks..."
 		cd $MU_CHEF_CACHE
-		# cookbooks="`$knife deps /cookbooks/* /site_cookbooks/* 2>/dev/null | sed -re 's/^\/\w+\/|-[[:digit:]][[:digit:]\.]*$//g' | sed -re 's/^[^\.]+\///'`"
-		$knife cookbook upload $upload_cookbooks --cookbook-path $MU_CHEF_CACHE/cookbooks:$MU_CHEF_CACHE/site_cookbooks --all || fail_with_message "Cookbook upload failed"
+		cookbooks="`$knife deps /cookbooks/* /site_cookbooks/* 2>/dev/null | sed -re 's/^\/\w+\/|-[[:digit:]][[:digit:]\.]*$//g' | sed -re 's/^[^\.]+\///'`"
+		$knife cookbook upload $cookbooks --cookbook-path $MU_CHEF_CACHE/cookbooks:$MU_CHEF_CACHE/site_cookbooks --all || fail_with_message "Cookbook upload failed"
 	
 		echo "Uploading all roles..."
 		_files="$MU_CHEF_CACHE/roles/*.json"
