@@ -11,7 +11,7 @@ fi
 EPEL_RPM="http://mirror.metrocast.net/fedora/epel/epel-release-latest-$DIST_VERSION.noarch.rpm"
 
 CHEF_CLIENT_VERSION="12.13.37-1"
-CHEF_SERVER_VERSION="12.7.0-1"
+CHEF_SERVER_VERSION="12.9.1-1"
 
 if [ $DIST_VERSION == 7 ];then
   # mariadb replaces mysql, qt and qt-x11 are required by gecode which is required by the dep_selector gem. 
@@ -1671,6 +1671,7 @@ generate_ssl_certs()
     fi
   done
   /bin/cp -f /opt/mu/var/ssl/Mu_CA.pem /etc/pki/ca-trust/source/anchors/
+  /usr/bin/update-ca-trust force-enable
   /usr/bin/update-ca-trust extract
 }
 
