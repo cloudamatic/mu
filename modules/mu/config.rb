@@ -2911,6 +2911,11 @@ module MU
                 "sgs" => ["pool"+pool['name']]
               }
             end
+            firewall_rules.each { |fw|
+              if fw['name'] == "db"+db['name']
+                fw['dependencies'] << { "type" => "firewall_rule", "name" => "pool"+pool['name'] }
+              end
+            }
           }
         }
         servers.each { |server|
@@ -2921,6 +2926,11 @@ module MU
                 "sgs" => ["server"+server['name']]
               }
             end
+            firewall_rules.each { |fw|
+              if fw['name'] == "db"+db['name']
+                fw['dependencies'] << { "type" => "firewall_rule", "name" => "server"+server['name'] }
+              end
+            }
           }
         }
       }
