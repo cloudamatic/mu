@@ -957,7 +957,7 @@ module MU
           end
 
           windows? ? ssh_wait = 60 : ssh_wait = 30
-          windows? ? max_retries = 50 : max_retries = 25
+          windows? ? max_retries = 50 : max_retries = 35
           begin
             session = getSSHSession(max_retries, ssh_wait)
             initialSSHTasks(session)
