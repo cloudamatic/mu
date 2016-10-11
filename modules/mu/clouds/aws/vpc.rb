@@ -31,6 +31,7 @@ module MU
           @deploy = mommacat
           @config = MU::Config.manxify(kitten_cfg)
           @subnets = []
+          @subnetcachesemaphore = Mutex.new
           @cloud_id = cloud_id
           if !mu_name.nil?
             @mu_name = mu_name
@@ -794,42 +795,54 @@ module MU
                     {name: "vpc-id", values: [@cloud_id]}
                 ]
             )
-            return [] if resp.subnets.nil? or resp.subnets.size == 0
+            if resp.nil? or resp.subnets.nil? or resp.subnets.size == 0
+              MU.log "Got empty results when trying to list subnets in #{@cloud_id}", MU::WARN
+              return []
+            end
           end
 
-          @subnets = []
+          @subnetcachesemaphore.synchronize {
+            @subnets ||= []
+            ext_ids = @subnets.each.collect { |s| s.cloud_id }
 
-          # If we're a plain old Mu resource, load our config and deployment
-          # metadata. Like ya do.
-          if !@config.nil? and @config.has_key?("subnets")
-            @config['subnets'].each { |subnet|
-              subnet['mu_name'] = @mu_name+"-"+subnet['name'] if !subnet.has_key?("mu_name")
-              subnet['region'] = @config['region']
-              resp.data.subnets.each { |desc|
-                if desc.cidr_block == subnet["ip_block"]
-                  subnet["tags"] = MU.structToHash(desc.tags)
-                  subnet["cloud_id"] = desc.subnet_id
-                  break
+            # If we're a plain old Mu resource, load our config and deployment
+            # metadata. Like ya do.
+            if !@config.nil? and @config.has_key?("subnets")
+              @config['subnets'].each { |subnet|
+                subnet['mu_name'] = @mu_name+"-"+subnet['name'] if !subnet.has_key?("mu_name")
+                subnet['region'] = @config['region']
+                if !resp.nil? and !resp.data.nil? and !resp.data.subnets.nil?
+                  resp.data.subnets.each { |desc|
+                    if desc.cidr_block == subnet["ip_block"]
+                      subnet["tags"] = MU.structToHash(desc.tags)
+                      subnet["cloud_id"] = desc.subnet_id
+                      break
+                    end
+                  }
+                end
+                if !ext_ids.include?(subnet["cloud_id"])
+                  @subnets << MU::Cloud::AWS::VPC::Subnet.new(self, subnet)
                 end
               }
-              @subnets << MU::Cloud::AWS::VPC::Subnet.new(self, subnet)
-            }
-            # Of course we might be loading up a dummy subnet object from a foreign
-            # or non-Mu-created VPC and subnet. So make something up.
-          elsif !resp.nil?
-            resp.data.subnets.each { |desc|
-              subnet = {}
-              subnet["ip_block"] = desc.cidr_block
-              subnet["name"] = subnet["ip_block"].gsub(/[\.\/]/, "_")
-              subnet['mu_name'] = @mu_name+"-"+subnet['name']
-              subnet["tags"] = MU.structToHash(desc.tags)
-              subnet["cloud_id"] = desc.subnet_id
-              subnet['region'] = @config['region']
-              @subnets << MU::Cloud::AWS::VPC::Subnet.new(self, subnet)
-            }
-          end
+              # Of course we might be loading up a dummy subnet object from a foreign
+              # or non-Mu-created VPC and subnet. So make something up.
+            elsif !resp.nil?
+              resp.data.subnets.each { |desc|
+                subnet = {}
+                subnet["ip_block"] = desc.cidr_block
+                subnet["name"] = subnet["ip_block"].gsub(/[\.\/]/, "_")
+                subnet['mu_name'] = @mu_name+"-"+subnet['name']
+                subnet["tags"] = MU.structToHash(desc.tags)
+                subnet["cloud_id"] = desc.subnet_id
+                subnet['region'] = @config['region']
+                if !ext_ids.include?(desc.subnet_id)
+                  @subnets << MU::Cloud::AWS::VPC::Subnet.new(self, subnet)
+                end
+              }
+            end
 
-          return @subnets
+            return @subnets
+          }
         end
 
         # Given some search criteria try locating a NAT Gaateway in this VPC.
@@ -922,6 +935,7 @@ module MU
             raise MuError, "getSubnet called with no non-nil arguments"
           end
           loadSubnets
+
           @subnets.each { |subnet|
             if !cloud_id.nil? and subnet.cloud_id == cloud_id
               return subnet
