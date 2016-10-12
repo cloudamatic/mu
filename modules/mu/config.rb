@@ -2000,17 +2000,18 @@ module MU
             end
           end
         end
-        if !pool['ingress_rules'].nil?
-          fwname = "pool"+pool['name']
-          firewall_rule_names << fwname
-          acl = {"name" => fwname, "rules" => pool['ingress_rules'], "region" => pool['region'], "optional_tags" => pool['optional_tags']}
-          acl["tags"] = pool['tags'] if pool['tags'] && !pool['tags'].empty?
-          acl["vpc"] = pool['vpc'].dup if !pool['vpc'].nil?
-          acl["cloud"] = pool["cloud"]
-          firewall_rules << resolveFirewall.call(acl)
-          pool["add_firewall_rules"] = [] if pool["add_firewall_rules"].nil?
-          pool["add_firewall_rules"] << {"rule_name" => fwname}
-        end
+
+        pool["ingress_rules"] = [] if !pool.has_key?("ingress_rules") || pool["ingress_rules"].nil?
+        fwname = "pool"+pool['name']
+        firewall_rule_names << fwname
+        acl = {"name" => fwname, "rules" => pool['ingress_rules'], "region" => pool['region'], "optional_tags" => pool['optional_tags']}
+        acl["tags"] = pool['tags'] if pool['tags'] && !pool['tags'].empty?
+        acl["vpc"] = pool['vpc'].dup if !pool['vpc'].nil?
+        acl["cloud"] = pool["cloud"]
+        firewall_rules << resolveFirewall.call(acl)
+        pool["add_firewall_rules"] = [] if !pool.has_key?("add_firewall_rules") || pool["add_firewall_rules"].nil?
+        pool["add_firewall_rules"] << {"rule_name" => fwname}
+
         pool["dependencies"].uniq!
         if !pool["add_firewall_rules"].nil?
           pool["add_firewall_rules"].each { |acl_include|
@@ -2787,22 +2788,22 @@ module MU
           end
         end
 
-        if !server['ingress_rules'].nil?
-          fwname = "server"+server['name']
-          firewall_rule_names << fwname
-          acl = {
-            "name" => fwname, 
-            "rules" => server['ingress_rules'], 
-            "region" => server['region'],
-            "optional_tags" => server['optional_tags']
-          }
-          acl["tags"] = server['tags'] if server['tags'] && !server['tags'].empty?
-          acl["vpc"] = server['vpc'].dup if !server['vpc'].nil?
-          acl["cloud"] = server["cloud"]
-          firewall_rules << resolveFirewall.call(acl)
-          server["add_firewall_rules"] = [] if server["add_firewall_rules"].nil?
-          server["add_firewall_rules"] << {"rule_name" => fwname}
-        end
+        server['ingress_rules'] = [] if !server.has_key?('ingress_rules') || server['ingress_rules'].nil?
+
+        fwname = "server"+server['name']
+        firewall_rule_names << fwname
+        acl = {
+          "name" => fwname, 
+          "rules" => server['ingress_rules'], 
+          "region" => server['region'],
+          "optional_tags" => server['optional_tags']
+        }
+        acl["tags"] = server['tags'] if server['tags'] && !server['tags'].empty?
+        acl["vpc"] = server['vpc'].dup if !server['vpc'].nil?
+        acl["cloud"] = server["cloud"]
+        firewall_rules << resolveFirewall.call(acl)
+        server["add_firewall_rules"] = [] if !server.has_key?('add_firewall_rules') || server["add_firewall_rules"].nil?
+        server["add_firewall_rules"] << {"rule_name" => fwname}
 
         if !server["add_firewall_rules"].nil?
           server["add_firewall_rules"].each { |acl_include|
@@ -2903,21 +2904,24 @@ module MU
           db['port'] = 1433 if db['engine'].match(/^sqlserver\-/)
           db['port'] = 1521 if db['engine'].match(/^oracle\-/)
         end
+
         server_pools.each { |pool|
           pool['dependencies'].each { |dep|
             if dep['type'] == "database" and dep['name'] == db['name']
               db['ingress_rules'] << {
                 "port" => db['port'],
-                "sgs" => ["pool"+pool['name']]
+                "sgs" => ["pool#{pool['name']}"]
+              }
+
+              firewall_rules.each { |fw|
+                if fw['name'] == "db#{db['name']}"
+                  fw['dependencies'] << { "type" => "firewall_rule", "name" => "pool#{pool['name']}"}
+                end
               }
             end
-            firewall_rules.each { |fw|
-              if fw['name'] == "db"+db['name']
-                fw['dependencies'] << { "type" => "firewall_rule", "name" => "pool"+pool['name'] }
-              end
-            }
           }
         }
+
         servers.each { |server|
           server['dependencies'].each { |dep|
             if dep['type'] == "database" and dep['name'] == db['name']
@@ -2925,12 +2929,13 @@ module MU
                 "port" => db['port'],
                 "sgs" => ["server"+server['name']]
               }
+            
+              firewall_rules.each { |fw|
+                if fw['name'] == "db"+db['name']
+                  fw['dependencies'] << { "type" => "firewall_rule", "name" => "server"+server['name'] }
+                end
+              }
             end
-            firewall_rules.each { |fw|
-              if fw['name'] == "db"+db['name']
-                fw['dependencies'] << { "type" => "firewall_rule", "name" => "server"+server['name'] }
-              end
-            }
           }
         }
       }
