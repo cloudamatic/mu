@@ -40,10 +40,10 @@ service 'splunk_stop' do
     stop_command "c:/Windows/system32/sc.exe stop SplunkForwarder"
     pattern "splunkd.exe"
     only_if { ::Dir.exists?("c:/Program Files/SplunkUniversalForwarder") }
+    not_if { ::Dir.glob("c:/Program Files/SplunkUniversalForwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
   end
   supports :status => true
   action :stop
-  not_if { ::Dir.glob("c:/Program Files/SplunkUniversalForwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
 end
 
 if node['platform_family'] == 'windows'
@@ -75,13 +75,17 @@ end
 
 splunk_installer splunk_package do
   url node['splunk'][url_type]["url"]
-  not_if { ::Dir.glob("c:/Program Files/SplunkUniversalForwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
+  if node['platform_family'] == 'windows'
+    not_if { ::Dir.glob("c:/Program Files/SplunkUniversalForwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
+  end
 end
 
 if node['splunk']['accept_license']
   execute 'splunk-unattended-upgrade' do
     command "\"#{splunk_cmd}\" start --accept-license --answer-yes"
-    not_if { ::Dir.glob("c:/Program Files/SplunkUniversalForwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
+    if node['platform_family'] == 'windows'
+      not_if { ::Dir.glob("c:/Program Files/SplunkUniversalForwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
+    end
   end
 else
   Chef::Log.fatal('You did not accept the license (set node["splunk"]["accept_license"] to true)')

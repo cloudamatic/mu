@@ -376,7 +376,7 @@ module MU
                   )
                 end
               rescue Aws::EC2::Errors::InvalidGroupNotFound => e
-                MU.log "#{@mu_name} does not yet exist", MU::WARN
+                MU.log "#{@mu_name} (#{@cloud_id}) does not yet exist", MU::WARN
                 retries = retries + 1
                 if retries < 10
                   sleep 10
@@ -491,7 +491,7 @@ module MU
                     if sg_name.match(/^sg-/)
                       found_sgs = MU::MommaCat.findStray("AWS", "firewall_rule", cloud_id: sg_name, region: @config['region'], calling_deploy: @deploy, dummy_ok: true)
                     else
-                      found_sgs = MU::MommaCat.findStray("AWS", "firewall_rule", name: sg_name, region: @config['region'], calling_deploy: @deploy)
+                      found_sgs = MU::MommaCat.findStray("AWS", "firewall_rule", name: sg_name, region: @config['region'], deploy_id: MU.deploy_id, calling_deploy: @deploy)
                     end
                     if found_sgs.nil? or found_sgs.size == 0
                       raise MuError, "Attempted to reference non-existing Security Group #{sg_name} while building #{@mu_name}"

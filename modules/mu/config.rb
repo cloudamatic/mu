@@ -2895,6 +2895,46 @@ module MU
         ok = false unless MU::Config.validate_alarm_config(alarm)
       }
 
+      # add some default holes to allow dependent instances into databases
+      databases.each { |db|
+        if db['port'].nil?
+          db['port'] = 3306 if ["mysql", "aurora"].include?(db['engine'])
+          db['port'] = 5432 if ["postgres"].include?(db['engine'])
+          db['port'] = 1433 if db['engine'].match(/^sqlserver\-/)
+          db['port'] = 1521 if db['engine'].match(/^oracle\-/)
+        end
+        server_pools.each { |pool|
+          pool['dependencies'].each { |dep|
+            if dep['type'] == "database" and dep['name'] == db['name']
+              db['ingress_rules'] << {
+                "port" => db['port'],
+                "sgs" => ["pool"+pool['name']]
+              }
+            end
+            firewall_rules.each { |fw|
+              if fw['name'] == "db"+db['name']
+                fw['dependencies'] << { "type" => "firewall_rule", "name" => "pool"+pool['name'] }
+              end
+            }
+          }
+        }
+        servers.each { |server|
+          server['dependencies'].each { |dep|
+            if dep['type'] == "database" and dep['name'] == db['name']
+              db['ingress_rules'] << {
+                "port" => db['port'],
+                "sgs" => ["server"+server['name']]
+              }
+            end
+            firewall_rules.each { |fw|
+              if fw['name'] == "db"+db['name']
+                fw['dependencies'] << { "type" => "firewall_rule", "name" => "server"+server['name'] }
+              end
+            }
+          }
+        }
+      }
+
       seen = []
       # XXX seem to be not detecting duplicate admin firewall_rules in genAdminFirewallRuleset
       @admin_firewall_rules.each { |acl|
