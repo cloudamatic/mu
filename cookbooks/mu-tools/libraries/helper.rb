@@ -51,7 +51,7 @@ module Mutools
     end
 
     # Extract the tags that Mu typically sticks in a node's Chef metadata
-    def get_tag(key)
+    def mu_get_tag_value(key)
       if node.has_key?(:tags)
         if node[:tags].is_a?(Array)
           node[:tags].each { |tag|
@@ -76,34 +76,44 @@ module Mutools
 
       resp = nil
       begin
-        resp = s3.get_object(bucket: bucket, key: get_tag("MU-ID")+"-secret")
+        resp = s3.get_object(bucket: bucket, key: mu_get_tag_value("MU-ID")+"-secret")
       rescue ::Aws::S3::Errors::PermanentRedirect => e
         tmps3 = Aws::S3::Client.new(region: "us-east-1")
-        resp = tmps3.get_object(bucket: bucket, key: get_tag("MU-ID")+"-secret")
+        resp = tmps3.get_object(bucket: bucket, key: mu_get_tag_value("MU-ID")+"-secret")
       end
 
-      deploykey = OpenSSL::PKey::RSA.new(node[:deployment][:public_key])
-      Base64.urlsafe_encode64(deploykey.public_encrypt(resp.body.read))
+      if node[:deployment] and node[:deployment][:public_key]
+        deploykey = OpenSSL::PKey::RSA.new(node[:deployment][:public_key])
+        Base64.urlsafe_encode64(deploykey.public_encrypt(resp.body.read))
+      end
     end
 
     def mommacat_request(action, arg)
-require 'pp'
       uri = URI("https://#{get_mu_master_ips.first}:2260/")
       req = Net::HTTP::Post.new(uri)
-      res_type = (node[:deployment].has_key?(:servers) and node[:deployment][:servers].has_key?(node[:service_name])) ? "server" : "server_pool"
-      req.set_form_data(
-        "mu_id" => get_tag("MU-ID"),
-        "mu_resource_name" => node[:service_name],
-        "mu_resource_type" => res_type,
-        "mu_user" => node[:deployment][:chef_user],
-        "mu_deploy_secret" => get_deploy_secret,
-        action => arg
-      )
-      http = Net::HTTP.new(uri.hostname, uri.port)
-      http.use_ssl = true
-      http.verify_mode = OpenSSL::SSL::VERIFY_NONE # XXX this sucks
-      response = http.request(req)
-pp response.body
+      res_type = (node[:deployment].has_key?(:server_pools) and node[:deployment][:server_pools].has_key?(node[:service_name])) ? "server_pool" : "server"
+      begin
+        req.set_form_data(
+          "mu_id" => mu_get_tag_value("MU-ID"),
+          "mu_resource_name" => node[:service_name],
+          "mu_resource_type" => res_type,
+          "mu_user" => node[:deployment][:chef_user],
+          "mu_deploy_secret" => get_deploy_secret,
+          action => arg
+        )
+        http = Net::HTTP.new(uri.hostname, uri.port)
+        http.use_ssl = true
+        http.verify_mode = OpenSSL::SSL::VERIFY_NONE # XXX this sucks
+        response = http.request(req)
+      rescue EOFError => e
+        # Sometimes deployment metadata is incomplete and missing a
+        # server_pool entry. Try to help it out.
+        if res_type == "server"
+          res_type = "server_pool"
+          retry
+        end
+        raise e
+      end
 
     end
 
