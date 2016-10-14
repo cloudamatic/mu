@@ -29,6 +29,7 @@ service 'splunk_stop' do
   if node['platform_family'] != 'windows'
     service_name 'splunk'
     provider Chef::Provider::Service::Init
+    only_if { ::File.exists?("/etc/init.d/splunk") }
   else
     service_name 'SplunkForwarder'
     provider Chef::Provider::Service::Windows
@@ -77,15 +78,18 @@ splunk_installer splunk_package do
   url node['splunk'][url_type]["url"]
   if node['platform_family'] == 'windows'
     not_if { ::Dir.glob("c:/Program Files/SplunkUniversalForwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
+  else
+    not_if { ::Dir.glob("/opt/splunkforwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
+  end
+  if node['splunk']['accept_license']
+    notifies :run, "execute[splunk-unattended-upgrade]", :immediately
   end
 end
 
 if node['splunk']['accept_license']
   execute 'splunk-unattended-upgrade' do
     command "\"#{splunk_cmd}\" start --accept-license --answer-yes"
-    if node['platform_family'] == 'windows'
-      not_if { ::Dir.glob("c:/Program Files/SplunkUniversalForwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
-    end
+    action :nothing
   end
 else
   Chef::Log.fatal('You did not accept the license (set node["splunk"]["accept_license"] to true)')
