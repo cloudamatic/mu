@@ -219,7 +219,7 @@ module MU
             end
 
             break if mount_target.life_cycle_state == "available"
-            # raise MuError, "Failed to create mount target #{resp.mount_target_id }" if %w{deleting deleted}.include? mount_target.life_cycle_state
+            raise MuError, "Failed to create mount target #{resp.mount_target_id }" if %w{deleting deleted}.include? mount_target.life_cycle_state
             sleep 10
             attempts += 1
             raise MuError, "timed out waiting for #{resp.mount_target_id }" if attempts >= 40
