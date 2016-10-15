@@ -23,61 +23,31 @@ Chef::Log.info("Dumping node #{node[:application_attributes][:application_volume
 mount_device = node[:application_attributes][:application_volume][:mount_device]
 mount_volume = node[:application_attributes][:application_volume][:volume_id]
 mount_directory = node[:application_attributes][:application_volume][:mount_directory]
+volume_size_gb = node[:application_attributes][:application_volume][:volume_size_gb]
 
 include_recipe "mu-tools::aws_api"
 
-# Set defaults, because awscli is silly.
-#service_name = node.service_name
-#if ENV['AWS_DEFAULT_REGION'].nil? and
-#		!service_name.nil? and
-#		!node[:deployment][service_name].nil? and
-#		!node[:deployment][:servers][service_name][Chef::Config[:chef_node_name]][:region].nil?
-#	region = node[:deployment][:servers][service_name][Chef::Config[:chef_node_name]][:region]
-#	ENV['AWS_DEFAULT_REGION'] = region
-#end
 
-ENV.each { |e| Chef::Log.info(e.join(': ')) }
-
-ruby_block "create_apps_volume" do
-  extend CAPVolume
-  block do
-    result=create_node_volume(:application_volume)
-  end
-  only_if {
-    create = true
-    device_status = check_device_status(mount_device)
-    Chef::Log.info "device_status is #{device_status}"
-    if device_status != "unattached"
-      Chef::Log.info "Not executing because #{mount_device} is #{device_status}"
-      create = false
-    end
-    unless mount_volume.nil?
-      Chef::Log.info "Not executing because #{mount_volume} is already assigned to application_volume"
-      create = false
-    end
-    create
+params = Base64.urlsafe_encode64(JSON.generate(
+  {
+    :dev => mount_device,
+    :size => volume_size_gb
   }
-  notifies :create, "ruby_block[attach_apps_volume]", :immediately
-end
-ruby_block "attach_apps_volume" do
-  extend CAPVolume
-  block do
-    result=attach_node_volume(:application_volume)
-  end
-  action :nothing
-  notifies :create, "directory[mount_apps_dir]", :immediately
-  notifies :create, "ruby_block[format_default_volume]", :immediately
-end
+))
+# XXX would rather exec this inside a resource, guard it, etc
+mommacat_request("add_volume", params)
+
 # Make the mountpoint, create encrypted volume and mount it
 directory "mount_apps_dir" do
   owner "root"
   group "root"
   mode 00644
   path mount_directory
-  action :nothing
+  not_if { ::Dir.exists?(mount_directory+"/lost+found") } # XXX smarter guard?
 end
 
 ruby_block "format_default_volume" do
+  not_if { ::Dir.exists?(mount_directory+"/lost+found") } # XXX smarter guard?
   # Encrypt if you can, warn and create unencrypted if not.  Encryption requires credentials secret
   extend CAPVolume
   block do
@@ -100,9 +70,7 @@ ruby_block "format_default_volume" do
     end
 
     Chef::Log.info("Probing for attached volume then formatting")
-    if volume_attached(mount_device)
-      mount_default_volume(ebs_key_location)
-    end
+    mount_default_volume(ebs_key_location)
 
     #clean up creds
     unless ebs_keyfile.nil?
@@ -110,5 +78,4 @@ ruby_block "format_default_volume" do
     end
 
   end
-  action :nothing
 end

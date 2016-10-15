@@ -14,6 +14,8 @@
 
 include_recipe "mu-tools::aws_api"
 
+# XXX Deprecated. All of it.
+
 # Test Harness
 ruby_block "create_data_volume" do
   extend CAPVolume

@@ -24,7 +24,7 @@ if !node['application_attributes']['skip_recipes'].include?('set_mu_hostname')
   $ipaddress = node['ipaddress']
   
   if !platform_family?("windows")
-    my_deploy_id = get_tag('MU-ID')
+    my_deploy_id = mu_get_tag_value('MU-ID')
     my_nodes = []
     # Searching for tags doesn’t seem to work properly so searching for all nodes
     nodes = search(:node, "*")
