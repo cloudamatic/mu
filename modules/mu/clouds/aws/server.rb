@@ -1045,7 +1045,7 @@ module MU
           search_threads = []
 
           # If we got an instance id, go get it
-          if !cloud_id.nil?
+          if !cloud_id.nil? and !cloud_id.empty?
             regions.each { |region|
               search_threads << Thread.new {
                 MU.log "Hunting for instance with cloud id '#{cloud_id}' in #{region}", MU::DEBUG
