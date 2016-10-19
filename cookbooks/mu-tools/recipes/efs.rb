@@ -20,8 +20,16 @@ if node['deployment'].has_key?('storage_pools')
           recursive true
         end
 
+        endpoint = target['endpoint']
+        resolver = Resolv::DNS.new
+        begin
+          resolver.getaddress(endpoint)
+        rescue  Resolv::ResolvError
+          endpoint = target['ip_address']
+        end
+
         mount target['mount_directory'] do
-          device "#{target['endpoint']}:/"
+          device "#{endpoint}:/"
           fstype "nfs4"
           action [:mount, :enable]
         end

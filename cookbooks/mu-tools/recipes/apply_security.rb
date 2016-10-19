@@ -72,7 +72,8 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
         minute "0"
         hour "5"
         user "root"
-        command "aide --check"
+        command "/usr/sbin/aide --check"
+        only_if { File.exists?("/usr/sbin/aide") }
       end
   
       cookbook_file "/etc/security/limits.conf" do
