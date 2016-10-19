@@ -18,6 +18,7 @@ if node['deployment'].has_key?('storage_pools')
 
         directory target['mount_directory'] do
           recursive true
+          mode 0755
         end
 
         endpoint = target['endpoint']
