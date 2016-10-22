@@ -18,12 +18,22 @@ if node['deployment'].has_key?('storage_pools')
 
         directory target['mount_directory'] do
           recursive true
+          mode 0755
+        end
+
+        endpoint = target['endpoint']
+        resolver = Resolv::DNS.new
+        begin
+          resolver.getaddress(endpoint)
+        rescue  Resolv::ResolvError
+          endpoint = target['ip_address']
         end
 
         mount target['mount_directory'] do
-          device "#{target['endpoint']}:/"
+          device "#{endpoint}:/"
           fstype "nfs4"
           action [:mount, :enable]
+          not_if "grep ' #{target['mount_directory']} ' /etc/mtab | egrep '^(#{target['endpoint']}|#{target['ip_address']}):'"
         end
 
         break
