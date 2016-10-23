@@ -18,10 +18,10 @@ case node.platform
     require 'chef/win32/version'
     version = Chef::ReservedNames::Win32::Version.new
 
-    if version.windows_server_2012? || version.windows_server_2012_r2?
+    if version.windows_server_2012? || version.windows_server_2012_r2? || version.windows_server_2016?
       can_join_domain = true
     else
-      Chef::Log.info "Requires Windows Server 2012 or 2012R2, current version is #{version})"
+      Chef::Log.info "Requires Windows Server 2012, 2012R2 or windows_server_2016"
     end
   when "centos", "redhat"
     if node.platform_version.to_i >= 6
