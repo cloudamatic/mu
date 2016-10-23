@@ -719,7 +719,7 @@ module MU
 
         if shortname == "Server"
           def windows?
-            %w{win2k12r2 win2k12 win2k8 win2k8r2 windows}.include?(@config['platform'])
+            %w{win2k16 win2k12r2 win2k12 win2k8 win2k8r2 windows}.include?(@config['platform'])
           end
 
           # Basic setup tasks performed on a new node during its first initial ssh

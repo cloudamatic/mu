@@ -200,7 +200,8 @@ module MU
                   "skipApplyUpdates" => @config['skipinitialupdates'],
                   "windowsAdminName" => @config['windows_admin_username'],
                   "resourceName" => @config["name"],
-                  "resourceType" => "server_pool"
+                  "resourceType" => "server_pool",
+                  "platform" => @config["platform"]
                 },
                 custom_append: @config['userdata_script']
               )

@@ -57,6 +57,11 @@ win2k12r2: &win2k12r2
   ap-southeast-1: ami-e217cf81
   ap-southeast-2: ami-36605655
   ap-south-1: ami-1c483d73
+win2k16: &win2k16
+  us-east-1: ami-30540427
+  us-east-2: ami-e03b6185
+  us-west-1: ami-d4e7afb4
+  us-west-2: ami-9f5efbff
 amazon: &amazon2016
   us-east-1: ami-f5f41398
   us-west-1: ami-6e84fa0e
@@ -69,6 +74,7 @@ amazon: &amazon2016
   ap-southeast-1: ami-1ddc0b7e
   ap-southeast-2: ami-0c95b86f
 win2k12: *win2k12r2
+win2k16: *win2k16
 windows: *win2k12r2
 ubuntu: *ubuntu14
 centos: *centos6
