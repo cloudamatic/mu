@@ -36,23 +36,26 @@
   }
   <% end %>
 
-  If ("$($myInvocation.MyCommand.Path)" -ne "$env:Temp/realuserdata_stripped.ps1"){
-    $Error.Clear()
-    Invoke-WebRequest -Uri "$aws_meta/user-data" -OutFile $env:Temp/realuserdata.ps1
-    while($Error.count -gt 0){
+  <% if $mu.platform != "win2k16" %>
+  If ([Environment]::OSVersion.Version.Major -lt 10) {
+    If ("$($myInvocation.MyCommand.Path)" -ne "$env:Temp/realuserdata_stripped.ps1"){
       $Error.Clear()
-      log "Failed to retrieve current userdata from $aws_meta/user-data, waiting 15s and retrying"
-      sleep 15
       Invoke-WebRequest -Uri "$aws_meta/user-data" -OutFile $env:Temp/realuserdata.ps1
-    }
-    Get-Content $env:Temp/realuserdata.ps1 | Select-String -pattern '^#','^<' -notmatch | Set-Content $env:Temp/realuserdata_stripped.ps1
-    If (Compare-Object (Get-Content $myInvocation.MyCommand.Path) (Get-Content $env:Temp/realuserdata_stripped.ps1)){
-      log "Invoking $env:Temp/realuserdata.ps1 in lieu of $($myInvocation.MyCommand.Path)"
-      Invoke-Expression $env:Temp/realuserdata_stripped.ps1
-      exit
+      while($Error.count -gt 0){
+        $Error.Clear()
+        log "Failed to retrieve current userdata from $aws_meta/user-data, waiting 15s and retrying"
+        sleep 15
+        Invoke-WebRequest -Uri "$aws_meta/user-data" -OutFile $env:Temp/realuserdata.ps1
+      }
+      Get-Content $env:Temp/realuserdata.ps1 | Select-String -pattern '^#','^<' -notmatch | Set-Content $env:Temp/realuserdata_stripped.ps1
+      If (Compare-Object (Get-Content $myInvocation.MyCommand.Path) (Get-Content $env:Temp/realuserdata_stripped.ps1)){
+        log "Invoking $env:Temp/realuserdata.ps1 in lieu of $($myInvocation.MyCommand.Path)"
+        Invoke-Expression $env:Temp/realuserdata_stripped.ps1
+        exit
+      }
     }
   }
-
+  <% end %>
   $admin_username = (Get-WmiObject -Query 'Select * from Win32_UserAccount Where (LocalAccount=True and SID like "%-500")').name
   log "Local admin account is $admin_username"
 
@@ -63,20 +66,17 @@
     New-Item -type directory -path $base_dir
   }
 
-  while(!$instanceid){
-    $instanceid=(New-Object System.Net.WebClient).DownloadString("$aws_meta/meta-data/instance-id")
-    if(!$instanceid){
-      log "Failed to extract my instance id from $aws_meta/meta-data/instance-id, waiting 15s and retrying"
-      sleep 15
+  <% if $mu.platform != "win2k16" %>
+  If ([Environment]::OSVersion.Version.Major -lt 10) {
+    # Ec2Config frequently fails to run us on reboot, too, so lets set up a scheduled task to make sure it happens.
+    If (!(Get-ScheduledTask -TaskName 'run-userdata')){
+      log "Adding run-userdata scheduled task (user NT AUTHORITY\SYSTEM)"
+      Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/run-userdata_scheduledtask.xml" -OutFile $env:Temp/run-userdata_scheduledtask.xml
+      Register-ScheduledTask -Xml (Get-Content "$env:Temp/run-userdata_scheduledtask.xml" | out-string) -TaskName 'run-userdata' -Force -User "NT AUTHORITY\SYSTEM"
     }
   }
- 
-  # Ec2Config frequently fails to run us on reboot, too, so lets set up a scheduled task to make sure it happens.
-  If (!(Get-ScheduledTask -TaskName 'run-userdata')){
-    log "Adding run-userdata scheduled task (user NT AUTHORITY\SYSTEM)"
-    Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/run-userdata_scheduledtask.xml" -OutFile $env:Temp/run-userdata_scheduledtask.xml
-    Register-ScheduledTask -Xml (Get-Content "$env:Temp/run-userdata_scheduledtask.xml" | out-string) -TaskName 'run-userdata' -Force -User "NT AUTHORITY\SYSTEM"
-  }
+  <% end %>
+  $instanceid=(New-Object System.Net.WebClient).DownloadString("http://169.254.169.254/latest/meta-data/instance-id")
 
   If (!(Test-Path $env:Temp/PSWindowsUpdate.zip)){
     If (!(Test-Path c:/Users/$admin_username/Documents/WindowsPowerShell/Modules)){
@@ -295,7 +295,7 @@
       log "Enabling sshd service"
       sleep 30; Start-Service sshd
       Set-Service sshd -startuptype "Automatic"
-      Get-WUInstall -AcceptAll -AutoReboot
+      #Get-WUInstall -AcceptAll -AutoReboot
 
       $url = 'https://<%= $mu.publicIP %>:2260'
       log "Calling home to $url"

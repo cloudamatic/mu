@@ -106,7 +106,8 @@ module MU
               "skipApplyUpdates" => @config['skipinitialupdates'],
               "windowsAdminName" => @config['windows_admin_username'],
               "resourceName" => @config["name"],
-              "resourceType" => "server"
+              "resourceType" => "server",
+              "platform" => @config["platform"]
             },
             custom_append: @config['userdata_script']
           )
@@ -157,7 +158,7 @@ module MU
               $mu = OpenStruct.new(template_variables)
               userdata_dir = File.expand_path(MU.myRoot+"/modules/mu/userdata")
               platform = "linux" if %w{centos centos6 centos7 ubuntu ubuntu14 rhel rhel7 rhel71 amazon}.include? platform
-              platform = "windows" if %w{win2k12r2 win2k12 win2k8 win2k8r2}.include? platform
+              platform = "windows" if %w{win2k12r2 win2k12 win2k8 win2k8r2 win2k16}.include? platform
               erbfile = "#{userdata_dir}/#{platform}.erb"
               if !File.exist?(erbfile)
                 MU.log "No such userdata template '#{erbfile}'", MU::WARN, details: caller

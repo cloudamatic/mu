@@ -15,52 +15,76 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-if !node[:application_attributes][:skip_recipes].include?('windows-client')
-  case node.platform
+if !node['application_attributes']['skip_recipes'].include?('windows-client')
+  case node['platform']
     when "windows"
       include_recipe 'chef-vault'
-  
-      %w{run-userdata_scheduledtask.xml run_chefclient_scheduledtask.xml}.each { |file|
-        remote_file "#{Chef::Config[:file_cache_path]}/#{file}" do
-          source "https://s3.amazonaws.com/cap-public/#{file}"
-        end
-      }
-  
-      windows_vault = chef_vault_item(node.windows_auth_vault, node.windows_auth_item)
-      ec2config_user= windows_vault[node.windows_ec2config_username_field]
-      ec2config_password = windows_vault[node.windows_ec2config_password_field]
-      sshd_user = windows_vault[node.windows_sshd_username_field]
-      sshd_password = windows_vault[node.windows_sshd_password_field]
-  
+
+      windows_vault = chef_vault_item(node['windows_auth_vault'], node['windows_auth_item'])
+      ec2config_user= windows_vault[node['windows_ec2config_username_field']]
+      ec2config_password = windows_vault[node['windows_ec2config_password_field']]
+      sshd_user = windows_vault[node['windows_sshd_username_field']]
+      sshd_password = windows_vault[node['windows_sshd_password_field']]
+
       if in_domain?
-        ad_vault = chef_vault_item(node.ad.domain_admin_vault, node.ad.domain_admin_item)
-  
-        mu_tools_windows_client node.ad.computer_name do
-          user_name "#{node.ad.netbios_name}\\#{ad_vault[node.ad.domain_admin_username_field]}"
-          password ad_vault[node.ad.domain_admin_password_field]
-          domain_admin_user ad_vault[node.ad.domain_admin_username_field]
-          domain_name node.ad.domain_name
-          netbios_name node.ad.netbios_name
+        ad_vault = chef_vault_item(node['ad']['domain_admin_vault'], node['ad']['domain_admin_item'])
+
+        windows_users node['ad']['computer_name'] do
+          username ad_vault[node['ad']['domain_admin_username_field']]
+          password ad_vault[node['ad']['domain_admin_password_field']]
+          domain_name node['ad']['domain_name']
+          netbios_name node['ad']['netbios_name']
+          dc_ips node['ad']['dc_ips']
           ssh_user sshd_user
           ssh_password sshd_password
-          ssh_service_user "#{node.ad.netbios_name}\\#{sshd_user}"
           ec2config_user ec2config_user
           ec2config_password ec2config_password
-          ec2config_service_user "#{node.ad.netbios_name}\\#{ec2config_user}"
+        end
+
+        aws_windows "ec2" do
+          username ec2config_user
+          service_username "#{node['ad']['netbios_name']}\\#{ec2config_user}"
+          password ec2config_password
+        end
+
+        scheduled_tasks "tasks" do
+          username ad_vault[node['ad']['domain_admin_username_field']]
+          password ad_vault[node['ad']['domain_admin_password_field']]
+        end
+
+        sshd_service "sshd" do
+          service_username "#{node['ad']['netbios_name']}\\#{sshd_user}"
+          username sshd_user
+          password sshd_password
         end
       else
-        mu_tools_windows_client node.hostname do
-          user_name node.windows_admin_username
-          password windows_vault[node.windows_auth_password_field]
+        windows_users node['hostname'] do
+          username node['windows_admin_username']
+          password windows_vault[node['windows_auth_password_field']]
           ssh_user sshd_user
           ssh_password sshd_password
-          ssh_service_user ".\\#{sshd_user}"
           ec2config_user ec2config_user
           ec2config_password ec2config_password
-          ec2config_service_user ".\\#{ec2config_user}"
+        end
+
+        aws_windows "ec2" do
+          username ec2config_user
+          service_username ".\\#{ec2config_user}"
+          password ec2config_password
+        end
+
+        scheduled_tasks "tasks" do
+          username node['windows_admin_username']
+          password windows_vault[node['windows_auth_password_field']]
+        end
+
+        sshd_service "sshd" do
+          username sshd_user
+          service_username ".\\#{sshd_user}"
+          password sshd_password
         end
       end rescue NoMethodError
     else
-      Chef::Log.info("Unsupported platform #{node.platform}")
+      Chef::Log.info("Unsupported platform #{node['platform']}")
   end
 end
