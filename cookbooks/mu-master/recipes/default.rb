@@ -76,7 +76,7 @@ if !node.update_nagios_only
         command "/usr/sbin/semodule -i syslogd_oddjobd.pp"
         cwd Chef::Config[:file_cache_path]
         not_if "/usr/sbin/semodule -l | grep syslogd_oddjobd"
-        notifies :reload, "service[oddjobd]", :delayed
+        notifies :restart, "service[oddjobd]", :delayed
       end
 
       service "oddjobd" do
