@@ -163,12 +163,12 @@
     Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "chown $sshd_svc_user /var/empty /var/log/sshd.log /etc/ssh*; chmod 755 /var/empty"'
 
     If (!((Get-ItemProperty HKLM:/SYSTEM/CurrentControlSet/Control/Lsa)."Authentication Packages" | Select-String -pattern "cyglsa64.dll")){
-      If ((Test-Path "$cygwin_dir/usr/bin/cyglsa-config")){
+      If ((Test-Path "$cygwin_dir/bin/cyglsa-config")){
         log "Setting Cygwin LSA support, will reboot"
-        Invoke-Expression '& $cygwin_dir/bin/bash --login -c "echo yes | /usr/bin/cyglsa-config"'
+        Invoke-Expression '& $cygwin_dir/bin/bash --login -c "echo yes | /bin/cyglsa-config"'
         $need_reboot = $TRUE
       } else {
-        log "Need to set Cygwin LSA support, but I don't see $cygwin_dir/usr/bin/cyglsa-config!"
+        log "Need to set Cygwin LSA support, but I don't see $cygwin_dir/bin/cyglsa-config!"
       }
     }
 
