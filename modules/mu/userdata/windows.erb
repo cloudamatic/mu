@@ -7,6 +7,7 @@
   $cygwin_dir = "$base_dir/cygwin"
   $username = (whoami).Split('\')[1]
   $WebClient = New-Object System.Net.WebClient
+  $aws_meta = "http://169.254.169.254/latest"
 
   function log
   {
@@ -36,7 +37,14 @@
   <% end %>
 
   If ("$($myInvocation.MyCommand.Path)" -ne "$env:Temp/realuserdata_stripped.ps1"){
-    Invoke-WebRequest -Uri "http://169.254.169.254/latest/user-data" -OutFile $env:Temp/realuserdata.ps1
+    $Error.Clear()
+    Invoke-WebRequest -Uri "$aws_meta/user-data" -OutFile $env:Temp/realuserdata.ps1
+    while($Error.count -gt 0){
+      $Error.Clear()
+      log "Failed to retrieve current userdata from $aws_meta/user-data, waiting 15s and retrying"
+      sleep 15
+      Invoke-WebRequest -Uri "$aws_meta/user-data" -OutFile $env:Temp/realuserdata.ps1
+    }
     Get-Content $env:Temp/realuserdata.ps1 | Select-String -pattern '^#','^<' -notmatch | Set-Content $env:Temp/realuserdata_stripped.ps1
     If (Compare-Object (Get-Content $myInvocation.MyCommand.Path) (Get-Content $env:Temp/realuserdata_stripped.ps1)){
       log "Invoking $env:Temp/realuserdata.ps1 in lieu of $($myInvocation.MyCommand.Path)"
@@ -55,12 +63,14 @@
     New-Item -type directory -path $base_dir
   }
 
-  # Make sure we're actually the right code, because Ec2Config gets this wrong sometimes.
-  Invoke-WebRequest -Uri "http://169.254.169.254/latest/user-data" -OutFile $env:Temp/realuserdata.ps1
-  Compare-Object (Get-Content "c:/Program Files/Amazon/Ec2ConfigService/Scripts/UserScript.ps1") (Get-Content $env:Temp/realuserdata.ps1)
-
-  $instanceid=(New-Object System.Net.WebClient).DownloadString("http://169.254.169.254/latest/meta-data/instance-id")
-    
+  while(!$instanceid){
+    $instanceid=(New-Object System.Net.WebClient).DownloadString("$aws_meta/meta-data/instance-id")
+    if(!$instanceid){
+      log "Failed to extract my instance id from $aws_meta/meta-data/instance-id, waiting 15s and retrying"
+      sleep 15
+    }
+  }
+ 
   # Ec2Config frequently fails to run us on reboot, too, so lets set up a scheduled task to make sure it happens.
   If (!(Get-ScheduledTask -TaskName 'run-userdata')){
     log "Adding run-userdata scheduled task (user NT AUTHORITY\SYSTEM)"
@@ -96,7 +106,7 @@
 
       If (!(Test-Path $env:Temp/cygwin.zip)){
         log "Downloading Cygwin packages"
-        $WebClient.DownloadFile("https://s3.amazonaws.com/cap-public/cygwin_20162010.zip","$env:Temp/cygwin.zip")
+        $WebClient.DownloadFile("https://s3.amazonaws.com/cap-public/cygwin_20161020.zip","$env:Temp/cygwin.zip")
       }
 
       Add-Type -A 'System.IO.Compression.FileSystem'
@@ -153,8 +163,13 @@
     Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "chown $sshd_svc_user /var/empty /var/log/sshd.log /etc/ssh*; chmod 755 /var/empty"'
 
     If (!((Get-ItemProperty HKLM:/SYSTEM/CurrentControlSet/Control/Lsa)."Authentication Packages" | Select-String -pattern "cyglsa64.dll")){
-      Invoke-Expression '& $cygwin_dir/bin/bash --login -c "echo yes | /usr/bin/cyglsa-config"'
-      $need_reboot = $TRUE
+      If ((Test-Path "$cygwin_dir/usr/bin/cyglsa-config")){
+        log "Setting Cygwin LSA support, will reboot"
+        Invoke-Expression '& $cygwin_dir/bin/bash --login -c "echo yes | /usr/bin/cyglsa-config"'
+        $need_reboot = $TRUE
+      } else {
+        log "Need to set Cygwin LSA support, but I don't see $cygwin_dir/usr/bin/cyglsa-config!"
+      }
     }
 
     $python_path = 'c:\bin\python\python27'
