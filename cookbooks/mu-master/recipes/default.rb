@@ -48,7 +48,7 @@ if !node.update_nagios_only
 
   include_recipe 'chef-vault'
   if $MU_CFG.has_key?('ldap')
-    if $MU_CFG['ldap']['type'] == "389 Directory Services" and Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG['hostname']}")
+    if $MU_CFG['ldap']['type'] == "389 Directory Services" and Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG['host_name']}")
       package "sssd"
       package "sssd-ldap"
       package "nss-pam-ldapd" do
@@ -76,7 +76,7 @@ if !node.update_nagios_only
         command "/usr/sbin/semodule -i syslogd_oddjobd.pp"
         cwd Chef::Config[:file_cache_path]
         not_if "/usr/sbin/semodule -l | grep syslogd_oddjobd"
-        notifies :reload, "service[oddjobd]", :delayed
+        notifies :restart, "service[oddjobd]", :delayed
       end
 
       service "oddjobd" do

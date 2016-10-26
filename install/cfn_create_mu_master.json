@@ -813,7 +813,7 @@
                         "Ref": "MasterEIP"
                       },
                       "\"\n",
-                      "export HOSTNAME=\"",
+                      "export HOST_NAME=\"",
                       {
                         "Ref": "HostName"
                       },

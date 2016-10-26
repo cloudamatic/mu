@@ -984,6 +984,14 @@ module MU
         def self.haveRouteToInstance?(target_instance, region: MU.curRegion)
           return false if target_instance.nil?
           instance_id = target_instance.instance_id
+
+          target_vpc_id = target_instance.vpc_id
+          my_vpc_id = MU.myCloudDescriptor.vpc_id
+          if (target_vpc_id && !target_vpc_id.empty?) && (my_vpc_id && !my_vpc_id.empty?)
+            # If the master and the node are in the same vpc then more likely than not there is a route...
+            return true if target_vpc_id == my_vpc_id
+          end
+
           return @route_cache[instance_id] if @route_cache.has_key?(instance_id)
           my_subnets = MU::Cloud::AWS::VPC.getInstanceSubnets(instance: MU.myCloudDescriptor)
           target_subnets = MU::Cloud::AWS::VPC.getInstanceSubnets(instance: target_instance)
