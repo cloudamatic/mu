@@ -48,7 +48,7 @@ if !node.update_nagios_only
 
   include_recipe 'chef-vault'
   if $MU_CFG.has_key?('ldap')
-    if $MU_CFG['ldap']['type'] == "389 Directory Services" and Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG['hostname']}")
+    if $MU_CFG['ldap']['type'] == "389 Directory Services" and Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG['host_name']}")
       package "sssd"
       package "sssd-ldap"
       package "nss-pam-ldapd" do
