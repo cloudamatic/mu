@@ -4,8 +4,17 @@
 # setting up the Mu tools, Chef, and assorted support libraries and utilities.
 #
 
+# clean containing environment of nonsense
+unset GEM_HOME
+unset GEM_PATH
+
 DIST_VERSION=`rpm -qa \*-release\* | grep -Ei "redhat|centos" | cut -d"-" -f3`
-if [ "$DIST_VERSION" == "server" ];then # funny package name in RHEL6
+IS_AMAZON=0
+if [ "$DIST_VERSION" == "" ];then # funny package name in Amazon Linux
+#  DIST_VERSION=`rpm -qa \*-release\* | cut -d"-" -f3` # XXX always 6 for now
+  DIST_VERSION=6
+  IS_AMAZON=1
+elif [ "$DIST_VERSION" == "server" ];then # funny package name in RHEL6
   DIST_VERSION="6"
 fi
 EPEL_RPM="http://mirror.metrocast.net/fedora/epel/epel-release-latest-$DIST_VERSION.noarch.rpm"
@@ -26,6 +35,11 @@ if [ $DIST_VERSION == 7 ];then
   GECODE_RPMS="https://s3.amazonaws.com/cap-public/gecode-3.7.3-2.el7.centos.x86_64.rpm https://s3.amazonaws.com/cap-public/gecode-devel-3.7.3-2.el7.centos.x86_64.rpm"
 else
   PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.8.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel diffutils patch bind-utils httpd-tools gecode-devel mailx mysql-devel postgresql-devel openssl libyaml graphviz autoconf ImageMagick-devel graphviz-devel jq"
+  if [ "$IS_AMAZON" != "1" ];then
+    PACKAGES="${PACKAGES} gecode-devel"
+#  else
+#    PACKAGES="${PACKAGES} "
+  fi
   OPSCODE_CHEF_PKG="chef-server-core-$CHEF_SERVER_VERSION.el6.x86_64"
   OPSCODE_CHEF_DL="https://packages.chef.io/stable/el/6/${OPSCODE_CHEF_PKG}.rpm"
   CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el6.x86_64"
@@ -1049,8 +1063,11 @@ install_ruby()
   status_message "Installing ${BOLD}$RUBY_VERSION${NORM}"
 
   if ! rpm -q $RUBY_VERSION > /dev/null ;then
-    rpm -ivh $RUBY_RPM
-  fi
+    if [ "$IS_AMAZON" != "1" ];then
+      rpm -ivh $RUBY_RPM
+    else
+      rpm -ivh --nodeps $RUBY_RPM # XXX hack workaround for spurious dependency
+    fi
   rm -f /usr/local/ruby-current
   ln -s $RUBY_INSTALL_DIR /usr/local/ruby-current
 
