@@ -59,7 +59,7 @@ Deleting users:
 end
 
 def mailUser(to, subject, message)
-  from = "root@#{$MU_CFG['hostname']}"
+  from = "root@#{$MU_CFG['host_name']}"
   fullmsg = <<MESSAGE_END
 From: Mu <#{from}>
 To: #{to}

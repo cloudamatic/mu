@@ -92,9 +92,9 @@ if $MU_CFG["ldap"]["type"] == "389 Directory Services"
   }
   # Install and bootstrap the LDAP server
   %x{/usr/bin/yum -y install 389-ds 389-ds-console}
-  if !Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}")
+  if !Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG["host_name"]}")
     vars = {
-      "hostname" => $MU_CFG["hostname"],
+      "hostname" => $MU_CFG["host_name"],
       "domain" => $MU_CFG["ldap"]["domain_name"],
       "domain_dn" => $MU_CFG["ldap"]["domain_name"].split(/\./).map{ |x| "DC=#{x}" }.join(","),
       "creds" => $CREDS
@@ -119,7 +119,7 @@ if $MU_CFG["ldap"]["type"] == "389 Directory Services"
   # Ram TLS into the LDAP server's snout
 
   # Why is this utility interactive-only? So much hate.
-  puts certimportcmd = "echo "" > /root/blank && /usr/bin/pk12util -i /opt/mu/var/ssl/ldap.p12 -d /etc/dirsrv/slapd-#{$MU_CFG["hostname"]} -w /root/blank -W \"\""
+  puts certimportcmd = "echo "" > /root/blank && /usr/bin/pk12util -i /opt/mu/var/ssl/ldap.p12 -d /etc/dirsrv/slapd-#{$MU_CFG["host_name"]} -w /root/blank -W \"\""
   require 'pty'
   require 'expect'
   PTY.spawn(certimportcmd) { |r, w, pid|
@@ -135,7 +135,7 @@ if $MU_CFG["ldap"]["type"] == "389 Directory Services"
     end
   }
 
-  puts caimportcmd = "/usr/bin/certutil -d /etc/dirsrv/slapd-#{$MU_CFG["hostname"]} -A -n \"Mu Master CA\" -t CT,, -a -i /opt/mu/var/ssl/Mu_CA.pem"
+  puts caimportcmd = "/usr/bin/certutil -d /etc/dirsrv/slapd-#{$MU_CFG["host_name"]} -A -n \"Mu Master CA\" -t CT,, -a -i /opt/mu/var/ssl/Mu_CA.pem"
   puts %x{#{caimportcmd}}
 
   ["ssl_enable.ldif", "addRSA.ldif"].each { |ldif|

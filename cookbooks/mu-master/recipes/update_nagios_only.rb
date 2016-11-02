@@ -153,6 +153,13 @@ file "/etc/sysconfig/nrpe" do
   content "NRPE_SSL_OPT=\"\"\n"
 end
 
+#Sometimes doesn’t exist on the first run
+directory "/opt/mu/var/nagios_user_home" do
+  owner "nagios"
+	group "nagios"
+	mode 0700
+end
+
 directory "/opt/mu/var/nagios_user_home/.ssh" do
   owner "nagios"
 	group "nagios"

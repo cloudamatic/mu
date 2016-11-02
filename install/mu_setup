@@ -70,11 +70,11 @@ export PATH="/bin:/usr/bin:/sbin:/usr/sbin"
 
 # Non-root users can only customize certain configuration parameters
 if [ "root" == "`whoami`" ];then
-  CONFIG_VARS="AWS_ACCESS AWS_SECRET MU_ADMIN_EMAIL MU_ADMIN_PW JENKINS_ADMIN_PW MU_INSTALLDIR MU_DATADIR ADDTL_CHEF_REPOS MU_REPO CHEF_PUBLIC_IP HOSTNAME EC2SECGROUP LOG_BUCKET_NAME ALLOW_INVADE_FOREIGN_VPCS MU_SSL_CERT MU_SSL_KEY MU_SSL_CHAIN"
+  CONFIG_VARS="AWS_ACCESS AWS_SECRET MU_ADMIN_EMAIL MU_ADMIN_PW JENKINS_ADMIN_PW MU_INSTALLDIR MU_DATADIR ADDTL_CHEF_REPOS MU_REPO CHEF_PUBLIC_IP HOST_NAME EC2SECGROUP LOG_BUCKET_NAME ALLOW_INVADE_FOREIGN_VPCS MU_SSL_CERT MU_SSL_KEY MU_SSL_CHAIN"
   RO_CONFIG_VARS="AWS_ACCOUNT_NUMBER EC2_REGION"
 else
   CONFIG_VARS="AWS_ACCESS AWS_SECRET MU_DATADIR ADDTL_CHEF_REPOS MU_REPO LOG_BUCKET_NAME"
-  RO_CONFIG_VARS="AWS_ACCOUNT_NUMBER EC2_REGION CHEF_PUBLIC_IP HOSTNAME EC2SECGROUP MU_INSTALLDIR"
+  RO_CONFIG_VARS="AWS_ACCOUNT_NUMBER EC2_REGION CHEF_PUBLIC_IP HOST_NAME EC2SECGROUP MU_INSTALLDIR"
 fi
 
 usage()
@@ -216,11 +216,11 @@ fi
 if [ "$MY_PUBLIC_IP" == "" ];then
   MY_PUBLIC_IP=$MY_PRIVATE_IP
 fi
-if [ "$HOSTNAME" == "" ];then
-  HOSTNAME="`hostname -s`"
+if [ "$HOST_NAME" == "" ];then
+  HOST_NAME="`hostname -s`"
 fi
 if [ "$LOG_BUCKET_NAME" == "" ];then
-  LOG_BUCKET_NAME="mu-logs-${HOSTNAME}-${MY_INSTANCE_ID}"
+  LOG_BUCKET_NAME="mu-logs-${HOST_NAME}-${MY_INSTANCE_ID}"
 fi
 MY_VPC_ID=""
 # Figure out if we have at least one interface in a VPC
@@ -689,14 +689,14 @@ chef_client()
   /bin/cp -f /opt/mu/var/ssl/Mu_CA.pem /etc/chef/trusted_certs/
   if (knife ssl check -c /etc/chef/client.rb | egrep "^ERROR.*certificate");then
     /bin/rm -f /etc/chef/trusted_certs/${chef_cert_name}.crt
-    /bin/rm -f /etc/chef/trusted_certs/${HOSTNAME}_platform-mu.crt
+    /bin/rm -f /etc/chef/trusted_certs/${HOST_NAME}_platform-mu.crt
     /opt/chef/bin/knife ssl fetch -c /etc/chef/client.rb
   fi
   # Same, but for /root/.chef/trusted_certs
   /bin/cp -f /opt/mu/var/ssl/Mu_CA.pem /root/.chef/trusted_certs/
   if (knife ssl check | egrep "^ERROR.*certificate");then
     /bin/rm -f /root/.chef/trusted_certs/${chef_cert_name}.crt
-    /bin/rm -f /root/.chef/trusted_certs/${HOSTNAME}_platform-mu.crt
+    /bin/rm -f /root/.chef/trusted_certs/${HOST_NAME}_platform-mu.crt
     /opt/chef/bin/knife ssl fetch
   fi
   chef-client $@
@@ -948,35 +948,35 @@ clone_repository()
 ###############################################################################
 set_hostname()
 {
-  if [ "$HOSTNAME" != "`hostname -s`" ];then
-    hostname $HOSTNAME
-    sed -i "s/^HOSTNAME=.*/HOSTNAME=$HOSTNAME/" /etc/sysconfig/network
+  if [ "$HOST_NAME" != "`hostname -s`" ];then
+    hostname $HOST_NAME
+    sed -i "s/^HOST_NAME=.*/HOST_NAME=$HOST_NAME/" /etc/sysconfig/network
 
     if [ $DIST_VERSION == 7 ];then
-      hostnamectl set-hostname $HOSTNAME && systemctl restart systemd-hostnamed
+      hostnamectl set-hostname $HOST_NAME && systemctl restart systemd-hostnamed
     fi
   fi
-  if ! grep "^$MY_PRIVATE_IP $HOSTNAME.platform-mu $HOSTNAME MU-MASTER" /etc/hosts > /dev/null;then
-    sed -i "/ $HOSTNAME/d" /etc/hosts
+  if ! grep "^$MY_PRIVATE_IP $HOST_NAME.platform-mu $HOST_NAME MU-MASTER" /etc/hosts > /dev/null;then
+    sed -i "/ $HOST_NAME/d" /etc/hosts
     sed -i "/^$MY_PRIVATE_IP/d" /etc/hosts
-    echo "$MY_PRIVATE_IP $HOSTNAME.platform-mu $HOSTNAME MU-MASTER" >> /etc/hosts
+    echo "$MY_PRIVATE_IP $HOST_NAME.platform-mu $HOST_NAME MU-MASTER" >> /etc/hosts
   fi
   if [ "$MY_PRIVATE_IP" != "$MY_PUBLIC_IP" -a "$MY_PUBLIC_IP" != "" ];then
-    if ! grep "^$MY_PUBLIC_IP $HOSTNAME.platform-mu $HOSTNAME MU-MASTER" /etc/hosts > /dev/null;then
-      sed -i "/ $HOSTNAME/d" /etc/hosts
+    if ! grep "^$MY_PUBLIC_IP $HOST_NAME.platform-mu $HOST_NAME MU-MASTER" /etc/hosts > /dev/null;then
+      sed -i "/ $HOST_NAME/d" /etc/hosts
       sed -i "/^$MY_PUBLIC_IP/d" /etc/hosts
-      echo "$MY_PRIVATE_IP $HOSTNAME.platform-mu $HOSTNAME MU-MASTER" >> /etc/hosts
-      echo "$MY_PUBLIC_IP $HOSTNAME.platform-mu $HOSTNAME MU-MASTER" >> /etc/hosts
+      echo "$MY_PRIVATE_IP $HOST_NAME.platform-mu $HOST_NAME MU-MASTER" >> /etc/hosts
+      echo "$MY_PUBLIC_IP $HOST_NAME.platform-mu $HOST_NAME MU-MASTER" >> /etc/hosts
     fi
   fi
-  export HOSTNAME
+  export HOST_NAME
 }
 
 ###############################################################################
 set_logbucket()
 {
 if [ "$LOG_BUCKET_NAME" == "" ];then
-  LOG_BUCKET_NAME="mu-logs-${HOSTNAME}-${MY_INSTANCE_ID}"
+  LOG_BUCKET_NAME="mu-logs-${HOST_NAME}-${MY_INSTANCE_ID}"
 fi
 export LOG_BUCKET_NAME
 update_murc LOG_BUCKET_NAME $LOG_BUCKET_NAME
@@ -1361,9 +1361,9 @@ EOF
 
   # XXX workaround for vile chef bug, see:
   # https://github.com/chef/chef-server/issues/50
-#  if ! grep "s3_url, \"https:\/\/${HOSTNAME}.platform-mu:7443\"" /var/opt/opscode/opscode-erchef/sys.config > /dev/null;then
+#  if ! grep "s3_url, \"https:\/\/${HOST_NAME}.platform-mu:7443\"" /var/opt/opscode/opscode-erchef/sys.config > /dev/null;then
 #    status_message "Switching ${BOLD}Chef Server${NORM} to port ${BOLD}7443${NORM}"
-#    /bin/sed -i "s/s3_url, \"https:\/\/${HOSTNAME}.platform-mu\"/s3_url, \"https:\/\/${HOSTNAME}.platform-mu:7443\"/" /var/opt/opscode/opscode-erchef/sys.config
+#    /bin/sed -i "s/s3_url, \"https:\/\/${HOST_NAME}.platform-mu\"/s3_url, \"https:\/\/${HOST_NAME}.platform-mu:7443\"/" /var/opt/opscode/opscode-erchef/sys.config
 #    chef_server_ctl restart
 #  fi
 
