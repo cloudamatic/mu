@@ -331,6 +331,9 @@ set_path_env_vars()
 }
 
 pivotal_cfg_setup(){
+  if [ ! -f /etc/opscode/pivotal.pem ];then
+    cp -a /opt/opscode/embedded/service/omnibus-ctl/spec/fixtures/pivotal.pem /etc/opscode/pivotal.pem
+  fi
   pivotal_cfg="-u pivotal -k /etc/opscode/pivotal.pem"
   knife ssl fetch $pivotal_cfg > /dev/null 2>&1
   eval "$1=\"$pivotal_cfg\""
@@ -1262,10 +1265,16 @@ install_chef()
     rpm -ivh $OPSCODE_CHEF_DL
     find /opt/opscode/embedded/lib/ruby -type f -exec chmod o+r {} \;
     find /opt/opscode/embedded/lib/ruby -type d -exec chmod o+rx {} \;
+    if [ ! -f /etc/opscode/pivotal.pem ];then
+      cp -a /opt/opscode/embedded/service/omnibus-ctl/spec/fixtures/pivotal.pem /etc/opscode/pivotal.pem
+    fi
     /opt/opscode/bin/chef-server-ctl reconfigure
     chef_self_test=1
   elif [ ! -f "/var/opt/opscode/nginx/ca/${CHEF_PUBLIC_IP}.crt" ];then
     status_message "Hostname or IP may have changed, reconfiguring Chef (listen port: ${port})"
+    if [ ! -f /etc/opscode/pivotal.pem ];then
+      cp -a /opt/opscode/embedded/service/omnibus-ctl/spec/fixtures/pivotal.pem /etc/opscode/pivotal.pem
+    fi
     /opt/opscode/bin/chef-server-ctl restart
     /opt/opscode/bin/chef-server-ctl reconfigure
     knife ssl fetch -u pivotal -k /etc/opscode/pivotal.pem -s https://${CHEF_PUBLIC_IP}:$port > /dev/null 2>&1
