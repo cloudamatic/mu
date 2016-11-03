@@ -1194,7 +1194,8 @@ add_chef_support_gems()
 
   status_message "Installing support gems in $rubydir"
 
-	cd $MU_LIBDIR/modules && $rubydir/bin/bundle install
+  cd $MU_LIBDIR/modules && $rubydir/bin/bundle install
+  $rubydir/bin/gem update --system
   set +e
 
   find $rubydir/ -type f -exec chmod go+r {} \;
