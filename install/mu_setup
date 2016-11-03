@@ -20,7 +20,7 @@ fi
 EPEL_RPM="http://mirror.metrocast.net/fedora/epel/epel-release-latest-$DIST_VERSION.noarch.rpm"
 
 CHEF_CLIENT_VERSION="12.13.37-1"
-CHEF_SERVER_VERSION="12.7.0-1"
+CHEF_SERVER_VERSION="12.10.0-1"
 
 if [ $DIST_VERSION == 7 ];then
   # mariadb replaces mysql, qt and qt-x11 are required by gecode which is required by the dep_selector gem. 
@@ -331,10 +331,25 @@ set_path_env_vars()
 }
 
 pivotal_cfg_setup(){
-  if [ ! -f /etc/opscode/pivotal.pem ];then
-    cp -a /opt/opscode/embedded/service/omnibus-ctl/spec/fixtures/pivotal.pem /etc/opscode/pivotal.pem
+  port=$2
+  if [ "$port" == "" ];then
+    port=7443
   fi
-  pivotal_cfg="-u pivotal -k /etc/opscode/pivotal.pem"
+  cat >> /etc/opscode/pivotal.rb.tmp.$$ << EOF
+node_name "pivotal"
+chef_server_url "https://${CHEF_PUBLIC_IP}:$port"
+chef_server_root "https://${CHEF_PUBLIC_IP}:$port"
+client_key "/etc/opscode/pivotal.pem"
+ssl_verify_mode :verify_none
+EOF
+  if [ ! -f /etc/opscode/pivotal.rb -o "`diff /etc/opscode/pivotal.rb /etc/opscode/pivotal.rb.tmp.$$`" != "" ];then
+    /bin/mv -f /etc/opscode/pivotal.rb.tmp.$$ /etc/opscode/pivotal.rb
+  fi
+  pivotal_pem="/opt/opscode/embedded/service/omnibus-ctl/spec/fixtures/pivotal.pem"
+  if [ -f /etc/opscode/pivotal.pem ];then
+    pivotal_pem="/etc/opscode/pivotal.pem"
+  fi
+  pivotal_cfg="-u pivotal -k $pivotal_pem"
   knife ssl fetch $pivotal_cfg > /dev/null 2>&1
   eval "$1=\"$pivotal_cfg\""
 }
@@ -710,6 +725,7 @@ chef_client()
 chef_server_ctl()
 {
   cmd=$1
+  pivotal_cfg_setup pivotal_cfg
   status_message "/opt/opscode/bin/chef-server-ctl $cmd"
   if ! /opt/opscode/bin/chef-server-ctl $cmd > /dev/null;then
     status_message "Bad exit code from chef-server-ctl $cmd! Logs:"
@@ -1265,16 +1281,12 @@ install_chef()
     rpm -ivh $OPSCODE_CHEF_DL
     find /opt/opscode/embedded/lib/ruby -type f -exec chmod o+r {} \;
     find /opt/opscode/embedded/lib/ruby -type d -exec chmod o+rx {} \;
-    if [ ! -f /etc/opscode/pivotal.pem ];then
-      cp -a /opt/opscode/embedded/service/omnibus-ctl/spec/fixtures/pivotal.pem /etc/opscode/pivotal.pem
-    fi
+    pivotal_cfg_setup pivotal_cfg $port
     /opt/opscode/bin/chef-server-ctl reconfigure
     chef_self_test=1
   elif [ ! -f "/var/opt/opscode/nginx/ca/${CHEF_PUBLIC_IP}.crt" ];then
     status_message "Hostname or IP may have changed, reconfiguring Chef (listen port: ${port})"
-    if [ ! -f /etc/opscode/pivotal.pem ];then
-      cp -a /opt/opscode/embedded/service/omnibus-ctl/spec/fixtures/pivotal.pem /etc/opscode/pivotal.pem
-    fi
+    pivotal_cfg_setup pivotal_cfg $port
     /opt/opscode/bin/chef-server-ctl restart
     /opt/opscode/bin/chef-server-ctl reconfigure
     knife ssl fetch -u pivotal -k /etc/opscode/pivotal.pem -s https://${CHEF_PUBLIC_IP}:$port > /dev/null 2>&1
@@ -1284,18 +1296,7 @@ install_chef()
     chef_self_test=1
   fi
 # add_chef_support_gems /opt/opscode/embedded
-  cat >> /etc/opscode/pivotal.rb.tmp.$$ << EOF
-node_name "pivotal"
-chef_server_url "https://${CHEF_PUBLIC_IP}:$port"
-chef_server_root "https://${CHEF_PUBLIC_IP}:$port"
-client_key "/etc/opscode/pivotal.pem"
-ssl_verify_mode :verify_none
-EOF
-  if [ ! -f /etc/opscode/pivotal.rb -o "`diff /etc/opscode/pivotal.rb /etc/opscode/pivotal.rb.tmp.$$`" != "" ];then
-    /bin/mv -f /etc/opscode/pivotal.rb.tmp.$$ /etc/opscode/pivotal.rb
-  fi
-
-  pivotal_cfg="-u pivotal -k /etc/opscode/pivotal.pem -s https://${CHEF_PUBLIC_IP}:$port"
+  pivotal_cfg_setup pivotal_cfg $port
 
   knife ssl fetch $pivotal_cfg > /dev/null 2>&1
 
@@ -1381,16 +1382,9 @@ EOF
   /opt/chef/bin/knife ssl fetch -s https://$CHEF_PUBLIC_IP:7443 > /dev/null 2>&1
   /opt/chef/bin/knife ssl fetch -s https://localhost:7443 > /dev/null 2>&1
   /opt/chef/bin/knife ssl fetch -s https://127.0.0.1:7443 > /dev/null 2>&1
-  cat >> /etc/opscode/pivotal.rb.tmp.$$ << EOF
-node_name "pivotal"
-chef_server_url "https://${CHEF_PUBLIC_IP}:7443"
-chef_server_root "https://${CHEF_PUBLIC_IP}:7443"
-client_key "/etc/opscode/pivotal.pem"
-# ssl_verify_mode :verify_none
-EOF
-  if [ ! -f /etc/opscode/pivotal.rb -o "`diff /etc/opscode/pivotal.rb /etc/opscode/pivotal.rb.tmp.$$`" != "" ];then
-    /bin/mv -f /etc/opscode/pivotal.rb.tmp.$$ /etc/opscode/pivotal.rb
-  fi
+
+  pivotal_cfg_setup pivotal_cfg 7443
+
   cat >> /etc/chef/client.rb.tmp.$$ << EOF
 log_location     STDOUT
 chef_server_url  "https://${CHEF_PUBLIC_IP}:7443/organizations/mu"
@@ -1517,14 +1511,22 @@ start_momma_cat()
 setup_localhost_chef_client()
 {
   punch_tcp_hole 7443 # sometimes this isn't ready
+  allowuser="`grep ^AllowUsers /etc/ssh/sshd_config | awk '{print $2}'`"
+  if [ "$allowuser" == "" ];then
+    allowuser="root"
+  fi
   if [ ! -f $HOMEDIR/.ssh/id_rsa.pub ];then
     ssh-keygen -N '' -f $HOMEDIR/.ssh/id_rsa
     chmod 600 $HOMEDIR/.ssh/id_rsa
   fi
+  # On CentOS 7 and the like, this is some non-root user
+  ssh_homedir="`getent passwd \"$allowuser\" |cut -d: -f6`"
+  mkdir -p "$ssh_homedir/.ssh/"
   pubkey="`cat $HOMEDIR/.ssh/id_rsa.pub`"
-  if [ "`grep \"$pubkey\" $HOMEDIR/.ssh/authorized_keys`" == "" ];then
-    echo "$pubkey" >> $HOMEDIR/.ssh/authorized_keys
+  if [ "`grep \"$pubkey\" $ssh_homedir/.ssh/authorized_keys`" == "" ];then
+    echo "$pubkey" >> $ssh_homedir/.ssh/authorized_keys
   fi
+  chown -R "$allowuser" "$ssh_homedir/.ssh/"
   if [ "`grep '^Host localhost' $HOMEDIR/.ssh/config`" == "" ];then
     echo "Host localhost" >> $HOMEDIR/.ssh/config
     echo "  IdentityFile $HOMEDIR/.ssh/id_rsa"  >> $HOMEDIR/.ssh/config
@@ -1542,9 +1544,14 @@ setup_localhost_chef_client()
       upload_chef_artifacts -n -r $MU_REPO_NAME
     fi
     mkdir -p /etc/chef
-    /opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none ${CHEF_PUBLIC_IP}
+    if [ "$allowuser" == "root" -o "$allowuser" == "" ];then
+      /opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --no
+    else
+      /opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --no
+    fi
     run_chef_client=0
   fi
+
   status_message "Configuring local LDAP directory"
   upload_chef_artifacts -n -r $MU_REPO_NAME
   punch_tcp_hole 389
