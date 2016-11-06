@@ -1087,7 +1087,7 @@ install_ruby()
 
   if ! rpm -q $RUBY_VERSION > /dev/null ;then
     if [ "$IS_AMAZON" != "1" ];then
-      rpm -ivh $RUBY_RPM
+      yum -y install $RUBY_RPM
     else
       rpm -ivh --nodeps $RUBY_RPM # XXX hack workaround for spurious dependency
     fi
