@@ -342,7 +342,7 @@ module MU
         # and will include both baseline Mu policies and whatever other policies
         # are requested.
         # @param rolename [String]: The name of the role to create, generally a {MU::Cloud::AWS::Server} mu_name
-        # @return [String]: The name of the instance profile.
+        # @return [Array<String>]: The ARN of the instance.
         def self.createIAMProfile(rolename, base_profile: nil, extra_policies: nil, cloudformation_data: {})
           policies = Hash.new
 
@@ -411,13 +411,16 @@ module MU
             MU::Cloud::CloudFormation.setCloudFormationProp(cloudformation_data[cfm_prof_name], "DependsOn", cfm_role_name)
             return [rolename, cfm_role_name, cfm_prof_name]
           end
-          MU::Cloud::AWS.iam.create_instance_profile(
+
+          resp = MU::Cloud::AWS.iam.create_instance_profile(
               instance_profile_name: rolename
           )
+
           MU::Cloud::AWS.iam.add_role_to_instance_profile(
               instance_profile_name: rolename,
               role_name: rolename
           )
+
           begin
             MU::Cloud::AWS.iam.get_instance_profile(instance_profile_name: rolename)
 # XXX figure out what the real exception is and catch that
@@ -427,7 +430,7 @@ module MU
             retry
           end
 
-          return [rolename, cfm_role_name, cfm_prof_name]
+          return [rolename, cfm_role_name, cfm_prof_name, resp.instance_profile.arn]
         end
 
         # Create an Amazon EC2 instance.
@@ -444,14 +447,20 @@ module MU
             :max_count => 1
           }
 
+          arn = nil
           if @config['generate_iam_role']
-            @config['iam_role'], @cfm_role_name, @cfm_prof_name = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'])
+            # Using ARN instead of IAM instance profile name to hopefully get around some random AWS failures
+            @config['iam_role'], @cfm_role_name, @cfm_prof_name, arn = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'])
           elsif @config['iam_role'].nil?
             raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
           end
           MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'])
           if !@config["iam_role"].nil?
-            instance_descriptor[:iam_instance_profile] = {name: @config["iam_role"]}
+            if arn
+              instance_descriptor[:iam_instance_profile] = {arn: arn}
+            else
+              instance_descriptor[:iam_instance_profile] = {name: @config["iam_role"]}
+            end
           end
 
           security_groups = []

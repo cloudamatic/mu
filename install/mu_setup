@@ -29,9 +29,9 @@ if [ $DIST_VERSION == 7 ];then
   OPSCODE_CHEF_PKG="chef-server-core-$CHEF_SERVER_VERSION.el7.x86_64"
   OPSCODE_CHEF_DL="https://packages.chef.io/stable/el/7/${OPSCODE_CHEF_PKG}.rpm"
   CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el7.x86_64"
-  RUBY_RPM="https://s3.amazonaws.com/boundlessps-public/ruby23-2.3.1-1.el7.centos.x86_64.rpm"
+  RUBY_RPM="https://s3.amazonaws.com/mu-stuff/ruby23-2.3.1-1.el7.centos.x86_64.rpm"
   RUBY_INSTALL_DIR="/opt/rubies/ruby-2.3.1"
-  RUBY_VERSION="ruby-2.3.1"
+  RUBY_VERSION="ruby23-2.3.1"
   GECODE_RPMS="https://s3.amazonaws.com/cap-public/gecode-3.7.3-2.el7.centos.x86_64.rpm https://s3.amazonaws.com/cap-public/gecode-devel-3.7.3-2.el7.centos.x86_64.rpm"
 else
   PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.8.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel diffutils patch bind-utils httpd-tools mailx mysql-devel postgresql-devel openssl libyaml graphviz autoconf ImageMagick-devel graphviz-devel jq"
@@ -43,9 +43,9 @@ else
   OPSCODE_CHEF_PKG="chef-server-core-$CHEF_SERVER_VERSION.el6.x86_64"
   OPSCODE_CHEF_DL="https://packages.chef.io/stable/el/6/${OPSCODE_CHEF_PKG}.rpm"
   CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el6.x86_64"
-  RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby-2.1.6-1.el6.x86_64.rpm"
-  RUBY_INSTALL_DIR="/opt/rubies/ruby-2.1.6"
-  RUBY_VERSION="ruby-2.1.6"
+  RUBY_RPM="https://s3.amazonaws.com/mu-stuff/ruby23-2.3.1-1.el6.x86_64.rpm"
+  RUBY_INSTALL_DIR="/opt/rubies/ruby-2.3.1"
+  RUBY_VERSION="ruby23-2.3.1"
   DEL_PACKAGES="nagios"
 fi
 
@@ -1081,6 +1081,10 @@ install_ruby()
   fi
   status_message "Installing ${BOLD}$RUBY_VERSION${NORM}"
 
+  if rpm -q ruby > /dev/null ;then
+    yum -y erase ruby
+  fi
+
   if ! rpm -q $RUBY_VERSION > /dev/null ;then
     if [ "$IS_AMAZON" != "1" ];then
       rpm -ivh $RUBY_RPM
@@ -1546,9 +1550,9 @@ setup_localhost_chef_client()
     fi
     mkdir -p /etc/chef
     if [ "$allowuser" == "root" -o "$allowuser" == "" ];then
-      /opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --no
+      /opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none ${CHEF_PUBLIC_IP}
     else
-      /opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --no
+      /opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none ${CHEF_PUBLIC_IP}
     fi
     run_chef_client=0
   fi
