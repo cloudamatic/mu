@@ -4,14 +4,23 @@
 # setting up the Mu tools, Chef, and assorted support libraries and utilities.
 #
 
+# clean containing environment of nonsense
+unset GEM_HOME
+unset GEM_PATH
+
 DIST_VERSION=`rpm -qa \*-release\* | grep -Ei "redhat|centos" | cut -d"-" -f3`
-if [ "$DIST_VERSION" == "server" ];then # funny package name in RHEL6
+IS_AMAZON=0
+if [ "$DIST_VERSION" == "" ];then # funny package name in Amazon Linux
+#  DIST_VERSION=`rpm -qa \*-release\* | cut -d"-" -f3` # XXX always 6 for now
+  DIST_VERSION=6
+  IS_AMAZON=1
+elif [ "$DIST_VERSION" == "server" ];then # funny package name in RHEL6
   DIST_VERSION="6"
 fi
 EPEL_RPM="http://mirror.metrocast.net/fedora/epel/epel-release-latest-$DIST_VERSION.noarch.rpm"
 
-CHEF_CLIENT_VERSION="12.13.37-1"
-CHEF_SERVER_VERSION="12.9.1-1"
+CHEF_CLIENT_VERSION="12.15.19-1"
+CHEF_SERVER_VERSION="12.10.0-1"
 
 if [ $DIST_VERSION == 7 ];then
   # mariadb replaces mysql, qt and qt-x11 are required by gecode which is required by the dep_selector gem. 
@@ -20,12 +29,17 @@ if [ $DIST_VERSION == 7 ];then
   OPSCODE_CHEF_PKG="chef-server-core-$CHEF_SERVER_VERSION.el7.x86_64"
   OPSCODE_CHEF_DL="https://packages.chef.io/stable/el/7/${OPSCODE_CHEF_PKG}.rpm"
   CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el7.x86_64"
-  RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby-2.1.6-1.el7.x86_64.rpm"
-  RUBY_INSTALL_DIR="/opt/rubies/ruby-2.1.6"
-  RUBY_VERSION="ruby-2.1.6"
+  RUBY_RPM="https://s3.amazonaws.com/boundlessps-public/ruby23-2.3.1-1.el7.centos.x86_64.rpm"
+  RUBY_INSTALL_DIR="/opt/rubies/ruby-2.3.1"
+  RUBY_VERSION="ruby-2.3.1"
   GECODE_RPMS="https://s3.amazonaws.com/cap-public/gecode-3.7.3-2.el7.centos.x86_64.rpm https://s3.amazonaws.com/cap-public/gecode-devel-3.7.3-2.el7.centos.x86_64.rpm"
 else
-  PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.8.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel diffutils patch bind-utils httpd-tools gecode-devel mailx mysql-devel postgresql-devel openssl libyaml graphviz autoconf ImageMagick-devel graphviz-devel jq"
+  PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.8.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel diffutils patch bind-utils httpd-tools mailx mysql-devel postgresql-devel openssl libyaml graphviz autoconf ImageMagick-devel graphviz-devel jq"
+  if [ "$IS_AMAZON" != "1" ];then
+    PACKAGES="${PACKAGES} gecode-devel"
+#  else
+#    PACKAGES="${PACKAGES} "
+  fi
   OPSCODE_CHEF_PKG="chef-server-core-$CHEF_SERVER_VERSION.el6.x86_64"
   OPSCODE_CHEF_DL="https://packages.chef.io/stable/el/6/${OPSCODE_CHEF_PKG}.rpm"
   CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el6.x86_64"
@@ -317,7 +331,25 @@ set_path_env_vars()
 }
 
 pivotal_cfg_setup(){
-  pivotal_cfg="-u pivotal -k /etc/opscode/pivotal.pem"
+  port=$2
+  if [ "$port" == "" ];then
+    port=7443
+  fi
+  cat >> /etc/opscode/pivotal.rb.tmp.$$ << EOF
+node_name "pivotal"
+chef_server_url "https://${CHEF_PUBLIC_IP}:$port"
+chef_server_root "https://${CHEF_PUBLIC_IP}:$port"
+client_key "/etc/opscode/pivotal.pem"
+ssl_verify_mode :verify_none
+EOF
+  if [ ! -f /etc/opscode/pivotal.rb -o "`diff /etc/opscode/pivotal.rb /etc/opscode/pivotal.rb.tmp.$$`" != "" ];then
+    /bin/mv -f /etc/opscode/pivotal.rb.tmp.$$ /etc/opscode/pivotal.rb
+  fi
+  pivotal_pem="/opt/opscode/embedded/service/omnibus-ctl/spec/fixtures/pivotal.pem"
+  if [ -f /etc/opscode/pivotal.pem ];then
+    pivotal_pem="/etc/opscode/pivotal.pem"
+  fi
+  pivotal_cfg="-u pivotal -k $pivotal_pem"
   knife ssl fetch $pivotal_cfg > /dev/null 2>&1
   eval "$1=\"$pivotal_cfg\""
 }
@@ -693,6 +725,7 @@ chef_client()
 chef_server_ctl()
 {
   cmd=$1
+  pivotal_cfg_setup pivotal_cfg
   status_message "/opt/opscode/bin/chef-server-ctl $cmd"
   if ! /opt/opscode/bin/chef-server-ctl $cmd > /dev/null;then
     status_message "Bad exit code from chef-server-ctl $cmd! Logs:"
@@ -1049,7 +1082,11 @@ install_ruby()
   status_message "Installing ${BOLD}$RUBY_VERSION${NORM}"
 
   if ! rpm -q $RUBY_VERSION > /dev/null ;then
-    rpm -ivh $RUBY_RPM
+    if [ "$IS_AMAZON" != "1" ];then
+      rpm -ivh $RUBY_RPM
+    else
+      rpm -ivh --nodeps $RUBY_RPM # XXX hack workaround for spurious dependency
+    fi
   fi
   rm -f /usr/local/ruby-current
   ln -s $RUBY_INSTALL_DIR /usr/local/ruby-current
@@ -1157,7 +1194,8 @@ add_chef_support_gems()
 
   status_message "Installing support gems in $rubydir"
 
-	cd $MU_LIBDIR/modules && $rubydir/bin/bundle install
+  cd $MU_LIBDIR/modules && $rubydir/bin/bundle install
+  $rubydir/bin/gem update --system
   set +e
 
   find $rubydir/ -type f -exec chmod go+r {} \;
@@ -1244,10 +1282,12 @@ install_chef()
     rpm -ivh $OPSCODE_CHEF_DL
     find /opt/opscode/embedded/lib/ruby -type f -exec chmod o+r {} \;
     find /opt/opscode/embedded/lib/ruby -type d -exec chmod o+rx {} \;
+    pivotal_cfg_setup pivotal_cfg $port
     /opt/opscode/bin/chef-server-ctl reconfigure
     chef_self_test=1
   elif [ ! -f "/var/opt/opscode/nginx/ca/${CHEF_PUBLIC_IP}.crt" ];then
     status_message "Hostname or IP may have changed, reconfiguring Chef (listen port: ${port})"
+    pivotal_cfg_setup pivotal_cfg $port
     /opt/opscode/bin/chef-server-ctl restart
     /opt/opscode/bin/chef-server-ctl reconfigure
     knife ssl fetch -u pivotal -k /etc/opscode/pivotal.pem -s https://${CHEF_PUBLIC_IP}:$port > /dev/null 2>&1
@@ -1257,18 +1297,7 @@ install_chef()
     chef_self_test=1
   fi
 # add_chef_support_gems /opt/opscode/embedded
-  cat >> /etc/opscode/pivotal.rb.tmp.$$ << EOF
-node_name "pivotal"
-chef_server_url "https://${CHEF_PUBLIC_IP}:$port"
-chef_server_root "https://${CHEF_PUBLIC_IP}:$port"
-client_key "/etc/opscode/pivotal.pem"
-ssl_verify_mode :verify_none
-EOF
-  if [ ! -f /etc/opscode/pivotal.rb -o "`diff /etc/opscode/pivotal.rb /etc/opscode/pivotal.rb.tmp.$$`" != "" ];then
-    /bin/mv -f /etc/opscode/pivotal.rb.tmp.$$ /etc/opscode/pivotal.rb
-  fi
-
-  pivotal_cfg="-u pivotal -k /etc/opscode/pivotal.pem -s https://${CHEF_PUBLIC_IP}:$port"
+  pivotal_cfg_setup pivotal_cfg $port
 
   knife ssl fetch $pivotal_cfg > /dev/null 2>&1
 
@@ -1354,16 +1383,9 @@ EOF
   /opt/chef/bin/knife ssl fetch -s https://$CHEF_PUBLIC_IP:7443 > /dev/null 2>&1
   /opt/chef/bin/knife ssl fetch -s https://localhost:7443 > /dev/null 2>&1
   /opt/chef/bin/knife ssl fetch -s https://127.0.0.1:7443 > /dev/null 2>&1
-  cat >> /etc/opscode/pivotal.rb.tmp.$$ << EOF
-node_name "pivotal"
-chef_server_url "https://${CHEF_PUBLIC_IP}:7443"
-chef_server_root "https://${CHEF_PUBLIC_IP}:7443"
-client_key "/etc/opscode/pivotal.pem"
-# ssl_verify_mode :verify_none
-EOF
-  if [ ! -f /etc/opscode/pivotal.rb -o "`diff /etc/opscode/pivotal.rb /etc/opscode/pivotal.rb.tmp.$$`" != "" ];then
-    /bin/mv -f /etc/opscode/pivotal.rb.tmp.$$ /etc/opscode/pivotal.rb
-  fi
+
+  pivotal_cfg_setup pivotal_cfg 7443
+
   cat >> /etc/chef/client.rb.tmp.$$ << EOF
 log_location     STDOUT
 chef_server_url  "https://${CHEF_PUBLIC_IP}:7443/organizations/mu"
@@ -1490,14 +1512,22 @@ start_momma_cat()
 setup_localhost_chef_client()
 {
   punch_tcp_hole 7443 # sometimes this isn't ready
+  allowuser="`grep ^AllowUsers /etc/ssh/sshd_config | awk '{print $2}'`"
+  if [ "$allowuser" == "" ];then
+    allowuser="root"
+  fi
   if [ ! -f $HOMEDIR/.ssh/id_rsa.pub ];then
     ssh-keygen -N '' -f $HOMEDIR/.ssh/id_rsa
     chmod 600 $HOMEDIR/.ssh/id_rsa
   fi
+  # On CentOS 7 and the like, this is some non-root user
+  ssh_homedir="`getent passwd \"$allowuser\" |cut -d: -f6`"
+  mkdir -p "$ssh_homedir/.ssh/"
   pubkey="`cat $HOMEDIR/.ssh/id_rsa.pub`"
-  if [ "`grep \"$pubkey\" $HOMEDIR/.ssh/authorized_keys`" == "" ];then
-    echo "$pubkey" >> $HOMEDIR/.ssh/authorized_keys
+  if [ "`grep \"$pubkey\" $ssh_homedir/.ssh/authorized_keys`" == "" ];then
+    echo "$pubkey" >> $ssh_homedir/.ssh/authorized_keys
   fi
+  chown -R "$allowuser" "$ssh_homedir/.ssh/"
   if [ "`grep '^Host localhost' $HOMEDIR/.ssh/config`" == "" ];then
     echo "Host localhost" >> $HOMEDIR/.ssh/config
     echo "  IdentityFile $HOMEDIR/.ssh/id_rsa"  >> $HOMEDIR/.ssh/config
@@ -1515,9 +1545,14 @@ setup_localhost_chef_client()
       upload_chef_artifacts -n -r $MU_REPO_NAME
     fi
     mkdir -p /etc/chef
-    /opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none ${CHEF_PUBLIC_IP}
+    if [ "$allowuser" == "root" -o "$allowuser" == "" ];then
+      /opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --no
+    else
+      /opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --no
+    fi
     run_chef_client=0
   fi
+
   status_message "Configuring local LDAP directory"
   upload_chef_artifacts -n -r $MU_REPO_NAME
   punch_tcp_hole 389
