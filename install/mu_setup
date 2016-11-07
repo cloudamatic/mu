@@ -377,7 +377,12 @@ manage_chef_org()
   add_user=$3
   association_user=$4
 
-  pivotal_cfg_setup pivotal_cfg
+  if curl -k -so /dev/null https://${CHEF_PUBLIC_IP}:7443;then 
+      pivotal_cfg_setup pivotal_cfg
+  else
+    pivotal_cfg_setup pivotal_cfg 443
+  fi
+
   # chef-server-ctl generates a spectcular amount of stupid noise
   filter="(ffi-yajl|falling back to ffi)"
 
@@ -500,7 +505,13 @@ manage_chef_user()
   mkdir -p "$MU_DATADIR/users/$user"
   /bin/chmod g+rsx "$MU_DATADIR/users"
   /bin/chgrp mu-users "$MU_DATADIR/users"
-  pivotal_cfg_setup pivotal_cfg
+
+  if curl -k -so /dev/null https://${CHEF_PUBLIC_IP}:7443;then 
+      pivotal_cfg_setup pivotal_cfg
+  else
+    pivotal_cfg_setup pivotal_cfg 443
+  fi
+
   # chef-server-ctl generates a spectcular amount of stupid noise
   filter="(ffi-yajl|falling back to ffi)"
 
