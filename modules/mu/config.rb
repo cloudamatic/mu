@@ -4568,6 +4568,11 @@ module MU
                 },
                 {
                     "key_is" => "platform",
+                    "value_is" => "win2k16",
+                    "set" => "Administrator"
+                },
+                {
+                    "key_is" => "platform",
                     "value_is" => "ubuntu",
                     "set" => "ubuntu"
                 },
