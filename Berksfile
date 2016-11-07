@@ -17,7 +17,6 @@ cookbook 'demo', path: "#{siteCookbookPath}/demo"
 cookbook 'freebsd', '~> 0.1.9'
 cookbook 'gunicorn', '~> 1.1.2'
 cookbook 'logrotate', '~> 1.9.2'
-cookbook 'jenkins', '~> 4.0.0'
 cookbook 'memcached', '~> 1.7.2'
 cookbook 'mu-activedirectory', path: "#{cookbookPath}/mu-activedirectory"
 cookbook 'mu-demo', path: "#{cookbookPath}/mu-demo"
