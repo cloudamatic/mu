@@ -257,7 +257,7 @@ PLATFORMS
 
 DEPENDENCIES
   aws-sdk-core (~> 2.5.5)
-  berkshelf
+  berkshelf (~> 4.3)
   celluloid (= 0.16.0)
   chef (~> 12.13.37)
   chef-vault (~> 2.9.0)
@@ -281,4 +281,4 @@ DEPENDENCIES
   yard
 
 BUNDLED WITH
-   1.12.5
+   1.13.6
