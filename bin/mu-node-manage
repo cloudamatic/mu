@@ -251,6 +251,11 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
   deploys.each { |muid|
     mommacat = MU::MommaCat.new(muid)
 
+    if mommacat.original_config.nil?
+      MU.log "Failed to locate original config data for #{muid}", MU::WARN
+      next
+    end
+
     # Clean up the userdata of matching Autoscale groups by replacing their
     # Launch Configurations with new ones,
     if mommacat.original_config.has_key?("server_pools")
@@ -303,6 +308,9 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
             image.block_device_mappings.each { |disk|
               if !disk.device_name.nil? and !disk.device_name.empty? and !disk.ebs.nil? and !disk.ebs.empty?
                 ext_disks[disk.device_name] = MU.structToHash(disk.ebs)
+                if ext_disks[disk.device_name].has_key?(:snapshot_id)
+                  ext_disks[disk.device_name].delete(:encrypted)
+                end
               end
             }
           end
@@ -319,6 +327,7 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
               storage << mapping
             }
           end
+
           storage.concat(MU::Cloud::AWS::Server.ephemeral_mappings)
           if userdata != olduserdata or
               launch.image_id != server["basis"]["launch_config"]["ami_id"] or
@@ -384,6 +393,10 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
     # Update the userdata of live nodes. They must be in the Stopped state for
     # us to do so.
     mommacat.listNodes.each_pair { |nodename, server|
+      if server['conf'].nil?
+        MU.log "Failed to find config data for server #{nodename}", MU::WARN
+        next
+      end
       id = server['cloud_id']
       id = server['instance_id'] if id.nil?
       desc = MU::Cloud::AWS.ec2(server['region']).describe_instances(instance_ids: [id]).reservations.first.instances.first
@@ -394,9 +407,9 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
       mytype = "server"
       mytype = "server_pool" if server['conf'].has_key?("basis") or server['conf']['#TYPENAME'] == "ServerPool" or server['conf']["#MU_CLASS"] == "MU::Cloud::AWS::ServerPool"
       olduserdata = Base64.decode64(MU::Cloud::AWS.ec2(server['region']).describe_instance_attribute(
-                                        instance_id: id,
-                                        attribute: "userData"
-                                    ).user_data.value)
+                                instance_id: id,
+                                attribute: "userData"
+                              ).user_data.value)
 
       userdata = MU::Cloud::AWS::Server.fetchUserdata(
           platform: server['conf']["platform"],
