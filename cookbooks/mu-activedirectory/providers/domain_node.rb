@@ -229,6 +229,7 @@ def create_pam_winbind_directories
     owner "root"
     group "root"
     mode 0755
+    not_if { ::File.exists?("/home/#{new_resource.dns_name}") or ::File.symlink?("/home/#{new_resource.dns_name}")}
   end
 
   %w[/run /run/samba /run/samba/winbindd].each { |path|
