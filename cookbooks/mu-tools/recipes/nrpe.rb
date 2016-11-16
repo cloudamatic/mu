@@ -43,16 +43,18 @@ if !node[:application_attributes][:skip_recipes].include?('nrpe')
       mode 0755
     end
   
-    include_recipe 'mu-firewall'
+    if node[:platform] != "amazon"
+      include_recipe 'mu-firewall'
   
-    master_ips.each { |ip|
-      next if ip == "127.0.0.1"
+      master_ips.each { |ip|
+        next if ip == "127.0.0.1"
   
-      firewall_rule "Allow nrpe from #{ip}" do
-        port 5666
-        source ip
-      end
-    }
+        firewall_rule "Allow nrpe from #{ip}" do
+          port 5666
+          source ip
+        end
+      }
+    end
   
     case elversion
     when 7
