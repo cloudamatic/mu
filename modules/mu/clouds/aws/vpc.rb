@@ -937,9 +937,9 @@ module MU
           loadSubnets
 
           @subnets.each { |subnet|
-            if !cloud_id.nil? and subnet.cloud_id.to_s == cloud_id.to_s
+            if !cloud_id.nil? and !subnet.cloud_id.nil? and subnet.cloud_id.to_s == cloud_id.to_s
               return subnet
-            elsif !name.nil? and subnet.name.to_s == name.to_s
+            elsif !name.nil? and !subnet.name.nil? and subnet.name.to_s == name.to_s
               return subnet
             end
           }
