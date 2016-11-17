@@ -269,11 +269,12 @@ module MU
             begin
               launch_config = MU::Cloud::AWS.autoscale.create_launch_configuration(launch_options)
             rescue Aws::AutoScaling::Errors::ValidationError => e
-              if retries < 10
+              # Retries 20 because can easily go over on a slow day, add retries to warn
+              if retries < 20
                 # Autoscale seems to lag behind the IAM endpoint in noticing that
                 # a profile exists, so shut up about it and retry.
                 if retries > 3 or !e.message.match(/Invalid IamInstanceProfile/)
-                  MU.log "Got #{e.inspect} creating Launch Configuration #{@mu_name}", MU::WARN
+                  MU.log "Got #{e.inspect} creating Launch Configuration #{@mu_name} with retries #{retries} of 20", MU::WARN
                 end
                 retries = retries + 1
                 sleep 10

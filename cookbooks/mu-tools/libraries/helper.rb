@@ -14,7 +14,7 @@ module Mutools
         instance_identity = Net::HTTP.get(URI("http://169.254.169.254/latest/dynamic/instance-identity/document"))
         @region = JSON.parse(instance_identity)["region"]
         ENV['AWS_DEFAULT_REGION'] = @region
-  
+
         if ENV['AWS_ACCESS_KEY_ID'] == nil or ENV['AWS_ACCESS_KEY_ID'].empty?
           ENV.delete('AWS_ACCESS_KEY_ID')
           ENV.delete('AWS_SECRET_ACCESS_KEY')
@@ -51,19 +51,38 @@ module Mutools
     end
 
     # Extract the tags that Mu typically sticks in a node's Chef metadata
-    def mu_get_tag_value(key)
-      if node.has_key?(:tags)
-        if node[:tags].is_a?(Array)
-          node[:tags].each { |tag|
+    def mu_get_tag_value(key,target_node=nil)
+      if target_node.nil?
+        target_node = node
+      end
+      if target_node.has_key?(:tags)
+        if target_node[:tags].is_a?(Array)
+          target_node[:tags].each { |tag|
             if tag.is_a?(Array)
               return tag[1] if tag[0] == key
             end
           }
-        elsif node[:tags].is_a?(Hash)
-          return node[:tags][key]
+        elsif target_node[:tags].is_a?(Hash)
+          return target_node[:tags][key]
         end
       end
       nil
+    end
+
+    def get_sibling_nodes (prototype_node)
+    # Return other nodes in the same deploy as the prototype_node based on MU-ID tag
+      siblings = []
+      mu_id = mu_get_tag_value('MU-ID',prototype_node)
+      if mu_id.nil?
+        return nil
+      end
+      all_nodes = search(:node, "*")
+      all_nodes.each { |n|
+        if  mu_get_tag_value('MU-ID', n) == mu_id
+          siblings << n
+         end
+      }
+      return siblings
     end
 
     def get_deploy_secret
