@@ -36,3 +36,4 @@ cookbook 'nginx-passenger', path: "#{cookbookPath}/nginx-passenger"
 cookbook 'python', path: "#{cookbookPath}/python"
 cookbook 'runit', '~> 1.7'
 cookbook 's3fs', path: "#{cookbookPath}/s3fs"
+cookbook 'zipfile', '~> 0.1.0'
