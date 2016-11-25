@@ -377,7 +377,6 @@ manage_chef_org()
   add_user=$3
   association_user=$4
 
-  pivotal_cfg_setup pivotal_cfg
   # chef-server-ctl generates a spectcular amount of stupid noise
   filter="(ffi-yajl|falling back to ffi)"
 
@@ -500,7 +499,6 @@ manage_chef_user()
   mkdir -p "$MU_DATADIR/users/$user"
   /bin/chmod g+rsx "$MU_DATADIR/users"
   /bin/chgrp mu-users "$MU_DATADIR/users"
-  pivotal_cfg_setup pivotal_cfg
   # chef-server-ctl generates a spectcular amount of stupid noise
   filter="(ffi-yajl|falling back to ffi)"
 
