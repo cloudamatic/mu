@@ -79,11 +79,6 @@ if !node[:application_attributes][:skip_recipes].include?('nrpe')
       end
     end
   
-    # don't trip up on devices created by our basic gluster recipes
-    if Dir.exists?("/gluster/dev/md0")
-      execute "chmod go+rx /gluster /gluster/dev /gluster/dev/md0"
-    end
-  
     service "nrpe" do
       action [:enable, :start]
     end
