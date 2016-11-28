@@ -26,7 +26,7 @@ if !node[:application_attributes][:skip_recipes].include?('nrpe')
       action [:enable, :start]
     end
   
-    # include_recipe "mu-tools::set_local_fw"
+    include_recipe "mu-tools::set_local_fw"
   
     template "/etc/nagios/nrpe.cfg" do
       source "nrpe.cfg.erb"
@@ -41,19 +41,6 @@ if !node[:application_attributes][:skip_recipes].include?('nrpe')
       owner "nrpe"
       group "nrpe"
       mode 0755
-    end
-  
-    if node[:platform] != "amazon"
-      include_recipe 'mu-firewall'
-  
-      master_ips.each { |ip|
-        next if ip == "127.0.0.1"
-  
-        firewall_rule "Allow nrpe from #{ip}" do
-          port 5666
-          source ip
-        end
-      }
     end
   
     case elversion
