@@ -76,6 +76,7 @@ case node[:platform]
         action [:mount, :enable]
       end
       directory "#{$gluster_mnt_pt}/brick"
+      execute "chmod go+rx #{$gluster_mnt_pt}"
 
     else
       $gluster_mnt_pts = []
@@ -92,6 +93,8 @@ case node[:platform]
           action [:mount, :enable]
         end
         directory "#{node.glusterfs.server.brick_base_mount_path}#{dev}/brick"
+
+        execute "chmod go+rx #{node.glusterfs.server.brick_base_mount_path} #{node.glusterfs.server.brick_base_mount_path}#{dev}"
 
         $gluster_mnt_pts << "#{node.glusterfs.server.brick_base_mount_path}#{dev}"
       end
@@ -167,6 +170,7 @@ case node[:platform]
           not_if "gluster volume info #{node.glusterfs.server.volume} | grep 'performance.cache-size: #{node.glusterfs.server.read_cache_size}'"
           code "gluster volume set #{node.glusterfs.server.volume} performance.cache-size #{node.glusterfs.server.read_cache_size}"
         end
+
 
         # gluster_vol_exists = shell_out("gluster volume info #{node.glusterfs.server.volume}")
         # if gluster_vol_exists.stderr.empty? and !gluster_vol_exists.stdout.empty?

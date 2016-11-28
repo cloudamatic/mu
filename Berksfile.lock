@@ -43,6 +43,7 @@ DEPENDENCIES
   runit (~> 1.7)
   s3fs
     path: cookbooks/s3fs
+  zipfile (~> 0.1.0)
 
 GRAPH
   7-zip (1.0.2)
@@ -280,3 +281,4 @@ GRAPH
   yum-epel (0.7.1)
     yum (>= 3.6.3)
   zap (0.11.4)
+  zipfile (0.1.0)

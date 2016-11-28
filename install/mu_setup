@@ -378,7 +378,7 @@ manage_chef_org()
   association_user=$4
 
   if curl -k -so /dev/null https://${CHEF_PUBLIC_IP}:7443;then 
-      pivotal_cfg_setup pivotal_cfg
+    pivotal_cfg_setup pivotal_cfg
   else
     pivotal_cfg_setup pivotal_cfg 443
   fi
@@ -507,7 +507,7 @@ manage_chef_user()
   /bin/chgrp mu-users "$MU_DATADIR/users"
 
   if curl -k -so /dev/null https://${CHEF_PUBLIC_IP}:7443;then 
-      pivotal_cfg_setup pivotal_cfg
+    pivotal_cfg_setup pivotal_cfg
   else
     pivotal_cfg_setup pivotal_cfg 443
   fi

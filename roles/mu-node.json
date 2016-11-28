@@ -8,6 +8,7 @@
     "recipe[mu-tools::set_mu_hostname]",
     "recipe[mu-tools::add_admin_ssh_keys]",
     "recipe[mu-tools::disable-requiretty]",
+    "recipe[mu-tools::set_local_fw]",
     "recipe[mu-tools::nrpe]"
   ],
   "description": "Run List for Mu client nodes",
