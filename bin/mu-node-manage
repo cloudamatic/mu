@@ -53,8 +53,7 @@ end
 
 Thread.abort_on_exception = true
 $children = {}
-["HUP", "INT", "QUIT", "TRAP", "ABRT", "IOT", "KILL", "SYS", "PIPE", "ALRM", "TERM", "URG", "STOP", "TSTP", "CONT", "CHLD", "CLD", "TTIN", "TTOU", "IO", "XCPU", "XFSZ", "PROF", "WINCH", "USR1", "USR2", "PWR", "POLL"].each { |sig|
-
+["HUP", "INT", "QUIT", "TRAP", "ABRT", "IOT", "SYS", "PIPE", "ALRM", "TERM", "URG", "TSTP", "CONT", "CHLD", "CLD", "TTIN", "TTOU", "IO", "XCPU", "XFSZ", "PROF", "WINCH", "USR1", "USR2", "PWR", "POLL"].each { |sig|
   Signal.trap(sig) do
     $children.each_pair { |pid, node|
       if ["INT", "TERM", "EXIT", "ABRT"].include?(sig)

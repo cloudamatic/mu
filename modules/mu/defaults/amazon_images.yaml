@@ -58,21 +58,22 @@ win2k12r2: &win2k12r2
   ap-southeast-2: ami-36605655
   ap-south-1: ami-1c483d73
 win2k16: &win2k16
-  us-east-1: ami-30540427
-  us-east-2: ami-e03b6185
-  us-west-1: ami-d4e7afb4
-  us-west-2: ami-9f5efbff
+  us-east-1: ami-b06249a7
+  us-east-2: ami-20683245
+  us-west-1: ami-d3a8fdb3
+  us-west-2: ami-b9b71ad9
 amazon: &amazon2016
-  us-east-1: ami-f5f41398
-  us-west-1: ami-6e84fa0e
-  us-west-2: ami-d0f506b0
-  eu-central-1: ami-d3c022bc
-  eu-west-1: ami-b0ac25c3
-  sa-east-1: ami-fb890097
-  ap-northeast-1: ami-29160d47
-  ap-northeast-2: ami-cf32faa1
-  ap-southeast-1: ami-1ddc0b7e
-  ap-southeast-2: ami-0c95b86f
+  us-east-1: ami-b73b63a0
+  us-east-2: ami-58277d3d
+  us-west-1: ami-23e8a343
+  us-west-2: ami-5ec1673e
+  eu-central-1: ami-f9619996
+  eu-west-1: ami-9398d3e0
+  sa-east-1: ami-97831ffb
+  ap-northeast-1: ami-0c11b26d
+  ap-northeast-2: ami-983ce8f6
+  ap-southeast-1: ami-b953f2da
+  ap-southeast-2: ami-db704cb8
 win2k12: *win2k12r2
 win2k16: *win2k16
 windows: *win2k12r2

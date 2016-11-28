@@ -15,8 +15,8 @@
 source "https://rubygems.org"
 gem 'yard'
 gem 'ruby-graphviz', "~> 1.2.2"
-gem 'chef', "~> 12.15.19"
-gem "aws-sdk-core", "~> 2.6.18"
+gem 'chef', "~> 12.16.42"
+gem "aws-sdk-core", "~> 2.6.28"
 gem 'simple-password-gen'
 gem 'trollop', "~> 2.1.2"
 gem 'knife-windows', '1.4.0'
