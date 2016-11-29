@@ -1322,7 +1322,7 @@ module MU
         # @param vpc_id [String]: The cloud provider's unique VPC identifier
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.purge_nat_gateways(noop = false, vpc_id: vpc_id, region: MU.curRegion)
+        def self.purge_nat_gateways(noop = false, vpc_id: nil, region: MU.curRegion)
           gateways = MU::Cloud::AWS.ec2(region).describe_nat_gateways(
             filter: [
               {
@@ -1379,7 +1379,7 @@ module MU
         # @param vpc_id [String]: The cloud provider's unique VPC identifier
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.purge_endpoints(noop = false, vpc_id: vpc_id, region: MU.curRegion)
+        def self.purge_endpoints(noop = false, vpc_id: nil, region: MU.curRegion)
           vpc_endpoints = MU::Cloud::AWS.ec2(region).describe_vpc_endpoints(
             filters: [
               {
