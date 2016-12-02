@@ -5,11 +5,11 @@ include Chef::Mixin::ShellOut
 module Activedirectory
   module Helper
     def elversion
-      return 6 if node.platform_version.to_i == 2013
-      return 6 if node.platform_version.to_i == 2014
-      return 6 if node.platform_version.to_i == 2015
-      return 6 if node.platform_version.to_i == 2016
-      node.platform_version.to_i
+      return 6 if node['platform_version'].to_i == 2013
+      return 6 if node['platform_version'].to_i == 2014
+      return 6 if node['platform_version'].to_i == 2015
+      return 6 if node['platform_version'].to_i == 2016
+      node['platform_version'].to_i
     end
 
     def in_domain?

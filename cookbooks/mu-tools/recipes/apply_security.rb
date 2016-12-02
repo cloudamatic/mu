@@ -72,7 +72,8 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
         minute "0"
         hour "5"
         user "root"
-        command "aide --check"
+        command "/usr/sbin/aide --check"
+        only_if { File.exists?("/usr/sbin/aide") }
       end
   
       cookbook_file "/etc/security/limits.conf" do
@@ -312,32 +313,16 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
           not_if "grep '^install #{fs} ' /etc/modprobe.d/dist.conf"
         end
       }
-  
-      ruby_block "create /home" do
-        extend CAPVolume
-        block do
-          require 'aws-sdk-core'
-          if !File.open("/etc/mtab").read.match(/ #{node[:application_attributes][:home][:mount_directory]} /) and !volume_attached(node[:application_attributes][:home][:mount_device])
-            create_node_volume(:home)
-            result = attach_node_volume(:home)
-          end
-        end
-        not_if "tune2fs -l #{node[:application_attributes][:home][:mount_device]}" if node.platform_version.to_i == 6
-        not_if "xfs_info #{node[:application_attributes][:home][:mount_device]}" if node.platform_version.to_i == 7
-      end
-      ruby_block "label /home as #{node.application_attributes.home.label}" do
-        extend CAPVolume
-        block do
-          tags = [{key: "Name", value: node.application_attributes.home.label}]
-          if node.tags.is_a?(Hash)
-            node.tags.each_pair { |key, value|
-              tags << {key: key, value: value} if value.is_a?(String)
-            }
-          end
-          tag_volume(node.application_attributes.home.mount_device, tags)
-        end
-      end rescue NoMethodError
-  
+
+      params = Base64.urlsafe_encode64(JSON.generate(
+        {
+          :dev => node[:application_attributes][:home][:mount_device],
+          :size => node[:application_attributes][:home][:volume_size_gb]
+        }
+      ))
+      # XXX would rather exec this inside a resource, guard it, etc
+      mommacat_request("add_volume", params)
+
       if node.platform_version.to_i == 6
         execute "mkfs.ext4 #{node[:application_attributes][:home][:mount_device]}" do
           not_if "tune2fs -l #{node[:application_attributes][:home][:mount_device]}"

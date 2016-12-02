@@ -92,9 +92,9 @@ if $MU_CFG["ldap"]["type"] == "389 Directory Services"
   }
   # Install and bootstrap the LDAP server
   %x{/usr/bin/yum -y install 389-ds 389-ds-console}
-  if !Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}")
+  if !Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG["host_name"]}")
     vars = {
-      "hostname" => $MU_CFG["hostname"],
+      "hostname" => $MU_CFG["host_name"],
       "domain" => $MU_CFG["ldap"]["domain_name"],
       "domain_dn" => $MU_CFG["ldap"]["domain_name"].split(/\./).map{ |x| "DC=#{x}" }.join(","),
       "creds" => $CREDS
@@ -109,7 +109,7 @@ if $MU_CFG["ldap"]["type"] == "389 Directory Services"
       log.puts cfg
       log.puts output
       MU.log "Error setting up LDAP services with /usr/sbin/setup-ds-admin.pl -s -f /root/389-directory-setup.inf", MU::ERR, details: output
-      %x{/sbin/service dirsrv stop ; pkill ns-slapd ; yum erase -y 389-ds 389-ds-console 389-ds-base 389-admin 389-adminutil 389-console 389-ds-base-libs; rm -rf /etc/dirsrv /var/lib/dirsrv /var/log/dirsrv /var/lock/dirsrv /var/run/dirsrv /etc/sysconfig/dirsrv* /usr/lib64/dirsrv /usr/share/dirsrv; knife data bag delete -y mu_ldap}
+      %x{/sbin/service dirsrv stop ; /usr/sbin/stop-dirsrv ; pkill ns-slapd ; yum erase -y 389-ds 389-ds-console 389-ds-base 389-admin 389-adminutil 389-console 389-ds-base-libs; rm -rf /etc/dirsrv /var/lib/dirsrv /var/log/dirsrv /var/lock/dirsrv /var/run/dirsrv /etc/sysconfig/dirsrv* /usr/lib64/dirsrv /usr/share/dirsrv; knife data bag delete -y mu_ldap}
       exit 1
     end
     puts output
@@ -119,7 +119,7 @@ if $MU_CFG["ldap"]["type"] == "389 Directory Services"
   # Ram TLS into the LDAP server's snout
 
   # Why is this utility interactive-only? So much hate.
-  puts certimportcmd = "echo "" > /root/blank && /usr/bin/pk12util -i /opt/mu/var/ssl/ldap.p12 -d /etc/dirsrv/slapd-#{$MU_CFG["hostname"]} -w /root/blank -W \"\""
+  puts certimportcmd = "echo "" > /root/blank && /usr/bin/pk12util -i /opt/mu/var/ssl/ldap.p12 -d /etc/dirsrv/slapd-#{$MU_CFG["host_name"]} -w /root/blank -W \"\""
   require 'pty'
   require 'expect'
   PTY.spawn(certimportcmd) { |r, w, pid|
@@ -135,7 +135,7 @@ if $MU_CFG["ldap"]["type"] == "389 Directory Services"
     end
   }
 
-  puts caimportcmd = "/usr/bin/certutil -d /etc/dirsrv/slapd-#{$MU_CFG["hostname"]} -A -n \"Mu Master CA\" -t CT,, -a -i /opt/mu/var/ssl/Mu_CA.pem"
+  puts caimportcmd = "/usr/bin/certutil -d /etc/dirsrv/slapd-#{$MU_CFG["host_name"]} -A -n \"Mu Master CA\" -t CT,, -a -i /opt/mu/var/ssl/Mu_CA.pem"
   puts %x{#{caimportcmd}}
 
   ["ssl_enable.ldif", "addRSA.ldif"].each { |ldif|
@@ -145,6 +145,9 @@ if $MU_CFG["ldap"]["type"] == "389 Directory Services"
   %x{/sbin/service dirsrv restart}
   %x{/sbin/chkconfig dirsrv on}
   %x{/sbin/chkconfig dirsrv-admin on}
+  %x{/usr/sbin/stop-dirsrv}
+  %x{/usr/sbin/start-dirsrv}
+  %x{/usr/bin/systemctl enable dirsrv-admin}
 
   # Manufacture some groups and management users.
   MU::Master::LDAP.initLocalLDAP

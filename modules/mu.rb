@@ -153,8 +153,6 @@ module MU
   end
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
-
-  # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
   def self.environment;
     @@globals[Thread.current.object_id]['environment']
   end
@@ -491,9 +489,22 @@ module MU
     @@myVPC_var
   end
 
+  @@mySubnets_var = nil
+  # The AWS Subnets associated with the VPC this MU Master is in
+  def self.mySubnets
+    @@mySubnets_var ||= MU::Cloud::AWS.ec2(MU.myRegion).describe_subnets(
+      filters: [
+        {
+          name: "vpc-id", 
+          values: [MU.myVPC]
+        }
+      ]
+    ).subnets
+  end
+
   # The version of Chef we will install on nodes (note- not the same as what
   # we intall on ourself, which comes from install/mu_setup).
-  @@chefVersion = "12.8.1-1"
+  @@chefVersion = "12.13.37-1"
   # The version of Chef we will install on nodes.
   # @return [String]
   def self.chefVersion;

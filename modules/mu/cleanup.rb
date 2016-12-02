@@ -104,7 +104,8 @@ module MU
             MU::Cloud::Server.cleanup(skipsnapshots: @skipsnapshots, onlycloud: @onlycloud, noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["Server"]) > 0
             MU::Cloud::Database.cleanup(skipsnapshots: @skipsnapshots, noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["Database"]) > 0
             MU::Cloud::CacheCluster.cleanup(skipsnapshots: @skipsnapshots, noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["CacheCluster"]) > 0
-            MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["FirewallRule", "Server", "ServerPool", "Database"]) > 0
+            MU::Cloud::StoragePool.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["StoragePool"]) > 0
+            MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["FirewallRule", "Server", "ServerPool", "Database", "StoragePool"]) > 0
             MU::Cloud::Alarm.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["Alarm"]) > 0 # XXX other resources can make these appear, I think- which ones?
             MU::Cloud::Notification.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["Notification"]) > 0 # XXX other resources can make these appear, I think- which ones?
             MU::Cloud::Log.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r) if @mommacat.nil? or @mommacat.numKittens(types: ["Log"]) > 0 # XXX other resources can make these appear, I think- which ones?

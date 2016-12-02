@@ -339,7 +339,14 @@ module MU
         ssh = @server.getSSHSession(15)
         if leave_ours
           MU.log "Expunging pre-existing Chef install on #{@server.mu_name}, if we didn't create it", MU::NOTICE
-          ssh.exec!(%Q{test -f #{guardfile} || (#{remove_cmd}) ; touch #{guardfile}})
+          begin 
+            ssh.exec!(%Q{test -f #{guardfile} || (#{remove_cmd}) ; touch #{guardfile}})
+          rescue IOError => e
+            # TO DO - retry this in a cleaner way
+            MU.log "Got #{e.inspect} while trying to clean up chef, retrying", MU::NOTICE
+            ssh = @server.getSSHSession(15)
+            ssh.exec!(%Q{test -f #{guardfile} || (#{remove_cmd}) ; touch #{guardfile}})
+          end
         else
           MU.log "Expunging pre-existing Chef install on #{@server.mu_name}", MU::NOTICE
           ssh.exec!(remove_cmd)
@@ -387,7 +394,9 @@ module MU
         else
           kb = ::Chef::Knife::BootstrapWindowsSsh.new([canonical_addr])
           kb.config[:cygwin] = true
-          kb.config[:distro] = 'windows-chef-client-msi'
+          # kb.config[:distro] = 'windows-chef-client-msi'
+          #Trying to solve random createprocess errors - knife-windows always installs 32bit and architecture/bootstrap_architecture don't seem to work
+          kb.config[:msi_url] = "https://www.chef.io/chef/download?p=windows&pv=2012&m=x86_64&v=#{MU.chefVersion}"
           # kb.config[:node_ssl_verify_mode] = 'none'
           # kb.config[:node_verify_api_cert] = false
         end
@@ -529,7 +538,7 @@ module MU
             chef_node.normal.deployment.merge!(@server.deploy.deployment)
             chef_node.save
           end
-          return chef_node.deployment
+          return chef_node[:deployment]
         rescue Net::HTTPServerException => e
           MU.log "Attempted to save deployment to Chef node #{@server.mu_name} before it was bootstrapped.", MU::DEBUG
         end
@@ -682,11 +691,14 @@ module MU
         end
 
         tags = MU::MommaCat.listStandardTags
+        tags.merge!(MU::MommaCat.listOptionalTags) if @config['optional_tags']
+
         if !@config['tags'].nil?
           @config['tags'].each { |tag|
             tags[tag['key']] = tag['value']
           }
         end
+
         chef_node.normal.tags = tags
         chef_node.save
 
@@ -780,7 +792,7 @@ module MU
           http = Net::HTTP.new(uri.hostname, uri.port)
           http.ca_file = "/etc/pki/Mu_CA.pem" # XXX why no worky?
           http.use_ssl = true
-          http.verify_mode = OpenSSL::SSL::VERIFY_NONE
+          http.verify_mode = OpenSSL::SSL::VERIFY_NONE # XXX this sucks
           response = http.request(req)
 
           MU.log "Got error back on signing request for #{MU.mySSLDir}/#{@server.mu_name}.csr", MU::ERR if response.code != "200"

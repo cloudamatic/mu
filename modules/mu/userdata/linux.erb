@@ -52,6 +52,12 @@ if [ -f /etc/debian_version ];then
 <% end %>
 elif [ -x /usr/bin/yum ];then
 	version=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
+	if [ -z "$version" ];then
+		amazon_version=`rpm -qa \*-release | grep -Ei "system-release"| cut -d"-" -f3 | cut -d"." -f1`
+		if [ "$amazon_version" == "2014" ] || [ "$amazon_version" == "2015" ] || [ "$amazon_version" == "2016" ];then
+			version=6
+		fi
+	fi
 	if [ $version == 7 ];then
 		userdata_dir="/var/lib/cloud/instances/$instance_id"
 	else
@@ -60,6 +66,9 @@ elif [ -x /usr/bin/yum ];then
 	if ! grep "^/bin/sh $userdata_dir/user-data.txt$" /etc/rc.d/rc.local > /dev/null;then
 		echo "/bin/sh $userdata_dir/user-data.txt" >> /etc/rc.d/rc.local
 	fi
+
+  sed -i 's/^Defaults.*requiretty$/Defaults   !requiretty/' /etc/sudoers
+
 	# /etc/rc.d/rc.local is not executable in CentOS7 which means userdata won't execute when we restart after patching the kernel, and bootstrap will fail
 	if [ $version == 7 ];then
 		chmod 755 /etc/rc.d/rc.local
@@ -67,19 +76,8 @@ elif [ -x /usr/bin/yum ];then
 	if [ ! -f /usr/bin/curl ] ;then /usr/bin/yum -y install curl;fi
 	# Ugh, rando EPEL mirror
 	if [ ! -f /etc/yum.repos.d/epel.repo ];then
-	     version=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
 		/bin/rpm -ivh http://mirror.metrocast.net/fedora/epel/epel-release-latest-$version.noarch.rpm
 	fi
-  if [ ! -f /usr/bin/pip ];then
-    epel=`rpm -qa \*-release | grep -Ei "epel"`
-    if [ $epel ];then
-      /usr/bin/yum -y install python-pip
-    else
-      /usr/bin/curl -o get-pip.py https://bootstrap.pypa.io/get-pip.py
-      /usr/bin/python get-pip.py
-    fi
-  fi
-	AWSCLI=/usr/bin/aws
 <% if !$mu.skipApplyUpdates %>
 	if [ ! -f /.mu-installer-ran-updates ];then
 		service sshd stop
@@ -102,9 +100,34 @@ elif [ -x /usr/bin/yum ];then
 	fi
 <% end %>
 fi
-set -e
-if [ ! -f $AWSCLI ];then
-	/usr/bin/pip install awscli
+
+AWSCLI='command -v aws'
+PIP='command -v pip'
+
+if ! $AWSCLI > /dev/null;then
+  if ! $PIP > /dev/null;then
+    amazon=`rpm -qa \*yum | grep amzn`
+    epel=`rpm -qa \*-release | grep -Ei "epel"`
+    if [ $amazon ];then
+      yum -y install python27-pip
+    elif [ $epel ];then
+      /usr/bin/yum -y install python-pip
+    else
+      /usr/bin/curl -o get-pip.py https://bootstrap.pypa.io/get-pip.py
+      /usr/bin/python get-pip.py
+    fi
+    PIP='command -v pip'
+  fi
+  `$PIP` install awscli
+fi
+
+# TO DO - This should use "command" instead
+if [ -f /usr/bin/aws ];then
+  AWSCLI=/usr/bin/aws
+elif [ -f /usr/local/bin/aws ];then
+  AWSCLI=/usr/local/bin/aws
+else
+  AWSCLI=/bin/aws
 fi
 
 umask 0077

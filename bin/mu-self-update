@@ -192,7 +192,7 @@ generate_docs
 /usr/sbin/groupdel mu-admins > /dev/null 2>&1
 
 set +e
-install_ruby
+install_ruby purgeold
 patch_knife_windows
 generate_ssl_certs skip_chef
 install_chef
@@ -207,10 +207,12 @@ rm -rf /root/.berkshelf /root/.chef/cookbooks /root/.chef/site_cookbooks
 for extra in $ADDTL_CHEF_REPOS;do
 	extra_repo_name="`echo $extra | sed 's/^.*\///' | cut -d. -f1`"
 	clone_repository "$extra" "$MU_DATADIR/$extra_repo_name"
+  generate_repo_berksfile "$MU_DATADIR/$extra_repo_name"
 done
 
 if [ $update_chef_artifacts == 1 ];then
-	upload_chef_artifacts
+	upload_chef_artifacts -r mu
+	upload_chef_artifacts -n
 fi
 setup_localhost_chef_client
 configure_nagios_server

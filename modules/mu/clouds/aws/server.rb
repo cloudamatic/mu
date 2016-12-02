@@ -52,7 +52,7 @@ module MU
         def self.disk_devices
           @disk_devices
         end
-
+        
         # See that we get our ephemeral storage devices with AMIs that don't do it
         # for us
         @ephemeral_mappings = [
@@ -106,7 +106,8 @@ module MU
               "skipApplyUpdates" => @config['skipinitialupdates'],
               "windowsAdminName" => @config['windows_admin_username'],
               "resourceName" => @config["name"],
-              "resourceType" => "server"
+              "resourceType" => "server",
+              "platform" => @config["platform"]
             },
             custom_append: @config['userdata_script']
           )
@@ -156,8 +157,8 @@ module MU
               end
               $mu = OpenStruct.new(template_variables)
               userdata_dir = File.expand_path(MU.myRoot+"/modules/mu/userdata")
-              platform = "linux" if %w{centos centos6 centos7 ubuntu ubuntu14 rhel rhel7 rhel71}.include? platform
-              platform = "windows" if %w{win2k12r2 win2k12 win2k8 win2k8r2}.include? platform
+              platform = "linux" if %w{centos centos6 centos7 ubuntu ubuntu14 rhel rhel7 rhel71 amazon}.include? platform
+              platform = "windows" if %w{win2k12r2 win2k12 win2k8 win2k8r2 win2k16}.include? platform
               erbfile = "#{userdata_dir}/#{platform}.erb"
               if !File.exist?(erbfile)
                 MU.log "No such userdata template '#{erbfile}'", MU::WARN, details: caller
@@ -317,7 +318,6 @@ module MU
         def self.addStdPoliciesToIAMProfile(rolename, cloudformation_data: {}, cfm_role_name: nil)
           policies = Hash.new
           policies['Mu_Bootstrap_Secret_'+MU.deploy_id] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{MU.deploy_id}-secret"+'"}]}'
-          policies['Mu_Volume_Management'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ec2:CreateTags","ec2:CreateVolume","ec2:AttachVolume","ec2:DescribeInstanceAttribute","ec2:DescribeVolumeAttribute","ec2:DescribeVolumeStatus","ec2:DescribeVolumes"],"Resource":"*"}]}'
           policies.each_pair { |name, doc|
             if cloudformation_data.size > 0
               if !cfm_role_name.nil?
@@ -627,6 +627,13 @@ module MU
 
           MU::MommaCat.createStandardTags(instance.instance_id, region: @config['region'])
           MU::MommaCat.createTag(instance.instance_id, "Name", node, region: @config['region'])
+
+          if @config['optional_tags']
+            MU::MommaCat.listOptionalTags.each { |key, value|
+              MU::MommaCat.createTag(instance.instance_id, key, value, region: @config['region'])
+            }
+          end
+
           if !@config['tags'].nil?
             @config['tags'].each { |tag|
               MU::MommaCat.createTag(instance.instance_id, tag['key'], tag['value'], region: @config['region'])
@@ -816,10 +823,10 @@ module MU
           subnet = nil
           if !@vpc.nil? and @config.has_key?("vpc") and !instance.subnet_id.nil?
             subnet = @vpc.getSubnet(
-                cloud_id: instance.subnet_id
+              cloud_id: instance.subnet_id
             )
             if subnet.nil?
-              raise MuError, "Got null subnet id out of #{subnet_conf['vpc']}"
+              raise MuError, "Got null subnet id out of #{@config['vpc']}/#{instance.subnet_id}"
             end
           end
 
@@ -850,11 +857,19 @@ module MU
                 iface = MU::Cloud::AWS.ec2(@config['region']).create_network_interface(subnet_id: subnet_id).network_interface
                 MU::MommaCat.createStandardTags(iface.network_interface_id, region: @config['region'])
                 MU::MommaCat.createTag(iface.network_interface_id, "Name", node+"-ETH"+device_index.to_s, region: @config['region'])
+
+                if @config['optional_tags']
+                  MU::MommaCat.listOptionalTags.each { |key, value|
+                    MU::MommaCat.createTag(iface.network_interface_id, key, value, region: @config['region'])
+                  }
+                end
+
                 if !@config['tags'].nil?
                   @config['tags'].each { |tag|
                     MU::MommaCat.createTag(iface.network_interface_id, tag['key'], tag['value'], region: @config['region'])
                   }
                 end
+
                 MU::Cloud::AWS.ec2(@config['region']).attach_network_interface(
                     network_interface_id: iface.network_interface_id,
                     instance_id: instance.instance_id,
@@ -909,6 +924,12 @@ module MU
                   end
                 }
 
+                if @config['optional_tags']
+                  MU::MommaCat.listOptionalTags.each { |key, value|
+                    MU::MommaCat.createTag(attachment.volume_id, key, value, region: @config['region'])
+                  }
+                end
+
                 if @config['tags']
                   @config['tags'].each { |tag|
                     MU::MommaCat.createTag(attachment.volume_id, tag['key'], tag['value'], region: @config['region'])
@@ -937,7 +958,7 @@ module MU
           end
 
           windows? ? ssh_wait = 60 : ssh_wait = 30
-          windows? ? max_retries = 50 : max_retries = 25
+          windows? ? max_retries = 50 : max_retries = 35
           begin
             session = getSSHSession(max_retries, ssh_wait)
             initialSSHTasks(session)
@@ -946,6 +967,38 @@ module MU
             retry
           ensure
             session.close if !session.nil?
+          end
+
+          if @config["existing_deploys"] && !@config["existing_deploys"].empty?
+            @config["existing_deploys"].each { |ext_deploy|
+              if ext_deploy["cloud_id"]
+                found = MU::MommaCat.findStray(
+                  @config['cloud'],
+                  ext_deploy["cloud_type"],
+                  cloud_id: ext_deploy["cloud_id"],
+                  region: @config['region'],
+                  dummy_ok: false
+                ).first
+
+                MU.log "Couldn't find existing resource #{ext_deploy["cloud_id"]}, #{ext_deploy["cloud_type"]}", MU::ERR if found.nil?
+                @deploy.notify(ext_deploy["cloud_type"], found.config["name"], found.deploydata, mu_name: found.mu_name, triggering_node: @mu_name)
+              elsif ext_deploy["mu_name"] && ext_deploy["deploy_id"]
+                MU.log "#{ext_deploy["mu_name"]} / #{ext_deploy["deploy_id"]}"
+                found = MU::MommaCat.findStray(
+                  @config['cloud'],
+                  ext_deploy["cloud_type"],
+                  deploy_id: ext_deploy["deploy_id"],
+                  mu_name: ext_deploy["mu_name"],
+                  region: @config['region'],
+                  dummy_ok: false
+                ).first
+
+                MU.log "Couldn't find existing resource #{ext_deploy["mu_name"]}/#{ext_deploy["deploy_id"]}, #{ext_deploy["cloud_type"]}", MU::ERR if found.nil?
+                @deploy.notify(ext_deploy["cloud_type"], found.config["name"], found.deploydata, mu_name: ext_deploy["mu_name"], triggering_node: @mu_name)
+              else
+                MU.log "Trying to find existing deploy, but either the cloud_id is not valid or no mu_name and deploy_id where provided", MU::ERR
+              end
+            }
           end
 
           # See if this node already exists in our config management. If it does,
@@ -993,7 +1046,7 @@ module MU
           search_threads = []
 
           # If we got an instance id, go get it
-          if !cloud_id.nil?
+          if !cloud_id.nil? and !cloud_id.empty?
             regions.each { |region|
               search_threads << Thread.new {
                 MU.log "Hunting for instance with cloud id '#{cloud_id}' in #{region}", MU::DEBUG
@@ -1193,14 +1246,15 @@ module MU
           end
 
           # Let us into any databases we depend on.
-          if @dependencies.has_key?("database")
-            @dependencies['database'].values.each { |db|
-              db.allowHost(@deploydata["private_ip_address"]+"/32")
-              if @deploydata["public_ip_address"]
-                db.allowHost(@deploydata["public_ip_address"]+"/32")
-              end
-            }
-          end
+          # This is probelmtic with autscaling - old ips are not removed, and access to the database can easily be given at the BoK level
+          # if @dependencies.has_key?("database")
+            # @dependencies['database'].values.each { |db|
+              # db.allowHost(@deploydata["private_ip_address"]+"/32")
+              # if @deploydata["public_ip_address"]
+                # db.allowHost(@deploydata["public_ip_address"]+"/32")
+              # end
+            # }
+          # end
 
           @groomer.saveDeployData
 
@@ -1296,6 +1350,7 @@ module MU
             @deploydata["public_dns_name"] = instance.public_dns_name
             @deploydata["private_ip_address"] = instance.private_ip_address
             @deploydata["private_dns_name"] = instance.private_dns_name
+
             notify
           end
 
@@ -1608,6 +1663,65 @@ module MU
           end
 
           return addr
+        end
+
+        # Add a volume to this instance
+        # @param dev [String]: Device name to use when attaching to instance
+        # @param size [String]: Size (in gb) of the new volume
+        # @param type [String]: Cloud storage type of the volume, if applicable
+        def addVolume(dev, size, type = "gp2")
+          if @cloud_id.nil? or @cloud_id.empty?
+            MU.log "#{self} didn't have a #{@cloud_id}, couldn't determine 'active?' status", MU::ERR
+            return true
+          end
+          az = nil
+          MU::Cloud::AWS.ec2(@config['region']).describe_instances(
+            instance_ids: [@cloud_id]
+          ).reservations.each { |resp|
+            if !resp.nil? and !resp.instances.nil?
+              resp.instances.each { |instance|
+              az = instance.placement.availability_zone
+                instance.block_device_mappings.each { |vol|
+                  if vol.device_name == dev
+                    MU.log "A volume #{dev} already attached to #{self}, skipping", MU::NOTICE
+                    return
+                  end
+                }
+              }
+            end
+          }
+          MU.log "Creating #{size}GB #{type} volume on #{dev} for #{@cloud_id}"
+          creation = MU::Cloud::AWS.ec2(@config['region']).create_volume(
+            availability_zone: az,
+            size: size,
+            volume_type: type
+          )
+          begin
+            sleep 3
+            creation = MU::Cloud::AWS.ec2(@config['region']).describe_volumes(volume_ids: [creation.volume_id]).volumes.first
+            if !["creating", "available"].include?(creation.state)
+              raise MuError, "Saw state '#{creation.state}' while creating #{size}GB #{type} volume on #{dev} for #{@cloud_id}"
+            end
+          end while creation.state != "available"
+
+          MU::MommaCat.listStandardTags.each_pair { |key, value|
+            MU::MommaCat.createTag(creation.volume_id, key, value, region: @config['region'])
+          }
+          MU::MommaCat.createTag(creation.volume_id, "Name", "#{MU.deploy_id}-#{@config["name"].upcase}-#{dev.upcase}", region: @config['region'])
+
+          attachment = MU::Cloud::AWS.ec2(@config['region']).attach_volume(
+            device: dev,
+            instance_id: @cloud_id,
+            volume_id: creation.volume_id
+          )
+
+          begin
+            sleep 3
+            attachment = MU::Cloud::AWS.ec2(@config['region']).describe_volumes(volume_ids: [attachment.volume_id]).volumes.first.attachments.first
+            if !["attaching", "attached"].include?(attachment.state)
+              raise MuError, "Saw state '#{creation.state}' while creating #{size}GB #{type} volume on #{dev} for #{@cloud_id}"
+            end
+          end while attachment.state != "attached"
         end
 
         # Determine whether the node in question exists at the Cloud provider

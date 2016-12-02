@@ -72,7 +72,7 @@ def loadMuConfig
       "dcs" => ["localhost"]
     }
   }
-  ["HOSTNAME", "MU_ADMIN_EMAIL", "JENKINS_ADMIN_EMAIL"].each { |var|
+  ["HOST_NAME", "MU_ADMIN_EMAIL", "JENKINS_ADMIN_EMAIL"].each { |var|
     if ENV.has_key?(var) and !ENV[var].empty?
       default_cfg[var.downcase] = ENV[var]
     end

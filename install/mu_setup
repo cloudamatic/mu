@@ -4,18 +4,27 @@
 # setting up the Mu tools, Chef, and assorted support libraries and utilities.
 #
 
+# clean containing environment of nonsense
+unset GEM_HOME
+unset GEM_PATH
+
 DIST_VERSION=`rpm -qa \*-release\* | grep -Ei "redhat|centos" | cut -d"-" -f3`
-if [ "$DIST_VERSION" == "server" ];then # funny package name in RHEL6
+IS_AMAZON=0
+if [ "$DIST_VERSION" == "" ];then # funny package name in Amazon Linux
+#  DIST_VERSION=`rpm -qa \*-release\* | cut -d"-" -f3` # XXX always 6 for now
+  DIST_VERSION=6
+  IS_AMAZON=1
+elif [ "$DIST_VERSION" == "server" ];then # funny package name in RHEL6
   DIST_VERSION="6"
 fi
 EPEL_RPM="http://mirror.metrocast.net/fedora/epel/epel-release-latest-$DIST_VERSION.noarch.rpm"
 
-CHEF_CLIENT_VERSION="12.8.1-1"
-CHEF_SERVER_VERSION="12.4.1-1"
+CHEF_CLIENT_VERSION="12.13.37-1"
+CHEF_SERVER_VERSION="12.10.0-1"
 
 if [ $DIST_VERSION == 7 ];then
   # mariadb replaces mysql, qt and qt-x11 are required by gecode which is required by the dep_selector gem. 
-  PACKAGES="git curl vim-enhanced zip unzip java-1.8.0-openjdk gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx postgresql-devel openssl libyaml graphviz graphviz-devel mariadb mariadb-devel qt qt-x11 iptables-services"
+  PACKAGES="git curl vim-enhanced zip unzip java-1.8.0-openjdk gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx postgresql-devel openssl libyaml graphviz graphviz-devel mariadb mariadb-devel qt qt-x11 iptables-services jq"
   DEL_PACKAGES="nagios firewalld"
   OPSCODE_CHEF_PKG="chef-server-core-$CHEF_SERVER_VERSION.el7.x86_64"
   OPSCODE_CHEF_DL="https://packages.chef.io/stable/el/7/${OPSCODE_CHEF_PKG}.rpm"
@@ -25,7 +34,12 @@ if [ $DIST_VERSION == 7 ];then
   RUBY_VERSION="ruby-2.1.6"
   GECODE_RPMS="https://s3.amazonaws.com/cap-public/gecode-3.7.3-2.el7.centos.x86_64.rpm https://s3.amazonaws.com/cap-public/gecode-devel-3.7.3-2.el7.centos.x86_64.rpm"
 else
-  PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.7.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel diffutils patch bind-utils httpd-tools gecode-devel mailx mysql-devel postgresql-devel openssl libyaml graphviz autoconf ImageMagick-devel graphviz-devel"
+  PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.8.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel diffutils patch bind-utils httpd-tools mailx mysql-devel postgresql-devel openssl libyaml graphviz autoconf ImageMagick-devel graphviz-devel jq"
+  if [ "$IS_AMAZON" != "1" ];then
+    PACKAGES="${PACKAGES} gecode-devel"
+#  else
+#    PACKAGES="${PACKAGES} "
+  fi
   OPSCODE_CHEF_PKG="chef-server-core-$CHEF_SERVER_VERSION.el6.x86_64"
   OPSCODE_CHEF_DL="https://packages.chef.io/stable/el/6/${OPSCODE_CHEF_PKG}.rpm"
   CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el6.x86_64"
@@ -56,11 +70,11 @@ export PATH="/bin:/usr/bin:/sbin:/usr/sbin"
 
 # Non-root users can only customize certain configuration parameters
 if [ "root" == "`whoami`" ];then
-  CONFIG_VARS="AWS_ACCESS AWS_SECRET MU_ADMIN_EMAIL MU_ADMIN_PW JENKINS_ADMIN_PW MU_INSTALLDIR MU_DATADIR ADDTL_CHEF_REPOS MU_REPO CHEF_PUBLIC_IP HOSTNAME EC2SECGROUP LOG_BUCKET_NAME ALLOW_INVADE_FOREIGN_VPCS MU_SSL_CERT MU_SSL_KEY MU_SSL_CHAIN"
+  CONFIG_VARS="AWS_ACCESS AWS_SECRET MU_ADMIN_EMAIL MU_ADMIN_PW JENKINS_ADMIN_PW MU_INSTALLDIR MU_DATADIR ADDTL_CHEF_REPOS MU_REPO CHEF_PUBLIC_IP HOST_NAME EC2SECGROUP LOG_BUCKET_NAME ALLOW_INVADE_FOREIGN_VPCS MU_SSL_CERT MU_SSL_KEY MU_SSL_CHAIN"
   RO_CONFIG_VARS="AWS_ACCOUNT_NUMBER EC2_REGION"
 else
   CONFIG_VARS="AWS_ACCESS AWS_SECRET MU_DATADIR ADDTL_CHEF_REPOS MU_REPO LOG_BUCKET_NAME"
-  RO_CONFIG_VARS="AWS_ACCOUNT_NUMBER EC2_REGION CHEF_PUBLIC_IP HOSTNAME EC2SECGROUP MU_INSTALLDIR"
+  RO_CONFIG_VARS="AWS_ACCOUNT_NUMBER EC2_REGION CHEF_PUBLIC_IP HOST_NAME EC2SECGROUP MU_INSTALLDIR"
 fi
 
 usage()
@@ -202,11 +216,11 @@ fi
 if [ "$MY_PUBLIC_IP" == "" ];then
   MY_PUBLIC_IP=$MY_PRIVATE_IP
 fi
-if [ "$HOSTNAME" == "" ];then
-  HOSTNAME="`hostname -s`"
+if [ "$HOST_NAME" == "" ];then
+  HOST_NAME="`hostname -s`"
 fi
 if [ "$LOG_BUCKET_NAME" == "" ];then
-  LOG_BUCKET_NAME="mu-logs-${HOSTNAME}-${MY_INSTANCE_ID}"
+  LOG_BUCKET_NAME="mu-logs-${HOST_NAME}-${MY_INSTANCE_ID}"
 fi
 MY_VPC_ID=""
 # Figure out if we have at least one interface in a VPC
@@ -317,7 +331,25 @@ set_path_env_vars()
 }
 
 pivotal_cfg_setup(){
-  pivotal_cfg="-u pivotal -k /etc/opscode/pivotal.pem"
+  port=$2
+  if [ "$port" == "" ];then
+    port=7443
+  fi
+  cat >> /etc/opscode/pivotal.rb.tmp.$$ << EOF
+node_name "pivotal"
+chef_server_url "https://${CHEF_PUBLIC_IP}:$port"
+chef_server_root "https://${CHEF_PUBLIC_IP}:$port"
+client_key "/etc/opscode/pivotal.pem"
+ssl_verify_mode :verify_none
+EOF
+  if [ ! -f /etc/opscode/pivotal.rb -o "`diff /etc/opscode/pivotal.rb /etc/opscode/pivotal.rb.tmp.$$`" != "" ];then
+    /bin/mv -f /etc/opscode/pivotal.rb.tmp.$$ /etc/opscode/pivotal.rb
+  fi
+  pivotal_pem="/opt/opscode/embedded/service/omnibus-ctl/spec/fixtures/pivotal.pem"
+  if [ -f /etc/opscode/pivotal.pem ];then
+    pivotal_pem="/etc/opscode/pivotal.pem"
+  fi
+  pivotal_cfg="-u pivotal -k $pivotal_pem"
   knife ssl fetch $pivotal_cfg > /dev/null 2>&1
   eval "$1=\"$pivotal_cfg\""
 }
@@ -345,7 +377,6 @@ manage_chef_org()
   add_user=$3
   association_user=$4
 
-  pivotal_cfg_setup pivotal_cfg
   # chef-server-ctl generates a spectcular amount of stupid noise
   filter="(ffi-yajl|falling back to ffi)"
 
@@ -468,7 +499,6 @@ manage_chef_user()
   mkdir -p "$MU_DATADIR/users/$user"
   /bin/chmod g+rsx "$MU_DATADIR/users"
   /bin/chgrp mu-users "$MU_DATADIR/users"
-  pivotal_cfg_setup pivotal_cfg
   # chef-server-ctl generates a spectcular amount of stupid noise
   filter="(ffi-yajl|falling back to ffi)"
 
@@ -667,6 +697,7 @@ print_setup_env_vars(){
 
 chef_client()
 {
+  punch_tcp_hole 7443 # sometimes this isn't ready
   status_message "chef-client $@"
 
   chef_cert_name="`echo $CHEF_PUBLIC_IP | sed 's/\./_/g'`"
@@ -674,14 +705,14 @@ chef_client()
   /bin/cp -f /opt/mu/var/ssl/Mu_CA.pem /etc/chef/trusted_certs/
   if (knife ssl check -c /etc/chef/client.rb | egrep "^ERROR.*certificate");then
     /bin/rm -f /etc/chef/trusted_certs/${chef_cert_name}.crt
-    /bin/rm -f /etc/chef/trusted_certs/${HOSTNAME}_platform-mu.crt
+    /bin/rm -f /etc/chef/trusted_certs/${HOST_NAME}_platform-mu.crt
     /opt/chef/bin/knife ssl fetch -c /etc/chef/client.rb
   fi
   # Same, but for /root/.chef/trusted_certs
   /bin/cp -f /opt/mu/var/ssl/Mu_CA.pem /root/.chef/trusted_certs/
   if (knife ssl check | egrep "^ERROR.*certificate");then
     /bin/rm -f /root/.chef/trusted_certs/${chef_cert_name}.crt
-    /bin/rm -f /root/.chef/trusted_certs/${HOSTNAME}_platform-mu.crt
+    /bin/rm -f /root/.chef/trusted_certs/${HOST_NAME}_platform-mu.crt
     /opt/chef/bin/knife ssl fetch
   fi
   chef-client $@
@@ -692,6 +723,7 @@ chef_client()
 chef_server_ctl()
 {
   cmd=$1
+  pivotal_cfg_setup pivotal_cfg
   status_message "/opt/opscode/bin/chef-server-ctl $cmd"
   if ! /opt/opscode/bin/chef-server-ctl $cmd > /dev/null;then
     status_message "Bad exit code from chef-server-ctl $cmd! Logs:"
@@ -933,35 +965,35 @@ clone_repository()
 ###############################################################################
 set_hostname()
 {
-  if [ "$HOSTNAME" != "`hostname -s`" ];then
-    hostname $HOSTNAME
-    sed -i "s/^HOSTNAME=.*/HOSTNAME=$HOSTNAME/" /etc/sysconfig/network
+  if [ "$HOST_NAME" != "`hostname -s`" ];then
+    hostname $HOST_NAME
+    sed -i "s/^HOST_NAME=.*/HOST_NAME=$HOST_NAME/" /etc/sysconfig/network
 
     if [ $DIST_VERSION == 7 ];then
-      hostnamectl set-hostname $HOSTNAME && systemctl restart systemd-hostnamed
+      hostnamectl set-hostname $HOST_NAME && systemctl restart systemd-hostnamed
     fi
   fi
-  if ! grep "^$MY_PRIVATE_IP $HOSTNAME.platform-mu $HOSTNAME MU-MASTER" /etc/hosts > /dev/null;then
-    sed -i "/ $HOSTNAME/d" /etc/hosts
+  if ! grep "^$MY_PRIVATE_IP $HOST_NAME.platform-mu $HOST_NAME MU-MASTER" /etc/hosts > /dev/null;then
+    sed -i "/ $HOST_NAME/d" /etc/hosts
     sed -i "/^$MY_PRIVATE_IP/d" /etc/hosts
-    echo "$MY_PRIVATE_IP $HOSTNAME.platform-mu $HOSTNAME MU-MASTER" >> /etc/hosts
+    echo "$MY_PRIVATE_IP $HOST_NAME.platform-mu $HOST_NAME MU-MASTER" >> /etc/hosts
   fi
   if [ "$MY_PRIVATE_IP" != "$MY_PUBLIC_IP" -a "$MY_PUBLIC_IP" != "" ];then
-    if ! grep "^$MY_PUBLIC_IP $HOSTNAME.platform-mu $HOSTNAME MU-MASTER" /etc/hosts > /dev/null;then
-      sed -i "/ $HOSTNAME/d" /etc/hosts
+    if ! grep "^$MY_PUBLIC_IP $HOST_NAME.platform-mu $HOST_NAME MU-MASTER" /etc/hosts > /dev/null;then
+      sed -i "/ $HOST_NAME/d" /etc/hosts
       sed -i "/^$MY_PUBLIC_IP/d" /etc/hosts
-      echo "$MY_PRIVATE_IP $HOSTNAME.platform-mu $HOSTNAME MU-MASTER" >> /etc/hosts
-      echo "$MY_PUBLIC_IP $HOSTNAME.platform-mu $HOSTNAME MU-MASTER" >> /etc/hosts
+      echo "$MY_PRIVATE_IP $HOST_NAME.platform-mu $HOST_NAME MU-MASTER" >> /etc/hosts
+      echo "$MY_PUBLIC_IP $HOST_NAME.platform-mu $HOST_NAME MU-MASTER" >> /etc/hosts
     fi
   fi
-  export HOSTNAME
+  export HOST_NAME
 }
 
 ###############################################################################
 set_logbucket()
 {
 if [ "$LOG_BUCKET_NAME" == "" ];then
-  LOG_BUCKET_NAME="mu-logs-${HOSTNAME}-${MY_INSTANCE_ID}"
+  LOG_BUCKET_NAME="mu-logs-${HOST_NAME}-${MY_INSTANCE_ID}"
 fi
 export LOG_BUCKET_NAME
 update_murc LOG_BUCKET_NAME $LOG_BUCKET_NAME
@@ -999,11 +1031,11 @@ install_system_packages()
     yum -y install ${enables} ${install_me} || exit 1
   fi
 
-  if [ $DIST_VERSION == 7 ];then
-    for pkg in $GECODE_RPMS;do
-      rpm -ivh $pkg
-    done
-  fi
+  # if [ $DIST_VERSION == 7 ];then
+    # for pkg in $GECODE_RPMS;do
+      # rpm -ivh $pkg
+    # done
+  # fi
 }
 
 ###############################################################################
@@ -1040,10 +1072,19 @@ clone_mu_repository()
 ## will reside in its own /opt/chef sandbox and should be left unmolested.
 install_ruby()
 {
-  status_message "Installing latest ${BOLD}Ruby${NORM} stable snapshot"
+  if [ "$1" == "purgeold" ];then
+    status_message "Purging existing ${BOLD}$RUBY_VERSION${NORM} package"
+    rpm -e $RUBY_VERSION
+    rm -rf $RUBY_INSTALL_DIR
+  fi
+  status_message "Installing ${BOLD}$RUBY_VERSION${NORM}"
 
   if ! rpm -q $RUBY_VERSION > /dev/null ;then
-    rpm -ivh $RUBY_RPM
+    if [ "$IS_AMAZON" != "1" ];then
+      rpm -ivh $RUBY_RPM
+    else
+      rpm -ivh --nodeps $RUBY_RPM # XXX hack workaround for spurious dependency
+    fi
   fi
   rm -f /usr/local/ruby-current
   ln -s $RUBY_INSTALL_DIR /usr/local/ruby-current
@@ -1151,7 +1192,8 @@ add_chef_support_gems()
 
   status_message "Installing support gems in $rubydir"
 
-	cd $MU_LIBDIR/modules && $rubydir/bin/bundle install
+  cd $MU_LIBDIR/modules && $rubydir/bin/bundle install
+  $rubydir/bin/gem update --system
   set +e
 
   find $rubydir/ -type f -exec chmod go+r {} \;
@@ -1212,7 +1254,8 @@ install_chef()
   # client. Install something sane.
   if ! rpm -q $CHEF_CLIENT_PKG > /dev/null ;then
     status_message "Installing current Chef client"
-    yum -y erase chef
+    yum -y erase chef || rpm -e chef # one of these will get it
+    rm -rf /opt/chef # and stay out
     curl https://www.chef.io/chef/install.sh > /root/chef-install.sh
     sh /root/chef-install.sh -v $CHEF_CLIENT_VERSION
   fi
@@ -1237,10 +1280,12 @@ install_chef()
     rpm -ivh $OPSCODE_CHEF_DL
     find /opt/opscode/embedded/lib/ruby -type f -exec chmod o+r {} \;
     find /opt/opscode/embedded/lib/ruby -type d -exec chmod o+rx {} \;
+    pivotal_cfg_setup pivotal_cfg $port
     /opt/opscode/bin/chef-server-ctl reconfigure
     chef_self_test=1
   elif [ ! -f "/var/opt/opscode/nginx/ca/${CHEF_PUBLIC_IP}.crt" ];then
     status_message "Hostname or IP may have changed, reconfiguring Chef (listen port: ${port})"
+    pivotal_cfg_setup pivotal_cfg $port
     /opt/opscode/bin/chef-server-ctl restart
     /opt/opscode/bin/chef-server-ctl reconfigure
     knife ssl fetch -u pivotal -k /etc/opscode/pivotal.pem -s https://${CHEF_PUBLIC_IP}:$port > /dev/null 2>&1
@@ -1250,18 +1295,7 @@ install_chef()
     chef_self_test=1
   fi
 # add_chef_support_gems /opt/opscode/embedded
-  cat >> /etc/opscode/pivotal.rb.tmp.$$ << EOF
-node_name "pivotal"
-chef_server_url "https://${CHEF_PUBLIC_IP}:$port"
-chef_server_root "https://${CHEF_PUBLIC_IP}:$port"
-client_key "/etc/opscode/pivotal.pem"
-ssl_verify_mode :verify_none
-EOF
-  if [ ! -f /etc/opscode/pivotal.rb -o "`diff /etc/opscode/pivotal.rb /etc/opscode/pivotal.rb.tmp.$$`" != "" ];then
-    /bin/mv -f /etc/opscode/pivotal.rb.tmp.$$ /etc/opscode/pivotal.rb
-  fi
-
-  pivotal_cfg="-u pivotal -k /etc/opscode/pivotal.pem -s https://${CHEF_PUBLIC_IP}:$port"
+  pivotal_cfg_setup pivotal_cfg $port
 
   knife ssl fetch $pivotal_cfg > /dev/null 2>&1
 
@@ -1326,6 +1360,7 @@ nginx['ssl_protocols'] = "TLSv1 TLSv1.1 TLSv1.2"
 nginx['ssl_certificate'] = "$MU_SSL_CERT"
 nginx['ssl_certificate_key'] = "$MU_SSL_KEY"
 bookshelf['external_url'] = "https://"+server_name+":7443"
+bookshelf['vip_port'] = 7443
 EOF
   if [ ! -f /etc/opscode/chef-server.rb -o "`diff /etc/opscode/chef-server.rb /etc/opscode/chef-server.rb.tmp.$$`" != "" ];then
     /bin/mv -f /etc/opscode/chef-server.rb.tmp.$$ /etc/opscode/chef-server.rb
@@ -1336,26 +1371,19 @@ EOF
 
   # XXX workaround for vile chef bug, see:
   # https://github.com/chef/chef-server/issues/50
-  if ! grep "s3_url, \"https:\/\/${HOSTNAME}.platform-mu:7443\"" /var/opt/opscode/opscode-erchef/sys.config > /dev/null;then
-    status_message "Switching ${BOLD}Chef Server${NORM} to port ${BOLD}7443${NORM}"
-    /bin/sed -i "s/s3_url, \"https:\/\/${HOSTNAME}.platform-mu\"/s3_url, \"https:\/\/${HOSTNAME}.platform-mu:7443\"/" /var/opt/opscode/opscode-erchef/sys.config
-    chef_server_ctl restart
-  fi
+#  if ! grep "s3_url, \"https:\/\/${HOST_NAME}.platform-mu:7443\"" /var/opt/opscode/opscode-erchef/sys.config > /dev/null;then
+#    status_message "Switching ${BOLD}Chef Server${NORM} to port ${BOLD}7443${NORM}"
+#    /bin/sed -i "s/s3_url, \"https:\/\/${HOST_NAME}.platform-mu\"/s3_url, \"https:\/\/${HOST_NAME}.platform-mu:7443\"/" /var/opt/opscode/opscode-erchef/sys.config
+#    chef_server_ctl restart
+#  fi
 
   set_knife_rb organizations/mu mu "https://${CHEF_PUBLIC_IP}:7443"
   /opt/chef/bin/knife ssl fetch -s https://$CHEF_PUBLIC_IP:7443 > /dev/null 2>&1
   /opt/chef/bin/knife ssl fetch -s https://localhost:7443 > /dev/null 2>&1
   /opt/chef/bin/knife ssl fetch -s https://127.0.0.1:7443 > /dev/null 2>&1
-  cat >> /etc/opscode/pivotal.rb.tmp.$$ << EOF
-node_name "pivotal"
-chef_server_url "https://${CHEF_PUBLIC_IP}:7443"
-chef_server_root "https://${CHEF_PUBLIC_IP}:7443"
-client_key "/etc/opscode/pivotal.pem"
-# ssl_verify_mode :verify_none
-EOF
-  if [ ! -f /etc/opscode/pivotal.rb -o "`diff /etc/opscode/pivotal.rb /etc/opscode/pivotal.rb.tmp.$$`" != "" ];then
-    /bin/mv -f /etc/opscode/pivotal.rb.tmp.$$ /etc/opscode/pivotal.rb
-  fi
+
+  pivotal_cfg_setup pivotal_cfg 7443
+
   cat >> /etc/chef/client.rb.tmp.$$ << EOF
 log_location     STDOUT
 chef_server_url  "https://${CHEF_PUBLIC_IP}:7443/organizations/mu"
@@ -1369,8 +1397,9 @@ EOF
   if [ -f /root/.chef/client.rb -a "`diff /root/.chef/client.rb /etc/chef/client.rb.tmp.$$`" != "" ];then
     /bin/cp -f /etc/chef/client.rb.tmp.$$ /root/.chef/client.rb
   fi
-  /bin/rm -f /etc/chef/client.rb.tmp.$$
+  /bin/rm -f /etc/chef/client.rb.tmp.$$ /etc/chef/validation.pem
   /sbin/service httpd start 2>&1 > /dev/null
+  punch_tcp_hole 7443 # sometimes this isn't ready
   knife vault create scratchpad dummy '{ "merp":"meep" }'
   knife vault delete -y scratchpad dummy
 }
@@ -1378,9 +1407,12 @@ EOF
 
 upload_chef_artifacts()
 {
+  punch_tcp_hole 7443 # sometimes this isn't ready
   if [ "$chef_artifacts_uploaded" != "1" ];then
     if ! echo "$@" | egrep -- "-n" ;then
-      rm -rf $HOMEDIR/.berkshelf/cookbooks/*
+      rm -rf $HOMEDIR/.berkshelf
+      rm -rf $HOMEDIR/.chef/cookbooks
+      rm -rf $HOMEDIR/.chef/site_cookbooks
       rm -rf $MU_LIBDIR/cookbooks/cap-*
       for a in cookbooks site_bookbooks data_bags roles environments;do
         /bin/rm -rf $MU_CHEF_CACHE/$a
@@ -1477,14 +1509,23 @@ start_momma_cat()
 ###############################################################################
 setup_localhost_chef_client()
 {
+  punch_tcp_hole 7443 # sometimes this isn't ready
+  allowuser="`grep ^AllowUsers /etc/ssh/sshd_config | awk '{print $2}'`"
+  if [ "$allowuser" == "" ];then
+    allowuser="root"
+  fi
   if [ ! -f $HOMEDIR/.ssh/id_rsa.pub ];then
     ssh-keygen -N '' -f $HOMEDIR/.ssh/id_rsa
     chmod 600 $HOMEDIR/.ssh/id_rsa
   fi
+  # On CentOS 7 and the like, this is some non-root user
+  ssh_homedir="`getent passwd \"$allowuser\" |cut -d: -f6`"
+  mkdir -p "$ssh_homedir/.ssh/"
   pubkey="`cat $HOMEDIR/.ssh/id_rsa.pub`"
-  if [ "`grep \"$pubkey\" $HOMEDIR/.ssh/authorized_keys`" == "" ];then
-    echo "$pubkey" >> $HOMEDIR/.ssh/authorized_keys
+  if [ "`grep \"$pubkey\" $ssh_homedir/.ssh/authorized_keys`" == "" ];then
+    echo "$pubkey" >> $ssh_homedir/.ssh/authorized_keys
   fi
+  chown -R "$allowuser" "$ssh_homedir/.ssh/"
   if [ "`grep '^Host localhost' $HOMEDIR/.ssh/config`" == "" ];then
     echo "Host localhost" >> $HOMEDIR/.ssh/config
     echo "  IdentityFile $HOMEDIR/.ssh/id_rsa"  >> $HOMEDIR/.ssh/config
@@ -1502,11 +1543,18 @@ setup_localhost_chef_client()
       upload_chef_artifacts -n -r $MU_REPO_NAME
     fi
     mkdir -p /etc/chef
-    /opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none ${CHEF_PUBLIC_IP}
+    if [ "$allowuser" == "root" -o "$allowuser" == "" ];then
+      /opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --no
+    else
+      /opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --no
+    fi
     run_chef_client=0
   fi
+
   status_message "Configuring local LDAP directory"
   upload_chef_artifacts -n -r $MU_REPO_NAME
+  punch_tcp_hole 389
+  punch_tcp_hole 636
   $MU_LIBDIR/install/ldap_setup.rb
   /opt/chef/bin/knife node run_list remove MU-MASTER "role[mu-master-jenkins]" > /dev/null 2>&1 # buggy prior invocations get fouled up on subsequent runs
   /opt/chef/bin/knife node run_list add MU-MASTER "role[mu-master]"
@@ -1527,7 +1575,8 @@ configure_nagios_server()
     # skip this if we're being called from mu-self-update and have already
     # done it
     if [ "$chef_artifacts_uploaded" != 1 ];then
-      upload_chef_artifacts
+	    upload_chef_artifacts -r mu
+    	upload_chef_artifacts -n
     fi
     chef_client -o "recipe[mu-master::update_nagios_only]"
     run_chef_client=0
@@ -1550,6 +1599,7 @@ configure_nagios_server()
 ###############################################################################
 preconfigure_jenkins_artifacts()
 {
+  punch_tcp_hole 7443 # sometimes this isn't ready
   if [ "$JENKINS_ADMIN_PW" != "" ];then
         status_message "Configuring the ${BOLD}Jenkins${NORM} artifacts"
         punch_tcp_hole 9443
@@ -1690,6 +1740,35 @@ set_permissions()
   fi
 }
 
+generate_repo_berksfile()
+{
+  repodir=$1
+  cd $repodir || return
+  if [ ! -f "Berksfile" ];then
+    warning_message "Generating a Berksfile in ${BOLD}$repodir${NORM}"
+    cat > "$repodir/Berksfile" << EOF
+if !ENV.include? 'MU_DATADIR'
+  if !ENV.include? 'MU_INSTALLDIR'
+    raise "Can't find MU_DATADIR or MU_INSTALLDIR in my environment!"
+  end
+
+  ENV['MU_DATADIR'] = "#{ENV['MU_INSTALLDIR']}/var"
+end
+instance_eval(File.read(File.expand_path("#{ENV['MU_INSTALLDIR']}/lib/Berksfile", __FILE__)))
+source "https://supermarket.getchef.com"
+EOF
+    for d in cookbooks site_cookbooks;do
+      if [ -d "$repodir/$d" ];then
+        cd "$repodir/$d"
+        for c in `ls -1`;do
+          echo "cookbook '$c', path: '$repodir/$d/$c'" >> "$repodir/Berksfile"
+        done
+      fi
+    done
+    cd "$repodir" && berks install
+  fi
+}
+
 ###############################################################################
 ###############################################################################
 ###############################################################################
@@ -1713,6 +1792,7 @@ if [ "$library" != "1" ];then
   for extra in $ADDTL_CHEF_REPOS;do
     extra_repo_name="`echo $extra | sed 's/^.*\///' | cut -d. -f1`"
     clone_repository "$extra" "$MU_DATADIR/$extra_repo_name"
+    generate_repo_berksfile "$MU_DATADIR/$extra_repo_name"
   done
   if [ "$USER" == "root" ];then
     install_system_packages
@@ -1740,6 +1820,7 @@ if [ "$library" != "1" ];then
     preconfigure_jenkins_artifacts
   fi
   if [ "$JENKINS_ADMIN_PW" != "" ];then
+    punch_tcp_hole 7443 # sometimes this isn't ready
     knife node run_list add MU-MASTER "role[mu-master-jenkins]"
     chef_client -l info
   fi

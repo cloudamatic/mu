@@ -268,13 +268,13 @@ app = proc do |env|
         ]
       end
     elsif !env.nil? and !env['REQUEST_PATH'].nil? and env['REQUEST_PATH'].match(/^\/rest\//)
+      action, filter, path = env['REQUEST_PATH'].sub(/^\/rest\/?/, "").split(/\//, 3)
       # Don't give away the store. This can't be public until we can
       # authenticate and access-control properly.
-      if env['REMOTE_ADDR'] != "127.0.0.1"
+      if env['REMOTE_ADDR'] != "127.0.0.1" and action != "bucketname"
         returnval = throw500 "Service not available"
         next
       end
-      action, filter, path = env['REQUEST_PATH'].sub(/^\/rest\/?/, "").split(/\//, 3)
 
       if action == "deploy"
         returnval = throw404 env['REQUEST_PATH'] if !filter
@@ -289,6 +289,15 @@ app = proc do |env|
       elsif action == "list"
         MU.log "Listing deployments"
         returnval = returnRawJSON JSON.generate(MU::MommaCat.listDeploys)
+      elsif action == "bucketname"
+        returnval = [
+          200,
+          {
+            'Content-Type' => 'text/plain',
+            'Content-Length' => MU.adminBucketName.length.to_s
+          },
+          [MU.adminBucketName]
+        ]
       else
         returnval = throw404 env['REQUEST_PATH']
       end
@@ -296,17 +305,7 @@ app = proc do |env|
     elsif !env["rack.input"].nil?
       req = Rack::Utils.parse_nested_query(env["rack.input"].read)
       ok = true
-#			required_vars.each { |var|
-#				if req[var].nil? or req[var].empty?
-#					ok = false
-#					MU.log "Invalid request: #{var} must be specified", MU::ERR, details: req
-#				end
-#			}
-#			if !ok
-#				throw500 "Malformed request", req
-#				MU.purgeGlobals
-#				next
-#			end
+
       if req["mu_user"].nil?
         req["mu_user"] = "mu"
       end
@@ -347,6 +346,17 @@ app = proc do |env|
       end
       if !req["mu_ssl_sign"].nil?
         kittenpile.signSSLCert(req["mu_ssl_sign"])
+      elsif !req["add_volume"].nil?
+puts instance.cloud_id
+pp req
+        if instance.respond_to?(:addVolume)
+# XXX make sure we handle mangled input safely
+          params = JSON.parse(Base64.decode64(req["add_volume"]))
+          instance.addVolume(params["dev"], params["size"])
+        else
+          returnval = throw500 "I don't know how to add a volume for #{instance}"
+          ok = false
+        end
       elsif !instance.nil?
         if !req["mu_bootstrap"].nil?
           kittenpile.groomNode(req["mu_instance_id"], req["mu_resource_name"], req["mu_resource_type"], mu_name: mu_name, sync_wait: true)

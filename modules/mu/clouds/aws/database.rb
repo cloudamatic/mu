@@ -217,6 +217,12 @@ module MU
             tags << {key: name, value: value}
           }
 
+          if @config['optional_tags']
+            MU::MommaCat.listOptionalTags.each_pair { |name, value|
+              tags << {key: name, value: value}
+            }
+          end
+
           if @config['tags']
             @config['tags'].each { |tag|
               tags << {key: tag['key'], value: tag['value']}
@@ -918,6 +924,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [OpenStruct]
         def self.getDatabaseById(db_id, region: MU.curRegion)
+          raise MuError, "You must provide a db_id" if db_id.nil?
           MU::Cloud::AWS.rds(region).describe_db_instances(db_instance_identifier: db_id).db_instances.first
         rescue Aws::RDS::Errors::DBInstanceNotFound => e
           # We're fine with this returning nil when searching for a database instance the doesn't exist.
@@ -948,6 +955,7 @@ module MU
           my_dbs.each { |db|
           deploy_struct = 
             if db["create_cluster"]
+              db["identifier"] = @mu_name.downcase if db["identifier"].nil?
               cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(db["identifier"], region: db['region'])
               # DNS records for the "real" zone should always be registered as late as possible so override_existing only overwrites the records after the resource is ready to use.
               if db['dns_records']
@@ -988,6 +996,7 @@ module MU
                 "db_cluster_members" => cluster.db_cluster_members
               }
             else
+              db["identifier"] = @mu_name.downcase if db["identifier"].nil? # Is this still valid if we have read replicas?
               database = MU::Cloud::AWS::Database.getDatabaseById(db["identifier"], region: db['region'])
               # DNS records for the "real" zone should always be registered as late as possible so override_existing only overwrites the records after the resource is ready to use.
               unless db["add_cluster_node"]
@@ -1412,11 +1421,13 @@ module MU
           end
 
           begin
-            del_db = MU::Cloud::AWS::Database.getDatabaseById(db_id, region: region)
-            while !del_db.nil? and del_db.db_instance_status != "deleted" and !noop
-              MU.log "Waiting for #{db_id} termination to complete", MU::NOTICE
-              sleep 60
+            attempts = 0
+            loop do
+              MU.log "Waiting for #{db_id} termination to complete", MU::NOTICE if attempts % 6 == 0
               del_db = MU::Cloud::AWS::Database.getDatabaseById(db_id, region: region)
+              break if del_db.nil? || del_db.db_instance_status == "deleted"
+              sleep 10
+              attempts += 1
             end
           rescue Aws::RDS::Errors::DBInstanceNotFound
             # we are ok with this

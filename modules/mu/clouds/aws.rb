@@ -174,6 +174,13 @@ module MU
         @@sns_api[region]
       end
 
+      # Amazon's EFS API
+      def self.efs(region = MU.curRegion)
+        region ||= MU.myRegion
+        @@efs_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "EFS", region: region)
+        @@efs_api[region]
+      end
+
       # Fetch an Amazon instance metadata parameter (example: public-ipv4).
       # @param param [String]: The parameter name to fetch
       # @return [String, nil]
@@ -395,7 +402,7 @@ module MU
       @@cloudfront_api = {}
       @@elasticache_api = {}
       @@sns_api = {}
-
+      @@efs_api ={}
     end
   end
 end

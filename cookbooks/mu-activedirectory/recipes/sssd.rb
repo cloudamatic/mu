@@ -127,6 +127,7 @@ case node.platform_family
       variables(
         :domain => node.ad.domain_name,
         :homedir => node.ad.homedir,
+        :krb5keytabuser => node.ad.computer_name,
         :short_domain => node.ad.netbios_name,
         :base_dn => node.ad.domain_name.split(/\./).map { |x| "dc=#{x}" }.join(","),
         :dcs => node.ad.dc_ips

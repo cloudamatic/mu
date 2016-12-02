@@ -45,11 +45,11 @@ ruby_block "remount_app_volume" do
       Chef::Log.info("Will execute #{command}")
       `#{command}`
       Chef::Log.info("Waking and remounting encrypted volume")
-      if volume_attached(mount_device)
+#      if volume_attached(mount_device)
         alias_device = mount_directory.gsub("/", "") #by convention
         `cryptsetup luksOpen #{mount_device} #{alias_device} --key-file #{temp_mount}/#{ebs_keyfile}`
         `mount "/dev/mapper/#{alias_device}" #{mount_directory}`
-      end
+#      end
     end
     action :create
     not_if { is_mounted?(mount_directory) }

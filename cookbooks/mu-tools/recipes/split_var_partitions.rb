@@ -30,32 +30,14 @@ if !node[:application_attributes][:skip_recipes].include?('split_var_partitions'
       # Create the volumes here. Moving data around and setting up the mounts will
       # require us to be in single-user mode, however.
       ["var", "var_log", "var_log_audit"].each { |volume|
-        ruby_block "create #{volume}" do
-          extend CAPVolume
-          block do
-            require 'aws-sdk-core'
-            if !File.open("/etc/mtab").read.match(/ #{node[:application_attributes][volume][:mount_directory]} /) and !volume_attached(node[:application_attributes][volume][:mount_device])
-              create_node_volume(volume)
-              result = attach_node_volume(volume)
-            end
-          end
-          not_if "tune2fs -l #{node[:application_attributes][volume][:mount_device]}" if node.platform_version.to_i == 6
-          not_if "xfs_info #{node[:application_attributes][volume][:mount_device]}" if node.platform_version.to_i == 7
-        end
-  
-        ruby_block "label #{volume} as #{node.application_attributes[volume].label}" do
-          extend CAPVolume
-          block do
-            tags = [{key: "Name", value: node.application_attributes[volume].label}]
-            if node.tags.is_a?(Hash)
-              node.tags.each_pair { |key, value|
-                next if !value.is_a?(String)
-                tags << {key: key, value: value}
-              }
-            end
-            tag_volume(node.application_attributes[volume].mount_device, tags)
-          end
-        end rescue NoMethodError
+        params = Base64.urlsafe_encode64(JSON.generate(
+          {
+            :dev => node[:application_attributes][volume][:mount_device],
+            :size => node[:application_attributes][volume][:volume_size_gb]
+          }
+        ))
+# XXX would rather exec this inside a resource, guard it, etc
+        mommacat_request("add_volume", params)
   
         if node.platform_version.to_i == 6
           execute "mkfs.ext4 #{node[:application_attributes][volume][:mount_device]}" do

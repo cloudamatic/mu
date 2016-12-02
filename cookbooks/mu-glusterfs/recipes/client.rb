@@ -16,23 +16,13 @@ case node[:platform]
       package pkg
     end
 
-    node.glusterfs.fw.each do |rule|
-      real_range = rule['port_range'].sub(/:.*/, "")
-      if rule['port_range'] != "#{real_range}:#{real_range}"
-        real_range = rule['port_range']
-        pattern = "dpts:#{real_range}"
-      else
-        pattern = "dpt:#{real_range}"
+    include_recipe 'mu-firewall'
+
+    node.glusterfs.fw.each { |rule|
+      firewall_rule "Allow glusterfs #{rule['usage']}" do
+        port rule['port_range']
       end
-      bash "Allow TCP #{real_range} through iptables" do
-        user "root"
-        not_if "/sbin/iptables -nL | egrep '^ACCEPT.*#{pattern}($| )'"
-        code <<-EOH
-					iptables -I INPUT -p tcp --dport #{real_range} -j ACCEPT
-					service iptables save
-        EOH
-      end
-    end
+    }
 
     directory node.glusterfs.client.mount_path do
       recursive true

@@ -15,9 +15,7 @@ case node[:platform]
     include_recipe "mu-glusterfs"
     $nodeclass = node.gluster_node_class
 
-    %w{xfsprogs mdadm glusterfs-server}.each do |pkg|
-      package pkg
-    end
+    package node[:glusterfs][:server][:packages]
 
     if node.glusterfs.server.raid
       def raid_no_spare(mount_dev, level, num_devices, devices)
@@ -78,6 +76,7 @@ case node[:platform]
         action [:mount, :enable]
       end
       directory "#{$gluster_mnt_pt}/brick"
+      execute "chmod go+rx #{$gluster_mnt_pt}"
 
     else
       $gluster_mnt_pts = []
@@ -95,20 +94,19 @@ case node[:platform]
         end
         directory "#{node.glusterfs.server.brick_base_mount_path}#{dev}/brick"
 
+        execute "chmod go+rx #{node.glusterfs.server.brick_base_mount_path} #{node.glusterfs.server.brick_base_mount_path}#{dev}"
+
         $gluster_mnt_pts << "#{node.glusterfs.server.brick_base_mount_path}#{dev}"
       end
     end
 
-    node.glusterfs.fw.each do |rule|
-      bash "Allow TCP #{rule['port_range']} through iptables" do
-        user "root"
-        not_if "/sbin/iptables -nL | egrep '^ACCEPT.*dpts:#{rule['port_range']}($| )'"
-        code <<-EOH
-					iptables -I INPUT -p tcp --dport #{rule['port_range']} -j ACCEPT
-					service iptables save
-        EOH
+    include_recipe 'mu-firewall'
+
+    node.glusterfs.fw.each { |rule|
+      firewall_rule "Allow glusterfs #{rule['usage']}" do
+        port rule['port_range']
       end
-    end
+    }
 
     service "glusterd" do
       action [:enable, :start]
@@ -172,6 +170,7 @@ case node[:platform]
           not_if "gluster volume info #{node.glusterfs.server.volume} | grep 'performance.cache-size: #{node.glusterfs.server.read_cache_size}'"
           code "gluster volume set #{node.glusterfs.server.volume} performance.cache-size #{node.glusterfs.server.read_cache_size}"
         end
+
 
         # gluster_vol_exists = shell_out("gluster volume info #{node.glusterfs.server.volume}")
         # if gluster_vol_exists.stderr.empty? and !gluster_vol_exists.stdout.empty?

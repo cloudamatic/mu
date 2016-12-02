@@ -85,8 +85,20 @@ module MU
             retry
           end
 
-          MU::MommaCat.createStandardTags secgroup.group_id, region: @config['region']
-          MU::MommaCat.createTag secgroup.group_id, "Name", groupname, region: @config['region']
+          MU::MommaCat.createStandardTags(secgroup.group_id, region: @config['region'])
+          MU::MommaCat.createTag(secgroup.group_id, "Name", groupname, region: @config['region'])
+
+          if @config['optional_tags']
+            MU::MommaCat.listOptionalTags.each { |key, value|
+              MU::MommaCat.createTag(secgroup.group_id, key, value, region: @config['region'])
+            }
+          end
+
+          if @config['tags']
+            @config['tags'].each { |tag|
+              MU::MommaCat.createTag(secgroup.group_id, tag['key'], tag['value'], region: @config['region'])
+            }
+          end
 
           egress = false
           egress = true if !vpc_id.nil?
@@ -364,7 +376,7 @@ module MU
                   )
                 end
               rescue Aws::EC2::Errors::InvalidGroupNotFound => e
-                MU.log "#{@mu_name} does not yet exist", MU::WARN
+                MU.log "#{@mu_name} (#{@cloud_id}) does not yet exist", MU::WARN
                 retries = retries + 1
                 if retries < 10
                   sleep 10
@@ -438,15 +450,19 @@ module MU
 # XXX The language for addressing ELBs should be as flexible as VPCs. This sauce
 # is weak.
 # Try to find one by name in this deploy
-                  found = MU::MommaCat.findStray("AWS", "loadbalancers",
-                                                 name: lb_name,
-                                                 deploy_id: @deploy.deploy_id
+                  found = MU::MommaCat.findStray(
+                    "AWS",
+                    "loadbalancers",
+                    name: lb_name,
+                    deploy_id: @deploy.deploy_id
                   )
                   # Ok, let's try it with the name being an AWS identifier
                   if found.nil? or found.size < 1
-                    found = MU::MommaCat.findStray("AWS", "loadbalancers",
-                                                   cloud_id: lb_name,
-                                                   dummy_ok: true
+                    found = MU::MommaCat.findStray(
+                      "AWS",
+                      "loadbalancers",
+                      cloud_id: lb_name,
+                      dummy_ok: true
                     )
                     if found.nil? or found.size < 1
                       raise MuError, "Couldn't find a LoadBalancer with #{lb_name} for #{@mu_name}"
@@ -455,8 +471,8 @@ module MU
                   lb = found.first
                   lb.cloud_desc.security_groups.each { |lb_sg|
                     ec2_rule[:user_id_group_pairs] << {
-                        user_id: MU.account_number,
-                        group_id: lb_sg
+                      user_id: MU.account_number,
+                      group_id: lb_sg
                     }
                   }
                 }
@@ -475,7 +491,7 @@ module MU
                     if sg_name.match(/^sg-/)
                       found_sgs = MU::MommaCat.findStray("AWS", "firewall_rule", cloud_id: sg_name, region: @config['region'], calling_deploy: @deploy, dummy_ok: true)
                     else
-                      found_sgs = MU::MommaCat.findStray("AWS", "firewall_rule", name: sg_name, region: @config['region'], calling_deploy: @deploy)
+                      found_sgs = MU::MommaCat.findStray("AWS", "firewall_rule", name: sg_name, region: @config['region'], deploy_id: MU.deploy_id, calling_deploy: @deploy)
                     end
                     if found_sgs.nil? or found_sgs.size == 0
                       raise MuError, "Attempted to reference non-existing Security Group #{sg_name} while building #{@mu_name}"
@@ -489,26 +505,28 @@ module MU
                 }
               end
 
-              if !ec2_rule[:user_id_group_pairs].nil? and
-                  ec2_rule[:user_id_group_pairs].size > 0 and
-                  !ec2_rule[:ip_ranges].nil? and
-                  ec2_rule[:ip_ranges].size > 0
-                MU.log "Cannot specify ip_ranges and user_id_group_pairs", MU::ERR
-                raise MuError, "Cannot specify ip_ranges and user_id_group_pairs"
-              end
+              ec2_rule[:user_id_group_pairs].uniq!
+              ec2_rule[:ip_ranges].uniq!
+              ec2_rule.delete(:ip_ranges) if ec2_rule[:ip_ranges].empty?
+              ec2_rule.delete(:user_id_group_pairs) if ec2_rule[:user_id_group_pairs].empty?
 
-              ec2_rule.delete(:ip_ranges) if ec2_rule[:ip_ranges].size == 0
-              ec2_rule.delete(:user_id_group_pairs) if ec2_rule[:user_id_group_pairs].size == 0
+              # if !ec2_rule[:user_id_group_pairs].nil? and
+                # ec2_rule[:user_id_group_pairs].size > 0 and
+                  # !ec2_rule[:ip_ranges].nil? and
+                  # ec2_rule[:ip_ranges].size > 0
+                # MU.log "Cannot specify ip_ranges and user_id_group_pairs", MU::ERR
+                # raise MuError, "Cannot specify ip_ranges and user_id_group_pairs"
+              # end
 
-              if !ec2_rule[:user_id_group_pairs].nil? and
-                  ec2_rule[:user_id_group_pairs].size > 0
-                ec2_rule.delete(:ip_ranges)
-                ec2_rule[:user_id_group_pairs].uniq!
-              elsif !ec2_rule[:ip_ranges].nil? and
-                  ec2_rule[:ip_ranges].size > 0
-                ec2_rule.delete(:user_id_group_pairs)
-                ec2_rule[:ip_ranges].uniq!
-              end
+              # if !ec2_rule[:user_id_group_pairs].nil? and
+                  # ec2_rule[:user_id_group_pairs].size > 0
+                # ec2_rule.delete(:ip_ranges)
+                # ec2_rule[:user_id_group_pairs].uniq!
+              # elsif !ec2_rule[:ip_ranges].nil? and
+                  # ec2_rule[:ip_ranges].size > 0
+                # ec2_rule.delete(:user_id_group_pairs)
+                # ec2_rule[:ip_ranges].uniq!
+              # end
               ec2_rules << ec2_rule
             }
           end

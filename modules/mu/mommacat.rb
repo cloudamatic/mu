@@ -282,7 +282,7 @@ module MU
                 }
               end
               if orig_cfg.nil?
-                MU.log "Failed to locate original config for #{attrs[:cfg_name]} #{res_name} in #{@deploy_id}", MU::WARN if type != "firewall_rules" # XXX shaddap
+                MU.log "Failed to locate original config for #{attrs[:cfg_name]} #{res_name} in #{@deploy_id}", MU::WARN if !["firewall_rules", "databases", "storage_pools", "cache_clusters", "alarms"].include?(type) # XXX shaddap
                 next
               end
               begin
@@ -1074,6 +1074,7 @@ module MU
             deploy_id = mu_name.sub(/^(\w+-\w+-\d{10}-[A-Z]{2})-/, '\1')
           end
         end
+        MU.log "Called findStray with cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}", MU::DEBUG
 
         if !deploy_id.nil? and !calling_deploy.nil? and
             calling_deploy.deploy_id == deploy_id and (!name.nil? or !mu_name.nil?)
@@ -1111,7 +1112,7 @@ module MU
             end
           }
           if !mu_descs.nil? and mu_descs.size > 0 and !deploy_id.nil? and !deploy_id.empty? and !mu_descs.first.empty?
-            MU.log "I found descriptions that might match #{resourceclass.cfg_plural} name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}, but couldn't isolate my target kitten", MU::WARN, details: caller
+            # MU.log "I found descriptions that might match #{resourceclass.cfg_plural} name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}, but couldn't isolate my target kitten", MU::WARN, details: caller
 #         puts File.read(deploy_dir(deploy_id)+"/deployment.json")
           end
           # We can't refine any further by asking the cloud provider...
@@ -1145,7 +1146,7 @@ module MU
             cloud_descs[r].each_pair { |kitten_cloud_id, descriptor|
               # We already have a MU::Cloud object for this guy, use it
               if kittens.has_key?(kitten_cloud_id)
-                matches << kitten[kitten_cloud_id]
+                matches << kittens[kitten_cloud_id]
               elsif kittens.size == 0
                 # If we don't have a MU::Cloud object, manufacture a dummy one.
                 # Give it a fake name if we have to and have decided that's ok.
@@ -1208,7 +1209,7 @@ module MU
               if data.size == 1 and (cloud_id.nil? or data.values.first.cloud_id == cloud_id)
                 return data.values.first
               elsif mu_name.nil? and cloud_id.nil?
-                MU.log "#{@deploy_id}: Found multiple matches in findLitterMate based on #{type}: #{name}, and not enough info to narrow down further. Returning an arbitrary result. Caller: #{caller[0]}", MU::WARN, details: data.values
+                MU.log "#{@deploy_id}: Found multiple matches in findLitterMate based on #{type}: #{name}, and not enough info to narrow down further. Returning an arbitrary result. Caller: #{caller[1]}", MU::WARN, details: data.values
                 return data.values.first
               end
             end
@@ -1399,18 +1400,26 @@ module MU
       MU.log "Created standard tags for resource #{resource}", MU::DEBUG, details: caller
     end
 
-    # List the name/value pairs for our standard set of resource tags, which
+    # List the name/value pairs for our mandatory standard set of resource tags, which
     # should be applied to all taggable cloud provider resources.
     # @return [Hash<String,String>]
     def self.listStandardTags
       return {
           "MU-ID" => MU.deploy_id,
-          "MU-HANDLE" => MU.handle,
           "MU-APP" => MU.appname,
           "MU-ENV" => MU.environment,
-          "MU-MASTER-NAME" => Socket.gethostname,
-          "MU-MASTER-IP" => MU.mu_public_ip,
-          "MU-OWNER" => MU.mu_user
+          "MU-MASTER-IP" => MU.mu_public_ip
+      }
+    end
+
+    # List the name/value pairs of our optional set of resource tags which
+    # should be applied to all taggable cloud provider resources.
+    # @return [Hash<String,String>]
+    def self.listOptionalTags
+      return {
+        "MU-HANDLE" => MU.handle,
+        "MU-MASTER-NAME" => Socket.gethostname,
+        "MU-OWNER" => MU.mu_user
       }
     end
 
@@ -1779,7 +1788,7 @@ MESSAGE_END
             # We don't want to use cached litter information here because this is also called by cleanTerminatedInstances.
             deploy = MU::MommaCat.getLitter(deploy_id, use_cache: false)
             if deploy.ssh_key_name.nil? or deploy.ssh_key_name.empty?
-              MU.log "Failed to extract ssh key name from #{deploy_id} in syncMonitoringConfig", MU::ERR
+              MU.log "Failed to extract ssh key name from #{deploy_id} in syncMonitoringConfig", MU::ERR if deploy.kittens.has_key?("servers")
               next
             end
             FileUtils.cp("#{@myhome}/.ssh/#{deploy.ssh_key_name}", "#{@nagios_home}/.ssh/#{deploy.ssh_key_name}")
@@ -1960,7 +1969,7 @@ MESSAGE_END
 
     # Make sure deployment data is synchronized to/from each node in the
     # currently-loaded deployment.
-    def syncLitter(nodeclasses = [], triggering_node: nil)
+    def syncLitter(nodeclasses = [], triggering_node: nil, save_all_only: false)
 # XXX take some config logic to decide what nodeclasses to hit
 # XXX don't run on triggering node, duh
       return if MU.syncLitterThread
@@ -1971,6 +1980,7 @@ MESSAGE_END
         MU.log "No #{svrs} as yet available in #{@deploy_id}", MU::DEBUG, details: @kittens
         return
       end
+
       MU.log "Updating these siblings in #{@deploy_id}: #{nodeclasses.join(', ')}", MU::DEBUG, details: @kittens[svrs]
 
       update_servers = []
@@ -2002,19 +2012,21 @@ MESSAGE_END
       return if update_servers.size == 0
 
       # Merge everyone's deploydata together
-      skip = []
-      update_servers.each { |sibling|
-        if sibling.mu_name.nil? or sibling.deploydata.nil? or sibling.config.nil?
-          MU.log "Missing mu_name #{sibling.mu_name}, deploydata, or config from #{sibling} in syncLitter", MU::ERR, details: sibling.deploydata
-          next
-        end
-        if !@deployment[svrs][sibling.config['name']].has_key?(sibling.mu_name) or @deployment[svrs][sibling.config['name']][sibling.mu_name] != sibling.deploydata
-          @deployment[svrs][sibling.config['name']][sibling.mu_name] = sibling.deploydata
-        else
-          skip << sibling
-        end
-      }
-      update_servers = update_servers - skip
+      if !save_all_only
+        skip = []
+        update_servers.each { |sibling|
+          if sibling.mu_name.nil? or sibling.deploydata.nil? or sibling.config.nil?
+            MU.log "Missing mu_name #{sibling.mu_name}, deploydata, or config from #{sibling} in syncLitter", MU::ERR, details: sibling.deploydata
+            next
+          end
+          if !@deployment[svrs][sibling.config['name']].has_key?(sibling.mu_name) or @deployment[svrs][sibling.config['name']][sibling.mu_name] != sibling.deploydata
+            @deployment[svrs][sibling.config['name']][sibling.mu_name] = sibling.deploydata
+          else
+            skip << sibling
+          end
+        }
+        update_servers = update_servers - skip
+      end
 
       return if update_servers.size < 1
       threads = []
@@ -2026,7 +2038,8 @@ MESSAGE_END
           Thread.current.thread_variable_set("name", "sync-"+sibling.mu_name.downcase)
           MU.setVar("syncLitterThread", true)
           begin
-            sibling.groomer.run(purpose: "Synchronizing sibling kittens")
+            sibling.groomer.saveDeployData
+            sibling.groomer.run(purpose: "Synchronizing sibling kittens") if !save_all_only
           rescue MU::Groomer::RunError => e
             MU.log "Sync of #{sibling.mu_name} failed: #{e.inspect}", MU::WARN
           end
@@ -2140,6 +2153,7 @@ MESSAGE_END
 
         if !@deployment.nil? and @deployment.size > 0
           @deployment['handle'] = MU.handle if @deployment['handle'].nil? and !MU.handle.nil?
+          @deployment['public_key'] = @public_key
           begin
             # XXX doing this to trigger JSON errors before stomping the stored
             # file...
@@ -2202,6 +2216,8 @@ MESSAGE_END
         end
       }
 
+      # Update groomer copies of this metadata
+      syncLitter(@deployment['servers'].keys, save_all_only: true) if @deployment.has_key?("servers")
     end
 
     # Find one or more resources by their Mu resource name, and return
@@ -2279,7 +2295,7 @@ MESSAGE_END
                       end
                       data['#MU_NAME'] = nodename
                       if !mu_name.nil? and nodename == mu_name
-                        return {deploy => [data]}
+                        return {deploy => [data]} if deploy_id && deploy == deploy_id
                       end
                     }
                   }

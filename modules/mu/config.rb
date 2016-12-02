@@ -828,7 +828,6 @@ module MU
         return true
       end
       ok = true
-
       if vpc_block['region'].nil? or
         vpc_block['region'] = dflt_region.to_s
       end
@@ -915,9 +914,10 @@ module MU
 
             if ext_subnet.nil? and vpc_block["cloud"] != "CloudFormation"
               ok = false
-              MU.log "Couldn't resolve subnet reference in #{parent_name}'s list to a live subnet (#{vpc_block})", MU::ERR, details: caller
+              MU.log "Couldn't resolve subnet reference in #{parent_name} to a live subnet", MU::ERR, details: vpc_block
             elsif !subnet['subnet_id']
               subnet['subnet_id'] = ext_subnet.cloud_id
+              subnet['az'] = ext_subnet.az
               subnet.delete('subnet_name')
               subnet.delete('tag')
               MU.log "Resolved subnet reference in #{parent_name} to #{ext_subnet.cloud_id}", MU::DEBUG, details: subnet
@@ -928,7 +928,7 @@ module MU
           tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !vpc_block['tag'].nil?
           begin
             ext_subnet = ext_vpc.getSubnet(cloud_id: vpc_block['subnet_id'], name: vpc_block['subnet_name'], tag_key: tag_key, tag_value: tag_value)
-          rescue MuError
+          rescue MuError => e
           end
 
           if ext_subnet.nil?
@@ -936,6 +936,7 @@ module MU
             MU.log "Couldn't resolve subnet reference in #{parent_name} to a live subnet", MU::ERR, details: vpc_block
           elsif !vpc_block['subnet_id']
             vpc_block['subnet_id'] = ext_subnet.cloud_id
+            vpc_block['az'] = ext_subnet.az
             vpc_block.delete('subnet_name')
             MU.log "Resolved subnet reference in #{parent_name} to #{ext_subnet.cloud_id}", MU::DEBUG, details: vpc_block
           end
@@ -953,7 +954,7 @@ module MU
             honor_subnet_prefs=false
           end
           if !subnet['subnet_id'].nil? and subnet['subnet_id'].is_a?(String)
-            subnet['subnet_id'] << getTail("Subnet #{count} for #{parent_name}", value: subnet['subnet_id'], prettyname: "Subnet #{count} for #{parent_name}", cloudtype: "AWS::EC2::Subnet::Id")
+            subnet['subnet_id'] = getTail("Subnet #{count} for #{parent_name}", value: subnet['subnet_id'], prettyname: "Subnet #{count} for #{parent_name}", cloudtype: "AWS::EC2::Subnet::Id")
             count = count + 1
           end
         }
@@ -973,13 +974,15 @@ module MU
 
           ext_vpc.subnets.each { |subnet|
             if subnet.private? and (vpc_block['subnet_pref'] != "all_public" and vpc_block['subnet_pref'] != "public")
-              private_subnets << { "subnet_id" => getTail("#{parent_name} Private Subnet #{priv}", value: subnet.cloud_id, prettyname: "#{parent_name} Private Subnet #{priv}",  cloudtype:  "AWS::EC2::Subnet::Id") }
+              private_subnets << { "subnet_id" => getTail("#{parent_name} Private Subnet #{priv}", value: subnet.cloud_id, prettyname: "#{parent_name} Private Subnet #{priv}",  cloudtype:  "AWS::EC2::Subnet::Id"), "az" => subnet.az }
               private_subnets_map[subnet.cloud_id] = subnet
               priv = priv + 1
             elsif !subnet.private? and vpc_block['subnet_pref'] != "all_private" and vpc_block['subnet_pref'] != "private"
-              public_subnets << { "subnet_id" => getTail("#{parent_name} Public Subnet #{pub}", value: subnet.cloud_id, prettyname: "#{parent_name} Public Subnet #{pub}",  cloudtype: "AWS::EC2::Subnet::Id") }
+              public_subnets << { "subnet_id" => getTail("#{parent_name} Public Subnet #{pub}", value: subnet.cloud_id, prettyname: "#{parent_name} Public Subnet #{pub}",  cloudtype: "AWS::EC2::Subnet::Id"), "az" => subnet.az }
               public_subnets_map[subnet.cloud_id] = subnet
               pub = pub + 1
+            else
+              MU.log "#{subnet} didn't match subnet_pref: '#{vpc_block['subnet_pref']}' (private? returned #{subnet.private?})", MU::DEBUG
             end
           }
         else
@@ -1010,20 +1013,25 @@ module MU
         case vpc_block['subnet_pref']
           when "public"
             if !public_subnets.nil? and public_subnets.size > 0
-              vpc_block.merge!(public_subnets[rand(public_subnets.length)])
+              vpc_block.merge!(public_subnets[rand(public_subnets.length)]) if public_subnets
             else
               MU.log "Public subnet requested for #{parent_name}, but none found in #{vpc_block}", MU::ERR
               return false
             end
           when "private"
-            vpc_block.merge!(private_subnets[rand(private_subnets.length)])
+            if !private_subnets.nil? and private_subnets.size > 0
+              vpc_block.merge!(private_subnets[rand(private_subnets.length)])
+            else
+              MU.log "Private subnet requested for #{parent_name}, but none found in #{vpc_block}", MU::ERR
+              return false
+            end
             if !is_sibling and !private_subnets_map[vpc_block[subnet_ptr]].nil?
               vpc_block['nat_host_id'] = private_subnets_map[vpc_block[subnet_ptr]].defaultRoute
             elsif nat_routes.has_key?(vpc_block[subnet_ptr])
               vpc_block['nat_host_name'] == nat_routes[vpc_block[subnet_ptr]]
             end
           when "any"
-            vpc_block.merge!(public_subnets.concat(private_subnets)[rand(public_subnets.length+private_subnets.length)])
+            vpc_block.merge!(public_subnets.concat(private_subnets)[rand(public_subnets.length+private_subnets.length)]) if public_subnets
           when "all"
             vpc_block['subnets'] = []
             public_subnets.each { |subnet|
@@ -1290,6 +1298,7 @@ module MU
       firewall_rules = config['firewall_rules']
       dnszones = config['dnszones']
       vpcs = config['vpcs']
+      storage_pools = config['storage_pools']
 
       databases = Array.new if databases.nil?
       servers = Array.new if servers.nil?
@@ -1302,8 +1311,9 @@ module MU
       firewall_rules = Array.new if firewall_rules.nil?
       vpcs = Array.new if vpcs.nil?
       dnszones = Array.new if dnszones.nil?
+      storage_pools = Array.new if storage_pools.nil?
 
-      if databases.size < 1 and servers.size < 1 and server_pools.size < 1 and loadbalancers.size < 1 and collections.size < 1 and firewall_rules.size < 1 and vpcs.size < 1 and dnszones.size < 1 and cache_clusters.size < 1 and alarms.size < 1 and logs.size < 1
+      if databases.empty? and servers.empty? and server_pools.empty? and loadbalancers.empty? and collections.empty? and firewall_rules.empty? and vpcs.empty? and dnszones.empty? and cache_clusters.empty? and alarms.empty? and logs.empty? and storage_pools.empty?
         MU.log "You must declare at least one resource to create", MU::ERR
         ok = false
       end
@@ -1532,22 +1542,39 @@ module MU
             route_types = route_types + 1 if !record['geo_location'].nil?
             route_types = route_types + 1 if !record['region'].nil?
             route_types = route_types + 1 if !record['failover'].nil?
+
             if route_types > 1
               MU.log "At most one of weight, location, region, and failover can be specified in a record.", MU::ERR, details: record
               ok = false
             end
+
             if !record['mu_type'].nil?
               zone["dependencies"] << {
                 "type" => record['mu_type'],
                 "name" => record['target']
               }
             end
-            if !record['healthcheck'].nil?
+
+            if record.has_key?('healthchecks') && !record['healthchecks'].empty?
+              primary_alarms_set = []
+              record['healthchecks'].each { |check|
+                check['alarm_region'] ||= zone['region'] if check['method'] == "CLOUDWATCH_METRIC"
+                primary_alarms_set << true if check['type'] == 'primary'
+              }
+
+              if primary_alarms_set.size != 1
+                MU.log "Must have only one primary health check, but #{primary_alarms_set.size} are set.", MU::ERR, details: record
+                ok = false
+              end
+
+              # record['healthcheck']['alarm_region'] ||= zone['region'] if record['healthcheck']['method'] == "CLOUDWATCH_METRIC"
+
               if route_types == 0
                 MU.log "Health check in a DNS zone only valid with Weighted, Location-based, Latency-based, or Failover routing.", MU::ERR, details: record
                 ok = false
               end
             end
+
             if !record['geo_location'].nil?
               if !record['geo_location']['continent_code'].nil? and (!record['geo_location']['country_code'].nil? or !record['geo_location']['subdivision_code'].nil?)
                 MU.log "Location routing cannot mix continent_code with other location specifiers.", MU::ERR, details: record
@@ -1635,7 +1662,7 @@ module MU
           if !rule['sgs'].nil?
             rule['sgs'].each { |sg_name|
               if sg_name == acl['name']
-                acl['self_referencing'] = true
+                # acl['self_referencing'] = true
                 next
               end
               if firewall_rule_names.include?(sg_name)
@@ -1703,7 +1730,8 @@ module MU
         if !lb['ingress_rules'].nil?
           fwname = "lb"+lb['name']
           firewall_rule_names << fwname
-          acl = {"name" => fwname, "rules" => lb['ingress_rules'], "region" => lb['region']}
+          acl = {"name" => fwname, "rules" => lb['ingress_rules'], "region" => lb['region'], "optional_tags" => lb['optional_tags']}
+          acl["tags"] = lb['tags'] if lb['tags'] && !lb['tags'].empty?
           acl["vpc"] = lb['vpc'].dup if !lb['vpc'].nil?
           acl["cloud"] = lb["cloud"]
           firewall_rules << resolveFirewall.call(acl)
@@ -1797,6 +1825,46 @@ module MU
           }
         end
 
+        if pool["existing_deploys"] && !pool["existing_deploys"].empty?
+          pool["existing_deploys"].each { |ext_deploy|
+            if ext_deploy["cloud_type"].nil?
+              MU.log "You must provide a cloud_type", MU::ERR
+              ok = false
+            end
+            if ext_deploy["cloud_id"]
+              found = MU::MommaCat.findStray(
+                pool['cloud'],
+                ext_deploy["cloud_type"],
+                cloud_id: ext_deploy["cloud_id"],
+                region: pool['region'],
+                dummy_ok: false
+              ).first
+
+              if found.nil?
+                MU.log "Couldn't find existing #{ext_deploy["cloud_type"]} resource #{ext_deploy["cloud_id"]}", MU::ERR
+                ok = false
+              end
+            elsif ext_deploy["mu_name"] && ext_deploy["deploy_id"]
+              found = MU::MommaCat.findStray(
+                pool['cloud'],
+                ext_deploy["cloud_type"],
+                deploy_id: ext_deploy["deploy_id"],
+                mu_name: ext_deploy["mu_name"],
+                region: pool['region'],
+                dummy_ok: false
+              ).first
+
+              if found.nil?
+                MU.log "Couldn't find existing #{ext_deploy["cloud_type"]} resource - #{ext_deploy["mu_name"]} / #{ext_deploy["deploy_id"]}", MU::ERR
+                ok = false
+              end
+            else
+              MU.log "Trying to find existing deploy, but either the cloud_id is not valid or no mu_name and deploy_id where provided", MU::ERR
+              ok = false
+            end
+          }
+        end
+
         if pool["basis"]["launch_config"] != nil
           launch = pool["basis"]["launch_config"]
           if !launch['generate_iam_role']
@@ -1876,7 +1944,7 @@ module MU
                 alarm['dimensions'] << { "name" => pool["name"], "cloud_class" => "AutoScalingGroupName" }
                 alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
                 alarm['cloud'] = pool['cloud']
-                alarms << alarm.dup
+                # alarms << alarm.dup
               }
             end
           }
@@ -1892,6 +1960,18 @@ module MU
             end
           }
         end
+        
+        if pool.has_key?("storage_pools")
+          pool["storage_pools"].each { |sp|
+            if sp["name"]
+              pool["dependencies"] << {
+                "type" => "storage_pool",
+                "name" => sp["name"]
+              }
+            end
+          }
+        end
+
         if !pool["vpc"].nil?
           pool['vpc']['region'] = pool['region'] if pool['vpc']['region'].nil?
           pool["vpc"]['cloud'] = pool['cloud']
@@ -1920,16 +2000,18 @@ module MU
             end
           end
         end
-        if !pool['ingress_rules'].nil?
-          fwname = "pool"+pool['name']
-          firewall_rule_names << fwname
-          acl = {"name" => fwname, "rules" => pool['ingress_rules'], "region" => pool['region']}
-          acl["vpc"] = pool['vpc'].dup if !pool['vpc'].nil?
-          acl["cloud"] = pool["cloud"]
-          firewall_rules << resolveFirewall.call(acl)
-          pool["add_firewall_rules"] = [] if pool["add_firewall_rules"].nil?
-          pool["add_firewall_rules"] << {"rule_name" => fwname}
-        end
+
+        pool["ingress_rules"] = [] if !pool.has_key?("ingress_rules") || pool["ingress_rules"].nil?
+        fwname = "pool"+pool['name']
+        firewall_rule_names << fwname
+        acl = {"name" => fwname, "rules" => pool['ingress_rules'], "region" => pool['region'], "optional_tags" => pool['optional_tags']}
+        acl["tags"] = pool['tags'] if pool['tags'] && !pool['tags'].empty?
+        acl["vpc"] = pool['vpc'].dup if !pool['vpc'].nil?
+        acl["cloud"] = pool["cloud"]
+        firewall_rules << resolveFirewall.call(acl)
+        pool["add_firewall_rules"] = [] if !pool.has_key?("add_firewall_rules") || pool["add_firewall_rules"].nil?
+        pool["add_firewall_rules"] << {"rule_name" => fwname}
+
         pool["dependencies"].uniq!
         if !pool["add_firewall_rules"].nil?
           pool["add_firewall_rules"].each { |acl_include|
@@ -2119,7 +2201,8 @@ module MU
         if !db['ingress_rules'].nil?
           fwname = "db"+db['name']
           firewall_rule_names << fwname
-          acl = {"name" => fwname, "rules" => db['ingress_rules'], "region" => db['region']}
+          acl = {"name" => fwname, "rules" => db['ingress_rules'], "region" => db['region'], "optional_tags" => db['optional_tags']}
+          acl["tags"] = db['tags'] if db['tags'] && !db['tags'].empty?
           acl["vpc"] = db['vpc'].dup if !db['vpc'].nil?
           acl["cloud"] = db["cloud"]
           firewall_rules << resolveFirewall.call(acl)
@@ -2381,7 +2464,8 @@ module MU
         if cluster['ingress_rules']
           fwname = "cache#{cluster['name']}"
           firewall_rule_names << fwname
-          acl = {"name" => fwname, "rules" => cluster['ingress_rules'], "region" => cluster['region']}
+          acl = {"name" => fwname, "rules" => cluster['ingress_rules'], "region" => cluster['region'], "optional_tags" => cluster['optional_tags']}
+          acl["tags"] = cluster['tags'] if cluster['tags'] && !cluster['tags'].empty?
           acl["vpc"] = cluster['vpc'].dup if cluster['vpc']
           acl["cloud"] = cluster["cloud"]
           firewall_rules << resolveFirewall.call(acl)
@@ -2440,6 +2524,107 @@ module MU
         cluster['dependencies'] << genAdminFirewallRuleset(vpc: cluster['vpc'], region: cluster['region'], cloud: cluster['cloud']) if !cluster['scrub_mu_isms']
       }
 
+      storage_pools.each { |pool|
+        pool['region'] = config['region'] if pool['region'].nil?
+        pool["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("StoragePool")
+        pool['cloud'] = MU::Config.defaultCloud if pool['cloud'].nil?
+        pool["dependencies"] = [] if pool["dependencies"].nil?
+
+        supported_regions = %w{us-west-2 us-east-1 eu-west-1}
+        if !supported_regions.include?(pool['region'])
+          MU.log "Region #{pool['region']} not supported. Only #{supported_regions.join(',  ')} are supported", MU::ERR
+          ok = false
+        end
+
+        if pool['mount_points'] && !pool['mount_points'].empty?
+          # Pass 1: Resolve VPC references, and expand into multiple mount
+          # points if we've been asked to do so with subnet_pref.
+          new_mount_points = []
+          pool['mount_points'].each{ |mp|
+            if mp["vpc"] && !mp["vpc"].empty?
+              mp['vpc']['region'] = pool['region'] if mp['vpc']['region'].nil?
+              mp["vpc"]['cloud'] = pool['cloud'] if mp["vpc"]['cloud'].nil?
+              # If we're using a VPC in this deploy, set it as a dependency
+              if mp["vpc"]["vpc_name"] and vpc_names.include?(mp["vpc"]["vpc_name"]) and mp["vpc"]["deploy_id"].nil?
+                pool["dependencies"] << {
+                  "type" => "vpc",
+                  "name" => mp["vpc"]["vpc_name"]
+                }
+
+                if !processVPCReference(
+                      mp["vpc"],
+                      "storage_pool #{pool['name']}",
+                      dflt_region: config['region'],
+                      is_sibling: true,
+                      sibling_vpcs: vpcs
+                    )
+                  ok = false
+                end
+              else
+                if !processVPCReference(mp["vpc"], "storage_pool #{pool['name']}", dflt_region: config['region'])
+                  ok = false
+                end
+              end
+              if mp["vpc"] and mp['vpc']['subnets'] and mp['vpc']['subnets'].size > 1
+                MU.log "Using subnet_pref in Storage Pool mountpoint resulted in multiple subnets, generating new set of mount points to match.", MU::NOTICE
+                count = 0
+
+                seen_azs = []
+                mp['vpc']['subnets'].each { |subnet|
+                  if subnet['az'] and seen_azs.include?(subnet['az'])
+                    MU.log "VPC config for Storage Pool #{pool['name']} has multiple matching subnets per Availability Zone. Only one mount point per AZ is allowed, so you must explicitly declare which subnets to use.", MU::ERR
+                    ok = false
+                    break
+                  end
+                  seen_azs << subnet['az']
+                  newmp = Marshal.load(Marshal.dump(mp))
+                  newmp['vpc'].delete("subnets")
+                  newmp['vpc'].delete("subnet_pref")
+                  newmp['vpc'].merge!(subnet)
+                  newmp['name'] = newmp['name']+count.to_s
+                  count = count + 1
+                  new_mount_points << newmp
+                }
+              else
+                mp['vpc'].delete("subnet_pref") if mp["vpc"]
+                new_mount_points << mp
+              end
+            else
+              new_mount_points << mp
+            end
+          }
+          pool['mount_points'] = new_mount_points
+
+          # Pass 2: Resolve everything else in our (potentially generated) set
+          # of mount points.
+          pool['mount_points'].each{ |mp|
+            if mp['ingress_rules']
+              fwname = "storage-#{mp['name']}"
+              firewall_rule_names << fwname
+              acl = {"name" => fwname, "rules" => mp['ingress_rules'], "region" => pool['region'], "optional_tags" => pool['optional_tags']}
+              acl["tags"] = pool['tags'] if pool['tags'] && !pool['tags'].empty?
+              acl["vpc"] = mp['vpc'].dup if mp['vpc']
+              firewall_rules << resolveFirewall.call(acl)
+              mp["add_firewall_rules"] = [] if mp["add_firewall_rules"].nil?
+              mp["add_firewall_rules"] << {"rule_name" => fwname}
+            end
+
+            if mp["add_firewall_rules"]
+              mp["add_firewall_rules"].each { |acl_include|
+                if firewall_rule_names.include?(acl_include["rule_name"])
+                  pool["dependencies"] << {
+                    "type" => "firewall_rule",
+                    "name" => acl_include["rule_name"]
+                  }
+                end
+              }
+            end
+
+          }
+        end
+
+        # pool['dependencies'] << genAdminFirewallRuleset(vpc: pool['vpc'], region: pool['region'], cloud: pool['cloud'])
+      }
 
       logs.each { |log_rec|
         log_rec['region'] = config['region'] if log_rec['region'].nil?
@@ -2522,6 +2707,47 @@ module MU
           }
         end
 
+        if server["existing_deploys"] && !server["existing_deploys"].empty?
+          server["existing_deploys"].each { |ext_deploy|
+            if ext_deploy["cloud_type"].nil?
+              MU.log "You must provide a cloud_type", MU::ERR
+              ok = false
+            end
+
+            if ext_deploy["cloud_id"]
+              found = MU::MommaCat.findStray(
+                server['cloud'],
+                ext_deploy["cloud_type"],
+                cloud_id: ext_deploy["cloud_id"],
+                region: server['region'],
+                dummy_ok: false
+              ).first
+
+              if found.nil?
+                MU.log "Couldn't find existing #{ext_deploy["cloud_type"]} resource #{ext_deploy["cloud_id"]}", MU::ERR
+                ok = false
+              end
+            elsif ext_deploy["mu_name"] && ext_deploy["deploy_id"]
+              found = MU::MommaCat.findStray(
+                server['cloud'],
+                ext_deploy["cloud_type"],
+                deploy_id: ext_deploy["deploy_id"],
+                mu_name: ext_deploy["mu_name"],
+                region: server['region'],
+                dummy_ok: false
+              ).first
+
+              if found.nil?
+                MU.log "Couldn't find existing #{ext_deploy["cloud_type"]} resource - #{ext_deploy["mu_name"]} / #{ext_deploy["deploy_id"]}", MU::ERR
+                ok = false
+              end
+            else
+              MU.log "Trying to find existing deploy, but either the cloud_id is not valid or no mu_name and deploy_id where provided", MU::ERR
+              ok = false
+            end
+          }
+        end
+
         if !server["vpc"].nil?
           server['vpc']['region'] = server['region'] if server['vpc']['region'].nil?
           server['vpc']['cloud'] = server['cloud']
@@ -2562,16 +2788,22 @@ module MU
           end
         end
 
-        if !server['ingress_rules'].nil?
-          fwname = "server"+server['name']
-          firewall_rule_names << fwname
-          acl = {"name" => fwname, "rules" => server['ingress_rules'], "region" => server['region']}
-          acl["vpc"] = server['vpc'].dup if !server['vpc'].nil?
-          acl["cloud"] = server["cloud"]
-          firewall_rules << resolveFirewall.call(acl)
-          server["add_firewall_rules"] = [] if server["add_firewall_rules"].nil?
-          server["add_firewall_rules"] << {"rule_name" => fwname}
-        end
+        server['ingress_rules'] = [] if !server.has_key?('ingress_rules') || server['ingress_rules'].nil?
+
+        fwname = "server"+server['name']
+        firewall_rule_names << fwname
+        acl = {
+          "name" => fwname, 
+          "rules" => server['ingress_rules'], 
+          "region" => server['region'],
+          "optional_tags" => server['optional_tags']
+        }
+        acl["tags"] = server['tags'] if server['tags'] && !server['tags'].empty?
+        acl["vpc"] = server['vpc'].dup if !server['vpc'].nil?
+        acl["cloud"] = server["cloud"]
+        firewall_rules << resolveFirewall.call(acl)
+        server["add_firewall_rules"] = [] if !server.has_key?('add_firewall_rules') || server["add_firewall_rules"].nil?
+        server["add_firewall_rules"] << {"rule_name" => fwname}
 
         if !server["add_firewall_rules"].nil?
           server["add_firewall_rules"].each { |acl_include|
@@ -2596,6 +2828,18 @@ module MU
             end
           }
         end
+        
+        if server.has_key?("storage_pools")
+          server["storage_pools"].each { |sp|
+            if sp["name"]
+              server["dependencies"] << {
+                "type" => "storage_pool",
+                "name" => sp["name"]
+              }
+            end
+          }
+        end
+
         server['dependencies'] << genAdminFirewallRuleset(vpc: server['vpc'], region: server['region'], cloud: server['cloud']) if !server['scrub_mu_isms']
         server["dependencies"].uniq!
       }
@@ -2650,6 +2894,50 @@ module MU
         end
 
         ok = false unless MU::Config.validate_alarm_config(alarm)
+      }
+
+      # add some default holes to allow dependent instances into databases
+      databases.each { |db|
+        if db['port'].nil?
+          db['port'] = 3306 if ["mysql", "aurora"].include?(db['engine'])
+          db['port'] = 5432 if ["postgres"].include?(db['engine'])
+          db['port'] = 1433 if db['engine'].match(/^sqlserver\-/)
+          db['port'] = 1521 if db['engine'].match(/^oracle\-/)
+        end
+
+        server_pools.each { |pool|
+          pool['dependencies'].each { |dep|
+            if dep['type'] == "database" and dep['name'] == db['name']
+              db['ingress_rules'] << {
+                "port" => db['port'],
+                "sgs" => ["pool#{pool['name']}"]
+              }
+
+              firewall_rules.each { |fw|
+                if fw['name'] == "db#{db['name']}"
+                  fw['dependencies'] << { "type" => "firewall_rule", "name" => "pool#{pool['name']}"}
+                end
+              }
+            end
+          }
+        }
+
+        servers.each { |server|
+          server['dependencies'].each { |dep|
+            if dep['type'] == "database" and dep['name'] == db['name']
+              db['ingress_rules'] << {
+                "port" => db['port'],
+                "sgs" => ["server"+server['name']]
+              }
+            
+              firewall_rules.each { |fw|
+                if fw['name'] == "db"+db['name']
+                  fw['dependencies'] << { "type" => "firewall_rule", "name" => "server"+server['name'] }
+                end
+              }
+            end
+          }
+        }
       }
 
       seen = []
@@ -2951,14 +3239,14 @@ module MU
         "type" => "array",
         "items" => {
             "type" => "object",
-            "description" => "Declare other server or database objects which this server requires. This server will wait to finish bootstrapping until those dependent resources become available.",
+            "description" => "Declare other objects which this resource requires. This resource will wait until the others are available to create itself.",
             "required" => ["name", "type"],
             "additionalProperties" => false,
             "properties" => {
                 "name" => {"type" => "string"},
                 "type" => {
                     "type" => "string",
-                    "enum" => ["server", "database", "server_pool", "loadbalancer", "collection", "firewall_rule", "vpc", "dnszone", "cache_cluster"]
+                    "enum" => ["server", "database", "server_pool", "loadbalancer", "collection", "firewall_rule", "vpc", "dnszone", "cache_cluster", "storage_pool"]
                 },
                 "phase" => {
                     "type" => "string",
@@ -3064,6 +3352,11 @@ module MU
                 "default" => "10.0.0.0/16"
             },
             "tags" => @tags_primitive,
+            "optional_tags" => {
+                "type" => "boolean",
+                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
+                "default" => true
+            },
             "create_standard_subnets" => {
               "type" => "boolean",
               "description" => "If the 'subnets' parameter to this VPC is not specified, we will instead create one set of public subnets and one set of private, with a public/private pair in each Availability Zone in the target region.",
@@ -3357,6 +3650,11 @@ module MU
             },
             "vpc" => vpc_reference_primitive(NO_SUBNETS, NO_NAT_OPTS),
             "tags" => @tags_primitive,
+            "optional_tags" => {
+                "type" => "boolean",
+                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
+                "default" => true
+            },
             "dependencies" => @dependencies_primitive,
             "self_referencing" => {
                 "type" => "boolean",
@@ -3883,16 +4181,18 @@ module MU
                           }
                       }
                   },
-                  "healthcheck" => {
-                      "type" => "object",
-                      "required" => ["method"],
-                      "description" => "Check used to determine instance health for failover routing.",
-                      "additionalProperties" => false,
-                      "properties" => {
+                  "healthchecks" => {
+                    "type" => "array",
+                    "items" => {
+                        "type" => "object",
+                        "required" => ["method", "name"],
+                        "additionalProperties" => false,
+                        "description" => "Check used to determine instance health for failover routing.",
+                        "properties" => {
                           "method" => {
                               "type" => "string",
                               "description" => "The health check method to use",
-                              "enum" => ["HTTP", "HTTPS", "HTTP_STR_MATCH", "HTTPS_STR_MATCH", "TCP"]
+                              "enum" => ["HTTP", "HTTPS", "HTTP_STR_MATCH", "HTTPS_STR_MATCH", "TCP", "CALCULATED", "CLOUDWATCH_METRIC"]
                           },
                           "port" => {
                               "type" => "integer",
@@ -3902,24 +4202,95 @@ module MU
                               "type" => "string",
                               "description" => "Path to check for HTTP-based health checks."
                           },
+                          "type" => {
+                            "type" => "string",
+                            "description" => "When using CALCULATED based health checks make sure to set only the CALCULATED health check to primary while setting all other health checks to secondary.",
+                            "default" => "primary",
+                            "enum" => ["primary", "secondary"]
+                          },
+                          "name" => {
+                              "type" => "string",
+                              "description" => "The health check name."
+                          },
                           "search_string" => {
                               "type" => "string",
                               "description" => "Path to check for STR_MATCH-based health checks."
                           },
                           "check_interval" => {
                               "type" => "integer",
-                              "description" => "The frequency of health checks.",
+                              "description" => "The frequency of health checks in seconds.",
                               "default" => 30,
                               "enum" => [10, 30]
                           },
                           "failure_threshold" => {
                               "type" => "integer",
-                              "description" => "The number of failed health checks before we consider this entry in failure.",
+                              "description" => "The number of failed health checks before we consider this entry in failure. Values can be between 1-10.",
                               "default" => 2,
-                              "pattern" => "^[01]?\\d$"
+                              "pattern" => "^([1-9]|10)$"
+                          },
+                          "insufficient_data" => {
+                            "type" => "string",
+                            "description" => "What should the health check status be set to if there is insufficient data return from the CloudWatch alarm. Used only with CLOUDWATCH_METRIC based health checks.",
+                            "enum" => ["Healthy", "Unhealthy", "LastKnownStatus"]
+                          },
+                          "regions" => {
+                            "type" => "array",
+                            "description" => "The cloud provider's regions from which to test the status of the health check. If not specified will use all regions. Used only with HTTP/HTTPS/TCP based health checks.",
+                            "items" => {
+                              "type" => "string"
+                            }
+                          },
+                          "latency" => {
+                            "description" => "If to measure and graph latency between the health checkers and the endpoint. Used only with HTTP/HTTPS/TCP based health checks.",
+                            "type" => "boolean",
+                            "default" => false
+                          },
+                          "inverted" => {
+                            "description" => "If the status of the health check should be inverted, eg. if health check status is healthy but you would like it to be evaluated as not healthy",
+                            "type" => "boolean",
+                            "default" => false
+                          },
+                          "enable_sni" => {
+                            "description" => "Enabled by default on HTTPS or HTTPS_STR_MATCH",
+                            "type" => "boolean",
+                            "default" => false,
+                            "default_if" => [
+                              {
+                                "key_is" => "method",
+                                "value_is" => "HTTPS",
+                                "set" => true
+                              },
+                              {
+                                "key_is" => "method",
+                                "value_is" => "HTTPS_STR_MATCH",
+                                "set" => true
+                              }
+                            ]
+                          },
+                          "health_threshold" => {
+                            "type" => "integer",
+                            "description" => "The minimum number of health checks that must be healthy when configuring a health check of type CALCULATED. Values can be between 0-256.",
+                            "default" => 1,
+                            "pattern" => "^[\\d]?{3}$"
+                          },
+                          "health_check_ids" => {
+                            "type" => "array",
+                            "description" => "The IDs of existing health checks to use when method is set to CALCULATED.",
+                            "items" => {
+                              "type" => "string"
+                            }
+                          },
+                          "alarm_region" => {
+                            "type" => "string",
+                            "description" => "The cloud provider's region the cloudwatch alarm was created in. Used with CLOUDWATCH_METRIC health checks"
+                          },
+                          "alarm_name" => {
+                            "type" => "string",
+                            "description" => "The cloudwatch alarm name. Used with CLOUDWATCH_METRIC health checks"
                           }
-                      }
-                  }
+                        }
+                    }
+                }
               }
           }
       }
@@ -3979,6 +4350,11 @@ module MU
             "enum" => MU.supportedGroomers
         },
         "tags" => @tags_primitive,
+        "optional_tags" => {
+            "type" => "boolean",
+            "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
+            "default" => true
+        },
         "alarms" => @alarm_common_primitive,
         "active_directory" => {
             "type" => "object",
@@ -4214,6 +4590,11 @@ module MU
                     "key_is" => "platform",
                     "value_is" => "rhel71",
                     "set" => "ec2-user"
+                },
+                {
+                    "key_is" => "platform",
+                    "value_is" => "amazon",
+                    "set" => "ec2-user"
                 }
             ]
         },
@@ -4224,7 +4605,7 @@ module MU
         "platform" => {
             "type" => "string",
             "default" => "linux",
-            "enum" => ["linux", "windows", "centos", "ubuntu", "centos6", "ubuntu14", "win2k12", "win2k12r2", "centos7", "rhel7", "rhel71"],
+            "enum" => ["linux", "windows", "centos", "ubuntu", "centos6", "ubuntu14", "win2k12", "win2k12r2", "win2k16", "centos7", "rhel7", "rhel71", "amazon"],
             "description" => "Helps select default AMIs, and enables correct grooming behavior based on operating system type.",
         },
         "run_list" => {
@@ -4269,6 +4650,34 @@ module MU
                     }
                 }
             }
+        },
+        "existing_deploys" => {
+          "type" => "array",
+          "minItems" => 1,
+          "items" => {
+            "type" => "object",
+            "additionalProperties" => false,
+            "description" => "Existing deploys that will be loaded into the new deployment metadata. This metadata will be saved on the Chef node",
+            "properties" => {
+                "cloud_type" => {
+                  "type" => "string",
+                  "description" => "The type of resource we will parse metdata for",
+                  "enum" => ["server", "database", "storage_pool", "cache_cluster"]
+                },
+                "cloud_id" => {
+                  "type" => "string",
+                  "description" => "The cloud identifier of the resource from which you would like to add metadata to this deployment. eg - i-d96eca0d. Must use either 'cloud_id' OR 'mu_name' AND 'deploy_id'"
+                },
+                "mu_name" => {
+                  "type" => "string",
+                  "description" => "The full name of a resource in a foreign deployment from which we should add the metdata to this deployment. You should also include 'deploy_id' so we will be able to identifiy a single resource. Use either 'cloud_id' OR 'mu_name' and 'deploy_id'"
+                },
+                "deploy_id" => {
+                  "type" => "string",
+                  "description" => "Should be used with 'mu_name' to identifiy a single resource."
+                }
+            }
+          }
         }
     }
 
@@ -4371,6 +4780,11 @@ module MU
             "region" => @region_primitive,
             "db_family" => {"type" => "string"},
             "tags" => @tags_primitive,
+            "optional_tags" => {
+                "type" => "boolean",
+                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
+                "default" => true
+            },
             "alarms" => @alarm_common_primitive,
             "engine_version" => {"type" => "string"},
             "add_firewall_rules" => @additional_firewall_rules,
@@ -4512,7 +4926,7 @@ module MU
             "cluster_parameter_group_parameters" => @rds_parameters_primitive,
             "parameter_group_family" => {
                 "type" => "String",
-                "enum" => ["postgres9.4", "postgres9.3", "mysql5.1", "mysql5.5", "mysql5.6", "oracle-ee-11.2", "oracle-ee-12.1", "oracle-se-11.2", "oracle-se-12.1", "oracle-se1-11.2", "oracle-se1-12.1",
+                "enum" => ["postgres9.5", "postgres9.4", "postgres9.3", "mysql5.1", "mysql5.5", "mysql5.6", "oracle-ee-11.2", "oracle-ee-12.1", "oracle-se-11.2", "oracle-se-12.1", "oracle-se1-11.2", "oracle-se1-12.1",
                                    "aurora5.6", "sqlserver-ee-10.5", "sqlserver-ee-11.0", "sqlserver-ex-10.5", "sqlserver-ex-11.0", "sqlserver-se-10.5", "sqlserver-se-11.0", "sqlserver-web-10.5", "sqlserver-web-11.0"],
                 "description" => "The database family to create the DB Parameter Group for. The family type must be the same type as the database major version - eg if you set engine_version to 9.4.4 the db_family must be set to postgres9.4."
             },
@@ -4558,6 +4972,11 @@ module MU
             },
             "region" => @region_primitive,
             "tags" => @tags_primitive,
+            "optional_tags" => {
+                "type" => "boolean",
+                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
+                "default" => true
+            },
             "engine_version" => {"type" => "string"},
             "node_count" => {
               "type" => "integer",
@@ -4628,7 +5047,7 @@ module MU
             "creation_style" => {
                 "type" => "string",
                 "enum" => ["new", "new_snapshot", "existing_snapshot"],
-                "description" => "'new' - create a new cache cluster; 'new_snapshot' - create a snapshot of of an exisiting cache cluster, and build a new cache cluster from that snapshot; 'existing_snapshot' - create a cache cluster from an existing snapshot.",
+                "description" => "'new' - create a new cache cluster; 'new_snapshot' - create a snapshot of of an existing cache cluster, and build a new cache cluster from that snapshot; 'existing_snapshot' - create a cache cluster from an existing snapshot.",
                 "default" => "new"
             },
             "identifier" => {
@@ -4669,6 +5088,11 @@ module MU
                 "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template."
             },
             "tags" => @tags_primitive,
+            "optional_tags" => {
+                "type" => "boolean",
+                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
+                "default" => true
+            },
             "add_firewall_rules" => @additional_firewall_rules,
             "dns_records" => dns_records_primitive(need_target: false, default_type: "R53ALIAS", need_zone: true),
             "dns_sync_wait" => {
@@ -4911,6 +5335,11 @@ module MU
             "min_size" => {"type" => "integer"},
             "max_size" => {"type" => "integer"},
             "tags" => @tags_primitive,
+            "optional_tags" => {
+                "type" => "boolean",
+                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
+                "default" => true
+            },
             "desired_capacity" => {
                 "type" => "integer",
                 "description" => "The number of Amazon EC2 instances that should be running in the group. Should be between min_size and max_size."
@@ -5108,6 +5537,67 @@ module MU
     }
     @server_pool_primitive["properties"].merge!(@server_common_properties)
 
+    @storage_pool_primitive = {
+      "type" => "object",
+      "title" => "Storage Pool",
+      "description" => "Create a storage pool.",
+      "required" => ["name", "cloud"],
+      "additionalProperties" => false,
+      "properties" => {
+        "cloud" => @cloud_primitive,
+        "name" => {"type" => "string"},
+        "region" => @region_primitive,
+        "tags" => @tags_primitive,
+        "optional_tags" => {
+          "type" => "boolean",
+          "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
+          "default" => true
+        },
+        "dependencies" => @dependencies_primitive,
+        "storage_type" => {
+          "type" => "string",
+          "enum" => ["generalPurpose", "maxIO"],
+          "description" => "The storage type / performance mode of this storage pool. Defaults to generalPurpose",
+          "default" => "generalPurpose"
+        }
+      }
+    }
+
+    @storage_pool_mount_points_primitive = {
+      "mount_points" => {
+        "type" => "array",
+        "minItems" => 1,
+        "items" => {
+          "type" => "object",
+          "required" => ["name"],
+          "additionalProperties" => false,
+          "description" => "Mount points for AWS EFS.",
+          "properties" => {
+            "name" => {
+              "type" => "string"
+            },
+            "directory" => {
+              "type" => "string",
+              "description" => "The local directory this mount point will be mounted to",
+              "default" => "/efs"
+            },
+            "vpc" => vpc_reference_primitive(ONE_SUBNET+MANY_SUBNETS, NO_NAT_OPTS, "all_private"),
+            "add_firewall_rules" => @additional_firewall_rules,
+            "ingress_rules" => {
+              "type" => "array",
+              "items" => @firewall_ruleset_rule_primitive
+            },
+            "ip_address" => {
+              "type" => "string",
+              "pattern" => "^\\d+\\.\\d+\\.\\d+\\.\\d+$",
+              "description" => "The private IP address to assign to the mount point."
+            }
+          }
+        }
+      }
+    }
+    @storage_pool_primitive["properties"].merge!(@storage_pool_mount_points_primitive)
+
     @@schema = {
         "$schema" => "http://json-schema.org/draft-04/schema#",
         "title" => "MU Application",
@@ -5218,6 +5708,10 @@ module MU
             "vpcs" => {
                 "type" => "array",
                 "items" => @vpc_primitive
+            },
+            "storage_pools" => {
+              "type" => "array",
+              "items" => @storage_pool_primitive
             },
             "admins" => {
                 "type" => "array",

@@ -3,8 +3,8 @@
 
    workgroup = <%= @netbios_name.upcase %>
    netbios name = <%= @computer_name.upcase %>
-   password server = <%= @dcs.join(" ") %>
-   wins server = <%= @dcs.join(" ") %>
+   #password server = <%= @dcs.join(" ") %>
+   #wins server = <%= @dcs.join(" ") %>
    realm = <%= @domain_name.upcase %>
    kerberos method = secrets and keytab
    security = ads
@@ -17,11 +17,11 @@
    idmap gid = 10000-5000000
    template homedir = /home/<%= @domain_name.downcase %>/%U
    template shell = /bin/bash
-   winbind enum users = Yes
-   winbind enum groups = Yes
-   winbind nested groups = yes
-   winbind use default domain = true
-   winbind offline logon = false
+   #winbind enum users = Yes
+   #winbind enum groups = Yes
+   #winbind nested groups = yes
+   #winbind use default domain = true
+   #winbind offline logon = false
    client use spnego = yes
    client ntlmv2 auth = false
    encrypt passwords = yes

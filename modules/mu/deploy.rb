@@ -303,25 +303,28 @@ module MU
       if mommacat.numKittens(clouds: ["AWS"]) > 0
         MU.log "Generating cost calculation URL for all Amazon Web Services resources."
         MU.setLogging(MU::Logger::SILENT)
-        begin
+
+        cost_dummy_deploy = MU::Deploy.new(
+          @environment.dup,
+          verbosity: MU::Logger::SILENT,
+          force_cloudformation: true,
+          cloudformation_path: "/dev/null",
+          nocleanup: false, # make sure we clean up the cost allocation deploy
+          stack_conf: @original_config,
+          reraise_thread: @main_thread
+        )
+
         t = Thread.new {
-          cost_dummy_deploy = MU::Deploy.new(
-            @environment.dup,
-            verbosity: MU::Logger::SILENT,
-            force_cloudformation: true,
-            cloudformation_path: "/dev/null",
-            nocleanup: true,
-            stack_conf: @original_config,
-            reraise_thread: @main_thread
-          )
-          cost_dummy_deploy.run
+          begin
+            cost_dummy_deploy.run
+          rescue MU::Cloud::MuCloudFlagNotImplemented, MU::Cloud::MuCloudResourceNotImplemented => e
+            MU.log "Failed to generate AWS cost-calculation URL. Skipping.", MU::WARN, details: "Deployment uses a feature not available in CloudFormation layer.", verbosity: MU::Logger::NORMAL
+          rescue Exception => e
+            MU.log "Failed to generate AWS cost-calculation URL. Skipping.", MU::WARN, details: "Deployment uses a feature not available in CloudFormation layer.", verbosity: MU::Logger::NORMAL
+          end
         }
+
         t.join
-        rescue MU::Cloud::MuCloudFlagNotImplemented, MU::Cloud::MuCloudResourceNotImplemented => e
-          MU.log "Failed to generate AWS cost-calculation URL. Skipping.", MU::WARN, details: "Deployment uses a feature not available in CloudFormation layer.", verbosity: MU::Logger::NORMAL
-        rescue Exception => e
-          MU.log "Failed to generate AWS cost-calculation URL. Skipping.", MU::WARN, details: "Deployment uses a feature not available in CloudFormation layer.", verbosity: MU::Logger::NORMAL
-        end
         MU.setLogging(@verbosity)
       end
 
@@ -490,6 +493,7 @@ MESSAGE_END
           rescue Exception => e
             MU::MommaCat.unlockAll
             @main_thread.raise MuError, "Error instantiating object from #{service["#MU_CLOUDCLASS"]} (#{e.inspect})", e.backtrace
+            raise e
           end
           begin
             run_this_method = service['#MUOBJECT'].method(mode)

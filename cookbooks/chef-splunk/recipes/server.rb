@@ -27,6 +27,10 @@ include_recipe 'chef-splunk::setup_auth'
 # above would have failed if there were another issue.
 splunk_auth_info = chef_vault_item(node.splunk.auth.data_bag, node.splunk.auth.data_bag_item)['auth']
 
+firewall_rule "HTTP ports for Splunk admin console" do
+  port [80, 443]
+end
+
 execute 'enable-splunk-receiver-port' do
   command "\"#{splunk_cmd}\" enable listen #{node['splunk']['receiver_port']} -auth '#{splunk_auth_info}'"
   not_if do
@@ -39,6 +43,9 @@ execute 'enable-splunk-receiver-port' do
       false
     end
   end
+end
+firewall_rule "Splunk receiver port(s)" do
+  port [node['splunk']['receiver_port'].to_i, 8089]
 end
 
 if node['splunk']['ssl_options']['enable_ssl']

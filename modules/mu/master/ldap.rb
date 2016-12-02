@@ -535,7 +535,27 @@ module MU
             end rescue NoMethodError
           }
         end
-        users
+        def self.hashStringify(tree)
+          newtree = nil
+          if tree.is_a?(Hash)
+            newtree = {}
+            tree.each_pair { |key, leaf|
+              newtree[key.to_s] = hashStringify(leaf)
+            }
+          elsif tree.is_a?(Array)
+            newtree = []
+            tree.each { |leaf|
+              newtree << hashStringify(leaf)
+            }
+          elsif tree.is_a?(Net::BER::BerIdentifiedString)
+            newtree = tree.to_s
+          else
+            newtree = tree
+          end
+          newtree
+        end
+        scrubbed_users = hashStringify(users)
+        scrubbed_users
       end
 
       # @return [Array<String>]

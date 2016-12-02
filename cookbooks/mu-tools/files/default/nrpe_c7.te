@@ -1,0 +1,31 @@
+
+module nrpe_c7 1.0;
+
+require {
+	type unconfined_t;
+	type nrpe_t;
+	type nrpe_etc_t;
+	type nagios_etc_t;
+	class dir { read relabelto };
+	class file { read relabelto getattr };
+}
+
+#============= nrpe_t ==============
+
+#!!!! This avc is allowed in the current policy
+allow nrpe_t nagios_etc_t:dir read;
+allow nrpe_t nagios_etc_t:file read;
+
+#!!!! This avc is allowed in the current policy
+allow nrpe_t nagios_etc_t:file getattr;
+
+#!!!! This avc is allowed in the current policy
+allow nrpe_t nrpe_etc_t:dir read;
+
+#============= unconfined_t ==============
+
+#!!!! This avc is allowed in the current policy
+allow unconfined_t nrpe_t:dir relabelto;
+
+#!!!! This avc is allowed in the current policy
+allow unconfined_t nrpe_t:file relabelto;

@@ -29,13 +29,42 @@ service 'splunk_stop' do
   if node['platform_family'] != 'windows'
     service_name 'splunk'
     provider Chef::Provider::Service::Init
+    only_if { ::File.exists?("/etc/init.d/splunk") }
   else
     service_name 'SplunkForwarder'
     provider Chef::Provider::Service::Windows
+    timeout 90
+    retries 3
+    retry_delay 10
+    supports :status => false, :restart => false
+    start_command "c:/Windows/system32/sc.exe start SplunkForwarder"
+    stop_command "c:/Windows/system32/sc.exe stop SplunkForwarder"
+    pattern "splunkd.exe"
+    only_if { ::Dir.exists?("c:/Program Files/SplunkUniversalForwarder") }
+    not_if { ::Dir.glob("c:/Program Files/SplunkUniversalForwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
   end
   supports :status => true
   action :stop
 end
+
+if node['platform_family'] == 'windows'
+  # Splunk can't seem to upgrade itself in some cases if we don't explicitly
+  # purge the old installation.
+  powershell_script "Purge old versions of Splunk Universal Forwarder" do
+    guard_interpreter :powershell_script
+    code <<-EOH
+      wmic product get /format:csv | findstr /i UniversalForwarder | findstr /i /v splunkforwarder-#{node['splunk']['preferred_version']}- | foreach {
+        $fields = $_.split(",")
+        $arg1 = "/x"+$fields[6]
+        $arg2 = "/quiet"
+        msiexec $arg1 $arg2
+      }
+    EOH
+    not_if { ::Dir.glob("c:/Program Files/SplunkUniversalForwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
+  end
+end
+
+
 
 if node['splunk']['is_server']
   splunk_package = 'splunk'
@@ -47,11 +76,20 @@ end
 
 splunk_installer splunk_package do
   url node['splunk'][url_type]["url"]
+  if node['platform_family'] == 'windows'
+    not_if { ::Dir.glob("c:/Program Files/SplunkUniversalForwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
+  else
+    not_if { ::Dir.glob("/opt/splunkforwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
+  end
+  if node['splunk']['accept_license']
+    notifies :run, "execute[splunk-unattended-upgrade]", :immediately
+  end
 end
 
 if node['splunk']['accept_license']
   execute 'splunk-unattended-upgrade' do
     command "\"#{splunk_cmd}\" start --accept-license --answer-yes"
+    action :nothing
   end
 else
   Chef::Log.fatal('You did not accept the license (set node["splunk"]["accept_license"] to true)')

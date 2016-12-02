@@ -54,9 +54,17 @@ module MU
             load_balancer_name: @mu_name,
             tags: []
           }
+
           MU::MommaCat.listStandardTags.each_pair { |name, value|
             lb_options[:tags] << {key: name, value: value}
           }
+
+          if @config['optional_tags']
+            MU::MommaCat.listOptionalTags.each_pair { |name, value|
+              lb_options[:tags] << {key: name, value: value}
+            }
+          end
+
           if !@config['tags'].nil?
             @config['tags'].each { |tag|
               lb_options[:tags] << {key: tag['key'], value: tag['value']}

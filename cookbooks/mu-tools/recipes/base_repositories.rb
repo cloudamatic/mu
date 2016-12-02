@@ -19,8 +19,8 @@
 # Install the EPEL yum repository for CentOS.
 
 if !node[:application_attributes][:skip_recipes].include?('base_repositories')
-  case node[:platform]
-    when "centos"
+  case node['platform_family']
+    when "rhel"
       include_recipe "yum-epel"
   end
 end

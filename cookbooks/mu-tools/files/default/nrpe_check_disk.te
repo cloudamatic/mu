@@ -1,0 +1,11 @@
+
+module nrpe_check_disk 1.0;
+
+require {
+	type nagios_checkdisk_plugin_t;
+	type configfs_t;
+	class dir getattr;
+}
+
+#============= nagios_checkdisk_plugin_t ==============
+allow nagios_checkdisk_plugin_t configfs_t:dir getattr;

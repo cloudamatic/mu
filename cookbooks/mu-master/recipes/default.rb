@@ -20,6 +20,26 @@ response = Net::HTTP.get_response(URI("http://169.254.169.254/latest/meta-data/i
 instance_id = response.body
 search_domains = ["ec2.internal", "server.#{instance_id}.platform-mu", "platform-mu"]
 
+include_recipe 'mu-firewall'
+
+# TODO Move all mu firewall rules to a mu specific chain
+firewall_rule "MU Master default ports" do
+  port [2260, 8443, 9443, 10514, 443, 80, 25]
+end
+
+master_ips = get_mu_master_ips
+master_ips << "127.0.0.1"
+master_ips.uniq!
+master_ips.each { |host|
+  firewall_rule "Mu Master ports for self (#{host})" do
+    source "#{host}/32"
+  end
+}
+
+firewall_rule "Chef Server default ports" do
+  port [4321, 7443, 9463, 16379, 8983, 8000, 9683, 9090, 5432, 5672]
+end
+
 if !node.update_nagios_only
 
   service "sshd" do
@@ -28,7 +48,7 @@ if !node.update_nagios_only
 
   include_recipe 'chef-vault'
   if $MU_CFG.has_key?('ldap')
-    if $MU_CFG['ldap']['type'] == "389 Directory Services" and Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG['hostname']}")
+    if $MU_CFG['ldap']['type'] == "389 Directory Services" and Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG['host_name']}")
       package "sssd"
       package "sssd-ldap"
       package "nss-pam-ldapd" do
@@ -56,16 +76,17 @@ if !node.update_nagios_only
         command "/usr/sbin/semodule -i syslogd_oddjobd.pp"
         cwd Chef::Config[:file_cache_path]
         not_if "/usr/sbin/semodule -l | grep syslogd_oddjobd"
-        notifies :reload, "service[oddjobd]", :delayed
+        notifies :restart, "service[oddjobd]", :delayed
       end
 
       service "oddjobd" do
-        start_command "sh -x /etc/init.d/oddjobd start" # seems to actually work
+        start_command "sh -x /etc/init.d/oddjobd start" if %w{redhat centos}.include?(node['platform']) && node['platform_version'].to_i == 6  # seems to actually work
         action [:enable, :start]
       end
       execute "/usr/sbin/authconfig --disablenis --disablecache --disablewinbind --disablewinbindauth --enablemkhomedir --disablekrb5 --enablesssd --enablesssdauth --enablelocauthorize --disableforcelegacy --disableldap --disableldapauth --updateall" do
         notifies :restart, "service[oddjobd]", :immediately
         notifies :reload, "service[sshd]", :delayed
+        not_if "grep pam_sss.so /etc/pam.d/password-auth"
       end
       service "sssd" do
         action :nothing
@@ -302,7 +323,8 @@ if !node.update_nagios_only
       not_if "grep '^#{mu_user}: #{data['email']}$' /etc/aliases"
     end
   }
-  execute "/usr/bin/newaliases"
+
+  # execute "/usr/bin/newaliases"
 
   include_recipe "mu-tools::aws_api"
 
@@ -315,6 +337,7 @@ if !node.update_nagios_only
         result = attach_node_volume("logs")
       end
     end
+    not_if "grep #{node.application_attributes.logs.mount_directory} /etc/mtab"
     notifies :restart, "service[rsyslog]", :delayed
   end
 
@@ -356,6 +379,7 @@ if !node.update_nagios_only
       end
     end
     notifies :restart, "service[rsyslog]", :delayed
+    not_if "grep #{node.application_attributes.logs.mount_directory} /etc/mtab"
   end
 
   ruby_block "label #{node.application_attributes.logs.mount_device} as #{node.application_attributes.logs.label}" do
@@ -439,5 +463,5 @@ if !node.update_nagios_only
   end
 
   # This is stuff that can break for no damn reason at all
-  include_recipe "mu-utility::cloudinit"
+  include_recipe "mu-tools::cloudinit"
   end

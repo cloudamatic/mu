@@ -100,7 +100,7 @@ Dir.glob("/usr/lib/cgi-bin/*.cgi").each { |script|
   end
 }
 
-["/usr/lib/nagios", "/etc/nagios", "/etc/nagios3", "/var/log/nagios", "/var/www/html/docs"].each { |dir|
+["/usr/lib/nagios", "/etc/nagios", "/etc/nagios3", "/var/www/html/docs"].each { |dir|
   if Dir.exist?(dir)
     execute "chcon -R -h -t httpd_sys_content_t #{dir}" do
       not_if "ls -aZ #{dir} | grep ':httpd_sys_content_t:'"
@@ -124,12 +124,13 @@ if File.exist?("/usr/lib64/nagios/plugins/check_nagios")
   end
 end
 
-execute "chgrp apache /var/log/nagios"
+# execute "chgrp apache /var/log/nagios"
 ["/etc/nagios/conf.d/", "/etc/nagios/*.cfg", "/var/run/nagios.pid"].each { |dir|
   execute "/sbin/restorecon -R #{dir}" do
     not_if "ls -aZ #{dir} | grep ':nagios_etc_t:'"
   end
 }
+
 execute "restorecon -R /var/log/nagios"
 
 # The Nagios cookbook currently screws up this setting, so work around it.
@@ -150,6 +151,13 @@ end
 
 file "/etc/sysconfig/nrpe" do
   content "NRPE_SSL_OPT=\"\"\n"
+end
+
+#Sometimes doesn’t exist on the first run
+directory "/opt/mu/var/nagios_user_home" do
+  owner "nagios"
+	group "nagios"
+	mode 0700
 end
 
 directory "/opt/mu/var/nagios_user_home/.ssh" do

@@ -82,9 +82,16 @@ service 'splunk' do
   if node['platform_family'] == 'windows'
     service_name 'SplunkForwarder'
     provider Chef::Provider::Service::Windows
+    timeout 90
+    retries 3
+    retry_delay 10
+    supports :status => false, :restart => false
+    start_command "c:/Windows/system32/sc.exe start SplunkForwarder"
+    stop_command "c:/Windows/system32/sc.exe stop SplunkForwarder"
+    pattern "splunkd.exe"
   else
     provider Chef::Provider::Service::Init
+    supports :status => true, :restart => true
   end
-  supports :status => true, :restart => true
   action :start
 end

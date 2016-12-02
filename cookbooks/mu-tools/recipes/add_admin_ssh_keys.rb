@@ -16,15 +16,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-if node.deployment.admins
-  if !node.service_name.nil?
-    if !node.deployment.servers[node.service_name].config.ssh_user.nil?
-      ssh_user = node.deployment.servers[node.service_name].config.ssh_user
+if node['deployment']['admins']
+  if !node['service_name'].nil?
+    if !node['deployment']['servers'][node['service_name']]['config']['ssh_user'].nil?
+      ssh_user = node['deployment']['servers'][node['service_name']]['config']['ssh_user']
     end rescue NoMethodError
   end rescue NoMethodError
-  ssh_user = "root" if ssh_user.nil?
-  ssh_dir = Etc.getpwnam(ssh_user).dir + "/.ssh"
-  node.deployment.admins.each_pair { |name, admin|
+  ssh_user = 'root' if ssh_user.nil?
+  ssh_dir = "#{Etc.getpwnam(ssh_user).dir}/.ssh"
+  node['deployment']['admins'].each_pair { |name, admin|
     if !admin['public-key'].nil?
       execute "Add #{admin.name}'s ssh key to #{ssh_dir}/authorized_keys" do
         not_if "grep '^#{admin['public-key']}$' #{ssh_dir}/authorized_keys"

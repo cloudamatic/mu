@@ -1,6 +1,7 @@
 <VirtualHost *:<%= @params[:server_port] || node['apache']['listen'].first %>>
   ServerName <%= @params[:server_name] %>
   ServerAlias <% @params[:server_aliases].each do |a| %><%= a %> <% end %>
+  FileETag -INode
   DocumentRoot <%= @params[:docroot] %>
   RewriteEngine On
   RewriteRule ^/(nagios|jenkins|scratchpad)$ https://%{HTTP_HOST}/$1/ [R=301,NC,L]

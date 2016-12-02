@@ -4,14 +4,7 @@
     "json_class": "Chef::Role",
     "default_attributes": {
         "jenkins_port_external": 9443,
-        "jenkins_port_internal": 8080,
-        "jenkins_plugins": [
-            "github",
-            "ssh",
-            "deploy",
-            "dynamicparameter",
-            "ansicolor"
-        ]
+        "jenkins_port_internal": 8080
     },
     "override_attributes": {
         "jenkins": {

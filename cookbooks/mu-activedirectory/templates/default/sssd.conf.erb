@@ -8,7 +8,6 @@ krb5_realm = <%= @domain.upcase %>
 #ldap_tls_reqcert = allow
 #ldap_id_use_start_tls = True
 #ldap_tls_cacertdir = /etc/openldap/cacerts
-#krb5_canonicalize = false
 ldap_id_mapping = True
 ldap_schema = ad
 ldap_use_tokengroups = False
@@ -33,9 +32,13 @@ access_provider = ad
 # ldap_group_object_class = group
 # ldap_group_name = cn
 # ldap_group_gid_number = msSFU30GidNumber
+#ldap_sasl_authid = <%= @krb5keytabuser %>
+#krb5_fast_principal = <%= @krb5keytabuser %>
+#krb5_use_fast = try
+#krb5_canonicalize = false
 
 [sssd]
-services = nss, pam, ssh
+services = nss, pam, ssh, pac 
 config_file_version = 2
 domains = <%= @domain %>
 

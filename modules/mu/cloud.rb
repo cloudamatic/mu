@@ -75,6 +75,9 @@ module MU
     # Stub base class; real implementations generated at runtime
     class Log;
     end
+    # Stub base class; real implementations generated at runtime
+    class StoragePool;
+    end
 
     # The types of cloud resources we can create, as class objects. Include
     # methods a class implementing this resource type must support to be
@@ -144,7 +147,7 @@ module MU
         :deps_wait_on_my_creation => false,
         :waits_on_parent_completion => false,
         :class => generic_class_methods,
-        :instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP, :getWindowsAdminPassword, :active?, :groomer, :mu_windows_name, :mu_windows_name=, :reboot]
+        :instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP, :getWindowsAdminPassword, :active?, :groomer, :mu_windows_name, :mu_windows_name=, :reboot, :addVolume]
       },
       :ServerPool => {
         :has_multiples => false,
@@ -209,6 +212,17 @@ module MU
         :interface => self.const_get("Log"),
         :deps_wait_on_my_creation => false,
         :waits_on_parent_completion => true,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom]
+      },
+      :StoragePool => {
+        :has_multiples => false,
+        :can_live_in_vpc => true,
+        :cfg_name => "storage_pool",
+        :cfg_plural => "storage_pools",
+        :interface => self.const_get("StoragePool"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => false,
         :class => generic_class_methods,
         :instance => generic_instance_methods + [:groom]
       }
@@ -705,7 +719,7 @@ module MU
 
         if shortname == "Server"
           def windows?
-            %w{win2k12r2 win2k12 win2k8 win2k8r2 windows}.include?(@config['platform'])
+            %w{win2k16 win2k12r2 win2k12 win2k8 win2k8r2 windows}.include?(@config['platform'])
           end
 
           # Basic setup tasks performed on a new node during its first initial ssh
