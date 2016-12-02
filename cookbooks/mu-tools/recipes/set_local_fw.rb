@@ -25,17 +25,33 @@ when "centos", "redhat"
     service "iptables" do
       action :nothing
     end
+  else
+    execute "firewall-cmd --reload" do
+      action :nothing
+    end
+  end
+
+  if elversion == 6
+    firewall_rule "Allow loopback in" do
+      raw "-A INPUT -i lo -j ACCEPT"
+      notifies :reload, "service[iptables]"
+    end
+
+    firewall_rule "Allow loopback out" do
+      raw "-A OUTPUT -o lo -j ACCEPT"
+      notifies :reload, "service[iptables]"
+    end
   end
 
   opento = master_ips.map { |x| "#{x}/32"}
-  opento << "127.0.0.1/32"
-  opento << "#{node.ipaddress}/32"
+
   opento.uniq.each { |src|
     [:tcp, :udp, :icmp].each { |proto|
       firewall_rule "allow all #{src} #{proto.to_s} traffic" do
         source src
         protocol proto
-        notifies :restart, "service[iptables]", :immediately if elversion < 7
+        notifies :reload, "service[iptables]" if elversion < 7
+        notifies :run, 'execute[firewall-cmd --reload]' if elversion >= 7
       end
     }
   }
