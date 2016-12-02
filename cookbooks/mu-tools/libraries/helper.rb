@@ -155,6 +155,9 @@ module Mutools
         master_ips << server['ec2']['public_ipv4'] if server['ec2'].has_key?('public_ipv4') and !server['ec2']['public_ipv4'].nil? and !server['ec2']['public_ipv4'].empty?
         master_ips << server['ec2']['local_ipv4'] if !server['ec2']['local_ipv4'].nil? and !server['ec2']['local_ipv4'].empty?
       }
+      if master_ips.size == 0
+        master_ips <<  mu_get_tag_value("MU-MASTER-IP")
+      end
 
       return master_ips
     end
