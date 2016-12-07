@@ -618,7 +618,7 @@ module MU
 
         # Apply tags, bootstrap our configuration management, and other
         # administravia for a new instance.
-        def postBoot(instance_id)
+        def postBoot(instance_id = nil)
           if !instance_id.nil?
             @cloud_id = instance_id
           end
