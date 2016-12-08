@@ -39,7 +39,8 @@ if node['deployment'].has_key?('storage_pools')
           device "#{endpoint}:/"
           fstype "nfs4"
           action [:mount, :enable]
-          not_if "grep ' #{target['mount_directory']} ' /etc/mtab | egrep '^(#{target['endpoint']}|#{target['ip_address']}):'"
+          options "nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2"
+          #not_if "grep ' #{target['mount_directory']} ' /etc/mtab | egrep '^(#{target['endpoint']}|#{target['ip_address']}):'"
         end
 
         break
