@@ -1544,9 +1544,9 @@ setup_localhost_chef_client()
     fi
     mkdir -p /etc/chef
     if [ "$allowuser" == "root" -o "$allowuser" == "" ];then
-      /opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --no
+      /opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --no--node-ssl-verify-mode=none ${CHEF_PUBLIC_IP}
     else
-      /opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --no
+      /opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --no--node-ssl-verify-mode=none -x ${allowuser} --sudo ${CHEF_PUBLIC_IP}
     fi
     run_chef_client=0
   fi
