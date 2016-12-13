@@ -1004,18 +1004,15 @@ module MU
           resp = nil
           my_subnets_key = my_subnets.join(",")
           target_subnets_key = target_subnets.join(",")
-
-          [my_subnets_key, target_subnets_key].each { |key|
-            MU::Cloud::AWS::VPC.update_route_tables_cache(key, region: region)
-          }
+          MU::Cloud::AWS::VPC.update_route_tables_cache(my_subnets_key, region: MU.myRegion)
+          MU::Cloud::AWS::VPC.update_route_tables_cache(target_subnets_key, region: region)
 
           if MU::Cloud::AWS::VPC.have_route_peered_vpc?(my_subnets_key, target_subnets_key, instance_id)
             return true
           else
             # The cache can be out of date at times, check again without it
-            [my_subnets_key, target_subnets_key].each { |key|
-              MU::Cloud::AWS::VPC.update_route_tables_cache(key, use_cache: false, region: region)
-            }
+            MU::Cloud::AWS::VPC.update_route_tables_cache(my_subnets_key, use_cache: false, region: MU.myRegion)
+            MU::Cloud::AWS::VPC.update_route_tables_cache(target_subnets_key, use_cache: false, region: region)
 
             return MU::Cloud::AWS::VPC.have_route_peered_vpc?(my_subnets_key, target_subnets_key, instance_id)
           end
@@ -1028,7 +1025,7 @@ module MU
         # @param subnet_key [String]: The subnet/subnets route tables will be extracted from.
         # @param use_cache [Boolean]: If to use the existing cache and add records to cache only if missing, or to also replace exising records in cache.
         # @param region [String]: The cloud provider region of the target subnet.
-        def self.update_route_tables_cache(subnet_key, use_cache: true ,region: MU.curRegion)
+        def self.update_route_tables_cache(subnet_key, use_cache: true, region: MU.curRegion)
           @rtb_cache_semaphore.synchronize {
             update = 
               if !use_cache
