@@ -255,11 +255,17 @@ module MU
                   if !rule[:user_id_group_pairs].nil? and rule[:user_id_group_pairs].size == 0
                     rule.delete(:user_id_group_pairs)
                   end
+
                   if !rule[:ip_ranges].nil? and rule[:ip_ranges].size == 0
                     rule.delete(:ip_ranges)
                   end
+
                   if !rule[:prefix_list_ids].nil? and rule[:prefix_list_ids].size == 0
                     rule.delete(:prefix_list_ids)
+                  end
+                  
+                  if !rule[:ipv_6_ranges].nil? and rule[:ipv_6_ranges].size == 0
+                    rule.delete(:ipv_6_ranges)
                   end
                 }
               }
@@ -275,11 +281,17 @@ module MU
                   if !rule[:user_id_group_pairs].nil? and rule[:user_id_group_pairs].size == 0
                     rule.delete(:user_id_group_pairs)
                   end
+
                   if !rule[:ip_ranges].nil? and rule[:ip_ranges].size == 0
                     rule.delete(:ip_ranges)
                   end
+
                   if !rule[:prefix_list_ids].nil? and rule[:prefix_list_ids].size == 0
                     rule.delete(:prefix_list_ids)
+                  end
+
+                  if !rule[:ipv_6_ranges].nil? and rule[:ipv_6_ranges].size == 0
+                    rule.delete(:ipv_6_ranges)
                   end
                 }
               }
