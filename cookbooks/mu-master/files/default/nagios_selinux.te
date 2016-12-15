@@ -1,25 +1,21 @@
-
 module nagios_more_selinux 1.0;
 
 require {
-	type nagios_t;
-	type usr_t;
-	type nagios_log_t;
-	type httpd_t;
-	type httpd_sys_script_t;
+  type nagios_t;
+  type usr_t;
+  type nagios_log_t;
+  type httpd_t;
+  type httpd_sys_script_t;
   type httpd_sys_content_t;
   type httpd_sys_script_exec_t;
-	type nagios_exec_t;
+  type nagios_exec_t;
   type initrc_var_run_t;
   type port_t;
   type ssh_exec_t;
-  type nagios_etc_t;
-  type nrpe_t;
-  class unix_stream_socket connectto;
-	class capability chown;
-	class dir { search read write remove_name add_name };
-	class file { create open execute_no_trans read append write getattr setattr lock unlink rename execute };
-	class fifo_file { read open getattr write create };
+  class capability chown;
+  class dir { search read write remove_name add_name };
+  class file { create open execute_no_trans read append write getattr setattr lock unlink rename execute };
+  class fifo_file { read open getattr write create };
   class sock_file { create write unlink };
   class tcp_socket { name_bind };
   class capability { chown };
@@ -53,7 +49,3 @@ allow nagios_t httpd_sys_script_exec_t:fifo_file { read open getattr write creat
 allow nagios_t nagios_log_t:fifo_file { read open getattr write create };
 allow nagios_t nagios_log_t:fifo_file { read open getattr write create };
 allow nagios_t usr_t:file { read open getattr execute execute_no_trans append };
-allow httpd_sys_script_t nagios_etc_t:file { read open getattr } ;
-allow nagios_t self:unix_stream_socket connectto;
-allow nrpe_t httpd_sys_content_t:dir { read search };
-allow nrpe_t httpd_sys_content_t:file { read open getattr };

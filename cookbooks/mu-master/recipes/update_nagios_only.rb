@@ -50,33 +50,37 @@ file "/etc/sysconfig/nagios" do
 end
 include_recipe "nagios"
 
-cookbook_file "nagios_fifo.pp" do
-  path "#{Chef::Config[:file_cache_path]}/nagios_fifo.pp"
-end
-cookbook_file "nagios_more_selinux.pp" do
-  path "#{Chef::Config[:file_cache_path]}/nagios_more_selinux.pp"
-end
+# scrub our old stuff if it's around
+["nagios_fifo", "nagios_more_selinux"].each { |policy|
+  execute "/usr/sbin/semodule -r #{policy}" do
+    only_if "/usr/sbin/semodule -l | grep '^#{policy}$'"
+  end
+}
 
-execute "Add Nagios cmd FIFO to SELinux allow list" do
-  command "/usr/sbin/semodule -i nagios_fifo.pp"
-  cwd Chef::Config[:file_cache_path]
-  not_if "/usr/sbin/semodule -l | grep nagios_fifo"
-  notifies :reload, "service[apache2]", :delayed
-  notifies :restart, "service[nrpe]", :delayed
-  notifies :restart, "service[nagios]", :delayed
+nagios_policies = ["nagios_selinux"]
+
+if platform_family?("rhel") and node.platform_version.to_i == 7
+  nagios_policies << "nagios_selinux_7"
 end
 
-execute "Add Nagios cmd FIFO to SELinux allow list for Nagios daemon" do
-  command "/usr/sbin/semodule -i nagios_more_selinux.pp"
-  cwd Chef::Config[:file_cache_path]
-  not_if "/usr/sbin/semodule -l | grep nagios_more_selinux"
-  notifies :reload, "service[apache2]", :delayed
-  notifies :restart, "service[nrpe]", :delayed
-  notifies :restart, "service[nagios]", :delayed
-end
-
-
-
+nagios_policies.each { |policy|
+  execute "/usr/sbin/semodule -r #{policy}" do
+    action :nothing
+    only_if "/usr/sbin/semodule -l | grep '^#{policy}$'"
+  end
+  cookbook_file "#{policy}.pp" do
+    path "#{Chef::Config[:file_cache_path]}/#{policy}.pp"
+    notifies :run, "execute[/usr/sbin/semodule -r #{policy}]", :immediately
+  end
+  execute "Add Nagios-related SELinux policies: #{policy}" do
+    command "/usr/sbin/semodule -i #{policy}.pp"
+    cwd Chef::Config[:file_cache_path]
+    not_if "/usr/sbin/semodule -l | grep '^#{policy}$'"
+    notifies :reload, "service[apache2]", :delayed
+    notifies :restart, "service[nrpe]", :delayed
+    notifies :restart, "service[nagios]", :delayed
+  end
+}
 
 # Workaround for minor Nagios (cookbook?) bug. It looks for this at the wrong
 # URL at the moment, so copy it where it's actually looking.

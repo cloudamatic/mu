@@ -1,0 +1,17 @@
+module nagios_selinux_7 1.0;
+
+require {
+  type nagios_t;
+  type nagios_etc_t;
+  type nrpe_t;
+  type httpd_sys_script_t;
+  type httpd_sys_content_t;
+  class unix_stream_socket connectto;
+  class file { read open getattr };
+  class dir { search read };
+}
+
+allow httpd_sys_script_t nagios_etc_t:file { read open getattr } ;
+allow nagios_t self:unix_stream_socket connectto;
+allow nrpe_t httpd_sys_content_t:dir { read search };
+allow nrpe_t httpd_sys_content_t:file { read open getattr };
