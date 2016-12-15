@@ -53,7 +53,7 @@ include_recipe "nagios"
 # scrub our old stuff if it's around
 ["nagios_fifo", "nagios_more_selinux"].each { |policy|
   execute "/usr/sbin/semodule -r #{policy}" do
-    only_if "/usr/sbin/semodule -l | grep '^#{policy}\t'"
+    only_if "/usr/sbin/semodule -l | egrep '^#{policy}(\t|$)'"
   end
 }
 
@@ -66,7 +66,7 @@ end
 nagios_policies.each { |policy|
   execute "/usr/sbin/semodule -r #{policy}" do
     action :nothing
-    only_if "/usr/sbin/semodule -l | grep '^#{policy}\t'"
+    only_if "/usr/sbin/semodule -l | egrep '^#{policy}(\t|$)'"
   end
   cookbook_file "#{policy}.pp" do
     path "#{Chef::Config[:file_cache_path]}/#{policy}.pp"
@@ -75,7 +75,7 @@ nagios_policies.each { |policy|
   execute "Add Nagios-related SELinux policies: #{policy}" do
     command "/usr/sbin/semodule -i #{policy}.pp"
     cwd Chef::Config[:file_cache_path]
-    not_if "/usr/sbin/semodule -l | grep '^#{policy}\t'"
+    not_if "/usr/sbin/semodule -l | egrep '^#{policy}(\t|$)'"
     notifies :reload, "service[apache2]", :delayed
     notifies :restart, "service[nrpe]", :delayed
     notifies :restart, "service[nagios]", :delayed
