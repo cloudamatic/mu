@@ -1,4 +1,4 @@
-module nagios_more_selinux 1.0;
+module nagios_selinux 1.0;
 
 require {
   type nagios_t;
