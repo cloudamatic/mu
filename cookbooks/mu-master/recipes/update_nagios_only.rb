@@ -62,12 +62,17 @@ execute "Add Nagios cmd FIFO to SELinux allow list" do
   cwd Chef::Config[:file_cache_path]
   not_if "/usr/sbin/semodule -l | grep nagios_fifo"
   notifies :reload, "service[apache2]", :delayed
+  notifies :restart, "service[nrpe]", :delayed
+  notifies :restart, "service[nagios]", :delayed
 end
 
 execute "Add Nagios cmd FIFO to SELinux allow list for Nagios daemon" do
   command "/usr/sbin/semodule -i nagios_more_selinux.pp"
   cwd Chef::Config[:file_cache_path]
   not_if "/usr/sbin/semodule -l | grep nagios_more_selinux"
+  notifies :reload, "service[apache2]", :delayed
+  notifies :restart, "service[nrpe]", :delayed
+  notifies :restart, "service[nagios]", :delayed
 end
 
 
@@ -147,6 +152,7 @@ cookbook_file "/usr/lib64/nagios/plugins/check_mem" do
   source "check_mem.pl"
   mode 0755
   owner "root"
+  notifies :restart, "service[nrpe]", :delayed
 end
 
 file "/etc/sysconfig/nrpe" do
