@@ -61,6 +61,7 @@ if node['platform_family'] == 'windows'
       }
     EOH
     not_if { ::Dir.glob("c:/Program Files/SplunkUniversalForwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
+    only_if { ::Dir.exists?("c:/Program Files/SplunkUniversalForwarder") }
   end
 end
 

@@ -16,11 +16,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-include_recipe 'mu-firewall'
 
 master_ips = get_mu_master_ips
 case node[:platform]
 when "centos", "redhat"
+  include_recipe 'mu-firewall'
+
   if elversion < 7
     service "iptables" do
       action :nothing

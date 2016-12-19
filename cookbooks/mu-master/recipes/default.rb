@@ -292,7 +292,7 @@ if !node.update_nagios_only
 
 *******************************************************************************
 
-  "
+"
   end
 
   file "/var/www/html/index.html" do
