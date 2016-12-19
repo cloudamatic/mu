@@ -23,9 +23,9 @@
 
 include_recipe "python"
 
-snap_string = "--num_snaps_keep #{node['ebs_snapshots']['days_to_keep']} --name_tag #{node['name']}"
+snap_string = "--num_snaps_keep #{node['ebs_snapshots']['days_to_keep']}"
 snap_string << " --device_name #{node['ebs_snapshots']['device_name']}" if node['ebs_snapshots']['device_name']
-snap_string << " --exclude_devices #{node['ebs_snapshots']['exclude_devices'].join(', ')}" if !node['ebs_snapshots']['exclude_devices'].empty?
+snap_string << " --exclude_devices '#{node['ebs_snapshots']['exclude_devices'].join(', ')}'" if !node['ebs_snapshots']['exclude_devices'].empty?
 
 case node['platform']
 when "windows"

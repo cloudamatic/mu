@@ -52,8 +52,9 @@ class ebs_snapshot:
         volume_filters = {'attachment.instance-id': self.instance_id}
         try:
             volumes = self.ec2.get_all_volumes(filters=volume_filters)
-        except Exception as err:
-            logger.exception('Failed to authenticate to AWS {}'.format(err))
+        except boto.exception.EC2ResponseError as err:
+            logger.exception('Failed to authenticate to AWS {err}'.format(err=err.message))
+            raise err
 
         return volumes
 
@@ -61,15 +62,16 @@ class ebs_snapshot:
         date = datetime.datetime.utcnow().strftime('%m%d%Y-%H%M')
         try:
             new_snapshot = volume.create_snapshot('{snapshot_description} on {date}'.format(snapshot_description=self.description_tag, date=date))
-        except Exception as err:
-            logger.exception('Failed to create snapshot {}'.format(err))
+        except boto.exception.EC2ResponseError as err:
+            logger.exception('Failed to create snapshot {err}'.format(err=err.message))
+            raise err
 
         if self.name_tag:
             snap_tag = self.name_tag
         elif 'Name' in volume.tags:
             snap_tag = volume.tags['Name']
-        elif 'MU-ID' in volume.tags:
-            snap_tag = volume.tags['MU-ID']
+        else:
+            snap_tag = "{volume_id}-{device_name}-{instance_id}".format(volume_id=volume.id, instance_id=self.instance_id, device_name=volume.attach_data.device.upper())
 
         new_snapshot.add_tag('Name', snap_tag)
         new_snapshot.add_tag('SnapshotType', 'Automated-Snapshots')
@@ -95,13 +97,13 @@ class ebs_snapshot:
         for i in range(snpashots_to_delete):
             try:
                 sorted_snapshots[i].delete()
-            except Exception as err:
-                logger.exception('Failed to delete snapshot {snap_id}/{snap_name}: {err}'.format(snap_id=sorted_snapshots[i].id, snap_name=sorted_snapshots[i].tags['Name'], err=err))
+            except boto.exception.EC2ResponseError as err:
+                logger.exception('Failed to delete snapshot {snap_id}/{snap_name}: {err}'.format(snap_id=sorted_snapshots[i].id, snap_name=sorted_snapshots[i].tags['Name'], err=err.message))
                 continue
 
             logger.info('Deleted snapshot {snap_id}/{snap_name}'.format(snap_id=sorted_snapshots[i].id, snap_name=sorted_snapshots[i].tags['Name']))
 
-    def process_snaps(self, volume):
+    def process_volume(self, volume):
         if self.num_snapshots_keep > 0:
             self.create_snapshot(volume)
         self.delete_snapshots(volume)
@@ -113,9 +115,9 @@ class ebs_snapshot:
             for volume in volumes:
                 if self.device_name is None:
                     if volume.attach_data.device not in self.exclude_devices: 
-                        self.process_snaps(volume)
+                        self.process_volume(volume)
                 else:
                     if volume.attach_data.device == self.device_name:
-                        self.process_snaps(volume)
+                        self.process_volume(volume)
 
 ebs_snapshot().run()
