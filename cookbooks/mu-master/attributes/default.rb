@@ -65,7 +65,9 @@ default['nagios']['server']['url'] = "https://assets.nagios.com/downloads/nagios
 default['nagios']['server']['version'] = "4.1.1"
 default['nagios']['server']['src_dir'] = "nagios-4.1.1"
 default['nagios']['server']['checksum'] = "986c93476b0fee2b2feb7a29ccf857cc691bed7ca4e004a5361ba11f467b0401"
-default['nagios']['url'] = "https://#{$MU_CFG['public_address']}/nagios"
+# XXX dumb bug in Nagios cookbook
+#default['nagios']['url'] = "https://#{$MU_CFG['public_address']}/nagios"
+default['nagios']['url'] = default["nagios"]["server_name"]
 nrpe_host = []
 nrpe_host << MU.my_public_ip if MU.my_public_ip
 nrpe_host << MU.my_private_ip if MU.my_private_ip

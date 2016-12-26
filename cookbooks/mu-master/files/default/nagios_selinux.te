@@ -1,22 +1,21 @@
-
-module nagios_more_selinux 1.0;
+module nagios_selinux 1.0;
 
 require {
-	type nagios_t;
-	type usr_t;
-	type nagios_log_t;
-	type httpd_t;
-	type httpd_sys_script_t;
+  type nagios_t;
+  type usr_t;
+  type nagios_log_t;
+  type httpd_t;
+  type httpd_sys_script_t;
   type httpd_sys_content_t;
   type httpd_sys_script_exec_t;
-	type nagios_exec_t;
+  type nagios_exec_t;
   type initrc_var_run_t;
   type port_t;
   type ssh_exec_t;
-	class capability chown;
-	class dir { search read write remove_name add_name };
-	class file { create open execute_no_trans read append write getattr setattr lock unlink rename execute };
-	class fifo_file { read open getattr write create };
+  class capability chown;
+  class dir { search read write remove_name add_name };
+  class file { create open execute_no_trans read append write getattr setattr lock unlink rename execute };
+  class fifo_file { read open getattr write create };
   class sock_file { create write unlink };
   class tcp_socket { name_bind };
   class capability { chown };
