@@ -22,31 +22,25 @@ if !node['application_attributes']['skip_recipes'].include?('set_mu_hostname')
     $hostname = node['ad']['computer_name']
   end rescue NoMethodError
   $ipaddress = node['ipaddress']
-  
+
   if !platform_family?("windows")
-    my_deploy_id = mu_get_tag_value('MU-ID')
-    my_nodes = []
-    # Searching for tags doesn’t seem to work properly so searching for all nodes
-    nodes = search(:node, "*")
-    nodes.each { |n|
-      n['tags'].map { |key, value| my_nodes << n if key == 'MU-ID' && value == my_deploy_id}
-    }
-  
+    sibs=get_sibling_nodes(node)
+
     template "/etc/hosts" do
       source "etc_hosts.erb"
       variables(
         hostname: $hostname,
         ipaddress: $ipaddress,
-        nodes: my_nodes
+        nodes: sibs
       )
     end
-  
+
     execute "set hostname" do
       command "hostname #{$hostname}"
       not_if "test \"`hostname`\" = \"#{$hostname}\" "
     end
   end
-  
+
   case node[:platform]
     when "centos", "redhat", "amazon"
       template "/etc/sysconfig/network" do
@@ -57,17 +51,17 @@ if !node['application_attributes']['skip_recipes'].include?('set_mu_hostname')
           platform: node['platform']
         )
       end
-  
+
       if elversion == 7
         execute "sed -i '/ssh_pwauth/a preserve_hostname: true' /etc/cloud/cloud.cfg" do
           not_if "grep 'preserve_hostname: true' /etc/cloud/cloud.cfg"
         end
-  
+
         execute "hostnamectl set-hostname #{$hostname} && systemctl restart systemd-hostnamed" do
           # not_if "hostnamectl | grep Static | grep #{$hostname.downcase}"
           not_if "grep #{$hostname} /etc/hostname"
         end
-  
+
         file "/etc/hostname" do
           content $hostname
         end

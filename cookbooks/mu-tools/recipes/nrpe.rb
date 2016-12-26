@@ -26,7 +26,7 @@ if !node[:application_attributes][:skip_recipes].include?('nrpe')
       action [:enable, :start]
     end
   
-    # include_recipe "mu-tools::set_local_fw"
+    include_recipe "mu-tools::set_local_fw"
   
     template "/etc/nagios/nrpe.cfg" do
       source "nrpe.cfg.erb"
@@ -42,17 +42,6 @@ if !node[:application_attributes][:skip_recipes].include?('nrpe')
       group "nrpe"
       mode 0755
     end
-  
-    include_recipe 'mu-firewall'
-  
-    master_ips.each { |ip|
-      next if ip == "127.0.0.1"
-  
-      firewall_rule "Allow nrpe from #{ip}" do
-        port 5666
-        source ip
-      end
-    }
   
     case elversion
     when 7
@@ -88,11 +77,6 @@ if !node[:application_attributes][:skip_recipes].include?('nrpe')
           notifies :restart, "service[nrpe]", :delayed
         end
       end
-    end
-  
-    # don't trip up on devices created by our basic gluster recipes
-    if Dir.exists?("/gluster/dev/md0")
-      execute "chmod go+rx /gluster /gluster/dev /gluster/dev/md0"
     end
   
     service "nrpe" do

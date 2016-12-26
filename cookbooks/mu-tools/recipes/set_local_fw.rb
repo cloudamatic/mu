@@ -16,38 +16,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-case node.platform_family
-when "rhel"
-  case elversion
-  when 7
-    master_ips = get_mu_master_ips
 
-    package "firewalld"
-    service "firewalld" do
-      action [ :enable, :start ]
-    end
+master_ips = get_mu_master_ips
+case node[:platform]
+when "centos", "redhat"
+  include_recipe 'mu-firewall'
 
-    execute "/bin/firewall-cmd --reload" do
+  if elversion < 7
+    service "iptables" do
       action :nothing
     end
-
-    execute "/bin/firewall-cmd --permanent --new-zone=mu" do
-      not_if "/bin/firewall-cmd --get-zones | /bin/egrep '(^| )mu( |$)'"
-      notifies :run, "execute[/bin/firewall-cmd --reload]", :immediately
-    end
-
-    master_ips.each { |ip|
-      execute "/bin/firewall-cmd --permanent --zone=mu --add-source=#{ip}" do
-        not_if "/bin/firewall-cmd --list-sources --zone=mu | /bin/egrep '(^| )#{ip}( |$)'"
-        notifies :run, "execute[/bin/firewall-cmd --reload]", :immediately
-      end
-    }
-
-    %w{1-65535/tcp 1-65535/udp}.each { |rule|
-      execute "/bin/firewall-cmd --permanent --zone=mu --add-port=#{rule}" do
-        notifies :run, "execute[/bin/firewall-cmd --reload]", :immediately
-        not_if "/bin/firewall-cmd --list-ports --zone=mu | /bin/egrep '(^| )#{rule}( |$)'"
-      end
-    }
   end
+
+  opento = master_ips.map { |x| "#{x}/32"}
+  opento << "127.0.0.1/32"
+  opento << "#{node.ipaddress}/32"
+  opento.uniq.each { |src|
+    [:tcp, :udp, :icmp].each { |proto|
+      firewall_rule "allow all #{src} #{proto.to_s} traffic" do
+        source src
+        protocol proto
+        notifies :restart, "service[iptables]", :immediately if elversion < 7
+      end
+    }
+  }
 end

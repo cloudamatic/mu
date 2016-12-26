@@ -29,11 +29,16 @@ if node['deployment'].has_key?('storage_pools')
           endpoint = target['ip_address']
         end
 
+        if node[:platform_family] == "rhel" and node[:platform_version].to_i < 6
+          service "portmap" do
+            action [:enable, :start]
+          end
+        end
+
         mount target['mount_directory'] do
           device "#{endpoint}:/"
           fstype "nfs4"
           action [:mount, :enable]
-          not_if "grep ' #{target['mount_directory']} ' /etc/mtab | egrep '^(#{target['endpoint']}|#{target['ip_address']}):'"
         end
 
         break
