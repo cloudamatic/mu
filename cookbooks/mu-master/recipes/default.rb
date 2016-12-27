@@ -195,7 +195,7 @@ if !node.update_nagios_only
   end
 
   if !$MU_CFG['public_address'].match(/^\d+\.\d+\.\d+\.\d+$/)
-    my_name = $MU_CFG['public_address']
+    my_name = $MU_CFG['public_address'].dup
     begin
       search_domains << my_name.dup
       my_name.sub!(/^[^\.]+?\./, "")
@@ -214,6 +214,10 @@ if !node.update_nagios_only
   if !$MU_CFG['public_address'].match(/^\d+\.\d+\.\d+\.\d+$/)
     svrname = $MU_CFG['public_address']
   end
+  log "*******************"
+  log svrname
+  log node[:nagios][:server_name]
+  log "*******************"
 
   # nagios keeps disabling the default vhost, so let's make another one
   include_recipe "apache2::mod_proxy"
