@@ -40,7 +40,7 @@ if !node['application_attributes']['skip_recipes'].include?('set_mu_hostname')
     when "centos", "redhat", "amazon"
       template "/etc/sysconfig/network" do
         source "etc_sysconfig_network.erb"
-        notifies :run, "execute[set hostname]", :immediately
+        notifies :run, "execute[set hostname]", :immediately if elversion != 7
         variables(
           hostname: $hostname,
           platform: node['platform']
