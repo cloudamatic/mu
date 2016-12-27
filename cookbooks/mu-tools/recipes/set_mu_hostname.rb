@@ -34,14 +34,9 @@ if !node['application_attributes']['skip_recipes'].include?('set_mu_hostname')
         nodes: sibs
       )
     end
-
-    execute "set hostname" do
-      command "hostname #{$hostname}"
-      not_if "test \"`hostname`\" = \"#{$hostname}\" "
-    end
   end
 
-  case node[:platform]
+  case node['platform']
     when "centos", "redhat", "amazon"
       template "/etc/sysconfig/network" do
         source "etc_sysconfig_network.erb"
@@ -65,8 +60,18 @@ if !node['application_attributes']['skip_recipes'].include?('set_mu_hostname')
         file "/etc/hostname" do
           content $hostname
         end
+      else
+        execute "set hostname" do
+          command "hostname #{$hostname}"
+          not_if "test \"`hostname`\" = \"#{$hostname}\" "
+        end
       end
     when "ubuntu"
+      execute "set hostname" do
+        command "hostname #{$hostname}"
+        not_if "test \"`hostname`\" = \"#{$hostname}\" "
+      end
+
       file "/etc/hostname" do
         content $hostname
       end
