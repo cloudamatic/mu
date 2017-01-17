@@ -4799,7 +4799,7 @@ module MU
                 "items" => @firewall_ruleset_rule_primitive
             },
             "engine" => {
-                "enum" => ["mysql", "postgres", "oracle-se1", "oracle-se", "oracle-ee", "sqlserver-ee", "sqlserver-se", "sqlserver-ex", "sqlserver-web", "aurora"],
+                "enum" => ["mysql", "postgres", "oracle-se1", "oracle-se2", "oracle-se", "oracle-ee", "sqlserver-ee", "sqlserver-se", "sqlserver-ex", "sqlserver-web", "aurora", "mariadb"],
                 "type" => "string"
             },
             "dns_records" => dns_records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
@@ -4931,8 +4931,13 @@ module MU
             "cluster_parameter_group_parameters" => @rds_parameters_primitive,
             "parameter_group_family" => {
                 "type" => "String",
-                "enum" => ["postgres9.5", "postgres9.4", "postgres9.3", "mysql5.1", "mysql5.5", "mysql5.6", "oracle-ee-11.2", "oracle-ee-12.1", "oracle-se-11.2", "oracle-se-12.1", "oracle-se1-11.2", "oracle-se1-12.1",
-                                   "aurora5.6", "sqlserver-ee-10.5", "sqlserver-ee-11.0", "sqlserver-ex-10.5", "sqlserver-ex-11.0", "sqlserver-se-10.5", "sqlserver-se-11.0", "sqlserver-web-10.5", "sqlserver-web-11.0"],
+                "enum" => [
+                  "postgres9.6", "postgres9.5", "postgres9.4", "postgres9.3", 
+                  "mysql5.1", "mysql5.5", "mysql5.6", "mysql5.7", 
+                  "oracle-ee-11.2", "oracle-ee-12.1", "oracle-se-11.2", "oracle-se-12.1", "oracle-se1-11.2", "oracle-se1-12.1",
+                  "sqlserver-ee-10.5", "sqlserver-ee-11.0", "sqlserver-ee-12.0", "sqlserver-ex-10.5", "sqlserver-ex-11.0", "sqlserver-ex-12.0", "sqlserver-se-10.5", "sqlserver-se-11.0", "sqlserver-se-12.0", "sqlserver-web-10.5", "sqlserver-web-11.0", "sqlserver-web-12.0", 
+                  "aurora5.6", "mariadb-10.0", "mariadb-10.1"
+                ],
                 "description" => "The database family to create the DB Parameter Group for. The family type must be the same type as the database major version - eg if you set engine_version to 9.4.4 the db_family must be set to postgres9.4."
             },
             "auth_vault" => {

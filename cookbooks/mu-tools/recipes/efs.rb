@@ -39,6 +39,7 @@ if node['deployment'].has_key?('storage_pools')
           device "#{endpoint}:/"
           fstype "nfs4"
           action [:mount, :enable]
+          options "nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2"
         end
 
         break

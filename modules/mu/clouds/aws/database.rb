@@ -1175,7 +1175,7 @@ module MU
               threads << Thread.new(db) { |mydb|
                 MU.dupGlobals(parent_thread_id)
                 Thread.abort_on_exception = true
-                MU::Cloud::AWS::Database.terminate_rds_instance(mydb, noop, skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: db.db_instance_identifier, mu_name: db.db_instance_identifier.upcase)
+                MU::Cloud::AWS::Database.terminate_rds_instance(mydb, noop: noop, skipsnapshots: skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: db.db_instance_identifier, mu_name: db.db_instance_identifier.upcase)
               }
             end
           }
@@ -1215,7 +1215,7 @@ module MU
               threads << Thread.new(cluster) { |mydbcluster|
                 MU.dupGlobals(parent_thread_id)
                 Thread.abort_on_exception = true
-                MU::Cloud::AWS::Database.terminate_rds_cluster(mydbcluster, noop, skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: cluster_id, mu_name: cluster_id.upcase)
+                MU::Cloud::AWS::Database.terminate_rds_cluster(mydbcluster, noop: noop, skipsnapshots: skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: cluster_id, mu_name: cluster_id.upcase)
               }
             end
           }
@@ -1336,7 +1336,7 @@ module MU
         # Remove an RDS database and associated artifacts
         # @param db [OpenStruct]: The cloud provider's description of the database artifact
         # @return [void]
-        def self.terminate_rds_instance(db, noop = false, skipsnapshots = false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil)
+        def self.terminate_rds_instance(db, noop: false, skipsnapshots: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil)
           raise MuError, "terminate_rds_instance requires a non-nil database descriptor" if db.nil?
           db_id = db.db_instance_identifier
 
@@ -1459,7 +1459,7 @@ module MU
         # Remove an RDS database cluster and associated artifacts
         # @param cluster [OpenStruct]: The cloud provider's description of the database artifact
         # @return [void]
-        def self.terminate_rds_cluster(cluster, noop = false, skipsnapshots = false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil)
+        def self.terminate_rds_cluster(cluster, noop: false, skipsnapshots: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil)
           raise MuError, "terminate_rds_cluster requires a non-nil database cluster descriptor" if cluster.nil?
           cluster_id = cluster.db_cluster_identifier
 

@@ -23,45 +23,54 @@
 
 include_recipe "python"
 
-cookbook_file "#{Chef::Config[:file_cache_path]}/manage_snapshots.py" do
-  source 'manage_snapshots.py'
-end
+snap_string = "--num_snaps_keep #{node['ebs_snapshots']['days_to_keep']}"
+snap_string << " --device_name #{node['ebs_snapshots']['device_name']}" if node['ebs_snapshots']['device_name']
+snap_string << " --exclude_devices '#{node['ebs_snapshots']['exclude_devices'].join(', ')}'" if !node['ebs_snapshots']['exclude_devices'].empty?
 
-case node[:platform]
-  when "windows"
-    ['boto', 'requests'].each do |pkg|
-      execute "Installing #{pkg}" do
-        command "#{node.python.pip_binary} install #{pkg} --upgrade"
-        not_if "echo %path% | find /I \"#{node.python.prefix_dir}\\python#{node.python.major_version}\\Scripts\""
-      end
-    end
+case node['platform']
+when "windows"
+  cookbook_file "#{Chef::Config[:file_cache_path]}/ebs_snpashots.py" do
+    source 'ebs_snpashots.py'
+  end
 
-    ['boto', 'requests'].each do |pkg|
-      python_pip pkg do
-        action :upgrade
-        only_if "echo %path% | find /I \"#{node.python.prefix_dir}\\python#{node.python.major_version}\\Scripts\""
-      end
+  ['boto', 'requests'].each do |pkg|
+    execute "Installing #{pkg}" do
+      command "#{node['python']['pip_binary']} install #{pkg} --upgrade"
+      not_if "echo %path% | find /I \"#{node['python']['prefix_dir']}\\python#{node['python']['major_version']}\\Scripts\""
     end
+  end
 
-    windows_task 'daily-snapshots' do
-      user "SYSTEM"
-      command "python #{Chef::Config[:file_cache_path]}\\manage_snapshots.py -n #{node.application_attributes.ebs_snapshots.days_to_keep} -nt #{node.name} -l #{Chef::Config[:file_cache_path]}"
-      run_level :highest
-      frequency :daily
-      start_time "06:00"
+  ['boto', 'requests'].each do |pkg|
+    python_pip pkg do
+      action :upgrade
+      only_if "echo %path% | find /I \"#{node['python']['prefix_dir']}\\python#{node['python']['major_version']}\\Scripts\""
     end
-  else
-    ['boto', 'requests'].each do |pkg|
-      python_pip pkg do
-        action :upgrade
-      end
-    end
+  end
 
-    cron "Nightly rotate snapshot" do
-      action :create
-      minute "10"
-      hour "6"
-      user "root"
-      command "python #{Chef::Config[:file_cache_path]}/manage_snapshots.py -n #{node.application_attributes.ebs_snapshots.days_to_keep} -nt #{node.name} -l #{Chef::Config[:file_cache_path]}"
+  windows_task 'daily-snapshots' do
+    user "SYSTEM"
+    command "python #{Chef::Config[:file_cache_path]}\\ebs_snpashots.py #{snap_string}"
+    run_level :highest
+    frequency :daily
+    start_time "06:00"
+  end
+else
+  cookbook_file "/opt/ebs_snpashots.py" do
+    source 'ebs_snpashots.py'
+  end
+
+  ['boto', 'requests'].each do |pkg|
+    python_pip pkg do
+      action :upgrade
     end
+  end
+
+  snap_string << " --logfile /var/log/ebs_snapshots.log"
+  cron "Nightly rotate snapshot" do
+    action :create
+    minute "10"
+    hour "6"
+    user "root"
+    command "python /opt/ebs_snpashots.py #{snap_string}"
+  end
 end

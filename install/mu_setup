@@ -19,8 +19,8 @@ elif [ "$DIST_VERSION" == "server" ];then # funny package name in RHEL6
 fi
 EPEL_RPM="http://mirror.metrocast.net/fedora/epel/epel-release-latest-$DIST_VERSION.noarch.rpm"
 
-CHEF_CLIENT_VERSION="12.15.19-1"
-CHEF_SERVER_VERSION="12.10.0-1"
+CHEF_CLIENT_VERSION="12.17.44-1"
+CHEF_SERVER_VERSION="12.11.1-1"
 
 if [ $DIST_VERSION == 7 ];then
   # mariadb replaces mysql, qt and qt-x11 are required by gecode which is required by the dep_selector gem. 
@@ -378,7 +378,7 @@ manage_chef_org()
   association_user=$4
 
   if curl -k -so /dev/null https://${CHEF_PUBLIC_IP}:7443;then 
-      pivotal_cfg_setup pivotal_cfg
+    pivotal_cfg_setup pivotal_cfg
   else
     pivotal_cfg_setup pivotal_cfg 443
   fi
@@ -507,7 +507,7 @@ manage_chef_user()
   /bin/chgrp mu-users "$MU_DATADIR/users"
 
   if curl -k -so /dev/null https://${CHEF_PUBLIC_IP}:7443;then 
-      pivotal_cfg_setup pivotal_cfg
+    pivotal_cfg_setup pivotal_cfg
   else
     pivotal_cfg_setup pivotal_cfg 443
   fi

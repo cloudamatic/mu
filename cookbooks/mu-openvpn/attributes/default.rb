@@ -1,4 +1,4 @@
-default.openvpn.version = "2.0.20"
+default.openvpn.version = "2.1.4"
 case node.platform_family
   when "rhel"
     default.openvpn.package = "openvpn-as-#{node.openvpn.version}-CentOS#{node.platform_version.to_i}.x86_64.rpm"

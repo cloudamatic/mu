@@ -148,12 +148,7 @@ module MU
         # @param egress [Boolean]: Whether this is an egress ruleset, instead of ingress.
         # @param port_range [String]: A port range descriptor (e.g. 0-65535). Only valid with udp or tcp.
         # @return [void]
-        def addRule(hosts,
-                    proto: proto = "tcp",
-                    port: port = nil,
-                    egress: egress = false,
-                    port_range: port_range = "0-65535"
-        )
+        def addRule(hosts, proto: "tcp", port: nil, egress: false, port_range: "0-65535")
           rule = Hash.new
           rule["proto"] = proto
           if hosts.is_a?(String)
@@ -260,11 +255,17 @@ module MU
                   if !rule[:user_id_group_pairs].nil? and rule[:user_id_group_pairs].size == 0
                     rule.delete(:user_id_group_pairs)
                   end
+
                   if !rule[:ip_ranges].nil? and rule[:ip_ranges].size == 0
                     rule.delete(:ip_ranges)
                   end
+
                   if !rule[:prefix_list_ids].nil? and rule[:prefix_list_ids].size == 0
                     rule.delete(:prefix_list_ids)
+                  end
+                  
+                  if !rule[:ipv_6_ranges].nil? and rule[:ipv_6_ranges].size == 0
+                    rule.delete(:ipv_6_ranges)
                   end
                 }
               }
@@ -280,11 +281,17 @@ module MU
                   if !rule[:user_id_group_pairs].nil? and rule[:user_id_group_pairs].size == 0
                     rule.delete(:user_id_group_pairs)
                   end
+
                   if !rule[:ip_ranges].nil? and rule[:ip_ranges].size == 0
                     rule.delete(:ip_ranges)
                   end
+
                   if !rule[:prefix_list_ids].nil? and rule[:prefix_list_ids].size == 0
                     rule.delete(:prefix_list_ids)
+                  end
+
+                  if !rule[:ipv_6_ranges].nil? and rule[:ipv_6_ranges].size == 0
+                    rule.delete(:ipv_6_ranges)
                   end
                 }
               }
@@ -334,7 +341,7 @@ module MU
         # Manufacture an EC2 security group. The second parameter, rules, is an
         # "ingress_rules" structure parsed and validated by MU::Config.
         #########################################################################
-        def setRules(rules, add_to_self: add_to_self = false, ingress: ingress = true, egress: egress = false)
+        def setRules(rules, add_to_self: false, ingress: true, egress: false)
           return if rules.nil? or rules.size == 0
 
 

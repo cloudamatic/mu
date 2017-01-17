@@ -15,9 +15,12 @@ case node.platform
   when "centos", "redhat"
     include_recipe 'mu-firewall'
 
-    firewall_rule "Allow openvpn" do
-      port node.openvpn.fw_rules
-    end
+    node['openvpn']['fw_rules'].each { |rule|
+      firewall_rule "Allow openvpn #{rule[:port]}" do
+        port rule[:port]
+        protocol rule[:protocol].to_sym
+      end
+    }
 
     remote_file "#{Chef::Config[:file_cache_path]}/#{node.openvpn.package}" do
       source "#{node.openvpn.base_url}/#{node.openvpn.package}"
