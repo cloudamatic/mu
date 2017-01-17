@@ -1386,10 +1386,10 @@ module MU
         # @param copy_to_regions [Array<String>]: Copy the resulting AMI into the listed regions.
         # @param tags [Array<String>]: Extra/override tags to apply to the image.
         # @return [String]: The cloud provider identifier of the new machine image.
-        def self.createImage(name: name,
-            instance_id: instance_id,
-            storage: storage,
-            exclude_storage: exclude_storage,
+        def self.createImage(name: nil,
+            instance_id: nil,
+            storage: [],
+            exclude_storage: false,
             make_public: false,
             region: MU.curRegion,
             copy_to_regions: [],
@@ -1616,7 +1616,7 @@ module MU
         # instead of VPC.
         # @param ip [String]: Request a specific IP address.
         # @param region [String]: The cloud provider region
-        def self.findFreeElasticIp(classic = false, ip: ip, region: MU.curRegion)
+        def self.findFreeElasticIp(classic = false, ip: nil, region: MU.curRegion)
           filters = Array.new
           if !classic
             filters << {name: "domain", values: ["vpc"]}
@@ -1768,7 +1768,7 @@ module MU
         # @param ip [String]: Request a specific IP address.
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.associateElasticIp(instance_id, classic: false, ip: ip, region: MU.curRegion)
+        def self.associateElasticIp(instance_id, classic: false, ip: nil, region: MU.curRegion)
           MU.log "associateElasticIp called: #{instance_id}, classic: #{classic}, ip: #{ip}, region: #{region}", MU::DEBUG
           elastic_ip = nil
           @eip_semaphore.synchronize {
@@ -1927,7 +1927,7 @@ module MU
         # @param id [String]: The cloud provider's identifier for the instance, to use if the full description is not available.
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.terminateInstance(instance = nil, noop: false, id: id, onlycloud: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil)
+        def self.terminateInstance(instance = nil, noop: false, id: nil, onlycloud: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil)
           ips = Array.new
           if !instance
             if id
@@ -2125,7 +2125,7 @@ module MU
         # @param id [String]: The cloud provider's identifier for the volume, to use if the full description is not available.
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.delete_volume(volume, noop, skipsnapshots, id: id, region: MU.curRegion)
+        def self.delete_volume(volume, noop, skipsnapshots, id: nil, region: MU.curRegion)
           if !volume.nil?
             resp = MU::Cloud::AWS.ec2(region).describe_volumes(volume_ids: [volume.volume_id])
             volume = resp.data.volumes.first
