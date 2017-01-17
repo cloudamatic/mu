@@ -12,7 +12,7 @@ source "https://supermarket.chef.io"
 cookbook 'apache2', '~> 3.2.2'
 cookbook 'aws', '~> 2.9.3'
 cookbook 'build-essential', '~> 2.0'
-cookbook 'chef-splunk', path: "#{cookbookPath}/chef-splunk"
+cookbook 'mu-splunk', path: "#{cookbookPath}/mu-splunk"
 cookbook 'demo', path: "#{siteCookbookPath}/demo"
 cookbook 'freebsd', '~> 0.1.9'
 cookbook 'gunicorn', '~> 1.1.2'
