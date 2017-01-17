@@ -18,10 +18,10 @@
 # limitations under the License.
 #
 node.default['splunk']['is_server'] = true
-include_recipe 'chef-splunk::user'
-include_recipe 'chef-splunk::install_server'
-include_recipe 'chef-splunk::service'
-include_recipe 'chef-splunk::setup_auth'
+include_recipe 'mu-splunk::user'
+include_recipe 'mu-splunk::install_server'
+include_recipe 'mu-splunk::service'
+include_recipe 'mu-splunk::setup_auth'
 
 # We can rely on loading the chef_vault_item here, as `setup_auth`
 # above would have failed if there were another issue.
@@ -49,5 +49,5 @@ firewall_rule "Splunk receiver port(s)" do
 end
 
 if node['splunk']['ssl_options']['enable_ssl']
-  include_recipe 'chef-splunk::setup_ssl'
+  include_recipe 'mu-splunk::setup_ssl'
 end

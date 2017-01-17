@@ -21,8 +21,8 @@
 # Universal Forwarder configured to talk to a node that is the splunk
 # server (with node['splunk']['is_server'] true). The recipes can be
 # used on their own composed in your own wrapper cookbook or role.
-include_recipe 'chef-splunk::user'
-include_recipe 'chef-splunk::install_forwarder'
+include_recipe 'mu-splunk::user'
+include_recipe 'mu-splunk::install_forwarder'
 
 if node.splunk.discovery == 'groupname'
   splunk_servers = search(
@@ -91,8 +91,8 @@ if node['platform_family'] != 'windows'
   end
 end
 
-include_recipe 'chef-splunk::service'
-include_recipe 'chef-splunk::setup_auth'
+include_recipe 'mu-splunk::service'
+include_recipe 'mu-splunk::setup_auth'
 
 svr_conf = "#{splunk_dir}/etc/system/local/server.conf"
 ruby_block "tighten SSL options in #{svr_conf}" do

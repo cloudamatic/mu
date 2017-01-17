@@ -16,7 +16,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-include_recipe "chef-splunk::client"
+include_recipe "mu-splunk::client"
 
 if node.splunk.discovery == "groupname"
   splunk_servers = search(
