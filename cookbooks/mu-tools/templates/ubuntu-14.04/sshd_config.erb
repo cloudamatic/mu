@@ -47,16 +47,16 @@ PermitEmptyPasswords no
 # some PAM modules and threads)
 ChallengeResponseAuthentication no
 
-# Change to no to disable tunnelled clear text passwords
 <% begin
-	if node.application_attributes.sshd_allow_password_auth %>
+	if node[:application_attributes][:sshd_allow_password_auth] %>
 PasswordAuthentication yes
 <%
-  end
+  else %>
+    PasswordAuthentication no
+<%  end
 rescue NoMethodError %>
 PasswordAuthentication no
 <% end %>
-
 
 # Kerberos options
 #KerberosAuthentication no

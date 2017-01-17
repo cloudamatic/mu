@@ -34,6 +34,7 @@ Protocol 2
 # obsoletes QuietMode and FascistLogging
 #SyslogFacility AUTH
 SyslogFacility AUTHPRIV
+# CAP mod
 LogLevel INFO
 
 # Authentication:
@@ -41,6 +42,7 @@ LogLevel INFO
 #LoginGraceTime 2m
 #PermitRootLogin yes
 #StrictModes yes
+# CAP mod, MaxAuthTries from 6 to 4
 #MaxAuthTries 6
 MaxAuthTries 4
 
@@ -56,6 +58,7 @@ MaxAuthTries 4
 #RhostsRSAAuthentication no
 # similar for protocol version 2
 
+#CAP Mod ... HostbasedAuth to no
 HostbasedAuthentication no
 
 # Change to yes if you don't trust ~/.ssh/known_hosts for
@@ -70,7 +73,16 @@ IgnoreRhosts yes
 
 PermitEmptyPasswords no
 
+<% begin
+	if node[:application_attributes][:sshd_allow_password_auth] %>
 PasswordAuthentication yes
+<%
+  else %>
+    PasswordAuthentication no
+<%  end
+rescue NoMethodError %>
+PasswordAuthentication no
+<% end %>
 
 # Change to no to disable s/key passwords
 #ChallengeResponseAuthentication yes
@@ -112,6 +124,7 @@ AcceptEnv XMODIFIERS
 #AllowAgentForwarding yes
 #AllowTcpForwarding yes
 #GatewayPorts no
+# CAP mod, disable X11 forward
 X11Forwarding no
 #X11Forwarding yes
 
@@ -133,7 +146,10 @@ ClientAliveCountMax 0
 #PermitTunnel no
 #ChrootDirectory none
 
+# no default banner path
+#Banner none
 
+#CAP Mod, set banner
 Banner /etc/issue.net
 
 # override default of no subsystems
@@ -147,5 +163,6 @@ Subsystem       sftp    /usr/libexec/openssh/sftp-server
 PermitRootLogin without-password
 UseDNS no
 
+# CAP Mod, restrict ciphers
 Ciphers aes128-ctr,aes192-ctr,aes256-ctr
-AllowGroups root mu-users
+AllowUsers root

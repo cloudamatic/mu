@@ -74,10 +74,12 @@ IgnoreRhosts yes
 #PasswordAuthentication yes
 PermitEmptyPasswords no
 <% begin
-	if node.application_attributes.sshd_allow_password_auth %>
+	if node[:application_attributes][:sshd_allow_password_auth] %>
 PasswordAuthentication yes
 <%
-  end
+  else %>
+    PasswordAuthentication no
+<%  end
 rescue NoMethodError %>
 PasswordAuthentication no
 <% end %>
