@@ -52,7 +52,7 @@ if !node['application_attributes']['skip_recipes'].include?('set_mu_hostname')
           not_if "grep 'preserve_hostname: true' /etc/cloud/cloud.cfg"
         end
 
-        execute "hostnamectl set-hostname #{$hostname} && systemctl restart systemd-hostnamed" do
+        execute "hostnamectl set-hostname #{$hostname} --static && systemctl restart systemd-hostnamed" do
           # not_if "hostnamectl | grep Static | grep #{$hostname.downcase}"
           not_if "grep #{$hostname} /etc/hostname"
         end
