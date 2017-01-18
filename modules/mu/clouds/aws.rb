@@ -104,6 +104,13 @@ module MU
         @@elb_api[region]
       end
 
+      # Amazon's ElasticLoadBalancingV2 (ALB) API
+      def self.elb2(region = MU.curRegion)
+        region ||= MU.myRegion
+        @@elb2_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ElasticLoadBalancingV2", region: region)
+        @@elb2_api[region]
+      end
+
       # Amazon's Route53 API
       def self.route53(region = MU.curRegion)
         region ||= MU.myRegion
@@ -392,6 +399,7 @@ module MU
       @@ec2_api = {}
       @@autoscale_api = {}
       @@elb_api = {}
+      @@elb2_api = {}
       @@route53_api = {}
       @@rds_api = {}
       @@cloudformation_api = {}
