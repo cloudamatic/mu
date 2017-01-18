@@ -5077,6 +5077,44 @@ module MU
         }
     }
 
+    @lb_healthcheck_primitive = {
+      "type" => "object",
+      "additionalProperties" => false,
+      "description" => "The method used by a Load Balancer to check the health of its client nodes.",
+      "required" => ["target"],
+      "properties" => {
+        "target" => {
+          "type" => "String",
+          "pattern" => "^(TCP:\\d+|SSL:\\d+|HTTP:\\d+\\/.*|HTTPS:\\d+\\/.*)$",
+          "description" => 'Specifies the instance being checked. The protocol is either TCP, HTTP, HTTPS, or SSL. The range of valid ports is one (1) through 65535.
+    
+      TCP is the default, specified as a TCP: port pair, for example "TCP:5000". In this case a healthcheck simply attempts to open a TCP connection to the instance on the specified port. Failure to connect within the configured timeout is considered unhealthy.
+    
+      SSL is also specified as SSL: port pair, for example, SSL:5000.
+    
+      For HTTP or HTTPS protocol, the situation is different. You have to include a ping path in the string. HTTP is specified as a HTTP:port;/;PathToPing; grouping, for example "HTTP:80/weather/us/wa/seattle". In this case, a HTTP GET request is issued to the instance on the given port and path. Any answer other than "200 OK" within the timeout period is considered unhealthy.
+    
+      The total length of the HTTP ping target needs to be 1024 16-bit Unicode characters or less.'
+        },
+        "timeout" => {
+          "type" => "integer",
+          "default" => 5
+        },
+        "interval" => {
+          "type" => "integer",
+          "default" => 30
+        },
+        "unhealthy_threshold" => {
+          "type" => "integer",
+          "default" => 2
+        },
+        "healthy_threshold" => {
+          "type" => "integer",
+          "default" => 10
+        }
+      }
+    }
+
     @loadbalancer_primitive = {
         "type" => "object",
         "title" => "loadbalancer",
@@ -5091,6 +5129,11 @@ module MU
             "override_name" => {
                 "type" => "string",
                 "description" => "Normally an ELB's Amazon identifier will be named the same as its internal Mu identifier. This allows you to override that name with a specific value. Note that Amazon Elastic Load Balancer names must be relatively short. Brevity is recommended here. Note also that setting a static name here may result in deploy failures due to name collision with existing ELBs."
+            },
+            "classic" => {
+                "type" => "boolean",
+                "default" => false,
+                "description" => "For AWS Load Balancers, revert to the old API instead ElasticLoadbalancingV2 (ALBs)"
             },
             "scrub_mu_isms" => {
                 "type" => "boolean",
@@ -5182,69 +5225,62 @@ module MU
                 }
             },
             "access_log" => {
-                "type" => "object",
+              "type" => "object",
                 "additionalProperties" => false,
                 "description" => "Access logging for Load Balancer requests.",
                 "required" => ["enabled", "s3_bucket_name"],
                 "properties" => {
-                    "enabled" => {
-                        "type" => "boolean",
-                        "description" => "Toggle access log publishing.",
-                        "default" => false
-                    },
-                    "s3_bucket_name" => {
-                        "type" => "string",
-                        "description" => "The Amazon S3 bucket to which to publish access logs."
-                    },
-                    "s3_bucket_prefix" => {
-                        "type" => "string",
-                        "default" => "",
-                        "description" => "The path within the S3 bucket to which to publish the logs."
-                    },
-                    "emit_interval" => {
-                        "type" => "integer",
-                        "description" => "How frequently to publish access logs.",
-                        "enum" => [5, 60],
-                        "default" => 60
-                    }
+                "enabled" => {
+                  "type" => "boolean",
+                  "description" => "Toggle access log publishing.",
+                  "default" => false
+                },
+                "s3_bucket_name" => {
+                  "type" => "string",
+                  "description" => "The Amazon S3 bucket to which to publish access logs."
+                },
+                "s3_bucket_prefix" => {
+                  "type" => "string",
+                  "default" => "",
+                  "description" => "The path within the S3 bucket to which to publish the logs."
+                },
+                "emit_interval" => {
+                  "type" => "integer",
+                  "description" => "How frequently to publish access logs.",
+                  "enum" => [5, 60],
+                  "default" => 60
                 }
+              }
             },
-            "healthcheck" => {
+            # 'healthcheck' was a first-class parmeter for classic ELBs, but is
+            # embedded inside targetgroups for ALBs.
+            # XXX parser: munge this difference for people so their BoKs don't
+            # break.
+            "healthcheck" => @lb_healthcheck_primitive,
+            "targetgroups" => {
+              "type" => "array",
+              "items" => {
                 "type" => "object",
                 "additionalProperties" => false,
-                "description" => "The method used by a Load Balancer to check the health of its client nodes.",
-                "required" => ["target"],
+                "description" => "A grouping of ",
+                "required" => ["name", "proto", "port"],
                 "properties" => {
-                    "target" => {
-                        "type" => "String",
-                        "pattern" => "^(TCP:\\d+|SSL:\\d+|HTTP:\\d+\\/.*|HTTPS:\\d+\\/.*)$",
-                        "description" => 'Specifies the instance being checked. The protocol is either TCP, HTTP, HTTPS, or SSL. The range of valid ports is one (1) through 65535.
-
-              TCP is the default, specified as a TCP: port pair, for example "TCP:5000". In this case a healthcheck simply attempts to open a TCP connection to the instance on the specified port. Failure to connect within the configured timeout is considered unhealthy.
-
-              SSL is also specified as SSL: port pair, for example, SSL:5000.
-
-              For HTTP or HTTPS protocol, the situation is different. You have to include a ping path in the string. HTTP is specified as a HTTP:port;/;PathToPing; grouping, for example "HTTP:80/weather/us/wa/seattle". In this case, a HTTP GET request is issued to the instance on the given port and path. Any answer other than "200 OK" within the timeout period is considered unhealthy.
-
-              The total length of the HTTP ping target needs to be 1024 16-bit Unicode characters or less.'
-                    },
-                    "timeout" => {
-                        "type" => "integer",
-                        "default" => 5
-                    },
-                    "interval" => {
-                        "type" => "integer",
-                        "default" => 30
-                    },
-                    "unhealthy_threshold" => {
-                        "type" => "integer",
-                        "default" => 2
-                    },
-                    "healthy_threshold" => {
-                        "type" => "integer",
-                        "default" => 10
-                    }
+                  "healthcheck" => @lb_healthcheck_primitive,
+                  "name" => {
+                    "type" => "string"
+                  },
+                  "proto" => {
+                    "type" => "string",
+                    "enum" => ["HTTP", "HTTPS"],
+                  },
+                  "port" => {
+                    "type" => "integer",
+                    "minimum" => 1,
+                    "maximum" => 65535,
+                    "description" => "Specifies the TCP port on which the instance server is listening. This property cannot be modified for the life of the load balancer."
+                  }
                 }
+              }
             },
             "listeners" => {
                 "type" => "array",
