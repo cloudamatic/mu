@@ -5257,6 +5257,8 @@ module MU
             # XXX parser: munge this difference for people so their BoKs don't
             # break.
             "healthcheck" => @lb_healthcheck_primitive,
+            # XXX parser: create a 'default' target group based on listener
+            # config if none is declared explicitly
             "targetgroups" => {
               "type" => "array",
               "items" => {
@@ -5302,6 +5304,12 @@ module MU
                             "type" => "string",
                             "enum" => ["HTTP", "HTTPS", "TCP", "SSL"],
                             "description" => "Specifies the load balancer transport protocol to use for routing - HTTP, HTTPS, TCP or SSL. This property cannot be modified for the life of the load balancer."
+                        },
+                        # XXX nonsense in classic mode, required otherwise
+                        "targetgroup" => {
+                            "type" => "string",
+                            "description" => "Which of our declared targetgroups should be the back-end for this listener's traffic",
+                            "default" => "default"
                         },
                         "instance_protocol" => {
                             "type" => "string",
