@@ -290,28 +290,49 @@ module MU
             end
           end
 
-          if !@config['connection_draining_timeout'].nil? and @config['classic']
-            if @config['connection_draining_timeout'] >= 0
-              MU.log "Setting connection draining timeout to #{@config['connection_draining_timeout']} on #{lb.dns_name}"
-              MU::Cloud::AWS.elb.modify_load_balancer_attributes(
-                  load_balancer_name: @mu_name,
-                  load_balancer_attributes: {
-                      connection_draining: {
-                          enabled: true,
-                          timeout: @config['connection_draining_timeout']
-                      }
-                  }
-              )
+          if !@config['connection_draining_timeout'].nil?
+            if @config['classic']
+              if @config['connection_draining_timeout'] >= 0
+                MU.log "Setting connection draining timeout to #{@config['connection_draining_timeout']} on #{lb.dns_name}"
+                MU::Cloud::AWS.elb.modify_load_balancer_attributes(
+                    load_balancer_name: @mu_name,
+                    load_balancer_attributes: {
+                        connection_draining: {
+                            enabled: true,
+                            timeout: @config['connection_draining_timeout']
+                        }
+                    }
+                )
+              else
+                MU.log "Disabling connection draining on #{lb.dns_name}"
+                MU::Cloud::AWS.elb.modify_load_balancer_attributes(
+                    load_balancer_name: @mu_name,
+                    load_balancer_attributes: {
+                        connection_draining: {
+                            enabled: false
+                        }
+                    }
+                )
+              end
             else
-              MU.log "Disabling connection draining on #{lb.dns_name}"
-              MU::Cloud::AWS.elb.modify_load_balancer_attributes(
-                  load_balancer_name: @mu_name,
-                  load_balancer_attributes: {
-                      connection_draining: {
-                          enabled: false
-                      }
-                  }
-              )
+              timeout = @config['connection_draining_timeout'].to_s
+              if @config['connection_draining_timeout'] >= 0
+                MU.log "Setting connection draining timeout to #{@config['connection_draining_timeout']} on #{lb.dns_name}"
+              else
+                timeout = 0
+                MU.log "Disabling connection draining on #{lb.dns_name}"
+              end
+              targetgroups.each_pair { |tg_name, tg|
+                MU::Cloud::AWS.elb2.modify_target_group_attributes(
+                  target_group_arn: tg.target_group_arn,
+                  attributes: [
+                    {
+                      key: "deregistration_delay.timeout_seconds",
+                      value: timeout
+                    }
+                  ]
+                )
+              }
             end
           end
 
@@ -374,7 +395,6 @@ module MU
                 end
               end
             else
-              pp @config['lb_cookie_stickiness_policy']
               targetgroups.each_pair { |tg_name, tg|
                 MU::Cloud::AWS.elb2.modify_target_group_attributes(
                   target_group_arn: tg.target_group_arn,
@@ -393,25 +413,29 @@ module MU
             end
           end
 
-          if !@config['app_cookie_stickiness_policy'].nil? and @config['classic']
-            MU.log "Setting application cookie stickiness policy for #{lb.dns_name}", details: @config['app_cookie_stickiness_policy']
-            cookie_policy = {
+          if !@config['app_cookie_stickiness_policy'].nil? 
+            if @config['classic']
+              MU.log "Setting application cookie stickiness policy for #{lb.dns_name}", details: @config['app_cookie_stickiness_policy']
+              cookie_policy = {
                 load_balancer_name: @mu_name,
                 policy_name: @config['app_cookie_stickiness_policy']['name'],
                 cookie_name: @config['app_cookie_stickiness_policy']['cookie']
-            }
-            MU::Cloud::AWS.elb.create_app_cookie_stickiness_policy(cookie_policy)
-            lb_policy_names = Array.new
-            lb_policy_names << @config['app_cookie_stickiness_policy']['name']
-            listener_policy = {
+              }
+              MU::Cloud::AWS.elb.create_app_cookie_stickiness_policy(cookie_policy)
+              lb_policy_names = Array.new
+              lb_policy_names << @config['app_cookie_stickiness_policy']['name']
+              listener_policy = {
                 load_balancer_name: @mu_name,
                 policy_names: lb_policy_names
-            }
-            lb_options[:listeners].each do |listener|
-              if listener[:protocol].upcase == 'HTTP' or listener[:protocol].upcase == 'HTTPS'
-                listener_policy[:load_balancer_port] = listener[:load_balancer_port]
-                MU::Cloud::AWS.elb.set_load_balancer_policies_of_listener(listener_policy)
+              }
+              lb_options[:listeners].each do |listener|
+                if listener[:protocol].upcase == 'HTTP' or listener[:protocol].upcase == 'HTTPS'
+                  listener_policy[:load_balancer_port] = listener[:load_balancer_port]
+                  MU::Cloud::AWS.elb.set_load_balancer_policies_of_listener(listener_policy)
+                end
               end
+            else
+              MU.log "App cookie stickiness not supported in ALBs. Redeploy with 'classic' set to true if you need this functionality.", MU::WARN
             end
           end
 
