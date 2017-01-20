@@ -194,8 +194,11 @@ module MU
                   :vpc_id => @config['vpc']['vpc_id'],
                   :port => tg['port']
                 }
-# XXX vpc_id
-# XXX matcher
+                if tg['httpcode']
+                  tg_descriptor[:matcher] = {
+                    :http_code => tg['httpcode'].to_s
+                  }
+                end
                 if tg['healthcheck']
                   hc_target = tg['healthcheck']['target'].match(/^([^:]+):(\d+)(.*)/)
                   tg_descriptor[:health_check_protocol] = hc_target[1]

@@ -1778,6 +1778,54 @@ module MU
             alarms << alarm.dup
           }
         end
+
+        if !lb["classic"]
+          if lb["vpc"].nil?
+            MU.log "LoadBalancer #{lb['name']} has no VPC configured. Either set 'classic' to true or configure a VPC.", MU::ERR
+            ok = false
+          end
+
+          if lb["targetgroups"].nil? or lb["targetgroups"].size == 0
+            if lb["listeners"].nil? or lb["listeners"].size == 0
+              ok = false
+              MU.log "No targetgroups or listeners defined in LoadBalancer #{lb['name']}", MU::ERR
+            end
+            lb["targetgroups"] = []
+
+            # Manufacture targetgroups out of old-style listener configs
+            lb["listeners"].each { |l|
+              tgname = lb["name"]+l["lb_protocol"].downcase+l["lb_port"].to_s
+              l["targetgroup"] = tgname
+              tg = { 
+                "name" => tgname,
+                "proto" => l["instance_protocol"],
+                "port" => l["instance_port"]
+              }
+              if lb["healthcheck"]
+                hc_target = lb['healthcheck']['target'].match(/^([^:]+):(\d+)(.*)/)
+                if hc_target[1] == l["lb_protocol"] and 
+                   hc_target[2] == l["lb_port"].to_s
+                  tg["healthcheck"] = lb['healthcheck'].dup
+                end
+              end
+              lb["targetgroups"] << tg
+            }
+          else
+            lb['listeners'].each { |l|
+              found = false
+              lb['targetgroups'].each { |tg|
+                if l['targetgroup'] == tg['name']
+                  found = true
+                  break
+                end
+              }
+              if !found
+                ok = false
+                MU.log "listener in LoadBalancer #{lb['name']} refers to targetgroup #{l['targetgroup']}, but no such targetgroup found", MU::ERR
+              end
+            }
+          end
+        end
       }
 
       collections.each { |stack|
@@ -5254,11 +5302,7 @@ module MU
             },
             # 'healthcheck' was a first-class parmeter for classic ELBs, but is
             # embedded inside targetgroups for ALBs.
-            # XXX parser: munge this difference for people so their BoKs don't
-            # break.
             "healthcheck" => @lb_healthcheck_primitive,
-            # XXX parser: create a 'default' target group based on listener
-            # config if none is declared explicitly
             "targetgroups" => {
               "type" => "array",
               "items" => {
@@ -5274,6 +5318,11 @@ module MU
                   "proto" => {
                     "type" => "string",
                     "enum" => ["HTTP", "HTTPS"],
+                  },
+                  "httpcode" => {
+                    "type" => "integer",
+                    "default" => 200,
+                    "description" => "The HTTP codes to use when checking for a successful response from a target."
                   },
                   "port" => {
                     "type" => "integer",
@@ -5305,11 +5354,9 @@ module MU
                             "enum" => ["HTTP", "HTTPS", "TCP", "SSL"],
                             "description" => "Specifies the load balancer transport protocol to use for routing - HTTP, HTTPS, TCP or SSL. This property cannot be modified for the life of the load balancer."
                         },
-                        # XXX nonsense in classic mode, required otherwise
                         "targetgroup" => {
                             "type" => "string",
-                            "description" => "Which of our declared targetgroups should be the back-end for this listener's traffic",
-                            "default" => "default"
+                            "description" => "Which of our declared targetgroups should be the back-end for this listener's traffic"
                         },
                         "instance_protocol" => {
                             "type" => "string",
