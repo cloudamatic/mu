@@ -239,7 +239,24 @@ module MU
                 }]
                 listen_descriptor[:ssl_policy] = "ELBSecurityPolicy-2015-05"
               end
-              listen_resp = MU::Cloud::AWS.elb2.create_listener(listen_descriptor)
+              listen_resp = MU::Cloud::AWS.elb2.create_listener(listen_descriptor).listeners.first
+              if !l['rules'].nil?
+                l['rules'].each { |rule|
+                  rule_descriptor = {
+                    :listener_arn => listen_resp.listener_arn,
+                    :priority => rule['order'],
+                    :conditions => rule['conditions'],
+                    :actions => []
+                  }
+                  rule['actions'].each { |a|
+                    rule_descriptor[:actions] << {
+                      :target_group_arn => targetgroups[a['targetgroup']].target_group_arn,
+                      :type => a['action']
+                    }
+                  }
+                  MU::Cloud::AWS.elb2.create_rule(rule_descriptor)
+                }
+              end
             }
           end
 

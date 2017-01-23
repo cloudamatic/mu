@@ -1827,13 +1827,25 @@ module MU
                 l['rules'].each { |r|
                   if r['actions'].nil?
                     r['actions'] = [
-                      { "actiongroup" => l["actiongroup"], "action" => "forward" }
+                      { "targetgroup" => l["targetgroup"], "action" => "forward" }
                     ]
                     next
                   end
                   r['actions'].each { |action|
                     if action['targetgroup'].nil?
                       action['targetgroup'] = l['targetgroup']
+                    else
+                      found = false
+                      lb['targetgroups'].each { |tg|
+                        if l['targetgroup'] == action['targetgroup']
+                          found = true
+                          break
+                        end
+                      }
+                      if !found
+                        ok = false
+                        MU.log "listener action in LoadBalancer #{lb['name']} refers to targetgroup #{action['targetgroup']}, but no such targetgroup found", MU::ERR
+                      end
                     end
                   }
                 }
