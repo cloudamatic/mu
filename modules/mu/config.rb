@@ -1823,6 +1823,21 @@ module MU
                 ok = false
                 MU.log "listener in LoadBalancer #{lb['name']} refers to targetgroup #{l['targetgroup']}, but no such targetgroup found", MU::ERR
               end
+              if !l['rules'].nil? and l['rules'].size > 0
+                l['rules'].each { |r|
+                  if r['actions'].nil?
+                    r['actions'] = [
+                      { "actiongroup" => l["actiongroup"], "action" => "forward" }
+                    ]
+                    next
+                  end
+                  r['actions'].each { |action|
+                    if action['targetgroup'].nil?
+                      action['targetgroup'] = l['targetgroup']
+                    end
+                  }
+                }
+              end
             }
           end
         end
@@ -5334,49 +5349,106 @@ module MU
               }
             },
             "listeners" => {
-                "type" => "array",
-                "items" => {
-                    "type" => "object",
-                    "required" => ["lb_protocol", "lb_port", "instance_protocol", "instance_port"],
-                    "additionalProperties" => false,
-                    "description" => "A list of port/protocols which this Load Balancer should answer.",
-                    "properties" => {
-                        "lb_port" => {
-                            "type" => "integer",
-                            "description" => "Specifies the external load balancer port number. This property cannot be modified for the life of the load balancer."
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "required" => ["lb_protocol", "lb_port", "instance_protocol", "instance_port"],
+                "additionalProperties" => false,
+                "description" => "A list of port/protocols which this Load Balancer should answer.",
+                "properties" => {
+                  "lb_port" => {
+                    "type" => "integer",
+                    "description" => "Specifies the external load balancer port number. This property cannot be modified for the life of the load balancer."
+                  },
+                  "instance_port" => {
+                    "type" => "integer",
+                    "description" => "Specifies the TCP port on which the instance server is listening. This property cannot be modified for the life of the load balancer."
+                  },
+                  "lb_protocol" => {
+                    "type" => "string",
+                    "enum" => ["HTTP", "HTTPS", "TCP", "SSL"],
+                    "description" => "Specifies the load balancer transport protocol to use for routing - HTTP, HTTPS, TCP or SSL. This property cannot be modified for the life of the load balancer."
+                  },
+                  "targetgroup" => {
+                    "type" => "string",
+                    "description" => "Which of our declared targetgroups should be the back-end for this listener's traffic"
+                  },
+                  "instance_protocol" => {
+                    "type" => "string",
+                    "enum" => ["HTTP", "HTTPS", "TCP", "SSL"],
+                    "description" => "Specifies the protocol to use for routing traffic to back-end instances - HTTP, HTTPS, TCP, or SSL. This property cannot be modified for the life of the load balancer.
+
+            If the front-end protocol is HTTP or HTTPS, InstanceProtocol has to be at the same protocol layer, i.e., HTTP or HTTPS. Likewise, if the front-end protocol is TCP or SSL, InstanceProtocol has to be TCP or SSL."
+                  },
+                  "ssl_certificate_name" => {
+                    "type" => "string",
+                    "description" => "The name of a server certificate."
+                  },
+                  "ssl_certificate_id" => {
+                    "type" => "string",
+                    "description" => "The ARN string of a server certificate."
+                  },
+                  "rules" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "object",
+                      "required" => ["conditions", "order"],
+                      "additionalProperties" => false,
+                      "properties" => {
+                        "conditions" => {
+                          "type" => "array",
+                          "items" => {
+                            "type" => "object",
+                            "required" => ["field", "values"],
+                            "additionalProperties" => false,
+                            "properties" => {
+                              "field" => {
+                                "type" => "string",
+                                "default" => "path-pattern",
+                                "enum" => ["path-pattern"]
+                              },
+                              "values" => {
+                                "type" => "array",
+                                "items" => {
+                                  "type" => "string",
+                                  "description" => "A pattern to match against for this field."
+                                }
+                              }
+                            }
+                          }
                         },
-                        "instance_port" => {
-                            "type" => "integer",
-                            "description" => "Specifies the TCP port on which the instance server is listening. This property cannot be modified for the life of the load balancer."
+                        "actions" => {
+                          "type" => "array",
+                          "items" => {
+                            "type" => "object",
+                            "required" => ["action", "targetgroup"],
+                            "additionalProperties" => false,
+                            "properties" => {
+                              "action" => {
+                                "type" => "string",
+                                "default" => "forward",
+                                "description" => "An action to take when a match occurs. Currently, only forwarding to a targetgroup is supported.",
+                                "enum" => ["forward"]
+                              },
+                              "targetgroup" => {
+                                "type" => "string",
+                                "description" => "Which of our declared targetgroups should be the recipient of this traffic. If left unspecified, will default to the default targetgroup of this listener."
+                              }
+                            }
+                          }
                         },
-                        "lb_protocol" => {
-                            "type" => "string",
-                            "enum" => ["HTTP", "HTTPS", "TCP", "SSL"],
-                            "description" => "Specifies the load balancer transport protocol to use for routing - HTTP, HTTPS, TCP or SSL. This property cannot be modified for the life of the load balancer."
-                        },
-                        "targetgroup" => {
-                            "type" => "string",
-                            "description" => "Which of our declared targetgroups should be the back-end for this listener's traffic"
-                        },
-                        "instance_protocol" => {
-                            "type" => "string",
-                            "enum" => ["HTTP", "HTTPS", "TCP", "SSL"],
-                            "description" => "Specifies the protocol to use for routing traffic to back-end instances - HTTP, HTTPS, TCP, or SSL. This property cannot be modified for the life of the load balancer.
-  
-                If the front-end protocol is HTTP or HTTPS, InstanceProtocol has to be at the same protocol layer, i.e., HTTP or HTTPS. Likewise, if the front-end protocol is TCP or SSL, InstanceProtocol has to be TCP or SSL."
-                        },
-                        "ssl_certificate_name" => {
-                            "type" => "string",
-                            "description" => "The name of a server certificate."
-                        },
-                        "ssl_certificate_id" => {
-                            "type" => "string",
-                            "description" => "The ARN string of a server certificate."
+                        "order" => {
+                          "type" => "integer",
+                          "default" => 1,
+                          "description" => "The priority for the rule. Use to order processing relative to other rules."
                         }
+                      }
                     }
+                  }
                 }
-            }
+          }
         }
+      }
     }
 
     @dns_zones_primitive = {
