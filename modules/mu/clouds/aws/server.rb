@@ -563,12 +563,49 @@ module MU
         end
 
         # Ask the Amazon API to restart this node
-        def reboot
+        def reboot(hard = false)
           return if @cloud_id.nil?
-          MU.log "Rebooting #{@mu_name} (#{@cloud_id})"
-          MU::Cloud::AWS.ec2(@config['region']).reboot_instances(
-            instance_ids: [@cloud_id]
-          )
+
+          if hard
+            groupname = nil
+            if !@config['basis'].nil?
+              resp = MU::Cloud::AWS.autoscale(@config['region']).describe_auto_scaling_instances(
+                instance_ids: [@cloud_id]
+              )
+              groupname = resp.auto_scaling_instances.first.auto_scaling_group_name
+              MU.log "Pausing Autoscale processes in #{groupname}", MU::NOTICE
+              MU::Cloud::AWS.autoscale(@config['region']).suspend_processes(
+                auto_scaling_group_name: groupname
+              )
+            end
+            begin
+              MU.log "Stopping #{@mu_name} (#{@cloud_id})", MU::NOTICE
+              MU::Cloud::AWS.ec2(@config['region']).stop_instances(
+                instance_ids: [@cloud_id]
+              )
+              MU::Cloud::AWS.ec2(@config['region']).wait_until(:instance_stopped, instance_ids: [@cloud_id]) do |waiter|
+                waiter.before_attempt do |attempts|
+                  MU.log "Waiting for #{@mu_name} to stop for hard reboot"
+                end
+              end
+              MU.log "Starting #{@mu_name} (#{@cloud_id})"
+              MU::Cloud::AWS.ec2(@config['region']).start_instances(
+                instance_ids: [@cloud_id]
+              )
+            ensure
+              if !groupname.nil?
+                MU.log "Resuming Autoscale processes in #{groupname}", MU::NOTICE
+                MU::Cloud::AWS.autoscale(@config['region']).resume_processes(
+                  auto_scaling_group_name: groupname
+                )
+              end
+            end
+          else
+            MU.log "Rebooting #{@mu_name} (#{@cloud_id})"
+            MU::Cloud::AWS.ec2(@config['region']).reboot_instances(
+              instance_ids: [@cloud_id]
+            )
+          end
         end
 
         # Figure out what's needed to SSH into this server.

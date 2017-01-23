@@ -760,7 +760,7 @@ module MU
               hostname = @mu_windows_name
             end
             win_check_for_hostname = %Q{powershell -Command '& {hostname}'}
-            win_set_hostname = %Q{powershell -Command "& {Rename-Computer -NewName '#{hostname}' -Force -PassThru -Restart; Restart-Computer -Force}"}
+            win_set_hostname = %Q{powershell -Command "& {Rename-Computer -NewName '#{hostname}' -Force -PassThru -Restart; Restart-Computer -Force }"}
 
             begin
               # Set our admin password first, if we need to
@@ -898,9 +898,20 @@ module MU
                 elsif retries/max_retries > 0.5
                   MU.log msg, MU::WARN, details: e.inspect
                 end
-                if e.message.match(/connection closed by remote host/) and windows? and !forced_windows_reboot
-                  forced_windows_reboot = true
-                  reboot
+                if e.message.match(/connection closed by remote host|Connection reset by peer/i) and windows?
+                  if !forced_windows_reboot
+                    forced_windows_reboot = true
+                    MU.log "#{@config['mu_name']} sshd misbehaving, attempting to reboot from API", MU::WARN
+                    reboot
+                    sleep 45
+                  elsif !forced_windows_reboot_twice
+                    forced_windows_reboot_twice = true
+                    MU.log "#{@config['mu_name']} sshd still misbehaving, forcing Stop and Start from API", MU::WARN
+                    reboot(true)
+                    sleep 45
+                  else
+                    raise MuError, "Couldn't get into #{@mu_name} with ssh even after forced reboots"
+                  end
                 end
                 sleep retry_interval
                 retry
