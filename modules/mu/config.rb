@@ -1823,35 +1823,37 @@ module MU
                 ok = false
                 MU.log "listener in LoadBalancer #{lb['name']} refers to targetgroup #{l['targetgroup']}, but no such targetgroup found", MU::ERR
               end
-              if !l['rules'].nil? and l['rules'].size > 0
-                l['rules'].each { |r|
-                  if r['actions'].nil?
-                    r['actions'] = [
-                      { "targetgroup" => l["targetgroup"], "action" => "forward" }
-                    ]
-                    next
-                  end
-                  r['actions'].each { |action|
-                    if action['targetgroup'].nil?
-                      action['targetgroup'] = l['targetgroup']
-                    else
-                      found = false
-                      lb['targetgroups'].each { |tg|
-                        if l['targetgroup'] == action['targetgroup']
-                          found = true
-                          break
-                        end
-                      }
-                      if !found
-                        ok = false
-                        MU.log "listener action in LoadBalancer #{lb['name']} refers to targetgroup #{action['targetgroup']}, but no such targetgroup found", MU::ERR
-                      end
-                    end
-                  }
-                }
-              end
             }
           end
+          lb['listeners'].each { |l|
+            if !l['rules'].nil? and l['rules'].size > 0
+              l['rules'].each { |r|
+                if r['actions'].nil?
+                  r['actions'] = [
+                    { "targetgroup" => l["targetgroup"], "action" => "forward" }
+                  ]
+                  next
+                end
+                r['actions'].each { |action|
+                  if action['targetgroup'].nil?
+                    action['targetgroup'] = l['targetgroup']
+                  else
+                    found = false
+                    lb['targetgroups'].each { |tg|
+                      if l['targetgroup'] == action['targetgroup']
+                        found = true
+                        break
+                      end
+                    }
+                    if !found
+                      ok = false
+                      MU.log "listener action in LoadBalancer #{lb['name']} refers to targetgroup #{action['targetgroup']}, but no such targetgroup found", MU::ERR
+                    end
+                  end
+                }
+              }
+            end
+          }
         end
       }
 

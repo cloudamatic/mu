@@ -23,6 +23,7 @@ module MU
         attr_reader :mu_name
         attr_reader :config
         attr_reader :cloud_id
+        attr_reader :targetgroups
 
         @cloudformation_data = {}
         attr_reader :cloudformation_data
@@ -170,7 +171,7 @@ module MU
             }
           end
 
-          targetgroups = {}
+          @targetgroups = {}
           if !@config['healthcheck'].nil? and @config['classic']
             MU.log "Configuring custom health check for ELB #{@mu_name}", details: @config['healthcheck']
             MU::Cloud::AWS.elb.configure_health_check(
@@ -210,7 +211,7 @@ module MU
                   tg_descriptor[:unhealthy_threshold_count] = tg['healthcheck']['unhealthy_threshold']
                 end
                 tg_resp = MU::Cloud::AWS.elb2.create_target_group(tg_descriptor)
-                targetgroups[tg['name']] = tg_resp.target_groups.first
+                @targetgroups[tg['name']] = tg_resp.target_groups.first
                 MU::Cloud::AWS.elb2.add_tags(
                   resource_arns: [tg_resp.target_groups.first.target_group_arn],
                   tags: lb_options[:tags]
@@ -221,12 +222,12 @@ module MU
 
           if !@config['classic']
             @config["listeners"].each { |l|
-              if !targetgroups.has_key?(l['targetgroup'])
+              if !@targetgroups.has_key?(l['targetgroup'])
                 raise MuError, "Listener in #{@mu_name} configured for target group #{l['targetgroup']}, but I don't have data on a targetgroup by that name"
               end
               listen_descriptor = {
                 :default_actions => [{
-                  :target_group_arn => targetgroups[l['targetgroup']].target_group_arn,
+                  :target_group_arn => @targetgroups[l['targetgroup']].target_group_arn,
                   :type => "forward"
                 }], 
                 :load_balancer_arn => lb.load_balancer_arn,
@@ -250,7 +251,7 @@ module MU
                   }
                   rule['actions'].each { |a|
                     rule_descriptor[:actions] << {
-                      :target_group_arn => targetgroups[a['targetgroup']].target_group_arn,
+                      :target_group_arn => @targetgroups[a['targetgroup']].target_group_arn,
                       :type => a['action']
                     }
                   }
@@ -272,7 +273,7 @@ module MU
                 }
               )
             else
-              targetgroups.each_pair { |tg_name, tg|
+              @targetgroups.each_pair { |tg_name, tg|
                 MU::Cloud::AWS.elb2.modify_target_group_attributes(
                   target_group_arn: tg.target_group_arn,
                   attributes: [
@@ -342,13 +343,13 @@ module MU
                 timeout = 0
                 MU.log "Disabling connection draining on #{lb.dns_name}"
               end
-              targetgroups.each_pair { |tg_name, tg|
+              @targetgroups.each_pair { |tg_name, tg|
                 MU::Cloud::AWS.elb2.modify_target_group_attributes(
                   target_group_arn: tg.target_group_arn,
                   attributes: [
                     {
                       key: "deregistration_delay.timeout_seconds",
-                      value: timeout
+                      value: timeout.to_s
                     }
                   ]
                 )
@@ -415,7 +416,7 @@ module MU
                 end
               end
             else
-              targetgroups.each_pair { |tg_name, tg|
+              @targetgroups.each_pair { |tg_name, tg|
                 MU::Cloud::AWS.elb2.modify_target_group_attributes(
                   target_group_arn: tg.target_group_arn,
                   attributes: [
@@ -490,8 +491,9 @@ module MU
         # @return [Hash]
         def notify
           deploy_struct = {
-              "awsname" => @mu_name,
-              "dns" => cloud_desc.dns_name
+            "awsname" => @mu_name,
+            "dns" => cloud_desc.dns_name,
+            "targetgroups" => @targetgroups.keys
           }
           return deploy_struct
         end
@@ -499,13 +501,28 @@ module MU
         # Register a Server node with an existing LoadBalancer.
         #
         # @param instance_id [String] A node to register.
-        def registerNode(instance_id)
-          MU::Cloud::AWS.elb(@config['region']).register_instances_with_load_balancer(
+        # @param targetgroups [Array<String>] The target group(s) of which this node should be made a member. Not applicable to classic LoadBalancers. If not supplied, the node willbe registered to all available target groups on this LoadBalancer.
+        def registerNode(instance_id, targetgroups: nil)
+          if @config['classic']
+            MU::Cloud::AWS.elb(@config['region']).register_instances_with_load_balancer(
               load_balancer_name: @cloud_id,
               instances: [
-                  {instance_id: instance_id}
+                {instance_id: instance_id}
               ]
-          )
+            )
+          else
+            if targetgroups.nil? or !targetgroups.is_a?(Array) or targetgroups.size == 0
+              targetgroups = @targetgroups.keys
+            end
+            targetgroups.each { |tg|
+              MU::Cloud::AWS.elb2(@config['region']).register_targets(
+                target_group_arn: @targetgroups[tg].target_group_arn,
+                targets: [
+                  {id: instance_id}
+                ]
+              )
+            }
+          end
         end
 
         # Remove all load balancers associated with the currently loaded deployment.
