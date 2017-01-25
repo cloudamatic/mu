@@ -615,28 +615,47 @@ module MU
         # @param region [String]: The cloud provider region
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
+        # @param classic [Boolean]: Check for Elastic Load Balancers, instead of Application Load Balancers
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching LoadBalancers
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil)
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, opts: {})
+          classic = $opts['classic'] ? true : false
 
           matches = {}
           list = {}
-          resp = MU::Cloud::AWS.elb(region).describe_load_balancers
-          lb_names = []
-          resp.load_balancer_descriptions.each { |lb|
+          arn2name = {}
+          resp = nil
+          if classic
+            resp = MU::Cloud::AWS.elb(region).describe_load_balancers().load_balancer_descriptions
+          else
+            resp = MU::Cloud::AWS.elb2(region).describe_load_balancers().load_balancers
+          end
+          resp.each { |lb|
             list[lb.load_balancer_name] = lb
+            arn2name[lb.load_balancer_arn] = lb.load_balancer_name
             if !cloud_id.nil? and lb.load_balancer_name == cloud_id
               matches[cloud_id] = lb
             end
           }
+
           return matches if matches.size > 0
 
           if !tag_key.nil? and !tag_value.nil?
-            resp = MU::Cloud::AWS.elb(region).describe_tags(load_balancer_names: list.keys)
+            tag_descriptions = nil
+            if classic
+              tag_descriptions = MU::Cloud::AWS.elb(region).describe_tags(
+                load_balancer_names: list.keys
+              ).tag_descriptions
+            else
+              tag_descriptions = MU::Cloud::AWS.elb2(region).describe_tags(
+                resource_arns: list.values.map { |l| l.load_balancer_arn }
+              ).tag_descriptions
+            end
             if !resp.nil?
-              resp.tag_descriptions.each { |lb|
+              tag_descriptions.each { |lb|
+                lb_name = classic ? lb.load_balancer_name : arn2name[lb.resource_arn]
                 lb.tags.each { |tag|
                   if tag.key == tag_key and tag.value == tag_value
-                    matches[lb.load_balancer_name] = list[lb.load_balancer_name]
+                    matches[lb_name] = list[lb_name]
                   end
                 }
               }

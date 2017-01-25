@@ -29,7 +29,7 @@ require 'mu'
 $opts = Trollop::options do
   banner <<-EOS
 Usage:
-#{$0} [-e <environment>] [-r region] [-v] [-d] [-w] [-c] [-n] [-s] [-j] [-p parameter=value] /path/to/stack/config.[json|yaml] [-u deploy_id]
+#{$0} [-e <environment>] [-r region] [-v] [-d] [-w] [-c] [-n] [-s] [-j] [-p parameter=value] /path/to/stack/config.[json|yaml] [-u deploy_id [-l]] [-r deploy_id]
   EOS
   opt :environment, "Environment to set on creation.", :require => false, :default => "dev"
   opt :region, "Default region for newly-created cloud resources.", :require => false, :default => MU.myRegion, :type => :string
@@ -39,6 +39,7 @@ Usage:
   opt :skipinitialupdates, "Node bootstrapping normally runs an internal recipe that does a full system update. This disables that behavior.", :require => false, :default => false, :type => :boolean
   opt :parameter, "Pass a parameter to the configuration parser (Name=Value). This will be presented to your config file as the ERB variable $Name.", :require => false, :type => :string, :multi => true
   opt :update, "Update the stored configuration of an existing deployment, instead of creating a new deploy.", :require => false, :type => :string
+  opt :liveupdate, "EXPERIMENTAL: Attempt to create or update live cloud resources after running --update", :require => false, :type => :boolean, :default => false
   opt :cloudformation, "Emit Amazon Web Services targets into a CloudFormation template instead of building real services.", :require => false, :default => false, :type => :boolean
   opt :cloudformation_output, "When emitting a CloudFormation template, put the final product in this location instead of in /tmp. Takes a local file path or an s3:// URI. S3 uploads will be given AUTHENTICATED-READ permissions.", :require => false, :type => :string
   opt :verbose, "Display debugging output.", :require => false, :default => false, :type => :boolean
@@ -50,6 +51,11 @@ verbosity = MU::Logger::QUIET if $opts[:quiet]
 
 if $opts[:verbose] and $opts[:quiet]
   MU.log "Cannot set both --verbose and --quiet", MU::ERR
+  exit 1
+end
+
+if $opts[:liveupdate] and !$opts[:update]
+  MU.log "--liveupdate only valid when combined with --update", MU::ERR
   exit 1
 end
 
@@ -112,6 +118,46 @@ end
 if $opts[:update]
   deploy = MU::MommaCat.new($opts[:update])
   deploy.updateBasketofKittens(stack_conf)
+  if $opts[:liveupdate]
+    MU::Cloud.resource_types.each_pair { |classname, attrs|
+      type = attrs[:cfg_plural]
+      if deploy.original_config.has_key?(type)
+#pp deploy.original_config[type]
+        puts type
+#        pp attrs
+        deploy.original_config[type].each { |cfg|
+          opts = {}
+          if type == "loadbalancers"
+            opts['classic'] = cfg['classic'] ? true : false
+          else
+            next # XXX untested with anything besides loadbalancers
+          end
+          found = MU::MommaCat.findStray(cfg['cloud'],
+                                 type,
+                                 name: cfg['name'],
+                                 region: cfg['region'],
+                                 deploy_id: $opts[:update],
+                                 allow_multi: attrs[:has_multiple],
+                                 tag_key: "MU-ID",
+                                 tag_value: deploy.deploy_id,
+                                 opts: opts
+                                )
+
+          if found.size == 0 # XXX account for multiples?
+            cloudobj = cfg["#MU_CLOUDCLASS"].new(mommacat: deploy, kitten_cfg: cfg)
+            MU.log "#{classname} #{cfg['name']} not found, creating", MU::NOTICE
+            # XXX go through stuff that depends on this resource and regroom it
+            # XXX need to go through *our* dependencies too; and attach security groups; and and and
+            cloudobj.create
+            if cfg["#MU_CLOUDCLASS"].instance_methods(false).include?(:groom)
+              MU.log "Grooming #{classname} #{cfg['name']}", MU::NOTICE
+              cloudobj.groom
+            end
+          end
+        }
+      end
+    }
+  end
   exit 0
 end
 
