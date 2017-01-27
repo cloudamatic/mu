@@ -151,14 +151,14 @@ module MU
                    create: false,
                    deploy_secret: nil,
                    config: nil,
-                   environment: environment = "dev",
-                   ssh_key_name: ssh_key_name = nil,
-                   ssh_private_key: ssh_private_key = nil,
-                   ssh_public_key: ssh_public_key = nil,
+                   environment: "dev",
+                   ssh_key_name: nil,
+                   ssh_private_key: nil,
+                   ssh_public_key: nil,
                    nocleanup: false,
                    set_context_to_me: true,
                    skip_resource_objects: false,
-                   deployment_data: deployment_data = Hash.new,
+                   deployment_data: {},
                    mu_user: "root"
     )
       if deploy_id.nil? or deploy_id.empty?
@@ -434,6 +434,7 @@ module MU
           break
         end
       }
+
       @kitten_semaphore.synchronize {
         @kittens[type] = {} if @kittens[type].nil?
         if has_multiples

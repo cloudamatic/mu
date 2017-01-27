@@ -791,7 +791,7 @@ module MU
         # @param cloud_id [String]: The cloud provider's identifier for this resource. Can also use the domain name, we'll check for both.
         # @param region [String]: The cloud provider region
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching DNSZones
-        def self.find(cloud_id: nil, deploy_id: MU.deploy_id, region: MU.curRegion)
+        def self.find(cloud_id: nil, deploy_id: MU.deploy_id, region: MU.curRegion, opts: {})
           matches = {}
 
           resp = MU::Cloud::AWS.route53(region).list_hosted_zones(

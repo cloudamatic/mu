@@ -446,9 +446,10 @@ module MU
             end
           end
 
-# Register us with our parent deploy so that we can be found by our
-# littermates if needed.
+          # Register us with our parent deploy so that we can be found by our
+          # littermates if needed.
           if !@deploy.nil? and !@cloudobj.mu_name.nil? and !@cloudobj.mu_name.empty?
+            describe # XXX is this actually safe here?
             @deploy.addKitten(self.class.cfg_name, @config['name'], self)
           elsif !@deploy.nil?
             MU.log "#{self} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR

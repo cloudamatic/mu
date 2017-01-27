@@ -47,6 +47,10 @@ module MU
     # failure occurs.
     attr_reader :nocleanup
 
+    # Indicates whether we are updating an existing deployment, as opposed to
+    # creating a new one.
+    attr_reader :updating
+
     # @param environment [String]: The environment name for this application stack (e.g. "dev" or "prod")
     # @param verbosity [Integer]: Debug level for MU.log output
     # @param webify_logs [Boolean]: Toggles web-friendly log output
@@ -59,7 +63,8 @@ module MU
                    cloudformation_path: nil,
                    force_cloudformation: false,
                    reraise_thread: nil,
-                   stack_conf: nil)
+                   stack_conf: nil,
+                   deploy_id: nil)
       MU.setVar("verbosity", verbosity)
       @webify_logs = webify_logs
       @verbosity = verbosity
@@ -84,29 +89,35 @@ module MU
       @original_config.freeze
       @admins = stack_conf["admins"]
 
-      @environment = environment
-      time=Time.new
-      @appname = stack_conf["appname"]
-      @timestamp = time.strftime("%Y%m%d%H").to_s;
-      @timestamp.freeze
-      @timestart = time.to_s;
-      @timestart.freeze
+      if deploy_id
+        @mommacat = MU::MommaCat.new(deploy_id)
+        @updating = true
+      else
+        @environment = environment
+        @updating = false
+        time=Time.new
+        @appname = stack_conf["appname"]
+        @timestamp = time.strftime("%Y%m%d%H").to_s;
+        @timestamp.freeze
+        @timestart = time.to_s;
+        @timestart.freeze
 
-      retries = 0
-      begin
-        raise MuError, "Failed to allocate an unused MU-ID after #{retries} tries!" if retries > 70
-        seedsize = 1 + (retries/10).abs
-        seed = Password.pronounceable(8).slice(0..seedsize)
-        deploy_id = @appname.upcase + "-" + @environment.upcase + "-" + @timestamp + "-" + seed.upcase
-      end while MU::MommaCat.deploy_exists?(deploy_id) or seed == "mu"
-      MU.setVar("deploy_id", deploy_id)
-      MU.setVar("appname", @appname.upcase)
-      MU.setVar("environment", @environment.upcase)
-      MU.setVar("timestamp", @timestamp)
-      MU.setVar("seed", seed)
-      MU.setVar("handle", MU::MommaCat.generateHandle(seed))
+        retries = 0
+        begin
+          raise MuError, "Failed to allocate an unused MU-ID after #{retries} tries!" if retries > 70
+          seedsize = 1 + (retries/10).abs
+          seed = Password.pronounceable(8).slice(0..seedsize)
+          deploy_id = @appname.upcase + "-" + @environment.upcase + "-" + @timestamp + "-" + seed.upcase
+        end while MU::MommaCat.deploy_exists?(deploy_id) or seed == "mu"
+        MU.setVar("deploy_id", deploy_id)
+        MU.setVar("appname", @appname.upcase)
+        MU.setVar("environment", @environment.upcase)
+        MU.setVar("timestamp", @timestamp)
+        MU.setVar("seed", seed)
+        MU.setVar("handle", MU::MommaCat.generateHandle(seed))
 
-      MU.log "Deployment id: #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id})"
+        MU.log "Deployment id: #{MU.appname} \"#{MU.handle}\" (#{MU.deploy_id})"
+      end
 
       # Instance variables that are effectively class variables
       @my_instance_id = MU::Cloud::AWS.getAWSMetaData("instance-id")
@@ -184,15 +195,16 @@ module MU
       end
 
       begin
-        metadata = {
+        if !@mommacat
+          metadata = {
             "appname" => @appname,
             "timestamp" => @timestamp,
             "environment" => @environment,
             "seed" => MU.seed,
             "deployment_start_time" => @timestart,
             "chef_user" => MU.chef_user
-        }
-        mommacat = MU::MommaCat.new(
+          }
+          @mommacat = MU::MommaCat.new(
             MU.deploy_id,
             create: true,
             config: @main_config,
@@ -201,15 +213,15 @@ module MU
             set_context_to_me: true,
             deployment_data: metadata,
             mu_user: MU.mu_user
-        )
-        MU.setVar("mommacat", mommacat)
+          )
+          MU.setVar("mommacat", @mommacat)
+        end
 
         @admins.each { |admin|
-          mommacat.notify("admins", admin['name'], admin)
+          @mommacat.notify("admins", admin['name'], admin)
         }
 
         @deploy_semaphore = Mutex.new
-
         parent_thread_id = Thread.current.object_id
         @main_thread = Thread.current
 
@@ -252,6 +264,7 @@ module MU
         @my_threads.each do |t|
           t.join
         end
+exit
       rescue Exception => e
         @my_threads.each do |t|
           if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread" and t.object_id != parent_thread_id
@@ -265,42 +278,42 @@ module MU
         if e.class.to_s != "SystemExit"
           MU.log e.inspect, MU::ERR, details: e.backtrace if @verbosity != MU::Logger::SILENT
           if !@nocleanup
-            MU::Cleanup.run(MU.deploy_id, skipsnapshots: true, verbosity: @verbosity, mommacat: mommacat)
+            MU::Cleanup.run(MU.deploy_id, skipsnapshots: true, verbosity: @verbosity, mommacat: @mommacat)
             @nocleanup = true # so we don't run this again later
           end
         end
         @reraise_thread.raise MuError, e.inspect, e.backtrace if @reraise_thread
         Thread.current.exit
       ensure
-        if mommacat.numKittens(clouds: ["CloudFormation"]) > 0
-          MU::Cloud::CloudFormation.writeCloudFormationTemplate(tails: MU::Config.tails, config: @main_config, path: @cloudformation_output, mommacat: mommacat)
+        if @mommacat.numKittens(clouds: ["CloudFormation"]) > 0
+          MU::Cloud::CloudFormation.writeCloudFormationTemplate(tails: MU::Config.tails, config: @main_config, path: @cloudformation_output, mommacat: @mommacat)
           # If we didn't build anything besides CloudFormation, purge useless
           # metadata.
-          if mommacat.numKittens(clouds: ["CloudFormation"], negate: true) == 0
-            MU::Cleanup.run(MU.deploy_id, skipcloud: true, verbosity: MU::Logger::SILENT, mommacat: mommacat)
+          if @mommacat.numKittens(clouds: ["CloudFormation"], negate: true) == 0
+            MU::Cleanup.run(MU.deploy_id, skipcloud: true, verbosity: MU::Logger::SILENT, mommacat: @mommacat)
             return
           end
         end
       end
-      if mommacat.numKittens(clouds: ["CloudFormation"], negate: true) > 0
-        if !MU.mommacat.deployment['servers'].nil? and MU.mommacat.deployment['servers'].keys.size > 0
+      if @mommacat.numKittens(clouds: ["CloudFormation"], negate: true) > 0
+        if !@mommacat.deployment['servers'].nil? and @mommacat.deployment['servers'].keys.size > 0
           # XXX some kind of filter (obey sync_siblings on nodes' configs)
-          MU.mommacat.syncLitter(MU.mommacat.deployment['servers'].keys)
+          @mommacat.syncLitter(@mommacat.deployment['servers'].keys)
         end
-        deployment = MU.mommacat.deployment
+        deployment = @mommacat.deployment
         deployment["deployment_end_time"]=Time.new.strftime("%I:%M %p on %A, %b %d, %Y").to_s;
-        if mommacat.numKittens(clouds: ["AWS"]) > 0
+        if @mommacat.numKittens(clouds: ["AWS"]) > 0
           MU::Cloud::AWS.openFirewallForClients
         end
         MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
-        if mommacat.numKittens(types: ["Server", "ServerPool"]) > 0
+        if @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0
           MU::MommaCat.syncMonitoringConfig
         end
       end
 
       # Send notifications
       sendMail
-      if mommacat.numKittens(clouds: ["AWS"]) > 0
+      if @mommacat.numKittens(clouds: ["AWS"]) > 0
         MU.log "Generating cost calculation URL for all Amazon Web Services resources."
         MU.setLogging(MU::Logger::SILENT)
 
@@ -335,7 +348,7 @@ module MU
 
     def sendMail()
 
-      $str = JSON.pretty_generate(MU.mommacat.deployment)
+      $str = JSON.pretty_generate(@mommacat.deployment)
 
       admin_addrs = @admins.map { |admin|
         admin['name']+" <"+admin['email']+">"
@@ -488,7 +501,7 @@ MESSAGE_END
           MU.log "Launching thread #{threadname}", MU::DEBUG
           begin
             if service['#MUOBJECT'].nil?
-              service['#MUOBJECT'] = service["#MU_CLOUDCLASS"].new(mommacat: MU.mommacat, kitten_cfg: myservice)
+              service['#MUOBJECT'] = service["#MU_CLOUDCLASS"].new(mommacat: @mommacat, kitten_cfg: myservice)
             end
           rescue Exception => e
             MU::MommaCat.unlockAll
@@ -503,7 +516,36 @@ MESSAGE_END
           end
           begin
             MU.log "Running #{service['#MUOBJECT']}.#{mode}", MU::DEBUG
-            myservice = run_this_method.call
+            if !@updating or mode != "create"
+              myservice = run_this_method.call
+            else
+              opts = {}
+              if service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer"
+                opts['classic'] = service['classic'] ? true : false
+              end
+              found = MU::MommaCat.findStray(service['cloud'],
+                                 service["#MU_CLOUDCLASS"].cfg_name,
+                                 name: service['name'],
+                                 region: service['region'],
+                                 deploy_id: @mommacat.deploy_id,
+#                                 allow_multi: service["#MU_CLOUDCLASS"].has_multiple,
+                                 tag_key: "MU-ID",
+                                 tag_value: @mommacat.deploy_id,
+                                 opts: opts
+                                )
+              if found.size == 0
+                if service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer"
+# XXX account for multiples?
+# XXX only know LBs to be safe, atm
+                  MU.log "#{service["#MU_CLOUDCLASS"].name} #{service['name']} not found, creating", MU::NOTICE
+                  myservice = run_this_method.call
+                end
+              else
+                myservice = @mommacat.findLitterMate(type: service["#MU_CLOUDCLASS"].cfg_name, name: service['name'], created_only: true)
+MU.log "#{service["#MU_CLOUDCLASS"].cfg_name} #{service['name']} #{myservice}", MU::NOTICE
+              end
+
+            end
           rescue Exception => e
             MU.log e.inspect, MU::ERR, details: e.backtrace if @verbosity != MU::Logger::SILENT
             MU::MommaCat.unlockAll

@@ -119,44 +119,15 @@ if $opts[:update]
   deploy = MU::MommaCat.new($opts[:update])
   deploy.updateBasketofKittens(stack_conf)
   if $opts[:liveupdate]
-    MU::Cloud.resource_types.each_pair { |classname, attrs|
-      type = attrs[:cfg_plural]
-      if deploy.original_config.has_key?(type)
-#pp deploy.original_config[type]
-        puts type
-#        pp attrs
-        deploy.original_config[type].each { |cfg|
-          opts = {}
-          if type == "loadbalancers"
-            opts['classic'] = cfg['classic'] ? true : false
-          else
-            next # XXX untested with anything besides loadbalancers
-          end
-          found = MU::MommaCat.findStray(cfg['cloud'],
-                                 type,
-                                 name: cfg['name'],
-                                 region: cfg['region'],
-                                 deploy_id: $opts[:update],
-                                 allow_multi: attrs[:has_multiple],
-                                 tag_key: "MU-ID",
-                                 tag_value: deploy.deploy_id,
-                                 opts: opts
-                                )
-
-          if found.size == 0 # XXX account for multiples?
-            cloudobj = cfg["#MU_CLOUDCLASS"].new(mommacat: deploy, kitten_cfg: cfg)
-            MU.log "#{classname} #{cfg['name']} not found, creating", MU::NOTICE
-            # XXX go through stuff that depends on this resource and regroom it
-            # XXX need to go through *our* dependencies too; and attach security groups; and and and
-            cloudobj.create
-            if cfg["#MU_CLOUDCLASS"].instance_methods(false).include?(:groom)
-              MU.log "Grooming #{classname} #{cfg['name']}", MU::NOTICE
-              cloudobj.groom
-            end
-          end
-        }
-      end
-    }
+    deployer = MU::Deploy.new(
+      deploy.environment,
+      verbosity: verbosity,
+      webify_logs: $opts[:web],
+      nocleanup: true,
+      stack_conf: stack_conf,
+      deploy_id: $opts[:update]
+    )
+    deployer.run
   end
   exit 0
 end

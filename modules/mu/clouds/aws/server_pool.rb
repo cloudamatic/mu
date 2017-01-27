@@ -77,7 +77,8 @@ module MU
           end
 
           if @config["loadbalancers"]
-            lbs = Array.new
+            lbs = []
+            tg_arns = []
 # XXX refactor this into the LoadBalancer resource
             @config["loadbalancers"].each { |lb|
               if lb["existing_load_balancer"]
@@ -92,16 +93,24 @@ module MU
                 raise MuError, "No loadbalancers exist! I need one named #{lb['concurrent_load_balancer']}" if !@deploy.deployment["loadbalancers"]
                 found = false
                 @deploy.deployment["loadbalancers"].each_pair { |lb_name, deployed_lb|
-
                   if lb_name == lb['concurrent_load_balancer']
                     lbs << deployed_lb["awsname"]
+                    if deployed_lb.has_key?("targetgroups")
+                      deployed_lb["targetgroups"].each_pair { |tg_name, tg_arn|
+                        tg_arns << tg_arn
+                      }
+                    end
                     found = true
                   end
                 }
                 raise MuError, "I need a loadbalancer named #{lb['concurrent_load_balancer']}, but none seems to have been created!" if !found
               end
             }
-            asg_options[:load_balancer_names] = lbs
+            if tg_arns.size > 0
+              asg_options[:target_group_arns] = tg_arns
+            else
+              asg_options[:load_balancer_names] = lbs
+            end
           end
           asg_options[:termination_policies] = @config["termination_policies"] if @config["termination_policies"]
           asg_options[:desired_capacity] = @config["desired_capacity"] if @config["desired_capacity"]
@@ -475,7 +484,7 @@ module MU
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching ServerPools
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil)
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, opts: {})
           MU.log "XXX ServerPool.find not yet implemented", MU::WARN
           return {}
         end

@@ -187,7 +187,7 @@ module MU
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching FirewallRules
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil)
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, opts: {})
 
           if !cloud_id.nil? and !cloud_id.empty?
             begin
@@ -476,12 +476,14 @@ module MU
                     end
                   end
                   lb = found.first
-                  lb.cloud_desc.security_groups.each { |lb_sg|
-                    ec2_rule[:user_id_group_pairs] << {
-                      user_id: MU.account_number,
-                      group_id: lb_sg
+                  if !lb.nil? and !lb.cloud_desc.nil?
+                    lb.cloud_desc.security_groups.each { |lb_sg|
+                      ec2_rule[:user_id_group_pairs] << {
+                        user_id: MU.account_number,
+                        group_id: lb_sg
+                      }
                     }
-                  }
+                  end
                 }
               end
 

@@ -130,6 +130,15 @@ module MU
               lb = MU::Cloud::AWS.elb.create_load_balancer(lb_options)
             else
               lb = MU::Cloud::AWS.elb2.create_load_balancer(lb_options).load_balancers.first
+              begin
+                if lb.state.code != "active"
+                  MU.log "Waiting for ALB #{@mu_name} to enter 'active' state", MU::NOTICE
+                  sleep 20
+                  lb = MU::Cloud::AWS.elb2(@config['region']).describe_load_balancers(
+                    names: [@mu_name]
+                  ).load_balancers.first
+                end
+              end while lb.state.code != "active"
             end
           rescue Aws::ElasticLoadBalancing::Errors::ValidationError, Aws::ElasticLoadBalancing::Errors::SubnetNotFound, Aws::ElasticLoadBalancing::Errors::InvalidConfigurationRequest => e
             if zones_to_try.size > 0 and lb_options.has_key?(:availability_zones)
@@ -480,10 +489,21 @@ module MU
             resp = MU::Cloud::AWS.elb(@config['region']).describe_load_balancers(
               load_balancer_names: [@mu_name]
             ).load_balancer_descriptions.first
+            return resp
           else
-            MU::Cloud::AWS.elb2(@config['region']).describe_load_balancers(
+            resp = MU::Cloud::AWS.elb2(@config['region']).describe_load_balancers(
               names: [@mu_name]
             ).load_balancers.first
+            if @targetgroups.nil? and !@deploy.nil? and
+                @deploy.deployment['loadbalancers'].has_key?(@config['name']) and
+                @deploy.deployment['loadbalancers'][@config['name']].has_key?("targetgroups")
+              @targetgroups = {}
+              @deploy.deployment['loadbalancers'][@config['name']]["targetgroups"].each_pair { |tg_name, tg_arn|
+                @targetgroups[tg_name] = MU::Cloud::AWS.elb2(@config['region']).describe_target_groups(target_group_arns: [tg_arn]).target_groups.first
+              }
+            end
+
+            return resp
           end
         end
 
@@ -493,7 +513,11 @@ module MU
           deploy_struct = {
             "awsname" => @mu_name,
             "dns" => cloud_desc.dns_name,
-            "targetgroups" => @targetgroups.keys
+            "arn" => cloud_desc.load_balancer_arn,
+            "targetgroups" => {}
+          }
+          @targetgroups.each { |tgname, tg|
+            deploy_struct["targetgroups"][tgname] = tg.target_group_arn
           }
           return deploy_struct
         end
@@ -501,7 +525,7 @@ module MU
         # Register a Server node with an existing LoadBalancer.
         #
         # @param instance_id [String] A node to register.
-        # @param targetgroups [Array<String>] The target group(s) of which this node should be made a member. Not applicable to classic LoadBalancers. If not supplied, the node willbe registered to all available target groups on this LoadBalancer.
+        # @param targetgroups [Array<String>] The target group(s) of which this node should be made a member. Not applicable to classic LoadBalancers. If not supplied, the node will be registered to all available target groups on this LoadBalancer.
         def registerNode(instance_id, targetgroups: nil)
           if @config['classic'] or !@config.has_key?("classic")
             MU::Cloud::AWS.elb(@config['region']).register_instances_with_load_balancer(
@@ -512,6 +536,10 @@ module MU
             )
           else
             if targetgroups.nil? or !targetgroups.is_a?(Array) or targetgroups.size == 0
+              if @targetgroups.nil?
+                cloud_desc
+                return
+              end
               targetgroups = @targetgroups.keys
             end
             targetgroups.each { |tg|
@@ -593,13 +621,35 @@ module MU
                     ) if !noop
                   }
                   tgs = MU::Cloud::AWS.elb2(region).describe_target_groups.target_groups
+                  begin
+                    if lb.state.code == "provisioning"
+                      MU.log "Waiting for ALB #{lb.load_balancer_name} to leave 'provisioning' state", MU::NOTICE
+                      sleep 45
+                      lb = MU::Cloud::AWS.elb2(region).describe_load_balancers(
+                        load_balancer_arns: [lb.load_balancer_arn]
+                      ).load_balancers.first
+                    end
+                  end while lb.state.code == "provisioning"
+                  MU::Cloud::AWS.elb2(region).delete_load_balancer(load_balancer_arn: lb.load_balancer_arn) if !noop
+
+
                   tgs.each { |tg|
                     if self.checkForTagMatch(tg.target_group_arn, region, ignoremaster)
                       MU.log "Removing Load Balancer Target Group #{tg.target_group_name}"
-                      MU::Cloud::AWS.elb2(region).delete_target_group(target_group_arn: tg.target_group_arn) if !noop
+                      retries = 0
+                      begin
+                        MU::Cloud::AWS.elb2(region).delete_target_group(target_group_arn: tg.target_group_arn) if !noop
+                      rescue Aws::ElasticLoadBalancingV2::Errors::ResourceInUse => e
+                        if retries < 6
+                          retries = retries + 1
+                          sleep 10
+                          retry
+                        else
+                          MU.log "Failed to delete ALB targetgroup #{tg.target_group_arn}: #{e.message}", MU::WARN
+                        end
+                      end
                     end
                   }
-                  MU::Cloud::AWS.elb2(region).delete_load_balancer(load_balancer_arn: lb.load_balancer_arn) if !noop
                 end
                 next
               end
