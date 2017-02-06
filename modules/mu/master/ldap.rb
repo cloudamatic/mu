@@ -91,6 +91,7 @@ module MU
           @member_attr = "member"
           @uid_attr = "sAMAccountName"
           @group_class = "group"
+          @user_class = "user"
         end
         bind_creds = MU::Groomer::Chef.getSecret(vault: $MU_CFG["ldap"]["bind_creds"]["vault"], item: $MU_CFG["ldap"]["bind_creds"]["item"])
         @ldap_conn = Net::LDAP.new(
@@ -269,7 +270,6 @@ module MU
                 :dn => data[$MU_CFG["ldap"][creds]["username_field"]],
                 :attributes => attr
               ) and @ldap_conn.get_operation_result.code != 68
-            pp attr
             raise MU::MuError, "Failed to create user #{user_dn} (#{getLDAPErr})"
           elsif @ldap_conn.get_operation_result.code != 68
             MU.log "Created #{username} (#{user_dn})", MU::NOTICE
@@ -563,6 +563,9 @@ module MU
         conn = getLDAPConnection
         users = {}
 
+# XXX why doesn't this work?
+#        group_membership_filter = Net::LDAP::Filter.eq("memberOf", $MU_CFG["ldap"]["admin_group_name"]) | Net::LDAP::Filter.eq("memberOf", $MU_CFG["ldap"]["user_group_name"])
+
         ["admin_group_name", "user_group_name"].each { |group|
           groupname_filter = Net::LDAP::Filter.eq(@gid_attr, $MU_CFG["ldap"][group])
           group_filter = Net::LDAP::Filter.eq("objectClass", @group_class)
@@ -572,13 +575,24 @@ module MU
             :filter => Net::LDAP::Filter.join(groupname_filter, group_filter),
             :attributes => [@member_attr]
           ) do |item|
-            member_uids = item[@member_attr].dup
+            member_uids = item[@member_attr].map { |u| u.to_s }
           end
+
           member_uids.each { |uid|
+            username_filter = Net::LDAP::Filter.eq(@uid_attr, uid)
+            if $MU_CFG["ldap"]["type"] == "Active Directory"
+              # XXX this is a workaround, as we can't seem to look up the full
+              # DN now for some reason.
+              cn = uid.sub(/^CN=([^,]+?),.*/, "\\1")
+              username_filter = Net::LDAP::Filter.eq("cn", cn)
+            end
+            user_filter = Net::LDAP::Filter.ne("objectclass", "computer") & Net::LDAP::Filter.ne("objectclass", "group")
             conn.search(
-              :filter => Net::LDAP::Filter.eq(@uid_attr, uid),
-              :base => $MU_CFG["ldap"]["user_ou"],
-              :attributes => [@uid_attr, "displayName", "mail"]
+              :filter => username_filter & user_filter,
+#              :filter => username_filter,
+#              :base => $MU_CFG["ldap"]["user_ou"],
+              :base => $MU_CFG["ldap"]["base_dn"],
+              :attributes => ["cn", @uid_attr, "displayName", "mail"]
             ) do |acct|
               next if users.has_key?(acct[@uid_attr].first)
               users[acct[@uid_attr].first] = {}
