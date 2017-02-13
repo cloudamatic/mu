@@ -156,7 +156,9 @@ module MU
             end
 
             getPassword
-            createSubnetGroup if source_db.nil? or @config['region'] != source_db.config['region']
+#            createSubnetGroup if source_db.nil? or @config['region'] != source_db.config['region']
+#            XXX above assumptions seem wrong; you don't always want to colocate with the source db
+            createSubnetGroup
 
             if @config.has_key?("parameter_group_family")
               @config["parameter_group_name"] = @config['identifier']
