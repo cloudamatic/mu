@@ -1718,8 +1718,8 @@ module MU
             end
             resp.route_tables.each { |route_table|
               route_table.routes.each { |route|
+                return false if !route.gateway_id.nil? # you can have an IgW and route it to a subset of IPs instead of 0.0.0.0/0
                 if route.destination_cidr_block == "0.0.0.0/0"
-                  return false if !route.gateway_id.nil?
                   return true if !route.instance_id.nil?
                   return true if route.nat_gateway_id
                 end
