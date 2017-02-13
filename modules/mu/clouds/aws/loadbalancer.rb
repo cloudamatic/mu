@@ -201,7 +201,7 @@ module MU
                 tg_descriptor = {
                   :name => tg_name,
                   :protocol => tg['proto'],
-                  :vpc_id => @config['vpc']['vpc_id'],
+                  :vpc_id => @vpc.cloud_id,
                   :port => tg['port']
                 }
                 if tg['httpcode']
