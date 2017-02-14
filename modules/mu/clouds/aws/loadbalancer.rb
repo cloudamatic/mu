@@ -484,6 +484,7 @@ module MU
           notify
         end
 
+        # Wrapper for cloud_desc method that deals with elb vs. elb2 resources.
         def cloud_desc
           if @config['classic']
             resp = MU::Cloud::AWS.elb(@config['region']).describe_load_balancers(
@@ -561,6 +562,12 @@ module MU
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
           raise MuError, "Can't touch ELBs without MU-ID" if MU.deploy_id.nil? or MU.deploy_id.empty?
 
+          # Check for tags matching the current deploy identifier on an elb or 
+          # elb2 resource.
+          # @param arn [String]: The ARN of the resource to check
+          # @param region [String]: The cloud provider region
+          # @param ignoremaster [Boolean]: Whether to ignore the MU-MASTER-IP tag
+          # @param classic [Boolean]: Whether to look for a classic ELB instead of an ALB (ELB2)
           def self.checkForTagMatch(arn, region, ignoremaster, classic = false)
             tags = []
             if classic
@@ -665,7 +672,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param classic [Boolean]: Check for Elastic Load Balancers, instead of Application Load Balancers
+        # @param opts [Hash]: Check for Elastic Load Balancers, instead of Application Load Balancers
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching LoadBalancers
         def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, opts: {})
           classic = $opts['classic'] ? true : false

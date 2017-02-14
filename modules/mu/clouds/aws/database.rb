@@ -139,14 +139,14 @@ module MU
               if source_db.nil?
                 tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
                 found = MU::MommaCat.findStray(
-                    rr['cloud'],
-                    "database",
-                    deploy_id: rr["deploy_id"],
-                    cloud_id: rr["db_id"],
-                    tag_key: tag_key,
-                    tag_value: tag_value,
-                    region: rr["region"],
-                    dummy_ok: true
+                  rr['cloud'],
+                  "database",
+                  deploy_id: rr["deploy_id"],
+                  cloud_id: rr["db_id"],
+                  tag_key: tag_key,
+                  tag_value: tag_value,
+                  region: rr["region"],
+                  dummy_ok: true
                 )
                 source_db = found.first if found.size == 1
               end
@@ -156,9 +156,11 @@ module MU
             end
 
             getPassword
-#            createSubnetGroup if source_db.nil? or @config['region'] != source_db.config['region']
-#            XXX above assumptions seem wrong; you don't always want to colocate with the source db
-            createSubnetGroup
+            if source_db.nil? or @config['region'] != source_db.config['region']
+              createSubnetGroup
+            else
+              MU.log "Note: Read Replicas automatically reside in the same subnet group as the source database, if they're both in the same region. This replica may not land in the VPC you intended.", MU::WARN
+            end
 
             if @config.has_key?("parameter_group_family")
               @config["parameter_group_name"] = @config['identifier']
@@ -323,9 +325,13 @@ module MU
           end
 
           if @config["read_replica_of"] || @config["create_read_replica"]
+            srcdb = @config['source_identifier']
+            if @config["read_replica_of"]["region"] and @config['region'] != @config["read_replica_of"]["region"]
+              srcdb = MU::Cloud::AWS::Database.getARN(@config['source_identifier'], "db", "rds", region: @config["read_replica_of"]["region"])
+            end
             read_replica_struct = {
               db_instance_identifier: @config['identifier'],
-              source_db_instance_identifier: @config['source_identifier'],
+              source_db_instance_identifier: srcdb,
               db_instance_class: @config["size"],
               auto_minor_version_upgrade: @config["auto_minor_version_upgrade"],
               publicly_accessible: @config["publicly_accessible"],
@@ -352,7 +358,8 @@ module MU
               MU.log "Creating read replica database instance #{@config['identifier']} for #{@config['source_identifier']}"
               begin
                 resp = MU::Cloud::AWS.rds(@config['region']).create_db_instance_read_replica(read_replica_struct)
-              rescue Aws::RDS::Errors::DBSubnetGroupNotAllowedFault
+              rescue Aws::RDS::Errors::DBSubnetGroupNotAllowedFault => e
+                MU.log "Being forced to use source database's subnet group: #{e.message}", MU::WARN
                 read_replica_struct.delete(:db_subnet_group_name)
                 resp = MU::Cloud::AWS.rds(@config['region']).create_db_instance_read_replica(read_replica_struct)
               end
@@ -639,6 +646,7 @@ module MU
                 subnet_ids: subnet_ids,
                 tags: allTags
             )
+            @config["subnet_group_name"] = resp.db_subnet_group.db_subnet_group_name
 
             if @dependencies.has_key?('firewall_rule')
                 @config["vpc_security_group_ids"] = []

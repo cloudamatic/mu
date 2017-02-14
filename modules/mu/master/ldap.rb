@@ -535,6 +535,10 @@ module MU
             end rescue NoMethodError
           }
         end
+
+        # Make all of the Net::BER::BerIdentifiedString leaves in a Hash into
+        # normal strings.
+        # @param tree
         def self.hashStringify(tree)
           newtree = nil
           if tree.is_a?(Hash)

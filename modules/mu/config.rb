@@ -1496,25 +1496,29 @@ module MU
       vpcs.each { |vpc|
         if !vpc["peers"].nil?
           vpc["peers"].each { |peer|
-            peer['region'] = config['region'] if peer['region'].nil?
-            peer['cloud'] = vpc['cloud'] if peer['cloud'].nil?
             peer["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("VPC")
             # If we're peering with a VPC in this deploy, set it as a dependency
-            if !peer['vpc']["vpc_name"].nil? and vpc_names.include?(peer['vpc']["vpc_name"].to_s) and peer["vpc"]['deploy_id'].nil? and peer["vpc"]['vpc_id'].nil?
+            if !peer['vpc']["vpc_name"].nil? and
+               vpc_names.include?(peer['vpc']["vpc_name"].to_s) and
+               peer["vpc"]['deploy_id'].nil? and peer["vpc"]['vpc_id'].nil?
+              peer['vpc']['region'] = config['region'] if peer['vpc']['region'].nil?
+              peer['vpc']['cloud'] = vpc['cloud'] if peer['vpc']['cloud'].nil?
               vpc["dependencies"] << {
-                  "type" => "vpc",
-                  "name" => peer['vpc']["vpc_name"]
+                "type" => "vpc",
+                "name" => peer['vpc']["vpc_name"]
               }
               # If we're using a VPC from somewhere else, make sure the flippin'
               # thing exists, and also fetch its id now so later search routines
               # don't have to work so hard.
             else
+              peer['vpc']['region'] = config['region'] if peer['vpc']['region'].nil?
+              peer['vpc']['cloud'] = vpc['cloud'] if peer['vpc']['cloud'].nil?
               if !peer['account'].nil? and peer['account'] != MU.account_number
                 if peer['vpc']["vpc_id"].nil?
                   MU.log "VPC peering connections to non-local accounts must specify the vpc_id of the peer.", MU::ERR
                   ok = false
                 end
-              elsif !processVPCReference(peer['vpc'], "vpc '#{vpc['name']}'", dflt_region: config['region'])
+              elsif !processVPCReference(peer['vpc'], "vpc '#{vpc['name']}'", dflt_region: peer["vpc"]['region'])
                 ok = false
               end
             end
@@ -3258,6 +3262,17 @@ module MU
       return vpc_ref_schema
     end
 
+    @region_primitive = {
+      "type" => "string",
+      "enum" => MU::Cloud::AWS.listRegions
+    }
+
+    @cloud_primitive = {
+      "type" => "string",
+      "default" => MU::Config.defaultCloud,
+      "enum" => MU::Cloud.supportedClouds
+    }
+
     @database_ref_primitive = {
         "type" => "object",
         "description" => "Incorporate a database object",
@@ -3300,17 +3315,6 @@ module MU
     #       }
     #     }
     #   }
-
-    @region_primitive = {
-      "type" => "string",
-      "enum" => MU::Cloud::AWS.listRegions
-    }
-
-    @cloud_primitive = {
-      "type" => "string",
-      "default" => MU::Config.defaultCloud,
-      "enum" => MU::Cloud.supportedClouds
-    }
 
     @dependencies_primitive = {
         "type" => "array",
@@ -5406,6 +5410,7 @@ module MU
                     "type" => "array",
                     "items" => {
                       "type" => "object",
+                      "description" => "Rules to route requests to different target groups based on the request path",
                       "required" => ["conditions", "order"],
                       "additionalProperties" => false,
                       "properties" => {
@@ -5413,6 +5418,7 @@ module MU
                           "type" => "array",
                           "items" => {
                             "type" => "object",
+                            "description" => "Rule condition",
                             "required" => ["field", "values"],
                             "additionalProperties" => false,
                             "properties" => {
@@ -5435,6 +5441,7 @@ module MU
                           "type" => "array",
                           "items" => {
                             "type" => "object",
+                            "description" => "Rule action",
                             "required" => ["action", "targetgroup"],
                             "additionalProperties" => false,
                             "properties" => {
