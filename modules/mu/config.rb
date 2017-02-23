@@ -1439,9 +1439,32 @@ module MU
               vpc['availability_zones'] = vpc['availability_zones'].map { |val| val['zone'] }
             end
           end
+
           cidr = NetAddr::CIDR.create(vpc['ip_block'].to_s)
-          subnet_size = (cidr.enumerate.size/(vpc['availability_zones'].size*2)) - 2
-          subnets = cidr.subnet(:IPCount => subnet_size, :NumSubnets => vpc['availability_zones'].size*2)
+          subnets_desired = vpc['availability_zones'].size*2
+          # Round the number of addresses we're splitting into down to the nearest power
+          # of two so they'll fit in the available bit space
+          raw_subnet_size = (cidr.size)/subnets_desired - 2*subnets_desired
+          avail_addrs = 2 ** (32 - cidr.bits)
+          subnet_size = ((avail_addrs/subnets_desired) >> 1)
+#          subnet_bits = 32 - (subnet_size).to_s(2).size
+          begin
+            subnets = cidr.subnet(:IPCount => subnet_size, :NumSubnets => vpc['availability_zones'].size*2)
+          rescue RuntimeError => e
+            if e.message.match(/exceeds subnets available for allocation/)
+              MU.log e.message, MU::ERR
+              MU.log "I'm attempting to create #{vpc['availability_zones'].size*2} subnets (one public and one private for each Availability Zone), of #{subnet_size} addresses each, but that's too many for a /#{cidr.bits} network. Either declare a larger network, or explicitly declare a list of subnets with few enough entries to fit.", MU::ERR, details: vpc['availability_zones']
+              ok = false
+            else
+              raise e
+            end
+          end
+          # XXX NetAddr::CIDR wants to allocate evenly-sized subnets because it's
+          # annoying, so we end up using the IP space inefficiently. Lop off the 
+          # extra subnets we end up with and don't want. It would be nice if we just
+          # did all this math ourselves and better.
+          subnets.slice!(10,subnets.size-1) if subnets.size > 10
+
           subnets = getTail("subnetblocks", value: subnets.join(","), cloudtype: "CommaDelimitedList", description: "IP Address ranges to be used for VPC subnets", prettyname: "SubnetIpBlocks", list_of: "ip_block").map { |tail| tail["ip_block"] }
           vpc['subnets'] = []
           count = 0
