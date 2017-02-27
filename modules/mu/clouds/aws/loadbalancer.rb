@@ -514,9 +514,9 @@ module MU
           deploy_struct = {
             "awsname" => @mu_name,
             "dns" => cloud_desc.dns_name,
-            "arn" => cloud_desc.load_balancer_arn,
             "targetgroups" => {}
           }
+          deploy_struct["arn"] = cloud_desc.load_balancer_arn if !@config['classic']
           @targetgroups.each { |tgname, tg|
             deploy_struct["targetgroups"][tgname] = tg.target_group_arn
           }

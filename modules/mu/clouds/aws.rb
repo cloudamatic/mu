@@ -33,11 +33,8 @@ module MU
         end
         zones = Array.new
         azs.data.availability_zones.each { |az|
-#next if az.zone_name == "us-east-1d"
-#next if az.zone_name == "us-east-2b"
           zones << az.zone_name if az.state == "available"
         }
-MU.log "AZ debug", MU::WARN, details: zones
         return zones
       end
 
