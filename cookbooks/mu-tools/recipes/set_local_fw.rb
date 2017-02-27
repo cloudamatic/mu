@@ -32,7 +32,7 @@ when "centos", "redhat"
     end
   end
 
-  if elversion == 6
+  if elversion <= 6
     firewall_rule "Allow loopback in" do
       raw "-A INPUT -i lo -j ACCEPT"
       notifies :reload, "service[iptables]"
