@@ -711,6 +711,7 @@ print_setup_env_vars(){
 chef_client()
 {
   punch_tcp_hole 7443 # sometimes this isn't ready
+  upload_chef_artifacts -n -r $MU_REPO_NAME
   status_message "chef-client $@"
 
   chef_cert_name="`echo $CHEF_PUBLIC_IP | sed 's/\./_/g'`"
@@ -1569,7 +1570,6 @@ setup_localhost_chef_client()
   fi
 
   status_message "Configuring local LDAP directory"
-  upload_chef_artifacts -n -r $MU_REPO_NAME
   punch_tcp_hole 389
   punch_tcp_hole 636
   $MU_LIBDIR/install/ldap_setup.rb
