@@ -52,24 +52,27 @@ if ARGV.empty? and !$opts[:all] and !$opts[:platform] and !$opts[:environment] a
 end
 
 Thread.abort_on_exception = true
+master_pid = Process.pid
 $children = {}
 signals = Signal.list
 signals.keys.each { |sig|
   # Ruby 2.3 doesn't want to trap these
   next if ["ILL", "FPE", "KILL", "BUS", "SEGV", "STOP", "VTALRM"].include?(sig)
   Signal.trap(signals[sig]) do
-    $children.each_pair { |pid, node|
-      if ["INT", "TERM", "EXIT", "ABRT"].include?(sig)
-        Process.kill("KILL", pid) # aka --dammit
-      else
-        begin
-          Process.kill(sig, pid)
-        rescue Errno::ESRCH
+    if Process.pid == master_pid
+      $children.each_pair { |pid, node|
+        if ["INT", "TERM", "EXIT", "ABRT"].include?(sig)
+          Process.kill("KILL", pid) # aka --dammit
+        else
+          begin
+            Process.kill(sig, pid)
+          rescue Errno::ESRCH
+          end
         end
+      }
+      if ["INT", "TERM", "EXIT"].include?(sig)
+        Process.waitall
       end
-    }
-    if ["INT", "TERM", "EXIT"].include?(sig)
-      Process.waitall
     end
   end
 }
