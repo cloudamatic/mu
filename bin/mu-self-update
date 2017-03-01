@@ -194,6 +194,7 @@ generate_docs
 /usr/sbin/groupdel mu-users > /dev/null 2>&1
 /usr/sbin/groupdel mu-admins > /dev/null 2>&1
 
+/sbin/service nagios stop
 set +e
 patch_knife_windows
 generate_ssl_certs skip_chef
@@ -235,3 +236,4 @@ if [ "$stashed_changes" == "1" ];then
   fi
 fi
 set_permissions
+/sbin/service nagios start
