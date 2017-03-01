@@ -542,7 +542,7 @@ if [ "$all" != "1" ];then
         if [ "$match" == "" -o "$match" == "$itemname" ];then
           if [ "$bagcreated" == "0" ];then
             bagcreated=1
-			      $knife data bag create $folder
+			      $knife data bag create $bag
           fi
   				$knife data bag from file $bag $file
         fi
@@ -566,7 +566,7 @@ if [ "$all" != "1" ];then
         if [ "$match" == "" -o "$match" == "$itemname" ];then
           if [ "$bagcreated" == "0" ];then
             bagcreated=1
-			      $knife data bag create $folder
+			      $knife data bag create $bag
           fi
   				$knife data bag from file $bag $file
         fi
