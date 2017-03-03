@@ -142,12 +142,7 @@ module MU
         # @param template_variables [Hash]: A list of variable substitutions to pass as globals to the ERB parser when loading the userdata script.
         # @param custom_append [String]: Arbitrary extra code to append to our default userdata behavior.
         # @return [String]
-        def self.fetchUserdata(
-            platform: "linux",
-            template_variables: {},
-            custom_append: nil,
-            scrub_mu_isms: false
-          )
+        def self.fetchUserdata(platform: "linux", template_variables: {}, custom_append: nil, scrub_mu_isms: false)
           return nil if platform.nil? or platform.empty?
           userdata_mutex.synchronize {
             script = ""
@@ -215,7 +210,7 @@ module MU
         # @param tag_value [String]: The value of the tag to attach.
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.tagVolumes(instance_id, device=nil, tag_name="MU-ID", tag_value=MU.deploy_id, region: MU.curRegion)
+        def self.tagVolumes(instance_id, device: nil, tag_name: "MU-ID", tag_value: MU.deploy_id, region: MU.curRegion)
           MU::Cloud::AWS.ec2(region).describe_volumes(filters: [name: "attachment.instance-id", values: [instance_id]]).each { |vol|
             vol.volumes.each { |volume|
               volume.attachments.each { |attachment|
@@ -342,7 +337,7 @@ module MU
         # and will include both baseline Mu policies and whatever other policies
         # are requested.
         # @param rolename [String]: The name of the role to create, generally a {MU::Cloud::AWS::Server} mu_name
-        # @return [String]: The name of the instance profile.
+        # @return [Array<String>]: The ARN of the instance.
         def self.createIAMProfile(rolename, base_profile: nil, extra_policies: nil, cloudformation_data: {})
           policies = Hash.new
 
@@ -411,13 +406,16 @@ module MU
             MU::Cloud::CloudFormation.setCloudFormationProp(cloudformation_data[cfm_prof_name], "DependsOn", cfm_role_name)
             return [rolename, cfm_role_name, cfm_prof_name]
           end
-          MU::Cloud::AWS.iam.create_instance_profile(
+
+          resp = MU::Cloud::AWS.iam.create_instance_profile(
               instance_profile_name: rolename
           )
+
           MU::Cloud::AWS.iam.add_role_to_instance_profile(
               instance_profile_name: rolename,
               role_name: rolename
           )
+
           begin
             MU::Cloud::AWS.iam.get_instance_profile(instance_profile_name: rolename)
 # XXX figure out what the real exception is and catch that
@@ -427,7 +425,7 @@ module MU
             retry
           end
 
-          return [rolename, cfm_role_name, cfm_prof_name]
+          return [rolename, cfm_role_name, cfm_prof_name, resp.instance_profile.arn]
         end
 
         # Create an Amazon EC2 instance.
@@ -444,14 +442,20 @@ module MU
             :max_count => 1
           }
 
+          arn = nil
           if @config['generate_iam_role']
-            @config['iam_role'], @cfm_role_name, @cfm_prof_name = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'])
+            # Using ARN instead of IAM instance profile name to hopefully get around some random AWS failures
+            @config['iam_role'], @cfm_role_name, @cfm_prof_name, arn = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['iam_role'], extra_policies: @config['iam_policies'])
           elsif @config['iam_role'].nil?
             raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
           end
           MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'])
           if !@config["iam_role"].nil?
-            instance_descriptor[:iam_instance_profile] = {name: @config["iam_role"]}
+            if arn
+              instance_descriptor[:iam_instance_profile] = {arn: arn}
+            else
+              instance_descriptor[:iam_instance_profile] = {name: @config["iam_role"]}
+            end
           end
 
           security_groups = []
@@ -1377,14 +1381,7 @@ module MU
         # @param copy_to_regions [Array<String>]: Copy the resulting AMI into the listed regions.
         # @param tags [Array<String>]: Extra/override tags to apply to the image.
         # @return [String]: The cloud provider identifier of the new machine image.
-        def self.createImage(name: name,
-            instance_id: instance_id,
-            storage: storage,
-            exclude_storage: exclude_storage,
-            make_public: false,
-            region: MU.curRegion,
-            copy_to_regions: [],
-            tags: [])
+        def self.createImage(name: nil, instance_id: nil, storage: {}, exclude_storage: false, make_public: false, region: MU.curRegion, copy_to_regions: [], tags: [])
           ami_descriptor = {
               :instance_id => instance_id,
               :name => name,
@@ -1607,7 +1604,7 @@ module MU
         # instead of VPC.
         # @param ip [String]: Request a specific IP address.
         # @param region [String]: The cloud provider region
-        def self.findFreeElasticIp(classic = false, ip: ip, region: MU.curRegion)
+        def self.findFreeElasticIp(classic: false, ip: nil, region: MU.curRegion)
           filters = Array.new
           if !classic
             filters << {name: "domain", values: ["vpc"]}
@@ -1669,7 +1666,7 @@ module MU
         # @param dev [String]: Device name to use when attaching to instance
         # @param size [String]: Size (in gb) of the new volume
         # @param type [String]: Cloud storage type of the volume, if applicable
-        def addVolume(dev, size, type = "gp2")
+        def addVolume(dev, size, type: "gp2")
           if @cloud_id.nil? or @cloud_id.empty?
             MU.log "#{self} didn't have a #{@cloud_id}, couldn't determine 'active?' status", MU::ERR
             return true
@@ -1759,7 +1756,7 @@ module MU
         # @param ip [String]: Request a specific IP address.
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.associateElasticIp(instance_id, classic: false, ip: ip, region: MU.curRegion)
+        def self.associateElasticIp(instance_id, classic: false, ip: nil, region: MU.curRegion)
           MU.log "associateElasticIp called: #{instance_id}, classic: #{classic}, ip: #{ip}, region: #{region}", MU::DEBUG
           elastic_ip = nil
           @eip_semaphore.synchronize {
@@ -1784,7 +1781,7 @@ module MU
                 }
               end
             end
-            elastic_ip = findFreeElasticIp(classic, ip: ip)
+            elastic_ip = findFreeElasticIp(classic: classic, ip: ip)
             if !ip.nil? and (elastic_ip.nil? or ip != elastic_ip.public_ip)
               raise MuError, "Requested EIP #{ip}, but this IP does not exist or is not available"
             end
@@ -1918,7 +1915,7 @@ module MU
         # @param id [String]: The cloud provider's identifier for the instance, to use if the full description is not available.
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.terminateInstance(instance = nil, noop: false, id: id, onlycloud: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil)
+        def self.terminateInstance(instance: nil, noop: false, id: nil, onlycloud: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil)
           ips = Array.new
           if !instance
             if id
@@ -2116,7 +2113,7 @@ module MU
         # @param id [String]: The cloud provider's identifier for the volume, to use if the full description is not available.
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.delete_volume(volume, noop, skipsnapshots, id: id, region: MU.curRegion)
+        def self.delete_volume(volume, noop, skipsnapshots, id: nil, region: MU.curRegion)
           if !volume.nil?
             resp = MU::Cloud::AWS.ec2(region).describe_volumes(volume_ids: [volume.volume_id])
             volume = resp.data.volumes.first

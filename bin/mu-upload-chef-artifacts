@@ -65,6 +65,7 @@ usage()
 	echo "		${BOLD}-n${NORM}: No purging of Chef resources, just uploads new Chef data without"
 	echo "				expunging old resources from the running server."
 	echo "		${BOLD}-s${NORM}: Shortcut mode. Update cookbooks only."
+	echo "		${BOLD}-m <name>${NORM}: Match mode. Only operate on artifacts with this name, e.g. '-s -m symantec' to upload a cookbook named symantec."
 	echo "		${BOLD}-g${NORM}: Update data bags only."
 	echo "		${BOLD}-a${NORM}: Refresh and upload the currently checked-out branch from ALL Chef repos."
 	echo "				Cannot be used with ${BOLD}-c${NORM} or ${BOLD}-r${NORM}. Saves your uncommitted changes unless ${BOLD}-d${NORM}"
@@ -113,75 +114,42 @@ add_berkshelf_cookbooks()
 	user="`whoami`"
 	user_home="`getent passwd \"$user\" |cut -d: -f6`"
 	berksdir="$user_home/.berkshelf"
-	berkstmp="$berksdir/tmp"
-	mkdir -p $berkstmp
-	cookbook_path=$berkstmp
 
-	cd $repodir && ( /usr/local/ruby-current/bin/berks install || /usr/local/ruby-current/bin/berks update )
+	cd $repodir && ( /usr/local/ruby-current/bin/berks install > /dev/null || /usr/local/ruby-current/bin/berks update )
 
-	if [ ! -d $berkstmp ];then
-		mkdir $berkstmp
-	fi
-	cp -r $berksdir/cookbooks $berkstmp
-	cd $berkstmp
+  for name in $(/usr/local/ruby-current/bin/berks list -F json | jq -r '.cookbooks | .[] | .name')
+  do 
+    if [ "$match" == "" -o "$match" == "$name" ];then
+      berkshelf_cookbooks="$berkshelf_cookbooks $name"
+    fi
+  done
 
 # XXX we need to remove older cookbook versions from $berksdir/cookbooks individually
-	for i in `find cookbooks/ -maxdepth 1 -type d | egrep '^.*-[[:digit:]][[:digit:]\.]*$'`
-	do
-		echo "mv $i \$(echo $berkstmp/$i | sed 's/-[[:digit:]][[:digit:]\.]*$//' )" | sh
-	done
-
 	if [ "$nopurge" == "" -a "$all" != "1" ];then
 		echo "${GREEN}Purging old Chef resources derived from Berkshelf${NORM}"
-		for resource in `grep ":$berkstmp$" $manifest`;do
-			type="`echo $resource | cut -d: -f1`"
-			name="`echo $resource | cut -d: -f2`"
-			set +e
-			/bin/rm -rf "$MU_CHEF_CACHE/cookbooks/$name*"
-			$knife cookbook delete $name --yes
-			set -e
-		done
+    cd $repodir
+    for name in $berkshelf_cookbooks
+    do 
+      set +e
+      $knife cookbook delete $name --yes -a
+      set -e
+    done
 	fi
 
 	echo ""
-	echo "${BOLD}Installing Berkshelf Chef cookbooks from $cookbook_path to $MU_CHEF_CACHE${NORM}"
-
-	artifact='cookbooks'
+	echo "${BOLD}Installing Berkshelf Chef cookbooks from $repodir to Chef Server${NORM}"
 
 	purge_manifest $repo_name $artifact
-	if [ -e $cookbook_path/$artifact ];then
-		# Overwrite anything from earlier in the stream with a conflicting name
-		for f in `ls $cookbook_path/$artifact/`;do
-			shortname=$f
-			if [ -e "$MU_CHEF_CACHE/$artifact/$f" -a "$artifact" != "data_bags" ];then
-				set +e
-				oldsrc="`grep "^$artifact:$shortname:" $manifest`"
-				set -e
-				if [ "`diff -r $cookbook_path/$artifact/$f $MU_CHEF_CACHE/$artifact/$f`" != "" ];then
-					if [ "$oldsrc" == "" ];then
-						echo "${YELLOW}Overriding $artifact/$shortname with ${BOLD}$repo_name/$artifact/$shortname${NORM}"
-					else
-						echo "${YELLOW}Overriding $artifact/$shortname from ${BOLD}$oldsrc${NORM} with ${BOLD}$repo_name/$artifact/$shortname${NORM}"
-					fi
-					/bin/rm -rf $MU_CHEF_CACHE/$artifact/$f
-				elif [ "$oldsrc" != "" ];then
-					echo "${YELLOW}Duplicate artifact ${BOLD}$artifact/$shortname${NORM} from ${BOLD}$oldsrc${NORM}, ignoring"
-				fi
-			else
-				echo "${GREEN}Adding ${BOLD}$repo_name/$artifact/$shortname${NORM}"
-			fi
-			update_manifest $repo $artifact $f
-			upload_cookbooks="$upload_cookbooks $shortname"
-		done
-
-		/bin/cp -rf $berkstmp/$artifact $MU_CHEF_CACHE
-		rm -rf $berkstmp
-	fi
+  if [ "$match" == "" ];then
+  	cd $repodir && /usr/local/ruby-current/bin/berks upload --no-freeze
+  elif [ "$berkshelf_cookbooks" != "" ];then
+  	cd $repodir && /usr/local/ruby-current/bin/berks upload $berkshelf_cookbooks --no-freeze
+  fi
 	cd $MU_CHEF_CACHE
 }
 
 all=0
-while getopts "fb:c:nsgdhar:b:" opt; do
+while getopts "fb:c:nsgdhar:b:m:" opt; do
 	case $opt in
 		r)
 			arg_repos="$arg_repos $OPTARG"
@@ -206,6 +174,9 @@ while getopts "fb:c:nsgdhar:b:" opt; do
 			;;
 		s)
 			cookbooks_only=1
+			;;
+		m)
+			match=$OPTARG
 			;;
 		d)
 			discard=1
@@ -310,6 +281,7 @@ fi
 
 
 upload_cookbooks=""
+berkshelf_cookbooks=""
 upload_roles=""
 upload_environments=""
 upload_data_bags=""
@@ -389,9 +361,6 @@ for repo in $REPOS;do
 		fi
 	fi
 
-	echo ""
-	echo "${BOLD}Installing Chef artifacts from $artifact_source to $MU_CHEF_CACHE${NORM}"
- 
 	if [ -d "$artifact_source/.git" ];then
 		if [ "$use_on_disk" == "" -o "$use_on_disk" == "0" ];then
 			# Stash unchecked local changes so we can put things back how we found them
@@ -439,6 +408,10 @@ for repo in $REPOS;do
 		fi
 	fi
 
+	if [ -f "$artifact_source/Berksfile" -a "$bags_only" != "1" ];then
+		add_berkshelf_cookbooks "$artifact_source"
+	fi
+
 	for artifact in $chef_artifacts;do
 		purge_manifest $repo_name $artifact
 		if [ -e $artifact_source/$artifact ];then
@@ -464,11 +437,25 @@ for repo in $REPOS;do
 						echo "${YELLOW}Duplicate artifact ${BOLD}$artifact/$shortname${NORM} from ${BOLD}$oldsrc${NORM}, ignoring"
 					fi
 				else
-					echo "${GREEN}Adding ${BOLD}$repo_name/$artifact/$shortname${NORM}"
+          if [ "$artifact" == "cookbooks" -o "$artifact" == "site_cookbooks" ];then
+            if ! [[ "$berkshelf_cookbooks" =~ "$shortname" ]];then
+              if [ "$match" == "" -o "$match" == "$shortname" ];then
+                echo "${GREEN}Adding ${BOLD}$repo_name/$artifact/$shortname${NORM}"
+              fi
+            fi
+          else
+            if [ "$match" == "" -o "$match" == "$shortname" ];then
+              echo "${GREEN}Adding ${BOLD}$repo_name/$artifact/$shortname${NORM}"
+            fi
+          fi
 				fi
 				update_manifest $repo $artifact $f
 				if [ "$artifact" == "cookbooks" -o "$artifact" == "site_cookbooks" ];then
-					upload_cookbooks="$upload_cookbooks $shortname"
+          if ! [[ "$berkshelf_cookbooks" =~ "$shortname" ]];then
+            upload_cookbooks="$upload_cookbooks $shortname"
+            test -d "$MU_CHEF_CACHE/$artifact/$shortname" || mkdir -p "$MU_CHEF_CACHE/$artifact/$shortname"
+            /bin/cp -rf $artifact_source/$artifact/$shortname $MU_CHEF_CACHE/$artifact
+          fi
 				elif [ "$artifact" == "roles" ];then
 					upload_roles="$upload_roles $shortname"
 				elif [ "$artifact" == "environments" ];then
@@ -477,13 +464,11 @@ for repo in $REPOS;do
 					upload_data_bags="$upload_data_bags $shortname"
 				fi
 			done
-			/bin/cp -rf $artifact_source/$artifact $MU_CHEF_CACHE
+      if [ "$artifact" != "cookbooks" -a "$artifact" != "site_cookbooks" ];then
+        /bin/cp -rf $artifact_source/$artifact $MU_CHEF_CACHE
+      fi
 		fi
 	done
-
-	if [ -f "$artifact_source/Berksfile" -a "$bags_only" != "1" ];then
-		add_berkshelf_cookbooks "$artifact_source"
-	fi
 
 	set +x
 	
@@ -515,9 +500,8 @@ if [ -d "$MU_DATADIR/users" -a "$USER" == "root" ];then
 	set +e
 
 	cd $MU_CHEF_CACHE
-	$knife data bag create nagios_users
+  bag_created=0
 	for admin in mu;do
-#	for admin in `ls $MU_DATADIR/users/`;do
 		if [ ! -f "$bagdir/$admin.json" -a -f "$MU_DATADIR/users/$admin/htpasswd" ];then
 			id="`echo $admin | sed -e 's/@/_/'`"
 			crypt="`cat $MU_DATADIR/users/$admin/htpasswd | cut -d: -f2`"
@@ -526,15 +510,21 @@ if [ -d "$MU_DATADIR/users" -a "$USER" == "root" ];then
 			else
 				email="`cat $MU_DATADIR/users/$admin/email`"
 			fi
-			if [ "$email" != "none" ];then
-				echo "${GREEN}Adding $id to nagios_users data bag (email $email)${NORM}"
-				echo "{ \"id\": \"$id\", \"groups\": \"sysadmin\", \"htpasswd\": \"$crypt\", \"openid\": \"http://nagiosadmin.myopenid.com/\", \"nagios\": { \"pager\": \"$email\", \"email\": \"$email\" } }" > "$bagdir/$admin.json"
-			else
-				echo "${GREEN}Adding $id to nagios_users data bag (No email)${NORM}"
-				echo "{ \"id\": \"$id\", \"groups\": \"sysadmin\", \"htpasswd\": \"$crypt\", \"openid\": \"http://nagiosadmin.myopenid.com/\", \"nagios\": { \"pager\": \"devnull@localhost\", \"email\": \"devnull@localhost\" } }" > "$bagdir/$admin.json"
-			fi
+      if [ "$match" == "" -o "$match" == "$id" ];then
+  			if [ "$email" != "none" ];then
+		  		echo "${GREEN}Adding $id to nagios_users data bag (email $email)${NORM}"
+	  			echo "{ \"id\": \"$id\", \"groups\": \"sysadmin\", \"htpasswd\": \"$crypt\", \"openid\": \"http://nagiosadmin.myopenid.com/\", \"nagios\": { \"pager\": \"$email\", \"email\": \"$email\" } }" > "$bagdir/$admin.json"
+  			else
+		  		echo "${GREEN}Adding $id to nagios_users data bag (No email)${NORM}"
+	  			echo "{ \"id\": \"$id\", \"groups\": \"sysadmin\", \"htpasswd\": \"$crypt\", \"openid\": \"http://nagiosadmin.myopenid.com/\", \"nagios\": { \"pager\": \"devnull@localhost\", \"email\": \"devnull@localhost\" } }" > "$bagdir/$admin.json"
+  			fi
+      fi
 		fi
 		if [ -f "$bagdir/$admin.json" ];then
+      if [ "$bagcreated" == "0" ];then
+        bagcreated=1
+  	    $knife data bag create nagios_users
+      fi
 			$knife data bag from file nagios_users $bagdir/$admin.json
 		fi
 	done
@@ -544,27 +534,42 @@ fi
 cd $HOMEDIR
 echo "${YELLOW}Working from $STARTDIR ${NORM}"
 if [ "$all" != "1" ];then
-	if [ "$cookbooks_only" == "1" ];then
-		$knife cookbook upload $upload_cookbooks --cookbook-path $MU_CHEF_CACHE/cookbooks:$MU_CHEF_CACHE/site_cookbooks || fail_with_message "Cookbook upload failed"
-	elif [ "$bags_only" == "1" ];then
+	if [ "$bags_only" == "1" ];then
 		for bag in $upload_data_bags;do
-			$knife data bag create $bag
+      bagcreated=0
 			for file in `ls -1 $MU_CHEF_CACHE/data_bags/$bag/*.json`;do
-				$knife data bag from file $bag $file
+        itemname="`echo $file | sed -r 's/.*\/([^\\]+).json$/\1/'`"
+        if [ "$match" == "" -o "$match" == "$itemname" ];then
+          if [ "$bagcreated" == "0" ];then
+            bagcreated=1
+			      $knife data bag create $folder
+          fi
+  				$knife data bag from file $bag $file
+        fi
 			done
 		done
 	else
-		$knife cookbook upload $upload_cookbooks --cookbook-path $MU_CHEF_CACHE/cookbooks:$MU_CHEF_CACHE/site_cookbooks --include-dependencies || fail_with_message "Cookbook upload failed"
 		for role in $upload_roles;do
-			$knife role from file $MU_CHEF_CACHE/roles/$role.json
+      if [ "$match" == "" -o "$match" == "$role" ];then
+  			$knife role from file $MU_CHEF_CACHE/roles/$role.json
+      fi
 		done
 		for env in $upload_environments;do
-			$knife environment from file $MU_CHEF_CACHE/environments/$env.json
+      if [ "$match" == "" -o "$match" == "$env" ];then
+  			$knife environment from file $MU_CHEF_CACHE/environments/$env.json
+      fi
 		done
 		for bag in $upload_data_bags;do
-			$knife data bag create $bag
+      bagcreated=0
 			for file in `ls -1 $MU_CHEF_CACHE/data_bags/$bag/*.json`;do
-				$knife data bag from file $bag $file
+        itemname="`echo $file | sed -r 's/.*\/([^\\]+).json$/\1/'`"
+        if [ "$match" == "" -o "$match" == "$itemname" ];then
+          if [ "$bagcreated" == "0" ];then
+            bagcreated=1
+			      $knife data bag create $folder
+          fi
+  				$knife data bag from file $bag $file
+        fi
 			done
 		done
 	fi
@@ -572,46 +577,62 @@ else
 	databagdir="$MU_CHEF_CACHE/data_bags/"
 
 	if [ "$cookbooks_only" == "1" ];then
-		echo "Uploading selected cookbooks..."
-		cd $MU_CHEF_CACHE
-		cookbooks="`$knife deps /cookbooks/* /site_cookbooks/* 2>/dev/null | sed -re 's/^\/\w+\/|-[[:digit:]][[:digit:]\.]*$//g' | sed -re 's/^[^\.]+\///'`"
-		$knife cookbook upload $cookbooks --cookbook-path $MU_CHEF_CACHE/cookbooks:$MU_CHEF_CACHE/site_cookbooks || fail_with_message "Cookbook upload failed"
-#		$knife cookbook upload --all --cookbook-path $MU_CHEF_CACHE/cookbooks:$MU_CHEF_CACHE/site_cookbooks > /dev/null || $knife cookbook upload --all --cookbook-path $MU_CHEF_CACHE/cookbooks:$MU_CHEF_CACHE/site_cookbooks -c /etc/opscode/pivotal.rb || fail_with_message "Cookbook upload failed"
+		exit
 	elif [ "$bags_only" == "1" ];then
+    if [ "$match" != "" ];then
+      echo "Uploading data bag items named '$match'"
+    fi
 		for Dir in $(find $databagdir* -mindepth 0 -maxdepth 1 -type d );do
 			folder=$(basename $Dir);
-			$knife data bag create $folder
+			bagcreated=0
 			files="$databagdir$folder/*.json"
 			for file in $files;do
-				$knife data bag from file $folder $file
+        itemname="`echo $file | sed -r 's/.*\/([^\\]+).json$/\1/'`"
+        if [ "$match" == "" -o "$match" == "$itemname" ];then
+          if [ "$bagcreated" == "0" ];then
+            bagcreated=1
+			      $knife data bag create $folder
+          fi
+				  $knife data bag from file $folder $file
+        fi
 			done
 		done
 	else
-		echo "Uploading all cookbooks..."
 		cd $MU_CHEF_CACHE
-		cookbooks="`$knife deps /cookbooks/* /site_cookbooks/* 2>/dev/null | sed -re 's/^\/\w+\/|-[[:digit:]][[:digit:]\.]*$//g' | sed -re 's/^[^\.]+\///'`"
-		$knife cookbook upload $cookbooks --cookbook-path $MU_CHEF_CACHE/cookbooks:$MU_CHEF_CACHE/site_cookbooks --all || fail_with_message "Cookbook upload failed"
+    if [ "$match" != "" ];then
+      echo "Uploading any non-cookbook items named '$match'"
+    fi
 	
-		echo "Uploading all roles..."
 		_files="$MU_CHEF_CACHE/roles/*.json"
-		for f in $_files;do
-			$knife role from file $f
+		for file in $_files;do
+      role="`echo $file | sed -r 's/.*\/([^\\]+).json$/\1/'`"
+      if [ "$match" == "" -o "$match" == "$role" ];then
+  			$knife role from file $file
+      fi
 		done
 		
-		echo "Uploading all environments..."
 		_files="$MU_CHEF_CACHE/environments/*.json"
-		for f in $_files;do
-			$knife environment from file $f
+		for file in $_files;do
+      env="`echo $file | sed -r 's/.*\/([^\\]+).json$/\1/'`"
+      if [ "$match" == "" -o "$match" == "$env" ];then
+  			$knife environment from file $file
+      fi
 		done
 		
-		echo "Uploading all data bags..."
 		for Dir in $(find $databagdir* -mindepth 0 -maxdepth 1 -type d );do
 			folder=$(basename $Dir);
-			$knife data bag create $folder
+      bagcreated=0
 			set +e
 			files="$databagdir$folder/*.json"
 			for file in $files;do
-				$knife data bag from file $folder $file
+        itemname="`echo $file | sed -r 's/.*\/([^\\]+).json$/\1/'`"
+        if [ "$match" == "" -o "$match" == "$itemname" ];then
+          if [ "$bagcreated" == "0" ];then
+            bagcreated=1
+			      $knife data bag create $folder
+          fi
+  				$knife data bag from file $folder $file
+        fi
 			done
 			set -e
 		done

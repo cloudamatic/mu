@@ -19,13 +19,13 @@
 #
 
 if node['splunk']['disabled']
-  include_recipe 'chef-splunk::disabled'
+  include_recipe 'mu-splunk::disabled'
   Chef::Log.debug('Splunk is disabled on this node.')
   return
 end
 
 if node['splunk']['is_server']
-  include_recipe 'chef-splunk::server'
+  include_recipe 'mu-splunk::server'
 else
-  include_recipe 'chef-splunk::client'
+  include_recipe 'mu-splunk::client'
 end

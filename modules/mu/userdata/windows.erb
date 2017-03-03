@@ -106,7 +106,7 @@
 
       If (!(Test-Path $env:Temp/cygwin.zip)){
         log "Downloading Cygwin packages"
-        $WebClient.DownloadFile("https://s3.amazonaws.com/cap-public/cygwin_20161020.zip","$env:Temp/cygwin.zip")
+        $WebClient.DownloadFile("https://s3.amazonaws.com/mu-stuff/cygwin_20161022.zip","$env:Temp/cygwin.zip")
       }
 
       Add-Type -A 'System.IO.Compression.FileSystem'

@@ -53,9 +53,11 @@ end
 
 Thread.abort_on_exception = true
 $children = {}
-["HUP", "INT", "QUIT", "TRAP", "ABRT", "IOT", "KILL", "SYS", "PIPE", "ALRM", "TERM", "URG", "STOP", "TSTP", "CONT", "CHLD", "CLD", "TTIN", "TTOU", "IO", "XCPU", "XFSZ", "PROF", "WINCH", "USR1", "USR2", "PWR", "POLL"].each { |sig|
-
-  Signal.trap(sig) do
+signals = Signal.list
+signals.keys.each { |sig|
+  # Ruby 2.3 doesn't want to trap these
+  next if ["ILL", "FPE", "KILL", "BUS", "SEGV", "STOP", "VTALRM"].include?(sig)
+  Signal.trap(signals[sig]) do
     $children.each_pair { |pid, node|
       if ["INT", "TERM", "EXIT", "ABRT"].include?(sig)
         Process.kill("KILL", pid) # aka --dammit

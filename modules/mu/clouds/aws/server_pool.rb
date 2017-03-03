@@ -175,15 +175,24 @@ module MU
               end
             }
 
+            rolename = nil
             if launch_desc['generate_iam_role']
-              launch_options[:iam_instance_profile], tmp, tmp2 = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'])
+              # Using ARN instead of IAM instance profile name to hopefully get around some random AWS failures
+              rolename, cfm_role_name, cfm_prof_name, arn = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'])
+              launch_options[:iam_instance_profile] = arn
             elsif launch_desc['iam_role'].nil?
               raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
             else
               launch_options[:iam_instance_profile] = launch_desc['iam_role']
             end
-            @config['iam_role'] = launch_options[:iam_instance_profile]
-            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'])
+
+            @config['iam_role'] = rolename ? rolename : launch_options[:iam_instance_profile]
+
+            if rolename
+              MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(rolename)
+            else
+              MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'])
+            end
 
             instance_secret = Password.random(50)
             @deploy.saveNodeSecret("default", instance_secret, "instance_secret")

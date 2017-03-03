@@ -19,7 +19,7 @@
 #
 
 unless node['splunk']['upgrade_enabled']
-  Chef::Log.fatal('The chef-splunk::upgrade recipe was added to the node,')
+  Chef::Log.fatal('The mu-splunk::upgrade recipe was added to the node,')
   Chef::Log.fatal('but the attribute `node["splunk"]["upgrade_enabled"]` was not set.')
   Chef::Log.fatal('I am bailing here so this node does not upgrade.')
   raise

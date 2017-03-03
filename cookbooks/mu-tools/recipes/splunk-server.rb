@@ -40,7 +40,7 @@ if !node.splunk.splunkdb.dev.nil?
   end
 end
 
-include_recipe "chef-splunk::server"
+include_recipe "mu-splunk::server"
 
 if node.splunk.splunkdb.path != "/opt/splunk/var/lib/splunk"
   execute "set SPLUNK_DB path in splunk-launch.conf to #{node.splunk.splunkdb.path}" do
