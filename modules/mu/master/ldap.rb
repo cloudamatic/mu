@@ -122,6 +122,13 @@ module MU
         @ldap_conn
       end
 
+      # If there is an active LDAP connection loaded, close it. Well, nil it
+      # out. There's no close method, that's theoretically handled in garbage
+      # collection.
+      def self.dropLDAPConnection
+        @ldap_conn = nil
+      end
+
       # Find a user ID not currently in use from the local system's perspective
       # XXX this is vulnerable to a race condition, and may not account for
       # things in the directory
@@ -850,13 +857,13 @@ module MU
               retry
             end
             %x{/sbin/restorecon -r /home} # SELinux stupidity that oddjob misses
-            MU::Master.setLocalDataPerms(user)
+            MU::Master.setLocalDataPerms(user) if Etc.getpwuid(Process.uid).name == "root"
           else
             MU.log "We are in read-only LDAP mode. You must first create #{user} in your directory and add it to #{$MU_CFG["ldap"]["user_group_dn"]}. If the user is intended to be an admin, also add it to #{$MU_CFG["ldap"]["admin_group_dn"]}.", MU::WARN
             return true
           end
         else
-          gid = MU::Master.setLocalDataPerms(user)
+          gid = MU::Master.setLocalDataPerms(user) if Etc.getpwuid(Process.uid).name == "root"
           # Modifying an existing user
           if canWriteLDAP?
             conn = getLDAPConnection
@@ -908,7 +915,7 @@ module MU
         else
           MU.log "Load of current user list didn't include #{user}, even though we just created them!", MU::WARN
         end
-        MU::Master.setLocalDataPerms(user)
+        MU::Master.setLocalDataPerms(user) if Etc.getpwuid(Process.uid).name == "root"
         ok
       end
 
