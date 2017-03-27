@@ -408,13 +408,26 @@ for repo in $REPOS;do
     fi
   fi
 
+  create_berksfile=0
   if [ -f "$artifact_source/Berksfile" -a "$bags_only" != "1" ];then
     add_berkshelf_cookbooks "$artifact_source"
+  else
+    echo '
+if !ENV.include? "MU_DATADIR"
+  if !ENV.include? "MU_INSTALLDIR"
+    raise "Cannot find MU_DATADIR or MU_INSTALLDIR in my environment!"
+  end
+  ENV[%q{MU_DATADIR}] = "#{ENV[%q{MU_INSTALLDIR}]}/var"
+end
+instance_eval(File.read(File.expand_path("#{ENV[%q{MU_INSTALLDIR}]}/lib/Berksfile", __FILE__)))
+source "https://supermarket.getchef.com"' > "$artifact_source/Berksfile"
+
+    create_berksfile=1
   fi
 
   for artifact in $chef_artifacts;do
     purge_manifest $repo_name $artifact
-    if [ -e $artifact_source/$artifact ];then
+    if [ -e "$artifact_source/$artifact" ];then
       # Overwrite anything from earlier in the stream with a conflicting name
       for f in `ls $artifact_source/$artifact/`;do
         if [ "$artifact" == "environments" -o "$artifact" == "roles" ];then
@@ -426,6 +439,11 @@ for repo in $REPOS;do
           set +e
           oldsrc="`grep "^$artifact:$shortname:" $manifest`"
           set -e
+          if [ "$artifact" == "cookbooks" -o "$artifact" == "site_cookbooks" ];then
+            if [ $create_berksfile == "1" ];then
+              echo "cookbook '$shortname', path: '$artifact_source/$artifact/$shortname'" >> "$artifact_source/Berksfile"
+            fi
+          fi
           if [ "`diff -r $artifact_source/$artifact/$f $MU_CHEF_CACHE/$artifact/$f`" != "" ];then
             if [ "$oldsrc" == "" ];then
               echo "${YELLOW}Overriding $artifact/$shortname with ${BOLD}$repo_name/$artifact/$shortname${NORM}"
@@ -438,6 +456,9 @@ for repo in $REPOS;do
           fi
         else
           if [ "$artifact" == "cookbooks" -o "$artifact" == "site_cookbooks" ];then
+            if [ $create_berksfile == "1" ];then
+              echo "cookbook '$shortname', path: '$artifact_source/$artifact/$shortname'" >> "$artifact_source/Berksfile"
+            fi
             if ! [[ "$berkshelf_cookbooks" =~ "$shortname" ]];then
               if [ "$match" == "" -o "$match" == "$shortname" ];then
                 echo "${GREEN}Adding ${BOLD}$repo_name/$artifact/$shortname${NORM}"
@@ -469,6 +490,11 @@ for repo in $REPOS;do
       fi
     fi
   done
+
+  # If we just made up a Berksfile, use it to upload things
+  if [ $create_berksfile == "1" ];then
+    add_berkshelf_cookbooks "$artifact_source"
+  fi
 
   set +x
   
