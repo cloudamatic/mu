@@ -27,6 +27,7 @@ when "centos", "redhat"
       action :nothing
     end
   else
+    package "firewall-config"
     execute "firewall-cmd --reload" do
       action :nothing
     end
