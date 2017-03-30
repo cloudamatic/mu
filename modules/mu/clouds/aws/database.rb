@@ -421,19 +421,21 @@ module MU
 
           # When creating from a snapshot, some of the create arguments aren't
           # applicable- but we can apply them after the fact with a modify.
-          if %w{existing_snapshot new_snapshot point_in_time}.include?(@config["creation_style"])
+          if %w{existing_snapshot new_snapshot point_in_time}.include?(@config["creation_style"]) or @config["read_replica_of"]
             mod_config = Hash.new
+            if !@config["read_replica_of"]
+              mod_config[:preferred_backup_window] = @config["preferred_backup_window"]
+              mod_config[:backup_retention_period] = @config["backup_retention_period"]
+              mod_config[:engine_version] = @config["engine_version"]
+              mod_config[:allow_major_version_upgrade] = @config["allow_major_version_upgrade"] if @config['allow_major_version_upgrade']
+              mod_config[:db_parameter_group_name] = @config["parameter_group_name"] if @config["parameter_group_name"]
+              mod_config[:master_user_password] = @config['password']
+              mod_config[:allocated_storage] = @config["storage"] if @config["storage"]
+            end
             mod_config[:db_instance_identifier] = database.db_instance_identifier
-            mod_config[:preferred_backup_window] = @config["preferred_backup_window"]
-            mod_config[:backup_retention_period] = @config["backup_retention_period"]
             mod_config[:preferred_maintenance_window] = @config["preferred_maintenance_window"] if @config["preferred_maintenance_window"]
-            mod_config[:engine_version] = @config["engine_version"]
-            mod_config[:allow_major_version_upgrade] = @config["allow_major_version_upgrade"] if @config['allow_major_version_upgrade']
-            mod_config[:apply_immediately] = true
-            mod_config[:db_parameter_group_name] = @config["parameter_group_name"] if @config["parameter_group_name"]
-            mod_config[:master_user_password] = @config['password']
-            mod_config[:allocated_storage] = @config["storage"] if @config["storage"]
             mod_config[:vpc_security_group_ids] = @config["vpc_security_group_ids"]
+            mod_config[:apply_immediately] = true
 
             MU::Cloud::AWS.rds(@config['region']).modify_db_instance(mod_config)
             wait_start_time = Time.now
