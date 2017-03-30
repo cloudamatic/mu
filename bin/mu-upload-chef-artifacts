@@ -115,6 +115,7 @@ add_berkshelf_cookbooks()
   user_home="`getent passwd \"$user\" |cut -d: -f6`"
   berksdir="$user_home/.berkshelf"
 
+
   cd $repodir && ( /usr/local/ruby-current/bin/berks install > /dev/null || /usr/local/ruby-current/bin/berks update )
 
   for name in $(/usr/local/ruby-current/bin/berks list -F json | jq -r '.cookbooks | .[] | .name')
@@ -140,6 +141,7 @@ add_berkshelf_cookbooks()
   echo "${BOLD}Installing Berkshelf Chef cookbooks from $repodir to Chef Server${NORM}"
 
   purge_manifest $repo_name $artifact
+
   if [ "$match" == "" ];then
     cd $repodir && /usr/local/ruby-current/bin/berks upload --no-freeze
   elif [ "$berkshelf_cookbooks" != "" ];then
@@ -285,11 +287,11 @@ berkshelf_cookbooks=""
 upload_roles=""
 upload_environments=""
 upload_data_bags=""
+tmp_dirs_to_remove=""
 mu_repo_name="`echo $MU_REPO | sed 's/^.*\///' | cut -d. -f1`"
 
 for repo in $REPOS;do
   repo_name="`echo $repo | cut -d: -f1`"
-
   if [ "$nopurge" == "" -a "$all" != "1" ];then
     echo "${GREEN}Purging old Chef resources derived from $repo_name${NORM}"
     for resource in `grep ":$repo_name$" $manifest`;do
@@ -339,6 +341,10 @@ for repo in $REPOS;do
       artifact_source="$MU_DATADIR/$repo_name"
     fi
   fi
+
+  if [ "$USER" != "root" -a "$repo" == "$mu_repo_name" ];then
+    export MU_COOKBOOK_ROOT="$artifact_source"
+  fi
   branch=""
 
   if echo $repo | grep ':';then
@@ -346,7 +352,6 @@ for repo in $REPOS;do
   elif [ "$force_branch" != "" ];then
     branch=$force_branch
   fi
-
 
   cd $artifact_source || ( echo "Couldn't cd to $artifact_source!" ; exit 1 )
   if [ -d "$artifact_source/.git" ];then
@@ -413,14 +418,9 @@ for repo in $REPOS;do
     add_berkshelf_cookbooks "$artifact_source"
   else
     echo '
-if !ENV.include? "MU_DATADIR"
-  if !ENV.include? "MU_INSTALLDIR"
-    raise "Cannot find MU_DATADIR or MU_INSTALLDIR in my environment!"
-  end
-  ENV[%q{MU_DATADIR}] = "#{ENV[%q{MU_INSTALLDIR}]}/var"
-end
 instance_eval(File.read(File.expand_path("#{ENV[%q{MU_INSTALLDIR}]}/lib/Berksfile", __FILE__)))
-source "https://supermarket.getchef.com"' > "$artifact_source/Berksfile"
+source "https://supermarket.getchef.com"
+' > "$artifact_source/Berksfile"
 
     create_berksfile=1
   fi
@@ -512,10 +512,14 @@ source "https://supermarket.getchef.com"' > "$artifact_source/Berksfile"
   fi
     
   if [ "$using_tmp_chef_pile" == "1" ];then
-    /bin/rm -rf "$artifact_source"
+    tmp_dirs_to_remove="\"$artifact_source\" $tmp_dirs_to_remove"
   fi
 
 done
+
+if [ "$tmp_dirs_to_remove" != "" ];then
+    /bin/rm -rf $tmp_dirs_to_remove
+fi
 
 # Add some ad-hoc data bag contents for nagios_users. These are Mu logins
 # and contacts based on the Mu admins stored in $MU_DATADIR/users.

@@ -1,11 +1,15 @@
-if !ENV.include?('MU_LIBDIR')
-	if !ENV.include?('MU_INSTALLDIR')
-		raise "Can't find MU_LIBDIR or MU_INSTALLDIR in my environment!"
-	end
-	ENV['MU_LIBDIR'] = ENV['MU_INSTALLDIR']+"/lib"
+
+if !ENV.include?('MU_COOKBOOK_ROOT')
+  if !ENV.include?('MU_LIBDIR')
+	  if !ENV.include?('MU_INSTALLDIR')
+  		raise "Can't find MU_LIBDIR or MU_INSTALLDIR in my environment!"
+	  end
+  	ENV['MU_LIBDIR'] = ENV['MU_INSTALLDIR']+"/lib"
+  end
+  ENV['MU_COOKBOOK_ROOT'] = ENV['MU_LIBDIR']
 end
-cookbookPath = "#{ENV['MU_LIBDIR']}/cookbooks"
-siteCookbookPath = "#{ENV['MU_LIBDIR']}/site_cookbooks"
+cookbookPath = "#{ENV['MU_COOKBOOK_ROOT']}/cookbooks"
+siteCookbookPath = "#{ENV['MU_COOKBOOK_ROOT']}/site_cookbooks"
 
 source "https://supermarket.chef.io"
 
@@ -13,7 +17,6 @@ cookbook 'apache2', '~> 3.2.2'
 cookbook 'aws', '~> 2.9.3'
 cookbook 'build-essential', '~> 2.0'
 cookbook 'mu-splunk', path: "#{cookbookPath}/mu-splunk"
-cookbook 'demo', path: "#{siteCookbookPath}/demo"
 cookbook 'freebsd', '~> 0.1.9'
 cookbook 'gunicorn', '~> 1.1.2'
 cookbook 'logrotate', '~> 1.9.2'
