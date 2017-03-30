@@ -26,7 +26,7 @@ default['apache']['mod_ssl']['directives']['SSLProtocol'] = "all -SSLv2 -SSLv3"
 default['apache']['contact'] = $MU_CFG['mu_admin_email']
 default['apache']['traceenable'] = 'Off'
 
-override["apache"]["listen"] = ["*:80", "*:443", "*:8443"]
+default["apache"]["listen"] = ["*:80", "*:443", "*:8443"]
 
 override["nagios"]["http_port"] = 8443
 default['nagios']['enable_ssl'] = true

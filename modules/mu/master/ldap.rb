@@ -25,11 +25,11 @@ module MU
       require 'date'
 
       # Make sure the LDAP section of $MU_CFG makes sense.
-      def self.validateConfig
+      def self.validateConfig(skipvaults: false)
         ok = true
         supported = ["Active Directory", "389 Directory Services"]
         if !$MU_CFG
-          raise "Configuration not loaded yet, but MU::Master::LDAP.validateConfig was called!"
+          raise MuLDAPError, "Configuration not loaded yet, but MU::Master::LDAP.validateConfig was called!"
         end
         if !$MU_CFG.has_key?("ldap")
           raise MuLDAPError "Missing 'ldap' section of config (files: #{$MU_CFG['config_files']})"
@@ -58,13 +58,15 @@ module MU
             ok = false
             next
           end
-          loaded = MU::Groomer::Chef.getSecret(vault: ldap[creds]["vault"], item: ldap[creds]["item"])
-          if !loaded or !loaded.has_key?(ldap[creds]["username_field"]) or
-              loaded[ldap[creds]["username_field"]].empty? or
-              !loaded.has_key?(ldap[creds]["password_field"]) or
-              loaded[ldap[creds]["password_field"]].empty?
-            MU.log "LDAP config subsection '#{creds}' refers to a bogus vault or incorrect/missing item fields", MU::ERR, details: ldap[creds]
-            ok = false
+          if !skipvaults
+            loaded = MU::Groomer::Chef.getSecret(vault: ldap[creds]["vault"], item: ldap[creds]["item"])
+            if !loaded or !loaded.has_key?(ldap[creds]["username_field"]) or
+                loaded[ldap[creds]["username_field"]].empty? or
+                !loaded.has_key?(ldap[creds]["password_field"]) or
+                loaded[ldap[creds]["password_field"]].empty?
+              MU.log "LDAP config subsection '#{creds}' refers to a bogus vault or incorrect/missing item fields", MU::ERR, details: ldap[creds]
+              ok = false
+            end
           end
         }
         if !ok
@@ -82,10 +84,12 @@ module MU
       @gid_range_start = 10000
       # Create and return a connection to our directory service. If we've
       # already opened one, return that.
+      # @param username [String]: Optional alternative bind user, usually just used to see if someone knows their password
+      # @param password [String]: Optional alternative bind password
       # @return [Net::LDAP]
-      def self.getLDAPConnection
+      def self.getLDAPConnection(username: nil, password: nil)
         return @ldap_conn if @ldap_conn
-        validateConfig
+        validateConfig(skipvaults: (username and password))
         if $MU_CFG["ldap"]["type"] == "Active Directory"
           @gid_attr = "sAMAccountName"
           @member_attr = "member"
@@ -93,7 +97,14 @@ module MU
           @group_class = "group"
           @user_class = "user"
         end
-        bind_creds = MU::Groomer::Chef.getSecret(vault: $MU_CFG["ldap"]["bind_creds"]["vault"], item: $MU_CFG["ldap"]["bind_creds"]["item"])
+        if (username and !password) or (password and !username)
+          raise MuLDAPError, "When supply credentials to getLDAPConnection, both username and password must be specified"
+        end
+        if !username and !password
+          bind_creds = MU::Groomer::Chef.getSecret(vault: $MU_CFG["ldap"]["bind_creds"]["vault"], item: $MU_CFG["ldap"]["bind_creds"]["item"])
+          username = bind_creds[$MU_CFG["ldap"]["bind_creds"]["username_field"]]
+          password = bind_creds[$MU_CFG["ldap"]["bind_creds"]["password_field"]]
+        end
         @ldap_conn = Net::LDAP.new(
           :host => $MU_CFG["ldap"]["dcs"].first,
           :encryption => {
@@ -104,11 +115,18 @@ module MU
           :base => $MU_CFG["ldap"]["base_dn"],
           :auth => {
             :method => :simple,
-            :username => bind_creds[$MU_CFG["ldap"]["bind_creds"]["username_field"]],
-            :password => bind_creds[$MU_CFG["ldap"]["bind_creds"]["password_field"]]
+            :username => username,
+            :password => password
           }
         )
         @ldap_conn
+      end
+
+      # If there is an active LDAP connection loaded, close it. Well, nil it
+      # out. There's no close method, that's theoretically handled in garbage
+      # collection.
+      def self.dropLDAPConnection
+        @ldap_conn = nil
       end
 
       # Find a user ID not currently in use from the local system's perspective
@@ -119,7 +137,7 @@ module MU
         used_uids = []
         Etc.passwd{ |u|
           if !user.nil? and u.name == user and mu_acct
-            raise "Username #{user} already exists as a system user, cannot allocate in directory"
+            raise MuLDAPError, "Username #{user} already exists as a system user, cannot allocate in directory"
           end
           used_uids << u.uid
         }
@@ -141,7 +159,7 @@ module MU
         used_gids = []
         Etc.group{ |g|
           if !group.nil? and g.name == group
-            raise "Group #{group} already exists as a local system group, cannot allocate in directory"
+            raise MuLDAPError, "Group #{group} already exists as a local system group, cannot allocate in directory"
           end
           used_gids << g.gid
         }
@@ -270,7 +288,7 @@ module MU
                 :dn => data[$MU_CFG["ldap"][creds]["username_field"]],
                 :attributes => attr
               ) and @ldap_conn.get_operation_result.code != 68
-            raise MU::MuError, "Failed to create user #{user_dn} (#{getLDAPErr})"
+            raise MuLDAPError, "Failed to create user #{user_dn} (#{getLDAPErr})"
           elsif @ldap_conn.get_operation_result.code != 68
             MU.log "Created #{username} (#{user_dn})", MU::NOTICE
           end
@@ -396,7 +414,7 @@ module MU
       # @return [Array<String>]
       def self.findGroups(search = [], exact: false, searchbase: $MU_CFG['ldap']['base_dn'])
         if search.nil? or search.size == 0
-          raise MuError, "Need something to search for in MU::Master::LDAP.findGroups"
+          raise MuLDAPError, "Need something to search for in MU::Master::LDAP.findGroups"
         end
         conn = getLDAPConnection
         filter = nil
@@ -562,6 +580,31 @@ module MU
         scrubbed_users
       end
 
+      # Authenticate a user against our directory, optionally requiring them
+      # to be a member of a particular group in order to return true.
+      # @param username [String]: The bare username of the user to authorize
+      # @param password [String]: The user's password
+      # @return [Boolean]
+      def self.authorize(username, password, require_group: nil)
+        begin
+          # see if this user/pw combo works
+          conn = getLDAPConnection(username: username, password: password)
+        rescue Net::LDAP::LdapError
+          return false
+        end
+        return false if !conn.bind
+        
+        return true if !require_group
+
+        shortuser = username.sub(/\@.*/, "")
+        user = findUsers(search = [shortuser], exact: true)
+        user[shortuser]["memberOf"].each { |group|
+          shortname = group.sub(/^CN=(.*?),.*/, '\1')
+          return true if shortname == require_group
+        }
+        return false
+      end
+
       # @return [Array<String>]
       def self.listUsers
         conn = getLDAPConnection
@@ -675,7 +718,7 @@ module MU
       def self.manageGroup(group, add_users: [], remove_users: [])
         group_dn = findGroups([group], exact: true).first
         if !group_dn or group_dn.empty?
-          raise MuError, "Failed to find a Distinguished Name for group #{group}"
+          raise MuLDAPError, "Failed to find a Distinguished Name for group #{group}"
         end
         if (add_users & remove_users).size > 0
           raise MuError, "Can't both add and remove the same user (#{(add_users & remove_users).join(", ")}) from a group"
@@ -814,13 +857,13 @@ module MU
               retry
             end
             %x{/sbin/restorecon -r /home} # SELinux stupidity that oddjob misses
-            MU::Master.setLocalDataPerms(user)
+            MU::Master.setLocalDataPerms(user) if Etc.getpwuid(Process.uid).name == "root"
           else
             MU.log "We are in read-only LDAP mode. You must first create #{user} in your directory and add it to #{$MU_CFG["ldap"]["user_group_dn"]}. If the user is intended to be an admin, also add it to #{$MU_CFG["ldap"]["admin_group_dn"]}.", MU::WARN
             return true
           end
         else
-          gid = MU::Master.setLocalDataPerms(user)
+          gid = MU::Master.setLocalDataPerms(user) if Etc.getpwuid(Process.uid).name == "root"
           # Modifying an existing user
           if canWriteLDAP?
             conn = getLDAPConnection
@@ -872,7 +915,7 @@ module MU
         else
           MU.log "Load of current user list didn't include #{user}, even though we just created them!", MU::WARN
         end
-        MU::Master.setLocalDataPerms(user)
+        MU::Master.setLocalDataPerms(user) if Etc.getpwuid(Process.uid).name == "root"
         ok
       end
 

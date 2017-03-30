@@ -43,7 +43,7 @@ module MU
             @mu_name = mu_name
           else
             @mu_name ||=
-              if @config["engine"].match(/^sqlserver/)
+              if @config and @config['engine'] and @config["engine"].match(/^sqlserver/)
                 @deploy.getResourceName(@config["name"], max_length: 15)
               else
                 @deploy.getResourceName(@config["name"], max_length: 63)
