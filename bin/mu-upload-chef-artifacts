@@ -140,8 +140,6 @@ add_berkshelf_cookbooks()
   echo ""
   echo "${BOLD}Installing Berkshelf Chef cookbooks from $repodir to Chef Server${NORM}"
 
-  purge_manifest $repo_name $artifact
-
   if [ "$match" == "" ];then
     cd $repodir && /usr/local/ruby-current/bin/berks upload --no-freeze
   elif [ "$berkshelf_cookbooks" != "" ];then
@@ -418,7 +416,10 @@ for repo in $REPOS;do
     add_berkshelf_cookbooks "$artifact_source"
   else
     echo '
-instance_eval(File.read(File.expand_path("#{ENV[%q{MU_INSTALLDIR}]}/lib/Berksfile", __FILE__)))
+if !ENV.include? "MU_COOKBOOK_ROOT"
+  ENV["MU_COOKBOOK_ROOT"] = ENV["MU_INSTALLDIR"]+"/lib"
+end
+instance_eval(File.read(File.expand_path("#{ENV[%q{MU_COOKBOOK_ROOT}]}/Berksfile", __FILE__)))
 source "https://supermarket.getchef.com"
 ' > "$artifact_source/Berksfile"
 
@@ -518,7 +519,7 @@ source "https://supermarket.getchef.com"
 done
 
 if [ "$tmp_dirs_to_remove" != "" ];then
-    /bin/rm -rf $tmp_dirs_to_remove
+  /bin/rm -rf $tmp_dirs_to_remove
 fi
 
 # Add some ad-hoc data bag contents for nagios_users. These are Mu logins
