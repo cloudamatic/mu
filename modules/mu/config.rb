@@ -1833,6 +1833,11 @@ module MU
                 if hc_target[1] == l["lb_protocol"] and 
                    hc_target[2] == l["lb_port"].to_s
                   tg["healthcheck"] = lb['healthcheck'].dup
+                else
+                  tg["healthcheck"] = lb['healthcheck'].dup
+                  tg['healthcheck']['target'] = "#{l["instance_protocol"]}:#{l["instance_port"]}"
+                  tg['healthcheck']["httpcode"] = "200,301,302"
+                  MU.log "Classic-style ELB health check target #{lb['healthcheck']['target']} invalid for ALB targetgroup #{tgname} (#{l["instance_protocol"]}:#{l["instance_port"]}). Creating approximate configuration:", MU::WARN, details: tg['healthcheck']
                 end
               end
               lb["targetgroups"] << tg
@@ -5376,8 +5381,8 @@ module MU
                     "enum" => ["HTTP", "HTTPS"],
                   },
                   "httpcode" => {
-                    "type" => "integer",
-                    "default" => 200,
+                    "type" => "string",
+                    "default" => "200,301,302",
                     "description" => "The HTTP codes to use when checking for a successful response from a target."
                   },
                   "port" => {
