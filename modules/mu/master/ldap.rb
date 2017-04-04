@@ -788,7 +788,7 @@ module MU
           # Creating a new user
           if canWriteLDAP?
             if password.nil? or email.nil? or name.nil?
-              raise MU::MuError, "Missing one or more required fields (name, password, email) creating new user #{user}"
+              raise MuLDAPError, "Missing one or more required fields (name, password, email) creating new user #{user}"
             end
             user_dn = "CN=#{name},#{ou}"
             conn = getLDAPConnection
@@ -827,9 +827,9 @@ module MU
             end
             if !conn.add(:dn => user_dn, :attributes => attr)
               if getLDAPErr.match(/53 Unwilling to perform/)
-                raise MU::MuError, "Failed to create user #{user} (#{getLDAPErr}). Most likely the LDAP password policy objected to the password '#{password}'"
+                raise MuLDAPError, "Failed to create user #{user} (#{getLDAPErr}). Most likely the LDAP password policy objected to the password '#{password}'"
               else
-                raise MU::MuError, "Failed to create user #{user} (#{getLDAPErr})"
+                raise MuLDAPError, "Failed to create user #{user} (#{getLDAPErr})"
               end
             end
             attr[password_attr] = "********"

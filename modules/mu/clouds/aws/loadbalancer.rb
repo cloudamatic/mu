@@ -206,7 +206,7 @@ module MU
                 }
                 if tg['httpcode']
                   tg_descriptor[:matcher] = {
-                    :http_code => tg['httpcode'].to_s
+                    :http_code => tg['httpcode']
                   }
                 end
                 if tg['healthcheck']

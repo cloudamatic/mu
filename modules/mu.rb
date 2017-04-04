@@ -53,7 +53,11 @@ module MU
   class MuError < StandardError
     def initialize(message = nil)
       MU.log message, MU::ERR if !message.nil?
-      super ""
+      if MU.verbosity == MU::Logger::SILENT
+        super
+      else
+        super ""
+      end
     end
   end
 
@@ -62,7 +66,11 @@ module MU
   class MuNonFatal < StandardError
     def initialize(message = nil)
       MU.log message, MU::NOTICE if !message.nil?
-      super ""
+      if MU.verbosity == MU::Logger::SILENT
+        super
+      else
+        super ""
+      end
     end
   end
 
