@@ -345,10 +345,8 @@ for repo in $REPOS;do
   repo_name="`echo $repo | cut -d: -f1`"
   if [ "$repo_name" == "$mu_repo_name" -a "$can_skip_mu_repo" == "1" ];then
     echo "${YELLOW}Skipping ${BOLD}$repo_name${NORM}${YELLOW} cookbooks, which have already been uploaded by another Berksfile${NORM}"
-    echo $chef_artifacts
     chef_artifacts="`echo $chef_artifacts | sed -e 's/site_cookbooks//'`"
     chef_artifacts="`echo $chef_artifacts | sed -e 's/cookbooks//'`"
-    echo $chef_artifacts
   fi
   if [ "$nopurge" == "" -a "$all" != "1" ];then
     echo "${GREEN}Purging old Chef resources derived from $repo_name${NORM}"
