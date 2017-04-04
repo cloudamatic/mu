@@ -80,12 +80,13 @@ usage()
   echo ""
   echo "Known Chef artifact repositories, as set by ${BOLD}mu-configure${NORM}. Ordered"
   echo "from lowest priority to highest:"
-  for repo in $MU_REPO $ADDTL_CHEF_REPOS;do
+  for repo in $ADDTL_CHEF_REPOS $MU_REPO;do
     reponame="`echo $repo | cut -d/ -f2 | sed -e 's/\.git$//'`"
     echo "${BOLD}$reponame${NORM}"
   done
   exit 1
 }
+mu_repo_name="`echo $MU_REPO | sed 's/^.*\///' | cut -d. -f1`"
 
 purge_manifest()
 {
@@ -114,39 +115,86 @@ add_berkshelf_cookbooks()
   user="`whoami`"
   user_home="`getent passwd \"$user\" |cut -d: -f6`"
   berksdir="$user_home/.berkshelf"
+  berks="/usr/local/ruby-current/bin/berks"
+  cd $repodir
 
+  if [ "$MU_DEPRESOLVE" == "1" ];then
+    echo "${GREEN}Resolving standard Mu cookbook dependencies in $repodir/Berksfile${NORM}"
+    rm -f $repodir/Berksfile.lock && $berks install > /dev/null
+  else
+    # Only update Berksfile.lock if it's out of whack
+    $berks list -F json 2>&1 | grep "lockfile is out of sync" && ( rm -f $repodir/Berksfile.lock && $berks install > /dev/null )
+  fi
 
-  cd $repodir && ( /usr/local/ruby-current/bin/berks install > /dev/null || /usr/local/ruby-current/bin/berks update )
-
-  for name in $(/usr/local/ruby-current/bin/berks list -F json | jq -r '.cookbooks | .[] | .name')
-  do 
+  for name in $($berks list -F json | jq -r '.cookbooks | .[] | .name');do
     if [ "$match" == "" -o "$match" == "$name" ];then
       berkshelf_cookbooks="$berkshelf_cookbooks $name"
+      if [ "$name" == "mu-tools" ];then # XXX kludge
+        can_skip_mu_repo=1
+      fi
     fi
   done
 
-# XXX we need to remove older cookbook versions from $berksdir/cookbooks individually
+  cd $repodir && $berks install
+
   if [ "$nopurge" == "" -a "$all" != "1" ];then
     echo "${GREEN}Purging old Chef resources derived from Berkshelf${NORM}"
     cd $repodir
-    for name in $berkshelf_cookbooks
-    do 
-      set +e
+    set +e
+    for name in $berkshelf_cookbooks;do
       $knife cookbook delete $name --yes -a
-      set -e
     done
+    set -e
   fi
 
   echo ""
-  echo "${BOLD}Installing Berkshelf Chef cookbooks from $repodir to Chef Server${NORM}"
+  echo "${GREEN}Installing Berkshelf Chef cookbooks from ${BOLD}$repodir${NORM}${GREEN} to Chef Server${NORM}"
 
   if [ "$match" == "" ];then
-    cd $repodir && /usr/local/ruby-current/bin/berks upload --no-freeze
+    cd $repodir && $berks upload --no-freeze
   elif [ "$berkshelf_cookbooks" != "" ];then
-    cd $repodir && /usr/local/ruby-current/bin/berks upload $berkshelf_cookbooks --no-freeze
+    cd $repodir && $berks upload $berkshelf_cookbooks --no-freeze
   fi
   cd $MU_CHEF_CACHE
 }
+
+copied_repodirs=""
+
+set_repo_path()
+{
+  repo="$1"
+  reponame="`echo $repo | cut -d/ -f2 | sed -e 's/\.git$//'`"
+
+  if [ "$repo" == "$MU_REPO" -o "$repo" == "$mu_repo_name" ];then
+    orig_source="$MU_LIBDIR"
+  else
+    orig_source="$MU_DATADIR/$reponame"
+  fi
+
+  owner=`/usr/bin/stat -c '%U' "$orig_source"`
+  if [ "$USER" != "$owner" ];then
+    artifact_source="$MU_DATADIR/tmp/$reponame.$$"
+    if [ ! -d "${artifact_source}" ];then
+      echo "${GREEN}Cloning ${BOLD}$orig_source${NORM}${GREEN} into $artifact_source${NORM}"
+      mkdir -p "$artifact_source"
+      if [ "$repo" == "$MU_REPO" ];then
+        srcdir="$MU_LIBDIR"
+      else
+        srcdir="$MU_DATADIR/$reponame"
+      fi
+      for subdir in cookbooks site_cookbooks roles environments data_bags Berksfile Berksfile.lock;do
+        if [ -e "$srcdir/$subdir" ];then
+          cp -a "$srcdir/$subdir" "$artifact_source/"
+        fi
+      done
+      copied_repodirs="${copied_repodirs} $artifact_source/"
+      current_repo_path="$artifact_source"
+    fi
+  else
+    current_repo_path="$orig_source"
+  fi
+}
+
 
 all=0
 while getopts "fb:c:nsgdhar:b:m:" opt; do
@@ -223,16 +271,18 @@ if [ "$all" == "1" -a "$arg_repos" != "" ];then
 fi
 
 if [ "$all" == "1" ];then
-  for repo in $MU_REPO $ADDTL_CHEF_REPOS;do
+  for repo in $ADDTL_CHEF_REPOS $MU_REPO;do
     reponame="`echo $repo | cut -d/ -f2 | sed -e 's/\.git$//'`"
     REPOS="$REPOS $reponame"
   done
 else
   for repo in $arg_repos;do
-    # XXX sanity-checking?
     REPOS="$REPOS $repo"
   done
 fi
+
+set_repo_path $MU_REPO
+export MU_COOKBOOK_ROOT=$current_repo_path
 
 if [ "$cookbooks_only" == "1" ];then
   chef_artifacts="cookbooks site_cookbooks"
@@ -252,6 +302,7 @@ if [ "$USER" == "root" ];then
     fi
   done
 fi
+
 
 if [ "$nopurge" == "" -a "$all" == "1" ];then
   if [ "$use_on_disk" == "1" -o "$all" == "1" ];then
@@ -286,10 +337,19 @@ upload_roles=""
 upload_environments=""
 upload_data_bags=""
 tmp_dirs_to_remove=""
-mu_repo_name="`echo $MU_REPO | sed 's/^.*\///' | cut -d. -f1`"
+berkshelf_include_cookbooks=""
 
+can_skip_mu_repo=0
 for repo in $REPOS;do
+  skip_cookbooks=0
   repo_name="`echo $repo | cut -d: -f1`"
+  if [ "$repo_name" == "$mu_repo_name" -a "$can_skip_mu_repo" == "1" ];then
+    echo "${YELLOW}Skipping ${BOLD}$repo_name${NORM}${YELLOW} cookbooks, which have already been uploaded by another Berksfile${NORM}"
+    echo $chef_artifacts
+    chef_artifacts="`echo $chef_artifacts | sed -e 's/site_cookbooks//'`"
+    chef_artifacts="`echo $chef_artifacts | sed -e 's/cookbooks//'`"
+    echo $chef_artifacts
+  fi
   if [ "$nopurge" == "" -a "$all" != "1" ];then
     echo "${GREEN}Purging old Chef resources derived from $repo_name${NORM}"
     for resource in `grep ":$repo_name$" $manifest`;do
@@ -314,35 +374,9 @@ for repo in $REPOS;do
   fi
 
   using_tmp_chef_pile=""
-  if [ "$USER" != "root" ];then
-    if [ -d "$MU_DATADIR/$repo_name" ];then
-      artifact_source="$MU_DATADIR/$repo_name"
-    else
-      artifact_source="$MU_DATADIR/tmp/$repo_name.$$"
-      using_tmp_chef_pile="1"
-      mkdir -p "$artifact_source"
-      if [ "$repo" == "$mu_repo_name" ];then
-        srcdir="$MU_LIBDIR"
-      else
-        srcdir="$MU_INSTALLDIR/var/$repo_name"
-      fi
-      for subdir in cookbooks site_cookbooks roles environments data_bags Berksfile Berksfile.lock;do
-        if [ -e "$srcdir/$subdir" ];then
-          cp -a "$srcdir/$subdir" "$artifact_source/"
-        fi
-      done
-    fi
-  else
-    if [ "$repo" == "$mu_repo_name" ];then
-      artifact_source="$MU_LIBDIR"
-    else
-      artifact_source="$MU_DATADIR/$repo_name"
-    fi
-  fi
+  set_repo_path $repo
+  artifact_source=$current_repo_path
 
-  if [ "$USER" != "root" -a "$repo" == "$mu_repo_name" ];then
-    export MU_COOKBOOK_ROOT="$artifact_source"
-  fi
   branch=""
 
   if echo $repo | grep ':';then
@@ -411,20 +445,25 @@ for repo in $REPOS;do
     fi
   fi
 
-  create_berksfile=0
-  if [ -f "$artifact_source/Berksfile" -a "$bags_only" != "1" ];then
-    add_berkshelf_cookbooks "$artifact_source"
+  if [ "$repo_name" != "$mu_repo_name" ];then
+    if grep "AUTO-INCLUDE STANDARD MU COOKBOOKS" $artifact_source/Berksfile > /dev/null;then
+      export MU_DEPRESOLVE=1
+    fi
   else
-    echo '
-if !ENV.include? "MU_COOKBOOK_ROOT"
-  ENV["MU_COOKBOOK_ROOT"] = ENV["MU_INSTALLDIR"]+"/lib"
-end
-instance_eval(File.read(File.expand_path("#{ENV[%q{MU_COOKBOOK_ROOT}]}/Berksfile", __FILE__)))
-source "https://supermarket.getchef.com"
-' > "$artifact_source/Berksfile"
-
-    create_berksfile=1
+    unset MU_DEPRESOLVE
   fi
+
+  create_berksfile=0
+  if [ -f "$artifact_source/Berksfile" ];then
+    if ( echo $chef_artifacts | grep cookbooks > /dev/null ) ;then
+      add_berkshelf_cookbooks "$artifact_source"
+    fi
+  else
+    cp $MU_LIBDIR/extras/platform_berksfile_base $artifact_source/Berksfile
+    create_berksfile=1
+    export MU_DEPRESOLVE=1
+  fi
+
 
   for artifact in $chef_artifacts;do
     purge_manifest $repo_name $artifact
@@ -442,7 +481,7 @@ source "https://supermarket.getchef.com"
           set -e
           if [ "$artifact" == "cookbooks" -o "$artifact" == "site_cookbooks" ];then
             if [ $create_berksfile == "1" ];then
-              echo "cookbook '$shortname', path: '$artifact_source/$artifact/$shortname'" >> "$artifact_source/Berksfile"
+              echo "cookbook '$shortname', path: ENV['MU_DATADIR']+'/$repo_name/$artifact/$shortname'" >> "$artifact_source/Berksfile"
             fi
           fi
           if [ "`diff -r $artifact_source/$artifact/$f $MU_CHEF_CACHE/$artifact/$f`" != "" ];then
@@ -518,10 +557,6 @@ source "https://supermarket.getchef.com"
 
 done
 
-if [ "$tmp_dirs_to_remove" != "" ];then
-  /bin/rm -rf $tmp_dirs_to_remove
-fi
-
 # Add some ad-hoc data bag contents for nagios_users. These are Mu logins
 # and contacts based on the Mu admins stored in $MU_DATADIR/users.
 if [ -d "$MU_DATADIR/users" -a "$USER" == "root" ];then
@@ -564,7 +599,6 @@ fi
 
 # Somehow directory gets lost.  Set it to something sane
 cd $HOMEDIR
-echo "${YELLOW}Working from $STARTDIR ${NORM}"
 if [ "$all" != "1" ];then
   if [ "$bags_only" == "1" ];then
     for bag in $upload_data_bags;do
@@ -670,3 +704,7 @@ else
     done
   fi
 fi
+
+#if [ "$copied_repodirs" != "" ];then
+#  /bin/rm -rf $copied_repodirs
+#fi
