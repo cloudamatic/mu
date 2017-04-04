@@ -495,7 +495,7 @@ for repo in $REPOS;do
         else
           if [ "$artifact" == "cookbooks" -o "$artifact" == "site_cookbooks" ];then
             if [ $create_berksfile == "1" ];then
-              echo "cookbook '$shortname', path: '$artifact_source/$artifact/$shortname'" >> "$artifact_source/Berksfile"
+              echo "cookbook '$shortname', path: ENV['MU_DATADIR']+'/$repo_name/$artifact/$shortname'" >> "$artifact_source/Berksfile"
             fi
             if ! [[ "$berkshelf_cookbooks" =~ "$shortname" ]];then
               if [ "$match" == "" -o "$match" == "$shortname" ];then
