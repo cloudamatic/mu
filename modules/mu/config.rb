@@ -1835,7 +1835,7 @@ module MU
                   tg["healthcheck"] = lb['healthcheck'].dup
                 else
                   tg["healthcheck"] = lb['healthcheck'].dup
-                  tg['healthcheck']['target'] = "#{l["instance_protocol"]}:#{l["instance_port"]}:/"
+                  tg['healthcheck']['target'] = "#{l["instance_protocol"]}:#{l["instance_port"]}/"
                   tg['healthcheck']["httpcode"] = "200,301,302"
                   MU.log "Classic-style ELB health check target #{lb['healthcheck']['target']} invalid for ALB targetgroup #{tgname} (#{l["instance_protocol"]}:#{l["instance_port"]}). Creating approximate configuration:", MU::WARN, details: tg['healthcheck']
                 end
