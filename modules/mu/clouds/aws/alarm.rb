@@ -135,8 +135,9 @@ module MU
         # Locate an existing alarm.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @param region [String]: The cloud provider region.
+        # @param opts [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching alarm.
-        def self.find(cloud_id: nil, region: MU.curRegion)
+        def self.find(cloud_id: nil, region: MU.curRegion, opts: {})
           MU::Cloud::AWS::Alarm.getAlarmByName(cloud_id, region: region)
         end
 

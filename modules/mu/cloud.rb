@@ -492,11 +492,11 @@ module MU
             # The find() method should be returning a Hash with the cloud_id
             # as a key.
             begin
-              matches = self.class.find(region: @config['region'], cloud_id: @cloud_id)
+              matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, opts: @config)
               if !matches.nil? and matches.is_a?(Hash) and matches.has_key?(@cloud_id)
                 @cloud_desc = matches[@cloud_id]
               else
-                MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id}, which has a record in deploy #{@deploy.deploy_id}", MU::WARN
+                MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id} in #{@config['region']}, which has a record in deploy #{@deploy.deploy_id}", MU::WARN, details: caller
               end
             rescue Exception => e
               MU.log "Got #{e.inspect} trying to find cloud handle for #{self.class.shortname} #{@mu_name} (#{@cloud_id})", MU::WARN

@@ -121,14 +121,15 @@ module MU
             lb_options[:listeners] = listeners
           end
 
-          MU.log "Creating Load Balancer #{@mu_name}", details: lb_options
           zones_to_try = @config["zones"]
           retries = 0
           lb = nil
           begin
             if @config['classic']
+              MU.log "Creating Elastic Load Balancer #{@mu_name}", details: lb_options
               lb = MU::Cloud::AWS.elb.create_load_balancer(lb_options)
             else
+              MU.log "Creating Application Load Balancer #{@mu_name}", details: lb_options
               lb = MU::Cloud::AWS.elb2.create_load_balancer(lb_options).load_balancers.first
               begin
                 if lb.state.code != "active"
@@ -672,10 +673,10 @@ module MU
         # @param region [String]: The cloud provider region
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param opts [Hash]: Check for Elastic Load Balancers, instead of Application Load Balancers
+        # @param opts [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching LoadBalancers
         def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, opts: {})
-          classic = $opts['classic'] ? true : false
+          classic = opts['classic'] ? true : false
 
           matches = {}
           list = {}
@@ -686,9 +687,10 @@ module MU
           else
             resp = MU::Cloud::AWS.elb2(region).describe_load_balancers().load_balancers
           end
+
           resp.each { |lb|
             list[lb.load_balancer_name] = lb
-            arn2name[lb.load_balancer_arn] = lb.load_balancer_name
+            arn2name[lb.load_balancer_arn] = lb.load_balancer_name if !classic
             if !cloud_id.nil? and lb.load_balancer_name == cloud_id
               matches[cloud_id] = lb
             end
