@@ -257,7 +257,25 @@ app = proc do |env|
           [page]
         ]
       rescue MU::Groomer::Chef::MuNoSuchSecret
-        page = genHTMLMessage(title: "No such secret", msg: "The secret '#{itemname}' does not exist or has already been retrieved")
+        page = nil
+        if $MU_CFG.has_key?('scratchpad') and
+           $MU_CFG['scratchpad'].has_key?("template_path") and
+           File.exist?($MU_CFG['scratchpad']['template_path']) and
+           File.readable?($MU_CFG['scratchpad']['template_path'])
+          page = genHTMLMessage(
+            title: "No such secret",
+            headline: "No such secret",
+            msg: "The secret '#{itemname}' does not exist or has already been retrieved",
+            template: $MU_CFG['scratchpad']['template_path'],
+            extra_vars: { "secret" => nil }
+          )
+        else
+          page = genHTMLMessage(
+            title: "No such secret",
+            headline: "No such secret",
+            msg: "The secret '#{itemname}' does not exist or has already been retrieved"
+            )
+        end
         returnval = [
           200,
           {
