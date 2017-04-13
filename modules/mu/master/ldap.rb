@@ -754,6 +754,7 @@ module MU
       # Call when creating or modifying a user.
       # @param user [String]: The username on which to operate
       # @param password [String]: Set the user's password
+      # @param name [String]: Full name of the user
       # @param email [String]: Set the user's email address
       # @param admin [Boolean]: Whether to flag this user as an admin
       # @param mu_acct [Boolean]: Whether to operate on users outside of Mu (generic directory users)
@@ -865,6 +866,7 @@ module MU
         else
           gid = MU::Master.setLocalDataPerms(user) if Etc.getpwuid(Process.uid).name == "root"
           # Modifying an existing user
+
           if canWriteLDAP?
             conn = getLDAPConnection
             user_dn = cur_users[user]['dn']
@@ -900,6 +902,7 @@ module MU
             end
           else
             MU.log "We are in read-only LDAP mode. You must manage #{user} in your directory.", MU::WARN
+            ok = false
           end
         end
         return ok if !mu_acct # everything below is Mu-specific

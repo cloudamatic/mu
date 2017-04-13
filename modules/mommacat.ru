@@ -226,36 +226,62 @@ app = proc do |env|
     if !env.nil? and !env['REQUEST_PATH'].nil? and env['REQUEST_PATH'].match(/^\/scratchpad/)
       itemname = env['REQUEST_PATH'].sub(/^\/scratchpad\//, "")
       begin
-        secret = MU::Master.fetchScratchPadSecret(itemname)
-        MU.log "Retrieved scratchpad secret #{itemname} for #{env['REMOTE_ADDR']}"
-        page = nil
-        if $MU_CFG.has_key?('scratchpad') and
-           $MU_CFG['scratchpad'].has_key?("template_path") and
-           File.exist?($MU_CFG['scratchpad']['template_path']) and
-           File.readable?($MU_CFG['scratchpad']['template_path'])
-          page = genHTMLMessage(
-            title: "Your Scratchpad Secret",
-            headline:"<strong>YOU MAY ONLY RETRIVE THIS SECRET ONCE!</strong> Be sure to copy it somewhere safe before reloading, browsing away, or closing your browser window.",
-            msg: secret,
-            template: $MU_CFG['scratchpad']['template_path'],
-            extra_vars: { "secret" => secret }
-          )
+        if itemname.sub!(/\/secret$/, "")
+          secret = MU::Master.fetchScratchPadSecret(itemname)
+          MU.log "Retrieved scratchpad secret #{itemname} for #{env['REMOTE_ADDR']}"
+          returnval = [
+            200,
+            {
+              'Content-Type' => 'text/plain',
+              'Content-Length' => secret.length.to_s
+            },
+            [secret]
+          ]
         else
-          page = genHTMLMessage(
-            title: "Your Scratchpad Secret",
-            headline:"<strong>YOU MAY ONLY RETRIVE THIS SECRET ONCE!</strong> Be sure to copy it somewhere safe before reloading, browsing away, or closing your browser window.",
-            msg: secret
-          )
-        end
+          secret = "
+<script>
+  var xhttp = new XMLHttpRequest();
+  xhttp.onreadystatechange = function() {
+    if (this.readyState == 4 && this.status == 200) {
+      document.getElementById('scratchpad-button').outerHTML = this.responseText;
+    }
+  };
+  function showScratchPadSecret(){
+    xhttp.open('GET', '#{env['REQUEST_PATH']}/secret', true);
+    xhttp.send();
+  }
+</script>
+<button id='scratchpad-button' onclick='showScratchPadSecret()'>Show My Secret</button>
+"
+          page = nil
+          if $MU_CFG.has_key?('scratchpad') and
+             $MU_CFG['scratchpad'].has_key?("template_path") and
+             File.exist?($MU_CFG['scratchpad']['template_path']) and
+             File.readable?($MU_CFG['scratchpad']['template_path'])
+            page = genHTMLMessage(
+              title: "Your Scratchpad Secret",
+              headline:"<strong>YOU MAY ONLY RETRIVE THIS SECRET ONCE!</strong> Be sure to copy it somewhere safe before reloading, browsing away, or closing your browser window.",
+              msg: secret,
+              template: $MU_CFG['scratchpad']['template_path'],
+              extra_vars: { "secret" => secret }
+            )
+          else
+            page = genHTMLMessage(
+              title: "Your Scratchpad Secret",
+              headline:"<strong>YOU MAY ONLY RETRIVE THIS SECRET ONCE!</strong> Be sure to copy it somewhere safe before reloading, browsing away, or closing your browser window.",
+              msg: secret
+            )
+          end
 
-        returnval = [
-          200,
-          {
-            'Content-Type' => 'text/html',
-            'Content-Length' => page.length.to_s
-          },
-          [page]
-        ]
+          returnval = [
+            200,
+            {
+              'Content-Type' => 'text/html',
+              'Content-Length' => page.length.to_s
+            },
+            [page]
+          ]
+        end
       rescue MU::Groomer::Chef::MuNoSuchSecret
         page = nil
         if $MU_CFG.has_key?('scratchpad') and
