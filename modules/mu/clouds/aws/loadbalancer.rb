@@ -225,8 +225,7 @@ module MU
                     }
                   end
                 end
-MU.log "TARGETGROUP DECLARED", MU::NOTICE, details: tg_descriptor
-MU.log "TARGETGROUP ACTUAL", MU::NOTICE, details: tg_descriptor
+
                 tg_resp = MU::Cloud::AWS.elb2.create_target_group(tg_descriptor)
                 @targetgroups[tg['name']] = tg_resp.target_groups.first
                 MU::Cloud::AWS.elb2.add_tags(
