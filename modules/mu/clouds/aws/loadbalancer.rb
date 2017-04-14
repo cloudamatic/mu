@@ -219,7 +219,14 @@ module MU
                   tg_descriptor[:health_check_timeout_seconds] = tg['healthcheck']['timeout']
                   tg_descriptor[:healthy_threshold_count] = tg['healthcheck']['healthy_threshold']
                   tg_descriptor[:unhealthy_threshold_count] = tg['healthcheck']['unhealthy_threshold']
+                  if tg['healthcheck']['httpcode'] and !tg_descriptor.has_key?(:matcher)
+                    tg_descriptor[:matcher] = {
+                      :http_code => tg['healthcheck']['httpcode']
+                    }
+                  end
                 end
+MU.log "TARGETGROUP DECLARED", MU::NOTICE, details: tg_descriptor
+MU.log "TARGETGROUP ACTUAL", MU::NOTICE, details: tg_descriptor
                 tg_resp = MU::Cloud::AWS.elb2.create_target_group(tg_descriptor)
                 @targetgroups[tg['name']] = tg_resp.target_groups.first
                 MU::Cloud::AWS.elb2.add_tags(
