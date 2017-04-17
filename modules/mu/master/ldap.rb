@@ -757,9 +757,10 @@ module MU
       # @param name [String]: Full name of the user
       # @param email [String]: Set the user's email address
       # @param admin [Boolean]: Whether to flag this user as an admin
+      # @param unlock [Boolean]: Unlock a locked account (Active Directory)
       # @param mu_acct [Boolean]: Whether to operate on users outside of Mu (generic directory users)
       # @param ou [String]: The OU into which to deposit new users.
-      def self.manageUser(user, name: nil, password: nil, email: nil, admin: false, mu_acct: true, ou: $MU_CFG["ldap"]["user_ou"])
+      def self.manageUser(user, name: nil, password: nil, email: nil, admin: false, mu_acct: true, unlock: false, ou: $MU_CFG["ldap"]["user_ou"])
         cur_users = listUsers
 
         first = last = nil
@@ -858,13 +859,13 @@ module MU
               retry
             end
             %x{/sbin/restorecon -r /home} # SELinux stupidity that oddjob misses
-            MU::Master.setLocalDataPerms(user) if Etc.getpwuid(Process.uid).name == "root"
+            MU::Master.setLocalDataPerms(user) if Etc.getpwuid(Process.uid).name == "root" and mu_acct
           else
             MU.log "We are in read-only LDAP mode. You must first create #{user} in your directory and add it to #{$MU_CFG["ldap"]["user_group_dn"]}. If the user is intended to be an admin, also add it to #{$MU_CFG["ldap"]["admin_group_dn"]}.", MU::WARN
             return true
           end
         else
-          gid = MU::Master.setLocalDataPerms(user) if Etc.getpwuid(Process.uid).name == "root"
+          gid = MU::Master.setLocalDataPerms(user) if Etc.getpwuid(Process.uid).name == "root" and mu_acct
           # Modifying an existing user
 
           if canWriteLDAP?
@@ -880,6 +881,9 @@ module MU
               conn.replace_attribute(user_dn, :givenName, first)
               conn.replace_attribute(user_dn, :sn, last)
               cur_users[user]['realname'] = name
+            end
+            if unlock
+              conn.replace_attribute(user_dn, :lockoutTime, "0")
             end
             if !email.nil? and cur_users[user]['email'] != email
               MU.log "Updating email for #{user} to #{email}", MU::NOTICE
@@ -918,7 +922,7 @@ module MU
         else
           MU.log "Load of current user list didn't include #{user}, even though we just created them!", MU::WARN
         end
-        MU::Master.setLocalDataPerms(user) if Etc.getpwuid(Process.uid).name == "root"
+        MU::Master.setLocalDataPerms(user) if Etc.getpwuid(Process.uid).name == "root" and mu_acct
         ok
       end
 
