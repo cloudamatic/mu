@@ -293,7 +293,7 @@ module MU
                 MU::Cloud::AWS.elb2.modify_target_group_attributes(
                   target_group_arn: tg.target_group_arn,
                   attributes: [
-                      {
+                    {
                       key: "stickiness.enabled",
                       value: "true"
                     }
@@ -439,6 +439,10 @@ module MU
                     {
                       key: "stickiness.type",
                       value: "lb_cookie"
+                    },
+                    {
+                      key: "stickiness.enabled",
+                      value: "true"
                     },
                     {
                       key: "stickiness.lb_cookie.duration_seconds",
