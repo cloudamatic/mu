@@ -445,7 +445,8 @@ module MU
       # See https://technet.microsoft.com/en-us/library/ee198831.aspx
       AD_PW_ATTRS = {
         'script' => 0x0001, #SCRIPT
-        'disable' => 0x0002, #ACCOUNTDISABLE
+#        'disable' => 0x0002, #ACCOUNTDISABLE
+        'disable' => 0b0000010, #ACCOUNTDISABLE
         'homedirRequired' => 0x0008, #HOMEDIR_REQUIRED
         'lockout' => 0x0010, #LOCKOUT
         'noPwdRequired' => 0x0020, #ADS_UF_PASSWD_NOTREQD
@@ -771,7 +772,9 @@ module MU
       # @param unlock [Boolean]: Unlock a locked account (Active Directory)
       # @param mu_acct [Boolean]: Whether to operate on users outside of Mu (generic directory users)
       # @param ou [String]: The OU into which to deposit new users.
-      def self.manageUser(user, name: nil, password: nil, email: nil, admin: false, mu_acct: true, unlock: false, ou: $MU_CFG["ldap"]["user_ou"])
+      # @param disable [Boolean]: Disabled the user's account
+      # @param enable [Boolean]: Re-enable the user's account if it's disabled
+      def self.manageUser(user, name: nil, password: nil, email: nil, admin: false, mu_acct: true, unlock: false, ou: $MU_CFG["ldap"]["user_ou"], enable: false, disable: false)
         cur_users = listUsers
 
         first = last = nil
@@ -837,6 +840,9 @@ module MU
               if mu_acct
                 attr[:userAccountControl] = (attr[:userAccountControl].to_i & AD_PW_ATTRS['pwdNeverExpires']).to_s
               end
+              if disable
+                attr[:userAccountControl] = (attr[:userAccountControl].to_i & AD_PW_ATTRS['disable']).to_s
+              end
             end
             if !conn.add(:dn => user_dn, :attributes => attr)
               if getLDAPErr.match(/53 Unwilling to perform/)
@@ -892,6 +898,16 @@ module MU
               conn.replace_attribute(user_dn, :givenName, first)
               conn.replace_attribute(user_dn, :sn, last)
               cur_users[user]['realname'] = name
+            end
+            if disable
+              user_props = findUsers([user], exact: true)
+              MU.log "Disabling #{user}", MU::WARN
+              conn.replace_attribute(user_dn, :userAccountControl, AD_PW_ATTRS['disable'].to_i.to_s(2))
+            elsif enable
+              user_props = findUsers([user], exact: true)
+              MU.log "Re-enabling #{user}", MU::NOTICE
+              uac = (("0b"+user_props[user]["userAccountControl"]).to_i & AD_PW_ATTRS['disable'])
+              conn.replace_attribute(user_dn, :userAccountControl, uac.to_s(2))
             end
             if unlock
               conn.replace_attribute(user_dn, :lockoutTime, "0")
