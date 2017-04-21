@@ -586,22 +586,33 @@ module MU
       # @param password [String]: The user's password
       # @return [Boolean]
       def self.authorize(username, password, require_group: nil)
+        auth = nil
+
         begin
           # see if this user/pw combo works
           conn = getLDAPConnection(username: username, password: password)
+          auth = conn.auth(username, password) if username and password
         rescue Net::LDAP::LdapError
           return false
         end
-        return false if !conn.bind
+        if !conn.bind(auth)
+          MU.log conn.get_operation_result.message, MU::ERR
+          return false
+        end
         
         return true if !require_group
 
         shortuser = username.sub(/\@.*/, "")
         user = findUsers(search = [shortuser], exact: true)
-        user[shortuser]["memberOf"].each { |group|
-          shortname = group.sub(/^CN=(.*?),.*/, '\1')
+        if user[shortuser]["memberOf"].is_a?(Array)
+          user[shortuser]["memberOf"].each { |group|
+            shortname = group.sub(/^CN=(.*?),.*/, '\1')
+            return true if shortname == require_group
+          }
+        elsif user[shortuser]["memberOf"].is_a?(String)
+          shortname = user[shortuser]["memberOf"].sub(/^CN=(.*?),.*/, '\1')
           return true if shortname == require_group
-        }
+        end
         return false
       end
 
@@ -844,7 +855,7 @@ module MU
               manageGroup(group, add_users: [user])
             }
 
-            wait = 5
+            wait = 10
             begin
               %x{/usr/bin/getent passwd ; /usr/bin/getent group} # winbind is slow sometimes
               Etc.getpwnam(user)
