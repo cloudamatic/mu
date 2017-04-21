@@ -446,9 +446,10 @@ module MU
             end
           end
 
-# Register us with our parent deploy so that we can be found by our
-# littermates if needed.
+          # Register us with our parent deploy so that we can be found by our
+          # littermates if needed.
           if !@deploy.nil? and !@cloudobj.mu_name.nil? and !@cloudobj.mu_name.empty?
+            describe # XXX is this actually safe here?
             @deploy.addKitten(self.class.cfg_name, @config['name'], self)
           elsif !@deploy.nil?
             MU.log "#{self} didn't generate a mu_name after being loaded/initialized, dependencies on this resource will probably be confused!", MU::ERR
@@ -491,11 +492,11 @@ module MU
             # The find() method should be returning a Hash with the cloud_id
             # as a key.
             begin
-              matches = self.class.find(region: @config['region'], cloud_id: @cloud_id)
+              matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, opts: @config)
               if !matches.nil? and matches.is_a?(Hash) and matches.has_key?(@cloud_id)
                 @cloud_desc = matches[@cloud_id]
               else
-                MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id}, which has a record in deploy #{@deploy.deploy_id}", MU::WARN
+                MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id} in #{@config['region']}, which has a record in deploy #{@deploy.deploy_id}", MU::WARN, details: caller
               end
             rescue Exception => e
               MU.log "Got #{e.inspect} trying to find cloud handle for #{self.class.shortname} #{@mu_name} (#{@cloud_id})", MU::WARN
@@ -760,7 +761,7 @@ module MU
               hostname = @mu_windows_name
             end
             win_check_for_hostname = %Q{powershell -Command '& {hostname}'}
-            win_set_hostname = %Q{powershell -Command "& {Rename-Computer -NewName '#{hostname}' -Force -PassThru -Restart; Restart-Computer -Force}"}
+            win_set_hostname = %Q{powershell -Command "& {Rename-Computer -NewName '#{hostname}' -Force -PassThru -Restart; Restart-Computer -Force }"}
 
             begin
               # Set our admin password first, if we need to
@@ -898,9 +899,20 @@ module MU
                 elsif retries/max_retries > 0.5
                   MU.log msg, MU::WARN, details: e.inspect
                 end
-                if e.message.match(/connection closed by remote host/) and windows? and !forced_windows_reboot
-                  forced_windows_reboot = true
-                  reboot
+                if e.message.match(/connection closed by remote host|Connection reset by peer/i) and windows?
+                  if !forced_windows_reboot
+                    forced_windows_reboot = true
+                    MU.log "#{@config['mu_name']} sshd misbehaving, attempting to reboot from API", MU::WARN
+                    reboot
+                    sleep 45
+                  elsif !forced_windows_reboot_twice
+                    forced_windows_reboot_twice = true
+                    MU.log "#{@config['mu_name']} sshd still misbehaving, forcing Stop and Start from API", MU::WARN
+                    reboot(true)
+                    sleep 45
+                  else
+                    raise MuError, "Couldn't get into #{@mu_name} with ssh even after forced reboots"
+                  end
                 end
                 sleep retry_interval
                 retry

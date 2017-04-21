@@ -77,7 +77,8 @@ module MU
           end
 
           if @config["loadbalancers"]
-            lbs = Array.new
+            lbs = []
+            tg_arns = []
 # XXX refactor this into the LoadBalancer resource
             @config["loadbalancers"].each { |lb|
               if lb["existing_load_balancer"]
@@ -92,16 +93,24 @@ module MU
                 raise MuError, "No loadbalancers exist! I need one named #{lb['concurrent_load_balancer']}" if !@deploy.deployment["loadbalancers"]
                 found = false
                 @deploy.deployment["loadbalancers"].each_pair { |lb_name, deployed_lb|
-
                   if lb_name == lb['concurrent_load_balancer']
                     lbs << deployed_lb["awsname"]
+                    if deployed_lb.has_key?("targetgroups")
+                      deployed_lb["targetgroups"].each_pair { |tg_name, tg_arn|
+                        tg_arns << tg_arn
+                      }
+                    end
                     found = true
                   end
                 }
                 raise MuError, "I need a loadbalancer named #{lb['concurrent_load_balancer']}, but none seems to have been created!" if !found
               end
             }
-            asg_options[:load_balancer_names] = lbs
+            if tg_arns.size > 0
+              asg_options[:target_group_arns] = tg_arns
+            else
+              asg_options[:load_balancer_names] = lbs
+            end
           end
           asg_options[:termination_policies] = @config["termination_policies"] if @config["termination_policies"]
           asg_options[:desired_capacity] = @config["desired_capacity"] if @config["desired_capacity"]
@@ -175,15 +184,24 @@ module MU
               end
             }
 
+            rolename = nil
             if launch_desc['generate_iam_role']
-              launch_options[:iam_instance_profile], tmp, tmp2 = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'])
+              # Using ARN instead of IAM instance profile name to hopefully get around some random AWS failures
+              rolename, cfm_role_name, cfm_prof_name, arn = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'])
+              launch_options[:iam_instance_profile] = arn
             elsif launch_desc['iam_role'].nil?
               raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
             else
               launch_options[:iam_instance_profile] = launch_desc['iam_role']
             end
-            @config['iam_role'] = launch_options[:iam_instance_profile]
-            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'])
+
+            @config['iam_role'] = rolename ? rolename : launch_options[:iam_instance_profile]
+
+            if rolename
+              MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(rolename)
+            else
+              MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'])
+            end
 
             instance_secret = Password.random(50)
             @deploy.saveNodeSecret("default", instance_secret, "instance_secret")
@@ -465,8 +483,9 @@ module MU
         # @param region [String]: The cloud provider region
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
+        # @param opts [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching ServerPools
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil)
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, opts: {})
           MU.log "XXX ServerPool.find not yet implemented", MU::WARN
           return {}
         end

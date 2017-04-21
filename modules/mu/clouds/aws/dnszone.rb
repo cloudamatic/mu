@@ -330,7 +330,7 @@ module MU
         # @param vpc_id [String]: The cloud identifier of the VPC
         # @param region [String]: The cloud provider's region
         # @param remove [Boolean]: Whether to remove access (default: grant access)
-        def self.toggleVPCAccess(id: id, vpc_id: vpc_id, region: MU.curRegion, remove: false)
+        def self.toggleVPCAccess(id: nil, vpc_id: nil, region: MU.curRegion, remove: false)
 
           if !remove
             MU.log "Granting VPC #{vpc_id} access to zone #{id}"
@@ -546,7 +546,7 @@ module MU
         # @param delete [Boolean]: Remove this entry instead of creating it.
         # @param cloudclass [Object]: The resource's Mu class.
         # @param sync_wait [Boolean]: Wait for DNS entry to propagate across zone.
-        def self.genericMuDNSEntry(name: name, target: target, cloudclass: cloudclass, noop: false, delete: false, sync_wait: true)
+        def self.genericMuDNSEntry(name: nil, target: nil, cloudclass: nil, noop: false, delete: false, sync_wait: true)
           return nil if name.nil? or target.nil? or cloudclass.nil?
           mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
           raise MuError, "Couldn't isolate platform-mu DNS zone" if mu_zone.nil?
@@ -790,8 +790,9 @@ module MU
         # Locate an existing DNSZone or DNSZones and return an array containing matching AWS resource descriptors for those that match.
         # @param cloud_id [String]: The cloud provider's identifier for this resource. Can also use the domain name, we'll check for both.
         # @param region [String]: The cloud provider region
+        # @param opts [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching DNSZones
-        def self.find(cloud_id: nil, deploy_id: MU.deploy_id, region: MU.curRegion)
+        def self.find(cloud_id: nil, deploy_id: MU.deploy_id, region: MU.curRegion, opts: {})
           matches = {}
 
           resp = MU::Cloud::AWS.route53(region).list_hosted_zones(

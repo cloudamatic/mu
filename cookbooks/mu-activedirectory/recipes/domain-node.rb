@@ -8,7 +8,10 @@
 #
 
 include_recipe 'chef-vault'
-domain_creds = chef_vault_item(node.ad.join_auth[:vault], node.ad.join_auth[:item])
+domain_creds = nil
+if node.has_key?(:ad) and node[:ad].has_key?(:join_auth) and node[:ad][:join_auth].has_key?(:vault) and node[:ad][:join_auth].has_key?(:item) and !node[:ad][:join_auth][:vault].nil? and !node[:ad][:join_auth][:item].nil?
+  domain_creds = chef_vault_item(node[:ad][:join_auth][:vault], node[:ad][:join_auth][:item])
+end
 can_join_domain = false
 
 case node.platform
@@ -34,7 +37,7 @@ case node.platform
     Chef::Log.info("Unsupported platform #{node.platform}")
 end
 
-if can_join_domain
+if can_join_domain and !domain_creds.nil?
   mu_activedirectory_domain_node node.ad.domain_name do
     netbios_name node.ad.netbios_name
     computer_name node.ad.computer_name

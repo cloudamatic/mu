@@ -18,7 +18,7 @@
 # limitations under the License.
 #
 unless node['splunk']['ssl_options']['enable_ssl']
-  Chef::Log.debug('The chef-splunk::setup_ssl recipe was added to the node,')
+  Chef::Log.debug('The mu-splunk::setup_ssl recipe was added to the node,')
   Chef::Log.debug('but the attribute to enable SSL was not set.')
   return
 end

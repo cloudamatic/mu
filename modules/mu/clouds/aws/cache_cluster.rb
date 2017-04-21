@@ -49,8 +49,9 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
+        # @param opts [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching Cache Clusters.
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil)
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, opts: {})
           map = {}
           if cloud_id
             cache_cluster = MU::Cloud::AWS::CacheCluster.getCacheClusterById(cloud_id, region: region)
@@ -643,7 +644,7 @@ module MU
                 threads << Thread.new(replication_group) { |myrepl_group|
                   MU.dupGlobals(parent_thread_id)
                   Thread.abort_on_exception = true
-                  MU::Cloud::AWS::CacheCluster.terminate_replication_group(myrepl_group, noop, skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: myrepl_group.replication_group_id)
+                  MU::Cloud::AWS::CacheCluster.terminate_replication_group(myrepl_group, noop: noop, skipsnapshots: skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: myrepl_group.replication_group_id)
                 }
               }
             end
@@ -655,7 +656,7 @@ module MU
                 threads << Thread.new(cluster) { |mycluster|
                   MU.dupGlobals(parent_thread_id)
                   Thread.abort_on_exception = true
-                  MU::Cloud::AWS::CacheCluster.terminate_cache_cluster(mycluster, noop, skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: mycluster.cache_cluster_id)
+                  MU::Cloud::AWS::CacheCluster.terminate_cache_cluster(mycluster, noop: noop, skipsnapshots: skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: mycluster.cache_cluster_id)
                 }
               }
             end
@@ -676,7 +677,7 @@ module MU
         # @param region [String]: The cloud provider's region in which to operate.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @return [void]
-        def self.terminate_cache_cluster(cluster, noop = false, skipsnapshots = false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil)
+        def self.terminate_cache_cluster(cluster, noop: false, skipsnapshots: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil)
           raise MuError, "terminate_cache_cluster requires a non-nil cache cluster descriptor" if cluster.nil? || cluster.empty?
 
           cluster_id = cluster.cache_cluster_id
@@ -775,7 +776,7 @@ module MU
         # @param region [String]: The cloud provider's region in which to operate.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @return [void]
-        def self.terminate_replication_group(repl_group, noop = false, skipsnapshots = false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil)
+        def self.terminate_replication_group(repl_group, noop: false, skipsnapshots: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil)
           raise MuError, "terminate_replication_group requires a non-nil cache replication group descriptor" if repl_group.nil? || repl_group.empty?
 
           repl_group_id = repl_group.replication_group_id

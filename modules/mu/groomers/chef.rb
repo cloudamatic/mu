@@ -707,7 +707,7 @@ module MU
         if @config.has_key?('dependencies')
           deploy = MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
           @config['dependencies'].each{ |dep|
-            if dep['type'] == "database" && deploy.deployment.has_key?("databases")
+            if dep['type'] == "database" && deploy.deployment.has_key?("databases") && deploy.deployment["databases"].has_key?(dep['name'])
                 deploy.deployment["databases"][dep['name']].each { |name, database|
                 grantSecretAccess(database['vault_name'], database['vault_item']) if database.has_key?("vault_name") && database.has_key?("vault_item")
               }

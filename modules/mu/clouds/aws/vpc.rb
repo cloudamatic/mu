@@ -729,7 +729,7 @@ module MU
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching VPCs
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil)
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, opts: {})
 
           retries = 0
           map = {}
@@ -1319,7 +1319,7 @@ module MU
         # @param vpc_id [String]: The cloud provider's unique VPC identifier
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.purge_nat_gateways(noop = false, vpc_id: vpc_id, region: MU.curRegion)
+        def self.purge_nat_gateways(noop = false, vpc_id: nil, region: MU.curRegion)
           gateways = MU::Cloud::AWS.ec2(region).describe_nat_gateways(
             filter: [
               {
@@ -1376,7 +1376,7 @@ module MU
         # @param vpc_id [String]: The cloud provider's unique VPC identifier
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.purge_endpoints(noop = false, vpc_id: vpc_id, region: MU.curRegion)
+        def self.purge_endpoints(noop = false, vpc_id: nil, region: MU.curRegion)
           vpc_endpoints = MU::Cloud::AWS.ec2(region).describe_vpc_endpoints(
             filters: [
               {
@@ -1718,8 +1718,8 @@ module MU
             end
             resp.route_tables.each { |route_table|
               route_table.routes.each { |route|
+                return false if !route.gateway_id.nil? and route.gateway_id != "local" # you can have an IgW and route it to a subset of IPs instead of 0.0.0.0/0
                 if route.destination_cidr_block == "0.0.0.0/0"
-                  return false if !route.gateway_id.nil?
                   return true if !route.instance_id.nil?
                   return true if route.nat_gateway_id
                 end

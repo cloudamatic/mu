@@ -29,7 +29,6 @@
 
   log "----- Invoked as $([Environment]::UserName) (system started at $(Get-CimInstance -ClassName win32_operatingsystem | select lastbootuptime)) -----"
 
-  # If we'll be patching, don't let anyone in until we're done.
   <% if !$mu.skipApplyUpdates %>
   If (!(Test-Path "c:/mu-installer-ran-updates")){
     Stop-Service -ErrorAction SilentlyContinue sshd
@@ -68,7 +67,6 @@
 
   <% if $mu.platform != "win2k16" %>
   If ([Environment]::OSVersion.Version.Major -lt 10) {
-    # Ec2Config frequently fails to run us on reboot, too, so lets set up a scheduled task to make sure it happens.
     If (!(Get-ScheduledTask -TaskName 'run-userdata')){
       log "Adding run-userdata scheduled task (user NT AUTHORITY\SYSTEM)"
       Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/run-userdata_scheduledtask.xml" -OutFile $env:Temp/run-userdata_scheduledtask.xml
@@ -106,7 +104,7 @@
 
       If (!(Test-Path $env:Temp/cygwin.zip)){
         log "Downloading Cygwin packages"
-        $WebClient.DownloadFile("https://s3.amazonaws.com/cap-public/cygwin_20161020.zip","$env:Temp/cygwin.zip")
+        $WebClient.DownloadFile("https://s3.amazonaws.com/mu-stuff/cygwin_20161022.zip","$env:Temp/cygwin.zip")
       }
 
       Add-Type -A 'System.IO.Compression.FileSystem'
@@ -138,7 +136,6 @@
       Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkgroup -l > /etc/group"'
     }
 
-    # We're going to make sure the initial ssh user works. This should replace the need of removing and re-installing the ssh service.
     if (!(Get-WmiObject win32_computersystem).partofdomain){
       If (!(Test-Path "c:/mu-configure-initial-ssh-user")){
         log "making sure the ssh user is configured correctly"
@@ -291,7 +288,6 @@
     } else {
       Add-Content c:/mu-installer-ran-updates "$(Get-Date -f MM-dd-yyyy_HH:mm:ss)"
 
-      # Moving ssh keys to after we installed all the updates so windows won't throw us out
       log "Enabling sshd service"
       sleep 30; Start-Service sshd
       Set-Service sshd -startuptype "Automatic"

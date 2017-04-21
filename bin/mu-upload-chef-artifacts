@@ -5,7 +5,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License in the root of the project or at
 #
-#		 http://egt-labs.com/mu/LICENSE.html
+#     http://egt-labs.com/mu/LICENSE.html
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -28,16 +28,16 @@ USER=`whoami`
 STARTDIR=`pwd`
 HOMEDIR="`getent passwd \"$USER\" |cut -d: -f6`"
 if [ "$CHEF_PUBLIC_IP" = "" -o "$MU_DATADIR" == "" ];then
-				if [ -f /opt/mu/etc/mu.rc ];then
-								source /opt/mu/etc/mu.rc
-				fi
-				if [ -f $HOMEDIR/.murc ];then
-								source $HOMEDIR/.murc
-				fi
+        if [ -f /opt/mu/etc/mu.rc ];then
+                source /opt/mu/etc/mu.rc
+        fi
+        if [ -f $HOMEDIR/.murc ];then
+                source $HOMEDIR/.murc
+        fi
 fi
 if [ -z $MU_DATADIR ];then
-				echo "MU_DATADIR is unset, I don't know where to find Mu!"
-				exit 1
+        echo "MU_DATADIR is unset, I don't know where to find Mu!"
+        exit 1
 fi
 
 source $MU_INSTALLDIR/bin/mu-configure
@@ -50,570 +50,659 @@ cd $MU_CHEF_CACHE
 
 usage()
 {
-	if [ "$1" != "" ];then
-		echo ""
-		echo "${RED}$1${NORM}"
-		echo ""
-	fi
-	echo "Syncs Chef code to running Chef master. Optionally refreshes from git."
-	echo "Usage: $0 [-a|-r repo_name[:branch] [-r repo_name[:branch] [...]]] [-f [-c <commit>] ] [-d] [-n] [-s]"
-	echo "		${BOLD}-f${NORM}: Forcibly re-sync Chef repos from Git before uploading"
-	echo "				to Chef. Saves your uncommitted changes unless ${BOLD}-d${NORM} is specified." 
-	echo "		${BOLD}-c <commit>${NORM} (requires ${BOLD}-f${NORM} and at most one ${BOLD}-r${NORM}): Reset to a specific commit."
-	echo "				Saves your uncommitted changes unless ${BOLD}-d${NORM} is specified."
-	echo "		${BOLD}-d${NORM}: Discard any uncommited changes to currently checked-out branches."
-	echo "		${BOLD}-n${NORM}: No purging of Chef resources, just uploads new Chef data without"
-	echo "				expunging old resources from the running server."
-	echo "		${BOLD}-s${NORM}: Shortcut mode. Update cookbooks only."
-	echo "		${BOLD}-g${NORM}: Update data bags only."
-	echo "		${BOLD}-a${NORM}: Refresh and upload the currently checked-out branch from ALL Chef repos."
-	echo "				Cannot be used with ${BOLD}-c${NORM} or ${BOLD}-r${NORM}. Saves your uncommitted changes unless ${BOLD}-d${NORM}"
-	echo "				is specified."
-	echo "		${BOLD}-b <branchname>${NORM}: Upload the named branch from ALL Chef repos. Useful if"
-	echo "				you want to use, for example, only ${BOLD}master${NORM} from every repo	Saves your"
-	echo "				uncommitted changes unless ${BOLD}-d${NORM} is specified."
-	echo "		${BOLD}-r${NORM}: A Chef artifact repository to upload. Can specify multiple. See list"
-	echo "				below. Optionally, specify a branch by appending ${BOLD}:branchname${NORM} (this will"
-	echo "				override ${BOLD}-b${NORM}). Saves your uncommitted changes unless ${BOLD}-d${NORM}"
-	echo "				is specified."
-	echo ""
-	echo "Known Chef artifact repositories, as set by ${BOLD}mu-configure${NORM}. Ordered"
-	echo "from lowest priority to highest:"
-	for repo in $MU_REPO $ADDTL_CHEF_REPOS;do
-		reponame="`echo $repo | cut -d/ -f2 | sed -e 's/\.git$//'`"
-		echo "${BOLD}$reponame${NORM}"
-	done
-	exit 1
+  if [ "$1" != "" ];then
+    echo ""
+    echo "${RED}$1${NORM}"
+    echo ""
+  fi
+  echo "Syncs Chef code to running Chef master. Optionally refreshes from git."
+  echo "Usage: $0 [-a|-r repo_name[:branch] [-r repo_name[:branch] [...]]] [-f [-c <commit>] ] [-d] [-n] [-s]"
+  echo "    ${BOLD}-f${NORM}: Forcibly re-sync Chef repos from Git before uploading"
+  echo "        to Chef. Saves your uncommitted changes unless ${BOLD}-d${NORM} is specified." 
+  echo "    ${BOLD}-c <commit>${NORM} (requires ${BOLD}-f${NORM} and at most one ${BOLD}-r${NORM}): Reset to a specific commit."
+  echo "        Saves your uncommitted changes unless ${BOLD}-d${NORM} is specified."
+  echo "    ${BOLD}-d${NORM}: Discard any uncommited changes to currently checked-out branches."
+  echo "    ${BOLD}-n${NORM}: No purging of Chef resources, just uploads new Chef data without"
+  echo "        expunging old resources from the running server."
+  echo "    ${BOLD}-s${NORM}: Shortcut mode. Update cookbooks only."
+  echo "    ${BOLD}-m <name>${NORM}: Match mode. Only operate on artifacts with this name, e.g. '-s -m symantec' to upload a cookbook named symantec."
+  echo "    ${BOLD}-g${NORM}: Update data bags only."
+  echo "    ${BOLD}-a${NORM}: Refresh and upload the currently checked-out branch from ALL Chef repos."
+  echo "        Cannot be used with ${BOLD}-c${NORM} or ${BOLD}-r${NORM}. Saves your uncommitted changes unless ${BOLD}-d${NORM}"
+  echo "        is specified."
+  echo "    ${BOLD}-b <branchname>${NORM}: Upload the named branch from ALL Chef repos. Useful if"
+  echo "        you want to use, for example, only ${BOLD}master${NORM} from every repo  Saves your"
+  echo "        uncommitted changes unless ${BOLD}-d${NORM} is specified."
+  echo "    ${BOLD}-r${NORM}: A Chef artifact repository to upload. Can specify multiple. See list"
+  echo "        below. Optionally, specify a branch by appending ${BOLD}:branchname${NORM} (this will"
+  echo "        override ${BOLD}-b${NORM}). Saves your uncommitted changes unless ${BOLD}-d${NORM}"
+  echo "        is specified."
+  echo ""
+  echo "Known Chef artifact repositories, as set by ${BOLD}mu-configure${NORM}. Ordered"
+  echo "from lowest priority to highest:"
+  for repo in $ADDTL_CHEF_REPOS $MU_REPO;do
+    reponame="`echo $repo | cut -d/ -f2 | sed -e 's/\.git$//'`"
+    echo "${BOLD}$reponame${NORM}"
+  done
+  exit 1
 }
+mu_repo_name="`echo $MU_REPO | sed 's/^.*\///' | cut -d. -f1`"
 
 purge_manifest()
 {
-	purge_repo=$1
-	purge_type=$2
-	if [ -f $manifest ];then
-		grep -v "^$purge_type:.*:$purge_repo$" $manifest > /tmp/manifest.tmp.$$ && /bin/mv /tmp/manifest.tmp.$$ $manifest
-	fi
+  purge_repo=$1
+  purge_type=$2
+  if [ -f $manifest ];then
+    grep -v "^$purge_type:.*:$purge_repo$" $manifest > /tmp/manifest.tmp.$$ && /bin/mv /tmp/manifest.tmp.$$ $manifest
+  fi
 }
 
 update_manifest()
 {
-	update_repo=$1
-	artifact_type=$2
-	artifact_name="`echo $3 | sed -e 's/\.json//'`"
-	
-	if [ -f $manifest ];then
-		grep -v "^$artifact_type:$artifact_name:" $manifest > /tmp/manifest.tmp.$$ && /bin/mv /tmp/manifest.tmp.$$ $manifest
-	fi
-	echo "$artifact_type:$artifact_name:$update_repo" >> $manifest
+  update_repo=$1
+  artifact_type=$2
+  artifact_name="`echo $3 | sed -e 's/\.json//'`"
+  
+  if [ -f $manifest ];then
+    grep -v "^$artifact_type:$artifact_name:" $manifest > /tmp/manifest.tmp.$$ && /bin/mv /tmp/manifest.tmp.$$ $manifest
+  fi
+  echo "$artifact_type:$artifact_name:$update_repo" >> $manifest
 }
 
 add_berkshelf_cookbooks()
 {
-	repodir="$1"
-	user="`whoami`"
-	user_home="`getent passwd \"$user\" |cut -d: -f6`"
-	berksdir="$user_home/.berkshelf"
-	berkstmp="$berksdir/tmp"
-	mkdir -p $berkstmp
-	cookbook_path=$berkstmp
+  repodir="$1"
+  user="`whoami`"
+  user_home="`getent passwd \"$user\" |cut -d: -f6`"
+  berksdir="$user_home/.berkshelf"
+  berks="/usr/local/ruby-current/bin/berks"
+  cd $repodir
 
-	cd $repodir && ( /usr/local/ruby-current/bin/berks install || /usr/local/ruby-current/bin/berks update )
+  if [ "$MU_DEPRESOLVE" == "1" ];then
+    echo "${GREEN}Resolving standard Mu cookbook dependencies in $repodir/Berksfile${NORM}"
+    rm -f $repodir/Berksfile.lock && $berks install > /dev/null
+  else
+    # Only update Berksfile.lock if it's out of whack
+    $berks list -F json 2>&1 | grep "lockfile is out of sync" && ( rm -f $repodir/Berksfile.lock && $berks install > /dev/null )
+  fi
 
-	if [ ! -d $berkstmp ];then
-		mkdir $berkstmp
-	fi
-	cp -r $berksdir/cookbooks $berkstmp
-	cd $berkstmp
+  for name in $($berks list -F json | jq -r '.cookbooks | .[] | .name');do
+    if [ "$match" == "" -o "$match" == "$name" ];then
+      berkshelf_cookbooks="$berkshelf_cookbooks $name"
+      if [ "$name" == "mu-tools" ];then # XXX kludge
+        can_skip_mu_repo=1
+      fi
+    fi
+  done
 
-# XXX we need to remove older cookbook versions from $berksdir/cookbooks individually
-	for i in `find cookbooks/ -maxdepth 1 -type d | egrep '^.*-[[:digit:]][[:digit:]\.]*$'`
-	do
-		echo "mv $i \$(echo $berkstmp/$i | sed 's/-[[:digit:]][[:digit:]\.]*$//' )" | sh
-	done
+  cd $repodir && $berks install
 
-	if [ "$nopurge" == "" -a "$all" != "1" ];then
-		echo "${GREEN}Purging old Chef resources derived from Berkshelf${NORM}"
-		for resource in `grep ":$berkstmp$" $manifest`;do
-			type="`echo $resource | cut -d: -f1`"
-			name="`echo $resource | cut -d: -f2`"
-			set +e
-			/bin/rm -rf "$MU_CHEF_CACHE/cookbooks/$name*"
-			$knife cookbook delete $name --yes
-			set -e
-		done
-	fi
+  if [ "$nopurge" == "" -a "$all" != "1" ];then
+    echo "${GREEN}Purging old Chef resources derived from Berkshelf${NORM}"
+    cd $repodir
+    set +e
+    for name in $berkshelf_cookbooks;do
+      $knife cookbook delete $name --yes -a
+    done
+    set -e
+  fi
 
-	echo ""
-	echo "${BOLD}Installing Berkshelf Chef cookbooks from $cookbook_path to $MU_CHEF_CACHE${NORM}"
+  echo ""
+  echo "${GREEN}Installing Berkshelf Chef cookbooks from ${BOLD}$repodir${NORM}${GREEN} to Chef Server${NORM}"
 
-	artifact='cookbooks'
-
-	purge_manifest $repo_name $artifact
-	if [ -e $cookbook_path/$artifact ];then
-		# Overwrite anything from earlier in the stream with a conflicting name
-		for f in `ls $cookbook_path/$artifact/`;do
-			shortname=$f
-			if [ -e "$MU_CHEF_CACHE/$artifact/$f" -a "$artifact" != "data_bags" ];then
-				set +e
-				oldsrc="`grep "^$artifact:$shortname:" $manifest`"
-				set -e
-				if [ "`diff -r $cookbook_path/$artifact/$f $MU_CHEF_CACHE/$artifact/$f`" != "" ];then
-					if [ "$oldsrc" == "" ];then
-						echo "${YELLOW}Overriding $artifact/$shortname with ${BOLD}$repo_name/$artifact/$shortname${NORM}"
-					else
-						echo "${YELLOW}Overriding $artifact/$shortname from ${BOLD}$oldsrc${NORM} with ${BOLD}$repo_name/$artifact/$shortname${NORM}"
-					fi
-					/bin/rm -rf $MU_CHEF_CACHE/$artifact/$f
-				elif [ "$oldsrc" != "" ];then
-					echo "${YELLOW}Duplicate artifact ${BOLD}$artifact/$shortname${NORM} from ${BOLD}$oldsrc${NORM}, ignoring"
-				fi
-			else
-				echo "${GREEN}Adding ${BOLD}$repo_name/$artifact/$shortname${NORM}"
-			fi
-			update_manifest $repo $artifact $f
-			upload_cookbooks="$upload_cookbooks $shortname"
-		done
-
-		/bin/cp -rf $berkstmp/$artifact $MU_CHEF_CACHE
-		rm -rf $berkstmp
-	fi
-	cd $MU_CHEF_CACHE
+  if [ "$match" == "" ];then
+    cd $repodir && $berks upload --no-freeze
+  elif [ "$berkshelf_cookbooks" != "" ];then
+    cd $repodir && $berks upload $berkshelf_cookbooks --no-freeze
+  fi
+  cd $MU_CHEF_CACHE
 }
 
+copied_repodirs=""
+
+set_repo_path()
+{
+  repo="$1"
+  reponame="`echo $repo | cut -d/ -f2 | sed -e 's/\.git$//'`"
+
+  if [ "$repo" == "$MU_REPO" -o "$repo" == "$mu_repo_name" ];then
+    orig_source="$MU_LIBDIR"
+  else
+    orig_source="$MU_DATADIR/$reponame"
+  fi
+
+  owner=`/usr/bin/stat -c '%U' "$orig_source"`
+  if [ "$USER" != "$owner" ];then
+    artifact_source="$MU_DATADIR/tmp/$reponame.$$"
+    if [ ! -d "${artifact_source}" ];then
+      echo "${GREEN}Cloning ${BOLD}$orig_source${NORM}${GREEN} into $artifact_source${NORM}"
+      mkdir -p "$artifact_source"
+      if [ "$repo" == "$MU_REPO" ];then
+        srcdir="$MU_LIBDIR"
+      else
+        srcdir="$MU_DATADIR/$reponame"
+      fi
+      for subdir in cookbooks site_cookbooks roles environments data_bags Berksfile Berksfile.lock;do
+        if [ -e "$srcdir/$subdir" ];then
+          cp -a "$srcdir/$subdir" "$artifact_source/"
+        fi
+      done
+      copied_repodirs="${copied_repodirs} $artifact_source/"
+      current_repo_path="$artifact_source"
+    fi
+  else
+    current_repo_path="$orig_source"
+  fi
+}
+
+
 all=0
-while getopts "fb:c:nsgdhar:b:" opt; do
-	case $opt in
-		r)
-			arg_repos="$arg_repos $OPTARG"
-			;;
-		a)
-			all=1
-			;;
-		f)
-			force_sync=1
-			;;
-		c)
-			force_commit=$OPTARG
-			;;
-		b)
-			force_branch=$OPTARG
-			;;
-		n)
-			nopurge=1
-			;;
-		g)
-			bags_only=1
-			;;
-		s)
-			cookbooks_only=1
-			;;
-		d)
-			discard=1
-			;;
-		h)
-			usage
-			;;
-		\?)
-			usage
-			;;
-	esac
+while getopts "fb:c:nsgdhar:b:m:" opt; do
+  case $opt in
+    r)
+      arg_repos="$arg_repos $OPTARG"
+      ;;
+    a)
+      all=1
+      ;;
+    f)
+      force_sync=1
+      ;;
+    c)
+      force_commit=$OPTARG
+      ;;
+    b)
+      force_branch=$OPTARG
+      ;;
+    n)
+      nopurge=1
+      ;;
+    g)
+      bags_only=1
+      ;;
+    s)
+      cookbooks_only=1
+      ;;
+    m)
+      match=$OPTARG
+      ;;
+    d)
+      discard=1
+      ;;
+    h)
+      usage
+      ;;
+    \?)
+      usage
+      ;;
+  esac
 done
 
 use_on_disk=1
 
 if [ "$arg_repos" == "" ];then
-	all=1
+  all=1
 fi
 
 if [ "$force_sync" != "" ];then
-	use_on_disk=0
+  use_on_disk=0
 fi
 if [ "$force_commit" != "" ];then
-	use_on_disk=0
+  use_on_disk=0
 fi
 if [ "$force_branch" != "" ];then
-	use_on_disk=0
+  use_on_disk=0
 fi
 
 if [ "$force_commit" != "" -a "$force_sync" != "1" ];then
-	usage "Can't use -c without -f"
-	use_on_disk=0
+  usage "Can't use -c without -f"
+  use_on_disk=0
 fi
 if echo $arg_repos | egrep -v '(^ )|( $)' | grep ' ' ;then
-	if [ "$force_commit" != "" ];then
-		usage "Can't have multiple -r options with -c"
-	fi
+  if [ "$force_commit" != "" ];then
+    usage "Can't have multiple -r options with -c"
+  fi
 fi
 if [ "$all" == "1" -a "$force_commit" != "" ];then
-	usage "Can't use -a with -c"
+  usage "Can't use -a with -c"
 fi
 if [ "$all" == "1" -a "$arg_repos" != "" ];then
-	usage "Can't use -a with -r"
+  usage "Can't use -a with -r"
 fi
 
 if [ "$all" == "1" ];then
-	for repo in $MU_REPO $ADDTL_CHEF_REPOS;do
-		reponame="`echo $repo | cut -d/ -f2 | sed -e 's/\.git$//'`"
-		REPOS="$REPOS $reponame"
-	done
+  for repo in $ADDTL_CHEF_REPOS $MU_REPO;do
+    reponame="`echo $repo | cut -d/ -f2 | sed -e 's/\.git$//'`"
+    REPOS="$REPOS $reponame"
+  done
 else
-	for repo in $arg_repos;do
-		# XXX sanity-checking?
-		REPOS="$REPOS $repo"
-	done
+  for repo in $arg_repos;do
+    REPOS="$REPOS $repo"
+  done
 fi
 
+set_repo_path $MU_REPO
+export MU_COOKBOOK_ROOT=$current_repo_path
+
 if [ "$cookbooks_only" == "1" ];then
-	chef_artifacts="cookbooks site_cookbooks"
+  chef_artifacts="cookbooks site_cookbooks"
 elif [ "$bags_only" == "1" ];then
-	chef_artifacts="data_bags"
+  chef_artifacts="data_bags"
 else
-	chef_artifacts="site_cookbooks cookbooks roles environments data_bags"
+  chef_artifacts="site_cookbooks cookbooks roles environments data_bags"
 fi
 
 # Clear out the data bags we forcibly manufacture for Nagios users.
 if [ "$USER" == "root" ];then
-	for dir in $MU_CHEF_CACHE/data_bags/nagios_users;do
-		if [ -d "$MU_DATADIR/users" -a -d $dir ];then
-			for admin in `ls $MU_DATADIR/users/`;do
-				rm -f "$dir/$admin.json"
-			done
-		fi
-	done
+  for dir in $MU_CHEF_CACHE/data_bags/nagios_users;do
+    if [ -d "$MU_DATADIR/users" -a -d $dir ];then
+      for admin in `ls $MU_DATADIR/users/`;do
+        rm -f "$dir/$admin.json"
+      done
+    fi
+  done
 fi
 
+
 if [ "$nopurge" == "" -a "$all" == "1" ];then
-	if [ "$use_on_disk" == "1" -o "$all" == "1" ];then
-		if [ "$cookbooks_only" == "1" ];then
-			$knife cookbook bulk delete --purge '.+' --yes
-			/bin/rm -rf $MU_CHEF_CACHE/cookbooks $MU_CHEF_CACHE/site_cookbooks
-		elif [ "$bags_only" == "1" ];then
-			# Nowadays we have data bags that are persistent and node-related. Leave
-			# them be, and only delete our automatic ones.
-			for bag in nagios_users nagios_servers demo;do
-				$knife data bag delete $bag --yes
-			done
-		else
-			$knife cookbook bulk delete --purge '.+' --yes
-			/bin/rm -rf $MU_CHEF_CACHE/cookbooks $MU_CHEF_CACHE/site_cookbooks
-			/bin/rm -rf $MU_CHEF_CACHE/roles $MU_CHEF_CACHE/environments $MU_CHEF_CACHE/data_bags
-			$knife role bulk delete '.*' --yes
-			for env in `$knife environment list | grep -v '_default$'`;do
-				$knife environment delete $env --yes
-			done
-			for bag in nagios_users nagios_servers demo;do
-				$knife data bag delete $bag --yes
-			done
-		fi
-	fi
+  if [ "$use_on_disk" == "1" -o "$all" == "1" ];then
+    if [ "$cookbooks_only" == "1" ];then
+      $knife cookbook bulk delete --purge '.+' --yes
+      /bin/rm -rf $MU_CHEF_CACHE/cookbooks $MU_CHEF_CACHE/site_cookbooks
+    elif [ "$bags_only" == "1" ];then
+      # Nowadays we have data bags that are persistent and node-related. Leave
+      # them be, and only delete our automatic ones.
+      for bag in nagios_users nagios_servers demo;do
+        $knife data bag delete $bag --yes
+      done
+    else
+      $knife cookbook bulk delete --purge '.+' --yes
+      /bin/rm -rf $MU_CHEF_CACHE/cookbooks $MU_CHEF_CACHE/site_cookbooks
+      /bin/rm -rf $MU_CHEF_CACHE/roles $MU_CHEF_CACHE/environments $MU_CHEF_CACHE/data_bags
+      $knife role bulk delete '.*' --yes
+      for env in `$knife environment list | grep -v '_default$'`;do
+        $knife environment delete $env --yes
+      done
+      for bag in nagios_users nagios_servers demo;do
+        $knife data bag delete $bag --yes
+      done
+    fi
+  fi
 fi
 
 
 upload_cookbooks=""
+berkshelf_cookbooks=""
 upload_roles=""
 upload_environments=""
 upload_data_bags=""
-mu_repo_name="`echo $MU_REPO | sed 's/^.*\///' | cut -d. -f1`"
+tmp_dirs_to_remove=""
+berkshelf_include_cookbooks=""
 
+can_skip_mu_repo=0
 for repo in $REPOS;do
-	repo_name="`echo $repo | cut -d: -f1`"
+  skip_cookbooks=0
+  repo_name="`echo $repo | cut -d: -f1`"
+  if [ "$repo_name" == "$mu_repo_name" -a "$can_skip_mu_repo" == "1" ];then
+    echo "${YELLOW}Skipping ${BOLD}$repo_name${NORM}${YELLOW} cookbooks, which have already been uploaded by another Berksfile${NORM}"
+    chef_artifacts="`echo $chef_artifacts | sed -e 's/site_cookbooks//'`"
+    chef_artifacts="`echo $chef_artifacts | sed -e 's/cookbooks//'`"
+  fi
+  if [ "$nopurge" == "" -a "$all" != "1" ];then
+    echo "${GREEN}Purging old Chef resources derived from $repo_name${NORM}"
+    for resource in `grep ":$repo_name$" $manifest`;do
+      type="`echo $resource | cut -d: -f1`"
+      name="`echo $resource | cut -d: -f2`"
+      set +e
+      if [ "$type" == "cookbooks" -o "$type" == "site_cookbooks" ];then
+        /bin/rm -rf $MU_CHEF_CACHE/$type/$name
+        $knife cookbook delete $name --yes --all
+      elif [ "$type" == "roles" -a "$cookbooks_only" == "" ];then
+        /bin/rm -rf $MU_CHEF_CACHE/$type/$name.json
+        $knife role delete $name --yes
+      elif [ "$type" == "environments" -a "$cookbooks_only" == "" ];then
+        /bin/rm -rf $MU_CHEF_CACHE/$type/$name.json
+        $knife environment delete $name --yes
+      elif [ "$type" == "data_bags" -a "$cookbooks_only" == "" ];then
+        /bin/rm -rf $MU_CHEF_CACHE/$type/$name
+        $knife data bag delete $name --yes
+      fi
+      set -e
+    done
+  fi
 
-	if [ "$nopurge" == "" -a "$all" != "1" ];then
-		echo "${GREEN}Purging old Chef resources derived from $repo_name${NORM}"
-		for resource in `grep ":$repo_name$" $manifest`;do
-			type="`echo $resource | cut -d: -f1`"
-			name="`echo $resource | cut -d: -f2`"
-			set +e
-			if [ "$type" == "cookbooks" -o "$type" == "site_cookbooks" ];then
-				/bin/rm -rf $MU_CHEF_CACHE/$type/$name
-				$knife cookbook delete $name --yes --all
-			elif [ "$type" == "roles" -a "$cookbooks_only" == "" ];then
-				/bin/rm -rf $MU_CHEF_CACHE/$type/$name.json
-				$knife role delete $name --yes
-			elif [ "$type" == "environments" -a "$cookbooks_only" == "" ];then
-				/bin/rm -rf $MU_CHEF_CACHE/$type/$name.json
-				$knife environment delete $name --yes
-			elif [ "$type" == "data_bags" -a "$cookbooks_only" == "" ];then
-				/bin/rm -rf $MU_CHEF_CACHE/$type/$name
-				$knife data bag delete $name --yes
-			fi
-			set -e
-		done
-	fi
+  using_tmp_chef_pile=""
+  set_repo_path $repo
+  artifact_source=$current_repo_path
 
-	using_tmp_chef_pile=""
-	if [ "$USER" != "root" ];then
-		if [ -d "$MU_DATADIR/$repo_name" ];then
-			artifact_source="$MU_DATADIR/$repo_name"
-		else
-			artifact_source="$MU_DATADIR/tmp/$repo_name.$$"
-			using_tmp_chef_pile="1"
-			mkdir -p "$artifact_source"
-			if [ "$repo" == "$mu_repo_name" ];then
-				srcdir="$MU_LIBDIR"
-			else
-				srcdir="$MU_INSTALLDIR/var/$repo_name"
-			fi
-			for subdir in cookbooks site_cookbooks roles environments data_bags Berksfile Berksfile.lock;do
-				if [ -e "$srcdir/$subdir" ];then
-					cp -a "$srcdir/$subdir" "$artifact_source/"
-				fi
-			done
-		fi
-	else
-		if [ "$repo" == "$mu_repo_name" ];then
-			artifact_source="$MU_LIBDIR"
-		else
-			artifact_source="$MU_DATADIR/$repo_name"
-		fi
-	fi
-	branch=""
+  branch=""
 
-	if echo $repo | grep ':';then
-		branch="`echo $repo | cut -d: -f2`"
-	elif [ "$force_branch" != "" ];then
-		branch=$force_branch
-	fi
+  if echo $repo | grep ':';then
+    branch="`echo $repo | cut -d: -f2`"
+  elif [ "$force_branch" != "" ];then
+    branch=$force_branch
+  fi
+
+  cd $artifact_source || ( echo "Couldn't cd to $artifact_source!" ; exit 1 )
+  if [ -d "$artifact_source/.git" ];then
+    lastbranch="`git branch | egrep '^\* ' | awk '{print $2}'`"
+  fi
+
+  if [ "$branch" == "" ];then
+    if [ "$all" == "1" -a "$lastbranch" != "" ];then
+      branch=$lastbranch
+    else
+      branch="master"
+    fi
+  fi
+
+  if [ -d "$artifact_source/.git" ];then
+    if [ "$use_on_disk" == "" -o "$use_on_disk" == "0" ];then
+      # Stash unchecked local changes so we can put things back how we found them
+      if [ "$discard" != "1" ]; then
+        stashed_changes=1
+        if [ "`git stash | grep '^No local changes to save'`" ];then
+          stashed_changes=0
+        else
+          echo "${GREEN}Stashing changes from working tree in ${BOLD}$repo_name${NORM}"
+          git --no-pager stash list | head -1
+        fi
+      fi
+    
+      # Swap branches, if pertinent
+      if [ "$branch" != "$lastbranch" ];then
+        echo "${YELLOW}Switching from $lastbranch to $branch${NORM} in `pwd`"
+        set +e
+        git fetch
+        set -e
+        git checkout $branch
+      else
+        set +e
+        git fetch
+        set -e
+        git checkout -f $branch
+      fi
+      
+      if [ "$force_sync" == "1" ]; then
+        echo "${RED}Forcibly resetting $repo_name to branch $branch${NORM}"
+        if [ ! -z $force_commit ];then
+          # We got asked to reset to a particular commit, do so
+          echo "${RED}Using comment $force_commit${NORM}"
+          git reset --hard $force_commit
+        else
+          git reset --hard
+        fi
+        echo "${YELLOW}Updating $repo_name branch $branch from origin${NORM}"
+        git pull origin $branch
+      else
+        echo "${YELLOW}Updating $repo_name branch $branch from origin${NORM}"
+        set +e
+        git pull origin $branch
+        set -e
+      fi
+    fi
+  fi
+
+  if [ "$repo_name" != "$mu_repo_name" ];then
+    if grep "AUTO-INCLUDE STANDARD MU COOKBOOKS" $artifact_source/Berksfile > /dev/null;then
+      export MU_DEPRESOLVE=1
+    fi
+  else
+    unset MU_DEPRESOLVE
+  fi
+
+  create_berksfile=0
+  if [ -f "$artifact_source/Berksfile" ];then
+    if ( echo $chef_artifacts | grep cookbooks > /dev/null ) ;then
+      add_berkshelf_cookbooks "$artifact_source"
+    fi
+  else
+    cp $MU_LIBDIR/extras/platform_berksfile_base $artifact_source/Berksfile
+    create_berksfile=1
+    export MU_DEPRESOLVE=1
+  fi
 
 
-	cd $artifact_source || ( echo "Couldn't cd to $artifact_source!" ; exit 1 )
-	if [ -d "$artifact_source/.git" ];then
-		lastbranch="`git branch | egrep '^\* ' | awk '{print $2}'`"
-	fi
+  for artifact in $chef_artifacts;do
+    purge_manifest $repo_name $artifact
+    if [ -e "$artifact_source/$artifact" ];then
+      # Overwrite anything from earlier in the stream with a conflicting name
+      for f in `ls $artifact_source/$artifact/`;do
+        if [ "$artifact" == "environments" -o "$artifact" == "roles" ];then
+          shortname="`echo $f | sed -e 's/\.json//'`"
+        else
+          shortname=$f
+        fi
+        if [ -e "$MU_CHEF_CACHE/$artifact/$f" -a "$artifact" != "data_bags" ];then
+          set +e
+          oldsrc="`grep "^$artifact:$shortname:" $manifest`"
+          set -e
+          if [ "$artifact" == "cookbooks" -o "$artifact" == "site_cookbooks" ];then
+            if [ $create_berksfile == "1" ];then
+              echo "cookbook '$shortname', path: ENV['MU_DATADIR']+'/$repo_name/$artifact/$shortname'" >> "$artifact_source/Berksfile"
+            fi
+          fi
+          if [ "`diff -r $artifact_source/$artifact/$f $MU_CHEF_CACHE/$artifact/$f`" != "" ];then
+            if [ "$oldsrc" == "" ];then
+              echo "${YELLOW}Overriding $artifact/$shortname with ${BOLD}$repo_name/$artifact/$shortname${NORM}"
+            else
+              echo "${YELLOW}Overriding $artifact/$shortname from ${BOLD}$oldsrc${NORM} with ${BOLD}$repo_name/$artifact/$shortname${NORM}"
+            fi
+            /bin/rm -rf $MU_CHEF_CACHE/$artifact/$f
+          elif [ "$oldsrc" != "" ];then
+            echo "${YELLOW}Duplicate artifact ${BOLD}$artifact/$shortname${NORM} from ${BOLD}$oldsrc${NORM}, ignoring"
+          fi
+        else
+          if [ "$artifact" == "cookbooks" -o "$artifact" == "site_cookbooks" ];then
+            if [ $create_berksfile == "1" ];then
+              echo "cookbook '$shortname', path: ENV['MU_DATADIR']+'/$repo_name/$artifact/$shortname'" >> "$artifact_source/Berksfile"
+            fi
+            if ! [[ "$berkshelf_cookbooks" =~ "$shortname" ]];then
+              if [ "$match" == "" -o "$match" == "$shortname" ];then
+                echo "${GREEN}Adding ${BOLD}$repo_name/$artifact/$shortname${NORM}"
+              fi
+            fi
+          else
+            if [ "$match" == "" -o "$match" == "$shortname" ];then
+              echo "${GREEN}Adding ${BOLD}$repo_name/$artifact/$shortname${NORM}"
+            fi
+          fi
+        fi
+        update_manifest $repo $artifact $f
+        if [ "$artifact" == "cookbooks" -o "$artifact" == "site_cookbooks" ];then
+          if ! [[ "$berkshelf_cookbooks" =~ "$shortname" ]];then
+            upload_cookbooks="$upload_cookbooks $shortname"
+            test -d "$MU_CHEF_CACHE/$artifact/$shortname" || mkdir -p "$MU_CHEF_CACHE/$artifact/$shortname"
+            /bin/cp -rf $artifact_source/$artifact/$shortname $MU_CHEF_CACHE/$artifact
+          fi
+        elif [ "$artifact" == "roles" ];then
+          upload_roles="$upload_roles $shortname"
+        elif [ "$artifact" == "environments" ];then
+          upload_environments="$upload_environments $shortname"
+        elif [ "$artifact" == "data_bags" ];then
+          upload_data_bags="$upload_data_bags $shortname"
+        fi
+      done
+      if [ "$artifact" != "cookbooks" -a "$artifact" != "site_cookbooks" ];then
+        /bin/cp -rf $artifact_source/$artifact $MU_CHEF_CACHE
+      fi
+    fi
+  done
 
-	if [ "$branch" == "" ];then
-		if [ "$all" == "1" -a "$lastbranch" != "" ];then
-			branch=$lastbranch
-		else
-			branch="master"
-		fi
-	fi
+  # If we just made up a Berksfile, use it to upload things
+  if [ $create_berksfile == "1" ];then
+    add_berkshelf_cookbooks "$artifact_source"
+  fi
 
-	echo ""
-	echo "${BOLD}Installing Chef artifacts from $artifact_source to $MU_CHEF_CACHE${NORM}"
- 
-	if [ -d "$artifact_source/.git" ];then
-		if [ "$use_on_disk" == "" -o "$use_on_disk" == "0" ];then
-			# Stash unchecked local changes so we can put things back how we found them
-			if [ "$discard" != "1" ]; then
-				stashed_changes=1
-				if [ "`git stash | grep '^No local changes to save'`" ];then
-					stashed_changes=0
-				else
-					echo "${GREEN}Stashing changes from working tree in ${BOLD}$repo_name${NORM}"
-					git --no-pager stash list | head -1
-				fi
-			fi
-		
-			# Swap branches, if pertinent
-			if [ "$branch" != "$lastbranch" ];then
-				echo "${YELLOW}Switching from $lastbranch to $branch${NORM} in `pwd`"
-				set +e
-				git fetch
-				set -e
-				git checkout $branch
-			else
-				set +e
-				git fetch
-				set -e
-				git checkout -f $branch
-			fi
-			
-			if [ "$force_sync" == "1" ]; then
-				echo "${RED}Forcibly resetting $repo_name to branch $branch${NORM}"
-				if [ ! -z $force_commit ];then
-					# We got asked to reset to a particular commit, do so
-					echo "${RED}Using comment $force_commit${NORM}"
-					git reset --hard $force_commit
-				else
-					git reset --hard
-				fi
-				echo "${YELLOW}Updating $repo_name branch $branch from origin${NORM}"
-				git pull origin $branch
-			else
-				echo "${YELLOW}Updating $repo_name branch $branch from origin${NORM}"
-				set +e
-				git pull origin $branch
-				set -e
-			fi
-		fi
-	fi
-
-	for artifact in $chef_artifacts;do
-		purge_manifest $repo_name $artifact
-		if [ -e $artifact_source/$artifact ];then
-			# Overwrite anything from earlier in the stream with a conflicting name
-			for f in `ls $artifact_source/$artifact/`;do
-				if [ "$artifact" == "environments" -o "$artifact" == "roles" ];then
-					shortname="`echo $f | sed -e 's/\.json//'`"
-				else
-					shortname=$f
-				fi
-				if [ -e "$MU_CHEF_CACHE/$artifact/$f" -a "$artifact" != "data_bags" ];then
-					set +e
-					oldsrc="`grep "^$artifact:$shortname:" $manifest`"
-					set -e
-					if [ "`diff -r $artifact_source/$artifact/$f $MU_CHEF_CACHE/$artifact/$f`" != "" ];then
-						if [ "$oldsrc" == "" ];then
-							echo "${YELLOW}Overriding $artifact/$shortname with ${BOLD}$repo_name/$artifact/$shortname${NORM}"
-						else
-							echo "${YELLOW}Overriding $artifact/$shortname from ${BOLD}$oldsrc${NORM} with ${BOLD}$repo_name/$artifact/$shortname${NORM}"
-						fi
-						/bin/rm -rf $MU_CHEF_CACHE/$artifact/$f
-					elif [ "$oldsrc" != "" ];then
-						echo "${YELLOW}Duplicate artifact ${BOLD}$artifact/$shortname${NORM} from ${BOLD}$oldsrc${NORM}, ignoring"
-					fi
-				else
-					echo "${GREEN}Adding ${BOLD}$repo_name/$artifact/$shortname${NORM}"
-				fi
-				update_manifest $repo $artifact $f
-				if [ "$artifact" == "cookbooks" -o "$artifact" == "site_cookbooks" ];then
-					upload_cookbooks="$upload_cookbooks $shortname"
-				elif [ "$artifact" == "roles" ];then
-					upload_roles="$upload_roles $shortname"
-				elif [ "$artifact" == "environments" ];then
-					upload_environments="$upload_environments $shortname"
-				elif [ "$artifact" == "data_bags" ];then
-					upload_data_bags="$upload_data_bags $shortname"
-				fi
-			done
-			/bin/cp -rf $artifact_source/$artifact $MU_CHEF_CACHE
-		fi
-	done
-
-	if [ -f "$artifact_source/Berksfile" -a "$bags_only" != "1" ];then
-		add_berkshelf_cookbooks "$artifact_source"
-	fi
-
-	set +x
-	
-	if [ -d "$artifact_source/.git" ];then
-		if [ "$use_on_disk" == "" ];then
-			if [ "$branch" != "$lastbranch" -a "$discard" != "1" ];then
-				echo "${GREEN}Returning to $lastbranch${NORM}"
-				git checkout $lastbranch
-			fi
-			if [ "$stashed_changes" == "1" ];then
-				echo "${GREEN}Restoring stashed changes from working tree in ${BOLD}$repo_name${NORM}"
-				git stash pop
-			fi
-		fi
-	fi
-		
-	if [ "$using_tmp_chef_pile" == "1" ];then
-		/bin/rm -rf "$artifact_source"
-	fi
+  set +x
+  
+  if [ -d "$artifact_source/.git" ];then
+    if [ "$use_on_disk" == "" ];then
+      if [ "$branch" != "$lastbranch" -a "$discard" != "1" ];then
+        echo "${GREEN}Returning to $lastbranch${NORM}"
+        git checkout $lastbranch
+      fi
+      if [ "$stashed_changes" == "1" ];then
+        echo "${GREEN}Restoring stashed changes from working tree in ${BOLD}$repo_name${NORM}"
+        git stash pop
+      fi
+    fi
+  fi
+    
+  if [ "$using_tmp_chef_pile" == "1" ];then
+    tmp_dirs_to_remove="\"$artifact_source\" $tmp_dirs_to_remove"
+  fi
 
 done
 
 # Add some ad-hoc data bag contents for nagios_users. These are Mu logins
 # and contacts based on the Mu admins stored in $MU_DATADIR/users.
 if [ -d "$MU_DATADIR/users" -a "$USER" == "root" ];then
-	bagdir="$MU_CHEF_CACHE/data_bags/nagios_users"
-	test -d "$bagdir" || mkdir -p "$bagdir"
+  bagdir="$MU_CHEF_CACHE/data_bags/nagios_users"
+  test -d "$bagdir" || mkdir -p "$bagdir"
+  upload_data_bags="nagios_users $upload_data_bags"
 
-	set +e
+  set +e
 
-	cd $MU_CHEF_CACHE
-	$knife data bag create nagios_users
-	for admin in mu;do
-#	for admin in `ls $MU_DATADIR/users/`;do
-		if [ ! -f "$bagdir/$admin.json" -a -f "$MU_DATADIR/users/$admin/htpasswd" ];then
-			id="`echo $admin | sed -e 's/@/_/'`"
-			crypt="`cat $MU_DATADIR/users/$admin/htpasswd | cut -d: -f2`"
-			if [ -f $MU_DATADIR/users/$admin/monitoring_email ];then
-				email="`cat $MU_DATADIR/users/$admin/monitoring_email`"
-			else
-				email="`cat $MU_DATADIR/users/$admin/email`"
-			fi
-			if [ "$email" != "none" ];then
-				echo "${GREEN}Adding $id to nagios_users data bag (email $email)${NORM}"
-				echo "{ \"id\": \"$id\", \"groups\": \"sysadmin\", \"htpasswd\": \"$crypt\", \"openid\": \"http://nagiosadmin.myopenid.com/\", \"nagios\": { \"pager\": \"$email\", \"email\": \"$email\" } }" > "$bagdir/$admin.json"
-			else
-				echo "${GREEN}Adding $id to nagios_users data bag (No email)${NORM}"
-				echo "{ \"id\": \"$id\", \"groups\": \"sysadmin\", \"htpasswd\": \"$crypt\", \"openid\": \"http://nagiosadmin.myopenid.com/\", \"nagios\": { \"pager\": \"devnull@localhost\", \"email\": \"devnull@localhost\" } }" > "$bagdir/$admin.json"
-			fi
-		fi
-		if [ -f "$bagdir/$admin.json" ];then
-			$knife data bag from file nagios_users $bagdir/$admin.json
-		fi
-	done
+  cd $MU_CHEF_CACHE
+  bag_created=0
+  for admin in mu;do
+    if [ -f "$bagdir/$admin.json" ];then
+      if [ "$bagcreated" == "0" ];then
+        bagcreated=1
+        $knife data bag create nagios_users
+      fi
+      $knife data bag from file nagios_users $bagdir/$admin.json
+    fi
+    if [ ! -f "$bagdir/$admin.json" -a -f "$MU_DATADIR/users/$admin/htpasswd" ];then
+      id="`echo $admin | sed -e 's/@/_/'`"
+      crypt="`cat $MU_DATADIR/users/$admin/htpasswd | cut -d: -f2`"
+      if [ -f $MU_DATADIR/users/$admin/monitoring_email ];then
+        email="`cat $MU_DATADIR/users/$admin/monitoring_email`"
+      else
+        email="`cat $MU_DATADIR/users/$admin/email`"
+      fi
+      if [ "$match" == "" -o "$match" == "$id" ];then
+        if [ "$email" != "none" ];then
+          echo "${GREEN}Adding $id to nagios_users data bag (email $email)${NORM}"
+          echo "{ \"id\": \"$id\", \"groups\": \"sysadmin\", \"htpasswd\": \"$crypt\", \"openid\": \"http://nagiosadmin.myopenid.com/\", \"nagios\": { \"pager\": \"$email\", \"email\": \"$email\" } }" > "$bagdir/$admin.json"
+        else
+          echo "${GREEN}Adding $id to nagios_users data bag (No email)${NORM}"
+          echo "{ \"id\": \"$id\", \"groups\": \"sysadmin\", \"htpasswd\": \"$crypt\", \"openid\": \"http://nagiosadmin.myopenid.com/\", \"nagios\": { \"pager\": \"devnull@localhost\", \"email\": \"devnull@localhost\" } }" > "$bagdir/$admin.json"
+        fi
+      fi
+    fi
+  done
 fi
 
 # Somehow directory gets lost.  Set it to something sane
 cd $HOMEDIR
-echo "${YELLOW}Working from $STARTDIR ${NORM}"
 if [ "$all" != "1" ];then
-	if [ "$cookbooks_only" == "1" ];then
-		$knife cookbook upload $upload_cookbooks --cookbook-path $MU_CHEF_CACHE/cookbooks:$MU_CHEF_CACHE/site_cookbooks || fail_with_message "Cookbook upload failed"
-	elif [ "$bags_only" == "1" ];then
-		for bag in $upload_data_bags;do
-			$knife data bag create $bag
-			for file in `ls -1 $MU_CHEF_CACHE/data_bags/$bag/*.json`;do
-				$knife data bag from file $bag $file
-			done
-		done
-	else
-		$knife cookbook upload $upload_cookbooks --cookbook-path $MU_CHEF_CACHE/cookbooks:$MU_CHEF_CACHE/site_cookbooks --include-dependencies || fail_with_message "Cookbook upload failed"
-		for role in $upload_roles;do
-			$knife role from file $MU_CHEF_CACHE/roles/$role.json
-		done
-		for env in $upload_environments;do
-			$knife environment from file $MU_CHEF_CACHE/environments/$env.json
-		done
-		for bag in $upload_data_bags;do
-			$knife data bag create $bag
-			for file in `ls -1 $MU_CHEF_CACHE/data_bags/$bag/*.json`;do
-				$knife data bag from file $bag $file
-			done
-		done
-	fi
+  if [ "$bags_only" == "1" ];then
+    for bag in $upload_data_bags;do
+      bagcreated=0
+      for file in `ls -1 $MU_CHEF_CACHE/data_bags/$bag/*.json`;do
+        itemname="`echo $file | sed -r 's/.*\/([^\\]+).json$/\1/'`"
+        if [ "$match" == "" -o "$match" == "$itemname" ];then
+          if [ "$bagcreated" == "0" ];then
+            bagcreated=1
+            $knife data bag create $bag
+          fi
+          $knife data bag from file $bag $file
+        fi
+      done
+    done
+  else
+    for role in $upload_roles;do
+      if [ "$match" == "" -o "$match" == "$role" ];then
+        $knife role from file $MU_CHEF_CACHE/roles/$role.json
+      fi
+    done
+    for env in $upload_environments;do
+      if [ "$match" == "" -o "$match" == "$env" ];then
+        $knife environment from file $MU_CHEF_CACHE/environments/$env.json
+      fi
+    done
+    for bag in $upload_data_bags;do
+      bagcreated=0
+      for file in `ls -1 $MU_CHEF_CACHE/data_bags/$bag/*.json`;do
+        itemname="`echo $file | sed -r 's/.*\/([^\\]+).json$/\1/'`"
+        if [ "$match" == "" -o "$match" == "$itemname" ];then
+          if [ "$bagcreated" == "0" ];then
+            bagcreated=1
+            $knife data bag create $bag
+          fi
+          $knife data bag from file $bag $file
+        fi
+      done
+    done
+  fi
 else
-	databagdir="$MU_CHEF_CACHE/data_bags/"
+  databagdir="$MU_CHEF_CACHE/data_bags/"
 
-	if [ "$cookbooks_only" == "1" ];then
-		echo "Uploading selected cookbooks..."
-		cd $MU_CHEF_CACHE
-		cookbooks="`$knife deps /cookbooks/* /site_cookbooks/* 2>/dev/null | sed -re 's/^\/\w+\/|-[[:digit:]][[:digit:]\.]*$//g' | sed -re 's/^[^\.]+\///'`"
-		$knife cookbook upload $cookbooks --cookbook-path $MU_CHEF_CACHE/cookbooks:$MU_CHEF_CACHE/site_cookbooks || fail_with_message "Cookbook upload failed"
-#		$knife cookbook upload --all --cookbook-path $MU_CHEF_CACHE/cookbooks:$MU_CHEF_CACHE/site_cookbooks > /dev/null || $knife cookbook upload --all --cookbook-path $MU_CHEF_CACHE/cookbooks:$MU_CHEF_CACHE/site_cookbooks -c /etc/opscode/pivotal.rb || fail_with_message "Cookbook upload failed"
-	elif [ "$bags_only" == "1" ];then
-		for Dir in $(find $databagdir* -mindepth 0 -maxdepth 1 -type d );do
-			folder=$(basename $Dir);
-			$knife data bag create $folder
-			files="$databagdir$folder/*.json"
-			for file in $files;do
-				$knife data bag from file $folder $file
-			done
-		done
-	else
-		echo "Uploading all cookbooks..."
-		cd $MU_CHEF_CACHE
-		cookbooks="`$knife deps /cookbooks/* /site_cookbooks/* 2>/dev/null | sed -re 's/^\/\w+\/|-[[:digit:]][[:digit:]\.]*$//g' | sed -re 's/^[^\.]+\///'`"
-		$knife cookbook upload $cookbooks --cookbook-path $MU_CHEF_CACHE/cookbooks:$MU_CHEF_CACHE/site_cookbooks --all || fail_with_message "Cookbook upload failed"
-	
-		echo "Uploading all roles..."
-		_files="$MU_CHEF_CACHE/roles/*.json"
-		for f in $_files;do
-			$knife role from file $f
-		done
-		
-		echo "Uploading all environments..."
-		_files="$MU_CHEF_CACHE/environments/*.json"
-		for f in $_files;do
-			$knife environment from file $f
-		done
-		
-		echo "Uploading all data bags..."
-		for Dir in $(find $databagdir* -mindepth 0 -maxdepth 1 -type d );do
-			folder=$(basename $Dir);
-			$knife data bag create $folder
-			set +e
-			files="$databagdir$folder/*.json"
-			for file in $files;do
-				$knife data bag from file $folder $file
-			done
-			set -e
-		done
-	fi
+  if [ "$cookbooks_only" == "1" ];then
+    exit
+  elif [ "$bags_only" == "1" ];then
+    if [ "$match" != "" ];then
+      echo "Uploading data bag items named '$match'"
+    fi
+    for Dir in $(find $databagdir* -mindepth 0 -maxdepth 1 -type d );do
+      folder=$(basename $Dir);
+      bagcreated=0
+      files="$databagdir$folder/*.json"
+      for file in $files;do
+        itemname="`echo $file | sed -r 's/.*\/([^\\]+).json$/\1/'`"
+        if [ "$match" == "" -o "$match" == "$itemname" ];then
+          if [ "$bagcreated" == "0" ];then
+            bagcreated=1
+            $knife data bag create $folder
+          fi
+          $knife data bag from file $folder $file
+        fi
+      done
+    done
+  else
+    cd $MU_CHEF_CACHE
+    if [ "$match" != "" ];then
+      echo "Uploading any non-cookbook items named '$match'"
+    fi
+  
+    _files="$MU_CHEF_CACHE/roles/*.json"
+    for file in $_files;do
+      role="`echo $file | sed -r 's/.*\/([^\\]+).json$/\1/'`"
+      if [ "$match" == "" -o "$match" == "$role" ];then
+        $knife role from file $file
+      fi
+    done
+    
+    _files="$MU_CHEF_CACHE/environments/*.json"
+    for file in $_files;do
+      env="`echo $file | sed -r 's/.*\/([^\\]+).json$/\1/'`"
+      if [ "$match" == "" -o "$match" == "$env" ];then
+        $knife environment from file $file
+      fi
+    done
+    
+    for Dir in $(find $databagdir* -mindepth 0 -maxdepth 1 -type d );do
+      folder=$(basename $Dir);
+      bagcreated=0
+      set +e
+      files="$databagdir$folder/*.json"
+      for file in $files;do
+        itemname="`echo $file | sed -r 's/.*\/([^\\]+).json$/\1/'`"
+        if [ "$match" == "" -o "$match" == "$itemname" ];then
+          if [ "$bagcreated" == "0" ];then
+            bagcreated=1
+            $knife data bag create $folder
+          fi
+          $knife data bag from file $folder $file
+        fi
+      done
+      set -e
+    done
+  fi
 fi
+
+#if [ "$copied_repodirs" != "" ];then
+#  /bin/rm -rf $copied_repodirs
+#fi

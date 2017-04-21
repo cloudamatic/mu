@@ -1,0 +1,1088 @@
+diff -rupN knife-windows-1.8.0/lib/chef/knife/bootstrap_windows_base.rb knife-windows-1.8.0.patched/lib/chef/knife/bootstrap_windows_base.rb
+--- knife-windows-1.8.0/lib/chef/knife/bootstrap_windows_base.rb	2017-01-23 14:20:03.993814602 -0500
++++ knife-windows-1.8.0.patched/lib/chef/knife/bootstrap_windows_base.rb	2017-01-23 14:22:19.508463131 -0500
+@@ -331,7 +331,11 @@ class Chef
+         # we have to run the remote commands in 2047 char chunks
+         create_bootstrap_bat_command do |command_chunk|
+           begin
+-            render_command_result = run_command(command_chunk)
++            render_command = command_chunk
++            if locate_config_value(:cygwin)
++              render_command = %q!cd $TEMP && !+command_chunk
++            end
++            render_command_result = run_command(render_command)
+             ui.error("Batch render command returned #{render_command_result}") if render_command_result != 0
+             render_command_result
+           rescue SystemExit => e
+@@ -353,11 +357,20 @@ class Chef
+       end
+ 
+       def bootstrap_command
++        if locate_config_value(:cygwin)
++          @bootstrap_command ||= "cd $TEMP && cmd.exe /C #{bootstrap_bat_file}"
++        else
+         @bootstrap_command ||= "cmd.exe /C #{bootstrap_bat_file}"
+       end
++        @bootstrap_command
++      end
+ 
+       def bootstrap_render_banner_command(chunk_num)
+-        "cmd.exe /C echo Rendering #{bootstrap_bat_file} chunk #{chunk_num}"
++        if locate_config_value(:cygwin)
++          return "echo 'Rendering #{bootstrap_bat_file} chunk #{chunk_num}'"
++        else
++          return "cmd.exe /C echo Rendering #{bootstrap_bat_file} chunk #{chunk_num}"
++        end
+       end
+ 
+       def escape_windows_batch_characters(line)
+@@ -370,11 +383,18 @@ class Chef
+         bootstrap_bat = ""
+         banner = bootstrap_render_banner_command(chunk_num += 1)
+         render_template(load_template(config[:bootstrap_template])).each_line do |line|
+-          escape_windows_batch_characters(line)
+           # We are guaranteed to have a prefix "banner" command that echo's chunk number.  We can
+           # confidently prefix every actual command with &&.
+           # TODO: Why does ^\n&& work directly through the commandline but not through SOAP?
++          if locate_config_value(:cygwin)
++            render_line = ""
++            if !line.nil? and !line.chomp.strip.nil?
++              render_line = " && echo '#{line.chomp.strip.gsub(/'/, '\'\\\\\1\'\'')}' >> #{bootstrap_bat_file}"
++            end
++          else
++            escape_windows_batch_characters(line)
+           render_line = " && >> #{bootstrap_bat_file} (echo.#{line.chomp.strip})"
++          end
+           # Windows commands are limited to 8191 characters for machines running XP or higher but
+           # this includes the length of environment variables after they have been expanded.
+           # Since we don't actually know how long %TEMP% (and it's used twice - once in the banner
+@@ -401,8 +421,12 @@ class Chef
+       end
+ 
+       def bootstrap_bat_file
++        if locate_config_value(:cygwin)
++          @bootstrap_bat_file ||= "\"bootstrap-#{Process.pid}-#{Time.now.to_i}.bat\""
++        else
+         @bootstrap_bat_file ||= "\"%TEMP%\\bootstrap-#{Process.pid}-#{Time.now.to_i}.bat\""
+       end
++      end
+ 
+       def warn_chef_config_secret_key
+         ui.info "* " * 40
+diff -rupN knife-windows-1.8.0/lib/chef/knife/bootstrap_windows_base.rb.orig knife-windows-1.8.0.patched/lib/chef/knife/bootstrap_windows_base.rb.orig
+--- knife-windows-1.8.0/lib/chef/knife/bootstrap_windows_base.rb.orig	1969-12-31 19:00:00.000000000 -0500
++++ knife-windows-1.8.0.patched/lib/chef/knife/bootstrap_windows_base.rb.orig	2017-01-23 14:20:03.993814602 -0500
+@@ -0,0 +1,443 @@
++#
++# Author:: Seth Chisamore (<schisamo@chef.io>)
++# Copyright:: Copyright (c) 2011-2016 Chef Software, Inc.
++# License:: Apache License, Version 2.0
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++#
++
++require 'chef/knife'
++require 'chef/knife/bootstrap'
++require 'chef/encrypted_data_bag_item'
++require 'chef/knife/core/windows_bootstrap_context'
++require 'chef/knife/knife_windows_base'
++# Chef 11 PathHelper doesn't have #home
++#require 'chef/util/path_helper'
++
++class Chef
++  class Knife
++    module BootstrapWindowsBase
++
++      include Chef::Knife::KnifeWindowsBase
++
++      # :nodoc:
++      # Would prefer to do this in a rational way, but can't be done b/c of
++      # Mixlib::CLI's design :(
++      def self.included(includer)
++        includer.class_eval do
++
++          deps do
++            require 'readline'
++            require 'chef/json_compat'
++          end
++
++          option :chef_node_name,
++            :short => "-N NAME",
++            :long => "--node-name NAME",
++            :description => "The Chef node name for your new node"
++
++          option :prerelease,
++            :long => "--prerelease",
++            :description => "Install the pre-release chef gems"
++
++          option :bootstrap_version,
++            :long => "--bootstrap-version VERSION",
++            :description => "The version of Chef to install",
++            :proc => Proc.new { |v| Chef::Config[:knife][:bootstrap_version] = v }
++
++          option :bootstrap_proxy,
++            :long => "--bootstrap-proxy PROXY_URL",
++            :description => "The proxy server for the node being bootstrapped",
++            :proc => Proc.new { |p| Chef::Config[:knife][:bootstrap_proxy] = p }
++
++          option :bootstrap_no_proxy,
++            :long => "--bootstrap-no-proxy [NO_PROXY_URL|NO_PROXY_IP]",
++            :description => "Do not proxy locations for the node being bootstrapped; this option is used internally by Opscode",
++            :proc => Proc.new { |np| Chef::Config[:knife][:bootstrap_no_proxy] = np }
++
++          option :bootstrap_install_command,
++            :long        => "--bootstrap-install-command COMMANDS",
++            :description => "Custom command to install chef-client",
++            :proc        => Proc.new { |ic| Chef::Config[:knife][:bootstrap_install_command] = ic }
++
++          # DEPR: Remove this option in Chef 13
++          option :distro,
++            :short => "-d DISTRO",
++            :long => "--distro DISTRO",
++            :description => "Bootstrap a distro using a template. [DEPRECATED] Use -t / --bootstrap-template option instead.",
++            :proc        => Proc.new { |v|
++              Chef::Log.warn("[DEPRECATED] -d / --distro option is deprecated. Use --bootstrap-template option instead.")
++              v
++            }
++
++          option :bootstrap_template,
++            :short => "-t TEMPLATE",
++            :long => "--bootstrap-template TEMPLATE",
++            :description => "Bootstrap Chef using a built-in or custom template. Set to the full path of an erb template or use one of the built-in templates."
++
++          # DEPR: Remove this option in Chef 13
++          option :template_file,
++            :long => "--template-file TEMPLATE",
++            :description => "Full path to location of template to use. [DEPRECATED] Use -t / --bootstrap-template option instead.",
++            :proc        => Proc.new { |v|
++              Chef::Log.warn("[DEPRECATED] --template-file option is deprecated. Use --bootstrap-template option instead.")
++              v
++            }
++
++          option :run_list,
++            :short => "-r RUN_LIST",
++            :long => "--run-list RUN_LIST",
++            :description => "Comma separated list of roles/recipes to apply",
++            :proc => lambda { |o| o.split(",") },
++            :default => []
++
++          option :hint,
++            :long => "--hint HINT_NAME[=HINT_FILE]",
++            :description => "Specify Ohai Hint to be set on the bootstrap target. Use multiple --hint options to specify multiple hints.",
++            :proc => Proc.new { |h|
++              Chef::Config[:knife][:hints] ||= Hash.new
++              name, path = h.split("=")
++              Chef::Config[:knife][:hints][name] = path ? Chef::JSONCompat.parse(::File.read(path)) : Hash.new
++            }
++
++          option :first_boot_attributes,
++            :short => "-j JSON_ATTRIBS",
++            :long => "--json-attributes",
++            :description => "A JSON string to be added to the first run of chef-client",
++            :proc => lambda { |o| JSON.parse(o) },
++            :default => nil
++
++          option :first_boot_attributes_from_file,
++            :long => "--json-attribute-file FILE",
++            :description => "A JSON file to be used to the first run of chef-client",
++            :proc => lambda { |o| Chef::JSONCompat.parse(File.read(o)) },
++            :default => nil
++
++          # Mismatch between option 'encrypted_data_bag_secret' and it's long value '--secret' is by design for compatibility
++          option :encrypted_data_bag_secret,
++            :short => "-s SECRET",
++            :long  => "--secret ",
++            :description => "The secret key to use to decrypt data bag item values. Will be rendered on the node at c:/chef/encrypted_data_bag_secret and set in the rendered client config.",
++            :default => false
++
++          # Mismatch between option 'encrypted_data_bag_secret_file' and it's long value '--secret-file' is by design for compatibility
++          option :encrypted_data_bag_secret_file,
++            :long => "--secret-file SECRET_FILE",
++            :description => "A file containing the secret key to use to encrypt data bag item values. Will be rendered on the node at c:/chef/encrypted_data_bag_secret and set in the rendered client config."
++
++          option :auth_timeout,
++            :long => "--auth-timeout MINUTES",
++            :description => "The maximum time in minutes to wait to for authentication over the transport to the node to succeed. The default value is 2 minutes.",
++            :default => 2
++
++          option :node_ssl_verify_mode,
++            :long        => "--node-ssl-verify-mode [peer|none]",
++            :description => "Whether or not to verify the SSL cert for all HTTPS requests.",
++            :proc        => Proc.new { |v|
++              valid_values = ["none", "peer"]
++              unless valid_values.include?(v)
++                raise "Invalid value '#{v}' for --node-ssl-verify-mode. Valid values are: #{valid_values.join(", ")}"
++              end
++              v
++            }
++
++          option :node_verify_api_cert,
++            :long        => "--[no-]node-verify-api-cert",
++            :description => "Verify the SSL cert for HTTPS requests to the Chef server API.",
++            :boolean     => true
++
++          option :msi_url,
++            :short => "-u URL",
++            :long => "--msi-url URL",
++            :description => "Location of the Chef Client MSI. The default templates will prefer to download from this location. The MSI will be downloaded from chef.io if not provided.",
++            :default => ''
++
++          option :install_as_service,
++            :long => "--install-as-service",
++            :description => "Install chef-client as a Windows service",
++            :default => false
++
++          option :bootstrap_vault_file,
++          :long        => '--bootstrap-vault-file VAULT_FILE',
++          :description => 'A JSON file with a list of vault(s) and item(s) to be updated'
++
++          option :bootstrap_vault_json,
++            :long        => '--bootstrap-vault-json VAULT_JSON',
++            :description => 'A JSON string with the vault(s) and item(s) to be updated'
++
++          option :bootstrap_vault_item,
++            :long        => '--bootstrap-vault-item VAULT_ITEM',
++            :description => 'A single vault and item to update as "vault:item"',
++            :proc        => Proc.new { |i|
++              (vault, item) = i.split(/:/)
++              Chef::Config[:knife][:bootstrap_vault_item] ||= {}
++              Chef::Config[:knife][:bootstrap_vault_item][vault] ||= []
++              Chef::Config[:knife][:bootstrap_vault_item][vault].push(item)
++              Chef::Config[:knife][:bootstrap_vault_item]
++            }
++
++          option :policy_name,
++            :long         => "--policy-name POLICY_NAME",
++            :description  => "Policyfile name to use (--policy-group must also be given)",
++            :default      => nil
++
++          option :policy_group,
++            :long         => "--policy-group POLICY_GROUP",
++            :description  => "Policy group name to use (--policy-name must also be given)",
++            :default      => nil
++
++          option :tags,
++            :long => "--tags TAGS",
++            :description => "Comma separated list of tags to apply to the node",
++            :proc => lambda { |o| o.split(/[\s,]+/) },
++            :default => []
++        end
++      end
++
++      def default_bootstrap_template
++        "windows-chef-client-msi"
++      end
++
++      def bootstrap_template
++        # The order here is important. We want to check if we have the new Chef 12 option is set first.
++        # Knife cloud plugins unfortunately all set a default option for the :distro so it should be at
++        # the end.
++        config[:bootstrap_template] || config[:template_file] || config[:distro] || default_bootstrap_template
++      end
++
++       # TODO: This should go away when CHEF-2193 is fixed
++      def load_template(template=nil)
++        # Are we bootstrapping using an already shipped template?
++
++        template = bootstrap_template
++
++        # Use the template directly if it's a path to an actual file
++        if File.exists?(template)
++          Chef::Log.debug("Using the specified bootstrap template: #{File.dirname(template)}")
++          return IO.read(template).chomp
++        end
++
++        # Otherwise search the template directories until we find the right one
++        bootstrap_files = []
++        bootstrap_files << File.join(File.dirname(__FILE__), 'bootstrap/templates', "#{template}.erb")
++        bootstrap_files << File.join(Knife.chef_config_dir, "bootstrap", "#{template}.erb") if Chef::Knife.chef_config_dir
++        ::Knife::Windows::PathHelper.all_homes('.chef', 'bootstrap', "#{template}.erb") { |p| bootstrap_files << p }
++        bootstrap_files << Gem.find_files(File.join("chef","knife","bootstrap","#{template}.erb"))
++        bootstrap_files.flatten!
++
++        template = Array(bootstrap_files).find do |bootstrap_template|
++          Chef::Log.debug("Looking for bootstrap template in #{File.dirname(bootstrap_template)}")
++          ::File.exists?(bootstrap_template)
++        end
++
++        unless template
++          ui.info("Can not find bootstrap definition for #{config[:distro]}")
++          raise Errno::ENOENT
++        end
++
++        Chef::Log.debug("Found bootstrap template in #{File.dirname(template)}")
++
++        IO.read(template).chomp
++      end
++
++      def bootstrap_context
++        @bootstrap_context ||= Knife::Core::WindowsBootstrapContext.new(config, config[:run_list], Chef::Config)
++      end
++
++      def load_correct_secret
++        knife_secret_file = Chef::Config[:knife][:encrypted_data_bag_secret_file]
++        knife_secret = Chef::Config[:knife][:encrypted_data_bag_secret]
++        cli_secret_file = config[:encrypted_data_bag_secret_file]
++        cli_secret = config[:encrypted_data_bag_secret]
++
++        cli_secret_file = nil if cli_secret_file == knife_secret_file
++        cli_secret = nil if cli_secret == knife_secret
++
++        cli_secret_file = Chef::EncryptedDataBagItem.load_secret(cli_secret_file) if cli_secret_file != nil
++        knife_secret_file = Chef::EncryptedDataBagItem.load_secret(knife_secret_file) if knife_secret_file != nil
++
++        cli_secret_file || cli_secret || knife_secret_file || knife_secret
++      end
++
++      def first_boot_attributes
++        config[:first_boot_attributes] || config[:first_boot_attributes_from_file] || {}
++      end
++
++      def render_template(template=nil)
++        config[:first_boot_attributes] = first_boot_attributes
++        config[:secret] = load_correct_secret
++        Erubis::Eruby.new(template).evaluate(bootstrap_context)
++      end
++
++      def bootstrap(proto=nil)
++        if Chef::Config[:knife][:encrypted_data_bag_secret_file] || Chef::Config[:knife][:encrypted_data_bag_secret]
++          warn_chef_config_secret_key
++        end
++
++        set_target_architecture
++
++        # adding respond_to? so this works with pre 12.4 chef clients
++        validate_options! if respond_to?(:validate_options!)
++
++        @node_name = Array(@name_args).first
++        # back compat--templates may use this setting:
++        config[:server_name] = @node_name
++
++        STDOUT.sync = STDERR.sync = true
++
++        if Chef::VERSION.split('.').first.to_i == 11 && Chef::Config[:validation_key] && !File.exist?(File.expand_path(Chef::Config[:validation_key]))
++          ui.error("Unable to find validation key. Please verify your configuration file for validation_key config value.")
++          exit 1
++        end
++
++        if (defined?(chef_vault_handler) && chef_vault_handler.doing_chef_vault?) ||
++            (Chef::Config[:validation_key] && !File.exist?(File.expand_path(Chef::Config[:validation_key])))
++
++          unless locate_config_value(:chef_node_name)
++            ui.error("You must pass a node name with -N when bootstrapping with user credentials")
++            exit 1
++          end
++
++          client_builder.run
++
++          if client_builder.respond_to?(:client)
++            chef_vault_handler.run(client_builder.client)
++          else
++            chef_vault_handler.run(node_name: config[:chef_node_name])
++          end
++
++          bootstrap_context.client_pem = client_builder.client_path
++
++        else
++          ui.info("Doing old-style registration with the validation key at #{Chef::Config[:validation_key]}...")
++          ui.info("Delete your validation key in order to use your user credentials instead")
++          ui.info("")
++        end
++
++        wait_for_remote_response( config[:auth_timeout].to_i )
++
++        ui.info("Bootstrapping Chef on #{ui.color(@node_name, :bold)}")
++        # create a bootstrap.bat file on the node
++        # we have to run the remote commands in 2047 char chunks
++        create_bootstrap_bat_command do |command_chunk|
++          begin
++            render_command_result = run_command(command_chunk)
++            ui.error("Batch render command returned #{render_command_result}") if render_command_result != 0
++            render_command_result
++          rescue SystemExit => e
++            raise unless e.success?
++          end
++        end
++
++        # execute the bootstrap.bat file
++        bootstrap_command_result = run_command(bootstrap_command)
++        ui.error("Bootstrap command returned #{bootstrap_command_result}") if bootstrap_command_result != 0
++
++        bootstrap_command_result
++      end
++
++      protected
++
++      # Default implementation -- override only if required by the transport
++      def wait_for_remote_response(wait_max_minutes)
++      end
++
++      def bootstrap_command
++        @bootstrap_command ||= "cmd.exe /C #{bootstrap_bat_file}"
++      end
++
++      def bootstrap_render_banner_command(chunk_num)
++        "cmd.exe /C echo Rendering #{bootstrap_bat_file} chunk #{chunk_num}"
++      end
++
++      def escape_windows_batch_characters(line)
++        # TODO: The commands are going to get redirected - do we need to escape &?
++        line.gsub!(/[(<|>)^]/).each{|m| "^#{m}"}
++      end
++
++      def create_bootstrap_bat_command()
++        chunk_num = 0
++        bootstrap_bat = ""
++        banner = bootstrap_render_banner_command(chunk_num += 1)
++        render_template(load_template(config[:bootstrap_template])).each_line do |line|
++          escape_windows_batch_characters(line)
++          # We are guaranteed to have a prefix "banner" command that echo's chunk number.  We can
++          # confidently prefix every actual command with &&.
++          # TODO: Why does ^\n&& work directly through the commandline but not through SOAP?
++          render_line = " && >> #{bootstrap_bat_file} (echo.#{line.chomp.strip})"
++          # Windows commands are limited to 8191 characters for machines running XP or higher but
++          # this includes the length of environment variables after they have been expanded.
++          # Since we don't actually know how long %TEMP% (and it's used twice - once in the banner
++          # and once in every command redirection), we simply guess and set the max to 5000.
++          # TODO: When a more accurate method is available, fix this.
++          if bootstrap_bat.length + render_line.length + banner.length > 5000
++            # Can't fit it into this chunk? - flush (if necessary) and then try.
++            # Do this first because banner.length might change (e.g. due to an extra digit) and
++            # prevent a fit.
++            unless bootstrap_bat.empty?
++              yield banner + bootstrap_bat
++              bootstrap_bat = ""
++              banner = bootstrap_render_banner_command(chunk_num += 1)
++            end
++            # Will this ever fit?
++            if render_line.length + banner.length > 5000
++              raise "Command in bootstrap template too long by #{render_line.length + banner.length - 5000} characters : #{line}"
++            end
++          end
++          bootstrap_bat << render_line
++        end
++        raise "Bootstrap template was empty!  Check #{config[:bootstrap_template]}" if bootstrap_bat.empty?
++        yield banner + bootstrap_bat
++      end
++
++      def bootstrap_bat_file
++        @bootstrap_bat_file ||= "\"%TEMP%\\bootstrap-#{Process.pid}-#{Time.now.to_i}.bat\""
++      end
++
++      def warn_chef_config_secret_key
++        ui.info "* " * 40
++        ui.warn(<<-WARNING)
++\nSpecifying the encrypted data bag secret key using an 'encrypted_data_bag_secret'
++entry in 'knife.rb' is deprecated. Please use the '--secret' or '--secret-file'
++options of this command instead.
++
++#{ui.color('IMPORTANT:', :red, :bold)} In a future version of Chef, this
++behavior will be removed and any 'encrypted_data_bag_secret' entries in
++'knife.rb' will be ignored completely.
++        WARNING
++        ui.info "* " * 40
++      end
++
++      # We allow the user to specify the desired architecture of Chef to install or we default
++      # to whatever the target system is.
++      # This is because a user might want to install a 32bit chef client on a 64bit machine
++      def set_target_architecture
++        if Chef::Config[:knife][:architecture]
++          raise "Do not set :architecture in your knife config, use :bootstrap_architecture."
++        end
++
++        if Chef::Config[:knife][:bootstrap_architecture]
++          bootstrap_architecture = Chef::Config[:knife][:bootstrap_architecture]
++
++          if ![:x86_64, :i386].include?(bootstrap_architecture.to_sym)
++            raise "Valid values for the knife config :bootstrap_architecture are i386 or x86_64. Supplied value is #{bootstrap_architecture}"
++          end
++
++          # The windows install script wants i686, not i386
++          bootstrap_architecture = :i686 if bootstrap_architecture == :i386
++          Chef::Config[:knife][:architecture] = bootstrap_architecture
++        end
++      end
++    end
++  end
++end
+diff -rupN knife-windows-1.8.0/lib/chef/knife/bootstrap_windows_ssh.rb knife-windows-1.8.0.patched/lib/chef/knife/bootstrap_windows_ssh.rb
+--- knife-windows-1.8.0/lib/chef/knife/bootstrap_windows_ssh.rb	2017-01-23 14:20:03.993814602 -0500
++++ knife-windows-1.8.0.patched/lib/chef/knife/bootstrap_windows_ssh.rb	2017-01-23 14:26:35.622357039 -0500
+@@ -91,6 +91,14 @@ class Chef
+         :boolean => true,
+         :default => true
+ 
++      option :cygwin,
++        :long => "--[no-]cygwin",
++        :short => "-c",
++        :description => "Assume that we have Cygwin (and a bash shell) at the client end.",
++        :boolean => true,
++        :default => false
++
++
+       def run
+         validate_name_args!
+         bootstrap
+@@ -98,6 +106,12 @@ class Chef
+ 
+       def run_command(command = '')
+         ssh = Chef::Knife::Ssh.new
++        if locate_config_value(:cygwin)
++          # Harvest crucial env variables that don't exist by default in
++          # Cygwin shells.
++          command = %q{export CYGWIN=nodosfilewarning && for __dir in /proc/registry/HKEY_LOCAL_MACHINE/SYSTEM/CurrentControlSet/Control/Session\ Manager/Environment;do cd "$__dir";for __var in *;do __var=`echo $__var | tr "[a-z]" "[A-Z]"` ; test -z "${!__var}" && export $__var="`cat $__var`" >/dev/null 2>&1;done;/bin/true;done && export TEMP="$SYSTEMROOT/TEMP" && export TMP="$TEMP"} + " && cd && " + command
++        end
++
+         ssh.name_args = [ server_name, command ]
+         ssh.config[:ssh_user] = locate_config_value(:ssh_user)
+         ssh.config[:ssh_password] = locate_config_value(:ssh_password)
+diff -rupN knife-windows-1.8.0/lib/chef/knife/bootstrap_windows_ssh.rb.orig knife-windows-1.8.0.patched/lib/chef/knife/bootstrap_windows_ssh.rb.orig
+--- knife-windows-1.8.0/lib/chef/knife/bootstrap_windows_ssh.rb.orig	1969-12-31 19:00:00.000000000 -0500
++++ knife-windows-1.8.0.patched/lib/chef/knife/bootstrap_windows_ssh.rb.orig	2017-01-23 14:20:03.000000000 -0500
+@@ -0,0 +1,116 @@
++#
++# Author:: Seth Chisamore (<schisamo@chef.io>)
++# Copyright:: Copyright (c) 2011-2016 Chef Software, Inc.
++# License:: Apache License, Version 2.0
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++#
++
++require 'chef/knife/bootstrap_windows_base'
++
++class Chef
++  class Knife
++    class BootstrapWindowsSsh < Bootstrap
++
++      include Chef::Knife::BootstrapWindowsBase
++
++      deps do
++        require 'chef/knife/core/windows_bootstrap_context'
++        require 'chef/json_compat'
++        require 'tempfile'
++        require 'highline'
++        require 'net/ssh'
++        require 'net/ssh/multi'
++        Chef::Knife::Ssh.load_deps
++      end
++
++      banner "knife bootstrap windows ssh FQDN (options)"
++
++      option :ssh_user,
++        :short => "-x USERNAME",
++        :long => "--ssh-user USERNAME",
++        :description => "The ssh username",
++        :default => "root"
++
++      option :ssh_password,
++        :short => "-P PASSWORD",
++        :long => "--ssh-password PASSWORD",
++        :description => "The ssh password"
++
++      option :ssh_port,
++        :short => "-p PORT",
++        :long => "--ssh-port PORT",
++        :description => "The ssh port",
++        :proc => Proc.new { |key| Chef::Config[:knife][:ssh_port] = key.strip }
++
++      option :ssh_gateway,
++        :short => "-G GATEWAY",
++        :long => "--ssh-gateway GATEWAY",
++        :description => "The ssh gateway",
++        :proc => Proc.new { |key| Chef::Config[:knife][:ssh_gateway] = key }
++
++      option :forward_agent,
++        :short => "-A",
++        :long => "--forward-agent",
++        :description => "Enable SSH agent forwarding",
++        :boolean => true
++
++      option :identity_file,
++        :long => "--identity-file IDENTITY_FILE",
++        :description => "The SSH identity file used for authentication. [DEPRECATED] Use --ssh-identity-file instead."
++
++      option :ssh_identity_file,
++        :short => "-i IDENTITY_FILE",
++        :long => "--ssh-identity-file IDENTITY_FILE",
++        :description => "The SSH identity file used for authentication"
++
++      # DEPR: Remove this option for the next release.
++      option :host_key_verification,
++        :long => "--[no-]host-key-verify",
++        :description => "Verify host key, enabled by default. [DEPRECATED] Use --host-key-verify option instead.",
++        :boolean => true,
++        :default => true,
++        :proc => Proc.new { |key|
++          Chef::Log.warn("[DEPRECATED] --host-key-verification option is deprecated. Use --host-key-verify option instead.")
++          config[:host_key_verify] = key
++        }
++
++      option :host_key_verify,
++        :long => "--[no-]host-key-verify",
++        :description => "Verify host key, enabled by default.",
++        :boolean => true,
++        :default => true
++
++      def run
++        validate_name_args!
++        bootstrap
++      end
++
++      def run_command(command = '')
++        ssh = Chef::Knife::Ssh.new
++        ssh.name_args = [ server_name, command ]
++        ssh.config[:ssh_user] = locate_config_value(:ssh_user)
++        ssh.config[:ssh_password] = locate_config_value(:ssh_password)
++        ssh.config[:ssh_port] = locate_config_value(:ssh_port)
++        ssh.config[:ssh_gateway] =  locate_config_value(:ssh_gateway)
++        ssh.config[:identity_file] = config[:identity_file]
++        ssh.config[:ssh_identity_file] = config[:ssh_identity_file] || config[:identity_file]
++        ssh.config[:forward_agent] = config[:forward_agent]
++        ssh.config[:manual] = true
++        ssh.config[:host_key_verify] = config[:host_key_verify]
++        ssh.run
++      end
++
++    end
++  end
++end
+Binary files knife-windows-1.8.0/lib/chef/knife/.bootstrap_windows_ssh.rb.swp and knife-windows-1.8.0.patched/lib/chef/knife/.bootstrap_windows_ssh.rb.swp differ
+diff -rupN knife-windows-1.8.0/lib/chef/knife/core/windows_bootstrap_context.rb knife-windows-1.8.0.patched/lib/chef/knife/core/windows_bootstrap_context.rb
+--- knife-windows-1.8.0/lib/chef/knife/core/windows_bootstrap_context.rb	2017-01-23 14:20:03.994814629 -0500
++++ knife-windows-1.8.0.patched/lib/chef/knife/core/windows_bootstrap_context.rb	2017-01-23 14:22:19.508463131 -0500
+@@ -310,7 +310,12 @@ WGET_PS
+             url += "&pv=#{machine_os}" unless machine_os.nil?
+             url += "&m=#{machine_arch}" unless machine_arch.nil?
+             url += "&DownloadContext=#{download_context}" unless download_context.nil?
++            if !@config[:bootstrap_version].nil? and @config[:bootstrap_version]
++              require 'uri'
++              url += "&v=#{URI.escape(@config[:bootstrap_version])}"
++            else
+             url += latest_current_windows_chef_version_query
++            end
+           else
+             @config[:msi_url]
+           end
+diff -rupN knife-windows-1.8.0/lib/chef/knife/core/windows_bootstrap_context.rb.orig knife-windows-1.8.0.patched/lib/chef/knife/core/windows_bootstrap_context.rb.orig
+--- knife-windows-1.8.0/lib/chef/knife/core/windows_bootstrap_context.rb.orig	1969-12-31 19:00:00.000000000 -0500
++++ knife-windows-1.8.0.patched/lib/chef/knife/core/windows_bootstrap_context.rb.orig	2017-01-23 14:20:03.994814629 -0500
+@@ -0,0 +1,397 @@
++#
++# Author:: Seth Chisamore (<schisamo@chef.io>)
++# Copyright:: Copyright (c) 2011-2016 Chef Software, Inc.
++# License:: Apache License, Version 2.0
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++#
++
++require 'chef/knife/core/bootstrap_context'
++# Chef::Util::PathHelper in Chef 11 is a bit juvenile still
++require 'knife-windows/path_helper'
++# require 'chef/util/path_helper'
++
++class Chef
++  class Knife
++    module Core
++      # Instances of BootstrapContext are the context objects (i.e., +self+) for
++      # bootstrap templates. For backwards compatability, they +must+ set the
++      # following instance variables:
++      # * @config   - a hash of knife's config values
++      # * @run_list - the run list for the node to boostrap
++      #
++      class WindowsBootstrapContext < BootstrapContext
++        PathHelper = ::Knife::Windows::PathHelper
++
++        attr_accessor :client_pem
++
++        def initialize(config, run_list, chef_config, secret=nil)
++          @config       = config
++          @run_list     = run_list
++          @chef_config  = chef_config
++          @secret       = secret
++          # Compatibility with Chef 12 and Chef 11 versions
++          begin
++            # Pass along the secret parameter for Chef 12
++            super(config, run_list, chef_config, secret)
++          rescue ArgumentError
++            # The Chef 11 base class only has parameters for initialize
++            super(config, run_list, chef_config)
++          end
++        end
++
++        def validation_key
++          if File.exist?(File.expand_path(@chef_config[:validation_key]))
++            IO.read(File.expand_path(@chef_config[:validation_key]))
++          else
++            false
++          end
++        end
++
++        def secret
++          escape_and_echo(@config[:secret])
++        end
++
++        def trusted_certs_script
++          @trusted_certs_script ||= trusted_certs_content
++        end
++
++        def config_content
++          client_rb = <<-CONFIG
++chef_server_url  "#{@chef_config[:chef_server_url]}"
++validation_client_name "#{@chef_config[:validation_client_name]}"
++file_cache_path   "c:/chef/cache"
++file_backup_path  "c:/chef/backup"
++cache_options     ({:path => "c:/chef/cache/checksums", :skip_expires => true})
++          CONFIG
++          if @config[:chef_node_name]
++            client_rb << %Q{node_name "#{@config[:chef_node_name]}"\n}
++          else
++            client_rb << "# Using default node name (fqdn)\n"
++          end
++
++          if @chef_config[:config_log_level]
++            client_rb << %Q{log_level :#{@chef_config[:config_log_level]}\n}
++          else
++            client_rb << "log_level        :info\n"
++          end
++
++          client_rb << "log_location       #{get_log_location}"
++
++          # We configure :verify_api_cert only when it's overridden on the CLI
++          # or when specified in the knife config.
++          if !@config[:node_verify_api_cert].nil? || knife_config.has_key?(:verify_api_cert)
++            value = @config[:node_verify_api_cert].nil? ? knife_config[:verify_api_cert] : @config[:node_verify_api_cert]
++            client_rb << %Q{verify_api_cert #{value}\n}
++          end
++
++          # We configure :ssl_verify_mode only when it's overridden on the CLI
++          # or when specified in the knife config.
++          if @config[:node_ssl_verify_mode] || knife_config.has_key?(:ssl_verify_mode)
++            value = case @config[:node_ssl_verify_mode]
++            when "peer"
++              :verify_peer
++            when "none"
++              :verify_none
++            when nil
++              knife_config[:ssl_verify_mode]
++            else
++              nil
++            end
++
++            if value
++              client_rb << %Q{ssl_verify_mode :#{value}\n}
++            end
++          end
++
++          if @config[:ssl_verify_mode]
++            client_rb << %Q{ssl_verify_mode :#{knife_config[:ssl_verify_mode]}\n}
++          end
++
++          if knife_config[:bootstrap_proxy]
++            client_rb << "\n"
++            client_rb << %Q{http_proxy        "#{knife_config[:bootstrap_proxy]}"\n}
++            client_rb << %Q{https_proxy       "#{knife_config[:bootstrap_proxy]}"\n}
++            client_rb << %Q{no_proxy          "#{knife_config[:bootstrap_no_proxy]}"\n} if knife_config[:bootstrap_no_proxy]
++          end
++
++          if knife_config[:bootstrap_no_proxy]
++            client_rb << %Q{no_proxy       "#{knife_config[:bootstrap_no_proxy]}"\n}
++          end
++
++          if @config[:secret]
++            client_rb << %Q{encrypted_data_bag_secret "c:/chef/encrypted_data_bag_secret"\n}
++          end
++
++          unless trusted_certs_script.empty?
++            client_rb << %Q{trusted_certs_dir "c:/chef/trusted_certs"\n}
++          end
++
++          if Chef::Config[:fips]
++            client_rb << <<-CONFIG
++fips true
++chef_version = ::Chef::VERSION.split(".")
++unless chef_version[0].to_i > 12 || (chef_version[0].to_i == 12 && chef_version[1].to_i >= 8)
++  raise "FIPS Mode requested but not supported by this client"
++end
++CONFIG
++          end
++
++          escape_and_echo(client_rb)
++        end
++
++        def get_log_location
++          if @chef_config[:config_log_location].equal?(:win_evt)
++            %Q{:#{@chef_config[:config_log_location]}\n}
++          elsif @chef_config[:config_log_location].equal?(:syslog)
++            raise "syslog is not supported for log_location on Windows OS\n"
++          elsif (@chef_config[:config_log_location].equal?(STDOUT))
++            "STDOUT\n"
++          elsif (@chef_config[:config_log_location].equal?(STDERR))
++            "STDERR\n"
++          elsif @chef_config[:config_log_location].nil? || @chef_config[:config_log_location].empty?
++            "STDOUT\n"
++          elsif @chef_config[:config_log_location]
++            %Q{"#{@chef_config[:config_log_location]}"\n}
++          else
++            "STDOUT\n"
++          end
++        end
++
++        def start_chef
++          bootstrap_environment_option = bootstrap_environment.nil? ? '' : " -E #{bootstrap_environment}"
++          start_chef = "SET \"PATH=%PATH%;C:\\ruby\\bin;C:\\opscode\\chef\\bin;C:\\opscode\\chef\\embedded\\bin\"\n"
++          start_chef << "chef-client -c c:/chef/client.rb -j c:/chef/first-boot.json#{bootstrap_environment_option}\n"
++        end
++
++        def latest_current_windows_chef_version_query
++          installer_version_string = nil
++          if @config[:prerelease]
++            installer_version_string = "&prerelease=true"
++          else
++            chef_version_string = if knife_config[:bootstrap_version]
++              knife_config[:bootstrap_version]
++            else
++              Chef::VERSION.split(".").first
++            end
++
++            installer_version_string = "&v=#{chef_version_string}"
++
++            # If bootstrapping a pre-release version add the prerelease query string
++            if chef_version_string.split(".").length > 3
++              installer_version_string << "&prerelease=true"
++            end
++          end
++
++          installer_version_string
++        end
++
++        def win_wget
++          # I tried my best to figure out how to properly url decode and switch / to \
++          # but this is VBScript - so I don't really care that badly.
++          win_wget = <<-WGET
++url = WScript.Arguments.Named("url")
++path = WScript.Arguments.Named("path")
++proxy = null
++'* Vaguely attempt to handle file:// scheme urls by url unescaping and switching all
++'* / into \.  Also assume that file:/// is a local absolute path and that file://<foo>
++'* is possibly a network file path.
++If InStr(url, "file://") = 1 Then
++url = Unescape(url)
++If InStr(url, "file:///") = 1 Then
++sourcePath = Mid(url, Len("file:///") + 1)
++Else
++sourcePath = Mid(url, Len("file:") + 1)
++End If
++sourcePath = Replace(sourcePath, "/", "\\")
++
++Set objFSO = CreateObject("Scripting.FileSystemObject")
++If objFSO.Fileexists(path) Then objFSO.DeleteFile path
++objFSO.CopyFile sourcePath, path, true
++Set objFSO = Nothing
++
++Else
++Set objXMLHTTP = CreateObject("MSXML2.ServerXMLHTTP")
++Set wshShell = CreateObject( "WScript.Shell" )
++Set objUserVariables = wshShell.Environment("USER")
++
++rem http proxy is optional
++rem attempt to read from HTTP_PROXY env var first
++On Error Resume Next
++
++If NOT (objUserVariables("HTTP_PROXY") = "") Then
++proxy = objUserVariables("HTTP_PROXY")
++
++rem fall back to named arg
++ElseIf NOT (WScript.Arguments.Named("proxy") = "") Then
++proxy = WScript.Arguments.Named("proxy")
++End If
++
++If NOT isNull(proxy) Then
++rem setProxy method is only available on ServerXMLHTTP 6.0+
++Set objXMLHTTP = CreateObject("MSXML2.ServerXMLHTTP.6.0")
++objXMLHTTP.setProxy 2, proxy
++End If
++
++On Error Goto 0
++
++objXMLHTTP.open "GET", url, false
++objXMLHTTP.send()
++If objXMLHTTP.Status = 200 Then
++Set objADOStream = CreateObject("ADODB.Stream")
++objADOStream.Open
++objADOStream.Type = 1
++objADOStream.Write objXMLHTTP.ResponseBody
++objADOStream.Position = 0
++Set objFSO = Createobject("Scripting.FileSystemObject")
++If objFSO.Fileexists(path) Then objFSO.DeleteFile path
++Set objFSO = Nothing
++objADOStream.SaveToFile path
++objADOStream.Close
++Set objADOStream = Nothing
++End If
++Set objXMLHTTP = Nothing
++End If
++WGET
++          escape_and_echo(win_wget)
++        end
++
++        def win_wget_ps
++          win_wget_ps = <<-WGET_PS
++param(
++   [String] $remoteUrl,
++   [String] $localPath
++)
++
++$ProxyUrl = $env:http_proxy;
++$webClient = new-object System.Net.WebClient;
++
++if ($ProxyUrl -ne '') {
++  $WebProxy = New-Object System.Net.WebProxy($ProxyUrl,$true)
++  $WebClient.Proxy = $WebProxy
++}
++
++$webClient.DownloadFile($remoteUrl, $localPath);
++WGET_PS
++
++          escape_and_echo(win_wget_ps)
++        end
++
++        def install_chef
++          # The normal install command uses regular double quotes in
++          # the install command, so request such a string from install_command
++          install_chef = install_command('"') + "\n" + fallback_install_task_command
++        end
++
++        def bootstrap_directory
++          bootstrap_directory = "C:\\chef"
++        end
++
++        def local_download_path
++          local_download_path = "%TEMP%\\chef-client-latest.msi"
++        end
++
++        def msi_url(machine_os=nil, machine_arch=nil, download_context=nil)
++          # The default msi path has a number of url query parameters - we attempt to substitute
++          # such parameters in as long as they are provided by the template.
++
++          if @config[:msi_url].nil? || @config[:msi_url].empty?
++            url = "https://www.chef.io/chef/download?p=windows"
++            url += "&pv=#{machine_os}" unless machine_os.nil?
++            url += "&m=#{machine_arch}" unless machine_arch.nil?
++            url += "&DownloadContext=#{download_context}" unless download_context.nil?
++            url += latest_current_windows_chef_version_query
++          else
++            @config[:msi_url]
++          end
++        end
++
++        def first_boot
++          escape_and_echo(super.to_json)
++        end
++
++        # escape WIN BATCH special chars
++        # and prefixes each line with an
++        # echo
++        def escape_and_echo(file_contents)
++          file_contents.gsub(/^(.*)$/, 'echo.\1').gsub(/([(<|>)^])/, '^\1')
++        end
++
++        private
++
++        def install_command(executor_quote)
++          if @config[:install_as_service]
++            "msiexec /qn /log #{executor_quote}%CHEF_CLIENT_MSI_LOG_PATH%#{executor_quote} /i #{executor_quote}%LOCAL_DESTINATION_MSI_PATH%#{executor_quote} ADDLOCAL=#{executor_quote}ChefClientFeature,ChefServiceFeature#{executor_quote}"
++          else
++            "msiexec /qn /log #{executor_quote}%CHEF_CLIENT_MSI_LOG_PATH%#{executor_quote} /i #{executor_quote}%LOCAL_DESTINATION_MSI_PATH%#{executor_quote}"
++          end
++        end
++
++        # Returns a string for copying the trusted certificates on the workstation to the system being bootstrapped
++        # This string should contain both the commands necessary to both create the files, as well as their content
++        def trusted_certs_content
++          content = ""
++          if @chef_config[:trusted_certs_dir]
++            Dir.glob(File.join(PathHelper.escape_glob_dir(@chef_config[:trusted_certs_dir]), "*.{crt,pem}")).each do |cert|
++              content << "> #{bootstrap_directory}/trusted_certs/#{File.basename(cert)} (\n" +
++                         escape_and_echo(IO.read(File.expand_path(cert))) + "\n)\n"
++            end
++          end
++          content
++        end
++
++        def fallback_install_task_command
++          # This command will be executed by schtasks.exe in the batch
++          # code below. To handle tasks that contain arguments that
++          # need to be double quoted, schtasks allows the use of single
++          # quotes that will later be converted to double quotes
++          command = install_command('\'')
++<<-EOH
++          @set MSIERRORCODE=!ERRORLEVEL!
++          @if ERRORLEVEL 1 (
++              @echo WARNING: Failed to install Chef Client MSI package in remote context with status code !MSIERRORCODE!.
++              @echo WARNING: This may be due to a defect in operating system update KB2918614: http://support.microsoft.com/kb/2918614
++              @set OLDLOGLOCATION="%CHEF_CLIENT_MSI_LOG_PATH%-fail.log"
++              @move "%CHEF_CLIENT_MSI_LOG_PATH%" "!OLDLOGLOCATION!" > NUL
++              @echo WARNING: Saving installation log of failure at !OLDLOGLOCATION!
++              @echo WARNING: Retrying installation with local context...
++              @schtasks /create /f  /sc once /st 00:00:00 /tn chefclientbootstraptask /ru SYSTEM /rl HIGHEST /tr \"cmd /c #{command} & sleep 2 & waitfor /s %computername% /si chefclientinstalldone\"
++
++              @if ERRORLEVEL 1 (
++                  @echo ERROR: Failed to create Chef Client installation scheduled task with status code !ERRORLEVEL! > "&2"
++              ) else (
++                  @echo Successfully created scheduled task to install Chef Client.
++                  @schtasks /run /tn chefclientbootstraptask
++                  @if ERRORLEVEL 1 (
++                      @echo ERROR: Failed to execut Chef Client installation scheduled task with status code !ERRORLEVEL!. > "&2"
++                  ) else (
++                      @echo Successfully started Chef Client installation scheduled task.
++                      @echo Waiting for installation to complete -- this may take a few minutes...
++                      waitfor chefclientinstalldone /t 600
++                      if ERRORLEVEL 1 (
++                          @echo ERROR: Timed out waiting for Chef Client package to install
++                      ) else (
++                          @echo Finished waiting for Chef Client package to install.
++                      )
++                      @schtasks /delete /f /tn chefclientbootstraptask > NUL
++                  )
++              )
++          ) else (
++              @echo Successfully installed Chef Client package.
++          )
++EOH
++        end
++      end
++    end
++  end
++end
+\ No newline at end of file

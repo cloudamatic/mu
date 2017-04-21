@@ -104,6 +104,13 @@ module MU
         @@elb_api[region]
       end
 
+      # Amazon's ElasticLoadBalancingV2 (ALB) API
+      def self.elb2(region = MU.curRegion)
+        region ||= MU.myRegion
+        @@elb2_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ElasticLoadBalancingV2", region: region)
+        @@elb2_api[region]
+      end
+
       # Amazon's Route53 API
       def self.route53(region = MU.curRegion)
         region ||= MU.myRegion
@@ -144,6 +151,21 @@ module MU
         region ||= MU.myRegion
         @@cloudwatch_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudWatch", region: region)
         @@cloudwatch_api[region]
+      end
+
+      # Amazon's Web Application Firewall API (Global, for CloudFront et al)
+      def self.wafglobal(region = MU.curRegion)
+        region ||= MU.myRegion
+        @@wafglobal[region] ||= MU::Cloud::AWS::Endpoint.new(api: "WAF", region: region)
+        @@wafglobal[region]
+      end
+
+
+      # Amazon's Web Application Firewall API (Regional, for ALBs et al)
+      def self.waf(region = MU.curRegion)
+        region ||= MU.myRegion
+        @@waf[region] ||= MU::Cloud::AWS::Endpoint.new(api: "WAFRegional", region: region)
+        @@waf[region]
       end
 
       # Amazon's CloudWatchLogs API
@@ -349,7 +371,11 @@ module MU
         # @param api [String]: Which API are we wrapping?
         def initialize(region: MU.curRegion, api: "EC2")
           @region = region
-          @api = Object.const_get("Aws::#{api}::Client").new(region: region)
+          if region
+            @api = Object.const_get("Aws::#{api}::Client").new(region: region)
+          else
+            @api = Object.const_get("Aws::#{api}::Client").new
+          end
         end
 
         @instance_cache = {}
@@ -368,7 +394,7 @@ module MU
               retval = @api.method(method_sym).call
             end
             return retval
-          rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException, Aws::EC2::Errors::IncorrectState, Aws::EC2::Errors::Http503Error, Aws::AutoScaling::Errors::Http503Error, Aws::AutoScaling::Errors::InternalFailure, Aws::AutoScaling::Errors::ServiceUnavailable, Aws::Route53::Errors::ServiceUnavailable, Aws::ElasticLoadBalancing::Errors::Throttling, Aws::RDS::Errors::ClientUnavailable, Aws::Waiters::Errors::UnexpectedError, Aws::ElasticLoadBalancing::Errors::ServiceUnavailable => e
+          rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException, Aws::EC2::Errors::IncorrectState, Aws::EC2::Errors::Http503Error, Aws::AutoScaling::Errors::Http503Error, Aws::AutoScaling::Errors::InternalFailure, Aws::AutoScaling::Errors::ServiceUnavailable, Aws::Route53::Errors::ServiceUnavailable, Aws::ElasticLoadBalancing::Errors::Throttling, Aws::RDS::Errors::ClientUnavailable, Aws::Waiters::Errors::UnexpectedError, Aws::ElasticLoadBalancing::Errors::ServiceUnavailable, Aws::ElasticLoadBalancingV2::Errors::Throttling => e
             retries = retries + 1
             debuglevel = MU::DEBUG
             interval = 5 + Random.rand(4) - 2
@@ -392,12 +418,15 @@ module MU
       @@ec2_api = {}
       @@autoscale_api = {}
       @@elb_api = {}
+      @@elb2_api = {}
       @@route53_api = {}
       @@rds_api = {}
       @@cloudformation_api = {}
       @@s3_api = {}
       @@cloudtrail_api = {}
       @@cloudwatch_api = {}
+      @@wafglobal = {}
+      @@waf = {}
       @@cloudwatchlogs_api = {}
       @@cloudfront_api = {}
       @@elasticache_api = {}

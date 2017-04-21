@@ -19,7 +19,7 @@
 #
 
 unless node['splunk']['disabled']
-  Chef::Log.debug('The chef-splunk::disabled recipe was added to the node,')
+  Chef::Log.debug('The mu-splunk::disabled recipe was added to the node,')
   Chef::Log.debug('but the attribute to disable splunk was not set.')
   return
 end

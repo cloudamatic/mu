@@ -147,7 +147,9 @@ if $MU_CFG["ldap"]["type"] == "389 Directory Services"
   %x{/sbin/chkconfig dirsrv-admin on}
   %x{/usr/sbin/stop-dirsrv}
   %x{/usr/sbin/start-dirsrv}
-  %x{/usr/bin/systemctl enable dirsrv-admin}
+  if File.exists?("/usr/bin/systemctl")
+    %x{/usr/bin/systemctl enable dirsrv-admin}
+  end
 
   # Manufacture some groups and management users.
   MU::Master::LDAP.initLocalLDAP

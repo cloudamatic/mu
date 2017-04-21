@@ -43,7 +43,7 @@ module MU
             @mu_name = mu_name
           else
             @mu_name ||=
-              if @config["engine"].match(/^sqlserver/)
+              if @config and @config['engine'] and @config["engine"].match(/^sqlserver/)
                 @deploy.getResourceName(@config["name"], max_length: 15)
               else
                 @deploy.getResourceName(@config["name"], max_length: 63)
@@ -139,14 +139,14 @@ module MU
               if source_db.nil?
                 tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
                 found = MU::MommaCat.findStray(
-                    rr['cloud'],
-                    "database",
-                    deploy_id: rr["deploy_id"],
-                    cloud_id: rr["db_id"],
-                    tag_key: tag_key,
-                    tag_value: tag_value,
-                    region: rr["region"],
-                    dummy_ok: true
+                  rr['cloud'],
+                  "database",
+                  deploy_id: rr["deploy_id"],
+                  cloud_id: rr["db_id"],
+                  tag_key: tag_key,
+                  tag_value: tag_value,
+                  region: rr["region"],
+                  dummy_ok: true
                 )
                 source_db = found.first if found.size == 1
               end
@@ -156,7 +156,11 @@ module MU
             end
 
             getPassword
-            createSubnetGroup if source_db.nil? or @config['region'] != source_db.config['region']
+            if source_db.nil? or @config['region'] != source_db.config['region']
+              createSubnetGroup
+            else
+              MU.log "Note: Read Replicas automatically reside in the same subnet group as the source database, if they're both in the same region. This replica may not land in the VPC you intended.", MU::WARN
+            end
 
             if @config.has_key?("parameter_group_family")
               @config["parameter_group_name"] = @config['identifier']
@@ -172,8 +176,9 @@ module MU
         # @param region [String]: The cloud provider region
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
+        # @param opts [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching Databases
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil)
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, opts: {})
           map = {}
           if cloud_id
             db = MU::Cloud::AWS::Database.getDatabaseById(cloud_id, region: region)
@@ -321,9 +326,13 @@ module MU
           end
 
           if @config["read_replica_of"] || @config["create_read_replica"]
+            srcdb = @config['source_identifier']
+            if @config["read_replica_of"]["region"] and @config['region'] != @config["read_replica_of"]["region"]
+              srcdb = MU::Cloud::AWS::Database.getARN(@config['source_identifier'], "db", "rds", region: @config["read_replica_of"]["region"])
+            end
             read_replica_struct = {
               db_instance_identifier: @config['identifier'],
-              source_db_instance_identifier: @config['source_identifier'],
+              source_db_instance_identifier: srcdb,
               db_instance_class: @config["size"],
               auto_minor_version_upgrade: @config["auto_minor_version_upgrade"],
               publicly_accessible: @config["publicly_accessible"],
@@ -350,7 +359,8 @@ module MU
               MU.log "Creating read replica database instance #{@config['identifier']} for #{@config['source_identifier']}"
               begin
                 resp = MU::Cloud::AWS.rds(@config['region']).create_db_instance_read_replica(read_replica_struct)
-              rescue Aws::RDS::Errors::DBSubnetGroupNotAllowedFault
+              rescue Aws::RDS::Errors::DBSubnetGroupNotAllowedFault => e
+                MU.log "Being forced to use source database's subnet group: #{e.message}", MU::WARN
                 read_replica_struct.delete(:db_subnet_group_name)
                 resp = MU::Cloud::AWS.rds(@config['region']).create_db_instance_read_replica(read_replica_struct)
               end
@@ -412,19 +422,21 @@ module MU
 
           # When creating from a snapshot, some of the create arguments aren't
           # applicable- but we can apply them after the fact with a modify.
-          if %w{existing_snapshot new_snapshot point_in_time}.include?(@config["creation_style"])
+          if %w{existing_snapshot new_snapshot point_in_time}.include?(@config["creation_style"]) or @config["read_replica_of"]
             mod_config = Hash.new
+            if !@config["read_replica_of"]
+              mod_config[:preferred_backup_window] = @config["preferred_backup_window"]
+              mod_config[:backup_retention_period] = @config["backup_retention_period"]
+              mod_config[:engine_version] = @config["engine_version"]
+              mod_config[:allow_major_version_upgrade] = @config["allow_major_version_upgrade"] if @config['allow_major_version_upgrade']
+              mod_config[:db_parameter_group_name] = @config["parameter_group_name"] if @config["parameter_group_name"]
+              mod_config[:master_user_password] = @config['password']
+              mod_config[:allocated_storage] = @config["storage"] if @config["storage"]
+            end
             mod_config[:db_instance_identifier] = database.db_instance_identifier
-            mod_config[:preferred_backup_window] = @config["preferred_backup_window"]
-            mod_config[:backup_retention_period] = @config["backup_retention_period"]
             mod_config[:preferred_maintenance_window] = @config["preferred_maintenance_window"] if @config["preferred_maintenance_window"]
-            mod_config[:engine_version] = @config["engine_version"]
-            mod_config[:allow_major_version_upgrade] = @config["allow_major_version_upgrade"] if @config['allow_major_version_upgrade']
-            mod_config[:apply_immediately] = true
-            mod_config[:db_parameter_group_name] = @config["parameter_group_name"] if @config["parameter_group_name"]
-            mod_config[:master_user_password] = @config['password']
-            mod_config[:allocated_storage] = @config["storage"] if @config["storage"]
             mod_config[:vpc_security_group_ids] = @config["vpc_security_group_ids"]
+            mod_config[:apply_immediately] = true
 
             MU::Cloud::AWS.rds(@config['region']).modify_db_instance(mod_config)
             wait_start_time = Time.now
@@ -637,6 +649,7 @@ module MU
                 subnet_ids: subnet_ids,
                 tags: allTags
             )
+            @config["subnet_group_name"] = resp.db_subnet_group.db_subnet_group_name
 
             if @dependencies.has_key?('firewall_rule')
                 @config["vpc_security_group_ids"] = []
@@ -1175,7 +1188,7 @@ module MU
               threads << Thread.new(db) { |mydb|
                 MU.dupGlobals(parent_thread_id)
                 Thread.abort_on_exception = true
-                MU::Cloud::AWS::Database.terminate_rds_instance(mydb, noop, skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: db.db_instance_identifier, mu_name: db.db_instance_identifier.upcase)
+                MU::Cloud::AWS::Database.terminate_rds_instance(mydb, noop: noop, skipsnapshots: skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: db.db_instance_identifier, mu_name: db.db_instance_identifier.upcase)
               }
             end
           }
@@ -1215,7 +1228,7 @@ module MU
               threads << Thread.new(cluster) { |mydbcluster|
                 MU.dupGlobals(parent_thread_id)
                 Thread.abort_on_exception = true
-                MU::Cloud::AWS::Database.terminate_rds_cluster(mydbcluster, noop, skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: cluster_id, mu_name: cluster_id.upcase)
+                MU::Cloud::AWS::Database.terminate_rds_cluster(mydbcluster, noop: noop, skipsnapshots: skipsnapshots, region: region, deploy_id: MU.deploy_id, cloud_id: cluster_id, mu_name: cluster_id.upcase)
               }
             end
           }
@@ -1336,7 +1349,7 @@ module MU
         # Remove an RDS database and associated artifacts
         # @param db [OpenStruct]: The cloud provider's description of the database artifact
         # @return [void]
-        def self.terminate_rds_instance(db, noop = false, skipsnapshots = false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil)
+        def self.terminate_rds_instance(db, noop: false, skipsnapshots: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil)
           raise MuError, "terminate_rds_instance requires a non-nil database descriptor" if db.nil?
           db_id = db.db_instance_identifier
 
@@ -1459,7 +1472,7 @@ module MU
         # Remove an RDS database cluster and associated artifacts
         # @param cluster [OpenStruct]: The cloud provider's description of the database artifact
         # @return [void]
-        def self.terminate_rds_cluster(cluster, noop = false, skipsnapshots = false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil)
+        def self.terminate_rds_cluster(cluster, noop: false, skipsnapshots: false, region: MU.curRegion, deploy_id: MU.deploy_id, mu_name: nil, cloud_id: nil)
           raise MuError, "terminate_rds_cluster requires a non-nil database cluster descriptor" if cluster.nil?
           cluster_id = cluster.db_cluster_identifier
 

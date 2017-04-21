@@ -151,14 +151,14 @@ module MU
                    create: false,
                    deploy_secret: nil,
                    config: nil,
-                   environment: environment = "dev",
-                   ssh_key_name: ssh_key_name = nil,
-                   ssh_private_key: ssh_private_key = nil,
-                   ssh_public_key: ssh_public_key = nil,
+                   environment: "dev",
+                   ssh_key_name: nil,
+                   ssh_private_key: nil,
+                   ssh_public_key: nil,
                    nocleanup: false,
                    set_context_to_me: true,
                    skip_resource_objects: false,
-                   deployment_data: deployment_data = Hash.new,
+                   deployment_data: {},
                    mu_user: "root"
     )
       if deploy_id.nil? or deploy_id.empty?
@@ -434,6 +434,7 @@ module MU
           break
         end
       }
+
       @kitten_semaphore.synchronize {
         @kittens[type] = {} if @kittens[type].nil?
         if has_multiples
@@ -1034,6 +1035,7 @@ module MU
     # @param tag_value [String]: A cloud provider tag to help identify the resource, used in conjunction with tag_key.
     # @param allow_multi [Boolean]: Permit an array of matching resources to be returned (if applicable) instead of just one.
     # @param dummy_ok [Boolean]: Permit return of a faked {MU::Cloud} object if we don't have enough information to identify a real live one.
+    # @param opts [Hash]: Other cloud or resource type specific options to pass to that resource's find() method
     # @return [Array<MU::Cloud>]
     def self.findStray(cloud,
         type,
@@ -1046,6 +1048,7 @@ module MU
         tag_value: nil,
         allow_multi: false,
         calling_deploy: MU.mommacat,
+        opts: {},
         dummy_ok: false
     )
       return nil if cloud == "CloudFormation" and !cloud_id.nil?
@@ -1074,9 +1077,9 @@ module MU
             deploy_id = mu_name.sub(/^(\w+-\w+-\d{10}-[A-Z]{2})-/, '\1')
           end
         end
-        MU.log "Called findStray with cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}", MU::DEBUG
+        MU.log "Called findStray with cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}", MU::DEBUG, details: opts
 
-        if !deploy_id.nil? and !calling_deploy.nil? and
+        if !deploy_id.nil? and !calling_deploy.nil? and opts.empty? and
             calling_deploy.deploy_id == deploy_id and (!name.nil? or !mu_name.nil?)
           handle = calling_deploy.findLitterMate(type: type, name: name, mu_name: mu_name, cloud_id: cloud_id)
           return [handle] if !handle.nil?
@@ -1084,7 +1087,7 @@ module MU
 
         kittens = {}
         # Search our deploys for matching resources
-        if deploy_id or name or mu_name or cloud_id
+        if (deploy_id or name or mu_name or cloud_id) and opts.empty?
           mu_descs = MU::MommaCat.getResourceMetadata(resourceclass.cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name)
           mu_descs.each_pair { |deploy_id, matches|
             next if matches.nil? or matches.size == 0
@@ -1125,7 +1128,7 @@ module MU
           end
         end
         matches = []
-        if cloud_id or (tag_key and tag_value)
+        if cloud_id or (tag_key and tag_value) or !opts.empty?
           regions = []
           begin
             if region
@@ -1139,7 +1142,7 @@ module MU
 
           cloud_descs = {}
           regions.each { |r|
-            cloud_descs[r] = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value)
+            cloud_descs[r] = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, opts: opts)
           }
           regions.each { |r|
             next if cloud_descs[r].nil?
@@ -1207,8 +1210,10 @@ module MU
           if has_multiples
             if !name.nil?
               if data.size == 1 and (cloud_id.nil? or data.values.first.cloud_id == cloud_id)
-                return data.values.first
+                obj = data.values.first
+                return obj
               elsif mu_name.nil? and cloud_id.nil?
+                obj = data.values.first
                 MU.log "#{@deploy_id}: Found multiple matches in findLitterMate based on #{type}: #{name}, and not enough info to narrow down further. Returning an arbitrary result. Caller: #{caller[1]}", MU::WARN, details: data.values
                 return data.values.first
               end

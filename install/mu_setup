@@ -19,8 +19,8 @@ elif [ "$DIST_VERSION" == "server" ];then # funny package name in RHEL6
 fi
 EPEL_RPM="http://mirror.metrocast.net/fedora/epel/epel-release-latest-$DIST_VERSION.noarch.rpm"
 
-CHEF_CLIENT_VERSION="12.13.37-1"
-CHEF_SERVER_VERSION="12.10.0-1"
+CHEF_CLIENT_VERSION="12.17.44-1"
+CHEF_SERVER_VERSION="12.11.1-1"
 
 if [ $DIST_VERSION == 7 ];then
   # mariadb replaces mysql, qt and qt-x11 are required by gecode which is required by the dep_selector gem. 
@@ -29,9 +29,9 @@ if [ $DIST_VERSION == 7 ];then
   OPSCODE_CHEF_PKG="chef-server-core-$CHEF_SERVER_VERSION.el7.x86_64"
   OPSCODE_CHEF_DL="https://packages.chef.io/stable/el/7/${OPSCODE_CHEF_PKG}.rpm"
   CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el7.x86_64"
-  RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby-2.1.6-1.el7.x86_64.rpm"
-  RUBY_INSTALL_DIR="/opt/rubies/ruby-2.1.6"
-  RUBY_VERSION="ruby-2.1.6"
+  RUBY_RPM="https://s3.amazonaws.com/mu-stuff/ruby23-2.3.1-1.el7.centos.x86_64.rpm"
+  RUBY_INSTALL_DIR="/opt/rubies/ruby-2.3.1"
+  RUBY_VERSION="ruby23-2.3.1"
   GECODE_RPMS="https://s3.amazonaws.com/cap-public/gecode-3.7.3-2.el7.centos.x86_64.rpm https://s3.amazonaws.com/cap-public/gecode-devel-3.7.3-2.el7.centos.x86_64.rpm"
 else
   PACKAGES="git curl vim-enhanced zip unzip java-1.5.0-gcj java-1.8.0-openjdk mysql-server gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel diffutils patch bind-utils httpd-tools mailx mysql-devel postgresql-devel openssl libyaml graphviz autoconf ImageMagick-devel graphviz-devel jq"
@@ -43,9 +43,9 @@ else
   OPSCODE_CHEF_PKG="chef-server-core-$CHEF_SERVER_VERSION.el6.x86_64"
   OPSCODE_CHEF_DL="https://packages.chef.io/stable/el/6/${OPSCODE_CHEF_PKG}.rpm"
   CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el6.x86_64"
-  RUBY_RPM="https://s3.amazonaws.com/cap-public/ruby-2.1.6-1.el6.x86_64.rpm"
-  RUBY_INSTALL_DIR="/opt/rubies/ruby-2.1.6"
-  RUBY_VERSION="ruby-2.1.6"
+  RUBY_RPM="https://s3.amazonaws.com/mu-stuff/ruby23-2.3.1-1.el6.x86_64.rpm"
+  RUBY_INSTALL_DIR="/opt/rubies/ruby-2.3.1"
+  RUBY_VERSION="ruby23-2.3.1"
   DEL_PACKAGES="nagios"
 fi
 
@@ -377,6 +377,12 @@ manage_chef_org()
   add_user=$3
   association_user=$4
 
+  if curl -k -so /dev/null https://${CHEF_PUBLIC_IP}:7443;then 
+    pivotal_cfg_setup pivotal_cfg
+  else
+    pivotal_cfg_setup pivotal_cfg 443
+  fi
+
   # chef-server-ctl generates a spectcular amount of stupid noise
   filter="(ffi-yajl|falling back to ffi)"
 
@@ -499,6 +505,13 @@ manage_chef_user()
   mkdir -p "$MU_DATADIR/users/$user"
   /bin/chmod g+rsx "$MU_DATADIR/users"
   /bin/chgrp mu-users "$MU_DATADIR/users"
+
+  if curl -k -so /dev/null https://${CHEF_PUBLIC_IP}:7443;then 
+    pivotal_cfg_setup pivotal_cfg
+  else
+    pivotal_cfg_setup pivotal_cfg 443
+  fi
+
   # chef-server-ctl generates a spectcular amount of stupid noise
   filter="(ffi-yajl|falling back to ffi)"
 
@@ -698,6 +711,7 @@ print_setup_env_vars(){
 chef_client()
 {
   punch_tcp_hole 7443 # sometimes this isn't ready
+  upload_chef_artifacts -n -r $MU_REPO_NAME
   status_message "chef-client $@"
 
   chef_cert_name="`echo $CHEF_PUBLIC_IP | sed 's/\./_/g'`"
@@ -738,7 +752,7 @@ chef_server_ctl()
 ## Patch knife-windows to deal with Cygwin
 patch_knife_windows()
 {
-  kw_version="1.4.0"
+  kw_version="1.8.0"
 
   for rubydir in $RUBY_INSTALL_DIR /opt/chef/embedded;do
     if [ -d "$rubydir/lib/ruby/gems" ];then
@@ -1079,9 +1093,13 @@ install_ruby()
   fi
   status_message "Installing ${BOLD}$RUBY_VERSION${NORM}"
 
+  if rpm -q ruby > /dev/null ;then
+    yum -y erase ruby
+  fi
+
   if ! rpm -q $RUBY_VERSION > /dev/null ;then
     if [ "$IS_AMAZON" != "1" ];then
-      rpm -ivh $RUBY_RPM
+      yum -y install $RUBY_RPM
     else
       rpm -ivh --nodeps $RUBY_RPM # XXX hack workaround for spurious dependency
     fi
@@ -1544,15 +1562,14 @@ setup_localhost_chef_client()
     fi
     mkdir -p /etc/chef
     if [ "$allowuser" == "root" -o "$allowuser" == "" ];then
-      /opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --no--node-ssl-verify-mode=none ${CHEF_PUBLIC_IP}
+      /opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none ${CHEF_PUBLIC_IP}
     else
-      /opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --no--node-ssl-verify-mode=none -x ${allowuser} --sudo ${CHEF_PUBLIC_IP}
+      /opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none -x ${allowuser} --sudo ${CHEF_PUBLIC_IP}
     fi
     run_chef_client=0
   fi
 
   status_message "Configuring local LDAP directory"
-  upload_chef_artifacts -n -r $MU_REPO_NAME
   punch_tcp_hole 389
   punch_tcp_hole 636
   $MU_LIBDIR/install/ldap_setup.rb
@@ -1655,7 +1672,7 @@ generate_ssl_certs()
     status_message "Creating internal-use SSL certificate authority"
     openssl genrsa -out Mu_CA.key 4096
     chmod 400 Mu_CA.key
-    openssl req -subj "/CN=$CHEF_PUBLIC_IP/OU=Mu Server $CHEF_PUBLIC_IP/O=eGlobalTech/C=US" -x509 -new -nodes -key Mu_CA.key -days 1024 -out Mu_CA.pem
+    openssl req -subj "/CN=$CHEF_PUBLIC_IP/OU=Mu Server $CHEF_PUBLIC_IP/O=eGlobalTech/C=US" -x509 -new -nodes -key Mu_CA.key -days 1024 -out Mu_CA.pem -sha512
     /bin/cp -f Mu_CA.pem $MU_LIBDIR/cookbooks/mu-tools/files/default/Mu_CA.pem
     if [ "$skip_chef" == "" ];then
       chef_artifacts_uploaded=0
@@ -1677,14 +1694,17 @@ generate_ssl_certs()
       if ! ( grep "BEGIN CERTIFICATE" $MU_DATADIR/ssl/$cert.crt | wc -l | grep '^2$' > /dev/null );then
         status_message "Forcing regeneration of $MU_DATADIR/ssl/$cert.crt"
         /bin/rm -f $cert.crt
+      elif openssl x509 -text -noout -in $MU_DATADIR/ssl/$cert.crt | grep "Signature Algorithm: sha1WithRSAEncryption" > /dev/null ;then
+        status_message "Forcing regeneration of $MU_DATADIR/ssl/$cert.crt (SHA-1 signature detected)"
+        /bin/rm -f $cert.crt
       fi
     fi
     if [ ! -f $cert.crt -o $regen_all == 1 ];then
       status_message "Creating self-signed $cert SSL certificate"
       openssl genrsa -out $cert.key 4096
       chmod 400 $cert.key
-      openssl req -subj "/CN=$CHEF_PUBLIC_IP/OU=Mu $cert/O=eGlobalTech/C=US" -new -key $cert.key -out $cert.csr
-      openssl x509 -req -in $cert.csr -CA Mu_CA.pem -CAkey Mu_CA.key -CAcreateserial -out $cert.crt -days 500
+      openssl req -subj "/CN=$CHEF_PUBLIC_IP/OU=Mu $cert/O=eGlobalTech/C=US" -new -key $cert.key -out $cert.csr -sha512
+      openssl x509 -req -in $cert.csr -CA Mu_CA.pem -CAkey Mu_CA.key -CAcreateserial -out $cert.crt -days 500 -sha512
       cat Mu_CA.pem >> $cert.crt
       if [ "$cert" == "mommacat" -a "$skip_chef" == "" ];then
         chef_server_ctl restart
@@ -1704,6 +1724,7 @@ generate_ssl_certs()
     fi
   done
   /bin/cp -f /opt/mu/var/ssl/Mu_CA.pem /etc/pki/ca-trust/source/anchors/
+  /usr/bin/update-ca-trust force-enable
   /usr/bin/update-ca-trust extract
 }
 

@@ -99,7 +99,10 @@ def create_domain
     cmd = powershell_out(code)
     kill_ssh
     Chef::Application.fatal!("Failed to create Active Directory Domain #{new_resource.dns_name}") if cmd.exitstatus != 0
-    Chef::Application.fatal!("Active Directory Domain #{new_resource.dns_name} was created, rebooting. Will have to run chef again")
+    reboot "Active Directory Domain #{new_resource.dns_name} created" do
+      action :reboot_now
+      reason "Active Directory Domain #{new_resource.dns_name} created"
+    end
   end
 end
 

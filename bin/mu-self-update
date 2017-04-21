@@ -176,6 +176,9 @@ install_system_packages
 set_hostname
 configure_ec2_security_group
 install_mu_executables $@ || install_cap_executables $@
+set +e
+install_ruby purgeold
+set -e
 
 echo "${GREEN}Updating bundles for Ruby deploy tools${NORM}"
 cd $MU_LIBDIR/modules
@@ -191,8 +194,8 @@ generate_docs
 /usr/sbin/groupdel mu-users > /dev/null 2>&1
 /usr/sbin/groupdel mu-admins > /dev/null 2>&1
 
+/sbin/service nagios stop
 set +e
-install_ruby purgeold
 patch_knife_windows
 generate_ssl_certs skip_chef
 install_chef
@@ -233,3 +236,4 @@ if [ "$stashed_changes" == "1" ];then
   fi
 fi
 set_permissions
+/sbin/service nagios start

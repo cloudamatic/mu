@@ -1439,6 +1439,7 @@ module MU
               vpc['availability_zones'] = vpc['availability_zones'].map { |val| val['zone'] }
             end
           end
+
           cidr = NetAddr::CIDR.create(vpc['ip_block'].to_s)
           subnets_desired = vpc['availability_zones'].size*2
           # Round the number of addresses we're splitting into down to the nearest power
@@ -1518,25 +1519,29 @@ module MU
       vpcs.each { |vpc|
         if !vpc["peers"].nil?
           vpc["peers"].each { |peer|
-            peer['region'] = config['region'] if peer['region'].nil?
-            peer['cloud'] = vpc['cloud'] if peer['cloud'].nil?
             peer["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("VPC")
             # If we're peering with a VPC in this deploy, set it as a dependency
-            if !peer['vpc']["vpc_name"].nil? and vpc_names.include?(peer['vpc']["vpc_name"].to_s) and peer["vpc"]['deploy_id'].nil? and peer["vpc"]['vpc_id'].nil?
+            if !peer['vpc']["vpc_name"].nil? and
+               vpc_names.include?(peer['vpc']["vpc_name"].to_s) and
+               peer["vpc"]['deploy_id'].nil? and peer["vpc"]['vpc_id'].nil?
+              peer['vpc']['region'] = config['region'] if peer['vpc']['region'].nil?
+              peer['vpc']['cloud'] = vpc['cloud'] if peer['vpc']['cloud'].nil?
               vpc["dependencies"] << {
-                  "type" => "vpc",
-                  "name" => peer['vpc']["vpc_name"]
+                "type" => "vpc",
+                "name" => peer['vpc']["vpc_name"]
               }
               # If we're using a VPC from somewhere else, make sure the flippin'
               # thing exists, and also fetch its id now so later search routines
               # don't have to work so hard.
             else
+              peer['vpc']['region'] = config['region'] if peer['vpc']['region'].nil?
+              peer['vpc']['cloud'] = vpc['cloud'] if peer['vpc']['cloud'].nil?
               if !peer['account'].nil? and peer['account'] != MU.account_number
                 if peer['vpc']["vpc_id"].nil?
                   MU.log "VPC peering connections to non-local accounts must specify the vpc_id of the peer.", MU::ERR
                   ok = false
                 end
-              elsif !processVPCReference(peer['vpc'], "vpc '#{vpc['name']}'", dflt_region: config['region'])
+              elsif !processVPCReference(peer['vpc'], "vpc '#{vpc['name']}'", dflt_region: peer["vpc"]['region'])
                 ok = false
               end
             end
@@ -1798,6 +1803,84 @@ module MU
             alarm["namespace"] = "AWS/ELB" if alarm["namespace"].nil?
             alarm['cloud'] = lb['cloud']
             alarms << alarm.dup
+          }
+        end
+
+        if !lb["classic"]
+          if lb["vpc"].nil?
+            MU.log "LoadBalancer #{lb['name']} has no VPC configured. Either set 'classic' to true or configure a VPC.", MU::ERR
+            ok = false
+          end
+
+          if lb["targetgroups"].nil? or lb["targetgroups"].size == 0
+            if lb["listeners"].nil? or lb["listeners"].size == 0
+              ok = false
+              MU.log "No targetgroups or listeners defined in LoadBalancer #{lb['name']}", MU::ERR
+            end
+            lb["targetgroups"] = []
+
+            # Manufacture targetgroups out of old-style listener configs
+            lb["listeners"].each { |l|
+              tgname = lb["name"]+l["lb_protocol"].downcase+l["lb_port"].to_s
+              l["targetgroup"] = tgname
+              tg = { 
+                "name" => tgname,
+                "proto" => l["instance_protocol"],
+                "port" => l["instance_port"]
+              }
+              if lb["healthcheck"]
+                hc_target = lb['healthcheck']['target'].match(/^([^:]+):(\d+)(.*)/)
+                tg["healthcheck"] = lb['healthcheck'].dup
+                proto = !["HTTP", "HTTPS"].include?(hc_target[1]) ? hc_target[1] : l["instance_protocol"]
+                tg['healthcheck']['target'] = "#{proto}:#{l["instance_port"]}#{hc_target[3]}"
+                tg['healthcheck']["httpcode"] = "200,301,302"
+                MU.log "Classic-style ELB health check target #{lb['healthcheck']['target']} invalid for ALB targetgroup #{tgname} (#{l["instance_protocol"]}:#{l["instance_port"]}). Creating approximate configuration:", MU::WARN, details: tg['healthcheck']
+              end
+              lb["targetgroups"] << tg
+            }
+          else
+            lb['listeners'].each { |l|
+              found = false
+              lb['targetgroups'].each { |tg|
+                if l['targetgroup'] == tg['name']
+                  found = true
+                  break
+                end
+              }
+              if !found
+                ok = false
+                MU.log "listener in LoadBalancer #{lb['name']} refers to targetgroup #{l['targetgroup']}, but no such targetgroup found", MU::ERR
+              end
+            }
+          end
+          lb['listeners'].each { |l|
+            if !l['rules'].nil? and l['rules'].size > 0
+              l['rules'].each { |r|
+                if r['actions'].nil?
+                  r['actions'] = [
+                    { "targetgroup" => l["targetgroup"], "action" => "forward" }
+                  ]
+                  next
+                end
+                r['actions'].each { |action|
+                  if action['targetgroup'].nil?
+                    action['targetgroup'] = l['targetgroup']
+                  else
+                    found = false
+                    lb['targetgroups'].each { |tg|
+                      if l['targetgroup'] == action['targetgroup']
+                        found = true
+                        break
+                      end
+                    }
+                    if !found
+                      ok = false
+                      MU.log "listener action in LoadBalancer #{lb['name']} refers to targetgroup #{action['targetgroup']}, but no such targetgroup found", MU::ERR
+                    end
+                  end
+                }
+              }
+            end
           }
         end
       }
@@ -3203,6 +3286,17 @@ module MU
       return vpc_ref_schema
     end
 
+    @region_primitive = {
+      "type" => "string",
+      "enum" => MU::Cloud::AWS.listRegions
+    }
+
+    @cloud_primitive = {
+      "type" => "string",
+      "default" => MU::Config.defaultCloud,
+      "enum" => MU::Cloud.supportedClouds
+    }
+
     @database_ref_primitive = {
         "type" => "object",
         "description" => "Incorporate a database object",
@@ -3245,17 +3339,6 @@ module MU
     #       }
     #     }
     #   }
-
-    @region_primitive = {
-      "type" => "string",
-      "enum" => MU::Cloud::AWS.listRegions
-    }
-
-    @cloud_primitive = {
-      "type" => "string",
-      "default" => MU::Config.defaultCloud,
-      "enum" => MU::Cloud.supportedClouds
-    }
 
     @dependencies_primitive = {
         "type" => "array",
@@ -4590,6 +4673,11 @@ module MU
                 },
                 {
                     "key_is" => "platform",
+                    "value_is" => "win2k16",
+                    "set" => "Administrator"
+                },
+                {
+                    "key_is" => "platform",
                     "value_is" => "ubuntu",
                     "set" => "ubuntu"
                 },
@@ -4816,7 +4904,7 @@ module MU
                 "items" => @firewall_ruleset_rule_primitive
             },
             "engine" => {
-                "enum" => ["mysql", "postgres", "oracle-se1", "oracle-se", "oracle-ee", "sqlserver-ee", "sqlserver-se", "sqlserver-ex", "sqlserver-web", "aurora"],
+                "enum" => ["mysql", "postgres", "oracle-se1", "oracle-se2", "oracle-se", "oracle-ee", "sqlserver-ee", "sqlserver-se", "sqlserver-ex", "sqlserver-web", "aurora", "mariadb"],
                 "type" => "string"
             },
             "dns_records" => dns_records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
@@ -4948,8 +5036,13 @@ module MU
             "cluster_parameter_group_parameters" => @rds_parameters_primitive,
             "parameter_group_family" => {
                 "type" => "String",
-                "enum" => ["postgres9.5", "postgres9.4", "postgres9.3", "mysql5.1", "mysql5.5", "mysql5.6", "oracle-ee-11.2", "oracle-ee-12.1", "oracle-se-11.2", "oracle-se-12.1", "oracle-se1-11.2", "oracle-se1-12.1",
-                                   "aurora5.6", "sqlserver-ee-10.5", "sqlserver-ee-11.0", "sqlserver-ex-10.5", "sqlserver-ex-11.0", "sqlserver-se-10.5", "sqlserver-se-11.0", "sqlserver-web-10.5", "sqlserver-web-11.0"],
+                "enum" => [
+                  "postgres9.6", "postgres9.5", "postgres9.4", "postgres9.3", 
+                  "mysql5.1", "mysql5.5", "mysql5.6", "mysql5.7", 
+                  "oracle-ee-11.2", "oracle-ee-12.1", "oracle-se-11.2", "oracle-se-12.1", "oracle-se1-11.2", "oracle-se1-12.1",
+                  "sqlserver-ee-10.5", "sqlserver-ee-11.0", "sqlserver-ee-12.0", "sqlserver-ex-10.5", "sqlserver-ex-11.0", "sqlserver-ex-12.0", "sqlserver-se-10.5", "sqlserver-se-11.0", "sqlserver-se-12.0", "sqlserver-web-10.5", "sqlserver-web-11.0", "sqlserver-web-12.0", 
+                  "aurora5.6", "mariadb-10.0", "mariadb-10.1"
+                ],
                 "description" => "The database family to create the DB Parameter Group for. The family type must be the same type as the database major version - eg if you set engine_version to 9.4.4 the db_family must be set to postgres9.4."
             },
             "auth_vault" => {
@@ -5089,6 +5182,44 @@ module MU
         }
     }
 
+    @lb_healthcheck_primitive = {
+      "type" => "object",
+      "additionalProperties" => false,
+      "description" => "The method used by a Load Balancer to check the health of its client nodes.",
+      "required" => ["target"],
+      "properties" => {
+        "target" => {
+          "type" => "String",
+          "pattern" => "^(TCP:\\d+|SSL:\\d+|HTTP:\\d+\\/.*|HTTPS:\\d+\\/.*)$",
+          "description" => 'Specifies the instance being checked. The protocol is either TCP, HTTP, HTTPS, or SSL. The range of valid ports is one (1) through 65535.
+    
+      TCP is the default, specified as a TCP: port pair, for example "TCP:5000". In this case a healthcheck simply attempts to open a TCP connection to the instance on the specified port. Failure to connect within the configured timeout is considered unhealthy.
+    
+      SSL is also specified as SSL: port pair, for example, SSL:5000.
+    
+      For HTTP or HTTPS protocol, the situation is different. You have to include a ping path in the string. HTTP is specified as a HTTP:port;/;PathToPing; grouping, for example "HTTP:80/weather/us/wa/seattle". In this case, a HTTP GET request is issued to the instance on the given port and path. Any answer other than "200 OK" within the timeout period is considered unhealthy.
+    
+      The total length of the HTTP ping target needs to be 1024 16-bit Unicode characters or less.'
+        },
+        "timeout" => {
+          "type" => "integer",
+          "default" => 5
+        },
+        "interval" => {
+          "type" => "integer",
+          "default" => 30
+        },
+        "unhealthy_threshold" => {
+          "type" => "integer",
+          "default" => 2
+        },
+        "healthy_threshold" => {
+          "type" => "integer",
+          "default" => 10
+        }
+      }
+    }
+
     @loadbalancer_primitive = {
         "type" => "object",
         "title" => "loadbalancer",
@@ -5103,6 +5234,11 @@ module MU
             "override_name" => {
                 "type" => "string",
                 "description" => "Normally an ELB's Amazon identifier will be named the same as its internal Mu identifier. This allows you to override that name with a specific value. Note that Amazon Elastic Load Balancer names must be relatively short. Brevity is recommended here. Note also that setting a static name here may result in deploy failures due to name collision with existing ELBs."
+            },
+            "classic" => {
+                "type" => "boolean",
+                "default" => false,
+                "description" => "For AWS Load Balancers, revert to the old API instead ElasticLoadbalancingV2 (ALBs)"
             },
             "scrub_mu_isms" => {
                 "type" => "boolean",
@@ -5194,110 +5330,170 @@ module MU
                 }
             },
             "access_log" => {
-                "type" => "object",
+              "type" => "object",
                 "additionalProperties" => false,
                 "description" => "Access logging for Load Balancer requests.",
                 "required" => ["enabled", "s3_bucket_name"],
                 "properties" => {
-                    "enabled" => {
-                        "type" => "boolean",
-                        "description" => "Toggle access log publishing.",
-                        "default" => false
-                    },
-                    "s3_bucket_name" => {
-                        "type" => "string",
-                        "description" => "The Amazon S3 bucket to which to publish access logs."
-                    },
-                    "s3_bucket_prefix" => {
-                        "type" => "string",
-                        "default" => "",
-                        "description" => "The path within the S3 bucket to which to publish the logs."
-                    },
-                    "emit_interval" => {
-                        "type" => "integer",
-                        "description" => "How frequently to publish access logs.",
-                        "enum" => [5, 60],
-                        "default" => 60
-                    }
+                "enabled" => {
+                  "type" => "boolean",
+                  "description" => "Toggle access log publishing.",
+                  "default" => false
+                },
+                "s3_bucket_name" => {
+                  "type" => "string",
+                  "description" => "The Amazon S3 bucket to which to publish access logs."
+                },
+                "s3_bucket_prefix" => {
+                  "type" => "string",
+                  "default" => "",
+                  "description" => "The path within the S3 bucket to which to publish the logs."
+                },
+                "emit_interval" => {
+                  "type" => "integer",
+                  "description" => "How frequently to publish access logs.",
+                  "enum" => [5, 60],
+                  "default" => 60
                 }
+              }
             },
-            "healthcheck" => {
+            # 'healthcheck' was a first-class parmeter for classic ELBs, but is
+            # embedded inside targetgroups for ALBs.
+            "healthcheck" => @lb_healthcheck_primitive,
+            "targetgroups" => {
+              "type" => "array",
+              "items" => {
                 "type" => "object",
                 "additionalProperties" => false,
-                "description" => "The method used by a Load Balancer to check the health of its client nodes.",
-                "required" => ["target"],
+                "description" => "A grouping of ",
+                "required" => ["name", "proto", "port"],
                 "properties" => {
-                    "target" => {
-                        "type" => "String",
-                        "pattern" => "^(TCP:\\d+|SSL:\\d+|HTTP:\\d+\\/.*|HTTPS:\\d+\\/.*)$",
-                        "description" => 'Specifies the instance being checked. The protocol is either TCP, HTTP, HTTPS, or SSL. The range of valid ports is one (1) through 65535.
-
-              TCP is the default, specified as a TCP: port pair, for example "TCP:5000". In this case a healthcheck simply attempts to open a TCP connection to the instance on the specified port. Failure to connect within the configured timeout is considered unhealthy.
-
-              SSL is also specified as SSL: port pair, for example, SSL:5000.
-
-              For HTTP or HTTPS protocol, the situation is different. You have to include a ping path in the string. HTTP is specified as a HTTP:port;/;PathToPing; grouping, for example "HTTP:80/weather/us/wa/seattle". In this case, a HTTP GET request is issued to the instance on the given port and path. Any answer other than "200 OK" within the timeout period is considered unhealthy.
-
-              The total length of the HTTP ping target needs to be 1024 16-bit Unicode characters or less.'
-                    },
-                    "timeout" => {
-                        "type" => "integer",
-                        "default" => 5
-                    },
-                    "interval" => {
-                        "type" => "integer",
-                        "default" => 30
-                    },
-                    "unhealthy_threshold" => {
-                        "type" => "integer",
-                        "default" => 2
-                    },
-                    "healthy_threshold" => {
-                        "type" => "integer",
-                        "default" => 10
-                    }
+                  "healthcheck" => @lb_healthcheck_primitive,
+                  "name" => {
+                    "type" => "string"
+                  },
+                  "proto" => {
+                    "type" => "string",
+                    "enum" => ["HTTP", "HTTPS"],
+                  },
+                  "httpcode" => {
+                    "type" => "string",
+                    "default" => "200,301,302",
+                    "description" => "The HTTP codes to use when checking for a successful response from a target."
+                  },
+                  "port" => {
+                    "type" => "integer",
+                    "minimum" => 1,
+                    "maximum" => 65535,
+                    "description" => "Specifies the TCP port on which the instance server is listening. This property cannot be modified for the life of the load balancer."
+                  }
                 }
+              }
             },
             "listeners" => {
-                "type" => "array",
-                "items" => {
-                    "type" => "object",
-                    "required" => ["lb_protocol", "lb_port", "instance_protocol", "instance_port"],
-                    "additionalProperties" => false,
-                    "description" => "A list of port/protocols which this Load Balancer should answer.",
-                    "properties" => {
-                        "lb_port" => {
-                            "type" => "integer",
-                            "description" => "Specifies the external load balancer port number. This property cannot be modified for the life of the load balancer."
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "required" => ["lb_protocol", "lb_port", "instance_protocol", "instance_port"],
+                "additionalProperties" => false,
+                "description" => "A list of port/protocols which this Load Balancer should answer.",
+                "properties" => {
+                  "lb_port" => {
+                    "type" => "integer",
+                    "description" => "Specifies the external load balancer port number. This property cannot be modified for the life of the load balancer."
+                  },
+                  "instance_port" => {
+                    "type" => "integer",
+                    "description" => "Specifies the TCP port on which the instance server is listening. This property cannot be modified for the life of the load balancer."
+                  },
+                  "lb_protocol" => {
+                    "type" => "string",
+                    "enum" => ["HTTP", "HTTPS", "TCP", "SSL"],
+                    "description" => "Specifies the load balancer transport protocol to use for routing - HTTP, HTTPS, TCP or SSL. This property cannot be modified for the life of the load balancer."
+                  },
+                  "targetgroup" => {
+                    "type" => "string",
+                    "description" => "Which of our declared targetgroups should be the back-end for this listener's traffic"
+                  },
+                  "instance_protocol" => {
+                    "type" => "string",
+                    "enum" => ["HTTP", "HTTPS", "TCP", "SSL"],
+                    "description" => "Specifies the protocol to use for routing traffic to back-end instances - HTTP, HTTPS, TCP, or SSL. This property cannot be modified for the life of the load balancer.
+
+            If the front-end protocol is HTTP or HTTPS, InstanceProtocol has to be at the same protocol layer, i.e., HTTP or HTTPS. Likewise, if the front-end protocol is TCP or SSL, InstanceProtocol has to be TCP or SSL."
+                  },
+                  "ssl_certificate_name" => {
+                    "type" => "string",
+                    "description" => "The name of a server certificate."
+                  },
+                  "ssl_certificate_id" => {
+                    "type" => "string",
+                    "description" => "The ARN string of a server certificate."
+                  },
+                  "rules" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "object",
+                      "description" => "Rules to route requests to different target groups based on the request path",
+                      "required" => ["conditions", "order"],
+                      "additionalProperties" => false,
+                      "properties" => {
+                        "conditions" => {
+                          "type" => "array",
+                          "items" => {
+                            "type" => "object",
+                            "description" => "Rule condition",
+                            "required" => ["field", "values"],
+                            "additionalProperties" => false,
+                            "properties" => {
+                              "field" => {
+                                "type" => "string",
+                                "default" => "path-pattern",
+                                "enum" => ["path-pattern"]
+                              },
+                              "values" => {
+                                "type" => "array",
+                                "items" => {
+                                  "type" => "string",
+                                  "description" => "A pattern to match against for this field."
+                                }
+                              }
+                            }
+                          }
                         },
-                        "instance_port" => {
-                            "type" => "integer",
-                            "description" => "Specifies the TCP port on which the instance server is listening. This property cannot be modified for the life of the load balancer."
+                        "actions" => {
+                          "type" => "array",
+                          "items" => {
+                            "type" => "object",
+                            "description" => "Rule action",
+                            "required" => ["action", "targetgroup"],
+                            "additionalProperties" => false,
+                            "properties" => {
+                              "action" => {
+                                "type" => "string",
+                                "default" => "forward",
+                                "description" => "An action to take when a match occurs. Currently, only forwarding to a targetgroup is supported.",
+                                "enum" => ["forward"]
+                              },
+                              "targetgroup" => {
+                                "type" => "string",
+                                "description" => "Which of our declared targetgroups should be the recipient of this traffic. If left unspecified, will default to the default targetgroup of this listener."
+                              }
+                            }
+                          }
                         },
-                        "lb_protocol" => {
-                            "type" => "string",
-                            "enum" => ["HTTP", "HTTPS", "TCP", "SSL"],
-                            "description" => "Specifies the load balancer transport protocol to use for routing - HTTP, HTTPS, TCP or SSL. This property cannot be modified for the life of the load balancer."
-                        },
-                        "instance_protocol" => {
-                            "type" => "string",
-                            "enum" => ["HTTP", "HTTPS", "TCP", "SSL"],
-                            "description" => "Specifies the protocol to use for routing traffic to back-end instances - HTTP, HTTPS, TCP, or SSL. This property cannot be modified for the life of the load balancer.
-  
-                If the front-end protocol is HTTP or HTTPS, InstanceProtocol has to be at the same protocol layer, i.e., HTTP or HTTPS. Likewise, if the front-end protocol is TCP or SSL, InstanceProtocol has to be TCP or SSL."
-                        },
-                        "ssl_certificate_name" => {
-                            "type" => "string",
-                            "description" => "The name of a server certificate."
-                        },
-                        "ssl_certificate_id" => {
-                            "type" => "string",
-                            "description" => "The ARN string of a server certificate."
+                        "order" => {
+                          "type" => "integer",
+                          "default" => 1,
+                          "description" => "The priority for the rule. Use to order processing relative to other rules."
                         }
+                      }
                     }
+                  }
                 }
-            }
+          }
         }
+      }
     }
 
     @dns_zones_primitive = {

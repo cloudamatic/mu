@@ -56,9 +56,9 @@ def join_domain_windows
     new_name = "-NewName #{new_resource.computer_name}" if node.hostname.downcase != new_resource.computer_name.downcase
 
     if new_resource.computer_ou
-      code = "Add-Computer -DomainName #{new_resource.dns_name} -Credential#{join_domain_creds} #{new_name} -OUPath '#{new_resource.computer_ou}' -PassThru -Restart -Verbose -Force"
+      code = "Add-Computer -DomainName #{new_resource.dns_name} -Credential#{join_domain_creds} #{new_name} -OUPath '#{new_resource.computer_ou}' -PassThru -Verbose -Force"
     else
-      code = "Add-Computer -DomainName #{new_resource.dns_name} -Credential#{join_domain_creds} #{new_name} -PassThru -Restart -Verbose -Force"
+      code = "Add-Computer -DomainName #{new_resource.dns_name} -Credential#{join_domain_creds} #{new_name} -PassThru -Verbose -Force"
     end
 
     Chef::Log.info("Joining #{new_resource.computer_name} node to #{new_resource.dns_name} domain")
@@ -66,8 +66,17 @@ def join_domain_windows
 
     if cmd.stdout.include?("HasSucceeded") && cmd.stdout.include?("True")
       Chef::Log.info("Domain Join was successful")
+      execute "kill ssh for reboot" do
+        command "Taskkill /im sshd.exe /f /t"
+        returns [0, 128]
+        action :nothing
+      end
+      reboot "Successfully joined #{new_resource.computer_name} to #{new_resource.dns_name} domain" do
+        action :reboot_now
+        reason "Successfully joined #{new_resource.computer_name} to #{new_resource.dns_name} domain"
+        notifies :run, "execute[kill ssh for reboot]", :immediately
+      end
       kill_ssh
-      Chef::Application.fatal!("Successfully joined #{new_resource.computer_name} to #{new_resource.dns_name} domain, rebooting. Will have to run chef again")
     elsif cmd.stdout.include?("HasSucceeded") && cmd.stdout.include?("False")
       Chef::Log.fatal("Domain Join was NOT successful")
       Chef::Log.fatal("Domain join stderr #{cmd.stderr}")
@@ -89,9 +98,12 @@ def unjoin_domain_windows
   if in_domain?
     Chef::Log.info("Removing #{new_resource.computer_name} node from #{new_resource.dns_name} domain")
     cmd = powershell_out("Remove-Computer -UnjoinDomaincredential #{join_domain_creds} -Passthru -Verbose -Restart -Force")
-    kill_ssh
     Chef::Application.fatal!("Failed to remove #{new_resource.computer_name} from #{new_resource.dns_name} domain") unless cmd.exitstatus == 0
-    Chef::Application.fatal!("Removed #{new_resource.computer_name} from #{new_resource.dns_name} domain, rebooting. Will have to run chef again")
+    reboot "Removed #{new_resource.computer_name} from #{new_resource.dns_name} domain" do
+      action :reboot_now
+      reason "Removed #{new_resource.computer_name} from #{new_resource.dns_name} domain"
+    end
+    kill_ssh
   end
 end
 

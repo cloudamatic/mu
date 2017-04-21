@@ -148,12 +148,7 @@ module MU
         # @param egress [Boolean]: Whether this is an egress ruleset, instead of ingress.
         # @param port_range [String]: A port range descriptor (e.g. 0-65535). Only valid with udp or tcp.
         # @return [void]
-        def addRule(hosts,
-                    proto: proto = "tcp",
-                    port: port = nil,
-                    egress: egress = false,
-                    port_range: port_range = "0-65535"
-        )
+        def addRule(hosts, proto: "tcp", port: nil, egress: false, port_range: "0-65535")
           rule = Hash.new
           rule["proto"] = proto
           if hosts.is_a?(String)
@@ -191,8 +186,9 @@ module MU
         # @param region [String]: The cloud provider region
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
+        # @param opts [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching FirewallRules
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil)
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, opts: {})
 
           if !cloud_id.nil? and !cloud_id.empty?
             begin
@@ -260,11 +256,17 @@ module MU
                   if !rule[:user_id_group_pairs].nil? and rule[:user_id_group_pairs].size == 0
                     rule.delete(:user_id_group_pairs)
                   end
+
                   if !rule[:ip_ranges].nil? and rule[:ip_ranges].size == 0
                     rule.delete(:ip_ranges)
                   end
+
                   if !rule[:prefix_list_ids].nil? and rule[:prefix_list_ids].size == 0
                     rule.delete(:prefix_list_ids)
+                  end
+                  
+                  if !rule[:ipv_6_ranges].nil? and rule[:ipv_6_ranges].size == 0
+                    rule.delete(:ipv_6_ranges)
                   end
                 }
               }
@@ -280,11 +282,17 @@ module MU
                   if !rule[:user_id_group_pairs].nil? and rule[:user_id_group_pairs].size == 0
                     rule.delete(:user_id_group_pairs)
                   end
+
                   if !rule[:ip_ranges].nil? and rule[:ip_ranges].size == 0
                     rule.delete(:ip_ranges)
                   end
+
                   if !rule[:prefix_list_ids].nil? and rule[:prefix_list_ids].size == 0
                     rule.delete(:prefix_list_ids)
+                  end
+
+                  if !rule[:ipv_6_ranges].nil? and rule[:ipv_6_ranges].size == 0
+                    rule.delete(:ipv_6_ranges)
                   end
                 }
               }
@@ -334,7 +342,7 @@ module MU
         # Manufacture an EC2 security group. The second parameter, rules, is an
         # "ingress_rules" structure parsed and validated by MU::Config.
         #########################################################################
-        def setRules(rules, add_to_self: add_to_self = false, ingress: ingress = true, egress: egress = false)
+        def setRules(rules, add_to_self: false, ingress: true, egress: false)
           return if rules.nil? or rules.size == 0
 
 
@@ -469,12 +477,14 @@ module MU
                     end
                   end
                   lb = found.first
-                  lb.cloud_desc.security_groups.each { |lb_sg|
-                    ec2_rule[:user_id_group_pairs] << {
-                      user_id: MU.account_number,
-                      group_id: lb_sg
+                  if !lb.nil? and !lb.cloud_desc.nil?
+                    lb.cloud_desc.security_groups.each { |lb_sg|
+                      ec2_rule[:user_id_group_pairs] << {
+                        user_id: MU.account_number,
+                        group_id: lb_sg
+                      }
                     }
-                  }
+                  end
                 }
               end
 

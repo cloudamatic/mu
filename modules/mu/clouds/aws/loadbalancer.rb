@@ -23,6 +23,7 @@ module MU
         attr_reader :mu_name
         attr_reader :config
         attr_reader :cloud_id
+        attr_reader :targetgroups
 
         @cloudformation_data = {}
         attr_reader :cloudformation_data
@@ -51,9 +52,13 @@ module MU
           end
 
           lb_options = {
-            load_balancer_name: @mu_name,
             tags: []
           }
+          if @config['classic']
+            lb_options[:load_balancer_name] = @mu_name
+          else
+            lb_options[:name] = @mu_name
+          end
 
           MU::MommaCat.listStandardTags.each_pair { |name, value|
             lb_options[:tags] << {key: name, value: value}
@@ -102,23 +107,40 @@ module MU
           end
 
           listeners = Array.new
-          @config["listeners"].each { |listener|
-            listen_struct = {
+          if @config['classic']
+            @config["listeners"].each { |listener|
+              listen_struct = {
                 :load_balancer_port => listener["lb_port"],
                 :protocol => listener["lb_protocol"],
                 :instance_port => listener["instance_port"],
                 :instance_protocol => listener["instance_protocol"]
+              }
+              listen_struct[:ssl_certificate_id] = listener["ssl_certificate_id"] if !listener["ssl_certificate_id"].nil?
+              listeners << listen_struct
             }
-            listen_struct[:ssl_certificate_id] = listener["ssl_certificate_id"] if !listener["ssl_certificate_id"].nil?
-            listeners << listen_struct
-          }
-          lb_options[:listeners] = listeners
+            lb_options[:listeners] = listeners
+          end
 
-          MU.log "Creating Load Balancer #{@mu_name}", details: lb_options
           zones_to_try = @config["zones"]
           retries = 0
+          lb = nil
           begin
-            resp = MU::Cloud::AWS.elb.create_load_balancer(lb_options)
+            if @config['classic']
+              MU.log "Creating Elastic Load Balancer #{@mu_name}", details: lb_options
+              lb = MU::Cloud::AWS.elb.create_load_balancer(lb_options)
+            else
+              MU.log "Creating Application Load Balancer #{@mu_name}", details: lb_options
+              lb = MU::Cloud::AWS.elb2.create_load_balancer(lb_options).load_balancers.first
+              begin
+                if lb.state.code != "active"
+                  MU.log "Waiting for ALB #{@mu_name} to enter 'active' state", MU::NOTICE
+                  sleep 20
+                  lb = MU::Cloud::AWS.elb2(@config['region']).describe_load_balancers(
+                    names: [@mu_name]
+                  ).load_balancers.first
+                end
+              end while lb.state.code != "active"
+            end
           rescue Aws::ElasticLoadBalancing::Errors::ValidationError, Aws::ElasticLoadBalancing::Errors::SubnetNotFound, Aws::ElasticLoadBalancing::Errors::InvalidConfigurationRequest => e
             if zones_to_try.size > 0 and lb_options.has_key?(:availability_zones)
               MU.log "Got #{e.inspect} when creating #{@mu_name} retrying with individual AZs in case that's the problem", MU::WARN
@@ -138,12 +160,12 @@ module MU
             end
           end
           @cloud_id = @mu_name
-          MU.log "Load Balancer is at #{resp.dns_name}"
+          MU.log "Load Balancer is at #{lb.dns_name}"
 
           parent_thread_id = Thread.current.object_id
           dnsthread = Thread.new {
             MU.dupGlobals(parent_thread_id)
-            MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: @mu_name, target: "#{resp.dns_name}.", cloudclass: MU::Cloud::LoadBalancer, sync_wait: @config['dns_sync_wait'])
+            MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: @mu_name, target: "#{lb.dns_name}.", cloudclass: MU::Cloud::LoadBalancer, sync_wait: @config['dns_sync_wait'])
           }
 
           if zones_to_try.size < @config["zones"].size
@@ -159,7 +181,8 @@ module MU
             }
           end
 
-          if !@config['healthcheck'].nil?
+          @targetgroups = {}
+          if !@config['healthcheck'].nil? and @config['classic']
             MU.log "Configuring custom health check for ELB #{@mu_name}", details: @config['healthcheck']
             MU::Cloud::AWS.elb.configure_health_check(
                 load_balancer_name: @mu_name,
@@ -171,138 +194,342 @@ module MU
                     healthy_threshold: @config['healthcheck']['healthy_threshold']
                 }
             )
+          elsif !@config['classic']
+            if @config['targetgroups']
+              MU.log "Configuring target groups and health checks check for ELB #{@mu_name}", details: @config['healthcheck']
+              @config['targetgroups'].each { |tg|
+                tg_name = @deploy.getResourceName(tg["name"], max_length: 32)
+                tg_descriptor = {
+                  :name => tg_name,
+                  :protocol => tg['proto'],
+                  :vpc_id => @vpc.cloud_id,
+                  :port => tg['port']
+                }
+                if tg['httpcode']
+                  tg_descriptor[:matcher] = {
+                    :http_code => tg['httpcode']
+                  }
+                end
+                if tg['healthcheck']
+                  hc_target = tg['healthcheck']['target'].match(/^([^:]+):(\d+)(.*)/)
+                  tg_descriptor[:health_check_protocol] = hc_target[1]
+                  tg_descriptor[:health_check_port] = hc_target[2]
+                  tg_descriptor[:health_check_path] = hc_target[3]
+                  tg_descriptor[:health_check_interval_seconds] = tg['healthcheck']['interval']
+                  tg_descriptor[:health_check_timeout_seconds] = tg['healthcheck']['timeout']
+                  tg_descriptor[:healthy_threshold_count] = tg['healthcheck']['healthy_threshold']
+                  tg_descriptor[:unhealthy_threshold_count] = tg['healthcheck']['unhealthy_threshold']
+                  if tg['healthcheck']['httpcode'] and !tg_descriptor.has_key?(:matcher)
+                    tg_descriptor[:matcher] = {
+                      :http_code => tg['healthcheck']['httpcode']
+                    }
+                  end
+                end
+
+                tg_resp = MU::Cloud::AWS.elb2.create_target_group(tg_descriptor)
+                @targetgroups[tg['name']] = tg_resp.target_groups.first
+                MU::Cloud::AWS.elb2.add_tags(
+                  resource_arns: [tg_resp.target_groups.first.target_group_arn],
+                  tags: lb_options[:tags]
+                )
+              }
+            end
           end
 
-          if @config['cross_zone_unstickiness']
-            MU.log "Enabling cross-zone un-stickiness on #{resp.dns_name}"
-            MU::Cloud::AWS.elb.modify_load_balancer_attributes(
+          if !@config['classic']
+            @config["listeners"].each { |l|
+              if !@targetgroups.has_key?(l['targetgroup'])
+                raise MuError, "Listener in #{@mu_name} configured for target group #{l['targetgroup']}, but I don't have data on a targetgroup by that name"
+              end
+              listen_descriptor = {
+                :default_actions => [{
+                  :target_group_arn => @targetgroups[l['targetgroup']].target_group_arn,
+                  :type => "forward"
+                }], 
+                :load_balancer_arn => lb.load_balancer_arn,
+                :port => l['lb_port'], 
+                :protocol => l['lb_protocol']
+              }
+              if l['ssl_certificate_id']
+                listen_descriptor[:certificates] = [{
+                  :certificate_arn => l['ssl_certificate_id']
+                }]
+                listen_descriptor[:ssl_policy] = "ELBSecurityPolicy-2015-05"
+              end
+              listen_resp = MU::Cloud::AWS.elb2.create_listener(listen_descriptor).listeners.first
+              if !l['rules'].nil?
+                l['rules'].each { |rule|
+                  rule_descriptor = {
+                    :listener_arn => listen_resp.listener_arn,
+                    :priority => rule['order'],
+                    :conditions => rule['conditions'],
+                    :actions => []
+                  }
+                  rule['actions'].each { |a|
+                    rule_descriptor[:actions] << {
+                      :target_group_arn => @targetgroups[a['targetgroup']].target_group_arn,
+                      :type => a['action']
+                    }
+                  }
+                  MU::Cloud::AWS.elb2.create_rule(rule_descriptor)
+                }
+              end
+            }
+          end
+
+          if @config['cross_zone_unstickiness'] 
+            MU.log "Enabling cross-zone un-stickiness on #{lb.dns_name}"
+            if @config['classic']
+              MU::Cloud::AWS.elb.modify_load_balancer_attributes(
                 load_balancer_name: @mu_name,
                 load_balancer_attributes: {
-                    cross_zone_load_balancing: {
-                        enabled: true
-                    }
+                  cross_zone_load_balancing: {
+                    enabled: true
+                  }
                 }
-            )
+              )
+            else
+              @targetgroups.each_pair { |tg_name, tg|
+                MU::Cloud::AWS.elb2.modify_target_group_attributes(
+                  target_group_arn: tg.target_group_arn,
+                  attributes: [
+                    {
+                      key: "stickiness.enabled",
+                      value: "true"
+                    }
+                  ]
+                )
+              }
+            end
           end
 
           if !@config['idle_timeout'].nil?
-            MU.log "Setting idle timeout to #{@config['idle_timeout']} #{resp.dns_name}"
-            MU::Cloud::AWS.elb.modify_load_balancer_attributes(
+            MU.log "Setting idle timeout to #{@config['idle_timeout']} #{lb.dns_name}"
+            if @config['classic']
+              MU::Cloud::AWS.elb.modify_load_balancer_attributes(
                 load_balancer_name: @mu_name,
                 load_balancer_attributes: {
-                    connection_settings: {
-                        idle_timeout: @config['idle_timeout']
-                    }
+                  connection_settings: {
+                    idle_timeout: @config['idle_timeout']
+                  }
                 }
-            )
+              )
+            else
+              MU::Cloud::AWS.elb2.modify_load_balancer_attributes(
+                load_balancer_arn: lb.load_balancer_arn,
+                attributes: [
+                  {
+                    key: "idle_timeout.timeout_seconds",
+                    value: @config['idle_timeout'].to_s
+                  }
+                ]
+              )
+            end
           end
 
           if !@config['connection_draining_timeout'].nil?
-            if @config['connection_draining_timeout'] >= 0
-              MU.log "Setting connection draining timeout to #{@config['connection_draining_timeout']} on #{resp.dns_name}"
-              MU::Cloud::AWS.elb.modify_load_balancer_attributes(
-                  load_balancer_name: @mu_name,
-                  load_balancer_attributes: {
-                      connection_draining: {
-                          enabled: true,
-                          timeout: @config['connection_draining_timeout']
-                      }
-                  }
-              )
+            if @config['classic']
+              if @config['connection_draining_timeout'] >= 0
+                MU.log "Setting connection draining timeout to #{@config['connection_draining_timeout']} on #{lb.dns_name}"
+                MU::Cloud::AWS.elb.modify_load_balancer_attributes(
+                    load_balancer_name: @mu_name,
+                    load_balancer_attributes: {
+                        connection_draining: {
+                            enabled: true,
+                            timeout: @config['connection_draining_timeout']
+                        }
+                    }
+                )
+              else
+                MU.log "Disabling connection draining on #{lb.dns_name}"
+                MU::Cloud::AWS.elb.modify_load_balancer_attributes(
+                    load_balancer_name: @mu_name,
+                    load_balancer_attributes: {
+                        connection_draining: {
+                            enabled: false
+                        }
+                    }
+                )
+              end
             else
-              MU.log "Disabling connection draining on #{resp.dns_name}"
-              MU::Cloud::AWS.elb.modify_load_balancer_attributes(
-                  load_balancer_name: @mu_name,
-                  load_balancer_attributes: {
-                      connection_draining: {
-                          enabled: false
-                      }
-                  }
-              )
+              timeout = @config['connection_draining_timeout'].to_s
+              if @config['connection_draining_timeout'] >= 0
+                MU.log "Setting connection draining timeout to #{@config['connection_draining_timeout']} on #{lb.dns_name}"
+              else
+                timeout = 0
+                MU.log "Disabling connection draining on #{lb.dns_name}"
+              end
+              @targetgroups.each_pair { |tg_name, tg|
+                MU::Cloud::AWS.elb2.modify_target_group_attributes(
+                  target_group_arn: tg.target_group_arn,
+                  attributes: [
+                    {
+                      key: "deregistration_delay.timeout_seconds",
+                      value: timeout.to_s
+                    }
+                  ]
+                )
+              }
             end
           end
 
           if !@config['access_log'].nil?
-            MU.log "Setting access log params for #{resp.dns_name}", details: @config['access_log']
-            MU::Cloud::AWS.elb.modify_load_balancer_attributes(
+            MU.log "Setting access log params for #{lb.dns_name}", details: @config['access_log']
+            if @config['classic']
+              MU::Cloud::AWS.elb.modify_load_balancer_attributes(
                 load_balancer_name: @mu_name,
                 load_balancer_attributes: {
-                    access_log: {
-                        enabled: @config['access_log']['enabled'],
-                        emit_interval: @config['access_log']['emit_interval'],
-                        s3_bucket_name: @config['access_log']['s3_bucket_name'],
-                        s3_bucket_prefix: @config['access_log']['s3_bucket_prefix']
-                    }
+                  access_log: {
+                    enabled: @config['access_log']['enabled'],
+                    emit_interval: @config['access_log']['emit_interval'],
+                    s3_bucket_name: @config['access_log']['s3_bucket_name'],
+                    s3_bucket_prefix: @config['access_log']['s3_bucket_prefix']
+                  }
                 }
-            )
+              )
+            else
+              MU::Cloud::AWS.elb2.modify_load_balancer_attributes(
+                load_balancer_arn: lb.load_balancer_arn,
+                attributes: [
+                  {
+                    key: "access_logs.s3.enabled",
+                    value: "true"
+                  },
+                  {
+                    key: "access_logs.s3.bucket",
+                    value: @config['access_log']['s3_bucket_name']
+                  },
+                  {
+                    key: "access_logs.s3.prefix",
+                    value: @config['access_log']['s3_bucket_prefix']
+                  }
+                ]
+              )
+            end
           end
 
           if !@config['lb_cookie_stickiness_policy'].nil?
-            MU.log "Setting ELB cookie stickiness policy for #{resp.dns_name}", details: @config['lb_cookie_stickiness_policy']
-            cookie_policy = {
+            MU.log "Setting ELB cookie stickiness policy for #{lb.dns_name}", details: @config['lb_cookie_stickiness_policy']
+            if @config['classic']
+              cookie_policy = {
                 load_balancer_name: @mu_name,
                 policy_name: @config['lb_cookie_stickiness_policy']['name']
-            }
-            if !@config['lb_cookie_stickiness_policy']['timeout'].nil?
-              cookie_policy[:cookie_expiration_period] = @config['lb_cookie_stickiness_policy']['timeout']
-            end
-            MU::Cloud::AWS.elb.create_lb_cookie_stickiness_policy(cookie_policy)
-            lb_policy_names = Array.new
-            lb_policy_names << @config['lb_cookie_stickiness_policy']['name']
-            listener_policy = {
+              }
+              if !@config['lb_cookie_stickiness_policy']['timeout'].nil?
+                cookie_policy[:cookie_expiration_period] = @config['lb_cookie_stickiness_policy']['timeout']
+              end
+              MU::Cloud::AWS.elb.create_lb_cookie_stickiness_policy(cookie_policy)
+              lb_policy_names = Array.new
+              lb_policy_names << @config['lb_cookie_stickiness_policy']['name']
+              listener_policy = {
                 load_balancer_name: @mu_name,
                 policy_names: lb_policy_names
-            }
-            lb_options[:listeners].each do |listener|
-              if listener[:protocol].upcase == 'HTTP' or listener[:protocol].upcase == 'HTTPS'
-                listener_policy[:load_balancer_port] = listener[:load_balancer_port]
-                MU::Cloud::AWS.elb.set_load_balancer_policies_of_listener(listener_policy)
+              }
+              lb_options[:listeners].each do |listener|
+                if listener[:protocol].upcase == 'HTTP' or listener[:protocol].upcase == 'HTTPS'
+                  listener_policy[:load_balancer_port] = listener[:load_balancer_port]
+                  MU::Cloud::AWS.elb.set_load_balancer_policies_of_listener(listener_policy)
+                end
               end
+            else
+              @targetgroups.each_pair { |tg_name, tg|
+                MU::Cloud::AWS.elb2.modify_target_group_attributes(
+                  target_group_arn: tg.target_group_arn,
+                  attributes: [
+                    {
+                      key: "stickiness.type",
+                      value: "lb_cookie"
+                    },
+                    {
+                      key: "stickiness.enabled",
+                      value: "true"
+                    },
+                    {
+                      key: "stickiness.lb_cookie.duration_seconds",
+                      value: @config['lb_cookie_stickiness_policy']['timeout'].to_s
+                    }
+                  ]
+                )
+              }
             end
           end
 
-          if !@config['app_cookie_stickiness_policy'].nil?
-            MU.log "Setting application cookie stickiness policy for #{resp.dns_name}", details: @config['app_cookie_stickiness_policy']
-            cookie_policy = {
+          if !@config['app_cookie_stickiness_policy'].nil? 
+            if @config['classic']
+              MU.log "Setting application cookie stickiness policy for #{lb.dns_name}", details: @config['app_cookie_stickiness_policy']
+              cookie_policy = {
                 load_balancer_name: @mu_name,
                 policy_name: @config['app_cookie_stickiness_policy']['name'],
                 cookie_name: @config['app_cookie_stickiness_policy']['cookie']
-            }
-            MU::Cloud::AWS.elb.create_app_cookie_stickiness_policy(cookie_policy)
-            lb_policy_names = Array.new
-            lb_policy_names << @config['app_cookie_stickiness_policy']['name']
-            listener_policy = {
+              }
+              MU::Cloud::AWS.elb.create_app_cookie_stickiness_policy(cookie_policy)
+              lb_policy_names = Array.new
+              lb_policy_names << @config['app_cookie_stickiness_policy']['name']
+              listener_policy = {
                 load_balancer_name: @mu_name,
                 policy_names: lb_policy_names
-            }
-            lb_options[:listeners].each do |listener|
-              if listener[:protocol].upcase == 'HTTP' or listener[:protocol].upcase == 'HTTPS'
-                listener_policy[:load_balancer_port] = listener[:load_balancer_port]
-                MU::Cloud::AWS.elb.set_load_balancer_policies_of_listener(listener_policy)
+              }
+              lb_options[:listeners].each do |listener|
+                if listener[:protocol].upcase == 'HTTP' or listener[:protocol].upcase == 'HTTPS'
+                  listener_policy[:load_balancer_port] = listener[:load_balancer_port]
+                  MU::Cloud::AWS.elb.set_load_balancer_policies_of_listener(listener_policy)
+                end
               end
+            else
+              MU.log "App cookie stickiness not supported in ALBs. Redeploy with 'classic' set to true if you need this functionality.", MU::WARN
             end
           end
 
           dnsthread.join # from genericMuDNS
 
-          if !@config['dns_records'].nil?
+# XXX fix for elb2
+#          if !@config['dns_records'].nil?
             # XXX this should be a call to @deploy.nameKitten
-            @config['dns_records'].each { |dnsrec|
-              dnsrec['name'] = @mu_name.downcase if !dnsrec.has_key?('name')
-              dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
-            }
-            MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@config['dns_records'], target: resp.dns_name)
-          end
+#            @config['dns_records'].each { |dnsrec|
+#              dnsrec['name'] = @mu_name.downcase if !dnsrec.has_key?('name')
+#              dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
+#            }
+#            MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@config['dns_records'], target: resp.dns_name)
+#          end
 
           notify
+        end
+
+        # Wrapper for cloud_desc method that deals with elb vs. elb2 resources.
+        def cloud_desc
+          if @config['classic']
+            resp = MU::Cloud::AWS.elb(@config['region']).describe_load_balancers(
+              load_balancer_names: [@mu_name]
+            ).load_balancer_descriptions.first
+            return resp
+          else
+            resp = MU::Cloud::AWS.elb2(@config['region']).describe_load_balancers(
+              names: [@mu_name]
+            ).load_balancers.first
+            if @targetgroups.nil? and !@deploy.nil? and
+                @deploy.deployment['loadbalancers'].has_key?(@config['name']) and
+                @deploy.deployment['loadbalancers'][@config['name']].has_key?("targetgroups")
+              @targetgroups = {}
+              @deploy.deployment['loadbalancers'][@config['name']]["targetgroups"].each_pair { |tg_name, tg_arn|
+                @targetgroups[tg_name] = MU::Cloud::AWS.elb2(@config['region']).describe_target_groups(target_group_arns: [tg_arn]).target_groups.first
+              }
+            end
+
+            return resp
+          end
         end
 
         # Return the metadata for this LoadBalancer
         # @return [Hash]
         def notify
           deploy_struct = {
-              "awsname" => @mu_name,
-              "dns" => cloud_desc.dns_name
+            "awsname" => @mu_name,
+            "dns" => cloud_desc.dns_name,
+            "targetgroups" => {}
+          }
+          deploy_struct["arn"] = cloud_desc.load_balancer_arn if !@config['classic']
+          @targetgroups.each { |tgname, tg|
+            deploy_struct["targetgroups"][tgname] = tg.target_group_arn
           }
           return deploy_struct
         end
@@ -310,13 +537,32 @@ module MU
         # Register a Server node with an existing LoadBalancer.
         #
         # @param instance_id [String] A node to register.
-        def registerNode(instance_id)
-          MU::Cloud::AWS.elb(@config['region']).register_instances_with_load_balancer(
+        # @param targetgroups [Array<String>] The target group(s) of which this node should be made a member. Not applicable to classic LoadBalancers. If not supplied, the node will be registered to all available target groups on this LoadBalancer.
+        def registerNode(instance_id, targetgroups: nil)
+          if @config['classic'] or !@config.has_key?("classic")
+            MU::Cloud::AWS.elb(@config['region']).register_instances_with_load_balancer(
               load_balancer_name: @cloud_id,
               instances: [
-                  {instance_id: instance_id}
+                {instance_id: instance_id}
               ]
-          )
+            )
+          else
+            if targetgroups.nil? or !targetgroups.is_a?(Array) or targetgroups.size == 0
+              if @targetgroups.nil?
+                cloud_desc
+                return
+              end
+              targetgroups = @targetgroups.keys
+            end
+            targetgroups.each { |tg|
+              MU::Cloud::AWS.elb2(@config['region']).register_targets(
+                target_group_arn: @targetgroups[tg].target_group_arn,
+                targets: [
+                  {id: instance_id}
+                ]
+              )
+            }
+          end
         end
 
         # Remove all load balancers associated with the currently loaded deployment.
@@ -327,37 +573,108 @@ module MU
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
           raise MuError, "Can't touch ELBs without MU-ID" if MU.deploy_id.nil? or MU.deploy_id.empty?
 
-          resp = MU::Cloud::AWS.elb(region).describe_load_balancers
-          resp.load_balancer_descriptions.each { |lb|
-            begin
-              tags = MU::Cloud::AWS.elb(region).describe_tags(load_balancer_names: [lb.load_balancer_name]).tag_descriptions.first.tags
-              muid_match = false
-              mumaster_match = false
-              saw_tags = []
-              if !tags.nil?
-                tags.each { |tag|
-                  saw_tags << tag.key
-                  muid_match = true if tag.key == "MU-ID" and tag.value == MU.deploy_id
-                  mumaster_match = true if tag.key == "MU-MASTER-IP" and tag.value == MU.mu_public_ip
-                }
+          # Check for tags matching the current deploy identifier on an elb or 
+          # elb2 resource.
+          # @param arn [String]: The ARN of the resource to check
+          # @param region [String]: The cloud provider region
+          # @param ignoremaster [Boolean]: Whether to ignore the MU-MASTER-IP tag
+          # @param classic [Boolean]: Whether to look for a classic ELB instead of an ALB (ELB2)
+          def self.checkForTagMatch(arn, region, ignoremaster, classic = false)
+            tags = []
+            if classic
+              tags = MU::Cloud::AWS.elb(region).describe_tags(
+                load_balancer_names: [arn]
+              ).tag_descriptions.first.tags
+            else
+              tags = MU::Cloud::AWS.elb2(region).describe_tags(
+                resource_arns: [arn]
+              ).tag_descriptions.first.tags
+            end
+            muid_match = false
+            mumaster_match = false
+            saw_tags = []
+            if !tags.nil?
+              tags.each { |tag|
+                saw_tags << tag.key
+                muid_match = true if tag.key == "MU-ID" and tag.value == MU.deploy_id
+                mumaster_match = true if tag.key == "MU-MASTER-IP" and tag.value == MU.mu_public_ip
+              }
+            end
+            if saw_tags.include?("MU-ID") and (saw_tags.include?("MU-MASTER-IP") or ignoremaster)
+              if muid_match and (mumaster_match or ignoremaster)
+                return true
               end
-              if saw_tags.include?("MU-ID") and (saw_tags.include?("MU-MASTER-IP") or ignoremaster)
-                if muid_match and (mumaster_match or ignoremaster)
-                  MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: lb.load_balancer_name, target: lb.dns_name, cloudclass: MU::Cloud::LoadBalancer, delete: true)
-                  MU.log "Removing Elastic Load Balancer #{lb.load_balancer_name}"
+            end
+            return false
+          end
+
+
+          resp = MU::Cloud::AWS.elb(region).describe_load_balancers
+          resp2 = MU::Cloud::AWS.elb2(region).describe_load_balancers
+          (resp.load_balancer_descriptions + resp2.load_balancers).each { |lb|
+            classic = true
+            if lb.class.name != "Aws::ElasticLoadBalancing::Types::LoadBalancerDescription" and !lb.type.nil? and lb.type == "application"
+              classic = false
+            end
+            begin
+              tags = []
+              matched = false
+              if classic
+                matched = self.checkForTagMatch(lb.load_balancer_name, region, ignoremaster, classic)
+              else
+                matched = self.checkForTagMatch(lb.load_balancer_arn, region, ignoremaster, classic)
+              end
+              if matched
+                MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: lb.load_balancer_name, target: lb.dns_name, cloudclass: MU::Cloud::LoadBalancer, delete: true) if !noop
+                MU.log "Removing Elastic Load Balancer #{lb.load_balancer_name}"
+                if classic
                   MU::Cloud::AWS.elb(region).delete_load_balancer(load_balancer_name: lb.load_balancer_name) if !noop
+                else
+                  MU::Cloud::AWS.elb2(region).describe_listeners(
+                    load_balancer_arn: lb.load_balancer_arn
+                  ).listeners.each { |l|
+                    MU.log "Removing ALB Listener #{l.listener_arn}"
+                    MU::Cloud::AWS.elb2(region).delete_listener(
+                      listener_arn: l.listener_arn
+                    ) if !noop
+                  }
+                  tgs = MU::Cloud::AWS.elb2(region).describe_target_groups.target_groups
+                  begin
+                    if lb.state.code == "provisioning"
+                      MU.log "Waiting for ALB #{lb.load_balancer_name} to leave 'provisioning' state", MU::NOTICE
+                      sleep 45
+                      lb = MU::Cloud::AWS.elb2(region).describe_load_balancers(
+                        load_balancer_arns: [lb.load_balancer_arn]
+                      ).load_balancers.first
+                    end
+                  end while lb.state.code == "provisioning"
+                  MU::Cloud::AWS.elb2(region).delete_load_balancer(load_balancer_arn: lb.load_balancer_arn) if !noop
+
+
+                  tgs.each { |tg|
+                    if self.checkForTagMatch(tg.target_group_arn, region, ignoremaster)
+                      MU.log "Removing Load Balancer Target Group #{tg.target_group_name}"
+                      retries = 0
+                      begin
+                        MU::Cloud::AWS.elb2(region).delete_target_group(target_group_arn: tg.target_group_arn) if !noop
+                      rescue Aws::ElasticLoadBalancingV2::Errors::ResourceInUse => e
+                        if retries < 6
+                          retries = retries + 1
+                          sleep 10
+                          retry
+                        else
+                          MU.log "Failed to delete ALB targetgroup #{tg.target_group_arn}: #{e.message}", MU::WARN
+                        end
+                      end
+                    end
+                  }
                 end
                 next
-              end
-              if lb.load_balancer_name.match(/^#{MU.deploy_id}/)
-                MU.log "Removing Elastic Load Balancer #{lb.load_balancer_name} by name match (tags unavailable). This behavior is DEPRECATED and will be removed in a future release.", MU::WARN
-                resp = MU::Cloud::AWS.elb(region).delete_load_balancer(load_balancer_name: lb.load_balancer_name) if !noop
               end
             rescue Aws::ElasticLoadBalancing::Errors::LoadBalancerNotFound
               MU.log "ELB #{lb.load_balancer_name} already deleted", MU::WARN
             end
           }
-
           return nil
         end
 
@@ -366,28 +683,48 @@ module MU
         # @param region [String]: The cloud provider region
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
+        # @param opts [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching LoadBalancers
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil)
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, opts: {})
+          classic = opts['classic'] ? true : false
 
           matches = {}
           list = {}
-          resp = MU::Cloud::AWS.elb(region).describe_load_balancers
-          lb_names = []
-          resp.load_balancer_descriptions.each { |lb|
+          arn2name = {}
+          resp = nil
+          if classic
+            resp = MU::Cloud::AWS.elb(region).describe_load_balancers().load_balancer_descriptions
+          else
+            resp = MU::Cloud::AWS.elb2(region).describe_load_balancers().load_balancers
+          end
+
+          resp.each { |lb|
             list[lb.load_balancer_name] = lb
+            arn2name[lb.load_balancer_arn] = lb.load_balancer_name if !classic
             if !cloud_id.nil? and lb.load_balancer_name == cloud_id
               matches[cloud_id] = lb
             end
           }
+
           return matches if matches.size > 0
 
           if !tag_key.nil? and !tag_value.nil?
-            resp = MU::Cloud::AWS.elb(region).describe_tags(load_balancer_names: list.keys)
+            tag_descriptions = nil
+            if classic
+              tag_descriptions = MU::Cloud::AWS.elb(region).describe_tags(
+                load_balancer_names: list.keys
+              ).tag_descriptions
+            else
+              tag_descriptions = MU::Cloud::AWS.elb2(region).describe_tags(
+                resource_arns: list.values.map { |l| l.load_balancer_arn }
+              ).tag_descriptions
+            end
             if !resp.nil?
-              resp.tag_descriptions.each { |lb|
+              tag_descriptions.each { |lb|
+                lb_name = classic ? lb.load_balancer_name : arn2name[lb.resource_arn]
                 lb.tags.each { |tag|
                   if tag.key == tag_key and tag.value == tag_value
-                    matches[lb.load_balancer_name] = list[lb.load_balancer_name]
+                    matches[lb_name] = list[lb_name]
                   end
                 }
               }

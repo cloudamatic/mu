@@ -53,7 +53,11 @@ module MU
   class MuError < StandardError
     def initialize(message = nil)
       MU.log message, MU::ERR if !message.nil?
-      super ""
+      if MU.verbosity == MU::Logger::SILENT
+        super
+      else
+        super ""
+      end
     end
   end
 
@@ -62,7 +66,11 @@ module MU
   class MuNonFatal < StandardError
     def initialize(message = nil)
       MU.log message, MU::NOTICE if !message.nil?
-      super ""
+      if MU.verbosity == MU::Logger::SILENT
+        super
+      else
+        super ""
+      end
     end
   end
 
@@ -504,7 +512,7 @@ module MU
 
   # The version of Chef we will install on nodes (note- not the same as what
   # we intall on ourself, which comes from install/mu_setup).
-  @@chefVersion = "12.13.37-1"
+  @@chefVersion = "12.17.44-1"
   # The version of Chef we will install on nodes.
   # @return [String]
   def self.chefVersion;

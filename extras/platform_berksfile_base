@@ -1,0 +1,25 @@
+# --- AUTO-INCLUDE STANDARD MU COOKBOOKS --- #
+# --- DO NOT DELETE THESE COMMENTS UNLESS YOU HAVE A PLAN --- #
+addtl_cookbooks = {}
+if ENV.include? "MU_COOKBOOK_ROOT"
+  cookbookPath = "#{ENV['MU_COOKBOOK_ROOT']}/cookbooks"
+  siteCookbookPath = "#{ENV['MU_COOKBOOK_ROOT']}/site_cookbooks"
+  if ENV.include? "MU_DEPRESOLVE"
+    ["cookbooks", "site_cookbooks"].each { |dir|
+      next if !Dir.exists?(ENV['MU_COOKBOOK_ROOT']+"/"+dir)
+      Dir.foreach(ENV['MU_COOKBOOK_ROOT']+"/"+dir).each { |cb|
+        next if cb == "." or cb == ".."
+        path = ENV['MU_COOKBOOK_ROOT']+"/"+dir+"/"+cb
+        next if !File.exists?(path+"/metadata.rb") and !File.exists?(path+"/metadata.json")
+        addtl_cookbooks[cb] = path
+      }
+    }
+  end
+end
+
+source "https://supermarket.getchef.com"
+
+addtl_cookbooks.each_pair { |cb, path|
+  cookbook cb, path: path
+}
+

@@ -66,10 +66,11 @@ jenkins_user admin_vault['username'] do
   full_name admin_vault['username']
   email "mu-developers@googlegroups.com"
   public_keys [admin_vault['public_key'].strip]
-  not_if { node['application_attributes'].attribute?('jenkins_auth_set') }
+  #not_if { node['application_attributes'].attribute?('jenkins_auth_set') }
 end
 
 jenkins_private_key_credentials admin_vault['username'] do
+  id '1671945-9fa7-4d24-ac87-51ea3b2aef4c'
   description admin_vault['username']
   private_key admin_vault['private_key'].strip
 end
@@ -102,7 +103,7 @@ jenkins_script 'configure_jenkins_auth' do
   instance.setAuthorizationStrategy(strategy)
   instance.save()
   EOH
-  not_if { node['application_attributes'].attribute?('jenkins_auth_set') }
+  not_if "grep managerDN #{node['jenkins']['master']['home']}/config.xml | grep #{bind_creds[$MU_CFG['ldap']['bind_creds']['username_field']]}"
   notifies :create, 'ruby_block[configure_jenkins_auth_set]', :immediately
   action :execute
 end
