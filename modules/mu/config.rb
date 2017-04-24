@@ -1831,8 +1831,8 @@ module MU
               if lb["healthcheck"]
                 hc_target = lb['healthcheck']['target'].match(/^([^:]+):(\d+)(.*)/)
                 tg["healthcheck"] = lb['healthcheck'].dup
-                proto = !["HTTP", "HTTPS"].include?(hc_target[1]) ? hc_target[1] : l["instance_protocol"]
-                tg['healthcheck']['target'] = "#{proto}:#{l["instance_port"]}#{hc_target[3]}"
+                proto = ["HTTP", "HTTPS"].include?(hc_target[1]) ? hc_target[1] : l["instance_protocol"]
+                tg['healthcheck']['target'] = "#{proto}:#{hc_target[2]}#{hc_target[3]}"
                 tg['healthcheck']["httpcode"] = "200,301,302"
                 MU.log "Classic-style ELB health check target #{lb['healthcheck']['target']} invalid for ALB targetgroup #{tgname} (#{l["instance_protocol"]}:#{l["instance_port"]}). Creating approximate configuration:", MU::WARN, details: tg['healthcheck']
               end
