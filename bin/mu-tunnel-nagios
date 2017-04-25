@@ -42,6 +42,7 @@ Usage:
   opt :key, "Path to an SSH private key to use when connecting to the gateway host. If not specified, we'll assume we have something correct in our global ssh config.", :require => false, :type => :string
   opt :user, "The SSH user with which to connect to the gateway. If not specified, we'll assume we have something correct in our global ssh config.", :require => false, :type => :string, :default => nil
 #	opt :local_ip, "The local (private) IP to which we'll be connecting on the other side of the tunnel.", :require => false, :type => :string, :default => "127.0.0.1"
+  opt :directcommand, "The command to run if we don't need to tunnel to get to the remote host.", :require => false, :type => :string
   opt :verbose, "Debugging noise.", :require => false, :type => :boolean, :default => false
 end
 
@@ -78,6 +79,7 @@ full_cmd = output = nil
 begin
   if !needs_gateway
     puts "No SSH gateway configured for #{dest_host}, running #{cmd} directly" if verbose
+    cmd = $opts[:directcommand] if $opts[:directcommand_given]
     full_cmd = cmd
   else
     gateway = nil

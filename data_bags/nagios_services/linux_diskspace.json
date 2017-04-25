@@ -1,5 +1,5 @@
 {
 	"id": "linux_diskspace",
 	"hostgroup_name": "linux",
-  "command_line": "/opt/mu/bin/mu-tunnel-nagios -d $HOSTNAME$ -p 5666 -a '\\-p' -c \"$USER1$/check_nrpe -H 127.0.0.1 -c check_disk\""
+  "command_line": "/opt/mu/bin/mu-tunnel-nagios -d $HOSTNAME$ -p 5666 -a '\\-p' -c \"$USER1$/check_nrpe -H 127.0.0.1 -c check_disk\" -i \"$USER1$/check_nrpe -H $HOSTNAME$ -c check_disk\""
 }
