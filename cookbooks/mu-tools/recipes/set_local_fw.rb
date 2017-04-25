@@ -21,15 +21,18 @@ master_ips = get_mu_master_ips
 case node[:platform]
 when "centos", "redhat"
   include_recipe 'mu-firewall'
+  service "iptables" do
+    action :nothing
+  end
 
-  if elversion < 7
-    service "iptables" do
-      action :nothing
+  if elversion >= 7 # Can use firewalld, but not if iptables is already rigged
+    package "firewall-config" do
+      not_if "/bin/systemctl list-units | grep iptables.service"
     end
-  else
-    package "firewall-config"
-    execute "firewall-cmd --reload" do
+    execute "restart FirewallD" do # ...but only if iptables isn't live
+      command "/bin/firewall-cmd --reload"
       action :nothing
+      not_if "/bin/systemctl list-units | grep iptables.service"
     end
   end
 
@@ -52,8 +55,8 @@ when "centos", "redhat"
       firewall_rule "allow all #{src} #{proto.to_s} traffic" do
         source src
         protocol proto
-        notifies :reload, "service[iptables]" if elversion < 7
-        notifies :run, 'execute[firewall-cmd --reload]' if elversion >= 7
+        notifies :reload, "service[iptables]"
+        notifies :run, 'execute[restart FirewallD]' if elversion >= 7
       end
     }
   }
