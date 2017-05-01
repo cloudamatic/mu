@@ -61,6 +61,7 @@ default['nagios']['default_host']['max_check_attempts'] = 4
 default['nagios']['default_host']['check_command'] = "check_node_ssh"
 default['nagios']['default_service']['check_interval'] = 180
 default['nagios']['default_service']['retry_interval'] = 30
+default['nagios']['default_service']['notification_interval'] = 7200
 default['nagios']['server']['url'] = "https://assets.nagios.com/downloads/nagioscore/releases/nagios-4.1.1.tar.gz"
 default['nagios']['server']['version'] = "4.1.1"
 default['nagios']['server']['src_dir'] = "nagios-4.1.1"
