@@ -15,9 +15,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 CHEF_SERVER_VERSION="12.11.1-1"
 CHEF_CLIENT_VERSION="12.17.44-1"
+MU_BRANCH="its_all_your_vault"
+
+execute "reconfigure Chef server" do
+  command "/opt/opscode/bin/chef-server-ctl reconfigure"
+  action :nothing
+end
 
 basepackages = []
 removepackages = []
@@ -58,6 +63,7 @@ package basepackages
 rpms.each_pair { |pkg, src|
   rpm_package pkg do
     source src
+    notifies :run, "execute[reconfigure Chef server]", :immediately if pkg == "chef-server-core"
   end
 }
 package removepackages do
@@ -71,14 +77,23 @@ end
     recursive true
   end
 }
+
 git "/opt/mu/lib" do
-  repository "cloudamatic/mu.git"
-  # XXX if we can check for a node attribute when not in chef-apply mode, pick our branch
+  repository "git://github.com/cloudamatic/mu.git"
+  # XXX if we can check that we're not in chef-apply mode, use an attribute to pick our branch; otherwise use the default
+  revision "its_all_your_vault"
 end
 
-["/opt/chef/embedded/bin/gem", ""].each { |gembin|
-  gem_package ["bundler", ] do
+["/usr/local/ruby-current/bin/gem", "/opt/chef/embedded/bin/gem", "/opt/opscode/embedded/bin/gem"].each { |gembin|
+  bundler_path = gembin.sub(/gem$/, "bundle")
+  gem_package bundler_path do
     gem_binary gembin
+    package_name "bundler"
+  end
+  execute "#{bundler_path} install" do
+    cwd "/opt/mu/lib/modules"
+    umask 0022
+    not_if "#{bundler_path} check"
   end
 }
 
