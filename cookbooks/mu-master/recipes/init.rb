@@ -68,15 +68,31 @@ if File.read("/etc/ssh/sshd_config").match(/^AllowUser\s+([^\s]+)(?: |$)/)
 end
 
 
+
 package basepackages
 rpms.each_pair { |pkg, src|
   rpm_package pkg do
     source src
-    notifies :run, "execute[reconfigure Chef server]", :immediately if pkg == "chef-server-core" and File.exists?("/opt/opscode/bin/chef-server-ctl")
   end
 }
 package removepackages do
   action :remove
+end
+
+file "initial chef-server.rb" do
+  path "/etc/opscode/chef-server.rb"
+  content "server_name='127.0.0.1'
+api_fqdn server_name
+nginx['server_name'] = server_name
+nginx['enable_non_ssl'] = false
+nginx['non_ssl_port'] = 81
+nginx['ssl_port'] = 7443
+nginx['ssl_ciphers'] = 'HIGH:MEDIUM:!LOW:!kEDH:!aNULL:!ADH:!eNULL:!EXP:!SSLv2:!SEED:!CAMELLIA:!PSK'
+nginx['ssl_protocols'] = 'TLSv1.2'
+bookshelf['external_url'] = 'https://127.0.0.1:7443'
+bookshelf['vip_port'] = 7443\n"
+  not_if { ::File.size?("/etc/opscode/chef-server.rb") }
+  notifies :run, "execute[reconfigure Chef server]", :immediately
 end
 
 ["bin", "etc", "lib", "var/users/mu", "var/deployments", "var/orgs/mu"].each { |mudir|
@@ -93,17 +109,13 @@ git "#{MU_BASE}/lib" do
   revision MU_BRANCH
 end
 
-["mu-aws-setup", "mu-cleanup", "mu-deploy", "mu-firewall-allow-clients", "mu-gen-docs", "mu-load-config.rb", "mu-load-murc.rb", "mu-momma-cat", "mu-node-manage", "mu-tunnel-nagios", "mu-upload-chef-artifacts", "mu-user-manage"].each { |exe|
+["mu-aws-setup", "mu-cleanup", "mu-configure", "mu-deploy", "mu-firewall-allow-clients", "mu-gen-docs", "mu-load-config.rb", "mu-load-murc.rb", "mu-momma-cat", "mu-node-manage", "mu-tunnel-nagios", "mu-upload-chef-artifacts", "mu-user-manage"].each { |exe|
   link "#{MU_BASE}/bin/#{exe}" do
     to "#{MU_BASE}/lib/bin/#{exe}"
   end
 }
 remote_file "#{MU_BASE}/bin/mu-self-update" do
   source "file://#{MU_BASE}/lib/bin/mu-self-update"
-  mode 0755
-end
-remote_file "#{MU_BASE}/bin/mu-configure" do
-  source "file://#{MU_BASE}/lib/install/mu_setup"
   mode 0755
 end
 
@@ -130,7 +142,7 @@ execute "initial Chef artifact upload" do
   command "CHEF_PUBLIC_IP=127.0.0.1 MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts"
   action :nothing
 end
-gem "simple-password-gen" do
+chef_gem "simple-password-gen" do
   compile_time true
 end
 require "simple-password-gen"
@@ -152,8 +164,8 @@ file "initial root knife.rb" do
   client_key '#{MU_BASE}/var/users/mu/mu.user.key'
   validation_client_name 'mu-validator'
   validation_key '#{MU_BASE}/var/orgs/mu/mu.org.key'
-  chef_server_url 'https://127.0.0.1/organizations/mu'
-  chef_server_root 'https://127.0.0.1/organizations/mu'
+  chef_server_url 'https://127.0.0.1:7443/organizations/mu'
+  chef_server_root 'https://127.0.0.1:7443/organizations/mu'
   syntax_check_cache_path  '/root/.chef/syntax_check_cache'
   cookbook_path [ '/root/.chef/cookbooks', '/root/.chef/site_cookbooks' ]
   ssl_verify_mode :verify_none

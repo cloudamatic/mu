@@ -40,7 +40,7 @@ if [ -z $MU_DATADIR ];then
         exit 1
 fi
 
-source $MU_INSTALLDIR/bin/mu-configure
+source $MU_INSTALLDIR/install/mu_setup
 
 cd $MU_CHEF_CACHE
 

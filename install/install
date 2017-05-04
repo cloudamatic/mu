@@ -44,3 +44,7 @@ else
   /usr/bin/curl https://raw.githubusercontent.com/cloudamatic/mu/$MU_BRANCH/cookbooks/mu-master/recipes/init.rb > /root/mu-master-init-recipe.rb
   /opt/chef/bin/chef-apply /root/mu-master-init-recipe.rb
 fi
+
+MU_INSTALLDIR=/opt/mu /opt/mu/bin/mu-configure
+
+/opt/chef/bin/chef-client
