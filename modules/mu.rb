@@ -213,7 +213,7 @@ module MU
   end
 
   # Mu's deployment metadata directory.
-  @myDataDir = File.expand_path(ENV['MU_DATADIR']) if ENV.has_key("MU_DATADIR")
+  @myDataDir = File.expand_path(ENV['MU_DATADIR']) if ENV.has_key?("MU_DATADIR")
   @myDataDir = @@mainDataDir if @myDataDir.nil?
   # Mu's deployment metadata directory.
   def self.dataDir
