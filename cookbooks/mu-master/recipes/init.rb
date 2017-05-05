@@ -152,7 +152,7 @@ execute "knife ssl fetch" do
   action :nothing
 end
 execute "initial Chef artifact upload" do
-  command "CHEF_PUBLIC_IP=127.0.0.1 MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts"
+  command "PATH=\"/usr/local/ruby-current/bin:${PATH}\" CHEF_PUBLIC_IP=127.0.0.1 MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts"
   action :nothing
   notifies :run, "execute[knife ssl fetch]", :before
 end

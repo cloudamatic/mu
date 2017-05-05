@@ -623,6 +623,7 @@ if [ "$all" != "1" ];then
         $knife environment from file $MU_CHEF_CACHE/environments/$env.json
       fi
     done
+    set +e
     for bag in $upload_data_bags;do
       bagcreated=0
       for file in `ls -1 $MU_CHEF_CACHE/data_bags/$bag/*.json`;do
@@ -636,6 +637,7 @@ if [ "$all" != "1" ];then
         fi
       done
     done
+    set -e
   fi
 else
   databagdir="$MU_CHEF_CACHE/data_bags/"
