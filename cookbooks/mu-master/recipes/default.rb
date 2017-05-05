@@ -49,6 +49,8 @@ if !node.update_nagios_only
   include_recipe 'chef-vault'
   if $MU_CFG.has_key?('ldap')
     if $MU_CFG['ldap']['type'] == "389 Directory Services" and Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG['host_name']}")
+      include_recipe "389ds"
+
       package "sssd"
       package "sssd-ldap"
       package "nss-pam-ldapd" do
@@ -135,6 +137,12 @@ if !node.update_nagios_only
       include_recipe "mu-activedirectory::domain-node"
     end
   end
+
+  node.normal[:mu][:user_map] = MU::Master.listUsers
+  node.normal[:mu][:user_list] = []
+  node[:mu][:user_map].each_pair { |user, data|
+    node.normal[:mu][:user_list] << "#{user} (#{data['email']})"
+  }
 
   directory "#{MU.mainDataDir}/deployments"
 

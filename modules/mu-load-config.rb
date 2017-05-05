@@ -22,7 +22,7 @@ require 'erubis'
 # override values from the global config. Also puts Mu's /modules directory
 # into the Ruby $LOAD_PATH.
 # @return [Hash]
-def loadMuConfig
+def loadMuConfig(default_cfg_overrides = nil)
   # Start with sane defaults
   default_cfg = {
     "installdir" => "/opt/mu",
@@ -72,26 +72,7 @@ def loadMuConfig
       "dcs" => ["localhost"]
     }
   }
-  ["HOST_NAME", "MU_ADMIN_EMAIL", "JENKINS_ADMIN_EMAIL"].each { |var|
-    if ENV.has_key?(var) and !ENV[var].empty?
-      default_cfg[var.downcase] = ENV[var]
-    end
-  }
-  if ENV.has_key?("CHEF_PUBLIC_IP")
-    default_cfg["public_address"] = ENV['CHEF_PUBLIC_IP']
-  end
-  if ENV.has_key?("SSL_CERT")
-    default_cfg["ssl"]["cert"] = ENV['SSL_CERT']
-  end
-  if ENV.has_key?("SSL_KEY")
-    default_cfg["ssl"]["key"] = ENV['SSL_KEY']
-  end
-  if ENV.has_key?("SSL_CHAIN")
-    default_cfg["ssl"]["chain"] = ENV['SSL_CHAIN']
-  end
-  if ENV.has_key?("ALLOW_INVADE_FOREIGN_VPCS") and !ENV['ALLOW_INVADE_FOREIGN_VPCS'].empty?
-    default_cfg["allow_invade_foreign_vpcs"] = true
-  end
+  default_cfg.merge!(default_cfg_overrides) if default_cfg_overrides
   if ENV.include?('MU_INSTALLDIR')
     cfg_file = ENV['MU_INSTALLDIR']+"/etc/mu.yaml"
     default_cfg["installdir"] = ENV['MU_INSTALLDIR']
@@ -132,4 +113,19 @@ def loadMuConfig
   return default_cfg.merge(global_cfg).freeze
 end
 
-$MU_CFG = loadMuConfig
+def saveMuConfig(cfg)
+  home = Etc.getpwuid(Process.uid).dir
+  username = Etc.getpwuid(Process.uid).name
+  cfg_file = "/opt/mu/etc/mu.yaml"
+  if Process.uid == 0
+    cfg_file = ENV['MU_INSTALLDIR']+"/etc/mu.yaml" if ENV.include?('MU_INSTALLDIR')
+  else
+    cfg_file = "#{home}/.mu.yaml"
+  end
+  puts "**** Saving master config to #{cfg_file} *****"
+  File.open(cfg_file, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
+    f.puts cfg.to_yaml
+  }
+end
+
+$MU_CFG = loadMuConfig($MU_SET_DEFAULTS)

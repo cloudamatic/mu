@@ -79,7 +79,7 @@ module MU
 
       Syslog.open("Mu/"+caller_name, Syslog::LOG_PID, Syslog::LOG_DAEMON | Syslog::LOG_LOCAL3) if !Syslog.opened?
 
-      details = PP.pp(details, '')
+      details = PP.pp(details, '') if !details.nil?
       details = "<pre>"+details+"</pre>" if @html
       # We get passed literal quoted newlines sometimes, fix 'em
       details.gsub!(/\\n/, "\n") if !details.nil?

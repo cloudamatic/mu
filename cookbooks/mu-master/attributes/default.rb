@@ -12,11 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-default['mu']['user_map'] = MU::Master.listUsers
-default['mu']['user_list'] = []
-node.mu.user_map.each_pair { |user, data|
-  node.default.mu.user_list << "#{user} (#{data['email']})"
-}
 
 default['apache']['docroot_dir'] = "/var/www/html"
 default['apache']['default_site_enabled'] = false

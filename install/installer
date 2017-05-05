@@ -23,19 +23,23 @@ else
   CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el6.x86_64"
 fi
 
-set -x
 
 if ! /bin/rpm -q curl > /dev/null ;then
   /usr/bin/yum -y install curl
 fi
+if [ ! -f /opt/chef/bin/chef-apply ];then
+  if /bin/rpm -q $CHEF_CLIENT_PKG > /dev/null ;then
+    /usr/bin/yum -y erase chef || /bin/rpm -e chef
+  fi
+fi
+set -x
+set -e
 if ! /bin/rpm -q $CHEF_CLIENT_PKG > /dev/null ;then
   # Drop any old Chef packages laying around, first
   /usr/bin/yum -y erase chef || /bin/rpm -e chef
   /bin/rm -rf /opt/chef
-  set -e
   /usr/bin/curl https://www.chef.io/chef/install.sh > /root/chef-install.sh
   /bin/sh /root/chef-install.sh -v $CHEF_CLIENT_VERSION
-  set +e
 fi
 
 if [ -d /opt/mu/lib/cookbooks/mu-master/recipes ];then
@@ -47,4 +51,4 @@ fi
 
 MU_INSTALLDIR=/opt/mu /opt/mu/bin/mu-configure
 
-/opt/chef/bin/chef-client
+#/opt/chef/bin/chef-client

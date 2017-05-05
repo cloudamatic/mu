@@ -937,7 +937,6 @@ module MU
           end
         end
         return ok if !mu_acct # everything below is Mu-specific
-        cur_users = MU::Master.listUsers
 
         if cur_users.has_key?(user)
           ["realname", "email", "monitoring_email"].each { |field|
@@ -949,6 +948,7 @@ module MU
         else
           MU.log "Load of current user list didn't include #{user}, even though we just created them!", MU::WARN
         end
+
         MU::Master.setLocalDataPerms(user) if Etc.getpwuid(Process.uid).name == "root" and mu_acct
         ok
       end

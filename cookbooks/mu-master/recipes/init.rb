@@ -15,7 +15,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# This recipe is meant to be invoked standalone, by chef-apply. It can safely
+# be invoked during a regular chef-client run.
+#
+# When modifying this recipe, DO NOT ADD EXTERNAL DEPENDENCIES. That means no
+# references to other cookbooks, no include_recipes, no cookbook_files, no
+# templates.
+
 require 'etc'
+require 'open-uri'
+require 'socket'
 
 CHEF_SERVER_VERSION="12.11.1-1"
 CHEF_CLIENT_VERSION="12.17.44-1"
@@ -138,9 +147,13 @@ directory "/root/.chef"
 #  source "file:///etc/opscode/pivotal.rb"
 #  path "/root/.chef/knife.rb"
 #end
+execute "knife ssl fetch" do
+  action :nothing
+end
 execute "initial Chef artifact upload" do
   command "CHEF_PUBLIC_IP=127.0.0.1 MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts"
   action :nothing
+  notifies :run, "execute[knife ssl fetch]", :before
 end
 chef_gem "simple-password-gen" do
   compile_time true
