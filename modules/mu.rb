@@ -213,7 +213,7 @@ module MU
   end
 
   # Mu's deployment metadata directory.
-  @myDataDir = File.expand_path(ENV['MU_DATADIR'])
+  @myDataDir = File.expand_path(ENV['MU_DATADIR']) if ENV.has_key("MU_DATADIR")
   @myDataDir = @@mainDataDir if @myDataDir.nil?
   # Mu's deployment metadata directory.
   def self.dataDir
@@ -520,7 +520,8 @@ module MU
   end
 
   # Mu's SSL certificate directory
-  @@mySSLDir = File.expand_path(ENV['MU_DATADIR']+"/ssl")
+  @@mySSLDir = File.expand_path(ENV['MU_DATADIR']+"/ssl") if ENV.has_key?("MU_DATADIR")
+  @@mySSLDir ||= "/opt/mu/var/ssl"
   # Mu's SSL certificate directory
   # @return [String]
   def self.mySSLDir;
