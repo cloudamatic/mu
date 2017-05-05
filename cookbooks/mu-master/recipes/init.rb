@@ -141,6 +141,7 @@ end
   end
 }
 
+
 # Get a 'mu' Chef org in place and populate it with artifacts
 directory "/root/.chef"
 #remote_file "temporary root knife.rb for initial setup" do

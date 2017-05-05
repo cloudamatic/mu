@@ -26,6 +26,9 @@ include_recipe 'mu-firewall'
 firewall_rule "MU Master default ports" do
   port [2260, 8443, 9443, 10514, 443, 80, 25]
 end
+firewall_rule "Chef Server default ports" do
+  port [4321, 7443, 9463, 16379, 8983, 8000, 9683, 9090, 5432, 5672]
+end
 
 master_ips = get_mu_master_ips
 master_ips << "127.0.0.1"
@@ -36,9 +39,6 @@ master_ips.each { |host|
   end
 }
 
-firewall_rule "Chef Server default ports" do
-  port [4321, 7443, 9463, 16379, 8983, 8000, 9683, 9090, 5432, 5672]
-end
 
 if !node.update_nagios_only
 

@@ -422,7 +422,9 @@ else
 end
 require 'mu'
 
-# XXX SSL certificates
+if $INITIALIZE
+  system("chef-client -o 'recipe[mu-master::ssl-certs]'")
+end
 # XXX Firewall holes (man I'd like for Chef to do that work)
 
 if $INITIALIZE or $CHANGES.include?("chef-server")
