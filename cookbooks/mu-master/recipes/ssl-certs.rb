@@ -52,11 +52,11 @@ execute "update CA store" do
   action :nothing
 end
 remote_file "/etc/pki/ca-trust/source/anchors/Mu_CA.pem" do
-  source "#{MU_BASE}/var/ssl/Mu_CA.pem"
+  source "file://#{MU_BASE}/var/ssl/Mu_CA.pem"
   notifies :run, "execute[update CA store]", :immediately
 end
 remote_file "#{MU_BASE}/lib/cookbooks/mu-tools/files/default/Mu_CA.pem" do
-  source "#{MU_BASE}/var/ssl/Mu_CA.pem"
+  source "file://#{MU_BASE}/var/ssl/Mu_CA.pem"
 end
 
 service_certs.each { |cert|
