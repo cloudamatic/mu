@@ -115,7 +115,7 @@ add_berkshelf_cookbooks()
   user="`whoami`"
   user_home="`getent passwd \"$user\" |cut -d: -f6`"
   berksdir="$user_home/.berkshelf"
-  berks="/usr/local/ruby-current/bin/berks"
+  berks="/usr/local/ruby-current/bin/ruby /usr/local/ruby-current/bin/berks"
   cd $repodir
 
   if [ "$MU_DEPRESOLVE" == "1" ];then

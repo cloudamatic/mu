@@ -73,27 +73,27 @@ def loadMuConfig(default_cfg_overrides = nil)
     }
   }
   default_cfg.merge!(default_cfg_overrides) if default_cfg_overrides
+  cfg_file = nil
   if ENV.include?('MU_INSTALLDIR')
     cfg_file = ENV['MU_INSTALLDIR']+"/etc/mu.yaml"
     default_cfg["installdir"] = ENV['MU_INSTALLDIR']
-    if !File.exists?(cfg_file)
-      puts "**** Master config #{cfg_file} does not exist, initializing *****"
-      File.open(cfg_file, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
-        f.puts default_cfg.to_yaml
-      }
-    end
-    global_cfg = YAML.load(File.read(cfg_file))
-    global_cfg["config_files"] = [cfg_file]
-  elsif File.readable?("/opt/mu/etc/mu.yaml")
-    global_cfg = YAML.load(File.read("/opt/mu/etc/mu.yaml"))
-    global_cfg["config_files"] = ["/opt/mu/etc/mu.yaml"]
-    global_cfg["installdir"] = "/opt/mu"
-# XXX have more guesses, e.g. assume this file's being loaded from somewhere in the install. That's mean picking where this thing lives, deciding whether's a stub or the full library...
+  else
+    cfg_file = "/opt/mu/etc/mu.yaml"
+    default_cfg["installdir"] = "/opt/mu"
   end
+
+  if !File.exists?(cfg_file)
+    puts "**** Master config #{cfg_file} does not exist, initializing *****"
+    File.open(cfg_file, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
+      f.puts default_cfg.to_yaml
+    }
+  end
+
+  global_cfg = YAML.load(File.read(cfg_file))
+  global_cfg["config_files"] = [cfg_file]
 
   home = Etc.getpwuid(Process.uid).dir
   username = Etc.getpwuid(Process.uid).name
-  global_cfg["config_files"] = [] if !global_cfg["config_files"]
   if File.readable?("#{home}/.mu.yaml")
     global_cfg.merge!(YAML.load(File.read("#{home}/.mu.yaml")))
     global_cfg["config_files"] << "#{home}/.mu.yaml"

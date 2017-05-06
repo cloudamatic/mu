@@ -49,6 +49,6 @@ else
   /opt/chef/bin/chef-apply /root/mu-master-init-recipe.rb
 fi
 
-MU_INSTALLDIR=/opt/mu /opt/mu/bin/mu-configure
+/opt/mu/bin/mu-configure
 
 #/opt/chef/bin/chef-client
