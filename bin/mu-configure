@@ -49,6 +49,27 @@ rescue Timeout::Error
 end
 # XXX equivalents for other clouds
 
+knife_template = "log_level                :info
+log_location             STDOUT
+node_name                '<%= user %>'
+client_key               '<%= MU.dataDir %>/users/<%= user %>/<%= user %>.user.key'
+validation_client_name   'mu-validator'
+validation_key           '<%= MU.dataDir %>/orgs/<%= user %>/<%= user %>.org.key'
+chef_server_url 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
+chef_server_root 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
+syntax_check_cache_path  '<%= home %>/.chef/syntax_check_cache'
+cookbook_path [ '<%= home %>/.chef/cookbooks', '<%= home %>/.chef/site_cookbooks' ]
+knife[:vault_mode] = 'client'
+knife[:vault_admins] = ['<%= user %>']"
+
+client_template = "chef_server_url  'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
+validation_client_name 'mu-validator'
+log_location   STDOUT
+node_name 'MU-MASTER'
+verify_api_cert false
+ssl_verify_mode :verify_none
+"
+
 $CHANGES = []
 
 # Top-level keys in $MU_CFG for which we'll provide interactive, menu-driven
@@ -58,7 +79,7 @@ $CONFIGURABLES = {
     "title" => "Public Address",
     "desc" => "IP address or hostname",
     "required" => true,
-    "changes" => ["chef-server", "chefrun"]
+    "changes" => ["chef-server", "chefrun", "kniferb"]
   },
   "mu_admin_email" => {
     "title" => "Admin Email",
@@ -438,7 +459,24 @@ if $INITIALIZE or $CHANGES.include?("chef-server")
   %x{/opt/opscode/bin/chef-server-ctl reconfigure}
 end
 
-# XXX trigger more granularly; specific config changes, missing elements
+if $INITIALIZE or $CHANGES.include?("kniferb")
+  erb = ERB.new(knife_template)
+  user = "mu"
+  home = Etc.getpwnam("root").dir
+  kniferb = erb.result(binding)
+  MU.log "Updating #{home}/.chef/knife.rb", MU::NOTICE
+  File.open(home+"/.chef/knife.rb", File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
+    f.puts kniferb
+  }
+  %x{rm -f #{home}/.chef/trusted_certs/* ; knife ssl fetch -c #{home}/.chef/knife.rb}
+  erb = ERB.new(client_template)
+  clientrb = erb.result(binding)
+  MU.log "Updating /etc/chef/client.rb", MU::NOTICE
+  File.open("/etc/chef/client.rb", File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
+    f.puts clientrb
+  }
+end
+
 if $MU_CFG['ldap']['type'] == "389 Directory Services" 
   if $INITIALIZE or $CHANGES.include?("389ds")
     set389DSCreds
@@ -468,12 +506,7 @@ if set_runlist
   $CHANGES << "chefrun"
 end
 
-if $INITIALIZE or $CHANGES.include?("chef-server")
-  puts "Adjusting users' knife.rb settings...".yellow.on_black
-  pp MU::Master.listUsers
-  MU::Master.listUsers.each { |user|
-  }
-end
+
 
 if $INITIALIZE or $CHANGES.include?("chefrun")
   system(chef-client)
