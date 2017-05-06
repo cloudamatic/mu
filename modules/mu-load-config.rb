@@ -104,8 +104,10 @@ def loadMuConfig(default_cfg_overrides = nil)
   if !global_cfg.has_key?("datadir")
     if username != "root"
       global_cfg["datadir"] = home+"/.mu"
+    elsif global_cfg.has_key?("installdir")
+      global_cfg["datadir"] = global_cfg["installdir"]+"/var"
     else
-      global_cfg["datadir"] = ENV['MU_INSTALLDIR']+"/var"
+      global_cfg["datadir"] = "/opt/mu/var"
     end
   end
 

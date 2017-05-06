@@ -45,10 +45,8 @@ home = Etc.getpwuid(Process.uid).dir
 parseRCFile "#{home}/.murc"
 
 if !ENV.include?('MU_INSTALLDIR')
-  require 'pp'
-  puts "Environment isn't set and I can't find a useful .murc, aborting."
-  pp ENV
-  exit 1
+  ENV['MU_INSTALLDIR'] = "/opt/mu"
+  puts "Environment isn't set, guessing that maybe Mu is in /opt/mu"
 end
 
 if !ENV.include?('MU_LIBDIR')
