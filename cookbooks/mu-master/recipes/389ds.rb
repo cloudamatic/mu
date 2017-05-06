@@ -65,7 +65,7 @@ end
 
 template "/root/389ds.tmp/389-directory-setup.inf"do
   source "389-directory-setup.inf.erb"
-  variables :hostname => $MU_CFG["hostname"],
+  variables :hostname => $MU_CFG["public_address"],
             :domain => $MU_CFG["ldap"]["domain_name"],
             :domain_dn => $MU_CFG["ldap"]["domain_name"].split(/\./).map{ |x| "DC=#{x}" }.join(","),
             :creds => $CREDS

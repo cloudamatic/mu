@@ -79,7 +79,7 @@ $CONFIGURABLES = {
     "title" => "Public Address",
     "desc" => "IP address or hostname",
     "required" => true,
-    "changes" => ["chef-server", "chefrun", "kniferb"]
+    "changes" => ["389ds", "chef-server", "chefrun", "kniferb"]
   },
   "mu_admin_email" => {
     "title" => "Admin Email",
@@ -92,7 +92,7 @@ $CONFIGURABLES = {
     "title" => "Local Hostname",
     "pattern" => /^[a-z0-9\-_]+$/i,
     "desc" => "The local system's value for HOSTNAME",
-    "changes" => ["389ds"]
+    "changes" => ["chefrun"]
   },
   "banner" => {
     "title" => "Banner",
