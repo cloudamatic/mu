@@ -26,22 +26,22 @@ service_certs = ["rsyslog", "mommacat", "ldap"]
 
 execute "generate SSL CA key" do
   command "openssl genrsa -out Mu_CA.key 4096"
-  cwd "#{MU_BASE}/var/ssl"
-  not_if { ::File.exists?("#{MU_BASE}/var/ssl/Mu_CA.key") }
-  notifies :delete, "file[#{MU_BASE}/var/ssl/CA-command.txt]", :immediately
+  cwd "#{$MU_CFG['datadir']}/ssl"
+  not_if { ::File.exists?("#{$MU_CFG['datadir']}/ssl/Mu_CA.key") }
+  notifies :delete, "file[#{$MU_CFG['datadir']}/ssl/CA-command.txt]", :immediately
 end
-file "#{MU_BASE}/var/ssl/Mu_CA.key" do
+file "#{$MU_CFG['datadir']}/ssl/Mu_CA.key" do
   mode 0400
 end
 execute "create internal SSL CA" do
   command "openssl req -subj \"/CN=#{$MU_CFG['public_address']}/OU=Mu Server #{$MU_CFG['public_address']}/O=eGlobalTech/C=US\" -x509 -new -nodes -key Mu_CA.key -days 1024 -out Mu_CA.pem -sha512"
-  cwd "#{MU_BASE}/var/ssl"
+  cwd "#{$MU_CFG['datadir']}/ssl"
   action :nothing
   service_certs.each { |cert|
-    notifies :delete, "file[#{MU_BASE}/var/ssl/#{cert}.crt]", :immediately
+    notifies :delete, "file[#{$MU_CFG['datadir']}/ssl/#{cert}.crt]", :immediately
   }
 end
-file "#{MU_BASE}/var/ssl/CA-command.txt" do
+file "#{$MU_CFG['datadir']}/ssl/CA-command.txt" do
   content "openssl req -subj \"/CN=#{$MU_CFG['public_address']}/OU=Mu Server #{$MU_CFG['public_address']}/O=eGlobalTech/C=US\" -x509 -new -nodes -key Mu_CA.key -days 1024 -out Mu_CA.pem -sha512"
   mode 0400
   notifies :run, "execute[create internal SSL CA]", :immediately
@@ -52,11 +52,11 @@ execute "update CA store" do
   action :nothing
 end
 remote_file "/etc/pki/ca-trust/source/anchors/Mu_CA.pem" do
-  source "file://#{MU_BASE}/var/ssl/Mu_CA.pem"
+  source "file://#{$MU_CFG['datadir']}/ssl/Mu_CA.pem"
   notifies :run, "execute[update CA store]", :immediately
 end
 remote_file "#{MU_BASE}/lib/cookbooks/mu-tools/files/default/Mu_CA.pem" do
-  source "file://#{MU_BASE}/var/ssl/Mu_CA.pem"
+  source "file://#{$MU_CFG['datadir']}/ssl/Mu_CA.pem"
 end
 
 service_certs.each { |cert|
@@ -67,16 +67,16 @@ service_certs.each { |cert|
       cat Mu_CA.pem >> #{cert}.crt
       openssl pkcs12 -export -inkey #{cert}.key -in #{cert}.crt -out #{cert}.p12 -nodes -name "#{cert}" -passout pass:""
     EOH
-    cwd "#{MU_BASE}/var/ssl"
-    not_if { ::File.exists?("#{MU_BASE}/var/ssl/#{cert}.crt") }
+    cwd "#{$MU_CFG['datadir']}/ssl"
+    not_if { ::File.exists?("#{$MU_CFG['datadir']}/ssl/#{cert}.crt") }
   end
-  file "#{MU_BASE}/var/ssl/#{cert}.crt" do
+  file "#{$MU_CFG['datadir']}/ssl/#{cert}.crt" do
     mode 0400
   end
-  file "#{MU_BASE}/var/ssl/#{cert}.p12" do
+  file "#{$MU_CFG['datadir']}/ssl/#{cert}.p12" do
     mode 0400
   end
-  file "#{MU_BASE}/var/ssl/#{cert}.csr" do
+  file "#{$MU_CFG['datadir']}/ssl/#{cert}.csr" do
     action :delete
   end
 }
