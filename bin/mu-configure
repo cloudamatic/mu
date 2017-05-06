@@ -434,7 +434,7 @@ def set389DSCreds
 end
 
 if $INITIALIZE
-  %{/sbin/service iptables stop} # Chef run will set up correct rules later
+  %x{/sbin/service iptables stop} # Chef run will set up correct rules later
   $MU_SET_DEFAULTS = setConfigTree
   require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 elsif changed

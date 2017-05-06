@@ -24,6 +24,7 @@
 
 service_certs = ["rsyslog", "mommacat", "ldap"]
 
+directory "#{$MU_CFG['datadir']}/ssl"
 execute "generate SSL CA key" do
   command "openssl genrsa -out Mu_CA.key 4096"
   cwd "#{$MU_CFG['datadir']}/ssl"
@@ -55,7 +56,7 @@ remote_file "/etc/pki/ca-trust/source/anchors/Mu_CA.pem" do
   source "file://#{$MU_CFG['datadir']}/ssl/Mu_CA.pem"
   notifies :run, "execute[update CA store]", :immediately
 end
-remote_file "#{MU_BASE}/lib/cookbooks/mu-tools/files/default/Mu_CA.pem" do
+remote_file "#{$MU_CFG['installdir']}/lib/cookbooks/mu-tools/files/default/Mu_CA.pem" do
   source "file://#{$MU_CFG['datadir']}/ssl/Mu_CA.pem"
 end
 
