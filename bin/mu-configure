@@ -480,6 +480,11 @@ if $INITIALIZE or $CHANGES.include?("kniferb")
 end
 
 if $MU_CFG['ldap']['type'] == "389 Directory Services" 
+  begin
+    MU::Master::LDAP.listUsers
+  rescue Exception # XXX bleh
+    $CHANGES << "389ds"
+  end
   if $INITIALIZE or $CHANGES.include?("389ds")
     MU.log "Configuring 389 Directory Services", MU::NOTICE
     set389DSCreds
