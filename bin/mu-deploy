@@ -93,7 +93,7 @@ conf_engine = MU::Config.new(config, $opts[:skipinitialupdates], params: params)
 stack_conf = conf_engine.config
 
 if $opts[:dryrun] or $opts[:verbose]
-  puts JSON.pretty_generate(stack_conf)
+  puts stack_conf.to_yaml
   conf_engine.visualizeDependencies
 end
 
