@@ -63,20 +63,22 @@ execute "initialize 389 Directory Services" do
   action :nothing
 end
 
-service "dirsrv" do
-  action [:enable, :start]
-end
 service "dirsrv-admin" do
   action [:enable, :start]
 end
 
+
 template "/root/389ds.tmp/389-directory-setup.inf"do
   source "389-directory-setup.inf.erb"
-  variables :hostname => $MU_CFG["public_address"],
+  variables :hostname => $MU_CFG["hostname"],
             :domain => $MU_CFG["ldap"]["domain_name"],
             :domain_dn => $MU_CFG["ldap"]["domain_name"].split(/\./).map{ |x| "DC=#{x}" }.join(","),
             :creds => $CREDS
   notifies :run, "execute[initialize 389 Directory Services]", :immediately
+end
+
+service "dirsrv" do
+  action [:enable, :start]
 end
 
 chef_gem "expect" do

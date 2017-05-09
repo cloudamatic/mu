@@ -1,7 +1,7 @@
 ::1             localhost6.localdomain6 localhost6
 <%= @ipaddress %> <%= @hostname %>
 127.0.0.1 localhost
-<% if !@nodes.empty?
+<% if !@nodes.nil? and !@nodes.empty?
   @nodes.each{ |n|
 # doing only private IPs although that can be problematic 
 # if the same deploy has cross VPC or cross region resources

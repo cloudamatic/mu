@@ -4,6 +4,7 @@ SuiteSpotUserID= nobody
 SuiteSpotGroup= nobody 
 AdminDomain= <%= @domain %>
 ServerRoot = /usr/lib64/dirsrv
+StrictHostCheck = false
 ConfigDirectoryAdminID= <%= @creds["cfg_directory_adm"]["user"] %> 
 ConfigDirectoryAdminPwd= <%= @creds["cfg_directory_adm"]["pw"] %> 
 ConfigDirectoryLdapURL= ldap://<%= @hostname+"."+@domain %>:389/o=NetscapeRoot 
@@ -20,7 +21,7 @@ AddSampleEntries = No
 SlapdConfigForMC= Yes 
 UseExistingMC= No 
 ServerPort= 389 
-ServerIdentifier= <%= @hostname %> 
+ServerIdentifier= <%= @hostname.gsub(/[^a-z0-9#%:@_-]/i, "_") %> 
 Suffix= <%= @domain_dn %>
 naming_value= <%= @domain %>
 RootDN= <%= @creds["root_dn_user"]["user"] %>
