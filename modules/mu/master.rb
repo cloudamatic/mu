@@ -114,7 +114,7 @@ module MU
           "installdir" => $MU_CFG['installdir']
         }
         File.open(home+"/.murc", "w+", 0640){ |f|
-          f.puts Erubis::Eruby.new(File.read("#{$MU_CFG['libdir']}/install/dot-murc.erb")).result(vars)
+          f.puts Erubis::Eruby.new(File.read("#{$MU_CFG['libdir']}/install/user-dot-murc.erb")).result(vars)
         }
         File.open(home+"/.bashrc", "a"){ |f|
           f.puts "source #{home}/.murc"

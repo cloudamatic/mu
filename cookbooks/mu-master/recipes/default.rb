@@ -450,6 +450,20 @@ if !node.update_nagios_only
   "
   end
 
+  template "#{MU.etcDir}/mu.rc" do
+    source "mu.rc.erb"
+    mode 0644
+    owner "root"
+    variables(
+      :installdir => MU.installDir
+    )
+    not_if { ::File.exists?("#{MU.etcDir}/mu.rc") }
+  end
+  execute "source #{MU.etcDir}/mu.rc from root dotfiles" do
+    command "echo 'source #{MU.etcDir}/mu.rc' >> #{Etc.getpwnam("root").dir}/.bashrc"
+    not_if "test -f #{Etc.getpwnam("root").dir}/.bashrc && grep '^source #{MU.etcDir}/mu.rc$' #{Etc.getpwnam("root").dir}/.bashrc"
+  end
+
   template "/etc/ssh/sshd_config" do
     source "sshd_config.erb"
     mode 0600

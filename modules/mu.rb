@@ -371,25 +371,28 @@ module MU
 
   rcfile = nil
   home = Etc.getpwuid(Process.uid).dir
-  if ENV.include?('MU_INSTALLDIR') and File.readable?(ENV['MU_INSTALLDIR']+"/etc/mu.rc")
+  if ENV.include?('MU_INSTALLDIR') and File.readable?(ENV['MU_INSTALLDIR']+"/etc/mu.rc") and File.size?(ENV['MU_INSTALLDIR']+"/etc/mu.rc")
     rcfile = ENV['MU_INSTALLDIR']+"/etc/mu.rc"
-  elsif File.readable?("/opt/mu/etc/mu.rc")
+  elsif File.readable?("/opt/mu/etc/mu.rc") and File.size?("/opt/mu/etc/mu.rc")
     rcfile = "/opt/mu/etc/mu.rc"
-  elsif File.readable?("#{home}/.murc")
+  elsif File.readable?("#{home}/.murc") and File.size?("#{home}/.murc")
     rcfile = "#{home}/.murc"
   end
-  MU.log "MU::Config loading #{rcfile}", MU::DEBUG
-  File.readlines(rcfile).each { |line|
-    line.strip!
-    name, value = line.split(/=/, 2)
-    name.sub!(/^export /, "")
-    if !value.nil? and !value.empty?
-      value.gsub!(/(^"|"$)/, "")
-      if !value.match(/\$/)
-        @mu_env_vars = "#{@mu_env_vars} #{name}=\"#{value}\""
+  if rcfile
+    MU.log "MU::Config loading #{rcfile}", MU::DEBUG
+    File.readlines(rcfile).each { |line|
+      line.strip!
+      next if !line.match(/^export .*?=/)
+      name, value = line.split(/=/, 2)
+      name.sub!(/^export /, "")
+      if !value.nil? and !value.empty?
+        value.gsub!(/(^"|"$)/, "")
+        if !value.match(/\$/)
+          @mu_env_vars = "#{@mu_env_vars} #{name}=\"#{value}\""
+        end
       end
-    end
-  }
+    }
+  end
 
   # Environment variables which command-line utilities might wish to inherit
   def self.mu_env_vars;

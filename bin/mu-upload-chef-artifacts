@@ -35,9 +35,11 @@ if [ "$CHEF_PUBLIC_IP" = "" -o "$MU_DATADIR" == "" ];then
                 source $HOMEDIR/.murc
         fi
 fi
+if [ -z $MU_INSTALLDIR ];then
+    MU_INSTALLDIR=/opt/mu
+fi
 if [ -z $MU_DATADIR ];then
-        echo "MU_DATADIR is unset, I don't know where to find Mu!"
-        exit 1
+    MU_DATADIR=/opt/mu/var
 fi
 
 source $MU_INSTALLDIR/lib/install/mu_setup

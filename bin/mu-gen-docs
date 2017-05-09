@@ -13,8 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-require File.expand_path(File.dirname(__FILE__))+"/mu-load-murc.rb"
-
 if ARGV.size > 0
   puts "#{$0}: Freshen the Mu Master's API and configuration documentation"
   exit 1

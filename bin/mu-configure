@@ -445,6 +445,7 @@ end
 require 'mu'
 
 if $INITIALIZE
+  MU.log "Setting up internal SSL signing authority and certificates", MU::NOTICE
   system("chef-client -o 'recipe[mu-master::ssl-certs]'")
 end
 # XXX Firewall holes (man I'd like for Chef to do that work)
@@ -456,7 +457,7 @@ if $INITIALIZE or $CHANGES.include?("chef-server")
     f.puts updated_server_cfg
   }
 
-  puts "Chef Server config was modified, reconfiguring...".yellow.on_black
+  MU.log "Chef Server config was modified, reconfiguring...", MU::NOTICE
   %x{/opt/opscode/bin/chef-server-ctl reconfigure}
 end
 
@@ -480,6 +481,7 @@ end
 
 if $MU_CFG['ldap']['type'] == "389 Directory Services" 
   if $INITIALIZE or $CHANGES.include?("389ds")
+    MU.log "Configuring 389 Directory Services", MU::NOTICE
     set389DSCreds
     system("chef-client -o 'recipe[mu-master::389ds]'")
     MU::Master::LDAP.initLocalLDAP
@@ -488,10 +490,12 @@ end
 
 if !File.exists?("#{MU_BASE}/var/users/mu/email") or !File.exists?("#{MU_BASE}/var/users/mu/realname")
   # Turn our stub system user 'mu' into a real boy.
+  MU.log "Finalizing the 'mu' Chef/LDAP account", MU::NOTICE
   %x{#{MU_BASE}/lib/bin/mu-user-manage mu -a -s -e "#{$MU_CFG['mu_admin_email']}" -l mu -n "Mu Master" -g --no-scratchpad --no-notify-user}
 end
 
 # Figure out if our run list is dumb
+MU.log "Verifying MU-MASTER's Chef run list", MU::NOTICE
 MU::Groomer::Chef.loadChefLib
 chef_node = ::Chef::Node.load("MU-MASTER")
 run_list = ["role[mu-master]"]
@@ -501,21 +505,26 @@ run_list.each { |rl|
   set_runlist = true if !chef_node.run_list?("role[mu-master]")
 }
 if set_runlist
-  MU.log "Setting MU-MASTER run_list", MU::NOTICE, details: run_list
+  MU.log "Updating MU-MASTER run_list", MU::NOTICE, details: run_list
   chef_node.run_list(run_list)
   chef_node.save
   $CHANGES << "chefrun"
+else
+  MU.log "Chef run list looks correct", MU::NOTICE
 end
 
-
-
-if $INITIALIZE or $CHANGES.include?("chefrun")
-  system("chef-client")
-end
+MU.log "Running chef-client on MU-MASTER", MU::NOTICE
+system("chef-client")
 
 
 if $INITIALIZE
-  puts "Setting password for admin user 'mu', for logging into Nagios and other built-in services.".green.on_black
+  MU.log "Setting password for admin user 'mu', for logging into Nagios and other built-in services.", MU::NOTICE
   puts %x{#{MU_BASE}/lib/bin/mu-user-manage -g mu}
-  puts "If Scratchpad web interface is not accessible, try the following:\n#{MU_BASE}/lib/bin/mu-user-manage -g --no-scratchpad mu".green.on_black
+  MU.log "If Scratchpad web interface is not accessible, try the following:", MU::NOTICE
+  puts "#{MU_BASE}/lib/bin/mu-user-manage -g --no-scratchpad mu"
+end
+
+if !ENV['PATH'].match(/(^|:)#{Regexp.quote(MU_BASE)}\/bin(:|$)/)
+  MU.log "I added some entries to your $PATH, run this to import them:", MU::NOTICE
+  puts "source #{Etc.getpwnam("root").dir}/.bashrc"
 end
