@@ -251,12 +251,15 @@ module MU
     # @return [Integer]: The gid of the user's default group
     def self.setLocalDataPerms(user)
       userdir = $MU_CFG['datadir']+"/users/#{user}"
+      retries = 0
       begin
-        gid = Etc.getgrnam("#{user}.mu-user").gid
-        %x{/usr/sbin/usermod -a -G "#{user}.mu-user" "#{user}"}
+        puts "/usr/sbin/usermod -a -G '#{user}.mu-user' '#{user}'"
+        puts %x{/usr/sbin/usermod -a -G "#{user}.mu-user" "#{user}"}
         Dir.mkdir(userdir, 2750) if !Dir.exist?(userdir)
 				# XXX mkdir gets the perms wrong for some reason
-        %x{/bin/chmod 2750 #{userdir}}
+        puts "/bin/chmod 2750 #{userdir}"
+        puts %x{/bin/chmod 2750 #{userdir}}
+        gid = Etc.getgrnam("#{user}.mu-user").gid
         Dir.foreach(userdir) { |file|
           next if file == ".."
           File.chown(nil, gid, userdir+"/"+file)
@@ -267,12 +270,15 @@ module MU
         return gid
       rescue ArgumentError => e
         if $MU_CFG["ldap"]["type"] == "Active Directory"
-          %x{/usr/sbin/groupadd "#{user}.mu-user"}
+          puts %x{/usr/sbin/groupadd "#{user}.mu-user"}
         else
-          MU.log "Got #{e.message} trying to set permissions on local files, will retry", MU::WARN
+          MU.log "Got '#{e.message}' trying to set permissions on local files, will retry", MU::WARN
         end
         sleep 5
-        retry
+        if retries <= 5
+          retries = retries + 1
+          retry
+        end
       end
     end
 

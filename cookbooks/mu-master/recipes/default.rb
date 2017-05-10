@@ -21,6 +21,7 @@ instance_id = response.body
 search_domains = ["ec2.internal", "server.#{instance_id}.platform-mu", "platform-mu"]
 
 include_recipe 'mu-master::firewall-holes'
+include_recipe 'mu-master::vault'
 
 master_ips = get_mu_master_ips
 master_ips << "127.0.0.1"
@@ -30,7 +31,6 @@ master_ips.each { |host|
     source "#{host}/32"
   end
 }
-
 
 if !node.update_nagios_only
 
@@ -296,26 +296,29 @@ if !node.update_nagios_only
 
   include_recipe "mu-tools::aws_api"
 
+
   ruby_block "create_logs_volume" do
     extend CAPVolume
     block do
       require 'aws-sdk-core'
-      if !File.open("/etc/mtab").read.match(/ #{node.application_attributes.logs.mount_directory} /) and !volume_attached(node.application_attributes.logs.mount_device)
+      if !File.open("/etc/mtab").read.match(/ #{node[:application_attributes][:logs][:mount_directory]} /) and !volume_attached(node[:application_attributes][:logs][:mount_device])
         create_node_volume("logs")
         result = attach_node_volume("logs")
       end
     end
-    not_if "grep #{node.application_attributes.logs.mount_directory} /etc/mtab"
+    not_if "grep #{node[:application_attributes][:logs][:mount_directory]} /etc/mtab"
     notifies :restart, "service[rsyslog]", :delayed
   end
 
   directory "/Mu_Logs"
 
+  log "Log bucket is at #{node[:application_attributes][:logs][:secure_location]}"
+
   ruby_block "mount_logs_volume" do
     extend CAPVolume
     block do
-      if !File.open("/etc/mtab").read.match(/ #{node.application_attributes.logs.mount_directory} /)
-        ebs_keyfile = node.application_attributes.logs.ebs_keyfile
+      if !File.open("/etc/mtab").read.match(/ #{node[:application_attributes][:logs][:mount_directory]} /)
+        ebs_keyfile = node[:application_attributes][:logs][:ebs_keyfile]
         temp_dev = "/dev/ram7"
         temp_mount = "/tmp/ram7"
 
@@ -327,7 +330,7 @@ if !node.update_nagios_only
         s3 = Aws::S3::Client.new
 
         begin
-          resp = s3.get_object(bucket: node.application_attributes.logs.secure_location, key: "log_vol_ebs_key")
+          resp = s3.get_object(bucket: node[:application_attributes][:logs][:secure_location], key: "log_vol_ebs_key")
         rescue Exception => e
           Chef::Log.info(e.inspect)
           destroy_temp_disk(temp_dev)
@@ -336,7 +339,7 @@ if !node.update_nagios_only
 
         if resp.body.nil? or resp.body.size == 0
           destroy_temp_disk(temp_dev)
-          raise "Couldn't fetch log volume key #{node.application_attributes.logs.secure_location}:/log_vol_ebs_key"
+          raise "Couldn't fetch log volume key #{node[:application_attributes][:logs][:secure_location]}:/log_vol_ebs_key"
         end
 
         ebs_key_handle = File.new("#{temp_mount}/log_vol_ebs_key", File::CREAT|File::TRUNC|File::RDWR, 0400)
@@ -347,14 +350,14 @@ if !node.update_nagios_only
       end
     end
     notifies :restart, "service[rsyslog]", :delayed
-    not_if "grep #{node.application_attributes.logs.mount_directory} /etc/mtab"
+    not_if "grep #{node[:application_attributes][:logs][:mount_directory]} /etc/mtab"
   end
 
-  ruby_block "label #{node.application_attributes.logs.mount_device} as #{node.application_attributes.logs.label}" do
+  ruby_block "label #{node[:application_attributes][:logs][:mount_device]} as #{node.application_attributes.logs.label}" do
     extend CAPVolume
     block do
-      tags = [{key: "Name", value: node.application_attributes.logs.label}]
-      tag_volume(node.application_attributes.logs.mount_device, tags)
+      tags = [{key: "Name", value: node[:application_attributes][:logs][:label]}]
+      tag_volume(node[:application_attributes][:logs][:mount_device], tags)
     end
   end rescue NoMethodError
 
@@ -413,7 +416,7 @@ if !node.update_nagios_only
     variables(
       :installdir => MU.installDir
     )
-    not_if { ::File.exists?("#{MU.etcDir}/mu.rc") }
+    not_if { ::File.size?("#{MU.etcDir}/mu.rc") }
   end
   execute "source #{MU.etcDir}/mu.rc from root dotfiles" do
     command "echo 'source #{MU.etcDir}/mu.rc' >> #{Etc.getpwnam("root").dir}/.bashrc"
@@ -453,13 +456,23 @@ if !node.update_nagios_only
     node[:mu][:user_map].each_pair { |user, data|
       node.normal[:mu][:user_list] << "#{user} (#{data['email']})"
     }
+    node.save
   
     sudoer_line = "%#{$MU_CFG['ldap']['admin_group_name']} ALL=(ALL) NOPASSWD: ALL"
     execute "echo '#{sudoer_line}' >> /etc/sudoers" do
       not_if "grep '^#{sudoer_line}$' /etc/sudoers"
     end
+
+    file "/root/.gitconfig" do
+      content "[user]
+        name = #{node[:mu][:user_map]['mu']['realname']}
+        email = #{node[:mu][:user_map]['mu']['email']}
+[push]
+        default = current
+"
+    end
   
-    node.mu.user_map.each_pair { |mu_user, data|
+    node[:mu][:user_map].each_pair { |mu_user, data|
       execute "echo '#{mu_user}: #{data['email']}' >> /etc/aliases" do
         not_if "grep '^#{mu_user}: #{data['email']}$' /etc/aliases"
       end
@@ -478,7 +491,7 @@ if !node.update_nagios_only
 
  Mu metadata are stored in #{MU.mainDataDir}
 
- Users: #{node.mu.user_list.join(", ")}
+ Users: #{node[:mu][:user_list].join(", ")}
 
 *******************************************************************************
 

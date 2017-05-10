@@ -579,7 +579,7 @@ module MU
   # Return the name of the S3 Mu log and key bucket for this Mu server.
   # @return [String]
   def self.adminBucketName
-    bucketname = ENV['LOG_BUCKET_NAME']
+    bucketname = $MU_CFG['aws']['log_bucket_name']
     if bucketname.nil? or bucketname.empty?
       bucketname = "Mu_Logs_"+Socket.gethostname+"_"+MU::Cloud::AWS.getAWSMetaData("instance-id")
     end

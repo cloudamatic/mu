@@ -34,7 +34,7 @@ end
 if !$MU_CFG['public_address'].match(/^\d+\.\d+\.\d+\.\d+$/)
   default["nagios"]["server_name"] = $MU_CFG['public_address']
 else
-  default["nagios"]["server_name"] = node.hostname
+  default["nagios"]["server_name"] = node[:hostname]
   default['nagios']['server']['server_alias'] = $MU_CFG['public_address']
 end
 #default['nagios']['server']['server_alias'] = node.fqdn+", "+node.hostname+", "+node['local_hostname']+", "+node['local_ipv4']+", "+node['public_hostname']+", "+node['public_ipv4']
@@ -76,15 +76,15 @@ default['nagios']['host_name_attribute'] = 'chef_node_name'
 
 default['application_attributes']['logs']['volume_size_gb'] = 50
 default['application_attributes']['logs']['mount_device'] = "/dev/xvdl"
-default['application_attributes']['logs']['label'] = "#{node.hostname} /Mu_Logs"
+default['application_attributes']['logs']['label'] = "#{node[:hostname]} /Mu_Logs"
 default['application_attributes']['logs']['secure_location'] = MU.adminBucketName
 default['application_attributes']['logs']['ebs_keyfile'] = "log_vol_ebs_key"
 default['application_attributes']['logs']['mount_directory'] = "/Mu_Logs"
 
-case node.platform
+case node[:platform]
   when "centos"
-    ssh_user = "root" if node.platform_version.to_i == 6
-    ssh_user = "centos" if node.platform_version.to_i == 7
+    ssh_user = "root" if node[:platform_version].to_i == 6
+    ssh_user = "centos" if node[:platform_version].to_i == 7
   when "redhat"
     ssh_user = "ec2-user"
 end

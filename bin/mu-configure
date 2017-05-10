@@ -42,6 +42,12 @@ $CONFIGURABLES = {
     "required" => true,
     "changes" => ["mu-user", "chefrun"]
   },
+  "mu_admin_name" => {
+    "title" => "Admin Name",
+    "desc" => "Administative contact's full name",
+    "default" => "Mu Administrator",
+    "changes" => ["mu-user", "chefrun"]
+  },
   "hostname" => {
     "title" => "Local Hostname",
     "pattern" => /^[a-z0-9\-_]+$/i,
@@ -555,7 +561,7 @@ end
 if !File.exists?("#{MU_BASE}/var/users/mu/email") or !File.exists?("#{MU_BASE}/var/users/mu/realname")
   # Turn our stub system user 'mu' into a real boy.
   MU.log "Finalizing the 'mu' Chef/LDAP account", MU::NOTICE
-  %x{#{MU_BASE}/lib/bin/mu-user-manage mu -a -s -e "#{$MU_CFG['mu_admin_email']}" -l mu -n "Mu Master" -g --no-scratchpad --no-notify-user}
+  system("#{MU_BASE}/lib/bin/mu-user-manage mu -a -s -e '#{$MU_CFG['mu_admin_email']}' -l mu -n '#{$MU_CFG['mu_admin_name']}' -g --no-scratchpad --no-notify-user")
 end
 
 # Figure out if our run list is dumb

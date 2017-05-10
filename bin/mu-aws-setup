@@ -149,11 +149,7 @@ elsif $opts[:ip]
   MU.log "Currently assigned IP address is #{instance.public_ip_address}"
 end
 
-if ENV['LOG_BUCKET_NAME'].nil? or ENV['LOG_BUCKET_NAME'].empty?
-  $bucketname = "mu-logs-"+Socket.gethostname+"-"+my_instance_id
-else
-  $bucketname = ENV['LOG_BUCKET_NAME']
-end
+$bucketname = MU.adminBucketName
 
 if $opts[:logs]
   exists = false
