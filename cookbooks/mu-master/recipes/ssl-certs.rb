@@ -23,7 +23,7 @@
 # templates.
 
 include_recipe 'mu-master::firewall-holes'
-service_certs = ["rsyslog", "mommacat", "ldap"]
+service_certs = ["rsyslog", "mommacat", "ldap", "consul", "vault"]
 
 directory "#{$MU_CFG['datadir']}/ssl"
 execute "generate SSL CA key" do

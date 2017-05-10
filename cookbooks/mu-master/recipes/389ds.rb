@@ -63,10 +63,6 @@ $CREDS.each_pair { |creds, cfg|
 execute "initialize 389 Directory Services" do
   command "/usr/sbin/setup-ds-admin.pl -s -f /root/389ds.tmp/389-directory-setup.inf --continue --debug #{Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}") ? "--update" : ""}"
   action :nothing
-  notifies :stop, "service[dirsrv]", :before
-  notifies :stop, "service[dirsrv-admin]", :before
-  notifies :start, "service[dirsrv]", :immediately
-  notifies :start, "service[dirsrv-admin]", :immediately
 end
 
 #/usr/sbin/setup-ds-admin.pl -s --debug --logfile /root/setup_ds_admin_log.#{Process.pid} -f /root/389-directory-setup.inf}
@@ -78,6 +74,7 @@ template "/root/389ds.tmp/389-directory-setup.inf"do
             :domain => $MU_CFG["ldap"]["domain_name"],
             :domain_dn => $MU_CFG["ldap"]["domain_name"].split(/\./).map{ |x| "DC=#{x}" }.join(","),
             :creds => $CREDS
+  not_if { ::Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}") }
   notifies :run, "execute[initialize 389 Directory Services]", :immediately
 end
 
@@ -128,13 +125,14 @@ ruby_block "import SSL certificates for 389ds" do
 end
 
 
-["ssl_enable.ldif", "addRSA.ldif"].each { |ldif|
+{"ssl_enable.ldif" => "nsslapd-security: on", "addRSA.ldif" => "nsSSLActivation: on"}.each_pair { |ldif, guardstr|
   cookbook_file "/root/389ds.tmp/#{ldif}" do
     source ldif
   end
-# XXX what's the right way to guard this?
+
   execute "/usr/bin/ldapmodify -x -D #{$CREDS["root_dn_user"]['user']} -w #{$CREDS["root_dn_user"]['pw']} -f /root/389ds.tmp/#{ldif}" do
     notifies :restart, "service[dirsrv]", :delayed
+    not_if "grep '#{guardstr}' /etc/dirsrv/slapd-#{$MU_CFG['hostname']}/dse.ldif"
   end
 }
 

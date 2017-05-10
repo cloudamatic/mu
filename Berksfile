@@ -39,3 +39,4 @@ cookbook 'python', path: "#{cookbookPath}/python"
 cookbook 'runit', '~> 1.7'
 cookbook 's3fs', path: "#{cookbookPath}/s3fs"
 cookbook 'zipfile', '~> 0.1.0'
+#cookbook 'hashicorp-vault', '~> 2.5.0', git: "https://github.com/johnbellone/vault-cookbook"

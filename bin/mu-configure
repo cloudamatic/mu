@@ -124,7 +124,7 @@ end
 
 $INITIALIZE = (!File.size?("#{MU_BASE}/etc/mu.yaml") or $opts[:force])
 $HAVE_CONFIG = File.size?("#{MU_BASE}/etc/mu.yaml")
-if !$HAVE_CONFIG and !$opts[:noninteractive] and (!$opts[:public_address] or !$opts[:mu_admin_email])
+if !$HAVE_CONFIG and $opts[:noninteractive] and (!$opts[:public_address] or !$opts[:mu_admin_email])
   puts "Specify --public-address and --mu-admin-email on new non-interactive configs"
   exit 1
 end
@@ -464,17 +464,23 @@ end
 require 'mu'
 
 
-# XXX Firewall holes (man I'd like for Chef to do that work)
 
 if $INITIALIZE or $CHANGES.include?("chef-server")
   erb = ERB.new(File.read("#{MU_BASE}/lib/cookbooks/mu-master/templates/default/chef-server.rb.erb"))
   updated_server_cfg = erb.result(binding)
-  File.open("/etc/opscode/chef-server.rb", File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
+  cfgpath = "/etc/opscode/chef-server.rb"
+  tmpfile = "/etc/opscode/chef-server.rb.#{Process.pid}"
+  File.open(tmpfile, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
     f.puts updated_server_cfg
   }
-
-  MU.log "Chef Server config was modified, reconfiguring...", MU::NOTICE
-  %x{/opt/opscode/bin/chef-server-ctl reconfigure}
+  if !File.size?(cfgpath) or File.read(tmpfile) != File.read(cfgpath)
+    File.rename(tmpfile, cfgpath)
+    MU.log "Chef Server config was modified, reconfiguring...", MU::NOTICE
+    %x{/opt/opscode/bin/chef-server-ctl reconfigure}
+    $CHANGES << "kniferb"
+  else
+    File.unlink(tmpfile)
+  end
 end
 
 
@@ -496,6 +502,11 @@ if $INITIALIZE or $CHANGES.include?("kniferb")
   }
 end
 
+if $IN_AWS
+  system("#{MU_BASE}/lib/bin/mu-aws-setup --dns --sg --logs")
+# XXX --ip? Do we really care?
+end
+
 if $INITIALIZE
   MU.log "Force open key firewall holes", MU::NOTICE
   system("chef-client -o 'recipe[mu-master::firewall-holes]'")
@@ -506,17 +517,30 @@ if $INITIALIZE
   system("chef-client -o 'recipe[mu-master::ssl-certs]'")
 end
 
-# XXX remove after debugging is done
-#if $INITIALIZE
-#  MU.log "Re-uploading Chef artifacts", MU::NOTICE
-#  system("#{MU_BASE}/lib/bin/mu-upload-chef-artifacts -n -s")
-#end
+if $INITIALIZE or $CHANGES.include?("vault")
+  begin
+    MU::Groomer::Chef.getSecret(vault: "secrets", item: "consul")
+  rescue MU::Groomer::Chef::MuNoSuchSecret
+    data = {
+      "private_key" => File.read("#{MU_BASE}/var/ssl/consul.key"),
+      "certificate" => File.read("#{MU_BASE}/var/ssl/consul.crt"),
+      "ca_certificate" => File.read("#{MU_BASE}/var/ssl/Mu_CA.pem")
+    }
+    MU::Groomer::Chef.saveSecret(
+      vault: "secrets",
+      item: "consul",
+      data: data,
+      permissions: "name:MU-MASTER"
+    )
+  end
+  MU.log "Setting up Hashicorp Vault", MU::NOTICE
+  system("chef-client -o 'recipe[mu-master::vault]'")
+end
 
 if $MU_CFG['ldap']['type'] == "389 Directory Services" 
   begin
     MU::Master::LDAP.listUsers
   rescue Exception => e # XXX bleh
-pp e.inspect
     $CHANGES << "389ds"
   end
   if $INITIALIZE or $CHANGES.include?("389ds")
@@ -552,6 +576,7 @@ if set_runlist
 else
   MU.log "Chef run list looks correct", MU::NOTICE
 end
+
 
 MU.log "Running chef-client on MU-MASTER", MU::NOTICE
 system("chef-client")
