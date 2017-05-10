@@ -20,15 +20,7 @@ response = Net::HTTP.get_response(URI("http://169.254.169.254/latest/meta-data/i
 instance_id = response.body
 search_domains = ["ec2.internal", "server.#{instance_id}.platform-mu", "platform-mu"]
 
-include_recipe 'mu-firewall'
-
-# TODO Move all mu firewall rules to a mu specific chain
-firewall_rule "MU Master default ports" do
-  port [2260, 8443, 9443, 10514, 443, 80, 25]
-end
-firewall_rule "Chef Server default ports" do
-  port [4321, 7443, 9463, 16379, 8983, 8000, 9683, 9090, 5432, 5672]
-end
+include_recipe 'mu-master::firewall-holes'
 
 master_ips = get_mu_master_ips
 master_ips << "127.0.0.1"
@@ -137,12 +129,6 @@ if !node.update_nagios_only
       include_recipe "mu-activedirectory::domain-node"
     end
   end
-
-  node.normal[:mu][:user_map] = MU::Master.listUsers
-  node.normal[:mu][:user_list] = []
-  node[:mu][:user_map].each_pair { |user, data|
-    node.normal[:mu][:user_list] << "#{user} (#{data['email']})"
-  }
 
   directory "#{MU.mainDataDir}/deployments"
 
@@ -330,12 +316,6 @@ if !node.update_nagios_only
     not_if "grep '^devnull: /dev/null$' /etc/aliases"
   end
 
-  node.mu.user_map.each_pair { |mu_user, data|
-    execute "echo '#{mu_user}: #{data['email']}' >> /etc/aliases" do
-      not_if "grep '^#{mu_user}: #{data['email']}$' /etc/aliases"
-    end
-  }
-
   # execute "/usr/bin/newaliases"
 
   include_recipe "mu-tools::aws_api"
@@ -490,4 +470,28 @@ if !node.update_nagios_only
 
   # This is stuff that can break for no damn reason at all
   include_recipe "mu-tools::cloudinit"
+
+  begin
+    node.normal[:mu][:user_map] = MU::Master.listUsers
+    node.normal[:mu][:user_list] = []
+    node[:mu][:user_map].each_pair { |user, data|
+      node.normal[:mu][:user_list] << "#{user} (#{data['email']})"
+    }
+  
+    sudoer_line = "%#{$MU_CFG['ldap']['admin_group_name']} ALL=(ALL) NOPASSWD: ALL"
+    execute "echo '#{sudoer_line}' >> /etc/sudoers" do
+      not_if "grep '^#{sudoer_line}$' /etc/sudoers"
+    end
+  
+    node.mu.user_map.each_pair { |mu_user, data|
+      execute "echo '#{mu_user}: #{data['email']}' >> /etc/aliases" do
+        not_if "grep '^#{mu_user}: #{data['email']}$' /etc/aliases"
+      end
+    }
+  rescue Exception
+    log "Can't list users" do
+      message "Doesn't seem like I can list available users. Hopefully this is initial setup."
+      level :warn
+    end
   end
+end

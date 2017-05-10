@@ -16,6 +16,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+include_recipe 'mu-master::firewall-holes'
+
 package ["389-ds", "389-ds-console"]
 
 include_recipe 'chef-vault'
@@ -59,18 +61,20 @@ $CREDS.each_pair { |creds, cfg|
 
 #  %x{/usr/sbin/setenforce 0}
 execute "initialize 389 Directory Services" do
-  command "/usr/sbin/setup-ds-admin.pl -s -f /root/389ds.tmp/389-directory-setup.inf"
+  command "/usr/sbin/setup-ds-admin.pl -s -f /root/389ds.tmp/389-directory-setup.inf --continue --debug #{Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}") ? "--update" : ""}"
   action :nothing
+  notifies :stop, "service[dirsrv]", :before
+  notifies :stop, "service[dirsrv-admin]", :before
+  notifies :start, "service[dirsrv]", :immediately
+  notifies :start, "service[dirsrv-admin]", :immediately
 end
 
-service "dirsrv-admin" do
-  action [:enable, :start]
-end
-
+#/usr/sbin/setup-ds-admin.pl -s --debug --logfile /root/setup_ds_admin_log.#{Process.pid} -f /root/389-directory-setup.inf}
 
 template "/root/389ds.tmp/389-directory-setup.inf"do
   source "389-directory-setup.inf.erb"
   variables :hostname => $MU_CFG["hostname"],
+            :address => $MU_CFG["public_address"].match(/^\d+\.\d+\.\d+\.\d+$/) ? "localhost" : $MU_CFG["public_address"],
             :domain => $MU_CFG["ldap"]["domain_name"],
             :domain_dn => $MU_CFG["ldap"]["domain_name"].split(/\./).map{ |x| "DC=#{x}" }.join(","),
             :creds => $CREDS
@@ -78,6 +82,10 @@ template "/root/389ds.tmp/389-directory-setup.inf"do
 end
 
 service "dirsrv" do
+  action [:enable, :start]
+end
+
+service "dirsrv-admin" do
   action [:enable, :start]
 end
 

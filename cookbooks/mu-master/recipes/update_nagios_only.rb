@@ -18,6 +18,7 @@
 
 include_recipe "nagios::server_source"
 include_recipe "nagios"
+include_recipe 'mu-master::firewall-holes'
 
 if $MU_CFG.has_key?('ldap')
   include_recipe 'chef-vault'

@@ -22,6 +22,7 @@
 # references to other cookbooks, no include_recipes, no cookbook_files, no
 # templates.
 
+include_recipe 'mu-master::firewall-holes'
 service_certs = ["rsyslog", "mommacat", "ldap"]
 
 directory "#{$MU_CFG['datadir']}/ssl"
@@ -52,6 +53,9 @@ execute "update CA store" do
   command "/usr/bin/update-ca-trust force-enable; /usr/bin/update-ca-trust extract"
   action :nothing
 end
+file "#{$MU_CFG['datadir']}/ssl/Mu_CA.pem" do
+  mode 0444
+end
 remote_file "/etc/pki/ca-trust/source/anchors/Mu_CA.pem" do
   source "file://#{$MU_CFG['datadir']}/ssl/Mu_CA.pem"
   notifies :run, "execute[update CA store]", :immediately
@@ -63,19 +67,24 @@ end
 service_certs.each { |cert|
   bash "generate service cert for #{cert}" do
     code <<-EOH
+      set -e
+      openssl genrsa -out #{cert}.key 4096
       openssl req -subj "/CN=#{$MU_CFG['public_address']}/OU=Mu #{cert}/O=eGlobalTech/C=US" -new -key #{cert}.key -out #{cert}.csr -sha512
       openssl x509 -req -in #{cert}.csr -CA Mu_CA.pem -CAkey Mu_CA.key -CAcreateserial -out #{cert}.crt -days 500 -sha512
       cat Mu_CA.pem >> #{cert}.crt
       openssl pkcs12 -export -inkey #{cert}.key -in #{cert}.crt -out #{cert}.p12 -nodes -name "#{cert}" -passout pass:""
     EOH
     cwd "#{$MU_CFG['datadir']}/ssl"
-    not_if { ::File.exists?("#{$MU_CFG['datadir']}/ssl/#{cert}.crt") }
+    not_if { ::File.size?("#{$MU_CFG['datadir']}/ssl/#{cert}.crt") }
+  end
+  file "#{$MU_CFG['datadir']}/ssl/#{cert}.key" do
+    mode 0400
   end
   file "#{$MU_CFG['datadir']}/ssl/#{cert}.crt" do
-    mode 0400
+    mode 0444
   end
   file "#{$MU_CFG['datadir']}/ssl/#{cert}.p12" do
-    mode 0400
+    mode 0444
   end
   file "#{$MU_CFG['datadir']}/ssl/#{cert}.csr" do
     action :delete

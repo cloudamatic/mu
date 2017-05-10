@@ -26,52 +26,6 @@ require 'pp'
 require 'readline'
 require 'erb'
 
-if Etc.getpwuid(Process.uid).name != "root"
-  MU.log "#{$0} can only be run as root", MU::ERR
-  exit 1
-end
-
-if ENV.has_key?("MU_INSTALLDIR")
-  MU_BASE = ENV["MU_INSTALLDIR"]
-else
-  MU_BASE = "/opt/mu"
-end
-
-$INITIALIZE = !File.exists?("#{MU_BASE}/etc/mu.yaml")
-
-$IN_AWS = false
-begin
-  Timeout.timeout(2) do
-    instance_id = open("http://169.254.169.254/latest/meta-data/instance-id").read
-    $IN_AWS = true if !instance_id.nil? and instance_id.size > 0
-  end
-rescue Timeout::Error
-end
-# XXX equivalents for other clouds
-
-knife_template = "log_level                :info
-log_location             STDOUT
-node_name                '<%= user %>'
-client_key               '<%= MU.dataDir %>/users/<%= user %>/<%= user %>.user.key'
-validation_client_name   'mu-validator'
-validation_key           '<%= MU.dataDir %>/orgs/<%= user %>/<%= user %>.org.key'
-chef_server_url 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
-chef_server_root 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
-syntax_check_cache_path  '<%= home %>/.chef/syntax_check_cache'
-cookbook_path [ '<%= home %>/.chef/cookbooks', '<%= home %>/.chef/site_cookbooks' ]
-knife[:vault_mode] = 'client'
-knife[:vault_admins] = ['<%= user %>']"
-
-client_template = "chef_server_url  'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
-validation_client_name 'mu-validator'
-log_location   STDOUT
-node_name 'MU-MASTER'
-verify_api_cert false
-ssl_verify_mode :verify_none
-"
-
-$CHANGES = []
-
 # Top-level keys in $MU_CFG for which we'll provide interactive, menu-driven
 # configuration.
 $CONFIGURABLES = {
@@ -145,6 +99,69 @@ $CONFIGURABLES = {
     }
   }
 }
+
+$opts = Trollop::options do
+  banner <<-EOS
+  EOS
+  opt :force, "Run all rebuild actions, whether or not our configuration is changed.", :require => false, :default => false, :type => :boolean
+  opt :noninteractive, "Skip menu-based configuration prompts. If there is no existing configuration, --public-address, --admin-email, and --hostname flags are required.", :require => false, :default => false, :type => :boolean
+  $CONFIGURABLES.each_pair { |key, data|
+    next if data.has_key?("subtree") or data["array"]
+    opt key.to_sym, data["desc"], :require => false, :type => (data["boolean"] ? :boolean : :string)
+  }
+end
+
+if Etc.getpwuid(Process.uid).name != "root"
+  MU.log "#{$0} can only be run as root", MU::ERR
+  exit 1
+end
+
+if ENV.has_key?("MU_INSTALLDIR")
+  MU_BASE = ENV["MU_INSTALLDIR"]
+else
+  MU_BASE = "/opt/mu"
+end
+
+$INITIALIZE = (!File.size?("#{MU_BASE}/etc/mu.yaml") or $opts[:force])
+$HAVE_CONFIG = File.size?("#{MU_BASE}/etc/mu.yaml")
+if !$HAVE_CONFIG and !$opts[:noninteractive] and (!$opts[:public_address] or !$opts[:mu_admin_email])
+  puts "Specify --public-address and --mu-admin-email on new non-interactive configs"
+  exit 1
+end
+
+$IN_AWS = false
+begin
+  Timeout.timeout(2) do
+    instance_id = open("http://169.254.169.254/latest/meta-data/instance-id").read
+    $IN_AWS = true if !instance_id.nil? and instance_id.size > 0
+  end
+rescue Timeout::Error
+end
+# XXX equivalents for other clouds
+
+knife_template = "log_level                :info
+log_location             STDOUT
+node_name                '<%= user %>'
+client_key               '<%= MU.dataDir %>/users/<%= user %>/<%= user %>.user.key'
+validation_client_name   'mu-validator'
+validation_key           '<%= MU.dataDir %>/orgs/<%= user %>/<%= user %>.org.key'
+chef_server_url 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
+chef_server_root 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
+syntax_check_cache_path  '<%= home %>/.chef/syntax_check_cache'
+cookbook_path [ '<%= home %>/.chef/cookbooks', '<%= home %>/.chef/site_cookbooks' ]
+knife[:vault_mode] = 'client'
+knife[:vault_admins] = ['<%= user %>']"
+
+client_template = "chef_server_url  'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
+validation_client_name 'mu-validator'
+log_location   STDOUT
+node_name 'MU-MASTER'
+verify_api_cert false
+ssl_verify_mode :verify_none
+"
+
+$CHANGES = []
+
 
 $MENU_MAP = {}
 def assignMenuEntries
@@ -239,14 +256,14 @@ def setConfigTree
         if !subdata["value"].nil?
           cfg[key] ||= {}
           cfg[key][subkey] = subdata["value"]
-        elsif !subdata["default"].nil? and $INITIALIZE
+        elsif !subdata["default"].nil? and !$HAVE_CONFIG
           cfg[key] ||= {}
           cfg[key][subkey] = subdata["default"]
         end
       }
     elsif !data["value"].nil?
       cfg[key] = data["value"]
-    elsif !data["default"].nil? and $INITIALIZE
+    elsif !data["default"].nil? and !$HAVE_CONFIG
       cfg[key] = data["default"]
     end
   }
@@ -276,7 +293,7 @@ end
 
 ###############################################################################
 
-if $INITIALIZE
+if $INITIALIZE and !$HAVE_CONFIG
   setDefaults
 else
   importCurrentValues
@@ -342,41 +359,43 @@ end
 
 answer = nil
 changed = false
-begin
-  optlist = displayCurrentOpts
+if !$opts[:noninteractive]
   begin
-    print "Enter an option to change, "+"O".bold+" to save this config, or "+"^D".bold+" to quit.\n> "
-    answer = gets
-    if answer.nil?
+    optlist = displayCurrentOpts
+    begin
+      print "Enter an option to change, "+"O".bold+" to save this config, or "+"^D".bold+" to quit.\n> "
+      answer = gets
+      if answer.nil?
+        puts ""
+        exit 0
+      end
+      answer.strip!
+    rescue EOFError
       puts ""
       exit 0
     end
-    answer.strip!
-  rescue EOFError
-    puts ""
-    exit 0
-  end
-  if $MENU_MAP.has_key?(answer)
-    newval = ask($MENU_MAP[answer])
-    if !validate(newval, $MENU_MAP[answer])
+    if $MENU_MAP.has_key?(answer)
+      newval = ask($MENU_MAP[answer])
+      if !validate(newval, $MENU_MAP[answer])
+        sleep 1
+        next
+      end
+      $MENU_MAP[answer]['value'] = newval == "" ? nil : newval
+      $CHANGES.concat($MENU_MAP[answer]['changes']) if $MENU_MAP[answer].include?("changes")
+      if $MENU_MAP[answer]['title'] == "Local Hostname"
+        $CONFIGURABLES["aws"]["subtree"]["log_bucket_name"]["default"] = newval
+      elsif $MENU_MAP[answer]['title'] == "Public Address"
+        $CONFIGURABLES["banner"]["default"] = "Mu Master at #{newval}"
+      end
+      changed = true
+      puts ""
+    elsif !["", "0", "O", "o"].include?(answer)
+      puts "\nInvalid option '#{answer.bold}'".light_red.on_black+"\n\n"
       sleep 1
-      next
     end
-    $MENU_MAP[answer]['value'] = newval == "" ? nil : newval
-    $CHANGES.concat($MENU_MAP[answer]['changes']) if $MENU_MAP[answer].include?("changes")
-    if $MENU_MAP[answer]['title'] == "Local Hostname"
-      $CONFIGURABLES["aws"]["subtree"]["log_bucket_name"]["default"] = newval
-    elsif $MENU_MAP[answer]['title'] == "Public Address"
-      $CONFIGURABLES["banner"]["default"] = "Mu Master at #{newval}"
-    end
-    changed = true
-    puts ""
-  elsif !["", "0", "O", "o"].include?(answer)
-    puts "\nInvalid option '#{answer.bold}'".light_red.on_black+"\n\n"
-    sleep 1
-  end
-end while answer != "0" and answer != "O" and answer != "o"
-
+  end while answer != "0" and answer != "O" and answer != "o"
+end
+# XXX validate overall input
 
 def set389DSCreds
   require 'mu'
@@ -444,10 +463,7 @@ else
 end
 require 'mu'
 
-if $INITIALIZE
-  MU.log "Setting up internal SSL signing authority and certificates", MU::NOTICE
-  system("chef-client -o 'recipe[mu-master::ssl-certs]'")
-end
+
 # XXX Firewall holes (man I'd like for Chef to do that work)
 
 if $INITIALIZE or $CHANGES.include?("chef-server")
@@ -460,6 +476,7 @@ if $INITIALIZE or $CHANGES.include?("chef-server")
   MU.log "Chef Server config was modified, reconfiguring...", MU::NOTICE
   %x{/opt/opscode/bin/chef-server-ctl reconfigure}
 end
+
 
 if $INITIALIZE or $CHANGES.include?("kniferb")
   erb = ERB.new(knife_template)
@@ -479,13 +496,31 @@ if $INITIALIZE or $CHANGES.include?("kniferb")
   }
 end
 
+if $INITIALIZE
+  MU.log "Force open key firewall holes", MU::NOTICE
+  system("chef-client -o 'recipe[mu-master::firewall-holes]'")
+end
+
+if $INITIALIZE
+  MU.log "Setting up internal SSL signing authority and certificates", MU::NOTICE
+  system("chef-client -o 'recipe[mu-master::ssl-certs]'")
+end
+
+# XXX remove after debugging is done
+#if $INITIALIZE
+#  MU.log "Re-uploading Chef artifacts", MU::NOTICE
+#  system("#{MU_BASE}/lib/bin/mu-upload-chef-artifacts -n -s")
+#end
+
 if $MU_CFG['ldap']['type'] == "389 Directory Services" 
   begin
     MU::Master::LDAP.listUsers
-  rescue Exception # XXX bleh
+  rescue Exception => e # XXX bleh
+pp e.inspect
     $CHANGES << "389ds"
   end
   if $INITIALIZE or $CHANGES.include?("389ds")
+    File.unlink("/root/389ds.tmp/389-directory-setup.inf") if File.exists?("/root/389ds.tmp/389-directory-setup.inf")
     MU.log "Configuring 389 Directory Services", MU::NOTICE
     set389DSCreds
     system("chef-client -o 'recipe[mu-master::389ds]'")

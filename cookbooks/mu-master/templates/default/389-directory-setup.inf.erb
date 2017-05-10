@@ -1,5 +1,5 @@
 [General] 
-FullMachineName= <%= @hostname+"."+@domain %>
+FullMachineName= <%= @address %>
 SuiteSpotUserID= nobody 
 SuiteSpotGroup= nobody 
 AdminDomain= <%= @domain %>
@@ -7,7 +7,7 @@ ServerRoot = /usr/lib64/dirsrv
 StrictHostCheck = false
 ConfigDirectoryAdminID= <%= @creds["cfg_directory_adm"]["user"] %> 
 ConfigDirectoryAdminPwd= <%= @creds["cfg_directory_adm"]["pw"] %> 
-ConfigDirectoryLdapURL= ldap://<%= @hostname+"."+@domain %>:389/o=NetscapeRoot 
+ConfigDirectoryLdapURL= ldap://<%= @address %>:389/o=NetscapeRoot 
 
 [admin] 
 Port= 9830
