@@ -52,7 +52,7 @@ $CONFIGURABLES = {
     "title" => "Local Hostname",
     "pattern" => /^[a-z0-9\-_]+$/i,
     "desc" => "The local system's value for HOSTNAME",
-    "changes" => ["chefrun"]
+    "changes" => ["chefrun", "hostname"]
   },
   "banner" => {
     "title" => "Banner",
@@ -458,6 +458,10 @@ def set389DSCreds
   }
 end
 
+if $INITIALIZE or $CHANGES.include?("hostname")
+  system("/bin/hostname #{$MU_CFG['hostname']}")
+end
+
 if $INITIALIZE
   %x{/sbin/service iptables stop} # Chef run will set up correct rules later
   $MU_SET_DEFAULTS = setConfigTree
@@ -468,7 +472,6 @@ else
   require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 end
 require 'mu'
-
 
 
 if $INITIALIZE or $CHANGES.include?("chef-server")

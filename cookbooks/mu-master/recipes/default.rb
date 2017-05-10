@@ -130,6 +130,15 @@ if !node.update_nagios_only
     end
   end
 
+  execute "set Mu Master's hostname" do
+    command "/bin/hostname #{$MU_CFG['hostname']}"
+    not_if "/bin/hostname | grep '^#{$MU_CFG['hostname']}$'"
+  end
+  execute "updating hostname in /etc/sysconfig/network" do
+    command "sed -i 's/^HOSTNAME=.*/HOSTNAME=#{$MU_CFG['hostname']}.platform-mu/' /etc/sysconfig/network"
+    not_if "grep '^HOSTNAME=#{$MU_CFG['hostname']}.platform-mu'"
+  end
+
   directory "#{MU.mainDataDir}/deployments"
 
   sudoer_line = "%#{$MU_CFG['ldap']['admin_group_name']} ALL=(ALL) NOPASSWD: ALL"
@@ -261,11 +270,15 @@ if !node.update_nagios_only
 
   # Use a real hostname for mail if we happen to have one assigned
   if !MU.mu_public_addr.match(/^\d+\.\d+\.\d+\.\d+$/)
-    node.normal.postfix.main.myhostname = MU.mu_public_addr
-    node.normal.postfix.main.mydomain = MU.mu_public_addr.sub(/^.*?([^\.]+\.[^\.]+)$/, '\1')
-    node.normal.postfix.main.myorigin = MU.mu_public_addr.sub(/^.*?([^\.]+\.[^\.]+)$/, '\1')
+    node.normal[:postfix][:main][:myhostname] = MU.mu_public_addr
+    node.normal[:postfix][:main][:mydomain] = MU.mu_public_addr.sub(/^.*?([^\.]+\.[^\.]+)$/, '\1')
+    node.normal[:postfix][:main][:myorigin] = MU.mu_public_addr.sub(/^.*?([^\.]+\.[^\.]+)$/, '\1')
+  else
+    node.normal[:postfix][:main][:myhostname] = $MU_CFG['hostname']
+    node.normal[:postfix][:main][:mydomain] = "platform-mu"
+    node.normal[:postfix][:main][:myorigin] = "platform-mu"
   end
-  node.normal.postfix.main.inet_interfaces = "all"
+  node.normal[:postfix][:main][:inet_interfaces] = "all"
   node.save
 
 
