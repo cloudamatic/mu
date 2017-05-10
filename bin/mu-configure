@@ -458,10 +458,6 @@ def set389DSCreds
   }
 end
 
-if $INITIALIZE or $CHANGES.include?("hostname")
-  system("/bin/hostname #{$MU_CFG['hostname']}")
-end
-
 if $INITIALIZE
   %x{/sbin/service iptables stop} # Chef run will set up correct rules later
   $MU_SET_DEFAULTS = setConfigTree
@@ -473,6 +469,9 @@ else
 end
 require 'mu'
 
+if $INITIALIZE or $CHANGES.include?("hostname")
+  system("/bin/hostname #{$MU_CFG['hostname']}")
+end
 
 if $INITIALIZE or $CHANGES.include?("chef-server")
   erb = ERB.new(File.read("#{MU_BASE}/lib/cookbooks/mu-master/templates/default/chef-server.rb.erb"))
