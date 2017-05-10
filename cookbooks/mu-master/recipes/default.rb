@@ -272,26 +272,6 @@ if !node.update_nagios_only
   node.normal.postfix.main.inet_interfaces = "all"
   node.save
 
-  file "/etc/motd" do
-    content "
-*******************************************************************************
-
- This is a Mu Master server. Mu is installed in #{MU.myRoot}.
-
- Nagios monitoring GUI: https://#{MU.mu_public_addr}/nagios/
-
- Jenkins interface GUI: https://#{MU.mu_public_addr}/jenkins/
-
- Mu API documentation: http://#{MU.mu_public_addr}/docs/frames.html
-
- Mu metadata are stored in #{MU.mainDataDir}
-
- Users: #{node.mu.user_list.join(", ")}
-
-*******************************************************************************
-
-"
-  end
 
   file "/var/www/html/index.html" do
     owner "apache"
@@ -487,7 +467,27 @@ if !node.update_nagios_only
       execute "echo '#{mu_user}: #{data['email']}' >> /etc/aliases" do
         not_if "grep '^#{mu_user}: #{data['email']}$' /etc/aliases"
       end
-    }
+      }
+    file "/etc/motd" do
+      content "
+*******************************************************************************
+
+ This is a Mu Master server. Mu is installed in #{MU.myRoot}.
+
+ Nagios monitoring GUI: https://#{MU.mu_public_addr}/nagios/
+
+ Jenkins interface GUI: https://#{MU.mu_public_addr}/jenkins/
+
+ Mu API documentation: http://#{MU.mu_public_addr}/docs/frames.html
+
+ Mu metadata are stored in #{MU.mainDataDir}
+
+ Users: #{node.mu.user_list.join(", ")}
+
+*******************************************************************************
+
+"
+    end
   rescue Exception
     log "Can't list users" do
       message "Doesn't seem like I can list available users. Hopefully this is initial setup."
