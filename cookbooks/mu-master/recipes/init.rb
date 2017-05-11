@@ -31,9 +31,19 @@ MU_BRANCH="its_all_your_vault"
 MU_BASE="/opt/mu"
 SSH_USER="root"
 
+execute "stop iptables" do
+  command "/sbin/service iptables stop"
+  ignore_failure true
+end
+execute "start iptables" do
+  command "/sbin/service iptables start"
+  ignore_failure true
+end
 execute "reconfigure Chef server" do
   command "/opt/opscode/bin/chef-server-ctl reconfigure"
   action :nothing
+  notifies :run, "execute[stop iptables]", :before
+  notifies :run, "execute[start iptables]", :immediately
 end
 
 basepackages = []
@@ -196,7 +206,11 @@ execute "ssh-keygen -N '' -f #{SSH_DIR}/id_rsa" do
   not_if { ::File.exists?("#{SSH_DIR}/id_rsa") }
   notifies :run, "bash[add localhost ssh to authorized_keys and config]", :immediately
 end
+file "/etc/chef/client.pem" do
+  action :nothing
+end
 execute "create MU-MASTER Chef client" do
   command "/opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none 127.0.0.1"
   not_if "/opt/chef/bin/knife node list | grep '^MU-MASTER$'"
+  notifies :delete, "file[/etc/chef/client.pem]", :before
 end
