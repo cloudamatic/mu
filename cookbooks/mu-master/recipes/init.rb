@@ -27,7 +27,6 @@ require 'open-uri'
 require 'socket'
 
 CHEF_SERVER_VERSION="12.11.1-1"
-CHEF_CLIENT_VERSION="12.17.44-1"
 MU_BRANCH="its_all_your_vault"
 MU_BASE="/opt/mu"
 SSH_USER="root"
@@ -43,7 +42,7 @@ rpms = {}
 dpkgs = {}
 
 if platform_family?("rhel") 
-  basepackages = ["git", "curl", "vim-enhanced", "zip", "unzip", "java-1.8.0-openjdk", "gcc", "gcc-c++", "make", "libxml2-devel", "libxslt-devel", "cryptsetup-luks", "python-pip", "lsof", "mlocate", "strace", "nmap", "openssl-devel", "readline-devel", "python-devel", "diffutils", "patch", "bind-utils", "httpd-tools", "mailx", "postgresql-devel", "openssl", "libyaml", "graphviz", "ImageMagick-devel", "graphviz-devel", "jq", "vim"]
+  basepackages = ["git", "curl"]
   rpms = {
     "epel-release" => "http://mirror.metrocast.net/fedora/epel/epel-release-latest-#{node[:platform_version].to_i}.noarch.rpm",
     "chef-server-core" => "https://packages.chef.io/stable/el/#{node[:platform_version].to_i}/chef-server-core-#{CHEF_SERVER_VERSION}.el#{node[:platform_version].to_i}.x86_64.rpm"
@@ -54,17 +53,12 @@ if platform_family?("rhel")
 
   # RHEL6, CentOS6, Amazon Linux
   elsif node[:platform_version].to_i < 7
-    basepackages.concat(["java-1.5.0-gcj", "mysql-server", "mysql-devel", "autoconf"])
     rpms["ruby23"] = "https://s3.amazonaws.com/mu-stuff/ruby23-2.3.1-1.el6.x86_64.rpm"
     removepackages = ["nagios"]
-    basepackages << "gecode-devel" if node[:platform] == "amazon"
 
   # RHEL7, CentOS7
   elsif node[:platform_version].to_i < 8
-    basepackages.concat(["gecode-devel", "mariadb", "mariadb-devel", "qt", "qt-x11", "iptables-services"])
     rpms["ruby23"] = "https://s3.amazonaws.com/mu-stuff/ruby23-2.3.1-1.el7.centos.x86_64.rpm"
-    rpms["gecode"] = "https://s3.amazonaws.com/cap-public/gecode-3.7.3-2.el7.centos.x86_64.rpm"
-    rpms["gecode-devel"] = "https://s3.amazonaws.com/cap-public/gecode-devel-3.7.3-2.el7.centos.x86_64.rpm"
     removepackages = ["nagios", "firewalld"]
   end
 
@@ -75,8 +69,6 @@ end
 if File.read("/etc/ssh/sshd_config").match(/^AllowUser\s+([^\s]+)(?: |$)/)
   SSH_USER=Regexp.last_match[1].chomp
 end
-
-
 
 package basepackages
 rpms.each_pair { |pkg, src|
@@ -208,10 +200,3 @@ execute "create MU-MASTER Chef client" do
   command "/opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none 127.0.0.1"
   not_if "/opt/chef/bin/knife node list | grep '^MU-MASTER$'"
 end
-
-#remote_file "#{Chef::Config[:file_cache_path]}/vault-#{node[:mu][:vault][:version]}.zip" do
-#  source "https://releases.hashicorp.com/vault/#{node[:mu][:vault][:version]}/vault_#{node[:mu][:vault][:version]}_linux_amd64.zip"
-#end
-#remote_file "#{Chef::Config[:file_cache_path]}/consul-#{node[:mu][:consul][:version]}.zip" do
-#  source "https://releases.hashicorp.com/consul/#{node[:mu][:consul][:version]}/vault_#{node[:mu][:consul][:version]}_linux_amd64.zip"
-#end

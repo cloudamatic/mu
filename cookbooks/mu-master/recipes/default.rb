@@ -21,6 +21,7 @@ instance_id = response.body
 search_domains = ["ec2.internal", "server.#{instance_id}.platform-mu", "platform-mu"]
 
 include_recipe 'mu-master::init'
+include_recipe 'mu-master::basepackages'
 include_recipe 'mu-master::firewall-holes'
 include_recipe 'mu-master::vault'
 
