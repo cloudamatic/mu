@@ -145,7 +145,7 @@ rescue Timeout::Error
 end
 # XXX equivalents for other clouds
 
-knife_template = "log_level                :info
+KNIFE_TEMPLATE = "log_level                :info
 log_location             STDOUT
 node_name                '<%= user %>'
 client_key               '<%= MU.dataDir %>/users/<%= user %>/<%= user %>.user.key'
@@ -158,11 +158,19 @@ cookbook_path [ '<%= home %>/.chef/cookbooks', '<%= home %>/.chef/site_cookbooks
 knife[:vault_mode] = 'client'
 knife[:vault_admins] = ['<%= user %>']"
 
-client_template = "chef_server_url  'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
+CLIENT_TEMPLATE = "chef_server_url  'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
 validation_client_name 'mu-validator'
 log_location   STDOUT
 node_name 'MU-MASTER'
 verify_api_cert false
+ssl_verify_mode :verify_none
+"
+
+PIVOTAL_TEMPLATE = "node_name 'pivotal'
+chef_server_url 'https://<%= MU.mu_public_addr %>:7443'
+chef_server_root 'https://<%= MU.mu_public_addr %>:7443'
+no_proxy '<%= MU.mu_public_addr %>'
+client_key '/etc/opscode/pivotal.pem'
 ssl_verify_mode :verify_none
 "
 
@@ -471,6 +479,28 @@ require 'mu'
 
 if $INITIALIZE or $CHANGES.include?("hostname")
   system("/bin/hostname #{$MU_CFG['hostname']}")
+  end
+  
+  def updateChefRbs
+  home = Etc.getpwnam("root").dir
+  user = "mu"
+  { home+"/.chef/knife.rb" => KNIFE_TEMPLATE,
+    "/etc/chef/client.rb" => CLIENT_TEMPLATE,
+    "/etc/opscode/pivotal.rb" => PIVOTAL_TEMPLATE }.each_pair { |file, template|
+    erb = ERB.new(KNIFE_TEMPLATE)
+    processed = erb.result(binding)
+    tmpfile = file+".tmp."+Process.pid.to_s
+    File.open(tmpfile, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
+      f.puts processed
+    }
+    if !File.size?(file) or File.read(tmpfile) != File.read(file)
+      File.rename(tmpfile, file)
+      MU.log "Updated #{file}", MU::NOTICE
+      %x{rm -f #{home}/.chef/trusted_certs/* ; knife ssl fetch -c #{home}/.chef/knife.rb}
+    else
+      File.unlink(tmpfile)
+    end
+  }
 end
 
 if $INITIALIZE or $CHANGES.include?("chef-server")
@@ -484,31 +514,16 @@ if $INITIALIZE or $CHANGES.include?("chef-server")
   if !File.size?(cfgpath) or File.read(tmpfile) != File.read(cfgpath)
     File.rename(tmpfile, cfgpath)
     MU.log "Chef Server config was modified, reconfiguring...", MU::NOTICE
+    updateChefRbs
     %x{/opt/opscode/bin/chef-server-ctl reconfigure}
     $CHANGES << "kniferb"
   else
     File.unlink(tmpfile)
   end
+else
+  updateChefRbs
 end
 
-
-if $INITIALIZE or $CHANGES.include?("kniferb")
-  erb = ERB.new(knife_template)
-  user = "mu"
-  home = Etc.getpwnam("root").dir
-  kniferb = erb.result(binding)
-  MU.log "Updating #{home}/.chef/knife.rb", MU::NOTICE
-  File.open(home+"/.chef/knife.rb", File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
-    f.puts kniferb
-  }
-  %x{rm -f #{home}/.chef/trusted_certs/* ; knife ssl fetch -c #{home}/.chef/knife.rb}
-  erb = ERB.new(client_template)
-  clientrb = erb.result(binding)
-  MU.log "Updating /etc/chef/client.rb", MU::NOTICE
-  File.open("/etc/chef/client.rb", File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
-    f.puts clientrb
-  }
-end
 
 if $IN_AWS
   system("#{MU_BASE}/lib/bin/mu-aws-setup --dns --sg --logs")

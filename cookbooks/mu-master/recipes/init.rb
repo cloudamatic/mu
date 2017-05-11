@@ -144,15 +144,11 @@ end
 
 # Get a 'mu' Chef org in place and populate it with artifacts
 directory "/root/.chef"
-#remote_file "temporary root knife.rb for initial setup" do
-#  source "file:///etc/opscode/pivotal.rb"
-#  path "/root/.chef/knife.rb"
-#end
 execute "knife ssl fetch" do
   action :nothing
 end
 execute "initial Chef artifact upload" do
-  command "CHEF_PUBLIC_IP=127.0.0.1 MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts"
+  command "MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts"
   action :nothing
   notifies :run, "execute[knife ssl fetch]", :before
 end
@@ -185,7 +181,7 @@ file "initial root knife.rb" do
   ssl_verify_mode :verify_none
   knife[:vault_mode] = 'client'
   knife[:vault_admins] = ['mu']\n"
-  only_if { !::File.exists?("/root/.chef/knife.rb") }
+  only_if { !::File.size?("/root/.chef/knife.rb") }
   notifies :run, "execute[initial Chef artifact upload]", :immediately
 end
 
