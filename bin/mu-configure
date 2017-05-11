@@ -33,7 +33,7 @@ $CONFIGURABLES = {
     "title" => "Public Address",
     "desc" => "IP address or hostname",
     "required" => true,
-    "changes" => ["389ds", "chef-server", "chefrun", "kniferb"]
+    "changes" => ["389ds", "chef-server", "chefrun", "chefcerts"]
   },
   "mu_admin_email" => {
     "title" => "Admin Email",
@@ -496,7 +496,7 @@ if $INITIALIZE or $CHANGES.include?("hostname")
     if !File.size?(file) or File.read(tmpfile) != File.read(file)
       File.rename(tmpfile, file)
       MU.log "Updated #{file}", MU::NOTICE
-      %x{rm -f #{home}/.chef/trusted_certs/* ; knife ssl fetch -c #{home}/.chef/knife.rb}
+      $CHANGES << "chefcerts"
     else
       File.unlink(tmpfile)
     end
@@ -516,7 +516,7 @@ if $INITIALIZE or $CHANGES.include?("chef-server")
     MU.log "Chef Server config was modified, reconfiguring...", MU::NOTICE
     updateChefRbs
     %x{/opt/opscode/bin/chef-server-ctl reconfigure}
-    $CHANGES << "kniferb"
+    $CHANGES << "chefcerts"
   else
     File.unlink(tmpfile)
   end
@@ -524,10 +524,18 @@ else
   updateChefRbs
 end
 
-
 if $IN_AWS
   system("#{MU_BASE}/lib/bin/mu-aws-setup --dns --sg --logs")
 # XXX --ip? Do we really care?
+end
+
+if $INITIALIZE or $CHANGES.include?("chefcerts")
+  system("rm -f #{Etc.getpwnam("root").dir}/.chef/trusted_certs/* ; knife ssl fetch -c #{Etc.getpwnam("root").dir}/.chef/knife.rb")
+  system("rm -f /etc/chef/trusted_certs/* ; knife ssl fetch -c /etc/chef/client.rb")
+end
+
+if $INITIALIZE
+  system("MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts")
 end
 
 if $INITIALIZE
