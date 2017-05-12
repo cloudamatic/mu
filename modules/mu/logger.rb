@@ -78,8 +78,10 @@ module MU
       time = Time.now.strftime("%b %d %H:%M:%S").to_s
 
       Syslog.open("Mu/"+caller_name, Syslog::LOG_PID, Syslog::LOG_DAEMON | Syslog::LOG_LOCAL3) if !Syslog.opened?
-
-      details = PP.pp(details, '') if !details.nil?
+      if !details.nil?
+        details = details[:details] if details.has_key?(:details)
+        details = PP.pp(details, '')
+      end
       details = "<pre>"+details+"</pre>" if @html
       # We get passed literal quoted newlines sometimes, fix 'em
       details.gsub!(/\\n/, "\n") if !details.nil?

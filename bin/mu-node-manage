@@ -15,6 +15,7 @@
 
 require 'trollop'
 require 'json'
+require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 require 'mu'
 
 $opts = Trollop::options do
