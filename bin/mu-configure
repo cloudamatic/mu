@@ -535,6 +535,12 @@ if $INITIALIZE or $CHANGES.include?("chefcerts")
 end
 
 if $INITIALIZE
+#rm -rf /root/.berkshelf /root/.chef/cookbooks /root/.chef/site_cookbooks
+#for extra in $ADDTL_CHEF_REPOS;do
+#	extra_repo_name="`echo $extra | sed 's/^.*\///' | cut -d. -f1`"
+#	clone_repository "$extra" "$MU_DATADIR/$extra_repo_name"
+#  generate_repo_berksfile "$MU_DATADIR/$extra_repo_name"
+#done
   system("MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts")
 end
 
@@ -605,19 +611,20 @@ if set_runlist
   chef_node.save
   $CHANGES << "chefrun"
 else
-  MU.log "Chef run list looks correct", MU::NOTICE
+  MU.log "Chef run list looks correct", MU::NOTICE, details: run_list
 end
 
+# TODO momma-cat service kick; maybe this wants to be a Chef thing
 # TODO here are some things we don't do yet but should
-#generate_docs
 #patch_knife_windows
-#start_momma_cat
-#rm -rf /root/.berkshelf /root/.chef/cookbooks /root/.chef/site_cookbooks
-#for extra in $ADDTL_CHEF_REPOS;do
-#	extra_repo_name="`echo $extra | sed 's/^.*\///' | cut -d. -f1`"
-#	clone_repository "$extra" "$MU_DATADIR/$extra_repo_name"
-#  generate_repo_berksfile "$MU_DATADIR/$extra_repo_name"
-#done
+
+if $INITIALIZE
+  MU::Config.emitSchemaAsRuby
+  MU.log "Generating YARD documentation in /var/www/html/docs (see http://#{$MU_CFG['publilc_address']}/docs/frames.html)"
+  File.umask(0022)
+  system("cd #{MU.myRoot} && umask 0022 && env -i PATH=#{ENV['PATH']} HOME=#{Etc.getpwnam("root").dir} /usr/local/ruby-current/bin/yard doc modules -m markdown -o /var/www/html/docs && chcon -R -h -t httpd_sys_script_exec_t /var/www/html/")
+end
+
 
 MU.log "Running chef-client on MU-MASTER", MU::NOTICE
 system("chef-client")

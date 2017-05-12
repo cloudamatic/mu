@@ -569,6 +569,7 @@ if [ -d "$MU_DATADIR/users" -a "$USER" == "root" ];then
   cd $MU_CHEF_CACHE
   bag_created=0
   for admin in mu;do
+    echo "$bagdir/$admin.json"
     if [ -f "$bagdir/$admin.json" ];then
       if [ "$bagcreated" == "0" ];then
         bagcreated=1
@@ -576,9 +577,9 @@ if [ -d "$MU_DATADIR/users" -a "$USER" == "root" ];then
       fi
       $knife data bag from file nagios_users $bagdir/$admin.json
     fi
-    if [ ! -f "$bagdir/$admin.json" -a -f "$MU_DATADIR/users/$admin/htpasswd" ];then
+    if [ ! -f "$bagdir/$admin.json" ];then
       id="`echo $admin | sed -e 's/@/_/'`"
-      crypt="`cat $MU_DATADIR/users/$admin/htpasswd | cut -d: -f2`"
+      crypt="*"
       if [ -f $MU_DATADIR/users/$admin/monitoring_email ];then
         email="`cat $MU_DATADIR/users/$admin/monitoring_email`"
       else

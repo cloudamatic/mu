@@ -23,11 +23,12 @@ scriptpath="`dirname $0`"
 
 USER=`whoami`
 HOMEDIR="`eval echo ~$USER`"
-if [ ! -z $MU_INSTALLDIR ];then
-  bindir="$MU_INSTALLDIR/bin"
-else
-  bindir="/opt/mu/bin"
+if [ -z $MU_INSTALLDIR ];then
+  MU_INSTALLDIR="/opt/mu"
 fi
+bindir="$MU_INSTALLDIR/bin"
+MU_LIBDIR="$MU_INSTALLDIR/lib"
+MU_DATADIR="$MU_INSTALLDIR/var"
 
 #################################################
 ################## Updated Cmds ################
