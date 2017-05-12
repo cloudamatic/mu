@@ -523,7 +523,7 @@ if $INITIALIZE or $CHANGES.include?("chef-server")
 else
   updateChefRbs
 end
-exit
+
 if $IN_AWS
   system("#{MU_BASE}/lib/bin/mu-aws-setup --dns --sg --logs")
 # XXX --ip? Do we really care?
