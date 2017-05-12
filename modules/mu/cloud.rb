@@ -236,7 +236,7 @@ module MU
 
     # List of known/supported Cloud providers
     def self.supportedClouds
-      ["AWS", "CloudFormation", "Docker"]
+      ["AWS", "CloudFormation", "Google"]
     end
 
     # Load the container class for each cloud we know about, and inject autoload
