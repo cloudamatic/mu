@@ -479,15 +479,15 @@ require 'mu'
 
 if $INITIALIZE or $CHANGES.include?("hostname")
   system("/bin/hostname #{$MU_CFG['hostname']}")
-  end
+end
   
-  def updateChefRbs
+def updateChefRbs
   home = Etc.getpwnam("root").dir
   user = "mu"
   { home+"/.chef/knife.rb" => KNIFE_TEMPLATE,
     "/etc/chef/client.rb" => CLIENT_TEMPLATE,
     "/etc/opscode/pivotal.rb" => PIVOTAL_TEMPLATE }.each_pair { |file, template|
-    erb = ERB.new(KNIFE_TEMPLATE)
+    erb = ERB.new(template)
     processed = erb.result(binding)
     tmpfile = file+".tmp."+Process.pid.to_s
     File.open(tmpfile, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
@@ -523,7 +523,7 @@ if $INITIALIZE or $CHANGES.include?("chef-server")
 else
   updateChefRbs
 end
-
+exit
 if $IN_AWS
   system("#{MU_BASE}/lib/bin/mu-aws-setup --dns --sg --logs")
 # XXX --ip? Do we really care?
@@ -620,14 +620,14 @@ end
 
 if $INITIALIZE
   MU::Config.emitSchemaAsRuby
-  MU.log "Generating YARD documentation in /var/www/html/docs (see http://#{$MU_CFG['publilc_address']}/docs/frames.html)"
+  MU.log "Generating YARD documentation in /var/www/html/docs (see http://#{$MU_CFG['public_address']}/docs/frames.html)"
   File.umask(0022)
   system("cd #{MU.myRoot} && umask 0022 && env -i PATH=#{ENV['PATH']} HOME=#{Etc.getpwnam("root").dir} /usr/local/ruby-current/bin/yard doc modules -m markdown -o /var/www/html/docs && chcon -R -h -t httpd_sys_script_exec_t /var/www/html/")
 end
 
 
 MU.log "Running chef-client on MU-MASTER", MU::NOTICE
-system("chef-client")
+system("chef-client -o '#{run_list.join(",")}'")
 
 
 if $INITIALIZE
