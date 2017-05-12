@@ -161,7 +161,7 @@ fi
 
 /sbin/service nagios stop
 
-$bindir/mu-configure -n -f
+$bindir/mu-configure -n
 
 set -e
 
