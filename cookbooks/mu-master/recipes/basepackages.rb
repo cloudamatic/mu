@@ -41,8 +41,6 @@ if platform_family?("rhel")
   # RHEL7, CentOS7
   elsif node[:platform_version].to_i < 8
     basepackages.concat(["gecode-devel", "mariadb", "mariadb-devel", "qt", "qt-x11", "iptables-services"])
-    rpms["gecode"] = "https://s3.amazonaws.com/cap-public/gecode-3.7.3-2.el7.centos.x86_64.rpm"
-    rpms["gecode-devel"] = "https://s3.amazonaws.com/cap-public/gecode-devel-3.7.3-2.el7.centos.x86_64.rpm"
   end
 
 else
