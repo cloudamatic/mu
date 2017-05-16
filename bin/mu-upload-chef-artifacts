@@ -168,7 +168,7 @@ set_repo_path()
   reponame="`echo $repo | cut -d/ -f2 | sed -e 's/\.git$//'`"
 
   if [ "$repo" == "$MU_REPO" -o "$repo" == "$mu_repo_name" ];then
-    orig_source="$MU_LIBDIR"
+    orig_source="$MU_INSTALLDIR/lib"
   else
     orig_source="$MU_DATADIR/$reponame"
   fi
@@ -180,7 +180,7 @@ set_repo_path()
     echo "${GREEN}Cloning ${BOLD}$orig_source${NORM}${GREEN} into $artifact_source${NORM}"
     mkdir -p "$artifact_source"
     if [ "$repo" == "$MU_REPO" ];then
-      srcdir="$MU_LIBDIR"
+      srcdir="$MU_INSTALLDIR/lib"
     else
       srcdir="$MU_DATADIR/$reponame"
     fi
@@ -458,7 +458,7 @@ for repo in $REPOS;do
       add_berkshelf_cookbooks "$artifact_source"
     fi
   else
-    cp $MU_LIBDIR/extras/platform_berksfile_base $artifact_source/Berksfile
+    cp $MU_INSTALLDIR/lib/extras/platform_berksfile_base $artifact_source/Berksfile
     create_berksfile=1
     export MU_DEPRESOLVE=1
   fi

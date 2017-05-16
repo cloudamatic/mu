@@ -117,8 +117,10 @@ $opts = Trollop::options do
   }
 end
 
+# TODO actually it should write a user's own mu.yaml, which will be especially
+# useful for repo lists and whatnot
 if Etc.getpwuid(Process.uid).name != "root"
-  MU.log "#{$0} can only be run as root", MU::ERR
+  puts "#{$0} can only be run as root"
   exit 1
 end
 
