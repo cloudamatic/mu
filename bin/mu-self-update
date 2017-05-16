@@ -163,6 +163,14 @@ fi
 
 /opt/chef/bin/chef-apply $MU_LIBDIR/cookbooks/mu-master/recipes/init.rb
 $bindir/mu-configure -n
+echo "${GREEN}Sanitizing permissions in ${BOLD}$MU_LIBDIR${NORM}${GREEN}${NORM}"
+for tree in `ls -1 $MU_LIBDIR/`;do
+  find $MU_LIBDIR/$tree -type d -exec chmod go+rx {} \;
+  find $MU_LIBDIR/$tree -type f -exec chmod go+r {} \;
+done
+echo "${GREEN}Sanitizing permissions in ${BOLD}/opt/chef/embedded${NORM}${GREEN}${NORM}"
+find /opt/chef/embedded -type d -exec chmod go+rx {} \;
+find /opt/chef/embedded -type f -exec chmod go+r {} \;
 
 set -e
 
