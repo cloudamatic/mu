@@ -135,6 +135,7 @@ end
   gem_package bundler_path do
     gem_binary gembin
     package_name "bundler"
+    action :upgrade
   end
   execute "#{bundler_path} install" do
     cwd "#{MU_BASE}/lib/modules"

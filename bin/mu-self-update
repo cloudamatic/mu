@@ -161,6 +161,7 @@ fi
 
 /sbin/service nagios stop
 
+/opt/chef/bin/chef-apply $MU_LIBDIR/cookbooks/mu-master/recipes/init.rb
 $bindir/mu-configure -n
 
 set -e

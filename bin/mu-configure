@@ -155,6 +155,10 @@ chef_server_url 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>
 chef_server_root 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
 syntax_check_cache_path  '<%= home %>/.chef/syntax_check_cache'
 cookbook_path [ '<%= home %>/.chef/cookbooks', '<%= home %>/.chef/site_cookbooks' ]
+<% if $MU_CFG.has_key?('ssl') and $MU_CFG['ssl'].has_key?('chain') %>
+ssl_ca_path '<%= File.dirname($MU_CFG['ssl']['chain']) %>'
+ssl_ca_file '<%= File.basename($MU_CFG['ssl']['chain']) %>'
+<% end %>
 knife[:vault_mode] = 'client'
 knife[:vault_admins] = ['<%= user %>']"
 
@@ -503,24 +507,21 @@ def updateChefRbs
   }
 end
 
-if $INITIALIZE or $CHANGES.include?("chef-server")
-  erb = ERB.new(File.read("#{MU_BASE}/lib/cookbooks/mu-master/templates/default/chef-server.rb.erb"))
-  updated_server_cfg = erb.result(binding)
-  cfgpath = "/etc/opscode/chef-server.rb"
-  tmpfile = "/etc/opscode/chef-server.rb.#{Process.pid}"
-  File.open(tmpfile, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
-    f.puts updated_server_cfg
-  }
-  if !File.size?(cfgpath) or File.read(tmpfile) != File.read(cfgpath)
-    File.rename(tmpfile, cfgpath)
-    MU.log "Chef Server config was modified, reconfiguring...", MU::NOTICE
-    updateChefRbs
-    %x{/opt/opscode/bin/chef-server-ctl reconfigure}
-    $CHANGES << "chefcerts"
-  else
-    File.unlink(tmpfile)
-  end
+erb = ERB.new(File.read("#{MU_BASE}/lib/cookbooks/mu-master/templates/default/chef-server.rb.erb"))
+updated_server_cfg = erb.result(binding)
+cfgpath = "/etc/opscode/chef-server.rb"
+tmpfile = "/etc/opscode/chef-server.rb.#{Process.pid}"
+File.open(tmpfile, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
+  f.puts updated_server_cfg
+}
+if !File.size?(cfgpath) or File.read(tmpfile) != File.read(cfgpath)
+  File.rename(tmpfile, cfgpath)
+  MU.log "Chef Server config was modified, reconfiguring...", MU::NOTICE
+  system("/opt/opscode/bin/chef-server-ctl reconfigure")
+  updateChefRbs
+  $CHANGES << "chefcerts"
 else
+  File.unlink(tmpfile)
   updateChefRbs
 end
 
@@ -549,27 +550,25 @@ if $INITIALIZE
   system("chef-client -o 'recipe[mu-master::firewall-holes]'")
 end
 
-if $INITIALIZE
-  MU.log "Setting up internal SSL signing authority and certificates", MU::NOTICE
-  system("chef-client -o 'recipe[mu-master::ssl-certs]'")
-end
+MU.log "Setting up internal SSL signing authority and certificates", MU::NOTICE
+system("chef-client -o 'recipe[mu-master::ssl-certs]'")
 
+begin
+  MU::Groomer::Chef.getSecret(vault: "secrets", item: "consul")
+rescue MU::Groomer::Chef::MuNoSuchSecret
+  data = {
+    "private_key" => File.read("#{MU_BASE}/var/ssl/consul.key"),
+    "certificate" => File.read("#{MU_BASE}/var/ssl/consul.crt"),
+    "ca_certificate" => File.read("#{MU_BASE}/var/ssl/Mu_CA.pem")
+  }
+  MU::Groomer::Chef.saveSecret(
+    vault: "secrets",
+    item: "consul",
+    data: data,
+    permissions: "name:MU-MASTER"
+  )
+end
 if $INITIALIZE or $CHANGES.include?("vault")
-  begin
-    MU::Groomer::Chef.getSecret(vault: "secrets", item: "consul")
-  rescue MU::Groomer::Chef::MuNoSuchSecret
-    data = {
-      "private_key" => File.read("#{MU_BASE}/var/ssl/consul.key"),
-      "certificate" => File.read("#{MU_BASE}/var/ssl/consul.crt"),
-      "ca_certificate" => File.read("#{MU_BASE}/var/ssl/Mu_CA.pem")
-    }
-    MU::Groomer::Chef.saveSecret(
-      vault: "secrets",
-      item: "consul",
-      data: data,
-      permissions: "name:MU-MASTER"
-    )
-  end
   MU.log "Setting up Hashicorp Vault", MU::NOTICE
   system("chef-client -o 'recipe[mu-master::vault]'")
 end
