@@ -94,8 +94,6 @@ GEM
     ffi (1.9.14)
     ffi-yajl (2.3.0)
       libyajl2 (~> 1.2)
-    fileutils (0.7)
-      rmagick (>= 2.13.1)
     fuzzyurl (0.9.0)
     gssapi (1.2.0)
       ffi (>= 1.0.1)
@@ -188,7 +186,6 @@ GEM
       retryable (~> 2.0)
       semverse (~> 2.0)
       varia_model (~> 0.6)
-    rmagick (2.16.0)
     rspec (3.5.0)
       rspec-core (~> 3.5.0)
       rspec-expectations (~> 3.5.0)
@@ -275,7 +272,6 @@ DEPENDENCIES
   chef-vault (~> 2.9.0)
   color
   colorize
-  fileutils
   json-schema
   knife-windows (= 1.8.0)
   mysql
@@ -293,4 +289,4 @@ DEPENDENCIES
   yard
 
 BUNDLED WITH
-   1.13.7
+   1.14.6
