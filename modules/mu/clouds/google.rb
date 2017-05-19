@@ -16,50 +16,48 @@ require "google/cloud"
 require 'googleauth'
 require "net/http"
 require 'net/https'
+require 'multi_json'
+require 'stringio'
 
 module MU
   class Cloud
     # Support for Google Cloud Platform as a provisioning layer.
     class Google
-      @@client_id = nil
+      @@authtoken = nil
+      @@default_project = nil
+      @@authorizers = {}
 
       # Pull our global Google Cloud Platform credentials out of their secure
-      # vault and place them in ENV['GOOGLE_CLOUD_KEYFILE_JSON'], as expected
-      # by the google-cloud-ruby gem family.
-      # XXX supposedly this can be provided in-code. Would rather embed in all
-      # calls instead of depending on a polluted environment.
+      # vault, feed them to the googleauth gem, and stash the results on hand
+      # for consumption by the various GCP APIs.
+      # @param scopes [Array<String>]: One or more scopes for which to authorizer the caller. Will vary depending on the API you're calling.
       def self.loadCredentials(scopes = nil)
-        if $MU_CFG.has_key?("google") and $MU_CFG["google"].has_key?("credentials") and @@client_id.nil?
-          vault, item = $MU_CFG["google"]["credentials"].split(/:/)
+        return @@authorizers[scopes.to_s] if @@authorizers[scopes.to_s]
+# XXX Maybe rig this up as a fallback (would work when we're deployed in 
+# Computer or cohabiting with other things that use the generic ENV setup.
+# ::Google::Auth.get_application_default(scopes)
+        if $MU_CFG.has_key?("google") and $MU_CFG["google"].has_key?("credentials")
           begin
-            data = MU::Groomer::Chef.getSecret(vault: vault, item: item)
-            ENV['GOOGLE_CLOUD_KEYFILE_JSON'] = JSON.generate(data)
-            pp data
-            @@client_id ||= ::Google::Auth::ClientId.from_hash(data.merge({"web" => data}))
+            vault, item = $MU_CFG["google"]["credentials"].split(/:/)
+            data = MU::Groomer::Chef.getSecret(vault: vault, item: item).to_h
+            @@default_project ||= data["project_id"]
+            creds = {
+              :json_key_io => StringIO.new(MultiJson.dump(data)),
+              :scope => scopes
+            }
+            @@authorizers[scopes.to_s] = ::Google::Auth::ServiceAccountCredentials.make_creds(creds)
+            return @@authorizers[scopes.to_s]
           rescue MU::Groomer::Chef::MuNoSuchSecret
             raise MuError, "Google Cloud credentials not found in Vault #{vault}:#{item}"
           end
         else
           raise MuError, "Google Cloud credentials not configured"
         end
-        if @@client_id and scopes
-          # Boy does this seem awful and insecure
-          token_store = ::Google::Auth::Stores::FileTokenStore.new(
-            :file => MU.dataDir+'/tokens.yaml'
-          )
-          return ::Google::Auth::WebUserAuthorizer.new(
-            @@client_id,
-            scopes,
-            token_store,
-            '/oauth2callback'
-          )
-        end
-        ENV['GOOGLE_CLOUD_KEYFILE_JSON']
+        nil
       end
 
       # Fetch a URL
       def self.get(url)
-        loadCredentials
         uri = URI url
         resp = nil
 
@@ -78,17 +76,22 @@ module MU
       # Cloud. This fetches the identifier of the project associated with our
       # default credentials.
       def self.defaultProject
-        creds = loadCredentials
-        creds["project_id"]
+        loadCredentials if !@@default_project
+        @@default_project
       end
 
+      @@regions = {}
       def self.listRegions
-#        gcloud = Google::Cloud.new(MU::Cloud::Google.defaultProject)
-#        MU::Cloud::Google.compute.authorization = ::Google::Auth.get_application_default(['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'])
-        items = MU::Cloud::Google.compute.fetch_all do |token|
-          MU::Cloud::Google.compute.list_regions(project, page_token: token)
-        end
-        pp items
+        return @@regions.keys if @@regions.size > 0
+        result = MU::Cloud::Google.compute.list_regions(MU::Cloud::Google.defaultProject)
+        regions = []
+        result.items.each { |region|
+          @@regions[region.name] = []
+          region.zones.each { |az|
+            @@regions[region.name] << az.sub(/^.*?\/([^\/]+)$/, '\1')
+          }
+        }
+        @@regions.keys
       end
   
       # List the Availability Zones associated with a given Google Cloud
@@ -97,18 +100,15 @@ module MU
       # @param region [String]: The region to search.
       # @return [Array<String>]: The Availability Zones in this region.
       def self.listAZs(region = MU.curRegion)
+        MU::Cloud::Google.listRegions if !@@regions.has_key?(region)
+        raise MuError, "No such Google Cloud region '#{region}'" if !@@regions.has_key?(region)
+        @@regions[region]
       end
 
       # Google's Compute Service API
       def self.compute
         require 'google/apis/compute_v1'
-        loadCredentials
-# XXX this is probably a per-project kinda deal. Do regions matter? I munno.
-#        region ||= MU.myRegion
-#        @@compute_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "S3", region: region)
-#        @@compute_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "S3", region: region)
-        @@compute_api ||= MU::Cloud::Google::Endpoint.new(api: "Compute")
-        @@compute_api.authorization = loadCredentials(['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'])
+        @@compute_api ||= MU::Cloud::Google::Endpoint.new(api: "ComputeV1::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'])
         @@compute_api
       end
 
@@ -123,14 +123,11 @@ module MU
 
         # Create a Google Cloud Platform API client
         # @param api [String]: Which API are we wrapping?
-        def initialize(api: "Compute")
+        # @param scopes [Array<String>]: Google auth scopes applicable to this API
+        def initialize(api: "ComputeV1::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'])
 #          @region = region
-#          if region
-#            @api = Object.const_get("Google::Apis::Compute::#{api}").new(region: region)
-#          else
-#            @api = Object.const_get("Google::Apis::ComputeV1::#{api}").new
-            @api = Object.const_get("Google::Apis::#{api}").new
-#          end
+          @api = Object.const_get("Google::Apis::#{api}").new
+          @api.authorization = MU::Cloud::Google.loadCredentials(scopes)
         end
 
         @instance_cache = {}
@@ -149,7 +146,9 @@ module MU
               retval = @api.method(method_sym).call
             end
             return retval
-          rescue Exception => e
+          rescue Google::Apis::ClientError => e
+            raise MuError, e.inspect
+          rescue ::Google::Apis::ServerError => e
             retries = retries + 1
 #            debuglevel = MU::DEBUG
 debuglevel = MU::NOTICE
@@ -170,7 +169,7 @@ debuglevel = MU::NOTICE
           end
         end
       end
-      @@compute_api = {}
+      @@compute_api = nil
     end
   end
 end
