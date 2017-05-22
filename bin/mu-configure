@@ -117,8 +117,10 @@ $opts = Trollop::options do
   }
 end
 
+# TODO actually it should write a user's own mu.yaml, which will be especially
+# useful for repo lists and whatnot
 if Etc.getpwuid(Process.uid).name != "root"
-  MU.log "#{$0} can only be run as root", MU::ERR
+  puts "#{$0} can only be run as root"
   exit 1
 end
 
@@ -155,6 +157,10 @@ chef_server_url 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>
 chef_server_root 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
 syntax_check_cache_path  '<%= home %>/.chef/syntax_check_cache'
 cookbook_path [ '<%= home %>/.chef/cookbooks', '<%= home %>/.chef/site_cookbooks' ]
+<% if $MU_CFG.has_key?('ssl') and $MU_CFG['ssl'].has_key?('chain') %>
+ssl_ca_path '<%= File.dirname($MU_CFG['ssl']['chain']) %>'
+ssl_ca_file '<%= File.basename($MU_CFG['ssl']['chain']) %>'
+<% end %>
 knife[:vault_mode] = 'client'
 knife[:vault_admins] = ['<%= user %>']"
 
@@ -479,15 +485,15 @@ require 'mu'
 
 if $INITIALIZE or $CHANGES.include?("hostname")
   system("/bin/hostname #{$MU_CFG['hostname']}")
-  end
+end
   
-  def updateChefRbs
+def updateChefRbs
   home = Etc.getpwnam("root").dir
   user = "mu"
   { home+"/.chef/knife.rb" => KNIFE_TEMPLATE,
     "/etc/chef/client.rb" => CLIENT_TEMPLATE,
     "/etc/opscode/pivotal.rb" => PIVOTAL_TEMPLATE }.each_pair { |file, template|
-    erb = ERB.new(KNIFE_TEMPLATE)
+    erb = ERB.new(template)
     processed = erb.result(binding)
     tmpfile = file+".tmp."+Process.pid.to_s
     File.open(tmpfile, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
@@ -503,24 +509,21 @@ if $INITIALIZE or $CHANGES.include?("hostname")
   }
 end
 
-if $INITIALIZE or $CHANGES.include?("chef-server")
-  erb = ERB.new(File.read("#{MU_BASE}/lib/cookbooks/mu-master/templates/default/chef-server.rb.erb"))
-  updated_server_cfg = erb.result(binding)
-  cfgpath = "/etc/opscode/chef-server.rb"
-  tmpfile = "/etc/opscode/chef-server.rb.#{Process.pid}"
-  File.open(tmpfile, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
-    f.puts updated_server_cfg
-  }
-  if !File.size?(cfgpath) or File.read(tmpfile) != File.read(cfgpath)
-    File.rename(tmpfile, cfgpath)
-    MU.log "Chef Server config was modified, reconfiguring...", MU::NOTICE
-    updateChefRbs
-    %x{/opt/opscode/bin/chef-server-ctl reconfigure}
-    $CHANGES << "chefcerts"
-  else
-    File.unlink(tmpfile)
-  end
+erb = ERB.new(File.read("#{MU_BASE}/lib/cookbooks/mu-master/templates/default/chef-server.rb.erb"))
+updated_server_cfg = erb.result(binding)
+cfgpath = "/etc/opscode/chef-server.rb"
+tmpfile = "/etc/opscode/chef-server.rb.#{Process.pid}"
+File.open(tmpfile, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
+  f.puts updated_server_cfg
+}
+if !File.size?(cfgpath) or File.read(tmpfile) != File.read(cfgpath)
+  File.rename(tmpfile, cfgpath)
+  MU.log "Chef Server config was modified, reconfiguring...", MU::NOTICE
+  system("/opt/opscode/bin/chef-server-ctl reconfigure")
+  updateChefRbs
+  $CHANGES << "chefcerts"
 else
+  File.unlink(tmpfile)
   updateChefRbs
 end
 
@@ -535,6 +538,12 @@ if $INITIALIZE or $CHANGES.include?("chefcerts")
 end
 
 if $INITIALIZE
+#rm -rf /root/.berkshelf /root/.chef/cookbooks /root/.chef/site_cookbooks
+#for extra in $ADDTL_CHEF_REPOS;do
+#	extra_repo_name="`echo $extra | sed 's/^.*\///' | cut -d. -f1`"
+#	clone_repository "$extra" "$MU_DATADIR/$extra_repo_name"
+#  generate_repo_berksfile "$MU_DATADIR/$extra_repo_name"
+#done
   system("MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts")
 end
 
@@ -543,27 +552,25 @@ if $INITIALIZE
   system("chef-client -o 'recipe[mu-master::firewall-holes]'")
 end
 
-if $INITIALIZE
-  MU.log "Setting up internal SSL signing authority and certificates", MU::NOTICE
-  system("chef-client -o 'recipe[mu-master::ssl-certs]'")
-end
+MU.log "Setting up internal SSL signing authority and certificates", MU::NOTICE
+system("chef-client -o 'recipe[mu-master::ssl-certs]'")
 
+begin
+  MU::Groomer::Chef.getSecret(vault: "secrets", item: "consul")
+rescue MU::Groomer::Chef::MuNoSuchSecret
+  data = {
+    "private_key" => File.read("#{MU_BASE}/var/ssl/consul.key"),
+    "certificate" => File.read("#{MU_BASE}/var/ssl/consul.crt"),
+    "ca_certificate" => File.read("#{MU_BASE}/var/ssl/Mu_CA.pem")
+  }
+  MU::Groomer::Chef.saveSecret(
+    vault: "secrets",
+    item: "consul",
+    data: data,
+    permissions: "name:MU-MASTER"
+  )
+end
 if $INITIALIZE or $CHANGES.include?("vault")
-  begin
-    MU::Groomer::Chef.getSecret(vault: "secrets", item: "consul")
-  rescue MU::Groomer::Chef::MuNoSuchSecret
-    data = {
-      "private_key" => File.read("#{MU_BASE}/var/ssl/consul.key"),
-      "certificate" => File.read("#{MU_BASE}/var/ssl/consul.crt"),
-      "ca_certificate" => File.read("#{MU_BASE}/var/ssl/Mu_CA.pem")
-    }
-    MU::Groomer::Chef.saveSecret(
-      vault: "secrets",
-      item: "consul",
-      data: data,
-      permissions: "name:MU-MASTER"
-    )
-  end
   MU.log "Setting up Hashicorp Vault", MU::NOTICE
   system("chef-client -o 'recipe[mu-master::vault]'")
 end
@@ -605,12 +612,23 @@ if set_runlist
   chef_node.save
   $CHANGES << "chefrun"
 else
-  MU.log "Chef run list looks correct", MU::NOTICE
+  MU.log "Chef run list looks correct", MU::NOTICE, details: run_list
+end
+
+# TODO momma-cat service kick; maybe this wants to be a Chef thing
+# TODO here are some things we don't do yet but should
+#patch_knife_windows
+
+if $INITIALIZE
+  MU::Config.emitSchemaAsRuby
+  MU.log "Generating YARD documentation in /var/www/html/docs (see http://#{$MU_CFG['public_address']}/docs/frames.html)"
+  File.umask(0022)
+  system("cd #{MU.myRoot} && umask 0022 && env -i PATH=#{ENV['PATH']} HOME=#{Etc.getpwnam("root").dir} /usr/local/ruby-current/bin/yard doc modules -m markdown -o /var/www/html/docs && chcon -R -h -t httpd_sys_script_exec_t /var/www/html/")
 end
 
 
 MU.log "Running chef-client on MU-MASTER", MU::NOTICE
-system("chef-client")
+system("chef-client -o '#{run_list.join(",")}'")
 
 
 if $INITIALIZE

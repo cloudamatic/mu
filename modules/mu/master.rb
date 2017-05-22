@@ -36,6 +36,7 @@ module MU
           end
           append = ""
           append = " (Chef and local system ONLY)".bold if data['non_ldap']
+          append = append + "(" + data['uid'] + ")" if data.has_key?('uid')
           puts "#{username.bold} - #{data['realname']} <#{data['email']}>"+append
         end
       }
@@ -81,13 +82,14 @@ module MU
       email: nil,
       password: nil,
       admin: false,
+      change_uid: -1,
       orgs: [],
       remove_orgs: []
     )
       create = false
       cur_users = listUsers
       create = true if !cur_users.has_key?(username)
-      if !MU::Master::LDAP.manageUser(username, name: name, email: email, password: password, admin: admin)
+      if !MU::Master::LDAP.manageUser(username, name: name, email: email, password: password, admin: admin, change_uid: change_uid)
         deleteUser(username) if create
         return false
       end

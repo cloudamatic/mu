@@ -64,13 +64,16 @@ module MU
             require 'chef/file_access_control/unix'
             require 'chef-vault'
             require 'chef-vault/item'
+            ::Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}:7443/organizations/#{user}"
             if File.exists?("#{Etc.getpwnam(mu_user).dir}/.chef/knife.rb")
               MU.log "Loading Chef configuration from #{Etc.getpwnam(mu_user).dir}/.chef/knife.rb", MU::DEBUG
               ::Chef::Config.from_file("#{Etc.getpwnam(mu_user).dir}/.chef/knife.rb")
             end
-            ::Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}:7443/organizations/#{user}"
             ::Chef::Config[:environment] = env
             ::Chef::Config[:yes] = true
+            if mu_user != "root"
+              ::Chef::Config.trusted_certs_dir = "#{Etc.getpwnam(mu_user).dir}/.chef/trusted_certs"
+            end
             @chefloaded = true
             MU.log "Chef libraries loaded (took #{(Time.now-start).to_s} seconds)"
           end

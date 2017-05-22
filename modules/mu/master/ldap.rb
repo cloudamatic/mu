@@ -135,12 +135,25 @@ module MU
       def self.allocateUID(user: nil)
         MU::MommaCat.lock("uid_generator", false, true)
         used_uids = []
-        Etc.passwd{ |u|
-          if !user.nil? and u.name == user and mu_acct
-            raise MuLDAPError, "Username #{user} already exists as a system user, cannot allocate in directory"
+        if $MU_CFG["ldap"]["type"] == "389 Directory Services"
+          username_filter = Net::LDAP::Filter.eq(@uid_attr, uid)
+          user_filter = Net::LDAP::Filter.ne("objectclass", "computer") & Net::LDAP::Filter.ne("objectclass", "group")
+          conn.search(
+            :filter => username_filter & user_filter,
+            :base => $MU_CFG["ldap"]["base_dn"],
+            :attributes => ["employeeNumber"]
+          ) do |acct|
+            used_uids << acct[:employeenumber]
           end
-          used_uids << u.uid
-        }
+        else
+          Etc.passwd{ |u|
+            if !user.nil? and u.name == user and mu_acct
+              raise MuLDAPError, "Username #{user} already exists as a system user, cannot allocate in directory"
+            end
+            used_uids << u.uid
+          }
+        end
+
         for x in @uid_range_start..65535 do
           if !used_uids.include?(x)
             MU::MommaCat.unlock("uid_generator", true)
@@ -646,12 +659,12 @@ module MU
               username_filter = Net::LDAP::Filter.eq("cn", cn)
             end
             user_filter = Net::LDAP::Filter.ne("objectclass", "computer") & Net::LDAP::Filter.ne("objectclass", "group")
+            fetchattrs = ["cn", @uid_attr, "displayName", "mail"]
+            fetchattrs << "employeeNumber" if $MU_CFG["ldap"]["type"] == "389 Directory Services"
             conn.search(
               :filter => username_filter & user_filter,
-#              :filter => username_filter,
-#              :base => $MU_CFG["ldap"]["user_ou"],
               :base => $MU_CFG["ldap"]["base_dn"],
-              :attributes => ["cn", @uid_attr, "displayName", "mail"]
+              :attributes => fetchattrs
             ) do |acct|
               next if users.has_key?(acct[@uid_attr].first)
               users[acct[@uid_attr].first] = {}
@@ -666,6 +679,9 @@ module MU
               end rescue NoMethodError
               begin
                 users[acct[@uid_attr].first]['email'] = acct.mail.first
+              end rescue NoMethodError
+              begin
+                users[acct[@uid_attr].first]['uid'] = acct.employeenumber.first
               end rescue NoMethodError
             end
           }
@@ -774,7 +790,7 @@ module MU
       # @param ou [String]: The OU into which to deposit new users.
       # @param disable [Boolean]: Disabled the user's account
       # @param enable [Boolean]: Re-enable the user's account if it's disabled
-      def self.manageUser(user, name: nil, password: nil, email: nil, admin: false, mu_acct: true, unlock: false, ou: $MU_CFG["ldap"]["user_ou"], enable: false, disable: false)
+      def self.manageUser(user, name: nil, password: nil, email: nil, admin: false, mu_acct: true, unlock: false, ou: $MU_CFG["ldap"]["user_ou"], enable: false, disable: false, change_uid: -1)
         cur_users = listUsers
 
         first = last = nil
@@ -891,6 +907,9 @@ module MU
             if $MU_CFG["ldap"]["type"] == "389 Directory Services"
               # Make sure we have a sensible default gid
               conn.replace_attribute(user_dn, :departmentNumber, gid.to_s)
+              if change_uid > 0
+                conn.replace_attribute(user_dn, :employeeNumber, change_uid.to_s)
+              end
             end
             if !name.nil? and cur_users[user]['realname'] != name
               MU.log "Updating display name for #{user} to #{name}", MU::NOTICE

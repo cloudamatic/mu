@@ -23,27 +23,17 @@ scriptpath="`dirname $0`"
 
 USER=`whoami`
 HOMEDIR="`eval echo ~$USER`"
-if [ "$CHEF_PUBLIC_IP" = "" -o "$MU_DATADIR" == "" ];then
-        if [ -f /opt/mu/etc/mu.rc ];then
-                source /opt/mu/etc/mu.rc
-        fi
-        if [ -f $HOMEDIR/.murc ];then
-                source $HOMEDIR/.murc
-        fi
+if [ -z $MU_INSTALLDIR ];then
+  MU_INSTALLDIR="/opt/mu"
 fi
-if [ -z $MU_DATADIR ];then
-        echo "MU_DATADIR is unset, I don't know where to find Mu!"
-        exit 1
-fi
-
-source $MU_INSTALLDIR/lib/install/mu_setup
-
-cd $MU_LIBDIR
+bindir="$MU_INSTALLDIR/bin"
+MU_LIBDIR="$MU_INSTALLDIR/lib"
+MU_DATADIR="$MU_INSTALLDIR/var"
 
 #################################################
 ################## Updated Cmds ################
 #################################################
-DEFAULT_BRANCH="master"
+DEFAULT_BRANCH="its_all_your_vault"
 
 usage()
 {
@@ -52,10 +42,9 @@ usage()
   echo "    -f: Forcibly re-sync $MU_LIBDIR from Git.  Saves your"
   echo "        working changes unless -d is specified."
   echo "    -c <commit> (requires -f): Reset to a specific commit."
-  echo "    -b <branch>: Use a branch in $MU_LIBDIR other than $DEFAULT_BRANCH."
+  echo "    -b <branch>: Use a branch other than $DEFAULT_BRANCH."
   echo "    -d: Discard local changes to current branch."
   echo "    -u: Update chef artifacts after update, regardless of cookbook changes."
-  echo "    -r: Run chef-client after update, regardless of cookbook changes."
   exit 1
 }
 
@@ -152,16 +141,10 @@ else
   set -e
 fi
 
-if [ "`diff -r $MU_LIBDIR/cookbooks/mu-master $MU_DATADIR/tmp/cookbook_changes.$$/mu-master`" != "" ];then
-	run_chef_client=1
-	set -- "-r" "$@"
-fi
 if [ "`diff -r $MU_LIBDIR/cookbooks $MU_DATADIR/tmp/cookbook_changes.$$`" != "" ];then
 	update_chef_artifacts=1
 	set -- "-u" "$@"
 elif [ "`diff -r $MU_LIBDIR/Berksfile $MU_DATADIR/tmp/berks_changes.$$/Berksfile`" != "" ];then
-	# Chowderheads sometimes forget to sync Berkshelf
-	cd $MU_LIBDIR && /usr/local/ruby-current/bin/berks update
 	update_chef_artifacts=1
 	set -- "-u" "$@"
 elif [ "`diff -r $MU_LIBDIR/Berksfile.lock $MU_DATADIR/tmp/berks_changes.$$/Berksfile.lock`" != "" ];then
@@ -172,56 +155,23 @@ fi
 /bin/rm -rf $MU_DATADIR/tmp/cookbook_changes.$$
 /bin/rm -rf $MU_DATADIR/tmp/berks_changes.$$
 
-install_system_packages
-set_hostname
-configure_ec2_security_group
-install_mu_executables $@ || install_cap_executables $@
-set +e
-install_ruby purgeold
-set -e
-
-echo "${GREEN}Updating bundles for Ruby deploy tools${NORM}"
-cd $MU_LIBDIR/modules
-export USE_SYSTEM_GECODE=1
-if ! bundle install > /dev/null;then
-	# If bundle failed, repeat while actually showing the output, then bail if
-	# it failed again.
-	bundle install || fail_with_message '`bundle install` failed'
+if [ "$update_chef_artifacts" == "1" ];then
+  $bindir/mu-upload-chef-artifacts -r mu
 fi
-generate_docs
-
-# Drop old local groups in favor of LDAP's versions
-/usr/sbin/groupdel mu-users > /dev/null 2>&1
-/usr/sbin/groupdel mu-admins > /dev/null 2>&1
 
 /sbin/service nagios stop
-set +e
-patch_knife_windows
-generate_ssl_certs skip_chef
-install_chef
-set_bash_defaults
-setup_chef_cache $update_chef_artifacts
-generate_ssl_certs
-create_private_dns_zone
-update_murc LOG_BUCKET_NAME $LOG_BUCKET_NAME
-enable_audit_logs
-start_momma_cat
-rm -rf /root/.berkshelf /root/.chef/cookbooks /root/.chef/site_cookbooks
-for extra in $ADDTL_CHEF_REPOS;do
-	extra_repo_name="`echo $extra | sed 's/^.*\///' | cut -d. -f1`"
-	clone_repository "$extra" "$MU_DATADIR/$extra_repo_name"
-  generate_repo_berksfile "$MU_DATADIR/$extra_repo_name"
-done
 
-if [ $update_chef_artifacts == 1 ];then
-	upload_chef_artifacts -r mu
-	upload_chef_artifacts -n
-fi
-setup_localhost_chef_client
-configure_nagios_server
-if [ $run_chef_client == 1 ];then
-	chef-client -o "role[mu-master]"
-fi
+/opt/chef/bin/chef-apply $MU_LIBDIR/cookbooks/mu-master/recipes/init.rb
+$bindir/mu-configure -n
+echo "${GREEN}Sanitizing permissions in ${BOLD}$MU_LIBDIR${NORM}${GREEN}${NORM}"
+for tree in `ls -1 $MU_LIBDIR/`;do
+  find $MU_LIBDIR/$tree -type d -exec chmod go+rx {} \;
+  find $MU_LIBDIR/$tree -type f -exec chmod go+r {} \;
+done
+echo "${GREEN}Sanitizing permissions in ${BOLD}/opt/chef/embedded${NORM}${GREEN}${NORM}"
+find /opt/chef/embedded -type d -exec chmod go+rx {} \;
+find /opt/chef/embedded -type f -exec chmod go+r {} \;
+
 set -e
 
 if [ "$branch" != "$lastbranch" -a "$discard" != "1" ];then
@@ -235,5 +185,4 @@ if [ "$stashed_changes" == "1" ];then
     git stash pop
   fi
 fi
-set_permissions
 /sbin/service nagios start

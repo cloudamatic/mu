@@ -168,30 +168,30 @@ set_repo_path()
   reponame="`echo $repo | cut -d/ -f2 | sed -e 's/\.git$//'`"
 
   if [ "$repo" == "$MU_REPO" -o "$repo" == "$mu_repo_name" ];then
-    orig_source="$MU_LIBDIR"
+    orig_source="$MU_INSTALLDIR/lib"
   else
     orig_source="$MU_DATADIR/$reponame"
   fi
+  current_repo_path=$orig_source
 
-  owner=`/usr/bin/stat -c '%U' "$orig_source"`
+  owner=`/usr/bin/stat -c '%U' "$orig_source" 2>/dev/null`
   if [ "$USER" != "$owner" ];then
     artifact_source="$MU_DATADIR/tmp/$reponame.$$"
-    if [ ! -d "${artifact_source}" ];then
-      echo "${GREEN}Cloning ${BOLD}$orig_source${NORM}${GREEN} into $artifact_source${NORM}"
-      mkdir -p "$artifact_source"
-      if [ "$repo" == "$MU_REPO" ];then
-        srcdir="$MU_LIBDIR"
-      else
-        srcdir="$MU_DATADIR/$reponame"
-      fi
-      for subdir in cookbooks site_cookbooks roles environments data_bags Berksfile Berksfile.lock;do
-        if [ -e "$srcdir/$subdir" ];then
-          cp -a "$srcdir/$subdir" "$artifact_source/"
-        fi
-      done
-      copied_repodirs="${copied_repodirs} $artifact_source/"
-      current_repo_path="$artifact_source"
+    echo "${GREEN}Cloning ${BOLD}$orig_source${NORM}${GREEN} into $artifact_source${NORM}"
+    mkdir -p "$artifact_source"
+    if [ "$repo" == "$MU_REPO" ];then
+      srcdir="$MU_INSTALLDIR/lib"
+    else
+      srcdir="$MU_DATADIR/$reponame"
     fi
+    for subdir in cookbooks site_cookbooks roles environments data_bags Berksfile Berksfile.lock;do
+      if [ -e "$srcdir/$subdir" ];then
+        cp -a "$srcdir/$subdir" "$artifact_source/"
+      fi
+    done
+    tmp_dirs_to_remove="$artifact_source $tmp_dirs_to_remove"
+    copied_repodirs="${copied_repodirs} $artifact_source/"
+    current_repo_path="$artifact_source"
   else
     current_repo_path="$orig_source"
   fi
@@ -309,24 +309,24 @@ fi
 if [ "$nopurge" == "" -a "$all" == "1" ];then
   if [ "$use_on_disk" == "1" -o "$all" == "1" ];then
     if [ "$cookbooks_only" == "1" ];then
-      $knife cookbook bulk delete --purge '.+' --yes
+      $knife cookbook bulk delete --purge '.+' --yes 2>/dev/null
       /bin/rm -rf $MU_CHEF_CACHE/cookbooks $MU_CHEF_CACHE/site_cookbooks
     elif [ "$bags_only" == "1" ];then
       # Nowadays we have data bags that are persistent and node-related. Leave
       # them be, and only delete our automatic ones.
       for bag in nagios_users nagios_servers demo;do
-        $knife data bag delete $bag --yes
+        $knife data bag delete $bag --yes 2>/dev/null
       done
     else
-      $knife cookbook bulk delete --purge '.+' --yes
+      $knife cookbook bulk delete --purge '.+' --yes 2>/dev/null
       /bin/rm -rf $MU_CHEF_CACHE/cookbooks $MU_CHEF_CACHE/site_cookbooks
       /bin/rm -rf $MU_CHEF_CACHE/roles $MU_CHEF_CACHE/environments $MU_CHEF_CACHE/data_bags
-      $knife role bulk delete '.*' --yes
+      $knife role bulk delete '.*' --yes 2>/dev/null
       for env in `$knife environment list | grep -v '_default$'`;do
-        $knife environment delete $env --yes
+        $knife environment delete $env --yes 2>/dev/null
       done
       for bag in nagios_users nagios_servers demo;do
-        $knife data bag delete $bag --yes
+        $knife data bag delete $bag --yes 2>/dev/null
       done
     fi
   fi
@@ -373,7 +373,6 @@ for repo in $REPOS;do
     done
   fi
 
-  using_tmp_chef_pile=""
   set_repo_path $repo
   artifact_source=$current_repo_path
 
@@ -446,7 +445,7 @@ for repo in $REPOS;do
   fi
 
   if [ "$repo_name" != "$mu_repo_name" ];then
-    if grep "AUTO-INCLUDE STANDARD MU COOKBOOKS" $artifact_source/Berksfile > /dev/null;then
+    if grep "AUTO-INCLUDE STANDARD MU COOKBOOKS" $artifact_source/Berksfile > /dev/null 2>&1;then
       export MU_DEPRESOLVE=1
     fi
   else
@@ -459,7 +458,7 @@ for repo in $REPOS;do
       add_berkshelf_cookbooks "$artifact_source"
     fi
   else
-    cp $MU_LIBDIR/extras/platform_berksfile_base $artifact_source/Berksfile
+    cp $MU_INSTALLDIR/lib/extras/platform_berksfile_base $artifact_source/Berksfile
     create_berksfile=1
     export MU_DEPRESOLVE=1
   fi
@@ -550,11 +549,6 @@ for repo in $REPOS;do
       fi
     fi
   fi
-    
-  if [ "$using_tmp_chef_pile" == "1" ];then
-    tmp_dirs_to_remove="\"$artifact_source\" $tmp_dirs_to_remove"
-  fi
-
 done
 
 # Add some ad-hoc data bag contents for nagios_users. These are Mu logins
@@ -569,6 +563,7 @@ if [ -d "$MU_DATADIR/users" -a "$USER" == "root" ];then
   cd $MU_CHEF_CACHE
   bag_created=0
   for admin in mu;do
+    echo "$bagdir/$admin.json"
     if [ -f "$bagdir/$admin.json" ];then
       if [ "$bagcreated" == "0" ];then
         bagcreated=1
@@ -576,9 +571,9 @@ if [ -d "$MU_DATADIR/users" -a "$USER" == "root" ];then
       fi
       $knife data bag from file nagios_users $bagdir/$admin.json
     fi
-    if [ ! -f "$bagdir/$admin.json" -a -f "$MU_DATADIR/users/$admin/htpasswd" ];then
+    if [ ! -f "$bagdir/$admin.json" ];then
       id="`echo $admin | sed -e 's/@/_/'`"
-      crypt="`cat $MU_DATADIR/users/$admin/htpasswd | cut -d: -f2`"
+      crypt="*"
       if [ -f $MU_DATADIR/users/$admin/monitoring_email ];then
         email="`cat $MU_DATADIR/users/$admin/monitoring_email`"
       else
@@ -707,6 +702,7 @@ else
   fi
 fi
 
-#if [ "$copied_repodirs" != "" ];then
-#  /bin/rm -rf $copied_repodirs
-#fi
+if [ "$tmp_dirs_to_remove" != "" ];then
+  echo "${GREEN}Cleaning up temporary directories: ${BOLD}$tmp_dirs_to_remove${NORM}"
+  rm -rf $tmp_dirs_to_remove
+fi

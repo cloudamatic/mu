@@ -505,9 +505,12 @@ module MU
 
       if !@config.has_key?('admins') or @config['admins'].size == 0
         if MU.chef_user == "mu"
-          @config['admins'] = [{"name" => "Mu Administrator", "email" => ENV['MU_ADMIN_EMAIL']}]
-        else
-          @config['admins'] = [{"name" => MU.userName, "email" => MU.userEmail}]
+          @config['admins'] = [
+            {
+              "name" => MU.chef_user == "mu" ? "Mu Administrator" : MU.userName,
+              "email" => MU.userEmail
+            }
+          ]
         end
       end
       MU::Config.set_defaults(@config, MU::Config.schema)
