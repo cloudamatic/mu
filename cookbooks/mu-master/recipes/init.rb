@@ -118,6 +118,7 @@ git "#{MU_BASE}/lib" do
   repository "git://github.com/cloudamatic/mu.git"
   # XXX if we can check that we're not in chef-apply mode, use an attribute to pick our branch; otherwise use the default
   revision MU_BRANCH
+  not_if { ::Dir.exists?("#{MU_BASE}/lib/.git") }
 end
 
 ["mu-aws-setup", "mu-cleanup", "mu-configure", "mu-deploy", "mu-firewall-allow-clients", "mu-gen-docs", "mu-load-config.rb", "mu-momma-cat", "mu-node-manage", "mu-tunnel-nagios", "mu-upload-chef-artifacts", "mu-user-manage", "mu-ssh"].each { |exe|
