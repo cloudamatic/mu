@@ -20,7 +20,6 @@ gem "aws-sdk-core", "~> 2.6.42"
 gem 'simple-password-gen'
 gem 'trollop', "~> 2.1.2"
 gem 'knife-windows', '1.8.0'
-gem 'fileutils'
 gem 'json-schema'
 gem 'colorize'
 gem 'color'

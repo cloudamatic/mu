@@ -272,7 +272,6 @@ DEPENDENCIES
   chef-vault (~> 2.9.0)
   color
   colorize
-  fileutils
   json-schema
   knife-windows (= 1.8.0)
   mysql
