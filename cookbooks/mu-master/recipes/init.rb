@@ -130,12 +130,22 @@ remote_file "#{MU_BASE}/bin/mu-self-update" do
   mode 0755
 end
 
-["/usr/local/ruby-current/bin/gem", "/opt/chef/embedded/bin/gem", "/opt/opscode/embedded/bin/gem"].each { |gembin|
+["/usr/local/ruby-current", "/opt/chef/embedded", "/opt/opscode/embedded"].each { |rubydir|
+  gembin = rubydir+"/bin/gem"
   bundler_path = gembin.sub(/gem$/, "bundle")
+  bash "fix #{rubydir} bundler permissions" do
+    code <<-EOH
+      find #{rubydir}/lib/ruby/gems/?.?.?/gems/bundler-* -type f -exec chmod go+r {} \;
+      find #{rubydir}/lib/ruby/gems/?.?.?/gems/bundler-* -type d -exec chmod go+rx {} \;
+      chmod go+rx #{rubydir}/bin/bundle #{rubydir}/bin/bundler
+    EOH
+    action :nothing
+  end
   gem_package bundler_path do
     gem_binary gembin
     package_name "bundler"
-    action :upgrade
+    action :upgrade if rubydir == "/usr/local/ruby-current"
+    notifies :run, "bash[fix #{rubydir} bundler permissions]", :immediately
   end
   execute "#{bundler_path} install" do
     cwd "#{MU_BASE}/lib/modules"
