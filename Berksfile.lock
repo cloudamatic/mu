@@ -1,6 +1,8 @@
 DEPENDENCIES
   apache2 (~> 3.2.2)
   aws (~> 2.9.3)
+  awscli
+    path: cookbooks/awscli
   build-essential (~> 2.0)
   freebsd (~> 0.1.9)
   gunicorn (~> 1.1.2)
@@ -50,6 +52,7 @@ GRAPH
   apt (2.9.2)
   aws (2.9.3)
     ohai (>= 2.1.0)
+  awscli (0.2.1)
   bind (1.1.2)
   bind9-ng (0.1.0)
   bluepill (2.4.3)

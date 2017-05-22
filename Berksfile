@@ -15,6 +15,7 @@ source "https://supermarket.chef.io"
 
 cookbook 'apache2', '~> 3.2.2'
 cookbook 'aws', '~> 2.9.3'
+cookbook 'awscli', path: "#{cookbookPath}/awscli"
 cookbook 'build-essential', '~> 2.0'
 cookbook 'mu-splunk', path: "#{cookbookPath}/mu-splunk"
 cookbook 'freebsd', '~> 0.1.9'
