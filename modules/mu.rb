@@ -343,7 +343,7 @@ module MU
   @userlist = nil
 
   # Fetch the email address of a given Mu user
-  def self.userEmail(user = MU.mu_user)
+  def self.userEmail(user = MU.chef_user)
     @userlist ||= MU::Master.listUsers
     if Dir.exists?("#{MU.mainDataDir}/users/#{user}")
       return File.read("#{MU.mainDataDir}/users/#{user}/email").chomp
