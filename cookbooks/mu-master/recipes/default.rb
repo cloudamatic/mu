@@ -24,6 +24,7 @@ include_recipe 'mu-master::init'
 include_recipe 'mu-master::basepackages'
 include_recipe 'mu-master::firewall-holes'
 include_recipe 'mu-master::vault'
+include_recipe 'mu-tools::gcloud'
 
 master_ips = get_mu_master_ips
 master_ips << "127.0.0.1"
