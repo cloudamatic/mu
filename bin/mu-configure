@@ -86,7 +86,7 @@ $CONFIGURABLES = {
       },
       "region" => {
         "title" => "Default Region",
-        "desc" => "Default Amazon Web Services in which we operate"
+        "desc" => "Default Amazon Web Services region in which we operate"
       },
       "access_key" => {
         "title" => "Access Key",
@@ -101,6 +101,26 @@ $CONFIGURABLES = {
         "title" => "Log Bucket Name",
         "desc" => "AWS S3 bucket into which we'll synchronize collected system logs",
         "changes" => ["chefrun"]
+      }
+    }
+  },
+  "google" => {
+    "title" => "Google Cloud Platform",
+    "subtree" => {
+      "project" => {
+        "title" => "Default Project",
+        "desc" => "Default Google Cloud Platform project in which we operate and deploy",
+        "default" => "my-project"
+      },
+      "credentials" => {
+        "title" => "Credentials Vault:Item",
+        "desc" => "A vault and item from which to retrieve the JSON-formatted Service Account credentials for our GCP account",
+        "default" => "secrets:google"
+      },
+      "region" => {
+        "title" => "Default Region",
+        "desc" => "Default Google Cloud Platform region in which we operate and deploy",
+        "default" => "us-east1"
       }
     }
   }
