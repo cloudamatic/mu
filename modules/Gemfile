@@ -34,3 +34,7 @@ gem 'net-ssh', "~> 3.2.0"
 gem 'netaddr'
 gem 'nokogiri', "~> 1.6.8"
 gem 'net-ldap'
+gem 'googleauth'
+gem 'google-api-client'
+gem 'google-cloud'
+gem 'chef-sugar'
