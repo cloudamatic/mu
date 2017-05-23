@@ -145,6 +145,34 @@ module MU
             else
               retval = @api.method(method_sym).call
             end
+            if retval.class == ::Google::Apis::ComputeV1::Operation
+              retries = 0
+              begin
+                if retries > 0 and retries % 3 == 0
+                  MU.log "Waiting for #{method_sym} to be done (retry #{retries})", MU::NOTICE
+                else
+                  MU.log "Waiting for #{method_sym} to be done (retry #{retries})", MU::DEBUG, details: retval
+                end
+                if retval.status != "DONE"
+                  sleep 7
+                  begin
+                    resp = MU::Cloud::Google.compute.get_global_operation(
+                      arguments.first, # there's always a project id
+                      retval.name
+                    )
+                    retval = resp
+                  rescue ::Google::Apis::ClientError => e
+                    # this is ok; just means the operation is done and went away
+                    if e.message.match(/^notFound:/)
+                      return retval
+                    else
+                      raise e
+                    end
+                  end
+                  retries = retries + 1
+                end
+              end while retval.status != "DONE"
+            end
             return retval
           rescue ::Google::Apis::ServerError => e
             retries = retries + 1

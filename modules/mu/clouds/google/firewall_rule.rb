@@ -50,7 +50,7 @@ module MU
         def create
           allowed = []
           srcs = []
-MU.log "#{@mu_name} RULES", MU::NOTICE, details: @config['rules']
+
           @config['rules'].each { |rule|
             if ["tcp", "udp"].include?(rule['proto'])
               allowed << ::Google::Apis::ComputeV1::Firewall::Allowed.new(
@@ -66,25 +66,19 @@ MU.log "#{@mu_name} RULES", MU::NOTICE, details: @config['rules']
               rule['hosts'].each { |cidr| srcs << cidr }
             end
           }
-MU.log "#{@mu_name} ALLOWED", MU::NOTICE, details: allowed
-MU.log "#{@mu_name} SRCS", MU::NOTICE, details: srcs
           fwobj = ::Google::Apis::ComputeV1::Firewall.new(
             name: @mu_name,
             allowed: allowed,
-            description: @mu_name.upcase,
+            description: @deploy.deploy_id,
             source_ranges: srcs
           )
-MU.log "#{@mu_name} FWOBJ", MU::NOTICE, details: fwobj
+
 if allowed.size > 0
-          MU::Cloud::Google.compute.insert_firewall(@config['project'], fwobj) { |result, err|
-          pp result
-          pp err
-          }
+          MU.log "Creating firewall #{@mu_name}"
+          resp = MU::Cloud::Google.compute.insert_firewall(@config['project'], fwobj)
 else
   MU.log "Can't create empty firewalls (like #{@mu_name})  in Google Cloud", MU::WARN
 end
-sleep 10
-raise "GTFO"
         end
 
         # Called by {MU::Deploy#createResources}
@@ -133,22 +127,24 @@ raise "GTFO"
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject
 # XXX project flag has to get passed from somewheres
-          resp = MU::Cloud::Google.compute.list_firewalls(flags["project"])
-          deploy_id = /^#{Regexp.quote(MU.deploy_id.downcase)}-/
+          resp = MU::Cloud::Google.compute.list_firewalls(
+            flags["project"],
+            filter: "description eq #{MU.deploy_id}"
+          )
+          return if resp.nil? or resp.items.nil?
+          
           resp.items.each { |firewall|
-            if firewall.name.match(deploy_id)
-              MU.log "Removing firewall #{firewall.name}", details: firewall
-              if !noop
-                begin
-                  MU::Cloud::Google.compute.delete_firewall(flags["project"], firewall.name)
-                rescue ::Google::Apis::ClientError => e
-                  if e.message.match(/^notFound:/)
-                    MU.log "#{firewall.name} has already been deleted", MU::NOTICE
-                  elsif e.message.match(/^resourceNotReady:/)
-                    MU.log "Got #{e.message} deleting #{firewall.name}, may already be deleting", MU::NOTICE
-                    sleep 5
-                    retry
-                  end
+            MU.log "Removing firewall #{firewall.name}", details: firewall
+            if !noop
+              begin
+                MU::Cloud::Google.compute.delete_firewall(flags["project"], firewall.name)
+              rescue ::Google::Apis::ClientError => e
+                if e.message.match(/^notFound:/)
+                  MU.log "#{firewall.name} has already been deleted", MU::NOTICE
+                elsif e.message.match(/^resourceNotReady:/)
+                  MU.log "Got #{e.message} deleting #{firewall.name}, may already be deleting", MU::NOTICE
+                  sleep 5
+                  retry
                 end
               end
             end

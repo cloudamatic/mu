@@ -92,6 +92,10 @@ module MU
         keyname = "deploy-#{MU.deploy_id}"
 # XXX blindly checking for all of these resources in all clouds is now prohibitively slow. We should only do this when we don't see deployment metadata to work from.
         regions.each_pair { |provider, list|
+          if provider == "Google" # mostly region-agnostic resources
+            MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["FirewallRule", "Server", "ServerPool", "Database", "StoragePool"]) > 0
+            MU::Cloud::VPC.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["VPC"]) > 0
+          end
           list.each { |r|
             @regionthreads << Thread.new {
               MU.dupGlobals(parent_thread_id)
@@ -114,7 +118,9 @@ module MU
               MU::Cloud::Alarm.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["Alarm"]) > 0 # XXX other resources can make these appear, I think- which ones?
               MU::Cloud::Notification.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["Notification"]) > 0 # XXX other resources can make these appear, I think- which ones?
               MU::Cloud::Log.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["Log"]) > 0 # XXX other resources can make these appear, I think- which ones?
-              MU::Cloud::VPC.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["VPC"]) > 0
+              if provider == "AWS"
+                MU::Cloud::VPC.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["VPC"]) > 0
+              end
               MU::Cloud::Collection.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, wait: true, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["Collection"]) > 0
 
               if provider == "AWS"
@@ -128,9 +134,6 @@ module MU
               end
             }
           }
-          if provider == "Google"
-            MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["FirewallRule", "Server", "ServerPool", "Database", "StoragePool"]) > 0
-          end
         }
 
         @regionthreads.each do |t|

@@ -1334,6 +1334,7 @@ module MU
       vpcs.each { |vpc|
         vpc["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("VPC")
         vpc['cloud'] = MU::Config.defaultCloud if vpc['cloud'].nil?
+        vpc["project"] ||= MU::Cloud::Google.defaultProject if vpc['cloud'] == "Google"
         vpc['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
         vpc['region'] = config['region'] if vpc['region'].nil?
         vpc["dependencies"] = Array.new if vpc["dependencies"].nil?
