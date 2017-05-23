@@ -98,7 +98,7 @@ module MU
                 html_out "&nbsp;#{details}" if details
               else
                 handle.puts "#{time} - #{caller_name} - #{msg}".yellow.on_black
-                handle.puts "\t#{details}".white.on_black if details
+                handle.puts "#{details}".white.on_black if details
               end
               Syslog.log(Syslog::LOG_DEBUG, msg.gsub(/%/, ''))
               Syslog.log(Syslog::LOG_DEBUG, details.gsub(/%/, '')) if details
@@ -114,7 +114,7 @@ module MU
                 if @html
                   html_out "&nbsp;#{details}"
                 else
-                  handle.puts "\t#{details}".white.on_black if details
+                  handle.puts "#{details}".white.on_black if details
                 end
               end
               Syslog.log(Syslog::LOG_NOTICE, msg.gsub(/%/, ''))
@@ -130,7 +130,7 @@ module MU
               if @html
                 html_out "#{caller_name} - #{msg}"
               else
-                handle.puts "\t#{details}".white.on_black if details
+                handle.puts "#{details}".white.on_black if details
               end
             end
             Syslog.log(Syslog::LOG_NOTICE, msg.gsub(/%/, ''))
@@ -145,7 +145,7 @@ module MU
               if @html
                 html_out "#{caller_name} - #{msg}"
               else
-                handle.puts "\t#{details}".white.on_black if details
+                handle.puts "#{details}".white.on_black if details
               end
             end
             Syslog.log(Syslog::LOG_WARNING, msg.gsub(/%/, ''))
@@ -156,7 +156,7 @@ module MU
               html_out "&nbsp;#{details}" if details
             else
               handle.puts "#{time} - #{caller_name} - #{msg}".red.on_black
-              handle.puts "\t#{details}".white.on_black if details
+              handle.puts "#{details}".white.on_black if details
             end
             Syslog.log(Syslog::LOG_ERR, msg.gsub(/%/, ''))
             Syslog.log(Syslog::LOG_ERR, details.gsub(/%/, '')) if details
@@ -166,7 +166,7 @@ module MU
               html_out "&nbsp;#{details}" if details
             else
               handle.puts "#{time} - #{caller_name} - #{msg}".white.on_black
-              handle.puts "\t#{details}".white.on_black if details
+              handle.puts "#{details}".white.on_black if details
             end
             Syslog.log(Syslog::LOG_NOTICE, msg.gsub(/%/, ''))
             Syslog.log(Syslog::LOG_NOTICE, details.gsub(/%/, '')) if details
