@@ -24,21 +24,50 @@
 
 include_recipe 'mu-master::firewall-holes'
 
+# Mangle a bunch of values used by the Consul and Vault community cookbooks
+node.normal['consul']['config']['bootstrap_expect'] = 1 # XXX we only want this on our first run, maybe figure out how to toss it later
+node.normal['consul']['config']['start_join'] = ["127.0.0.1"]
 node.normal['consul']['config']['ca_file'] = "#{$MU_CFG['datadir']}/ssl/Mu_CA.pem"
-# local-only is fine for now, but if we ever use the cluster features we'll
-# need to get sassy here
-#node.normal['consul']['config']['advertise_addr'] = $MU_CFG['public_address']
-#node.normal['consul']['config']['advertise_addr_wan'] = $MU_CFG['public_address']
-#node.normal['consul']['config']['bind_addr'] = "0.0.0.0"
-
+node.normal['consul']['config']['key_file'] = "#{$MU_CFG['datadir']}/ssl/consul.key"
+node.normal['consul']['config']['cert_file'] = "#{$MU_CFG['datadir']}/ssl/consul.crt"
+node.normal['consul']['config']['advertise_addr'] = $MU_CFG['public_address']
+node.normal['consul']['config']['advertise_addr_wan'] = $MU_CFG['public_address']
+node.normal['consul']['config']['bind_addr'] = "0.0.0.0"
+node.normal['hashicorp-vault']['config']['tls_key_file'] = "#{$MU_CFG['datadir']}/ssl/vault.key"
+node.normal['hashicorp-vault']['config']['tls_cert_file'] = "#{$MU_CFG['datadir']}/ssl/vault.crt"
+node.normal['hashicorp-vault']['config']['address'] = '0.0.0.0:8200'
 node.save
+
+["consul", "vault"].each { |cert|
+  file "fix #{cert} cert permissions" do
+    path "#{$MU_CFG['datadir']}/ssl/#{cert}.crt"
+    owner cert
+    notifies :restart, "service[#{cert}]", :delayed
+  end
+  file "fix #{cert} key permissions" do
+    path "#{$MU_CFG['datadir']}/ssl/#{cert}.key"
+    notifies :restart, "service[#{cert}]", :delayed
+    owner cert
+  end
+
+  # These community cookbooks aren't bright enough to deal with a stringent
+  # umask, and create these unreadable by the application if we don't do it for
+  # them.
+  directory "fix /opt/#{cert} permissions" do
+    path "/opt/#{cert}"
+    mode 0755
+    notifies :restart, "service[#{cert}]", :delayed
+  end
+}
 
 include_recipe "consul-cluster"
 include_recipe "vault-cluster"
 
-# honestly guys, I shouldn't have to do this
-execute "find /opt/vault -type d -exec chmod og+rx {} \\;"
-execute "find /opt/consul -type d -exec chmod og+rx {} \\;"
+directory "/opt/vault/#{node['hashicorp-vault']['version']}" do
+  mode 0755
+  notifies :restart, "service[vault]", :delayed
+end
+
 directory "/etc/consul/ssl" do
   owner "consul"
   group "consul"

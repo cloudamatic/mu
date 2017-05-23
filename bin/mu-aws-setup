@@ -55,7 +55,7 @@ preferred_ip = MU.mu_public_ip
 # Create a security group, or manipulate an existing one, so that we have all
 # of the appropriate network holes.
 if $opts[:sg]
-  open_ports = [80, 443, 2260, 7443, 8443, 9443]
+  open_ports = [80, 443, 2260, 7443, 8443, 9443, 8200]
 
   # This doesn't make sense. we can have multiple security groups in our account with a name tag of "Mu Master". This will then find and modify a security group that has nothing to do with us.
   # found = MU::MommaCat.findStray("AWS", "firewall_rule", region: MU.myRegion, dummy_ok: true, tag_key: "Name", tag_value: "Mu Master")
