@@ -30,8 +30,17 @@ node.normal['consul']['config']['start_join'] = ["127.0.0.1"]
 node.normal['consul']['config']['ca_file'] = "#{$MU_CFG['datadir']}/ssl/Mu_CA.pem"
 node.normal['consul']['config']['key_file'] = "#{$MU_CFG['datadir']}/ssl/consul.key"
 node.normal['consul']['config']['cert_file'] = "#{$MU_CFG['datadir']}/ssl/consul.crt"
-node.normal['consul']['config']['advertise_addr'] = $MU_CFG['public_address']
-node.normal['consul']['config']['advertise_addr_wan'] = $MU_CFG['public_address']
+consul_public = $MU_CFG['public_address']
+if !consul_public.match(/^\d+\.\d+\.\d+\.\d+$/)
+  resolver = Resolv::DNS.new
+  begin
+    consul_public = resolver.getaddress(consul_public).to_s
+  end
+end
+# strictly speaking we could split internal vs. external IPs here, but atm
+# we're treating everything not local to this machine as public anyway
+node.normal['consul']['config']['advertise_addr'] = consul_public
+node.normal['consul']['config']['advertise_addr_wan'] = consul_public
 node.normal['consul']['config']['bind_addr'] = "0.0.0.0"
 node.normal['hashicorp-vault']['config']['tls_key_file'] = "#{$MU_CFG['datadir']}/ssl/vault.key"
 node.normal['hashicorp-vault']['config']['tls_cert_file'] = "#{$MU_CFG['datadir']}/ssl/vault.crt"
