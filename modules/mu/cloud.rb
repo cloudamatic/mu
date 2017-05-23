@@ -926,12 +926,18 @@ module MU
 
         # Wrapper for the cleanup class method of underlying cloud object implementations.
         def self.cleanup(*flags)
-          MU::Cloud.supportedClouds.each { |cloud|
+          params = flags.first
+          clouds = MU::Cloud.supportedClouds
+          if params[:cloud]
+            clouds = [params[:cloud]]
+            params.delete(:cloud)
+          end
+          clouds.each { |cloud|
             begin
               cloudclass = MU::Cloud.loadCloudType(cloud, shortname)
               raise MuCloudResourceNotImplemented if !cloudclass.respond_to?(:cleanup) or cloudclass.method(:cleanup).owner.to_s != "#<Class:#{cloudclass}>"
               MU.log "Invoking #{cloudclass}.cleanup from #{shortname}", MU::DEBUG, details: flags
-              cloudclass.cleanup(flags.first)
+              cloudclass.cleanup(params)
             rescue MuCloudResourceNotImplemented
               MU.log "No #{cloud} implementation of #{shortname}.cleanup, skipping", MU::DEBUG, details: flags
             end

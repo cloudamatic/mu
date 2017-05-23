@@ -1650,8 +1650,9 @@ module MU
 
       resolveFirewall = Proc.new { |acl|
         firewall_rule_names << acl['name']
-        acl['region'] = config['region'] if acl['region'].nil?
-        acl['cloud'] = MU::Config.defaultCloud if acl['cloud'].nil?
+        acl['region'] ||= config['region']
+        acl['cloud'] ||= MU::Config.defaultCloud
+        acl["project"] ||= MU::Cloud::Google.defaultProject if acl['cloud'] == "Google"
         acl['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
         acl["dependencies"] = Array.new if acl["dependencies"].nil?
         acl["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("FirewallRule")
@@ -1726,6 +1727,7 @@ module MU
       loadbalancers.each { |lb|
         lb['region'] = config['region'] if lb['region'].nil?
         lb['cloud'] = MU::Config.defaultCloud if lb['cloud'].nil?
+        lb["project"] ||= MU::Cloud::Google.defaultProject if lb['cloud'] == "Google"
         lb['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
         lb["dependencies"] = Array.new if lb["dependencies"].nil?
         lb["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("LoadBalancer")
@@ -1905,6 +1907,7 @@ module MU
         server_names << pool['name']
         pool['region'] = config['region'] if pool['region'].nil?
         pool['cloud'] = MU::Config.defaultCloud if pool['cloud'].nil?
+        pool["project"] ||= MU::Cloud::Google.defaultProject if pool['cloud'] == "Google"
         pool['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
         pool["dependencies"] = Array.new if pool["dependencies"].nil?
         pool["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("ServerPool")
@@ -2143,6 +2146,7 @@ module MU
       databases.each { |db|
         db['region'] = config['region'] if db['region'].nil?
         db['cloud'] = MU::Config.defaultCloud if db['cloud'].nil?
+        db["project"] ||= MU::Cloud::Google.defaultProject if db['cloud'] == "Google"
         db['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
         db["dependencies"] = Array.new if db["dependencies"].nil?
         db["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Database")
@@ -2494,6 +2498,7 @@ module MU
       cache_clusters.each { |cluster|
         cluster['region'] = config['region'] if cluster['region'].nil?
         cluster['cloud'] = MU::Config.defaultCloud if cluster['cloud'].nil?
+        cluster["project"] ||= MU::Cloud::Google.defaultProject if cluster['cloud'] == "Google"
         cluster['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
         cluster["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("CacheCluster")
         cluster["dependencies"] = [] if cluster["dependencies"].nil?
@@ -2636,6 +2641,7 @@ module MU
         pool['region'] = config['region'] if pool['region'].nil?
         pool["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("StoragePool")
         pool['cloud'] = MU::Config.defaultCloud if pool['cloud'].nil?
+        pool["project"] ||= MU::Cloud::Google.defaultProject if pool['cloud'] == "Google"
         pool["dependencies"] = [] if pool["dependencies"].nil?
 
         supported_regions = %w{us-west-2 us-east-1 eu-west-1}
@@ -2760,6 +2766,7 @@ module MU
         server["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Server")
         server["#MU_GROOMER"] = MU::Groomer.loadGroomer(server['groomer'])
         server['cloud'] = MU::Config.defaultCloud if server['cloud'].nil?
+        server["project"] ||= MU::Cloud::Google.defaultProject if server['cloud'] == "Google"
         server['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
         server['region'] = config['region'] if server['region'].nil?
         server["dependencies"] = Array.new if server["dependencies"].nil?
@@ -2782,7 +2789,7 @@ module MU
             server['create_image']['copy_to_regions'] = MU::Cloud::AWS.listRegions
           end
         end
-        if server['ami_id'].nil?
+        if server['ami_id'].nil? and server['cloud'] == "AWS"
           if MU::Config.amazon_images.has_key?(server['platform']) and
               MU::Config.amazon_images[server['platform']].has_key?(server['region'])
             server['ami_id'] = getTail("server"+server['name']+"AMI", value: MU::Config.amazon_images[server['platform']][server['region']], prettyname: "server"+server['name']+"AMI", cloudtype: "AWS::EC2::Image::Id")
@@ -3288,10 +3295,12 @@ module MU
 
       return vpc_ref_schema
     end
+    allregions = MU::Cloud::AWS.listRegions
+    allregions.concat(MU::Cloud::Google.listRegions)
 
     @region_primitive = {
       "type" => "string",
-      "enum" => MU::Cloud::AWS.listRegions
+      "enum" => allregions
     }
 
     @cloud_primitive = {

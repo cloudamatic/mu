@@ -146,8 +146,6 @@ module MU
               retval = @api.method(method_sym).call
             end
             return retval
-          rescue Google::Apis::ClientError => e
-            raise MuError, e.inspect
           rescue ::Google::Apis::ServerError => e
             retries = retries + 1
 #            debuglevel = MU::DEBUG
