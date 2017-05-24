@@ -20,15 +20,25 @@ include_recipe 'mu-firewall'
 
 # TODO Move all mu firewall rules to a mu specific chain
 firewall_rule "MU Master default ports" do
-  port [2260, 8443, 9443, 10514, 443, 80, 25]
+  port [2260, 7443, 8443, 9443, 10514, 443, 80, 25]
 end
-# TODO tighten the local-only ones to appropriate IP blocks
-firewall_rule "Chef Server default ports" do
-  port [4321, 7443, 9463, 16379, 8983, 8000, 9683, 9090, 5432, 5672]
+
+local_chef_ports = [4321, 9463, 9583, 16379, 8983, 8000, 9680, 9683, 9090, 5432, 5672]
+firewall_rule "Chef Server ports on 127.0.0.1" do
+  port local_chef_ports
+  source "127.0.0.1/32"
 end
+if node.has_key?(:local_ipv4)
+  firewall_rule "Chef Server ports on #{node[:local_ipv4]}" do
+    port local_chef_ports
+    source "#{node[:local_ipv4]}/32"
+  end
+end
+
 firewall_rule "Mu Master LDAP ports" do
-  port [389, 636]
+  port [389, 636] # TODO 389 should probably be local-only
 end
+
 firewall_rule "Mu Master Vault ports" do
   port [8200]
 end

@@ -26,7 +26,7 @@ require 'etc'
 require 'open-uri'
 require 'socket'
 
-CHEF_SERVER_VERSION="12.11.1-1"
+CHEF_SERVER_VERSION="12.15.7-1"
 MU_BRANCH="its_all_your_vault"
 MU_BASE="/opt/mu"
 SSH_USER="root"
@@ -45,6 +45,13 @@ execute "reconfigure Chef server" do
   notifies :run, "execute[stop iptables]", :before
   notifies :run, "execute[start iptables]", :immediately
 end
+execute "upgrade Chef server" do
+  command "/opt/opscode/bin/chef-server-ctl upgrade"
+  action :nothing
+  timeout 1200 # this can take a while
+  notifies :run, "execute[stop iptables]", :before
+  notifies :run, "execute[start iptables]", :immediately
+end
 
 basepackages = []
 removepackages = []
@@ -55,7 +62,7 @@ if platform_family?("rhel")
   basepackages = ["git", "curl"]
   rpms = {
     "epel-release" => "http://mirror.metrocast.net/fedora/epel/epel-release-latest-#{node[:platform_version].to_i}.noarch.rpm",
-    "chef-server-core" => "https://packages.chef.io/stable/el/#{node[:platform_version].to_i}/chef-server-core-#{CHEF_SERVER_VERSION}.el#{node[:platform_version].to_i}.x86_64.rpm"
+    "chef-server-core" => "https://packages.chef.io/files/stable/chef-server/#{CHEF_SERVER_VERSION.sub(/\-\d+$/, "")}/el/#{node[:platform_version].to_i}/chef-server-core-#{CHEF_SERVER_VERSION}.el#{node[:platform_version].to_i}.x86_64.rpm"
   }
 
   if node[:platform_version].to_i < 6 or node[:platform_version].to_i >= 8
@@ -81,9 +88,24 @@ if File.read("/etc/ssh/sshd_config").match(/^AllowUser\s+([^\s]+)(?: |$)/)
 end
 
 package basepackages
+# Account for Chef Server upgrades, which require some extra behavior
+rpm_package "Chef Server upgrade package" do
+  source rpms["chef-server-core"]  
+  action :upgrade
+  only_if "rpm -q chef-server-core"
+  notifies :run, "execute[upgrade Chef server]", :immediately
+  notifies :run, "execute[reconfigure Chef server]", :immediately
+end
+# Regular old rpm-based installs
 rpms.each_pair { |pkg, src|
   rpm_package pkg do
     source src
+    if pkg == "chef-server-core" and File.size?("/etc/opscode/chef-server.rb")
+      # On a normal install this will execute when we set up chef-server.rb,
+      # but on a reinstall or an install on an image where that file already
+      # exists, we need to invoke this some other way.
+      notifies :run, "execute[reconfigure Chef server]", :immediately
+    end
   end
 }
 package removepackages do
