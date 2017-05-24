@@ -159,7 +159,9 @@ if [ "$update_chef_artifacts" == "1" ];then
   $bindir/mu-upload-chef-artifacts -r mu
 fi
 
+set +e
 /sbin/service nagios stop
+set -e
 
 /opt/chef/bin/chef-apply $MU_LIBDIR/cookbooks/mu-master/recipes/init.rb
 $bindir/mu-configure -n
