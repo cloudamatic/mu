@@ -116,6 +116,7 @@ module MU
                 :instance_protocol => listener["instance_protocol"]
               }
               listen_struct[:ssl_certificate_id] = listener["ssl_certificate_id"] if !listener["ssl_certificate_id"].nil?
+
               listeners << listen_struct
             }
             lb_options[:listeners] = listeners
@@ -254,7 +255,14 @@ module MU
                 listen_descriptor[:certificates] = [{
                   :certificate_arn => l['ssl_certificate_id']
                 }]
-                listen_descriptor[:ssl_policy] = "ELBSecurityPolicy-2015-05"
+                listen_descriptor[:ssl_policy] = case l['tls_policy']
+                when "tls1.0"
+                  "ELBSecurityPolicy-TLS-1-0-2015-04"
+                when "tls1.1"
+                  "ELBSecurityPolicy-TLS-1-1-2017-01"
+                when "tls1.2"
+                  "ELBSecurityPolicy-TLS-1-2-2017-01"
+                end
               end
               listen_resp = MU::Cloud::AWS.elb2.create_listener(listen_descriptor).listeners.first
               if !l['rules'].nil?
@@ -273,6 +281,37 @@ module MU
                   }
                   MU::Cloud::AWS.elb2.create_rule(rule_descriptor)
                 }
+              end
+            }
+          else
+            @config["listeners"].each { |l|
+              if l['ssl_certificate_id']
+                resp = MU::Cloud::AWS.elb.set_load_balancer_policies_of_listener(
+                  load_balancer_name: @cloud_id, 
+                  load_balancer_port: l['lb_port'], 
+                  policy_names: [
+                    case l['tls_policy']
+                    when "tls1.0"
+                      "ELBSecurityPolicy-2016-08"
+                    when "tls1.1"
+                      # XXX This policy shows up in the console, but doesn't
+                      # work there either. I think it's Amazon's bug, though we
+                      # could get around it by creating a custom policy with all
+                      # the bits we want. Ugh. Just use an ALB, man.
+                      # "ELBSecurityPolicy-TLS-1-1-2017-01" 
+                      MU.log "Correct TLS1.1 cipher policy for classic Load Balancers is currently not supported, falling back to ELBSecurityPolicy-2016-08", MU::WARN
+                      "ELBSecurityPolicy-2016-08"
+                    when "tls1.2"
+                      # XXX This policy shows up in the console, but doesn't
+                      # work there either. I think it's Amazon's bug, though we
+                      # could get around it by creating a custom policy with all
+                      # the bits we want. Ugh. Just use an ALB, man.
+                      # "ELBSecurityPolicy-TLS-1-2-2017-01" 
+                      MU.log "Correct TLS1.2 cipher policy for classic Load Balancers is currently not supported, falling back to ELBSecurityPolicy-2016-08", MU::WARN
+                      "ELBSecurityPolicy-2016-08"
+                    end
+                  ]
+                )
               end
             }
           end
