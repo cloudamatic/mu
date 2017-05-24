@@ -5433,6 +5433,12 @@ module MU
                     "type" => "string",
                     "description" => "The ARN string of an Amazon IAM server certificate."
                   },
+                  "tls_policy" => {
+                    "type" => "string",
+                    "description" => "Lowest level of TLS to support.",
+                    "default" => "tls1.2",
+                    "enum" => ["tls1.0", "tls1.1", "tls1.2"]
+                  },
                   "rules" => {
                     "type" => "array",
                     "items" => {
