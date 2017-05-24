@@ -54,25 +54,32 @@ module MU
           )
           MU.log "Creating network #{@mu_name} (#{@config['ip_block']})", details: networkobj
           resp = MU::Cloud::Google.compute.insert_network(@config['project'], networkobj)
-          network_url = resp.target_link
+          network_url = resp.target_link # XXX needs to go in notify
 
           if @config['subnets']
+            subnetthreads = []
+            parent_thread_id = Thread.current.object_id
             @config['subnets'].each { |subnet|
-              subnet_name = @config['name']+"-"+subnet['name']
-              subnet_mu_name = @deploy.getResourceName(subnet_name).downcase
-              MU.log "Creating subnetwork #{subnet_mu_name} (#{subnet['ip_block']})", details: subnet
-              subnetobj = ::Google::Apis::ComputeV1::Subnetwork.new(
-                name: subnet_mu_name,
-                description: @deploy.deploy_id,
-                ip_cidr_range: subnet['ip_block'],
-                network: network_url,
-                region: subnet['availability_zone']
-              )
-              resp = MU::Cloud::Google.compute.insert_subnetwork(@config['project'], subnet['availability_zone'], subnetobj)
-
+              subnetthreads << Thread.new {
+                MU.dupGlobals(parent_thread_id)
+                subnet_name = @config['name']+"-"+subnet['name']
+                subnet_mu_name = @deploy.getResourceName(subnet_name).downcase
+                MU.log "Creating subnetwork #{subnet_mu_name} (#{subnet['ip_block']})", details: subnet
+                subnetobj = ::Google::Apis::ComputeV1::Subnetwork.new(
+                  name: subnet_mu_name,
+                  description: @deploy.deploy_id,
+                  ip_cidr_range: subnet['ip_block'],
+                  network: network_url,
+                  region: subnet['availability_zone']
+                )
+                resp = MU::Cloud::Google.compute.insert_subnetwork(@config['project'], subnet['availability_zone'], subnetobj)
+  
+              }
             }
+            subnetthreads.each do |t|
+              t.join
+            end
           end
-
         end
 
         # Configure IP traffic logging on a given VPC/Subnet. Logs are saved in cloudwatch based on the network interface ID of each instance.
@@ -86,7 +93,7 @@ module MU
         # Describe this VPC
         # @return [Hash]
         def notify
-          @config
+          MU::Cloud::Google.compute.get_network(@config['project'], @mu_name).to_h
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -100,6 +107,8 @@ module MU
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching VPCs
         def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, opts: {})
+#          cloud_desc = MU::Cloud::Google.compute.get_network(@config['project'], cloud_id)
+          {}
         end
 
         # Return an array of MU::Cloud::Google::VPC::Subnet objects describe the
@@ -116,10 +125,23 @@ module MU
         # Describe subnets associated with this VPC. We'll compose identifying
         # information similar to what MU::Cloud.describe builds for first-class
         # resources.
-        # XXX this is weaksauce. Subnets should be objects with their own methods
-        # that work like first-class objects. How would we enforce that?
         # @return [Array<Hash>]: A list of cloud provider identifiers of subnets associated with this VPC.
         def loadSubnets
+          network = notify
+
+          @subnets = []
+          MU::Cloud::Google.listRegions.each { |r|
+            resp = MU::Cloud::Google.compute.list_subnetworks(
+              @config['project'],
+              r,
+              filter: "network eq #{network[:self_link]}"
+            )
+            resp.items.each { |subnet|
+              @subnets << subnet
+            }
+            next if resp.nil? or resp.items.nil?
+          }
+          @subnets
         end
 
         # Given some search criteria try locating a NAT Gaateway in this VPC.
@@ -208,17 +230,30 @@ module MU
           resp.items.each { |network|
             MU.log "Removing network #{network.name}", details: network
             if !noop
+              retries = 0
+              max = 10
+              complete = false
               begin
-                MU::Cloud::Google.compute.delete_network(flags["project"], network.name)
+                deletia = MU::Cloud::Google.compute.delete_network(flags["project"], network.name)
+                if deletia.error and deletia.error.errors and deletia.error.errors.size > 0
+                  retries = retries + 1
+                  if retries % 3 == 0
+                    MU.log "Got #{deletia.error.errors.first.code} deleting #{network.name}, may be waiting on other resources to delete (attempt #{retries}/#{max})", MU::warn, details: deletia.error.errors
+                  end
+                  sleep 5
+                else
+                  complete = true
+                end
               rescue ::Google::Apis::ClientError => e
                 if e.message.match(/^notFound:/)
                   MU.log "#{network.name} has already been deleted", MU::NOTICE
                 elsif e.message.match(/^resourceNotReady:/)
                   MU.log "Got #{e.message} deleting #{network.name}, may already be deleting", MU::NOTICE
+                  retries = retries + 1
                   sleep 5
                   retry
                 end
-              end
+              end while !complete and retries < max
             end
           }
 
