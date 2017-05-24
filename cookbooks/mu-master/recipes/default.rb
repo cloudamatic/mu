@@ -154,6 +154,11 @@ if !node.update_nagios_only
     action :create_if_missing
   end
 
+  file "/etc/profile.d/usr_local_bin.sh" do
+    content "export PATH=\"${PATH}:/usr/local/bin\"\n"
+    mode 0644
+  end
+
   cookbook_file "/var/www/html/cloudamatic.png" do
     source "cloudamatic.png"
     mode 0644

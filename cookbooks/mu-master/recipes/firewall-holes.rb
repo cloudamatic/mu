@@ -29,3 +29,16 @@ end
 firewall_rule "Mu Master LDAP ports" do
   port [389, 636]
 end
+firewall_rule "Mu Master Vault ports" do
+  port [8200]
+end
+firewall_rule "Mu Master Consul ports on 127.0.0.1" do
+  port [8300, 8301, 8302, 8400, 8500, 8600]
+  source "127.0.0.1/32"
+end
+if node.has_key?(:local_ipv4)
+  firewall_rule "Mu Master Consul ports on #{node[:local_ipv4]}" do
+    port [8300, 8301, 8302, 8400, 8500, 8600]
+    source "#{node[:local_ipv4]}/32"
+  end
+end

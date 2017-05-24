@@ -23,9 +23,19 @@
 # templates.
 
 include_recipe 'mu-master::firewall-holes'
+include_recipe 'mu-master::ssl-certs'
 service_certs = ["rsyslog", "mommacat", "ldap", "consul", "vault"]
 
 directory "#{$MU_CFG['datadir']}/ssl"
+template "#{$MU_CFG['datadir']}/ssl/openssl.cnf" do
+  source "openssl.cnf.erb"
+  mode 0644
+  variables(
+    :mu_ssl_dir => "#{$MU_CFG['datadir']}/ssl",
+    :alt_names => [$MU_CFG['public_address'], "127.0.0.1", node.fqdn, node.hostname, node['local_hostname'], node['local_ipv4'], node['public_hostname'], node['public_ipv4']].uniq
+  )
+  notifies :delete, "file[#{$MU_CFG['datadir']}/ssl/Mu_CA.pem]", :immediately
+end
 execute "generate SSL CA key" do
   command "openssl genrsa -out Mu_CA.key 4096"
   cwd "#{$MU_CFG['datadir']}/ssl"
@@ -36,7 +46,7 @@ file "#{$MU_CFG['datadir']}/ssl/Mu_CA.key" do
   mode 0400
 end
 execute "create internal SSL CA" do
-  command "openssl req -subj \"/CN=#{$MU_CFG['public_address']}/OU=Mu Server #{$MU_CFG['public_address']}/O=eGlobalTech/C=US\" -x509 -new -nodes -key Mu_CA.key -days 1024 -out Mu_CA.pem -sha512"
+  command "openssl req -subj \"/CN=#{$MU_CFG['public_address']}/OU=Mu Server #{$MU_CFG['public_address']}/O=eGlobalTech/C=US\" -x509 -new -nodes -key Mu_CA.key -days 1024 -out Mu_CA.pem -sha512 -extensions v3_ca -config #{$MU_CFG['datadir']}/ssl/openssl.cnf"
   cwd "#{$MU_CFG['datadir']}/ssl"
   action :nothing
   service_certs.each { |cert|
@@ -44,7 +54,7 @@ execute "create internal SSL CA" do
   }
 end
 file "#{$MU_CFG['datadir']}/ssl/CA-command.txt" do
-  content "openssl req -subj \"/CN=#{$MU_CFG['public_address']}/OU=Mu Server #{$MU_CFG['public_address']}/O=eGlobalTech/C=US\" -x509 -new -nodes -key Mu_CA.key -days 1024 -out Mu_CA.pem -sha512"
+  content "openssl req -subj \"/CN=#{$MU_CFG['public_address']}/OU=Mu Server #{$MU_CFG['public_address']}/O=eGlobalTech/C=US\" -x509 -new -nodes -key Mu_CA.key -days 1024 -out Mu_CA.pem -sha512 -extensions v3_ca -config #{$MU_CFG['datadir']}/ssl/openssl.cnf"
   mode 0400
   notifies :run, "execute[create internal SSL CA]", :immediately
 end
@@ -68,9 +78,12 @@ service_certs.each { |cert|
   bash "generate service cert for #{cert}" do
     code <<-EOH
       set -e
+      echo "Generating #{cert}.key"
       openssl genrsa -out #{cert}.key 4096
-      openssl req -subj "/CN=#{$MU_CFG['public_address']}/OU=Mu #{cert}/O=eGlobalTech/C=US" -new -key #{cert}.key -out #{cert}.csr -sha512
-      openssl x509 -req -in #{cert}.csr -CA Mu_CA.pem -CAkey Mu_CA.key -CAcreateserial -out #{cert}.crt -days 500 -sha512
+      echo "Generating #{cert}.csr"
+      openssl req -subj "/CN=#{$MU_CFG['public_address']}/OU=Mu #{cert}/O=eGlobalTech/C=US" -new -key #{cert}.key -out #{cert}.csr -sha512 -extensions v3_ca -config #{$MU_CFG['datadir']}/ssl/openssl.cnf
+      echo "Signing #{cert}.csr => #{cert}.crt"
+      openssl x509 -req -in #{cert}.csr -CA Mu_CA.pem -CAkey Mu_CA.key -CAcreateserial -out #{cert}.crt -days 500 -sha512 -extensions v3_req -extfile #{$MU_CFG['datadir']}/ssl/openssl.cnf
       cat Mu_CA.pem >> #{cert}.crt
       openssl pkcs12 -export -inkey #{cert}.key -in #{cert}.crt -out #{cert}.p12 -nodes -name "#{cert}" -passout pass:""
     EOH
