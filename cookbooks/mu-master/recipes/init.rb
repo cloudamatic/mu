@@ -57,6 +57,14 @@ execute "upgrade Chef server" do
   notifies :run, "execute[stop iptables]", :before
   notifies :run, "execute[start iptables]", :immediately
 end
+# XXX this should *never* run unless we're in chef-apply
+service "chef-server" do
+  restart_command "/opt/opscode/bin/chef-server-ctl restart"
+  stop_command "/opt/opscode/bin/chef-server-ctl stop"
+  start_command "/opt/opscode/bin/chef-server-ctl start"
+  pattern "/opt/opscode/embedded/sbin/nginx"
+  action :nothing
+end
 
 git "#{MU_BASE}/lib" do
   repository "git://github.com/cloudamatic/mu.git"
@@ -107,6 +115,7 @@ rpm_package "Chef Server upgrade package" do
   only_if "rpm -q chef-server-core"
   notifies :run, "execute[upgrade Chef server]", :immediately
   notifies :run, "execute[reconfigure Chef server]", :immediately
+  notifies :restart, "service[chef-server]", :delayed
 end
 # Regular old rpm-based installs
 rpms.each_pair { |pkg, src|
@@ -181,6 +190,7 @@ end
     cwd "#{MU_BASE}/lib/modules"
     umask 0022
     not_if "#{bundler_path} check"
+    notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
   end
   # Expunge old versions of knife-windows
   Dir.glob("#{gemdir}/knife-windows-*").each { |dir|
@@ -198,12 +208,14 @@ end
     gem_binary gembin
     package_name "knife-windows"
     version KNIFE_WINDOWS
+    notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
   end
 
   execute "Patch #{rubydir}'s knife-windows for Cygwin SSH bootstraps" do
     cwd "#{gemdir}/knife-windows-#{KNIFE_WINDOWS}"
     command "patch -p1 < #{MU_BASE}/lib/install/knife-windows-cygwin-#{KNIFE_WINDOWS}.patch"
     not_if "grep -i 'locate_config_value(:cygwin)' #{gemdir}/knife-windows-#{KNIFE_WINDOWS}/lib/chef/knife/bootstrap_windows_base.rb"
+    notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
   end
 }
 
