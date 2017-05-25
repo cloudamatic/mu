@@ -191,6 +191,7 @@ end
     umask 0022
     not_if "#{bundler_path} check"
     notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
+    # XXX notify mommacat if we're *not* in chef-apply...
   end
   # Expunge old versions of knife-windows
   Dir.glob("#{gemdir}/knife-windows-*").each { |dir|
@@ -209,6 +210,7 @@ end
     package_name "knife-windows"
     version KNIFE_WINDOWS
     notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
+    # XXX notify mommacat if we're *not* in chef-apply...
   end
 
   execute "Patch #{rubydir}'s knife-windows for Cygwin SSH bootstraps" do
@@ -216,6 +218,7 @@ end
     command "patch -p1 < #{MU_BASE}/lib/install/knife-windows-cygwin-#{KNIFE_WINDOWS}.patch"
     not_if "grep -i 'locate_config_value(:cygwin)' #{gemdir}/knife-windows-#{KNIFE_WINDOWS}/lib/chef/knife/bootstrap_windows_base.rb"
     notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
+    # XXX notify mommacat if we're *not* in chef-apply...
   end
 }
 
