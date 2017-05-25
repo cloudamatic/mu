@@ -48,7 +48,7 @@ usage()
   exit 1
 }
 
-update_chef_artifacts=0
+rebuild_chef_artifacts=0
 run_chef_client=0
 while getopts "fb:c:sdruh" opt; do
   case $opt in
@@ -68,7 +68,7 @@ while getopts "fb:c:sdruh" opt; do
       run_chef_client=1
       ;;
     u)
-      update_chef_artifacts=1
+      rebuild_chef_artifacts=1
       ;;
     h)
       usage
@@ -142,24 +142,29 @@ else
 fi
 
 if [ "`diff -r $MU_LIBDIR/cookbooks $MU_DATADIR/tmp/cookbook_changes.$$`" != "" ];then
-	update_chef_artifacts=1
+	rebuild_chef_artifacts=1
 	set -- "-u" "$@"
 elif [ "`diff -r $MU_LIBDIR/Berksfile $MU_DATADIR/tmp/berks_changes.$$/Berksfile`" != "" ];then
-	update_chef_artifacts=1
+	rebuild_chef_artifacts=1
 	set -- "-u" "$@"
 elif [ "`diff -r $MU_LIBDIR/Berksfile.lock $MU_DATADIR/tmp/berks_changes.$$/Berksfile.lock`" != "" ];then
-	update_chef_artifacts=1
+	rebuild_chef_artifacts=1
 	set -- "-u" "$@"
 fi
 
 /bin/rm -rf $MU_DATADIR/tmp/cookbook_changes.$$
 /bin/rm -rf $MU_DATADIR/tmp/berks_changes.$$
 
-if [ "$update_chef_artifacts" == "1" ];then
-  $bindir/mu-upload-chef-artifacts -r mu
+if [ "$rebuild_chef_artifacts" == "1" ];then
+  $bindir/mu-upload-chef-artifacts
+else
+  $bindir/mu-upload-chef-artifacts -r mu -n
 fi
 
+set +e
 /sbin/service nagios stop
+/sbin/service mu-momma-cat stop
+set -e
 
 /opt/chef/bin/chef-apply $MU_LIBDIR/cookbooks/mu-master/recipes/init.rb
 $bindir/mu-configure -n
@@ -184,4 +189,3 @@ if [ "$stashed_changes" == "1" ];then
     git stash pop
   fi
 fi
-/sbin/service nagios start
