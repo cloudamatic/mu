@@ -145,7 +145,18 @@ begin
   end
 rescue Timeout::Error
 end
-# XXX equivalents for other clouds
+$IN_GOOGLE = false
+begin
+  Timeout.timeout(2) do
+    instance_id = open(
+      "http://metadata.google.internal/computeMetadata/v1/instance/id",
+      "Metadata-Flavor" => "Google"
+    ).read
+    $IN_GOOGLE = true if !instance_id.nil? and instance_id.size > 0
+  end
+rescue Timeout::Error
+end
+
 
 KNIFE_TEMPLATE = "log_level                :info
 log_location             STDOUT
@@ -208,14 +219,20 @@ def setDefaults
   ips = []
   if $IN_AWS
     ["public-ipv4", "local-ipv4"].each { |addr|
+      begin
       Timeout.timeout(2) do
-        # XXX verify we won't melt down if public-ipv4 is unset
         ip = open("http://169.254.169.254/latest/meta-data/#{addr}").read
         ips << ip if !ip.nil? and ip.size > 0
       end
+      rescue OpenURI::HTTPError, Timeout::Error
+        # these are ok to ignore
+      end
     }
+  elsif $IN_GOOGLE
+    # http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/<index>/forwarded-ips/
+    # TODO learn to pull these
   end
-  # XXX equivalent for other clouds
+
   ips.concat(Socket.ip_address_list.delete_if { |i| !i.ipv4? or i.ip_address.match(/^(0\.0\.0\.0$|169\.254\.|127\.0\.)/) }.map { |a| a.ip_address })
 
   $CONFIGURABLES["allow_invade_foreign_vpcs"]["default"] = false
@@ -225,7 +242,11 @@ def setDefaults
   if $IN_AWS
     $CONFIGURABLES["aws"]["subtree"]["log_bucket_name"]["default"] = $CONFIGURABLES["hostname"]["default"]
     aws = JSON.parse(open("http://169.254.169.254/latest/dynamic/instance-identity/document").read)
-    iam = open("http://169.254.169.254/latest/meta-data/iam/security-credentials").read # XXX test this doesn't blow up if none is set
+    iam = nil
+    begin
+      iam = open("http://169.254.169.254/latest/meta-data/iam/security-credentials").read
+    rescue OpenURI::HTTPError
+    end
     $CONFIGURABLES["aws"]["subtree"]["account_number"]["default"] = aws["accountId"]
     $CONFIGURABLES["aws"]["subtree"]["region"]["default"] = aws["region"]
     if iam and iam.size > 0
@@ -578,7 +599,7 @@ end
 if $MU_CFG['ldap']['type'] == "389 Directory Services" 
   begin
     MU::Master::LDAP.listUsers
-  rescue Exception => e # XXX bleh
+  rescue Exception => e # XXX lazy exception handling is lazy
     $CHANGES << "389ds"
   end
   if $INITIALIZE or $CHANGES.include?("389ds")
@@ -615,9 +636,9 @@ else
   MU.log "Chef run list looks correct", MU::NOTICE, details: run_list
 end
 
-# TODO momma-cat service kick; maybe this wants to be a Chef thing
 # TODO here are some things we don't do yet but should
 #patch_knife_windows
+# jenkins crud: shunt to a recipe
 
 if $INITIALIZE
   MU::Config.emitSchemaAsRuby

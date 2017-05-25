@@ -26,7 +26,10 @@ require 'etc'
 require 'open-uri'
 require 'socket'
 
+# XXX We want to be able to override these things when invoked from chef-apply,
+# but, like, how?
 CHEF_SERVER_VERSION="12.15.7-1"
+KNIFE_WINDOWS="1.8.0"
 MU_BRANCH="its_all_your_vault"
 MU_BASE="/opt/mu"
 SSH_USER="root"
@@ -39,12 +42,14 @@ execute "start iptables" do
   command "/sbin/service iptables start"
   ignore_failure true
 end
+# XXX this should *never* run unless we're in chef-apply
 execute "reconfigure Chef server" do
   command "/opt/opscode/bin/chef-server-ctl reconfigure"
   action :nothing
   notifies :run, "execute[stop iptables]", :before
   notifies :run, "execute[start iptables]", :immediately
 end
+# XXX this should *never* run unless we're in chef-apply
 execute "upgrade Chef server" do
   command "/opt/opscode/bin/chef-server-ctl upgrade"
   action :nothing
@@ -53,13 +58,19 @@ execute "upgrade Chef server" do
   notifies :run, "execute[start iptables]", :immediately
 end
 
+git "#{MU_BASE}/lib" do
+  repository "git://github.com/cloudamatic/mu.git"
+  revision MU_BRANCH
+  not_if { ::Dir.exists?("#{MU_BASE}/lib/.git") }
+end
+
 basepackages = []
 removepackages = []
 rpms = {}
 dpkgs = {}
 
 if platform_family?("rhel") 
-  basepackages = ["git", "curl"]
+  basepackages = ["git", "curl", "diffutils", "patch"]
   rpms = {
     "epel-release" => "http://mirror.metrocast.net/fedora/epel/epel-release-latest-#{node[:platform_version].to_i}.noarch.rpm",
     "chef-server-core" => "https://packages.chef.io/files/stable/chef-server/#{CHEF_SERVER_VERSION.sub(/\-\d+$/, "")}/el/#{node[:platform_version].to_i}/chef-server-core-#{CHEF_SERVER_VERSION}.el#{node[:platform_version].to_i}.x86_64.rpm"
@@ -89,6 +100,7 @@ end
 
 package basepackages
 # Account for Chef Server upgrades, which require some extra behavior
+# XXX this should *never* run unless we're in chef-apply
 rpm_package "Chef Server upgrade package" do
   source rpms["chef-server-core"]  
   action :upgrade
@@ -136,11 +148,6 @@ end
   end
 }
 
-git "#{MU_BASE}/lib" do
-  repository "git://github.com/cloudamatic/mu.git"
-  # XXX if we can check that we're not in chef-apply mode, use an attribute to pick our branch; otherwise use the default
-  revision MU_BRANCH
-end
 
 ["mu-aws-setup", "mu-cleanup", "mu-configure", "mu-deploy", "mu-firewall-allow-clients", "mu-gen-docs", "mu-load-config.rb", "mu-momma-cat", "mu-node-manage", "mu-tunnel-nagios", "mu-upload-chef-artifacts", "mu-user-manage", "mu-ssh"].each { |exe|
   link "#{MU_BASE}/bin/#{exe}" do
@@ -154,6 +161,7 @@ end
 
 ["/usr/local/ruby-current", "/opt/chef/embedded", "/opt/opscode/embedded"].each { |rubydir|
   gembin = rubydir+"/bin/gem"
+  gemdir = Dir.glob("#{rubydir}/lib/ruby/gems/?.?.?/gems").first
   bundler_path = gembin.sub(/gem$/, "bundle")
   bash "fix #{rubydir} bundler permissions" do
     code <<-EOH
@@ -173,6 +181,29 @@ end
     cwd "#{MU_BASE}/lib/modules"
     umask 0022
     not_if "#{bundler_path} check"
+  end
+  # Expunge old versions of knife-windows
+  Dir.glob("#{gemdir}/knife-windows-*").each { |dir|
+    next if dir.match(/\/knife-windows-(#{Regexp.quote(KNIFE_WINDOWS)})$/)
+    dir.match(/\/knife-windows-([^\/]+)$/)
+    gem_package dir do
+      gem_binary gembin
+      package_name "knife-windows"
+      version Regexp.last_match[1]
+      action :remove
+    end
+  }
+
+  gem_package "#{rubydir} knife-windows" do
+    gem_binary gembin
+    package_name "knife-windows"
+    version KNIFE_WINDOWS
+  end
+
+  execute "Patch #{rubydir}'s knife-windows for Cygwin SSH bootstraps" do
+    cwd "#{gemdir}/knife-windows-#{KNIFE_WINDOWS}"
+    command "patch -p1 < #{MU_BASE}/lib/install/knife-windows-cygwin-#{KNIFE_WINDOWS}.patch"
+    not_if "grep -i 'locate_config_value(:cygwin)' #{gemdir}/knife-windows-#{KNIFE_WINDOWS}/lib/chef/knife/bootstrap_windows_base.rb"
   end
 }
 

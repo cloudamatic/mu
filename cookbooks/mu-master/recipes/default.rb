@@ -467,6 +467,10 @@ if !node.update_nagios_only
     command "/opt/mu/bin/knife vault rotate all keys --clean-unknown-clients"
   end
 
+  service "mu-momma-cat" do
+    action [:enable, :start]
+  end
+
   # This is stuff that can break for no damn reason at all
   include_recipe "mu-tools::cloudinit"
 
