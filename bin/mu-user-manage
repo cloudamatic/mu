@@ -56,7 +56,7 @@ Deleting users:
   opt :interactive, "Interactive prompt to set a password.", :require => false, :type => :boolean
   opt :scratchpad, "Use Mu's Scratchpad to securely share user passwords instead of printing the password directly to the terminal.", :require => false, :type => :boolean, :default => true
   opt :notify_user, "Share the Scratchpad link for new passwords to users via email, instead of printing to the screen.", :require => false, :type => :boolean, :default => false
-  opt :change_uid, "Change the user's uid. Not valid for Active Directory.", :require => false, :type => :integer, :default => -1
+  opt :force_uid, "Change a user's uid, or request a specific uid for a new user. Not valid for Active Directory.", :require => false, :type => :integer, :default => -1
 end
 
 def mailUser(to, subject, message)
@@ -137,7 +137,7 @@ $opts.select { |opt| opt =~ /_given$/ }.size == 0
 if !ARGV[0] or ARGV[0].empty?
   bail = false
   $opts.each_key { |opt|
-    if $opts[opt] and !opt.to_s.match(/_given$/) and !["notify_user", "scratchpad", "change_uid"].include?(opt.to_s)
+    if $opts[opt] and !opt.to_s.match(/_given$/) and !["notify_user", "scratchpad", "force_uid"].include?(opt.to_s)
       MU.log "Must specify a username with the '#{opt.to_s}' option", MU::ERR
       bail = true
     end
@@ -252,7 +252,7 @@ else
       email: $cur_users[$username]['email'],
       admin: $cur_users[$username]['admin'],
       password: $password,
-      change_uid: $opts[:change_uid],
+      change_uid: $opts[:force_uid],
       orgs: $opts[:orgs],
       remove_orgs: $opts[:remove_from_orgs]
     )
