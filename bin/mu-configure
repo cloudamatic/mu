@@ -163,7 +163,7 @@ begin
     instance_id = open("http://169.254.169.254/latest/meta-data/instance-id").read
     $IN_AWS = true if !instance_id.nil? and instance_id.size > 0
   end
-rescue Timeout::Error
+rescue OpenURI::HTTPError, Timeout::Error, SocketError
 end
 $IN_GOOGLE = false
 begin
@@ -174,7 +174,7 @@ begin
     ).read
     $IN_GOOGLE = true if !instance_id.nil? and instance_id.size > 0
   end
-rescue Timeout::Error
+rescue OpenURI::HTTPError, Timeout::Error, SocketError
 end
 
 
@@ -244,7 +244,7 @@ def setDefaults
         ip = open("http://169.254.169.254/latest/meta-data/#{addr}").read
         ips << ip if !ip.nil? and ip.size > 0
       end
-      rescue OpenURI::HTTPError, Timeout::Error
+      rescue OpenURI::HTTPError, Timeout::Error, SocketError
         # these are ok to ignore
       end
     }
@@ -265,7 +265,7 @@ def setDefaults
     iam = nil
     begin
       iam = open("http://169.254.169.254/latest/meta-data/iam/security-credentials").read
-    rescue OpenURI::HTTPError
+    rescue OpenURI::HTTPError, SocketError
     end
     $CONFIGURABLES["aws"]["subtree"]["account_number"]["default"] = aws["accountId"]
     $CONFIGURABLES["aws"]["subtree"]["region"]["default"] = aws["region"]

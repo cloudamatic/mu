@@ -129,21 +129,20 @@ module MU
         @ldap_conn = nil
       end
 
-      # Find a user ID not currently in use from the local system's perspective
-      # XXX this is vulnerable to a race condition, and may not account for
-      # things in the directory
-      def self.allocateUID(user: nil)
-        MU::MommaCat.lock("uid_generator", false, true)
+      # Fetch a list of numeric uids that are already allocated
+      def self.getUsedUids
         used_uids = []
         if $MU_CFG["ldap"]["type"] == "389 Directory Services"
-          username_filter = Net::LDAP::Filter.eq(@uid_attr, uid)
           user_filter = Net::LDAP::Filter.ne("objectclass", "computer") & Net::LDAP::Filter.ne("objectclass", "group")
+          conn = getLDAPConnection
           conn.search(
-            :filter => username_filter & user_filter,
+            :filter => user_filter,
             :base => $MU_CFG["ldap"]["base_dn"],
             :attributes => ["employeeNumber"]
           ) do |acct|
-            used_uids << acct[:employeenumber]
+            if acct[:employeenumber] and acct[:employeenumber].size > 0
+              used_uids << acct[:employeenumber].first.to_i
+            end
           end
         else
           Etc.passwd{ |u|
@@ -153,6 +152,14 @@ module MU
             used_uids << u.uid
           }
         end
+        pp used_uids
+        used_uids
+      end
+
+      # Find a user ID not currently in use from the local system's perspective
+      def self.allocateUID
+        MU::MommaCat.lock("uid_generator", false, true)
+        used_uids = getUsedUids
 
         for x in @uid_range_start..65535 do
           if !used_uids.include?(x)
@@ -399,7 +406,7 @@ module MU
           if !conn.replace_attribute(dn, field, "foo@bar.com")
             MU.log "Couldn't modify write-test user #{dn} field #{field.to_s}, operating in read-only LDAP mode (#{getLDAPErr})", MU::NOTICE
             @can_write = false
-            break
+            
           end
         }
 
@@ -837,7 +844,16 @@ module MU
             if $MU_CFG["ldap"]["type"] == "389 Directory Services"
               attr[:objectclass] = ["top", "person", "organizationalPerson", "inetorgperson"]
               attr[:uid] = user
-              attr[:employeeNumber] = allocateUID
+              if change_uid > 0
+                used_uids = getUsedUids
+                if used_uids.include?(change_uid)
+                  raise MuLDAPError, "Uid #{change_uid} is unavailable, cannot allocate to user #{user}"
+                end
+                MU.log "Forcing uid #{change_uid} to user #{user}", MU::NOTICE, details: used_uids
+                attr[:employeeNumber] = change_uid.to_s
+              else
+                attr[:employeeNumber] = allocateUID
+              end
               if mu_acct
                 gid = createGroup("#{user}.mu-user")
                 groups << "#{user}.mu-user"
@@ -908,6 +924,11 @@ module MU
               # Make sure we have a sensible default gid
               conn.replace_attribute(user_dn, :departmentNumber, gid.to_s)
               if change_uid > 0
+                used_uids = getUsedUids
+                if used_uids.include?(change_uid)
+                  raise MuLDAPError, "Uid #{change_uid} is unavailable, cannot allocate to user #{user}"
+                end
+                MU.log "Forcing uid #{change_uid} to user #{user}", MU::NOTICE, details: used_uids
                 conn.replace_attribute(user_dn, :employeeNumber, change_uid.to_s)
               end
             end

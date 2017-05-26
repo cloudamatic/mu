@@ -42,6 +42,22 @@ execute "start iptables" do
   command "/sbin/service iptables start"
   ignore_failure true
 end
+
+# These guys are a workaround for an Opscode bug that seems to affect some
+# upgrades.
+directory "/var/run/postgresql" do
+  owner "opscode-pgsql"
+  group "opscode-pgsql"
+  action :nothing
+end
+link "/tmp/.s.PGSQL.5432" do
+  to "/var/run/postgresql"
+  owner "opscode-pgsql"
+  group "opscode-pgsql"
+  action :nothing
+  only_if { !::File.exists?("/tmp/.s.PGSQL.5432") }
+end
+
 # XXX this should *never* run unless we're in chef-apply
 execute "reconfigure Chef server" do
   command "/opt/opscode/bin/chef-server-ctl reconfigure"
@@ -55,7 +71,17 @@ execute "upgrade Chef server" do
   action :nothing
   timeout 1200 # this can take a while
   notifies :run, "execute[stop iptables]", :before
+  notifies :create, "directory[/var/run/postgresql]", :before
+  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
   notifies :run, "execute[start iptables]", :immediately
+end
+# XXX this should *never* run unless we're in chef-apply
+service "chef-server" do
+  restart_command "/opt/opscode/bin/chef-server-ctl restart"
+  stop_command "/opt/opscode/bin/chef-server-ctl stop"
+  start_command "/opt/opscode/bin/chef-server-ctl start"
+  pattern "/opt/opscode/embedded/sbin/nginx"
+  action :nothing
 end
 
 git "#{MU_BASE}/lib" do
@@ -107,6 +133,7 @@ rpm_package "Chef Server upgrade package" do
   only_if "rpm -q chef-server-core"
   notifies :run, "execute[upgrade Chef server]", :immediately
   notifies :run, "execute[reconfigure Chef server]", :immediately
+  notifies :restart, "service[chef-server]", :delayed
 end
 # Regular old rpm-based installs
 rpms.each_pair { |pkg, src|
@@ -180,6 +207,8 @@ end
     cwd "#{MU_BASE}/lib/modules"
     umask 0022
     not_if "#{bundler_path} check"
+    notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
+    # XXX notify mommacat if we're *not* in chef-apply...
   end
   # Expunge old versions of knife-windows
   Dir.glob("#{gemdir}/knife-windows-*").each { |dir|
@@ -197,12 +226,16 @@ end
     gem_binary gembin
     package_name "knife-windows"
     version KNIFE_WINDOWS
+    notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
+    # XXX notify mommacat if we're *not* in chef-apply...
   end
 
   execute "Patch #{rubydir}'s knife-windows for Cygwin SSH bootstraps" do
     cwd "#{gemdir}/knife-windows-#{KNIFE_WINDOWS}"
     command "patch -p1 < #{MU_BASE}/lib/install/knife-windows-cygwin-#{KNIFE_WINDOWS}.patch"
     not_if "grep -i 'locate_config_value(:cygwin)' #{gemdir}/knife-windows-#{KNIFE_WINDOWS}/lib/chef/knife/bootstrap_windows_base.rb"
+    notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
+    # XXX notify mommacat if we're *not* in chef-apply...
   end
 }
 

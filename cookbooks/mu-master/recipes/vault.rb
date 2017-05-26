@@ -48,17 +48,6 @@ node.normal['hashicorp-vault']['config']['address'] = '0.0.0.0:8200'
 node.save
 
 ["consul", "vault"].each { |cert|
-  file "fix #{cert} cert permissions" do
-    path "#{$MU_CFG['datadir']}/ssl/#{cert}.crt"
-    owner cert
-    notifies :restart, "service[#{cert}]", :delayed
-  end
-  file "fix #{cert} key permissions" do
-    path "#{$MU_CFG['datadir']}/ssl/#{cert}.key"
-    notifies :restart, "service[#{cert}]", :delayed
-    owner cert
-  end
-
   # These community cookbooks aren't bright enough to deal with a stringent
   # umask, and create these unreadable by the application if we don't do it for
   # them.
@@ -71,6 +60,19 @@ node.save
 
 include_recipe "consul-cluster"
 include_recipe "vault-cluster"
+
+["consul", "vault"].each { |cert|
+  file "fix #{cert} cert permissions" do
+    path "#{$MU_CFG['datadir']}/ssl/#{cert}.crt"
+    owner cert
+    notifies :restart, "service[#{cert}]", :delayed
+  end
+  file "fix #{cert} key permissions" do
+    path "#{$MU_CFG['datadir']}/ssl/#{cert}.key"
+    notifies :restart, "service[#{cert}]", :delayed
+    owner cert
+  end
+  }
 
 directory "/opt/vault/#{node['hashicorp-vault']['version']}" do
   mode 0755

@@ -40,6 +40,12 @@ $CREDS = {
     "user" => "CN=root_dn_user"
   }
 }
+
+service_name = "dirsrv"
+if node[:platform_version].to_i
+  service_name = service_name + "@" + $MU_CFG["hostname"]
+end
+
 directory "/root/389ds.tmp" do
   recursive true
   mode 0700
@@ -65,8 +71,6 @@ execute "initialize 389 Directory Services" do
   action :nothing
 end
 
-#/usr/sbin/setup-ds-admin.pl -s --debug --logfile /root/setup_ds_admin_log.#{Process.pid} -f /root/389-directory-setup.inf}
-
 template "/root/389ds.tmp/389-directory-setup.inf"do
   source "389-directory-setup.inf.erb"
   variables :hostname => $MU_CFG["hostname"],
@@ -78,7 +82,7 @@ template "/root/389ds.tmp/389-directory-setup.inf"do
   notifies :run, "execute[initialize 389 Directory Services]", :immediately
 end
 
-service "dirsrv" do
+service service_name do
   action [:enable, :start]
 end
 
@@ -96,11 +100,10 @@ end
 execute "389ds cert util" do
   command "/usr/bin/certutil -d /etc/dirsrv/slapd-#{$MU_CFG["hostname"]} -A -n \"Mu Master CA\" -t CT,, -a -i /opt/mu/var/ssl/Mu_CA.pem"
   action :nothing
-  notifies :restart, "service[dirsrv]", :delayed
+  notifies :restart, "service[#{service_name}]", :delayed
 end
 
 # Why is this utility interactive-only? So much hate.
-# XXX what's the right way to guard this?
 ruby_block "import SSL certificates for 389ds" do
   block do
     certimportcmd = "/usr/bin/pk12util -i /opt/mu/var/ssl/ldap.p12 -d /etc/dirsrv/slapd-#{$MU_CFG["hostname"]} -w /root/389ds.tmp/blank -W \"\""
@@ -131,7 +134,7 @@ end
   end
 
   execute "/usr/bin/ldapmodify -x -D #{$CREDS["root_dn_user"]['user']} -w #{$CREDS["root_dn_user"]['pw']} -f /root/389ds.tmp/#{ldif}" do
-    notifies :restart, "service[dirsrv]", :delayed
+    notifies :restart, "service[#{service_name}]", :delayed
     not_if "grep '#{guardstr}' /etc/dirsrv/slapd-#{$MU_CFG['hostname']}/dse.ldif"
   end
 }

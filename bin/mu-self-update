@@ -13,6 +13,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+if [ -t 0 ]; then
+  BOLD=`tput bold`
+  NORM=`tput sgr0`
+  BLACK=`tput setaf 0`
+  RED=`tput setaf 1`
+  GREEN=`tput setaf 2`
+  YELLOW=`tput setaf 3`
+  BLUE=`tput setaf 4`
+  PINK=`tput setaf 5`
+  CYAN=`tput setaf 6`
+  WHITE=`tput setaf 7`
+fi
+
 set -e
 
 #################################################
@@ -168,7 +181,9 @@ set -e
 
 /opt/chef/bin/chef-apply $MU_LIBDIR/cookbooks/mu-master/recipes/init.rb
 $bindir/mu-configure -n
-for dir in  $MU_LIBDIR /opt/chef/embedded /opt/opscode/embedded /usr/local/ruby-current/;do
+for dir in $MU_LIBDIR /opt/chef/embedded /opt/opscode/embedded /usr/local/ruby-current/;do
+  echo "${GREEN}Cleaning gems in ${BOLD}$dir${NORM}${GREEN}${NORM}"
+  $dir/bin/bundle clean
   echo "${GREEN}Sanitizing permissions in ${BOLD}$dir${NORM}${GREEN}${NORM}"
   for tree in `ls -1 $dir/`;do
     find $dir/$tree -type d -exec chmod go+rx {} \;
