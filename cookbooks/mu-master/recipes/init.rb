@@ -42,6 +42,22 @@ execute "start iptables" do
   command "/sbin/service iptables start"
   ignore_failure true
 end
+
+# These guys are a workaround for an Opscode bug that seems to affect some
+# upgrades.
+directory "/var/run/postgresql" do
+  owner "opscode-pgsql"
+  group "opscode-pgsql"
+  action :nothing
+end
+link "/tmp/.s.PGSQL.5432" do
+  to "/var/run/postgresql"
+  owner "opscode-pgsql"
+  group "opscode-pgsql"
+  action :nothing
+  only_if { !::File.exists?("/tmp/.s.PGSQL.5432") }
+end
+
 # XXX this should *never* run unless we're in chef-apply
 execute "reconfigure Chef server" do
   command "/opt/opscode/bin/chef-server-ctl reconfigure"
@@ -55,6 +71,8 @@ execute "upgrade Chef server" do
   action :nothing
   timeout 1200 # this can take a while
   notifies :run, "execute[stop iptables]", :before
+  notifies :create, "directory[/var/run/postgresql]", :before
+  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
   notifies :run, "execute[start iptables]", :immediately
 end
 # XXX this should *never* run unless we're in chef-apply
