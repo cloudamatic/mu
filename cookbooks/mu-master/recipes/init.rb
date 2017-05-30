@@ -29,10 +29,12 @@ require 'socket'
 # XXX We want to be able to override these things when invoked from chef-apply,
 # but, like, how?
 CHEF_SERVER_VERSION="12.15.7-1"
+CHEF_CLIENT_VERSION="12.20.3-1"
 KNIFE_WINDOWS="1.8.0"
 MU_BRANCH="its_all_your_vault"
 MU_BASE="/opt/mu"
 SSH_USER="root"
+
 
 execute "stop iptables" do
   command "/sbin/service iptables stop"
@@ -88,6 +90,17 @@ git "#{MU_BASE}/lib" do
   repository "git://github.com/cloudamatic/mu.git"
   revision MU_BRANCH
   not_if { ::Dir.exists?("#{MU_BASE}/lib/.git") }
+end
+
+# Stub files so standalone Ruby programs like mu-configure can know what
+# version to install/find without loading the full Mu library.
+file "#{MU_BASE}/var/mu-chef-client-version" do
+  content CHEF_CLIENT_VERSION
+  mode 0644
+end
+file "#{MU_BASE}/var/mu-chef-server-version" do
+  content CHEF_SERVER_VERSION
+  mode 0644
 end
 
 basepackages = []

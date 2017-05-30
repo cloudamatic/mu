@@ -493,6 +493,17 @@ def set389DSCreds
   }
 end
 
+cur_chef_version = `/bin/rpm -q chef`.sub(/^chef-(\d+\.\d+\.\d+-\d+)\..*/, '\1')
+pref_chef_version = File.read("#{MU_BASE}/var/mu-chef-client-version").chomp
+if chef_version != pref_chef_version
+  MU.log "Updating MU-MASTER's Chef Client to #{pref_chef_version}", MU::NOTICE
+  chef_installer = open("https://www.chef.io/chef/install.sh").read
+  File.open("#{Etc.getpwuid(Process.uid).dir}/chef-install.sh", File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
+    f.puts chef_installer
+  }
+  system("/bin/rm -rf /opt/chef ; #{Etc.getpwuid(Process.uid).dir}/chef-install.sh -v #{pref_chef_version}");
+end
+
 if $INITIALIZE
   %x{/sbin/service iptables stop} # Chef run will set up correct rules later
   $MU_SET_DEFAULTS = setConfigTree
@@ -503,6 +514,7 @@ else
   require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 end
 require 'mu'
+
 
 if $INITIALIZE or $CHANGES.include?("hostname")
   system("/bin/hostname #{$MU_CFG['hostname']}")
