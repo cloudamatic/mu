@@ -215,15 +215,16 @@ end
   Dir.glob("#{gemdir}/knife-windows-*").each { |dir|
     next if dir.match(/\/knife-windows-(#{Regexp.quote(KNIFE_WINDOWS)})$/)
     dir.match(/\/knife-windows-([^\/]+)$/)
-    gem_package dir do
+    gem_package "purge #{rubydir} knife windows #{Regexp.last_match[1]} #{gembin}" do
       gem_binary gembin
       package_name "knife-windows"
       version Regexp.last_match[1]
       action :remove
     end
+    execute "rm -rf #{gemdir}/knife-windows-#{Regexp.last_match[1]}"
   }
 
-  gem_package "#{rubydir} knife-windows" do
+  gem_package "#{rubydir} knife-windows #{KNIFE_WINDOWS} #{gembin}" do
     gem_binary gembin
     package_name "knife-windows"
     version KNIFE_WINDOWS
@@ -266,6 +267,7 @@ execute "create mu Chef org" do
   umask 0277
   not_if "/opt/opscode/bin/chef-server-ctl org-list | grep '^mu$'"
 end
+# TODO copy in ~/.chef/mu.*.key to /opt/mu/var/users/mu if the stuff already exists
 file "initial root knife.rb" do
   path "/root/.chef/knife.rb"
   content "
@@ -306,8 +308,13 @@ end
 file "/etc/chef/client.pem" do
   action :nothing
 end
+file "/etc/chef/validation.pem" do
+  action :nothing
+end
+# XXX knife node delete first?
 execute "create MU-MASTER Chef client" do
   command "/opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none 127.0.0.1"
   not_if "/opt/chef/bin/knife node list | grep '^MU-MASTER$'"
   notifies :delete, "file[/etc/chef/client.pem]", :before
+  notifies :delete, "file[/etc/chef/validation.pem]", :before
 end

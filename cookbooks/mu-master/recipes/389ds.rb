@@ -42,7 +42,7 @@ $CREDS = {
 }
 
 service_name = "dirsrv"
-if node[:platform_version].to_i
+if node[:platform_version].to_i >= 7
   service_name = service_name + "@" + $MU_CFG["hostname"]
 end
 
