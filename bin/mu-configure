@@ -24,6 +24,7 @@ require 'aws-sdk-core'
 require 'json'
 require 'pp'
 require 'readline'
+require 'fileutils'
 require 'erb'
 
 # Top-level keys in $MU_CFG for which we'll provide interactive, menu-driven
@@ -123,6 +124,7 @@ if Etc.getpwuid(Process.uid).name != "root"
   puts "#{$0} can only be run as root"
   exit 1
 end
+HOMEDIR = Etc.getpwuid(Process.uid).dir
 
 if ENV.has_key?("MU_INSTALLDIR")
   MU_BASE = ENV["MU_INSTALLDIR"]
@@ -166,8 +168,8 @@ validation_client_name   'mu-validator'
 validation_key           '<%= MU.dataDir %>/orgs/<%= user %>/<%= user %>.org.key'
 chef_server_url 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
 chef_server_root 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
-syntax_check_cache_path  '<%= home %>/.chef/syntax_check_cache'
-cookbook_path [ '<%= home %>/.chef/cookbooks', '<%= home %>/.chef/site_cookbooks' ]
+syntax_check_cache_path  '<%= HOMEDIR %>/.chef/syntax_check_cache'
+cookbook_path [ '<%= HOMEDIR %>/.chef/cookbooks', '<%= HOMEDIR %>/.chef/site_cookbooks' ]
 <% if $MU_CFG.has_key?('ssl') and $MU_CFG['ssl'].has_key?('chain') %>
 ssl_ca_path '<%= File.dirname($MU_CFG['ssl']['chain']) %>'
 ssl_ca_file '<%= File.basename($MU_CFG['ssl']['chain']) %>'
@@ -334,13 +336,9 @@ end
 
 ###############################################################################
 
-if $INITIALIZE and !$HAVE_CONFIG
-  setDefaults
-else
-  importCurrentValues
-end
+importCurrentValues if !$INITIALIZE or $HAVE_CONFIG
+setDefaults
 assignMenuEntries # populates and freezes $MENU_MAP
-
 trap("INT"){ puts "" ; exit }
 
 def ask(desc)
@@ -493,15 +491,17 @@ def set389DSCreds
   }
 end
 
-cur_chef_version = `/bin/rpm -q chef`.sub(/^chef-(\d+\.\d+\.\d+-\d+)\..*/, '\1')
+cur_chef_version = `/bin/rpm -q chef`.sub(/^chef-(\d+\.\d+\.\d+-\d+)\..*/, '\1').chomp
 pref_chef_version = File.read("#{MU_BASE}/var/mu-chef-client-version").chomp
-if chef_version != pref_chef_version
-  MU.log "Updating MU-MASTER's Chef Client to #{pref_chef_version}", MU::NOTICE
+if cur_chef_version != pref_chef_version
+  puts "Updating MU-MASTER's Chef Client to '#{pref_chef_version}'"
   chef_installer = open("https://www.chef.io/chef/install.sh").read
-  File.open("#{Etc.getpwuid(Process.uid).dir}/chef-install.sh", File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
+  File.open("#{HOMEDIR}/chef-install.sh", File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
     f.puts chef_installer
   }
-  system("/bin/rm -rf /opt/chef ; #{Etc.getpwuid(Process.uid).dir}/chef-install.sh -v #{pref_chef_version}");
+  system("/bin/rm -rf /opt/chef ; sh #{HOMEDIR}/chef-install.sh -v #{pref_chef_version}");
+  # This will go fix gems, permissions, etc
+  system("/opt/chef/bin/chef-apply #{MU_BASE}/lib/cookbooks/mu-master/recipes/init.rb");
 end
 
 if $INITIALIZE
@@ -521,9 +521,8 @@ if $INITIALIZE or $CHANGES.include?("hostname")
 end
   
 def updateChefRbs
-  home = Etc.getpwnam("root").dir
   user = "mu"
-  { home+"/.chef/knife.rb" => KNIFE_TEMPLATE,
+  { HOMEDIR+"/.chef/knife.rb" => KNIFE_TEMPLATE,
     "/etc/chef/client.rb" => CLIENT_TEMPLATE,
     "/etc/opscode/pivotal.rb" => PIVOTAL_TEMPLATE }.each_pair { |file, template|
     erb = ERB.new(template)
@@ -566,8 +565,16 @@ if $IN_AWS
 end
 
 if $INITIALIZE or $CHANGES.include?("chefcerts")
-  system("rm -f #{Etc.getpwnam("root").dir}/.chef/trusted_certs/* ; knife ssl fetch -c #{Etc.getpwnam("root").dir}/.chef/knife.rb")
+  system("rm -f #{HOMEDIR}/.chef/trusted_certs/* ; knife ssl fetch -c #{HOMEDIR}/.chef/knife.rb")
   system("rm -f /etc/chef/trusted_certs/* ; knife ssl fetch -c /etc/chef/client.rb")
+end
+# knife ssl fetch isn't bright enough to nab our intermediate certs, which
+# ironically becomes a problem when we use one from the real world. Jam it into
+# knife and chef-client's faces thusly:
+if $MU_CFG['ssl'] and $MU_CFG['ssl']['chain'] and File.size?($MU_CFG['ssl']['chain'])
+  cert = File.basename($MU_CFG['ssl']['chain'])
+  FileUtils.cp($MU_CFG['ssl']['chain'], HOMEDIR+"/.chef/trusted_certs/#{cert}")
+  FileUtils.cp($MU_CFG['ssl']['chain'], "/etc/chef/trusted_certs/#{cert}")
 end
 
 if $INITIALIZE
@@ -649,14 +656,14 @@ else
 end
 
 # TODO here are some things we don't do yet but should
-#patch_knife_windows
 # jenkins crud: shunt to a recipe
+# accommodate running as a non-root user
 
 if $INITIALIZE
   MU::Config.emitSchemaAsRuby
   MU.log "Generating YARD documentation in /var/www/html/docs (see http://#{$MU_CFG['public_address']}/docs/frames.html)"
   File.umask(0022)
-  system("cd #{MU.myRoot} && umask 0022 && env -i PATH=#{ENV['PATH']} HOME=#{Etc.getpwnam("root").dir} /usr/local/ruby-current/bin/yard doc modules -m markdown -o /var/www/html/docs && chcon -R -h -t httpd_sys_script_exec_t /var/www/html/")
+  system("cd #{MU.myRoot} && umask 0022 && env -i PATH=#{ENV['PATH']} HOME=#{HOMEDIR} /usr/local/ruby-current/bin/yard doc modules -m markdown -o /var/www/html/docs && chcon -R -h -t httpd_sys_script_exec_t /var/www/html/")
 end
 
 
@@ -673,5 +680,5 @@ end
 
 if !ENV['PATH'].match(/(^|:)#{Regexp.quote(MU_BASE)}\/bin(:|$)/)
   MU.log "I added some entries to your $PATH, run this to import them:", MU::NOTICE
-  puts "source #{Etc.getpwnam("root").dir}/.bashrc"
+  puts "source #{HOMEDIR}/.bashrc"
 end
