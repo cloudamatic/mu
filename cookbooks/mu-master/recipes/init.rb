@@ -173,6 +173,10 @@ rpms.each_pair { |pkg, src|
 package removepackages do
   action :remove
 end
+execute "clean up old Ruby 2.1.6" do
+  command "rm -rf /opt/rubies/ruby-2.1.6"
+  only_if { ::Dir.exists?("/opt/rubies/ruby-2.1.6") }
+end
 
 file "initial chef-server.rb" do
   path "/etc/opscode/chef-server.rb"
@@ -199,7 +203,7 @@ end
 }
 
 
-["mu-aws-setup", "mu-cleanup", "mu-configure", "mu-deploy", "mu-firewall-allow-clients", "mu-gen-docs", "mu-load-config.rb", "mu-momma-cat", "mu-node-manage", "mu-tunnel-nagios", "mu-upload-chef-artifacts", "mu-user-manage", "mu-ssh"].each { |exe|
+["mu-aws-setup", "mu-cleanup", "mu-configure", "mu-deploy", "mu-firewall-allow-clients", "mu-gen-docs", "mu-load-config.rb", "mu-node-manage", "mu-tunnel-nagios", "mu-upload-chef-artifacts", "mu-user-manage", "mu-ssh"].each { |exe|
   link "#{MU_BASE}/bin/#{exe}" do
     to "#{MU_BASE}/lib/bin/#{exe}"
   end

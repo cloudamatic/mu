@@ -467,6 +467,19 @@ if !node.update_nagios_only
     command "/opt/mu/bin/knife vault rotate all keys --clean-unknown-clients"
   end
 
+  # TODO fine if we're SysV-compatible, but cover the other guys
+  template "/etc/init.d/mu-momma-cat" do
+    source "mu-momma-cat.erb"
+    variables(
+      :installdir => MU.installDir,
+      :ssl_key => $MU_CFG['ssl']['key'],
+      :ssl_cert => $MU_CFG['ssl']['cert'],
+    )
+    mode 0755
+  end
+  link "/opt/mu/bin/mu-momma-cat" do
+    to "/etc/init.d/mu-momma-cat"
+  end
   service "mu-momma-cat" do
     action [:enable, :start]
   end
