@@ -73,6 +73,7 @@ execute "reconfigure Chef server" do
   action :nothing
   notifies :run, "execute[stop iptables]", :before
   notifies :run, "execute[start iptables]", :immediately
+  notifies :restart, "service[chef-server]", :immediately
   only_if { RUNNING_STANDALONE }
 end
 execute "upgrade Chef server" do
@@ -148,27 +149,22 @@ end
 
 package basepackages
 # Account for Chef Server upgrades, which require some extra behavior
-bash "clean up old Chef Server files" do
-  # The package update misses a lot of old files, plus gems we add. Clean up
-  # after them whenever the chef-server-core package gets a version bump.
-  code <<-EOH
-    rpm -ql chef-server-core > /tmp/chef-server-core-files.txt.$$
-    for d in `find /opt/opscode -type d`;do
-      if ! grep "^$d\$" /tmp/chef-server-core-files.txt.$$;then
-        rm -rf $d
-      fi
-    done
-  EOH
+execute "move aside old Chef Server files" do
+	command "mv /opt/opscode /opt/opscode.upgrading.backup"
+  notifies :run, "execute[rm -rf /opt/opscode.upgrading.backup]", :delayed
+  action :nothing
+end
+execute "rm -rf /opt/opscode.upgrading.backup" do
   action :nothing
 end
 rpm_package "Chef Server upgrade package" do
   source rpms["chef-server-core"]  
   action :upgrade
   only_if "rpm -q chef-server-core"
-  notifies :run, "bash[clean up old Chef Server files]", :after
+  notifies :run, "execute[move aside old Chef Server files]", :before
   notifies :run, "execute[upgrade Chef server]", :immediately
   notifies :run, "execute[reconfigure Chef server]", :immediately
-  notifies :restart, "service[chef-server]", :delayed
+  notifies :restart, "service[chef-server]", :immediately
   only_if { RUNNING_STANDALONE }
 end
 # Regular old rpm-based installs
@@ -233,9 +229,9 @@ end
   bundler_path = gembin.sub(/gem$/, "bundle")
   bash "fix #{rubydir} gem permissions" do
     code <<-EOH
-      find #{rubydir}/lib/ruby/gems/?.?.?/gems/ -type f -exec chmod go+r {} \\;
-      find #{rubydir}/lib/ruby/gems/?.?.?/gems/ -type d -exec chmod go+rx {} \\;
-      chmod go+rx #{rubydir}/bin/*
+      find -P #{rubydir}/lib/ruby/gems/?.?.?/gems/ -type f -exec chmod go+r {} \\;
+      find -P #{rubydir}/lib/ruby/gems/?.?.?/gems/ -type d -exec chmod go+rx {} \\;
+      find -P #{rubydir}/bin -type f -exec chmod go+rx {} \\;
     EOH
     action :nothing
   end
