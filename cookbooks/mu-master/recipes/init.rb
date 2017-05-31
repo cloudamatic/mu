@@ -148,10 +148,24 @@ end
 
 package basepackages
 # Account for Chef Server upgrades, which require some extra behavior
+bash "clean up old Chef Server files" do
+  # The package update misses a lot of old files, plus gems we add. Clean up
+  # after them whenever the chef-server-core package gets a version bump.
+  code <<-EOH
+    rpm -ql chef-server-core > /tmp/chef-server-core-files.txt.$$
+    for d in `find /opt/opscode -type d`;do
+      if ! grep "^$d\$" /tmp/chef-server-core-files.txt.$$;then
+        rm -rf $d
+      fi
+    done
+  EOH
+  action :nothing
+end
 rpm_package "Chef Server upgrade package" do
   source rpms["chef-server-core"]  
   action :upgrade
   only_if "rpm -q chef-server-core"
+  notifies :run, "bash[clean up old Chef Server files]", :after
   notifies :run, "execute[upgrade Chef server]", :immediately
   notifies :run, "execute[reconfigure Chef server]", :immediately
   notifies :restart, "service[chef-server]", :delayed
@@ -219,8 +233,8 @@ end
   bundler_path = gembin.sub(/gem$/, "bundle")
   bash "fix #{rubydir} gem permissions" do
     code <<-EOH
-      find #{rubydir}/lib/ruby/gems/?.?.?/gems/ -type f -exec chmod go+r {} \;
-      find #{rubydir}/lib/ruby/gems/?.?.?/gems/ -type d -exec chmod go+rx {} \;
+      find #{rubydir}/lib/ruby/gems/?.?.?/gems/ -type f -exec chmod go+r {} \\;
+      find #{rubydir}/lib/ruby/gems/?.?.?/gems/ -type d -exec chmod go+rx {} \\;
       chmod go+rx #{rubydir}/bin/*
     EOH
     action :nothing
