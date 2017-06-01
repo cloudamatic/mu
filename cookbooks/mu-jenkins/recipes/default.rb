@@ -9,6 +9,10 @@
 include_recipe 'mu-tools::disable-requiretty'
 include_recipe 'chef-vault'
 
+directory "/opt/java_jce" do
+  mode 0755
+end
+
 admin_vault = chef_vault_item(node['jenkins_admin_vault'][:vault], node['jenkins_admin_vault'][:item])
 
 directory node['jenkins']['master']['home'] do
@@ -55,9 +59,16 @@ node['jenkins_plugins'].each { |plugin|
 
 jenkins_command 'safe-restart' if restart_jenkins
 
-chef_gem "simple-password-gen"
+
+log "********************* #{admin_vault['username']} **************"
+
+
 # The Jenkins service user that this cookbook uses MUST exist in our directory
-::MU::Master::LDAP.manageUser(admin_vault['username'], name: admin_vault['username'], password: MU.generateWindowsPassword, admin: false, email: "mu-developers@googlegroups.com")
+mu_master_user admin_vault['username'] do
+  realname admin_vault['username']
+#  email $MU_CFG['jenkins']['admin_email'] || $MU_CFG['admin_email']
+  email "mu-developers@googlegroups.com"
+end
 
 # Add the admin user only if it has not been added already then notify the resource
 # to configure the permissions for the admin user.  Note that we check for existence of jenkins_auth_set,
@@ -119,16 +130,16 @@ ruby_block 'configure_jenkins_auth_set' do
 end
 
 # Configure users from the vault
-node['jenkins_users'].each { |user|
-  user_vault = chef_vault_item(user[:vault], user[:vault_item])
-
-  # XXX This is dangerous. What if we stupidly step on the account of a
-  # "real" user?
-  ::MU::Master::LDAP.manageUser(user[:user_name], name: user[:fullname], password: user_vault[user[:user_name]+"_password"], admin: false, email: user[:email])
-  jenkins_user user[:user_name] do
-    full_name user[:fullname]
-    email user[:email]
-    password user_vault["#{user[:user_name]}_password"]
-    sensitive true
-  end
-}
+#node['jenkins_users'].each { |user|
+#  user_vault = chef_vault_item(user[:vault], user[:vault_item])
+#
+#  # XXX This is dangerous. What if we stupidly step on the account of a
+#  # "real" user?
+#  ::MU::Master::LDAP.manageUser(user[:user_name], name: user[:fullname], password: user_vault[user[:user_name]+"_password"], admin: false, email: user[:email])
+#  jenkins_user user[:user_name] do
+#    full_name user[:fullname]
+#    email user[:email]
+#    password user_vault["#{user[:user_name]}_password"]
+#    sensitive true
+#  end
+#}

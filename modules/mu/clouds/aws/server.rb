@@ -690,6 +690,7 @@ module MU
           end
 
           retries = -1
+          max_retries = 30
           begin
             if instance.nil? or instance.state.name != "running"
               retries = retries + 1
@@ -697,21 +698,24 @@ module MU
                 raise MuError, "#{@cloud_id} appears to have been terminated mid-bootstrap!"
               end
               if retries % 3 == 0
-                MU.log "Waiting for EC2 instance #{node} to be ready...", MU::NOTICE
+                MU.log "Waiting for EC2 instance #{node} (#{@cloud_id}) to be ready...", MU::NOTICE
               end
               sleep 40
               # Get a fresh AWS descriptor
               instance = MU::Cloud::Server.find(cloud_id: @cloud_id, region: @config['region']).values.first
+              if instance and instance.state.name == "terminated"
+                raise MuError, "EC2 instance #{node} (#{@cloud_id}) terminating during bootstrap!"
+              end
             end
           rescue Aws::EC2::Errors::ServiceError => e
-            if retries < 20
+            if retries < max_retries
               MU.log "Got #{e.inspect} during initial instance creation of #{@cloud_id}, retrying...", MU::NOTICE, details: instance
               retries = retries + 1
               retry
             else
               raise MuError, "Too many retries creating #{node} (#{e.inspect})"
             end
-          end while instance.nil? or (instance.state.name != "running" and retries < 30)
+          end while instance.nil? or (instance.state.name != "running" and retries < max_retries)
 
           punchAdminNAT
 

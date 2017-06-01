@@ -43,9 +43,6 @@ def loadMuConfig(default_cfg_overrides = nil)
       "template_path" => "/opt/mu/lib/modules/scratchpad.erb",
       "max_age" => 3600
     },
-    "aws" => {
-      "log_bucket_name" => "mu-master-logs"
-    },
     "ldap" => {
       "type" => "389 Directory Services",
       "base_dn" => "OU=Mu,DC=platform-mu",

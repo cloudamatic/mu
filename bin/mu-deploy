@@ -100,7 +100,7 @@ if $opts[:dryrun]
   MU.log("#{$config} loaded successfully.", html: $opts[:web])
   cost_dummy_deploy = MU::Deploy.new(
     $opts[:environment],
-    verbosity: MU::Logger::QUIET,
+    verbosity: MU::Logger::SILENT,
     force_cloudformation: true,
     cloudformation_path: "/dev/null",
     nocleanup: true,
@@ -108,7 +108,7 @@ if $opts[:dryrun]
   )
   begin
     cost_dummy_deploy.run
-  rescue MU::Cloud::MuCloudResourceNotImplemented
+  rescue MU::Cloud::MuCloudResourceNotImplemented, MU::Cloud::MuCloudFlagNotImplemented
     MU.log "Cost calculator not available for this stack, as it uses a resource not implemented in Mu's CloudFormation layer.", MU::WARN
   end
   exit

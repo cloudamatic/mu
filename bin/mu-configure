@@ -24,6 +24,7 @@ require 'aws-sdk-core'
 require 'json'
 require 'pp'
 require 'readline'
+require 'fileutils'
 require 'erb'
 
 # Top-level keys in $MU_CFG for which we'll provide interactive, menu-driven
@@ -69,12 +70,39 @@ $CONFIGURABLES = {
     "title" => "Mu Master Runlist Extras",
     "desc" => "Optional extra Chef roles or recipes to invoke when running chef-client on this Master (ex: recipe[mycookbook::mumaster])",
     "array" => true,
-    "changes" => ["master-runlist", "chefrun"]
+    "changes" => ["chefrun"]
   },
   "allow_invade_foreign_vpcs" => {
     "title" => "Invade Foreign VPCs?",
     "desc" => "If set to true, Mu will be allowed to modify routing and peering behavior of VPCs which it did not create, but for which it has permissions.",
     "boolean" => true
+  },
+  "jenkins" => {
+    "title" => "Jenkins Continuous Integration",
+    "subtree" => {
+      "enable" => {
+        "title" => "Enable Jenkins",
+        "desc" => "Enable Jenkins, with UI web-accessible at /jenkins.",
+        "required" => false,
+        "default" => false,
+        "boolean" => true,
+        "changes" => ["chefrun"]
+      },
+      "admin_email" => {
+        "title" => "Jenkins Admin Email",
+        "desc" => "Administative contact email for Jenkins",
+        "pattern" => /\A([\w+\-].?)+@[a-z\d\-]+(\.[a-z]+)*\.[a-z]+\z/i,
+        "required" => false,
+        "changes" => ["chefrun"]
+      },
+      "admin_user" => {
+        "title" => "Jenkins admin username",
+        "required" => false,
+        "desc" => "The name of a Mu user who will serve as the Jenkins admin.",
+        "default" => "jenkins",
+        "changes" => ["chefrun"]
+      }
+    }
   },
   "aws" => {
     "title" => "Amazon Web Services",
@@ -143,6 +171,7 @@ if Etc.getpwuid(Process.uid).name != "root"
   puts "#{$0} can only be run as root"
   exit 1
 end
+HOMEDIR = Etc.getpwuid(Process.uid).dir
 
 if ENV.has_key?("MU_INSTALLDIR")
   MU_BASE = ENV["MU_INSTALLDIR"]
@@ -186,8 +215,8 @@ validation_client_name   'mu-validator'
 validation_key           '<%= MU.dataDir %>/orgs/<%= user %>/<%= user %>.org.key'
 chef_server_url 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
 chef_server_root 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
-syntax_check_cache_path  '<%= home %>/.chef/syntax_check_cache'
-cookbook_path [ '<%= home %>/.chef/cookbooks', '<%= home %>/.chef/site_cookbooks' ]
+syntax_check_cache_path  '<%= HOMEDIR %>/.chef/syntax_check_cache'
+cookbook_path [ '<%= HOMEDIR %>/.chef/cookbooks', '<%= HOMEDIR %>/.chef/site_cookbooks' ]
 <% if $MU_CFG.has_key?('ssl') and $MU_CFG['ssl'].has_key?('chain') %>
 ssl_ca_path '<%= File.dirname($MU_CFG['ssl']['chain']) %>'
 ssl_ca_file '<%= File.basename($MU_CFG['ssl']['chain']) %>'
@@ -259,6 +288,9 @@ def setDefaults
   $CONFIGURABLES["public_address"]["default"] = ips.first
   $CONFIGURABLES["hostname"]["default"] = Socket.gethostname
   $CONFIGURABLES["banner"]["default"] = "Mu Master at #{$CONFIGURABLES["public_address"]["default"]}"
+  if $CONFIGURABLES["mu_admin_email"]["value"]
+    $CONFIGURABLES["jenkins"]["subtree"]["admin_email"]["default"] = $CONFIGURABLES["mu_admin_email"]["value"]
+  end
   if $IN_AWS
     $CONFIGURABLES["aws"]["subtree"]["log_bucket_name"]["default"] = $CONFIGURABLES["hostname"]["default"]
     aws = JSON.parse(open("http://169.254.169.254/latest/dynamic/instance-identity/document").read)
@@ -317,14 +349,14 @@ def setConfigTree
         if !subdata["value"].nil?
           cfg[key] ||= {}
           cfg[key][subkey] = subdata["value"]
-        elsif !subdata["default"].nil? and !$HAVE_CONFIG
+        elsif !subdata["default"].nil? and !$HAVE_CONFIG or !$MU_CFG[key] or !$MU_CFG[key][subkey]
           cfg[key] ||= {}
           cfg[key][subkey] = subdata["default"]
         end
       }
     elsif !data["value"].nil?
       cfg[key] = data["value"]
-    elsif !data["default"].nil? and !$HAVE_CONFIG
+    elsif !data["default"].nil? and !$HAVE_CONFIG or !$MU_CFG[key]
       cfg[key] = data["default"]
     end
   }
@@ -354,13 +386,9 @@ end
 
 ###############################################################################
 
-if $INITIALIZE and !$HAVE_CONFIG
-  setDefaults
-else
-  importCurrentValues
-end
+importCurrentValues if !$INITIALIZE or $HAVE_CONFIG
+setDefaults
 assignMenuEntries # populates and freezes $MENU_MAP
-
 trap("INT"){ puts "" ; exit }
 
 def ask(desc)
@@ -447,6 +475,8 @@ if !$opts[:noninteractive]
         $CONFIGURABLES["aws"]["subtree"]["log_bucket_name"]["default"] = newval
       elsif $MENU_MAP[answer]['title'] == "Public Address"
         $CONFIGURABLES["banner"]["default"] = "Mu Master at #{newval}"
+      elsif $MENU_MAP[answer]['title'] == "Mu Admin Email"
+        $CONFIGURABLES["jenkins"]["subtree"]["admin_email"]["default"] = newval
       end
       changed = true
       puts ""
@@ -456,7 +486,7 @@ if !$opts[:noninteractive]
     end
   end while answer != "0" and answer != "O" and answer != "o"
 end
-# XXX validate overall input
+# XXX validate overall input, commit to defaults
 
 def set389DSCreds
   require 'mu'
@@ -513,13 +543,27 @@ def set389DSCreds
   }
 end
 
+cur_chef_version = `/bin/rpm -q chef`.sub(/^chef-(\d+\.\d+\.\d+-\d+)\..*/, '\1').chomp
+pref_chef_version = File.read("#{MU_BASE}/var/mu-chef-client-version").chomp
+if cur_chef_version != pref_chef_version
+  puts "Updating MU-MASTER's Chef Client to '#{pref_chef_version}'"
+  chef_installer = open("https://www.chef.io/chef/install.sh").read
+  File.open("#{HOMEDIR}/chef-install.sh", File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
+    f.puts chef_installer
+  }
+  system("/bin/rm -rf /opt/chef ; sh #{HOMEDIR}/chef-install.sh -v #{pref_chef_version}");
+  # This will go fix gems, permissions, etc
+  system("/opt/chef/bin/chef-apply #{MU_BASE}/lib/cookbooks/mu-master/recipes/init.rb");
+end
+
 if $INITIALIZE
   %x{/sbin/service iptables stop} # Chef run will set up correct rules later
   $MU_SET_DEFAULTS = setConfigTree
   require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
-elsif changed
-  saveMuConfig($MU_CFG.merge(setConfigTree))
 else
+  $NEW_CFG = $MU_CFG.merge(setConfigTree)
+  saveMuConfig($NEW_CFG)
+  $MU_CFG = $NEW_CFG
   require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 end
 begin
@@ -529,14 +573,14 @@ rescue LoadError
   require 'mu'
 end
 
+
 if $INITIALIZE or $CHANGES.include?("hostname")
   system("/bin/hostname #{$MU_CFG['hostname']}")
 end
   
 def updateChefRbs
-  home = Etc.getpwnam("root").dir
   user = "mu"
-  { home+"/.chef/knife.rb" => KNIFE_TEMPLATE,
+  { HOMEDIR+"/.chef/knife.rb" => KNIFE_TEMPLATE,
     "/etc/chef/client.rb" => CLIENT_TEMPLATE,
     "/etc/opscode/pivotal.rb" => PIVOTAL_TEMPLATE }.each_pair { |file, template|
     erb = ERB.new(template)
@@ -579,8 +623,16 @@ if $IN_AWS
 end
 
 if $INITIALIZE or $CHANGES.include?("chefcerts")
-  system("rm -f #{Etc.getpwnam("root").dir}/.chef/trusted_certs/* ; knife ssl fetch -c #{Etc.getpwnam("root").dir}/.chef/knife.rb")
+  system("rm -f #{HOMEDIR}/.chef/trusted_certs/* ; knife ssl fetch -c #{HOMEDIR}/.chef/knife.rb")
   system("rm -f /etc/chef/trusted_certs/* ; knife ssl fetch -c /etc/chef/client.rb")
+end
+# knife ssl fetch isn't bright enough to nab our intermediate certs, which
+# ironically becomes a problem when we use one from the real world. Jam it into
+# knife and chef-client's faces thusly:
+if $MU_CFG['ssl'] and $MU_CFG['ssl']['chain'] and File.size?($MU_CFG['ssl']['chain'])
+  cert = File.basename($MU_CFG['ssl']['chain'])
+  FileUtils.cp($MU_CFG['ssl']['chain'], HOMEDIR+"/.chef/trusted_certs/#{cert}")
+  FileUtils.cp($MU_CFG['ssl']['chain'], "/etc/chef/trusted_certs/#{cert}")
 end
 
 if $INITIALIZE
@@ -642,15 +694,41 @@ if !File.exists?("#{MU_BASE}/var/users/mu/email") or !File.exists?("#{MU_BASE}/v
   system("#{MU_BASE}/lib/bin/mu-user-manage mu -a -s -e '#{$MU_CFG['mu_admin_email']}' -l mu -n '#{$MU_CFG['mu_admin_name']}' -g --no-scratchpad --no-notify-user")
 end
 
+if $MU_CFG['jenkins'] and $MU_CFG['jenkins']['enable']
+  MU::Groomer::Chef.loadChefLib
+  chef_node = ::Chef::Node.load("MU-MASTER")
+  begin
+    data = MU::Groomer::Chef.getSecret(vault: "jenkins", item: "admin")
+    MU::Groomer::Chef.grantSecretAccess("MU-MASTER", "jenkins", "admin")
+  rescue MU::Groomer::Chef::MuNoSuchSecret
+    MU.log "Saving keys for Jenkins admin user '#{$MU_CFG['jenkins']['admin_user']}' into Vault jenkins:admin", MU::NOTICE
+    if !File.exists?("#{HOMEDIR}/.ssh/mu-jenkins-admin.pub") and !File.exists?("#{HOMEDIR}/.ssh/mu-jenkins-admin.pub")
+      system("/usr/bin/ssh-keygen -N '' -f #{HOMEDIR}/.ssh/mu-jenkins-admin")
+    end
+    public_key = File.read("#{HOMEDIR}/.ssh/mu-jenkins-admin.pub").chomp
+    private_key = File.read("#{HOMEDIR}/.ssh/mu-jenkins-admin").chomp
+    MU::Groomer::Chef.saveSecret(
+      vault: "jenkins",
+      item: "admin",
+      data: {
+        "username": $MU_CFG['jenkins']['admin_user'],
+        "private_key": private_key,
+        "public_key": public_key
+      }
+    )
+  end
+end
+
 # Figure out if our run list is dumb
 MU.log "Verifying MU-MASTER's Chef run list", MU::NOTICE
 MU::Groomer::Chef.loadChefLib
 chef_node = ::Chef::Node.load("MU-MASTER")
 run_list = ["role[mu-master]"]
+run_list << "role[mu-master-jenkins]" if $MU_CFG['jenkins']['enable']
 run_list.concat($MU_CFG['master_runlist_extras']) if $MU_CFG['master_runlist_extras'].is_a?(Array)
 set_runlist = false
 run_list.each { |rl|
-  set_runlist = true if !chef_node.run_list?("role[mu-master]")
+  set_runlist = true if !chef_node.run_list?(rl)
 }
 if set_runlist
   MU.log "Updating MU-MASTER run_list", MU::NOTICE, details: run_list
@@ -662,14 +740,13 @@ else
 end
 
 # TODO here are some things we don't do yet but should
-#patch_knife_windows
-# jenkins crud: shunt to a recipe
+# accommodate running as a non-root user
 
 if $INITIALIZE
   MU::Config.emitSchemaAsRuby
   MU.log "Generating YARD documentation in /var/www/html/docs (see http://#{$MU_CFG['public_address']}/docs/frames.html)"
   File.umask(0022)
-  system("cd #{MU.myRoot} && umask 0022 && env -i PATH=#{ENV['PATH']} HOME=#{Etc.getpwnam("root").dir} /usr/local/ruby-current/bin/yard doc modules -m markdown -o /var/www/html/docs && chcon -R -h -t httpd_sys_script_exec_t /var/www/html/")
+  system("cd #{MU.myRoot} && umask 0022 && env -i PATH=#{ENV['PATH']} HOME=#{HOMEDIR} /usr/local/ruby-current/bin/yard doc modules -m markdown -o /var/www/html/docs && chcon -R -h -t httpd_sys_script_exec_t /var/www/html/")
 end
 
 
@@ -686,5 +763,5 @@ end
 
 if !ENV['PATH'].match(/(^|:)#{Regexp.quote(MU_BASE)}\/bin(:|$)/)
   MU.log "I added some entries to your $PATH, run this to import them:", MU::NOTICE
-  puts "source #{Etc.getpwnam("root").dir}/.bashrc"
+  puts "source #{HOMEDIR}/.bashrc"
 end
