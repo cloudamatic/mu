@@ -70,12 +70,39 @@ $CONFIGURABLES = {
     "title" => "Mu Master Runlist Extras",
     "desc" => "Optional extra Chef roles or recipes to invoke when running chef-client on this Master (ex: recipe[mycookbook::mumaster])",
     "array" => true,
-    "changes" => ["master-runlist", "chefrun"]
+    "changes" => ["chefrun"]
   },
   "allow_invade_foreign_vpcs" => {
     "title" => "Invade Foreign VPCs?",
     "desc" => "If set to true, Mu will be allowed to modify routing and peering behavior of VPCs which it did not create, but for which it has permissions.",
     "boolean" => true
+  },
+  "jenkins" => {
+    "title" => "Jenkins Continuous Integration",
+    "subtree" => {
+      "enable" => {
+        "title" => "Enable Jenkins",
+        "desc" => "Enable Jenkins, with UI web-accessible at /jenkins.",
+        "required" => false,
+        "default" => false,
+        "boolean" => true,
+        "changes" => ["chefrun"]
+      },
+      "admin_email" => {
+        "title" => "Jenkins Admin Email",
+        "desc" => "Administative contact email for Jenkins",
+        "pattern" => /\A([\w+\-].?)+@[a-z\d\-]+(\.[a-z]+)*\.[a-z]+\z/i,
+        "required" => false,
+        "changes" => ["chefrun"]
+      },
+      "admin_user" => {
+        "title" => "Jenkins admin username",
+        "required" => false,
+        "desc" => "The name of a Mu user who will serve as the Jenkins admin.",
+        "default" => "jenkins",
+        "changes" => ["chefrun"]
+      }
+    }
   },
   "aws" => {
     "title" => "Amazon Web Services",
@@ -241,6 +268,9 @@ def setDefaults
   $CONFIGURABLES["public_address"]["default"] = ips.first
   $CONFIGURABLES["hostname"]["default"] = Socket.gethostname
   $CONFIGURABLES["banner"]["default"] = "Mu Master at #{$CONFIGURABLES["public_address"]["default"]}"
+  if $CONFIGURABLES["mu_admin_email"]["value"]
+    $CONFIGURABLES["jenkins"]["subtree"]["admin_email"]["default"] = $CONFIGURABLES["mu_admin_email"]["value"]
+  end
   if $IN_AWS
     $CONFIGURABLES["aws"]["subtree"]["log_bucket_name"]["default"] = $CONFIGURABLES["hostname"]["default"]
     aws = JSON.parse(open("http://169.254.169.254/latest/dynamic/instance-identity/document").read)
@@ -299,14 +329,14 @@ def setConfigTree
         if !subdata["value"].nil?
           cfg[key] ||= {}
           cfg[key][subkey] = subdata["value"]
-        elsif !subdata["default"].nil? and !$HAVE_CONFIG
+        elsif !subdata["default"].nil? and !$HAVE_CONFIG or !$MU_CFG[key] or !$MU_CFG[key][subkey]
           cfg[key] ||= {}
           cfg[key][subkey] = subdata["default"]
         end
       }
     elsif !data["value"].nil?
       cfg[key] = data["value"]
-    elsif !data["default"].nil? and !$HAVE_CONFIG
+    elsif !data["default"].nil? and !$HAVE_CONFIG or !$MU_CFG[key]
       cfg[key] = data["default"]
     end
   }
@@ -425,6 +455,8 @@ if !$opts[:noninteractive]
         $CONFIGURABLES["aws"]["subtree"]["log_bucket_name"]["default"] = newval
       elsif $MENU_MAP[answer]['title'] == "Public Address"
         $CONFIGURABLES["banner"]["default"] = "Mu Master at #{newval}"
+      elsif $MENU_MAP[answer]['title'] == "Mu Admin Email"
+        $CONFIGURABLES["jenkins"]["subtree"]["admin_email"]["default"] = newval
       end
       changed = true
       puts ""
@@ -434,7 +466,7 @@ if !$opts[:noninteractive]
     end
   end while answer != "0" and answer != "O" and answer != "o"
 end
-# XXX validate overall input
+# XXX validate overall input, commit to defaults
 
 def set389DSCreds
   require 'mu'
@@ -508,9 +540,10 @@ if $INITIALIZE
   %x{/sbin/service iptables stop} # Chef run will set up correct rules later
   $MU_SET_DEFAULTS = setConfigTree
   require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
-elsif changed
-  saveMuConfig($MU_CFG.merge(setConfigTree))
 else
+  $NEW_CFG = $MU_CFG.merge(setConfigTree)
+  saveMuConfig($NEW_CFG)
+  $MU_CFG = $NEW_CFG
   require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 end
 require 'mu'
@@ -636,15 +669,41 @@ if !File.exists?("#{MU_BASE}/var/users/mu/email") or !File.exists?("#{MU_BASE}/v
   system("#{MU_BASE}/lib/bin/mu-user-manage mu -a -s -e '#{$MU_CFG['mu_admin_email']}' -l mu -n '#{$MU_CFG['mu_admin_name']}' -g --no-scratchpad --no-notify-user")
 end
 
+if $MU_CFG['jenkins'] and $MU_CFG['jenkins']['enable']
+  MU::Groomer::Chef.loadChefLib
+  chef_node = ::Chef::Node.load("MU-MASTER")
+  begin
+    data = MU::Groomer::Chef.getSecret(vault: "jenkins", item: "admin")
+    MU::Groomer::Chef.grantSecretAccess("MU-MASTER", "jenkins", "admin")
+  rescue MU::Groomer::Chef::MuNoSuchSecret
+    MU.log "Saving keys for Jenkins admin user '#{$MU_CFG['jenkins']['admin_user']}' into Vault jenkins:admin", MU::NOTICE
+    if !File.exists?("#{HOMEDIR}/.ssh/mu-jenkins-admin.pub") and !File.exists?("#{HOMEDIR}/.ssh/mu-jenkins-admin.pub")
+      system("/usr/bin/ssh-keygen -N '' -f #{HOMEDIR}/.ssh/mu-jenkins-admin")
+    end
+    public_key = File.read("#{HOMEDIR}/.ssh/mu-jenkins-admin.pub").chomp
+    private_key = File.read("#{HOMEDIR}/.ssh/mu-jenkins-admin").chomp
+    MU::Groomer::Chef.saveSecret(
+      vault: "jenkins",
+      item: "admin",
+      data: {
+        "username": $MU_CFG['jenkins']['admin_user'],
+        "private_key": private_key,
+        "public_key": public_key
+      }
+    )
+  end
+end
+
 # Figure out if our run list is dumb
 MU.log "Verifying MU-MASTER's Chef run list", MU::NOTICE
 MU::Groomer::Chef.loadChefLib
 chef_node = ::Chef::Node.load("MU-MASTER")
 run_list = ["role[mu-master]"]
+run_list << "role[mu-master-jenkins]" if $MU_CFG['jenkins']['enable']
 run_list.concat($MU_CFG['master_runlist_extras']) if $MU_CFG['master_runlist_extras'].is_a?(Array)
 set_runlist = false
 run_list.each { |rl|
-  set_runlist = true if !chef_node.run_list?("role[mu-master]")
+  set_runlist = true if !chef_node.run_list?(rl)
 }
 if set_runlist
   MU.log "Updating MU-MASTER run_list", MU::NOTICE, details: run_list
@@ -656,7 +715,6 @@ else
 end
 
 # TODO here are some things we don't do yet but should
-# jenkins crud: shunt to a recipe
 # accommodate running as a non-root user
 
 if $INITIALIZE

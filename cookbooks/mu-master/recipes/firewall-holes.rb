@@ -52,3 +52,14 @@ if node.has_key?(:local_ipv4)
     source "#{node[:local_ipv4]}/32"
   end
 end
+
+firewall_rule "Mu Master Jenkins ports on 127.0.0.1" do
+  port [8080]
+  source "127.0.0.1/32"
+end
+if node.has_key?(:local_ipv4)
+  firewall_rule "Mu Master Jenkins ports on #{node[:local_ipv4]}" do
+    port [8080]
+    source "#{node[:local_ipv4]}/32"
+  end
+end

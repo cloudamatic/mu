@@ -1,12 +1,11 @@
-default['java']['jdk_version'] = 8
 
 default['jenkins_users'] = [
-  {:user_name => "mu_user", :fullname => "Mu-Demo-User", :email => ENV['MU_ADMIN_EMAIL'], :vault => "jenkins", :vault_item => "users"}
+#  {:user_name => "mu_user", :fullname => "Mu-Demo-User", :email => ENV['MU_ADMIN_EMAIL'], :vault => "jenkins", :vault_item => "users"}
 ]
 
 default['jenkins_ssh_urls'] = [node['ipaddress']]
 default['jenkins_plugins'] = %w{
-  subversion github deploy ldap scm-api git-client active-directory
+  github deploy ldap scm-api git-client active-directory
   dynamicparameter ansicolor matrix-auth matrix-project git workflow-scm-step
   workflow-step-api scm-api ssh credentials mailer display-url-api structs
 }
@@ -28,3 +27,10 @@ default['jenkins_ssh_vault'] = {
 default['jenkins_admin_vault'] = {
     :vault => "jenkins", :item => "admin"
 }
+
+override['java']['jdk_version'] = 8
+override['java']['flavor'] = 'oracle'
+override['java']['jdk']['8']['x86_64']['url'] = 'http://download.oracle.com/otn-pub/java/jdk/8u131-b11/d54c1d3a095b4ff2b6607d096fa80163/jdk-8u131-linux-x64.tar.gz'
+override['java']['jdk']['8']['x86_64']['checksum'] = '75b2cb2249710d822a60f83e28860053'
+override["java"]["oracle"]["accept_oracle_download_terms"] = true
+override['java']['oracle']['jce']['enabled'] = true
