@@ -183,7 +183,9 @@ set -e
 $bindir/mu-configure -n
 for dir in $MU_LIBDIR /opt/chef/embedded /opt/opscode/embedded /usr/local/ruby-current/;do
   echo "${GREEN}Cleaning gems in ${BOLD}$dir${NORM}${GREEN}${NORM}"
-  $dir/bin/bundle clean
+  if [ "$dir" != "$MU_LIBDIR" ]; then
+    $dir/bin/bundle clean
+  fi
   echo "${GREEN}Sanitizing permissions in ${BOLD}$dir${NORM}${GREEN}${NORM}"
   for tree in `ls -1 $dir/`;do
     find $dir/$tree -type d -exec chmod go+rx {} \;
