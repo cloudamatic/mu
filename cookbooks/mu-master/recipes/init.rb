@@ -225,7 +225,7 @@ end
 
 ["/usr/local/ruby-current", "/opt/chef/embedded", "/opt/opscode/embedded"].each { |rubydir|
   gembin = rubydir+"/bin/gem"
-  gemdir = Dir.glob("#{rubydir}/lib/ruby/gems/?.?.?/gems").first
+  gemdir = Dir.glob("#{rubydir}/lib/ruby/gems/?.?.?/gems").last
   bundler_path = gembin.sub(/gem$/, "bundle")
   bash "fix #{rubydir} gem permissions" do
     code <<-EOH
@@ -234,6 +234,7 @@ end
       find -P #{rubydir}/bin -type f -exec chmod go+rx {} \\;
     EOH
     action :nothing
+    only_if { ::Dir.exists?(gemdir) }
   end
   gem_package bundler_path do
     gem_binary gembin
@@ -263,6 +264,7 @@ end
       package_name "knife-windows"
       version Regexp.last_match[1]
       action :remove
+      only_if { ::Dir.exists?(dir) }
     end
     execute "rm -rf #{gemdir}/knife-windows-#{Regexp.last_match[1]}"
   }
@@ -280,6 +282,7 @@ end
     command "patch -p1 < #{MU_BASE}/lib/install/knife-windows-cygwin-#{KNIFE_WINDOWS}.patch"
     not_if "grep -i 'locate_config_value(:cygwin)' #{gemdir}/knife-windows-#{KNIFE_WINDOWS}/lib/chef/knife/bootstrap_windows_base.rb"
     notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
+    only_if { ::Dir.exists?(gemdir) }
     # XXX notify mommacat if we're *not* in chef-apply... RUNNING_STANDALONE
   end
 }
