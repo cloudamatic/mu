@@ -242,15 +242,10 @@ end
     action :upgrade if rubydir == "/usr/local/ruby-current"
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
   end
-  execute "#{bundler_path} clean --force" do
-    cwd "#{MU_BASE}/lib/modules"
-    action :nothing
-  end
   execute "#{bundler_path} install" do
     cwd "#{MU_BASE}/lib/modules"
     umask 0022
     not_if "#{bundler_path} check"
-    notifies :run, "execute[#{bundler_path} clean --force]", :immediately if rubydir == "/usr/local/ruby-current"
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
     notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
     # XXX notify mommacat if we're *not* in chef-apply... RUNNING_STANDALONE
