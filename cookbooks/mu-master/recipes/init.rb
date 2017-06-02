@@ -63,7 +63,7 @@ execute "Chef Server rabbitmq workaround" do
   # This assumes we get clean stop, which *should* be the case if we execute
   # before any upgrade or reconfigure. If that assumption is wrong we'd prepend:
   # stop private-chef-runsvdir ; ps auxww | egrep '(opscode|runsv|postgres)' | grep -v grep | awk '{print $2}' | xargs kill
-  command "rm -rf /var/log/opscode/rabbitmq/* /var/opt/opscode/rabbitmq/etc/* /var/opt/opscode/rabbitmq/etc/.erlang.cookie"
+  command "rm -rf /var/log/opscode/rabbitmq/* /var/opt/opscode/rabbitmq/* /var/opt/opscode/rabbitmq/.??*"
   action :nothing
   notifies :stop, "service[chef-server]", :before
 end
@@ -72,8 +72,8 @@ execute "reconfigure Chef server" do
   command "/opt/opscode/bin/chef-server-ctl reconfigure"
   action :nothing
   notifies :run, "execute[stop iptables]", :before
-  notifies :run, "execute[start iptables]", :immediately
   notifies :restart, "service[chef-server]", :immediately
+  notifies :run, "execute[start iptables]", :immediately
   only_if { RUNNING_STANDALONE }
 end
 execute "upgrade Chef server" do
