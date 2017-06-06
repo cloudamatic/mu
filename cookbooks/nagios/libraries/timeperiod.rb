@@ -99,7 +99,6 @@ class Nagios
       end
     end
 
-    # rubocop:disable MethodLength
     def pop(obj)
       return if obj == self
       case obj
@@ -149,7 +148,7 @@ class Nagios
       {
         'timeperiod_name' => 'timeperiod_name',
         'alias'           => 'alias',
-        'exclude'         => 'exclude'
+        'exclude'         => 'exclude',
       }
     end
 

@@ -68,7 +68,6 @@ class Nagios
       end
     end
 
-    # rubocop:disable MethodLength
     def pop(obj)
       return if obj == self
       case obj
@@ -96,7 +95,6 @@ class Nagios
 
     private
 
-    # rubocop:disable MethodLength
     def config_options
       {
         'name'                   => 'name',
@@ -108,7 +106,7 @@ class Nagios
         'notes'                  => 'notes',
         'notes_url'              => 'notes_url',
         'action_url'             => 'action_url',
-        'register'               => 'register'
+        'register'               => 'register',
       }
     end
     # rubocop:enable MethodLength

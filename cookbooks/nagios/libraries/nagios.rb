@@ -17,7 +17,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# rubocop:disable ClassLength
+
 #
 # This class holds all methods with regard to the nagios model.
 #
@@ -47,7 +47,6 @@ class Nagios
                 :default_service,
                 :default_timeperiod
 
-  # rubocop:disable MethodLength
   def initialize
     @commands            = {}
     @contactgroups       = {}
@@ -79,7 +78,6 @@ class Nagios
     Hash[@contacts.sort]
   end
 
-  # rubocop:disable MethodLength
   def delete(hash, key)
     case hash
     when 'command'
@@ -112,7 +110,6 @@ class Nagios
   end
   # rubocop:enable MethodLength
 
-  # rubocop:disable MethodLength
   def find(obj)
     case obj
     when Nagios::Command
@@ -154,16 +151,9 @@ class Nagios
   end
 
   def normalize_hostname=(expr)
-    if expr == true
-      @normalize_hostname = true
-    elsif expr =~ /y|yes|true|1/i
-      @normalize_hostname = true
-    else
-      @normalize_hostname = false
-    end
+    @normalize_hostname = (expr == true || !(expr =~ /y|yes|true|1/).nil?)
   end
 
-  # rubocop:disable MethodLength
   def push(obj)
     case obj
     when Chef::Node
@@ -196,7 +186,7 @@ class Nagios
       push_object(obj)
     else
       Chef::Log.fail("Nagios error: Pushing unknown object: #{obj.class} into Nagios.instance")
-      fail
+      raise
     end
   end
   # rubocop:enable MethodLength
@@ -267,7 +257,6 @@ class Nagios
     nil
   end
 
-  # rubocop:disable MethodLength
   def push_node(obj)
     groups = get_groups(obj)
     hostname = get_hostname(obj)
