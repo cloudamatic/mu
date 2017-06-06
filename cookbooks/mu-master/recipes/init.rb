@@ -361,3 +361,12 @@ execute "create MU-MASTER Chef client" do
   notifies :delete, "file[/etc/chef/validation.pem]", :before
   only_if { RUNNING_STANDALONE }
 end
+
+# Community cookbooks keep touching gems, and none of them are smart about our
+# default umask. We have to clean up after them every time.
+["/usr/local/ruby-current", "/opt/chef/embedded", "/opt/opscode/embedded"].each { |rubydir|
+  execute "trigger permission fix in #{rubydir}" do
+    command "ls /etc/motd > /dev/null"
+    notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
+  end
+}
