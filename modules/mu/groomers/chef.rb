@@ -272,6 +272,7 @@ module MU
               cmd = "#{upgrade_cmd} chef-client --color || echo #{error_signal}"
             end
           else
+            upgrade_cmd = try_upgrade ? "powershell \". { Invoke-WebRequest -useb https://omnitruck.chef.io/install.ps1 } | Invoke-Expression; Install-Project -version:#{MU.chefVersion} -download_directory:$HOME \" &&" : ""
             cmd = "#{upgrade_cmd} $HOME/chef-client --color || echo #{error_signal}"
           end
           runstart = Time.new
