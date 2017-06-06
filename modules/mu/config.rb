@@ -1274,11 +1274,12 @@ module MU
 
     def validate(config = @config)
       ok = true
+      plain_cfg = MU::Config.manxify(Marshal.load(Marshal.dump(config)))
       begin
-        JSON::Validator.validate!(MU::Config.schema, config)
+        JSON::Validator.validate!(MU::Config.schema, plain_cfg)
       rescue JSON::Schema::ValidationError => e
         # Use fully_validate to get the complete error list, save some time
-        errors = JSON::Validator.fully_validate(MU::Config.schema, config)
+        errors = JSON::Validator.fully_validate(MU::Config.schema, plain_cfg)
         realerrors = []
         errors.each { |err|
           if !err.match(/The property '.+?' of type MU::Config::Tail did not match the following type:/)
