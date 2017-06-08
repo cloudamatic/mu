@@ -39,10 +39,12 @@ RUNNING_STANDALONE=node[:application_attributes].nil?
 execute "stop iptables" do
   command "/sbin/service iptables stop"
   ignore_failure true
+  action :nothing
 end
 execute "start iptables" do
   command "/sbin/service iptables start"
   ignore_failure true
+  action :nothing
 end
 
 # These guys are a workaround for Opscode bugs that seems to affect some Chef
@@ -132,6 +134,10 @@ end
 
 package basepackages
 
+directory "/opt/mu" do
+  recursive true
+  mode 0755
+end
 git "#{MU_BASE}/lib" do
   repository "git://github.com/cloudamatic/mu.git"
   revision MU_BRANCH
