@@ -745,7 +745,23 @@ require 'mu'
 if $INITIALIZE or $CHANGES.include?("hostname")
   system("/bin/hostname #{$MU_CFG['hostname']}")
 end
-  
+
+# Do some more basic-but-Chef-dependent configuration *before* we meddle with
+# the Chef Server configuration, which depends on some of this (SSL certs and
+# local firewall ports).
+if $INITIALIZE or $CHANGES.include?("chefartifacts")
+  MU.log "Purging and re-uploading all Chef artifacts", MU::NOTICE
+  %x{MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts}
+end
+
+if $INITIALIZE
+  MU.log "Force open key firewall holes", MU::NOTICE
+  system("chef-client -o 'recipe[mu-master::firewall-holes]'")
+end
+
+MU.log "Checking internal SSL signing authority and certificates", MU::NOTICE
+system("chef-client -o 'recipe[mu-master::ssl-certs]'")
+
 def updateChefRbs
   user = "mu"
   { HOMEDIR+"/.chef/knife.rb" => KNIFE_TEMPLATE,
@@ -822,19 +838,6 @@ if $MU_CFG['repos'] and $MU_CFG['repos'].size > 0
     end
   }
 end
-
-if $INITIALIZE or $CHANGES.include?("chefartifacts")
-  MU.log "Purging and re-uploading all Chef artifacts", MU::NOTICE
-  %x{MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts}
-end
-
-if $INITIALIZE
-  MU.log "Force open key firewall holes", MU::NOTICE
-  system("chef-client -o 'recipe[mu-master::firewall-holes]'")
-end
-
-MU.log "Checking internal SSL signing authority and certificates", MU::NOTICE
-system("chef-client -o 'recipe[mu-master::ssl-certs]'")
 
 begin
   MU::Groomer::Chef.getSecret(vault: "secrets", item: "consul")
