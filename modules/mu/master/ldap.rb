@@ -231,7 +231,8 @@ module MU
       def self.initLocalLDAP
         validateConfig
         if $MU_CFG["ldap"]["type"] != "389 Directory Services" or
-            !$MU_CFG["ldap"]["dcs"].include?("localhost")
+            !$MU_CFG["ldap"]["dcs"].include?("localhost") or
+            !$MU_CFG["ldap"]["dcs"].include?("127.0.0.1")
           MU.log "Custom directory service configured, not initializing bundled schema", MU::NOTICE
           return
         end

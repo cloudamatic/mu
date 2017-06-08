@@ -660,7 +660,7 @@ if !$opts[:noninteractive]
     end
   end while answer != "0" and answer != "O" and answer != "o"
 end
-# XXX validate overall input, commit to defaults
+# XXX validate overall input
 
 def set389DSCreds
   require 'mu'
@@ -800,7 +800,11 @@ if !File.size?(cfgpath) or File.read(tmpfile) != File.read(cfgpath)
     File.symlink("/var/run/postgresql/.s.PGSQL.5432", "/tmp/.s.PGSQL.5432")
   end
   MU.log "Chef Server config was modified, reconfiguring...", MU::NOTICE
+  # XXX Some undocumented port Chef needs only on startup is being blocked by
+  # iptables. Something rabbitmq-related.
+  %x{/sbin/service iptables stop}
   system("/opt/opscode/bin/chef-server-ctl reconfigure")
+  %x{/sbin/service iptables start}
   updateChefRbs
   $CHANGES << "chefcerts"
 else
@@ -944,10 +948,10 @@ if $INITIALIZE
   MU.log "Setting password for admin user 'mu', for logging into Nagios and other built-in services.", MU::NOTICE
   puts %x{#{MU_BASE}/lib/bin/mu-user-manage -g mu}
   MU.log "If Scratchpad web interface is not accessible, try the following:", MU::NOTICE
-  puts "#{MU_BASE}/lib/bin/mu-user-manage -g --no-scratchpad mu"
+  puts "#{MU_BASE}/lib/bin/mu-user-manage -g --no-scratchpad mu".bold
 end
 
 if !ENV['PATH'].match(/(^|:)#{Regexp.quote(MU_BASE)}\/bin(:|$)/)
   MU.log "I added some entries to your $PATH, run this to import them:", MU::NOTICE
-  puts "source #{HOMEDIR}/.bashrc"
+  puts "source #{HOMEDIR}/.bashrc".bold
 end
