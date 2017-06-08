@@ -66,7 +66,7 @@ def loadMuConfig(default_cfg_overrides = nil)
       "user_group_name" => "mu-users",
       "admin_group_dn" => "CN=mu-admins,OU=Groups,OU=Mu,DC=platform-mu",
       "admin_group_name" => "mu-admins",
-      "dcs" => ["localhost"]
+      "dcs" => ["127.0.0.1"]
     }
   }
   default_cfg.merge!(default_cfg_overrides) if default_cfg_overrides
