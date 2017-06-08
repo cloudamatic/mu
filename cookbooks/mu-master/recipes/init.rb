@@ -55,11 +55,20 @@ directory "/var/run/postgresql" do
   action :nothing
 end
 link "/tmp/.s.PGSQL.5432" do
-  to "/var/run/postgresql"
+  to "/var/run/postgresql/.s.PGSQL.5432"
   owner "opscode-pgsql"
   group "opscode-pgsql"
   action :nothing
   only_if { !::File.exists?("/tmp/.s.PGSQL.5432") }
+  only_if { ::File.exists?("/var/run/postgresql/.s.PGSQL.5432") }
+end
+link "/var/run/postgresql/.s.PGSQL.5432" do
+  to "/tmp/.s.PGSQL.5432"
+  owner "opscode-pgsql"
+  group "opscode-pgsql"
+  action :nothing
+  only_if { !::File.exists?("/var/run/postgresql/.s.PGSQL.5432") }
+  only_if { ::File.exists?("/tmp/.s.PGSQL.5432") }
 end
 execute "Chef Server rabbitmq workaround" do
   # This assumes we get clean stop, which *should* be the case if we execute

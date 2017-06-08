@@ -515,7 +515,7 @@ def setConfigTree
         if !subdata["value"].nil?
           cfg[key] ||= {}
           cfg[key][subkey] = subdata["value"]
-        elsif !subdata["default"].nil? and !$HAVE_CONFIG or ($MU_CFG and !$MU_CFG[key] or !$MU_CFG[key][subkey])
+        elsif !subdata["default"].nil? and !$HAVE_CONFIG or ($MU_CFG and (!$MU_CFG[key] or !$MU_CFG[key][subkey])))
           cfg[key] ||= {}
           cfg[key][subkey] = subdata["default"]
         end
