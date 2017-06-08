@@ -504,14 +504,12 @@ module MU
       @config.merge!(param_cfg)
 
       if !@config.has_key?('admins') or @config['admins'].size == 0
-        if MU.chef_user == "mu"
-          @config['admins'] = [
-            {
-              "name" => MU.chef_user == "mu" ? "Mu Administrator" : MU.userName,
-              "email" => MU.userEmail
-            }
-          ]
-        end
+        @config['admins'] = [
+          {
+            "name" => MU.chef_user == "mu" ? "Mu Administrator" : MU.userName,
+            "email" => MU.userEmail
+          }
+        ]
       end
       MU::Config.set_defaults(@config, MU::Config.schema)
       validate
