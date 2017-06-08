@@ -107,6 +107,8 @@ service "chef-server" do
   start_command "/opt/opscode/bin/chef-server-ctl start"
   pattern "/opt/opscode/embedded/sbin/nginx"
   action :nothing
+  notifies :run, "execute[stop iptables]", :before
+  notifies :run, "execute[start iptables]", :immediately
   only_if { RUNNING_STANDALONE }
 end
 
