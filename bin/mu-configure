@@ -776,6 +776,13 @@ File.open(tmpfile, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
 }
 if !File.size?(cfgpath) or File.read(tmpfile) != File.read(cfgpath)
   File.rename(tmpfile, cfgpath)
+  # Opscode can't seem to get things right with their postgres socket
+  Dir.mkdir("/var/run/postgresql", 0755) if !Dir.exists?("/var/run/postgresql")
+  if File.exists?("/tmp/.s.PGSQL.5432") and !File.exists?("/var/run/postgresql/.s.PGSQL.5432")
+    File.symlink("/tmp/.s.PGSQL.5432", "/var/run/postgresql/.s.PGSQL.5432")
+  elsif !File.exists?("/tmp/.s.PGSQL.5432") and File.exists?("/var/run/postgresql/.s.PGSQL.5432")
+    File.symlink("/var/run/postgresql/.s.PGSQL.5432", "/tmp/.s.PGSQL.5432")
+  end
   MU.log "Chef Server config was modified, reconfiguring...", MU::NOTICE
   system("/opt/opscode/bin/chef-server-ctl reconfigure")
   updateChefRbs
