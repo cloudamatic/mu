@@ -30,7 +30,7 @@ gem 'berkshelf', '< 6'
 gem 'pg'
 gem 'mysql'
 gem 'ruby-wmi'
-gem 'chef-vault', "~> 3.0.3"
+gem 'chef-vault', "< 3"
 gem 'net-ssh', "~> 3.2.0"
 gem 'netaddr'
 gem 'nokogiri', "~> 1.6.8"
