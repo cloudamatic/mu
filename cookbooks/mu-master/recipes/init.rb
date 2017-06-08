@@ -134,7 +134,7 @@ end
 
 package basepackages
 
-directory "/opt/mu" do
+directory MU_BASE do
   recursive true
   mode 0755
 end
@@ -142,6 +142,10 @@ git "#{MU_BASE}/lib" do
   repository "git://github.com/cloudamatic/mu.git"
   revision MU_BRANCH
   not_if { ::Dir.exists?("#{MU_BASE}/lib/.git") }
+end
+directory MU_BASE+"/var" do
+  recursive true
+  mode 0755
 end
 
 # Stub files so standalone Ruby programs like mu-configure can know what
