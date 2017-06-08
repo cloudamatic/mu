@@ -28,19 +28,19 @@ rpms = {}
 dpkgs = {}
 
 if platform_family?("rhel") 
-  basepackages = ["vim-enhanced", "zip", "unzip", "java-1.8.0-openjdk", "gcc", "gcc-c++", "make", "libxml2-devel", "libxslt-devel", "cryptsetup-luks", "python-pip", "lsof", "mlocate", "strace", "nmap", "openssl-devel", "readline-devel", "python-devel", "diffutils", "patch", "bind-utils", "httpd-tools", "mailx", "postgresql-devel", "openssl", "libyaml", "graphviz", "ImageMagick-devel", "graphviz-devel", "jq", "vim"]
+  basepackages = ["vim-enhanced", "zip", "unzip", "java-1.8.0-openjdk", "libxml2-devel", "libxslt-devel", "cryptsetup-luks", "python-pip", "lsof", "mlocate", "strace", "nmap", "openssl-devel", "readline-devel", "python-devel", "diffutils", "patch", "bind-utils", "httpd-tools", "mailx", "openssl", "libyaml", "graphviz", "ImageMagick-devel", "graphviz-devel", "jq", "vim"]
 
   if node[:platform_version].to_i < 6 or node[:platform_version].to_i >= 8
     raise "Mu Masters on RHEL-family hosts must be equivalent to RHEL6 or RHEL7"
 
   # RHEL6, CentOS6, Amazon Linux
   elsif node[:platform_version].to_i < 7
-    basepackages.concat(["java-1.5.0-gcj", "mysql-server", "mysql-devel", "autoconf"])
+    basepackages.concat(["java-1.5.0-gcj", "mysql-server", "autoconf"])
     basepackages << "gecode-devel" if node[:platform] == "amazon"
 
   # RHEL7, CentOS7
   elsif node[:platform_version].to_i < 8
-    basepackages.concat(["gecode-devel", "mariadb", "mariadb-devel", "qt", "qt-x11", "iptables-services"])
+    basepackages.concat(["gecode-devel", "mariadb", "qt", "qt-x11", "iptables-services"])
   end
 
 else

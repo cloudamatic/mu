@@ -318,8 +318,8 @@ def trySSHKeyWithGit(repo, keypath = nil)
       File.rename(cfgbackup, "#{HOMEDIR}/.ssh/config")
     end
     if deletekey
-      puts "Removing #{key}"
-      File.unlink(key)
+      puts "Removing #{keypath}"
+      File.unlink(keypath)
     end
   end
   return false
@@ -574,7 +574,7 @@ def ask(desc)
   end
   val = Readline.readline(prompt, false)
   if desc['array'] and !val.nil?
-    val = val.bstrip.split(/\s*,\s*/)
+    val = val.strip.split(/\s*,\s*/)
   end
   if desc['boolean']
     val = false if ["0", "false", "FALSE"].include?(val)

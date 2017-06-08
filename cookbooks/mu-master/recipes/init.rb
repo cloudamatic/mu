@@ -104,7 +104,7 @@ rpms = {}
 dpkgs = {}
 
 if platform_family?("rhel") 
-  basepackages = ["git", "curl", "diffutils", "patch"]
+  basepackages = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel"]
   rpms = {
     "epel-release" => "http://mirror.metrocast.net/fedora/epel/epel-release-latest-#{node[:platform_version].to_i}.noarch.rpm",
     "chef-server-core" => "https://packages.chef.io/files/stable/chef-server/#{CHEF_SERVER_VERSION.sub(/\-\d+$/, "")}/el/#{node[:platform_version].to_i}/chef-server-core-#{CHEF_SERVER_VERSION}.el#{node[:platform_version].to_i}.x86_64.rpm"
@@ -115,12 +115,13 @@ if platform_family?("rhel")
 
   # RHEL6, CentOS6, Amazon Linux
   elsif node[:platform_version].to_i < 7
+    basepackages.concat(["mysql-devel"])
     rpms["ruby23"] = "https://s3.amazonaws.com/mu-stuff/ruby23-2.3.1-1.el6.x86_64.rpm"
     removepackages = ["nagios"]
 
   # RHEL7, CentOS7
   elsif node[:platform_version].to_i < 8
-    basepackages.concat(["libX11", "tcl", "tk", "gcc"])
+    basepackages.concat(["libX11", "tcl", "tk", "mariadb-devel"])
     rpms["ruby23"] = "https://s3.amazonaws.com/mu-stuff/ruby23-2.3.1-1.el7.centos.x86_64.rpm"
     removepackages = ["nagios", "firewalld"]
   end
