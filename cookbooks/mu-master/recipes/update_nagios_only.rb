@@ -138,6 +138,7 @@ end
 ["/etc/nagios/conf.d/", "/etc/nagios/*.cfg", "/var/run/nagios.pid"].each { |dir|
   execute "/sbin/restorecon -R #{dir}" do
     not_if "ls -aZ #{dir} | grep ':nagios_etc_t:'"
+    only_if { ::File.exists?(dir) }
   end
 }
 
