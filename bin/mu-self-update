@@ -181,8 +181,8 @@ set -e
 
 echo "${GREEN}Cleaning gems in ${BOLD}/usr/local/ruby-current${NORM}${GREEN}${NORM}"
 cd $MU_LIBDIR/modules
-/usr/local/ruby-current/bin/bundle clean --force
 /usr/local/ruby-current/bin/bundle update
+/usr/local/ruby-current/bin/bundle clean --force
 cd
 
 /opt/chef/bin/chef-apply $MU_LIBDIR/cookbooks/mu-master/recipes/init.rb
