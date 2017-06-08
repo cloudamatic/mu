@@ -96,23 +96,6 @@ service "chef-server" do
   only_if { RUNNING_STANDALONE }
 end
 
-git "#{MU_BASE}/lib" do
-  repository "git://github.com/cloudamatic/mu.git"
-  revision MU_BRANCH
-  not_if { ::Dir.exists?("#{MU_BASE}/lib/.git") }
-end
-
-# Stub files so standalone Ruby programs like mu-configure can know what
-# version to install/find without loading the full Mu library.
-file "#{MU_BASE}/var/mu-chef-client-version" do
-  content CHEF_CLIENT_VERSION
-  mode 0644
-end
-file "#{MU_BASE}/var/mu-chef-server-version" do
-  content CHEF_SERVER_VERSION
-  mode 0644
-end
-
 basepackages = []
 removepackages = []
 rpms = {}
@@ -148,6 +131,24 @@ if File.read("/etc/ssh/sshd_config").match(/^AllowUser\s+([^\s]+)(?: |$)/)
 end
 
 package basepackages
+
+git "#{MU_BASE}/lib" do
+  repository "git://github.com/cloudamatic/mu.git"
+  revision MU_BRANCH
+  not_if { ::Dir.exists?("#{MU_BASE}/lib/.git") }
+end
+
+# Stub files so standalone Ruby programs like mu-configure can know what
+# version to install/find without loading the full Mu library.
+file "#{MU_BASE}/var/mu-chef-client-version" do
+  content CHEF_CLIENT_VERSION
+  mode 0644
+end
+file "#{MU_BASE}/var/mu-chef-server-version" do
+  content CHEF_SERVER_VERSION
+  mode 0644
+end
+
 # Account for Chef Server upgrades, which require some extra behavior
 execute "move aside old Chef Server files" do
 	command "mv /opt/opscode /opt/opscode.upgrading.backup"
