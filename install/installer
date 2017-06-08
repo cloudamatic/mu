@@ -1,6 +1,6 @@
 #!/bin/sh
 
-CHEF_CLIENT_VERSION="12.17.44-1"
+CHEF_CLIENT_VERSION="12.20.3-1"
 MU_BRANCH="its_all_your_vault"
 
 # XXX All RHEL family. We can at least cover Debian-flavored hosts too, I bet.
@@ -45,10 +45,8 @@ fi
 if [ -d /opt/mu/lib/cookbooks/mu-master/recipes ];then
   /opt/chef/bin/chef-apply /opt/mu/lib/cookbooks/mu-master/recipes/init.rb
 else
-  /usr/bin/curl https://raw.githubusercontent.com/cloudamatic/mu/$MU_BRANCH/cookbooks/mu-master/recipes/init > /root/mu-master-init-recipe.rb
+  /usr/bin/curl https://raw.githubusercontent.com/cloudamatic/mu/$MU_BRANCH/cookbooks/mu-master/recipes/init.rb > /root/mu-master-init-recipe.rb
   /opt/chef/bin/chef-apply /root/mu-master-init-recipe.rb
 fi
 
 /opt/mu/bin/mu-configure
-
-#/opt/chef/bin/chef-client
