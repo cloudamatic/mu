@@ -67,6 +67,7 @@ link "/var/run/postgresql/.s.PGSQL.5432" do
   owner "opscode-pgsql"
   group "opscode-pgsql"
   action :nothing
+  notifies :create, "directory[/var/run/postgresql]", :before
   only_if { !::File.exists?("/var/run/postgresql/.s.PGSQL.5432") }
   only_if { ::File.exists?("/tmp/.s.PGSQL.5432") }
 end
@@ -83,6 +84,8 @@ execute "reconfigure Chef server" do
   command "/opt/opscode/bin/chef-server-ctl reconfigure"
   action :nothing
   notifies :run, "execute[stop iptables]", :before
+  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
+  notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
   notifies :restart, "service[chef-server]", :immediately
   notifies :run, "execute[start iptables]", :immediately
   only_if { RUNNING_STANDALONE }
@@ -93,7 +96,6 @@ execute "upgrade Chef server" do
   timeout 1200 # this can take a while
   notifies :run, "execute[stop iptables]", :before
   notifies :run, "execute[Chef Server rabbitmq workaround]", :before
-  notifies :create, "directory[/var/run/postgresql]", :before
   notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
   notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
   notifies :run, "execute[start iptables]", :immediately

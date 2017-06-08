@@ -515,7 +515,7 @@ def setConfigTree
         if !subdata["value"].nil?
           cfg[key] ||= {}
           cfg[key][subkey] = subdata["value"]
-        elsif !subdata["default"].nil? and !$HAVE_CONFIG or ($MU_CFG and (!$MU_CFG[key] or !$MU_CFG[key][subkey])))
+        elsif !subdata["default"].nil? and !$HAVE_CONFIG or ($MU_CFG and (!$MU_CFG[key] or !$MU_CFG[key][subkey]))
           cfg[key] ||= {}
           cfg[key][subkey] = subdata["default"]
         end
@@ -818,7 +818,7 @@ end
 
 if $INITIALIZE or $CHANGES.include?("chefartifacts")
   MU.log "Purging and re-uploading all Chef artifacts", MU::NOTICE
-  system("MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts")
+  %x{MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts}
 end
 
 if $INITIALIZE
