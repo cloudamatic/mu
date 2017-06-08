@@ -288,6 +288,7 @@ def trySSHKeyWithGit(repo, keypath = nil)
       keypath = "#{HOMEDIR}/.ssh/#{keynamestr}"
       puts "Paste a complete SSH private key for #{ssh_user.bold}@#{ssh_host.bold} below, then ^D"
       system("cat > #{keypath}")
+      File.chmod(0600, keypath)
       puts "Key saved to "+keypath.bold
       deletekey = true
     else
@@ -514,14 +515,14 @@ def setConfigTree
         if !subdata["value"].nil?
           cfg[key] ||= {}
           cfg[key][subkey] = subdata["value"]
-        elsif !subdata["default"].nil? and !$HAVE_CONFIG or !$MU_CFG[key] or !$MU_CFG[key][subkey]
+        elsif !subdata["default"].nil? and !$HAVE_CONFIG or ($MU_CFG and !$MU_CFG[key] or !$MU_CFG[key][subkey])
           cfg[key] ||= {}
           cfg[key][subkey] = subdata["default"]
         end
       }
     elsif !data["value"].nil?
       cfg[key] = data["value"]
-    elsif !data["default"].nil? and !$HAVE_CONFIG or !$MU_CFG[key]
+    elsif !data["default"].nil? and !$HAVE_CONFIG or ($MU_CFG and !$MU_CFG[key])
       cfg[key] = data["default"]
     end
   }
