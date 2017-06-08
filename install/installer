@@ -49,4 +49,4 @@ else
   /opt/chef/bin/chef-apply /root/mu-master-init-recipe.rb
 fi
 
-/opt/mu/bin/mu-configure
+/opt/mu/bin/mu-configure $@
