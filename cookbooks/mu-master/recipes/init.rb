@@ -120,6 +120,9 @@ if platform_family?("rhel")
 
   # RHEL7, CentOS7
   elsif node[:platform_version].to_i < 8
+    basepackages << "libX11"
+    basepackages << "tcl"
+    basepackages << "tk"
     rpms["ruby23"] = "https://s3.amazonaws.com/mu-stuff/ruby23-2.3.1-1.el7.centos.x86_64.rpm"
     removepackages = ["nagios", "firewalld"]
   end
