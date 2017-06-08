@@ -95,6 +95,7 @@ execute "upgrade Chef server" do
   notifies :run, "execute[Chef Server rabbitmq workaround]", :before
   notifies :create, "directory[/var/run/postgresql]", :before
   notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
+  notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
   notifies :run, "execute[start iptables]", :immediately
   only_if { RUNNING_STANDALONE }
 end
