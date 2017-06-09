@@ -395,6 +395,11 @@ if !node.update_nagios_only
     path "/etc/rsyslog.d/0-mu-log-server.conf"
     notifies :restart, "service[rsyslog]", :delayed
   end
+  file "0-mu-log-client.conf" do
+    path "/etc/rsyslog.d/0-mu-log-client.conf"
+    action :delete
+    notifies :restart, "service[rsyslog]", :delayed
+  end
 
   execute "echo '/opt/chef/bin/chef-client' >> /etc/rc.d/rc.local" do
     not_if "grep ^/opt/chef/bin/chef-client /etc/rc.d/rc.local"
