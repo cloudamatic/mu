@@ -246,8 +246,8 @@ module MU
           knifeAddToRunList(multiple: @config['run_list'])
         end
 
+        chef_node = ::Chef::Node.load(@server.mu_name)
         if !@config['application_attributes'].nil?
-          chef_node = ::Chef::Node.load(@server.mu_name)
           MU.log "Setting node:#{@server.mu_name} application_attributes", MU::DEBUG, details: @config['application_attributes']
           chef_node.normal.application_attributes = @config['application_attributes']
           chef_node.save
@@ -256,6 +256,7 @@ module MU
 
         MU.log "Invoking Chef on #{@server.mu_name}: #{purpose}"
         retries = 0
+        try_upgrade = false
         output = []
         error_signal = "CHEF EXITED BADLY: "+(0...25).map { ('a'..'z').to_a[rand(26)] }.join
         runstart = nil
@@ -264,12 +265,15 @@ module MU
           cmd = nil
           if !@server.windows?
             if !@config["ssh_user"].nil? and !@config["ssh_user"].empty? and @config["ssh_user"] != "root"
-              cmd = "sudo chef-client --color || echo #{error_signal}"
+              upgrade_cmd = try_upgrade ? "sudo curl -L https://chef.io/chef/install.sh | sudo version=#{MU.chefVersion} sh &&" : ""
+              cmd = "#{upgrade_cmd} sudo chef-client --color || echo #{error_signal}"
             else
-              cmd = "chef-client --color || echo #{error_signal}"
+              upgrade_cmd = try_upgrade ? "curl -L https://chef.io/chef/install.sh | version=#{MU.chefVersion} sh &&" : ""
+              cmd = "#{upgrade_cmd} chef-client --color || echo #{error_signal}"
             end
           else
-            cmd = "$HOME/chef-client --color || echo #{error_signal}"
+            upgrade_cmd = try_upgrade ? "powershell \". { Invoke-WebRequest -useb https://omnitruck.chef.io/install.ps1 } | Invoke-Expression; Install-Project -version:#{MU.chefVersion} -download_directory:$HOME \" &&" : ""
+            cmd = "#{upgrade_cmd} $HOME/chef-client --color || echo #{error_signal}"
           end
           runstart = Time.new
           retval = ssh.exec!(cmd) { |ch, stream, data|
@@ -287,6 +291,13 @@ module MU
               MU.log "ssh session to #{@server.mu_name} was closed unexpectedly, waiting before trying again", MU::NOTICE
             end
             sleep 10
+          end
+
+          if e.instance_of?(MU::Groomer::RunError) and retries == 0
+            MU.log "Got a run error, will attempt to install/update Chef Client on next attempt", MU::NOTICE
+            try_upgrade = true
+          else
+            try_upgrade = false
           end
 
           if retries < max_retries

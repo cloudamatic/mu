@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
+default['firewall']['redhat7_iptables'] = true
 default['apache']['docroot_dir'] = "/var/www/html"
 default['apache']['default_site_enabled'] = false
 default['apache']['mod_ssl']['cipher_suite'] = "ALL:!ADH:!EXPORT:!SSLv2:!RC4+RSA:+HIGH:!MEDIUM:!LOW"

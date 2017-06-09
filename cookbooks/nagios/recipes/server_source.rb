@@ -1,10 +1,10 @@
 #
 # Author:: Seth Chisamore <schisamo@getchef.com>
-# Author:: Tim Smith <tim@cozy.co>
+# Author:: Tim Smith <tsmith@chef.io>
 # Cookbook Name:: nagios
 # Recipe:: server_source
 #
-# Copyright 2011-2013, Chef Software, Inc.
+# Copyright 2011-2016, Chef Software, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -50,7 +50,7 @@ web_srv = node['nagios']['server']['web_server']
 group node['nagios']['group'] do
   members [
     node['nagios']['user'],
-    web_srv == 'nginx' ? node['nginx']['user'] : node['apache']['user']
+    web_srv == 'nginx' ? node['nginx']['user'] : node['apache']['user'],
   ]
   action :create
 end
@@ -69,7 +69,7 @@ end
 execute 'extract-nagios' do
   cwd Chef::Config[:file_cache_path]
   command 'tar zxvf nagios_core.tar.gz'
-  not_if { ::File.exist?("/usr/sbin/#{node['nagios']['server']['name']}") }
+  not_if { ::File.exist?("#{Chef::Config[:file_cache_path]}/#{node['nagios']['server']['src_dir']}") }
 end
 
 node['nagios']['server']['patches'].each do |patch|
@@ -128,10 +128,19 @@ directory node['nagios']['config_dir'] do
   owner 'root'
   group 'root'
   mode '0755'
+  recursive true
+end
+
+directory node['nagios']['conf']['check_result_path'] do
+  owner node['nagios']['user']
+  group node['nagios']['group']
+  mode '0755'
+  recursive true
 end
 
 %w( cache_dir log_dir run_dir ).each do |dir|
   directory node['nagios'][dir] do
+    recursive true
     owner node['nagios']['user']
     group node['nagios']['group']
     mode '0755'

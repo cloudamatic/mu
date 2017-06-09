@@ -39,10 +39,12 @@ RUNNING_STANDALONE=node[:application_attributes].nil?
 execute "stop iptables" do
   command "/sbin/service iptables stop"
   ignore_failure true
+  action :nothing
 end
 execute "start iptables" do
   command "/sbin/service iptables start"
   ignore_failure true
+  action :nothing
 end
 
 # These guys are a workaround for Opscode bugs that seems to affect some Chef
@@ -53,17 +55,27 @@ directory "/var/run/postgresql" do
   action :nothing
 end
 link "/tmp/.s.PGSQL.5432" do
-  to "/var/run/postgresql"
+  to "/var/run/postgresql/.s.PGSQL.5432"
   owner "opscode-pgsql"
   group "opscode-pgsql"
   action :nothing
   only_if { !::File.exists?("/tmp/.s.PGSQL.5432") }
+  only_if { ::File.exists?("/var/run/postgresql/.s.PGSQL.5432") }
+end
+link "/var/run/postgresql/.s.PGSQL.5432" do
+  to "/tmp/.s.PGSQL.5432"
+  owner "opscode-pgsql"
+  group "opscode-pgsql"
+  action :nothing
+  notifies :create, "directory[/var/run/postgresql]", :before
+  only_if { !::File.exists?("/var/run/postgresql/.s.PGSQL.5432") }
+  only_if { ::File.exists?("/tmp/.s.PGSQL.5432") }
 end
 execute "Chef Server rabbitmq workaround" do
   # This assumes we get clean stop, which *should* be the case if we execute
   # before any upgrade or reconfigure. If that assumption is wrong we'd prepend:
   # stop private-chef-runsvdir ; ps auxww | egrep '(opscode|runsv|postgres)' | grep -v grep | awk '{print $2}' | xargs kill
-  command "rm -rf /var/log/opscode/rabbitmq/* /var/opt/opscode/rabbitmq/etc/* /var/opt/opscode/rabbitmq/etc/.erlang.cookie"
+  command "rm -rf /var/log/opscode/rabbitmq/* /var/opt/opscode/rabbitmq/* /var/opt/opscode/rabbitmq/.??*"
   action :nothing
   notifies :stop, "service[chef-server]", :before
 end
@@ -72,8 +84,10 @@ execute "reconfigure Chef server" do
   command "/opt/opscode/bin/chef-server-ctl reconfigure"
   action :nothing
   notifies :run, "execute[stop iptables]", :before
-  notifies :run, "execute[start iptables]", :immediately
+  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
+  notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
   notifies :restart, "service[chef-server]", :immediately
+  notifies :run, "execute[start iptables]", :immediately
   only_if { RUNNING_STANDALONE }
 end
 execute "upgrade Chef server" do
@@ -82,8 +96,8 @@ execute "upgrade Chef server" do
   timeout 1200 # this can take a while
   notifies :run, "execute[stop iptables]", :before
   notifies :run, "execute[Chef Server rabbitmq workaround]", :before
-  notifies :create, "directory[/var/run/postgresql]", :before
   notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
+  notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
   notifies :run, "execute[start iptables]", :immediately
   only_if { RUNNING_STANDALONE }
 end
@@ -93,24 +107,9 @@ service "chef-server" do
   start_command "/opt/opscode/bin/chef-server-ctl start"
   pattern "/opt/opscode/embedded/sbin/nginx"
   action :nothing
+  notifies :run, "execute[stop iptables]", :before
+  notifies :run, "execute[start iptables]", :immediately
   only_if { RUNNING_STANDALONE }
-end
-
-git "#{MU_BASE}/lib" do
-  repository "git://github.com/cloudamatic/mu.git"
-  revision MU_BRANCH
-  not_if { ::Dir.exists?("#{MU_BASE}/lib/.git") }
-end
-
-# Stub files so standalone Ruby programs like mu-configure can know what
-# version to install/find without loading the full Mu library.
-file "#{MU_BASE}/var/mu-chef-client-version" do
-  content CHEF_CLIENT_VERSION
-  mode 0644
-end
-file "#{MU_BASE}/var/mu-chef-server-version" do
-  content CHEF_SERVER_VERSION
-  mode 0644
 end
 
 basepackages = []
@@ -119,7 +118,7 @@ rpms = {}
 dpkgs = {}
 
 if platform_family?("rhel") 
-  basepackages = ["git", "curl", "diffutils", "patch"]
+  basepackages = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel"]
   rpms = {
     "epel-release" => "http://mirror.metrocast.net/fedora/epel/epel-release-latest-#{node[:platform_version].to_i}.noarch.rpm",
     "chef-server-core" => "https://packages.chef.io/files/stable/chef-server/#{CHEF_SERVER_VERSION.sub(/\-\d+$/, "")}/el/#{node[:platform_version].to_i}/chef-server-core-#{CHEF_SERVER_VERSION}.el#{node[:platform_version].to_i}.x86_64.rpm"
@@ -130,11 +129,13 @@ if platform_family?("rhel")
 
   # RHEL6, CentOS6, Amazon Linux
   elsif node[:platform_version].to_i < 7
+    basepackages.concat(["mysql-devel"])
     rpms["ruby23"] = "https://s3.amazonaws.com/mu-stuff/ruby23-2.3.1-1.el6.x86_64.rpm"
     removepackages = ["nagios"]
 
   # RHEL7, CentOS7
   elsif node[:platform_version].to_i < 8
+    basepackages.concat(["libX11", "tcl", "tk", "mariadb-devel"])
     rpms["ruby23"] = "https://s3.amazonaws.com/mu-stuff/ruby23-2.3.1-1.el7.centos.x86_64.rpm"
     removepackages = ["nagios", "firewalld"]
   end
@@ -148,6 +149,32 @@ if File.read("/etc/ssh/sshd_config").match(/^AllowUser\s+([^\s]+)(?: |$)/)
 end
 
 package basepackages
+
+directory MU_BASE do
+  recursive true
+  mode 0755
+end
+git "#{MU_BASE}/lib" do
+  repository "git://github.com/cloudamatic/mu.git"
+  revision MU_BRANCH
+  not_if { ::Dir.exists?("#{MU_BASE}/lib/.git") }
+end
+directory MU_BASE+"/var" do
+  recursive true
+  mode 0755
+end
+
+# Stub files so standalone Ruby programs like mu-configure can know what
+# version to install/find without loading the full Mu library.
+file "#{MU_BASE}/var/mu-chef-client-version" do
+  content CHEF_CLIENT_VERSION
+  mode 0644
+end
+file "#{MU_BASE}/var/mu-chef-server-version" do
+  content CHEF_SERVER_VERSION
+  mode 0644
+end
+
 # Account for Chef Server upgrades, which require some extra behavior
 execute "move aside old Chef Server files" do
 	command "mv /opt/opscode /opt/opscode.upgrading.backup"
@@ -180,6 +207,7 @@ rpms.each_pair { |pkg, src|
     end
   end
 }
+package "jq"
 package removepackages do
   action :remove
 end
@@ -224,7 +252,7 @@ end
 
 ["/usr/local/ruby-current", "/opt/chef/embedded", "/opt/opscode/embedded"].each { |rubydir|
   gembin = rubydir+"/bin/gem"
-  gemdir = Dir.glob("#{rubydir}/lib/ruby/gems/?.?.?/gems").first
+  gemdir = Dir.glob("#{rubydir}/lib/ruby/gems/?.?.?/gems").last
   bundler_path = gembin.sub(/gem$/, "bundle")
   bash "fix #{rubydir} gem permissions" do
     code <<-EOH
@@ -240,46 +268,46 @@ end
     action :upgrade if rubydir == "/usr/local/ruby-current"
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
   end
-  execute "#{bundler_path} clean --force" do
-    cwd "#{MU_BASE}/lib/modules"
-    action :nothing
-  end
   execute "#{bundler_path} install" do
     cwd "#{MU_BASE}/lib/modules"
     umask 0022
     not_if "#{bundler_path} check"
-    notifies :run, "execute[#{bundler_path} clean --force]", :immediately if rubydir == "/usr/local/ruby-current"
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
     notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
     # XXX notify mommacat if we're *not* in chef-apply... RUNNING_STANDALONE
   end
   # Expunge old versions of knife-windows
-  Dir.glob("#{gemdir}/knife-windows-*").each { |dir|
-    next if dir.match(/\/knife-windows-(#{Regexp.quote(KNIFE_WINDOWS)})$/)
-    dir.match(/\/knife-windows-([^\/]+)$/)
-    gem_package "purge #{rubydir} knife windows #{Regexp.last_match[1]} #{gembin}" do
+  if !gemdir.nil?
+    Dir.glob("#{gemdir}/knife-windows-*").each { |dir|
+      next if dir.match(/\/knife-windows-(#{Regexp.quote(KNIFE_WINDOWS)})$/)
+      dir.match(/\/knife-windows-([^\/]+)$/)
+      gem_package "purge #{rubydir} knife windows #{Regexp.last_match[1]} #{gembin}" do
+        gem_binary gembin
+        package_name "knife-windows"
+        version Regexp.last_match[1]
+        action :remove
+        only_if { ::Dir.exists?(dir) }
+        only_if { ::Dir.exists?(gemdir) }
+      end
+      execute "rm -rf #{gemdir}/knife-windows-#{Regexp.last_match[1]}"
+    }
+
+    gem_package "#{rubydir} knife-windows #{KNIFE_WINDOWS} #{gembin}" do
       gem_binary gembin
       package_name "knife-windows"
-      version Regexp.last_match[1]
-      action :remove
+      version KNIFE_WINDOWS
+      notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
+      # XXX notify mommacat if we're *not* in chef-apply... RUNNING_STANDALONE
     end
-    execute "rm -rf #{gemdir}/knife-windows-#{Regexp.last_match[1]}"
-  }
 
-  gem_package "#{rubydir} knife-windows #{KNIFE_WINDOWS} #{gembin}" do
-    gem_binary gembin
-    package_name "knife-windows"
-    version KNIFE_WINDOWS
-    notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
-    # XXX notify mommacat if we're *not* in chef-apply... RUNNING_STANDALONE
-  end
-
-  execute "Patch #{rubydir}'s knife-windows for Cygwin SSH bootstraps" do
-    cwd "#{gemdir}/knife-windows-#{KNIFE_WINDOWS}"
-    command "patch -p1 < #{MU_BASE}/lib/install/knife-windows-cygwin-#{KNIFE_WINDOWS}.patch"
-    not_if "grep -i 'locate_config_value(:cygwin)' #{gemdir}/knife-windows-#{KNIFE_WINDOWS}/lib/chef/knife/bootstrap_windows_base.rb"
-    notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
-    # XXX notify mommacat if we're *not* in chef-apply... RUNNING_STANDALONE
+    execute "Patch #{rubydir}'s knife-windows for Cygwin SSH bootstraps" do
+      cwd "#{gemdir}/knife-windows-#{KNIFE_WINDOWS}"
+      command "patch -p1 < #{MU_BASE}/lib/install/knife-windows-cygwin-#{KNIFE_WINDOWS}.patch"
+      not_if "grep -i 'locate_config_value(:cygwin)' #{gemdir}/knife-windows-#{KNIFE_WINDOWS}/lib/chef/knife/bootstrap_windows_base.rb"
+      notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
+      only_if { ::Dir.exists?(gemdir) }
+      # XXX notify mommacat if we're *not* in chef-apply... RUNNING_STANDALONE
+    end
   end
 }
 
@@ -362,3 +390,12 @@ execute "create MU-MASTER Chef client" do
   notifies :delete, "file[/etc/chef/validation.pem]", :before
   only_if { RUNNING_STANDALONE }
 end
+
+# Community cookbooks keep touching gems, and none of them are smart about our
+# default umask. We have to clean up after them every time.
+["/usr/local/ruby-current", "/opt/chef/embedded", "/opt/opscode/embedded"].each { |rubydir|
+  execute "trigger permission fix in #{rubydir}" do
+    command "ls /etc/motd > /dev/null"
+    notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
+  end
+}

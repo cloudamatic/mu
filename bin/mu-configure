@@ -26,6 +26,9 @@ require 'pp'
 require 'readline'
 require 'fileutils'
 require 'erb'
+require 'tmpdir'
+
+GIT_PATTERN = /(((git|ssh|http(s)?)|(git@[\w\.]+))(:(\/\/)?))?([\w\.@\:\/\-~]+)(\.git)?(\/)?/
 
 # Top-level keys in $MU_CFG for which we'll provide interactive, menu-driven
 # configuration.
@@ -52,6 +55,7 @@ $CONFIGURABLES = {
   "hostname" => {
     "title" => "Local Hostname",
     "pattern" => /^[a-z0-9\-_]+$/i,
+    "required" => true,
     "desc" => "The local system's value for HOSTNAME",
     "changes" => ["chefrun", "hostname"]
   },
@@ -60,10 +64,20 @@ $CONFIGURABLES = {
     "desc" => "Login banner, displayed in various locations",
     "changes" => ["chefrun"]
   },
+  "mu_repository" => {
+    "title" => "Mu Tools Repository",
+    "desc" => "Source repository for Mu tools",
+    "pattern" => GIT_PATTERN,
+    "callback" => :cloneGitRepo,
+    "changes" => ["chefartifacts", "chefrun"],
+    "default" => "git://github.com/cloudamatic/mu.git"
+  },
   "repos" => {
     "title" => "Additional Repositories",
     "desc" => "Optional platform repositories, as a Git URL or Github repo name (ex: eGT-Labs/fema_platform.git)",
-    "pattern" => /((git|ssh|http(s)?)|(git@[\w\.]+))(:(\/\/)?)([\w\.@\:\/\-~]+)(\.git)(\/)/,
+    "pattern" => GIT_PATTERN,
+    "callback" => :cloneGitRepo,
+    "changes" => ["chefartifacts", "chefrun"],
     "array" => true
   },
   "master_runlist_extras" => {
@@ -83,7 +97,6 @@ $CONFIGURABLES = {
       "enable" => {
         "title" => "Enable Jenkins",
         "desc" => "Enable Jenkins, with UI web-accessible at /jenkins.",
-        "required" => false,
         "default" => false,
         "boolean" => true,
         "changes" => ["chefrun"]
@@ -92,12 +105,10 @@ $CONFIGURABLES = {
         "title" => "Jenkins Admin Email",
         "desc" => "Administative contact email for Jenkins",
         "pattern" => /\A([\w+\-].?)+@[a-z\d\-]+(\.[a-z]+)*\.[a-z]+\z/i,
-        "required" => false,
         "changes" => ["chefrun"]
       },
       "admin_user" => {
         "title" => "Jenkins admin username",
-        "required" => false,
         "desc" => "The name of a Mu user who will serve as the Jenkins admin.",
         "default" => "jenkins",
         "changes" => ["chefrun"]
@@ -157,12 +168,28 @@ $CONFIGURABLES = {
 $opts = Trollop::options do
   banner <<-EOS
   EOS
-  opt :force, "Run all rebuild actions, whether or not our configuration is changed.", :require => false, :default => false, :type => :boolean
-  opt :noninteractive, "Skip menu-based configuration prompts. If there is no existing configuration, --public-address, --admin-email, and --hostname flags are required.", :require => false, :default => false, :type => :boolean
+  required = []
+  opt :noninteractive, "Skip menu-based configuration prompts. If there is no existing configuration, the following flags are required: #{required.map{|x|"--"+x}.join(", ")}", :require => false, :default => false, :type => :boolean
   $CONFIGURABLES.each_pair { |key, data|
-    next if data.has_key?("subtree") or data["array"]
-    opt key.to_sym, data["desc"], :require => false, :type => (data["boolean"] ? :boolean : :string)
+    if data.has_key?("subtree")
+      data["subtree"].each_pair { |subkey, subdata|
+        subdata['cli-opt'] = (key+"-"+subkey).gsub(/_/, "-")
+        opt (key+"-"+subkey).to_sym, subdata["desc"], :require => false, :type => (subdata["boolean"] ? :boolean : :string)
+        required << subdata['cli-opt'] if subdata['required']
+      }
+    elsif data["array"]
+      data['cli-opt'] = key.gsub(/_/, "-")
+      opt key.to_sym, data["desc"], :require => false, :type => (data["boolean"] ? :booleans : :strings)
+      required << data['cli-opt'] if data['required']
+    else
+      data['cli-opt'] = key.gsub(/_/, "-")
+      opt key.to_sym, data["desc"], :require => false, :type => (data["boolean"] ? :boolean : :string)
+      required << data['cli-opt'] if data['required']
+    end
   }
+
+  opt :force, "Run all rebuild actions, whether or not our configuration is changed.", :require => false, :default => false, :type => :boolean
+  opt :ssh_keys, "One or more paths to SSH private keys, which we can try to use for SSH-based Git clone operations", :require => false, :type => :strings
 end
 
 # TODO actually it should write a user's own mu.yaml, which will be especially
@@ -263,6 +290,128 @@ def assignMenuEntries
   $MENU_MAP.freeze
 end
 
+def trySSHKeyWithGit(repo, keypath = nil)
+  cfgbackup = nil
+  deletekey = false
+  repo.match(/^([^@]+?)@([^:]+?):/)
+  ssh_user = Regexp.last_match(1)
+  ssh_host = Regexp.last_match(2)
+  if keypath.nil?
+    response = nil
+    puts "Would you like to provide a private ssh key for #{repo} and try again?"
+    begin
+      response = Readline.readline("Y/N> ".bold, false)
+    end while !response and !response.match(/^(y|n)$/i)
+    if response == "y" or response == "Y"
+      Dir.mkdir("#{HOMEDIR}/.ssh", 0700) if !Dir.exists?("#{HOMEDIR}/.ssh")
+      keynamestr = repo.gsub(/[^a-z0-9\-]/i, "-") + Process.pid.to_s
+      keypath = "#{HOMEDIR}/.ssh/#{keynamestr}"
+      puts "Paste a complete SSH private key for #{ssh_user.bold}@#{ssh_host.bold} below, then ^D"
+      system("cat > #{keypath}")
+      File.chmod(0600, keypath)
+      puts "Key saved to "+keypath.bold
+      deletekey = true
+    else
+      return false
+    end
+  end
+
+  if File.exists?("#{HOMEDIR}/.ssh/config")
+    FileUtils.cp("#{HOMEDIR}/.ssh/config", "#{HOMEDIR}/.ssh/config.bak.#{Process.pid.to_s}")
+    cfgbackup = "#{HOMEDIR}/.ssh/config.bak.#{Process.pid.to_s}"
+  end
+  File.open("#{HOMEDIR}/.ssh/config", "a", 0600){ |f|
+    f.puts "Host "+ssh_host
+    f.puts "  User "+ssh_user
+    f.puts "  IdentityFile "+keypath
+    f.puts "  StrictHostKeyChecking no"
+  }
+
+  puts "/usr/bin/git clone #{repo}"
+  output = %x{/usr/bin/git clone #{repo} 2>&1}
+  if $?.exitstatus == 0
+    puts "Successfully cloned #{repo}".green.on_black
+    return true
+  else
+    puts output.red.on_black
+    if cfgbackup
+      puts "Restoring #{HOMEDIR}/.ssh/config"
+      File.rename(cfgbackup, "#{HOMEDIR}/.ssh/config")
+    end
+    if deletekey
+      puts "Removing #{keypath}"
+      File.unlink(keypath)
+    end
+  end
+  return false
+end
+
+def cloneGitRepo(repo)
+  puts "Testing ability to check out Git repository #{repo.bold}"
+  fullrepo = repo
+  if !repo.match(/@|:\/\//) # we try ssh first
+    fullrepo = "git@github.com:"+repo 
+    puts "Doesn't look like a full URL, trying SSH to #{fullrepo}"
+  end
+  cwd = Dir.pwd
+  Dir.mktmpdir("mu-git-test-") { |dir|
+    Dir.chdir(dir)
+    puts "/usr/bin/git clone #{fullrepo}"
+    output = %x{/usr/bin/git clone #{fullrepo} 2>&1}
+    if $?.exitstatus == 0
+      puts "Successfully cloned #{fullrepo}".green.on_black
+      Dir.chdir(cwd)
+      return fullrepo
+    elsif $?.exitstatus != 0 and output.match(/permission denied/i)
+      puts ""
+      puts output.red.on_black
+      if $opts[:ssh_keys_given]
+        $opts[:ssh_keys].each { |keypath|
+          if trySSHKeyWithGit(fullrepo, keypath)
+            Dir.chdir(cwd)
+            return fullrepo
+          end
+        }
+      end
+      if !$opts[:noninteractive]
+        if trySSHKeyWithGit(fullrepo)
+          Dir.chdir(cwd)
+          return fullrepo
+        end
+      end
+    end
+    if !repo.match(/@|:\/\//)
+      fullrepo = "git://github.com/"+repo 
+      puts ""
+      puts "No luck there, trying #{fullrepo}".bold
+      puts "/usr/bin/git clone #{fullrepo}"
+      output = %x{/usr/bin/git clone #{fullrepo} 2>&1}
+      if $?.exitstatus == 0
+        puts "Successfully cloned #{fullrepo}".green.on_black
+        Dir.chdir(cwd)
+        return fullrepo
+      else
+        puts output.red.on_black
+        fullrepo = "https://github.com/"+repo 
+        puts "Final attempt, trying #{fullrepo}"
+        puts "/usr/bin/git clone #{fullrepo}"
+        output = %x{/usr/bin/git clone #{fullrepo} 2>&1}
+        if $?.exitstatus == 0
+          puts "Successfully cloned #{fullrepo}".green.on_black
+          Dir.chdir(cwd)
+          return fullrepo
+        else
+          puts output.red.on_black
+        end
+      end
+    else
+      puts "No other methods I can think to try, giving up on #{repo.bold}".red.on_black
+    end
+  }
+  Dir.chdir(cwd)
+  nil
+end
+
 # Rustle up some sensible default values, if this is our first time
 def setDefaults
   ips = []
@@ -311,6 +460,43 @@ def setDefaults
   end
 end
 
+
+def runValueCallback(desc, val)
+  if desc['array']
+    if desc["callback"]
+      newval = []
+      val.each { |v|
+        v = send(desc["callback"].to_sym, v)
+        newval << v if !v.nil?
+      }
+      val = newval
+    end
+  elsif desc["callback"]
+    val = send(desc["callback"].to_sym, val)
+  end
+  val
+end
+
+def importCLIValues
+  $CONFIGURABLES.each_pair { |key, data|
+    if data.has_key?("subtree")
+      data["subtree"].each_pair { |subkey, subdata|
+        if $opts[(subdata['cli-opt'].gsub(/-/, "_")+"_given").to_sym]
+          newval = runValueCallback(subdata, $opts[subdata['cli-opt'].gsub(/-/, "_").to_sym])
+          subdata["value"] = newval if !newval.nil?
+          $CHANGES.concat(subdata['changes']) if subdata['changes']
+        end
+      }
+    else
+      if $opts[(data['cli-opt'].gsub(/-/, "_")+"_given").to_sym]
+        newval = runValueCallback(data, $opts[data['cli-opt'].gsub(/-/, "_").to_sym])
+        data["value"] = newval if !newval.nil?
+        $CHANGES.concat(data['changes']) if data['changes']
+      end
+    end
+  }
+end
+
 # Load values from our existing configuration into the $CONFIGURABLES hash
 def importCurrentValues
   require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
@@ -349,14 +535,14 @@ def setConfigTree
         if !subdata["value"].nil?
           cfg[key] ||= {}
           cfg[key][subkey] = subdata["value"]
-        elsif !subdata["default"].nil? and !$HAVE_CONFIG or !$MU_CFG[key] or !$MU_CFG[key][subkey]
+        elsif !subdata["default"].nil? and !$HAVE_CONFIG or ($MU_CFG and (!$MU_CFG[key] or !$MU_CFG[key][subkey]))
           cfg[key] ||= {}
           cfg[key][subkey] = subdata["default"]
         end
       }
     elsif !data["value"].nil?
       cfg[key] = data["value"]
-    elsif !data["default"].nil? and !$HAVE_CONFIG or !$MU_CFG[key]
+    elsif !data["default"].nil? and !$HAVE_CONFIG or ($MU_CFG and !$MU_CFG[key])
       cfg[key] = data["default"]
     end
   }
@@ -386,10 +572,11 @@ end
 
 ###############################################################################
 
+trap("INT"){ puts "" ; exit }
 importCurrentValues if !$INITIALIZE or $HAVE_CONFIG
+importCLIValues
 setDefaults
 assignMenuEntries # populates and freezes $MENU_MAP
-trap("INT"){ puts "" ; exit }
 
 def ask(desc)
   puts ""
@@ -407,14 +594,15 @@ def ask(desc)
     end
   end
   val = Readline.readline(prompt, false)
-  if desc['array']  and !val.nil?
+  if desc['array'] and !val.nil?
     val = val.strip.split(/\s*,\s*/)
   end
   if desc['boolean']
     val = false if ["0", "false", "FALSE"].include?(val)
     val = true if ["1", "true", "TRUE"].include?(val)
   end
-  val = current if val.nil?
+  val = runValueCallback(desc, val)
+  val = current if val.nil? and desc['value']
   val
 end
 
@@ -425,9 +613,14 @@ def validate(newval, reqs)
     if reqs['boolean'] and newval != true and newval != false and newval != nil
       puts "\nInvalid value '#{newval.bold}' (must be true or false)".light_red.on_black+"\n\n"
       ok = false
-    elsif reqs['pattern'] and !newval.match(reqs['pattern'])
-      puts "\nInvalid value '#{newval.bold}' (must match #{reqs['pattern']})".light_red.on_black+"\n\n"
-      ok = false
+    elsif reqs['pattern']
+      if newval.nil?
+        puts "\nSupplied value did not pass validation".light_red.on_black+"\n\n"
+        ok = false
+      elsif !newval.match(reqs['pattern'])
+        puts "\nInvalid value '#{newval.bold}' (must match #{reqs['pattern']})".light_red.on_black+"\n\n"
+        ok = false
+      end
     end
     ok
   end
@@ -448,6 +641,7 @@ end
 
 answer = nil
 changed = false
+
 if !$opts[:noninteractive]
   begin
     optlist = displayCurrentOpts
@@ -486,7 +680,7 @@ if !$opts[:noninteractive]
     end
   end while answer != "0" and answer != "O" and answer != "o"
 end
-# XXX validate overall input, commit to defaults
+# XXX validate overall input
 
 def set389DSCreds
   require 'mu'
@@ -573,11 +767,26 @@ rescue LoadError
   require 'mu'
 end
 
-
 if $INITIALIZE or $CHANGES.include?("hostname")
   system("/bin/hostname #{$MU_CFG['hostname']}")
 end
-  
+
+# Do some more basic-but-Chef-dependent configuration *before* we meddle with
+# the Chef Server configuration, which depends on some of this (SSL certs and
+# local firewall ports).
+if $INITIALIZE or $CHANGES.include?("chefartifacts")
+  MU.log "Purging and re-uploading all Chef artifacts", MU::NOTICE
+  %x{MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts}
+end
+
+if $INITIALIZE
+  MU.log "Force open key firewall holes", MU::NOTICE
+  system("chef-client -o 'recipe[mu-master::firewall-holes]'")
+end
+
+MU.log "Checking internal SSL signing authority and certificates", MU::NOTICE
+system("chef-client -o 'recipe[mu-master::ssl-certs]'")
+
 def updateChefRbs
   user = "mu"
   { HOMEDIR+"/.chef/knife.rb" => KNIFE_TEMPLATE,
@@ -608,8 +817,19 @@ File.open(tmpfile, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
 }
 if !File.size?(cfgpath) or File.read(tmpfile) != File.read(cfgpath)
   File.rename(tmpfile, cfgpath)
+  # Opscode can't seem to get things right with their postgres socket
+  Dir.mkdir("/var/run/postgresql", 0755) if !Dir.exists?("/var/run/postgresql")
+  if File.exists?("/tmp/.s.PGSQL.5432") and !File.exists?("/var/run/postgresql/.s.PGSQL.5432")
+    File.symlink("/tmp/.s.PGSQL.5432", "/var/run/postgresql/.s.PGSQL.5432")
+  elsif !File.exists?("/tmp/.s.PGSQL.5432") and File.exists?("/var/run/postgresql/.s.PGSQL.5432")
+    File.symlink("/var/run/postgresql/.s.PGSQL.5432", "/tmp/.s.PGSQL.5432")
+  end
   MU.log "Chef Server config was modified, reconfiguring...", MU::NOTICE
+  # XXX Some undocumented port Chef needs only on startup is being blocked by
+  # iptables. Something rabbitmq-related.
+  %x{/sbin/service iptables stop}
   system("/opt/opscode/bin/chef-server-ctl reconfigure")
+  %x{/sbin/service iptables start}
   updateChefRbs
   $CHANGES << "chefcerts"
 else
@@ -635,23 +855,18 @@ if $MU_CFG['ssl'] and $MU_CFG['ssl']['chain'] and File.size?($MU_CFG['ssl']['cha
   FileUtils.cp($MU_CFG['ssl']['chain'], "/etc/chef/trusted_certs/#{cert}")
 end
 
-if $INITIALIZE
-#rm -rf /root/.berkshelf /root/.chef/cookbooks /root/.chef/site_cookbooks
-#for extra in $ADDTL_CHEF_REPOS;do
-#	extra_repo_name="`echo $extra | sed 's/^.*\///' | cut -d. -f1`"
-#	clone_repository "$extra" "$MU_DATADIR/$extra_repo_name"
-#  generate_repo_berksfile "$MU_DATADIR/$extra_repo_name"
-#done
-  system("MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts")
+if $MU_CFG['repos'] and $MU_CFG['repos'].size > 0
+  $MU_CFG['repos'].each { |repo|
+    repo.match(/\/([^\/]+)(\.git)?$/)
+    shortname = Regexp.last_match(1)
+    if !Dir.exists?("#{MU_BASE}/var/#{shortname}")
+      MU.log "Cloning #{repo} into #{MU_BASE}/var/#{shortname}", MU::NOTICE
+      Dir.chdir("#{MU_BASE}/var")
+      system("/usr/bin/git clone #{repo}")
+      $CHANGES << "chefartifacts"
+    end
+  }
 end
-
-if $INITIALIZE
-  MU.log "Force open key firewall holes", MU::NOTICE
-  system("chef-client -o 'recipe[mu-master::firewall-holes]'")
-end
-
-MU.log "Setting up internal SSL signing authority and certificates", MU::NOTICE
-system("chef-client -o 'recipe[mu-master::ssl-certs]'")
 
 begin
   MU::Groomer::Chef.getSecret(vault: "secrets", item: "consul")
@@ -758,10 +973,10 @@ if $INITIALIZE
   MU.log "Setting password for admin user 'mu', for logging into Nagios and other built-in services.", MU::NOTICE
   puts %x{#{MU_BASE}/lib/bin/mu-user-manage -g mu}
   MU.log "If Scratchpad web interface is not accessible, try the following:", MU::NOTICE
-  puts "#{MU_BASE}/lib/bin/mu-user-manage -g --no-scratchpad mu"
+  puts "#{MU_BASE}/lib/bin/mu-user-manage -g --no-scratchpad mu".bold
 end
 
 if !ENV['PATH'].match(/(^|:)#{Regexp.quote(MU_BASE)}\/bin(:|$)/)
   MU.log "I added some entries to your $PATH, run this to import them:", MU::NOTICE
-  puts "source #{HOMEDIR}/.bashrc"
+  puts "source #{HOMEDIR}/.bashrc".bold
 end

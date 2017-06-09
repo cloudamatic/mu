@@ -39,8 +39,16 @@ if !node[:application_attributes][:skip_recipes].include?('rsyslog')
       $rsyslog_ssl_ca_path = "/etc/ssl/Mu_CA.pem"
       package "policycoreutils"
     end
+
+    master_ips = get_mu_master_ips
+# XXX This should prefer a master IP that's in our private subnet, and also
+# be able to tell which ones are private and which are public.
     template "/etc/rsyslog.d/0-mu-log-client.conf" do
       source "0-mu-log-client.conf.erb"
+      variables(
+        :syslog_server => master_ips.last,
+        :ssl_ca_path => $rsyslog_ssl_ca_path
+      )
       notifies :restart, "service[rsyslog]", :delayed
     end
     cookbook_file "Mu_CA.pem" do

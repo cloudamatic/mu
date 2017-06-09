@@ -179,11 +179,15 @@ set +e
 /sbin/service mu-momma-cat stop
 set -e
 
+echo "${GREEN}Cleaning gems in ${BOLD}/usr/local/ruby-current${NORM}${GREEN}${NORM}"
+cd $MU_LIBDIR/modules
+/usr/local/ruby-current/bin/bundle update
+/usr/local/ruby-current/bin/bundle clean --force
+cd
+
 /opt/chef/bin/chef-apply $MU_LIBDIR/cookbooks/mu-master/recipes/init.rb
 $bindir/mu-configure -n
 for dir in $MU_LIBDIR /opt/chef/embedded /opt/opscode/embedded /usr/local/ruby-current/;do
-  echo "${GREEN}Cleaning gems in ${BOLD}$dir${NORM}${GREEN}${NORM}"
-  $dir/bin/bundle clean
   echo "${GREEN}Sanitizing permissions in ${BOLD}$dir${NORM}${GREEN}${NORM}"
   for tree in `ls -1 $dir/`;do
     find $dir/$tree -type d -exec chmod go+rx {} \;

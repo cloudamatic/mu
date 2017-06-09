@@ -504,14 +504,12 @@ module MU
       @config.merge!(param_cfg)
 
       if !@config.has_key?('admins') or @config['admins'].size == 0
-        if MU.chef_user == "mu"
-          @config['admins'] = [
-            {
-              "name" => MU.chef_user == "mu" ? "Mu Administrator" : MU.userName,
-              "email" => MU.userEmail
-            }
-          ]
-        end
+        @config['admins'] = [
+          {
+            "name" => MU.chef_user == "mu" ? "Mu Administrator" : MU.userName,
+            "email" => MU.userEmail
+          }
+        ]
       end
       MU::Config.set_defaults(@config, MU::Config.schema)
       validate
@@ -1274,11 +1272,12 @@ module MU
 
     def validate(config = @config)
       ok = true
+      plain_cfg = MU::Config.manxify(Marshal.load(Marshal.dump(config)))
       begin
-        JSON::Validator.validate!(MU::Config.schema, config)
+        JSON::Validator.validate!(MU::Config.schema, plain_cfg)
       rescue JSON::Schema::ValidationError => e
         # Use fully_validate to get the complete error list, save some time
-        errors = JSON::Validator.fully_validate(MU::Config.schema, config)
+        errors = JSON::Validator.fully_validate(MU::Config.schema, plain_cfg)
         realerrors = []
         errors.each { |err|
           if !err.match(/The property '.+?' of type MU::Config::Tail did not match the following type:/)

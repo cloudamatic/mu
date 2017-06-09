@@ -23,7 +23,6 @@
 # templates.
 
 include_recipe 'mu-master::firewall-holes'
-include_recipe 'mu-master::ssl-certs'
 service_certs = ["rsyslog", "mommacat", "ldap", "consul", "vault"]
 
 directory "#{$MU_CFG['datadir']}/ssl"
