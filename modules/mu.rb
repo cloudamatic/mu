@@ -296,13 +296,13 @@ module MU
   @@my_public_ip = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
   @@mu_public_addr = @@my_public_ip
   @@mu_public_ip = @@my_public_ip
-  if !ENV['CHEF_PUBLIC_IP'].nil? and !ENV['CHEF_PUBLIC_IP'].empty? and @@my_public_ip != ENV['CHEF_PUBLIC_IP']
-    @@mu_public_addr = ENV['CHEF_PUBLIC_IP']
-    if !ENV['CHEF_PUBLIC_IP'].match(/^\d+\.\d+\.\d+\.\d+$/)
+  if !$MU_CFG.nil? and !$MU_CFG['public_address'].nil? and !$MU_CFG['public_address'].empty? and @@my_public_ip != $MU_CFG['public_address']
+    @@mu_public_addr = $MU_CFG['public_address']
+    if !@@mu_public_addr.match(/^\d+\.\d+\.\d+\.\d+$/)
       resolver = Resolv::DNS.new
-      @@mu_public_ip = resolver.getaddress(ENV['CHEF_PUBLIC_IP']).to_s
+      @@mu_public_ip = resolver.getaddress(@@mu_public_addr).to_s
     else
-      @@mu_public_ip = ENV['CHEF_PUBLIC_IP']
+      @@mu_public_ip = @@mu_public_addr
     end
   elsif !@@my_public_ip.nil? and !@@my_public_ip.empty?
     @@mu_public_addr = @@my_public_ip

@@ -37,6 +37,7 @@ $CONFIGURABLES = {
     "title" => "Public Address",
     "desc" => "IP address or hostname",
     "required" => true,
+    "rootonly" => true,
     "changes" => ["389ds", "chef-server", "chefrun", "chefcerts"]
   },
   "mu_admin_email" => {
@@ -44,24 +45,28 @@ $CONFIGURABLES = {
     "desc" => "Administative contact email",
     "pattern" => /\A([\w+\-].?)+@[a-z\d\-]+(\.[a-z]+)*\.[a-z]+\z/i,
     "required" => true,
+    "rootonly" => true,
     "changes" => ["mu-user", "chefrun"]
   },
   "mu_admin_name" => {
     "title" => "Admin Name",
     "desc" => "Administative contact's full name",
     "default" => "Mu Administrator",
+    "rootonly" => true,
     "changes" => ["mu-user", "chefrun"]
   },
   "hostname" => {
     "title" => "Local Hostname",
     "pattern" => /^[a-z0-9\-_]+$/i,
     "required" => true,
+    "rootonly" => true,
     "desc" => "The local system's value for HOSTNAME",
     "changes" => ["chefrun", "hostname"]
   },
   "banner" => {
     "title" => "Banner",
     "desc" => "Login banner, displayed in various locations",
+    "rootonly" => true,
     "changes" => ["chefrun"]
   },
   "mu_repository" => {
@@ -84,6 +89,7 @@ $CONFIGURABLES = {
     "title" => "Mu Master Runlist Extras",
     "desc" => "Optional extra Chef roles or recipes to invoke when running chef-client on this Master (ex: recipe[mycookbook::mumaster])",
     "array" => true,
+    "rootonly" => true,
     "changes" => ["chefrun"]
   },
   "allow_invade_foreign_vpcs" => {
@@ -93,6 +99,7 @@ $CONFIGURABLES = {
   },
   "jenkins" => {
     "title" => "Jenkins Continuous Integration",
+    "rootonly" => true,
     "subtree" => {
       "enable" => {
         "title" => "Enable Jenkins",
@@ -145,14 +152,19 @@ $CONFIGURABLES = {
   }
 }
 
+AMROOT = Process.uid == 0
+HOMEDIR = Etc.getpwuid(Process.uid).dir
+
 $opts = Trollop::options do
   banner <<-EOS
   EOS
   required = []
   opt :noninteractive, "Skip menu-based configuration prompts. If there is no existing configuration, the following flags are required: #{required.map{|x|"--"+x}.join(", ")}", :require => false, :default => false, :type => :boolean
   $CONFIGURABLES.each_pair { |key, data|
+    next if !AMROOT and data['rootonly']
     if data.has_key?("subtree")
       data["subtree"].each_pair { |subkey, subdata|
+        next if !AMROOT and subdata['rootonly']
         subdata['cli-opt'] = (key+"-"+subkey).gsub(/_/, "-")
         opt (key+"-"+subkey).to_sym, subdata["desc"], :require => false, :type => (subdata["boolean"] ? :boolean : :string)
         required << subdata['cli-opt'] if subdata['required']
@@ -168,17 +180,9 @@ $opts = Trollop::options do
     end
   }
 
-  opt :force, "Run all rebuild actions, whether or not our configuration is changed.", :require => false, :default => false, :type => :boolean
+  opt :force, "Run all rebuild actions, whether or not our configuration is changed.", :require => false, :default => false, :type => :boolean if AMROOT
   opt :ssh_keys, "One or more paths to SSH private keys, which we can try to use for SSH-based Git clone operations", :require => false, :type => :strings
 end
-
-# TODO actually it should write a user's own mu.yaml, which will be especially
-# useful for repo lists and whatnot
-if Etc.getpwuid(Process.uid).name != "root"
-  puts "#{$0} can only be run as root"
-  exit 1
-end
-HOMEDIR = Etc.getpwuid(Process.uid).dir
 
 if ENV.has_key?("MU_INSTALLDIR")
   MU_BASE = ENV["MU_INSTALLDIR"]
@@ -187,8 +191,12 @@ else
 end
 
 $INITIALIZE = (!File.size?("#{MU_BASE}/etc/mu.yaml") or $opts[:force])
-$HAVE_CONFIG = File.size?("#{MU_BASE}/etc/mu.yaml")
-if !$HAVE_CONFIG and $opts[:noninteractive] and (!$opts[:public_address] or !$opts[:mu_admin_email])
+$HAVE_GLOBAL_CONFIG = File.size?("#{MU_BASE}/etc/mu.yaml")
+if !AMROOT and ($INITIALIZE or !$HAVE_GLOBAL_CONFIG)
+  puts "Global configuration has not been initialized or is missing. Must run as root to correct."
+  exit 1
+end
+if !$HAVE_GLOBAL_CONFIG and $opts[:noninteractive] and (!$opts[:public_address] or !$opts[:mu_admin_email])
   puts "Specify --public-address and --mu-admin-email on new non-interactive configs"
   exit 1
 end
@@ -216,12 +224,12 @@ end
 
 KNIFE_TEMPLATE = "log_level                :info
 log_location             STDOUT
-node_name                '<%= user %>'
-client_key               '<%= MU.dataDir %>/users/<%= user %>/<%= user %>.user.key'
+node_name                '<%= chefuser %>'
+client_key               '<%= MU_BASE %>/var/users/<%= user %>/<%= chefuser %>.user.key'
 validation_client_name   'mu-validator'
-validation_key           '<%= MU.dataDir %>/orgs/<%= user %>/<%= user %>.org.key'
-chef_server_url 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
-chef_server_root 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
+validation_key           '<%= MU_BASE %>/var/orgs/<%= user %>/<%= chefuser %>.org.key'
+chef_server_url 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= chefuser %>'
+chef_server_root 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= chefuser %>'
 syntax_check_cache_path  '<%= HOMEDIR %>/.chef/syntax_check_cache'
 cookbook_path [ '<%= HOMEDIR %>/.chef/cookbooks', '<%= HOMEDIR %>/.chef/site_cookbooks' ]
 <% if $MU_CFG.has_key?('ssl') and $MU_CFG['ssl'].has_key?('chain') %>
@@ -229,7 +237,7 @@ ssl_ca_path '<%= File.dirname($MU_CFG['ssl']['chain']) %>'
 ssl_ca_file '<%= File.basename($MU_CFG['ssl']['chain']) %>'
 <% end %>
 knife[:vault_mode] = 'client'
-knife[:vault_admins] = ['<%= user %>']"
+knife[:vault_admins] = ['<%= chefuser %>']"
 
 CLIENT_TEMPLATE = "chef_server_url  'https://<%= MU.mu_public_addr %>:7443/organizations/<%= user %>'
 validation_client_name 'mu-validator'
@@ -254,10 +262,12 @@ $MENU_MAP = {}
 def assignMenuEntries
   count = 1
   $CONFIGURABLES.each_pair { |key, data|
+    next if !AMROOT and data['rootonly']
     if data.has_key?("subtree")
       letters = ("a".."z").to_a
       lettercount = 0
       data["subtree"].each_pair { |subkey, subdata|
+        next if !AMROOT and subdata['rootonly']
         $CONFIGURABLES[key]["subtree"][subkey]["menu"] = count.to_s+letters[lettercount]
         $MENU_MAP[count.to_s+letters[lettercount]] = $CONFIGURABLES[key]["subtree"][subkey]
         lettercount = lettercount + 1
@@ -459,8 +469,10 @@ end
 
 def importCLIValues
   $CONFIGURABLES.each_pair { |key, data|
+    next if !AMROOT and data['rootonly']
     if data.has_key?("subtree")
       data["subtree"].each_pair { |subkey, subdata|
+        next if !AMROOT and subdata['rootonly']
         if $opts[(subdata['cli-opt'].gsub(/-/, "_")+"_given").to_sym]
           newval = runValueCallback(subdata, $opts[subdata['cli-opt'].gsub(/-/, "_").to_sym])
           subdata["value"] = newval if !newval.nil?
@@ -510,19 +522,21 @@ end
 def setConfigTree
   cfg = {}
   $CONFIGURABLES.each_pair { |key, data|
+    next if !AMROOT and data['rootonly']
     if data.has_key?("subtree")
       data["subtree"].each_pair { |subkey, subdata|
+        next if !AMROOT and subdata['rootonly']
         if !subdata["value"].nil?
           cfg[key] ||= {}
           cfg[key][subkey] = subdata["value"]
-        elsif !subdata["default"].nil? and !$HAVE_CONFIG or ($MU_CFG and (!$MU_CFG[key] or !$MU_CFG[key][subkey]))
+        elsif !subdata["default"].nil? and !$HAVE_GLOBAL_CONFIG or ($MU_CFG and (!$MU_CFG[key] or !$MU_CFG[key][subkey]))
           cfg[key] ||= {}
           cfg[key][subkey] = subdata["default"]
         end
       }
     elsif !data["value"].nil?
       cfg[key] = data["value"]
-    elsif !data["default"].nil? and !$HAVE_CONFIG or ($MU_CFG and !$MU_CFG[key])
+    elsif !data["default"].nil? and !$HAVE_GLOBAL_CONFIG or ($MU_CFG and !$MU_CFG[key])
       cfg[key] = data["default"]
     end
   }
@@ -533,10 +547,12 @@ def displayCurrentOpts
   count = 1
   optlist = []
   $CONFIGURABLES.each_pair { |key, data|
+    next if !AMROOT and data['rootonly']
     print data["menu"].bold+") "+data["title"]
     if data.has_key?("subtree")
       puts ""
       data["subtree"].each_pair { |subkey, subdata|
+        next if !AMROOT and subdata['rootonly']
         print "  "+subdata["menu"].bold+". "+subdata["title"]
         printVal(subdata)
         puts ""
@@ -553,7 +569,7 @@ end
 ###############################################################################
 
 trap("INT"){ puts "" ; exit }
-importCurrentValues if !$INITIALIZE or $HAVE_CONFIG
+importCurrentValues if !$INITIALIZE or $HAVE_GLOBAL_CONFIG
 importCLIValues
 setDefaults
 assignMenuEntries # populates and freezes $MENU_MAP
@@ -717,17 +733,19 @@ def set389DSCreds
   }
 end
 
+if AMROOT
 cur_chef_version = `/bin/rpm -q chef`.sub(/^chef-(\d+\.\d+\.\d+-\d+)\..*/, '\1').chomp
 pref_chef_version = File.read("#{MU_BASE}/var/mu-chef-client-version").chomp
-if cur_chef_version != pref_chef_version
-  puts "Updating MU-MASTER's Chef Client to '#{pref_chef_version}'"
-  chef_installer = open("https://www.chef.io/chef/install.sh").read
-  File.open("#{HOMEDIR}/chef-install.sh", File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
-    f.puts chef_installer
-  }
-  system("/bin/rm -rf /opt/chef ; sh #{HOMEDIR}/chef-install.sh -v #{pref_chef_version}");
-  # This will go fix gems, permissions, etc
-  system("/opt/chef/bin/chef-apply #{MU_BASE}/lib/cookbooks/mu-master/recipes/init.rb");
+  if cur_chef_version != pref_chef_version
+    puts "Updating MU-MASTER's Chef Client to '#{pref_chef_version}'"
+    chef_installer = open("https://www.chef.io/chef/install.sh").read
+    File.open("#{HOMEDIR}/chef-install.sh", File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
+      f.puts chef_installer
+    }
+    system("/bin/rm -rf /opt/chef ; sh #{HOMEDIR}/chef-install.sh -v #{pref_chef_version}");
+    # This will go fix gems, permissions, etc
+    system("/opt/chef/bin/chef-apply #{MU_BASE}/lib/cookbooks/mu-master/recipes/init.rb");
+  end
 end
 
 if $INITIALIZE
@@ -735,38 +753,48 @@ if $INITIALIZE
   $MU_SET_DEFAULTS = setConfigTree
   require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 else
-  $NEW_CFG = $MU_CFG.merge(setConfigTree)
+  if AMROOT
+    $NEW_CFG = $MU_CFG.merge(setConfigTree)
+  else
+    $NEW_CFG = setConfigTree
+  end
   saveMuConfig($NEW_CFG)
-  $MU_CFG = $NEW_CFG
+  $MU_CFG = $MU_CFG.merge(setConfigTree)
   require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 end
 require 'mu'
 
-if $INITIALIZE or $CHANGES.include?("hostname")
+if AMROOT and ($INITIALIZE or $CHANGES.include?("hostname"))
   system("/bin/hostname #{$MU_CFG['hostname']}")
 end
 
 # Do some more basic-but-Chef-dependent configuration *before* we meddle with
 # the Chef Server configuration, which depends on some of this (SSL certs and
 # local firewall ports).
-if $INITIALIZE or $CHANGES.include?("chefartifacts")
+if AMROOT and ($INITIALIZE or $CHANGES.include?("chefartifacts"))
   MU.log "Purging and re-uploading all Chef artifacts", MU::NOTICE
   %x{MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts}
 end
 
-if $INITIALIZE
+if $INITIALIZE and AMROOT
   MU.log "Force open key firewall holes", MU::NOTICE
   system("chef-client -o 'recipe[mu-master::firewall-holes]'")
 end
 
-MU.log "Checking internal SSL signing authority and certificates", MU::NOTICE
-system("chef-client -o 'recipe[mu-master::ssl-certs]'")
+if AMROOT
+  MU.log "Checking internal SSL signing authority and certificates", MU::NOTICE
+  system("chef-client -o 'recipe[mu-master::ssl-certs]'")
+end
 
 def updateChefRbs
-  user = "mu"
-  { HOMEDIR+"/.chef/knife.rb" => KNIFE_TEMPLATE,
-    "/etc/chef/client.rb" => CLIENT_TEMPLATE,
-    "/etc/opscode/pivotal.rb" => PIVOTAL_TEMPLATE }.each_pair { |file, template|
+  user = AMROOT ? "mu" : Etc.getpwuid(Process.uid).name
+  chefuser = user.gsub(/\./, "")
+  templates = { HOMEDIR+"/.chef/knife.rb" => KNIFE_TEMPLATE }
+  if AMROOT
+    templates["/etc/chef/client.rb"] = CLIENT_TEMPLATE
+    templates["/etc/opscode/pivotal.rb"] = PIVOTAL_TEMPLATE
+  end
+  templates.each_pair { |file, template|
     erb = ERB.new(template)
     processed = erb.result(binding)
     tmpfile = file+".tmp."+Process.pid.to_s
@@ -783,64 +811,80 @@ def updateChefRbs
   }
 end
 
-erb = ERB.new(File.read("#{MU_BASE}/lib/cookbooks/mu-master/templates/default/chef-server.rb.erb"))
-updated_server_cfg = erb.result(binding)
-cfgpath = "/etc/opscode/chef-server.rb"
-tmpfile = "/etc/opscode/chef-server.rb.#{Process.pid}"
-File.open(tmpfile, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
-  f.puts updated_server_cfg
-}
-if !File.size?(cfgpath) or File.read(tmpfile) != File.read(cfgpath)
-  File.rename(tmpfile, cfgpath)
-  # Opscode can't seem to get things right with their postgres socket
-  Dir.mkdir("/var/run/postgresql", 0755) if !Dir.exists?("/var/run/postgresql")
-  if File.exists?("/tmp/.s.PGSQL.5432") and !File.exists?("/var/run/postgresql/.s.PGSQL.5432")
-    File.symlink("/tmp/.s.PGSQL.5432", "/var/run/postgresql/.s.PGSQL.5432")
-  elsif !File.exists?("/tmp/.s.PGSQL.5432") and File.exists?("/var/run/postgresql/.s.PGSQL.5432")
-    File.symlink("/var/run/postgresql/.s.PGSQL.5432", "/tmp/.s.PGSQL.5432")
+
+if AMROOT
+  erb = ERB.new(File.read("#{MU_BASE}/lib/cookbooks/mu-master/templates/default/chef-server.rb.erb"))
+  updated_server_cfg = erb.result(binding)
+  cfgpath = "/etc/opscode/chef-server.rb"
+  tmpfile = "/etc/opscode/chef-server.rb.#{Process.pid}"
+  File.open(tmpfile, File::CREAT|File::TRUNC|File::RDWR, 0644){ |f|
+    f.puts updated_server_cfg
+  }
+  if !File.size?(cfgpath) or File.read(tmpfile) != File.read(cfgpath)
+    File.rename(tmpfile, cfgpath)
+    # Opscode can't seem to get things right with their postgres socket
+    Dir.mkdir("/var/run/postgresql", 0755) if !Dir.exists?("/var/run/postgresql")
+    if File.exists?("/tmp/.s.PGSQL.5432") and !File.exists?("/var/run/postgresql/.s.PGSQL.5432")
+      File.symlink("/tmp/.s.PGSQL.5432", "/var/run/postgresql/.s.PGSQL.5432")
+    elsif !File.exists?("/tmp/.s.PGSQL.5432") and File.exists?("/var/run/postgresql/.s.PGSQL.5432")
+      File.symlink("/var/run/postgresql/.s.PGSQL.5432", "/tmp/.s.PGSQL.5432")
+    end
+    MU.log "Chef Server config was modified, reconfiguring...", MU::NOTICE
+    # XXX Some undocumented port Chef needs only on startup is being blocked by
+    # iptables. Something rabbitmq-related.
+    %x{/sbin/service iptables stop}
+    system("/opt/opscode/bin/chef-server-ctl reconfigure")
+    %x{/sbin/service iptables start}
+    updateChefRbs
+    $CHANGES << "chefcerts"
+  else
+    File.unlink(tmpfile)
+    updateChefRbs
   end
-  MU.log "Chef Server config was modified, reconfiguring...", MU::NOTICE
-  # XXX Some undocumented port Chef needs only on startup is being blocked by
-  # iptables. Something rabbitmq-related.
-  %x{/sbin/service iptables stop}
-  system("/opt/opscode/bin/chef-server-ctl reconfigure")
-  %x{/sbin/service iptables start}
-  updateChefRbs
-  $CHANGES << "chefcerts"
 else
-  File.unlink(tmpfile)
   updateChefRbs
 end
 
-if $IN_AWS
+if $IN_AWS and AMROOT
   system("#{MU_BASE}/lib/bin/mu-aws-setup --dns --sg --logs")
 # XXX --ip? Do we really care?
 end
 
 if $INITIALIZE or $CHANGES.include?("chefcerts")
   system("rm -f #{HOMEDIR}/.chef/trusted_certs/* ; knife ssl fetch -c #{HOMEDIR}/.chef/knife.rb")
-  system("rm -f /etc/chef/trusted_certs/* ; knife ssl fetch -c /etc/chef/client.rb")
+  if AMROOT
+    system("rm -f /etc/chef/trusted_certs/* ; knife ssl fetch -c /etc/chef/client.rb")
+  end
 end
+
 # knife ssl fetch isn't bright enough to nab our intermediate certs, which
-# ironically becomes a problem when we use one from the real world. Jam it into
-# knife and chef-client's faces thusly:
+# ironically becomes a problem when we use one from the real world. Jam it
+# into knife and chef-client's faces thusly:
 if $MU_CFG['ssl'] and $MU_CFG['ssl']['chain'] and File.size?($MU_CFG['ssl']['chain'])
   cert = File.basename($MU_CFG['ssl']['chain'])
   FileUtils.cp($MU_CFG['ssl']['chain'], HOMEDIR+"/.chef/trusted_certs/#{cert}")
-  FileUtils.cp($MU_CFG['ssl']['chain'], "/etc/chef/trusted_certs/#{cert}")
+  File.chmod(0600, HOMEDIR+"/.chef/trusted_certs/#{cert}")
+  if AMROOT
+    FileUtils.cp($MU_CFG['ssl']['chain'], "/etc/chef/trusted_certs/#{cert}")
+  end
 end
 
 if $MU_CFG['repos'] and $MU_CFG['repos'].size > 0
   $MU_CFG['repos'].each { |repo|
-    repo.match(/\/([^\/]+)(\.git)?$/)
+    repo.match(/\/([^\/]+?)(\.git)?$/)
     shortname = Regexp.last_match(1)
-    if !Dir.exists?("#{MU_BASE}/var/#{shortname}")
-      MU.log "Cloning #{repo} into #{MU_BASE}/var/#{shortname}", MU::NOTICE
-      Dir.chdir("#{MU_BASE}/var")
+    repodir = MU.dataDir + "/" + shortname
+    if !Dir.exists?(repodir)
+      MU.log "Cloning #{repo} into #{repodir}", MU::NOTICE
+      Dir.chdir(MU.dataDir)
       system("/usr/bin/git clone #{repo}")
       $CHANGES << "chefartifacts"
     end
   }
+end
+
+if !AMROOT
+  exit
 end
 
 begin
