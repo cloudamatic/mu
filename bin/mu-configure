@@ -783,7 +783,10 @@ end
 
 if AMROOT
   MU.log "Checking internal SSL signing authority and certificates", MU::NOTICE
-  system("chef-client -o 'recipe[mu-master::ssl-certs]'")
+  if !system("chef-client -o 'recipe[mu-master::ssl-certs]'") and $INITIALIZE
+    MU.log "Got bad exit code trying to run recipe[mu-master::ssl-certs]', aborting", MU::ERR
+    exit 1
+  end
 end
 
 def updateChefRbs
@@ -831,9 +834,10 @@ if AMROOT
     end
     MU.log "Chef Server config was modified, reconfiguring...", MU::NOTICE
     # XXX Some undocumented port Chef needs only on startup is being blocked by
-    # iptables. Something rabbitmq-related.
+    # iptables. Something rabbitmq-related. Dopey workaround.
     %x{/sbin/service iptables stop}
     system("/opt/opscode/bin/chef-server-ctl reconfigure")
+    system("/opt/opscode/bin/chef-server-ctl restart")
     %x{/sbin/service iptables start}
     updateChefRbs
     $CHANGES << "chefcerts"
