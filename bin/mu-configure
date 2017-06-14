@@ -921,7 +921,7 @@ if $MU_CFG['ldap']['type'] == "389 Directory Services"
     File.unlink("/root/389ds.tmp/389-directory-setup.inf") if File.exists?("/root/389ds.tmp/389-directory-setup.inf")
     MU.log "Configuring 389 Directory Services", MU::NOTICE
     set389DSCreds
-    system("chef-client -o 'recipe[mu-master::389ds]'")
+    system("chef-client -o 'recipe[mu-master::389ds],recipe[mu-master::sssd]'")
     MU::Master::LDAP.initLocalLDAP
   end
 end

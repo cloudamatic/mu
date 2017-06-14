@@ -43,72 +43,7 @@ if !node.update_nagios_only
   include_recipe 'chef-vault'
   if $MU_CFG.has_key?('ldap')
     if $MU_CFG['ldap']['type'] == "389 Directory Services" and Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG['host_name']}")
-      include_recipe "mu-master::389ds"
-
-      package "sssd"
-      package "sssd-ldap"
-      package "nss-pam-ldapd" do
-        action :remove
-      end
-      package "pam_ldap" do
-        action :remove
-      end
-      service "messagebus" do
-        action [:enable, :start]
-      end
-      package "nscd"
-      service "nscd" do
-        action [:disable, :stop]
-      end
-      package "oddjob-mkhomedir"
-      execute "restorecon -r /usr/sbin"
-
-      # SELinux Policy for oddjobd and its interaction with syslogd
-      cookbook_file "syslogd_oddjobd.pp" do
-        path "#{Chef::Config[:file_cache_path]}/syslogd_oddjobd.pp"
-      end
-
-      execute "Add oddjobd and syslogd interaction to SELinux allow list" do
-        command "/usr/sbin/semodule -i syslogd_oddjobd.pp"
-        cwd Chef::Config[:file_cache_path]
-        not_if "/usr/sbin/semodule -l | grep syslogd_oddjobd"
-        notifies :restart, "service[oddjobd]", :delayed
-      end
-
-      service "oddjobd" do
-        start_command "sh -x /etc/init.d/oddjobd start" if %w{redhat centos}.include?(node['platform']) && node['platform_version'].to_i == 6  # seems to actually work
-        action [:enable, :start]
-      end
-      execute "/usr/sbin/authconfig --disablenis --disablecache --disablewinbind --disablewinbindauth --enablemkhomedir --disablekrb5 --enablesssd --enablesssdauth --enablelocauthorize --disableforcelegacy --disableldap --disableldapauth --updateall" do
-        notifies :restart, "service[oddjobd]", :immediately
-        notifies :reload, "service[sshd]", :delayed
-        not_if "grep pam_sss.so /etc/pam.d/password-auth"
-      end
-      service "sssd" do
-        action :nothing
-        notifies :restart, "service[sshd]", :immediately
-      end
-      template "/etc/sssd/sssd.conf" do
-        source "sssd.conf.erb"
-        mode 0600
-        notifies :restart, "service[sssd]", :immediately
-        variables(
-          :base_dn => $MU_CFG['ldap']['base_dn'],
-          :user_ou => $MU_CFG['ldap']['user_ou'],
-          :dcs => $MU_CFG['ldap']['dcs']
-        )
-      end
-      service "sssd" do
-        action [:enable, :start]
-        notifies :restart, "service[sshd]", :immediately
-      end
-
-  #    cookbook_file "/etc/pam.d/sshd" do
-  #      source "pam_sshd"
-  #      mode 0644
-  #      notifies :reload, "service[sshd]", :delayed
-  #    end
-
+      include_recipe 'mu-master::sssd'
     elsif $MU_CFG['ldap']['type'] == "Active Directory"
       node.normal.ad = {}
       node.normal.ad.computer_name = "MU-MASTER"
