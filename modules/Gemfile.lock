@@ -162,7 +162,7 @@ GEM
       plist (~> 3.1)
       systemu (~> 2.6.4)
       wmi-lite (~> 1.0)
-    pg (0.20.0)
+    pg (0.21.0)
     plist (3.3.0)
     proxifier (1.0.3)
     public_suffix (2.0.5)
@@ -230,7 +230,7 @@ GEM
       sfl
     syslog-logger (1.6.8)
     systemu (2.6.5)
-    thin (1.7.0)
+    thin (1.7.1)
       daemons (~> 1.0, >= 1.0.9)
       eventmachine (~> 1.0, >= 1.0.4)
       rack (>= 1, < 3)

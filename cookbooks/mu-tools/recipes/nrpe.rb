@@ -22,10 +22,6 @@ if !node[:application_attributes][:skip_recipes].include?('nrpe')
     master_ips << "127.0.0.1"
     master_ips.uniq!
   
-    service "nrpe" do
-      action [:enable, :start]
-    end
-  
     include_recipe "mu-tools::set_local_fw"
   
     template "/etc/nagios/nrpe.cfg" do
@@ -35,6 +31,10 @@ if !node[:application_attributes][:skip_recipes].include?('nrpe')
         :master_ips => master_ips
       )
       notifies :restart, "service[nrpe]", :delayed
+    end
+  
+    service "nrpe" do
+      action [:enable, :start]
     end
   
     directory "/etc/nagios/nrpe.d" do

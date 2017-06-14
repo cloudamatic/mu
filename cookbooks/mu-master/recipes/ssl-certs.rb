@@ -31,7 +31,9 @@ template "#{$MU_CFG['datadir']}/ssl/openssl.cnf" do
   mode 0644
   variables(
     :mu_ssl_dir => "#{$MU_CFG['datadir']}/ssl",
-    :alt_names => [$MU_CFG['public_address'], "127.0.0.1", node.fqdn, node.hostname, node['local_hostname'], node['local_ipv4'], node['public_hostname'], node['public_ipv4']].uniq
+    # XXX I feel like including localhost here is bad but I can't justify that
+    # feeling, and 389ds really wants it, so for now it stays.
+    :alt_names => [$MU_CFG['public_address'], "localhost", "127.0.0.1", node['fqdn'], node['hostname'], node['local_hostname'], node['local_ipv4'], node['public_hostname'], node['public_ipv4']].uniq
   )
   notifies :delete, "file[#{$MU_CFG['datadir']}/ssl/Mu_CA.pem]", :immediately
 end
