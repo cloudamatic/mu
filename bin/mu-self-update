@@ -153,6 +153,9 @@ else
   git pull origin $branch
   set -e
 fi
+git config branch.${branch}.remote origin
+git config branch.${branch}.merge refs/heads/$branch
+
 
 if [ "`diff -r $MU_LIBDIR/cookbooks $MU_DATADIR/tmp/cookbook_changes.$$`" != "" ];then
 	rebuild_chef_artifacts=1
