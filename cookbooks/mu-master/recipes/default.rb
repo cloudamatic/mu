@@ -413,10 +413,6 @@ if !node.update_nagios_only
     end
   }
 
-  execute "chcon -R -h -t var_log_t /Mu_Logs" do
-    notifies :restart, "service[rsyslog]", :delayed
-  end
-
   package "logrotate"
 
   file "/etc/logrotate.d/Mu_audit_logs" do
