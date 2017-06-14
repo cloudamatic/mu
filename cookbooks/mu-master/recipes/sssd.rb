@@ -21,6 +21,7 @@ include_recipe "mu-master::389ds"
 
 package "sssd"
 package "sssd-ldap"
+package "sssd-client"
 package "nss-pam-ldapd" do
   action :remove
 end
