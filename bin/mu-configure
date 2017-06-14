@@ -926,12 +926,6 @@ if $MU_CFG['ldap']['type'] == "389 Directory Services"
   end
 end
 
-if !File.exists?("#{MU_BASE}/var/users/mu/email") or !File.exists?("#{MU_BASE}/var/users/mu/realname")
-  # Turn our stub system user 'mu' into a real boy.
-  MU.log "Finalizing the 'mu' Chef/LDAP account", MU::NOTICE
-  system("#{MU_BASE}/lib/bin/mu-user-manage mu -a -s -e '#{$MU_CFG['mu_admin_email']}' -l mu -n '#{$MU_CFG['mu_admin_name']}' -g --no-scratchpad --no-notify-user")
-end
-
 if $MU_CFG['jenkins'] and $MU_CFG['jenkins']['enable']
   MU::Groomer::Chef.loadChefLib
   chef_node = ::Chef::Node.load("MU-MASTER")
@@ -991,6 +985,12 @@ end
 MU.log "Running chef-client on MU-MASTER", MU::NOTICE
 system("chef-client -o '#{run_list.join(",")}'")
 
+
+if !File.exists?("#{MU_BASE}/var/users/mu/email") or !File.exists?("#{MU_BASE}/var/users/mu/realname")
+  # Turn our stub system user 'mu' into a real boy.
+  MU.log "Finalizing the 'mu' Chef/LDAP account", MU::NOTICE
+  system("#{MU_BASE}/lib/bin/mu-user-manage mu -a -s -e '#{$MU_CFG['mu_admin_email']}' -l mu -n '#{$MU_CFG['mu_admin_name']}' -g --no-scratchpad --no-notify-user")
+end
 
 if $INITIALIZE
   MU.log "Setting password for admin user 'mu', for logging into Nagios and other built-in services.", MU::NOTICE
