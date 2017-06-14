@@ -99,6 +99,7 @@ module MU
       rescue ArgumentError
         return false
       end
+      chef_username ||= username.dup
       %x{/bin/su - #{username} -c "ls > /dev/null"}
       if !MU::Master::Chef.manageUser(chef_username, ldap_user: username, name: name, email: email, admin: admin, orgs: orgs, remove_orgs: remove_orgs) and create
         deleteUser(username) if create

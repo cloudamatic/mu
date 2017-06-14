@@ -35,21 +35,24 @@ ruby_block 'wait for jenkins' do
   action :nothing
 end
 
+
 # If security was enabled in a previous chef run then set the private key in the run_state
 # now as required by the Jenkins cookbook
+if node['application_attributes']['jenkins_auth_set']
 ruby_block 'set jenkins private key' do
   block do
     Chef::Log.info("Setting the previously enabled jenkins private key")
     node.run_state[:jenkins_private_key] = admin_vault['private_key'].strip
   end
 end
+end
 
 restart_jenkins = false
 
 node['jenkins_plugins'].each { |plugin|
-  if !::File.exists?("#{node['jenkins']['master']['home']}/plugins/#{plugin}.jpi")
-    restart_jenkins = true
-  end
+#  if !::File.exists?("#{node['jenkins']['master']['home']}/plugins/#{plugin}.jpi")
+#    restart_jenkins = true
+#  end
   jenkins_plugin plugin
   # do
     # notifies :restart, 'service[jenkins]', :delayed
@@ -57,11 +60,14 @@ node['jenkins_plugins'].each { |plugin|
   # end
 }
 
-jenkins_command 'safe-restart' if restart_jenkins
-
-
-log "********************* #{admin_vault['username']} **************"
-
+if !node['application_attributes']['jenkins_auth_set']
+  jenkins_command 'safe-restart'
+  jenkins_private_key_credentials admin_vault['username'] do
+    id '1671945-9fa7-4d24-ac87-51ea3b2aef4c'
+    description admin_vault['username']
+    private_key admin_vault['private_key'].strip
+  end
+end
 
 # The Jenkins service user that this cookbook uses MUST exist in our directory
 mu_master_user admin_vault['username'] do
@@ -80,11 +86,6 @@ jenkins_user admin_vault['username'] do
   #not_if { node['application_attributes'].attribute?('jenkins_auth_set') }
 end
 
-jenkins_private_key_credentials admin_vault['username'] do
-  id '1671945-9fa7-4d24-ac87-51ea3b2aef4c'
-  description admin_vault['username']
-  private_key admin_vault['private_key'].strip
-end
 
 # Configure the permissions so that login is required and the admin user is an administrator
 # after this point the private key will be required to execute jenkins scripts (including querying
