@@ -42,7 +42,7 @@ if [ -z $MU_DATADIR ];then
     MU_DATADIR=/opt/mu/var
 fi
 
-source $MU_INSTALLDIR/lib/install/mu_setup
+source $MU_INSTALLDIR/lib/install/deprecated-bash-library.sh
 
 cd $MU_CHEF_CACHE
 

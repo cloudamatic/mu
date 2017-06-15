@@ -513,8 +513,7 @@ module MU
     ).subnets
   end
 
-  # The version of Chef we will install on nodes (note- not the same as what
-  # we intall on ourself, which comes from install/mu_setup).
+  # The version of Chef we will install on nodes.
   @@chefVersion = "12.20.3-1"
   # The version of Chef we will install on nodes.
   # @return [String]
