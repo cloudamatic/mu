@@ -37,6 +37,9 @@ service "nscd" do
 end
 package "oddjob-mkhomedir"
 execute "restorecon -r /usr/sbin"
+service "sshd" do
+  action :nothing
+end
 
 # SELinux Policy for oddjobd and its interaction with syslogd
 cookbook_file "syslogd_oddjobd.pp" do
