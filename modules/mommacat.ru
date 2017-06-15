@@ -16,38 +16,10 @@ require 'pp'
 require 'base64'
 require 'etc'
 
-# Load our configuration settings directly, rather than depending on our
-# invoking environment having been completely sane. Really we shouldn't be
-# doing much with the environment at all...
-# @param path [String]: The path to a .murc file to load.
-# @return [void]
-def parseRCFile(path)
-  if File.readable?(path)
-    File.readlines(path).each { |line|
-      line.strip!
-      name, value = line.split(/=/, 2)
-      name.sub!(/^export /, "")
-      if !value.nil? and !value.empty?
-        value.gsub!(/(^"|"$)/, "")
-        ENV[name] = value if !value.match(/\$/)
-        puts "Setting MURC variable #{name}=#{value}"
-      end
-    }
-  end
-end
-
-if ENV.include?('MU_INSTALLDIR')
-  parseRCFile ENV['MU_INSTALLDIR']+"/etc/mu.rc"
-else
-  parseRCFile "/opt/mu/etc/mu.rc"
-end
-
 home = Etc.getpwuid(Process.uid).dir
-parseRCFile "#{home}/.murc"
 
 if !ENV.include?('MU_INSTALLDIR')
-  puts "Environment isn't set and I can't find a useful .murc, aborting."
-  exit 1
+  ENV['MU_INSTALLDIR'] = "/opt/mu"
 end
 if !ENV.include?('MU_LIBDIR')
   ENV['MU_LIBDIR'] = ENV['MU_INSTALLDIR']+"/lib"
