@@ -255,14 +255,18 @@ module MU
     def self.setLocalDataPerms(user)
       userdir = $MU_CFG['datadir']+"/users/#{user}"
       retries = 0
+      user = "root" if user == "mu"
       begin
-        MU.log "/usr/sbin/usermod -a -G '#{user}.mu-user' '#{user}'", MU::DEBUG
-        %x{/usr/sbin/usermod -a -G "#{user}.mu-user" "#{user}"}
+        group = user == "root" ? Etc.getgrgid(0) : "#{user}.mu-user"
+        if user != "root"
+          MU.log "/usr/sbin/usermod -a -G '#{group}' '#{user}'", MU::DEBUG
+          %x{/usr/sbin/usermod -a -G "#{group}" "#{user}"}
+        end
         Dir.mkdir(userdir, 2750) if !Dir.exist?(userdir)
 				# XXX mkdir gets the perms wrong for some reason
         MU.log "/bin/chmod 2750 #{userdir}", MU::DEBUG
         %x{/bin/chmod 2750 #{userdir}}
-        gid = Etc.getgrnam("#{user}.mu-user").gid
+        gid = user == "root" ? 0 : Etc.getgrnam(group).gid
         Dir.foreach(userdir) { |file|
           next if file == ".."
           File.chown(nil, gid, userdir+"/"+file)

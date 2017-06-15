@@ -907,7 +907,7 @@ module MU
               sleep wait
               wait = wait + 5
               retry
-            end
+            end if user != "mu"
             %x{/sbin/restorecon -r /home} # SELinux stupidity that oddjob misses
             MU::Master.setLocalDataPerms(user) if Etc.getpwuid(Process.uid).name == "root" and mu_acct
           else
