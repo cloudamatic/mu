@@ -19,10 +19,15 @@
 require 'mu'
 
 action :add do
-  password = new_resource.password || MU.generateWindowsPassword
+  allusers = MU::Master.listUsers
+  password = nil
+  if !allusers.has_key?(new_resource.username)
+    password = new_resource.password || MU.generateWindowsPassword
+  end
   ::MU::Master.manageUser(
     new_resource.username,
     name: new_resource.realname,
+    password: password,
     email: new_resource.email,
     admin: new_resource.admin,
     orgs: new_resource.orgs,

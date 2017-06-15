@@ -89,13 +89,13 @@ usage()
 }
 
 _me="`basename $0`"
-if  [ "$_me" == "mu-configure" ];then
-  chef_artifacts_uploaded=1
-  if [ -d "$MU_LIBDIR/.git" ]; then
-    cd $MU_LIBDIR
-    MUBRANCH="`git branch 2>/dev/null | egrep '^\*' |cut -d' ' -f2`"
-  fi
-fi
+#if  [ "$_me" == "mu-configure" ];then
+#  chef_artifacts_uploaded=1
+#  if [ -d "$MU_LIBDIR/.git" ]; then
+#    cd $MU_LIBDIR
+#    MUBRANCH="`git branch 2>/dev/null | egrep '^\*' |cut -d' ' -f2`"
+#  fi
+#fi
 
 if [ "$_me" == "mu-self-update" ];then
   library=1
@@ -1461,17 +1461,17 @@ install_mu_executables()
 
   status_message "Installing/updating Mu executables"
 
-  if [ "$_me" == "mu-self-update" ];then
+#  if [ "$_me" == "mu-self-update" ];then
 # XXX need to test this a different way
-    if [ "`diff $MU_LIBDIR/bin/$_me $MU_INSTALLDIR/bin/$_me`" != "" -o "`diff $MU_LIBDIR/install/mu_setup $MU_INSTALLDIR/bin/mu-configure`" != "" ];then
-      status_message "We're updating $_me, and $_me has changed." "Re-invoking as ${BOLD}$MU_LIBDIR/bin/$_me $@${NORM}"
-      /bin/cp -f $MU_LIBDIR/bin/$_me $MU_INSTALLDIR/bin/$_me
-      /bin/cp -f $MU_LIBDIR/install/mu_setup $MU_INSTALLDIR/bin/mu-configure
-      chmod 0755 $MU_INSTALLDIR/bin/$_me $MU_INSTALLDIR/bin/mu-configure
-      exec $MU_LIBDIR/bin/$_me $1 $2 $3 $4 $5 $6 $7 $8 $9
-      exit
-    fi
-  fi
+#    if [ "`diff $MU_LIBDIR/bin/$_me $MU_INSTALLDIR/bin/$_me`" != "" -o "`diff $MU_LIBDIR/install/mu_setup $MU_INSTALLDIR/bin/mu-configure`" != "" ];then
+#      status_message "We're updating $_me, and $_me has changed." "Re-invoking as ${BOLD}$MU_LIBDIR/bin/$_me $@${NORM}"
+#      /bin/cp -f $MU_LIBDIR/bin/$_me $MU_INSTALLDIR/bin/$_me
+#      /bin/cp -f $MU_LIBDIR/install/mu_setup $MU_INSTALLDIR/bin/mu-configure
+#      chmod 0755 $MU_INSTALLDIR/bin/$_me $MU_INSTALLDIR/bin/mu-configure
+#      exec $MU_LIBDIR/bin/$_me $1 $2 $3 $4 $5 $6 $7 $8 $9
+#      exit
+#    fi
+#  fi
 
   rm -rf $MU_INSTALLDIR/bin/*
 
@@ -1485,7 +1485,7 @@ install_mu_executables()
   done
 
   /bin/cp -f $MU_LIBDIR/bin/mu-self-update $MU_INSTALLDIR/bin/mu-self-update
-  /bin/cp -f $MU_LIBDIR/install/mu_setup $MU_INSTALLDIR/bin/mu-configure
+#  /bin/cp -f $MU_LIBDIR/install/mu_setup $MU_INSTALLDIR/bin/mu-configure
   chmod 0755 $MU_INSTALLDIR/bin/mu-self-update $MU_INSTALLDIR/bin/mu-configure
 
   # ...and make sure the flippin' link to mu-cli-lib.rb is right.
