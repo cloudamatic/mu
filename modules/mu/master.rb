@@ -256,12 +256,12 @@ module MU
       userdir = $MU_CFG['datadir']+"/users/#{user}"
       retries = 0
       begin
-        puts "/usr/sbin/usermod -a -G '#{user}.mu-user' '#{user}'"
-        puts %x{/usr/sbin/usermod -a -G "#{user}.mu-user" "#{user}"}
+        MU.log "/usr/sbin/usermod -a -G '#{user}.mu-user' '#{user}'", MU::DEBUG
+        %x{/usr/sbin/usermod -a -G "#{user}.mu-user" "#{user}"}
         Dir.mkdir(userdir, 2750) if !Dir.exist?(userdir)
 				# XXX mkdir gets the perms wrong for some reason
-        puts "/bin/chmod 2750 #{userdir}"
-        puts %x{/bin/chmod 2750 #{userdir}}
+        MU.log "/bin/chmod 2750 #{userdir}", MU::DEBUG
+        %x{/bin/chmod 2750 #{userdir}}
         gid = Etc.getgrnam("#{user}.mu-user").gid
         Dir.foreach(userdir) { |file|
           next if file == ".."
