@@ -979,7 +979,7 @@ module MU
         end
         return ok if !mu_acct # everything below is Mu-specific
 
-        cur_users = findUsers([user], exact: true)
+        cur_users = listUsers
         if cur_users.has_key?(user)
           ["realname", "email", "monitoring_email"].each { |field|
             next if !cur_users[user].has_key?(field)
