@@ -6,6 +6,6 @@ if [ "`whoami`" == "root" ];then
 	scriptpath="`dirname $0`"
 	library=1
 	# assume we're in Mu's LIBDIR in .git/hooks
-	source "`dirname $0`"/../../install/install/deprecated-bash-library.sh
+	source "`dirname $0`"/../../install/deprecated-bash-library.sh
 	set_permissions "skip_rubies"
 fi
