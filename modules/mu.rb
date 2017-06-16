@@ -345,6 +345,7 @@ module MU
   # Fetch the email address of a given Mu user
   def self.userEmail(user = MU.mu_user)
     @userlist ||= MU::Master.listUsers
+    user = "mu" if user == "root"
     if Dir.exists?("#{MU.mainDataDir}/users/#{user}")
       return File.read("#{MU.mainDataDir}/users/#{user}/email").chomp
     elsif @userlist.has_key?(user)
