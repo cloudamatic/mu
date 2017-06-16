@@ -32,6 +32,13 @@ master_ips.each { |host|
   firewall_rule "Mu Master ports for self (#{host})" do
     source "#{host}/32"
   end
+  if host.match(/^(?:10\.|172\.(1[6789]|2[0-9]|3[01])\.|192\.168\.)/)
+    hostsfile_entry host do
+      hostname $MU_CFG['host_name']
+      aliases [node['name'], "MU-MASTER"]
+      action :append
+    end
+  end
 }
 
 if !node.update_nagios_only
@@ -174,6 +181,7 @@ if !node.update_nagios_only
     not_if "/usr/sbin/getsebool httpd_can_network_connect | grep -cim1 ^.*on$"
     notifies :reload, "service[apache2]", :delayed
   end
+
 
   web_app "mu_docs" do
     server_name svrname
@@ -422,6 +430,7 @@ if !node.update_nagios_only
 
   # This is stuff that can break for no damn reason at all
   include_recipe "mu-tools::cloudinit"
+
 
   begin
     node.normal[:mu][:user_map] = MU::Master.listUsers

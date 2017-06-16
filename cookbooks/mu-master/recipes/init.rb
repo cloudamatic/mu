@@ -33,7 +33,11 @@ CHEF_CLIENT_VERSION="12.20.3-1"
 KNIFE_WINDOWS="1.8.0"
 MU_BRANCH="its_all_your_vault"
 MU_BASE="/opt/mu"
-SSH_USER="root"
+if File.read("/etc/ssh/sshd_config").match(/^AllowUsers\s+([^\s]+)(?:\s|$)/)
+  SSH_USER = Regexp.last_match[1].chomp
+else
+  SSH_USER="root"
+end
 RUNNING_STANDALONE=node[:application_attributes].nil?
 
 execute "stop iptables" do
@@ -142,10 +146,6 @@ if platform_family?("rhel")
 
 else
   raise "Mu Masters are currently only supported on RHEL-family hosts."
-end
-
-if File.read("/etc/ssh/sshd_config").match(/^AllowUser\s+([^\s]+)(?: |$)/)
-  SSH_USER=Regexp.last_match[1].chomp
 end
 
 package basepackages
@@ -377,21 +377,28 @@ end
 
 
 # Rig us up for a knife bootstrap
-SSH_DIR="#{Etc.getpwnam(SSH_USER).dir}/.ssh"
+SSH_DIR = "#{Etc.getpwnam(SSH_USER).dir}/.ssh"
+ROOT_SSH_DIR = "#{Etc.getpwuid(0).dir}/.ssh"
 directory SSH_DIR do
   mode 0700
+  user SSH_USER
+end
+if SSH_DIR != ROOT_SSH_DIR
+  directory ROOT_SSH_DIR do
+    mode 0700
+  end
 end
 bash "add localhost ssh to authorized_keys and config" do
   code <<-EOH
-    cat #{SSH_DIR}/id_rsa.pub >> #{SSH_DIR}/authorized_keys
-    echo "Host localhost" >> #{SSH_DIR}/config
-    echo "  IdentityFile #{SSH_DIR}/id_rsa" >> #{SSH_DIR}/config
+    cat #{ROOT_SSH_DIR}/id_rsa.pub >> #{SSH_DIR}/authorized_keys
+    echo "Host localhost" >> #{ROOT_SSH_DIR}/config
+    echo "  IdentityFile #{ROOT_SSH_DIR}/id_rsa" >> #{ROOT_SSH_DIR}/config
   EOH
   action :nothing
 end
-execute "ssh-keygen -N '' -f #{SSH_DIR}/id_rsa" do
+execute "ssh-keygen -N '' -f #{ROOT_SSH_DIR}/id_rsa" do
   umask 0177
-  not_if { ::File.exists?("#{SSH_DIR}/id_rsa") }
+  not_if { ::File.exists?("#{ROOT_SSH_DIR}/id_rsa") }
   notifies :run, "bash[add localhost ssh to authorized_keys and config]", :immediately
 end
 file "/etc/chef/client.pem" do
