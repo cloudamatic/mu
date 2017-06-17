@@ -869,6 +869,7 @@ if $MU_CFG['ssl'] and $MU_CFG['ssl']['chain'] and File.size?($MU_CFG['ssl']['cha
   FileUtils.cp($MU_CFG['ssl']['chain'], HOMEDIR+"/.chef/trusted_certs/#{cert}")
   File.chmod(0600, HOMEDIR+"/.chef/trusted_certs/#{cert}")
   if AMROOT
+    File.chmod(0644, $MU_CFG['ssl']['chain'])
     FileUtils.cp($MU_CFG['ssl']['chain'], "/etc/chef/trusted_certs/#{cert}")
   end
 end

@@ -263,6 +263,9 @@ end
   link "#{MU_BASE}/bin/#{exe}" do
     to "#{MU_BASE}/lib/bin/#{exe}"
   end
+  file "#{MU_BASE}/lib/bin/#{exe}" do
+    mode 0755
+  end
 }
 remote_file "#{MU_BASE}/bin/mu-self-update" do
   source "file://#{MU_BASE}/lib/bin/mu-self-update"
