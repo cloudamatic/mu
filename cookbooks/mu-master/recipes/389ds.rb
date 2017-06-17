@@ -98,7 +98,11 @@ file "/root/389ds.tmp/blank" do
   action :nothing
 end
 execute "389ds cert util" do
-  command "/usr/bin/certutil -d /etc/dirsrv/slapd-#{$MU_CFG["hostname"]} -A -n \"Mu Master CA\" -t CT,, -a -i /opt/mu/var/ssl/Mu_CA.pem"
+  if $MU_CFG['ssl'] and $MU_CFG['ssl']['chain']
+    command "/usr/bin/certutil -d /etc/dirsrv/slapd-#{$MU_CFG["hostname"]} -A -n \"Mu Master CA\" -t CT,, -a -i #{$MU_CFG['ssl']['chain']}"
+  else
+    command "/usr/bin/certutil -d /etc/dirsrv/slapd-#{$MU_CFG["hostname"]} -A -n \"Mu Master CA\" -t CT,, -a -i /opt/mu/var/ssl/Mu_CA.pem"
+  end
   action :nothing
   notifies :restart, "service[#{service_name}]", :delayed
 end
