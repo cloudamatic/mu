@@ -990,6 +990,7 @@ system("chef-client -o '#{run_list.join(",")}'")
 
 if !File.exists?("#{MU_BASE}/var/users/mu/email") or !File.exists?("#{MU_BASE}/var/users/mu/realname")
   MU.log "Finalizing the 'mu' Chef/LDAP account", MU::NOTICE
+  MU.setLogging(MU::Logger::SILENT)
   MU::Master.manageUser(
     "mu",
     name: $MU_CFG['mu_admin_name'],
@@ -997,6 +998,7 @@ if !File.exists?("#{MU_BASE}/var/users/mu/email") or !File.exists?("#{MU_BASE}/v
     admin: true,
     password: MU.generateWindowsPassword # we'll just overwrite this and do it with mu-user-manage below, which can do smart things with Scratchpad
   )
+  MU.setLogging(MU::Logger::NORMAL)
 end
 
 if $INITIALIZE
