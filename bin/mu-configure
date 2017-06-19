@@ -773,7 +773,9 @@ end
 # local firewall ports).
 if AMROOT and ($INITIALIZE or $CHANGES.include?("chefartifacts"))
   MU.log "Purging and re-uploading all Chef artifacts", MU::NOTICE
+  %x{/sbin/service iptables stop} if $INITIALIZE
   output = %x{MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts}
+  %x{/sbin/service iptables start} if $INITIALIZE
   if $?.exitstatus != 0
     puts output
     MU.log "mu-upload-chef-artifacts failed, can't proceed", MU::ERR
@@ -1004,6 +1006,7 @@ if !File.exists?("#{MU_BASE}/var/users/mu/email") or !File.exists?("#{MU_BASE}/v
     password: MU.generateWindowsPassword # we'll just overwrite this and do it with mu-user-manage below, which can do smart things with Scratchpad
   )
   MU.setLogging(MU::Logger::NORMAL)
+  sleep 3 # avoid LDAP lag for mu-user-manage
 end
 
 if $INITIALIZE

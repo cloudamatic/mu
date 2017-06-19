@@ -344,7 +344,10 @@ end
 execute "initial Chef artifact upload" do
   command "MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts"
   action :nothing
+  notifies :run, "execute[stop iptables]", :before
   notifies :run, "execute[knife ssl fetch]", :before
+  notifies :run, "execute[start iptables]", :immediately
+  only_if { RUNNING_STANDALONE }
 end
 chef_gem "simple-password-gen" do
   compile_time true
