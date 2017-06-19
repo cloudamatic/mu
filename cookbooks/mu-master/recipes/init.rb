@@ -58,14 +58,14 @@ directory "/var/run/postgresql" do
   group "opscode-pgsql"
   action :nothing
 end
-link "/tmp/.s.PGSQL.5432" do
-  to "/var/run/postgresql/.s.PGSQL.5432"
-  owner "opscode-pgsql"
-  group "opscode-pgsql"
-  action :nothing
-  only_if { !::File.exists?("/tmp/.s.PGSQL.5432") }
-  only_if { ::File.exists?("/var/run/postgresql/.s.PGSQL.5432") }
-end
+#link "/tmp/.s.PGSQL.5432" do
+#  to "/var/run/postgresql/.s.PGSQL.5432"
+#  owner "opscode-pgsql"
+#  group "opscode-pgsql"
+#  action :nothing
+#  only_if { !::File.exists?("/tmp/.s.PGSQL.5432") }
+#  only_if { ::File.exists?("/var/run/postgresql/.s.PGSQL.5432") }
+#end
 link "/var/run/postgresql/.s.PGSQL.5432" do
   to "/tmp/.s.PGSQL.5432"
   owner "opscode-pgsql"
@@ -73,7 +73,7 @@ link "/var/run/postgresql/.s.PGSQL.5432" do
   action :nothing
   notifies :create, "directory[/var/run/postgresql]", :before
   only_if { !::File.exists?("/var/run/postgresql/.s.PGSQL.5432") }
-  only_if { ::File.exists?("/tmp/.s.PGSQL.5432") }
+#  only_if { ::File.exists?("/tmp/.s.PGSQL.5432") }
 end
 execute "Chef Server rabbitmq workaround" do
   # This assumes we get clean stop, which *should* be the case if we execute
@@ -88,7 +88,7 @@ execute "reconfigure Chef server" do
   command "/opt/opscode/bin/chef-server-ctl reconfigure"
   action :nothing
   notifies :run, "execute[stop iptables]", :before
-  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
+#  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
   notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
   notifies :restart, "service[chef-server]", :immediately
   notifies :run, "execute[start iptables]", :immediately
@@ -100,7 +100,7 @@ execute "upgrade Chef server" do
   timeout 1200 # this can take a while
   notifies :run, "execute[stop iptables]", :before
   notifies :run, "execute[Chef Server rabbitmq workaround]", :before
-  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
+#  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
   notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
   notifies :run, "execute[start iptables]", :immediately
   only_if { RUNNING_STANDALONE }
@@ -111,7 +111,7 @@ service "chef-server" do
   start_command "/opt/opscode/bin/chef-server-ctl start"
   pattern "/opt/opscode/embedded/sbin/nginx"
   action :nothing
-  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
+#  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
   notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
   notifies :run, "execute[stop iptables]", :before
   notifies :run, "execute[start iptables]", :immediately
