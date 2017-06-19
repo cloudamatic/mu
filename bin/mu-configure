@@ -894,6 +894,7 @@ if $MU_CFG['ssl'] and $MU_CFG['ssl']['chain'] and File.size?($MU_CFG['ssl']['cha
   FileUtils.cp($MU_CFG['ssl']['chain'], HOMEDIR+"/.chef/trusted_certs/#{cert}")
   File.chmod(0600, HOMEDIR+"/.chef/trusted_certs/#{cert}")
   if AMROOT
+    File.chmod(0644, $MU_CFG['ssl']['chain'])
     FileUtils.cp($MU_CFG['ssl']['chain'], "/etc/chef/trusted_certs/#{cert}")
   end
 end
@@ -1013,13 +1014,18 @@ system("chef-client -o '#{run_list.join(",")}'")
 
 
 if !File.exists?("#{MU_BASE}/var/users/mu/email") or !File.exists?("#{MU_BASE}/var/users/mu/realname")
-  # Turn our stub system user 'mu' into a real boy.
   MU.log "Finalizing the 'mu' Chef/LDAP account", MU::NOTICE
-  system("#{MU_BASE}/lib/bin/mu-user-manage mu -a -s -e '#{$MU_CFG['mu_admin_email']}' -l mu -n '#{$MU_CFG['mu_admin_name']}' -g --no-scratchpad --no-notify-user")
+  MU::Master.manageUser(
+    "mu",
+    name: $MU_CFG['mu_admin_name'],
+    email: $MU_CFG['mu_admin_email'],
+    admin: true,
+    password: MU.generateWindowsPassword # we'll just overwrite this and do it with mu-user-manage below, which can do smart things with Scratchpad
+  )
 end
 
 if $INITIALIZE
-  MU.log "Setting password for admin user 'mu', for logging into Nagios and other built-in services.", MU::NOTICE
+  MU.log "Setting initial password for admin user 'mu', for logging into Nagios and other built-in services.", MU::NOTICE
   puts %x{#{MU_BASE}/lib/bin/mu-user-manage -g mu}
   MU.log "If Scratchpad web interface is not accessible, try the following:", MU::NOTICE
   puts "#{MU_BASE}/lib/bin/mu-user-manage -g --no-scratchpad mu".bold

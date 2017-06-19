@@ -54,6 +54,11 @@ execute "create internal SSL CA" do
     notifies :delete, "file[#{$MU_CFG['datadir']}/ssl/#{cert}.crt]", :immediately
   }
 end
+file "remove CA-command.txt if Mu_CA.pem is empty or missing" do
+  path "#{$MU_CFG['datadir']}/ssl/CA-command.txt"
+  action :delete
+  not_if { ::File.size?("#{$MU_CFG['datadir']}/ssl/Mu_CA.pem") }
+end
 file "#{$MU_CFG['datadir']}/ssl/CA-command.txt" do
   content "openssl req -subj \"/CN=#{$MU_CFG['public_address']}/OU=Mu Server #{$MU_CFG['public_address']}/O=eGlobalTech/C=US\" -x509 -new -nodes -key Mu_CA.key -days 1024 -out Mu_CA.pem -sha512 -extensions v3_ca -config #{$MU_CFG['datadir']}/ssl/openssl.cnf"
   mode 0400

@@ -197,6 +197,7 @@ for dir in $MU_LIBDIR /opt/chef/embedded /opt/opscode/embedded /usr/local/ruby-c
     find $dir/$tree -type f -exec chmod go+r {} \;
   done
 done
+chmod go+rx $MU_LIBDIR/bin/*
 
 set -e
 

@@ -33,7 +33,11 @@ CHEF_CLIENT_VERSION="12.20.3-1"
 KNIFE_WINDOWS="1.8.0"
 MU_BRANCH="its_all_your_vault"
 MU_BASE="/opt/mu"
-SSH_USER="root"
+if File.read("/etc/ssh/sshd_config").match(/^AllowUsers\s+([^\s]+)(?:\s|$)/)
+  SSH_USER = Regexp.last_match[1].chomp
+else
+  SSH_USER="root"
+end
 RUNNING_STANDALONE=node[:application_attributes].nil?
 
 execute "stop iptables" do
@@ -144,22 +148,36 @@ else
   raise "Mu Masters are currently only supported on RHEL-family hosts."
 end
 
-if File.read("/etc/ssh/sshd_config").match(/^AllowUser\s+([^\s]+)(?: |$)/)
-  SSH_USER=Regexp.last_match[1].chomp
-end
-
 package basepackages
 
 directory MU_BASE do
   recursive true
   mode 0755
 end
+bash "set git default branch" do
+  cwd "#{MU_BASE}/lib"
+  code <<-EOH
+    git config branch.#{MU_BRANCH}.remote origin
+    git config branch.#{MU_BRANCH}.merge refs/heads/#{MU_BRANCH}
+  EOH
+  action :nothing
+end
 git "#{MU_BASE}/lib" do
   repository "git://github.com/cloudamatic/mu.git"
   revision MU_BRANCH
   not_if { ::Dir.exists?("#{MU_BASE}/lib/.git") }
+  notifies :run, "bash[set git default branch]", :immediately
 end
+
 directory MU_BASE+"/var" do
+  recursive true
+  mode 0755
+end
+directory MU_BASE+"/install" do
+  recursive true
+  mode 0755
+end
+directory MU_BASE+"/deprecated-bash-library.sh" do
   recursive true
   mode 0755
 end
@@ -243,6 +261,9 @@ end
 ["mu-aws-setup", "mu-cleanup", "mu-configure", "mu-deploy", "mu-firewall-allow-clients", "mu-gen-docs", "mu-load-config.rb", "mu-node-manage", "mu-tunnel-nagios", "mu-upload-chef-artifacts", "mu-user-manage", "mu-ssh"].each { |exe|
   link "#{MU_BASE}/bin/#{exe}" do
     to "#{MU_BASE}/lib/bin/#{exe}"
+  end
+  file "#{MU_BASE}/lib/bin/#{exe}" do
+    mode 0755
   end
 }
 remote_file "#{MU_BASE}/bin/mu-self-update" do
@@ -358,21 +379,28 @@ end
 
 
 # Rig us up for a knife bootstrap
-SSH_DIR="#{Etc.getpwnam(SSH_USER).dir}/.ssh"
+SSH_DIR = "#{Etc.getpwnam(SSH_USER).dir}/.ssh"
+ROOT_SSH_DIR = "#{Etc.getpwuid(0).dir}/.ssh"
 directory SSH_DIR do
   mode 0700
+  user SSH_USER
+end
+if SSH_DIR != ROOT_SSH_DIR
+  directory ROOT_SSH_DIR do
+    mode 0700
+  end
 end
 bash "add localhost ssh to authorized_keys and config" do
   code <<-EOH
-    cat #{SSH_DIR}/id_rsa.pub >> #{SSH_DIR}/authorized_keys
-    echo "Host localhost" >> #{SSH_DIR}/config
-    echo "  IdentityFile #{SSH_DIR}/id_rsa" >> #{SSH_DIR}/config
+    cat #{ROOT_SSH_DIR}/id_rsa.pub >> #{SSH_DIR}/authorized_keys
+    echo "Host localhost" >> #{ROOT_SSH_DIR}/config
+    echo "  IdentityFile #{ROOT_SSH_DIR}/id_rsa" >> #{ROOT_SSH_DIR}/config
   EOH
   action :nothing
 end
-execute "ssh-keygen -N '' -f #{SSH_DIR}/id_rsa" do
+execute "ssh-keygen -N '' -f #{ROOT_SSH_DIR}/id_rsa" do
   umask 0177
-  not_if { ::File.exists?("#{SSH_DIR}/id_rsa") }
+  not_if { ::File.exists?("#{ROOT_SSH_DIR}/id_rsa") }
   notifies :run, "bash[add localhost ssh to authorized_keys and config]", :immediately
 end
 file "/etc/chef/client.pem" do
@@ -383,7 +411,11 @@ file "/etc/chef/validation.pem" do
 end
 
 execute "create MU-MASTER Chef client" do
-  command "/opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none 127.0.0.1"
+  if SSH_USER == "root"
+    command "/opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none 127.0.0.1"
+  else
+    command "/opt/chef/bin/knife bootstrap -N MU-MASTER --no-node-verify-api-cert --node-ssl-verify-mode=none -x #{SSH_USER} --sudo 127.0.0.1"
+  end
   not_if "/opt/chef/bin/knife node list | grep '^MU-MASTER$'"
   only_if "/opt/chef/bin/knife ssl check" # make sure we don't wipe ourselves due to unrelated SSL issues
   notifies :delete, "file[/etc/chef/client.pem]", :before

@@ -28,6 +28,7 @@ end
 package "pam_ldap" do
   action :remove
 end
+package "dbus"
 service "messagebus" do
   action [:enable, :start]
 end

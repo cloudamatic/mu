@@ -152,7 +152,6 @@ module MU
             used_uids << u.uid
           }
         end
-        pp used_uids
         used_uids
       end
 
@@ -908,7 +907,7 @@ module MU
               sleep wait
               wait = wait + 5
               retry
-            end
+            end if user != "mu"
             %x{/sbin/restorecon -r /home} # SELinux stupidity that oddjob misses
             MU::Master.setLocalDataPerms(user) if Etc.getpwuid(Process.uid).name == "root" and mu_acct
           else
@@ -980,6 +979,7 @@ module MU
         end
         return ok if !mu_acct # everything below is Mu-specific
 
+        cur_users = listUsers
         if cur_users.has_key?(user)
           ["realname", "email", "monitoring_email"].each { |field|
             next if !cur_users[user].has_key?(field)
