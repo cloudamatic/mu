@@ -2,5 +2,5 @@
   "id": "chef",
   "hostgroup_name": "mu-master",
   "notification_interval": 7200,
-  "command_line": "$USER1$/check_http -I $HOSTADDRESS$ -S"
+  "command_line": "$USER1$/check_http -I $HOSTADDRESS$ -S -p 7443"
 }
