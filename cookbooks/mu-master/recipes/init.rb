@@ -54,8 +54,9 @@ end
 # These guys are a workaround for Opscode bugs that seems to affect some Chef
 # Server upgrades.
 directory "/var/run/postgresql" do
-  owner "opscode-pgsql"
-  group "opscode-pgsql"
+  mode 0755
+#  owner "opscode-pgsql"
+#  group "opscode-pgsql"
   action :nothing
 end
 #link "/tmp/.s.PGSQL.5432" do
@@ -68,9 +69,8 @@ end
 #end
 link "/var/run/postgresql/.s.PGSQL.5432" do
   to "/tmp/.s.PGSQL.5432"
-  owner "opscode-pgsql"
-  group "opscode-pgsql"
-  action :nothing
+#  owner "opscode-pgsql"
+#  group "opscode-pgsql"
   notifies :create, "directory[/var/run/postgresql]", :before
   only_if { !::File.exists?("/var/run/postgresql/.s.PGSQL.5432") }
 #  only_if { ::File.exists?("/tmp/.s.PGSQL.5432") }
