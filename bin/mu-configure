@@ -773,7 +773,7 @@ end
 # local firewall ports).
 if AMROOT and ($INITIALIZE or $CHANGES.include?("chefartifacts"))
   MU.log "Purging and re-uploading all Chef artifacts", MU::NOTICE
-  output = %x{"MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts"}
+  output = %x{MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts}
   if $?.exitstatus != 0
     puts output
     MU.log "mu-upload-chef-artifacts failed, can't proceed", MU::ERR
