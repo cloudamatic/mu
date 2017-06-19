@@ -23,6 +23,7 @@ search_domains = ["ec2.internal", "server.#{instance_id}.platform-mu", "platform
 include_recipe 'mu-master::init'
 include_recipe 'mu-master::basepackages'
 include_recipe 'mu-master::firewall-holes'
+include_recipe 'mu-master::ssl-certs'
 include_recipe 'mu-master::vault'
 
 master_ips = get_mu_master_ips
