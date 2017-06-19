@@ -112,7 +112,7 @@ service "chef-server" do
   pattern "/opt/opscode/embedded/sbin/nginx"
   action :nothing
 #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
-  notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
+#  notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
   notifies :run, "execute[stop iptables]", :before
   notifies :run, "execute[start iptables]", :immediately
   only_if { RUNNING_STANDALONE }
