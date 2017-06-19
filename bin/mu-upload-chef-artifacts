@@ -153,9 +153,9 @@ add_berkshelf_cookbooks()
   echo "${GREEN}Installing Berkshelf Chef cookbooks from ${BOLD}$repodir${NORM}${GREEN} to Chef Server${NORM}"
 
   if [ "$match" == "" ];then
-    cd $repodir && $berks upload --no-freeze
+    cd $repodir && $berks upload --no-freeze || exit 1
   elif [ "$berkshelf_cookbooks" != "" ];then
-    cd $repodir && $berks upload $berkshelf_cookbooks --no-freeze
+    cd $repodir && $berks upload $berkshelf_cookbooks --no-freeze || exit 1
   fi
   cd $MU_CHEF_CACHE
 }
