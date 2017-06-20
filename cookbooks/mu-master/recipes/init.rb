@@ -84,6 +84,21 @@ execute "Chef Server rabbitmq workaround" do
   notifies :stop, "service[chef-server]", :before
 end
 
+remote_file "back up /etc/hosts" do
+  path "/etc/hosts.muinstaller"
+  source "file:///etc/hosts"
+  action :nothing
+end
+file "use a clean /etc/hosts during install" do
+  path "/etc/hosts"
+  content "
+127.0.0.1       localhost
+::1     localhost6.localdomain6 localhost6
+"
+  notifies :create, "remote_file[back up /etc/hosts]", :before
+  only_if { RUNNING_STANDALONE }
+end
+
 execute "reconfigure Chef server" do
   command "/opt/opscode/bin/chef-server-ctl reconfigure"
   action :nothing
