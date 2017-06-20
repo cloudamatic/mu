@@ -80,6 +80,14 @@ module MU
               t.join
             end
           end
+
+# TODO this will matter as soon as we do anything besides 0.0.0.0/0 => #INTERNET
+#          route_table_ids = []
+#          if !@config['route_tables'].nil?
+#            @config['route_tables'].each { |rtb|
+#              rtb = createRoute(rtb, network_url)
+#            }
+#          end
         end
 
         # Configure IP traffic logging on a given VPC/Subnet. Logs are saved in cloudwatch based on the network interface ID of each instance.
@@ -238,7 +246,7 @@ module MU
                 if deletia.error and deletia.error.errors and deletia.error.errors.size > 0
                   retries = retries + 1
                   if retries % 3 == 0
-                    MU.log "Got #{deletia.error.errors.first.code} deleting #{network.name}, may be waiting on other resources to delete (attempt #{retries}/#{max})", MU::warn, details: deletia.error.errors
+                    MU.log "Got #{deletia.error.errors.first.code} deleting #{network.name}, may be waiting on other resources to delete (attempt #{retries}/#{max})", MU::WARN, details: deletia.error.errors
                   end
                   sleep 5
                 else
@@ -262,15 +270,31 @@ module MU
 
         private
 
-        # List the route tables for each subnet in the given VPC
-        def self.listAllSubnetRouteTables(vpc_id, region: MU.curRegion)
+        # List the routes for each subnet in the given VPC
+        def self.listAllSubnetRoutes(vpc_id, region: MU.curRegion)
         end
 
-        # Helper method for manufacturing route tables. Expect to be called from
+        # Helper method for manufacturing routes. Expect to be called from
         # {MU::Cloud::Google::VPC#create} or {MU::Cloud::Google::VPC#deploy}.
         # @param rtb [Hash]: A route table description parsed through {MU::Config::BasketofKittens::vpcs::route_tables}.
         # @return [Hash]: The modified configuration that was originally passed in.
-        def createRouteTable(rtb)
+        def createRoute(rtb, network)
+MU.log "ROUTEDERP", MU::WARN, details: rtb
+extroutes = MU::Cloud::Google.compute.list_routes(MU::Cloud::Google.defaultProject, filter: "network eq "+network)
+MU.log "ROUTEHURP", MU::WARN, details: extroutes
+          rtb['routes'].each { |route|
+            routename = @mu_name+"-route-"+route['destination_network'].gsub(/[\/\.]/, "-")
+            if route["#INTERNET"]
+            else
+#              routeobj = ::Google::Apis::ComputeV1::Route.new(
+#                name: routename,
+#                dest_range: route['destination_network'],
+#                network: network,
+#                next_hop_network: network
+#              )
+            end
+#            resp = MU::Cloud::Google.compute.insert_route(@config['project'], routeobj)
+          }
         end
 
 
