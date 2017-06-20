@@ -268,6 +268,15 @@ module MU
 
         end
 
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::vpcs}, bare and unvalidated.
+        # @param vpc [Hash]: The resource to process and validate
+        # @param config [MU::Config]: The overall deployment config of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.parseConfig(vpc, config)
+          # Just use the AWS implemention
+          MU::Cloud::AWS::VPC.parseConfig(vpc, config)
+        end
+
         # Placeholder. This is a NOOP for CloudFormation, which doesn't build
         # resources directly.
         def self.find(*args)

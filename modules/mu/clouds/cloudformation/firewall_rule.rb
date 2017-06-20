@@ -131,6 +131,15 @@ module MU
           end
         end
 
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::firewall_rules}, bare and unvalidated.
+        # @param vpc [Hash]: The resource to process and validate
+        # @param config [MU::Config]: The overall deployment config of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.parseConfig(acl, config)
+          # Just use the AWS implemention
+          MU::Cloud::AWS::FirewallRule.parseConfig(acl, config)
+        end
+
         private
 
         #########################################################################

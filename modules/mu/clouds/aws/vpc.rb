@@ -1188,7 +1188,169 @@ module MU
           end
         end
 
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::vpcs}, bare and unvalidated.
+        # @param kitten [Hash]: The resource to process and validate
+        # @param config [MU::Config]: The overall deployment config of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.parseConfig(vpc, config)
+          ok = true
+
+          subnet_routes = Hash.new
+          public_routes = Array.new
+
+          if vpc['subnets']
+            vpc['subnets'].each { |subnet|
+              subnet_routes[subnet['route_table']] = Array.new if subnet_routes[subnet['route_table']].nil?
+              subnet_routes[subnet['route_table']] << subnet['name']
+            }
+          end
+
+          if vpc['endpoint_policy'] && !vpc['endpoint_policy'].empty?
+            if !vpc['endpoint']
+              MU.log "'endpoint_policy' is declared however endpoint is not set", MU::ERR
+              ok = false
+            end
+
+            attributes = %w{Effect Action Resource Principal Sid}
+            vpc['endpoint_policy'].each { |rule|
+              rule.keys.each { |key|
+                if !attributes.include?(key)
+                  MU.log "'Attribute #{key} can't be used in 'endpoint_policy'", MU::ERR
+                  ok = false
+                end
+              }
+            }
+          end
+
+          nat_gateway_route_tables = []
+          nat_gateway_added = false
+          public_rtbs = []
+          private_rtbs = []
+          vpc['route_tables'].each { |table|
+            routes = []
+            table['routes'].each { |route|
+              if routes.include?(route['destination_network'])
+                MU.log "Duplicate routes to #{route['destination_network']} in route table #{table['name']}", MU::ERR
+                ok = false
+              else
+                routes << route['destination_network']
+              end
+
+              if (route['nat_host_name'] or route['nat_host_id'])
+                private_rtbs << table['name']
+                route.delete("gateway") if route['gateway'] == '#INTERNET'
+              end
+              if !route['nat_host_name'].nil? and server_names.include?(route['nat_host_name']) and !subnet_routes.nil? and !subnet_routes.empty?
+                subnet_routes[table['name']].each { |subnet|
+                  nat_routes[subnet] = route['nat_host_name']
+                }
+                vpc['dependencies'] << {
+                  "type" => "server",
+                  "name" => route['nat_host_name']
+                }
+              elsif route['gateway'] == '#NAT'
+                private_rtbs << table['name']
+              elsif route['gateway'] == '#INTERNET'
+                public_rtbs << table['name']
+              end
+              next if !vpc['subnets']
+              
+              vpc['subnets'].each { |subnet|
+                if route['gateway'] == '#INTERNET'
+                  if table['name'] == subnet['route_table']
+                    subnet['is_public'] = true
+                    if vpc['create_nat_gateway']
+                      if vpc['nat_gateway_multi_az']
+                        subnet['create_nat_gateway'] = true
+                      else
+                        if nat_gateway_added
+                          subnet['create_nat_gateway'] = false
+                        else
+                          subnet['create_nat_gateway'] = true 
+                          nat_gateway_added = true
+                        end
+                      end
+                    end
+                  else
+                    subnet['is_public'] = false
+                  end
+                  if !nat_routes[subnet['name']].nil?
+                    subnet['nat_host_name'] = nat_routes[subnet['name']]
+                  end
+                elsif route['gateway'] == '#NAT'
+                  if table['name'] == subnet['route_table']
+                    if route['nat_host_name'] or route['nat_host_id']
+                      MU.log "You can either use a NAT gateway or a NAT server, not both.", MU::ERR
+                      ok = false
+                    end
+
+                    subnet['is_public'] = false
+                    nat_gateway_route_tables << table
+                  end
+                end
+              }
+            }
+          }
+
+          if (!vpc['subnets'] or vpc['subnets'].empty?) and vpc['create_standard_subnets']
+            if vpc['availability_zones'].nil? or vpc['availability_zones'].empty?
+              vpc['availability_zones'] = MU::Cloud::AWS.listAZs(vpc['region'])
+            else
+              # turn into a hash so we can use list parameters easily
+              vpc['availability_zones'] = vpc['availability_zones'].map { |val| val['zone'] }
+            end
+            subnets = config.divideNetwork(vpc['ip_block'], vpc['availability_zones'].size*2)
+            ok = false if subnets.nil?
+            vpc['subnets'] = []
+            count = 0
+            vpc['availability_zones'].each { |az|
+              addnat = false
+              if vpc['create_nat_gateway'] and (vpc['nat_gateway_multi_az'] or !nat_gateway_added) and public_rtbs.size > 0
+                addnat = true
+                nat_gateway_added = true
+              end
+              if private_rtbs.size > 0
+                vpc['subnets'] << {
+                  "name" => "Subnet#{count}Private",
+                  "availability_zone" => az,
+                  "ip_block" => subnets.shift,
+                  "route_table" => private_rtbs[count].nil? ? private_rtbs.first : private_rtbs[count],
+                  "map_public_ips" => false,
+                  "is_public" => false
+                }
+              end
+              if public_rtbs.size > 0
+                vpc['subnets'] << {
+                  "name" => "Subnet#{count}Public",
+                  "availability_zone" => az,
+                  "ip_block" => subnets.shift,
+                  "route_table" => public_rtbs[count].nil? ? public_rtbs.first : public_rtbs[count],
+                  "map_public_ips" => true,
+                  "is_public" => true,
+                  "create_nat_gateway" => addnat
+                }
+              end
+              count = count + 1
+            }
+          end
+
+          nat_gateway_route_tables.uniq!
+          if nat_gateway_route_tables.size < 2 && vpc['nat_gateway_multi_az']
+            MU.log "'nat_gateway_multi_az' is enabled but only one route table exists. For multi-az support create one private route table per AZ", MU::ERR
+            ok = false
+          end
+
+          if nat_gateway_route_tables.size > 0 && !vpc['create_nat_gateway']
+            MU.log "There are route tables with a NAT gateway route, but create_nat_gateway is set to false. Setting to true", MU::NOTICE
+            vpc['create_nat_gateway'] = true
+          end
+
+          ok
+        end
+
+
         private
+
 
         # List the route tables for each subnet in the given VPC
         def self.listAllSubnetRouteTables(vpc_id, region: MU.curRegion)

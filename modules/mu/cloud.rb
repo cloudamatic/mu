@@ -32,7 +32,7 @@ module MU
     class MuCloudFlagNotImplemented < StandardError;
     end
 
-    generic_class_methods = [:find, :cleanup]
+    generic_class_methods = [:find, :cleanup, :parseConfig]
     generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config]
 
     # Initialize empty classes for each of these. We'll fill them with code
@@ -232,6 +232,23 @@ module MU
     # A list of supported cloud resource types as Mu classes
     def self.resource_types;
       @@resource_types
+    end
+
+    # Shorthand lookup for resource type names. Given any of the shorthand class name, configuration name (singular or plural), or full class name, return all four as a set.
+    # @param type [String]: A string that looks like our short or full class name or singular or plural configuration names.
+    # @return [Array]: Class name (Symbol), singular config name (String), plural config name (String), full class name (Object)
+    def self.getResourceNames(type)
+      @@resource_types.each_pair { |name, cloudclass|
+        if name == type.to_sym or
+            cloudclass[:cfg_name] == type or
+            cloudclass[:cfg_plural] == type or
+            Object.const_get("MU").const_get("Cloud").const_get(name) == type
+          cfg_name = cloudclass[:cfg_name]
+          type = name
+          return [type.to_sym, cloudclass[:cfg_name], cloudclass[:cfg_plural], Object.const_get("MU").const_get("Cloud").const_get(name)]
+        end
+      }
+      [nil, nil, nil, nil]
     end
 
     # List of known/supported Cloud providers

@@ -84,7 +84,7 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def create
           begin
-            ::Google::Apis::ComputeV1::Instance.new(
+            ::Google::Apis::ComputeBeta::Instance.new(
               name: @mu_name,
               can_ip_forward: false
             )

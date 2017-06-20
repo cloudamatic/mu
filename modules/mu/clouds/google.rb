@@ -81,17 +81,24 @@ module MU
       end
 
       @@regions = {}
-      def self.listRegions
-        return @@regions.keys if @@regions.size > 0
-        result = MU::Cloud::Google.compute.list_regions(MU::Cloud::Google.defaultProject)
-        regions = []
-        result.items.each { |region|
-          @@regions[region.name] = []
-          region.zones.each { |az|
-            @@regions[region.name] << az.sub(/^.*?\/([^\/]+)$/, '\1')
+      # List all known Google Cloud Platform regions
+      # @param us_only [Boolean]: Restrict results to United States only
+      def self.listRegions(us_only = false)
+        if @@regions.size == 0
+          result = MU::Cloud::Google.compute.list_regions(MU::Cloud::Google.defaultProject)
+          regions = []
+          result.items.each { |region|
+            @@regions[region.name] = []
+            region.zones.each { |az|
+              @@regions[region.name] << az.sub(/^.*?\/([^\/]+)$/, '\1')
+            }
           }
-        }
-        @@regions.keys
+        end
+        if us_only
+          @@regions.keys.delete_if { |r| !r.match(/^us/) }
+        else
+          @@regions.keys
+        end
       end
   
       # List the Availability Zones associated with a given Google Cloud
@@ -107,8 +114,8 @@ module MU
 
       # Google's Compute Service API
       def self.compute
-        require 'google/apis/compute_v1'
-        @@compute_api ||= MU::Cloud::Google::Endpoint.new(api: "ComputeV1::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'])
+        require 'google/apis/compute_beta'
+        @@compute_api ||= MU::Cloud::Google::Endpoint.new(api: "ComputeBeta::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'])
         @@compute_api
       end
 
@@ -124,7 +131,7 @@ module MU
         # Create a Google Cloud Platform API client
         # @param api [String]: Which API are we wrapping?
         # @param scopes [Array<String>]: Google auth scopes applicable to this API
-        def initialize(api: "ComputeV1::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'])
+        def initialize(api: "ComputeBeta::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'])
 #          @region = region
           @api = Object.const_get("Google::Apis::#{api}").new
           @api.authorization = MU::Cloud::Google.loadCredentials(scopes)
@@ -145,7 +152,7 @@ module MU
             else
               retval = @api.method(method_sym).call
             end
-            if retval.class == ::Google::Apis::ComputeV1::Operation
+            if retval.class == ::Google::Apis::ComputeBeta::Operation
               retries = 0
               begin
                 if retries > 0 and retries % 3 == 0

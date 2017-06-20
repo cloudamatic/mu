@@ -336,6 +336,75 @@ module MU
           }
         end
 
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::firewall_rules}, bare and unvalidated.
+        # @param kitten [Hash]: The resource to process and validate
+        # @param config [MU::Config]: The overall deployment config of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.parseConfig(acl, config)
+          ok = true
+          if !acl["vpc_name"].nil? or !acl["vpc_id"].nil?
+            acl['vpc'] = Hash.new
+            if acl["vpc_id"].nil?
+              acl['vpc']["vpc_id"] = config.getTail("vpc_id", value: acl["vpc_id"], prettyname: "Firewall Ruleset #{acl['name']} Target VPC",  cloudtype: "AWS::EC2::VPC::Id") if acl["vpc_id"].is_a?(String)
+            elsif !acl["vpc_name"].nil?
+              acl['vpc']['vpc_name'] = acl["vpc_name"]
+            end
+          end
+          if !acl["vpc"].nil?
+            acl['vpc']['region'] = acl['region'] if acl['vpc']['region'].nil?
+            acl["vpc"]['cloud'] = acl['cloud']
+            # If we're using a VPC in this deploy, set it as a dependency
+            if !acl["vpc"]["vpc_name"].nil? and vpc_names.include?(acl["vpc"]["vpc_name"].to_s) and acl["vpc"]['deploy_id'].nil? and acl["vpc"]['vpc_id'].nil?
+              acl["dependencies"] << {
+                  "type" => "vpc",
+                  "name" => acl["vpc"]["vpc_name"]
+              }
+              # If we're using a VPC from somewhere else, make sure the flippin'
+              # thing exists, and also fetch its id now so later search routines
+              # don't have to work so hard.
+            else
+              # Drop meaningless subnet references
+              acl['vpc'].delete("subnets")
+              acl['vpc'].delete("subnet_id")
+              acl['vpc'].delete("subnet_name")
+              acl['vpc'].delete("subnet_pref")
+              if !processVPCReference(acl["vpc"], "firewall_rule #{acl['name']}", dflt_region: acl['region'])
+                ok = false
+              end
+            end
+          end
+          acl['rules'] ||= {}
+          acl['rules'].each { |rule|
+            if !rule['sgs'].nil?
+              rule['sgs'].each { |sg_name|
+                if sg_name == acl['name']
+                  # acl['self_referencing'] = true
+                  next
+                end
+                if firewall_rule_names.include?(sg_name)
+                  acl["dependencies"] << {
+                      "type" => "firewall_rule",
+                      "name" => sg_name
+                  }
+                else
+                  MU.log "Didn't see #{sg_name} anywhere, is that ok?", MU::WARN
+                end
+              }
+            end
+            if !rule['lbs'].nil?
+              rule['lbs'].each { |lb_name|
+                acl["dependencies"] << {
+                    "type" => "loadbalancer",
+                    "name" => lb_name,
+                    "phase" => "groom"
+                }
+              }
+            end
+          }
+          acl['dependencies'].uniq!
+          ok
+        end
+
         private
 
         #########################################################################

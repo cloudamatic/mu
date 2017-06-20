@@ -48,37 +48,53 @@ module MU
 
         # Called by {MU::Deploy#createResources}
         def create
-          allowed = []
+          vpc_id = @vpc.cloud_id if !@vpc.nil?
           srcs = []
-
+          ingress = []
+          egress = []
           @config['rules'].each { |rule|
-            if ["tcp", "udp"].include?(rule['proto'])
-              allowed << ::Google::Apis::ComputeV1::Firewall::Allowed.new(
+            ruleobj = nil
+            if ["tcp", "udp"].include?(rule['proto']) and (rule['port_range'] or rule['port'])
+              ruleobj = ::Google::Apis::ComputeBeta::Firewall::Allowed.new(
                 ip_protocol: rule['proto'],
                 ports: [rule['port_range'] || rule['port']]
               )
             else
-              allowed << ::Google::Apis::ComputeV1::Firewall::Allowed.new(
+              ruleobj = ::Google::Apis::ComputeBeta::Firewall::Allowed.new(
                 ip_protocol: rule['proto']
               )
             end
+            egress << ruleobj if rule['egress']
+            ingress << ruleobj if rule['ingress']
             if rule['hosts']
               rule['hosts'].each { |cidr| srcs << cidr }
             end
           }
-          fwobj = ::Google::Apis::ComputeV1::Firewall.new(
-            name: @mu_name,
-            allowed: allowed,
-            description: @deploy.deploy_id,
-            source_ranges: srcs
-          )
+          if ingress.size > 0
+            fwobj = ::Google::Apis::ComputeBeta::Firewall.new(
+              name: @mu_name,
+              allowed: ingress,
+              description: @deploy.deploy_id,
+              network: vpc_id,
+              source_ranges: srcs.uniq
+            )
+            MU.log "Creating ingress firewall #{@config['project']} #{@mu_name}", MU::NOTICE, details: fwobj
+            resp = MU::Cloud::Google.compute.insert_firewall(@config['project'], fwobj)
+          end
+          if egress.size > 0
+            fwobj = ::Google::Apis::ComputeBeta::Firewall.new(
+              name: @mu_name,
+              allowed: egress,
+              description: @deploy.deploy_id,
+              network: vpc_id,
+              direction: "EGRESS", # XXX the Ruby SDK doesn't know what this is, even though the REST endpoint does
+              destination_ranges: srcs.uniq
+            )
+            MU.log "Creating egress firewall #{@mu_name}", MU::NOTICE, details: fwobj
+            resp = MU::Cloud::Google.compute.insert_firewall(@config['project'], fwobj)
+          end
 
-if allowed.size > 0
-          MU.log "Creating firewall #{@mu_name}"
-          resp = MU::Cloud::Google.compute.insert_firewall(@config['project'], fwobj)
-else
-  MU.log "Can't create empty firewalls (like #{@mu_name})  in Google Cloud", MU::WARN
-end
+#  MU.log "Can't create empty firewalls in Google Cloud, skipping #{@mu_name}", MU::WARN
         end
 
         # Called by {MU::Deploy#createResources}
@@ -132,23 +148,40 @@ end
             filter: "description eq #{MU.deploy_id}"
           )
           return if resp.nil? or resp.items.nil?
-          
+
+          parent_thread_id = Thread.current.object_id
+          threads = []
+
           resp.items.each { |firewall|
-            MU.log "Removing firewall #{firewall.name}", details: firewall
-            if !noop
-              begin
-                MU::Cloud::Google.compute.delete_firewall(flags["project"], firewall.name)
-              rescue ::Google::Apis::ClientError => e
-                if e.message.match(/^notFound:/)
-                  MU.log "#{firewall.name} has already been deleted", MU::NOTICE
-                elsif e.message.match(/^resourceNotReady:/)
-                  MU.log "Got #{e.message} deleting #{firewall.name}, may already be deleting", MU::NOTICE
-                  sleep 5
-                  retry
+            threads << Thread.new { 
+              MU.dupGlobals(parent_thread_id)
+              MU.log "Removing firewall #{firewall.name}", details: firewall
+              if !noop
+                begin
+                  MU::Cloud::Google.compute.delete_firewall(flags["project"], firewall.name)
+                rescue ::Google::Apis::ClientError => e
+                  if e.message.match(/^notFound:/)
+                    MU.log "#{firewall.name} has already been deleted", MU::NOTICE
+                  elsif e.message.match(/^resourceNotReady:/)
+                    MU.log "Got #{e.message} deleting #{firewall.name}, may already be deleting", MU::NOTICE
+                    sleep 5
+                    retry
+                  end
                 end
               end
-            end
+            }
           }
+          threads.each do |t|
+            t.join
+          end
+        end
+
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::firewall_rules}, bare and unvalidated.
+        # @param kitten [Hash]: The resource to process and validate
+        # @param config [MU::Config]: The overall deployment config of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.parseConfig(acl, config)
+          ok = true
         end
 
         private

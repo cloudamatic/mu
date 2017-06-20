@@ -46,7 +46,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          networkobj = ::Google::Apis::ComputeV1::Network.new(
+          networkobj = ::Google::Apis::ComputeBeta::Network.new(
             name: @mu_name,
             description: @deploy.deploy_id,
             auto_create_subnetworks: false
@@ -54,7 +54,7 @@ module MU
           )
           MU.log "Creating network #{@mu_name} (#{@config['ip_block']})", details: networkobj
           resp = MU::Cloud::Google.compute.insert_network(@config['project'], networkobj)
-          network_url = resp.target_link # XXX needs to go in notify
+          @cloud_id = resp.target_link # XXX needs to go in notify
 
           if @config['subnets']
             subnetthreads = []
@@ -65,11 +65,11 @@ module MU
                 subnet_name = @config['name']+"-"+subnet['name']
                 subnet_mu_name = @deploy.getResourceName(subnet_name).downcase
                 MU.log "Creating subnetwork #{subnet_mu_name} (#{subnet['ip_block']})", details: subnet
-                subnetobj = ::Google::Apis::ComputeV1::Subnetwork.new(
+                subnetobj = ::Google::Apis::ComputeBeta::Subnetwork.new(
                   name: subnet_mu_name,
                   description: @deploy.deploy_id,
                   ip_cidr_range: subnet['ip_block'],
-                  network: network_url,
+                  network: @cloud_id,
                   region: subnet['availability_zone']
                 )
                 resp = MU::Cloud::Google.compute.insert_subnetwork(@config['project'], subnet['availability_zone'], subnetobj)
@@ -85,7 +85,7 @@ module MU
 #          route_table_ids = []
 #          if !@config['route_tables'].nil?
 #            @config['route_tables'].each { |rtb|
-#              rtb = createRoute(rtb, network_url)
+#              rtb = createRoute(rtb, @cloud_id)
 #            }
 #          end
         end
@@ -264,11 +264,78 @@ module MU
               end while !complete and retries < max
             end
           }
+        end
 
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::vpcs}, bare and unvalidated.
+        # @param vpc [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.parseConfig(vpc, configurator)
+          ok = true
 
+          if (!vpc['subnets'] or vpc['subnets'].empty?) and vpc['create_standard_subnets']
+            if vpc['regions'].nil? or vpc['regions'].empty?
+              vpc['regions'] = MU::Cloud::Google.listRegions(vpc['us_only'])
+            end
+            blocks = configurator.divideNetwork(vpc['ip_block'], vpc['regions'].size*2)
+            ok = false if blocks.nil?
+
+            count = 0
+            # Generate one private and one public network per region.
+            vpc["subnets"] = []
+            vpc['regions'].each { |r|
+              block = blocks.shift
+              ok = false if !genPublicEgressACL(block.to_s, vpc['name'], configurator)
+              vpc["subnets"] << {
+                "availability_zone" => r,
+                "route_table" => "public", # XXX or w/e it really is
+                "ip_block" => block.to_s,
+                "name" => "Subnet"+count.to_s+"Public",
+                "map_public_ips" => true
+              }
+              block = blocks.shift
+              ok = false if !genPrivateEgressACL(block.to_s, vpc['name'], configurator)
+              vpc["subnets"] << {
+                "availability_zone" => r,
+                "route_table" => "private", # XXX or w/e it really is
+                "ip_block" => block.to_s,
+                "name" => "Subnet"+count.to_s+"Private",
+                "map_public_ips" => false
+              }
+              count = count + 1
+            }
+          end
+#          MU.log "GOOGLE VPC", MU::WARN, details: vpc
+          ok
         end
 
         private
+
+        def self.genPrivateEgressACL(src, vpc_name, configurator)
+          private_acl = {
+            "name" => vpc_name+"-"+src.gsub(/[\/\.]/, "-")+"-allow-private-egress",
+            "cloud" => "Google",
+            "vpc" => { "vpc_name" => vpc_name },
+            "dependencies" => [ { "type" => "vpc", "name" => vpc_name } ],
+            "rules" => [
+              { "egress" => true, "proto" => "all", "hosts" => [src] },
+            ]
+          }
+          configurator.insertKitten(private_acl, "firewall_rules")
+        end
+
+        def self.genPublicEgressACL(src, vpc_name, configurator)
+          public_acl = {
+            "name" => vpc_name+"-"+src.gsub(/[\/\.]/, "-")+"-allow-public-egress",
+            "cloud" => "Google",
+            "vpc" => { "vpc_name" => vpc_name },
+            "dependencies" => [ { "type" => "vpc", "name" => vpc_name } ],
+            "rules" => [
+              { "egress" => true, "proto" => "all", "hosts" => [src] },
+            ]
+          }
+          configurator.insertKitten(public_acl, "firewall_rules")
+        end
 
         # List the routes for each subnet in the given VPC
         def self.listAllSubnetRoutes(vpc_id, region: MU.curRegion)
@@ -286,7 +353,7 @@ MU.log "ROUTEHURP", MU::WARN, details: extroutes
             routename = @mu_name+"-route-"+route['destination_network'].gsub(/[\/\.]/, "-")
             if route["#INTERNET"]
             else
-#              routeobj = ::Google::Apis::ComputeV1::Route.new(
+#              routeobj = ::Google::Apis::ComputeBeta::Route.new(
 #                name: routename,
 #                dest_range: route['destination_network'],
 #                network: network,

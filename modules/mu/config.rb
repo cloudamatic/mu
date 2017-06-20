@@ -578,6 +578,56 @@ module MU
 
     end
 
+    # Take an IP block and split it into a more-or-less arbitrary number of
+    # subnets.
+    # @param ip_block [String]: CIDR of the network to subdivide
+    # @param subnets_desired [Integer]: Number of subnets we want back
+    # @return [MU::Config::Tail]: Resulting subnet tails, or nil if an error occurred.
+    def divideNetwork(ip_block, subnets_desired)
+      cidr = NetAddr::CIDR.create(ip_block.to_s)
+      # Round the number of addresses we're splitting into down to the nearest power
+      # of two so they'll fit in the available bit space
+      raw_subnet_size = (cidr.size)/subnets_desired - 2*subnets_desired
+      avail_addrs = 2 ** (32 - cidr.bits)
+      subnet_size = ((avail_addrs/subnets_desired) >> 1)
+#          subnet_bits = 32 - (subnet_size).to_s(2).size
+      begin
+        subnets = cidr.subnet(:IPCount => subnet_size, :NumSubnets => subnets_desired)
+      rescue RuntimeError => e
+        if e.message.match(/exceeds subnets available for allocation/)
+          MU.log e.message, MU::ERR
+          MU.log "I'm attempting to create #{subnets_desired} subnets (one public and one private for each Availability Zone), of #{subnet_size} addresses each, but that's too many for a /#{cidr.bits} network. Either declare a larger network, or explicitly declare a list of subnets with few enough entries to fit.", MU::ERR
+          return nil
+        else
+          raise e
+        end
+      end
+
+      # XXX NetAddr::CIDR wants to allocate evenly-sized subnets because
+      # it's annoying, so we end up using the IP space inefficiently. Lop
+      # off the extra subnets we end up with and don't want. It would be
+      # nice if we just did all this math ourselves and did it better.
+      subnets.slice!(10,subnets.size-1) if subnets.size > 10
+
+      subnets = getTail("subnetblocks", value: subnets.join(","), cloudtype: "CommaDelimitedList", description: "IP Address ranges to be used for VPC subnets", prettyname: "SubnetIpBlocks", list_of: "ip_block").map { |tail| tail["ip_block"] }
+      subnets
+    end
+
+    attr_reader :kittens
+    @kittens = {}
+    def insertKitten(descriptor, type)
+      append = !@kittens[type].include?(descriptor)
+
+      shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
+      descriptor["#MU_CLOUDCLASS"] = classname
+      inheritDefaults(descriptor)
+      parser = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s)
+      return false if !parser.parseConfig(descriptor, self)
+
+      @kittens[cfg_plural] << descriptor if append
+      true
+    end
+
     private
 
     def self.resolveYAMLAnchors(lines)
@@ -1270,6 +1320,20 @@ module MU
       return ok
     end
 
+    # Given a bare hash describing a resource, insert default values which can
+    # be inherited from the current live parent configuration.
+    # @param kitten [Hash]: A resource descriptor
+    def inheritDefaults(kitten)
+      kitten['cloud'] = MU::Config.defaultCloud if kitten['cloud'].nil?
+      kitten['region'] = @config['region'] if kitten['region'].nil?
+      if kitten['cloud'] == "Google"
+        kitten["project"] ||= MU::Cloud::Google.defaultProject
+      end
+      kitten['us_only'] = @config['us_only'] if kitten['us_only'].nil?
+      kitten["dependencies"] = [] if kitten["dependencies"].nil?
+      kitten['scrub_mu_isms'] = @config['scrub_mu_isms'] if @config.has_key?('scrub_mu_isms')
+    end
+
     def validate(config = @config)
       ok = true
       plain_cfg = MU::Config.manxify(Marshal.load(Marshal.dump(config)))
@@ -1289,33 +1353,18 @@ module MU
         end
       end
 
-      databases = config['databases']
-      servers = config['servers']
-      server_pools = config['server_pools']
-      cache_clusters = config['cache_clusters']
-      alarms = config['alarms']
-      logs = config['logs']
-      loadbalancers = config['loadbalancers']
-      collections = config['collections']
-      firewall_rules = config['firewall_rules']
-      dnszones = config['dnszones']
-      vpcs = config['vpcs']
-      storage_pools = config['storage_pools']
+      count = 0
+      @kittens ||= {}
+      ["databases", "servers", "server_pools", "cache_clusters", "alarms", "logs", "loadbalancers", "collections", "firewall_rules", "dnszones", "vpcs", "storage_pools"].each { |type|
+        @kittens[type] = config[type]
+        @kittens[type] ||= []
+        @kittens[type].each { |k|
+          inheritDefaults(k)
+        }
+        count = count + @kittens[type].size
+      }
 
-      databases = Array.new if databases.nil?
-      servers = Array.new if servers.nil?
-      server_pools = Array.new if server_pools.nil?
-      cache_clusters = Array.new if cache_clusters.nil?
-      alarms = Array.new if alarms.nil?
-      logs = Array.new if logs.nil?
-      loadbalancers = Array.new if loadbalancers.nil?
-      collections = Array.new if collections.nil?
-      firewall_rules = Array.new if firewall_rules.nil?
-      vpcs = Array.new if vpcs.nil?
-      dnszones = Array.new if dnszones.nil?
-      storage_pools = Array.new if storage_pools.nil?
-
-      if databases.empty? and servers.empty? and server_pools.empty? and loadbalancers.empty? and collections.empty? and firewall_rules.empty? and vpcs.empty? and dnszones.empty? and cache_clusters.empty? and alarms.empty? and logs.empty? and storage_pools.empty?
+      if count == 0
         MU.log "You must declare at least one resource to create", MU::ERR
         ok = false
       end
@@ -1324,202 +1373,21 @@ module MU
       # Stashing some shorthand to any servers we'll be building, in case
       # some of them are NATs
       server_names = Array.new
-      servers.each { |server|
+      @kittens["servers"].each { |server|
         server_names << server['name']
       }
 
       vpc_names = Array.new
-      nat_routes = Hash.new
-      vpcs.each { |vpc|
-        vpc["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("VPC")
-        vpc['cloud'] = MU::Config.defaultCloud if vpc['cloud'].nil?
-        vpc["project"] ||= MU::Cloud::Google.defaultProject if vpc['cloud'] == "Google"
-        vpc['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
-        vpc['region'] = config['region'] if vpc['region'].nil?
-        vpc["dependencies"] = Array.new if vpc["dependencies"].nil?
-        subnet_routes = Hash.new
-        public_routes = Array.new
-        if vpc['subnets']
-          vpc['subnets'].each { |subnet|
-            subnet_routes[subnet['route_table']] = Array.new if subnet_routes[subnet['route_table']].nil?
-            subnet_routes[subnet['route_table']] << subnet['name']
-          }
-        end
-        
-        if vpc['endpoint_policy'] && !vpc['endpoint_policy'].empty?
-          if !vpc['endpoint']
-            MU.log "'endpoint_policy' is declared however endpoint is not set", MU::ERR
-            ok = false
-          end
-
-          attributes = %w{Effect Action Resource Principal Sid}
-          vpc['endpoint_policy'].each { |rule|
-            rule.keys.each { |key|
-              if !attributes.include?(key)
-                MU.log "'Attribute #{key} can't be used in 'endpoint_policy'", MU::ERR
-                ok = false
-              end
-            }
-          }
-        end
-
-        nat_gateway_route_tables = []
-        nat_gateway_added = false
-        public_rtbs = []
-        private_rtbs = []
-        vpc['route_tables'].each { |table|
-          routes = []
-          table['routes'].each { |route|
-            if routes.include?(route['destination_network'])
-              MU.log "Duplicate routes to #{route['destination_network']} in route table #{table['name']}", MU::ERR
-              ok = false
-            else
-              routes << route['destination_network']
-            end
-
-            if (route['nat_host_name'] or route['nat_host_id'])
-              private_rtbs << table['name']
-              route.delete("gateway") if route['gateway'] == '#INTERNET'
-            end
-            if !route['nat_host_name'].nil? and server_names.include?(route['nat_host_name']) and !subnet_routes.nil? and !subnet_routes.empty?
-              subnet_routes[table['name']].each { |subnet|
-                nat_routes[subnet] = route['nat_host_name']
-              }
-              vpc['dependencies'] << {
-                "type" => "server",
-                "name" => route['nat_host_name']
-              }
-            elsif route['gateway'] == '#NAT'
-              private_rtbs << table['name']
-            elsif route['gateway'] == '#INTERNET'
-              public_rtbs << table['name']
-            end
-            next if !vpc['subnets']
-            
-            vpc['subnets'].each { |subnet|
-              if route['gateway'] == '#INTERNET'
-                if table['name'] == subnet['route_table']
-                  subnet['is_public'] = true
-                  if vpc['create_nat_gateway']
-                    if vpc['nat_gateway_multi_az']
-                      subnet['create_nat_gateway'] = true
-                    else
-                      if nat_gateway_added
-                        subnet['create_nat_gateway'] = false
-                      else
-                        subnet['create_nat_gateway'] = true 
-                        nat_gateway_added = true
-                      end
-                    end
-                  end
-                else
-                  subnet['is_public'] = false
-                end
-                if !nat_routes[subnet['name']].nil?
-                  subnet['nat_host_name'] = nat_routes[subnet['name']]
-                end
-              elsif route['gateway'] == '#NAT'
-                if table['name'] == subnet['route_table']
-                  if route['nat_host_name'] or route['nat_host_id']
-                    MU.log "You can either use a NAT gateway or a NAT server, not both.", MU::ERR
-                    ok = false
-                  end
-
-                  subnet['is_public'] = false
-                  nat_gateway_route_tables << table
-                end
-              end
-            }
-          }
-        }
-
-        if (!vpc['subnets'] or vpc['subnets'].empty?) and vpc['create_standard_subnets']
-          if ["AWS", "CloudFormation"].include?(vpc['cloud'])
-            if vpc['availability_zones'].nil? or vpc['availability_zones'].empty?
-              vpc['availability_zones'] = MU::Cloud::AWS.listAZs(vpc['region'])
-            else
-              # parses as a hash so we can use list parameters easily
-              vpc['availability_zones'] = vpc['availability_zones'].map { |val| val['zone'] }
-            end
-          end
-
-          cidr = NetAddr::CIDR.create(vpc['ip_block'].to_s)
-          subnets_desired = vpc['availability_zones'].size*2
-          # Round the number of addresses we're splitting into down to the nearest power
-          # of two so they'll fit in the available bit space
-          raw_subnet_size = (cidr.size)/subnets_desired - 2*subnets_desired
-          avail_addrs = 2 ** (32 - cidr.bits)
-          subnet_size = ((avail_addrs/subnets_desired) >> 1)
-#          subnet_bits = 32 - (subnet_size).to_s(2).size
-          begin
-            subnets = cidr.subnet(:IPCount => subnet_size, :NumSubnets => vpc['availability_zones'].size*2)
-          rescue RuntimeError => e
-            if e.message.match(/exceeds subnets available for allocation/)
-              MU.log e.message, MU::ERR
-              MU.log "I'm attempting to create #{vpc['availability_zones'].size*2} subnets (one public and one private for each Availability Zone), of #{subnet_size} addresses each, but that's too many for a /#{cidr.bits} network. Either declare a larger network, or explicitly declare a list of subnets with few enough entries to fit.", MU::ERR, details: vpc['availability_zones']
-              ok = false
-            else
-              raise e
-            end
-          end
-          # XXX NetAddr::CIDR wants to allocate evenly-sized subnets because it's
-          # annoying, so we end up using the IP space inefficiently. Lop off the 
-          # extra subnets we end up with and don't want. It would be nice if we just
-          # did all this math ourselves and better.
-          subnets.slice!(10,subnets.size-1) if subnets.size > 10
-
-          subnets = getTail("subnetblocks", value: subnets.join(","), cloudtype: "CommaDelimitedList", description: "IP Address ranges to be used for VPC subnets", prettyname: "SubnetIpBlocks", list_of: "ip_block").map { |tail| tail["ip_block"] }
-          vpc['subnets'] = []
-          count = 0
-          vpc['availability_zones'].each { |az|
-            addnat = false
-            if vpc['create_nat_gateway'] and (vpc['nat_gateway_multi_az'] or !nat_gateway_added) and public_rtbs.size > 0
-              addnat = true
-              nat_gateway_added = true
-            end
-            if private_rtbs.size > 0
-              vpc['subnets'] << {
-                "name" => "Subnet#{count}Private",
-                "availability_zone" => az,
-                "ip_block" => subnets.shift,
-                "route_table" => private_rtbs[count].nil? ? private_rtbs.first : private_rtbs[count],
-                "map_public_ips" => false,
-                "is_public" => false
-              }
-            end
-            if public_rtbs.size > 0
-              vpc['subnets'] << {
-                "name" => "Subnet#{count}Public",
-                "availability_zone" => az,
-                "ip_block" => subnets.shift,
-                "route_table" => public_rtbs[count].nil? ? public_rtbs.first : public_rtbs[count],
-                "map_public_ips" => true,
-                "is_public" => true,
-                "create_nat_gateway" => addnat
-              }
-            end
-            count = count + 1
-          }
-        end
-
-        nat_gateway_route_tables.uniq!
-        if nat_gateway_route_tables.size < 2 && vpc['nat_gateway_multi_az']
-          MU.log "'nat_gateway_multi_az' is enabled but only one route table exists. For multi-az support create one private route table per AZ", MU::ERR
-          ok = false
-        end
-
-        if nat_gateway_route_tables.size > 0 && !vpc['create_nat_gateway']
-          MU.log "There are route tables with a NAT gateway route, but create_nat_gateway is set to false. Setting to true", MU::NOTICE
-          vpc['create_nat_gateway'] = true
-        end
-
+      nat_routes = Hash.new # XXX ugh, just die
+      @kittens["vpcs"].each { |vpc|
+        ok = false if !insertKitten(vpc, "vpcs")
         vpc_names << vpc['name']
       }
 
       # Now go back through and identify peering connections involving any of
       # the VPCs we've declared. XXX Note that it's real easy to create a
       # circular dependency here. Ugh.
-      vpcs.each { |vpc|
+      @kittens["vpcs"].each { |vpc|
         if !vpc["peers"].nil?
           vpc["peers"].each { |peer|
             peer["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("VPC")
@@ -1552,7 +1420,7 @@ module MU
         end
       }
 
-      dnszones.each { |zone|
+      @kittens["dnszones"].each { |zone|
         zone["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("DNSZone")
         zone['cloud'] = MU::Config.defaultCloud if zone['cloud'].nil?
         zone['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
@@ -1644,87 +1512,13 @@ module MU
       }
 
       firewall_rule_names = Array.new
-      firewall_rules.each { |acl|
+      @kittens["firewall_rules"].each { |acl|
+        ok = false if !insertKitten(acl, "firewall_rules")
         firewall_rule_names << acl['name']
       }
 
-      resolveFirewall = Proc.new { |acl|
-        firewall_rule_names << acl['name']
-        acl['region'] ||= config['region']
-        acl['cloud'] ||= MU::Config.defaultCloud
-        acl["project"] ||= MU::Cloud::Google.defaultProject if acl['cloud'] == "Google"
-        acl['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
-        acl["dependencies"] = Array.new if acl["dependencies"].nil?
-        acl["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("FirewallRule")
 
-        if !acl["vpc_name"].nil? or !acl["vpc_id"].nil?
-          acl['vpc'] = Hash.new
-          if acl["vpc_id"].nil?
-            acl['vpc']["vpc_id"] = getTail("vpc_id", value: acl["vpc_id"], prettyname: "Firewall Ruleset #{acl['name']} Target VPC",  cloudtype: "AWS::EC2::VPC::Id") if acl["vpc_id"].is_a?(String)
-          elsif !acl["vpc_name"].nil?
-            acl['vpc']['vpc_name'] = acl["vpc_name"]
-          end
-        end
-        if !acl["vpc"].nil?
-          acl['vpc']['region'] = acl['region'] if acl['vpc']['region'].nil?
-          acl["vpc"]['cloud'] = acl['cloud']
-          # If we're using a VPC in this deploy, set it as a dependency
-          if !acl["vpc"]["vpc_name"].nil? and vpc_names.include?(acl["vpc"]["vpc_name"].to_s) and acl["vpc"]['deploy_id'].nil? and acl["vpc"]['vpc_id'].nil?
-            acl["dependencies"] << {
-                "type" => "vpc",
-                "name" => acl["vpc"]["vpc_name"]
-            }
-            # If we're using a VPC from somewhere else, make sure the flippin'
-            # thing exists, and also fetch its id now so later search routines
-            # don't have to work so hard.
-          else
-            # Drop meaningless subnet references
-            acl['vpc'].delete("subnets")
-            acl['vpc'].delete("subnet_id")
-            acl['vpc'].delete("subnet_name")
-            acl['vpc'].delete("subnet_pref")
-            if !processVPCReference(acl["vpc"], "firewall_rule #{acl['name']}", dflt_region: config['region'])
-              ok = false
-            end
-          end
-        end
-
-        acl['rules'].each { |rule|
-          if !rule['sgs'].nil?
-            rule['sgs'].each { |sg_name|
-              if sg_name == acl['name']
-                # acl['self_referencing'] = true
-                next
-              end
-              if firewall_rule_names.include?(sg_name)
-                acl["dependencies"] << {
-                    "type" => "firewall_rule",
-                    "name" => sg_name
-                }
-              else
-                MU.log "Didn't see #{sg_name} anywhere, is that ok?", MU::WARN
-              end
-            }
-          end
-          if !rule['lbs'].nil?
-            rule['lbs'].each { |lb_name|
-              acl["dependencies"] << {
-                  "type" => "loadbalancer",
-                  "name" => lb_name,
-                  "phase" => "groom"
-              }
-            }
-          end
-        }
-        acl['dependencies'].uniq!
-        acl
-      }
-
-      firewall_rules.each { |acl|
-        acl = resolveFirewall.call(acl)
-      }
-
-      loadbalancers.each { |lb|
+      @kittens["loadbalancers"].each { |lb|
         lb['region'] = config['region'] if lb['region'].nil?
         lb['cloud'] = MU::Config.defaultCloud if lb['cloud'].nil?
         lb["project"] ||= MU::Cloud::Google.defaultProject if lb['cloud'] == "Google"
@@ -1766,7 +1560,7 @@ module MU
           acl["tags"] = lb['tags'] if lb['tags'] && !lb['tags'].empty?
           acl["vpc"] = lb['vpc'].dup if !lb['vpc'].nil?
           acl["cloud"] = lb["cloud"]
-          firewall_rules << resolveFirewall.call(acl)
+          ok = false if !insertKitten(acl, "firewall_rules")
           lb["add_firewall_rules"] = [] if lb["add_firewall_rules"].nil?
           lb["add_firewall_rules"] << {"rule_name" => fwname}
         end
@@ -1890,7 +1684,7 @@ module MU
         end
       }
 
-      collections.each { |stack|
+      @kittens["collections"].each { |stack|
         stack['cloud'] = MU::Config.defaultCloud if stack['cloud'].nil?
         stack['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
         stack['region'] = config['region'] if stack['region'].nil?
@@ -1899,7 +1693,7 @@ module MU
       }
 
       server_names = Array.new
-      server_pools.each { |pool|
+      @kittens["server_pools"].each { |pool|
         if server_names.include?(pool['name'])
           MU.log "Can't use name #{pool['name']} more than once in servers/server_pools"
           ok = false
@@ -2119,7 +1913,7 @@ module MU
         acl["tags"] = pool['tags'] if pool['tags'] && !pool['tags'].empty?
         acl["vpc"] = pool['vpc'].dup if !pool['vpc'].nil?
         acl["cloud"] = pool["cloud"]
-        firewall_rules << resolveFirewall.call(acl)
+        ok = false if !insertKitten(acl, "firewall_rules")
         pool["add_firewall_rules"] = [] if !pool.has_key?("add_firewall_rules") || pool["add_firewall_rules"].nil?
         pool["add_firewall_rules"] << {"rule_name" => fwname}
 
@@ -2143,7 +1937,7 @@ module MU
       read_replicas = []
       database_names = []
       cluster_nodes = []
-      databases.each { |db|
+      @kittens["databases"].each { |db|
         db['region'] = config['region'] if db['region'].nil?
         db['cloud'] = MU::Config.defaultCloud if db['cloud'].nil?
         db["project"] ||= MU::Cloud::Google.defaultProject if db['cloud'] == "Google"
@@ -2317,7 +2111,7 @@ module MU
           acl["tags"] = db['tags'] if db['tags'] && !db['tags'].empty?
           acl["vpc"] = db['vpc'].dup if !db['vpc'].nil?
           acl["cloud"] = db["cloud"]
-          firewall_rules << resolveFirewall.call(acl)
+          ok = false if !insertKitten(acl, "firewall_rules")
           db["add_firewall_rules"] = [] if db["add_firewall_rules"].nil?
           db["add_firewall_rules"] << {"rule_name" => fwname}
         end
@@ -2439,9 +2233,9 @@ module MU
         end
         db['dependencies'].uniq!
       }
-      databases.concat(read_replicas)
-      databases.concat(cluster_nodes)
-      databases.each { |db|
+      @kittens["databases"].concat(read_replicas)
+      @kittens["databases"].concat(cluster_nodes)
+      @kittens["databases"].each { |db|
         if !db['read_replica_of'].nil?
           rr = db['read_replica_of']
           if !rr['db_name'].nil?
@@ -2495,7 +2289,7 @@ module MU
         db['dependencies'].uniq!
       }
 
-      cache_clusters.each { |cluster|
+      @kittens["cache_clusters"].each { |cluster|
         cluster['region'] = config['region'] if cluster['region'].nil?
         cluster['cloud'] = MU::Config.defaultCloud if cluster['cloud'].nil?
         cluster["project"] ||= MU::Cloud::Google.defaultProject if cluster['cloud'] == "Google"
@@ -2581,7 +2375,7 @@ module MU
           acl["tags"] = cluster['tags'] if cluster['tags'] && !cluster['tags'].empty?
           acl["vpc"] = cluster['vpc'].dup if cluster['vpc']
           acl["cloud"] = cluster["cloud"]
-          firewall_rules << resolveFirewall.call(acl)
+          ok = false if !insertKitten(acl, "firewall_rules")
           cluster["add_firewall_rules"] = [] if cluster["add_firewall_rules"].nil?
           cluster["add_firewall_rules"] << {"rule_name" => fwname}
         end
@@ -2637,7 +2431,7 @@ module MU
         cluster['dependencies'] << genAdminFirewallRuleset(vpc: cluster['vpc'], region: cluster['region'], cloud: cluster['cloud']) if !cluster['scrub_mu_isms']
       }
 
-      storage_pools.each { |pool|
+      @kittens["storage_pools"].each { |pool|
         pool['region'] = config['region'] if pool['region'].nil?
         pool["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("StoragePool")
         pool['cloud'] = MU::Config.defaultCloud if pool['cloud'].nil?
@@ -2718,7 +2512,7 @@ module MU
               acl = {"name" => fwname, "rules" => mp['ingress_rules'], "region" => pool['region'], "optional_tags" => pool['optional_tags']}
               acl["tags"] = pool['tags'] if pool['tags'] && !pool['tags'].empty?
               acl["vpc"] = mp['vpc'].dup if mp['vpc']
-              firewall_rules << resolveFirewall.call(acl)
+              ok = false if !insertKitten(acl, "firewall_rules")
               mp["add_firewall_rules"] = [] if mp["add_firewall_rules"].nil?
               mp["add_firewall_rules"] << {"rule_name" => fwname}
             end
@@ -2740,7 +2534,7 @@ module MU
         # pool['dependencies'] << genAdminFirewallRuleset(vpc: pool['vpc'], region: pool['region'], cloud: pool['cloud'])
       }
 
-      logs.each { |log_rec|
+      @kittens["logs"].each { |log_rec|
         log_rec['region'] = config['region'] if log_rec['region'].nil?
         log_rec['cloud'] = MU::Config.defaultCloud if log_rec['cloud'].nil?
         log['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
@@ -2757,7 +2551,7 @@ module MU
         end
       }
 
-      servers.each { |server|
+      @kittens["servers"].each { |server|
         if server_names.include?(server['name'])
           MU.log "Can't use name #{server['name']} more than once in servers/server_pools"
           ok = false
@@ -2916,7 +2710,7 @@ module MU
         acl["tags"] = server['tags'] if server['tags'] && !server['tags'].empty?
         acl["vpc"] = server['vpc'].dup if !server['vpc'].nil?
         acl["cloud"] = server["cloud"]
-        firewall_rules << resolveFirewall.call(acl)
+        ok = false if !insertKitten(acl, "firewall_rules")
         server["add_firewall_rules"] = [] if !server.has_key?('add_firewall_rules') || server["add_firewall_rules"].nil?
         server["add_firewall_rules"] << {"rule_name" => fwname}
 
@@ -2959,7 +2753,7 @@ module MU
         server["dependencies"].uniq!
       }
 
-      alarms.each { |alarm|
+      @kittens["alarms"].each { |alarm|
         alarm['region'] = config['region'] if alarm['region'].nil?
         alarm['cloud'] = MU::Config.defaultCloud if alarm['cloud'].nil?
         alarm["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Alarm")
@@ -3012,7 +2806,7 @@ module MU
       }
 
       # add some default holes to allow dependent instances into databases
-      databases.each { |db|
+      @kittens["databases"].each { |db|
         if db['port'].nil?
           db['port'] = 3306 if ["mysql", "aurora"].include?(db['engine'])
           db['port'] = 5432 if ["postgres"].include?(db['engine'])
@@ -3020,7 +2814,7 @@ module MU
           db['port'] = 1521 if db['engine'].match(/^oracle\-/)
         end
 
-        server_pools.each { |pool|
+        @kittens["server_pools"].each { |pool|
           pool['dependencies'].each { |dep|
             if dep['type'] == "database" and dep['name'] == db['name']
               db['ingress_rules'] << {
@@ -3037,7 +2831,7 @@ module MU
           }
         }
 
-        servers.each { |server|
+        @kittens["servers"].each { |server|
           server['dependencies'].each { |dep|
             if dep['type'] == "database" and dep['name'] == db['name']
               db['ingress_rules'] << {
@@ -3059,12 +2853,12 @@ module MU
       # XXX seem to be not detecting duplicate admin firewall_rules in genAdminFirewallRuleset
       @admin_firewall_rules.each { |acl|
         next if seen.include?(acl['name'])
-        firewall_rules << resolveFirewall.call(acl)
+        ok = false if !insertKitten(acl, "firewall_rules")
         seen << acl['name']
       }
-
-      config['firewall_rules'] = firewall_rules
-      config['alarms'] = alarms
+      ["databases", "servers", "server_pools", "cache_clusters", "alarms", "logs", "loadbalancers", "collections", "firewall_rules", "dnszones", "vpcs", "storage_pools"].each { |type|
+        config[type] = @kittens[type] if @kittens[type].size > 0
+      }
       ok = false if !MU::Config.check_dependencies(config)
 
       # TODO enforce uniqueness of resource names
@@ -5848,6 +5642,11 @@ module MU
             "scrub_mu_isms" => {
                 "type" => "boolean",
                 "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template. Setting this flag here will override declarations in individual resources."
+            },
+            "us_only" => {
+                "type" => "boolean",
+                "description" => "For resources which span regions, restrict to regions inside the United States",
+                "default" => false
             },
             "conditions" => {
                 "type" => "array",
