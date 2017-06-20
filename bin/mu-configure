@@ -775,12 +775,13 @@ if AMROOT and ($INITIALIZE or $CHANGES.include?("chefartifacts"))
   MU.log "Purging and re-uploading all Chef artifacts", MU::NOTICE
   %x{/sbin/service iptables stop} if $INITIALIZE
   output = %x{MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts}
-  %x{/sbin/service iptables start} if $INITIALIZE
   if $?.exitstatus != 0
     puts output
     MU.log "mu-upload-chef-artifacts failed, can't proceed", MU::ERR
+    %x{/sbin/service iptables start} if $INITIALIZE
     exit 1
   end
+  %x{/sbin/service iptables start} if $INITIALIZE
 end
 
 if $INITIALIZE and AMROOT
