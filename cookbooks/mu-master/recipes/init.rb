@@ -259,6 +259,14 @@ end
     recursive true
   end
 }
+file "#{MU_BASE}/var/users/mu/email" do
+  content "root@example.com\n"
+  action :create_if_missing
+end
+file "#{MU_BASE}/var/users/mu/realname" do
+  content "Mu Administrator\n"
+  action :create_if_missing
+end
 
 
 ["mu-aws-setup", "mu-cleanup", "mu-configure", "mu-deploy", "mu-firewall-allow-clients", "mu-gen-docs", "mu-load-config.rb", "mu-node-manage", "mu-tunnel-nagios", "mu-upload-chef-artifacts", "mu-user-manage", "mu-ssh"].each { |exe|
