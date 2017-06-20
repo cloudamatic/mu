@@ -54,26 +54,26 @@ end
 # These guys are a workaround for Opscode bugs that seems to affect some Chef
 # Server upgrades.
 directory "/var/run/postgresql" do
-  owner "opscode-pgsql"
-  group "opscode-pgsql"
+  mode 0755
+#  owner "opscode-pgsql"
+#  group "opscode-pgsql"
   action :nothing
 end
-link "/tmp/.s.PGSQL.5432" do
-  to "/var/run/postgresql/.s.PGSQL.5432"
-  owner "opscode-pgsql"
-  group "opscode-pgsql"
-  action :nothing
-  only_if { !::File.exists?("/tmp/.s.PGSQL.5432") }
-  only_if { ::File.exists?("/var/run/postgresql/.s.PGSQL.5432") }
-end
+#link "/tmp/.s.PGSQL.5432" do
+#  to "/var/run/postgresql/.s.PGSQL.5432"
+#  owner "opscode-pgsql"
+#  group "opscode-pgsql"
+#  action :nothing
+#  only_if { !::File.exists?("/tmp/.s.PGSQL.5432") }
+#  only_if { ::File.exists?("/var/run/postgresql/.s.PGSQL.5432") }
+#end
 link "/var/run/postgresql/.s.PGSQL.5432" do
   to "/tmp/.s.PGSQL.5432"
-  owner "opscode-pgsql"
-  group "opscode-pgsql"
-  action :nothing
+#  owner "opscode-pgsql"
+#  group "opscode-pgsql"
   notifies :create, "directory[/var/run/postgresql]", :before
   only_if { !::File.exists?("/var/run/postgresql/.s.PGSQL.5432") }
-  only_if { ::File.exists?("/tmp/.s.PGSQL.5432") }
+#  only_if { ::File.exists?("/tmp/.s.PGSQL.5432") }
 end
 execute "Chef Server rabbitmq workaround" do
   # This assumes we get clean stop, which *should* be the case if we execute
@@ -84,11 +84,26 @@ execute "Chef Server rabbitmq workaround" do
   notifies :stop, "service[chef-server]", :before
 end
 
+remote_file "back up /etc/hosts" do
+  path "/etc/hosts.muinstaller"
+  source "file:///etc/hosts"
+  action :nothing
+end
+file "use a clean /etc/hosts during install" do
+  path "/etc/hosts"
+  content "
+127.0.0.1       localhost
+::1     localhost6.localdomain6 localhost6
+"
+  notifies :create, "remote_file[back up /etc/hosts]", :before
+  only_if { RUNNING_STANDALONE }
+end
+
 execute "reconfigure Chef server" do
   command "/opt/opscode/bin/chef-server-ctl reconfigure"
   action :nothing
   notifies :run, "execute[stop iptables]", :before
-  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
+#  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
   notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
   notifies :restart, "service[chef-server]", :immediately
   notifies :run, "execute[start iptables]", :immediately
@@ -100,7 +115,7 @@ execute "upgrade Chef server" do
   timeout 1200 # this can take a while
   notifies :run, "execute[stop iptables]", :before
   notifies :run, "execute[Chef Server rabbitmq workaround]", :before
-  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
+#  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
   notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
   notifies :run, "execute[start iptables]", :immediately
   only_if { RUNNING_STANDALONE }
@@ -111,6 +126,8 @@ service "chef-server" do
   start_command "/opt/opscode/bin/chef-server-ctl start"
   pattern "/opt/opscode/embedded/sbin/nginx"
   action :nothing
+#  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
+#  notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
   notifies :run, "execute[stop iptables]", :before
   notifies :run, "execute[start iptables]", :immediately
   only_if { RUNNING_STANDALONE }
@@ -124,7 +141,7 @@ dpkgs = {}
 if platform_family?("rhel") 
   basepackages = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel"]
   rpms = {
-    "epel-release" => "http://mirror.metrocast.net/fedora/epel/epel-release-latest-#{node[:platform_version].to_i}.noarch.rpm",
+    "epel-release" => "http://dl.fedoraproject.org/pub/epel/epel-release-latest-#{node[:platform_version].to_i}.noarch.rpm",
     "chef-server-core" => "https://packages.chef.io/files/stable/chef-server/#{CHEF_SERVER_VERSION.sub(/\-\d+$/, "")}/el/#{node[:platform_version].to_i}/chef-server-core-#{CHEF_SERVER_VERSION}.el#{node[:platform_version].to_i}.x86_64.rpm"
   }
 
@@ -257,6 +274,14 @@ end
     recursive true
   end
 }
+file "#{MU_BASE}/var/users/mu/email" do
+  content "root@example.com\n"
+  action :create_if_missing
+end
+file "#{MU_BASE}/var/users/mu/realname" do
+  content "Mu Administrator\n"
+  action :create_if_missing
+end
 
 ["mu-aws-setup", "mu-cleanup", "mu-configure", "mu-deploy", "mu-firewall-allow-clients", "mu-gen-docs", "mu-load-config.rb", "mu-node-manage", "mu-tunnel-nagios", "mu-upload-chef-artifacts", "mu-user-manage", "mu-ssh"].each { |exe|
   link "#{MU_BASE}/bin/#{exe}" do
@@ -341,7 +366,10 @@ end
 execute "initial Chef artifact upload" do
   command "MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts"
   action :nothing
+  notifies :run, "execute[stop iptables]", :before
   notifies :run, "execute[knife ssl fetch]", :before
+  notifies :run, "execute[start iptables]", :immediately
+  only_if { RUNNING_STANDALONE }
 end
 chef_gem "simple-password-gen" do
   compile_time true
