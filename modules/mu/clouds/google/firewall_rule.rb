@@ -46,13 +46,20 @@ module MU
 
         end
 
+        attr_reader :rulesets
+        def buildRuleset(ruleobj, ingress = true, allow = true)
+          @rulesets ||= {}
+        end
+
         # Called by {MU::Deploy#createResources}
         def create
           vpc_id = @vpc.cloud_id if !@vpc.nil?
-          srcs = []
-          ingress = []
-          egress = []
+          allrules = {}
+
+          # The set of rules might actually compose into multiple firewall
+          # objects, so figure that out.
           @config['rules'].each { |rule|
+            srcs = []
             ruleobj = nil
             if ["tcp", "udp"].include?(rule['proto']) and (rule['port_range'] or rule['port'])
               ruleobj = ::Google::Apis::ComputeBeta::Firewall::Allowed.new(
@@ -64,37 +71,45 @@ module MU
                 ip_protocol: rule['proto']
               )
             end
-            egress << ruleobj if rule['egress']
-            ingress << ruleobj if rule['ingress']
             if rule['hosts']
               rule['hosts'].each { |cidr| srcs << cidr }
             end
+            ["ingress", "egress"].each { |dir|
+              if rule[dir] or (dir == "ingress" and !rule.has_key?("egress"))
+                setname = @mu_name+"-"+dir+"-"+(rule['deny'] ? "deny" : "allow")
+                allrules[setname] ||= {
+                  :name => setname,
+                  :description => @deploy.deploy_id,
+                  :direction => dir.upcase,
+                  :network => vpc_id
+                }
+                action = rule['deny'] ? :denied : :allowed
+                allrules[setname][action] ||= []
+                allrules[setname][action] << ruleobj
+                ipparam = dir == "ingress" ? :source_ranges : :destination_ranges
+                allrules[setname][ipparam] ||= []
+                allrules[setname][ipparam].concat(srcs)
+                allrules[setname][:priority] = rule['weight'] if rule['weight']
+              end
+            }
           }
-          if ingress.size > 0
-            fwobj = ::Google::Apis::ComputeBeta::Firewall.new(
-              name: @mu_name,
-              allowed: ingress,
-              description: @deploy.deploy_id,
-              network: vpc_id,
-              source_ranges: srcs.uniq
-            )
-            MU.log "Creating ingress firewall #{@config['project']} #{@mu_name}", MU::NOTICE, details: fwobj
-            resp = MU::Cloud::Google.compute.insert_firewall(@config['project'], fwobj)
-          end
-          if egress.size > 0
-            fwobj = ::Google::Apis::ComputeBeta::Firewall.new(
-              name: @mu_name,
-              allowed: egress,
-              description: @deploy.deploy_id,
-              network: vpc_id,
-              direction: "EGRESS", # XXX the Ruby SDK doesn't know what this is, even though the REST endpoint does
-              destination_ranges: srcs.uniq
-            )
-            MU.log "Creating egress firewall #{@mu_name}", MU::NOTICE, details: fwobj
-            resp = MU::Cloud::Google.compute.insert_firewall(@config['project'], fwobj)
-          end
 
+          parent_thread_id = Thread.current.object_id
+          threads = []
+
+          allrules.each_value { |fwdesc|
+            threads << Thread.new { 
+              fwobj = ::Google::Apis::ComputeBeta::Firewall.new(fwdesc)
+              MU.log "Creating firewall #{fwdesc[:name]}", details: fwobj
+              resp = MU::Cloud::Google.compute.insert_firewall(@config['project'], fwobj)
+# XXX Check for empty (no hosts) sets
 #  MU.log "Can't create empty firewalls in Google Cloud, skipping #{@mu_name}", MU::WARN
+            }
+          }
+
+          threads.each do |t|
+            t.join
+          end
         end
 
         # Called by {MU::Deploy#createResources}
