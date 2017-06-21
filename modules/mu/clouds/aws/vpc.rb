@@ -1192,8 +1192,21 @@ module MU
         # @param kitten [Hash]: The resource to process and validate
         # @param config [MU::Config]: The overall deployment config of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.parseConfig(vpc, config)
+        def self.validateConfig(vpc, config)
           ok = true
+
+          if (!vpc['route_tables'] or vpc['route_tables'].size == 0) and vpc['create_standard_subnets']
+            vpc['route_tables'] = [
+              {
+                "name" => "internet",
+                "routes" => [ { "destination_network" => "0.0.0.0/0", "gateway" => "#INTERNET" } ]
+              },
+              {
+                "name" => "private",
+                "routes" => [ { "destination_network" => "0.0.0.0/0", "gateway" => "#NAT" } ]
+              }
+            ]
+          end
 
           subnet_routes = Hash.new
           public_routes = Array.new

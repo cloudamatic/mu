@@ -210,6 +210,14 @@ module MU
           MU::Cloud::AWS::Log.getLogGroupByName(cloud_id, region: region)
         end
 
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::logs}, bare and unvalidated.
+        # @param log [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(log, configurator)
+          true
+        end
+
         # Retrieve the complete cloud provider description of a log group.
         # @param name [String]: The cloud provider's identifier for this log group.
         # @param region [String]: The cloud provider region

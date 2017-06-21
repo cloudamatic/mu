@@ -106,6 +106,25 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          MU.log "GROOMER CALLED FOR #{@mu_name}", MU::WARN
+
+          if !@config['peers'].nil? and @config['peers'].empty?
+            @config['peers'].each { |peer|
+MU.log "Goin' fishin'", MU::WARN, details: peer
+              peer_obj = MU::MommaCat.findStray(
+                  "Google",
+                  "vpcs",
+                  deploy_id: peer['vpc']['deploy_id'],
+                  cloud_id: peer['vpc']['vpc_id'],
+                  name: peer['vpc']['vpc_name'],
+                  tag_key: tag_key,
+                  tag_value: tag_value,
+                  dummy_ok: true
+              )
+MU.log "My peer hunt", MU::WARN, details: peer_obj
+              raise MuError, "No result looking for #{@mu_name}'s peer VPCs (#{peer['vpc']})" if peer_obj.nil? or peer_obj.first.nil?
+            }
+          end
         end
 
         # Locate an existing VPC or VPCs and return an array containing matching Google cloud resource descriptors for those that match.
@@ -114,9 +133,15 @@ module MU
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching VPCs
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, opts: {})
-#          cloud_desc = MU::Cloud::Google.compute.get_network(@config['project'], cloud_id)
-          {}
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
+          flags["project"] ||= MU::Cloud::Google.defaultProject
+# XXX this is a placeholder, and quite wrong
+          resp = MU::Cloud::Google.compute.list_networks(
+            flags["project"],
+            filter: "description eq #{MU.deploy_id}"
+          )
+          pp resp
+          resp
         end
 
         # Return an array of MU::Cloud::Google::VPC::Subnet objects describe the
@@ -270,71 +295,124 @@ module MU
         # @param vpc [Hash]: The resource to process and validate
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.parseConfig(vpc, configurator)
+        def self.validateConfig(vpc, configurator)
           ok = true
 
-          if (!vpc['subnets'] or vpc['subnets'].empty?) and vpc['create_standard_subnets']
-            if vpc['regions'].nil? or vpc['regions'].empty?
-              vpc['regions'] = MU::Cloud::Google.listRegions(vpc['us_only'])
+          if vpc['create_standard_subnets']
+            # Manufacture some generic routes, if applicable.
+            if !vpc['route_tables'] or vpc['route_tables'].empty?
+              vpc['route_tables'] = [
+                {
+                  "name" => "internet",
+                  "routes" => [ { "destination_network" => "0.0.0.0/0", "gateway" => "#INTERNET" } ]
+                },
+                {
+                  "name" => "private",
+                  "routes" => [ { "destination_network" => "0.0.0.0/0", "gateway" => "#NAT" } ]
+                }
+              ]
             end
-            blocks = configurator.divideNetwork(vpc['ip_block'], vpc['regions'].size*2)
-            ok = false if blocks.nil?
 
-            count = 0
-            # Generate one private and one public network per region.
-            vpc["subnets"] = []
-            vpc['regions'].each { |r|
-              block = blocks.shift
-              ok = false if !genPublicEgressACL(block.to_s, vpc['name'], configurator)
-              vpc["subnets"] << {
-                "availability_zone" => r,
-                "route_table" => "public", # XXX or w/e it really is
-                "ip_block" => block.to_s,
-                "name" => "Subnet"+count.to_s+"Public",
-                "map_public_ips" => true
+            # Generate a set of subnets per route, if none are declared
+            if !vpc['subnets'] or vpc['subnets'].empty?
+              if vpc['regions'].nil? or vpc['regions'].empty?
+                vpc['regions'] = MU::Cloud::Google.listRegions(vpc['us_only'])
+              end
+              blocks = configurator.divideNetwork(vpc['ip_block'], vpc['regions'].size*vpc['route_tables'].size)
+              ok = false if blocks.nil?
+
+              vpc["subnets"] = []
+              vpc['regions'].each { |r|
+                count = 0
+                vpc['route_tables'].each { |t|
+                  block = blocks.shift
+                  vpc["subnets"] << {
+                    "availability_zone" => r,
+                    "route_table" => t["name"],
+                    "ip_block" => block.to_s,
+                    "name" => "Subnet"+count.to_s+t["name"].capitalize,
+                    "map_public_ips" => true
+                  }
+                  count = count + 1
+                }
               }
-              block = blocks.shift
-              ok = false if !genPrivateEgressACL(block.to_s, vpc['name'], configurator)
-              vpc["subnets"] << {
-                "availability_zone" => r,
-                "route_table" => "private", # XXX or w/e it really is
-                "ip_block" => block.to_s,
-                "name" => "Subnet"+count.to_s+"Private",
-                "map_public_ips" => false
-              }
-              count = count + 1
-            }
+            end
           end
+
+          # Google VPCs can't have routes that are anything other than global
+          # (or tied to individual instances by tags, but w/e). So we decompose
+          # our VPCs into littler VPCs, one for each declared route table, so
+          # that the routes therein will only apply to the portion of our
+          # network we want them to.
+          if vpc['route_tables'].size > 1
+            blocks = configurator.divideNetwork(vpc['ip_block'], vpc['route_tables'].size*2)
+            peernames = []
+            vpc['route_tables'].each { |tbl|
+              peernames << vpc['name']+"-"+tbl['name']
+            }
+            vpc['route_tables'].each { |tbl|
+              newvpc = {
+                "name" => vpc['name']+"-"+tbl['name'],
+                "ip_block" => blocks.shift,
+                "route_tables" => [tbl],
+                "parent_block" => vpc['ip_block'],
+                "subnets" => []
+              }
+              MU.log "Splitting VPC #{newvpc['name']} off from #{vpc['name']}", MU::NOTICE
+
+              vpc.each_pair { |key, val|
+                next if ["name", "route_tables", "subnets", "ip_block"].include?(key)
+                newvpc[key] = val
+              }
+              newvpc['peers'] ||= []
+              peernames.each { |peer|
+                if peer != vpc['name']+"-"+tbl['name']
+                  newvpc['peers'] << { "vpc" => { "vpc_name" => peer } }
+                end
+              }
+              vpc["subnets"].each { |subnet|
+                newvpc["subnets"] << subnet if subnet["route_table"] == tbl["name"]
+              }
+              ok = false if !configurator.insertKitten(newvpc, "vpcs")
+            }
+            configurator.removeKitten(vpc['name'], "vpcs")
+          else
+            if vpc['route_tables'].first["routes"].include?({"gateway"=>"#DENY", "destination_network"=>"0.0.0.0/0"})
+              ok = false if !genStandardSubnetACLs(vpc['parent_block'] || vpc['ip_block'], vpc['name'], configurator, false)
+            else
+              ok = false if !genStandardSubnetACLs(vpc['parent_block'] || vpc['ip_block'], vpc['name'], configurator)
+            end
+          end
+
 #          MU.log "GOOGLE VPC", MU::WARN, details: vpc
           ok
         end
 
         private
 
-        def self.genPrivateEgressACL(src, vpc_name, configurator)
+        def self.genStandardSubnetACLs(vpc_cidr, vpc_name, configurator, publicroute = true)
           private_acl = {
-            "name" => vpc_name+"-"+src.gsub(/[\/\.]/, "-")+"-allow-private-egress",
+            "name" => vpc_name+"-routables",
             "cloud" => "Google",
             "vpc" => { "vpc_name" => vpc_name },
             "dependencies" => [ { "type" => "vpc", "name" => vpc_name } ],
             "rules" => [
-              { "egress" => true, "proto" => "all", "hosts" => [src] },
+              { "ingress" => true, "proto" => "all", "hosts" => [vpc_cidr] }
             ]
           }
+          if publicroute
+            private_acl["rules"] << {
+              "egress" => true, "proto" => "all", "hosts" => ["0.0.0.0/0"]
+            }
+          else
+            private_acl["rules"] << {
+              "egress" => true, "proto" => "all", "hosts" => [vpc_cidr], "weight" => 999
+            }
+            private_acl["rules"] << {
+              "egress" => true, "proto" => "all", "hosts" => ["0.0.0.0/0"], "deny" => true
+            }
+          end
           configurator.insertKitten(private_acl, "firewall_rules")
-        end
-
-        def self.genPublicEgressACL(src, vpc_name, configurator)
-          public_acl = {
-            "name" => vpc_name+"-"+src.gsub(/[\/\.]/, "-")+"-allow-public-egress",
-            "cloud" => "Google",
-            "vpc" => { "vpc_name" => vpc_name },
-            "dependencies" => [ { "type" => "vpc", "name" => vpc_name } ],
-            "rules" => [
-              { "egress" => true, "proto" => "all", "hosts" => [src] },
-            ]
-          }
-          configurator.insertKitten(public_acl, "firewall_rules")
         end
 
         # List the routes for each subnet in the given VPC

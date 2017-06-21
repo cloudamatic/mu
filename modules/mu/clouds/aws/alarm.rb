@@ -227,6 +227,15 @@ module MU
         def self.enableAlarmAction(name, region: MU.curRegion)
           MU::Cloud::AWS.cloudwatch(region).enable_alarm_actions(alarm_names: [name])
         end
+
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::alarms}, bare and unvalidated.
+        # @param alarm [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(alarm, configurator)
+          true
+        end
+
       end
     end
   end

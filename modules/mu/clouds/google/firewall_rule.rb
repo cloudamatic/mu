@@ -195,7 +195,7 @@ module MU
         # @param kitten [Hash]: The resource to process and validate
         # @param config [MU::Config]: The overall deployment config of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.parseConfig(acl, config)
+        def self.validateConfig(acl, config)
           ok = true
         end
 

@@ -787,6 +787,14 @@ module MU
           }
         end
 
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::dns_zones}, bare and unvalidated.
+        # @param zone [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(zone, configurator)
+          true
+        end
+
         # Locate an existing DNSZone or DNSZones and return an array containing matching AWS resource descriptors for those that match.
         # @param cloud_id [String]: The cloud provider's identifier for this resource. Can also use the domain name, we'll check for both.
         # @param region [String]: The cloud provider region

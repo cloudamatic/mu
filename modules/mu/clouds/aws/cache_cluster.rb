@@ -668,6 +668,14 @@ module MU
           end
         end
 
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::cache_clusters}, bare and unvalidated.
+        # @param cache [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(cache, configurator)
+          true
+        end
+
         private
 
         # Remove a Cache Cluster and associated artifacts

@@ -272,9 +272,9 @@ module MU
         # @param vpc [Hash]: The resource to process and validate
         # @param config [MU::Config]: The overall deployment config of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.parseConfig(vpc, config)
+        def self.validateConfig(vpc, config)
           # Just use the AWS implemention
-          MU::Cloud::AWS::VPC.parseConfig(vpc, config)
+          MU::Cloud::AWS::VPC.validateConfig(vpc, config)
         end
 
         # Placeholder. This is a NOOP for CloudFormation, which doesn't build

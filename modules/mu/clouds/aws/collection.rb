@@ -304,6 +304,14 @@ module MU
           @deploy.notify("collections", @config["name"], @config)
         end
 
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::collections}, bare and unvalidated.
+        # @param stack [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(stack, configurator)
+          true
+        end
+
         private
 
         # Generate a MU-friendly name for a CloudFormation stack

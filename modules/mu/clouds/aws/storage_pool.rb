@@ -400,6 +400,14 @@ module MU
           end
         end
 
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::storage_pools}, bare and unvalidated.
+        # @param storage [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(storage, configurator)
+          true
+        end
+
         private
       end #class
     end #class

@@ -615,14 +615,33 @@ module MU
 
     attr_reader :kittens
     @kittens = {}
-    def insertKitten(descriptor, type)
+    def removeKitten(name, type)
+      deletia = nil
+      @kittens[type].each { |kitten|
+        if kitten['name'] == name
+          deletia = kitten
+          break
+        end
+      }
+      @kittens[type].delete(deletia) if !deletia.nil?
+    end
+    def insertKitten(descriptor, type, delay_validation = false)
       append = !@kittens[type].include?(descriptor)
+
+      # Skip if this kitten has already been validated and appended
+      if !append and descriptor["#MU_VALIDATED"]
+        return true
+      end
 
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
       descriptor["#MU_CLOUDCLASS"] = classname
       inheritDefaults(descriptor)
-      parser = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s)
-      return false if !parser.parseConfig(descriptor, self)
+
+      if !delay_validation
+        parser = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s)
+        return false if !parser.validateConfig(descriptor, self)
+        descriptor['#MU_VALIDATED'] = true
+      end
 
       @kittens[cfg_plural] << descriptor if append
       true
@@ -1325,10 +1344,12 @@ module MU
     # @param kitten [Hash]: A resource descriptor
     def inheritDefaults(kitten)
       kitten['cloud'] = MU::Config.defaultCloud if kitten['cloud'].nil?
-      kitten['region'] = @config['region'] if kitten['region'].nil?
       if kitten['cloud'] == "Google"
         kitten["project"] ||= MU::Cloud::Google.defaultProject
+      else
+        kitten['region'] = @config['region'] if kitten['region'].nil?
       end
+# XXX get AWS layer to honor us_only
       kitten['us_only'] = @config['us_only'] if kitten['us_only'].nil?
       kitten["dependencies"] = [] if kitten["dependencies"].nil?
       kitten['scrub_mu_isms'] = @config['scrub_mu_isms'] if @config.has_key?('scrub_mu_isms')
@@ -1377,12 +1398,12 @@ module MU
         server_names << server['name']
       }
 
-      vpc_names = Array.new
       nat_routes = Hash.new # XXX ugh, just die
       @kittens["vpcs"].each { |vpc|
         ok = false if !insertKitten(vpc, "vpcs")
-        vpc_names << vpc['name']
       }
+# XXX I'm so over this kludge
+      vpc_names = @kittens["vpcs"].map { |v| v['name'] }
 
       # Now go back through and identify peering connections involving any of
       # the VPCs we've declared. XXX Note that it's real easy to create a
@@ -1395,7 +1416,7 @@ module MU
             if !peer['vpc']["vpc_name"].nil? and
                vpc_names.include?(peer['vpc']["vpc_name"].to_s) and
                peer["vpc"]['deploy_id'].nil? and peer["vpc"]['vpc_id'].nil?
-              peer['vpc']['region'] = config['region'] if peer['vpc']['region'].nil?
+              peer['vpc']['region'] = config['region'] if peer['vpc']['region'].nil? # XXX this is AWS-specific
               peer['vpc']['cloud'] = vpc['cloud'] if peer['vpc']['cloud'].nil?
               vpc["dependencies"] << {
                 "type" => "vpc",
@@ -1405,7 +1426,7 @@ module MU
               # thing exists, and also fetch its id now so later search routines
               # don't have to work so hard.
             else
-              peer['vpc']['region'] = config['region'] if peer['vpc']['region'].nil?
+              peer['vpc']['region'] = config['region'] if peer['vpc']['region'].nil? # XXX this is AWS-specific
               peer['vpc']['cloud'] = vpc['cloud'] if peer['vpc']['cloud'].nil?
               if !peer['account'].nil? and peer['account'] != MU.account_number
                 if peer['vpc']["vpc_id"].nil?
@@ -3212,7 +3233,7 @@ module MU
             },
             "gateway" => {
                 "type" => "string",
-                "description" => "The ID of a VPN or Internet gateway attached to your VPC. You must provide either gateway or NAT host, but not both. #INTERNET will refer to this VPC's default internet gateway, if one exists. #NAT will refer to a this VPC's NAT gwateway",
+                "description" => "The ID of a VPN, NAT, or Internet gateway attached to your VPC. #INTERNET will refer to this VPC's default internet gateway, if one exists. #NAT will refer to a this VPC's NAT gateway, and will implicitly create one if none exists. #DENY will ensure that the subnets associated with this route do *not* have a route outside of the VPC's local address space (primarily for Google Cloud, where we must explicitly disable egress to the internet).",
                 "default" => "#INTERNET"
             },
             "nat_host_id" => {

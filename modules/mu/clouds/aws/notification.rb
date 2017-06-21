@@ -42,6 +42,14 @@ module MU
           # Not implemented
         end
 
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::notifications}, bare and unvalidated.
+        # @param notification [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(notification, configurator)
+          true
+        end
+
         # Create a new notification group. Will check if the group exists before creating it.
         # @param topic_name [String]: The cloud provider's name for the notification group.
         # @param region [String]: The cloud provider region.

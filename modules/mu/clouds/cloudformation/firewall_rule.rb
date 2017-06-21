@@ -135,9 +135,9 @@ module MU
         # @param vpc [Hash]: The resource to process and validate
         # @param config [MU::Config]: The overall deployment config of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.parseConfig(acl, config)
+        def self.validateConfig(acl, config)
           # Just use the AWS implemention
-          MU::Cloud::AWS::FirewallRule.parseConfig(acl, config)
+          MU::Cloud::AWS::FirewallRule.validateConfig(acl, config)
         end
 
         private
