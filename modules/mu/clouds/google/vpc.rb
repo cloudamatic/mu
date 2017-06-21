@@ -106,11 +106,15 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          MU.log "GROOMER CALLED FOR #{@mu_name}", MU::WARN
 
-          if !@config['peers'].nil? and @config['peers'].empty?
+          if !@config['peers'].nil?
+            count = 0
             @config['peers'].each { |peer|
-MU.log "Goin' fishin'", MU::WARN, details: peer
+              tag_key, tag_value = peer['vpc']['tag'].split(/=/, 2) if !peer['vpc']['tag'].nil?
+              if peer['vpc']['deploy_id'].nil? and peer['vpc']['vpc_id'].nil? and tag_key.nil?
+                peer['vpc']['deploy_id'] = @deploy.deploy_id
+              end
+
               peer_obj = MU::MommaCat.findStray(
                   "Google",
                   "vpcs",
@@ -121,8 +125,19 @@ MU.log "Goin' fishin'", MU::WARN, details: peer
                   tag_value: tag_value,
                   dummy_ok: true
               )
-MU.log "My peer hunt", MU::WARN, details: peer_obj
+
               raise MuError, "No result looking for #{@mu_name}'s peer VPCs (#{peer['vpc']})" if peer_obj.nil? or peer_obj.first.nil?
+              peerreq = ::Google::Apis::ComputeBeta::NetworksAddPeeringRequest.new(
+                name: @mu_name+"-peer-"+count.to_s,
+                auto_create_routes: true,
+                peer_network: peer_obj.first.cloud_id
+              )
+              MU.log "Peering #{@mu_name} with #{peer_obj.first.cloud_id}", details: peerreq
+              MU::Cloud::Google.compute.add_network_peering(
+                @config['project'],
+                @mu_name,
+                peerreq
+              )
             }
           end
         end
@@ -140,7 +155,6 @@ MU.log "My peer hunt", MU::WARN, details: peer_obj
             flags["project"],
             filter: "description eq #{MU.deploy_id}"
           )
-          pp resp
           resp
         end
 

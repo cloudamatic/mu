@@ -264,7 +264,7 @@ module MU
         @my_threads.each do |t|
           t.join
         end
-exit
+
       rescue Exception => e
         @my_threads.each do |t|
           if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread" and t.object_id != parent_thread_id
@@ -341,7 +341,7 @@ exit
         MU.setLogging(@verbosity)
       end
 
-      MU.log "Deployment complete", details: deployment
+      MU.log "Deployment #{MU.deploy_id} complete", details: deployment
     end
 
     private
