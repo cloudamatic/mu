@@ -44,11 +44,13 @@ execute "stop iptables" do
   command "/sbin/service iptables stop"
   ignore_failure true
   action :nothing
+  only_if "( /bin/systemctl -l --no-pager | grep iptables.service ) || ( /sbin/chkconfig --list | grep ^iptables )"
 end
 execute "start iptables" do
   command "/sbin/service iptables start"
   ignore_failure true
   action :nothing
+  only_if "( /bin/systemctl -l --no-pager | grep iptables.service ) || ( /sbin/chkconfig --list | grep ^iptables )"
 end
 
 # These guys are a workaround for Opscode bugs that seems to affect some Chef
