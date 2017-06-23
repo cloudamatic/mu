@@ -99,6 +99,7 @@ file "use a clean /etc/hosts during install" do
 "
   notifies :create, "remote_file[back up /etc/hosts]", :before
   only_if { RUNNING_STANDALONE }
+  not_if { ::Dir.exists?("#{MU_BASE}/lib/.git") }
 end
 
 execute "reconfigure Chef server" do
