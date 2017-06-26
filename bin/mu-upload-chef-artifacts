@@ -41,6 +41,7 @@ fi
 if [ -z $MU_DATADIR ];then
     MU_DATADIR=/opt/mu/var
 fi
+export MU_DATADIR="$MU_DATADIR"
 
 source $MU_INSTALLDIR/lib/install/deprecated-bash-library.sh
 
