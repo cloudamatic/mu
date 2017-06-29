@@ -113,10 +113,16 @@ module MU
       end
 
       # Google's Compute Service API
-      def self.compute
+      # @param subclass [<Google::Apis::ComputeBeta>]: If specified, will return the class ::Google::Apis::ComputeBeta::subclass instead of an API client instance
+      def self.compute(subclass = nil)
         require 'google/apis/compute_beta'
-        @@compute_api ||= MU::Cloud::Google::Endpoint.new(api: "ComputeBeta::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'])
-        @@compute_api
+
+        if subclass.nil?
+          @@compute_api ||= MU::Cloud::Google::Endpoint.new(api: "ComputeBeta::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'])
+          return @@compute_api
+        elsif subclass.is_a?(Symbol)
+          return Object.const_get("::Google").const_get("Apis").const_get("ComputeBeta").const_get(subclass)
+        end
       end
 
       private

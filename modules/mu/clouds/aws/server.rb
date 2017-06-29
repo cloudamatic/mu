@@ -1077,9 +1077,9 @@ module MU
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @param ip [String]: An IP address associated with the instance
-        # @param opts [Hash]: Optional flags
+        # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching instances
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, ip: nil, opts: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, ip: nil, flags: {})
 # XXX put that 'ip' value into opts
           instance = nil
           if !region.nil?
@@ -2154,7 +2154,73 @@ module MU
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(server, configurator)
-          true
+          ok = true
+
+          sizepattern = /^(t|m|c|i|g|r|hi|hs|cr|cg|cc){1,2}[0-9]\.(nano|micro|small|medium|[248]?x?large)$/
+          if server["size"].nil? or !server["size"].match(sizepattern)
+            MU.log "Invalid size '#{server['size']}' for AWS EC2 instance. Must match: #{sizepattern}", MU::ERR
+            ok = false
+          end
+
+          if !server['generate_iam_role']
+            if !server['iam_role'] and server['cloud'] != "CloudFormation"
+              MU.log "Must set iam_role if generate_iam_role set to false", MU::ERR
+              ok = false
+            end
+            if !server['iam_policies'].nil? and server['iam_policies'].size > 0
+              MU.log "Cannot mix iam_policies with generate_iam_role set to false", MU::ERR
+              ok = false
+            end
+          end
+          if !server['create_image'].nil?
+            if server['create_image'].has_key?('copy_to_regions') and
+                (server['create_image']['copy_to_regions'].nil? or
+                    server['create_image']['copy_to_regions'].include?("#ALL") or
+                    server['create_image']['copy_to_regions'].size == 0
+                )
+              server['create_image']['copy_to_regions'] = MU::Cloud::AWS.listRegions
+            end
+          end
+          if server['ami_id'].nil? and server['cloud'] == "AWS"
+            if MU::Config.amazon_images.has_key?(server['platform']) and
+                MU::Config.amazon_images[server['platform']].has_key?(server['region'])
+              server['ami_id'] = configurator.getTail("server"+server['name']+"AMI", value: MU::Config.amazon_images[server['platform']][server['region']], prettyname: "server"+server['name']+"AMI", cloudtype: "AWS::EC2::Image::Id")
+            else
+              MU.log "No AMI specified for #{server['name']} and no default available for platform #{server['platform']} in region #{server['region']}", MU::ERR, details: server
+              ok = false
+            end
+          end
+
+          if server["alarms"] && !server["alarms"].empty?
+            server["alarms"].each { |alarm|
+              alarm["name"] = "server-#{server["name"]}-#{alarm["name"]}"
+              alarm["dimensions"] = [] if !alarm["dimensions"]
+              alarm['dimensions'] << { "name" => server["name"], "cloud_class" => "InstanceId" }
+              alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
+              alarm['cloud'] = server['cloud']
+              alarms << alarm.dup
+            }
+          end
+
+          if !server["loadbalancers"].nil?
+            server["loadbalancers"].each { |lb|
+              if lb["concurrent_load_balancer"] != nil
+                server["dependencies"] << {
+                    "type" => "loadbalancer",
+                    "name" => lb["concurrent_load_balancer"]
+                }
+              end
+            }
+          end
+
+          if !server["vpc"].nil?
+            if server["vpc"]["subnet_name"].nil? and server["vpc"]["subnet_id"].nil? and server["vpc"]["subnet_pref"].nil?
+              MU.log "A server VPC block must specify a target subnet", MU::ERR
+              ok = false
+            end
+          end
+
+          ok
         end
 
         private

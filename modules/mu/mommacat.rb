@@ -1048,7 +1048,7 @@ module MU
         tag_value: nil,
         allow_multi: false,
         calling_deploy: MU.mommacat,
-        opts: {},
+        flags: {},
         dummy_ok: false
     )
       return nil if cloud == "CloudFormation" and !cloud_id.nil?
@@ -1077,9 +1077,9 @@ module MU
             deploy_id = mu_name.sub(/^(\w+-\w+-\d{10}-[A-Z]{2})-/, '\1')
           end
         end
-        MU.log "Called findStray with cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}", MU::DEBUG, details: opts
+        MU.log "Called findStray with cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}", MU::DEBUG, details: flags
 
-        if !deploy_id.nil? and !calling_deploy.nil? and opts.empty? and
+        if !deploy_id.nil? and !calling_deploy.nil? and flags.empty? and
             calling_deploy.deploy_id == deploy_id and (!name.nil? or !mu_name.nil?)
           handle = calling_deploy.findLitterMate(type: type, name: name, mu_name: mu_name, cloud_id: cloud_id)
           return [handle] if !handle.nil?
@@ -1087,8 +1087,9 @@ module MU
 
         kittens = {}
         # Search our deploys for matching resources
-        if (deploy_id or name or mu_name or cloud_id) and opts.empty?
+        if (deploy_id or name or mu_name or cloud_id)# and flags.empty?
           mu_descs = MU::MommaCat.getResourceMetadata(resourceclass.cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name)
+
           mu_descs.each_pair { |deploy_id, matches|
             next if matches.nil? or matches.size == 0
             momma = MU::MommaCat.getLitter(deploy_id)
@@ -1101,9 +1102,21 @@ module MU
               else
                 straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: cloud_id)
               end
+#            elsif !flags.nil? and !flags.empty? # XXX eh, maybe later
+#              # see if we can narrow it down further with some flags
+#              filtered = []
+#              matches.each { |m|
+#                f = resourceclass.find(cloud_id: m['mu_name'], flags: flags)
+#                filtered << m if !f.nil? and f.size > 0
+#                MU.log "RESULT FROM find(cloud_id: #{m['mu_name']}, flags: #{flags})", MU::WARN, details: f
+#              }
+#              if filtered.size == 1
+#                straykitten = momma.findLitterMate(type: type, name: matches.first["name"], cloud_id: filtered.first['cloud_id'])
+#              end
             else
               straykitten = momma.findLitterMate(type: type, name: name, mu_name: mu_name, cloud_id: cloud_id)
             end
+
             next if straykitten.nil?
 
             kittens[straykitten.cloud_id] = straykitten
@@ -1114,11 +1127,12 @@ module MU
               return [straykitten]
             end
           }
+
           if !mu_descs.nil? and mu_descs.size > 0 and !deploy_id.nil? and !deploy_id.empty? and !mu_descs.first.empty?
             # MU.log "I found descriptions that might match #{resourceclass.cfg_plural} name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}, but couldn't isolate my target kitten", MU::WARN, details: caller
 #         puts File.read(deploy_dir(deploy_id)+"/deployment.json")
           end
-          # We can't refine any further by asking the cloud provider...
+          # We can't refine any further by asking the cloud provider if...
           if !cloud_id and !tag_key and !tag_value and kittens.size > 1
             if !allow_multi
               raise MuError, "Multiple matches in MU::MommaCat.findStray where none allowed from deploy_id: '#{deploy_id}', name: '#{name}', mu_name: '#{mu_name}' (#{caller[0]})"
@@ -1127,8 +1141,10 @@ module MU
             end
           end
         end
+
         matches = []
-        if cloud_id or (tag_key and tag_value) or !opts.empty?
+
+        if cloud_id or (tag_key and tag_value) or !flags.empty?
           regions = []
           begin
             if region
@@ -1140,9 +1156,13 @@ module MU
             regions = [""]
           end
 
+          if cloud == "Google" and ["vpcs", "firewall_rules"].include?(resourceclass.cfg_plural)
+            regions = [nil]
+          end
+
           cloud_descs = {}
           regions.each { |r|
-            cloud_descs[r] = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, opts: opts)
+            cloud_descs[r] = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, flags: flags)
           }
           regions.each { |r|
             next if cloud_descs[r].nil?

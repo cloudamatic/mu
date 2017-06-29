@@ -132,7 +132,7 @@ module MU
         end
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::firewall_rules}, bare and unvalidated.
-        # @param vpc [Hash]: The resource to process and validate
+        # @param acl [Hash]: The resource to process and validate
         # @param config [MU::Config]: The overall deployment config of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(acl, config)

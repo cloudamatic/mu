@@ -62,12 +62,12 @@ module MU
             srcs = []
             ruleobj = nil
             if ["tcp", "udp"].include?(rule['proto']) and (rule['port_range'] or rule['port'])
-              ruleobj = ::Google::Apis::ComputeBeta::Firewall::Allowed.new(
+              ruleobj = MU::Cloud::Google.compute(:Firewall)::Allowed.new(
                 ip_protocol: rule['proto'],
                 ports: [rule['port_range'] || rule['port']]
               )
             else
-              ruleobj = ::Google::Apis::ComputeBeta::Firewall::Allowed.new(
+              ruleobj = MU::Cloud::Google.compute(:Firewall)::Allowed.new(
                 ip_protocol: rule['proto']
               )
             end
@@ -99,7 +99,7 @@ module MU
 
           allrules.each_value { |fwdesc|
             threads << Thread.new { 
-              fwobj = ::Google::Apis::ComputeBeta::Firewall.new(fwdesc)
+              fwobj = MU::Cloud::Google.compute(:Firewall).new(fwdesc)
               MU.log "Creating firewall #{fwdesc[:name]}", details: fwobj
               resp = MU::Cloud::Google.compute.insert_firewall(@config['project'], fwobj)
 # XXX Check for empty (no hosts) sets
@@ -141,9 +141,9 @@ module MU
         # @param region [String]: The cloud provider region
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param opts [Hash]: Optional flags
+        # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching FirewallRules
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, opts: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
           opts["project"] ||= MU::Cloud::Google.defaultProject
 # XXX project flag has to get passed from somewheres
           resp = MU::Cloud::Google.compute.list_firewalls(opts["project"])

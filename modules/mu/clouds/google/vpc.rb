@@ -46,7 +46,7 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          networkobj = ::Google::Apis::ComputeBeta::Network.new(
+          networkobj = MU::Cloud::Google.compute(:Network).new(
             name: @mu_name,
             description: @deploy.deploy_id,
             auto_create_subnetworks: false
@@ -65,7 +65,7 @@ module MU
                 subnet_name = @config['name']+"-"+subnet['name']
                 subnet_mu_name = @deploy.getResourceName(subnet_name).downcase
                 MU.log "Creating subnetwork #{subnet_mu_name} (#{subnet['ip_block']})", details: subnet
-                subnetobj = ::Google::Apis::ComputeBeta::Subnetwork.new(
+                subnetobj = MU::Cloud::Google.compute(:Subnetwork).new(
                   name: subnet_mu_name,
                   description: @deploy.deploy_id,
                   ip_cidr_range: subnet['ip_block'],
@@ -81,13 +81,14 @@ module MU
             end
           end
 
-# TODO this will matter as soon as we do anything besides 0.0.0.0/0 => #INTERNET
-#          route_table_ids = []
-#          if !@config['route_tables'].nil?
-#            @config['route_tables'].each { |rtb|
-#              rtb = createRoute(rtb, @cloud_id)
-#            }
-#          end
+          route_table_ids = []
+          if !@config['route_tables'].nil?
+            @config['route_tables'].each { |rtb|
+              # XXX This is untested, and we don't yet handle NATs on account of
+              # we don't know how to make instances yet.
+              rtb = createRoute(rtb, @cloud_id)
+            }
+          end
         end
 
         # Configure IP traffic logging on a given VPC/Subnet. Logs are saved in cloudwatch based on the network interface ID of each instance.
@@ -101,7 +102,21 @@ module MU
         # Describe this VPC
         # @return [Hash]
         def notify
-          MU::Cloud::Google.compute.get_network(@config['project'], @mu_name).to_h
+          @config
+        end
+
+        # Describe this VPC from the cloud platform's perspective
+        # @return [Hash]
+        def cloud_desc
+          resp = MU::Cloud::Google.compute.get_network(@config['project'], @mu_name).to_h
+          routes = MU::Cloud::Google.compute.list_routes(
+            @config['project'],
+            filter: "network eq #{@cloud_id}"
+          ).items
+          resp[:routes] = routes.map { |r| r.to_h }
+# XXX subnets too
+
+          resp
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -127,7 +142,7 @@ module MU
               )
 
               raise MuError, "No result looking for #{@mu_name}'s peer VPCs (#{peer['vpc']})" if peer_obj.nil? or peer_obj.first.nil?
-              peerreq = ::Google::Apis::ComputeBeta::NetworksAddPeeringRequest.new(
+              peerreq = MU::Cloud::Google.compute(:NetworksAddPeeringRequest).new(
                 name: @mu_name+"-peer-"+count.to_s,
                 auto_create_routes: true,
                 peer_network: peer_obj.first.cloud_id
@@ -150,11 +165,31 @@ module MU
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching VPCs
         def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject
-# XXX this is a placeholder, and quite wrong
-          resp = MU::Cloud::Google.compute.list_networks(
-            flags["project"],
-            filter: "description eq #{MU.deploy_id}"
-          )
+#          MU.log "CALLED MU::Cloud::Google::VPC.find(#{cloud_id}, #{region}, #{tag_key}, #{tag_value}) from #{caller[0]}", MU::NOTICE, details: flags
+
+          resp = {}
+          if cloud_id
+            vpc = MU::Cloud::Google.compute.get_network(
+              flags['project'],
+              cloud_id
+            )
+            resp[cloud_id] = vpc if !vpc.nil?
+          else # XXX other criteria
+            MU::Cloud::Google.compute.list_networks(
+              flags["project"]
+            ).items.each { |vpc|
+              resp[vpc.name] = vpc
+            }
+          end
+#MU.log "THINGY", MU::WARN, details: resp
+          resp.each_pair { |cloud_id, vpc|
+            routes = MU::Cloud::Google.compute.list_routes(
+              flags["project"],
+              filter: "network eq #{vpc.self_link}"
+            ).items
+#            pp routes
+          }
+
           resp
         end
 
@@ -174,21 +209,63 @@ module MU
         # resources.
         # @return [Array<Hash>]: A list of cloud provider identifiers of subnets associated with this VPC.
         def loadSubnets
-          network = notify
+          network = cloud_desc
+          found = []
 
-          @subnets = []
           MU::Cloud::Google.listRegions.each { |r|
             resp = MU::Cloud::Google.compute.list_subnetworks(
               @config['project'],
               r,
               filter: "network eq #{network[:self_link]}"
             )
-            resp.items.each { |subnet|
-              @subnets << subnet
-            }
             next if resp.nil? or resp.items.nil?
+            resp.items.each { |subnet|
+              found << subnet
+            }
           }
-          @subnets
+
+          @subnetcachesemaphore.synchronize {
+            @subnets ||= []
+            ext_ids = @subnets.each.collect { |s| s.cloud_id }
+
+            # If we're a plain old Mu resource, load our config and deployment
+            # metadata. Like ya do.
+            if !@config.nil? and @config.has_key?("subnets")
+              @config['subnets'].each { |subnet|
+                subnet['mu_name'] = @mu_name+"-"+subnet['name'] if !subnet.has_key?("mu_name")
+                subnet['region'] = @config['region']
+                found.each { |desc|
+                  if desc.ip_cidr_range == subnet["ip_block"]
+                    subnet["cloud_id"] = desc.name
+                    subnet['az'] = desc.region.gsub(/.*?\//, "")
+                    break
+                  end
+                }
+
+
+                if !ext_ids.include?(subnet["cloud_id"])
+                  @subnets << MU::Cloud::Google::VPC::Subnet.new(self, subnet)
+                end
+              }
+              # Of course we might be loading up a dummy subnet object from a foreign
+              # or non-Mu-created VPC and subnet. So make something up.
+            elsif !resp.nil?
+              resp.data.subnets.each { |desc|
+                subnet = {}
+                subnet["ip_block"] = desc.ip_cidr_range
+                subnet["name"] = subnet["ip_block"].gsub(/[\.\/]/, "_")
+                subnet['mu_name'] = @mu_name+"-"+subnet['name']
+                subnet["cloud_id"] = desc.subnet_id
+                subnet['az'] = desc.region.gsub(/.*?\//, "")
+                if !ext_ids.include?(desc.name)
+                  @subnets << MU::Cloud::Google::VPC::Subnet.new(self, subnet)
+                end
+              }
+            end
+
+            return @subnets
+          }
+
         end
 
         # Given some search criteria try locating a NAT Gaateway in this VPC.
@@ -212,6 +289,16 @@ module MU
         # Check for a subnet in this VPC matching one or more of the specified
         # criteria, and return it if found.
         def getSubnet(cloud_id: nil, name: nil, tag_key: nil, tag_value: nil, ip_block: nil)
+          loadSubnets
+
+          @subnets.each { |subnet|
+            if !cloud_id.nil? and !subnet.cloud_id.nil? and subnet.cloud_id.to_s == cloud_id.to_s
+              return subnet
+            elsif !name.nil? and !subnet.name.nil? and subnet.name.to_s == name.to_s
+              return subnet
+            end
+          }
+          return nil
         end
 
         # Get the subnets associated with an instance.
@@ -438,21 +525,29 @@ module MU
         # @param rtb [Hash]: A route table description parsed through {MU::Config::BasketofKittens::vpcs::route_tables}.
         # @return [Hash]: The modified configuration that was originally passed in.
         def createRoute(rtb, network)
-MU.log "ROUTEDERP", MU::WARN, details: rtb
-extroutes = MU::Cloud::Google.compute.list_routes(MU::Cloud::Google.defaultProject, filter: "network eq "+network)
-MU.log "ROUTEHURP", MU::WARN, details: extroutes
+#MU.log "ROUTEDERP", MU::WARN, details: rtb
+#extroutes = MU::Cloud::Google.compute.list_routes(MU::Cloud::Google.defaultProject, filter: "network eq "+network)
+#MU.log "ROUTEHURP", MU::WARN, details: extroutes
           rtb['routes'].each { |route|
-            routename = @mu_name+"-route-"+route['destination_network'].gsub(/[\/\.]/, "-")
-            if route["#INTERNET"]
-            else
-#              routeobj = ::Google::Apis::ComputeBeta::Route.new(
-#                name: routename,
-#                dest_range: route['destination_network'],
-#                network: network,
-#                next_hop_network: network
-#              )
+            if route['destination_network'] == "0.0.0.0/0"
+              # These are automatically wrangled by GCP and our own firewall
+              # magic... as are, I think, VPC peers? Verify. XXX
+              next if route['gateway'] == "#DENY"
+              next if route['gateway'] == "#INTERNET"
             end
-#            resp = MU::Cloud::Google.compute.insert_route(@config['project'], routeobj)
+            routename = @mu_name+"-route-"+route['destination_network'].gsub(/[\/\.]/, "-")
+            if route['gateway'] == "#NAT"
+              MU.log MuError, "I don't know how to make NATs in Google yet"#
+# several other cases missing for various types of routers (raw IPs, instance ids, etc) XXX
+            else
+              routeobj = ::Google::Apis::ComputeBeta::Route.new(
+                name: routename,
+                dest_range: route['destination_network'],
+                network: network,
+                next_hop_network: network
+              )
+            end
+            resp = MU::Cloud::Google.compute.insert_route(@config['project'], routeobj)
           }
         end
 
@@ -579,7 +674,8 @@ MU.log "ROUTEHURP", MU::WARN, details: extroutes
             @mu_name = config['mu_name'].downcase
             @name = config['name']
             @deploydata = config # This is a dummy for the sake of describe()
-
+            @az = config['az']
+            @ip_block = config['ip_block']
           end
 
           # Return the cloud identifier for the default route of this subnet.

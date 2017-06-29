@@ -722,7 +722,113 @@ module MU
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(lb, configurator)
-          true
+          ok = true
+
+          lb['listeners'].each { |listener|
+            if (!listener["ssl_certificate_name"].nil? and !listener["ssl_certificate_name"].empty?) or
+               (!listener["ssl_certificate_id"].nil? and !listener["ssl_certificate_id"].empty?)
+              if lb['cloud'] != "CloudFormation" # XXX or maybe do this anyway?
+                begin
+                  listener["ssl_certificate_id"] = MU::Cloud::AWS.findSSLCertificate(name: listener["ssl_certificate_name"].to_s, id: listener["ssl_certificate_id"].to_s)
+                rescue MuError => e
+                  ok = false
+                  next
+                end
+                MU.log "Using SSL cert #{listener["ssl_certificate_id"]} on port #{listener['lb_port']} in ELB #{lb['name']}"
+              end
+            end
+          }
+
+          if lb["alarms"] && !lb["alarms"].empty?
+            lb["alarms"].each { |alarm|
+              alarm["name"] = "lb-#{lb["name"]}-#{alarm["name"]}"
+              alarm['dimensions'] = [] if !alarm['dimensions']
+              alarm['dimensions'] << { "name" => lb["name"], "cloud_class" => "LoadBalancerName" }
+              alarm["namespace"] = "AWS/ELB" if alarm["namespace"].nil?
+              alarm['cloud'] = lb['cloud']
+              alarms << alarm.dup
+            }
+          end
+
+          if !lb["classic"]
+            if lb["vpc"].nil?
+              MU.log "LoadBalancer #{lb['name']} has no VPC configured. Either set 'classic' to true or configure a VPC.", MU::ERR
+              ok = false
+            end
+  
+            if lb["targetgroups"].nil? or lb["targetgroups"].size == 0
+              if lb["listeners"].nil? or lb["listeners"].size == 0
+                ok = false
+                MU.log "No targetgroups or listeners defined in LoadBalancer #{lb['name']}", MU::ERR
+              end
+              lb["targetgroups"] = []
+  
+              # Manufacture targetgroups out of old-style listener configs
+              lb["listeners"].each { |l|
+                tgname = lb["name"]+l["lb_protocol"].downcase+l["lb_port"].to_s
+                l["targetgroup"] = tgname
+                tg = { 
+                  "name" => tgname,
+                  "proto" => l["instance_protocol"],
+                  "port" => l["instance_port"]
+                }
+                if lb["healthcheck"]
+                  hc_target = lb['healthcheck']['target'].match(/^([^:]+):(\d+)(.*)/)
+                  tg["healthcheck"] = lb['healthcheck'].dup
+                  proto = ["HTTP", "HTTPS"].include?(hc_target[1]) ? hc_target[1] : l["instance_protocol"]
+                  tg['healthcheck']['target'] = "#{proto}:#{hc_target[2]}#{hc_target[3]}"
+                  tg['healthcheck']["httpcode"] = "200,301,302"
+                  MU.log "Converting classic-style ELB health check target #{lb['healthcheck']['target']} to ALB style for target group #{tgname} (#{l["instance_protocol"]}:#{l["instance_port"]}).", details: tg['healthcheck']
+                end
+                lb["targetgroups"] << tg
+              }
+            else
+              lb['listeners'].each { |l|
+                found = false
+                lb['targetgroups'].each { |tg|
+                  if l['targetgroup'] == tg['name']
+                    found = true
+                    break
+                  end
+                }
+                if !found
+                  ok = false
+                  MU.log "listener in LoadBalancer #{lb['name']} refers to targetgroup #{l['targetgroup']}, but no such targetgroup found", MU::ERR
+                end
+              }
+            end
+            lb['listeners'].each { |l|
+              if !l['rules'].nil? and l['rules'].size > 0
+                l['rules'].each { |r|
+                  if r['actions'].nil?
+                    r['actions'] = [
+                      { "targetgroup" => l["targetgroup"], "action" => "forward" }
+                    ]
+                    next
+                  end
+                  r['actions'].each { |action|
+                    if action['targetgroup'].nil?
+                      action['targetgroup'] = l['targetgroup']
+                    else
+                      found = false
+                      lb['targetgroups'].each { |tg|
+                        if l['targetgroup'] == action['targetgroup']
+                          found = true
+                          break
+                        end
+                      }
+                      if !found
+                        ok = false
+                        MU.log "listener action in LoadBalancer #{lb['name']} refers to targetgroup #{action['targetgroup']}, but no such targetgroup found", MU::ERR
+                      end
+                    end
+                  }
+                }
+              end
+            }
+          end
+
+          ok
         end
 
         # Locate an existing LoadBalancer or LoadBalancers and return an array containing matching AWS resource descriptors for those that match.
@@ -730,9 +836,9 @@ module MU
         # @param region [String]: The cloud provider region
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param opts [Hash]: Optional flags
+        # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching LoadBalancers
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, opts: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
           classic = opts['classic'] ? true : false
 
           matches = {}

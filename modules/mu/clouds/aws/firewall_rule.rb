@@ -186,9 +186,9 @@ module MU
         # @param region [String]: The cloud provider region
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param opts [Hash]: Optional flags
+        # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching FirewallRules
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, opts: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
 
           if !cloud_id.nil? and !cloud_id.empty?
             begin
@@ -338,9 +338,9 @@ module MU
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::firewall_rules}, bare and unvalidated.
         # @param kitten [Hash]: The resource to process and validate
-        # @param config [MU::Config]: The overall deployment config of which this resource is a member
+        # @param configurator [MU::Config]: The overall deployment config of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(acl, config)
+        def self.validateConfig(acl, configurator)
           ok = true
           if !acl["vpc_name"].nil? or !acl["vpc_id"].nil?
             acl['vpc'] = Hash.new
@@ -351,27 +351,11 @@ module MU
             end
           end
           if !acl["vpc"].nil?
-            acl['vpc']['region'] = acl['region'] if acl['vpc']['region'].nil?
-            acl["vpc"]['cloud'] = acl['cloud']
-            # If we're using a VPC in this deploy, set it as a dependency
-            if !acl["vpc"]["vpc_name"].nil? and vpc_names.include?(acl["vpc"]["vpc_name"].to_s) and acl["vpc"]['deploy_id'].nil? and acl["vpc"]['vpc_id'].nil?
-              acl["dependencies"] << {
-                  "type" => "vpc",
-                  "name" => acl["vpc"]["vpc_name"]
-              }
-              # If we're using a VPC from somewhere else, make sure the flippin'
-              # thing exists, and also fetch its id now so later search routines
-              # don't have to work so hard.
-            else
-              # Drop meaningless subnet references
-              acl['vpc'].delete("subnets")
-              acl['vpc'].delete("subnet_id")
-              acl['vpc'].delete("subnet_name")
-              acl['vpc'].delete("subnet_pref")
-              if !processVPCReference(acl["vpc"], "firewall_rule #{acl['name']}", dflt_region: acl['region'])
-                ok = false
-              end
-            end
+            # Drop meaningless subnet references
+            acl['vpc'].delete("subnets")
+            acl['vpc'].delete("subnet_id")
+            acl['vpc'].delete("subnet_name")
+            acl['vpc'].delete("subnet_pref")
           end
           acl['rules'] ||= {}
           acl['rules'].each { |rule|

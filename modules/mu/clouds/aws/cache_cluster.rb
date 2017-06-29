@@ -49,9 +49,9 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param opts [Hash]: Optional flags
+        # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching Cache Clusters.
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, opts: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
           map = {}
           if cloud_id
             cache_cluster = MU::Cloud::AWS::CacheCluster.getCacheClusterById(cloud_id, region: region)

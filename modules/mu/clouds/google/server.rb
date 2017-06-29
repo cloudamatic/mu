@@ -45,6 +45,7 @@ module MU
           @config = MU::Config.manxify(kitten_cfg)
           @cloud_id = cloud_id
 
+          # XXX does this go into a Google::Apis::ComputeBeta::Metadata object?
           @userdata = MU::Cloud::AWS::Server.fetchUserdata(
             platform: @config["platform"],
             template_variables: {
@@ -69,9 +70,9 @@ module MU
             @mu_windows_name = @deploydata['mu_windows_name'] if @mu_windows_name.nil? and @deploydata
           else
             if kitten_cfg.has_key?("basis")
-              @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
+              @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true).downcase
             else
-              @mu_name = @deploy.getResourceName(@config['name'])
+              @mu_name = @deploy.getResourceName(@config['name']).downcase
             end
             @config['mu_name'] = @mu_name
 
@@ -83,20 +84,50 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
+@config['async_groom'] = true
           begin
-            ::Google::Apis::ComputeBeta::Instance.new(
-              name: @mu_name,
-              can_ip_forward: false
+            disks = []
+            if @config["storage"]
+              @config["storage"].each { |vol|
+                disks << MU::Cloud::Google.compute(:AttachedDisk).new(
+                  auto_delete: true,
+                  device_name: vol['device'].gsub(/[^\w\-\.]/, "-").sub(/^[^\w]/, ""), # XXX empty string is also legit
+                  mode: "READ_WRITE",
+                  type: "PERSISTENT" # SCRATCH is equivalent of ephemeral? cheap virtual memory disk?
+                  # source: equivalent of a snapshot?
+                )
+              }
+            end
+            interfaces = []
+            interfaces << MU::Cloud::Google.compute(:NetworkInterface).new(
+              network: @config['vpc']['vpc_id'],
+              subnetwork: @config['vpc']['subnet_id']
             )
 
-#            MU::Cloud::Google.compute.insert_instance_group(
-#              MU.google_project, zone, instance_group_object = nil, fields: nil, quota_user: nil, user_ip: nil, options: nil, &block
-#            )
+            desc = {
+              :name => @mu_name,
+              :can_ip_forward => !@config['src_dst_check'],
+              :description => @deploy.deploy_id,
+              :network_interfaces => interfaces,
+              :machine_type => "zones/"+@config['availability_zone']+"/machineTypes/"+@config['size']
+            }
+            # XXX tags aren't tags, but labels are (sigh)
+            desc[:disks] = disks if disks.size > 0
+MU.log "instance descriptor", MU::NOTICE, details: desc
 
+            instanceobj = MU::Cloud::Google.compute(:Instance).new(desc)
+MU.log "instance object", MU::NOTICE, details: instanceobj
+
+            instance = MU::Cloud::Google.compute.insert_instance(
+              @config['project'],
+              @config['availability_zone'],
+              instanceobj
+            )
+MU.log "instance result", MU::NOTICE, details: instance
+
+raise "feckorf"
             done = false
-            instance = createEc2Instance
 
-            @cloud_id = instance.instance_id
             @deploy.saveNodeSecret(@cloud_id, @config['instance_secret'], "instance_secret")
             @config.delete("instance_secret")
 
@@ -122,8 +153,7 @@ module MU
                 parent_thread_id = Thread.current.object_id
                 Thread.new {
                   MU.dupGlobals(parent_thread_id)
-                  MU::Cloud::AWS::Server.removeIAMProfile(@mu_name)
-                  MU::Cloud::AWS::Server.cleanup(noop: false, ignoremaster: false, skipsnapshots: true)
+                  MU::Cloud::Google::Server.cleanup(noop: false, ignoremaster: false, skipsnapshots: true)
                 }
               end
             end
@@ -775,10 +805,10 @@ module MU
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @param ip [String]: An IP address associated with the instance
-        # @param opts [Hash]: Optional flags
+        # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching instances
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, ip: nil, opts: {})
-# XXX put that 'ip' value into opts
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, ip: nil, flags: {})
+# XXX put that 'ip' value into flags
           instance = nil
           if !region.nil?
             regions = [region]
@@ -1237,7 +1267,48 @@ module MU
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(server, configurator)
-          true
+          ok = true
+
+          sizepattern = /^(f|g|n){1,2}[0-9]-(micro|small|standard|highmem|highcpu)(-(1|2|4|8|16|32|64))?$/
+          if server["size"].nil? or !server["size"].match(sizepattern)
+            MU.log "Invalid size '#{server['size']}' for a Google Compute instance. Must match: #{sizepattern}", MU::ERR
+            ok = false
+          end
+
+          # If we're not targeting an availability zone, pick one randomly
+          if !server['availability_zone']
+            server['availability_zone'] = MU::Cloud::Google.listAZs(server['region']).sample
+          end
+
+          subnets = nil
+          if !server['vpc']
+            vpcs = MU::Cloud::Google::VPC.find
+            if vpcs["default"]
+              server["vpc"] ||= {}
+              server["vpc"]["vpc_id"] = vpcs["default"].self_link
+              subnets = vpcs["default"].subnetworks
+              MU.log "No VPC specified for Server #{server['name']}, using default VPC for project #{server['project']}", MU::NOTICE
+            else
+              ok = false
+              MU.log "You must specify a target VPC when creating a Server", MU::ERR
+            end
+          end
+
+          if !server['vpc']['subnet_id']
+            if !subnets
+              vpcs = MU::Cloud::Google::VPC.find(cloud_id: server["vpc"]["vpc_id"])
+              subnets = vpcs["default"].subnetworks.sample
+            end
+            server['vpc']['subnet_id'] = subnets.delete_if { |subnet|
+              !subnet.match(/regions\/#{Regexp.quote(server['region'])}\/subnetworks/)
+            }.sample
+            if server['vpc']['subnet_id'].nil?
+              ok = false
+              MU.log "Failed to identify a subnet in my region (#{config['region']})", MU::ERR, details: server["vpc"]["vpc_id"]
+            end
+          end
+
+          ok
         end
 
         private

@@ -509,7 +509,7 @@ module MU
             # The find() method should be returning a Hash with the cloud_id
             # as a key.
             begin
-              matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, opts: @config)
+              matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, flags: @config)
               if !matches.nil? and matches.is_a?(Hash) and matches.has_key?(@cloud_id)
                 @cloud_desc = matches[@cloud_id]
               else

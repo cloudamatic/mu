@@ -172,6 +172,15 @@ module MU
           nil
         end
 
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::loadbalancers}, bare and unvalidated.
+        # @param lb [Hash]: The resource to process and validate
+        # @param config [MU::Config]: The overall deployment config of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(lb, config)
+          # Just use the AWS implemention
+          MU::Cloud::AWS::LoadBalancer.validateConfig(lb, config)
+        end
+
       end
     end
   end

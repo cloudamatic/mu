@@ -204,9 +204,9 @@ module MU
         # Locate an existing log group.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @param region [String]: The cloud provider region.
-        # @param opts [Hash]: Optional flags
+        # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching log group.
-        def self.find(cloud_id: nil, region: MU.curRegion, opts: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
           MU::Cloud::AWS::Log.getLogGroupByName(cloud_id, region: region)
         end
 
