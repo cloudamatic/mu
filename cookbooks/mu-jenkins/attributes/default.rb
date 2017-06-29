@@ -5,8 +5,8 @@ default['jenkins_users'] = [
 
 default['jenkins_ssh_urls'] = [node['ipaddress']]
 default['jenkins_plugins'] = %w{
-  github deploy ldap scm-api git-client active-directory
-  ansicolor matrix-auth matrix-project git workflow-scm-step
+  token-macro git github deploy ldap scm-api git-client active-directory
+  ansicolor matrix-auth matrix-project workflow-scm-step
   workflow-step-api scm-api ssh credentials mailer display-url-api structs
 }
 
