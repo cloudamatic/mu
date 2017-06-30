@@ -8,6 +8,7 @@ default['jenkins_plugins'] = %w{
   token-macro git github deploy ldap scm-api git-client active-directory
   ansicolor matrix-auth matrix-project workflow-scm-step
   workflow-step-api scm-api ssh credentials mailer display-url-api structs
+  script-security
 }
 
 default['jenkins_ports_direct'] = %w{8080 443}
