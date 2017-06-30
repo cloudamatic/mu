@@ -531,18 +531,27 @@ MESSAGE_END
 #                                 allow_multi: service["#MU_CLOUDCLASS"].has_multiple,
                                  tag_key: "MU-ID",
                                  tag_value: @mommacat.deploy_id,
-                                 opts: opts
+                                 opts: opts,
+                                 dummy_ok: false
                                 )
+              found = found.delete_if { |x| x.cloud_id.nil? }
               if found.size == 0
-                if service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer"
+                if service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer" or
+                   service["#MU_CLOUDCLASS"].cfg_name == "firewall_rule"
 # XXX account for multiples?
 # XXX only know LBs to be safe, atm
                   MU.log "#{service["#MU_CLOUDCLASS"].name} #{service['name']} not found, creating", MU::NOTICE
                   myservice = run_this_method.call
                 end
               else
-                myservice = @mommacat.findLitterMate(type: service["#MU_CLOUDCLASS"].cfg_name, name: service['name'], created_only: true)
-MU.log "#{service["#MU_CLOUDCLASS"].cfg_name} #{service['name']} #{myservice}", MU::NOTICE
+                real_descriptor = @mommacat.findLitterMate(type: service["#MU_CLOUDCLASS"].cfg_name, name: service['name'], created_only: true)
+                if !real_descriptor and
+                   service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer" or
+                   service["#MU_CLOUDCLASS"].cfg_name == "firewall_rule"
+                  MU.log "#{service["#MU_CLOUDCLASS"].name} #{service['name']} not found, creating", MU::NOTICE
+                  myservice = run_this_method.call
+                end
+#MU.log "#{service["#MU_CLOUDCLASS"].cfg_name} #{service['name']}", MU::NOTICE
               end
 
             end
