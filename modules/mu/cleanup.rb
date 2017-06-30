@@ -92,10 +92,6 @@ module MU
         keyname = "deploy-#{MU.deploy_id}"
 # XXX blindly checking for all of these resources in all clouds is now prohibitively slow. We should only do this when we don't see deployment metadata to work from.
         regions.each_pair { |provider, list|
-          if provider == "Google" # mostly region-agnostic resources
-            MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["FirewallRule"]) > 0
-            MU::Cloud::VPC.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["VPC"]) > 0
-          end
           list.each { |r|
             @regionthreads << Thread.new {
               MU.dupGlobals(parent_thread_id)
@@ -134,6 +130,14 @@ module MU
               end
             }
           }
+          # knock over region-agnostic resources
+          if provider == "Google"
+            MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["FirewallRule"]) > 0
+            MU::Cloud::VPC.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["VPC"]) > 0
+          elsif provider == "AWS"
+            # Route53 deletia would go here, but we probably don't want to do
+            # touch DNS like ever
+          end
         }
 
         @regionthreads.each do |t|
@@ -260,7 +264,7 @@ module MU
       end
 
       if !@noop and !@skipcloud and (@mommacat.nil? or @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0)
-        MU::MommaCat.syncMonitoringConfig
+#        MU::MommaCat.syncMonitoringConfig
       end
 
     end

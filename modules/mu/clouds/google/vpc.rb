@@ -171,7 +171,7 @@ module MU
           if cloud_id
             vpc = MU::Cloud::Google.compute.get_network(
               flags['project'],
-              cloud_id
+              cloud_id.sub(/^.*?\/([^\/]+)$/, '\1')
             )
             resp[cloud_id] = vpc if !vpc.nil?
           else # XXX other criteria

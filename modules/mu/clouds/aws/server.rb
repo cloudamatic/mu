@@ -2181,7 +2181,8 @@ module MU
               server['create_image']['copy_to_regions'] = MU::Cloud::AWS.listRegions
             end
           end
-          if server['ami_id'].nil? and server['cloud'] == "AWS"
+
+          if server['ami_id'].nil?
             if MU::Config.amazon_images.has_key?(server['platform']) and
                 MU::Config.amazon_images[server['platform']].has_key?(server['region'])
               server['ami_id'] = configurator.getTail("server"+server['name']+"AMI", value: MU::Config.amazon_images[server['platform']][server['region']], prettyname: "server"+server['name']+"AMI", cloudtype: "AWS::EC2::Image::Id")
