@@ -180,15 +180,6 @@ module MU
         }
       end
 
-      # XXX Rotate vault keys and remove any residual crufty clients. This
-      # doesn't actually work right now (vault bug?) and is ungodly slow.
-      if !@noop and !@onlycloud
-#				MU::MommaCat.lock("vault-rotate", false, true)
-#				MU.log "Rotating vault keys and purging unknown clients"
-#				`#{MU::Config.knife} vault rotate all keys --clean-unknown-clients #{MU::Config.vault_opts}`
-#				MU::MommaCat.unlock("vault-rotate")
-      end
-
       if !@onlycloud and !@noop and @mommacat
         @mommacat.purge!
       end

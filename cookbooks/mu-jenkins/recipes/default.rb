@@ -97,6 +97,9 @@ uidsearch = "sAMAccountName={0}" if $MU_CFG['ldap']['type'] == "Active Directory
 membersearch = "(| (member={0}) (uniqueMember={0}) (memberUid={1}))"
 membersearch = "memberUid={0}" if $MU_CFG['ldap']['type'] == "389 Directory Services"
 bind_creds = chef_vault_item($MU_CFG['ldap']['bind_creds']['vault'], $MU_CFG['ldap']['bind_creds']['item'])
+jenkins_admins = ::MU::Master.listUsers.delete_if { |u, data| !data['admin'] }.keys
+#jenkins_regular = ::MU::Master.listUsers.delete_if { |u, data| data['admin'] or u == "jenkins" }.keys
+regular_user_perms = ["Item.BUILD", "Item.CREATE", "Item.DISCOVER", "Item.READ"]
 jenkins_script 'configure_jenkins_auth' do
   command <<-EOH.gsub(/^ {4}/, '')
   import jenkins.model.*
@@ -110,14 +113,24 @@ jenkins_script 'configure_jenkins_auth' do
   def strategy = new ProjectMatrixAuthorizationStrategy()
   strategy.add(Jenkins.ADMINISTER, "#{$MU_CFG['ldap']['admin_group_name']}")
   strategy.add(Jenkins.ADMINISTER, "#{admin_vault['username']}")
-  strategy.add(Jenkins.ADMINISTER, "mu_user")
+  #{jenkins_admins.map { |u| "strategy.add(Jenkins.ADMINISTER, \"#{u}\")" }.join("\n")}
   strategy.add(Jenkins.READ, "authenticated")
+  #{regular_user_perms.map { |p| "strategy.add(hudson.model.#{p}, \"authenticated\")" }.join("\n")}
   instance.setAuthorizationStrategy(strategy)
   instance.save()
   EOH
-  not_if "grep managerDN #{node['jenkins']['master']['home']}/config.xml | grep #{bind_creds[$MU_CFG['ldap']['bind_creds']['username_field']]}"
+#  not_if "grep managerDN #{node['jenkins']['master']['home']}/config.xml | grep #{bind_creds[$MU_CFG['ldap']['bind_creds']['username_field']]}"
   notifies :create, 'ruby_block[configure_jenkins_auth_set]', :immediately
-  action :execute
+  action :nothing unless !::File.size?("#{node['jenkins']['master']['home']}/config.xml") or !::File.read("#{node['jenkins']['master']['home']}/config.xml").match(bind_creds[$MU_CFG['ldap']['bind_creds']['username_field']])
+end
+
+file "#{node['jenkins']['master']['home']}/user-list-chef-guard" do
+  content "
+#{jenkins_admins.map { |u| "strategy.add(Jenkins.ADMINISTER, \"#{u}\")" }.join("\n")}
+#{regular_user_perms.map { |p| "strategy.add(Jenkins.#{p}, \"authenticated\")" }.join("\n")}
+#{bind_creds[$MU_CFG['ldap']['bind_creds']['username_field']]}
+"
+  notifies :execute, "jenkins_script[configure_jenkins_auth]", :immediately
 end
 
 # Set the security enabled flag and set the run_state to use the configured private key

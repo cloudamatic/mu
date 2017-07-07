@@ -396,8 +396,9 @@ module MU
         # "ingress_rules" structure parsed and validated by MU::Config.
         #########################################################################
         def setRules(rules, add_to_self: false, ingress: true, egress: false)
-          return if rules.nil? or rules.size == 0
-
+          describe
+          # XXX warn about attempt to set rules before we exist
+          return if rules.nil? or rules.size == 0 or !@cloud_id
 
           # add_to_self means that this security is a "member" of its own rules
           # (which is to say, objects that have this SG are allowed in my these

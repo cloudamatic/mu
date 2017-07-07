@@ -65,10 +65,11 @@ directory "#{splunk_dir}/etc/system/local" do
   end
 end
 
+
 template "#{splunk_dir}/etc/system/local/outputs.conf" do
   source 'outputs.conf.erb'
   mode 0644 unless platform_family?("windows")
-  variables :splunk_servers => splunk_servers, :outputs_conf => node['splunk']['outputs_conf']
+  variables :splunk_servers => splunk_servers, :outputs_conf => node['splunk']['outputs_conf'], :ssl_chain => node['splunk']['ssl_chain'], :ssl_cert => node['splunk']['ssl_cert']
 #  notifies :restart, 'service[splunk]', :immediately if platform_family?("windows")
   notifies :restart, 'service[splunk]', :delayed #unless platform_family?("windows")
 end
