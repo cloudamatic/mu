@@ -158,6 +158,7 @@ module MU
             else
               retval = @api.method(method_sym).call
             end
+
             if retval.class == ::Google::Apis::ComputeBeta::Operation
               retries = 0
               begin
@@ -177,7 +178,7 @@ module MU
                   rescue ::Google::Apis::ClientError => e
                     # this is ok; just means the operation is done and went away
                     if e.message.match(/^notFound:/)
-                      return retval
+                      break
                     else
                       raise e
                     end
@@ -185,6 +186,35 @@ module MU
                   retries = retries + 1
                 end
               end while retval.status != "DONE"
+
+              # Most insert methods have a predictable get_* counterpart. Let's
+              # take advantage.
+              # XXX might want to do something similar for delete ops? just the
+              # but where we wait for the operation to definitely be done
+              if method_sym.to_s.match(/^insert_/) and retval.target_link
+#                service["#MU_CLOUDCLASS"].instance_methods(false).include?(:groom)
+                get_method = method_sym.to_s.gsub(/^insert_/, "get_").to_sym
+                cloud_id = retval.target_link.sub(/^.*?\/([^\/]+)$/, '\1')
+                faked_args = arguments.dup
+                faked_args.pop
+                faked_args.push(cloud_id)
+                actual_resource = @api.method(get_method).call(*faked_args)
+                if actual_resource.respond_to?(:status) and
+                  ["PROVISIONING", "STAGING", "PENDING", "CREATING", "RESTORING"].include?(actual_resource.status)
+                  retries = 0
+                  begin 
+                    if retries > 0 and retries % 3 == 0
+                      MU.log "Waiting for #{cloud_id} to get past #{actual_resource.status} (retry #{retries})", MU::NOTICE
+                    else
+                      MU.log "Waiting for #{cloud_id} to get past #{actual_resource.status} (retry #{retries})", MU::DEBUG, details: actual_resource
+                    end
+                    sleep 10
+                    actual_resource = @api.method(get_method).call(*faked_args)
+                    retries = retries + 1
+                  end while ["PROVISIONING", "STAGING", "PENDING", "CREATING", "RESTORING"].include?(actual_resource.status)
+                end
+                return actual_resource
+              end
             end
             return retval
           rescue ::Google::Apis::ServerError => e

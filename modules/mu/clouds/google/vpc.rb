@@ -54,7 +54,7 @@ module MU
           )
           MU.log "Creating network #{@mu_name} (#{@config['ip_block']})", details: networkobj
           resp = MU::Cloud::Google.compute.insert_network(@config['project'], networkobj)
-          @cloud_id = resp.target_link # XXX needs to go in notify
+          @cloud_id = resp.self_link # XXX needs to go in notify
 
           if @config['subnets']
             subnetthreads = []
@@ -319,6 +319,7 @@ module MU
         # @param region [String]: The cloud provider region of the target subnet.
         # @return [Boolean]
         def self.haveRouteToInstance?(target_instance, region: MU.curRegion)
+          false
         end
 
         # updates the route table cache (@rtb_cache).
