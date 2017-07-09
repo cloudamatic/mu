@@ -405,8 +405,9 @@ if !node.update_nagios_only
     command "#{MU.installDir}/bin/mu-firewall-allow-clients"
   end
 
+  # XXX bug in Chef vault is current purging basically all clients
   cron "Rotate vault keys and purge MIA clients" do
-    action :create
+    action :delete
     minute "10"
     hour "6"
     user "root"
