@@ -433,7 +433,10 @@ module MU
 
   require 'mu/config'
 
-  # Figure out our account number, by hook or by crook
+  # Fetch the AWS account number where this Mu master resides. If it's not in 
+  # AWS at all, or otherwise cannot be determined, return nil.
+  # XXX migrate this to MU::AWS and leave a backwards-compatibility wrapper
+  # here.
   def self.account_number
     if !@@globals[Thread.current.object_id].nil? and
         !@@globals[Thread.current.object_id]['account_number'].nil?

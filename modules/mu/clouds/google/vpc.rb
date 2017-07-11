@@ -313,12 +313,15 @@ module MU
         @rtb_cache = {}
         @rtb_cache_semaphore = Mutex.new
         # Check whether we (the Mu Master) have a direct route to a particular
-        # subnet. Useful for skipping hops through bastion hosts to get directly
-        # at child nodes in peered VPCs and the like.
+        # instance. Useful for skipping hops through bastion hosts to get
+        # directly at child nodes in peered VPCs, the public internet, and the
+        # like.
         # @param target_instance [OpenStruct]: The cloud descriptor of the instance to check.
         # @param region [String]: The cloud provider region of the target subnet.
         # @return [Boolean]
         def self.haveRouteToInstance?(target_instance, region: MU.curRegion)
+          if MU::Google.myProject.nil?
+          end
           false
         end
 
@@ -442,10 +445,10 @@ module MU
           end
 
           # Google VPCs can't have routes that are anything other than global
-          # (or tied to individual instances by tags, but w/e). So we decompose
-          # our VPCs into littler VPCs, one for each declared route table, so
-          # that the routes therein will only apply to the portion of our
-          # network we want them to.
+          # (they can be tied to individual instances by tags, but w/e). So we
+          # decompose our VPCs into littler VPCs, one for each declared route
+          # table, so that the routes therein will only apply to the portion of
+          # our network we want them to.
           if vpc['route_tables'].size > 1
             blocks = configurator.divideNetwork(vpc['ip_block'], vpc['route_tables'].size*2)
             peernames = []
@@ -479,11 +482,28 @@ module MU
             }
             configurator.removeKitten(vpc['name'], "vpcs")
           else
+# XXX also do this if #NAT is set (only that NAT should talk to the world)
             if vpc['route_tables'].first["routes"].include?({"gateway"=>"#DENY", "destination_network"=>"0.0.0.0/0"})
+# XXX maybe delete that route after it's created?
               ok = false if !genStandardSubnetACLs(vpc['parent_block'] || vpc['ip_block'], vpc['name'], configurator, false)
             else
               ok = false if !genStandardSubnetACLs(vpc['parent_block'] || vpc['ip_block'], vpc['name'], configurator)
             end
+# XXX DUDE also just build a route straight to this Mu master
+            vpc['route_tables'].first["routes"].each { |route|
+              # No such thing as a NAT gateway in Google... so make an instance
+              # that'll do the deed.
+              if route['gateway'] == "#NAT"
+                nat_cfg = MU::Cloud::Google::Server.genericNAT
+                nat_cfg['name'] = vpc['name']+"-natstion"
+# XXX set the application_attributes thing for the NAT recipe
+                nat_cfg['vpc'] = {
+                  "subnet_pref" => "public", # XXX this should make a special route with an internet gateway for just this instance
+                  "vpc_name" => vpc["name"]
+                }
+                ok = false if !configurator.insertKitten(nat_cfg, "servers")
+              end
+            }
           end
 
 #          MU.log "GOOGLE VPC", MU::WARN, details: vpc

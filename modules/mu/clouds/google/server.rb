@@ -227,6 +227,21 @@ module MU
           return @config
         end
 
+        # Return a BoK-style config hash describing a NAT instance. We use this
+        # to approximate Amazon's NAT gateway functionality with a plain
+        # instance.
+        # @return [Hash]
+        def self.genericNAT
+          return {
+            "cloud" => "Google",
+            "size" => "f1-micro",
+            "run_list" => [ "mu-utility::nat" ],
+            "platform" => "centos7",
+            "ssh_user" => "centos",
+            "static_ip" => { "assign_ip" => true },
+          }
+        end
+
         # Ask the Google API to restart this node
         def reboot(hard = false)
           return if @cloud_id.nil?

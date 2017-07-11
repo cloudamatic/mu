@@ -1291,6 +1291,7 @@ module MU
     def self.check_vault_refs(server)
       ok = true
       server['vault_access'] = [] if server['vault_access'].nil?
+      server['groomer'] ||= "Chef"
       groomclass = MU::Groomer.loadGroomer(server['groomer'])
 
       begin

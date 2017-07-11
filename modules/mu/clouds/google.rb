@@ -72,6 +72,13 @@ module MU
         resp.body
       end
 
+      # If this Mu master resides in the Google Cloud Platform, return the
+      # project id in which we reside. Nil if we're not in GCP.
+      # XXX actually like implement this
+      def self.myProject
+        return nil
+      end
+
       # Our credentials map to a project, an organizational structure in Google
       # Cloud. This fetches the identifier of the project associated with our
       # default credentials.
