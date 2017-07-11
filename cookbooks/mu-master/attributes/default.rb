@@ -15,7 +15,7 @@
 default['firewall']['redhat7_iptables'] = true
 default['apache']['docroot_dir'] = "/var/www/html"
 default['apache']['default_site_enabled'] = false
-default['apache']['mod_ssl']['cipher_suite'] = "ALL:!ADH:!EXPORT:!SSLv2:!RC4+RSA:+HIGH:!MEDIUM:!LOW"
+default['apache']['mod_ssl']['cipher_suite'] = "ALL:!3DES:!ADH:!EXPORT:!SSLv2:!RC4+RSA:+HIGH:!MEDIUM:!LOW"
 default['apache']['mod_ssl']['directives']['SSLProtocol'] = "all -SSLv2 -SSLv3"
 
 default['apache']['contact'] = $MU_CFG['mu_admin_email']

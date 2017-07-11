@@ -647,7 +647,7 @@ module MU
                 ).vpc_peering_connections.first
 
                 if cnxn.status.code == "pending-acceptance"
-                  if (!peer_obj.nil? and !peer_obj.deploydata.nil? and peer_obj.deploydata['auto_accept_peers']) or (!ENV['ALLOW_INVADE_FOREIGN_VPCS'].nil? and !ENV['ALLOW_INVADE_FOREIGN_VPCS'].empty? and ENV['ALLOW_INVADE_FOREIGN_VPCS'] != "0")
+                  if ((!peer_obj.nil? and !peer_obj.deploydata.nil? and peer_obj.deploydata['auto_accept_peers']) or $MU_CFG['allow_invade_foreign_vpcs'])
                     MU.log "Auto-accepting peering connection from VPC #{@config['name']} (#{@config['vpc_id']}) to #{peer_id}", MU::NOTICE
                     begin
                       MU::Cloud::AWS.ec2(@config['region']).accept_vpc_peering_connection(
