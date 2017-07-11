@@ -37,19 +37,42 @@ else
       package "iptables-services"
     end
 
-    bash "enable NAT with iptables" do
+    node.default['firewall']['iptables']['defaults'][:ruleset] = {
+      '*filter' => 1,
+      ':INPUT DROP' => 2,
+      ':FORWARD ACCEPT' => 3, # we'll add a DROP after the other stuff
+      ':OUTPUT ACCEPT_FILTER' => 4,
+      'COMMIT_FILTER' => 100,
+      '*nat' => 101,
+      ':OUTPUT ACCEPT_NAT' => 104,
+      'COMMIT_NAT' => 200
+    }
+
+    firewall_rule "NAT postrouting" do
+      raw "-A POSTROUTING -o eth0 -s #{$ip_block} -j MASQUERADE"
+      position 150
+    end
+    firewall_rule "NAT stateful connections" do
+      raw "-A FORWARD -m state --state RELATED,ESTABLISHED -j ACCEPT"
+      position 97
+    end
+    firewall_rule "NAT forwarding" do
+      raw "-A FORWARD -s #{$ip_block} -j ACCEPT"
+      position 98
+    end
+    firewall_rule "NAT forwarding drop other traffic" do
+      raw "-A FORWARD -j DROP"
+      position 99
+    end
+    bash "make sure ip forwarding is enabled for NAT traffic" do
       code <<-EOH
-				if [ "`/sbin/iptables -n -L -t nat | tr -s ' '  | grep 'MASQUERADE all -- #{$ip_block} 0.0.0.0/0'`" == "" ];then
-					/sbin/iptables -t nat -A POSTROUTING -o eth0 -s #{$ip_block} -j MASQUERADE
-				fi
-				/sbin/iptables -D FORWARD 1
-				/sbin/iptables-save > /etc/sysconfig/iptables
-				sysctl -w net.ipv4.ip_forward=1
-				sysctl -w net.ipv4.conf.eth0.send_redirects=0
+        sysctl -w net.ipv4.ip_forward=1
+        sysctl -w net.ipv4.conf.eth0.send_redirects=0
       EOH
     end
   elsif platform_family?("debian")
     $ssh_service_name = "ssh"
+# XXX port this to firewall_rule
     bash "enable NAT with ufw" do
       not_if "grep '^*nat' /etc/ufw/before.rules"
       code <<-EOH
