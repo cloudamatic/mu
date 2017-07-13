@@ -38,3 +38,4 @@ $MU_CFG.each_pair { |key, val|
     puts "export "+varname+'="'+val.to_s+'"'
   end
 }
+puts "export PATH=#{$MU_CFG['installdir']}/bin:/usr/local/ruby-current/bin:${PATH}:/opt/opscode/embedded/bin"
