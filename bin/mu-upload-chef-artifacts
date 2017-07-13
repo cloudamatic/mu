@@ -39,7 +39,11 @@ if [ -z $MU_INSTALLDIR ];then
     MU_INSTALLDIR=/opt/mu
 fi
 if [ -z $MU_DATADIR ];then
+  if [ "$USER" == "root" ];then
     MU_DATADIR=/opt/mu/var
+  else
+    MU_DATADIR=$HOMEDIR/.mu/var
+  fi
 fi
 export MU_DATADIR="$MU_DATADIR"
 

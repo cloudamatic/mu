@@ -29,6 +29,7 @@ keymap = {
 
 require 'mu'
 $MU_CFG.each_pair { |key, val|
+  next if key == "datadir"
   varname = keymap.has_key?(key) ? keymap[key] : key.upcase
   if val.is_a?(Array)
     puts varname+"="+val.join(",")
