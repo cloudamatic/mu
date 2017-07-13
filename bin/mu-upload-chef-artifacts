@@ -20,8 +20,6 @@ set -e
 #################################################
 
 scriptpath="`dirname $0`"
-manifest="$MU_CHEF_CACHE/mu_manifest"
-berksdir="$user_home/.berkshelf"
 knife="/opt/chef/bin/knife"
 
 USER=`whoami`
@@ -35,6 +33,11 @@ if [ "$CHEF_PUBLIC_IP" = "" -o "$MU_DATADIR" == "" ];then
                 source $HOMEDIR/.murc
         fi
 fi
+if [ -z $MU_CHEF_CACHE ];then
+  MU_CHEF_CACHE=$HOMEDIR/.chef
+fi
+manifest="$MU_CHEF_CACHE/mu_manifest"
+berksdir="$HOMEDIR/.berkshelf"
 if [ -z $MU_INSTALLDIR ];then
     MU_INSTALLDIR=/opt/mu
 fi
@@ -649,6 +652,10 @@ else
   databagdir="$MU_CHEF_CACHE/data_bags/"
 
   if [ "$cookbooks_only" == "1" ];then
+    if [ "$tmp_dirs_to_remove" != "" ];then
+      echo "${GREEN}Cleaning up temporary directories: ${BOLD}$tmp_dirs_to_remove${NORM}"
+      rm -rf $tmp_dirs_to_remove
+    fi
     exit
   elif [ "$bags_only" == "1" ];then
     if [ "$match" != "" ];then
