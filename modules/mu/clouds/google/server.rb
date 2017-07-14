@@ -169,10 +169,21 @@ module MU
                   :key => "ssh-keys",
                   :value => @config['ssh_user']+":"+@deploy.ssh_public_key
                 ]
-              }
+              },
+              :tags => MU::Cloud::Google.compute(:Tags).new(items: [@mu_name])
             }
-# XXX tags aren't tags, but labels are maybe?
             desc[:disks] = disks if disks.size > 0
+
+            # Tags in GCP means something other than what we think of;
+            # labels are the thing you think you mean
+            desc[:labels] = {}
+            MU::MommaCat.listStandardTags.each_pair { |name, value|
+              if !value.nil?
+                desc[:labels][name.downcase] = value.downcase.gsub(/[^a-z0-9\-\_]/i, "_")
+              end
+            }
+            desc[:labels]["name"] = @mu_name.downcase
+
 
             instanceobj = MU::Cloud::Google.compute(:Instance).new(desc)
 

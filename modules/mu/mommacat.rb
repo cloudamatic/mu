@@ -1390,6 +1390,7 @@ module MU
       end
     end
 
+    # XXX this belongs in MU::Cloud::AWS
     # Tag a resource with all of our standard identifying tags.
     #
     # @param resource [String]: The cloud provider identifier of the resource to tag
