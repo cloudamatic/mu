@@ -1461,11 +1461,12 @@ module MU
               raise e
             end
           end
-          # XXX NetAddr::CIDR wants to allocate evenly-sized subnets because it's
-          # annoying, so we end up using the IP space inefficiently. Lop off the 
-          # extra subnets we end up with and don't want. It would be nice if we just
-          # did all this math ourselves and better.
-          subnets.slice!(10,subnets.size-1) if subnets.size > 10
+
+          # XXX NetAddr::CIDR wants to allocate evenly-sized subnets because
+          # it's annoying, so we end up using the IP space inefficiently. Lop
+          # off the extra subnets we end up with and don't want. It would be
+          # nice if we just did all this math ourselves and better.
+          subnets.slice!(vpc['availability_zones'].size*2,subnets.size-1) if subnets.size > vpc['availability_zones'].size*2
 
           subnets = getTail("subnetblocks", value: subnets.join(","), cloudtype: "CommaDelimitedList", description: "IP Address ranges to be used for VPC subnets", prettyname: "SubnetIpBlocks", list_of: "ip_block").map { |tail| tail["ip_block"] }
           vpc['subnets'] = []
