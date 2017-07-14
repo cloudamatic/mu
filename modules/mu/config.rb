@@ -628,7 +628,7 @@ module MU
       # it's annoying, so we end up using the IP space inefficiently. Lop
       # off the extra subnets we end up with and don't want. It would be
       # nice if we just did all this math ourselves and did it better.
-      subnets.slice!(10,subnets.size-1) if subnets.size > 10
+      subnets.slice!(subnets_desired,subnets.size-1) if subnets.size > subnets_desired
 
       subnets = getTail("subnetblocks", value: subnets.join(","), cloudtype: "CommaDelimitedList", description: "IP Address ranges to be used for VPC subnets", prettyname: "SubnetIpBlocks", list_of: "ip_block").map { |tail| tail["ip_block"] }
       subnets
