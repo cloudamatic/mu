@@ -11,15 +11,40 @@ if ENV.include? "MU_COOKBOOK_ROOT"
         next if cb == "." or cb == ".."
         path = ENV['MU_COOKBOOK_ROOT']+"/"+dir+"/"+cb
         next if !File.exists?(path+"/metadata.rb") and !File.exists?(path+"/metadata.json")
-        addtl_cookbooks[cb] = path
+        addtl_cookbooks[cb] = { "path" => path }
       }
     }
+    # now to smoke some rocks
+    if File.exists?("#{ENV['MU_COOKBOOK_ROOT']}/Berksfile.lock")
+      in_deps = false
+      File.open("#{ENV['MU_COOKBOOK_ROOT']}/Berksfile.lock").each { |line|
+        if in_deps
+          if line.match(/^  ([^\s]+)\s+\((.*?)\)/)
+            cb = Regexp.last_match[1]
+            vers = Regexp.last_match[2]
+            if vers
+              addtl_cookbooks[cb] ||= {}
+              addtl_cookbooks[cb]["version"] = vers
+            end
+          elsif line.match(/^\s*$/)
+            break
+          end
+        end
+        in_deps = true if line.match(/^DEPENDENCIES$/)
+      }
+    end
   end
 end
 
+
 source "https://supermarket.getchef.com"
 
-addtl_cookbooks.each_pair { |cb, path|
-  cookbook cb, path: path
+addtl_cookbooks.each_pair { |cb, cfg|
+  if cfg.has_key?("version") and cfg.has_key?("path")
+    cookbook cb, cfg["version"], path: cfg["path"]
+  elsif cfg.has_key?("version")
+    cookbook cb, cfg["version"]
+  else
+    cookbook cb, path: cfg["path"]
+  end
 }
-

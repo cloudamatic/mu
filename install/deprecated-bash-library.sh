@@ -156,7 +156,7 @@ if [ "$MU_SSL_CHAIN" == "" ];then
 fi
 HOMEDIR="`getent passwd \"$USER\" |cut -d: -f6`"
 MU_CHEF_CACHE="$HOMEDIR/.chef"
-if [ "$MU_DATADIR" == "" ];then
+if [ -z $MU_DATADIR ];then
   if [ "$USER" != "root" ];then
     MU_DATADIR="$HOMEDIR/.mu"
   else
