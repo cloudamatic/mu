@@ -526,7 +526,7 @@ module MU
   end
 
   # Mu's SSL certificate directory
-  @@mySSLDir = File.expand_path(ENV['MU_DATADIR']+"/ssl") if ENV.has_key?("MU_DATADIR")
+  @@mySSLDir = MU.dataDir+"/ssl" if MU.dataDir
   @@mySSLDir ||= "/opt/mu/var/ssl"
   # Mu's SSL certificate directory
   # @return [String]
