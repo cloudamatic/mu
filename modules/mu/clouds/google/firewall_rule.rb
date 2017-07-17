@@ -121,6 +121,7 @@ module MU
           sg_data = MU.structToHash(
               MU::Cloud::FirewallRule.find(cloud_id: @cloud_id, region: @config['region'])
           )
+          sg_data ||= {}
           sg_data["group_id"] = @cloud_id
           return sg_data
         end

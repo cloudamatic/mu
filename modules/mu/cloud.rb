@@ -505,13 +505,15 @@ module MU
 
         def cloud_desc
           describe
-          if !@config.nil? and !@cloud_id.nil?
+          if !@cloudobj.nil?
+            @cloud_desc = @cloudobj.cloud_desc
+          elsif !@config.nil? and !@cloud_id.nil?
             # The find() method should be returning a Hash with the cloud_id
             # as a key.
             begin
               matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, flags: @config)
               if !matches.nil? and matches.is_a?(Hash) and matches.has_key?(@cloud_id)
-                @cloud_desc = matches[@cloud_id]
+                @cloud_desc = matches[@cloud_id].cloud_desc
               else
                 MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id} in #{@config['region']}, which has a record in deploy #{@deploy.deploy_id}", MU::WARN, details: caller
               end
@@ -599,7 +601,7 @@ module MU
           # First, general dependencies. These should all be fellow members of
           # the current deployment.
           @config['dependencies'].each { |dep|
-            @dependencies[dep['type']] = {} if !@dependencies.include?(dep['type'])
+            @dependencies[dep['type']] ||= {}
             next if @dependencies[dep['type']].has_key?(dep['name'])
             handle = @deploy.findLitterMate(type: dep['type'], name: dep['name']) if !@deploy.nil?
             if !handle.nil?
@@ -710,8 +712,16 @@ module MU
         def self.find(*flags)
           MU::Cloud.supportedClouds.each { |cloud|
             begin
+              args = flags.first
+              # skip this cloud if we have a region argument that makes no
+              # sense there
+              cloudbase = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+              if args[:region] and cloudbase.respond_to?(:listRegions)
+                next if !cloudbase.listRegions.include?(args[:region])
+              end
               cloudclass = MU::Cloud.loadCloudType(cloud, shortname)
-              found = cloudclass.find(flags.first)
+
+              found = cloudclass.find(args)
               return found if !found.nil? # XXX actually, we should merge all results
             rescue MuCloudResourceNotImplemented
             end

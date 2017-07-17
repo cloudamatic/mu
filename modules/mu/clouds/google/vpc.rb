@@ -380,6 +380,7 @@ module MU
         # @return [Boolean]
         def self.haveRouteToInstance?(target_instance, region: MU.curRegion)
           project ||= MU::Cloud::Google.defaultProject
+          return false if MU.myCloud != "Google"
 # XXX see if we reside in the same Network and overlap subnets
 # XXX see if we peer with the target's Network
           target_instance.network_interfaces.each { |iface|
@@ -658,6 +659,9 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # @return [Hash]: The modified configuration that was originally passed in.
         def createRoute(route, network: @cloud_id, tags: [])
           routename = @mu_name+"-route-"+route['destination_network'].gsub(/[\/\.]/, "-")
+          if !tags.nil? and tags.size > 0
+            routename = (routename+"-"+tags.first).slice(0,63)
+          end
           if route['gateway'] == "#NAT"
             if !route['nat_host_name'].nil? or !route['nat_host_id'].nil?
               nat_instance = findBastion(
@@ -667,8 +671,14 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
               if nat_instance.nil?
                 raise MuError, "Failed to find NAT host for #NAT route in #{@mu_name} (#{route})"
               end
-MU.log "NAT INSTANCE AT", MU::WARN, details: nat_instance
-
+              routeobj = ::Google::Apis::ComputeBeta::Route.new(
+                name: routename,
+                next_hop_instance: nat_instance.cloud_desc.self_link,
+                dest_range: route['destination_network'],
+                description: @deploy.deploy_id,
+                tags: tags,
+                network: network
+              )
             end
 # several other cases missing for various types of routers (raw IPs, instance ids, etc) XXX
           elsif route['gateway'] == "#DENY"

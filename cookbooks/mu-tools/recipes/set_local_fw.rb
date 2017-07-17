@@ -33,6 +33,7 @@ when "centos", "redhat"
       command "/bin/firewall-cmd --reload"
       action :nothing
       not_if "/bin/systemctl list-units | grep iptables.service"
+      only_if { ::File.exists?("/bin/firewall-cmd") }
     end
   end
 
@@ -56,7 +57,7 @@ when "centos", "redhat"
         source src
         protocol proto
         notifies :reload, "service[iptables]"
-        notifies :run, 'execute[restart FirewallD]' if elversion >= 7
+        notifies :run, 'execute[restart FirewallD]' if elversion >= 7 and ::File.exists?("/bin/firewall-cmd")
       end
     }
   }

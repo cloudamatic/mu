@@ -27,6 +27,28 @@ module MU
       @@default_project = nil
       @@authorizers = {}
 
+      # Fetch a Google instance metadata parameter (example: instance/id).
+      # @param param [String]: The parameter name to fetch
+      # @return [String, nil]
+      def self.getGoogleMetaData(param)
+        base_url = "http://metadata.google.internal/computeMetadata/v1"
+        begin
+          Timeout.timeout(2) do
+            response = open(
+              "http://metadata.google.internal/computeMetadata/v1/instance/id",
+              "Metadata-Flavor" => "Google"
+            ).read
+            return response
+          end
+        rescue Net::HTTPServerException, OpenURI::HTTPError, Timeout::Error, SocketError => e
+          # This is fairly normal, just handle it gracefully
+          logger = MU::Logger.new
+          logger.log "Failed metadata request #{base_url}/#{param}: #{e.inspect}", MU::DEBUG
+        end
+
+        nil
+      end
+
       # Pull our global Google Cloud Platform credentials out of their secure
       # vault, feed them to the googleauth gem, and stash the results on hand
       # for consumption by the various GCP APIs.

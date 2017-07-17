@@ -421,6 +421,7 @@ module MU
 
   @@myRegion_var = nil
   # Find our AWS Region and Availability Zone
+  # XXX account for Google and non-cloud situations
   def self.myRegion
     if ENV.has_key?("EC2_REGION") and !ENV['EC2_REGION'].empty?
       @@myRegion_var ||= MU::Cloud::AWS.ec2(ENV['EC2_REGION']).describe_availability_zones.availability_zones.first.region_name
@@ -433,15 +434,33 @@ module MU
 
   require 'mu/config'
 
+  # Figure out what cloud provider we're in, if any.
+  # @return [String]: Google, AWS, etc. Returns nil if we don't seem to be in a cloud.
+  def self.myCloud
+    aws_instance_id = MU::Cloud::AWS.getAWSMetaData("instance-id")
+    if !aws_instance_id.nil?
+      @@myInstanceId = aws_instance_id
+      return "AWS"
+    end
+    google_instance_id = MU::Cloud::Google.getGoogleMetaData("instance/id")
+    if !google_instance_id.nil?
+      @@myInstanceId = google_instance_id
+      return "Google"
+    end
+    nil
+  end
+
   # Fetch the AWS account number where this Mu master resides. If it's not in 
   # AWS at all, or otherwise cannot be determined, return nil.
   # XXX migrate this to MU::AWS and leave a backwards-compatibility wrapper
   # here.
+  # XXX account for Google and non-cloud situations
   def self.account_number
     if !@@globals[Thread.current.object_id].nil? and
         !@@globals[Thread.current.object_id]['account_number'].nil?
       return @@globals[Thread.current.object_id]['account_number']
     end
+    return nil if MU.myCloud != "AWS"
 		begin
 	    user_list = MU::Cloud::AWS.iam.list_users.users
 		rescue Aws::IAM::Errors::AccessDenied => e
@@ -458,18 +477,16 @@ module MU
     account_number
   end
 
-  # XXX is there a better way to get this?
-  @@myInstanceId = MU::Cloud::AWS.getAWSMetaData("instance-id")
-  # The AWS instance identifier of this Mu master
+  # The cloud instance identifier of this Mu master
   def self.myInstanceId;
-    @@myInstanceId
+    return nil if MU.myCloud.nil?
+    @@myInstanceId # MU.myCloud will have set this, since it's our test variable
   end
 
   @@myCloudDescriptor = nil
+  # XXX account for Google and non-cloud situations
   begin
-    # XXX it's ok not to be in AWS, or to target an account other than the one
-    # we live in.
-    @@myCloudDescriptor = MU::Cloud::AWS.ec2(MU.myRegion).describe_instances(instance_ids: [@@myInstanceId]).reservations.first.instances.first
+    @@myCloudDescriptor = MU::Cloud::AWS.ec2(MU.myRegion).describe_instances(instance_ids: [MU.myInstanceId]).reservations.first.instances.first
   rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
   end
   # If our Mu master is hosted in a cloud provider, we can use this to get its
@@ -480,6 +497,7 @@ module MU
 
   @@myAZ_var = nil
   # The AWS Availability Zone in which this Mu master resides
+  # XXX account for Google and non-cloud situations
   def self.myAZ
     return nil if MU.myCloudDescriptor.nil?
     begin
@@ -493,6 +511,7 @@ module MU
 
   @@myVPC_var = nil
   # The AWS Availability Zone in which this Mu master resides
+  # XXX account for Google and non-cloud situations
   def self.myVPC
     return nil if MU.myCloudDescriptor.nil?
     begin
@@ -506,6 +525,7 @@ module MU
 
   @@mySubnets_var = nil
   # The AWS Subnets associated with the VPC this MU Master is in
+  # XXX account for Google and non-cloud situations
   def self.mySubnets
     @@mySubnets_var ||= MU::Cloud::AWS.ec2(MU.myRegion).describe_subnets(
       filters: [
@@ -581,6 +601,7 @@ module MU
 
   # Return the name of the S3 Mu log and key bucket for this Mu server.
   # @return [String]
+  # XXX account for Google and non-cloud situations
   def self.adminBucketName
     bucketname = $MU_CFG['aws']['log_bucket_name']
     if bucketname.nil? or bucketname.empty?

@@ -983,6 +983,7 @@ module MU
         # @return [Boolean]
         def self.haveRouteToInstance?(target_instance, region: MU.curRegion)
           return false if target_instance.nil?
+          return false if MU.myCloud != "AWS"
           instance_id = target_instance.instance_id
 # XXX check if I'm even in AWS before all this bullshit
           target_vpc_id = target_instance.vpc_id
