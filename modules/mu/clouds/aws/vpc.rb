@@ -984,7 +984,7 @@ module MU
         def self.haveRouteToInstance?(target_instance, region: MU.curRegion)
           return false if target_instance.nil?
           instance_id = target_instance.instance_id
-
+# XXX check if I'm even in AWS before all this bullshit
           target_vpc_id = target_instance.vpc_id
           my_vpc_id = MU.myCloudDescriptor.vpc_id
           if (target_vpc_id && !target_vpc_id.empty?) && (my_vpc_id && !my_vpc_id.empty?)
@@ -1409,7 +1409,7 @@ module MU
         end
 
         # Helper method for manufacturing route tables. Expect to be called from
-        # {MU::Cloud::AWS::VPC#create} or {MU::Cloud::AWS::VPC#deploy}.
+        # {MU::Cloud::AWS::VPC#create} or {MU::Cloud::AWS::VPC#groom}.
         # @param rtb [Hash]: A route table description parsed through {MU::Config::BasketofKittens::vpcs::route_tables}.
         # @return [Hash]: The modified configuration that was originally passed in.
         def createRouteTable(rtb)

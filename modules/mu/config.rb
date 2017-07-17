@@ -401,6 +401,8 @@ module MU
       return [MU::Config.fixDashes(config), raw_text]
     end
 
+    attr_reader :kittens
+    attr_reader :kittencfg_semaphore
 
     # Load, resolve, and validate a configuration file ("Basket of Kittens").
     # @param path [String]: The path to the master config file to load. Note that this can include other configuration files via ERB.
@@ -419,6 +421,8 @@ module MU
       
       $myAppName = nil
 
+      @kittens = {}
+      @kittencfg_semaphore = Mutex.new
       @@config_path = path
       @admin_firewall_rules = []
       @skipinitialupdates = skipinitialupdates
@@ -634,40 +638,45 @@ module MU
       subnets
     end
 
-    attr_reader :kittens
-    @kittens = {}
     def haveLitterMate?(name, type)
-      shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
-      @kittens[cfg_plural].each { |kitten|
-        return true if kitten['name'] == name.to_s
+      @kittencfg_semaphore.synchronize {
+        shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
+        @kittens[cfg_plural].each { |kitten|
+          return true if kitten['name'] == name.to_s
+        }
       }
       false
     end
     def removeKitten(name, type)
-      shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
-      deletia = nil
-      @kittens[cfg_plural].each { |kitten|
-        if kitten['name'] == name
-          deletia = kitten
-          break
-        end
+      @kittencfg_semaphore.synchronize {
+        shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
+        deletia = nil
+        @kittens[cfg_plural].each { |kitten|
+          if kitten['name'] == name
+            deletia = kitten
+            break
+          end
+        }
+        @kittens[type].delete(deletia) if !deletia.nil?
       }
-      @kittens[type].delete(deletia) if !deletia.nil?
     end
     def insertKitten(descriptor, type, delay_validation = false)
-      append = !@kittens[type].include?(descriptor)
+      append = false
+      @kittencfg_semaphore.synchronize {
+        append = !@kittens[type].include?(descriptor)
 
-      # Skip if this kitten has already been validated and appended
-      if !append and descriptor["#MU_VALIDATED"]
-        return true
-      end
+        # Skip if this kitten has already been validated and appended
+        if !append and descriptor["#MU_VALIDATED"]
+          return true
+        end
+      }
 
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
       descriptor["#MU_CLOUDCLASS"] = classname
       inheritDefaults(descriptor)
 
       # Does this resource go in a VPC?
-      if !descriptor["vpc"].nil?
+      if !descriptor["vpc"].nil? and !delay_validation
         descriptor['vpc']['cloud'] = descriptor['cloud']
         descriptor['vpc']['region'] = descriptor['region'] if descriptor['vpc']['region'].nil? and descriptor['vpc']['cloud'] != "Google"
         # If we're using a VPC in this deploy, set it as a dependency
@@ -679,8 +688,9 @@ module MU
               "type" => "vpc",
               "name" => descriptor["vpc"]["vpc_name"]
           }
+MU.log "calling processVPCReference on #{shortclass.to_s} '#{descriptor['name']}'", MU::NOTICE
           if !processVPCReference(descriptor['vpc'],
-                                  "loadbalancer '#{descriptor['name']}'",
+                                  shortclass.to_s+" '#{descriptor['name']}'",
                                   dflt_region: descriptor['region'],
                                   is_sibling: true,
                                   sibling_vpcs: @kittens['vpcs'])
@@ -697,6 +707,8 @@ module MU
             ok = false
           end
         end
+      else
+MU.log "in the middle of insertKitten for #{cfg_name} '#{descriptor['name']}'", MU::NOTICE
       end
 
       # Does it have generic ingress rules?
@@ -777,7 +789,9 @@ module MU
 
       descriptor["dependencies"].uniq!
 
-      @kittens[cfg_plural] << descriptor if append
+      @kittencfg_semaphore.synchronize {
+        @kittens[cfg_plural] << descriptor if append
+      }
       true
     end
 
@@ -1178,6 +1192,7 @@ module MU
         public_subnets_map = {}
         nat_routes = {}
         subnet_ptr = "subnet_id"
+        all_subnets = []
         if !is_sibling
           pub = priv = 0
 
@@ -1199,6 +1214,7 @@ module MU
             if ext_vpc['name'].to_s == vpc_block['vpc_name'].to_s
               subnet_ptr = "subnet_name"
               ext_vpc['subnets'].each { |subnet|
+                next if dflt_region and vpc_block["cloud"] == "Google" and subnet['availability_zone'] != dflt_region
                 if subnet['is_public'] # NAT nonsense calculated elsewhere, ew
                   public_subnets << {"subnet_name" => subnet['name'].to_s}
                 else
@@ -1218,6 +1234,7 @@ module MU
           MU.log "Couldn't find any subnets for #{parent_name}", MU::ERR
           return false
         end
+        all_subnets = public_subnets + private_subnets
 
         case vpc_block['subnet_pref']
           when "public"
@@ -1240,7 +1257,7 @@ module MU
               vpc_block['nat_host_name'] == nat_routes[vpc_block[subnet_ptr]]
             end
           when "any"
-            vpc_block.merge!(public_subnets.concat(private_subnets)[rand(public_subnets.length+private_subnets.length)]) if public_subnets
+            vpc_block.merge!(all_subnets.sample)
           when "all"
             vpc_block['subnets'] = []
             public_subnets.each { |subnet|
@@ -1367,9 +1384,9 @@ module MU
       realvpc = nil
       if vpc
         realvpc = {}
-        realvpc['vpc_id'] = vpc['vpc_id']
-        realvpc['vpc_name'] = vpc['vpc_name']
-        if !realvpc['vpc_id'].nil?
+        realvpc['vpc_id'] = vpc['vpc_id'] if !vpc['vpc_id'].nil?
+        realvpc['vpc_name'] = vpc['vpc_name'] if !vpc['vpc_name'].nil?
+        if !realvpc['vpc_id'].nil? and !realvpc['vpc_id'].empty?
 # XXX stupid kludge for Google cloud_ids which are sometimes URLs and sometimes not. Do better.
           name = name + "-" + realvpc['vpc_id'].gsub(/.*\//, "")
           realvpc['vpc_id'] = getTail("vpc_id", value: realvpc['vpc_id'], prettyname: "Admin Firewall Ruleset #{name} Target VPC",  cloudtype: "AWS::EC2::VPC::Id") if realvpc["vpc_id"].is_a?(String)
@@ -1380,23 +1397,19 @@ module MU
 
       hosts.uniq!
 
-      rules = [
-          {
-              "proto" => "tcp",
-              "port_range" => "0-65535",
-              "hosts" => hosts
-          },
-          {
-              "proto" => "udp",
-              "port_range" => "0-65535",
-              "hosts" => hosts
-          },
-          {
-              "proto" => "icmp",
-              "port_range" => "-1",
-              "hosts" => hosts
-          }
-      ]
+      rules = []
+      if cloud == "Google"
+        rules = [
+          { "ingress" => true, "proto" => "all", "hosts" => hosts },
+          { "egress" => true, "proto" => "all", "hosts" => hosts }
+        ]
+      else
+        rules = [
+          { "proto" => "tcp", "port_range" => "0-65535", "hosts" => hosts },
+          { "proto" => "udp", "port_range" => "0-65535", "hosts" => hosts },
+          { "proto" => "icmp", "port_range" => "-1", "hosts" => hosts }
+        ]
+      end
 
       acl = {"name" => name, "rules" => rules, "vpc" => realvpc, "cloud" => cloud, "admin" => true}
       acl["region"] == region if !region.nil?
@@ -4351,6 +4364,10 @@ module MU
                 "type" => "string",
                 "description" => "Chef run list entry, e.g. role[rolename] or recipe[recipename]."
             }
+        },
+        "routes" => {
+            "type" => "array",
+            "items" => @route_primitive
         },
         "ingress_rules" => {
             "type" => "array",

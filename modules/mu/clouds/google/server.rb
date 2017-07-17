@@ -147,8 +147,8 @@ module MU
 
 
             base_iface_obj = {
-              :network => @config['vpc']['vpc_id'],
-              :subnetwork => @config['vpc']['subnet_id']
+              :network => @vpc.cloud_id,
+              :subnetwork => @config['vpc']['subnet_id'] || @vpc.getSubnet(name: @config['vpc']['subnet_name']).url
             }
             if @config['associate_public_ip']
               base_iface_obj[:access_configs] = [
@@ -156,7 +156,15 @@ module MU
               ]
             end
             interfaces = [base_iface_obj]
+#            pp @config['vpc']
+            pp interfaces
             # XXX add more if they asked for it
+
+            if @config['routes']
+              @config['routes'].each { |route|
+                @vpc.cloudobj.createRouteForInstance(route, self)
+              }
+            end
 
             desc = {
               :name => @mu_name,
@@ -195,6 +203,16 @@ module MU
             )
             @cloud_id = @mu_name # XXX or instance.target_link... pick a convention, would you?
 
+            if !@config['async_groom']
+              sleep 5
+              MU::MommaCat.lock(@cloud_id+"-create")
+              if !postBoot
+                MU.log "#{@config['name']} is already being groomed, skipping", MU::NOTICE
+              else
+                MU.log "Node creation complete for #{@config['name']}"
+              end
+              MU::MommaCat.unlock(@cloud_id+"-create")
+            end
             done = false
 
             @deploy.saveNodeSecret(@cloud_id, @config['instance_secret'], "instance_secret")
@@ -206,20 +224,6 @@ module MU
 
             notify
 
-            if !@config['async_groom']
-              sleep 5
-              MU::MommaCat.lock(@cloud_id+"-create")
-              if !postBoot
-                MU.log "#{@config['name']} is already being groomed, skipping", MU::NOTICE
-              else
-                MU.log "Node creation complete for #{@config['name']}"
-              end
-              MU::MommaCat.unlock(@cloud_id+"-create")
-            else
-#              MU::MommaCat.createStandardTags(@cloud_id, region: @config['region'])
-#              MU::MommaCat.createTag(@cloud_id, "Name", @mu_name, region: @config['region'])
-            end
-            done = true
           rescue Exception => e
             if !cloud_desc.nil? and !done
               MU.log "Aborted before I could finish setting up #{@config['name']}, cleaning it up. Stack trace will print once cleanup is complete.", MU::WARN if !@deploy.nocleanup
@@ -249,7 +253,12 @@ module MU
             "run_list" => [ "mu-utility::nat" ],
             "platform" => "centos7",
             "ssh_user" => "centos",
+            "associate_public_ip" => true,
             "static_ip" => { "assign_ip" => true },
+            "routes" => [ {
+              "gateway" => "#INTERNET",
+              "destination_network" => "0.0.0.0/0"
+            } ]
           }
         end
 
@@ -449,13 +458,11 @@ module MU
             @named = true
           end
 
-#          if !@config['src_dst_check'] and !@config["vpc"].nil?
-#            MU.log "Disabling source_dest_check #{node} (making it NAT-worthy)"
-#            MU::Cloud::AWS.ec2(@config['region']).modify_instance_attribute(
-#                instance_id: @cloud_id,
-#                source_dest_check: {:value => false}
-#            )
-#          end
+          nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
+          if !nat_ssh_host and !MU::Cloud::Google::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'])
+# XXX check if canonical_ip is in the private ranges
+#            raise MuError, "#{node} has no NAT host configured, and I have no other route to it"
+          end
 
 #          # Set console termination protection. Autoscale nodes won't set this
 #          # by default.
@@ -545,10 +552,6 @@ module MU
 #          end
 #
 #
-#            nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
-#            if subnet.private? and !nat_ssh_host and !MU::Cloud::Google::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'])
-#              raise MuError, "#{node} is in a private subnet (#{subnet}), but has no NAT host configured, and I have no other route to it"
-#            end
 #
 #            # If we've asked for additional subnets (and this @config is not a
 #            # member of a Server Pool, which has different semantics), create
@@ -892,7 +895,10 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+MU.log "IN GODDAMN SERVER GROOM FOR #{@mu_name}", MU::NOTICE
           MU::MommaCat.lock(@cloud_id+"-groom")
+          postBoot
+          
           node, config, deploydata = describe(cloud_id: @cloud_id)
 
           if node.nil? or node.empty?
@@ -1012,6 +1018,7 @@ module MU
           private_ips = []
           public_ips = []
           cloud_desc.network_interfaces.each { |iface|
+MU.log "INTERFACE", MU::WARN, details: iface
             private_ips << iface.network_ip
             if iface.access_configs
               iface.access_configs.each { |acfg|
@@ -1194,7 +1201,7 @@ module MU
                   instance.name
                 )
 # XXX wait-loop on pending?
-                pp deletia
+#                pp deletia
               }
             end
 
@@ -1255,12 +1262,15 @@ module MU
               MU.log "You must specify a target VPC when creating a Server", MU::ERR
             end
           end
-
-          if !server['vpc']['subnet_id']
+pp server['vpc']
+          if !server['vpc']['subnet_id'] and server['vpc']['subnet_name'].nil?
             if !subnets
-              vpcs = MU::Cloud::Google::VPC.find(cloud_id: server["vpc"]["vpc_id"])
-              subnets = vpcs["default"].subnetworks.sample
+              if server["vpc"]["vpc_id"]
+                vpcs = MU::Cloud::Google::VPC.find(cloud_id: server["vpc"]["vpc_id"])
+                subnets = vpcs["default"].subnetworks.sample
+              end
             end
+
             server['vpc']['subnet_id'] = subnets.delete_if { |subnet|
               !subnet.match(/regions\/#{Regexp.quote(server['region'])}\/subnetworks/)
             }.sample

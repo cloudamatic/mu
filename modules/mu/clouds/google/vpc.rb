@@ -84,9 +84,14 @@ module MU
           route_table_ids = []
           if !@config['route_tables'].nil?
             @config['route_tables'].each { |rtb|
-              # XXX This is untested, and we don't yet handle NATs on account of
-              # we don't know how to make instances yet.
-              rtb = createRoute(rtb, @cloud_id)
+              rtb['routes'].each { |route|
+                # GCP does these for us, by default
+                next if route['destination_network'] == "0.0.0.0/0" and
+                        route['gateway'] == "#INTERNET"
+                # sibling NAT host routes will get set up our groom phrase
+                next if route['gateway'] == "#NAT" and !route['nat_host_name'].nil?
+                createRoute(route, network: @cloud_id)
+              }
             }
           end
         end
@@ -121,6 +126,15 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          rtb = @config['route_tables'].first
+
+          rtb['routes'].each { |route|
+            # If we had a sibling server being spun up as a NAT, rig up the 
+            # route that the hosts behind it will need.
+            if route['gateway'] == "#NAT" and !route['nat_host_name'].nil?
+              createRoute(route, network: @cloud_id)
+            end
+          }
 
           if !@config['peers'].nil?
             count = 0
@@ -237,6 +251,7 @@ module MU
                 found.each { |desc|
                   if desc.ip_cidr_range == subnet["ip_block"]
                     subnet["cloud_id"] = desc.name
+                    subnet["url"] = desc.self_link
                     subnet['az'] = desc.region.gsub(/.*?\//, "")
                     break
                   end
@@ -247,8 +262,8 @@ module MU
                   @subnets << MU::Cloud::Google::VPC::Subnet.new(self, subnet)
                 end
               }
-              # Of course we might be loading up a dummy subnet object from a foreign
-              # or non-Mu-created VPC and subnet. So make something up.
+            # Of course we might be loading up a dummy subnet object from a foreign
+            # or non-Mu-created VPC and subnet. So make something up.
             elsif !resp.nil?
               resp.data.subnets.each { |desc|
                 subnet = {}
@@ -284,6 +299,50 @@ module MU
         # @param nat_tag_value [String]: A cloud provider tag to help identify the resource, used in conjunction with tag_key.
         # @param nat_ip [String]: An IP address associated with the NAT instance.
         def findBastion(nat_name: nil, nat_cloud_id: nil, nat_tag_key: nil, nat_tag_value: nil, nat_ip: nil)
+          nat = nil
+          deploy_id = nil
+          nat_name = nat_name.to_s if !nat_name.nil? and nat_name.class.to_s == "MU::Config::Tail"
+          nat_ip = nat_ip.to_s if !nat_ip.nil? and nat_ip.class.to_s == "MU::Config::Tail"
+          nat_cloud_id = nat_cloud_id.to_s if !nat_cloud_id.nil? and nat_cloud_id.class.to_s == "MU::Config::Tail"
+          nat_tag_key = nat_tag_key.to_s if !nat_tag_key.nil? and nat_tag_key.class.to_s == "MU::Config::Tail"
+          nat_tag_value = nat_tag_value.to_s if !nat_tag_value.nil? and nat_tag_value.class.to_s == "MU::Config::Tail"
+
+          # If we're searching by name, assume it's part of this here deploy.
+          if nat_cloud_id.nil? and !@deploy.nil?
+            deploy_id = @deploy.deploy_id
+          end
+          found = MU::MommaCat.findStray(
+            "Google",
+            "server",
+            name: nat_name,
+            cloud_id: nat_cloud_id,
+            deploy_id: deploy_id,
+            tag_key: nat_tag_key,
+            tag_value: nat_tag_value,
+            allow_multi: true,
+            dummy_ok: true,
+            calling_deploy: @deploy
+          )
+
+          return nil if found.nil? || found.empty?
+          if found.size > 1
+            found.each { |nat|
+              # Try some AWS-specific criteria
+              cloud_desc = nat.cloud_desc
+              if !nat_host_ip.nil? and
+                  (cloud_desc.private_ip_address == nat_host_ip or cloud_desc.public_ip_address == nat_host_ip)
+                return nat
+              elsif cloud_desc.vpc_id == @cloud_id
+                # XXX Strictly speaking we could have different NATs in different
+                # subnets, so this can be wrong in corner cases. Why you'd
+                # architect something that obnoxiously, I have no idea.
+                return nat
+              end
+            }
+          elsif found.size == 1
+            return found.first
+          end
+          return nil
         end
 
         # Check for a subnet in this VPC matching one or more of the specified
@@ -320,8 +379,19 @@ module MU
         # @param region [String]: The cloud provider region of the target subnet.
         # @return [Boolean]
         def self.haveRouteToInstance?(target_instance, region: MU.curRegion)
-          if MU::Google.myProject.nil?
-          end
+          project ||= MU::Cloud::Google.defaultProject
+# XXX see if we reside in the same Network and overlap subnets
+# XXX see if we peer with the target's Network
+          target_instance.network_interfaces.each { |iface|
+            resp = MU::Cloud::Google.compute.list_routes(
+              project,
+              filter: "network eq #{iface.network}"
+            )
+
+            if resp and resp.items
+MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
+            end
+          }
           false
         end
 
@@ -355,9 +425,9 @@ module MU
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject
-# XXX project flag has to get passed from somewheres
 
           purge_subnets(noop, project: flags['project'])
+          purge_routes(noop, project: flags['project'])
 
           resp = MU::Cloud::Google.compute.list_networks(
             flags["project"],
@@ -378,6 +448,8 @@ module MU
                   if retries % 3 == 0
                     MU.log "Got #{deletia.error.errors.first.code} deleting #{network.name}, may be waiting on other resources to delete (attempt #{retries}/#{max})", MU::WARN, details: deletia.error.errors
                   end
+                  purge_subnets(noop, project: flags['project'])
+                  purge_routes(noop, project: flags['project'])
                   sleep 5
                 else
                   complete = true
@@ -427,9 +499,9 @@ module MU
               ok = false if blocks.nil?
 
               vpc["subnets"] = []
-              vpc['regions'].each { |r|
+              vpc['route_tables'].each { |t|
                 count = 0
-                vpc['route_tables'].each { |t|
+                vpc['regions'].each { |r|
                   block = blocks.shift
                   vpc["subnets"] << {
                     "availability_zone" => r,
@@ -482,32 +554,67 @@ module MU
             }
             configurator.removeKitten(vpc['name'], "vpcs")
           else
-# XXX also do this if #NAT is set (only that NAT should talk to the world)
-            if vpc['route_tables'].first["routes"].include?({"gateway"=>"#DENY", "destination_network"=>"0.0.0.0/0"})
-# XXX maybe delete that route after it's created?
+            has_nat = vpc['route_tables'].first["routes"].include?({"gateway"=>"#NAT", "destination_network"=>"0.0.0.0/0"})
+            has_deny = vpc['route_tables'].first["routes"].include?({"gateway"=>"#DENY", "destination_network"=>"0.0.0.0/0"})
+# XXX we need routes to peered Networks too
+
+            if has_nat or has_deny
               ok = false if !genStandardSubnetACLs(vpc['parent_block'] || vpc['ip_block'], vpc['name'], configurator, false)
             else
               ok = false if !genStandardSubnetACLs(vpc['parent_block'] || vpc['ip_block'], vpc['name'], configurator)
             end
-# XXX DUDE also just build a route straight to this Mu master
+            if has_nat and !has_deny
+              vpc['route_tables'].first["routes"] << {
+                "gateway"=>"#DENY",
+                "destination_network"=>"0.0.0.0/0"
+              }
+            end
+            nat_count = 0
+            # You know what, let's just guarantee that we'll have a route from
+            # this master, always
+            if !vpc['scrub_mu_isms']
+              vpc['route_tables'].first["routes"] << {
+                'gateway' => "#INTERNET",
+                'destination_network' => MU.mu_public_ip+"/32"
+              }
+            end
             vpc['route_tables'].first["routes"].each { |route|
               # No such thing as a NAT gateway in Google... so make an instance
               # that'll do the deed.
               if route['gateway'] == "#NAT"
                 nat_cfg = MU::Cloud::Google::Server.genericNAT
-                nat_cfg['name'] = vpc['name']+"-natstion"
-# XXX set the application_attributes thing for the NAT recipe
-                nat_cfg['vpc'] = {
-                  "subnet_pref" => "public", # XXX this should make a special route with an internet gateway for just this instance
-                  "vpc_name" => vpc["name"]
+                nat_cfg['name'] = vpc['name']+"-natstion-"+nat_count.to_s
+                # XXX ingress/egress rules?
+                # XXX for master too if applicable
+                nat_cfg["application_attributes"] = {
+                  "nat" => {
+                    "private_net" => vpc["ip_block"].to_s
+                  }
                 }
-                ok = false if !configurator.insertKitten(nat_cfg, "servers")
+                route['nat_host_name'] = nat_cfg['name']
+                vpc["dependencies"] << {
+                  "type" => "server",
+                  "name" => nat_cfg['name'],
+                }
+
+                nat_cfg['vpc'] = {
+                  "vpc_name" => vpc["name"],
+                  "subnet_pref" => "any"
+                }
+                nat_count = nat_count + 1
+                ok = false if !configurator.insertKitten(nat_cfg, "servers", true)
               end
             }
           end
 
 #          MU.log "GOOGLE VPC", MU::WARN, details: vpc
           ok
+        end
+
+        # @param route [Hash]: A route description, per the Basket of Kittens schema
+        # @param server [MU::Cloud::Google::Server]: Instance to which this route will apply
+        def createRouteForInstance(route, server)
+          createRoute(route, network: @cloud_id, tags: [server.mu_name])
         end
 
         private
@@ -522,19 +629,21 @@ module MU
               { "ingress" => true, "proto" => "all", "hosts" => [vpc_cidr] }
             ]
           }
-          if publicroute
+#          if publicroute
+#          XXX distinguish between "I have a NAT" and "I really shouldn't be
+#          able to talk to the world"
             private_acl["rules"] << {
               "egress" => true, "proto" => "all", "hosts" => ["0.0.0.0/0"]
             }
-          else
-            private_acl["rules"] << {
-              "egress" => true, "proto" => "all", "hosts" => [vpc_cidr], "weight" => 999
-            }
-            private_acl["rules"] << {
-              "egress" => true, "proto" => "all", "hosts" => ["0.0.0.0/0"], "deny" => true
-            }
-          end
-          configurator.insertKitten(private_acl, "firewall_rules")
+#          else
+#            private_acl["rules"] << {
+#              "egress" => true, "proto" => "all", "hosts" => [vpc_cidr], "weight" => 999
+#            }
+#            private_acl["rules"] << {
+#              "egress" => true, "proto" => "all", "hosts" => ["0.0.0.0/0"], "deny" => true
+#            }
+#          end
+          configurator.insertKitten(private_acl, "firewall_rules", true)
         end
 
         # List the routes for each subnet in the given VPC
@@ -542,34 +651,63 @@ module MU
         end
 
         # Helper method for manufacturing routes. Expect to be called from
-        # {MU::Cloud::Google::VPC#create} or {MU::Cloud::Google::VPC#deploy}.
-        # @param rtb [Hash]: A route table description parsed through {MU::Config::BasketofKittens::vpcs::route_tables}.
+        # {MU::Cloud::Google::VPC#create} or {MU::Cloud::Google::VPC#groom}.
+        # @param route [Hash]: A route description, per the Basket of Kittens schema
+        # @param network [String]: Cloud identifier of the VPC to which we're adding this route
+        # @param tags [Array<String>]: Instance tags to which this route applies. If empty, applies to entire VPC.
         # @return [Hash]: The modified configuration that was originally passed in.
-        def createRoute(rtb, network)
-#MU.log "ROUTEDERP", MU::WARN, details: rtb
-#extroutes = MU::Cloud::Google.compute.list_routes(MU::Cloud::Google.defaultProject, filter: "network eq "+network)
-#MU.log "ROUTEHURP", MU::WARN, details: extroutes
-          rtb['routes'].each { |route|
-            if route['destination_network'] == "0.0.0.0/0"
-              # These are automatically wrangled by GCP and our own firewall
-              # magic... as are, I think, VPC peers? Verify. XXX
-              next if route['gateway'] == "#DENY"
-              next if route['gateway'] == "#INTERNET"
-            end
-            routename = @mu_name+"-route-"+route['destination_network'].gsub(/[\/\.]/, "-")
-            if route['gateway'] == "#NAT"
-              MU.log MuError, "I don't know how to make NATs in Google yet"#
-# several other cases missing for various types of routers (raw IPs, instance ids, etc) XXX
-            else
-              routeobj = ::Google::Apis::ComputeBeta::Route.new(
-                name: routename,
-                dest_range: route['destination_network'],
-                network: network,
-                next_hop_network: network
+        def createRoute(route, network: @cloud_id, tags: [])
+          routename = @mu_name+"-route-"+route['destination_network'].gsub(/[\/\.]/, "-")
+          if route['gateway'] == "#NAT"
+            if !route['nat_host_name'].nil? or !route['nat_host_id'].nil?
+              nat_instance = findBastion(
+                nat_name: route["nat_host_name"],
+                nat_cloud_id: route["nat_host_id"]
               )
+              if nat_instance.nil?
+                raise MuError, "Failed to find NAT host for #NAT route in #{@mu_name} (#{route})"
+              end
+MU.log "NAT INSTANCE AT", MU::WARN, details: nat_instance
+
             end
+# several other cases missing for various types of routers (raw IPs, instance ids, etc) XXX
+          elsif route['gateway'] == "#DENY"
+            resp = MU::Cloud::Google.compute.list_routes(
+              @config['project'],
+              filter: "network eq #{network}"
+            )
+
+            if !resp.nil? and !resp.items.nil?
+              resp.items.each { |r|
+                next if r.next_hop_gateway.nil? or !r.next_hop_gateway.match(/\/global\/gateways\/default-internet-gateway$/)
+                MU.log "Removing standard route #{r.name} per our #DENY entry"
+                MU::Cloud::Google.compute.delete_route(@config['project'], r.name)
+              }
+            end
+          elsif route['gateway'] == "#INTERNET"
+            routeobj = ::Google::Apis::ComputeBeta::Route.new(
+              name: routename,
+              next_hop_gateway: "global/gateways/default-internet-gateway",
+              dest_range: route['destination_network'],
+              description: @deploy.deploy_id,
+              tags: tags,
+              network: network
+            )
+          else
+            routeobj = ::Google::Apis::ComputeBeta::Route.new(
+              name: routename,
+              dest_range: route['destination_network'],
+              network: network,
+              description: @deploy.deploy_id,
+              tags: tags,
+              next_hop_network: network
+            )
+          end
+
+          if route['gateway'] != "#DENY"
+            MU.log "Creating route #{routename}", details: routeobj
             resp = MU::Cloud::Google.compute.insert_route(@config['project'], routeobj)
-          }
+          end
         end
 
 
@@ -601,7 +739,27 @@ module MU
         # @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.purge_routetables(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], region: MU.curRegion)
+        def self.purge_routes(noop = false, project: MU::Cloud::Google.defaultProject)
+          project ||= MU::Cloud::Google.defaultProject
+          resp = MU::Cloud::Google.compute.list_routes(
+            project,
+            filter: "description eq #{MU.deploy_id}"
+          )
+
+          if resp and resp.items
+            parent_thread_id = Thread.current.object_id
+            threads = []
+            MU.dupGlobals(parent_thread_id)
+            resp.items.each { |route|
+              threads << Thread.new {
+                MU.log "Removing route #{route.name}"
+                MU::Cloud::Google.compute.delete_route(project, route.name)
+              }
+            }
+            threads.each do |t|
+              t.join
+            end
+          end
         end
 
 
@@ -618,8 +776,7 @@ module MU
         # @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.purge_subnets(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], regions: nil, project: MU::Cloud::Google.defaultProject)
-          regions = MU::Cloud::Google.listRegions if regions.nil?
+        def self.purge_subnets(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], regions: MU::Cloud::Google.listRegions, project: MU::Cloud::Google.defaultProject)
           parent_thread_id = Thread.current.object_id
           regionthreads = []
           regions.each { |r|
@@ -680,6 +837,7 @@ module MU
         class Subnet < MU::Cloud::Google::VPC
 
           attr_reader :cloud_id
+          attr_reader :url
           attr_reader :ip_block
           attr_reader :mu_name
           attr_reader :name
@@ -692,6 +850,7 @@ module MU
             @parent = parent
             @config = MU::Config.manxify(config)
             @cloud_id = config['cloud_id']
+            @url = config['url']
             @mu_name = config['mu_name'].downcase
             @name = config['name']
             @deploydata = config # This is a dummy for the sake of describe()
