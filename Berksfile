@@ -22,8 +22,7 @@ cookbook 'freebsd', '~> 0.1.9'
 cookbook 'gunicorn', '~> 1.1.2'
 cookbook 'logrotate', '~> 1.9.2'
 cookbook 'memcached', '~> 1.7.2'
-cookbook 'nginx', '~> 2.7.6'
-#cookbook 'nginx-passenger', '~> 0.5.7'
+cookbook 'chef_nginx', '~> 6.1.1'
 cookbook 'mu-activedirectory', path: "#{cookbookPath}/mu-activedirectory"
 cookbook 'mu-demo', path: "#{cookbookPath}/mu-demo"
 cookbook 'mu-firewall', path: "#{cookbookPath}/mu-firewall"

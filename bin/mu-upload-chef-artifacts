@@ -131,7 +131,7 @@ add_berkshelf_cookbooks()
     rm -f $repodir/Berksfile.lock && $berks install > /dev/null
   else
     # Only update Berksfile.lock if it's out of whack
-    $berks list -F json 2>&1 | grep "lockfile is out of sync" && ( rm -f $repodir/Berksfile.lock && $berks install > /dev/null )
+    $berks list -F json 2>&1 | grep "lockfile is out of sync" && ( rm -f $repodir/Berksfile.lock ~/.berkshelf/cookbooks && $berks install > /dev/null )
   fi
 
   for name in $($berks list -F json | jq -r '.cookbooks | .[] | .name');do
