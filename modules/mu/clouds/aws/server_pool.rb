@@ -495,7 +495,90 @@ module MU
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(pool, configurator)
-          true
+          ok = true
+
+          if !pool["basis"]["launch_config"].nil?
+            launch = pool["basis"]["launch_config"]
+            if !launch['generate_iam_role']
+              if !launch['iam_role'] and pool['cloud'] != "CloudFormation"
+                MU.log "Must set iam_role if generate_iam_role set to false", MU::ERR
+                ok = false
+              end
+              if !launch['iam_policies'].nil? and launch['iam_policies'].size > 0
+                MU.log "Cannot mix iam_policies with generate_iam_role set to false", MU::ERR
+                ok = false
+              end
+            end
+            if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?
+              if MU::Config.amazon_images.has_key?(pool['platform']) and
+                  MU::Config.amazon_images[pool['platform']].has_key?(pool['region'])
+                launch['ami_id'] = getTail("pool"+pool['name']+"AMI", value: MU::Config.amazon_images[pool['platform']][pool['region']], prettyname: "pool"+pool['name']+"AMI", cloudtype: "AWS::EC2::Image::Id")
+  
+              else
+                ok = false
+                MU.log "One of the following MUST be specified for launch_config: server, ami_id, instance_id.", MU::ERR
+              end
+            end
+            if launch["server"] != nil
+              pool["dependencies"] << {"type" => "server", "name" => launch["server"]}
+# XXX I dunno, maybe toss an error if this isn't done already
+#              servers.each { |server|
+#                if server["name"] == launch["server"]
+#                  server["create_ami"] = true
+#                end
+#              }
+            end
+          end
+  
+          if !pool["scaling_policies"].nil?
+            pool["scaling_policies"].each { |policy|
+              if policy['type'] != "PercentChangeInCapacity" and !policy['min_adjustment_magnitude'].nil?
+                MU.log "Cannot specify scaling policy min_adjustment_magnitude if type is not PercentChangeInCapacity", MU::ERR
+                ok = false
+              end
+  
+              if policy["policy_type"] == "SimpleScaling"
+                unless policy["cooldown"] && policy["adjustment"]
+                  MU.log "You must specify 'cooldown' and 'adjustment' when 'policy_type' is set to 'SimpleScaling'", MU::ERR
+                  ok = false
+                end
+              elsif policy["policy_type"] == "StepScaling"
+                if policy["step_adjustments"].nil? || policy["step_adjustments"].empty?
+                  MU.log "You must specify 'step_adjustments' when 'policy_type' is set to 'StepScaling'", MU::ERR
+                  ok = false
+                end
+  
+                policy["step_adjustments"].each{ |step|
+                  if step["adjustment"].nil?
+                    MU.log "You must specify 'adjustment' for 'step_adjustments' when 'policy_type' is set to 'StepScaling'", MU::ERR
+                    ok = false
+                  end
+  
+                  if step["adjustment"] >= 1 && policy["estimated_instance_warmup"].nil?
+                    MU.log "You must specify 'estimated_instance_warmup' when 'policy_type' is set to 'StepScaling' and adding capacity", MU::ERR
+                    ok = false
+                  end
+  
+                  if step["lower_bound"].nil? && step["upper_bound"].nil?
+                    MU.log "You must specify 'lower_bound' and/or upper_bound for 'step_adjustments' when 'policy_type' is set to 'StepScaling'", MU::ERR
+                    ok = false
+                  end
+                }
+              end
+  
+              if policy["alarms"] && !policy["alarms"].empty?
+                policy["alarms"].each { |alarm|
+                  alarm["name"] = "scaling-policy-#{pool["name"]}-#{alarm["name"]}"
+                  alarm['dimensions'] = [] if !alarm['dimensions']
+                  alarm['dimensions'] << { "name" => pool["name"], "cloud_class" => "AutoScalingGroupName" }
+                  alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
+                  alarm['cloud'] = pool['cloud']
+#                  ok = false if !insertKitten(alarm, "alarms")
+                }
+              end
+            }
+          end
+          ok
         end
 
         # Remove all autoscale groups associated with the currently loaded deployment.

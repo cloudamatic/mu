@@ -723,6 +723,30 @@ module MU
         descriptor["add_firewall_rules"] << {"rule_name" => fwname}
       end
 
+      # Does it declare association with any sibling LoadBalancers?
+      if !descriptor["loadbalancers"].nil?
+        descriptor["loadbalancers"].each { |lb|
+          if !lb["concurrent_load_balancer"].nil?
+            descriptor["dependencies"] << {
+              "type" => "loadbalancer",
+              "name" => lb["concurrent_load_balancer"]
+            }
+          end
+        }
+      end
+        
+      # Does it want to know about Storage Pools?
+      if !descriptor["storage_pools"].nil?
+        descriptor["storage_pools"].each { |sp|
+          if sp["name"]
+            descriptor["dependencies"] << {
+              "type" => "storage_pool",
+              "name" => sp["name"]
+            }
+          end
+        }
+      end
+
       # Does it declare association with first-class firewall_rules?
       if !descriptor["add_firewall_rules"].nil?
         descriptor["add_firewall_rules"].each { |acl_include|
@@ -1707,19 +1731,35 @@ module MU
       }
 
       @kittens["server_pools"].each { |pool|
-        if haveLitterMate?(pool['name'], "servers") or haveLitterMate?(pool['name'], "server_pools")
-          MU.log "Can't use name #{pool['name']} more than once in servers/server_pools"
+        if haveLitterMate?(pool["name"], "servers")
+          MU.log "Can't use name #{pool['name']} more than once in pools/pool_pools"
           ok = false
         end
-
-        pool['region'] = config['region'] if pool['region'].nil?
-        pool['cloud'] = MU::Config.defaultCloud if pool['cloud'].nil?
-        pool["project"] ||= MU::Cloud::Google.defaultProject if pool['cloud'] == "Google"
-        pool['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
-        pool["dependencies"] = Array.new if pool["dependencies"].nil?
-        pool["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("ServerPool")
-        pool["#MU_GROOMER"] = MU::Groomer.loadGroomer(pool['groomer'])
         pool['skipinitialupdates'] = true if @skipinitialupdates
+        pool['ingress_rules'] ||= []
+        pool['vault_access'] ||= []
+        pool['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
+        ok = false if !MU::Config.check_vault_refs(pool)
+
+        pool['dependencies'] << adminFirewallRuleset(vpc: pool['vpc'], region: pool['region'], cloud: pool['cloud']) if !pool['scrub_mu_isms']
+
+        if !pool["vpc"].nil?
+          if !pool["vpc"]["subnet_name"].nil? and nat_routes.has_key?(pool["vpc"]["subnet_name"])
+            pool["dependencies"] << {
+                "type" => "pool",
+                "name" => nat_routes[pool["vpc"]["subnet_name"]],
+                "phase" => "groom"
+            }
+          end
+        end
+#        if pool["alarms"] && !pool["alarms"].empty?
+#          pool["alarms"].each { |alarm|
+#            alarm["name"] = "server-#{pool['name']}-#{alarm["name"]}"
+#            alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
+#            alarm['cloud'] = pool['cloud']
+#            ok = false if !insertKitten(alarm, "alarms")
+#          }
+#        end
         if pool["basis"]["server"] != nil
           pool["dependencies"] << {"type" => "server", "name" => pool["basis"]["server"]}
         end
@@ -1727,225 +1767,8 @@ module MU
           ok = false
           MU.log "Server Pools cannot assign specific static IPs.", MU::ERR
         end
-        pool['vault_access'] = [] if pool['vault_access'].nil?
-        pool['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
-        ok = false if !MU::Config.check_vault_refs(pool)
 
-        if pool["alarms"] && !pool["alarms"].empty?
-          pool["alarms"].each { |alarm|
-            alarm["name"] = "server-#{pool['name']}-#{alarm["name"]}"
-            alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
-            # We don't add dimension placeholders here, because the individual
-            # Servers will have to do that themselves.
-#            pool["dependencies"] << { "name" => alarm["name"], "type" => "alarm" }
-            alarm['cloud'] = pool['cloud']
-#            alarms << alarm.dup
-          }
-        end
-
-        if pool["existing_deploys"] && !pool["existing_deploys"].empty?
-          pool["existing_deploys"].each { |ext_deploy|
-            if ext_deploy["cloud_type"].nil?
-              MU.log "You must provide a cloud_type", MU::ERR
-              ok = false
-            end
-            if ext_deploy["cloud_id"]
-              found = MU::MommaCat.findStray(
-                pool['cloud'],
-                ext_deploy["cloud_type"],
-                cloud_id: ext_deploy["cloud_id"],
-                region: pool['region'],
-                dummy_ok: false
-              ).first
-
-              if found.nil?
-                MU.log "Couldn't find existing #{ext_deploy["cloud_type"]} resource #{ext_deploy["cloud_id"]}", MU::ERR
-                ok = false
-              end
-            elsif ext_deploy["mu_name"] && ext_deploy["deploy_id"]
-              found = MU::MommaCat.findStray(
-                pool['cloud'],
-                ext_deploy["cloud_type"],
-                deploy_id: ext_deploy["deploy_id"],
-                mu_name: ext_deploy["mu_name"],
-                region: pool['region'],
-                dummy_ok: false
-              ).first
-
-              if found.nil?
-                MU.log "Couldn't find existing #{ext_deploy["cloud_type"]} resource - #{ext_deploy["mu_name"]} / #{ext_deploy["deploy_id"]}", MU::ERR
-                ok = false
-              end
-            else
-              MU.log "Trying to find existing deploy, but either the cloud_id is not valid or no mu_name and deploy_id where provided", MU::ERR
-              ok = false
-            end
-          }
-        end
-
-        if pool["basis"]["launch_config"] != nil
-          launch = pool["basis"]["launch_config"]
-          if !launch['generate_iam_role']
-            if !launch['iam_role'] and pool['cloud'] != "CloudFormation"
-              MU.log "Must set iam_role if generate_iam_role set to false", MU::ERR
-              ok = false
-            end
-            if !launch['iam_policies'].nil? and launch['iam_policies'].size > 0
-              MU.log "Cannot mix iam_policies with generate_iam_role set to false", MU::ERR
-              ok = false
-            end
-          end
-          if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?
-            if MU::Config.amazon_images.has_key?(pool['platform']) and
-                MU::Config.amazon_images[pool['platform']].has_key?(pool['region'])
-              launch['ami_id'] = getTail("pool"+pool['name']+"AMI", value: MU::Config.amazon_images[pool['platform']][pool['region']], prettyname: "pool"+pool['name']+"AMI", cloudtype: "AWS::EC2::Image::Id")
-
-            else
-              ok = false
-              MU.log "One of the following MUST be specified for launch_config: server, ami_id, instance_id.", MU::ERR
-            end
-          end
-          if launch["server"] != nil
-            pool["dependencies"] << {"type" => "server", "name" => launch["server"]}
-            servers.each { |server|
-              if server["name"] == launch["server"]
-                server["create_ami"] = true
-              end
-            }
-          end
-        end
-        if pool["region"].nil? and pool["zones"].nil? and pool["vpc_zone_identifier"].nil? and pool["vpc"].nil?
-          ok = false
-          MU.log "One of the following MUST be specified for Server Pools: region, zones, vpc_zone_identifier, vpc.", MU::ERR
-        end
-
-        if !pool["scaling_policies"].nil?
-          pool["scaling_policies"].each { |policy|
-            if policy['type'] != "PercentChangeInCapacity" and !policy['min_adjustment_magnitude'].nil?
-              MU.log "Cannot specify scaling policy min_adjustment_magnitude if type is not PercentChangeInCapacity", MU::ERR
-              ok = false
-            end
-
-            if policy["policy_type"] == "SimpleScaling"
-              unless policy["cooldown"] && policy["adjustment"]
-                MU.log "You must specify 'cooldown' and 'adjustment' when 'policy_type' is set to 'SimpleScaling'", MU::ERR
-                ok = false
-              end
-            elsif policy["policy_type"] == "StepScaling"
-              if policy["step_adjustments"].nil? || policy["step_adjustments"].empty?
-                MU.log "You must specify 'step_adjustments' when 'policy_type' is set to 'StepScaling'", MU::ERR
-                ok = false
-              end
-
-              policy["step_adjustments"].each{ |step|
-                if step["adjustment"].nil?
-                  MU.log "You must specify 'adjustment' for 'step_adjustments' when 'policy_type' is set to 'StepScaling'", MU::ERR
-                  ok = false
-                end
-
-                if step["adjustment"] >= 1 && policy["estimated_instance_warmup"].nil?
-                  MU.log "You must specify 'estimated_instance_warmup' when 'policy_type' is set to 'StepScaling' and adding capacity", MU::ERR
-                  ok = false
-                end
-
-                if step["lower_bound"].nil? && step["upper_bound"].nil?
-                  MU.log "You must specify 'lower_bound' and/or upper_bound for 'step_adjustments' when 'policy_type' is set to 'StepScaling'", MU::ERR
-                  ok = false
-                end
-              }
-            end
-
-            if policy["alarms"] && !policy["alarms"].empty?
-              policy["alarms"].each { |alarm|
-                alarm["name"] = "scaling-policy-#{pool["name"]}-#{alarm["name"]}"
-                alarm['dimensions'] = [] if !alarm['dimensions']
-                alarm['dimensions'] << { "name" => pool["name"], "cloud_class" => "AutoScalingGroupName" }
-                alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
-                alarm['cloud'] = pool['cloud']
-                # alarms << alarm.dup
-              }
-            end
-          }
-        end
-# TODO make sure any load balancer we ask for has the same VPC configured
-        if !pool["loadbalancers"].nil?
-          pool["loadbalancers"].each { |lb|
-            if lb["concurrent_load_balancer"] != nil
-              pool["dependencies"] << {
-                  "type" => "loadbalancer",
-                  "name" => lb["concurrent_load_balancer"]
-              }
-            end
-          }
-        end
-        
-        if pool.has_key?("storage_pools")
-          pool["storage_pools"].each { |sp|
-            if sp["name"]
-              pool["dependencies"] << {
-                "type" => "storage_pool",
-                "name" => sp["name"]
-              }
-            end
-          }
-        end
-
-        if !pool["vpc"].nil?
-          pool['vpc']['region'] = pool['region'] if pool['vpc']['region'].nil?
-          pool["vpc"]['cloud'] = pool['cloud']
-          # If we're using a VPC in this deploy, set it as a dependency
-          if !pool["vpc"]["vpc_name"].nil? and
-             haveLitterMate?(vpc["vpc_name"], "vpcs") and
-             pool["vpc"]["deploy_id"].nil? and pool["vpc"]['vpc_id'].nil?
-            pool["dependencies"] << {
-                "type" => "vpc",
-                "name" => pool["vpc"]["vpc_name"]
-            }
-            if !pool["vpc"]["subnet_name"].nil? and nat_routes.has_key?(pool["vpc"]["subnet_name"])
-              pool["dependencies"] << {
-                  "type" => "pool",
-                  "name" => nat_routes[subnet["subnet_name"]],
-                  "phase" => "groom"
-              }
-            end
-            if !processVPCReference(pool["vpc"], "server_pool #{pool['name']}", dflt_region: config['region'], is_sibling: true, sibling_vpcs: vpcs)
-              ok = false
-            end
-          else
-            # If we're using a VPC from somewhere else, make sure the flippin'
-            # thing exists, and also fetch its id now so later search routines
-            # don't have to work so hard.
-            if !processVPCReference(pool["vpc"], "server_pool #{pool['name']}", dflt_region: config['region'])
-              ok = false
-            end
-          end
-        end
-
-        pool["ingress_rules"] = [] if !pool.has_key?("ingress_rules") || pool["ingress_rules"].nil?
-        fwname = "pool"+pool['name']
-        acl = {"name" => fwname, "rules" => pool['ingress_rules'], "region" => pool['region'], "optional_tags" => pool['optional_tags']}
-        acl["tags"] = pool['tags'] if pool['tags'] && !pool['tags'].empty?
-        acl["vpc"] = pool['vpc'].dup if !pool['vpc'].nil?
-        acl["cloud"] = pool["cloud"]
-        ok = false if !insertKitten(acl, "firewall_rules")
-        pool["add_firewall_rules"] = [] if !pool.has_key?("add_firewall_rules") || pool["add_firewall_rules"].nil?
-        pool["add_firewall_rules"] << {"rule_name" => fwname}
-
-        pool["dependencies"].uniq!
-        if !pool["add_firewall_rules"].nil?
-          pool["add_firewall_rules"].each { |acl_include|
-            if haveLitterMate?(acl_include["rule_name"], "firewall_rules")
-              pool["dependencies"] << {
-                  "type" => "firewall_rule",
-                  "name" => acl_include["rule_name"]
-              }
-            elsif acl_include["rule_name"]
-              MU.log "ServerPool #{pool['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
-              ok = false
-            end
-          }
-        end
-        pool['dependencies'] << adminFirewallRuleset(vpc: pool['vpc'], region: pool['region'], cloud: pool['cloud']) if !pool['scrub_mu_isms']
+        ok = false if !insertKitten(pool, "server_pools")
       }
 
       read_replicas = []

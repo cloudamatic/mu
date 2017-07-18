@@ -250,10 +250,10 @@ module MU
             Object.const_get("MU").const_get("Cloud").const_get(name) == type
           cfg_name = cloudclass[:cfg_name]
           type = name
-          return [type.to_sym, cloudclass[:cfg_name], cloudclass[:cfg_plural], Object.const_get("MU").const_get("Cloud").const_get(name)]
+          return [type.to_sym, cloudclass[:cfg_name], cloudclass[:cfg_plural], Object.const_get("MU").const_get("Cloud").const_get(name), cloudclass]
         end
       }
-      [nil, nil, nil, nil]
+      [nil, nil, nil, nil, {}]
     end
 
     # Net::SSH exceptions seem to have their own behavior vis a vis threads,
@@ -289,19 +289,7 @@ module MU
     # @return [Class]: The cloud-specific class implementing this resource
     def self.loadCloudType(cloud, type)
       raise MuError, "cloud argument to MU::Cloud.loadCloudType cannot be nil" if cloud.nil?
-      # If we've been asked to resolve this object, that means we plan to use
-      # it, so go ahead and load it.
-      cfg_name = nil
-      @@resource_types.each_pair { |name, cloudclass|
-        if name == type.to_sym or
-            cloudclass[:cfg_name] == type or
-            cloudclass[:cfg_plural] == type or
-            Object.const_get("MU").const_get("Cloud").const_get(name) == type
-          cfg_name = cloudclass[:cfg_name]
-          type = name
-          break
-        end
-      }
+      shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
       if @cloud_class_cache.has_key?(cloud) and @cloud_class_cache[cloud].has_key?(type)
         if @cloud_class_cache[cloud][type].nil?
           raise MuError, "The '#{type}' resource is not supported in cloud #{cloud} (tried MU::#{cloud}::#{type})", caller
@@ -318,7 +306,7 @@ module MU
       begin
         require "mu/clouds/#{cloud.downcase}/#{cfg_name}"
       rescue LoadError => e
-        raise MuCloudResourceNotImplemented
+        raise MuCloudResourceNotImplemented, "MU::Cloud::#{cloud} does not currently implement #{shortclass}"
       end
       @cloud_class_cache[cloud] = {} if !@cloud_class_cache.has_key?(cloud)
       begin

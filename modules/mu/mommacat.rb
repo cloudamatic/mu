@@ -338,14 +338,8 @@ module MU
       return 0 if @original_config.nil?
       if !types.nil? and types.size > 0
         types.each { |type|
-          MU::Cloud.resource_types.each_pair { |name, cloudclass|
-            if name == type.to_sym or
-                cloudclass[:cfg_name] == type or
-                cloudclass[:cfg_plural] == type or negate
-              realtypes << cloudclass[:cfg_plural]
-              break
-            end
-          }
+          shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
+          realtypes << cfg_plural
         }
       end
 
@@ -424,16 +418,9 @@ module MU
       if !type or !name or !object or !object.mu_name
         raise MuError, "Nil arguments to addKitten are not allowed (got type: #{type}, name: #{name}, and '#{object}' to add)"
       end
-      has_multiples = false
-      MU::Cloud.resource_types.each_pair { |name, cloudclass|
-        if name == type.to_sym or
-            cloudclass[:cfg_name] == type or
-            cloudclass[:cfg_plural] == type
-          type = cloudclass[:cfg_plural]
-          has_multiples = cloudclass[:has_multiples]
-          break
-        end
-      }
+      shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
+      type = cfg_plural
+      has_multiples = attrs[:has_multiples]
 
       @kitten_semaphore.synchronize {
         @kittens[type] = {} if @kittens[type].nil?
@@ -1059,7 +1046,8 @@ module MU
         mu_name = mu_name.to_s if mu_name.class.to_s == "MU::Config::Tail"
         tag_key = tag_key.to_s if tag_key.class.to_s == "MU::Config::Tail"
         tag_value = tag_value.to_s if tag_value.class.to_s == "MU::Config::Tail"
-        resourceclass = MU::Cloud.loadCloudType(cloud, type)
+        shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
+        resourceclass = MU::Cloud.loadCloudType(cloud, shortclass)
         cloudclass = Object.const_get("MU").const_get("Cloud").const_get(cloud)
         if (tag_key and !tag_value) or (!tag_key and tag_value)
           raise MuError, "Can't call findStray with only one of tag_key and tag_value set, must be both or neither"
@@ -1088,7 +1076,7 @@ module MU
         kittens = {}
         # Search our deploys for matching resources
         if (deploy_id or name or mu_name or cloud_id)# and flags.empty?
-          mu_descs = MU::MommaCat.getResourceMetadata(resourceclass.cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name)
+          mu_descs = MU::MommaCat.getResourceMetadata(cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name)
 
           mu_descs.each_pair { |deploy_id, matches|
             next if matches.nil? or matches.size == 0
@@ -1156,7 +1144,7 @@ module MU
             regions = [""]
           end
 
-          if cloud == "Google" and ["vpcs", "firewall_rules"].include?(resourceclass.cfg_plural)
+          if cloud == "Google" and ["vpcs", "firewall_rules"].include?(cfg_plural)
             regions = [nil]
           end
 
@@ -1209,16 +1197,9 @@ module MU
     # @param created_only [Boolean]: Only return the littermate if its cloud_id method returns a value
     # @return [MU::Cloud]
     def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false)
-      has_multiples = false
-      MU::Cloud.resource_types.each_pair { |name, cloudclass|
-        if name == type.to_sym or
-            cloudclass[:cfg_name] == type or
-            cloudclass[:cfg_plural] == type
-          type = cloudclass[:cfg_plural]
-          has_multiples = cloudclass[:has_multiples]
-          break
-        end
-      }
+      shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
+      type = cfg_plural
+      has_multiples = attrs[:has_multiples]
 
       @kitten_semaphore.synchronize {
         if !@kittens.has_key?(type)
@@ -1265,17 +1246,10 @@ module MU
     def notify(type, key, data, mu_name: nil, remove: false, triggering_node: nil)
       MU::MommaCat.lock("deployment-notification")
       loadDeploy(true) # make sure we're saving the latest and greatest
-      has_multiples = false
       have_deploy = true
-      MU::Cloud.resource_types.each_pair { |res_classname, attrs|
-        if res_classname == type.to_sym or
-            attrs[:cfg_name] == type or
-            attrs[:cfg_plural] == type
-          type = attrs[:cfg_plural]
-          has_multiples = attrs[:has_multiples]
-          break
-        end
-      }
+      shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
+      type = cfg_plural
+      has_multiples = attrs[:has_multiples]
 
       if mu_name.nil?
         if !data.nil? and !data["mu_name"].nil?
@@ -2259,14 +2233,8 @@ MESSAGE_END
       if type.nil?
         raise MuError, "Can't call getResourceMetadata without a type argument"
       end
-      MU::Cloud.resource_types.each_pair { |res_classname, attrs|
-        if res_classname == type.to_sym or
-            attrs[:cfg_name] == type or
-            attrs[:cfg_plural] == type
-          type = attrs[:cfg_plural]
-          break
-        end
-      }
+      shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
+      type = cfg_plural
 
       deploy_root = File.expand_path(MU.dataDir+"/deployments")
       MU::MommaCat.deploy_struct_semaphore.synchronize {
