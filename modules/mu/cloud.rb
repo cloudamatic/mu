@@ -22,6 +22,11 @@ module MU
     class BootstrapTempFail < MuNonFatal;
     end
 
+    # An exception we can use with transient Net::SSH errors, which require
+    # special handling due to obnoxious asynchronous interrupt behaviors.
+    class NetSSHFail < MuNonFatal;
+    end
+
     # Exception thrown when a request is made to an unimplemented cloud
     # resource.
     class MuCloudResourceNotImplemented < StandardError;
@@ -249,6 +254,21 @@ module MU
         end
       }
       [nil, nil, nil, nil]
+    end
+
+    # Net::SSH exceptions seem to have their own behavior vis a vis threads,
+    # and our regular call stack gets circumvented when they're thrown. Cheat
+    # here to catch them gracefully.
+    def self.handleNetSSHExceptions
+      Thread.handle_interrupt(Net::SSH::Exception => :never) {
+        begin
+          Thread.handle_interrupt(Net::SSH::Exception => :immediate) {
+            MU.log "(Probably harmless) Caught a Net::SSH Exception in #{Thread.current.inspect}", MU::DEBUG, details: Thread.current.backtrace
+          }
+        ensure
+#          raise NetSSHFail, "Net::SSH had a nutty"
+        end
+      }
     end
 
     # List of known/supported Cloud providers
@@ -848,22 +868,13 @@ module MU
             session = nil
             retries = 0
 
-            # XXX catch a weird bug in Net::SSH where its exceptions circumvent
-            # our regular call stack and we can't catch them.
-            Thread.handle_interrupt(Net::SSH::Disconnect => :never) {
-              begin
-                Thread.handle_interrupt(Net::SSH::Disconnect => :immediate) {
-                  MU.log "(Probably harmless) Caught a Net::SSH::Disconnect in #{Thread.current.inspect}", MU::DEBUG, details: Thread.current.backtrace
-                }
-              ensure
-              end
-            }
             # XXX WHY is this a thing
             Thread.handle_interrupt(Errno::ECONNREFUSED => :never) {
             }
 
             forced_windows_reboot = false
             begin
+              MU::Cloud.handleNetSSHExceptions
               if !nat_ssh_host.nil?
                 proxy_cmd = "ssh -q -o StrictHostKeyChecking=no -W %h:%p #{nat_ssh_user}@#{nat_ssh_host}"
                 MU.log "Attempting SSH to #{canonical_ip} (#{@mu_name}) as #{ssh_user} with key #{@deploy.ssh_key_name} using proxy '#{proxy_cmd}'" if retries == 0
@@ -902,7 +913,7 @@ module MU
               e.remember_host!
               session.close
               retry
-            rescue SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::SSH::ConnectionTimeout => e
+            rescue SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::SSH::ConnectionTimeout, Net::SSH::Proxy::ConnectError, MU::Cloud::NetSSHFail => e
               begin
                 session.close if !session.nil?
               rescue Net::SSH::Disconnect, IOError => e

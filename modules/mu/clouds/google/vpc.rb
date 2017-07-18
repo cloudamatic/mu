@@ -113,12 +113,13 @@ module MU
         # Describe this VPC from the cloud platform's perspective
         # @return [Hash]
         def cloud_desc
+          @config['project'] ||= MU::Cloud::Google.defaultProject
           resp = MU::Cloud::Google.compute.get_network(@config['project'], @mu_name).to_h
           routes = MU::Cloud::Google.compute.list_routes(
             @config['project'],
             filter: "network eq #{@cloud_id}"
           ).items
-          resp[:routes] = routes.map { |r| r.to_h }
+          resp[:routes] = routes.map { |r| r.to_h } if routes
 # XXX subnets too
 
           resp
@@ -179,7 +180,7 @@ module MU
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching VPCs
         def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject
-#          MU.log "CALLED MU::Cloud::Google::VPC.find(#{cloud_id}, #{region}, #{tag_key}, #{tag_value}) from #{caller[0]}", MU::NOTICE, details: flags
+#MU.log "CALLED MU::Cloud::Google::VPC.find(#{cloud_id}, #{region}, #{tag_key}, #{tag_value}) from #{caller[0]}", MU::NOTICE, details: flags
 
           resp = {}
           if cloud_id
@@ -226,6 +227,7 @@ module MU
           network = cloud_desc
           found = []
 
+          resp = nil
           MU::Cloud::Google.listRegions.each { |r|
             resp = MU::Cloud::Google.compute.list_subnetworks(
               @config['project'],
@@ -265,13 +267,13 @@ module MU
             # Of course we might be loading up a dummy subnet object from a foreign
             # or non-Mu-created VPC and subnet. So make something up.
             elsif !resp.nil?
-              resp.data.subnets.each { |desc|
+              resp.items.each { |desc|
                 subnet = {}
                 subnet["ip_block"] = desc.ip_cidr_range
                 subnet["name"] = subnet["ip_block"].gsub(/[\.\/]/, "_")
                 subnet['mu_name'] = @mu_name+"-"+subnet['name']
-                subnet["cloud_id"] = desc.subnet_id
-                subnet['az'] = desc.region.gsub(/.*?\//, "")
+                subnet["cloud_id"] = desc.name
+                subnet['az'] = subnet['region'] = desc.region.gsub(/.*?\//, "")
                 if !ext_ids.include?(desc.name)
                   @subnets << MU::Cloud::Google::VPC::Subnet.new(self, subnet)
                 end
@@ -306,7 +308,6 @@ module MU
           nat_cloud_id = nat_cloud_id.to_s if !nat_cloud_id.nil? and nat_cloud_id.class.to_s == "MU::Config::Tail"
           nat_tag_key = nat_tag_key.to_s if !nat_tag_key.nil? and nat_tag_key.class.to_s == "MU::Config::Tail"
           nat_tag_value = nat_tag_value.to_s if !nat_tag_value.nil? and nat_tag_value.class.to_s == "MU::Config::Tail"
-
           # If we're searching by name, assume it's part of this here deploy.
           if nat_cloud_id.nil? and !@deploy.nil?
             deploy_id = @deploy.deploy_id
@@ -327,9 +328,10 @@ module MU
           return nil if found.nil? || found.empty?
           if found.size > 1
             found.each { |nat|
-              # Try some AWS-specific criteria
+              # Try some cloud-specific criteria
               cloud_desc = nat.cloud_desc
               if !nat_host_ip.nil? and
+# XXX this is AWS code, is wrong here
                   (cloud_desc.private_ip_address == nat_host_ip or cloud_desc.public_ip_address == nat_host_ip)
                 return nat
               elsif cloud_desc.vpc_id == @cloud_id
@@ -573,11 +575,12 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             nat_count = 0
             # You know what, let's just guarantee that we'll have a route from
             # this master, always
+            # XXX this confuses machines that don't have public IPs
             if !vpc['scrub_mu_isms']
-              vpc['route_tables'].first["routes"] << {
-                'gateway' => "#INTERNET",
-                'destination_network' => MU.mu_public_ip+"/32"
-              }
+#              vpc['route_tables'].first["routes"] << {
+#                'gateway' => "#INTERNET",
+#                'destination_network' => MU.mu_public_ip+"/32"
+#              }
             end
             vpc['route_tables'].first["routes"].each { |route|
               # No such thing as a NAT gateway in Google... so make an instance
@@ -589,10 +592,11 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
                 # XXX for master too if applicable
                 nat_cfg["application_attributes"] = {
                   "nat" => {
-                    "private_net" => vpc["ip_block"].to_s
+                    "private_net" => vpc["parent_block"].to_s
                   }
                 }
                 route['nat_host_name'] = nat_cfg['name']
+                route['priority'] = 100
                 vpc["dependencies"] << {
                   "type" => "server",
                   "name" => nat_cfg['name'],
@@ -662,6 +666,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           if !tags.nil? and tags.size > 0
             routename = (routename+"-"+tags.first).slice(0,63)
           end
+          route["priority"] ||= 999
           if route['gateway'] == "#NAT"
             if !route['nat_host_name'].nil? or !route['nat_host_id'].nil?
               nat_instance = findBastion(
@@ -675,6 +680,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
                 name: routename,
                 next_hop_instance: nat_instance.cloud_desc.self_link,
                 dest_range: route['destination_network'],
+                priority: route["priority"],
                 description: @deploy.deploy_id,
                 tags: tags,
                 network: network
@@ -699,6 +705,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
               name: routename,
               next_hop_gateway: "global/gateways/default-internet-gateway",
               dest_range: route['destination_network'],
+              priority: route["priority"],
               description: @deploy.deploy_id,
               tags: tags,
               network: network
@@ -708,6 +715,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
               name: routename,
               dest_range: route['destination_network'],
               network: network,
+              priority: route["priority"],
               description: @deploy.deploy_id,
               tags: tags,
               next_hop_network: network

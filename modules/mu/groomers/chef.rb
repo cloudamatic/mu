@@ -428,15 +428,25 @@ module MU
         kb.config[:json_attribs] = JSON.generate(json_attribs) if json_attribs.size > 1
         kb.config[:run_list] = run_list
         kb.config[:ssh_user] = ssh_user
+        kb.config[:host_key_verify] = false
         kb.config[:forward_agent] = ssh_user
-        kb.name_args = "#{canonical_addr}"
+        kb.name_args = canonical_addr
         kb.config[:chef_node_name] = @server.mu_name
         kb.config[:bootstrap_version] = MU.chefVersion
         # XXX key off of MU verbosity level
         kb.config[:log_level] = :debug
-        kb.config[:identity_file] = "#{Etc.getpwuid(Process.uid).dir}/.ssh/#{ssh_key_name}"
-        # kb.config[:ssh_gateway] = "#{nat_ssh_user}@#{nat_ssh_host}" if !nat_ssh_host.nil? # Breaking bootsrap
-        # This defaults to localhost for some reason sometimes. Brute-force it.
+        kb.config[:ssh_identity_file] = "#{Etc.getpwuid(Process.uid).dir}/.ssh/#{ssh_key_name}"
+
+# XXX knife bootstrap doesn't give us a way to specify a key for the ssh 
+# gateway and a separate key for the actual target host. Our own ~/.ssh/config
+# should in theory be taking care of this for us if we blindly ssh to the 
+# node's mu_name, so there's our workaround. In theory.
+        if !nat_ssh_host.nil?
+          kb.name_args = @server.mu_name
+#          MU.log "Using SSH proxy (#{nat_ssh_user}@#{nat_ssh_host}) with key #{nat_ssh_key}"
+#          kb.config[:ssh_gateway] = "#{nat_ssh_user}@#{nat_ssh_host}" if !nat_ssh_host.nil?
+#          kb.config[:ssh_identity_file] = "#{Etc.getpwuid(Process.uid).dir}/.ssh/#{nat_ssh_key}"
+        end
 
         MU.log "Knife Bootstrap settings for #{@server.mu_name} (#{canonical_addr})", MU::NOTICE, details: kb.config
 
@@ -446,11 +456,12 @@ module MU
         begin
           Timeout::timeout(timeout) {
             require 'chef'
+            MU::Cloud.handleNetSSHExceptions
             kb.run
           }
           # throws Net::HTTPServerException if we haven't really bootstrapped
           ::Chef::Node.load(@server.mu_name)
-        rescue Net::SSH::Disconnect, SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::HTTPServerException, SystemExit, Errno::ECONNREFUSED, Errno::EPIPE => e
+        rescue Net::SSH::Disconnect, SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::HTTPServerException, SystemExit, Errno::ECONNREFUSED, Errno::EPIPE, Net::SSH::Proxy::ConnectError, MU::Cloud::NetSSHFail => e
           if retries < max_retries
             retries += 1
             MU.log "#{@server.mu_name}: Knife Bootstrap failed #{e.inspect}, retrying (#{retries} of #{max_retries})", MU::WARN, details: e.backtrace

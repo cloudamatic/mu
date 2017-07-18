@@ -148,7 +148,7 @@ module MU
 
             base_iface_obj = {
               :network => @vpc.cloud_id,
-              :subnetwork => @config['vpc']['subnet_id'] || @vpc.getSubnet(name: @config['vpc']['subnet_name']).url
+              :subnetwork => @vpc.getSubnet(name: @config['vpc']['subnet_name'], cloud_id: @config['vpc']['subnet_id']).url
             }
             if @config['associate_public_ip']
               base_iface_obj[:access_configs] = [
@@ -256,6 +256,7 @@ module MU
             "static_ip" => { "assign_ip" => true },
             "routes" => [ {
               "gateway" => "#INTERNET",
+              "priority" => 50,
               "destination_network" => "0.0.0.0/0"
             } ]
           }
@@ -318,21 +319,13 @@ module MU
 
           nat_ssh_key = nat_ssh_user = nat_ssh_host = nil
           if !@config["vpc"].nil? and !MU::Cloud::Google::VPC.haveRouteToInstance?(cloud_desc, region: @config['region'])
-            if !@nat.nil?
-              if @nat.is_a?(Struct) && @nat.nat_gateway_id && @nat.nat_gateway_id.start_with?("nat-")
-                raise MuError, "Configured to use NAT Gateway, but I have no route to instance. Either use Bastion, or configure VPC peering"
-              end
 
+            if !@nat.nil?
               if @nat.cloud_desc.nil?
                 MU.log "NAT was missing cloud descriptor when called in #{@mu_name}'s getSSHConfig", MU::ERR
                 return nil
               end
-              # XXX Yanking these things from the cloud descriptor will only work in AWS!
-
-              nat_ssh_key = @nat.cloud_desc.key_name
-							nat_ssh_key = @config["vpc"]["nat_ssh_key"] if !@config["vpc"]["nat_ssh_key"].nil?
-              nat_ssh_host = @nat.cloud_desc.public_ip_address
-              nat_ssh_user = @config["vpc"]["nat_ssh_user"]
+              foo, bar, baz, nat_ssh_host, nat_ssh_user, nat_ssh_key  = @nat.getSSHConfig
               if nat_ssh_user.nil? and !nat_ssh_host.nil?
                 MU.log "#{@config["name"]} (#{MU.deploy_id}) is configured to use #{@config['vpc']} NAT #{nat_ssh_host}, but username isn't specified. Guessing root.", MU::ERR, details: caller
                 nat_ssh_user = "root"
@@ -1119,12 +1112,14 @@ module MU
               end
             end
 
-            server['vpc']['subnet_id'] = subnets.delete_if { |subnet|
-              !subnet.match(/regions\/#{Regexp.quote(server['region'])}\/subnetworks/)
-            }.sample
+            if subnets
+              server['vpc']['subnet_id'] = subnets.delete_if { |subnet|
+                !subnet.match(/regions\/#{Regexp.quote(server['region'])}\/subnetworks/)
+              }.sample
+            end
             if server['vpc']['subnet_id'].nil?
               ok = false
-              MU.log "Failed to identify a subnet in my region (#{config['region']})", MU::ERR, details: server["vpc"]["vpc_id"]
+              MU.log "Failed to identify a subnet in my region (#{server['region']})", MU::ERR, details: server["vpc"]["vpc_id"]
             end
           end
 

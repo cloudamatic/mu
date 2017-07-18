@@ -688,7 +688,7 @@ module MU
               "type" => "vpc",
               "name" => descriptor["vpc"]["vpc_name"]
           }
-MU.log "calling processVPCReference on #{shortclass.to_s} '#{descriptor['name']}'", MU::NOTICE
+
           if !processVPCReference(descriptor['vpc'],
                                   shortclass.to_s+" '#{descriptor['name']}'",
                                   dflt_region: descriptor['region'],
@@ -708,7 +708,7 @@ MU.log "calling processVPCReference on #{shortclass.to_s} '#{descriptor['name']}
           end
         end
       else
-MU.log "in the middle of insertKitten for #{cfg_name} '#{descriptor['name']}'", MU::NOTICE
+
       end
 
       # Does it have generic ingress rules?
@@ -1046,7 +1046,7 @@ MU.log "in the middle of insertKitten for #{cfg_name} '#{descriptor['name']}'", 
         return true
       end
       ok = true
-      if vpc_block['region'].nil? and vpc_block["cloud"] != "Google"
+      if vpc_block['region'].nil?
         vpc_block['region'] = dflt_region.to_s
       end
 
@@ -1057,7 +1057,6 @@ MU.log "in the middle of insertKitten for #{cfg_name} '#{descriptor['name']}'", 
       tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !vpc_block['tag'].nil?
       if !is_sibling
         begin
-
           if vpc_block['cloud'] != "CloudFormation"
             found = MU::MommaCat.findStray(
               vpc_block['cloud'],
@@ -1096,11 +1095,11 @@ MU.log "in the middle of insertKitten for #{cfg_name} '#{descriptor['name']}'", 
           end
 
           ext_nat = ext_vpc.findBastion(
-              nat_name: vpc_block["nat_host_name"],
-              nat_cloud_id: vpc_block["nat_host_id"],
-              nat_tag_key: nat_tag_key,
-              nat_tag_value: nat_tag_value,
-              nat_ip: vpc_block['nat_host_ip']
+            nat_name: vpc_block["nat_host_name"],
+            nat_cloud_id: vpc_block["nat_host_id"],
+            nat_tag_key: nat_tag_key,
+            nat_tag_value: nat_tag_value,
+            nat_ip: vpc_block['nat_host_ip']
           )
           ssh_keydir = Etc.getpwnam(MU.mu_user).dir+"/.ssh"
           if !vpc_block['nat_ssh_key'].nil? and !File.exists?(ssh_keydir+"/"+vpc_block['nat_ssh_key'])
@@ -1197,6 +1196,7 @@ MU.log "in the middle of insertKitten for #{cfg_name} '#{descriptor['name']}'", 
           pub = priv = 0
 
           ext_vpc.subnets.each { |subnet|
+            next if vpc_block["cloud"] == "Google" and !vpc_block["region"].nil? and vpc_block["region"] != subnet.az
             if subnet.private? and (vpc_block['subnet_pref'] != "all_public" and vpc_block['subnet_pref'] != "public")
               private_subnets << { "subnet_id" => getTail("#{parent_name} Private Subnet #{priv}", value: subnet.cloud_id, prettyname: "#{parent_name} Private Subnet #{priv}",  cloudtype:  "AWS::EC2::Subnet::Id"), "az" => subnet.az }
               private_subnets_map[subnet.cloud_id] = subnet
@@ -1286,7 +1286,8 @@ MU.log "in the middle of insertKitten for #{cfg_name} '#{descriptor['name']}'", 
 
       if ok
         vpc_block.delete('deploy_id')
-        vpc_block.delete('nat_host_id') if vpc_block.has_key?('nat_host_id') and !vpc_block['nat_host_id'].nil? and !vpc_block['nat_host_id'].match(/^i-/)
+# XXX this was to cover some weird bad input case, and only works in AWS
+#        vpc_block.delete('nat_host_id') if vpc_block.has_key?('nat_host_id') and !vpc_block['nat_host_id'].nil? and !vpc_block['nat_host_id'].match(/^i-/)
         vpc_block.delete('vpc_name') if vpc_block.has_key?('vpc_id')
         vpc_block.delete('deploy_id')
         vpc_block.delete('tag')
