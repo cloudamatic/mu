@@ -1220,7 +1220,7 @@ module MU
           pub = priv = 0
 
           ext_vpc.subnets.each { |subnet|
-            next if vpc_block["cloud"] == "Google" and !vpc_block["region"].nil? and vpc_block["region"] != subnet.az
+            next if dflt_region and vpc_block["cloud"] == "Google" and subnet.az != dflt_region
             if subnet.private? and (vpc_block['subnet_pref'] != "all_public" and vpc_block['subnet_pref'] != "public")
               private_subnets << { "subnet_id" => getTail("#{parent_name} Private Subnet #{priv}", value: subnet.cloud_id, prettyname: "#{parent_name} Private Subnet #{priv}",  cloudtype:  "AWS::EC2::Subnet::Id"), "az" => subnet.az }
               private_subnets_map[subnet.cloud_id] = subnet
@@ -1230,7 +1230,7 @@ module MU
               public_subnets_map[subnet.cloud_id] = subnet
               pub = pub + 1
             else
-              MU.log "#{subnet} didn't match subnet_pref: '#{vpc_block['subnet_pref']}' (private? returned #{subnet.private?})", MU::DEBUG
+              MU.log "#{subnet} didn't match subnet_pref: '#{vpc_block['subnet_pref']}' (private? returned #{subnet.private?})", MU::WARN
             end
           }
         else

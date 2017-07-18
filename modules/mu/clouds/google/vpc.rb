@@ -651,10 +651,6 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           configurator.insertKitten(private_acl, "firewall_rules", true)
         end
 
-        # List the routes for each subnet in the given VPC
-        def self.listAllSubnetRoutes(vpc_id, region: MU.curRegion)
-        end
-
         # Helper method for manufacturing routes. Expect to be called from
         # {MU::Cloud::Google::VPC#create} or {MU::Cloud::Google::VPC#groom}.
         # @param route [Hash]: A route description, per the Basket of Kittens schema
@@ -883,6 +879,18 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           # Is this subnet privately-routable only, or public?
           # @return [Boolean]
           def private?
+            routes = MU::Cloud::Google.compute.list_routes(
+              @parent.config['project'],
+              filter: "network eq #{@parent.cloud_id}"
+            ).items
+            routes.map { |r|
+              if r.dest_range == "0.0.0.0/0" and !r.next_hop_gateway.nil? and
+                 (r.tags.nil? or r.tags.size == 0) and
+                 r.next_hop_gateway.match(/\/global\/gateways\/default-internet-gateway/)
+                return false
+              end
+            }
+            return true
           end
         end
 
