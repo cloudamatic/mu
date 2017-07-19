@@ -131,7 +131,7 @@ add_berkshelf_cookbooks()
     rm -f $repodir/Berksfile.lock && $berks install > /dev/null
   else
     # Only update Berksfile.lock if it's out of whack
-    $berks list -F json 2>&1 | grep "lockfile is out of sync" && ( rm -f $repodir/Berksfile.lock && $berks install > /dev/null )
+    $berks list -F json 2>&1 | grep "lockfile is out of sync" && ( rm -f $repodir/Berksfile.lock ~/.berkshelf/cookbooks && $berks install > /dev/null )
   fi
 
   for name in $($berks list -F json | jq -r '.cookbooks | .[] | .name');do
@@ -181,6 +181,7 @@ set_repo_path()
   current_repo_path=$orig_source
 
   owner=`/usr/bin/stat -c '%U' "$orig_source" 2>/dev/null`
+
   if [ "$USER" != "$owner" ];then
     artifact_source="$MU_DATADIR/tmp/$reponame.$$"
     echo "${GREEN}Cloning ${BOLD}$orig_source${NORM}${GREEN} into $artifact_source${NORM}"
@@ -280,7 +281,7 @@ fi
 
 if [ "$all" == "1" ];then
   for repo in $ADDTL_CHEF_REPOS $MU_REPO;do
-    reponame="`echo $repo | cut -d/ -f2 | sed -e 's/\.git$//'`"
+    reponame="`echo $repo | sed -e 's/\.git$//' | sed -e 's/.*\///'`"
     REPOS="$REPOS $reponame"
   done
 else
@@ -351,6 +352,7 @@ can_skip_mu_repo=0
 for repo in $REPOS;do
   skip_cookbooks=0
   repo_name="`echo $repo | cut -d: -f1`"
+
   if [ "$repo_name" == "$mu_repo_name" -a "$can_skip_mu_repo" == "1" ];then
     echo "${YELLOW}Skipping ${BOLD}$repo_name${NORM}${YELLOW} cookbooks, which have already been uploaded by another Berksfile${NORM}"
     chef_artifacts="`echo $chef_artifacts | sed -e 's/site_cookbooks//'`"
