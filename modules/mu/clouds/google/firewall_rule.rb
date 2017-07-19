@@ -38,9 +38,9 @@ module MU
             @mu_name = mu_name.downcase
           else
             if !@vpc.nil?
-              @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true).downcase
+              @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true).downcase.gsub(/[^a-z0-9\-]/i, "-")
             else
-              @mu_name = @deploy.getResourceName(@config['name']).downcase
+              @mu_name = @deploy.getResourceName(@config['name']).downcase.gsub(/[^a-z0-9\-]/i, "-")
             end
           end
 

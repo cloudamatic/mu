@@ -70,9 +70,9 @@ module MU
             @mu_windows_name = @deploydata['mu_windows_name'] if @mu_windows_name.nil? and @deploydata
           else
             if kitten_cfg.has_key?("basis")
-              @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true).downcase
+              @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
             else
-              @mu_name = @deploy.getResourceName(@config['name']).downcase
+              @mu_name = @deploy.getResourceName(@config['name'])
             end
             @config['mu_name'] = @mu_name
 
@@ -83,81 +83,119 @@ module MU
 
         end
 
+        # Retrieve the cloud descriptor for this machine image, which can be
+        # a whole or partial URL. Will follow deprecation notices and retrieve
+        # the latest version, if applicable.
+        # @param image_id [String]: URL to a Google disk image
+        # @return [Google::Apis::ComputeBeta::Image]
+        def self.fetchImage(image_id)
+          img_proj = img_name = nil
+          begin
+            img_proj = image_id.gsub(/.*?\/?projects\/([^\/]+)\/.*/, '\1')
+            img_name = image_id.gsub(/.*?([^\/]+)$/, '\1')
+            img = MU::Cloud::Google.compute.get_image(img_proj, img_name)
+            if !img.deprecated.nil? and !img.deprecated.replacement.nil?
+              image_id = img.deprecated.replacement
+            end
+          end while !img.deprecated.nil? and img.deprecated.state == "DEPRECATED" and !img.deprecated.replacement.nil?
+          MU::Cloud::Google.compute.get_image(img_proj, img_name)
+        end
+
+        def self.diskConfig(config, create = true, disk_as_url = true)
+          disks = []
+          img = fetchImage(config['image_id'] || config['basis']['launch_config']['image_id'])
+
+# XXX slurp settings from /dev/sda or w/e by convention?
+          disktype = "projects/#{config['project']}/zones/#{config['availability_zone']}/diskTypes/pd-standard"
+          disktype = "pd-standard" if !disk_as_url
+# disk_type: projects/project/zones/#{config['availability_zone']}/diskTypes/pd-standard Other values include pd-ssd and local-ssd
+          imageobj = MU::Cloud::Google.compute(:AttachedDiskInitializeParams).new(
+            source_image: img.self_link,
+            disk_size_gb: 10, # this is binary? 2gb, that says
+            disk_type: disktype,
+          )
+          disks << MU::Cloud::Google.compute(:AttachedDisk).new(
+            auto_delete: true,
+            boot: true,
+            mode: "READ_WRITE",
+            type: "PERSISTENT",
+            initialize_params: imageobj
+          )
+          if config["storage"]
+            config["storage"].each { |vol|
+              devicename = vol['device'].gsub(/[^\w\-\.]/, "-").sub(/^[^\w]/, "")
+              disk_desc = {
+                :auto_delete => true,
+                :device_name => devicename, # XXX empty string is also legit
+                :mode => "READ_WRITE",
+                :type => "PERSISTENT" # SCRATCH is equivalent of ephemeral? cheap virtual memory disk? maybe ship a standard set
+              }
+
+              if vol['snapshot_id']
+# XXX check existence in in validateConfig
+              elsif vol['somekindofidforaloosevolume']
+                disk_desc[:source] = vol['somekindofidforaloosevolume']
+# XXX check existence in in validateConfig
+              else
+# XXX I don't know how to do this in managed instance groups
+next
+next if !create
+                newdiskobj = MU::Cloud::Google.compute(:Disk).new(
+                  size_gb: vol['size'],
+                  description: @deploy.deploy_id,
+                  zone: config['availability_zone'],
+#                    type: "projects/#{config['project']}/zones/#{config['availability_zone']}/diskTypes/pd-ssd",
+                  type: "projects/#{config['project']}/zones/#{config['availability_zone']}/diskTypes/pd-standard",
+# type: projects/project/zones/#{config['availability_zone']}/diskTypes/pd-standard Other values include pd-ssd and local-ssd
+                  name: @mu_name+"-"+devicename
+                )
+                MU.log "Creating disk #{@mu_name}-#{devicename}"
+
+                newdisk = MU::Cloud::Google.compute.insert_disk(
+                  config['project'],
+                  config['availability_zone'],
+                  newdiskobj
+                )
+# XXX Do we have to wait for this? Thread this loop if so
+# newdisk.progress means things
+
+                disk_desc[:source] = newdisk.self_link
+              end
+
+              disks << MU::Cloud::Google.compute(:AttachedDisk).new(disk_desc)
+            }
+          end
+          disks
+        end
+
+        def self.interfaceConfig(config, vpc)
+          subnet_cfg = config['vpc']
+          if config['vpc']['subnets'] and
+             !subnet_cfg['subnet_name'] and !subnet_cfg['subnet_id']
+            subnet_cfg = config['vpc']['subnets'].sample
+          end
+          subnet = vpc.getSubnet(name: subnet_cfg['subnet_name'], cloud_id: subnet_cfg['subnet_id'])
+          base_iface_obj = {
+            :network => vpc.cloud_id,
+            :subnetwork => subnet.url
+          }
+          if config['associate_public_ip']
+            base_iface_obj[:access_configs] = [
+              MU::Cloud::Google.compute(:AccessConfig).new
+            ]
+          end
+          interfaces = [base_iface_obj]
+          # XXX add more if they asked for it (e.g. config['private_ip'])
+
+          interfaces
+        end
+
         # Called automatically by {MU::Deploy#createResources}
         def create
 
           begin
-            disks = []
-
-# XXX slurp settings from /dev/sda or w/e by convention
-            imageobj = MU::Cloud::Google.compute(:AttachedDiskInitializeParams).new(
-              source_image: @config['image_id'],
-              disk_size_gb: 10, # this is binary? 2gb, that says
-              disk_type: "projects/#{@config['project']}/zones/#{@config['availability_zone']}/diskTypes/pd-standard"
-# disk_type: projects/project/zones/#{@config['availability_zone']}/diskTypes/pd-standard Other values include pd-ssd and local-ssd
-            )
-            disks << MU::Cloud::Google.compute(:AttachedDisk).new(
-              auto_delete: true,
-              boot: true,
-              mode: "READ_WRITE",
-              type: "PERSISTENT",
-              initialize_params: imageobj
-            )
-            if @config["storage"]
-              @config["storage"].each { |vol|
-                devicename = vol['device'].gsub(/[^\w\-\.]/, "-").sub(/^[^\w]/, "")
-                disk_desc = {
-                  :auto_delete => true,
-                  :device_name => devicename, # XXX empty string is also legit
-                  :mode => "READ_WRITE",
-                  :type => "PERSISTENT" # SCRATCH is equivalent of ephemeral? cheap virtual memory disk? maybe ship a standard set
-                }
-
-                if vol['snapshot_id']
-# XXX check existence in in validateConfig
-                elsif vol['somekindofidforaloosevolume']
-                  disk_desc[:source] = vol['somekindofidforaloosevolume']
-# XXX check existence in in validateConfig
-                else
-                  newdiskobj = MU::Cloud::Google.compute(:Disk).new(
-                    size_gb: vol['size'],
-                    description: @deploy.deploy_id,
-                    zone: @config['availability_zone'],
-#                    type: "projects/#{@config['project']}/zones/#{@config['availability_zone']}/diskTypes/pd-ssd",
-                    type: "projects/#{@config['project']}/zones/#{@config['availability_zone']}/diskTypes/pd-standard",
-# type: projects/project/zones/#{@config['availability_zone']}/diskTypes/pd-standard Other values include pd-ssd and local-ssd
-                    name: @mu_name+"-"+devicename
-                  )
-                  MU.log "Creating disk #{@mu_name}-#{devicename}"
-
-                  newdisk = MU::Cloud::Google.compute.insert_disk(
-                    @config['project'],
-                    @config['availability_zone'],
-                    newdiskobj
-                  )
-# XXX Do we have to wait for this? Thread this loop if so
-# newdisk.progress means things
-
-                  disk_desc[:source] = newdisk.self_link
-                end
-
-                disks << MU::Cloud::Google.compute(:AttachedDisk).new(disk_desc)
-              }
-            end
-
-
-            base_iface_obj = {
-              :network => @vpc.cloud_id,
-              :subnetwork => @vpc.getSubnet(name: @config['vpc']['subnet_name'], cloud_id: @config['vpc']['subnet_id']).url
-            }
-            if @config['associate_public_ip']
-              base_iface_obj[:access_configs] = [
-                MU::Cloud::Google.compute(:AccessConfig).new
-              ]
-            end
-            interfaces = [base_iface_obj]
-
-            # XXX add more if they asked for it (private_ip)
+            disks = MU::Cloud::Google::Server.diskConfig(@config)
+            interfaces = MU::Cloud::Google::Server.interfaceConfig(@config, @vpc)
 
             if @config['routes']
               @config['routes'].each { |route|
@@ -166,7 +204,7 @@ module MU
             end
 
             desc = {
-              :name => @mu_name,
+              :name => MU::Cloud::Google.nameStr(@mu_name),
               :can_ip_forward => !@config['src_dst_check'],
               :description => @deploy.deploy_id,
               :network_interfaces => interfaces,
@@ -177,7 +215,7 @@ module MU
                   :value => @config['ssh_user']+":"+@deploy.ssh_public_key
                 ]
               },
-              :tags => MU::Cloud::Google.compute(:Tags).new(items: [@mu_name])
+              :tags => MU::Cloud::Google.compute(:Tags).new(items: [MU::Cloud::Google.nameStr(@mu_name)])
             }
             desc[:disks] = disks if disks.size > 0
 
@@ -195,12 +233,12 @@ module MU
             instanceobj = MU::Cloud::Google.compute(:Instance).new(desc)
 
             MU.log "Creating instance #{@mu_name}"
-            insert = MU::Cloud::Google.compute.insert_instance(
+            instance = MU::Cloud::Google.compute.insert_instance(
               @config['project'],
               @config['availability_zone'],
               instanceobj
             )
-            @cloud_id = @mu_name # XXX or instance.target_link... pick a convention, would you?
+            @cloud_id = instance.name # XXX or instance.target_link... pick a convention, would you?
 
             if !@config['async_groom']
               sleep 5
@@ -218,7 +256,7 @@ module MU
             @config.delete("instance_secret")
 
             if cloud_desc.nil? or cloud_desc.status != "RUNNING"
-              raise MuError, "#{@cloud_id} appears to have gone sideways mid-bootstrap #{cloud_desc.status if cloud_desc.nil?}"
+              raiseert MuError, "#{@cloud_id} appears to have gone sideways mid-bootstrap #{cloud_desc.status if cloud_desc.nil?}"
             end
 
             notify
@@ -1132,12 +1170,18 @@ module MU
             end
           end
 
-          img_proj = server['image_id'].to_s.gsub(/projects\/(.*?)\/.*/, '\1')
-          img_name = server['image_id'].to_s.gsub(/.*?\/([^\/]+)$/, '\1')
-          images = MU::Cloud::Google.compute.list_images(img_proj, filter: "name eq #{img_name}")
-          if images.nil? or images.items.nil? or images.items.size == 0
+          real_image = nil
+          begin
+            real_image = MU::Cloud::Google::Server.fetchImage(server['image_id'].to_s)
+          rescue ::Google::Apis::ClientError => e
+            MU.log e.inspect, MU::WARN
+          end
+
+          if real_image.nil?
             MU.log "Image #{server['image_id']} for server #{server['name']} does not appear to exist", MU::ERR
             ok = false
+          else
+            server['image_id'] = real_image.self_link
           end
 
           ok

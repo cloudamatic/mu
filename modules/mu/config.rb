@@ -4189,6 +4189,7 @@ module MU
                 "description" => "Chef run list entry, e.g. role[rolename] or recipe[recipename]."
             }
         },
+# XXX this is only meaningful in Google
         "routes" => {
             "type" => "array",
             "items" => @route_primitive
@@ -5061,6 +5062,26 @@ module MU
                 "description" => "A comma-separated list of subnet identifiers of Amazon Virtual Private Clouds (Amazon VPCs).
 
           If you specify subnets and Availability Zones with this call, ensure that the subnets' Availability Zones match the Availability Zones specified."
+            },
+# XXX this is only meaningful in Google
+# can be thought of as the instance-side listener declaration in AWS load
+# balancer target groups
+            "named_ports" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "required" => ["name", "port"],
+                "additionalProperties" => false,
+                "description" => "A named network port for a Google instance group, used for health checks and forwarding targets.",
+                "properties" => {
+                  "name" => {
+                    "type" => "string"
+                  },
+                  "port" => {
+                    "type" => "integer"
+                  }
+                }
+              }
             },
             "scaling_policies" => {
                 "type" => "array",

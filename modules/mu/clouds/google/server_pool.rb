@@ -41,17 +41,80 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-#          port_obj = MU::Cloud::Google.compute(:NamedPort).new(
-#          )
+          port_objs = []
 
-          group_obj = MU::Cloud::Google.compute(:InstanceGroup).new(
-            name: @mu_name,
+          @config['named_ports'].each { |port_cfg|
+            port_objs << MU::Cloud::Google.compute(:NamedPort).new(
+              name: port_cfg['name'],
+              port: port_cfg['port']
+            )
+          }
+
+#          subnet = @vpc.getSubnet(cloud_id: @config['vpc']['subnets'].first["subnet_id"].to_s)
+
+          labels = {}
+          MU::MommaCat.listStandardTags.each_pair { |name, value|
+            if !value.nil?
+              labels[name.downcase] = value.downcase.gsub(/[^a-z0-9\-\_]/i, "_")
+            end
+          }
+          labels["name"] = MU::Cloud::Google.nameStr(@mu_name)
+pp @config['basis']['launch_config']
+          size = nil
+          if !@config['basis']['launch_config'].nil?
+            size = @config['basis']['launch_config']['size']
+            @config['image_id'] = @config['basis']['launch_config']['image_id']
+          end
+          az = @config['availability_zone']
+          if az.nil?
+            az = MU::Cloud::Google.listAZs(@config['region']).sample
+          end
+
+          instance_props = MU::Cloud::Google.compute(:InstanceProperties).new(
+            can_ip_forward: !@config['src_dst_check'],
             description: @deploy.deploy_id,
-            named_ports: [],
-            region: @config['region'],
-            network: @vpc.cloud_desc.self_link#,
-#            subnetwork: @vpc.cloud_desc.self_link, #XXX
+#            machine_type: "zones/"+az+"/machineTypes/"+size,
+            machine_type: size,
+            labels: labels,
+            disks: MU::Cloud::Google::Server.diskConfig(@config, false, false),
+            network_interfaces: MU::Cloud::Google::Server.interfaceConfig(@config, @vpc),
+            metadata: {
+              :items => [
+                :key => "ssh-keys",
+                :value => @config['ssh_user']+":"+@deploy.ssh_public_key
+              ]
+            },
+            tags: MU::Cloud::Google.compute(:Tags).new(items: [MU::Cloud::Google.nameStr(@mu_name)])
           )
+
+          template_obj = MU::Cloud::Google.compute(:InstanceTemplate).new(
+            name: MU::Cloud::Google.nameStr(@mu_name),
+            description: @deploy.deploy_id,
+            properties: instance_props
+          )
+
+          MU.log "Creating instance template #{@mu_name}", details: template_obj
+          template = MU::Cloud::Google.compute.insert_instance_template(
+            @config['project'],
+            template_obj
+          )
+
+          mgr_obj = MU::Cloud::Google.compute(:InstanceGroupManager).new(
+            name: MU::Cloud::Google.nameStr(@mu_name),
+            description: @deploy.deploy_id,
+            target_size: @config['min_size'],
+            base_instance_name: MU::Cloud::Google.nameStr(@mu_name),
+            instance_template: template.self_link,
+            named_ports: port_objs
+          )
+
+          MU.log "Creating region instance group manager #{@mu_name}", details: mgr_obj
+          MU::Cloud::Google.compute.insert_region_instance_group_manager(
+            @config['project'],
+            @config['region'],
+            mgr_obj
+          )
+
 #          scaler_obj = MU::Cloud::Google.compute(:Autoscaler).new(
 #            name: @mu_name
 #            description: @deploy.deploy_id
@@ -84,6 +147,37 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(pool, configurator)
           ok = true
+          pool['named_ports'] ||= []
+          if !pool['named_ports'].include?({"name" => "ssh", "port" => 22})
+            pool['named_ports'] << {"name" => "ssh", "port" => 22}
+          end
+          
+          if pool['basis']['launch_config']
+
+            if pool['basis']['launch_config']['image_id'].nil?
+              if MU::Config.google_images.has_key?(pool['platform'])
+                pool['basis']['launch_config']['image_id'] = configurator.getTail("server_pool"+pool['name']+"Image", value: MU::Config.google_images[pool['platform']], prettyname: "server_pool"+pool['name']+"Image", cloudtype: "Google::Apis::ComputeBeta::Image")
+              else
+                MU.log "No image specified for #{pool['name']} and no default available for platform #{pool['platform']}", MU::ERR, details: pool['basis']['launch_config']
+                ok = false
+              end
+            end
+
+            real_image = nil
+            begin
+              real_image = MU::Cloud::Google::Server.fetchImage(pool['basis']['launch_config']['image_id'].to_s)
+            rescue ::Google::Apis::ClientError => e
+              MU.log e.inspect, MU::WARN
+            end
+
+            if real_image.nil?
+              MU.log "Image #{pool['basis']['launch_config']['image_id']} for server_pool #{pool['name']} does not appear to exist", MU::ERR
+              ok = false
+            else
+              pool['basis']['launch_config']['image_id'] = real_image.self_link
+            end
+          end
+
           ok
         end
 
