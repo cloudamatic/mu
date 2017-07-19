@@ -129,6 +129,12 @@ module MU
           @@regions.keys
         end
       end
+
+      # Google has fairly strict naming conventions (all lowercase, no
+      # underscores, etc). Provide a wrapper to our standard names to handle it.
+      def self.nameStr(name)
+        name.downcase.gsub(/[^a-z0-9\-]/, "-")
+      end
   
       # List the Availability Zones associated with a given Google Cloud
       # region. If no region is given, search the one in which this MU master

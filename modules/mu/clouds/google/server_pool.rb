@@ -59,7 +59,7 @@ module MU
             end
           }
           labels["name"] = MU::Cloud::Google.nameStr(@mu_name)
-pp @config['basis']['launch_config']
+
           size = nil
           if !@config['basis']['launch_config'].nil?
             size = @config['basis']['launch_config']['size']
@@ -99,6 +99,7 @@ pp @config['basis']['launch_config']
             template_obj
           )
 
+# TODO support failover_action
           mgr_obj = MU::Cloud::Google.compute(:InstanceGroupManager).new(
             name: MU::Cloud::Google.nameStr(@mu_name),
             description: @deploy.deploy_id,
@@ -115,11 +116,14 @@ pp @config['basis']['launch_config']
             mgr_obj
           )
 
+# TODO and this thing is what does scaling policies
 #          scaler_obj = MU::Cloud::Google.compute(:Autoscaler).new(
 #            name: @mu_name
 #            description: @deploy.deploy_id
 #            target: instancegroup
 #          )
+
+# TODO honor wait_for_instances
         end
 
         # This is a NOOP right now, because we're really an empty generator for
@@ -187,6 +191,59 @@ pp @config['basis']['launch_config']
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
+          flags["project"] ||= MU::Cloud::Google.defaultProject
+          resp = MU::Cloud::Google.compute.list_region_instance_group_managers(
+            flags["project"],
+            region,
+            filter: "description eq #{MU.deploy_id}"
+          )
+          if !resp.nil? and !resp.items.nil?
+            resp.items.each { |mgr|
+              MU.log "Removing instance group manager #{mgr.name}"
+              MU::Cloud::Google.compute.delete_region_instance_group_manager(
+                flags["project"],
+                region,
+                mgr.name
+              ) if !noop
+            }
+          end
+
+          # This doesn't appear to be necessary
+#          resp = MU::Cloud::Google.compute.list_region_instance_groups(
+#            flags["project"],
+#            region,
+#            filter: "description eq #{MU.deploy_id}"
+#          )
+#          if !resp.nil? and !resp.items.nil?
+#            resp.items.each { |group|
+#              MU.log "Removing instance group #{group.name}", MU::NOTICE, details: group
+#              MU::Cloud::Google.compute.delete_instance_group(
+#                flags["project"],
+#                region,
+#                group.name
+#              ) if !noop
+#            }
+#          end
+
+          resp = MU::Cloud::Google.compute.list_instance_templates(
+            flags["project"],
+            filter: "description eq #{MU.deploy_id}"
+          )
+          if !resp.nil? and !resp.items.nil?
+            resp.items.each { |template|
+              begin
+              MU::Cloud::Google.compute.delete_instance_template(
+                flags["project"],
+                template.name
+              ) if !noop
+              rescue ::Google::Apis::ClientError => e
+                # These are cross-regional resources, ignore if we're
+                # unwittingly trying to double-delete something.
+                next if e.message.match(/resourceNotReady:/)
+              end
+            }
+          end
+
         end
       end
     end
