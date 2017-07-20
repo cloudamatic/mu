@@ -99,29 +99,54 @@ module MU
             template_obj
           )
 
-# TODO support failover_action
+# XXX AWS-style @config['health_check_type'] doesn't make a lick of sense here
+          healing_obj = MU::Cloud::Google.compute(:InstanceGroupManager).new(
+            initial_delay_sec: @config['health_check_grace_period']
+# TODO here's where health_checks go
+          )
+
           mgr_obj = MU::Cloud::Google.compute(:InstanceGroupManager).new(
             name: MU::Cloud::Google.nameStr(@mu_name),
             description: @deploy.deploy_id,
-            target_size: @config['min_size'],
+            target_size: @config['desired_capacity'] || @config['min_size'],
             base_instance_name: MU::Cloud::Google.nameStr(@mu_name),
             instance_template: template.self_link,
-            named_ports: port_objs
+            named_ports: port_objs,
+            auto_healing_policies: [healing_obj]
           )
 
           MU.log "Creating region instance group manager #{@mu_name}", details: mgr_obj
-          MU::Cloud::Google.compute.insert_region_instance_group_manager(
+          mgr = MU::Cloud::Google.compute.insert_region_instance_group_manager(
             @config['project'],
             @config['region'],
             mgr_obj
           )
 
-# TODO and this thing is what does scaling policies
-#          scaler_obj = MU::Cloud::Google.compute(:Autoscaler).new(
-#            name: @mu_name
-#            description: @deploy.deploy_id
-#            target: instancegroup
-#          )
+# TODO this thing supports based on CPU usage, LB usage, or an arbitrary Cloud
+# Monitoring metric. The default is "sustained 60%+ CPU usage". We should
+# support all that.
+# http://www.rubydoc.info/github/google/google-api-ruby-client/Google/Apis/ComputeBeta/AutoscalingPolicyCpuUtilization
+# http://www.rubydoc.info/github/google/google-api-ruby-client/Google/Apis/ComputeBeta/AutoscalingPolicyLoadBalancingUtilization
+# http://www.rubydoc.info/github/google/google-api-ruby-client/Google/Apis/ComputeBeta/AutoscalingPolicyCustomMetricUtilization
+          policy_obj = MU::Cloud::Google.compute(:AutoscalingPolicy).new(
+            cooldown_period_sec: @config['default_cooldown'],
+            max_num_replicas: @config['max_size'],
+            min_num_replicas: @config['min_size']
+          )
+
+          scaler_obj = MU::Cloud::Google.compute(:Autoscaler).new(
+            name: MU::Cloud::Google.nameStr(@mu_name),
+            description: @deploy.deploy_id,
+            target: mgr.self_link,
+            autoscaling_policy: policy_obj
+          )
+
+          MU.log "Creating autoscaler policy #{@mu_name}", details: scaler_obj
+          pp MU::Cloud::Google.compute.insert_region_autoscaler(
+            @config['project'],
+            @config['region'],
+            scaler_obj
+          )
 
 # TODO honor wait_for_instances
         end
@@ -225,6 +250,9 @@ module MU
 #            }
 #          end
 
+# XXX some kind of lag with this guy, probably waiting for a dependency to
+# finish dying (individual instances?); block until this can die a dignified
+# death
           resp = MU::Cloud::Google.compute.list_instance_templates(
             flags["project"],
             filter: "description eq #{MU.deploy_id}"
@@ -232,10 +260,10 @@ module MU
           if !resp.nil? and !resp.items.nil?
             resp.items.each { |template|
               begin
-              MU::Cloud::Google.compute.delete_instance_template(
-                flags["project"],
-                template.name
-              ) if !noop
+                MU::Cloud::Google.compute.delete_instance_template(
+                  flags["project"],
+                  template.name
+                ) if !noop
               rescue ::Google::Apis::ClientError => e
                 # These are cross-regional resources, ignore if we're
                 # unwittingly trying to double-delete something.

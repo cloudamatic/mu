@@ -103,13 +103,13 @@ module MU
               # CloudFormation sometimes fails internally.
               MU::Cloud::Collection.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["Collection"]) > 0
               MU::Cloud::ServerPool.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["ServerPool"]) > 0
-              MU::Cloud::LoadBalancer.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["LoadBalancer"]) > 0
               MU::Cloud::Server.cleanup(skipsnapshots: @skipsnapshots, onlycloud: @onlycloud, noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["Server"]) > 0
               MU::Cloud::Database.cleanup(skipsnapshots: @skipsnapshots, noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["Database"]) > 0
               MU::Cloud::CacheCluster.cleanup(skipsnapshots: @skipsnapshots, noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["CacheCluster"]) > 0
               MU::Cloud::StoragePool.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["StoragePool"]) > 0
               if provider == "AWS"
                 MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["FirewallRule", "Server", "ServerPool", "Database", "StoragePool"]) > 0
+                MU::Cloud::LoadBalancer.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["LoadBalancer"]) > 0
               end
               MU::Cloud::Alarm.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["Alarm"]) > 0 # XXX other resources can make these appear, I think- which ones?
               MU::Cloud::Notification.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["Notification"]) > 0 # XXX other resources can make these appear, I think- which ones?
@@ -133,6 +133,7 @@ module MU
           # knock over region-agnostic resources
           if provider == "Google"
             MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["FirewallRule"]) > 0
+            MU::Cloud::LoadBalancer.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["LoadBalancer"]) > 0
             MU::Cloud::VPC.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["VPC"]) > 0
           elsif provider == "AWS"
             # Route53 deletia would go here, but we probably don't want to do

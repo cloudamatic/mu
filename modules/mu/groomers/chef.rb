@@ -835,6 +835,7 @@ module MU
 
         # Any and all 'secrets' parameters should also be stuffed into our vault.
         saveSecret(item: "secrets", data: @config['secrets'], permissions: nil) if !@config['secrets'].nil?
+        certdata
       end
 
       # Add a role or recipe to a node. Optionally, throw a fit if it doesn't

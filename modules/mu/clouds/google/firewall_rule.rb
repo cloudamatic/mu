@@ -38,9 +38,9 @@ module MU
             @mu_name = mu_name.downcase
           else
             if !@vpc.nil?
-              @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true).downcase.gsub(/[^a-z0-9\-]/i, "-")
+              @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
             else
-              @mu_name = @deploy.getResourceName(@config['name']).downcase.gsub(/[^a-z0-9\-]/i, "-")
+              @mu_name = @deploy.getResourceName(@config['name'])
             end
           end
 
@@ -55,7 +55,9 @@ module MU
         def create
           vpc_id = @vpc.cloud_id if !@vpc.nil?
           allrules = {}
-
+# XXX source_ranges
+# XXX source_tags
+# XXX target_tags
           # The set of rules might actually compose into multiple firewall
           # objects, so figure that out.
           @config['rules'].each { |rule|
@@ -76,7 +78,7 @@ module MU
             end
             ["ingress", "egress"].each { |dir|
               if rule[dir] or (dir == "ingress" and !rule.has_key?("egress"))
-                setname = @mu_name+"-"+dir+"-"+(rule['deny'] ? "deny" : "allow")
+                setname = MU::Cloud::Google.nameStr(@mu_name+"-"+dir+"-"+(rule['deny'] ? "deny" : "allow"))
                 allrules[setname] ||= {
                   :name => setname,
                   :description => @deploy.deploy_id,

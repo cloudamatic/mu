@@ -763,9 +763,9 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           if resp and resp.items
             parent_thread_id = Thread.current.object_id
             threads = []
-            MU.dupGlobals(parent_thread_id)
             resp.items.each { |route|
               threads << Thread.new {
+                MU.dupGlobals(parent_thread_id)
                 MU.log "Removing route #{route.name}"
                 MU::Cloud::Google.compute.delete_route(project, route.name)
               }
