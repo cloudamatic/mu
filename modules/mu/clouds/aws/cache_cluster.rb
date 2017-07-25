@@ -492,8 +492,6 @@ module MU
             end
 
             deploy_struct = {
-              "configuration_endpoint_address" => cluster.configuration_endpoint.address,
-              "configuration_endpoint_port" => cluster.configuration_endpoint.port,
               "cache_node_type" => cluster.cache_node_type,
               "engine" => cluster.engine,
               "engine_version" => cluster.engine_version,
@@ -510,6 +508,10 @@ module MU
               "snapshot_retention_limit" => cluster.snapshot_retention_limit,
               "snapshot_window" => cluster.snapshot_window              
             }
+            if !cluster.configuration_endpoint.nil?
+              deploy_struct["configuration_endpoint_address"] = cluster.configuration_endpoint.address
+              deploy_struct["configuration_endpoint_port"] = cluster.configuration_endpoint.port
+            end
           end
 
           return deploy_struct
