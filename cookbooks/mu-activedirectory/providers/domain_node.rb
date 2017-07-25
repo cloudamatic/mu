@@ -193,7 +193,8 @@ def set_selinux_policies
 end
 
 def config_ssh_ntp_dns
-  template "/etc/ntp.conf" do
+  template "mu-activedirectory /etc/ntp.conf" do
+    path "/etc/ntp.conf"
     source "ntp.conf.erb"
     owner "root"
     group "root"
@@ -203,7 +204,8 @@ def config_ssh_ntp_dns
     )
   end
 
-  template "/etc/ssh/sshd_config" do
+  template "mu-activedirectory /etc/ssh/sshd_config" do
+    path "/etc/ssh/sshd_config"
     source "sshd_config.erb"
     owner "root"
     group "root"

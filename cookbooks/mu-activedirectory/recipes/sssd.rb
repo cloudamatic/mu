@@ -20,9 +20,13 @@ case node.platform_family
   when "rhel"
 
     %w{sshd winbind smb messagebus}.each { |svc|
-      service svc do
-        action :enable
-        only_if { ::File.exists?("/etc/init.d/#{svc}") }
+      begin
+        resources('service['+svc+']')
+      rescue Chef::Exceptions::ResourceNotFound
+        service svc do
+          action :enable
+          only_if { ::File.exists?("/etc/init.d/#{svc}") }
+        end
       end
     }
 
