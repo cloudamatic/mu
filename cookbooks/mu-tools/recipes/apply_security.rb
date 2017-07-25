@@ -25,7 +25,9 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
   
   
       %w{ policycoreutils-python authconfig ntp aide }.each do |pkg|
-        package pkg
+        package "apply_security package #{pkg}" do
+          package_name pkg
+        end
       end
   
       service "auditd" do

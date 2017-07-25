@@ -82,16 +82,13 @@ end
 directory "/etc/consul/ssl" do
   owner "consul"
   group "consul"
+  mode 0755
 end
 directory "/etc/vault" do
   owner "root"
   mode 0755
 end
 directory "/etc/vault/ssl" do
-  owner "root"
-  mode 0755
-end
-directory "/etc/consul/ssl" do
   owner "root"
   mode 0755
 end

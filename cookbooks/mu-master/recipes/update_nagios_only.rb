@@ -196,11 +196,5 @@ nrpe_check "check_mem" do
   action :add
 end
 
-nrpe_check "check_disk" do
-  command "#{node['nrpe']['plugin_dir']}/check_disk"
-  warning_condition '15%'
-  critical_condition '5%'
-  action :add
-end
-
 execute "chgrp nrpe /etc/nagios/nrpe.d/*"
+include_recipe "mu-master::init" # gem permission fixes, mainly

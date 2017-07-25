@@ -20,8 +20,8 @@
 
 default['python']['install_method'] = 'package'
 
-if python['install_method'] == 'package'
-  case platform
+if node['python']['install_method'] == 'package'
+  case node['platform']
     when "windows"
       default['python']['prefix_dir'] = 'c:\\bin\\python'
     when "smartos"

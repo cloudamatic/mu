@@ -108,16 +108,6 @@ def unjoin_domain_windows
 end
 
 def join_domain_linux
-  %w{sshd winbind smb}.each { |svc|
-    service svc do
-      action :enable
-      only_if { ::File.exists?("/etc/init.d/#{svc}") }
-    end
-  }
-
-  service "messagebus" do
-    action [:enable, :start]
-  end
 
   set_selinux_policies
   config_ssh_ntp_dns
