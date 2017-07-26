@@ -1056,7 +1056,13 @@ module MU
             return true
           end
 
-          @groomer.bootstrap
+          begin
+            @groomer.bootstrap
+          rescue MU::Groomer::RunError
+            MU::MommaCat.unlock(instance.instance_id+"-groom")
+            MU::MommaCat.unlock(instance.instance_id+"-orchestrate")
+            return false
+          end
 
           # Make sure we got our name written everywhere applicable
           if !@named
