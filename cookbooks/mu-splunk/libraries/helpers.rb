@@ -64,3 +64,9 @@ def splunk_auth(auth)
       auth.join(':')
   end
 end
+
+def chown_r_splunk(triggerfile, user)
+  if ::File.stat(triggerfile).uid.eql?(0)
+    FileUtils.chown_R(user, user, splunk_dir)
+  end
+end

@@ -55,18 +55,12 @@ if node['splunk']['accept_license'] and node['platform_family'] != 'windows'
   end
 end
 
-def chown_r_splunk(triggerfile, user)
-  ruby_block 'splunk_fix_file_ownership' do
-    block do
-      FileUtils.chown_R(user, user, splunk_dir)
-    end
-    only_if { ::File.stat(triggerfile).uid.eql?(0) }
-  end if node['splunk']['is_server']
-end
 
 if node['platform_family'] != 'windows'
-  chown_r_splunk("#{splunk_dir}/etc/users", myuser)
-  chown_r_splunk(splunk_dir, myuser)
+  if node['splunk']['is_server']
+    chown_r_splunk("#{splunk_dir}/etc/users", myuser)
+    chown_r_splunk(splunk_dir, myuser)
+  end
 
   template '/etc/init.d/splunk' do
     source 'splunk-init.erb'
