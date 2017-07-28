@@ -24,6 +24,7 @@ action :add do
   if !allusers.has_key?(new_resource.username)
     password = new_resource.password || MU.generateWindowsPassword
   end
+  new_resource.admin ||= false
   ::MU::Master.manageUser(
     new_resource.username,
     name: new_resource.realname,

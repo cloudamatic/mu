@@ -23,8 +23,12 @@ define :splunk_installer, :url => nil do
   package_file = splunk_file(params[:url])
   cached_package = ::File.join(cache_dir, package_file)
 
-  remote_file cached_package do
-    source params[:url]
+  begin
+    resources('remote_file['+cached_package+']')
+  rescue Chef::Exceptions::ResourceNotFound
+    remote_file cached_package do
+      source params[:url]
+    end
   end
 
   if %w( omnios ).include?(node['platform'])
@@ -54,27 +58,36 @@ define :splunk_installer, :url => nil do
     ]
   end
 
-  execute "accept license" do
-    command "/opt/splunkforwarder/bin/splunk enable boot-start --accept-license --answer-yes"
-    action :nothing
+  begin
+    resources('execute[accept license]')
+  rescue Chef::Exceptions::ResourceNotFound
+    execute "accept license" do
+      command "/opt/splunkforwarder/bin/splunk enable boot-start --accept-license --answer-yes"
+      action :nothing
+    end
   end
-  package params[:name] do
-    source cached_package.gsub(/\.Z/, '')
-    case node['platform_family']
-      when 'rhel'
-        provider Chef::Provider::Package::Rpm
-        notifies :run, "execute[accept license]", :immediately if node['splunk']['accept_license']
-      when 'debian'
-        provider Chef::Provider::Package::Dpkg
-        notifies :run, "execute[accept license]", :immediately if node['splunk']['accept_license']
-      when 'omnios'
-        provider Chef::Provider::Package::Solaris
-        notifies :run, "execute[accept license]", :immediately if node['splunk']['accept_license']
-        options pkgopts.join(' ')
-      when 'windows'
-        not_if { ::File.exists?("c:/Program Files/SplunkUniversalForwarder/bin/splunk.exe") }
-        provider Chef::Provider::Package::Windows
-        options pkgopts.join(' ')
+
+  begin
+    resources('package['+params[:name]+']')
+  rescue Chef::Exceptions::ResourceNotFound
+    package params[:name] do
+      source cached_package.gsub(/\.Z/, '')
+      case node['platform_family']
+        when 'rhel'
+          provider Chef::Provider::Package::Rpm
+          notifies :run, "execute[accept license]", :immediately if node['splunk']['accept_license']
+        when 'debian'
+          provider Chef::Provider::Package::Dpkg
+          notifies :run, "execute[accept license]", :immediately if node['splunk']['accept_license']
+        when 'omnios'
+          provider Chef::Provider::Package::Solaris
+          notifies :run, "execute[accept license]", :immediately if node['splunk']['accept_license']
+          options pkgopts.join(' ')
+        when 'windows'
+          not_if { ::File.exists?("c:/Program Files/SplunkUniversalForwarder/bin/splunk.exe") }
+          provider Chef::Provider::Package::Windows
+          options pkgopts.join(' ')
+      end
     end
   end
 end

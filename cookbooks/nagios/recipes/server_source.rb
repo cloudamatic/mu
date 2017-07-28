@@ -139,7 +139,8 @@ directory node['nagios']['conf']['check_result_path'] do
 end
 
 %w( cache_dir log_dir run_dir ).each do |dir|
-  directory node['nagios'][dir] do
+  directory "Nagios cookbook #{node['nagios'][dir]}" do
+    path node['nagios'][dir]
     recursive true
     owner node['nagios']['user']
     group node['nagios']['group']

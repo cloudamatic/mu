@@ -45,10 +45,6 @@ master_ips.each { |host|
 
 if !node.update_nagios_only
 
-  service "sshd" do
-    action :nothing
-  end
-
   include_recipe 'chef-vault'
   if $MU_CFG.has_key?('ldap')
     if $MU_CFG['ldap']['type'] == "389 Directory Services" and Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG['hostname']}")
@@ -84,8 +80,6 @@ if !node.update_nagios_only
     command "sed -i 's/^HOSTNAME=.*/HOSTNAME=#{$MU_CFG['hostname']}.platform-mu/' /etc/sysconfig/network"
     not_if "grep '^HOSTNAME=#{$MU_CFG['hostname']}.platform-mu'"
   end
-
-  directory "#{MU.mainDataDir}/deployments"
 
   sudoer_line = "%#{$MU_CFG['ldap']['admin_group_name']} ALL=(ALL) NOPASSWD: ALL"
   execute "echo '#{sudoer_line}' >> /etc/sudoers" do
@@ -389,7 +383,8 @@ if !node.update_nagios_only
     not_if "test -f #{Etc.getpwnam("root").dir}/.bashrc && grep '^source #{MU.etcDir}/mu.rc$' #{Etc.getpwnam("root").dir}/.bashrc"
   end
 
-  template "/etc/ssh/sshd_config" do
+  template "Mu Master /etc/ssh/sshd_config" do
+    path "/etc/ssh/sshd_config"
     source "sshd_config.erb"
     mode 0600
     owner "root"
@@ -443,11 +438,6 @@ if !node.update_nagios_only
     }
     node.save
   
-    sudoer_line = "%#{$MU_CFG['ldap']['admin_group_name']} ALL=(ALL) NOPASSWD: ALL"
-    execute "echo '#{sudoer_line}' >> /etc/sudoers" do
-      not_if "grep '^#{sudoer_line}$' /etc/sudoers"
-    end
-
     file "/root/.gitconfig" do
       content "[user]
         name = #{node[:mu][:user_map]['mu']['realname']}

@@ -161,7 +161,8 @@ add_berkshelf_cookbooks()
   if [ "$match" == "" ];then
     cd $repodir && $berks upload --no-freeze || exit 1
   elif [ "$berkshelf_cookbooks" != "" ];then
-    cd $repodir && $berks upload $berkshelf_cookbooks --no-freeze || exit 1
+    echo "${GREEN}Matching only: ${BOLD}${berkshelf_cookbooks}${NORM}${GREEN}${NORM}"
+    cd $repodir && $berks upload $berkshelf_cookbooks --no-freeze 2>&1 || echo "${YELLOW}Missing cookbooks ok when using -m if they're not supposed to have been in $repodir/Berksfile${NORM}"
   fi
   cd $MU_CHEF_CACHE
 }
@@ -471,7 +472,6 @@ for repo in $REPOS;do
     export MU_DEPRESOLVE=1
   fi
 
-
   for artifact in $chef_artifacts;do
     purge_manifest $repo_name $artifact
     if [ -e "$artifact_source/$artifact" ];then
@@ -571,7 +571,6 @@ if [ -d "$MU_DATADIR/users" -a "$USER" == "root" ];then
   cd $MU_CHEF_CACHE
   bag_created=0
   for admin in mu;do
-    echo "$bagdir/$admin.json"
     if [ -f "$bagdir/$admin.json" ];then
       if [ "$bagcreated" == "0" ];then
         bagcreated=1
@@ -652,6 +651,7 @@ else
       echo "${GREEN}Cleaning up temporary directories: ${BOLD}$tmp_dirs_to_remove${NORM}"
       rm -rf $tmp_dirs_to_remove
     fi
+    echo "${GREEN}Cookbook upload complete and -s specified, all done.${NORM}"
     exit
   elif [ "$bags_only" == "1" ];then
     if [ "$match" != "" ];then

@@ -108,16 +108,6 @@ def unjoin_domain_windows
 end
 
 def join_domain_linux
-  %w{sshd winbind smb}.each { |svc|
-    service svc do
-      action :enable
-      only_if { ::File.exists?("/etc/init.d/#{svc}") }
-    end
-  }
-
-  service "messagebus" do
-    action [:enable, :start]
-  end
 
   set_selinux_policies
   config_ssh_ntp_dns
@@ -203,7 +193,8 @@ def set_selinux_policies
 end
 
 def config_ssh_ntp_dns
-  template "/etc/ntp.conf" do
+  template "mu-activedirectory /etc/ntp.conf" do
+    path "/etc/ntp.conf"
     source "ntp.conf.erb"
     owner "root"
     group "root"
@@ -213,7 +204,8 @@ def config_ssh_ntp_dns
     )
   end
 
-  template "/etc/ssh/sshd_config" do
+  template "mu-activedirectory /etc/ssh/sshd_config" do
+    path "/etc/ssh/sshd_config"
     source "sshd_config.erb"
     owner "root"
     group "root"

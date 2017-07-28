@@ -14,6 +14,6 @@ attribute :username, :kind_of => String, :name_attribute => true, :required => t
 attribute :realname, :kind_of => String, :required => true
 attribute :email, :kind_of => String, :required => true
 attribute :password, :kind_of => String, :required => false
-attribute :admin, :kind_of => Boolean, :required => false, :default => false
+attribute :admin, :kind_of => [TrueClass, FalseClass], :required => false, :default => false
 attribute :orgs, :kind_of => Array, :required => false
 attribute :remove_orgs, :kind_of => Array, :required => false
