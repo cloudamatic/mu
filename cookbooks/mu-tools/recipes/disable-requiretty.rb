@@ -18,5 +18,5 @@ when "centos", "redhat"
     not_if "grep '!requiretty' /etc/sudoers"
   end
 else
-  Chef::Log.info("Unsupported platform #{node.platform}")
+  Chef::Log.info("Unsupported platform #{node[:platform]}")
 end

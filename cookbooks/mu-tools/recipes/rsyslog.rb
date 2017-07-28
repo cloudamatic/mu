@@ -17,7 +17,7 @@
 # limitations under the License.
 
 if !node[:application_attributes][:skip_recipes].include?('rsyslog')
-  case node.platform_family
+  case node[:platform_family]
   when "rhel", "debian"
     package "rsyslog"
     package "rsyslog-gnutls"

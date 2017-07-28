@@ -15,8 +15,8 @@ module Activedirectory
 
     def set_computer_name(creds)
       # Theoretically this should have been done for us already, but let's cover the oddball cases.
-      Chef::Log.info("node_hostname: #{node.hostname.downcase}, computer_name: #{new_resource.computer_name.downcase}")
-      if node.hostname.downcase != new_resource.computer_name.downcase
+      Chef::Log.info("node_hostname: #{node[:hostname].downcase}, computer_name: #{new_resource.computer_name.downcase}")
+      if node[:hostname].downcase != new_resource.computer_name.downcase
         cmd = powershell_out("Rename-Computer -NewName '#{new_resource.computer_name}' -Force -PassThru -Restart -DomainCredential #{creds}")
         Chef::Application.fatal!("Failed to rename computer to #{new_resource.computer_name}") if cmd.exitstatus != 0
         execute "kill ssh for reboot" do
