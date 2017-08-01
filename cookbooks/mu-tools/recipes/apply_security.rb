@@ -198,7 +198,8 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
       if !node.application_attributes.sshd_allow_groups.empty?
         group "mu_sshd_system_login"
         ['root', 'centos', 'ec2-user'].each { |sys_login|
-          group "mu_sshd_system_login" do
+          group "add #{sys_login} to mu_sshd_system_login" do
+            group_name "mu_sshd_system_login"
             members sys_login
             append true
             ignore_failure true

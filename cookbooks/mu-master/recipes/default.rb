@@ -362,8 +362,22 @@ if !node.update_nagios_only
     daily
     delaycompress
     postrotate
-      #{MU.mainDataDir}/bin/mu-aws-setup -u
+      #{MU.myRoot}/bin/mu-aws-setup -u
       /bin/kill -HUP `cat /var/run/syslogd.pid 2> /dev/null` 2> /dev/null || true
+    endscript
+  }
+  "
+  end
+
+# XXX this will catch the occasional 4am groom. Need a way to graceful-restart momma.
+  file "/etc/logrotate.d/Mu_momma_cat" do
+    content "/var/log/mu-momma-cat.log
+  {
+    sharedscripts
+    size 100M
+    delaycompress
+    postrotate
+      /etc/init.d/mu-momma-cat restart
     endscript
   }
   "

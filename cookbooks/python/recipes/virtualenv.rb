@@ -23,13 +23,13 @@ include_recipe "python::pip"
 case node[:platform]
   when "windows"
     execute "Upgrade virtualenv using pip full path" do
-      not_if "echo %path% | find /I \"#{node.python.prefix_dir}\\python#{node.python.major_version}\\Scripts\""
+      not_if "echo %path% | find /I \"#{node[:python][:prefix_dir]}\\python#{node[:python][:major_version]}\\Scripts\""
       command "#{node['python']['pip_binary']} install virtualenv --upgrade"
     end
     python_pip 'virtualenv' do
-      only_if "echo %path% | find /I \"#{node.python.prefix_dir}\\python#{node.python.major_version}\\Scripts\""
+      only_if "echo %path% | find /I \"#{node[:python][:prefix_dir]}\\python#{node[:python][:major_version]}\\Scripts\""
       action :upgrade
-      version node.python.virtualenv_version if !node.python.virtualenv_version.nil?
+      version node[:python][:virtualenv_version] if !node[:python][:virtualenv_version].nil?
     end
   else
     # No idea why but naked python_pip install fails, so install then update

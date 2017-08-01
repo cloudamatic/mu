@@ -24,10 +24,10 @@
 include_recipe 'mu-splunk::user'
 include_recipe 'mu-splunk::install_forwarder'
 
-if node.splunk.discovery == 'groupname'
+if node[:splunk][:discovery] == 'groupname'
   splunk_servers = search(
       :node,
-      "splunk_is_server:true AND splunk_groupname:#{node.splunk_groupname}"
+      "splunk_is_server:true AND splunk_groupname:#{node[:splunk_groupname]}"
   ).sort! do
   |a, b|
     a.name <=> b.name
