@@ -35,7 +35,7 @@ module MU
           @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
           if !mu_name.nil?
-            @mu_name = mu_name.downcase
+            @mu_name = mu_name
           else
             if !@vpc.nil?
               @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
@@ -53,7 +53,8 @@ module MU
 
         # Called by {MU::Deploy#createResources}
         def create
-          vpc_id = @vpc.cloud_id if !@vpc.nil?
+          vpc_id = @vpc.cloudobj.url if !@vpc.nil?
+
           allrules = {}
 # XXX source_ranges
 # XXX source_tags
@@ -160,38 +161,12 @@ module MU
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject
-# XXX project flag has to get passed from somewheres
-          resp = MU::Cloud::Google.compute.list_firewalls(
+
+          MU::Cloud::Google.compute.delete(
+            "firewall",
             flags["project"],
-            filter: "description eq #{MU.deploy_id}"
+            noop
           )
-          return if resp.nil? or resp.items.nil?
-
-          parent_thread_id = Thread.current.object_id
-          threads = []
-
-          resp.items.each { |firewall|
-            threads << Thread.new { 
-              MU.dupGlobals(parent_thread_id)
-              MU.log "Removing firewall #{firewall.name}", details: firewall
-              if !noop
-                begin
-                  MU::Cloud::Google.compute.delete_firewall(flags["project"], firewall.name)
-                rescue ::Google::Apis::ClientError => e
-                  if e.message.match(/^notFound:/)
-                    MU.log "#{firewall.name} has already been deleted", MU::NOTICE
-                  elsif e.message.match(/^resourceNotReady:/)
-                    MU.log "Got #{e.message} deleting #{firewall.name}, may already be deleting", MU::NOTICE
-                    sleep 5
-                    retry
-                  end
-                end
-              end
-            }
-          }
-          threads.each do |t|
-            t.join
-          end
         end
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::firewall_rules}, bare and unvalidated.

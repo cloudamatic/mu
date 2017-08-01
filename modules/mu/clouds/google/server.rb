@@ -176,7 +176,7 @@ next if !create
           end
           subnet = vpc.getSubnet(name: subnet_cfg['subnet_name'], cloud_id: subnet_cfg['subnet_id'])
           base_iface_obj = {
-            :network => vpc.cloud_id,
+            :network => vpc.url,
             :subnetwork => subnet.url
           }
           if config['associate_public_ip']
@@ -1088,25 +1088,12 @@ next if !create
 # XXX make sure we don't miss anything that got created with dumb flags
             end
 # XXX honor snapshotting
-            resp = MU::Cloud::Google.compute.list_disks(
+            MU::Cloud::Google.compute.delete(
+              "disk",
               flags["project"],
               az,
-              filter: "description eq #{MU.deploy_id}"
+              noop
             )
-            if !resp.nil? and !resp.items.nil?
-              resp.items.each { |disk|
-                MU.log "Deleting disk #{disk.name}"
-                begin
-                  resp = MU::Cloud::Google.compute.delete_disk(
-                    flags["project"],
-                    az,
-                    disk.name
-                  )
-                rescue ::Google::Apis::ClientError => e
-                  MU.log "Disk #{disk.name} seems to be deleting already, skipping", MU::NOTICE
-                end
-              }
-            end
           }
         end
 

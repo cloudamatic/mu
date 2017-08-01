@@ -178,6 +178,39 @@ module MU
           @api.authorization = MU::Cloud::Google.loadCredentials(scopes)
         end
 
+        def delete(type, project, region = nil, noop = false, filter = "description eq #{MU.deploy_id}")
+          list_sym = "list_#{type.sub(/y$/, "ie")}s".to_sym
+          resp = nil
+          if region
+            resp = MU::Cloud::Google.compute.send(list_sym, project, region, filter: filter)
+          else
+            resp = MU::Cloud::Google.compute.send(list_sym, project, filter: filter)
+          end
+
+          if !resp.nil? and !resp.items.nil?
+            threads = []
+            parent_thread_id = Thread.current.object_id
+            resp.items.each { |obj|
+              threads << Thread.new {
+                MU.dupGlobals(parent_thread_id)
+                MU.log "Removing #{type.gsub(/_/, " ")} #{obj.name}"
+                delete_sym = "delete_#{type}".to_sym
+                if !noop
+                  if region
+                    MU::Cloud::Google.compute.send(delete_sym, project, region, obj.name)
+                  else
+                    MU::Cloud::Google.compute.send(delete_sym, project, obj.name)
+                  end
+                end
+              }
+            }
+            threads.each do |t|
+              t.join
+            end
+
+          end
+        end
+
         @instance_cache = {}
         # Catch-all for AWS client methods. Essentially a pass-through with some
         # rescues for known silly endpoint behavior.
@@ -270,7 +303,11 @@ module MU
               end
             end
             return retval
-          rescue ::Google::Apis::ServerError => e
+          rescue ::Google::Apis::ServerError, ::Google::Apis::ClientError => e
+            if e.class.name == "Google::Apis::ClientError" and
+               (!e.message.match(/^notFound: /) or !method_sym.to_s.match(/^insert_/))
+              raise e
+            end
             retries = retries + 1
 #            debuglevel = MU::DEBUG
 debuglevel = MU::NOTICE

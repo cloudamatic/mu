@@ -353,6 +353,7 @@ module MU
         attr_reader :deploy_id
         attr_reader :mu_name
         attr_reader :cloud_id
+        attr_reader :url
         attr_reader :config
         attr_reader :deploydata
         attr_reader :destroyed
@@ -515,6 +516,7 @@ module MU
           describe
           if !@cloudobj.nil?
             @cloud_desc = @cloudobj.cloud_desc
+            @url = @cloudobj.url if @cloudobj.respond_to?(:url)
           elsif !@config.nil? and !@cloud_id.nil?
             # The find() method should be returning a Hash with the cloud_id
             # as a key.
@@ -530,6 +532,7 @@ module MU
               raise e
             end
           end
+
           return @cloud_desc
         end
 

@@ -144,104 +144,13 @@ module MU
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject
 
-# XXX this isn't finding everything
-          resp = MU::Cloud::Google.compute.list_global_forwarding_rules(
-            flags["project"],
-            filter: "description eq #{MU.deploy_id}"
-          )
-          if !resp.nil? and !resp.items.nil?
-            resp.items.each { |rule|
-              MU.log "Removing forwarding rule #{rule.name}"
-              MU::Cloud::Google.compute.delete_global_forwarding_rule(
-                flags["project"],
-                rule.name
-              ) if !noop
-            }
-          end
-
-          ["http", "https"].each { |proto|
-            method_sym = "list_target_#{proto}_proxies".to_sym
-            resp = MU::Cloud::Google.compute.send(
-              method_sym,
+          ["global_forwarding_rule", "target_http_proxy", "target_https_proxy", "url_map", "backend_service", "health_check", "http_health_check", "https_health_check"].each { |type|
+            MU::Cloud::Google.compute.delete(
+              type,
               flags["project"],
-              filter: "description eq #{MU.deploy_id}"
+              noop
             )
-            if !resp.nil? and !resp.items.nil?
-              method_sym = "delete_target_#{proto}_proxy".to_sym
-              resp.items.each { |proxy|
-                MU.log "Removing target #{proto} proxy #{proxy.name}"
-                MU::Cloud::Google.compute.send(
-                  method_sym,
-                  flags["project"],
-                  proxy.name
-                ) if !noop
-              }
-            end
           }
-
-          resp = MU::Cloud::Google.compute.list_url_maps(
-            flags["project"],
-            filter: "description eq #{MU.deploy_id}"
-          )
-          if !resp.nil? and !resp.items.nil?
-            resp.items.each { |map|
-              MU.log "Removing URL map #{map.name}"
-              MU::Cloud::Google.compute.delete_url_map(
-                flags["project"],
-                map.name
-              ) if !noop
-            }
-          end
-
-          resp = MU::Cloud::Google.compute.list_backend_services(
-            flags["project"],
-            filter: "description eq #{MU.deploy_id}"
-          )
-          if !resp.nil? and !resp.items.nil?
-            resp.items.each { |backend|
-              MU.log "Removing backend service #{backend.name}"
-              MU::Cloud::Google.compute.delete_backend_service(
-                flags["project"],
-                backend.name
-              ) if !noop
-            }
-          end
-
-          resp = MU::Cloud::Google.compute.list_health_checks(
-            flags["project"],
-            filter: "description eq #{MU.deploy_id}"
-          )
-          if !resp.nil? and !resp.items.nil?
-            resp.items.each { |hc|
-              MU.log "Removing health check #{hc.name}"
-              MU::Cloud::Google.compute.delete_health_check(
-                flags["project"],
-                hc.name
-              ) if !noop
-            }
-          end
-
-          ["http", "https"].each { |proto|
-            method_sym = "list_#{proto}_health_checks".to_sym
-            resp = MU::Cloud::Google.compute.send(
-              method_sym,
-              flags["project"],
-              filter: "description eq #{MU.deploy_id}"
-            )
-            if !resp.nil? and !resp.items.nil?
-              method_sym = "delete_#{proto}_health_check".to_sym
-              resp.items.each { |hc|
-                MU.log "Removing #{proto} health check #{hc.name}"
-                MU::Cloud::Google.compute.send(
-                  method_sym,
-                  flags["project"],
-                  hc.name
-                ) if !noop
-              }
-            end
-          }
-
-# TODO remember to iterate over regions for non-global resources
         end
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::loadbalancers}, bare and unvalidated.

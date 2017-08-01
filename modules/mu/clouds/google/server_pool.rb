@@ -142,7 +142,7 @@ module MU
           )
 
           MU.log "Creating autoscaler policy #{@mu_name}", details: scaler_obj
-          pp MU::Cloud::Google.compute.insert_region_autoscaler(
+          MU::Cloud::Google.compute.insert_region_autoscaler(
             @config['project'],
             @config['region'],
             scaler_obj
@@ -219,53 +219,20 @@ module MU
           flags["project"] ||= MU::Cloud::Google.defaultProject
 
           if !flags["global"]
-            resp = MU::Cloud::Google.compute.list_region_autoscalers(
-              flags["project"],
-              region,
-              filter: "description eq #{MU.deploy_id}"
-            )
-pp resp
-            if !resp.nil? and !resp.items.nil?
-              resp.items.each { |scaler|
-                MU.log "Removing autoscaler #{scaler.name}"
-                MU::Cloud::Google.compute.delete_region_autoscaler(
-                  flags["project"],
-                  region,
-                  scaler.name
-                ) if !noop
-              }
-            end
-
-            resp = MU::Cloud::Google.compute.list_region_instance_group_managers(
-              flags["project"],
-              region,
-              filter: "description eq #{MU.deploy_id}"
-            )
-            if !resp.nil? and !resp.items.nil?
-              resp.items.each { |mgr|
-                MU.log "Removing instance group manager #{mgr.name}"
-                MU::Cloud::Google.compute.delete_region_instance_group_manager(
-                  flags["project"],
-                  region,
-                  mgr.name
-                ) if !noop
-              }
-            end
+            ["region_autoscaler", "region_instance_group_manager"].each { |type|
+              MU::Cloud::Google.compute.delete(
+                type,
+                flags["project"],
+                region,
+                noop
+              )
+            }
           else
-            resp = MU::Cloud::Google.compute.list_instance_templates(
+            MU::Cloud::Google.compute.delete(
+              "instance_template",
               flags["project"],
-              filter: "description eq #{MU.deploy_id}"
+              noop
             )
-            if !resp.nil? and !resp.items.nil?
-              resp.items.each { |template|
-                retries = 0
-                MU.log "Removing instance template #{template.name}"
-                MU::Cloud::Google.compute.delete_instance_template(
-                  flags["project"],
-                  template.name
-                ) if !noop
-              }
-            end
           end
 
         end

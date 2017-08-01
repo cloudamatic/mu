@@ -23,6 +23,7 @@ module MU
         @config = nil
         attr_reader :mu_name
         attr_reader :cloud_id
+        attr_reader :url
         attr_reader :config
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
@@ -34,12 +35,12 @@ module MU
           @subnetcachesemaphore = Mutex.new
           @cloud_id = cloud_id
           if !mu_name.nil?
-            @mu_name = mu_name.downcase
+            @mu_name = mu_name
             loadSubnets if !@cloud_id.nil?
           elsif @config['scrub_mu_isms']
-            @mu_name = @config['name'].downcase
+            @mu_name = @config['name']
           else
-            @mu_name = @deploy.getResourceName(@config['name']).downcase
+            @mu_name = @deploy.getResourceName(@config['name'])
           end
 
         end
@@ -47,14 +48,16 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def create
           networkobj = MU::Cloud::Google.compute(:Network).new(
-            name: @mu_name,
+            name: MU::Cloud::Google.nameStr(@mu_name),
             description: @deploy.deploy_id,
             auto_create_subnetworks: false
 #            i_pv4_range: @config['ip_block']
           )
           MU.log "Creating network #{@mu_name} (#{@config['ip_block']})", details: networkobj
           resp = MU::Cloud::Google.compute.insert_network(@config['project'], networkobj)
-          @cloud_id = resp.self_link # XXX needs to go in notify
+          pp resp
+          @url = resp.self_link # XXX needs to go in notify
+          @cloud_id = resp.name
 
           if @config['subnets']
             subnetthreads = []
@@ -63,13 +66,13 @@ module MU
               subnetthreads << Thread.new {
                 MU.dupGlobals(parent_thread_id)
                 subnet_name = @config['name']+"-"+subnet['name']
-                subnet_mu_name = @deploy.getResourceName(subnet_name).downcase
+                subnet_mu_name = MU::Cloud::Google.nameStr(@deploy.getResourceName(subnet_name))
                 MU.log "Creating subnetwork #{subnet_mu_name} (#{subnet['ip_block']})", details: subnet
                 subnetobj = MU::Cloud::Google.compute(:Subnetwork).new(
                   name: subnet_mu_name,
                   description: @deploy.deploy_id,
                   ip_cidr_range: subnet['ip_block'],
-                  network: @cloud_id,
+                  network: @url,
                   region: subnet['availability_zone']
                 )
                 resp = MU::Cloud::Google.compute.insert_subnetwork(@config['project'], subnet['availability_zone'], subnetobj)
@@ -90,7 +93,7 @@ module MU
                         route['gateway'] == "#INTERNET"
                 # sibling NAT host routes will get set up our groom phrase
                 next if route['gateway'] == "#NAT" and !route['nat_host_name'].nil?
-                createRoute(route, network: @cloud_id)
+                createRoute(route, network: @url)
               }
             }
           end
@@ -114,7 +117,8 @@ module MU
         # @return [Hash]
         def cloud_desc
           @config['project'] ||= MU::Cloud::Google.defaultProject
-          resp = MU::Cloud::Google.compute.get_network(@config['project'], @mu_name).to_h
+          resp = MU::Cloud::Google.compute.get_network(@config['project'], @cloud_id).to_h
+          @url ||= resp[:self_link]
           routes = MU::Cloud::Google.compute.list_routes(
             @config['project'],
             filter: "network eq #{@cloud_id}"
@@ -133,7 +137,7 @@ module MU
             # If we had a sibling server being spun up as a NAT, rig up the 
             # route that the hosts behind it will need.
             if route['gateway'] == "#NAT" and !route['nat_host_name'].nil?
-              createRoute(route, network: @cloud_id)
+              createRoute(route, network: @url)
             end
           }
 
@@ -158,14 +162,14 @@ module MU
 
               raise MuError, "No result looking for #{@mu_name}'s peer VPCs (#{peer['vpc']})" if peer_obj.nil? or peer_obj.first.nil?
               peerreq = MU::Cloud::Google.compute(:NetworksAddPeeringRequest).new(
-                name: @mu_name+"-peer-"+count.to_s,
+                name: MU::Cloud::Google.nameStr(@mu_name+"-peer-"+count.to_s),
                 auto_create_routes: true,
-                peer_network: peer_obj.first.cloud_id
+                peer_network: peer_obj.first.cloudobj.url
               )
-              MU.log "Peering #{@mu_name} with #{peer_obj.first.cloud_id}", details: peerreq
+              MU.log "Peering #{@mu_name} with #{peer_obj.first.cloudobj.url}", details: peerreq
               MU::Cloud::Google.compute.add_network_peering(
                 @config['project'],
-                @mu_name,
+                @cloud_id,
                 peerreq
               )
             }
@@ -430,44 +434,14 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           flags["project"] ||= MU::Cloud::Google.defaultProject
 
           purge_subnets(noop, project: flags['project'])
-          purge_routes(noop, project: flags['project'])
-
-          resp = MU::Cloud::Google.compute.list_networks(
-            flags["project"],
-            filter: "description eq #{MU.deploy_id}"
-          )
-          return if resp.nil? or resp.items.nil?
-
-          resp.items.each { |network|
-            MU.log "Removing network #{network.name}", details: network
-            if !noop
-              retries = 0
-              max = 10
-              complete = false
-              begin
-                deletia = MU::Cloud::Google.compute.delete_network(flags["project"], network.name)
-                if deletia.error and deletia.error.errors and deletia.error.errors.size > 0
-                  retries = retries + 1
-                  if retries % 3 == 0
-                    MU.log "Got #{deletia.error.errors.first.code} deleting #{network.name}, may be waiting on other resources to delete (attempt #{retries}/#{max})", MU::WARN, details: deletia.error.errors
-                  end
-                  purge_subnets(noop, project: flags['project'])
-                  purge_routes(noop, project: flags['project'])
-                  sleep 5
-                else
-                  complete = true
-                end
-              rescue ::Google::Apis::ClientError => e
-                if e.message.match(/^notFound:/)
-                  MU.log "#{network.name} has already been deleted", MU::NOTICE
-                elsif e.message.match(/^resourceNotReady:/)
-                  MU.log "Got #{e.message} deleting #{network.name}, may already be deleting", MU::NOTICE
-                  retries = retries + 1
-                  sleep 5
-                  retry
-                end
-              end while !complete and retries < max
-            end
+          ["route", "network"].each { |type|
+# XXX tagged routes aren't showing up in list, and the networks that own them
+# fail to delete silently
+            MU::Cloud::Google.compute.delete(
+              "network",
+              flags["project"],
+              noop
+            )
           }
         end
 
@@ -619,7 +593,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # @param route [Hash]: A route description, per the Basket of Kittens schema
         # @param server [MU::Cloud::Google::Server]: Instance to which this route will apply
         def createRouteForInstance(route, server)
-          createRoute(route, network: @cloud_id, tags: [server.mu_name])
+          createRoute(route, network: @url, tags: [MU::Cloud::Google.nameStr(server.mu_name)])
         end
 
         private
@@ -657,10 +631,10 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # @param network [String]: Cloud identifier of the VPC to which we're adding this route
         # @param tags [Array<String>]: Instance tags to which this route applies. If empty, applies to entire VPC.
         # @return [Hash]: The modified configuration that was originally passed in.
-        def createRoute(route, network: @cloud_id, tags: [])
-          routename = @mu_name+"-route-"+route['destination_network'].gsub(/[\/\.]/, "-")
+        def createRoute(route, network: @url, tags: [])
+          routename = MU::Cloud::Google.nameStr(@mu_name+"-route-"+route['destination_network'])
           if !tags.nil? and tags.size > 0
-            routename = (routename+"-"+tags.first).slice(0,63)
+            routename = MU::Cloud::Google.nameStr(routename+"-"+tags.first).slice(0,63)
           end
           route["priority"] ||= 999
           if route['gateway'] == "#NAT"
@@ -748,35 +722,6 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         def self.purge_endpoints(noop = false, vpc_id: nil, region: MU.curRegion)
         end
 
-        # Remove all route tables associated with the currently loaded deployment.
-        # @param noop [Boolean]: If true, will only print what would be done
-        # @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
-        # @param region [String]: The cloud provider region
-        # @return [void]
-        def self.purge_routes(noop = false, project: MU::Cloud::Google.defaultProject)
-          project ||= MU::Cloud::Google.defaultProject
-          resp = MU::Cloud::Google.compute.list_routes(
-            project,
-            filter: "description eq #{MU.deploy_id}"
-          )
-
-          if resp and resp.items
-            parent_thread_id = Thread.current.object_id
-            threads = []
-            resp.items.each { |route|
-              threads << Thread.new {
-                MU.dupGlobals(parent_thread_id)
-                MU.log "Removing route #{route.name}"
-                MU::Cloud::Google.compute.delete_route(project, route.name)
-              }
-            }
-            threads.each do |t|
-              t.join
-            end
-          end
-        end
-
-
         # Remove all network interfaces associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
@@ -796,29 +741,12 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           regions.each { |r|
             regionthreads << Thread.new {
               MU.dupGlobals(parent_thread_id)
-              resp = MU::Cloud::Google.compute.list_subnetworks(
+              MU::Cloud::Google.compute.delete(
+                "subnetwork",
                 project,
                 r,
-                filter: "description eq #{MU.deploy_id}"
+                noop
               )
-              next if resp.nil? or resp.items.nil?
-  
-              resp.items.each { |subnet|
-                MU.log "Removing subnet #{subnet.name}", details: subnet
-                if !noop
-                  begin
-                    MU::Cloud::Google.compute.delete_subnetwork(project, r, subnet.name)
-                  rescue ::Google::Apis::ClientError => e
-                    if e.message.match(/^notFound:/)
-                      MU.log "#{network.name} has already been deleted", MU::NOTICE
-                    elsif e.message.match(/^resourceNotReady:/)
-                      MU.log "Got #{e.message} deleting #{network.name}, may already be deleting", MU::NOTICE
-                      sleep 5
-                      retry
-                    end
-                  end
-                end
-              }
             }
           }
           regionthreads.each do |t|
@@ -865,7 +793,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             @config = MU::Config.manxify(config)
             @cloud_id = config['cloud_id']
             @url = config['url']
-            @mu_name = config['mu_name'].downcase
+            @mu_name = config['mu_name']
             @name = config['name']
             @deploydata = config # This is a dummy for the sake of describe()
             @az = config['az']
@@ -881,7 +809,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           def private?
             routes = MU::Cloud::Google.compute.list_routes(
               @parent.config['project'],
-              filter: "network eq #{@parent.cloud_id}"
+              filter: "network eq #{@parent.url}"
             ).items
             routes.map { |r|
               if r.dest_range == "0.0.0.0/0" and !r.next_hop_gateway.nil? and
