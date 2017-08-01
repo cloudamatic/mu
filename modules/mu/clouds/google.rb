@@ -186,12 +186,30 @@ module MU
           begin
             MU.log "Calling #{method_sym}", MU::DEBUG, details: arguments
             retval = nil
-            if !arguments.nil? and arguments.size == 1
-              retval = @api.method(method_sym).call(arguments[0])
-            elsif !arguments.nil? and arguments.size > 0
-              retval = @api.method(method_sym).call(*arguments)
-            else
-              retval = @api.method(method_sym).call
+            retries = 0
+            begin
+              if !arguments.nil? and arguments.size == 1
+                retval = @api.method(method_sym).call(arguments[0])
+              elsif !arguments.nil? and arguments.size > 0
+                retval = @api.method(method_sym).call(*arguments)
+              else
+                retval = @api.method(method_sym).call
+              end
+            rescue ::Google::Apis::ClientError => e
+              if retries <= 10 and
+                 e.message.match(/^resourceNotReady:/) or
+                 (e.message.match(/^resourceInUseByAnotherResource:/) and method_sym.to_s.match(/^delete_/))
+                if retries > 0 and retries % 3 == 0
+                  MU.log "Will retry #{method_sym} after #{e.message} (retry #{retries})", MU::NOTICE, details: arguments
+                else
+                  MU.log "Will retry #{method_sym} after #{e.message} (retry #{retries})", MU::DEBUG, details: arguments
+                end
+                retries = retries + 1
+                sleep retries*10
+                retry
+              else
+                raise e
+              end
             end
 
             if retval.class == ::Google::Apis::ComputeBeta::Operation

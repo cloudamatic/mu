@@ -152,14 +152,44 @@ module MU
           if !resp.nil? and !resp.items.nil?
             resp.items.each { |rule|
               MU.log "Removing forwarding rule #{rule.name}"
-              begin
-                MU::Cloud::Google.compute.delete_global_forwarding_rule(
+              MU::Cloud::Google.compute.delete_global_forwarding_rule(
+                flags["project"],
+                rule.name
+              ) if !noop
+            }
+          end
+
+          ["http", "https"].each { |proto|
+            method_sym = "list_target_#{proto}_proxies".to_sym
+            resp = MU::Cloud::Google.compute.send(
+              method_sym,
+              flags["project"],
+              filter: "description eq #{MU.deploy_id}"
+            )
+            if !resp.nil? and !resp.items.nil?
+              method_sym = "delete_target_#{proto}_proxy".to_sym
+              resp.items.each { |proxy|
+                MU.log "Removing target #{proto} proxy #{proxy.name}"
+                MU::Cloud::Google.compute.send(
+                  method_sym,
                   flags["project"],
-                  rule.name
+                  proxy.name
                 ) if !noop
-              rescue ::Google::Apis::ClientError => e
-                next if e.message.match(/resourceNotReady:/)
-              end
+              }
+            end
+          }
+
+          resp = MU::Cloud::Google.compute.list_url_maps(
+            flags["project"],
+            filter: "description eq #{MU.deploy_id}"
+          )
+          if !resp.nil? and !resp.items.nil?
+            resp.items.each { |map|
+              MU.log "Removing URL map #{map.name}"
+              MU::Cloud::Google.compute.delete_url_map(
+                flags["project"],
+                map.name
+              ) if !noop
             }
           end
 
@@ -170,14 +200,10 @@ module MU
           if !resp.nil? and !resp.items.nil?
             resp.items.each { |backend|
               MU.log "Removing backend service #{backend.name}"
-              begin
-                MU::Cloud::Google.compute.delete_backend_service(
-                  flags["project"],
-                  backend.name
-                ) if !noop
-              rescue ::Google::Apis::ClientError => e
-                next if e.message.match(/resourceNotReady:/)
-              end
+              MU::Cloud::Google.compute.delete_backend_service(
+                flags["project"],
+                backend.name
+              ) if !noop
             }
           end
 
@@ -188,70 +214,32 @@ module MU
           if !resp.nil? and !resp.items.nil?
             resp.items.each { |hc|
               MU.log "Removing health check #{hc.name}"
-              begin
-                MU::Cloud::Google.compute.delete_health_check(
-                  flags["project"],
-                  hc.name
-                ) if !noop
-              rescue ::Google::Apis::ClientError => e
-                next if e.message.match(/resourceNotReady:/)
-              end
+              MU::Cloud::Google.compute.delete_health_check(
+                flags["project"],
+                hc.name
+              ) if !noop
             }
           end
 
-          resp = MU::Cloud::Google.compute.list_http_health_checks(
-            flags["project"],
-            filter: "description eq #{MU.deploy_id}"
-          )
-          if !resp.nil? and !resp.items.nil?
-            resp.items.each { |hc|
-              MU.log "Removing HTTP health check #{hc.name}"
-              begin
-                MU::Cloud::Google.compute.delete_http_health_check(
+          ["http", "https"].each { |proto|
+            method_sym = "list_#{proto}_health_checks".to_sym
+            resp = MU::Cloud::Google.compute.send(
+              method_sym,
+              flags["project"],
+              filter: "description eq #{MU.deploy_id}"
+            )
+            if !resp.nil? and !resp.items.nil?
+              method_sym = "delete_#{proto}_health_check".to_sym
+              resp.items.each { |hc|
+                MU.log "Removing #{proto} health check #{hc.name}"
+                MU::Cloud::Google.compute.send(
+                  method_sym,
                   flags["project"],
                   hc.name
                 ) if !noop
-              rescue ::Google::Apis::ClientError => e
-                next if e.message.match(/resourceNotReady:/)
-              end
-            }
-          end
-
-          resp = MU::Cloud::Google.compute.list_https_health_checks(
-            flags["project"],
-            filter: "description eq #{MU.deploy_id}"
-          )
-          if !resp.nil? and !resp.items.nil?
-            resp.items.each { |hc|
-              MU.log "Removing HTTPS health check #{hc.name}"
-              begin
-                MU::Cloud::Google.compute.delete_https_health_check(
-                  flags["project"],
-                  hc.name
-                ) if !noop
-              rescue ::Google::Apis::ClientError => e
-                next if e.message.match(/resourceNotReady:/)
-              end
-            }
-          end
-
-          resp = MU::Cloud::Google.compute.list_url_maps(
-            flags["project"],
-            filter: "description eq #{MU.deploy_id}"
-          )
-          if !resp.nil? and !resp.items.nil?
-            resp.items.each { |map|
-              MU.log "Removing URL map #{map.name}"
-              begin
-                MU::Cloud::Google.compute.delete_url_map(
-                  flags["project"],
-                  map.name
-                ) if !noop
-              rescue ::Google::Apis::ClientError => e
-                next if e.message.match(/resourceNotReady:/)
-              end
-            }
-          end
+              }
+            end
+          }
 
 # TODO remember to iterate over regions for non-global resources
         end

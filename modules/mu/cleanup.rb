@@ -130,21 +130,19 @@ module MU
               end
             }
           }
-          # knock over region-agnostic resources
-          if provider == "Google"
-            MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["FirewallRule"]) > 0
-            MU::Cloud::LoadBalancer.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["LoadBalancer"]) > 0
-            MU::Cloud::VPC.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["VPC"]) > 0
-          elsif provider == "AWS"
-            # Route53 deletia would go here, but we probably don't want to do
-            # touch DNS like ever
-          end
         }
 
         @regionthreads.each do |t|
           t.join
         end
-        MU::Cloud::DNSZone.cleanup(noop: @noop, ignoremaster: @ignoremaster) if @mommacat.nil? or @mommacat.numKittens(types: ["DNSZone"]) > 0
+
+        # knock over region-agnostic resources
+        MU::Cloud::ServerPool.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: { "global" => true }) if @mommacat.nil? or @mommacat.numKittens(types: ["ServerPool"]) > 0
+        MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: { "global" => true }) if @mommacat.nil? or @mommacat.numKittens(types: ["FirewallRule"]) > 0
+        MU::Cloud::LoadBalancer.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: { "global" => true }) if @mommacat.nil? or @mommacat.numKittens(types: ["LoadBalancer"]) > 0
+        MU::Cloud::VPC.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: { "global" => true }) if @mommacat.nil? or @mommacat.numKittens(types: ["VPC"]) > 0
+
+        MU::Cloud::DNSZone.cleanup(noop: @noop, cloud: "AWS", ignoremaster: @ignoremaster) if @mommacat.nil? or @mommacat.numKittens(types: ["DNSZone"]) > 0
       end
 
       # Scrub any residual Chef records with matching tags

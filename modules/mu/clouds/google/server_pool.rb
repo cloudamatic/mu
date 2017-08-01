@@ -217,59 +217,55 @@ module MU
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject
-          resp = MU::Cloud::Google.compute.list_region_instance_group_managers(
-            flags["project"],
-            region,
-            filter: "description eq #{MU.deploy_id}"
-          )
-          if !resp.nil? and !resp.items.nil?
-            resp.items.each { |mgr|
-              MU.log "Removing instance group manager #{mgr.name}"
-              MU::Cloud::Google.compute.delete_region_instance_group_manager(
-                flags["project"],
-                region,
-                mgr.name
-              ) if !noop
-            }
-          end
 
-          # This doesn't appear to be necessary
-#          resp = MU::Cloud::Google.compute.list_region_instance_groups(
-#            flags["project"],
-#            region,
-#            filter: "description eq #{MU.deploy_id}"
-#          )
-#          if !resp.nil? and !resp.items.nil?
-#            resp.items.each { |group|
-#              MU.log "Removing instance group #{group.name}", MU::NOTICE, details: group
-#              MU::Cloud::Google.compute.delete_instance_group(
-#                flags["project"],
-#                region,
-#                group.name
-#              ) if !noop
-#            }
-#          end
+          if !flags["global"]
+            resp = MU::Cloud::Google.compute.list_region_autoscalers(
+              flags["project"],
+              region,
+              filter: "description eq #{MU.deploy_id}"
+            )
+pp resp
+            if !resp.nil? and !resp.items.nil?
+              resp.items.each { |scaler|
+                MU.log "Removing autoscaler #{scaler.name}"
+                MU::Cloud::Google.compute.delete_region_autoscaler(
+                  flags["project"],
+                  region,
+                  scaler.name
+                ) if !noop
+              }
+            end
 
-# XXX some kind of lag with this guy, probably waiting for a dependency to
-# finish dying (individual instances?); block until this can die a dignified
-# death
-          resp = MU::Cloud::Google.compute.list_instance_templates(
-            flags["project"],
-            filter: "description eq #{MU.deploy_id}"
-          )
-          if !resp.nil? and !resp.items.nil?
-            resp.items.each { |template|
-              begin
+            resp = MU::Cloud::Google.compute.list_region_instance_group_managers(
+              flags["project"],
+              region,
+              filter: "description eq #{MU.deploy_id}"
+            )
+            if !resp.nil? and !resp.items.nil?
+              resp.items.each { |mgr|
+                MU.log "Removing instance group manager #{mgr.name}"
+                MU::Cloud::Google.compute.delete_region_instance_group_manager(
+                  flags["project"],
+                  region,
+                  mgr.name
+                ) if !noop
+              }
+            end
+          else
+            resp = MU::Cloud::Google.compute.list_instance_templates(
+              flags["project"],
+              filter: "description eq #{MU.deploy_id}"
+            )
+            if !resp.nil? and !resp.items.nil?
+              resp.items.each { |template|
+                retries = 0
+                MU.log "Removing instance template #{template.name}"
                 MU::Cloud::Google.compute.delete_instance_template(
                   flags["project"],
                   template.name
                 ) if !noop
-              rescue ::Google::Apis::ClientError => e
-                # These are cross-regional resources, ignore if we're
-                # unwittingly trying to double-delete something.
-                next if e.message.match(/resourceNotReady:/)
-              end
-            }
+              }
+            end
           end
 
         end
