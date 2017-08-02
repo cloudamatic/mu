@@ -142,7 +142,7 @@ end
   end
 }
 
-execute "restorecon -R /var/log/nagios"
+execute "/sbin/restorecon -R /var/log/nagios"
 
 # The Nagios cookbook currently screws up this setting, so work around it.
 execute "sed -i s/^interval_length=.*/interval_length=1/ || echo 'interval_length=1' >> /etc/nagios/nagios.cfg" do
@@ -213,4 +213,5 @@ nagios_command 'service_notify_by_sms_email' do
 end
 
 execute "chgrp nrpe /etc/nagios/nrpe.d/*"
+execute "/sbin/restorecon /etc/nagios/nrpe.cfg"
 include_recipe "mu-master::init" # gem permission fixes, mainly
