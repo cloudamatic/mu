@@ -339,6 +339,9 @@ if !node.update_nagios_only
     notifies :restart, "service[rsyslog]", :delayed
   end
 
+  execute "echo '/sbin/restorecon -r /home' >> /etc/rc.d/rc.local" do
+    not_if "grep '^/sbin/restorecon -r /home' /etc/rc.d/rc.local"
+  end
   execute "echo '/opt/chef/bin/chef-client' >> /etc/rc.d/rc.local" do
     not_if "grep ^/opt/chef/bin/chef-client /etc/rc.d/rc.local"
   end
