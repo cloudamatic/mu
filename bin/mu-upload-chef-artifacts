@@ -128,7 +128,18 @@ add_berkshelf_cookbooks()
 
   if [ "$MU_DEPRESOLVE" == "1" ];then
     echo "${GREEN}Resolving standard Mu cookbook dependencies in $repodir/Berksfile${NORM}"
-    rm -f $repodir/Berksfile.lock && $berks install > /dev/null
+    if [ -f "$repodir/Berksfile.lock" ];then
+      mv -f "$repodir/Berksfile.lock" "$repodir/Berksfile.lock.prev"
+    fi
+    if ! $berks install > /dev/null;then
+      echo "${RED}berks install failed on $repodir/Berksfile${NORM}"
+      if [ -f "$repodir/Berksfile.lock.prev" ];then
+        echo "${YELLOW}Reverting $repodir/Berksfile.lock${NORM}"
+        mv -f $repodir/Berksfile.lock.prev $repodir/Berksfile.lock
+      fi
+    else
+      rm -f $repodir/Berksfile.lock.prev
+    fi
   else
     # Only update Berksfile.lock if it's out of whack
     $berks list -F json 2>&1 | grep "lockfile is out of sync" && ( rm -f $repodir/Berksfile.lock ~/.berkshelf/cookbooks && $berks install > /dev/null )
