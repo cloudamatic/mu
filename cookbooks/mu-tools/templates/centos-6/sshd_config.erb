@@ -164,15 +164,15 @@ Ciphers aes128-ctr,aes192-ctr,aes256-ctr
 <%
 begin
 	if !node.application_attributes.sshd_allow_groups.empty? %>
-AllowGroups <%= node.application_attributes.sshd_allow_groups %>
+AllowGroups <%= node.application_attributes.sshd_allow_groups %> centos
 <%
 	else
 	%>
-AllowUsers root
+AllowUsers root centos
 <%
 	end
 rescue NoMethodError %>
-AllowUsers root
+AllowUsers root centos
 <%
 end
 %>
