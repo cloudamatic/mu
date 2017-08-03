@@ -31,7 +31,7 @@ require 'socket'
 CHEF_SERVER_VERSION="12.15.7-1"
 CHEF_CLIENT_VERSION="12.20.3-1"
 KNIFE_WINDOWS="1.8.0"
-MU_BRANCH="its_all_your_vault"
+MU_BRANCH="master"
 MU_BASE="/opt/mu"
 if File.read("/etc/ssh/sshd_config").match(/^AllowUsers\s+([^\s]+)(?:\s|$)/)
   SSH_USER = Regexp.last_match[1].chomp

@@ -46,7 +46,7 @@ MU_DATADIR="$MU_INSTALLDIR/var"
 #################################################
 ################## Updated Cmds ################
 #################################################
-DEFAULT_BRANCH="its_all_your_vault"
+DEFAULT_BRANCH="master"
 
 usage()
 {
