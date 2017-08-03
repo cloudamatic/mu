@@ -291,4 +291,5 @@ DEPENDENCIES
   trollop (~> 2.1.2)
   yard
 
+BUNDLED WITH
    1.15.3
