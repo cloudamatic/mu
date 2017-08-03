@@ -125,24 +125,48 @@ add_berkshelf_cookbooks()
   berksdir="$user_home/.berkshelf"
   berks="/usr/local/ruby-current/bin/ruby /usr/local/ruby-current/bin/berks"
   cd $repodir
+  is_synced="`$berks list -F json 2>&1 | grep 'lockfile is out of sync'`"
 
-  if [ "$MU_DEPRESOLVE" == "1" ];then
-    echo "${GREEN}Resolving standard Mu cookbook dependencies in $repodir/Berksfile${NORM}"
+  if [ "$MU_DEPRESOLVE" == "1" -o "$is_synced" != "" ];then
+    # The cleansing fire for Berksfile.lock and ~/.berkshelf/cookbooks
+    if [ "$MU_DEPRESOLVE" == "1" ];then
+      echo "${GREEN}Resolving standard Mu cookbook dependencies in $repodir/Berksfile${NORM}"
+    else
+      echo "${GREEN}Attempting to update $repodir/Berksfile.lock${NORM}"
+    fi
     if [ -f "$repodir/Berksfile.lock" ];then
       mv -f "$repodir/Berksfile.lock" "$repodir/Berksfile.lock.prev"
     fi
-    if ! $berks install > /dev/null;then
+    if [ -d ~/.berkshelf/cookbooks ];then
+      rm -rf ~/.berkshelf/cookbooks.prev
+      mv -f ~/.berkshelf/cookbooks ~/.berkshelf/cookbooks.prev
+    fi
+
+    if ! $berks install > /dev/null ;then
       echo "${RED}berks install failed on $repodir/Berksfile${NORM}"
       if [ -f "$repodir/Berksfile.lock.prev" ];then
         echo "${YELLOW}Reverting $repodir/Berksfile.lock${NORM}"
         mv -f $repodir/Berksfile.lock.prev $repodir/Berksfile.lock
       fi
+      if [ -d ~/.berkshelf/cookbooks.prev ];then
+        mv -f ~/.berkshelf/cookbooks.prev ~/.berkshelf/cookbooks
+      fi
     else
+      echo "${GREEN}Rebuilt $repodir/Berksfile.lock${NORM}"
       rm -f $repodir/Berksfile.lock.prev
+      rm -rf ~/.berkshelf/cookbooks.prev
     fi
   else
-    # Only update Berksfile.lock if it's out of whack
-    $berks list -F json 2>&1 | grep "lockfile is out of sync" && ( rm -f $repodir/Berksfile.lock ~/.berkshelf/cookbooks && $berks install > /dev/null )
+    # just make sure ~/.berkshelf/cookbooks isn't missing pieces
+    $berks install
+  fi
+
+  is_synced="`$berks list -F json 2>&1 | grep 'lockfile is out of sync'`"
+  if [ "$is_synced" != "" ];then
+    echo "${RED}$repodir/Berksfile.lock still out of sync after install, bailing${NORM}"
+    $berks install -d
+    $berks upload -d
+    exit 1
   fi
 
   for name in $($berks list -F json | jq -r '.cookbooks | .[] | .name');do
@@ -153,8 +177,6 @@ add_berkshelf_cookbooks()
       fi
     fi
   done
-
-  cd $repodir && $berks install
 
   if [ "$nopurge" == "" -a "$all" != "1" ];then
     echo "${GREEN}Purging old Chef resources derived from Berkshelf${NORM}"
@@ -167,7 +189,7 @@ add_berkshelf_cookbooks()
   fi
 
   echo ""
-  echo "${GREEN}Installing Berkshelf Chef cookbooks from ${BOLD}$repodir${NORM}${GREEN} to Chef Server${NORM}"
+  echo "${GREEN}Uploading Berkshelf Chef cookbooks from ${BOLD}$repodir${NORM}"
 
   if [ "$match" == "" ];then
     cd $repodir && $berks upload --no-freeze || exit 1
