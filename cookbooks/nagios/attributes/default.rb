@@ -1,10 +1,10 @@
 #
 # Author:: Seth Chisamore <schisamo@getchef.com>
-# Author:: Tim Smith <tim@cozy.co>
+# Author:: Tim Smith <tsmith@chef.io>
 # Cookbook Name:: nagios
 # Attributes:: default
 #
-# Copyright 2011-2013, Chef Software, Inc.
+# Copyright 2011-2016, Chef Software, Inc.
 # Copyright 2013-2014, Limelight Networks, Inc
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -34,11 +34,7 @@ case node['platform_family']
 when 'debian'
   default['nagios']['plugin_dir'] = '/usr/lib/nagios/plugins'
 when 'rhel', 'fedora'
-  if node['kernel']['machine'] == 'i686'
-    default['nagios']['plugin_dir'] = '/usr/lib/nagios/plugins'
-  else
-    default['nagios']['plugin_dir'] = '/usr/lib64/nagios/plugins'
-  end
+  default['nagios']['plugin_dir'] = node['kernel']['machine'] == 'i686' ? '/usr/lib/nagios/plugins' : '/usr/lib64/nagios/plugins'
 else
   default['nagios']['plugin_dir'] = '/usr/lib/nagios/plugins'
 end
@@ -53,7 +49,7 @@ when 'rhel', 'fedora'
   default['nagios']['log_dir']       = '/var/log/nagios'
   default['nagios']['cache_dir']     = '/var/log/nagios'
   default['nagios']['state_dir']     = '/var/log/nagios'
-  default['nagios']['run_dir']       = '/var/run'
+  default['nagios']['run_dir']       = '/var/run/nagios'
   default['nagios']['docroot']       = '/usr/share/nagios/html'
   default['nagios']['cgi-bin']       = '/usr/lib64/nagios/cgi-bin/'
 else
@@ -79,11 +75,8 @@ when 'debian'
 when 'rhel', 'fedora'
   default['nagios']['cgi-path'] = '/nagios/cgi-bin/'
   # install via source on RHEL releases less than 6, otherwise use packages
-  if node['platform_family'] == 'rhel' && node['platform_version'].to_i < 6
-    default['nagios']['server']['install_method'] = 'source'
-  else
-    default['nagios']['server']['install_method'] = 'package'
-  end
+  method = node['platform_family'] == 'rhel' && node['platform_version'].to_i < 6 ? 'source' : 'package'
+  default['nagios']['server']['install_method'] = method
   default['nagios']['server']['service_name']   = 'nagios'
   default['nagios']['server']['mail_command']   = '/bin/mail'
 else
@@ -112,8 +105,8 @@ else
 end
 
 # for server from source installation
-default['nagios']['server']['url']       = 'http://iweb.dl.sourceforge.net/project/nagios/nagios-4.x/nagios-4.0.8/nagios-4.0.8.tar.gz'
-default['nagios']['server']['checksum']  = '8b268d250c97851775abe162f46f64724f95f367d752ae4630280cc5d368ca4b'
+default['nagios']['server']['url']       = 'https://assets.nagios.com/downloads/nagioscore/releases/nagios-4.2.4.tar.gz'
+default['nagios']['server']['checksum']  = 'b0055c475683ce50d77b1536ff0cec9abf89139adecf771601fa021ef9a20b70'
 default['nagios']['server']['src_dir']   = node['nagios']['server']['url'].split('/')[-1].chomp('.tar.gz')
 default['nagios']['server']['patches']   = []
 default['nagios']['server']['patch_url'] = nil
@@ -232,3 +225,4 @@ default['apache']['mpm'] = 'prefork'
 
 # attribute to add commands to source build
 default['nagios']['source']['add_build_commands'] = ['make install-exfoliation']
+default['nagios']['allowed_ips'] = []

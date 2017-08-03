@@ -19,7 +19,6 @@
 
 require_relative 'base'
 
-# rubocop:disable ClassLength
 class Nagios
   #
   # This class holds all methods with regard to contact options,
@@ -102,7 +101,6 @@ class Nagios
       end
     end
 
-    # rubocop:disable MethodLength
     def pop(obj)
       return if obj == self
       case obj
@@ -199,7 +197,6 @@ class Nagios
 
     private
 
-    # rubocop:disable MethodLength
     def config_options
       {
         'name'                          => 'name',
@@ -221,7 +218,7 @@ class Nagios
         'can_submit_commands'           => 'can_submit_commands',
         'retain_status_information'     => 'retain_status_information',
         'retain_nonstatus_information'  => 'retain_nonstatus_information',
-        'register'                      => 'register'
+        'register'                      => 'register',
       }
     end
 

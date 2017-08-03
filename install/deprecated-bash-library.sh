@@ -22,7 +22,7 @@ EPEL_RPM="http://mirror.metrocast.net/fedora/epel/epel-release-latest-$DIST_VERS
 CHEF_CLIENT_VERSION="12.17.44-1"
 CHEF_SERVER_VERSION="12.11.1-1"
 
-if [ $DIST_VERSION == 7 ];then
+if [ "$DIST_VERSION" == "7" ];then
   # mariadb replaces mysql, qt and qt-x11 are required by gecode which is required by the dep_selector gem. 
   PACKAGES="git curl vim-enhanced zip unzip java-1.8.0-openjdk gcc gcc-c++ make libxml2-devel libxslt-devel cryptsetup-luks python-pip lsof mlocate strace nmap openssl-devel readline-devel python-devel ImageMagick-devel diffutils patch bind-utils httpd-tools gecode-devel mailx postgresql-devel openssl libyaml graphviz graphviz-devel mariadb mariadb-devel qt qt-x11 iptables-services jq"
   DEL_PACKAGES="nagios firewalld"
@@ -89,13 +89,13 @@ usage()
 }
 
 _me="`basename $0`"
-if  [ "$_me" == "mu-configure" ];then
-  chef_artifacts_uploaded=1
-  if [ -d "$MU_LIBDIR/.git" ]; then
-    cd $MU_LIBDIR
-    MUBRANCH="`git branch 2>/dev/null | egrep '^\*' |cut -d' ' -f2`"
-  fi
-fi
+#if  [ "$_me" == "mu-configure" ];then
+#  chef_artifacts_uploaded=1
+#  if [ -d "$MU_LIBDIR/.git" ]; then
+#    cd $MU_LIBDIR
+#    MUBRANCH="`git branch 2>/dev/null | egrep '^\*' |cut -d' ' -f2`"
+#  fi
+#fi
 
 if [ "$_me" == "mu-self-update" ];then
   library=1
@@ -156,7 +156,7 @@ if [ "$MU_SSL_CHAIN" == "" ];then
 fi
 HOMEDIR="`getent passwd \"$USER\" |cut -d: -f6`"
 MU_CHEF_CACHE="$HOMEDIR/.chef"
-if [ "$MU_DATADIR" == "" ];then
+if [ -z $MU_DATADIR ];then
   if [ "$USER" != "root" ];then
     MU_DATADIR="$HOMEDIR/.mu"
   else
@@ -1461,17 +1461,17 @@ install_mu_executables()
 
   status_message "Installing/updating Mu executables"
 
-  if [ "$_me" == "mu-self-update" ];then
+#  if [ "$_me" == "mu-self-update" ];then
 # XXX need to test this a different way
-    if [ "`diff $MU_LIBDIR/bin/$_me $MU_INSTALLDIR/bin/$_me`" != "" -o "`diff $MU_LIBDIR/install/mu_setup $MU_INSTALLDIR/bin/mu-configure`" != "" ];then
-      status_message "We're updating $_me, and $_me has changed." "Re-invoking as ${BOLD}$MU_LIBDIR/bin/$_me $@${NORM}"
-      /bin/cp -f $MU_LIBDIR/bin/$_me $MU_INSTALLDIR/bin/$_me
-      /bin/cp -f $MU_LIBDIR/install/mu_setup $MU_INSTALLDIR/bin/mu-configure
-      chmod 0755 $MU_INSTALLDIR/bin/$_me $MU_INSTALLDIR/bin/mu-configure
-      exec $MU_LIBDIR/bin/$_me $1 $2 $3 $4 $5 $6 $7 $8 $9
-      exit
-    fi
-  fi
+#    if [ "`diff $MU_LIBDIR/bin/$_me $MU_INSTALLDIR/bin/$_me`" != "" -o "`diff $MU_LIBDIR/install/mu_setup $MU_INSTALLDIR/bin/mu-configure`" != "" ];then
+#      status_message "We're updating $_me, and $_me has changed." "Re-invoking as ${BOLD}$MU_LIBDIR/bin/$_me $@${NORM}"
+#      /bin/cp -f $MU_LIBDIR/bin/$_me $MU_INSTALLDIR/bin/$_me
+#      /bin/cp -f $MU_LIBDIR/install/mu_setup $MU_INSTALLDIR/bin/mu-configure
+#      chmod 0755 $MU_INSTALLDIR/bin/$_me $MU_INSTALLDIR/bin/mu-configure
+#      exec $MU_LIBDIR/bin/$_me $1 $2 $3 $4 $5 $6 $7 $8 $9
+#      exit
+#    fi
+#  fi
 
   rm -rf $MU_INSTALLDIR/bin/*
 
@@ -1485,7 +1485,7 @@ install_mu_executables()
   done
 
   /bin/cp -f $MU_LIBDIR/bin/mu-self-update $MU_INSTALLDIR/bin/mu-self-update
-  /bin/cp -f $MU_LIBDIR/install/mu_setup $MU_INSTALLDIR/bin/mu-configure
+#  /bin/cp -f $MU_LIBDIR/install/mu_setup $MU_INSTALLDIR/bin/mu-configure
   chmod 0755 $MU_INSTALLDIR/bin/mu-self-update $MU_INSTALLDIR/bin/mu-configure
 
   # ...and make sure the flippin' link to mu-cli-lib.rb is right.

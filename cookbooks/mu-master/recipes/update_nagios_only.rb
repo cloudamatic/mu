@@ -18,6 +18,7 @@
 
 include_recipe "nagios::server_source"
 include_recipe "nagios"
+include_recipe 'mu-master::firewall-holes'
 
 if $MU_CFG.has_key?('ldap')
   include_recipe 'chef-vault'
@@ -137,10 +138,11 @@ end
 ["/etc/nagios/conf.d/", "/etc/nagios/*.cfg", "/var/run/nagios.pid"].each { |dir|
   execute "/sbin/restorecon -R #{dir}" do
     not_if "ls -aZ #{dir} | grep ':nagios_etc_t:'"
+    only_if { ::File.exists?(dir) }
   end
 }
 
-execute "restorecon -R /var/log/nagios"
+execute "/sbin/restorecon -R /var/log/nagios"
 
 # The Nagios cookbook currently screws up this setting, so work around it.
 execute "sed -i s/^interval_length=.*/interval_length=1/ || echo 'interval_length=1' >> /etc/nagios/nagios.cfg" do
@@ -194,11 +196,22 @@ nrpe_check "check_mem" do
   action :add
 end
 
-nrpe_check "check_disk" do
-  command "#{node['nrpe']['plugin_dir']}/check_disk"
-  warning_condition '15%'
-  critical_condition '5%'
-  action :add
+nagios_command 'host_notify_by_email' do
+  options 'command_line' => '/usr/bin/printf "%b" "$LONGDATETIME$\n\n$HOSTALIAS$ $NOTIFICATIONTYPE$ $HOSTSTATE$ ('+$MU_CFG['hostname']+')\n\n$HOSTOUTPUT$\n\nLogin: ssh://$HOSTNAME$" | ' + node['nagios']['server']['mail_command'] + ' -s "$NOTIFICATIONTYPE$ - $HOSTALIAS$ $HOSTSTATE$! ('+$MU_CFG['hostname']+')" $CONTACTEMAIL$'
+end
+
+nagios_command 'service_notify_by_email' do
+  options 'command_line' => '/usr/bin/printf "%b" "$LONGDATETIME$ - $SERVICEDESC$ $SERVICESTATE$ ('+$MU_CFG['hostname']+')\n\n$HOSTALIAS$  $NOTIFICATIONTYPE$\n\n$SERVICEOUTPUT$\n\nLogin: ssh://$HOSTNAME$" | ' + node['nagios']['server']['mail_command'] + ' -s "** $NOTIFICATIONTYPE$ - $HOSTALIAS$ - $SERVICEDESC$ - $SERVICESTATE$ ('+$MU_CFG['hostname']+')" $CONTACTEMAIL$'
+end
+
+nagios_command 'host_notify_by_sms_email' do
+  options 'command_line' => '/usr/bin/printf "%b" "$HOSTALIAS$ $NOTIFICATIONTYPE$ $HOSTSTATE$ ('+$MU_CFG['hostname']+')\n\n$HOSTOUTPUT$" | ' + node['nagios']['server']['mail_command'] + ' -s "$HOSTALIAS$ $HOSTSTATE$! ('+$MU_CFG['hostname']+')" $CONTACTPAGER$'
+end
+
+nagios_command 'service_notify_by_sms_email' do
+  options 'command_line' => '/usr/bin/printf "%b" "$SERVICEDESC$ $NOTIFICATIONTYPE$ $SERVICESTATE$ ('+$MU_CFG['hostname']+')\n\n$SERVICEOUTPUT$" | ' + node['nagios']['server']['mail_command'] + ' -s "$HOSTALIAS$ $SERVICEDESC$ $SERVICESTATE$! ('+$MU_CFG['hostname']+')" $CONTACTPAGER$'
 end
 
 execute "chgrp nrpe /etc/nagios/nrpe.d/*"
+execute "/sbin/restorecon /etc/nagios/nrpe.cfg"
+include_recipe "mu-master::init" # gem permission fixes, mainly

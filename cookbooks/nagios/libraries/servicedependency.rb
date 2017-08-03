@@ -17,7 +17,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# rubocop:disable ClassLength
 
 require_relative 'base'
 
@@ -103,7 +102,6 @@ class Nagios
       end
     end
 
-    # rubocop:disable MethodLength
     def pop(obj)
       return if obj == self
       case obj
@@ -187,7 +185,6 @@ class Nagios
 
     private
 
-    # rubocop:disable MethodLength
     def config_options
       {
         'dependency_period'                => 'dependency_period',
@@ -201,7 +198,7 @@ class Nagios
         'hostgroup_name_list'              => 'hostgroup_name',
         'inherits_parent'                  => 'inherits_parent',
         'execution_failure_criteria'       => 'execution_failure_criteria',
-        'notification_failure_criteria'    => 'notification_failure_criteria'
+        'notification_failure_criteria'    => 'notification_failure_criteria',
       }
     end
     # rubocop:enable MethodLength

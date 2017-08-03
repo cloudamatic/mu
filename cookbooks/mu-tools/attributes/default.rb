@@ -17,8 +17,8 @@
 # limitations under the License.
 #
 disk_name_str = Chef::Config[:node_name]
-if disk_name_str == "CAP-MASTER" or disk_name_str == "MU-MASTER" and !node.hostname.nil?
-  disk_name_str = node.hostname
+if disk_name_str == "CAP-MASTER" or disk_name_str == "MU-MASTER" and !node[:hostname].nil?
+  disk_name_str = node[:hostname]
 end rescue NoMethodError
 
 default.os_updates_using_chef = false

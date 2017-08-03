@@ -36,6 +36,7 @@ module MU
           end
           append = ""
           append = " (Chef and local system ONLY)".bold if data['non_ldap']
+          append = append + "(" + data['uid'] + ")" if data.has_key?('uid')
           puts "#{username.bold} - #{data['realname']} <#{data['email']}>"+append
         end
       }
@@ -81,13 +82,14 @@ module MU
       email: nil,
       password: nil,
       admin: false,
+      change_uid: -1,
       orgs: [],
       remove_orgs: []
     )
       create = false
       cur_users = listUsers
       create = true if !cur_users.has_key?(username)
-      if !MU::Master::LDAP.manageUser(username, name: name, email: email, password: password, admin: admin)
+      if !MU::Master::LDAP.manageUser(username, name: name, email: email, password: password, admin: admin, change_uid: change_uid)
         deleteUser(username) if create
         return false
       end
@@ -97,6 +99,7 @@ module MU
       rescue ArgumentError
         return false
       end
+      chef_username ||= username.dup
       %x{/bin/su - #{username} -c "ls > /dev/null"}
       if !MU::Master::Chef.manageUser(chef_username, ldap_user: username, name: name, email: email, admin: admin, orgs: orgs, remove_orgs: remove_orgs) and create
         deleteUser(username) if create
@@ -114,7 +117,7 @@ module MU
           "installdir" => $MU_CFG['installdir']
         }
         File.open(home+"/.murc", "w+", 0640){ |f|
-          f.puts Erubis::Eruby.new(File.read("#{$MU_CFG['libdir']}/install/dot-murc.erb")).result(vars)
+          f.puts Erubis::Eruby.new(File.read("#{$MU_CFG['libdir']}/install/user-dot-murc.erb")).result(vars)
         }
         File.open(home+"/.bashrc", "a"){ |f|
           f.puts "source #{home}/.murc"
@@ -203,7 +206,7 @@ module MU
     def self.listUsers
       if Etc.getpwuid(Process.uid).name != "root" or !Dir.exist?(MU.dataDir+"/users")
         username = Etc.getpwuid(Process.uid).name
-        MU.log "Running without LDAP permissions to list users (#{username}), relying on Mu local cache", MU::NOTICE
+        MU.log "Running without LDAP permissions to list users (#{username}), relying on Mu local cache", MU::DEBUG
         userdir = MU.mainDataDir+"/users/#{username}"
         all_user_data = {}
         all_user_data[username] = {}
@@ -251,12 +254,19 @@ module MU
     # @return [Integer]: The gid of the user's default group
     def self.setLocalDataPerms(user)
       userdir = $MU_CFG['datadir']+"/users/#{user}"
+      retries = 0
+      user = "root" if user == "mu"
       begin
-        gid = Etc.getgrnam("#{user}.mu-user").gid
-        %x{/usr/sbin/usermod -a -G "#{user}.mu-user" "#{user}"}
+        group = user == "root" ? Etc.getgrgid(0) : "#{user}.mu-user"
+        if user != "root"
+          MU.log "/usr/sbin/usermod -a -G '#{group}' '#{user}'", MU::DEBUG
+          %x{/usr/sbin/usermod -a -G "#{group}" "#{user}"}
+        end
         Dir.mkdir(userdir, 2750) if !Dir.exist?(userdir)
 				# XXX mkdir gets the perms wrong for some reason
+        MU.log "/bin/chmod 2750 #{userdir}", MU::DEBUG
         %x{/bin/chmod 2750 #{userdir}}
+        gid = user == "root" ? 0 : Etc.getgrnam(group).gid
         Dir.foreach(userdir) { |file|
           next if file == ".."
           File.chown(nil, gid, userdir+"/"+file)
@@ -267,12 +277,15 @@ module MU
         return gid
       rescue ArgumentError => e
         if $MU_CFG["ldap"]["type"] == "Active Directory"
-          %x{/usr/sbin/groupadd "#{user}.mu-user"}
+          puts %x{/usr/sbin/groupadd "#{user}.mu-user"}
         else
-          MU.log "Got #{e.message} trying to set permissions on local files, will retry", MU::WARN
+          MU.log "Got '#{e.message}' trying to set permissions on local files, will retry", MU::WARN
         end
         sleep 5
-        retry
+        if retries <= 5
+          retries = retries + 1
+          retry
+        end
       end
     end
 

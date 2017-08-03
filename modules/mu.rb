@@ -213,7 +213,7 @@ module MU
   end
 
   # Mu's deployment metadata directory.
-  @myDataDir = File.expand_path(ENV['MU_DATADIR'])
+  @myDataDir = File.expand_path(ENV['MU_DATADIR']) if ENV.has_key?("MU_DATADIR")
   @myDataDir = @@mainDataDir if @myDataDir.nil?
   # Mu's deployment metadata directory.
   def self.dataDir
@@ -296,13 +296,13 @@ module MU
   @@my_public_ip = MU::Cloud::AWS.getAWSMetaData("public-ipv4")
   @@mu_public_addr = @@my_public_ip
   @@mu_public_ip = @@my_public_ip
-  if !ENV['CHEF_PUBLIC_IP'].nil? and !ENV['CHEF_PUBLIC_IP'].empty? and @@my_public_ip != ENV['CHEF_PUBLIC_IP']
-    @@mu_public_addr = ENV['CHEF_PUBLIC_IP']
-    if !ENV['CHEF_PUBLIC_IP'].match(/^\d+\.\d+\.\d+\.\d+$/)
+  if !$MU_CFG.nil? and !$MU_CFG['public_address'].nil? and !$MU_CFG['public_address'].empty? and @@my_public_ip != $MU_CFG['public_address']
+    @@mu_public_addr = $MU_CFG['public_address']
+    if !@@mu_public_addr.match(/^\d+\.\d+\.\d+\.\d+$/)
       resolver = Resolv::DNS.new
-      @@mu_public_ip = resolver.getaddress(ENV['CHEF_PUBLIC_IP']).to_s
+      @@mu_public_ip = resolver.getaddress(@@mu_public_addr).to_s
     else
-      @@mu_public_ip = ENV['CHEF_PUBLIC_IP']
+      @@mu_public_ip = @@mu_public_addr
     end
   elsif !@@my_public_ip.nil? and !@@my_public_ip.empty?
     @@mu_public_addr = @@my_public_ip
@@ -345,6 +345,7 @@ module MU
   # Fetch the email address of a given Mu user
   def self.userEmail(user = MU.mu_user)
     @userlist ||= MU::Master.listUsers
+    user = "mu" if user == "root"
     if Dir.exists?("#{MU.mainDataDir}/users/#{user}")
       return File.read("#{MU.mainDataDir}/users/#{user}/email").chomp
     elsif @userlist.has_key?(user)
@@ -371,25 +372,28 @@ module MU
 
   rcfile = nil
   home = Etc.getpwuid(Process.uid).dir
-  if ENV.include?('MU_INSTALLDIR') and File.readable?(ENV['MU_INSTALLDIR']+"/etc/mu.rc")
+  if ENV.include?('MU_INSTALLDIR') and File.readable?(ENV['MU_INSTALLDIR']+"/etc/mu.rc") and File.size?(ENV['MU_INSTALLDIR']+"/etc/mu.rc")
     rcfile = ENV['MU_INSTALLDIR']+"/etc/mu.rc"
-  elsif File.readable?("/opt/mu/etc/mu.rc")
+  elsif File.readable?("/opt/mu/etc/mu.rc") and File.size?("/opt/mu/etc/mu.rc")
     rcfile = "/opt/mu/etc/mu.rc"
-  elsif File.readable?("#{home}/.murc")
+  elsif File.readable?("#{home}/.murc") and File.size?("#{home}/.murc")
     rcfile = "#{home}/.murc"
   end
-  MU.log "MU::Config loading #{rcfile}", MU::DEBUG
-  File.readlines(rcfile).each { |line|
-    line.strip!
-    name, value = line.split(/=/, 2)
-    name.sub!(/^export /, "")
-    if !value.nil? and !value.empty?
-      value.gsub!(/(^"|"$)/, "")
-      if !value.match(/\$/)
-        @mu_env_vars = "#{@mu_env_vars} #{name}=\"#{value}\""
+  if rcfile
+    MU.log "MU::Config loading #{rcfile}", MU::DEBUG
+    File.readlines(rcfile).each { |line|
+      line.strip!
+      next if !line.match(/^export .*?=/)
+      name, value = line.split(/=/, 2)
+      name.sub!(/^export /, "")
+      if !value.nil? and !value.empty?
+        value.gsub!(/(^"|"$)/, "")
+        if !value.match(/\$/)
+          @mu_env_vars = "#{@mu_env_vars} #{name}=\"#{value}\""
+        end
       end
-    end
-  }
+    }
+  end
 
   # Environment variables which command-line utilities might wish to inherit
   def self.mu_env_vars;
@@ -510,9 +514,8 @@ module MU
     ).subnets
   end
 
-  # The version of Chef we will install on nodes (note- not the same as what
-  # we intall on ourself, which comes from install/mu_setup).
-  @@chefVersion = "12.17.44-1"
+  # The version of Chef we will install on nodes.
+  @@chefVersion = "12.20.3-1"
   # The version of Chef we will install on nodes.
   # @return [String]
   def self.chefVersion;
@@ -520,7 +523,8 @@ module MU
   end
 
   # Mu's SSL certificate directory
-  @@mySSLDir = File.expand_path(ENV['MU_DATADIR']+"/ssl")
+  @@mySSLDir = MU.dataDir+"/ssl" if MU.dataDir
+  @@mySSLDir ||= "/opt/mu/var/ssl"
   # Mu's SSL certificate directory
   # @return [String]
   def self.mySSLDir;
@@ -575,7 +579,7 @@ module MU
   # Return the name of the S3 Mu log and key bucket for this Mu server.
   # @return [String]
   def self.adminBucketName
-    bucketname = ENV['LOG_BUCKET_NAME']
+    bucketname = $MU_CFG['aws']['log_bucket_name']
     if bucketname.nil? or bucketname.empty?
       bucketname = "Mu_Logs_"+Socket.gethostname+"_"+MU::Cloud::AWS.getAWSMetaData("instance-id")
     end

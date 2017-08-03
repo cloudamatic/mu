@@ -19,9 +19,16 @@
 case node.platform_family
   when "rhel"
 
-    service "sshd" do
-      action :nothing
-    end
+    %w{sshd winbind smb messagebus}.each { |svc|
+      begin
+        resources('service['+svc+']')
+      rescue Chef::Exceptions::ResourceNotFound
+        service svc do
+          action :enable
+          only_if { ::File.exists?("/etc/init.d/#{svc}") }
+        end
+      end
+    }
 
     packages = %w(epel-release dbus sssd sssd-ldap sssd-ad authconfig nscd oddjob-mkhomedir krb5-devel)
 
@@ -41,10 +48,6 @@ case node.platform_family
       execute "sed -i 's/--nopidfile//' /usr/lib/systemd/system/messagebus.service && systemctl daemon-reload" do
         only_if "grep '\--nopidfile' /usr/lib/systemd/system/messagebus.service"
       end
-    end
-
-    service "messagebus" do
-      action [:enable, :start]
     end
 
     service "nscd" do
@@ -107,12 +110,13 @@ case node.platform_family
 
     include_recipe 'chef-vault'
     domain_creds = chef_vault_item(node.ad.join_auth[:vault], node.ad.join_auth[:item])
-    node.ad.dc_ips.each { |ip|
+# provider already does this
+#    node[:ad][:dc_ips].each { |ip|
       # XXX there's a more correct way to touch resolv.conf
-      execute "sed -i '2i nameserver #{ip}' /etc/resolv.conf" do
-        not_if "grep #{ip} /etc/resolv.conf"
-      end
-    }
+#      execute "sed -i '2i nameserver #{ip}' /etc/resolv.conf" do
+#        not_if "grep #{ip} /etc/resolv.conf"
+#      end
+#    }
     service "sssd" do
       action :nothing
       notifies :restart, "service[sshd]", :immediately

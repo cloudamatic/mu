@@ -129,18 +129,37 @@ module MU
         @ldap_conn = nil
       end
 
-      # Find a user ID not currently in use from the local system's perspective
-      # XXX this is vulnerable to a race condition, and may not account for
-      # things in the directory
-      def self.allocateUID(user: nil)
-        MU::MommaCat.lock("uid_generator", false, true)
+      # Fetch a list of numeric uids that are already allocated
+      def self.getUsedUids
         used_uids = []
-        Etc.passwd{ |u|
-          if !user.nil? and u.name == user and mu_acct
-            raise MuLDAPError, "Username #{user} already exists as a system user, cannot allocate in directory"
+        if $MU_CFG["ldap"]["type"] == "389 Directory Services"
+          user_filter = Net::LDAP::Filter.ne("objectclass", "computer") & Net::LDAP::Filter.ne("objectclass", "group")
+          conn = getLDAPConnection
+          conn.search(
+            :filter => user_filter,
+            :base => $MU_CFG["ldap"]["base_dn"],
+            :attributes => ["employeeNumber"]
+          ) do |acct|
+            if acct[:employeenumber] and acct[:employeenumber].size > 0
+              used_uids << acct[:employeenumber].first.to_i
+            end
           end
-          used_uids << u.uid
-        }
+        else
+          Etc.passwd{ |u|
+            if !user.nil? and u.name == user and mu_acct
+              raise MuLDAPError, "Username #{user} already exists as a system user, cannot allocate in directory"
+            end
+            used_uids << u.uid
+          }
+        end
+        used_uids
+      end
+
+      # Find a user ID not currently in use from the local system's perspective
+      def self.allocateUID
+        MU::MommaCat.lock("uid_generator", false, true)
+        used_uids = getUsedUids
+
         for x in @uid_range_start..65535 do
           if !used_uids.include?(x)
             MU::MommaCat.unlock("uid_generator", true)
@@ -211,7 +230,9 @@ module MU
       def self.initLocalLDAP
         validateConfig
         if $MU_CFG["ldap"]["type"] != "389 Directory Services" or
-            !$MU_CFG["ldap"]["dcs"].include?("localhost")
+            # XXX this should check all of the IPs and hostnames we're known by
+            (!$MU_CFG["ldap"]["dcs"].include?("localhost") and
+            !$MU_CFG["ldap"]["dcs"].include?("127.0.0.1"))
           MU.log "Custom directory service configured, not initializing bundled schema", MU::NOTICE
           return
         end
@@ -386,7 +407,7 @@ module MU
           if !conn.replace_attribute(dn, field, "foo@bar.com")
             MU.log "Couldn't modify write-test user #{dn} field #{field.to_s}, operating in read-only LDAP mode (#{getLDAPErr})", MU::NOTICE
             @can_write = false
-            break
+            
           end
         }
 
@@ -646,12 +667,12 @@ module MU
               username_filter = Net::LDAP::Filter.eq("cn", cn)
             end
             user_filter = Net::LDAP::Filter.ne("objectclass", "computer") & Net::LDAP::Filter.ne("objectclass", "group")
+            fetchattrs = ["cn", @uid_attr, "displayName", "mail"]
+            fetchattrs << "employeeNumber" if $MU_CFG["ldap"]["type"] == "389 Directory Services"
             conn.search(
               :filter => username_filter & user_filter,
-#              :filter => username_filter,
-#              :base => $MU_CFG["ldap"]["user_ou"],
               :base => $MU_CFG["ldap"]["base_dn"],
-              :attributes => ["cn", @uid_attr, "displayName", "mail"]
+              :attributes => fetchattrs
             ) do |acct|
               next if users.has_key?(acct[@uid_attr].first)
               users[acct[@uid_attr].first] = {}
@@ -666,6 +687,9 @@ module MU
               end rescue NoMethodError
               begin
                 users[acct[@uid_attr].first]['email'] = acct.mail.first
+              end rescue NoMethodError
+              begin
+                users[acct[@uid_attr].first]['uid'] = acct.employeenumber.first
               end rescue NoMethodError
             end
           }
@@ -774,7 +798,7 @@ module MU
       # @param ou [String]: The OU into which to deposit new users.
       # @param disable [Boolean]: Disabled the user's account
       # @param enable [Boolean]: Re-enable the user's account if it's disabled
-      def self.manageUser(user, name: nil, password: nil, email: nil, admin: false, mu_acct: true, unlock: false, ou: $MU_CFG["ldap"]["user_ou"], enable: false, disable: false)
+      def self.manageUser(user, name: nil, password: nil, email: nil, admin: false, mu_acct: true, unlock: false, ou: $MU_CFG["ldap"]["user_ou"], enable: false, disable: false, change_uid: -1)
         cur_users = listUsers
 
         first = last = nil
@@ -821,7 +845,16 @@ module MU
             if $MU_CFG["ldap"]["type"] == "389 Directory Services"
               attr[:objectclass] = ["top", "person", "organizationalPerson", "inetorgperson"]
               attr[:uid] = user
-              attr[:employeeNumber] = allocateUID
+              if change_uid > 0
+                used_uids = getUsedUids
+                if used_uids.include?(change_uid)
+                  raise MuLDAPError, "Uid #{change_uid} is unavailable, cannot allocate to user #{user}"
+                end
+                MU.log "Forcing uid #{change_uid} to user #{user}", MU::NOTICE, details: used_uids
+                attr[:employeeNumber] = change_uid.to_s
+              else
+                attr[:employeeNumber] = allocateUID
+              end
               if mu_acct
                 gid = createGroup("#{user}.mu-user")
                 groups << "#{user}.mu-user"
@@ -874,7 +907,7 @@ module MU
               sleep wait
               wait = wait + 5
               retry
-            end
+            end if user != "mu"
             %x{/sbin/restorecon -r /home} # SELinux stupidity that oddjob misses
             MU::Master.setLocalDataPerms(user) if Etc.getpwuid(Process.uid).name == "root" and mu_acct
           else
@@ -891,6 +924,14 @@ module MU
             if $MU_CFG["ldap"]["type"] == "389 Directory Services"
               # Make sure we have a sensible default gid
               conn.replace_attribute(user_dn, :departmentNumber, gid.to_s)
+              if change_uid > 0
+                used_uids = getUsedUids
+                if used_uids.include?(change_uid)
+                  raise MuLDAPError, "Uid #{change_uid} is unavailable, cannot allocate to user #{user}"
+                end
+                MU.log "Forcing uid #{change_uid} to user #{user}", MU::NOTICE, details: used_uids
+                conn.replace_attribute(user_dn, :employeeNumber, change_uid.to_s)
+              end
             end
             if !name.nil? and cur_users[user]['realname'] != name
               MU.log "Updating display name for #{user} to #{name}", MU::NOTICE
@@ -937,8 +978,8 @@ module MU
           end
         end
         return ok if !mu_acct # everything below is Mu-specific
-        cur_users = MU::Master.listUsers
 
+        cur_users = listUsers
         if cur_users.has_key?(user)
           ["realname", "email", "monitoring_email"].each { |field|
             next if !cur_users[user].has_key?(field)
@@ -949,6 +990,7 @@ module MU
         else
           MU.log "Load of current user list didn't include #{user}, even though we just created them!", MU::WARN
         end
+
         MU::Master.setLocalDataPerms(user) if Etc.getpwuid(Process.uid).name == "root" and mu_acct
         ok
       end

@@ -13,7 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-require File.expand_path(File.dirname(__FILE__))+"/mu-load-murc.rb"
 
 require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 # now we have our global config available as the read-only hash $MU_CFG
@@ -101,7 +100,7 @@ if $opts[:dryrun]
   MU.log("#{$config} loaded successfully.", html: $opts[:web])
   cost_dummy_deploy = MU::Deploy.new(
     $opts[:environment],
-    verbosity: MU::Logger::QUIET,
+    verbosity: MU::Logger::SILENT,
     force_cloudformation: true,
     cloudformation_path: "/dev/null",
     nocleanup: true,
@@ -109,7 +108,7 @@ if $opts[:dryrun]
   )
   begin
     cost_dummy_deploy.run
-  rescue MU::Cloud::MuCloudResourceNotImplemented
+  rescue MU::Cloud::MuCloudResourceNotImplemented, MU::Cloud::MuCloudFlagNotImplemented
     MU.log "Cost calculator not available for this stack, as it uses a resource not implemented in Mu's CloudFormation layer.", MU::WARN
   end
   exit

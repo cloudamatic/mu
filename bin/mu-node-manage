@@ -13,9 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-require File.expand_path(File.dirname(__FILE__))+"/mu-load-murc.rb"
 require 'trollop'
 require 'json'
+require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 require 'mu'
 
 $opts = Trollop::options do
@@ -31,11 +31,11 @@ Usage:
   opt :environment, "Operate exclusively on one nodes with a particular environment (e.g. dev, prod). Can be used in conjunction with -a or -d.", :require => false, :type => :string
   opt :override_chef_runlist, "An alternate runlist to pass to Chef, in chefrun mode.", :require => false, :type => :string
   opt :xecute, "Run a shell command on matching nodes. Overrides --mode and suppresses some informational output in favor of scriptability.", :require => false, :type => :string
-  opt :mode, "Action to perform on matching nodes. Valid actions: groom, chefrun, userdata", :require => false, :default => "chefrun", :type => :string
+  opt :mode, "Action to perform on matching nodes. Valid actions: groom, chefrun, userdata, vaults", :require => false, :default => "chefrun", :type => :string
 end
 
-if !["groom", "chefrun", "basketupdate", "userdata"].include?($opts[:mode])
-  Trollop::die(:mode, "--mode must be one of: groom, chefrun, userdata")
+if !["groom", "chefrun", "vaults", "userdata"].include?($opts[:mode])
+  Trollop::die(:mode, "--mode must be one of: groom, chefrun, userdata, vaults")
 end
 if $opts[:platform] and !["linux", "windows"].include?($opts[:platform])
   Trollop::die(:platform, "--platform must be one of: linux, windows")
@@ -150,10 +150,9 @@ end
 exit 1 if !ok
 
 
-def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [])
+def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [], vaults_only: false)
   badnodes = []
   count = 0
-
   deploys.each { |muid|
     mommacat = MU::MommaCat.new(muid)
     next if mommacat.kittens.nil? or mommacat.kittens['servers'].nil?
@@ -165,7 +164,14 @@ def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [])
           begin
             type = "server"
             type = "server_pool" if server.config.has_key?("basis")
-            mommacat.groomNode(server.cloud_id, nodeclass, type, mu_name: mu_name)
+            if vaults_only
+              next if !server.config.has_key?("vault_access")
+              server.config["vault_access"].each { |v|
+                MU::Groomer::Chef.grantSecretAccess(mu_name, v['vault'], v['item'])
+              }
+            else
+              mommacat.groomNode(server.cloud_id, nodeclass, type, mu_name: mu_name)
+            end
           rescue Exception => e
             MU.log e.inspect, MU::ERR, details: e.backtrace
             exit 1
@@ -461,6 +467,8 @@ if $opts[:xecute]
   runCommand(do_deploys, do_nodes, $opts[:xecute], print_output: true)
 elsif $opts[:mode] == "groom"
   reGroom(do_deploys, do_nodes)
+elsif $opts[:mode] == "vaults"
+  reGroom(do_deploys, do_nodes, vaults_only: true)
 elsif $opts[:mode] == "chefrun"
   if $opts[:override_chef_runlist]
     runCommand(do_deploys, do_nodes, "( chef-client -o '#{$opts[:override_chef_runlist]}' || sudo chef-client -o '#{$opts[:override_chef_runlist]}' || chef-client.bat -o '#{$opts[:override_chef_runlist]}' ) 2>&1")

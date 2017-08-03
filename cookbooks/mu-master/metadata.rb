@@ -17,9 +17,7 @@ license '# Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
 #
 description 'Installs/Configures mu-master'
 long_description IO.read(File.join(File.dirname(__FILE__), 'README.md'))
-version '0.8.1'
-depends 'mu-jenkins'
-depends 'jenkins'
+version '0.9.0'
 depends 'nagios'
 depends 'nrpe'
 depends 'mu-utility'
@@ -30,3 +28,6 @@ depends 'postfix'
 depends 'bind'
 depends 'bind9-ng'
 depends 'mu-firewall'
+depends 'vault-cluster'
+depends 'consul-cluster'
+depends 'hostsfile'

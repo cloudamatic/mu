@@ -65,7 +65,6 @@ class Nagios
       end
     end
 
-    # rubocop:disable MethodLength
     def pop(obj)
       return if obj == self
       case obj
@@ -105,14 +104,14 @@ class Nagios
         'alias'                     => 'alias',
         'notes'                     => 'notes',
         'notes_url'                 => 'notes_url',
-        'action_url'                => 'action_url'
+        'action_url'                => 'action_url',
       }
     end
 
     def convert_hostgroup_hash(hash)
       result = []
-      hash.each do |group_name, group_members|
-        group_members.each do |member|
+      hash.sort.to_h.each do |group_name, group_members|
+        group_members.sort.each do |member|
           result << member
           result << group_name
         end
@@ -124,13 +123,18 @@ class Nagios
       hostgroup_hash = {}
       @members.each do |service_name, service_obj|
         hostgroup_array = []
-        service_obj.hostgroups.each do |_, hostgroup_obj|
-          hostgroup_obj.members.each { |host_name, _| hostgroup_array << host_name }
+        service_obj.hostgroups.each do |hostgroup_name, hostgroup_obj|
+          if service_obj.not_modifiers['hostgroup_name'][hostgroup_name] != '!'
+            hostgroup_array += hostgroup_obj.members.keys
+          else
+            hostgroup_array -= hostgroup_obj.members.keys
+          end
         end
         hostgroup_hash[service_name] = hostgroup_array
       end
       convert_hostgroup_hash(hostgroup_hash)
     end
+    # rubocop:enable MethodLength
 
     def merge_members(obj)
       obj.members.each { |m| push(m) }

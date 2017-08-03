@@ -316,7 +316,9 @@ module MU
           supported_regions = %w{us-west-2 us-east-1 eu-west-1}
           if supported_regions.include?(region)
             begin 
-              storage_pools = MU::Cloud::AWS.efs(region).describe_file_systems.file_systems
+              resp = MU::Cloud::AWS.efs(region).describe_file_systems
+              return if resp.nil? or resp.file_systems.nil?
+              storage_pools = resp.file_systems
             rescue Aws::EFS::Errors::AccessDeniedException
               MU.log "Storage Pools not supported in this account", MU::NOTICE
               return nil

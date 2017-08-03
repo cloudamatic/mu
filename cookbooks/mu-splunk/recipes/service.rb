@@ -55,18 +55,12 @@ if node['splunk']['accept_license'] and node['platform_family'] != 'windows'
   end
 end
 
-def chown_r_splunk(triggerfile, user)
-  ruby_block 'splunk_fix_file_ownership' do
-    block do
-      FileUtils.chown_R(user, user, splunk_dir)
-    end
-    only_if { ::File.stat(triggerfile).uid.eql?(0) }
-  end if node['splunk']['is_server']
-end
 
 if node['platform_family'] != 'windows'
-  chown_r_splunk("#{splunk_dir}/etc/users", myuser)
-  chown_r_splunk(splunk_dir, myuser)
+  if node['splunk']['is_server']
+    chown_r_splunk("#{splunk_dir}/etc/users", myuser)
+    chown_r_splunk(splunk_dir, myuser)
+  end
 
   template '/etc/init.d/splunk' do
     source 'splunk-init.erb'
@@ -78,20 +72,24 @@ if node['platform_family'] != 'windows'
   end
 end
 
-service 'splunk' do
-  if node['platform_family'] == 'windows'
-    service_name 'SplunkForwarder'
-    provider Chef::Provider::Service::Windows
-    timeout 90
-    retries 3
-    retry_delay 10
-    supports :status => false, :restart => false
-    start_command "c:/Windows/system32/sc.exe start SplunkForwarder"
-    stop_command "c:/Windows/system32/sc.exe stop SplunkForwarder"
-    pattern "splunkd.exe"
-  else
-    provider Chef::Provider::Service::Init
-    supports :status => true, :restart => true
+begin
+  resources('service[splunk]')
+rescue Chef::Exceptions::ResourceNotFound
+  service 'splunk' do
+    if node['platform_family'] == 'windows'
+      service_name 'SplunkForwarder'
+      provider Chef::Provider::Service::Windows
+      timeout 90
+      retries 3
+      retry_delay 10
+      supports :status => false, :restart => false
+      start_command "c:/Windows/system32/sc.exe start SplunkForwarder"
+      stop_command "c:/Windows/system32/sc.exe stop SplunkForwarder"
+      pattern "splunkd.exe"
+    else
+      provider Chef::Provider::Service::Init
+      supports :status => true, :restart => true
+    end
+    action :start
   end
-  action :start
 end

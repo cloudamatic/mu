@@ -1,0 +1,42 @@
+#!/usr/local/ruby-current/bin/ruby
+# Copyright:: Copyright (c) 2017 eGlobalTech, Inc., all rights reserved
+#
+# Licensed under the BSD-3 license (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License in the root of the project or at
+#
+#     http://egt-labs.com/mu/LICENSE.html
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# This is a dopey bridge script to support mu-upload-chef-artifacts, the last
+# of our Bourne shell cruft. It expects things to exist in certain env
+# variables, which now live exclusively in mu.yaml. Give it what it wants. This
+# can be removed once mu-upload-chef-artifacts gets its long-overdue rewrite in
+# an adult language.
+require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
+
+keymap = {
+  "installdir" => "MU_INSTALLDIR",
+  "libdir" => "MU_LIBDIR",
+  "repos" => "ADDTL_CHEF_REPOS",
+  "public_address" => "CHEF_PUBLIC_IP"
+}
+
+require 'mu'
+$MU_CFG.each_pair { |key, val|
+  next if key == "datadir"
+  varname = keymap.has_key?(key) ? keymap[key] : key.upcase
+  if val.is_a?(Array)
+    puts varname+"="+val.join(",")
+  elsif val.is_a?(Hash)
+  # too much work
+  else
+    puts "export "+varname+'="'+val.to_s+'"'
+  end
+}
+puts "export PATH=#{$MU_CFG['installdir']}/bin:/usr/local/ruby-current/bin:${PATH}:/opt/opscode/embedded/bin"

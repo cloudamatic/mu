@@ -1,0 +1,52 @@
+#!/bin/sh
+
+CHEF_CLIENT_VERSION="12.20.3-1"
+MU_BRANCH="master"
+
+# XXX All RHEL family. We can at least cover Debian-flavored hosts too, I bet.
+DIST_VERSION=`rpm -qa \*-release\* | grep -Ei "redhat|centos" | cut -d"-" -f3`
+#IS_AMAZON=0
+if [ "$DIST_VERSION" == "" ];then # funny package name in Amazon Linux
+  DIST_VERSION=6
+#  IS_AMAZON=1
+elif [ "$DIST_VERSION" == "server" ];then # funny package name in RHEL6
+  DIST_VERSION="6"
+fi
+
+if [ "$DIST_VERSION" == 7 ];then
+  OPSCODE_CHEF_PKG="chef-server-core-$CHEF_SERVER_VERSION.el7.x86_64"
+  OPSCODE_CHEF_DL="https://packages.chef.io/stable/el/7/${OPSCODE_CHEF_PKG}.rpm"
+  CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el7.x86_64"
+else
+  OPSCODE_CHEF_PKG="chef-server-core-$CHEF_SERVER_VERSION.el6.x86_64"
+  OPSCODE_CHEF_DL="https://packages.chef.io/stable/el/6/${OPSCODE_CHEF_PKG}.rpm"
+  CHEF_CLIENT_PKG="chef-$CHEF_CLIENT_VERSION.el6.x86_64"
+fi
+
+
+if ! /bin/rpm -q curl > /dev/null ;then
+  /usr/bin/yum -y install curl
+fi
+if [ ! -f /opt/chef/bin/chef-apply ];then
+  if /bin/rpm -q $CHEF_CLIENT_PKG > /dev/null ;then
+    /usr/bin/yum -y erase chef || /bin/rpm -e chef
+  fi
+fi
+set -x
+set -e
+if ! /bin/rpm -q $CHEF_CLIENT_PKG > /dev/null ;then
+  # Drop any old Chef packages laying around, first
+  /usr/bin/yum -y erase chef || /bin/rpm -e chef
+  /bin/rm -rf /opt/chef ~/.berkshelf ~/.chef /etc/chef
+  /usr/bin/curl https://www.chef.io/chef/install.sh > /root/chef-install.sh
+  /bin/sh /root/chef-install.sh -v $CHEF_CLIENT_VERSION
+fi
+
+if [ -d /opt/mu/lib/cookbooks/mu-master/recipes ];then
+  /opt/chef/bin/chef-apply /opt/mu/lib/cookbooks/mu-master/recipes/init.rb
+else
+  /usr/bin/curl https://raw.githubusercontent.com/cloudamatic/mu/$MU_BRANCH/cookbooks/mu-master/recipes/init.rb > /root/mu-master-init-recipe.rb
+  /opt/chef/bin/chef-apply /root/mu-master-init-recipe.rb
+fi
+
+/opt/mu/bin/mu-configure $@

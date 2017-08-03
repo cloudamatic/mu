@@ -15,18 +15,14 @@
 # This library deals with volume creation and mounting
 
 
-if ENV.include?('MU_INSTALLDIR')
-  require "#{ENV['MU_INSTALLDIR']}/bin/mu-load-murc.rb"
-elsif File.readable?("/opt/mu/bin/mu-load-murc.rb")
-  require "/opt/mu/bin/mu-load-murc.rb"
-end
-
 # Sets the $MU_CFG hash
 if ENV.include?('MU_LIBDIR')
   require "#{ENV['MU_LIBDIR']}/modules/mu-load-config.rb"
 elsif ENV.include?('MU_INSTALLDIR')
   require "#{ENV['MU_INSTALLDIR']}/lib/modules/mu-load-config.rb"
 elsif File.readable?("/opt/mu/lib/modules/mu-load-config.rb")
+  ENV['MU_INSTALLDIR'] = "/opt/mu"
+  ENV['MU_LIBDIR'] = "/opt/mu/lib"
   require "/opt/mu/lib/modules/mu-load-config.rb"
 end
 

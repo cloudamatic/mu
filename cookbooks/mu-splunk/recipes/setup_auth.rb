@@ -19,7 +19,7 @@
 #
 include_recipe 'chef-vault'
 
-splunk_auth_info = chef_vault_item(node.splunk.auth.data_bag, node.splunk.auth.data_bag_item)['auth']
+splunk_auth_info = chef_vault_item(node[:splunk][:auth][:data_bag], node[:splunk][:auth][:data_bag_item])['auth']
 user, pw = splunk_auth_info.split(':')
 
 

@@ -17,12 +17,17 @@
 # limitations under the License.
 
 if !node[:application_attributes][:skip_recipes].include?('rsyslog')
-  case node.platform_family
+  case node[:platform_family]
   when "rhel", "debian"
     package "rsyslog"
     package "rsyslog-gnutls"
+    execute "chcon -R -h -t var_log_t /Mu_Logs" do
+      action :nothing
+      only_if { ::Dir.exists?("/Mu_Logs") }
+    end
     service "rsyslog" do
       action [:enable, :start]
+      notifies :run, "execute[chcon -R -h -t var_log_t /Mu_Logs]", :immediately
     end
     if platform_family?("rhel")
       $rsyslog_ssl_ca_path = "/etc/pki/Mu_CA.pem"
@@ -39,12 +44,22 @@ if !node[:application_attributes][:skip_recipes].include?('rsyslog')
       $rsyslog_ssl_ca_path = "/etc/ssl/Mu_CA.pem"
       package "policycoreutils"
     end
-    template "/etc/rsyslog.d/0-mu-log-client.conf" do
-      source "0-mu-log-client.conf.erb"
-      notifies :restart, "service[rsyslog]", :delayed
-    end
-    cookbook_file "Mu_CA.pem" do
-      path $rsyslog_ssl_ca_path
+
+    if node.name != "MU-MASTER" # XXX I'm sure we can come up with a smarter condition than this
+      master_ips = get_mu_master_ips
+# XXX This should prefer a master IP that's in our private subnet, and also
+# be able to tell which ones are private and which are public.
+      template "/etc/rsyslog.d/0-mu-log-client.conf" do
+        source "0-mu-log-client.conf.erb"
+        variables(
+          :syslog_server => master_ips.last,
+          :ssl_ca_path => $rsyslog_ssl_ca_path
+        )
+        notifies :restart, "service[rsyslog]", :delayed
+      end
+      cookbook_file "Mu_CA.pem" do
+        path $rsyslog_ssl_ca_path
+      end
     end
   end
 end

@@ -25,7 +25,9 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
   
   
       %w{ policycoreutils-python authconfig ntp aide }.each do |pkg|
-        package pkg
+        package "apply_security package #{pkg}" do
+          package_name pkg
+        end
       end
   
       service "auditd" do
@@ -183,8 +185,12 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
       end
   
       # 6.2 Configure SSH
-      service "sshd" do
-        action [:enable, :start]
+      begin
+        resources('service[sshd]')
+      rescue Chef::Exceptions::ResourceNotFound
+        service "sshd" do
+          action [:enable, :start]
+        end
       end
   
       # Make sure we don't lock ourselves out of nodes when setting AllowGroups
@@ -192,7 +198,8 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
       if !node.application_attributes.sshd_allow_groups.empty?
         group "mu_sshd_system_login"
         ['root', 'centos', 'ec2-user'].each { |sys_login|
-          group "mu_sshd_system_login" do
+          group "add #{sys_login} to mu_sshd_system_login" do
+            group_name "mu_sshd_system_login"
             members sys_login
             append true
             ignore_failure true

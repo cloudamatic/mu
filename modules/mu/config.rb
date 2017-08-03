@@ -504,11 +504,12 @@ module MU
       @config.merge!(param_cfg)
 
       if !@config.has_key?('admins') or @config['admins'].size == 0
-        if MU.chef_user == "mu"
-          @config['admins'] = [{"name" => "Mu Administrator", "email" => ENV['MU_ADMIN_EMAIL']}]
-        else
-          @config['admins'] = [{"name" => MU.userName, "email" => MU.userEmail}]
-        end
+        @config['admins'] = [
+          {
+            "name" => MU.chef_user == "mu" ? "Mu Administrator" : MU.userName,
+            "email" => MU.userEmail
+          }
+        ]
       end
       MU::Config.set_defaults(@config, MU::Config.schema)
       validate
@@ -1271,11 +1272,12 @@ module MU
 
     def validate(config = @config)
       ok = true
+      plain_cfg = MU::Config.manxify(Marshal.load(Marshal.dump(config)))
       begin
-        JSON::Validator.validate!(MU::Config.schema, config)
+        JSON::Validator.validate!(MU::Config.schema, plain_cfg)
       rescue JSON::Schema::ValidationError => e
         # Use fully_validate to get the complete error list, save some time
-        errors = JSON::Validator.fully_validate(MU::Config.schema, config)
+        errors = JSON::Validator.fully_validate(MU::Config.schema, plain_cfg)
         realerrors = []
         errors.each { |err|
           if !err.match(/The property '.+?' of type MU::Config::Tail did not match the following type:/)
@@ -1459,11 +1461,12 @@ module MU
               raise e
             end
           end
-          # XXX NetAddr::CIDR wants to allocate evenly-sized subnets because it's
-          # annoying, so we end up using the IP space inefficiently. Lop off the 
-          # extra subnets we end up with and don't want. It would be nice if we just
-          # did all this math ourselves and better.
-          subnets.slice!(10,subnets.size-1) if subnets.size > 10
+
+          # XXX NetAddr::CIDR wants to allocate evenly-sized subnets because
+          # it's annoying, so we end up using the IP space inefficiently. Lop
+          # off the extra subnets we end up with and don't want. It would be
+          # nice if we just did all this math ourselves and better.
+          subnets.slice!(vpc['availability_zones'].size*2,subnets.size-1) if subnets.size > vpc['availability_zones'].size*2
 
           subnets = getTail("subnetblocks", value: subnets.join(","), cloudtype: "CommaDelimitedList", description: "IP Address ranges to be used for VPC subnets", prettyname: "SubnetIpBlocks", list_of: "ip_block").map { |tail| tail["ip_block"] }
           vpc['subnets'] = []
@@ -1780,16 +1783,16 @@ module MU
         end
 
         lb['listeners'].each { |listener|
-          if !listener["ssl_certificate_name"].nil? and !listener["ssl_certificate_name"].empty?
+          if (!listener["ssl_certificate_name"].nil? and !listener["ssl_certificate_name"].empty?) or
+             (!listener["ssl_certificate_id"].nil? and !listener["ssl_certificate_id"].empty?)
             if lb['cloud'] == "AWS"
-              resp = MU::Cloud::AWS.iam.get_server_certificate(server_certificate_name: listener["ssl_certificate_name"].to_s)
-              if resp.nil?
-                MU.log "Requested SSL certificate #{listener["ssl_certificate_name"]}, but no such cert exists", MU::ERR
+              begin
+                listener["ssl_certificate_id"] = MU::Cloud::AWS.findSSLCertificate(name: listener["ssl_certificate_name"].to_s, id: listener["ssl_certificate_id"].to_s)
+              rescue MuError => e
                 ok = false
-              else
-                listener["ssl_certificate_id"] = resp.server_certificate.server_certificate_metadata.arn
-                MU.log "Using SSL cert #{listener["ssl_certificate_id"]} on port #{listener['lb_port']} in ELB #{lb['name']}"
+                next
               end
+              MU.log "Using SSL cert #{listener["ssl_certificate_id"]} on port #{listener['lb_port']} in ELB #{lb['name']}"
             end
           end
         }
@@ -1834,7 +1837,7 @@ module MU
                 proto = ["HTTP", "HTTPS"].include?(hc_target[1]) ? hc_target[1] : l["instance_protocol"]
                 tg['healthcheck']['target'] = "#{proto}:#{hc_target[2]}#{hc_target[3]}"
                 tg['healthcheck']["httpcode"] = "200,301,302"
-                MU.log "Classic-style ELB health check target #{lb['healthcheck']['target']} invalid for ALB targetgroup #{tgname} (#{l["instance_protocol"]}:#{l["instance_port"]}). Creating approximate configuration:", MU::WARN, details: tg['healthcheck']
+                MU.log "Converting classic-style ELB health check target #{lb['healthcheck']['target']} to ALB style for target group #{tgname} (#{l["instance_protocol"]}:#{l["instance_port"]}).", details: tg['healthcheck']
               end
               lb["targetgroups"] << tg
             }
@@ -5428,7 +5431,13 @@ module MU
                   },
                   "ssl_certificate_id" => {
                     "type" => "string",
-                    "description" => "The ARN string of a server certificate."
+                    "description" => "The ARN string of an Amazon IAM server certificate."
+                  },
+                  "tls_policy" => {
+                    "type" => "string",
+                    "description" => "Lowest level of TLS to support.",
+                    "default" => "tls1.2",
+                    "enum" => ["tls1.0", "tls1.1", "tls1.2"]
                   },
                   "rules" => {
                     "type" => "array",

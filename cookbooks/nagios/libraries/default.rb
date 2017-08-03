@@ -1,6 +1,6 @@
 #
 # Author:: Joshua Sierles <joshua@37signals.com>
-# Author:: Tim Smith <tim@cozy.co>
+# Author:: Tim Smith <tsmith@chef.io>
 # Cookbook Name:: nagios
 # Library:: default
 #
@@ -24,7 +24,7 @@ end
 
 def nagios_interval(seconds)
   if seconds.to_i == 0
-    fail ArgumentError, 'Specified nagios interval of 0 seconds is not allowed'
+    raise ArgumentError, 'Specified nagios interval of 0 seconds is not allowed'
   end
   interval = seconds
   if node['nagios']['conf']['interval_length'].to_i != 1
@@ -49,7 +49,7 @@ def nagios_action_delete?(action)
   elsif action.is_a?(Array)
     return true if action.include?(:delete) || action.include?(:remove)
   else
-    return false
+    false
   end
 end
 
@@ -59,7 +59,7 @@ def nagios_action_create?(action)
   elsif action.is_a?(Array)
     return true if action.include?(:create) || action.include?(:add)
   else
-    return false
+    false
   end
 end
 

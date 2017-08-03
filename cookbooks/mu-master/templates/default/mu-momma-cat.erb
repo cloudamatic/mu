@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
+# Copyright:: Copyright (c) 2017 eGlobalTech, Inc., all rights reserved
 #
 # Licensed under the BSD-3 license (the "License");
 # you may not use this file except in compliance with the License.
@@ -50,14 +50,10 @@ if [ "$USER" != "root" ];then
 	exit 1
 fi
 HOMEDIR="`eval echo ~$USER`"
-if [ "$CHEF_PUBLIC_IP" = "" -o "$MU_DATADIR" == "" ];then
-	if [ -f /opt/mu/etc/mu.rc ];then
-		source /opt/mu/etc/mu.rc
-	fi
-	if [ -f $HOMEDIR/.murc ];then
-		source $HOMEDIR/.murc
-	fi
-fi
+
+MU_INSTALLDIR="<%= @installdir %>"
+MU_SSL_CERT="<%= @ssl_cert %>"
+MU_SSL_KEY="<%= @ssl_key %>"
 if [ -z $MU_LIBDIR ];then
 	if [ -z $MU_INSTALLDIR ];then
 		echo "MU_LIBDIR and MU_INSTALLDIR are unset, I don't know where to find Mu!"

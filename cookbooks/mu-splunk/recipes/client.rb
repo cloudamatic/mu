@@ -24,10 +24,10 @@
 include_recipe 'mu-splunk::user'
 include_recipe 'mu-splunk::install_forwarder'
 
-if node.splunk.discovery == 'groupname'
+if node[:splunk][:discovery] == 'groupname'
   splunk_servers = search(
       :node,
-      "splunk_is_server:true AND splunk_groupname:#{node.splunk_groupname}"
+      "splunk_is_server:true AND splunk_groupname:#{node[:splunk_groupname]}"
   ).sort! do
   |a, b|
     a.name <=> b.name
@@ -48,12 +48,22 @@ end
 begin
   resources('service[splunk]')
 rescue Chef::Exceptions::ResourceNotFound
-  if node['platform_family'] != 'windows'
-    service 'splunk'
-  else
-    service 'SplunkForwarder' do
+  service 'splunk' do
+    if node['platform_family'] == 'windows'
+      service_name 'SplunkForwarder'
+      provider Chef::Provider::Service::Windows
       timeout 90
+      retries 3
+      retry_delay 10
+      supports :status => false, :restart => false
+      start_command "c:/Windows/system32/sc.exe start SplunkForwarder"
+      stop_command "c:/Windows/system32/sc.exe stop SplunkForwarder"
+      pattern "splunkd.exe"
+    else
+      provider Chef::Provider::Service::Init
+      supports :status => true, :restart => true
     end
+    action :start
   end
 end
 
@@ -65,10 +75,11 @@ directory "#{splunk_dir}/etc/system/local" do
   end
 end
 
+
 template "#{splunk_dir}/etc/system/local/outputs.conf" do
   source 'outputs.conf.erb'
   mode 0644 unless platform_family?("windows")
-  variables :splunk_servers => splunk_servers, :outputs_conf => node['splunk']['outputs_conf']
+  variables :splunk_servers => splunk_servers, :outputs_conf => node['splunk']['outputs_conf'], :ssl_chain => node['splunk']['ssl_chain'], :ssl_cert => node['splunk']['ssl_cert']
 #  notifies :restart, 'service[splunk]', :immediately if platform_family?("windows")
   notifies :restart, 'service[splunk]', :delayed #unless platform_family?("windows")
 end

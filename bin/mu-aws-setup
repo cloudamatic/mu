@@ -55,7 +55,7 @@ preferred_ip = MU.mu_public_ip
 # Create a security group, or manipulate an existing one, so that we have all
 # of the appropriate network holes.
 if $opts[:sg]
-  open_ports = [80, 443, 2260, 7443, 8443, 9443]
+  open_ports = [80, 443, 2260, 7443, 8443, 9443, 8200]
 
   # This doesn't make sense. we can have multiple security groups in our account with a name tag of "Mu Master". This will then find and modify a security group that has nothing to do with us.
   # found = MU::MommaCat.findStray("AWS", "firewall_rule", region: MU.myRegion, dummy_ok: true, tag_key: "Name", tag_value: "Mu Master")
@@ -149,11 +149,7 @@ elsif $opts[:ip]
   MU.log "Currently assigned IP address is #{instance.public_ip_address}"
 end
 
-if ENV['LOG_BUCKET_NAME'].nil? or ENV['LOG_BUCKET_NAME'].empty?
-  $bucketname = "mu-logs-"+Socket.gethostname+"-"+my_instance_id
-else
-  $bucketname = ENV['LOG_BUCKET_NAME']
-end
+$bucketname = MU.adminBucketName
 
 if $opts[:logs]
   exists = false
@@ -327,10 +323,10 @@ if $opts[:dns]
     resolver = Resolv::DNS.new
     my_ip = ""
     begin
-      my_ip = resolver.getaddress($MU_CFG['host_name']).to_s
+      my_ip = resolver.getaddress($MU_CFG['hostname']).to_s
     end rescue Resolv::ResolvError
     if my_ip != MU.mu_public_ip
-      MU::Cloud::AWS::DNSZone.manageRecord(ext_zone.id, $MU_CFG['host_name'], "A", targets: [MU.mu_public_ip], sync_wait: false)
+      MU::Cloud::AWS::DNSZone.manageRecord(ext_zone.id, $MU_CFG['hostname'], "A", targets: [MU.mu_public_ip], sync_wait: false)
    end
   end
 end

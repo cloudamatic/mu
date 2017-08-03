@@ -1,0 +1,18 @@
+server_name='<%= $MU_CFG['public_address'] %>'
+api_fqdn server_name
+nginx['server_name'] = server_name
+nginx['enable_non_ssl'] = false
+nginx['non_ssl_port'] = 81
+nginx['ssl_port'] = 7443
+nginx['ssl_ciphers'] = 'HIGH:!MEDIUM:!3DES:!LOW:!kEDH:!aNULL:!ADH:!eNULL:!EXP:!SSLv2:!SEED:!CAMELLIA:!PSK'
+nginx['ssl_protocols'] = 'TLSv1.2'
+bookshelf['external_url'] = 'https://'+server_name+':7443'
+bookshelf['vip_port'] = 7443
+<% if $MU_CFG.has_key?("ssl") %>
+nginx['ssl_certificate'] = '<%= $MU_CFG["ssl"]["cert"] %>'
+nginx['ssl_certificate_key'] = '<%= $MU_CFG["ssl"]["key"] %>'
+<% if $MU_CFG["ssl"].has_key?("chain") %>
+nginx['ssl_ca_path'] = '<%= File.dirname($MU_CFG["ssl"]["chain"]) %>'
+nginx['ssl_ca_file'] = '<%= File.basename($MU_CFG["ssl"]["chain"]) %>'
+<% end %>
+<% end %>

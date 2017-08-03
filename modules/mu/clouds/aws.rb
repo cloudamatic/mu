@@ -76,6 +76,81 @@ module MU
         end
       end
 
+      # AWS can stash API-available certificates in Amazon Certificate Manager
+      # or in IAM. Rather than make people crazy trying to get the syntax
+      # correct in our Baskets of Kittens, let's have a helper that tries to do
+      # the right thing, and only raise an exception if we need help to
+      # disambiguate.
+      # @param name [String]: The name of the cert. For IAM certs this can be any IAM name; for ACM, it's usually the domain name. If multiple matches are found, or no matches, an exception is raised.
+      # @param id [String]: The ARN of a known certificate. We just validate that it exists. This is ignored if a name parameter is supplied.
+      # @return [String]: The ARN of a matching certificate that is known to exist. If it is an ACM certificate, we also know that it is not expired.
+      def self.findSSLCertificate(name: nil, id: nil)
+        if name.nil? and name.empty? and id.nil? and id.empty?
+          raise MuError, "Can't call findSSLCertificate without specifying either a name or an id"
+        end
+
+        if !name.nil? and !name.empty?
+          matches = []
+          acmcerts = MU::Cloud::AWS.acm.list_certificates(
+            certificate_statuses: ["ISSUED"]
+          )
+          acmcerts.certificate_summary_list.each { |cert|
+            matches << cert.certificate_arn if cert.domain_name == name
+          }
+          begin
+            iamcert = MU::Cloud::AWS.iam.get_server_certificate(
+              server_certificate_name: name
+            )
+          rescue Aws::IAM::Errors::ValidationError, Aws::IAM::Errors::NoSuchEntity
+            # valid names for ACM certs can break here, and that's ok to ignore
+          end
+          if !iamcert.nil?
+            matches << iamcert.server_certificate.server_certificate_metadata.arn
+          end
+          if matches.size == 1
+            return matches.first
+          elsif matches.size == 0
+            raise MuError, "No IAM or ACM certificate named #{name} was found"
+          elsif matches.size > 1
+            raise MuError, "Multiple certificates named #{name} were found. Remove extras or use ssl_certificate_id to supply the exact ARN of the one you want to use."            
+          end
+        end
+
+        if id.match(/^arn:aws:acm/)
+          resp = MU::Cloud::AWS.acm.get_certificate(
+            certificate_arn: id
+          )
+          if resp.nil?
+            raise MuError, "No such ACM certificate '#{id}'"
+          end
+        elsif id.match(/^arn:aws:iam/)
+          resp = MU::Cloud::AWS.iam.list_server_certificates
+          if resp.nil?
+            raise MuError, "No such IAM certificate '#{id}'"
+          end
+          resp.server_certificate_metadata_list.each { |cert|
+            if cert.arn == id
+              if cert.expiration < Time.now
+                MU.log "IAM SSL certificate #{cert.server_certificate_name} (#{id}) is EXPIRED", MU::WARN
+              end
+              return id
+            end
+          }
+          raise MuError, "No such IAM certificate '#{id}'"
+        else
+          raise MuError, "The format of '#{id}' doesn't look like an ARN for either Amazon Certificate Manager or IAM"
+        end
+
+        id
+      end
+
+      # Amazon Certificate Manager API
+      def self.acm(region = MU.curRegion)
+        region ||= MU.myRegion
+        @@acm_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ACM", region: region)
+        @@acm_api[region]
+      end
+
       # Amazon's IAM API
       def self.iam(region = MU.curRegion)
         region ||= MU.myRegion
@@ -415,6 +490,7 @@ module MU
         end
       end
       @@iam_api = {}
+      @@acm_api = {}
       @@ec2_api = {}
       @@autoscale_api = {}
       @@elb_api = {}

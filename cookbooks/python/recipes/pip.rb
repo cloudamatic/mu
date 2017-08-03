@@ -40,11 +40,11 @@ end
 case node[:platform]
   when "windows"
     execute "upgrade setuptools using pip full path" do
-      not_if "echo %path% | find /I \"#{node.python.prefix_dir}\\python#{node.python.major_version}\\Scripts\""
+      not_if "echo %path% | find /I \"#{node[:python][:prefix_dir]}\\python#{node[:python][:major_version]}\\Scripts\""
       command "#{node['python']['pip_binary']} install setuptools --upgrade"
     end
     python_pip 'setuptools' do
-      only_if "echo %path% | find /I \"#{node.python.prefix_dir}\\python#{node.python.major_version}\\Scripts\""
+      only_if "echo %path% | find /I \"#{node[:python][:prefix_dir]}\\python#{node[:python][:major_version]}\\Scripts\""
       action :upgrade
       version node['python']['setuptools_version'] if !node['python']['setuptools_version'].nil?
     end
