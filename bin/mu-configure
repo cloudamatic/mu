@@ -1013,9 +1013,11 @@ end
 %x{/opt/chef/bin/knife vault show scratchpad 2>&1}
 if $?.exitstatus != 0
   MU.log "Creating Scratchpad vault: /opt/chef/bin/knife vault create scratchpad"
-  output = %x{/opt/chef/bin/knife vault create scratchpad 2>&1}
+  output = %x{/opt/chef/bin/knife vault create scratchpad foo-#{Process.pid} '{}' 2>&1}
   if $?.exitstatus != 0
     MU.log "Got non-zero exit code creating Scratchpad vault", MU::WARN, details: output
+  else
+    %x{/opt/chef/bin/knife vault delete -y scratchpad foo-#{Process.pid} 2>&1}
   end
 end
 
