@@ -79,7 +79,7 @@ nagios_policies.each { |policy|
     not_if "/usr/sbin/semodule -l | egrep '^#{policy}(\t|$)'"
     notifies :reload, "service[apache2]", :delayed
     notifies :restart, "service[nrpe]", :delayed
-    notifies :restart, "service[nagios]", :delayed
+    notifies :reload, "service[nagios]", :delayed
   end
 }
 

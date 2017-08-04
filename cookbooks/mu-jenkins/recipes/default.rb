@@ -50,10 +50,20 @@ end
 
 restart_jenkins = false
 
+directory "mu-jenkins fix #{Chef::Config[:file_cache_path]} perms" do
+  path Chef::Config[:file_cache_path]
+  mode 0755
+end
+cacheparent = File.expand_path("..", Chef::Config[:file_cache_path])
+directory "mu-jenkins fix #{cacheparent} perms" do
+  path cacheparent
+  mode 0755
+end
 node['jenkins_plugins'].each { |plugin|
 #  if !::File.exists?("#{node['jenkins']['master']['home']}/plugins/#{plugin}.jpi")
 #    restart_jenkins = true
 #  end
+# XXX this runs as the 'jenkins' user, yet download the files as 0600/root
   jenkins_plugin plugin
   # do
     # notifies :restart, 'service[jenkins]', :delayed
