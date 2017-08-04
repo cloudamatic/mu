@@ -1010,6 +1010,15 @@ if !File.exists?("#{MU_BASE}/var/users/mu/email") or !File.exists?("#{MU_BASE}/v
   sleep 3 # avoid LDAP lag for mu-user-manage
 end
 
+%x{/opt/chef/bin/knife vault show scratchpad 2>&1}
+if $?.exitstatus != 0
+  MU.log "Creating Scratchpad vault: /opt/chef/bin/knife vault create scratchpad"
+  output = %x{/opt/chef/bin/knife vault create scratchpad 2>&1}
+  if $?.exitstatus != 0
+    MU.log "Got non-zero exit code creating Scratchpad vault", MU::WARN, details: output
+  end
+end
+
 if $INITIALIZE
   MU.log "Setting initial password for admin user 'mu', for logging into Nagios and other built-in services.", MU::NOTICE
   puts %x{#{MU_BASE}/lib/bin/mu-user-manage -g mu}

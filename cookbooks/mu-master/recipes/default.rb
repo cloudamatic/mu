@@ -399,6 +399,14 @@ if !node.update_nagios_only
     not_if "test -f #{Etc.getpwnam("root").dir}/.bashrc && grep '^source #{MU.etcDir}/mu.rc$' #{Etc.getpwnam("root").dir}/.bashrc"
   end
 
+  begin
+    resources('service[sshd]')
+  rescue Chef::Exceptions::ResourceNotFound
+    service "sshd" do
+      action [:enable, :start]
+    end
+  end
+
   template "Mu Master /etc/ssh/sshd_config" do
     path "/etc/ssh/sshd_config"
     source "sshd_config.erb"
