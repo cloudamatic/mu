@@ -1035,6 +1035,17 @@ if !File.exists?("#{MU_BASE}/var/users/mu/email") or !File.exists?("#{MU_BASE}/v
   sleep 3 # avoid LDAP lag for mu-user-manage
 end
 
+output = %x{/opt/chef/bin/knife vault show scratchpad 2>&1}
+if $?.exitstatus != 0 or output.match(/is not a chef-vault/)
+  MU::Groomer::Chef.saveSecret(
+    vault: "scratchpad",
+    item: "placeholder",
+    data: { "secret" => "DO NOT DELETE", "timestamp" => "9999999999" },
+    permissions: "name:MU-MASTER"
+  )
+end
+
+
 if $INITIALIZE
   MU.log "Setting initial password for admin user 'mu', for logging into Nagios and other built-in services.", MU::NOTICE
   puts %x{#{MU_BASE}/lib/bin/mu-user-manage -g mu}
