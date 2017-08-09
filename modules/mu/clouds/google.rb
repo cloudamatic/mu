@@ -322,7 +322,7 @@ debuglevel = MU::NOTICE
             # elsif retries > 100
               # raise MuError, "Exhausted retries after #{retries} attempts while calling EC2's #{method_sym} in #{@region}.  Args were: #{arguments}"
             end
-            MU.log "Got #{e.inspect} calling Google's #{method_sym}, waiting #{interval.to_s}s and retrying. Args were: #{arguments}", debuglevel, details: caller
+            MU.log "Got #{e.inspect} calling Google's #{method_sym}, waiting #{interval.to_s}s and retrying. Called from: #{caller[1]}", debuglevel, details: arguments
             sleep interval
             retry
           end

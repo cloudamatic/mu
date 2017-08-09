@@ -1175,7 +1175,7 @@ module MU
                 end
                 cfg = {"name" => name, "cloud" => cloud, "region" => r}
                 if !calling_deploy.nil?
-                  matches << resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: kitten_cloud_id)
+                  matches << resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s)
                 else
                   matches << resourceclass.new(mu_name: name, kitten_cfg: cfg, cloud_id: kitten_cloud_id)
                 end
@@ -1464,7 +1464,8 @@ module MU
       node, config, deploydata = server.describe
       nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = server.getSSHConfig
 
-      mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
+      zones = MU::Cloud::DNSZone.find(cloud_id: "platform-mu")
+      mu_zone = zones.values.first if !zones.nil?
       if !mu_zone.nil?
         MU::Cloud::DNSZone.genericMuDNSEntry(name: node, target: server.canonicalIP, cloudclass: MU::Cloud::Server, sync_wait: sync_wait)
       else

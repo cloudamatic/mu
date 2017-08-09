@@ -19,11 +19,6 @@ module MU
       # A server as configured in {MU::Config::BasketofKittens::servers}
       class Server < MU::Cloud::Server
 
-        # @return [Mutex]
-        def self.userdata_mutex
-          @userdata_mutex ||= Mutex.new
-        end
-
         attr_reader :cfm_template
         attr_reader :cfm_name
 

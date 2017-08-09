@@ -28,11 +28,6 @@ module MU
       # A server as configured in {MU::Config::BasketofKittens::servers}
       class Server < MU::Cloud::Server
 
-        # @return [Mutex]
-        def self.userdata_mutex
-          @userdata_mutex ||= Mutex.new
-        end
-
         # A list of block device names to use if we get a storage block that
         # doesn't declare one explicitly.
         # This probably fails on some AMIs. It's crude.
@@ -95,8 +90,9 @@ module MU
           @config = MU::Config.manxify(kitten_cfg)
           @cloud_id = cloud_id
 
-          @userdata = MU::Cloud::AWS::Server.fetchUserdata(
+          @userdata = MU::Cloud.fetchUserdata(
             platform: @config["platform"],
+            cloud: "aws",
             template_variables: {
               "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
               "deploySSHKey" => @deploy.ssh_public_key,
@@ -132,72 +128,6 @@ module MU
           end
           @groomer = MU::Groomer.new(self)
 
-        end
-
-        # Fetch our baseline userdata argument (read: "script that runs on first
-        # boot") for a given platform.
-        # *XXX* both the eval() and the blind File.read() based on the platform
-        # variable are dangerous without cleaning. Clean them.
-        # @param platform [String]: The target OS.
-        # @param template_variables [Hash]: A list of variable substitutions to pass as globals to the ERB parser when loading the userdata script.
-        # @param custom_append [String]: Arbitrary extra code to append to our default userdata behavior.
-        # @return [String]
-        def self.fetchUserdata(platform: "linux", template_variables: {}, custom_append: nil, scrub_mu_isms: false)
-          return nil if platform.nil? or platform.empty?
-          userdata_mutex.synchronize {
-            script = ""
-            if !scrub_mu_isms
-              if template_variables.nil? or !template_variables.is_a?(Hash)
-                raise MuError, "My second argument should be a hash of variables to pass into ERB templates"
-              end
-              $mu = OpenStruct.new(template_variables)
-              userdata_dir = File.expand_path(MU.myRoot+"/modules/mu/userdata")
-              platform = "linux" if %w{centos centos6 centos7 ubuntu ubuntu14 rhel rhel7 rhel71 amazon}.include? platform
-              platform = "windows" if %w{win2k12r2 win2k12 win2k8 win2k8r2 win2k16}.include? platform
-              erbfile = "#{userdata_dir}/#{platform}.erb"
-              if !File.exist?(erbfile)
-                MU.log "No such userdata template '#{erbfile}'", MU::WARN, details: caller
-                return ""
-              end
-              userdata = File.read(erbfile)
-              begin
-                erb = ERB.new(userdata)
-                script = erb.result
-              rescue NameError => e
-                raise MuError, "Error parsing userdata script #{erbfile} as an ERB template: #{e.inspect}"
-              end
-              MU.log "Parsed #{erbfile} as ERB", MU::DEBUG, details: script
-            end
-
-            if !custom_append.nil?
-              if custom_append['path'].nil?
-                raise MuError, "Got a custom userdata script argument, but no ['path'] component"
-              end
-              erbfile = File.read(custom_append['path'])
-              MU.log "Loaded userdata script from #{custom_append['path']}"
-              if custom_append['use_erb']
-                begin
-                  erb = ERB.new(erbfile, 1)
-                  if custom_append['skip_std']
-                    script = +erb.result
-                  else
-                    script = script+"\n"+erb.result
-                  end
-                rescue NameError => e
-                  raise MuError, "Error parsing userdata script #{erbfile} as an ERB template: #{e.inspect}"
-                end
-                MU.log "Parsed #{custom_append['path']} as ERB", MU::DEBUG, details: script
-              else
-                if custom_append['skip_std']
-                  script = erbfile
-                else
-                  script = script+"\n"+erbfile
-                end
-                MU.log "Parsed #{custom_append['path']} as flat file", MU::DEBUG, details: script
-              end
-            end
-            return script
-          }
         end
 
         # Find volumes attached to a given instance id and tag them. If no arguments

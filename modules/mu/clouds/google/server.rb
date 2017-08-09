@@ -24,7 +24,6 @@ require 'open-uri'
 module MU
   class Cloud
     class Google
-
       # A server as configured in {MU::Config::BasketofKittens::servers}. In
       # Google Cloud, this amounts to a single Instance in an Unmanaged
       # Instance Group.
@@ -46,8 +45,9 @@ module MU
           @cloud_id = cloud_id
 
           # XXX does this go into a Google::Apis::ComputeBeta::Metadata object?
-          @userdata = MU::Cloud::AWS::Server.fetchUserdata(
+          @userdata = MU::Cloud.fetchUserdata(
             platform: @config["platform"],
+            cloud: "google",
             template_variables: {
               "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
               "deploySSHKey" => @deploy.ssh_public_key,
@@ -173,8 +173,12 @@ next if !create
           if config['vpc']['subnets'] and
              !subnet_cfg['subnet_name'] and !subnet_cfg['subnet_id']
             subnet_cfg = config['vpc']['subnets'].sample
+
           end
           subnet = vpc.getSubnet(name: subnet_cfg['subnet_name'], cloud_id: subnet_cfg['subnet_id'])
+          if subnet.nil?
+            raise MuError, "Couldn't find subnet details while configuring Server #{config['name']} (VPC: #{vpc.mu_name})"
+          end
           base_iface_obj = {
             :network => vpc.url,
             :subnetwork => subnet.url
@@ -211,8 +215,14 @@ next if !create
               :machine_type => "zones/"+@config['availability_zone']+"/machineTypes/"+@config['size'],
               :metadata => {
                 :items => [
-                  :key => "ssh-keys",
-                  :value => @config['ssh_user']+":"+@deploy.ssh_public_key
+                  {
+                    :key => "ssh-keys",
+                    :value => @config['ssh_user']+":"+@deploy.ssh_public_key
+                  },
+                  {
+                    :key => "startup-script",
+                    :value => @userdata
+                  }
                 ]
               },
               :tags => MU::Cloud::Google.compute(:Tags).new(items: [MU::Cloud::Google.nameStr(@mu_name)])
@@ -298,6 +308,33 @@ next if !create
               "destination_network" => "0.0.0.0/0"
             } ]
           }
+        end
+
+        # Ask the Google API to stop this node
+        def stop
+          MU.log "Stopping #{@cloud_id}"
+          MU::Cloud::Google.compute.stop_instance(
+            @config['project'],
+            @config['availability_zone'],
+            @cloud_id
+          )
+          begin
+            sleep 5
+          end while cloud_desc.status != "TERMINATED" # means STOPPED
+        end
+
+        # Ask the Google API to start this node
+        def start
+          MU.log "Starting #{@cloud_id}"
+          MU::Cloud::Google.compute.start_instance(
+            @config['project'],
+            @config['availability_zone'],
+            @cloud_id
+          )
+          begin
+          pp cloud_desc
+            sleep 5
+          end while cloud_desc.status != "RUNNING"
         end
 
         # Ask the Google API to restart this node
@@ -784,15 +821,23 @@ next if !create
 
           # If we got an instance id, go get it
           if !cloud_id.nil? and !cloud_id.empty?
+            parent_thread_id = Thread.current.object_id
             regions.each { |region|
               search_threads << Thread.new {
+                Thread.abort_on_exception = false
+                MU.dupGlobals(parent_thread_id)
                 MU.log "Hunting for instance with cloud id '#{cloud_id}' in #{region}", MU::DEBUG
                 MU::Cloud::Google.listAZs(region).each { |az|
-                  resp = MU::Cloud::Google.compute.get_instance(
-                    flags["project"],
-                    az,
-                    cloud_id
-                  )
+                  resp = nil
+                  begin
+                    resp = MU::Cloud::Google.compute.get_instance(
+                      flags["project"],
+                      az,
+                      cloud_id
+                    )
+                  rescue ::Google::Apis::ClientError => e
+                    raise e if !e.message.match(/^notFound: /)
+                  end
                   found_instances[cloud_id] = resp if !resp.nil?
                 }
               }
@@ -816,7 +861,7 @@ next if !create
           end
 
           if !instance.nil?
-            return {instance.instance_id => instance} if !instance.nil?
+            return {instance.name => instance} if !instance.nil?
           end
 
           # Fine, let's try it by tag.
@@ -958,26 +1003,77 @@ next if !create
             end
             session.exec!(purgecmd)
             session.close
-#            ami_id = MU::Cloud::AWS::Server.createImage(
-#                name: @mu_name,
-#                instance_id: @cloud_id,
-#                storage: @config['storage'],
-#                exclude_storage: img_cfg['image_exclude_storage'],
-#                copy_to_regions: img_cfg['copy_to_regions'],
-#                make_public: img_cfg['public'],
-#                region: @config['region'],
-#                tags: @config['tags'])
-            @deploy.notify("images", @config['name'], {"image_id" => ami_id})
+            stop
+            image_id = MU::Cloud::Google::Server.createImage(
+                name: MU::Cloud::Google.nameStr(@mu_name),
+                instance_id: @cloud_id,
+                region: @config['region'],
+                storage: @config['storage'],
+                family: ("mu-"+@config['platform']+"-"+MU.environment).downcase,
+                project: @config['project'],
+                exclude_storage: img_cfg['image_exclude_storage'],
+                make_public: img_cfg['public'],
+                tags: @config['tags']
+            )
+            @deploy.notify("images", @config['name'], {"image_id" => image_id})
             @config['image_created'] = true
             if img_cfg['image_then_destroy']
-#              MU::Cloud::AWS::Server.waitForAMI(ami_id, region: @config['region'])
-              MU.log "AMI #{ami_id} ready, removing source node #{node}"
-#              MU::Cloud::AWS::Server.terminateInstance(id: @cloud_id, region: @config['region'], deploy_id: @deploy.deploy_id, mu_name: @mu_name)
+              MU.log "Image #{image_id} ready, removing source node #{node}"
+              MU::Cloud::Google.compute.delete_instance(
+                @config['project'],
+                @config['availability_zone'],
+                @cloud_id
+              )
               destroy
+            else
+              start
             end
           end
 
           MU::MommaCat.unlock(@cloud_id+"-groom")
+        end
+
+        # Create an image out of a running server. Requires either the name of a MU resource in the current deployment, or the cloud provider id of a running instance.
+        # @param name [String]: The MU resource name of the server to use as the basis for this image.
+        # @param instance_id [String]: The cloud provider resource identifier of the server to use as the basis for this image.
+        # @param storage [Hash]: The storage devices to include in this image.
+        # @param exclude_storage [Boolean]: Do not include the storage device profile of the running instance when creating this image.
+        # @param region [String]: The cloud provider region
+        # @param copy_to_regions [Array<String>]: Copy the resulting AMI into the listed regions.
+        # @param tags [Array<String>]: Extra/override tags to apply to the image.
+        # @return [String]: The cloud provider identifier of the new machine image.
+        def self.createImage(name: nil, instance_id: nil, storage: {}, exclude_storage: false, project: MU::Cloud::Google.defaultProject, make_public: false, tags: [], region: nil, family: "mu")
+          instance = MU::Cloud::Server.find(cloud_id: instance_id, region: region)
+          if instance.nil?
+            raise MuError, "Failed to find instance '#{instance_id}' in createImage"
+          end
+
+          bootdisk = nil
+          instance[instance_id].disks.each { |disk|
+            bootdisk = disk.source if disk.boot 
+          }
+          labels = {}
+          MU::MommaCat.listStandardTags.each_pair { |key, value|
+            if !value.nil?
+              labels[key.downcase] = value.downcase.gsub(/[^a-z0-9\-\_]/i, "_")
+            end
+          }
+          labels["name"] = instance_id.downcase
+          imageobj = MU::Cloud::Google.compute(:Image).new(
+            name: name,
+            source_disk: bootdisk,
+            description: "Mu image created from #{name}",
+            labels: labels,
+            family: family
+          )
+
+          newimage = MU::Cloud::Google.compute.insert_image(
+            project,
+            imageobj
+          )
+          puts "*****************"
+          pp newimage
+          newimage.name
         end
 
         def cloud_desc

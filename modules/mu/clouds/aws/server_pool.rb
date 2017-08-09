@@ -207,8 +207,9 @@ module MU
             @deploy.saveNodeSecret("default", instance_secret, "instance_secret")
 
             launch_options[:user_data] = Base64.encode64(
-              MU::Cloud::AWS::Server.fetchUserdata(
+              MU::Cloud.fetchUserdata(
                 platform: @config["platform"],
+                cloud: "aws",
                 template_variables: {
                   "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
                   "deploySSHKey" => @deploy.ssh_public_key,

@@ -33,10 +33,17 @@ module MU
           @config = MU::Config.manxify(kitten_cfg)
           @subnets = []
           @subnetcachesemaphore = Mutex.new
-          @cloud_id = cloud_id
+          if cloud_id and cloud_id.match(/^https:\/\//)
+            @url = cloud_id.clone
+            @cloud_id = cloud_id.to_s.gsub(/.*?\//, "")
+          else
+            @cloud_id = cloud_id.to_s
+          end
+
           if !mu_name.nil?
             @mu_name = mu_name
-            loadSubnets if !@cloud_id.nil?
+            @cloud_id = MU::Cloud::Google.nameStr(@mu_name) if @cloud_id.nil?
+            loadSubnets
           elsif @config['scrub_mu_isms']
             @mu_name = @config['name']
           else
@@ -117,7 +124,14 @@ module MU
         # @return [Hash]
         def cloud_desc
           @config['project'] ||= MU::Cloud::Google.defaultProject
-          resp = MU::Cloud::Google.compute.get_network(@config['project'], @cloud_id).to_h
+
+          resp = MU::Cloud::Google.compute.get_network(@config['project'], @cloud_id)
+          if @cloud_id.nil? or @cloud_id == ""
+            MU.log "Couldn't describe #{self}, @cloud_id undefined", MU::ERR
+            return nil
+          end
+
+          resp = resp.to_h
           @url ||= resp[:self_link]
           routes = MU::Cloud::Google.compute.list_routes(
             @config['project'],
@@ -190,7 +204,7 @@ module MU
           if cloud_id
             vpc = MU::Cloud::Google.compute.get_network(
               flags['project'],
-              cloud_id.sub(/^.*?\/([^\/]+)$/, '\1')
+              cloud_id.to_s.sub(/^.*?\/([^\/]+)$/, '\1')
             )
             resp[cloud_id] = vpc if !vpc.nil?
           else # XXX other criteria
@@ -208,7 +222,7 @@ module MU
             ).items
 #            pp routes
           }
-
+#MU.log "RETURNING RESPONSE FROM VPC FIND (#{resp.class.name})", MU::WARN, details: resp
           resp
         end
 
@@ -229,6 +243,10 @@ module MU
         # @return [Array<Hash>]: A list of cloud provider identifiers of subnets associated with this VPC.
         def loadSubnets
           network = cloud_desc
+          if network.nil?
+            MU.log "Unabled to load cloud description in #{self}", MU::ERR
+            return nil
+          end
           found = []
 
           resp = nil
@@ -270,7 +288,7 @@ module MU
               }
             # Of course we might be loading up a dummy subnet object from a foreign
             # or non-Mu-created VPC and subnet. So make something up.
-            elsif !resp.nil?
+            elsif !resp.nil? and !resp.items.nil?
               resp.items.each { |desc|
                 subnet = {}
                 subnet["ip_block"] = desc.ip_cidr_range
@@ -355,6 +373,10 @@ module MU
         # criteria, and return it if found.
         def getSubnet(cloud_id: nil, name: nil, tag_key: nil, tag_value: nil, ip_block: nil)
           loadSubnets
+          if !cloud_id.nil? and cloud_id.match(/^https:\/\//)
+            cloud_id.gsub!(/.*?\//, "")
+          end
+          MU.log "getSubnet(cloud_id: #{cloud_id}, name: #{name}, tag_key: #{tag_key}, tag_value: #{tag_value}, ip_block: #{ip_block})", MU::DEBUG, details: caller[0]
 
           @subnets.each { |subnet|
             if !cloud_id.nil? and !subnet.cloud_id.nil? and subnet.cloud_id.to_s == cloud_id.to_s

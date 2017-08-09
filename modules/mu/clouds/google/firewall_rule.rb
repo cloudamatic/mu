@@ -148,10 +148,16 @@ module MU
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching FirewallRules
         def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
-          opts["project"] ||= MU::Cloud::Google.defaultProject
-# XXX project flag has to get passed from somewheres
-          resp = MU::Cloud::Google.compute.list_firewalls(opts["project"])
+          flags["project"] ||= MU::Cloud::Google.defaultProject
 
+          found = {}
+          resp = MU::Cloud::Google.compute.list_firewalls(flags["project"])
+          if resp and resp.items
+            resp.items.each { |fw|
+              found[fw.name] = fw
+            }
+          end
+          found
         end
 
         # Remove all security groups (firewall rulesets) associated with the currently loaded deployment.

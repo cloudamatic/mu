@@ -282,6 +282,77 @@ module MU
       require "mu/clouds/#{cloud.downcase}"
     }
 
+    # @return [Mutex]
+    def self.userdata_mutex
+      @userdata_mutex ||= Mutex.new
+    end
+
+    # Fetch our baseline userdata argument (read: "script that runs on first
+    # boot") for a given platform.
+    # *XXX* both the eval() and the blind File.read() based on the platform
+    # variable are dangerous without cleaning. Clean them.
+    # @param platform [String]: The target OS.
+    # @param template_variables [Hash]: A list of variable substitutions to pass as globals to the ERB parser when loading the userdata script.
+    # @param custom_append [String]: Arbitrary extra code to append to our default userdata behavior.
+    # @return [String]
+    def self.fetchUserdata(platform: "linux", template_variables: {}, custom_append: nil, cloud: "aws", scrub_mu_isms: false)
+      return nil if platform.nil? or platform.empty?
+      userdata_mutex.synchronize {
+        script = ""
+        if !scrub_mu_isms
+          if template_variables.nil? or !template_variables.is_a?(Hash)
+            raise MuError, "My second argument should be a hash of variables to pass into ERB templates"
+          end
+          $mu = OpenStruct.new(template_variables)
+          userdata_dir = File.expand_path(MU.myRoot+"/modules/mu/clouds/#{cloud}/userdata")
+          platform = "linux" if %w{centos centos6 centos7 ubuntu ubuntu14 rhel rhel7 rhel71 amazon}.include? platform
+          platform = "windows" if %w{win2k12r2 win2k12 win2k8 win2k8r2 win2k16}.include? platform
+          erbfile = "#{userdata_dir}/#{platform}.erb"
+          if !File.exist?(erbfile)
+            MU.log "No such userdata template '#{erbfile}'", MU::WARN, details: caller
+            return ""
+          end
+          userdata = File.read(erbfile)
+          begin
+            erb = ERB.new(userdata)
+            script = erb.result
+          rescue NameError => e
+            raise MuError, "Error parsing userdata script #{erbfile} as an ERB template: #{e.inspect}"
+          end
+          MU.log "Parsed #{erbfile} as ERB", MU::DEBUG, details: script
+        end
+
+        if !custom_append.nil?
+          if custom_append['path'].nil?
+            raise MuError, "Got a custom userdata script argument, but no ['path'] component"
+          end
+          erbfile = File.read(custom_append['path'])
+          MU.log "Loaded userdata script from #{custom_append['path']}"
+          if custom_append['use_erb']
+            begin
+              erb = ERB.new(erbfile, 1)
+              if custom_append['skip_std']
+                script = +erb.result
+              else
+                script = script+"\n"+erb.result
+              end
+            rescue NameError => e
+              raise MuError, "Error parsing userdata script #{erbfile} as an ERB template: #{e.inspect}"
+            end
+            MU.log "Parsed #{custom_append['path']} as ERB", MU::DEBUG, details: script
+          else
+            if custom_append['skip_std']
+              script = erbfile
+            else
+              script = script+"\n"+erbfile
+            end
+            MU.log "Parsed #{custom_append['path']} as flat file", MU::DEBUG, details: script
+          end
+        end
+        return script
+      }
+    end
+
     @cloud_class_cache = {}
     # Given a cloud layer and resource type, return the class which implements it.
     # @param cloud [String]: The Cloud layer
@@ -442,6 +513,7 @@ module MU
           @method_locks = {}
 # XXX require subclass to provide attr_readers of @config and @deploy
 
+MU.log "INITIALIZE #{cloud_id.class.name}", MU::WARN, details: cloud_id if !cloud_id.nil?
           @cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg, cloud_id: cloud_id, mu_name: mu_name)
 
           raise MuError, "Unknown error instantiating #{self}" if @cloudobj.nil?
@@ -674,7 +746,7 @@ module MU
                     nat_cloud_id: @config['vpc']['nat_host_id'],
                     nat_filter_key: "vpc-id",
                     region: @config['vpc']["region"],
-                    nat_filter_value: @vpc.cloud_desc.vpc_id
+                    nat_filter_value: @vpc.cloud_id
                   )
                 else
                   @nat = @vpc.findNat(
@@ -721,6 +793,7 @@ module MU
         end
 
         def self.find(*flags)
+          allfound = {}
           MU::Cloud.supportedClouds.each { |cloud|
             begin
               args = flags.first
@@ -733,11 +806,17 @@ module MU
               cloudclass = MU::Cloud.loadCloudType(cloud, shortname)
 
               found = cloudclass.find(args)
-              return found if !found.nil? # XXX actually, we should merge all results
+              if !found.nil?
+                if found.is_a?(Hash)
+                  allfound.merge!(found)
+                else
+                  raise MuError, "#{cloudclass}.find returned a non-Hash result"
+                end
+              end
             rescue MuCloudResourceNotImplemented
             end
-            return nil
           }
+          allfound
         end
 
         if shortname == "DNSZone"
