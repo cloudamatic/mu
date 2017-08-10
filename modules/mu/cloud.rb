@@ -513,7 +513,6 @@ module MU
           @method_locks = {}
 # XXX require subclass to provide attr_readers of @config and @deploy
 
-MU.log "INITIALIZE #{cloud_id.class.name}", MU::WARN, details: cloud_id if !cloud_id.nil?
           @cloudobj = @cloudclass.new(mommacat: mommacat, kitten_cfg: kitten_cfg, cloud_id: cloud_id, mu_name: mu_name)
 
           raise MuError, "Unknown error instantiating #{self}" if @cloudobj.nil?

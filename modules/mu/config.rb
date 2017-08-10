@@ -2826,7 +2826,7 @@ module MU
       return vpc_ref_schema
     end
     allregions = MU::Cloud::AWS.listRegions # XXX make this work when we're not in AWS but have AWS creds configured
-#    allregions.concat(MU::Cloud::Google.listRegions)
+    allregions.concat(MU::Cloud::Google.listRegions) # XXX make this work when we're in GCP and don't have explicit creds configured
 
     @region_primitive = {
       "type" => "string",

@@ -154,7 +154,7 @@ $bucketname = MU.adminBucketName
 if $opts[:logs]
   exists = false
 
-  MU.log "Configuring audit log bucket '#{$bucketname}'"
+  MU.log "Configuring log and secret Amazon S3 bucket '#{$bucketname}'"
 
   resp = MU::Cloud::AWS.s3.list_buckets
   resp.buckets.each { |bucket|

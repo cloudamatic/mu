@@ -27,6 +27,31 @@ module MU
       @@default_project = nil
       @@authorizers = {}
 
+      # Plant a Mu deploy secret into a storage bucket somewhere for so our kittens can consume it
+      # @param deploy_id [String]: The deploy for which we're writing the secret
+      # @param value [String]: The contents of the secret
+      def self.writeDeploySecret(deploy_id, value)
+        name = deploy_id+"-secret"
+        begin
+          MU.log "Writing #{name} to Cloud Storage bucket #{MU.adminBucketName}"
+          f = Tempfile.new(name) # XXX this is insecure and stupid
+          f.write value
+          f.close
+          objectobj = MU::Cloud::Google.storage(:Object).new(
+            bucket: MU.adminBucketName,
+            name: name
+          )
+          ebs_key = MU::Cloud::Google.storage.insert_object(
+            MU.adminBucketName,
+            objectobj,
+            upload_source: f.path
+          )
+          f.unlink
+        rescue ::Google::Apis::ClientError => e
+          raise DeployInitializeError, "Got #{e.inspect} trying to write #{name} to #{MU.adminBucketName}"
+        end
+      end
+
       # Determine whether we (the Mu master, presumably) are hosted in this
       # cloud.
       # @return [Boolean]
@@ -171,6 +196,32 @@ module MU
         end
       end
 
+      # Google's Storage Service API
+      # @param subclass [<Google::Apis::StorageV1>]: If specified, will return the class ::Google::Apis::StorageV1::subclass instead of an API client instance
+      def self.storage(subclass = nil)
+        require 'google/apis/storage_v1'
+
+        if subclass.nil?
+          @@storage_api ||= MU::Cloud::Google::Endpoint.new(api: "StorageV1::StorageService", scopes: ['https://www.googleapis.com/auth/cloud-platform'])
+          return @@storage_api
+        elsif subclass.is_a?(Symbol)
+          return Object.const_get("::Google").const_get("Apis").const_get("StorageV1").const_get(subclass)
+        end
+      end
+
+      # Google's Iam Service API
+      # @param subclass [<Google::Apis::IamV1>]: If specified, will return the class ::Google::Apis::IamV1::subclass instead of an API client instance
+      def self.iam(subclass = nil)
+        require 'google/apis/iam_v1'
+
+        if subclass.nil?
+          @@iam_api ||= MU::Cloud::Google::Endpoint.new(api: "IamV1::IamService", scopes: ['https://www.googleapis.com/auth/cloud-platform'])
+          return @@iam_api
+        elsif subclass.is_a?(Symbol)
+          return Object.const_get("::Google").const_get("Apis").const_get("IamV1").const_get(subclass)
+        end
+      end
+
       private
 
       # Wrapper class for Google APIs, so that we can catch some common
@@ -178,13 +229,11 @@ module MU
       # codebase.
       class Endpoint
         @api = nil
-#        @region = nil
 
         # Create a Google Cloud Platform API client
         # @param api [String]: Which API are we wrapping?
         # @param scopes [Array<String>]: Google auth scopes applicable to this API
         def initialize(api: "ComputeBeta::ComputeService", scopes: ['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'])
-#          @region = region
           @api = Object.const_get("Google::Apis::#{api}").new
           @api.authorization = MU::Cloud::Google.loadCredentials(scopes)
         end
@@ -344,6 +393,8 @@ debuglevel = MU::NOTICE
         end
       end
       @@compute_api = nil
+      @@storage_api = nil
+      @@iam_api = nil
     end
   end
 end

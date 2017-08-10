@@ -83,6 +83,32 @@ module MU
 
         end
 
+        # Generate a server-class specific service account, used to grant 
+        # permission to do various API things to a node.
+        # @param rolename [String]:
+        # @param project [String]:
+        # @param scopes [Array<String>]: https://developers.google.com/identity/protocols/googlescopes
+        def self.createServiceAccount(rolename, project: MU::Cloud::Google.defaultProject, scopes: ["https://www.googleapis.com/auth/compute.readonly", "https://www.googleapis.com/auth/logging.write"])
+#https://www.googleapis.com/auth/devstorage.read_only ?
+          name = MU::Cloud::Google.nameStr(rolename)
+
+          saobj = MU::Cloud::Google.iam(:CreateServiceAccountRequest).new(
+            account_id: rolename.gsub(/[^a-z]/, ""), # XXX this mangling isn't required in the console, so why is it here?
+            service_account: MU::Cloud::Google.iam(:ServiceAccount).new(
+              display_name: rolename,
+# do NOT specify project_id or name, we know that much
+            )
+          )
+          resp = MU::Cloud::Google.iam.create_service_account(
+            "projects/#{project}",
+            saobj
+          )
+          MU::Cloud::Google.compute(:ServiceAccount).new(
+            email: resp.email,
+            scopes: scopes
+          )
+        end
+
         # Retrieve the cloud descriptor for this machine image, which can be
         # a whole or partial URL. Will follow deprecation notices and retrieve
         # the latest version, if applicable.
@@ -197,6 +223,13 @@ next if !create
         # Called automatically by {MU::Deploy#createResources}
         def create
 
+          service_acct = MU::Cloud::Google::Server.createServiceAccount(
+            @mu_name.downcase,
+            base_profile: nil,
+            extra_policies: nil,
+            project: @config['project']
+          )
+
           begin
             disks = MU::Cloud::Google::Server.diskConfig(@config)
             interfaces = MU::Cloud::Google::Server.interfaceConfig(@config, @vpc)
@@ -211,6 +244,7 @@ next if !create
               :name => MU::Cloud::Google.nameStr(@mu_name),
               :can_ip_forward => !@config['src_dst_check'],
               :description => @deploy.deploy_id,
+              :service_accounts => [service_acct],
               :network_interfaces => interfaces,
               :machine_type => "zones/"+@config['availability_zone']+"/machineTypes/"+@config['size'],
               :metadata => {
@@ -1164,7 +1198,7 @@ next if !create
             )
             if !resp.items.nil? and resp.items.size > 0
               resp.items.each { |instance|
-                MU.log "Terminating instance #{instance.id} #{instance.name})"
+                MU.log "Terminating instance #{instance.name}"
                 if !instance.disks.nil? and instance.disks.size > 0
                   instance.disks.each { |disk|
                     disks << disk if !disk.auto_delete

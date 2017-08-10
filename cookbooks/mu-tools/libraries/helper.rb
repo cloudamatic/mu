@@ -3,15 +3,54 @@ include Chef::Mixin::PowershellOut
 include Chef::Mixin::ShellOut
 
 require 'net/http'
+require 'timeout'
+require 'open-uri'
 
 module Mutools
   module Helper
+
+    # Fetch a Google instance metadata parameter (example: instance/id).
+    # @param param [String]: The parameter name to fetch
+    # @return [String, nil]
+    def getGoogleMetaData(param)
+      base_url = "http://metadata.google.internal/computeMetadata/v1"
+      begin
+        Timeout.timeout(2) do
+          response = open(
+            "#{base_url}/#{param}",
+            "Metadata-Flavor" => "Google"
+          ).read
+          return response
+        end
+      rescue Net::HTTPServerException, OpenURI::HTTPError, Timeout::Error, SocketError => e
+        # This is fairly normal, just handle it gracefully
+      end
+
+      nil
+    end
+ 
+    # Fetch an Amazon instance metadata parameter (example: public-ipv4).
+    # @param param [String]: The parameter name to fetch
+    # @return [String, nil]
+    def getAWSMetaData(param)
+      base_url = "http://169.254.169.254/latest"
+      begin
+        Timeout.timeout(2) do
+          response = open("#{base_url}/#{param}").read
+          return response
+        end
+      rescue Net::HTTPServerException, OpenURI::HTTPError, Timeout::Error, SocketError => e
+        # This is fairly normal, just handle it gracefully
+      end
+      nil
+    end
 
     @region = nil
     def set_aws_cfg_params
       begin
         require 'aws-sdk-core'
-        instance_identity = Net::HTTP.get(URI("http://169.254.169.254/latest/dynamic/instance-identity/document"))
+        instance_identity = getAWSMetaData("dynamic/instance-identity/document")
+        return false if instance_identity.nil? # Not in AWS, most likely
         @region = JSON.parse(instance_identity)["region"]
         ENV['AWS_DEFAULT_REGION'] = @region
 
@@ -95,14 +134,18 @@ module Mutools
       response = http.get(uri)
       bucket = response.body
 
-      return nil if s3.nil?
-
-      resp = nil
-      begin
-        resp = s3.get_object(bucket: bucket, key: mu_get_tag_value("MU-ID")+"-secret")
-      rescue ::Aws::S3::Errors::PermanentRedirect => e
-        tmps3 = Aws::S3::Client.new(region: "us-east-1")
-        resp = tmps3.get_object(bucket: bucket, key: mu_get_tag_value("MU-ID")+"-secret")
+      if !getAWSMetaData("meta-data/instance-id").nil?
+        resp = nil
+        begin
+          resp = s3.get_object(bucket: bucket, key: mu_get_tag_value("MU-ID")+"-secret")
+        rescue ::Aws::S3::Errors::PermanentRedirect => e
+          tmps3 = Aws::S3::Client.new(region: "us-east-1")
+          resp = tmps3.get_object(bucket: bucket, key: mu_get_tag_value("MU-ID")+"-secret")
+        end
+      elsif !getGoogleMetaData("instance/name").nil?
+        raise "Still learning how to fetch deploy secrets in Google"
+      else
+        raise "I don't know how to fetch deploy secrets without either AWS or Google!"
       end
 
       if node[:deployment] and node[:deployment][:public_key]

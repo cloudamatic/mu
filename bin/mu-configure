@@ -144,8 +144,8 @@ $CONFIGURABLES = {
         "desc" => "Credentials used for accessing the AWS API (looks like: +Z16iRP9QAq7EcjHINyEMs3oR7A76QpfaSgCBogp)"
       },
       "log_bucket_name" => {
-        "title" => "Log Bucket Name",
-        "desc" => "AWS S3 bucket into which we'll synchronize collected system logs",
+        "title" => "Log and Secret Bucket Name",
+        "desc" => "S3 bucket into which we'll synchronize deploy secrets, and if we're hosted in AWS, collected system logs",
         "changes" => ["chefrun"]
       }
     }
@@ -167,6 +167,11 @@ $CONFIGURABLES = {
         "title" => "Default Region",
         "desc" => "Default Google Cloud Platform region in which we operate and deploy",
         "default" => "us-east1"
+      },
+      "log_bucket_name" => {
+        "title" => "Log and Secret Bucket Name",
+        "desc" => "Cloud Storage bucket into which we'll synchronize deploy secrets, and if we're hosted in GCP, collected system logs",
+        "changes" => ["chefrun"]
       }
     }
   }
@@ -437,8 +442,18 @@ def setDefaults
       end
     }
   elsif $IN_GOOGLE
-    # http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/<index>/forwarded-ips/
-    # TODO learn to pull these
+    base_url = "http://metadata.google.internal/computeMetadata/v1"
+    begin
+      Timeout.timeout(2) do
+# TODO iterate across multiple interfaces/access-configs
+        ip = open("#{base_url}/instance/network-interfaces/0/ip", "Metadata-Flavor" => "Google").read
+        ips << ip if !ip.nil? and ip.size > 0
+        ip = open("#{base_url}/instance/network-interfaces/0/access-configs/0/external-ip", "Metadata-Flavor" => "Google").read
+        ips << ip if !ip.nil? and ip.size > 0
+      end
+    rescue OpenURI::HTTPError, Timeout::Error, SocketError => e
+      # This is fairly normal, just handle it gracefully
+    end
   end
 
   ips.concat(Socket.ip_address_list.delete_if { |i| !i.ipv4? or i.ip_address.match(/^(0\.0\.0\.0$|169\.254\.|127\.0\.)/) }.map { |a| a.ip_address })
@@ -451,7 +466,6 @@ def setDefaults
     $CONFIGURABLES["jenkins"]["subtree"]["admin_email"]["default"] = $CONFIGURABLES["mu_admin_email"]["value"]
   end
   if $IN_AWS
-    $CONFIGURABLES["aws"]["subtree"]["log_bucket_name"]["default"] = $CONFIGURABLES["hostname"]["default"]
     aws = JSON.parse(open("http://169.254.169.254/latest/dynamic/instance-identity/document").read)
     iam = nil
     begin
@@ -465,9 +479,9 @@ def setDefaults
       $CONFIGURABLES["aws"]["subtree"]["access_key"]["desc"] = $CONFIGURABLES["aws"]["subtree"]["access_key"]["desc"] + ". Not necessary if IAM Profile #{iam.bold} has sufficient API access."
       $CONFIGURABLES["aws"]["subtree"]["access_secret"]["desc"] = $CONFIGURABLES["aws"]["subtree"]["access_key"]["desc"] + ". Not necessary if IAM Profile #{iam.bold} has sufficient API access."
     end
-  else
-    $CONFIGURABLES["aws"]["subtree"].delete("log_bucket_name")
   end
+  $CONFIGURABLES["aws"]["subtree"]["log_bucket_name"]["default"] = $CONFIGURABLES["hostname"]["default"]
+  $CONFIGURABLES["google"]["subtree"]["log_bucket_name"]["default"] = $CONFIGURABLES["hostname"]["default"]
 end
 
 
