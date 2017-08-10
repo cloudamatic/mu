@@ -33,9 +33,22 @@ CHEF_CLIENT_VERSION="12.20.3-1"
 KNIFE_WINDOWS="1.8.0"
 MU_BRANCH="master"
 MU_BASE="/opt/mu"
+
+begin
+  resources('service[sshd]')
+rescue Chef::Exceptions::ResourceNotFound
+  service "sshd" do
+    action :nothing
+  end
+end
+
 if File.read("/etc/ssh/sshd_config").match(/^AllowUsers\s+([^\s]+)(?:\s|$)/)
   SSH_USER = Regexp.last_match[1].chomp
 else
+  execute "sed -i 's/PermitRootLogin no/PermitRootLogin yes/' /etc/ssh/sshd_config" do
+    only_if "grep 'PermitRootLogin no' /etc/ssh/sshd_config"
+    notifies :restart, "service[sshd]", :immediately
+  end
   SSH_USER="root"
 end
 RUNNING_STANDALONE=node[:application_attributes].nil?
@@ -142,7 +155,7 @@ rpms = {}
 dpkgs = {}
 
 if platform_family?("rhel") 
-  basepackages = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel"]
+  basepackages = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libffi-devel", "libyaml"]
   rpms = {
     "epel-release" => "http://dl.fedoraproject.org/pub/epel/epel-release-latest-#{node[:platform_version].to_i}.noarch.rpm",
     "chef-server-core" => "https://packages.chef.io/files/stable/chef-server/#{CHEF_SERVER_VERSION.sub(/\-\d+$/, "")}/el/#{node[:platform_version].to_i}/chef-server-core-#{CHEF_SERVER_VERSION}.el#{node[:platform_version].to_i}.x86_64.rpm"

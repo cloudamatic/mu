@@ -27,6 +27,14 @@ module MU
       @@default_project = nil
       @@authorizers = {}
 
+      # Determine whether we (the Mu master, presumably) are hosted in this
+      # cloud.
+      # @return [Boolean]
+      def self.hosted
+        return true if self.getGoogleMetaData("instance/name")
+        false
+      end
+
       # Fetch a Google instance metadata parameter (example: instance/id).
       # @param param [String]: The parameter name to fetch
       # @return [String, nil]
@@ -35,7 +43,7 @@ module MU
         begin
           Timeout.timeout(2) do
             response = open(
-              "http://metadata.google.internal/computeMetadata/v1/instance/id",
+              "#{base_url}/#{param}",
               "Metadata-Flavor" => "Google"
             ).read
             return response
@@ -55,9 +63,7 @@ module MU
       # @param scopes [Array<String>]: One or more scopes for which to authorizer the caller. Will vary depending on the API you're calling.
       def self.loadCredentials(scopes = nil)
         return @@authorizers[scopes.to_s] if @@authorizers[scopes.to_s]
-# XXX Maybe rig this up as a fallback (would work when we're deployed in 
-# Computer or cohabiting with other things that use the generic ENV setup.
-# ::Google::Auth.get_application_default(scopes)
+
         if $MU_CFG.has_key?("google") and $MU_CFG["google"].has_key?("credentials")
           begin
             vault, item = $MU_CFG["google"]["credentials"].split(/:/)
@@ -72,6 +78,9 @@ module MU
           rescue MU::Groomer::Chef::MuNoSuchSecret
             raise MuError, "Google Cloud credentials not found in Vault #{vault}:#{item}"
           end
+        elsif MU::Cloud::Google.hosted
+          @@authorizers[scopes.to_s] = ::Google::Auth.get_application_default(scopes)
+          @@default_project ||= MU::Cloud::Google.getGoogleMetaData("project/project-id")
         else
           raise MuError, "Google Cloud credentials not configured"
         end
@@ -96,9 +105,11 @@ module MU
 
       # If this Mu master resides in the Google Cloud Platform, return the
       # project id in which we reside. Nil if we're not in GCP.
-      # XXX actually like implement this
       def self.myProject
-        return nil
+        if MU::Cloud::Google.hosted
+          return MU::Cloud::Google.getGoogleMetaData("project/project-id")
+        end
+        nil
       end
 
       # Our credentials map to a project, an organizational structure in Google
@@ -229,6 +240,10 @@ module MU
                 retval = @api.method(method_sym).call
               end
             rescue ::Google::Apis::ClientError => e
+              if e.message.match(/^invalidParameter:/)
+                MU.log e.message, MU::ERR, details: arguments
+                raise e
+              end
               if retries <= 10 and
                  e.message.match(/^resourceNotReady:/) or
                  (e.message.match(/^resourceInUseByAnotherResource:/) and method_sym.to_s.match(/^delete_/))

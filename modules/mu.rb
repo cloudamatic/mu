@@ -420,14 +420,20 @@ module MU
   end
 
   @@myRegion_var = nil
-  # Find our AWS Region and Availability Zone
-  # XXX account for Google and non-cloud situations
+  # Find the cloud provider region where this master resides, if any
   def self.myRegion
-    if ENV.has_key?("EC2_REGION") and !ENV['EC2_REGION'].empty?
-      @@myRegion_var ||= MU::Cloud::AWS.ec2(ENV['EC2_REGION']).describe_availability_zones.availability_zones.first.region_name
+    if MU::Cloud::Google.hosted
+      zone = MU::Cloud::Google.getGoogleMetaData("instance/zone")
+      @@myRegion_var = zone.gsub(/^.*?\/|\-\d+$/, "")
+    elsif MU::Cloud::AWS.hosted
+      if ENV.has_key?("EC2_REGION") and !ENV['EC2_REGION'].empty?
+        @@myRegion_var ||= MU::Cloud::AWS.ec2(ENV['EC2_REGION']).describe_availability_zones.availability_zones.first.region_name
+      else
+        # hacky, but useful in a pinch
+        @@myRegion_var = MU::Cloud::AWS.getAWSMetaData("placement/availability-zone").sub(/[a-z]$/i, "")
+      end
     else
-      # hacky, but useful in a pinch
-      @@myRegion_var = MU::Cloud::AWS.getAWSMetaData("placement/availability-zone").sub(/[a-z]$/i, "")
+      @@myRegion_var = nil
     end
     @@myRegion_var
   end
@@ -437,15 +443,12 @@ module MU
   # Figure out what cloud provider we're in, if any.
   # @return [String]: Google, AWS, etc. Returns nil if we don't seem to be in a cloud.
   def self.myCloud
-    aws_instance_id = MU::Cloud::AWS.getAWSMetaData("instance-id")
-    if !aws_instance_id.nil?
-      @@myInstanceId = aws_instance_id
-      return "AWS"
-    end
-    google_instance_id = MU::Cloud::Google.getGoogleMetaData("instance/id")
-    if !google_instance_id.nil?
-      @@myInstanceId = google_instance_id
+    if MU::Cloud::Google.hosted
+      @@myInstanceId = MU::Cloud::Google.getGoogleMetaData("instance/name")
       return "Google"
+    elsif MU::Cloud::AWS.hosted
+      @@myInstanceId = MU::Cloud::AWS.getAWSMetaData("instance-id")
+      return "AWS"
     end
     nil
   end
@@ -483,12 +486,6 @@ module MU
     @@myInstanceId # MU.myCloud will have set this, since it's our test variable
   end
 
-  @@myCloudDescriptor = nil
-  # XXX account for Google and non-cloud situations
-  begin
-    @@myCloudDescriptor = MU::Cloud::AWS.ec2(MU.myRegion).describe_instances(instance_ids: [MU.myInstanceId]).reservations.first.instances.first
-  rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
-  end
   # If our Mu master is hosted in a cloud provider, we can use this to get its
   # cloud API descriptor.
   def self.myCloudDescriptor;
@@ -496,21 +493,40 @@ module MU
   end
 
   @@myAZ_var = nil
-  # The AWS Availability Zone in which this Mu master resides
-  # XXX account for Google and non-cloud situations
+  # Find the cloud provider availability zone where this master resides, if any
   def self.myAZ
-    return nil if MU.myCloudDescriptor.nil?
-    begin
-      @@myAZ_var ||= MU.myCloudDescriptor.placement.availability_zone
-    rescue Aws::EC2::Errors::InternalError => e
-      MU.log "Got #{e.inspect} on MU::Cloud::AWS.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
-      sleep 10
+    if MU::Cloud::Google.hosted
+      zone = MU::Cloud::Google.getGoogleMetaData("instance/zone")
+      @@myAZ_var = zone.gsub(/.*?\//, "")
+    elsif MU::Cloud::AWS.hosted
+      return nil if MU.myCloudDescriptor.nil?
+      begin
+        @@myAZ_var ||= MU.myCloudDescriptor.placement.availability_zone
+      rescue Aws::EC2::Errors::InternalError => e
+        MU.log "Got #{e.inspect} on MU::Cloud::AWS.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
+        sleep 10
+      end
     end
     @@myAZ_var
   end
 
+  @@myCloudDescriptor = nil
+  if MU::Cloud::Google.hosted
+    @@myCloudDescriptor = MU::Cloud::Google.compute.get_instance(
+      MU::Cloud::Google.myProject,
+      MU.myAZ,
+      MU.myInstanceId
+    )
+  elsif MU::Cloud::AWS.hosted
+    begin
+      @@myCloudDescriptor = MU::Cloud::AWS.ec2(MU.myRegion).describe_instances(instance_ids: [MU.myInstanceId]).reservations.first.instances.first
+    rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
+    end
+  end
+
+
   @@myVPC_var = nil
-  # The AWS Availability Zone in which this Mu master resides
+  # The VPC/Network in which this Mu master resides
   # XXX account for Google and non-cloud situations
   def self.myVPC
     return nil if MU.myCloudDescriptor.nil?

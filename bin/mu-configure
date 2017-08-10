@@ -233,7 +233,7 @@ $IN_GOOGLE = false
 begin
   Timeout.timeout(2) do
     instance_id = open(
-      "http://metadata.google.internal/computeMetadata/v1/instance/id",
+      "http://metadata.google.internal/computeMetadata/v1/instance/name",
       "Metadata-Flavor" => "Google"
     ).read
     $IN_GOOGLE = true if !instance_id.nil? and instance_id.size > 0

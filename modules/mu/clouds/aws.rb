@@ -38,11 +38,26 @@ module MU
         return zones
       end
 
+      # Determine whether we (the Mu master, presumably) are hosted in this
+      # cloud.
+      # @return [Boolean]
+      def self.hosted
+        require 'open-uri'
+        begin
+          Timeout.timeout(2) do
+            instance_id = open("http://169.254.169.254/latest/meta-data/instance-id").read
+            return true if !instance_id.nil? and instance_id.size > 0
+          end
+        rescue OpenURI::HTTPError, Timeout::Error, SocketError
+        end
+        false
+      end
 
       # List the Amazon Web Services region names available to this account. The
       # region that is local to this Mu server will be listed first.
       # @return [Array<String>]
       def self.listRegions
+        return [] if !MU::Cloud::AWS.hosted
         regions = MU::Cloud::AWS.ec2.describe_regions().regions.map { |region| region.region_name }
 
 #			regions.sort! { |a, b|

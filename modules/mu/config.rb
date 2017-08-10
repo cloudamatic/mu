@@ -1218,7 +1218,7 @@ module MU
         all_subnets = []
         if !is_sibling
           pub = priv = 0
-
+          raise MuError, "No subnets found in #{ext_vpc}" if ext_vpc.subnets.nil?
           ext_vpc.subnets.each { |subnet|
             next if dflt_region and vpc_block["cloud"] == "Google" and subnet.az != dflt_region
             if subnet.private? and (vpc_block['subnet_pref'] != "all_public" and vpc_block['subnet_pref'] != "public")
@@ -2825,8 +2825,8 @@ module MU
 
       return vpc_ref_schema
     end
-    allregions = MU::Cloud::AWS.listRegions
-    allregions.concat(MU::Cloud::Google.listRegions)
+    allregions = MU::Cloud::AWS.listRegions # XXX make this work when we're not in AWS but have AWS creds configured
+#    allregions.concat(MU::Cloud::Google.listRegions)
 
     @region_primitive = {
       "type" => "string",

@@ -22,31 +22,33 @@ module Mutools
         else
           Aws.config = {access_key_id: ENV['AWS_ACCESS_KEY_ID'], secret_access_key: ENV['AWS_SECRET_ACCESS_KEY'], region: @region}
         end
+        return true
+      rescue OpenURI::HTTPError, Timeout::Error, SocketError, JSON::ParserError
+        Chef::Log.info("This node isn't in Amazon Web Services, skipping AWS config")
+        return false
       rescue LoadError
         Chef::Log.info("aws-sdk-gem hasn't been installed yet!")
+        return false
       end
     end
 
     @ec2 = nil
     def ec2
-      require 'aws-sdk-core'
-      set_aws_cfg_params
-      @ec2 ||= Aws::EC2::Client.new(region: @region)
+      if set_aws_cfg_params
+        @ec2 ||= Aws::EC2::Client.new(region: @region)
+      end
       @ec2
     end
     @s3 = nil
     def s3
-      require 'aws-sdk-core'
-      set_aws_cfg_params
-      @s3 ||= Aws::S3::Client.new(region: @region)
+      if set_aws_cfg_params
+        @s3 ||= Aws::S3::Client.new(region: @region)
+      end
       @s3
     end
 
     def elversion
-      return 6 if node['platform_version'].to_i == 2013
-      return 6 if node['platform_version'].to_i == 2014
-      return 6 if node['platform_version'].to_i == 2015
-      return 6 if node['platform_version'].to_i == 2016
+      return 6 if node['platform_version'].to_i >= 2013 and node['platform_version'].to_i <= 2017
       node['platform_version'].to_i
     end
 
@@ -92,6 +94,8 @@ module Mutools
       http.verify_mode = ::OpenSSL::SSL::VERIFY_NONE # XXX this sucks
       response = http.get(uri)
       bucket = response.body
+
+      return nil if s3.nil?
 
       resp = nil
       begin
@@ -151,15 +155,17 @@ module Mutools
       master_ips << "127.0.0.1" if node[:name] == "MU-MASTER"
       master = search(:node, "name:MU-MASTER")
       master.each { |server|
-        next if !server.has_key?("ec2")
-        master_ips << server['ec2']['public_ipv4'] if server['ec2'].has_key?('public_ipv4') and !server['ec2']['public_ipv4'].nil? and !server['ec2']['public_ipv4'].empty?
-        master_ips << server['ec2']['local_ipv4'] if !server['ec2']['local_ipv4'].nil? and !server['ec2']['local_ipv4'].empty?
+        if server.has_key?("ec2")
+          master_ips << server['ec2']['public_ipv4'] if server['ec2'].has_key?('public_ipv4') and !server['ec2']['public_ipv4'].nil? and !server['ec2']['public_ipv4'].empty?
+          master_ips << server['ec2']['local_ipv4'] if !server['ec2']['local_ipv4'].nil? and !server['ec2']['local_ipv4'].empty?
+        end
+        master_ips << server['ipaddress'] if !server['ipaddress'].nil? and !server['ipaddress'].empty?
       }
       if master_ips.size == 0
         master_ips <<  mu_get_tag_value("MU-MASTER-IP")
       end
 
-      return master_ips
+      return master_ips.uniq
     end
   end
 end

@@ -15,7 +15,7 @@
 
 updates_run=0
 need_reboot=0
-instance_id="`curl http://metadata.google.internal/computeMetadata/v1/instance/id`"
+instance_id="`curl http://metadata.google.internal/computeMetadata/v1/instance/name`"
 if [ -f /etc/debian_version ];then
 	if ! grep '^/bin/sh /var/lib/cloud/instance/user-data.txt$' /etc/rc.local > /dev/null;then
 		echo "/bin/sh /var/lib/cloud/instance/user-data.txt" >> /etc/rc.local
@@ -127,7 +127,7 @@ print Base64.urlsafe_encode64(key.public_encrypt(File.read("<%= $mu.muID %>-secr
 ' > encrypt_deploy_secret.rb
 
 deploykey="<%= $mu.deployKey %>"
-instance_id="`curl http://metadata.google.internal/computeMetadata/v1/instance/id`"
+instance_id="`curl http://metadata.google.internal/computeMetadata/v1/instance/name`"
 
 # Make double-sure sshd is actually up
 service sshd restart
