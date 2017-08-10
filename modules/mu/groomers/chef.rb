@@ -47,7 +47,7 @@ module MU
       def self.loadChefLib(user = MU.chef_user, env = "dev", mu_user = MU.mu_user)
         @chefload_semaphore.synchronize {
           if !@chefloaded
-            MU.log "Loading Chef libraries as user #{user}..."
+            MU.log "Loading Chef libraries as user #{user}...", MU::DEBUG
             start = Time.now
             # need to find which classes are actually needed instead of loading chef
             require 'chef'
@@ -75,7 +75,7 @@ module MU
               ::Chef::Config.trusted_certs_dir = "#{Etc.getpwnam(mu_user).dir}/.chef/trusted_certs"
             end
             @chefloaded = true
-            MU.log "Chef libraries loaded (took #{(Time.now-start).to_s} seconds)"
+            MU.log "Chef libraries loaded (took #{(Time.now-start).to_s} seconds)", MU::DEBUG
           end
         }
       end
