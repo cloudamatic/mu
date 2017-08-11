@@ -26,6 +26,7 @@ mount_directory = node[:application_attributes][:application_volume][:mount_dire
 volume_size_gb = node[:application_attributes][:application_volume][:volume_size_gb]
 
 include_recipe "mu-tools::aws_api"
+include_recipe "mu-tools::google_api"
 
 
 params = Base64.urlsafe_encode64(JSON.generate(

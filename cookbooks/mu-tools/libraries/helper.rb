@@ -12,7 +12,7 @@ module Mutools
     # Fetch a Google instance metadata parameter (example: instance/id).
     # @param param [String]: The parameter name to fetch
     # @return [String, nil]
-    def getGoogleMetaData(param)
+    def get_google_metadata(param)
       base_url = "http://metadata.google.internal/computeMetadata/v1"
       begin
         Timeout.timeout(2) do
@@ -32,7 +32,7 @@ module Mutools
     # Fetch an Amazon instance metadata parameter (example: public-ipv4).
     # @param param [String]: The parameter name to fetch
     # @return [String, nil]
-    def getAWSMetaData(param)
+    def get_aws_metadata(param)
       base_url = "http://169.254.169.254/latest"
       begin
         Timeout.timeout(2) do
@@ -45,11 +45,29 @@ module Mutools
       nil
     end
 
+    @project = nil
+    @authorizer = nil
+    def set_gcp_cfg_params
+      begin
+        require "google/cloud"
+        require "googleauth"
+        @project ||= get_google_metadata("project/project-id")
+        @authorizer ||= ::Google::Auth.get_application_default(['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'])
+      rescue OpenURI::HTTPError, Timeout::Error, SocketError, JSON::ParserError
+        Chef::Log.info("This node isn't in the Goolge Cloud, skipping GCP config")
+        return false
+      rescue LoadError
+        Chef::Log.info("google-cloud-api hasn't been installed yet!")
+        return false
+      end
+      true
+    end
+
     @region = nil
     def set_aws_cfg_params
       begin
         require 'aws-sdk-core'
-        instance_identity = getAWSMetaData("dynamic/instance-identity/document")
+        instance_identity = get_aws_metadata("dynamic/instance-identity/document")
         return false if instance_identity.nil? # Not in AWS, most likely
         @region = JSON.parse(instance_identity)["region"]
         ENV['AWS_DEFAULT_REGION'] = @region
@@ -84,6 +102,18 @@ module Mutools
         @s3 ||= Aws::S3::Client.new(region: @region)
       end
       @s3
+    end
+
+    @cloudstorage = nil
+    # XXX does not work with google-api-client-0.13.1 and chef-12.20.3 because
+    # they fight over what version of addressable they want.
+    def cloudstorage
+      if set_gcp_cfg_params
+        require 'google/apis/storage_v1'
+        @cloudstorage ||= Object.const_get("Google::Apis::StorageV1").new
+        @cloudstorage.authorization = @authorizer
+      end
+      @cloudstorage
     end
 
     def elversion
@@ -134,7 +164,7 @@ module Mutools
       response = http.get(uri)
       bucket = response.body
 
-      if !getAWSMetaData("meta-data/instance-id").nil?
+      if !get_aws_metadata("meta-data/instance-id").nil?
         resp = nil
         begin
           resp = s3.get_object(bucket: bucket, key: mu_get_tag_value("MU-ID")+"-secret")
@@ -142,7 +172,12 @@ module Mutools
           tmps3 = Aws::S3::Client.new(region: "us-east-1")
           resp = tmps3.get_object(bucket: bucket, key: mu_get_tag_value("MU-ID")+"-secret")
         end
-      elsif !getGoogleMetaData("instance/name").nil?
+      elsif !get_google_metadata("instance/name").nil?
+        include_recipe "mu-tools::gcloud"
+        if !File.exists("/bin/gsutil") and !File.exists("/opt/google-cloud-sdk/bin/gsutil")
+          return false
+        end
+
         raise "Still learning how to fetch deploy secrets in Google"
       else
         raise "I don't know how to fetch deploy secrets without either AWS or Google!"

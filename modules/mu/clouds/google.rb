@@ -52,6 +52,42 @@ module MU
         end
       end
 
+      # Grant access to appropriate Cloud Storage objects in our log/secret bucket for a deploy member.
+      # @param acct [String]: The service account (by email addr) to which we'll grant access
+      # @param deploy_id [String]: The deploy for which we're granting the secret
+      # XXX add equivalent for AWS and call agnostically
+      def self.grantDeploySecretAccess(acct, deploy_id = MU.deploy_id)
+        name = deploy_id+"-secret"
+        begin
+          MU.log "Granting #{acct} access to list Cloud Storage bucket #{MU.adminBucketName}"
+          MU::Cloud::Google.storage.insert_bucket_access_control(
+            MU.adminBucketName,
+            MU::Cloud::Google.storage(:BucketAccessControl).new(
+              bucket: MU.adminBucketName,
+              role: "READER",
+              entity: "user-"+acct
+            )
+          )
+
+          aclobj = MU::Cloud::Google.storage(:ObjectAccessControl).new(
+            bucket: MU.adminBucketName,
+            role: "READER",
+            entity: "user-"+acct
+          )
+
+          [name, "log_vol_ebs_key"].each { |obj|
+            MU.log "Granting #{acct} access to #{obj} in Cloud Storage bucket #{MU.adminBucketName}"
+            MU::Cloud::Google.storage.insert_object_access_control(
+              MU.adminBucketName,
+              obj,
+              aclobj
+            )
+          }
+        rescue ::Google::Apis::ClientError => e
+          raise MuError, "Got #{e.inspect} trying to set ACLs for #{deploy_id} in #{MU.adminBucketName}"
+        end
+      end
+
       # Determine whether we (the Mu master, presumably) are hosted in this
       # cloud.
       # @return [Boolean]

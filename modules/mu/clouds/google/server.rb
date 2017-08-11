@@ -88,7 +88,7 @@ module MU
         # @param rolename [String]:
         # @param project [String]:
         # @param scopes [Array<String>]: https://developers.google.com/identity/protocols/googlescopes
-        def self.createServiceAccount(rolename, project: MU::Cloud::Google.defaultProject, scopes: ["https://www.googleapis.com/auth/compute.readonly", "https://www.googleapis.com/auth/logging.write"])
+        def self.createServiceAccount(rolename, project: MU::Cloud::Google.defaultProject, scopes: ["https://www.googleapis.com/auth/compute.readonly", "https://www.googleapis.com/auth/logging.write", "https://www.googleapis.com/auth/cloud-platform"])
 #https://www.googleapis.com/auth/devstorage.read_only ?
           name = MU::Cloud::Google.nameStr(rolename)
 
@@ -225,10 +225,9 @@ next if !create
 
           service_acct = MU::Cloud::Google::Server.createServiceAccount(
             @mu_name.downcase,
-            base_profile: nil,
-            extra_policies: nil,
             project: @config['project']
           )
+          MU::Cloud::Google.grantDeploySecretAccess(service_acct.email)
 
           begin
             disks = MU::Cloud::Google::Server.diskConfig(@config)
@@ -1198,6 +1197,7 @@ next if !create
             )
             if !resp.items.nil? and resp.items.size > 0
               resp.items.each { |instance|
+                saname = instance.tags.items.first.gsub(/[^a-z]/, "") # XXX this nonsense again
                 MU.log "Terminating instance #{instance.name}"
                 if !instance.disks.nil? and instance.disks.size > 0
                   instance.disks.each { |disk|
@@ -1208,7 +1208,11 @@ next if !create
                   flags["project"],
                   az,
                   instance.name
-                )
+                ) if !noop
+                MU.log "Removing service account #{saname}"
+                MU::Cloud::Google.iam.delete_project_service_account(
+                  "projects/#{flags["project"]}/serviceAccounts/#{saname}@#{flags["project"]}.iam.gserviceaccount.com"
+                ) if !noop
 # XXX wait-loop on pending?
 #                pp deletia
               }
@@ -1223,8 +1227,9 @@ next if !create
               flags["project"],
               az,
               noop
-            )
+            ) if !noop
           }
+
         end
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::servers}, bare and unvalidated.

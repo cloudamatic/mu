@@ -18,6 +18,7 @@
 # or as desired
 #
 include_recipe "mu-tools::aws_api"
+include_recipe "mu-tools::google_api"
 
 Chef::Log.info("Dumping node #{node[:application_attributes][:application_volume]}")
 mount_device = node[:application_attributes][:application_volume][:mount_device]

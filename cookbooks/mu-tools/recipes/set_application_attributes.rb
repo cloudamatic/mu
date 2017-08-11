@@ -23,6 +23,7 @@
 require "rubygems"
 require "json"
 include_recipe "mu-tools::aws_api"
+include_recipe "mu-tools::google_api"
 
 attribute_setter = ruby_block "set_application_attributes" do
   extend CAPVolume

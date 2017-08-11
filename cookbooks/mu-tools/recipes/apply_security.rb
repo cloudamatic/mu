@@ -22,6 +22,7 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
   case node[:platform]
     when "centos", "redhat"
       include_recipe "mu-tools::aws_api"
+      include_recipe "mu-tools::google_api"
   
   
       %w{ policycoreutils-python authconfig ntp aide }.each do |pkg|

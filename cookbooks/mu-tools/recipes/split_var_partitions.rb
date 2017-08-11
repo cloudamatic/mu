@@ -21,6 +21,7 @@ if !node[:application_attributes][:skip_recipes].include?('split_var_partitions'
     when "centos", "redhat"
   
       include_recipe "mu-tools::aws_api"
+      include_recipe "mu-tools::google_api"
   
       execute "reboot for /var" do
         command "/sbin/shutdown -r +1 'Adjusting partitions under /var' > /dev/null < /dev/null &"

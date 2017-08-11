@@ -117,7 +117,7 @@ if [ "$need_reboot" == "1" ];then
 fi
 <% end %>
 
-#$AWSCLI s3 cp s3://<%= MU.adminBucketName %>/<%= $mu.muID %>-secret .
+gsutil cp gs://<%= MU.adminBucketName %>/<%= $mu.muID %>-secret .
 
 echo '
 require "openssl"

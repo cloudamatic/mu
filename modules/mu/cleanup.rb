@@ -247,8 +247,12 @@ module MU
 
       if !@noop and !@skipcloud
         MU::Cloud::AWS.s3(MU.myRegion).delete_object(
-            bucket: MU.adminBucketName,
-            key: "#{MU.deploy_id}-secret"
+          bucket: MU.adminBucketName,
+          key: "#{MU.deploy_id}-secret"
+        )
+        MU::Cloud::Google.storage.delete_object(
+          MU.adminBucketName,
+          "#{MU.deploy_id}-secret"
         )
         MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS...
       end

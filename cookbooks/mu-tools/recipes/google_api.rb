@@ -16,8 +16,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-chef_gem "aws-sdk-core" do
-  compile_time true
-  version "2.6.50"
-  action :install
-end
+["google-api-client", "google-cloud", "googleauth"].each { |gem|
+  chef_gem gem do
+    compile_time true
+    action :install
+  end
+}
