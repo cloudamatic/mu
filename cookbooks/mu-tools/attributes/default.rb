@@ -26,8 +26,7 @@ default.os_updates_using_chef = false
 default['application_attributes']['application_volume']['mount_directory'] = '/apps'
 default['application_attributes']['application_volume']['mount_device'] = '/dev/xvdf'
 default['application_attributes']['application_volume']['label'] = "#{disk_name_str} /apps"
-default['application_attributes']['application_volume']['filesystem'] = 'ext3'
-default['application_attributes']['application_volume']['volume_size_gb'] = '1'
+default['application_attributes']['application_volume']['volume_size_gb'] = 1
 
 default['application_attributes']['ebs_snapshots']['boto_path'] = '/usr/lib/python2.6/site-packages/boto'
 default['application_attributes']['ebs_snapshots']['minute'] = '10'

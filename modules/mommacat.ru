@@ -363,8 +363,6 @@ app = proc do |env|
       if !req["mu_ssl_sign"].nil?
         kittenpile.signSSLCert(req["mu_ssl_sign"])
       elsif !req["add_volume"].nil?
-puts instance.cloud_id
-pp req
         if instance.respond_to?(:addVolume)
 # XXX make sure we handle mangled input safely
           params = JSON.parse(Base64.decode64(req["add_volume"]))

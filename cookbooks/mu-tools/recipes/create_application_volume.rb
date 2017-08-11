@@ -28,23 +28,9 @@ volume_size_gb = node[:application_attributes][:application_volume][:volume_size
 include_recipe "mu-tools::aws_api"
 include_recipe "mu-tools::google_api"
 
-
-params = Base64.urlsafe_encode64(JSON.generate(
-  {
-    :dev => mount_device,
-    :size => volume_size_gb
-  }
-))
-# XXX would rather exec this inside a resource, guard it, etc
-mommacat_request("add_volume", params)
-
-# Make the mountpoint, create encrypted volume and mount it
-directory "mount_apps_dir" do
-  owner "root"
-  group "root"
-  mode 00644
-  path mount_directory
-  not_if { ::Dir.exists?(mount_directory+"/lost+found") } # XXX smarter guard?
+mu_tools_disk node[:application_attributes][:application_volume][:mount_directory] do
+  device node[:application_attributes][:application_volume][:mount_device]
+  size node[:application_attributes][:application_volume][:volume_size_gb]
 end
 
 ruby_block "format_default_volume" do

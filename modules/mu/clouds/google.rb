@@ -277,10 +277,16 @@ module MU
         def delete(type, project, region = nil, noop = false, filter = "description eq #{MU.deploy_id}")
           list_sym = "list_#{type.sub(/y$/, "ie")}s".to_sym
           resp = nil
-          if region
-            resp = MU::Cloud::Google.compute.send(list_sym, project, region, filter: filter)
-          else
-            resp = MU::Cloud::Google.compute.send(list_sym, project, filter: filter)
+          begin
+            if region
+              resp = MU::Cloud::Google.compute.send(list_sym, project, region, filter: filter)
+            else
+              resp = MU::Cloud::Google.compute.send(list_sym, project, filter: filter)
+            end
+          rescue ::Google::Apis::ClientError => e
+            if e.message.match(/^notFound: /)
+              return
+            end
           end
 
           if !resp.nil? and !resp.items.nil?
@@ -292,10 +298,18 @@ module MU
                 MU.log "Removing #{type.gsub(/_/, " ")} #{obj.name}"
                 delete_sym = "delete_#{type}".to_sym
                 if !noop
-                  if region
-                    MU::Cloud::Google.compute.send(delete_sym, project, region, obj.name)
-                  else
-                    MU::Cloud::Google.compute.send(delete_sym, project, obj.name)
+                  begin
+                    if region
+                      MU::Cloud::Google.compute.send(delete_sym, project, region, obj.name)
+                    else
+                      MU::Cloud::Google.compute.send(delete_sym, project, obj.name)
+                    end
+                  rescue ::Google::Apis::ClientError => e
+                    if e.message.match(/^notFound: /)
+                      return
+                    else
+                      raise e
+                    end
                   end
                 end
               }

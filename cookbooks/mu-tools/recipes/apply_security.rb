@@ -322,45 +322,16 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
         end
       }
 
-      params = Base64.urlsafe_encode64(JSON.generate(
-        {
-          :dev => node[:application_attributes][:home][:mount_device],
-          :size => node[:application_attributes][:home][:volume_size_gb]
-        }
-      ))
-      # XXX would rather exec this inside a resource, guard it, etc
-      mommacat_request("add_volume", params)
-
-      if node.platform_version.to_i == 6
-        execute "mkfs.ext4 #{node[:application_attributes][:home][:mount_device]}" do
-          not_if "tune2fs -l #{node[:application_attributes][:home][:mount_device]}"
-        end
-      elsif node.platform_version.to_i == 7
-        execute "mkfs.xfs -i size=512 #{node[:application_attributes][:home][:mount_device]}" do
-          not_if "xfs_info #{node[:application_attributes][:home][:mount_device]}"
-        end
+      mu_tools_disk "/home" do
+        device node[:application_attributes][:home][:mount_device]
+        size node[:application_attributes][:home][:volume_size_gb]
+        preserve_data true
       end
-  
+
       Chef::Log.info("Value of login_disabled is #{node.normal.root_login_disabled}")
   
-      if Dir.exist?("/home")
-        execute "tar up any old userdirs" do
-          command "tar czf /tmp/moveusers.tgz -C /home ."
-  #			not_if { ::File.exists?("/tmp/moveusers.tgz") }
-          not_if "grep '^#{node[:application_attributes][:home][:mount_device]} #{node[:application_attributes][:home][:mount_directory]}' /etc/mtab"
-        end
-      end
-  
-      mount node[:application_attributes][:home][:mount_directory] do
-        device node[:application_attributes][:home][:mount_device]
-        options "nodev"
-        action [:mount, :enable]
-        notifies :run, "ruby_block[restore userdirs]", :immediately
-      end
-  
-      ruby_block "restore userdirs" do
+      ruby_block "do a bunch of weird stuff" do
         block do
-          `tar xzf /tmp/moveusers.tgz --preserve-permissions --same-owner --directory /home`
           `chcon -Rv --type=user_home_t /home`
           `rm -rf /tmp/moveusers.tgz`
           valid_users="AllowUsers root"

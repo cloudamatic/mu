@@ -182,8 +182,6 @@ next if !create
                   config['availability_zone'],
                   newdiskobj
                 )
-# XXX Do we have to wait for this? Thread this loop if so
-# newdisk.progress means things
 
                 disk_desc[:source] = newdisk.self_link
               end
@@ -1169,7 +1167,49 @@ next if !create
         # @param dev [String]: Device name to use when attaching to instance
         # @param size [String]: Size (in gb) of the new volume
         # @param type [String]: Cloud storage type of the volume, if applicable
-        def addVolume(dev, size, type: "gp2")
+        def addVolume(dev, size, type: "pd-standard")
+          devname = dev.gsub(/^\/dev\//, "")
+          resname = MU::Cloud::Google.nameStr(@mu_name+"-"+devname)
+          MU.log "Creating disk #{resname}"
+
+          newdiskobj = MU::Cloud::Google.compute(:Disk).new(
+            size_gb: size,
+            description: @deploy.deploy_id,
+            zone: @config['availability_zone'],
+#            type: "projects/#{config['project']}/zones/#{config['availability_zone']}/diskTypes/pd-ssd",
+            type: "projects/#{@config['project']}/zones/#{@config['availability_zone']}/diskTypes/pd-standard",
+# Other values include pd-ssd and local-ssd
+            name: resname
+          )
+
+          begin
+            newdisk = MU::Cloud::Google.compute.insert_disk(
+              @config['project'],
+              @config['availability_zone'],
+              newdiskobj
+            )
+          rescue ::Google::Apis::ClientError => e
+            if e.message.match(/^alreadyExists: /)
+              MU.log "Disk #{resname} already exists, ignoring request to create", MU::WARN
+              return
+            else
+              raise e
+            end
+          end
+
+          attachobj = MU::Cloud::Google.compute(:AttachedDisk).new(
+            auto_delete: true,
+            device_name: devname,
+            source: newdisk.self_link,
+            type: "PERSISTENT"
+          )
+          attachment = MU::Cloud::Google.compute.attach_disk(
+            @config['project'],
+            @config['availability_zone'],
+            @cloud_id,
+            attachobj
+          )
+
         end
 
         # Determine whether the node in question exists at the Cloud provider

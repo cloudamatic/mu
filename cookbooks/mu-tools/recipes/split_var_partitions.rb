@@ -31,34 +31,16 @@ if !node[:application_attributes][:skip_recipes].include?('split_var_partitions'
       # Create the volumes here. Moving data around and setting up the mounts will
       # require us to be in single-user mode, however.
       ["var", "var_log", "var_log_audit"].each { |volume|
-        params = Base64.urlsafe_encode64(JSON.generate(
-          {
-            :dev => node[:application_attributes][volume][:mount_device],
-            :size => node[:application_attributes][volume][:volume_size_gb]
-          }
-        ))
-# XXX would rather exec this inside a resource, guard it, etc
-        mommacat_request("add_volume", params)
+        mu_tools_disk node[:application_attributes][volume][:mount_directory] do
+          device node[:application_attributes][volume][:mount_device]
+          size node[:application_attributes][volume][:volume_size_gb]
+          reboot_after_create true
+        end
   
-        if node.platform_version.to_i == 6
-          execute "mkfs.ext4 #{node[:application_attributes][volume][:mount_device]}" do
-            not_if "tune2fs -l #{node[:application_attributes][volume][:mount_device]}"
-            notifies :run, "execute[reboot for /var]", :delayed
-          end
-        elsif node.platform_version.to_i == 7
-          execute "mkfs.xfs -i size=512 #{node[:application_attributes][volume][:mount_device]}" do
-            not_if "xfs_info #{node[:application_attributes][volume][:mount_device]}"
-            notifies :run, "execute[reboot for /var]", :delayed
-          end
-  
-          # doing something stoopid because CentOS7 dosen't like our init.d script. Should fix that instead
-          directory "/mnt#{node[:application_attributes][volume][:mount_directory]}" do
-            recursive true
-          end
-  
-          execute "mount #{node[:application_attributes][volume][:mount_device]} /mnt#{node[:application_attributes][volume][:mount_directory]}" do
-            not_if "df -h | grep #{node[:application_attributes][volume][:mount_device]}"
-          end
+        mu_tools_disk "/mnt"+node[:application_attributes][volume][:mount_directory] do
+          device node[:application_attributes][volume][:mount_device]
+          mount_only true
+          not_if "df -h | grep #{node[:application_attributes][volume][:mount_device]}"
         end
       }
   
@@ -75,11 +57,8 @@ if !node[:application_attributes][:skip_recipes].include?('split_var_partitions'
         }
   
         %w{var var_log var_log_audit}.each { |volume|
-          mount node[:application_attributes][volume][:mount_directory] do
+          mu_tools_disk node[:application_attributes][volume][:mount_directory] do
             device node[:application_attributes][volume][:mount_device]
-            fstype "xfs"
-            options "defaults"
-            action [:mount, :enable]
           end
         }
   

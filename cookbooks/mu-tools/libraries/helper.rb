@@ -163,29 +163,34 @@ module Mutools
       http.verify_mode = ::OpenSSL::SSL::VERIFY_NONE # XXX this sucks
       response = http.get(uri)
       bucket = response.body
+      secret = nil
+      filename = mu_get_tag_value("MU-ID")+"-secret"
 
       if !get_aws_metadata("meta-data/instance-id").nil?
         resp = nil
         begin
-          resp = s3.get_object(bucket: bucket, key: mu_get_tag_value("MU-ID")+"-secret")
+          resp = s3.get_object(bucket: bucket, key: filename)
         rescue ::Aws::S3::Errors::PermanentRedirect => e
           tmps3 = Aws::S3::Client.new(region: "us-east-1")
-          resp = tmps3.get_object(bucket: bucket, key: mu_get_tag_value("MU-ID")+"-secret")
+          resp = tmps3.get_object(bucket: bucket, key: filename)
         end
+        secret = resp.body.read
       elsif !get_google_metadata("instance/name").nil?
         include_recipe "mu-tools::gcloud"
-        if !File.exists("/bin/gsutil") and !File.exists("/opt/google-cloud-sdk/bin/gsutil")
-          return false
-        end
-
-        raise "Still learning how to fetch deploy secrets in Google"
+        ["/opt/google-cloud-sdk/bin/gsutil", "/bin/gsutil"].each { |gsutil|
+          next if !File.exists?(gsutil)
+          secret = %x{#{gsutil} cp gs://#{bucket}/#{filename} -}
+          break if !secret.nil? and !secret.empty?
+        }
       else
         raise "I don't know how to fetch deploy secrets without either AWS or Google!"
       end
 
+      return nil if secret.nil? or secret.empty?
+
       if node[:deployment] and node[:deployment][:public_key]
         deploykey = OpenSSL::PKey::RSA.new(node[:deployment][:public_key])
-        Base64.urlsafe_encode64(deploykey.public_encrypt(resp.body.read))
+        Base64.urlsafe_encode64(deploykey.public_encrypt(secret))
       end
     end
 
@@ -193,19 +198,28 @@ module Mutools
       uri = URI("https://#{get_mu_master_ips.first}:2260/")
       req = Net::HTTP::Post.new(uri)
       res_type = (node[:deployment].has_key?(:server_pools) and node[:deployment][:server_pools].has_key?(node[:service_name])) ? "server_pool" : "server"
+      response = nil
       begin
+        secret = get_deploy_secret
+        if secret.nil?
+          raise "Failed to fetch deploy secret, and I can't communicate with Momma Cat without it"
+        end
+        Chef::Log.info("Sending Momma Cat #{action} request to #{uri}")
         req.set_form_data(
           "mu_id" => mu_get_tag_value("MU-ID"),
           "mu_resource_name" => node[:service_name],
           "mu_resource_type" => res_type,
           "mu_user" => node[:deployment][:chef_user],
-          "mu_deploy_secret" => get_deploy_secret,
+          "mu_deploy_secret" => secret,
           action => arg
         )
         http = Net::HTTP.new(uri.hostname, uri.port)
         http.use_ssl = true
         http.verify_mode = OpenSSL::SSL::VERIFY_NONE # XXX this sucks
         response = http.request(req)
+        if response.code != "200"
+          Chef::Log.error("Got #{response.code.to_s} back from #{uri} on #{action} => #{arg}")
+        end
       rescue EOFError => e
         # Sometimes deployment metadata is incomplete and missing a
         # server_pool entry. Try to help it out.
@@ -215,7 +229,7 @@ module Mutools
         end
         raise e
       end
-
+      response
     end
 
     def service_user_set?(service, user)
