@@ -1,11 +1,11 @@
 
 property :request, String, name_property: true
-property :params, Hash
+property :passparams, Hash
 
 actions :run
 default_action :run
 
 action :run do
-  params = Base64.urlsafe_encode64(JSON.generate(new_resource.params))
+  params = Base64.urlsafe_encode64(JSON.generate(new_resource.passparams))
   mommacat_request(new_resource.request, params)
 end

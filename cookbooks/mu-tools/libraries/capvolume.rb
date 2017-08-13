@@ -80,13 +80,13 @@ module CAPVolume
 
   def destroy_temp_disk(device='/dev/ram0')
     #destroys a ramdisk by overwriting with /dev/urandom
-    `dd if=/dev/urandom of=#{device}` unless %w{redhat centos}.include?(node.platform) && node.platform_version.to_i == 7
+    `dd if=/dev/urandom of=#{device}` unless %w{redhat centos}.include?(node.platform) && node[:platform_version].to_i == 7
     `umount #{device}`
   end
 
   def mount_volume (mount_device, mount_directory, key_file=nil)
     if key_file.nil?
-      if %w{redhat centos}.include?(node.platform) && node.platform_version.to_i == 7
+      if %w{redhat centos}.include?(node.platform) && node[:platform_version].to_i == 7
         `mkfs.xfs  "#{mount_device}"`
         # `echo -e "#{mount_device}\t#{mount_directory}\txfs\tdefaults\t0\t2"  >> /etc/fstab` unless File.open("/etc/fstab").read.match(/ #{mount_directory} /)
       else
@@ -101,7 +101,7 @@ module CAPVolume
       `cryptsetup luksFormat #{mount_device} #{key_file} --batch-mode`
       `cryptsetup luksOpen #{mount_device} #{alias_device} --key-file #{key_file}`
 
-      if %w{redhat centos}.include?(node.platform) && node.platform_version.to_i == 7
+      if %w{redhat centos}.include?(node.platform) && node[:platform_version].to_i == 7
         `mkfs.xfs  "/dev/mapper/#{alias_device}"`
         # `echo -e "/dev/mapper/#{alias_device}\t#{mount_directory}\txfs\tdefaults\t0\t2"  >> /etc/fstab` unless File.open("/etc/fstab").read.match(/ #{mount_directory} /)
       else

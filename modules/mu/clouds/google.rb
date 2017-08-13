@@ -284,9 +284,7 @@ module MU
               resp = MU::Cloud::Google.compute.send(list_sym, project, filter: filter)
             end
           rescue ::Google::Apis::ClientError => e
-            if e.message.match(/^notFound: /)
-              return
-            end
+            return if e.message.match(/^notFound: /)
           end
 
           if !resp.nil? and !resp.items.nil?
@@ -305,11 +303,7 @@ module MU
                       MU::Cloud::Google.compute.send(delete_sym, project, obj.name)
                     end
                   rescue ::Google::Apis::ClientError => e
-                    if e.message.match(/^notFound: /)
-                      return
-                    else
-                      raise e
-                    end
+                    raise e if !e.message.match(/^notFound: /)
                   end
                 end
               }

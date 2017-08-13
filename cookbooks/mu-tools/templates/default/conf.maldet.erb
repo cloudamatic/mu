@@ -21,8 +21,8 @@ email_subj="maldet alert from $(hostname)"
 
 # The destination addresses for email alerts
 # [ values are comma (,) spaced ]
-<% if !node.nil? and !node.admins.nil? %>
-email_addr="<%= node.admins.join(', ') %>"
+<% if !node.nil? and !node[:admins].nil? %>
+email_addr="<%= node[:admins].join(', ') %>"
 <% else %>
 email_addr="root@localhost"
 <% end rescue NoMethodError %>

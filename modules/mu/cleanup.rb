@@ -250,10 +250,14 @@ module MU
           bucket: MU.adminBucketName,
           key: "#{MU.deploy_id}-secret"
         )
-        MU::Cloud::Google.storage.delete_object(
-          MU.adminBucketName,
-          "#{MU.deploy_id}-secret"
-        )
+        begin
+          MU::Cloud::Google.storage.delete_object(
+            MU.adminBucketName,
+            "#{MU.deploy_id}-secret"
+          )
+        rescue ::Google::Apis::ClientError => e
+          raise e if !e.message.match(/^notFound: /)
+        end
         MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS...
       end
 

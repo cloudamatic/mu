@@ -20,7 +20,7 @@ if platform_family?("rhel")
   if node[:platform_version].to_i >= 7
     yum_repository "google-cloud-sdk" do
       description 'Google Cloud SDK'
-      url "https://packages.cloud.google.com/yum/repos/cloud-sdk-el#{node.platform_version.to_i}-x86_64#{node.platform_version.to_i == 6 ? "-unstable": ""}"
+      url "https://packages.cloud.google.com/yum/repos/cloud-sdk-el#{node[:platform_version].to_i}-x86_64#{node[:platform_version].to_i == 6 ? "-unstable": ""}"
       enabled true
       gpgcheck true
       repo_gpgcheck true
