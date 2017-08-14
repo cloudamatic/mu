@@ -13,11 +13,11 @@ include_recipe 'chef-vault'
 
 ssh_vault = chef_vault_item(node.jenkins_ssh_vault[:vault], node.jenkins_ssh_vault[:item])
 
-case node.platform
+case node[:platform]
   when "centos", "redhat"
     if platform?("centos")
-      ssh_user = "root" if node.platform_version.to_i == 6
-      ssh_user = "centos" if node.platform_version.to_i == 7
+      ssh_user = "root" if node[:platform_version].to_i == 6
+      ssh_user = "centos" if node[:platform_version].to_i == 7
     else
       ssh_user = "ec2-user"
     end
@@ -50,5 +50,5 @@ case node.platform
       sensitive true
     end
   else
-    Chef::Log.info("Unsupported platform #{node.platform}")
+    Chef::Log.info("Unsupported platform #{node[:platform]}")
 end

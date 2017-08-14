@@ -65,9 +65,9 @@ case node[:platform]
       package pkg
     }
 
-    package "mysql" if node.platform_version.to_i == 6
+    package "mysql" if node[:platform_version].to_i == 6
 
-    if node.platform_version.to_i == 7
+    if node[:platform_version].to_i == 7
       %w{mariadb-server mariadb}.each { |pkg|
         package pkg
       }

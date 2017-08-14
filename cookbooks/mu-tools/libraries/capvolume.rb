@@ -80,13 +80,13 @@ module CAPVolume
 
   def destroy_temp_disk(device='/dev/ram0')
     #destroys a ramdisk by overwriting with /dev/urandom
-    `dd if=/dev/urandom of=#{device}` unless %w{redhat centos}.include?(node.platform) && node[:platform_version].to_i == 7
+    `dd if=/dev/urandom of=#{device}` unless %w{redhat centos}.include?(node[:platform]) && node[:platform_version].to_i == 7
     `umount #{device}`
   end
 
   def mount_volume (mount_device, mount_directory, key_file=nil)
     if key_file.nil?
-      if %w{redhat centos}.include?(node.platform) && node[:platform_version].to_i == 7
+      if %w{redhat centos}.include?(node[:platform]) && node[:platform_version].to_i == 7
         `mkfs.xfs  "#{mount_device}"`
         # `echo -e "#{mount_device}\t#{mount_directory}\txfs\tdefaults\t0\t2"  >> /etc/fstab` unless File.open("/etc/fstab").read.match(/ #{mount_directory} /)
       else
@@ -101,7 +101,7 @@ module CAPVolume
       `cryptsetup luksFormat #{mount_device} #{key_file} --batch-mode`
       `cryptsetup luksOpen #{mount_device} #{alias_device} --key-file #{key_file}`
 
-      if %w{redhat centos}.include?(node.platform) && node[:platform_version].to_i == 7
+      if %w{redhat centos}.include?(node[:platform]) && node[:platform_version].to_i == 7
         `mkfs.xfs  "/dev/mapper/#{alias_device}"`
         # `echo -e "/dev/mapper/#{alias_device}\t#{mount_directory}\txfs\tdefaults\t0\t2"  >> /etc/fstab` unless File.open("/etc/fstab").read.match(/ #{mount_directory} /)
       else
@@ -114,8 +114,8 @@ module CAPVolume
 
   def mount_node_volume(volume_label, key_file=nil)
     #helper method to discover node volume parms
-    mount_device = node.application_attributes[volume_label].mount_device
-    mount_directory = node.application_attributes[volume_label].mount_directory
+    mount_device = node[:application_attributes][volume_label].mount_device
+    mount_directory = node[:application_attributes][volume_label].mount_directory
     mount_volume(mount_device, mount_directory, key_file)
   end
 
@@ -132,7 +132,7 @@ module CAPVolume
 
   def create_node_volume (volume_label)
     # Helper method, create an arbitrary volume using an arbitrary label that must be preconfigured in nodes
-    volume_size_gb = node.application_attributes[volume_label].volume_size_gb
+    volume_size_gb = node[:application_attributes][volume_label].volume_size_gb
     if volume_size_gb.nil?
       Chef::Log.fatal("Must supply a volume size")
       raise
@@ -142,7 +142,7 @@ module CAPVolume
 
   def get_cloudprovider
     cloudprovider = 'ec2'
-    cloudprovider = node.cloudprovider if node.attribute?("cloudprovider")
+    cloudprovider = node[:cloudprovider] if node.attribute?("cloudprovider")
     return cloudprovider
   end
 
@@ -167,10 +167,10 @@ module CAPVolume
         node.set.application_attributes[volume_label].volume_id = volume_id
         node.save
 
-        if node.application_attributes[volume_label].label
-          description = node.application_attributes[volume_label].label
+        if node[:application_attributes][volume_label].label
+          description = node[:application_attributes][volume_label].label
         else
-          description = "#{instance_id} #{node.application_attributes[volume_label].mount_directory}"
+          description = "#{instance_id} #{node[:application_attributes][volume_label].mount_directory}"
         end
 
         ec2.create_tags(resources: [volume_id], tags: [{key: "Name", value: description}])
@@ -189,8 +189,8 @@ module CAPVolume
     # and if so throw an exception
     # Helper method, attach an arbitrary volume using an arbitrary label that must be preconfigured in nodes
     Chef::Log.info("In attach_node_volume with volume_label #{volume_label}")
-    mount_device = node.application_attributes[volume_label].mount_device
-    volume_id = node.application_attributes[volume_label].volume_id
+    mount_device = node[:application_attributes][volume_label].mount_device
+    volume_id = node[:application_attributes][volume_label].volume_id
 
     if mount_device.nil?
       Chef::Log.fatal("No mount device for volume label #{volume_label}.	Must supply a volume label configured in nodes")
@@ -250,7 +250,7 @@ module CAPVolume
         return
       end
 
-      volume_id = node.application_attributes[volume_label].volume_id
+      volume_id = node[:application_attributes][volume_label].volume_id
       instance_id = get_ec2_attribute("instance-id")
 
       if volume_id.nil?

@@ -73,8 +73,8 @@ action :config do
         ec2config_user_sid = powershell_out("(New-Object System.Security.Principal.NTAccount('#{new_resource.netbios_name}', '#{new_resource.ec2config_user}')).Translate([System.Security.Principal.SecurityIdentifier]).value").stdout.strip
         # We're giving the Administrators group all the privileges the SSH user needs to make sure the local SSH user still has privileges after joining the domain so we can complete our chef run without relying on the run-chef-client  scheduled task to exist/run
         administrators_group_sid = powershell_out("(New-Object System.Security.Principal.NTAccount('Administrators')).Translate([System.Security.Principal.SecurityIdentifier]).value").stdout.strip
-        # ssh_user_sid = powershell_out("Invoke-Command -ScriptBlock { (New-Object System.Security.Principal.NTAccount('#{new_resource.netbios_name}', '#{new_resource.ssh_user}')).Translate([System.Security.Principal.SecurityIdentifier]).value } -ComputerName #{node.ipaddress} -Credential (New-Object System.Management.Automation.PSCredential('#{new_resource.netbios_name}\\#{new_resource.username}', (ConvertTo-SecureString '#{new_resource.password}' -AsPlainText -Force)))").stdout.strip
-        # ec2config_user_sid = powershell_out("Invoke-Command -ScriptBlock { (New-Object System.Security.Principal.NTAccount('#{new_resource.netbios_name}', '#{new_resource.ec2config_user}')).Translate([System.Security.Principal.SecurityIdentifier]).value } -ComputerName #{node.ipaddress} -Credential (New-Object System.Management.Automation.PSCredential('#{new_resource.netbios_name}\\#{new_resource.username}', (ConvertTo-SecureString '#{new_resource.password}' -AsPlainText -Force)))").stdout.strip
+        # ssh_user_sid = powershell_out("Invoke-Command -ScriptBlock { (New-Object System.Security.Principal.NTAccount('#{new_resource.netbios_name}', '#{new_resource.ssh_user}')).Translate([System.Security.Principal.SecurityIdentifier]).value } -ComputerName #{node[:ipaddress]} -Credential (New-Object System.Management.Automation.PSCredential('#{new_resource.netbios_name}\\#{new_resource.username}', (ConvertTo-SecureString '#{new_resource.password}' -AsPlainText -Force)))").stdout.strip
+        # ec2config_user_sid = powershell_out("Invoke-Command -ScriptBlock { (New-Object System.Security.Principal.NTAccount('#{new_resource.netbios_name}', '#{new_resource.ec2config_user}')).Translate([System.Security.Principal.SecurityIdentifier]).value } -ComputerName #{node[:ipaddress]} -Credential (New-Object System.Management.Automation.PSCredential('#{new_resource.netbios_name}\\#{new_resource.username}', (ConvertTo-SecureString '#{new_resource.password}' -AsPlainText -Force)))").stdout.strip
 
         template "#{Chef::Config[:file_cache_path]}\\gpo\\manifest.xml" do
           source "manifest.xml.erb"
@@ -126,14 +126,14 @@ action :config do
 
         # Chef::Log.info("import #{gpo_name} GPO")
         # script =<<-EOH
-        # Invoke-Command -ScriptBlock { Import-GPO -BackupId 24E13F41-7118-4FB6-AE8B-45D48AFD6AFE -TargetName #{gpo_name} -path #{Chef::Config[:file_cache_path]}\\gpo -CreateIfNeeded } -ComputerName #{node.ipaddress} -Credential (New-Object System.Management.Automation.PSCredential('#{new_resource.netbios_name}\\#{new_resource.username}', (ConvertTo-SecureString '#{new_resource.password}' -AsPlainText -Force)))
+        # Invoke-Command -ScriptBlock { Import-GPO -BackupId 24E13F41-7118-4FB6-AE8B-45D48AFD6AFE -TargetName #{gpo_name} -path #{Chef::Config[:file_cache_path]}\\gpo -CreateIfNeeded } -ComputerName #{node[:ipaddress]} -Credential (New-Object System.Management.Automation.PSCredential('#{new_resource.netbios_name}\\#{new_resource.username}', (ConvertTo-SecureString '#{new_resource.password}' -AsPlainText -Force)))
         # new-gplink -name #{gpo_name} -target 'dc=#{new_resource.domain_name.gsub(".", ",dc=")}'
         # gpupdate /force
         # EOH
         # cmd = powershell_out(script)
 
         code <<-EOH
-          Invoke-Command -ScriptBlock { Import-GPO -BackupId 24E13F41-7118-4FB6-AE8B-45D48AFD6AFE -TargetName #{gpo_name} -path #{Chef::Config[:file_cache_path]}\\gpo -CreateIfNeeded } -ComputerName #{node.ipaddress} -Credential (New-Object System.Management.Automation.PSCredential('#{new_resource.netbios_name}\\#{new_resource.username}', (ConvertTo-SecureString '#{new_resource.password}' -AsPlainText -Force)))
+          Invoke-Command -ScriptBlock { Import-GPO -BackupId 24E13F41-7118-4FB6-AE8B-45D48AFD6AFE -TargetName #{gpo_name} -path #{Chef::Config[:file_cache_path]}\\gpo -CreateIfNeeded } -ComputerName #{node[:ipaddress]} -Credential (New-Object System.Management.Automation.PSCredential('#{new_resource.netbios_name}\\#{new_resource.username}', (ConvertTo-SecureString '#{new_resource.password}' -AsPlainText -Force)))
           new-gplink -name #{gpo_name} -target 'dc=#{new_resource.domain_name.gsub(".", ",dc=")}'
           gpupdate /force
         EOH

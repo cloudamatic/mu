@@ -30,7 +30,7 @@ end
 
 node.normal.tomcat.generate_ssl_cert = false
 node.normal.tomcat.base_version = 7
-node.normal.tomcat.base_instance = "tomcat#{node.tomcat.base_version}" if node.platform_version.to_i == 6 and platform_family?('rhel')
+node.normal.tomcat.base_instance = "tomcat#{node.tomcat.base_version}" if node[:platform_version].to_i == 6 and platform_family?('rhel')
 
 if node.java.jdk_version == 8
   node.normal.tomcat.java_options = "-Djava.awt.headless=true -Xms256m -Xmx#{node.java.max_heap_size} -Xrs -XX:PerfDataSamplingInterval=500 -XX:+UseParallelOldGC -XX:+UseParallelGC -XX:SoftRefLRUPolicyMSPerMB=36000"

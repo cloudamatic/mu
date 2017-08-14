@@ -11,7 +11,7 @@ include_recipe 'chef-vault'
 
 users_vault = chef_vault_item(node.openvpn.users_vault[:vault], node.openvpn.users_vault[:item])
 
-case node.platform
+case node[:platform]
   when "centos", "redhat"
     include_recipe 'mu-firewall'
 
@@ -104,5 +104,5 @@ case node.platform
       cwd node.openvpn.scripts
     end
   else
-    Chef::Log.info("Unsupported platform #{node.platform}")
+    Chef::Log.info("Unsupported platform #{node[:platform]}")
 end

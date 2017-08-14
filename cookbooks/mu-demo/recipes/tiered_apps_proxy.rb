@@ -23,7 +23,7 @@ include_recipe "apache2::mod_expires"
 include_recipe "apache2::mod_deflate"
 include_recipe "apache2::mod_filter"
 
-case node.platform
+case node[:platform]
   when "centos", "redhat"
     execute "iptables -I INPUT -p tcp --dport 80 -j ACCEPT && service iptables save" do
       not_if "iptables -nL | egrep '^ACCEPT.*dpt:80($| )'"
@@ -44,7 +44,7 @@ case node.platform
           :drupal_distro => node.application_attributes.drupal_distro,
           :mu_admins => node.deployment.admins,
           :tomcat_app => node.application_attributes.tomcat_app,
-          :os_type => "#{node.platform} #{node.platform_version.to_i}"
+          :os_type => "#{node[:platform]} #{node[:platform_version].to_i}"
       )
     end
 
@@ -79,5 +79,5 @@ case node.platform
       base_dir node.apache.dir
     end
   else
-    Chef::Log.info("Unsupported platform #{node.platform}")
+    Chef::Log.info("Unsupported platform #{node[:platform]}")
 end

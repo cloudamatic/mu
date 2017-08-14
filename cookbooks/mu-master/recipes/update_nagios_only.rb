@@ -23,22 +23,22 @@ include_recipe 'mu-master::firewall-holes'
 if $MU_CFG.has_key?('ldap')
   include_recipe 'chef-vault'
   bind_creds = chef_vault_item($MU_CFG['ldap']['bind_creds']['vault'], $MU_CFG['ldap']['bind_creds']['item'])
-  node.normal.nagios.server_auth_method = "ldap"
-  node.normal.nagios.ldap_bind_dn = bind_creds[$MU_CFG['ldap']['bind_creds']['username_field']]
-  node.normal.nagios.ldap_bind_password = bind_creds[$MU_CFG['ldap']['bind_creds']['password_field']]
+  node.normal[:nagios][:server_auth_method] = "ldap"
+  node.normal[:nagios][:ldap_bind_dn] = bind_creds[$MU_CFG['ldap']['bind_creds']['username_field']]
+  node.normal[:nagios][:ldap_bind_password] = bind_creds[$MU_CFG['ldap']['bind_creds']['password_field']]
   if $MU_CFG['ldap']['type'] == "Active Directory"
-    node.normal.nagios.ldap_url = "ldap://#{$MU_CFG['ldap']['dcs'].first}/#{$MU_CFG['ldap']['base_dn']}?sAMAccountName?sub?(objectClass=*)"
+    node.normal[:nagios][:ldap_url] = "ldap://#{$MU_CFG['ldap']['dcs'].first}/#{$MU_CFG['ldap']['base_dn']}?sAMAccountName?sub?(objectClass=*)"
   else
-    node.normal.nagios.ldap_url = "ldap://#{$MU_CFG['ldap']['dcs'].first}/#{$MU_CFG['ldap']['base_dn']}?uid?sub?(objectClass=*)"
-    node.normal.nagios.ldap_group_attribute = "memberUid"
-    node.normal.nagios.ldap_group_attribute_is_dn = "Off"
+    node.normal[:nagios][:ldap_url] = "ldap://#{$MU_CFG['ldap']['dcs'].first}/#{$MU_CFG['ldap']['base_dn']}?uid?sub?(objectClass=*)"
+    node.normal[:nagios][:ldap_group_attribute] = "memberUid"
+    node.normal[:nagios][:ldap_group_attribute_is_dn] = "Off"
 # Trying to use SSL seems to cause mod_ldap to die without logging any errors,
 # currently. Probably an Apache bug? XXX
-#    node.normal.nagios.ldap_trusted_global_cert = "CA_BASE64 #{$MU_CFG['ssl']['chain']}"
-#    node.normal.nagios.ldap_trusted_mode = "SSL"
+#    node.normal[:nagios][:ldap_trusted_global_cert] = "CA_BASE64 #{$MU_CFG['ssl']['chain']}"
+#    node.normal[:nagios][:ldap_trusted_mode] = "SSL"
   end
-  node.normal.nagios.server_auth_require = "ldap-group #{$MU_CFG['ldap']['user_group_dn']}"
-  node.normal.nagios.ldap_authoritative = "On"
+  node.normal[:nagios][:server_auth_require] = "ldap-group #{$MU_CFG['ldap']['user_group_dn']}"
+  node.normal[:nagios][:ldap_authoritative] = "On"
   node.save
 end
 
@@ -60,7 +60,7 @@ include_recipe "nagios"
 
 nagios_policies = ["nagios_selinux"]
 
-if platform_family?("rhel") and node.platform_version.to_i == 7
+if platform_family?("rhel") and node[:platform_version].to_i == 7
   nagios_policies << "nagios_selinux_7"
 end
 

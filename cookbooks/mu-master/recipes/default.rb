@@ -43,31 +43,30 @@ master_ips.each { |host|
   end
 }
 
-if !node.update_nagios_only
+if !node[:update_nagios_only]
 
   include_recipe 'chef-vault'
   if $MU_CFG.has_key?('ldap')
     if $MU_CFG['ldap']['type'] == "389 Directory Services" and Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG['hostname']}")
       include_recipe 'mu-master::sssd'
     elsif $MU_CFG['ldap']['type'] == "Active Directory"
-      node.normal.ad = {}
-      node.normal.ad.computer_name = "MU-MASTER"
-      node.normal.ad.node_class = "mumaster"
-      node.normal.ad.node_type = "domain_node"
-      node.normal.ad.domain_operation = "join"
-      node.normal.ad.domain_name = $MU_CFG['ldap']['domain_name']
-      search_domains << node.normal.ad.domain_name
-      node.normal.ad.netbios_name = $MU_CFG['ldap']['domain_netbios_name']
-      node.normal.ad.dcs = $MU_CFG['ldap']['dcs']
-      node.normal.ad.domain_join_vault = $MU_CFG['ldap']['join_creds']['vault']
-      node.normal.ad.domain_join_item = $MU_CFG['ldap']['join_creds']['item']
-      node.normal.ad.domain_join_username_field = $MU_CFG['ldap']['join_creds']['username_field']
-      node.normal.ad.domain_join_password_field = $MU_CFG['ldap']['join_creds']['password_field']
-      if !node.application_attributes.sshd_allow_groups.match(/(^|\s)#{$MU_CFG['ldap']['user_group_name']}(\s|$)/i)
-        node.normal.application_attributes.sshd_allow_groups = node.application_attributes.sshd_allow_groups+" "+$MU_CFG['ldap']['user_group_name'].downcase
+      node.normal[:ad] = {}
+      node.normal[:ad][:computer_name] = "MU-MASTER"
+      node.normal[:ad][:node_class] = "mumaster"
+      node.normal[:ad][:node_type] = "domain_node"
+      node.normal[:ad][:domain_operation] = "join"
+      node.normal[:ad][:domain_name] = $MU_CFG['ldap']['domain_name']
+      search_domains << node.normal[:ad][:domain_name]
+      node.normal[:ad][:netbios_name] = $MU_CFG['ldap']['domain_netbios_name']
+      node.normal[:ad][:dcs] = $MU_CFG['ldap']['dcs']
+      node.normal[:ad][:domain_join_vault] = $MU_CFG['ldap']['join_creds']['vault']
+      node.normal[:ad][:domain_join_item] = $MU_CFG['ldap']['join_creds']['item']
+      node.normal[:ad][:domain_join_username_field] = $MU_CFG['ldap']['join_creds']['username_field']
+      node.normal[:ad][:domain_join_password_field] = $MU_CFG['ldap']['join_creds']['password_field']
+      if !node[:application_attributes][:sshd_allow_groups].match(/(^|\s)#{$MU_CFG['ldap']['user_group_name']}(\s|$)/i)
+        node.normal[:application_attributes][:sshd_allow_groups] = node[:application_attributes][:sshd_allow_groups]+" "+$MU_CFG['ldap']['user_group_name'].downcase
       end
       node.save
-      log "'#{node.ad.domain_join_vault}' '#{node.ad.domain_join_item}' '#{node.ad.domain_join_username_field}' '#{node.ad.domain_join_password_field}'"
       include_recipe "mu-activedirectory::domain-node"
     end
   end
@@ -109,13 +108,13 @@ if !node.update_nagios_only
   # remove it if we've got a version bump coming down the pike.
   execute "remove old Nagios binary" do
     command "rm -f /usr/sbin/nagios"
-    not_if "/usr/sbin/nagios -V | grep 'Nagios Core #{node.nagios.server.version}'"
+    not_if "/usr/sbin/nagios -V | grep 'Nagios Core #{node[:nagios][:server][:version]}'"
   end
 end
 
 include_recipe "mu-master::update_nagios_only"
 
-if !node.update_nagios_only
+if !node[:update_nagios_only]
   package "nagios-plugins-all"
 
   directory "/home/nagios" do
@@ -152,13 +151,13 @@ if !node.update_nagios_only
   template "/etc/dhcp/dhclient-eth0.conf" do
     source "dhclient-eth0.conf.erb"
     mode 0644
-    notifies :restart, "service[network]", :immediately unless %w{redhat centos}.include?(node.platform) && node.platform_version.to_i == 7
+    notifies :restart, "service[network]", :immediately unless %w{redhat centos}.include?(node[:platform]) && node[:platform_version].to_i == 7
     variables(
       :search_domains => search_domains
     )
   end
 
-  svrname = node.hostname
+  svrname = node[:hostname]
   if !$MU_CFG['public_address'].match(/^\d+\.\d+\.\d+\.\d+$/)
     svrname = $MU_CFG['public_address']
   end
@@ -312,7 +311,7 @@ if !node.update_nagios_only
     not_if "grep #{node[:application_attributes][:logs][:mount_directory]} /etc/mtab"
   end
 
-  ruby_block "label #{node[:application_attributes][:logs][:mount_device]} as #{node.application_attributes.logs.label}" do
+  ruby_block "label #{node[:application_attributes][:logs][:mount_device]} as #{node[:application_attributes][:logs][:label]}" do
     extend CAPVolume
     block do
       tags = [{key: "Name", value: node[:application_attributes][:logs][:label]}]
@@ -320,10 +319,10 @@ if !node.update_nagios_only
     end
   end rescue NoMethodError
 
-  ruby_block "label /dev/sda1 as #{node.hostname} /" do
+  ruby_block "label /dev/sda1 as #{node[:hostname]} /" do
     extend CAPVolume
     block do
-      tags = [{key: "Name", value: "#{node.hostname} /"}]
+      tags = [{key: "Name", value: "#{node[:hostname]} /"}]
       tag_volume("/dev/sda1", tags)
     end
   end rescue NoMethodError

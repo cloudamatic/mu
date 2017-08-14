@@ -1,7 +1,7 @@
 default.openvpn.version = "2.1.4"
-case node.platform_family
+case node[:platform_family]
   when "rhel"
-    default.openvpn.package = "openvpn-as-#{node.openvpn.version}-CentOS#{node.platform_version.to_i}.x86_64.rpm"
+    default.openvpn.package = "openvpn-as-#{node.openvpn.version}-CentOS#{node[:platform_version].to_i}.x86_64.rpm"
 end
 
 default.openvpn.vpc_networks = %w{172.31.0.0/16 10.0.0.0/16}

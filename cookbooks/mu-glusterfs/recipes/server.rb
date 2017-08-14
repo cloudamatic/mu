@@ -134,7 +134,7 @@ case node[:platform]
       node.deployment.servers[$nodeclass].each_pair do |name, data|
         next if data['private_ip_address'].nil? or data['private_ip_address'].empty?
         execute "gluster peer probe #{data['private_ip_address']}" do
-          not_if { data['private_ip_address'] == node.ipaddress }
+          not_if { data['private_ip_address'] == node[:ipaddress] }
         end
         ips << data['private_ip_address']
       end
@@ -190,7 +190,7 @@ case node[:platform]
     else
       node.deployment.servers[$nodeclass].each_pair do |name, data|
         execute "gluster peer probe #{data['private_ip_address']}" do
-          not_if { data['private_ip_address'] == node.ipaddress }
+          not_if { data['private_ip_address'] == node[:ipaddress] }
         end
       end
     end

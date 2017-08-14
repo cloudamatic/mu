@@ -6,7 +6,7 @@ default['application_attributes']['mongo_dirs'] = [mongo_data, mongo_logs, mongo
 
 default['mongodb']['config']['dbpath'] = "/mongo_data"
 default['mongodb']['log_dir'] = mongo_logs['dir']
-default['mongodb']['config']['logpath'] = "#{node.mongodb.log_dir}/mongo.log"
+default['mongodb']['config']['logpath'] = "#{node[:mongodb][:log_dir]}/mongo.log"
 default['mongodb']['cluster_name'] = "fema"
 default['mongodb']['config']['keyFile'] = "/mongo_data/keyfile"
 default['mongodb']['config']['auth'] = true

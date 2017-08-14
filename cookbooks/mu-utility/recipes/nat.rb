@@ -20,14 +20,14 @@ if platform_family?("windows")
   Chef::Log.info "I don't know how to make Windows be a NAT host"
 else
   $ip_block = "10.0.0.0/16"
-  if !node.application_attributes.nat.private_net.empty?
-    $ip_block = node.application_attributes.nat.private_net
+  if !node[:application_attributes][:nat][:private_net].empty?
+    $ip_block = node[:application_attributes][:nat][:private_net]
   end rescue NoMethodError
 
   if platform_family?("rhel")
     $ssh_service_name = "sshd"
 
-    if node.platform_version.to_i == 7
+    if node[:platform_version].to_i == 7
       # Iptables or FirewallD are not installed by default on CentOS7. Using iptables for backwards compatibility.
       # Looks like only the AWS marketplace image doesn't have FirewallD installed by default. Clean installation of CentOS7 minimal does, so removing.
       package "firewalld" do

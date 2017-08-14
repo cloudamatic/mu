@@ -16,7 +16,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-case node.platform_family
+case node[:platform_family]
   when "rhel"
 
     %w{sshd winbind smb messagebus}.each { |svc|
@@ -109,7 +109,7 @@ case node.platform_family
     end
 
     include_recipe 'chef-vault'
-    domain_creds = chef_vault_item(node.ad.join_auth[:vault], node.ad.join_auth[:item])
+    domain_creds = chef_vault_item(node[:ad][:join_auth][:vault], node[:ad][:join_auth][:item])
 # provider already does this
 #    node[:ad][:dc_ips].each { |ip|
       # XXX there's a more correct way to touch resolv.conf
@@ -129,12 +129,12 @@ case node.platform_family
       cookbook "mu-activedirectory"
       notifies :restart, "service[sssd]", :immediately
       variables(
-        :domain => node.ad.domain_name,
-        :homedir => node.ad.homedir,
-        :krb5keytabuser => node.ad.computer_name,
-        :short_domain => node.ad.netbios_name,
-        :base_dn => node.ad.domain_name.split(/\./).map { |x| "dc=#{x}" }.join(","),
-        :dcs => node.ad.dc_ips
+        :domain => node[:ad][:domain_name],
+        :homedir => node[:ad][:homedir],
+        :krb5keytabuser => node[:ad][:computer_name],
+        :short_domain => node[:ad][:netbios_name],
+        :base_dn => node[:ad][:domain_name].split(/\./).map { |x| "dc=#{x}" }.join(","),
+        :dcs => node[:ad][:dc_ips]
       )
     end
     # If adcli fails mysteriously, look for bogus /etc/hosts entries pointing
@@ -142,7 +142,7 @@ case node.platform_family
     # whether or not the name matches the actual Kerberos tickets you et.
     execute "Run ADCLI" do
       not_if { ::File.exists?("/etc/krb5.keytab") }
-      command "echo -n '#{domain_creds[node.ad.join_auth[:password_field]]}' | /usr/sbin/adcli join #{node.ad.domain_name} --domain-realm=#{node.ad.domain_name.upcase} -U #{domain_creds[node.ad.join_auth[:username_field]]} --stdin-password"
+      command "echo -n '#{domain_creds[node[:ad][:join_auth][:password_field]]}' | /usr/sbin/adcli join #{node[:ad][:domain_name]} --domain-realm=#{node[:ad][:domain_name].upcase} -U #{domain_creds[node[:ad][:join_auth][:username_field]]} --stdin-password"
       notifies :restart, "service[sssd]", :immediately
       sensitive true
     end
@@ -153,11 +153,11 @@ case node.platform_family
       cookbook "mu-activedirectory"
       notifies :restart, "service[sssd]", :immediately
       variables(
-        :domain_name => node.ad.domain_name,
-        :dcs => node.ad.dc_ips
+        :domain_name => node[:ad][:domain_name],
+        :dcs => node[:ad][:dc_ips]
       )
     end
 
   else
-    Chef::Log.info("Unsupported platform #{node.platform}")
+    Chef::Log.info("Unsupported platform #{node[:platform]}")
 end

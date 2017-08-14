@@ -50,7 +50,7 @@ module Activedirectory
 				$netadapter = Get-NetAdapter
 				$netipaddress = $netadapter | Get-NetIPAddress -AddressFamily IPv4
 				$netadapter | Set-NetIPInterface -Dhcp Disabled
-				$netadapter | New-NetIPAddress -IPAddress #{node.ipaddress} -PrefixLength $netipaddress.PrefixLength -DefaultGateway $netipconfig.IPv4DefaultGateway.NextHop
+				$netadapter | New-NetIPAddress -IPAddress #{node[:ipaddress]} -PrefixLength $netipaddress.PrefixLength -DefaultGateway $netipconfig.IPv4DefaultGateway.NextHop
 				$netadapter | Set-DnsClientServerAddress -PassThru -ServerAddresses #{dc_ips}
       EOH
       return code
