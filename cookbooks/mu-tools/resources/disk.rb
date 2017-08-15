@@ -49,7 +49,7 @@ action :create do
     action :nothing
   end
 
-  mkfs_cmd = node[:platform_version].to_i == 6 ? "mkfs.ext4 #{device}" : "mkfs.xfs -i size=512 #{device}"
+  mkfs_cmd = node[:platform_version].to_i == 6 ? "mkfs.ext4 -F #{device}" : "mkfs.xfs -i size=512 #{device}"
   guard_cmd = node[:platform_version].to_i == 6 ? "tune2fs -l #{device} > /dev/null" : "xfs_admin -l #{device} > /dev/null"
 
   execute mkfs_cmd do
@@ -70,11 +70,18 @@ action :create do
       path path
     end
 
+    execute "/sbin/restorecon -R #{path}" do
+      only_if { ::File.exists?("/sbin/restorecon") }
+      action :nothing
+    end
+
     mount path do
       device device
       options "nodev"
       action [:mount, :enable]
+      notifies :run, "execute[/sbin/restorecon -R #{path}]", :immediately
     end
+
   end
 
 

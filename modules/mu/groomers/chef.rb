@@ -388,6 +388,7 @@ module MU
         MU.log "Bootstrapping #{@server.mu_name} (#{canonical_addr}) with knife"
 
         run_list = ["recipe[mu-tools::newclient]"]
+        run_list << "mu-tools::gcloud" if @server.cloud == "Google" or @server.config['cloud'] == "Google"
 
         json_attribs = {}
         if !@config['application_attributes'].nil?

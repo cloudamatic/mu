@@ -31,18 +31,33 @@ if platform_family?("rhel")
     rpm_package "IUS" do
       source "https://#{node[:platform]}#{node[:platform_version].to_i}.iuscommunity.org/ius-release.rpm"
     end
-    package "python27"
+    package ["python27", "python27-libs"]
+    remote_file "#{Chef::Config[:file_cache_path]}/gcloud-cli.sh" do
+      source "https://sdk.cloud.google.com"
+      action :nothing
+    end
     bash "install gcloud-cli" do
       cwd "/opt"
       code <<-EOH
-        tar -xzf #{Chef::Config[:file_cache_path]}/gcloud-cli.tar.gz
-        CLOUDSDK_PYTHON=/usr/bin/python2.7 ./google-cloud-sdk/install.sh -q
+        # This broken-arsed package set install themselves in the wrong prefix
+        # for some reason, but if you do it manually they land in the right
+        # place. Whatever, just symlink it.
+        for f in `rpm -qa | grep '^python27-' | xargs rpm -ql`;do
+          rightpath="`echo $f | sed 's/^\\/opt\\/rh\\/python27\\/root//'`"
+          if [ "$rightpath" != "$f" ];then
+            if [ ! -f "$rightpath" -a -f "$f" ];then
+              if [ -d "$f" ];then
+                mkdir -p "$rightpath"
+              elif [ -f "$f" ];then
+                ln -s "$f" "$rightpath"
+              fi
+            fi
+          fi
+        done
+        CLOUDSDK_PYTHON=/usr/bin/python2.7 sh #{Chef::Config[:file_cache_path]}/gcloud-cli.sh --install-dir=/opt --disable-prompts
       EOH
-      action :nothing
-    end
-    remote_file "#{Chef::Config[:file_cache_path]}/gcloud-cli.tar.gz" do
-      source "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-155.0.0-linux-x86_64.tar.gz"
-      notifies :run, "bash[install gcloud-cli]", :immediately
+      notifies :create, "remote_file[#{Chef::Config[:file_cache_path]}/gcloud-cli.sh]", :before
+      not_if { ::File.exists?("/opt/google-cloud-sdk/bin/gcloud") }
     end
     link "/etc/bash_completion.d/gcloud" do
       to "/opt/google-cloud-sdk/completion.bash.inc"

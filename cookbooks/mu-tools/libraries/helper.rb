@@ -174,14 +174,23 @@ module Mutools
           tmps3 = Aws::S3::Client.new(region: "us-east-1")
           resp = tmps3.get_object(bucket: bucket, key: filename)
         end
+        Chef::Log.info("Fetch deploy secret from s3://#{bucket}/#{filename}")
         secret = resp.body.read
       elsif !get_google_metadata("instance/name").nil?
         include_recipe "mu-tools::gcloud"
         ["/opt/google-cloud-sdk/bin/gsutil", "/bin/gsutil"].each { |gsutil|
           next if !File.exists?(gsutil)
-          secret = %x{#{gsutil} cp gs://#{bucket}/#{filename} -}
+          Chef::Log.info("Fetching deploy secret: #{gsutil} cp gs://#{bucket}/#{filename} -")
+          if File.exists?("/usr/bin/python2.7")
+            secret = %x{CLOUDSDK_PYTHON=python2.7 #{gsutil} cp gs://#{bucket}/#{filename} -}
+          else
+            secret = %x{#{gsutil} cp gs://#{bucket}/#{filename} -}
+          end
           break if !secret.nil? and !secret.empty?
         }
+        if secret.nil? or secret.empty?
+          raise "Didn't find gsutil on this machine, and I can't fetch Google deploy secrets without it!"
+        end
       else
         raise "I don't know how to fetch deploy secrets without either AWS or Google!"
       end
