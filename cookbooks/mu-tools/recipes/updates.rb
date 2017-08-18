@@ -15,7 +15,7 @@
 # See the License for the specific language governing permissions and
 
 if !node[:application_attributes][:skip_recipes].include?('updates')
-  case node.platform
+  case node[:platform]
   # Note- most of this Windows logic is now dealt with in userdata (setup)
   # and initial Mu bootstrap (running updates), but this recipe is still
   # useful for updating existing hosts.
