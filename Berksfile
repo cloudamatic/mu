@@ -14,6 +14,7 @@ siteCookbookPath = "#{ENV['MU_COOKBOOK_ROOT']}/site_cookbooks"
 source "https://supermarket.chef.io"
 
 cookbook 'apache2', '< 4.0'
+cookbook 'chef-vault', '< 3.0'
 cookbook 'aws', '~> 2.9.3'
 cookbook 'awscli', path: "#{cookbookPath}/awscli"
 cookbook 'build-essential', '~> 8.0'

@@ -158,7 +158,9 @@ Subsystem       sftp    internal-sftp
 PermitRootLogin without-password
 UseDNS no
 
-Ciphers aes128-ctr,aes192-ctr,aes256-ctr
+Ciphers aes256-ctr
+MACs hmac-sha2-256,hmac-sha2-512
+KexAlgorithms diffie-hellman-group-exchange-sha256
 
 # If we've set AllowGroups, use that instead of restricting to root
 <%

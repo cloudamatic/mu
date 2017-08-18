@@ -132,14 +132,8 @@ action :config do
         # EOH
         # cmd = powershell_out(script)
 
-        code <<-EOH
-          Invoke-Command -ScriptBlock { Import-GPO -BackupId 24E13F41-7118-4FB6-AE8B-45D48AFD6AFE -TargetName #{gpo_name} -path #{Chef::Config[:file_cache_path]}\\gpo -CreateIfNeeded } -ComputerName #{node[:ipaddress]} -Credential (New-Object System.Management.Automation.PSCredential('#{new_resource.netbios_name}\\#{new_resource.username}', (ConvertTo-SecureString '#{new_resource.password}' -AsPlainText -Force)))
-          new-gplink -name #{gpo_name} -target 'dc=#{new_resource.domain_name.gsub(".", ",dc=")}'
-          gpupdate /force
-        EOH
-
         converge_by("Importing GPO #{gpo_name}") do
-          cmd = powershell_out(code)
+          cmd = powershell_out("Invoke-Command -ScriptBlock { Import-GPO -BackupId 24E13F41-7118-4FB6-AE8B-45D48AFD6AFE -TargetName #{gpo_name} -path #{Chef::Config[:file_cache_path]}\\gpo -CreateIfNeeded } -ComputerName #{node[:ipaddress]} -Credential (New-Object System.Management.Automation.PSCredential('#{new_resource.netbios_name}\\#{new_resource.username}', (ConvertTo-SecureString '#{new_resource.password}' -AsPlainText -Force))) ; new-gplink -name #{gpo_name} -target 'dc=#{new_resource.domain_name.gsub(".", ",dc=")}' ; gpupdate /force")
         end
 
         # powershell_out("Import-GPO -BackupId 24E13F41-7118-4FB6-AE8B-45D48AFD6AFE -TargetName #{gpo_name} -path #{Chef::Config[:file_cache_path]}\\gpo -CreateIfNeeded").run_command

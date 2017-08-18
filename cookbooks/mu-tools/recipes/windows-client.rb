@@ -19,14 +19,23 @@ if !node['application_attributes']['skip_recipes'].include?('windows-client')
   case node['platform']
     when "windows"
       include_recipe 'chef-vault'
+      include_recipe 'mu-activedirectory'
+
+      template "c:/bin/cygwin/etc/sshd_config" do
+        source "sshd_config.erb"
+        mode 0644
+        cookbook "mu-tools"
+      end
 
       windows_vault = chef_vault_item(node['windows_auth_vault'], node['windows_auth_item'])
       ec2config_user= windows_vault[node['windows_ec2config_username_field']]
       ec2config_password = windows_vault[node['windows_ec2config_password_field']]
       sshd_user = windows_vault[node['windows_sshd_username_field']]
       sshd_password = windows_vault[node['windows_sshd_password_field']]
+      login_dom = "."
 
       if in_domain?
+
         ad_vault = chef_vault_item(node['ad']['domain_admin_vault'], node['ad']['domain_admin_item'])
 
         windows_users node['ad']['computer_name'] do
@@ -52,6 +61,7 @@ if !node['application_attributes']['skip_recipes'].include?('windows-client')
           password ad_vault[node['ad']['domain_admin_password_field']]
         end
 
+        login_dom = node['ad']['netbios_name']
         sshd_service "sshd" do
           service_username "#{node['ad']['netbios_name']}\\#{sshd_user}"
           username sshd_user
@@ -83,7 +93,18 @@ if !node['application_attributes']['skip_recipes'].include?('windows-client')
           service_username ".\\#{sshd_user}"
           password sshd_password
         end
-      end rescue NoMethodError
+      end# rescue NoMethodError
+
+      begin
+        resources('service[sshd]')
+      rescue Chef::Exceptions::ResourceNotFound
+        service "sshd" do
+          run_as_user "#{login_dom}\\#{sshd_user}"
+          run_as_password sshd_password
+          action [:enable, :start]
+        end
+      end
+
     else
       Chef::Log.info("Unsupported platform #{node['platform']}")
   end
