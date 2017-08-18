@@ -306,7 +306,7 @@ module MU
                   if data['mu_name'].nil?
                     raise MuError, "Unable to find or guess a Mu name for #{res_type}: #{res_name} in #{@deploy_id}"
                   end
-                  attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: data['mu_name'])
+                  attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: data['mu_name'], cloud_id: data['cloud_id'])
                 end
               rescue Exception => e
                 MU.log "Failed to load an existing resource of type '#{type}' in #{@deploy_id}: #{e.inspect}", MU::WARN, details: e.backtrace
@@ -1174,7 +1174,7 @@ module MU
                 if !calling_deploy.nil?
                   matches << resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s)
                 else
-                  matches << resourceclass.new(mu_name: name, kitten_cfg: cfg, cloud_id: kitten_cloud_id)
+                  matches << resourceclass.new(mu_name: name, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s)
                 end
               end
             }

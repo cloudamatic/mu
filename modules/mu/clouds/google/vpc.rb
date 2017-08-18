@@ -33,7 +33,6 @@ module MU
           @config = MU::Config.manxify(kitten_cfg)
           @subnets = []
           @subnetcachesemaphore = Mutex.new
-MU.log "INITIALIZE mu_name: #{mu_name}, cloud_id: #{cloud_id}", MU::WARN, details: caller if cloud_id.nil? and !mu_name.nil? # XXX why is this not set
           if cloud_id and cloud_id.match(/^https:\/\//)
             @url = cloud_id.clone
             @cloud_id = cloud_id.to_s.gsub(/.*?\//, "")

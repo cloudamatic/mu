@@ -36,27 +36,40 @@ if platform_family?("rhel")
       source "https://sdk.cloud.google.com"
       action :nothing
     end
+    remote_file "#{Chef::Config[:file_cache_path]}/gcloud-cli.tar.gz" do
+      source "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-167.0.0-linux-x86_64.tar.gz"
+      action :nothing
+    end
     bash "install gcloud-cli" do
       cwd "/opt"
       code <<-EOH
         # This broken-arsed package set install themselves in the wrong prefix
         # for some reason, but if you do it manually they land in the right
         # place. Whatever, just symlink it.
-        for f in `rpm -qa | grep '^python27-' | xargs rpm -ql`;do
-          rightpath="`echo $f | sed 's/^\\/opt\\/rh\\/python27\\/root//'`"
-          if [ "$rightpath" != "$f" ];then
-            if [ ! -f "$rightpath" -a -f "$f" ];then
-              if [ -d "$f" ];then
-                mkdir -p "$rightpath"
-              elif [ -f "$f" ];then
-                ln -s "$f" "$rightpath"
-              fi
+        filelist=`rpm -qa | grep ^python27- | xargs rpm -ql`
+        for d in $filelist;do
+          if [ -d "$d" ];then
+            rightpath=`echo $d | sed 's/^\\/opt\\/rh\\/python27\\/root//'`
+            if [ "$rightpath" != "$d" -a ! -e "$rightpath" ];then
+              echo $rightpath | grep -v /
+              mkdir -p "$rightpath"
             fi
           fi
         done
-        CLOUDSDK_PYTHON=/usr/bin/python2.7 sh #{Chef::Config[:file_cache_path]}/gcloud-cli.sh --install-dir=/opt --disable-prompts
+        for f in $filelist;do
+          if [ -f "$f" ];then
+            rightpath=`echo $f | sed 's/^\\/opt\\/rh\\/python27\\/root//'`
+            if [ "$rightpath" != "$f" -a ! -e "$rightpath" ];then
+              ln -s "$f" "$rightpath"
+            fi
+          fi
+        done
+        tar -xzf #{Chef::Config[:file_cache_path]}/gcloud-cli.tar.gz
+        CLOUDSDK_PYTHON=/usr/bin/python2.7 ./google-cloud-sdk/install.sh -q
+#        CLOUDSDK_PYTHON=/usr/bin/python2.7 sh #{Chef::Config[:file_cache_path]}/gcloud-cli.sh --install-dir=/opt --disable-prompts
       EOH
       notifies :create, "remote_file[#{Chef::Config[:file_cache_path]}/gcloud-cli.sh]", :before
+      notifies :create, "remote_file[#{Chef::Config[:file_cache_path]}/gcloud-cli.tar.gz]", :before
       not_if { ::File.exists?("/opt/google-cloud-sdk/bin/gcloud") }
     end
     link "/etc/bash_completion.d/gcloud" do

@@ -158,37 +158,40 @@ module MU
               }
 
               if vol['snapshot_id']
+                disk_desc[:source_snapshot] = vol['snapshot_id']
 # XXX check existence in in validateConfig
               elsif vol['somekindofidforaloosevolume']
                 disk_desc[:source] = vol['somekindofidforaloosevolume']
 # XXX check existence in in validateConfig
-              else
-# XXX I don't know how to do this in managed instance groups
-next
-next if !create
-                newdiskobj = MU::Cloud::Google.compute(:Disk).new(
-                  size_gb: vol['size'],
-                  description: @deploy.deploy_id,
-                  zone: config['availability_zone'],
-#                    type: "projects/#{config['project']}/zones/#{config['availability_zone']}/diskTypes/pd-ssd",
-                  type: "projects/#{config['project']}/zones/#{config['availability_zone']}/diskTypes/pd-standard",
-# type: projects/project/zones/#{config['availability_zone']}/diskTypes/pd-standard Other values include pd-ssd and local-ssd
-                  name: @mu_name+"-"+devicename
-                )
-                MU.log "Creating disk #{@mu_name}-#{devicename}"
-
-                newdisk = MU::Cloud::Google.compute.insert_disk(
-                  config['project'],
-                  config['availability_zone'],
-                  newdiskobj
-                )
-
-                disk_desc[:source] = newdisk.self_link
               end
+# XXX I don't know how to do this in managed instance groups
+#next
+next if !create
+              diskname = MU::Cloud::Google.nameStr(config['mu_name']+"-"+devicename)
+              newdiskobj = MU::Cloud::Google.compute(:Disk).new(
+                size_gb: vol['size'],
+                description: MU.deploy_id,
+                zone: config['availability_zone'],
+#                    type: "projects/#{config['project']}/zones/#{config['availability_zone']}/diskTypes/pd-ssd",
+                type: "projects/#{config['project']}/zones/#{config['availability_zone']}/diskTypes/pd-standard",
+                source_snapshot: vol['snapshot_id'],
+# type: projects/project/zones/#{config['availability_zone']}/diskTypes/pd-standard Other values include pd-ssd and local-ssd
+                name: diskname
+              )
+              MU.log "Creating disk #{diskname}", details: newdiskobj
+
+              newdisk = MU::Cloud::Google.compute.insert_disk(
+                config['project'],
+                config['availability_zone'],
+                newdiskobj
+              )
+
+              disk_desc[:source] = newdisk.self_link
 
               disks << MU::Cloud::Google.compute(:AttachedDisk).new(disk_desc)
             }
           end
+
           disks
         end
 
@@ -1044,7 +1047,8 @@ next if !create
                 project: @config['project'],
                 exclude_storage: img_cfg['image_exclude_storage'],
                 make_public: img_cfg['public'],
-                tags: @config['tags']
+                tags: @config['tags'],
+                zone: @config['availability_zone']
             )
             @deploy.notify("images", @config['name'], {"image_id" => image_id})
             @config['image_created'] = true
@@ -1073,22 +1077,60 @@ next if !create
         # @param copy_to_regions [Array<String>]: Copy the resulting AMI into the listed regions.
         # @param tags [Array<String>]: Extra/override tags to apply to the image.
         # @return [String]: The cloud provider identifier of the new machine image.
-        def self.createImage(name: nil, instance_id: nil, storage: {}, exclude_storage: false, project: MU::Cloud::Google.defaultProject, make_public: false, tags: [], region: nil, family: "mu")
+        def self.createImage(name: nil, instance_id: nil, storage: {}, exclude_storage: false, project: MU::Cloud::Google.defaultProject, make_public: false, tags: [], region: nil, family: "mu", zone: MU::Cloud::Google.listAZs.sample)
           instance = MU::Cloud::Server.find(cloud_id: instance_id, region: region)
           if instance.nil?
             raise MuError, "Failed to find instance '#{instance_id}' in createImage"
           end
 
-          bootdisk = nil
-          instance[instance_id].disks.each { |disk|
-            bootdisk = disk.source if disk.boot 
-          }
           labels = {}
           MU::MommaCat.listStandardTags.each_pair { |key, value|
             if !value.nil?
               labels[key.downcase] = value.downcase.gsub(/[^a-z0-9\-\_]/i, "_")
             end
           }
+
+          bootdisk = nil
+          threads = []
+          parent_thread_id = Thread.current.object_id
+          instance[instance_id].disks.each { |disk|
+            threads << Thread.new {
+              Thread.abort_on_exception = false
+              MU.dupGlobals(parent_thread_id)
+              if disk.boot
+                bootdisk = disk.source
+              else
+                snapobj = MU::Cloud::Google.compute(:Snapshot).new(
+                  name: name+"-"+disk.device_name,
+                  description: "Mu image created from #{name} (#{disk.device_name})"
+                )
+                diskname = disk.source.gsub(/.*?\//, "")
+                MU.log "Creating snapshot of #{diskname} in #{zone}", MU::NOTICE, details: snapobj
+                snap = MU::Cloud::Google.compute.create_disk_snapshot(
+                  project,
+                  zone,
+                  diskname,
+                  snapobj
+                )
+                MU::Cloud::Google.compute.set_snapshot_labels(
+                  project,
+                  snap.name,
+                  MU::Cloud::Google.compute(:GlobalSetLabelsRequest).new(
+                    label_fingerprint: snap.label_fingerprint,
+                    labels: labels.merge({
+                      "mu-device-name" => disk.device_name,
+                      "mu-parent-image" => name,
+                      "mu-orig-zone" => zone
+                    })
+                  )
+                )
+              end
+            }
+          }
+          threads.each do |t|
+            t.join
+          end
+
           labels["name"] = instance_id.downcase
           imageobj = MU::Cloud::Google.compute(:Image).new(
             name: name,
@@ -1102,8 +1144,6 @@ next if !create
             project,
             imageobj
           )
-          puts "*****************"
-          pp newimage
           newimage.name
         end
 
@@ -1117,7 +1157,12 @@ next if !create
                 @config['availability_zone'],
                 @cloud_id
               )
-              return nil
+            rescue ::Google::Apis::ClientError => e
+              if e.message.match(/^notFound: /)
+                return nil
+              else
+                raise e
+              end
             end
           end
           nil
@@ -1250,9 +1295,13 @@ next if !create
                   instance.name
                 ) if !noop
                 MU.log "Removing service account #{saname}"
-                MU::Cloud::Google.iam.delete_project_service_account(
-                  "projects/#{flags["project"]}/serviceAccounts/#{saname}@#{flags["project"]}.iam.gserviceaccount.com"
-                ) if !noop
+                begin
+                  MU::Cloud::Google.iam.delete_project_service_account(
+                    "projects/#{flags["project"]}/serviceAccounts/#{saname}@#{flags["project"]}.iam.gserviceaccount.com"
+                  ) if !noop
+                rescue ::Google::Apis::ClientError => e
+                  raise e if !e.message.match(/^notFound: /)
+                end
 # XXX wait-loop on pending?
 #                pp deletia
               }
@@ -1344,8 +1393,38 @@ next if !create
             ok = false
           else
             server['image_id'] = real_image.self_link
-          end
+            server['image_id'].match(/projects\/([^\/]+)\/.*?\/([^\/]+)$/)
+            img_project = Regexp.last_match[1]
+            img_name = Regexp.last_match[2]
+            begin
+              snaps = MU::Cloud::Google.compute.list_snapshots(
+                img_project,
+                filter: "name eq #{img_name}-.*"
+              )
+              server['storage'] ||= []
+              used_devs = server['storage'].map { |disk| disk['device'].gsub(/.*?\//, "") }
+              snaps.items.each { |snap|
+                next if !snap.labels.is_a?(Hash) or !snap.labels["mu-device-name"] or snap.labels["mu-parent-image"] != img_name
+                devname = snap.labels["mu-device-name"]
 
+                if used_devs.include?(devname)
+                  MU.log "Device name #{devname} already declared in server #{server['name']} (snapshot #{snap.name} wants the name)", MU::ERR
+                  ok = false
+                end
+                server['storage'] << {
+                  "snapshot_id" => snap.self_link,
+                  "size" => snap.disk_size_gb,
+                  "delete_on_termination" => true, 
+                  "device" => devname
+                }
+                used_devs << devname
+              }
+            rescue ::Google::Apis::ClientError => e
+              # it's ok, sometimes we don't have permission to list snapshots
+              # in other peoples' projects
+              raise e if !e.message.match(/^forbidden: /)
+            end
+          end
           ok
         end
 

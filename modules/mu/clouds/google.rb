@@ -385,12 +385,16 @@ module MU
               # take advantage.
               # XXX might want to do something similar for delete ops? just the
               # but where we wait for the operation to definitely be done
-              if method_sym.to_s.match(/^insert_/) and retval.target_link
+              if method_sym.to_s.match(/^(insert|create)_/) and retval.target_link
 #                service["#MU_CLOUDCLASS"].instance_methods(false).include?(:groom)
-                get_method = method_sym.to_s.gsub(/^insert_/, "get_").to_sym
+                get_method = method_sym.to_s.gsub(/^(insert|create_disk|create)_/, "get_").to_sym
                 cloud_id = retval.target_link.sub(/^.*?\/([^\/]+)$/, '\1')
                 faked_args = arguments.dup
                 faked_args.pop
+                if get_method == :get_snapshot
+                  faked_args.pop
+                  faked_args.pop
+                end
                 faked_args.push(cloud_id)
                 actual_resource = @api.method(get_method).call(*faked_args)
                 if actual_resource.respond_to?(:status) and

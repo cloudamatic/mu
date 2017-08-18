@@ -1,5 +1,5 @@
 ---
-centos6: &centos6 projects/centos-cloud/global/images/centos-6-v20170620
+centos6: &centos6 projects/my-project-1474050033734/global/images/mu-dev-2017081809-tr-centos6
 centos7: &centos7 projects/centos-cloud/global/images/centos-7-v20170620
 rhel71: &rhel71 projects/rhel-cloud/global/images/rhel-7-v20170620
 ubuntu14: &ubuntu14 projects/ubuntu-os-cloud/global/images/ubuntu-1404-trusty-v20170619
