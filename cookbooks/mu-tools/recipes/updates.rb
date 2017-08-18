@@ -22,7 +22,7 @@ if !node[:application_attributes][:skip_recipes].include?('updates')
     when "windows"
       ::Chef::Recipe.send(:include, Chef::Mixin::PowershellOut)
   
-      ["C:\\Users\\#{node.windows_admin_username}", "C:\\Users\\#{node.windows_admin_username}\\Documents", "C:\\Users\\#{node.windows_admin_username}\\Documents\\WindowsPowerShell", "C:\\Users\\#{node.windows_admin_username}\\Documents\\WindowsPowerShell\\Modules"].each { |dir|
+      ["C:\\Users\\#{node[:windows_admin_username]}", "C:\\Users\\#{node[:windows_admin_username]}\\Documents", "C:\\Users\\#{node[:windows_admin_username]}\\Documents\\WindowsPowerShell", "C:\\Users\\#{node[:windows_admin_username]}\\Documents\\WindowsPowerShell\\Modules"].each { |dir|
         directory dir
       }
   
@@ -30,7 +30,7 @@ if !node[:application_attributes][:skip_recipes].include?('updates')
         source "https://s3.amazonaws.com/cap-public/PSWindowsUpdate.zip"
       end
   
-      ["C:/Users/#{node.windows_admin_username}/Documents/WindowsPowerShell/Modules", "c:\\windows\\System32\\WindowsPowerShell\\v1.0\\Modules"].each { |dir|
+      ["C:/Users/#{node[:windows_admin_username]}/Documents/WindowsPowerShell/Modules", "c:\\windows\\System32\\WindowsPowerShell\\v1.0\\Modules"].each { |dir|
         windows_zipfile dir do
           source "#{Chef::Config[:file_cache_path]}/PSWindowsUpdate.zip"
           action :unzip
@@ -48,7 +48,7 @@ if !node[:application_attributes][:skip_recipes].include?('updates')
         recursive true
       end
   
-      if node.os_updates_using_chef
+      if node[:os_updates_using_chef]
         powershell_script "Install Windows Updates" do
           # XXX Something in here throws a security error now. Whee.
           #				 Set-ExecutionPolicy RemoteSigned -Force
@@ -71,11 +71,11 @@ if !node[:application_attributes][:skip_recipes].include?('updates')
         end
       end
     when "centos"
-      execute "yum -y update" if node.os_updates_using_chef
+      execute "yum -y update" if node[:os_updates_using_chef]
     when "ubuntu"
       include_recipe "mu-utility::apt"
   
-      if node.os_updates_using_chef
+      if node[:os_updates_using_chef]
         bash "Install system updates" do
           user "root"
           code <<-EOH
@@ -90,6 +90,6 @@ if !node[:application_attributes][:skip_recipes].include?('updates')
         end
       end
     else
-      Chef::Log.info("Unsupported platform #{node.platform}")
+      Chef::Log.info("Unsupported platform #{node[:platform]}")
   end
 end
