@@ -13,11 +13,11 @@
 case node[:platform]
   when "centos"
     include_recipe "mu-glusterfs"
-    $nodeclass = node.gluster_node_class
+    $nodeclass = node[:gluster_node_class]
 
     package node[:glusterfs][:server][:packages]
 
-    if node.glusterfs.server.raid
+    if node[:glusterfs][:server][:raid]
       def raid_no_spare(mount_dev, level, num_devices, devices)
         execute "yes | mdadm -Cv #{mount_dev} -l#{level} -n#{num_devices} #{devices}" do
           not_if "mdadm --detail #{mount_dev}"
@@ -30,9 +30,9 @@ case node[:platform]
         end
       end
 
-      if node.glusterfs.server.raid_level == 10
-        array1, array2 = node.glusterfs.server.devices.each_slice(node.glusterfs.server.devices.size/2).to_a
-        if node.glusterfs.server.raid_spare_vol
+      if node[:glusterfs][:server][:raid_level] == 10
+        array1, array2 = node[:glusterfs][:server][:devices].each_slice(node[:glusterfs][:server][:devices].size/2).to_a
+        if node[:glusterfs][:server][:raid_spare_vol]
           array1_spare_device = array1.pop
           array2_spare_device = array2.pop
           raid_with_spare("/dev/md1", 1, array1.size, array1.join(" "), array1_spare_device)
@@ -43,15 +43,15 @@ case node[:platform]
         end
         raid_no_spare("/dev/md0", 0, 2, "/dev/md1 /dev/md2")
       else
-        node.glusterfs.server.raid_levels_map.each do |type|
-          if node.glusterfs.server.raid_spare_vol
-            if type['level'] == node.glusterfs.server.raid_level and type['spare'] == node.glusterfs.server.raid_spare_vol and node.glusterfs.server.devices.size >= type['min_devcies']
-              spare_device = node.glusterfs.server.devices.pop
-              raid_with_spare(node.glusterfs.server.raid_dev, node.glusterfs.server.raid_level, node.glusterfs.server.devices.size, node.glusterfs.server.devices.join(" "), spare_device)
+        node[:glusterfs][:server][:raid_levels_map.each] do |type|
+          if node[:glusterfs][:server][:raid_spare_vol]
+            if type['level'] == node[:glusterfs][:server][:raid_level] and type['spare'] == node[:glusterfs][:server][:raid_spare_vol] and node[:glusterfs][:server][:devices.size] >= type['min_devcies']
+              spare_device = node[:glusterfs][:server][:devices.pop]
+              raid_with_spare(node[:glusterfs][:server][:raid_dev], node[:glusterfs][:server][:raid_level], node[:glusterfs][:server][:devices.size], node[:glusterfs][:server][:devices].join(" "), spare_device)
             end
           else
-            if type['level'] == node.glusterfs.server.raid_level and type['spare'] == node.glusterfs.server.raid_spare_vol and node.glusterfs.server.devices.size >= type['min_devcies']
-              raid_no_spare(node.glusterfs.server.raid_dev, node.glusterfs.server.raid_level, node.glusterfs.server.devices.size, node.glusterfs.server.devices.join(" "))
+            if type['level'] == node[:glusterfs][:server][:raid_level] and type['spare'] == node[:glusterfs][:server][:raid_spare_vol] and node[:glusterfs][:server][:devices.size] >= type['min_devcies']
+              raid_no_spare(node[:glusterfs][:server][:raid_dev], node[:glusterfs][:server][:raid_level], node[:glusterfs][:server][:devices.size], node[:glusterfs][:server][:devices].join(" "))
             end
           end
         end
@@ -61,17 +61,17 @@ case node[:platform]
         not_if { File.exists?("/etc/mdadm.conf") }
       end
 
-      execute "mkfs -t xfs -i size=512 #{node.glusterfs.server.raid_dev}" do
-        not_if "xfs_info #{node.glusterfs.server.raid_dev}"
+      execute "mkfs -t xfs -i size=512 #{node[:glusterfs][:server][:raid_dev]}" do
+        not_if "xfs_info #{node[:glusterfs][:server][:raid_dev]}"
       end
 
-      $gluster_mnt_pt = "#{node.glusterfs.server.brick_base_mount_path}#{node.glusterfs.server.raid_dev}"
+      $gluster_mnt_pt = "#{node[:glusterfs][:server][:brick_base_mount_path]}#{node[:glusterfs][:server][:raid_dev]}"
 
       directory $gluster_mnt_pt do
         recursive true
       end
       mount $gluster_mnt_pt do
-        device node.glusterfs.server.raid_dev
+        device node[:glusterfs][:server][:raid_dev]
         fstype "xfs"
         action [:mount, :enable]
       end
@@ -80,29 +80,29 @@ case node[:platform]
 
     else
       $gluster_mnt_pts = []
-      node.glusterfs.server.devices.each do |dev|
+      node[:glusterfs][:server][:devices.each] do |dev|
         execute "mkfs -t xfs -i size=512 #{dev}" do
           not_if "xfs_info #{dev}"
         end
-        directory "#{node.glusterfs.server.brick_base_mount_path}#{dev}" do
+        directory "#{node[:glusterfs][:server][:brick_base_mount_path]}#{dev}" do
           recursive true
         end
-        mount "#{node.glusterfs.server.brick_base_mount_path}#{dev}" do
+        mount "#{node[:glusterfs][:server][:brick_base_mount_path]}#{dev}" do
           device dev
           fstype "xfs"
           action [:mount, :enable]
         end
-        directory "#{node.glusterfs.server.brick_base_mount_path}#{dev}/brick"
+        directory "#{node[:glusterfs][:server][:brick_base_mount_path]}#{dev}/brick"
 
-        execute "chmod go+rx #{node.glusterfs.server.brick_base_mount_path} #{node.glusterfs.server.brick_base_mount_path}#{dev}"
+        execute "chmod go+rx #{node[:glusterfs][:server][:brick_base_mount_path]} #{node[:glusterfs][:server][:brick_base_mount_path]}#{dev}"
 
-        $gluster_mnt_pts << "#{node.glusterfs.server.brick_base_mount_path}#{dev}"
+        $gluster_mnt_pts << "#{node[:glusterfs][:server][:brick_base_mount_path]}#{dev}"
       end
     end
 
     include_recipe 'mu-firewall'
 
-    node.glusterfs.fw.each { |rule|
+    node[:glusterfs][:fw][:each] { |rule|
       firewall_rule "Allow glusterfs #{rule['usage']}" do
         port rule['port_range']
       end
@@ -114,7 +114,7 @@ case node[:platform]
 
     found_master = false
     i_am_master = false
-    node.deployment.servers[$nodeclass].each_pair { |name, data|
+    node[:deployment][:servers][$nodeclass].each_pair { |name, data|
       if data['gluster_master']
         found_master = true
         if name == Chef::Config[:node_name]
@@ -126,12 +126,12 @@ case node[:platform]
       node.normal['deployment']['servers'][$nodeclass][Chef::Config[:node_name]]['gluster_master'] = true
       i_am_master = true
     end
-    node.normal.glusterfs_is_server = true
+    node.normal[:glusterfs_is_server] = true
     node.save
 
     if i_am_master
       ips = []
-      node.deployment.servers[$nodeclass].each_pair do |name, data|
+      node[:deployment][:servers][$nodeclass].each_pair do |name, data|
         next if data['private_ip_address'].nil? or data['private_ip_address'].empty?
         execute "gluster peer probe #{data['private_ip_address']}" do
           not_if { data['private_ip_address'] == node[:ipaddress] }
@@ -139,10 +139,10 @@ case node[:platform]
         ips << data['private_ip_address']
       end
 
-      if ips.size >= node.glusterfs.server.num_replicas
+      if ips.size >= node[:glusterfs][:server][:num_replicas]
         bricks = []
         ips.each do |ip|
-          if node.glusterfs.server.raid
+          if node[:glusterfs][:server][:raid]
             bricks << "#{ip}:#{$gluster_mnt_pt}/brick"
           else
             $gluster_mnt_pts.each do |mount_point|
@@ -151,36 +151,36 @@ case node[:platform]
           end
         end
 
-        bash "Create gluster volume #{node.glusterfs.server.volume}" do
-          not_if "gluster volume info #{node.glusterfs.server.volume}"
-          code "gluster volume create #{node.glusterfs.server.volume} #{node.glusterfs.server.volume_type} #{node.glusterfs.server.num_replicas} transport tcp #{bricks.join(" ")}"
+        bash "Create gluster volume #{node[:glusterfs][:server][:volume]}" do
+          not_if "gluster volume info #{node[:glusterfs][:server][:volume]}"
+          code "gluster volume create #{node[:glusterfs][:server][:volume]} #{node[:glusterfs][:server][:volume_type]} #{node[:glusterfs][:server][:num_replicas]} transport tcp #{bricks.join(" ")}"
         end
 
-        bash "Start gluster volume #{node.glusterfs.server.volume}" do
-          not_if "gluster volume info #{node.glusterfs.server.volume} | grep Started"
-          code "gluster volume start #{node.glusterfs.server.volume}"
+        bash "Start gluster volume #{node[:glusterfs][:server][:volume]}" do
+          not_if "gluster volume info #{node[:glusterfs][:server][:volume]} | grep Started"
+          code "gluster volume start #{node[:glusterfs][:server][:volume]}"
         end
 
-        bash "Set network timeout on #{node.glusterfs.server.volume}" do
-          not_if "gluster volume info #{node.glusterfs.server.volume} | grep 'network.ping-timeout: #{node.glusterfs.server.network_timeout}'"
-          code "gluster volume set #{node.glusterfs.server.volume} network.ping-timeout #{node.glusterfs.server.network_timeout}"
+        bash "Set network timeout on #{node[:glusterfs][:server][:volume]}" do
+          not_if "gluster volume info #{node[:glusterfs][:server][:volume]} | grep 'network.ping-timeout: #{node[:glusterfs][:server][:network_timeout]}'"
+          code "gluster volume set #{node[:glusterfs][:server][:volume]} network.ping-timeout #{node[:glusterfs][:server][:network_timeout]}"
         end
 
-        bash "Set read cache max size on #{node.glusterfs.server.volume}" do
-          not_if "gluster volume info #{node.glusterfs.server.volume} | grep 'performance.cache-size: #{node.glusterfs.server.read_cache_size}'"
-          code "gluster volume set #{node.glusterfs.server.volume} performance.cache-size #{node.glusterfs.server.read_cache_size}"
+        bash "Set read cache max size on #{node[:glusterfs][:server][:volume]}" do
+          not_if "gluster volume info #{node[:glusterfs][:server][:volume]} | grep 'performance.cache-size: #{node[:glusterfs][:server][:read_cache_size]}'"
+          code "gluster volume set #{node[:glusterfs][:server][:volume]} performance.cache-size #{node[:glusterfs][:server][:read_cache_size]}"
         end
 
 
-        # gluster_vol_exists = shell_out("gluster volume info #{node.glusterfs.server.volume}")
+        # gluster_vol_exists = shell_out("gluster volume info #{node[:glusterfs][:server][:volume]}")
         # if gluster_vol_exists.stderr.empty? and !gluster_vol_exists.stdout.empty?
         # ips.each do |ip|
         # bash "Remove failed brick/instance fro GlusterFS Cluster" do
-        # not_if "gluster volume info #{node.glusterfs.server.volume} | grep #{ip}"
+        # not_if "gluster volume info #{node[:glusterfs][:server][:volume]} | grep #{ip}"
         # code <<-EOH
         # "gluster peer status | grep -B 2 Disconnected | grep #{old_instnace}"
-        # "gluster volume replace-brick #{node.glusterfs.server.volume} #{old_instnace}:/gluster/dev/md0/brick #{new_instance}:/gluster/dev/md0/brick start force"
-        # "gluster volume replace-brick #{node.glusterfs.server.volume} #{old_instnace}:/gluster/dev/md0/brick #{new_instance}:/gluster/dev/md0/brick commit force"
+        # "gluster volume replace-brick #{node[:glusterfs][:server][:volume]} #{old_instnace}:/gluster/dev/md0/brick #{new_instance}:/gluster/dev/md0/brick start force"
+        # "gluster volume replace-brick #{node[:glusterfs][:server][:volume]} #{old_instnace}:/gluster/dev/md0/brick #{new_instance}:/gluster/dev/md0/brick commit force"
         # "gluster peer detach #{old_instnace}"
         # EOH
         # end
@@ -188,7 +188,7 @@ case node[:platform]
         # end
       end
     else
-      node.deployment.servers[$nodeclass].each_pair do |name, data|
+      node[:deployment][:servers][$nodeclass].each_pair do |name, data|
         execute "gluster peer probe #{data['private_ip_address']}" do
           not_if { data['private_ip_address'] == node[:ipaddress] }
         end

@@ -25,7 +25,7 @@ include_recipe 'mu-splunk::setup_auth'
 
 # We can rely on loading the chef_vault_item here, as `setup_auth`
 # above would have failed if there were another issue.
-splunk_auth_info = chef_vault_item(node.splunk.auth.data_bag, node.splunk.auth.data_bag_item)['auth']
+splunk_auth_info = chef_vault_item(node[:splunk][:auth][:data_bag], node[:splunk][:auth][:data_bag_item])['auth']
 
 firewall_rule "HTTP ports for Splunk admin console" do
   port [80, 443]
