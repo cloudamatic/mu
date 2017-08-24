@@ -62,13 +62,14 @@ if !node[:application_attributes][:skip_recipes].include?('updates')
           EOH
         end
   
-        sleep 10 # takes a while for this key to pop up sometimes
-        if registry_key_exists?("HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired")
-          reboot "Windows updates" do
-            action :reboot_now
-            reason "Windows Update has requested a reboot"
-          end
+        reboot "Windows updates" do
+          action :reboot_now
+          reason "Windows Update has requested a reboot"
+          only_if {
+            registry_key_exists?("HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired")
+          }
         end
+
       end
     when "centos"
       execute "yum -y update" if node[:os_updates_using_chef]
