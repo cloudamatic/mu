@@ -165,7 +165,7 @@ add_berkshelf_cookbooks()
   if [ "$is_synced" != "" ];then
     echo "${RED}$repodir/Berksfile.lock still out of sync after install, bailing${NORM}"
     $berks install -d
-    $berks upload -d
+    $berks upload -d --no-freeze
     exit 1
   fi
 
