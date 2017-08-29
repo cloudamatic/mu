@@ -77,11 +77,6 @@ end
 
 splunk_installer splunk_package do
   url node['splunk'][url_type]["url"]
-  if node['platform_family'] == 'windows'
-    not_if { ::Dir.glob("c:/Program Files/SplunkUniversalForwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
-  else
-    not_if { ::Dir.glob("/opt/splunkforwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
-  end
   if node['splunk']['accept_license']
     notifies :run, "execute[splunk-unattended-upgrade]", :immediately
   end

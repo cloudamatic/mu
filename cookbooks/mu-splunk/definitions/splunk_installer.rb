@@ -28,7 +28,12 @@ define :splunk_installer, :url => nil do
   rescue Chef::Exceptions::ResourceNotFound
     remote_file cached_package do
       source params[:url]
+      action :nothing
     end
+  end
+  file "#{cached_package} cleanup" do
+    path cached_package
+    action :nothing
   end
 
   if %w( omnios ).include?(node['platform'])
@@ -72,19 +77,24 @@ define :splunk_installer, :url => nil do
   rescue Chef::Exceptions::ResourceNotFound
     package params[:name] do
       source cached_package.gsub(/\.Z/, '')
+      notifies :create, "remote_file[#{cached_package}]", :before
+      notifies :delete, "file[#{cached_package} cleanup]", :immediately
       case node['platform_family']
         when 'rhel'
+          not_if { ::Dir.glob("/opt/splunkforwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
           provider Chef::Provider::Package::Rpm
           notifies :run, "execute[accept license]", :immediately if node['splunk']['accept_license']
         when 'debian'
+          not_if { ::Dir.glob("/opt/splunkforwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
           provider Chef::Provider::Package::Dpkg
           notifies :run, "execute[accept license]", :immediately if node['splunk']['accept_license']
         when 'omnios'
+          not_if { ::Dir.glob("/opt/splunkforwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
           provider Chef::Provider::Package::Solaris
           notifies :run, "execute[accept license]", :immediately if node['splunk']['accept_license']
           options pkgopts.join(' ')
         when 'windows'
-          not_if { ::File.exists?("c:/Program Files/SplunkUniversalForwarder/bin/splunk.exe") }
+          not_if { ::Dir.glob("c:/Program Files/SplunkUniversalForwarder/splunkforwarder-#{node['splunk']['preferred_version']}-*").size > 0 }
           provider Chef::Provider::Package::Windows
           options pkgopts.join(' ')
       end
