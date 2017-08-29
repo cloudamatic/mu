@@ -372,7 +372,7 @@ module MU
       # Bootstrap our server with Chef
       def bootstrap
         self.class.loadChefLib
-        createGenericHostSSLCert
+        stashHostSSLCertSecret
         if !@config['cleaned_chef']
           begin
             preClean(true)
@@ -759,70 +759,18 @@ module MU
         self.class.knifeCmd(cmd, showoutput)
       end
 
-      def createGenericHostSSLCert
-        nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = @server.getSSHConfig
-        # Manufacture a generic SSL certificate, signed by the Mu master, for
-        # consumption by various node services (Apache, Splunk, etc).
-        return if File.exists?("#{MU.mySSLDir}/#{@server.mu_name}.crt")
-        MU.log "Creating self-signed service SSL certificate for #{@server.mu_name} (CN=#{canonical_ip})"
+      # Upload the certificate to a Chef Vault for this node
+      def stashHostSSLCertSecret
+        cert, key = @server.deploy.nodeSSLCert(@server)
 
-        # Create and save a key
-        key = OpenSSL::PKey::RSA.new 4096
-        if !Dir.exist?(MU.mySSLDir)
-          Dir.mkdir(MU.mySSLDir, 0700)
-        end
-
-        open("#{MU.mySSLDir}/#{@server.mu_name}.key", 'w', 0600) { |io|
-          io.write key.to_pem
-        }
-
-        # Create a certificate request for this node
-        csr = OpenSSL::X509::Request.new
-        csr.version = 0
-        csr.subject = OpenSSL::X509::Name.parse "CN=#{canonical_ip}/O=Mu/C=US"
-        csr.public_key = key.public_key
-        open("#{MU.mySSLDir}/#{@server.mu_name}.csr", 'w', 0644) { |io|
-          io.write csr.to_pem
-        }
-
-
-        if MU.chef_user == "mu"
-          @server.deploy.signSSLCert("#{MU.mySSLDir}/#{@server.mu_name}.csr")
-        else
-          deploykey = OpenSSL::PKey::RSA.new(@server.deploy.public_key)
-          deploysecret = Base64.urlsafe_encode64(deploykey.public_encrypt(@server.deploy.deploy_secret))
-          res_type = "server"
-          res_type = "server_pool" if !@config['basis'].nil?
-          uri = URI("https://#{MU.mu_public_addr}:2260/")
-          req = Net::HTTP::Post.new(uri)
-          req.set_form_data(
-              "mu_id" => MU.deploy_id,
-              "mu_resource_name" => @config['name'],
-              "mu_resource_type" => res_type,
-              "mu_ssl_sign" => "#{MU.mySSLDir}/#{@server.mu_name}.csr",
-              "mu_user" => MU.mu_user,
-              "mu_deploy_secret" => deploysecret
-          )
-          http = Net::HTTP.new(uri.hostname, uri.port)
-          http.ca_file = "/etc/pki/Mu_CA.pem" # XXX why no worky?
-          http.use_ssl = true
-          http.verify_mode = OpenSSL::SSL::VERIFY_NONE # XXX this sucks
-          response = http.request(req)
-
-          MU.log "Got error back on signing request for #{MU.mySSLDir}/#{@server.mu_name}.csr", MU::ERR if response.code != "200"
-        end
-
-        cert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/#{@server.mu_name}.crt"
-        # Upload the certificate to a Chef Vault for this node
         certdata = {
-            "data" => {
-                "node.crt" => cert.to_pem.chomp!.gsub(/\n/, "\\n"),
-                "node.key" => key.to_pem.chomp!.gsub(/\n/, "\\n")
-            }
+          "data" => {
+            "node.crt" => cert.to_pem.chomp!.gsub(/\n/, "\\n"),
+            "node.key" => key.to_pem.chomp!.gsub(/\n/, "\\n")
+          }
         }
         saveSecret(item: "ssl_cert", data: certdata, permissions: nil)
 
-        # Any and all 'secrets' parameters should also be stuffed into our vault.
         saveSecret(item: "secrets", data: @config['secrets'], permissions: nil) if !@config['secrets'].nil?
       end
 

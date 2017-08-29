@@ -1918,7 +1918,7 @@ MESSAGE_END
     # Given a Certificate Signing Request, sign it with our internal CA and
     # writers the resulting signed certificate. Only works on local files.
     # @param csr_path [String]: The CSR to sign, as a file.
-    def signSSLCert(csr_path)
+    def signSSLCert(csr_path, sans = [])
       # XXX more sanity here, this feels unsafe
       certdir = File.dirname(csr_path)
       certname = File.basename(csr_path, ".csr")
@@ -1949,13 +1949,23 @@ MESSAGE_END
       # Create a certificate from our CSR, signed by the Mu CA
       cert = OpenSSL::X509::Certificate.new
       cert.serial = cur_serial
-      cert.version = 2
+      cert.version = 3
       cert.not_before = Time.now
       cert.not_after = Time.now + 1800000 # 500 days
       cert.subject = csr.subject
       cert.public_key = csr.public_key
       cert.issuer = cacert.subject
-      cert.sign cakey, OpenSSL::Digest::SHA1.new
+      if !sans.nil? and sans.size > 0
+        MU.log "Incorporting Subject Alternative Names: #{sans.join(",")}"
+        ef = OpenSSL::X509::ExtensionFactory.new
+        ef.issuer_certificate = cacert
+        ef.subject_certificate = cert
+        ef.subject_certificate = cert
+        cert.add_extension(ef.create_extension("subjectAltName",sans.join(","),false))
+# XXX only do this if we see the otherName thinger in the san list
+        cert.add_extension(ef.create_extension("extendedKeyUsage","clientAuth",false))
+      end
+      cert.sign cakey, OpenSSL::Digest::SHA256.new
 
       open("#{certdir}/#{certname}.crt", 'w', 0644) { |io|
         io.write cert.to_pem
@@ -2051,6 +2061,87 @@ MESSAGE_END
       }
 
       MU.log "Synchronization of #{@deploy_id} complete", MU::DEBUG, details: update_servers
+    end
+
+    # Given a MU::Cloud::Server object, return the generic self-signed SSL
+    # certficate we made for it. If one doesn't exist yet, generate it first.
+    # @param server [MU::Cloud::Server]: The server for which to generate or return the cert
+    def nodeSSLCert(server)
+      nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = server.getSSHConfig
+
+      # Manufacture a generic SSL certificate, signed by the Mu master, for
+      # consumption by various node services (Apache, Splunk, etc).
+      if File.exists?("#{MU.mySSLDir}/#{server.mu_name}.crt") and
+         File.exists?("#{MU.mySSLDir}/#{server.mu_name}.key")
+        [File.read("#{MU.mySSLDir}/#{server.mu_name}.crt"), File.read("#{MU.mySSLDir}/#{server.mu_name}.key")] 
+      end
+
+      certs = {
+        server.mu_name => ["DNS:#{canonical_ip}"]
+      }
+      if server.windows?
+        certs[server.mu_name+"-winrm"] = ["otherName:msUPN;UTF8:#{$MU_CFG['mu_admin_email']}"]
+      end
+      results = {}
+
+      certs.each { |certname, sans|
+        MU.log "Creating self-signed service SSL certificate for #{certname} (CN=#{canonical_ip})"
+
+        # Create and save a key
+        key = OpenSSL::PKey::RSA.new 4096
+        if !Dir.exist?(MU.mySSLDir)
+          Dir.mkdir(MU.mySSLDir, 0700)
+        end
+
+        open("#{MU.mySSLDir}/#{certname}.key", 'w', 0600) { |io|
+          io.write key.to_pem
+        }
+        # Create a certificate request for this node
+        csr = OpenSSL::X509::Request.new
+        csr.version = 0
+        csr.subject = OpenSSL::X509::Name.parse "CN=#{canonical_ip}/O=Mu/C=US"
+        csr.public_key = key.public_key
+        open("#{MU.mySSLDir}/#{certname}.csr", 'w', 0644) { |io|
+          io.write csr.to_pem
+        }
+        if MU.chef_user == "mu"
+          signSSLCert("#{MU.mySSLDir}/#{certname}.csr", sans)
+        else
+          deploykey = OpenSSL::PKey::RSA.new(public_key)
+          deploysecret = Base64.urlsafe_encode64(deploykey.public_encrypt(deploy_secret))
+          res_type = "server"
+          res_type = "server_pool" if !server.config['basis'].nil?
+          uri = URI("https://#{MU.mu_public_addr}:2260/")
+          req = Net::HTTP::Post.new(uri)
+          req.set_form_data(
+            "mu_id" => MU.deploy_id,
+            "mu_resource_name" => server.config['name'],
+            "mu_resource_type" => res_type,
+            "mu_ssl_sign" => "#{MU.mySSLDir}/#{certname}.csr",
+            "mu_ssl_sans" => sans.join(","),
+            "mu_user" => MU.mu_user,
+            "mu_deploy_secret" => deploysecret
+          )
+          http = Net::HTTP.new(uri.hostname, uri.port)
+          http.ca_file = "/etc/pki/Mu_CA.pem" # XXX why no worky?
+          http.use_ssl = true
+          http.verify_mode = OpenSSL::SSL::VERIFY_NONE # XXX this sucks
+          response = http.request(req)
+
+          MU.log "Got error back on signing request for #{MU.mySSLDir}/#{certname}.csr", MU::ERR if response.code != "200"
+        end
+        
+        cert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/#{certname}.crt"
+        results[certname] = [cert, key]
+
+        if server.config['cloud'] == "AWS"
+          MU::Cloud::AWS.writeDeploySecret(@deploy_id, cert.to_pem, certname+".crt")
+          MU::Cloud::AWS.writeDeploySecret(@deploy_id, key.to_pem, certname+".key")
+# XXX add google logic, or better yet abstract this method
+        end
+      }
+
+      results[server.mu_name]
     end
 
     private

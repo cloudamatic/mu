@@ -361,7 +361,7 @@ app = proc do |env|
         MU.log "Found an existing node named #{mu_name}"
       end
       if !req["mu_ssl_sign"].nil?
-        kittenpile.signSSLCert(req["mu_ssl_sign"])
+        kittenpile.signSSLCert(req["mu_ssl_sign"], req["mu_ssl_sans"].split(/,/))
       elsif !req["add_volume"].nil?
 puts instance.cloud_id
 pp req

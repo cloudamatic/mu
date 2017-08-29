@@ -313,6 +313,10 @@ module MU
         def self.addStdPoliciesToIAMProfile(rolename, cloudformation_data: {}, cfm_role_name: nil)
           policies = Hash.new
           policies['Mu_Bootstrap_Secret_'+MU.deploy_id] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{MU.deploy_id}-secret"+'"}]}'
+          policies['Mu_Node_Certificate'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{rolename}.crt"+'"}]}'
+          policies['Mu_Node_Key'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{rolename}.key"+'"}]}'
+          policies['Mu_WinRM_Client_Certificate'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{rolename}-winrm.crt"+'"}]}'
+          policies['Mu_WinRM_Client_Key'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{rolename}-winrm.key"+'"}]}'
           policies.each_pair { |name, doc|
             if cloudformation_data.size > 0
               if !cfm_role_name.nil?
@@ -1002,16 +1006,24 @@ module MU
             notify
           end
 
-          windows? ? ssh_wait = 60 : ssh_wait = 30
-          windows? ? max_retries = 50 : max_retries = 35
           begin
-            session = getSSHSession(max_retries, ssh_wait)
-            initialSSHTasks(session)
+            if windows?
+              # kick off certificate generation early; WinRM will need it
+              cert, key = @deploy.nodeSSLCert(self)
+#              session = getWinRMSession(50, 60)
+# XXX account for machines behind bastion hosts that we can't tunnel through;
+# maybe then it's ok to fall back to sshd
+              session = getSSHSession(40, 30)
+              initialSSHTasks(session)
+            else
+              session = getSSHSession(40, 30)
+              initialSSHTasks(session)
+            end
           rescue BootstrapTempFail
             sleep ssh_wait
             retry
           ensure
-            session.close if !session.nil?
+            session.close if !session.nil? and !windows?
           end
 
           if @config["existing_deploys"] && !@config["existing_deploys"].empty?
