@@ -21,10 +21,13 @@ if !node['application_attributes']['skip_recipes'].include?('windows-client')
       include_recipe 'chef-vault'
       include_recipe 'mu-activedirectory'
 
+      ::Chef::Recipe.send(:include, Chef::Mixin::PowershellOut)
+
       template "c:/bin/cygwin/etc/sshd_config" do
         source "sshd_config.erb"
         mode 0644
         cookbook "mu-tools"
+        ignore_failure true
       end
 
       windows_vault = chef_vault_item(node['windows_auth_vault'], node['windows_auth_item'])
@@ -37,6 +40,7 @@ if !node['application_attributes']['skip_recipes'].include?('windows-client')
       if in_domain?
 
         ad_vault = chef_vault_item(node['ad']['domain_admin_vault'], node['ad']['domain_admin_item'])
+        login_dom = node['ad']['netbios_name']
 
         windows_users node['ad']['computer_name'] do
           username ad_vault[node['ad']['domain_admin_username_field']]
@@ -61,7 +65,6 @@ if !node['application_attributes']['skip_recipes'].include?('windows-client')
           password ad_vault[node['ad']['domain_admin_password_field']]
         end
 
-        login_dom = node['ad']['netbios_name']
         sshd_service "sshd" do
           service_username "#{node['ad']['netbios_name']}\\#{sshd_user}"
           username sshd_user
@@ -106,6 +109,6 @@ if !node['application_attributes']['skip_recipes'].include?('windows-client')
       end
 
     else
-      Chef::Log.info("Unsupported platform #{node['platform']}")
+      Chef::Log.info("mu-tools::windows-client: Unsupported platform #{node['platform']}")
   end
 end

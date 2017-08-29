@@ -14,6 +14,11 @@ property :dc_ips, Array
 default_action :config
 
 action :config do
+
+  cookbook_file "c:\\Windows\\SysWOW64\\ntrights.exe" do
+    source "ntrights"
+  end
+
   if is_domain_controller?(new_resource.computer_name)
     [new_resource.username, new_resource.ssh_user, new_resource.ec2config_user].each { |user|
       unless domain_user_exist?(user)
@@ -140,6 +145,12 @@ action :config do
         # powershell_out("new-gplink -name #{gpo_name} -target 'dc=#{new_resource.domain_name.gsub(".", ",dc=")}'").run_command
       end
     end
+
+    %w{SeCreateTokenPrivilege SeTcbPrivilege SeAssignPrimaryTokenPrivilege}.each { |privilege|
+      batch "Grant local user #{new_resource.netbios_name}\\#{new_resource.ssh_user} #{privilege} right" do
+        code "C:\\Windows\\SysWOW64\\ntrights +r #{privilege} -u #{new_resource.netbios_name}\\#{new_resource.ssh_user}"
+      end
+    }
   end
 
   if in_domain?
@@ -157,10 +168,11 @@ action :config do
       end
     }
 
-  directory 'C:/chef/cache' do
-    rights :full_control, "#{new_resource.netbios_name}\\#{new_resource.username}"
-    rights :full_control, "#{new_resource.netbios_name}\\#{new_resource.ssh_user}"
-  end
+
+    directory 'C:/chef/cache' do
+      rights :full_control, "#{new_resource.netbios_name}\\#{new_resource.username}"
+      rights :full_control, "#{new_resource.netbios_name}\\#{new_resource.ssh_user}"
+    end
 
     execute "C:/bin/cygwin/bin/bash --login -c \"chown -R #{new_resource.username} /home/#{new_resource.username}\""
 
@@ -179,6 +191,7 @@ action :config do
     end
   else
     # We want to run ec2config as admin user so Windows userdata executes as admin, however the local admin account doesn't have Logon As a Service right. Domain privileges are set separately
+
     cookbook_file "c:\\Windows\\SysWOW64\\ntrights.exe" do
       source "ntrights"
     end
