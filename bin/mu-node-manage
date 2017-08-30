@@ -31,11 +31,11 @@ Usage:
   opt :environment, "Operate exclusively on one nodes with a particular environment (e.g. dev, prod). Can be used in conjunction with -a or -d.", :require => false, :type => :string
   opt :override_chef_runlist, "An alternate runlist to pass to Chef, in chefrun mode.", :require => false, :type => :string
   opt :xecute, "Run a shell command on matching nodes. Overrides --mode and suppresses some informational output in favor of scriptability.", :require => false, :type => :string
-  opt :mode, "Action to perform on matching nodes. Valid actions: groom, chefrun, userdata, vaults", :require => false, :default => "chefrun", :type => :string
+  opt :mode, "Action to perform on matching nodes. Valid actions: groom, chefrun, userdata, vaults, certs", :require => false, :default => "chefrun", :type => :string
 end
 
-if !["groom", "chefrun", "vaults", "userdata"].include?($opts[:mode])
-  Trollop::die(:mode, "--mode must be one of: groom, chefrun, userdata, vaults")
+if !["groom", "chefrun", "vaults", "userdata", "certs"].include?($opts[:mode])
+  Trollop::die(:mode, "--mode must be one of: groom, chefrun, userdata, vaults, certs")
 end
 if $opts[:platform] and !["linux", "windows"].include?($opts[:platform])
   Trollop::die(:platform, "--platform must be one of: linux, windows")
@@ -463,8 +463,30 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
   }
 end
 
+def sslCerts(deploys = MU::MommaCat.listDeploys, nodes = [], vaults_only: false)
+  badnodes = []
+  count = 0
+  deploys.each { |muid|
+    mommacat = MU::MommaCat.new(muid)
+    mommacat.listNodes.each_pair { |nodename, server|
+      next if server['conf'].nil?
+      server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
+      next if nodes.size > 0 and !nodes.include?(nodename)
+      if server['conf'].nil?
+        MU.log "Failed to find config data for server #{nodename}", MU::WARN
+        next
+      end
+
+      server_obj = mommacat.findLitterMate(type: "server", mu_name: nodename)
+      mommacat.nodeSSLCerts(server_obj)
+    }
+  }
+end
+
 if $opts[:xecute]
   runCommand(do_deploys, do_nodes, $opts[:xecute], print_output: true)
+elsif $opts[:mode] == "certs"
+  sslCerts(do_deploys, do_nodes)
 elsif $opts[:mode] == "groom"
   reGroom(do_deploys, do_nodes)
 elsif $opts[:mode] == "vaults"

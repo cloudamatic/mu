@@ -1959,8 +1959,9 @@ MESSAGE_END
         MU.log "Incorporting Subject Alternative Names: #{sans.join(",")}"
         ef = OpenSSL::X509::ExtensionFactory.new
         ef.issuer_certificate = cacert
+#v3_req_client 
         ef.subject_certificate = cert
-        ef.subject_certificate = cert
+        ef.subject_request = csr
         cert.add_extension(ef.create_extension("subjectAltName",sans.join(","),false))
 # XXX only do this if we see the otherName thinger in the san list
         cert.add_extension(ef.create_extension("extendedKeyUsage","clientAuth",false))
@@ -2065,27 +2066,38 @@ MESSAGE_END
 
     # Given a MU::Cloud::Server object, return the generic self-signed SSL
     # certficate we made for it. If one doesn't exist yet, generate it first.
+    # If it's a Windows node, also generate a certificate for WinRM client auth.
     # @param server [MU::Cloud::Server]: The server for which to generate or return the cert
-    def nodeSSLCert(server)
+    def nodeSSLCerts(server)
       nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = server.getSSHConfig
 
-      # Manufacture a generic SSL certificate, signed by the Mu master, for
-      # consumption by various node services (Apache, Splunk, etc).
-      if File.exists?("#{MU.mySSLDir}/#{server.mu_name}.crt") and
-         File.exists?("#{MU.mySSLDir}/#{server.mu_name}.key")
-        [File.read("#{MU.mySSLDir}/#{server.mu_name}.crt"), File.read("#{MU.mySSLDir}/#{server.mu_name}.key")] 
-      end
-
-      certs = {
-        server.mu_name => ["DNS:#{canonical_ip}"]
-      }
-      if server.windows?
-        certs[server.mu_name+"-winrm"] = ["otherName:msUPN;UTF8:#{$MU_CFG['mu_admin_email']}"]
-      end
+      certs = {}
       results = {}
 
-      certs.each { |certname, sans|
-        MU.log "Creating self-signed service SSL certificate for #{certname} (CN=#{canonical_ip})"
+      if File.exists?("#{MU.mySSLDir}/#{server.mu_name}.crt") and
+         File.exists?("#{MU.mySSLDir}/#{server.mu_name}.key")
+        results[server.mu_name] = [File.read("#{MU.mySSLDir}/#{server.mu_name}.crt"), File.read("#{MU.mySSLDir}/#{server.mu_name}.key")]
+      else
+        certs[server.mu_name] = {
+          "sans" => ["DNS:#{canonical_ip}"],
+          "cn" => canonical_ip
+        }
+      end
+
+      if server.windows?
+        if File.exists?("#{MU.mySSLDir}/#{server.mu_name}-winrm.crt") and
+           File.exists?("#{MU.mySSLDir}/#{server.mu_name}-winrm.key")
+          results[server.mu_name+"-winrm"] = [File.read("#{MU.mySSLDir}/#{server.mu_name}-winrm.crt"), File.read("#{MU.mySSLDir}/#{server.mu_name}-winrm.key")]
+        else
+          certs[server.mu_name+"-winrm"] = {
+            "sans" => ["otherName:1.3.6.1.4.1.311.20.2.3;UTF8:#{$MU_CFG['mu_admin_email']}"],
+            "cn" => server.config['windows_admin_username']
+          }
+        end
+      end
+
+      certs.each { |certname, data|
+        MU.log "Generating SSL certificate #{certname} for #{server}"
 
         # Create and save a key
         key = OpenSSL::PKey::RSA.new 4096
@@ -2098,14 +2110,14 @@ MESSAGE_END
         }
         # Create a certificate request for this node
         csr = OpenSSL::X509::Request.new
-        csr.version = 0
-        csr.subject = OpenSSL::X509::Name.parse "CN=#{canonical_ip}/O=Mu/C=US"
+        csr.version = 3
+        csr.subject = OpenSSL::X509::Name.parse "CN=#{data['cn']}/O=Mu/C=US"
         csr.public_key = key.public_key
         open("#{MU.mySSLDir}/#{certname}.csr", 'w', 0644) { |io|
           io.write csr.to_pem
         }
         if MU.chef_user == "mu"
-          signSSLCert("#{MU.mySSLDir}/#{certname}.csr", sans)
+          signSSLCert("#{MU.mySSLDir}/#{certname}.csr", data['sans'])
         else
           deploykey = OpenSSL::PKey::RSA.new(public_key)
           deploysecret = Base64.urlsafe_encode64(deploykey.public_encrypt(deploy_secret))
