@@ -2176,7 +2176,6 @@ MESSAGE_END
         pfx = nil
         if server.windows?
           cacert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/Mu_CA.pem"
-MU.log "Is this thing private? #{cert.check_private_key(key)} - #{cert.signature_algorithm}", MU::WARN, details: cert.extensions.map { |e| e.to_s }
           pfx = OpenSSL::PKCS12.create(nil, nil, key, cert, [cacert], nil, nil, nil, nil)
           open("#{MU.mySSLDir}/#{certname}.pfx", 'w', 0644) { |io|
             io.write pfx.to_der

@@ -353,7 +353,8 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
           next if !need_update
 
           # Put our Autoscale group onto a temporary launch config
-          MU::Cloud::AWS.autoscale.create_launch_configuration(
+          begin
+            MU::Cloud::AWS.autoscale.create_launch_configuration(
               launch_configuration_name: pool_name+"-TMP",
               user_data: Base64.encode64(userdata),
               image_id: server["basis"]["launch_config"]["ami_id"],
@@ -365,7 +366,15 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
               iam_instance_profile: launch.iam_instance_profile,
               ebs_optimized: server["basis"]["launch_config"]["ebs_optimized"],
               associate_public_ip_address: launch.associate_public_ip_address
-          )
+            )
+          rescue ::Aws::AutoScaling::Errors::ValidationError => e
+            if e.message.match(/Member must have length less than or equal to (\d+)/)
+              MU.log "Userdata script too long updating #{pool_name} Launch Config (#{Base64.encode64(userdata).size.to_s}/#{Regexp.last_match[1]} bytes)", MU::ERR
+            else
+              MU.log "Error updating #{pool_name} Launch Config", MU::ERR, details: e.message
+            end
+            next
+          end
 
           MU::Cloud::AWS.autoscale.update_auto_scaling_group(
               auto_scaling_group_name: pool_name,
@@ -454,13 +463,19 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
       end
 
       MU.log "Updating #{nodename} userdata (#{server["conf"]["platform"]})"
-
-      MU::Cloud::AWS.ec2(server['region']).modify_instance_attribute(
+      begin
+        MU::Cloud::AWS.ec2(server['region']).modify_instance_attribute(
           instance_id: id,
           attribute: "userData",
           value: Base64.encode64(userdata)
-      )
-
+        )
+      rescue ::Aws::EC2::Errors::InvalidParameterValue => e
+        if e.message.match(/User data is limited to (\d+)/)
+          MU.log "Userdata script too long updating #{nodename} (#{userdata.size.to_s}/#{Regexp.last_match[1]} bytes)", MU::ERR
+        else
+          MU.log "Error replacing userData on #{nodename}", MU::ERR, details: e.message
+        end
+      end
     }
   }
 end
