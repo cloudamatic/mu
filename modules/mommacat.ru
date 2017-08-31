@@ -325,8 +325,15 @@ app = proc do |env|
       if req["mu_user"].nil?
         req["mu_user"] = "mu"
       end
+      requesttype = nil
+      ["mu_ssl_sign", "mu_bootstrap", "mu_windows_admin_creds", "add_volume"].each { |rt|
+        if req[rt]
+          requesttype = rt
+          break
+        end
+      }
 
-      MU.log "Processing request from #{env["REMOTE_ADDR"]} (MU-ID #{req["mu_id"]}, #{req["mu_resource_type"]}: #{req["mu_resource_name"]}, instance: #{req["mu_instance_id"]}, mu_ssl_sign: #{req["mu_ssl_sign"]}, mu_user #{req['mu_user']}, path #{env['REQUEST_PATH']})"
+      MU.log "Processing #{requesttype} request from #{env["REMOTE_ADDR"]} (MU-ID #{req["mu_id"]}, #{req["mu_resource_type"]}: #{req["mu_resource_name"]}, instance: #{req["mu_instance_id"]}, mu_user #{req['mu_user']}, path #{env['REQUEST_PATH']})"
       kittenpile = getKittenPile(req)
       if kittenpile.nil? or kittenpile.original_config.nil? or kittenpile.original_config[req["mu_resource_type"]+"s"].nil?
         returnval = throw500 "Couldn't find config data for #{req["mu_resource_type"]} in deploy_id #{req["mu_id"]}"

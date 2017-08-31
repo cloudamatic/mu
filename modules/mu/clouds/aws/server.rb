@@ -1019,7 +1019,7 @@ module MU
             if windows?
               # kick off certificate generation early; WinRM will need it
               cert, key = @deploy.nodeSSLCerts(self)
-              session = getWinRMSession(50, 60)
+#              session = getWinRMSession(50, 60)
 # XXX account for machines behind bastion hosts that we can't tunnel through;
 # maybe then it's ok to fall back to sshd?
               session = getSSHSession(50, 60)

@@ -299,7 +299,7 @@ $winrmcert = importCert "$myname-winrm.crt" "TrustedPeople"
 Set-Item -Path WSMan:\localhost\Service\Auth\Certificate -Value $true
 $credstr = callMomma "mu_windows_admin_creds"
 if($credstr){
-  $credparts = $pass.Split(";", 2)
+  $credparts = $credstr.Split(";", 2)
   $creds = New-Object System.Management.Automation.PSCredential($credparts[0], (ConvertTo-SecureString $credparts[1] -AsPlainText -Force))
   if($creds){
     New-Item -Path WSMan:\localhost\ClientCertificate -Subject <%= $mu.windowsAdminName %> -URI * -Issuer $muca.Thumbprint -Force -Credential $creds
@@ -314,7 +314,7 @@ if (!(Get-NetFirewallRule -DisplayName "Allow SSH" -ErrorAction SilentlyContinue
   New-NetFirewallRule -DisplayName "Allow SSH" -Direction Inbound -LocalPort 22 -Protocol TCP -Action Allow
 }
 if (!(Get-NetFirewallRule -DisplayName "Allow WinRM" -ErrorAction SilentlyContinue)){
-  New-NetFirewallRule -DisplayName "Allow WinRM" -Direction Inbound -LocalPort 5985 -Protocol TCP -Action Allow
+  New-NetFirewallRule -DisplayName "Allow WinRM" -Direction Inbound -LocalPort 5986 -Protocol TCP -Action Allow
 }
 
 <% if $mu.windowsAdminName %>

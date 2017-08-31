@@ -817,7 +817,7 @@ module MU
           def getWinRMSession(max_retries = 40, retry_interval = 60)
             nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
             opts = {
-              endpoint: 'http://'+canonical_ip+':5985/wsman',
+              endpoint: 'https://'+canonical_ip+':5986/wsman',
               transport: :ssl,
               ca_trust_path: "#{MU.mySSLDir}/#{@mu_name}.crt",
               client_cert: "#{MU.mySSLDir}/#{@mu_name}-winrm.crt",
@@ -829,9 +829,17 @@ MU.log "Tryin' a call WinRM on #{canonical_ip}", MU::WARN, details: opts
             conn = nil
 begin
             conn = WinRM::Connection.new(opts)
+            MU.log "WinRM connection to #{canonical_ip} created", MU::NOTICE, details: conn
+            shell = conn.shell(:powershell)
+            pp shell.run('ipconfig')
+rescue HTTPClient::ConnectTimeoutError => e
+ # XXX crazy-ass retry logic goes here
+  sleep 20
+  retry
 rescue Exception => e
 MU.log e.inspect, MU::ERR
   sleep 20
+  retry
 end
 pp conn
             conn
