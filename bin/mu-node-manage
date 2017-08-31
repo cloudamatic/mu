@@ -31,11 +31,11 @@ Usage:
   opt :environment, "Operate exclusively on one nodes with a particular environment (e.g. dev, prod). Can be used in conjunction with -a or -d.", :require => false, :type => :string
   opt :override_chef_runlist, "An alternate runlist to pass to Chef, in chefrun mode.", :require => false, :type => :string
   opt :xecute, "Run a shell command on matching nodes. Overrides --mode and suppresses some informational output in favor of scriptability.", :require => false, :type => :string
-  opt :mode, "Action to perform on matching nodes. Valid actions: groom, chefrun, userdata, vaults, certs", :require => false, :default => "chefrun", :type => :string
+  opt :mode, "Action to perform on matching nodes. Valid actions: groom, chefrun, awsmeta, vaults, certs", :require => false, :default => "chefrun", :type => :string
 end
 
-if !["groom", "chefrun", "vaults", "userdata", "certs"].include?($opts[:mode])
-  Trollop::die(:mode, "--mode must be one of: groom, chefrun, userdata, vaults, certs")
+if !["groom", "chefrun", "vaults", "userdata", "awsmeta", "certs"].include?($opts[:mode])
+  Trollop::die(:mode, "--mode must be one of: groom, chefrun, awsmeta, vaults, certs")
 end
 if $opts[:platform] and !["linux", "windows"].include?($opts[:platform])
   Trollop::die(:platform, "--platform must be one of: linux, windows")
@@ -258,7 +258,7 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-cli
   end
 end
 
-def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
+def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
   deploys.each { |muid|
     mommacat = MU::MommaCat.new(muid)
 
@@ -275,6 +275,17 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
         server["platform"] = "linux" if !server.has_key?("platform")
 
         pool_name = mommacat.getResourceName(svr_class)
+        if nodes.size > 0
+          matched = false
+          nodes.each { |n|
+            if n.match(/^#{Regexp.quote(pool_name)}-[a-z0-9]{3}$/)
+              matched = true
+            end
+          }
+          next if !matched
+        end
+
+        MU::Cloud::AWS::Server.createIAMProfile(pool_name, base_profile: server['iam_role'], extra_policies: server['iam_policies'])
 
         resp = MU::Cloud::AWS.autoscale.describe_auto_scaling_groups(
             auto_scaling_group_names: [pool_name]
@@ -425,6 +436,9 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
       server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
       next if nodes.size > 0 and !nodes.include?(nodename)
 
+      rolename, cfm_role_name, cfm_prof_name, arn = MU::Cloud::AWS::Server.createIAMProfile(nodename, base_profile: server["conf"]['iam_role'], extra_policies: server["conf"]['iam_policies'])
+      MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(rolename)
+
       mytype = "server"
       mytype = "server_pool" if server['conf'].has_key?("basis") or server['conf']['#TYPENAME'] == "ServerPool" or server['conf']["#MU_CLASS"] == "MU::Cloud::AWS::ServerPool"
       olduserdata = Base64.decode64(MU::Cloud::AWS.ec2(server['region']).describe_instance_attribute(
@@ -514,6 +528,7 @@ elsif $opts[:mode] == "chefrun"
   else
     runCommand(do_deploys, do_nodes)
   end
-elsif $opts[:mode] == "userdata"
-  updateUserdata(do_deploys, do_nodes)
+elsif $opts[:mode] == "userdata" or $opts[:mode] == "awsmeta"
+# Need Google equiv and to select nodes correctly based on what cloud they're in
+  updateAWSMetaData(do_deploys, do_nodes)
 end

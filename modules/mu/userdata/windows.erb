@@ -289,7 +289,7 @@ if ((Get-WmiObject win32_computersystem).partofdomain -ne $true){
 
 $muca = importCert "Mu_CA.pem" "Root"
 
-$myname = "FEMABASE-DEV-2017082915-RD-WINDOWS"
+$myname = "<%= $mu.muID %>-<%= $mu.resourceName.upcase %>"
 
 $nodecert = importCert "$myname.pfx" "My"
 $thumb = $nodecert.Thumbprint

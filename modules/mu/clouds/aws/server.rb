@@ -312,12 +312,8 @@ module MU
         # Insert a Server's standard IAM role needs into an arbitrary IAM profile
         def self.addStdPoliciesToIAMProfile(rolename, cloudformation_data: {}, cfm_role_name: nil)
           policies = Hash.new
-          policies['Mu_Bootstrap_Secret_'+MU.deploy_id] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{MU.deploy_id}-secret"+'"}]}'
-          policies['Mu_Node_Certificate'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{rolename}.pfx"+'"}]}'
-          policies['Mu_Node_Certificate'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{rolename}.crt"+'"}]}'
-          policies['Mu_Node_Key'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{rolename}.key"+'"}]}'
-          policies['Mu_WinRM_Client_Certificate'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{rolename}-winrm.crt"+'"}]}'
-          policies['Mu_WinRM_Client_Key'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{rolename}-winrm.key"+'"}]}'
+          objs = ["#{MU.deploy_id}-secret", "#{rolename}.pfx", "#{rolename}.crt", "#{rolename}.key", "#{rolename}-winrm.crt", "#{rolename}-winrm.key"]
+          policies['Mu_Secrets_'+MU.deploy_id] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":['+objs.map { |m| '"arn:aws:s3:::'+MU.adminBucketName+'/'+m+'"' }.join(",")+']}]}'
           policies.each_pair { |name, doc|
             if cloudformation_data.size > 0
               if !cfm_role_name.nil?
@@ -325,11 +321,11 @@ module MU
               end
               next 
             end
-            MU.log "Merging policy #{name} into #{rolename}", MU::NOTICE, details: doc
+            MU.log "Merging policy #{name} into #{rolename}", details: JSON.pretty_generate(JSON.parse(doc))
             MU::Cloud::AWS.iam.put_role_policy(
-                role_name: rolename,
-                policy_name: name,
-                policy_document: doc
+              role_name: rolename,
+              policy_name: name,
+              policy_document: doc
             )
           }
           if cloudformation_data.size > 0
@@ -352,19 +348,16 @@ module MU
             cfm_prof_name, prof_cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("iamprofile", name: rolename)
             cloudformation_data.merge!(role_cfm_template)
             cloudformation_data.merge!(prof_cfm_template)
-          else
-            MU.log "Creating IAM role and policies for '#{name}' nodes"
           end
 
           if base_profile
-            MU.log "Incorporating policies from existing IAM profile '#{base_profile}'"
             resp = MU::Cloud::AWS.iam.get_instance_profile(instance_profile_name: base_profile)
             resp.instance_profile.roles.each { |baserole|
               role_policies = MU::Cloud::AWS.iam.list_role_policies(role_name: baserole.role_name).policy_names
               role_policies.each { |name|
                 resp = MU::Cloud::AWS.iam.get_role_policy(
-                    role_name: baserole.role_name,
-                    policy_name: name
+                  role_name: baserole.role_name,
+                  policy_name: name
                 )
                 policies[name] = URI.unescape(resp.policy_document)
               }
@@ -383,10 +376,15 @@ module MU
             }
           end
           if !cloudformation_data.nil? and cloudformation_data.size == 0
-            resp = MU::Cloud::AWS.iam.create_role(
-              role_name: rolename,
-              assume_role_policy_document: '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":["ec2.amazonaws.com"]},"Action":["sts:AssumeRole"]}]}'
-            )
+            begin
+              resp = MU::Cloud::AWS.iam.create_role(
+                role_name: rolename,
+                assume_role_policy_document: '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":["ec2.amazonaws.com"]},"Action":["sts:AssumeRole"]}]}'
+              )
+              MU.log "Creating IAM role and policies for '#{rolename}' nodes"
+            rescue Aws::IAM::Errors::EntityAlreadyExists => e
+              MU.log "IAM role #{rolename} already exists, updating"
+            end
           end
           begin
             name=doc=nil
@@ -395,11 +393,11 @@ module MU
                 MU::Cloud::CloudFormation.setCloudFormationProp(cloudformation_data[cfm_role_name], "Policies", { "PolicyName" => name, "PolicyDocument" => JSON.parse(doc) })
                 next 
               end
-              MU.log "Merging policy #{name} into #{rolename}", MU::NOTICE, details: doc
+              MU.log "Merging policy #{name} into #{rolename}", details: JSON.pretty_generate(JSON.parse(doc))
               MU::Cloud::AWS.iam.put_role_policy(
-                  role_name: rolename,
-                  policy_name: name,
-                  policy_document: doc
+                role_name: rolename,
+                policy_name: name,
+                policy_document: doc
               )
             }
           rescue Aws::IAM::Errors::MalformedPolicyDocument => e
@@ -412,14 +410,24 @@ module MU
             return [rolename, cfm_role_name, cfm_prof_name]
           end
 
-          resp = MU::Cloud::AWS.iam.create_instance_profile(
+          begin
+            resp = MU::Cloud::AWS.iam.create_instance_profile(
               instance_profile_name: rolename
-          )
+            )
+          rescue Aws::IAM::Errors::EntityAlreadyExists => e
+            resp = MU::Cloud::AWS.iam.get_instance_profile(
+              instance_profile_name: rolename
+            )
+          end
 
-          MU::Cloud::AWS.iam.add_role_to_instance_profile(
+          begin
+            MU::Cloud::AWS.iam.add_role_to_instance_profile(
               instance_profile_name: rolename,
               role_name: rolename
-          )
+            )
+          rescue Aws::IAM::Errors::LimitExceeded => e
+            # also ok
+          end
 
           begin
             MU::Cloud::AWS.iam.get_instance_profile(instance_profile_name: rolename)
@@ -1011,9 +1019,9 @@ module MU
             if windows?
               # kick off certificate generation early; WinRM will need it
               cert, key = @deploy.nodeSSLCerts(self)
-#              session = getWinRMSession(50, 60)
+              session = getWinRMSession(50, 60)
 # XXX account for machines behind bastion hosts that we can't tunnel through;
-# maybe then it's ok to fall back to sshd
+# maybe then it's ok to fall back to sshd?
               session = getSSHSession(50, 60)
               initialSSHTasks(session)
             else
