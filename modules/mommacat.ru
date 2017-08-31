@@ -356,15 +356,17 @@ app = proc do |env|
         # Now we're just checking for existence in the cloud provider, really
         MU.log "No existing groomed server found, verifying that a server with this cloud id exists"
         instance = MU::Cloud::Server.find(cloud_id: req["mu_instance_id"], region: server_cfg["region"])
+# XXX barf if this comes back empty
       else
         mu_name = instance.mu_name
         MU.log "Found an existing node named #{mu_name}"
       end
-      if !req["mu_ssl_sign"].nil?
+      if !req["mu_windows_admin_creds"].nil?
+        returnval[2] = [kittenpile.retrieveWindowsAdminCreds(instance).join(";")]
+      elsif !req["mu_ssl_sign"].nil?
+        kittenpile.signSSLCert(req["mu_ssl_sign"], req["mu_ssl_sans"].split(/,/))
         kittenpile.signSSLCert(req["mu_ssl_sign"], req["mu_ssl_sans"].split(/,/))
       elsif !req["add_volume"].nil?
-puts instance.cloud_id
-pp req
         if instance.respond_to?(:addVolume)
 # XXX make sure we handle mangled input safely
           params = JSON.parse(Base64.decode64(req["add_volume"]))
@@ -376,6 +378,7 @@ pp req
       elsif !instance.nil?
         if !req["mu_bootstrap"].nil?
           kittenpile.groomNode(req["mu_instance_id"], req["mu_resource_name"], req["mu_resource_type"], mu_name: mu_name, sync_wait: true)
+          returnval[2] = ["Grooming asynchronously, check Momma Cat logs on the master for details."]
         else
           returnval = throw500 "Didn't get 'mu_bootstrap' parameter from instance id '#{req["mu_instance_id"]}'"
           ok = false
@@ -393,6 +396,10 @@ pp req
       releaseKitten(req['mu_id'])
       MU.purgeGlobals
     end
+  end
+  if returnval[1] and returnval[1].has_key?("Content-Length") and
+     returnval[2] and returnval[2].is_a?(Array)
+    returnval[1]["Content-Length"] = returnval[2][0].size.to_s
   end
   returnval
 end

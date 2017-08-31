@@ -299,6 +299,7 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
                   "muUser" => MU.chef_user,
                   "publicIP" => MU.mu_public_ip,
                   "resourceName" => svr_class,
+                  "windowsAdminName" => server['windows_admin_username'],
                   "skipApplyUpdates" => server['skipinitialupdates'],
                   "resourceType" => "server_pool"
               },
@@ -431,6 +432,7 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
               "muUser" => MU.chef_user,
               "publicIP" => MU.mu_public_ip,
               "resourceName" => server['conf']['name'],
+              "windowsAdminName" => server['conf']['windows_admin_username'],
               "skipApplyUpdates" => server['conf']['skipinitialupdates'],
               "resourceType" => mytype
           },

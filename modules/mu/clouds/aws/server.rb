@@ -161,7 +161,7 @@ module MU
               end
               userdata = File.read(erbfile)
               begin
-                erb = ERB.new(userdata)
+                erb = ERB.new(userdata, nil, "<>")
                 script = erb.result
               rescue NameError => e
                 raise MuError, "Error parsing userdata script #{erbfile} as an ERB template: #{e.inspect}"
@@ -177,7 +177,7 @@ module MU
               MU.log "Loaded userdata script from #{custom_append['path']}"
               if custom_append['use_erb']
                 begin
-                  erb = ERB.new(erbfile, 1)
+                  erb = ERB.new(erbfile, 1, "<>")
                   if custom_append['skip_std']
                     script = +erb.result
                   else
@@ -313,6 +313,7 @@ module MU
         def self.addStdPoliciesToIAMProfile(rolename, cloudformation_data: {}, cfm_role_name: nil)
           policies = Hash.new
           policies['Mu_Bootstrap_Secret_'+MU.deploy_id] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{MU.deploy_id}-secret"+'"}]}'
+          policies['Mu_Node_Certificate'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{rolename}.pfx"+'"}]}'
           policies['Mu_Node_Certificate'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{rolename}.crt"+'"}]}'
           policies['Mu_Node_Key'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{rolename}.key"+'"}]}'
           policies['Mu_WinRM_Client_Certificate'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{rolename}-winrm.crt"+'"}]}'

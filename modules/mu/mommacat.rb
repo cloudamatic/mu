@@ -1914,6 +1914,32 @@ MESSAGE_END
       return nodes
     end
 
+    # For a given (Windows) server, return it's administrator user and password.
+    # This is generally for requests made to MommaCat from said server, which
+    # we can assume have been authenticated with the deploy secret.
+    # @param server [MU::Cloud::Server]: The Server object whose credentials we're fetching.
+    def retrieveWindowsAdminCreds(server)
+      if server.nil? or server.class.name != "MU::Cloud::Server"
+        raise MuError, "retrieveWindowsAdminCreds must be called with a Server object"
+      end
+      if !server.windows?
+        raise MuError, "#{server} is not a Windows node"
+      end
+      if server.config['use_cloud_provider_windows_password']
+        return [server.config["windows_admin_username"], getWindowsAdminPassword]
+      elsif server.config['windows_auth_vault'] && !server.config['windows_auth_vault'].empty?
+        if server.config["windows_auth_vault"].has_key?("password_field")
+          return [server.config["windows_admin_username"],
+            server.groomer.getSecret(
+              vault: server.config['windows_auth_vault']['vault'],
+              item: server.config['windows_auth_vault']['item'],
+              field: server.config["windows_auth_vault"]["password_field"]
+            )]
+        else
+          return [server.config["windows_admin_username"], server.getWindowsAdminPassword]
+        end
+      end
+    end
 
     # Given a Certificate Signing Request, sign it with our internal CA and
     # writers the resulting signed certificate. Only works on local files.
@@ -1929,11 +1955,11 @@ MESSAGE_END
       MU.log "Signing SSL certificate request #{csr_path} with #{MU.mySSLDir}/Mu_CA.pem"
 
       csr = OpenSSL::X509::Request.new File.read csr_path
+      key = OpenSSL::PKey::RSA.new File.read "#{certdir}/#{certname}.key"
 
       # Load up the Mu Certificate Authority
       cakey = OpenSSL::PKey::RSA.new File.read "#{MU.mySSLDir}/Mu_CA.key"
       cacert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/Mu_CA.pem"
-
       cur_serial = 0
       File.open("#{MU.mySSLDir}/serial", File::CREAT|File::RDWR, 0600) { |f|
         f.flock(File::LOCK_EX)
@@ -1962,9 +1988,10 @@ MESSAGE_END
 #v3_req_client 
         ef.subject_certificate = cert
         ef.subject_request = csr
+        cert.add_extension(ef.create_extension("keyUsage","nonRepudiation,digitalSignature,keyEncipherment", false))
         cert.add_extension(ef.create_extension("subjectAltName",sans.join(","),false))
 # XXX only do this if we see the otherName thinger in the san list
-        cert.add_extension(ef.create_extension("extendedKeyUsage","clientAuth",false))
+        cert.add_extension(ef.create_extension("extendedKeyUsage","clientAuth,serverAuth,codeSigning,emailProtection",false))
       end
       cert.sign cakey, OpenSSL::Digest::SHA256.new
 
@@ -2079,8 +2106,8 @@ MESSAGE_END
         results[server.mu_name] = [File.read("#{MU.mySSLDir}/#{server.mu_name}.crt"), File.read("#{MU.mySSLDir}/#{server.mu_name}.key")]
       else
         certs[server.mu_name] = {
-          "sans" => ["DNS:#{canonical_ip}"],
-          "cn" => canonical_ip
+          "sans" => ["IP:#{canonical_ip}"],
+          "cn" => server.mu_name
         }
       end
 
@@ -2146,9 +2173,22 @@ MESSAGE_END
         cert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/#{certname}.crt"
         results[certname] = [cert, key]
 
+        pfx = nil
+        if server.windows?
+          cacert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/Mu_CA.pem"
+MU.log "Is this thing private? #{cert.check_private_key(key)} - #{cert.signature_algorithm}", MU::WARN, details: cert.extensions.map { |e| e.to_s }
+          pfx = OpenSSL::PKCS12.create(nil, nil, key, cert, [cacert], nil, nil, nil, nil)
+          open("#{MU.mySSLDir}/#{certname}.pfx", 'w', 0644) { |io|
+            io.write pfx.to_der
+          }
+        end
+
         if server.config['cloud'] == "AWS"
           MU::Cloud::AWS.writeDeploySecret(@deploy_id, cert.to_pem, certname+".crt")
           MU::Cloud::AWS.writeDeploySecret(@deploy_id, key.to_pem, certname+".key")
+          if server.windows?
+            MU::Cloud::AWS.writeDeploySecret(@deploy_id, pfx.to_der, certname+".pfx")
+          end
 # XXX add google logic, or better yet abstract this method
         end
       }
