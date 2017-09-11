@@ -227,30 +227,6 @@ function removeChef($location){
   return $install_chef
 }
 
-$key = "Microsoft\Windows\CurrentVersion\Uninstall\*"
-If (!(Test-Path "c:\opscode\chef\embedded\bin\ruby.exe")){
-  $install_chef = $true
-} else {
-  if (removeChef("HKLM:\Software\Wow6432Node\$key")){
-    $install_chef = $true
-  } elseif (removeChef("HKLM:\Software\$key")) {
-    $install_chef = $true
-  } else {
-    $install_chef = $false
-  }
-}
-
-If ($install_chef){
-  log "Installing Chef"
-  If (!(Test-Path $tmp/chef-installer-<%= MU.chefVersion %>.msi)){
-    log "Downloading Chef installer"
-    $WebClient.DownloadFile("https://www.chef.io/chef/download?p=windows&pv=2012&m=x86_64&v=<%= MU.chefVersion %>","$tmp/chef-installer-<%= MU.chefVersion %>.msi")
-  }
-  log "Running Chef installer"
-  (Start-Process -FilePath msiexec -ArgumentList "/i $tmp\chef-installer-<%= MU.chefVersion %>.msi ALLUSERS=1 /le $tmp\chef-client-install.log /qn" -Wait -Passthru).ExitCode
-  Set-Content "c:/mu_installed_chef" "yup"
-}
-
 <% if !$mu.skipApplyUpdates %>
 If (!(Test-Path "c:/mu-installer-ran-updates")){
   log "Applying Windows updates"
@@ -258,7 +234,7 @@ If (!(Test-Path "c:/mu-installer-ran-updates")){
   Get-WUInstall -AcceptAll -IgnoreReboot
   Start-Sleep -s 60
   If (Test-Path "HKLM:/SOFTWARE/Microsoft/Windows/CurrentVersion/WindowsUpdate/Auto Update/RebootRequired"){
-    log "Registry fiddling says I need a reboot"
+    log "Windows Update reboot"
     $need_reboot = $TRUE
   }
 }

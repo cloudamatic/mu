@@ -1919,12 +1919,15 @@ MESSAGE_END
     # we can assume have been authenticated with the deploy secret.
     # @param server [MU::Cloud::Server]: The Server object whose credentials we're fetching.
     def retrieveWindowsAdminCreds(server)
-      if server.nil? or server.class.name != "MU::Cloud::Server"
+      if server.nil?
         raise MuError, "retrieveWindowsAdminCreds must be called with a Server object"
+      elsif !server.is_a?(MU::Cloud::Server)
+        raise MuError, "retrieveWindowsAdminCreds must be called with a Server object (got #{server.class.name})"
       end
-      if !server.windows?
-        raise MuError, "#{server} is not a Windows node"
-      end
+#      if !server.windows?
+#        raise MuError, "#{server} is not a Windows node"
+#      end
+#MU.log "retrieveWindowsAdminCreds called on a thing", MU::NOTICE, details: server.config
       if server.config['use_cloud_provider_windows_password']
         return [server.config["windows_admin_username"], getWindowsAdminPassword]
       elsif server.config['windows_auth_vault'] && !server.config['windows_auth_vault'].empty?
@@ -1939,6 +1942,7 @@ MESSAGE_END
           return [server.config["windows_admin_username"], server.getWindowsAdminPassword]
         end
       end
+      []
     end
 
     # Given a Certificate Signing Request, sign it with our internal CA and
@@ -2103,7 +2107,10 @@ MESSAGE_END
 
       if File.exists?("#{MU.mySSLDir}/#{server.mu_name}.crt") and
          File.exists?("#{MU.mySSLDir}/#{server.mu_name}.key")
-        results[server.mu_name] = [File.read("#{MU.mySSLDir}/#{server.mu_name}.crt"), File.read("#{MU.mySSLDir}/#{server.mu_name}.key")]
+        results[server.mu_name] = [
+          OpenSSL::X509::Certificate.new(File.read("#{MU.mySSLDir}/#{server.mu_name}.crt")),
+          OpenSSL::PKey::RSA.new(File.read("#{MU.mySSLDir}/#{server.mu_name}.key"))
+        ]
       else
         certs[server.mu_name] = {
           "sans" => ["IP:#{canonical_ip}"],

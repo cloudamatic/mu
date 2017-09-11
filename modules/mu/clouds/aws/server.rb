@@ -884,7 +884,7 @@ module MU
               cloud_id: instance.subnet_id
             )
             if subnet.nil?
-              raise MuError, "Got null subnet id out of #{@config['vpc']}/#{instance.subnet_id}"
+              raise MuError, "Got null subnet id out of #{@config['vpc']} when asking for #{instance.subnet_id}"
             end
           end
 
@@ -1029,7 +1029,7 @@ module MU
               initialSSHTasks(session)
             end
           rescue BootstrapTempFail
-            sleep ssh_wait
+            sleep 45
             retry
           ensure
             session.close if !session.nil? and !windows?

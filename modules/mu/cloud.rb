@@ -722,7 +722,14 @@ module MU
 
         if shortname == "Server"
           def windows?
-            %w{win2k16 win2k12r2 win2k12 win2k8 win2k8r2 windows}.include?(@config['platform'])
+            return true if %w{win2k16 win2k12r2 win2k12 win2k8 win2k8r2 windows}.include?(@config['platform'])
+            begin
+              return true if cloud_desc.respond_to?(:platform) and cloud_desc.platform == "Windows"
+# XXX ^ that's AWS-speak, doesn't cover GCP or anything else; maybe we should require cloud layers to implement this so we can just call @cloudobj.windows?
+            rescue MU::MuError
+              return false
+            end
+            false
           end
 
           # Basic setup tasks performed on a new node during its first initial ssh
