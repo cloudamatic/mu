@@ -159,7 +159,7 @@ module MU
                    set_context_to_me: true,
                    skip_resource_objects: false,
                    deployment_data: {},
-                   mu_user: "root"
+                   mu_user: Etc.getpwuid(Process.uid).name
     )
       if deploy_id.nil? or deploy_id.empty?
         raise DeployInitializeError, "MommaCat objects must specify a deploy_id"
