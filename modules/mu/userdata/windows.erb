@@ -269,7 +269,11 @@ $myname = "<%= $mu.muID %>-<%= $mu.resourceName.upcase %>"
 
 $nodecert = importCert "$myname.pfx" "My"
 $thumb = $nodecert.Thumbprint
+# XXX Clumsy- should guard removal for mismatched hostnames/thumbprints
+# actually, should remove janky certificates outright
+winrm delete winrm/config/Listener?Address=*+Transport=HTTPS
 winrm create winrm/config/Listener?Address=*+Transport=HTTPS "@{Hostname=`"$myname`";CertificateThumbprint=`"$thumb`"}"
+net localgroup WinRMRemoteWMIUsers__ /add <%= $mu.windowsAdminName %>
 
 $winrmcert = importCert "$myname-winrm.crt" "TrustedPeople"
 Set-Item -Path WSMan:\localhost\Service\Auth\Certificate -Value $true

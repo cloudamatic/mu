@@ -1634,7 +1634,7 @@ module MU
     # @param system_name [String]: The node's local system name
     # @return [void]
     def self.addInstanceToEtcHosts(public_ip, chef_name = nil, system_name = nil)
-      return if MU.mu_user != "mu"
+      return if !["mu", "root"].include?(MU.mu_user)
 
       # XXX cover ipv6 case
       if public_ip.nil? or !public_ip.match(/^\d+\.\d+\.\d+\.\d+$/) or (chef_name.nil? and system_name.nil?)

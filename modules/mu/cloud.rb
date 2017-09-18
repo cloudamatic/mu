@@ -823,22 +823,34 @@ module MU
 
           def getWinRMSession(max_retries = 40, retry_interval = 60)
             nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
-            opts = {
-              endpoint: 'https://'+canonical_ip+':5986/wsman',
-              transport: :ssl,
-              ca_trust_path: "#{MU.mySSLDir}/#{@mu_name}.crt",
-              client_cert: "#{MU.mySSLDir}/#{@mu_name}-winrm.crt",
-              client_key: "#{MU.mySSLDir}/#{@mu_name}-winrm.key"
-#              user: ssh_user,
-#              password: 'Pass@word1'
-            }
-MU.log "Tryin' a call WinRM on #{canonical_ip}", MU::WARN, details: opts
-            conn = nil
-begin
-            conn = WinRM::Connection.new(opts)
-            MU.log "WinRM connection to #{canonical_ip} created", MU::NOTICE, details: conn
-            shell = conn.shell(:powershell)
-            pp shell.run('ipconfig')
+
+            conn = opts = nil
+            # and now, a thing I really don't want to do
+            MU::MommaCat.addInstanceToEtcHosts(canonical_ip, @mu_name)
+
+            begin
+              MU.log "Tryin' a call WinRM on #{@mu_name}", MU::WARN, details: opts
+
+              opts = {
+                endpoint: 'https://'+@mu_name+':5986/wsman',
+                transport: :ssl,
+                no_ssl_peer_verification: true, # XXX this should not be necessary; we get 'hostname "foo" does not match the server certificate' even when it clearly does match
+                ca_trust_path: "#{MU.mySSLDir}/Mu_CA.pem",
+                client_cert: "#{MU.mySSLDir}/#{@mu_name}-winrm.crt",
+                client_key: "#{MU.mySSLDir}/#{@mu_name}-winrm.key"
+              }
+              conn = WinRM::Connection.new(opts)
+              MU.log "WinRM connection to #{@mu_name} created", MU::NOTICE, details: conn
+              shell = conn.shell(:powershell)
+              pp shell.run('ipconfig')
+            rescue OpenSSL::SSL::SSLError, SocketError => e
+              if e.message.match(/does not match the server certificate|Name or service not known/)
+                MU.log "WinRM failed to connect to #{@mu_name}: #{e.message}. Retrying in 10s.", MU::WARN
+                sleep 10
+                retry
+              else
+                raise e
+              end
 rescue HTTPClient::ConnectTimeoutError => e
  # XXX crazy-ass retry logic goes here
   sleep 20
@@ -847,8 +859,10 @@ rescue Exception => e
 MU.log e.inspect, MU::ERR
   sleep 20
   retry
-end
-pp conn
+            ensure
+              MU::MommaCat.removeInstanceFromEtcHosts(@mu_name)
+            end
+
             conn
           end
 
