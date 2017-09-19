@@ -137,7 +137,7 @@ $CONFIGURABLES = {
       "access_key" => {
         "title" => "Access Key",
         "desc" => "Credentials used for accessing the AWS API (looks like: AKIAINWLOOAA24PBRBZA)",
-        "pattern" => /^[a-z0-9]$/i
+        "pattern" => /^[a-z0-9]+$/i
       },
       "access_secret" => {
         "title" => "Access Secret",
