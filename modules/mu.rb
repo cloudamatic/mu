@@ -192,7 +192,7 @@ module MU
   end
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
-  def self.mu_user;
+  def self.mu_user
     if @@globals.has_key?(Thread.current.object_id) and @@globals[Thread.current.object_id].has_key?('mu_user')
       return @@globals[Thread.current.object_id]['mu_user']
     elsif Etc.getpwuid(Process.uid).name == "root"
