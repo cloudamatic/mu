@@ -36,12 +36,12 @@ class Object
   end
 end
 
-if ENV['AWS_ACCESS_KEY_ID'] == nil or ENV['AWS_ACCESS_KEY_ID'].empty?
+if $MU_CFG['aws']['access_key'] == nil or $MU_CFG['aws']['access_key'].empty?
   ENV.delete('AWS_ACCESS_KEY_ID')
   ENV.delete('AWS_SECRET_ACCESS_KEY')
   Aws.config = {region: ENV['EC2_REGION']}
 else
-  Aws.config = {access_key_id: ENV['AWS_ACCESS_KEY_ID'], secret_access_key: ENV['AWS_SECRET_ACCESS_KEY'], region: ENV['EC2_REGION']}
+  Aws.config = {access_key_id: $MU_CFG['aws']['access_key'], secret_access_key: $MU_CFG['aws']['access_secret'], region: ENV['EC2_REGION']}
 end
 ENV['HOME'] = Etc.getpwuid(Process.uid).dir
 

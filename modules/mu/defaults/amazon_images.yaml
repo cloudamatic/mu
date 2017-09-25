@@ -70,10 +70,20 @@ win2k12r2: &win2k12r2
   ap-south-1: ami-69aad706
   ca-central-1: ami-906ed2f4
 win2k16: &win2k16
-  us-east-1: ami-b06249a7
-  us-east-2: ami-20683245
-  us-west-1: ami-d3a8fdb3
-  us-west-2: ami-b9b71ad9
+  us-east-1: ami-d2cb25a8
+  us-east-2: ami-2db59748
+  us-west-1: ami-2db59748
+  us-west-2: ami-3b47ba43
+  eu-central-1: ami-37d46558
+  eu-west-1: ami-53408c2a
+  eu-west-1: ami-06c5d662
+  sa-east-1: ami-53fd803f
+  ap-northeast-1: ami-ce8b42a8
+  ap-northeast-2: ami-c17ca7af
+  ap-southeast-1: ami-fe51279d
+  ap-southeast-2: ami-792bcd1b
+  ap-south-1: ami-448dcb2b
+  ca-central-1: ami-a39920c7
 amazon: &amazon2016
   us-east-1: ami-b73b63a0
   us-east-2: ami-58277d3d
