@@ -51,10 +51,13 @@ action :config do
       end
     }
 
-    # This is a workaround because user data might re-install cygwin and use a random password that we don't know about. This is not idempotent, it just doesn't throw and error.
+    # This is a workaround because user data might re-install cygwin and use a random password that we don't know about. This is not idempotent, it just doesn't throw an error.
+    # XXX I think this has been resetting the domain sshd user's password, which
+    # is bad. Either that, or Cygwin has been, and this is the thing trying to
+    # solve that problem.
     script =<<-EOH
       Add-ADGroupMember 'Domain Admins' -Members #{new_resource.ssh_user} -PassThru
-      Set-ADAccountPassword -Identity #{new_resource.ssh_user} -NewPassword (ConvertTo-SecureString -AsPlainText '#{new_resource.ssh_password}' -Force) -PassThru
+#      Set-ADAccountPassword -Identity #{new_resource.ssh_user} -NewPassword (ConvertTo-SecureString -AsPlainText '#{new_resource.ssh_password}' -Force) -PassThru
     EOH
 
     converge_by("Added #{new_resource.ssh_user} to Domain Admin group and reset its password") do
