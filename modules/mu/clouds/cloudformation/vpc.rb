@@ -96,11 +96,14 @@ module MU
                   MU::Cloud::CloudFormation.setCloudFormationProp(rtb_template[rtb_name], "DependsOn", igw_name )
                   MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "DependsOn", igw_name )
                 elsif route['gateway'] == '#NAT'
-                  route_needs_nat[rtb_name] = route_name
-# XXX do these down in subnet world
-#                  MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "NatGatewayId", { "Ref" => nat_name } )
-#                  MU::Cloud::CloudFormation.setCloudFormationProp(rtb_template[rtb_name], "DependsOn", nat_name )
-#                  MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "DependsOn", nat_name )
+                  route_needs_nat[rtb['name']] ||= {}
+                  route_needs_nat[rtb['name']]["template"] = rtb_template
+                  route_needs_nat[rtb['name']]["name"] = rtb_name
+                  route_needs_nat[rtb['name']]["routes"] ||= []
+                  route_needs_nat[rtb['name']]["routes"] << {
+                    "name" => route_name,
+                    "template" => route_template
+                  }
                 elsif !route['nat_host_id'].nil?
                   MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "InstanceId", route['nat_host_id'] )
                 elsif !route['nat_host_name'].nil?
@@ -140,6 +143,23 @@ module MU
                 MU::Cloud::CloudFormation.setCloudFormationProp(eip_template[eip_name], "Domain", "vpc")
 
                 nat_name, nat_template = MU::Cloud::CloudFormation.cloudFormationBase("nat", name: subnet_cfg['mu_name'], scrub_mu_isms: @config['scrub_mu_isms'])
+                if !@config['route_tables'].nil?
+                  @config['route_tables'].each { |rtb|
+                    next if !route_needs_nat[rtb['name']]
+                    rtb_template = route_needs_nat[rtb['name']]["template"]
+                    rtb_name = route_needs_nat[rtb['name']]["name"]
+                    route_needs_nat[rtb['name']]["routes"].each { |r|
+                      route_template = r["template"]
+                      route_name = r["name"]
+                      MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "NatGatewayId", { "Ref" => nat_name } )
+                      MU::Cloud::CloudFormation.setCloudFormationProp(rtb_template[rtb_name], "DependsOn", nat_name )
+                      MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "DependsOn", nat_name )
+                      @cfm_template.merge!(route_template)
+                    }
+                    @cfm_template.merge!(rtb_template)
+                  }
+                end
+
                 MU::Cloud::CloudFormation.setCloudFormationProp(nat_template[nat_name], "AllocationId", { "Fn::GetAtt" => [eip_name, "AllocationId"] })
                 MU::Cloud::CloudFormation.setCloudFormationProp(nat_template[nat_name], "DependsOn", eip_name)
                 MU::Cloud::CloudFormation.setCloudFormationProp(nat_template[nat_name], "DependsOn", attach_name) # XXX make sure config parser catches this requirement
