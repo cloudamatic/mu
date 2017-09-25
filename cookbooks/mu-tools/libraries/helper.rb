@@ -15,7 +15,7 @@ module Mutools
         @region = JSON.parse(instance_identity)["region"]
         ENV['AWS_DEFAULT_REGION'] = @region
 
-        if !$MU_CFG['aws'] or !$MU_CFG['aws']['access_key'] or $MU_CFG['aws']['access_key'].empty?
+        if !$MU_CFG or !$MU_CFG['aws'] or !$MU_CFG['aws']['access_key'] or $MU_CFG['aws']['access_key'].empty?
           ENV.delete('AWS_ACCESS_KEY_ID')
           ENV.delete('AWS_SECRET_ACCESS_KEY')
           Aws.config = {region: @region}
