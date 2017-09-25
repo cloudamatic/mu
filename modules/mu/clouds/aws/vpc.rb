@@ -1218,7 +1218,6 @@ module MU
               subnet_routes[subnet['route_table']] << subnet['name']
             }
           end
-
           if vpc['endpoint_policy'] && !vpc['endpoint_policy'].empty?
             if !vpc['endpoint']
               MU.log "'endpoint_policy' is declared however endpoint is not set", MU::ERR
@@ -1313,7 +1312,8 @@ module MU
               # turn into a hash so we can use list parameters easily
               vpc['availability_zones'] = vpc['availability_zones'].map { |val| val['zone'] }
             end
-            subnets = config.divideNetwork(vpc['ip_block'], vpc['availability_zones'].size*2)
+            subnets = config.divideNetwork(vpc['ip_block'], vpc['availability_zones'].size*vpc['route_tables'].size)
+
             ok = false if subnets.nil?
             vpc['subnets'] = []
             count = 0
@@ -1323,27 +1323,18 @@ module MU
                 addnat = true
                 nat_gateway_added = true
               end
-              if private_rtbs.size > 0
+              vpc['route_tables'].each { |rtb|
                 vpc['subnets'] << {
-                  "name" => "Subnet#{count}Private",
+                  "name" => "Subnet#{count}#{rtb['name'].capitalize}",
                   "availability_zone" => az,
                   "ip_block" => subnets.shift,
-                  "route_table" => private_rtbs[count].nil? ? private_rtbs.first : private_rtbs[count],
-                  "map_public_ips" => false,
-                  "is_public" => false
+                  "route_table" => rtb['name'],
+                  
+                  "map_public_ips" => (public_rtbs and public_rtbs.include?(rtb['name'])),
+                  "is_public" => (public_rtbs and public_rtbs.include?(rtb['name'])),
+                  "create_nat_gateway" => (addnat and public_rtbs and public_rtbs.include?(rtb['name']))
                 }
-              end
-              if public_rtbs.size > 0
-                vpc['subnets'] << {
-                  "name" => "Subnet#{count}Public",
-                  "availability_zone" => az,
-                  "ip_block" => subnets.shift,
-                  "route_table" => public_rtbs[count].nil? ? public_rtbs.first : public_rtbs[count],
-                  "map_public_ips" => true,
-                  "is_public" => true,
-                  "create_nat_gateway" => addnat
-                }
-              end
+              }
               count = count + 1
             }
           end

@@ -37,7 +37,7 @@ module MU
           @config = kitten_cfg
           @cloud_id = cloud_id
 
-          @userdata = MU::Cloud::AWS::Server.fetchUserdata(
+          @userdata = MU::Cloud.fetchUserdata(
             platform: @config["platform"],
             template_variables: {
               "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),

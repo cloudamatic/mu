@@ -1305,6 +1305,21 @@ module MU
                 vpc_block['nat_host_name'] == nat_routes[subnet]
               end
             }
+          else
+            vpc_block['subnets'] ||= []
+
+            sibling_vpcs.each { |ext_vpc|
+              next if ext_vpc["name"] != vpc_block["vpc_name"]
+              ext_vpc["subnets"].each { |subnet|
+                if subnet["route_table"] == vpc_block["subnet_pref"]
+                  vpc_block["subnets"] << subnet
+                end
+              }
+            }
+            if vpc_block['subnets'].size < 1
+              MU.log "Unable to resolve subnet_pref '#{vpc_block['subnet_pref']}' to any route table"
+              ok = false
+            end
         end
       end
 
@@ -1847,27 +1862,6 @@ module MU
       database_names = []
       cluster_nodes = []
       @kittens["databases"].each { |db|
-        db['region'] = config['region'] if db['region'].nil?
-        db['cloud'] = MU::Config.defaultCloud if db['cloud'].nil?
-        db["project"] ||= MU::Cloud::Google.defaultProject if db['cloud'] == "Google"
-        db['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
-        db["dependencies"] = Array.new if db["dependencies"].nil?
-        db["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Database")
-        database_names << db['name']
-        db['ingress_rules'] ||= []
-        if db['collection']
-          # XXX don't do this if 'true' was explicitly asked for (as distinct
-          # from default)
-          db['publicly_accessible'] = false
-        end
-        if !db['password'].nil? and (db['password'].length < 8 or db['password'].match(/[\/\\@\s]/))
-          MU.log "Database password '#{db['password']}' doesn't meet RDS requirements. Must be > 8 chars and have only ASCII characters other than /, @, \", or [space].", MU::ERR
-          ok = false
-        end
-        if db["multi_az_on_create"] and db["multi_az_on_deploy"]
-          MU.log "Both of multi_az_on_create and multi_az_on_deploy cannot be true", MU::ERR
-          ok = false
-        end
 
         if db['auth_vault'] && !db['auth_vault'].empty?
           groomclass = MU::Groomer.loadGroomer(db['groomer'])
@@ -1887,59 +1881,12 @@ module MU
           end
         end
 
-        if db.has_key?("db_parameter_group_parameters") || db.has_key?("cluster_parameter_group_parameters")
-          if db["parameter_group_family"].nil?
-            MU.log "parameter_group_family must be set when setting db_parameter_group_parameters", MU::ERR
-            ok = false
-          end
-        end
 
         if db["storage"].nil? and db["creation_style"] == "new" and !db['create_cluster']
           MU.log "Must provide a value for 'storage' when creating a new database.", MU::ERR, details: db
           ok = false
         end
 
-        # Adding rules for Database instance storage. This varies depending on storage type and database type. 
-        if !db["storage"].nil? and (db["storage_type"] == "standard" or db["storage_type"] == "gp2")
-          if db["engine"] == "postgres" or db["engine"] == "mysql"
-            if !(5..6144).include? db["storage"]
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 5 to 6144 GB for #{db["storage_type"]} volume types", MU::ERR
-              ok = false
-            end
-          elsif %w{oracle-se1 oracle-se oracle-ee}.include? db["engine"]
-            if !(10..6144).include? db["storage"]
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 10 to 6144 GB for #{db["storage_type"]} volume types", MU::ERR
-              ok = false
-            end
-          elsif %w{sqlserver-ex sqlserver-web}.include? db["engine"]
-            if !(20..4096).include? db["storage"]
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 20 to 4096 GB for #{db["storage_type"]} volume types", MU::ERR
-              ok = false
-            end
-          elsif %w{sqlserver-ee sqlserver-se}.include? db["engine"]
-            if !(200..4096).include? db["storage"]
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 200 to 4096 GB for #{db["storage_type"]} volume types", MU::ERR
-              ok = false
-            end
-          end
-        elsif db["storage_type"] == "io1"
-          if %w{postgres mysql oracle-se1 oracle-se oracle-ee}.include? db["engine"]
-            if !(100..6144).include? db["storage"]
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 6144 GB for #{db["storage_type"]} volume types", MU::ERR
-              ok = false
-            end
-          elsif %w{sqlserver-ex sqlserver-web}.include? db["engine"]
-            if !(100..4096).include? db["storage"]
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 4096 GB for #{db["storage_type"]} volume types", MU::ERR
-              ok = false
-            end
-          elsif %w{sqlserver-ee sqlserver-se}.include? db["engine"]
-            if !(200..4096).include? db["storage"]
-              MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 200 to 4096 GB #{db["storage_type"]} volume types", MU::ERR
-              ok = false
-            end
-          end
-        end
 
         db_cluster_engines = %w{aurora}
         db["create_cluster"] = 
@@ -2051,36 +1998,7 @@ module MU
             end
           end
 
-          db['vpc']['region'] = db['region'] if db['vpc']['region'].nil?
-          db["vpc"]['cloud'] = db['cloud']
-          # If we're using a VPC in this deploy, set it as a dependency
-          if !db["vpc"]["vpc_name"].nil? and
-             haveLitterMate?(db["vpc"]["vpc_name"], "vpcs") and
-             db["vpc"]["deploy_id"].nil? and db["vpc"]['vpc_id'].nil?
-            db["dependencies"] << {
-                "type" => "vpc",
-                "name" => db["vpc"]["vpc_name"]
-            }
-
-            if !processVPCReference(
-              db["vpc"],
-              "database #{db['name']}",
-              dflt_region: config['region'],
-              is_sibling: true,
-              sibling_vpcs: vpcs
-            )
-              ok = false
-            end
-          else
-            # If we're using a VPC from somewhere else, make sure the flippin'
-            # thing exists, and also fetch its id now so later search routines
-            # don't have to work so hard.
-            if !processVPCReference(db["vpc"], "database #{db['name']}", dflt_region: config['region'])
-              ok = false
-            end
-          end
         end
-        db['dependencies'] << adminFirewallRuleset(vpc: db['vpc'], region: db['region'], cloud: db['cloud']) if !db['scrub_mu_isms']
 
         if db["create_read_replica"] or db['read_replica_of']
           if db["engine"] != "postgres" and db["engine"] != "mysql"
@@ -2141,7 +2059,9 @@ module MU
 
           db.delete("alarms") if db.has_key?("alarms")
         end
-        db['dependencies'].uniq!
+
+        ok = false if !insertKitten(db, "databases")
+
       }
       @kittens["databases"].concat(read_replicas)
       @kittens["databases"].concat(cluster_nodes)
@@ -2549,40 +2469,8 @@ module MU
           db['port'] = 1433 if db['engine'].match(/^sqlserver\-/)
           db['port'] = 1521 if db['engine'].match(/^oracle\-/)
         end
+        # XXX automatic firewall holes for dependent servers/server_pools
 
-        @kittens["server_pools"].each { |pool|
-          pool['dependencies'].each { |dep|
-            if dep['type'] == "database" and dep['name'] == db['name']
-              db['ingress_rules'] << {
-                "port" => db['port'],
-                "sgs" => ["pool#{pool['name']}"]
-              }
-
-              firewall_rules.each { |fw|
-                if fw['name'] == "db#{db['name']}"
-                  fw['dependencies'] << { "type" => "firewall_rule", "name" => "pool#{pool['name']}"}
-                end
-              }
-            end
-          }
-        }
-
-        @kittens["servers"].each { |server|
-          server['dependencies'].each { |dep|
-            if dep['type'] == "database" and dep['name'] == db['name']
-              db['ingress_rules'] << {
-                "port" => db['port'],
-                "sgs" => ["server"+server['name']]
-              }
-            
-              firewall_rules.each { |fw|
-                if fw['name'] == "db"+db['name']
-                  fw['dependencies'] << { "type" => "firewall_rule", "name" => "server"+server['name'] }
-                end
-              }
-            end
-          }
-        }
       }
 
       seen = []
@@ -2784,16 +2672,16 @@ module MU
         vpc_ref_schema["properties"]["subnet_pref"] = {
             "type" => "string",
             "default" => subnet_pref,
-            "description" => "When auto-discovering VPC resources, this specifies whether to prefer subnets with or without public internet routes.",
+            "description" => "When auto-discovering VPC resources, this specifies target subnets for this resource. Special keywords: public, private, any, all, all_public, all_private, all. Using the name of a route table defined elsewhere in this BoK will behave like 'all_<routetablename>.'",
         }
 
-        if subnets == ONE_SUBNET
-          vpc_ref_schema["properties"]["subnet_pref"]["enum"] = ["public", "private", "any"]
-        elsif subnets == MANY_SUBNETS
-          vpc_ref_schema["properties"]["subnet_pref"]["enum"] = ["public", "private", "any", "all", "all_public", "all_private"]
-        else
-          vpc_ref_schema["properties"]["subnet_pref"]["enum"] = ["public", "private", "any", "all_public", "all_private", "all"]
-        end
+#        if subnets == ONE_SUBNET
+#          vpc_ref_schema["properties"]["subnet_pref"]["enum"] = ["public", "private", "any"]
+#        elsif subnets == MANY_SUBNETS
+#          vpc_ref_schema["properties"]["subnet_pref"]["enum"] = ["public", "private", "any", "all", "all_public", "all_private"]
+#        else
+#          vpc_ref_schema["properties"]["subnet_pref"]["enum"] = ["public", "private", "any", "all_public", "all_private", "all"]
+#        end
       end
 
       if subnets == ONE_SUBNET or subnets == (ONE_SUBNET+MANY_SUBNETS)
@@ -2948,8 +2836,7 @@ module MU
             },
             "gateway" => {
                 "type" => "string",
-                "description" => "The ID of a VPN, NAT, or Internet gateway attached to your VPC. #INTERNET will refer to this VPC's default internet gateway, if one exists. #NAT will refer to a this VPC's NAT gateway, and will implicitly create one if none exists. #DENY will ensure that the subnets associated with this route do *not* have a route outside of the VPC's local address space (primarily for Google Cloud, where we must explicitly disable egress to the internet).",
-                "default" => "#INTERNET"
+                "description" => "The ID of a VPN, NAT, or Internet gateway attached to your VPC. #INTERNET will refer to this VPC's default internet gateway, if one exists. #NAT will refer to a this VPC's NAT gateway, and will implicitly create one if none exists. #DENY will ensure that the subnets associated with this route do *not* have a route outside of the VPC's local address space (primarily for Google Cloud, where we must explicitly disable egress to the internet)."
             },
             "nat_host_id" => {
                 "type" => "string",

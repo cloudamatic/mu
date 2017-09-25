@@ -256,6 +256,14 @@ module MU
           {}
         end
 
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::databases}, bare and unvalidated.
+        # @param db [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(db, configurator)
+          MU::Cloud::AWS::Database.validateConfig(db, configurator)
+        end
+
       end #class
     end #class
   end

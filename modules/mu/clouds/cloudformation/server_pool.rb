@@ -159,7 +159,7 @@ module MU
               MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_launch_name], "IamInstanceProfile", { "Ref" => @cfm_prof_name })
             end
 
-            userdata = MU::Cloud::AWS::Server.fetchUserdata(
+            userdata = MU::Cloud.fetchUserdata(
               platform: @config["platform"],
               template_variables: {
                 "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
@@ -256,6 +256,14 @@ module MU
         def self.cleanup(*args)
           MU.log "cleanup() not implemented for CloudFormation layer", MU::DEBUG
           nil
+        end
+
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::server_pools}, bare and unvalidated.
+        # @param pool [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(pool, configurator)
+          MU::Cloud::AWS::ServerPool.validateConfig(pool, configurator)
         end
 
       end

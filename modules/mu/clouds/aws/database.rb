@@ -1349,7 +1349,65 @@ module MU
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(db, configurator)
-          true
+          ok = true
+
+          if !db['password'].nil? and (db['password'].length < 8 or db['password'].match(/[\/\\@\s]/))
+            MU.log "Database password '#{db['password']}' doesn't meet RDS requirements. Must be > 8 chars and have only ASCII characters other than /, @, \", or [space].", MU::ERR
+            ok = false
+          end
+          if db["multi_az_on_create"] and db["multi_az_on_deploy"]
+            MU.log "Both of multi_az_on_create and multi_az_on_deploy cannot be true", MU::ERR
+            ok = false
+          end
+          if db.has_key?("db_parameter_group_parameters") || db.has_key?("cluster_parameter_group_parameters")
+            if db["parameter_group_family"].nil?
+              MU.log "parameter_group_family must be set when setting db_parameter_group_parameters", MU::ERR
+              ok = false
+            end
+          end
+          # Adding rules for Database instance storage. This varies depending on storage type and database type. 
+          if !db["storage"].nil? and (db["storage_type"] == "standard" or db["storage_type"] == "gp2")
+            if db["engine"] == "postgres" or db["engine"] == "mysql"
+              if !(5..6144).include? db["storage"]
+                MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 5 to 6144 GB for #{db["storage_type"]} volume types", MU::ERR
+                ok = false
+              end
+            elsif %w{oracle-se1 oracle-se oracle-ee}.include? db["engine"]
+              if !(10..6144).include? db["storage"]
+                MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 10 to 6144 GB for #{db["storage_type"]} volume types", MU::ERR
+                ok = false
+              end
+            elsif %w{sqlserver-ex sqlserver-web}.include? db["engine"]
+              if !(20..4096).include? db["storage"]
+                MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 20 to 4096 GB for #{db["storage_type"]} volume types", MU::ERR
+                ok = false
+              end
+            elsif %w{sqlserver-ee sqlserver-se}.include? db["engine"]
+              if !(200..4096).include? db["storage"]
+                MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 200 to 4096 GB for #{db["storage_type"]} volume types", MU::ERR
+                ok = false
+              end
+            end
+          elsif db["storage_type"] == "io1"
+            if %w{postgres mysql oracle-se1 oracle-se oracle-ee}.include? db["engine"]
+              if !(100..6144).include? db["storage"]
+                MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 6144 GB for #{db["storage_type"]} volume types", MU::ERR
+                ok = false
+              end
+            elsif %w{sqlserver-ex sqlserver-web}.include? db["engine"]
+              if !(100..4096).include? db["storage"]
+                MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 4096 GB for #{db["storage_type"]} volume types", MU::ERR
+                ok = false
+              end
+            elsif %w{sqlserver-ee sqlserver-se}.include? db["engine"]
+              if !(200..4096).include? db["storage"]
+                MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 200 to 4096 GB #{db["storage_type"]} volume types", MU::ERR
+                ok = false
+              end
+            end
+          end
+
+          ok
         end
 
         private
