@@ -277,15 +277,16 @@ net localgroup WinRMRemoteWMIUsers__ /add <%= $mu.windowsAdminName %>
 
 $winrmcert = importCert "$myname-winrm.crt" "TrustedPeople"
 Set-Item -Path WSMan:\localhost\Service\Auth\Certificate -Value $true
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name LocalAccountTokenFilterPolicy -Value 1
+
 $credstr = callMomma "mu_windows_admin_creds"
 if($credstr){
   $credparts = $credstr.Split(";", 2)
   $creds = New-Object System.Management.Automation.PSCredential($credparts[0], (ConvertTo-SecureString $credparts[1] -AsPlainText -Force))
   if($creds){
-    New-Item -Path WSMan:\localhost\ClientCertificate -Subject <%= $mu.windowsAdminName %> -URI * -Issuer $muca.Thumbprint -Force -Credential $creds
+    New-Item -Path WSMan:\localhost\ClientCertificate -Subject '<%= $mu.windowsAdminName %>@localhost' -URI * -Issuer $muca.Thumbprint -Force -Credential $creds
   }
 }
-
 winrm set winrm/config/winrs '@{MaxMemoryPerShellMB="300"}'
 winrm set winrm/config '@{MaxTimeoutms="1800000"}'
 

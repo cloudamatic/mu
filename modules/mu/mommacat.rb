@@ -1147,20 +1147,33 @@ module MU
               elsif kittens.size == 0
                 # If we don't have a MU::Cloud object, manufacture a dummy one.
                 # Give it a fake name if we have to and have decided that's ok.
-                if (name.nil? or name.empty?) and !dummy_ok
-                  MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", MU::DEBUG, details: caller
-                  next
-                else
-                  if !mu_name.nil?
-                    name = mu_name
-                  elsif !tag_value.nil?
-                    name = tag_value
+                if (name.nil? or name.empty?)
+                  if !dummy_ok
+                    MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", MU::DEBUG, details: caller
+                    next
                   else
-                    name = kitten_cloud_id
+                    if !mu_name.nil?
+                      name = mu_name
+                    elsif !tag_value.nil?
+                      name = tag_value
+                    else
+                      name = kitten_cloud_id
+                    end
                   end
                 end
                 cfg = {"name" => name, "cloud" => cloud, "region" => r}
-                if !calling_deploy.nil?
+                # If we can at least find the config from the deploy this will
+                # belong with, use that, even if it's an ungroomed resource.
+                if !calling_deploy.nil? and
+                   !calling_deploy.original_config.nil? and
+                   !calling_deploy.original_config[type+"s"].nil?
+                  calling_deploy.original_config[type+"s"].each { |s|
+                    if s["name"] == name
+                      cfg = s.dup
+                      break
+                    end
+                  }
+
                   matches << resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: kitten_cloud_id)
                 else
                   matches << resourceclass.new(mu_name: name, kitten_cfg: cfg, cloud_id: kitten_cloud_id)
@@ -2124,7 +2137,7 @@ MESSAGE_END
           results[server.mu_name+"-winrm"] = [File.read("#{MU.mySSLDir}/#{server.mu_name}-winrm.crt"), File.read("#{MU.mySSLDir}/#{server.mu_name}-winrm.key")]
         else
           certs[server.mu_name+"-winrm"] = {
-            "sans" => ["otherName:1.3.6.1.4.1.311.20.2.3;UTF8:#{$MU_CFG['mu_admin_email']}"],
+            "sans" => ["otherName:1.3.6.1.4.1.311.20.2.3;UTF8:#{server.config['windows_admin_username']}@localhost"],
             "cn" => server.config['windows_admin_username']
           }
         end

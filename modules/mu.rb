@@ -36,7 +36,7 @@ class Object
   end
 end
 
-if $MU_CFG['aws']['access_key'] == nil or $MU_CFG['aws']['access_key'].empty?
+if !$MU_CFG or !$MU_CFG['aws'] or !$MU_CFG['aws']['access_key'] or $MU_CFG['aws']['access_key'].empty?
   ENV.delete('AWS_ACCESS_KEY_ID')
   ENV.delete('AWS_SECRET_ACCESS_KEY')
   Aws.config = {region: ENV['EC2_REGION']}
