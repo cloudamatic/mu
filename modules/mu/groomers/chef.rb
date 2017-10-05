@@ -238,9 +238,11 @@ module MU
 
       # Invoke the Chef client on the node at the other end of a provided SSH
       # session.
-      # @param purpose [String] = A string describing the purpose of this client run.
-      # @param max_retries [Integer] = The maximum number of attempts at a successful run to make before giving up.
-      def run(purpose: "Chef run", update_runlist: true, max_retries: 5)
+      # @param purpose [String]: A string describing the purpose of this client run.
+      # @param max_retries [Integer]: The maximum number of attempts at a successful run to make before giving up.
+      # @param output [Boolean]: Display Chef's regular (non-error) output to the console
+      # @param override_runlist [String]: Use the specified run list instead of the node's configured list
+      def run(purpose: "Chef run", update_runlist: true, max_retries: 5, output: true, override_runlist: nil)
         self.class.loadChefLib
         if update_runlist and !@config['run_list'].nil?
           knifeAddToRunList(multiple: @config['run_list'])
@@ -260,10 +262,13 @@ module MU
         output = []
         error_signal = "CHEF EXITED BADLY: "+(0...25).map { ('a'..'z').to_a[rand(26)] }.join
         runstart = nil
+        cmd = nil
+        ssh = nil
+        winrm = nil
         begin
-          ssh = @server.getSSHSession(max_retries)
-          cmd = nil
+          runstart = Time.new
           if !@server.windows?
+            ssh = @server.getSSHSession(max_retries)
             if !@config["ssh_user"].nil? and !@config["ssh_user"].empty? and @config["ssh_user"] != "root"
               upgrade_cmd = try_upgrade ? "sudo curl -L https://chef.io/chef/install.sh | sudo version=#{MU.chefVersion} sh &&" : ""
               cmd = "#{upgrade_cmd} sudo chef-client --color || echo #{error_signal}"
@@ -271,17 +276,39 @@ module MU
               upgrade_cmd = try_upgrade ? "curl -L https://chef.io/chef/install.sh | version=#{MU.chefVersion} sh &&" : ""
               cmd = "#{upgrade_cmd} chef-client --color || echo #{error_signal}"
             end
+            retval = ssh.exec!(cmd) { |ch, stream, data|
+              puts data
+              output << data
+              raise MU::Groomer::RunError, output.grep(/ ERROR: /).last if data.match(/#{error_signal}/)
+            }
           else
-            upgrade_cmd = try_upgrade ? "powershell \". { Invoke-WebRequest -useb https://omnitruck.chef.io/install.ps1 } | Invoke-Expression; Install-Project -version:#{MU.chefVersion} -download_directory:$HOME \" &&" : ""
-            cmd = "#{upgrade_cmd} $HOME/chef-client --color || echo #{error_signal}"
+            winrm = @server.getWinRMSession(max_retries)
+#            upgrade_cmd = try_upgrade ? "powershell \". { Invoke-WebRequest -useb https://omnitruck.chef.io/install.ps1 } | Invoke-Expression; Install-Project -version:#{MU.chefVersion} -download_directory:$HOME \" &&" : ""
+#            cmd = "#{upgrade_cmd} $HOME/chef-client --color || echo #{error_signal}"
+            if try_upgrade
+              pp winrm.run("Invoke-WebRequest -useb https://omnitruck.chef.io/install.ps1 } | Invoke-Expression; Install-Project -version:#{MU.chefVersion} -download_directory:$HOME")
+            else
+              output = []
+              cmd = "c:/opscode/chef/bin/chef-client.bat --color"
+              if override_runlist
+                cmd = cmd + " -o '#{override_runlist}'"
+              end
+              resp = winrm.run(cmd) do |stdout, stderr|
+                if stdout
+                  print stdout if output
+                  output << stdout
+                end
+                if stderr
+                  MU.log stderr, MU::ERR
+                  output << stderr
+                end
+              end
+              if resp.exitcode != 0
+                raise MU::Groomer::RunError, output.slice(output.length-50, output.length).join("")
+              end
+            end
           end
-          runstart = Time.new
-          retval = ssh.exec!(cmd) { |ch, stream, data|
-            puts data
-            output << data
-            raise MU::Groomer::RunError, output.grep(/ ERROR: /).last if data.match(/#{error_signal}/)
-          }
-        rescue RuntimeError, SystemCallError, Timeout::Error, SocketError, Errno::ECONNRESET, IOError, Net::SSH::Exception, MU::Groomer::RunError => e
+        rescue RuntimeError, SystemCallError, Timeout::Error, SocketError, Errno::ECONNRESET, IOError, Net::SSH::Exception, MU::Groomer::RunError, WinRM::WinRMError => e
           begin
             ssh.close if !ssh.nil?
           rescue Net::SSH::Exception, IOError => e
@@ -293,7 +320,7 @@ module MU
             sleep 10
           end
 
-          if e.instance_of?(MU::Groomer::RunError) and retries == 0
+          if e.instance_of?(MU::Groomer::RunError) and retries == 0 and max_retries > 1
             MU.log "Got a run error, will attempt to install/update Chef Client on next attempt", MU::NOTICE
             try_upgrade = true
           else
@@ -345,28 +372,51 @@ module MU
             remove_cmd = "sudo rpm -e erase chef ; sudo rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; sudo apt-get -y remove chef ; sudo touch /opt/mu_installed_chef"
           end
           guardfile = "/opt/mu_installed_chef"
-        else
-          remove_cmd = "( rm -rf /cygdrive/c/chef/*.pem ; /cygdrive/c/Windows/system32/reg query HKLM\\\SOFTWARE\\Wow6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ /f 'Chef Client' /s /t REG_SZ | grep '}$' | cut -d{ -f2 | cut -d} -f1 | xargs msiexec /qn /x ) ;  /cygdrive/c/Windows/system32/reg query HKLM\\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ /f 'Chef Client' /s /t REG_SZ | grep '}$' | cut -d{ -f2 | cut -d} -f1 | xargs msiexec /qn /x )"
-          guardfile = "/cygdrive/c/mu_installed_chef"
-        end
 
-        ssh = @server.getSSHSession(15)
-        if leave_ours
-          MU.log "Expunging pre-existing Chef install on #{@server.mu_name}, if we didn't create it", MU::NOTICE
-          begin 
-            ssh.exec!(%Q{test -f #{guardfile} || (#{remove_cmd}) ; touch #{guardfile}})
-          rescue IOError => e
-            # TO DO - retry this in a cleaner way
-            MU.log "Got #{e.inspect} while trying to clean up chef, retrying", MU::NOTICE
-            ssh = @server.getSSHSession(15)
-            ssh.exec!(%Q{test -f #{guardfile} || (#{remove_cmd}) ; touch #{guardfile}})
+          ssh = @server.getSSHSession(15)
+          if leave_ours
+            MU.log "Expunging pre-existing Chef install on #{@server.mu_name}, if we didn't create it", MU::NOTICE
+            begin 
+              ssh.exec!(%Q{test -f #{guardfile} || (#{remove_cmd}) ; touch #{guardfile}})
+            rescue IOError => e
+              # TO DO - retry this in a cleaner way
+              MU.log "Got #{e.inspect} while trying to clean up chef, retrying", MU::NOTICE
+              ssh = @server.getSSHSession(15)
+              ssh.exec!(%Q{test -f #{guardfile} || (#{remove_cmd}) ; touch #{guardfile}})
+            end
+          else
+            MU.log "Expunging pre-existing Chef install on #{@server.mu_name}", MU::NOTICE
+            ssh.exec!(remove_cmd)
           end
+  
+          ssh.close
         else
-          MU.log "Expunging pre-existing Chef install on #{@server.mu_name}", MU::NOTICE
-          ssh.exec!(remove_cmd)
-        end
+          # XXX this hasn't been tested
+          remove_cmd = %Q{
+            $uninstall_string = (Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\* | Where-Object {$_.DisplayName -like "chef client*"}).UninstallString
+            if($uninstall_string){
+              $uninstall_string = ($uninstall_string -Replace "msiexec.exe","" -Replace "/I","" -Replace "/X","").Trim()
+              $($uninstall_string -Replace '[\\s\\t]+', ' ').Split() | ForEach {
+                start-process "msiexec.exe" -arg "/X $_ /qn" -Wait
+              }
+            }
+          }
+          shell = @server.getWinRMSession(15)
+          removechef = true
+          if leave_ours
+            resp = shell.run("Test-Path c:/mu_installed_chef")
+            if resp.stdout.chomp == "True"
+              MU.log "Found existing Chef installation created by Mu, leaving it alone"
+              removechef = false
+            end
+          end
 
-        ssh.close
+#          remove_cmd = %Q{$my_chef = (Get-ItemProperty $location | Where-Object {$_.DisplayName -like "chef client*"}).DisplayName
+          if removechef
+            MU.log "Expunging pre-existing Chef install on #{@server.mu_name}", MU::NOTICE, details: remove_cmd
+            pp shell.run(remove_cmd)
+          end
+        end
       end
 
       # Bootstrap our server with Chef
@@ -385,6 +435,7 @@ module MU
         end
 
         nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_addr, ssh_user, ssh_key_name = @server.getSSHConfig
+
         MU.log "Bootstrapping #{@server.mu_name} (#{canonical_addr}) with knife"
 
         run_list = ["recipe[mu-tools::newclient]"]
@@ -404,18 +455,28 @@ module MU
         if !@server.windows?
           kb = ::Chef::Knife::Bootstrap.new([canonical_addr])
           kb.config[:use_sudo] = true
+          kb.name_args = "#{canonical_addr}"
           kb.config[:distro] = 'chef-full'
+          kb.config[:ssh_user] = ssh_user
+          kb.config[:forward_agent] = ssh_user
+          kb.config[:identity_file] = "#{Etc.getpwuid(Process.uid).dir}/.ssh/#{ssh_key_name}"
         else
-          kb = ::Chef::Knife::BootstrapWindowsSsh.new([canonical_addr])
-          kb.config[:cygwin] = true
-          # kb.config[:distro] = 'windows-chef-client-msi'
-          #Trying to solve random createprocess errors - knife-windows always installs 32bit and architecture/bootstrap_architecture don't seem to work
+          kb = ::Chef::Knife::BootstrapWindowsWinrm.new([@server.mu_name])
+          kb.name_args = [@server.mu_name]
+          kb.config[:manual] = true
+          kb.config[:winrm_transport] = :ssl
+          kb.config[:host] = @server.mu_name
+          kb.config[:winrm_port] = 5986
+          kb.config[:winrm_authentication_protocol] = :cert
+          kb.config[:winrm_client_cert] = "#{MU.mySSLDir}/#{@server.mu_name}-winrm.crt"
+          kb.config[:winrm_client_key] = "#{MU.mySSLDir}/#{@server.mu_name}-winrm.key"
+#          kb.config[:ca_trust_file] = "#{MU.mySSLDir}/Mu_CA.pem"
+          # XXX ca_trust_file doesn't work for some reason, so we have to set the below for now
+          kb.config[:winrm_ssl_verify_mode] = :verify_none
           kb.config[:msi_url] = "https://www.chef.io/chef/download?p=windows&pv=2012&m=x86_64&v=#{MU.chefVersion}"
-          # kb.config[:node_ssl_verify_mode] = 'none'
-          # kb.config[:node_verify_api_cert] = false
         end
 
-        # XXX this seems to break Knife Bootstrap for the moment
+        # XXX this seems to break Knife Bootstrap
         #			if vault_access.size > 0
         #				v = {}
         #				vault_access.each { |vault|
@@ -427,14 +488,10 @@ module MU
 
         kb.config[:json_attribs] = JSON.generate(json_attribs) if json_attribs.size > 1
         kb.config[:run_list] = run_list
-        kb.config[:ssh_user] = ssh_user
-        kb.config[:forward_agent] = ssh_user
-        kb.name_args = "#{canonical_addr}"
         kb.config[:chef_node_name] = @server.mu_name
         kb.config[:bootstrap_version] = MU.chefVersion
         # XXX key off of MU verbosity level
         kb.config[:log_level] = :debug
-        kb.config[:identity_file] = "#{Etc.getpwuid(Process.uid).dir}/.ssh/#{ssh_key_name}"
         # kb.config[:ssh_gateway] = "#{nat_ssh_user}@#{nat_ssh_host}" if !nat_ssh_host.nil? # Breaking bootsrap
         # This defaults to localhost for some reason sometimes. Brute-force it.
 
@@ -450,7 +507,7 @@ module MU
           }
           # throws Net::HTTPServerException if we haven't really bootstrapped
           ::Chef::Node.load(@server.mu_name)
-        rescue Net::SSH::Disconnect, SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::HTTPServerException, SystemExit, Errno::ECONNREFUSED, Errno::EPIPE => e
+        rescue Net::SSH::Disconnect, SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::HTTPServerException, SystemExit, Errno::ECONNREFUSED, Errno::EPIPE, WinRM::WinRMError => e
           if retries < max_retries
             retries += 1
             MU.log "#{@server.mu_name}: Knife Bootstrap failed #{e.inspect}, retrying (#{retries} of #{max_retries})", MU::WARN, details: e.backtrace

@@ -79,12 +79,18 @@ module MU
 
       Syslog.open("Mu/"+caller_name, Syslog::LOG_PID, Syslog::LOG_DAEMON | Syslog::LOG_LOCAL3) if !Syslog.opened?
       if !details.nil?
-        details = details[:details] if details.has_key?(:details)
-        details = PP.pp(details, '')
+        if details.is_a?(Hash) and details.has_key?(:details)
+          details = details[:details]
+        end
+        details = PP.pp(details, '') if !details.is_a?(String)
       end
       details = "<pre>"+details+"</pre>" if @html
-      # We get passed literal quoted newlines sometimes, fix 'em
-      details.gsub!(/\\n/, "\n") if !details.nil?
+      # We get passed literal quoted newlines sometimes, fix 'em. Get Windows'
+      # ugly line feeds too.
+      if !details.nil?
+        details.gsub!(/\\n/, "\n")
+        details.gsub!(/(\\r|\r)/, "")
+      end
 
       msg = msg.first if msg.is_a?(Array)
       msg = "" if msg == nil

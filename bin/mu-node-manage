@@ -214,6 +214,10 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-cli
         done = false
         begin
           MU.log "Running #{cmd} on #{nodename} (##{count})" if !print_output
+          serverobj = mommacat.findLitterMate(type: "server", mu_name: nodename)
+          if serverobj.windows?
+            serverobj.groomer.run(max_retries: 0, output: print_output)
+          end
           output=`ssh -q #{nodename} "#{cmd}" 2>&1 < /dev/null`
           if !$?.success?
             if server['conf']["platform"] == "windows" and output.match(/NoMethodError: unknown property or method: `ConnectServer'/)

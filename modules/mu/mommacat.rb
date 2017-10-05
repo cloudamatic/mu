@@ -1658,7 +1658,7 @@ module MU
       end
       File.readlines("/etc/hosts").each { |line|
         if line.match(/^#{public_ip} /) or (chef_name != nil and line.match(/ #{chef_name}(\s|$)/)) or (system_name != nil and line.match(/ #{system_name}(\s|$)/))
-          MU.log("Attempt to add duplicate /etc/hosts entry: #{public_ip} #{chef_name} #{system_name}", MU::WARN)
+          MU.log "Ignoring attempt to add duplicate /etc/hosts entry: #{public_ip} #{chef_name} #{system_name}", MU::DEBUG
           return
         end
       }
@@ -1942,7 +1942,7 @@ MESSAGE_END
 #      end
 #MU.log "retrieveWindowsAdminCreds called on a thing", MU::NOTICE, details: server.config
       if server.config['use_cloud_provider_windows_password']
-        return [server.config["windows_admin_username"], getWindowsAdminPassword]
+        return [server.config["windows_admin_username"], server.getWindowsAdminPassword]
       elsif server.config['windows_auth_vault'] && !server.config['windows_auth_vault'].empty?
         if server.config["windows_auth_vault"].has_key?("password_field")
           return [server.config["windows_admin_username"],

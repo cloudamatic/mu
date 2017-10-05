@@ -732,8 +732,52 @@ module MU
             false
           end
 
-          # Basic setup tasks performed on a new node during its first initial ssh
+          # Basic setup tasks performed on a new node during its first WinRM 
           # connection. Most of this is terrible Windows glue.
+          # @param shell [WinRM::Shells::Powershell]: An active Powershell session to the new node.
+          def initialWinRMTasks(shell)
+            if !@config['use_cloud_provider_windows_password']
+              pw = @groomer.getSecret(
+                vault: @config['mu_name'],
+                item: "windows_credentials",
+                field: "password"
+              )
+              win_check_for_pw = %Q{Add-Type -AssemblyName System.DirectoryServices.AccountManagement; $Creds = (New-Object System.Management.Automation.PSCredential("#{@config["windows_admin_username"]}", (ConvertTo-SecureString "#{pw}" -AsPlainText -Force)));$DS = New-Object System.DirectoryServices.AccountManagement.PrincipalContext([System.DirectoryServices.AccountManagement.ContextType]::Machine); $DS.ValidateCredentials($Creds.GetNetworkCredential().UserName, $Creds.GetNetworkCredential().password); echo $Result}
+              resp = shell.run(win_check_for_pw)
+              if resp.stdout.chomp != "True"
+                win_set_pw = %Q{(([adsi]('WinNT://./#{@config["windows_admin_username"]}, user')).psbase.invoke('SetPassword', '#{pw}'))}
+                resp = shell.run(win_set_pw)
+                puts resp.stdout
+                MU.log "Resetting Windows host password", MU::NOTICE, details: resp.stdout
+              end
+            end
+
+            set_hostname = true
+            hostname = nil
+            if !@config['active_directory'].nil?
+              if @config['active_directory']['node_type'] == "domain_controller" && @config['active_directory']['domain_controller_hostname']
+                hostname = @config['active_directory']['domain_controller_hostname']
+                @mu_windows_name = hostname
+                set_hostname = true
+              else
+                # Do we have an AD specific hostname?
+                hostname = @mu_windows_name
+                set_hostname = true
+              end
+            else
+              hostname = @mu_windows_name
+            end
+            resp = shell.run(%Q{hostname})
+
+            if resp.stdout.chomp != hostname
+              resp = shell.run(%Q{Rename-Computer -NewName '#{hostname}' -Force -PassThru -Restart; Restart-Computer -Force})
+              MU.log "Renaming Windows host to #{hostname}; this will trigger a reboot", MU::NOTICE, details: resp.stdout
+            end
+          end
+
+
+          # Basic setup tasks performed on a new node during its first initial
+          # ssh connection. Most of this is terrible Windows glue.
           # @param ssh [Net::SSH::Connection::Session]: The active SSH session to the new node.
           def initialSSHTasks(ssh)
             win_env_fix = %q{echo 'export PATH="$PATH:/cygdrive/c/opscode/chef/embedded/bin"' > "$HOME/chef-client"; echo 'prev_dir="`pwd`"; for __dir in /proc/registry/HKEY_LOCAL_MACHINE/SYSTEM/CurrentControlSet/Control/Session\ Manager/Environment;do cd "$__dir"; for __var in `ls * | grep -v TEMP | grep -v TMP`;do __var=`echo $__var | tr "[a-z]" "[A-Z]"`; test -z "${!__var}" && export $__var="`cat $__var`" >/dev/null 2>&1; done; done; cd "$prev_dir"; /cygdrive/c/opscode/chef/bin/chef-client.bat $@' >> "$HOME/chef-client"; chmod 700 "$HOME/chef-client"; ( grep "^alias chef-client=" "$HOME/.bashrc" || echo 'alias chef-client="$HOME/chef-client"' >> "$HOME/.bashrc" ) ; ( grep "^alias mu-groom=" "$HOME/.bashrc" || echo 'alias mu-groom="powershell -File \"c:/Program Files/Amazon/Ec2ConfigService/Scripts/UserScript.ps1\""' >> "$HOME/.bashrc" )}
@@ -824,13 +868,28 @@ module MU
           def getWinRMSession(max_retries = 40, retry_interval = 60)
             nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
 
-            conn = opts = nil
+            conn = nil
+            shell = nil
+            opts = nil
             # and now, a thing I really don't want to do
             MU::MommaCat.addInstanceToEtcHosts(canonical_ip, @mu_name)
 
-            begin
-              MU.log "Tryin' a call WinRM on #{@mu_name}", MU::WARN, details: opts
+            # catch exceptions that circumvent our regular call stack
+            Thread.abort_on_exception = false
+            Thread.handle_interrupt(WinRM::WinRMWSManFault => :never) {
+              begin
+                Thread.handle_interrupt(WinRM::WinRMWSManFault => :immediate) {
+                  MU.log "(Probably harmless) Caught a WinRM::WinRMWSManFault in #{Thread.current.inspect}", MU::DEBUG, details: Thread.current.backtrace
+                }
+              ensure
+                # Reraise something useful
+#                raise MU::Groomer::RunError, "Ugly stupid WinRM exception hack"
+              end
+            }
 
+            retries = 0
+            begin
+              MU.log "Calling WinRM on #{@mu_name}", MU::DEBUG, details: opts
               opts = {
                 endpoint: 'https://'+@mu_name+':5986/wsman',
                 transport: :ssl,
@@ -840,30 +899,28 @@ module MU
                 client_key: "#{MU.mySSLDir}/#{@mu_name}-winrm.key"
               }
               conn = WinRM::Connection.new(opts)
-              MU.log "WinRM connection to #{@mu_name} created", MU::NOTICE, details: conn
+              MU.log "WinRM connection to #{@mu_name} created", MU::DEBUG, details: conn
               shell = conn.shell(:powershell)
-              pp shell.run('ipconfig')
-            rescue OpenSSL::SSL::SSLError, SocketError => e
-              if e.message.match(/does not match the server certificate|Name or service not known/)
-                MU.log "WinRM failed to connect to #{@mu_name}: #{e.message}. Retrying in 10s.", MU::WARN
-                sleep 10
+              shell.run('ipconfig') # verify that we can something
+            rescue Errno::ECONNREFUSED, HTTPClient::ConnectTimeoutError, OpenSSL::SSL::SSLError, SocketError, WinRM::WinRMError => e
+              msg = "WinRM connection to https://"+@mu_name+":5986/wsman: #{e.message}, waiting #{retry_interval}s (attempt #{retries}/#{max_retries})", MU::WARN
+              if retries < max_retries
+                if retries == 1 or (retries/max_retries <= 0.5 and (retries % 3) == 0)
+                  MU.log msg, MU::NOTICE
+                elsif retries/max_retries > 0.5
+                  MU.log msg, MU::WARN, details: e.inspect
+                end
+                sleep retry_interval
+                retries = retries + 1
                 retry
               else
-                raise e
+                raise MuError, "#{@mu_name}: #{e.inspect} trying to connect with WinRM, max_retries exceeded", e.backtrace
               end
-rescue HTTPClient::ConnectTimeoutError => e
- # XXX crazy-ass retry logic goes here
-  sleep 20
-  retry
-rescue Exception => e
-MU.log e.inspect, MU::ERR
-  sleep 20
-  retry
             ensure
               MU::MommaCat.removeInstanceFromEtcHosts(@mu_name)
             end
 
-            conn
+            shell
           end
 
           # @param max_retries [Integer]: Number of connection attempts to make before giving up
@@ -874,7 +931,7 @@ MU.log e.inspect, MU::ERR
             nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
             session = nil
             retries = 0
-
+pp caller
             # XXX catch a weird bug in Net::SSH where its exceptions circumvent
             # our regular call stack and we can't catch them.
             Thread.handle_interrupt(Net::SSH::Disconnect => :never) {
