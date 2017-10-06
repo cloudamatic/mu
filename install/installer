@@ -1,6 +1,6 @@
 #!/bin/sh
 
-CHEF_CLIENT_VERSION="12.20.3-1"
+CHEF_CLIENT_VERSION="12.21.14-1"
 MU_BRANCH="master"
 
 # XXX All RHEL family. We can at least cover Debian-flavored hosts too, I bet.

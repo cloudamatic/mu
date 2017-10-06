@@ -452,6 +452,8 @@ module MU
           vault_access = []
         end
 
+        @server.windows? ? max_retries = 25 : max_retries = 10
+        @server.windows? ? timeout = 720 : timeout = 300
         if !@server.windows?
           kb = ::Chef::Knife::Bootstrap.new([canonical_addr])
           kb.config[:use_sudo] = true
@@ -467,6 +469,8 @@ module MU
           kb.config[:winrm_transport] = :ssl
           kb.config[:host] = @server.mu_name
           kb.config[:winrm_port] = 5986
+          kb.config[:session_timeout] = timeout
+          kb.config[:operation_timeout] = timeout
           kb.config[:winrm_authentication_protocol] = :cert
           kb.config[:winrm_client_cert] = "#{MU.mySSLDir}/#{@server.mu_name}-winrm.crt"
           kb.config[:winrm_client_key] = "#{MU.mySSLDir}/#{@server.mu_name}-winrm.key"
@@ -493,21 +497,26 @@ module MU
         # XXX key off of MU verbosity level
         kb.config[:log_level] = :debug
         # kb.config[:ssh_gateway] = "#{nat_ssh_user}@#{nat_ssh_host}" if !nat_ssh_host.nil? # Breaking bootsrap
-        # This defaults to localhost for some reason sometimes. Brute-force it.
-
-        MU.log "Knife Bootstrap settings for #{@server.mu_name} (#{canonical_addr})", MU::NOTICE, details: kb.config
 
         retries = 0
-        @server.windows? ? max_retries = 25 : max_retries = 10
-        @server.windows? ? timeout = 720 : timeout = 300
+        MU.log "Knife Bootstrap settings for #{@server.mu_name} (#{canonical_addr}), timeout set to #{timeout.to_s}", MU::NOTICE, details: kb.config
         begin
+#          Thread.handle_interrupt(Timeout::Error => :never) {
+#            begin
+#              Thread.handle_interrupt(Timeout::Error => :immediate) {
+#                MU.log "Caught a Timeout::Error in #{Thread.current.inspect}", MU::NOTICE, details: Thread.current.backtrace
+#              }
+#            ensure
+#              raise MU::Cloud::BootstrapTempFail
+#            end
+#          }
           Timeout::timeout(timeout) {
             require 'chef'
             kb.run
           }
           # throws Net::HTTPServerException if we haven't really bootstrapped
           ::Chef::Node.load(@server.mu_name)
-        rescue Net::SSH::Disconnect, SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::HTTPServerException, SystemExit, Errno::ECONNREFUSED, Errno::EPIPE, WinRM::WinRMError => e
+        rescue Net::SSH::Disconnect, SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::HTTPServerException, SystemExit, Errno::ECONNREFUSED, Errno::EPIPE, WinRM::WinRMError, HTTPClient::ConnectTimeoutError, RuntimeError, MU::Cloud::BootstrapTempFail => e
           if retries < max_retries
             retries += 1
             MU.log "#{@server.mu_name}: Knife Bootstrap failed #{e.inspect}, retrying (#{retries} of #{max_retries})", MU::WARN, details: e.backtrace
@@ -522,6 +531,10 @@ module MU
           else
             raise MuError, "#{@server.mu_name}: Knife Bootstrap failed too many times with #{e.inspect}"
           end
+        rescue Exception => e
+MU.log e.inspect, MU::ERR, details: e.backtrace
+sleep 10*retries
+retry
         end
 
         # Now that we're done, remove one-shot bootstrap recipes from the

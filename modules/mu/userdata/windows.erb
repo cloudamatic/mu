@@ -249,15 +249,13 @@ if (!(Get-NetFirewallRule -DisplayName "Allow WinRM" -ErrorAction SilentlyContin
 iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
 choco feature enable -n useFipsCompliantChecksums
 refreshenv
-choco install openssh -y choco upgrade openssh -y
-
+choco install openssh -y -params "/SSHServerFeature /SSHLogLevel:VERBOSE"
+choco upgrade openssh -y -params "/SSHServerFeature /SSHLogLevel:VERBOSE"
+Start-Service sshd
+Set-Service sshd -startuptype "Automatic"
 
 <% if $mu.windowsAdminName %>
-log "Creating $cygwin_dir/home/<%= $mu.windowsAdminName %>/.ssh/authorized_keys"
-New-Item $cygwin_dir/home/<%= $mu.windowsAdminName %>/.ssh/authorized_keys -type file -force -value "<%= $mu.deploySSHKey %>"
-<% else %>
-log "Creating $cygwin_dir/home/$admin_username/.ssh/authorized_keys"
-New-Item $cygwin_dir/home/$admin_username/.ssh/authorized_keys -type file -force -value "<%= $mu.deploySSHKey %>"
+#New-Item c:/Users/<%= $mu.windowsAdminName %>/.ssh/authorized_keys -type file -force -value "<%= $mu.deploySSHKey.chomp %>"
 <% end %>
 
 if((Get-WURebootStatus -Silent) -eq $true){
@@ -272,13 +270,7 @@ if ($need_reboot){
 } else {
   Add-Content c:/mu-installer-ran-updates "$(Get-Date -f MM-dd-yyyy_HH:mm:ss)"
 
-  log "Enabling sshd service"
-  sleep 30; Start-Service sshd
-  Set-Service sshd -startuptype "Automatic"
-  #Get-WUInstall -AcceptAll -AutoReboot
-
   callMomma "mu_bootstrap"
-  log $(Get-Content $cygwin_dir/var/log/sshd.log)
 }
 
 Set-Content "c:/mu_userdata_complete" "yup"

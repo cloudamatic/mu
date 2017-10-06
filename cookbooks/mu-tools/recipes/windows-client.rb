@@ -69,6 +69,7 @@ if !node['application_attributes']['skip_recipes'].include?('windows-client')
           service_username "#{node['ad']['netbios_name']}\\#{sshd_user}"
           username sshd_user
           password sshd_password
+ignore_failure true
         end
       else
         windows_users node['hostname'] do
@@ -95,6 +96,7 @@ if !node['application_attributes']['skip_recipes'].include?('windows-client')
           username sshd_user
           service_username ".\\#{sshd_user}"
           password sshd_password
+ignore_failure true
         end
       end# rescue NoMethodError
 

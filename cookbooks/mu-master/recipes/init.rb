@@ -29,7 +29,7 @@ require 'socket'
 # XXX We want to be able to override these things when invoked from chef-apply,
 # but, like, how?
 CHEF_SERVER_VERSION="12.15.7-1"
-CHEF_CLIENT_VERSION="12.20.3-1"
+CHEF_CLIENT_VERSION="12.21.14-1"
 KNIFE_WINDOWS="1.8.0"
 MU_BRANCH="master"
 MU_BASE="/opt/mu"

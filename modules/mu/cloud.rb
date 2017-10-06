@@ -893,6 +893,7 @@ module MU
               opts = {
                 endpoint: 'https://'+@mu_name+':5986/wsman',
                 transport: :ssl,
+                retry_limit: 5,
                 no_ssl_peer_verification: true, # XXX this should not be necessary; we get 'hostname "foo" does not match the server certificate' even when it clearly does match
                 ca_trust_path: "#{MU.mySSLDir}/Mu_CA.pem",
                 client_cert: "#{MU.mySSLDir}/#{@mu_name}-winrm.crt",
@@ -902,10 +903,10 @@ module MU
               MU.log "WinRM connection to #{@mu_name} created", MU::DEBUG, details: conn
               shell = conn.shell(:powershell)
               shell.run('ipconfig') # verify that we can something
-            rescue Errno::ECONNREFUSED, HTTPClient::ConnectTimeoutError, OpenSSL::SSL::SSLError, SocketError, WinRM::WinRMError => e
+            rescue Errno::ECONNREFUSED, HTTPClient::ConnectTimeoutError, OpenSSL::SSL::SSLError, SocketError, WinRM::WinRMError, Timeout::Error => e
               msg = "WinRM connection to https://"+@mu_name+":5986/wsman: #{e.message}, waiting #{retry_interval}s (attempt #{retries}/#{max_retries})", MU::WARN
               if retries < max_retries
-                if retries == 1 or (retries/max_retries <= 0.5 and (retries % 3) == 0)
+                if retries == 1 or (retries/max_retries <= 0.5 and (retries % 3) == 0 and retries != 0)
                   MU.log msg, MU::NOTICE
                 elsif retries/max_retries > 0.5
                   MU.log msg, MU::WARN, details: e.inspect
