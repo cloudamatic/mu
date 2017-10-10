@@ -1994,7 +1994,7 @@ MESSAGE_END
       cert.serial = cur_serial
       cert.version = 3
       cert.not_before = Time.now
-      cert.not_after = Time.now + 1800000 # 500 days
+      cert.not_after = Time.now + 180000000
       cert.subject = csr.subject
       cert.public_key = csr.public_key
       cert.issuer = cacert.subject
@@ -2019,6 +2019,7 @@ MESSAGE_END
         owner_uid = Etc.getpwnam(MU.mu_user).uid
         File.chown(owner_uid, nil, "#{certdir}/#{certname}.crt")
       end
+
     end
 
     # Make sure deployment data is synchronized to/from each node in the
