@@ -215,6 +215,21 @@ if ((Get-WmiObject win32_computersystem).partofdomain -ne $true){
 }
 <% end %>
 
+if((Get-WURebootStatus -Silent) -eq $true){
+  log "Get-WURebootStatus says to reboot"
+  $need_reboot = $TRUE
+}
+
+if ($need_reboot){
+  log "- REBOOT -"
+  Restart-Computer -Force
+  exit
+} else {
+  Add-Content c:/mu-installer-ran-updates "$(Get-Date -f MM-dd-yyyy_HH:mm:ss)"
+
+  callMomma "mu_bootstrap"
+}
+
 $muca = importCert "Mu_CA.pem" "Root"
 
 $myname = "<%= $mu.muID %>-<%= $mu.resourceName.upcase %>"
@@ -245,37 +260,8 @@ if (!(Get-NetFirewallRule -DisplayName "Allow WinRM" -ErrorAction SilentlyContin
   New-NetFirewallRule -DisplayName "Allow WinRM" -Direction Inbound -LocalPort 5986 -Protocol TCP -Action Allow
 }
 
-# XXX stick this installer script somewhere we control
-iex ((New-Object System.Net.WebClient).DownloadString('https://chocolatey.org/install.ps1'))
-choco feature enable -n useFipsCompliantChecksums
-refreshenv
-choco install openssh -y -params "/SSHServerFeature /SSHLogLevel:VERBOSE"
-choco upgrade openssh -y -params "/SSHServerFeature /SSHLogLevel:VERBOSE"
-Start-Service sshd
-Set-Service sshd -startuptype "Automatic"
-
-<% if $mu.windowsAdminName %>
-#New-Item c:/Users/<%= $mu.windowsAdminName %>/.ssh/authorized_keys -type file -force -value "<%= $mu.deploySSHKey.chomp %>"
-<% end %>
-
-if((Get-WURebootStatus -Silent) -eq $true){
-  log "Get-WURebootStatus says to reboot"
-  $need_reboot = $TRUE
-}
-
-if ($need_reboot){
-  log "- REBOOT -"
-  Restart-Computer -Force
-  exit
-} else {
-  Add-Content c:/mu-installer-ran-updates "$(Get-Date -f MM-dd-yyyy_HH:mm:ss)"
-
-  callMomma "mu_bootstrap"
-}
-
 Set-Content "c:/mu_userdata_complete" "yup"
 Remove-Item -Recurse $tmp
-# XXX
 Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy Undefined
 </powershell>
 <persist>true</persist>

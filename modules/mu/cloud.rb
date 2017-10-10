@@ -752,6 +752,31 @@ module MU
               end
             end
 
+            # Install Cygwin here, because for some reason it breaks inside Chef
+            # XXX would love to not do this here
+            pkgs = ["bash", "mintty", "vim", "curl", "openssl", "wget", "lynx", "openssh"]
+            admin_home = "c:/bin/cygwin/home/#{@config["windows_admin_username"]}"
+            install_cygwin = %Q{
+              If (!(Test-Path "c:/bin/cygwin/Cygwin.bat")){
+                $WebClient = New-Object System.Net.WebClient
+                $WebClient.DownloadFile("http://cygwin.com/setup-x86_64.exe","$env:Temp/setup-x86_64.exe")
+                Start-Process -wait -FilePath $env:Temp/setup-x86_64.exe -ArgumentList "-q -n -l $env:Temp/cygwin -R c:/bin/cygwin -s http://mirror.cs.vt.edu/pub/cygwin/cygwin/ -P #{pkgs.join(',')}"
+              }
+              if(!(Test-Path #{admin_home})){
+                New-Item -type directory -path #{admin_home}
+              }
+              if(!(Test-Path #{admin_home}/.ssh)){
+                New-Item -type directory -path #{admin_home}/.ssh
+              }
+              if(!(Test-Path #{admin_home}/.ssh/authorized_keys)){
+                New-Item #{admin_home}/.ssh/authorized_keys -type file -force -value "#{@deploy.ssh_public_key}"
+              }
+            }
+            resp = shell.run(install_cygwin)
+            if resp.exitcode != 0
+              MU.log "Failed at installing Cygwin", MU::ERR, details: resp
+            end
+
             set_hostname = true
             hostname = nil
             if !@config['active_directory'].nil?
@@ -892,10 +917,10 @@ module MU
               MU.log "Calling WinRM on #{@mu_name}", MU::DEBUG, details: opts
               opts = {
                 endpoint: 'https://'+@mu_name+':5986/wsman',
-                transport: :ssl,
                 retry_limit: 5,
                 no_ssl_peer_verification: true, # XXX this should not be necessary; we get 'hostname "foo" does not match the server certificate' even when it clearly does match
                 ca_trust_path: "#{MU.mySSLDir}/Mu_CA.pem",
+                transport: :ssl,
                 client_cert: "#{MU.mySSLDir}/#{@mu_name}-winrm.crt",
                 client_key: "#{MU.mySSLDir}/#{@mu_name}-winrm.key"
               }
