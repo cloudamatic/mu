@@ -55,7 +55,6 @@ module MU
             require 'chef/knife'
             require 'chef/knife/ssh'
             require 'chef/knife/bootstrap'
-            require 'chef/knife/bootstrap_windows_ssh'
             require 'chef/knife/node_delete'
             require 'chef/knife/client_delete'
             require 'chef/knife/data_bag_delete'
@@ -64,6 +63,18 @@ module MU
             require 'chef/file_access_control/unix'
             require 'chef-vault'
             require 'chef-vault/item'
+            # XXX kludge to get at knife-windows when it's installed from 
+            # a git repo and bundler sticks it somewhere in a corner
+            $LOAD_PATH.each { |path|
+              if path.match(/\/gems\/aws\-sdk\-core\-\d+\.\d+\.\d+\/lib$/)
+                addpath = path.sub(/\/gems\/aws\-sdk\-core\-\d+\.\d+\.\d+\/lib$/, "")+"/bundler/gems"
+                Dir.glob(addpath+"/knife-windows-*").each { |version|
+                  $LOAD_PATH << version+"/lib"
+                }
+              end
+            }
+            require 'chef/knife/bootstrap_windows_winrm'
+            require 'chef/knife/bootstrap_windows_ssh'
             ::Chef::Config[:chef_server_url] = "https://#{MU.mu_public_addr}:7443/organizations/#{user}"
             if File.exists?("#{Etc.getpwnam(mu_user).dir}/.chef/knife.rb")
               MU.log "Loading Chef configuration from #{Etc.getpwnam(mu_user).dir}/.chef/knife.rb", MU::DEBUG

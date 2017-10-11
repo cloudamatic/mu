@@ -226,8 +226,8 @@ KNIFE_TEMPLATE = "log_level                :info
 log_location             STDOUT
 node_name                '<%= chefuser %>'
 client_key               '<%= MU_BASE %>/var/users/<%= user %>/<%= chefuser %>.user.key'
-#validation_client_name   'mu-validator'
-#validation_key           '<%= MU_BASE %>/var/orgs/<%= user %>/<%= chefuser %>.org.key'
+validation_client_name   'mu-validator'
+validation_key           '<%= MU_BASE %>/var/orgs/<%= user %>/<%= chefuser %>.org.key'
 chef_server_url 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= chefuser %>'
 chef_server_root 'https://<%= MU.mu_public_addr %>:7443/organizations/<%= chefuser %>'
 syntax_check_cache_path  '<%= HOMEDIR %>/.chef/syntax_check_cache'

@@ -21,7 +21,6 @@ gem "chef"
 autoload :Chef, 'chef'
 gem "chef-vault"
 autoload :ChefVault, 'chef-vault'
-gem "knife-windows"
 require 'timeout'
 
 module MU

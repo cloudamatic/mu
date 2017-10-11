@@ -1,7 +1,6 @@
 GIT
   remote: https://github.com/eGT-Labs/knife-windows.git
-  revision: 824063601c59a81702e31f6a69223e68e96e4e06
-  branch: winrm_cert_auth
+  revision: fa27b7746062d56ba08f3c7834bd1089aa23b8ee
   specs:
     knife-windows (1.9.0)
       winrm (~> 2.1)
@@ -279,7 +278,7 @@ DEPENDENCIES
   color
   colorize
   json-schema
-  knife-windows (= 1.9.0)!
+  knife-windows!
   molinillo (< 0.6.0)
   mysql
   net-ldap
