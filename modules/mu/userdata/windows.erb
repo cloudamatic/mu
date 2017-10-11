@@ -220,15 +220,6 @@ if((Get-WURebootStatus -Silent) -eq $true){
   $need_reboot = $TRUE
 }
 
-if ($need_reboot){
-  log "- REBOOT -"
-  Restart-Computer -Force
-  exit
-} else {
-  Add-Content c:/mu-installer-ran-updates "$(Get-Date -f MM-dd-yyyy_HH:mm:ss)"
-
-  callMomma "mu_bootstrap"
-}
 
 $muca = importCert "Mu_CA.pem" "Root"
 
@@ -258,6 +249,16 @@ if (!(Get-NetFirewallRule -DisplayName "Allow SSH" -ErrorAction SilentlyContinue
 }
 if (!(Get-NetFirewallRule -DisplayName "Allow WinRM" -ErrorAction SilentlyContinue)){
   New-NetFirewallRule -DisplayName "Allow WinRM" -Direction Inbound -LocalPort 5986 -Protocol TCP -Action Allow
+}
+
+if ($need_reboot){
+  log "- REBOOT -"
+  Restart-Computer -Force
+  exit
+} else {
+  Add-Content c:/mu-installer-ran-updates "$(Get-Date -f MM-dd-yyyy_HH:mm:ss)"
+
+  callMomma "mu_bootstrap"
 }
 
 Set-Content "c:/mu_userdata_complete" "yup"

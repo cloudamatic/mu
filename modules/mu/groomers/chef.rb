@@ -522,7 +522,10 @@ module MU
             MU.log "#{@server.mu_name}: Knife Bootstrap failed #{e.inspect}, retrying (#{retries} of #{max_retries})", MU::WARN, details: e.backtrace
             # bad Chef installs are possible culprits of bootstrap failures
             if !@config['forced_preclean']
-              preClean(false)
+              begin
+                preClean(false) # it's ok for this to fail
+              rescue Exception => e
+              end
               MU::Groomer::Chef.cleanup(@server.mu_name, nodeonly: true)
               @config['forced_preclean'] = true
             end
