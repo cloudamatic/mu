@@ -890,8 +890,9 @@ module MU
 
           end
 
-          def getWinRMSession(max_retries = 40, retry_interval = 60)
+          def getWinRMSession(max_retries = 40, retry_interval = 60, timeout: 60, winrm_retries: 5)
             nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = getSSHConfig
+            @mu_name ||= @config['mu_name']
 
             conn = nil
             shell = nil
@@ -917,10 +918,11 @@ module MU
               MU.log "Calling WinRM on #{@mu_name}", MU::DEBUG, details: opts
               opts = {
                 endpoint: 'https://'+@mu_name+':5986/wsman',
-                retry_limit: 5,
+                retry_limit: winrm_retries,
                 no_ssl_peer_verification: true, # XXX this should not be necessary; we get 'hostname "foo" does not match the server certificate' even when it clearly does match
                 ca_trust_path: "#{MU.mySSLDir}/Mu_CA.pem",
                 transport: :ssl,
+                operation_timeout: timeout,
                 client_cert: "#{MU.mySSLDir}/#{@mu_name}-winrm.crt",
                 client_key: "#{MU.mySSLDir}/#{@mu_name}-winrm.key"
               }

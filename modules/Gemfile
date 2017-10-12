@@ -37,4 +37,4 @@ gem 'molinillo', '< 0.6.0'
 gem 'solve', '>= 3.1.1'
 gem 'net-ldap'
 gem 'winrm', '= 2.2.3'
-gem 'knife-windows', :git => "https://github.com/eGT-Labs/knife-windows.git"
+gem 'knife-windows', :git => "https://github.com/eGT-Labs/knife-windows.git", :branch => "winrm_cert_auth"
