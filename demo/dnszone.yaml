@@ -26,18 +26,18 @@
       name: meow
       type: CNAME
       failover: PRIMARY
-      healthcheck:
-        method: HTTP
-        check_interval: 30
-        path: /
+#      healthcheck:
+#        method: HTTP
+#        check_interval: 30
+#        path: /
     - target: cloudamatic.com
       name: meow
       type: CNAME
       failover: SECONDARY
-      healthcheck:
-        method: HTTP
-        check_interval: 30
-        path: /
+#      healthcheck:
+#        method: HTTP
+#        check_interval: 30
+#        path: /
 # Geo-location preferential routing
     - target: google.com
       name: kittens

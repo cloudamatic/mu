@@ -5,6 +5,7 @@
 %>
 ---
   appname: demo
+  region: "us-east-1"
   servers:
     -
       name: simple-php-server
@@ -17,7 +18,7 @@
       run_list:
       - recipe[apache2]
       - recipe[demo::php]
-      size: "m3.medium"
+      size: "t2.micro"
       associate_public_ip: true
       static_ip:
         assign_ip: true

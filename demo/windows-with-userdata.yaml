@@ -1,17 +1,20 @@
+
+
 ---
 appname: demo
 servers:
 - name: windows
   platform: windows
-  size: t2.medium
+  size: t2.micro
   storage:
   - size: 70
   ingress_rules:
   - port: 3389
     hosts:
     - 23.30.31.61/32
-  userdata-script:
-    path: "<%= $myRoot %>/applications/userdata.erb"
+# USERDATA DOESN'T EXIST WHERE IT USED TO BE. WE SHOULD BUILD A BASIC USERDATA SCRIPT FOR THE DEMO
+#  userdata-script:
+#    path: "<%= $myRoot %>/modules/mu/userdata/windows.erb"
   run_list:
   - recipe[mu-utility::windows_basics]
   dependencies: []

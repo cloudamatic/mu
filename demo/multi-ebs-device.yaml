@@ -9,7 +9,7 @@
       name: "windows"
       platform: "windows"
       winrm_user: "Administrator"
-      size: "m4.large"
+      size: "t2.micro"
       storage: 
         - 
           size: 70

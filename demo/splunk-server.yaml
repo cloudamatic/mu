@@ -8,7 +8,7 @@
   servers:
     - name: "splunk"
       ssh_user: "root"
-      size: "m4.xlarge"
+      size: "t2.micro"
       static_ip: 
         assign_ip: true
       run_list: 
