@@ -306,8 +306,8 @@ end
   bundler_path = gembin.sub(/gem$/, "bundle")
   bash "fix #{rubydir} gem permissions" do
     code <<-EOH
-      find -P #{rubydir}/lib/ruby/gems/?.?.?/gems/ -type d -exec chmod go+rx {} \\;
-      find -P #{rubydir}/lib/ruby/gems/?.?.?/gems/ -type f -exec chmod go+r {} \\;
+      find -P #{rubydir}/lib/ruby/gems/?.?.?/ #{rubydir}/lib/ruby/site_ruby/ -type d -exec chmod go+rx {} \\;
+      find -P #{rubydir}/lib/ruby/gems/?.?.?/ #{rubydir}/lib/ruby/site_ruby/ -type f -exec chmod go+r {} \\;
       find -P #{rubydir}/bin -type f -exec chmod go+rx {} \\;
     EOH
     action :nothing

@@ -43,3 +43,4 @@ cookbook 's3fs', path: "#{cookbookPath}/s3fs"
 cookbook 'zipfile', '~> 0.1.0'
 #cookbook 'hashicorp-vault', '~> 2.5.0', git: "https://github.com/johnbellone/vault-cookbook"
 cookbook 'demo', path: "#{siteCookbookPath}/demo"
+cookbook 'windows', '= 3.1.2'
