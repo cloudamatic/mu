@@ -1019,8 +1019,9 @@ module MU
             if windows?
               # kick off certificate generation early; WinRM will need it
               cert, key = @deploy.nodeSSLCerts(self)
-              session = getWinRMSession(50, 60)
+              session = getWinRMSession(50, 60, reboot_on_problems: true)
               initialWinRMTasks(session)
+              session.close
 # XXX account for machines behind bastion hosts that we can't tunnel through;
 # maybe then it's ok to fall back to sshd?
             else
@@ -1332,9 +1333,11 @@ module MU
           @groomer.saveDeployData
 
           begin
-            @groomer.run(purpose: "Full Initial Run", max_retries: 15)
-          rescue MU::Groomer::RunError
-            MU.log "Proceeding after failed initial Groomer run, but #{node} may not behave as expected!", MU::WARN
+            @groomer.run(purpose: "Full Initial Run", max_retries: 15, reboot_first_fail: windows?)
+          rescue MU::Groomer::RunError => e
+            MU.log "Proceeding after failed initial Groomer run, but #{node} may not behave as expected!", MU::WARN, details: e.message
+          rescue Exception => e
+            MU.log "Caught #{e.inspect} on #{node} in an unexpected place (after @groomer.run on Full Initial Run)", MU::ERR
           end
 
           if !@config['create_image'].nil? and !@config['image_created']

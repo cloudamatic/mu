@@ -253,7 +253,7 @@ module MU
       # @param max_retries [Integer]: The maximum number of attempts at a successful run to make before giving up.
       # @param output [Boolean]: Display Chef's regular (non-error) output to the console
       # @param override_runlist [String]: Use the specified run list instead of the node's configured list
-      def run(purpose: "Chef run", update_runlist: true, max_retries: 5, output: true, override_runlist: nil)
+      def run(purpose: "Chef run", update_runlist: true, max_retries: 5, output: true, override_runlist: nil, reboot_first_fail: false)
         self.class.loadChefLib
         if update_runlist and !@config['run_list'].nil?
           knifeAddToRunList(multiple: @config['run_list'])
@@ -294,29 +294,29 @@ module MU
             }
           else
             winrm = @server.getWinRMSession(max_retries)
-#            upgrade_cmd = try_upgrade ? "powershell \". { Invoke-WebRequest -useb https://omnitruck.chef.io/install.ps1 } | Invoke-Expression; Install-Project -version:#{MU.chefVersion} -download_directory:$HOME \" &&" : ""
-#            cmd = "#{upgrade_cmd} $HOME/chef-client --color || echo #{error_signal}"
+            if @server.windows? and @server.windowsRebootPending?(winrm)
+              raise MU::Groomer::RunError, "#{@server.mu_name} has a pending reboot"
+            end
             if try_upgrade
-              pp winrm.run("Invoke-WebRequest -useb https://omnitruck.chef.io/install.ps1 } | Invoke-Expression; Install-Project -version:#{MU.chefVersion} -download_directory:$HOME")
-            else
-              output = []
-              cmd = "c:/opscode/chef/bin/chef-client.bat --color"
-              if override_runlist
-                cmd = cmd + " -o '#{override_runlist}'"
+              pp winrm.run("Invoke-WebRequest -useb https://omnitruck.chef.io/install.ps1 | Invoke-Expression; Install-Project -version:#{MU.chefVersion} -download_directory:$HOME")
+            end
+            output = []
+            cmd = "c:/opscode/chef/bin/chef-client.bat --color"
+            if override_runlist
+              cmd = cmd + " -o '#{override_runlist}'"
+            end
+            resp = winrm.run(cmd) do |stdout, stderr|
+              if stdout
+                print stdout if output
+                output << stdout
               end
-              resp = winrm.run(cmd) do |stdout, stderr|
-                if stdout
-                  print stdout if output
-                  output << stdout
-                end
-                if stderr
-                  MU.log stderr, MU::ERR
-                  output << stderr
-                end
+              if stderr
+                MU.log stderr, MU::ERR
+                output << stderr
               end
-              if resp.exitcode != 0
-                raise MU::Groomer::RunError, output.slice(output.length-50, output.length).join("")
-              end
+            end
+            if resp.exitcode != 0
+              raise MU::Groomer::RunError, output.slice(output.length-50, output.length).join("")
             end
           end
         rescue RuntimeError, SystemCallError, Timeout::Error, SocketError, Errno::ECONNRESET, IOError, Net::SSH::Exception, MU::Groomer::RunError, WinRM::WinRMError => e
@@ -337,6 +337,16 @@ module MU
           else
             try_upgrade = false
           end
+          if reboot_first_fail and !e.is_a?(WinRM::WinRMError)
+            try_upgrade = true
+            begin
+              preClean(true) # drop any Chef install that's not ours
+              @server.reboot # try gently rebooting the thing
+            rescue Exception => e # it's ok to fail here (and to ignore failure)
+MU.log "preclean err #{e.inspect}", MU::ERR
+            end
+            reboot_first_fail = false
+          end
 
           if retries < max_retries
             retries += 1
@@ -346,6 +356,9 @@ module MU
           else
             raise MU::Groomer::RunError, "#{@server.mu_name}: Chef run '#{purpose}' failed #{max_retries} times, last error was: #{e.message}"
           end
+        rescue Exception => e
+          raise MU::Groomer::RunError, "Caught unexpected #{e.inspect} on #{@server.mu_name} in @groomer.run"
+
         end
 
         saveDeployData
@@ -402,7 +415,6 @@ module MU
   
           ssh.close
         else
-          # XXX this hasn't been tested
           remove_cmd = %Q{
             $uninstall_string = (Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\* | Where-Object {$_.DisplayName -like "chef client*"}).UninstallString
             if($uninstall_string){
@@ -411,6 +423,10 @@ module MU
                 start-process "msiexec.exe" -arg "/X $_ /qn" -Wait
               }
             }
+            Remove-Item c:/chef/ -Force -Recurse -ErrorAction Continue
+            Remove-Item c:/opscode/ -Force -Recurse -ErrorAction Continue
+            Remove-Item C:/Users/ADMINI~1/AppData/Local/Temp/bootstrap*.bat -Force -Recurse -ErrorAction Continue
+            Remove-Item C:/Users/ADMINI~1/AppData/Local/Temp/chef-* -Force -Recurse -ErrorAction Continue
           }
           shell = @server.getWinRMSession(15)
           removechef = true
@@ -425,7 +441,7 @@ module MU
 #          remove_cmd = %Q{$my_chef = (Get-ItemProperty $location | Where-Object {$_.DisplayName -like "chef client*"}).DisplayName
           if removechef
             MU.log "Expunging pre-existing Chef install on #{@server.mu_name}", MU::NOTICE, details: remove_cmd
-            pp shell.run(remove_cmd)
+#            pp shell.run(remove_cmd)
           end
         end
       end
@@ -465,62 +481,56 @@ module MU
 
         @server.windows? ? max_retries = 25 : max_retries = 10
         @server.windows? ? timeout = 720 : timeout = 300
-        if !@server.windows?
-          kb = ::Chef::Knife::Bootstrap.new([canonical_addr])
-          kb.config[:use_sudo] = true
-          kb.name_args = "#{canonical_addr}"
-          kb.config[:distro] = 'chef-full'
-          kb.config[:ssh_user] = ssh_user
-          kb.config[:forward_agent] = ssh_user
-          kb.config[:identity_file] = "#{Etc.getpwuid(Process.uid).dir}/.ssh/#{ssh_key_name}"
-        else
-          kb = ::Chef::Knife::BootstrapWindowsWinrm.new([@server.mu_name])
-          kb.name_args = [@server.mu_name]
-          kb.config[:manual] = true
-          kb.config[:winrm_transport] = :ssl
-          kb.config[:host] = @server.mu_name
-          kb.config[:winrm_port] = 5986
-          kb.config[:session_timeout] = timeout
-          kb.config[:operation_timeout] = timeout
-          kb.config[:winrm_authentication_protocol] = :cert
-          kb.config[:winrm_client_cert] = "#{MU.mySSLDir}/#{@server.mu_name}-winrm.crt"
-          kb.config[:winrm_client_key] = "#{MU.mySSLDir}/#{@server.mu_name}-winrm.key"
-#          kb.config[:ca_trust_file] = "#{MU.mySSLDir}/Mu_CA.pem"
-          # XXX ca_trust_file doesn't work for some reason, so we have to set the below for now
-          kb.config[:winrm_ssl_verify_mode] = :verify_none
-          kb.config[:msi_url] = "https://www.chef.io/chef/download?p=windows&pv=2012&m=x86_64&v=#{MU.chefVersion}"
-        end
-
-        # XXX this seems to break Knife Bootstrap
-        #			if vault_access.size > 0
-        #				v = {}
-        #				vault_access.each { |vault|
-        #					v[vault['vault']] = [] if v[vault['vault']].nil?
-        #					v[vault['vault']] << vault['item']
-        #				}
-        #				kb.config[:bootstrap_vault_json] = JSON.generate(v)
-        #			end
-
-        kb.config[:json_attribs] = JSON.generate(json_attribs) if json_attribs.size > 1
-        kb.config[:run_list] = run_list
-        kb.config[:chef_node_name] = @server.mu_name
-        kb.config[:bootstrap_version] = MU.chefVersion
-        # XXX key off of MU verbosity level
-        kb.config[:log_level] = :debug
-        # kb.config[:ssh_gateway] = "#{nat_ssh_user}@#{nat_ssh_host}" if !nat_ssh_host.nil? # Breaking bootsrap
-
         retries = 0
-        MU.log "Knife Bootstrap settings for #{@server.mu_name} (#{canonical_addr}), timeout set to #{timeout.to_s}", MU::NOTICE, details: kb.config
         begin
-#          Thread.handle_interrupt(Timeout::Error => :never) {
-#            begin
-#              Thread.handle_interrupt(Timeout::Error => :immediate) {
-#                MU.log "Caught a Timeout::Error in #{Thread.current.inspect}", MU::NOTICE, details: Thread.current.backtrace
-#              }
-#            ensure
-#              raise MU::Cloud::BootstrapTempFail
-#            end
-#          }
+          if !@server.windows?
+            kb = ::Chef::Knife::Bootstrap.new([canonical_addr])
+            kb.config[:use_sudo] = true
+            kb.name_args = "#{canonical_addr}"
+            kb.config[:distro] = 'chef-full'
+            kb.config[:ssh_user] = ssh_user
+            kb.config[:forward_agent] = ssh_user
+            kb.config[:identity_file] = "#{Etc.getpwuid(Process.uid).dir}/.ssh/#{ssh_key_name}"
+          else
+            kb = ::Chef::Knife::BootstrapWindowsWinrm.new([@server.mu_name])
+            kb.name_args = [@server.mu_name]
+            kb.config[:manual] = true
+            kb.config[:winrm_transport] = :ssl
+            kb.config[:host] = @server.mu_name
+            kb.config[:winrm_port] = 5986
+            kb.config[:session_timeout] = timeout
+            kb.config[:operation_timeout] = timeout
+            kb.config[:winrm_authentication_protocol] = :cert
+            kb.config[:winrm_client_cert] = "#{MU.mySSLDir}/#{@server.mu_name}-winrm.crt"
+            kb.config[:winrm_client_key] = "#{MU.mySSLDir}/#{@server.mu_name}-winrm.key"
+#          kb.config[:ca_trust_file] = "#{MU.mySSLDir}/Mu_CA.pem"
+            # XXX ca_trust_file doesn't work for some reason, so we have to set the below for now
+            kb.config[:winrm_ssl_verify_mode] = :verify_none
+            kb.config[:msi_url] = "https://www.chef.io/chef/download?p=windows&pv=2012&m=x86_64&v=#{MU.chefVersion}"
+          end
+
+          # XXX this seems to break Knife Bootstrap
+          #			if vault_access.size > 0
+          #				v = {}
+          #				vault_access.each { |vault|
+          #					v[vault['vault']] = [] if v[vault['vault']].nil?
+          #					v[vault['vault']] << vault['item']
+          #				}
+          #				kb.config[:bootstrap_vault_json] = JSON.generate(v)
+          #			end
+
+          kb.config[:json_attribs] = JSON.generate(json_attribs) if json_attribs.size > 1
+          kb.config[:run_list] = run_list
+          kb.config[:chef_node_name] = @server.mu_name
+          kb.config[:bootstrap_version] = MU.chefVersion
+          # XXX key off of MU verbosity level
+          kb.config[:log_level] = :debug
+          # kb.config[:ssh_gateway] = "#{nat_ssh_user}@#{nat_ssh_host}" if !nat_ssh_host.nil? # Breaking bootsrap
+
+          MU.log "Knife Bootstrap settings for #{@server.mu_name} (#{canonical_addr}), timeout set to #{timeout.to_s}", MU::NOTICE, details: kb.config
+          if @server.windows? and @server.windowsRebootPending?
+            raise MU::Cloud::BootstrapTempFail, "#{@server.mu_name} has a pending reboot"
+          end
           Timeout::timeout(timeout) {
             require 'chef'
             kb.run
@@ -530,16 +540,23 @@ module MU
         rescue Net::SSH::Disconnect, SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::HTTPServerException, SystemExit, Errno::ECONNREFUSED, Errno::EPIPE, WinRM::WinRMError, HTTPClient::ConnectTimeoutError, RuntimeError, MU::Cloud::BootstrapTempFail => e
           if retries < max_retries
             retries += 1
-            MU.log "#{@server.mu_name}: Knife Bootstrap failed #{e.inspect}, retrying (#{retries} of #{max_retries})", MU::WARN, details: e.backtrace
-            # bad Chef installs are possible culprits of bootstrap failures
-            if !@config['forced_preclean']
+            # Bad Chef installs are possible culprits of bootstrap failures, so
+            # try scrubbing them when that happens.
+            # On Windows, even a fresh install comes up screwy disturbingly
+            # often, so we let it start over from scratch if needed. Except for
+            # the first attempt, which usually fails due to WinRM funk.
+            if !e.is_a?(MU::Cloud::BootstrapTempFail) and
+               !(e.is_a?(WinRM::WinRMError) and @config['forced_preclean']) and
+               !@config['forced_preclean']
               begin
                 preClean(false) # it's ok for this to fail
               rescue Exception => e
               end
               MU::Groomer::Chef.cleanup(@server.mu_name, nodeonly: true)
               @config['forced_preclean'] = true
+              @server.reboot if @server.windows? # *sigh*
             end
+            MU.log "#{@server.mu_name}: Knife Bootstrap failed #{e.inspect}, retrying in #{(10*retries).to_s}s (#{retries} of #{max_retries})", MU::WARN, details: e.backtrace
             sleep 10*retries
             retry
           else

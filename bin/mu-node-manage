@@ -221,8 +221,7 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-cli
             resp = nil
             begin
               shell = serverobj.getWinRMSession(0, timeout: 10, winrm_retries: 1)
-              resp = shell.run("ipconfig /all")
-              pp resp
+              resp = shell.run(cmd)
             rescue MU::MuError => e
             end
             if !resp or resp.exitcode != 0

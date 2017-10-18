@@ -45,7 +45,7 @@ DEPENDENCIES
   runit (~> 1.7)
   s3fs
     path: cookbooks/s3fs
-  windows (= 3.1.2)
+  windows (= 3.2.0)
   zipfile (~> 0.1.0)
 
 GRAPH
@@ -298,11 +298,11 @@ GRAPH
     consul-cluster (~> 2.0)
     hashicorp-vault (~> 2.1)
     ssl_certificate (~> 1.11)
-  windows (3.1.2)
+  windows (3.2.0)
     ohai (>= 4.0.0)
   yum (3.13.0)
   yum-epel (2.1.2)
     compat_resource (>= 12.16.3)
-  zap (0.15.1)
+  zap (1.0.2)
   zipfile (0.1.0)
   zypper (0.4.0)

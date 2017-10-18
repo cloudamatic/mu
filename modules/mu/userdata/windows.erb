@@ -191,6 +191,7 @@ function callMomma([string]$act)
   log "Calling Momma Cat at https://52.0.111.223:2260 with $act"
   [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true} # XXX
   $resp = Invoke-WebRequest -Uri https://52.0.111.223:2260 -Method POST -Body $params
+  log $resp.Content
   return $resp.Content
 }
 
@@ -231,16 +232,18 @@ $thumb = $nodecert.Thumbprint
 # actually, should remove janky certificates outright
 winrm delete winrm/config/Listener?Address=*+Transport=HTTPS
 winrm create winrm/config/Listener?Address=*+Transport=HTTPS "@{Hostname=`"$myname`";CertificateThumbprint=`"$thumb`"}"
+# XXX guard this
 net localgroup WinRMRemoteWMIUsers__ /add <%= $mu.windowsAdminName %>
 
 $winrmcert = importCert "$myname-winrm.crt" "TrustedPeople"
 Set-Item -Path WSMan:\localhost\Service\Auth\Certificate -Value $true
 Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name LocalAccountTokenFilterPolicy -Value 1
-
+log $creds
 if($creds){
+  log "Enabling WinRM cert auth for <%= $mu.windowsAdminName %>"
   New-Item -Path WSMan:\localhost\ClientCertificate -Subject '<%= $mu.windowsAdminName %>@localhost' -URI * -Issuer $muca.Thumbprint -Force -Credential $creds
 }
-winrm set winrm/config/winrs '@{MaxMemoryPerShellMB="300"}'
+winrm set winrm/config/winrs '@{MaxMemoryPerShellMB="8192"}'
 winrm set winrm/config '@{MaxTimeoutms="1800000"}'
 
 if (!(Get-NetFirewallRule -DisplayName "Allow SSH" -ErrorAction SilentlyContinue)){
