@@ -44,6 +44,17 @@ rhel71: &rhel71
   ap-southeast-1: ami-5042cf33
   ap-southeast-2: ami-30495953
   ap-south-1: ami-aa563dc6
+ubuntu16: &ubuntu16
+  us-east-1: ami-bcdc16c6
+  us-west-1: ami-1b17257b
+  us-west-2: ami-19e92861
+  eu-west-1:  ami-eed00d97
+  eu-central-1: ami-e613ac89
+  sa-east-1: ami-1ca7d970
+  ap-northeast-1: ami-6959870f
+  ap-northeast-2: ami-08d77266
+  ap-southeast-1: ami-d9dca7ba  
+  ap-southeast-2: ami-02ad4060
 ubuntu14: &ubuntu14
   us-east-1: ami-663a6e0c
   us-west-1: ami-13988772
@@ -99,7 +110,7 @@ amazon: &amazon2016
 win2k12: *win2k12r2
 win2k16: *win2k16
 windows: *win2k12r2
-ubuntu: *ubuntu14
+ubuntu: *ubuntu16
 centos: *centos6
 rhel7: *rhel71
 rhel: *rhel71
