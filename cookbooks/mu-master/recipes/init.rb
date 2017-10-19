@@ -300,7 +300,7 @@ remote_file "#{MU_BASE}/bin/mu-self-update" do
   mode 0755
 end
 
-["/usr/local/ruby-current", "/opt/chef/embedded", "/opt/opscode/embedded"].each { |rubydir|
+["/usr/local/ruby-current", "/opt/chef/embedded"].each { |rubydir|
   gembin = rubydir+"/bin/gem"
   gemdir = Dir.glob("#{rubydir}/lib/ruby/gems/?.?.?/gems").last
   bundler_path = gembin.sub(/gem$/, "bundle")
@@ -458,7 +458,7 @@ end
 
 # Community cookbooks keep touching gems, and none of them are smart about our
 # default umask. We have to clean up after them every time.
-["/usr/local/ruby-current", "/opt/chef/embedded", "/opt/opscode/embedded"].each { |rubydir|
+["/usr/local/ruby-current", "/opt/chef/embedded"].each { |rubydir|
   execute "trigger permission fix in #{rubydir}" do
     command "ls /etc/motd > /dev/null"
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
