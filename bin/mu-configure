@@ -38,6 +38,8 @@ $CONFIGURABLES = {
     "desc" => "IP address or hostname",
     "required" => true,
     "rootonly" => true,
+    "pattern" => /^(localhost|127\.0\.0\.1)$/,
+    "negate_pattern" => true,
     "changes" => ["389ds", "chef-server", "chefrun", "chefcerts"]
   },
   "mu_admin_email" => {
@@ -613,6 +615,11 @@ def validate(newval, reqs)
       if newval.nil?
         puts "\nSupplied value did not pass validation".light_red.on_black+"\n\n"
         ok = false
+      elsif reqs['negate_pattern'] 
+        if newval.match(reqs['pattern'])
+          puts "\nInvalid value '#{newval.bold}' (must NOT match #{reqs['pattern']})".light_red.on_black+"\n\n"
+          ok = false
+        end
       elsif !newval.match(reqs['pattern'])
         puts "\nInvalid value '#{newval.bold}' (must match #{reqs['pattern']})".light_red.on_black+"\n\n"
         ok = false
