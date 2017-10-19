@@ -18,7 +18,7 @@ case node[:platform]
 
     include_recipe 'mu-firewall'
 
-    node[:glusterfs][:fw][:each] { |rule|
+    node[:glusterfs][:fw].each { |rule|
       firewall_rule "Allow glusterfs #{rule['usage']}" do
         port rule['port_range']
       end
