@@ -374,7 +374,8 @@ app = proc do |env|
 
       if !req["mu_windows_admin_creds"].nil?
         returnval[2] = [kittenpile.retrieveWindowsAdminCreds(instance).join(";")]
-        MU.log returnval[2].sub(/;.*/, ";*********"), MU::NOTICE
+        logstr = returnval[2].is_a?(Array) ? returnval[2].first.sub(/;.*/, ";*********") : returnval[2].sub(/;.*/, ";*********")
+        MU.log logstr, MU::NOTICE
       elsif !req["mu_ssl_sign"].nil?
         kittenpile.signSSLCert(req["mu_ssl_sign"], req["mu_ssl_sans"].split(/,/))
         kittenpile.signSSLCert(req["mu_ssl_sign"], req["mu_ssl_sans"].split(/,/))
