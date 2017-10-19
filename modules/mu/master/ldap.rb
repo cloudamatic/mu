@@ -484,7 +484,8 @@ module MU
       # @param search [Array<String>]: Strings to search for.
       # @param exact [Boolean]: Return only exact matches for whole fields.
       # @param searchbase [String]: The DN under which to search.
-      # @param groups [Array<String>]: An array of groups. If supplied, a user must be a member of one of these in order to match.
+      # @param extra_attrs [Array<String>]: Other LDAP attributes to search
+      # @param matchgroups [Array<String>]: An array of groups. If supplied, a user must be a member of one of these in order to match.
       # @return [Array<Hash>]
       def self.findUsers(search = [], exact: false, searchbase: $MU_CFG['ldap']['base_dn'], extra_attrs: [], matchgroups: [])
         # We want to search groups, but can't search on memberOf with wildcards.

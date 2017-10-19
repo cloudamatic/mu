@@ -112,6 +112,9 @@ def loadMuConfig(default_cfg_overrides = nil)
   return default_cfg.merge(global_cfg).freeze
 end
 
+# Output an in-memory configuration hash to the standard config file location,
+# in YAML.
+# @param cfg [Hash]: The configuration to dump
 def saveMuConfig(cfg)
   home = Etc.getpwuid(Process.uid).dir
   username = Etc.getpwuid(Process.uid).name
