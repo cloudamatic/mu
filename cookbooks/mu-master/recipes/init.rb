@@ -354,13 +354,14 @@ end
       execute "rm -rf #{gemdir}/knife-windows-#{Regexp.last_match[1]}"
     }
 
-    gem_package "#{rubydir} knife-windows #{KNIFE_WINDOWS} #{gembin}" do
-      gem_binary gembin
-      package_name "knife-windows"
-      version KNIFE_WINDOWS
-      notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
-      # XXX notify mommacat if we're *not* in chef-apply... RUNNING_STANDALONE
-    end
+# XXX rely on bundler to get this right for us
+#    gem_package "#{rubydir} knife-windows #{KNIFE_WINDOWS} #{gembin}" do
+#      gem_binary gembin
+#      package_name "knife-windows"
+#      version KNIFE_WINDOWS
+#      notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
+#      # XXX notify mommacat if we're *not* in chef-apply... RUNNING_STANDALONE
+#    end
 
 #    execute "Patch #{rubydir}'s knife-windows for Cygwin SSH bootstraps" do
 #      cwd "#{gemdir}/knife-windows-#{KNIFE_WINDOWS}"
@@ -469,7 +470,7 @@ end
 
 # Community cookbooks keep touching gems, and none of them are smart about our
 # default umask. We have to clean up after them every time.
-["/usr/local/ruby-current", "/opt/chef/embedded", "/opt/opscode/embedded"].each { |rubydir|
+["/usr/local/ruby-current", "/opt/chef/embedded"].each { |rubydir|
   execute "trigger permission fix in #{rubydir}" do
     command "ls /etc/motd > /dev/null"
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed
