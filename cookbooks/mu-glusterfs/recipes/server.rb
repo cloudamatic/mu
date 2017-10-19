@@ -43,7 +43,7 @@ case node[:platform]
         end
         raid_no_spare("/dev/md0", 0, 2, "/dev/md1 /dev/md2")
       else
-        node[:glusterfs][:server][:raid_levels_map.each] do |type|
+        node[:glusterfs][:server][:raid_levels_map].each do |type|
           if node[:glusterfs][:server][:raid_spare_vol]
             if type['level'] == node[:glusterfs][:server][:raid_level] and type['spare'] == node[:glusterfs][:server][:raid_spare_vol] and node[:glusterfs][:server][:devices.size] >= type['min_devcies']
               spare_device = node[:glusterfs][:server][:devices.pop]
@@ -80,7 +80,7 @@ case node[:platform]
 
     else
       $gluster_mnt_pts = []
-      node[:glusterfs][:server][:devices.each] do |dev|
+      node[:glusterfs][:server][:devices].each do |dev|
         execute "mkfs -t xfs -i size=512 #{dev}" do
           not_if "xfs_info #{dev}"
         end
@@ -102,7 +102,7 @@ case node[:platform]
 
     include_recipe 'mu-firewall'
 
-    node[:glusterfs][:fw][:each] { |rule|
+    node[:glusterfs][:fw].each { |rule|
       firewall_rule "Allow glusterfs #{rule['usage']}" do
         port rule['port_range']
       end
