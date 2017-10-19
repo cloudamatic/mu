@@ -312,7 +312,7 @@ remote_file "#{MU_BASE}/bin/mu-self-update" do
   mode 0755
 end
 
-["/usr/local/ruby-current", "/opt/chef/embedded", "/opt/opscode/embedded"].each { |rubydir|
+["/usr/local/ruby-current", "/opt/chef/embedded"].each { |rubydir|
   gembin = rubydir+"/bin/gem"
   gemdir = Dir.glob("#{rubydir}/lib/ruby/gems/?.?.?/gems").last
   bundler_path = gembin.sub(/gem$/, "bundle")
