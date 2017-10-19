@@ -150,6 +150,17 @@ if !node['application_attributes']['skip_recipes'].include?('windows-client')
           password sshd_password
 ignore_failure true
         end
+
+        begin
+          resources('service[sshd]')
+        rescue Chef::Exceptions::ResourceNotFound
+          service "sshd" do
+            run_as_user login_dom+'\\'+sshd_user
+            run_as_password sshd_password
+            action [:enable, :start]
+            sensitive true
+          end
+        end
       else
         windows_users node['hostname'] do
           username node['windows_admin_username']
@@ -176,16 +187,15 @@ ignore_failure true
           service_username ".\\#{sshd_user}"
           password sshd_password
         end
-      end# 
-
-      begin
-        resources('service[sshd]')
-      rescue Chef::Exceptions::ResourceNotFound
-        service "sshd" do
-          run_as_user "#{login_dom}\\#{sshd_user}"
-          run_as_password sshd_password
-          action [:enable, :start]
-          sensitive true
+        begin
+          resources('service[sshd]')
+        rescue Chef::Exceptions::ResourceNotFound
+          service "sshd" do
+            run_as_user sshd_user
+            run_as_password sshd_password
+            action [:enable, :start]
+            sensitive true
+          end
         end
       end
 
