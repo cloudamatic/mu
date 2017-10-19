@@ -781,6 +781,8 @@ module MU
         csr.version = 0
         csr.subject = OpenSSL::X509::Name.parse "CN=#{canonical_ip}/O=Mu/C=US"
         csr.public_key = key.public_key
+        csr.sign key, OpenSSL::Digest::SHA1.new
+        
         open("#{MU.mySSLDir}/#{@server.mu_name}.csr", 'w', 0644) { |io|
           io.write csr.to_pem
         }
