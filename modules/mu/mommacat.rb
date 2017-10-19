@@ -1969,7 +1969,7 @@ MESSAGE_END
       begin
         csr = OpenSSL::X509::Request.new File.read csr_path
       rescue Exception => e
-        MU.log e.message, MU::ERR, details: File.read csr_path
+        MU.log e.message, MU::ERR, details: File.read(csr_path)
         raise e
       end
       key = OpenSSL::PKey::RSA.new File.read "#{certdir}/#{certname}.key"
