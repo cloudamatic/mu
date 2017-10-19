@@ -7,18 +7,18 @@ current_vpc = MU.myVPC
 appname: demo
 servers:
   -
-    name: rails
+    name: gitlab
     ssh_user: ubuntu
     platform: ubuntu
     storage:
       -
         size: 15
     skipinitialupdates: true
+    size: t2.micro
     run_list:
-      - "recipe[demo::rails]"
-    size: "t2.micro"
+    - recipe[demo::gitlab-ce]
     associate_public_ip: true
-    static_ip:
+    static_ip: 
       assign_ip: true
     vpc:
     <% if $vpc_deploy_id %>
@@ -35,7 +35,7 @@ servers:
           - "0.0.0.0/0"
     dependencies:
       -
-        name: "concerto"
+        name: "gitLabDB"
         type: "database"
 <% unless $use_current or $vpc_deploy_id then %>
 vpcs:
@@ -55,13 +55,13 @@ vpcs:
 <% end %>
 databases:
   -
-    name: "concerto"
-    engine: "mysql"
+    name: "gitLabDB"
+    engine: "postgres"
     size: "db.t2.micro"
     multi_az_on_deploy: false
     multi_az_on_create: false
     storage: 5
-    port: 3306
+    port: 5432
     vpc:
     <% if $vpc_deploy_id %>
       deploy_id: <%= $vpc_deploy_id %>
@@ -75,10 +75,4 @@ databases:
       <% (1..$azs.size).each do |i| %>
         - subnet_name: Subnet<%= i-1 %>Public
       <% end %>
-  <% end %>
-
-admins:
-  -
-    name: "catwoman"
-    email: "catwoman@felinesrock.com"
-
+    <% end %>

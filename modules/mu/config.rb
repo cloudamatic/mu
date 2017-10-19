@@ -1511,10 +1511,10 @@ module MU
           ok = false
         end
 
-        if alarm["notification_endpoint"].nil?
-          MU.log "You must specify 'notification_endpoint' when 'enable_notifications' is set to true", MU::ERR
-          ok = false
-        end
+        #if alarm["notification_endpoint"].nil?
+        #  MU.log "You must specify 'notification_endpoint' when 'enable_notifications' is set to true", MU::ERR
+        #  ok = false
+        #end
       end
       
       if alarm["dimensions"]
@@ -3271,7 +3271,7 @@ module MU
         "ok_actions" => {
             "type" => "array",
             "minItems" => 1,
-            "description" => "What action(s) to take when alarm state transitions to 'OK'.",
+            "description" => "What actions to take when alarm state transitions to 'OK'.",
             "items" => {
                 "type" => "String"
             }
@@ -3279,7 +3279,7 @@ module MU
         "alarm_actions" => {
             "type" => "array",
             "minItems" => 1,
-            "description" => "What action(s) to take when alarm state transitions to 'ALARM'.",
+            "description" => "What actions to take when alarm state transitions to 'ALARM'.",
             "items" => {
                 "type" => "String"
             }
@@ -3287,7 +3287,7 @@ module MU
         "no_data_actions" => {
             "type" => "array",
             "minItems" => 1,
-            "description" => "What action(s) to take when alarm state transitions to 'INSUFFICIENT'.",
+            "description" => "What actions to take when alarm state transitions to 'INSUFFICIENT'.",
             "items" => {
                 "type" => "String"
             }

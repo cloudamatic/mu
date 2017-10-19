@@ -69,12 +69,10 @@ databases:
     vault: "<%=dbvault %>"
     item: "<%=dbvaultitem %>"
   <% end %>
-  db_family: mysql5.6
   engine: mysql
   port: 3306
   size: db.t2.micro
   storage: 5
-  engine_version: 5.6.23
   vpc: 
     vpc_name: <%= vpc_name %>
     <% if parameter?('vpc_deploy_id') %>
@@ -91,7 +89,7 @@ servers:
 - name: wpress
   loadbalancers:
   - concurrent-load-balancer: "lb"
-  size: t2.medium
+  size: t2.micro
   create_image:
     image_then_destroy: true
   storage:
