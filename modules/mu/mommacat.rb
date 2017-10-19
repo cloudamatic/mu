@@ -1966,7 +1966,12 @@ MESSAGE_END
       end
       MU.log "Signing SSL certificate request #{csr_path} with #{MU.mySSLDir}/Mu_CA.pem"
 
-      csr = OpenSSL::X509::Request.new File.read csr_path
+      begin
+        csr = OpenSSL::X509::Request.new File.read csr_path
+      rescue Exception => e
+        MU.log e.message, MU::ERR, details: File.read csr_path
+        raise e
+      end
       key = OpenSSL::PKey::RSA.new File.read "#{certdir}/#{certname}.key"
 
       # Load up the Mu Certificate Authority
