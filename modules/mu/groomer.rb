@@ -110,6 +110,7 @@ module MU
             retval = @groomer_obj.method(method).call
           end
         rescue Exception => e
+        pp e.backtrace
           raise MU::Groomer::RunError, e.message, e.backtrace
         end
         @groom_semaphore.synchronize {

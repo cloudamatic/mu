@@ -21,7 +21,6 @@ gem "chef"
 autoload :Chef, 'chef'
 gem "chef-vault"
 autoload :ChefVault, 'chef-vault'
-gem "knife-windows"
 require 'timeout'
 
 module MU
@@ -1158,21 +1157,34 @@ module MU
               elsif kittens.size == 0
                 # If we don't have a MU::Cloud object, manufacture a dummy one.
                 # Give it a fake name if we have to and have decided that's ok.
-                if (name.nil? or name.empty?) and !dummy_ok
-                  MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", MU::DEBUG, details: caller
-                  next
-                else
-                  if !mu_name.nil?
-                    name = mu_name
-                  elsif !tag_value.nil?
-                    name = tag_value
+                if (name.nil? or name.empty?)
+                  if !dummy_ok
+                    MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", MU::DEBUG, details: caller
+                    next
                   else
-                    name = kitten_cloud_id
+                    if !mu_name.nil?
+                      name = mu_name
+                    elsif !tag_value.nil?
+                      name = tag_value
+                    else
+                      name = kitten_cloud_id
+                    end
                   end
                 end
                 cfg = {"name" => name, "cloud" => cloud, "region" => r}
-                if !calling_deploy.nil?
-                  matches << resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s)
+                # If we can at least find the config from the deploy this will
+                # belong with, use that, even if it's an ungroomed resource.
+                if !calling_deploy.nil? and
+                   !calling_deploy.original_config.nil? and
+                   !calling_deploy.original_config[type+"s"].nil?
+                  calling_deploy.original_config[type+"s"].each { |s|
+                    if s["name"] == name
+                      cfg = s.dup
+                      break
+                    end
+                  }
+
+                  matches << resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: kitten_cloud_id)
                 else
                   matches << resourceclass.new(mu_name: name, kitten_cfg: cfg, cloud_id: kitten_cloud_id.to_s)
                 end
@@ -1633,7 +1645,7 @@ module MU
     # @param system_name [String]: The node's local system name
     # @return [void]
     def self.addInstanceToEtcHosts(public_ip, chef_name = nil, system_name = nil)
-      return if MU.mu_user != "mu"
+      return if !["mu", "root"].include?(MU.mu_user)
 
       # XXX cover ipv6 case
       if public_ip.nil? or !public_ip.match(/^\d+\.\d+\.\d+\.\d+$/) or (chef_name.nil? and system_name.nil?)
@@ -1644,7 +1656,7 @@ module MU
       end
       File.readlines("/etc/hosts").each { |line|
         if line.match(/^#{public_ip} /) or (chef_name != nil and line.match(/ #{chef_name}(\s|$)/)) or (system_name != nil and line.match(/ #{system_name}(\s|$)/))
-          MU.log("Attempt to add duplicate /etc/hosts entry: #{public_ip} #{chef_name} #{system_name}", MU::WARN)
+          MU.log "Ignoring attempt to add duplicate /etc/hosts entry: #{public_ip} #{chef_name} #{system_name}", MU::DEBUG
           return
         end
       }
@@ -1913,11 +1925,41 @@ MESSAGE_END
       return nodes
     end
 
+    # For a given (Windows) server, return it's administrator user and password.
+    # This is generally for requests made to MommaCat from said server, which
+    # we can assume have been authenticated with the deploy secret.
+    # @param server [MU::Cloud::Server]: The Server object whose credentials we're fetching.
+    def retrieveWindowsAdminCreds(server)
+      if server.nil?
+        raise MuError, "retrieveWindowsAdminCreds must be called with a Server object"
+      elsif !server.is_a?(MU::Cloud::Server)
+        raise MuError, "retrieveWindowsAdminCreds must be called with a Server object (got #{server.class.name})"
+      end
+#      if !server.windows?
+#        raise MuError, "#{server} is not a Windows node"
+#      end
+#MU.log "retrieveWindowsAdminCreds called on a thing", MU::NOTICE, details: server.config
+      if server.config['use_cloud_provider_windows_password']
+        return [server.config["windows_admin_username"], server.getWindowsAdminPassword]
+      elsif server.config['windows_auth_vault'] && !server.config['windows_auth_vault'].empty?
+        if server.config["windows_auth_vault"].has_key?("password_field")
+          return [server.config["windows_admin_username"],
+            server.groomer.getSecret(
+              vault: server.config['windows_auth_vault']['vault'],
+              item: server.config['windows_auth_vault']['item'],
+              field: server.config["windows_auth_vault"]["password_field"]
+            )]
+        else
+          return [server.config["windows_admin_username"], server.getWindowsAdminPassword]
+        end
+      end
+      []
+    end
 
     # Given a Certificate Signing Request, sign it with our internal CA and
     # writers the resulting signed certificate. Only works on local files.
     # @param csr_path [String]: The CSR to sign, as a file.
-    def signSSLCert(csr_path)
+    def signSSLCert(csr_path, sans = [])
       # XXX more sanity here, this feels unsafe
       certdir = File.dirname(csr_path)
       certname = File.basename(csr_path, ".csr")
@@ -1928,11 +1970,11 @@ MESSAGE_END
       MU.log "Signing SSL certificate request #{csr_path} with #{MU.mySSLDir}/Mu_CA.pem"
 
       csr = OpenSSL::X509::Request.new File.read csr_path
+      key = OpenSSL::PKey::RSA.new File.read "#{certdir}/#{certname}.key"
 
       # Load up the Mu Certificate Authority
       cakey = OpenSSL::PKey::RSA.new File.read "#{MU.mySSLDir}/Mu_CA.key"
       cacert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/Mu_CA.pem"
-
       cur_serial = 0
       File.open("#{MU.mySSLDir}/serial", File::CREAT|File::RDWR, 0600) { |f|
         f.flock(File::LOCK_EX)
@@ -1948,13 +1990,25 @@ MESSAGE_END
       # Create a certificate from our CSR, signed by the Mu CA
       cert = OpenSSL::X509::Certificate.new
       cert.serial = cur_serial
-      cert.version = 2
+      cert.version = 3
       cert.not_before = Time.now
-      cert.not_after = Time.now + 1800000 # 500 days
+      cert.not_after = Time.now + 180000000
       cert.subject = csr.subject
       cert.public_key = csr.public_key
       cert.issuer = cacert.subject
-      cert.sign cakey, OpenSSL::Digest::SHA1.new
+      if !sans.nil? and sans.size > 0
+        MU.log "Incorporting Subject Alternative Names: #{sans.join(",")}"
+        ef = OpenSSL::X509::ExtensionFactory.new
+        ef.issuer_certificate = cacert
+#v3_req_client 
+        ef.subject_certificate = cert
+        ef.subject_request = csr
+        cert.add_extension(ef.create_extension("keyUsage","nonRepudiation,digitalSignature,keyEncipherment", false))
+        cert.add_extension(ef.create_extension("subjectAltName",sans.join(","),false))
+# XXX only do this if we see the otherName thinger in the san list
+        cert.add_extension(ef.create_extension("extendedKeyUsage","clientAuth,serverAuth,codeSigning,emailProtection",false))
+      end
+      cert.sign cakey, OpenSSL::Digest::SHA256.new
 
       open("#{certdir}/#{certname}.crt", 'w', 0644) { |io|
         io.write cert.to_pem
@@ -1963,6 +2017,7 @@ MESSAGE_END
         owner_uid = Etc.getpwnam(MU.mu_user).uid
         File.chown(owner_uid, nil, "#{certdir}/#{certname}.crt")
       end
+
     end
 
     # Make sure deployment data is synchronized to/from each node in the
@@ -2050,6 +2105,113 @@ MESSAGE_END
       }
 
       MU.log "Synchronization of #{@deploy_id} complete", MU::DEBUG, details: update_servers
+    end
+
+    # Given a MU::Cloud::Server object, return the generic self-signed SSL
+    # certficate we made for it. If one doesn't exist yet, generate it first.
+    # If it's a Windows node, also generate a certificate for WinRM client auth.
+    # @param server [MU::Cloud::Server]: The server for which to generate or return the cert
+    def nodeSSLCerts(server)
+      nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = server.getSSHConfig
+
+      certs = {}
+      results = {}
+
+      if File.exists?("#{MU.mySSLDir}/#{server.mu_name}.crt") and
+         File.exists?("#{MU.mySSLDir}/#{server.mu_name}.key")
+        results[server.mu_name] = [
+          OpenSSL::X509::Certificate.new(File.read("#{MU.mySSLDir}/#{server.mu_name}.crt")),
+          OpenSSL::PKey::RSA.new(File.read("#{MU.mySSLDir}/#{server.mu_name}.key"))
+        ]
+      else
+        certs[server.mu_name] = {
+          "sans" => ["IP:#{canonical_ip}"],
+          "cn" => server.mu_name
+        }
+      end
+
+      if server.windows?
+        if File.exists?("#{MU.mySSLDir}/#{server.mu_name}-winrm.crt") and
+           File.exists?("#{MU.mySSLDir}/#{server.mu_name}-winrm.key")
+          results[server.mu_name+"-winrm"] = [File.read("#{MU.mySSLDir}/#{server.mu_name}-winrm.crt"), File.read("#{MU.mySSLDir}/#{server.mu_name}-winrm.key")]
+        else
+          certs[server.mu_name+"-winrm"] = {
+            "sans" => ["otherName:1.3.6.1.4.1.311.20.2.3;UTF8:#{server.config['windows_admin_username']}@localhost"],
+            "cn" => server.config['windows_admin_username']
+          }
+        end
+      end
+
+      certs.each { |certname, data|
+        MU.log "Generating SSL certificate #{certname} for #{server}"
+
+        # Create and save a key
+        key = OpenSSL::PKey::RSA.new 4096
+        if !Dir.exist?(MU.mySSLDir)
+          Dir.mkdir(MU.mySSLDir, 0700)
+        end
+
+        open("#{MU.mySSLDir}/#{certname}.key", 'w', 0600) { |io|
+          io.write key.to_pem
+        }
+        # Create a certificate request for this node
+        csr = OpenSSL::X509::Request.new
+        csr.version = 3
+        csr.subject = OpenSSL::X509::Name.parse "CN=#{data['cn']}/O=Mu/C=US"
+        csr.public_key = key.public_key
+        open("#{MU.mySSLDir}/#{certname}.csr", 'w', 0644) { |io|
+          io.write csr.to_pem
+        }
+        if MU.chef_user == "mu"
+          signSSLCert("#{MU.mySSLDir}/#{certname}.csr", data['sans'])
+        else
+          deploykey = OpenSSL::PKey::RSA.new(public_key)
+          deploysecret = Base64.urlsafe_encode64(deploykey.public_encrypt(deploy_secret))
+          res_type = "server"
+          res_type = "server_pool" if !server.config['basis'].nil?
+          uri = URI("https://#{MU.mu_public_addr}:2260/")
+          req = Net::HTTP::Post.new(uri)
+          req.set_form_data(
+            "mu_id" => MU.deploy_id,
+            "mu_resource_name" => server.config['name'],
+            "mu_resource_type" => res_type,
+            "mu_ssl_sign" => "#{MU.mySSLDir}/#{certname}.csr",
+            "mu_ssl_sans" => sans.join(","),
+            "mu_user" => MU.mu_user,
+            "mu_deploy_secret" => deploysecret
+          )
+          http = Net::HTTP.new(uri.hostname, uri.port)
+          http.ca_file = "/etc/pki/Mu_CA.pem" # XXX why no worky?
+          http.use_ssl = true
+          http.verify_mode = OpenSSL::SSL::VERIFY_NONE # XXX this sucks
+          response = http.request(req)
+
+          MU.log "Got error back on signing request for #{MU.mySSLDir}/#{certname}.csr", MU::ERR if response.code != "200"
+        end
+        
+        cert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/#{certname}.crt"
+        results[certname] = [cert, key]
+
+        pfx = nil
+        if server.windows?
+          cacert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/Mu_CA.pem"
+          pfx = OpenSSL::PKCS12.create(nil, nil, key, cert, [cacert], nil, nil, nil, nil)
+          open("#{MU.mySSLDir}/#{certname}.pfx", 'w', 0644) { |io|
+            io.write pfx.to_der
+          }
+        end
+
+        if server.config['cloud'] == "AWS"
+          MU::Cloud::AWS.writeDeploySecret(@deploy_id, cert.to_pem, certname+".crt")
+          MU::Cloud::AWS.writeDeploySecret(@deploy_id, key.to_pem, certname+".key")
+          if server.windows?
+            MU::Cloud::AWS.writeDeploySecret(@deploy_id, pfx.to_der, certname+".pfx")
+          end
+# XXX add google logic, or better yet abstract this method
+        end
+      }
+
+      results[server.mu_name]
     end
 
     private

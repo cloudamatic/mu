@@ -28,9 +28,9 @@ require 'socket'
 
 # XXX We want to be able to override these things when invoked from chef-apply,
 # but, like, how?
-CHEF_SERVER_VERSION="12.15.7-1"
-CHEF_CLIENT_VERSION="12.21.3-1"
-KNIFE_WINDOWS="1.8.0"
+CHEF_SERVER_VERSION="12.16.14-1"
+CHEF_CLIENT_VERSION="12.21.14-1"
+KNIFE_WINDOWS="1.9.0"
 MU_BRANCH="master"
 MU_BASE="/opt/mu"
 
@@ -318,8 +318,8 @@ end
   bundler_path = gembin.sub(/gem$/, "bundle")
   bash "fix #{rubydir} gem permissions" do
     code <<-EOH
-      find -P #{rubydir}/lib/ruby/gems/?.?.?/gems/ -type d -exec chmod go+rx {} \\;
-      find -P #{rubydir}/lib/ruby/gems/?.?.?/gems/ -type f -exec chmod go+r {} \\;
+      find -P #{rubydir}/lib/ruby/gems/?.?.?/ #{rubydir}/lib/ruby/site_ruby/ -type d -exec chmod go+rx {} \\;
+      find -P #{rubydir}/lib/ruby/gems/?.?.?/ #{rubydir}/lib/ruby/site_ruby/ -type f -exec chmod go+r {} \\;
       find -P #{rubydir}/bin -type f -exec chmod go+rx {} \\;
     EOH
     action :nothing
@@ -362,14 +362,14 @@ end
       # XXX notify mommacat if we're *not* in chef-apply... RUNNING_STANDALONE
     end
 
-    execute "Patch #{rubydir}'s knife-windows for Cygwin SSH bootstraps" do
-      cwd "#{gemdir}/knife-windows-#{KNIFE_WINDOWS}"
-      command "patch -p1 < #{MU_BASE}/lib/install/knife-windows-cygwin-#{KNIFE_WINDOWS}.patch"
-      not_if "grep -i 'locate_config_value(:cygwin)' #{gemdir}/knife-windows-#{KNIFE_WINDOWS}/lib/chef/knife/bootstrap_windows_base.rb"
-      notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
-      only_if { ::Dir.exists?(gemdir) }
+#    execute "Patch #{rubydir}'s knife-windows for Cygwin SSH bootstraps" do
+#      cwd "#{gemdir}/knife-windows-#{KNIFE_WINDOWS}"
+#      command "patch -p1 < #{MU_BASE}/lib/install/knife-windows-cygwin-#{KNIFE_WINDOWS}.patch"
+#      not_if "grep -i 'locate_config_value(:cygwin)' #{gemdir}/knife-windows-#{KNIFE_WINDOWS}/lib/chef/knife/bootstrap_windows_base.rb"
+#      notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
+#      only_if { ::Dir.exists?(gemdir) }
       # XXX notify mommacat if we're *not* in chef-apply... RUNNING_STANDALONE
-    end
+#    end
   end
 }
 

@@ -484,8 +484,9 @@ module MU
       # @param search [Array<String>]: Strings to search for.
       # @param exact [Boolean]: Return only exact matches for whole fields.
       # @param searchbase [String]: The DN under which to search.
+      # @param groups [Array<String>]: An array of groups. If supplied, a user must be a member of one of these in order to match.
       # @return [Array<Hash>]
-      def self.findUsers(search = [], exact: false, searchbase: $MU_CFG['ldap']['base_dn'], extra_attrs: [])
+      def self.findUsers(search = [], exact: false, searchbase: $MU_CFG['ldap']['base_dn'], extra_attrs: [], matchgroups: [])
         # We want to search groups, but can't search on memberOf with wildcards.
         # So search groups independently, build a list of full CNs, and use
         # those.
@@ -554,6 +555,9 @@ module MU
             next if users.has_key?(acct[@uid_attr].first)
           rescue NoMethodError
             next
+          end
+          if matchgroups and matchgroups.size > 0
+            next if (acct[:memberOf] & matchgroups).size < 1
           end
           users[acct[@uid_attr].first] = {}
           users[acct[@uid_attr].first]['dn'] = acct.dn

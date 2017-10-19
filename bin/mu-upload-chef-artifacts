@@ -192,10 +192,10 @@ add_berkshelf_cookbooks()
   echo "${GREEN}Uploading Berkshelf Chef cookbooks from ${BOLD}$repodir${NORM}"
 
   if [ "$match" == "" ];then
-    cd $repodir && $berks upload --no-freeze || exit 1
+    cd $repodir && $berks upload --no-freeze --force || exit 1
   elif [ "$berkshelf_cookbooks" != "" ];then
     echo "${GREEN}Matching only: ${BOLD}${berkshelf_cookbooks}${NORM}${GREEN}${NORM}"
-    cd $repodir && $berks upload $berkshelf_cookbooks --no-freeze 2>&1 || echo "${YELLOW}Missing cookbooks ok when using -m if they're not supposed to have been in $repodir/Berksfile${NORM}"
+    cd $repodir && $berks upload $berkshelf_cookbooks --no-freeze --force 2>&1 || echo "${YELLOW}Missing cookbooks ok when using -m if they're not supposed to have been in $repodir/Berksfile${NORM}"
   fi
   cd $MU_CHEF_CACHE
 }
