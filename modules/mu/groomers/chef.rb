@@ -295,6 +295,9 @@ module MU
           else
             winrm = @server.getWinRMSession(max_retries)
             if @server.windows? and @server.windowsRebootPending?(winrm)
+              if retries > 3
+                @server.reboot # sometimes it needs help
+              end
               raise MU::Groomer::RunError, "#{@server.mu_name} has a pending reboot"
             end
             if try_upgrade
@@ -350,7 +353,7 @@ MU.log "preclean err #{e.inspect}", MU::ERR
 
           if retries < max_retries
             retries += 1
-            MU.log "#{@server.mu_name}: Chef run '#{purpose}' failed after #{Time.new - runstart} seconds, retrying (#{retries}/#{max_retries})", MU::WARN, details: e.inspect
+            MU.log "#{@server.mu_name}: Chef run '#{purpose}' failed after #{Time.new - runstart} seconds, retrying (#{retries}/#{max_retries})", MU::WARN, details: e.message
             sleep 30
             retry
           else
