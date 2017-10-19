@@ -1936,10 +1936,6 @@ MESSAGE_END
       elsif !server.is_a?(MU::Cloud::Server)
         raise MuError, "retrieveWindowsAdminCreds must be called with a Server object (got #{server.class.name})"
       end
-#      if !server.windows?
-#        raise MuError, "#{server} is not a Windows node"
-#      end
-#MU.log "retrieveWindowsAdminCreds called on a thing", MU::NOTICE, details: server.config
       if server.config['use_cloud_provider_windows_password']
         return [server.config["windows_admin_username"], server.getWindowsAdminPassword]
       elsif server.config['windows_auth_vault'] && !server.config['windows_auth_vault'].empty?

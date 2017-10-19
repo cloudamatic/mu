@@ -188,9 +188,9 @@ $deploy_secret = & "c:\opscode\chef\embedded\bin\ruby" -ropenssl -rbase64 -e "ke
 function callMomma([string]$act)
 {
   $params = @{mu_id='<%= $mu.muID %>';mu_resource_name='<%= $mu.resourceName %>';mu_resource_type='<%= $mu.resourceType %>';mu_instance_id="$awsid";mu_user='<%= $mu.muUser %>';mu_deploy_secret="$deploy_secret";$act="1"}
-  log "Calling Momma Cat at https://52.0.111.223:2260 with $act"
+  log "Calling Momma Cat at https://<%= $mu.publicIP %>:2260 with $act"
   [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true} # XXX
-  $resp = Invoke-WebRequest -Uri https://52.0.111.223:2260 -Method POST -Body $params
+  $resp = Invoke-WebRequest -Uri https://<%= $mu.publicIP %>:2260 -Method POST -Body $params
   log $resp.Content
   return $resp.Content
 }
