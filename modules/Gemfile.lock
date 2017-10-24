@@ -1,6 +1,6 @@
 GIT
   remote: https://github.com/eGT-Labs/knife-windows.git
-  revision: 824063601c59a81702e31f6a69223e68e96e4e06
+  revision: 0deb5ce9bba6718ebac6bb6c48a1a4b7bdc4b15b
   branch: winrm_cert_auth
   specs:
     knife-windows (1.9.0)
@@ -50,10 +50,10 @@ GEM
     celluloid-io (0.16.2)
       celluloid (>= 0.16.0)
       nio4r (>= 1.1.0)
-    chef (12.21.14)
+    chef (12.21.20)
       addressable
       bundler (>= 1.10)
-      chef-config (= 12.21.14)
+      chef-config (= 12.21.20)
       chef-zero (>= 4.8, < 13)
       diff-lcs (~> 1.2, >= 1.2.4)
       erubis (~> 2.7)
@@ -79,7 +79,7 @@ GEM
       specinfra (~> 2.10)
       syslog-logger (~> 1.6)
       uuidtools (~> 2.1.5)
-    chef-config (12.21.14)
+    chef-config (12.21.20)
       addressable
       fuzzyurl
       mixlib-config (~> 2.0)
@@ -155,7 +155,7 @@ GEM
     nori (2.6.0)
     octokit (4.7.0)
       sawyer (~> 0.8.0, >= 0.5.3)
-    ohai (8.24.1)
+    ohai (8.25.0)
       chef-config (>= 12.5.0.alpha.1, < 14)
       ffi (~> 1.9)
       ffi-yajl (~> 2.2)
@@ -191,22 +191,22 @@ GEM
       retryable (~> 2.0)
       semverse (~> 2.0)
       varia_model (~> 0.6)
-    rspec (3.6.0)
-      rspec-core (~> 3.6.0)
-      rspec-expectations (~> 3.6.0)
-      rspec-mocks (~> 3.6.0)
-    rspec-core (3.6.0)
-      rspec-support (~> 3.6.0)
-    rspec-expectations (3.6.0)
+    rspec (3.7.0)
+      rspec-core (~> 3.7.0)
+      rspec-expectations (~> 3.7.0)
+      rspec-mocks (~> 3.7.0)
+    rspec-core (3.7.0)
+      rspec-support (~> 3.7.0)
+    rspec-expectations (3.7.0)
       diff-lcs (>= 1.2.0, < 2.0)
-      rspec-support (~> 3.6.0)
+      rspec-support (~> 3.7.0)
     rspec-its (1.2.0)
       rspec-core (>= 3.0.0)
       rspec-expectations (>= 3.0.0)
-    rspec-mocks (3.6.0)
+    rspec-mocks (3.7.0)
       diff-lcs (>= 1.2.0, < 2.0)
-      rspec-support (~> 3.6.0)
-    rspec-support (3.6.0)
+      rspec-support (~> 3.7.0)
+    rspec-support (3.7.0)
     rspec_junit_formatter (0.2.3)
       builder (< 4)
       rspec-core (>= 2, < 4, != 2.12.0)
@@ -218,7 +218,7 @@ GEM
       addressable (>= 2.3.5, < 2.6)
       faraday (~> 0.8, < 1.0)
     semverse (2.0.0)
-    serverspec (2.41.0)
+    serverspec (2.41.1)
       multi_json
       rspec (~> 3.0)
       rspec-its
@@ -259,7 +259,7 @@ GEM
     winrm-elevated (1.1.0)
       winrm (~> 2.0)
       winrm-fs (~> 1.0)
-    winrm-fs (1.0.2)
+    winrm-fs (1.1.0)
       erubis (~> 2.7)
       logging (>= 1.6.1, < 3.0)
       rubyzip (~> 1.1)

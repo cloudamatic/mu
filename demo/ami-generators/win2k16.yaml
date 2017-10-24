@@ -2,14 +2,12 @@
   appname: mu
   servers: 
     - 
-      name: win2k12
+      name: win2k16
       platform: windows
-      size: t2.large
+      size: m4.large
       run_list:
       - recipe[mu-tools::updates]
       - recipe[mu-utility::cleanup_image_helper]
-      application_attributes:
-        os_updates_using_chef: true
       create_image:
         image_then_destroy: true
         public: true

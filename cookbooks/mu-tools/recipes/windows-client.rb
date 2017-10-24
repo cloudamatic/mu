@@ -148,7 +148,6 @@ if !node['application_attributes']['skip_recipes'].include?('windows-client')
           service_username "#{node['ad']['netbios_name']}\\#{sshd_user}"
           username sshd_user
           password sshd_password
-ignore_failure true
         end
 
         begin
@@ -190,8 +189,9 @@ ignore_failure true
         begin
           resources('service[sshd]')
         rescue Chef::Exceptions::ResourceNotFound
-          service "sshd" do
-            run_as_user sshd_user
+          service "Cygwin sshd as '#{sshd_user}'" do
+						service_name "sshd"
+            run_as_user ".\\"+sshd_user
             run_as_password sshd_password
             action [:enable, :start]
             sensitive true
