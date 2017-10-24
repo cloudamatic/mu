@@ -222,7 +222,7 @@ action :config do
       }
 
 			# XXX user resource seems not to really be setting password, or is setting			# in such a way that the user is being required to change it. Workaround.
-      powershell_script "Adjust local account params for #{new_resource.ssh_user}" do
+      powershell_script "Adjust local account params for #{usr}" do
 				code <<-EOH
 					(([adsi]('WinNT://./#{usr}, user')).psbase.invoke('SetPassword', '#{pass}'))
 				EOH
