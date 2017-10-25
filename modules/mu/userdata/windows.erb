@@ -191,7 +191,6 @@ function callMomma([string]$act)
   log "Calling Momma Cat at https://<%= $mu.publicIP %>:2260 with $act"
   [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true} # XXX
   $resp = Invoke-WebRequest -Uri https://<%= $mu.publicIP %>:2260 -Method POST -Body $params
-  log $resp.Content
   return $resp.Content
 }
 
