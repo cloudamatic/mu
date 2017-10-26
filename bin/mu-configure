@@ -938,8 +938,10 @@ if $MU_CFG['ldap']['type'] == "389 Directory Services"
     MU.log "Configuring 389 Directory Services", MU::NOTICE
     set389DSCreds
     system("chef-client -o 'recipe[mu-master::389ds]'")
+    exit 1 if $? != 0
     MU::Master::LDAP.initLocalLDAP
     system("chef-client -o 'recipe[mu-master::sssd]'")
+    exit 1 if $? != 0
   end
 end
 
