@@ -2,6 +2,9 @@
 
 CHEF_CLIENT_VERSION="12.21.14-1"
 MU_BRANCH="master"
+if [ "$1" != "" ];then
+  MU_BRANCH="$1"
+fi
 
 # XXX All RHEL family. We can at least cover Debian-flavored hosts too, I bet.
 DIST_VERSION=`rpm -qa \*-release\* | grep -Ei "redhat|centos" | cut -d"-" -f3`
