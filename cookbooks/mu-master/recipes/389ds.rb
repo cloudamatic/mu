@@ -68,6 +68,7 @@ $CREDS.each_pair { |creds, cfg|
 #  %x{/usr/sbin/setenforce 0}
 execute "initialize 389 Directory Services" do
   command "/usr/sbin/setup-ds-admin.pl -s -f /root/389ds.tmp/389-directory-setup.inf --continue --debug #{Dir.exists?("/etc/dirsrv/slapd-#{$MU_CFG["hostname"]}") ? "--update" : ""}"
+  ignore_failure true # XXX this is a bug in the package; we're currently getting spurious exit(1)s from this thing even when it works fine
   action :nothing
 end
 
