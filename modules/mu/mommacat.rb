@@ -2121,11 +2121,22 @@ MESSAGE_END
 
       if File.exists?("#{MU.mySSLDir}/#{server.mu_name}.crt") and
          File.exists?("#{MU.mySSLDir}/#{server.mu_name}.key")
-        results[server.mu_name] = [
-          OpenSSL::X509::Certificate.new(File.read("#{MU.mySSLDir}/#{server.mu_name}.crt")),
-          OpenSSL::PKey::RSA.new(File.read("#{MU.mySSLDir}/#{server.mu_name}.key"))
-        ]
-      else
+        ext_cert = OpenSSL::X509::Certificate.new(File.read("#{MU.mySSLDir}/#{server.mu_name}.crt"))
+        if ext_cert.not_after < Time.now
+          MU.log "Node certificate for #{server.mu_name} is expired, regenerating", MU::WARN
+          ["crt", "key", "csr"].each { |suffix|
+            if File.exists?("#{MU.mySSLDir}/#{server.mu_name}.#{suffix}")
+              File.unlink("#{MU.mySSLDir}/#{server.mu_name}.#{suffix}")
+            end
+          }
+        else
+          results[server.mu_name] = [
+            OpenSSL::X509::Certificate.new(File.read("#{MU.mySSLDir}/#{server.mu_name}.crt")),
+            OpenSSL::PKey::RSA.new(File.read("#{MU.mySSLDir}/#{server.mu_name}.key"))
+          ]
+        end
+      end
+      if results.size == 0
         certs[server.mu_name] = {
           "sans" => ["IP:#{canonical_ip}"],
           "cn" => server.mu_name
