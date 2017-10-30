@@ -267,7 +267,6 @@ module MU
         end
         saveDeployData
 
-        MU.log "Invoking Chef on #{@server.mu_name}: #{purpose}"
         retries = 0
         try_upgrade = false
         output = []
@@ -280,9 +279,12 @@ module MU
         begin
           runstart = Time.new
           if !@server.windows? or windows_try_ssh
+            MU.log "Invoking Chef over ssh on #{@server.mu_name}: #{purpose}"
             windows_try_ssh = false
             ssh = @server.getSSHSession(max_retries)
-            if !@config["ssh_user"].nil? and !@config["ssh_user"].empty? and @config["ssh_user"] != "root"
+            if @server.windows?
+              cmd = "chef-client.bat --color || echo #{error_signal}"
+            elsif !@config["ssh_user"].nil? and !@config["ssh_user"].empty? and @config["ssh_user"] != "root"
               upgrade_cmd = try_upgrade ? "sudo curl -L https://chef.io/chef/install.sh | sudo version=#{MU.chefVersion} sh &&" : ""
               cmd = "#{upgrade_cmd} sudo chef-client --color || echo #{error_signal}"
             else
@@ -295,7 +297,9 @@ module MU
               raise MU::Groomer::RunError, output.grep(/ ERROR: /).last if data.match(/#{error_signal}/)
             }
           else
+            MU.log "Invoking Chef over WinRM on #{@server.mu_name}: #{purpose}"
             winrm = @server.getWinRMSession(haveBootstrapped? ? 1 : max_retries)
+MU.log "wtfsauce", MU::WARN
             if @server.windows? and @server.windowsRebootPending?(winrm)
               if retries > 3
                 @server.reboot # sometimes it needs help
@@ -335,7 +339,6 @@ module MU
             end
             sleep 10
           end
-
           if e.instance_of?(MU::Groomer::RunError) and retries == 0 and max_retries > 1
             MU.log "Got a run error, will attempt to install/update Chef Client on next attempt", MU::NOTICE
             try_upgrade = true
@@ -343,7 +346,7 @@ module MU
             try_upgrade = false
           end
 
-          if !e.is_a?(WinRM::WinRMError)
+          if e.is_a?(MU::Groomer::RunError)
             if reboot_first_fail
               try_upgrade = true
               begin
@@ -354,7 +357,11 @@ module MU
               end
               reboot_first_fail = false
             end
-          elsif haveBootstrapped?
+          end
+
+          # Effectively alternate between WinRM and ssh on Windows. Something
+          # will probably work eventually. Right?
+          if @server.windows? and haveBootstrapped?
             windows_try_ssh = true
           end
 
