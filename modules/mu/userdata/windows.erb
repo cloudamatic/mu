@@ -231,7 +231,7 @@ $thumb = $nodecert.Thumbprint
 # actually, should remove janky certificates outright
 winrm delete winrm/config/Listener?Address=*+Transport=HTTPS
 winrm create winrm/config/Listener?Address=*+Transport=HTTPS "@{Hostname=`"$myname`";CertificateThumbprint=`"$thumb`"}"
-ngroup = net localgroup WinRMRemoteWMIUsers__ | Where-Object {$_ -eq "<%= $mu.windowsAdminName %>"}
+$ingroup = net localgroup WinRMRemoteWMIUsers__ | Where-Object {$_ -eq "<%= $mu.windowsAdminName %>"}
 if($ingroup -ne "<%= $mu.windowsAdminName %>"){
   net localgroup WinRMRemoteWMIUsers__ /add <%= $mu.windowsAdminName %>
 }
