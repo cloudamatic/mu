@@ -1,0 +1,15 @@
+---
+  appname: mu
+  servers: 
+    - 
+      name: win2k12
+      platform: windows
+      size: m4.large
+      run_list:
+      - recipe[mu-tools::updates]
+      - recipe[mu-utility::cleanup_image_helper]
+      create_image:
+        image_then_destroy: true
+        public: true
+        copy_to_regions:
+        - "#ALL"

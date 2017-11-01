@@ -303,6 +303,6 @@ GRAPH
   yum (3.13.0)
   yum-epel (2.1.2)
     compat_resource (>= 12.16.3)
-  zap (1.0.2)
+  zap (1.1.0)
   zipfile (0.1.0)
   zypper (0.4.0)

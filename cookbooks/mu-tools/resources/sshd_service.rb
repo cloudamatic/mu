@@ -29,17 +29,17 @@ action :config do
       # cmd = powershell_out("c:/bin/cygwin/bin/bash --login -c 'chown -R #{new_resource.username} /var/empty && chown #{new_resource.username} /var/log/sshd.log /etc/ssh*\'; Stop-Process -ProcessName #{new_resource.name} -force; Stop-Service #{new_resource.name} -Force; Start-Service #{new_resource.name}; sleep 5; Start-Service #{new_resource.name}")
       # We would much prefer to use the above because that wouldn't  require another reboot, but in some cases the session dosen't get terminated from  Mu. Throwing Chef::Application.fatal seems to work more reliably
       cmd = powershell_out("c:/bin/cygwin/bin/bash --login -c 'chown -R #{new_resource.username} /var/empty && chown #{new_resource.username} /var/log/sshd.log /etc/ssh*\'")
-      execute "kill ssh for reboot" do
-        command "Taskkill /im sshd.exe /f /t"
-        returns [0, 128, 1115]
-        action :nothing
-      end
+#      execute "kill ssh for reboot" do
+#        command "Taskkill /im sshd.exe /f /t"
+#        returns [0, 128, 1115]
+#        action :nothing
+#      end
       reboot "Setting Cygwin ssh user to #{new_resource.username}" do
-        action :reboot_now
+        action :request_reboot
         reason "Setting Cygwin ssh user to #{new_resource.username}"
-        notifies :run, "execute[kill ssh for reboot]", :immediately
+#        notifies :run, "execute[kill ssh for reboot]", :immediately
       end
-      kill_ssh
+#      kill_ssh
     end
   end
 end

@@ -198,11 +198,15 @@ action :config do
     cookbook_file "c:\\Windows\\SysWOW64\\ntrights.exe" do
       source "ntrights"
     end
-
     [new_resource.ssh_user, new_resource.ec2config_user].each { |usr|
+			pass = if usr == new_resource.ec2config_user
+				new_resource.ec2config_password
+			elsif usr == new_resource.ssh_user
+				new_resource.ssh_password
+			end
+
       user usr do
-        password new_resource.ec2config_password if usr == new_resource.ec2config_user
-        password new_resource.ssh_password if usr == new_resource.ssh_user
+        password pass
       end
 
       group "Administrators" do
@@ -217,12 +221,21 @@ action :config do
         end
       }
 
+			# XXX user resource seems not to really be setting password, or is setting			# in such a way that the user is being required to change it. Workaround.
+      powershell_script "Adjust local account params for #{usr}" do
+				code <<-EOH
+					(([adsi]('WinNT://./#{usr}, user')).psbase.invoke('SetPassword', '#{pass}'))
+				EOH
+      end
+
       if usr == new_resource.ssh_user
+
         %w{SeCreateTokenPrivilege SeTcbPrivilege SeAssignPrimaryTokenPrivilege}.each { |privilege|
           batch "Grant local user #{usr} logon as service right" do
             code "C:\\Windows\\SysWOW64\\ntrights +r #{privilege} -u #{usr}"
           end
         }
+					
       end
     }
   end

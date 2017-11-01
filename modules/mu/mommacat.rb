@@ -1965,7 +1965,12 @@ MESSAGE_END
       end
       MU.log "Signing SSL certificate request #{csr_path} with #{MU.mySSLDir}/Mu_CA.pem"
 
-      csr = OpenSSL::X509::Request.new File.read csr_path
+      begin
+        csr = OpenSSL::X509::Request.new File.read csr_path
+      rescue Exception => e
+        MU.log e.message, MU::ERR, details: File.read(csr_path)
+        raise e
+      end
       key = OpenSSL::PKey::RSA.new File.read "#{certdir}/#{certname}.key"
 
       # Load up the Mu Certificate Authority
@@ -2115,11 +2120,22 @@ MESSAGE_END
 
       if File.exists?("#{MU.mySSLDir}/#{server.mu_name}.crt") and
          File.exists?("#{MU.mySSLDir}/#{server.mu_name}.key")
-        results[server.mu_name] = [
-          OpenSSL::X509::Certificate.new(File.read("#{MU.mySSLDir}/#{server.mu_name}.crt")),
-          OpenSSL::PKey::RSA.new(File.read("#{MU.mySSLDir}/#{server.mu_name}.key"))
-        ]
-      else
+        ext_cert = OpenSSL::X509::Certificate.new(File.read("#{MU.mySSLDir}/#{server.mu_name}.crt"))
+        if ext_cert.not_after < Time.now
+          MU.log "Node certificate for #{server.mu_name} is expired, regenerating", MU::WARN
+          ["crt", "key", "csr"].each { |suffix|
+            if File.exists?("#{MU.mySSLDir}/#{server.mu_name}.#{suffix}")
+              File.unlink("#{MU.mySSLDir}/#{server.mu_name}.#{suffix}")
+            end
+          }
+        else
+          results[server.mu_name] = [
+            OpenSSL::X509::Certificate.new(File.read("#{MU.mySSLDir}/#{server.mu_name}.crt")),
+            OpenSSL::PKey::RSA.new(File.read("#{MU.mySSLDir}/#{server.mu_name}.key"))
+          ]
+        end
+      end
+      if results.size == 0
         certs[server.mu_name] = {
           "sans" => ["IP:#{canonical_ip}"],
           "cn" => server.mu_name
@@ -2155,6 +2171,7 @@ MESSAGE_END
         csr.version = 3
         csr.subject = OpenSSL::X509::Name.parse "CN=#{data['cn']}/O=Mu/C=US"
         csr.public_key = key.public_key
+        csr.sign key, OpenSSL::Digest::SHA256.new
         open("#{MU.mySSLDir}/#{certname}.csr", 'w', 0644) { |io|
           io.write csr.to_pem
         }

@@ -1,7 +1,9 @@
 #!/bin/sh
 
 CHEF_CLIENT_VERSION="12.21.14-1"
-MU_BRANCH="master"
+if [ "$MU_BRANCH" == "" ];then
+  MU_BRANCH="master"
+fi
 
 # XXX All RHEL family. We can at least cover Debian-flavored hosts too, I bet.
 DIST_VERSION=`rpm -qa \*-release\* | grep -Ei "redhat|centos" | cut -d"-" -f3`

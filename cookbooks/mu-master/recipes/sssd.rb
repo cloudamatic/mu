@@ -63,6 +63,10 @@ execute "/usr/sbin/authconfig --disablenis --disablecache --disablewinbind --dis
   notifies :reload, "service[sshd]", :delayed
   not_if "grep pam_sss.so /etc/pam.d/password-auth"
 end
+directory "/var/log/sssd" do
+  mode 0750
+  recursive true
+end
 service "sssd" do
   action :nothing
   notifies :restart, "service[sshd]", :immediately
@@ -70,6 +74,8 @@ end
 template "/etc/sssd/sssd.conf" do
   source "sssd.conf.erb"
   mode 0600
+  owner "root"
+  group "root"
   notifies :restart, "service[sssd]", :immediately
   variables(
     :base_dn => $MU_CFG['ldap']['base_dn'],

@@ -1015,11 +1015,18 @@ module MU
             if windows?
               # kick off certificate generation early; WinRM will need it
               cert, key = @deploy.nodeSSLCerts(self)
-              session = getWinRMSession(50, 60, reboot_on_problems: true)
-              initialWinRMTasks(session)
-              session.close
-# XXX account for machines behind bastion hosts that we can't tunnel through;
-# maybe then it's ok to fall back to sshd?
+              if !@groomer.haveBootstrapped?
+                session = getWinRMSession(50, 60, reboot_on_problems: true)
+                initialWinRMTasks(session)
+                session.close
+              else # for an existing Windows node: WinRM, then SSH if it fails
+                begin
+                  session = getWinRMSession(1, 60)
+                rescue Exception # yeah, yeah
+                  session = getSSHSession(1, 60)
+                  # XXX maybe loop at least once if this also fails?
+                end
+              end
             else
               session = getSSHSession(40, 30)
               initialSSHTasks(session)
