@@ -2,7 +2,7 @@
 
 CHEF_CLIENT_VERSION="12.21.14-1"
 if [ "$MU_BRANCH" == "" ];then
-  MU_BRANCH="master"
+  MU_BRANCH="the_goog"
 fi
 
 # XXX All RHEL family. We can at least cover Debian-flavored hosts too, I bet.

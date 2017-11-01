@@ -31,7 +31,7 @@ require 'socket'
 CHEF_SERVER_VERSION="12.16.14-1"
 CHEF_CLIENT_VERSION="12.21.14-1"
 KNIFE_WINDOWS="1.9.0"
-MU_BRANCH="winrm_more_like_rm_windows"
+MU_BRANCH="the_goog"
 MU_BASE="/opt/mu"
 
 begin
