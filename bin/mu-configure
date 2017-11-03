@@ -660,7 +660,7 @@ if !$opts[:noninteractive]
       puts ""
       exit 0
     end
-    if $MENU_MAP.has_key?(answer)
+    if $MENU_MAP.has_key?(answer) and $MENU_MAP[answer].has_key?("title")
       newval = ask($MENU_MAP[answer])
       if !validate(newval, $MENU_MAP[answer])
         sleep 1
