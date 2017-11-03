@@ -671,7 +671,7 @@ module MU
                       end
                     }
                   else
-                    MU.log "VPC #{peer_id} is not managed by this Mu server or is not configured to auto-accept peering requests. You must accept the peering request for '#{@config['name']}' (#{@config['vpc_id']}) by hand.", MU::WARN, details: "In the AWS Console, go to VPC => Peering Connections and look in the Actions drop-down. You can also set 'Invade Foreign VPCs' to 'true' using mu-configure to auto-accept all peering connections within this account, regardless of whether this Mu server owns the VPCs."
+                    MU.log "VPC #{peer_id} is not managed by this Mu server or is not configured to auto-accept peering requests. You must accept the peering request for '#{@config['name']}' (#{@config['vpc_id']}) by hand.", MU::WARN, details: "In the AWS Console, go to VPC => Peering Connections and look in the Actions drop-down. You can also set 'Invade Foreign VPCs' to 'true' using mu-configure to auto-accept all peering connections within this account, regardless of whether this Mu server owns the VPCs. This setting is per-user."
                   end
                 end
 
