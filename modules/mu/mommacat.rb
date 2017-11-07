@@ -2189,7 +2189,7 @@ MESSAGE_END
             "mu_resource_name" => server.config['name'],
             "mu_resource_type" => res_type,
             "mu_ssl_sign" => "#{MU.mySSLDir}/#{certname}.csr",
-            "mu_ssl_sans" => sans.join(","),
+            "mu_ssl_sans" => data["sans"].join(","),
             "mu_user" => MU.mu_user,
             "mu_deploy_secret" => deploysecret
           )
