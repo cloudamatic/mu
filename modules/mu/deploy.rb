@@ -286,7 +286,7 @@ module MU
         @reraise_thread.raise MuError, e.inspect, e.backtrace if @reraise_thread
         Thread.current.exit
       ensure
-        if @mommacat.numKittens(clouds: ["CloudFormation"]) > 0
+        if @mommacat and @mommacat.numKittens(clouds: ["CloudFormation"]) > 0
           MU::Cloud::CloudFormation.writeCloudFormationTemplate(tails: MU::Config.tails, config: @main_config, path: @cloudformation_output, mommacat: @mommacat)
           # If we didn't build anything besides CloudFormation, purge useless
           # metadata.

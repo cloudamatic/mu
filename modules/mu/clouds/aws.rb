@@ -52,7 +52,7 @@ module MU
             body: value
           )
         rescue Aws::S3::Errors => e
-          raise DeployInitializeError, "Got #{e.inspect} trying to write #{name} to #{MU.adminBucketName}"
+          raise MU::MommaCat::DeployInitializeError, "Got #{e.inspect} trying to write #{name} to #{MU.adminBucketName}"
         end
       end
 

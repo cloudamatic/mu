@@ -33,22 +33,23 @@ module MU
       def self.writeDeploySecret(deploy_id, value)
         name = deploy_id+"-secret"
         begin
-          MU.log "Writing #{name} to Cloud Storage bucket #{MU.adminBucketName}"
+          MU.log "Writing #{name} to Cloud Storage bucket #{$MU_CFG['google']['log_bucket_name']}"
           f = Tempfile.new(name) # XXX this is insecure and stupid
           f.write value
           f.close
           objectobj = MU::Cloud::Google.storage(:Object).new(
-            bucket: MU.adminBucketName,
+            bucket: $MU_CFG['google']['log_bucket_name'],
             name: name
           )
           ebs_key = MU::Cloud::Google.storage.insert_object(
-            MU.adminBucketName,
+            $MU_CFG['google']['log_bucket_name'],
             objectobj,
             upload_source: f.path
           )
           f.unlink
         rescue ::Google::Apis::ClientError => e
-          raise DeployInitializeError, "Got #{e.inspect} trying to write #{name} to #{MU.adminBucketName}"
+        pp e.inspect
+          raise MU::MommaCat::DeployInitializeError, "Got #{e.inspect} trying to write #{name} to #{$MU_CFG['google']['log_bucket_name']}"
         end
       end
 
@@ -59,32 +60,32 @@ module MU
       def self.grantDeploySecretAccess(acct, deploy_id = MU.deploy_id)
         name = deploy_id+"-secret"
         begin
-          MU.log "Granting #{acct} access to list Cloud Storage bucket #{MU.adminBucketName}"
+          MU.log "Granting #{acct} access to list Cloud Storage bucket #{$MU_CFG['google']['log_bucket_name']}"
           MU::Cloud::Google.storage.insert_bucket_access_control(
-            MU.adminBucketName,
+            $MU_CFG['google']['log_bucket_name'],
             MU::Cloud::Google.storage(:BucketAccessControl).new(
-              bucket: MU.adminBucketName,
+              bucket: $MU_CFG['google']['log_bucket_name'],
               role: "READER",
               entity: "user-"+acct
             )
           )
 
           aclobj = MU::Cloud::Google.storage(:ObjectAccessControl).new(
-            bucket: MU.adminBucketName,
+            bucket: $MU_CFG['google']['log_bucket_name'],
             role: "READER",
             entity: "user-"+acct
           )
 
           [name, "log_vol_ebs_key"].each { |obj|
-            MU.log "Granting #{acct} access to #{obj} in Cloud Storage bucket #{MU.adminBucketName}"
+            MU.log "Granting #{acct} access to #{obj} in Cloud Storage bucket #{$MU_CFG['google']['log_bucket_name']}"
             MU::Cloud::Google.storage.insert_object_access_control(
-              MU.adminBucketName,
+              $MU_CFG['google']['log_bucket_name'],
               obj,
               aclobj
             )
           }
         rescue ::Google::Apis::ClientError => e
-          raise MuError, "Got #{e.inspect} trying to set ACLs for #{deploy_id} in #{MU.adminBucketName}"
+          raise MuError, "Got #{e.inspect} trying to set ACLs for #{deploy_id} in #{$MU_CFG['google']['log_bucket_name']}"
         end
       end
 
@@ -385,6 +386,7 @@ module MU
               # take advantage.
               # XXX might want to do something similar for delete ops? just the
               # but where we wait for the operation to definitely be done
+              had_been_found = false
               if method_sym.to_s.match(/^(insert|create)_/) and retval.target_link
 #                service["#MU_CLOUDCLASS"].instance_methods(false).include?(:groom)
                 get_method = method_sym.to_s.gsub(/^(insert|create_disk|create)_/, "get_").to_sym
@@ -397,6 +399,7 @@ module MU
                 end
                 faked_args.push(cloud_id)
                 actual_resource = @api.method(get_method).call(*faked_args)
+                had_been_found = true
                 if actual_resource.respond_to?(:status) and
                   ["PROVISIONING", "STAGING", "PENDING", "CREATING", "RESTORING"].include?(actual_resource.status)
                   retries = 0
@@ -417,7 +420,9 @@ module MU
             return retval
           rescue ::Google::Apis::ServerError, ::Google::Apis::ClientError => e
             if e.class.name == "Google::Apis::ClientError" and
-               (!e.message.match(/^notFound: /) or !method_sym.to_s.match(/^insert_/))
+               (!e.message.match(/^notFound: /) or
+               !method_sym.to_s.match(/^insert_/) or
+               (e.message.match(/^notFound: /) and had_been_found)) # disappeared
               raise e
             end
             retries = retries + 1

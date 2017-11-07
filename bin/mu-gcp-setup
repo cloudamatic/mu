@@ -54,7 +54,7 @@ if $opts[:sg]
   open_ports = [80, 443, 2260, 7443, 8443, 9443, 8200]
 end
 
-$bucketname = MU.adminBucketName
+$bucketname = $MU_CFG['google']['log_bucket_name']
 
 if $opts[:logs]
   exists = false
