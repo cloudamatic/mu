@@ -95,22 +95,24 @@ module MU
           @config = MU::Config.manxify(kitten_cfg)
           @cloud_id = cloud_id
 
-          @userdata = MU::Cloud::AWS::Server.fetchUserdata(
-            platform: @config["platform"],
-            template_variables: {
-              "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
-              "deploySSHKey" => @deploy.ssh_public_key,
-              "muID" => MU.deploy_id,
-              "muUser" => MU.mu_user,
-              "publicIP" => MU.mu_public_ip,
-              "skipApplyUpdates" => @config['skipinitialupdates'],
-              "windowsAdminName" => @config['windows_admin_username'],
-              "resourceName" => @config["name"],
-              "resourceType" => "server",
-              "platform" => @config["platform"]
-            },
-            custom_append: @config['userdata_script']
-          )
+          if @deploy
+            @userdata = MU::Cloud::AWS::Server.fetchUserdata(
+              platform: @config["platform"],
+              template_variables: {
+                "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
+                "deploySSHKey" => @deploy.ssh_public_key,
+                "muID" => MU.deploy_id,
+                "muUser" => MU.mu_user,
+                "publicIP" => MU.mu_public_ip,
+                "skipApplyUpdates" => @config['skipinitialupdates'],
+                "windowsAdminName" => @config['windows_admin_username'],
+                "resourceName" => @config["name"],
+                "resourceType" => "server",
+                "platform" => @config["platform"]
+              },
+              custom_append: @config['userdata_script']
+            )
+          end
 
           @disk_devices = MU::Cloud::AWS::Server.disk_devices
           @ephemeral_mappings = MU::Cloud::AWS::Server.ephemeral_mappings
