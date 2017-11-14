@@ -352,9 +352,6 @@ module MU
               else
                 retval = @api.method(method_sym).call
               end
-if method_sym == :insert_instance
-MU.log "response to #{method_sym.to_s})", MU::WARN, details: retval
-end
             rescue ::Google::Apis::ClientError => e
               if e.message.match(/^invalidParameter:/)
                 MU.log e.message, MU::ERR, details: arguments
@@ -378,7 +375,7 @@ end
 
             if retval.class == ::Google::Apis::ComputeBeta::Operation
               retries = 0
-              orig_target = retval.target_link
+              orig_target = retval.name
               begin
                 if retries > 0 and retries % 3 == 0
                   MU.log "Waiting for #{method_sym} to be done (retry #{retries})", MU::NOTICE
@@ -453,11 +450,16 @@ end
               if e.message.match(/^notFound: /) and method_sym.to_s.match(/^insert_/)
                 logreq = MU::Cloud::Google.logging(:ListLogEntriesRequest).new(
                   resource_names: ["projects/"+arguments.first],
-                  filter: "severity >= ERROR"# AND serviceName=\"compute.googleapis.com\"" # AND resourceName == target_link ?
+                  filter: %Q{labels."compute.googleapis.com/resource_id"="#{retval.target_id}"}
                 )
-MU.log "'bout to call MU::Cloud::Google.logging.list_entry_log_entries", MU::WARN, details: logreq
                 logs = MU::Cloud::Google.logging.list_entry_log_entries(logreq)
-                MU.log "#{method_sym.to_s} appeared to succeed, but then the resource disappeared!", MU::ERR, details: logs
+                details = nil
+                if logs.entries
+                  details = logs.entries.map { |e| e.json_payload }
+                  details.reject! { |e| e["error"].nil? or e["error"].size == 0 }
+                end
+
+                raise MuError, "#{method_sym.to_s} appeared to succeed, but then the resource disappeared! #{details.to_s}"
               end
               raise e
             end
