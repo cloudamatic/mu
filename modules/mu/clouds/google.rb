@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-require "google/cloud"
 require 'googleauth'
 require "net/http"
 require 'net/https'
@@ -246,7 +245,7 @@ module MU
         end
       end
 
-      # Google's Iam Service API
+      # Google's IAM Service API
       # @param subclass [<Google::Apis::IamV1>]: If specified, will return the class ::Google::Apis::IamV1::subclass instead of an API client instance
       def self.iam(subclass = nil)
         require 'google/apis/iam_v1'
@@ -258,6 +257,20 @@ module MU
           return Object.const_get("::Google").const_get("Apis").const_get("IamV1").const_get(subclass)
         end
       end
+
+      # Google's StackDriver Logging Service API
+      # @param subclass [<Google::Apis::LoggingV2>]: If specified, will return the class ::Google::Apis::LoggingV2::subclass instead of an API client instance
+      def self.logging(subclass = nil)
+        require 'google/apis/logging_v2'
+
+        if subclass.nil?
+          @@logging_api ||= MU::Cloud::Google::Endpoint.new(api: "LoggingV2::LoggingService", scopes: ['https://www.googleapis.com/auth/cloud-platform'])
+          return @@logging_api
+        elsif subclass.is_a?(Symbol)
+          return Object.const_get("::Google").const_get("Apis").const_get("LoggingV2").const_get(subclass)
+        end
+      end
+
 
       private
 
@@ -298,10 +311,15 @@ module MU
                 delete_sym = "delete_#{type}".to_sym
                 if !noop
                   begin
+                    resp = nil
                     if region
-                      MU::Cloud::Google.compute.send(delete_sym, project, region, obj.name)
+                      resp = MU::Cloud::Google.compute.send(delete_sym, project, region, obj.name)
                     else
-                      MU::Cloud::Google.compute.send(delete_sym, project, obj.name)
+                      resp = MU::Cloud::Google.compute.send(delete_sym, project, obj.name)
+                    end
+                    if resp.error and resp.error.errors and resp.error.errors.size > 0
+                      MU.log "Error deleting #{type.gsub(/_/, " ")} #{obj.name}", MU::ERR, details: resp.error.errors
+                      raise MuError, "Failed to delete #{type.gsub(/_/, " ")} #{obj.name}"
                     end
                   rescue ::Google::Apis::ClientError => e
                     raise e if !e.message.match(/^notFound: /)
@@ -321,6 +339,7 @@ module MU
         # rescues for known silly endpoint behavior.
         def method_missing(method_sym, *arguments)
           retries = 0
+          actual_resource = nil
           begin
             MU.log "Calling #{method_sym}", MU::DEBUG, details: arguments
             retval = nil
@@ -333,6 +352,9 @@ module MU
               else
                 retval = @api.method(method_sym).call
               end
+if method_sym == :insert_instance
+MU.log "response to #{method_sym.to_s})", MU::WARN, details: retval
+end
             rescue ::Google::Apis::ClientError => e
               if e.message.match(/^invalidParameter:/)
                 MU.log e.message, MU::ERR, details: arguments
@@ -356,12 +378,14 @@ module MU
 
             if retval.class == ::Google::Apis::ComputeBeta::Operation
               retries = 0
+              orig_target = retval.target_link
               begin
                 if retries > 0 and retries % 3 == 0
                   MU.log "Waiting for #{method_sym} to be done (retry #{retries})", MU::NOTICE
                 else
                   MU.log "Waiting for #{method_sym} to be done (retry #{retries})", MU::DEBUG, details: retval
                 end
+
                 if retval.status != "DONE"
                   sleep 7
                   begin
@@ -399,6 +423,9 @@ module MU
                 end
                 faked_args.push(cloud_id)
                 actual_resource = @api.method(get_method).call(*faked_args)
+#if method_sym == :insert_instance
+#MU.log "actual_resource", MU::WARN, details: actual_resource
+#end
                 had_been_found = true
                 if actual_resource.respond_to?(:status) and
                   ["PROVISIONING", "STAGING", "PENDING", "CREATING", "RESTORING"].include?(actual_resource.status)
@@ -420,14 +447,22 @@ module MU
             return retval
           rescue ::Google::Apis::ServerError, ::Google::Apis::ClientError => e
             if e.class.name == "Google::Apis::ClientError" and
-               (!e.message.match(/^notFound: /) or
-               !method_sym.to_s.match(/^insert_/) or
-               (e.message.match(/^notFound: /) and had_been_found)) # disappeared
+               (!method_sym.to_s.match(/^insert_/) or !e.message.match(/^notFound: /) or
+                (e.message.match(/^notFound: /) and method_sym.to_s.match(/^insert_/))
+               )
+              if e.message.match(/^notFound: /) and method_sym.to_s.match(/^insert_/)
+                logreq = MU::Cloud::Google.logging(:ListLogEntriesRequest).new(
+                  resource_names: ["projects/"+arguments.first],
+                  filter: "severity >= ERROR"# AND serviceName=\"compute.googleapis.com\"" # AND resourceName == target_link ?
+                )
+MU.log "'bout to call MU::Cloud::Google.logging.list_entry_log_entries", MU::WARN, details: logreq
+                logs = MU::Cloud::Google.logging.list_entry_log_entries(logreq)
+                MU.log "#{method_sym.to_s} appeared to succeed, but then the resource disappeared!", MU::ERR, details: logs
+              end
               raise e
             end
             retries = retries + 1
-#            debuglevel = MU::DEBUG
-debuglevel = MU::NOTICE
+            debuglevel = MU::DEBUG
             interval = 5 + Random.rand(4) - 2
             if retries < 10 and retries > 2
               debuglevel = MU::NOTICE
@@ -439,6 +474,7 @@ debuglevel = MU::NOTICE
             # elsif retries > 100
               # raise MuError, "Exhausted retries after #{retries} attempts while calling EC2's #{method_sym} in #{@region}.  Args were: #{arguments}"
             end
+
             MU.log "Got #{e.inspect} calling Google's #{method_sym}, waiting #{interval.to_s}s and retrying. Called from: #{caller[1]}", debuglevel, details: arguments
             sleep interval
             retry
@@ -448,6 +484,7 @@ debuglevel = MU::NOTICE
       @@compute_api = nil
       @@storage_api = nil
       @@iam_api = nil
+      @@logging_api = nil
     end
   end
 end

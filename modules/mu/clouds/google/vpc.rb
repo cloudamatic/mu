@@ -460,7 +460,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
 # XXX tagged routes aren't showing up in list, and the networks that own them
 # fail to delete silently
             MU::Cloud::Google.compute.delete(
-              "network",
+              type,
               flags["project"],
               noop
             )

@@ -44,24 +44,25 @@ module MU
           @config = MU::Config.manxify(kitten_cfg)
           @cloud_id = cloud_id
 
-          # XXX does this go into a Google::Apis::ComputeBeta::Metadata object?
-          @userdata = MU::Cloud.fetchUserdata(
-            platform: @config["platform"],
-            cloud: "google",
-            template_variables: {
-              "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
-              "deploySSHKey" => @deploy.ssh_public_key,
-              "muID" => MU.deploy_id,
-              "muUser" => MU.mu_user,
-              "publicIP" => MU.mu_public_ip,
-              "skipApplyUpdates" => @config['skipinitialupdates'],
-              "windowsAdminName" => @config['windows_admin_username'],
-              "resourceName" => @config["name"],
-              "resourceType" => "server",
-              "platform" => @config["platform"]
-            },
-            custom_append: @config['userdata_script']
-          )
+          if @deploy
+            @userdata = MU::Cloud.fetchUserdata(
+              platform: @config["platform"],
+              cloud: "google",
+              template_variables: {
+                "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
+                "deploySSHKey" => @deploy.ssh_public_key,
+                "muID" => MU.deploy_id,
+                "muUser" => MU.mu_user,
+                "publicIP" => MU.mu_public_ip,
+                "skipApplyUpdates" => @config['skipinitialupdates'],
+                "windowsAdminName" => @config['windows_admin_username'],
+                "resourceName" => @config["name"],
+                "resourceType" => "server",
+                "platform" => @config["platform"]
+              },
+              custom_append: @config['userdata_script']
+            )
+          end
 
           if !mu_name.nil?
             @mu_name = mu_name
