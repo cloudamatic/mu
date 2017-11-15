@@ -865,7 +865,7 @@ else
 end
 
 if $IN_AWS and AMROOT
-  system("#{MU_BASE}/lib/bin/mu-aws-setup --dns --sg --logs")
+  system("#{MU_BASE}/lib/bin/mu-aws-setup --dns --sg --logs --ephemeral")
 # XXX --ip? Do we really care?
 end
 
