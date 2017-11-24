@@ -191,6 +191,18 @@ git "#{MU_BASE}/lib" do
   notifies :run, "bash[set git default branch]", :immediately
 end
 
+# Enable some git hook weirdness for Mu developers
+["post-merge", "post-checkout", "post-rewrite"].each { |hook|
+  remote_file "#{MU_BASE}/lib/.git/hooks/#{hook}" do
+    source "file://#{MU_BASE}/lib/extras/git-fix-permissions-hook"
+    mode 0755
+  end
+}
+remote_file "#{MU_BASE}/lib/.git/hooks/pre-commit" do
+  source "file://#{MU_BASE}/lib/extras/git-fix-branch-hook"
+  mode 0755
+end
+
 directory MU_BASE+"/var" do
   recursive true
   mode 0755
