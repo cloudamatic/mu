@@ -9,17 +9,20 @@
 # would behave in an incredibly annoying way on a system where someone stuck,
 # say, git or GNU sed in a non-standard place.
 if [ "`whoami`" == "root" ];then
+  if [ "$MU_LIBDIR" == "" ];then
+    MU_LIBDIR="/opt/mu/lib"
+  fi
+  cd $MU_LIBDIR
 	# XXX dumbly assume we're in Mu's LIBDIR in .git/hooks
   branch=`git branch | grep '^*' | cut -d' ' -f2`
-  if ! grep "^  MU_BRANCH=\"$branch\"" ../../install/installer ;then
-    sed -i "s/^  MU_BRANCH=\".*\"/  MU_BRANCH=\"$branch\"/" ../../install/installer
+  if ! grep "^  MU_BRANCH=\"$branch\"" install/installer > /dev/null;then
+    sed -i "s/^  MU_BRANCH=\".*\"/  MU_BRANCH=\"$branch\"/" install/installer
     echo "Set default branch in install/installer to $branch"
-    git add ../../install/installer
+    git add install/installer
   fi
-  if ! grep "^MU_BRANCH=\"$branch\"" ../../cookbooks/mu-master/recipes/init.rb ;then
-    sed -i "s/^MU_BRANCH=\".*\"/MU_BRANCH=\"$branch\"/" ../../cookbooks/mu-master/recipes/init.rb
+  if ! grep "^MU_BRANCH=\"$branch\"" cookbooks/mu-master/recipes/init.rb > /dev/null;then
+    sed -i "s/^MU_BRANCH=\".*\"/MU_BRANCH=\"$branch\"/" cookbooks/mu-master/recipes/init.rb
     echo "Set default branch in cookbooks/mu-master/recipes/init.rb to $branch"
-    git add ../../cookbooks/mu-master/recipes/init.rb
+    git add cookbooks/mu-master/recipes/init.rb
   fi
-  echo $scriptpath
 fi
