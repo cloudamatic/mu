@@ -174,11 +174,12 @@ directory MU_BASE do
   recursive true
   mode 0755
 end
-bash "set git default branch" do
+bash "set git default branch to #{MU_BRANCH}" do
   cwd "#{MU_BASE}/lib"
   code <<-EOH
     git config branch.#{MU_BRANCH}.remote origin
     git config branch.#{MU_BRANCH}.merge refs/heads/#{MU_BRANCH}
+    git checkout #{MU_BRANCH}
   EOH
   action :nothing
 end
@@ -188,7 +189,7 @@ git "#{MU_BASE}/lib" do
   checkout_branch MU_BRANCH
   enable_checkout false
   not_if { ::Dir.exists?("#{MU_BASE}/lib/.git") }
-  notifies :run, "bash[set git default branch]", :immediately
+  notifies :run, "bash[set git default branch to #{MU_BRANCH}]", :immediately
 end
 
 # Enable some git hook weirdness for Mu developers
