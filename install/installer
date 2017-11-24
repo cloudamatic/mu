@@ -50,10 +50,14 @@ fi
 if [ -d /opt/mu/lib/cookbooks/mu-master/recipes ];then
   /opt/chef/bin/chef-apply /opt/mu/lib/cookbooks/mu-master/recipes/init.rb
 else
-  echo "****** Installing Mu from the ${BOLD}$MU_BRANCH${NORM} branch ******"
-  echo "***** Hit ^C now if that's not what you intended *****"
-  echo "*** Prepend ${BOLD}MU_BRANCH=some_branch_name${NORM} when calling me to use a different branch ***"
+  set +x
+  echo ""
+  echo "*** Installing Mu from the ${BOLD}$MU_BRANCH${NORM} branch ***"
+  echo "*** Hit ^C now if that's not what you intended ***"
+  echo "*** Prepend ${BOLD}MU_BRANCH=some_branch_name${NORM} to use another branch ***"
+  echo ""
   sleep 10
+  set -x
   /usr/bin/curl https://raw.githubusercontent.com/cloudamatic/mu/$MU_BRANCH/cookbooks/mu-master/recipes/init.rb > /root/mu-master-init-recipe.rb
   /opt/chef/bin/chef-apply /root/mu-master-init-recipe.rb
 fi
