@@ -185,6 +185,8 @@ end
 git "#{MU_BASE}/lib" do
   repository "git://github.com/cloudamatic/mu.git"
   revision MU_BRANCH
+  checkout_branch MU_BRANCH
+  enable_checkout false
   not_if { ::Dir.exists?("#{MU_BASE}/lib/.git") }
   notifies :run, "bash[set git default branch]", :immediately
 end
