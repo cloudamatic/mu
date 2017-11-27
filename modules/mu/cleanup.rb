@@ -143,6 +143,10 @@ module MU
         MU::Cloud::VPC.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: { "global" => true }) if @mommacat.nil? or @mommacat.numKittens(types: ["VPC"]) > 0
 
         MU::Cloud::DNSZone.cleanup(noop: @noop, cloud: "AWS", ignoremaster: @ignoremaster) if @mommacat.nil? or @mommacat.numKittens(types: ["DNSZone"]) > 0
+
+
+        MU::Cloud::Google.removeDeploySecretsAndRoles(MU.deploy_id) 
+# XXX port AWS equivalent behavior and add a MU::Cloud wrapper
       end
 
       # Scrub any residual Chef records with matching tags

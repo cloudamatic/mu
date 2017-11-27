@@ -1319,7 +1319,6 @@ next if !create
               noop
             ) if !noop
           }
-
         end
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::servers}, bare and unvalidated.
