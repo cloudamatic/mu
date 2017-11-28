@@ -510,7 +510,11 @@ def importCurrentValues
 end
 
 def printVal(data)
-  if !data["value"].nil?
+  valid = true
+  valid = validate(data["value"], data) if data["value"]
+  if !valid
+    print " - "+data["value"].to_s.red.on_black
+  elsif !data["value"].nil?
     print " - "+data["value"].to_s.green.on_black
   elsif data["required"]
     print " - "+"REQUIRED".red.on_black
@@ -616,17 +620,18 @@ def validate(newval, reqs)
         puts "\nSupplied value did not pass validation".light_red.on_black+"\n\n"
         ok = false
       elsif reqs['negate_pattern'] 
-        if newval.match(reqs['pattern'])
+        if newval.to_s.match(reqs['pattern'])
           puts "\nInvalid value '#{newval.bold}' (must NOT match #{reqs['pattern']})".light_red.on_black+"\n\n"
           ok = false
         end
-      elsif !newval.match(reqs['pattern'])
+      elsif !newval.to_s.match(reqs['pattern'])
         puts "\nInvalid value '#{newval.bold}' (must match #{reqs['pattern']})".light_red.on_black+"\n\n"
         ok = false
       end
     end
     ok
   end
+
   if reqs['array']
     if !newval.is_a?(Array)
       puts "\nInvalid value '#{newval.bold}' (should be an array)".light_red.on_black+"\n\n"
@@ -683,7 +688,23 @@ if !$opts[:noninteractive]
     end
   end while answer != "0" and answer != "O" and answer != "o"
 end
-# XXX validate overall input
+
+ok = true
+$CONFIGURABLES.each_pair { |key, data|
+  next if !AMROOT and data['rootonly']
+  if data.has_key?("subtree")
+    data["subtree"].each_pair { |subkey, subdata|
+      next if !AMROOT and subdata['rootonly']
+      ok = false if !validate(data["value"], data)
+    }
+  else
+    ok = false if !validate(data["value"], data)
+  end
+}
+if !ok
+  puts "Configuration had validation errors, exiting.\nRe-invoke #{$0} to correct."
+  exit 1
+end
 
 def set389DSCreds
   require 'mu'
@@ -741,8 +762,8 @@ def set389DSCreds
 end
 
 if AMROOT
-cur_chef_version = `/bin/rpm -q chef`.sub(/^chef-(\d+\.\d+\.\d+-\d+)\..*/, '\1').chomp
-pref_chef_version = File.read("#{MU_BASE}/var/mu-chef-client-version").chomp
+  cur_chef_version = `/bin/rpm -q chef`.sub(/^chef-(\d+\.\d+\.\d+-\d+)\..*/, '\1').chomp
+  pref_chef_version = File.read("#{MU_BASE}/var/mu-chef-client-version").chomp
   if cur_chef_version != pref_chef_version
     puts "Updating MU-MASTER's Chef Client to '#{pref_chef_version}'"
     chef_installer = open("https://www.chef.io/chef/install.sh").read
@@ -1029,10 +1050,10 @@ if $?.exitstatus != 0 or output.match(/is not a chef-vault/)
   )
 end
 
+MU.log "Regenerating documentation in /var/www/html/docs"
+puts %x{#{MU_BASE}/lib/bin/mu-gen-docs}
 
 if $INITIALIZE
-  MU.log "Generating documentation in /var/www/html"
-  %x{#{MU_BASE}/lib/bin/mu-gen-docs}
   MU.log "Setting initial password for admin user 'mu', for logging into Nagios and other built-in services.", MU::NOTICE
   puts %x{#{MU_BASE}/lib/bin/mu-user-manage -g mu}
   MU.log "If Scratchpad web interface is not accessible, try the following:", MU::NOTICE
