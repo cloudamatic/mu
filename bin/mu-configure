@@ -511,9 +511,10 @@ end
 
 def printVal(data)
   valid = true
-  valid = validate(data["value"], data) if data["value"]
+  valid = validate(data["value"], data, false) if data["value"]
   if !valid
-    print " - "+data["value"].to_s.red.on_black
+    print " "+data["value"].to_s.red.on_black
+    print " (consider default of #{data["default"].to_s.bold})" if data["default"]
   elsif !data["value"].nil?
     print " - "+data["value"].to_s.green.on_black
   elsif data["required"]
@@ -608,24 +609,28 @@ def ask(desc)
   val
 end
 
-def validate(newval, reqs)
+def validate(newval, reqs, addnewline = true)
   ok = true
-  def validate_individual_value(newval, reqs)
+  def validate_individual_value(newval, reqs, addnewline)
     ok = true
     if reqs['boolean'] and newval != true and newval != false and newval != nil
-      puts "\nInvalid value '#{newval.bold}' (must be true or false)".light_red.on_black+"\n\n"
+      puts "\nInvalid value '#{newval.bold}' for #{reqs['title'].bold} (must be true or false)".light_red.on_black
+      puts "\n\n" if addnewline
       ok = false
     elsif reqs['pattern']
       if newval.nil?
-        puts "\nSupplied value did not pass validation".light_red.on_black+"\n\n"
+        puts "\nSupplied value for #{reqs['title'].bold} did not pass validation".light_red.on_black
+        puts "\n\n" if addnewline
         ok = false
       elsif reqs['negate_pattern'] 
         if newval.to_s.match(reqs['pattern'])
-          puts "\nInvalid value '#{newval.bold}' (must NOT match #{reqs['pattern']})".light_red.on_black+"\n\n"
+          puts "\nInvalid value '#{newval.bold}' for #{reqs['title'].bold} (must NOT match #{reqs['pattern']})".light_red.on_black
+          puts "\n\n" if addnewline
           ok = false
         end
       elsif !newval.to_s.match(reqs['pattern'])
-        puts "\nInvalid value '#{newval.bold}' (must match #{reqs['pattern']})".light_red.on_black+"\n\n"
+        puts "\nInvalid value '#{newval.bold}' #{reqs['title'].bold} (must match #{reqs['pattern']})".light_red.on_black
+        puts "\n\n" if addnewline
         ok = false
       end
     end
@@ -634,15 +639,16 @@ def validate(newval, reqs)
 
   if reqs['array']
     if !newval.is_a?(Array)
-      puts "\nInvalid value '#{newval.bold}' (should be an array)".light_red.on_black+"\n\n"
+      puts "\nInvalid value '#{newval.bold}' for #{reqs['title'].bold} (should be an array)".light_red.on_black
+      puts "\n\n" if addnewline
       ok = false
     else
       newval.each { |v|
-        ok = false if !validate_individual_value(v, reqs)
+        ok = false if !validate_individual_value(v, reqs, addnewline)
       }
     end
   else
-    ok = false if !validate_individual_value(newval, reqs)
+    ok = false if !validate_individual_value(newval, reqs, addnewline)
   end
   ok
 end
@@ -695,10 +701,12 @@ $CONFIGURABLES.each_pair { |key, data|
   if data.has_key?("subtree")
     data["subtree"].each_pair { |subkey, subdata|
       next if !AMROOT and subdata['rootonly']
-      ok = false if !validate(data["value"], data)
+      next if !data["value"]
+      ok = false if !validate(data["value"], data, false)
     }
   else
-    ok = false if !validate(data["value"], data)
+    next if !data["value"]
+    ok = false if !validate(data["value"], data, false)
   end
 }
 if !ok
@@ -1051,7 +1059,7 @@ if $?.exitstatus != 0 or output.match(/is not a chef-vault/)
 end
 
 MU.log "Regenerating documentation in /var/www/html/docs"
-puts %x{#{MU_BASE}/lib/bin/mu-gen-docs}
+%x{#{MU_BASE}/lib/bin/mu-gen-docs}
 
 if $INITIALIZE
   MU.log "Setting initial password for admin user 'mu', for logging into Nagios and other built-in services.", MU::NOTICE
