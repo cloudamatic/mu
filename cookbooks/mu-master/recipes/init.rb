@@ -483,6 +483,15 @@ execute "create MU-MASTER Chef client" do
   only_if { RUNNING_STANDALONE }
 end
 
+file "#{MU_BASE}/etc/mu.rc" do
+  content %Q{export MU_INSTALLDIR="#{MU_BASE}"
+  export MU_DATADIR="#{MU_BASE}/var"
+  export PATH="#{MU_BASE}/bin:/usr/local/ruby-current/bin:${PATH}:/opt/opscode/embedded/bin"
+}
+  mode 0644
+  action :create_if_missing
+end
+
 # Community cookbooks keep touching gems, and none of them are smart about our
 # default umask. We have to clean up after them every time.
 ["/usr/local/ruby-current", "/opt/chef/embedded"].each { |rubydir|

@@ -544,7 +544,12 @@ def importCurrentValues
 end
 
 def printVal(data)
-  if !data["value"].nil?
+  valid = true
+  valid = validate(data["value"], data, false) if data["value"]
+  if !valid
+    print " "+data["value"].to_s.red.on_black
+    print " (consider default of #{data["default"].to_s.bold})" if data["default"]
+  elsif !data["value"].nil?
     print " - "+data["value"].to_s.green.on_black
   elsif data["required"]
     print " - "+"REQUIRED".red.on_black
@@ -638,46 +643,70 @@ def ask(desc)
   val
 end
 
-def validate(newval, reqs)
+def validate(newval, reqs, addnewline = true)
   ok = true
-  def validate_individual_value(newval, reqs)
+  def validate_individual_value(newval, reqs, addnewline)
     ok = true
     if reqs['boolean'] and newval != true and newval != false and newval != nil
-      puts "\nInvalid value '#{newval.bold}' (must be true or false)".light_red.on_black+"\n\n"
+      puts "\nInvalid value '#{newval.bold}' for #{reqs['title'].bold} (must be true or false)".light_red.on_black
+      puts "\n\n" if addnewline
       ok = false
     elsif reqs['pattern']
       if newval.nil?
-        puts "\nSupplied value did not pass validation".light_red.on_black+"\n\n"
+        puts "\nSupplied value for #{reqs['title'].bold} did not pass validation".light_red.on_black
+        puts "\n\n" if addnewline
         ok = false
       elsif reqs['negate_pattern'] 
-        if newval.match(reqs['pattern'])
-          puts "\nInvalid value '#{newval.bold}' (must NOT match #{reqs['pattern']})".light_red.on_black+"\n\n"
+        if newval.to_s.match(reqs['pattern'])
+          puts "\nInvalid value '#{newval.bold}' for #{reqs['title'].bold} (must NOT match #{reqs['pattern']})".light_red.on_black
+          puts "\n\n" if addnewline
           ok = false
         end
-      elsif !newval.match(reqs['pattern'])
-        puts "\nInvalid value '#{newval.bold}' (must match #{reqs['pattern']})".light_red.on_black+"\n\n"
+      elsif !newval.to_s.match(reqs['pattern'])
+        puts "\nInvalid value '#{newval.bold}' #{reqs['title'].bold} (must match #{reqs['pattern']})".light_red.on_black
+        puts "\n\n" if addnewline
         ok = false
       end
     end
     ok
   end
+
   if reqs['array']
     if !newval.is_a?(Array)
-      puts "\nInvalid value '#{newval.bold}' (should be an array)".light_red.on_black+"\n\n"
+      puts "\nInvalid value '#{newval.bold}' for #{reqs['title'].bold} (should be an array)".light_red.on_black
+      puts "\n\n" if addnewline
       ok = false
     else
       newval.each { |v|
-        ok = false if !validate_individual_value(v, reqs)
+        ok = false if !validate_individual_value(v, reqs, addnewline)
       }
     end
   else
-    ok = false if !validate_individual_value(newval, reqs)
+    ok = false if !validate_individual_value(newval, reqs, addnewline)
   end
   ok
 end
 
 answer = nil
 changed = false
+
+def entireConfigValid?
+  ok = true
+  $CONFIGURABLES.each_pair { |key, data|
+    next if !AMROOT and data['rootonly']
+    if data.has_key?("subtree")
+      data["subtree"].each_pair { |subkey, subdata|
+        next if !AMROOT and subdata['rootonly']
+        next if !data["value"]
+        ok = false if !validate(data["value"], data, false)
+      }
+    else
+      next if !data["value"]
+      ok = false if !validate(data["value"], data, false)
+    end
+  }
+  ok
+end
 
 if !$opts[:noninteractive]
   begin
@@ -714,10 +743,16 @@ if !$opts[:noninteractive]
     elsif !["", "0", "O", "o"].include?(answer)
       puts "\nInvalid option '#{answer.bold}'".light_red.on_black+"\n\n"
       sleep 1
+    else
+      answer = nil if !entireConfigValid?
     end
-  end while answer != "0" and answer != "O" and answer != "o"
+  end while answer != "0" and answer != "O" and answer != "o" and !entireConfigValid?
+else
+  if !entireConfigValid?
+    puts "Configuration had validation errors, exiting.\nRe-invoke #{$0} to correct."
+    exit 1
+  end
 end
-# XXX validate overall input
 
 def set389DSCreds
   require 'mu'
@@ -775,8 +810,8 @@ def set389DSCreds
 end
 
 if AMROOT
-cur_chef_version = `/bin/rpm -q chef`.sub(/^chef-(\d+\.\d+\.\d+-\d+)\..*/, '\1').chomp
-pref_chef_version = File.read("#{MU_BASE}/var/mu-chef-client-version").chomp
+  cur_chef_version = `/bin/rpm -q chef`.sub(/^chef-(\d+\.\d+\.\d+-\d+)\..*/, '\1').chomp
+  pref_chef_version = File.read("#{MU_BASE}/var/mu-chef-client-version").chomp
   if cur_chef_version != pref_chef_version
     puts "Updating MU-MASTER's Chef Client to '#{pref_chef_version}'"
     chef_installer = open("https://www.chef.io/chef/install.sh").read
@@ -1068,10 +1103,10 @@ if $?.exitstatus != 0 or output.match(/is not a chef-vault/)
   )
 end
 
+MU.log "Regenerating documentation in /var/www/html/docs"
+%x{#{MU_BASE}/lib/bin/mu-gen-docs}
 
 if $INITIALIZE
-  MU.log "Generating documentation in /var/www/html"
-  %x{#{MU_BASE}/lib/bin/mu-gen-docs}
   MU.log "Setting initial password for admin user 'mu', for logging into Nagios and other built-in services.", MU::NOTICE
   puts %x{#{MU_BASE}/lib/bin/mu-user-manage -g mu}
   MU.log "If Scratchpad web interface is not accessible, try the following:", MU::NOTICE

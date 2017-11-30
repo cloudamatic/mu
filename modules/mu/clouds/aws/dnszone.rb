@@ -248,9 +248,9 @@ module MU
             }
           }
 
-            record_threads.each { |t|
-              t.join
-            }
+          record_threads.each { |t|
+            t.join
+          }
         end
 
         # Create a Route53 health check.
@@ -610,7 +610,7 @@ module MU
                 MU.log "#{dns_name} already exists", MU::DEBUG, details: e.inspect
               end
             end
-            return dns_name
+            return "#{dns_name}.platform-mu"
           else
             return nil
           end
