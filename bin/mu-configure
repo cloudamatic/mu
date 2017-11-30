@@ -656,6 +656,24 @@ end
 answer = nil
 changed = false
 
+def entireConfigValid?
+  ok = true
+  $CONFIGURABLES.each_pair { |key, data|
+    next if !AMROOT and data['rootonly']
+    if data.has_key?("subtree")
+      data["subtree"].each_pair { |subkey, subdata|
+        next if !AMROOT and subdata['rootonly']
+        next if !data["value"]
+        ok = false if !validate(data["value"], data, false)
+      }
+    else
+      next if !data["value"]
+      ok = false if !validate(data["value"], data, false)
+    end
+  }
+  ok
+end
+
 if !$opts[:noninteractive]
   begin
     optlist = displayCurrentOpts
@@ -691,27 +709,15 @@ if !$opts[:noninteractive]
     elsif !["", "0", "O", "o"].include?(answer)
       puts "\nInvalid option '#{answer.bold}'".light_red.on_black+"\n\n"
       sleep 1
+    else
+      answer = nil if !entireConfigValid?
     end
-  end while answer != "0" and answer != "O" and answer != "o"
-end
-
-ok = true
-$CONFIGURABLES.each_pair { |key, data|
-  next if !AMROOT and data['rootonly']
-  if data.has_key?("subtree")
-    data["subtree"].each_pair { |subkey, subdata|
-      next if !AMROOT and subdata['rootonly']
-      next if !data["value"]
-      ok = false if !validate(data["value"], data, false)
-    }
-  else
-    next if !data["value"]
-    ok = false if !validate(data["value"], data, false)
+  end while answer != "0" and answer != "O" and answer != "o" and !entireConfigValid?
+else
+  if !entireConfigValid?
+    puts "Configuration had validation errors, exiting.\nRe-invoke #{$0} to correct."
+    exit 1
   end
-}
-if !ok
-  puts "Configuration had validation errors, exiting.\nRe-invoke #{$0} to correct."
-  exit 1
 end
 
 def set389DSCreds
