@@ -4727,10 +4727,27 @@ module MU
                     }
                 }
             },
+            "ip_stickiness_policy" => {
+                "type" => "object",
+                "additionalProperties" => false,
+                "description" => "Use IP addresses or IP/port/proto combinations to map client sessions to back-end servers. Only valid with Google Cloud, and is ignored for UDP-based listeners.",
+                "properties" => {
+                    "map_proto" => {
+                        "type" => "boolean",
+                        "default" => false,
+                        "description" => "Include the client protocol as well as the IP when determining session affinity. Only valid for internal load balancers."
+                    },
+                    "map_port" => {
+                        "type" => "boolean",
+                        "default" => false,
+                        "description" => "Include the client port as well as the IP when determining session affinity. Only valid for internal load balancers, and only in combination with map_proto."
+                    }
+                }
+            },
             "app_cookie_stickiness_policy" => {
                 "type" => "object",
                 "additionalProperties" => false,
-                "description" => "Use an application cookie to tie client sessions to back-end servers. Only valid with HTTP/HTTPS listeners.",
+                "description" => "Use an application cookie to tie client sessions to back-end servers. Only valid with HTTP/HTTPS listeners, on AWS.",
                 "required" => ["name", "cookie"],
                 "properties" => {
                     "name" => {

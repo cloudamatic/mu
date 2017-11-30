@@ -147,6 +147,23 @@ module MU
         nil
       end
 
+      # Create an SSL Certificate resource from some local x509 cert files.
+      # @param name [String]: A resource name for the certificate
+      # @param cert [String,OpenSSL::X509::Certificate]: An x509 certificate
+      # @param key [String,OpenSSL::PKey]: An x509 private key
+      # @return [Google::Apis::ComputeBeta::SslCertificate]
+      def self.createSSLCertificate(name, cert, key, flags = {})
+        flags["project"] ||= MU::Cloud::Google.defaultProject
+        flags["description"] ||= MU.deploy_id
+        certobj = ::Google::Apis::ComputeBeta::SslCertificate.new(
+          name: name,
+          certificate: cert.to_s,
+          private_key: key.to_s,
+          description: flags["description"]
+        )
+        MU::Cloud::Google.compute.insert_ssl_certificate(flags["project"], certobj)
+      end
+
       # Pull our global Google Cloud Platform credentials out of their secure
       # vault, feed them to the googleauth gem, and stash the results on hand
       # for consumption by the various GCP APIs.
@@ -479,7 +496,7 @@ module MU
               if e.message.match(/^notFound: /) and method_sym.to_s.match(/^insert_/)
                 logreq = MU::Cloud::Google.logging(:ListLogEntriesRequest).new(
                   resource_names: ["projects/"+arguments.first],
-                  filter: %Q{labels."compute.googleapis.com/resource_id"="#{retval.target_id}"}
+                  filter: %Q{labels."compute.googleapis.com/resource_id"="#{retval.target_id}" OR labels."ssl_certificate_id"="#{retval.target_id}"} # XXX I guess we need to cover all of the possible keys, ugh
                 )
                 logs = MU::Cloud::Google.logging.list_entry_log_entries(logreq)
                 details = nil
@@ -488,7 +505,7 @@ module MU
                   details.reject! { |e| e["error"].nil? or e["error"].size == 0 }
                 end
 
-                raise MuError, "#{method_sym.to_s} appeared to succeed, but then the resource disappeared! #{details.to_s}"
+                raise MuError, "#{method_sym.to_s} of #{retval.target_id} appeared to succeed, but then the resource disappeared! #{details.to_s}"
               end
               raise e
             end

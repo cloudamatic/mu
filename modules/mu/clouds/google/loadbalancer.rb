@@ -76,7 +76,7 @@ module MU
             ruleobj = nil
             if !@config["private"]
 #TODO ip_address
-              realproto = ["HTTP", "HTTPS"].include?(l['lb_protocol']) ? "TCP" : l['lb_protocol']
+              realproto = ["HTTP", "HTTPS"].include?(l['lb_protocol']) ? l['lb_protocol'] : "TCP"
               ruleobj = ::Google::Apis::ComputeBeta::ForwardingRule.new(
                 name: MU::Cloud::Google.nameStr(@mu_name+"-"+l['targetgroup']),
                 description: @deploy.deploy_id,
@@ -86,7 +86,7 @@ module MU
                 port_range: l['lb_port'].to_s
               )
             else
-# TODO network, subnetwork, ports
+# TODO network, subnetwork, port_range
               ruleobj = ::Google::Apis::ComputeBeta::ForwardingRule.new(
                 name: MU::Cloud::Google.nameStr(@mu_name+"-"+l['targetgroup']),
                 description: @deploy.deploy_id,
@@ -167,6 +167,21 @@ module MU
             MU.log "LoadBalancer 'app_cookie_stickiness_policy' option has no meaning in Google Cloud", MU::WARN
             lb.delete('app_cookie_stickiness_policy')
           end
+          if lb['ip_stickiness_policy'] 
+            if !lb['private']
+              if lb['ip_stickiness_policy']['map_port']
+                MU.log "Can only use map_port in IP stickiness policy with private load balancers", MU::ERR
+                ok = false
+              end
+              if lb['ip_stickiness_policy']['map_proto']
+                MU.log "Can only use map_proto in IP stickiness policy with private load balancers", MU::ERR
+                ok = false
+              end
+            elsif lb['ip_stickiness_policy']['map_port'] and !lb['ip_stickiness_policy']['map_proto']
+              MU.log "Can't use map_port in IP stickiness policy without map_proto", MU::ERR
+              ok = false
+            end
+          end
 
           lb["targetgroups"].each { |tg|
             if tg["healthcheck"]
@@ -185,6 +200,10 @@ module MU
                 "healthy_threshold" => 2,
               }
               if tg["proto"] == "HTTP" or tg["proto"] == "HTTPS"
+                if lb['private']
+                  MU.log "Private GCP LoadBalancers can only target TCP or UDP protocols, changing #{tg["proto"]} to TCP", MU::NOTICE
+                  tg["proto"] = "TCP"
+                end
                 tg["healthcheck"]["target"] = tg["proto"]+":"+tg["port"].to_s+"/"
                 tg["healthcheck"]["httpcode"] = "200,301,302"
               end
@@ -214,8 +233,8 @@ module MU
             name: name,
             description: @deploy.deploy_id,
 # TODO this is where path_matchers, host_rules, and tests go (the sophisticated
-            default_service: backend.self_link
 # Layer 7 stuff)
+            default_service: backend.self_link
           )
           MU.log "Creating url map #{tg['name']}", details: urlmap_obj
           urlmap = MU::Cloud::Google.compute.insert_url_map(
@@ -237,9 +256,12 @@ module MU
               target_obj
             )
           else
-# TODO we need a method like MU::Cloud::AWS.findSSLCertificate
-# TODO also we can fall back on generateSSLCert(name), with some mods
-            desc[:ssl_certificates] = ["https://www.googleapis.com/compute/v1/projects/my-project-1474050033734/global/sslCertificates/stange-momma-cat"]
+            certdata = @deploy.nodeSSLCerts(self, 2048)
+            cert_pem = certdata[0].to_s+File.read("/etc/pki/Mu_CA.pem")
+            gcpcert = MU::Cloud::Google.createSSLCertificate(@mu_name.downcase+"-"+tg['name'], cert_pem, certdata[1])
+            pp gcpcert
+# TODO we need a method like MU::Cloud::AWS.findSSLCertificate, with option to hunt down an existing one
+            desc[:ssl_certificates] = [gcpcert.self_link]
             target_obj = MU::Cloud::Google.compute(:TargetHttpsProxy).new(desc)
             MU.log "Creating https target proxy #{tg['name']}", details: target_obj
             MU::Cloud::Google.compute.insert_target_https_proxy(
@@ -266,19 +288,36 @@ module MU
           if @config['lb_cookie_stickiness_policy'] and !@config["private"]
             desc[:session_affinity] = "GENERATED_COOKIE"
             desc[:affinity_cookie_ttl_sec] = @config['lb_cookie_stickiness_policy']['timeout']
-          else
-            # XXX support other session affinity options (NONE, CLIENT_IP_PROTO, CLIENT_IP_PORT_PROTO, etc)
+          elsif @config['ip_stickiness_policy']
             desc[:session_affinity] = "CLIENT_IP"
+            if @config["private"]
+              if @config['ip_stickiness_policy']["map_port"]
+                desc[:session_affinity] += "_PORT"
+              end
+              if @config['ip_stickiness_policy']["map_proto"]
+                desc[:session_affinity] += "_PROTO"
+              end
+            end
+          else
+            desc[:session_affinity] = "NONE"
           end
           hc = createHealthCheck(tg["healthcheck"], tg["name"])
           desc[:health_checks] = [hc.self_link]
 
           backend_obj = MU::Cloud::Google.compute(:BackendService).new(desc)
           MU.log "Creating backend service #{MU::Cloud::Google.nameStr(@deploy.getResourceName(tg["name"]))}", details: backend_obj
-          return MU::Cloud::Google.compute.insert_backend_service(
-            @config['project'],
-            backend_obj
-          )
+          if @config['private']
+            return MU::Cloud::Google.compute.insert_region_backend_service(
+              @config['project'],
+              @config['region'],
+              backend_obj
+            )
+          else
+            return MU::Cloud::Google.compute.insert_backend_service(
+              @config['project'],
+              backend_obj
+            )
+          end
         end
 
         def createHealthCheck(hc, namebase)
@@ -299,6 +338,8 @@ module MU
               port: port,
               request_path: path ? path : "/"
             )
+# other types:
+# type: SSL, HTTP2
             MU.log "Creating #{proto} health check #{name}", details: hc_obj
             if proto == "HTTP"
               return MU::Cloud::Google.compute.insert_http_health_check(
@@ -312,80 +353,36 @@ module MU
               )
             end
           else
-#            hc_obj = MU::Cloud::Google.compute(:HealthCheck).new(
-#              check_interval_sec: hc["interval"],
-#              timeout_sec: hc["timeout"],
-#              unhealthy_threshold: hc["unhealthy_threshold"],
-#              healthy_threshold: hc["healthy_threshold"],
-#              description: @deploy.deploy_id,
-#              name: name,
-# type: TCP, UDP, SSL, HTTP, HTTPS, HTTP2
-# ssl_health_check: ugh, another object
-# tcp_health_check: ugh, another object
-# etc etc
-#            )
-# insert_health_check
-          end
-
-          def generateSSLCert(name)
-            MU.log "Creating self-signed service SSL certificate for #{@server.mu_name} (CN=#{canonical_ip})"
-
-            # Create and save a key
-            key = OpenSSL::PKey::RSA.new 4096
-            if !Dir.exist?(MU.mySSLDir)
-              Dir.mkdir(MU.mySSLDir, 0700)
-            end
-
-            open("#{MU.mySSLDir}/#{@server.mu_name}.key", 'w', 0600) { |io|
-              io.write key.to_pem
+            desc = {
+              :check_interval_sec => hc["interval"],
+              :timeout_sec => hc["timeout"],
+              :unhealthy_threshold => hc["unhealthy_threshold"],
+              :healthy_threshold => hc["healthy_threshold"],
+              :description => @deploy.deploy_id,
+              :name => name
             }
-
-            # Create a certificate request for this node
-            csr = OpenSSL::X509::Request.new
-            csr.version = 0
-            csr.subject = OpenSSL::X509::Name.parse "CN=#{canonical_ip}/O=Mu/C=US"
-            csr.public_key = key.public_key
-            open("#{MU.mySSLDir}/#{@server.mu_name}.csr", 'w', 0644) { |io|
-              io.write csr.to_pem
-            }
-
-
-            if MU.chef_user == "mu"
-              @server.deploy.signSSLCert("#{MU.mySSLDir}/#{@server.mu_name}.csr")
-            else
-              deploykey = OpenSSL::PKey::RSA.new(@server.deploy.public_key)
-              deploysecret = Base64.urlsafe_encode64(deploykey.public_encrypt(@server.deploy.deploy_secret))
-              res_type = "server"
-              res_type = "server_pool" if !@config['basis'].nil?
-              uri = URI("https://#{MU.mu_public_addr}:2260/")
-              req = Net::HTTP::Post.new(uri)
-              req.set_form_data(
-                  "mu_id" => MU.deploy_id,
-                  "mu_resource_name" => @config['name'],
-                  "mu_resource_type" => res_type,
-                  "mu_ssl_sign" => "#{MU.mySSLDir}/#{@server.mu_name}.csr",
-                  "mu_user" => MU.mu_user,
-                  "mu_deploy_secret" => deploysecret
+            if proto == "TCP"
+              desc[:type] = "TCP"
+              desc[:tcp_health_check] = MU::Cloud::Google.compute(:TcpHealthCheck).new(
+                port: port,
+                proxy_header: "NONE",
+                request: "",
+                response: ""
               )
-              http = Net::HTTP.new(uri.hostname, uri.port)
-              http.ca_file = "/etc/pki/Mu_CA.pem" # XXX why no worky?
-              http.use_ssl = true
-              http.verify_mode = OpenSSL::SSL::VERIFY_NONE # XXX this sucks
-              response = http.request(req)
-
-              MU.log "Got error back on signing request for #{MU.mySSLDir}/#{@server.mu_name}.csr", MU::ERR if response.code != "200"
+            elsif proto == "UDP"
+              desc[:type] = "UDP"
+              desc[:udp_health_check] = MU::Cloud::Google.compute(:UdpHealthCheck).new(
+                port: port,
+                request: "",
+                response: ""
+              )
             end
-
-            cert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/#{@server.mu_name}.crt"
-            # Upload the certificate to a Chef Vault for this node
-            certdata = {
-                "data" => {
-                    "node.crt" => cert.to_pem.chomp!.gsub(/\n/, "\\n"),
-                    "node.key" => key.to_pem.chomp!.gsub(/\n/, "\\n")
-                }
-            }
+            hc_obj = MU::Cloud::Google.compute(:HealthCheck).new(desc)
+            return MU::Cloud::Google.compute.insert_health_check(
+              @config['project'],
+              hc_obj
+            )
           end
-
 
         end
       end

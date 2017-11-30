@@ -2108,57 +2108,63 @@ MESSAGE_END
       MU.log "Synchronization of #{@deploy_id} complete", MU::DEBUG, details: update_servers
     end
 
-    # Given a MU::Cloud::Server object, return the generic self-signed SSL
+    # Given a MU::Cloud object, return the generic self-signed SSL
     # certficate we made for it. If one doesn't exist yet, generate it first.
     # If it's a Windows node, also generate a certificate for WinRM client auth.
-    # @param server [MU::Cloud::Server]: The server for which to generate or return the cert
-    def nodeSSLCerts(server)
-      nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = server.getSSHConfig
+    # @param resource [MU::Cloud]: The server or other resource for which to generate or return the cert
+    # @param keysize [Integer]: The size of the private key to use when generating this certificate
+    def nodeSSLCerts(resource, keysize = 4096)
+      canonical_ip = nil
+      if resource.class == MU::Cloud::Server
+        nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = resource.getSSHConfig
+      end
 
       certs = {}
       results = {}
 
-      if File.exists?("#{MU.mySSLDir}/#{server.mu_name}.crt") and
-         File.exists?("#{MU.mySSLDir}/#{server.mu_name}.key")
-        ext_cert = OpenSSL::X509::Certificate.new(File.read("#{MU.mySSLDir}/#{server.mu_name}.crt"))
+      if File.exists?("#{MU.mySSLDir}/#{resource.mu_name}.crt") and
+         File.exists?("#{MU.mySSLDir}/#{resource.mu_name}.key")
+        ext_cert = OpenSSL::X509::Certificate.new(File.read("#{MU.mySSLDir}/#{resource.mu_name}.crt"))
         if ext_cert.not_after < Time.now
-          MU.log "Node certificate for #{server.mu_name} is expired, regenerating", MU::WARN
+          MU.log "Certificate for #{resource.mu_name} is expired, regenerating", MU::WARN
           ["crt", "key", "csr"].each { |suffix|
-            if File.exists?("#{MU.mySSLDir}/#{server.mu_name}.#{suffix}")
-              File.unlink("#{MU.mySSLDir}/#{server.mu_name}.#{suffix}")
+            if File.exists?("#{MU.mySSLDir}/#{resource.mu_name}.#{suffix}")
+              File.unlink("#{MU.mySSLDir}/#{resource.mu_name}.#{suffix}")
             end
           }
         else
-          results[server.mu_name] = [
-            OpenSSL::X509::Certificate.new(File.read("#{MU.mySSLDir}/#{server.mu_name}.crt")),
-            OpenSSL::PKey::RSA.new(File.read("#{MU.mySSLDir}/#{server.mu_name}.key"))
+          results[resource.mu_name] = [
+            OpenSSL::X509::Certificate.new(File.read("#{MU.mySSLDir}/#{resource.mu_name}.crt")),
+            OpenSSL::PKey::RSA.new(File.read("#{MU.mySSLDir}/#{resource.mu_name}.key"))
           ]
         end
       end
       if results.size == 0
-        certs[server.mu_name] = {
-          "sans" => ["IP:#{canonical_ip}"],
-          "cn" => server.mu_name
+        certs[resource.mu_name] = {
+          "cn" => resource.mu_name
         }
+        if canonical_ip
+          certs["sans"] = ["IP:#{canonical_ip}"]
+        end
       end
 
-      if server.windows?
-        if File.exists?("#{MU.mySSLDir}/#{server.mu_name}-winrm.crt") and
-           File.exists?("#{MU.mySSLDir}/#{server.mu_name}-winrm.key")
-          results[server.mu_name+"-winrm"] = [File.read("#{MU.mySSLDir}/#{server.mu_name}-winrm.crt"), File.read("#{MU.mySSLDir}/#{server.mu_name}-winrm.key")]
+      if resource.class == MU::Cloud::Server and resource.windows?
+        if File.exists?("#{MU.mySSLDir}/#{resource.mu_name}-winrm.crt") and
+           File.exists?("#{MU.mySSLDir}/#{resource.mu_name}-winrm.key")
+          results[resource.mu_name+"-winrm"] = [File.read("#{MU.mySSLDir}/#{resource.mu_name}-winrm.crt"), File.read("#{MU.mySSLDir}/#{resource.mu_name}-winrm.key")]
         else
-          certs[server.mu_name+"-winrm"] = {
-            "sans" => ["otherName:1.3.6.1.4.1.311.20.2.3;UTF8:#{server.config['windows_admin_username']}@localhost"],
-            "cn" => server.config['windows_admin_username']
+          certs[resource.mu_name+"-winrm"] = {
+            "sans" => ["otherName:1.3.6.1.4.1.311.20.2.3;UTF8:#{resource.config['windows_admin_username']}@localhost"],
+            "cn" => resource.config['windows_admin_username']
           }
         end
       end
 
       certs.each { |certname, data|
-        MU.log "Generating SSL certificate #{certname} for #{server}"
+        MU.log "Generating SSL certificate #{certname} for #{resource}"
 
         # Create and save a key
-        key = OpenSSL::PKey::RSA.new 4096
+        key = OpenSSL::PKey::RSA.new keysize
         if !Dir.exist?(MU.mySSLDir)
           Dir.mkdir(MU.mySSLDir, 0700)
         end
@@ -2180,13 +2186,14 @@ MESSAGE_END
         else
           deploykey = OpenSSL::PKey::RSA.new(public_key)
           deploysecret = Base64.urlsafe_encode64(deploykey.public_encrypt(deploy_secret))
+# XXX things that aren't servers
           res_type = "server"
-          res_type = "server_pool" if !server.config['basis'].nil?
+          res_type = "server_pool" if !resource.config['basis'].nil?
           uri = URI("https://#{MU.mu_public_addr}:2260/")
           req = Net::HTTP::Post.new(uri)
           req.set_form_data(
             "mu_id" => MU.deploy_id,
-            "mu_resource_name" => server.config['name'],
+            "mu_resource_name" => resource.config['name'],
             "mu_resource_type" => res_type,
             "mu_ssl_sign" => "#{MU.mySSLDir}/#{certname}.csr",
             "mu_ssl_sans" => data["sans"].join(","),
@@ -2206,7 +2213,7 @@ MESSAGE_END
         results[certname] = [cert, key]
 
         pfx = nil
-        if server.windows?
+        if resource.class == MU::Cloud::Server and resource.windows?
           cacert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/Mu_CA.pem"
           pfx = OpenSSL::PKCS12.create(nil, nil, key, cert, [cacert], nil, nil, nil, nil)
           open("#{MU.mySSLDir}/#{certname}.pfx", 'w', 0644) { |io|
@@ -2214,17 +2221,17 @@ MESSAGE_END
           }
         end
 
-        if server.config['cloud'] == "AWS"
+        if resource.config['cloud'] == "AWS"
           MU::Cloud::AWS.writeDeploySecret(@deploy_id, cert.to_pem, certname+".crt")
           MU::Cloud::AWS.writeDeploySecret(@deploy_id, key.to_pem, certname+".key")
-          if server.windows?
+          if resource.windows?
             MU::Cloud::AWS.writeDeploySecret(@deploy_id, pfx.to_der, certname+".pfx")
           end
 # XXX add google logic, or better yet abstract this method
         end
       }
 
-      results[server.mu_name]
+      results[resource.mu_name]
     end
 
     private
