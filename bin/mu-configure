@@ -712,7 +712,7 @@ if !$opts[:noninteractive]
     else
       answer = nil if !entireConfigValid?
     end
-  end while answer != "0" and answer != "O" and answer != "o" and !entireConfigValid?
+  end while answer != "0" and answer != "O" and answer != "o"
 else
   if !entireConfigValid?
     puts "Configuration had validation errors, exiting.\nRe-invoke #{$0} to correct."
