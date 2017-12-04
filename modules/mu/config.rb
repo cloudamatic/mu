@@ -4771,6 +4771,11 @@ module MU
                 "default" => false,
                 "description" => "Set to true if this ELB should only be assigned a private IP address (no public interface)."
             },
+            "global" => {
+                "type" => "boolean",
+                "default" => true,
+                "description" => "Google Cloud only. Deploy as a global artifact instead of in a specific region. Not valid for UDP targets."
+            },
             "dependencies" => @dependencies_primitive,
             "vpc" => vpc_reference_primitive(MANY_SUBNETS, NO_NAT_OPTS, "all_public"),
             "zones" => {
@@ -4860,8 +4865,8 @@ module MU
                   },
                   "lb_protocol" => {
                     "type" => "string",
-                    "enum" => ["HTTP", "HTTPS", "TCP", "SSL"],
-                    "description" => "Specifies the load balancer transport protocol to use for routing - HTTP, HTTPS, TCP or SSL. This property cannot be modified for the life of the load balancer."
+                    "enum" => ["HTTP", "HTTPS", "TCP", "SSL", "UDP"],
+                    "description" => "Specifies the load balancer transport protocol to use for routing - HTTP, HTTPS, TCP, SSL, or UDP. SSL and UDP are only valid in Google Cloud."
                   },
                   "targetgroup" => {
                     "type" => "string",
@@ -4869,7 +4874,7 @@ module MU
                   },
                   "instance_protocol" => {
                     "type" => "string",
-                    "enum" => ["HTTP", "HTTPS", "TCP", "SSL"],
+                    "enum" => ["HTTP", "HTTPS", "TCP", "SSL", "UDP"],
                     "description" => "Specifies the protocol to use for routing traffic to back-end instances - HTTP, HTTPS, TCP, or SSL. This property cannot be modified for the life of the load balancer.
 
             If the front-end protocol is HTTP or HTTPS, InstanceProtocol has to be at the same protocol layer, i.e., HTTP or HTTPS. Likewise, if the front-end protocol is TCP or SSL, InstanceProtocol has to be TCP or SSL."

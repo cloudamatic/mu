@@ -96,13 +96,20 @@ module MU
                 ports: [l['lb_port'].to_s]
               )
             end
-            MU.log "Creating Forwarding Rule #{@mu_name}", MU::NOTICE, details: ruleobj
-#            resp = MU::Cloud::Google.compute.insert_forwarding_rule(
-            resp = MU::Cloud::Google.compute.insert_global_forwarding_rule(
-              @config['project'],
-#              @config['region'],
-              ruleobj
-            )
+            if @config['global']
+              MU.log "Creating Global Forwarding Rule #{@mu_name}", MU::NOTICE, details: ruleobj
+              resp = MU::Cloud::Google.compute.insert_global_forwarding_rule(
+                @config['project'],
+                ruleobj
+              )
+            else
+              MU.log "Creating regional Forwarding Rule #{@mu_name} in #{@config['region']}", MU::NOTICE, details: ruleobj
+              resp = MU::Cloud::Google.compute.insert_forwarding_rule(
+                @config['project'],
+                @config['region'],
+                ruleobj
+              )
+            end
           }
 
         end
@@ -144,7 +151,7 @@ module MU
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject
 
-          ["global_forwarding_rule", "target_http_proxy", "target_https_proxy", "url_map", "backend_service", "health_check", "http_health_check", "https_health_check"].each { |type|
+          ["forwarding_rule", "global_forwarding_rule", "target_http_proxy", "target_https_proxy", "url_map", "region_backend_service", "backend_service", "health_check", "http_health_check", "https_health_check"].each { |type|
             MU::Cloud::Google.compute.delete(
               type,
               flags["project"],
@@ -183,6 +190,19 @@ module MU
             end
           end
 
+          lb["listeners"].each { |l|
+            ruleobj = nil
+            if lb["private"] and ["HTTP", "HTTPS"].include?(l['lb_protocol'])
+              MU.log "HTTP and HTTPS listeners are not valid for private load balancers in Google Cloud", MU::ERR
+              ok = false
+            end
+
+            if lb['global'] and l['lb_protocol'] == "UDP"
+              MU.log "UDP load balancers can only be per-region in Google Cloud. Setting 'global' to false.", MU::WARN
+              lb['global'] = false
+            end
+          }
+
           lb["targetgroups"].each { |tg|
             if tg["healthcheck"]
               target = tg["healthcheck"]['target'].match(/^([^:]+):(\d+)(.*)/)
@@ -206,6 +226,8 @@ module MU
                 end
                 tg["healthcheck"]["target"] = tg["proto"]+":"+tg["port"].to_s+"/"
                 tg["healthcheck"]["httpcode"] = "200,301,302"
+              else
+                tg["healthcheck"]["target"] = tg["proto"]+":"+tg["port"].to_s
               end
               MU.log "No healthcheck declared for target group #{tg['name']} in LoadBalancer #{lb['name']}, creating one.", details: tg
             end
@@ -321,6 +343,7 @@ module MU
         end
 
         def createHealthCheck(hc, namebase)
+          pp hc
           target = hc['target'].match(/^([^:]+):(\d+)(.*)/)
           proto = target[1]
           port = target[2]
