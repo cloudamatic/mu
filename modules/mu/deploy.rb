@@ -279,6 +279,11 @@ module MU
         if e.class.to_s != "SystemExit"
           MU.log e.inspect, MU::ERR, details: e.backtrace if @verbosity != MU::Logger::SILENT
           if !@nocleanup
+            Thread.list.each do |t|
+              if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread" and t.object_id != parent_thread_id
+                t.kill
+              end
+            end
             MU::Cleanup.run(MU.deploy_id, skipsnapshots: true, verbosity: @verbosity, mommacat: @mommacat)
             @nocleanup = true # so we don't run this again later
           end
@@ -291,6 +296,11 @@ module MU
           # If we didn't build anything besides CloudFormation, purge useless
           # metadata.
           if @mommacat.numKittens(clouds: ["CloudFormation"], negate: true) == 0
+            Thread.list.each do |t|
+              if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread" and t.object_id != parent_thread_id
+                t.kill
+              end
+            end
             MU::Cleanup.run(MU.deploy_id, skipcloud: true, verbosity: MU::Logger::SILENT, mommacat: @mommacat)
             return
           end
@@ -559,7 +569,7 @@ MESSAGE_END
           rescue Exception => e
             MU.log e.inspect, MU::ERR, details: e.backtrace if @verbosity != MU::Logger::SILENT
             MU::MommaCat.unlockAll
-            @my_threads.each do |t|
+            Thread.list.each do |t|
               if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread" and t.object_id != parent_thread_id
                 t.kill
               end

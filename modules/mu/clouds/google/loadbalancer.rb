@@ -57,7 +57,7 @@ module MU
             threads = []
             @config['targetgroups'].each { |tg|
               threads << Thread.new {
-                 MU.dupGlobals(parent_thread_id)
+                MU.dupGlobals(parent_thread_id)
 
                 if !@config['private']
                   backends[tg['name']] = createBackendService(tg)
@@ -160,7 +160,9 @@ module MU
                 noop
               )
             }
-          else
+          end
+
+          if flags['global']
             ["global_forwarding_rule", "target_http_proxy", "target_https_proxy", "url_map", "backend_service", "health_check", "http_health_check", "https_health_check"].each { |type|
               MU::Cloud::Google.compute.delete(
                 type,
@@ -321,7 +323,7 @@ module MU
           if @config['lb_cookie_stickiness_policy'] and !@config["private"]
             desc[:session_affinity] = "GENERATED_COOKIE"
             desc[:affinity_cookie_ttl_sec] = @config['lb_cookie_stickiness_policy']['timeout']
-          elsif @config['ip_stickiness_policy']
+          elsif @config['ip_stickiness_policy'] and tg['proto'] != "UDP"
             desc[:session_affinity] = "CLIENT_IP"
             if @config["private"]
               if @config['ip_stickiness_policy']["map_port"]
@@ -334,8 +336,10 @@ module MU
           else
             desc[:session_affinity] = "NONE"
           end
-          hc = createHealthCheck(tg["healthcheck"], tg["name"])
-          desc[:health_checks] = [hc.self_link]
+          if tg["healthcheck"]
+            hc = createHealthCheck(tg["healthcheck"], tg["name"])
+            desc[:health_checks] = [hc.self_link]
+          end
 
           backend_obj = MU::Cloud::Google.compute(:BackendService).new(desc)
           MU.log "Creating backend service #{MU::Cloud::Google.nameStr(@deploy.getResourceName(tg["name"]))}", details: backend_obj
@@ -354,7 +358,7 @@ module MU
         end
 
         def createHealthCheck(hc, namebase)
-          pp hc
+          MU.log "HEALTH CHECK", MU::NOTICE, details: hc
           target = hc['target'].match(/^([^:]+):(\d+)(.*)/)
           proto = target[1]
           port = target[2]
@@ -407,11 +411,12 @@ module MU
               desc[:type] = "UDP"
               desc[:udp_health_check] = MU::Cloud::Google.compute(:UdpHealthCheck).new(
                 port: port,
-                request: "",
-                response: ""
+                request: "ORLY", # XXX this needs to be configurable, obvs
+                response: "YARLY"
               )
             end
             hc_obj = MU::Cloud::Google.compute(:HealthCheck).new(desc)
+            MU.log "INSERTING HEALTH CHECK", MU::NOTICE, details: hc_obj
             return MU::Cloud::Google.compute.insert_health_check(
               @config['project'],
               hc_obj
