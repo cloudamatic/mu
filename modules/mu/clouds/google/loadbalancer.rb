@@ -151,13 +151,24 @@ module MU
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject
 
-          ["forwarding_rule", "global_forwarding_rule", "target_http_proxy", "target_https_proxy", "url_map", "region_backend_service", "backend_service", "health_check", "http_health_check", "https_health_check"].each { |type|
-            MU::Cloud::Google.compute.delete(
-              type,
-              flags["project"],
-              noop
-            )
-          }
+          if region
+            ["forwarding_rule", "region_backend_service"].each { |type|
+              MU::Cloud::Google.compute.delete(
+                type,
+                flags["project"],
+                region,
+                noop
+              )
+            }
+          else
+            ["global_forwarding_rule", "target_http_proxy", "target_https_proxy", "url_map", "backend_service", "health_check", "http_health_check", "https_health_check"].each { |type|
+              MU::Cloud::Google.compute.delete(
+                type,
+                flags["project"],
+                noop
+              )
+            }
+          end
         end
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::loadbalancers}, bare and unvalidated.
