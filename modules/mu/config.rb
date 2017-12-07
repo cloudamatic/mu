@@ -4815,7 +4815,9 @@ module MU
               }
             },
             # 'healthcheck' was a first-class parmeter for classic ELBs, but is
-            # embedded inside targetgroups for ALBs.
+            # embedded inside targetgroups for ALBs. In Google, they can be
+            # even more arbitrary, so we also allow you to embed them with
+            # listeners.
             "healthcheck" => @lb_healthcheck_primitive,
             "targetgroups" => {
               "type" => "array",
@@ -4855,6 +4857,7 @@ module MU
                 "additionalProperties" => false,
                 "description" => "A list of port/protocols which this Load Balancer should answer.",
                 "properties" => {
+                  "healthcheck" => @lb_healthcheck_primitive,
                   "lb_port" => {
                     "type" => "integer",
                     "description" => "Specifies the external load balancer port number. This property cannot be modified for the life of the load balancer."

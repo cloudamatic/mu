@@ -525,10 +525,12 @@ module MU
 
             MU.log "Got #{e.inspect} calling Google's #{method_sym}, waiting #{interval.to_s}s and retrying. Called from: #{caller[1]}", debuglevel, details: arguments
             sleep interval
+            MU.log method_sym.to_s.bold+" "+e.inspect, MU::WARN, details: arguments
             retry
           end
         end
       end
+
       @@compute_api = nil
       @@storage_api = nil
       @@iam_api = nil

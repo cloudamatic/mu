@@ -45,13 +45,10 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-# UDP: INTERNAL only, single-region only
-# HTTP or HTTPS: internet-facing only (EXTERNAL)
-# TCP LB, TCP proxy, SSL proxy: either
 
           parent_thread_id = Thread.current.object_id
 
-          backends = {} # XXX backends are only if we're doing INTERNAL!
+          backends = {}
           targets = {}
           if @config['targetgroups']
             threads = []
@@ -75,7 +72,7 @@ module MU
           @config["listeners"].each { |l|
             ruleobj = nil
             if !@config["private"]
-#TODO ip_address
+#TODO ip_address, port_range, target
               realproto = ["HTTP", "HTTPS"].include?(l['lb_protocol']) ? l['lb_protocol'] : "TCP"
               ruleobj = ::Google::Apis::ComputeBeta::ForwardingRule.new(
                 name: MU::Cloud::Google.nameStr(@mu_name+"-"+l['targetgroup']),
@@ -86,7 +83,7 @@ module MU
                 port_range: l['lb_port'].to_s
               )
             else
-# TODO network, subnetwork, port_range
+# TODO network, subnetwork, port_range, target
               ruleobj = ::Google::Apis::ComputeBeta::ForwardingRule.new(
                 name: MU::Cloud::Google.nameStr(@mu_name+"-"+l['targetgroup']),
                 description: @deploy.deploy_id,
@@ -121,18 +118,25 @@ module MU
         # Return the metadata for this LoadBalancer
         # @return [Hash]
         def notify
+          rules = {}
           resp = MU::Cloud::Google.compute.list_global_forwarding_rules(
             @config["project"],
             filter: "description eq #{@deploy.deploy_id}"
           )
-          rules = {}
+          if resp.nil? or resp.items.nil? or resp.items.size == 0
+            resp = MU::Cloud::Google.compute.list_forwarding_rules(
+              @config["project"],
+              @config['region'],
+              filter: "description eq #{@deploy.deploy_id}"
+            )
+          end
           if !resp.nil? and !resp.items.nil?
             resp.items.each { |rule|
               rules[rule.name] = rule.to_h
               rules[rule.name].delete(:label_fingerprint)
             }
           end
-          pp rules
+
           rules
         end
 
@@ -190,11 +194,11 @@ module MU
           if lb['ip_stickiness_policy'] 
             if !lb['private']
               if lb['ip_stickiness_policy']['map_port']
-                MU.log "Can only use map_port in IP stickiness policy with private load balancers", MU::ERR
+                MU.log "Can only use map_port in IP stickiness policy with private LoadBalancers", MU::ERR
                 ok = false
               end
               if lb['ip_stickiness_policy']['map_proto']
-                MU.log "Can only use map_proto in IP stickiness policy with private load balancers", MU::ERR
+                MU.log "Can only use map_proto in IP stickiness policy with private LoadBalancers", MU::ERR
                 ok = false
               end
             elsif lb['ip_stickiness_policy']['map_port'] and !lb['ip_stickiness_policy']['map_proto']
@@ -203,16 +207,25 @@ module MU
             end
           end
 
+          if lb['private'] and lb['global']
+            MU.log "Private Google Cloud LoadBalancer requested, setting 'global' flag to false", MU::WARN
+            lb['global'] = false
+          end
+
           lb["listeners"].each { |l|
             ruleobj = nil
-            if lb["private"] and ["HTTP", "HTTPS"].include?(l['lb_protocol'])
-              MU.log "HTTP and HTTPS listeners are not valid for private load balancers in Google Cloud", MU::ERR
+            if lb["private"] and !["TCP", "UDP"].include?(l['lb_protocol'])
+              MU.log "Only TCP and UDP listeners are valid for private LoadBalancers in Google Cloud", MU::ERR
               ok = false
             end
 
             if lb['global'] and l['lb_protocol'] == "UDP"
-              MU.log "UDP load balancers can only be per-region in Google Cloud. Setting 'global' to false.", MU::WARN
+              MU.log "UDP LoadBalancers can only be per-region in Google Cloud. Setting 'global' to false.", MU::WARN
               lb['global'] = false
+            end
+            if lb['global'] and !["HTTP", "HTTPS"].include?(l['instance_protocol'])
+              MU.log "Global LoadBalancers in Google Cloud can only target HTTP or HTTPS backends", MU::ERR, details: l
+              ok = false
             end
           }
 
@@ -294,7 +307,7 @@ module MU
             certdata = @deploy.nodeSSLCerts(self, 2048)
             cert_pem = certdata[0].to_s+File.read("/etc/pki/Mu_CA.pem")
             gcpcert = MU::Cloud::Google.createSSLCertificate(@mu_name.downcase+"-"+tg['name'], cert_pem, certdata[1])
-            pp gcpcert
+
 # TODO we need a method like MU::Cloud::AWS.findSSLCertificate, with option to hunt down an existing one
             desc[:ssl_certificates] = [gcpcert.self_link]
             target_obj = MU::Cloud::Google.compute(:TargetHttpsProxy).new(desc)
@@ -311,6 +324,7 @@ module MU
             :name => MU::Cloud::Google.nameStr(@deploy.getResourceName(tg["name"])),
             :description => @deploy.deploy_id,
             :load_balancing_scheme => @config['private'] ? "INTERNAL" : "EXTERNAL",
+            :global => @config['global'],
             :protocol => tg['proto'],
             :timeout_sec => @config['idle_timeout']
           }
@@ -343,7 +357,7 @@ module MU
 
           backend_obj = MU::Cloud::Google.compute(:BackendService).new(desc)
           MU.log "Creating backend service #{MU::Cloud::Google.nameStr(@deploy.getResourceName(tg["name"]))}", details: backend_obj
-          if @config['private']
+          if @config['private'] and !@config['global']
             return MU::Cloud::Google.compute.insert_region_backend_service(
               @config['project'],
               @config['region'],
@@ -407,12 +421,20 @@ module MU
                 request: "",
                 response: ""
               )
+            elsif proto == "SSL"
+              desc[:type] = "SSL"
+              desc[:ssl_health_check] = MU::Cloud::Google.compute(:SslHealthCheck).new(
+                port: port,
+                proxy_header: "NONE",
+                request: "", # XXX needs to be configurable
+                response: "" # XXX needs to be configurable
+              )
             elsif proto == "UDP"
               desc[:type] = "UDP"
               desc[:udp_health_check] = MU::Cloud::Google.compute(:UdpHealthCheck).new(
                 port: port,
-                request: "ORLY", # XXX this needs to be configurable, obvs
-                response: "YARLY"
+                request: "ORLY", # XXX needs to be configurable
+                response: "YARLY" # XXX needs to be configurable
               )
             end
             hc_obj = MU::Cloud::Google.compute(:HealthCheck).new(desc)
