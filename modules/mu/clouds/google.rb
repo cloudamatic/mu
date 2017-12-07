@@ -304,6 +304,19 @@ module MU
         end
       end
 
+      # Google's SQL Service API
+      # @param subclass [<Google::Apis::SqladminV1beta4>]: If specified, will return the class ::Google::Apis::SqladminV1beta4::subclass instead of an API client instance
+      def self.sql(subclass = nil)
+        require 'google/apis/sqladmin_v1beta4'
+
+        if subclass.nil?
+          @@sql_api ||= MU::Cloud::Google::Endpoint.new(api: "SqladminV1beta4::SQLAdminService", scopes: ['https://www.googleapis.com/auth/cloud-platform'])
+          return @@sql_api
+        elsif subclass.is_a?(Symbol)
+          return Object.const_get("::Google").const_get("Apis").const_get("SqladminV1beta4").const_get(subclass)
+        end
+      end
+
       # Google's StackDriver Logging Service API
       # @param subclass [<Google::Apis::LoggingV2>]: If specified, will return the class ::Google::Apis::LoggingV2::subclass instead of an API client instance
       def self.logging(subclass = nil)
@@ -533,6 +546,7 @@ module MU
 
       @@compute_api = nil
       @@storage_api = nil
+      @@sql_api = nil
       @@iam_api = nil
       @@logging_api = nil
     end
