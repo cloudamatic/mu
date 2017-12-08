@@ -24,10 +24,11 @@ require 'json'
 require 'erb'
 require 'trollop'
 require 'json-schema'
+require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 require 'mu'
 require 'yard'
 
 MU::Config.emitSchemaAsRuby
 MU.log "Generating YARD documentation in /var/www/html/docs (see http://#{ENV['CHEF_PUBLIC_IP']}/docs/frames.html)"
 File.umask(0022)
-exec "cd #{MU.myRoot} && umask 0022 && env -i PATH=#{ENV['PATH']} HOME=#{ENV['HOME']} /usr/local/ruby-current/bin/yard doc modules -m markdown -o /var/www/html/docs && chcon -R -h -t httpd_sys_script_exec_t /var/www/html/"
+exec "cd #{MU.myRoot} && umask 0022 && env -i PATH=#{ENV['PATH']} HOME=#{ENV['HOME']} /usr/local/ruby-current/bin/yard doc modules -m markdown -o /var/www/html/docs && chcon -R -h -t httpd_sys_script_exec_t /var/www/html/ ; /usr/local/ruby-current/bin/yard stats --list-undoc modules"

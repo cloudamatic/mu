@@ -325,8 +325,15 @@ app = proc do |env|
       if req["mu_user"].nil?
         req["mu_user"] = "mu"
       end
+      requesttype = nil
+      ["mu_ssl_sign", "mu_bootstrap", "mu_windows_admin_creds", "add_volume"].each { |rt|
+        if req[rt]
+          requesttype = rt
+          break
+        end
+      }
 
-      MU.log "Processing request from #{env["REMOTE_ADDR"]} (MU-ID #{req["mu_id"]}, #{req["mu_resource_type"]}: #{req["mu_resource_name"]}, instance: #{req["mu_instance_id"]}, mu_ssl_sign: #{req["mu_ssl_sign"]}, mu_user #{req['mu_user']}, path #{env['REQUEST_PATH']})"
+      MU.log "Processing #{requesttype} request from #{env["REMOTE_ADDR"]} (MU-ID #{req["mu_id"]}, #{req["mu_resource_type"]}: #{req["mu_resource_name"]}, instance: #{req["mu_instance_id"]}, mu_user #{req['mu_user']}, path #{env['REQUEST_PATH']})"
       kittenpile = getKittenPile(req)
       if kittenpile.nil? or kittenpile.original_config.nil? or kittenpile.original_config[req["mu_resource_type"]+"s"].nil?
         returnval = throw500 "Couldn't find config data for #{req["mu_resource_type"]} in deploy_id #{req["mu_id"]}"
@@ -350,21 +357,29 @@ app = proc do |env|
 
 # XXX We can't assume AWS anymore. What does this look like otherwise?
 # If this is an already-groomed instance, try to get a real object for it
-      instance = MU::MommaCat.findStray("AWS", "server", cloud_id: req["mu_instance_id"], region: server_cfg["region"], deploy_id: req["mu_id"], name: req["mu_resource_name"], dummy_ok: false).first
+      instance = MU::MommaCat.findStray("AWS", "server", cloud_id: req["mu_instance_id"], region: server_cfg["region"], deploy_id: req["mu_id"], name: req["mu_resource_name"], dummy_ok: false, calling_deploy: kittenpile).first
       mu_name = nil
       if instance.nil?
         # Now we're just checking for existence in the cloud provider, really
         MU.log "No existing groomed server found, verifying that a server with this cloud id exists"
-        instance = MU::Cloud::Server.find(cloud_id: req["mu_instance_id"], region: server_cfg["region"])
+        instance = MU::MommaCat.findStray("AWS", "server", cloud_id: req["mu_instance_id"], region: server_cfg["region"], deploy_id: req["mu_id"], name: req["mu_resource_name"], dummy_ok: true, calling_deploy: kittenpile).first
+        if instance.nil? or instance.size == 0
+          returnval = throw500 "Failed to find an instance with cloud id #{req["mu_instance_id"]}"
+        end
+# XXX barf if this comes back with nonsense
       else
         mu_name = instance.mu_name
         MU.log "Found an existing node named #{mu_name}"
       end
-      if !req["mu_ssl_sign"].nil?
-        kittenpile.signSSLCert(req["mu_ssl_sign"])
+
+      if !req["mu_windows_admin_creds"].nil?
+        returnval[2] = [kittenpile.retrieveWindowsAdminCreds(instance).join(";")]
+        logstr = returnval[2].is_a?(Array) ? returnval[2].first.sub(/;.*/, ";*********") : returnval[2].sub(/;.*/, ";*********")
+        MU.log logstr, MU::NOTICE
+      elsif !req["mu_ssl_sign"].nil?
+        kittenpile.signSSLCert(req["mu_ssl_sign"], req["mu_ssl_sans"].split(/,/))
+        kittenpile.signSSLCert(req["mu_ssl_sign"], req["mu_ssl_sans"].split(/,/))
       elsif !req["add_volume"].nil?
-puts instance.cloud_id
-pp req
         if instance.respond_to?(:addVolume)
 # XXX make sure we handle mangled input safely
           params = JSON.parse(Base64.decode64(req["add_volume"]))
@@ -376,6 +391,7 @@ pp req
       elsif !instance.nil?
         if !req["mu_bootstrap"].nil?
           kittenpile.groomNode(req["mu_instance_id"], req["mu_resource_name"], req["mu_resource_type"], mu_name: mu_name, sync_wait: true)
+          returnval[2] = ["Grooming asynchronously, check Momma Cat logs on the master for details."]
         else
           returnval = throw500 "Didn't get 'mu_bootstrap' parameter from instance id '#{req["mu_instance_id"]}'"
           ok = false
@@ -393,6 +409,10 @@ pp req
       releaseKitten(req['mu_id'])
       MU.purgeGlobals
     end
+  end
+  if returnval[1] and returnval[1].has_key?("Content-Length") and
+     returnval[2] and returnval[2].is_a?(Array)
+    returnval[1]["Content-Length"] = returnval[2][0].size.to_s
   end
   returnval
 end
