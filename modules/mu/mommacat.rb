@@ -1018,7 +1018,7 @@ module MU
     # @param tag_value [String]: A cloud provider tag to help identify the resource, used in conjunction with tag_key.
     # @param allow_multi [Boolean]: Permit an array of matching resources to be returned (if applicable) instead of just one.
     # @param dummy_ok [Boolean]: Permit return of a faked {MU::Cloud} object if we don't have enough information to identify a real live one.
-    # @param opts [Hash]: Other cloud or resource type specific options to pass to that resource's find() method
+    # @param flags [Hash]: Other cloud or resource type specific options to pass to that resource's find() method
     # @return [Array<MU::Cloud>]
     def self.findStray(cloud,
         type,

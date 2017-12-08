@@ -467,6 +467,16 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           }
         end
 
+        # Cloud-specific configuration properties.
+        # @param config [MU::Config]: The calling MU::Config object
+        # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
+        def self.schema(config)
+          toplevel_required = []
+          schema = {}
+          [toplevel_required, schema]
+        end
+
+
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::vpcs}, bare and unvalidated.
         # @param vpc [Hash]: The resource to process and validate
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
@@ -755,7 +765,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # Remove all subnets associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param tagfilters [Array<Hash>]: EC2 tags to filter against when search for resources to purge
-        # @param region [String]: The cloud provider region
+        # @param regions [Array<String>]: The cloud provider regions to check
         # @return [void]
         def self.purge_subnets(noop = false, tagfilters = [{name: "tag:MU-ID", values: [MU.deploy_id]}], regions: MU::Cloud::Google.listRegions, project: MU::Cloud::Google.defaultProject)
           parent_thread_id = Thread.current.object_id

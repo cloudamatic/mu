@@ -288,15 +288,6 @@ module MU
 
         end
 
-        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::vpcs}, bare and unvalidated.
-        # @param vpc [Hash]: The resource to process and validate
-        # @param config [MU::Config]: The overall deployment config of which this resource is a member
-        # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(vpc, config)
-          # Just use the AWS implemention
-          MU::Cloud::AWS::VPC.validateConfig(vpc, config)
-        end
-
         # Placeholder. This is a NOOP for CloudFormation, which doesn't build
         # resources directly.
         def self.find(*args)
@@ -308,6 +299,21 @@ module MU
         def self.cleanup(*args)
           MU.log "cleanup() not implemented for CloudFormation layer", MU::DEBUG
           nil
+        end
+
+        # Cloud-specific configuration properties.
+        # @param config [MU::Config]: The calling MU::Config object
+        # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
+        def self.schema(config)
+          MU::Cloud::AWS::VPC.schema(config)
+        end
+
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::servers}, bare and unvalidated.
+        # @param server [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(server, configurator)
+          MU::Cloud::AWS::VPC.validateConfig(server, configurator)
         end
 
       end #class

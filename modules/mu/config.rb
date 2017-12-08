@@ -93,9 +93,37 @@ module MU
     end
 
     # Accessor for our Basket of Kittens schema definition
-    attr_reader :schema
+#    attr_reader :schema
     # Accessor for our Basket of Kittens schema definition
     def self.schema
+
+      MU::Cloud.resource_types.each_pair { |classname, attrs|
+        MU::Cloud.supportedClouds.each { |cloud|
+          begin
+            require "mu/clouds/#{cloud.downcase}/#{attrs[:cfg_name]}"
+          rescue LoadError => e
+            next
+          end
+          res_class = Object.const_get("MU").const_get("Cloud").const_get(cloud).const_get(classname)
+          required, res_schema = res_class.schema(self)
+          next if required.size == 0 and res_schema.size == 0
+          res_schema.each { |key, cfg|
+            cfg["description"] ||= ""
+            cfg["description"] = cloud.upcase+": "+cfg["description"]
+            if @@schema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
+              @@schema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["description"] ||= ""
+              @@schema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["description"] += "\n"+cfg["description"]
+            else
+              @@schema["properties"][attrs[:cfg_plural]]["items"]["properties"][key] = cfg
+            end
+            @@schema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["clouds"] = {}
+             @@schema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["clouds"][cloud] = cfg
+          }
+# XXX these should activate selectively
+          @@schema['required'].concat(required)
+          @@schema['required'].uniq!
+        }
+      }
       @@schema
     end
 
@@ -587,7 +615,7 @@ module MU
     # Take the schema we've defined and create a dummy Ruby class tree out of
     # it, basically so we can leverage Yard to document it.
     def self.emitSchemaAsRuby
-
+MU::Config.schema
       kittenpath = "#{MU.myRoot}/modules/mu/kittens.rb"
       MU.log "Converting Basket of Kittens schema to Ruby objects in #{kittenpath}"
       dummy_kitten_class = File.new(kittenpath, File::CREAT|File::TRUNC|File::RDWR, 0644)
@@ -596,7 +624,7 @@ module MU
       dummy_kitten_class.puts "module MU"
       dummy_kitten_class.puts "class Config"
       dummy_kitten_class.puts "\t# The configuration file format for Mu application stacks."
-      self.printSchema(dummy_kitten_class, ["BasketofKittens"], @@schema)
+      self.printSchema(dummy_kitten_class, ["BasketofKittens"], MU::Config.schema)
       dummy_kitten_class.puts "end"
       dummy_kitten_class.puts "end"
       dummy_kitten_class.close
@@ -638,6 +666,10 @@ module MU
       subnets
     end
 
+    # See if a given resource is configured in the current stack
+    # @param name [String]: The name of the resource being checked
+    # @param type [String]: The type of resource being checked
+    # @return [Boolean]
     def haveLitterMate?(name, type)
       @kittencfg_semaphore.synchronize {
         shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
@@ -647,6 +679,10 @@ module MU
       }
       false
     end
+
+    # Remove a resource from the current stack
+    # @param name [String]: The name of the resource being removed
+    # @param type [String]: The type of resource being removed
     def removeKitten(name, type)
       @kittencfg_semaphore.synchronize {
         shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
@@ -660,6 +696,11 @@ module MU
         @kittens[type].delete(deletia) if !deletia.nil?
       }
     end
+
+    # Insert a resource into the current stack
+    # @param descriptor [Hash]: The configuration description, as from a Basket of Kittens
+    # @param type [String]: The type of resource being added
+    # @param delay_validation [Boolean]: Whether to hold off on calling the resource's validateConfig method
     def insertKitten(descriptor, type, delay_validation = false)
       append = false
       @kittencfg_semaphore.synchronize {
@@ -990,10 +1031,6 @@ module MU
     # Namespace magic to pass to ERB's result method.
     def get_binding
       binding
-    end
-
-    def self.schema
-      @@schema
     end
 
     def self.set_defaults(conf_chunk = config, schema_chunk = schema, depth = 0, siblings = nil)
@@ -2820,7 +2857,8 @@ module MU
         "description" => @cidr_description
     }
 
-    @route_primitive = {
+    def self.route_primitive
+      {
         "type" => "object",
         "description" => "Define a network route, typically for use inside a VPC.",
         "properties" => {
@@ -2851,7 +2889,8 @@ module MU
                 "description" => "A network interface over which to route."
             }
         }
-    }
+      }
+    end
 
     @flowlogs_primitive = {
       "traffic_type_to_log" => {
@@ -2981,7 +3020,7 @@ module MU
                         "name" => {"type" => "string"},
                         "routes" => {
                             "type" => "array",
-                            "items" => @route_primitive
+                            "items" => MU::Config.route_primitive
                         }
                     }
                 }
@@ -4148,11 +4187,6 @@ module MU
                 "description" => "Chef run list entry, e.g. role[rolename] or recipe[recipename]."
             }
         },
-# XXX this is only meaningful in Google
-        "routes" => {
-            "type" => "array",
-            "items" => @route_primitive
-        },
         "ingress_rules" => {
             "type" => "array",
             "items" => @firewall_ruleset_rule_primitive
@@ -4269,14 +4303,6 @@ module MU
                 "type" => "string",
                 "description" => "Request a specific private IP address for this instance.",
                 "pattern" => "^\\d+\\.\\d+\\.\\d+\\.\\d+$"
-            },
-            "ami_id" => {
-                "type" => "string",
-                "description" => "The Amazon EC2 AMI on which to base this instance. Will use the default appropriate for the platform, if not specified.",
-            },
-            "image_id" => {
-                "type" => "string",
-                "description" => "The Google Cloud Platform Image on which to base this instance. Will use the default appropriate for the platform, if not specified.",
             },
             "size" => {
               "description" => "The Amazon EC2 instance type to use when creating this server.",

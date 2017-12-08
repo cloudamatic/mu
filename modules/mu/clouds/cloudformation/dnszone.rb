@@ -252,12 +252,20 @@ module MU
           MU.log "find() not implemented for CloudFormation layer", MU::DEBUG
           nil
         end
-        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::dns_zones}, bare and unvalidated.
-        # @param zone [Hash]: The resource to process and validate
+
+        # Cloud-specific configuration properties.
+        # @param config [MU::Config]: The calling MU::Config object
+        # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
+        def self.schema(config)
+          MU::Cloud::AWS::DNSZone.schema(config)
+        end
+
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::servers}, bare and unvalidated.
+        # @param server [Hash]: The resource to process and validate
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(zone, configurator)
-          true
+        def self.validateConfig(server, configurator)
+          MU::Cloud::AWS::DNSZone.validateConfig(server, configurator)
         end
 
       end

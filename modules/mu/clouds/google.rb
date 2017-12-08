@@ -347,6 +347,12 @@ module MU
           @api.authorization = MU::Cloud::Google.loadCredentials(scopes)
         end
 
+        # Generic wrapper for deleting Compute resources
+        # @param type [String]: The type of resource, typically the string you'll find in all of the API calls referring to it
+        # @param project [String]: The project in which we should look for the resources
+        # @param region [String]: The region in which to loop for the resources
+        # @param noop [Boolean]: If true, will only log messages about resources to be deleted, without actually deleting them
+        # @param filter [String]: The Compute API filter string to use to isolate appropriate resources
         def delete(type, project, region = nil, noop = false, filter = "description eq #{MU.deploy_id}")
           list_sym = "list_#{type.sub(/y$/, "ie")}s".to_sym
           resp = nil

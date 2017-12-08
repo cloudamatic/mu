@@ -128,6 +128,11 @@ module MU
           MU::Cloud::Google.compute.get_image(img_proj, img_name)
         end
 
+        # Generator for disk configuration parameters for a Compute instance
+        # @param config [Hash]: The MU::Cloud::Server config hash for whom we're configuring disks
+        # @param create [Boolean]: Actually create extra (non-root) disks, or just the one declared as the root disk of the image
+        # @param disk_as_url [Boolean]: Whether to declare the disk type as a short string or full URL, which can vary depending on the calling resource
+        # @return [Array]: The Compute :AttachedDisk objects describing disks that've been created
         def self.diskConfig(config, create = true, disk_as_url = true)
           disks = []
           img = fetchImage(config['image_id'] || config['basis']['launch_config']['image_id'])
@@ -196,6 +201,10 @@ next if !create
           disks
         end
 
+        # Generator for disk configuration parameters for a Compute instance
+        # @param config [Hash]: The MU::Cloud::Server config hash for whom we're configuring network interfaces
+        # @param vpc [MU::Cloud::Google::VPC]: The VPC in which this interface should reside
+        # @return [Array]: Configuration objects for network interfaces, suitable for passing to the Compute API
         def self.interfaceConfig(config, vpc)
           subnet_cfg = config['vpc']
           if config['vpc']['subnets'] and
@@ -1075,7 +1084,6 @@ next if !create
         # @param storage [Hash]: The storage devices to include in this image.
         # @param exclude_storage [Boolean]: Do not include the storage device profile of the running instance when creating this image.
         # @param region [String]: The cloud provider region
-        # @param copy_to_regions [Array<String>]: Copy the resulting AMI into the listed regions.
         # @param tags [Array<String>]: Extra/override tags to apply to the image.
         # @return [String]: The cloud provider identifier of the new machine image.
         def self.createImage(name: nil, instance_id: nil, storage: {}, exclude_storage: false, project: MU::Cloud::Google.defaultProject, make_public: false, tags: [], region: nil, family: "mu", zone: MU::Cloud::Google.listAZs.sample)
@@ -1319,6 +1327,24 @@ next if !create
               noop
             ) if !noop
           }
+        end
+
+        # Cloud-specific configuration properties.
+        # @param config [MU::Config]: The calling MU::Config object
+        # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
+        def self.schema(config)
+          toplevel_required = []
+          schema = {
+            "image_id" => {
+              "type" => "string",
+              "description" => "The Google Cloud Platform Image on which to base this instance. Will use the default appropriate for the platform, if not specified."
+            },
+            "routes" => {
+              "type" => "array",
+              "items" => config.route_primitive
+            }
+          }
+          [toplevel_required, schema]
         end
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::servers}, bare and unvalidated.

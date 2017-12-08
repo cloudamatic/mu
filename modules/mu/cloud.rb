@@ -39,7 +39,7 @@ module MU
     class MuCloudFlagNotImplemented < StandardError;
     end
 
-    generic_class_methods = [:find, :cleanup, :validateConfig]
+    generic_class_methods = [:find, :cleanup, :validateConfig, :schema]
     generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config]
 
     # Initialize empty classes for each of these. We'll fill them with code

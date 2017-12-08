@@ -304,6 +304,15 @@ module MU
           @deploy.notify("collections", @config["name"], @config)
         end
 
+        # Cloud-specific configuration properties.
+        # @param config [MU::Config]: The calling MU::Config object
+        # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
+        def self.schema(config)
+          toplevel_required = []
+          schema = {}
+          [toplevel_required, schema]
+        end
+
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::collections}, bare and unvalidated.
         # @param stack [Hash]: The resource to process and validate
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
