@@ -14,6 +14,11 @@ property :dc_ips, Array
 default_action :config
 
 action :config do
+
+  cookbook_file "c:\\Windows\\SysWOW64\\ntrights.exe" do
+    source "ntrights"
+  end
+
   if is_domain_controller?(new_resource.computer_name)
     [new_resource.username, new_resource.ssh_user, new_resource.ec2config_user].each { |user|
       unless domain_user_exist?(user)
@@ -46,10 +51,13 @@ action :config do
       end
     }
 
-    # This is a workaround because user data might re-install cygwin and use a random password that we don't know about. This is not idempotent, it just doesn't throw and error.
+    # This is a workaround because user data might re-install cygwin and use a random password that we don't know about. This is not idempotent, it just doesn't throw an error.
+    # XXX I think this has been resetting the domain sshd user's password, which
+    # is bad. Either that, or Cygwin has been, and this is the thing trying to
+    # solve that problem.
     script =<<-EOH
       Add-ADGroupMember 'Domain Admins' -Members #{new_resource.ssh_user} -PassThru
-      Set-ADAccountPassword -Identity #{new_resource.ssh_user} -NewPassword (ConvertTo-SecureString -AsPlainText '#{new_resource.ssh_password}' -Force) -PassThru
+#      Set-ADAccountPassword -Identity #{new_resource.ssh_user} -NewPassword (ConvertTo-SecureString -AsPlainText '#{new_resource.ssh_password}' -Force) -PassThru
     EOH
 
     converge_by("Added #{new_resource.ssh_user} to Domain Admin group and reset its password") do
@@ -140,6 +148,12 @@ action :config do
         # powershell_out("new-gplink -name #{gpo_name} -target 'dc=#{new_resource.domain_name.gsub(".", ",dc=")}'").run_command
       end
     end
+
+    %w{SeCreateTokenPrivilege SeTcbPrivilege SeAssignPrimaryTokenPrivilege}.each { |privilege|
+      batch "Grant local user #{new_resource.netbios_name}\\#{new_resource.ssh_user} #{privilege} right" do
+        code "C:\\Windows\\SysWOW64\\ntrights +r #{privilege} -u #{new_resource.netbios_name}\\#{new_resource.ssh_user}"
+      end
+    }
   end
 
   if in_domain?
@@ -157,10 +171,11 @@ action :config do
       end
     }
 
-  directory 'C:/chef/cache' do
-    rights :full_control, "#{new_resource.netbios_name}\\#{new_resource.username}"
-    rights :full_control, "#{new_resource.netbios_name}\\#{new_resource.ssh_user}"
-  end
+
+    directory 'C:/chef/cache' do
+      rights :full_control, "#{new_resource.netbios_name}\\#{new_resource.username}"
+      rights :full_control, "#{new_resource.netbios_name}\\#{new_resource.ssh_user}"
+    end
 
     execute "C:/bin/cygwin/bin/bash --login -c \"chown -R #{new_resource.username} /home/#{new_resource.username}\""
 
@@ -179,14 +194,19 @@ action :config do
     end
   else
     # We want to run ec2config as admin user so Windows userdata executes as admin, however the local admin account doesn't have Logon As a Service right. Domain privileges are set separately
+
     cookbook_file "c:\\Windows\\SysWOW64\\ntrights.exe" do
       source "ntrights"
     end
-
     [new_resource.ssh_user, new_resource.ec2config_user].each { |usr|
+			pass = if usr == new_resource.ec2config_user
+				new_resource.ec2config_password
+			elsif usr == new_resource.ssh_user
+				new_resource.ssh_password
+			end
+
       user usr do
-        password new_resource.ec2config_password if usr == new_resource.ec2config_user
-        password new_resource.ssh_password if usr == new_resource.ssh_user
+        password pass
       end
 
       group "Administrators" do
@@ -201,12 +221,21 @@ action :config do
         end
       }
 
+			# XXX user resource seems not to really be setting password, or is setting			# in such a way that the user is being required to change it. Workaround.
+      powershell_script "Adjust local account params for #{usr}" do
+				code <<-EOH
+					(([adsi]('WinNT://./#{usr}, user')).psbase.invoke('SetPassword', '#{pass}'))
+				EOH
+      end
+
       if usr == new_resource.ssh_user
+
         %w{SeCreateTokenPrivilege SeTcbPrivilege SeAssignPrimaryTokenPrivilege}.each { |privilege|
           batch "Grant local user #{usr} logon as service right" do
             code "C:\\Windows\\SysWOW64\\ntrights +r #{privilege} -u #{usr}"
           end
         }
+					
       end
     }
   end

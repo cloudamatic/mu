@@ -331,7 +331,7 @@ module MU
       # templates. They're globals on purpose. Stop whining.
       $file_format = MU::Config.guessFormat(path)
       $yaml_refs = {}
-      erb = ERB.new(File.read(path))
+      erb = ERB.new(File.read(path), nil, "<>")
       raw_text = erb.result(get_binding)
       raw_json = nil
 
@@ -690,7 +690,7 @@ module MU
         assume_type = :yaml
       end
       begin
-        erb = ERB.new(File.read(file))
+        erb = ERB.new(File.read(file), nil, "<>")
       rescue Errno::ENOENT => e
         retries = retries + 1
         if retries == 1

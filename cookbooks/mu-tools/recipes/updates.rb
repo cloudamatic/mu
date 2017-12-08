@@ -48,7 +48,7 @@ if !node[:application_attributes][:skip_recipes].include?('updates')
         recursive true
       end
   
-      if node[:os_updates_using_chef]
+      if node[:os_updates_using_chef] or node[:application_attributes][:os_updates_using_chef]
         powershell_script "Install Windows Updates" do
           # XXX Something in here throws a security error now. Whee.
           #				 Set-ExecutionPolicy RemoteSigned -Force
