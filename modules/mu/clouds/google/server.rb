@@ -1341,7 +1341,7 @@ next if !create
             },
             "routes" => {
               "type" => "array",
-              "items" => config.route_primitive
+              "items" => MU::Config.route_primitive
             }
           }
           [toplevel_required, schema]

@@ -177,7 +177,17 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
-          schema = {}
+          schema = {
+              "rules" => {
+                "items" => {
+                  "properties" => {
+                    "proto" => {
+                      "enum" => ["udp", "tcp", "icmp", "all"]
+                    }
+                  }
+                }
+              }
+          }
           [toplevel_required, schema]
         end
 

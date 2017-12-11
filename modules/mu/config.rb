@@ -93,10 +93,13 @@ module MU
     end
 
     # Accessor for our Basket of Kittens schema definition
-#    attr_reader :schema
-    # Accessor for our Basket of Kittens schema definition
     def self.schema
-
+      @@schema
+    end
+    # Accessor for our Basket of Kittens schema definition, with various
+    # cloud-specific details merged so we can generate documentation for them.
+    def self.docSchema
+      docschema = Marshal.load(Marshal.dump(@@schema))
       MU::Cloud.resource_types.each_pair { |classname, attrs|
         MU::Cloud.supportedClouds.each { |cloud|
           begin
@@ -110,21 +113,21 @@ module MU
           res_schema.each { |key, cfg|
             cfg["description"] ||= ""
             cfg["description"] = cloud.upcase+": "+cfg["description"]
-            if @@schema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
-              @@schema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["description"] ||= ""
-              @@schema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["description"] += "\n"+cfg["description"]
+            if docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
+              docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["description"] ||= ""
+              docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["description"] += "\n"+cfg["description"]
             else
-              @@schema["properties"][attrs[:cfg_plural]]["items"]["properties"][key] = cfg
+              docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key] = cfg
             end
-            @@schema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["clouds"] = {}
-             @@schema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["clouds"][cloud] = cfg
+            docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["clouds"] = {}
+             docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["clouds"][cloud] = cfg
           }
 # XXX these should activate selectively
-          @@schema['required'].concat(required)
-          @@schema['required'].uniq!
+          docschema['required'].concat(required)
+          docschema['required'].uniq!
         }
       }
-      @@schema
+      docschema
     end
 
     attr_reader :config
@@ -615,7 +618,6 @@ module MU
     # Take the schema we've defined and create a dummy Ruby class tree out of
     # it, basically so we can leverage Yard to document it.
     def self.emitSchemaAsRuby
-MU::Config.schema
       kittenpath = "#{MU.myRoot}/modules/mu/kittens.rb"
       MU.log "Converting Basket of Kittens schema to Ruby objects in #{kittenpath}"
       dummy_kitten_class = File.new(kittenpath, File::CREAT|File::TRUNC|File::RDWR, 0644)
@@ -624,7 +626,7 @@ MU::Config.schema
       dummy_kitten_class.puts "module MU"
       dummy_kitten_class.puts "class Config"
       dummy_kitten_class.puts "\t# The configuration file format for Mu application stacks."
-      self.printSchema(dummy_kitten_class, ["BasketofKittens"], MU::Config.schema)
+      self.printSchema(dummy_kitten_class, ["BasketofKittens"], MU::Config.docSchema)
       dummy_kitten_class.puts "end"
       dummy_kitten_class.puts "end"
       dummy_kitten_class.close
@@ -714,12 +716,17 @@ MU::Config.schema
 
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
       descriptor["#MU_CLOUDCLASS"] = classname
-      inheritDefaults(descriptor)
+      inheritDefaults(descriptor, cfg_plural)
+      if descriptor["region"] and descriptor["region"].empty?
+        descriptor.delete("region")
+      end
 
       # Does this resource go in a VPC?
       if !descriptor["vpc"].nil? and !delay_validation
         descriptor['vpc']['cloud'] = descriptor['cloud']
-        descriptor['vpc']['region'] = descriptor['region'] if descriptor['vpc']['region'].nil? and descriptor['vpc']['cloud'] != "Google"
+        if descriptor['vpc']['region'].nil? and descriptor['vpc']['cloud'] != "Google" and !descriptor['region'].nil? and !descriptor['region'].empty?
+          descriptor['vpc']['region'] = descriptor['region']
+        end
         # If we're using a VPC in this deploy, set it as a dependency
         if !descriptor["vpc"]["vpc_name"].nil? and
            haveLitterMate?(descriptor["vpc"]["vpc_name"], "vpcs") and
@@ -731,6 +738,7 @@ MU::Config.schema
           }
 
           if !processVPCReference(descriptor['vpc'],
+                                  cfg_plural,
                                   shortclass.to_s+" '#{descriptor['name']}'",
                                   dflt_region: descriptor['region'],
                                   is_sibling: true,
@@ -742,7 +750,7 @@ MU::Config.schema
           # thing exists, and also fetch its id now so later search routines
           # don't have to work so hard.
         else
-          if !processVPCReference(descriptor["vpc"],
+          if !processVPCReference(descriptor["vpc"], cfg_plural,
                                   "#{shortclass} #{descriptor['name']}",
                                   dflt_region: descriptor['region'])
             ok = false
@@ -847,9 +855,40 @@ MU::Config.schema
       end
 
       if !delay_validation
+
+        # Merge the cloud-class specific JSON schema and validate against it
+        myschema = Marshal.load(Marshal.dump(MU::Config.schema["properties"][cfg_plural]["items"]))
+        more_required, more_schema = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s).schema(self)
+        myschema["properties"].merge!(more_schema)
+        myschema["required"] ||= []
+        myschema["required"].concat(more_required)
+        myschema["required"].uniq!
+        MU.log "Schema check on #{descriptor['cloud']} #{cfg_name} #{descriptor['name']}", MU::DEBUG, details: myschema
+
+        plain_cfg = MU::Config.manxify(Marshal.load(Marshal.dump(descriptor)))
+        plain_cfg.delete("#MU_CLOUDCLASS")
+        begin
+          JSON::Validator.validate!(myschema, plain_cfg)
+        rescue JSON::Schema::ValidationError => e
+          pp plain_cfg
+          # Use fully_validate to get the complete error list, save some time
+          errors = JSON::Validator.fully_validate(myschema, plain_cfg)
+          realerrors = []
+          errors.each { |err|
+            if !err.match(/The property '.+?' of type MU::Config::Tail did not match the following type:/)
+              realerrors << err
+            end
+          }
+          if realerrors.size > 0
+            raise ValidationError, "Validation error on #{descriptor['cloud']} #{cfg_name} #{descriptor['name']} #{@@config_path}!\n"+realerrors.join("\n")
+          end
+        end
+
+        # Run the cloud class's deeper validation
         parser = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s)
         return false if !parser.validateConfig(descriptor, self)
         descriptor['#MU_VALIDATED'] = true
+
       end
 
       descriptor["dependencies"].uniq!
@@ -1101,13 +1140,14 @@ MU::Config.schema
 
     # Pick apart an external VPC reference, validate it, and resolve it and its
     # various subnets and NAT hosts to live resources.
-    def processVPCReference(vpc_block, parent_name, is_sibling: false, sibling_vpcs: [], dflt_region: MU.curRegion)
+    def processVPCReference(vpc_block, parent_type, parent_name, is_sibling: false, sibling_vpcs: [], dflt_region: MU.curRegion)
       puts vpc_block.ancestors if !vpc_block.is_a?(Hash)
       if !vpc_block.is_a?(Hash) and vpc_block.kind_of?(MU::Cloud::VPC)
         return true
       end
       ok = true
-      if vpc_block['region'].nil?
+
+      if vpc_block['region'].nil? and dflt_region and !dflt_region.empty?
         vpc_block['region'] = dflt_region.to_s
       end
 
@@ -1361,6 +1401,23 @@ MU::Config.schema
       end
 
       if ok
+        # Delete values that don't apply to the schema for whatever this VPC's
+        # parent resource is.
+        vpc_block.keys.each { |vpckey|
+          if !@@schema["properties"][parent_type]["items"]["properties"]["vpc"]["properties"].has_key?(vpckey)
+            vpc_block.delete(vpckey)
+          end
+        }
+        if vpc_block['subnets'] and @@schema["properties"][parent_type]["items"]["properties"]["vpc"]["properties"]["subnets"]
+          vpc_block['subnets'].each { |subnet|
+            subnet.each_key { |subnetkey|
+              if !@@schema["properties"][parent_type]["items"]["properties"]["vpc"]["properties"]["subnets"]["items"]["properties"].has_key?(subnetkey)
+                subnet.delete(subnetkey)
+              end
+            }
+          }
+        end
+
         vpc_block.delete('deploy_id')
 # XXX this was to cover some weird bad input case, and only works in AWS
 #        vpc_block.delete('nat_host_id') if vpc_block.has_key?('nat_host_id') and !vpc_block['nat_host_id'].nil? and !vpc_block['nat_host_id'].match(/^i-/)
@@ -1489,7 +1546,7 @@ MU::Config.schema
       end
 
       acl = {"name" => name, "rules" => rules, "vpc" => realvpc, "cloud" => cloud, "admin" => true}
-      acl["region"] == region if !region.nil?
+      acl["region"] == region if !region.nil? and !region.empty?
       @admin_firewall_rules << acl if !@admin_firewall_rules.include?(acl)
       return {"type" => "firewall_rule", "name" => name}
     end
@@ -1574,10 +1631,13 @@ MU::Config.schema
     # Given a bare hash describing a resource, insert default values which can
     # be inherited from the current live parent configuration.
     # @param kitten [Hash]: A resource descriptor
-    def inheritDefaults(kitten)
+    # @param type [String]: The type of resource this is ("servers" etc)
+    def inheritDefaults(kitten, type)
       kitten['cloud'] = MU::Config.defaultCloud if kitten['cloud'].nil?
+      schema_fields = ["region", "us_only", "scrub_mu_isms"]
       if kitten['cloud'] == "Google"
         kitten["project"] ||= MU::Cloud::Google.defaultProject
+        schema_fields << "project"
         if kitten['region'].nil? and !kitten['#MU_CLOUDCLASS'].nil? and
            ![MU::Cloud::VPC, MU::Cloud::FirewallRule].include?(kitten['#MU_CLOUDCLASS'])
 # XXX be sanity-checking that this value exists
@@ -1589,8 +1649,18 @@ MU::Config.schema
       end
 # XXX get AWS layer to honor us_only
       kitten['us_only'] = @config['us_only'] if kitten['us_only'].nil?
+
       kitten["dependencies"] ||= []
       kitten['scrub_mu_isms'] = @config['scrub_mu_isms'] if @config.has_key?('scrub_mu_isms')
+
+      # Make sure the schema knows about these "new" fields, so that validation
+      # doesn't trip over them.
+      schema_fields.each { |field|
+        if @@schema["properties"][field]
+          MU.log "Adding #{field} to schema for #{type} #{kitten['cloud']}", MU::DEBUG
+          @@schema["properties"][type]["items"]["properties"][field] ||= @@schema["properties"][field]
+        end
+      }
     end
 
     def validate(config = @config)
@@ -1618,7 +1688,7 @@ MU::Config.schema
         @kittens[type] = config[type]
         @kittens[type] ||= []
         @kittens[type].each { |k|
-          inheritDefaults(k)
+          inheritDefaults(k, type)
         }
         count = count + @kittens[type].size
       }
@@ -1663,7 +1733,7 @@ MU::Config.schema
                   MU.log "VPC peering connections to non-local accounts must specify the vpc_id of the peer.", MU::ERR
                   ok = false
                 end
-              elsif !processVPCReference(peer['vpc'], "vpc '#{vpc['name']}'", dflt_region: peer["vpc"]['region'])
+              elsif !processVPCReference(peer['vpc'], "vpcs", "vpc '#{vpc['name']}'", dflt_region: peer["vpc"]['region'])
                 ok = false
               end
             end
@@ -1756,7 +1826,7 @@ MU::Config.schema
                   MU.log "VPC DNS access to non-local accounts must specify the vpc_id of the vpc.", MU::ERR
                   ok = false
                 end
-              elsif !processVPCReference(vpc, "vpc '#{zone['name']}'", dflt_region: config['region'])
+              elsif !processVPCReference(vpc, "dns_zones", "vpc '#{zone['name']}'", dflt_region: config['region'])
                 ok = false
               end
             end
@@ -2282,6 +2352,7 @@ MU::Config.schema
 
             if !processVPCReference(
               cluster["vpc"],
+              "cache_clusters",
               "cache_cluster #{cluster['name']}",
               dflt_region: config['region'],
               is_sibling: true,
@@ -2290,7 +2361,7 @@ MU::Config.schema
               ok = false
             end
           else
-            if !processVPCReference(cluster["vpc"], "cache_cluster #{cluster['name']}", dflt_region: config['region'])
+            if !processVPCReference(cluster["vpc"], "cache_clusters", "cache_cluster #{cluster['name']}", dflt_region: config['region'])
               ok = false
             end
           end
@@ -2331,6 +2402,7 @@ MU::Config.schema
 
                 if !processVPCReference(
                       mp["vpc"],
+                      "storage_pools",
                       "storage_pool #{pool['name']}",
                       dflt_region: config['region'],
                       is_sibling: true,
@@ -2339,7 +2411,7 @@ MU::Config.schema
                   ok = false
                 end
               else
-                if !processVPCReference(mp["vpc"], "storage_pool #{pool['name']}", dflt_region: config['region'])
+                if !processVPCReference(mp["vpc"], "storage_pools", "storage_pool #{pool['name']}", dflt_region: config['region'])
                   ok = false
                 end
               end
@@ -2527,6 +2599,8 @@ MU::Config.schema
     end
 
 
+    # Emit our Basket of Kittesn schema in a format that YARD can comprehend
+    # and turn into documentation.
     def self.printSchema(dummy_kitten_class, class_hierarchy, schema, in_array = false, required = false)
       return if schema.nil?
       if schema["type"] == "object"
@@ -2857,6 +2931,7 @@ MU::Config.schema
         "description" => @cidr_description
     }
 
+    # Schema chunk for generically defining a route cloud resource
     def self.route_primitive
       {
         "type" => "object",
@@ -3226,6 +3301,11 @@ MU::Config.schema
             "self_referencing" => {
                 "type" => "boolean",
                 "default" => false
+            },
+            "admin" => {
+              "type" => "boolean",
+              "description" => "Internal use only. Flag generic administrative firewall rulesets for use by the Mu Master",
+              "default" => false
             },
             "rules" => {
                 "type" => "array",
@@ -5350,6 +5430,12 @@ MU::Config.schema
                 "type" => "boolean",
                 "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template. Setting this flag here will override declarations in individual resources."
             },
+            "project" => {
+              "type" => "string",
+              "description" => "GOOGLE: The project into which to deploy resources",
+              "default" => MU::Cloud::Google.defaultProject
+            },
+            "region" => @region_primitive,
             "us_only" => {
                 "type" => "boolean",
                 "description" => "For resources which span regions, restrict to regions inside the United States",
@@ -5404,7 +5490,6 @@ MU::Config.schema
                     }
                 }
             },
-            "region" => @region_primitive,
             # TODO availability zones (or an array thereof) 
 
             "loadbalancers" => {
