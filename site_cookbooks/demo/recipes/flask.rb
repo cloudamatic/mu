@@ -16,7 +16,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-include_recipe 'poise-python'
+include_recipe 'python'
 include_recipe 'nginx'
 include_recipe 'supervisor'
 
@@ -39,18 +39,18 @@ directories = virtual_environment.split('/')
 end
 
 python_virtualenv virtual_environment do
-  python 'python2.7'
+  interpreter 'python2.7'
   owner 'root'
   group 'root'
   action :create
 end
 
-python_package 'flask' do
+python_pip 'flask' do
   virtualenv virtual_environment
   action :install
 end
 
-python_package 'gunicorn' do
+python_pip 'gunicorn' do
   virtualenv virtual_environment
   action :install
 end
