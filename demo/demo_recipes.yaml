@@ -14,3 +14,4 @@ servers:
       vpc_id: <%= vpc %>
     run_list:
     - recipe[demo::flask]
+    - recipe[demo::store_attr]
