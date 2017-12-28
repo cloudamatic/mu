@@ -2240,17 +2240,6 @@ module MU
             end
           end
 
-          if server["alarms"] && !server["alarms"].empty?
-            server["alarms"].each { |alarm|
-              alarm["name"] = "server-#{server["name"]}-#{alarm["name"]}"
-              alarm["dimensions"] = [] if !alarm["dimensions"]
-              alarm['dimensions'] << { "name" => server["name"], "cloud_class" => "InstanceId" }
-              alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
-              alarm['cloud'] = server['cloud']
-              alarms << alarm.dup
-            }
-          end
-
           if !server["loadbalancers"].nil?
             server["loadbalancers"].each { |lb|
               if lb["concurrent_load_balancer"] != nil

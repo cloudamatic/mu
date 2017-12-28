@@ -684,7 +684,44 @@ module MU
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(cache, configurator)
-          true
+          ok = true
+
+          if cluster.has_key?("parameter_group_parameters") && cache["parameter_group_family"].nil?
+            MU.log "parameter_group_family must be set when setting parameter_group_parameters", MU::ERR
+            ok = false
+          end
+          if cache["engine"] == "redis"
+            # We aren't required to create a cache replication group for a single redis cache cluster,
+            # however AWS console does exactly that, ss such we will follow that behavior.
+            if cache["node_count"] > 1
+              cache["create_replication_group"] = true
+              cache["automatic_failover"] = cache["multi_az"]
+            end
+
+            # Some instance types don't support snapshotting
+            if %w{cache.t2.micro cache.t2.small cache.t2.medium}.include?(cache["size"])
+              if cluster.has_key?("snapshot_retention_limit") || cluster.has_key?("snapshot_window")
+                MU.log "Can't set snapshot_retention_limit or snapshot_window on #{cache["size"]}", MU::ERR
+                ok = false
+              end
+            end
+          elsif cache["engine"] == "memcached"
+            cache["create_replication_group"] = false
+            cache["az_mode"] = cache["multi_az"] ? "cross-az" : "single-az"
+
+            if cache["node_count"] > 20
+              MU.log "#{cache['engine']} supports up to 20 nodes per cache cluster", MU::ERR
+              ok = false
+            end
+
+            # memcached doesn't support snapshots
+            if cluster.has_key?("snapshot_retention_limit") || cluster.has_key?("snapshot_window")
+              MU.log "Can't set snapshot_retention_limit or snapshot_window on #{cache["engine"]}", MU::ERR
+              ok = false
+            end
+          end
+
+          ok
         end
 
         private

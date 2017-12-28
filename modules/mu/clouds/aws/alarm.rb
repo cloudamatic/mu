@@ -242,7 +242,24 @@ module MU
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(alarm, configurator)
-          true
+          ok = true
+          alarm["dimensions"] ||= []
+
+          if alarm["#TARGETCLASS"] == "cache_cluster"
+            alarm['dimensions'] << { "name" => alarm["#TARGETCLASS"], "cloud_class" => "CacheClusterId" }
+            alarm["namespace"] = "AWS/ElastiCache" if alarm["namespace"].nil?
+          elsif alarm["#TARGETCLASS"] == "server"
+            alarm['dimensions'] << { "name" => alarm["#TARGETCLASS"], "cloud_class" => "InstanceId" }
+            alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
+          elsif alarm["#TARGETCLASS"] == "database"
+            alarm['dimensions'] << { "name" => alarm["#TARGETCLASS"], "cloud_class" => "DBInstanceIdentifier" }
+            alarm["namespace"] = "AWS/RDS" if alarm["namespace"].nil?
+          end
+
+          alarm.delete("#TARGETCLASS")
+          alarm.delete("#TARGETNAME")
+
+          ok
         end
 
       end

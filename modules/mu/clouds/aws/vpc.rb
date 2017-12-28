@@ -1262,7 +1262,7 @@ module MU
                 private_rtbs << table['name']
                 route.delete("gateway") if route['gateway'] == '#INTERNET'
               end
-              if !route['nat_host_name'].nil? and server_names.include?(route['nat_host_name']) and !subnet_routes.nil? and !subnet_routes.empty?
+              if !route['nat_host_name'].nil? and config.haveLitterMate?(route['nat_host_name'], "server") and !subnet_routes.nil? and !subnet_routes.empty?
                 subnet_routes[table['name']].each { |subnet|
                   nat_routes[subnet] = route['nat_host_name']
                 }

@@ -755,16 +755,16 @@ module MU
             end
           }
 
-          if lb["alarms"] && !lb["alarms"].empty?
-            lb["alarms"].each { |alarm|
-              alarm["name"] = "lb-#{lb["name"]}-#{alarm["name"]}"
-              alarm['dimensions'] = [] if !alarm['dimensions']
-              alarm['dimensions'] << { "name" => lb["name"], "cloud_class" => "LoadBalancerName" }
-              alarm["namespace"] = "AWS/ELB" if alarm["namespace"].nil?
-              alarm['cloud'] = lb['cloud']
-              alarms << alarm.dup
-            }
-          end
+#          if lb["alarms"] && !lb["alarms"].empty?
+#            lb["alarms"].each { |alarm|
+#              alarm["name"] = "lb-#{lb["name"]}-#{alarm["name"]}"
+#              alarm['dimensions'] = [] if !alarm['dimensions']
+#              alarm['dimensions'] << { "name" => lb["name"], "cloud_class" => "LoadBalancerName" }
+#              alarm["namespace"] = "AWS/ELB" if alarm["namespace"].nil?
+#              alarm['cloud'] = lb['cloud']
+#              alarms << alarm.dup
+#            }
+#          end
 
           if !lb["classic"]
             if lb["vpc"].nil?

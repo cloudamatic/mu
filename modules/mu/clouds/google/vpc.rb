@@ -472,7 +472,12 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
-          schema = {}
+          schema = {
+            "regions" => {
+              "type" => "array",
+              "items" => MU::Config.region_primitive
+            }
+          }
           [toplevel_required, schema]
         end
 

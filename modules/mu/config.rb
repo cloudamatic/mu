@@ -713,10 +713,12 @@ module MU
           return true
         end
       }
+      ok = true
 
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
       descriptor["#MU_CLOUDCLASS"] = classname
       inheritDefaults(descriptor, cfg_plural)
+
       if descriptor["region"] and descriptor["region"].empty?
         descriptor.delete("region")
       end
@@ -763,7 +765,8 @@ module MU
       # Does it have generic ingress rules?
       if !descriptor['ingress_rules'].nil?
         fwname = cfg_name+descriptor['name']
-        acl = {"name" => fwname, "rules" => descriptor['ingress_rules'], "region" => descriptor['region'], "optional_tags" => descriptor['optional_tags']}
+        acl = {"name" => fwname, "rules" => descriptor['ingress_rules'], "region" => descriptor['region'] }
+        acl["optional_tags"] = descriptor['optional_tags'] if descriptor['optional_tags']
         acl["tags"] = descriptor['tags'] if descriptor['tags'] && !descriptor['tags'].empty?
         acl["vpc"] = descriptor['vpc'].dup if !descriptor['vpc'].nil?
         acl["cloud"] = descriptor["cloud"]
@@ -809,6 +812,20 @@ module MU
             ok = false
           end
         }
+      end
+
+      # Does it declare some alarms?
+      if descriptor["alarms"] && !descriptor["alarms"].empty?
+        descriptor["alarms"].each { |alarm|
+          alarm["name"] = "#{cfg_name}-#{descriptor["name"]}-#{alarm["name"]}"
+          alarm['dimensions'] = [] if !alarm['dimensions']
+          alarm["#TARGETCLASS"] = cfg_name
+          alarm["#TARGETNAME"] = descriptor['name']
+          alarm['cloud'] = descriptor['cloud']
+
+          ok = false if !insertKitten(alarm, "alarms", true)
+        }
+        descriptor.delete("alarms")
       end
 
       # Does it want to meld another deployment's resources into its metadata?
@@ -867,6 +884,9 @@ module MU
 
         plain_cfg = MU::Config.manxify(Marshal.load(Marshal.dump(descriptor)))
         plain_cfg.delete("#MU_CLOUDCLASS")
+        plain_cfg.delete("#TARGETCLASS")
+        plain_cfg.delete("#TARGETNAME")
+        plain_cfg.delete("parent_block") if cfg_plural == "vpcs"
         begin
           JSON::Validator.validate!(myschema, plain_cfg)
         rescue JSON::Schema::ValidationError => e
@@ -880,6 +900,7 @@ module MU
             end
           }
           if realerrors.size > 0
+            MU.log "Validation error on #{descriptor['cloud']} #{cfg_name} #{descriptor['name']} #{@@config_path}!\n"+realerrors.join("\n"), MU::ERR, details: descriptor
             raise ValidationError, "Validation error on #{descriptor['cloud']} #{cfg_name} #{descriptor['name']} #{@@config_path}!\n"+realerrors.join("\n")
           end
         end
@@ -896,7 +917,7 @@ module MU
       @kittencfg_semaphore.synchronize {
         @kittens[cfg_plural] << descriptor if append
       }
-      true
+      ok
     end
 
     private
@@ -1946,6 +1967,7 @@ module MU
             }
           end
         end
+# TODO make sure this is handled... somewhere
 #        if pool["alarms"] && !pool["alarms"].empty?
 #          pool["alarms"].each { |alarm|
 #            alarm["name"] = "server-#{pool['name']}-#{alarm["name"]}"
@@ -1968,8 +1990,9 @@ module MU
       read_replicas = []
       database_names = []
       cluster_nodes = []
+      primary_dbs = []
       @kittens["databases"].each { |db|
-
+        primary_dbs << db['name']
         if db['auth_vault'] && !db['auth_vault'].empty?
           groomclass = MU::Groomer.loadGroomer(db['groomer'])
           if db['password']
@@ -2013,7 +2036,7 @@ module MU
           MU.log "'multi_az_on_create' and multi_az_on_deploy are not supported when creating a database cluster, disregarding", MU::NOTICE if db["storage"] if db["multi_az_on_create"] || db["multi_az_on_deploy"]
         end
 
-        db["license_model"] =
+        db["license_model"] ||=
           if db["engine"] == "postgres"
             "postgresql-license"
           elsif db["engine"] == "mysql"
@@ -2049,17 +2072,6 @@ module MU
           MU.log "Running SQL on deploy is only supported for postgres and mysql databases", MU::ERR
         end
 
-        if db["alarms"] && !db["alarms"].empty?
-          db["alarms"].each { |alarm|
-            alarm["name"] = "db-#{db["name"]}-#{alarm["name"]}"
-            alarm['dimensions'] = [] if !alarm['dimensions']
-            alarm['dimensions'] << { "name" => db["name"], "cloud_class" => "DBInstanceIdentifier" }
-            alarm["namespace"] = "AWS/RDS" if alarm["namespace"].nil?
-            alarm['cloud'] = db['cloud']
-            alarms << alarm.dup
-          }
-        end
-
         if db["collection"]
           db["dependencies"] << {
             "type" => "collection",
@@ -2067,29 +2079,6 @@ module MU
           }
         end
 
-        if !db['ingress_rules'].nil?
-          fwname = "db"+db['name']
-          acl = {"name" => fwname, "rules" => db['ingress_rules'], "region" => db['region'], "optional_tags" => db['optional_tags']}
-          acl["tags"] = db['tags'] if db['tags'] && !db['tags'].empty?
-          acl["vpc"] = db['vpc'].dup if !db['vpc'].nil?
-          acl["cloud"] = db["cloud"]
-          ok = false if !insertKitten(acl, "firewall_rules")
-          db["add_firewall_rules"] = [] if db["add_firewall_rules"].nil?
-          db["add_firewall_rules"] << {"rule_name" => fwname}
-        end
-        if !db["add_firewall_rules"].nil?
-          db["add_firewall_rules"].each { |acl_include|
-            if haveLitterMate?(acl_include["rule_name"], "firewall_rules")
-              db["dependencies"] << {
-                  "type" => "firewall_rule",
-                  "name" => acl_include["rule_name"]
-              }
-            elsif acl_include["rule_name"]
-              MU.log "Database #{db['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
-              ok = false
-            end
-          }
-        end
 
         if !db["vpc"].nil?
           if db["vpc"]["subnet_pref"] and !db["vpc"]["subnets"]
@@ -2156,7 +2145,7 @@ module MU
             }
             cluster_nodes << node
 
-            # Alarms are set on each DB cluster node, not on the cluster iteslf 
+           # Alarms are set on each DB cluster node, not on the cluster iteslf 
             if node.has_key?("alarms") && !node["alarms"].empty?
               node["alarms"].each{ |alarm|
                 alarm["name"] = "#{alarm["name"]}-#{node["name"]}"
@@ -2164,12 +2153,11 @@ module MU
             end
           }
 
-          db.delete("alarms") if db.has_key?("alarms")
         end
 
         ok = false if !insertKitten(db, "databases")
-
       }
+
       @kittens["databases"].concat(read_replicas)
       @kittens["databases"].concat(cluster_nodes)
       @kittens["databases"].each { |db|
@@ -2199,8 +2187,8 @@ module MU
         elsif db["member_of_cluster"]
           rr = db["member_of_cluster"]
           if rr['db_name']
-            if !database_names.include?(rr['db_name'])
-              MU.log "Cluster node #{db['name']} references sibling source #{rr['db_name']}, but I have no such database", MU::ERR
+            if !haveLitterMate?(rr['db_name'], "databases")
+              MU.log "Database cluster node #{db['name']} references sibling source #{rr['db_name']}, but I have no such database", MU::ERR
               ok = false
             end
           else
@@ -2224,151 +2212,28 @@ module MU
           end
         end
         db['dependencies'].uniq!
+
+        if !primary_dbs.include?(db['name'])
+          ok = false if !insertKitten(db, "databases")
+        end
       }
 
       @kittens["cache_clusters"].each { |cluster|
-        cluster['region'] = config['region'] if cluster['region'].nil?
-        cluster['cloud'] = MU::Config.defaultCloud if cluster['cloud'].nil?
-        cluster["project"] ||= MU::Cloud::Google.defaultProject if cluster['cloud'] == "Google"
-        cluster['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
-        cluster["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("CacheCluster")
-        cluster["dependencies"] = [] if cluster["dependencies"].nil?
-
         if cluster["creation_style"] != "new" && cluster["identifier"].nil?
-          MU.log "creation_style is set to #{cluster['creation_style']} but no identifier was provided. Either set creation_style to new or provide an identifier", MU::ERR
+          MU.log "CacheCluster #{cluster['name']}'s creation_style is set to #{cluster['creation_style']} but no identifier was provided. Either set creation_style to new or provide an identifier", MU::ERR
           ok = false
         end
-
-        if cluster.has_key?("parameter_group_parameters") && cluster["parameter_group_family"].nil?
-          MU.log "parameter_group_family must be set when setting parameter_group_parameters", MU::ERR
+        if !cluster.has_key?("node_count") or cluster["node_count"] < 1
+          MU.log "CacheCluster node_count must be >=1.", MU::ERR
           ok = false
         end
-        
-        if cluster["size"].nil?
-          MU.log "You must specify 'size' when creating a cache cluster.", MU::ERR
-          ok = false
-        end
-
-        if !cluster.has_key?("node_count")
-          MU.log "node_count not specified.", MU::ERR
-          ok = false
-        end
-
-        if cluster["node_count"] < 1
-          MU.log "node_count must be above 1.", MU::ERR
-          ok = false
-        end
-
-        if cluster["node_count"] > 1
-          cluster["multi_az"] = true
-        end
-
-        if cluster["engine"] == "redis"
-          # We aren't required to create a cache replication group for a single redis cache cluster, 
-          # however AWS console does exactly that, ss such we will follow that behavior.
-          if cluster["node_count"] > 1
-            cluster["create_replication_group"] = true
-            cluster["automatic_failover"] = cluster["multi_az"]
-          end
-
-          # Some instance types don't support snapshotting 
-          if %w{cache.t2.micro cache.t2.small cache.t2.medium}.include?(cluster["size"])
-            if cluster.has_key?("snapshot_retention_limit") || cluster.has_key?("snapshot_window")
-              MU.log "Can't set snapshot_retention_limit or snapshot_window on #{cluster["size"]}", MU::ERR
-              ok = false
-            end
-          end
-        elsif cluster["engine"] == "memcached"
-          cluster["create_replication_group"] = false
-          cluster["az_mode"] = cluster["multi_az"] ? "cross-az" : "single-az"
-
-          if cluster["node_count"] > 20
-            MU.log "#{cluster['engine']} supports up to 20 nodes per cache cluster", MU::ERR
-            ok = false
-          end
-
-          # memcached doesn't support snapshots
-          if cluster.has_key?("snapshot_retention_limit") || cluster.has_key?("snapshot_window")
-            MU.log "Can't set snapshot_retention_limit or snapshot_window on #{cluster["engine"]}", MU::ERR
-            ok = false
-          end 
-        end
-
-        if cluster["alarms"] && !cluster["alarms"].empty?
-          cluster["alarms"].each { |alarm|
-            alarm["name"] = "cachecluster-#{cluster["name"]}-#{alarm["name"]}"
-            alarm['dimensions'] = [] if !alarm['dimensions']
-            alarm['dimensions'] << { "name" => cluster["name"], "cloud_class" => "CacheClusterId" }
-            alarm["namespace"] = "AWS/ElastiCache" if alarm["namespace"].nil?
-            alarm['cloud'] = cluster['cloud']
-            alarms << alarm.dup
-          }
-        end
-
-        if cluster['ingress_rules']
-          fwname = "cache#{cluster['name']}"
-          acl = {"name" => fwname, "rules" => cluster['ingress_rules'], "region" => cluster['region'], "optional_tags" => cluster['optional_tags']}
-          acl["tags"] = cluster['tags'] if cluster['tags'] && !cluster['tags'].empty?
-          acl["vpc"] = cluster['vpc'].dup if cluster['vpc']
-          acl["cloud"] = cluster["cloud"]
-          ok = false if !insertKitten(acl, "firewall_rules")
-          cluster["add_firewall_rules"] = [] if cluster["add_firewall_rules"].nil?
-          cluster["add_firewall_rules"] << {"rule_name" => fwname}
-        end
-
-        if cluster["add_firewall_rules"]
-          cluster["add_firewall_rules"].each { |acl_include|
-            if haveLitterMate?(acl_include["rule_name"], "firewall_rules")
-              cluster["dependencies"] << {
-                "type" => "firewall_rule",
-                "name" => acl_include["rule_name"]
-              }
-            elsif acl_include["rule_name"]
-              MU.log "CacheCluster #{cluster['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
-              ok = false
-            end
-          }
-        end
-
-        if cluster["vpc"] && !cluster["vpc"].empty?
-          if cluster["vpc"]["subnet_pref"] and !cluster["vpc"]["subnets"]
-            if %w{all any public private}.include? cluster["vpc"]["subnet_pref"]
-              MU.log "subnet_pref #{cluster["vpc"]["subnet_pref"]} is not supported for cache clusters.", MU::ERR
-              ok = false
-            end
-          end
-
-          cluster['vpc']['region'] = cluster['region'] if cluster['vpc']['region'].nil?
-          cluster["vpc"]['cloud'] = cluster['cloud']
-
-          # If we're using a VPC in this deploy, set it as a dependency
-          if cluster["vpc"]["vpc_name"] and
-             haveLitterMate?(cluster["vpc"]["vpc_name"], "vpcs") and
-             cluster["vpc"]["deploy_id"].nil? and cluster["vpc"]['vpc_id'].nil?
-            cluster["dependencies"] << {
-              "type" => "vpc",
-              "name" => cluster["vpc"]["vpc_name"]
-            }
-
-            if !processVPCReference(
-              cluster["vpc"],
-              "cache_clusters",
-              "cache_cluster #{cluster['name']}",
-              dflt_region: config['region'],
-              is_sibling: true,
-              sibling_vpcs: vpcs
-            )
-              ok = false
-            end
-          else
-            if !processVPCReference(cluster["vpc"], "cache_clusters", "cache_cluster #{cluster['name']}", dflt_region: config['region'])
-              ok = false
-            end
-          end
-        end
+        cluster["multi_az"] = true if cluster["node_count"] > 1
 
         cluster['dependencies'] << adminFirewallRuleset(vpc: cluster['vpc'], region: cluster['region'], cloud: cluster['cloud']) if !cluster['scrub_mu_isms']
+
+        ok = false if !insertKitten(lb, "cache_clusters")
       }
+
 
       @kittens["storage_pools"].each { |pool|
         pool['region'] = config['region'] if pool['region'].nil?
@@ -2519,11 +2384,6 @@ module MU
       }
 
       @kittens["alarms"].each { |alarm|
-        alarm['region'] = config['region'] if alarm['region'].nil?
-        alarm['cloud'] = MU::Config.defaultCloud if alarm['cloud'].nil?
-        alarm["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Alarm")
-        alarm["dependencies"] = [] if alarm["dependencies"].nil?
-
         if alarm["dimensions"]
           alarm["dimensions"].each{ |dimension|
             if dimension["cloud_class"].nil?
@@ -2567,7 +2427,8 @@ module MU
           }
         end
 
-        ok = false unless MU::Config.validate_alarm_config(alarm)
+        ok = false unless MU::Config.validate_alarm_config(alarm) # XXX fold into... other stuff
+        ok = false if !insertKitten(alarm, "alarms")
       }
 
       # add some default holes to allow dependent instances into databases
@@ -2732,7 +2593,7 @@ module MU
                 "type" => "string",
                 "description" => "Discover this VPC by Mu-internal name; typically the shorthand 'name' field of a VPC declared elsewhere in the deploy, or in another deploy that's being referenced with 'deploy_id'."
               },
-              "region" => @region_primitive,
+              "region" => MU::Config.region_primitive,
               "cloud" => @cloud_primitive,
               "tag" => {
                   "type" => "string",
@@ -2827,10 +2688,14 @@ module MU
     allregions = MU::Cloud::AWS.listRegions # XXX make this work when we're not in AWS but have AWS creds configured
     allregions.concat(MU::Cloud::Google.listRegions) # XXX make this work when we're in GCP and don't have explicit creds configured
 
-    @region_primitive = {
-      "type" => "string",
-      "enum" => allregions
-    }
+    def self.region_primitive
+    allregions = MU::Cloud::AWS.listRegions # XXX make this work when we're not in AWS but have AWS creds configured
+    allregions.concat(MU::Cloud::Google.listRegions) # XXX make this work when we're in GCP and don't have explicit creds configured
+      {
+        "type" => "string",
+        "enum" => allregions
+      }
+    end
 
     @cloud_primitive = {
       "type" => "string",
@@ -2846,7 +2711,7 @@ module MU
         "properties" => {
             "db_id" => {"type" => "string"},
             "db_name" => {"type" => "string"},
-            "region" => @region_primitive,
+            "region" => MU::Config.region_primitive,
             "cloud" => @cloud_primitive,
             "tag" => {
                 "type" => "string",
@@ -3427,7 +3292,7 @@ module MU
         "dimensions" => {
             "type" => "array",
             "description" => "What to monitor",
-            "minItems" => 1,
+#            "minItems" => 1,
             "items" => {
                 "type" => "object",
                 "additionalProperties" => false,
@@ -3523,7 +3388,7 @@ module MU
         "description" => "Create Amazon CloudWatch alarms.",
         "properties" => {
           "cloud" => @cloud_primitive,
-          "region" => @region_primitive,
+          "region" => MU::Config.region_primitive,
           "dependencies" => @dependencies_primitive
         }
     }
@@ -3587,7 +3452,7 @@ module MU
           "type" => "string"
         },
         "cloud" => @cloud_primitive,
-        "region" => @region_primitive,
+        "region" => MU::Config.region_primitive,
         "dependencies" => @dependencies_primitive,
         "retention_period" => {
           "type" => "integer",
@@ -3984,7 +3849,7 @@ module MU
             "default" => false,
             "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template."
         },
-        "region" => @region_primitive,
+        "region" => MU::Config.region_primitive,
         "cloud" => @cloud_primitive,
         "async_groom" => {
             "type" => "boolean",
@@ -4428,7 +4293,7 @@ module MU
                 "default" => false,
                 "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template."
             },
-            "region" => @region_primitive,
+            "region" => MU::Config.region_primitive,
             "db_family" => {"type" => "string"},
             "tags" => @tags_primitive,
             "optional_tags" => {
@@ -4447,6 +4312,15 @@ module MU
             "engine" => {
                 "enum" => ["mysql", "postgres", "oracle-se1", "oracle-se2", "oracle-se", "oracle-ee", "sqlserver-ee", "sqlserver-se", "sqlserver-ex", "sqlserver-web", "aurora", "mariadb"],
                 "type" => "string"
+            },
+            "add_cluster_node" => {
+              "type" => "boolean",
+              "description" => "Internal use",
+              "default" => false
+            },
+            "member_of_cluster" => {
+              "description" => "Internal use",
+              "type" => "object"
             },
             "dns_records" => dns_records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
             "dns_sync_wait" => {
@@ -4626,7 +4500,7 @@ module MU
                 "default" => false,
                 "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template."
             },
-            "region" => @region_primitive,
+            "region" => MU::Config.region_primitive,
             "tags" => @tags_primitive,
             "optional_tags" => {
                 "type" => "boolean",
@@ -4804,7 +4678,7 @@ module MU
                 "type" => "array",
                 "items" => @firewall_ruleset_rule_primitive
             },
-            "region" => @region_primitive,
+            "region" => MU::Config.region_primitive,
             "cloud" => @cloud_primitive,
             "cross_zone_unstickiness" => {
                 "type" => "boolean",
@@ -5363,7 +5237,7 @@ module MU
       "properties" => {
         "cloud" => @cloud_primitive,
         "name" => {"type" => "string"},
-        "region" => @region_primitive,
+        "region" => MU::Config.region_primitive,
         "tags" => @tags_primitive,
         "optional_tags" => {
           "type" => "boolean",
@@ -5435,7 +5309,7 @@ module MU
               "description" => "GOOGLE: The project into which to deploy resources",
               "default" => MU::Cloud::Google.defaultProject
             },
-            "region" => @region_primitive,
+            "region" => MU::Config.region_primitive,
             "us_only" => {
                 "type" => "boolean",
                 "description" => "For resources which span regions, restrict to regions inside the United States",

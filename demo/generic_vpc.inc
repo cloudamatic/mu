@@ -3,7 +3,7 @@
   - name: internet
     routes:
     - destination_network: 0.0.0.0/0
-      gateway: #INTERNET
+      gateway: "#INTERNET"
   - name: private
     routes:
     - destination_network: 0.0.0.0/0
