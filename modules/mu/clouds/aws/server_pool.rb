@@ -436,7 +436,9 @@ module MU
                   kitten = MU::Cloud::Server.new(mommacat: @deploy, kitten_cfg: @config, cloud_id: member.instance_id)
                   MU::MommaCat.lock("#{kitten.cloudclass.name}_#{kitten.config["name"]}-dependencies")
                   MU::MommaCat.unlock("#{kitten.cloudclass.name}_#{kitten.config["name"]}-dependencies")
-                  kitten.postBoot(member.instance_id)
+                  if !kitten.postBoot(member.instance_id)
+                    raise MU::Groomer::RunError, "Failure grooming #{member.instance_id}"
+                  end
                   kitten.groom
                   MU::MommaCat.unlockAll
                 }

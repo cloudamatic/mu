@@ -95,22 +95,24 @@ module MU
           @config = MU::Config.manxify(kitten_cfg)
           @cloud_id = cloud_id
 
-          @userdata = MU::Cloud::AWS::Server.fetchUserdata(
-            platform: @config["platform"],
-            template_variables: {
-              "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
-              "deploySSHKey" => @deploy.ssh_public_key,
-              "muID" => MU.deploy_id,
-              "muUser" => MU.mu_user,
-              "publicIP" => MU.mu_public_ip,
-              "skipApplyUpdates" => @config['skipinitialupdates'],
-              "windowsAdminName" => @config['windows_admin_username'],
-              "resourceName" => @config["name"],
-              "resourceType" => "server",
-              "platform" => @config["platform"]
-            },
-            custom_append: @config['userdata_script']
-          )
+          if @deploy
+            @userdata = MU::Cloud::AWS::Server.fetchUserdata(
+              platform: @config["platform"],
+              template_variables: {
+                "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
+                "deploySSHKey" => @deploy.ssh_public_key,
+                "muID" => MU.deploy_id,
+                "muUser" => MU.mu_user,
+                "publicIP" => MU.mu_public_ip,
+                "skipApplyUpdates" => @config['skipinitialupdates'],
+                "windowsAdminName" => @config['windows_admin_username'],
+                "resourceName" => @config["name"],
+                "resourceType" => "server",
+                "platform" => @config["platform"]
+              },
+              custom_append: @config['userdata_script']
+            )
+          end
 
           @disk_devices = MU::Cloud::AWS::Server.disk_devices
           @ephemeral_mappings = MU::Cloud::AWS::Server.ephemeral_mappings
@@ -161,7 +163,7 @@ module MU
               end
               userdata = File.read(erbfile)
               begin
-                erb = ERB.new(userdata)
+                erb = ERB.new(userdata, nil, "<>")
                 script = erb.result
               rescue NameError => e
                 raise MuError, "Error parsing userdata script #{erbfile} as an ERB template: #{e.inspect}"
@@ -177,7 +179,7 @@ module MU
               MU.log "Loaded userdata script from #{custom_append['path']}"
               if custom_append['use_erb']
                 begin
-                  erb = ERB.new(erbfile, 1)
+                  erb = ERB.new(erbfile, 1, "<>")
                   if custom_append['skip_std']
                     script = +erb.result
                   else
@@ -312,7 +314,8 @@ module MU
         # Insert a Server's standard IAM role needs into an arbitrary IAM profile
         def self.addStdPoliciesToIAMProfile(rolename, cloudformation_data: {}, cfm_role_name: nil)
           policies = Hash.new
-          policies['Mu_Bootstrap_Secret_'+MU.deploy_id] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{MU.deploy_id}-secret"+'"}]}'
+          objs = ["#{MU.deploy_id}-secret", "#{rolename}.pfx", "#{rolename}.crt", "#{rolename}.key", "#{rolename}-winrm.crt", "#{rolename}-winrm.key"]
+          policies['Mu_Secrets_'+MU.deploy_id] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":['+objs.map { |m| '"arn:aws:s3:::'+MU.adminBucketName+'/'+m+'"' }.join(",")+']}]}'
           policies.each_pair { |name, doc|
             if cloudformation_data.size > 0
               if !cfm_role_name.nil?
@@ -320,11 +323,11 @@ module MU
               end
               next 
             end
-            MU.log "Merging policy #{name} into #{rolename}", MU::NOTICE, details: doc
+            MU.log "Merging policy #{name} into #{rolename}", details: JSON.pretty_generate(JSON.parse(doc))
             MU::Cloud::AWS.iam.put_role_policy(
-                role_name: rolename,
-                policy_name: name,
-                policy_document: doc
+              role_name: rolename,
+              policy_name: name,
+              policy_document: doc
             )
           }
           if cloudformation_data.size > 0
@@ -347,19 +350,16 @@ module MU
             cfm_prof_name, prof_cfm_template = MU::Cloud::CloudFormation.cloudFormationBase("iamprofile", name: rolename)
             cloudformation_data.merge!(role_cfm_template)
             cloudformation_data.merge!(prof_cfm_template)
-          else
-            MU.log "Creating IAM role and policies for '#{name}' nodes"
           end
 
           if base_profile
-            MU.log "Incorporating policies from existing IAM profile '#{base_profile}'"
             resp = MU::Cloud::AWS.iam.get_instance_profile(instance_profile_name: base_profile)
             resp.instance_profile.roles.each { |baserole|
               role_policies = MU::Cloud::AWS.iam.list_role_policies(role_name: baserole.role_name).policy_names
               role_policies.each { |name|
                 resp = MU::Cloud::AWS.iam.get_role_policy(
-                    role_name: baserole.role_name,
-                    policy_name: name
+                  role_name: baserole.role_name,
+                  policy_name: name
                 )
                 policies[name] = URI.unescape(resp.policy_document)
               }
@@ -378,10 +378,15 @@ module MU
             }
           end
           if !cloudformation_data.nil? and cloudformation_data.size == 0
-            resp = MU::Cloud::AWS.iam.create_role(
-              role_name: rolename,
-              assume_role_policy_document: '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":["ec2.amazonaws.com"]},"Action":["sts:AssumeRole"]}]}'
-            )
+            begin
+              resp = MU::Cloud::AWS.iam.create_role(
+                role_name: rolename,
+                assume_role_policy_document: '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":["ec2.amazonaws.com"]},"Action":["sts:AssumeRole"]}]}'
+              )
+              MU.log "Creating IAM role and policies for '#{rolename}' nodes"
+            rescue Aws::IAM::Errors::EntityAlreadyExists => e
+              MU.log "IAM role #{rolename} already exists, updating"
+            end
           end
           begin
             name=doc=nil
@@ -390,11 +395,11 @@ module MU
                 MU::Cloud::CloudFormation.setCloudFormationProp(cloudformation_data[cfm_role_name], "Policies", { "PolicyName" => name, "PolicyDocument" => JSON.parse(doc) })
                 next 
               end
-              MU.log "Merging policy #{name} into #{rolename}", MU::NOTICE, details: doc
+              MU.log "Merging policy #{name} into #{rolename}", details: JSON.pretty_generate(JSON.parse(doc))
               MU::Cloud::AWS.iam.put_role_policy(
-                  role_name: rolename,
-                  policy_name: name,
-                  policy_document: doc
+                role_name: rolename,
+                policy_name: name,
+                policy_document: doc
               )
             }
           rescue Aws::IAM::Errors::MalformedPolicyDocument => e
@@ -407,14 +412,24 @@ module MU
             return [rolename, cfm_role_name, cfm_prof_name]
           end
 
-          resp = MU::Cloud::AWS.iam.create_instance_profile(
+          begin
+            resp = MU::Cloud::AWS.iam.create_instance_profile(
               instance_profile_name: rolename
-          )
+            )
+          rescue Aws::IAM::Errors::EntityAlreadyExists => e
+            resp = MU::Cloud::AWS.iam.get_instance_profile(
+              instance_profile_name: rolename
+            )
+          end
 
-          MU::Cloud::AWS.iam.add_role_to_instance_profile(
+          begin
+            MU::Cloud::AWS.iam.add_role_to_instance_profile(
               instance_profile_name: rolename,
               role_name: rolename
-          )
+            )
+          rescue Aws::IAM::Errors::LimitExceeded => e
+            # also ok
+          end
 
           begin
             MU::Cloud::AWS.iam.get_instance_profile(instance_profile_name: rolename)
@@ -871,7 +886,7 @@ module MU
               cloud_id: instance.subnet_id
             )
             if subnet.nil?
-              raise MuError, "Got null subnet id out of #{@config['vpc']}/#{instance.subnet_id}"
+              raise MuError, "Got null subnet id out of #{@config['vpc']} when asking for #{instance.subnet_id}"
             end
           end
 
@@ -1002,16 +1017,31 @@ module MU
             notify
           end
 
-          windows? ? ssh_wait = 60 : ssh_wait = 30
-          windows? ? max_retries = 50 : max_retries = 35
           begin
-            session = getSSHSession(max_retries, ssh_wait)
-            initialSSHTasks(session)
+            if windows?
+              # kick off certificate generation early; WinRM will need it
+              cert, key = @deploy.nodeSSLCerts(self)
+              if !@groomer.haveBootstrapped?
+                session = getWinRMSession(50, 60, reboot_on_problems: true)
+                initialWinRMTasks(session)
+                session.close
+              else # for an existing Windows node: WinRM, then SSH if it fails
+                begin
+                  session = getWinRMSession(1, 60)
+                rescue Exception # yeah, yeah
+                  session = getSSHSession(1, 60)
+                  # XXX maybe loop at least once if this also fails?
+                end
+              end
+            else
+              session = getSSHSession(40, 30)
+              initialSSHTasks(session)
+            end
           rescue BootstrapTempFail
-            sleep ssh_wait
+            sleep 45
             retry
           ensure
-            session.close if !session.nil?
+            session.close if !session.nil? and !windows?
           end
 
           if @config["existing_deploys"] && !@config["existing_deploys"].empty?
@@ -1312,9 +1342,11 @@ module MU
           @groomer.saveDeployData
 
           begin
-            @groomer.run(purpose: "Full Initial Run", max_retries: 15)
-          rescue MU::Groomer::RunError
-            MU.log "Proceeding after failed initial Groomer run, but #{node} may not behave as expected!", MU::WARN
+            @groomer.run(purpose: "Full Initial Run", max_retries: 15, reboot_first_fail: windows?)
+          rescue MU::Groomer::RunError => e
+            MU.log "Proceeding after failed initial Groomer run, but #{node} may not behave as expected!", MU::WARN, details: e.message
+          rescue Exception => e
+            MU.log "Caught #{e.inspect} on #{node} in an unexpected place (after @groomer.run on Full Initial Run)", MU::ERR
           end
 
           if !@config['create_image'].nil? and !@config['image_created']

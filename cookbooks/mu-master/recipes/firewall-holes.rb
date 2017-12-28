@@ -23,9 +23,14 @@ firewall_rule "MU Master default ports" do
   port [2260, 7443, 8443, 9443, 10514, 443, 80, 25]
 end
 
-local_chef_ports = [4321, 9463, 9583, 16379, 8983, 8000, 9680, 9683, 9090, 5432, 5672]
+local_chef_ports = [4321, 9463, 9583, 16379, 8983, 8000, 9680, 9683, 9090, 5432]
 firewall_rule "Chef Server ports on 127.0.0.1" do
   port local_chef_ports
+  source "127.0.0.1/32"
+end
+local_chef_ports_2 = [5672, 9999, 15672, 25672, 81, 111, 4369, 9463]
+firewall_rule "Chef Server ports on 127.0.0.1 (2)" do
+  port local_chef_ports_2
   source "127.0.0.1/32"
 end
 if node.has_key?(:local_ipv4)

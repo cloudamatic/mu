@@ -164,9 +164,10 @@ module MU
           MU.log "Load Balancer is at #{lb.dns_name}"
 
           parent_thread_id = Thread.current.object_id
+          generic_mu_dns = nil
           dnsthread = Thread.new {
             MU.dupGlobals(parent_thread_id)
-            MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: @mu_name, target: "#{lb.dns_name}.", cloudclass: MU::Cloud::LoadBalancer, sync_wait: @config['dns_sync_wait'])
+            generic_mu_dns = MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: @mu_name, target: "#{lb.dns_name}.", cloudclass: MU::Cloud::LoadBalancer, sync_wait: @config['dns_sync_wait'])
           }
 
           if zones_to_try.size < @config["zones"].size
@@ -521,15 +522,20 @@ module MU
 
           dnsthread.join # from genericMuDNS
 
-# XXX fix for elb2
-#          if !@config['dns_records'].nil?
+          if !@config['dns_records'].nil?
             # XXX this should be a call to @deploy.nameKitten
-#            @config['dns_records'].each { |dnsrec|
-#              dnsrec['name'] = @mu_name.downcase if !dnsrec.has_key?('name')
-#              dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
-#            }
-#            MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@config['dns_records'], target: resp.dns_name)
-#          end
+            @config['dns_records'].each { |dnsrec|
+              dnsrec['name'] = @mu_name.downcase if !dnsrec.has_key?('name')
+              dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
+            }
+            if !@config['classic']
+              # XXX should be R53ALIAS, but we get "the alias target name does not lie within the target zone"
+              @config['dns_records'].each { |r|
+                r['type'] = "CNAME"
+              }
+            end
+            MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@config['dns_records'], target: cloud_desc.dns_name)
+          end
 
           notify
         end

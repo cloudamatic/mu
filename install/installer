@@ -1,7 +1,11 @@
 #!/bin/sh
 
-CHEF_CLIENT_VERSION="12.20.3-1"
-MU_BRANCH="master"
+BOLD=`tput bold`
+NORM=`tput sgr0`
+CHEF_CLIENT_VERSION="12.21.14-1"
+if [ "$MU_BRANCH" == "" ];then
+  MU_BRANCH="demoUpdates"
+fi
 
 # XXX All RHEL family. We can at least cover Debian-flavored hosts too, I bet.
 DIST_VERSION=`rpm -qa \*-release\* | grep -Ei "redhat|centos" | cut -d"-" -f3`
@@ -42,11 +46,21 @@ if ! /bin/rpm -q $CHEF_CLIENT_PKG > /dev/null ;then
   /bin/sh /root/chef-install.sh -v $CHEF_CLIENT_VERSION
 fi
 
+
 if [ -d /opt/mu/lib/cookbooks/mu-master/recipes ];then
   /opt/chef/bin/chef-apply /opt/mu/lib/cookbooks/mu-master/recipes/init.rb
 else
+  set +x
+  echo ""
+  echo "*** Installing Mu from the ${BOLD}$MU_BRANCH${NORM} branch ***"
+  echo "*** Hit ^C now if that's not what you intended ***"
+  echo "*** Prepend ${BOLD}MU_BRANCH=some_branch_name${NORM} to use another branch ***"
+  echo ""
+  sleep 10
+  set -x
   /usr/bin/curl https://raw.githubusercontent.com/cloudamatic/mu/$MU_BRANCH/cookbooks/mu-master/recipes/init.rb > /root/mu-master-init-recipe.rb
   /opt/chef/bin/chef-apply /root/mu-master-init-recipe.rb
 fi
 
+echo "Launching ${BOLD}mu-configure${NORM}"
 /opt/mu/bin/mu-configure $@

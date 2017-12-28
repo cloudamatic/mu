@@ -31,11 +31,11 @@ Usage:
   opt :environment, "Operate exclusively on one nodes with a particular environment (e.g. dev, prod). Can be used in conjunction with -a or -d.", :require => false, :type => :string
   opt :override_chef_runlist, "An alternate runlist to pass to Chef, in chefrun mode.", :require => false, :type => :string
   opt :xecute, "Run a shell command on matching nodes. Overrides --mode and suppresses some informational output in favor of scriptability.", :require => false, :type => :string
-  opt :mode, "Action to perform on matching nodes. Valid actions: groom, chefrun, userdata, vaults", :require => false, :default => "chefrun", :type => :string
+  opt :mode, "Action to perform on matching nodes. Valid actions: groom, chefrun, awsmeta, vaults, certs", :require => false, :default => "chefrun", :type => :string
 end
 
-if !["groom", "chefrun", "vaults", "userdata"].include?($opts[:mode])
-  Trollop::die(:mode, "--mode must be one of: groom, chefrun, userdata, vaults")
+if !["groom", "chefrun", "vaults", "userdata", "awsmeta", "certs"].include?($opts[:mode])
+  Trollop::die(:mode, "--mode must be one of: groom, chefrun, awsmeta, vaults, certs")
 end
 if $opts[:platform] and !["linux", "windows"].include?($opts[:platform])
   Trollop::die(:platform, "--platform must be one of: linux, windows")
@@ -214,9 +214,30 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-cli
         done = false
         begin
           MU.log "Running #{cmd} on #{nodename} (##{count})" if !print_output
-          output=`ssh -q #{nodename} "#{cmd}" 2>&1 < /dev/null`
-          if !$?.success?
-            if server['conf']["platform"] == "windows" and output.match(/NoMethodError: unknown property or method: `ConnectServer'/)
+          serverobj = mommacat.findLitterMate(type: "server", mu_name: nodename)
+          output = nil
+          exitcode = -1
+          if serverobj.windows?
+            resp = nil
+            begin
+              shell = serverobj.getWinRMSession(0, timeout: 10, winrm_retries: 1)
+              resp = shell.run(cmd)
+            rescue MU::MuError => e
+            end
+            if !resp or resp.exitcode != 0
+              MU.log "WinRM connection to #{nodename} failed, trying SSH", MU::WARN
+            else
+              output = resp.stdout
+              exitcode = resp.exitcode
+            end
+          end
+          if !output
+            # maybe this should use getSSHSession, for the sake of symmetry
+            output = `ssh -q #{nodename} "#{cmd}" 2>&1 < /dev/null`
+            exitcode = $?.exitstatus
+          end
+          if exitcode != 0
+            if serverobj.windows? and output.match(/NoMethodError: unknown property or method: `ConnectServer'/)
               MU.log "#{nodename} encountered transient Windows/Chef ConnectServer error, retrying", MU::WARN
             elsif print_output
               done = true
@@ -226,8 +247,9 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-cli
               done = true
               MU.log "#{nodename} did not exit cleanly", MU::WARN, details: output.slice(-2000, 2000)
             end
-            exit $?.exitstatus if done
+            exit exitcode if done
           else
+            MU.log "#{nodename} complete"
             done = true
           end
         end until done
@@ -258,7 +280,7 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-cli
   end
 end
 
-def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
+def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
   deploys.each { |muid|
     mommacat = MU::MommaCat.new(muid)
 
@@ -275,6 +297,17 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
         server["platform"] = "linux" if !server.has_key?("platform")
 
         pool_name = mommacat.getResourceName(svr_class)
+        if nodes.size > 0
+          matched = false
+          nodes.each { |n|
+            if n.match(/^#{Regexp.quote(pool_name)}-[a-z0-9]{3}$/)
+              matched = true
+            end
+          }
+          next if !matched
+        end
+
+        MU::Cloud::AWS::Server.createIAMProfile(pool_name, base_profile: server['iam_role'], extra_policies: server['iam_policies'])
 
         resp = MU::Cloud::AWS.autoscale.describe_auto_scaling_groups(
             auto_scaling_group_names: [pool_name]
@@ -299,6 +332,7 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
                   "muUser" => MU.chef_user,
                   "publicIP" => MU.mu_public_ip,
                   "resourceName" => svr_class,
+                  "windowsAdminName" => server['windows_admin_username'],
                   "skipApplyUpdates" => server['skipinitialupdates'],
                   "resourceType" => "server_pool"
               },
@@ -352,7 +386,8 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
           next if !need_update
 
           # Put our Autoscale group onto a temporary launch config
-          MU::Cloud::AWS.autoscale.create_launch_configuration(
+          begin
+            MU::Cloud::AWS.autoscale.create_launch_configuration(
               launch_configuration_name: pool_name+"-TMP",
               user_data: Base64.encode64(userdata),
               image_id: server["basis"]["launch_config"]["ami_id"],
@@ -364,7 +399,15 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
               iam_instance_profile: launch.iam_instance_profile,
               ebs_optimized: server["basis"]["launch_config"]["ebs_optimized"],
               associate_public_ip_address: launch.associate_public_ip_address
-          )
+            )
+          rescue ::Aws::AutoScaling::Errors::ValidationError => e
+            if e.message.match(/Member must have length less than or equal to (\d+)/)
+              MU.log "Userdata script too long updating #{pool_name} Launch Config (#{Base64.encode64(userdata).size.to_s}/#{Regexp.last_match[1]} bytes)", MU::ERR
+            else
+              MU.log "Error updating #{pool_name} Launch Config", MU::ERR, details: e.message
+            end
+            next
+          end
 
           MU::Cloud::AWS.autoscale.update_auto_scaling_group(
               auto_scaling_group_name: pool_name,
@@ -415,6 +458,9 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
       server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
       next if nodes.size > 0 and !nodes.include?(nodename)
 
+      rolename, cfm_role_name, cfm_prof_name, arn = MU::Cloud::AWS::Server.createIAMProfile(nodename, base_profile: server["conf"]['iam_role'], extra_policies: server["conf"]['iam_policies'])
+      MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(rolename)
+
       mytype = "server"
       mytype = "server_pool" if server['conf'].has_key?("basis") or server['conf']['#TYPENAME'] == "ServerPool" or server['conf']["#MU_CLASS"] == "MU::Cloud::AWS::ServerPool"
       olduserdata = Base64.decode64(MU::Cloud::AWS.ec2(server['region']).describe_instance_attribute(
@@ -431,6 +477,7 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
               "muUser" => MU.chef_user,
               "publicIP" => MU.mu_public_ip,
               "resourceName" => server['conf']['name'],
+              "windowsAdminName" => server['conf']['windows_admin_username'],
               "skipApplyUpdates" => server['conf']['skipinitialupdates'],
               "resourceType" => mytype
           },
@@ -452,19 +499,47 @@ def updateUserdata(deploys = MU::MommaCat.listDeploys, nodes = [])
       end
 
       MU.log "Updating #{nodename} userdata (#{server["conf"]["platform"]})"
-
-      MU::Cloud::AWS.ec2(server['region']).modify_instance_attribute(
+      begin
+        MU::Cloud::AWS.ec2(server['region']).modify_instance_attribute(
           instance_id: id,
           attribute: "userData",
           value: Base64.encode64(userdata)
-      )
+        )
+      rescue ::Aws::EC2::Errors::InvalidParameterValue => e
+        if e.message.match(/User data is limited to (\d+)/)
+          MU.log "Userdata script too long updating #{nodename} (#{userdata.size.to_s}/#{Regexp.last_match[1]} bytes)", MU::ERR
+        else
+          MU.log "Error replacing userData on #{nodename}", MU::ERR, details: e.message
+        end
+      end
+    }
+  }
+end
 
+def sslCerts(deploys = MU::MommaCat.listDeploys, nodes = [], vaults_only: false)
+  badnodes = []
+  count = 0
+  deploys.each { |muid|
+    mommacat = MU::MommaCat.new(muid)
+    mommacat.listNodes.each_pair { |nodename, server|
+      next if server['conf'].nil?
+      server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
+      next if nodes.size > 0 and !nodes.include?(nodename)
+      if server['conf'].nil?
+        MU.log "Failed to find config data for server #{nodename}", MU::WARN
+        next
+      end
+
+      server_obj = mommacat.findLitterMate(type: "server", mu_name: nodename)
+      mommacat.nodeSSLCerts(server_obj)
     }
   }
 end
 
 if $opts[:xecute]
   runCommand(do_deploys, do_nodes, $opts[:xecute], print_output: true)
+elsif $opts[:mode] == "certs"
+  sslCerts(do_deploys, do_nodes)
 elsif $opts[:mode] == "groom"
   reGroom(do_deploys, do_nodes)
 elsif $opts[:mode] == "vaults"
@@ -475,6 +550,7 @@ elsif $opts[:mode] == "chefrun"
   else
     runCommand(do_deploys, do_nodes)
   end
-elsif $opts[:mode] == "userdata"
-  updateUserdata(do_deploys, do_nodes)
+elsif $opts[:mode] == "userdata" or $opts[:mode] == "awsmeta"
+# Need Google equiv and to select nodes correctly based on what cloud they're in
+  updateAWSMetaData(do_deploys, do_nodes)
 end
