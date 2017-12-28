@@ -193,6 +193,7 @@ GRAPH
     mu-utility (>= 0.0.0)
     nagios (>= 0.0.0)
     oracle-instantclient (>= 0.0.0)
+    poise-python (~> 1.6.0)
     postgresql (>= 0.0.0)
     python (>= 0.0.0)
     windows (>= 0.0.0)
