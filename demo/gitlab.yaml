@@ -14,7 +14,8 @@ servers:
       -
         size: 15
     skipinitialupdates: true
-    size: t2.micro
+    #size: t2.micro
+    size: t2.xlarge
     run_list:
     - recipe[demo::gitlab-ce]
     associate_public_ip: true
@@ -33,10 +34,14 @@ servers:
         port: 80
         hosts:
           - "0.0.0.0/0"
-    dependencies:
       -
-        name: "gitLabDB"
-        type: "database"
+        port: 443
+        hosts:
+          - "0.0.0.0/0"
+    # dependencies:
+    #   -
+    #     name: "gitLabDB"
+    #     type: "database"
 <% unless $use_current or $vpc_deploy_id then %>
 vpcs:
 - name: vpc
@@ -53,26 +58,26 @@ vpcs:
     route-table: internet
 <% end %>
 <% end %>
-databases:
-  -
-    name: "gitLabDB"
-    engine: "postgres"
-    size: "db.t2.micro"
-    multi_az_on_deploy: false
-    multi_az_on_create: false
-    storage: 5
-    port: 5432
-    vpc:
-    <% if $vpc_deploy_id %>
-      deploy_id: <%= $vpc_deploy_id %>
-      subnet_pref: all_public
-    <% elsif $use_current %>
-      vpc_id: <%= current_vpc %>
-      subnet_pref: all_public
-    <% else %>
-      vpc_name: vpc
-      subnets:
-      <% (1..$azs.size).each do |i| %>
-        - subnet_name: Subnet<%= i-1 %>Public
-      <% end %>
-    <% end %>
+# databases:
+#   -
+#     name: "gitLabDB"
+#     engine: "postgres"
+#     size: "db.t2.micro"
+#     multi_az_on_deploy: false
+#     multi_az_on_create: false
+#     storage: 5
+#     port: 5432
+#     vpc:
+#     <% if $vpc_deploy_id %>
+#       deploy_id: <%= $vpc_deploy_id %>
+#       subnet_pref: all_public
+#     <% elsif $use_current %>
+#       vpc_id: <%= current_vpc %>
+#       subnet_pref: all_public
+#     <% else %>
+#       vpc_name: vpc
+#       subnets:
+#       <% (1..$azs.size).each do |i| %>
+#         - subnet_name: Subnet<%= i-1 %>Public
+#       <% end %>
+#     <% end %>
