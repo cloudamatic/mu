@@ -5,7 +5,7 @@ import subprocess
 import sys
 
 def bok_exists(which_bok,all_boks='/opt/mu/lib/demo'):
-  if os.path.isfile(all_boks+'/'which_bok):
+  if os.path.isfile(all_boks+'/'+which_bok):
     return True
   else:
     return False
