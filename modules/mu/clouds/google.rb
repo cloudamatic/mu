@@ -375,20 +375,32 @@ module MU
                 MU.log "Removing #{type.gsub(/_/, " ")} #{obj.name}"
                 delete_sym = "delete_#{type}".to_sym
                 if !noop
+                  retries = 0
+                  failed = false
                   begin
                     resp = nil
+                    failed = false
                     if region
                       resp = MU::Cloud::Google.compute.send(delete_sym, project, region, obj.name)
                     else
                       resp = MU::Cloud::Google.compute.send(delete_sym, project, obj.name)
                     end
                     if resp.error and resp.error.errors and resp.error.errors.size > 0
-                      MU.log "Error deleting #{type.gsub(/_/, " ")} #{obj.name}", MU::ERR, details: resp.error.errors
-                      raise MuError, "Failed to delete #{type.gsub(/_/, " ")} #{obj.name}"
+                      failed = true
+                      retries += 1
+                      if resp.error.errors.first.code == "RESOURCE_IN_USE_BY_ANOTHER_RESOURCE" and retries < 3
+                        sleep 10
+                      else
+                        MU.log "Error deleting #{type.gsub(/_/, " ")} #{obj.name}", MU::ERR, details: resp.error.errors
+                        raise MuError, "Failed to delete #{type.gsub(/_/, " ")} #{obj.name}"
+                      end
+                    else
+# TODO validate that the resource actually went away, because it seems not to do so very reliably
                     end
+                    failed = false
                   rescue ::Google::Apis::ClientError => e
                     raise e if !e.message.match(/^notFound: /)
-                  end
+                  end while failed and retries < 3
                 end
               }
             }
@@ -419,7 +431,7 @@ module MU
               end
             rescue ::Google::Apis::ClientError => e
               if e.message.match(/^invalidParameter:/)
-                MU.log e.message, MU::ERR, details: arguments
+                MU.log "#{method_sym.to_s}: "+e.message, MU::ERR, details: arguments
                 raise e
               end
               if retries <= 10 and

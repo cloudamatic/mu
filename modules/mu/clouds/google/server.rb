@@ -287,11 +287,16 @@ next if !create
             instanceobj = MU::Cloud::Google.compute(:Instance).new(desc)
 
             MU.log "Creating instance #{@mu_name}"
+            begin
             instance = MU::Cloud::Google.compute.insert_instance(
               @config['project'],
               @config['availability_zone'],
               instanceobj
             )
+            rescue ::Google::Apis::ClientError => e
+              MU.log e.message, MU::ERR
+              raise e
+            end
             @cloud_id = instance.name # XXX or instance.target_link... pick a convention, would you?
 
             if !@config['async_groom']
