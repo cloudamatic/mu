@@ -6,7 +6,6 @@ import subprocess
 
 deploy_dirs = '/opt/mu/var/deployments'
 current_deploys = os.listdir(deploy_dirs)
-test = '/opt/mu/lib/test'
 
 
 def clean_all(list_of_deploy_ids):
