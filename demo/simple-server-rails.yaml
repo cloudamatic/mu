@@ -16,6 +16,7 @@ servers:
     skipinitialupdates: true
     run_list:
       - "recipe[demo::rails]"
+      - "recipe[demo::store_attr]"
     size: "m3.medium"
     associate_public_ip: true
     static_ip:
