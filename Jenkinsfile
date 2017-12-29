@@ -11,7 +11,7 @@ node {
   }
  
   for (bok in run_list.keySet()) {
-    def profile = "${run_list[key]}"
+    def profile = "${run_list[bok]}"
 
     stage('Running BOK: ${bok}'){
         sh "sudo python /opt/mu/lib/test/exec_bok.py ${bok}"
