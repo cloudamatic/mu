@@ -44,7 +44,7 @@ pipeline {
                   script{
                     try{
                         sh "python ${workspace}/test/exec_bok.py test_demo.yaml"
-                      } catch {
+                      } catch (err) {
                         echo "ERROR: ${err}"
                         currentBuild.result = 'UNSTABLE'
                       }
@@ -74,6 +74,13 @@ pipeline {
                   }
               }
             }
+        }
+    }
+    stage('Mu-Cleanup'){
+        steps {
+          script {
+            sh 'sudo python /opt/mu/lib/test/clean_up.py'
+          }
         }
     }
   }
