@@ -24,20 +24,20 @@ pipeline {
 // ***************************************************************
 // ******************** Run ALL BOKS PARALLEL ********************
 
-      stage('Clean Up & BOK Parallel Run'){
+      stage('BOK Parallel Run'){
         parallel{
-            stage("Run demo recipes"){
+            stage("mu-deploy demo_recipes.yaml"){
               steps {
                 script{
-                    sh "sudo python /opt/mu/lib/test/exec_bok.py demo_recipes.yaml"
+                    sh "python ${workspace}/test/exec_bok.py demo_recipes.yaml"
                 }
               }
             }
 
-            stage ('"Run test recipes') {
+            stage ("mu-deploy test_demo.yaml") {
               steps{
                   script{
-                      sh "sudo python /opt/mu/lib/test/exec_bok.py test_demo.yaml"
+                      sh "python ${workspace}/test/exec_bok.py test_demo.yaml"
                   }
               }
             }
@@ -46,20 +46,20 @@ pipeline {
 
 // ****************************************************************
 // ******************** Run ALL TESTS PARALLEL ********************
-      stage('BOK Parallel Inspec Tests'){
+      stage('inspec exec demo-test-profile'){
         parallel{
             stage("Run demo-test-profile"){
               steps {
                 script{
-                    sh "sudo python /opt/mu/lib/test/exec_inspec.py demo-test-profile demo_recipes.yaml"
+                    sh "python ${workspace}/test/exec_inspec.py demo-test-profile demo_recipes.yaml"
                 }
               }
             }
 
-            stage ("Run simple-server-rails-test") {
+            stage ("inspec exec test-profile") {
               steps{
                   script{
-                      sh "sudo python /opt/mu/lib/test/exec_inspec.py test test_demo.yaml"
+                      sh "python /${workspace}/test/exec_inspec.py test test_demo.yaml"
                   }
               }
             }

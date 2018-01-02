@@ -9,7 +9,8 @@ import glob
 
 deploy_dirs = '/opt/mu/var/deployments'
 current_deploys = os.listdir(deploy_dirs)
-test = '/opt/mu/lib/test'
+workspace = os.environ['WORKSPACE']
+test = workspace+'/test'
 
 
 def get_profile():
@@ -34,7 +35,7 @@ def get_profile():
 ### each bok is differrent and number of lines to skip when parsing will change
 ### So instead I did it this way...
 
-def get_deploy_id(bok, all_boks='/opt/mu/lib/demo'):
+def get_deploy_id(bok, all_boks=workspace+'/demo'):
   partial_dep_name = None
   deploy_id = None
   yml_file = open(all_boks+'/'+bok, 'r')
