@@ -62,7 +62,12 @@ pipeline {
             stage("Run demo-test-profile"){
               steps {
                 script{
-                    sh "python ${workspace}/test/exec_inspec.py demo-test-profile demo_recipes.yaml"
+                    try {
+                      sh "python ${workspace}/test/exec_inspec.py demo-test-profile demo_recipes.yaml"
+                    } catch (err) {
+                        echo "ERROR: ${err}"
+                        currentBuild.result = 'UNSTABLE'
+                    }
                 }
               }
             }
@@ -70,7 +75,12 @@ pipeline {
             stage ("inspec exec test-profile") {
               steps{
                   script{
+                    try{
                       sh "python /${workspace}/test/exec_inspec.py test test_demo.yaml"
+                      } catch (err) {
+                        echo "ERROR: ${err}"
+                        currentBuild.result = 'UNSTABLE'
+                      }
                   }
               }
             }

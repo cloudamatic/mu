@@ -1,8 +1,6 @@
-include_controls 'apache_spec'
-
 
 control 'Demo Cookbook' do
-  title 'rails.rb'
+  title 'wordpress.rb'
 
   node = json('/tmp/chef_node.json').params
   $database=node['default']['deployment']['databases'].first.last.first.last
