@@ -100,7 +100,7 @@ module MU
           allrules.each_value { |fwdesc|
             threads << Thread.new { 
               fwobj = MU::Cloud::Google.compute(:Firewall).new(fwdesc)
-              MU.log "Creating firewall #{fwdesc[:name]}", details: fwobj
+              MU.log "Creating firewall #{fwdesc[:name]} in project #{@config['project']}", details: fwobj
               resp = MU::Cloud::Google.compute.insert_firewall(@config['project'], fwobj)
 # XXX Check for empty (no hosts) sets
 #  MU.log "Can't create empty firewalls in Google Cloud, skipping #{@mu_name}", MU::WARN
@@ -168,6 +168,7 @@ module MU
           MU::Cloud::Google.compute.delete(
             "firewall",
             flags["project"],
+            nil,
             noop
           )
         end
@@ -178,15 +179,19 @@ module MU
         def self.schema(config)
           toplevel_required = []
           schema = {
-              "rules" => {
-                "items" => {
-                  "properties" => {
-                    "proto" => {
-                      "enum" => ["udp", "tcp", "icmp", "all"]
-                    }
+            "rules" => {
+              "items" => {
+                "properties" => {
+                  "proto" => {
+                    "enum" => ["udp", "tcp", "icmp", "all"]
                   }
                 }
               }
+            },
+            "project" => {
+              "type" => "string",
+              "description" => "The project into which to deploy resources"
+            }
           }
           [toplevel_required, schema]
         end

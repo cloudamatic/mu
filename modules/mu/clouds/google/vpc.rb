@@ -60,7 +60,7 @@ module MU
             auto_create_subnetworks: false
 #            i_pv4_range: @config['ip_block']
           )
-          MU.log "Creating network #{@mu_name} (#{@config['ip_block']})", details: networkobj
+          MU.log "Creating network #{@mu_name} (#{@config['ip_block']}) in project #{@config['project']}", details: networkobj
           resp = MU::Cloud::Google.compute.insert_network(@config['project'], networkobj)
           pp resp
           @url = resp.self_link # XXX needs to go in notify
@@ -74,7 +74,7 @@ module MU
                 MU.dupGlobals(parent_thread_id)
                 subnet_name = @config['name']+"-"+subnet['name']
                 subnet_mu_name = MU::Cloud::Google.nameStr(@deploy.getResourceName(subnet_name))
-                MU.log "Creating subnetwork #{subnet_mu_name} (#{subnet['ip_block']})", details: subnet
+                MU.log "Creating subnetwork #{subnet_mu_name} (#{subnet['ip_block']}) in project #{@config['project']}", details: subnet
                 subnetobj = MU::Cloud::Google.compute(:Subnetwork).new(
                   name: subnet_mu_name,
                   description: @deploy.deploy_id,
@@ -462,6 +462,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             MU::Cloud::Google.compute.delete(
               type,
               flags["project"],
+              nil,
               noop
             )
           }
@@ -476,6 +477,10 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
             "regions" => {
               "type" => "array",
               "items" => MU::Config.region_primitive
+            },
+            "project" => {
+              "type" => "string",
+              "description" => "The project into which to deploy resources"
             }
           }
           [toplevel_required, schema]
@@ -573,9 +578,9 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
 # XXX we need routes to peered Networks too
 
             if has_nat or has_deny
-              ok = false if !genStandardSubnetACLs(vpc['parent_block'] || vpc['ip_block'], vpc['name'], configurator, false)
+              ok = false if !genStandardSubnetACLs(vpc['parent_block'] || vpc['ip_block'], vpc['name'], configurator, vpc["project"], false)
             else
-              ok = false if !genStandardSubnetACLs(vpc['parent_block'] || vpc['ip_block'], vpc['name'], configurator)
+              ok = false if !genStandardSubnetACLs(vpc['parent_block'] || vpc['ip_block'], vpc['name'], configurator, vpc["project"])
             end
             if has_nat and !has_deny
               vpc['route_tables'].first["routes"] << {
@@ -635,10 +640,11 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
 
         private
 
-        def self.genStandardSubnetACLs(vpc_cidr, vpc_name, configurator, publicroute = true)
+        def self.genStandardSubnetACLs(vpc_cidr, vpc_name, configurator, project, publicroute = true)
           private_acl = {
             "name" => vpc_name+"-routables",
             "cloud" => "Google",
+            "project" => project,
             "vpc" => { "vpc_name" => vpc_name },
             "dependencies" => [ { "type" => "vpc", "name" => vpc_name } ],
             "rules" => [
@@ -730,7 +736,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           end
 
           if route['gateway'] != "#DENY"
-            MU.log "Creating route #{routename}", details: routeobj
+            MU.log "Creating route #{routename} in project #{@config['project']}", details: routeobj
             resp = MU::Cloud::Google.compute.insert_route(@config['project'], routeobj)
           end
         end

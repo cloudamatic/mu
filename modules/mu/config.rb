@@ -766,10 +766,10 @@ module MU
       if !descriptor['ingress_rules'].nil?
         fwname = cfg_name+descriptor['name']
         acl = {"name" => fwname, "rules" => descriptor['ingress_rules'], "region" => descriptor['region'] }
-        acl["optional_tags"] = descriptor['optional_tags'] if descriptor['optional_tags']
-        acl["tags"] = descriptor['tags'] if descriptor['tags'] && !descriptor['tags'].empty?
         acl["vpc"] = descriptor['vpc'].dup if !descriptor['vpc'].nil?
-        acl["cloud"] = descriptor["cloud"]
+        ["optional_tags", "tags", "cloud", "project"].each { |param|
+          acl[param] = descriptor[param] if descriptor[param]
+        }
         ok = false if !insertKitten(acl, "firewall_rules")
         descriptor["add_firewall_rules"] = [] if descriptor["add_firewall_rules"].nil?
         descriptor["add_firewall_rules"] << {"rule_name" => fwname}
@@ -1687,21 +1687,6 @@ module MU
     def validate(config = @config)
       ok = true
       plain_cfg = MU::Config.manxify(Marshal.load(Marshal.dump(config)))
-      begin
-        JSON::Validator.validate!(MU::Config.schema, plain_cfg)
-      rescue JSON::Schema::ValidationError => e
-        # Use fully_validate to get the complete error list, save some time
-        errors = JSON::Validator.fully_validate(MU::Config.schema, plain_cfg)
-        realerrors = []
-        errors.each { |err|
-          if !err.match(/The property '.+?' of type MU::Config::Tail did not match the following type:/)
-            realerrors << err
-          end
-        }
-        if realerrors.size > 0
-          raise ValidationError, "Validation error in #{@@config_path}!\n"+realerrors.join("\n")
-        end
-      end
 
       count = 0
       @kittens ||= {}
@@ -2457,6 +2442,22 @@ module MU
 
       # TODO enforce uniqueness of resource names
       raise ValidationError if !ok
+
+      begin
+        JSON::Validator.validate!(MU::Config.schema, plain_cfg)
+      rescue JSON::Schema::ValidationError => e
+        # Use fully_validate to get the complete error list, save some time
+        errors = JSON::Validator.fully_validate(MU::Config.schema, plain_cfg)
+        realerrors = []
+        errors.each { |err|
+          if !err.match(/The property '.+?' of type MU::Config::Tail did not match the following type:/)
+            realerrors << err
+          end
+        }
+        if realerrors.size > 0
+          raise ValidationError, "Validation error in #{@@config_path}!\n"+realerrors.join("\n")
+        end
+      end
     end
 
 

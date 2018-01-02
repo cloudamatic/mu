@@ -82,6 +82,11 @@ module MU
         end
       end
 
+      projects = {
+        "Google" => MU::Cloud::Google.listProjects,
+        "AWS" => ["dummy"]
+      }
+
       if !@skipcloud
         parent_thread_id = Thread.current.object_id
         regions = {}
@@ -96,30 +101,47 @@ module MU
             @regionthreads << Thread.new {
               MU.dupGlobals(parent_thread_id)
               MU.setVar("curRegion", r)
-              MU.log "Checking for #{provider} cloud resources from #{MU.deploy_id} in #{r}", MU::NOTICE
+              if projects[provider].size == 1
+                MU.log "Checking for #{provider} resources from #{MU.deploy_id} in #{r}", MU::NOTICE
+              end
 
               # We do these in an order that unrolls dependent resources
               # sensibly, and we hit :Collection twice because AWS
               # CloudFormation sometimes fails internally.
-              MU::Cloud::Collection.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["Collection"]) > 0
-              MU::Cloud::ServerPool.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["ServerPool"]) > 0
-              MU::Cloud::Server.cleanup(skipsnapshots: @skipsnapshots, onlycloud: @onlycloud, noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["Server"]) > 0
-              if provider == "AWS"
-                MU::Cloud::Database.cleanup(skipsnapshots: @skipsnapshots, noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["Database"]) > 0
+              projectthreads = []
+              projects[provider].each { |project|
+                projectthreads << Thread.new {
+                  MU.dupGlobals(parent_thread_id)
+                  MU.setVar("curRegion", r)
+                  if projects[provider].size > 1
+                    MU.log "Checking for #{provider} resources from #{MU.deploy_id} in #{r}, project #{project}", MU::NOTICE
+                  end
+                  MU.dupGlobals(parent_thread_id)
+                  flags = { "project" => project }
+                  MU::Cloud::Collection.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Collection"]) > 0
+                  MU::Cloud::ServerPool.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["ServerPool"]) > 0
+                  MU::Cloud::Server.cleanup(skipsnapshots: @skipsnapshots, onlycloud: @onlycloud, noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Server"]) > 0
+                  if provider == "AWS"
+                    MU::Cloud::Database.cleanup(skipsnapshots: @skipsnapshots, noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Database"]) > 0
+                  end
+                  MU::Cloud::CacheCluster.cleanup(skipsnapshots: @skipsnapshots, noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["CacheCluster"]) > 0
+                  MU::Cloud::StoragePool.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["StoragePool"]) > 0
+                  if provider == "AWS"
+                    MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["FirewallRule", "Server", "ServerPool", "Database", "StoragePool"]) > 0
+                  end
+                  MU::Cloud::LoadBalancer.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["LoadBalancer"]) > 0
+                  MU::Cloud::Alarm.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Alarm"]) > 0 # XXX other resources can make these appear, I think- which ones?
+                  MU::Cloud::Notification.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Notification"]) > 0 # XXX other resources can make these appear, I think- which ones?
+                  MU::Cloud::Log.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Log"]) > 0 # XXX other resources can make these appear, I think- which ones?
+                  if provider == "AWS"
+                    MU::Cloud::VPC.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["VPC"]) > 0
+                  end
+                  MU::Cloud::Collection.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, wait: true, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Collection"]) > 0
+                }
+              }
+              projectthreads.each do |t|
+                t.join
               end
-              MU::Cloud::CacheCluster.cleanup(skipsnapshots: @skipsnapshots, noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["CacheCluster"]) > 0
-              MU::Cloud::StoragePool.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["StoragePool"]) > 0
-              if provider == "AWS"
-                MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["FirewallRule", "Server", "ServerPool", "Database", "StoragePool"]) > 0
-              end
-              MU::Cloud::LoadBalancer.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["LoadBalancer"]) > 0
-              MU::Cloud::Alarm.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["Alarm"]) > 0 # XXX other resources can make these appear, I think- which ones?
-              MU::Cloud::Notification.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["Notification"]) > 0 # XXX other resources can make these appear, I think- which ones?
-              MU::Cloud::Log.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["Log"]) > 0 # XXX other resources can make these appear, I think- which ones?
-              if provider == "AWS"
-                MU::Cloud::VPC.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["VPC"]) > 0
-              end
-              MU::Cloud::Collection.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, wait: true, cloud: provider) if @mommacat.nil? or @mommacat.numKittens(types: ["Collection"]) > 0
 
               if provider == "AWS"
                 resp = MU::Cloud::AWS.ec2(r).describe_key_pairs(
@@ -137,16 +159,28 @@ module MU
         @regionthreads.each do |t|
           t.join
         end
+        @projectthreads = []
 
         # knock over region-agnostic resources
-        MU::Cloud::ServerPool.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: { "global" => true }) if @mommacat.nil? or @mommacat.numKittens(types: ["ServerPool"]) > 0
-        MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: { "global" => true }) if @mommacat.nil? or @mommacat.numKittens(types: ["FirewallRule"]) > 0
-        MU::Cloud::LoadBalancer.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: { "global" => true }) if @mommacat.nil? or @mommacat.numKittens(types: ["LoadBalancer"]) > 0
-        MU::Cloud::Database.cleanup(skipsnapshots: @skipsnapshots, noop: @noop, ignoremaster: @ignoremaster, cloud: "Google") if @mommacat.nil? or @mommacat.numKittens(types: ["Database"]) > 0
-        MU::Cloud::VPC.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: { "global" => true }) if @mommacat.nil? or @mommacat.numKittens(types: ["VPC"]) > 0
+
+        projects["Google"].each { |project|
+          @projectthreads << Thread.new {
+            MU.dupGlobals(parent_thread_id)
+            flags = { "global" => true, "project" => project }
+            MU::Cloud::ServerPool.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["ServerPool"]) > 0
+            MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["FirewallRule"]) > 0
+            MU::Cloud::LoadBalancer.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["LoadBalancer"]) > 0
+            MU::Cloud::Database.cleanup(skipsnapshots: @skipsnapshots, noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Database"]) > 0
+            MU::Cloud::VPC.cleanup(noop: @noop, ignoremaster: @ignoremaster, cloud: "Google", flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["VPC"]) > 0
+    
+          }
+        }
 
         MU::Cloud::DNSZone.cleanup(noop: @noop, cloud: "AWS", ignoremaster: @ignoremaster) if @mommacat.nil? or @mommacat.numKittens(types: ["DNSZone"]) > 0
 
+        @projectthreads.each do |t|
+          t.join
+        end
 
         MU::Cloud::Google.removeDeploySecretsAndRoles(MU.deploy_id) 
 # XXX port AWS equivalent behavior and add a MU::Cloud wrapper
