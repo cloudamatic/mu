@@ -1,26 +1,27 @@
 
-pipeline {
+peline {
   agent any
   stages {
-      stage ('git'){
-            steps {
-                checkout([
-                    $class: 'GitSCM',
-                    branches: scm.branches,
-                    doGenerateSubmoduleConfigurations: false,
-                    extensions: scm.extensions + [[$class: 'SubmoduleOption', disableSubmodules: false, recursiveSubmodules: true, reference: '', trackingSubmodules: false]],
-                    submoduleCfg: [],
-                    userRemoteConfigs: scm.userRemoteConfigs])
-            }
+      stage ('git')
+      {
+        steps 
+        {
+          checkout([
+            $class: 'GitSCM',
+            branches: scm.branches,
+            doGenerateSubmoduleConfigurations: false,
+            extensions: scm.extensions + [[$class: 'SubmoduleOption', disableSubmodules: false, recursiveSubmodules: true, reference: '', trackingSubmodules: false]],
+            submoduleCfg: [],
+            userRemoteConfigs: scm.userRemoteConfigs])
         }
-      
-      
+      }
+
 // ***************************************************************
 // ******************** Run ALL BOKS PARALLEL ********************
 
       stage('Clean Up & BOK Parallel Run'){
         parallel{
-            
+
             stage('Initial Cleanup'){
                 steps {
                     script {
@@ -35,7 +36,7 @@ pipeline {
                 }
               }
             }
-            
+
             stage ('"Run test recipes') {
               steps{
                   script{
@@ -45,7 +46,7 @@ pipeline {
             }
         }
     }
-    
+
 // ****************************************************************
 // ******************** Run ALL TESTS PARALLEL ********************
       stage('BOK Parallel Inspec Tests'){
@@ -57,7 +58,7 @@ pipeline {
                 }
               }
             }
-            
+
             stage ("Run simple-server-rails-test") {
               steps{
                   script{
@@ -68,4 +69,5 @@ pipeline {
         }
     }
   }
-}}
+}
+
