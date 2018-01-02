@@ -1,43 +1,71 @@
-node {
-    
-  def run_list = ['demo_recipes.yaml':'demo-test-profile', 'simple-server-rails.yaml':'simple-server-rails-test']
-  
-  stage('Git Clone') {
-      git 'https://github.com/cloudamatic/mu.git'
-  }
-  
-  stage('Initial Cleanup') {
-      sh 'sudo python /opt/mu/lib/test/clean_up.py'
-  }
- 
-  for (bok in run_list.keySet()) {
-    def profile = "${run_list[bok]}"
 
-   // ******************** Run BOK ********************
-   try{   
-      stage("Running BOK: ${bok}"){
-        sh "sudo python /opt/mu/lib/test/exec_bok.py ${bok}"
-      }
-    }
-    catch (err){
-      echo "Caught: ${err}"
-      currentBuild.result = 'UNSTABLE'
-    }
+pipeline {
+  agent any
+  stages {
+      stage ('git'){
+            steps {
+                checkout([
+                    $class: 'GitSCM',
+                    branches: scm.branches,
+                    doGenerateSubmoduleConfigurations: false,
+                    extensions: scm.extensions + [[$class: 'SubmoduleOption', disableSubmodules: false, recursiveSubmodules: true, reference: '', trackingSubmodules: false]],
+                    submoduleCfg: [],
+                    userRemoteConfigs: scm.userRemoteConfigs])
+            }
+        }
+      
+      
+// ***************************************************************
+// ******************** Run ALL BOKS PARALLEL ********************
 
-    // ****************** Run Inspec *****************
-    try{
-      stage("Inspec Test: ${profile}"){
-        sh "sudo python /opt/mu/lib/test/exec_inspec.py ${profile}"
-      }
-    }
-    catch(err){
-      echo "Caught: ${err}"
-      currentBuild.result = 'UNSTABLE'
+      stage('Clean Up & BOK Parallel Run'){
+        parallel{
+            
+            stage('Initial Cleanup'){
+                steps {
+                    script {
+                        sh 'sudo python /opt/mu/lib/test/clean_up.py'
+                    }
+                }
+            }
+            stage("Run demo recipes"){
+              steps {
+                script{
+                    sh "sudo python /opt/mu/lib/test/exec_bok.py demo_recipes.yaml"
+                }
+              }
+            }
+            
+            stage ('"Run test recipes') {
+              steps{
+                  script{
+                      sh "sudo python /opt/mu/lib/test/exec_bok.py test_demo.yaml"
+                  }
+              }
+            }
+        }
     }
     
-    // ****************** Clean Up *******************
-    stage("Clean up: ${bok}") {
-      sh 'sudo python /opt/mu/lib/test/clean_up.py'
+// ****************************************************************
+// ******************** Run ALL TESTS PARALLEL ********************
+      stage('BOK Parallel Inspec Tests'){
+        parallel{
+            stage("Run demo-test-profile"){
+              steps {
+                script{
+                    sh "sudo python /opt/mu/lib/test/exec_inspec.py demo-test-profile demo_recipes.yaml"
+                }
+              }
+            }
+            
+            stage ("Run simple-server-rails-test") {
+              steps{
+                  script{
+                      sh "sudo python /opt/mu/lib/test/exec_inspec.py test test_demo.yaml"
+                  }
+              }
+            }
+        }
     }
   }
-}
+}}
