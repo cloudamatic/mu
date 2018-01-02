@@ -26,6 +26,13 @@ def get_profile():
 ### Inspec must know which profile to run on which node
 ### Then as of now this only work with 1 server
 
+### Getting the correct deploy id
+### Pass the bok.yaml when running the inspec test as another positional param
+### Yes I tried parsing through the yaml file using yaml.load but it complains
+### It complains about having embedded ruby tags.... 
+### Sure I can skip x number of lines that have those embedded ruby tags but,
+### each bok is differrent and number of lines to skip when parsing will change
+### So instead I did it this way...
 
 def get_deploy_id(bok, all_boks='/opt/mu/lib/demo'):
   partial_dep_name = None

@@ -1,5 +1,4 @@
-
-peline {
+pipeline {
   agent any
   stages {
       stage ('git')
@@ -15,20 +14,18 @@ peline {
             userRemoteConfigs: scm.userRemoteConfigs])
         }
       }
-
+      stage('Initial Cleanup'){
+        steps {
+          script {
+            sh 'sudo python /opt/mu/lib/test/clean_up.py'
+          }
+        }
+      }
 // ***************************************************************
 // ******************** Run ALL BOKS PARALLEL ********************
 
       stage('Clean Up & BOK Parallel Run'){
         parallel{
-
-            stage('Initial Cleanup'){
-                steps {
-                    script {
-                        sh 'sudo python /opt/mu/lib/test/clean_up.py'
-                    }
-                }
-            }
             stage("Run demo recipes"){
               steps {
                 script{
