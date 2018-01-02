@@ -29,7 +29,12 @@ pipeline {
             stage("mu-deploy demo_recipes.yaml"){
               steps {
                 script{
-                    sh "python ${workspace}/test/exec_bok.py demo_recipes.yaml"
+                  try{
+                      sh "python ${workspace}/test/exec_bok.py demo_recipes.yaml"
+                    } catch (err) {
+                      echo "ERROR: ${err}"
+                      currentBuild.result = 'UNSTABLE'
+                    }
                 }
               }
             }
@@ -37,7 +42,13 @@ pipeline {
             stage ("mu-deploy test_demo.yaml") {
               steps{
                   script{
-                      sh "python ${workspace}/test/exec_bok.py test_demo.yaml"
+                    try{
+                        sh "python ${workspace}/test/exec_bok.py test_demo.yaml"
+                      } catch {
+                        echo "ERROR: ${err}"
+                        currentBuild.result = 'UNSTABLE'
+                      }
+                      
                   }
               }
             }
