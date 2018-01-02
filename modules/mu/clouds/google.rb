@@ -324,6 +324,19 @@ module MU
         end
       end
 
+      # Google's Service Manager API (the one you use to enable other APIs)
+      # @param subclass [<Google::Apis::ServicemanagementV1>]: If specified, will return the class ::Google::Apis::ServicemanagementV1::subclass instead of an API client instance
+      def self.service_manager(subclass = nil)
+        require 'google/apis/servicemanagement_v1'
+
+        if subclass.nil?
+          @@service_api ||= MU::Cloud::Google::Endpoint.new(api: "ServicemanagementV1::ServiceManagementService", scopes: ['https://www.googleapis.com/auth/cloud-platform'])
+          return @@service_api
+        elsif subclass.is_a?(Symbol)
+          return Object.const_get("::Google").const_get("Apis").const_get("ServicemanagementV1").const_get(subclass)
+        end
+      end
+
       # Google's SQL Service API
       # @param subclass [<Google::Apis::SqladminV1beta4>]: If specified, will return the class ::Google::Apis::SqladminV1beta4::subclass instead of an API client instance
       def self.sql(subclass = nil)
@@ -454,7 +467,19 @@ module MU
                 MU.log "#{method_sym.to_s}: "+e.message, MU::ERR, details: arguments
                 raise e
               end
-              if retries <= 10 and
+              if retries <= 1 and e.message.match(/^accessNotConfigured/) and arguments.first
+                enable_obj = MU::Cloud::Google.service_manager(:EnableServiceRequest).new(
+                  consumer_id: "project:"+arguments.first.to_s, # there's always a project id
+                )
+                # XXX dumbass way to get this string
+                e.message.match(/Enable it by visiting https:\/\/console\.developers\.google\.com\/apis\/api\/(.+?)\//)
+                svc_name = Regexp.last_match[1]
+                MU.log "Attempting to enable #{svc_name} in project #{arguments.first}, then waiting for 30s", MU::WARN
+                MU::Cloud::Google.service_manager.enable_service(svc_name, enable_obj)
+                sleep 30
+                retries += 1
+                retry
+              elsif retries <= 10 and
                  e.message.match(/^resourceNotReady:/) or
                  (e.message.match(/^resourceInUseByAnotherResource:/) and method_sym.to_s.match(/^delete_/))
                 if retries > 0 and retries % 3 == 0
@@ -588,6 +613,7 @@ module MU
       @@iam_api = nil
       @@logging_api = nil
       @@resource_api = nil
+      @@service_api = nil
     end
   end
 end

@@ -245,7 +245,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @param wait [Boolean]: Block on the removal of this stack; AWS deletion will continue in the background otherwise if false.
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, wait: false)
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, wait: false, flags: {})
 # XXX needs to check tags instead of name- possible?
           resp = MU::Cloud::AWS.cloudformation(region).describe_stacks
           resp.stacks.each { |stack|
