@@ -64,11 +64,20 @@ def get_host_info(deploy_id):
     for server in bok['servers']:
       platform = server['platform']
       ssh_user = server['ssh_user']
-
     for k,v in node['servers'].iteritems():
+      ### get cookbook::recipe => but cut to only recipe part and then put it in a array for run_list?
+      control = []
+      run_list = v[deploy_id+'-'+k.upper()]['run_list']
+      for recipe in run_list:
+        recipe_name = re.search(r"\w+]", each).group(0).replace(']','')
+        if recipe_name != 'store_attr':
+          control.insert(0,recipe_name)
+        else:
+          print 'SKIP: Not adding ==> %s <== to the controls list' % recipe_name
+        run_list.remove(recipe)
       key_file = open(deploy_dirs+'/'+deploy_id+'/ssh_key_name')
       ssh_key = key_file.readline().strip()
-      ssh_info = {'server_name': k, 'fqdn': v[deploy_id+'-'+k.upper()]['public_dns_name'], 'ssh_user':ssh_user, 'ssh_file': '~/.ssh/'+ssh_key, 'run_list': v[deploy_id+'-'+k.upper()]['run_list'], 'platform': platform} 
+      ssh_info = {'server_name': k, 'fqdn': v[deploy_id+'-'+k.upper()]['public_dns_name'], 'ssh_user':ssh_user, 'ssh_file': '~/.ssh/'+ssh_key, 'run_list': v[deploy_id+'-'+k.upper()]['run_list'], 'controls': control, 'platform': platform} 
       host_infos.append(ssh_info)
       print ssh_info
   else:
@@ -94,6 +103,8 @@ for ssh_info in ssh_infos:
     ## Figure out how to perform winrm here...
   else:
     ssh = 'ssh://%s@%s' % (ssh_info['ssh_user'], ssh_info['fqdn'])
+    controls = ssh_infos['controls']
+    print controls
     exit_status = subprocess.call(['inspec','exec', profile, '-t',ssh, '-i',ssh_info['ssh_file']]) 
   
 ### get test status
