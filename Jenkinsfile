@@ -24,9 +24,9 @@ pipeline {
 // ***************************************************************
 // ******************** Run ALL BOKS PARALLEL ********************
 
-      stage('BOK Parallel Run'){
+      stage('mu-deploy -n'){
         parallel{
-            stage("mu-deploy demo_recipes.yaml"){
+            stage("demo_recipes.yaml"){
               steps {
                 script{
                   try{
@@ -39,7 +39,7 @@ pipeline {
               }
             }
 
-            stage ("mu-deploy test_demo.yaml") {
+            stage ("test_demo.yaml") {
               steps{
                   script{
                     try{
@@ -57,9 +57,9 @@ pipeline {
 
 // ****************************************************************
 // ******************** Run ALL TESTS PARALLEL ********************
-      stage('inspec exec demo-test-profile'){
+      stage('Inspec Verify'){
         parallel{
-            stage("Run demo-test-profile"){
+            stage("demo-test-profile"){
               steps {
                 script{
                     try {
@@ -72,7 +72,7 @@ pipeline {
               }
             }
 
-            stage ("inspec exec test-profile") {
+            stage ("test-profile") {
               steps{
                   script{
                     try{
