@@ -69,7 +69,7 @@ def get_host_info(deploy_id):
       control = []
       run_list = v[deploy_id+'-'+k.upper()]['run_list']
       for recipe in run_list:
-        recipe_name = re.search(r"\w+]", each).group(0).replace(']','')
+        recipe_name = re.search(r"\w+]", recipe).group(0).replace(']','')
         if recipe_name != 'store_attr':
           control.insert(0,recipe_name)
         else:

@@ -24,7 +24,7 @@ pipeline {
 // ***************************************************************
 // ******************** Run ALL BOKS PARALLEL ********************
 
-      stage('mu-deploy -n'){
+      stage('mu-deploy'){
         parallel{
             stage("demo_recipes.yaml"){
               steps {
