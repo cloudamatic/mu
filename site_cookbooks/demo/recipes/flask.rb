@@ -16,12 +16,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-include_recipe 'python'
+include_recipe 'poise-python'
 include_recipe 'nginx'
-include_recipe 'supervisor'
 
 service_name = node.normal.service_name;
-application_dir = node[node.chef_environment][service_name].apps_dir
+application_dir = node[node.chef_environment]['flask']['apps_dir']
 virtual_environment = "#{application_dir}/envs/demo"
 
 directories = virtual_environment.split('/')
@@ -39,18 +38,17 @@ directories = virtual_environment.split('/')
 end
 
 python_virtualenv virtual_environment do
-  interpreter 'python2.7'
-  owner 'root'
+  user 'root'
   group 'root'
   action :create
 end
 
-python_pip 'flask' do
+python_package 'flask' do
   virtualenv virtual_environment
   action :install
 end
 
-python_pip 'gunicorn' do
+python_package 'gunicorn' do
   virtualenv virtual_environment
   action :install
 end
@@ -59,15 +57,16 @@ file "#{virtual_environment}/demo.py" do
   content <<-EOH
 from flask import Flask
 app = Flask(__name__)
-
 @app.route("/")
 def hello():
     return "Hello World!"
-
 if __name__ == "__main__":
     app.run()
   EOH
 end
+
+user 'www-data'
+
 
 gunicorn_config '/etc/gunicorn/demo.py' do
   owner 'www-data'
@@ -81,7 +80,6 @@ file '/etc/nginx/sites-available/default' do
     server {
       listen 80;
       server_name demo;
-
       location / {
         proxy_pass http://127.0.0.1:9000;
       }
@@ -89,9 +87,28 @@ file '/etc/nginx/sites-available/default' do
   EOH
 end
 
+ruby_block 'Add LD_LIBRARY_PATH' do
+  block do
+    find='/opt/rh/python27/root/usr/lib64/'
+    file=Chef::Util::FileEdit.new("/etc/ld.so.conf")
+    file.insert_line_if_no_match(find,find)
+    file.write_file
+  end
+  not_if  {File.readlines("/etc/ld.so.conf").grep(/find/).size > 0}
+  notifies :run, "execute[run ldconfig]", :immediately
+end
+
+execute "run ldconfig" do
+  user 'root'
+  command "ldconfig"
+  action :nothing
+end
+
+
 bash "boot_gunicorn" do
+  user 'root'
   cwd virtual_environment
   code <<-EOH
-#{virtual_environment}/bin/gunicorn -D -c /etc/gunicorn/demo.py demo:app
+    ./bin/gunicorn -D -c /etc/gunicorn/demo.py demo:app
   EOH
 end
