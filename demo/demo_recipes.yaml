@@ -3,7 +3,7 @@
 <% vpc = MU.myVPC %>
 appname: demo-recipes
 servers:
-  - name: flask-test
+  - name: flask-server-1-bok-1
     size: t2.micro
     skipinitialupdates: true
     associate_public_ip: true
@@ -15,7 +15,7 @@ servers:
     - recipe[demo::flask]
     - recipe[demo::store_attr]
     
-  - name: simple_recipe_2
+  - name: flask-server-2-bok-1
     size: t2.micro
     skipinitialupdates: true
     associate_public_ip: true
