@@ -3,6 +3,8 @@
 import os
 import subprocess
 import sys
+import random
+import time
 
 def bok_exists(which_bok,all_boks=os.environ['WORKSPACE']+'/demo'):
   if os.path.isfile(all_boks+'/'+which_bok):
@@ -23,4 +25,6 @@ if str(sys.argv[1]) != None:
 else:
   bok_name = "NOT_PROVIDED"
 
+## sleep for few secs between multiple mu-deploy's
+time.sleep(random.uniform(5.0,25.0))
 run_bok(bok_name)
