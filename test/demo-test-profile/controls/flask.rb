@@ -1,4 +1,4 @@
-control 'Demo Recipe' do
+control 'flask' do
   title 'flask.rb'
 
   ### get the attrs json
