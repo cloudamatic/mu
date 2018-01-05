@@ -136,8 +136,11 @@ def get_host_info(deploy_id):
     raise Exception('ERROR: '+deploy_id+' ==> deploy id does not exist in '+deploy_dirs)
   return host_infos
  
-
-
+def store_ssh_info(array_of_ssh_info, where='/tmp'):
+  for ssh_info in array_of_ssh_info:
+    print ssh_info
+    ya = open(where+'/'+ssh_info['server_name']+'_attr.yaml','w')
+    yaml.safe_dump(ssh_info, ya,default_flow_style=False)
 
 
 
@@ -152,19 +155,16 @@ profile = get_profile()
 
 ####### FOR ETCO ONLY -- ASYNC_GROOM
 if 'ETCO' in bok_name or 'etco' in bok_name:
-  wait_till_confirmed(120)
+  wait_till_confirmed(70)
 ###################
 
 deploy_id = get_deploy_id(bok_name)
 ssh_infos = get_host_info(deploy_id)
 os.chdir(test)
+store_ssh_info(ssh_infos)
+
 for ssh_info in ssh_infos:
   
-  ## dump ssh info so inspec tests can utilize dns addresses
-  ya = open(workspace+'/test/'+profile+'/'+ssh_info['server_name']+'_attr.yaml','w')
-  yaml.safe_dump(ssh_info, ya,default_flow_style=False)
-
-
   if ssh_info['platform'] == 'windows':
     print 'winrm is not yet configured...'
     ## Figure out how to perform winrm here...
