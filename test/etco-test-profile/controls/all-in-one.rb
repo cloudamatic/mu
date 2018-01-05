@@ -1,7 +1,7 @@
 require 'yaml'
 
-mongo = YAML.load_file("#{Dir.pwd}/etco-test-profile/etco-mongo_attr.yaml")
-cas = YAML.load_file("#{Dir.pwd}/etco-test-profile/etco-app_attr.yaml")
+mongo = YAML.load_file("/tmp/etco-mongo_attr.yaml")
+cas = YAML.load_file("/tmp/etco-app_attr.yaml")
 mongo_dns = mongo['fqdn']
 cas_dns= cas['load_balancers'][0]['cas-elb']
 app_elb = cas['load_balancers'][1]['app-elb']
