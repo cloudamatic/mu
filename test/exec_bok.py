@@ -26,5 +26,5 @@ else:
   bok_name = "NOT_PROVIDED"
 
 ## sleep for few secs between multiple mu-deploy's
-time.sleep(random.uniform(5.0,25.0))
+time.sleep(random.uniform(5.0,20.0))
 run_bok(bok_name)

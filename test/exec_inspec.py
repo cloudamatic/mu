@@ -6,6 +6,9 @@ import subprocess
 import sys
 import re
 import glob
+import time
+import yaml
+import ast
 
 deploy_dirs = '/opt/mu/var/deployments'
 current_deploys = os.listdir(deploy_dirs)
@@ -15,26 +18,11 @@ test = workspace+'/test'
 
 def get_profile():
   which_profile = str(sys.argv[1])
+  print which_profile
   if os.path.isdir(test+'/'+which_profile):
     return which_profile
   else:
     return 'NOT_PROVIDED'
-
-
-### TODO: NEEDS TO BE TESTED WITH BELOW SOLUTION
-### BOK has 2 or more servers...
-### with different run_list
-### Inspec must know which profile to run on which node
-### Then as of now this only work with 1 server
-
-### Getting the correct deploy id
-### Pass the bok.yaml when running the inspec test as another positional param
-### Yes I tried parsing through the yaml file using yaml.load but it complains
-### It complains about having embedded ruby tags.... 
-### Sure I can skip x number of lines that have those embedded ruby tags but,
-### each bok is differrent and number of lines to skip when parsing will change
-### So instead I did it this way...
-
 
 
 def get_deploy_id(bok, all_boks=workspace+'/demo'):
@@ -57,6 +45,40 @@ def get_deploy_id(bok, all_boks=workspace+'/demo'):
 
 
 
+### Use only for async_groom
+def wait_till_confirmed(seconds_to_wait):
+  done = False
+  file_to_check = '/Mu_Logs/master.log'
+  while done == False:
+    file1 = os.stat(file_to_check) # initial file size
+    start_size = file1.st_size
+    time.sleep(seconds_to_wait)
+    file2 = os.stat(file_to_check) # updated file size
+    new_size = file2.st_size
+    comp = new_size - start_size # compares sizes
+    if comp != 0:
+      print 'INFO: File changes detected.. Checking again after %s seconds....' % str(seconds_to_wait)
+      done = False
+    else:
+      done = True
+      print 'SKIP: No new changes detected in the logs, continuing to inspec...'
+
+
+def get_load_balancers(deploy_id):
+  all_loads = []
+  each_load = {}
+  if os.path.isdir(deploy_dirs+'/'+deploy_id):
+      node = json.load(open(deploy_dirs+'/'+deploy_id+'/deployment.json'))
+      
+      ## Check if any?
+      if node.get('loadbalancers') != None:
+        for key,val in node['loadbalancers'].iteritems():
+          for k,v in val.iteritems():
+            each_load = {key:val['dns']}
+            all_loads.append(each_load)
+            break
+  return all_loads 
+
 
 def get_host_info(deploy_id):
   host_infos = []
@@ -66,24 +88,50 @@ def get_host_info(deploy_id):
     bok = json.load(open(deploy_dirs+'/'+deploy_id+'/basket_of_kittens.json'))
     platform=None
     ssh_user=None
-    for server in bok['servers']:
-      platform = server['platform']
-      ssh_user = server['ssh_user']
+    fqdn = None
+    ### detect if servers or server_pools?
+    if bok.get('servers') != None:
+      platform = bok['servers'][0]['platform']
+      ssh_user = bok['servers'][0]['ssh_user']
+
+    elif bok.get('server_pools') != None:
+      platform = bok['server_pools'][0]['platform']
+      ssh_user = bok['server_pools'][0]['ssh_user']
+
+    load_balancers = get_load_balancers(deploy_id)
+
     for k,v in node['servers'].iteritems():
       control = []
-      run_list = v[deploy_id+'-'+k.upper()]['run_list']
-      for recipe in run_list:
-        recipe_name = re.search(r"\w+]", recipe).group(0).replace(']','')
-        if recipe_name != 'store_attr':
-          control.insert(0,recipe_name)
-        else:
-          print 'SKIP: Not adding ==> %s <== to the controls list' % recipe_name
-        run_list.remove(recipe)
+      run_list = []
+      dep = None
+      for key,val in v.iteritems():
+        if key.startswith(deploy_id+'-'+k.upper()):
+          dep = key
+          run_list = val['run_list']
+          
+          ### Get DNS
+          if len(v[dep]['public_dns_name']) != 0:
+            fqdn = v[dep]['public_dns_name']
+          else:
+            fqdn = v[dep]['private_dns_name']
+          
+          for recipe in run_list:
+            if '::' in recipe:
+              recipe_name = re.search(r"\w+]", recipe).group(0).replace(']','')
+              if recipe_name != 'store_attr' and recipe_name != 'default':
+                control.insert(0,recipe_name)
+              else:
+                print 'SKIP: Not adding ==> %s <== to the controls list' % recipe_name
+                run_list.remove(recipe)
+      
+      ### Get SSH Key Name from deploy_id dir
       key_file = open(deploy_dirs+'/'+deploy_id+'/ssh_key_name')
       ssh_key = key_file.readline().strip()
-      ssh_info = {'server_name': k, 'fqdn': v[deploy_id+'-'+k.upper()]['public_dns_name'], 'ssh_user':ssh_user, 'ssh_file': '~/.ssh/'+ssh_key, 'run_list': v[deploy_id+'-'+k.upper()]['run_list'], 'controls': control, 'platform': platform } 
+      
+      
+      ssh_info = {'server_name': k, 'fqdn': fqdn, 'ssh_user':ssh_user, 'ssh_file': '~/.ssh/'+ssh_key, 'controls': control, 'platform': platform, 'load_balancers':load_balancers } 
       host_infos.append(ssh_info)
-      print ssh_info
+      #print ssh_info
   else:
     raise Exception('ERROR: '+deploy_id+' ==> deploy id does not exist in '+deploy_dirs)
   return host_infos
@@ -91,29 +139,42 @@ def get_host_info(deploy_id):
 
 
 
+
+
+#########################################################################
 ##### Run Tests
 bok_name = None
 if str(sys.argv[2]) != None:
   bok_name = str(sys.argv[2])
-else:
-  bok_name = "NOT_PROVIDED"
+  print bok_name
 
 profile = get_profile()
+
+####### FOR ETCO ONLY -- ASYNC_GROOM
+if 'ETCO' in bok_name or 'etco' in bok_name:
+  wait_till_confirmed(75)
+###################
+
 deploy_id = get_deploy_id(bok_name)
 ssh_infos = get_host_info(deploy_id)
 os.chdir(test)
 for ssh_info in ssh_infos:
+  
+  ## dump ssh info so inspec tests can utilize dns addresses
+  ya = open(workspace+'/test/'+profile+'/'+ssh_info['server_name']+'_attr.yaml','w')
+  yaml.safe_dump(ssh_info, ya,default_flow_style=False)
+
+
   if ssh_info['platform'] == 'windows':
     print 'winrm is not yet configured...'
     ## Figure out how to perform winrm here...
   else:
     ssh = 'ssh://%s@%s' % (ssh_info['ssh_user'], ssh_info['fqdn'])
     controls = ssh_info['controls']
-    for control in controls:
-        ssh = 'ssh://%s@%s' % (ssh_info['ssh_user'], ssh_info['fqdn'])
-        exit_status = subprocess.call(['inspec','exec', profile, '--controls='+control,'-t',ssh, '-i',ssh_info['ssh_file']]) 
+    all_controls_spaced_out = ' '.join(controls)
+    print 'Control'+'='*5+'>'+all_controls_spaced_out+'<'+5*"="
     
-
-### get test status
-if int(exit_status) != 0:
-  raise Exception("Tests Failed with Exit status: "+str(exit_status))
+    ssh = 'ssh://%s@%s' % (ssh_info['ssh_user'], ssh_info['fqdn'])
+    exit_status = subprocess.call(['inspec','exec', profile, '--controls='+all_controls_spaced_out,'-t',ssh, '-i',ssh_info['ssh_file']]) 
+    if int(exit_status) != 0:
+      raise Exception("Tests Failed with Exit status: "+str(exit_status))

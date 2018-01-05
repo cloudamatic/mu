@@ -1,0 +1,10 @@
+controls:
+- cas
+fqdn: ip-10-158-1-131.ec2.internal
+load_balancers:
+- cas-elb: ETCO-DEV-CR-CAS-ELB-MR7-1276062612.us-east-1.elb.amazonaws.com
+- app-elb: ETCO-DEV-CR-APP-ELB-FV8-185449633.us-east-1.elb.amazonaws.com
+platform: linux
+server_name: etco-cas
+ssh_file: ~/.ssh/deploy-ETCO-DEV-2018010514-CR
+ssh_user: root

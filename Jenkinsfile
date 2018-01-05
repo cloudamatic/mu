@@ -26,11 +26,11 @@ pipeline {
 
       stage('mu-deploy'){
         parallel{
-            stage("demo_recipes.yaml"){
+            stage("etco-autoscale-private.yaml"){
               steps {
                 script{
                   try{
-                      sh "python ${workspace}/test/exec_bok.py demo_recipes.yaml"
+                      sh "/opt/mu/bin/mu-deploy -n ${workspace}/demo/etco-autoscale-private.yaml -p s3_drive=etco-dev"
                     } catch (err) {
                       echo "ERROR: ${err}"
                       currentBuild.result = 'UNSTABLE'
@@ -39,19 +39,19 @@ pipeline {
               }
             }
 
-            stage ("test_demo.yaml") {
-              steps{
-                  script{
-                    try{
-                        sh "python ${workspace}/test/exec_bok.py test_demo.yaml"
-                      } catch (err) {
-                        echo "ERROR: ${err}"
-                        currentBuild.result = 'UNSTABLE'
-                      }
-                      
-                  }
-              }
-            }
+//            stage ("test_demo.yaml") {
+//              steps{
+//                  script{
+//                    try{
+//                        sh "python ${workspace}/test/exec_bok.py test_demo.yaml"
+//                      } catch (err) {
+//                        echo "ERROR: ${err}"
+//                        currentBuild.result = 'UNSTABLE'
+//                      }
+//                      
+//                  }
+//              }
+//            }
         }
     }
 
@@ -59,11 +59,11 @@ pipeline {
 // ******************** Run ALL TESTS PARALLEL ********************
       stage('Inspec Verify'){
         parallel{
-            stage("demo-test-profile"){
+            stage("etco-test"){
               steps {
                 script{
                     try {
-                      sh "python ${workspace}/test/exec_inspec.py demo-test-profile demo_recipes.yaml"
+                      sh "python ${workspace}/test/exec_inspec.py etco-test-profile etco-autoscale-private.yaml"
                     } catch (err) {
                         echo "ERROR: ${err}"
                         currentBuild.result = 'UNSTABLE'
@@ -72,18 +72,18 @@ pipeline {
               }
             }
 
-            stage ("test-profile") {
-              steps{
-                  script{
-                    try{
-                      sh "python /${workspace}/test/exec_inspec.py test test_demo.yaml"
-                      } catch (err) {
-                        echo "ERROR: ${err}"
-                        currentBuild.result = 'UNSTABLE'
-                      }
-                  }
-              }
-            }
+//            stage ("test-profile") {
+//              steps{
+//                  script{
+//                    try{
+//                      sh "python /${workspace}/test/exec_inspec.py test test_demo.yaml"
+//                      } catch (err) {
+//                        echo "ERROR: ${err}"
+//                        currentBuild.result = 'UNSTABLE'
+//                      }
+//                  }
+//              }
+//            }
         }
     }
     stage('Mu-Cleanup'){

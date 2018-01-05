@@ -1,0 +1,6 @@
+controls: ['mongo']
+fqdn: 'ip-10-158-3-232.ec2.internal'
+platform: 'linux'
+server_name: 'etco-mongo'
+ssh_file: ~/.ssh/deploy-ETCO-DEV-2018010514-CR
+ssh_user: 'root'

@@ -1,0 +1,6 @@
+controls: ['app']
+fqdn: 'ip-10-158-1-65.ec2.internal'
+platform: 'linux'
+server_name: 'etco-app'
+ssh_file: ~/.ssh/deploy-ETCO-DEV-2018010514-CR
+ssh_user: 'root'
