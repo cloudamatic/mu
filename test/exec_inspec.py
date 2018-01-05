@@ -152,7 +152,7 @@ profile = get_profile()
 
 ####### FOR ETCO ONLY -- ASYNC_GROOM
 if 'ETCO' in bok_name or 'etco' in bok_name:
-  wait_till_confirmed(75)
+  wait_till_confirmed(120)
 ###################
 
 deploy_id = get_deploy_id(bok_name)
