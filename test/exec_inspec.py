@@ -1,18 +1,10 @@
 #!/bin/python
 
-import os
-import json
-import subprocess
-import sys
-import re
-import glob
-import time
-import yaml
-import ast
+import os, json, subprocess, sys, re, glob, time, yaml
 
 deploy_dirs = '/opt/mu/var/deployments'
 current_deploys = os.listdir(deploy_dirs)
-workspace = '/home/jenkins/workspace/test2'
+workspace = os.environ['WORKSPACE']
 test = workspace+'/test'
 
 
@@ -44,31 +36,45 @@ def get_deploy_id(bok, all_boks=workspace+'/demo'):
   return deploy_id
 
 
-def wait_for_servers(deploy_id,seconds_to_poll=3):
-  node = json.load(open(deploy_dirs+'/'+deploy_id+'/deployment.json')) 
-  servers_present = False
+
+def get_server_names(deploy_id):
+  server_names = []
+  bok_json = json.load(open(deploy_dirs+'/'+deploy_id+'/basket_of_kittens.json'))
+  server_or_pools = server_or_server_pools(deploy_id)
+  if server_or_pools == 'server_pools':
+    num_servers = len(bok_json['server_pools'])
+    for x in range(0,num_servers):
+      server_names.insert(0,bok_json['server_pools'][x]['name'])
   
-  while servers_present == False:
-    if node.has_key('servers'):
-      servers_present = True
-    else:
-      time.sleep(seconds_to_poll)
-      servers_present = False
-      print "INFO: Servers not found. Checking back in %s seconds" % seconds_to_poll
+  return server_names
 
 
-def wait_till_confirmed(deploy_id, node, seconds_to_poll):
-  done = False
-  os.chdir(deploy_dirs+'/'+deploy_id)
-  while done == False:
-    if os.path.isfile(node+'_done.txt'):
-      print "INFO: Server Converged: %s" % node
-      done = True
-    else:
-      print "INFO: Server =====> %s <===== not fully converged. Checking back in %s seconds." % (node, seconds_to_poll)
-      done = False
-      time.sleep(10)  
-  return done
+def server_or_server_pools(deploy_id):
+  bok_json = json.load(open(deploy_dirs+'/'+deploy_id+'/basket_of_kittens.json'))
+  if (bok_json.has_key('server_pools') and bok_json.has_key('servers')):
+    return 'both'
+  elif bok_json.has_key('server_pools'):
+    return 'server_pools'
+  elif bok_json.has_key('servers'):
+    return 'servers'
+  else:
+    return None
+
+
+def wait_till_groomed(deploy_id,  seconds_to_poll):
+  node_names = get_server_names(deploy_id)
+  print "Nodes to check: %s "% node_names
+  for each_node in node_names:
+    done = False
+    while done == False:
+      if os.path.isfile(deploy_dirs+'/'+deploy_id+'/'+each_node+'_done.txt'):
+        print "INFO: Server Converged =====> %s" % each_node
+        done = True
+      else:
+        done = False
+        print "INFO: Server: %s not fully converged. Checking back in %s seconds." % (each_node, seconds_to_poll)
+        time.sleep(seconds_to_poll)
+
 
 def get_load_balancers(deploy_id):
   all_loads = []
@@ -96,7 +102,6 @@ def get_host_info(deploy_id):
     platform=None
     ssh_user=None
     fqdn = None
-    server_pools = True
       
     try:
       platform = bok['servers'][0]['platform']
@@ -168,8 +173,8 @@ def get_win_pass(deploy_id):
 def run_windows_tests(deploy_id,profile,controls,ssh_user):
   pas =  "\'%s\'" % get_win_pass(deploy_id)
   winrm = "winrm://%s@%s" % (ssh_user,deploy_id.upper()+'-WINDOWS')
-  cmd = "inspec exec "+profile+" --controls="+controls+" -t "+winrm+" --password "+pas
-
+  status = subprocess.call(['inspec','exec',profile,'--controls='+controls,'-t',winrm,'--password',pas])
+  return status
 
 def run_linux_tests(profile, ssh, ssh_file, all_controls):
   status = subprocess.call(['inspec','exec', profile, '--controls='+all_controls,'-t',ssh, '-i', ssh_file])
@@ -180,24 +185,24 @@ def run_linux_tests(profile, ssh, ssh_file, all_controls):
 bok_name = None
 if str(sys.argv[2]) != None:
   bok_name = str(sys.argv[2])
-
 profile = get_profile()
 deploy_id = get_deploy_id(bok_name)
+server_or_pools = server_or_server_pools(deploy_id)
+if server_or_pools == 'server_pools':
+  wait_till_groomed(deploy_id, 5)
 ssh_infos = get_host_info(deploy_id)
 store_ssh_info(ssh_infos)
+
+
 #########################################################################
 ##### Run Tests ###########################################
 for ssh_info in ssh_infos:
 
-  ### get all inspec controls to run
+  
+  ### Check if grooming finished
   controls = ssh_info['controls']
   all_controls_spaced_out = ' '.join(controls)
-  print 'Control =====> '+all_controls_spaced_out+' <=====' 
-  
-  ### Check if servers are up and  grooming finished
-  wait_for_servers(deploy_id)
-  wait_till_confirmed(deploy_id, ssh_info['server_name'],5)
- 
+  print 'Control =====> '+all_controls_spaced_out+' <====='
   os.chdir(test)
   if ssh_info['platform'] == 'windows':
     exit_status = run_windows_tests(deploy_id, profile, all_controls_spaced_out, ssh_info['ssh_user'])
