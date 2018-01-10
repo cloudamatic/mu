@@ -8,6 +8,11 @@ workspace = os.environ['WORKSPACE']
 test = workspace+'/test'
 
 
+
+def base_controls():
+  return ['base_repositories', 'set_mu_hostname', 'disable-requiretty', 'set_local_fw', 'rsyslog', 'nrpe']
+
+
 def get_profile():
   which_profile = str(sys.argv[1])
   if os.path.isdir(test+'/'+which_profile):
@@ -68,7 +73,7 @@ def wait_till_groomed(deploy_id,  seconds_to_poll):
     done = False
     while done == False:
       if os.path.isfile(deploy_dirs+'/'+deploy_id+'/'+each_node+'_done.txt'):
-        print "INFO: Server Converged =====> %s" % each_node
+        print "INFO: Server Converged   =====>    %s" % each_node
         done = True
       else:
         done = False
@@ -95,7 +100,7 @@ def get_load_balancers(deploy_id):
 def get_host_info(deploy_id):
   host_infos = []
   ssh_info = {}
-  print deploy_id
+  print "INFO: Deploy ID    =====>    %s" %deploy_id
   if os.path.isdir(deploy_dirs+'/'+deploy_id):
     node = json.load(open(deploy_dirs+'/'+deploy_id+'/deployment.json'))
     bok = json.load(open(deploy_dirs+'/'+deploy_id+'/basket_of_kittens.json'))
@@ -142,7 +147,7 @@ def get_host_info(deploy_id):
               recipe_name = re.search(r"\w+]", recipe).group(0).replace(']','')
               control.insert(0,recipe_name)
       
-      ssh_info = {'server_name': k, 'fqdn': fqdn, 'ssh_user':ssh_user, 'ssh_file': '~/.ssh/'+ssh_key, 'controls': control, 'platform': platform, 'load_balancers':load_balancers } 
+      ssh_info = {'host_name':dep,'server_name': k, 'fqdn': fqdn, 'ssh_user':ssh_user, 'ssh_file': '~/.ssh/'+ssh_key, 'controls': control, 'platform': platform, 'load_balancers':load_balancers } 
       host_infos.append(ssh_info)
     
   
@@ -156,9 +161,7 @@ def store_ssh_info(array_of_ssh_info, where='/tmp'):
   for ssh_info in array_of_ssh_info:
     print ssh_info
     ya = open(where+'/'+ssh_info['server_name']+'_attr.yaml','w')
-    ### yes safe_dump to get rid of python unicode text
     yaml.safe_dump(ssh_info, ya,default_flow_style=False)
-
 
 
 def get_win_pass(deploy_id):
@@ -177,8 +180,9 @@ def run_windows_tests(deploy_id,profile,controls,ssh_user):
   return status
 
 def run_linux_tests(profile, ssh, ssh_file, all_controls):
-  status = subprocess.call(['inspec','exec', profile, '--controls='+all_controls,'-t',ssh, '-i', ssh_file])
-  return status
+  cmd = "inspec exec %s --controls=%s -t %s -i %s" %(profile,all_controls,ssh,ssh_file)
+  stat = os.system(cmd)
+  return stat
   
 
 
@@ -200,9 +204,9 @@ for ssh_info in ssh_infos:
 
   
   ### Check if grooming finished
-  controls = ssh_info['controls']
+  controls = base_controls() + ssh_info['controls']
   all_controls_spaced_out = ' '.join(controls)
-  print 'Control =====> '+all_controls_spaced_out+' <====='
+  print 'Controls To Test =====> '+all_controls_spaced_out+' <====='
   os.chdir(test)
   if ssh_info['platform'] == 'windows':
     exit_status = run_windows_tests(deploy_id, profile, all_controls_spaced_out, ssh_info['ssh_user'])

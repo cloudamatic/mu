@@ -6,6 +6,8 @@ mongo_dns = mongo['fqdn']
 cas_dns= cas['load_balancers'][0]['cas-elb']
 app_elb = cas['load_balancers'][1]['app-elb']
 
+
+include_controls 'mu-tools-test'
   
 
 control 'app' do

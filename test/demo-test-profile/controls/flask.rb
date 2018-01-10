@@ -1,3 +1,7 @@
+require 'yaml'
+
+include_controls 'mu-tools-test'
+
 control 'flask' do
   title 'flask.rb'
 
@@ -77,3 +81,4 @@ control 'flask' do
   end
 
 end ## end control
+
