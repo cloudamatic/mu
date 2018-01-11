@@ -1,3 +1,7 @@
 ---
 lockfile_version: 1
-depends: []
+depends:
+- name: mu-tools-test
+  resolved_source:
+    path: "/opt/mu/lib/test/mu-tools-test"
+  version_constraints: "[]"

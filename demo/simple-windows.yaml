@@ -2,7 +2,7 @@
   current_vpc = MU.myVPC
 %>
 ---
-appname: demo
+appname: windows-demo
 servers:
 - name: windows
   platform: windows

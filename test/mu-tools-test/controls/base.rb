@@ -225,18 +225,41 @@ control 'nrpe' do
         its('mode') { should cmp '0755' }
       end
       
-      
       case os[:release].to_i
       when 7
+=begin
+  %w{nrpe_file.pp nrpe_file.te nrpe_check_disk.te nrpe_check_disk.pp}.each do |x|
+          describe file("/var/chef/cache/#{x}" do
+            it { should exist}
+            it { should be_file}
+          end
+        end
         
+        describe command('/usr/sbin/semodule -l | grep nrpe_check_disk') do
+          its('exit_status') { should eq 0 }
+        end
 
-      end ## end nested case
+        describe command('/usr/sbin/semodule -l | grep nrpe_file') do
+          its('exit_status') { should eq 0 }
+        end
+      
+      when 6
+        if os[:name] != 'amazon'
+          describe file("/var/chef/cache/nrpe_disk.pp") do
+            it { should exist}
+          end
 
+          describe command("/usr/sbin/semodule | grep -i nrpe_disk.pp") do
+            its('exit_status') { should eq 0 }
+          end
+        end
+=end  end
+    end
 
-
-    end # case
-  
-  end #if
-
+    describe service('nrpe') do
+      it { should be_enabled }
+      it { should be_running }
+    end
+  end
 end
-
+end

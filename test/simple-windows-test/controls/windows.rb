@@ -1,3 +1,7 @@
+
+
+include_controls 'mu-tools-test'
+
 control 'Mu-Utility Cookbook' do
   title 'windows_basics'
 

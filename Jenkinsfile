@@ -40,19 +40,19 @@ pipeline {
               }
             }
 
-            stage ("demo_recipes.yaml") {
-              steps{
-                  script{
-                    try{
-                        sh "python ${workspace}/test/exec_bok.py demo_recipes.yaml"
-                      } catch (err) {
-                        echo "ERROR: ${err}"
-                        currentBuild.result = 'UNSTABLE'
-                      }
+//            stage ("demo_recipes.yaml") {
+//              steps{
+//                  script{
+//                    try{
+//                        sh "python ${workspace}/test/exec_bok.py demo_recipes.yaml"
+//                      } catch (err) {
+//                        echo "ERROR: ${err}"
+//                        currentBuild.result = 'UNSTABLE'
+//                      }
                       
-                  }
-              }
-            }
+//                  }
+//              }
+//            }
 
         }
     }
@@ -74,18 +74,18 @@ pipeline {
               }
             }
 
-            stage ("demo-test-profile") {
-              steps{
-                  script{
-                    try{
-                      sh "python /${workspace}/test/exec_inspec.py demo-test-profile demo_recipes.yaml"
-                      } catch (err) {
-                        echo "ERROR: ${err}"
-                        currentBuild.result = 'UNSTABLE'
-                      }
-                  }
-              }
-            }
+//            stage ("demo-test-profile") {
+//              steps{
+//                  script{
+//                    try{
+//                      sh "python /${workspace}/test/exec_inspec.py demo-test-profile demo_recipes.yaml"
+//                      } catch (err) {
+//                        echo "ERROR: ${err}"
+//                        currentBuild.result = 'UNSTABLE'
+//                      }
+//                  }
+//              }
+//            }
         }
     }
     stage('Mu-Cleanup'){

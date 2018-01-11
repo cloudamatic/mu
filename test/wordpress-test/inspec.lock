@@ -1,8 +1,7 @@
 ---
 lockfile_version: 1
 depends:
-- name: apache-baseline
+- name: mu-tools-test
   resolved_source:
-    url: https://github.com/dev-sec/apache-baseline/archive/master.tar.gz
-    sha256: 2c5fd171a5680dffab19349973ca50424ca238effd550260ad27e2d692c75c9c
+    path: "/opt/mu/lib/test/mu-tools-test"
   version_constraints: "[]"

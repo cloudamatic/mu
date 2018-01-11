@@ -1,4 +1,6 @@
 
+include_controls 'mu-tools-test'
+
 control 'Demo Cookbook' do
   title 'wordpress.rb'
 
