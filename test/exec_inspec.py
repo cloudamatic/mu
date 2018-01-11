@@ -41,7 +41,6 @@ def get_deploy_id(bok, all_boks=workspace+'/demo'):
   return deploy_id
 
 
-
 def get_server_names(deploy_id):
   server_names = []
   bok_json = json.load(open(deploy_dirs+'/'+deploy_id+'/basket_of_kittens.json'))
@@ -56,9 +55,7 @@ def get_server_names(deploy_id):
 
 def server_or_server_pools(deploy_id):
   bok_json = json.load(open(deploy_dirs+'/'+deploy_id+'/basket_of_kittens.json'))
-  if (bok_json.has_key('server_pools') and bok_json.has_key('servers')):
-    return 'both'
-  elif bok_json.has_key('server_pools'):
+  if bok_json.has_key('server_pools'):
     return 'server_pools'
   elif bok_json.has_key('servers'):
     return 'servers'
@@ -69,6 +66,7 @@ def server_or_server_pools(deploy_id):
 def wait_till_groomed(deploy_id,  seconds_to_poll):
   node_names = get_server_names(deploy_id)
   print "Nodes to check: %s "% node_names
+  print "Deploy ID: %s"% deploy_id
   for each_node in node_names:
     done = False
     while done == False:
@@ -213,3 +211,9 @@ for ssh_info in ssh_infos:
   else:
     ssh = 'ssh://%s@%s' % (ssh_info['ssh_user'], ssh_info['fqdn'])
     exit_status = run_linux_tests(profile, ssh, ssh_info['ssh_file'],all_controls_spaced_out)
+    if int(exit_status != 0):
+      ssh_info['profile'] = profile
+      ssh_info['bok'] = bok_name
+      retry_dump_host_info = open('/tmp/inspec_retries/'+ssh_info['server_name']+'_retry.yaml','w')
+      yaml.safe_dump(ssh_info, retry_dump_host_info,default_flow_style=False)
+

@@ -73,6 +73,14 @@ pipeline {
                 }
               }
             }
+            stage("Retry Failures")
+            {
+              steps {
+                script {
+                  sh "python ${workspace}/test/exec_retry.py"
+                }
+              }
+            }
 
 //            stage ("demo-test-profile") {
 //              steps{
