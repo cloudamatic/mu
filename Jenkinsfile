@@ -24,9 +24,9 @@ pipeline {
 // ***************************************************************
 // ******************** Run ALL BOKS PARALLEL ********************
 
-      stage('mu-deploy'){
-        parallel{
-            stage("etco-autoscale-private.yaml"){
+//      stage('mu-deploy'){
+//        parallel{
+            stage("mu-deploy etco-autoscale-private"){
               steps {
                 script{
                   try{
@@ -54,14 +54,14 @@ pipeline {
 //              }
 //            }
 
-        }
-    }
+//        }
+//    }
 
 // ****************************************************************
 // ******************** Run ALL TESTS PARALLEL ********************
-      stage('Inspec Verify'){
-        parallel{
-            stage("etco-test"){
+//      stage('Inspec Verify'){
+//        parallel{
+            stage("Inspec etco-test"){
               steps {
                 script{
                     try {
@@ -86,8 +86,8 @@ pipeline {
 //                  }
 //              }
 //            }
-        }
-    }
+//        }
+//    }
     stage('Mu-Cleanup'){
         steps {
           script {
