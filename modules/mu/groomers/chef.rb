@@ -300,19 +300,12 @@ module MU
           else
             MU.log "Invoking Chef over WinRM on #{@server.mu_name}: #{purpose}"
             winrm = @server.getWinRMSession(haveBootstrapped? ? 1 : max_retries)
-<<<<<<< HEAD
             if @server.windows? and @server.windowsRebootPending?(winrm)
               # Windows frequently gets stuck here
               if retries > 5
                 @server.reboot(true)
               elsif retries > 3 
                 @server.reboot
-=======
-MU.log "wtfsauce", MU::WARN
-            if @server.windows? and @server.windowsRebootPending?(winrm)
-              if retries > 3
-                @server.reboot # sometimes it needs help
->>>>>>> 360542da95cff6b44ef3276d62f23502fd9a7937
               end
               raise MU::Groomer::RunError, "#{@server.mu_name} has a pending reboot"
             end
@@ -508,11 +501,7 @@ MU.log "wtfsauce", MU::WARN
         end
 
         @server.windows? ? max_retries = 25 : max_retries = 10
-<<<<<<< HEAD
         @server.windows? ? timeout = 1800 : timeout = 300
-=======
-        @server.windows? ? timeout = 720 : timeout = 300
->>>>>>> 360542da95cff6b44ef3276d62f23502fd9a7937
         retries = 0
         begin
           if !@server.windows?
