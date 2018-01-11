@@ -202,7 +202,8 @@ module MU
             "environment" => @environment,
             "seed" => MU.seed,
             "deployment_start_time" => @timestart,
-            "chef_user" => MU.chef_user
+            "chef_user" => MU.chef_user,
+            "mu_user" => MU.mu_user
           }
           @mommacat = MU::MommaCat.new(
             MU.deploy_id,

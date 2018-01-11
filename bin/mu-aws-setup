@@ -40,9 +40,10 @@ Usage:
   EOS
   opt :ip, "Attempt to configure the IP requested in the CHEF_PUBLIC_IP environment variable, or if none is set, to associate an arbitrary Elastic IP.", :require => false, :default => false, :type => :boolean
   opt :sg, "Attempt to configure a Security Group with appropriate permissions.", :require => false, :default => false, :type => :boolean
-  opt :logs, "Ensure the presence of an S3 bucket prefixed with 'Mu_Logs' for use with CloudTrails, syslog, etc.", :require => false, :default => false, :type => :boolean
+  opt :logs, "Ensure the presence of a cloud storage bucket for use with CloudTrails, syslog, deploy secrets, node SSL certificates, etc.", :require => false, :default => false, :type => :boolean
   opt :dns, "Ensure the presence of a private DNS Zone called for internal amongst Mu resources.", :require => false, :default => false, :type => :boolean
   opt :uploadlogs, "Push today's log files to the S3 bucket created by the -l option.", :require => false, :default => false, :type => :boolean
+  opt :ephemeral, "Make sure all of our instance store (ephemeral) block devices are mapped and available.", :require => false, :default => false, :type => :boolean
 end
 
 my_instance_id = MU::Cloud::AWS.getAWSMetaData("instance-id")
@@ -51,6 +52,20 @@ resp = MU::Cloud::AWS.ec2.describe_instances(instance_ids: [my_instance_id])
 instance = resp.reservations.first.instances.first
 
 preferred_ip = MU.mu_public_ip
+
+if $opts[:ephemeral]
+  if instance.instance_type.match(/^(t2|m4)\./)
+    MU.log "t2 and m4 instance types do not have ephemeral volumes, skipping setup", MU::WARN
+  else
+#    instance.block_device_mappings.each { |dev|
+#      next if dev.ebs
+#    }
+    MU::Cloud::AWS.ec2.modify_instance_attribute(
+      instance_id: instance.instance_id,
+      block_device_mappings: MU::Cloud::AWS::Server.ephemeral_mappings
+    )
+  end
+end
 
 # Create a security group, or manipulate an existing one, so that we have all
 # of the appropriate network holes.
@@ -186,6 +201,15 @@ if $opts[:logs]
       body: "#{key}"
     )
   end
+  if File.exists?("#{MU.mySSLDir}/Mu_CA.pem")
+    MU.log "Putting the Mu Master's public SSL certificate into #{$bucketname}/Mu_CA.pem"
+    MU::Cloud::AWS.s3.put_object(
+      bucket: $bucketname,
+      key: "Mu_CA.pem",
+      body: File.read("#{MU.mySSLDir}/Mu_CA.pem"),
+  		acl: "public-read",
+    )
+  end
 
 #	MU.log "Uploading Mu_CA.pem to #{$bucketname}"
 #	MU::Cloud::AWS.s3.put_object(
@@ -196,8 +220,8 @@ if $opts[:logs]
 #	)
 
   resp = MU::Cloud::AWS.s3.list_objects(
-      bucket: $bucketname,
-      prefix: "log_vol_ebs_key"
+    bucket: $bucketname,
+    prefix: "log_vol_ebs_key"
   )
   owner = MU.structToHash(resp.contents.first.owner)
 

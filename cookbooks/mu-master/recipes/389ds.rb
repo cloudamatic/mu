@@ -64,6 +64,12 @@ $CREDS.each_pair { |creds, cfg|
   $CREDS[creds]['user'] = user if !$CREDS[creds]['user']
   $CREDS[creds]['pw'] = pw if !$CREDS[creds]['pw']
 }
+directory "/var/log/dirsrv/admin-serv" do
+  user "nobody"
+  group "nobody"
+  mode 0770
+  recursive true
+end
 
 #  %x{/usr/sbin/setenforce 0}
 execute "initialize 389 Directory Services" do

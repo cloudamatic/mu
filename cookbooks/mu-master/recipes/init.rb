@@ -28,9 +28,9 @@ require 'socket'
 
 # XXX We want to be able to override these things when invoked from chef-apply,
 # but, like, how?
-CHEF_SERVER_VERSION="12.15.7-1"
-CHEF_CLIENT_VERSION="12.20.3-1"
-KNIFE_WINDOWS="1.8.0"
+CHEF_SERVER_VERSION="12.16.14-1"
+CHEF_CLIENT_VERSION="12.21.14-1"
+KNIFE_WINDOWS="1.9.0"
 MU_BRANCH="master"
 MU_BASE="/opt/mu"
 if File.read("/etc/ssh/sshd_config").match(/^AllowUsers\s+([^\s]+)(?:\s|$)/)
@@ -174,19 +174,34 @@ directory MU_BASE do
   recursive true
   mode 0755
 end
-bash "set git default branch" do
+bash "set git default branch to #{MU_BRANCH}" do
   cwd "#{MU_BASE}/lib"
   code <<-EOH
     git config branch.#{MU_BRANCH}.remote origin
     git config branch.#{MU_BRANCH}.merge refs/heads/#{MU_BRANCH}
+    git checkout #{MU_BRANCH}
   EOH
   action :nothing
 end
 git "#{MU_BASE}/lib" do
   repository "git://github.com/cloudamatic/mu.git"
   revision MU_BRANCH
+  checkout_branch MU_BRANCH
+  enable_checkout false
   not_if { ::Dir.exists?("#{MU_BASE}/lib/.git") }
-  notifies :run, "bash[set git default branch]", :immediately
+  notifies :run, "bash[set git default branch to #{MU_BRANCH}]", :immediately
+end
+
+# Enable some git hook weirdness for Mu developers
+["post-merge", "post-checkout", "post-rewrite"].each { |hook|
+  remote_file "#{MU_BASE}/lib/.git/hooks/#{hook}" do
+    source "file://#{MU_BASE}/lib/extras/git-fix-permissions-hook"
+    mode 0755
+  end
+}
+remote_file "#{MU_BASE}/lib/.git/hooks/pre-commit" do
+  source "file://#{MU_BASE}/lib/extras/git-fix-branch-hook"
+  mode 0755
 end
 
 directory MU_BASE+"/var" do
@@ -300,14 +315,14 @@ remote_file "#{MU_BASE}/bin/mu-self-update" do
   mode 0755
 end
 
-["/usr/local/ruby-current", "/opt/chef/embedded", "/opt/opscode/embedded"].each { |rubydir|
+["/usr/local/ruby-current", "/opt/chef/embedded"].each { |rubydir|
   gembin = rubydir+"/bin/gem"
   gemdir = Dir.glob("#{rubydir}/lib/ruby/gems/?.?.?/gems").last
   bundler_path = gembin.sub(/gem$/, "bundle")
   bash "fix #{rubydir} gem permissions" do
     code <<-EOH
-      find -P #{rubydir}/lib/ruby/gems/?.?.?/gems/ -type d -exec chmod go+rx {} \\;
-      find -P #{rubydir}/lib/ruby/gems/?.?.?/gems/ -type f -exec chmod go+r {} \\;
+      find -P #{rubydir}/lib/ruby/gems/?.?.?/ #{rubydir}/lib/ruby/site_ruby/ -type d -exec chmod go+rx {} \\;
+      find -P #{rubydir}/lib/ruby/gems/?.?.?/ #{rubydir}/lib/ruby/site_ruby/ -type f -exec chmod go+r {} \\;
       find -P #{rubydir}/bin -type f -exec chmod go+rx {} \\;
     EOH
     action :nothing
@@ -342,22 +357,23 @@ end
       execute "rm -rf #{gemdir}/knife-windows-#{Regexp.last_match[1]}"
     }
 
-    gem_package "#{rubydir} knife-windows #{KNIFE_WINDOWS} #{gembin}" do
-      gem_binary gembin
-      package_name "knife-windows"
-      version KNIFE_WINDOWS
-      notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
-      # XXX notify mommacat if we're *not* in chef-apply... RUNNING_STANDALONE
-    end
+# XXX rely on bundler to get this right for us
+#    gem_package "#{rubydir} knife-windows #{KNIFE_WINDOWS} #{gembin}" do
+#      gem_binary gembin
+#      package_name "knife-windows"
+#      version KNIFE_WINDOWS
+#      notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
+#      # XXX notify mommacat if we're *not* in chef-apply... RUNNING_STANDALONE
+#    end
 
-    execute "Patch #{rubydir}'s knife-windows for Cygwin SSH bootstraps" do
-      cwd "#{gemdir}/knife-windows-#{KNIFE_WINDOWS}"
-      command "patch -p1 < #{MU_BASE}/lib/install/knife-windows-cygwin-#{KNIFE_WINDOWS}.patch"
-      not_if "grep -i 'locate_config_value(:cygwin)' #{gemdir}/knife-windows-#{KNIFE_WINDOWS}/lib/chef/knife/bootstrap_windows_base.rb"
-      notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
-      only_if { ::Dir.exists?(gemdir) }
+#    execute "Patch #{rubydir}'s knife-windows for Cygwin SSH bootstraps" do
+#      cwd "#{gemdir}/knife-windows-#{KNIFE_WINDOWS}"
+#      command "patch -p1 < #{MU_BASE}/lib/install/knife-windows-cygwin-#{KNIFE_WINDOWS}.patch"
+#      not_if "grep -i 'locate_config_value(:cygwin)' #{gemdir}/knife-windows-#{KNIFE_WINDOWS}/lib/chef/knife/bootstrap_windows_base.rb"
+#      notifies :restart, "service[chef-server]", :delayed if rubydir == "/opt/opscode/embedded"
+#      only_if { ::Dir.exists?(gemdir) }
       # XXX notify mommacat if we're *not* in chef-apply... RUNNING_STANDALONE
-    end
+#    end
   end
 }
 
@@ -455,9 +471,18 @@ execute "create MU-MASTER Chef client" do
   only_if { RUNNING_STANDALONE }
 end
 
+file "#{MU_BASE}/etc/mu.rc" do
+  content %Q{export MU_INSTALLDIR="#{MU_BASE}"
+  export MU_DATADIR="#{MU_BASE}/var"
+  export PATH="#{MU_BASE}/bin:/usr/local/ruby-current/bin:${PATH}:/opt/opscode/embedded/bin"
+}
+  mode 0644
+  action :create_if_missing
+end
+
 # Community cookbooks keep touching gems, and none of them are smart about our
 # default umask. We have to clean up after them every time.
-["/usr/local/ruby-current", "/opt/chef/embedded", "/opt/opscode/embedded"].each { |rubydir|
+["/usr/local/ruby-current", "/opt/chef/embedded"].each { |rubydir|
   execute "trigger permission fix in #{rubydir}" do
     command "ls /etc/motd > /dev/null"
     notifies :run, "bash[fix #{rubydir} gem permissions]", :delayed

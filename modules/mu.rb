@@ -36,7 +36,7 @@ class Object
   end
 end
 
-if $MU_CFG['aws']['access_key'] == nil or $MU_CFG['aws']['access_key'].empty?
+if !$MU_CFG or !$MU_CFG['aws'] or !$MU_CFG['aws']['access_key'] or $MU_CFG['aws']['access_key'].empty?
   ENV.delete('AWS_ACCESS_KEY_ID')
   ENV.delete('AWS_SECRET_ACCESS_KEY')
   Aws.config = {region: ENV['EC2_REGION']}
@@ -515,7 +515,7 @@ module MU
   end
 
   # The version of Chef we will install on nodes.
-  @@chefVersion = "12.20.3-1"
+  @@chefVersion = "12.21.14-1"
   # The version of Chef we will install on nodes.
   # @return [String]
   def self.chefVersion;

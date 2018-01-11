@@ -21,7 +21,6 @@ gem "chef"
 autoload :Chef, 'chef'
 gem "chef-vault"
 autoload :ChefVault, 'chef-vault'
-gem "knife-windows"
 require 'timeout'
 
 module MU
@@ -226,15 +225,9 @@ module MU
         MU.log "Creating deploy secret for #{MU.deploy_id}"
         @deploy_secret = Password.random(256)
         if !@original_config['scrub_mu_isms']
-          begin
-            MU::Cloud::AWS.s3(MU.myRegion).put_object(
-              acl: "private",
-              bucket: MU.adminBucketName,
-              key: "#{@deploy_id}-secret",
-              body: "#{@deploy_secret}"
-            )
-          rescue Aws::S3::Errors::PermanentRedirect => e
-            raise DeployInitializeError, "Got #{e.inspect} trying to write #{@deploy_id}-secret to #{MU.adminBucketName}"
+          # TODO there's a nicer way to do this than hardcoding strings
+          if @clouds["AWS"] and @clouds["AWS"] > 0
+            MU::Cloud::AWS.writeDeploySecret(@deploy_id, @deploy_secret)
           end
         end
         if set_context_to_me
@@ -1158,20 +1151,33 @@ module MU
                 end
                 # If we don't have a MU::Cloud object, manufacture a dummy one.
                 # Give it a fake name if we have to and have decided that's ok.
-                if (name.nil? or name.empty?) and !dummy_ok
-                  MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", MU::DEBUG, details: caller
-                  next
-                else
-                  if !mu_name.nil?
-                    name = mu_name
-                  elsif !tag_value.nil?
-                    name = tag_value
+                if (name.nil? or name.empty?)
+                  if !dummy_ok
+                    MU.log "Found cloud provider data for #{cloud} #{type} #{kitten_cloud_id}, but without a name I can't manufacture a proper #{type} object to return", MU::DEBUG, details: caller
+                    next
                   else
-                    name = kitten_cloud_id
+                    if !mu_name.nil?
+                      name = mu_name
+                    elsif !tag_value.nil?
+                      name = tag_value
+                    else
+                      name = kitten_cloud_id
+                    end
                   end
                 end
                 cfg = {"name" => name, "cloud" => cloud, "region" => r}
-                if !calling_deploy.nil?
+                # If we can at least find the config from the deploy this will
+                # belong with, use that, even if it's an ungroomed resource.
+                if !calling_deploy.nil? and
+                   !calling_deploy.original_config.nil? and
+                   !calling_deploy.original_config[type+"s"].nil?
+                  calling_deploy.original_config[type+"s"].each { |s|
+                    if s["name"] == name
+                      cfg = s.dup
+                      break
+                    end
+                  }
+
                   matches << resourceclass.new(mommacat: calling_deploy, kitten_cfg: cfg, cloud_id: kitten_cloud_id)
                 else
                   matches << resourceclass.new(mu_name: name, kitten_cfg: cfg, cloud_id: kitten_cloud_id)
@@ -1645,7 +1651,7 @@ module MU
     # @param system_name [String]: The node's local system name
     # @return [void]
     def self.addInstanceToEtcHosts(public_ip, chef_name = nil, system_name = nil)
-      return if MU.mu_user != "mu"
+      return if !["mu", "root"].include?(MU.mu_user)
 
       # XXX cover ipv6 case
       if public_ip.nil? or !public_ip.match(/^\d+\.\d+\.\d+\.\d+$/) or (chef_name.nil? and system_name.nil?)
@@ -1656,7 +1662,7 @@ module MU
       end
       File.readlines("/etc/hosts").each { |line|
         if line.match(/^#{public_ip} /) or (chef_name != nil and line.match(/ #{chef_name}(\s|$)/)) or (system_name != nil and line.match(/ #{system_name}(\s|$)/))
-          MU.log("Attempt to add duplicate /etc/hosts entry: #{public_ip} #{chef_name} #{system_name}", MU::WARN)
+          MU.log "Ignoring attempt to add duplicate /etc/hosts entry: #{public_ip} #{chef_name} #{system_name}", MU::DEBUG
           return
         end
       }
@@ -1925,11 +1931,37 @@ MESSAGE_END
       return nodes
     end
 
+    # For a given (Windows) server, return it's administrator user and password.
+    # This is generally for requests made to MommaCat from said server, which
+    # we can assume have been authenticated with the deploy secret.
+    # @param server [MU::Cloud::Server]: The Server object whose credentials we're fetching.
+    def retrieveWindowsAdminCreds(server)
+      if server.nil?
+        raise MuError, "retrieveWindowsAdminCreds must be called with a Server object"
+      elsif !server.is_a?(MU::Cloud::Server)
+        raise MuError, "retrieveWindowsAdminCreds must be called with a Server object (got #{server.class.name})"
+      end
+      if server.config['use_cloud_provider_windows_password']
+        return [server.config["windows_admin_username"], server.getWindowsAdminPassword]
+      elsif server.config['windows_auth_vault'] && !server.config['windows_auth_vault'].empty?
+        if server.config["windows_auth_vault"].has_key?("password_field")
+          return [server.config["windows_admin_username"],
+            server.groomer.getSecret(
+              vault: server.config['windows_auth_vault']['vault'],
+              item: server.config['windows_auth_vault']['item'],
+              field: server.config["windows_auth_vault"]["password_field"]
+            )]
+        else
+          return [server.config["windows_admin_username"], server.getWindowsAdminPassword]
+        end
+      end
+      []
+    end
 
     # Given a Certificate Signing Request, sign it with our internal CA and
     # writers the resulting signed certificate. Only works on local files.
     # @param csr_path [String]: The CSR to sign, as a file.
-    def signSSLCert(csr_path)
+    def signSSLCert(csr_path, sans = [])
       # XXX more sanity here, this feels unsafe
       certdir = File.dirname(csr_path)
       certname = File.basename(csr_path, ".csr")
@@ -1939,12 +1971,17 @@ MESSAGE_END
       end
       MU.log "Signing SSL certificate request #{csr_path} with #{MU.mySSLDir}/Mu_CA.pem"
 
-      csr = OpenSSL::X509::Request.new File.read csr_path
+      begin
+        csr = OpenSSL::X509::Request.new File.read csr_path
+      rescue Exception => e
+        MU.log e.message, MU::ERR, details: File.read(csr_path)
+        raise e
+      end
+      key = OpenSSL::PKey::RSA.new File.read "#{certdir}/#{certname}.key"
 
       # Load up the Mu Certificate Authority
       cakey = OpenSSL::PKey::RSA.new File.read "#{MU.mySSLDir}/Mu_CA.key"
       cacert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/Mu_CA.pem"
-
       cur_serial = 0
       File.open("#{MU.mySSLDir}/serial", File::CREAT|File::RDWR, 0600) { |f|
         f.flock(File::LOCK_EX)
@@ -1960,13 +1997,25 @@ MESSAGE_END
       # Create a certificate from our CSR, signed by the Mu CA
       cert = OpenSSL::X509::Certificate.new
       cert.serial = cur_serial
-      cert.version = 2
+      cert.version = 3
       cert.not_before = Time.now
-      cert.not_after = Time.now + 1800000 # 500 days
+      cert.not_after = Time.now + 180000000
       cert.subject = csr.subject
       cert.public_key = csr.public_key
       cert.issuer = cacert.subject
-      cert.sign cakey, OpenSSL::Digest::SHA1.new
+      if !sans.nil? and sans.size > 0
+        MU.log "Incorporting Subject Alternative Names: #{sans.join(",")}"
+        ef = OpenSSL::X509::ExtensionFactory.new
+        ef.issuer_certificate = cacert
+#v3_req_client 
+        ef.subject_certificate = cert
+        ef.subject_request = csr
+        cert.add_extension(ef.create_extension("keyUsage","nonRepudiation,digitalSignature,keyEncipherment", false))
+        cert.add_extension(ef.create_extension("subjectAltName",sans.join(","),false))
+# XXX only do this if we see the otherName thinger in the san list
+        cert.add_extension(ef.create_extension("extendedKeyUsage","clientAuth,serverAuth,codeSigning,emailProtection",false))
+      end
+      cert.sign cakey, OpenSSL::Digest::SHA256.new
 
       open("#{certdir}/#{certname}.crt", 'w', 0644) { |io|
         io.write cert.to_pem
@@ -1975,6 +2024,7 @@ MESSAGE_END
         owner_uid = Etc.getpwnam(MU.mu_user).uid
         File.chown(owner_uid, nil, "#{certdir}/#{certname}.crt")
       end
+
     end
 
     # Make sure deployment data is synchronized to/from each node in the
