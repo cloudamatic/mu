@@ -246,6 +246,7 @@ module MU
           knifeAddToRunList(multiple: @config['run_list'])
         end
 
+        pending_reboot_count = 0
         chef_node = ::Chef::Node.load(@server.mu_name)
         if !@config['application_attributes'].nil?
           MU.log "Setting node:#{@server.mu_name} application_attributes", MU::DEBUG, details: @config['application_attributes']
@@ -272,8 +273,38 @@ module MU
               cmd = "#{upgrade_cmd} chef-client --color || echo #{error_signal}"
             end
           else
-            upgrade_cmd = try_upgrade ? "powershell \". { Invoke-WebRequest -useb https://omnitruck.chef.io/install.ps1 } | Invoke-Expression; Install-Project -version:#{MU.chefVersion} -download_directory:$HOME \" &&" : ""
-            cmd = "#{upgrade_cmd} $HOME/chef-client --color || echo #{error_signal}"
+            MU.log "Invoking Chef over WinRM on #{@server.mu_name}: #{purpose}"
+            winrm = @server.getWinRMSession(haveBootstrapped? ? 1 : max_retries)
+            if @server.windows? and @server.windowsRebootPending?(winrm)
+              # Windows frequently gets stuck here
+              if retries > 5
+                @server.reboot(true)
+              elsif retries > 3 
+                @server.reboot
+              end
+              raise MU::Groomer::RunError, "#{@server.mu_name} has a pending reboot"
+            end
+            if try_upgrade
+              pp winrm.run("Invoke-WebRequest -useb https://omnitruck.chef.io/install.ps1 | Invoke-Expression; Install-Project -version:#{MU.chefVersion} -download_directory:$HOME")
+            end
+            output = []
+            cmd = "c:/opscode/chef/bin/chef-client.bat --color"
+            if override_runlist
+              cmd = cmd + " -o '#{override_runlist}'"
+            end
+            resp = winrm.run(cmd) do |stdout, stderr|
+              if stdout
+                print stdout if output
+                output << stdout
+              end
+              if stderr
+                MU.log stderr, MU::ERR
+                output << stderr
+              end
+            end
+            if resp.exitcode != 0
+              raise MU::Groomer::RunError, output.slice(output.length-50, output.length).join("")
+            end
           end
           runstart = Time.new
           retval = ssh.exec!(cmd) { |ch, stream, data|
@@ -300,9 +331,29 @@ module MU
             try_upgrade = false
           end
 
+          if e.is_a?(MU::Groomer::RunError)
+            if reboot_first_fail
+              try_upgrade = true
+              begin
+                preClean(true) # drop any Chef install that's not ours
+                @server.reboot # try gently rebooting the thing
+              rescue Exception => e # it's ok to fail here (and to ignore failure)
+                MU.log "preclean err #{e.inspect}", MU::ERR
+              end
+              reboot_first_fail = false
+            end
+          end
+
           if retries < max_retries
             retries += 1
-            MU.log "#{@server.mu_name}: Chef run '#{purpose}' failed after #{Time.new - runstart} seconds, retrying (#{retries}/#{max_retries})", MU::WARN, details: e.inspect
+            MU.log "#{@server.mu_name}: Chef run '#{purpose}' failed after #{Time.new - runstart} seconds, retrying (#{retries}/#{max_retries})", MU::WARN, details: e.message
+            windows_try_ssh = !windows_try_ssh
+            if e.is_a?(WinRM::WinRMError)
+              if @server.windows? and retries >= 3 and retries % 3 == 0
+                # Mix in a hard reboot if WinRM isn't answering
+                @server.reboot(true)
+              end
+            end
             sleep 30
             retry
           else
@@ -442,7 +493,8 @@ module MU
 
         retries = 0
         @server.windows? ? max_retries = 25 : max_retries = 10
-        @server.windows? ? timeout = 720 : timeout = 300
+        @server.windows? ? timeout = 1800 : timeout = 300
+        retries = 0
         begin
           Timeout::timeout(timeout) {
             require 'chef'

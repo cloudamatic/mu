@@ -835,7 +835,6 @@ module MU
             Thread.handle_interrupt(Errno::ECONNREFUSED => :never) {
             }
 
-            forced_windows_reboot = false
             begin
               if !nat_ssh_host.nil?
                 proxy_cmd = "ssh -q -o StrictHostKeyChecking=no -W %h:%p #{nat_ssh_user}@#{nat_ssh_host}"
@@ -867,8 +866,6 @@ module MU
                     :auth_methods => ['publickey']
                 )
               end
-              forced_windows_reboot = false
-              forced_windows_reboot_twice = false
               retries = 0
             rescue Net::SSH::HostKeyMismatch => e
               MU.log("Remembering new key: #{e.fingerprint}")
@@ -889,30 +886,11 @@ module MU
 
               if retries < max_retries
                 retries = retries + 1
-                if retries > max_retries/2 and !forced_windows_reboot_twice
-                  forced_windows_reboot = false # another chance to unscrew Windows if it's been flailing for a while
-                  forced_windows_reboot_twice = true
-                end
                 msg = "ssh #{ssh_user}@#{@config['mu_name']}: #{e.message}, waiting #{retry_interval}s (attempt #{retries}/#{max_retries})", MU::WARN
                 if retries == 1 or (retries/max_retries <= 0.5 and (retries % 3) == 0)
                   MU.log msg, MU::NOTICE
                 elsif retries/max_retries > 0.5
                   MU.log msg, MU::WARN, details: e.inspect
-                end
-                if e.message.match(/connection closed by remote host|Connection reset by peer/i) and windows?
-                  if !forced_windows_reboot
-                    forced_windows_reboot = true
-                    MU.log "#{@config['mu_name']} sshd misbehaving, attempting to reboot from API", MU::WARN
-                    reboot
-                    sleep 45
-                  elsif !forced_windows_reboot_twice
-                    forced_windows_reboot_twice = true
-                    MU.log "#{@config['mu_name']} sshd still misbehaving, forcing Stop and Start from API", MU::WARN
-                    reboot(true)
-                    sleep 45
-                  else
-                    raise MuError, "Couldn't get into #{@mu_name} with ssh even after forced reboots"
-                  end
                 end
                 sleep retry_interval
                 retry

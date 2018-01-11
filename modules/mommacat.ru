@@ -356,6 +356,10 @@ app = proc do |env|
         # Now we're just checking for existence in the cloud provider, really
         MU.log "No existing groomed server found, verifying that a server with this cloud id exists"
         instance = MU::Cloud::Server.find(cloud_id: req["mu_instance_id"], region: server_cfg["region"])
+#        instance = MU::MommaCat.findStray("AWS", "server", cloud_id: req["mu_instance_id"], region: server_cfg["region"], deploy_id: req["mu_id"], name: req["mu_resource_name"], dummy_ok: true, calling_deploy: kittenpile).first
+        if instance.nil?
+          returnval = throw500 "Failed to find an instance with cloud id #{req["mu_instance_id"]}"
+        end
       else
         mu_name = instance.mu_name
         MU.log "Found an existing node named #{mu_name}"
@@ -363,8 +367,6 @@ app = proc do |env|
       if !req["mu_ssl_sign"].nil?
         kittenpile.signSSLCert(req["mu_ssl_sign"])
       elsif !req["add_volume"].nil?
-puts instance.cloud_id
-pp req
         if instance.respond_to?(:addVolume)
 # XXX make sure we handle mangled input safely
           params = JSON.parse(Base64.decode64(req["add_volume"]))

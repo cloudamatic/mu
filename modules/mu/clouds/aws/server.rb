@@ -449,7 +449,11 @@ module MU
           elsif @config['iam_role'].nil?
             raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
           end
-          MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'])
+          if @config['basis']
+            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role']+"*")
+          else
+            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'])
+          end
           if !@config["iam_role"].nil?
             if arn
               instance_descriptor[:iam_instance_profile] = {arn: arn}
@@ -1005,8 +1009,28 @@ module MU
           windows? ? ssh_wait = 60 : ssh_wait = 30
           windows? ? max_retries = 50 : max_retries = 35
           begin
-            session = getSSHSession(max_retries, ssh_wait)
-            initialSSHTasks(session)
+            if windows?
+              # kick off certificate generation early; WinRM will need it
+              cert, key = @deploy.nodeSSLCerts(self)
+              if @config.has_key?("basis")
+                @deploy.nodeSSLCerts(self, true)
+              end
+              if !@groomer.haveBootstrapped?
+                session = getWinRMSession(50, 60, reboot_on_problems: false)
+                initialWinRMTasks(session)
+                session.close
+              else # for an existing Windows node: WinRM, then SSH if it fails
+                begin
+                  session = getWinRMSession(1, 60)
+                rescue Exception # yeah, yeah
+                  session = getSSHSession(1, 60)
+                  # XXX maybe loop at least once if this also fails?
+                end
+              end
+            else
+              session = getSSHSession(40, 30)
+              initialSSHTasks(session)
+            end
           rescue BootstrapTempFail
             sleep ssh_wait
             retry
