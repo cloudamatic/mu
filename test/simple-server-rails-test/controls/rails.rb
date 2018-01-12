@@ -1,5 +1,5 @@
-control 'Demo Cookbook' do
-  title 'rails.rb'
+control 'rails' do
+  title 'rails tests'
 
   node = json('/tmp/chef_node.json').params
   
@@ -118,6 +118,3 @@ control 'Demo Cookbook' do
 
 
 end ## end of control
-
-### maybe I should start treating control as a recipe in a run_list
-### so multiple recipes in a Bok will result into multiple controls (better organization) 

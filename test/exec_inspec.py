@@ -41,6 +41,11 @@ def get_deploy_id(bok, all_boks=workspace+'/demo'):
   return deploy_id
 
 
+### Inorder to get proper inspec trigger
+### Used to wait for server_done.txt touch to happen.
+### server_pools is the only stanza when this will be used
+### The only to retrieve the server_names to wait for is from the bok
+### the server names are not added in the deployment.json right away
 def get_server_names(deploy_id):
   server_names = []
   bok_json = json.load(open(deploy_dirs+'/'+deploy_id+'/basket_of_kittens.json'))
