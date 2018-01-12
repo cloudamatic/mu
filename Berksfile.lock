@@ -40,8 +40,6 @@ DEPENDENCIES
     path: cookbooks/mysql-chef_gem
   nagios
     path: cookbooks/nagios
-  python
-    path: cookbooks/python
   runit (~> 1.7)
   s3fs
     path: cookbooks/s3fs
@@ -89,10 +87,12 @@ GRAPH
   demo (0.3.0)
     chef-vault (>= 0.0.0)
     git (>= 0.0.0)
+    gunicorn (>= 0.0.0)
     mysql (>= 0.0.0)
     nginx (>= 0.0.0)
     nodejs (>= 0.0.0)
     php (>= 0.0.0)
+    poise-python (>= 0.0.0)
     ruby_build (>= 0.0.0)
   dpkg_autostart (0.2.0)
   firewall (2.6.2)
@@ -134,7 +134,6 @@ GRAPH
     yum (>= 3.0)
   mu-activedirectory (0.1.0)
     chef-vault (>= 0.0.0)
-    python (>= 0.0.0)
     windows (>= 0.0.0)
     yum-epel (>= 0.0.0)
   mu-demo (0.1.0)
@@ -195,7 +194,6 @@ GRAPH
     oracle-instantclient (>= 0.0.0)
     poise-python (~> 1.6.0)
     postgresql (>= 0.0.0)
-    python (>= 0.0.0)
     windows (>= 0.0.0)
     yum-epel (>= 0.0.0)
   mu-utility (0.6.0)
@@ -233,7 +231,7 @@ GRAPH
   nssm (4.0.0)
     windows (>= 0.0.0)
   ohai (5.2.0)
-  openssl (7.1.0)
+  openssl (8.1.0)
   oracle-instantclient (1.1.0)
     build-essential (>= 0.0.0)
     cpan (>= 0.0.0)
@@ -248,6 +246,12 @@ GRAPH
   poise (2.8.1)
   poise-archive (1.5.0)
     poise (~> 2.6)
+  poise-languages (2.1.1)
+    poise (~> 2.5)
+    poise-archive (~> 1.0)
+  poise-python (1.6.0)
+    poise (~> 2.7)
+    poise-languages (~> 2.0)
   poise-service (1.5.2)
     poise (~> 2.0)
   postfix (5.2.1)
@@ -255,7 +259,7 @@ GRAPH
     build-essential (>= 2.0.0)
     compat_resource (>= 12.16.3)
     openssl (>= 4.0)
-  python (1.4.7)
+  python (1.4.6)
     build-essential (>= 0.0.0)
     yum-epel (>= 0.0.0)
   ruby_build (1.1.0)
