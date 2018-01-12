@@ -265,6 +265,11 @@ module MU
           chef_node.normal.application_attributes = @config['application_attributes']
           chef_node.save
         end
+        if @server.deploy.original_config.has_key?('parameters')
+          MU.log "Setting node:#{@server.mu_name} parameters", MU::DEBUG, details: @server.deploy.original_config['parameters']
+          chef_node.normal.mu_parameters = @server.deploy.original_config['parameters']
+          chef_node.save
+        end
         saveDeployData
 
         retries = 0
