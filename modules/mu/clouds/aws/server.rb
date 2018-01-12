@@ -460,7 +460,11 @@ module MU
           elsif @config['iam_role'].nil?
             raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
           end
-          MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'])
+          if @config['basis']
+            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role']+"*")
+          else
+            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'])
+          end
           if !@config["iam_role"].nil?
             if arn
               instance_descriptor[:iam_instance_profile] = {arn: arn}
@@ -1017,8 +1021,11 @@ module MU
             if windows?
               # kick off certificate generation early; WinRM will need it
               cert, key = @deploy.nodeSSLCerts(self)
+              if @config.has_key?("basis")
+                @deploy.nodeSSLCerts(self, true)
+              end
               if !@groomer.haveBootstrapped?
-                session = getWinRMSession(50, 60, reboot_on_problems: true)
+                session = getWinRMSession(50, 60, reboot_on_problems: false)
                 initialWinRMTasks(session)
                 session.close
               else # for an existing Windows node: WinRM, then SSH if it fails

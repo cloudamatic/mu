@@ -156,7 +156,7 @@ GEM
     mixlib-log (1.7.1)
     mixlib-shellout (2.3.2)
     molinillo (0.5.7)
-    multi_json (1.12.2)
+    multi_json (1.13.1)
     multipart-post (2.0.0)
     mysql (2.9.1)
     net-ldap (0.16.1)
@@ -172,11 +172,11 @@ GEM
       net-ssh-gateway (>= 1.2.0)
     net-telnet (0.1.1)
     netaddr (1.5.1)
-    nio4r (2.1.0)
+    nio4r (2.2.0)
     nokogiri (1.6.8.1)
       mini_portile2 (~> 2.1.0)
     nori (2.6.0)
-    octokit (4.7.0)
+    octokit (4.8.0)
       sawyer (~> 0.8.0, >= 0.5.3)
     ohai (8.25.1)
       chef-config (>= 12.5.0.alpha.1, < 14)
@@ -192,7 +192,7 @@ GEM
       wmi-lite (~> 1.0)
     os (0.9.6)
     pg (0.21.0)
-    plist (3.3.0)
+    plist (3.4.0)
     proxifier (1.0.3)
     public_suffix (3.0.1)
     rack (2.0.3)
@@ -224,7 +224,7 @@ GEM
       rspec-core (~> 3.7.0)
       rspec-expectations (~> 3.7.0)
       rspec-mocks (~> 3.7.0)
-    rspec-core (3.7.0)
+    rspec-core (3.7.1)
       rspec-support (~> 3.7.0)
     rspec-expectations (3.7.0)
       diff-lcs (>= 1.2.0, < 2.0)
@@ -324,7 +324,7 @@ DEPENDENCIES
   net-ssh (~> 3.2.0)
   netaddr
   nokogiri (~> 1.6.8)
-  pg
+  pg (< 1.0)
   rack
   ruby-graphviz (~> 1.2.2)
   ruby-wmi
@@ -336,4 +336,4 @@ DEPENDENCIES
   yard
 
 BUNDLED WITH
-   1.16.0
+   1.16.1

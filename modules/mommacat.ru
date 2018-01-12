@@ -362,11 +362,11 @@ app = proc do |env|
       if instance.nil?
         # Now we're just checking for existence in the cloud provider, really
         MU.log "No existing groomed server found, verifying that a server with this cloud id exists"
-        instance = MU::MommaCat.findStray("AWS", "server", cloud_id: req["mu_instance_id"], region: server_cfg["region"], deploy_id: req["mu_id"], name: req["mu_resource_name"], dummy_ok: true, calling_deploy: kittenpile).first
-        if instance.nil? or instance.size == 0
+        instance = MU::Cloud::Server.find(cloud_id: req["mu_instance_id"], region: server_cfg["region"])
+#        instance = MU::MommaCat.findStray("AWS", "server", cloud_id: req["mu_instance_id"], region: server_cfg["region"], deploy_id: req["mu_id"], name: req["mu_resource_name"], dummy_ok: true, calling_deploy: kittenpile).first
+        if instance.nil?
           returnval = throw500 "Failed to find an instance with cloud id #{req["mu_instance_id"]}"
         end
-# XXX barf if this comes back with nonsense
       else
         mu_name = instance.mu_name
         MU.log "Found an existing node named #{mu_name}"

@@ -1112,11 +1112,12 @@ module MU
             end
           }
 
-          if !mu_descs.nil? and mu_descs.size > 0 and !deploy_id.nil? and !deploy_id.empty? and !mu_descs.first.empty?
-            # MU.log "I found descriptions that might match #{resourceclass.cfg_plural} name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}, but couldn't isolate my target kitten", MU::WARN, details: caller
+#          if !mu_descs.nil? and mu_descs.size > 0 and !deploy_id.nil? and !deploy_id.empty? and !mu_descs.first.empty?
+#             MU.log "I found descriptions that might match #{resourceclass.cfg_plural} name: #{name}, deploy_id: #{deploy_id}, mu_name: #{mu_name}, but couldn't isolate my target kitten", MU::WARN, details: caller
 #         puts File.read(deploy_dir(deploy_id)+"/deployment.json")
-          end
-          # We can't refine any further by asking the cloud provider if...
+#          end
+
+          # We can't refine any further by asking the cloud provider...
           if !cloud_id and !tag_key and !tag_value and kittens.size > 1
             if !allow_multi
               raise MuError, "Multiple matches in MU::MommaCat.findStray where none allowed from deploy_id: '#{deploy_id}', name: '#{name}', mu_name: '#{mu_name}' (#{caller[0]})"
@@ -1155,6 +1156,9 @@ module MU
               if kittens.has_key?(kitten_cloud_id)
                 matches << kittens[kitten_cloud_id]
               elsif kittens.size == 0
+                if !dummy_ok
+                  next
+                end
                 # If we don't have a MU::Cloud object, manufacture a dummy one.
                 # Give it a fake name if we have to and have decided that's ok.
                 if (name.nil? or name.empty?)
@@ -2111,51 +2115,54 @@ MESSAGE_END
     # Given a MU::Cloud object, return the generic self-signed SSL
     # certficate we made for it. If one doesn't exist yet, generate it first.
     # If it's a Windows node, also generate a certificate for WinRM client auth.
-    # @param resource [MU::Cloud]: The server or other resource for which to generate or return the cert
+    # @param server [MU::Cloud::Server]: The server for which to generate or return the cert
+    # @param poolname [Boolean]: If true, generate certificates for the base name of the server pool of which this node is a member, rather than for the individual node
     # @param keysize [Integer]: The size of the private key to use when generating this certificate
-    def nodeSSLCerts(resource, keysize = 4096)
-      canonical_ip = nil
-      if resource.class == MU::Cloud::Server
-        nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = resource.getSSHConfig
-      end
+    def nodeSSLCerts(server, poolname = false, keysize = 4096)
+      nat_ssh_key, nat_ssh_user, nat_ssh_host, canonical_ip, ssh_user, ssh_key_name = server.getSSHConfig
+
+      deploy_id = server.deploy_id || server.deploy.deploy_id
+
+      cert_cn = poolname ? deploy_id + "-" + server.config['name'].upcase : server.mu_name
 
       certs = {}
       results = {}
 
-      if File.exists?("#{MU.mySSLDir}/#{resource.mu_name}.crt") and
-         File.exists?("#{MU.mySSLDir}/#{resource.mu_name}.key")
-        ext_cert = OpenSSL::X509::Certificate.new(File.read("#{MU.mySSLDir}/#{resource.mu_name}.crt"))
+      if File.exists?("#{MU.mySSLDir}/#{cert_cn}.crt") and
+         File.exists?("#{MU.mySSLDir}/#{cert_cn}.key")
+        ext_cert = OpenSSL::X509::Certificate.new(File.read("#{MU.mySSLDir}/#{cert_cn}.crt"))
         if ext_cert.not_after < Time.now
-          MU.log "Certificate for #{resource.mu_name} is expired, regenerating", MU::WARN
+          MU.log "Node certificate for #{cert_cn} is expired, regenerating", MU::WARN
           ["crt", "key", "csr"].each { |suffix|
-            if File.exists?("#{MU.mySSLDir}/#{resource.mu_name}.#{suffix}")
-              File.unlink("#{MU.mySSLDir}/#{resource.mu_name}.#{suffix}")
+            if File.exists?("#{MU.mySSLDir}/#{cert_cn}.#{suffix}")
+              File.unlink("#{MU.mySSLDir}/#{cert_cn}.#{suffix}")
             end
           }
         else
-          results[resource.mu_name] = [
-            OpenSSL::X509::Certificate.new(File.read("#{MU.mySSLDir}/#{resource.mu_name}.crt")),
-            OpenSSL::PKey::RSA.new(File.read("#{MU.mySSLDir}/#{resource.mu_name}.key"))
+          results[cert_cn] = [
+            OpenSSL::X509::Certificate.new(File.read("#{MU.mySSLDir}/#{cert_cn}.crt")),
+            OpenSSL::PKey::RSA.new(File.read("#{MU.mySSLDir}/#{cert_cn}.key"))
           ]
         end
       end
       if results.size == 0
-        certs[resource.mu_name] = {
-          "cn" => resource.mu_name
+        certs[cert_cn] = {
+          "sans" => ["IP:#{canonical_ip}"],
+          "cn" => cert_cn
         }
         if canonical_ip
           certs["sans"] = ["IP:#{canonical_ip}"]
         end
       end
 
-      if resource.class == MU::Cloud::Server and resource.windows?
-        if File.exists?("#{MU.mySSLDir}/#{resource.mu_name}-winrm.crt") and
-           File.exists?("#{MU.mySSLDir}/#{resource.mu_name}-winrm.key")
-          results[resource.mu_name+"-winrm"] = [File.read("#{MU.mySSLDir}/#{resource.mu_name}-winrm.crt"), File.read("#{MU.mySSLDir}/#{resource.mu_name}-winrm.key")]
+      if resource.class == MU::Cloud::Server and server.windows?
+        if File.exists?("#{MU.mySSLDir}/#{cert_cn}-winrm.crt") and
+           File.exists?("#{MU.mySSLDir}/#{cert_cn}-winrm.key")
+          results[cert_cn+"-winrm"] = [File.read("#{MU.mySSLDir}/#{cert_cn}-winrm.crt"), File.read("#{MU.mySSLDir}/#{cert_cn}-winrm.key")]
         else
-          certs[resource.mu_name+"-winrm"] = {
-            "sans" => ["otherName:1.3.6.1.4.1.311.20.2.3;UTF8:#{resource.config['windows_admin_username']}@localhost"],
-            "cn" => resource.config['windows_admin_username']
+          certs[cert_cn+"-winrm"] = {
+            "sans" => ["otherName:1.3.6.1.4.1.311.20.2.3;UTF8:#{server.config['windows_admin_username']}@localhost"],
+            "cn" => server.config['windows_admin_username']
           }
         end
       end
@@ -2231,7 +2238,7 @@ MESSAGE_END
         end
       }
 
-      results[resource.mu_name]
+      results[cert_cn]
     end
 
     private

@@ -259,6 +259,7 @@ module MU
           knifeAddToRunList(multiple: @config['run_list'])
         end
 
+        pending_reboot_count = 0
         chef_node = ::Chef::Node.load(@server.mu_name)
         if !@config['application_attributes'].nil?
           MU.log "Setting node:#{@server.mu_name} application_attributes", MU::DEBUG, details: @config['application_attributes']
@@ -304,10 +305,12 @@ module MU
           else
             MU.log "Invoking Chef over WinRM on #{@server.mu_name}: #{purpose}"
             winrm = @server.getWinRMSession(haveBootstrapped? ? 1 : max_retries)
-MU.log "wtfsauce", MU::WARN
             if @server.windows? and @server.windowsRebootPending?(winrm)
-              if retries > 3
-                @server.reboot # sometimes it needs help
+              # Windows frequently gets stuck here
+              if retries > 5
+                @server.reboot(true)
+              elsif retries > 3 
+                @server.reboot
               end
               raise MU::Groomer::RunError, "#{@server.mu_name} has a pending reboot"
             end
@@ -364,15 +367,16 @@ MU.log "wtfsauce", MU::WARN
             end
           end
 
-          # Effectively alternate between WinRM and ssh on Windows. Something
-          # will probably work eventually. Right?
-          if @server.windows? and haveBootstrapped?
-            windows_try_ssh = true
-          end
-
           if retries < max_retries
             retries += 1
             MU.log "#{@server.mu_name}: Chef run '#{purpose}' failed after #{Time.new - runstart} seconds, retrying (#{retries}/#{max_retries})", MU::WARN, details: e.message
+            windows_try_ssh = !windows_try_ssh
+            if e.is_a?(WinRM::WinRMError)
+              if @server.windows? and retries >= 3 and retries % 3 == 0
+                # Mix in a hard reboot if WinRM isn't answering
+                @server.reboot(true)
+              end
+            end
             sleep 30
             retry
           else
@@ -503,7 +507,7 @@ MU.log "wtfsauce", MU::WARN
         end
 
         @server.windows? ? max_retries = 25 : max_retries = 10
-        @server.windows? ? timeout = 720 : timeout = 300
+        @server.windows? ? timeout = 1800 : timeout = 300
         retries = 0
         begin
           if !@server.windows?
