@@ -30,7 +30,7 @@ pipeline {
               steps {
                 script{
                   try{
-                      sh "sleep 135"
+                      //sh "sleep 135"
                       sh "${workspace}/bin/mu-deploy -n ${workspace}/demo/etco-autoscale-private.yaml -p s3_drive=etco-dev"
                     } catch (err) {
                       echo "ERROR: ${err}"
@@ -100,6 +100,8 @@ pipeline {
         steps {
           script {
             sh 'sudo python /opt/mu/lib/test/clean_up.py'
+            sh 'sudo rm -rf /tmp/inspec_retries/*
+            sh 'sudo rm -f /tmp/*.yaml'
           }
         }
     }

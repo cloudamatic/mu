@@ -42,7 +42,3 @@ if len(files) != 0:
 else:
   print "All Tests passed! No retry files found!!!"
 
-
-
-### Empty /tmp/inspec_retries
-os.system('rm -rf /tmp/inspec_retries/*')
