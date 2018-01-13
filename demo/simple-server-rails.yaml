@@ -4,7 +4,7 @@ $azs.delete $azskip if $azskip
 current_vpc = MU.myVPC
 %>
 ---
-appname: demo
+appname: demo-rails
 servers:
   -
     name: rails
@@ -17,7 +17,7 @@ servers:
     run_list:
       - "recipe[demo::rails]"
       - "recipe[demo::store_attr]"
-    size: "m3.medium"
+    size: "t2.micro"
     associate_public_ip: true
     static_ip:
       assign_ip: true
@@ -58,7 +58,7 @@ databases:
   -
     name: "concerto"
     engine: "mysql"
-    size: "db.t1.micro"
+    size: "db.t2.micro"
     multi_az_on_deploy: false
     multi_az_on_create: false
     storage: 5
