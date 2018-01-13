@@ -19,7 +19,7 @@ control 'rails' do
   ###################################
   ### Tests
   ###################################
-  %w(sqlite3 libsqlite3-dev libmysqlclient-dev software-properties-common libxml2-dev  libmagickwand-dev make build-essential g++ git).each do |pack|
+  %w(libpq-dev sqlite3 libsqlite3-dev libmysqlclient-dev software-properties-common libxml2-dev  libmagickwand-dev make build-essential g++ git).each do |pack|
     describe package(pack) do
       it { should be_installed }
     end
