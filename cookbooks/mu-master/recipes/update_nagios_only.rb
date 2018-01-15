@@ -64,6 +64,19 @@ if platform_family?("rhel") and node.platform_version.to_i == 7
   nagios_policies << "nagios_selinux_7"
 end
 
+# Restart Nagios inelegantly, because the standard service resource doesn't
+# seem to work reliably on CentOS 7 or RHEL 7. May be an issue with the nagios
+# community cookbook? Maybe it doesn't do systemctl correctly?
+bash "RHEL7-family Nagios restart" do
+  code <<-EOH
+    /bin/systemctl stop nagios.service
+    /bin/pkill -u nagios
+    /bin/rm -f /var/run/nagios/nagios.pid
+    /bin/systemctl start nagios.service
+  EOH
+  action :nothing
+end
+
 nagios_policies.each { |policy|
   execute "/usr/sbin/semodule -r #{policy}" do
     action :nothing
@@ -79,7 +92,11 @@ nagios_policies.each { |policy|
     not_if "/usr/sbin/semodule -l | egrep '^#{policy}(\t|$)'"
     notifies :reload, "service[apache2]", :delayed
     notifies :restart, "service[nrpe]", :delayed
-    notifies :reload, "service[nagios]", :delayed
+    if platform_family?("rhel") and node[:platform_version].to_i < 7
+      notifies :execute, "bash[RHEL7-family Nagios restart]", :delayed
+    else
+      notifies :reload, "service[nagios]", :delayed
+    end
   end
 }
 
@@ -147,7 +164,11 @@ execute "/sbin/restorecon -R /var/log/nagios"
 # The Nagios cookbook currently screws up this setting, so work around it.
 execute "sed -i s/^interval_length=.*/interval_length=1/ || echo 'interval_length=1' >> /etc/nagios/nagios.cfg" do
   not_if "grep '^interval_length=1$' /etc/nagios/nagios.cfg"
-  notifies :reload, "service[nagios]", :delayed
+  if platform_family?("rhel") and node[:platform_version].to_i < 7
+    notifies :execute, "bash[RHEL7-family Nagios restart]", :delayed
+  else
+    notifies :reload, "service[nagios]", :delayed
+  end
 end
 
 package "nagios-plugins-nrpe"
@@ -213,5 +234,9 @@ nagios_command 'service_notify_by_sms_email' do
 end
 
 execute "chgrp nrpe /etc/nagios/nrpe.d/*"
-execute "/sbin/restorecon /etc/nagios/nrpe.cfg"
+execute "/sbin/restorecon /etc/nagios/nrpe.cfg" do
+  if platform_family?("rhel") and node[:platform_version].to_i < 7
+    notifies :execute, "bash[RHEL7-family Nagios restart]", :delayed
+  end
+end
 include_recipe "mu-master::init" # gem permission fixes, mainly
