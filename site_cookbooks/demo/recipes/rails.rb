@@ -137,14 +137,13 @@ end
 
 #disable concerto_remote_video and concerto_simple_rss
 ["gem \"concerto_simple_rss\"\n", "gem \"concerto_remote_video\"\n"].each do |f|
-  ruby_block 'disable gem plugin concerto_remote_video' do 
-    find = f
+  ruby_block 'delete gem plugin concerto_remote_video and concerto_simple_rss' do 
     block do
       file = Chef::Util::FileEdit.new("#{application_dir}/rails/Gemfile-plugins")
-      file.search_file_replace(/#{find}/, "")
+      file.search_file_replace(/#{f}/, "")
       file.write_file
     end
-    not_if {File.readlines("#{application_dir}/rails/Gemfile-plugins").grep(find).size == 0}
+    not_if {File.readlines("#{application_dir}/rails/Gemfile-plugins").grep(f).size == 0}
   end
 end
 

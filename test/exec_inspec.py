@@ -5,6 +5,7 @@ import os, json, subprocess, sys, re, glob, time, yaml
 deploy_dirs = '/opt/mu/var/deployments'
 current_deploys = os.listdir(deploy_dirs)
 workspace = os.environ['WORKSPACE']
+#workspace = '/opt/mu/lib'
 test = workspace+'/test'
 
 
@@ -21,6 +22,10 @@ def get_profile():
     return 'NOT_PROVIDED'
 
 
+
+## In terms of scaling, this is not ideal... Maybe 
+## we should consider saving the deploy output to a file with time_stamp in /tmp
+## and then parse out the deploy_id from stdout 
 def get_deploy_id(bok, all_boks=workspace+'/demo'):
   partial_dep_name = None
   deploy_id = None
@@ -41,11 +46,11 @@ def get_deploy_id(bok, all_boks=workspace+'/demo'):
   return deploy_id
 
 
-### Inorder to get proper inspec trigger
-### Used to wait for server_done.txt touch to happen.
+### Inorder to properly trigger inspec exec
+### Need to wait for each server_name_done.txt file to exist in deploy_id dir.
 ### server_pools is the only stanza when this will be used
-### The only to retrieve the server_names to wait for is from the bok
-### the server names are not added in the deployment.json right away
+### The only to retrieve the server_names is from the bok(the json version -- full blown one)
+### the server names are not added in the deployment.json right away therefore using the bok.json
 def get_server_names(deploy_id):
   server_names = []
   bok_json = json.load(open(deploy_dirs+'/'+deploy_id+'/basket_of_kittens.json'))
@@ -140,7 +145,7 @@ def get_host_info(deploy_id):
           if len(v[dep]['public_dns_name']) != 0:
             fqdn = v[dep]['public_dns_name']
           else:
-            fqdn = v[dep]['private_dns_name']
+            fqdn = v[dep]['private_ip_address']
           
           ### Filter recipe names to map to inspec controls
           for recipe in run_list:
@@ -204,11 +209,15 @@ store_ssh_info(ssh_infos)
 #########################################################################
 ##### Run Tests ###########################################
 for ssh_info in ssh_infos:
-
   
-  ### Check if grooming finished
+ 
+  ### when no recipes -- switch to mu-tools-test profile
+  if len(ssh_info['controls']) == 0:
+    profile = 'mu-tools-test'
+  
   controls = base_controls() + ssh_info['controls']
   all_controls_spaced_out = ' '.join(controls)
+  print 'Inspec Profile: =====> %s ' %profile
   print 'Controls To Test =====> '+all_controls_spaced_out+' <====='
   os.chdir(test)
   if ssh_info['platform'] == 'windows':
