@@ -169,8 +169,8 @@ control 'rails' do
   describe file('/etc/nginx/nginx.conf') do
     it { should exist }
     it { should be_file }
-    its('content'){ should match // }
-    its('content') { should match // }
+    its('content'){ should match /\  #include \/etc\/nginx\/conf.d\/\*\.conf;/ }
+    its('content') { should match /include \/etc\/nginx\/sites-enabled\/\*;/ }
   end
  
   ## is rails running?
