@@ -32,7 +32,10 @@ Usage:
   opt :override_chef_runlist, "An alternate runlist to pass to Chef, in chefrun mode.", :require => false, :type => :string
   opt :xecute, "Run a shell command on matching nodes. Overrides --mode and suppresses some informational output in favor of scriptability.", :require => false, :type => :string
   opt :mode, "Action to perform on matching nodes. Valid actions: groom, chefrun, awsmeta, vaults, certs", :require => false, :default => "chefrun", :type => :string
+  opt :verbose, "Show output from Chef runs, etc", :require => false, :default => false, :type => :boolean
 end
+
+MU.setLogging(MU::Logger::LOUD) if $opts[:verbose]
 
 if !["groom", "chefrun", "vaults", "userdata", "awsmeta", "certs"].include?($opts[:mode])
   Trollop::die(:mode, "--mode must be one of: groom, chefrun, awsmeta, vaults, certs")
@@ -199,7 +202,7 @@ def reGroom(deploys = MU::MommaCat.listDeploys, nodes = [], vaults_only: false)
   end
 end
 
-def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-client || sudo chef-client || chef-client.bat ) 2>&1", print_output: false, noop: false)
+def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_output: $opts[:verbose], noop: false, chefrun: false, chef_runlist: nil)
   badnodes = []
   count = 0
   deploys.each { |muid|
@@ -213,8 +216,12 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-cli
       child = Process.fork {
         done = false
         begin
-          MU.log "Running #{cmd} on #{nodename} (##{count})" if !print_output
           serverobj = mommacat.findLitterMate(type: "server", mu_name: nodename)
+          if chefrun
+            cmd = serverobj.windows? ? "chef-client --no-fips" : "chef-client || sudo chef-client"
+            cmd += " -o '#{chef_runlist}'" if chef_runlist
+          end
+          MU.log "Running '#{cmd}' on #{nodename} (##{count})" if !print_output
           output = nil
           exitcode = -1
           if serverobj.windows?
@@ -225,7 +232,8 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-cli
             rescue MU::MuError => e
             end
             if !resp or resp.exitcode != 0
-              MU.log "WinRM connection to #{nodename} failed, trying SSH", MU::WARN
+              MU.log "WinRM exec on #{nodename} failed, trying SSH", MU::WARN
+              puts resp.stderr if resp.stderr
             else
               output = resp.stdout
               exitcode = resp.exitcode
@@ -272,6 +280,7 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = "( chef-cli
   }
 
   if badnodes.size > 0
+    cmd = "Chef" if $opts[:mode] == "chefrun"
     if !print_output
       MU.log "Not all `#{cmd}` runs exited cleanly", MU::WARN, details: badnodes
     else
@@ -546,9 +555,9 @@ elsif $opts[:mode] == "vaults"
   reGroom(do_deploys, do_nodes, vaults_only: true)
 elsif $opts[:mode] == "chefrun"
   if $opts[:override_chef_runlist]
-    runCommand(do_deploys, do_nodes, "( chef-client -o '#{$opts[:override_chef_runlist]}' || sudo chef-client -o '#{$opts[:override_chef_runlist]}' || chef-client.bat -o '#{$opts[:override_chef_runlist]}' ) 2>&1")
+    runCommand(do_deploys, do_nodes, chef_runlist: $opts[:override_chef_runlist], chefrun: true)
   else
-    runCommand(do_deploys, do_nodes)
+    runCommand(do_deploys, do_nodes, chefrun: true)
   end
 elsif $opts[:mode] == "userdata" or $opts[:mode] == "awsmeta"
 # Need Google equiv and to select nodes correctly based on what cloud they're in
