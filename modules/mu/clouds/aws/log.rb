@@ -224,7 +224,18 @@ module MU
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(log, configurator)
-          true
+          ok = true
+
+          if log_rec["filters"] && !log_rec["filters"].empty?
+            log_rec["filters"].each{ |filter|
+              if filter["namespace"].start_with?("AWS/")
+                MU.log "'namespace' can't be under the 'AWS/' namespace", MU::ERR
+                ok = false
+              end
+            }
+          end
+
+          ok
         end
 
         # Retrieve the complete cloud provider description of a log group.

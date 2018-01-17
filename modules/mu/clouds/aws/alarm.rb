@@ -259,6 +259,51 @@ module MU
           alarm.delete("#TARGETCLASS")
           alarm.delete("#TARGETNAME")
 
+          if alarm["dimensions"]
+            alarm["dimensions"].each{ |dimension|
+              if dimension["cloud_class"].nil?
+                MU.log "You must specify 'cloud_class'", MU::ERR
+                ok = false
+              end
+  
+              alarm["namespace"], depclass = 
+                if ["InstanceId", "server", "Server"].include?(dimension["cloud_class"])
+                  dimension["cloud_class"] = "InstanceId"
+                  ["AWS/EC2", "server"]
+                elsif ["AutoScalingGroupName", "server_pool", "ServerPool"].include?(dimension["cloud_class"])
+                  dimension["cloud_class"] = "AutoScalingGroupName"
+                  ["AWS/EC2", "server_pool"]
+                elsif ["DBInstanceIdentifier", "database", "Database"].include?(dimension["cloud_class"])
+                  dimension["cloud_class"] = "DBInstanceIdentifier"
+                  ["AWS/RDS", "database"]
+                elsif ["LoadBalancerName", "loadbalancer", "LoadBalancer"].include?(dimension["cloud_class"])
+                  dimension["cloud_class"] = "LoadBalancerName"
+                  ["AWS/ELB", "loadbalancer"]
+                elsif ["CacheClusterId", "cache_cluster", "CacheCluster"].include?(dimension["cloud_class"])
+                  dimension["cloud_class"] = "CacheClusterId"
+                  ["AWS/ElastiCache", "cache_cluster"]
+                elsif ["VolumeId", "volume", "Volume"].include?(dimension["cloud_class"])
+                  dimension["cloud_class"] = "VolumeId"
+                  ["AWS/EBS", nil]
+                elsif ["BucketName", "bucket", "Bucket"].include?(dimension["cloud_class"])
+                  dimension["cloud_class"] = "BucketName"
+                  ["AWS/S3", nil]
+                elsif ["TopicName", "notification", "Notification"].include?(dimension["cloud_class"])
+                  dimension["cloud_class"] = "TopicName"
+                  ["AWS/SNS", nil]
+                end
+  
+              if !depclass.nil?
+                dimension["depclass"] = depclass
+                if !dimension["name"].nil? and !dimension["name"].empty?
+                  alarm["dependencies"] << { "name" => dimension["name"], "type" => depclass }
+                end
+              end
+            }
+          end
+
+          ok = false unless MU::Config.validate_alarm_config(alarm) # XXX this probably belongs here, rolled out
+
           ok
         end
 

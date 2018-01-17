@@ -1805,96 +1805,9 @@ module MU
       }
 
       @kittens["dnszones"].each { |zone|
-        zone["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("DNSZone")
-        zone['cloud'] = MU::Config.defaultCloud if zone['cloud'].nil?
-        zone['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
-        zone['region'] = config['region'] if zone['region'].nil?
-        zone["dependencies"] = [] if zone['dependencies'].nil?
-        # ext_zone = MU::Cloud::DNSZone.find(cloud_id: zone['name']).values.first
-
-        # if !ext_zone.nil?
-          # MU.log "DNS zone #{zone['name']} already exists", MU::ERR
-          # ok = false
-        # end
-        if !zone["records"].nil?
-          zone["records"].each { |record|
-            record['scrub_mu_isms'] = zone['scrub_mu_isms'] if zone.has_key?('scrub_mu_isms')
-            route_types = 0
-            route_types = route_types + 1 if !record['weight'].nil?
-            route_types = route_types + 1 if !record['geo_location'].nil?
-            route_types = route_types + 1 if !record['region'].nil?
-            route_types = route_types + 1 if !record['failover'].nil?
-
-            if route_types > 1
-              MU.log "At most one of weight, location, region, and failover can be specified in a record.", MU::ERR, details: record
-              ok = false
-            end
-
-            if !record['mu_type'].nil?
-              zone["dependencies"] << {
-                "type" => record['mu_type'],
-                "name" => record['target']
-              }
-            end
-
-            if record.has_key?('healthchecks') && !record['healthchecks'].empty?
-              primary_alarms_set = []
-              record['healthchecks'].each { |check|
-                check['alarm_region'] ||= zone['region'] if check['method'] == "CLOUDWATCH_METRIC"
-                primary_alarms_set << true if check['type'] == 'primary'
-              }
-
-              if primary_alarms_set.size != 1
-                MU.log "Must have only one primary health check, but #{primary_alarms_set.size} are set.", MU::ERR, details: record
-                ok = false
-              end
-
-              # record['healthcheck']['alarm_region'] ||= zone['region'] if record['healthcheck']['method'] == "CLOUDWATCH_METRIC"
-
-              if route_types == 0
-                MU.log "Health check in a DNS zone only valid with Weighted, Location-based, Latency-based, or Failover routing.", MU::ERR, details: record
-                ok = false
-              end
-            end
-
-            if !record['geo_location'].nil?
-              if !record['geo_location']['continent_code'].nil? and (!record['geo_location']['country_code'].nil? or !record['geo_location']['subdivision_code'].nil?)
-                MU.log "Location routing cannot mix continent_code with other location specifiers.", MU::ERR, details: record
-                ok = false
-              end
-              if record['geo_location']['country_code'].nil? and !record['geo_location']['subdivision_code'].nil?
-                MU.log "Cannot specify subdivision_code without country_code.", MU::ERR, details: record
-                ok = false
-              end
-            end
-          }
-        end
-        if !zone["vpcs"].nil?
-          zone["vpcs"].each { |vpc|
-            vpc['region'] = config['region'] if vpc['region'].nil?
-            vpc['cloud'] = zone['cloud'] if vpc['cloud'].nil?
-            if !vpc["vpc_name"].nil? and
-               haveLitterMate?(vpc["vpc_name"], "vpcs") and
-               zone['deploy_id'].nil?
-              zone["dependencies"] << {
-                  "type" => "vpc",
-                  "name" => vpc["vpc_name"]
-              }
-              # If we're using a VPC from somewhere else, make sure the flippin'
-              # thing exists, and also fetch its id now so later search routines
-              # don't have to work so hard.
-            else
-              if !zone['account'].nil? and zone['account'] != MU.account_number
-                if vpc["vpc_id"].nil?
-                  MU.log "VPC DNS access to non-local accounts must specify the vpc_id of the vpc.", MU::ERR
-                  ok = false
-                end
-              elsif !processVPCReference(vpc, "dns_zones", "vpc '#{zone['name']}'", dflt_region: config['region'])
-                ok = false
-              end
-            end
-          }
-        end
+# TODO non-local VPCs are valid, but require an account field, which insertKitten doesn't know anything about
+# if !zone['account'].nil? and zone['account'] != MU.account_number
+        ok = false if !insertKitten(zone, "dns_zones")
       }
 
       @kittens["firewall_rules"].each { |acl|
@@ -2279,20 +2192,7 @@ module MU
       }
 
       @kittens["logs"].each { |log_rec|
-        log_rec['region'] = config['region'] if log_rec['region'].nil?
-        log_rec['cloud'] = MU::Config.defaultCloud if log_rec['cloud'].nil?
-        log['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
-        log_rec["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Log")
-        log_rec["dependencies"] = [] if log_rec["dependencies"].nil?
-        
-        if log_rec["filters"] && !log_rec["filters"].empty?
-          log_rec["filters"].each{ |filter|
-            if filter["namespace"].start_with?("AWS/")
-              MU.log "'namespace' can't be under the 'AWS/' namespace", MU::ERR
-              ok = false
-            end
-          }
-        end
+        ok = false if !insertKitten(log_rec, "logs")
       }
 
       @kittens["servers"].each { |server|
@@ -2322,50 +2222,6 @@ module MU
       }
 
       @kittens["alarms"].each { |alarm|
-        if alarm["dimensions"]
-          alarm["dimensions"].each{ |dimension|
-            if dimension["cloud_class"].nil?
-              MU.log "You must specify 'cloud_class'", MU::ERR
-              ok = false
-            end
-
-            alarm["namespace"], depclass = 
-              if ["InstanceId", "server", "Server"].include?(dimension["cloud_class"])
-                dimension["cloud_class"] = "InstanceId"
-                ["AWS/EC2", "server"]
-              elsif ["AutoScalingGroupName", "server_pool", "ServerPool"].include?(dimension["cloud_class"])
-                dimension["cloud_class"] = "AutoScalingGroupName"
-                ["AWS/EC2", "server_pool"]
-              elsif ["DBInstanceIdentifier", "database", "Database"].include?(dimension["cloud_class"])
-                dimension["cloud_class"] = "DBInstanceIdentifier"
-                ["AWS/RDS", "database"]
-              elsif ["LoadBalancerName", "loadbalancer", "LoadBalancer"].include?(dimension["cloud_class"])
-                dimension["cloud_class"] = "LoadBalancerName"
-                ["AWS/ELB", "loadbalancer"]
-              elsif ["CacheClusterId", "cache_cluster", "CacheCluster"].include?(dimension["cloud_class"])
-                dimension["cloud_class"] = "CacheClusterId"
-                ["AWS/ElastiCache", "cache_cluster"]
-              elsif ["VolumeId", "volume", "Volume"].include?(dimension["cloud_class"])
-                dimension["cloud_class"] = "VolumeId"
-                ["AWS/EBS", nil]
-              elsif ["BucketName", "bucket", "Bucket"].include?(dimension["cloud_class"])
-                dimension["cloud_class"] = "BucketName"
-                ["AWS/S3", nil]
-              elsif ["TopicName", "notification", "Notification"].include?(dimension["cloud_class"])
-                dimension["cloud_class"] = "TopicName"
-                ["AWS/SNS", nil]
-              end
-
-            if !depclass.nil?
-              dimension["depclass"] = depclass
-              if !dimension["name"].nil? and !dimension["name"].empty?
-                alarm["dependencies"] << { "name" => dimension["name"], "type" => depclass }
-              end
-            end
-          }
-        end
-
-        ok = false unless MU::Config.validate_alarm_config(alarm) # XXX fold into... other stuff
         ok = false if !insertKitten(alarm, "alarms")
       }
 
