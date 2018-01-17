@@ -47,14 +47,14 @@ if [ -f /etc/debian_version ];then
 	fi
 <% end %>
 elif [ -x /usr/bin/yum ];then
-	version=`rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
+	version=`/bin/rpm -qa \*-release | grep -Ei "redhat|centos" | cut -d"-" -f3`
 	if [ -z "$version" ];then
-		amazon_version=`rpm -qa \*-release | grep -Ei "system-release"| cut -d"-" -f3 | cut -d"." -f1`
+		amazon_version=`/bin/rpm -qa \*-release | grep -Ei "system-release"| cut -d"-" -f3 | cut -d"." -f1`
 		if [ "$amazon_version" == "2014" ] || [ "$amazon_version" == "2015" ] || [ "$amazon_version" == "2016" ];then
 			version=6
 		fi
 	fi
-	if [ $version == 7 ];then
+	if [ $version -eq 7 ];then
 		userdata_dir="/var/lib/cloud/instances/$instance_id"
 	else
 		userdata_dir="/var/lib/cloud/instance"
