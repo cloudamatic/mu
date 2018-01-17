@@ -759,7 +759,61 @@ module MU
           end
         end
       else
+        # XXX what'd I leave this here for?
+      end
 
+      # Is it a storage pool with mount points, which need their own VPC refs
+      # resolved?
+      if cfg_plural == "storage_pools" and descriptor['mount_points']
+        new_mount_points = []
+        descriptor['mount_points'].each{ |mp|
+          if mp["vpc"] and !mp["vpc"].empty?
+            if !mp["vpc"]["vpc_name"].nil? and
+               haveLitterMate?(mp["vpc"]["vpc_name"], "vpcs") and
+               mp["vpc"]['deploy_id'].nil? and
+               mp["vpc"]['vpc_id'].nil?
+    
+              if !processVPCReference(mp['vpc'],
+                                      cfg_plural,
+                                      shortclass.to_s+" '#{descriptor['name']}'",
+                                      dflt_region: descriptor['region'],
+                                      is_sibling: true,
+                                      sibling_vpcs: @kittens['vpcs'])
+                ok = false
+              end
+            else
+              if !processVPCReference(mp["vpc"], cfg_plural,
+                                      "#{shortclass} #{descriptor['name']}",
+                                      dflt_region: descriptor['region'])
+                ok = false
+              end
+            end
+            if mp['vpc']['subnets'] and mp['vpc']['subnets'].size > 1
+              seen_azs = []
+              count = 0
+              mp['vpc']['subnets'].each { |subnet|
+                if subnet['az'] and seen_azs.include?(subnet['az'])
+                  MU.log "VPC config for Storage Pool #{pool['name']} has multiple matching subnets per Availability Zone. Only one mount point per AZ is allowed, so you must explicitly declare which subnets to use.", MU::ERR
+                  ok = false
+                  break
+                end
+                seen_azs << subnet['az']
+                subnet.delete("az")
+                newmp = Marshal.load(Marshal.dump(mp))
+                ["subnets", "subnet_pref", "az"].each { |field|
+                  newmp['vpc'].delete(field)
+                }
+                newmp['vpc'].merge!(subnet)
+                newmp['name'] = newmp['name']+count.to_s
+                count = count + 1
+                new_mount_points << newmp
+              }
+            else
+              new_mount_points << mp
+            end
+          end
+        }
+        descriptor['mount_points'] = new_mount_points
       end
 
       # Does it have generic ingress rules?
@@ -1425,11 +1479,14 @@ module MU
         # Delete values that don't apply to the schema for whatever this VPC's
         # parent resource is.
         vpc_block.keys.each { |vpckey|
-          if !@@schema["properties"][parent_type]["items"]["properties"]["vpc"]["properties"].has_key?(vpckey)
+          if @@schema["properties"][parent_type]["items"]["properties"]["vpc"] and
+             !@@schema["properties"][parent_type]["items"]["properties"]["vpc"]["properties"].has_key?(vpckey)
             vpc_block.delete(vpckey)
           end
         }
-        if vpc_block['subnets'] and @@schema["properties"][parent_type]["items"]["properties"]["vpc"]["properties"]["subnets"]
+        if vpc_block['subnets'] and
+           @@schema["properties"][parent_type]["items"]["properties"]["vpc"] and
+           @@schema["properties"][parent_type]["items"]["properties"]["vpc"]["properties"]["subnets"]
           vpc_block['subnets'].each { |subnet|
             subnet.each_key { |subnetkey|
               if !@@schema["properties"][parent_type]["items"]["properties"]["vpc"]["properties"]["subnets"]["items"]["properties"].has_key?(subnetkey)
@@ -1923,11 +1980,7 @@ module MU
       }
 
       @kittens["collections"].each { |stack|
-        stack['cloud'] = MU::Config.defaultCloud if stack['cloud'].nil?
-        stack['scrub_mu_isms'] = config['scrub_mu_isms'] if config.has_key?('scrub_mu_isms')
-        stack['region'] = config['region'] if stack['region'].nil?
-        stack["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("Collection")
-        stack["dependencies"] = Array.new if stack["dependencies"].nil?
+        ok = false if !insertKitten(stack, "collections")
       }
 
       @kittens["server_pools"].each { |pool|
@@ -2221,108 +2274,8 @@ module MU
 
 
       @kittens["storage_pools"].each { |pool|
-        pool['region'] = config['region'] if pool['region'].nil?
-        pool["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("StoragePool")
-        pool['cloud'] = MU::Config.defaultCloud if pool['cloud'].nil?
-        pool["project"] ||= MU::Cloud::Google.defaultProject if pool['cloud'] == "Google"
-        pool["dependencies"] = [] if pool["dependencies"].nil?
 
-        supported_regions = %w{us-west-2 us-east-1 eu-west-1}
-        if !supported_regions.include?(pool['region'])
-          MU.log "Region #{pool['region']} not supported. Only #{supported_regions.join(',  ')} are supported", MU::ERR
-          ok = false
-        end
-
-        if pool['mount_points'] && !pool['mount_points'].empty?
-          # Pass 1: Resolve VPC references, and expand into multiple mount
-          # points if we've been asked to do so with subnet_pref.
-          new_mount_points = []
-          pool['mount_points'].each{ |mp|
-            if mp["vpc"] && !mp["vpc"].empty?
-              mp['vpc']['region'] = pool['region'] if mp['vpc']['region'].nil?
-              mp["vpc"]['cloud'] = pool['cloud'] if mp["vpc"]['cloud'].nil?
-              # If we're using a VPC in this deploy, set it as a dependency
-              if mp["vpc"]["vpc_name"] and
-                 mp["vpc"]["deploy_id"].nil? and
-                 haveLitterMate?(mp["vpc"]["vpc_name"], "vpcs")
-                pool["dependencies"] << {
-                  "type" => "vpc",
-                  "name" => mp["vpc"]["vpc_name"]
-                }
-
-                if !processVPCReference(
-                      mp["vpc"],
-                      "storage_pools",
-                      "storage_pool #{pool['name']}",
-                      dflt_region: config['region'],
-                      is_sibling: true,
-                      sibling_vpcs: vpcs
-                    )
-                  ok = false
-                end
-              else
-                if !processVPCReference(mp["vpc"], "storage_pools", "storage_pool #{pool['name']}", dflt_region: config['region'])
-                  ok = false
-                end
-              end
-              if mp["vpc"] and mp['vpc']['subnets'] and mp['vpc']['subnets'].size > 1
-                MU.log "Using subnet_pref in Storage Pool mountpoint resulted in multiple subnets, generating new set of mount points to match.", MU::NOTICE
-                count = 0
-
-                seen_azs = []
-                mp['vpc']['subnets'].each { |subnet|
-                  if subnet['az'] and seen_azs.include?(subnet['az'])
-                    MU.log "VPC config for Storage Pool #{pool['name']} has multiple matching subnets per Availability Zone. Only one mount point per AZ is allowed, so you must explicitly declare which subnets to use.", MU::ERR
-                    ok = false
-                    break
-                  end
-                  seen_azs << subnet['az']
-                  newmp = Marshal.load(Marshal.dump(mp))
-                  newmp['vpc'].delete("subnets")
-                  newmp['vpc'].delete("subnet_pref")
-                  newmp['vpc'].merge!(subnet)
-                  newmp['name'] = newmp['name']+count.to_s
-                  count = count + 1
-                  new_mount_points << newmp
-                }
-              else
-                mp['vpc'].delete("subnet_pref") if mp["vpc"]
-                new_mount_points << mp
-              end
-            else
-              new_mount_points << mp
-            end
-          }
-          pool['mount_points'] = new_mount_points
-
-          # Pass 2: Resolve everything else in our (potentially generated) set
-          # of mount points.
-          pool['mount_points'].each{ |mp|
-            if mp['ingress_rules']
-              fwname = "storage-#{mp['name']}"
-              acl = {"name" => fwname, "rules" => mp['ingress_rules'], "region" => pool['region'], "optional_tags" => pool['optional_tags']}
-              acl["tags"] = pool['tags'] if pool['tags'] && !pool['tags'].empty?
-              acl["vpc"] = mp['vpc'].dup if mp['vpc']
-              ok = false if !insertKitten(acl, "firewall_rules")
-              mp["add_firewall_rules"] = [] if mp["add_firewall_rules"].nil?
-              mp["add_firewall_rules"] << {"rule_name" => fwname}
-            end
-
-            if mp["add_firewall_rules"]
-              mp["add_firewall_rules"].each { |acl_include|
-                if haveLitterMate?(acl_include["rule_name"], "firewall_rules")
-                  pool["dependencies"] << {
-                    "type" => "firewall_rule",
-                    "name" => acl_include["rule_name"]
-                  }
-                end
-              }
-            end
-
-          }
-        end
-
-        # pool['dependencies'] << adminFirewallRuleset(vpc: pool['vpc'], region: pool['region'], cloud: pool['cloud'])
+        ok = false if !insertKitten(pool, "storage_pools")
       }
 
       @kittens["logs"].each { |log_rec|

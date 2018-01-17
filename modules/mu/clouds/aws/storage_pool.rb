@@ -412,11 +412,34 @@ module MU
         end
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::storage_pools}, bare and unvalidated.
-        # @param storage [Hash]: The resource to process and validate
+        # @param pool [Hash]: The resource to process and validate
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(storage, configurator)
-          true
+        def self.validateConfig(pool, configurator)
+          ok = true
+          supported_regions = %w{us-west-2 us-east-1 us-east-2 eu-west-1}
+
+          if !supported_regions.include?(pool['region'])
+            MU.log "Region #{pool['region']} not supported. Only #{supported_regions.join(',  ')} are supported", MU::ERR
+            ok = false
+          end
+
+          if pool['mount_points'] && !pool['mount_points'].empty?
+            pool['mount_points'].each{ |mp|
+              if mp['ingress_rules']
+                fwname = "storage-#{mp['name']}"
+                acl = {"name" => fwname, "rules" => mp['ingress_rules'], "region" => pool['region'], "optional_tags" => pool['optional_tags']}
+                acl["tags"] = pool['tags'] if pool['tags'] && !pool['tags'].empty?
+                acl["vpc"] = mp['vpc'].dup if mp['vpc']
+                ok = false if !configurator.insertKitten(acl, "firewall_rules")
+                mp["add_firewall_rules"] = [] if mp["add_firewall_rules"].nil?
+                mp["add_firewall_rules"] << {"rule_name" => fwname}
+              end
+  
+            }
+          end
+
+          ok
         end
 
         private
