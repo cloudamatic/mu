@@ -70,7 +70,7 @@ usage()
   echo "    ${BOLD}-c <commit>${NORM} (requires ${BOLD}-f${NORM} and at most one ${BOLD}-r${NORM}): Reset to a specific commit."
   echo "        Saves your uncommitted changes unless ${BOLD}-d${NORM} is specified."
   echo "    ${BOLD}-d${NORM}: Discard any uncommited changes to currently checked-out branches."
-  echo "    ${BOLD}-n${NORM}: No purging of Chef resources, just uploads new Chef data without"
+  echo "    ${BOLD}-p${NORM}: Purge Chef resources from the Chef server's memory before uploading."
   echo "        expunging old resources from the running server."
   echo "    ${BOLD}-s${NORM}: Shortcut mode. Update cookbooks only."
   echo "    ${BOLD}-m <name>${NORM}: Match mode. Only operate on artifacts with this name, e.g. '-s -m symantec' to upload a cookbook named symantec."
@@ -240,7 +240,7 @@ set_repo_path()
 
 
 all=0
-while getopts "fb:c:nsgdhar:b:m:" opt; do
+while getopts "fb:c:npsgdhar:b:m:" opt; do
   case $opt in
     r)
       arg_repos="$arg_repos $OPTARG"
@@ -257,8 +257,8 @@ while getopts "fb:c:nsgdhar:b:m:" opt; do
     b)
       force_branch=$OPTARG
       ;;
-    n)
-      nopurge=1
+    p)
+      purge=1
       ;;
     g)
       bags_only=1
@@ -282,9 +282,13 @@ while getopts "fb:c:nsgdhar:b:m:" opt; do
 done
 
 use_on_disk=1
+nopurge=1
 
 if [ "$arg_repos" == "" ];then
   all=1
+fi
+if [ "$purge" != "" ];then
+  nopurge=""
 fi
 
 if [ "$force_sync" != "" ];then
