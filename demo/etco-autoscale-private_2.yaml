@@ -1,4 +1,4 @@
-# All private, background run - depends on min branch or newer
+#All private, background run - depends on min branch or newer
 # Specifically declares subnets to work around AWS returning all subnets including some not possibly available
 # May be account dependent on specific subnets!
 <%
@@ -98,9 +98,10 @@ server_pools:
   add_firewall_rules:
     - rule_name: 'etco_app_secgroup'
   run_list:
-  - recipe[chef-vault::default]
-  - recipe[java::default]
+  - recipe[chef-vault]
+  - recipe[java]
   - recipe[etco::app]
+  - recipe[demo::store_attr]
   vault_access:
   - vault: testdrive
     item: user_creds
@@ -139,9 +140,10 @@ server_pools:
   add_firewall_rules:
     - rule_name: 'etco_cas_secgroup'
   run_list:
-  - recipe[chef-vault::default]
-  - recipe[java::default]
+  - recipe[chef-vault]
+  - recipe[java]
   - recipe[etco::cas]
+  - recipe[demo::store_attr]
   vault_access:
   - vault: testdrive
     item: user_creds
@@ -168,9 +170,10 @@ server_pools:
   add_firewall_rules:
     - rule_name: 'etco_mongo_secgroup'
   run_list:
-  - recipe[chef-vault::default]
-  - recipe[java::default]
+  - recipe[chef-vault]
+  - recipe[java]
   - recipe[etco::mongo]
+  - recipe[demo::store_attr]
   vault_access:
   - vault: testdrive
     item: user_creds

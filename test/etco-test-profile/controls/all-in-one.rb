@@ -48,7 +48,7 @@ control 'app' do
     its('owner') { should eq 'root' }
     its('group') { should eq 'root' }
     its('mode') { should cmp '0755' }
-    its('content') { should match /mongodb.uri="mongodb:\/\/#{mongo_dns}:27017\/tco_test_db"/}
+    its('content') { should match /mongodb.uri="mongodb:\/\/ip-#{mongo_dns}\.ec2\.internal:27017\/tco_test_db"/}
     its('content') { should match /app.casClient = "http:\/\/#{cas_dns}\/cas-etco"/}
   end
   
@@ -121,7 +121,7 @@ control 'cas' do
   end
 
   describe service('tomcat') do
-    it { should be_enabled }
+    #it { should be_enabled }
     it { should be_running }
   end
   
