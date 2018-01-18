@@ -63,7 +63,7 @@ module MU
             if @config['private']
               if @config['all_account_vpcs']
                 # If we've been told to make this domain available account-wide, do so
-                MU::Cloud::AWS.listRegions.each { |region|
+                MU::Cloud::AWS.listRegions(@config['us_only']).each { |region|
                   known_vpcs = MU::Cloud::AWS.ec2(region).describe_vpcs.vpcs
 
                   MU.log "Enumerating VPCs in #{region}", MU::DEBUG, details: known_vpcs

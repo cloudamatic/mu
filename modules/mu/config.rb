@@ -122,7 +122,7 @@ module MU
             docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["clouds"] = {}
              docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["clouds"][cloud] = cfg
           }
-# XXX these should activate selectively
+
           docschema['required'].concat(required)
           docschema['required'].uniq!
         }
@@ -479,7 +479,10 @@ module MU
       # Run our input through the ERB renderer, a first pass just to extract
       # the parameters section so that we can resolve all of those to variables
       # for the rest of the config to reference.
-      # XXX figure out how to make include() add parameters for us
+      # XXX Figure out how to make include() add parameters for us. Right now
+      # you can't specify parameters in an included file, because ERB is what's
+      # doing the including, and parameters need to already be resolved so that
+      # ERB can use them.
       param_cfg, raw_erb_params_only = resolveConfig(path: @@config_path, param_pass: true)
       if param_cfg.has_key?("parameters")
         param_cfg["parameters"].each { |param|
@@ -515,7 +518,6 @@ module MU
       end
       raise ValidationError if !ok
       @@parameters.each_pair { |name, val|
-# XXX do valid_values validation stuff here
         next if @@tails.has_key?(name) and @@tails[name].is_a?(MU::Config::Tail) and @@tails[name].pseudo
         # Parameters can have limited parameterization of their own
         if @@tails[name].to_s.match(/^(.*?)MU::Config.getTail PLACEHOLDER (.+?) REDLOHECALP(.*)/)
@@ -577,8 +579,6 @@ module MU
     # Output the dependencies of this BoK stack as a directed acyclic graph.
     # Very useful for debugging.
     def visualizeDependencies
-      # XXX no idea why this is necessary
-      $LOAD_PATH << "/usr/local/ruby-current/lib/ruby/gems/2.1.0/gems/ruby-graphviz-1.2.2/lib/"
       # GraphViz won't like MU::Config::Tail, pare down to plain Strings
       config = MU::Config.manxify(Marshal.load(Marshal.dump(@config)))
       begin
@@ -758,8 +758,6 @@ module MU
             ok = false
           end
         end
-      else
-        # XXX what'd I leave this here for?
       end
 
       # Is it a storage pool with mount points, which need their own VPC refs
@@ -1497,8 +1495,6 @@ module MU
         end
 
         vpc_block.delete('deploy_id')
-# XXX this was to cover some weird bad input case, and only works in AWS
-#        vpc_block.delete('nat_host_id') if vpc_block.has_key?('nat_host_id') and !vpc_block['nat_host_id'].nil? and !vpc_block['nat_host_id'].match(/^i-/)
         vpc_block.delete('vpc_name') if vpc_block.has_key?('vpc_id')
         vpc_block.delete('deploy_id')
         vpc_block.delete('tag')
@@ -1599,7 +1595,9 @@ module MU
         realvpc['vpc_id'] = vpc['vpc_id'] if !vpc['vpc_id'].nil?
         realvpc['vpc_name'] = vpc['vpc_name'] if !vpc['vpc_name'].nil?
         if !realvpc['vpc_id'].nil? and !realvpc['vpc_id'].empty?
-# XXX stupid kludge for Google cloud_ids which are sometimes URLs and sometimes not. Do better.
+          # Stupid kludge for Google cloud_ids which are sometimes URLs and
+          # sometimes not. Requirements are inconsistent from scenario to
+          # scenario.
           name = name + "-" + realvpc['vpc_id'].gsub(/.*\//, "")
           realvpc['vpc_id'] = getTail("vpc_id", value: realvpc['vpc_id'], prettyname: "Admin Firewall Ruleset #{name} Target VPC",  cloudtype: "AWS::EC2::VPC::Id") if realvpc["vpc_id"].is_a?(String)
         elsif !realvpc['vpc_name'].nil?
@@ -1718,14 +1716,17 @@ module MU
         schema_fields << "project"
         if kitten['region'].nil? and !kitten['#MU_CLOUDCLASS'].nil? and
            ![MU::Cloud::VPC, MU::Cloud::FirewallRule].include?(kitten['#MU_CLOUDCLASS'])
-# XXX be sanity-checking that this value exists
+          if !$MU_CFG['google'] or !$MU_CFG['google']['region']
+            raise ValidationError, "Google resource declared without a region, but no default Google region declared in mu.yaml"
+          end
           kitten['region'] = $MU_CFG['google']['region']
         end
       else
-# XXX be sanity-checking that this value exists
+        if !$MU_CFG['aws'] or !$MU_CFG['aws']['region']
+          raise ValidationError, "AWS resource declared without a region, but no default AWS region declared in mu.yaml"
+        end
         kitten['region'] = $MU_CFG['aws']['region'] if kitten['region'].nil?
       end
-# XXX get AWS layer to honor us_only
       kitten['us_only'] = @config['us_only'] if kitten['us_only'].nil?
 
       kitten["dependencies"] ||= []
@@ -1761,7 +1762,7 @@ module MU
         ok = false
       end
 
-      nat_routes = Hash.new # XXX ugh, just die
+      nat_routes ||= {}
       @kittens["vpcs"].each { |vpc|
         ok = false if !insertKitten(vpc, "vpcs")
       }
@@ -2062,14 +2063,14 @@ module MU
           database_names << replica['name']
           replica['create_read_replica'] = false
           replica['read_replica_of'] = {
-              "db_name" => db['name'],
-              "cloud" => db['cloud'],
-              "region" => db['region'] # XXX might want to allow override of this
+            "db_name" => db['name'],
+            "cloud" => db['cloud'],
+            "region" => db['read_replica_region'] || db['region']
           }
           replica['dependencies'] << {
-              "type" => "database",
-              "name" => db["name"],
-              "phase" => "groom"
+            "type" => "database",
+            "name" => db["name"],
+            "phase" => "groom"
           }
           read_replicas << replica
         end
@@ -2495,11 +2496,11 @@ module MU
 
       return vpc_ref_schema
     end
-    allregions = MU::Cloud::AWS.listRegions # XXX make this work when we're not in AWS but have AWS creds configured
+    allregions = MU::Cloud::AWS.listRegions
     allregions.concat(MU::Cloud::Google.listRegions) # XXX make this work when we're in GCP and don't have explicit creds configured
 
     def self.region_primitive
-    allregions = MU::Cloud::AWS.listRegions # XXX make this work when we're not in AWS but have AWS creds configured
+    allregions = MU::Cloud::AWS.listRegions
     allregions.concat(MU::Cloud::Google.listRegions) # XXX make this work when we're in GCP and don't have explicit creds configured
       {
         "type" => "string",
@@ -2784,7 +2785,6 @@ module MU
                     "properties" => {
                         "name" => {"type" => "string"},
                         "ip_block" => @cidr_primitive,
-                        # XXX what does the API do if we don't set this? pick one at random?
                         "availability_zone" => {"type" => "string"},
                         "route_table" => {"type" => "string"},
                         "map_public_ips" => {
@@ -4224,16 +4224,20 @@ module MU
                 "description" => "For any creation_style other than 'new' this parameter identifies the database to use. In the case of new_snapshot or point_in_time this is the identifier of an existing database instance; in the case of existing_snapshot this is the identifier of the snapshot."
             },
             "master_user" => {
-                "type" => "string",
-                "description" => "Set master user name for this database instance; if not specified a random username will be generated"
+              "type" => "string",
+              "description" => "Set master user name for this database instance; if not specified a random username will be generated"
             },
             "restore_time" => {
               "type" => "string",
               "description" => "Must either be set to 'latest' or date/time value in the following format: 2015-09-12T22:30:00Z. Applies only to point_in_time creation_style"
             },
             "create_read_replica" => {
-                "type" => "boolean",
-                "default" => false
+              "type" => "boolean",
+              "default" => false
+            },
+            "read_replica_region" => {
+              "type" => "string",
+              "description" => "Put read-replica in a particular region, other than the region of the source database."
             },
             "cluster_node_count" => {
               "type" => "integer",
@@ -4837,26 +4841,6 @@ module MU
 
           If you specify subnets and Availability Zones with this call, ensure that the subnets' Availability Zones match the Availability Zones specified."
             },
-# XXX this is only meaningful in Google
-# can be thought of as the instance-side listener declaration in AWS load
-# balancer target groups
-            "named_ports" => {
-              "type" => "array",
-              "items" => {
-                "type" => "object",
-                "required" => ["name", "port"],
-                "additionalProperties" => false,
-                "description" => "A named network port for a Google instance group, used for health checks and forwarding targets.",
-                "properties" => {
-                  "name" => {
-                    "type" => "string"
-                  },
-                  "port" => {
-                    "type" => "integer"
-                  }
-                }
-              }
-            },
             "scaling_policies" => {
                 "type" => "array",
                 "minItems" => 1,
@@ -4943,11 +4927,11 @@ module MU
             },
             #XXX this needs its own primitive and discovery mechanism
             "zones" => {
-                "type" => "array",
-                "minItems" => 1,
-                "items" => {
-                    "type" => "string",
-                }
+              "type" => "array",
+              "minItems" => 1,
+              "items" => {
+                "type" => "string",
+              }
             },
             "basis" => {
                 "type" => "object",

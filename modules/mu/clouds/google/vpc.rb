@@ -250,7 +250,7 @@ module MU
           found = []
 
           resp = nil
-          MU::Cloud::Google.listRegions.each { |r|
+          MU::Cloud::Google.listRegions(@config['us_only']).each { |r|
             resp = MU::Cloud::Google.compute.list_subnetworks(
               @config['project'],
               r,

@@ -18,24 +18,26 @@ module MU
     # Support for Amazon Web Services as a provisioning layer.
     class AWS
 
+      @@azs = {}
       # List the Availability Zones associated with a given Amazon Web Services
       # region. If no region is given, search the one in which this MU master
       # server resides.
       # @param region [String]: The region to search.
       # @return [Array<String>]: The Availability Zones in this region.
       def self.listAZs(region = MU.curRegion)
+        if !region.nil? and @@azs[region]
+          return @@azs[region]
+        end
         if region
           azs = MU::Cloud::AWS.ec2(region).describe_availability_zones(
-              filters: [name: "region-name", values: [region]]
+            filters: [name: "region-name", values: [region]]
           )
-        else
-          azs = MU::Cloud::AWS.ec2(region).describe_availability_zones
         end
-        zones = Array.new
+        @@azs[region] ||= []
         azs.data.availability_zones.each { |az|
-          zones << az.zone_name if az.state == "available"
+          @@azs[region] << az.zone_name if az.state == "available"
         }
-        return zones
+        return @@azs[region]
       end
 
       # Plant a Mu deploy secret into a storage bucket somewhere for so our kittens can consume it
@@ -71,12 +73,19 @@ module MU
         false
       end
 
+      @@regions = {}
       # List the Amazon Web Services region names available to this account. The
       # region that is local to this Mu server will be listed first.
+      # @param us_only [Boolean]: Restrict results to United States only
       # @return [Array<String>]
-      def self.listRegions
-        return [] if !MU::Cloud::AWS.hosted
-        regions = MU::Cloud::AWS.ec2.describe_regions().regions.map { |region| region.region_name }
+      def self.listRegions(us_only = false)
+        if @@regions.size == 0
+          result = MU::Cloud::AWS.ec2.describe_regions().regions
+          regions = []
+          result.each { |r|
+            @@regions[r.region_name] = Proc.new { listAZs(r.region_name) }
+          }
+        end
 
 #			regions.sort! { |a, b|
 #				val = a <=> b
@@ -87,8 +96,11 @@ module MU
 #				end
 #				val
 #			}
-
-        return regions
+        if us_only
+          @@regions.keys.delete_if { |r| !r.match(/^us\-/) }
+        else
+          @@regions.keys
+        end
       end
 
       # Generate an EC2 keypair unique to this deployment, given a regular

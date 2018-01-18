@@ -182,7 +182,25 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
-          schema = {}
+          schema = {
+            "named_ports" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "required" => ["name", "port"],
+                "additionalProperties" => false,
+                "description" => "A named network port for a Google instance group, used for health checks and forwarding targets.",
+                "properties" => {
+                  "name" => {
+                    "type" => "string"
+                  },
+                  "port" => {
+                    "type" => "integer"
+                  }
+                }
+              }
+            }
+          }
           [toplevel_required, schema]
         end
 

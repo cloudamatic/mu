@@ -2233,7 +2233,7 @@ module MU
                     server['create_image']['copy_to_regions'].include?("#ALL") or
                     server['create_image']['copy_to_regions'].size == 0
                 )
-              server['create_image']['copy_to_regions'] = MU::Cloud::AWS.listRegions
+              server['create_image']['copy_to_regions'] = MU::Cloud::AWS.listRegions(server['us_only'])
             end
           end
 
