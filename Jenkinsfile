@@ -31,7 +31,7 @@ pipeline {
                 script{
                   try{
                       //sh "sleep 135"
-                      sh "${workspace}/bin/mu-deploy -n /opt/mu/var/mu_test_drive/applications/etco/etco-autoscale-private.yaml -p s3_drive=etco-dev"
+                      sh "${workspace}/bin/mu-deploy -n ${workspace}/demo/etco-autoscale-private_2.yaml -p s3_drive=etco-dev"
                     } catch (err) {
                       echo "ERROR: ${err}"
                       currentBuild.result = 'UNSTABLE'
@@ -65,7 +65,7 @@ pipeline {
               steps {
                 script{
                     try {
-                      sh "python ${workspace}/test/exec_inspec.py etco-test-profile etco-autoscale-private.yaml"
+                      sh "python ${workspace}/test/exec_inspec.py etco-test-profile etco-autoscale-private_2.yaml"
                     } catch (err) {
                         echo "ERROR: ${err}"
                         currentBuild.result = 'UNSTABLE'
