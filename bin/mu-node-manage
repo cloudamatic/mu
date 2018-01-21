@@ -233,7 +233,11 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_
             end
             if !resp or resp.exitcode != 0
               MU.log "WinRM exec on #{nodename} failed, trying SSH", MU::WARN
-              puts resp.stderr if resp.stderr
+              if chefrun and serverobj.windows?
+                cmd = "chef-client.bat --no-fips"
+              end
+              puts resp.stderr if resp and resp.stderr
+              output = nil
             else
               output = resp.stdout
               exitcode = resp.exitcode
@@ -242,6 +246,7 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_
           if !output
             # maybe this should use getSSHSession, for the sake of symmetry
             output = `ssh -q #{nodename} "#{cmd}" 2>&1 < /dev/null`
+            puts output
             exitcode = $?.exitstatus
           end
           if exitcode != 0
