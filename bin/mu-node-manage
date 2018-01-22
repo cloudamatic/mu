@@ -238,6 +238,7 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_
                 cmd += " -o '#{chef_runlist}'" if chef_runlist
               end
               puts resp.stderr if resp and resp.stderr
+              puts resp.stdout if resp and resp.stdout
               output = nil
             else
               output = resp.stdout
