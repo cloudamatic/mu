@@ -82,28 +82,6 @@ If ([Environment]::OSVersion.Version.Major -lt 10) {
   }
 }
 <% end %>
-$awsid=(New-Object System.Net.WebClient).DownloadString("$awsmeta/meta-data/instance-id")
-
-If (!(Test-Path $tmp/PSWindowsUpdate.zip)){
-  If (!(Test-Path c:/Users/$admin_username/Documents/WindowsPowerShell/Modules)){
-    mkdir c:/Users/$admin_username/Documents/WindowsPowerShell/Modules
-  }
-
-  $WebClient.DownloadFile("https://s3.amazonaws.com/cap-public/PSWindowsUpdate.zip","$tmp/PSWindowsUpdate.zip")
-  Add-Type -A 'System.IO.Compression.FileSystem'
-
-  If (!(Test-Path c:/windows/System32/WindowsPowerShell/v1.0/Modules/PSWindowsUpdate)){
-    log "Extracting PSWindowsUpdate module to c:/windows/System32/WindowsPowerShell/v1.0/Modules"
-    [IO.Compression.ZipFile]::ExtractToDirectory("$tmp/PSWindowsUpdate.zip", "c:/windows/System32/WindowsPowerShell/v1.0/Modules")
-  }
-  If (!(Test-Path c:/Users/$admin_username/Documents/WindowsPowerShell/Modules/PSWindowsUpdate)){
-    log "Extracting PSWindowsUpdate module to c:/Users/$admin_username/Documents/WindowsPowerShell"
-    [IO.Compression.ZipFile]::ExtractToDirectory("$tmp/PSWindowsUpdate.zip", "c:/Users/$admin_username/Documents/WindowsPowerShell/Modules")
-  }
-}
-
-log "Setting Windows Update parameters in registry"
-Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update" -Name AUOptions -Value 3
 
 If (!(Test-Path "$pydir\python.exe")){
   If (!(Test-Path $tmp\python-$pyv.msi)){
@@ -168,19 +146,6 @@ If ($install_chef){
   Set-Content "c:/mu_installed_chef" "yup"
 }
 
-<% if !$mu.skipApplyUpdates %>
-If (!(Test-Path "c:/mu-installer-ran-updates")){
-  log "Applying Windows updates"
-  Import-Module PSWindowsUpdate
-  Get-WUInstall -AcceptAll -IgnoreReboot
-  Start-Sleep -s 60
-  If (Test-Path "HKLM:/SOFTWARE/Microsoft/Windows/CurrentVersion/WindowsUpdate/Auto Update/RebootRequired"){
-    log "Windows Update reboot"
-    $need_reboot = $TRUE
-  }
-}
-<% end %>
-
 fetchSecret("<%= $mu.muID %>-secret")
 log "Encrypting Mu deploy secret"
 $deploy_secret = & "c:\opscode\chef\embedded\bin\ruby" -ropenssl -rbase64 -e "key = OpenSSL::PKey::RSA.new(Base64.urlsafe_decode64('<%= $mu.deployKey %>'))" -e "print Base64.urlsafe_encode64(key.public_encrypt(File.read('$tmp\<%= $mu.muID %>-secret')))"
@@ -199,17 +164,49 @@ $creds = $false
 if($credstr){
   $credparts = $credstr.Split(";", 2)
   $creds = New-Object System.Management.Automation.PSCredential($credparts[0], (ConvertTo-SecureString $credparts[1] -AsPlainText -Force))
-  if($creds){
+  if($admin_username -ne $credparts[0]){
+    if ((Get-WmiObject win32_computersystem).partofdomain -ne $true){
+      log "Changing local admin account from $admin_username to "+$credparts[0]
+      (([adsi]("WinNT://./$admin_username, user")).psbase.invoke("SetPassword", $credparts[1]))
+      ([adsi]("WinNT://./$admin_username, user")).psbase.rename($credparts[0])
+      $need_reboot = $TRUE
+    } ElseIf(!$admin_username){
+      $admin_username = $credparts[0]
+    }
+  } ElseIf($creds){
     log "Setting $admin_username password"
     (([adsi]("WinNT://./$admin_username, user")).psbase.invoke("SetPassword", $credparts[1]))
   }
 }
 
-<% if $mu.windowsAdminName %>
-if ((Get-WmiObject win32_computersystem).partofdomain -ne $true){
-  if ("$admin_username" -ne "<%= $mu.windowsAdminName %>"){
-    log "Changing local admin account from $admin_username to <%= $mu.windowsAdminName %>"
-    ([adsi]("WinNT://./$admin_username, user")).psbase.rename("<%= $mu.windowsAdminName %>")
+$awsid=(New-Object System.Net.WebClient).DownloadString("$awsmeta/meta-data/instance-id")
+
+If (!(Test-Path $tmp/PSWindowsUpdate.zip)){
+  If (!(Test-Path c:/Users/$admin_username/Documents/WindowsPowerShell/Modules)){
+    mkdir c:/Users/$admin_username/Documents/WindowsPowerShell/Modules
+  }
+
+  $WebClient.DownloadFile("https://s3.amazonaws.com/cap-public/PSWindowsUpdate.zip","$tmp/PSWindowsUpdate.zip")
+  Add-Type -A 'System.IO.Compression.FileSystem'
+
+  If (!(Test-Path c:/windows/System32/WindowsPowerShell/v1.0/Modules/PSWindowsUpdate)){
+    log "Extracting PSWindowsUpdate module to c:/windows/System32/WindowsPowerShell/v1.0/Modules"
+    [IO.Compression.ZipFile]::ExtractToDirectory("$tmp/PSWindowsUpdate.zip", "c:/windows/System32/WindowsPowerShell/v1.0/Modules")
+  }
+  If (!(Test-Path c:/Users/$admin_username/Documents/WindowsPowerShell/Modules/PSWindowsUpdate)){
+    log "Extracting PSWindowsUpdate module to c:/Users/$admin_username/Documents/WindowsPowerShell"
+    [IO.Compression.ZipFile]::ExtractToDirectory("$tmp/PSWindowsUpdate.zip", "c:/Users/$admin_username/Documents/WindowsPowerShell/Modules")
+  }
+}
+
+<% if !$mu.skipApplyUpdates %>
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update" -Name AUOptions -Value 3
+If (!(Test-Path "c:/mu-installer-ran-updates")){
+  log "Applying Windows updates"
+  Import-Module PSWindowsUpdate
+  Get-WUInstall -AcceptAll -IgnoreReboot
+  Start-Sleep -s 60
+  If (Test-Path "HKLM:/SOFTWARE/Microsoft/Windows/CurrentVersion/WindowsUpdate/Auto Update/RebootRequired"){
     $need_reboot = $TRUE
   }
 }
@@ -220,6 +217,11 @@ if((Get-WURebootStatus -Silent) -eq $true){
   $need_reboot = $TRUE
 }
 
+if ($need_reboot){
+  log "- REBOOT -"
+  Restart-Computer -Force
+  exit
+}
 
 $muca = importCert "Mu_CA.pem" "Root"
 
@@ -231,18 +233,17 @@ $thumb = $nodecert.Thumbprint
 # actually, should remove janky certificates outright
 winrm delete winrm/config/Listener?Address=*+Transport=HTTPS
 winrm create winrm/config/Listener?Address=*+Transport=HTTPS "@{Hostname=`"$myname`";CertificateThumbprint=`"$thumb`"}"
-$ingroup = net localgroup WinRMRemoteWMIUsers__ | Where-Object {$_ -eq "<%= $mu.windowsAdminName %>"}
-if($ingroup -ne "<%= $mu.windowsAdminName %>"){
-  net localgroup WinRMRemoteWMIUsers__ /add <%= $mu.windowsAdminName %>
+$ingroup = net localgroup WinRMRemoteWMIUsers__ | Where-Object {$_ -eq $admin_username}
+if($ingroup -ne $admin_username){
+  net localgroup WinRMRemoteWMIUsers__ /add $admin_username
 }
 
 $winrmcert = importCert "$myname-winrm.crt" "TrustedPeople"
 Set-Item -Path WSMan:\localhost\Service\Auth\Certificate -Value $true
 Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name LocalAccountTokenFilterPolicy -Value 1
-log $creds
 if($creds){
-  log "Enabling WinRM cert auth for <%= $mu.windowsAdminName %>"
-  New-Item -Path WSMan:\localhost\ClientCertificate -Subject '<%= $mu.windowsAdminName %>@localhost' -URI * -Issuer $muca.Thumbprint -Force -Credential $creds
+  log "Enabling WinRM cert auth for $admin_username"
+  New-Item -Path WSMan:\localhost\ClientCertificate -Subject "$admin_username@localhost" -URI * -Issuer $muca.Thumbprint -Force -Credential $creds
 }
 winrm set winrm/config/winrs '@{MaxMemoryPerShellMB="8192"}'
 winrm set winrm/config '@{MaxTimeoutms="1800000"}'
@@ -255,16 +256,8 @@ if (!(Get-NetFirewallRule -DisplayName "Allow WinRM" -ErrorAction SilentlyContin
   New-NetFirewallRule -DisplayName "Allow WinRM" -Direction Inbound -LocalPort 5986 -Protocol TCP -Action Allow
 }
 
-if ($need_reboot){
-  log "- REBOOT -"
-  Restart-Computer -Force
-  exit
-} else {
-  Add-Content c:/mu-installer-ran-updates "$(Get-Date -f MM-dd-yyyy_HH:mm:ss)"
-
-  callMomma "mu_bootstrap"
-}
-
+Add-Content c:/mu-installer-ran-updates "$(Get-Date -f MM-dd-yyyy_HH:mm:ss)"
+callMomma "mu_bootstrap"
 Set-Content "c:/mu_userdata_complete" "yup"
 Remove-Item -Recurse $tmp
 Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy Undefined

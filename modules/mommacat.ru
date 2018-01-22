@@ -373,6 +373,9 @@ app = proc do |env|
       end
 
       if !req["mu_windows_admin_creds"].nil?
+        if !instance.is_a?(MU::Cloud::Server)
+          instance = MU::Cloud::Server.new(mommacat: kittenpile, kitten_cfg: server_cfg, cloud_id: req["mu_instance_id"])
+        end
         returnval[2] = [kittenpile.retrieveWindowsAdminCreds(instance).join(";")]
         logstr = returnval[2].is_a?(Array) ? returnval[2].first.sub(/;.*/, ";*********") : returnval[2].sub(/;.*/, ";*********")
         MU.log logstr, MU::NOTICE
