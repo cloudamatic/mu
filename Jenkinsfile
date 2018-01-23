@@ -26,12 +26,12 @@ pipeline {
 
 //      stage('mu-deploy'){
 //        parallel{
-            stage("mu-deploy etco-autoscale-private"){
+            stage("mu-deploy simple-server-rails"){
               steps {
                 script{
                   try{
                       //sh "sleep 135"
-                      sh "${workspace}/bin/mu-deploy -n ${workspace}/demo/etco-autoscale-private_2.yaml -p s3_drive=etco-dev"
+                      sh "${workspace}/bin/mu-deploy -n ${workspace}/demo/simple-server-rails.yaml"
                     } catch (err) {
                       echo "ERROR: ${err}"
                       currentBuild.result = 'UNSTABLE'
@@ -61,11 +61,11 @@ pipeline {
 // ******************** Run ALL TESTS PARALLEL ********************
 //      stage('Inspec Verify'){
 //        parallel{
-            stage("Inspec etco-test"){
+            stage("Inspec simple-server-rails-test"){
               steps {
                 script{
                     try {
-                      sh "python ${workspace}/test/exec_inspec.py etco-test-profile etco-autoscale-private_2.yaml"
+                      sh "python ${workspace}/test/exec_inspec.py simple-server-rails-test simple-server-rails.yaml"
                     } catch (err) {
                         echo "ERROR: ${err}"
                         currentBuild.result = 'UNSTABLE'
@@ -105,7 +105,7 @@ pipeline {
     stage('Mu-Cleanup'){
         steps {
           script {
-            //sh 'sudo python /opt/mu/lib/test/clean_up.py'
+            sh 'sudo python /opt/mu/lib/test/clean_up.py'
             sh 'sudo rm -rf /tmp/inspec_retries/*'
             sh 'sudo rm -f /tmp/*.yaml'
           }
