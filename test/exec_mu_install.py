@@ -3,8 +3,16 @@
 import subprocess, boto3, os, json, time, datetime
 
 
-#workspace=os.environ['WORKSPACE']
+### TODO:
+##### Grab the installer from a specific branch
+##### Update installer url with the correct branch name
+##### Have the CI server inject an env var of branch name if there's not one already
+##### But what CI to use -- dunno 
 
+
+#workspace=os.environ['WORKSPACE']
+ssh_data_file = '/tmp/MU-MASTER-INSTALL-TEST.json'
+branch = "master"
 user_data= """#!/bin/bash 
 sed -i 's/#PermitRootLogin yes/PermitRootLogin yes/g' /etc/ssh/sshd_config
 sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/g' /etc/ssh/sshd_config
@@ -14,31 +22,29 @@ service sshd reload
 yum install wget -y
 yum install git -y
 cd /tmp 
-wget https://raw.githubusercontent.com/cloudamatic/mu/master/install/installer 
+wget https://raw.githubusercontent.com/cloudamatic/mu/%s/install/installer 
 chmod +x installer
 ip=$(curl http://169.254.169.254/latest/meta-data/public-ipv4)
 admin_email="amrit.gill@eglobaltech.com"
-sed -i "s/\/opt\/mu\/bin\/mu-configure \$\@/\/opt\/mu\/bin\/mu-configure \$\@ -np $ip -m $admin_email/g" installer
-sh installer
-source /root/.bashrc"""
+sed -i "s/\/opt\/mu\/bin\/mu-configure \$\@/\/opt\/mu\/bin\/mu-configure \$\@ -np $ip -m $admin_email/g" installer""" % branch
 
 
-
-
-### set a max count for while -- but what should be the max count
-def check_if_master_ready(fqdn):
-  done = False
-  while done == False: 
-    output = subprocess.check_output(["curl",fqdn,'--connect-timeout','5','-m','2000'])
-    if "This is a Mu Master server" in output:
-      done = True
-      print output
-    else:
-      done = False
-      print "Mu-Master not Installed, checking back in 30 secs"
-      time.sleep(30)
-  
-  return done
+def run_installer_over_ssh(user,host, key_file, command):
+  if user != None and host != None and command != None:
+    exists = False
+    while (exists == False):
+      out = subprocess.check_output(["ssh","-oStrictHostKeyChecking=no","-i", key_file, user+"@"+host,"ls","/tmp/"])
+      if 'installer' in out:
+        exists = True
+      else:
+        exists = False
+        print "Installer does not exist yet... checking back 5 secs"
+        time.sleep(5)
+    
+    ## yea wait for sed commands to complete (just in case)
+    time.sleep(15)
+    ssh_syntax = "ssh -oStrictHostKeyChecking=no -i %s %s@%s %s" % (key_file,user,host,command)
+    os.system(ssh_syntax)
 
 
 # not using currently -- but good to have (just in case ya know)
@@ -108,7 +114,7 @@ def desc_instances(ins_ids,region='us-east-1'):
 
     for each in each_running['Instances']:
       
-      key = each['KeyName']
+      key = '/root/.ssh/'+each['KeyName']+'.pem'
       fqdn = each['PublicDnsName']
       name = each['Tags'][0]['Value']
       ins_id = each['InstanceId'] 
@@ -124,43 +130,43 @@ def run_master_test(ssh_data_file):
   if os.path.isfile(ssh_data_file):
     ssh_info = json.load(open(ssh_data_file))
     os.chdir("/opt/mu/lib/test")
-    cmd = "inspec exec mu-master-test -t ssh://root@%s -i ~/.ssh/%s.pem" % (ssh_info[0]['fqdn'],ssh_info[0]['key'])
+    cmd = "inspec exec mu-master-test -t ssh://root@%s -i %s" % (ssh_info[0]['fqdn'],ssh_info[0]['key'])
     exit = os.system(cmd)
   else:
     raise Exception("ssh file does not exist: %s" % ssh_data_file)
 
 
 def dump_ssh_info(data):
-  new_file = open('/tmp/MU-MASTER-INSTALL-TEST.json','w')
+  new_file = open(ssh_data_file,'w')
   json.dump(data, new_file)
 
 
 
 def ec2_clean_up(ins_ids):
   ec2 = boto3.resource('ec2')
-  print "cleanup %s" % ins_ids
+  print "*********************************************"
+  print "INFO: CLEANED UP: %s" % ins_ids
+  print "*********************************************"
   ec2.instances.filter(InstanceIds=ins_ids).terminate()  
   
 
 
 
-ssh_file = '/tmp/MU-MASTER-INSTALL-TEST.json'
+######## Main 
 instance_ids = []
 instance_ids.append(create_instance())
 data = desc_instances(instance_ids)
 dump_ssh_info(data)
-
-
-if os.path.isfile(ssh_file):
-  ssh_info = json.load(open(ssh_file))
-  
-  ### TODO fix the curl command or find a better way to do this....
-  #check_if_master_ready(ssh_info[0]['fqdn'])
-  #run_master_test(ssh_file) 
+if os.path.isfile(ssh_data_file):
+  ssh_info = json.load(open(ssh_data_file))    
+  run_installer_over_ssh('root',ssh_info[0]['fqdn'],ssh_info[0]['key'],'sh /tmp/installer')
+  #run_master_test(ssh_data_file) 
+  cleanup_ids = []
+  for each in ssh_info:
+    cleanup_ids.append(each['ins_id'])
+  #ec2_clean_up(cleanup_ids)
 else:
-  raise Exception("/tmp/MU-MASTER-INSTALL-TEST.json DOES NOT EXISTS!!!")
+  print("Nothing to do! Instance Data file does not exists: %s" % ssh_data_file)
 
 
-
-## no cleanups for now...
-#ec2_clean_up(instance_ids)
+#os.system("rm -rf "+ssh_data_file)
