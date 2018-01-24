@@ -241,5 +241,14 @@ control 'init' do
     its('content'){should match /export PATH="#{MU_BASE}\/bin:\/usr\/local\/ruby-current\/bin:\${PATH}:\/opt\/opscode\/embedded\/bin"/}
     its('mode'){should cmp '0644' }
   end 
+  
+  describe command("chef-server-ctl status") do
+    its('exit_status'){should eq 0 }
+    services = ["run: nginx", "run: bookshelf", "run: oc_bifrost", "run: oc_id:","run: opscode-erchef",
+    "run: opscode-expander","run: opscode-solr4","run: postgresql","run: rabbitmq","run: redis_lb"]
+    services.each do |ser|
+      its('stdout'){should match /#{ser}/}
+    end
+  end
 
 end ## end init control
