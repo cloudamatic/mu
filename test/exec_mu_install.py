@@ -29,6 +29,13 @@ admin_email="amrit.gill@eglobaltech.com"
 sed -i "s/\/opt\/mu\/bin\/mu-configure \$\@/\/opt\/mu\/bin\/mu-configure \$\@ -np $ip -m $admin_email/g" installer""" % branch
 
 
+
+def base_controls():
+  return ['init']
+
+
+
+
 def run_installer_over_ssh(user,host, key_file, command):
   if user != None and host != None and command != None:
     exists = False
@@ -111,26 +118,27 @@ def desc_instances(ins_ids,region='us-east-1'):
     fqdn = None
     name = None
     ins_id = None
-
+    pub_ip = None
     for each in each_running['Instances']:
       
       key = '/root/.ssh/'+each['KeyName']+'.pem'
       fqdn = each['PublicDnsName']
       name = each['Tags'][0]['Value']
       ins_id = each['InstanceId'] 
+      pub_ip = each['PublicIpAddress']
       break
 
-    bootstrap = {'key':key, 'fqdn':fqdn,'name':name, 'ins_id':ins_id}
+    bootstrap = {'pub_ip': pub_ip,'key':key, 'fqdn':fqdn,'name':name, 'ins_id':ins_id}
     all_bootstraps.append(bootstrap)
   print all_bootstraps
   return all_bootstraps
 
 
-def run_master_test(ssh_data_file):
+def run_master_test(ssh_data_file,controls):
   if os.path.isfile(ssh_data_file):
     ssh_info = json.load(open(ssh_data_file))
     os.chdir("/opt/mu/lib/test")
-    cmd = "inspec exec mu-master-test -t ssh://root@%s -i %s" % (ssh_info[0]['fqdn'],ssh_info[0]['key'])
+    cmd = "inspec exec mu-master-test --controls=%s -t ssh://root@%s -i %s" % (controls, ssh_info[0]['fqdn'],ssh_info[0]['key'])
     exit = os.system(cmd)
   else:
     raise Exception("ssh file does not exist: %s" % ssh_data_file)
@@ -155,12 +163,15 @@ def ec2_clean_up(ins_ids):
 ######## Main 
 instance_ids = []
 instance_ids.append(create_instance())
+controls = base_controls()
+controls_spaced_out = ' '.join(controls)
 data = desc_instances(instance_ids)
 dump_ssh_info(data)
+
 if os.path.isfile(ssh_data_file):
   ssh_info = json.load(open(ssh_data_file))    
   run_installer_over_ssh('root',ssh_info[0]['fqdn'],ssh_info[0]['key'],'sh /tmp/installer')
-  #run_master_test(ssh_data_file) 
+  run_master_test(ssh_data_file, controls_spaced_out) 
   cleanup_ids = []
   for each in ssh_info:
     cleanup_ids.append(each['ins_id'])
