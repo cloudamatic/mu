@@ -1,5 +1,6 @@
 mu -- Cloudamatic Automation Tooling
 ===
+[![Maintainability](https://api.codeclimate.com/v1/badges/dd4e5d867890336accd1/maintainability)](https://codeclimate.com/github/cloudamatic/mu/maintainability)
 
 # About mu
 **mu**  is the deployer and developer toolset for the Cloudamatic complete cloud deployment solution, designed to provision, orchestrate and manage complex platforms and applications. mu provides Cloudamatic deployers and developers with the tools and commands to automate any arbitrarily complex application, platform or combination on a wide range of infrastructure targets, starting with AWS Cloud and including other clouds, virtualized environments and bare iron.
