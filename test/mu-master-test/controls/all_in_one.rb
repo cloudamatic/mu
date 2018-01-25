@@ -7,6 +7,8 @@ require 'json'
 ## read on master
 node_meta = JSON.parse(File.read("/tmp/MU-MASTER-INSTALL-TEST.json")) if File.exists?("/tmp/MU-MASTER-INSTALL-TEST.json")
 chef_server_url = node_meta[0]['pub_ip']
+$MU_CFG = '/opt/mu/var'
+
 
 control 'init' do
   title 'mu-master init recipe tests'
@@ -252,3 +254,304 @@ control 'init' do
   end
 
 end ## end init control
+
+
+control "basepackages" do
+  title "mu-master basepackages recipe test"
+  node = json('/tmp/chef_node.json').params
+
+  basepackages = []
+  removepackages = []
+  rpms = {}
+  dpkgs = {}
+
+  if os[:family] == 'redhat'
+    basepackages = ["vim-enhanced", "zip", "unzip", "java-1.8.0-openjdk", "libxml2-devel", "libxslt-devel", "cryptsetup-luks", "python-pip", "lsof", "mlocate", "strace", "nmap", "openssl-devel", "readline-devel", "python-devel", "diffutils", "patch", "bind-utils", "httpd-tools", "mailx", "openssl", "libyaml", "graphviz", "ImageMagick-devel", "graphviz-devel", "jq", "vim"]
+
+    if os[:release].to_i < 6 or os[:release].to_i >= 8
+      raise "Mu Masters on RHEL-family hosts must be equivalent to RHEL6 or RHEL7"
+    
+    elsif os[:release].to_i < 7
+      basepackages.concat(["java-1.5.0-gcj", "mysql-server", "autoconf"])
+      basepackages << "gecode-devel" if node[:platform] == "amazon"
+    
+    elsif os[:release].to_i < 8
+      basepackages.concat(["gecode-devel", "mariadb", "qt", "qt-x11", "iptables-services"])
+    end
+  else
+    raise "Mu Masters are currently only supported on RHEL-family hosts."
+  end
+
+
+  basepackages.each do |pack|
+    describe package(pack) do
+      it { should be_installed }
+    end
+  end
+
+  rpms.each_pair { |pkg, src|
+    describe command("rpm -q #{pkg}") do
+      its('exit_status'){ should eq 0 }
+    end
+  }
+end
+
+
+
+
+control 'firewall-holes' do
+  title 'mu-master firewall-holes recipe test'
+
+
+  [2260, 7443, 8443, 9443, 10514, 443, 80, 25].each do |port|
+    describe firewalld do
+      it { should have_port_enabled_in_zone("#{port}/tcp",'public') }
+    end
+  end
+
+end
+
+
+control 'ssl-certs' do
+  title 'mu-master ssl-certs recipe test'
+    
+  service_certs = ["rsyslog", "mommacat", "ldap", "consul", "vault"]
+  
+  describe directory("#{$MU_CFG}/ssl") do
+    it { should exist }
+  end
+
+  describe file("#{$MU_CFG}/ssl/Mu_CA.key") do
+    it { should exist }
+    its('mode') { should cmp '0400'}
+  end
+
+  describe file("#{$MU_CFG}/ssl/openssl.cnf") do
+    it { should exist }
+    it { should be_file }
+    its('content'){should match /dir\s*=\s*#{$MU_CFG}\/ssl/ }
+    its('content'){should match /certs\s*=\s*\$dir/}
+    its('content'){should match /certificate\s*=\s*\$dir\/Mu_CA.pem/}
+    its('content'){should match /private_key\s*= \$dir\/Mu_CA.key/}
+  end
+
+  service_certs.each do |cert|
+    
+    describe file("#{$MU_CFG}/ssl/#{cert}.crt") do
+      it { should exist }
+      its('mode') { should cmp '0444' }
+    end
+    
+    describe file("#{$MU_CFG}/ssl/#{cert}.key") do
+      it { should exist }
+      its('mode'){should cmp '0400' }
+    end
+
+    describe file("#{$MU_CFG}/ssl/#{cert}.p12") do
+      it { should exist }
+      its('mode') { should cmp '0444' }
+    end
+
+    describe file("#{$MU_CFG}/ssl/#{cert}.csr") do
+      it { should_not exist }
+    end
+    
+  end
+
+ describe file("#{$MU_CFG}/ssl/CA-command.txt") do
+  it { should exist }
+  its('content') { should match /openssl req -subj/ }
+  its('content') { should match /-x509 -new -nodes -key Mu_CA.key -days 1024 -out Mu_CA.pem -sha512 -extensions v3_ca -config/}
+ end
+  
+  describe file("#{$MU_CFG}/ssl/Mu_CA.pem") do
+    it { should exist }
+    its('mode') { should cmp '0444' }
+  end
+  
+  describe file("/etc/pki/ca-trust/source/anchors/Mu_CA.pem") do
+    it { should exist }
+  end
+
+  describe file("/opt/mu/lib/cookbooks/mu-tools/files/default/Mu_CA.pem") do
+    it { should exist }
+  end
+
+end
+
+
+control 'vault' do
+  title 'mu-master ssl-certs recipe test'
+  node = json('/tmp/chef_node.json').params
+  
+
+  ["consul", "vault"].each { |cert|
+    describe directory("/opt/#{cert}") do
+      it { should exist }
+      its('mode') { should cmp '0755' }
+    end
+
+    describe file("#{$MU_CFG}/ssl/#{cert}.key") do
+      its('owner') { should eq cert }
+    end
+
+    describe file("#{$MU_CFG}/ssl/#{cert}.key") do
+      its('owner') { should eq cert }
+    end
+
+    describe service(cert) do
+      it { should be_enabled }
+      it { should be_running }
+    end
+  
+  }
+
+  describe directory("/etc/consul/ssl") do
+    it { should exist }
+    its('owner'){should eq 'consul'}
+    its('group'){should eq 'consul'}
+    its('mode'){should cmp '0755'}
+  end
+
+  %w(/etc/vault /etc/vault/ssl /etc/consul/ssl/CA).each do |dir|
+    describe directory(dir) do
+      it { should exist }
+      its('owner'){should eq 'root'}
+      its('mode'){should cmp '0755'}
+    end
+  end
+
+  describe file("/etc/consul/ssl/CA/ca.crt") do
+    it { should exist }
+    its('mode'){should cmp '0644'}
+  end
+end
+
+
+control 'default' do
+  title 'mu-master default recipe tests'
+ 
+  node = json('/tmp/chef_node.json').params
+  
+  describe sys_info do
+    its('hostname') { should eq 'mu-master' }
+  end
+  
+  describe file('/root/.vimrc') do
+    it { should exist }
+  end
+
+  describe file('/etc/profile.d/usr_local_bin.sh') do
+    it { should exist }
+    its('content') { should match /export PATH="\${PATH}:\/usr\/local\/bin"/}
+    its('mode'){should cmp '0644'}
+  end
+
+  describe file('/var/www/html/cloudamatic.png') do
+    it { should exist }
+    its('mode'){should cmp '0644'}
+  end
+  
+  
+  describe package('nagios') do
+    it { should_not be_installed }
+  end
+
+  only_if do
+    !node['default']['update_nagios_only']
+    
+    describe package('nagios-plugins-all') do
+      it { should be_installed }
+    end
+  
+    %w(/home/nagios /home/nagios/.ssh).each do |dir|
+      describe directory(dir) do
+        it { should exist }
+        its('owner') { should eq 'nagios'}
+        its('mode') { should cmp '0711' }
+      end 
+    end
+    
+    describe file("/home/nagios/.ssh/config") do
+      it { should exist }
+      its('mode') { should cmp '0600' }
+      its('owner'){ should cmp 'nagios' }
+    end
+
+    describe file('/etc/dhcp/dhclient-eth0.conf') do
+      it { should exist }
+      ins_id = node_meta[0]['ins_id']
+      its('content') { should match /interface\s*"eth0"\s*{/ }
+      its('content') { should match /#\s*ec2.internal,\s*server.#{ins_id}.platform-mu,\s*platform-mu/ }
+      its('content') { should match /supersede\s*domain-search\s*"ec2.internal",\s*"server.#{ins_id}.platform-mu",\s*"platform-mu"/ }
+      its('mode'){should cmp '0644' }
+    end
+
+    describe command("/usr/sbin/getsebool httpd_can_network_connect | grep -cim1 ^.*on$") do
+      its('exit_status'){should eq 0 }
+    end
+    
+    %w(mu_docs https_proxy).each do |conf|
+      describe file("/etc/httpd/sites-enabled/#{conf}.conf") do
+        it { should exist }
+      end
+    end
+
+    describe file('/usr/lib64/nagios/cgi-bin') do
+      it { should exist }
+      it { should be_linked_to "/usr/lib/cgi-bin"}
+    end
+
+    describe directory("/var/www/html/docs") do
+      it { should exist }
+      its('owner'){ should eq 'apache' }
+      its('owner'){ should eq 'apache' }
+    end 
+
+    describe file('/var/www/html/index.html') do
+      it { should exist }
+      its('owner'){ should eq 'apache' }
+      its('owner'){ should eq 'apache' }
+      its('content') { should match /<a href='http:\/\/#{chef_server_url}\/docs\/frames.html'>Mu API documentation<\/a>/ }
+    end
+    
+    describe directory('/Mu_Logs') do
+      it { should exist }
+    end
+
+    describe file('/etc/rsyslog.d/0-mu-log-server.conf') do
+      it { should exist }
+      its('content'){ should match /\$DefaultNetstreamDriver gtls/}
+      its('content'){ should match /\$InputTCPServerStreamDriverMode 1/ }
+    end
+   
+    describe file("/etc/rsyslog.d/0-mu-log-client.conf") do
+      it { should_not exist }
+    end
+
+    ["grep ^/opt/chef/bin/chef-client /etc/rc.d/rc.local","grep '^/sbin/restorecon -r /home' /etc/rc.d/rc.local"].each do |cmd|
+      describe command(cmd) do
+        its('exit_status'){should eq 0}
+      end
+    end
+
+    describe directory("/etc/pki/rsyslog") do
+      it { should exist }
+    end
+    
+    describe package('logrotate') do
+      it { should be_installed }
+    end
+   
+    describe service('mu-momma-cat') do
+      it { should be_running }
+      it { should be_enabled }
+    end
+
+    describe service('nagios') do
+      it { should be_running }
+    end
+  end # end only_if
+
+
+end
