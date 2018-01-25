@@ -39,17 +39,20 @@ def base_controls():
 def run_installer_over_ssh(user,host, key_file, command):
   if user != None and host != None and command != None:
     exists = False
-    while (exists == False):
+    time.sleep(90)
+    counter = 0
+    max_retries = 20
+    while (counter != max_retries):
       out = subprocess.check_output(["ssh","-oStrictHostKeyChecking=no","-i", key_file, user+"@"+host,"ls","/tmp/"])
       if 'installer' in out:
         exists = True
+        break
       else:
+        counter += 1
         exists = False
-        print "Installer does not exist yet... checking back 5 secs"
+        print "Installer does not exist yet... checking back 5 secs... (Retry %s/%s)" % (counter,max_retries)
         time.sleep(5)
     
-    ## yea wait for sed commands to complete (just in case)
-    time.sleep(15)
     ssh_syntax = "ssh -oStrictHostKeyChecking=no -i %s %s@%s %s" % (key_file,user,host,command)
     os.system(ssh_syntax)
 
