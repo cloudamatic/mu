@@ -29,9 +29,8 @@ admin_email="amrit.gill@eglobaltech.com"
 sed -i "s/\/opt\/mu\/bin\/mu-configure \$\@/\/opt\/mu\/bin\/mu-configure \$\@ -np $ip -m $admin_email/g" installer""" % branch
 
 
-
 def base_controls():
-  return ['init']
+  return ['default','init','basepackages','firewall-holes', 'ssl-certs', 'vault']
 
 
 
@@ -183,11 +182,11 @@ if os.path.isfile(ssh_data_file):
   ssh_info = json.load(open(ssh_data_file))    
   run_installer_over_ssh('root',ssh_info[0]['fqdn'],ssh_info[0]['key'],'sh /tmp/installer')
   run_master_test(ssh_data_file, controls_spaced_out) 
-  rm_chef_node_json_frm_target('root',ssh_info[0]['fqdn'],ssh_info[0]['key'])
+  #rm_chef_node_json_frm_target('root',ssh_info[0]['fqdn'],ssh_info[0]['key'])
   cleanup_ids = []
   for each in ssh_info:
     cleanup_ids.append(each['ins_id'])
-  ec2_clean_up(cleanup_ids)
+  #ec2_clean_up(cleanup_ids)
 else:
   print("Nothing to do! Instance Data file does not exists: %s" % ssh_data_file)
 
