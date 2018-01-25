@@ -12,7 +12,7 @@ import subprocess, boto3, os, json, time, datetime
 
 #workspace=os.environ['WORKSPACE']
 ssh_data_file = '/tmp/MU-MASTER-INSTALL-TEST.json'
-branch = "master"
+branch = "issue_100"
 user_data= """#!/bin/bash 
 sed -i 's/#PermitRootLogin yes/PermitRootLogin yes/g' /etc/ssh/sshd_config
 sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/g' /etc/ssh/sshd_config
@@ -149,6 +149,14 @@ def dump_ssh_info(data):
   json.dump(data, new_file)
 
 
+def rm_chef_node_json_frm_target(user,host,key,file_to_rm="/tmp/chef_node.json"):
+  if user != None and host != None and os.path.isfile(key):
+    cmd = "ssh -oStrictHostKeyChecking -i %s %s@%s rm -rf %s" %(key,user,host,file_to_rm)
+    exit = os.system(cmd)
+    return exit
+  else:
+    raise Exception("Check user, host and make sure key file exists on this machine")
+
 
 def ec2_clean_up(ins_ids):
   ec2 = boto3.resource('ec2')
@@ -172,10 +180,11 @@ if os.path.isfile(ssh_data_file):
   ssh_info = json.load(open(ssh_data_file))    
   run_installer_over_ssh('root',ssh_info[0]['fqdn'],ssh_info[0]['key'],'sh /tmp/installer')
   run_master_test(ssh_data_file, controls_spaced_out) 
+  rm_chef_node_json_frm_target('root',ssh_info[0]['fqdn'],ssh_info[0]['key'])
   cleanup_ids = []
   for each in ssh_info:
     cleanup_ids.append(each['ins_id'])
-  #ec2_clean_up(cleanup_ids)
+  ec2_clean_up(cleanup_ids)
 else:
   print("Nothing to do! Instance Data file does not exists: %s" % ssh_data_file)
 
