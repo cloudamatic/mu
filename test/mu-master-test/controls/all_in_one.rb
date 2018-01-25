@@ -304,8 +304,8 @@ control 'firewall-holes' do
 
 
   [2260, 7443, 8443, 9443, 10514, 443, 80, 25].each do |port|
-    describe firewalld do
-      it { should have_port_enabled_in_zone("#{port}/tcp",'public') }
+    describe command("netstat -ant | grep #{port}") do
+      its('exit_status'){should eq 0 }
     end
   end
 
