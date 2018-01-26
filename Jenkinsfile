@@ -18,7 +18,7 @@ pipeline {
       stage('Rubocop'){
         steps{
           script {
-            sh "rubocop ${workspace}/modules/"
+            sh "/usr/local/ruby-current/bin/rubocop ${workspace}/modules/"
           }
         }
       }
@@ -26,7 +26,7 @@ pipeline {
       stage('Foodcritic MU Cookbooks'){
         steps{
           script {
-            sh "foodcritic ${workspace}/cookbooks/*"
+            sh "/usr/local/ruby-current/bin/foodcritic ${workspace}/cookbooks/*"
           }
         }
       }
