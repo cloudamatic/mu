@@ -14,6 +14,23 @@ pipeline {
             userRemoteConfigs: scm.userRemoteConfigs])
         }
       }
+      
+      stage('Rubocop'){
+        steps{
+          script {
+            sh "rubocop ${workspace}/modules/"
+          }
+        }
+      }
+
+      stage('Foodcritic MU Cookbooks'){
+        steps{
+          script {
+            sh "foodcritic ${workspace}/cookbooks/*"
+          }
+        }
+      }
+
       stage('Initial Cleanup'){
         steps {
           script {
