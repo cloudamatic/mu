@@ -38,10 +38,25 @@ servers:
         port: 443
         hosts:
           - "0.0.0.0/0"
-    # dependencies:
-    #   -
-    #     name: "gitLabDB"
-    #     type: "database"
+  -
+    name: gitlab-runner
+    ssh_user: ubuntu
+    platform: ubuntu
+    storage:
+      -
+        size: 8
+    skipinitialupdates: true
+    size: t2.micro
+    run_list:
+    - recipe[demo::gitlab_runner]
+    vpc:
+    <% if $vpc_deploy_id %>
+      deploy_id: <%= $vpc_deploy_id %>
+    <% elsif $use_current %>
+      vpc_id: <%= current_vpc %>
+    <% else %>
+      vpc_name: vpc
+    <% end %>
 <% unless $use_current or $vpc_deploy_id then %>
 vpcs:
 - name: vpc
@@ -58,26 +73,3 @@ vpcs:
     route-table: internet
 <% end %>
 <% end %>
-# databases:
-#   -
-#     name: "gitLabDB"
-#     engine: "postgres"
-#     size: "db.t2.micro"
-#     multi_az_on_deploy: false
-#     multi_az_on_create: false
-#     storage: 5
-#     port: 5432
-#     vpc:
-#     <% if $vpc_deploy_id %>
-#       deploy_id: <%= $vpc_deploy_id %>
-#       subnet_pref: all_public
-#     <% elsif $use_current %>
-#       vpc_id: <%= current_vpc %>
-#       subnet_pref: all_public
-#     <% else %>
-#       vpc_name: vpc
-#       subnets:
-#       <% (1..$azs.size).each do |i| %>
-#         - subnet_name: Subnet<%= i-1 %>Public
-#       <% end %>
-#     <% end %>
