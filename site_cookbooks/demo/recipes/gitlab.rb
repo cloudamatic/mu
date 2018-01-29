@@ -16,7 +16,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
+require 'securerandom'
 #DO CONFIG HERE
+
+# Set an attribute to identify the node as the ELK server
+# node.default['gitlab']['is_server'] = true
+# node.default['gitlab']['version'] = '111'
+# node.default['gitlab']['endpoint'] = node['ec2']['public_dns_name']
+# node.default['gitlab']['runnerToken'] = SecureRandom.uuid
+
+# default['omnibus-gitlab']['gitlab_rb']['gitlab-rails']['initial_shared_runners_registration_token'] = node.default['gitlab']['runnerToken']
 
 include_recipe 'omnibus-gitlab::default'

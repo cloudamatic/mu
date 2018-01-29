@@ -17,57 +17,34 @@
 # limitations under the License.
 
 
-url = node['gitlab-ci-runner']['repository_url']
-base = node['gitlab-ci-runner']['repository_base_url']
-package_retries = node['gitlab-ci-runner']['package_retries']
-
 case node['platform_family']
 when 'rhel', 'amazon'
-  url ||= "#{base}/el/#{node['platform_version'].split('.').first}/$basearch"
-  yum_repository 'gitlab-ci-runner' do
-    description 'GitLab CI Runner'
-    baseurl url
-    gpgkey node['gitlab-ci-runner']['gpg_key']
-    gpgcheck false
-  end
+  #scriptURL = "#{node['gitlab-ci-runner']['repository_base_url']}" + "#{node['gitlab-ci-runner']['rpmScript']}"
+  scriptURL = 'https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.rpm.sh'
 when 'debian'
-  %w[apt-transport-https libcurl3-gnutls].each do |pkg|
-    package "#{cookbook_name}: install #{pkg}" do
-      package_name pkg
-      retries package_retries unless package_retries.nil?
-    end
-  end
-
-  # On the docker image for instance, lsb-release is not installed and thus
-  # the ohai attribute is not defined
-  package "#{cookbook_name}: install lsb-release" do
-    package_name 'lsb-release'
-    retries package_retries unless package_retries.nil?
-    action :nothing
-  end.run_action(:install)
-
-  cmd = Mixlib::ShellOut.new('lsb_release -c -s')
-  cmd.run_command
-  codename = node['lsb']['codename'] || cmd.stdout.chomp
-
-  url ||= "#{base}/#{node['platform']}"
-  apt_repository 'gitlab-ci-runner' do
-    uri url
-    distribution codename
-    components ['main']
-    key node['gitlab-ci-runner']['gpg_key']
-  end
+  #scriptURL = "#{node['gitlab-ci-runner']['repository_base_url']}" + "#{node['gitlab-ci-runner']['debScript']}"
+  scriptURL = 'https://packages.gitlab.com/install/repositories/runner/gitlab-runner/script.deb.sh'
 end
 
-package_retries = node['gitlab-ci-runner']['package_retries']
-version = node['gitlab-ci-runner']['version']
+
+
+execute 'Configure Repositories' do
+  command "curl -L #{scriptURL} | sudo bash"
+end
+
 package 'gitlab-runner' do
-  version version unless version == 'latest'
-  retries package_retries unless package_retries.nil?
-  action :upgrade if version == 'latest'
+  action :install
 end
 
 service 'gitlab-runner' do
-	supports status: true, restart: true
-	action %i[enable start]
+  action [:enable, :start]
+end
+
+execute 'Register Runner' do
+  command "gitlab-runner register -n -u 'http://ec2-34-225-243-242.compute-1.amazonaws.com/' -r 'DNchSDLqCp_rzkkUWPvh' --executor docker --docker-image ubuntu --locked false --tag-list 'hello, goodbye, demo, #{node['platform_family']}, docker'"
+  notifies :restart, "service[gitlab-runner]", :delayed
+end
+
+docker_service 'default' do
+  action [:create, :start]
 end

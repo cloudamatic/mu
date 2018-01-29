@@ -8,6 +8,7 @@ appname: demo
 servers:
   -
     name: gitlab-runner
+    ssh_user: ubuntu
     platform: ubuntu
     storage:
       -
@@ -15,12 +16,6 @@ servers:
     skipinitialupdates: true
     size: t2.micro
     run_list:
-    - recipe[demo::gitlab-runner]
+    - recipe[demo::gitlab_runner]
     vpc:
-    <% if $vpc_deploy_id %>
-      deploy_id: <%= $vpc_deploy_id %>
-    <% elsif $use_current %>
-      vpc_id: <%= current_vpc %>
-    <% else %>
-      vpc_name: ryansVPC
-    <% end %>
+      vpc_id: vpc-4820b030

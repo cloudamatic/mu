@@ -17,6 +17,7 @@
 # Server Configuration
 # node.default['omnibus-gitlab']['gitlab_rb']['git_data_dirs'] = ['/git/git-data']
 default['omnibus-gitlab']['gitlab_rb']['gitlab-rails']['initial_root_password'] = "superman"
+# default['omnibus-gitlab']['gitlab_rb']['gitlab-rails']['initial_shared_runners_registration_token'] = "superman"
 # default['omnibus-gitlab']['gitlab_rb']['gitlab-rails']['gitlab_signup_enabled'] = false # THIS DOESNT WORK ANY MORE. :( I AM LEAVING IT HERE IN CASE THEY MAKE IT WORK AGAIN IN THE FUTURE.
 # default['omnibus-gitlab']['gitlab_rb']['gitlab-rails']['gitlab_default_projects_features_issues'] = true
 # default['omnibus-gitlab']['gitlab_rb']['gitlab-rails']['gitlab_default_projects_features_merge_requests'] = true
@@ -34,16 +35,13 @@ default['omnibus-gitlab']['gitlab_rb']['gitlab-rails']['initial_root_password'] 
 # *****************GITLAB RUNNER***************
 
 
-
+# RUNNER VERSION TO INSTALL
 default['gitlab-ci-runner']['version'] = 'latest'
+
+# AN ARRAY OF RUNNERS
 default['gitlab-ci-runner']['runners'] = []
 
-# Configure repository, you can override just 'repository_base_url' or
-# the entire 'repository_url' if needed
-default['gitlab-ci-runner']['repository_base_url'] = 'https://packages.gitlab.com/runner/gitlab-runner'
-default['gitlab-ci-runner']['repository_url'] = nil
-default['gitlab-ci-runner']['gpg_key'] = 'https://packages.gitlab.com/runner/gitlab-runner/gpgkey'
-
-# Configure retries for the package resources, default = global default (0)
-# (mostly used for test purpose)
-default['gitlab-ci-runner']['package_retries'] = nil
+# THE SCRIPT URL = BASEURL + SCRIPTNAME
+default['gitlab-ci-runner']['repository_base_url'] = 'https://packages.gitlab.com/install/repositories/runner/gitlab-runner/'
+default['gitlab-ci-runner']['debScript'] = 'script.deb.sh'
+default['gitlab-ci-runner']['rpmScript'] = 'script.rpm.sh'
