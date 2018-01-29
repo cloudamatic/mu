@@ -1,0 +1,6 @@
+Style:
+  Enabled: false
+Layout:
+  Enabled: false
+Metrics/LineLength:
+  Enabled: false
