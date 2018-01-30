@@ -344,7 +344,7 @@ module MU
         begin
           response = nil
           Timeout.timeout(2) do
-            response = open("#{base_url}/#{param}")
+            response = open("#{base_url}/#{param}").read
           end
 
           response

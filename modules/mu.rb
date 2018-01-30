@@ -419,7 +419,9 @@ module MU
       zone = MU::Cloud::Google.getGoogleMetaData("instance/zone")
       @@myRegion_var = zone.gsub(/^.*?\/|\-\d+$/, "")
     elsif MU::Cloud::AWS.hosted
-      if ENV.has_key?("EC2_REGION") and !ENV['EC2_REGION'].empty?
+      if $MU_CFG and $MU_CFG['aws'] and $MU_CFG['aws']['region']
+        @@myRegion_var ||= MU::Cloud::AWS.ec2($MU_CFG['aws']['region']).describe_availability_zones.availability_zones.first.region_name
+      elsif ENV.has_key?("EC2_REGION") and !ENV['EC2_REGION'].empty?
         @@myRegion_var ||= MU::Cloud::AWS.ec2(ENV['EC2_REGION']).describe_availability_zones.availability_zones.first.region_name
       else
         # hacky, but useful in a pinch
