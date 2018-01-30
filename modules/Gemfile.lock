@@ -314,7 +314,7 @@ DEPENDENCIES
   chef-zero (< 13)
   color
   colorize
-  google-api-client
+  google-api-client (~> 0.19.5)
   googleauth
   json-schema
   knife-windows!

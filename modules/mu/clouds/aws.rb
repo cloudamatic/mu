@@ -354,8 +354,6 @@ module MU
           logger.log "Failed metadata request #{base_url}/#{param}: #{e.inspect}", MU::DEBUG
           return nil
         end
-
-        return response.body
       end
 
       @syslog_port_semaphore = Mutex.new
