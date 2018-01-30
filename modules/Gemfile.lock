@@ -84,7 +84,7 @@ GEM
       fuzzyurl
       mixlib-config (~> 2.0)
       mixlib-shellout (~> 2.0)
-    chef-sugar (3.6.0)
+    chef-sugar (4.0.0)
     chef-vault (2.9.2)
     chef-zero (5.3.2)
       ffi-yajl (~> 2.2)
@@ -101,13 +101,13 @@ GEM
     diff-lcs (1.3)
     erubis (2.7.0)
     eventmachine (1.2.5)
-    faraday (0.13.1)
+    faraday (0.14.0)
       multipart-post (>= 1.2, < 3)
     ffi (1.9.18)
     ffi-yajl (2.3.1)
       libyajl2 (~> 1.2)
     fuzzyurl (0.9.0)
-    google-api-client (0.17.4)
+    google-api-client (0.19.5)
       addressable (~> 2.5, >= 2.5.1)
       googleauth (>= 0.5, < 0.7.0)
       httpclient (>= 2.8.1, < 3.0)
@@ -171,14 +171,14 @@ GEM
       net-ssh (>= 2.6.5)
       net-ssh-gateway (>= 1.2.0)
     net-telnet (0.1.1)
-    netaddr (1.5.1)
+    netaddr (2.0.1)
     nio4r (2.2.0)
     nokogiri (1.6.8.1)
       mini_portile2 (~> 2.1.0)
     nori (2.6.0)
     octokit (4.8.0)
       sawyer (~> 0.8.0, >= 0.5.3)
-    ohai (8.26.0)
+    ohai (8.26.1)
       chef-config (>= 12.5.0.alpha.1, < 14)
       ffi (~> 1.9)
       ffi-yajl (~> 2.2)
@@ -235,7 +235,7 @@ GEM
     rspec-mocks (3.7.0)
       diff-lcs (>= 1.2.0, < 2.0)
       rspec-support (~> 3.7.0)
-    rspec-support (3.7.0)
+    rspec-support (3.7.1)
     rspec_junit_formatter (0.2.3)
       builder (< 4)
       rspec-core (>= 2, < 4, != 2.12.0)
@@ -314,7 +314,7 @@ DEPENDENCIES
   chef-zero (< 13)
   color
   colorize
-  google-api-client (~> 0.17.3)
+  google-api-client
   googleauth
   json-schema
   knife-windows!
