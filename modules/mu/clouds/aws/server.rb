@@ -1029,9 +1029,13 @@ module MU
                 @deploy.nodeSSLCerts(self, true)
               end
               if !@groomer.haveBootstrapped?
-                session = getWinRMSession(50, 60, reboot_on_problems: false)
+                session = getWinRMSession(50, 60, reboot_on_problems: true)
                 initialWinRMTasks(session)
-                session.close
+                begin
+                  session.close
+                rescue Exception
+                  # this is allowed to fail- we're probably rebooting anyway
+                end
               else # for an existing Windows node: WinRM, then SSH if it fails
                 begin
                   session = getWinRMSession(1, 60)

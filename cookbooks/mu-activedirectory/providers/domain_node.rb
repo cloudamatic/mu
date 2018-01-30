@@ -21,7 +21,7 @@ action :add do
       set_client_dns
       elevate_remote_access
       join_domain_windows
-      set_computer_name(join_domain_creds)
+#      set_computer_name(join_domain_creds)
     when "centos", "redhat"
       install_ad_client_packages
       join_domain_linux
