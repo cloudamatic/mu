@@ -16,7 +16,7 @@ license '# Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
 ## limitations under the License.'
 description 'Installs/Configures demo application'
 long_description IO.read(File.join(File.dirname(__FILE__), 'README.md'))
-version '0.4.2'
+version '0.4.3'
 depends 'chef-vault'
 depends 'git'
 depends 'nginx'

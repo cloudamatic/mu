@@ -17,14 +17,35 @@
 # limitations under the License.
 
 require 'securerandom'
+include_recipe 'chef-vault'
 #DO CONFIG HERE
 
-# Set an attribute to identify the node as the ELK server
-# node.default['gitlab']['is_server'] = true
-# node.default['gitlab']['version'] = '111'
-# node.default['gitlab']['endpoint'] = node['ec2']['public_dns_name']
-# node.default['gitlab']['runnerToken'] = SecureRandom.uuid
+# Set an attribute to identify the node as a GitLab Server
+node.override['gitlab']['is_server'] = true
+node.override['gitlab']['endpoint'] = 'http://'+node['ec2']['public_dns_name']+'/'
 
-# default['omnibus-gitlab']['gitlab_rb']['gitlab-rails']['initial_shared_runners_registration_token'] = node.default['gitlab']['runnerToken']
+
+# GENERATE A RUNNERTOKEN AND A ROOT PASSWORD
+runnerToken = SecureRandom.urlsafe_base64
+rootPWD = 'superman'
+# TODO SAVE THEM TO A VAULT FOR FUTURE ACCESS
+
+# SETUP VARIABLES FOR GITLAB.RB CONFIGURATION
+node.override['omnibus-gitlab']['gitlab_rb']['external_url'] = node['gitlab']['endpoint']
+
+# SET ENV VARIABLES TO PASS TO GITLAB AND TO THE GITLAB RUNNER
+ENV['GITLAB_ENDPOINT'] = node['gitlab']['endpoint']
+ENV['GITLAB_ROOT_PASSWORD'] = rootPWD
+ENV['GITLAB_SHARED_RUNNERS_REGISTRATION_TOKEN'] = runnerToken
+
 
 include_recipe 'omnibus-gitlab::default'
+
+# Notify Users of GITLAB instalation
+ruby_block "gitlabNotify" do
+    block do
+        puts "\n######################################## End of Run Information ########################################"
+        puts "# Your Gitlab Server is running at #{node['omnibus-gitlab']['gitlab_rb']['external_url']}"
+        puts "########################################################################################################\n\n"
+    end
+end

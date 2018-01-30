@@ -18,6 +18,7 @@ servers:
     size: t2.xlarge
     run_list:
     - recipe[demo::gitlab]
+    - recipe[demo::gitlab_runner]
     associate_public_ip: true
     static_ip: 
       assign_ip: true
@@ -38,25 +39,6 @@ servers:
         port: 443
         hosts:
           - "0.0.0.0/0"
-  -
-    name: gitlab-runner
-    ssh_user: ubuntu
-    platform: ubuntu
-    storage:
-      -
-        size: 8
-    skipinitialupdates: true
-    size: t2.micro
-    run_list:
-    - recipe[demo::gitlab_runner]
-    vpc:
-    <% if $vpc_deploy_id %>
-      deploy_id: <%= $vpc_deploy_id %>
-    <% elsif $use_current %>
-      vpc_id: <%= current_vpc %>
-    <% else %>
-      vpc_name: vpc
-    <% end %>
 <% unless $use_current or $vpc_deploy_id then %>
 vpcs:
 - name: vpc
