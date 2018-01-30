@@ -341,7 +341,28 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
-          schema = {}
+          schema = {
+            "rules" => {
+              "items" => {
+                "properties" => {
+                  "sgs" => {
+                    "type" => "array",
+                    "items" => {
+                      "description" => "Other AWS Security Groups; resources that are associated with this group will have this rule applied to their traffic",
+                      "type" => "string"
+                    }
+                  },
+                  "lbs" => {
+                    "type" => "array",
+                    "items" => {
+                      "description" => "AWS Load Balancers which will have this rule applied to their traffic",
+                      "type" => "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
           [toplevel_required, schema]
         end
 
@@ -374,14 +395,15 @@ module MU
                   # acl['self_referencing'] = true
                   next
                 end
-                if firewall_rule_names.include?(sg_name)
-                  acl["dependencies"] << {
-                      "type" => "firewall_rule",
-                      "name" => sg_name
-                  }
-                else
-                  MU.log "Didn't see #{sg_name} anywhere, is that ok?", MU::WARN
-                end
+# XXX what was this for when it was in MU::Config? I think we want to check for a sibling with this name (haveKitten?)
+#                if firewall_rule_names.include?(sg_name)
+#                  acl["dependencies"] << {
+#                    "type" => "firewall_rule",
+#                    "name" => sg_name
+#                  }
+#                else
+#                  MU.log "Didn't see #{sg_name} anywhere, is that ok?", MU::WARN
+#                end
               }
             end
             if !rule['lbs'].nil?

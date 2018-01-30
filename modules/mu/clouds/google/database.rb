@@ -136,6 +136,11 @@ module MU
         def self.validateConfig(db, configurator)
           ok = true
 
+          if db["create_cluster"]
+            MU.log "Database clusters not currently available in Google Cloud". MU::ERR
+            ok = false
+          end
+
           ok
         end
 

@@ -139,6 +139,10 @@ module MU
               end
             end
           }
+          shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(data[:cfg_plural])
+          @main_config[data[:cfg_plural]].each { |resource|
+            resource["#MU_CLOUDCLASS"] = classname
+          }
           setThreadDependencies(@main_config[data[:cfg_plural]])
         end
       }
@@ -446,6 +450,9 @@ MESSAGE_END
       end
 
       services.each { |resource|
+        if !resource["#MU_CLOUDCLASS"]
+          pp resource
+        end
         res_type = resource["#MU_CLOUDCLASS"].cfg_name
         name = res_type+"_"+resource["name"]
 

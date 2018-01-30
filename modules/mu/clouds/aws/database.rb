@@ -1349,7 +1349,13 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
-          schema = {}
+          schema = {
+            "license_model" => {
+              "type" => "string",
+              "enum" => ["license-included", "bring-your-own-license", "general-public-license", "postgresql-license"],
+              "default" => "license-included"
+            }
+          }
           [toplevel_required, schema]
         end
 
@@ -1359,6 +1365,28 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(db, configurator)
           ok = true
+
+          db_cluster_engines = %w{aurora}
+          db["create_cluster"] =
+            if db_cluster_engines.include?(db["engine"])
+              true
+            else
+              false
+            end
+
+          db["license_model"] ||=
+            if db["engine"] == "postgres"
+              "postgresql-license"
+            elsif db["engine"] == "mysql"
+              "general-public-license"
+            end
+
+          if db["create_read_replica"] or db['read_replica_of']
+            if db["engine"] != "postgres" and db["engine"] != "mysql"
+              MU.log "Read replica(s) database instances only supported for postgres and mysql. #{db["engine"]} not supported.", MU::ERR
+              ok = false
+            end
+          end
 
           if !db['password'].nil? and (db['password'].length < 8 or db['password'].match(/[\/\\@\s]/))
             MU.log "Database password '#{db['password']}' doesn't meet RDS requirements. Must be > 8 chars and have only ASCII characters other than /, @, \", or [space].", MU::ERR

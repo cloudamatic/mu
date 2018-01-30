@@ -96,6 +96,30 @@ module MU
     def self.schema
       @@schema
     end
+
+    # Deep merge a configuration hash so we can meld different cloud providers'
+    # schemas together, while preserving documentation differences
+    def self.schemaMerge(orig, new, cloud)
+      if new.is_a?(Hash)
+        new.each_pair { |k, v|
+          if orig and orig.has_key?(k)
+            schemaMerge(orig[k], new[k], cloud)
+          elsif orig
+            orig[k] = new[k]
+          else
+            orig = new
+          end
+        }
+      elsif orig.is_a?(Array) and new
+        orig.concat(new)
+        orig.uniq!
+      elsif new.is_a?(String)
+        orig ||= ""
+        orig += "\n#{cloud.upcase}: "+new
+      else
+# XXX I think this is a NOOP?
+      end
+    end
     # Accessor for our Basket of Kittens schema definition, with various
     # cloud-specific details merged so we can generate documentation for them.
     def self.docSchema
@@ -114,13 +138,15 @@ module MU
             cfg["description"] ||= ""
             cfg["description"] = cloud.upcase+": "+cfg["description"]
             if docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
+              schemaMerge(docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key], cfg, cloud)
               docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["description"] ||= ""
               docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["description"] += "\n"+cfg["description"]
+              MU.log "Munging #{cloud}-specific #{classname.to_s} schema into BasketofKittens => #{attrs[:cfg_plural]} => #{key}", MU::DEBUG, details: docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]
             else
               docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key] = cfg
             end
             docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["clouds"] = {}
-             docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["clouds"][cloud] = cfg
+            docschema["properties"][attrs[:cfg_plural]]["items"]["properties"][key]["clouds"][cloud] = cfg
           }
 
           docschema['required'].concat(required)
@@ -570,7 +596,8 @@ module MU
         ]
       end
       MU::Config.set_defaults(@config, MU::Config.schema)
-      validate
+#      validate # individual resources validate when added now, necessary because the schema can change depending on what cloud they're targeting
+#      XXX but now we're not validating top-level keys, argh
 #pp @config
 #raise "DERP"
       return @config.freeze
@@ -676,7 +703,7 @@ module MU
       @kittencfg_semaphore.synchronize {
         shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
         @kittens[cfg_plural].each { |kitten|
-          return true if kitten['name'] == name.to_s
+          return kitten if kitten['name'] == name.to_s
         }
       }
       false
@@ -705,6 +732,7 @@ module MU
     # @param delay_validation [Boolean]: Whether to hold off on calling the resource's validateConfig method
     def insertKitten(descriptor, type, delay_validation = false)
       append = false
+
       @kittencfg_semaphore.synchronize {
         append = !@kittens[type].include?(descriptor)
 
@@ -928,7 +956,10 @@ module MU
         # Merge the cloud-class specific JSON schema and validate against it
         myschema = Marshal.load(Marshal.dump(MU::Config.schema["properties"][cfg_plural]["items"]))
         more_required, more_schema = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s).schema(self)
-        myschema["properties"].merge!(more_schema)
+
+        if more_schema
+          MU::Config.schemaMerge(myschema["properties"], more_schema, descriptor["cloud"])
+        end
         myschema["required"] ||= []
         myschema["required"].concat(more_required)
         myschema["required"].uniq!
@@ -1945,6 +1976,7 @@ module MU
       primary_dbs = []
       @kittens["databases"].each { |db|
         primary_dbs << db['name']
+        db['ingress_rules'] ||= []
         if db['auth_vault'] && !db['auth_vault'].empty?
           groomclass = MU::Groomer.loadGroomer(db['groomer'])
           if db['password']
@@ -1969,15 +2001,6 @@ module MU
           ok = false
         end
 
-
-        db_cluster_engines = %w{aurora}
-        db["create_cluster"] = 
-          if db_cluster_engines.include?(db["engine"])
-            true
-          else
-            false
-          end
-
         if db["create_cluster"]
           if db["cluster_node_count"] < 1
             MU.log "You are trying to create a database cluster but cluster_node_count is set to #{db["cluster_node_count"]}", MU::ERR
@@ -1987,13 +2010,6 @@ module MU
           MU.log "'storage' is not supported when creating a database cluster, disregarding", MU::NOTICE if db["storage"]
           MU.log "'multi_az_on_create' and multi_az_on_deploy are not supported when creating a database cluster, disregarding", MU::NOTICE if db["storage"] if db["multi_az_on_create"] || db["multi_az_on_deploy"]
         end
-
-        db["license_model"] ||=
-          if db["engine"] == "postgres"
-            "postgresql-license"
-          elsif db["engine"] == "mysql"
-            "general-public-license"
-          end
 
         if db["size"].nil?
           MU.log "You must specify 'size' when creating a new database or a database from a snapshot.", MU::ERR
@@ -2024,39 +2040,29 @@ module MU
           MU.log "Running SQL on deploy is only supported for postgres and mysql databases", MU::ERR
         end
 
-        if db["collection"]
-          db["dependencies"] << {
-            "type" => "collection",
-            "name" => db["collection"]
-          }
-        end
-
-
         if !db["vpc"].nil?
           if db["vpc"]["subnet_pref"] and !db["vpc"]["subnets"]
-            if %w{all any public private}.include? db["vpc"]["subnet_pref"]
+            if db["vpc"]["subnet_pref"] = "public"
+              db["vpc"]["subnet_pref"] = "all_public"
+            elsif db["vpc"]["subnet_pref"] = "private"
+              db["vpc"]["subnet_pref"] = "all_private"
+            elsif %w{all any}.include? db["vpc"]["subnet_pref"]
               MU.log "subnet_pref #{db["vpc"]["subnet_pref"]} is not supported for database instance.", MU::ERR
               ok = false
-            elsif db["vpc"]["subnet_pref"] == "all_public" and !db['publicly_accessible']
-              MU.log "Setting publicly_accessible to true, since deploying into public subnets.", MU::WARN
+            end
+            if db["vpc"]["subnet_pref"] == "all_public" and !db['publicly_accessible']
+              MU.log "Setting publicly_accessible to true on database '#{db['name']}', since deploying into public subnets.", MU::WARN
               db['publicly_accessible'] = true
             elsif db["vpc"]["subnet_pref"] == "all_private" and db['publicly_accessible']
-              MU.log "Setting publicly_accessible to false, since deploying into private subnets.", MU::NOTICE
+              MU.log "Setting publicly_accessible to false on database '#{db['name']}', since deploying into private subnets.", MU::NOTICE
               db['publicly_accessible'] = false
             end
           end
 
         end
 
-        if db["create_read_replica"] or db['read_replica_of']
-          if db["engine"] != "postgres" and db["engine"] != "mysql"
-            MU.log "Read replica(s) database instances only supported for postgres and mysql. #{db["engine"]} not supported.", MU::ERR
-            ok = false
-          end
-        end
-
         # Automatically manufacture another database object, which will serve
-        # as a read replica of this one, if we've asked for it.
+        # as a read replica of this one, if we've set create_read_replica.
         if db['create_read_replica']
           replica = Marshal.load(Marshal.dump(db))
           replica['name'] = db['name']+"-replica"
@@ -2075,7 +2081,9 @@ module MU
           read_replicas << replica
         end
 
-        # Do database cluster nodes the same way we do read replicas
+        # Do database cluster nodes the same way we do read replicas, by
+        # duplicating the declaration of the master as a new first-class
+        # resource and tweaking it.
         if db["create_cluster"]
           (1..db["cluster_node_count"]).each{ |num|
             node = Marshal.load(Marshal.dump(db))
@@ -2097,7 +2105,8 @@ module MU
             }
             cluster_nodes << node
 
-           # Alarms are set on each DB cluster node, not on the cluster iteslf 
+           # Alarms are set on each DB cluster node, not on the cluster itself,
+           # so futz any alarm declarations accordingly.
             if node.has_key?("alarms") && !node["alarms"].empty?
               node["alarms"].each{ |alarm|
                 alarm["name"] = "#{alarm["name"]}-#{node["name"]}"
@@ -2234,8 +2243,23 @@ module MU
           db['port'] = 1433 if db['engine'].match(/^sqlserver\-/)
           db['port'] = 1521 if db['engine'].match(/^oracle\-/)
         end
-        # XXX automatic firewall holes for dependent servers/server_pools
 
+        ruleset = haveLitterMate?("database"+db['name'], "firewall_rule")
+        ["server_pools", "servers"].each { |type|
+          shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
+          @kittens[cfg_plural].each { |server|
+            server["dependencies"].each { |dep|
+              if dep["type"] == "database" and dep["name"] == db["name"]
+                # XXX this is AWS-specific, I think. We need to use source_tags to make this happen in Google. This logic probably needs to be dumped into the database layer.
+                ruleset["rules"] << {
+                  "proto" => "tcp",
+                  "port" => db["port"],
+                  "sgs" => [cfg_name+server['name']]
+                }
+              end
+            }
+          }
+        }
       }
 
       seen = []
@@ -2351,7 +2375,7 @@ module MU
       else
         name = class_hierarchy.last
         if schema['type'].nil?
-          MU.log "Couldn't determine schema type in #{class_hierarchy}", MU::WARN, details: schema
+          MU.log "Couldn't determine schema type in #{class_hierarchy.join(" => ")}", MU::WARN, details: schema
           return nil
         end
         if in_array
@@ -2908,44 +2932,30 @@ module MU
     }
 
     @firewall_ruleset_rule_primitive = {
-        "type" => "object",
-        "description" => "Network ingress and/or egress rules.",
-        "additionalProperties" => false,
-        "properties" => {
-            "port_range" => {"type" => "string"},
-            "port" => {"type" => "integer"},
-            "proto" => {
-                "enum" => ["udp", "tcp", "icmp"],
-                "default" => "tcp",
-                "type" => "string"
-            },
-            "ingress" => {
-                "type" => "boolean",
-                "default" => true
-            },
-            "egress" => {
-                "type" => "boolean",
-                "default" => false
-            },
-            "hosts" => {
-                "type" => "array",
-                "items" => @cidr_primitive
-            },
-            "sgs" => {
-                "type" => "array",
-                "items" => {
-                    "type" => "string",
-                    "description" => "Other AWS Security Groups to add to this one"
-                }
-            },
-            "lbs" => {
-                "type" => "array",
-                "items" => {
-                    "type" => "string",
-                    "description" => "The name of a Load Balancer to allow in (via its IP)"
-                }
-            }
+      "type" => "object",
+      "description" => "Network ingress and/or egress rules.",
+      "additionalProperties" => false,
+      "properties" => {
+        "port_range" => {"type" => "string"},
+        "port" => {"type" => "integer"},
+        "proto" => {
+          "enum" => ["udp", "tcp", "icmp"],
+          "default" => "tcp",
+          "type" => "string"
+        },
+        "ingress" => {
+          "type" => "boolean",
+          "default" => true
+        },
+        "egress" => {
+          "type" => "boolean",
+          "default" => false
+        },
+        "hosts" => {
+          "type" => "array",
+          "items" => @cidr_primitive
         }
+      }
     }
 
 
@@ -4214,11 +4224,6 @@ module MU
                 "description" => "'new' - create a pristine database instances; 'existing' - use an existing database instance; 'new_snapshot' - create a snapshot of an existing database, and create a new one from that snapshot; 'existing_snapshot' - create database from an existing snapshot.; 'point_in_time' - create database from point in time backup of an existing database",
                 "default" => "new"
             },
-            "license_model" => {
-                "type" => "string",
-                "enum" => ["license-included", "bring-your-own-license", "general-public-license", "postgresql-license"],
-                "default" => "license-included"
-            },
             "identifier" => {
                 "type" => "string",
                 "description" => "For any creation_style other than 'new' this parameter identifies the database to use. In the case of new_snapshot or point_in_time this is the identifier of an existing database instance; in the case of existing_snapshot this is the identifier of the snapshot."
@@ -4445,6 +4450,11 @@ module MU
         "healthy_threshold" => {
           "type" => "integer",
           "default" => 10
+        },
+        "httpcode" => {
+          "type" => "string",
+          "default" => "200,301,302",
+          "description" => "The HTTP codes to use when checking for a successful response from a target."
         }
       }
     }

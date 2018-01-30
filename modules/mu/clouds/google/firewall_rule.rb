@@ -184,6 +184,13 @@ module MU
                 "properties" => {
                   "proto" => {
                     "enum" => ["udp", "tcp", "icmp", "all"]
+                  },
+                  "source_tags" => {
+                    "type" => "array",
+                    "description" => "VMs with these tags from which traffic will be allowed",
+                    "items" => {
+                      "type" => "string"
+                    }
                   }
                 }
               }
