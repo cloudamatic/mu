@@ -36,13 +36,6 @@ class Object
   end
 end
 
-if !$MU_CFG or !$MU_CFG['aws'] or !$MU_CFG['aws']['access_key'] or $MU_CFG['aws']['access_key'].empty?
-  ENV.delete('AWS_ACCESS_KEY_ID')
-  ENV.delete('AWS_SECRET_ACCESS_KEY')
-  Aws.config = {region: ENV['EC2_REGION']}
-else
-  Aws.config = {access_key_id: $MU_CFG['aws']['access_key'], secret_access_key: $MU_CFG['aws']['access_secret'], region: ENV['EC2_REGION']}
-end
 ENV['HOME'] = Etc.getpwuid(Process.uid).dir
 
 require 'mu/logger'
@@ -312,22 +305,22 @@ module MU
     @@mu_public_ip = @@my_private_ip
   end
 
-  # Private Mu server IP address, per AWS
+  # This machine's private IP address
   def self.my_private_ip;
     @@my_private_ip
   end
 
-  # Public Mu server IP address, per AWS
+  # This machine's public IP address
   def self.my_public_ip;
     @@my_public_ip
   end
 
-  # Public Mu server name, not necessarily the same as MU.mu_public_ip
+  # Public Mu server name, not necessarily the same as MU.my_public_ip (an be a proxy, load balancer, etc)
   def self.mu_public_ip;
     @@mu_public_ip
   end
 
-  # Public Mu server IP address, not necessarily the same as MU.my_public_ip
+  # Public Mu server IP address, not necessarily the same as MU.my_public_ip (an be a proxy, load balancer, etc)
   def self.mu_public_addr;
     @@mu_public_addr
   end

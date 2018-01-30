@@ -13,6 +13,19 @@
 # limitations under the License.
 
 require "net/http"
+require 'open-uri'
+require 'timeout'
+gem 'aws-sdk-core'
+autoload :Aws, "aws-sdk-core"
+
+if !$MU_CFG or !$MU_CFG['aws'] or !$MU_CFG['aws']['access_key'] or $MU_CFG['aws']['access_key'].empty?
+  ENV.delete('AWS_ACCESS_KEY_ID')
+  ENV.delete('AWS_SECRET_ACCESS_KEY')
+  Aws.config = {region: ENV['EC2_REGION']}
+else
+  Aws.config = {access_key_id: $MU_CFG['aws']['access_key'], secret_access_key: $MU_CFG['aws']['access_secret'], region: $MU_CFG['aws']['region']}
+end
+
 module MU
   class Cloud
     # Support for Amazon Web Services as a provisioning layer.
@@ -329,9 +342,13 @@ module MU
       def self.getAWSMetaData(param)
         base_url = "http://169.254.169.254/latest/meta-data/"
         begin
-          response = Net::HTTP.get_response(URI("#{base_url}/#{param}"))
-          response.value
-        rescue Net::HTTPServerException => e
+          response = nil
+          Timeout.timeout(2) do
+            response = open("#{base_url}/#{param}")
+          end
+
+          response
+        rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH, Net::HTTPServerException => e
           # This is fairly normal, just handle it gracefully
           logger = MU::Logger.new
           logger.log "Failed metadata request #{base_url}/#{param}: #{e.inspect}", MU::DEBUG
