@@ -856,18 +856,18 @@ module MU
           # @param reboot_on_problems [Boolean]: Whether we should try to reboot a "stuck" machine
           # @param retry_interval [Integer]: How many seconds to wait before returning for another attempt
           def handleWindowsFail(e, retries, rebootable_fails, max_retries: 30, reboot_on_problems: false, retry_interval: 45)
-            msg = "WinRM connection to https://"+@mu_name+":5986/wsman: #{e.message}, waiting #{retry_interval}s (attempt #{retries}/#{max_retries})", MU::WARN
-            if e.message.match(/execution expired/) and reboot_on_problems
-              if rebootable_fails >= 5
+            msg = "WinRM connection to https://"+@mu_name+":5986/wsman: #{e.message}, waiting #{retry_interval}s (attempt #{retries}/#{max_retries})"
+            if e.class.name == "WinRM::WinRMAuthorizationError" or e.message.match(/execution expired/) and reboot_on_problems
+              if rebootable_fails > 0 and (rebootable_fails % 5) == 0
                 MU.log "#{@mu_name} still misbehaving, forcing Stop and Start from API", MU::WARN
                 reboot(true) # vicious API stop/start
-                sleep retry_interval
+                sleep retry_interval*3
                 rebootable_fails = 0
               else
-                if rebootable_fails >= 3
+                if rebootable_fails == 3
                   MU.log "#{@mu_name} misbehaving, attempting to reboot from API", MU::WARN
                   reboot # graceful API restart
-                  sleep retry_interval
+                  sleep retry_interval*2
                 end
                 rebootable_fails = rebootable_fails + 1
               end
@@ -986,6 +986,7 @@ module MU
               if resp.stdout.chomp != hostname
                 resp = shell.run(%Q{Rename-Computer -NewName '#{hostname}' -Force -PassThru -Restart; Restart-Computer -Force})
                 MU.log "Renaming Windows host to #{hostname}; this will trigger a reboot", MU::NOTICE, details: resp.stdout
+                sleep 30
               end
             rescue WinRM::WinRMError => e
               retries, rebootable_fails = handleWindowsFail(e, retries, rebootable_fails, max_retries: 10, reboot_on_problems: true, retry_interval: 30)

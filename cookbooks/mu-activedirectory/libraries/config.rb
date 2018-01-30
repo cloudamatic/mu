@@ -18,7 +18,6 @@ module Activedirectory
       Chef::Log.info("node_hostname: #{node[:hostname].downcase}, computer_name: #{new_resource.computer_name.downcase}")
       if node[:hostname].downcase != new_resource.computer_name.downcase
         cmd = powershell_out("Rename-Computer -NewName '#{new_resource.computer_name}' -Force -PassThru -Restart -DomainCredential #{creds}")
-        Chef::Application.fatal!("Failed to rename computer to #{new_resource.computer_name}") if cmd.exitstatus != 0
         execute "kill ssh for reboot" do
           command "Taskkill /im sshd.exe /f /t"
           returns [0, 128]
@@ -30,6 +29,7 @@ module Activedirectory
           notifies :run, "execute[kill ssh for reboot]", :immediately
         end
         kill_ssh
+        Chef::Application.fatal!("Failed to rename computer from #{node[:hostname]} to #{new_resource.computer_name}: #{cmd.stdout}\n#{cmd.stderr}") if cmd.exitstatus != 0
       end
     end
 

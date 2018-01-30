@@ -92,8 +92,8 @@ nagios_policies.each { |policy|
     not_if "/usr/sbin/semodule -l | egrep '^#{policy}(\t|$)'"
     notifies :reload, "service[apache2]", :delayed
     notifies :restart, "service[nrpe]", :delayed
-    if platform_family?("rhel") and node[:platform_version].to_i < 7
-      notifies :execute, "bash[RHEL7-family Nagios restart]", :delayed
+    if platform_family?("rhel") and node[:platform_version].to_i >= 7
+      notifies :run, "bash[RHEL7-family Nagios restart]", :delayed
     else
       notifies :reload, "service[nagios]", :delayed
     end
@@ -164,8 +164,8 @@ execute "/sbin/restorecon -R /var/log/nagios"
 # The Nagios cookbook currently screws up this setting, so work around it.
 execute "sed -i s/^interval_length=.*/interval_length=1/ || echo 'interval_length=1' >> /etc/nagios/nagios.cfg" do
   not_if "grep '^interval_length=1$' /etc/nagios/nagios.cfg"
-  if platform_family?("rhel") and node[:platform_version].to_i < 7
-    notifies :execute, "bash[RHEL7-family Nagios restart]", :delayed
+  if platform_family?("rhel") and node[:platform_version].to_i >= 7
+    notifies :run, "bash[RHEL7-family Nagios restart]", :delayed
   else
     notifies :reload, "service[nagios]", :delayed
   end
@@ -235,8 +235,8 @@ end
 
 execute "chgrp nrpe /etc/nagios/nrpe.d/*"
 execute "/sbin/restorecon /etc/nagios/nrpe.cfg" do
-  if platform_family?("rhel") and node[:platform_version].to_i < 7
-    notifies :execute, "bash[RHEL7-family Nagios restart]", :delayed
+  if platform_family?("rhel") and node[:platform_version].to_i >= 7
+    notifies :run, "bash[RHEL7-family Nagios restart]", :delayed
   end
 end
 include_recipe "mu-master::init" # gem permission fixes, mainly

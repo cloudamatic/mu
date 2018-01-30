@@ -20,6 +20,20 @@ case node[:platform]
         action :delete
       end
     }
+    file "C:\\Program Files\\Amazon\\Ec2ConfigService\\Scripts\\UserScript.ps1" do
+        action :delete
+    end
+    powershell_script "clean up WinRM" do
+      code <<-EOH
+        winrm delete winrm/config/Listener?Address=*+Transport=HTTP
+        winrm delete winrm/config/Listener?Address=*+Transport=HTTPS
+        Remove-Item -Path WSMan:/localhost/ClientCertificate/* -Force -Recurse
+        Remove-Item -Path Cert:/LocalMachine/My/* -Force -Recurse
+# XXX Would need a thumbprint to get this, so there's a whole find-by-name op
+#        Remove-Item -Path Cert:/LocalMachine/Root/Mu_CA.pem -Force -Recurse
+        Remove-Item -Path Cert:/LocalMachine/TrustedPeople/* -Force -Recurse
+      EOH
+    end
 
     # admin_username = powershell_out("(Get-WmiObject -Query 'Select * from Win32_UserAccount Where (LocalAccount=True and SID like \"%-500\")').name").stdout.strip
     # XXX can't do this here, Mu still needs to get back in

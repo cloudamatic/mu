@@ -233,7 +233,13 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_
             end
             if !resp or resp.exitcode != 0
               MU.log "WinRM exec on #{nodename} failed, trying SSH", MU::WARN
-              puts resp.stderr if resp.stderr
+              if chefrun and serverobj.windows?
+                cmd = "chef-client.bat --no-fips"
+                cmd += " -o '#{chef_runlist}'" if chef_runlist
+              end
+              puts resp.stderr if resp and resp.stderr
+              puts resp.stdout if resp and resp.stdout
+              output = nil
             else
               output = resp.stdout
               exitcode = resp.exitcode
@@ -243,6 +249,14 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_
             # maybe this should use getSSHSession, for the sake of symmetry
             output = `ssh -q #{nodename} "#{cmd}" 2>&1 < /dev/null`
             exitcode = $?.exitstatus
+            # XXX Some Windows nodes need --no-fips right now. And some don't
+            # know what that is. Try to accommodate both.
+            if chefrun and serverobj.windows? and exitcode != 0
+              cmd = "chef-client.bat"
+              cmd += " -o '#{chef_runlist}'" if chef_runlist
+              output = `ssh -q #{nodename} "#{cmd}" 2>&1 < /dev/null`
+              exitcode = $?.exitstatus
+            end
           end
           if exitcode != 0
             if serverobj.windows? and output.match(/NoMethodError: unknown property or method: `ConnectServer'/)
@@ -306,10 +320,11 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
         server["platform"] = "linux" if !server.has_key?("platform")
 
         pool_name = mommacat.getResourceName(svr_class)
+        puts pool_name
         if nodes.size > 0
           matched = false
           nodes.each { |n|
-            if n.match(/^#{Regexp.quote(pool_name)}-[a-z0-9]{3}$/)
+            if n.match(/^#{Regexp.quote(pool_name)}-[a-z0-9]{3}$/i)
               matched = true
             end
           }
@@ -321,6 +336,7 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
         resp = MU::Cloud::AWS.autoscale.describe_auto_scaling_groups(
             auto_scaling_group_names: [pool_name]
         )
+
         if resp.nil?
           MU.log "Failed to locate any Autoscale Groups named #{pool_name}", MU::WARN
           next
@@ -347,7 +363,6 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
               },
               custom_append: server['userdata_script']
           )
-          need_update = false
 
           # Figure out which devices are embedded in the AMI already.
           image = MU::Cloud::AWS.ec2.describe_images(image_ids: [server["basis"]["launch_config"]["ami_id"]]).images.first
@@ -554,10 +569,11 @@ elsif $opts[:mode] == "groom"
 elsif $opts[:mode] == "vaults"
   reGroom(do_deploys, do_nodes, vaults_only: true)
 elsif $opts[:mode] == "chefrun"
+  print_output = $opts[:verbose] || do_nodes.size == 1
   if $opts[:override_chef_runlist]
-    runCommand(do_deploys, do_nodes, chef_runlist: $opts[:override_chef_runlist], chefrun: true)
+    runCommand(do_deploys, do_nodes, chef_runlist: $opts[:override_chef_runlist], chefrun: true, print_output: print_output)
   else
-    runCommand(do_deploys, do_nodes, chefrun: true)
+    runCommand(do_deploys, do_nodes, chefrun: true, print_output: print_output)
   end
 elsif $opts[:mode] == "userdata" or $opts[:mode] == "awsmeta"
 # Need Google equiv and to select nodes correctly based on what cloud they're in

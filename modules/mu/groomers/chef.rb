@@ -286,8 +286,7 @@ module MU
           runstart = Time.new
           if !@server.windows? or windows_try_ssh
             MU.log "Invoking Chef over ssh on #{@server.mu_name}: #{purpose}"
-            windows_try_ssh = false
-            ssh = @server.getSSHSession(max_retries)
+            ssh = @server.getSSHSession(@server.windows? ? 1 : max_retries)
             if @server.windows?
               cmd = "chef-client.bat --color || echo #{error_signal}"
             elsif !@config["ssh_user"].nil? and !@config["ssh_user"].empty? and @config["ssh_user"] != "root"
@@ -300,6 +299,7 @@ module MU
             retval = ssh.exec!(cmd) { |ch, stream, data|
               puts data
               output << data
+              raise MU::Cloud::BootstrapTempFail if data.match(/REBOOT_SCHEDULED| WARN: Reboot requested:/)
               raise MU::Groomer::RunError, output.grep(/ ERROR: /).last if data.match(/#{error_signal}/)
             }
           else
@@ -333,9 +333,14 @@ module MU
               end
             end
             if resp.exitcode != 0
+              raise MU::Cloud::BootstrapTempFail if resp.exitcode == 35 or output.join("\n").match(/REBOOT_SCHEDULED| WARN: Reboot requested:/)
               raise MU::Groomer::RunError, output.slice(output.length-50, output.length).join("")
             end
           end
+        rescue MU::Cloud::BootstrapTempFail
+          MU.log "#{@server.mu_name} rebooting from Chef, waiting 30s and retrying", MU::NOTICE
+          sleep 30
+          retry
         rescue RuntimeError, SystemCallError, Timeout::Error, SocketError, Errno::ECONNRESET, IOError, Net::SSH::Exception, MU::Groomer::RunError, WinRM::WinRMError, MU::MuError => e
           begin
             ssh.close if !ssh.nil?
@@ -347,7 +352,7 @@ module MU
             end
             sleep 10
           end
-          if e.instance_of?(MU::Groomer::RunError) and retries == 0 and max_retries > 1
+          if e.instance_of?(MU::Groomer::RunError) and retries == 0 and max_retries > 1 and purpose != "Base Windows configuration"
             MU.log "Got a run error, will attempt to install/update Chef Client on next attempt", MU::NOTICE
             try_upgrade = true
           else
@@ -370,7 +375,9 @@ module MU
           if retries < max_retries
             retries += 1
             MU.log "#{@server.mu_name}: Chef run '#{purpose}' failed after #{Time.new - runstart} seconds, retrying (#{retries}/#{max_retries})", MU::WARN, details: e.message
-            windows_try_ssh = !windows_try_ssh
+            if purpose != "Base Windows configuration"
+              windows_try_ssh = !windows_try_ssh
+            end
             if e.is_a?(WinRM::WinRMError)
               if @server.windows? and retries >= 3 and retries % 3 == 0
                 # Mix in a hard reboot if WinRM isn't answering
