@@ -369,7 +369,7 @@ module MU
 
           if retries < max_retries
             retries += 1
-            MU.log "#{@server.mu_name}: Chef run '#{purpose}' failed after #{Time.new - runstart} seconds, retrying (#{retries}/#{max_retries})", MU::WARN, details: e.message
+            MU.log "#{@server.mu_name}: Chef run '#{purpose}' failed after #{Time.new - runstart} seconds, retrying (#{retries}/#{max_retries})", MU::WARN, details: e.message.dup
             if purpose != "Base Windows configuration"
               windows_try_ssh = !windows_try_ssh
             end
