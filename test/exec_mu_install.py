@@ -61,13 +61,24 @@ def allocat_associate_eip(ins_id):
   ec2 = boto3.client('ec2')
   try:
     allocation = ec2.allocate_address(Domain='vpc')
-    response = ec2.associate_address(AllocationId=allocation['AllocationId'],InstanceId=ins_id)
-    print(response)
+    res = ec2.associate_address(AllocationId=allocation['AllocationId'],InstanceId=ins_id)
+    print(res)
   except ClientError as e:
     print(e)
-  return response['AssociationId']
+  print allocation['AllocationId']
+  
+  ## to use release_eip, we need the alloc_id
+  return allocation['AllocationId']
 
 
+## de-register eip and then release it
+def release_eip(alloc_id):
+  ec2 = boto3.client('ec2')
+  if alloc_id != None and len(alloc_id) != 0:
+    res = ec2.release_address(AllocationId= alloc_id)
+    return res
+  else:
+    raise Exception("Please pass a valid EIP Allocation ID..")
 
 
 ### Create instance to install mu-master
@@ -166,13 +177,18 @@ def ec2_clean_up(ins_ids):
   print "INFO: CLEANED UP: %s" % ins_ids
   print "*********************************************"
   ec2.instances.filter(InstanceIds=ins_ids).terminate()  
-  
+  termination_wait(ins_ids)
 
+def termination_wait(ins_ids):
+  ec2 = boto3.client('ec2')
+  wait = ec2.get_waiter('instance_terminated')
+  wait.wait(InstanceIds=ins_ids)
 
 
 ######## Main 
 instance_ids = []
 instance_ids.append(create_instance())
+eip_id = allocat_associate_eip(instance_ids[0])
 controls = base_controls()
 controls_spaced_out = ' '.join(controls)
 data = desc_instances(instance_ids)
@@ -182,11 +198,12 @@ if os.path.isfile(ssh_data_file):
   ssh_info = json.load(open(ssh_data_file))    
   run_installer_over_ssh('root',ssh_info[0]['fqdn'],ssh_info[0]['key'],'sh /tmp/installer')
   run_master_test(ssh_data_file, controls_spaced_out) 
-  #rm_chef_node_json_frm_target('root',ssh_info[0]['fqdn'],ssh_info[0]['key'])
+  rm_chef_node_json_frm_target('root',ssh_info[0]['fqdn'],ssh_info[0]['key'])
   cleanup_ids = []
   for each in ssh_info:
-    cleanup_ids.append(each['ins_id'])
-  #ec2_clean_up(cleanup_ids)
+    cleanup_ids.append(each['ins_id']) 
+  ec2_clean_up(cleanup_ids)
+  release_eip(eip_id)
 else:
   print("Nothing to do! Instance Data file does not exists: %s" % ssh_data_file)
 
