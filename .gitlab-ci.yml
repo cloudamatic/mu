@@ -1,17 +1,16 @@
-before_script:
+before_sccript:
   - aws configure set default.region us-east-1
   - export WORKSPACE=$CI_PROJECT_DIR
   - echo $WORKSPACE
 
-
 stages:
   - clean_up
-  - rubocop
+  - test
   - foodcritic
   - test_mu_bok_install
   - inspec_test
   - inspec_retry
-
+  - final_clean
 
 InitialCleanUp:
   stage: clean_up
@@ -21,9 +20,8 @@ InitialCleanUp:
   tags:
     - master
 
-
 Rubocop:
-  stage: rubocop
+  stage: test
   script:
     - rubocop modules
   only:
@@ -34,7 +32,7 @@ Rubocop:
 
 
 Foodcritic:
-  stage: foodcritic
+  stage: test
   script:
     - foodcritic cookbooks/*
   only:
@@ -43,9 +41,8 @@ Foodcritic:
     - master
   allow_failure: true
 
-
 mu_deploy:
-  stage: test_mu_bok_install
+  stage: test
   script:
     - bin/mu-deploy -n demo/simple-server-rails.yaml
   only:
@@ -53,9 +50,8 @@ mu_deploy:
   tags:
     - master
 
-
 mu_install_test:
-  stage: test_mu_bok_install
+  stage: test
   script:
     - python test/exec_mu_install.py
   only:
@@ -85,17 +81,9 @@ retry_failures:
     - master
 
 
-mu_install_test:
-  stage: test_mu_bok_install
+final_clean_up:
+  stage: final_clean
   script:
-    - python exec_mu_install.py
-  only:
-    - master
-  tags:
-    - master
-
-
-after_script:
-  - python test/clean_up.py
-  - rm -rf /tmp/inspec_retries/*
-  - rm -rf /tmp/*.yml
+    - python test/clean_up.py
+    - rm -rf /tmp/inspec_retries/*
+    - rm -rf /tmp/*.yml
