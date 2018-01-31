@@ -24,7 +24,7 @@ case node.platform_family
         resources('service['+svc+']')
       rescue Chef::Exceptions::ResourceNotFound
         service svc do
-          action :enable
+          action [:enable, :start]
           only_if { ::File.exists?("/etc/init.d/#{svc}") }
         end
       end
