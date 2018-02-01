@@ -15,21 +15,21 @@ pipeline {
         }
       }
       
-      stage('Rubocop'){
-        steps{
-          script {
-            sh "/usr/local/ruby-current/bin/rubocop ${workspace}/modules/"
-          }
-        }
-      }
+      //stage('Rubocop'){
+      //  steps{
+      //    script {
+      //      sh "/usr/local/ruby-current/bin/rubocop ${workspace}/modules/"
+      //    }
+      //  }
+      // }
 
-      stage('Foodcritic MU Cookbooks'){
-        steps{
-          script {
-            sh "/usr/local/ruby-current/bin/foodcritic ${workspace}/cookbooks/*"
-          }
-        }
-      }
+      // stage('Foodcritic MU Cookbooks'){
+      //  steps{
+      //    script {
+      //      sh "/usr/local/ruby-current/bin/foodcritic ${workspace}/cookbooks/*"
+      //    }
+      //  }
+      // }
 
       stage('Initial Cleanup'){
         steps {
@@ -43,12 +43,12 @@ pipeline {
 
 //      stage('mu-deploy'){
 //        parallel{
-            stage("mu-deploy simple-server-rails"){
+            stage("mu-deploy etco-autoscale-private"){
               steps {
                 script{
                   try{
                       //sh "sleep 135"
-                      sh "${workspace}/bin/mu-deploy -n ${workspace}/demo/simple-server-rails.yaml"
+                      sh "${workspace}/bin/mu-deploy -n ${workspace}/demo/etco-autoscale-private_2.yaml -p s3_drive=etco-dev"
                     } catch (err) {
                       echo "ERROR: ${err}"
                       currentBuild.result = 'UNSTABLE'
@@ -78,11 +78,11 @@ pipeline {
 // ******************** Run ALL TESTS PARALLEL ********************
 //      stage('Inspec Verify'){
 //        parallel{
-            stage("Inspec simple-server-rails-test"){
+            stage("Inspec etco-test"){
               steps {
                 script{
                     try {
-                      sh "python ${workspace}/test/exec_inspec.py simple-server-rails-test simple-server-rails.yaml"
+                      sh "python ${workspace}/test/exec_inspec.py etco-test-profile etco-autoscale-private_2.yaml"
                     } catch (err) {
                         echo "ERROR: ${err}"
                         currentBuild.result = 'UNSTABLE'
@@ -122,7 +122,7 @@ pipeline {
     stage('Mu-Cleanup'){
         steps {
           script {
-            sh 'sudo python /opt/mu/lib/test/clean_up.py'
+            //sh 'sudo python /opt/mu/lib/test/clean_up.py'
             sh 'sudo rm -rf /tmp/inspec_retries/*'
             sh 'sudo rm -f /tmp/*.yaml'
           }

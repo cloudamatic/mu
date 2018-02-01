@@ -1,0 +1,226 @@
+#All private, background run - depends on min branch or newer
+# Specifically declares subnets to work around AWS returning all subnets including some not possibly available
+# May be account dependent on specific subnets!
+<%
+$subnet_default= Random.new.rand(0..254).to_s
+%>
+appname: etco
+parameters:
+- name: s3_drive
+  required: true
+  description: name (not url) of s3 bucket containing etco code and data
+vpcs:
+- name: vpc
+  ip_block: 10.<%= $subnet_default %>.0.0/16
+  create_nat_gateway: true
+  peers:
+  - vpc:
+      vpc_id: <%= MU.myVPC %>
+  route_tables:
+  - name: internet
+    routes:
+    - destination_network: 0.0.0.0/0
+      gateway: "#INTERNET"
+  - name: private
+    routes:
+    - destination_network: 0.0.0.0/0
+      gateway: "#NAT"
+  subnets:
+  - name: "Public1"
+    ip_block: "10.<%=$subnet_default%>.0.0/24"
+    route-table: "internet"
+    availability-zone: "us-east-1b"
+  - name: "Public2"
+    ip_block: "10.<%=$subnet_default%>.2.0/24"
+    route-table: "internet"
+    availability-zone: "us-east-1c"
+  - name: "Private1"
+    ip_block: "10.<%=$subnet_default%>.1.0/24"
+    route-table: "private"
+    availability-zone: "us-east-1b"
+  - name: "Private2"
+    ip_block: "10.<%=$subnet_default%>.3.0/24"
+    route-table: "private"
+    availability-zone: "us-east-1c"
+
+loadbalancers:
+- name: 'app-elb'
+  vpc:
+    vpc_name: vpc
+  ingress_rules:
+  - port: 80
+    hosts:
+    - 0.0.0.0/0
+  healthcheck:
+    target: HTTP:9000/
+    timeout: 5
+    interval: 6
+    unhealthy-threshold: 2
+    healthy-threshold: 2
+  listeners:
+  - lb-port: 80
+    lb-protocol: HTTP
+    instance-port: 9000
+    instance-protocol: HTTP
+- name: 'cas-elb'
+  vpc:
+    vpc_name: vpc
+  ingress_rules:
+  - port: 80
+    hosts:
+    - 0.0.0.0/0
+  healthcheck:
+    target: HTTP:8080/
+    timeout: 5
+    interval: 6
+    unhealthy-threshold: 2
+    healthy-threshold: 2
+  listeners:
+  - lb-port: 80
+    lb-protocol: HTTP
+    instance-port: 8080
+    instance-protocol: HTTP
+
+
+server_pools:
+- name: 'etco-app'
+  min-size: 1
+  max-size: 1
+  ssh_user: 'root'
+  skipinitialupdates: true
+  loadbalancers:
+  - concurrent-load-balancer: 'app-elb'
+  vpc:
+    subnet_pref: all_private
+    vpc_name: vpc
+  application_attributes:
+      s3_drive: <%= $s3_drive %>
+  add_firewall_rules:
+    - rule_name: 'etco_app_secgroup'
+  run_list:
+  - recipe[chef-vault]
+  - recipe[java]
+  - recipe[etco::app]
+  - recipe[demo::store_attr]
+  vault_access:
+  - vault: testdrive
+    item: user_creds
+  dependencies:
+  - name: 'app-elb'
+    type: 'loadbalancer'
+
+  basis:
+    launch-config:
+      name: 'etco-app-launch'
+      size: 'm3.medium'
+      ami-id: "ami-7896b56f"
+      iam-policies:
+      - S3_Get_ETCO:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - s3:GetObject
+            Resource:
+            - arn:aws:s3:::egt-labs-prod-etco/etcm.zip
+
+
+- name: 'etco-cas'
+  min-size: 1
+  max-size: 1
+  ssh_user: 'root'
+  skipinitialupdates: true
+  loadbalancers:
+  - concurrent-load-balancer: 'cas-elb'
+  vpc:
+    subnet_pref: all_private
+    vpc_name: vpc
+  application_attributes:
+      s3_drive: <%= $s3_drive %>
+  add_firewall_rules:
+    - rule_name: 'etco_cas_secgroup'
+  run_list:
+  - recipe[chef-vault]
+  - recipe[java]
+  - recipe[etco::cas]
+  - recipe[demo::store_attr]
+  vault_access:
+  - vault: testdrive
+    item: user_creds
+  dependencies:
+  - name: 'cas-elb'
+    type: 'loadbalancer'
+
+  basis:
+    launch-config:
+      name: 'etco-cas-launch'
+      size: 'm3.medium'
+      ami-id: "ami-d13d04c6"
+
+- name: 'etco-mongo'
+  min-size: 1
+  max-size: 1
+  ssh_user: 'root'
+  skipinitialupdates: true
+  vpc:
+    subnet_pref: all_private
+    vpc_name: vpc
+  application_attributes:
+      s3_drive: <%= $s3_drive %>
+  add_firewall_rules:
+    - rule_name: 'etco_mongo_secgroup'
+  run_list:
+  - recipe[chef-vault]
+  - recipe[java]
+  - recipe[etco::mongo]
+  - recipe[demo::store_attr]
+  vault_access:
+  - vault: testdrive
+    item: user_creds
+  basis:
+    launch-config:
+      name: 'etco-mongo-launch'
+      size: 'm3.medium'
+      ami-id: "ami-b195b6a6"
+      storage:
+      - device: /dev/sda1
+        size: 40
+      iam-policies:
+      - S3_Get_ETCO:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - s3:GetObject
+            Resource:
+            - arn:aws:s3:::egt-labs-prod-etco/data.tar.gz
+
+
+firewall_rules:
+- name: "etco_cas_secgroup"
+  vpc:
+    vpc_name: vpc
+  rules:
+  - port: 8080
+    hosts:
+    - 0.0.0.0/0
+
+- name: "etco_app_secgroup"
+  vpc:
+    vpc_name: vpc
+  rules:
+  - port: 9000
+    lbs:
+    - 'app-elb'
+  dependencies:
+  - type: 'loadbalancer'
+    name: 'app-elb'
+
+
+- name: "etco_mongo_secgroup"
+  vpc:
+    vpc_name: vpc
+  rules:
+  - port: 27017
+    sgs:
+    - "etco_app_secgroup"
