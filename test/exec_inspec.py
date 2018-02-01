@@ -213,6 +213,11 @@ if server_or_pools == 'server_pools':
 ssh_infos = get_host_info(deploy_id)
 store_ssh_info(ssh_infos)
 
+try:
+  os.makedirs(inspec_retry_dir)
+except OSError:
+  print "SKIP ===> %s already exists" % inspec_retry_dir
+
 
 #########################################################################
 ##### Run Tests ###########################################
@@ -236,7 +241,6 @@ for ssh_info in ssh_infos:
     if int(exit_status != 0):
       ssh_info['profile'] = profile
       ssh_info['bok'] = bok_name
-      os.makedirs(inspec_retry_dir) if os.path.exists(inspec_retry_dir) == False
       retry_dump_host_info = open(inspec_retry_dir+'/'+ssh_info['server_name']+'_retry.yaml','w')
       yaml.safe_dump(ssh_info, retry_dump_host_info,default_flow_style=False)
 
