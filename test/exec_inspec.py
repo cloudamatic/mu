@@ -22,6 +22,12 @@ def get_profile():
     return 'NOT_PROVIDED'
 
 
+def rebuild_inspec_lock(which_profile):
+  if os.path.exists(workspace+'/test/'+which_profile):
+    os.chdir(workspace+'/test/'+which_profile)
+    os.system('inspec vendor --overwrite')
+
+          
 
 ## In terms of scaling, this is not ideal... Maybe 
 ## we should consider saving the deploy output to a file with time_stamp in /tmp
@@ -193,11 +199,13 @@ def run_linux_tests(profile, ssh, ssh_file, all_controls):
   return stat
   
 
-
+inspec_retry_dir = '/tmp/inspec_retries'
 bok_name = None
 if str(sys.argv[2]) != None:
   bok_name = str(sys.argv[2])
 profile = get_profile()
+rebuild_inspec_lock(profile)
+os.chdir(workspace)
 deploy_id = get_deploy_id(bok_name)
 server_or_pools = server_or_server_pools(deploy_id)
 if server_or_pools == 'server_pools':
@@ -228,6 +236,7 @@ for ssh_info in ssh_infos:
     if int(exit_status != 0):
       ssh_info['profile'] = profile
       ssh_info['bok'] = bok_name
-      retry_dump_host_info = open('/tmp/inspec_retries/'+ssh_info['server_name']+'_retry.yaml','w')
+      os.makedirs(inspec_retry_dir) if os.path.exists(inspec_retry_dir) == False
+      retry_dump_host_info = open(inspec_retry_dir+'/'+ssh_info['server_name']+'_retry.yaml','w')
       yaml.safe_dump(ssh_info, retry_dump_host_info,default_flow_style=False)
 
