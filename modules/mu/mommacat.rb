@@ -1841,12 +1841,18 @@ MESSAGE_END
         File.rename("#{@nagios_home}/.ssh/config.tmp", "#{@nagios_home}/.ssh/config")
 
         MU.log "Updating Nagios monitoring config, this may take a while..."
+        output = nil
         if $MU_CFG and !$MU_CFG['master_runlist_extras'].nil?
-          system("#{MU::Groomer::Chef.chefclient} -o 'role[mu-master-nagios-only],#{$MU_CFG['master_runlist_extras'].join(",")}' 2>&1 > /dev/null")
+          output = %x{#{MU::Groomer::Chef.chefclient} -o 'role[mu-master-nagios-only],#{$MU_CFG['master_runlist_extras'].join(",")}' 2>&1}
         else
-          system("#{MU::Groomer::Chef.chefclient} -o 'role[mu-master-nagios-only]' 2>&1 > /dev/null")
+          output = %x{#{MU::Groomer::Chef.chefclient} -o 'role[mu-master-nagios-only]' 2>&1}
         end
-        MU.log "Nagios monitoring config update complete."
+
+        if $?.exitstatus != 0
+          MU.log "Nagios monitoring config update returned a non-zero exit code!", MU::ERR, details: output
+        else
+          MU.log "Nagios monitoring config update complete."
+        end
       }
 
       if blocking
