@@ -1,0 +1,21 @@
+<%
+$azs = MU::Cloud::AWS.listAZs
+$azs.delete $azskip if $azskip
+current_vpc = MU.myVPC
+%>
+---
+appname: demo
+servers:
+  -
+    name: gitlab-runner
+    ssh_user: ubuntu
+    platform: ubuntu
+    storage:
+      -
+        size: 15
+    skipinitialupdates: true
+    size: t2.micro
+    run_list:
+    - recipe[demo::gitlab_runner]
+    vpc:
+      vpc_id: vpc-4820b030

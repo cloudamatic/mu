@@ -1,0 +1,23 @@
+concurrent = 1
+check_interval = 0
+
+[[runners]]
+  name = "DEMO-DEV-2018012920-ST-GITLAB-RUNNER"
+  url = "http://ec2-34-225-243-242.compute-1.amazonaws.com/"
+  token = "5dd8c0bbb0c07a1b8abbbe7a433c4e"
+  executor = "docker+machine"
+  [runners.docker]
+    tls_verify = false
+    image = "ruby:2.1"
+    privileged = false
+    disable_cache = false
+    volumes = ["/cache"]
+    shm_size = 0
+  [runners.cache]
+  [runners.machine]
+    IdleCount = 0
+    MachineDriver = ""
+    MachineName = ""
+    OffPeakTimezone = ""
+    OffPeakIdleCount = 0
+    OffPeakIdleTime = 0

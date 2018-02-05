@@ -1,0 +1,88 @@
+---
+  parameters:
+  - name: appname
+    default: demo
+  - name: instance_type
+    #default: t2.micro
+    default: t2.xlarge
+  - name: vpc
+    cloudtype: AWS::EC2::VPC::Id
+    default: <%= MU.myVPC %>
+
+# BEGIN APPLICATION DEFINITION
+  appname: <%= appname %>
+  servers: 
+    - 
+      name: ELK
+      size: <%= instance_type %>
+      # Suports Ubuntu 16.04+ Debian 8+ CentOS 7+ and RHEL 7+
+      platform: ubuntu
+      storage:
+      -
+        size: 16
+      skipinitialupdates: true
+      associate_public_ip: true
+      run_list:
+        - recipe[demo::elasticsearch]
+        - recipe[demo::filebeat]
+      vpc:
+        vpc_id: <%= vpc %>
+        subnet_pref: public
+      ingress_rules:
+      -
+        port: 443
+        hosts:
+          - "0.0.0.0/0"
+      -
+        port: 5044
+        hosts:
+          - "0.0.0.0/0"
+# THESE ARE DEMO FILEBEAT SERVERS THAT AUTOMATICALLY BIND TO THE ELK SERVER
+# RHEL AND UBUNTU DEMOS WORK. WINDOWS STILL NEEDS TO BE WRITTEN
+# THESE ARE NOT REQUIRED FOR ELK DEPLOYMENT
+    - 
+      name: FBEAT-R
+      size: t2.micro
+      platform: centos
+      skipinitialupdates: true
+      run_list:
+        - recipe[demo::filebeat]
+      vpc:
+        vpc_id: <%= vpc %>
+        subnet_pref: public
+      dependencies:
+      -
+        name: "ELK"
+        phase: "groom"
+        type: "server"
+    -
+      name: FBEAT-D
+      size: t2.micro
+      platform: ubuntu
+      skipinitialupdates: true
+      run_list:
+        - recipe[demo::filebeat]
+      vpc:
+        vpc_id: <%= vpc %>
+        subnet_pref: public
+      dependencies:
+      -
+        name: "ELK"
+        phase: "groom"
+        type: "server"
+    # -
+    #   name: FBEAT-W
+    #   size: t2.micro
+    #   platform: windows
+    #   skipinitialupdates: true
+    #   run_list:
+    #     - recipe[demo::filebeat]
+    #   vpc:
+    #     vpc_id: <%= vpc %>
+    #     subnet_pref: public
+    #   dependencies:
+    #   -
+    #     name: "ELK"
+    #     phase: "groom"
+    #     type: "server"
+

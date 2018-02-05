@@ -5,7 +5,7 @@ servers:
     platform: centos7
     static_ip:
       assign_ip: true
-    size: t2.medium
+    size: t2.micro
     run_list:
     - recipe[mu-openvpn]
     vault_access:

@@ -43,3 +43,4 @@ cookbook 'zipfile', '~> 0.1.0'
 #cookbook 'hashicorp-vault', '~> 2.5.0', git: "https://github.com/johnbellone/vault-cookbook"
 cookbook 'demo', path: "#{siteCookbookPath}/demo"
 cookbook 'windows', '= 3.2.0'
+cookbook 'omnibus-gitlab', '~> 0.3.28', git: "https://gitlab.com/gitlab-org/cookbook-omnibus-gitlab.git"
