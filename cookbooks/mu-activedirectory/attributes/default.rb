@@ -81,15 +81,15 @@ rescue NoMethodError => e
   }
 end
 
-default.ad.dc_ips = []
+default[:ad][:dc_ips] = []
 if node['ad']['dc_ips'].empty?
   resolver = Resolv::DNS.new
   node['ad']['dcs'].each { |dc|
     if dc.match(/^\d+\.\d+\.\d+\.\d+$/)
-      default.ad.dc_ips << dc
+      default[:ad][:dc_ips] << dc
     else
       begin
-        default.ad.dc_ips << resolver.getaddress(dc).to_s
+        default[:ad][:dc_ips] << resolver.getaddress(dc).to_s
       rescue Resolv::ResolvError => e
         Chef::Log.warn ("Couldn't resolve domain controller #{dc}!")
       end

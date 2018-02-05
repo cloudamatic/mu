@@ -740,18 +740,18 @@ module MU
           # @param reboot_on_problems [Boolean]: Whether we should try to reboot a "stuck" machine
           # @param retry_interval [Integer]: How many seconds to wait before returning for another attempt
           def handleWindowsFail(e, retries, rebootable_fails, max_retries: 30, reboot_on_problems: false, retry_interval: 45)
-            msg = "WinRM connection to https://"+@mu_name+":5986/wsman: #{e.message}, waiting #{retry_interval}s (attempt #{retries}/#{max_retries})", MU::WARN
-            if e.message.match(/execution expired/) and reboot_on_problems
-              if rebootable_fails >= 5
+            msg = "WinRM connection to https://"+@mu_name+":5986/wsman: #{e.message}, waiting #{retry_interval}s (attempt #{retries}/#{max_retries})"
+            if e.class.name == "WinRM::WinRMAuthorizationError" or e.message.match(/execution expired/) and reboot_on_problems
+              if rebootable_fails > 0 and (rebootable_fails % 5) == 0
                 MU.log "#{@mu_name} still misbehaving, forcing Stop and Start from API", MU::WARN
                 reboot(true) # vicious API stop/start
-                sleep retry_interval
+                sleep retry_interval*3
                 rebootable_fails = 0
               else
-                if rebootable_fails >= 3
+                if rebootable_fails == 3
                   MU.log "#{@mu_name} misbehaving, attempting to reboot from API", MU::WARN
                   reboot # graceful API restart
-                  sleep retry_interval
+                  sleep retry_interval*2
                 end
                 rebootable_fails = rebootable_fails + 1
               end
@@ -870,6 +870,8 @@ module MU
               if resp.stdout.chomp != hostname
                 resp = shell.run(%Q{Rename-Computer -NewName '#{hostname}' -Force -PassThru -Restart; Restart-Computer -Force})
                 MU.log "Renaming Windows host to #{hostname}; this will trigger a reboot", MU::NOTICE, details: resp.stdout
+                reboot(true)
+                sleep 30
               end
             rescue WinRM::WinRMError => e
               retries, rebootable_fails = handleWindowsFail(e, retries, rebootable_fails, max_retries: 10, reboot_on_problems: true, retry_interval: 30)
@@ -1046,7 +1048,6 @@ module MU
             Thread.handle_interrupt(Errno::ECONNREFUSED => :never) {
             }
 
-            forced_windows_reboot = false
             begin
               if !nat_ssh_host.nil?
                 proxy_cmd = "ssh -q -o StrictHostKeyChecking=no -W %h:%p #{nat_ssh_user}@#{nat_ssh_host}"
@@ -1078,8 +1079,6 @@ module MU
                     :auth_methods => ['publickey']
                 )
               end
-              forced_windows_reboot = false
-              forced_windows_reboot_twice = false
               retries = 0
             rescue Net::SSH::HostKeyMismatch => e
               MU.log("Remembering new key: #{e.fingerprint}")
@@ -1100,30 +1099,11 @@ module MU
 
               if retries < max_retries
                 retries = retries + 1
-                if retries > max_retries/2 and !forced_windows_reboot_twice
-                  forced_windows_reboot = false # another chance to unscrew Windows if it's been flailing for a while
-                  forced_windows_reboot_twice = true
-                end
                 msg = "ssh #{ssh_user}@#{@config['mu_name']}: #{e.message}, waiting #{retry_interval}s (attempt #{retries}/#{max_retries})", MU::WARN
                 if retries == 1 or (retries/max_retries <= 0.5 and (retries % 3) == 0)
                   MU.log msg, MU::NOTICE
                 elsif retries/max_retries > 0.5
                   MU.log msg, MU::WARN, details: e.inspect
-                end
-                if e.message.match(/connection closed by remote host|Connection reset by peer/i) and windows?
-                  if !forced_windows_reboot
-                    forced_windows_reboot = true
-                    MU.log "#{@config['mu_name']} sshd misbehaving, attempting to reboot from API", MU::WARN
-                    reboot
-                    sleep 45
-                  elsif !forced_windows_reboot_twice
-                    forced_windows_reboot_twice = true
-                    MU.log "#{@config['mu_name']} sshd still misbehaving, forcing Stop and Start from API", MU::WARN
-                    reboot(true)
-                    sleep 45
-                  else
-                    raise MuError, "Couldn't get into #{@mu_name} with ssh even after forced reboots"
-                  end
                 end
                 sleep retry_interval
                 retry

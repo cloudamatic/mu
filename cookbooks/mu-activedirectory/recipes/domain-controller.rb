@@ -39,6 +39,6 @@ if can_add_controller
     site_name node.ad.site_name
     computer_name node.ad.computer_name
     sites node.ad.sites
-    existing_dc_ips node.ad.dc_ips
+    existing_dc_ips node[:ad][:dc_ips]
   end
 end

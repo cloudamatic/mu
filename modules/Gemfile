@@ -26,7 +26,7 @@ gem 'color'
 gem 'rack'
 gem 'thin'
 gem 'berkshelf', '< 6'
-gem 'pg'
+gem 'pg', '< 1.0'
 gem 'mysql'
 gem 'ruby-wmi'
 gem 'chef-vault', "< 3"

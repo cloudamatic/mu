@@ -28,21 +28,27 @@ function fetchSecret([string]$file){
 
 function importCert([string]$cert, [string]$store){
   fetchSecret($cert)
+  if(!(Test-Path "$tmp/$cert")){
+    return $null
+  }
+  # XXX guard better (check thumbprint & CN)
+  if($store -ne "Root"){
+    Remove-Item -Path Cert:/LocalMachine/$store/* -Force -Recurse
+  }
   if($cert -Match ".pfx$"){
     return Import-PfxCertificate -FilePath $tmp/$cert -CertStoreLocation Cert:\LocalMachine\$store
   } else {
     return Import-Certificate -FilePath $tmp/$cert -CertStoreLocation Cert:\LocalMachine\$store
   }
+  Remove-Item -Force "$tmp/$cert"
 }
 
 log "- Invoked as $([Environment]::UserName) (system started at $(Get-CimInstance -ClassName win32_operatingsystem | select lastbootuptime)) -"
-
 <% if !$mu.skipApplyUpdates %>
 If (!(Test-Path "c:/mu-installer-ran-updates")){
   Stop-Service -ErrorAction SilentlyContinue sshd
 }
 <% end %>
-
 <% if $mu.platform != "win2k16" %>
 If ([Environment]::OSVersion.Version.Major -lt 10) {
   If ("$($myInvocation.MyCommand.Path)" -ne "$tmp/realuserdata_stripped.ps1"){
@@ -78,32 +84,10 @@ If ([Environment]::OSVersion.Version.Major -lt 10) {
   If (!(Get-ScheduledTask -TaskName 'run-userdata')){
     log "Adding run-userdata scheduled task (user NT AUTHORITY\SYSTEM)"
     Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/run-userdata_scheduledtask.xml" -OutFile $tmp/run-userdata_scheduledtask.xml
-    Register-ScheduledTask -Xml (Get-Content "$tmp/run-userdata_scheduledtask.xml" | out-string) -TaskName 'run-userdata' -Force -User "NT AUTHORITY\SYSTEM"
+    Register-ScheduledTask -Xml (Get-Content "$tmp/run-userdata_scheduledtask.xml" | out-string) -TaskName 'run-userdata' -Force -User ".\$admin_username"
   }
 }
 <% end %>
-$awsid=(New-Object System.Net.WebClient).DownloadString("$awsmeta/meta-data/instance-id")
-
-If (!(Test-Path $tmp/PSWindowsUpdate.zip)){
-  If (!(Test-Path c:/Users/$admin_username/Documents/WindowsPowerShell/Modules)){
-    mkdir c:/Users/$admin_username/Documents/WindowsPowerShell/Modules
-  }
-
-  $WebClient.DownloadFile("https://s3.amazonaws.com/cap-public/PSWindowsUpdate.zip","$tmp/PSWindowsUpdate.zip")
-  Add-Type -A 'System.IO.Compression.FileSystem'
-
-  If (!(Test-Path c:/windows/System32/WindowsPowerShell/v1.0/Modules/PSWindowsUpdate)){
-    log "Extracting PSWindowsUpdate module to c:/windows/System32/WindowsPowerShell/v1.0/Modules"
-    [IO.Compression.ZipFile]::ExtractToDirectory("$tmp/PSWindowsUpdate.zip", "c:/windows/System32/WindowsPowerShell/v1.0/Modules")
-  }
-  If (!(Test-Path c:/Users/$admin_username/Documents/WindowsPowerShell/Modules/PSWindowsUpdate)){
-    log "Extracting PSWindowsUpdate module to c:/Users/$admin_username/Documents/WindowsPowerShell"
-    [IO.Compression.ZipFile]::ExtractToDirectory("$tmp/PSWindowsUpdate.zip", "c:/Users/$admin_username/Documents/WindowsPowerShell/Modules")
-  }
-}
-
-log "Setting Windows Update parameters in registry"
-Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update" -Name AUOptions -Value 3
 
 If (!(Test-Path "$pydir\python.exe")){
   If (!(Test-Path $tmp\python-$pyv.msi)){
@@ -168,19 +152,6 @@ If ($install_chef){
   Set-Content "c:/mu_installed_chef" "yup"
 }
 
-<% if !$mu.skipApplyUpdates %>
-If (!(Test-Path "c:/mu-installer-ran-updates")){
-  log "Applying Windows updates"
-  Import-Module PSWindowsUpdate
-  Get-WUInstall -AcceptAll -IgnoreReboot
-  Start-Sleep -s 60
-  If (Test-Path "HKLM:/SOFTWARE/Microsoft/Windows/CurrentVersion/WindowsUpdate/Auto Update/RebootRequired"){
-    log "Windows Update reboot"
-    $need_reboot = $TRUE
-  }
-}
-<% end %>
-
 fetchSecret("<%= $mu.muID %>-secret")
 log "Encrypting Mu deploy secret"
 $deploy_secret = & "c:\opscode\chef\embedded\bin\ruby" -ropenssl -rbase64 -e "key = OpenSSL::PKey::RSA.new(Base64.urlsafe_decode64('<%= $mu.deployKey %>'))" -e "print Base64.urlsafe_encode64(key.public_encrypt(File.read('$tmp\<%= $mu.muID %>-secret')))"
@@ -194,22 +165,58 @@ function callMomma([string]$act)
   return $resp.Content
 }
 
+$awsid=(New-Object System.Net.WebClient).DownloadString("$awsmeta/meta-data/instance-id")
+
 $credstr = callMomma "mu_windows_admin_creds"
 $creds = $false
+$real_admin_user = $admin_username
 if($credstr){
   $credparts = $credstr.Split(";", 2)
   $creds = New-Object System.Management.Automation.PSCredential($credparts[0], (ConvertTo-SecureString $credparts[1] -AsPlainText -Force))
-  if($creds){
+  if($admin_username -ne $credparts[0]){
+    if ((Get-WmiObject win32_computersystem).partofdomain -ne $true){
+      (([adsi]("WinNT://./$admin_username, user")).psbase.invoke("SetPassword", $credparts[1]))
+      log "Changing local admin account from $admin_username to $($credparts[0])"
+      ([adsi]("WinNT://./$admin_username, user")).psbase.rename($credparts[0])
+      $need_reboot = $TRUE
+      $real_admin_user = $credparts[0]
+    } ElseIf(!$admin_username){
+      $admin_username = $credparts[0]
+    }
+  } ElseIf($creds){
     log "Setting $admin_username password"
     (([adsi]("WinNT://./$admin_username, user")).psbase.invoke("SetPassword", $credparts[1]))
   }
+} else {
+  log "Failed to get credentials from Momma Cat for some reason $($credstr)"
 }
 
-<% if $mu.windowsAdminName %>
-if ((Get-WmiObject win32_computersystem).partofdomain -ne $true){
-  if ("$admin_username" -ne "<%= $mu.windowsAdminName %>"){
-    log "Changing local admin account from $admin_username to <%= $mu.windowsAdminName %>"
-    ([adsi]("WinNT://./$admin_username, user")).psbase.rename("<%= $mu.windowsAdminName %>")
+If (!(Test-Path $tmp/PSWindowsUpdate.zip)){
+  If (!(Test-Path c:/Users/$admin_username/Documents/WindowsPowerShell/Modules)){
+    mkdir c:/Users/$admin_username/Documents/WindowsPowerShell/Modules
+  }
+
+  $WebClient.DownloadFile("https://s3.amazonaws.com/cap-public/PSWindowsUpdate.zip","$tmp/PSWindowsUpdate.zip")
+  Add-Type -A 'System.IO.Compression.FileSystem'
+
+  If (!(Test-Path c:/windows/System32/WindowsPowerShell/v1.0/Modules/PSWindowsUpdate)){
+    log "Extracting PSWindowsUpdate module to c:/windows/System32/WindowsPowerShell/v1.0/Modules"
+    [IO.Compression.ZipFile]::ExtractToDirectory("$tmp/PSWindowsUpdate.zip", "c:/windows/System32/WindowsPowerShell/v1.0/Modules")
+  }
+  If (!(Test-Path c:/Users/$admin_username/Documents/WindowsPowerShell/Modules/PSWindowsUpdate)){
+    log "Extracting PSWindowsUpdate module to c:/Users/$admin_username/Documents/WindowsPowerShell"
+    [IO.Compression.ZipFile]::ExtractToDirectory("$tmp/PSWindowsUpdate.zip", "c:/Users/$admin_username/Documents/WindowsPowerShell/Modules")
+  }
+}
+
+<% if !$mu.skipApplyUpdates %>
+Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update" -Name AUOptions -Value 3
+If (!(Test-Path "c:/mu-installer-ran-updates")){
+  log "Applying Windows updates"
+  Import-Module PSWindowsUpdate
+  Get-WUInstall -AcceptAll -IgnoreReboot
+  Start-Sleep -s 60
+  If (Test-Path "HKLM:/SOFTWARE/Microsoft/Windows/CurrentVersion/WindowsUpdate/Auto Update/RebootRequired"){
     $need_reboot = $TRUE
   }
 }
@@ -220,51 +227,47 @@ if((Get-WURebootStatus -Silent) -eq $true){
   $need_reboot = $TRUE
 }
 
-
 $muca = importCert "Mu_CA.pem" "Root"
 
 $myname = "<%= $mu.muID %>-<%= $mu.resourceName.upcase %>"
 
 $nodecert = importCert "$myname.pfx" "My"
 $thumb = $nodecert.Thumbprint
-# XXX Clumsy- should guard removal for mismatched hostnames/thumbprints
-# actually, should remove janky certificates outright
+# XXX guard this properly
 winrm delete winrm/config/Listener?Address=*+Transport=HTTPS
 winrm create winrm/config/Listener?Address=*+Transport=HTTPS "@{Hostname=`"$myname`";CertificateThumbprint=`"$thumb`"}"
-$ingroup = net localgroup WinRMRemoteWMIUsers__ | Where-Object {$_ -eq "<%= $mu.windowsAdminName %>"}
-if($ingroup -ne "<%= $mu.windowsAdminName %>"){
-  net localgroup WinRMRemoteWMIUsers__ /add <%= $mu.windowsAdminName %>
+$ingroup = net localgroup WinRMRemoteWMIUsers__ | Where-Object {$_ -eq $admin_username}
+if($ingroup -ne $admin_username){
+  net localgroup WinRMRemoteWMIUsers__ /add $admin_username
 }
 
 $winrmcert = importCert "$myname-winrm.crt" "TrustedPeople"
 Set-Item -Path WSMan:\localhost\Service\Auth\Certificate -Value $true
 Set-ItemProperty -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" -Name LocalAccountTokenFilterPolicy -Value 1
-log $creds
 if($creds){
-  log "Enabling WinRM cert auth for <%= $mu.windowsAdminName %>"
-  New-Item -Path WSMan:\localhost\ClientCertificate -Subject '<%= $mu.windowsAdminName %>@localhost' -URI * -Issuer $muca.Thumbprint -Force -Credential $creds
+  log "Enabling WinRM cert auth for $real_admin_user"
+  New-Item -Path WSMan:\localhost\ClientCertificate -Subject "$real_admin_user@localhost" -URI * -Issuer $muca.Thumbprint -Force -Credential $creds
 }
 winrm set winrm/config/winrs '@{MaxMemoryPerShellMB="8192"}'
 winrm set winrm/config '@{MaxTimeoutms="1800000"}'
-
-if (!(Get-NetFirewallRule -DisplayName "Allow SSH" -ErrorAction SilentlyContinue)){
-  log "Opening port 22 in Windows Firewall"
-  New-NetFirewallRule -DisplayName "Allow SSH" -Direction Inbound -LocalPort 22 -Protocol TCP -Action Allow
-}
-if (!(Get-NetFirewallRule -DisplayName "Allow WinRM" -ErrorAction SilentlyContinue)){
-  New-NetFirewallRule -DisplayName "Allow WinRM" -Direction Inbound -LocalPort 5986 -Protocol TCP -Action Allow
-}
+Restart-Service WinRm
 
 if ($need_reboot){
   log "- REBOOT -"
   Restart-Computer -Force
   exit
-} else {
-  Add-Content c:/mu-installer-ran-updates "$(Get-Date -f MM-dd-yyyy_HH:mm:ss)"
-
-  callMomma "mu_bootstrap"
 }
 
+if (!(Get-NetFirewallRule -DisplayName "Allow SSH" -ErrorAction SilentlyContinue)){
+  log "Opening port 22 in Windows Firewall"
+  New-NetFirewallRule -DisplayName "Allow SSH" -Direction Inbound -LocalPort 22 -Protocol TCP -Action Allow
+}
+if (!(Get-NetFirewallRule -DisplayName "Allow WinRM SSL" -ErrorAction SilentlyContinue)){
+  New-NetFirewallRule -DisplayName "Allow WinRM SSL" -Direction Inbound -LocalPort 5986 -Protocol TCP -Action Allow
+}
+
+Add-Content c:/mu-installer-ran-updates "$(Get-Date -f MM-dd-yyyy_HH:mm:ss)"
+callMomma "mu_bootstrap"
 Set-Content "c:/mu_userdata_complete" "yup"
 Remove-Item -Recurse $tmp
 Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy Undefined

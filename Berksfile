@@ -37,7 +37,6 @@ cookbook 'mu-tools', path: "#{cookbookPath}/mu-tools"
 cookbook 'mu-utility', path: "#{cookbookPath}/mu-utility"
 cookbook 'mysql-chef_gem', path: "#{cookbookPath}/mysql-chef_gem"
 cookbook 'nagios', path: "#{cookbookPath}/nagios"
-cookbook 'python', path: "#{cookbookPath}/python"
 cookbook 'runit', '~> 1.7'
 cookbook 's3fs', path: "#{cookbookPath}/s3fs"
 cookbook 'zipfile', '~> 0.1.0'
