@@ -15,21 +15,6 @@ pipeline {
         }
       }
       
-      //stage('Rubocop'){
-      //  steps{
-      //    script {
-      //      sh "/usr/local/ruby-current/bin/rubocop ${workspace}/modules/"
-      //    }
-      //  }
-      // }
-
-      // stage('Foodcritic MU Cookbooks'){
-      //  steps{
-      //    script {
-      //      sh "/usr/local/ruby-current/bin/foodcritic ${workspace}/cookbooks/*"
-      //    }
-      //  }
-      // }
 
       stage('Initial Cleanup'){
         steps {
@@ -38,51 +23,94 @@ pipeline {
           }
         }
       }
-// ***************************************************************
-// ******************** Run ALL BOKS PARALLEL ********************
 
-//      stage('mu-deploy'){
-//        parallel{
-            stage("mu-deploy etco-autoscale-private"){
-              steps {
-                script{
+//-----------------------------------------------------------------------------------------
+
+
+      stage('Lint && mu-deploy'){
+        parallel{
+            
+          stage('Rubocop'){
+            steps{
+              script {
+                try {
+                  sh "/usr/local/ruby-current/bin/rubocop ${workspace}/modules/"
+                } catch(err) {
+                    echo "ERROR: ${err}"
+                    currentBuild.result = 'UNSTABLE'
+                }
+              }
+            }
+          }  
+
+          stage('Foodcritic MU Cookbooks'){
+            steps{
+              script {
+                try {
+                  sh "/usr/local/ruby-current/bin/foodcritic ${workspace}/cookbooks/*"
+                } catch (err) {
+                    echo "ERROR: ${err}"
+                    currentBuild.result = 'UNSTABLE'
+                }
+              }
+            }
+          }    
+
+
+          stage("mu-deploy simple-server-rails"){
+            steps {
+              script{
+                try{
+                  //sh "sleep 135"
+                  sh "${workspace}/bin/mu-deploy -n ${workspace}/demo/simple-server-rails.yaml"
+                } catch (err) {
+                    echo "ERROR: ${err}"
+                    currentBuild.result = 'UNSTABLE'
+                  }
+                }
+              }
+            }
+            
+            stage("mu-master-install"){
+              steps{
+                script {
                   try{
-                      //sh "sleep 135"
-                      sh "${workspace}/bin/mu-deploy -n ${workspace}/demo/etco-autoscale-private_2.yaml -p s3_drive=etco-dev"
-                    } catch (err) {
+                    sh "${workspace}/test/exec_mu_install.py"
+                  } catch (err) {
                       echo "ERROR: ${err}"
                       currentBuild.result = 'UNSTABLE'
-                    }
+                  }
                 }
               }
             }
 
-//            stage ("demo_recipes.yaml") {
+//            stage ("wordpress.yaml") {
 //              steps{
 //                  script{
 //                    try{
-//                        sh "python ${workspace}/test/exec_bok.py demo_recipes.yaml"
+//                        sh "sleep 145"
+//                        sh "${workspace}/bin/mu-deploy -n ${workspace}/demo/demo_recipes.yaml"
 //                      } catch (err) {
 //                        echo "ERROR: ${err}"
 //                        currentBuild.result = 'UNSTABLE'
 //                      }
-                      
-//                  }
+//                 }
 //              }
 //            }
+        }
+    }
 
-//        }
-//    }
 
-// ****************************************************************
-// ******************** Run ALL TESTS PARALLEL ********************
+//-----------------------------------------------------------------------------------------
+
+
 //      stage('Inspec Verify'){
 //        parallel{
-            stage("Inspec etco-test"){
+            stage("Inspec simple-server-rails"){
               steps {
                 script{
                     try {
-                      sh "python ${workspace}/test/exec_inspec.py etco-test-profile etco-autoscale-private_2.yaml"
+                      sh "python ${workspace}/test/exec_inspec.py simple-server-rails-test simple-server-rails.yaml"
                     } catch (err) {
                         echo "ERROR: ${err}"
                         currentBuild.result = 'UNSTABLE'
@@ -122,7 +150,7 @@ pipeline {
     stage('Mu-Cleanup'){
         steps {
           script {
-            //sh 'sudo python /opt/mu/lib/test/clean_up.py'
+            sh 'sudo python /opt/mu/lib/test/clean_up.py'
             sh 'sudo rm -rf /tmp/inspec_retries/*'
             sh 'sudo rm -f /tmp/*.yaml'
           }
@@ -130,4 +158,3 @@ pipeline {
     }
   }
 }
-
