@@ -1,0 +1,4 @@
+interface "eth0" {
+  prepend domain-search "<%= @domain %>";
+  prepend domain-name-servers <%= @dc_ips.join(", ") %>;
+}

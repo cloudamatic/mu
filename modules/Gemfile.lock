@@ -322,7 +322,7 @@ DEPENDENCIES
   mysql
   net-ldap
   net-ssh (~> 3.2.0)
-  netaddr
+  netaddr (< 2)
   nokogiri (~> 1.6.8)
   pg (< 1.0)
   rack

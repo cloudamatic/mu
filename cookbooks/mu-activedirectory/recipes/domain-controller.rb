@@ -32,13 +32,13 @@ end
 
 if can_add_controller
   mu_activedirectory_domain_controller node[:ad][:domain_name] do
-    netbios_name node[:ad][:netbios_name]
-    domain_admin_user domain_admin[node[:ad][:admin_auth][:username_field]]
-    domain_admin_password domain_admin[node[:ad][:admin_auth][:password_field]]
-    restore_mode_password domain_admin[node[:ad][:admin_auth][:password_field]]
-    site_name node[:ad][:site_name]
-    computer_name node[:ad][:computer_name]
-    sites node[:ad][:sites]
-    existing_dc_ips node[:ad][:dc_ips]
+    netbios_name node['ad']['netbios_name']
+    domain_admin_user domain_admin[node['ad']['admin_auth']['username_field']]
+    domain_admin_password domain_admin[node['ad']['admin_auth']['password_field']]
+    restore_mode_password domain_admin[node['ad']['admin_auth']['password_field']]
+    site_name node['ad']['site_name']
+    computer_name node['ad']['computer_name']
+    sites node['ad']['sites']
+    existing_dc_ips node['ad']['dc_ips']
   end
 end

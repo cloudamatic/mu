@@ -16,7 +16,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-case node[:platform_family]
+case node['platform_family']
   when "rhel"
 
     %w{sshd winbind smb messagebus}.each { |svc|
@@ -24,11 +24,19 @@ case node[:platform_family]
         resources('service['+svc+']')
       rescue Chef::Exceptions::ResourceNotFound
         service svc do
-          action :enable
+          action [:enable, :start]
           only_if { ::File.exists?("/etc/init.d/#{svc}") }
         end
       end
     }
+
+    begin
+      resources('service[network]')
+    rescue Chef::Exceptions::ResourceNotFound
+      service "network" do
+        only_if { ::File.exists?("/etc/init.d/network") }
+      end
+    end
 
     packages = %w(epel-release dbus sssd sssd-ldap sssd-ad authconfig nscd oddjob-mkhomedir krb5-devel)
 
@@ -109,14 +117,19 @@ case node[:platform_family]
     end
 
     include_recipe 'chef-vault'
-    domain_creds = chef_vault_item(node[:ad][:join_auth][:vault], node[:ad][:join_auth][:item])
+<<<<<<< HEAD
+    domain_creds = chef_vault_item(node['ad']['join_auth']['vault'], node['ad']['join_auth']['item'])
 # provider already does this
-#    node[:ad][:dc_ips].each { |ip|
+#    node['ad']['dc_ips'].each { |ip|
       # XXX there's a more correct way to touch resolv.conf
 #      execute "sed -i '2i nameserver #{ip}' /etc/resolv.conf" do
 #        not_if "grep #{ip} /etc/resolv.conf"
 #      end
 #    }
+=======
+    domain_creds = chef_vault_item(node['ad']['join_auth']['vault'], node['ad']['join_auth']['item'])
+
+>>>>>>> master
     service "sssd" do
       action :nothing
       notifies :restart, "service[sshd]", :immediately
@@ -129,22 +142,37 @@ case node[:platform_family]
       cookbook "mu-activedirectory"
       notifies :restart, "service[sssd]", :immediately
       variables(
-        :domain => node[:ad][:domain_name],
-        :homedir => node[:ad][:homedir],
-        :krb5keytabuser => node[:ad][:computer_name],
-        :short_domain => node[:ad][:netbios_name],
-        :base_dn => node[:ad][:domain_name].split(/\./).map { |x| "dc=#{x}" }.join(","),
-        :dcs => node[:ad][:dc_ips]
+        :domain => node['ad']['domain_name'],
+        'homedir' => node['ad']['homedir'],
+        :krb5keytabuser => node['ad']['computer_name'],
+        :short_domain => node['ad']['netbios_name'],
+        :base_dn => node['ad']['domain_name'].split(/\./).map { |x| "dc=#{x}" }.join(","),
+        :dcs => node['ad']['dc_ips']
       )
     end
+
+    template "/etc/dhcp/dhclient-eth0.conf" do
+      source "dhclient-eth0.conf.erb"
+      mode 0644
+      variables(
+        :domain => node['ad']['domain_name'],
+        'dc_ips' => node['ad']['dc_ips']
+      )
+      notifies :restart, "service[network]", :immediately unless %w{redhat centos}.include?(node.platform) && node.platform_version.to_i == 7
+    end
+
     # If adcli fails mysteriously, look for bogus /etc/hosts entries pointing
     # to your DCs. It seems to dumbly trust any reverse mapping it sees,
     # whether or not the name matches the actual Kerberos tickets you et.
     execute "Run ADCLI" do
       not_if { ::File.exists?("/etc/krb5.keytab") }
-      command "echo -n '#{domain_creds[node[:ad][:join_auth][:password_field]]}' | /usr/sbin/adcli join #{node[:ad][:domain_name]} --domain-realm=#{node[:ad][:domain_name].upcase} -U #{domain_creds[node[:ad][:join_auth][:username_field]]} --stdin-password"
+<<<<<<< HEAD
+      command "echo -n '#{domain_creds[node['ad']['join_auth']['password_field']]}' | /usr/sbin/adcli join #{node['ad']['domain_name']} --domain-realm=#{node['ad']['domain_name'].upcase} -U #{domain_creds[node['ad']['join_auth']['username_field']]} --stdin-password"
+=======
+      command "echo -n '#{domain_creds[node['ad']['join_auth']['password_field']]}' | /usr/sbin/adcli join #{node['ad']['domain_name']} --domain-realm=#{node['ad']['domain_name'].upcase} -U #{domain_creds[node['ad']['join_auth']['username_field']]} --stdin-password"
+>>>>>>> master
       notifies :restart, "service[sssd]", :immediately
-      sensitive true
+#      sensitive true
     end
 
     template "/etc/krb5.conf" do
@@ -153,11 +181,11 @@ case node[:platform_family]
       cookbook "mu-activedirectory"
       notifies :restart, "service[sssd]", :immediately
       variables(
-        :domain_name => node[:ad][:domain_name],
-        :dcs => node[:ad][:dc_ips]
+        'domain_name' => node['ad']['domain_name'],
+        :dcs => node['ad']['dc_ips']
       )
     end
 
   else
-    Chef::Log.info("Unsupported platform #{node[:platform]}")
+    Chef::Log.info("Unsupported platform #{node['platform']}")
 end

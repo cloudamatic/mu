@@ -986,6 +986,7 @@ module MU
               if resp.stdout.chomp != hostname
                 resp = shell.run(%Q{Rename-Computer -NewName '#{hostname}' -Force -PassThru -Restart; Restart-Computer -Force})
                 MU.log "Renaming Windows host to #{hostname}; this will trigger a reboot", MU::NOTICE, details: resp.stdout
+                reboot(true)
                 sleep 30
               end
             rescue WinRM::WinRMError => e
