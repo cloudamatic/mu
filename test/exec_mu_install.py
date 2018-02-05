@@ -12,7 +12,7 @@ import subprocess, boto3, os, json, time, datetime
 
 #workspace=os.environ['WORKSPACE']
 ssh_data_file = '/tmp/MU-MASTER-INSTALL-TEST.json'
-branch = "issue_100"
+branch = os.environ['GIT_BRANCH']
 user_data= """#!/bin/bash 
 sed -i 's/#PermitRootLogin yes/PermitRootLogin yes/g' /etc/ssh/sshd_config
 sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/g' /etc/ssh/sshd_config
