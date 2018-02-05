@@ -23,6 +23,7 @@ pipeline {
             sh 'sudo rm  -rf /tmp/inspec_retries/*'
             sh 'sudo rm -f /tmp/*.yaml'
             sh "echo ${GIT_BRANCH}"
+            sh "${workspace}/bin/mu-upload-chef-artifacts"
           }
         }
       }
