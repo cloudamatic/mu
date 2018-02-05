@@ -21,7 +21,7 @@ action :add do
       set_client_dns
       elevate_remote_access
       join_domain_windows
-      set_computer_name(join_domain_creds)
+#      set_computer_name(join_domain_creds)
     when "centos", "redhat"
       install_ad_client_packages
       join_domain_linux
@@ -200,9 +200,10 @@ def config_ssh_ntp_dns
     group "root"
     mode 0644
     variables(
-        :dcs => new_resource.dc_names
+      :dcs => new_resource.dc_names
     )
   end
+
 
   template "mu-activedirectory /etc/ssh/sshd_config" do
     path "/etc/ssh/sshd_config"
@@ -220,12 +221,6 @@ def config_ssh_ntp_dns
     # )
   end
 
-  # XXX there's a more correct way to touch resolv.conf
-  new_resource.dc_ips.each { |ip|
-    execute "sed -i '2i nameserver #{ip}' /etc/resolv.conf" do
-      not_if "grep #{ip} /etc/resolv.conf"
-    end
-  }
 end
 
 def create_pam_winbind_directories
