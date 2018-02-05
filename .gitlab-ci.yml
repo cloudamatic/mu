@@ -1,11 +1,11 @@
-before_sccript:
+before_script:
   - aws configure set default.region us-east-1
   - export WORKSPACE=$CI_PROJECT_DIR
   - echo $WORKSPACE
 
 stages:
   - clean_up
-  - test
+  - lint/deploy
   - foodcritic
   - test_mu_bok_install
   - inspec_test
@@ -14,14 +14,14 @@ stages:
 
 InitialCleanUp:
   stage: clean_up
-  script:  python test/clean_up.py
+  script:  python test/clean_up.py 
   only:
     - master
   tags:
     - master
 
 Rubocop:
-  stage: test
+  stage: lint/deploy
   script:
     - rubocop modules
   only:
@@ -32,7 +32,7 @@ Rubocop:
 
 
 Foodcritic:
-  stage: test
+  stage: lint/deploy
   script:
     - foodcritic cookbooks/*
   only:
@@ -42,7 +42,7 @@ Foodcritic:
   allow_failure: true
 
 mu_deploy:
-  stage: test
+  stage: lint/deploy
   script:
     - bin/mu-deploy -n demo/simple-server-rails.yaml
   only:
@@ -51,7 +51,7 @@ mu_deploy:
     - master
 
 mu_install_test:
-  stage: test
+  stage: lint/deploy
   script:
     - python test/exec_mu_install.py
   only:
@@ -63,7 +63,7 @@ mu_install_test:
 bok_inspec_test:
   stage: inspec_test
   script:
-    - python test/exec_inspec.py simple-server-rails-test simple-server-rails.mla
+    - python test/exec_inspec.py simple-server-rails-test simple-server-rails.yaml
   only:
     - master
   tags:
@@ -74,7 +74,7 @@ bok_inspec_test:
 retry_failures:
   stage: inspec_retry
   script:
-    - python test/exec_retry.py
+    - python test/exec_retry.py 
   only:
     - master
   tags:
@@ -87,3 +87,4 @@ final_clean_up:
     - python test/clean_up.py
     - rm -rf /tmp/inspec_retries/*
     - rm -rf /tmp/*.yml
+
