@@ -153,9 +153,9 @@ def run_master_test(ssh_data_file,controls):
     os.chdir("/opt/mu/lib/test")
     cmd = "inspec exec mu-master-test --controls=%s -t ssh://root@%s -i %s" % (controls, ssh_info[0]['fqdn'],ssh_info[0]['key'])
     exit = os.system(cmd)
+    return exit
   else:
     raise Exception("ssh file does not exist: %s" % ssh_data_file)
-
 
 def dump_ssh_info(data):
   new_file = open(ssh_data_file,'w')
@@ -197,7 +197,9 @@ dump_ssh_info(data)
 if os.path.isfile(ssh_data_file):
   ssh_info = json.load(open(ssh_data_file))    
   run_installer_over_ssh('root',ssh_info[0]['fqdn'],ssh_info[0]['key'],'sh /tmp/installer')
-  run_master_test(ssh_data_file, controls_spaced_out) 
+  status = run_master_test(ssh_data_file, controls_spaced_out) 
+  if status != 0:
+    raise Exception("Mu Master Installation Failed")
   rm_chef_node_json_frm_target('root',ssh_info[0]['fqdn'],ssh_info[0]['key'])
   cleanup_ids = []
   for each in ssh_info:

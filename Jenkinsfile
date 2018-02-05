@@ -22,6 +22,7 @@ pipeline {
             sh 'sudo python /opt/mu/lib/test/clean_up.py'
             sh 'sudo rm  -rf /tmp/inspec_retries/*'
             sh 'sudo rm -f /tmp/*.yaml'
+            sh "echo ${GIT_BRANCH}"
           }
         }
       }
