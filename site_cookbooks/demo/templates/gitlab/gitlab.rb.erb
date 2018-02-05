@@ -1,0 +1,32 @@
+# Check and change the external_url to the address your users will type in their browser
+external_url 'https://git.femadata.com'
+nginx['redirect_http_to_https'] = true
+git_data_dir "/git/git-data"
+gitlab_rails['ldap_enabled'] = true
+gitlab_rails['ldap_servers'] = YAML.load <<-EOS # remember to close this block with 'EOS' below
+main: # 'main' is the GitLab 'provider ID' of this LDAP server
+  label: 'LDAP'
+  host: 'dc2.ad.femadata.com'
+  port: 636
+  uid: 'sAMAccountName'
+  method: 'ssl' # "tls" or "ssl" or "plain"
+  bind_dn: 'CN=GitLab Service Account,OU=ServiceAccounts,OU=Management,OU=FEMAData,DC=ad,DC=femadata,DC=com'
+  password: 'YhwBUzmi5%2V'
+  active_directory: true
+  allow_username_or_email_login: false
+  base: 'OU=FEMAData,DC=ad,DC=femadata,DC=com'
+  user_filter: '(memberOf=cn=git,ou=groups,OU=FEMAData,DC=ad,DC=femadata,DC=com)'
+EOS
+
+gitlab_rails['smtp_enable'] = true  
+gitlab_rails['smtp_address'] = "ssmtp.gmail.com"  
+gitlab_rails['smtp_port'] = 456  
+gitlab_rails['smtp_user_name'] = "support@femadata.com"  
+gitlab_rails['smtp_password'] = "^m2QpUDN9A"  
+gitlab_rails['smtp_domain'] = "femadata.com"  
+gitlab_rails['smtp_authentication'] = "login"  
+gitlab_rails['smtp_enable_starttls_auto'] = true
+
+# If your SMTP server does not like the default 'From: gitlab@localhost' you
+# can change the 'From' with this setting.
+gitlab_rails['gitlab_email_from'] = 'gitlab@femadata.com'  

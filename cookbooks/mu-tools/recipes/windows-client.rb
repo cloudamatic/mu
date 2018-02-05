@@ -84,22 +84,23 @@ if !node['application_attributes']['skip_recipes'].include?('windows-client')
           Invoke-Expression -Debug '& #{cygwindir}/bin/bash.exe --login -c "ssh-host-config -y -c ntsec -w ''#{sshd_password}'' -u #{sshd_user}"'
           Invoke-Expression -Debug '& #{cygwindir}/bin/bash.exe --login -c "sed -i.bak ''s/#.*StrictModes.*yes/StrictModes no/'' /etc/sshd_config"'
           Invoke-Expression -Debug '& #{cygwindir}/bin/bash.exe --login -c "sed -i.bak ''s/#.*PasswordAuthentication.*yes/PasswordAuthentication no/'' /etc/sshd_config"'
+          Invoke-Expression -Debug '& #{cygwindir}/bin/bash --login -c "chown #{sshd_user} /var/empty /var/log/sshd.log /etc/ssh*; chmod 755 /var/empty"'
         EOH
         sensitive true
         not_if %Q{Get-Service "sshd"}
       end
-
-# We probably don't have to do these things, but leaving them in a comment just
-# in case.
-#    if((Get-WmiObject win32_computersystem).partofdomain){
-#      Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkpasswd -d > /etc/passwd"'
-#      Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkgroup -l -d > /etc/group"'
-#    } else {
-#      Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkpasswd -l > /etc/passwd"'
-#      Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "mkgroup -l > /etc/group"'
-#    }
-#    Invoke-Expression -Debug '& $cygwin_dir/bin/bash --login -c "chown $sshd_svc_user /var/empty /var/log/sshd.log /etc/ssh*; chmod 755 /var/empty"'
-
+      powershell_script "set unix-style Cygwin sshd permissions" do
+        code <<-EOH
+          if((Get-WmiObject win32_computersystem).partofdomain){
+            Invoke-Expression -Debug '& #{cygwindir}/bin/bash --login -c "mkpasswd -d > /etc/passwd"'
+            Invoke-Expression -Debug '& #{cygwindir}/bin/bash --login -c "mkgroup -l -d > /etc/group"'
+          } else {
+            Invoke-Expression -Debug '& #{cygwindir}/bin/bash --login -c "mkpasswd -l > /etc/passwd"'
+            Invoke-Expression -Debug '& #{cygwindir}/bin/bash --login -c "mkgroup -l > /etc/group"'
+          }
+          Invoke-Expression -Debug '& #{cygwindir}/bin/bash --login -c "chown #{sshd_user} /var/empty /var/log/sshd.log /etc/ssh*; chmod 755 /var/empty"'
+        EOH
+      end
 
       include_recipe 'mu-activedirectory'
 

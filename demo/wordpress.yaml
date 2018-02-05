@@ -69,12 +69,12 @@ databases:
     vault: "<%=dbvault %>"
     item: "<%=dbvaultitem %>"
   <% end %>
-  db_family: mysql5.6
   engine: mysql
   port: 3306
   size: db.t2.micro
   storage: 5
   engine_version: 5.6.34
+
   vpc: 
     vpc_name: <%= vpc_name %>
     <% if parameter?('vpc_deploy_id') %>

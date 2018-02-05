@@ -6,7 +6,7 @@ appname: windows-demo
 servers:
 - name: windows
   platform: windows
-  size: t2.large
+  size: t2.micro
   static_ip:
     assign_ip: true
   storage:

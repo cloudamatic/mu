@@ -1,0 +1,57 @@
+<%
+$azs = MU::Cloud::AWS.listAZs
+$azs.delete $azskip if $azskip
+current_vpc = MU.myVPC
+%>
+---
+appname: demo
+servers:
+  -
+    name: gitlab
+    ssh_user: ubuntu
+    platform: ubuntu
+    storage:
+      -
+        size: 15
+    skipinitialupdates: true
+    #size: t2.micro
+    size: t2.xlarge
+    run_list:
+    - recipe[demo::gitlab]
+    - recipe[demo::gitlab_runner]
+    associate_public_ip: true
+    static_ip: 
+      assign_ip: true
+    vpc:
+    <% if $vpc_deploy_id %>
+      deploy_id: <%= $vpc_deploy_id %>
+    <% elsif $use_current %>
+      vpc_id: <%= current_vpc %>
+    <% else %>
+      vpc_name: vpc
+    <% end %>
+    ingress_rules:
+      -
+        port: 80
+        hosts:
+          - "0.0.0.0/0"
+      -
+        port: 443
+        hosts:
+          - "0.0.0.0/0"
+<% unless $use_current or $vpc_deploy_id then %>
+vpcs:
+- name: vpc
+  route-tables:
+  - name: internet
+    routes:
+    - destination_network: 0.0.0.0/0
+      gateway: "#INTERNET"
+  subnets:
+<% $azs.each.with_index do |az, i| %>
+  - name: Subnet<%= i %>Public
+    ip_block: 10.0.<%= i %>.0/24
+    availability-zone: "<%= az %>"
+    route-table: internet
+<% end %>
+<% end %>
