@@ -208,4 +208,4 @@ else:
   print("Nothing to do! Instance Data file does not exists: %s" % ssh_data_file)
 
 
-#os.system("rm -rf "+ssh_data_file)
+os.system("rm -rf "+ssh_data_file)

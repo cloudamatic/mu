@@ -3,5 +3,5 @@ lockfile_version: 1
 depends:
 - name: mu-tools-test
   resolved_source:
-    path: "/home/jenkins/workspace/test2/test/mu-tools-test"
+    path: "/opt/mu/lib/test/mu-tools-test"
   version_constraints: "[]"
