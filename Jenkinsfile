@@ -114,7 +114,7 @@ pipeline {
               steps {
                 script{
                     try {
-                      sh "python ${workspace}/test/exec_inspec.py simple-server-rails-test simple-server-rails.yaml"
+                      sh "python ${workspace}/test/exec_inspec.py -p simple-server-rails-test -b simple-server-rails.yaml"
                     } catch (err) {
                         echo "ERROR: ${err}"
                         currentBuild.result = 'UNSTABLE'

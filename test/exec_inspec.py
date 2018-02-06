@@ -1,11 +1,31 @@
 #!/bin/python
 
-import os, json, subprocess, sys, re, glob, time, yaml
+import os, argparse, json, subprocess, sys, re, glob, time, yaml
 
 deploy_dirs = '/opt/mu/var/deployments'
 current_deploys = os.listdir(deploy_dirs)
-workspace = os.environ['WORKSPACE']
-#workspace = '/opt/mu/lib'
+
+parser = argparse.ArgumentParser(description='Optional app description')
+
+# Local Mode Switch
+parser.add_argument('-l', action='store_true',help='A boolean switch')
+# Required inspec profile name
+parser.add_argument('-p', type=str,help='Inspec Profile name')
+# Required bok name
+parser.add_argument('-b', type=str,help='BOK Name')
+
+args = parser.parse_args()
+
+print "Local Mode: %s" % args.l
+print "Inspec Profile: %s" % args.p
+print "BOK Name: %s" % args.b
+
+if args.l:
+  workspace = '/opt/mu/lib'
+else:
+  ## From CI server
+  workspace = os.environ['WORKSPACE']
+
 test = workspace+'/test'
 
 
@@ -15,7 +35,7 @@ def base_controls():
 
 
 def get_profile():
-  which_profile = str(sys.argv[1])
+  which_profile = args.p
   if os.path.isdir(test+'/'+which_profile):
     return which_profile
   else:
@@ -200,9 +220,7 @@ def run_linux_tests(profile, ssh, ssh_file, all_controls):
   
 
 inspec_retry_dir = '/tmp/inspec_retries'
-bok_name = None
-if str(sys.argv[2]) != None:
-  bok_name = str(sys.argv[2])
+bok_name = args.b
 profile = get_profile()
 rebuild_inspec_lock(profile)
 os.chdir(workspace)
