@@ -31,7 +31,8 @@
     },
     "AdminIPCIDR": {
       "Description": "The IP address you will initially use to connect to the master for admin access, in CIDR format, e.g.. 50.1.1.1/32",
-      "Type": "String"
+      "Type": "String",
+      "Default":"0.0.0.0/0"
     },
     "masterIAMRole": {
       "Description": "Existing IAM instance profile/role for Mu Server to access AWS Services",
@@ -67,13 +68,6 @@
         "cg1.4xlarge"
       ],
       "ConstraintDescription": "must be a valid EC2 instance type, at least medium."
-    },
-    "adminPassword": {
-      "Description": "Password used for mu and Jenkins admin users ",
-      "Type": "String",
-      "MinLength": "0",
-      "MaxLength": "255",
-      "NoEcho": "true"
     },
     "adminEmail": {
       "Description": "The e-mail address of the administrative user for the server, for notifications",
@@ -735,181 +729,6 @@
               "yum": {
                 "wget": []
               }
-            },
-            "files": {
-              "/root/jenkinskeys.rb": {
-                "source": {
-                  "Fn::Join": [
-                    "",
-                    [
-                      "https://github.com/cloudamatic/mu/raw/",
-                      {
-                        "Ref": "GitMuTag"
-                      },
-                      "/install/jenkinskeys.rb"
-                    ]
-                  ]
-                },
-                "mode": "000700",
-                "owner": "root",
-                "group": "root"
-              },
-              "/root/mu_setup": {
-                "source": {
-                  "Fn::Join": [
-                    "",
-                    [
-                      "https://github.com/cloudamatic/mu/raw/",
-                      {
-                        "Ref": "GitMuTag"
-                      },
-                      "/install/installer"
-                    ]
-                  ]
-                },
-                "mode": "000700",
-                "owner": "root",
-                "group": "root"
-              },
-              "/tmp/tmp_ssh_config": {
-                "content": {
-                  "Fn::Join": [
-                    "",
-                    [
-                      "Host github.com \n",
-                      "  User git\n",
-                      "  IdentityFile /root/.ssh/github_key\n",
-                      "  StrictHostKeyChecking no\n"
-                    ]
-                  ]
-                },
-                "mode": "000600",
-                "owner": "root",
-                "group": "root"
-              },
-              "/opt/mu/etc/mu.rc": {
-                "content": {
-                  "Fn::Join": [
-                    "",
-                    [
-                      "export MU_ADMIN_EMAIL=\"",
-                      {
-                        "Ref": "adminEmail"
-                      },
-                      "\"\n",
-                      "export JENKINS_ADMIN_EMAIL=\"",
-                      {
-                        "Ref": "adminEmail"
-                      },
-                      "\"\n",
-                      "export MUTAG=\"",
-                      {
-                        "Ref": "GitMuTag"
-                      },
-                      "\"\n",
-                      "export MU_REPO=\"cloudamatic/mu.git\"\n",
-                      "export CHEF_PUBLIC_IP=\"",
-                      {
-                        "Ref": "MasterEIP"
-                      },
-                      "\"\n",
-                      "export HOST_NAME=\"",
-                      {
-                        "Ref": "HostName"
-                      },
-                      "\"\n",
-                      "export ALLOW_INVADE_FOREIGN_VPCS=\"1\"\n",
-                      "export EC2_REGION=\"",
-											{
-												"Ref" : "AWS::Region"
-											},
-											"\"\n",
-                      "export MU_INSTALLDIR=\"/opt/mu\"\n",
-                      "export MU_DATADIR=\"/opt/mu/var\"\n",
-                      "export VPCID=\"",
-                      {
-                        "Ref": "VPC"
-                      },
-                      "\"\n",
-                      "export TARGET_PUBLIC_SUBNET_1=\"",
-                      {
-                        "Ref": "TargetPublicSubnet1"
-                      },
-                      "\"\n",
-                      "export TARGET_PUBLIC_SUBNET_2=\"",
-                      {
-                        "Ref": "TargetPublicSubnet2"
-                      },
-                      "\"\n",
-                      "export TARGET_PRIVATE_SUBNET_1=\"",
-                      {
-                        "Ref": "TargetPrivateSubnet1"
-                      },
-                      "\"\n",
-                      "export TARGET_PRIVATE_SUBNET_2=\"",
-                      {
-                        "Ref": "TargetPrivateSubnet2"
-                      },
-                      "\"\n",
-                      "export TARGET_PRIVATE_ROUTETABLE_1=\"",
-                      {
-                        "Ref": "PrivateRouteTable1"
-                      },
-                      "\"\n",
-                      "export TARGET_PRIVATE_ROUTETABLE_2=\"",
-                      {
-                        "Ref": "PrivateRouteTable2"
-                      },
-                      "\"\n"
-                    ]
-                  ]
-                }
-              }
-            },
-            "commands": {
-              "1_write_first_ssh_config": {
-                  "command": "mv /tmp/tmp_ssh_config /root/.ssh/config",
-                  "cwd": "/root",
-                  "test": "test ! -e ~/.ssh/config",
-                  "ignoreErrors": "false"
-              },
-              "2_install_mu": {
-                "command": {
-                  "Fn::Join": [
-                    "",
-                    [
-                      "bash -x /root/mu_setup -d -b ",
-                      {
-                        "Ref": "GitMuTag"
-                      },
-                      " > /root/setup.out"
-                    ]
-                  ]
-                },
-                "env": {
-                  "MU_ADMIN_PW": {
-                    "Ref": "adminPassword"
-                  },
-                  "JENKINS_ADMIN_PW": {
-                    "Ref": "adminPassword"
-                  },
-                  "MU_SSL_CERT": "/opt/mu/var/ssl/mommacat.crt",
-                  "MU_SSL_KEY": "/opt/mu/var/ssl/mommacat.key",
-                  "MU_SSL_CHAIN": "/opt/mu/var/ssl/Mu_CA.pem",
-                  "HOME": "/root",
-                  "USER": "root",
-                  "TERM": "xterm",
-                  "SHELL": "/bin/bash",
-                  "BASH": "/bin/bash",
-                  "LANG": "en_US.UTF-8"
-                },
-                "cwd": "/root",
-                "test": "test -e /root/mu_setup",
-                "ignoreErrors": "true"
-              }
-            },
-            "services": {
-              "sysvinit": {}
             }
           }
         }
@@ -950,19 +769,10 @@
               [
                 "#!/bin/bash -vx\n",
                 "CHEF_PUBLIC_IP=`curl -s http://169.254.169.254/latest/meta-data/public-ipv4`\n",
-                "easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz \n",
-                "mkdir /opt/mu\n",
-                "mkdir /opt/mu/etc\n",
-                "/usr/bin/cfn-init -v -s ",
-                {
-                  "Ref": "AWS::StackId"
-                },
-                " -r MasterInstance ",
-                "    --region ",
-                {
-                  "Ref": "AWS::Region"
-                },
-                " || error_exit 'Failed to run cfn-init'\n"
+                "cd /tmp\n",
+                "yum install wget -y\n",
+                "wget https://raw.githubusercontent.com/cloudamatic/mu/master/install/installer\n",
+                "sh installer | tee installer_output.txt"
               ]
             ]
           }
@@ -1145,5 +955,4 @@
     }
   }
 }
-
 
