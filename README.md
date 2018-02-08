@@ -11,6 +11,10 @@ For more detailed information on Cloudamatic architecture and mu tooling usage, 
 The mu tooling is currently supported on RHEL or CentOS 6 in Amazon Web Services with RHEL/CentOS 7 in active development.
 
 ## Installation
+Get started by clicking the Launch Button!!
+
+[![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/new?stackName=MuMasterInstaller&templateURL=https://s3.amazonaws.com/mu-cfn-installer/cfn_create_mu_master.json.NEEDUPDATE)
+
 See the [README](../master/install) in the install folder for mu master installation instructions
 
 ## Usage
