@@ -5,14 +5,14 @@ import os, argparse, json, subprocess, sys, re, glob, time, yaml
 deploy_dirs = '/opt/mu/var/deployments'
 current_deploys = os.listdir(deploy_dirs)
 
-parser = argparse.ArgumentParser(description='Optional app description')
+parser = argparse.ArgumentParser(description='To run Inspec Tests')
 
 # Local Mode Switch
-parser.add_argument('-l', action='store_true',help='A boolean switch')
+parser.add_argument('-l', action='store_true',help='Local Mode')
 # Required inspec profile name
 parser.add_argument('-p', type=str,help='Inspec Profile name')
 # Required bok name
-parser.add_argument('-b', type=str,help='BOK Name')
+parser.add_argument('-b', type=str,help='BOK Path')
 
 args = parser.parse_args()
 
