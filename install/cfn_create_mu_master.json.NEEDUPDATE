@@ -772,7 +772,10 @@
                 "cd /tmp\n",
                 "yum install wget -y\n",
                 "wget https://raw.githubusercontent.com/cloudamatic/mu/master/install/installer\n",
-                "sh installer | tee installer_output.txt"
+                "ip=$(curl http://169.254.169.254/latest/meta-data/public-ipv4)\n",
+                "admin_email=",{"Ref":"adminEmail"},"\n",
+                "sed -i \"s/\\/opt\\/mu\\/bin\\/mu-configure \\$\\@/\\/opt\\/mu\\/bin\\/mu-configure \\$\\@ -np $ip -m $admin_email/g\" installer\n",
+                "sh installer"
               ]
             ]
           }
