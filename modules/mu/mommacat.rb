@@ -2154,87 +2154,39 @@ MESSAGE_END
             ]
           end
         end
-      end
-      if results.size == 0
-        certs[cert_cn] = {
-          "sans" => ["IP:#{canonical_ip}"],
-          "cn" => cert_cn
-        }
-        if canonical_ip
-          certs["sans"] = ["IP:#{canonical_ip}"]
-        end
-      end
-
-      if resource.class == MU::Cloud::Server and server.windows?
-        if File.exists?("#{MU.mySSLDir}/#{cert_cn}-winrm.crt") and
-           File.exists?("#{MU.mySSLDir}/#{cert_cn}-winrm.key")
-          results[cert_cn+"-winrm"] = [File.read("#{MU.mySSLDir}/#{cert_cn}-winrm.crt"), File.read("#{MU.mySSLDir}/#{cert_cn}-winrm.key")]
-        else
-          certs[cert_cn+"-winrm"] = {
-            "sans" => ["otherName:1.3.6.1.4.1.311.20.2.3;UTF8:#{server.config['windows_admin_username']}@localhost"],
-            "cn" => server.config['windows_admin_username']
+        if results.size == 0
+          certs[cert_cn] = {
+            "sans" => ["IP:#{canonical_ip}"],
+            "cn" => cert_cn
           }
-        end
-      end
-
-      certs.each { |certname, data|
-        MU.log "Generating SSL certificate #{certname} for #{resource}"
-
-        # Create and save a key
-        key = OpenSSL::PKey::RSA.new keysize
-        if !Dir.exist?(MU.mySSLDir)
-          Dir.mkdir(MU.mySSLDir, 0700)
+          if canonical_ip
+            certs["sans"] = ["IP:#{canonical_ip}"]
+          end
         end
 
-        open("#{MU.mySSLDir}/#{certname}.key", 'w', 0600) { |io|
-          io.write key.to_pem
-        }
-        # Create a certificate request for this node
-        csr = OpenSSL::X509::Request.new
-        csr.version = 3
-        csr.subject = OpenSSL::X509::Name.parse "CN=#{data['cn']}/O=Mu/C=US"
-        csr.public_key = key.public_key
-        csr.sign key, OpenSSL::Digest::SHA256.new
-        open("#{MU.mySSLDir}/#{certname}.csr", 'w', 0644) { |io|
-          io.write csr.to_pem
-        }
-        if MU.chef_user == "mu"
-          signSSLCert("#{MU.mySSLDir}/#{certname}.csr", data['sans'])
-        else
-          deploykey = OpenSSL::PKey::RSA.new(public_key)
-          deploysecret = Base64.urlsafe_encode64(deploykey.public_encrypt(deploy_secret))
-# XXX things that aren't servers
-          res_type = "server"
-          res_type = "server_pool" if !resource.config['basis'].nil?
-          uri = URI("https://#{MU.mu_public_addr}:2260/")
-          req = Net::HTTP::Post.new(uri)
-          req.set_form_data(
-            "mu_id" => MU.deploy_id,
-            "mu_resource_name" => resource.config['name'],
-            "mu_resource_type" => res_type,
-            "mu_ssl_sign" => "#{MU.mySSLDir}/#{certname}.csr",
-            "mu_ssl_sans" => data["sans"].join(","),
-            "mu_user" => MU.mu_user,
-            "mu_deploy_secret" => deploysecret
-          )
-          http = Net::HTTP.new(uri.hostname, uri.port)
-          http.ca_file = "/etc/pki/Mu_CA.pem" # XXX why no worky?
-          http.use_ssl = true
-          http.verify_mode = OpenSSL::SSL::VERIFY_NONE # XXX this sucks
-          response = http.request(req)
+        if resource.class == MU::Cloud::Server and server.windows?
+          if File.exists?("#{MU.mySSLDir}/#{cert_cn}-winrm.crt") and
+             File.exists?("#{MU.mySSLDir}/#{cert_cn}-winrm.key")
+            results[cert_cn+"-winrm"] = [File.read("#{MU.mySSLDir}/#{cert_cn}-winrm.crt"), File.read("#{MU.mySSLDir}/#{cert_cn}-winrm.key")]
+          else
+            certs[cert_cn+"-winrm"] = {
+              "sans" => ["otherName:1.3.6.1.4.1.311.20.2.3;UTF8:#{server.config['windows_admin_username']}@localhost"],
+              "cn" => server.config['windows_admin_username']
+            }
+          end
+        end
+
+        certs.each { |certname, data|
+          MU.log "Generating SSL certificate #{certname} for #{resource}"
 
           # Create and save a key
-          key = OpenSSL::PKey::RSA.new 4096
+          key = OpenSSL::PKey::RSA.new keysize
           if !Dir.exist?(MU.mySSLDir)
             Dir.mkdir(MU.mySSLDir, 0700)
           end
 
-        pfx = nil
-        if resource.class == MU::Cloud::Server and resource.windows?
-          cacert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/Mu_CA.pem"
-          pfx = OpenSSL::PKCS12.create(nil, nil, key, cert, [cacert], nil, nil, nil, nil)
-          open("#{MU.mySSLDir}/#{certname}.pfx", 'w', 0644) { |io|
-            io.write pfx.to_der
+          open("#{MU.mySSLDir}/#{certname}.key", 'w', 0600) { |io|
+            io.write key.to_pem
           }
           # Create a certificate request for this node
           csr = OpenSSL::X509::Request.new
@@ -2250,13 +2202,14 @@ MESSAGE_END
           else
             deploykey = OpenSSL::PKey::RSA.new(public_key)
             deploysecret = Base64.urlsafe_encode64(deploykey.public_encrypt(deploy_secret))
+# XXX things that aren't servers
             res_type = "server"
-            res_type = "server_pool" if !server.config['basis'].nil?
+            res_type = "server_pool" if !resource.config['basis'].nil?
             uri = URI("https://#{MU.mu_public_addr}:2260/")
             req = Net::HTTP::Post.new(uri)
             req.set_form_data(
               "mu_id" => MU.deploy_id,
-              "mu_resource_name" => server.config['name'],
+              "mu_resource_name" => resource.config['name'],
               "mu_resource_type" => res_type,
               "mu_ssl_sign" => "#{MU.mySSLDir}/#{certname}.csr",
               "mu_ssl_sans" => data["sans"].join(","),
@@ -2268,27 +2221,72 @@ MESSAGE_END
             http.use_ssl = true
             http.verify_mode = OpenSSL::SSL::VERIFY_NONE # XXX this sucks
             response = http.request(req)
-
             MU.log "Got error back on signing request for #{MU.mySSLDir}/#{certname}.csr", MU::ERR if response.code != "200"
           end
-          
-          cert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/#{certname}.crt"
-          results[certname] = [cert, key]
 
-        if resource.config['cloud'] == "AWS"
-          MU::Cloud::AWS.writeDeploySecret(@deploy_id, cert.to_pem, certname+".crt")
-          MU::Cloud::AWS.writeDeploySecret(@deploy_id, key.to_pem, certname+".key")
-          if resource.windows?
-            MU::Cloud::AWS.writeDeploySecret(@deploy_id, pfx.to_der, certname+".pfx")
-          end
+          pfx = nil
+          if resource.class == MU::Cloud::Server and resource.windows?
+            cacert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/Mu_CA.pem"
+            pfx = OpenSSL::PKCS12.create(nil, nil, key, cert, [cacert], nil, nil, nil, nil)
+            open("#{MU.mySSLDir}/#{certname}.pfx", 'w', 0644) { |io|
+              io.write pfx.to_der
+            }
+            # Create a certificate request for this node
+            csr = OpenSSL::X509::Request.new
+            csr.version = 3
+            csr.subject = OpenSSL::X509::Name.parse "CN=#{data['cn']}/O=Mu/C=US"
+            csr.public_key = key.public_key
+            csr.sign key, OpenSSL::Digest::SHA256.new
+            open("#{MU.mySSLDir}/#{certname}.csr", 'w', 0644) { |io|
+              io.write csr.to_pem
+            }
+            if MU.chef_user == "mu"
+              signSSLCert("#{MU.mySSLDir}/#{certname}.csr", data['sans'])
+            else
+              deploykey = OpenSSL::PKey::RSA.new(public_key)
+              deploysecret = Base64.urlsafe_encode64(deploykey.public_encrypt(deploy_secret))
+              res_type = "server"
+              res_type = "server_pool" if !server.config['basis'].nil?
+              uri = URI("https://#{MU.mu_public_addr}:2260/")
+              req = Net::HTTP::Post.new(uri)
+              req.set_form_data(
+                "mu_id" => MU.deploy_id,
+                "mu_resource_name" => server.config['name'],
+                "mu_resource_type" => res_type,
+                "mu_ssl_sign" => "#{MU.mySSLDir}/#{certname}.csr",
+                "mu_ssl_sans" => data["sans"].join(","),
+                "mu_user" => MU.mu_user,
+                "mu_deploy_secret" => deploysecret
+              )
+              http = Net::HTTP.new(uri.hostname, uri.port)
+              http.ca_file = "/etc/pki/Mu_CA.pem" # XXX why no worky?
+              http.use_ssl = true
+              http.verify_mode = OpenSSL::SSL::VERIFY_NONE # XXX this sucks
+              response = http.request(req)
 
-          if server.config['cloud'] == "AWS"
-            MU::Cloud::AWS.writeDeploySecret(@deploy_id, cert.to_pem, certname+".crt")
-            MU::Cloud::AWS.writeDeploySecret(@deploy_id, key.to_pem, certname+".key")
-            if server.windows?
-              MU::Cloud::AWS.writeDeploySecret(@deploy_id, pfx.to_der, certname+".pfx")
+              MU.log "Got error back on signing request for #{MU.mySSLDir}/#{certname}.csr", MU::ERR if response.code != "200"
             end
+            
+            cert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/#{certname}.crt"
+            results[certname] = [cert, key]
+
+            pfx = nil
+            if server.windows?
+              cacert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/Mu_CA.pem"
+              pfx = OpenSSL::PKCS12.create(nil, nil, key, cert, [cacert], nil, nil, nil, nil)
+              open("#{MU.mySSLDir}/#{certname}.pfx", 'w', 0644) { |io|
+                io.write pfx.to_der
+              }
+            end
+
+            if resource.config['cloud'] == "AWS"
+              MU::Cloud::AWS.writeDeploySecret(@deploy_id, cert.to_pem, certname+".crt")
+              MU::Cloud::AWS.writeDeploySecret(@deploy_id, key.to_pem, certname+".key")
+              if resource.windows?
+                MU::Cloud::AWS.writeDeploySecret(@deploy_id, pfx.to_der, certname+".pfx")
+              end
 # XXX add google logic, or better yet abstract this method
+            end
           end
         }
       }
