@@ -830,7 +830,7 @@
       "DependsOn" : "MasterInstance",
       "Properties" : {
         "Handle" : { "Ref" : "WaitHandle" },
-        "Timeout" : "1800"
+        "Timeout" : "2000"
       }
     },
     "MuAdminSecurityGroup": {
