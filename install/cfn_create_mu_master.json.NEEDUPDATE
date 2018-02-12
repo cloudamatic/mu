@@ -3,7 +3,7 @@
   "Description": "Cloudamatic Mu Master Creation. v1.0",
   "Parameters": {
     "MasterAMIId": {
-      "Description": "AMI for Cloudamatic Server, e.g. ami-b3e2c7d9.  See amazon_images.yaml for latest CentOS6",
+      "Description": "AMI for Cloudamatic Server, e.g. ami-b3e2c7d9.  See amazon_images.yaml for latest CentOS6. Tested and Verified AMI's: ami-02e98f78",
       "Type": "AWS::EC2::Image::Id",
       "MinLength": "0",
       "MaxLength": "255"
@@ -729,6 +729,39 @@
               "yum": {
                 "wget": []
               }
+            },
+            "files": {
+              "/root/mu_setup": {
+                "source": {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "https://github.com/cloudamatic/mu/raw/",
+                      {
+                        "Ref": "GitMuTag"
+                      },
+                      "/install/installer"
+                    ]
+                  ]
+                },
+                "mode": "000700",
+                "owner": "root",
+                "group": "root"
+              }
+            },
+            "commands":{
+              "1_update_installer":{
+                "command":"sed -i \"s/\\/opt\\/mu\\/bin\\/mu-configure \\$\\@/\\/opt\\/mu\\/bin\\/mu-configure \\$\\@ -np $(curl http://169.254.169.254/latest/meta-data/public-ipv4) -m $admin_email -h $local_host_name/g\" mu_setup\n",
+                "env":{
+                  "admin_email":{"Ref":"adminEmail"},
+                  "local_host_name":{"Ref":"HostName"}                
+                },
+                "cwd":"/root"
+              },
+              "2_run_installer":{
+                "command":"chmod +x mu_setup && sh mu_setup | tee installer_results.txt",
+                "cwd":"/root"
+              } 
             }
           }
         }
@@ -769,17 +802,35 @@
               [
                 "#!/bin/bash -vx\n",
                 "CHEF_PUBLIC_IP=`curl -s http://169.254.169.254/latest/meta-data/public-ipv4`\n",
-                "cd /tmp\n",
-                "yum install wget -y\n",
-                "wget https://raw.githubusercontent.com/cloudamatic/mu/master/install/installer\n",
-                "ip=$(curl http://169.254.169.254/latest/meta-data/public-ipv4)\n",
-                "admin_email=",{"Ref":"adminEmail"},"\n",
-                "sed -i \"s/\\/opt\\/mu\\/bin\\/mu-configure \\$\\@/\\/opt\\/mu\\/bin\\/mu-configure \\$\\@ -np $ip -m $admin_email/g\" installer\n",
-                "sh installer"
+                "cd /root\n",
+                "easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz \n",
+                "/usr/bin/cfn-init -v -s ",
+                {
+                  "Ref": "AWS::StackId"
+                },
+                " -r MasterInstance ",
+                "    --region ",
+                {
+                  "Ref": "AWS::Region"
+                },
+                " || error_exit 'Failed to run cfn-init'\n",
+                "/opt/aws/bin/cfn-signal", " -e $?", " '", { "Ref" : "WaitHandle" }, "'"
               ]
             ]
           }
         }
+      }
+    },
+    "WaitHandle" : {
+      "Type" : "AWS::CloudFormation::WaitConditionHandle"
+    },
+
+    "WaitCondition" : {
+      "Type" : "AWS::CloudFormation::WaitCondition",
+      "DependsOn" : "MasterInstance",
+      "Properties" : {
+        "Handle" : { "Ref" : "WaitHandle" },
+        "Timeout" : "1800"
       }
     },
     "MuAdminSecurityGroup": {
