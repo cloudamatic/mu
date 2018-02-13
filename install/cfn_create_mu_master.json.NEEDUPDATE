@@ -3,7 +3,7 @@
   "Description": "Cloudamatic Mu Master Creation. v1.0",
   "Parameters": {
     "MasterAMIId": {
-      "Description": "AMI for Cloudamatic Server, e.g. ami-b3e2c7d9.  See amazon_images.yaml for latest CentOS6. Tested and Verified AMI's: ami-02e98f78",
+      "Description": "AMI for Cloudamatic Server, tested and Verified on AMI: ami-02e98f78.  See amazon_images.yaml for latest CentOS6.",
       "Type": "AWS::EC2::Image::Id",
       "MinLength": "0",
       "MaxLength": "255"
@@ -801,7 +801,6 @@
               "",
               [
                 "#!/bin/bash -vx\n",
-                "CHEF_PUBLIC_IP=`curl -s http://169.254.169.254/latest/meta-data/public-ipv4`\n",
                 "cd /root\n",
                 "easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz \n",
                 "/usr/bin/cfn-init -v -s ",
@@ -814,13 +813,14 @@
                   "Ref": "AWS::Region"
                 },
                 " || error_exit 'Failed to run cfn-init'\n",
-                "/opt/aws/bin/cfn-signal", " -e $?", " '", { "Ref" : "WaitHandle" }, "'"
+                "/usr/bin/cfn-signal", " -e $?", " '", { "Ref" : "WaitHandle" }, "'"
               ]
             ]
           }
         }
       }
     },
+
     "WaitHandle" : {
       "Type" : "AWS::CloudFormation::WaitConditionHandle"
     },
@@ -830,7 +830,7 @@
       "DependsOn" : "MasterInstance",
       "Properties" : {
         "Handle" : { "Ref" : "WaitHandle" },
-        "Timeout" : "2000"
+        "Timeout" : "2100"
       }
     },
     "MuAdminSecurityGroup": {
