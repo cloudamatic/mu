@@ -133,7 +133,10 @@ if do_nodes.size > 0
   matching = avail_nodes.select { |node|
     matched = false
     do_nodes.each { |pattern|
-      if node[$opts[:info]].match(/#{Regexp.quote(pattern)}/i)
+
+      attribute = node[$opts[:info]].to_s
+
+      if attribute.match(/#{Regexp.quote(pattern)}/i)
         matched = true
         break
       end
@@ -148,12 +151,16 @@ end
 do_nodes.uniq!{|item| item['nodename'] }
 
 do_nodes.sort! do |x,y|
-  x[$opts[:info]] <=> y[$opts[:info]]
+    x['nodename'] <=> y['nodename']
 end
 
 if $opts[:list]
   do_nodes.each do |node| 
-      puts node[$opts[:info]]
+    if $opts[:info].eql? 'nodename'
+      puts node['nodename']
+    else
+      puts "#{node['nodename']}: #{node[$opts[:info]]}"
+    end
   end
   exit
 end
