@@ -41,3 +41,6 @@ gem 'google-api-client', '~> 0.19.5'
 gem 'chef-sugar'
 gem 'winrm', '= 2.2.3'
 gem 'knife-windows', :git => "https://github.com/eGT-Labs/knife-windows.git", :branch => "winrm_cert_auth"
+gem 'rubocop', '= 0.52.1'
+gem 'foodcritic', '= 12.3.0'
+gem 'inspec', '= 1.51.0'

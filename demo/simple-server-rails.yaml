@@ -4,7 +4,7 @@ $azs.delete $azskip if $azskip
 current_vpc = MU.myVPC
 %>
 ---
-appname: demo
+appname: demo-rails
 servers:
   -
     name: rails
@@ -16,6 +16,8 @@ servers:
     skipinitialupdates: true
     run_list:
       - "recipe[demo::rails]"
+      - "recipe[demo::store_attr]"
+
     size: "t2.micro"
     associate_public_ip: true
     static_ip:

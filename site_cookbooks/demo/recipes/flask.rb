@@ -57,11 +57,9 @@ file "#{virtual_environment}/demo.py" do
   content <<-EOH
 from flask import Flask
 app = Flask(__name__)
-
 @app.route("/")
 def hello():
     return "Hello World!"
-
 if __name__ == "__main__":
     app.run()
   EOH
@@ -82,7 +80,6 @@ file '/etc/nginx/sites-available/default' do
     server {
       listen 80;
       server_name demo;
-
       location / {
         proxy_pass http://127.0.0.1:9000;
       }

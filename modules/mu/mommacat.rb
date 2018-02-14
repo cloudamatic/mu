@@ -766,6 +766,7 @@ module MU
       MU::MommaCat.syncMonitoringConfig(false)
       MU::MommaCat.createStandardTags(cloud_id, region: kitten.config["region"])
       MU.log "Grooming complete for '#{name}' mu_name on \"#{MU.handle}\" (#{MU.deploy_id})"
+      FileUtils.touch("/opt/mu/var/deployments/#{MU.deploy_id}/#{name}_done.txt")
       MU::MommaCat.unlockAll
       if first_groom
         sendAdminMail("Grooming complete for '#{name}' (#{mu_name}) on deploy \"#{MU.handle}\" (#{MU.deploy_id})", kitten: kitten)

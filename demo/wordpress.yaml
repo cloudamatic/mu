@@ -13,7 +13,7 @@
 %>
 
 ---
-appname: <%= appname %>
+appname: demo-wordpress
 parameters:
   - name: nat_ssh_user
     default: root
@@ -73,6 +73,8 @@ databases:
   port: 3306
   size: db.t2.micro
   storage: 5
+  engine_version: 5.6.34
+
   vpc: 
     vpc_name: <%= vpc_name %>
     <% if parameter?('vpc_deploy_id') %>
@@ -139,6 +141,7 @@ server_pools:
     <% end %>
   run_list: 
   - recipe[demo::wordpress]
+  - recipe[demo::store_attr]
   dependencies: 
   - name: "lb"
     type: "loadbalancer"
