@@ -63,7 +63,7 @@ end
 
 # Download ALPN Jar file and fix to JENKINS_JAVA_OPTIONS
 open_jdk_version = `java -version 2>&1`
-if open_jdk_version.include?("openjdk version \"1.8.0_151\"") and node['platform_family'] == 'rhel'
+if open_jdk_version.include?("openjdk version \"1.8") and node['platform_family'] == 'rhel'
 
   remote_file 'download_anlp_jar' do
     source node['jenkins']['alpn']['download_link']
