@@ -197,7 +197,7 @@ module MU
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
   def self.curRegion
-    @@globals[Thread.current.object_id]['curRegion'] ||= ENV['EC2_REGION']
+    @@globals[Thread.current.object_id]['curRegion'] ||= myRegion || ENV['EC2_REGION']
   end
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
@@ -419,14 +419,7 @@ module MU
       zone = MU::Cloud::Google.getGoogleMetaData("instance/zone")
       @@myRegion_var = zone.gsub(/^.*?\/|\-\d+$/, "")
     elsif MU::Cloud::AWS.hosted
-      if $MU_CFG and $MU_CFG['aws'] and $MU_CFG['aws']['region']
-        @@myRegion_var ||= MU::Cloud::AWS.ec2($MU_CFG['aws']['region']).describe_availability_zones.availability_zones.first.region_name
-      elsif ENV.has_key?("EC2_REGION") and !ENV['EC2_REGION'].empty?
-        @@myRegion_var ||= MU::Cloud::AWS.ec2(ENV['EC2_REGION']).describe_availability_zones.availability_zones.first.region_name
-      else
-        # hacky, but useful in a pinch
-        @@myRegion_var = MU::Cloud::AWS.getAWSMetaData("placement/availability-zone").sub(/[a-z]$/i, "")
-      end
+      @@myRegion_var ||= MU::Cloud::AWS.myRegion
     else
       @@myRegion_var = nil
     end

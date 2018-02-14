@@ -2520,12 +2520,15 @@ module MU
 
       return vpc_ref_schema
     end
-    allregions = MU::Cloud::AWS.listRegions
-    allregions.concat(MU::Cloud::Google.listRegions) # XXX make this work when we're in GCP and don't have explicit creds configured
+
+    allregions = []
+    allregions.concat(MU::Cloud::AWS.listRegions) if MU::Cloud::AWS.myRegion
+    allregions.concat(MU::Cloud::Google.listRegions) if MU::Cloud::Google.myRegion
 
     def self.region_primitive
-    allregions = MU::Cloud::AWS.listRegions
-    allregions.concat(MU::Cloud::Google.listRegions) # XXX make this work when we're in GCP and don't have explicit creds configured
+      allregions = []
+      allregions.concat(MU::Cloud::AWS.listRegions) if MU::Cloud::AWS.myRegion
+      allregions.concat(MU::Cloud::Google.listRegions) if MU::Cloud::Google.myRegion
       {
         "type" => "string",
         "enum" => allregions
@@ -3464,11 +3467,7 @@ module MU
                       "type" => "integer",
                       "description" => "Set the proportion of traffic directed to this target, based on the relative weight of other records with the same DNS name and type."
                   },
-                  "region" => {
-                      "type" => "string",
-                      "enum" => MU::Cloud::AWS.listRegions,
-                      "description" => "Set preferred region for latency-based routing."
-                  },
+                  "region" => MU::Config.region_primitive,
                   "failover" => {
                       "type" => "string",
                       "description" => "Failover classification",

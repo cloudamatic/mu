@@ -168,7 +168,7 @@ $CONFIGURABLES = {
       "region" => {
         "title" => "Default Region",
         "desc" => "Default Google Cloud Platform region in which we operate and deploy",
-        "default" => "us-east1"
+        "default" => "us-east4"
       },
       "log_bucket_name" => {
         "title" => "Log and Secret Bucket Name",

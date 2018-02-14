@@ -24,7 +24,20 @@ module MU
     class Google
       @@authtoken = nil
       @@default_project = nil
+      @@myRegion_var = nil
       @@authorizers = {}
+
+      # If we've configured Google as a provider, or are simply hosted in GCP, 
+      # decide what our default region is.
+      def self.myRegion
+        if $MU_CFG['google'] and $MU_CFG['google']['region']
+          @@myRegion_var = $MU_CFG['google']['region']
+        elsif MU::Cloud::Google.hosted
+          zone = MU::Cloud::Google.getGoogleMetaData("instance/zone")
+          @@myRegion_var = zone.gsub(/^.*?\/|\-\d+$/, "")
+        end
+        @@myRegion_var
+      end
 
       # Plant a Mu deploy secret into a storage bucket somewhere for so our kittens can consume it
       # @param deploy_id [String]: The deploy for which we're writing the secret
