@@ -9,7 +9,8 @@
     "override_attributes": {
         "jenkins": {
             "master": {
-                "home": "/home/jenkins"
+                "home": "/home/jenkins",
+                "jvm_options":"-Djenkins.install.runSetupWizard=false -Xbootclasspath/p:/home/jenkins/alpn-boot-8.1.11.v20170118.jar"
             }
         }
     },
