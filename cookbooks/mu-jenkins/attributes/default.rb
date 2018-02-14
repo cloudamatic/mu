@@ -17,6 +17,11 @@ jenkins_args = "" if node['jenkins']['master']['jenkins_args'].nil?
 override['jenkins']['master']['jenkins_args'] = "#{jenkins_args} --prefix=/jenkins"
 default['jenkins']['master']['jvm_options'] = '-Xmx1024m -Djenkins.install.runSetupWizard=false'
 
+
+alpn_version = '8.1.11.v20170118'
+default['jenkins']['alpn']['version'] = alpn_version
+default['jenkins']['alpn']['download_link'] = "http://central.maven.org/maven2/org/mortbay/jetty/alpn/alpn-boot/#{alpn_version}/alpn-boot-#{alpn_version}.jar"
+
 # This isn't really true, but the Java libraries lose their minds over
 # self-signed SSL certs like the one you'll usually find on
 # https://#{$MU_CFG['public_address']}/jenkins (the real URL)

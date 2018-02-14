@@ -59,6 +59,27 @@ directory "mu-jenkins fix #{cacheparent} perms" do
   path cacheparent
   mode 0755
 end
+
+
+# Download ALPN Jar file and fix to JENKINS_JAVA_OPTIONS
+open_jdk_version = `java -version 2>&1`
+if open_jdk_version.include?("openjdk version \"1.8") and node['platform_family'] == 'rhel'
+
+  remote_file 'download_anlp_jar' do
+    source node['jenkins']['alpn']['download_link']
+    path "/home/jenkins/alpn-boot-#{node['jenkins']['alpn']['version']}.jar"
+    notifies :restart, "service[jenkins]",:delayed
+  end
+
+  service "jenkins" do
+    action :nothing
+  end
+
+end
+
+
+
+
 node['jenkins_plugins'].each { |plugin|
 #  if !::File.exists?("#{node['jenkins']['master']['home']}/plugins/#{plugin}.jpi")
 #    restart_jenkins = true
@@ -153,6 +174,8 @@ ruby_block 'configure_jenkins_auth_set' do
   end
   action :nothing
 end
+
+
 
 # Configure users from the vault
 #node['jenkins_users'].each { |user|

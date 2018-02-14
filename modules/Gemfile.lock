@@ -152,7 +152,7 @@ GEM
       mixlib-log
     mixlib-authentication (1.4.2)
     mixlib-cli (1.7.0)
-    mixlib-config (2.2.4)
+    mixlib-config (2.2.5)
     mixlib-log (1.7.1)
     mixlib-shellout (2.3.2)
     molinillo (0.5.7)
@@ -194,7 +194,7 @@ GEM
     pg (0.21.0)
     plist (3.4.0)
     proxifier (1.0.3)
-    public_suffix (3.0.1)
+    public_suffix (3.0.2)
     rack (2.0.4)
     representable (3.0.4)
       declarative (< 0.1.0)
@@ -322,7 +322,7 @@ DEPENDENCIES
   mysql
   net-ldap
   net-ssh (~> 3.2.0)
-  netaddr (< 2)
+  netaddr (< 2.0)
   nokogiri (~> 1.6.8)
   pg (< 1.0)
   rack
