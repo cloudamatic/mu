@@ -117,19 +117,8 @@ case node['platform_family']
     end
 
     include_recipe 'chef-vault'
-<<<<<<< HEAD
-    domain_creds = chef_vault_item(node['ad']['join_auth']['vault'], node['ad']['join_auth']['item'])
-# provider already does this
-#    node['ad']['dc_ips'].each { |ip|
-      # XXX there's a more correct way to touch resolv.conf
-#      execute "sed -i '2i nameserver #{ip}' /etc/resolv.conf" do
-#        not_if "grep #{ip} /etc/resolv.conf"
-#      end
-#    }
-=======
     domain_creds = chef_vault_item(node['ad']['join_auth']['vault'], node['ad']['join_auth']['item'])
 
->>>>>>> master
     service "sssd" do
       action :nothing
       notifies :restart, "service[sshd]", :immediately
@@ -166,11 +155,7 @@ case node['platform_family']
     # whether or not the name matches the actual Kerberos tickets you et.
     execute "Run ADCLI" do
       not_if { ::File.exists?("/etc/krb5.keytab") }
-<<<<<<< HEAD
       command "echo -n '#{domain_creds[node['ad']['join_auth']['password_field']]}' | /usr/sbin/adcli join #{node['ad']['domain_name']} --domain-realm=#{node['ad']['domain_name'].upcase} -U #{domain_creds[node['ad']['join_auth']['username_field']]} --stdin-password"
-=======
-      command "echo -n '#{domain_creds[node['ad']['join_auth']['password_field']]}' | /usr/sbin/adcli join #{node['ad']['domain_name']} --domain-realm=#{node['ad']['domain_name'].upcase} -U #{domain_creds[node['ad']['join_auth']['username_field']]} --stdin-password"
->>>>>>> master
       notifies :restart, "service[sssd]", :immediately
 #      sensitive true
     end
