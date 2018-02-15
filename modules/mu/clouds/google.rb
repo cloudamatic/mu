@@ -151,7 +151,7 @@ module MU
             ).read
             return response
           end
-        rescue Net::HTTPServerException, OpenURI::HTTPError, Timeout::Error, SocketError => e
+        rescue Net::HTTPServerException, OpenURI::HTTPError, Timeout::Error, SocketError, Errno::EHOSTUNREACH, Errno::ENETUNREACH => e
           # This is fairly normal, just handle it gracefully
           logger = MU::Logger.new
           logger.log "Failed metadata request #{base_url}/#{param}: #{e.inspect}", MU::DEBUG

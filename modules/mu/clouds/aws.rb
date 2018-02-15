@@ -363,7 +363,7 @@ module MU
           end
 
           response
-        rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH, Net::HTTPServerException => e
+        rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH, Net::HTTPServerException, Errno::EHOSTUNREACH => e
           # This is fairly normal, just handle it gracefully
           logger = MU::Logger.new
           logger.log "Failed metadata request #{base_url}/#{param}: #{e.inspect}", MU::DEBUG
