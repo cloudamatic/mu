@@ -32,7 +32,7 @@ gem 'ruby-wmi'
 gem 'chef-vault', "< 3"
 gem 'net-ssh', "~> 3.2.0"
 gem 'netaddr', '< 2.0'
-gem 'nokogiri', "~> 1.6.8"
+gem 'nokogiri', "~> 1.8.2"
 gem 'solve', '>= 3.1.1'
 gem 'net-ldap'
 gem 'googleauth'
