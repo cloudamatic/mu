@@ -2,7 +2,7 @@
 
 BOLD=`tput bold`
 NORM=`tput sgr0`
-CHEF_CLIENT_VERSION="12.21.14-1"
+CHEF_CLIENT_VERSION="12.21.31-1"
 if [ "$MU_BRANCH" == "" ];then
   MU_BRANCH="the_goog"
 fi
