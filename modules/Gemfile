@@ -15,7 +15,7 @@
 source "https://rubygems.org"
 gem 'yard'
 gem 'ruby-graphviz', "~> 1.2.3"
-gem 'chef', "~> 12.21.14"
+gem 'chef', "~> 12.21.31"
 gem 'chef-zero', "< 13"
 gem "aws-sdk-core", "~> 2.6.42"
 gem 'simple-password-gen'
@@ -25,7 +25,7 @@ gem 'colorize'
 gem 'color'
 gem 'rack'
 gem 'thin'
-gem 'berkshelf', '< 6'
+gem 'berkshelf', '~> 6.3.1'
 gem 'pg', '< 1.0'
 gem 'mysql'
 gem 'ruby-wmi'
@@ -33,7 +33,6 @@ gem 'chef-vault', "< 3"
 gem 'net-ssh', "~> 3.2.0"
 gem 'netaddr', '< 2.0'
 gem 'nokogiri', "~> 1.6.8"
-gem 'molinillo', '< 0.6.0'
 gem 'solve', '>= 3.1.1'
 gem 'net-ldap'
 gem 'googleauth'
