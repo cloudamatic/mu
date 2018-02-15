@@ -108,7 +108,7 @@ module MU
       # @return [Array<String>]
       def self.listRegions(us_only = false)
         if @@regions.size == 0
-          result = MU::Cloud::AWS.ec2.describe_regions(myRegion).regions
+          result = MU::Cloud::AWS.ec2(myRegion).describe_regions.regions
           regions = []
           result.each { |r|
             @@regions[r.region_name] = Proc.new { listAZs(r.region_name) }
