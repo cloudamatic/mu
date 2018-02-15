@@ -708,7 +708,7 @@ def entireConfigValid?
   ok
 end
 
-if !$opts[:noninteractive]
+def menu
   begin
     optlist = displayCurrentOpts
     begin
@@ -747,6 +747,10 @@ if !$opts[:noninteractive]
       answer = nil if !entireConfigValid?
     end
   end while answer != "0" and answer != "O" and answer != "o"
+end
+
+if !$opts[:noninteractive]
+  menu
 else
   if !entireConfigValid?
     puts "Configuration had validation errors, exiting.\nRe-invoke #{$0} to correct."
@@ -840,6 +844,9 @@ else
 end
 begin
   require 'mu'
+rescue MU::MuError => e
+  puts "Correct the above error before proceeding. To retry, run:\n\n#{$0} #{ARGV.join(" ")}"
+  exit 1
 rescue LoadError
   system("cd #{MU_BASE}/lib/modules && umask 0022 && /usr/local/ruby-current/bin/bundle install")
   require 'mu'
