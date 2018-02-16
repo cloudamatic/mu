@@ -14,7 +14,7 @@ control 'init' do
   title 'mu-master init recipe tests'
   node = json('/tmp/chef_node.json').params  
   NODE_PUB_IP=node_meta[0]['pub_ip']
-  CHEF_SERVER_VERSION="12.16.14-1"
+  CHEF_SERVER_VERSION="12.17.15-1"
   CHEF_CLIENT_VERSION="12.21.31-1"
   KNIFE_WINDOWS="1.9.0"
   MU_BASE="/opt/mu"
