@@ -177,6 +177,13 @@ module MU
         MU::Cloud::Google.compute.insert_ssl_certificate(flags["project"], certobj)
       end
 
+      @@svc_account_name = nil
+      # Fetch the name of the service account we were using last time we loaded
+      # GCP credentials.
+      # @return [String]
+      def self.svc_account_name
+        @@svc_account_name
+      end
       # Pull our global Google Cloud Platform credentials out of their secure
       # vault, feed them to the googleauth gem, and stash the results on hand
       # for consumption by the various GCP APIs.
@@ -193,14 +200,29 @@ module MU
               :json_key_io => StringIO.new(MultiJson.dump(data)),
               :scope => scopes
             }
+            @@svc_account_name = data["client_email"]
             @@authorizers[scopes.to_s] = ::Google::Auth::ServiceAccountCredentials.make_creds(creds)
             return @@authorizers[scopes.to_s]
           rescue MU::Groomer::Chef::MuNoSuchSecret
-            raise MuError, "Google Cloud credentials not found in Vault #{vault}:#{item}"
+            if MU::Cloud::Google.hosted
+              puts MU::Cloud::Google.getGoogleMetaData("instance/service-accounts/default/scopes")
+              @@svc_account_name = MU::Cloud::Google.getGoogleMetaData("instance/service-accounts/default/email")
+              MU.log "Google Cloud credentials not found in Vault #{vault}:#{item}. We are hosted in GCP, so I will attempt to use the service account #{@@svc_account_name} to make API requests.", MU::WARN
+
+              @@authorizers[scopes.to_s] = ::Google::Auth.get_application_default(scopes)
+              @@authorizers[scopes.to_s].fetch_access_token!
+              @@default_project ||= MU::Cloud::Google.getGoogleMetaData("project/project-id")
+              return @@authorizers[scopes.to_s]
+            else
+              raise MuError, "Google Cloud credentials not found in Vault #{vault}:#{item}"
+            end
           end
         elsif MU::Cloud::Google.hosted
+          @@svc_account_name = MU::Cloud::Google.getGoogleMetaData("instance/service-accounts/default/email")
           @@authorizers[scopes.to_s] = ::Google::Auth.get_application_default(scopes)
+          @@authorizers[scopes.to_s].fetch_access_token!
           @@default_project ||= MU::Cloud::Google.getGoogleMetaData("project/project-id")
+          return @@authorizers[scopes.to_s]
         else
           raise MuError, "Google Cloud credentials not configured"
         end
@@ -475,10 +497,15 @@ module MU
               else
                 retval = @api.method(method_sym).call
               end
+            rescue ::Google::Apis::AuthorizationError => e
+              if arguments.size > 0
+                raise MU::MuError, "Service account #{MU::Cloud::Google.svc_account_name} has insufficient privileges to call #{method_sym} in project #{arguments.first}"
+              else
+                raise MU::MuError, "Service account #{MU::Cloud::Google.svc_account_name} has insufficient privileges to call #{method_sym}"
+              end
             rescue ::Google::Apis::ClientError => e
               if e.message.match(/^invalidParameter:/)
                 MU.log "#{method_sym.to_s}: "+e.message, MU::ERR, details: arguments
-                raise e
               end
               if retries <= 1 and e.message.match(/^accessNotConfigured/) and arguments.first
                 enable_obj = MU::Cloud::Google.service_manager(:EnableServiceRequest).new(
