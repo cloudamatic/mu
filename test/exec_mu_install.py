@@ -36,10 +36,8 @@ def base_controls():
 
 
 def run_knife_over_ssh(user, host,key_file):
-  if os.path.isdir('/opt/mu/lib/'):
-    os.chdir('/opt/mu/lib')
-    knife_cmd = 'ssh -oStrictHostKeyChecking=no -i %s %s@%s knife node -l -F json MU-MASTER > /tmp/chef_node.json' % (key_file, user, host)
-    os.system(knife_cmd)
+  knife_cmd = 'ssh -oStrictHostKeyChecking=no -i %s %s@%s knife node show -l -F json MU-MASTER > /tmp/chef_node.json' % (key_file, user, host)
+  os.system(knife_cmd)
 
 
 def run_installer_over_ssh(user,host, key_file, command):
