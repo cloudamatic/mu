@@ -207,7 +207,7 @@ module MU
             if MU::Cloud::Google.hosted
               puts MU::Cloud::Google.getGoogleMetaData("instance/service-accounts/default/scopes")
               @@svc_account_name = MU::Cloud::Google.getGoogleMetaData("instance/service-accounts/default/email")
-              MU.log "Google Cloud credentials not found in Vault #{vault}:#{item}. We are hosted in GCP, so I will attempt to use the service account #{@@svc_account_name} to make API requests.", MU::WARN
+              MU.log "Google Cloud credentials not found in Vault #{vault}:#{item}. We are hosted in GCP, so I will attempt to use the service account #{@@svc_account_name} to make API requests.", MU::DEBUG
 
               @@authorizers[scopes.to_s] = ::Google::Auth.get_application_default(scopes)
               @@authorizers[scopes.to_s].fetch_access_token!
