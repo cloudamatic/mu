@@ -92,19 +92,19 @@ if $opts[:sg]
     rules = Array.new
     open_ports.each { |port|
       rules << {
-          "port" => port,
-          "hosts" => ["0.0.0.0/0"]
+        "port" => port,
+        "hosts" => ["0.0.0.0/0"]
       }
     }
     rules << {
-        "port" => 22,
-        "hosts" => ["#{preferred_ip}/32"]
+      "port" => 22,
+      "hosts" => ["#{preferred_ip}/32"]
     }
     cfg = {
-        "name" => "Mu Master",
-        "cloud" => "AWS",
-        "region" => MU.myRegion,
-        "rules" => rules
+      "name" => "Mu Master",
+      "cloud" => "AWS",
+      "region" => MU.myRegion,
+      "rules" => rules
     }
 
     if !instance.vpc_id.nil?

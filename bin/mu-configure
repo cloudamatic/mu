@@ -949,6 +949,9 @@ if $IN_AWS and AMROOT
   system("#{MU_BASE}/lib/bin/mu-aws-setup --dns --sg --logs --ephemeral")
 # XXX --ip? Do we really care?
 end
+if $IN_GOOGLE and AMROOT
+  system("#{MU_BASE}/lib/bin/mu-aws-setup --sg --logs")
+end
 
 if $INITIALIZE or $CHANGES.include?("chefcerts")
   system("rm -f #{HOMEDIR}/.chef/trusted_certs/* ; knife ssl fetch -c #{HOMEDIR}/.chef/knife.rb")

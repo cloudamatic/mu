@@ -39,19 +39,73 @@ Usage:
 #{$0} [-i] [-s] [-l] [-u] [-d]
   EOS
 #  opt :ip, "Attempt to configure the IP requested in the CHEF_PUBLIC_IP environment variable, or if none is set, to associate an arbitrary Elastic IP.", :require => false, :default => false, :type => :boolean
-#  opt :sg, "Attempt to configure a Security Group with appropriate permissions.", :require => false, :default => false, :type => :boolean
+  opt :sg, "Attempt to configure a Security Group with appropriate permissions.", :require => false, :default => false, :type => :boolean
   opt :logs, "Ensure the presence of an Cloud Storage bucket prefixed with 'Mu_Logs' for use with CloudTrails, syslog, etc.", :require => false, :default => false, :type => :boolean
 #  opt :dns, "Ensure the presence of a private DNS Zone called for internal amongst Mu resources.", :require => false, :default => false, :type => :boolean
   opt :uploadlogs, "Push today's log files to the Cloud Storage bucket created by the -l option.", :require => false, :default => false, :type => :boolean
 end
 
-#  instance = MU.myCloudDescriptor
-#  preferred_ip = MU.mu_public_ip
+instance = MU.myCloudDescriptor
+admin_sg_name = "mu-master-"+MU.myInstanceId+"-ingress-allow"
+if !instance.tags.items.include?(admin_sg_name)
+  newitems = instance.tags.items.dup
+  newitems << admin_sg_name
+  MU.log "Setting my instance tags", MU::NOTICE, details: newitems
+  newtags = MU::Cloud::Google.compute(:Tags).new(
+    fingerprint: instance.tags.fingerprint,
+    items: newitems
+  )
+  MU::Cloud::Google.compute.set_instance_tags(
+    MU::Cloud::Google.myProject,
+    MU.myAZ,
+    MU.myInstanceId,
+    newtags
+  )
+  instance = MU.myCloudDescriptor
+end
+preferred_ip = MU.mu_public_ip
 
 # Create a security group, or manipulate an existing one, so that we have all
 # of the appropriate network holes.
 if $opts[:sg]
   open_ports = [80, 443, 2260, 7443, 8443, 9443, 8200]
+
+  found = MU::MommaCat.findStray("Google", "firewall_rule", dummy_ok: true, cloud_id: admin_sg_name)
+  admin_sg = found.first if !found.nil? and found.size > 0
+
+  rules = []
+  open_ports.each { |port|
+    rules << {
+      "proto" => "tcp",
+      "port" => port.to_s,
+      "hosts" => ["0.0.0.0/0"]
+    }
+  }
+# TODO this is getting subsumed in all the 0.0.0.0/0 above; what we really want is a separate rule for this
+  rules << {
+    "proto" => "tcp",
+    "port" => 22,
+    "hosts" => ["#{preferred_ip}/32"]
+  }
+  cfg = {
+    "name" => admin_sg_name,
+    "cloud" => "Google",
+    "rules" => rules,
+    "project" => MU::Cloud::Google.myProject,
+    "target_tags" => [admin_sg_name],
+    "vpc" => {
+      "vpc_id" => instance.network_interfaces.first.network
+    }
+  }
+
+  if !admin_sg
+    admin_sg = MU::Cloud::FirewallRule.new(kitten_cfg: cfg, mu_name: "mu-master-"+MU.myInstanceId)
+    admin_sg.create
+    admin_sg.groom
+  else
+# TODO Make sure the rules and tags are up to date
+  end
+
 end
 
 $bucketname = $MU_CFG['google']['log_bucket_name']

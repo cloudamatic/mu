@@ -50,12 +50,10 @@ module MU
 
         # Called by {MU::Deploy#createResources}
         def create
-          vpc_id = @vpc.cloudobj.url if !@vpc.nil?
+          vpc_id = @vpc.cloudobj.url if !@vpc.nil? and !@vpc.cloudobj.nil?
+          vpc_id ||= @config['vpc']['vpc_id'] if @config['vpc'] and @config['vpc']['vpc_id']
 
           allrules = {}
-# XXX source_ranges
-# XXX source_tags
-# XXX target_tags
           # The set of rules might actually compose into multiple firewall
           # objects, so figure that out.
           @config['rules'].each { |rule|
@@ -74,14 +72,22 @@ module MU
             if rule['hosts']
               rule['hosts'].each { |cidr| srcs << cidr }
             end
+
             ["ingress", "egress"].each { |dir|
               if rule[dir] or (dir == "ingress" and !rule.has_key?("egress"))
                 setname = MU::Cloud::Google.nameStr(@mu_name+"-"+dir+"-"+(rule['deny'] ? "deny" : "allow"))
                 allrules[setname] ||= {
                   :name => setname,
-                  :description => @deploy.deploy_id,
                   :direction => dir.upcase,
                   :network => vpc_id
+                }
+                if @deploy
+                  allrules[setname][:description] = @deploy.deploy_id
+                end
+                ['source_service_accounts', 'source_tags', 'target_tags', 'target_service_accounts'].each { |filter|
+                  if config[filter] and config[filter].size > 0
+                    allrules[setname][filter.to_sym] = config[filter].dup
+                  end
                 }
                 action = rule['deny'] ? :denied : :allowed
                 allrules[setname][action] ||= []
@@ -151,6 +157,7 @@ module MU
           resp = MU::Cloud::Google.compute.list_firewalls(flags["project"])
           if resp and resp.items
             resp.items.each { |fw|
+              next if !cloud_id.nil? and fw.name != cloud_id
               found[fw.name] = fw
             }
           end
@@ -178,6 +185,7 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
+#                ['source_ranges', 'source_service_accounts', 'source_tags', 'target_ranges', 'target_service_accounts'].each { |filter|
           schema = {
             "rules" => {
               "items" => {
@@ -187,7 +195,28 @@ module MU
                   },
                   "source_tags" => {
                     "type" => "array",
-                    "description" => "VMs with these tags from which traffic will be allowed",
+                    "description" => "VMs with these tags, from which traffic will be allowed",
+                    "items" => {
+                      "type" => "string"
+                    }
+                  },
+                  "source_service_accounts" => {
+                    "type" => "array",
+                    "description" => "Resources using these service accounts, from which traffic will be allowed",
+                    "items" => {
+                      "type" => "string"
+                    }
+                  },
+                  "target_tags" => {
+                    "type" => "array",
+                    "description" => "VMs with these tags, to which traffic will be allowed",
+                    "items" => {
+                      "type" => "string"
+                    }
+                  },
+                  "target_service_accounts" => {
+                    "type" => "array",
+                    "description" => "Resources using these service accounts, to which traffic will be allowed",
                     "items" => {
                       "type" => "string"
                     }

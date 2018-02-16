@@ -191,7 +191,7 @@ module MU
       def self.loadCredentials(scopes = nil)
         return @@authorizers[scopes.to_s] if @@authorizers[scopes.to_s]
 
-        if $MU_CFG.has_key?("google") and $MU_CFG["google"].has_key?("credentials")
+        if $MU_CFG.has_key?("google") and $MU_CFG["google"]["credentials"]
           begin
             vault, item = $MU_CFG["google"]["credentials"].split(/:/)
             data = MU::Groomer::Chef.getSecret(vault: vault, item: item).to_h
