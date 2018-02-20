@@ -152,7 +152,7 @@ GEM
     httpclient (2.8.3)
     hurley (0.2)
     iniparse (1.4.4)
-    inspec (1.51.18)
+    inspec (1.51.21)
       addressable (~> 2.4)
       faraday (>= 0.9.0)
       hashie (~> 3.4)

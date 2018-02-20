@@ -5092,6 +5092,25 @@ module MU
     }
     @storage_pool_primitive["properties"].merge!(@storage_pool_mount_points_primitive)
 
+    @function_primitive = {
+      "type" => "object",
+      "title" => "Function",
+      "description" => "Create a cloud function.",
+      "required" => ["name", "cloud"],
+      "additionalProperties" => false,
+      "properties" => {
+        "cloud" => @cloud_primitive,
+        "name" => {"type" => "string"},
+        "region" => MU::Config.region_primitive,
+        "vpc" => vpc_reference_primitive(ONE_SUBNET+MANY_SUBNETS, NO_NAT_OPTS, "all_private"),
+        "tags" => @tags_primitive,
+        "optional_tags" => {
+          "type" => "boolean",
+          "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
+        },
+      }
+    }
+
     @@schema = {
         "$schema" => "http://json-schema.org/draft-04/schema#",
         "title" => "MU Application",

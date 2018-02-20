@@ -85,6 +85,9 @@ module MU
     # Stub base class; real implementations generated at runtime
     class StoragePool;
     end
+    # Stub base class; real implementations generated at runtime
+    class Function;
+    end
 
     # The types of cloud resources we can create, as class objects. Include
     # methods a class implementing this resource type must support to be
@@ -232,6 +235,17 @@ module MU
         :waits_on_parent_completion => false,
         :class => generic_class_methods,
         :instance => generic_instance_methods + [:groom]
+      },
+      :Function => {
+        :has_multiples => false,
+        :can_live_in_vpc => true,
+        :cfg_name => "function",
+        :cfg_plural => "functions",
+        :interface => self.const_get("Function"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => false,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods
       }
     }.freeze
 
