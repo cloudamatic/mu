@@ -12,8 +12,8 @@ import subprocess, boto3, os, json, time, datetime
 
 #workspace=os.environ['WORKSPACE']
 ssh_data_file = '/tmp/MU-MASTER-INSTALL-TEST.json'
-#branch = os.environ['GIT_BRANCH']
-branch = 'issue_100'
+branch = os.environ['GIT_BRANCH']
+#branch = 'issue_100'
 user_data= """#!/bin/bash 
 sed -i 's/#PermitRootLogin yes/PermitRootLogin yes/g' /etc/ssh/sshd_config
 sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/g' /etc/ssh/sshd_config
@@ -35,31 +35,30 @@ def base_controls():
 
 
 
-def run_knife_over_ssh(user, host,key_file):
-  knife_cmd = 'ssh -oStrictHostKeyChecking=no -i %s %s@%s knife node show -l -F json MU-MASTER > /tmp/chef_node.json' % (key_file, user, host)
-  os.system(knife_cmd)
+def chef_solo_over_ssh(user, host,key_file):
+  file_path = '/opt/mu/lib/site_cookbooks/demo/recipes/store_attr.rb'
+  chef_solo = 'chef-solo %s' % file_path
+  run_cmd = 'ssh -oStrictHostKeyChecking=no -i %s %s@%s %s' % (key_file, user, host, chef_solo)
+  os.system(run_cmd)
 
 
 def run_installer_over_ssh(user,host, key_file, command):
   if user != None and host != None and command != None:
-    exists = False
     time.sleep(90)
     counter = 0
     max_retries = 20
     while (counter != max_retries):
       out = subprocess.check_output(["ssh","-oStrictHostKeyChecking=no","-i", key_file, user+"@"+host,"ls","/tmp/"])
       if 'installer' in out:
-        exists = True
         break
       else:
         counter += 1
-        exists = False
-        print "Installer does not exist yet... checking back 5 secs... (Retry %s/%s)" % (counter,max_retries)
+        print "Installer does not exist yet... checking back in 5 secs... (Retry %s/%s)" % (counter,max_retries)
         time.sleep(5)
     
     ssh_syntax = "ssh -oStrictHostKeyChecking=no -i %s %s@%s %s" % (key_file,user,host,command)
     os.system(ssh_syntax)
-    run_knife_over_ssh(user,host,key_file)
+    chef_solo_over_ssh(user,host,key_file)
 
 
 # not using currently -- but good to have (just in case ya know)
