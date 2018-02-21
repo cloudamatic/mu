@@ -157,8 +157,7 @@ $CONFIGURABLES = {
     "subtree" => {
       "project" => {
         "title" => "Default Project",
-        "desc" => "Default Google Cloud Platform project in which we operate and deploy. Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON, and import that key to the vault specified here. Import example: knife vault create secrets google -J my-google-service-account.json",
-        "default" => "my-project"
+        "desc" => "Default Google Cloud Platform project in which we operate and deploy. Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON, and import that key to the vault specified here. Import example: knife vault create secrets google -J my-google-service-account.json"
       },
       "credentials" => {
         "title" => "Credentials Vault:Item",

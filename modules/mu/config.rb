@@ -2523,12 +2523,12 @@ module MU
 
     allregions = []
     allregions.concat(MU::Cloud::AWS.listRegions) if MU::Cloud::AWS.myRegion
-    allregions.concat(MU::Cloud::Google.listRegions) if MU::Cloud::Google.myRegion
+    allregions.concat(MU::Cloud::Google.listRegions) if MU::Cloud::Google.myRegion and $MU_CFG['google'] and $MU_CFG['google']['project']
 
     def self.region_primitive
       allregions = []
       allregions.concat(MU::Cloud::AWS.listRegions) if MU::Cloud::AWS.myRegion
-      allregions.concat(MU::Cloud::Google.listRegions) if MU::Cloud::Google.myRegion
+      allregions.concat(MU::Cloud::Google.listRegions) if MU::Cloud::Google.myRegion and $MU_CFG['google'] and $MU_CFG['google']['project']
       {
         "type" => "string",
         "enum" => allregions

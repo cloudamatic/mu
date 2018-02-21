@@ -258,6 +258,7 @@ module MU
       # Cloud. This fetches the identifier of the project associated with our
       # default credentials.
       def self.defaultProject
+        return nil if !$MU_CFG['google'] or !$MU_CFG['google']['project']
         loadCredentials if !@@default_project
         @@default_project
       end
