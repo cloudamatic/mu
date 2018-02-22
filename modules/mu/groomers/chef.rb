@@ -898,7 +898,6 @@ retry
       # Upload the certificate to a Chef Vault for this node
       def stashHostSSLCertSecret
         cert, key = @server.deploy.nodeSSLCerts(@server)
-
         certdata = {
           "data" => {
             "node.crt" => cert.to_pem.chomp!.gsub(/\n/, "\\n"),

@@ -29,6 +29,7 @@ centos7: &centos7
   ap-southeast-1: ami-a146cbc2
   ap-southeast-2: ami-7a435319
   ap-south-1: ami-3ced9253
+  us-gov-west-1: ami-23f97242
 rhel71: &rhel71
   us-east-1: ami-a6ae82b0
   us-east-2: ami-5189af34

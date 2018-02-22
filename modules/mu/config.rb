@@ -596,7 +596,7 @@ module MU
         ]
       end
       MU::Config.set_defaults(@config, MU::Config.schema)
-#      validate # individual resources validate when added now, necessary because the schema can change depending on what cloud they're targeting
+      validate # individual resources validate when added now, necessary because the schema can change depending on what cloud they're targeting
 #      XXX but now we're not validating top-level keys, argh
 #pp @config
 #raise "DERP"
@@ -2523,12 +2523,12 @@ module MU
 
     allregions = []
     allregions.concat(MU::Cloud::AWS.listRegions) if MU::Cloud::AWS.myRegion
-    allregions.concat(MU::Cloud::Google.listRegions) if MU::Cloud::Google.myRegion and $MU_CFG['google'] and $MU_CFG['google']['project']
+    allregions.concat(MU::Cloud::Google.listRegions) if $MU_CFG['google'] and $MU_CFG['google']['project']
 
     def self.region_primitive
       allregions = []
       allregions.concat(MU::Cloud::AWS.listRegions) if MU::Cloud::AWS.myRegion
-      allregions.concat(MU::Cloud::Google.listRegions) if MU::Cloud::Google.myRegion and $MU_CFG['google'] and $MU_CFG['google']['project']
+      allregions.concat(MU::Cloud::Google.listRegions) if $MU_CFG['google'] and $MU_CFG['google']['project']
       {
         "type" => "string",
         "enum" => allregions
