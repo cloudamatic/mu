@@ -30,9 +30,17 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
           package_name pkg
         end
       end
+
+# XXX /usr/lib/systemd/system/auditd.service ?
+      execute "enable manual auditd restarts" do
+        command "sed -i s/RefuseManualStop=yes/#RefuseManualStop=yes/ /usr/lib/systemd/system/auditd.service"
+        action :nothing
+        only_if "grep ^RefuseManualStop=yes /usr/lib/systemd/system/auditd.service"
+      end
   
       service "auditd" do
         action :nothing
+        notifies :run, "execute[enable manual auditd restarts]", :before
       end
   
       if node['platform_version'].to_i < 7
