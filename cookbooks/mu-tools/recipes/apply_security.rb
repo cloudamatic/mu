@@ -31,9 +31,9 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
         end
       end
 
-# XXX /usr/lib/systemd/system/auditd.service ?
       execute "enable manual auditd restarts" do
-        command "sed -i s/RefuseManualStop=yes/#RefuseManualStop=yes/ /usr/lib/systemd/system/auditd.service"
+        command "sed -i s/RefuseManualStop=yes/#RefuseManualStop=yes/ /usr/lib/systemd/system/auditd.service ; pkill auditd"
+        ignore_failure true
         action :nothing
         only_if "grep ^RefuseManualStop=yes /usr/lib/systemd/system/auditd.service"
       end
