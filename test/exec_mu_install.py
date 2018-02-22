@@ -74,7 +74,6 @@ def run_installer_over_ssh(user,host, key_file, command):
     chef_solo_over_ssh(user,host,key_file)
 
 
-# not using currently -- but good to have (just in case ya know)
 def allocat_associate_eip(ins_id):
   ec2 = boto3.client('ec2')
   try:
@@ -194,8 +193,9 @@ def clean_up(ins_ids,bucket_name):
   ec2 = boto3.resource('ec2')
   s3 = boto3.resource('s3')
   if s3.Bucket(bucket_name) in s3.buckets.all():
+    print bucket_name
     master_bucket = s3.Bucket(bucket_name)
-    master_bucket.objects.all().delete()
+    master_bucket.object_versions.all().delete()
     master_bucket.delete()
   
   print "*********************************************"
@@ -226,7 +226,8 @@ if os.path.isfile(ssh_data_file):
   status = run_master_test(ssh_data_file, controls_spaced_out) 
   #if status != 0:
   #  raise Exception("Mu Master Installation Failed")
-  ## why would I use this when I am terminating the instance .... 
+  
+  # why would I use this when I am terminating the instance .... 
   #rm_chef_node_json_frm_target('root',ssh_info[0]['fqdn'],ssh_info[0]['key'])
   cleanup_ids = []
   for each in ssh_info:
