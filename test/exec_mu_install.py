@@ -35,11 +35,24 @@ def base_controls():
 
 
 
+def recipe_existence_over_ssh(user,host,key_file):
+  recipe = '/opt/mu/lib/site_cookbooks/demo/recipes/store_attr.rb'
+  output = subprocess.check_output(["ssh","-oStrictHostKeyChecking=no", "-i", key_file, user+"@"+host,"ls", recipe])
+  if 'store_attr' in output:
+    return True
+  else:
+    return False
+
+
 def chef_solo_over_ssh(user, host,key_file):
   file_path = '/opt/mu/lib/site_cookbooks/demo/recipes/store_attr.rb'
-  chef_solo = 'chef-solo %s' % file_path
-  run_cmd = 'ssh -oStrictHostKeyChecking=no -i %s %s@%s %s' % (key_file, user, host, chef_solo)
-  os.system(run_cmd)
+  exists = recipe_existence_over_ssh(user,host,key_file)
+  if exists:
+    chef_solo = 'chef-solo %s' % file_path
+    run_cmd = 'ssh -oStrictHostKeyChecking=no -i %s %s@%s %s' % (key_file, user, host, chef_solo)
+    os.system(run_cmd)
+  else:
+    raise Exception("store_attr demo recipe ==> DOES NOT EXIST ON NODE!")
 
 
 def run_installer_over_ssh(user,host, key_file, command):
@@ -53,8 +66,8 @@ def run_installer_over_ssh(user,host, key_file, command):
         break
       else:
         counter += 1
-        print "Installer does not exist yet... checking back in 5 secs... (Retry %s/%s)" % (counter,max_retries)
-        time.sleep(5)
+        print "Installer does not exist yet... checking back in 10 secs... (Retry %s/%s)" % (counter,max_retries)
+        time.sleep(10)
     
     ssh_syntax = "ssh -oStrictHostKeyChecking=no -i %s %s@%s %s" % (key_file,user,host,command)
     os.system(ssh_syntax)
@@ -144,9 +157,10 @@ def desc_instances(ins_ids,region='us-east-1'):
       name = each['Tags'][0]['Value']
       ins_id = each['InstanceId'] 
       pub_ip = each['PublicIpAddress']
+      private_dns_address = each['PrivateDnsName']
       break
 
-    bootstrap = {'pub_ip': pub_ip,'key':key, 'fqdn':fqdn,'name':name, 'ins_id':ins_id}
+    bootstrap = {'pub_ip': pub_ip, 'private_dns': private_dns_address, 'key':key, 'fqdn':fqdn,'name':name, 'ins_id':ins_id}
     all_bootstraps.append(bootstrap)
   print all_bootstraps
   return all_bootstraps
@@ -176,8 +190,14 @@ def rm_chef_node_json_frm_target(user,host,key,file_to_rm="/tmp/chef_node.json")
     raise Exception("Check user, host and make sure key file exists on this machine")
 
 
-def ec2_clean_up(ins_ids):
+def clean_up(ins_ids,bucket_name):
   ec2 = boto3.resource('ec2')
+  s3 = boto3.resource('s3')
+  if s3.Bucket(bucket_name) in s3.buckets.all():
+    master_bucket = s3.Bucket(bucket_name)
+    master_bucket.objects.all().delete()
+    master_bucket.delete()
+  
   print "*********************************************"
   print "INFO: CLEANED UP: %s" % ins_ids
   print "*********************************************"
@@ -202,14 +222,16 @@ dump_ssh_info(data)
 if os.path.isfile(ssh_data_file):
   ssh_info = json.load(open(ssh_data_file))    
   run_installer_over_ssh('root',ssh_info[0]['fqdn'],ssh_info[0]['key'],'sh /tmp/installer')
+  time.sleep(10)
   status = run_master_test(ssh_data_file, controls_spaced_out) 
-  if status != 0:
-    raise Exception("Mu Master Installation Failed")
-  rm_chef_node_json_frm_target('root',ssh_info[0]['fqdn'],ssh_info[0]['key'])
+  #if status != 0:
+  #  raise Exception("Mu Master Installation Failed")
+  ## why would I use this when I am terminating the instance .... 
+  #rm_chef_node_json_frm_target('root',ssh_info[0]['fqdn'],ssh_info[0]['key'])
   cleanup_ids = []
   for each in ssh_info:
     cleanup_ids.append(each['ins_id']) 
-  ec2_clean_up(cleanup_ids)
+  clean_up(cleanup_ids, ssh_info[0]['private_dns'])
   release_eip(eip_id)
 else:
   print("Nothing to do! Instance Data file does not exists: %s" % ssh_data_file)
