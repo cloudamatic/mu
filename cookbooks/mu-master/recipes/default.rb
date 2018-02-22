@@ -43,6 +43,20 @@ master_ips.each { |host|
   end
 }
 
+execute "/usr/bin/hostname #{$MU_CFG['hostname']}" do
+  not_if "/usr/bin/hostname | grep ^#{$MU_CFG['hostname']}$"
+end
+
+file "/etc/hostname" do
+  content "#{$MU_CFG['hostname']}\n"
+end
+
+["#{$MU_CFG['installdir']}/etc/mu.yaml", "#{$MU_CFG['installdir']}/lib/Berksfile.lock"].each { |f|
+  file f do
+    mode 0644
+  end
+}
+
 if !node[:update_nagios_only]
 
   include_recipe 'chef-vault'
