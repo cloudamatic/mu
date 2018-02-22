@@ -846,7 +846,7 @@ module MU
       if !descriptor['ingress_rules'].nil?
         fwname = cfg_name+descriptor['name']
         acl = {"name" => fwname, "rules" => descriptor['ingress_rules'], "region" => descriptor['region'] }
-        acl["vpc"] = descriptor['vpc'].dup if !descriptor['vpc'].nil?
+        acl["vpc"] = descriptor['vpc'].dup if descriptor['vpc']
         ["optional_tags", "tags", "cloud", "project"].each { |param|
           acl[param] = descriptor[param] if descriptor[param]
         }
@@ -884,8 +884,8 @@ module MU
         descriptor["add_firewall_rules"].each { |acl_include|
           if haveLitterMate?(acl_include["rule_name"], "firewall_rules")
             descriptor["dependencies"] << {
-                "type" => "firewall_rule",
-                "name" => acl_include["rule_name"]
+              "type" => "firewall_rule",
+              "name" => acl_include["rule_name"]
             }
           elsif acl_include["rule_name"]
             MU.log shortclass+" #{descriptor['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
@@ -1653,6 +1653,7 @@ module MU
       end
 
       acl = {"name" => name, "rules" => rules, "vpc" => realvpc, "cloud" => cloud, "admin" => true}
+      acl.delete("vpc") if !acl["vpc"]
       acl["region"] == region if !region.nil? and !region.empty?
       @admin_firewall_rules << acl if !@admin_firewall_rules.include?(acl)
       return {"type" => "firewall_rule", "name" => name}
@@ -2275,23 +2276,25 @@ module MU
       ok = false if !MU::Config.check_dependencies(config)
 
       # TODO enforce uniqueness of resource names
-      raise ValidationError if !ok
+      laise ValidationError if !ok
 
-      begin
-        JSON::Validator.validate!(MU::Config.schema, plain_cfg)
-      rescue JSON::Schema::ValidationError => e
-        # Use fully_validate to get the complete error list, save some time
-        errors = JSON::Validator.fully_validate(MU::Config.schema, plain_cfg)
-        realerrors = []
-        errors.each { |err|
-          if !err.match(/The property '.+?' of type MU::Config::Tail did not match the following type:/)
-            realerrors << err
-          end
-        }
-        if realerrors.size > 0
-          raise ValidationError, "Validation error in #{@@config_path}!\n"+realerrors.join("\n")
-        end
-      end
+# XXX Does commenting this out make sense? Do we want to apply it to top-level
+# keys and ignore resources, which validate when insertKitten is called now?
+#      begin
+#        JSON::Validator.validate!(MU::Config.schema, plain_cfg)
+#      rescue JSON::Schema::ValidationError => e
+#        # Use fully_validate to get the complete error list, save some time
+#        errors = JSON::Validator.fully_validate(MU::Config.schema, plain_cfg)
+#        realerrors = []
+#        errors.each { |err|
+#          if !err.match(/The property '.+?' of type MU::Config::Tail did not match the following type:/)
+#            realerrors << err
+#          end
+#        }
+#        if realerrors.size > 0
+#          raise ValidationError, "Validation error in #{@@config_path}!\n"+realerrors.join("\n")
+#        end
+#      end
     end
 
 
