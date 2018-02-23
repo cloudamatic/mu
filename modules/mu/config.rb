@@ -5096,14 +5096,36 @@ module MU
       "type" => "object",
       "title" => "Function",
       "description" => "Create a cloud function.",
-      "required" => ["name", "cloud"],
+      "required" => ["name", "cloud","runtime","iam_role"],
       "additionalProperties" => false,
       "properties" => {
         "cloud" => @cloud_primitive,
         "name" => {"type" => "string"},
+        "runtime" => {"type" => "string"},
+        "iam_role" => {"type" => "string"},
         "region" => MU::Config.region_primitive,
         "vpc" => vpc_reference_primitive(ONE_SUBNET+MANY_SUBNETS, NO_NAT_OPTS, "all_private"),
+        "handler" => {"type" => "string"}, 
+        "timeout" => {"type" => "string"},
         "tags" => @tags_primitive,
+        "memory" => {"type" => "string"},
+        "s3_bucket" => {"type" => "string"},
+        "s3_key" => {"type" => "string"},
+        "environment_variable" => @lambda_env_vars_primitive,
+=begin
+        "code" =>  {
+          "type" =>  "array",
+          "items" => {
+            "type" => "object",
+            "required" => ["s3_bucket" , "s3_key"],
+            "additionalProperties" => false,
+            "properties" => {
+              "s3_bucket" => {"type" => "string"},
+              "s3_key" => {"type" => "string"}
+            }
+          }
+        },
+=end
         "optional_tags" => {
           "type" => "boolean",
           "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
@@ -5111,7 +5133,26 @@ module MU
       }
     }
 
-    @@schema = {
+   @lambda_env_vars_primitive = {
+        "type" => "array",
+        "minItems" => 1,
+        "items" => {
+            "description" => "environment variables",
+            "type" => "object",
+            "title" => "tags",
+            "required" => ["key", "value"],
+            "additionalProperties" => false,
+            "properties" => {
+                "key" => {
+                    "type" => "string",
+                },
+                "value" => {
+                    "type" => "string",
+                }
+            }
+        }
+    }
+   @@schema = {
         "$schema" => "http://json-schema.org/draft-04/schema#",
         "title" => "MU Application",
         "type" => "object",
@@ -5235,6 +5276,10 @@ module MU
             "storage_pools" => {
               "type" => "array",
               "items" => @storage_pool_primitive
+            },
+            "functions" => {
+              "type" => "array",
+              "items" => @function_primitive
             },
             "admins" => {
                 "type" => "array",

@@ -37,6 +37,45 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
+          begin
+            aws_lambda = create_lambda
+          rescue Exception => e
+            MU.log "#{e}"
+          end
+        end
+
+
+
+        def create_lambda
+          
+          if @config['timeout'].to_i == nil
+            @config['timeout'] = 15 # secs
+          end 
+          
+          p @config['environment_variables']
+
+          lambda_func = MU::Cloud::AWS.lambda(@config['region']).create_function({
+            code:{
+              s3_bucket: @config['s3_bucket'],
+              s3_key: @config['s3_key']
+            }, 
+            function_name:@config['name'], 
+            handler:      @config['handler'], 
+            memory_size:  @config['memory'].to_i, 
+            publish:      true, 
+            role:         @config['iam_role'],
+            runtime:      @config['run_time'], 
+            timeout:      @config['timeout'].to_i, 
+            environment: 
+            { 
+              variables: 
+              {
+                "#{@config['environment_variables'][0]['key']}" => "#{@config['environment_variables'][0]['value']}"
+              }
+            },
+            vpc_config: {
+            } 
+          })
         end
 
         # Return the metadata for this Function rule
