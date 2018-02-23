@@ -949,7 +949,7 @@ if $IN_AWS and AMROOT
 # XXX --ip? Do we really care?
 end
 if $IN_GOOGLE and AMROOT
-  system("#{MU_BASE}/lib/bin/mu-aws-setup --sg --logs")
+  system("#{MU_BASE}/lib/bin/mu-gcp-setup --sg --logs")
 end
 
 if $INITIALIZE or $CHANGES.include?("chefcerts")

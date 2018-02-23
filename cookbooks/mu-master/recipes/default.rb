@@ -16,6 +16,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# XXX this is nonsense if we're not in AWS
 response = Net::HTTP.get_response(URI("http://169.254.169.254/latest/meta-data/instance-id"))
 instance_id = response.body
 search_domains = ["ec2.internal", "server.#{instance_id}.platform-mu", "platform-mu"]
