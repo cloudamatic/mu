@@ -1529,7 +1529,9 @@ module MU
               end
           end
         }
-        MU::Cloud::DNSZone.createRecordsFromConfig(dnscfg)
+        if !MU::Cloud::AWS.isGovCloud?
+          MU::Cloud::DNSZone.createRecordsFromConfig(dnscfg)
+        end
       end
 
       MU::MommaCat.removeHostFromSSHConfig(node)
@@ -1798,7 +1800,10 @@ MESSAGE_END
         FileUtils.cp("#{@myhome}/.ssh/id_rsa", "#{@nagios_home}/.ssh/id_rsa")
         File.chown(Etc.getpwnam("nagios").uid, Etc.getpwnam("nagios").gid, "#{@nagios_home}/.ssh/id_rsa")
         threads = []
-        mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
+        if !MU::Cloud::AWS.isGovCloud?
+          mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
+        end
+# XXX what if we're in GCP?
 # XXX need a MU::Cloud::DNSZone.lookup for bulk lookups
 # XXX also grab things like mu_windows_name out of deploy data if we can
 
