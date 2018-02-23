@@ -92,6 +92,7 @@ module MU
               raise MuError, "LoadBalancer #{@config['name']} is configured to use a VPC, but no VPC found"
             end
             lb_options[:subnets] = []
+            pp @config["vpc"]
             @config["vpc"]["subnets"].each { |subnet|
               subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
               if subnet_obj.nil?
@@ -166,8 +167,10 @@ module MU
           parent_thread_id = Thread.current.object_id
           generic_mu_dns = nil
           dnsthread = Thread.new {
-            MU.dupGlobals(parent_thread_id)
-            generic_mu_dns = MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: @mu_name, target: "#{lb.dns_name}.", cloudclass: MU::Cloud::LoadBalancer, sync_wait: @config['dns_sync_wait'])
+            if !MU::Cloud::AWS.isGovCloud?
+              MU.dupGlobals(parent_thread_id)
+              generic_mu_dns = MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: @mu_name, target: "#{lb.dns_name}.", cloudclass: MU::Cloud::LoadBalancer, sync_wait: @config['dns_sync_wait'])
+            end
           }
 
           if zones_to_try.size < @config["zones"].size
@@ -534,7 +537,9 @@ module MU
                 r['type'] = "CNAME"
               }
             end
-            MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@config['dns_records'], target: cloud_desc.dns_name)
+            if !MU::Cloud::AWS.isGovCloud?
+              MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@config['dns_records'], target: cloud_desc.dns_name)
+            end
           end
 
           notify
@@ -670,7 +675,9 @@ module MU
                 matched = self.checkForTagMatch(lb.load_balancer_arn, region, ignoremaster, classic)
               end
               if matched
-                MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: lb.load_balancer_name, target: lb.dns_name, cloudclass: MU::Cloud::LoadBalancer, delete: true) if !noop
+                if !MU::Cloud::AWS.isGovCloud?
+                  MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: lb.load_balancer_name, target: lb.dns_name, cloudclass: MU::Cloud::LoadBalancer, delete: true) if !noop
+                end
                 MU.log "Removing Elastic Load Balancer #{lb.load_balancer_name}"
                 if classic
                   MU::Cloud::AWS.elb(region).delete_load_balancer(load_balancer_name: lb.load_balancer_name) if !noop
@@ -786,7 +793,7 @@ module MU
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching LoadBalancers
         def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
-          classic = opts['classic'] ? true : false
+          classic = flags['classic'] ? true : false
 
           matches = {}
           list = {}
@@ -808,7 +815,7 @@ module MU
 
           return matches if matches.size > 0
 
-          if !tag_key.nil? and !tag_value.nil?
+          if !tag_key.nil? and !tag_value.nil? and !tag_key.empty? and list.size > 0
             tag_descriptions = nil
             if classic
               tag_descriptions = MU::Cloud::AWS.elb(region).describe_tags(
