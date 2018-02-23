@@ -35,6 +35,20 @@ module MU
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
+        
+        def get_role_arn(name)
+          begin
+            role = MU::Cloud::AWS.iam(@config['region']).get_role({
+              role_name: name.to_s
+            })
+            return role['role']['arn']
+          rescue Exception => e
+            Mu.log "#{e}"
+          end
+        end
+
+
+
         # Called automatically by {MU::Deploy#createResources}
         def create
           begin
@@ -52,7 +66,12 @@ module MU
             @config['timeout'] = 15 # secs
           end 
           
-          p @config['environment_variables']
+          if @config['iam_role'] != nil 
+            role_arn = get_role_arn(@config['iam_role'].to_s)
+          else
+            Mu.log "Boi you forgot the iam_role..."
+          end
+
 
           lambda_func = MU::Cloud::AWS.lambda(@config['region']).create_function({
             code:{
@@ -63,7 +82,7 @@ module MU
             handler:      @config['handler'], 
             memory_size:  @config['memory'].to_i, 
             publish:      true, 
-            role:         @config['iam_role'],
+            role:         role_arn,
             runtime:      @config['run_time'], 
             timeout:      @config['timeout'].to_i, 
             environment: 
@@ -77,6 +96,8 @@ module MU
             } 
           })
         end
+
+
 
         # Return the metadata for this Function rule
         # @return [Hash]

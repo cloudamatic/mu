@@ -5,6 +5,7 @@ functions:
     region: us-east-1
     run_time: nodejs6.10
     region: us-east-1
+    iam_role: lambda_basic_execution
     memory: 256
     handler: index.handler
     timeout: 15
