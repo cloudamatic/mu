@@ -43,14 +43,6 @@ master_ips.each { |host|
   end
 }
 
-execute "/usr/bin/hostname #{$MU_CFG['hostname']}" do
-  not_if "/usr/bin/hostname | grep ^#{$MU_CFG['hostname']}$"
-end
-
-file "/etc/hostname" do
-  content "#{$MU_CFG['hostname']}\n"
-end
-
 ["#{$MU_CFG['installdir']}/etc/mu.yaml", "#{$MU_CFG['installdir']}/lib/Berksfile.lock"].each { |f|
   file f do
     mode 0644
@@ -86,9 +78,14 @@ if !node[:update_nagios_only]
   end
 
   execute "set Mu Master's hostname" do
-    command "/bin/hostname #{$MU_CFG['hostname']}"
-    not_if "/bin/hostname | grep '^#{$MU_CFG['hostname']}$'"
+    command "PATH=/bin:/usr/bin hostname #{$MU_CFG['hostname']}"
+    not_if "PATH=/bin:/usr/bin hostname | grep '^#{$MU_CFG['hostname']}$'"
   end
+
+  file "/etc/hostname" do
+    content "#{$MU_CFG['hostname']}\n"
+  end
+
   execute "updating hostname in /etc/sysconfig/network" do
     command "sed -i 's/^HOSTNAME=.*/HOSTNAME=#{$MU_CFG['hostname']}.platform-mu/' /etc/sysconfig/network"
     not_if "grep '^HOSTNAME=#{$MU_CFG['hostname']}.platform-mu'"
