@@ -176,7 +176,9 @@ module MU
           }
         }
 
-        MU::Cloud::DNSZone.cleanup(noop: @noop, cloud: "AWS", ignoremaster: @ignoremaster) if @mommacat.nil? or @mommacat.numKittens(types: ["DNSZone"]) > 0
+        if !MU::Cloud::AWS.isGovCloud?
+          MU::Cloud::DNSZone.cleanup(noop: @noop, cloud: "AWS", ignoremaster: @ignoremaster) if @mommacat.nil? or @mommacat.numKittens(types: ["DNSZone"]) > 0
+        end
 
         @projectthreads.each do |t|
           t.join

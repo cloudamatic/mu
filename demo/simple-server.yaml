@@ -11,14 +11,13 @@
   servers: 
     - 
       name: simple
+      platform: centos7
       size: <%= instance_type %>
       skipinitialupdates: true
       vpc:
         vpc_id: <%= vpc %>
         subnet_pref: public
       storage:
-      - device: /dev/sda1
-        size: 70
       - device: /dev/xvdg
         size: 500
         volume_type: sc1

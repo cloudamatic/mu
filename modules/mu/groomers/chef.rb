@@ -338,8 +338,13 @@ module MU
             end
           end
         rescue MU::Cloud::BootstrapTempFail
-          MU.log "#{@server.mu_name} rebooting from Chef, waiting 30s and retrying", MU::NOTICE
+          MU.log "#{@server.mu_name} rebooting from Chef, waiting then resuming", MU::NOTICE
           sleep 30
+          # weird failures seem common in govcloud
+          if MU::Cloud::AWS.isGovCloud?(@config['region'])
+            @server.reboot(true)
+            sleep 30
+          end
           retry
         rescue RuntimeError, SystemCallError, Timeout::Error, SocketError, Errno::ECONNRESET, IOError, Net::SSH::Exception, MU::Groomer::RunError, WinRM::WinRMError, MU::MuError => e
           begin
