@@ -161,8 +161,7 @@ $CONFIGURABLES = {
       },
       "credentials" => {
         "title" => "Credentials Vault:Item",
-        "desc" => "A vault and item from which to retrieve the JSON-formatted Service Account credentials for our GCP account. Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON, and import that key to the vault specified here. Import example: knife vault create secrets google -J my-google-service-account.json ",
-        "default" => "secrets:google"
+        "desc" => "A vault and item from which to retrieve the JSON-formatted Service Account credentials for our GCP account, in the format vault:itemname (e.g. 'secrets:google'). Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON, and import that key to the vault specified here. Import example: knife vault create secrets google -J my-google-service-account.json "
       },
       "region" => {
         "title" => "Default Region",
