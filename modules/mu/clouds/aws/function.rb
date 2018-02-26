@@ -57,10 +57,20 @@ module MU
             MU.log "#{e}"
           end
         end
-       
-        def get_subnet_id(vpc_name, subnet_name, region=@config['region'])
-           
+
+
+
+        def get_subnet_id(subnet_name, region=@config['region'])
+          
+          ec2 = MU::Cloud::AWS.ec2(region).describe_subnets({ 
+            filters: [{ 'name': 'tag-value',values:[subnet_name] }]
+          })
+          return  ec2.subnets[0].subnet_id
+        
         end
+
+
+
 
         def assign_tag(resource_arn, tag_list, region=@config['region'])
           begin
@@ -76,53 +86,57 @@ module MU
         end
 
 
+
+
         def create_lambda
           role_arn = get_role_arn(@config['iam_role'].to_s)
-          if @config['timeout'].to_i == nil
-            @config['timeout'] = 15 # secs
-          end           
           
-          if @config['memory'] == nil
-            @config['memory'] = 128
-          end
-=begin  
-          if @config['vpc'] != nil
-            vpc_subnet_locator = @config['vpc']
-            ### find subnet_id
-            subnet_object = MU::Cloud::VPC.getSubnet( name: vpc_subnet_locator['subnet_name'])
-            p subnet_object.methods
-          end
-=end
-
-          @config['tags'].push({'deploy_id' => MU.deploy_id})
-          
-          lambda_func = MU::Cloud::AWS.lambda(@config['region']).create_function({
+          lambda_properties = {
             code:{
               s3_bucket: @config['code'][0]['s3_bucket'],
               s3_key: @config['code'][0]['s3_key']
-            }, 
-            function_name:"#{@config['name'].upcase}-#{MU.deploy_id}", 
-            handler:      @config['handler'], 
-            memory_size:  @config['memory'].to_i, 
-            publish:      true, 
-            role:         role_arn,
-            runtime:      @config['run_time'],
-            timeout:      @config['timeout'].to_i,
-            environment:
-            {
-              variables:
-              {
-                "#{@config['environment_variables'][0]['key']}" => "#{@config['environment_variables'][0]['value']}"
-              }
             },
-            vpc_config: {
-            }
-          })         
+            function_name:"#{@config['name'].upcase}-#{MU.deploy_id}",
+            handler:@config['handler'],
+            publish:true,
+            role:role_arn,
+            runtime:@config['run_time'],
+          }
+          
+          
+          if !@config.has_key?('timeout')
+            lambda_properties[:timeout] = 15 ## secs
+          end           
+          
+          if @config.has_key?('memory')
+            lambda_properties[:memory_size] = @config['memory'].to_i
+          end
+          
+          if @config.has_key?('environment_variables') 
+              p @config['environment_variables']
+              lambda_properties[:environment] = { 
+                variables: {@config['environment_variables'][0]['key'] => @config['environment_variables'][0]['value']}
+              }
+          end
+          
+          if @config.has_key?('vpc')
+             ### get vpc and subnet_name
+             ### find the subnet_id
+             sub_name = @config['vpc']['subnet_name']
+             sub_id = get_subnet_id(@config['vpc']['subnet_name'])
+             lambda_properties['vpc_config'] = {'subnet_ids': [sub_id], security_group_ids:['sg-004868631dad44e22']  }
+          end
+          
+          p lambda_properties
 
- 
+          @config['tags'].push({'deploy_id' => MU.deploy_id})
+          lambda_func = MU::Cloud::AWS.lambda(@config['region']).create_function(lambda_properties)
           assign_tag(lambda_func.function_arn, @config['tags'])
           return lambda_func
         end
+
+
+
 
 
 
@@ -134,6 +148,9 @@ module MU
           return deploy_struct
         end
 
+
+
+
         # Remove all functions associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
@@ -142,6 +159,9 @@ module MU
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
             
         end
+
+
+
 
         # Locate an existing function.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
@@ -153,6 +173,9 @@ module MU
           return all_functions
         end
 
+
+
+
         # Cloud-specific configuration properties.
         # @param config [MU::Config]: The calling MU::Config object
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
@@ -161,6 +184,8 @@ module MU
           schema = {}
           [toplevel_required, schema]
         end
+
+
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::functions}, bare and unvalidated.
         # @param function [Hash]: The resource to process and validate

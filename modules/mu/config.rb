@@ -5111,6 +5111,7 @@ module MU
         "memory" => {"type" => "string"},
         "environment_variable" => @lambda_env_vars_primitive,
         "code" =>  @lambda_code_primitive,
+        "dependencies" => @dependencies_primitive,
         "optional_tags" => {
           "type" => "boolean",
           "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true"

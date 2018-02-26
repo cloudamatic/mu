@@ -9,7 +9,7 @@ functions:
     handler: index.handler
     timeout: 15
     code:
-      -
+      - 
         s3_bucket: mu-cfn-installer
         s3_key: index.js.zip
     environment_variables:
@@ -19,5 +19,6 @@ functions:
       - created_by: 'Amrit'
       - email: 'amrit.gill@eglobaltech.com'
     vpc:
-      vpc_name: amrit-vpc      
-      subnet_name: amrit-subnet
+      vpc_name: 'amrit-vpc'    
+      subnet_name: 'amrit-subnet'
+
