@@ -103,10 +103,9 @@ execute "Add dirsrv-admin to SELinux allow list" do
   not_if "/usr/sbin/semodule -l | grep dirsrv_admin"
 end
 
-
-service "dirsrv-admin" do
-  action [:enable, :start]
-end
+#service "dirsrv-admin" do
+#  action [:enable, :start]
+#end
 
 chef_gem "expect" do
   compile_time true
