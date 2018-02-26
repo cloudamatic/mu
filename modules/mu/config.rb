@@ -5096,7 +5096,7 @@ module MU
       "type" => "object",
       "title" => "Function",
       "description" => "Create a cloud function.",
-      "required" => ["name", "cloud","runtime","iam_role"],
+      "required" => ["name", "cloud","runtime","iam_role","handler","code","region"],
       "additionalProperties" => false,
       "properties" => {
         "cloud" => @cloud_primitive,
@@ -5109,27 +5109,25 @@ module MU
         "timeout" => {"type" => "string"},
         "tags" => @tags_primitive,
         "memory" => {"type" => "string"},
-        "s3_bucket" => {"type" => "string"},
-        "s3_key" => {"type" => "string"},
         "environment_variable" => @lambda_env_vars_primitive,
-=begin
-        "code" =>  {
-          "type" =>  "array",
-          "items" => {
-            "type" => "object",
-            "required" => ["s3_bucket" , "s3_key"],
-            "additionalProperties" => false,
-            "properties" => {
-              "s3_bucket" => {"type" => "string"},
-              "s3_key" => {"type" => "string"}
-            }
-          }
-        },
-=end
+        "code" =>  @lambda_code_primitive,
         "optional_tags" => {
           "type" => "boolean",
-          "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
-        },
+          "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true"
+        }
+      }
+    }
+    
+    @lambda_code_primitive = {
+      "type" => "array",
+      "items" => {
+        "type" => "object",
+        "description" => "",
+        "additionalProperties" => false,
+        "properties" => {
+          "s3_bucket" => {"type" => "string"},
+          "s3_key" => {"type" => "string"}
+        }
       }
     }
 

@@ -57,44 +57,71 @@ module MU
             MU.log "#{e}"
           end
         end
+       
+        def get_subnet_id(vpc_name, subnet_name, region=@config['region'])
+           
+        end
 
+        def assign_tag(resource_arn, tag_list, region=@config['region'])
+          begin
+          tag_list.each do |each_pair|
+            tag_resp = MU::Cloud::AWS.lambda(region).tag_resource({
+              resource: resource_arn,
+              tags: each_pair
+            })
+          end
+          rescue Exception => e
+            MU.log e, MU::ERR
+          end
+        end
 
 
         def create_lambda
-          
+          role_arn = get_role_arn(@config['iam_role'].to_s)
           if @config['timeout'].to_i == nil
             @config['timeout'] = 15 # secs
-          end 
+          end           
           
-          if @config['iam_role'] != nil 
-            role_arn = get_role_arn(@config['iam_role'].to_s)
-          else
-            Mu.log "Boi you forgot the iam_role..."
+          if @config['memory'] == nil
+            @config['memory'] = 128
           end
+=begin  
+          if @config['vpc'] != nil
+            vpc_subnet_locator = @config['vpc']
+            ### find subnet_id
+            subnet_object = MU::Cloud::VPC.getSubnet( name: vpc_subnet_locator['subnet_name'])
+            p subnet_object.methods
+          end
+=end
 
-
+          @config['tags'].push({'deploy_id' => MU.deploy_id})
+          
           lambda_func = MU::Cloud::AWS.lambda(@config['region']).create_function({
             code:{
-              s3_bucket: @config['s3_bucket'],
-              s3_key: @config['s3_key']
+              s3_bucket: @config['code'][0]['s3_bucket'],
+              s3_key: @config['code'][0]['s3_key']
             }, 
-            function_name:@config['name'], 
+            function_name:"#{@config['name'].upcase}-#{MU.deploy_id}", 
             handler:      @config['handler'], 
             memory_size:  @config['memory'].to_i, 
             publish:      true, 
             role:         role_arn,
-            runtime:      @config['run_time'], 
-            timeout:      @config['timeout'].to_i, 
-            environment: 
-            { 
-              variables: 
+            runtime:      @config['run_time'],
+            timeout:      @config['timeout'].to_i,
+            environment:
+            {
+              variables:
               {
                 "#{@config['environment_variables'][0]['key']}" => "#{@config['environment_variables'][0]['value']}"
               }
             },
             vpc_config: {
-            } 
-          })
+            }
+          })         
+
+ 
+          assign_tag(lambda_func.function_arn, @config['tags'])
+          return lambda_func
         end
 
 
@@ -113,6 +140,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
+            
         end
 
         # Locate an existing function.
@@ -121,6 +149,8 @@ module MU
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching function.
         def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
+          all_functions = MU::Cloud::AWS.lambda(region).list_functions
+          return all_functions
         end
 
         # Cloud-specific configuration properties.
