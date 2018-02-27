@@ -43,7 +43,7 @@ module MU
             })
             return role['role']['arn']
           rescue Exception => e
-            Mu.log "#{e}"
+            Mu.log "#{e}", MU::ERR
           end
         end
 
@@ -54,19 +54,48 @@ module MU
           begin
             aws_lambda = create_lambda
           rescue Exception => e
-            MU.log "#{e}"
+            MU.log "#{e}", MU::ERR
           end
         end
 
 
 
-        def get_subnet_id(subnet_name, region=@config['region'])
-          
-          ec2 = MU::Cloud::AWS.ec2(region).describe_subnets({ 
-            filters: [{ 'name': 'tag-value',values:[subnet_name] }]
-          })
-          return  ec2.subnets[0].subnet_id
-        
+        def get_vpc_config(vpc_name, subnet_name, sg_name,region=@config['region'])
+          if !subnet_name.nil? and !sg_name.nil? and !vpc_name.nil?
+            ## get vpc_id
+            ## get sub_id and verify its in the same vpc 
+            ## get sg_id and verify its in the same vpc
+            ec2_client = MU::Cloud::AWS.ec2(region)
+            
+            vpc_filter = ec2_client.describe_vpcs({
+              filters: [{ name: 'tag-value', values: [vpc_name] }]
+            })
+            bok_vpc_id = vpc_filter.vpcs[0].vpc_id
+            
+            sub_filter = ec2_client.describe_subnets({
+              filters: [{ name: 'tag-value', values: [subnet_name] }]
+            })
+            if sub_filter.subnets[0].vpc_id.to_s != bok_vpc_id
+              MU.log "Subnet: #{subnet_name} is not part of the VPC: #{vpc_name}", MU::ERR
+              raise MuError, "Please provide subnet name that exists in the vpc"
+            end
+            
+            sg_filter = ec2_client.describe_security_groups({
+              filters: [{ name: 'group-name', values: [sg_name] }]
+            })
+            
+            if sg_filter.security_groups[0].vpc_id.to_s != bok_vpc_id
+              MU.log "Security Group: #{sg_name} is not part of the VPC: #{vpc_name}", MU::ERR
+              raise MuError, "Please provide security group name that exists in the vpc"
+            end
+
+            sub_id = sub_filter.subnets[0].subnet_id
+            sg_id = sg_filter.security_groups[0].group_id
+            
+            return {subnet_ids: [sub_id], security_group_ids: [sg_id]}
+          else
+            raise MuError, "Insufficient parameters for locating resource_ids"
+          end
         end
 
 
@@ -74,12 +103,12 @@ module MU
 
         def assign_tag(resource_arn, tag_list, region=@config['region'])
           begin
-          tag_list.each do |each_pair|
-            tag_resp = MU::Cloud::AWS.lambda(region).tag_resource({
-              resource: resource_arn,
-              tags: each_pair
-            })
-          end
+            tag_list.each do |each_pair|
+              tag_resp = MU::Cloud::AWS.lambda(region).tag_resource({
+                resource: resource_arn,
+                tags: each_pair
+              })
+            end
           rescue Exception => e
             MU.log e, MU::ERR
           end
@@ -104,8 +133,8 @@ module MU
           }
           
           
-          if !@config.has_key?('timeout')
-            lambda_properties[:timeout] = 15 ## secs
+          if @config.has_key?('timeout')
+            lambda_properties[:timeout] = @config['timeout'].to_i ## secs
           end           
           
           if @config.has_key?('memory')
@@ -113,25 +142,26 @@ module MU
           end
           
           if @config.has_key?('environment_variables') 
-              p @config['environment_variables']
               lambda_properties[:environment] = { 
                 variables: {@config['environment_variables'][0]['key'] => @config['environment_variables'][0]['value']}
               }
           end
-          
+
           if @config.has_key?('vpc')
              ### get vpc and subnet_name
              ### find the subnet_id
              sub_name = @config['vpc']['subnet_name']
-             sub_id = get_subnet_id(@config['vpc']['subnet_name'])
-             lambda_properties['vpc_config'] = {'subnet_ids': [sub_id], security_group_ids:['sg-004868631dad44e22']  }
+             vpc_name = @config['vpc']['vpc_name']
+             sg_name =  @config['vpc']['security_group_name']
+             vpc_conf = get_vpc_config(vpc_name,sub_name,sg_name)
+             lambda_properties[:vpc_config] = vpc_conf
           end
-          
-          p lambda_properties
+          p lambda_properties 
+
 
           @config['tags'].push({'deploy_id' => MU.deploy_id})
           lambda_func = MU::Cloud::AWS.lambda(@config['region']).create_function(lambda_properties)
-          assign_tag(lambda_func.function_arn, @config['tags'])
+          tag_function = assign_tag(lambda_func.function_arn, @config['tags'])
           return lambda_func
         end
 

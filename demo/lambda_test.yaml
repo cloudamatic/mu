@@ -2,6 +2,7 @@
 appname: lambda_test
 functions:
   - name: test
+    cloud: AWS
     region: us-east-1
     run_time: nodejs6.10
     iam_role: lambda_basic_execution
@@ -19,6 +20,6 @@ functions:
       - created_by: 'Amrit'
       - email: 'amrit.gill@eglobaltech.com'
     vpc:
-      vpc_name: 'amrit-vpc'    
+      vpc_name: 'amrit-vpc'
       subnet_name: 'amrit-subnet'
-
+      security_group_name: 'amrit-vpc-sg'
