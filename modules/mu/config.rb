@@ -5108,17 +5108,30 @@ module MU
         "runtime" => {"type" => "string"},
         "iam_role" => {"type" => "string"},
         "region" => MU::Config.region_primitive,
-        "vpc" => vpc_reference_primitive(ONE_SUBNET+MANY_SUBNETS, NO_NAT_OPTS, "all"),
+        "vpc" => vpc_reference_primitive(ONE_SUBNET+MANY_SUBNETS, NAT_OPTS, "all"),
         "handler" => {"type" => "string"}, 
         "timeout" => {"type" => "string"},
         "tags" => @tags_primitive,
         "memory" => {"type" => "string"},
         "environment_variable" => @lambda_env_vars_primitive,
         "code" =>  @lambda_code_primitive,
+        "trigger" => @lambda_trigger,
         "dependencies" => @dependencies_primitive,
         "optional_tags" => {
           "type" => "boolean",
           "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true"
+        }
+      }
+    }
+    @lambda_trigger = {
+      "type" => "array",
+      "items" => {
+        "type" => "object",
+        "description" => "Trigger for lambda function",
+        "additionalProperties" => false,
+        "properties" => {
+          "type" => {"type" => "string"},
+          "name" => {"type" => "string"}
         }
       }
     }

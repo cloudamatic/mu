@@ -119,20 +119,20 @@ module MU
 
         def create_lambda
           role_arn = get_role_arn(@config['iam_role'].to_s)
+          func_name = "#{@config['name'].upcase}-#{MU.deploy_id}"
           
           lambda_properties = {
             code:{
               s3_bucket: @config['code'][0]['s3_bucket'],
               s3_key: @config['code'][0]['s3_key']
             },
-            function_name:"#{@config['name'].upcase}-#{MU.deploy_id}",
+            function_name:func_name,
             handler:@config['handler'],
             publish:true,
             role:role_arn,
             runtime:@config['run_time'],
           }
-          
-          
+           
           if @config.has_key?('timeout')
             lambda_properties[:timeout] = @config['timeout'].to_i ## secs
           end           
@@ -156,15 +156,44 @@ module MU
              vpc_conf = get_vpc_config(vpc_name,sub_name,sg_name)
              lambda_properties[:vpc_config] = vpc_conf
           end
-          p lambda_properties 
+
+          #p lambda_properties 
 
 
           @config['tags'].push({'deploy_id' => MU.deploy_id})
           lambda_func = MU::Cloud::AWS.lambda(@config['region']).create_function(lambda_properties)
-          tag_function = assign_tag(lambda_func.function_arn, @config['tags'])
+          tag_function = assign_tag(lambda_func.function_arn, @config['tags']) 
+
+
+          ### to add or to not add triggers
+          ### triggers must exist prior
+          if  @config.has_key?('trigger') and !@config['trigger']['type'].nil? and !@config['trigger']['name'].nil?
+            
+            trigger_arn = "arn:aws:#{@config['trigger']['type'].downcase}:#{@config['region']}:#{MU.account_number}:#{@config['trigger']['name']}"
+            trigger_properties = {
+              action: "lambda:*", 
+              function_name: func_name, 
+              principal: "#{@config['trigger']['type'].downcase}.amazonaws.com", 
+              source_arn: trigger_arn, 
+              statement_id: "ID-1",
+            }
+            
+
+            ### add source_account only if type is s3 or ses
+            if @config['trigger']['type'].downcase == 's3' or @config['trigger']['type'].downcase == 'ses'
+              trigger_properties[:source_account] = MU.account_number
+            end
+
+
+            MU.log trigger_properties, MU::DEBUG
+
+            add_trigger = MU::Cloud::AWS.lambda(@config['region']).add_permission(trigger_properties)
+            
+          end 
+          
           return lambda_func
         end
-
+        
 
 
 
