@@ -169,6 +169,47 @@ $bucketname = MU.adminBucketName
 if $opts[:logs]
   exists = false
 
+  if !File.open("/etc/mtab").read.match(/ \/Mu_Logs /)
+    MU.log "Configuring syslog volume at /Mu_Logs"
+
+    # XXX create and tag the volume
+    if File.exists?("/dev/xvdl")
+      
+    end
+    tags = [{key: "Name", value: "/Mu_Logs"}]
+    tag_volume("/dev/xvdl", tags)
+
+    ebs_keyfile = "log_vol_ebs_key"
+    temp_dev = "/dev/ram7"
+    temp_mount = "/tmp/ram7"
+    begin
+      resp = s3.get_object(bucket: MU.adminBucketName, key: ebs_keyfile)
+    rescue Exception => e
+      Chef::Log.info(e.inspect)
+      `dd if=/dev/urandom of=#{temp_dev}` unless node[:platform_version].to_i == 7 # XXX what was this about?
+      raise e
+    end
+
+    ebs_key_handle = File.new("#{temp_mount}/#{ebs_keyfile}", File::CREAT|File::TRUNC|File::RDWR, 0400)
+    ebs_key_handle.puts resp.body
+    ebs_key_handle.close
+
+    alias_device = mount_directory.gsub("/", "")
+    # we can assume that mu-master::init installed cryptsetup-luks
+    `/sbin/cryptsetup luksFormat #{mount_device} #{key_file} --batch-mode`
+    `/sbin/cryptsetup luksOpen #{mount_device} #{alias_device} --key-file #{key_file}`
+
+    if node[:platform_version].to_i == 7
+      `/sbin/mkfs.xfs  "/dev/mapper/#{alias_device}"`
+    else
+      `/sbin/mkfs.ext4 "/dev/mapper/#{alias_device}"`
+    end
+
+    `/bin/dd if=/dev/urandom of=#{temp_dev}` unless node[:platform_version].to_i == 7 # XXX what was this about?
+
+
+  end
+
   MU.log "Configuring log and secret Amazon S3 bucket '#{$bucketname}'"
 
   resp = MU::Cloud::AWS.s3.list_buckets
