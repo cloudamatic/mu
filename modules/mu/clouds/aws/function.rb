@@ -75,23 +75,27 @@ module MU
             sub_filter = ec2_client.describe_subnets({
               filters: [{ name: 'tag-value', values: [subnet_name] }]
             })
-            if sub_filter.subnets[0].vpc_id.to_s != bok_vpc_id
-              MU.log "Subnet: #{subnet_name} is not part of the VPC: #{vpc_name}", MU::ERR
-              raise MuError, "Please provide subnet name that exists in the vpc"
+            
+            sub_id = nil 
+            sub_filter.subnets.each do |each|
+              if each.vpc_id == bok_vpc_id
+                sub_id = each.subnet_id
+                break
+              end
             end
             
             sg_filter = ec2_client.describe_security_groups({
               filters: [{ name: 'group-name', values: [sg_name] }]
             })
             
+
             if sg_filter.security_groups[0].vpc_id.to_s != bok_vpc_id
               MU.log "Security Group: #{sg_name} is not part of the VPC: #{vpc_name}", MU::ERR
               raise MuError, "Please provide security group name that exists in the vpc"
             end
 
-            sub_id = sub_filter.subnets[0].subnet_id
+            #sub_id = sub_filter.subnets[0].subnet_id
             sg_id = sg_filter.security_groups[0].group_id
-            
             return {subnet_ids: [sub_id], security_group_ids: [sg_id]}
           else
             raise MuError, "Insufficient parameters for locating resource_ids"
@@ -118,7 +122,7 @@ module MU
 
 
         def create_lambda
-          role_arn = get_role_arn(@config['iam_role'].to_s)
+          role_arn = get_role_arn(@config['iam_role'])
           func_name = "#{@config['name'].upcase}-#{MU.deploy_id}"
           
           lambda_properties = {
@@ -164,17 +168,23 @@ module MU
           lambda_func = MU::Cloud::AWS.lambda(@config['region']).create_function(lambda_properties)
           tag_function = assign_tag(lambda_func.function_arn, @config['tags']) 
 
+=begin
+          ### The most common triggers can be ==> SNS, S3, Cron, API-Gateway
+          ### API-Gateway => no direct way of getting api gateway id.
+          ### API-Gateway => Have to create an api gateway first!
+          ### API-Gateway => Using the creation object, get the api_gateway_id
+          ### For other triggers => ?
+
 
           ### to add or to not add triggers
           ### triggers must exist prior
           if  @config.has_key?('trigger') and !@config['trigger']['type'].nil? and !@config['trigger']['name'].nil?
             
-            trigger_arn = "arn:aws:#{@config['trigger']['type'].downcase}:#{@config['region']}:#{MU.account_number}:#{@config['trigger']['name']}"
             trigger_properties = {
               action: "lambda:*", 
               function_name: func_name, 
               principal: "#{@config['trigger']['type'].downcase}.amazonaws.com", 
-              source_arn: trigger_arn, 
+              source_arn: assume_trigger_arn, 
               statement_id: "ID-1",
             }
             
@@ -184,20 +194,16 @@ module MU
               trigger_properties[:source_account] = MU.account_number
             end
 
-
+            p assume_trigger_arn
+            p trigger_properties
             MU.log trigger_properties, MU::DEBUG
 
             add_trigger = MU::Cloud::AWS.lambda(@config['region']).add_permission(trigger_properties)
             
           end 
-          
+=end
           return lambda_func
         end
-        
-
-
-
-
 
         # Return the metadata for this Function rule
         # @return [Hash]
@@ -216,7 +222,6 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
-            
         end
 
 
@@ -227,9 +232,21 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching function.
-        def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
-          all_functions = MU::Cloud::AWS.lambda(region).list_functions
-          return all_functions
+        def self.find(cloud_id: nil, func_name: nil, region: MU.curRegion, flags: {})
+          func = nil
+          if !func_name.nil?
+            all_functions = MU::Cloud::AWS.lambda(region).list_functions
+            if all_functions.include?(func_name)
+              all_functions.functions.each do |x|
+                if x.function_name == func_name
+                  func = x
+                  break
+                end
+              end
+            end
+          end
+
+          return func
         end
 
 

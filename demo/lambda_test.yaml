@@ -23,9 +23,6 @@ functions:
       vpc_name: 'amrit-vpc'
       subnet_name: 'amrit-subnet'
       security_group_name: 'amrit-vpc-sg'    
-    trigger:
-      name: 'Test-Topic-Amrit'
-      type: 'sns'
 
   - name: test_2
     cloud: AWS
