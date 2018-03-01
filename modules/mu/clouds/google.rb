@@ -69,6 +69,7 @@ module MU
       # @param deploy_id [String]: The deploy for which we're granting the secret
       # @param noop [Boolean]: If true, will only print what would be done
       def self.removeDeploySecretsAndRoles(deploy_id = MU.deploy_id, flags: {}, noop: false)
+        return if !$MU_CFG['google'] or !$MU_CFG['google']['project']
         flags["project"] ||= MU::Cloud::Google.defaultProject
         name = deploy_id+"-secret"
 
@@ -258,12 +259,14 @@ module MU
       # Cloud. This fetches the identifier of the project associated with our
       # default credentials.
       def self.defaultProject
+        return myProject if !$MU_CFG['google'] or !$MU_CFG['google']['project']
         loadCredentials if !@@default_project
         @@default_project
       end
 
       # List all Google Cloud Platform projects available to our credentials
       def self.listProjects
+        return [] if !$MU_CFG['google'] or !$MU_CFG['google']['project']
         result = MU::Cloud::Google.resource_manager.list_projects
         result.projects.reject! { |p| p.lifecycle_state == "DELETE_REQUESTED" }
         result.projects.map { |p| p.project_id }
@@ -273,6 +276,7 @@ module MU
       # List all known Google Cloud Platform regions
       # @param us_only [Boolean]: Restrict results to United States only
       def self.listRegions(us_only = false)
+        return [] if !$MU_CFG['google'] or !$MU_CFG['google']['project']
         if @@regions.size == 0
           result = MU::Cloud::Google.compute.list_regions(MU::Cloud::Google.defaultProject)
           regions = []

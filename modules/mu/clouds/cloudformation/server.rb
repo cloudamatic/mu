@@ -92,7 +92,7 @@ module MU
             @role_generated = true
           end
           if !@config["iam_role"].nil?
-            MU::Cloud::CloudFormation::Server.addStdPoliciesToIAMProfile(@cfm_role_name, cloudformation_data: @cfm_template) if !@config['scrub_mu_isms']
+            MU::Cloud::CloudFormation::Server.addStdPoliciesToIAMProfile(@cfm_role_name, cloudformation_data: @cfm_template, region: @config['region']) if !@config['scrub_mu_isms']
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @cfm_role_name)
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @cfm_prof_name)
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "IamInstanceProfile", { "Ref" => @cfm_prof_name })
@@ -257,7 +257,8 @@ module MU
         # Insert a Server's standard IAM role needs into an arbitrary IAM profile
         def self.addStdPoliciesToIAMProfile(rolename, cloudformation_data: {})
           policies = Hash.new
-          policies['Mu_Bootstrap_Secret_'+MU.deploy_id] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{MU.deploy_id}-secret"+'"}]}'
+          aws_str = MU::Cloud::AWS.isGovCloud?(region) ? "aws-us-gov" : "aws"
+          policies['Mu_Bootstrap_Secret_'+MU.deploy_id] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:'+aws_str+':s3:::'+MU.adminBucketName+'/'+"#{MU.deploy_id}-secret"+'"}]}'
 # XXX this doesn't work unless we can deliver the stack name somehow, and also make the ARN look like arn:aws:cloudformation:us-east-1:144333873908:stack/CATAPULT/*
 #          policies['Mu_Describe_Own_CloudFormation_Stack'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["cloudformation:DescribeStacks", "cloudformation:ListStacks"],"Resource": {"Ref":"AWS::StackId"}}]}'
           policies['Mu_Describe_Own_CloudFormation_Stack'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["cloudformation:DescribeStacks", "cloudformation:ListStacks"],"Resource": "*"}]}'

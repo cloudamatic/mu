@@ -176,7 +176,9 @@ module MU
           }
         }
 
-        MU::Cloud::DNSZone.cleanup(noop: @noop, cloud: "AWS", ignoremaster: @ignoremaster) if @mommacat.nil? or @mommacat.numKittens(types: ["DNSZone"]) > 0
+        if !MU::Cloud::AWS.isGovCloud?
+          MU::Cloud::DNSZone.cleanup(noop: @noop, cloud: "AWS", ignoremaster: @ignoremaster) if @mommacat.nil? or @mommacat.numKittens(types: ["DNSZone"]) > 0
+        end
 
         @projectthreads.each do |t|
           t.join
@@ -291,13 +293,15 @@ module MU
           bucket: MU.adminBucketName,
           key: "#{MU.deploy_id}-secret"
         )
-        begin
-          MU::Cloud::Google.storage.delete_object(
-            MU.adminBucketName,
-            "#{MU.deploy_id}-secret"
-          )
-        rescue ::Google::Apis::ClientError => e
-          raise e if !e.message.match(/^notFound: /)
+        if $MU_CFG['google'] and $MU_CFG['google']['project']
+          begin
+            MU::Cloud::Google.storage.delete_object(
+              MU.adminBucketName,
+              "#{MU.deploy_id}-secret"
+            )
+          rescue ::Google::Apis::ClientError => e
+            raise e if !e.message.match(/^notFound: /)
+          end
         end
         MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS...
       end

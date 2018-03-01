@@ -157,13 +157,11 @@ $CONFIGURABLES = {
     "subtree" => {
       "project" => {
         "title" => "Default Project",
-        "desc" => "Default Google Cloud Platform project in which we operate and deploy. Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON, and import that key to the vault specified here. Import example: knife vault create secrets google -J my-google-service-account.json",
-        "default" => "my-project"
+        "desc" => "Default Google Cloud Platform project in which we operate and deploy. Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON, and import that key to the vault specified here. Import example: knife vault create secrets google -J my-google-service-account.json"
       },
       "credentials" => {
         "title" => "Credentials Vault:Item",
-        "desc" => "A vault and item from which to retrieve the JSON-formatted Service Account credentials for our GCP account. Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON, and import that key to the vault specified here. Import example: knife vault create secrets google -J my-google-service-account.json ",
-        "default" => "secrets:google"
+        "desc" => "A vault and item from which to retrieve the JSON-formatted Service Account credentials for our GCP account, in the format vault:itemname (e.g. 'secrets:google'). Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON, and import that key to the vault specified here. Import example: knife vault create secrets google -J my-google-service-account.json "
       },
       "region" => {
         "title" => "Default Region",
@@ -950,7 +948,7 @@ if $IN_AWS and AMROOT
 # XXX --ip? Do we really care?
 end
 if $IN_GOOGLE and AMROOT
-  system("#{MU_BASE}/lib/bin/mu-aws-setup --sg --logs")
+  system("#{MU_BASE}/lib/bin/mu-gcp-setup --sg --logs")
 end
 
 if $INITIALIZE or $CHANGES.include?("chefcerts")

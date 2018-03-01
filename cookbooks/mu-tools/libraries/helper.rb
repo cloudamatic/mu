@@ -53,8 +53,8 @@ module Mutools
         require "googleauth"
         @project ||= get_google_metadata("project/project-id")
         @authorizer ||= ::Google::Auth.get_application_default(['https://www.googleapis.com/auth/cloud-platform', 'https://www.googleapis.com/auth/compute.readonly'])
-      rescue OpenURI::HTTPError, Timeout::Error, SocketError, JSON::ParserError
-        Chef::Log.info("This node isn't in the Goolge Cloud, skipping GCP config")
+      rescue OpenURI::HTTPError, Timeout::Error, SocketError, JSON::ParserError, RuntimeError
+        Chef::Log.info("This node isn't in the Google Cloud, skipping GCP config")
         return false
       rescue LoadError
         Chef::Log.info("google-cloud-api hasn't been installed yet!")

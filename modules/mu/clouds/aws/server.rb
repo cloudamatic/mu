@@ -308,10 +308,11 @@ module MU
         end
 
         # Insert a Server's standard IAM role needs into an arbitrary IAM profile
-        def self.addStdPoliciesToIAMProfile(rolename, cloudformation_data: {}, cfm_role_name: nil)
+        def self.addStdPoliciesToIAMProfile(rolename, cloudformation_data: {}, cfm_role_name: nil, region: MU::Cloud::AWS.myRegion)
           policies = Hash.new
+          aws_str = MU::Cloud::AWS.isGovCloud?(region) ? "aws-us-gov" : "aws"
           objs = ["#{MU.deploy_id}-secret", "#{rolename}.pfx", "#{rolename}.crt", "#{rolename}.key", "#{rolename}-winrm.crt", "#{rolename}-winrm.key"]
-          policies['Mu_Secrets_'+MU.deploy_id] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":['+objs.map { |m| '"arn:aws:s3:::'+MU.adminBucketName+'/'+m+'"' }.join(",")+']}]}'
+          policies['Mu_Secrets_'+MU.deploy_id] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":['+objs.map { |m| '"arn:'+aws_str+':s3:::'+MU.adminBucketName+'/'+m+'"' }.join(",")+']}]}'
           policies.each_pair { |name, doc|
             if cloudformation_data.size > 0
               if !cfm_role_name.nil?
@@ -461,9 +462,9 @@ module MU
             raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
           end
           if @config['basis']
-            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role']+"*")
+            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role']+"*", region: @config['region'])
           else
-            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'])
+            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'], region: @config['region'])
           end
           if !@config["iam_role"].nil?
             if arn
@@ -1756,7 +1757,7 @@ module MU
         # @param type [String]: Cloud storage type of the volume, if applicable
         def addVolume(dev, size, type: "gp2")
           if @cloud_id.nil? or @cloud_id.empty?
-            MU.log "#{self} didn't have a #{@cloud_id}, couldn't determine 'active?' status", MU::ERR
+            MU.log "#{self} didn't have a cloud id, couldn't determine 'active?' status", MU::ERR
             return true
           end
           az = nil
@@ -1789,10 +1790,12 @@ module MU
             end
           end while creation.state != "available"
 
-          MU::MommaCat.listStandardTags.each_pair { |key, value|
-            MU::MommaCat.createTag(creation.volume_id, key, value, region: @config['region'])
-          }
-          MU::MommaCat.createTag(creation.volume_id, "Name", "#{MU.deploy_id}-#{@config["name"].upcase}-#{dev.upcase}", region: @config['region'])
+          if @deploy
+            MU::MommaCat.listStandardTags.each_pair { |key, value|
+              MU::MommaCat.createTag(creation.volume_id, key, value, region: @config['region'])
+            }
+            MU::MommaCat.createTag(creation.volume_id, "Name", "#{MU.deploy_id}-#{@config["name"].upcase}-#{dev.upcase}", region: @config['region'])
+          end
 
           attachment = MU::Cloud::AWS.ec2(@config['region']).attach_volume(
             device: dev,
@@ -2045,7 +2048,7 @@ module MU
             MU.log "Instance #{id} no longer exists", MU::DEBUG
           end
 
-          if !server_obj.nil?
+          if !server_obj.nil? and MU::Cloud::AWS.hosted and !MU::Cloud::AWS.isGovCloud?
             # DNS cleanup is now done in MU::Cloud::DNSZone. Keeping this for now
             cleaned_dns = false
             mu_name = server_obj.mu_name

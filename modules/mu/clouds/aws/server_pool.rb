@@ -198,9 +198,9 @@ module MU
             @config['iam_role'] = rolename ? rolename : launch_options[:iam_instance_profile]
 
             if rolename
-              MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(rolename)
+              MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(rolename, region: @config['region'])
             else
-              MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'])
+              MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'], region: @config['region'])
             end
 
             instance_secret = Password.random(50)

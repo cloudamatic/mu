@@ -17,7 +17,7 @@
 # limitations under the License.
 
 if !node['application_attributes']['skip_recipes'].include?('set_mu_hostname')
-  $hostname = node[:name]
+  $hostname = node.name
   if !node['ad']['computer_name'].nil? and !node['ad']['computer_name'].empty?
     $hostname = node['ad']['computer_name']
   end rescue NoMethodError

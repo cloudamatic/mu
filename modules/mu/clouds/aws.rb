@@ -46,6 +46,12 @@ module MU
         end
       end
 
+      # Is the region we're dealing with a GovCloud region?
+      # @param region [String]: The region in question, defaults to the Mu Master's local region
+      def self.isGovCloud?(region = myRegion)
+        region.match(/^us-gov-/)
+      end
+
       @@azs = {}
       # List the Availability Zones associated with a given Amazon Web Services
       # region. If no region is given, search the one in which this MU master
@@ -125,9 +131,9 @@ module MU
 #				val
 #			}
         if us_only
-          @@regions.keys.delete_if { |r| !r.match(/^us\-/) }
+          @@regions.keys.delete_if { |r| !r.match(/^us\-/) }.uniq
         else
-          @@regions.keys
+          @@regions.keys.uniq
         end
       end
 

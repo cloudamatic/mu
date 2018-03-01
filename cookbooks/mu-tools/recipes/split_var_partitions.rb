@@ -72,6 +72,7 @@ if !node[:application_attributes][:skip_recipes].include?('split_var_partitions'
         mu_tools_disk "properly mount #{volume}" do
           mountpoint node[:application_attributes][volume][:mount_directory]
           device node[:application_attributes][volume][:mount_device]
+          not_if "awk '{print $2}' < /etc/mtab | grep '^#{node[:application_attributes][volume][:mount_directory]}$'"
         end
       }
       execute "restorecon -Rv /var" do

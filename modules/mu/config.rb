@@ -2276,7 +2276,7 @@ module MU
       ok = false if !MU::Config.check_dependencies(config)
 
       # TODO enforce uniqueness of resource names
-      #raise ValidationError if !ok
+      raise ValidationError if !ok
 
 # XXX Does commenting this out make sense? Do we want to apply it to top-level
 # keys and ignore resources, which validate when insertKitten is called now?

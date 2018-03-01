@@ -30,9 +30,17 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
           package_name pkg
         end
       end
+
+      execute "enable manual auditd restarts" do
+        command "sed -i s/RefuseManualStop=yes/#RefuseManualStop=yes/ /usr/lib/systemd/system/auditd.service ; pkill auditd"
+        ignore_failure true
+        action :nothing
+        only_if "grep ^RefuseManualStop=yes /usr/lib/systemd/system/auditd.service"
+      end
   
       service "auditd" do
         action :nothing
+        notifies :run, "execute[enable manual auditd restarts]", :before
       end
   
       if node['platform_version'].to_i < 7
@@ -326,6 +334,7 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
         device node[:application_attributes][:home][:mount_device]
         size node[:application_attributes][:home][:volume_size_gb]
         preserve_data true
+        not_if "awk '{print $2}' < /etc/mtab | grep '^/home$'"
       end
 
       Chef::Log.info("Value of login_disabled is #{node.normal.root_login_disabled}")

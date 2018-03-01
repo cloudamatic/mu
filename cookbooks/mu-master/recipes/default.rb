@@ -16,6 +16,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# XXX this is nonsense if we're not in AWS
 response = Net::HTTP.get_response(URI("http://169.254.169.254/latest/meta-data/instance-id"))
 instance_id = response.body
 search_domains = ["ec2.internal", "server.#{instance_id}.platform-mu", "platform-mu"]
@@ -40,6 +41,12 @@ master_ips.each { |host|
       aliases [node['name'], "MU-MASTER"]
       action :append
     end
+  end
+}
+
+["#{$MU_CFG['installdir']}/etc/mu.yaml", "#{$MU_CFG['installdir']}/lib/Berksfile.lock"].each { |f|
+  file f do
+    mode 0644
   end
 }
 
@@ -72,9 +79,14 @@ if !node[:update_nagios_only]
   end
 
   execute "set Mu Master's hostname" do
-    command "/bin/hostname #{$MU_CFG['hostname']}"
-    not_if "/bin/hostname | grep '^#{$MU_CFG['hostname']}$'"
+    command "PATH=/bin:/usr/bin hostname #{$MU_CFG['hostname']}"
+    not_if "PATH=/bin:/usr/bin hostname | grep '^#{$MU_CFG['hostname']}$'"
   end
+
+  file "/etc/hostname" do
+    content "#{$MU_CFG['hostname']}\n"
+  end
+
   execute "updating hostname in /etc/sysconfig/network" do
     command "sed -i 's/^HOSTNAME=.*/HOSTNAME=#{$MU_CFG['hostname']}.platform-mu/' /etc/sysconfig/network"
     not_if "grep '^HOSTNAME=#{$MU_CFG['hostname']}.platform-mu'"
@@ -250,82 +262,7 @@ if !node[:update_nagios_only]
     not_if "grep '^devnull: /dev/null$' /etc/aliases"
   end
 
-  # execute "/usr/bin/newaliases"
-
-  include_recipe "mu-tools::aws_api"
-
-
-  ruby_block "create_logs_volume" do
-    extend CAPVolume
-    block do
-      require 'aws-sdk-core'
-      if !File.open("/etc/mtab").read.match(/ #{node[:application_attributes][:logs][:mount_directory]} /) and !volume_attached(node[:application_attributes][:logs][:mount_device])
-        create_node_volume("logs")
-        result = attach_node_volume("logs")
-      end
-    end
-    not_if "grep #{node[:application_attributes][:logs][:mount_directory]} /etc/mtab"
-    notifies :restart, "service[rsyslog]", :delayed
-  end
-
   directory "/Mu_Logs"
-
-  log "Log bucket is at #{node[:application_attributes][:logs][:secure_location]}"
-
-  ruby_block "mount_logs_volume" do
-    extend CAPVolume
-    block do
-      if !File.open("/etc/mtab").read.match(/ #{node[:application_attributes][:logs][:mount_directory]} /)
-        ebs_keyfile = node[:application_attributes][:logs][:ebs_keyfile]
-        temp_dev = "/dev/ram7"
-        temp_mount = "/tmp/ram7"
-
-        if File.open("/proc/mounts").read.match(/ #{temp_mount} /)
-          destroy_temp_disk(temp_dev)
-        end
-
-        make_temp_disk!(temp_dev, temp_mount)
-        s3 = Aws::S3::Client.new
-
-        begin
-          resp = s3.get_object(bucket: node[:application_attributes][:logs][:secure_location], key: "log_vol_ebs_key")
-        rescue Exception => e
-          Chef::Log.info(e.inspect)
-          destroy_temp_disk(temp_dev)
-          raise e
-        end
-
-        if resp.body.nil? or resp.body.size == 0
-          destroy_temp_disk(temp_dev)
-          raise "Couldn't fetch log volume key #{node[:application_attributes][:logs][:secure_location]}:/log_vol_ebs_key"
-        end
-
-        ebs_key_handle = File.new("#{temp_mount}/log_vol_ebs_key", File::CREAT|File::TRUNC|File::RDWR, 0400)
-        ebs_key_handle.puts resp.body
-        ebs_key_handle.close
-        mount_node_volume("logs", "#{temp_mount}/log_vol_ebs_key")
-        destroy_temp_disk(temp_dev)
-      end
-    end
-    notifies :restart, "service[rsyslog]", :delayed
-    not_if "grep #{node[:application_attributes][:logs][:mount_directory]} /etc/mtab"
-  end
-
-  ruby_block "label #{node[:application_attributes][:logs][:mount_device]} as #{node[:application_attributes][:logs][:label]}" do
-    extend CAPVolume
-    block do
-      tags = [{key: "Name", value: node[:application_attributes][:logs][:label]}]
-      tag_volume(node[:application_attributes][:logs][:mount_device], tags)
-    end
-  end rescue NoMethodError
-
-  ruby_block "label /dev/sda1 as #{node[:hostname]} /" do
-    extend CAPVolume
-    block do
-      tags = [{key: "Name", value: "#{node[:hostname]} /"}]
-      tag_volume("/dev/sda1", tags)
-    end
-  end rescue NoMethodError
 
   include_recipe "mu-tools::rsyslog"
 

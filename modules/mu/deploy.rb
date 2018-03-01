@@ -549,7 +549,7 @@ MESSAGE_END
 #                                 allow_multi: service["#MU_CLOUDCLASS"].has_multiple,
                                  tag_key: "MU-ID",
                                  tag_value: @mommacat.deploy_id,
-                                 opts: opts,
+                                 flags: opts,
                                  dummy_ok: false
                                 )
               found = found.delete_if { |x| x.cloud_id.nil? }

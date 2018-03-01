@@ -219,7 +219,7 @@ if [ "$IN_AWS" == "1" ];then
   ip_pattern='^[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$'
   MY_INSTANCE_ID="`$GET_METADATA/meta-data/instance-id`"
   MY_PRIVATE_IP="`$GET_METADATA/meta-data/local-ipv4 | egrep \"$ip_pattern\"`"
-  MY_PUBLIC_IP="`$GET_METADATA/meta-data/public-ipv4 | egrep \"$ip_pattern\"`"
+  MY_PUBLIC_IP="`$GET_METADATA/meta-data/public-ipv4 2>&1 | egrep \"$ip_pattern\"`"
   if [ "$MY_PRIVATE_IP" == "" ];then
     echo "Couldn't determine my private IP with '$GET_METADATA/meta-data/local-ipv4'"
     exit 1

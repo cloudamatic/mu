@@ -1,0 +1,23 @@
+---
+  appname: mu
+  parameters:
+  - name: vpc_id
+    cloudtype: AWS::EC2::VPC::Id
+    description: A simple VPC cloud id into which we'll attempt to insert this deployment.
+    default: <%= MU.myVPC %>
+  servers:
+  - name: centos7
+    platform: centos7
+    vpc:
+      vpc_id: <%= vpc_id %>
+      subnet_pref: private
+    size: m3.medium
+    run_list:
+    - recipe[mu-tools::apply_security]
+    - recipe[mu-tools::updates]
+    - recipe[mu-tools::split_var_partitions]
+    create_image:
+      image_then_destroy: true
+      public: true
+#      copy_to_regions:
+#      - "us-gov-east-1" # XXX uncomment when this exists
