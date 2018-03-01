@@ -98,7 +98,8 @@ module MU
             sg_id = sg_filter.security_groups[0].group_id
             return {subnet_ids: [sub_id], security_group_ids: [sg_id]}
           else
-            raise MuError, "Insufficient parameters for locating resource_ids"
+            MU.log "Function: #{@config['name']}, Missing either subnet_name or security_group_name or vpc_name in the vpc stanza!", MU::ERR
+            raise MuError, "Insufficient parameters for locating vpc resource ids ==> #{@config['name']}"
           end
         end
 
@@ -161,31 +162,34 @@ module MU
              lambda_properties[:vpc_config] = vpc_conf
           end
 
-          #p lambda_properties 
 
 
           @config['tags'].push({'deploy_id' => MU.deploy_id})
           lambda_func = MU::Cloud::AWS.lambda(@config['region']).create_function(lambda_properties)
           tag_function = assign_tag(lambda_func.function_arn, @config['tags']) 
-
-=begin
+          get_function=  MU::Cloud::AWS.lambda(@config['region']).get_function({
+            function_name: func_name
+          })
+          func_arn = get_function.configuration.function_arn if !get_function.empty?
+          
+          
           ### The most common triggers can be ==> SNS, S3, Cron, API-Gateway
           ### API-Gateway => no direct way of getting api gateway id.
           ### API-Gateway => Have to create an api gateway first!
           ### API-Gateway => Using the creation object, get the api_gateway_id
           ### For other triggers => ?
 
-
           ### to add or to not add triggers
           ### triggers must exist prior
           if  @config.has_key?('trigger') and !@config['trigger']['type'].nil? and !@config['trigger']['name'].nil?
-            
+
+            assume_trigger_arn = "arn:aws:sns:#{@config['region']}:#{MU.account_number}:#{@config['trigger']['name']}" 
             trigger_properties = {
-              action: "lambda:*", 
+              action: "lambda:InvokeFunction", 
               function_name: func_name, 
               principal: "#{@config['trigger']['type'].downcase}.amazonaws.com", 
               source_arn: assume_trigger_arn, 
-              statement_id: "ID-1",
+              statement_id: "#{func_name}-ID-1",
             }
             
 
@@ -194,16 +198,37 @@ module MU
               trigger_properties[:source_account] = MU.account_number
             end
 
-            p assume_trigger_arn
-            p trigger_properties
             MU.log trigger_properties, MU::DEBUG
-
             add_trigger = MU::Cloud::AWS.lambda(@config['region']).add_permission(trigger_properties)
             
+            if @config['trigger']['type'].downcase == 'sns' ## or more to add
+              adjust_trigger(@config['trigger']['type'], assume_trigger_arn, func_arn) 
+            else
+              MU.log "Trigger type not yet supported!", MU::ERR
+            end
+          
           end 
-=end
           return lambda_func
         end
+
+        
+        
+        
+        def adjust_trigger(trig_type, trig_arn, func_arn, protocol='lambda',region=@config['region'])
+          
+          case trig_type
+          
+          when 'sns'
+            
+            sns_client = MU::Cloud::AWS.sns(@config['region'])
+            sub_to_what = sns_client.subscribe({
+              topic_arn: trig_arn,
+              protocol: protocol,
+              endpoint: func_arn
+            })
+          end
+        end
+
 
         # Return the metadata for this Function rule
         # @return [Hash]
@@ -222,6 +247,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
+          p MU.deploy_id
         end
 
 

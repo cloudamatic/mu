@@ -23,27 +23,7 @@ functions:
       vpc_name: 'amrit-vpc'
       subnet_name: 'amrit-subnet'
       security_group_name: 'amrit-vpc-sg'    
-
-  - name: test_2
-    cloud: AWS
-    region: us-east-1
-    run_time: nodejs6.10
-    iam_role: lambda_basic_execution
-    memory: 256
-    handler: index.handler
-    timeout: 15
-    code:
-      -
-        s3_bucket: mu-cfn-installer
-        s3_key: index.js.zip
-    environment_variables:
-      - key: 'this_is_a_key'
-        value: 'value'
-    tags:
-      - created_by: 'Amrit'
-      - email: 'amrit.gill@eglobaltech.com'
-    vpc:
-      vpc_name: 'amrit-vpc'
-      subnet_name: 'amrit-subnet'
-      security_group_name: 'amrit-vpc-sg'
+    trigger:
+      name: 'Test-Topic-Amrit'
+      type: 'sns'
 
