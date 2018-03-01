@@ -169,24 +169,28 @@ $bucketname = MU.adminBucketName
 if $opts[:logs]
   exists = false
 
+  ebs_keyfile = "log_vol_ebs_key"
+  mount_device = "/dev/xvdl"
+  temp_dev = "/dev/ram7"
+  temp_mount = "/tmp/ram7"
+
   if !File.open("/etc/mtab").read.match(/ \/Mu_Logs /)
-    MU.log "Configuring syslog volume at /Mu_Logs"
 
-    # XXX create and tag the volume
-    if File.exists?("/dev/xvdl")
-      
+    if !File.exists?(mount_device)
+      MU.log "Creating syslog volume"
+      dummy_svr = MU::Cloud::AWS::Server.new(
+        mu_name: "MU-MASTER",
+        cloud_id: instance.instance_id,
+        kitten_cfg: {}
+      )
+      dummy_svr.addVolume(mount_device, 50)
     end
-    tags = [{key: "Name", value: "/Mu_Logs"}]
-    tag_volume("/dev/xvdl", tags)
 
-    ebs_keyfile = "log_vol_ebs_key"
-    temp_dev = "/dev/ram7"
-    temp_mount = "/tmp/ram7"
     begin
-      resp = s3.get_object(bucket: MU.adminBucketName, key: ebs_keyfile)
+      resp = MU::Cloud::AWS.s3.get_object(bucket: $bucketname, key: ebs_keyfile)
     rescue Exception => e
       Chef::Log.info(e.inspect)
-      `dd if=/dev/urandom of=#{temp_dev}` unless node[:platform_version].to_i == 7 # XXX what was this about?
+      %x{/bin/dd if=/dev/urandom of=#{temp_dev} > /dev/null 2>&1}
       raise e
     end
 
@@ -194,20 +198,33 @@ if $opts[:logs]
     ebs_key_handle.puts resp.body
     ebs_key_handle.close
 
-    alias_device = mount_directory.gsub("/", "")
+    alias_device = "Mu_Logs"
     # we can assume that mu-master::init installed cryptsetup-luks
-    `/sbin/cryptsetup luksFormat #{mount_device} #{key_file} --batch-mode`
-    `/sbin/cryptsetup luksOpen #{mount_device} #{alias_device} --key-file #{key_file}`
-
-    if node[:platform_version].to_i == 7
-      `/sbin/mkfs.xfs  "/dev/mapper/#{alias_device}"`
-    else
-      `/sbin/mkfs.ext4 "/dev/mapper/#{alias_device}"`
+    if !File.exists?("/dev/mapper/#{alias_device}")
+      MU.log "Initializing crypto on /dev/mapper/#{alias_device}", MU::NOTICE
+      `/sbin/cryptsetup luksFormat #{mount_device} #{temp_mount}/#{ebs_keyfile} --batch-mode`
+      `/sbin/cryptsetup luksOpen #{mount_device} #{alias_device} --key-file #{temp_mount}/#{ebs_keyfile}`
+    end
+    %x{/usr/sbin/xfs_check "/dev/mapper/#{alias_device}" > /dev/null 2>&1}
+    if $?.exitstatus != 0
+      MU.log "Formatting /dev/mapper/#{alias_device}", MU::NOTICE
+      `/sbin/mkfs.xfs "/dev/mapper/#{alias_device}"` # XXX every time though, for real?
+    end
+    Dir.mkdir("/Mu_Logs", 0700) if !Dir.exists?("/Mu_Logs")
+    %x{/usr/sbin/xfs_info "/dev/mapper/#{alias_device}" > /dev/null 2>&1}
+    if $?.exitstatus != 0
+      MU.log "Mounting /dev/mapper/#{alias_device}"
+      %x{/bin/mount "/dev/mapper/#{alias_device}" /Mu_Logs}
     end
 
-    `/bin/dd if=/dev/urandom of=#{temp_dev}` unless node[:platform_version].to_i == 7 # XXX what was this about?
+    %x{/bin/dd if=/dev/urandom of=#{temp_dev} > /dev/null 2>&1}
 
-
+    MU::Cloud::AWS::Server.tagVolumes(
+      instance.instance_id,
+      device: mount_device,
+      tag_name: "Name",
+      tag_value: "#{$MU_CFG['hostname']} /Mu_Logs"
+    )
   end
 
   MU.log "Configuring log and secret Amazon S3 bucket '#{$bucketname}'"

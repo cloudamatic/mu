@@ -1757,7 +1757,7 @@ module MU
         # @param type [String]: Cloud storage type of the volume, if applicable
         def addVolume(dev, size, type: "gp2")
           if @cloud_id.nil? or @cloud_id.empty?
-            MU.log "#{self} didn't have a #{@cloud_id}, couldn't determine 'active?' status", MU::ERR
+            MU.log "#{self} didn't have a cloud id, couldn't determine 'active?' status", MU::ERR
             return true
           end
           az = nil
@@ -1790,10 +1790,12 @@ module MU
             end
           end while creation.state != "available"
 
-          MU::MommaCat.listStandardTags.each_pair { |key, value|
-            MU::MommaCat.createTag(creation.volume_id, key, value, region: @config['region'])
-          }
-          MU::MommaCat.createTag(creation.volume_id, "Name", "#{MU.deploy_id}-#{@config["name"].upcase}-#{dev.upcase}", region: @config['region'])
+          if @deploy
+            MU::MommaCat.listStandardTags.each_pair { |key, value|
+              MU::MommaCat.createTag(creation.volume_id, key, value, region: @config['region'])
+            }
+            MU::MommaCat.createTag(creation.volume_id, "Name", "#{MU.deploy_id}-#{@config["name"].upcase}-#{dev.upcase}", region: @config['region'])
+          end
 
           attachment = MU::Cloud::AWS.ec2(@config['region']).attach_volume(
             device: dev,
