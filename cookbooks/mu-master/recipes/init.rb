@@ -315,12 +315,18 @@ end
   end
 }
 file "#{MU_BASE}/var/users/mu/email" do
-  content "root@example.com\n"
-  action :create_if_missing
+  if $MU_CFG
+    content "#{$MU_CFG['mu_admin_email']}\n"
+  else
+    content "root@example.com\n"
+  end
 end
 file "#{MU_BASE}/var/users/mu/realname" do
-  content "Mu Administrator\n"
-  action :create_if_missing
+  if $MU_CFG
+    content "#{$MU_CFG['mu_admin_name']}\n"
+  else
+    content "Mu Administrator\n"
+  end
 end
 
 ["mu-aws-setup", "mu-cleanup", "mu-configure", "mu-deploy", "mu-firewall-allow-clients", "mu-gen-docs", "mu-load-config.rb", "mu-node-manage", "mu-tunnel-nagios", "mu-upload-chef-artifacts", "mu-user-manage", "mu-ssh"].each { |exe|

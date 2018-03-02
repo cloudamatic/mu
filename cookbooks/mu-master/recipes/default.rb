@@ -408,11 +408,19 @@ if !node[:update_nagios_only]
 "
     end
   
+    # XXX placeholder- we should have a "federal" flag which invokes
+    # mu-tools::apply_security, which has its own gov-compliant /etc/issue.net
+    # The one that ships on CentOS images seems incorrect, so nuking it for now
+    file "/etc/issue.net" do
+      action :delete  
+    end
+
     node[:mu][:user_map].each_pair { |mu_user, data|
       execute "echo '#{mu_user}: #{data['email']}' >> /etc/aliases" do
         not_if "grep '^#{mu_user}: #{data['email']}$' /etc/aliases"
       end
-      }
+    }
+
     file "/etc/motd" do
       content "
 *******************************************************************************
