@@ -276,7 +276,9 @@ module MU
       # List all known Google Cloud Platform regions
       # @param us_only [Boolean]: Restrict results to United States only
       def self.listRegions(us_only = false)
-        return [] if !$MU_CFG['google'] or !$MU_CFG['google']['project']
+        if !MU::Cloud::Google.defaultProject
+          return []
+        end
         if @@regions.size == 0
           result = MU::Cloud::Google.compute.list_regions(MU::Cloud::Google.defaultProject)
           regions = []

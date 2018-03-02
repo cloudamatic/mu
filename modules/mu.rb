@@ -519,7 +519,13 @@ module MU
   def self.myVPC
     return nil if MU.myCloudDescriptor.nil?
     begin
-      @@myVPC_var ||= MU.myCloudDescriptor.vpc_id
+      if MU::Cloud::AWS.hosted
+        @@myVPC_var ||= MU.myCloudDescriptor.vpc_id
+      elsif MU::Cloud::Google.hosted
+        @@myVPC_var = MU.myCloudDescriptor.network_interfaces.first.network.gsub(/.*?\/([^\/]+)$/, '\1')
+      else
+        nil
+      end
     rescue Aws::EC2::Errors::InternalError => e
       MU.log "Got #{e.inspect} on MU::Cloud::AWS.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
       sleep 10

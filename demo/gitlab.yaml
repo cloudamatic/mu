@@ -1,6 +1,4 @@
 <%
-$azs = MU::Cloud::AWS.listAZs
-$azs.delete $azskip if $azskip
 current_vpc = MU.myVPC
 %>
 ---
@@ -47,11 +45,4 @@ vpcs:
     routes:
     - destination_network: 0.0.0.0/0
       gateway: "#INTERNET"
-  subnets:
-<% $azs.each.with_index do |az, i| %>
-  - name: Subnet<%= i %>Public
-    ip_block: 10.0.<%= i %>.0/24
-    availability-zone: "<%= az %>"
-    route-table: internet
-<% end %>
 <% end %>

@@ -33,7 +33,16 @@ module MU
 
     # The default cloud provider for new resources. Must exist in MU.supportedClouds
     def self.defaultCloud
-      "AWS"
+      begin
+        MU.myCloud
+      rescue NoMethodError
+        "AWS"
+      end
+      if MU::Cloud::Google.hosted
+        "Google"
+      elsif MU::Cloud::AWS.hosted
+        "AWS"
+      end
     end
 
     # The default grooming agent for new resources. Must exist in MU.supportedGroomers.
