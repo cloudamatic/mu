@@ -1227,13 +1227,15 @@ next if !create
         # @param size [String]: Size (in gb) of the new volume
         # @param type [String]: Cloud storage type of the volume, if applicable
         def addVolume(dev, size, type: "pd-standard")
-          devname = dev.gsub(/^\/dev\//, "")
+          devname = dev.gsub(/.*?\/([^\/]+)$/, '\1')
           resname = MU::Cloud::Google.nameStr(@mu_name+"-"+devname)
           MU.log "Creating disk #{resname}"
 
+          description = @deploy ? @deploy.deploy_id : @mu_name+"-"+devname
+
           newdiskobj = MU::Cloud::Google.compute(:Disk).new(
             size_gb: size,
-            description: @deploy.deploy_id,
+            description: description,
             zone: @config['availability_zone'],
 #            type: "projects/#{config['project']}/zones/#{config['availability_zone']}/diskTypes/pd-ssd",
             type: "projects/#{@config['project']}/zones/#{@config['availability_zone']}/diskTypes/pd-standard",
