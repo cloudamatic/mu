@@ -420,19 +420,17 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
         notifies :restart, "service[sshd]", :immediately
       end
       cookbook_file "/etc/issue.net" do
-        source "etc/BANNER"
+        source node['banner']['path']
         mode 0644
         owner "root"
         group "root"
       end
       cookbook_file "/etc/motd.tail" do
-        source "etc/BANNER"
+        source node['banner']['path']
         mode 0644
         owner "root"
         group "root"
       end
-  
-  
     else
       Chef::Log.info("Unsupported platform #{node[:platform]}")
   end

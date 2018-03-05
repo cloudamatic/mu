@@ -176,6 +176,109 @@ module MU
       }
     end
 
+    # Create and mount a disk local to the Mu master, optionally using luks to
+    # encrypt it. This makes a few assumptions: that mu-master::init has been
+    # run, and that utilities like mkfs.xfs exist.
+    # TODO add parameters to use filesystems other than XFS, alternate paths, etc
+    # @param device [String]: The disk device, by the name we want to see from the OS side
+    # @param path [String]: The path where we'll mount the device
+    # @param size [Integer]: The size of the disk, in GB
+    # @param cryptfile [String]: The name of a luks encryption key, which we'll look for in MU.adminBucketName
+    # @param ramdisk [String]: The name of a ramdisk to use when mounting encrypted disks
+    def self.disk(device, path, size = 50, cryptfile = nil, ramdisk = "ram7")
+      temp_dev = "/dev/#{ramdisk}"
+
+      if !File.open("/etc/mtab").read.match(/ #{path} /)
+        realdevice = device.dup
+        if MU::Cloud::Google.hosted
+          realdevice = "/dev/disk/by-id/google-"+device.gsub(/.*?\/([^\/]+)$/, '\1')
+        end
+        alias_device = cryptfile ? "/dev/mapper/"+path.gsub(/[^0-9a-z_\-]/i, "_") : realdevice
+
+        if !File.exists?(realdevice)
+          MU.log "Creating #{path} volume"
+          if MU::Cloud::AWS.hosted
+            dummy_svr = MU::Cloud::AWS::Server.new(
+              mu_name: "MU-MASTER",
+              cloud_id: MU.myInstanceId,
+              kitten_cfg: {}
+            )
+            dummy_svr.addVolume(device, size)
+            MU::Cloud::AWS::Server.tagVolumes(
+              MU.myInstanceId,
+              device: device,
+              tag_name: "Name",
+              tag_value: "#{$MU_CFG['hostname']} #{path}"
+            )
+          elsif MU::Cloud::Google.hosted
+            dummy_svr = MU::Cloud::Google::Server.new(
+              mu_name: "MU-MASTER",
+              cloud_id: MU.myInstanceId,
+              kitten_cfg: { 'project' => MU::Cloud::Google.myProject, 'availability_zone' => MU.myAZ }
+            )
+            dummy_svr.addVolume(device, size) # This will tag itself sensibly
+          else
+            raise MuError, "Not in a familiar cloud, so I don't know how to create volumes for myself"
+          end
+        end
+
+        if cryptfile
+          body = nil
+          if MU::Cloud::AWS.hosted
+            begin
+              resp = MU::Cloud::AWS.s3.get_object(bucket: MU.adminBucketName, key: cryptfile)
+              body = resp.body
+            rescue Exception => e
+              MU.log "Failed to fetch #{cryptfile} from S3 bucket #{MU.adminBucketName}", MU::ERR, details: e.inspect
+              %x{/bin/dd if=/dev/urandom of=#{temp_dev} > /dev/null 2>&1}
+              raise e
+            end
+          elsif MU::Cloud::Google.hosted
+            begin
+              body = MU::Cloud::Google.storage.get_object(MU.adminBucketName, cryptfile)
+            rescue Exception => e
+              MU.log "Failed to fetch #{cryptfile} from Cloud Storage bucket #{MU.adminBucketName}", MU::ERR, details: e.inspect
+              %x{/bin/dd if=/dev/urandom of=#{temp_dev} > /dev/null 2>&1}
+              raise e
+            end
+          else
+            raise MuError, "Not in a familiar cloud, so I don't know where to get my luks crypt key (#{cryptfile})"
+          end
+
+          keyfile = Tempfile.new(cryptfile)
+          keyfile.puts body
+          keyfile.close
+
+          # we can assume that mu-master::init installed cryptsetup-luks
+          if !File.exists?(alias_device)
+            MU.log "Initializing crypto on #{alias_device}", MU::NOTICE
+            %x{/sbin/cryptsetup luksFormat #{realdevice} #{keyfile.path} --batch-mode}
+            %x{/sbin/cryptsetup luksOpen #{realdevice} #{alias_device.gsub(/.*?\/([^\/]+)$/, '\1')} --key-file #{keyfile.path}}
+          end
+          keyfile.unlink
+        end
+
+        %x{/usr/sbin/xfs_admin -l "#{alias_device}" > /dev/null 2>&1}
+        if $?.exitstatus != 0
+          MU.log "Formatting #{alias_device}", MU::NOTICE
+          %x{/sbin/mkfs.xfs "#{alias_device}"}
+          %x{/usr/sbin/xfs_admin -L "#{path.gsub(/[^0-9a-z_\-]/i, "_")}" "#{alias_device}"}
+        end
+        Dir.mkdir(path, 0700) if !Dir.exists?(path) # XXX recursive
+        %x{/usr/sbin/xfs_info "#{alias_device}" > /dev/null 2>&1}
+        if $?.exitstatus != 0
+          MU.log "Mounting #{alias_device} to #{path}"
+          %x{/bin/mount "#{alias_device}" "#{path}"}
+        end
+
+        if cryptfile
+          %x{/bin/dd if=/dev/urandom of=#{temp_dev} > /dev/null 2>&1}
+        end
+
+      end
+
+    end
+
     # Retrieve a secret stored by #storeScratchPadSecret, then delete it.
     # @param itemname [String]: The identifier of the scratchpad secret.
     def self.fetchScratchPadSecret(itemname)

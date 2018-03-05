@@ -127,7 +127,7 @@ default[:application_attributes][:var_log_audit][:mount_device] = "/dev/xvdq"
 default[:application_attributes][:var_log_audit][:label] = "#{disk_name_str} /var/log/audit"
 default[:application_attributes][:var_log_audit][:mount_directory] = "/var/log/audit"
 
-default['banner']['path'] = "etc/BANNER"
+default['banner']['path'] = "etc/BANNER-FEDERAL"
 # firewalld support in the firewall cookbook is too stupid to breathe
 default['firewall']['redhat7_iptables'] = true
 #if node['platform'] == 'amazon'

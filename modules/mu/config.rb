@@ -33,7 +33,16 @@ module MU
 
     # The default cloud provider for new resources. Must exist in MU.supportedClouds
     def self.defaultCloud
-      "AWS"
+      begin
+        MU.myCloud
+      rescue NoMethodError
+        "AWS"
+      end
+      if MU::Cloud::Google.hosted
+        "Google"
+      elsif MU::Cloud::AWS.hosted
+        "AWS"
+      end
     end
 
     # The default grooming agent for new resources. Must exist in MU.supportedGroomers.
@@ -747,16 +756,18 @@ module MU
       descriptor["#MU_CLOUDCLASS"] = classname
       inheritDefaults(descriptor, cfg_plural)
 
-      if descriptor["region"] and descriptor["region"].empty?
+      if (descriptor["region"] and descriptor["region"].empty?) or
+         (descriptor['cloud'] == "Google" and ["firewall_rule", "vpc"].include?(cfg_name))
         descriptor.delete("region")
       end
 
       # Does this resource go in a VPC?
       if !descriptor["vpc"].nil? and !delay_validation
         descriptor['vpc']['cloud'] = descriptor['cloud']
-        if descriptor['vpc']['region'].nil? and descriptor['vpc']['cloud'] != "Google" and !descriptor['region'].nil? and !descriptor['region'].empty?
+        if descriptor['vpc']['region'].nil? and !descriptor['region'].nil? and !descriptor['region'].empty? and descriptor['vpc']['cloud'] != "Google"
           descriptor['vpc']['region'] = descriptor['region']
         end
+
         # If we're using a VPC in this deploy, set it as a dependency
         if !descriptor["vpc"]["vpc_name"].nil? and
            haveLitterMate?(descriptor["vpc"]["vpc_name"], "vpcs") and
@@ -786,6 +797,15 @@ module MU
             ok = false
           end
         end
+        # Clean crud out of auto-created VPC declarations so they don't trip
+        # the schema validator when it's invoked later.
+        if !["server", "server_pool", "database"].include?(cfg_name)
+          descriptor['vpc'].delete("nat_ssh_user")
+        end
+        if descriptor['vpc']['cloud'] == "Google"
+          descriptor['vpc'].delete("region")
+        end
+        descriptor['vpc'].delete("subnet_pref")
       end
 
       # Is it a storage pool with mount points, which need their own VPC refs
@@ -1325,6 +1345,7 @@ module MU
             vpc_block.delete('nat_host_name')
             vpc_block.delete('nat_host_ip')
             vpc_block.delete('nat_host_tag')
+            vpc_block.delete('nat_ssh_user')
           end
         end
 
@@ -1365,6 +1386,7 @@ module MU
             vpc_block['subnet_id'] = ext_subnet.cloud_id
             vpc_block['az'] = ext_subnet.az
             vpc_block.delete('subnet_name')
+            vpc_block.delete('subnet_pref')
             MU.log "Resolved subnet reference in #{parent_name} to #{ext_subnet.cloud_id}", MU::DEBUG, details: vpc_block
           end
         end
@@ -2527,12 +2549,12 @@ module MU
 
     allregions = []
     allregions.concat(MU::Cloud::AWS.listRegions) if MU::Cloud::AWS.myRegion
-    allregions.concat(MU::Cloud::Google.listRegions) if $MU_CFG['google'] and $MU_CFG['google']['project']
+    allregions.concat(MU::Cloud::Google.listRegions) if MU::Cloud::Google.defaultProject
 
     def self.region_primitive
       allregions = []
       allregions.concat(MU::Cloud::AWS.listRegions) if MU::Cloud::AWS.myRegion
-      allregions.concat(MU::Cloud::Google.listRegions) if $MU_CFG['google'] and $MU_CFG['google']['project']
+      allregions.concat(MU::Cloud::Google.listRegions) if MU::Cloud::Google.defaultProject
       {
         "type" => "string",
         "enum" => allregions
