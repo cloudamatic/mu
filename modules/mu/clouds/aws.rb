@@ -35,6 +35,9 @@ module MU
       # If we've configured AWS as a provider, or are simply hosted in AWS, 
       # decide what our default region is.
       def self.myRegion
+        if $MU_CFG and (!$MU_CFG['aws'] or !$MU_CFG['aws']['account_number'])
+          return nil
+        end
         if $MU_CFG and $MU_CFG['aws'] and $MU_CFG['aws']['region']
           @@myRegion_var ||= MU::Cloud::AWS.ec2($MU_CFG['aws']['region']).describe_availability_zones.availability_zones.first.region_name
         elsif ENV.has_key?("EC2_REGION") and !ENV['EC2_REGION'].empty?
@@ -49,6 +52,7 @@ module MU
       # Is the region we're dealing with a GovCloud region?
       # @param region [String]: The region in question, defaults to the Mu Master's local region
       def self.isGovCloud?(region = myRegion)
+        return false if !region
         region.match(/^us-gov-/)
       end
 
@@ -59,6 +63,9 @@ module MU
       # @param region [String]: The region to search.
       # @return [Array<String>]: The Availability Zones in this region.
       def self.listAZs(region = MU.curRegion)
+        if $MU_CFG and (!$MU_CFG['aws'] or !$MU_CFG['aws']['account_number'])
+          return []
+        end
         if !region.nil? and @@azs[region]
           return @@azs[region]
         end
@@ -113,6 +120,9 @@ module MU
       # @param us_only [Boolean]: Restrict results to United States only
       # @return [Array<String>]
       def self.listRegions(us_only = false)
+        if $MU_CFG and (!$MU_CFG['aws'] or !$MU_CFG['aws']['account_number'])
+          return []
+        end
         if @@regions.size == 0
           result = MU::Cloud::AWS.ec2(myRegion).describe_regions.regions
           regions = []

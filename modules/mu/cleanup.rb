@@ -177,7 +177,9 @@ module MU
         }
 
         if !MU::Cloud::AWS.isGovCloud?
-          MU::Cloud::DNSZone.cleanup(noop: @noop, cloud: "AWS", ignoremaster: @ignoremaster) if @mommacat.nil? or @mommacat.numKittens(types: ["DNSZone"]) > 0
+          if $MU_CFG['aws'] and $MU_CFG['aws']['account_number']
+            MU::Cloud::DNSZone.cleanup(noop: @noop, cloud: "AWS", ignoremaster: @ignoremaster) if @mommacat.nil? or @mommacat.numKittens(types: ["DNSZone"]) > 0
+          end
         end
 
         @projectthreads.each do |t|
@@ -289,10 +291,12 @@ module MU
       end
 
       if !@noop and !@skipcloud
-        MU::Cloud::AWS.s3(MU.myRegion).delete_object(
-          bucket: MU.adminBucketName,
-          key: "#{MU.deploy_id}-secret"
-        )
+        if $MU_CFG['aws'] and $MU_CFG['aws']['account_number']
+          MU::Cloud::AWS.s3(MU.myRegion).delete_object(
+            bucket: MU.adminBucketName,
+            key: "#{MU.deploy_id}-secret"
+          )
+        end
         if $MU_CFG['google'] and $MU_CFG['google']['project']
           begin
             MU::Cloud::Google.storage.delete_object(
@@ -303,7 +307,9 @@ module MU
             raise e if !e.message.match(/^notFound: /)
           end
         end
-        MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS...
+        if $MU_CFG['aws'] and $MU_CFG['aws']['account_number']
+          MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS...
+        end
       end
 
       if !@noop and !@skipcloud and (@mommacat.nil? or @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0)

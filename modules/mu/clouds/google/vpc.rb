@@ -286,10 +286,11 @@ module MU
                   @subnets << MU::Cloud::Google::VPC::Subnet.new(self, subnet)
                 end
               }
-            # Of course we might be loading up a dummy subnet object from a foreign
-            # or non-Mu-created VPC and subnet. So make something up.
-            elsif !resp.nil? and !resp.items.nil?
-              resp.items.each { |desc|
+
+            # Of course we might be loading up a dummy subnet object from a
+            # foreign or non-Mu-created VPC and subnet. So make something up.
+            elsif !found.nil?
+              found.each { |desc|
                 subnet = {}
                 subnet["ip_block"] = desc.ip_cidr_range
                 subnet["name"] = subnet["ip_block"].gsub(/[\.\/]/, "_")
@@ -302,8 +303,8 @@ module MU
               }
             end
 
-            return @subnets
           }
+          return @subnets
 
         end
 
