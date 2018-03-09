@@ -22,3 +22,4 @@
     - "10.0.0.0/16"
   run_list: 
   - "recipe[mu-utility::nat]"
+  - "recipe[demo::store_attr]"

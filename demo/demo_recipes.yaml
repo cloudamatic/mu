@@ -1,0 +1,53 @@
+---
+appname: demo-recipes
+servers:
+  - name: flask-server-1-bok-1
+    size: t2.micro
+    skipinitialupdates: true
+    associate_public_ip: true
+    static_ip:
+      assign_ip: true
+    vpc:
+      subnet_pref: all_public
+      vpc_name: demo_recipes_vpc
+    run_list:
+    - recipe[demo::flask]
+    - recipe[demo::store_attr]
+    dependencies:
+      - 
+        name: "demo_recipes_vpc"
+        type: "vpc"
+    
+  - name: flask-server-2-bok-1
+    size: t2.micro
+    skipinitialupdates: true
+    associate_public_ip: true
+    static_ip:
+      assign_ip: true
+    vpc:
+      subnet_pref: all_public
+      vpc_name: demo_recipes_vpc
+    run_list:
+    - recipe[demo::flask]
+    - recipe[demo::store_attr]
+    dependencies:
+      - 
+        name: "demo_recipes_vpc"
+        type: "vpc"
+
+vpcs:
+  - name: demo_recipes_vpc
+    route_tables:
+    - name: internet
+      routes:
+      - destination_network: 0.0.0.0/0
+        gateway: "#INTERNET"
+    subnets:
+    - name: "Public1"
+      ip_block: "10.0.3.0/24"
+      route-table: "internet"
+      availability-zone: "us-east-1a"
+    - name: "Public2"
+      ip_block: "10.0.2.0/24"
+      route-table: "internet"
+      availability-zone: "us-east-1a"
