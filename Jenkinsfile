@@ -77,7 +77,24 @@ pipeline {
                 }
               }
             }
-            
+       
+
+          stage("mu-deploy demo-flask-recipe"){
+            steps {
+              script{
+                try{
+                  //sh "sleep 135"
+                  sh "${workspace}/bin/mu-deploy -n ${workspace}/demo/demo_recipes.yaml"
+                } catch (err) {
+                    echo "ERROR: ${err}"
+                    currentBuild.result = 'UNSTABLE'
+                  }
+                }
+              }
+            }
+
+
+
             stage("mu-master-install"){
               steps{
                 script {
