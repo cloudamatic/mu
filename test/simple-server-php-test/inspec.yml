@@ -1,4 +1,4 @@
-name: simple-server-php
+name: simple-server-php-test
 title: InSpec Profile
 maintainer: The Authors
 copyright: The Authors
@@ -8,4 +8,5 @@ summary: An InSpec Compliance Profile
 version: 0.1.0
 depends:
 - name: mu-tools-test
-path: ../mu-tools-test
+  path: ../mu-tools-test
+
