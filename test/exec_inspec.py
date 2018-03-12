@@ -1,4 +1,4 @@
-#!/bin/python
+#!/bin/python/
 
 import os, argparse, json, subprocess, sys, re, glob, time, yaml
 
@@ -11,14 +11,14 @@ parser = argparse.ArgumentParser(description='To run Inspec Tests')
 parser.add_argument('-l', action='store_true',help='Local Mode')
 # Required inspec profile name
 parser.add_argument('-p', type=str,help='Inspec Profile name')
-# Required bok name
-parser.add_argument('-b', type=str,help='BOK Path')
+# Required deployment name
+parser.add_argument('-d', type=str,help='Deployment ID')
 
 args = parser.parse_args()
 
 print "Local Mode: %s" % args.l
 print "Inspec Profile: %s" % args.p
-print "BOK Name: %s" % args.b
+print "Deployment ID: %s" % args.d
 
 if args.l:
   workspace = '/opt/mu/lib'
@@ -28,7 +28,14 @@ else:
 
 test = workspace+'/test'
 
-
+def check_deploy_id(deploy_dir):
+  abs_path=deploy_dirs + '/' + deploy_dir
+  if os.path.isdir(abs_path):
+    print "Checking the deployment located in %s" % abs_path
+    return deploy_dir
+  else:
+    print "There is no deployment by the name of %s" % abs_path
+    exit()
 
 def base_controls():
   return ['base_repositories', 'set_mu_hostname', 'disable-requiretty', 'set_local_fw', 'rsyslog', 'nrpe']
@@ -46,37 +53,6 @@ def rebuild_inspec_lock(which_profile):
   if os.path.exists(workspace+'/test/'+which_profile):
     os.chdir(workspace+'/test/'+which_profile)
     os.system('inspec vendor --overwrite')
-
-          
-
-## In terms of scaling, this is not ideal... Maybe 
-## we should consider saving the deploy output to a file with time_stamp in /tmp
-## and then parse out the deploy_id from stdout 
-def get_deploy_id(bok, all_boks=workspace+'/demo'):
-  default_path = workspace+'/demo'
-  # See if we have an absolute path
-  try:
-    yml_file = open(bok, 'r')
-  except:
-    yml_file = open(all_boks+'/'+bok, 'r')
-
-    
-  partial_dep_name = None
-  deploy_id = None
-  for each_line in yml_file.readlines():
-    line = each_line.splitlines()
-    for each in line:
-      stripped =  each.strip()
-      if 'appname:' in stripped:
-        print stripped
-        partial_dep_name = stripped.split()[1].upper()+'-DEV'
-        break
-
-  os.chdir(deploy_dirs)
-  for dirs in glob.glob(partial_dep_name+'*'):
-    deploy_id = dirs
-    break
-  return deploy_id
 
 
 ### Inorder to properly trigger inspec exec
@@ -227,11 +203,10 @@ def run_linux_tests(profile, ssh, ssh_file, all_controls):
   
 
 inspec_retry_dir = '/tmp/inspec_retries'
-bok_name = args.b
 profile = get_profile()
 rebuild_inspec_lock(profile)
 os.chdir(workspace)
-deploy_id = get_deploy_id(bok_name)
+deploy_id = check_deploy_id(args.d)
 server_or_pools = server_or_server_pools(deploy_id)
 if server_or_pools == 'server_pools':
   wait_till_groomed(deploy_id, 5)
