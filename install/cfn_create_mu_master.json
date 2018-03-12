@@ -721,7 +721,7 @@
       }
     },
     "MasterInstanceEIP": {
-      "Type": "AWS::EC2::EIP"
+      "Type": "AWS::EC2::EIP",
       "Properties" : {
          "Domain": "vpc"
        }
@@ -776,7 +776,6 @@
         "InstanceType": {
           "Ref": "masterInstanceType"
         },
-        "EIP" : { "Ref" : "MasterInstanceEIP" },
         "KeyName": {
           "Ref": "KeyName"
         },
@@ -808,6 +807,11 @@
               "",
               [
                 "#!/bin/bash -vx\n",
+                "pip install awscli --upgrade --user",
+                "aws configure set default.region us-east-1",
+                "ins_id=$(curl http://169.254.169.254/latest/meta-data/instance-id)",
+                "aws ec2 associate-address --instance-id $ins_id --allocation-id ", {"Fn::GetAtt":["MasterInstanceEIP","AllocationId"]},
+                " sleep 5",
                 "cd /root\n",
                 "easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz \n",
                 "/usr/bin/cfn-init -v -s ",
