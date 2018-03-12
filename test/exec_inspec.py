@@ -53,9 +53,16 @@ def rebuild_inspec_lock(which_profile):
 ## we should consider saving the deploy output to a file with time_stamp in /tmp
 ## and then parse out the deploy_id from stdout 
 def get_deploy_id(bok, all_boks=workspace+'/demo'):
+  default_path = workspace+'/demo'
+  # See if we have an absolute path
+  try:
+    yml_file = open(bok, 'r')
+  except:
+    yml_file = open(all_boks+'/'+bok, 'r')
+
+    
   partial_dep_name = None
   deploy_id = None
-  yml_file = open(all_boks+'/'+bok, 'r')
   for each_line in yml_file.readlines():
     line = each_line.splitlines()
     for each in line:
