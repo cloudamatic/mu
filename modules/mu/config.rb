@@ -794,6 +794,7 @@ module MU
           if !processVPCReference(descriptor["vpc"], cfg_plural,
                                   "#{shortclass} #{descriptor['name']}",
                                   dflt_region: descriptor['region'])
+            MU.log "insertKitten was called from #{caller[0]}", MU::ERR
             ok = false
           end
         end
@@ -1302,7 +1303,7 @@ module MU
           raise MuError, e.inspect, e.backtrace
         ensure
           if !ext_vpc and vpc_block['cloud'] != "CloudFormation"
-            MU.log "Couldn't resolve VPC reference to a unique live VPC in #{parent_name}", MU::ERR, details: vpc_block
+            MU.log "Couldn't resolve VPC reference to a unique live VPC in #{parent_name} (called by #{caller[0]})", MU::ERR, details: vpc_block
             return false
           elsif !vpc_block["vpc_id"]
             MU.log "Resolved VPC to #{ext_vpc.cloud_id} in #{parent_name}", MU::DEBUG, details: vpc_block
@@ -1643,10 +1644,13 @@ module MU
       hosts.uniq!
       name = "admin"
       realvpc = nil
+
       if vpc
+        pp vpc
         realvpc = {}
         realvpc['vpc_id'] = vpc['vpc_id'] if !vpc['vpc_id'].nil?
         realvpc['vpc_name'] = vpc['vpc_name'] if !vpc['vpc_name'].nil?
+        realvpc['deploy_id'] = vpc['deploy_id'] if !vpc['deploy_id'].nil?
         if !realvpc['vpc_id'].nil? and !realvpc['vpc_id'].empty?
           # Stupid kludge for Google cloud_ids which are sometimes URLs and
           # sometimes not. Requirements are inconsistent from scenario to
@@ -2289,6 +2293,7 @@ module MU
       # XXX seem to be not detecting duplicate admin firewall_rules in adminFirewallRuleset
       @admin_firewall_rules.each { |acl|
         next if seen.include?(acl['name'])
+        pp acl
         ok = false if !insertKitten(acl, "firewall_rules")
         seen << acl['name']
       }
