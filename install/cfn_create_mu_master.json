@@ -720,6 +720,12 @@
         ]
       }
     },
+    "MasterEIP": {
+      "Type": "AWS::EC2::EIP"
+      "Properties" : {
+         "Domain": "vpc"
+       }
+    },
     "MasterInstance": {
       "Type": "AWS::EC2::Instance",
       "Metadata": {
@@ -770,6 +776,7 @@
         "InstanceType": {
           "Ref": "masterInstanceType"
         },
+        "EIP" : { "Ref" : "MasterEIP" },
         "KeyName": {
           "Ref": "KeyName"
         },

@@ -4,7 +4,7 @@ BOLD=`tput bold`
 NORM=`tput sgr0`
 CHEF_CLIENT_VERSION="12.21.14-1"
 if [ "$MU_BRANCH" == "" ];then
-  MU_BRANCH="issue_100"
+  MU_BRANCH="cfn_needs_eip"
 fi
 
 # XXX All RHEL family. We can at least cover Debian-flavored hosts too, I bet.
