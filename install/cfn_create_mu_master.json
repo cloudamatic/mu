@@ -39,7 +39,7 @@
       "Type": "String"
     },
     "masterEBSSize": {
-      "Description": "The Size of the root EBS General purpose SSD volume. 
+      "Description": "The Size of the root EBS General purpose SSD volume.", 
       "Type": "String"
     },
     "VpcCidr": {
@@ -777,13 +777,13 @@
         }
       },
       "Properties": {
-        "BlockDeviceMappings": [
+        "BlockDeviceMappings": [{
          "DeviceName": "/dev/sda1",
          "Ebs":{
             "VolumeSize":{"Ref":"masterEBSSize"},
             "VolumeType":"gp2"
          }
-        ],
+        }],
         "InstanceType": {
           "Ref": "masterInstanceType"
         },
