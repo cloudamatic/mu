@@ -24,6 +24,6 @@ functions:
       subnet_name: 'amrit-subnet'
       security_group_name: 'amrit-vpc-sg'    
     trigger:
-      name: 'Test-Topic-Amrit'
-      type: 'sns'
+      name: 'qwd'
+      type: 'events'
 

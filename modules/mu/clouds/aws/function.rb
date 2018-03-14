@@ -55,6 +55,7 @@ module MU
             aws_lambda = create_lambda
           rescue Exception => e
             MU.log "#{e}", MU::ERR
+            raise MuError, "#{e}"
           end
         end
 
@@ -182,39 +183,49 @@ module MU
           ### to add or to not add triggers
           ### triggers must exist prior
           if  @config.has_key?('trigger') and !@config['trigger']['type'].nil? and !@config['trigger']['name'].nil?
+            trigger_arn = assume_trigger_arns(@config['trigger']['type'])
 
-            assume_trigger_arn = "arn:aws:sns:#{@config['region']}:#{MU.account_number}:#{@config['trigger']['name']}" 
             trigger_properties = {
               action: "lambda:InvokeFunction", 
               function_name: func_name, 
               principal: "#{@config['trigger']['type'].downcase}.amazonaws.com", 
-              source_arn: assume_trigger_arn, 
+              source_arn: trigger_arn, 
               statement_id: "#{func_name}-ID-1",
             }
-            
-
-            ### add source_account only if type is s3 or ses
-            if @config['trigger']['type'].downcase == 's3' or @config['trigger']['type'].downcase == 'ses'
-              trigger_properties[:source_account] = MU.account_number
-            end
+            p trigger_arn
+            p trigger_properties           
 
             MU.log trigger_properties, MU::DEBUG
             add_trigger = MU::Cloud::AWS.lambda(@config['region']).add_permission(trigger_properties)
-            
-            if @config['trigger']['type'].downcase == 'sns' ## or more to add
-              adjust_trigger(@config['trigger']['type'], assume_trigger_arn, func_arn) 
-            else
-              MU.log "Trigger type not yet supported!", MU::ERR
-            end
+            adjust_trigger(@config['trigger']['type'], trigger_arn, func_arn, func_name) 
           
           end 
           return lambda_func
         end
 
+
+
+        def assume_trigger_arns(type)
+          supported_triggers = %w(sns events event cloudwatch_event)
+          if supported_triggers.include?(type.downcase)
+            arn = nil
+            case type.downcase
+            when 'sns'
+              arn = "arn:aws:sns:#{@config['region']}:#{MU.account_number}:#{@config['trigger']['name']}"              
+            when 'alarm','events', 'event', 'cloudwatch_event'
+              arn = "arn:aws:events:#{@config['region']}:#{MU.account_number}:rule/#{@config['trigger']['name']}"
+            when 's3'
+              arn = ''
+            end
+          else
+            raise MuError, "Trigger type not yet supported! => #{type}"
+          end
+
+          return arn
+        end
         
         
-        
-        def adjust_trigger(trig_type, trig_arn, func_arn, protocol='lambda',region=@config['region'])
+        def adjust_trigger(trig_type, trig_arn, func_arn, func_id=nil, protocol='lambda',region=@config['region'])
           
           case trig_type
           
@@ -226,7 +237,17 @@ module MU
               protocol: protocol,
               endpoint: func_arn
             })
-          end
+          when 'event','cloudwatch_event', 'events'
+            client = MU::Cloud::AWS.cloudwatch_events(@config['region']).put_targets({
+              rule: @config['trigger']['name'],
+              targets: [
+                {
+                  id: func_id,
+                  arn: func_arn
+                }
+              ]
+            })
+          end 
         end
 
 

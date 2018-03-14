@@ -12,7 +12,7 @@ GEM
   specs:
     addressable (2.4.0)
     ast (2.4.0)
-    aws-sdk-core (2.6.50)
+    aws-sdk-core (2.11.13)
       aws-sigv4 (~> 1.0)
       jmespath (~> 1.0)
     aws-sigv4 (1.0.2)
@@ -380,7 +380,7 @@ PLATFORMS
 
 DEPENDENCIES
   addressable (< 2.5)
-  aws-sdk-core (~> 2.6.42)
+  aws-sdk-core (~> 2.11.0)
   berkshelf (~> 6.3.1)
   chef (~> 12.21.31)
   chef-sugar

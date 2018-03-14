@@ -362,6 +362,13 @@ module MU
         @@lambda_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "Lambda", region: region)
         @@lambda_api[region]
       end
+      
+      def self.cloudwatch_events(region = MU.cureRegion)
+        region ||= myRegion
+        @@cloudwatch_events_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudWatchEvents", region: region)
+        @@cloudwatch_events_api
+      end
+
 
       # Fetch an Amazon instance metadata parameter (example: public-ipv4).
       # @param param [String]: The parameter name to fetch
@@ -596,6 +603,7 @@ module MU
       @@sns_api = {}
       @@efs_api ={}
       @@lambda_api ={}
+      @@cloudwatch_events_api = {}
     end
   end
 end
