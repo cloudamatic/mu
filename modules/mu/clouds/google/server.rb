@@ -950,7 +950,7 @@ next if !create
           }
 
           deploydata = {
-              "nodename" => @config['mu_name'],
+              "nodename" => @mu_name,
               "run_list" => @config['run_list'],
               "image_created" => @config['image_created'],
 #              "iam_role" => @config['iam_role'],

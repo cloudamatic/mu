@@ -103,7 +103,7 @@ GEM
     declarative (0.0.10)
     declarative-option (0.1.0)
     diff-lcs (1.3)
-    docker-api (1.34.0)
+    docker-api (1.34.1)
       excon (>= 0.47.0)
       multi_json
     erubis (2.7.0)
@@ -233,7 +233,7 @@ GEM
       wmi-lite (~> 1.0)
     os (0.9.6)
     parallel (1.12.1)
-    parser (2.5.0.2)
+    parser (2.5.0.3)
       ast (~> 2.4.0)
     parslet (1.8.2)
     pg (0.21.0)

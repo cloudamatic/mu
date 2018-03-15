@@ -290,7 +290,7 @@ module MU
                     attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: mu_name)
                   }
                 else
-                  # XXX hack for old deployments
+                  # XXX hack for old deployments, this can go away some day
                   if data['mu_name'].nil? or data['mu_name'].empty?
                     if res_type.to_s == "LoadBalancer" and !data['awsname'].nil?
                       data['mu_name'] = data['awsname'].dup
@@ -2056,7 +2056,7 @@ MESSAGE_END
         return
       end
 
-      MU.log "Updating these siblings in #{@deploy_id}: #{nodeclasses.join(', ')}", MU::DEBUG, details: @kittens[svrs]
+      MU.log "Updating these siblings in #{@deploy_id}: #{nodeclasses.join(', ')}", MU::DEBUG, details: @kittens[svrs].map { |nodeclass, instance| instance.keys }
 
       update_servers = []
       if nodeclasses.nil? or nodeclasses.size == 0
@@ -2072,10 +2072,7 @@ MESSAGE_END
             next if !triggering_node.nil? and mu_name == triggering_node.mu_name
             if nodeclasses.include?(node.config['name']) and !node.groomer.nil?
               if !node.deploydata.keys.include?('nodename')
-                # Our deploydata gets corrupted often with server pools, in this case the the deploy data structure of some nodes is corrupt the hashes can become too nested and also invalid.
-                # When we try to synchronize all our nodes we may get a 'stack level too deep' error.
-                # The choice here is to either fail more gracefully or try to clean up our deployment data. This is an attempt to implement the second option
-                MU.log "#{nodeclass}, #{mu_name} deploy data is corrupt not syncing", MU::ERR, details: node.deploydata
+                MU.log "#{nodeclass}, #{mu_name} deploy data is missing (possibly retired), not syncing it", MU::WARN, details: node.deploydata
                 @kittens[svrs][nodeclass].delete(mu_name)
               else
                 update_servers << node
@@ -2086,18 +2083,30 @@ MESSAGE_END
       end
       return if update_servers.size == 0
 
+      update_servers.each { |node|
+        # Not clear where this pollution comes from, but let's stick a temp
+        # fix in here.
+        if node.deploydata['nodename'] != node.mu_name
+          MU.log "Node #{node.mu_name} had wrong or missing nodename (#{node.deploydata['nodename']}), correcting", MU::WARN
+          node.deploydata['nodename'] = node.mu_name
+          @deployment[svrs][node.config['name']][node.mu_name]['nodename'] = node.mu_name
+          save!
+        end
+      }
+
       # Merge everyone's deploydata together
       if !save_all_only
         skip = []
-        update_servers.each { |sibling|
-          if sibling.mu_name.nil? or sibling.deploydata.nil? or sibling.config.nil?
-            MU.log "Missing mu_name #{sibling.mu_name}, deploydata, or config from #{sibling} in syncLitter", MU::ERR, details: sibling.deploydata
+        update_servers.each { |node|
+          if node.mu_name.nil? or node.deploydata.nil? or node.config.nil?
+            MU.log "Missing mu_name #{node.mu_name}, deploydata, or config from #{node} in syncLitter", MU::ERR, details: node.deploydata
             next
           end
-          if !@deployment[svrs][sibling.config['name']].has_key?(sibling.mu_name) or @deployment[svrs][sibling.config['name']][sibling.mu_name] != sibling.deploydata
-            @deployment[svrs][sibling.config['name']][sibling.mu_name] = sibling.deploydata
+
+          if !@deployment[svrs][node.config['name']].has_key?(node.mu_name) or @deployment[svrs][node.config['name']][node.mu_name] != node.deploydata
+            @deployment[svrs][node.config['name']][node.mu_name] = node.deploydata
           else
-            skip << sibling
+            skip << node
           end
         }
         update_servers = update_servers - skip

@@ -1225,7 +1225,7 @@ module MU
           deploydata = {} if deploydata.nil?
 
           if cloud_desc.nil?
-            raise MuError, "Failed to load instance metadata for #{@config['mu_name']}/#{@cloud_id}"
+            raise MuError, "Failed to load instance metadata for #{@mu_name}/#{@cloud_id}"
           end
 
           interfaces = []
@@ -1243,21 +1243,21 @@ module MU
           }
 
           deploydata = {
-              "nodename" => @config['mu_name'],
-              "run_list" => @config['run_list'],
-              "image_created" => @config['image_created'],
-              "iam_role" => @config['iam_role'],
-              "cloud_desc_id" => @cloud_id,
-              "private_dns_name" => cloud_desc.private_dns_name,
-              "public_dns_name" => cloud_desc.public_dns_name,
-              "private_ip_address" => cloud_desc.private_ip_address,
-              "public_ip_address" => cloud_desc.public_ip_address,
-              "private_ip_list" => private_ips,
-              "key_name" => cloud_desc.key_name,
-              "subnet_id" => cloud_desc.subnet_id,
-              "cloud_desc_type" => cloud_desc.instance_type #,
-              #				"network_interfaces" => interfaces,
-              #				"config" => server
+            "nodename" => @mu_name,
+            "run_list" => @config['run_list'],
+            "image_created" => @config['image_created'],
+            "iam_role" => @config['iam_role'],
+            "cloud_desc_id" => @cloud_id,
+            "private_dns_name" => cloud_desc.private_dns_name,
+            "public_dns_name" => cloud_desc.public_dns_name,
+            "private_ip_address" => cloud_desc.private_ip_address,
+            "public_ip_address" => cloud_desc.public_ip_address,
+            "private_ip_list" => private_ips,
+            "key_name" => cloud_desc.key_name,
+            "subnet_id" => cloud_desc.subnet_id,
+            "cloud_desc_type" => cloud_desc.instance_type #,
+            #				"network_interfaces" => interfaces,
+            #				"config" => server
           }
 
           if !@mu_windows_name.nil?
