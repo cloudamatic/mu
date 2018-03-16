@@ -317,8 +317,8 @@ module MU
         end
         deployment = @mommacat.deployment
         deployment["deployment_end_time"]=Time.new.strftime("%I:%M %p on %A, %b %d, %Y").to_s;
-        if @mommacat.numKittens(clouds: ["AWS"]) > 0
-          MU::Cloud::AWS.openFirewallForClients
+        if MU.myCloud == "AWS" 
+          MU::Cloud::AWS.openFirewallForClients # XXX add the other clouds, or abstract
         end
         MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
         if @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0

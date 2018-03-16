@@ -307,8 +307,8 @@ module MU
             raise e if !e.message.match(/^notFound: /)
           end
         end
-        if $MU_CFG['aws'] and $MU_CFG['aws']['account_number']
-          MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS...
+        if MU.myCloud == "AWS"
+          MU::Cloud::AWS.openFirewallForClients # XXX add the other clouds, or abstract
         end
       end
 

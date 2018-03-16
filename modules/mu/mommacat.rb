@@ -761,7 +761,9 @@ module MU
         syncLitter(@deployment["servers"].keys, triggering_node: kitten)
       end
       MU::MommaCat.unlock(cloud_id+"-mommagroom")
-      MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS...
+      if MU.myCloud == "AWS"
+        MU::Cloud::AWS.openFirewallForClients # XXX add the other clouds, or abstract
+      end
       MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
       MU::MommaCat.syncMonitoringConfig(false)
       MU::MommaCat.createStandardTags(cloud_id, region: kitten.config["region"])
@@ -1000,7 +1002,9 @@ module MU
       @cleanup_threads = []
 
       if purged > 0
-        MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS...
+        if MU.myCloud == "AWS"
+          MU::Cloud::AWS.openFirewallForClients # XXX add the other clouds, or abstract
+        end
         MU::MommaCat.syncMonitoringConfig
       end
       MU::MommaCat.unlock("clean-terminated-instances", true)
