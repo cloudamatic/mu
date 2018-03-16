@@ -469,7 +469,7 @@ module MU
   end
 
   # The cloud instance identifier of this Mu master
-  def self.myInstanceId;
+  def self.myInstanceId
     return nil if MU.myCloud.nil?
     @@myInstanceId # MU.myCloud will have set this, since it's our test variable
   end

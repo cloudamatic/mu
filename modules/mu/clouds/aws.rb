@@ -410,18 +410,14 @@ module MU
 
         MU.setVar("curRegion", myRegion) if !myRegion.nil?
 
-        resp = MU::Cloud::AWS.ec2.describe_instances(instance_ids: [my_instance_id])
-        instance = resp.reservations.first.instances.first
-
-        instance.security_groups.each { |sg|
+        MU.myCloudDescriptor.security_groups.each { |sg|
           my_sgs << sg.group_id
         }
         resp = MU::Cloud::AWS.ec2.describe_security_groups(
-            group_ids: my_sgs,
-            filters: [
-                {name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip]},
-                {name: "tag:Name", values: [my_client_sg_name]}
-            ]
+          filters: [
+            {name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip]},
+            {name: "tag:Name", values: [my_client_sg_name]}
+          ]
         )
 
         if resp.nil? or resp.security_groups.nil? or resp.security_groups.size == 0
@@ -432,9 +428,9 @@ module MU
             MU.log "We don't have a security group named '#{my_client_sg_name}' available, and we are in EC2 Classic and so cannot create a new group. Defaulting to #{group.group_name}.", MU::NOTICE
           else
             group = MU::Cloud::AWS.ec2.create_security_group(
-                group_name: my_client_sg_name,
-                description: my_client_sg_name,
-                vpc_id: instance.vpc_id
+              group_name: my_client_sg_name,
+              description: my_client_sg_name,
+              vpc_id: instance.vpc_id
             )
             sg_id = group.group_id
             my_sgs << sg_id
@@ -452,6 +448,15 @@ module MU
         else
           MU.log "Found more than one security group named #{my_client_sg_name}, aborting", MU::ERR
           exit 1
+        end
+
+        if !my_sgs.include?(sg_id)
+          my_sgs << sg_id
+          MU.log "Associating #{my_client_sg_name} with #{MU.myInstanceId}", MU::NOTICE
+          MU::Cloud::AWS.ec2.modify_instance_attribute(
+            instance_id: MU.myInstanceId,
+            groups: my_sgs
+          )
         end
 
         begin
