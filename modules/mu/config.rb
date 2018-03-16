@@ -761,11 +761,26 @@ module MU
         descriptor.delete("region")
       end
 
+
       # Does this resource go in a VPC?
       if !descriptor["vpc"].nil? and !delay_validation
         descriptor['vpc']['cloud'] = descriptor['cloud']
         if descriptor['vpc']['region'].nil? and !descriptor['region'].nil? and !descriptor['region'].empty? and descriptor['vpc']['cloud'] != "Google"
           descriptor['vpc']['region'] = descriptor['region']
+        end
+
+        # Common mistake- using all_public or all_private subnet_pref for 
+        # resources that can only go in one subnet. Let's just handle that
+        # for people.
+        if cfg_name == "server" # XXX only type to which this applies atm
+          if descriptor["vpc"]["subnet_pref"] == "all_private"
+            MU.log "#{cfg_plural} only support single subnets, setting subnet_pref to 'private' instead of 'all_private' on #{descriptor['name']}", MU::WARN
+            descriptor["vpc"]["subnet_pref"] = "private"
+          end
+          if descriptor["vpc"]["subnet_pref"] == "all_public"
+            MU.log "#{cfg_plural} only support single subnets, setting subnet_pref to 'public' instead of 'all_public' on #{descriptor['name']}", MU::WARN
+            descriptor["vpc"]["subnet_pref"] = "public"
+          end
         end
 
         # If we're using a VPC in this deploy, set it as a dependency
@@ -774,8 +789,8 @@ module MU
            descriptor["vpc"]['deploy_id'].nil? and
            descriptor["vpc"]['vpc_id'].nil?
           descriptor["dependencies"] << {
-              "type" => "vpc",
-              "name" => descriptor["vpc"]["vpc_name"]
+            "type" => "vpc",
+            "name" => descriptor["vpc"]["vpc_name"]
           }
 
           if !processVPCReference(descriptor['vpc'],
@@ -1457,7 +1472,11 @@ module MU
             end
           }
         end
-
+if parent_type == "server" or parent_type == "servers"
+pp public_subnets
+pp private_subnets
+puts vpc_block['subnet_pref']
+end
         if public_subnets.size == 0 and private_subnets == 0
           MU.log "Couldn't find any subnets for #{parent_name}", MU::ERR
           return false
@@ -2085,7 +2104,6 @@ module MU
               db['publicly_accessible'] = false
             end
           end
-
         end
 
         # Automatically manufacture another database object, which will serve

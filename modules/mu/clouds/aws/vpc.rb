@@ -1248,6 +1248,7 @@ module MU
           nat_gateway_added = false
           public_rtbs = []
           private_rtbs = []
+          nat_routes = {}
           vpc['route_tables'].each { |table|
             routes = []
             table['routes'].each { |route|
