@@ -409,7 +409,9 @@ module MU
           toplevel_required = []
           schema = {
             "ingress_rules" => {
+              "type" => "array",
               "items" => {
+                "type" => "object",
                 "properties" => {
                   "sgs" => {
                     "type" => "array",

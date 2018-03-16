@@ -332,6 +332,7 @@ module MU
         MU.log "Generating cost calculation URL for all Amazon Web Services resources."
         MU.setLogging(MU::Logger::SILENT)
 
+        @environment ||= "dev"
         cost_dummy_deploy = MU::Deploy.new(
           @environment.dup,
           verbosity: MU::Logger::SILENT,
@@ -537,6 +538,7 @@ MESSAGE_END
             if !@updating or mode != "create"
               myservice = run_this_method.call
             else
+              # XXX experimental create behavior for --liveupdate flag, only works on a couple of resource types. Inserting new resources into an old deploy is tricky.
               opts = {}
               if service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer"
                 opts['classic'] = service['classic'] ? true : false

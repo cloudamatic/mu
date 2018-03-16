@@ -1472,11 +1472,7 @@ module MU
             end
           }
         end
-if parent_type == "server" or parent_type == "servers"
-pp public_subnets
-pp private_subnets
-puts vpc_block['subnet_pref']
-end
+
         if public_subnets.size == 0 and private_subnets == 0
           MU.log "Couldn't find any subnets for #{parent_name}", MU::ERR
           return false
@@ -1665,7 +1661,6 @@ end
       realvpc = nil
 
       if vpc
-        pp vpc
         realvpc = {}
         realvpc['vpc_id'] = vpc['vpc_id'] if !vpc['vpc_id'].nil?
         realvpc['vpc_name'] = vpc['vpc_name'] if !vpc['vpc_name'].nil?
@@ -2311,7 +2306,6 @@ end
       # XXX seem to be not detecting duplicate admin firewall_rules in adminFirewallRuleset
       @admin_firewall_rules.each { |acl|
         next if seen.include?(acl['name'])
-        pp acl
         ok = false if !insertKitten(acl, "firewall_rules")
         seen << acl['name']
       }

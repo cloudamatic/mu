@@ -92,7 +92,6 @@ module MU
               raise MuError, "LoadBalancer #{@config['name']} is configured to use a VPC, but no VPC found"
             end
             lb_options[:subnets] = []
-            pp @config["vpc"]
             @config["vpc"]["subnets"].each { |subnet|
               subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
               if subnet_obj.nil?

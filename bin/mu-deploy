@@ -124,7 +124,7 @@ if $opts[:update]
       deploy.environment,
       verbosity: verbosity,
       webify_logs: $opts[:web],
-      nocleanup: true,
+      nocleanup: true, # don't accidentally blow up an existing deploy
       stack_conf: stack_conf,
       deploy_id: $opts[:update]
     )

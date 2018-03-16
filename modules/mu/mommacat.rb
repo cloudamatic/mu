@@ -2146,7 +2146,7 @@ MESSAGE_END
     # Given a MU::Cloud object, return the generic self-signed SSL
     # certficate we made for it. If one doesn't exist yet, generate it first.
     # If it's a Windows node, also generate a certificate for WinRM client auth.
-    # @param server [MU::Cloud::Server]: The server for which to generate or return the cert
+    # @param resource [MU::Cloud]: The server or other MU::Cloud resource object for which to generate or return the cert
     # @param poolname [Boolean]: If true, generate certificates for the base name of the server pool of which this node is a member, rather than for the individual node
     # @param keysize [Integer]: The size of the private key to use when generating this certificate
     def nodeSSLCerts(resource, poolname = false, keysize = 4096)
