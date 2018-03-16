@@ -92,15 +92,16 @@ service service_name do
   action [:enable, :start]
 end
 
-# SELinux Policy for oddjobd and its interaction with syslogd
-cookbook_file "dirsrv_admin.pp" do
-  path "#{Chef::Config[:file_cache_path]}/dirsrv_admin.pp"
-end
+if platform_family?("rhel") and node[:platform_version].to_i >= 7
+  cookbook_file "dirsrv_admin.pp" do
+    path "#{Chef::Config[:file_cache_path]}/dirsrv_admin.pp"
+  end
 
-execute "Add dirsrv-admin to SELinux allow list" do
-  command "/usr/sbin/semodule -i dirsrv_admin.pp"
-  cwd Chef::Config[:file_cache_path]
-  not_if "/usr/sbin/semodule -l | grep dirsrv_admin"
+  execute "Add dirsrv-admin to SELinux allow list" do
+    command "/usr/sbin/semodule -i dirsrv_admin.pp"
+    cwd Chef::Config[:file_cache_path]
+    not_if "/usr/sbin/semodule -l | grep dirsrv_admin"
+  end
 end
 
 #service "dirsrv-admin" do
