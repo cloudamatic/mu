@@ -33,8 +33,7 @@ Usage:
   opt :xecute, "Run a shell command on matching nodes. Overrides --mode and suppresses some informational output in favor of scriptability.", :require => false, :type => :string
   opt :mode, "Action to perform on matching nodes. Valid actions: groom, chefrun, awsmeta, vaults, certs", :require => false, :default => "chefrun", :type => :string
   opt :verbose, "Show output from Chef runs, etc", :require => false, :default => false, :type => :boolean
-  opt :info, "List a particular node attribute. Some useful ones include, 'mu_windows_name', 'run_list', 'cloud_desc_type', and 'cloud_id'", :require => false, :default => 'nodename', :type => :string
-
+  opt :info, "List a particular node attribute", :require => false, :default => 'nodename', :type => :string
 end
 
 MU.setLogging(MU::Logger::LOUD) if $opts[:verbose]
@@ -116,6 +115,8 @@ else
 end
 
 avail_nodes = []
+@avail_node_attributes = []
+
 do_deploys.each { |muid|
   mommacat = MU::MommaCat.new(muid, skip_resource_objects: true)
   mommacat.listNodes.each_pair { |nodename, server|
@@ -125,8 +126,8 @@ do_deploys.each { |muid|
     server['conf']["platform"] = "windows" if %w{win2k12r2 win2k12 win2k8 win2k8r2}.include?(server['conf']["platform"])
     next if !$opts[:platform].nil? and server['conf']["platform"] != $opts[:platform]
     next if !$opts[:environment].nil? and MU.environment.upcase != $opts[:environment].upcase
-    next if !$opts[:info].nil? and server[$opts[:info]].nil?
-    avail_nodes << server
+    avail_nodes << nodename
+    @avail_node_attributes << server
   }
 }
 
@@ -134,10 +135,7 @@ if do_nodes.size > 0
   matching = avail_nodes.select { |node|
     matched = false
     do_nodes.each { |pattern|
-
-      attribute = node[$opts[:info]].to_s
-
-      if attribute.match(/#{Regexp.quote(pattern)}/i)
+      if node.match(/#{Regexp.quote(pattern)}/i)
         matched = true
         break
       end
@@ -148,22 +146,26 @@ if do_nodes.size > 0
 else
   do_nodes = avail_nodes
 end
+do_nodes.sort!
 
-do_nodes.uniq!{|item| item['nodename'] }
+#do_nodes.sort!{ |x,y| (x[$opts[:info]] <=> y[$opts[:info]]) }
 
-do_nodes.sort! do |x,y|
-    x['nodename'] <=> y['nodename']
-end
+#puts node_attributes[0]
 
 if $opts[:list]
-  do_nodes.each do |node| 
-    if $opts[:info].eql? 'nodename'
-      puts node['nodename']
-    else
-      puts "#{node['nodename']}: #{node[$opts[:info]]}"
+  if $opts[:info].eql? 'nodename'
+    puts do_nodes
+  else
+    do_nodes.each do |node|
+      @avail_node_attributes.each do |attr|
+        if attr['nodename'].eql? node
+          puts "#{attr['nodename']}: #{attr[$opts[:info]]}"
+        end
+      end
     end
   end
   exit
+
 end
 
 exit 1 if !ok
