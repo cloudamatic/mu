@@ -24,7 +24,7 @@
 include_recipe 'mu-splunk::user'
 include_recipe 'mu-splunk::install_forwarder'
 
-if node[:splunk][:discovery] == 'groupname'
+if node['splunk']['discovery'] == 'groupname'
   splunk_servers = search(
       :node,
       "splunk_is_server:true AND splunk_groupname:#{node[:splunk_groupname]}"
@@ -32,6 +32,16 @@ if node[:splunk][:discovery] == 'groupname'
   |a, b|
     a.name <=> b.name
   end
+  s['splunk']['receiver_ip']
+elsif node['splunk']['discovery'] == 'static'
+  splunk_servers = [
+      { "splunk" =>
+        {
+          "receiver_port" => node['splunk']['server_port'],
+          "receiver_ip" => node['splunk']['server_address']
+        }
+      }
+    ]
 else
   splunk_servers = search(# ~FC003
       :node,
@@ -75,6 +85,14 @@ directory "#{splunk_dir}/etc/system/local" do
   end
 end
 
+if node['splunk']['splunk_cloud_installer']
+  splunk_auth_info = chef_vault_item(node[:splunk][:auth][:data_bag], node[:splunk][:auth][:data_bag_item])['auth']
+  user, pw = splunk_auth_info.split(':')
+  execute "Install Splunk Cloud app" do
+    command "/opt/splunkforwarder/bin/splunk install app #{node['splunk']['install_spl_file']} -auth #{user}:#{pw}"
+    not_if "/opt/splunkforwarder/bin/splunk display app | grep ^splunkclouduf"
+  end
+end
 
 template "#{splunk_dir}/etc/system/local/outputs.conf" do
   source 'outputs.conf.erb'
