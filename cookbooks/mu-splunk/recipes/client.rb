@@ -32,7 +32,6 @@ if node['splunk']['discovery'] == 'groupname'
   |a, b|
     a.name <=> b.name
   end
-  s['splunk']['receiver_ip']
 elsif node['splunk']['discovery'] == 'static'
   splunk_servers = [
       { "splunk" =>
