@@ -20,7 +20,6 @@ cookbook 'awscli', path: "#{cookbookPath}/awscli"
 cookbook 'build-essential', '~> 8.0'
 cookbook 'mu-splunk', path: "#{cookbookPath}/mu-splunk"
 cookbook 'freebsd', '~> 0.1.9'
-cookbook 'gunicorn', '~> 1.1.2'
 cookbook 'logrotate', '~> 1.9.2'
 cookbook 'memcached', '~> 1.7.2'
 cookbook 'chef_nginx', '~> 6.1.1'
