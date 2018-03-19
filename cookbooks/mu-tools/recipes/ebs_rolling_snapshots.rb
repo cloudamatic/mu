@@ -54,8 +54,8 @@ when "windows"
     start_time "06:00"
   end
 else
-  cookbook_file "/opt/ebs_snpashots.py" do
-    source 'ebs_snpashots.py'
+  cookbook_file "/opt/ebs_snapshots.py" do
+    source 'ebs_snapshots.py'
   end
 
   ['boto', 'requests'].each do |pkg|
