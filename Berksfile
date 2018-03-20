@@ -28,10 +28,10 @@ cookbook 'zipfile', '~> 0.1.0'
 cookbook 'windows', '= 3.2.0'
 
 # Forked Cookbooks
-cookbook 'awscli', path: "#{mu_cookbook_path}/awscli"
-cookbook 'mysql-chef_gem', path: "#{mu_cookbook_path}/mysql-chef_gem"
-cookbook 'nagios', path: "#{mu_cookbook_path}/nagios"
-cookbook 's3fs', path: "#{mu_cookbook_path}/s3fs"
+cookbook 'awscli', path: "#{cookbook_path}/awscli"
+cookbook 'mysql-chef_gem', path: "#{cookbook_path}/mysql-chef_gem"
+cookbook 'nagios', path: "#{cookbook_path}/nagios"
+cookbook 's3fs', path: "#{cookbook_path}/s3fs"
 
 
 
