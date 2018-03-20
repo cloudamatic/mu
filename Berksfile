@@ -27,6 +27,7 @@ cookbook 'windows', '= 3.2.0'
 
 # Mu Cookbooks
 cookbook 'awscli', path: "#{cookbookPath}/awscli"
+cookbook 'mu-activedirectory', path: "#{cookbookPath}/mu-activedirectory"
 cookbook 'mu-splunk', path: "#{cookbookPath}/mu-splunk"
 cookbook 'mu-firewall', path: "#{cookbookPath}/mu-firewall"
 cookbook 'mu-glusterfs', path: "#{cookbookPath}/mu-glusterfs"
