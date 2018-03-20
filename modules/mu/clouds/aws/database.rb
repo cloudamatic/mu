@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License in the root of the project or at
 #
-#	http://egt-labs.com/mu/LICENSE.html
+#  http://egt-labs.com/mu/LICENSE.html
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -406,11 +406,14 @@ module MU
 
           # If referencing an existing DB, insert this deploy's DB security group so it can access db
           if @config["creation_style"] == 'existing'
-            vpc_sg_ids = Array.new
+            vpc_sg_ids = []
             database.vpc_security_groups.each { |vpc_sg|
               vpc_sg_ids << vpc_sg.vpc_security_group_id
             }
-            localdeploy_rule =  @deploy.findLitterMate(type: "firewall_rule", name: "db"+@config['name'])
+            localdeploy_rule =  @deploy.findLitterMate(type: "firewall_rule", name: "database"+@config['name'])
+            if localdeploy_rule.nil?
+              raise MU::MuError, "Database #{@config['name']} failed to find its generic security group 'database#{@config['name']}'"
+            end
             MU.log "Found this deploy's DB security group: #{localdeploy_rule.cloud_id}", MU::DEBUG
             vpc_sg_ids << localdeploy_rule.cloud_id
             mod_config = Hash.new
@@ -790,7 +793,7 @@ module MU
                         :keys => [ssh_keydir+"/"+keypairname],
                         :keys_only => true,
                         :auth_methods => ['publickey'],
-  #								:verbose => :info
+  #                :verbose => :info
                     )
                     port = gateway.open(database.endpoint.address, database.endpoint.port)
                     address = "127.0.0.1"
