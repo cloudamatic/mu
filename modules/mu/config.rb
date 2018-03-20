@@ -889,6 +889,19 @@ module MU
         ok = false if !insertKitten(acl, "firewall_rules")
         descriptor["add_firewall_rules"] = [] if descriptor["add_firewall_rules"].nil?
         descriptor["add_firewall_rules"] << {"rule_name" => fwname}
+				acl["rules"].each { |acl_include|
+					if acl_include['sgs']
+						acl_include['sgs'].each { |sg_ref|
+							if haveLitterMate?(sg_ref, "firewall_rules")
+								descriptor["dependencies"] << {
+									"type" => "firewall_rule",
+									"name" => sg_ref,
+									"phase" => "groom"
+								}
+							end
+						}
+					end
+				}
       end
 
       # Does it declare association with any sibling LoadBalancers?
