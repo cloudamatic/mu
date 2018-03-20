@@ -1,14 +1,14 @@
 
-if !ENV.include?('MU_COOKBOOK_ROOT')
-  if !ENV.include?('MU_LIBDIR')
-	  if !ENV.include?('MU_INSTALLDIR')
-  		raise "Can't find MU_LIBDIR or MU_INSTALLDIR in my environment!"
-	  end
-  	ENV['MU_LIBDIR'] = ENV['MU_INSTALLDIR']+"/lib"
-  end
-  ENV['MU_COOKBOOK_ROOT'] = ENV['MU_LIBDIR']
-end
-cookbookPath = "#{ENV['MU_COOKBOOK_ROOT']}/cookbooks"
+# if !ENV.include?('MU_COOKBOOK_ROOT')
+#   if !ENV.include?('MU_LIBDIR')
+# 	  if !ENV.include?('MU_INSTALLDIR')
+#   		raise "Can't find MU_LIBDIR or MU_INSTALLDIR in my environment!"
+# 	  end
+#   	ENV['MU_LIBDIR'] = ENV['MU_INSTALLDIR']+"/lib"
+#   end
+#   ENV['MU_COOKBOOK_ROOT'] = ENV['MU_LIBDIR']
+# end
+cookbookPath = "./cookbooks"
 
 source "https://supermarket.chef.io"
 
