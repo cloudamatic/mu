@@ -6,3 +6,4 @@ description 'Installs/Configures a Mongo DB cluster'
 long_description IO.read(File.join(File.dirname(__FILE__), 'README.md'))
 version '0.5.0'
 depends 'mongodb'
+depends 'chef-vault'

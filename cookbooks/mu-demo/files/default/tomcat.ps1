@@ -1,1 +1,0 @@
-if ((Get-Service Tomcat7).status -eq 'Stopped') {Start-Service Tomcat7}
