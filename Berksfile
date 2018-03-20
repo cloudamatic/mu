@@ -1,5 +1,18 @@
 source "https://supermarket.chef.io"
-mu_cookbook_path = "./cookbooks"
+cookbook_path = "cookbooks"
+
+# Platform Cookbooks
+cookbook 'mu-activedirectory', path: "#{cookbook_path}/mu-activedirectory"
+cookbook 'mu-splunk', path: "#{cookbook_path}/mu-splunk"
+cookbook 'mu-firewall', path: "#{cookbook_path}/mu-firewall"
+cookbook 'mu-glusterfs', path: "#{cookbook_path}/mu-glusterfs"
+cookbook 'mu-jenkins', path: "#{cookbook_path}/mu-jenkins"
+cookbook 'mu-master', path: "#{cookbook_path}/mu-master"
+cookbook 'mu-mongo', path: "#{cookbook_path}/mu-mongo"
+cookbook 'mu-openvpn', path: "#{cookbook_path}/mu-openvpn"
+cookbook 'mu-php54', path: "#{cookbook_path}/mu-php54"
+cookbook 'mu-tools', path: "#{cookbook_path}/mu-tools"
+cookbook 'mu-utility', path: "#{cookbook_path}/mu-utility"
 
 # Supermarket Cookbooks
 cookbook 'apache2', '< 4.0'
@@ -20,17 +33,5 @@ cookbook 'mysql-chef_gem', path: "#{mu_cookbook_path}/mysql-chef_gem"
 cookbook 'nagios', path: "#{mu_cookbook_path}/nagios"
 cookbook 's3fs', path: "#{mu_cookbook_path}/s3fs"
 
-# Mu Cookbooks
-cookbook 'mu-activedirectory', path: "#{mu_cookbook_path}/mu-activedirectory"
-cookbook 'mu-splunk', path: "#{mu_cookbook_path}/mu-splunk"
-cookbook 'mu-firewall', path: "#{mu_cookbook_path}/mu-firewall"
-cookbook 'mu-glusterfs', path: "#{mu_cookbook_path}/mu-glusterfs"
-cookbook 'mu-jenkins', path: "#{mu_cookbook_path}/mu-jenkins"
-cookbook 'mu-master', path: "#{mu_cookbook_path}/mu-master"
-cookbook 'mu-mongo', path: "#{mu_cookbook_path}/mu-mongo"
-cookbook 'mu-openvpn', path: "#{mu_cookbook_path}/mu-openvpn"
-cookbook 'mu-php54', path: "#{mu_cookbook_path}/mu-php54"
-cookbook 'mu-tools', path: "#{mu_cookbook_path}/mu-tools"
-cookbook 'mu-utility', path: "#{mu_cookbook_path}/mu-utility"
 
 
