@@ -2188,7 +2188,7 @@ MESSAGE_END
           end
         end
 
-        if resource.class == MU::Cloud::Server and resource.windows?
+        if [MU::Cloud::Server, MU::Cloud::AWS::Server, MU::Cloud::Google::Server].include?(resource.class) and resource.windows?
           if File.exists?("#{MU.mySSLDir}/#{cert_cn}-winrm.crt") and
              File.exists?("#{MU.mySSLDir}/#{cert_cn}-winrm.key")
             results[cert_cn+"-winrm"] = [File.read("#{MU.mySSLDir}/#{cert_cn}-winrm.crt"), File.read("#{MU.mySSLDir}/#{cert_cn}-winrm.key")]
@@ -2249,21 +2249,21 @@ MESSAGE_END
           end
 
           pfx = nil
-          if resource.class == MU::Cloud::Server and resource.windows?
+          cert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/#{certname}.crt"
+          if [MU::Cloud::Server, MU::Cloud::AWS::Server, MU::Cloud::Google::Server].include?(resource.class) and resource.windows?
             cacert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/Mu_CA.pem"
             pfx = OpenSSL::PKCS12.create(nil, nil, key, cert, [cacert], nil, nil, nil, nil)
             open("#{MU.mySSLDir}/#{certname}.pfx", 'w', 0644) { |io|
               io.write pfx.to_der
             }
-            
           end
-          cert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/#{certname}.crt"
+
           results[certname] = [cert, key]
 
           if resource.config['cloud'] == "AWS"
             MU::Cloud::AWS.writeDeploySecret(@deploy_id, cert.to_pem, certname+".crt")
             MU::Cloud::AWS.writeDeploySecret(@deploy_id, key.to_pem, certname+".key")
-            if resource.windows?
+            if pfx
               MU::Cloud::AWS.writeDeploySecret(@deploy_id, pfx.to_der, certname+".pfx")
             end
 # XXX add google logic, or better yet abstract this method
