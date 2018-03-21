@@ -5,5 +5,5 @@ license 'All rights reserved'
 description 'Installs/Configures a Mongo DB cluster'
 long_description IO.read(File.join(File.dirname(__FILE__), 'README.md'))
 version '0.5.0'
-depends 'mongodb'
-depends 'chef-vault'
+depends 'mongodb', '~> 0.16.2'
+depends 'chef-vault', '< 3.0'

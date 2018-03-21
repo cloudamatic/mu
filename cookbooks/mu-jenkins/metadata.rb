@@ -7,7 +7,7 @@ long_description IO.read(File.join(File.dirname(__FILE__), 'README.md'))
 version '0.6.0'
 depends 'java'
 depends 'jenkins', '~> 5.0.1'
-depends 'chef-vault'
+depends 'chef-vault', '< 3.0'
 depends 'mu-master'
 depends 'mu-utility'
 depends 'mu-tools'
