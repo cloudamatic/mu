@@ -34,6 +34,7 @@ cookbook 'memcached', '~> 1.7.2'
 cookbook 'mongodb', '~> 0.16.2'
 cookbook 'runit', '~> 1.7'
 cookbook 'zipfile', '~> 0.1.0'
+cookbook 'yum', '~> 3.0'
 
 # Supermarket Cookbooks that are using latest as of 3/21/18
 cookbook 'bind', '~> 2.2.0'
@@ -51,5 +52,4 @@ cookbook 'postfix', '~> 5.2.1'
 cookbook 'postgresql', '~> 6.1.1'
 cookbook 'simple_iptables', '~> 0.8.0'
 cookbook 'vault-cluster', '~> 2.1.0'
-cookbook 'yum', '~> 5.1.0'
 cookbook 'yum-epel', '~> 3.1.0'
