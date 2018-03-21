@@ -17,7 +17,7 @@ license '# Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
 depends 'build-essential'
 depends 'mu-utility'
 depends 'simple_iptables'
-depends 'apache2'
+depends 'apache2', '< 4.0'
 depends 'mysql'
 depends 'yum-epel'
 description 'Installs/Configures php'
