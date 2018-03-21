@@ -50,9 +50,3 @@ cookbook 'vault-cluster', '~> 2.1.0'
 cookbook 'windows', '= 3.2.0'
 cookbook 'yum-epel', '~> 3.1.0'
 cookbook 'zipfile', '~> 0.1.0'
-
-
-
-
-
-
