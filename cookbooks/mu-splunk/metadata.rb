@@ -6,5 +6,5 @@ description 'Manage Splunk Enterprise or Splunk Universal Forwarder. Forked chef
 version '1.3.0'
 
 # for secrets management in setup_auth recipe
-depends 'chef-vault', '>= 1.0.4'
-depends 'windows'
+depends 'chef-vault', '< 3.0'
+depends 'windows', '= 3.2.0'
