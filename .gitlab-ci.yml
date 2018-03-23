@@ -1,4 +1,4 @@
-
+image: centos
 
 stages:
   - Lint
@@ -66,5 +66,29 @@ Old_Berks:
     - berks install
     - berks verify
     - berks outdated
+  allow_failure: true
+
+BuildMan:
+  stage: Sec_Test
+  script:
+    - echo "BuildMan!"
+  allow_failure: true
+
+Smoke_Test:
+  stage: Smoke_Test
+  script:
+    - echo "Amrit's Stuff here"
+  allow_failure: true
+
+Merge/Tag:
+  stage: Merge/Tag
+  script:
+    - echo "Merge and tag here"
+  allow_failure: true
+
+Dockerbuild:
+  stage: Smoke_Test
+  script:
+    - echo "Build Mu Docker Container"
   allow_failure: true
 
