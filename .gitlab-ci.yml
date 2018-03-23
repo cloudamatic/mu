@@ -1,90 +1,52 @@
-before_script:
-  - aws configure set default.region us-east-1
-  - export WORKSPACE=$CI_PROJECT_DIR
-  - echo $WORKSPACE
+image: chef/chefdk:latest
 
 stages:
-  - clean_up
-  - lint/deploy
-  - foodcritic
-  - test_mu_bok_install
-  - inspec_test
-  - inspec_retry
-  - final_clean
-
-InitialCleanUp:
-  stage: clean_up
-  script:  python test/clean_up.py 
-  only:
-    - master
-  tags:
-    - master
-
+  - Lint
+  - Test
+  - Merge
+  - Deploy
+  
 Rubocop:
-  stage: lint/deploy
+  stage: Lint
   script:
-    - rubocop modules
-  only:
-    - master
-  tags:
-    - master
+    - rubocop modules/
   allow_failure: true
 
-
+Cookstyle:
+  stage: Lint
+  script:
+    - cookstyle cookbooks/
+  allow_failure: true
+  
 Foodcritic:
-  stage: lint/deploy
+  stage: Lint
   script:
-    - foodcritic cookbooks/*
-  only:
-    - master
-  tags:
-    - master
+    - foodcritic cookbooks/
   allow_failure: true
 
-mu_deploy:
-  stage: lint/deploy
+Berks:
+  stage: Test
   script:
-    - bin/mu-deploy -n demo/simple-server-rails.yaml
-  only:
-    - master
-  tags:
-    - master
-
-mu_install_test:
-  stage: lint/deploy
+    - apt-get -qq update
+    - apt-get -qq install git -y
+    - for d in ./cookbooks/*/ ; do (cd "$d" && berks install); done
+    - for d in ./cookbooks/*/ ; do (cd "$d" && berks verify); done
+    - for d in ./cookbooks/*/ ; do (cd "$d" && berks outdated); done
+  allow_failure: true
+  
+Old_Berks:
+  stage: Test
   script:
-    - python test/exec_mu_install.py
-  only:
-    - master
-  tags:
-    - master
-
-
-bok_inspec_test:
-  stage: inspec_test
-  script:
-    - python test/exec_inspec.py simple-server-rails-test simple-server-rails.yaml
-  only:
-    - master
-  tags:
-    - master
+    - apt-get -qq update
+    - apt-get -qq install git -y
+    - rm -rf Berksfile.lock
+    - berks install
+    - berks verify
+    - berks outdated
   allow_failure: true
 
-
-retry_failures:
-  stage: inspec_retry
+ChefSpec:
+  stage: Test
   script:
-    - python test/exec_retry.py 
-  only:
-    - master
-  tags:
-    - master
-
-
-final_clean_up:
-  stage: final_clean
-  script:
-    - python test/clean_up.py
-    - rm -rf /tmp/inspec_retries/*
-    - rm -rf /tmp/*.yml
-
+    - for d in ./cookbooks/*/ ; do (cd "$d" && chef exec rspec); done
+  allow_failure: true
