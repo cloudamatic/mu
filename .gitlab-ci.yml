@@ -77,7 +77,7 @@ BuildMan:
 Smoke_Test:
   stage: Smoke_Test
   script:
-    - echo "Amrit's Stuff here"
+    - echo "Insert some of Amrit's Stuff here"
   allow_failure: true
 
 Merge/Tag:
