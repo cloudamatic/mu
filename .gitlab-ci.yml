@@ -87,7 +87,7 @@ Merge/Tag:
   allow_failure: true
 
 Dockerbuild:
-  stage: Smoke_Test
+  stage: Dockerbuild
   script:
     - echo "Build Mu Docker Container"
   allow_failure: true
