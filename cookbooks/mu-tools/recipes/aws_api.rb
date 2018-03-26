@@ -1,6 +1,6 @@
 #
 # Cookbook Name::mu-tools
-# Recipe::create_application_volume
+# Recipe::aws_api
 #
 # Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
 #
