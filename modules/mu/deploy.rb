@@ -106,7 +106,7 @@ module MU
         begin
           raise MuError, "Failed to allocate an unused MU-ID after #{retries} tries!" if retries > 70
           seedsize = 1 + (retries/10).abs
-          seed = Password.pronounceable(8).slice(0..seedsize)
+          seed = (1...seedsize).map { ('a'..'z').to_a[rand(26)] }.join
           deploy_id = @appname.upcase + "-" + @environment.upcase + "-" + @timestamp + "-" + seed.upcase
         end while MU::MommaCat.deploy_exists?(deploy_id) or seed == "mu"
         MU.setVar("deploy_id", deploy_id)
