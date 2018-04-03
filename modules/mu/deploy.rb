@@ -357,7 +357,7 @@ module MU
         MU.setLogging(@verbosity)
       end
 
-      MU.log "Deployment #{MU.deploy_id} complete", details: deployment
+      MU.log "Deployment #{MU.deploy_id} \"#{MU.handle}\" complete", details: deployment
     end
 
     private
