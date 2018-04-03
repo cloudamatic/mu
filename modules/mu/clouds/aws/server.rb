@@ -132,6 +132,8 @@ module MU
 
         end
 
+        @@userdata_semaphore = Mutex.new
+
         # Fetch our baseline userdata argument (read: "script that runs on first
         # boot") for a given platform.
         # *XXX* both the eval() and the blind File.read() based on the platform
@@ -142,14 +144,14 @@ module MU
         # @return [String]
         def self.fetchUserdata(platform: "linux", template_variables: {}, custom_append: nil, scrub_mu_isms: false)
           return nil if platform.nil? or platform.empty?
-          userdata_mutex.synchronize {
+          @@userdata_semaphore.synchronize {
             script = ""
             if !scrub_mu_isms
               if template_variables.nil? or !template_variables.is_a?(Hash)
                 raise MuError, "My second argument should be a hash of variables to pass into ERB templates"
               end
               $mu = OpenStruct.new(template_variables)
-              userdata_dir = File.expand_path(MU.myRoot+"/modules/mu/userdata")
+              userdata_dir = File.expand_path(MU.myRoot+"/modules/mu/clouds/aws/userdata")
               platform = "linux" if %w{centos centos6 centos7 ubuntu ubuntu14 rhel rhel7 rhel71 amazon}.include? platform
               platform = "windows" if %w{win2k12r2 win2k12 win2k8 win2k8r2 win2k16}.include? platform
               erbfile = "#{userdata_dir}/#{platform}.erb"

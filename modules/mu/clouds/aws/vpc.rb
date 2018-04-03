@@ -591,6 +591,7 @@ module MU
                   raise MuError, "No result looking for #{@mu_name}'s peer VPCs (#{peer['vpc']})" if peer_obj.nil? or peer_obj.first.nil?
                   peer_obj = peer_obj.first
                   peer_id = peer_obj.cloud_id
+MU.log peer_obj.class.name, MU::WARN, details: peer_obj
 
                   MU.log "Initiating peering connection from VPC #{@config['name']} (#{@config['vpc_id']}) to #{peer_id}"
                   resp = MU::Cloud::AWS.ec2(@config['region']).create_vpc_peering_connection(
@@ -630,9 +631,9 @@ module MU
               # Create routes to our new friend.
               MU::Cloud::AWS::VPC.listAllSubnetRouteTables(@config['vpc_id'], region: @config['region']).each { |rtb_id|
                 my_route_config = {
-                    :route_table_id => rtb_id,
-                    :destination_cidr_block => peer_obj.cloud_desc.cidr_block,
-                    :vpc_peering_connection_id => peering_id
+                  :route_table_id => rtb_id,
+                  :destination_cidr_block => peer_obj.cloud_desc.cidr_block,
+                  :vpc_peering_connection_id => peering_id
                 }
                 begin
                   resp = MU::Cloud::AWS.ec2(@config['region']).create_route(my_route_config)
@@ -739,9 +740,9 @@ module MU
             if tag_value
               MU.log "Searching for VPC by tag:#{tag_key}=#{tag_value}", MU::DEBUG
               resp = MU::Cloud::AWS.ec2(region).describe_vpcs(
-                  filters: [
-                      {name: "tag:#{tag_key}", values: [tag_value]}
-                  ]
+                filters: [
+                  {name: "tag:#{tag_key}", values: [tag_value]}
+                ]
               )
               if resp.data.vpcs.nil? or resp.data.vpcs.size == 0
                 return nil

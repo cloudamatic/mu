@@ -1067,7 +1067,7 @@ module MU
             deploy_id = mu_name.sub(/^(\w+-\w+-\d{10}-[A-Z]{2})-/, '\1')
           end
         end
-#        MU.log "Called findStray with cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}", MU::DEBUG, details: flags
+        MU.log "Called findStray with cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}", MU::DEBUG, details: flags
 
         if !deploy_id.nil? and !calling_deploy.nil? and flags.empty? and
             calling_deploy.deploy_id == deploy_id and (!name.nil? or !mu_name.nil?)
@@ -1154,6 +1154,10 @@ module MU
           cloud_descs = {}
           regions.each { |r|
             cloud_descs[r] = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, flags: flags)
+            # Stop if you found the thing
+            if cloud_id and cloud_descs[r] and !cloud_descs[r].empty?
+              break
+            end
           }
           regions.each { |r|
             next if cloud_descs[r].nil?
@@ -1749,20 +1753,34 @@ MESSAGE_END
         require_cat_words = false
         MU.log "Got an annoying pair of letters #{seed}, not forcing cat-theming", MU::DEBUG
       end
+      allnouns = @catnouns + @jaegernouns
+      alladjs = @catadjs + @jaegeradjs
 
       tries = 0
       begin
-        first_ltr = @words.select { |word| word.match(/^#{seed[0]}/i) }
+        # Try to avoid picking something "nouny" for the first word
+        source = @catadjs + @catmixed + @jaegeradjs + @jaegermixed
+        first_ltr = source.select { |word| word.match(/^#{seed[0]}/i) }
+        if !first_ltr or first_ltr.size == 0
+          first_ltr = @words.select { |word| word.match(/^#{seed[0]}/i) }
+        end
         word_one = first_ltr.shuffle.first
+
         # If we got a paired set that happen to match our letters, go with it
         if !word_one.nil? and word_one.match(/-#{seed[1]}/i)
           word_one, word_two = word_one.split(/-/)
         else
-          second_ltr = @words.select { |word| word.match(/^#{seed[1]}/i) and !word.match(/-/i) }
+          source = @words
+          if @catwords.include?(word_one)
+            source = @jaegerwords
+          elsif require_cat_words
+            source = @catwords
+          end
+          second_ltr = source.select { |word| word.match(/^#{seed[1]}/i) and !word.match(/-/i) }
           word_two = second_ltr.shuffle.first
         end
         tries = tries + 1
-      end while tries < 50 and (word_one.nil? or word_two.nil? or word_one.match(/-/) or (require_cat_words and !@catwords.include?(word_one) and !@catwords.include?(word_two)))
+      end while tries < 50 and (word_one.nil? or word_two.nil? or word_one.match(/-/) or word_one == word_two or (allnouns.include?(word_one) and allnouns.include?(word_two)) or (alladjs.include?(word_one) and alladjs.include?(word_two)) or (require_cat_words and !@catwords.include?(word_one) and !@catwords.include?(word_two)))
 
       if tries >= 50 and (word_one.nil? or word_two.nil?)
         MU.log "I failed to generated a valid handle, faking it", MU::ERR
@@ -2638,9 +2656,19 @@ MESSAGE_END
       }
     end
 
-    @catwords = %w{abyssian acinonyx alley angora bastet bengal birman bobcat bobtail bombay burmese calico chartreux cheetah cheshire cornish-rex curl devon devon-rex dot egyptian-mau feline felix feral fuzzy ginger havana himilayan jaguar japanese-bobtail javanese kitty khao-manee leopard lion lynx maine-coon manx marmalade maru mau mittens moggy munchkin neko norwegian ocelot pallas panther patches paws persian peterbald phoebe polydactyl purr queen quick ragdoll roar russian-blue saber savannah scottish-fold sekhmet serengeti shorthair siamese siberian singapura skogkatt snowshoe socks sphinx spot stray tabby tail tiger tom tonkinese tortoiseshell turkish-van tuxedo uncia whiskers wildcat yowl}
-    @noncatwords = %w{alpha amber auburn azure beta brave bravo brawler charlie chocolate chrome cinnamon corinthian coyote crimson dancer danger dash delta don duet echo edge electric elite enigma eruption eureka fearless foxtrot galvanic gold grace grey horizon hulk hyperion illusion imperative india intercept ivory jade jaeger juliet kaleidoscope kilo lucky mammoth night nova november ocean olive oscar quiescent rhythm rogue romeo ronin royal tacit tango typhoon ultimatum ultra umber upward victor violet vivid vulcan watchman whirlwind wright xenon xray xylem yankee yearling yell yukon zeal zero zippy zodiac}
-    @words = @catwords + @noncatwords
+    @catadjs = %w{fuzzy ginger lilac chocolate xanthic}
+    @catnouns = %w{bastet bobcat catnip cheetah dot felix jaguar kitty leopard lion lynx maru mittens moggy neko ocelot panther patches paws phoebe purr queen roar saber sekhmet skogkatt socks sphinx spot tail tiger tom whiskers wildcat yowl floof beans ailurophile dander dewclaw grimalkin kibble quick tuft misty simba mew}
+    @catmixed = %w{abyssinian angora bengal birman bobtail bombay burmese calico chartreux cheshire cornish-rex curl devon egyptian-mau feline havana himilayan japanese-bobtail javanese khao-manee maine-coon manx marmalade mau munchkin norwegian pallas persian peterbald polydactyl ragdoll russian-blue savannah scottish-fold serengeti shorthair siamese siberian singapura snowshoe stray tabby tonkinese tortoiseshell turkish-van tuxedo uncia caterwaul lilac-point chocolate-point mackerel maltese knead}
+    @catwords = @catadjs + @catnouns + @catmixed
+
+    @jaegeradjs = %w{azure fearless lucky olive vivid electric grey yarely violet ivory jade cinnamon crimson tacit umber mammoth ultra}
+    @jaegernouns = %w{horizon hulk ultimatum yardarm watchman whilrwind wright rhythm ocean enigma eruption typhoon jaeger brawler blaze}
+    # we *must* have at least one of every letter of the alphabet in this pool
+    # to guarantee that we can backfill with parts of speech properly
+    @jaegermixed = %w{alpha ajax amber avenger brave bravo charlie chocolate chrome corinthian dancer danger dash delta duet echo edge elite eureka foxtrot guardian gold hyperion illusion imperative india intercept juliet kaleidoscope kilo lancer night nova november oscar omega pacer paladin quickstrike rogue romeo ronin striker tango titan valor victor vulcan warder xenomorph xenon xray xylem yankee yell yukon zeal zero zoner zodiac}
+    @jaegerwords = @jaegeradjs + @jaegernouns + @jaegermixed
+
+    @words = @catwords + @jaegerwords
 
   end #class
 end #module

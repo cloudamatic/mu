@@ -130,21 +130,22 @@ module MU
             @@regions[r.region_name] = Proc.new { listAZs(r.region_name) }
           }
         end
-
-#			regions.sort! { |a, b|
-#				val = a <=> b
-#				if a == myRegion
-#					val = -1
-#				elsif b == myRegion
-#					val = 1
-#				end
-#				val
-#			}
-        if us_only
+        regions = if us_only
           @@regions.keys.delete_if { |r| !r.match(/^us\-/) }.uniq
         else
           @@regions.keys.uniq
         end
+
+        regions.sort! { |a, b|
+          val = a <=> b
+          if a == myRegion
+            val = -1
+          elsif b == myRegion
+            val = 1
+          end
+          val
+        }
+        regions
       end
 
       # Generate an EC2 keypair unique to this deployment, given a regular
@@ -467,7 +468,7 @@ module MU
 
         allow_ips = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
         MU::MommaCat.listAllNodes.each_pair { |node, data|
-					next if data.nil? or !data.is_a?(Hash)
+          next if data.nil? or !data.is_a?(Hash)
           ["public_ip_address"].each { |key|
             if data.has_key?(key) and !data[key].nil? and !data[key].empty?
               allow_ips << data[key] + "/32"

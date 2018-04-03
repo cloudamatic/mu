@@ -338,7 +338,6 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
         server["platform"] = "linux" if !server.has_key?("platform")
 
         pool_name = mommacat.getResourceName(svr_class)
-        puts pool_name
         if nodes.size > 0
           matched = false
           nodes.each { |n|
@@ -579,6 +578,7 @@ def sslCerts(deploys = MU::MommaCat.listDeploys, nodes = [], vaults_only: false)
 end
 
 def chefUpgrade(deploys = MU::MommaCat.listDeploys, nodes = [])
+  badnodes = []
   deploys.each { |muid|
     mommacat = MU::MommaCat.new(muid)
     mommacat.listNodes.each_pair { |nodename, server|
@@ -590,10 +590,33 @@ def chefUpgrade(deploys = MU::MommaCat.listDeploys, nodes = [])
         next
       end
 
-      server_obj = mommacat.findLitterMate(type: "server", mu_name: nodename)
-      server_obj.groomer.reinstall
+      child = Process.fork {
+        server_obj = mommacat.findLitterMate(type: "server", mu_name: nodename)
+        begin
+          server_obj.groomer.reinstall
+        rescue Exception
+        end
+      }
+      $children[child] = nodename
+      while $children.size >= $opts[:concurrent]-1
+        child = Process.wait
+        if !$?.success?
+          badnodes << $children[child]
+        end
+        $children.delete(child)
+      end
     }
   }
+
+  Process.waitall.each { |child|
+    if !child[1].success?
+      badnodes << $children[child[0]]
+    end
+  }
+
+  if badnodes.size > 0
+    MU.log "Not all Chef upgrades exited cleanly", MU::WARN, details: badnodes
+  end
 end
 
 if $opts[:xecute]

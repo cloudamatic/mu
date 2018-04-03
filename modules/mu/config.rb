@@ -1849,6 +1849,16 @@ module MU
 
       nat_routes ||= {}
       @kittens["vpcs"].each { |vpc|
+        next if !vpc['route_tables']
+        vpc['route_tables'].each { |rtb|
+          next if !rtb['routes']
+          rtb['routes'].each { |r|
+            if r.has_key?("gateway") and (!r["gateway"] or r["gateway"].to_s.empty?)
+              MU.log "Route gateway in VPC #{vpc['name']} cannot be nil- did you forget to puts quotes around a #INTERNET, #NAT, or #DENY?", MU::ERR, details: rtb
+              ok = false
+            end
+          }
+        }
         ok = false if !insertKitten(vpc, "vpcs")
       }
 
