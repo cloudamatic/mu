@@ -605,11 +605,11 @@ module MU
             @url = @cloudobj.url if @cloudobj.respond_to?(:url)
           elsif !@config.nil? and !@cloud_id.nil?
             # The find() method should be returning a Hash with the cloud_id
-            # as a key.
+            # as a key and a cloud platform descriptor as the value.
             begin
               matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, flags: @config)
               if !matches.nil? and matches.is_a?(Hash) and matches.has_key?(@cloud_id)
-                @cloud_desc = matches[@cloud_id].cloud_desc
+                @cloud_desc = matches[@cloud_id]
               else
                 MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id} in #{@config['region']}, which has a record in deploy #{@deploy.deploy_id}", MU::WARN, details: caller
               end

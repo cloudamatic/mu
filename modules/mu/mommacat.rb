@@ -1067,7 +1067,7 @@ module MU
             deploy_id = mu_name.sub(/^(\w+-\w+-\d{10}-[A-Z]{2})-/, '\1')
           end
         end
-#        MU.log "Called findStray with cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}", MU::DEBUG, details: flags
+        MU.log "Called findStray with cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}", MU::DEBUG, details: flags
 
         if !deploy_id.nil? and !calling_deploy.nil? and flags.empty? and
             calling_deploy.deploy_id == deploy_id and (!name.nil? or !mu_name.nil?)
@@ -1154,6 +1154,10 @@ module MU
           cloud_descs = {}
           regions.each { |r|
             cloud_descs[r] = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, flags: flags)
+            # Stop if you found the thing
+            if cloud_id and cloud_descs[r] and !cloud_descs[r].empty?
+              break
+            end
           }
           regions.each { |r|
             next if cloud_descs[r].nil?
@@ -1754,7 +1758,12 @@ MESSAGE_END
 
       tries = 0
       begin
-        first_ltr = @words.select { |word| word.match(/^#{seed[0]}/i) }
+        # Try to avoid picking something "nouny" for the first word
+        source = @catadjs + @catmixed + @jaegeradjs + @jaegermixed
+        first_ltr = source.select { |word| word.match(/^#{seed[0]}/i) }
+        if !first_ltr or first_ltr.size == 0
+          first_ltr = @words.select { |word| word.match(/^#{seed[0]}/i) }
+        end
         word_one = first_ltr.shuffle.first
 
         # If we got a paired set that happen to match our letters, go with it
