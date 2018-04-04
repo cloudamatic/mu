@@ -1635,8 +1635,8 @@ MU.log peer_obj.class.name, MU::WARN, details: peer_obj
                 MU.log "Deleting #{table.route_table_id}'s route for #{route.destination_cidr_block}"
                 begin
                   MU::Cloud::AWS.ec2(region).delete_route(
-                      route_table_id: table.route_table_id,
-                      destination_cidr_block: route.destination_cidr_block
+                    route_table_id: table.route_table_id,
+                    destination_cidr_block: route.destination_cidr_block
                   ) if !noop
                 rescue Aws::EC2::Errors::InvalidRouteNotFound
                   MU.log "Route #{table.route_table_id} has already been deleted", MU::WARN
@@ -1775,13 +1775,13 @@ MU.log peer_obj.class.name, MU::WARN, details: peer_obj
                 ]
             ).vpc_peering_connections
             my_peer_conns.concat(MU::Cloud::AWS.ec2(region).describe_vpc_peering_connections(
-                                     filters: [
-                                         {
-                                             name: "accepter-vpc-info.vpc-id",
-                                             values: [vpc.vpc_id]
-                                         }
-                                     ]
-                                 ).vpc_peering_connections)
+              filters: [
+                {
+                  name: "accepter-vpc-info.vpc-id",
+                  values: [vpc.vpc_id]
+                }
+              ]
+            ).vpc_peering_connections)
             my_peer_conns.each { |cnxn|
 
               [cnxn.accepter_vpc_info.vpc_id, cnxn.requester_vpc_info.vpc_id].each { |peer_vpc|
@@ -1813,13 +1813,20 @@ MU.log peer_obj.class.name, MU::WARN, details: peer_obj
             }
 
             MU.log "Deleting VPC #{vpc.vpc_id}"
+            retries = 0
             begin
               MU::Cloud::AWS.ec2(region).delete_vpc(vpc_id: vpc.vpc_id) if !noop
             rescue Aws::EC2::Errors::InvalidVpcIDNotFound
               MU.log "VPC #{vpc.vpc_id} has already been deleted", MU::WARN
             rescue Aws::EC2::Errors::DependencyViolation => e
               MU.log "Couldn't delete VPC #{vpc.vpc_id} from #{region}: #{e.inspect}", MU::ERR#, details: caller
-              next
+              if retries < 5
+                retries += 1
+                sleep 10
+                retry
+              else
+                next
+              end
             end
 
             mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu", region: region).values.first
