@@ -68,6 +68,7 @@ if open_jdk_version.include?("openjdk version \"1.8") and node['platform_family'
   remote_file 'download_anlp_jar' do
     source node['jenkins']['alpn']['download_link']
     path "/home/jenkins/alpn-boot-#{node['jenkins']['alpn']['version']}.jar"
+    owner "jenkins"
     notifies :restart, "service[jenkins]",:delayed
   end
 
