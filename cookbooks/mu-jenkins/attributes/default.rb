@@ -6,9 +6,9 @@ default['jenkins_users'] = [
 default['jenkins_ssh_urls'] = [node['ipaddress']]
 default['jenkins_plugins'] = %w{
   token-macro git github deploy ldap scm-api git-client active-directory
-  ansicolor matrix-auth matrix-project workflow-scm-step
-  workflow-step-api ssh credentials mailer display-url-api structs
-  script-security
+  ansicolor matrix-auth matrix-project workflow-scm-step junit workflow-api 
+  workflow-step-api ssh credentials ssh-credentials plain-credentials mailer
+  display-url-api structs script-security jackson2-api
 }
 
 default['jenkins_ports_direct'] = %w{8080 443}
