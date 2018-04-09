@@ -28,11 +28,6 @@ module MU
       # A server as configured in {MU::Config::BasketofKittens::servers}
       class Server < MU::Cloud::Server
 
-        # @return [Mutex]
-        def self.userdata_mutex
-          @userdata_mutex ||= Mutex.new
-        end
-
         # A list of block device names to use if we get a storage block that
         # doesn't declare one explicitly.
         # This probably fails on some AMIs. It's crude.
@@ -96,8 +91,9 @@ module MU
           @cloud_id = cloud_id
 
           if @deploy
-            @userdata = MU::Cloud::AWS::Server.fetchUserdata(
+            @userdata = MU::Cloud.fetchUserdata(
               platform: @config["platform"],
+              cloud: "aws",
               template_variables: {
                 "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
                 "deploySSHKey" => @deploy.ssh_public_key,
@@ -136,6 +132,8 @@ module MU
 
         end
 
+        @@userdata_semaphore = Mutex.new
+
         # Fetch our baseline userdata argument (read: "script that runs on first
         # boot") for a given platform.
         # *XXX* both the eval() and the blind File.read() based on the platform
@@ -146,14 +144,14 @@ module MU
         # @return [String]
         def self.fetchUserdata(platform: "linux", template_variables: {}, custom_append: nil, scrub_mu_isms: false)
           return nil if platform.nil? or platform.empty?
-          userdata_mutex.synchronize {
+          @@userdata_semaphore.synchronize {
             script = ""
             if !scrub_mu_isms
               if template_variables.nil? or !template_variables.is_a?(Hash)
                 raise MuError, "My second argument should be a hash of variables to pass into ERB templates"
               end
               $mu = OpenStruct.new(template_variables)
-              userdata_dir = File.expand_path(MU.myRoot+"/modules/mu/userdata")
+              userdata_dir = File.expand_path(MU.myRoot+"/modules/mu/clouds/aws/userdata")
               platform = "linux" if %w{centos centos6 centos7 ubuntu ubuntu14 rhel rhel7 rhel71 amazon}.include? platform
               platform = "windows" if %w{win2k12r2 win2k12 win2k8 win2k8r2 win2k16}.include? platform
               erbfile = "#{userdata_dir}/#{platform}.erb"
@@ -312,10 +310,11 @@ module MU
         end
 
         # Insert a Server's standard IAM role needs into an arbitrary IAM profile
-        def self.addStdPoliciesToIAMProfile(rolename, cloudformation_data: {}, cfm_role_name: nil)
+        def self.addStdPoliciesToIAMProfile(rolename, cloudformation_data: {}, cfm_role_name: nil, region: MU::Cloud::AWS.myRegion)
           policies = Hash.new
+          aws_str = MU::Cloud::AWS.isGovCloud?(region) ? "aws-us-gov" : "aws"
           objs = ["#{MU.deploy_id}-secret", "#{rolename}.pfx", "#{rolename}.crt", "#{rolename}.key", "#{rolename}-winrm.crt", "#{rolename}-winrm.key"]
-          policies['Mu_Secrets_'+MU.deploy_id] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":['+objs.map { |m| '"arn:aws:s3:::'+MU.adminBucketName+'/'+m+'"' }.join(",")+']}]}'
+          policies['Mu_Secrets_'+MU.deploy_id] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":['+objs.map { |m| '"arn:'+aws_str+':s3:::'+MU.adminBucketName+'/'+m+'"' }.join(",")+']}]}'
           policies.each_pair { |name, doc|
             if cloudformation_data.size > 0
               if !cfm_role_name.nil?
@@ -465,9 +464,9 @@ module MU
             raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
           end
           if @config['basis']
-            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role']+"*")
+            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role']+"*", region: @config['region'])
           else
-            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'])
+            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'], region: @config['region'])
           end
           if !@config["iam_role"].nil?
             if arn
@@ -1124,9 +1123,9 @@ module MU
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @param ip [String]: An IP address associated with the instance
-        # @param opts [Hash]: Optional flags
+        # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching instances
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, ip: nil, opts: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, ip: nil, flags: {})
 # XXX put that 'ip' value into opts
           instance = nil
           if !region.nil?
@@ -1228,7 +1227,7 @@ module MU
           deploydata = {} if deploydata.nil?
 
           if cloud_desc.nil?
-            raise MuError, "Failed to load instance metadata for #{@config['mu_name']}/#{@cloud_id}"
+            raise MuError, "Failed to load instance metadata for #{@mu_name}/#{@cloud_id}"
           end
 
           interfaces = []
@@ -1246,21 +1245,21 @@ module MU
           }
 
           deploydata = {
-              "nodename" => @config['mu_name'],
-              "run_list" => @config['run_list'],
-              "image_created" => @config['image_created'],
-              "iam_role" => @config['iam_role'],
-              "cloud_desc_id" => @cloud_id,
-              "private_dns_name" => cloud_desc.private_dns_name,
-              "public_dns_name" => cloud_desc.public_dns_name,
-              "private_ip_address" => cloud_desc.private_ip_address,
-              "public_ip_address" => cloud_desc.public_ip_address,
-              "private_ip_list" => private_ips,
-              "key_name" => cloud_desc.key_name,
-              "subnet_id" => cloud_desc.subnet_id,
-              "cloud_desc_type" => cloud_desc.instance_type #,
-              #				"network_interfaces" => interfaces,
-              #				"config" => server
+            "nodename" => @mu_name,
+            "run_list" => @config['run_list'],
+            "image_created" => @config['image_created'],
+            "iam_role" => @config['iam_role'],
+            "cloud_desc_id" => @cloud_id,
+            "private_dns_name" => cloud_desc.private_dns_name,
+            "public_dns_name" => cloud_desc.public_dns_name,
+            "private_ip_address" => cloud_desc.private_ip_address,
+            "public_ip_address" => cloud_desc.public_ip_address,
+            "private_ip_list" => private_ips,
+            "key_name" => cloud_desc.key_name,
+            "subnet_id" => cloud_desc.subnet_id,
+            "cloud_desc_type" => cloud_desc.instance_type #,
+            #				"network_interfaces" => interfaces,
+            #				"config" => server
           }
 
           if !@mu_windows_name.nil?
@@ -1760,7 +1759,7 @@ module MU
         # @param type [String]: Cloud storage type of the volume, if applicable
         def addVolume(dev, size, type: "gp2")
           if @cloud_id.nil? or @cloud_id.empty?
-            MU.log "#{self} didn't have a #{@cloud_id}, couldn't determine 'active?' status", MU::ERR
+            MU.log "#{self} didn't have a cloud id, couldn't determine 'active?' status", MU::ERR
             return true
           end
           az = nil
@@ -1793,10 +1792,12 @@ module MU
             end
           end while creation.state != "available"
 
-          MU::MommaCat.listStandardTags.each_pair { |key, value|
-            MU::MommaCat.createTag(creation.volume_id, key, value, region: @config['region'])
-          }
-          MU::MommaCat.createTag(creation.volume_id, "Name", "#{MU.deploy_id}-#{@config["name"].upcase}-#{dev.upcase}", region: @config['region'])
+          if @deploy
+            MU::MommaCat.listStandardTags.each_pair { |key, value|
+              MU::MommaCat.createTag(creation.volume_id, key, value, region: @config['region'])
+            }
+            MU::MommaCat.createTag(creation.volume_id, "Name", "#{MU.deploy_id}-#{@config["name"].upcase}-#{dev.upcase}", region: @config['region'])
+          end
 
           attachment = MU::Cloud::AWS.ec2(@config['region']).attach_volume(
             device: dev,
@@ -1940,7 +1941,7 @@ module MU
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, skipsnapshots: false, onlycloud: false)
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, skipsnapshots: false, onlycloud: false, flags: {})
           tagfilters = [
               {name: "tag:MU-ID", values: [MU.deploy_id]}
           ]
@@ -2049,7 +2050,7 @@ module MU
             MU.log "Instance #{id} no longer exists", MU::DEBUG
           end
 
-          if !server_obj.nil?
+          if !server_obj.nil? and MU::Cloud::AWS.hosted and !MU::Cloud::AWS.isGovCloud?
             # DNS cleanup is now done in MU::Cloud::DNSZone. Keeping this for now
             cleaned_dns = false
             mu_name = server_obj.mu_name
@@ -2196,6 +2197,104 @@ module MU
             end
             MU.log "#{instance.instance_id} (#{name}) terminated" if !noop
           end
+        end
+
+        # Cloud-specific configuration properties.
+        # @param config [MU::Config]: The calling MU::Config object
+        # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
+        def self.schema(config)
+          toplevel_required = []
+          schema = {
+            "ami_id" => {
+              "type" => "string",
+              "description" => "The Amazon EC2 AMI on which to base this instance. Will use the default appropriate for the platform, if not specified."
+            },
+            "ingress_rules" => {
+              "items" => {
+                "properties" => {
+                  "sgs" => {
+                    "type" => "array",
+                    "items" => {
+                      "description" => "Other AWS Security Groups; resources that are associated with this group will have this rule applied to their traffic",
+                      "type" => "string"
+                    }
+                  },
+                  "lbs" => {
+                    "type" => "array",
+                    "items" => {
+                      "description" => "AWS Load Balancers which will have this rule applied to their traffic",
+                      "type" => "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+          [toplevel_required, schema]
+        end
+
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::servers}, bare and unvalidated.
+        # @param server [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(server, configurator)
+          ok = true
+
+          sizepattern = /^(t|m|c|i|g|r|hi|hs|cr|cg|cc){1,2}[0-9]\.(nano|micro|small|medium|[248]?x?large)$/
+          if server["size"].nil? or !server["size"].match(sizepattern)
+            MU.log "Invalid size '#{server['size']}' for AWS EC2 instance. Must match: #{sizepattern}", MU::ERR
+            ok = false
+          end
+
+          if !server['generate_iam_role']
+            if !server['iam_role'] and server['cloud'] != "CloudFormation"
+              MU.log "Must set iam_role if generate_iam_role set to false", MU::ERR
+              ok = false
+            end
+            if !server['iam_policies'].nil? and server['iam_policies'].size > 0
+              MU.log "Cannot mix iam_policies with generate_iam_role set to false", MU::ERR
+              ok = false
+            end
+          end
+          if !server['create_image'].nil?
+            if server['create_image'].has_key?('copy_to_regions') and
+                (server['create_image']['copy_to_regions'].nil? or
+                    server['create_image']['copy_to_regions'].include?("#ALL") or
+                    server['create_image']['copy_to_regions'].size == 0
+                )
+              server['create_image']['copy_to_regions'] = MU::Cloud::AWS.listRegions(server['us_only'])
+            end
+          end
+
+          if server['ami_id'].nil?
+            if MU::Config.amazon_images.has_key?(server['platform']) and
+                MU::Config.amazon_images[server['platform']].has_key?(server['region'])
+              server['ami_id'] = configurator.getTail("server"+server['name']+"AMI", value: MU::Config.amazon_images[server['platform']][server['region']], prettyname: "server"+server['name']+"AMI", cloudtype: "AWS::EC2::Image::Id")
+            else
+              MU.log "No AMI specified for #{server['name']} and no default available for platform #{server['platform']} in region #{server['region']}", MU::ERR, details: server
+              ok = false
+            end
+          end
+
+          if !server["loadbalancers"].nil?
+            server["loadbalancers"].each { |lb|
+              if lb["concurrent_load_balancer"] != nil
+                server["dependencies"] << {
+                    "type" => "loadbalancer",
+                    "name" => lb["concurrent_load_balancer"]
+                }
+              end
+            }
+          end
+
+          if !server["vpc"].nil?
+            if server["vpc"]["subnet_name"].nil? and server["vpc"]["subnet_id"].nil? and server["vpc"]["subnet_pref"].nil?
+              MU.log "A server VPC block must specify a target subnet", MU::ERR
+              ok = false
+            end
+          end
+
+          ok
         end
 
         private

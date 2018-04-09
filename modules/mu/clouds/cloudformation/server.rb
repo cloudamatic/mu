@@ -19,11 +19,6 @@ module MU
       # A server as configured in {MU::Config::BasketofKittens::servers}
       class Server < MU::Cloud::Server
 
-        # @return [Mutex]
-        def self.userdata_mutex
-          @userdata_mutex ||= Mutex.new
-        end
-
         attr_reader :cfm_template
         attr_reader :cfm_name
 
@@ -42,7 +37,7 @@ module MU
           @config = kitten_cfg
           @cloud_id = cloud_id
 
-          @userdata = MU::Cloud::AWS::Server.fetchUserdata(
+          @userdata = MU::Cloud.fetchUserdata(
             platform: @config["platform"],
             template_variables: {
               "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
@@ -97,7 +92,7 @@ module MU
             @role_generated = true
           end
           if !@config["iam_role"].nil?
-            MU::Cloud::CloudFormation::Server.addStdPoliciesToIAMProfile(@cfm_role_name, cloudformation_data: @cfm_template) if !@config['scrub_mu_isms']
+            MU::Cloud::CloudFormation::Server.addStdPoliciesToIAMProfile(@cfm_role_name, cloudformation_data: @cfm_template, region: @config['region']) if !@config['scrub_mu_isms']
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @cfm_role_name)
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "DependsOn", @cfm_prof_name)
             MU::Cloud::CloudFormation.setCloudFormationProp(@cfm_template[@cfm_name], "IamInstanceProfile", { "Ref" => @cfm_prof_name })
@@ -262,7 +257,8 @@ module MU
         # Insert a Server's standard IAM role needs into an arbitrary IAM profile
         def self.addStdPoliciesToIAMProfile(rolename, cloudformation_data: {})
           policies = Hash.new
-          policies['Mu_Bootstrap_Secret_'+MU.deploy_id] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::'+MU.adminBucketName+'/'+"#{MU.deploy_id}-secret"+'"}]}'
+          aws_str = MU::Cloud::AWS.isGovCloud?(region) ? "aws-us-gov" : "aws"
+          policies['Mu_Bootstrap_Secret_'+MU.deploy_id] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:'+aws_str+':s3:::'+MU.adminBucketName+'/'+"#{MU.deploy_id}-secret"+'"}]}'
 # XXX this doesn't work unless we can deliver the stack name somehow, and also make the ARN look like arn:aws:cloudformation:us-east-1:144333873908:stack/CATAPULT/*
 #          policies['Mu_Describe_Own_CloudFormation_Stack'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["cloudformation:DescribeStacks", "cloudformation:ListStacks"],"Resource": {"Ref":"AWS::StackId"}}]}'
           policies['Mu_Describe_Own_CloudFormation_Stack'] ='{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["cloudformation:DescribeStacks", "cloudformation:ListStacks"],"Resource": "*"}]}'
@@ -342,6 +338,21 @@ module MU
         def self.cleanup(*args)
           MU.log "cleanup() not implemented for CloudFormation layer", MU::DEBUG
           nil
+        end
+
+        # Cloud-specific configuration properties.
+        # @param config [MU::Config]: The calling MU::Config object
+        # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
+        def self.schema(config)
+          MU::Cloud::AWS::Server.schema(config)
+        end
+
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::servers}, bare and unvalidated.
+        # @param server [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(server, configurator)
+          MU::Cloud::AWS::Server.validateConfig(server, configurator)
         end
 
       end #class

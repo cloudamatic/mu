@@ -245,7 +245,7 @@ module MU
         # @param region [String]: The cloud provider region
         # @param wait [Boolean]: Block on the removal of this stack; AWS deletion will continue in the background otherwise if false.
         # @return [void]
-        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, wait: false)
+        def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, wait: false, flags: {})
 # XXX needs to check tags instead of name- possible?
           resp = MU::Cloud::AWS.cloudformation(region).describe_stacks
           resp.stacks.each { |stack|
@@ -302,6 +302,23 @@ module MU
         def notify
 # XXX move those individual resource type notify calls into here
           @deploy.notify("collections", @config["name"], @config)
+        end
+
+        # Cloud-specific configuration properties.
+        # @param config [MU::Config]: The calling MU::Config object
+        # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
+        def self.schema(config)
+          toplevel_required = []
+          schema = {}
+          [toplevel_required, schema]
+        end
+
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::collections}, bare and unvalidated.
+        # @param stack [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(stack, configurator)
+          true
         end
 
         private

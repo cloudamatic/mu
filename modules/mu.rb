@@ -36,13 +36,6 @@ class Object
   end
 end
 
-if !$MU_CFG or !$MU_CFG['aws'] or !$MU_CFG['aws']['access_key'] or $MU_CFG['aws']['access_key'].empty?
-  ENV.delete('AWS_ACCESS_KEY_ID')
-  ENV.delete('AWS_SECRET_ACCESS_KEY')
-  Aws.config = {region: ENV['EC2_REGION']}
-else
-  Aws.config = {access_key_id: $MU_CFG['aws']['access_key'], secret_access_key: $MU_CFG['aws']['access_secret'], region: ENV['EC2_REGION']}
-end
 ENV['HOME'] = Etc.getpwuid(Process.uid).dir
 
 require 'mu/logger'
@@ -204,7 +197,7 @@ module MU
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
   def self.curRegion
-    @@globals[Thread.current.object_id]['curRegion'] ||= ENV['EC2_REGION']
+    @@globals[Thread.current.object_id]['curRegion'] ||= myRegion || ENV['EC2_REGION']
   end
 
   # Accessor for per-thread global variable. There is probably a Ruby-clever way to define this.
@@ -312,22 +305,22 @@ module MU
     @@mu_public_ip = @@my_private_ip
   end
 
-  # Private Mu server IP address, per AWS
+  # This machine's private IP address
   def self.my_private_ip;
     @@my_private_ip
   end
 
-  # Public Mu server IP address, per AWS
+  # This machine's public IP address
   def self.my_public_ip;
     @@my_public_ip
   end
 
-  # Public Mu server name, not necessarily the same as MU.mu_public_ip
+  # Public Mu server name, not necessarily the same as MU.my_public_ip (an be a proxy, load balancer, etc)
   def self.mu_public_ip;
     @@mu_public_ip
   end
 
-  # Public Mu server IP address, not necessarily the same as MU.my_public_ip
+  # Public Mu server IP address, not necessarily the same as MU.my_public_ip (an be a proxy, load balancer, etc)
   def self.mu_public_addr;
     @@mu_public_addr
   end
@@ -420,25 +413,45 @@ module MU
   end
 
   @@myRegion_var = nil
-  # Find our AWS Region and Availability Zone
+  # Find the cloud provider region where this master resides, if any
   def self.myRegion
-    if ENV.has_key?("EC2_REGION") and !ENV['EC2_REGION'].empty?
-      @@myRegion_var ||= MU::Cloud::AWS.ec2(ENV['EC2_REGION']).describe_availability_zones.availability_zones.first.region_name
+    if MU::Cloud::Google.hosted
+      zone = MU::Cloud::Google.getGoogleMetaData("instance/zone")
+      @@myRegion_var = zone.gsub(/^.*?\/|\-\d+$/, "")
+    elsif MU::Cloud::AWS.hosted
+      @@myRegion_var ||= MU::Cloud::AWS.myRegion
     else
-      # hacky, but useful in a pinch
-      @@myRegion_var = MU::Cloud::AWS.getAWSMetaData("placement/availability-zone").sub(/[a-z]$/i, "")
+      @@myRegion_var = nil
     end
     @@myRegion_var
   end
 
   require 'mu/config'
 
-  # Figure out our account number, by hook or by crook
+  # Figure out what cloud provider we're in, if any.
+  # @return [String]: Google, AWS, etc. Returns nil if we don't seem to be in a cloud.
+  def self.myCloud
+    if MU::Cloud::Google.hosted
+      @@myInstanceId = MU::Cloud::Google.getGoogleMetaData("instance/name")
+      return "Google"
+    elsif MU::Cloud::AWS.hosted
+      @@myInstanceId = MU::Cloud::AWS.getAWSMetaData("instance-id")
+      return "AWS"
+    end
+    nil
+  end
+
+  # Fetch the AWS account number where this Mu master resides. If it's not in 
+  # AWS at all, or otherwise cannot be determined, return nil.
+  # XXX migrate this to MU::AWS and leave a backwards-compatibility wrapper
+  # here.
+  # XXX account for Google and non-cloud situations
   def self.account_number
     if !@@globals[Thread.current.object_id].nil? and
         !@@globals[Thread.current.object_id]['account_number'].nil?
       return @@globals[Thread.current.object_id]['account_number']
     end
+    return nil if MU.myCloud != "AWS"
 		begin
 	    user_list = MU::Cloud::AWS.iam.list_users.users
 		rescue Aws::IAM::Errors::AccessDenied => e
@@ -455,20 +468,12 @@ module MU
     account_number
   end
 
-  # XXX is there a better way to get this?
-  @@myInstanceId = MU::Cloud::AWS.getAWSMetaData("instance-id")
-  # The AWS instance identifier of this Mu master
-  def self.myInstanceId;
-    @@myInstanceId
+  # The cloud instance identifier of this Mu master
+  def self.myInstanceId
+    return nil if MU.myCloud.nil?
+    @@myInstanceId # MU.myCloud will have set this, since it's our test variable
   end
 
-  @@myCloudDescriptor = nil
-  begin
-    # XXX it's ok not to be in AWS, or to target an account other than the one
-    # we live in.
-    @@myCloudDescriptor = MU::Cloud::AWS.ec2(MU.myRegion).describe_instances(instance_ids: [@@myInstanceId]).reservations.first.instances.first
-  rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
-  end
   # If our Mu master is hosted in a cloud provider, we can use this to get its
   # cloud API descriptor.
   def self.myCloudDescriptor;
@@ -476,24 +481,51 @@ module MU
   end
 
   @@myAZ_var = nil
-  # The AWS Availability Zone in which this Mu master resides
+  # Find the cloud provider availability zone where this master resides, if any
   def self.myAZ
-    return nil if MU.myCloudDescriptor.nil?
-    begin
-      @@myAZ_var ||= MU.myCloudDescriptor.placement.availability_zone
-    rescue Aws::EC2::Errors::InternalError => e
-      MU.log "Got #{e.inspect} on MU::Cloud::AWS.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
-      sleep 10
+    if MU::Cloud::Google.hosted
+      zone = MU::Cloud::Google.getGoogleMetaData("instance/zone")
+      @@myAZ_var = zone.gsub(/.*?\//, "")
+    elsif MU::Cloud::AWS.hosted
+      return nil if MU.myCloudDescriptor.nil?
+      begin
+        @@myAZ_var ||= MU.myCloudDescriptor.placement.availability_zone
+      rescue Aws::EC2::Errors::InternalError => e
+        MU.log "Got #{e.inspect} on MU::Cloud::AWS.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
+        sleep 10
+      end
     end
     @@myAZ_var
   end
 
+  @@myCloudDescriptor = nil
+  if MU::Cloud::Google.hosted
+    @@myCloudDescriptor = MU::Cloud::Google.compute.get_instance(
+      MU::Cloud::Google.myProject,
+      MU.myAZ,
+      MU.myInstanceId
+    )
+  elsif MU::Cloud::AWS.hosted
+    begin
+      @@myCloudDescriptor = MU::Cloud::AWS.ec2(MU.myRegion).describe_instances(instance_ids: [MU.myInstanceId]).reservations.first.instances.first
+    rescue Aws::EC2::Errors::InvalidInstanceIDNotFound => e
+    end
+  end
+
+
   @@myVPC_var = nil
-  # The AWS Availability Zone in which this Mu master resides
+  # The VPC/Network in which this Mu master resides
+  # XXX account for Google and non-cloud situations
   def self.myVPC
     return nil if MU.myCloudDescriptor.nil?
     begin
-      @@myVPC_var ||= MU.myCloudDescriptor.vpc_id
+      if MU::Cloud::AWS.hosted
+        @@myVPC_var ||= MU.myCloudDescriptor.vpc_id
+      elsif MU::Cloud::Google.hosted
+        @@myVPC_var = MU.myCloudDescriptor.network_interfaces.first.network.gsub(/.*?\/([^\/]+)$/, '\1')
+      else
+        nil
+      end
     rescue Aws::EC2::Errors::InternalError => e
       MU.log "Got #{e.inspect} on MU::Cloud::AWS.ec2(#{MU.myRegion}).describe_instances(instance_ids: [#{@@myInstanceId}])", MU::WARN
       sleep 10
@@ -503,6 +535,7 @@ module MU
 
   @@mySubnets_var = nil
   # The AWS Subnets associated with the VPC this MU Master is in
+  # XXX account for Google and non-cloud situations
   def self.mySubnets
     @@mySubnets_var ||= MU::Cloud::AWS.ec2(MU.myRegion).describe_subnets(
       filters: [
@@ -515,7 +548,7 @@ module MU
   end
 
   # The version of Chef we will install on nodes.
-  @@chefVersion = "12.21.14-1"
+  @@chefVersion = "12.21.31-1"
   # The version of Chef we will install on nodes.
   # @return [String]
   def self.chefVersion;
@@ -578,6 +611,7 @@ module MU
 
   # Return the name of the S3 Mu log and key bucket for this Mu server.
   # @return [String]
+  # XXX account for Google and non-cloud situations
   def self.adminBucketName
     bucketname = $MU_CFG['aws']['log_bucket_name']
     if bucketname.nil? or bucketname.empty?

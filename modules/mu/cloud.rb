@@ -24,6 +24,11 @@ module MU
     class BootstrapTempFail < MuNonFatal;
     end
 
+    # An exception we can use with transient Net::SSH errors, which require
+    # special handling due to obnoxious asynchronous interrupt behaviors.
+    class NetSSHFail < MuNonFatal;
+    end
+
     # Exception thrown when a request is made to an unimplemented cloud
     # resource.
     class MuCloudResourceNotImplemented < StandardError;
@@ -34,7 +39,7 @@ module MU
     class MuCloudFlagNotImplemented < StandardError;
     end
 
-    generic_class_methods = [:find, :cleanup]
+    generic_class_methods = [:find, :cleanup, :validateConfig, :schema]
     generic_instance_methods = [:create, :notify, :mu_name, :cloud_id, :config]
 
     # Initialize empty classes for each of these. We'll fill them with code
@@ -79,6 +84,9 @@ module MU
     end
     # Stub base class; real implementations generated at runtime
     class StoragePool;
+    end
+    # Stub base class; real implementations generated at runtime
+    class Function;
     end
 
     # The types of cloud resources we can create, as class objects. Include
@@ -160,7 +168,7 @@ module MU
         :deps_wait_on_my_creation => false,
         :waits_on_parent_completion => true,
         :class => generic_class_methods,
-        :instance => generic_instance_methods
+        :instance => generic_instance_methods + [:groom]
       },
       :VPC => {
         :has_multiples => false,
@@ -227,6 +235,17 @@ module MU
         :waits_on_parent_completion => false,
         :class => generic_class_methods,
         :instance => generic_instance_methods + [:groom]
+      },
+      :Function => {
+        :has_multiples => false,
+        :can_live_in_vpc => true,
+        :cfg_name => "function",
+        :cfg_plural => "functions",
+        :interface => self.const_get("Function"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => false,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods
       }
     }.freeze
 
@@ -236,9 +255,41 @@ module MU
       @@resource_types
     end
 
+    # Shorthand lookup for resource type names. Given any of the shorthand class name, configuration name (singular or plural), or full class name, return all four as a set.
+    # @param type [String]: A string that looks like our short or full class name or singular or plural configuration names.
+    # @return [Array]: Class name (Symbol), singular config name (String), plural config name (String), full class name (Object)
+    def self.getResourceNames(type)
+      @@resource_types.each_pair { |name, cloudclass|
+        if name == type.to_sym or
+            cloudclass[:cfg_name] == type or
+            cloudclass[:cfg_plural] == type or
+            Object.const_get("MU").const_get("Cloud").const_get(name) == type
+          cfg_name = cloudclass[:cfg_name]
+          type = name
+          return [type.to_sym, cloudclass[:cfg_name], cloudclass[:cfg_plural], Object.const_get("MU").const_get("Cloud").const_get(name), cloudclass]
+        end
+      }
+      [nil, nil, nil, nil, {}]
+    end
+
+    # Net::SSH exceptions seem to have their own behavior vis a vis threads,
+    # and our regular call stack gets circumvented when they're thrown. Cheat
+    # here to catch them gracefully.
+    def self.handleNetSSHExceptions
+      Thread.handle_interrupt(Net::SSH::Exception => :never) {
+        begin
+          Thread.handle_interrupt(Net::SSH::Exception => :immediate) {
+            MU.log "(Probably harmless) Caught a Net::SSH Exception in #{Thread.current.inspect}", MU::DEBUG, details: Thread.current.backtrace
+          }
+        ensure
+#          raise NetSSHFail, "Net::SSH had a nutty"
+        end
+      }
+    end
+
     # List of known/supported Cloud providers
     def self.supportedClouds
-      ["AWS", "CloudFormation", "Docker"]
+      ["AWS", "CloudFormation", "Google"]
     end
 
     # Load the container class for each cloud we know about, and inject autoload
@@ -247,6 +298,77 @@ module MU
       require "mu/clouds/#{cloud.downcase}"
     }
 
+    # @return [Mutex]
+    def self.userdata_mutex
+      @userdata_mutex ||= Mutex.new
+    end
+
+    # Fetch our baseline userdata argument (read: "script that runs on first
+    # boot") for a given platform.
+    # *XXX* both the eval() and the blind File.read() based on the platform
+    # variable are dangerous without cleaning. Clean them.
+    # @param platform [String]: The target OS.
+    # @param template_variables [Hash]: A list of variable substitutions to pass as globals to the ERB parser when loading the userdata script.
+    # @param custom_append [String]: Arbitrary extra code to append to our default userdata behavior.
+    # @return [String]
+    def self.fetchUserdata(platform: "linux", template_variables: {}, custom_append: nil, cloud: "aws", scrub_mu_isms: false)
+      return nil if platform.nil? or platform.empty?
+      userdata_mutex.synchronize {
+        script = ""
+        if !scrub_mu_isms
+          if template_variables.nil? or !template_variables.is_a?(Hash)
+            raise MuError, "My second argument should be a hash of variables to pass into ERB templates"
+          end
+          $mu = OpenStruct.new(template_variables)
+          userdata_dir = File.expand_path(MU.myRoot+"/modules/mu/clouds/#{cloud}/userdata")
+          platform = "linux" if %w{centos centos6 centos7 ubuntu ubuntu14 rhel rhel7 rhel71 amazon}.include? platform
+          platform = "windows" if %w{win2k12r2 win2k12 win2k8 win2k8r2 win2k16}.include? platform
+          erbfile = "#{userdata_dir}/#{platform}.erb"
+          if !File.exist?(erbfile)
+            MU.log "No such userdata template '#{erbfile}'", MU::WARN, details: caller
+            return ""
+          end
+          userdata = File.read(erbfile)
+          begin
+            erb = ERB.new(userdata)
+            script = erb.result
+          rescue NameError => e
+            raise MuError, "Error parsing userdata script #{erbfile} as an ERB template: #{e.inspect}"
+          end
+          MU.log "Parsed #{erbfile} as ERB", MU::DEBUG, details: script
+        end
+
+        if !custom_append.nil?
+          if custom_append['path'].nil?
+            raise MuError, "Got a custom userdata script argument, but no ['path'] component"
+          end
+          erbfile = File.read(custom_append['path'])
+          MU.log "Loaded userdata script from #{custom_append['path']}"
+          if custom_append['use_erb']
+            begin
+              erb = ERB.new(erbfile, 1)
+              if custom_append['skip_std']
+                script = +erb.result
+              else
+                script = script+"\n"+erb.result
+              end
+            rescue NameError => e
+              raise MuError, "Error parsing userdata script #{erbfile} as an ERB template: #{e.inspect}"
+            end
+            MU.log "Parsed #{custom_append['path']} as ERB", MU::DEBUG, details: script
+          else
+            if custom_append['skip_std']
+              script = erbfile
+            else
+              script = script+"\n"+erbfile
+            end
+            MU.log "Parsed #{custom_append['path']} as flat file", MU::DEBUG, details: script
+          end
+        end
+        return script
+      }
+    end
+
     @cloud_class_cache = {}
     # Given a cloud layer and resource type, return the class which implements it.
     # @param cloud [String]: The Cloud layer
@@ -254,19 +376,7 @@ module MU
     # @return [Class]: The cloud-specific class implementing this resource
     def self.loadCloudType(cloud, type)
       raise MuError, "cloud argument to MU::Cloud.loadCloudType cannot be nil" if cloud.nil?
-      # If we've been asked to resolve this object, that means we plan to use
-      # it, so go ahead and load it.
-      cfg_name = nil
-      @@resource_types.each_pair { |name, cloudclass|
-        if name == type.to_sym or
-            cloudclass[:cfg_name] == type or
-            cloudclass[:cfg_plural] == type or
-            Object.const_get("MU").const_get("Cloud").const_get(name) == type
-          cfg_name = cloudclass[:cfg_name]
-          type = name
-          break
-        end
-      }
+      shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
       if @cloud_class_cache.has_key?(cloud) and @cloud_class_cache[cloud].has_key?(type)
         if @cloud_class_cache[cloud][type].nil?
           raise MuError, "The '#{type}' resource is not supported in cloud #{cloud} (tried MU::#{cloud}::#{type})", caller
@@ -283,7 +393,7 @@ module MU
       begin
         require "mu/clouds/#{cloud.downcase}/#{cfg_name}"
       rescue LoadError => e
-        raise MuCloudResourceNotImplemented
+        raise MuCloudResourceNotImplemented, "MU::Cloud::#{cloud} does not currently implement #{shortclass}"
       end
       @cloud_class_cache[cloud] = {} if !@cloud_class_cache.has_key?(cloud)
       begin
@@ -330,6 +440,7 @@ module MU
         attr_reader :deploy_id
         attr_reader :mu_name
         attr_reader :cloud_id
+        attr_reader :url
         attr_reader :config
         attr_reader :deploydata
         attr_reader :destroyed
@@ -383,7 +494,6 @@ module MU
           end
           return fullname
         end
-
 
 
         # @param mommacat [MU::MommaCat]: The deployment containing this cloud resource
@@ -490,11 +600,14 @@ module MU
 
         def cloud_desc
           describe
-          if !@config.nil? and !@cloud_id.nil?
+          if !@cloudobj.nil?
+            @cloud_desc = @cloudobj.cloud_desc
+            @url = @cloudobj.url if @cloudobj.respond_to?(:url)
+          elsif !@config.nil? and !@cloud_id.nil?
             # The find() method should be returning a Hash with the cloud_id
-            # as a key.
+            # as a key and a cloud platform descriptor as the value.
             begin
-              matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, opts: @config)
+              matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, flags: @config)
               if !matches.nil? and matches.is_a?(Hash) and matches.has_key?(@cloud_id)
                 @cloud_desc = matches[@cloud_id]
               else
@@ -505,6 +618,7 @@ module MU
               raise e
             end
           end
+
           return @cloud_desc
         end
 
@@ -584,7 +698,7 @@ module MU
           # First, general dependencies. These should all be fellow members of
           # the current deployment.
           @config['dependencies'].each { |dep|
-            @dependencies[dep['type']] = {} if !@dependencies.include?(dep['type'])
+            @dependencies[dep['type']] ||= {}
             next if @dependencies[dep['type']].has_key?(dep['name'])
             handle = @deploy.findLitterMate(type: dep['type'], name: dep['name']) if !@deploy.nil?
             if !handle.nil?
@@ -646,7 +760,7 @@ module MU
                     nat_cloud_id: @config['vpc']['nat_host_id'],
                     nat_filter_key: "vpc-id",
                     region: @config['vpc']["region"],
-                    nat_filter_value: @vpc.cloud_desc.vpc_id
+                    nat_filter_value: @vpc.cloud_id
                   )
                 else
                   @nat = @vpc.findNat(
@@ -693,15 +807,30 @@ module MU
         end
 
         def self.find(*flags)
+          allfound = {}
           MU::Cloud.supportedClouds.each { |cloud|
             begin
+              args = flags.first
+              # skip this cloud if we have a region argument that makes no
+              # sense there
+              cloudbase = Object.const_get("MU").const_get("Cloud").const_get(cloud)
+              if args[:region] and cloudbase.respond_to?(:listRegions)
+                next if !cloudbase.listRegions.include?(args[:region])
+              end
               cloudclass = MU::Cloud.loadCloudType(cloud, shortname)
-              found = cloudclass.find(flags.first)
-              return found if !found.nil? # XXX actually, we should merge all results
+
+              found = cloudclass.find(args)
+              if !found.nil?
+                if found.is_a?(Hash)
+                  allfound.merge!(found)
+                else
+                  raise MuError, "#{cloudclass}.find returned a non-Hash result"
+                end
+              end
             rescue MuCloudResourceNotImplemented
             end
-            return nil
           }
+          allfound
         end
 
         if shortname == "DNSZone"
@@ -1034,21 +1163,12 @@ module MU
             session = nil
             retries = 0
 
-            # XXX catch a weird bug in Net::SSH where its exceptions circumvent
-            # our regular call stack and we can't catch them.
-            Thread.handle_interrupt(Net::SSH::Disconnect => :never) {
-              begin
-                Thread.handle_interrupt(Net::SSH::Disconnect => :immediate) {
-                  MU.log "(Probably harmless) Caught a Net::SSH::Disconnect in #{Thread.current.inspect}", MU::DEBUG, details: Thread.current.backtrace
-                }
-              ensure
-              end
-            }
             # XXX WHY is this a thing
             Thread.handle_interrupt(Errno::ECONNREFUSED => :never) {
             }
 
             begin
+              MU::Cloud.handleNetSSHExceptions
               if !nat_ssh_host.nil?
                 proxy_cmd = "ssh -q -o StrictHostKeyChecking=no -W %h:%p #{nat_ssh_user}@#{nat_ssh_host}"
                 MU.log "Attempting SSH to #{canonical_ip} (#{@mu_name}) as #{ssh_user} with key #{@deploy.ssh_key_name} using proxy '#{proxy_cmd}'" if retries == 0
@@ -1085,7 +1205,7 @@ module MU
               e.remember_host!
               session.close
               retry
-            rescue SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::SSH::ConnectionTimeout => e
+            rescue SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::SSH::ConnectionTimeout, Net::SSH::Proxy::ConnectError, MU::Cloud::NetSSHFail => e
               begin
                 session.close if !session.nil?
               rescue Net::SSH::Disconnect, IOError => e
@@ -1117,12 +1237,18 @@ module MU
 
         # Wrapper for the cleanup class method of underlying cloud object implementations.
         def self.cleanup(*flags)
-          MU::Cloud.supportedClouds.each { |cloud|
+          params = flags.first
+          clouds = MU::Cloud.supportedClouds
+          if params[:cloud]
+            clouds = [params[:cloud]]
+            params.delete(:cloud)
+          end
+          clouds.each { |cloud|
             begin
               cloudclass = MU::Cloud.loadCloudType(cloud, shortname)
               raise MuCloudResourceNotImplemented if !cloudclass.respond_to?(:cleanup) or cloudclass.method(:cleanup).owner.to_s != "#<Class:#{cloudclass}>"
               MU.log "Invoking #{cloudclass}.cleanup from #{shortname}", MU::DEBUG, details: flags
-              cloudclass.cleanup(flags.first)
+              cloudclass.cleanup(params)
             rescue MuCloudResourceNotImplemented
               MU.log "No #{cloud} implementation of #{shortname}.cleanup, skipping", MU::DEBUG, details: flags
             end

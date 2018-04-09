@@ -591,6 +591,7 @@ module MU
                   raise MuError, "No result looking for #{@mu_name}'s peer VPCs (#{peer['vpc']})" if peer_obj.nil? or peer_obj.first.nil?
                   peer_obj = peer_obj.first
                   peer_id = peer_obj.cloud_id
+MU.log peer_obj.class.name, MU::WARN, details: peer_obj
 
                   MU.log "Initiating peering connection from VPC #{@config['name']} (#{@config['vpc_id']}) to #{peer_id}"
                   resp = MU::Cloud::AWS.ec2(@config['region']).create_vpc_peering_connection(
@@ -630,9 +631,9 @@ module MU
               # Create routes to our new friend.
               MU::Cloud::AWS::VPC.listAllSubnetRouteTables(@config['vpc_id'], region: @config['region']).each { |rtb_id|
                 my_route_config = {
-                    :route_table_id => rtb_id,
-                    :destination_cidr_block => peer_obj.cloud_desc.cidr_block,
-                    :vpc_peering_connection_id => peering_id
+                  :route_table_id => rtb_id,
+                  :destination_cidr_block => peer_obj.cloud_desc.cidr_block,
+                  :vpc_peering_connection_id => peering_id
                 }
                 begin
                   resp = MU::Cloud::AWS.ec2(@config['region']).create_route(my_route_config)
@@ -729,7 +730,7 @@ module MU
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching VPCs
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, opts: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
 
           retries = 0
           map = {}
@@ -739,9 +740,9 @@ module MU
             if tag_value
               MU.log "Searching for VPC by tag:#{tag_key}=#{tag_value}", MU::DEBUG
               resp = MU::Cloud::AWS.ec2(region).describe_vpcs(
-                  filters: [
-                      {name: "tag:#{tag_key}", values: [tag_value]}
-                  ]
+                filters: [
+                  {name: "tag:#{tag_key}", values: [tag_value]}
+                ]
               )
               if resp.data.vpcs.nil? or resp.data.vpcs.size == 0
                 return nil
@@ -983,8 +984,9 @@ module MU
         # @return [Boolean]
         def self.haveRouteToInstance?(target_instance, region: MU.curRegion)
           return false if target_instance.nil?
+          return false if MU.myCloud != "AWS"
           instance_id = target_instance.instance_id
-
+# XXX check if I'm even in AWS before all this bullshit
           target_vpc_id = target_instance.vpc_id
           my_vpc_id = MU.myCloudDescriptor.vpc_id
           if (target_vpc_id && !target_vpc_id.empty?) && (my_vpc_id && !my_vpc_id.empty?)
@@ -1188,7 +1190,183 @@ module MU
           end
         end
 
+        # Cloud-specific configuration properties.
+        # @param config [MU::Config]: The calling MU::Config object
+        # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
+        def self.schema(config)
+          toplevel_required = []
+          schema = {}
+          [toplevel_required, schema]
+        end
+
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::vpcs}, bare and unvalidated.
+        # @param vpc [Hash]: The resource to process and validate
+        # @param config [MU::Config]: The overall deployment config of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(vpc, config)
+          ok = true
+
+          if (!vpc['route_tables'] or vpc['route_tables'].size == 0) and vpc['create_standard_subnets']
+            vpc['route_tables'] = [
+              {
+                "name" => "internet",
+                "routes" => [ { "destination_network" => "0.0.0.0/0", "gateway" => "#INTERNET" } ]
+              },
+              {
+                "name" => "private",
+                "routes" => [ { "destination_network" => "0.0.0.0/0", "gateway" => "#NAT" } ]
+              }
+            ]
+          end
+
+          subnet_routes = Hash.new
+          public_routes = Array.new
+
+          if vpc['subnets']
+            vpc['subnets'].each { |subnet|
+              subnet_routes[subnet['route_table']] = Array.new if subnet_routes[subnet['route_table']].nil?
+              subnet_routes[subnet['route_table']] << subnet['name']
+            }
+          end
+          if vpc['endpoint_policy'] && !vpc['endpoint_policy'].empty?
+            if !vpc['endpoint']
+              MU.log "'endpoint_policy' is declared however endpoint is not set", MU::ERR
+              ok = false
+            end
+
+            attributes = %w{Effect Action Resource Principal Sid}
+            vpc['endpoint_policy'].each { |rule|
+              rule.keys.each { |key|
+                if !attributes.include?(key)
+                  MU.log "'Attribute #{key} can't be used in 'endpoint_policy'", MU::ERR
+                  ok = false
+                end
+              }
+            }
+          end
+
+          nat_gateway_route_tables = []
+          nat_gateway_added = false
+          public_rtbs = []
+          private_rtbs = []
+          nat_routes = {}
+          vpc['route_tables'].each { |table|
+            routes = []
+            table['routes'].each { |route|
+              if routes.include?(route['destination_network'])
+                MU.log "Duplicate routes to #{route['destination_network']} in route table #{table['name']}", MU::ERR
+                ok = false
+              else
+                routes << route['destination_network']
+              end
+
+              if (route['nat_host_name'] or route['nat_host_id'])
+                private_rtbs << table['name']
+                route.delete("gateway") if route['gateway'] == '#INTERNET'
+              end
+              if !route['nat_host_name'].nil? and config.haveLitterMate?(route['nat_host_name'], "server") and !subnet_routes.nil? and !subnet_routes.empty?
+                subnet_routes[table['name']].each { |subnet|
+                  nat_routes[subnet] = route['nat_host_name']
+                }
+                vpc['dependencies'] << {
+                  "type" => "server",
+                  "name" => route['nat_host_name']
+                }
+              elsif route['gateway'] == '#NAT'
+                private_rtbs << table['name']
+              elsif route['gateway'] == '#INTERNET'
+                public_rtbs << table['name']
+              end
+              next if !vpc['subnets']
+              
+              vpc['subnets'].each { |subnet|
+                if route['gateway'] == '#INTERNET'
+                  if table['name'] == subnet['route_table']
+                    subnet['is_public'] = true
+                    if vpc['create_nat_gateway']
+                      if vpc['nat_gateway_multi_az']
+                        subnet['create_nat_gateway'] = true
+                      else
+                        if nat_gateway_added
+                          subnet['create_nat_gateway'] = false
+                        else
+                          subnet['create_nat_gateway'] = true 
+                          nat_gateway_added = true
+                        end
+                      end
+                    end
+                  else
+                    subnet['is_public'] = false
+                  end
+                  if !nat_routes[subnet['name']].nil?
+                    subnet['nat_host_name'] = nat_routes[subnet['name']]
+                  end
+                elsif route['gateway'] == '#NAT'
+                  if table['name'] == subnet['route_table']
+                    if route['nat_host_name'] or route['nat_host_id']
+                      MU.log "You can either use a NAT gateway or a NAT server, not both.", MU::ERR
+                      ok = false
+                    end
+
+                    subnet['is_public'] = false
+                    nat_gateway_route_tables << table
+                  end
+                end
+              }
+            }
+          }
+
+          if (!vpc['subnets'] or vpc['subnets'].empty?) and vpc['create_standard_subnets']
+            if vpc['availability_zones'].nil? or vpc['availability_zones'].empty?
+              vpc['availability_zones'] = MU::Cloud::AWS.listAZs(vpc['region'])
+            else
+              # turn into a hash so we can use list parameters easily
+              vpc['availability_zones'] = vpc['availability_zones'].map { |val| val['zone'] }
+            end
+            subnets = config.divideNetwork(vpc['ip_block'], vpc['availability_zones'].size*vpc['route_tables'].size)
+
+            ok = false if subnets.nil?
+            vpc['subnets'] = []
+            count = 0
+            vpc['availability_zones'].each { |az|
+              addnat = false
+              if vpc['create_nat_gateway'] and (vpc['nat_gateway_multi_az'] or !nat_gateway_added) and public_rtbs.size > 0
+                addnat = true
+                nat_gateway_added = true
+              end
+              vpc['route_tables'].each { |rtb|
+                vpc['subnets'] << {
+                  "name" => "Subnet#{count}#{rtb['name'].capitalize}",
+                  "availability_zone" => az,
+                  "ip_block" => subnets.shift,
+                  "route_table" => rtb['name'],
+                  
+                  "map_public_ips" => (public_rtbs and public_rtbs.include?(rtb['name'])),
+                  "is_public" => (public_rtbs and public_rtbs.include?(rtb['name'])),
+                  "create_nat_gateway" => (addnat and public_rtbs and public_rtbs.include?(rtb['name']))
+                }
+              }
+              count = count + 1
+            }
+          end
+
+          nat_gateway_route_tables.uniq!
+          if nat_gateway_route_tables.size < 2 && vpc['nat_gateway_multi_az']
+            MU.log "'nat_gateway_multi_az' is enabled but only one route table exists. For multi-az support create one private route table per AZ", MU::ERR
+            ok = false
+          end
+
+          if nat_gateway_route_tables.size > 0 && !vpc['create_nat_gateway']
+            MU.log "There are route tables with a NAT gateway route, but create_nat_gateway is set to false. Setting to true", MU::NOTICE
+            vpc['create_nat_gateway'] = true
+          end
+
+          ok
+        end
+
+
         private
+
 
         # List the route tables for each subnet in the given VPC
         def self.listAllSubnetRouteTables(vpc_id, region: MU.curRegion)
@@ -1234,7 +1412,7 @@ module MU
         end
 
         # Helper method for manufacturing route tables. Expect to be called from
-        # {MU::Cloud::AWS::VPC#create} or {MU::Cloud::AWS::VPC#deploy}.
+        # {MU::Cloud::AWS::VPC#create} or {MU::Cloud::AWS::VPC#groom}.
         # @param rtb [Hash]: A route table description parsed through {MU::Config::BasketofKittens::vpcs::route_tables}.
         # @return [Hash]: The modified configuration that was originally passed in.
         def createRouteTable(rtb)
@@ -1457,8 +1635,8 @@ module MU
                 MU.log "Deleting #{table.route_table_id}'s route for #{route.destination_cidr_block}"
                 begin
                   MU::Cloud::AWS.ec2(region).delete_route(
-                      route_table_id: table.route_table_id,
-                      destination_cidr_block: route.destination_cidr_block
+                    route_table_id: table.route_table_id,
+                    destination_cidr_block: route.destination_cidr_block
                   ) if !noop
                 rescue Aws::EC2::Errors::InvalidRouteNotFound
                   MU.log "Route #{table.route_table_id} has already been deleted", MU::WARN
@@ -1597,13 +1775,13 @@ module MU
                 ]
             ).vpc_peering_connections
             my_peer_conns.concat(MU::Cloud::AWS.ec2(region).describe_vpc_peering_connections(
-                                     filters: [
-                                         {
-                                             name: "accepter-vpc-info.vpc-id",
-                                             values: [vpc.vpc_id]
-                                         }
-                                     ]
-                                 ).vpc_peering_connections)
+              filters: [
+                {
+                  name: "accepter-vpc-info.vpc-id",
+                  values: [vpc.vpc_id]
+                }
+              ]
+            ).vpc_peering_connections)
             my_peer_conns.each { |cnxn|
 
               [cnxn.accepter_vpc_info.vpc_id, cnxn.requester_vpc_info.vpc_id].each { |peer_vpc|
@@ -1635,13 +1813,20 @@ module MU
             }
 
             MU.log "Deleting VPC #{vpc.vpc_id}"
+            retries = 0
             begin
               MU::Cloud::AWS.ec2(region).delete_vpc(vpc_id: vpc.vpc_id) if !noop
             rescue Aws::EC2::Errors::InvalidVpcIDNotFound
               MU.log "VPC #{vpc.vpc_id} has already been deleted", MU::WARN
             rescue Aws::EC2::Errors::DependencyViolation => e
               MU.log "Couldn't delete VPC #{vpc.vpc_id} from #{region}: #{e.inspect}", MU::ERR#, details: caller
-              next
+              if retries < 5
+                retries += 1
+                sleep 10
+                retry
+              else
+                next
+              end
             end
 
             mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu", region: region).values.first

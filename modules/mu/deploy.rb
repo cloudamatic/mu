@@ -106,7 +106,7 @@ module MU
         begin
           raise MuError, "Failed to allocate an unused MU-ID after #{retries} tries!" if retries > 70
           seedsize = 1 + (retries/10).abs
-          seed = Password.pronounceable(8).slice(0..seedsize)
+          seed = (0...seedsize+1).map { ('a'..'z').to_a[rand(26)] }.join
           deploy_id = @appname.upcase + "-" + @environment.upcase + "-" + @timestamp + "-" + seed.upcase
         end while MU::MommaCat.deploy_exists?(deploy_id) or seed == "mu"
         MU.setVar("deploy_id", deploy_id)
@@ -138,6 +138,10 @@ module MU
                 end
               end
             end
+          }
+          shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(data[:cfg_plural])
+          @main_config[data[:cfg_plural]].each { |resource|
+            resource["#MU_CLOUDCLASS"] = classname
           }
           setThreadDependencies(@main_config[data[:cfg_plural]])
         end
@@ -265,7 +269,7 @@ module MU
         @my_threads.each do |t|
           t.join
         end
-exit
+
       rescue Exception => e
         @my_threads.each do |t|
           if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread" and t.object_id != parent_thread_id
@@ -279,6 +283,11 @@ exit
         if e.class.to_s != "SystemExit"
           MU.log e.inspect, MU::ERR, details: e.backtrace if @verbosity != MU::Logger::SILENT
           if !@nocleanup
+            Thread.list.each do |t|
+              if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread" and t.object_id != parent_thread_id
+                t.kill
+              end
+            end
             MU::Cleanup.run(MU.deploy_id, skipsnapshots: true, verbosity: @verbosity, mommacat: @mommacat)
             @nocleanup = true # so we don't run this again later
           end
@@ -286,11 +295,16 @@ exit
         @reraise_thread.raise MuError, e.inspect, e.backtrace if @reraise_thread
         Thread.current.exit
       ensure
-        if @mommacat.numKittens(clouds: ["CloudFormation"]) > 0
+        if @mommacat and @mommacat.numKittens(clouds: ["CloudFormation"]) > 0
           MU::Cloud::CloudFormation.writeCloudFormationTemplate(tails: MU::Config.tails, config: @main_config, path: @cloudformation_output, mommacat: @mommacat)
           # If we didn't build anything besides CloudFormation, purge useless
           # metadata.
           if @mommacat.numKittens(clouds: ["CloudFormation"], negate: true) == 0
+            Thread.list.each do |t|
+              if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread" and t.object_id != parent_thread_id
+                t.kill
+              end
+            end
             MU::Cleanup.run(MU.deploy_id, skipcloud: true, verbosity: MU::Logger::SILENT, mommacat: @mommacat)
             return
           end
@@ -303,8 +317,8 @@ exit
         end
         deployment = @mommacat.deployment
         deployment["deployment_end_time"]=Time.new.strftime("%I:%M %p on %A, %b %d, %Y").to_s;
-        if @mommacat.numKittens(clouds: ["AWS"]) > 0
-          MU::Cloud::AWS.openFirewallForClients
+        if MU.myCloud == "AWS" 
+          MU::Cloud::AWS.openFirewallForClients # XXX add the other clouds, or abstract
         end
         MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
         if @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0
@@ -318,6 +332,7 @@ exit
         MU.log "Generating cost calculation URL for all Amazon Web Services resources."
         MU.setLogging(MU::Logger::SILENT)
 
+        @environment ||= "dev"
         cost_dummy_deploy = MU::Deploy.new(
           @environment.dup,
           verbosity: MU::Logger::SILENT,
@@ -342,7 +357,7 @@ exit
         MU.setLogging(@verbosity)
       end
 
-      MU.log "Deployment complete", details: deployment
+      MU.log "Deployment #{MU.deploy_id} \"#{MU.handle}\" complete", details: deployment
     end
 
     private
@@ -436,6 +451,9 @@ MESSAGE_END
       end
 
       services.each { |resource|
+        if !resource["#MU_CLOUDCLASS"]
+          pp resource
+        end
         res_type = resource["#MU_CLOUDCLASS"].cfg_name
         name = res_type+"_"+resource["name"]
 
@@ -520,6 +538,7 @@ MESSAGE_END
             if !@updating or mode != "create"
               myservice = run_this_method.call
             else
+              # XXX experimental create behavior for --liveupdate flag, only works on a couple of resource types. Inserting new resources into an old deploy is tricky.
               opts = {}
               if service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer"
                 opts['classic'] = service['classic'] ? true : false
@@ -532,7 +551,7 @@ MESSAGE_END
 #                                 allow_multi: service["#MU_CLOUDCLASS"].has_multiple,
                                  tag_key: "MU-ID",
                                  tag_value: @mommacat.deploy_id,
-                                 opts: opts,
+                                 flags: opts,
                                  dummy_ok: false
                                 )
               found = found.delete_if { |x| x.cloud_id.nil? }
@@ -559,7 +578,7 @@ MESSAGE_END
           rescue Exception => e
             MU.log e.inspect, MU::ERR, details: e.backtrace if @verbosity != MU::Logger::SILENT
             MU::MommaCat.unlockAll
-            @my_threads.each do |t|
+            Thread.list.each do |t|
               if t.object_id != Thread.current.object_id and t.thread_variable_get("name") != "main_thread" and t.object_id != parent_thread_id
                 t.kill
               end

@@ -56,7 +56,7 @@ Some basic attributes on the java install and node address, plus Jenkins specifi
     <td><tt>default.jenkins_ssh_urls</tt></td>
     <td>Array</td>
     <td>IP addresses / DNS names of nodes Jenkins will SSH into</td>
-    <td><tt>[node.ipaddress]</tt></td>
+    <td><tt>[node[:ipaddress]]</tt></td>
   </tr>
   <tr>
     <td><tt>default.jenkins_plugins</tt></td>

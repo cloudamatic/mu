@@ -26,7 +26,7 @@ if !node[:application_attributes][:skip_recipes].include?('epel') and !node[:app
       ignore_failure true
     end
   
-    if node.platform_version.to_i == 6
+    if node[:platform_version].to_i == 6
       bash "allow ssh as root" do
         only_if "grep 'disable_root: 1' /etc/cloud/cloud.cfg"
         code <<-EOH
@@ -41,7 +41,7 @@ if !node[:application_attributes][:skip_recipes].include?('epel') and !node[:app
           EOH
         end
       }
-    elsif node.platform_version.to_i == 7
+    elsif node[:platform_version].to_i == 7
       # making sure hostname  is kept across reboot
       execute "sed -i '/ssh_pwauth/a preserve_hostname: true' /etc/cloud/cloud.cfg" do
         not_if "grep 'preserve_hostname: true' /etc/cloud/cloud.cfg"

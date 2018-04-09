@@ -135,9 +135,9 @@ module MU
         # Locate an existing alarm.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @param region [String]: The cloud provider region.
-        # @param opts [Hash]: Optional flags
+        # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching alarm.
-        def self.find(cloud_id: nil, region: MU.curRegion, opts: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
           MU::Cloud::AWS::Alarm.getAlarmByName(cloud_id, region: region)
         end
 
@@ -227,6 +227,86 @@ module MU
         def self.enableAlarmAction(name, region: MU.curRegion)
           MU::Cloud::AWS.cloudwatch(region).enable_alarm_actions(alarm_names: [name])
         end
+
+        # Cloud-specific configuration properties.
+        # @param config [MU::Config]: The calling MU::Config object
+        # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
+        def self.schema(config)
+          toplevel_required = []
+          schema = {}
+          [toplevel_required, schema]
+        end
+
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::alarms}, bare and unvalidated.
+        # @param alarm [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(alarm, configurator)
+          ok = true
+          alarm["dimensions"] ||= []
+
+          if alarm["#TARGETCLASS"] == "cache_cluster"
+            alarm['dimensions'] << { "name" => alarm["#TARGETCLASS"], "cloud_class" => "CacheClusterId" }
+            alarm["namespace"] = "AWS/ElastiCache" if alarm["namespace"].nil?
+          elsif alarm["#TARGETCLASS"] == "server"
+            alarm['dimensions'] << { "name" => alarm["#TARGETCLASS"], "cloud_class" => "InstanceId" }
+            alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
+          elsif alarm["#TARGETCLASS"] == "database"
+            alarm['dimensions'] << { "name" => alarm["#TARGETCLASS"], "cloud_class" => "DBInstanceIdentifier" }
+            alarm["namespace"] = "AWS/RDS" if alarm["namespace"].nil?
+          end
+
+          alarm.delete("#TARGETCLASS")
+          alarm.delete("#TARGETNAME")
+
+          if alarm["dimensions"]
+            alarm["dimensions"].each{ |dimension|
+              if dimension["cloud_class"].nil?
+                MU.log "You must specify 'cloud_class'", MU::ERR
+                ok = false
+              end
+  
+              alarm["namespace"], depclass = 
+                if ["InstanceId", "server", "Server"].include?(dimension["cloud_class"])
+                  dimension["cloud_class"] = "InstanceId"
+                  ["AWS/EC2", "server"]
+                elsif ["AutoScalingGroupName", "server_pool", "ServerPool"].include?(dimension["cloud_class"])
+                  dimension["cloud_class"] = "AutoScalingGroupName"
+                  ["AWS/EC2", "server_pool"]
+                elsif ["DBInstanceIdentifier", "database", "Database"].include?(dimension["cloud_class"])
+                  dimension["cloud_class"] = "DBInstanceIdentifier"
+                  ["AWS/RDS", "database"]
+                elsif ["LoadBalancerName", "loadbalancer", "LoadBalancer"].include?(dimension["cloud_class"])
+                  dimension["cloud_class"] = "LoadBalancerName"
+                  ["AWS/ELB", "loadbalancer"]
+                elsif ["CacheClusterId", "cache_cluster", "CacheCluster"].include?(dimension["cloud_class"])
+                  dimension["cloud_class"] = "CacheClusterId"
+                  ["AWS/ElastiCache", "cache_cluster"]
+                elsif ["VolumeId", "volume", "Volume"].include?(dimension["cloud_class"])
+                  dimension["cloud_class"] = "VolumeId"
+                  ["AWS/EBS", nil]
+                elsif ["BucketName", "bucket", "Bucket"].include?(dimension["cloud_class"])
+                  dimension["cloud_class"] = "BucketName"
+                  ["AWS/S3", nil]
+                elsif ["TopicName", "notification", "Notification"].include?(dimension["cloud_class"])
+                  dimension["cloud_class"] = "TopicName"
+                  ["AWS/SNS", nil]
+                end
+  
+              if !depclass.nil?
+                dimension["depclass"] = depclass
+                if !dimension["name"].nil? and !dimension["name"].empty?
+                  alarm["dependencies"] << { "name" => dimension["name"], "type" => depclass }
+                end
+              end
+            }
+          end
+
+          ok = false unless MU::Config.validate_alarm_config(alarm) # XXX this probably belongs here, rolled out
+
+          ok
+        end
+
       end
     end
   end

@@ -18,21 +18,21 @@ case node[:platform]
 
     include_recipe 'mu-firewall'
 
-    node.glusterfs.fw.each { |rule|
+    node[:glusterfs][:fw].each { |rule|
       firewall_rule "Allow glusterfs #{rule['usage']}" do
         port rule['port_range']
       end
     }
 
-    directory node.glusterfs.client.mount_path do
+    directory node[:glusterfs][:client][:mount_path] do
       recursive true
       mode "0755"
     end
 
-    if node.glusterfs.discovery == 'groupname'
+    if node[:glusterfs][:discovery] == 'groupname'
       gluster_servers = search(
           :node,
-          "glusterfs_is_server:true AND glusterfs_groupname:#{node.glusterfs_groupname}"
+          "glusterfs_is_server:true AND glusterfs_groupname:#{node[:glusterfs_groupname]}"
       )
     end rescue NoMethodError
     if gluster_servers.nil?
@@ -46,8 +46,8 @@ case node[:platform]
       source "mu-gluster-client.erb"
       variables(
           :servers => gluster_servers,
-          :path => node.glusterfs.client.mount_path,
-          :volume => node.glusterfs.server.volume
+          :path => node[:glusterfs][:client][:mount_path],
+          :volume => node[:glusterfs][:server][:volume]
       )
       mode 0755
     end

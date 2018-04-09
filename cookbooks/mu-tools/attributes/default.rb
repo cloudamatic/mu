@@ -26,8 +26,7 @@ default.os_updates_using_chef = false
 default['application_attributes']['application_volume']['mount_directory'] = '/apps'
 default['application_attributes']['application_volume']['mount_device'] = '/dev/xvdf'
 default['application_attributes']['application_volume']['label'] = "#{disk_name_str} /apps"
-default['application_attributes']['application_volume']['filesystem'] = 'ext3'
-default['application_attributes']['application_volume']['volume_size_gb'] = '1'
+default['application_attributes']['application_volume']['volume_size_gb'] = 1
 
 default['application_attributes']['ebs_snapshots']['boto_path'] = '/usr/lib/python2.6/site-packages/boto'
 default['application_attributes']['ebs_snapshots']['minute'] = '10'
@@ -52,10 +51,10 @@ if node.has_key?("deployment")
 end
 
 if (!node.has_key?("admins") or node['admins'].size == 0) and node['tags'].is_a?(Hash)
-  if node.tags.has_key?("MU-OWNER")
+  if node[:tags].has_key?("MU-OWNER")
     default['admins'] = []
     default['admins'] << node['tags']['MU-OWNER']+"@localhost"
-  elsif node.tags.has_key?("MU-ADMINS")
+  elsif node[:tags].has_key?("MU-ADMINS")
     default['admins'] = node['tags']['MU-ADMINS'].split(/\s+/)
   end
 end
@@ -128,10 +127,12 @@ default[:application_attributes][:var_log_audit][:mount_device] = "/dev/xvdq"
 default[:application_attributes][:var_log_audit][:label] = "#{disk_name_str} /var/log/audit"
 default[:application_attributes][:var_log_audit][:mount_directory] = "/var/log/audit"
 
-default['banner']['path'] = "etc/BANNER"
-if node['platform'] == 'amazon'
-  override['firewall']['redhat7_iptables'] = true
-end
+default['banner']['path'] = "etc/BANNER-FEDERAL"
+# firewalld support in the firewall cookbook is too stupid to breathe
+default['firewall']['redhat7_iptables'] = true
+#if node['platform'] == 'amazon'
+#  override['firewall']['redhat7_iptables'] = true
+#end
 
 # We probably don't want to set java defaults here. This may cause issues with attribute precedence when other cookbooks try to install a different version of Java (JDK 7 is not supported/patched)
 # if platform_family?("windows")

@@ -1,4 +1,4 @@
-<%= node.mongodb.log_dir %>/*.log {
+<%= node[:mongodb][:log_dir] %>/*.log {
         daily
         rotate 365
         compress
@@ -9,6 +9,6 @@
         copytruncate
         postrotate
                 killall -SIGUSR1 mongod
-                find <%= node.mongodb.log_dir %> -type f -regex ".*\.\(log.[0-9].*-[0-9].*\)" -exec rm {} \;
+                find <%= node[:mongodb][:log_dir] %> -type f -regex ".*\.\(log.[0-9].*-[0-9].*\)" -exec rm {} \;
 endscript
 }

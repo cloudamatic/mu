@@ -107,9 +107,9 @@ module MU
         # @param region [String]: The cloud provider region
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param opts [Hash]: Optional flags
+        # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching storage pool
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, opts: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
           map = {}
           if cloud_id
             storge_pool = MU::Cloud::AWS.efs(region).describe_file_systems(
@@ -400,6 +400,69 @@ module MU
               }
             end
           end
+        end
+
+        # Cloud-specific configuration properties.
+        # @param config [MU::Config]: The calling MU::Config object
+        # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
+        def self.schema(config)
+          toplevel_required = []
+          schema = {
+            "ingress_rules" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "properties" => {
+                  "sgs" => {
+                    "type" => "array",
+                    "items" => {
+                      "description" => "Other AWS Security Groups; resources that are associated with this group will have this rule applied to their traffic",
+                      "type" => "string"
+                    }
+                  },
+                  "lbs" => {
+                    "type" => "array",
+                    "items" => {
+                      "description" => "AWS Load Balancers which will have this rule applied to their traffic",
+                      "type" => "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+          [toplevel_required, schema]
+        end
+
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::storage_pools}, bare and unvalidated.
+        # @param pool [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(pool, configurator)
+          ok = true
+          supported_regions = %w{us-west-2 us-east-1 us-east-2 eu-west-1}
+
+          if !supported_regions.include?(pool['region'])
+            MU.log "Region #{pool['region']} not supported. Only #{supported_regions.join(',  ')} are supported", MU::ERR
+            ok = false
+          end
+
+          if pool['mount_points'] && !pool['mount_points'].empty?
+            pool['mount_points'].each{ |mp|
+              if mp['ingress_rules']
+                fwname = "storage-#{mp['name']}"
+                acl = {"name" => fwname, "rules" => mp['ingress_rules'], "region" => pool['region'], "optional_tags" => pool['optional_tags']}
+                acl["tags"] = pool['tags'] if pool['tags'] && !pool['tags'].empty?
+                acl["vpc"] = mp['vpc'].dup if mp['vpc']
+                ok = false if !configurator.insertKitten(acl, "firewall_rules")
+                mp["add_firewall_rules"] = [] if mp["add_firewall_rules"].nil?
+                mp["add_firewall_rules"] << {"rule_name" => fwname}
+              end
+  
+            }
+          end
+
+          ok
         end
 
         private

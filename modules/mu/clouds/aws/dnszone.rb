@@ -63,7 +63,7 @@ module MU
             if @config['private']
               if @config['all_account_vpcs']
                 # If we've been told to make this domain available account-wide, do so
-                MU::Cloud::AWS.listRegions.each { |region|
+                MU::Cloud::AWS.listRegions(@config['us_only']).each { |region|
                   known_vpcs = MU::Cloud::AWS.ec2(region).describe_vpcs.vpcs
 
                   MU.log "Enumerating VPCs in #{region}", MU::DEBUG, details: known_vpcs
@@ -787,12 +787,85 @@ module MU
           }
         end
 
+        # Cloud-specific configuration properties.
+        # @param config [MU::Config]: The calling MU::Config object
+        # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
+        def self.schema(config)
+          toplevel_required = []
+          schema = {}
+          [toplevel_required, schema]
+        end
+
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::dnszones}, bare and unvalidated.
+        # @param zone [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(zone, configurator)
+          ok = true
+
+          if !zone["records"].nil?
+            zone["records"].each { |record|
+              record['scrub_mu_isms'] = zone['scrub_mu_isms'] if zone.has_key?('scrub_mu_isms')
+              route_types = 0
+              route_types = route_types + 1 if !record['weight'].nil?
+              route_types = route_types + 1 if !record['geo_location'].nil?
+              route_types = route_types + 1 if !record['region'].nil?
+              route_types = route_types + 1 if !record['failover'].nil?
+  
+              if route_types > 1
+                MU.log "At most one of weight, location, region, and failover can be specified in a record.", MU::ERR, details: record
+                ok = false
+              end
+  
+              if !record['mu_type'].nil?
+                zone["dependencies"] << {
+                  "type" => record['mu_type'],
+                  "name" => record['target']
+                }
+              end
+  
+              if record.has_key?('healthchecks') && !record['healthchecks'].empty?
+                primary_alarms_set = []
+                record['healthchecks'].each { |check|
+                  check['alarm_region'] ||= zone['region'] if check['method'] == "CLOUDWATCH_METRIC"
+                  primary_alarms_set << true if check['type'] == 'primary'
+                }
+  
+                if primary_alarms_set.size != 1
+                  MU.log "Must have only one primary health check, but #{primary_alarms_set.size} are set.", MU::ERR, details: record
+                  ok = false
+                end
+  
+                # record['healthcheck']['alarm_region'] ||= zone['region'] if record['healthcheck']['method'] == "CLOUDWATCH_METRIC"
+  
+                if route_types == 0
+                  MU.log "Health check in a DNS zone only valid with Weighted, Location-based, Latency-based, or Failover routing.", MU::ERR, details: record
+                  ok = false
+                end
+              end
+  
+              if !record['geo_location'].nil?
+                if !record['geo_location']['continent_code'].nil? and (!record['geo_location']['country_code'].nil? or !record['geo_location']['subdivision_code'].nil?)
+                  MU.log "Location routing cannot mix continent_code with other location specifiers.", MU::ERR, details: record
+                  ok = false
+                end
+                if record['geo_location']['country_code'].nil? and !record['geo_location']['subdivision_code'].nil?
+                  MU.log "Cannot specify subdivision_code without country_code.", MU::ERR, details: record
+                  ok = false
+                end
+              end
+            }
+          end
+
+          ok
+        end
+
         # Locate an existing DNSZone or DNSZones and return an array containing matching AWS resource descriptors for those that match.
         # @param cloud_id [String]: The cloud provider's identifier for this resource. Can also use the domain name, we'll check for both.
         # @param region [String]: The cloud provider region
-        # @param opts [Hash]: Optional flags
+        # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching DNSZones
-        def self.find(cloud_id: nil, deploy_id: MU.deploy_id, region: MU.curRegion, opts: {})
+        def self.find(cloud_id: nil, deploy_id: MU.deploy_id, region: MU.curRegion, flags: {})
           matches = {}
 
           resp = MU::Cloud::AWS.route53(region).list_hosted_zones(

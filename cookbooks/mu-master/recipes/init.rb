@@ -28,14 +28,27 @@ require 'socket'
 
 # XXX We want to be able to override these things when invoked from chef-apply,
 # but, like, how?
-CHEF_SERVER_VERSION="12.16.14-1"
-CHEF_CLIENT_VERSION="12.21.14-1"
+CHEF_SERVER_VERSION="12.17.15-1"
+CHEF_CLIENT_VERSION="12.21.31-1"
 KNIFE_WINDOWS="1.9.0"
-MU_BRANCH="master"
+MU_BRANCH="the_goog"
 MU_BASE="/opt/mu"
+
+begin
+  resources('service[sshd]')
+rescue Chef::Exceptions::ResourceNotFound
+  service "sshd" do
+    action :nothing
+  end
+end
+
 if File.read("/etc/ssh/sshd_config").match(/^AllowUsers\s+([^\s]+)(?:\s|$)/)
   SSH_USER = Regexp.last_match[1].chomp
 else
+  execute "sed -i 's/PermitRootLogin no/PermitRootLogin yes/' /etc/ssh/sshd_config" do
+    only_if "grep 'PermitRootLogin no' /etc/ssh/sshd_config"
+    notifies :restart, "service[sshd]", :immediately
+  end
   SSH_USER="root"
 end
 RUNNING_STANDALONE=node[:application_attributes].nil?
@@ -141,27 +154,36 @@ removepackages = []
 rpms = {}
 dpkgs = {}
 
-if platform_family?("rhel") 
+elversion = node[:platform_version].to_i > 2000 ? 6 : node[:platform_version].to_i
+if platform_family?("rhel")
   basepackages = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libyaml", "libffi-devel"]
+#        package epel-release-6-8.9.amzn1.noarch (which is newer than epel-release-6-8.noarch) is already installed
+
   rpms = {
-    "epel-release" => "http://dl.fedoraproject.org/pub/epel/epel-release-latest-#{node[:platform_version].to_i}.noarch.rpm",
-    "chef-server-core" => "https://packages.chef.io/files/stable/chef-server/#{CHEF_SERVER_VERSION.sub(/\-\d+$/, "")}/el/#{node[:platform_version].to_i}/chef-server-core-#{CHEF_SERVER_VERSION}.el#{node[:platform_version].to_i}.x86_64.rpm"
+    "epel-release" => "http://dl.fedoraproject.org/pub/epel/epel-release-latest-#{elversion}.noarch.rpm",
+    "chef-server-core" => "https://packages.chef.io/files/stable/chef-server/#{CHEF_SERVER_VERSION.sub(/\-\d+$/, "")}/el/#{elversion}/chef-server-core-#{CHEF_SERVER_VERSION}.el#{elversion}.x86_64.rpm"
   }
 
-  if node[:platform_version].to_i < 6 or node[:platform_version].to_i >= 8
-    raise "Mu Masters on RHEL-family hosts must be equivalent to RHEL6 or RHEL7"
+
+  if elversion < 6 or elversion >= 8
+    raise "Mu Masters on RHEL-family hosts must be equivalent to RHEL6 or RHEL7 (got #{elversion.to_s})"
 
   # RHEL6, CentOS6, Amazon Linux
-  elsif node[:platform_version].to_i < 7
+  elsif elversion < 7
     basepackages.concat(["mysql-devel"])
     rpms["ruby23"] = "https://s3.amazonaws.com/mu-stuff/ruby23-2.3.1-1.el6.x86_64.rpm"
     removepackages = ["nagios"]
 
   # RHEL7, CentOS7
-  elsif node[:platform_version].to_i < 8
+  elsif elversion < 8
     basepackages.concat(["libX11", "tcl", "tk", "mariadb-devel"])
     rpms["ruby23"] = "https://s3.amazonaws.com/mu-stuff/ruby23-2.3.1-1.el7.centos.x86_64.rpm"
     removepackages = ["nagios", "firewalld"]
+  end
+  # Amazon Linux
+  if node[:platform_version].to_i > 2000
+    basepackages.concat(["compat-libffi5"])
+    rpms.delete("epel-release")
   end
 
 else
@@ -230,7 +252,7 @@ end
 
 # Account for Chef Server upgrades, which require some extra behavior
 execute "move aside old Chef Server files" do
-	command "mv /opt/opscode /opt/opscode.upgrading.backup"
+        command "mv /opt/opscode /opt/opscode.upgrading.backup"
   notifies :run, "execute[rm -rf /opt/opscode.upgrading.backup]", :delayed
   action :nothing
 end
@@ -238,7 +260,7 @@ execute "rm -rf /opt/opscode.upgrading.backup" do
   action :nothing
 end
 rpm_package "Chef Server upgrade package" do
-  source rpms["chef-server-core"]  
+  source rpms["chef-server-core"]
   action :upgrade
   only_if "rpm -q chef-server-core"
   notifies :run, "execute[move aside old Chef Server files]", :before
@@ -293,14 +315,19 @@ end
   end
 }
 file "#{MU_BASE}/var/users/mu/email" do
-  content "root@example.com\n"
-  action :create_if_missing
+  if $MU_CFG
+    content "#{$MU_CFG['mu_admin_email']}\n"
+  else
+    content "root@example.com\n"
+  end
 end
 file "#{MU_BASE}/var/users/mu/realname" do
-  content "Mu Administrator\n"
-  action :create_if_missing
+  if $MU_CFG
+    content "#{$MU_CFG['mu_admin_name']}\n"
+  else
+    content "Mu Administrator\n"
+  end
 end
-
 
 ["mu-aws-setup", "mu-cleanup", "mu-configure", "mu-deploy", "mu-firewall-allow-clients", "mu-gen-docs", "mu-load-config.rb", "mu-node-manage", "mu-tunnel-nagios", "mu-upload-chef-artifacts", "mu-user-manage", "mu-ssh"].each { |exe|
   link "#{MU_BASE}/bin/#{exe}" do

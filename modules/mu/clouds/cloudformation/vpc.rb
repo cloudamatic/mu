@@ -96,11 +96,14 @@ module MU
                   MU::Cloud::CloudFormation.setCloudFormationProp(rtb_template[rtb_name], "DependsOn", igw_name )
                   MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "DependsOn", igw_name )
                 elsif route['gateway'] == '#NAT'
-                  route_needs_nat[rtb_name] = route_name
-# XXX do these down in subnet world
-#                  MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "NatGatewayId", { "Ref" => nat_name } )
-#                  MU::Cloud::CloudFormation.setCloudFormationProp(rtb_template[rtb_name], "DependsOn", nat_name )
-#                  MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "DependsOn", nat_name )
+                  route_needs_nat[rtb['name']] ||= {}
+                  route_needs_nat[rtb['name']]["template"] = rtb_template
+                  route_needs_nat[rtb['name']]["name"] = rtb_name
+                  route_needs_nat[rtb['name']]["routes"] ||= []
+                  route_needs_nat[rtb['name']]["routes"] << {
+                    "name" => route_name,
+                    "template" => route_template
+                  }
                 elsif !route['nat_host_id'].nil?
                   MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "InstanceId", route['nat_host_id'] )
                 elsif !route['nat_host_name'].nil?
@@ -140,6 +143,23 @@ module MU
                 MU::Cloud::CloudFormation.setCloudFormationProp(eip_template[eip_name], "Domain", "vpc")
 
                 nat_name, nat_template = MU::Cloud::CloudFormation.cloudFormationBase("nat", name: subnet_cfg['mu_name'], scrub_mu_isms: @config['scrub_mu_isms'])
+                if !@config['route_tables'].nil?
+                  @config['route_tables'].each { |rtb|
+                    next if !route_needs_nat[rtb['name']]
+                    rtb_template = route_needs_nat[rtb['name']]["template"]
+                    rtb_name = route_needs_nat[rtb['name']]["name"]
+                    route_needs_nat[rtb['name']]["routes"].each { |r|
+                      route_template = r["template"]
+                      route_name = r["name"]
+                      MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "NatGatewayId", { "Ref" => nat_name } )
+                      MU::Cloud::CloudFormation.setCloudFormationProp(rtb_template[rtb_name], "DependsOn", nat_name )
+                      MU::Cloud::CloudFormation.setCloudFormationProp(route_template[route_name], "DependsOn", nat_name )
+                      @cfm_template.merge!(route_template)
+                    }
+                    @cfm_template.merge!(rtb_template)
+                  }
+                end
+
                 MU::Cloud::CloudFormation.setCloudFormationProp(nat_template[nat_name], "AllocationId", { "Fn::GetAtt" => [eip_name, "AllocationId"] })
                 MU::Cloud::CloudFormation.setCloudFormationProp(nat_template[nat_name], "DependsOn", eip_name)
                 MU::Cloud::CloudFormation.setCloudFormationProp(nat_template[nat_name], "DependsOn", attach_name) # XXX make sure config parser catches this requirement
@@ -279,6 +299,21 @@ module MU
         def self.cleanup(*args)
           MU.log "cleanup() not implemented for CloudFormation layer", MU::DEBUG
           nil
+        end
+
+        # Cloud-specific configuration properties.
+        # @param config [MU::Config]: The calling MU::Config object
+        # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
+        def self.schema(config)
+          MU::Cloud::AWS::VPC.schema(config)
+        end
+
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::servers}, bare and unvalidated.
+        # @param server [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(server, configurator)
+          MU::Cloud::AWS::VPC.validateConfig(server, configurator)
         end
 
       end #class

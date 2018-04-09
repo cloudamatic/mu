@@ -1,6 +1,6 @@
 #
 # Cookbook Name::mu-tools
-# Recipe::create_application_volume
+# Recipe::aws_api
 #
 # Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
 #
@@ -18,6 +18,6 @@
 
 chef_gem "aws-sdk-core" do
   compile_time true
-  version "2.5"
+  version "2.6.50"
   action :install
 end

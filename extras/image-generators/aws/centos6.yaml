@@ -1,0 +1,17 @@
+---
+  appname: mu
+  servers: 
+    - 
+      name: centos6
+      platform: centos6
+      size: m3.medium
+      run_list:
+      - recipe[mu-tools::cloudinit]
+      - recipe[mu-tools::apply_security]
+      - recipe[mu-tools::updates]
+      - recipe[mu-tools::split_var_partitions]
+      create_image:
+        image_then_destroy: true
+        public: true
+        copy_to_regions:
+        - "#ALL"

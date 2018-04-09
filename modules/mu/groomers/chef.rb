@@ -266,6 +266,11 @@ module MU
           chef_node.normal.application_attributes = @config['application_attributes']
           chef_node.save
         end
+        if @server.deploy.original_config.has_key?('parameters')
+          MU.log "Setting node:#{@server.mu_name} parameters", MU::DEBUG, details: @server.deploy.original_config['parameters']
+          chef_node.normal.mu_parameters = @server.deploy.original_config['parameters']
+          chef_node.save
+        end
         saveDeployData
 
         retries = 0
@@ -333,8 +338,13 @@ module MU
             end
           end
         rescue MU::Cloud::BootstrapTempFail
-          MU.log "#{@server.mu_name} rebooting from Chef, waiting 30s and retrying", MU::NOTICE
+          MU.log "#{@server.mu_name} rebooting from Chef, waiting then resuming", MU::NOTICE
           sleep 30
+          # weird failures seem common in govcloud
+          if MU::Cloud::AWS.isGovCloud?(@config['region'])
+            @server.reboot(true)
+            sleep 30
+          end
           retry
         rescue RuntimeError, SystemCallError, Timeout::Error, SocketError, Errno::ECONNRESET, IOError, Net::SSH::Exception, MU::Groomer::RunError, WinRM::WinRMError, MU::MuError => e
           begin
@@ -474,6 +484,36 @@ module MU
         end
       end
 
+      # Forcibly (re)install Chef. Useful for upgrading or overwriting a
+      # broken existing install.
+      def reinstall
+        try_winrm = false
+        if !@server.windows?
+          cmd = %Q{curl -LO https://omnitruck.chef.io/install.sh && sudo bash ./install.sh -v #{MU.chefVersion} && rm install.sh}
+        else
+          try_winrm = true
+          cmd = %Q{Invoke-WebRequest -useb https://omnitruck.chef.io/install.ps1 | Invoke-Expression; Install-Project -version:#{MU.chefVersion} -download_directory:$HOME}
+        end
+
+        if try_winrm
+          begin
+            MU.log "Attempting Chef upgrade via WinRM on #{@server.mu_name}", MU::NOTICE, details: cmd
+            winrm = @server.getWinRMSession(1, 30, winrm_retries: 2)
+            pp winrm.run(cmd)
+            return
+          rescue Net::SSH::Disconnect, SystemCallError, Timeout::Error, Errno::ECONNRESET, Errno::EHOSTUNREACH, Net::SSH::Proxy::ConnectError, SocketError, Net::SSH::Disconnect, Net::SSH::AuthenticationFailed, IOError, Net::HTTPServerException, SystemExit, Errno::ECONNREFUSED, Errno::EPIPE, WinRM::WinRMError, HTTPClient::ConnectTimeoutError, RuntimeError, MU::Cloud::BootstrapTempFail, MU::MuError => e
+            MU.log "WinRM failure attempting Chef upgrade on #{@server.mu_name}, will fall back to ssh", MU::WARN
+            cmd = %Q{powershell.exe -inputformat none -noprofile "#{cmd}"}
+          end
+        end
+
+        MU.log "Attempting Chef upgrade via ssh on #{@server.mu_name}", MU::NOTICE, details: cmd
+        ssh = @server.getSSHSession(1)
+        retval = ssh.exec!(cmd) { |ch, stream, data|
+          puts data
+        }
+      end
+
       # Bootstrap our server with Chef
       def bootstrap
         self.class.loadChefLib
@@ -494,6 +534,7 @@ module MU
         MU.log "Bootstrapping #{@server.mu_name} (#{canonical_addr}) with knife"
 
         run_list = ["recipe[mu-tools::newclient]"]
+        run_list << "mu-tools::gcloud" if @server.cloud == "Google" or @server.config['cloud'] == "Google"
 
         json_attribs = {}
         if !@config['application_attributes'].nil?
@@ -561,6 +602,7 @@ module MU
           end
           Timeout::timeout(timeout) {
             require 'chef'
+            MU::Cloud.handleNetSSHExceptions
             kb.run
           }
           # throws Net::HTTPServerException if we haven't really bootstrapped
@@ -891,7 +933,6 @@ retry
       # Upload the certificate to a Chef Vault for this node
       def stashHostSSLCertSecret
         cert, key = @server.deploy.nodeSSLCerts(@server)
-
         certdata = {
           "data" => {
             "node.crt" => cert.to_pem.chomp!.gsub(/\n/, "\\n"),
@@ -901,6 +942,7 @@ retry
         saveSecret(item: "ssl_cert", data: certdata, permissions: nil)
 
         saveSecret(item: "secrets", data: @config['secrets'], permissions: nil) if !@config['secrets'].nil?
+        certdata
       end
 
       # Add a role or recipe to a node. Optionally, throw a fit if it doesn't

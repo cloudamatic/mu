@@ -49,9 +49,9 @@ module MU
         # @param region [String]: The cloud provider region.
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param opts [Hash]: Optional flags
+        # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching Cache Clusters.
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, opts: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
           map = {}
           if cloud_id
             cache_cluster = MU::Cloud::AWS::CacheCluster.getCacheClusterById(cloud_id, region: region)
@@ -668,6 +668,81 @@ module MU
               t.join
             }
           end
+        end
+
+        # Cloud-specific configuration properties.
+        # @param config [MU::Config]: The calling MU::Config object
+        # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
+        def self.schema(config)
+          toplevel_required = []
+          schema = {
+            "ingress_rules" => {
+              "items" => {
+                "properties" => {
+                  "sgs" => {
+                    "type" => "array",
+                    "items" => {
+                      "description" => "Other AWS Security Groups; resources that are associated with this group will have this rule applied to their traffic",
+                      "type" => "string"
+                    }
+                  },
+                  "lbs" => {
+                    "type" => "array",
+                    "items" => {
+                      "description" => "AWS Load Balancers which will have this rule applied to their traffic",
+                      "type" => "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+          [toplevel_required, schema]
+        end
+
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::cache_clusters}, bare and unvalidated.
+        # @param cache [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(cache, configurator)
+          ok = true
+
+          if cluster.has_key?("parameter_group_parameters") && cache["parameter_group_family"].nil?
+            MU.log "parameter_group_family must be set when setting parameter_group_parameters", MU::ERR
+            ok = false
+          end
+          if cache["engine"] == "redis"
+            # We aren't required to create a cache replication group for a single redis cache cluster,
+            # however AWS console does exactly that, ss such we will follow that behavior.
+            if cache["node_count"] > 1
+              cache["create_replication_group"] = true
+              cache["automatic_failover"] = cache["multi_az"]
+            end
+
+            # Some instance types don't support snapshotting
+            if %w{cache.t2.micro cache.t2.small cache.t2.medium}.include?(cache["size"])
+              if cluster.has_key?("snapshot_retention_limit") || cluster.has_key?("snapshot_window")
+                MU.log "Can't set snapshot_retention_limit or snapshot_window on #{cache["size"]}", MU::ERR
+                ok = false
+              end
+            end
+          elsif cache["engine"] == "memcached"
+            cache["create_replication_group"] = false
+            cache["az_mode"] = cache["multi_az"] ? "cross-az" : "single-az"
+
+            if cache["node_count"] > 20
+              MU.log "#{cache['engine']} supports up to 20 nodes per cache cluster", MU::ERR
+              ok = false
+            end
+
+            # memcached doesn't support snapshots
+            if cluster.has_key?("snapshot_retention_limit") || cluster.has_key?("snapshot_window")
+              MU.log "Can't set snapshot_retention_limit or snapshot_window on #{cache["engine"]}", MU::ERR
+              ok = false
+            end
+          end
+
+          ok
         end
 
         private

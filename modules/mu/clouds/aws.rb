@@ -13,29 +13,72 @@
 # limitations under the License.
 
 require "net/http"
+require 'open-uri'
+require 'timeout'
+gem 'aws-sdk-core'
+autoload :Aws, "aws-sdk-core"
+
+if !$MU_CFG or !$MU_CFG['aws'] or !$MU_CFG['aws']['access_key'] or $MU_CFG['aws']['access_key'].empty?
+  ENV.delete('AWS_ACCESS_KEY_ID')
+  ENV.delete('AWS_SECRET_ACCESS_KEY')
+  Aws.config = {region: ENV['EC2_REGION']}
+else
+  Aws.config = {access_key_id: $MU_CFG['aws']['access_key'], secret_access_key: $MU_CFG['aws']['access_secret'], region: $MU_CFG['aws']['region']}
+end
+
 module MU
   class Cloud
     # Support for Amazon Web Services as a provisioning layer.
     class AWS
+      @@myRegion_var = nil
 
+      # If we've configured AWS as a provider, or are simply hosted in AWS, 
+      # decide what our default region is.
+      def self.myRegion
+        if $MU_CFG and (!$MU_CFG['aws'] or !$MU_CFG['aws']['account_number'])
+          return nil
+        end
+        if $MU_CFG and $MU_CFG['aws'] and $MU_CFG['aws']['region']
+          @@myRegion_var ||= MU::Cloud::AWS.ec2($MU_CFG['aws']['region']).describe_availability_zones.availability_zones.first.region_name
+        elsif ENV.has_key?("EC2_REGION") and !ENV['EC2_REGION'].empty?
+          @@myRegion_var ||= MU::Cloud::AWS.ec2(ENV['EC2_REGION']).describe_availability_zones.availability_zones.first.region_name
+        else
+          # hacky, but useful in a pinch
+          az_str = MU::Cloud::AWS.getAWSMetaData("placement/availability-zone")
+          @@myRegion_var = az_str.sub(/[a-z]$/i, "") if az_str
+        end
+      end
+
+      # Is the region we're dealing with a GovCloud region?
+      # @param region [String]: The region in question, defaults to the Mu Master's local region
+      def self.isGovCloud?(region = myRegion)
+        return false if !region
+        region.match(/^us-gov-/)
+      end
+
+      @@azs = {}
       # List the Availability Zones associated with a given Amazon Web Services
       # region. If no region is given, search the one in which this MU master
       # server resides.
       # @param region [String]: The region to search.
       # @return [Array<String>]: The Availability Zones in this region.
       def self.listAZs(region = MU.curRegion)
+        if $MU_CFG and (!$MU_CFG['aws'] or !$MU_CFG['aws']['account_number'])
+          return []
+        end
+        if !region.nil? and @@azs[region]
+          return @@azs[region]
+        end
         if region
           azs = MU::Cloud::AWS.ec2(region).describe_availability_zones(
-              filters: [name: "region-name", values: [region]]
+            filters: [name: "region-name", values: [region]]
           )
-        else
-          azs = MU::Cloud::AWS.ec2(region).describe_availability_zones
         end
-        zones = Array.new
+        @@azs[region] ||= []
         azs.data.availability_zones.each { |az|
-          zones << az.zone_name if az.state == "available"
+          @@azs[region] << az.zone_name if az.state == "available"
         }
-        return zones
+        return @@azs[region]
       end
 
       # Plant a Mu deploy secret into a storage bucket somewhere for so our kittens can consume it
@@ -45,34 +88,64 @@ module MU
         name ||= deploy_id+"-secret"
         begin
           MU.log "Writing #{name} to S3 bucket #{MU.adminBucketName}"
-          MU::Cloud::AWS.s3(MU.myRegion).put_object(
+          MU::Cloud::AWS.s3(myRegion).put_object(
             acl: "private",
             bucket: MU.adminBucketName,
             key: name,
             body: value
           )
         rescue Aws::S3::Errors => e
-          raise DeployInitializeError, "Got #{e.inspect} trying to write #{name} to #{MU.adminBucketName}"
+          raise MU::MommaCat::DeployInitializeError, "Got #{e.inspect} trying to write #{name} to #{MU.adminBucketName}"
         end
       end
 
+      # Determine whether we (the Mu master, presumably) are hosted in this
+      # cloud.
+      # @return [Boolean]
+      def self.hosted
+        require 'open-uri'
+        begin
+          Timeout.timeout(2) do
+            instance_id = open("http://169.254.169.254/latest/meta-data/instance-id").read
+            return true if !instance_id.nil? and instance_id.size > 0
+          end
+        rescue OpenURI::HTTPError, Timeout::Error, SocketError
+        end
+        false
+      end
+
+      @@regions = {}
       # List the Amazon Web Services region names available to this account. The
       # region that is local to this Mu server will be listed first.
+      # @param us_only [Boolean]: Restrict results to United States only
       # @return [Array<String>]
-      def self.listRegions
-        regions = MU::Cloud::AWS.ec2.describe_regions().regions.map { |region| region.region_name }
+      def self.listRegions(us_only = false)
+        if $MU_CFG and (!$MU_CFG['aws'] or !$MU_CFG['aws']['account_number'])
+          return []
+        end
+        if @@regions.size == 0
+          result = MU::Cloud::AWS.ec2(myRegion).describe_regions.regions
+          regions = []
+          result.each { |r|
+            @@regions[r.region_name] = Proc.new { listAZs(r.region_name) }
+          }
+        end
+        regions = if us_only
+          @@regions.keys.delete_if { |r| !r.match(/^us\-/) }.uniq
+        else
+          @@regions.keys.uniq
+        end
 
-#			regions.sort! { |a, b|
-#				val = a <=> b
-#				if a == MU.myRegion
-#					val = -1
-#				elsif b == MU.myRegion
-#					val = 1
-#				end
-#				val
-#			}
-
-        return regions
+        regions.sort! { |a, b|
+          val = a <=> b
+          if a == myRegion
+            val = -1
+          elsif b == myRegion
+            val = 1
+          end
+          val
+        }
+        regions
       end
 
       # Generate an EC2 keypair unique to this deployment, given a regular
@@ -101,7 +174,7 @@ module MU
       # @param name [String]: The name of the cert. For IAM certs this can be any IAM name; for ACM, it's usually the domain name. If multiple matches are found, or no matches, an exception is raised.
       # @param id [String]: The ARN of a known certificate. We just validate that it exists. This is ignored if a name parameter is supplied.
       # @return [String]: The ARN of a matching certificate that is known to exist. If it is an ACM certificate, we also know that it is not expired.
-      def self.findSSLCertificate(name: nil, id: nil, region: MU.myRegion)
+      def self.findSSLCertificate(name: nil, id: nil, region: myRegion)
         if name.nil? and name.empty? and id.nil? and id.empty?
           raise MuError, "Can't call findSSLCertificate without specifying either a name or an id"
         end
@@ -163,91 +236,91 @@ module MU
 
       # Amazon Certificate Manager API
       def self.acm(region = MU.curRegion)
-        region ||= MU.myRegion
+        region ||= myRegion
         @@acm_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ACM", region: region)
         @@acm_api[region]
       end
 
       # Amazon's IAM API
       def self.iam(region = MU.curRegion)
-        region ||= MU.myRegion
+        region ||= myRegion
         @@iam_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "IAM", region: region)
         @@iam_api[region]
       end
 
       # Amazon's EC2 API
       def self.ec2(region = MU.curRegion)
-        region ||= MU.myRegion
+        region ||= myRegion
         @@ec2_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "EC2", region: region)
         @@ec2_api[region]
       end
 
       # Amazon's Autoscaling API
       def self.autoscale(region = MU.curRegion)
-        region ||= MU.myRegion
+        region ||= myRegion
         @@autoscale_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "AutoScaling", region: region)
         @@autoscale_api[region]
       end
 
       # Amazon's ElasticLoadBalancing API
       def self.elb(region = MU.curRegion)
-        region ||= MU.myRegion
+        region ||= myRegion
         @@elb_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ElasticLoadBalancing", region: region)
         @@elb_api[region]
       end
 
       # Amazon's ElasticLoadBalancingV2 (ALB) API
       def self.elb2(region = MU.curRegion)
-        region ||= MU.myRegion
+        region ||= myRegion
         @@elb2_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ElasticLoadBalancingV2", region: region)
         @@elb2_api[region]
       end
 
       # Amazon's Route53 API
       def self.route53(region = MU.curRegion)
-        region ||= MU.myRegion
+        region ||= myRegion
         @@route53_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "Route53", region: region)
         @@route53_api[region]
       end
 
       # Amazon's RDS API
       def self.rds(region = MU.curRegion)
-        region ||= MU.myRegion
+        region ||= myRegion
         @@rds_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "RDS", region: region)
         @@rds_api[region]
       end
 
       # Amazon's CloudFormation API
       def self.cloudformation(region = MU.curRegion)
-        region ||= MU.myRegion
+        region ||= myRegion
         @@cloudformation_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudFormation", region: region)
         @@cloudformation_api[region]
       end
 
       # Amazon's S3 API
       def self.s3(region = MU.curRegion)
-        region ||= MU.myRegion
+        region ||= myRegion
         @@s3_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "S3", region: region)
         @@s3_api[region]
       end
 
       # Amazon's CloudTrail API
       def self.cloudtrail(region = MU.curRegion)
-        region ||= MU.myRegion
+        region ||= myRegion
         @@cloudtrail_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudTrail", region: region)
         @@cloudtrail_api[region]
       end
 
       # Amazon's CloudWatch API
       def self.cloudwatch(region = MU.curRegion)
-        region ||= MU.myRegion
+        region ||= myRegion
         @@cloudwatch_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudWatch", region: region)
         @@cloudwatch_api[region]
       end
 
       # Amazon's Web Application Firewall API (Global, for CloudFront et al)
       def self.wafglobal(region = MU.curRegion)
-        region ||= MU.myRegion
+        region ||= myRegion
         @@wafglobal[region] ||= MU::Cloud::AWS::Endpoint.new(api: "WAF", region: region)
         @@wafglobal[region]
       end
@@ -255,42 +328,42 @@ module MU
 
       # Amazon's Web Application Firewall API (Regional, for ALBs et al)
       def self.waf(region = MU.curRegion)
-        region ||= MU.myRegion
+        region ||= myRegion
         @@waf[region] ||= MU::Cloud::AWS::Endpoint.new(api: "WAFRegional", region: region)
         @@waf[region]
       end
 
       # Amazon's CloudWatchLogs API
       def self.cloudwatchlogs(region = MU.curRegion)
-        region ||= MU.myRegion
+        region ||= myRegion
         @@cloudwatchlogs_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudWatchLogs", region: region)
         @@cloudwatchlogs_api[region]
       end
 
       # Amazon's CloudFront API
       def self.cloudfront(region = MU.curRegion)
-        region ||= MU.myRegion
+        region ||= myRegion
         @@cloudfront_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudFront", region: region)
         @@cloudfront_api[region]
       end
 
       # Amazon's ElastiCache API
       def self.elasticache(region = MU.curRegion)
-        region ||= MU.myRegion
+        region ||= myRegion
         @@elasticache_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ElastiCache", region: region)
         @@elasticache_api[region]
       end
       
       # Amazon's SNS API
       def self.sns(region = MU.curRegion)
-        region ||= MU.myRegion
+        region ||= myRegion
         @@sns_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "SNS", region: region)
         @@sns_api[region]
       end
 
       # Amazon's EFS API
       def self.efs(region = MU.curRegion)
-        region ||= MU.myRegion
+        region ||= myRegion
         @@efs_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "EFS", region: region)
         @@efs_api[region]
       end
@@ -301,16 +374,18 @@ module MU
       def self.getAWSMetaData(param)
         base_url = "http://169.254.169.254/latest/meta-data/"
         begin
-          response = Net::HTTP.get_response(URI("#{base_url}/#{param}"))
-          response.value
-        rescue Net::HTTPServerException => e
+          response = nil
+          Timeout.timeout(2) do
+            response = open("#{base_url}/#{param}").read
+          end
+
+          response
+        rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH, Net::HTTPServerException, Errno::EHOSTUNREACH => e
           # This is fairly normal, just handle it gracefully
           logger = MU::Logger.new
           logger.log "Failed metadata request #{base_url}/#{param}: #{e.inspect}", MU::DEBUG
           return nil
         end
-
-        return response.body
       end
 
       @syslog_port_semaphore = Mutex.new
@@ -334,20 +409,16 @@ module MU
         my_client_sg_name = "Mu Client Rules for #{MU.mu_public_ip}"
         my_sgs = Array.new
 
-        MU.setVar("curRegion", MU.myRegion) if !MU.myRegion.nil?
+        MU.setVar("curRegion", myRegion) if !myRegion.nil?
 
-        resp = MU::Cloud::AWS.ec2.describe_instances(instance_ids: [my_instance_id])
-        instance = resp.reservations.first.instances.first
-
-        instance.security_groups.each { |sg|
+        MU.myCloudDescriptor.security_groups.each { |sg|
           my_sgs << sg.group_id
         }
         resp = MU::Cloud::AWS.ec2.describe_security_groups(
-            group_ids: my_sgs,
-            filters: [
-                {name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip]},
-                {name: "tag:Name", values: [my_client_sg_name]}
-            ]
+          filters: [
+            {name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip]},
+            {name: "tag:Name", values: [my_client_sg_name]}
+          ]
         )
 
         if resp.nil? or resp.security_groups.nil? or resp.security_groups.size == 0
@@ -358,9 +429,9 @@ module MU
             MU.log "We don't have a security group named '#{my_client_sg_name}' available, and we are in EC2 Classic and so cannot create a new group. Defaulting to #{group.group_name}.", MU::NOTICE
           else
             group = MU::Cloud::AWS.ec2.create_security_group(
-                group_name: my_client_sg_name,
-                description: my_client_sg_name,
-                vpc_id: instance.vpc_id
+              group_name: my_client_sg_name,
+              description: my_client_sg_name,
+              vpc_id: instance.vpc_id
             )
             sg_id = group.group_id
             my_sgs << sg_id
@@ -380,6 +451,15 @@ module MU
           exit 1
         end
 
+        if !my_sgs.include?(sg_id)
+          my_sgs << sg_id
+          MU.log "Associating #{my_client_sg_name} with #{MU.myInstanceId}", MU::NOTICE
+          MU::Cloud::AWS.ec2.modify_instance_attribute(
+            instance_id: MU.myInstanceId,
+            groups: my_sgs
+          )
+        end
+
         begin
           MU.log "Using AWS Security Group '#{group.group_name}' (#{sg_id})"
         rescue NoMethodError
@@ -388,7 +468,7 @@ module MU
 
         allow_ips = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
         MU::MommaCat.listAllNodes.each_pair { |node, data|
-					next if data.nil? or !data.is_a?(Hash)
+          next if data.nil? or !data.is_a?(Hash)
           ["public_ip_address"].each { |key|
             if data.has_key?(key) and !data[key].nil? and !data[key].empty?
               allow_ips << data[key] + "/32"
@@ -405,7 +485,7 @@ module MU
                     rule.from_port == port and rule.to_port == port
                   MU.log "Revoking old rules for port #{port.to_s} from #{sg_id}", MU::NOTICE
                   begin
-                    MU::Cloud::AWS.ec2(MU.myRegion).revoke_security_group_ingress(
+                    MU::Cloud::AWS.ec2(myRegion).revoke_security_group_ingress(
                         group_id: sg_id,
                         ip_permissions: [
                             {
@@ -432,7 +512,7 @@ module MU
             }
 
             begin
-              MU::Cloud::AWS.ec2(MU.myRegion).authorize_security_group_ingress(
+              MU::Cloud::AWS.ec2(myRegion).authorize_security_group_ingress(
                   group_id: sg_id,
                   ip_permissions: [
                       {
@@ -486,7 +566,7 @@ module MU
               retval = @api.method(method_sym).call
             end
             return retval
-          rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException, Aws::EC2::Errors::IncorrectState, Aws::EC2::Errors::Http503Error, Aws::AutoScaling::Errors::Http503Error, Aws::AutoScaling::Errors::InternalFailure, Aws::AutoScaling::Errors::ServiceUnavailable, Aws::Route53::Errors::ServiceUnavailable, Aws::ElasticLoadBalancing::Errors::Throttling, Aws::RDS::Errors::ClientUnavailable, Aws::Waiters::Errors::UnexpectedError, Aws::ElasticLoadBalancing::Errors::ServiceUnavailable, Aws::ElasticLoadBalancingV2::Errors::Throttling, Aws::EC2::Errors::IncorrectInstanceState, Aws::IAM::Errors::Throttling => e
+          rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException, Aws::EC2::Errors::IncorrectState, Aws::EC2::Errors::Http503Error, Aws::AutoScaling::Errors::Http503Error, Aws::AutoScaling::Errors::InternalFailure, Aws::AutoScaling::Errors::ServiceUnavailable, Aws::Route53::Errors::ServiceUnavailable, Aws::ElasticLoadBalancing::Errors::Throttling, Aws::RDS::Errors::ClientUnavailable, Aws::Waiters::Errors::UnexpectedError, Aws::ElasticLoadBalancing::Errors::ServiceUnavailable, Aws::ElasticLoadBalancingV2::Errors::Throttling, Seahorse::Client::NetworkingError, Aws::EC2::Errors::IncorrectInstanceState, Aws::IAM::Errors::Throttling => e
             retries = retries + 1
             debuglevel = MU::DEBUG
             interval = 5 + Random.rand(4) - 2

@@ -204,10 +204,38 @@ module MU
         # Locate an existing log group.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @param region [String]: The cloud provider region.
-        # @param opts [Hash]: Optional flags
+        # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching log group.
-        def self.find(cloud_id: nil, region: MU.curRegion, opts: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
           MU::Cloud::AWS::Log.getLogGroupByName(cloud_id, region: region)
+        end
+
+        # Cloud-specific configuration properties.
+        # @param config [MU::Config]: The calling MU::Config object
+        # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
+        def self.schema(config)
+          toplevel_required = []
+          schema = {}
+          [toplevel_required, schema]
+        end
+
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::logs}, bare and unvalidated.
+        # @param log [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(log, configurator)
+          ok = true
+
+          if log_rec["filters"] && !log_rec["filters"].empty?
+            log_rec["filters"].each{ |filter|
+              if filter["namespace"].start_with?("AWS/")
+                MU.log "'namespace' can't be under the 'AWS/' namespace", MU::ERR
+                ok = false
+              end
+            }
+          end
+
+          ok
         end
 
         # Retrieve the complete cloud provider description of a log group.

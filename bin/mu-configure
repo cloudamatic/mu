@@ -85,7 +85,8 @@ $CONFIGURABLES = {
     "pattern" => GIT_PATTERN,
     "callback" => :cloneGitRepo,
     "changes" => ["chefartifacts", "chefrun"],
-    "array" => true
+    "array" => true,
+    "default" => ['https://git.egt-labs.com/mu/demo_platform.git']
   },
   "master_runlist_extras" => {
     "title" => "Mu Master Runlist Extras",
@@ -134,7 +135,7 @@ $CONFIGURABLES = {
       },
       "region" => {
         "title" => "Default Region",
-        "desc" => "Default Amazon Web Services in which we operate"
+        "desc" => "Default Amazon Web Services region in which we operate"
       },
       "access_key" => {
         "title" => "Access Key",
@@ -146,8 +147,31 @@ $CONFIGURABLES = {
         "desc" => "Credentials used for accessing the AWS API (looks like: +Z16iRP9QAq7EcjHINyEMs3oR7A76QpfaSgCBogp)"
       },
       "log_bucket_name" => {
-        "title" => "Log Bucket Name",
-        "desc" => "AWS S3 bucket into which we'll synchronize collected system logs",
+        "title" => "Log and Secret Bucket Name",
+        "desc" => "S3 bucket into which we'll synchronize deploy secrets, and if we're hosted in AWS, collected system logs",
+        "changes" => ["chefrun"]
+      }
+    }
+  },
+  "google" => {
+    "title" => "Google Cloud Platform",
+    "subtree" => {
+      "project" => {
+        "title" => "Default Project",
+        "desc" => "Default Google Cloud Platform project in which we operate and deploy. Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON, and import that key to the vault specified here. Import example: knife vault create secrets google -J my-google-service-account.json"
+      },
+      "credentials" => {
+        "title" => "Credentials Vault:Item",
+        "desc" => "A vault and item from which to retrieve the JSON-formatted Service Account credentials for our GCP account, in the format vault:itemname (e.g. 'secrets:google'). Generate a service account at: https://console.cloud.google.com/iam-admin/serviceaccounts/project, making sure the account has sufficient privileges to manage cloud resources. Download the private key as JSON, and import that key to the vault specified here. Import example: knife vault create secrets google -J my-google-service-account.json "
+      },
+      "region" => {
+        "title" => "Default Region",
+        "desc" => "Default Google Cloud Platform region in which we operate and deploy",
+        "default" => "us-east4"
+      },
+      "log_bucket_name" => {
+        "title" => "Log and Secret Bucket Name",
+        "desc" => "Cloud Storage bucket into which we'll synchronize deploy secrets, and if we're hosted in GCP, collected system logs",
         "changes" => ["chefrun"]
       }
     }
@@ -209,18 +233,18 @@ begin
     instance_id = open("http://169.254.169.254/latest/meta-data/instance-id").read
     $IN_AWS = true if !instance_id.nil? and instance_id.size > 0
   end
-rescue OpenURI::HTTPError, Timeout::Error, SocketError
+rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH
 end
 $IN_GOOGLE = false
 begin
   Timeout.timeout(2) do
     instance_id = open(
-      "http://metadata.google.internal/computeMetadata/v1/instance/id",
+      "http://metadata.google.internal/computeMetadata/v1/instance/name",
       "Metadata-Flavor" => "Google"
     ).read
     $IN_GOOGLE = true if !instance_id.nil? and instance_id.size > 0
   end
-rescue OpenURI::HTTPError, Timeout::Error, SocketError
+rescue OpenURI::HTTPError, Timeout::Error, SocketError, Errno::ENETUNREACH
 end
 
 
@@ -419,8 +443,18 @@ def setDefaults
       end
     }
   elsif $IN_GOOGLE
-    # http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/<index>/forwarded-ips/
-    # TODO learn to pull these
+    base_url = "http://metadata.google.internal/computeMetadata/v1"
+    begin
+      Timeout.timeout(2) do
+# TODO iterate across multiple interfaces/access-configs
+        ip = open("#{base_url}/instance/network-interfaces/0/ip", "Metadata-Flavor" => "Google").read
+        ips << ip if !ip.nil? and ip.size > 0
+        ip = open("#{base_url}/instance/network-interfaces/0/access-configs/0/external-ip", "Metadata-Flavor" => "Google").read
+        ips << ip if !ip.nil? and ip.size > 0
+      end
+    rescue OpenURI::HTTPError, Timeout::Error, SocketError => e
+      # This is fairly normal, just handle it gracefully
+    end
   end
 
   ips.concat(Socket.ip_address_list.delete_if { |i| !i.ipv4? or i.ip_address.match(/^(0\.0\.0\.0$|169\.254\.|127\.0\.)/) }.map { |a| a.ip_address })
@@ -433,7 +467,6 @@ def setDefaults
     $CONFIGURABLES["jenkins"]["subtree"]["admin_email"]["default"] = $CONFIGURABLES["mu_admin_email"]["value"]
   end
   if $IN_AWS
-    $CONFIGURABLES["aws"]["subtree"]["log_bucket_name"]["default"] = $CONFIGURABLES["hostname"]["default"]
     aws = JSON.parse(open("http://169.254.169.254/latest/dynamic/instance-identity/document").read)
     iam = nil
     begin
@@ -447,9 +480,9 @@ def setDefaults
       $CONFIGURABLES["aws"]["subtree"]["access_key"]["desc"] = $CONFIGURABLES["aws"]["subtree"]["access_key"]["desc"] + ". Not necessary if IAM Profile #{iam.bold} has sufficient API access."
       $CONFIGURABLES["aws"]["subtree"]["access_secret"]["desc"] = $CONFIGURABLES["aws"]["subtree"]["access_key"]["desc"] + ". Not necessary if IAM Profile #{iam.bold} has sufficient API access."
     end
-  else
-    $CONFIGURABLES["aws"]["subtree"].delete("log_bucket_name")
   end
+  $CONFIGURABLES["aws"]["subtree"]["log_bucket_name"]["default"] = $CONFIGURABLES["hostname"]["default"]
+  $CONFIGURABLES["google"]["subtree"]["log_bucket_name"]["default"] = $CONFIGURABLES["hostname"]["default"]
 end
 
 
@@ -674,7 +707,7 @@ def entireConfigValid?
   ok
 end
 
-if !$opts[:noninteractive]
+def menu
   begin
     optlist = displayCurrentOpts
     begin
@@ -713,6 +746,10 @@ if !$opts[:noninteractive]
       answer = nil if !entireConfigValid?
     end
   end while answer != "0" and answer != "O" and answer != "o"
+end
+
+if !$opts[:noninteractive]
+  menu
 else
   if !entireConfigValid?
     puts "Configuration had validation errors, exiting.\nRe-invoke #{$0} to correct."
@@ -804,7 +841,15 @@ else
   $MU_CFG = $MU_CFG.merge(setConfigTree)
   require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 end
-require 'mu'
+begin
+  require 'mu'
+rescue MU::MuError => e
+  puts "Correct the above error before proceeding. To retry, run:\n\n#{$0.bold} #{ARGV.join(" ").bold}"
+  exit 1
+rescue LoadError
+  system("cd #{MU_BASE}/lib/modules && umask 0022 && /usr/local/ruby-current/bin/bundle install")
+  require 'mu'
+end
 
 if AMROOT and ($INITIALIZE or $CHANGES.include?("hostname"))
   system("/bin/hostname #{$MU_CFG['hostname']}")
@@ -902,6 +947,9 @@ end
 if $IN_AWS and AMROOT
   system("#{MU_BASE}/lib/bin/mu-aws-setup --dns --sg --logs --ephemeral")
 # XXX --ip? Do we really care?
+end
+if $IN_GOOGLE and AMROOT
+  system("#{MU_BASE}/lib/bin/mu-gcp-setup --sg --logs")
 end
 
 if $INITIALIZE or $CHANGES.include?("chefcerts")

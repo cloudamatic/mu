@@ -31,15 +31,15 @@ Usage:
   opt :environment, "Operate exclusively on one nodes with a particular environment (e.g. dev, prod). Can be used in conjunction with -a or -d.", :require => false, :type => :string
   opt :override_chef_runlist, "An alternate runlist to pass to Chef, in chefrun mode.", :require => false, :type => :string
   opt :xecute, "Run a shell command on matching nodes. Overrides --mode and suppresses some informational output in favor of scriptability.", :require => false, :type => :string
-  opt :mode, "Action to perform on matching nodes. Valid actions: groom, chefrun, awsmeta, vaults, certs", :require => false, :default => "chefrun", :type => :string
+  opt :mode, "Action to perform on matching nodes. Valid actions: groom, chefrun, awsmeta, vaults, certs, chefupgrade", :require => false, :default => "chefrun", :type => :string
   opt :verbose, "Show output from Chef runs, etc", :require => false, :default => false, :type => :boolean
   opt :info, "List a particular node attribute", :require => false, :default => 'nodename', :type => :string
 end
 
 MU.setLogging(MU::Logger::LOUD) if $opts[:verbose]
 
-if !["groom", "chefrun", "vaults", "userdata", "awsmeta", "certs"].include?($opts[:mode])
-  Trollop::die(:mode, "--mode must be one of: groom, chefrun, awsmeta, vaults, certs")
+if !["groom", "chefrun", "vaults", "userdata", "awsmeta", "certs", "chefupgrade"].include?($opts[:mode])
+  Trollop::die(:mode, "--mode must be one of: groom, chefrun, awsmeta, vaults, certs, chefupgrade")
 end
 if $opts[:platform] and !["linux", "windows"].include?($opts[:platform])
   Trollop::die(:platform, "--platform must be one of: linux, windows")
@@ -338,7 +338,6 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
         server["platform"] = "linux" if !server.has_key?("platform")
 
         pool_name = mommacat.getResourceName(svr_class)
-        puts pool_name
         if nodes.size > 0
           matched = false
           nodes.each { |n|
@@ -578,6 +577,48 @@ def sslCerts(deploys = MU::MommaCat.listDeploys, nodes = [], vaults_only: false)
   }
 end
 
+def chefUpgrade(deploys = MU::MommaCat.listDeploys, nodes = [])
+  badnodes = []
+  deploys.each { |muid|
+    mommacat = MU::MommaCat.new(muid)
+    mommacat.listNodes.each_pair { |nodename, server|
+      next if server['conf'].nil?
+      server['conf']["platform"] = "linux" if !server['conf'].has_key?("platform")
+      next if nodes.size > 0 and !nodes.include?(nodename)
+      if server['conf'].nil?
+        MU.log "Failed to find config data for server #{nodename}", MU::WARN
+        next
+      end
+
+      child = Process.fork {
+        server_obj = mommacat.findLitterMate(type: "server", mu_name: nodename)
+        begin
+          server_obj.groomer.reinstall
+        rescue Exception
+        end
+      }
+      $children[child] = nodename
+      while $children.size >= $opts[:concurrent]-1
+        child = Process.wait
+        if !$?.success?
+          badnodes << $children[child]
+        end
+        $children.delete(child)
+      end
+    }
+  }
+
+  Process.waitall.each { |child|
+    if !child[1].success?
+      badnodes << $children[child[0]]
+    end
+  }
+
+  if badnodes.size > 0
+    MU.log "Not all Chef upgrades exited cleanly", MU::WARN, details: badnodes
+  end
+end
+
 if $opts[:xecute]
   runCommand(do_deploys, do_nodes, $opts[:xecute], print_output: true)
 elsif $opts[:mode] == "certs"
@@ -586,6 +627,8 @@ elsif $opts[:mode] == "groom"
   reGroom(do_deploys, do_nodes)
 elsif $opts[:mode] == "vaults"
   reGroom(do_deploys, do_nodes, vaults_only: true)
+elsif $opts[:mode] == "chefupgrade"
+  chefUpgrade(do_deploys, do_nodes)
 elsif $opts[:mode] == "chefrun"
   print_output = $opts[:verbose] || do_nodes.size == 1
   if $opts[:override_chef_runlist]

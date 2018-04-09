@@ -92,19 +92,19 @@ if $opts[:sg]
     rules = Array.new
     open_ports.each { |port|
       rules << {
-          "port" => port,
-          "hosts" => ["0.0.0.0/0"]
+        "port" => port,
+        "hosts" => ["0.0.0.0/0"]
       }
     }
     rules << {
-        "port" => 22,
-        "hosts" => ["#{preferred_ip}/32"]
+      "port" => 22,
+      "hosts" => ["#{preferred_ip}/32"]
     }
     cfg = {
-        "name" => "Mu Master",
-        "cloud" => "AWS",
-        "region" => MU.myRegion,
-        "rules" => rules
+      "name" => "Mu Master",
+      "cloud" => "AWS",
+      "region" => MU.myRegion,
+      "rules" => rules
     }
 
     if !instance.vpc_id.nil?
@@ -169,7 +169,7 @@ $bucketname = MU.adminBucketName
 if $opts[:logs]
   exists = false
 
-  MU.log "Configuring audit log bucket '#{$bucketname}'"
+  MU.log "Configuring log and secret Amazon S3 bucket '#{$bucketname}'"
 
   resp = MU::Cloud::AWS.s3.list_buckets
   resp.buckets.each { |bucket|
@@ -210,6 +210,8 @@ if $opts[:logs]
   		acl: "public-read",
     )
   end
+
+  MU::Master.disk("/dev/xvdl", "/Mu_Logs", 50, "log_vol_ebs_key", "ram7")
 
 #	MU.log "Uploading Mu_CA.pem to #{$bucketname}"
 #	MU::Cloud::AWS.s3.put_object(

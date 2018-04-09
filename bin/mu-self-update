@@ -172,9 +172,9 @@ fi
 /bin/rm -rf $MU_DATADIR/tmp/berks_changes.$$
 
 if [ "$rebuild_chef_artifacts" == "1" ];then
-  $bindir/mu-upload-chef-artifacts
+  $bindir/mu-upload-chef-artifacts -p
 else
-  $bindir/mu-upload-chef-artifacts -r mu -n
+  $bindir/mu-upload-chef-artifacts -r mu
 fi
 
 set +e

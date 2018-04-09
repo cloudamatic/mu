@@ -34,6 +34,9 @@ require 'mu'
 
 MU::Groomer::Chef.loadChefLib # pre-cache this so we don't take a hit on a user-interactive need
 #MU.setLogging($opts[:verbose], $opts[:web])
+if MU.myCloud == "AWS"
+  MU::Cloud::AWS.openFirewallForClients # XXX add the other clouds, or abstract
+end
 
 Signal.trap("URG") do
   puts "------------------------------"

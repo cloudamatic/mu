@@ -37,7 +37,7 @@ else
   default["nagios"]["server_name"] = node[:hostname]
   default['nagios']['server']['server_alias'] = $MU_CFG['public_address']
 end
-#default['nagios']['server']['server_alias'] = node.fqdn+", "+node.hostname+", "+node['local_hostname']+", "+node['local_ipv4']+", "+node['public_hostname']+", "+node['public_ipv4']
+#default['nagios']['server']['server_alias'] = node[:fqdn]+", "+node[:hostname]+", "+node['local_hostname']+", "+node['local_ipv4']+", "+node['public_hostname']+", "+node['public_ipv4']
 default["nagios"]["log_dir"] = "/var/log/httpd"
 default['nagios']['cgi-bin'] = "/usr/lib/cgi-bin/"
 default['nagios']['cgi-path'] = "/nagios/cgi-bin/"
@@ -67,7 +67,7 @@ default['nagios']['url'] = default["nagios"]["server_name"]
 nrpe_host = []
 nrpe_host << MU.my_public_ip if MU.my_public_ip
 nrpe_host << MU.my_private_ip if MU.my_private_ip
-nrpe_host << node.ipaddress if nrpe_host.empty?
+nrpe_host << node[:ipaddress] if nrpe_host.empty?
 default['nrpe']['allowed_hosts'] = nrpe_host.uniq
 
 # No idea why this is set wrong by default

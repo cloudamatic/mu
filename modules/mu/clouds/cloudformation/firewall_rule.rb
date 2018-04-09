@@ -131,6 +131,15 @@ module MU
           end
         end
 
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::firewall_rules}, bare and unvalidated.
+        # @param acl [Hash]: The resource to process and validate
+        # @param config [MU::Config]: The overall deployment config of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(acl, config)
+          # Just use the AWS implemention
+          MU::Cloud::AWS::FirewallRule.validateConfig(acl, config)
+        end
+
         private
 
         #########################################################################
@@ -276,6 +285,21 @@ module MU
         def self.cleanup(*args)
           MU.log "cleanup() not implemented for CloudFormation layer", MU::DEBUG
           nil
+        end
+
+        # Cloud-specific configuration properties.
+        # @param config [MU::Config]: The calling MU::Config object
+        # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
+        def self.schema(config)
+          MU::Cloud::AWS::FirewallRule.schema(config)
+        end
+
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::servers}, bare and unvalidated.
+        # @param server [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(server, configurator)
+          MU::Cloud::AWS::FirewallRule.validateConfig(server, configurator)
         end
 
       end #class

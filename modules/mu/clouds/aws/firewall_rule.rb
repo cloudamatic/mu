@@ -186,9 +186,9 @@ module MU
         # @param region [String]: The cloud provider region
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param opts [Hash]: Optional flags
+        # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching FirewallRules
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, opts: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
 
           if !cloud_id.nil? and !cloud_id.empty?
             begin
@@ -334,6 +334,87 @@ module MU
               end
             end
           }
+        end
+
+        # Cloud-specific configuration properties.
+        # @param config [MU::Config]: The calling MU::Config object
+        # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
+        def self.schema(config)
+          toplevel_required = []
+          schema = {
+            "rules" => {
+              "items" => {
+                "properties" => {
+                  "sgs" => {
+                    "type" => "array",
+                    "items" => {
+                      "description" => "Other AWS Security Groups; resources that are associated with this group will have this rule applied to their traffic",
+                      "type" => "string"
+                    }
+                  },
+                  "lbs" => {
+                    "type" => "array",
+                    "items" => {
+                      "description" => "AWS Load Balancers which will have this rule applied to their traffic",
+                      "type" => "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+          [toplevel_required, schema]
+        end
+
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::firewall_rules}, bare and unvalidated.
+        # @param acl [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment config of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(acl, configurator)
+          ok = true
+          if !acl["vpc_name"].nil? or !acl["vpc_id"].nil?
+            acl['vpc'] = Hash.new
+            if acl["vpc_id"].nil?
+              acl['vpc']["vpc_id"] = config.getTail("vpc_id", value: acl["vpc_id"], prettyname: "Firewall Ruleset #{acl['name']} Target VPC",  cloudtype: "AWS::EC2::VPC::Id") if acl["vpc_id"].is_a?(String)
+            elsif !acl["vpc_name"].nil?
+              acl['vpc']['vpc_name'] = acl["vpc_name"]
+            end
+          end
+          if !acl["vpc"].nil?
+            # Drop meaningless subnet references
+            acl['vpc'].delete("subnets")
+            acl['vpc'].delete("subnet_id")
+            acl['vpc'].delete("subnet_name")
+            acl['vpc'].delete("subnet_pref")
+          end
+          acl['rules'] ||= {}
+          acl['rules'].each { |rule|
+            if !rule['sgs'].nil?
+              rule['sgs'].each { |sg_name|
+	              if configurator.haveLitterMate?(sg_name, "firewall_rules")
+  	              acl["dependencies"] << {
+    	              "type" => "firewall_rule",
+      	            "name" => sg_name,
+        	          "phase" => "groom"
+	                }
+                elsif sg_name == acl['name']
+                  acl['self_referencing'] = true
+                  next
+                end
+              }
+            end
+            if !rule['lbs'].nil?
+              rule['lbs'].each { |lb_name|
+                acl["dependencies"] << {
+                  "type" => "loadbalancer",
+                  "name" => lb_name,
+                  "phase" => "groom"
+                }
+              }
+            end
+          }
+          acl['dependencies'].uniq!
+          ok
         end
 
         private

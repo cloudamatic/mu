@@ -168,8 +168,8 @@ Ciphers aes128-ctr,aes192-ctr,aes256-ctr
 # If we've set AllowGroups, use that instead of restricting to centos
 <%
 begin
-	if !node.application_attributes.sshd_allow_groups.empty? %>
-AllowGroups <%= node.application_attributes.sshd_allow_groups %> root
+	if !node[:application_attributes][:sshd_allow_groups].empty? %>
+AllowGroups <%= node[:application_attributes][:sshd_allow_groups] %> root
 <%
 	else
 	%>
@@ -185,8 +185,8 @@ end
 # Support SVN-only servers, while we're at it
 <%
 begin
-	if node.application_attributes.svn_only_group %>
-Match Group <%= node.application_attributes.svn_only_group %>
+	if node[:application_attributes][:svn_only_group] %>
+Match Group <%= node[:application_attributes][:svn_only_group] %>
 	ForceCommand /usr/bin/svnserve -t
 <%
 	end
@@ -197,12 +197,12 @@ end
 # Support SFTP-only servers, while we're at it
 <%
 begin
-	if node.application_attributes.sftp_only_group %>
-Match Group <%= node.application_attributes.sftp_only_group %>
+	if node[:application_attributes][:sftp_only_group] %>
+Match Group <%= node[:application_attributes][:sftp_only_group] %>
 	ForceCommand internal-sftp
 <%  begin
-			if node.application_attributes.sftp_chroot %>
-	ChrootDirectory <%= node.application_attributes.sftp_chroot %>
+			if node[:application_attributes][:sftp_chroot] %>
+	ChrootDirectory <%= node[:application_attributes][:sftp_chroot] %>
 <%
 			end
 		rescue NoMethodError %>

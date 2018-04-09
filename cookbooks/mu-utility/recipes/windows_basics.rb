@@ -18,7 +18,7 @@
 #
 # Installs basic programs we want on a windows node.  Good for testing windows functionality
 
-case node.platform
+case node[:platform]
   when "windows"
     windows_package "AWS Tools for Windows Powershell" do
       source 'http://sdk-for-net.amazonwebservices.com/latest/AWSToolsAndSDKForNet.msi'
@@ -33,5 +33,5 @@ case node.platform
     end
 
   else
-    Chef::Log.info("Unsupported platform #{node.platform}")
+    Chef::Log.info("Unsupported platform #{node[:platform]}")
 end

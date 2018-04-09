@@ -49,7 +49,19 @@ else
   DEL_PACKAGES="nagios"
 fi
 
-GET_METADATA="curl --fail -s http://169.254.169.254/latest"
+if ! curl --fail http://169.254.169.254/latest/meta-data/instance-id > /dev/null 2>&1;then
+  IN_AWS=0
+else
+  GET_METADATA="curl --fail -s -S http://169.254.169.254/latest"
+  IN_AWS=1
+fi
+if ! curl --fail http://metadata.google.internal/computeMetadata/v1/instance/name -H "Metadata-Flavor: Google" > /dev/null 2>&1;then
+  IN_GOOGLE=0
+else
+  GET_METADATA="curl --fail -s -S http://metadata.google.internal/computeMetadata/v1"
+  IN_GOOGLE=1
+fi
+
 RCFILE=".murc"
 
 #tput will cause a noninteractive session to silently fail, else color things
@@ -193,23 +205,34 @@ if [ "$MUBRANCH" == "" ];then
   fi
 fi
 MU_REPO_NAME="`echo $MU_REPO | cut -d/ -f2 | sed -e 's/\.git$//'`"
-if [ "$EC2_AVAILABILITY_ZONE" == "" ];then
-  EC2_AVAILABILITY_ZONE=`$GET_METADATA/meta-data/placement/availability-zone`
+MY_PRIVATE_IP=""
+if [ "$IN_AWS" == "1" ];then
+  if [ "$EC2_AVAILABILITY_ZONE" == "" ];then
+    EC2_AVAILABILITY_ZONE=`$GET_METADATA/meta-data/placement/availability-zone`
+  fi
+  if [ "$EC2_REGION" == "" ];then
+    EC2_REGION=`$GET_METADATA/dynamic/instance-identity/document|grep region|awk -F\" '{print $4}'`
+  fi
+  if [ "$AWS_ACCOUNT_NUMBER" == "" ];then
+    AWS_ACCOUNT_NUMBER=`$GET_METADATA/dynamic/instance-identity/document|grep accountId|awk -F\" '{print $4}'`
+  fi
+  ip_pattern='^[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$'
+  MY_INSTANCE_ID="`$GET_METADATA/meta-data/instance-id`"
+  MY_PRIVATE_IP="`$GET_METADATA/meta-data/local-ipv4 | egrep \"$ip_pattern\"`"
+  MY_PUBLIC_IP="`$GET_METADATA/meta-data/public-ipv4 2>&1 | egrep \"$ip_pattern\"`"
+  if [ "$MY_PRIVATE_IP" == "" ];then
+    echo "Couldn't determine my private IP with '$GET_METADATA/meta-data/local-ipv4'"
+    exit 1
+  fi
+elif [ "$IN_GOOGLE" == "1" ];then
+  MY_INSTANCE_ID="`$GET_METADATA/instance/name -H 'Metadata-Flavor: Google'`"
+  MY_PRIVATE_IP="`$GET_METADATA/instance/network-interfaces/0/ip -H 'Metadata-Flavor: Google'`"
+  if [ "$MY_PRIVATE_IP" == "" ];then
+    echo "Couldn't determine my private IP with '$GET_METADATA/instance/network-interfaces/0/ip'"
+    exit 1
+  fi
+#  MY_PUBLIC_IP="`$GET_METADATA/meta-data/public-ipv4 | egrep \"$ip_pattern\"`"
 fi
-if [ "$EC2_REGION" == "" ];then
-  EC2_REGION=`$GET_METADATA/dynamic/instance-identity/document|grep region|awk -F\" '{print $4}'`
-fi
-if [ "$AWS_ACCOUNT_NUMBER" == "" ];then
-  AWS_ACCOUNT_NUMBER=`$GET_METADATA/dynamic/instance-identity/document|grep accountId|awk -F\" '{print $4}'`
-fi
-ip_pattern='^[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+\.[[:digit:]]+$'
-MY_INSTANCE_ID="`$GET_METADATA/meta-data/instance-id`"
-MY_PRIVATE_IP="`$GET_METADATA/meta-data/local-ipv4 | egrep \"$ip_pattern\"`"
-if [ "$MY_PRIVATE_IP" == "" ];then
-  echo "Couldn't determine my private IP with '$GET_METADATA/meta-data/local-ipv4'"
-  exit 1
-fi
-MY_PUBLIC_IP="`$GET_METADATA/meta-data/public-ipv4 | egrep \"$ip_pattern\"`"
 if [ "$CHEF_PUBLIC_IP" == "" -a "$MY_PUBLIC_IP" != "" ];then
   CHEF_PUBLIC_IP=$MY_PUBLIC_IP
 fi
@@ -219,19 +242,21 @@ fi
 if [ "$HOST_NAME" == "" ];then
   HOST_NAME="`hostname -s`"
 fi
-if [ "$LOG_BUCKET_NAME" == "" ];then
-  LOG_BUCKET_NAME="mu-logs-${HOST_NAME}-${MY_INSTANCE_ID}"
-fi
 MY_VPC_ID=""
 # Figure out if we have at least one interface in a VPC
-for mac in `$GET_METADATA/meta-data/network/interfaces/macs/`;do
-  vpc_id="`$GET_METADATA/meta-data/network/interfaces/macs/$mac/vpc-id | egrep '^vpc\-'`"
-  if [ "$vpc_id" != "" ];then
-    MY_VPC_ID=$vpc_id
-    break
+if [ "$IN_AWS" == "1" ];then
+  if [ "$LOG_BUCKET_NAME" == "" ];then
+    LOG_BUCKET_NAME="mu-logs-${HOST_NAME}-${MY_INSTANCE_ID}"
   fi
-done
-IAM_ROLE="`$GET_METADATA/meta-data/iam/security-credentials/ 2> /dev/null`"
+  for mac in `$GET_METADATA/meta-data/network/interfaces/macs/`;do
+    vpc_id="`$GET_METADATA/meta-data/network/interfaces/macs/$mac/vpc-id | egrep '^vpc\-'`"
+    if [ "$vpc_id" != "" ];then
+      MY_VPC_ID=$vpc_id
+      break
+    fi
+  done
+  IAM_ROLE="`$GET_METADATA/meta-data/iam/security-credentials/ 2> /dev/null`"
+fi
 
 ###############################################################################
 fail_with_message()

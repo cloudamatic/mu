@@ -30,6 +30,7 @@ when "centos", "redhat"
       command "/bin/firewall-cmd --reload"
       action :nothing
       not_if "/bin/systemctl list-units | grep iptables.service"
+      only_if { ::File.exists?("/bin/firewall-cmd") }
     end
   end
 

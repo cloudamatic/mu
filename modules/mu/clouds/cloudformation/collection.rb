@@ -96,6 +96,21 @@ module MU
           nil
         end
 
+        # Cloud-specific configuration properties.
+        # @param config [MU::Config]: The calling MU::Config object
+        # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
+        def self.schema(config)
+          MU::Cloud::AWS::Collection.schema(config)
+        end
+
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::servers}, bare and unvalidated.
+        # @param server [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(server, configurator)
+          MU::Cloud::AWS::Collection.validateConfig(server, configurator)
+        end
+
       end
     end
   end

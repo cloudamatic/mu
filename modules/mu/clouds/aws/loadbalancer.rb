@@ -166,8 +166,10 @@ module MU
           parent_thread_id = Thread.current.object_id
           generic_mu_dns = nil
           dnsthread = Thread.new {
-            MU.dupGlobals(parent_thread_id)
-            generic_mu_dns = MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: @mu_name, target: "#{lb.dns_name}.", cloudclass: MU::Cloud::LoadBalancer, sync_wait: @config['dns_sync_wait'])
+            if !MU::Cloud::AWS.isGovCloud?
+              MU.dupGlobals(parent_thread_id)
+              generic_mu_dns = MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: @mu_name, target: "#{lb.dns_name}.", cloudclass: MU::Cloud::LoadBalancer, sync_wait: @config['dns_sync_wait'])
+            end
           }
 
           if zones_to_try.size < @config["zones"].size
@@ -534,7 +536,9 @@ module MU
                 r['type'] = "CNAME"
               }
             end
-            MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@config['dns_records'], target: cloud_desc.dns_name)
+            if !MU::Cloud::AWS.isGovCloud?
+              MU::Cloud::AWS::DNSZone.createRecordsFromConfig(@config['dns_records'], target: cloud_desc.dns_name)
+            end
           end
 
           notify
@@ -670,7 +674,9 @@ module MU
                 matched = self.checkForTagMatch(lb.load_balancer_arn, region, ignoremaster, classic)
               end
               if matched
-                MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: lb.load_balancer_name, target: lb.dns_name, cloudclass: MU::Cloud::LoadBalancer, delete: true) if !noop
+                if !MU::Cloud::AWS.isGovCloud?
+                  MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: lb.load_balancer_name, target: lb.dns_name, cloudclass: MU::Cloud::LoadBalancer, delete: true) if !noop
+                end
                 MU.log "Removing Elastic Load Balancer #{lb.load_balancer_name}"
                 if classic
                   MU::Cloud::AWS.elb(region).delete_load_balancer(load_balancer_name: lb.load_balancer_name) if !noop
@@ -723,15 +729,101 @@ module MU
           return nil
         end
 
+        # Cloud-specific configuration properties.
+        # @param config [MU::Config]: The calling MU::Config object
+        # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
+        def self.schema(config)
+          toplevel_required = []
+          schema = {
+            "targetgroups" => {
+              "items" => {
+                "properties" => {
+                  "proto" => {
+                    "type" => "string",
+                    "enum" => ["HTTP", "HTTPS", "TCP", "SSL"],
+                  }
+                }
+              }
+            },
+            "ingress_rules" => {
+              "items" => {
+                "properties" => {
+                  "sgs" => {
+                    "type" => "array",
+                    "items" => {
+                      "description" => "Other AWS Security Groups; resources that are associated with this group will have this rule applied to their traffic",
+                      "type" => "string"
+                    }
+                  },
+                  "lbs" => {
+                    "type" => "array",
+                    "items" => {
+                      "description" => "AWS Load Balancers which will have this rule applied to their traffic",
+                      "type" => "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+          [toplevel_required, schema]
+        end
+
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::loadbalancers}, bare and unvalidated.
+        # @param lb [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(lb, configurator)
+          ok = true
+
+          # XXX what about raw targetgroup ssl declarations?
+          lb['listeners'].each { |listener|
+            if (!listener["ssl_certificate_name"].nil? and !listener["ssl_certificate_name"].empty?) or
+               (!listener["ssl_certificate_id"].nil? and !listener["ssl_certificate_id"].empty?)
+              if lb['cloud'] != "CloudFormation" # XXX or maybe do this anyway?
+                begin
+                  listener["ssl_certificate_id"] = MU::Cloud::AWS.findSSLCertificate(name: listener["ssl_certificate_name"].to_s, id: listener["ssl_certificate_id"].to_s, region: lb['region'])
+                rescue MuError => e
+                  ok = false
+                  next
+                end
+                MU.log "Using SSL cert #{listener["ssl_certificate_id"]} on port #{listener['lb_port']} in ELB #{lb['name']}"
+              end
+            end
+          }
+
+#          if lb["alarms"] && !lb["alarms"].empty?
+#            lb["alarms"].each { |alarm|
+#              alarm["name"] = "lb-#{lb["name"]}-#{alarm["name"]}"
+#              alarm['dimensions'] = [] if !alarm['dimensions']
+#              alarm['dimensions'] << { "name" => lb["name"], "cloud_class" => "LoadBalancerName" }
+#              alarm["namespace"] = "AWS/ELB" if alarm["namespace"].nil?
+#              alarm['cloud'] = lb['cloud']
+#              alarms << alarm.dup
+#            }
+#          end
+
+          if !lb["classic"]
+            if lb["vpc"].nil?
+              MU.log "LoadBalancer #{lb['name']} has no VPC configured. Either set 'classic' to true or configure a VPC.", MU::ERR
+              ok = false
+            end
+          else
+            lb.delete("targetgroups")
+          end
+
+          ok
+        end
+
         # Locate an existing LoadBalancer or LoadBalancers and return an array containing matching AWS resource descriptors for those that match.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @param region [String]: The cloud provider region
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param opts [Hash]: Optional flags
+        # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching LoadBalancers
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, opts: {})
-          classic = opts['classic'] ? true : false
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
+          classic = flags['classic'] ? true : false
 
           matches = {}
           list = {}
@@ -753,7 +845,7 @@ module MU
 
           return matches if matches.size > 0
 
-          if !tag_key.nil? and !tag_value.nil?
+          if !tag_key.nil? and !tag_value.nil? and !tag_key.empty? and list.size > 0
             tag_descriptions = nil
             if classic
               tag_descriptions = MU::Cloud::AWS.elb(region).describe_tags(

@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License in the root of the project or at
 #
-#	http://egt-labs.com/mu/LICENSE.html
+#  http://egt-labs.com/mu/LICENSE.html
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -176,9 +176,9 @@ module MU
         # @param region [String]: The cloud provider region
         # @param tag_key [String]: A tag key to search.
         # @param tag_value [String]: The value of the tag specified by tag_key to match when searching by tag.
-        # @param opts [Hash]: Optional flags
+        # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching Databases
-        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, opts: {})
+        def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
           map = {}
           if cloud_id
             db = MU::Cloud::AWS::Database.getDatabaseById(cloud_id, region: region)
@@ -406,11 +406,14 @@ module MU
 
           # If referencing an existing DB, insert this deploy's DB security group so it can access db
           if @config["creation_style"] == 'existing'
-            vpc_sg_ids = Array.new
+            vpc_sg_ids = []
             database.vpc_security_groups.each { |vpc_sg|
               vpc_sg_ids << vpc_sg.vpc_security_group_id
             }
-            localdeploy_rule =  @deploy.findLitterMate(type: "firewall_rule", name: "db"+@config['name'])
+            localdeploy_rule =  @deploy.findLitterMate(type: "firewall_rule", name: "database"+@config['name'])
+            if localdeploy_rule.nil?
+              raise MU::MuError, "Database #{@config['name']} failed to find its generic security group 'database#{@config['name']}'"
+            end
             MU.log "Found this deploy's DB security group: #{localdeploy_rule.cloud_id}", MU::DEBUG
             vpc_sg_ids << localdeploy_rule.cloud_id
             mod_config = Hash.new
@@ -790,7 +793,7 @@ module MU
                         :keys => [ssh_keydir+"/"+keypairname],
                         :keys_only => true,
                         :auth_methods => ['publickey'],
-  #								:verbose => :info
+  #                :verbose => :info
                     )
                     port = gateway.open(database.endpoint.address, database.endpoint.port)
                     address = "127.0.0.1"
@@ -1342,7 +1345,130 @@ module MU
           threads.each { |t|
             t.join
           }
+        end
+
+        # Cloud-specific configuration properties.
+        # @param config [MU::Config]: The calling MU::Config object
+        # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
+        def self.schema(config)
+          toplevel_required = []
+          schema = {
+            "license_model" => {
+              "type" => "string",
+              "enum" => ["license-included", "bring-your-own-license", "general-public-license", "postgresql-license"],
+              "default" => "license-included"
+            },
+            "ingress_rules" => {
+              "items" => {
+                "properties" => {
+                  "sgs" => {
+                    "type" => "array",
+                    "items" => {
+                      "description" => "Other AWS Security Groups; resources that are associated with this group will have this rule applied to their traffic",
+                      "type" => "string"
+                    }
+                  },
+                  "lbs" => {
+                    "type" => "array",
+                    "items" => {
+                      "description" => "AWS Load Balancers which will have this rule applied to their traffic",
+                      "type" => "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+          [toplevel_required, schema]
+        end
+
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::databases}, bare and unvalidated.
+        # @param db [Hash]: The resource to process and validate
+        # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+        # @return [Boolean]: True if validation succeeded, False otherwise
+        def self.validateConfig(db, configurator)
+          ok = true
+
+          db_cluster_engines = %w{aurora}
+          db["create_cluster"] =
+            if db_cluster_engines.include?(db["engine"])
+              true
+            else
+              false
+            end
+
+          db["license_model"] ||=
+            if db["engine"] == "postgres"
+              "postgresql-license"
+            elsif db["engine"] == "mysql"
+              "general-public-license"
+            end
+
+          if db["create_read_replica"] or db['read_replica_of']
+            if db["engine"] != "postgres" and db["engine"] != "mysql"
+              MU.log "Read replica(s) database instances only supported for postgres and mysql. #{db["engine"]} not supported.", MU::ERR
+              ok = false
+            end
           end
+
+          if !db['password'].nil? and (db['password'].length < 8 or db['password'].match(/[\/\\@\s]/))
+            MU.log "Database password '#{db['password']}' doesn't meet RDS requirements. Must be > 8 chars and have only ASCII characters other than /, @, \", or [space].", MU::ERR
+            ok = false
+          end
+          if db["multi_az_on_create"] and db["multi_az_on_deploy"]
+            MU.log "Both of multi_az_on_create and multi_az_on_deploy cannot be true", MU::ERR
+            ok = false
+          end
+          if db.has_key?("db_parameter_group_parameters") || db.has_key?("cluster_parameter_group_parameters")
+            if db["parameter_group_family"].nil?
+              MU.log "parameter_group_family must be set when setting db_parameter_group_parameters", MU::ERR
+              ok = false
+            end
+          end
+          # Adding rules for Database instance storage. This varies depending on storage type and database type. 
+          if !db["storage"].nil? and (db["storage_type"] == "standard" or db["storage_type"] == "gp2")
+            if db["engine"] == "postgres" or db["engine"] == "mysql"
+              if !(5..6144).include? db["storage"]
+                MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 5 to 6144 GB for #{db["storage_type"]} volume types", MU::ERR
+                ok = false
+              end
+            elsif %w{oracle-se1 oracle-se oracle-ee}.include? db["engine"]
+              if !(10..6144).include? db["storage"]
+                MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 10 to 6144 GB for #{db["storage_type"]} volume types", MU::ERR
+                ok = false
+              end
+            elsif %w{sqlserver-ex sqlserver-web}.include? db["engine"]
+              if !(20..4096).include? db["storage"]
+                MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 20 to 4096 GB for #{db["storage_type"]} volume types", MU::ERR
+                ok = false
+              end
+            elsif %w{sqlserver-ee sqlserver-se}.include? db["engine"]
+              if !(200..4096).include? db["storage"]
+                MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 200 to 4096 GB for #{db["storage_type"]} volume types", MU::ERR
+                ok = false
+              end
+            end
+          elsif db["storage_type"] == "io1"
+            if %w{postgres mysql oracle-se1 oracle-se oracle-ee}.include? db["engine"]
+              if !(100..6144).include? db["storage"]
+                MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 6144 GB for #{db["storage_type"]} volume types", MU::ERR
+                ok = false
+              end
+            elsif %w{sqlserver-ex sqlserver-web}.include? db["engine"]
+              if !(100..4096).include? db["storage"]
+                MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 100 to 4096 GB for #{db["storage_type"]} volume types", MU::ERR
+                ok = false
+              end
+            elsif %w{sqlserver-ee sqlserver-se}.include? db["engine"]
+              if !(200..4096).include? db["storage"]
+                MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 200 to 4096 GB #{db["storage_type"]} volume types", MU::ERR
+                ok = false
+              end
+            end
+          end
+
+          ok
+        end
 
         private
 

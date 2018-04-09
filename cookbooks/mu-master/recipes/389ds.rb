@@ -92,9 +92,21 @@ service service_name do
   action [:enable, :start]
 end
 
-service "dirsrv-admin" do
-  action [:enable, :start]
+if platform_family?("rhel") and node[:platform_version].to_i >= 7
+  cookbook_file "dirsrv_admin.pp" do
+    path "#{Chef::Config[:file_cache_path]}/dirsrv_admin.pp"
+  end
+
+  execute "Add dirsrv-admin to SELinux allow list" do
+    command "/usr/sbin/semodule -i dirsrv_admin.pp"
+    cwd Chef::Config[:file_cache_path]
+    not_if "/usr/sbin/semodule -l | grep dirsrv_admin"
+  end
 end
+
+#service "dirsrv-admin" do
+#  action [:enable, :start]
+#end
 
 chef_gem "expect" do
   compile_time true

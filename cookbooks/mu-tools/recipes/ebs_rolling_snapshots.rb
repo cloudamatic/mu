@@ -28,8 +28,8 @@ snap_string << " --exclude_devices '#{node['ebs_snapshots']['exclude_devices'].j
 
 case node['platform']
 when "windows"
-  cookbook_file "#{Chef::Config[:file_cache_path]}/ebs_snpashots.py" do
-    source 'ebs_snpashots.py'
+  cookbook_file "#{Chef::Config[:file_cache_path]}/ebs_snapshots.py" do
+    source 'ebs_snapshots.py'
   end
 
   ['boto', 'requests'].each do |pkg|
@@ -48,14 +48,14 @@ when "windows"
 
   windows_task 'daily-snapshots' do
     user "SYSTEM"
-    command "python #{Chef::Config[:file_cache_path]}\\ebs_snpashots.py #{snap_string}"
+    command "python #{Chef::Config[:file_cache_path]}\\ebs_snapshots.py #{snap_string}"
     run_level :highest
     frequency :daily
     start_time "06:00"
   end
 else
-  cookbook_file "/opt/ebs_snpashots.py" do
-    source 'ebs_snpashots.py'
+  cookbook_file "/opt/ebs_snapshots.py" do
+    source 'ebs_snapshots.py'
   end
 
   ['boto', 'requests'].each do |pkg|
@@ -70,6 +70,6 @@ else
     minute "10"
     hour "6"
     user "root"
-    command "python /opt/ebs_snpashots.py #{snap_string}"
+    command "python /opt/ebs_snapshots.py #{snap_string}"
   end
 end
