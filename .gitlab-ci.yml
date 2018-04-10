@@ -23,13 +23,20 @@ Cookstyle:
   script:
     - cookstyle cookbooks/
   allow_failure: true
-  
+
 Foodcritic:
   stage: Lint
   image: chef/chefdk:latest
   script:
     - foodcritic cookbooks/
   allow_failure: true
+
+  
+Foodcritic Deprications:
+  stage: Test
+  image: chef/chefdk:latest
+  script:
+    - foodcritic cookbooks/ --tags chef13,chef14
 
 ChefSpec:
   stage: Test
