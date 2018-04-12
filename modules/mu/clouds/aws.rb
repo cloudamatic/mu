@@ -166,6 +166,11 @@ module MU
         end
       end
 
+      def self.listInstanceTypes
+        resp = MU::Cloud::AWS.pricing.describe_services(service_code: "AmazonEC2")
+        pp resp
+      end
+
       # AWS can stash API-available certificates in Amazon Certificate Manager
       # or in IAM. Rather than make people crazy trying to get the syntax
       # correct in our Baskets of Kittens, let's have a helper that tries to do
@@ -367,6 +372,21 @@ module MU
         @@efs_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "EFS", region: region)
         @@efs_api[region]
       end
+
+      # Amazon's ECS API
+      def self.ecs(region = MU.curRegion)
+        region ||= myRegion
+        @@ecs_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ECS", region: region)
+        @@ecs_api[region]
+      end
+
+      # Amazon's Pricing API
+      def self.pricing(region = MU.curRegion)
+        region ||= myRegion
+        @@pricing_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "Pricing", region: region)
+        @@pricing_api[region]
+      end
+
 
       # Fetch an Amazon instance metadata parameter (example: public-ipv4).
       # @param param [String]: The parameter name to fetch
@@ -605,6 +625,8 @@ module MU
       @@elasticache_api = {}
       @@sns_api = {}
       @@efs_api ={}
+      @@ecs_api ={}
+      @@pricing_api ={}
     end
   end
 end

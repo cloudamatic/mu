@@ -5157,6 +5157,29 @@ module MU
     }
     @storage_pool_primitive["properties"].merge!(@storage_pool_mount_points_primitive)
 
+    @container_pool_primitive = {
+      "type" => "object",
+      "title" => "ContainerPool",
+      "description" => "Create a pool of container hosts.",
+      "required" => ["name", "cloud", "instance_type", "instance_count"],
+      "additionalProperties" => false,
+      "properties" => {
+        "cloud" => @cloud_primitive,
+        "name" => {"type" => "string"},
+        "region" => MU::Config.region_primitive,
+        "vpc" => vpc_reference_primitive(ONE_SUBNET+MANY_SUBNETS, NO_NAT_OPTS, "all_private"),
+        "tags" => @tags_primitive,
+        "optional_tags" => {
+          "type" => "boolean",
+          "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
+        },
+        "instance_count" => {
+          "type" => "integer",
+          "default" => 2
+        }
+      }
+    }
+
     @function_primitive = {
       "type" => "object",
       "title" => "Function",
@@ -5300,6 +5323,10 @@ module MU
             "storage_pools" => {
               "type" => "array",
               "items" => @storage_pool_primitive
+            },
+            "container_pools" => {
+              "type" => "array",
+              "items" => @container_pool_primitive
             },
             "admins" => {
                 "type" => "array",
