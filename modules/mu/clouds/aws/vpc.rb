@@ -491,7 +491,7 @@ module MU
                   "logs:DescribeLogStreams",
                   "logs:PutLogEvents"
                 ],
-                "Resource": "arn:aws:logs:'+@config["region"]+':'+MU.account_number+':log-group:'+log_group_name+'*"
+                "Resource": "arn:'+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+':logs:'+@config["region"]+':'+MU.account_number+':log-group:'+log_group_name+'*"
               }
             ]
           }'
