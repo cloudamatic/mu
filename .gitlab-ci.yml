@@ -54,7 +54,6 @@ Rspec:
     - for d in ./cookbooks/*/ ; do (cd "$d" && berks install); done
     - for d in ./cookbooks/*/ ; do (cd "$d" && berks verify); done
     - for d in ./cookbooks/*/ ; do (cd "$d" && berks outdated); done
-  allow_failure: true
   
 Berks:
   stage: Test
@@ -66,29 +65,34 @@ Berks:
     - berks install
     - berks verify
     - berks outdated
-  allow_failure: true
 
 BuildMan:
   stage: Sec_Test
   script:
     - echo "BuildMan!"
-  allow_failure: true
 
 Smoke_Test:
   stage: Smoke_Test
   script:
-    - echo "Insert some of Amrit's Stuff here"
-  allow_failure: true
+    - echo "Insert Smoke Stuff Here"
+  only:
+    - master
+    - development
+  when: manual
 
 Merge/Tag:
   stage: Merge/Tag
   script:
     - echo "Merge and tag here"
-  allow_failure: true
+  only:
+    - master
+    - development
 
 Dockerbuild:
   stage: Dockerbuild
   script:
     - echo "Build Mu Docker Container"
-  allow_failure: true
+  only:
+    - master
+    - development
 
