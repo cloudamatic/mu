@@ -211,7 +211,8 @@ module MU
         # @param account_number [String]: The account in which the resource resides.
         # @return [String]
         def self.getARN(resource, resource_type, client_type, region: MU.curRegion, account_number: MU.account_number)
-          "arn:aws:#{client_type}:#{region}:#{account_number}:#{resource_type}:#{resource}"
+          aws_str = MU::Cloud::AWS.isGovCloud?(region) ? "aws-us-gov" : "aws"
+          "arn:#{aws_str}:#{client_type}:#{region}:#{account_number}:#{resource_type}:#{resource}"
         end
 
         # Construct all our tags.
