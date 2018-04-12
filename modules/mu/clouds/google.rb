@@ -305,14 +305,17 @@ module MU
       # @return [Hash]
       def self.listInstanceTypes(region = myRegion)
         return @@instance_types if @@instance_types and @@instance_types[region]
+        if !MU::Cloud::Google.defaultProject
+          return {}
+        end
 
         @@instance_types ||= {}
         @@instance_types[region] ||= {}
         result = MU::Cloud::Google.compute.list_machine_types(MU::Cloud::Google.defaultProject, listAZs(region).first)
         result.items.each { |type|
           @@instance_types[region][type.name] ||= {}
-          @@instance_types[region][type.name]["memory"] = sprintf("%.1f", type.memory_mb/1024.0)
-          @@instance_types[region][type.name]["vcpu"] = type.guest_cpus
+          @@instance_types[region][type.name]["memory"] = sprintf("%.1f", type.memory_mb/1024.0).to_f
+          @@instance_types[region][type.name]["vcpu"] = type.guest_cpus.to_f
           if type.is_shared_cpu
             @@instance_types[region][type.name]["ecu"] = "Variable"
           else

@@ -136,6 +136,13 @@ module MU
           @@regions.keys.uniq
         end
 
+# XXX GovCloud doesn't show up if you query a commercial endpoint... that's 
+# *probably* ok for most purposes? We can't call listAZs on it from out here
+# apparently, so getting around it is nontrivial
+#        if !@@regions.has_key?("us-gov-west-1")
+#          @@regions["us-gov-west-1"] = Proc.new { listAZs("us-gov-west-1") }
+#        end
+
         regions.sort! { |a, b|
           val = a <=> b
           if a == myRegion
@@ -174,6 +181,9 @@ module MU
       # @return [Hash]
       def self.listInstanceTypes(region = myRegion)
         return @@instance_types if @@instance_types and @@instance_types[region]
+        if $MU_CFG and (!$MU_CFG['aws'] or !$MU_CFG['aws']['account_number'])
+          return {}
+        end
 
         human_region = @@regionLookup[region]
 
@@ -214,6 +224,8 @@ module MU
               @@instance_types[region][type][a] = data["product"]["attributes"][a]
             }
             @@instance_types[region][type]["memory"].sub!(/ GiB/, "")
+            @@instance_types[region][type]["memory"] = @@instance_types[region][type]["memory"].to_f
+            @@instance_types[region][type]["vcpu"] = @@instance_types[region][type]["vcpu"].to_f
           }
           next_token = resp.next_token
         end while resp and next_token
@@ -421,6 +433,13 @@ module MU
         region ||= myRegion
         @@efs_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "EFS", region: region)
         @@efs_api[region]
+      end
+
+      # Amazon's Pricing API
+      def self.pricing(region = MU.curRegion)
+        region ||= myRegion
+        @@pricing_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "Pricing", region: region)
+        @@pricing_api[region]
       end
 
       # Fetch an Amazon instance metadata parameter (example: public-ipv4).
@@ -682,6 +701,7 @@ module MU
       @@elasticache_api = {}
       @@sns_api = {}
       @@efs_api ={}
+      @@pricing_api ={}
     end
   end
 end

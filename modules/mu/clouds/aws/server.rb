@@ -2240,10 +2240,33 @@ module MU
         def self.validateConfig(server, configurator)
           ok = true
 
-          sizepattern = /^(t|m|c|i|g|r|hi|hs|cr|cg|cc){1,2}[0-9]\.(nano|micro|small|medium|[248]?x?large)$/
-          if server["size"].nil? or !server["size"].match(sizepattern)
-            MU.log "Invalid size '#{server['size']}' for AWS EC2 instance. Must match: #{sizepattern}", MU::ERR
-            ok = false
+          region = server["region"]
+
+          types = (MU::Cloud::AWS.listInstanceTypes(region))[region]
+          if server["size"].nil? or !types.has_key?(server["size"])
+            # See if it's a type we can approximate from one of the other clouds
+            gtypes = (MU::Cloud::Google.listInstanceTypes)[MU::Cloud::Google.myRegion]
+            foundmatch = false
+            if gtypes and gtypes.size > 0 and gtypes.has_key?(server["size"])
+              vcpu = gtypes[server["size"]]["vcpu"]
+              mem = gtypes[server["size"]]["memory"]
+              ecu = gtypes[server["size"]]["ecu"]
+              types.keys.sort.reverse.each { |type|
+                features = types[type]
+                next if ecu == "Variable" and ecu != features["ecu"]
+                next if features["vcpu"] != vcpu
+                if (features["memory"] - mem.to_f).abs < 0.10*mem
+                  foundmatch = true
+                  MU.log "You specified a Google Compute instance type '#{server["size"]}.' Approximating with Amazon EC2 type '#{type}.'", MU::WARN
+                  server["size"] = type
+                  break
+                end
+              }
+            end
+            if !foundmatch
+              MU.log "Invalid size '#{server['size']}' for AWS EC2 instance in #{region}. Supported types:", MU::ERR, details: types.keys.sort.join(", ")
+              ok = false
+            end
           end
 
           if !server['generate_iam_role']
