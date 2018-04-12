@@ -95,7 +95,7 @@ module MU
                   "Resource" => { "Fn::Join" => [
                       "",
                       [
-                        "arn:aws:logs:",
+                        "arn:#{MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws"}:logs:",
                         { "Ref" => "AWS::Region" },
                         ":",
                         { "Ref" => "AWS::AccountId" },
