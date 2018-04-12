@@ -3,37 +3,10 @@
 # Fix permissions that Git and our standard umask tend to stomp.
 
 if [ "`whoami`" == "root" ];then
-        scriptpath="`dirname $0`"
-        # XXX dumbly assume we're in Mu's LIBDIR in .git/hooks
+  scriptpath="`dirname $0`"
+  library=1
   # XXX dumbly depend on this old shell lib
-        library=1
-        source "`dirname $0`"/../../install/deprecated-bash-library.sh
-        set_permissions "skip_rubies"
-fi
-
-# The name of the default branch of Mu is hardcoded in a couple of places for
-# our installer to use. Mangle it to reflect the name of whatever branch is
-# being committed, so that people don't have to think so hard when using dev
-# branches.
-
-# XXX I don't like these non-qualified calls to executables, but OTOH this
-# would behave in an incredibly annoying way on a system where someone stuck,
-# say, git or GNU sed in a non-standard place.
-if [ "`whoami`" == "root" ];then
-  if [ "$MU_LIBDIR" == "" ];then
-    MU_LIBDIR="/opt/mu/lib"
-  fi
-  cd $MU_LIBDIR
-        # XXX dumbly assume we're in Mu's LIBDIR in .git/hooks
-  branch=`git branch | grep '^*' | cut -d' ' -f2`
-  if ! grep "^  MU_BRANCH=\"$branch\"" install/installer > /dev/null;then
-    sed -i "s/^  MU_BRANCH=\".*\"/  MU_BRANCH=\"$branch\"/" install/installer
-    echo "Set default branch in install/installer to $branch"
-    git add install/installer
-  fi
-  if ! grep "^MU_BRANCH=\"$branch\"" cookbooks/mu-master/recipes/init.rb > /dev/null;then
-    sed -i "s/^MU_BRANCH=\".*\"/MU_BRANCH=\"$branch\"/" cookbooks/mu-master/recipes/init.rb
-    echo "Set default branch in cookbooks/mu-master/recipes/init.rb to $branch"
-    git add cookbooks/mu-master/recipes/init.rb
-  fi
+  # XXX dumbly assume we're in Mu's LIBDIR in .git/hooks
+  source "$scriptpath/../../install/deprecated-bash-library.sh"
+  set_permissions "skip_rubies"
 fi

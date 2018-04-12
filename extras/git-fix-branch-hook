@@ -13,15 +13,15 @@ if [ "`whoami`" == "root" ];then
     MU_LIBDIR="/opt/mu/lib"
   fi
   cd $MU_LIBDIR
-	# XXX dumbly assume we're in Mu's LIBDIR in .git/hooks
-  branch=`git branch | grep '^*' | cut -d' ' -f2`
-  if ! grep "^  MU_BRANCH=\"$branch\"" install/installer > /dev/null;then
-    sed -i "s/^  MU_BRANCH=\".*\"/  MU_BRANCH=\"$branch\"/" install/installer
+
+  branch=`git rev-parse --abbrev-ref HEAD`
+  if ! grep "^  MU_BRANCH=\"$branch\" # GIT HOOK EDITABLE DO NOT TOUCH" install/installer > /dev/null;then
+    sed -i "s/^  MU_BRANCH=\".*\" # GIT HOOK EDITABLE DO NOT TOUCH/  MU_BRANCH=\"$branch\" # GIT HOOK EDITABLE DO NOT TOUCH/" install/installer
     echo "Set default branch in install/installer to $branch"
     git add install/installer
   fi
-  if ! grep "^MU_BRANCH=\"$branch\"" cookbooks/mu-master/recipes/init.rb > /dev/null;then
-    sed -i "s/^MU_BRANCH=\".*\"/MU_BRANCH=\"$branch\"/" cookbooks/mu-master/recipes/init.rb
+  if ! grep "^MU_BRANCH=\"$branch\" # GIT HOOK EDITABLE DO NOT TOUCH" cookbooks/mu-master/recipes/init.rb > /dev/null;then
+    sed -i "s/^MU_BRANCH=\".*\" # GIT HOOK EDITABLE DO NOT TOUCH/MU_BRANCH=\"$branch\" # GIT HOOK EDITABLE DO NOT TOUCH/" cookbooks/mu-master/recipes/init.rb
     echo "Set default branch in cookbooks/mu-master/recipes/init.rb to $branch"
     git add cookbooks/mu-master/recipes/init.rb
   fi
