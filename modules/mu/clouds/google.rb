@@ -544,22 +544,17 @@ module MU
               end
               if retries <= 1 and e.message.match(/^accessNotConfigured/)
                 enable_obj = nil
-                if arguments.first # aka if there's a project id
-                  enable_obj = MU::Cloud::Google.service_manager(:EnableServiceRequest).new(
-                    consumer_id: "project:"+arguments.first.to_s
-                  )
-                end
+                project = arguments.size > 0 ? arguments.first.to_s : MU::Cloud::Google.defaultProject
+                enable_obj = MU::Cloud::Google.service_manager(:EnableServiceRequest).new(
+                  consumer_id: "project:"+project
+                )
                 # XXX dumbass way to get this string
                 e.message.match(/Enable it by visiting https:\/\/console\.developers\.google\.com\/apis\/api\/(.+?)\//)
                 svc_name = Regexp.last_match[1]
                 save_verbosity = MU.verbosity
                 if svc_name != "servicemanagement.googleapis.com"
                   MU.setLogging(MU::Logger::NORMAL)
-                  if arguments.first
-                    MU.log "Attempting to enable #{svc_name} in project #{arguments.first}, then waiting for 30s", MU::WARN
-                  else
-                    MU.log "Attempting to enable #{svc_name}, then waiting for 30s", MU::WARN
-                  end
+                  MU.log "Attempting to enable #{svc_name} in project #{project}, then waiting for 30s", MU::WARN
                   MU.setLogging(save_verbosity)
                   MU::Cloud::Google.service_manager.enable_service(svc_name, enable_obj)
                   sleep 30
