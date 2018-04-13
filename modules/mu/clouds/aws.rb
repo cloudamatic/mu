@@ -273,14 +273,14 @@ module MU
           end
         end
 
-        if id.match(/^arn:aws:acm/)
+        if id.match(/^arn:aws(?:-us-gov)?:acm/)
           resp = MU::Cloud::AWS.acm(region).get_certificate(
             certificate_arn: id
           )
           if resp.nil?
             raise MuError, "No such ACM certificate '#{id}'"
           end
-        elsif id.match(/^arn:aws:iam/)
+        elsif id.match(/^arn:aws(?:-us-gov)?:iam/)
           resp = MU::Cloud::AWS.iam.list_server_certificates
           if resp.nil?
             raise MuError, "No such IAM certificate '#{id}'"

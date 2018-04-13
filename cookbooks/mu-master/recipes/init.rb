@@ -31,8 +31,12 @@ require 'socket'
 CHEF_SERVER_VERSION="12.17.15-1"
 CHEF_CLIENT_VERSION="12.21.31-1"
 KNIFE_WINDOWS="1.9.0"
-MU_BRANCH="machine_type_translator"
 MU_BASE="/opt/mu"
+MU_BRANCH="machine_type_translator" # GIT HOOK EDITABLE DO NOT TOUCH
+realbranch=`cd #{MU_BASE}/lib && git rev-parse --abbrev-ref HEAD`
+if $?.exitstatus == 0
+  MU_BRANCH=realbranch.chomp
+end
 
 begin
   resources('service[sshd]')
