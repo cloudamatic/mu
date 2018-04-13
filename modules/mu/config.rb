@@ -761,6 +761,14 @@ module MU
         descriptor.delete("region")
       end
 
+      if descriptor["region"]
+        classobj = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"])
+        valid_regions = classobj.listRegions
+        if !valid_regions.include?(descriptor["region"])
+          MU.log "Known regions for cloud '#{descriptor['cloud']}' do not include '#{descriptor["region"]}'", MU::ERR, details: valid_regions
+          ok = false
+        end
+      end
 
       # Does this resource go in a VPC?
       if !descriptor["vpc"].nil? and !delay_validation
@@ -1037,10 +1045,13 @@ module MU
           end
         end
 
-        # Run the cloud class's deeper validation
-        parser = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s)
-        return false if !parser.validateConfig(descriptor, self)
-        descriptor['#MU_VALIDATED'] = true
+        # Run the cloud class's deeper validation, unless we've already failed
+        # on stuff that will cause spurious alarm further in
+        if ok
+          parser = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s)
+          return false if !parser.validateConfig(descriptor, self)
+          descriptor['#MU_VALIDATED'] = true
+        end
 
       end
 
@@ -4134,7 +4145,7 @@ module MU
                 "pattern" => "^\\d+\\.\\d+\\.\\d+\\.\\d+$"
             },
             "size" => {
-              "description" => "The Amazon EC2 instance type to use when creating this server.",
+              "description" => "The instance type to create. Must be valid for the cloud provider into which we're deploying.",
               "type" => "string"
             },
             "storage" => @storage_primitive,

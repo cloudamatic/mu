@@ -87,7 +87,7 @@ module MU
                     "logs:CreateLogStream",
                     "logs:PutLogEvents"
                   ],
-                  "Resource": "arn:aws:logs:'+@config["region"]+':'+MU.account_number+':log-group:'+@config["log_group_name"]+':log-stream:'+@config["log_stream_name"]+'*"
+                  "Resource": "arn:'+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+':logs:'+@config["region"]+':'+MU.account_number+':log-group:'+@config["log_group_name"]+':log-stream:'+@config["log_stream_name"]+'*"
                 }
               ]
             }'

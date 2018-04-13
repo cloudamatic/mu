@@ -596,6 +596,8 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(pool, configurator)
           ok = true
+
+
           if !pool["schedule"].nil?
             pool["schedule"].each { |s|
               if !s['min_size'] and !s['max_size'] and !s['desired_capacity']
@@ -624,6 +626,9 @@ module MU
 
           if !pool["basis"]["launch_config"].nil?
             launch = pool["basis"]["launch_config"]
+
+            launch['size'] = MU::Cloud::AWS::Server.validateInstanceType(launch["size"], pool["region"])
+            ok = false if launch['size'].nil?
             if !launch['generate_iam_role']
               if !launch['iam_role'] and pool['cloud'] != "CloudFormation"
                 MU.log "Must set iam_role if generate_iam_role set to false", MU::ERR
