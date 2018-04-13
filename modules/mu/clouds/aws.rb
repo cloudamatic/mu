@@ -136,6 +136,13 @@ module MU
           @@regions.keys.uniq
         end
 
+# XXX GovCloud doesn't show up if you query a commercial endpoint... that's 
+# *probably* ok for most purposes? We can't call listAZs on it from out here
+# apparently, so getting around it is nontrivial
+#        if !@@regions.has_key?("us-gov-west-1")
+#          @@regions["us-gov-west-1"] = Proc.new { listAZs("us-gov-west-1") }
+#        end
+
         regions.sort! { |a, b|
           val = a <=> b
           if a == myRegion
@@ -164,6 +171,66 @@ module MU
             )
           }
         end
+      end
+
+      @@instance_types = nil
+      # Query the AWS API for the list of valid EC2 instance types and some of
+      # their attributes. We can use this in config validation and to help
+      # "translate" machine types across cloud providers.
+      # @param region [String]: Supported machine types can vary from region to region, so we look for the set we're interested in specifically
+      # @return [Hash]
+      def self.listInstanceTypes(region = myRegion)
+        return @@instance_types if @@instance_types and @@instance_types[region]
+        if $MU_CFG and (!$MU_CFG['aws'] or !$MU_CFG['aws']['account_number'])
+          return {}
+        end
+
+        human_region = @@regionLookup[region]
+
+        @@instance_types ||= {}
+        @@instance_types[region] ||= {}
+        next_token = nil
+
+        begin
+          # Pricing API isn't widely available, so ask a region we know supports
+          # it
+          resp = MU::Cloud::AWS.pricing("us-east-1").get_products(
+            service_code: "AmazonEC2",
+            filters: [
+              {
+                field: "productFamily",
+                value: "Compute Instance",
+                type: "TERM_MATCH"
+              },
+              {
+                field: "tenancy",
+                value: "Shared",
+                type: "TERM_MATCH"
+              },
+              {
+                field: "location",
+                value: human_region,
+                type: "TERM_MATCH"
+              }
+            ],
+            next_token: next_token
+          )
+          resp.price_list.each { |pricing|
+            data = JSON.parse(pricing)
+            type = data["product"]["attributes"]["instanceType"]
+            next if @@instance_types[region].has_key?(type)
+            @@instance_types[region][type] = {}
+            ["ecu", "vcpu", "memory", "storage"].each { |a|
+              @@instance_types[region][type][a] = data["product"]["attributes"][a]
+            }
+            @@instance_types[region][type]["memory"].sub!(/ GiB/, "")
+            @@instance_types[region][type]["memory"] = @@instance_types[region][type]["memory"].to_f
+            @@instance_types[region][type]["vcpu"] = @@instance_types[region][type]["vcpu"].to_f
+          }
+          next_token = resp.next_token
+        end while resp and next_token
+
+        @@instance_types
       end
 
       # AWS can stash API-available certificates in Amazon Certificate Manager
@@ -368,6 +435,13 @@ module MU
         @@efs_api[region]
       end
 
+      # Amazon's Pricing API
+      def self.pricing(region = MU.curRegion)
+        region ||= myRegion
+        @@pricing_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "Pricing", region: region)
+        @@pricing_api[region]
+      end
+
       # Fetch an Amazon instance metadata parameter (example: public-ipv4).
       # @param param [String]: The parameter name to fetch
       # @return [String, nil]
@@ -532,6 +606,28 @@ module MU
 
       private
 
+      # XXX we shouldn't have to do this, but AWS does not provide a way to look
+      # it up, and the pricing API only returns the human-readable strings.
+      @@regionLookup = {
+        "us-east-1" => "US East (N. Virginia)",
+        "us-east-2" => "US East (Ohio)",
+        "us-west-1" => "US West (N. California)",
+        "us-west-2" => "US West (Oregon)",
+        "us-gov-west-1" => "AWS GovCloud (US)",
+        "ap-northeast-1" => "Asia Pacific (Tokyo)",
+        "ap-northeast-2" => "Asia Pacific (Seoul)",
+        "ap-south-1" => "Asia Pacific (Mumbai)",
+        "ap-southeast-1" => "Asia Pacific (Singapore)",
+        "ap-southeast-2" => "Asia Pacific (Sydney)",
+        "ca-central-1" => "Canada (Central)",
+        "eu-central-1" => "EU (Frankfurt)",
+        "eu-west-1" => "EU (Ireland)",
+        "eu-west-2" => "EU (London)",
+        "eu-west-3" => "EU (Paris)",
+        "sa-east-1" => "South America (Sao Paulo)"
+      }.freeze
+      @@regionNameLookup = @@regionLookup.invert.freeze
+
       # Wrapper class for the EC2 API, so that we can catch some common transient
       # endpoint errors without having to spray rescues all over the codebase.
       class Endpoint
@@ -605,6 +701,7 @@ module MU
       @@elasticache_api = {}
       @@sns_api = {}
       @@efs_api ={}
+      @@pricing_api ={}
     end
   end
 end

@@ -2233,6 +2233,41 @@ module MU
           [toplevel_required, schema]
         end
 
+        # Confirm that the given instance size is valid for the given region.
+        # If someone accidentally specified an equivalent size from some other cloud provider, return something that makes sense. If nothing makes sense, return nil.
+        # @param size [String]: Instance type to check
+        # @param region [String]: Region to check against
+        # @return [String,nil]
+        def self.validateInstanceType(size, region)
+          types = (MU::Cloud::AWS.listInstanceTypes(region))[region]
+          if size.nil? or !types.has_key?(size)
+            # See if it's a type we can approximate from one of the other clouds
+            gtypes = (MU::Cloud::Google.listInstanceTypes)[MU::Cloud::Google.myRegion]
+            foundmatch = false
+            if gtypes and gtypes.size > 0 and gtypes.has_key?(size)
+              vcpu = gtypes[size]["vcpu"]
+              mem = gtypes[size]["memory"]
+              ecu = gtypes[size]["ecu"]
+              types.keys.sort.reverse.each { |type|
+                features = types[type]
+                next if ecu == "Variable" and ecu != features["ecu"]
+                next if features["vcpu"] != vcpu
+                if (features["memory"] - mem.to_f).abs < 0.10*mem
+                  foundmatch = true
+                  MU.log "You specified a Google Compute instance type '#{size}.' Approximating with Amazon EC2 type '#{type}.'", MU::WARN
+                  size = type
+                  break
+                end
+              }
+            end
+            if !foundmatch
+              MU.log "Invalid size '#{size}' for AWS EC2 instance in #{region}. Supported types:", MU::ERR, details: types.keys.sort.join(", ")
+              return nil
+            end
+          end
+          size
+        end
+
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::servers}, bare and unvalidated.
         # @param server [Hash]: The resource to process and validate
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
@@ -2240,11 +2275,8 @@ module MU
         def self.validateConfig(server, configurator)
           ok = true
 
-          sizepattern = /^(t|m|c|i|g|r|hi|hs|cr|cg|cc){1,2}[0-9]\.(nano|micro|small|medium|[248]?x?large)$/
-          if server["size"].nil? or !server["size"].match(sizepattern)
-            MU.log "Invalid size '#{server['size']}' for AWS EC2 instance. Must match: #{sizepattern}", MU::ERR
-            ok = false
-          end
+          server['size'] = validateInstanceType(server["size"], server["region"])
+          ok = false if server['size'].nil?
 
           if !server['generate_iam_role']
             if !server['iam_role'] and server['cloud'] != "CloudFormation"
