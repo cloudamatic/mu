@@ -1,0 +1,399 @@
+# Copyright:: Copyright (c) 2018 eGlobalTech, Inc., all rights reserved
+#
+# Licensed under the BSD-3 license (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License in the root of the project or at
+#
+#     http://egt-labs.com/mu/LICENSE.html
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+module MU
+  class Config
+    class LoadBalancer
+
+      def self.healthcheck
+        {
+          "type" => "object",
+          "additionalProperties" => false,
+          "description" => "The method used by a Load Balancer to check the health of its client nodes.",
+          "required" => ["target"],
+          "properties" => {
+            "target" => {
+              "type" => "String",
+              "pattern" => "^(TCP:\\d+|SSL:\\d+|HTTP:\\d+\\/.*|HTTPS:\\d+\\/.*)$",
+              "description" => 'Specifies the instance being checked. The protocol is either TCP, HTTP, HTTPS, or SSL. The range of valid ports is one (1) through 65535.
+        
+          TCP is the default, specified as a TCP: port pair, for example "TCP:5000". In this case a healthcheck simply attempts to open a TCP connection to the instance on the specified port. Failure to connect within the configured timeout is considered unhealthy.
+        
+          SSL is also specified as SSL: port pair, for example, SSL:5000.
+        
+          For HTTP or HTTPS protocol, the situation is different. You have to include a ping path in the string. HTTP is specified as a HTTP:port;/;PathToPing; grouping, for example "HTTP:80/weather/us/wa/seattle". In this case, a HTTP GET request is issued to the instance on the given port and path. Any answer other than "200 OK" within the timeout period is considered unhealthy.
+        
+          The total length of the HTTP ping target needs to be 1024 16-bit Unicode characters or less.'
+            },
+            "timeout" => {
+              "type" => "integer",
+              "default" => 5
+            },
+            "interval" => {
+              "type" => "integer",
+              "default" => 30
+            },
+            "unhealthy_threshold" => {
+              "type" => "integer",
+              "default" => 2
+            },
+            "healthy_threshold" => {
+              "type" => "integer",
+              "default" => 10
+            },
+            "httpcode" => {
+              "type" => "string",
+              "default" => "200,301,302",
+              "description" => "The HTTP codes to use when checking for a successful response from a target."
+            }
+          }
+        }
+      end
+
+      def self.schema
+        {
+          "type" => "object",
+          "title" => "loadbalancer",
+          "description" => "Create Load Balancers",
+          "additionalProperties" => false,
+          "required" => ["name", "listeners", "cloud"],
+          "properties" => {
+            "name" => {
+                "type" => "string",
+                "description" => "Note that Amazon Elastic Load Balancer names must be relatively short. Brevity is recommended here."
+            },
+            "override_name" => {
+                "type" => "string",
+                "description" => "Normally an ELB's Amazon identifier will be named the same as its internal Mu identifier. This allows you to override that name with a specific value. Note that Amazon Elastic Load Balancer names must be relatively short. Brevity is recommended here. Note also that setting a static name here may result in deploy failures due to name collision with existing ELBs."
+            },
+            "classic" => {
+                "type" => "boolean",
+                "default" => false,
+                "description" => "For AWS Load Balancers, revert to the old API instead ElasticLoadbalancingV2 (ALBs)"
+            },
+            "scrub_mu_isms" => {
+                "type" => "boolean",
+                "default" => false,
+                "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template."
+            },
+            "tags" => MU::Config.tags_primitive,
+            "optional_tags" => {
+                "type" => "boolean",
+                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
+                "default" => true
+            },
+            "add_firewall_rules" => MU::Config::FirewallRule.reference,
+            "dns_records" => MU::Config::DNSZone.records_primitive(need_target: false, default_type: "R53ALIAS", need_zone: true),
+            "dns_sync_wait" => {
+                "type" => "boolean",
+                "description" => "Wait for DNS record to propagate in DNS Zone.",
+                "default" => true,
+            },
+            "alarms" => MU::Config::Alarm.inline,
+            "ingress_rules" => {
+                "type" => "array",
+                "items" => MU::Config::FirewallRule.ruleschema
+            },
+            "region" => MU::Config.region_primitive,
+            "cloud" => MU::Config.cloud_primitive,
+            "cross_zone_unstickiness" => {
+                "type" => "boolean",
+                "default" => false,
+                "description" => "Set true to disable Cross-Zone load balancing, which we enable by default: http://docs.aws.amazon.com/ElasticLoadBalancing/latest/DeveloperGuide/how-elb-works.html#request-routing"
+            },
+            "idle_timeout" => {
+                "type" => "integer",
+                "description" => "Specifies the time (in seconds) the connection is allowed to be idle (no data has been sent over the connection) before it is closed by the load balancer.",
+                "default" => 60
+            },
+            "lb_cookie_stickiness_policy" => {
+                "type" => "object",
+                "additionalProperties" => false,
+                "description" => "Creates a cookie to tie client sessions to back-end servers. Only valid with HTTP/HTTPS listeners.",
+                "required" => ["name"],
+                "properties" => {
+                    "name" => {
+                        "type" => "string",
+                        "description" => "The name of this policy.",
+                        "pattern" => "^([a-zA-Z0-9\\-]+)$"
+                    },
+                    "timeout" => {
+                        "type" => "integer",
+                        "description" => "The time period in seconds after which the cookie should be considered stale. Not specifying this parameter indicates that the sticky session will last for the duration of the browser session."
+                    }
+                }
+            },
+            "ip_stickiness_policy" => {
+                "type" => "object",
+                "additionalProperties" => false,
+                "description" => "Use IP addresses or IP/port/proto combinations to map client sessions to back-end servers. Only valid with Google Cloud, and is ignored for UDP-based listeners.",
+                "properties" => {
+                    "map_proto" => {
+                        "type" => "boolean",
+                        "default" => false,
+                        "description" => "Include the client protocol as well as the IP when determining session affinity. Only valid for internal load balancers."
+                    },
+                    "map_port" => {
+                        "type" => "boolean",
+                        "default" => false,
+                        "description" => "Include the client port as well as the IP when determining session affinity. Only valid for internal load balancers, and only in combination with map_proto."
+                    }
+                }
+            },
+            "app_cookie_stickiness_policy" => {
+                "type" => "object",
+                "additionalProperties" => false,
+                "description" => "Use an application cookie to tie client sessions to back-end servers. Only valid with HTTP/HTTPS listeners, on AWS.",
+                "required" => ["name", "cookie"],
+                "properties" => {
+                    "name" => {
+                        "type" => "string",
+                        "description" => "The name of this policy.",
+                        "pattern" => "^([a-zA-Z0-9\\-]+)$"
+                    },
+                    "cookie" => {
+                        "type" => "string",
+                        "description" => "The name of an application cookie to use for session tracking."
+                    }
+                }
+            },
+            "connection_draining_timeout" => {
+                "type" => "integer",
+                "description" => "Permits the load balancer to complete connections to unhealthy backend instances before retiring them fully. Timeout is in seconds; set to -1 to disable.",
+                "default" => -1
+            },
+            "private" => {
+                "type" => "boolean",
+                "default" => false,
+                "description" => "Set to true if this ELB should only be assigned a private IP address (no public interface)."
+            },
+            "global" => {
+                "type" => "boolean",
+                "default" => true,
+                "description" => "Google Cloud only. Deploy as a global artifact instead of in a specific region. Not valid for UDP targets."
+            },
+            "dependencies" => MU::Config.dependencies_primitive,
+            "vpc" => MU::Config::VPC.reference(MU::Config::VPC::MANY_SUBNETS, MU::Config::VPC::NO_NAT_OPTS, "all_public"),
+            "zones" => {
+                "type" => "array",
+                "minItems" => 1,
+                "description" => "Availability Zones in which this Load Balancer can operate. Specified Availability Zones must be in the same EC2 Region as the load balancer. Traffic will be equally distributed across all zones. If no zones are specified, we'll use all zones in the current region.",
+                "items" => {
+                    "type" => "string"
+                }
+            },
+            "access_log" => {
+              "type" => "object",
+                "additionalProperties" => false,
+                "description" => "Access logging for Load Balancer requests.",
+                "required" => ["enabled", "s3_bucket_name"],
+                "properties" => {
+                "enabled" => {
+                  "type" => "boolean",
+                  "description" => "Toggle access log publishing.",
+                  "default" => false
+                },
+                "s3_bucket_name" => {
+                  "type" => "string",
+                  "description" => "The Amazon S3 bucket to which to publish access logs."
+                },
+                "s3_bucket_prefix" => {
+                  "type" => "string",
+                  "default" => "",
+                  "description" => "The path within the S3 bucket to which to publish the logs."
+                },
+                "emit_interval" => {
+                  "type" => "integer",
+                  "description" => "How frequently to publish access logs.",
+                  "enum" => [5, 60],
+                  "default" => 60
+                }
+              }
+            },
+            # 'healthcheck' was a first-class parmeter for classic ELBs, but is
+            # embedded inside targetgroups for ALBs. In Google, they can be
+            # even more arbitrary, so we also allow you to embed them with
+            # listeners.
+            "healthcheck" => healthcheck,
+            "targetgroups" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "additionalProperties" => false,
+                "description" => "A grouping of ",
+                "required" => ["name", "proto", "port"],
+                "properties" => {
+                  "healthcheck" => healthcheck,
+                  "name" => {
+                    "type" => "string"
+                  },
+                  "proto" => {
+                    "type" => "string",
+                    "enum" => ["HTTP", "HTTPS"],
+                  },
+                  "httpcode" => {
+                    "type" => "string",
+                    "default" => "200,301,302",
+                    "description" => "The HTTP codes to use when checking for a successful response from a target."
+                  },
+                  "port" => {
+                    "type" => "integer",
+                    "minimum" => 1,
+                    "maximum" => 65535,
+                    "description" => "Specifies the TCP port on which the instance server is listening. This property cannot be modified for the life of the load balancer."
+                  }
+                }
+              }
+            },
+            "listeners" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "required" => ["lb_protocol", "lb_port", "instance_protocol", "instance_port"],
+                "additionalProperties" => false,
+                "description" => "A list of port/protocols which this Load Balancer should answer.",
+                "properties" => {
+                  "healthcheck" => healthcheck,
+                  "lb_port" => {
+                    "type" => "integer",
+                    "description" => "Specifies the external load balancer port number. This property cannot be modified for the life of the load balancer."
+                  },
+                  "instance_port" => {
+                    "type" => "integer",
+                    "description" => "Specifies the TCP port on which the instance server is listening. This property cannot be modified for the life of the load balancer."
+                  },
+                  "lb_protocol" => {
+                    "type" => "string",
+                    "enum" => ["HTTP", "HTTPS", "TCP", "SSL", "UDP"],
+                    "description" => "Specifies the load balancer transport protocol to use for routing - HTTP, HTTPS, TCP, SSL, or UDP. SSL and UDP are only valid in Google Cloud."
+                  },
+                  "targetgroup" => {
+                    "type" => "string",
+                    "description" => "Which of our declared targetgroups should be the back-end for this listener's traffic"
+                  },
+                  "instance_protocol" => {
+                    "type" => "string",
+                    "enum" => ["HTTP", "HTTPS", "TCP", "SSL", "UDP"],
+                    "description" => "Specifies the protocol to use for routing traffic to back-end instances - HTTP, HTTPS, TCP, or SSL. This property cannot be modified for the life of the load balancer.
+
+            If the front-end protocol is HTTP or HTTPS, InstanceProtocol has to be at the same protocol layer, i.e., HTTP or HTTPS. Likewise, if the front-end protocol is TCP or SSL, InstanceProtocol has to be TCP or SSL."
+                  },
+                  "ssl_certificate_name" => {
+                    "type" => "string",
+                    "description" => "The name of a server certificate."
+                  },
+                  "ssl_certificate_id" => {
+                    "type" => "string",
+                    "description" => "The ARN string of an Amazon IAM server certificate."
+                  },
+                  "tls_policy" => {
+                    "type" => "string",
+                    "description" => "Lowest level of TLS to support.",
+                    "default" => "tls1.2",
+                    "enum" => ["tls1.0", "tls1.1", "tls1.2"]
+                  },
+                  "rules" => {
+                    "type" => "array",
+                    "items" => {
+                      "type" => "object",
+                      "description" => "Rules to route requests to different target groups based on the request path",
+                      "required" => ["conditions", "order"],
+                      "additionalProperties" => false,
+                      "properties" => {
+                        "conditions" => {
+                          "type" => "array",
+                          "items" => {
+                            "type" => "object",
+                            "description" => "Rule condition",
+                            "required" => ["field", "values"],
+                            "additionalProperties" => false,
+                            "properties" => {
+                              "field" => {
+                                "type" => "string",
+                                "default" => "path-pattern",
+                                "enum" => ["path-pattern"]
+                              },
+                              "values" => {
+                                "type" => "array",
+                                "items" => {
+                                  "type" => "string",
+                                  "description" => "A pattern to match against for this field."
+                                }
+                              }
+                            }
+                          }
+                        },
+                        "actions" => {
+                          "type" => "array",
+                          "items" => {
+                            "type" => "object",
+                            "description" => "Rule action",
+                            "required" => ["action", "targetgroup"],
+                            "additionalProperties" => false,
+                            "properties" => {
+                              "action" => {
+                                "type" => "string",
+                                "default" => "forward",
+                                "description" => "An action to take when a match occurs. Currently, only forwarding to a targetgroup is supported.",
+                                "enum" => ["forward"]
+                              },
+                              "targetgroup" => {
+                                "type" => "string",
+                                "description" => "Which of our declared targetgroups should be the recipient of this traffic. If left unspecified, will default to the default targetgroup of this listener."
+                              }
+                            }
+                          }
+                        },
+                        "order" => {
+                          "type" => "integer",
+                          "default" => 1,
+                          "description" => "The priority for the rule. Use to order processing relative to other rules."
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      end
+
+      def self.reference
+        {
+          "type" => "array",
+          "minItems" => 1,
+          "items" => {
+            "type" => "object",
+            "minProperties" => 1,
+            "maxProperties" => 1,
+            "additionalProperties" => false,
+            "description" => "One or more Load Balancers with which this instance should register.",
+            "properties" => {
+                "concurrent_load_balancer" => {
+                    "type" => "string",
+                    "description" => "The name of a MU loadbalancer object, which should also defined in this stack. This will be added as a dependency."
+                },
+                "existing_load_balancer" => {
+                    "type" => "string",
+                    "description" => "The DNS name of an existing Elastic Load Balancer. Must be in the same region as this deployment."
+                }
+            }
+          }
+        }
+      end
+
+    end
+  end
+end

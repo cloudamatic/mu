@@ -215,7 +215,50 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
-          schema = {}
+          schema = {
+            "retention_period" => {
+              "type" => "integer",
+              "description" => "The number of days to keep log events in the log group before deleting them.",
+              "default" => 14,
+              "enum" => [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653]
+            },
+            "enable_cloudtrail_logging"=> {
+              "type" => "boolean",
+              "default" => false
+            },
+            "filters" => {
+              "type" => "array",
+              "minItems" => 1,
+              "items" => {
+                "description" => "Create a filter on a CloudWachLogs log group.",
+                "type" => "object",
+                "title" => "CloudWatchLogs filter Parameters",
+                "required" => ["name", "search_pattern", "metric_name", "namespace", "value"],
+                "additionalProperties" => false,
+                "properties" => {
+                  "name" => {
+                    "type" => "string"
+                  },
+                  "search_pattern" => {
+                    "type" => "string",
+                    "description" => "A search pattern that will match values in the log"
+                  },
+                  "metric_name" => {
+                    "type" => "string",
+                    "description" => "A descriptive and easy to find name for the metric. This can be used to create Alarm(s)"
+                  },
+                  "namespace" => {
+                    "type" => "string",
+                    "description" => "A new or existing name space to add the metric to. Use the same namespace for all filters/metrics that are logically grouped together. Will be used to to create Alarm(s)"
+                  },
+                  "value" => {
+                    "type" => "string",
+                    "description" => ""
+                  }
+                }
+              }
+            }
+          }
           [toplevel_required, schema]
         end
 

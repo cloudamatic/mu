@@ -37,6 +37,13 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
+          resp = MU::Cloud::AWS.ecs(@config['region']).create_cluster({
+            cluster_name: @mu_name
+          })
+#          MU::Cloud::AWS.ecs(@config['region']).register_container_instance({
+#          })
+# launch_type: "EC2" only option in GovCloud
+          pp resp
         end
 
         # Return the metadata for this ContainerPool
@@ -78,9 +85,10 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(pool, configurator)
           ok = true
-#          if something_bad
-#            ok = false
-#          end
+
+          pool['size'] = MU::Cloud::AWS::Server.validateInstanceType(pool["instance_type"], pool["region"])
+          ok = false if pool['size'].nil?
+
 
           ok
         end

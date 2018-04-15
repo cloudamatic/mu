@@ -1353,7 +1353,34 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
+          rds_parameters_primitive = {
+            "type" => "array",
+            "minItems" => 1,
+            "items" => {
+              "description" => "The database parameter group parameter to change and when to apply the change.",
+              "type" => "object",
+              "title" => "Database Parameter",
+              "required" => ["name", "value"],
+              "additionalProperties" => false,
+              "properties" => {
+                "name" => {
+                  "type" => "string"
+                },
+                "value" => {
+                  "type" => "string"
+                },
+                "apply_method" => {
+                  "enum" => ["pending-reboot", "immediate"],
+                  "default" => "immediate",
+                  "type" => "string"
+                }
+              }
+            }
+          }
+
           schema = {
+            "db_parameter_group_parameters" => rds_parameters_primitive,
+            "cluster_parameter_group_parameters" => rds_parameters_primitive,
             "license_model" => {
               "type" => "string",
               "enum" => ["license-included", "bring-your-own-license", "general-public-license", "postgresql-license"],

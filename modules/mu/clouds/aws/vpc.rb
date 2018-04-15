@@ -1195,7 +1195,33 @@ MU.log peer_obj.class.name, MU::WARN, details: peer_obj
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
-          schema = {}
+          # Flow Logs can be declared at the VPC level or the subnet level
+          flowlogs = {
+            "traffic_type_to_log" => {
+              "type" => "string",
+              "description" => "The class of traffic to log - accepted traffic, rejected traffic or all traffic.",
+              "enum" => ["accept", "reject", "all"],
+              "default" => "all"
+            },
+            "log_group_name" => {
+              "type" => "string",
+              "description" => "An existing CloudWachLogs log group the traffic will be logged to. If not provided, a new one will be created"
+            },
+            "enable_traffic_logging" => {
+              "type" => "boolean",
+              "description" => "If traffic logging is enabled or disabled. Will be enabled on all subnets and network interfaces if set to true on a VPC",
+              "default" => false
+            }
+          }
+
+          schema = {
+            "subnets" => {
+              "items" => {
+                "properties" => flowlogs
+              }
+            }
+          }
+          schema.merge!(flowlogs)
           [toplevel_required, schema]
         end
 
