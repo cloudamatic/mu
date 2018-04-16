@@ -7,3 +7,5 @@ contain properties common across cloud providers. Platform-specific schema and
 validation behaviors should be written into the actual implementation, e.g.
 `MU::Cloud::AWS::Log` will contain AWS-specific schema components and
 validation checks.
+
+See also the [Cloud layer dveloper README](../cloud/README.md)
