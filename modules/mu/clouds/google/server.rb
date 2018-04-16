@@ -1348,7 +1348,7 @@ next if !create
             },
             "routes" => {
               "type" => "array",
-              "items" => MU::Config.route_primitive
+              "items" => MU::Config::VPC.routeschema
             }
           }
           [toplevel_required, schema]

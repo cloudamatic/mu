@@ -249,6 +249,53 @@ module MU
         base
       end
 
+      # Generic pre-processing of {MU::Config::BasketofKittens::server_pools}, bare and unvalidated.
+      # @param pool [Hash]: The resource to process and validate
+      # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+      # @return [Boolean]: True if validation succeeded, False otherwise
+      def self.validate(pool, configurator)
+        ok = true
+        if configurator.haveLitterMate?(pool["name"], "servers")
+          MU.log "Can't use name #{pool['name']} more than once in pools/pool_pools"
+          ok = false
+        end
+        pool['skipinitialupdates'] = true if configurator.skipinitialupdates
+        pool['ingress_rules'] ||= []
+        pool['vault_access'] ||= []
+        pool['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
+        ok = false if !MU::Config.check_vault_refs(pool)
+
+        pool['dependencies'] << configurator.adminFirewallRuleset(vpc: pool['vpc'], region: pool['region'], cloud: pool['cloud']) if !pool['scrub_mu_isms']
+
+        if !pool["vpc"].nil?
+          if !pool["vpc"]["subnet_name"].nil? and configurator.nat_routes.has_key?(pool["vpc"]["subnet_name"])
+            pool["dependencies"] << {
+              "type" => "pool",
+              "name" => configurator.nat_routes[pool["vpc"]["subnet_name"]],
+              "phase" => "groom"
+            }
+          end
+        end
+# TODO make sure this is handled... somewhere
+#        if pool["alarms"] && !pool["alarms"].empty?
+#          pool["alarms"].each { |alarm|
+#            alarm["name"] = "server-#{pool['name']}-#{alarm["name"]}"
+#            alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
+#            alarm['cloud'] = pool['cloud']
+#            ok = false if !insertKitten(alarm, "alarms")
+#          }
+#        end
+        if pool["basis"]["server"] != nil
+          pool["dependencies"] << {"type" => "server", "name" => pool["basis"]["server"]}
+        end
+        if !pool['static_ip'].nil? and !pool['ip'].nil?
+          ok = false
+          MU.log "Server Pools cannot assign specific static IPs.", MU::ERR
+        end
+
+        ok
+      end
+
     end
   end
 end

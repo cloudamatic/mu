@@ -184,6 +184,15 @@ module MU
         }
       end
 
+      # Generic pre-processing of {MU::Config::BasketofKittens::alarms}, bare and unvalidated.
+      # @param alarm [Hash]: The resource to process and validate
+      # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+      # @return [Boolean]: True if validation succeeded, False otherwise
+      def self.validate(alarm, configurator)
+        ok = true
+        ok
+      end
+
     end
   end
 end

@@ -394,6 +394,88 @@ module MU
         }
       end
 
+      # Generic pre-processing of {MU::Config::BasketofKittens::loadbalancers}, bare and unvalidated.
+      # @param lb [Hash]: The resource to process and validate
+      # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+      # @return [Boolean]: True if validation succeeded, False otherwise
+      def self.validate(lb, configurator)
+        ok = true
+        # Convert old-school listener declarations into target groups and health
+        # checks, for which AWS and Google both have equivalents.
+        if lb["targetgroups"].nil? or lb["targetgroups"].size == 0
+          if lb["listeners"].nil? or lb["listeners"].size == 0
+            ok = false
+            MU.log "No targetgroups or listeners defined in LoadBalancer #{lb['name']}", MU::ERR
+          end
+          lb["targetgroups"] = []
+
+          # Manufacture targetgroups out of old-style listener configs
+          lb["listeners"].each { |l|
+            tgname = lb["name"]+l["lb_protocol"].downcase+l["lb_port"].to_s
+            l["targetgroup"] = tgname
+            tg = { 
+              "name" => tgname,
+              "proto" => l["instance_protocol"],
+              "port" => l["instance_port"]
+            }
+            if lb["healthcheck"]
+              hc_target = lb['healthcheck']['target'].match(/^([^:]+):(\d+)(.*)/)
+              tg["healthcheck"] = lb['healthcheck'].dup
+              proto = ["HTTP", "HTTPS"].include?(hc_target[1]) ? hc_target[1] : l["instance_protocol"]
+              tg['healthcheck']['target'] = "#{proto}:#{hc_target[2]}#{hc_target[3]}"
+              tg['healthcheck']["httpcode"] = "200,301,302"
+              MU.log "Converting classic-style ELB health check target #{lb['healthcheck']['target']} to ALB style for target group #{tgname} (#{l["instance_protocol"]}:#{l["instance_port"]}).", details: tg['healthcheck']
+            end
+            lb["targetgroups"] << tg
+          }
+        else
+          lb['listeners'].each { |l|
+            found = false
+            lb['targetgroups'].each { |tg|
+              if l['targetgroup'] == tg['name']
+                found = true
+                break
+              end
+            }
+            if !found
+              ok = false
+              MU.log "listener in LoadBalancer #{lb['name']} refers to targetgroup #{l['targetgroup']}, but no such targetgroup found", MU::ERR
+            end
+          }
+        end
+
+        lb['listeners'].each { |l|
+          if !l['rules'].nil? and l['rules'].size > 0
+            l['rules'].each { |r|
+              if r['actions'].nil?
+                r['actions'] = [
+                  { "targetgroup" => l["targetgroup"], "action" => "forward" }
+                ]
+                next
+              end
+              r['actions'].each { |action|
+                if action['targetgroup'].nil?
+                  action['targetgroup'] = l['targetgroup']
+                else
+                  found = false
+                  lb['targetgroups'].each { |tg|
+                    if l['targetgroup'] == action['targetgroup']
+                      found = true
+                      break
+                    end
+                  }
+                  if !found
+                    ok = false
+                    MU.log "listener action in LoadBalancer #{lb['name']} refers to targetgroup #{action['targetgroup']}, but no such targetgroup found", MU::ERR
+                  end
+                end
+              }
+            }
+          end
+        }
+        ok
+      end
+
     end
   end
 end

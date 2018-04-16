@@ -547,6 +547,49 @@ module MU
       base
     end
 
+      # Generic pre-processing of {MU::Config::BasketofKittens::servers}, bare and unvalidated.
+      # @param server [Hash]: The resource to process and validate
+      # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+      # @return [Boolean]: True if validation succeeded, False otherwise
+      def self.validate(server, configurator)
+        ok = true
+        if configurator.haveLitterMate?(server["name"], "server_pools") 
+          MU.log "Can't use name #{server['name']} more than once in servers/server_pools"
+          ok = false
+        end
+        server['skipinitialupdates'] = true if @skipinitialupdates
+        server['ingress_rules'] ||= []
+        server['vault_access'] ||= []
+        server['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
+        ok = false if !MU::Config.check_vault_refs(server)
+
+        server['dependencies'] << configurator.adminFirewallRuleset(vpc: server['vpc'], region: server['region'], cloud: server['cloud']) if !server['scrub_mu_isms']
+
+        if !server["vpc"].nil?
+          # Common mistake- using all_public or all_private subnet_pref for
+          # resources that can only go in one subnet. Let's just handle that
+          # for people.
+          if server["vpc"]["subnet_pref"] == "all_private"
+            MU.log "Servers only support single subnets, setting subnet_pref to 'private' instead of 'all_private' on #{server['name']}", MU::WARN
+            server["vpc"]["subnet_pref"] = "private"
+          end
+          if server["vpc"]["subnet_pref"] == "all_public"
+            MU.log "Servers only support single subnets, setting subnet_pref to 'public' instead of 'all_public' on #{server['name']}", MU::WARN
+            server["vpc"]["subnet_pref"] = "public"
+          end
+
+          if !server["vpc"]["subnet_name"].nil? and configurator.nat_routes.has_key?(server["vpc"]["subnet_name"])
+            server["dependencies"] << {
+              "type" => "server",
+              "name" => configurator.nat_routes[server["vpc"]["subnet_name"]],
+              "phase" => "groom"
+            }
+          end
+        end
+
+        ok
+      end
+
     end #class
   end #class
 end #module

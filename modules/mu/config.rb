@@ -51,6 +51,8 @@ module MU
       "Chef"
     end
 
+    attr_accessor :nat_routes
+
     attr_reader :google_images
     @@google_images = YAML.load(File.read("#{MU.myRoot}/modules/mu/defaults/google_images.yaml"))
     if File.exists?("#{MU.etcDir}/google_images.yaml")
@@ -756,12 +758,14 @@ module MU
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
       descriptor["#MU_CLOUDCLASS"] = classname
       inheritDefaults(descriptor, cfg_plural)
+      schemaclass = Object.const_get("MU").const_get("Config").const_get(shortclass)
 
       if (descriptor["region"] and descriptor["region"].empty?) or
          (descriptor['cloud'] == "Google" and ["firewall_rule", "vpc"].include?(cfg_name))
         descriptor.delete("region")
       end
 
+      # Make sure a sensible region has been targeted, if applicable
       if descriptor["region"]
         classobj = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"])
         valid_regions = classobj.listRegions
@@ -778,20 +782,6 @@ module MU
           descriptor['vpc']['region'] = descriptor['region']
         end
 
-        # Common mistake- using all_public or all_private subnet_pref for 
-        # resources that can only go in one subnet. Let's just handle that
-        # for people.
-        if cfg_name == "server" # XXX only type to which this applies atm
-          if descriptor["vpc"]["subnet_pref"] == "all_private"
-            MU.log "#{cfg_plural} only support single subnets, setting subnet_pref to 'private' instead of 'all_private' on #{descriptor['name']}", MU::WARN
-            descriptor["vpc"]["subnet_pref"] = "private"
-          end
-          if descriptor["vpc"]["subnet_pref"] == "all_public"
-            MU.log "#{cfg_plural} only support single subnets, setting subnet_pref to 'public' instead of 'all_public' on #{descriptor['name']}", MU::WARN
-            descriptor["vpc"]["subnet_pref"] = "public"
-          end
-        end
-
         # If we're using a VPC in this deploy, set it as a dependency
         if !descriptor["vpc"]["vpc_name"].nil? and
            haveLitterMate?(descriptor["vpc"]["vpc_name"], "vpcs") and
@@ -802,9 +792,10 @@ module MU
             "name" => descriptor["vpc"]["vpc_name"]
           }
 
-          if !processVPCReference(descriptor['vpc'],
+          if !MU::Config::VPC.processReference(descriptor['vpc'],
                                   cfg_plural,
                                   shortclass.to_s+" '#{descriptor['name']}'",
+                                  self,
                                   dflt_region: descriptor['region'],
                                   is_sibling: true,
                                   sibling_vpcs: @kittens['vpcs'])
@@ -815,8 +806,9 @@ module MU
           # thing exists, and also fetch its id now so later search routines
           # don't have to work so hard.
         else
-          if !processVPCReference(descriptor["vpc"], cfg_plural,
+          if !MU::Config::VPC.processReference(descriptor["vpc"], cfg_plural,
                                   "#{shortclass} #{descriptor['name']}",
+                                  self,
                                   dflt_region: descriptor['region'])
             MU.log "insertKitten was called from #{caller[0]}", MU::ERR
             ok = false
@@ -831,60 +823,6 @@ module MU
           descriptor['vpc'].delete("region")
         end
         descriptor['vpc'].delete("subnet_pref")
-      end
-
-      # Is it a storage pool with mount points, which need their own VPC refs
-      # resolved?
-      if cfg_plural == "storage_pools" and descriptor['mount_points']
-        new_mount_points = []
-        descriptor['mount_points'].each{ |mp|
-          if mp["vpc"] and !mp["vpc"].empty?
-            if !mp["vpc"]["vpc_name"].nil? and
-               haveLitterMate?(mp["vpc"]["vpc_name"], "vpcs") and
-               mp["vpc"]['deploy_id'].nil? and
-               mp["vpc"]['vpc_id'].nil?
-    
-              if !processVPCReference(mp['vpc'],
-                                      cfg_plural,
-                                      shortclass.to_s+" '#{descriptor['name']}'",
-                                      dflt_region: descriptor['region'],
-                                      is_sibling: true,
-                                      sibling_vpcs: @kittens['vpcs'])
-                ok = false
-              end
-            else
-              if !processVPCReference(mp["vpc"], cfg_plural,
-                                      "#{shortclass} #{descriptor['name']}",
-                                      dflt_region: descriptor['region'])
-                ok = false
-              end
-            end
-            if mp['vpc']['subnets'] and mp['vpc']['subnets'].size > 1
-              seen_azs = []
-              count = 0
-              mp['vpc']['subnets'].each { |subnet|
-                if subnet['az'] and seen_azs.include?(subnet['az'])
-                  MU.log "VPC config for Storage Pool #{pool['name']} has multiple matching subnets per Availability Zone. Only one mount point per AZ is allowed, so you must explicitly declare which subnets to use.", MU::ERR
-                  ok = false
-                  break
-                end
-                seen_azs << subnet['az']
-                subnet.delete("az")
-                newmp = Marshal.load(Marshal.dump(mp))
-                ["subnets", "subnet_pref", "az"].each { |field|
-                  newmp['vpc'].delete(field)
-                }
-                newmp['vpc'].merge!(subnet)
-                newmp['name'] = newmp['name']+count.to_s
-                count = count + 1
-                new_mount_points << newmp
-              }
-            else
-              new_mount_points << mp
-            end
-          end
-        }
-        descriptor['mount_points'] = new_mount_points
       end
 
       # Does it have generic ingress rules?
@@ -1010,6 +948,11 @@ module MU
       end
 
       if !delay_validation
+
+        # Call the generic validation for the resource type, first and foremost
+        # XXX this might have to be at the top of this insertKitten instead of
+        # here
+        ok = false if !schemaclass.validate(descriptor, self)
 
         # Merge the cloud-class specific JSON schema and validate against it
         myschema = Marshal.load(Marshal.dump(MU::Config.schema["properties"][cfg_plural]["items"]))
@@ -1347,308 +1290,6 @@ module MU
     end
 
 
-    # Pick apart an external VPC reference, validate it, and resolve it and its
-    # various subnets and NAT hosts to live resources.
-    def processVPCReference(vpc_block, parent_type, parent_name, is_sibling: false, sibling_vpcs: [], dflt_region: MU.curRegion)
-      puts vpc_block.ancestors if !vpc_block.is_a?(Hash)
-      if !vpc_block.is_a?(Hash) and vpc_block.kind_of?(MU::Cloud::VPC)
-        return true
-      end
-      ok = true
-
-      if vpc_block['region'].nil? and dflt_region and !dflt_region.empty?
-        vpc_block['region'] = dflt_region.to_s
-      end
-
-      flags = {}
-      flags["subnet_pref"] = vpc_block["subnet_pref"] if !vpc_block["subnet_pref"].nil?
-
-      # First, dig up the enclosing VPC 
-      tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !vpc_block['tag'].nil?
-      if !is_sibling
-        begin
-          if vpc_block['cloud'] != "CloudFormation"
-            found = MU::MommaCat.findStray(
-              vpc_block['cloud'],
-              "vpc",
-              deploy_id: vpc_block["deploy_id"],
-              cloud_id: vpc_block["vpc_id"],
-              name: vpc_block["vpc_name"],
-              tag_key: tag_key,
-              tag_value: tag_value,
-              region: vpc_block["region"],
-              flags: flags,
-              dummy_ok: true
-            )
-
-            ext_vpc = found.first if found.size == 1
-          end
-        rescue Exception => e
-          raise MuError, e.inspect, e.backtrace
-        ensure
-          if !ext_vpc and vpc_block['cloud'] != "CloudFormation"
-            MU.log "Couldn't resolve VPC reference to a unique live VPC in #{parent_name} (called by #{caller[0]})", MU::ERR, details: vpc_block
-            return false
-          elsif !vpc_block["vpc_id"]
-            MU.log "Resolved VPC to #{ext_vpc.cloud_id} in #{parent_name}", MU::DEBUG, details: vpc_block
-            vpc_block["vpc_id"] = getTail("#{parent_name} Target VPC", value: ext_vpc.cloud_id, prettyname: "#{parent_name} Target VPC", cloudtype: "AWS::EC2::VPC::Id")
-          end
-        end
-
-        # Other !is_sibling logic for external vpcs
-        # Next, the NAT host, if there is one
-        if (vpc_block['nat_host_name'] or vpc_block['nat_host_ip'] or vpc_block['nat_host_tag'])
-          if !vpc_block['nat_host_tag'].nil?
-            nat_tag_key, nat_tag_value = vpc_block['nat_host_tag'].to_s.split(/=/, 2)
-          else
-            nat_tag_key, nat_tag_value = [tag_key.to_s, tag_value.to_s]
-          end
-
-          ext_nat = ext_vpc.findBastion(
-            nat_name: vpc_block["nat_host_name"],
-            nat_cloud_id: vpc_block["nat_host_id"],
-            nat_tag_key: nat_tag_key,
-            nat_tag_value: nat_tag_value,
-            nat_ip: vpc_block['nat_host_ip']
-          )
-          ssh_keydir = Etc.getpwnam(MU.mu_user).dir+"/.ssh"
-          if !vpc_block['nat_ssh_key'].nil? and !File.exists?(ssh_keydir+"/"+vpc_block['nat_ssh_key'])
-            MU.log "Couldn't find alternate NAT key #{ssh_keydir}/#{vpc_block['nat_ssh_key']} in #{parent_name}", MU::ERR, details: vpc_block
-            return false
-          end
-
-          if !ext_nat
-            if vpc_block["nat_host_id"].nil? and nat_tag_key.nil? and vpc_block['nat_host_ip'].nil? and vpc_block["deploy_id"].nil?
-              MU.log "Couldn't resolve NAT host to a live instance in #{parent_name}.", MU::DEBUG, details: vpc_block
-            else
-              MU.log "Couldn't resolve NAT host to a live instance in #{parent_name}", MU::ERR, details: vpc_block
-              return false
-            end
-          elsif !vpc_block["nat_host_id"]
-            MU.log "Resolved NAT host to #{ext_nat.cloud_id} in #{parent_name}", MU::DEBUG, details: vpc_block
-            vpc_block["nat_host_id"] = ext_nat.cloud_id
-            vpc_block.delete('nat_host_name')
-            vpc_block.delete('nat_host_ip')
-            vpc_block.delete('nat_host_tag')
-            vpc_block.delete('nat_ssh_user')
-          end
-        end
-
-        # Some resources specify multiple subnets...
-        if vpc_block.has_key?("subnets")
-          vpc_block['subnets'].each { |subnet|
-            tag_key, tag_value = subnet['tag'].split(/=/, 2) if !subnet['tag'].nil?
-            if !ext_vpc.nil?
-              begin
-                ext_subnet = ext_vpc.getSubnet(cloud_id: subnet['subnet_id'], name: subnet['subnet_name'], tag_key: tag_key, tag_value: tag_value)
-              rescue MuError
-              end
-            end
-
-            if ext_subnet.nil? and vpc_block["cloud"] != "CloudFormation"
-              ok = false
-              MU.log "Couldn't resolve subnet reference (list) in #{parent_name} to a live subnet", MU::ERR, details: subnet
-            elsif !subnet['subnet_id']
-              subnet['subnet_id'] = ext_subnet.cloud_id
-              subnet['az'] = ext_subnet.az
-              subnet.delete('subnet_name')
-              subnet.delete('tag')
-              MU.log "Resolved subnet reference in #{parent_name} to #{ext_subnet.cloud_id}", MU::DEBUG, details: subnet
-            end
-          }
-          # ...others single subnets
-        elsif vpc_block.has_key?('subnet_name') or vpc_block.has_key?('subnet_id')
-          tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !vpc_block['tag'].nil?
-          begin
-            ext_subnet = ext_vpc.getSubnet(cloud_id: vpc_block['subnet_id'], name: vpc_block['subnet_name'], tag_key: tag_key, tag_value: tag_value)
-          rescue MuError => e
-          end
-
-          if ext_subnet.nil?
-            ok = false
-            MU.log "Couldn't resolve subnet reference (name/id) in #{parent_name} to a live subnet", MU::ERR, details: vpc_block
-          elsif !vpc_block['subnet_id']
-            vpc_block['subnet_id'] = ext_subnet.cloud_id
-            vpc_block['az'] = ext_subnet.az
-            vpc_block.delete('subnet_name')
-            vpc_block.delete('subnet_pref')
-            MU.log "Resolved subnet reference in #{parent_name} to #{ext_subnet.cloud_id}", MU::DEBUG, details: vpc_block
-          end
-        end
-      end
-
-      # ...and other times we get to pick
-
-      # First decide whether we should pay attention to subnet_prefs.
-      honor_subnet_prefs = true
-      if vpc_block['subnets']
-        count = 0
-        vpc_block['subnets'].each { |subnet|
-          if subnet['subnet_id'] or subnet['subnet_name']
-            honor_subnet_prefs=false
-          end
-          if !subnet['subnet_id'].nil? and subnet['subnet_id'].is_a?(String)
-            subnet['subnet_id'] = getTail("Subnet #{count} for #{parent_name}", value: subnet['subnet_id'], prettyname: "Subnet #{count} for #{parent_name}", cloudtype: "AWS::EC2::Subnet::Id")
-            count = count + 1
-          end
-        }
-      elsif (vpc_block['subnet_name'] or vpc_block['subnet_id'])
-        honor_subnet_prefs=false
-      end
-
-      if vpc_block['subnet_pref'] and honor_subnet_prefs
-        private_subnets = []
-        private_subnets_map = {}
-        public_subnets = []
-        public_subnets_map = {}
-        nat_routes = {}
-        subnet_ptr = "subnet_id"
-        all_subnets = []
-        if !is_sibling
-          pub = priv = 0
-          raise MuError, "No subnets found in #{ext_vpc}" if ext_vpc.subnets.nil?
-          ext_vpc.subnets.each { |subnet|
-            next if dflt_region and vpc_block["cloud"] == "Google" and subnet.az != dflt_region
-            if subnet.private? and (vpc_block['subnet_pref'] != "all_public" and vpc_block['subnet_pref'] != "public")
-              private_subnets << { "subnet_id" => getTail("#{parent_name} Private Subnet #{priv}", value: subnet.cloud_id, prettyname: "#{parent_name} Private Subnet #{priv}",  cloudtype:  "AWS::EC2::Subnet::Id"), "az" => subnet.az }
-              private_subnets_map[subnet.cloud_id] = subnet
-              priv = priv + 1
-            elsif !subnet.private? and vpc_block['subnet_pref'] != "all_private" and vpc_block['subnet_pref'] != "private"
-              public_subnets << { "subnet_id" => getTail("#{parent_name} Public Subnet #{pub}", value: subnet.cloud_id, prettyname: "#{parent_name} Public Subnet #{pub}",  cloudtype: "AWS::EC2::Subnet::Id"), "az" => subnet.az }
-              public_subnets_map[subnet.cloud_id] = subnet
-              pub = pub + 1
-            else
-              MU.log "#{subnet} didn't match subnet_pref: '#{vpc_block['subnet_pref']}' (private? returned #{subnet.private?})", MU::DEBUG
-            end
-          }
-        else
-          sibling_vpcs.each { |ext_vpc|
-            if ext_vpc['name'].to_s == vpc_block['vpc_name'].to_s
-              subnet_ptr = "subnet_name"
-              ext_vpc['subnets'].each { |subnet|
-                next if dflt_region and vpc_block["cloud"] == "Google" and subnet['availability_zone'] != dflt_region
-                if subnet['is_public'] # NAT nonsense calculated elsewhere, ew
-                  public_subnets << {"subnet_name" => subnet['name'].to_s}
-                else
-                  private_subnets << {"subnet_name" => subnet['name'].to_s}
-                  nat_routes[subnet['name'].to_s] = [] if nat_routes[subnet['name'].to_s].nil?
-                  if !subnet['nat_host_name'].nil?
-                    nat_routes[subnet['name'].to_s] << subnet['nat_host_name'].to_s
-                  end
-                end
-              }
-              break
-            end
-          }
-        end
-
-        if public_subnets.size == 0 and private_subnets == 0
-          MU.log "Couldn't find any subnets for #{parent_name}", MU::ERR
-          return false
-        end
-        all_subnets = public_subnets + private_subnets
-
-        case vpc_block['subnet_pref']
-          when "public"
-            if !public_subnets.nil? and public_subnets.size > 0
-              vpc_block.merge!(public_subnets[rand(public_subnets.length)]) if public_subnets
-            else
-              MU.log "Public subnet requested for #{parent_name}, but none found in #{vpc_block}", MU::ERR
-              return false
-            end
-          when "private"
-            if !private_subnets.nil? and private_subnets.size > 0
-              vpc_block.merge!(private_subnets[rand(private_subnets.length)])
-            else
-              MU.log "Private subnet requested for #{parent_name}, but none found in #{vpc_block}", MU::ERR
-              return false
-            end
-            if !is_sibling and !private_subnets_map[vpc_block[subnet_ptr]].nil?
-              vpc_block['nat_host_id'] = private_subnets_map[vpc_block[subnet_ptr]].defaultRoute
-            elsif nat_routes.has_key?(vpc_block[subnet_ptr])
-              vpc_block['nat_host_name'] == nat_routes[vpc_block[subnet_ptr]]
-            end
-          when "any"
-            vpc_block.merge!(all_subnets.sample)
-          when "all"
-            vpc_block['subnets'] = []
-            public_subnets.each { |subnet|
-              vpc_block['subnets'] << subnet
-            }
-            private_subnets.each { |subnet|
-              vpc_block['subnets'] << subnet
-            }
-          when "all_public"
-            vpc_block['subnets'] = []
-            public_subnets.each { |subnet|
-              vpc_block['subnets'] << subnet
-            }
-          when "all_private"
-            vpc_block['subnets'] = []
-            private_subnets.each { |subnet|
-              vpc_block['subnets'] << subnet
-              if !is_sibling and vpc_block['nat_host_id'].nil? and private_subnets_map.has_key?(subnet[subnet_ptr]) and !private_subnets_map[subnet[subnet_ptr]].nil?
-                vpc_block['nat_host_id'] = private_subnets_map[subnet[subnet_ptr]].defaultRoute
-              elsif nat_routes.has_key?(subnet) and vpc_block['nat_host_name'].nil?
-                vpc_block['nat_host_name'] == nat_routes[subnet]
-              end
-            }
-          else
-            vpc_block['subnets'] ||= []
-
-            sibling_vpcs.each { |ext_vpc|
-              next if ext_vpc["name"] != vpc_block["vpc_name"]
-              ext_vpc["subnets"].each { |subnet|
-                if subnet["route_table"] == vpc_block["subnet_pref"]
-                  vpc_block["subnets"] << subnet
-                end
-              }
-            }
-            if vpc_block['subnets'].size < 1
-              MU.log "Unable to resolve subnet_pref '#{vpc_block['subnet_pref']}' to any route table"
-              ok = false
-            end
-        end
-      end
-
-      if ok
-        # Delete values that don't apply to the schema for whatever this VPC's
-        # parent resource is.
-        vpc_block.keys.each { |vpckey|
-          if @@schema["properties"][parent_type]["items"]["properties"]["vpc"] and
-             !@@schema["properties"][parent_type]["items"]["properties"]["vpc"]["properties"].has_key?(vpckey)
-            vpc_block.delete(vpckey)
-          end
-        }
-        if vpc_block['subnets'] and
-           @@schema["properties"][parent_type]["items"]["properties"]["vpc"] and
-           @@schema["properties"][parent_type]["items"]["properties"]["vpc"]["properties"]["subnets"]
-          vpc_block['subnets'].each { |subnet|
-            subnet.each_key { |subnetkey|
-              if !@@schema["properties"][parent_type]["items"]["properties"]["vpc"]["properties"]["subnets"]["items"]["properties"].has_key?(subnetkey)
-                subnet.delete(subnetkey)
-              end
-            }
-          }
-        end
-
-        vpc_block.delete('deploy_id')
-        vpc_block.delete('vpc_name') if vpc_block.has_key?('vpc_id')
-        vpc_block.delete('deploy_id')
-        vpc_block.delete('tag')
-        MU.log "Resolved VPC resources for #{parent_name}", MU::DEBUG, details: vpc_block
-      end
-
-      if !vpc_block["vpc_id"].nil? and vpc_block["vpc_id"].is_a?(String)
-        vpc_block["vpc_id"] = getTail("#{parent_name}vpc_id", value: vpc_block["vpc_id"], prettyname: "#{parent_name} Target VPC",  cloudtype: "AWS::EC2::VPC::Id")
-      elsif !vpc_block["nat_host_name"].nil? and vpc_block["nat_host_name"].is_a?(String)
-        vpc_block["nat_host_name"] = MU::Config::Tail.new("#{parent_name}nat_host_name", vpc_block["nat_host_name"])
-
-      end
-
-      return ok
-    end
-
     # Verify that a server or server_pool has a valid AD config referencing
     # valid Vaults for credentials.
     def self.check_vault_refs(server)
@@ -1890,8 +1531,9 @@ module MU
 
       count = 0
       @kittens ||= {}
+      types = MU::Cloud.resource_types.values.map { |v| v[:cfg_plural] }
 
-      MU::Cloud.resource_types.values.map { |cfg| cfg[:cfg_plural] }.each { |type|
+      types.each { |type|
         @kittens[type] = config[type]
         @kittens[type] ||= []
         @kittens[type].each { |k|
@@ -1905,455 +1547,11 @@ module MU
         ok = false
       end
 
-      nat_routes ||= {}
-      @kittens["vpcs"].each { |vpc|
-        next if !vpc['route_tables']
-        vpc['route_tables'].each { |rtb|
-          next if !rtb['routes']
-          rtb['routes'].each { |r|
-            if r.has_key?("gateway") and (!r["gateway"] or r["gateway"].to_s.empty?)
-              MU.log "Route gateway in VPC #{vpc['name']} cannot be nil- did you forget to puts quotes around a #INTERNET, #NAT, or #DENY?", MU::ERR, details: rtb
-              ok = false
-            end
-          }
+      @nat_routes ||= {}
+      types.each { |type|
+        @kittens[type].each { |descriptor|
+          ok = false if !insertKitten(descriptor, type)
         }
-        ok = false if !insertKitten(vpc, "vpcs")
-      }
-
-      # Now go back through and identify peering connections involving any of
-      # the VPCs we've declared. XXX Note that it's real easy to create a
-      # circular dependency here. Ugh.
-      # XXX this junk-wad might be foldable into insertKitten's vpc-processing
-      # bit
-      @kittens["vpcs"].each { |vpc|
-        if !vpc["peers"].nil?
-          vpc["peers"].each { |peer|
-            peer["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("VPC")
-            # If we're peering with a VPC in this deploy, set it as a dependency
-            if !peer['vpc']["vpc_name"].nil? and
-               haveLitterMate?(peer['vpc']["vpc_name"], "vpcs") and
-               peer["vpc"]['deploy_id'].nil? and peer["vpc"]['vpc_id'].nil?
-              peer['vpc']['region'] = config['region'] if peer['vpc']['region'].nil? # XXX this is AWS-specific
-              peer['vpc']['cloud'] = vpc['cloud'] if peer['vpc']['cloud'].nil?
-              vpc["dependencies"] << {
-                "type" => "vpc",
-                "name" => peer['vpc']["vpc_name"]
-              }
-              # If we're using a VPC from somewhere else, make sure the flippin'
-              # thing exists, and also fetch its id now so later search routines
-              # don't have to work so hard.
-            else
-              peer['vpc']['region'] = config['region'] if peer['vpc']['region'].nil? # XXX this is AWS-specific
-              peer['vpc']['cloud'] = vpc['cloud'] if peer['vpc']['cloud'].nil?
-              if !peer['account'].nil? and peer['account'] != MU.account_number
-                if peer['vpc']["vpc_id"].nil?
-                  MU.log "VPC peering connections to non-local accounts must specify the vpc_id of the peer.", MU::ERR
-                  ok = false
-                end
-              elsif !processVPCReference(peer['vpc'], "vpcs", "vpc '#{vpc['name']}'", dflt_region: peer["vpc"]['region'])
-                ok = false
-              end
-            end
-          }
-        end
-      }
-
-      @kittens["dnszones"].each { |zone|
-# TODO non-local VPCs are valid, but require an account field, which insertKitten doesn't know anything about
-# if !zone['account'].nil? and zone['account'] != MU.account_number
-        ok = false if !insertKitten(zone, "dns_zones")
-      }
-
-      @kittens["firewall_rules"].each { |acl|
-        ok = false if !insertKitten(acl, "firewall_rules")
-      }
-
-
-      @kittens["loadbalancers"].each { |lb|
-        # Convert old-school listener declarations into target groups and health
-        # checks, for which AWS and Google both have equivalents.
-        if lb["targetgroups"].nil? or lb["targetgroups"].size == 0
-          if lb["listeners"].nil? or lb["listeners"].size == 0
-            ok = false
-            MU.log "No targetgroups or listeners defined in LoadBalancer #{lb['name']}", MU::ERR
-          end
-          lb["targetgroups"] = []
-
-          # Manufacture targetgroups out of old-style listener configs
-          lb["listeners"].each { |l|
-            tgname = lb["name"]+l["lb_protocol"].downcase+l["lb_port"].to_s
-            l["targetgroup"] = tgname
-            tg = { 
-              "name" => tgname,
-              "proto" => l["instance_protocol"],
-              "port" => l["instance_port"]
-            }
-            if lb["healthcheck"]
-              hc_target = lb['healthcheck']['target'].match(/^([^:]+):(\d+)(.*)/)
-              tg["healthcheck"] = lb['healthcheck'].dup
-              proto = ["HTTP", "HTTPS"].include?(hc_target[1]) ? hc_target[1] : l["instance_protocol"]
-              tg['healthcheck']['target'] = "#{proto}:#{hc_target[2]}#{hc_target[3]}"
-              tg['healthcheck']["httpcode"] = "200,301,302"
-              MU.log "Converting classic-style ELB health check target #{lb['healthcheck']['target']} to ALB style for target group #{tgname} (#{l["instance_protocol"]}:#{l["instance_port"]}).", details: tg['healthcheck']
-            end
-            lb["targetgroups"] << tg
-          }
-        else
-          lb['listeners'].each { |l|
-            found = false
-            lb['targetgroups'].each { |tg|
-              if l['targetgroup'] == tg['name']
-                found = true
-                break
-              end
-            }
-            if !found
-              ok = false
-              MU.log "listener in LoadBalancer #{lb['name']} refers to targetgroup #{l['targetgroup']}, but no such targetgroup found", MU::ERR
-            end
-          }
-        end
-
-        lb['listeners'].each { |l|
-          if !l['rules'].nil? and l['rules'].size > 0
-            l['rules'].each { |r|
-              if r['actions'].nil?
-                r['actions'] = [
-                  { "targetgroup" => l["targetgroup"], "action" => "forward" }
-                ]
-                next
-              end
-              r['actions'].each { |action|
-                if action['targetgroup'].nil?
-                  action['targetgroup'] = l['targetgroup']
-                else
-                  found = false
-                  lb['targetgroups'].each { |tg|
-                    if l['targetgroup'] == action['targetgroup']
-                      found = true
-                      break
-                    end
-                  }
-                  if !found
-                    ok = false
-                    MU.log "listener action in LoadBalancer #{lb['name']} refers to targetgroup #{action['targetgroup']}, but no such targetgroup found", MU::ERR
-                  end
-                end
-              }
-            }
-          end
-        }
-        ok = false if !insertKitten(lb, "loadbalancers")
-      }
-
-      @kittens["collections"].each { |stack|
-        ok = false if !insertKitten(stack, "collections")
-      }
-
-      @kittens["server_pools"].each { |pool|
-        if haveLitterMate?(pool["name"], "servers")
-          MU.log "Can't use name #{pool['name']} more than once in pools/pool_pools"
-          ok = false
-        end
-        pool['skipinitialupdates'] = true if @skipinitialupdates
-        pool['ingress_rules'] ||= []
-        pool['vault_access'] ||= []
-        pool['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
-        ok = false if !MU::Config.check_vault_refs(pool)
-
-        pool['dependencies'] << adminFirewallRuleset(vpc: pool['vpc'], region: pool['region'], cloud: pool['cloud']) if !pool['scrub_mu_isms']
-
-        if !pool["vpc"].nil?
-          if !pool["vpc"]["subnet_name"].nil? and nat_routes.has_key?(pool["vpc"]["subnet_name"])
-            pool["dependencies"] << {
-                "type" => "pool",
-                "name" => nat_routes[pool["vpc"]["subnet_name"]],
-                "phase" => "groom"
-            }
-          end
-        end
-# TODO make sure this is handled... somewhere
-#        if pool["alarms"] && !pool["alarms"].empty?
-#          pool["alarms"].each { |alarm|
-#            alarm["name"] = "server-#{pool['name']}-#{alarm["name"]}"
-#            alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
-#            alarm['cloud'] = pool['cloud']
-#            ok = false if !insertKitten(alarm, "alarms")
-#          }
-#        end
-        if pool["basis"]["server"] != nil
-          pool["dependencies"] << {"type" => "server", "name" => pool["basis"]["server"]}
-        end
-        if !pool['static_ip'].nil? and !pool['ip'].nil?
-          ok = false
-          MU.log "Server Pools cannot assign specific static IPs.", MU::ERR
-        end
-
-        ok = false if !insertKitten(pool, "server_pools")
-      }
-
-      read_replicas = []
-      database_names = []
-      cluster_nodes = []
-      primary_dbs = []
-      @kittens["databases"].each { |db|
-        primary_dbs << db['name']
-        db['ingress_rules'] ||= []
-        if db['auth_vault'] && !db['auth_vault'].empty?
-          groomclass = MU::Groomer.loadGroomer(db['groomer'])
-          if db['password']
-            MU.log "Database password and database auth_vault can't both be used.", MU::ERR
-            ok = false
-          end
-
-          begin
-            item = groomclass.getSecret(vault: db['auth_vault']['vault'], item: db['auth_vault']['item'])
-            if !item.has_key?(db['auth_vault']['password_field'])
-              MU.log "No value named password_field in Chef Vault #{db['auth_vault']['vault']}:#{db['auth_vault']['item']}, will use an auto generated password.", MU::NOTICE
-              db['auth_vault'].delete(field)
-            end
-          rescue MuError
-            ok = false
-          end
-        end
-
-
-        if db["storage"].nil? and db["creation_style"] == "new" and !db['create_cluster']
-          MU.log "Must provide a value for 'storage' when creating a new database.", MU::ERR, details: db
-          ok = false
-        end
-
-        if db["create_cluster"]
-          if db["cluster_node_count"] < 1
-            MU.log "You are trying to create a database cluster but cluster_node_count is set to #{db["cluster_node_count"]}", MU::ERR
-            ok = false
-          end
-
-          MU.log "'storage' is not supported when creating a database cluster, disregarding", MU::NOTICE if db["storage"]
-          MU.log "'multi_az_on_create' and multi_az_on_deploy are not supported when creating a database cluster, disregarding", MU::NOTICE if db["storage"] if db["multi_az_on_create"] || db["multi_az_on_deploy"]
-        end
-
-        if db["size"].nil?
-          MU.log "You must specify 'size' when creating a new database or a database from a snapshot.", MU::ERR
-          ok = false
-        end
-
-        if db["creation_style"] == "new" and db["storage"].nil?
-          unless db["create_cluster"]
-            MU.log "You must specify 'storage' when creating a new database.", MU::ERR
-            ok = false
-          end
-        end
-
-        if db["creation_style"] == "point_in_time" && db["restore_time"].nil?
-          ok = false
-          MU.log "You must provide restore_time when creation_style is point_in_time", MU::ERR
-        end
-
-        if %w{existing new_snapshot existing_snapshot point_in_time}.include?(db["creation_style"])
-          if db["identifier"].nil?
-            ok = false
-            MU.log "Using existing database (or snapshot thereof), but no identifier given", MU::ERR
-          end
-        end
-
-        if !db["run_sql_on_deploy"].nil? and (db["engine"] != "postgres" and db["engine"] != "mysql")
-          ok = false
-          MU.log "Running SQL on deploy is only supported for postgres and mysql databases", MU::ERR
-        end
-
-        if !db["vpc"].nil?
-          if db["vpc"]["subnet_pref"] and !db["vpc"]["subnets"]
-            if db["vpc"]["subnet_pref"] = "public"
-              db["vpc"]["subnet_pref"] = "all_public"
-            elsif db["vpc"]["subnet_pref"] = "private"
-              db["vpc"]["subnet_pref"] = "all_private"
-            elsif %w{all any}.include? db["vpc"]["subnet_pref"]
-              MU.log "subnet_pref #{db["vpc"]["subnet_pref"]} is not supported for database instance.", MU::ERR
-              ok = false
-            end
-            if db["vpc"]["subnet_pref"] == "all_public" and !db['publicly_accessible']
-              MU.log "Setting publicly_accessible to true on database '#{db['name']}', since deploying into public subnets.", MU::WARN
-              db['publicly_accessible'] = true
-            elsif db["vpc"]["subnet_pref"] == "all_private" and db['publicly_accessible']
-              MU.log "Setting publicly_accessible to false on database '#{db['name']}', since deploying into private subnets.", MU::NOTICE
-              db['publicly_accessible'] = false
-            end
-          end
-        end
-
-        # Automatically manufacture another database object, which will serve
-        # as a read replica of this one, if we've set create_read_replica.
-        if db['create_read_replica']
-          replica = Marshal.load(Marshal.dump(db))
-          replica['name'] = db['name']+"-replica"
-          database_names << replica['name']
-          replica['create_read_replica'] = false
-          replica['read_replica_of'] = {
-            "db_name" => db['name'],
-            "cloud" => db['cloud'],
-            "region" => db['read_replica_region'] || db['region']
-          }
-          replica['dependencies'] << {
-            "type" => "database",
-            "name" => db["name"],
-            "phase" => "groom"
-          }
-          read_replicas << replica
-        end
-
-        # Do database cluster nodes the same way we do read replicas, by
-        # duplicating the declaration of the master as a new first-class
-        # resource and tweaking it.
-        if db["create_cluster"]
-          (1..db["cluster_node_count"]).each{ |num|
-            node = Marshal.load(Marshal.dump(db))
-            node["name"] = "#{db['name']}-#{num}"
-            database_names << node["name"]
-            node["create_cluster"] = false
-            node["creation_style"] = "new"
-            node["add_cluster_node"] = true
-            node["member_of_cluster"] = {
-              "db_name" => db['name'],
-              "cloud" => db['cloud'],
-              "region" => db['region']
-            }
-            # AWS will figure out for us which database instance is the writer/master so we can create all of them concurrently.
-            node['dependencies'] << {
-              "type" => "database",
-              "name" => db["name"],
-              "phase" => "groom"
-            }
-            cluster_nodes << node
-
-           # Alarms are set on each DB cluster node, not on the cluster itself,
-           # so futz any alarm declarations accordingly.
-            if node.has_key?("alarms") && !node["alarms"].empty?
-              node["alarms"].each{ |alarm|
-                alarm["name"] = "#{alarm["name"]}-#{node["name"]}"
-              }
-            end
-          }
-
-        end
-
-        ok = false if !insertKitten(db, "databases")
-      }
-
-      @kittens["databases"].concat(read_replicas)
-      @kittens["databases"].concat(cluster_nodes)
-      @kittens["databases"].each { |db|
-        if !db['read_replica_of'].nil?
-          rr = db['read_replica_of']
-          if !rr['db_name'].nil?
-            db['dependencies'] << { "name" => rr['db_name'], "type" => "database" }
-          else
-            rr['cloud'] = db['cloud'] if rr['cloud'].nil?
-            tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
-            found = MU::MommaCat.findStray(
-                rr['cloud'],
-                "database",
-                deploy_id: rr["deploy_id"],
-                cloud_id: rr["db_id"],
-                tag_key: tag_key,
-                tag_value: tag_value,
-                region: rr["region"],
-                dummy_ok: true
-            )
-            ext_database = found.first if !found.nil? and found.size == 1
-            if !ext_database
-              MU.log "Couldn't resolve Database reference to a unique live Database in #{db['name']}", MU::ERR, details: rr
-              ok = false
-            end
-          end
-        elsif db["member_of_cluster"]
-          rr = db["member_of_cluster"]
-          if rr['db_name']
-            if !haveLitterMate?(rr['db_name'], "databases")
-              MU.log "Database cluster node #{db['name']} references sibling source #{rr['db_name']}, but I have no such database", MU::ERR
-              ok = false
-            end
-          else
-            rr['cloud'] = db['cloud'] if rr['cloud'].nil?
-            tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
-            found = MU::MommaCat.findStray(
-                rr['cloud'],
-                "database",
-                deploy_id: rr["deploy_id"],
-                cloud_id: rr["db_id"],
-                tag_key: tag_key,
-                tag_value: tag_value,
-                region: rr["region"],
-                dummy_ok: true
-            )
-            ext_database = found.first if !found.nil? and found.size == 1
-            if !ext_database
-              MU.log "Couldn't resolve Database reference to a unique live Database in #{db['name']}", MU::ERR, details: rr
-              ok = false
-            end
-          end
-        end
-        db['dependencies'].uniq!
-
-        if !primary_dbs.include?(db['name'])
-          ok = false if !insertKitten(db, "databases")
-        end
-      }
-
-      @kittens["cache_clusters"].each { |cluster|
-        if cluster["creation_style"] != "new" && cluster["identifier"].nil?
-          MU.log "CacheCluster #{cluster['name']}'s creation_style is set to #{cluster['creation_style']} but no identifier was provided. Either set creation_style to new or provide an identifier", MU::ERR
-          ok = false
-        end
-        if !cluster.has_key?("node_count") or cluster["node_count"] < 1
-          MU.log "CacheCluster node_count must be >=1.", MU::ERR
-          ok = false
-        end
-        cluster["multi_az"] = true if cluster["node_count"] > 1
-
-        cluster['dependencies'] << adminFirewallRuleset(vpc: cluster['vpc'], region: cluster['region'], cloud: cluster['cloud']) if !cluster['scrub_mu_isms']
-
-        ok = false if !insertKitten(lb, "cache_clusters")
-      }
-
-
-      @kittens["storage_pools"].each { |pool|
-
-        ok = false if !insertKitten(pool, "storage_pools")
-      }
-
-      @kittens["logs"].each { |log_rec|
-        ok = false if !insertKitten(log_rec, "logs")
-      }
-
-      @kittens["servers"].each { |server|
-        if haveLitterMate?(server["name"], "server_pools") 
-          MU.log "Can't use name #{server['name']} more than once in servers/server_pools"
-          ok = false
-        end
-        server['skipinitialupdates'] = true if @skipinitialupdates
-        server['ingress_rules'] ||= []
-        server['vault_access'] ||= []
-        server['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
-        ok = false if !MU::Config.check_vault_refs(server)
-
-        server['dependencies'] << adminFirewallRuleset(vpc: server['vpc'], region: server['region'], cloud: server['cloud']) if !server['scrub_mu_isms']
-
-        if !server["vpc"].nil?
-          if !server["vpc"]["subnet_name"].nil? and nat_routes.has_key?(server["vpc"]["subnet_name"])
-            server["dependencies"] << {
-                "type" => "server",
-                "name" => nat_routes[server["vpc"]["subnet_name"]],
-                "phase" => "groom"
-            }
-          end
-        end
-
-        ok = false if !insertKitten(server, "servers")
-      }
-
-      @kittens["alarms"].each { |alarm|
-        ok = false if !insertKitten(alarm, "alarms")
       }
 
       # add some default holes to allow dependent instances into databases
@@ -2390,7 +1588,7 @@ module MU
         ok = false if !insertKitten(acl, "firewall_rules")
         seen << acl['name']
       }
-      MU::Cloud.resource_types.values.map { |cfg| cfg[:cfg_plural] }.each { |type|
+      types.each { |type|
         config[type] = @kittens[type] if @kittens[type].size > 0
       }
       ok = false if !MU::Config.check_dependencies(config)
@@ -2527,26 +1725,6 @@ module MU
       return nil
     end
 
-    #   @route_table_reference_primitive = {
-    #     "type" => "object",
-    #     "description" => "Deploy, attach, or peer this resource with a VPC.",
-    #     "minProperties" => 1,
-    #     "additionalProperties" => false,
-    #     "properties" => {
-    #       "vpc_id" => { "type" => "string" },
-    #       "vpc_name" => { "type" => "string" },
-    #       "tag" => {
-    #         "type" => "string",
-    #         "description" => "Identify this VPC by a tag (key=value). Note that this tag must not match more than one resource.",
-    #         "pattern" => "^[^=]+=.+"
-    #       },
-    #       "deploy_id" => {
-    #         "type" => "string",
-    #         "description" => "Look for a VPC fitting this description in another Mu deployment with this id.",
-    #       }
-    #     }
-    #   }
-
     def self.dependencies_primitive
       {
         "type" => "array",
@@ -2559,7 +1737,7 @@ module MU
                 "name" => {"type" => "string"},
                 "type" => {
                     "type" => "string",
-                    "enum" => ["server", "database", "server_pool", "loadbalancer", "collection", "firewall_rule", "vpc", "dnszone", "cache_cluster", "storage_pool"]
+                    "enum" => MU::Cloud.resource_types.values.map { |v| v[:cfg_name] }
                 },
                 "phase" => {
                     "type" => "string",
@@ -2691,6 +1869,8 @@ module MU
       "additionalProperties" => false
     }
 
+    failed = []
+
     # Load all of the config stub files at the Ruby level
     MU::Cloud.resource_types.each_pair { |type, cfg|
       begin
@@ -2698,6 +1878,7 @@ module MU
       rescue LoadError => e
 #        raise MuError, "MU::Config implemention of #{type} missing from modules/mu/config/#{cfg[:cfg_name]}.rb"
         MU.log "MU::Config::#{type} stub class is missing", MU::ERR
+        failed << type
         next
       end
     }
@@ -2705,19 +1886,26 @@ module MU
     MU::Cloud.resource_types.each_pair { |type, cfg|
       begin
         schemaclass = Object.const_get("MU").const_get("Config").const_get(type)
-        if !schemaclass.respond_to?(:schema) # or !schemaclass.respond_to?(:validate)
-          MU.log "MU::Config::#{type}.schema doesn't seem to be implemented", MU::ERR
-          next
-        end
+        [:schema, :validate].each { |method|
+          if !schemaclass.respond_to?(method)
+            MU.log "MU::Config::#{type}.#{method.to_s} doesn't seem to be implemented", MU::ERR
+            failed << type
+          end
+        }
+        next if failed.include?(type)
         @@schema["properties"][cfg[:cfg_plural]] = {
           "type" => "array",
           "items" => schemaclass.schema
         }
       rescue NameError => e
+        failed << type
         MU.log "Error loading #{type} schema from mu/config/#{cfg[:cfg_name]}", MU::ERR, details: "\t"+e.inspect+"\n\t"+e.backtrace[0]
       end
     }
-#        raise MuError, "stuff" if any respond_to? checks failed above
+    failed.uniq!
+    if failed.size > 0
+      raise MuError, "Resource type config loaders failed checks, aborting"
+    end
 
   end #class
 end #module

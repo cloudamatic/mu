@@ -75,6 +75,70 @@ module MU
         }
       end
 
+      # Generic pre-processing of {MU::Config::BasketofKittens::storage_pools}, bare and unvalidated.
+      # @param pool [Hash]: The resource to process and validate
+      # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+      # @return [Boolean]: True if validation succeeded, False otherwise
+      def self.validate(pool, configurator)
+        ok = true
+        if pool['mount_points']
+          new_mount_points = []
+          pool['mount_points'].each{ |mp|
+            if mp["vpc"] and !mp["vpc"].empty?
+              if !mp["vpc"]["vpc_name"].nil? and
+                 configurator.haveLitterMate?(mp["vpc"]["vpc_name"], "vpcs") and
+                 mp["vpc"]['deploy_id'].nil? and
+                 mp["vpc"]['vpc_id'].nil?
+      
+                if !MU::Config::VPC.processReference(mp['vpc'],
+                                        "storage_pools",
+                                        shortclass.to_s+" '#{pool['name']}'",
+                                        configurator,
+                                        dflt_region: pool['region'],
+                                        is_sibling: true,
+                                        sibling_vpcs: @kittens['vpcs'])
+                  ok = false
+                end
+              else
+                if !MU::Config::VPC.processReference(mp["vpc"],
+                                        "storage_pools",
+                                        "#{shortclass} #{pool['name']}",
+                                        configurator,
+                                        dflt_region: pool['region'])
+                  ok = false
+                end
+              end
+              if mp['vpc']['subnets'] and mp['vpc']['subnets'].size > 1
+                seen_azs = []
+                count = 0
+                mp['vpc']['subnets'].each { |subnet|
+                  if subnet['az'] and seen_azs.include?(subnet['az'])
+                    MU.log "VPC config for Storage Pool #{pool['name']} has multiple matching subnets per Availability Zone. Only one mount point per AZ is allowed, so you must explicitly declare which subnets to use.", MU::ERR
+                    ok = false
+                    break
+                  end
+                  seen_azs << subnet['az']
+                  subnet.delete("az")
+                  newmp = Marshal.load(Marshal.dump(mp))
+                  ["subnets", "subnet_pref", "az"].each { |field|
+                    newmp['vpc'].delete(field)
+                  }
+                  newmp['vpc'].merge!(subnet)
+                  newmp['name'] = newmp['name']+count.to_s
+                  count = count + 1
+                  new_mount_points << newmp
+                }
+              else
+                new_mount_points << mp
+              end
+            end
+          }
+          pool['mount_points'] = new_mount_points
+        end
+
+        ok
+      end
+
     end
   end
 end

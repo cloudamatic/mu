@@ -255,6 +255,214 @@ module MU
         }
       end
 
+      # Generic pre-processing of {MU::Config::BasketofKittens::databases}, bare and unvalidated.
+      # @param db [Hash]: The resource to process and validate
+      # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+      # @return [Boolean]: True if validation succeeded, False otherwise
+      def self.validate(db, configurator)
+        ok = true
+        read_replicas = []
+        cluster_nodes = []
+
+        db['ingress_rules'] ||= []
+        if db['auth_vault'] && !db['auth_vault'].empty?
+          groomclass = MU::Groomer.loadGroomer(db['groomer'])
+          if db['password']
+            MU.log "Database password and database auth_vault can't both be used.", MU::ERR
+            ok = false
+          end
+
+          begin
+            item = groomclass.getSecret(vault: db['auth_vault']['vault'], item: db['auth_vault']['item'])
+            if !item.has_key?(db['auth_vault']['password_field'])
+              MU.log "No value named password_field in Chef Vault #{db['auth_vault']['vault']}:#{db['auth_vault']['item']}, will use an auto generated password.", MU::NOTICE
+              db['auth_vault'].delete(field)
+            end
+          rescue MuError
+            ok = false
+          end
+        end
+
+
+        if db["storage"].nil? and db["creation_style"] == "new" and !db['create_cluster']
+          MU.log "Must provide a value for 'storage' when creating a new database.", MU::ERR, details: db
+          ok = false
+        end
+
+        if db["create_cluster"]
+          if db["cluster_node_count"] < 1
+            MU.log "You are trying to create a database cluster but cluster_node_count is set to #{db["cluster_node_count"]}", MU::ERR
+            ok = false
+          end
+
+          MU.log "'storage' is not supported when creating a database cluster, disregarding", MU::NOTICE if db["storage"]
+          MU.log "'multi_az_on_create' and multi_az_on_deploy are not supported when creating a database cluster, disregarding", MU::NOTICE if db["storage"] if db["multi_az_on_create"] || db["multi_az_on_deploy"]
+        end
+
+        if db["size"].nil?
+          MU.log "You must specify 'size' when creating a new database or a database from a snapshot.", MU::ERR
+          ok = false
+        end
+
+        if db["creation_style"] == "new" and db["storage"].nil?
+          unless db["create_cluster"]
+            MU.log "You must specify 'storage' when creating a new database.", MU::ERR
+            ok = false
+          end
+        end
+
+        if db["creation_style"] == "point_in_time" && db["restore_time"].nil?
+          ok = false
+          MU.log "You must provide restore_time when creation_style is point_in_time", MU::ERR
+        end
+
+        if %w{existing new_snapshot existing_snapshot point_in_time}.include?(db["creation_style"])
+          if db["identifier"].nil?
+            ok = false
+            MU.log "Using existing database (or snapshot thereof), but no identifier given", MU::ERR
+          end
+        end
+
+        if !db["run_sql_on_deploy"].nil? and (db["engine"] != "postgres" and db["engine"] != "mysql")
+          ok = false
+          MU.log "Running SQL on deploy is only supported for postgres and mysql databases", MU::ERR
+        end
+
+        if !db["vpc"].nil?
+          if db["vpc"]["subnet_pref"] and !db["vpc"]["subnets"]
+            if db["vpc"]["subnet_pref"] = "public"
+              db["vpc"]["subnet_pref"] = "all_public"
+            elsif db["vpc"]["subnet_pref"] = "private"
+              db["vpc"]["subnet_pref"] = "all_private"
+            elsif %w{all any}.include? db["vpc"]["subnet_pref"]
+              MU.log "subnet_pref #{db["vpc"]["subnet_pref"]} is not supported for database instance.", MU::ERR
+              ok = false
+            end
+            if db["vpc"]["subnet_pref"] == "all_public" and !db['publicly_accessible']
+              MU.log "Setting publicly_accessible to true on database '#{db['name']}', since deploying into public subnets.", MU::WARN
+              db['publicly_accessible'] = true
+            elsif db["vpc"]["subnet_pref"] == "all_private" and db['publicly_accessible']
+              MU.log "Setting publicly_accessible to false on database '#{db['name']}', since deploying into private subnets.", MU::NOTICE
+              db['publicly_accessible'] = false
+            end
+          end
+        end
+
+        # Automatically manufacture another database object, which will serve
+        # as a read replica of this one, if we've set create_read_replica.
+        if db['create_read_replica']
+          replica = Marshal.load(Marshal.dump(db))
+          replica['name'] = db['name']+"-replica"
+          replica['create_read_replica'] = false
+          replica['read_replica_of'] = {
+            "db_name" => db['name'],
+            "cloud" => db['cloud'],
+            "region" => db['read_replica_region'] || db['region']
+          }
+          replica['dependencies'] << {
+            "type" => "database",
+            "name" => db["name"],
+            "phase" => "groom"
+          }
+          read_replicas << replica
+        end
+
+        # Do database cluster nodes the same way we do read replicas, by
+        # duplicating the declaration of the master as a new first-class
+        # resource and tweaking it.
+        if db["create_cluster"]
+          (1..db["cluster_node_count"]).each{ |num|
+            node = Marshal.load(Marshal.dump(db))
+            node["name"] = "#{db['name']}-#{num}"
+            node["create_cluster"] = false
+            node["creation_style"] = "new"
+            node["add_cluster_node"] = true
+            node["member_of_cluster"] = {
+              "db_name" => db['name'],
+              "cloud" => db['cloud'],
+              "region" => db['region']
+            }
+            # AWS will figure out for us which database instance is the writer/master so we can create all of them concurrently.
+            node['dependencies'] << {
+              "type" => "database",
+              "name" => db["name"],
+              "phase" => "groom"
+            }
+            cluster_nodes << node
+
+           # Alarms are set on each DB cluster node, not on the cluster itself,
+           # so futz any alarm declarations accordingly.
+            if node.has_key?("alarms") && !node["alarms"].empty?
+              node["alarms"].each{ |alarm|
+                alarm["name"] = "#{alarm["name"]}-#{node["name"]}"
+              }
+            end
+          }
+
+        end
+
+        if !db['read_replica_of'].nil?
+          rr = db['read_replica_of']
+          if !rr['db_name'].nil?
+            db['dependencies'] << { "name" => rr['db_name'], "type" => "database" }
+          else
+            rr['cloud'] = db['cloud'] if rr['cloud'].nil?
+            tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
+            found = MU::MommaCat.findStray(
+                rr['cloud'],
+                "database",
+                deploy_id: rr["deploy_id"],
+                cloud_id: rr["db_id"],
+                tag_key: tag_key,
+                tag_value: tag_value,
+                region: rr["region"],
+                dummy_ok: true
+            )
+            ext_database = found.first if !found.nil? and found.size == 1
+            if !ext_database
+              MU.log "Couldn't resolve Database reference to a unique live Database in #{db['name']}", MU::ERR, details: rr
+              ok = false
+            end
+          end
+        elsif db["member_of_cluster"]
+          rr = db["member_of_cluster"]
+          if rr['db_name']
+            if !configurator.haveLitterMate?(rr['db_name'], "databases")
+              MU.log "Database cluster node #{db['name']} references sibling source #{rr['db_name']}, but I have no such database", MU::ERR
+              ok = false
+            end
+          else
+            rr['cloud'] = db['cloud'] if rr['cloud'].nil?
+            tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
+            found = MU::MommaCat.findStray(
+                rr['cloud'],
+                "database",
+                deploy_id: rr["deploy_id"],
+                cloud_id: rr["db_id"],
+                tag_key: tag_key,
+                tag_value: tag_value,
+                region: rr["region"],
+                dummy_ok: true
+            )
+            ext_database = found.first if !found.nil? and found.size == 1
+            if !ext_database
+              MU.log "Couldn't resolve Database reference to a unique live Database in #{db['name']}", MU::ERR, details: rr
+              ok = false
+            end
+          end
+        end
+        db['dependencies'].uniq!
+
+        read_replicas.each { |replica|
+          ok = false if !configurator.insertKitten(replica, "databases")
+        }
+        cluster_nodes.each { |member|
+          ok = false if !configurator.insertKitten(member, "databases")
+        }
+
+        ok
+      end
+
     end
   end
 end

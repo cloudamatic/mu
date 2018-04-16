@@ -151,6 +151,26 @@ module MU
         }
       end
 
+      # Generic pre-processing of {MU::Config::BasketofKittens::cache_clusters}, bare and unvalidated.
+      # @param cache [Hash]: The resource to process and validate
+      # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+      # @return [Boolean]: True if validation succeeded, False otherwise
+      def self.validate(cache, configurator)
+        ok = true
+        if cluster["creation_style"] != "new" && cluster["identifier"].nil?
+          MU.log "CacheCluster #{cluster['name']}'s creation_style is set to #{cluster['creation_style']} but no identifier was provided. Either set creation_style to new or provide an identifier", MU::ERR
+          ok = false
+        end
+        if !cluster.has_key?("node_count") or cluster["node_count"] < 1
+          MU.log "CacheCluster node_count must be >=1.", MU::ERR
+          ok = false
+        end
+        cluster["multi_az"] = true if cluster["node_count"] > 1
+
+        cluster['dependencies'] << adminFirewallRuleset(vpc: cluster['vpc'], region: cluster['region'], cloud: cluster['cloud']) if !cluster['scrub_mu_isms']
+
+        ok
+      end
     end
   end
 end
