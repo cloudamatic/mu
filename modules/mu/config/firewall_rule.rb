@@ -24,7 +24,6 @@ module MU
           "description" => "Create network-level access controls.",
           "properties" => {
             "name" => {"type" => "string"},
-            "cloud" => MU::Config.cloud_primitive,
             "vpc_name" => {
                 "type" => "string",
                 "description" => "Backwards-compatibility means of identifying a VPC; see {MU::Config::BasketofKittens::firewall_rules::vpc}"
@@ -40,7 +39,6 @@ module MU
                 "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
                 "default" => true
             },
-            "dependencies" => MU::Config.dependencies_primitive,
             "self_referencing" => {
                 "type" => "boolean",
                 "default" => false

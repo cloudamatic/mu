@@ -23,7 +23,6 @@ module MU
           "description" => "Create a DNS zone in Route 53.",
           "required" => ["name", "cloud"],
           "properties" => {
-            "cloud" => MU::Config.cloud_primitive,
             "name" => {
                 "type" => "string",
                 "description" => "The domain name to create. Must comply with RFC 1123",
@@ -45,7 +44,6 @@ module MU
                 "description" => "If this zone is private, make sure it is resolvable from all VPCs in this account. Will supercede the list in {MU::Config::BasketofKittens::dnszones.vpcs} for VPCs in this account."
             },
             "records" => records_primitive(),
-            "dependencies" => MU::Config.dependencies_primitive,
             "vpcs" => {
                 "type" => "array",
                 "items" => MU::Config::VPC.reference(MU::Config::VPC::NO_SUBNETS, MU::Config::VPC::NO_NAT_OPTS)

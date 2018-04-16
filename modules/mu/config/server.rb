@@ -119,7 +119,6 @@ module MU
             "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template."
         },
         "region" => MU::Config.region_primitive,
-        "cloud" => MU::Config.cloud_primitive,
         "async_groom" => {
             "type" => "boolean",
             "default" => false,
@@ -275,7 +274,6 @@ module MU
             "description" => "Wait for DNS record to propagate in DNS Zone.",
             "default" => true,
         },
-        "dependencies" => MU::Config.dependencies_primitive,
         "loadbalancers" => MU::Config::LoadBalancer.reference,
         "add_firewall_rules" => MU::Config::FirewallRule.reference,
         "static_ip" => static_ip_primitive,
@@ -392,6 +390,7 @@ module MU
             "type" => "string",
             "default" => "linux",
             "enum" => ["linux", "windows", "centos", "ubuntu", "centos6", "ubuntu14", "win2k12", "win2k12r2", "win2k16", "centos7", "rhel7", "rhel71", "amazon"],
+# XXX change to reflect available keys in mu/defaults/amazon_images.yaml and mu/defaults/google_images.yaml
             "description" => "Helps select default AMIs, and enables correct grooming behavior based on operating system type.",
         },
         "run_list" => {
@@ -471,7 +470,6 @@ module MU
     def self.schema
       base = {
         "type" => "object",
-        "title" => "server",
         "required" => ["name", "size", "cloud"],
         "additionalProperties" => false,
         "description" => "Create individual server instances.",

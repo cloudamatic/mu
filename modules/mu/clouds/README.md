@@ -46,7 +46,7 @@ module MU
       def self.schema
         {
           "type" => "object",
-          "title" => "Logs",
+          "title" => "Functions",
           "additionalProperties" => false,
           "description" => "Create a serverless cloud function.",
           "properties" => {

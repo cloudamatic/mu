@@ -19,12 +19,10 @@ module MU
       def self.schema
         {
           "type" => "object",
-          "title" => "Cache Cluster",
           "description" => "Create cache cluster(s).",
           "required" => ["name", "engine", "size", "cloud"],
           "additionalProperties" => false,
           "properties" => {
-            "cloud" => MU::Config.cloud_primitive,
             "name" => {"type" => "string"},
             "scrub_mu_isms" => {
                 "type" => "boolean",
@@ -61,7 +59,6 @@ module MU
                 "default" => true
             },
             "alarms" => MU::Config::Alarm.inline,
-            "dependencies" => MU::Config.dependencies_primitive,
             "size" => { # XXX this is AWS-specific, and should be done via API check anyway
               "pattern" => "^cache\.(t|m|c|i|g|hi|hs|cr|cg|cc){1,2}[0-9]\\.(micro|small|medium|[248]?x?large)$",
               "type" => "string",

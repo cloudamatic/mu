@@ -22,6 +22,7 @@ module MU
       # because in an ideal world it'd be a subclass of MANY something elses?
       def self.schema
         {
+          "properties" => {}
         }
       end
 

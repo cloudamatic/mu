@@ -19,15 +19,12 @@ module MU
       def self.schema
         {
           "type" => "object",
-          "title" => "Logs",
           "additionalProperties" => false,
           "description" => "Create a serverless cloud function.",
           "properties" => {
-            "cloud" => MU::Config.cloud_primitive,
             "name" => {"type" => "string"},
             "region" => MU::Config.region_primitive,
             "vpc" => MU::Config::VPC.reference(MU::Config::VPC::ONE_SUBNET+MU::Config::VPC::MANY_SUBNETS, MU::Config::VPC::NO_NAT_OPTS, "all_private"),
-            "dependencies" => MU::Config.dependencies_primitive,
             "tags" => MU::Config.tags_primitive,
             "optional_tags" => {
               "type" => "boolean",

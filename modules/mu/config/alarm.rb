@@ -154,13 +154,9 @@ module MU
       def self.schema
         base = {
           "type" => "object",
-          "title" => "Cloud platform monitoring alarms",
           "additionalProperties" => false,
-          "description" => "Create Amazon CloudWatch alarms.",
+          "description" => "Cloud platform monitoring alarms",
           "properties" => {
-            "cloud" => MU::Config.cloud_primitive,
-            "region" => MU::Config.region_primitive,
-            "dependencies" => MU::Config.dependencies_primitive
           }
         }
         base["properties"].merge!(common_properties)
@@ -190,6 +186,78 @@ module MU
       # @return [Boolean]: True if validation succeeded, False otherwise
       def self.validate(alarm, configurator)
         ok = true
+
+        if alarm["namespace"].nil?
+          MU.log "You must specify 'namespace' when creating an alarm", MU::ERR
+          ok = false
+        end
+
+        if alarm["metric_name"].nil?
+          MU.log "You must specify 'metric_name' when creating an alarm", MU::ERR
+          ok = false
+        end
+
+        if alarm["statistic"].nil?
+          MU.log "You must specify 'statistic' when creating an alarm", MU::ERR
+          ok = false
+        end
+
+        if alarm["period"].nil?
+          MU.log "You must specify 'period' when creating an alarm", MU::ERR
+          ok = false
+        end
+
+        if alarm["evaluation_periods"].nil?
+          MU.log "You must specify 'evaluation_periods' when creating an alarm", MU::ERR
+          ok = false
+        end
+
+        if alarm["threshold"].nil?
+          MU.log "You must specify 'threshold' when creating an alarm", MU::ERR
+          ok = false
+        end
+
+        if alarm["comparison_operator"].nil?
+          MU.log "You must specify 'comparison_operator' when creating an alarm", MU::ERR
+          ok = false
+        end
+
+        if alarm["enable_notifications"]
+          if alarm["comparison_operator"].nil?
+            MU.log "You must specify 'comparison_operator' when creating an alarm", MU::ERR
+            ok = false
+          end
+
+          if alarm["notification_group"].nil?
+            MU.log "You must specify 'notification_group' when 'enable_notifications' is set to true", MU::ERR
+            ok = false
+          end
+
+          if alarm["notification_type"].nil?
+            MU.log "You must specify 'notification_type' when 'enable_notifications' is set to true", MU::ERR
+            ok = false
+          end
+
+          #if alarm["notification_endpoint"].nil?
+          #  MU.log "You must specify 'notification_endpoint' when 'enable_notifications' is set to true", MU::ERR
+          #  ok = false
+          #end
+        end
+        
+        if alarm["dimensions"]
+          alarm["dimensions"].each{ |dimension|
+            if dimension["mu_name"] && dimension["cloud_id"]
+              MU.log "You can only specfiy 'mu_name' or 'cloud_id'", MU::ERR
+              ok = false
+            end
+
+            if dimension["cloud_class"].nil?
+              ok = false
+              MU.log "You must specify 'cloud_class'", MU::ERR
+            end
+          }
+        end
+
         ok
       end
 

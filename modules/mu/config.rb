@@ -18,7 +18,6 @@ require 'erb'
 require 'pp'
 require 'json-schema'
 require 'net/http'
-require '/opt/mu/lib/modules/mu/config/container_pool.rb'
 autoload :GraphViz, 'graphviz'
 
 module MU
@@ -52,6 +51,7 @@ module MU
     end
 
     attr_accessor :nat_routes
+    attr_reader :skipinitialupdates
 
     attr_reader :google_images
     @@google_images = YAML.load(File.read("#{MU.myRoot}/modules/mu/defaults/google_images.yaml"))
@@ -948,18 +948,18 @@ module MU
       end
 
       if !delay_validation
-
         # Call the generic validation for the resource type, first and foremost
         # XXX this might have to be at the top of this insertKitten instead of
         # here
         ok = false if !schemaclass.validate(descriptor, self)
 
-        # Merge the cloud-class specific JSON schema and validate against it
+        # Merge the cloud-specific JSON schema and validate against it
         myschema = Marshal.load(Marshal.dump(MU::Config.schema["properties"][cfg_plural]["items"]))
         more_required, more_schema = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s).schema(self)
 
         if more_schema
           MU::Config.schemaMerge(myschema["properties"], more_schema, descriptor["cloud"])
+          MU::Config.set_defaults(descriptor, myschema)
         end
         myschema["required"] ||= []
         myschema["required"].concat(more_required)
@@ -990,7 +990,7 @@ module MU
         end
 
         # Run the cloud class's deeper validation, unless we've already failed
-        # on stuff that will cause spurious alarm further in
+        # on stuff that will cause spurious alarms further in
         if ok
           parser = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s)
           return false if !parser.validateConfig(descriptor, self)
@@ -1049,6 +1049,67 @@ module MU
         "default" => MU::Config.defaultCloud,
         "enum" => MU::Cloud.supportedClouds
       }
+    end
+
+    # Generate configuration for the general-pursose ADMIN firewall rulesets
+    # (security groups in AWS). Note that these are unique to regions and
+    # individual VPCs (as well as Classic, which is just a degenerate case of
+    # a VPC for our purposes.
+    # @param vpc [Hash]: A VPC reference as defined in our config schema. This originates with the calling resource, so we'll peel out just what we need (a name or cloud id of a VPC).
+    # @param admin_ip [String]: Optional string of an extra IP address to allow blanket access to the calling resource.
+    # @param cloud [String]: The parent resource's cloud plugin identifier
+    # @param region [String]: Cloud provider region, if applicable.
+    # @return [Hash<String>]: A dependency description that the calling resource can then add to itself.
+    def adminFirewallRuleset(vpc: nil, admin_ip: nil, region: nil, cloud: nil)
+      if !cloud or (cloud == "AWS" and !region)
+        raise MuError, "Cannot call adminFirewallRuleset without specifying the parent's region and cloud provider"
+      end
+      hosts = Array.new
+      hosts << "#{MU.my_public_ip}/32" if MU.my_public_ip
+      hosts << "#{MU.my_private_ip}/32" if MU.my_private_ip
+      hosts << "#{MU.mu_public_ip}/32" if MU.mu_public_ip
+      hosts << "#{admin_ip}/32" if admin_ip
+      hosts.uniq!
+      name = "admin"
+      realvpc = nil
+
+      if vpc
+        realvpc = {}
+        realvpc['vpc_id'] = vpc['vpc_id'] if !vpc['vpc_id'].nil?
+        realvpc['vpc_name'] = vpc['vpc_name'] if !vpc['vpc_name'].nil?
+        realvpc['deploy_id'] = vpc['deploy_id'] if !vpc['deploy_id'].nil?
+        if !realvpc['vpc_id'].nil? and !realvpc['vpc_id'].empty?
+          # Stupid kludge for Google cloud_ids which are sometimes URLs and
+          # sometimes not. Requirements are inconsistent from scenario to
+          # scenario.
+          name = name + "-" + realvpc['vpc_id'].gsub(/.*\//, "")
+          realvpc['vpc_id'] = getTail("vpc_id", value: realvpc['vpc_id'], prettyname: "Admin Firewall Ruleset #{name} Target VPC",  cloudtype: "AWS::EC2::VPC::Id") if realvpc["vpc_id"].is_a?(String)
+        elsif !realvpc['vpc_name'].nil?
+          name = name + "-" + realvpc['vpc_name']
+        end
+      end
+
+      hosts.uniq!
+
+      rules = []
+      if cloud == "Google"
+        rules = [
+          { "ingress" => true, "proto" => "all", "hosts" => hosts },
+          { "egress" => true, "proto" => "all", "hosts" => hosts }
+        ]
+      else
+        rules = [
+          { "proto" => "tcp", "port_range" => "0-65535", "hosts" => hosts },
+          { "proto" => "udp", "port_range" => "0-65535", "hosts" => hosts },
+          { "proto" => "icmp", "port_range" => "-1", "hosts" => hosts }
+        ]
+      end
+
+      acl = {"name" => name, "rules" => rules, "vpc" => realvpc, "cloud" => cloud, "admin" => true}
+      acl.delete("vpc") if !acl["vpc"]
+      acl["region"] == region if !region.nil? and !region.empty?
+      @admin_firewall_rules << acl if !@admin_firewall_rules.include?(acl)
+      return {"type" => "firewall_rule", "name" => name}
     end
 
     private
@@ -1348,150 +1409,13 @@ module MU
       return ok
     end
 
-    # Generate configuration for the general-pursose ADMIN firewall rulesets
-    # (security groups in AWS). Note that these are unique to regions and
-    # individual VPCs (as well as Classic, which is just a degenerate case of
-    # a VPC for our purposes.
-    # @param vpc [Hash]: A VPC reference as defined in our config schema. This originates with the calling resource, so we'll peel out just what we need (a name or cloud id of a VPC).
-    # @param admin_ip [String]: Optional string of an extra IP address to allow blanket access to the calling resource.
-    # @param cloud [String]: The parent resource's cloud plugin identifier
-    # @param region [String]: Cloud provider region, if applicable.
-    # @return [Hash<String>]: A dependency description that the calling resource can then add to itself.
-    def adminFirewallRuleset(vpc: nil, admin_ip: nil, region: nil, cloud: nil)
-      if !cloud or (cloud == "AWS" and !region)
-        raise MuError, "Cannot call adminFirewallRuleset without specifying the parent's region and cloud provider"
-      end
-      hosts = Array.new
-      hosts << "#{MU.my_public_ip}/32" if MU.my_public_ip
-      hosts << "#{MU.my_private_ip}/32" if MU.my_private_ip
-      hosts << "#{MU.mu_public_ip}/32" if MU.mu_public_ip
-      hosts << "#{admin_ip}/32" if admin_ip
-      hosts.uniq!
-      name = "admin"
-      realvpc = nil
-
-      if vpc
-        realvpc = {}
-        realvpc['vpc_id'] = vpc['vpc_id'] if !vpc['vpc_id'].nil?
-        realvpc['vpc_name'] = vpc['vpc_name'] if !vpc['vpc_name'].nil?
-        realvpc['deploy_id'] = vpc['deploy_id'] if !vpc['deploy_id'].nil?
-        if !realvpc['vpc_id'].nil? and !realvpc['vpc_id'].empty?
-          # Stupid kludge for Google cloud_ids which are sometimes URLs and
-          # sometimes not. Requirements are inconsistent from scenario to
-          # scenario.
-          name = name + "-" + realvpc['vpc_id'].gsub(/.*\//, "")
-          realvpc['vpc_id'] = getTail("vpc_id", value: realvpc['vpc_id'], prettyname: "Admin Firewall Ruleset #{name} Target VPC",  cloudtype: "AWS::EC2::VPC::Id") if realvpc["vpc_id"].is_a?(String)
-        elsif !realvpc['vpc_name'].nil?
-          name = name + "-" + realvpc['vpc_name']
-        end
-      end
-
-      hosts.uniq!
-
-      rules = []
-      if cloud == "Google"
-        rules = [
-          { "ingress" => true, "proto" => "all", "hosts" => hosts },
-          { "egress" => true, "proto" => "all", "hosts" => hosts }
-        ]
-      else
-        rules = [
-          { "proto" => "tcp", "port_range" => "0-65535", "hosts" => hosts },
-          { "proto" => "udp", "port_range" => "0-65535", "hosts" => hosts },
-          { "proto" => "icmp", "port_range" => "-1", "hosts" => hosts }
-        ]
-      end
-
-      acl = {"name" => name, "rules" => rules, "vpc" => realvpc, "cloud" => cloud, "admin" => true}
-      acl.delete("vpc") if !acl["vpc"]
-      acl["region"] == region if !region.nil? and !region.empty?
-      @admin_firewall_rules << acl if !@admin_firewall_rules.include?(acl)
-      return {"type" => "firewall_rule", "name" => name}
-    end
     
-    def self.validate_alarm_config(alarm)
-      ok = true
-
-      if alarm["namespace"].nil?
-        MU.log "You must specify 'namespace' when creating an alarm", MU::ERR
-        ok = false
-      end
-
-      if alarm["metric_name"].nil?
-        MU.log "You must specify 'metric_name' when creating an alarm", MU::ERR
-        ok = false
-      end
-
-      if alarm["statistic"].nil?
-        MU.log "You must specify 'statistic' when creating an alarm", MU::ERR
-        ok = false
-      end
-
-      if alarm["period"].nil?
-        MU.log "You must specify 'period' when creating an alarm", MU::ERR
-        ok = false
-      end
-
-      if alarm["evaluation_periods"].nil?
-        MU.log "You must specify 'evaluation_periods' when creating an alarm", MU::ERR
-        ok = false
-      end
-
-      if alarm["threshold"].nil?
-        MU.log "You must specify 'threshold' when creating an alarm", MU::ERR
-        ok = false
-      end
-
-      if alarm["comparison_operator"].nil?
-        MU.log "You must specify 'comparison_operator' when creating an alarm", MU::ERR
-        ok = false
-      end
-
-      if alarm["enable_notifications"]
-        if alarm["comparison_operator"].nil?
-          MU.log "You must specify 'comparison_operator' when creating an alarm", MU::ERR
-          ok = false
-        end
-
-        if alarm["notification_group"].nil?
-          MU.log "You must specify 'notification_group' when 'enable_notifications' is set to true", MU::ERR
-          ok = false
-        end
-
-        if alarm["notification_type"].nil?
-          MU.log "You must specify 'notification_type' when 'enable_notifications' is set to true", MU::ERR
-          ok = false
-        end
-
-        #if alarm["notification_endpoint"].nil?
-        #  MU.log "You must specify 'notification_endpoint' when 'enable_notifications' is set to true", MU::ERR
-        #  ok = false
-        #end
-      end
-      
-      if alarm["dimensions"]
-        alarm["dimensions"].each{ |dimension|
-          if dimension["mu_name"] && dimension["cloud_id"]
-            MU.log "You can only specfiy 'mu_name' or 'cloud_id'", MU::ERR
-            ok = false
-          end
-
-          if dimension["cloud_class"].nil?
-            ok = false
-            MU.log "You must specify 'cloud_class'", MU::ERR
-          end
-        }
-      end
-
-      return ok
-    end
-
     # Given a bare hash describing a resource, insert default values which can
     # be inherited from the current live parent configuration.
     # @param kitten [Hash]: A resource descriptor
     # @param type [String]: The type of resource this is ("servers" etc)
     def inheritDefaults(kitten, type)
-      kitten['cloud'] = MU::Config.defaultCloud if kitten['cloud'].nil?
+      kitten['cloud'] ||= MU::Config.defaultCloud
       schema_fields = ["region", "us_only", "scrub_mu_isms"]
       if kitten['cloud'] == "Google"
         kitten["project"] ||= MU::Cloud::Google.defaultProject
@@ -1501,25 +1425,27 @@ module MU
           if !$MU_CFG['google'] or !$MU_CFG['google']['region']
             raise ValidationError, "Google resource declared without a region, but no default Google region declared in mu.yaml"
           end
-          kitten['region'] = $MU_CFG['google']['region']
+          kitten['region'] ||= $MU_CFG['google']['region']
         end
       else
         if !$MU_CFG['aws'] or !$MU_CFG['aws']['region']
           raise ValidationError, "AWS resource declared without a region, but no default AWS region declared in mu.yaml"
         end
-        kitten['region'] = $MU_CFG['aws']['region'] if kitten['region'].nil?
+        kitten['region'] ||= $MU_CFG['aws']['region']
       end
-      kitten['us_only'] = @config['us_only'] if kitten['us_only'].nil?
+      kitten['us_only'] ||= @config['us_only']
+      kitten['us_only'] ||= false
+
+      kitten['scrub_mu_isms'] ||= @config['scrub_mu_isms']
+      kitten['scrub_mu_isms'] ||= false
 
       kitten["dependencies"] ||= []
-      kitten['scrub_mu_isms'] = @config['scrub_mu_isms'] if @config.has_key?('scrub_mu_isms')
 
       # Make sure the schema knows about these "new" fields, so that validation
       # doesn't trip over them.
       schema_fields.each { |field|
         if @@schema["properties"][field]
-#          MU.log "Adding #{field} to schema for #{type} #{kitten['cloud']}", MU::DEBUG
-          MU.log "Adding #{field} to schema for #{type} #{kitten['cloud']}", MU::NOTICE
+          MU.log "Adding #{field} to schema for #{type} #{kitten['cloud']}", MU::DEBUG
           @@schema["properties"][type]["items"]["properties"][field] ||= @@schema["properties"][field]
         end
       }
@@ -1897,6 +1823,9 @@ module MU
           "type" => "array",
           "items" => schemaclass.schema
         }
+        @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["dependencies"] = MU::Config.dependencies_primitive
+        @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["cloud"] = MU::Config.cloud_primitive
+        @@schema["properties"][cfg[:cfg_plural]]["items"]["title"] = type.to_s
       rescue NameError => e
         failed << type
         MU.log "Error loading #{type} schema from mu/config/#{cfg[:cfg_name]}", MU::ERR, details: "\t"+e.inspect+"\n\t"+e.backtrace[0]

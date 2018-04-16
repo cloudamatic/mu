@@ -65,7 +65,7 @@ module MU
     class Server;
     end
     # Stub base class; real implementations generated at runtime
-    class ContainerPool;
+    class ContainerCluster;
     end
     # Stub base class; real implementations generated at runtime
     class ServerPool;
@@ -250,12 +250,12 @@ module MU
         :class => generic_class_methods,
         :instance => generic_instance_methods
       },
-      :ContainerPool => {
+      :ContainerCluster => {
         :has_multiples => false,
         :can_live_in_vpc => true,
-        :cfg_name => "container_pool",
-        :cfg_plural => "container_pools",
-        :interface => self.const_get("ContainerPool"),
+        :cfg_name => "container_cluster",
+        :cfg_plural => "container_clusters",
+        :interface => self.const_get("ContainerCluster"),
         :deps_wait_on_my_creation => true,
         :waits_on_parent_completion => false,
         :class => generic_class_methods,

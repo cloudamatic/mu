@@ -19,15 +19,12 @@ module MU
       def self.schema
         {
           "type" => "object",
-          "title" => "cloudformation",
           "required" => ["name"],
           "additionalProperties" => false,
           "description" => "Create an Amazon CloudFormation stack.",
           "properties" => {
             "name" => {"type" => "string"},
-            "cloud" => MU::Config.cloud_primitive,
             "tags" => MU::Config.tags_primitive,
-            "dependencies" => MU::Config.dependencies_primitive,
             "parameters" => {
                 "type" => "array",
                 "items" => {

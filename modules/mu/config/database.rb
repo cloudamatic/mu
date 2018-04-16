@@ -19,12 +19,10 @@ module MU
       def self.schema
         {
         "type" => "object",
-        "title" => "database",
         "description" => "Create a dedicated database server.",
         "required" => ["name", "engine", "size", "cloud"],
         "additionalProperties" => false,
         "properties" => {
-            "cloud" => MU::Config.cloud_primitive,
             "groomer" => {
                 "type" => "string",
                 "default" => MU::Config.defaultGroomer,
@@ -71,7 +69,6 @@ module MU
                 "description" => "Wait for DNS record to propagate in DNS Zone.",
                 "default" => true
             },
-            "dependencies" => MU::Config.dependencies_primitive,
             "size" => { # XXX this is AWS-specific, and also we should implement an API check like we do for Server and ServerPool
               "pattern" => "^db\.(t|m|c|i|g|r|hi|hs|cr|cg|cc){1,2}[0-9]\\.(micro|small|medium|[248]?x?large)$",
               "type" => "string",

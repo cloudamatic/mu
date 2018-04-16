@@ -15,8 +15,8 @@
 module MU
   class Cloud
     class AWS
-      # A ContainerPool as configured in {MU::Config::BasketofKittens::container_pools}
-      class ContainerPool < MU::Cloud::ContainerPool
+      # A ContainerCluster as configured in {MU::Config::BasketofKittens::container_clusters}
+      class ContainerCluster < MU::Cloud::ContainerCluster
         @deploy = nil
         @config = nil
         attr_reader :mu_name
@@ -27,7 +27,7 @@ module MU
         attr_reader :cloudformation_data
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
-        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::container_pools}
+        # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::container_clusters}
         def initialize(mommacat: nil, kitten_cfg: nil, mu_name: nil, cloud_id: nil)
           @deploy = mommacat
           @config = MU::Config.manxify(kitten_cfg)
@@ -46,7 +46,7 @@ module MU
           pp resp
         end
 
-        # Return the metadata for this ContainerPool
+        # Return the metadata for this ContainerCluster
         # @return [Hash]
         def notify
           deploy_struct = {
@@ -54,7 +54,7 @@ module MU
           return deploy_struct
         end
 
-        # Remove all container_pools associated with the currently loaded deployment.
+        # Remove all container_clusters associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server
         # @param region [String]: The cloud provider region
@@ -62,11 +62,11 @@ module MU
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
         end
 
-        # Locate an existing container_pool.
+        # Locate an existing container_clusters.
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching container_pools.
+        # @return [OpenStruct]: The cloud provider's complete descriptions of matching container_clusters.
         def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
         end
 
@@ -75,20 +75,48 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
-          schema = {}
+          schema = {
+            "flavor" => {
+              "enum" => ["ECS", "EKS", "Fargate"],
+              "default" => "ECS"
+            },
+            "ami_id" => {
+              "type" => "string",
+              "description" => "The Amazon EC2 AMI on which to base this cluster's container hosts. Will use the default appropriate for the platform, if not specified."
+            }
+          }
           [toplevel_required, schema]
         end
 
-        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::container_pools}, bare and unvalidated.
-        # @param pool [Hash]: The resource to process and validate
+        # Cloud-specific pre-processing of {MU::Config::BasketofKittens::container_clusters}, bare and unvalidated.
+        # @param cluster [Hash]: The resource to process and validate
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
-        def self.validateConfig(pool, configurator)
+        def self.validateConfig(cluster, configurator)
           ok = true
 
-          pool['size'] = MU::Cloud::AWS::Server.validateInstanceType(pool["instance_type"], pool["region"])
-          ok = false if pool['size'].nil?
+          cluster['size'] = MU::Cloud::AWS::Server.validateInstanceType(cluster["instance_type"], cluster["region"])
+          ok = false if cluster['size'].nil?
 
+          if MU::Cloud::AWS.isGovCloud?(cluster["region"]) and cluster["flavor"] != "ECS"
+            MU.log "AWS GovCloud does not support #{cluster["flavor"]} yet, just ECS", MU::ERR
+            ok = false
+          end
+
+          if ["ECS", "EKS"].include?(cluster["flavor"])
+            MU::Config::ContainerCluster.insert_host_pool(
+              configurator,
+              cluster["name"]+"-"+cluster["flavor"].downcase,
+              cluster["instance_count"],
+              cluster["instance_type"],
+              cluster["host_image"]
+            )
+            cluster["dependencies"] << {
+              "name" => cluster["name"]+"-"+cluster["flavor"].downcase,
+              "type" => "server_pool",
+              "phase" => "groom"
+            }
+          end
 
           ok
         end

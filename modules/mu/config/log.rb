@@ -19,16 +19,13 @@ module MU
       def self.schema
         {
           "type" => "object",
-          "title" => "Logs",
           "additionalProperties" => false,
           "description" => "Log events using a cloud provider's log service.",
           "properties" => {
             "name" => {
               "type" => "string"
             },
-            "cloud" => MU::Config.cloud_primitive,
             "region" => MU::Config.region_primitive,
-            "dependencies" => MU::Config.dependencies_primitive,
           }
         }
       end

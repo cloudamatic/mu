@@ -106,7 +106,6 @@ module MU
                 "items" => MU::Config::FirewallRule.ruleschema
             },
             "region" => MU::Config.region_primitive,
-            "cloud" => MU::Config.cloud_primitive,
             "cross_zone_unstickiness" => {
                 "type" => "boolean",
                 "default" => false,
@@ -183,7 +182,6 @@ module MU
                 "default" => true,
                 "description" => "Google Cloud only. Deploy as a global artifact instead of in a specific region. Not valid for UDP targets."
             },
-            "dependencies" => MU::Config.dependencies_primitive,
             "vpc" => MU::Config::VPC.reference(MU::Config::VPC::MANY_SUBNETS, MU::Config::VPC::NO_NAT_OPTS, "all_public"),
             "zones" => {
                 "type" => "array",
