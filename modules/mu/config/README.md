@@ -8,4 +8,4 @@ validation behaviors should be written into the actual implementation, e.g.
 `MU::Cloud::AWS::Log` will contain AWS-specific schema components and
 validation checks.
 
-See also the [Cloud layer dveloper README](../cloud/README.md)
+See also the [Cloud layer developer README](https://github.com/cloudamatic/mu/tree/master/modules/mu/clouds)
