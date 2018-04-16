@@ -1,10 +1,10 @@
 image: centos
 
 stages:
-  - Lint
-  - Test
-  - Sec_Test
-  - Smoke_Test
+  - Lint Tests
+  - Tests
+  - Security Tests
+  - Smoke Test
   - Merge/Tag
   - Dockerbuild
   - Deploy
@@ -13,8 +13,8 @@ Rubocop:
   stage: Lint
   image: chef/chefdk:latest
   script:
-    - rubocop bin/
     - rubocop modules/
+    - rubocop bin/
   allow_failure: true
 
 Cookstyle:
@@ -96,3 +96,15 @@ Dockerbuild:
     - master
     - development
 
+pages:
+  stage: Deploy
+  image: ruby:2.3
+  script:
+  - mkdir public
+  - gem install yard
+  - yard doc modules -m markdown -o public
+  artifacts:
+    paths:
+    - public
+  only:
+  - master
