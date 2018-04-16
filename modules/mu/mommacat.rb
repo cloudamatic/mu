@@ -83,6 +83,7 @@ module MU
     attr_reader :deploy_id
     attr_reader :timestamp
     attr_reader :appname
+    attr_reader :handle
     attr_reader :seed
     attr_reader :mu_user
     attr_reader :clouds
@@ -132,6 +133,7 @@ module MU
       MU.setVar("environment", deploy.environment)
       MU.setVar("timestamp", deploy.timestamp)
       MU.setVar("seed", deploy.seed)
+      MU.setVar("handle", deploy.handle)
     end
 
     # @param deploy_id [String]: The MU identifier of the deployment to load or create.
@@ -193,6 +195,8 @@ module MU
       @ssh_private_key = ssh_private_key
       @ssh_public_key = ssh_public_key
       @clouds = {}
+      @seed = MU.seed # pass this in
+      @handle = MU.handle # pass this in
       if set_context_to_me
         MU::MommaCat.setThreadContext(self)
       end
@@ -209,7 +213,6 @@ module MU
         if @original_config.nil? or !@original_config.is_a?(Hash)
           raise DeployInitializeError, "New MommaCat repository requires config hash"
         end
-        @seed = MU.seed # pass this in
         @appname = @original_config['name']
         MU::Cloud.resource_types.each { |cloudclass, data|
           if !@original_config[data[:cfg_plural]].nil? and @original_config[data[:cfg_plural]].size > 0
@@ -2615,6 +2618,7 @@ MESSAGE_END
           @timestamp = @deployment['timestamp']
           @seed = @deployment['seed']
           @appname = @deployment['appname']
+          @handle = @deployment['handle']
 
           return if deployment_json_only
         end

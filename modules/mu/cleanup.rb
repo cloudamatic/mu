@@ -120,6 +120,7 @@ module MU
                   flags = { "project" => project }
                   MU::Cloud::Collection.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Collection"]) > 0
                   MU::Cloud::ServerPool.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["ServerPool"]) > 0
+                  MU::Cloud::ContainerCluster.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["ContainerCluster"]) > 0
                   MU::Cloud::Server.cleanup(skipsnapshots: @skipsnapshots, onlycloud: @onlycloud, noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Server"]) > 0
                   if provider == "AWS"
                     MU::Cloud::Database.cleanup(skipsnapshots: @skipsnapshots, noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Database"]) > 0

@@ -40,10 +40,14 @@ module MU
           resp = MU::Cloud::AWS.ecs(@config['region']).create_cluster({
             cluster_name: @mu_name
           })
+          pp resp
+        end
+
+        def groom
+          MU.log "IN GROOM FOR CONTAINERCLUSTER", MU::WARN
 #          MU::Cloud::AWS.ecs(@config['region']).register_container_instance({
 #          })
 # launch_type: "EC2" only option in GovCloud
-          pp resp
         end
 
         # Return the metadata for this ContainerCluster
@@ -60,6 +64,22 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
+          resp = MU::Cloud::AWS.ecs(region).list_clusters
+
+          if resp and resp.cluster_arns and resp.cluster_arns.size > 0
+            resp.cluster_arns.each { |arn|
+              if arn.match(/:cluster\/(#{MU.deploy_id}[^:]+)$/)
+                cluster = Regexp.last_match[1]
+                MU.log "Deleting ECS Cluster #{cluster}"
+                if !noop
+# TODO de-register container instances
+                  deletion = MU::Cloud::AWS.ecs(region).delete_cluster(
+                    cluster: cluster
+                  )
+                end
+              end
+            }
+          end
         end
 
         # Locate an existing container_clusters.
@@ -109,12 +129,12 @@ module MU
               cluster["name"]+"-"+cluster["flavor"].downcase,
               cluster["instance_count"],
               cluster["instance_type"],
+              cluster["vpc"],
               cluster["host_image"]
             )
             cluster["dependencies"] << {
               "name" => cluster["name"]+"-"+cluster["flavor"].downcase,
               "type" => "server_pool",
-              "phase" => "groom"
             }
           end
 

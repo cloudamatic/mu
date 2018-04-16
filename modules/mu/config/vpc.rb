@@ -377,6 +377,8 @@ module MU
           }
         end
 
+        ok = false if !resolvePeers(vpc, configurator)
+
         ok
       end
 
@@ -725,8 +727,6 @@ module MU
           vpc_block["nat_host_name"] = MU::Config::Tail.new("#{parent_name}nat_host_name", vpc_block["nat_host_name"])
 
         end
-
-        ok = false if !resolvePeers(vpc, configurator)
 
         return ok
       end

@@ -1943,7 +1943,7 @@ module MU
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, skipsnapshots: false, onlycloud: false, flags: {})
           tagfilters = [
-              {name: "tag:MU-ID", values: [MU.deploy_id]}
+            {name: "tag:MU-ID", values: [MU.deploy_id]}
           ]
           if !ignoremaster
             tagfilters << {name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip]}

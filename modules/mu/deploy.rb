@@ -322,7 +322,7 @@ module MU
         end
         MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
         if @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0
-          MU::MommaCat.syncMonitoringConfig
+          MU::MommaCat.syncMonitoringConfig # TODO only invoke if Server or ServerPool actually changed something when @updating
         end
       end
 
@@ -333,31 +333,42 @@ module MU
         MU.setLogging(MU::Logger::SILENT)
 
         @environment ||= "dev"
-        cost_dummy_deploy = MU::Deploy.new(
-          @environment.dup,
-          verbosity: MU::Logger::SILENT,
-          force_cloudformation: true,
-          cloudformation_path: "/dev/null",
-          nocleanup: false, # make sure we clean up the cost allocation deploy
-          stack_conf: @original_config,
-          reraise_thread: @main_thread
-        )
 
+        begin
+        Thread.abort_on_exception = false
         t = Thread.new {
+          Thread.abort_on_exception = true
           begin
+            MU.setVar("deploy_id", nil) # make sure we won't ever accidentally blow away the parent deploy
+            cost_dummy_deploy = MU::Deploy.new(
+              @environment.dup,
+              verbosity: MU::Logger::SILENT,
+              force_cloudformation: true,
+              cloudformation_path: "/dev/null",
+              nocleanup: false, # make sure we clean up the cost allocation deploy
+              stack_conf: @original_config,
+              reraise_thread: @main_thread
+            )
             cost_dummy_deploy.run
           rescue MU::Cloud::MuCloudFlagNotImplemented, MU::Cloud::MuCloudResourceNotImplemented => e
             MU.log "Failed to generate AWS cost-calculation URL. Skipping.", MU::WARN, details: "Deployment uses a feature not available in CloudFormation layer.", verbosity: MU::Logger::NORMAL
           rescue Exception => e
             MU.log "Failed to generate AWS cost-calculation URL. Skipping.", MU::WARN, details: "Deployment uses a feature not available in CloudFormation layer.", verbosity: MU::Logger::NORMAL
           end
+          if MU.deploy_id
+            MU::Cleanup.run(MU.deploy_id, verbosity: MU::Logger::SILENT, skipsnapshots: true)
+          end
         }
 
         t.join
-        MU.setLogging(@verbosity)
+        rescue MU::Cloud::MuCloudFlagNotImplemented, MU::Cloud::MuCloudResourceNotImplemented => e
+          # already handled in the thread what did it
+        ensure
+          MU.setLogging(@verbosity)
+        end
       end
 
-      MU.log "Deployment #{MU.deploy_id} \"#{MU.handle}\" complete", details: deployment
+      MU.log "Deployment #{MU.deploy_id} \"#{MU.handle}\" complete", details: deployment, verbosity: @verbosity
     end
 
     private
@@ -567,7 +578,8 @@ MESSAGE_END
                 real_descriptor = @mommacat.findLitterMate(type: service["#MU_CLOUDCLASS"].cfg_name, name: service['name'], created_only: true)
                 if !real_descriptor and
                    service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer" or
-                   service["#MU_CLOUDCLASS"].cfg_name == "firewall_rule"
+                   service["#MU_CLOUDCLASS"].cfg_name == "firewall_rule" or
+                   service["#MU_CLOUDCLASS"].cfg_name == "container_cluster"
                   MU.log "#{service["#MU_CLOUDCLASS"].name} #{service['name']} not found, creating", MU::NOTICE
                   myservice = run_this_method.call
                 end

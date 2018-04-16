@@ -63,7 +63,7 @@ module MU
         ok
       end
 
-      def self.insert_host_pool(configurator, name, count, size, image_id)
+      def self.insert_host_pool(configurator, name, count, size, vpc, image_id)
         base = {
           "name" => name,
           "min_size" => count,
@@ -75,6 +75,8 @@ module MU
             }
           }
         }
+        base["vpc"] = vpc if vpc
+#        base["vpc"] = vpc if vpc
         configurator.insertKitten(base, "server_pools")
       end
 
