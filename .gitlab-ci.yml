@@ -10,7 +10,7 @@ stages:
   - Deploy
   
 Rubocop:
-  stage: Lint
+  stage: Lint Tests
   image: chef/chefdk:latest
   script:
     - rubocop modules/
@@ -18,14 +18,14 @@ Rubocop:
   allow_failure: true
 
 Cookstyle:
-  stage: Lint
+  stage: Lint Tests
   image: chef/chefdk:latest
   script:
     - cookstyle cookbooks/
   allow_failure: true
   
 Foodcritic:
-  stage: Lint
+  stage: Lint Tests
   image: chef/chefdk:latest
   script:
     - foodcritic cookbooks/
@@ -67,12 +67,12 @@ Berks:
     - berks outdated
 
 BuildMan:
-  stage: Sec_Test
+  stage: Security Tests
   script:
     - echo "BuildMan!"
 
 Smoke_Test:
-  stage: Smoke_Test
+  stage: Smoke Test
   script:
     - echo "Insert Smoke Stuff Here"
   only:
