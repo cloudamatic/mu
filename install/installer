@@ -4,8 +4,8 @@ BOLD=`tput bold`
 NORM=`tput sgr0`
 CHEF_CLIENT_VERSION="14.0.190"
 if [ "$MU_BRANCH" == "" ];then
-  MU_BRANCH="the_goog"
-  MU_BRANCH="the_goog"
+  MU_BRANCH="chef_14_support"
+  MU_BRANCH="chef_14_support"
 fi
 
 # XXX All RHEL family. We can at least cover Debian-flavored hosts too, I bet.
