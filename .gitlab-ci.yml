@@ -1,16 +1,16 @@
 image: centos
 
 stages:
-  - Lint Tests
-  - Tests
-  - Security Tests
+  - Lint Test
+  - Test
+  - Security Test
   - Smoke Test
   - Merge/Tag
   - Dockerbuild
   - Deploy
   
 Rubocop:
-  stage: Lint Tests
+  stage: Lint Test
   image: chef/chefdk:latest
   script:
     - rubocop modules/
@@ -18,14 +18,14 @@ Rubocop:
   allow_failure: true
 
 Cookstyle:
-  stage: Lint Tests
+  stage: Lint Test
   image: chef/chefdk:latest
   script:
     - cookstyle cookbooks/
   allow_failure: true
   
 Foodcritic:
-  stage: Lint Tests
+  stage: Lint Test
   image: chef/chefdk:latest
   script:
     - foodcritic cookbooks/
@@ -66,15 +66,19 @@ Berks:
     - berks verify
     - berks outdated
 
-BuildMan:
-  stage: Security Tests
+BrakeMan:
+  stage: Security Test
+  image: codeclimate/codeclimate-brakeman:latest
   script:
-    - echo "BuildMan!"
+    - echo "BrakeMan!"
 
-Smoke_Test:
+Smoke Test:
   stage: Smoke Test
   script:
-    - echo "Insert Smoke Stuff Here"
+    - mu-upload-chef-artifacts -sn
+    - mu-deploy /opt/mu/var/demo_platform/applications/gitlab-server.yml -p vpc_id=vpc-040da43493f894a8d
+  tags: 
+    - mu-master
   only:
     - master
     - development
@@ -90,6 +94,7 @@ Merge/Tag:
 
 Dockerbuild:
   stage: Dockerbuild
+  image: docker:latest
   script:
     - echo "Build Mu Docker Container"
   only:
