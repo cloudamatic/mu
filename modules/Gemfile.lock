@@ -16,7 +16,7 @@ GEM
       aws-sigv4 (~> 1.0)
       jmespath (~> 1.0)
     aws-sigv4 (1.0.2)
-    backports (3.11.2)
+    backports (3.11.3)
     berkshelf (6.3.2)
       buff-config (~> 2.0)
       buff-extensions (~> 2.0)

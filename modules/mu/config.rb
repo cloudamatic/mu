@@ -993,7 +993,8 @@ module MU
         # on stuff that will cause spurious alarms further in
         if ok
           parser = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s)
-          return false if !parser.validateConfig(descriptor, self)
+          plain_descriptor = MU::Config.manxify(Marshal.load(Marshal.dump(descriptor)))
+          return false if !parser.validateConfig(plain_descriptor, self)
           descriptor['#MU_VALIDATED'] = true
         end
 
