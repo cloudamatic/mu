@@ -171,7 +171,7 @@ if platform_family?("rhel")
   # RHEL6, CentOS6, Amazon Linux
   elsif elversion < 7
     basepackages.concat(["mysql-devel"])
-    rpms["ruby24"] = "https://github.com/feedforce/ruby-rpm/releases/download/2.4.3/ruby-2.4.3-1.el7.centos.x86_64.rpm"
+    rpms["ruby24"] = "https://github.com/feedforce/ruby-rpm/releases/download/2.4.3/ruby-2.4.3-1.el6.x86_64.rpm"
     removepackages = ["nagios"]
 
   # RHEL7, CentOS7
@@ -286,9 +286,14 @@ package "jq"
 package removepackages do
   action :remove
 end
+
 execute "clean up old Ruby 2.1.6" do
   command "rm -rf /opt/rubies/ruby-2.1.6"
   only_if { ::Dir.exists?("/opt/rubies/ruby-2.1.6") }
+end
+
+package 'ruby23-2.3.1-1.el7.centos.x86_64' do
+  action :remove
 end
 
 file "initial chef-server.rb" do
