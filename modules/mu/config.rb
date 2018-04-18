@@ -1016,6 +1016,7 @@ module MU
 
         if more_schema
           MU::Config.schemaMerge(myschema["properties"], more_schema, descriptor["cloud"])
+					MU::Config.set_defaults(myschema["properties"], more_schema)
         end
         myschema["required"] ||= []
         myschema["required"].concat(more_required)

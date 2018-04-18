@@ -83,7 +83,7 @@ If (!(Test-Path $basedir)){
 If ([Environment]::OSVersion.Version.Major -lt 10) {
   If (!(Get-ScheduledTask -TaskName 'run-userdata')){
     log "Adding run-userdata scheduled task (user NT AUTHORITY\SYSTEM)"
-    Invoke-WebRequest -Uri "https://s3.amazonaws.com/cap-public/run-userdata_scheduledtask.xml" -OutFile $tmp/run-userdata_scheduledtask.xml
+    Invoke-WebRequest -Uri "https://s3.amazonaws.com/cloudamatic/run-userdata_scheduledtask.xml" -OutFile $tmp/run-userdata_scheduledtask.xml
     Register-ScheduledTask -Xml (Get-Content "$tmp/run-userdata_scheduledtask.xml" | out-string) -TaskName 'run-userdata' -Force -User ".\$admin_username"
   }
 }
@@ -196,7 +196,7 @@ If (!(Test-Path $tmp/PSWindowsUpdate.zip)){
     mkdir c:/Users/$admin_username/Documents/WindowsPowerShell/Modules
   }
 
-  $WebClient.DownloadFile("https://s3.amazonaws.com/cap-public/PSWindowsUpdate.zip","$tmp/PSWindowsUpdate.zip")
+  $WebClient.DownloadFile("https://s3.amazonaws.com/cloudamatic/PSWindowsUpdate.zip","$tmp/PSWindowsUpdate.zip")
   Add-Type -A 'System.IO.Compression.FileSystem'
 
   If (!(Test-Path c:/windows/System32/WindowsPowerShell/v1.0/Modules/PSWindowsUpdate)){
