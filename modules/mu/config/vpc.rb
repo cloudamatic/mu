@@ -306,7 +306,6 @@ module MU
             "items" => {
               "type" => "object",
               "description" => "The subnets to which to attach this resource. Will default to all subnets in this VPC if not specified.",
-              "additionalProperties" => false,
               "properties" => {
                 "subnet_name" => {"type" => "string"},
                 "subnet_id" => {"type" => "string"},
@@ -397,7 +396,6 @@ module MU
             if !peer['vpc']["vpc_name"].nil? and
                configurator.haveLitterMate?(peer['vpc']["vpc_name"], "vpcs") and
                peer["vpc"]['deploy_id'].nil? and peer["vpc"]['vpc_id'].nil?
-              peer['vpc']['region'] = config['region'] if peer['vpc']['region'].nil? # XXX this is AWS-specific
               peer['vpc']['cloud'] = vpc['cloud'] if peer['vpc']['cloud'].nil?
               vpc["dependencies"] << {
                 "type" => "vpc",
@@ -407,14 +405,13 @@ module MU
               # thing exists, and also fetch its id now so later search routines
               # don't have to work so hard.
             else
-              peer['vpc']['region'] = config['region'] if peer['vpc']['region'].nil? # XXX this is AWS-specific
               peer['vpc']['cloud'] = vpc['cloud'] if peer['vpc']['cloud'].nil?
               if !peer['account'].nil? and peer['account'] != MU.account_number
                 if peer['vpc']["vpc_id"].nil?
                   MU.log "VPC peering connections to non-local accounts must specify the vpc_id of the peer.", MU::ERR
                   ok = false
                 end
-              elsif !processReference(peer['vpc'], "vpcs", "vpc '#{vpc['name']}'", self, dflt_region: peer["vpc"]['region'])
+              elsif !processReference(peer['vpc'], "vpcs", "vpc '#{vpc['name']}'", configurator, dflt_region: peer["vpc"]['region'])
                 ok = false
               end
             end

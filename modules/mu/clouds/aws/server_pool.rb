@@ -474,6 +474,20 @@ module MU
           return asg
         end
 
+        # List out the nodes that are members of this pool
+        # @return [Array<MU::Cloud::Server>]
+        def listNodes
+          nodes = []
+          me = MU::Cloud::AWS::ServerPool.find(cloud_id: cloud_id)
+          if me and me.first and me.first.instances
+            me.first.instances.each { |instance|
+              found = MU::MommaCat.findStray("AWS", "server", cloud_id: instance.instance_id, region: @config["region"], dummy_ok: true)
+              nodes.concat(found)
+            }
+          end
+          nodes
+        end
+
         # Called automatically by {MU::Deploy#createResources}
         def groom
           if @config['schedule']
@@ -523,8 +537,17 @@ module MU
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching ServerPools
         def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
-          MU.log "XXX ServerPool.find not yet implemented", MU::WARN
-          return {}
+          found = []
+          if cloud_id
+            resp = MU::Cloud::AWS.autoscale.describe_auto_scaling_groups({
+              auto_scaling_group_names: [
+                cloud_id
+              ], 
+            })
+            return resp.auto_scaling_groups
+          end
+# TODO implement the tag-based search
+          return found
         end
 
         # Cloud-specific configuration properties.

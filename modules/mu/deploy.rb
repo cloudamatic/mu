@@ -322,7 +322,7 @@ module MU
         end
         MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
         if @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0
-          MU::MommaCat.syncMonitoringConfig # TODO only invoke if Server or ServerPool actually changed something when @updating
+#          MU::MommaCat.syncMonitoringConfig # TODO only invoke if Server or ServerPool actually changed something when @updating
         end
       end
 

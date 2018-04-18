@@ -260,11 +260,13 @@ module MU
               )
             }
           else
-            MU::Cloud::Google.compute.delete(
-              "instance_template",
-              flags["project"],
-              noop
-            )
+MU.log "Calling MU::Cloud::Google.compute.delete('instance_template', #{flags["project"]}, #{noop})"
+# XXX why is this melting down on NOOP? Where are the filters?
+#            MU::Cloud::Google.compute.delete(
+#              "instance_template",
+#              flags["project"],
+#              noop
+#            )
           end
 
         end

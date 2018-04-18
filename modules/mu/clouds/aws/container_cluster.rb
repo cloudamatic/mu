@@ -43,10 +43,16 @@ module MU
           pp resp
         end
 
+        # Called automatically by {MU::Deploy#createResources}
         def groom
           MU.log "IN GROOM FOR CONTAINERCLUSTER", MU::WARN
+          serverpool = @deploy.findLitterMate(type: "server_pools", name: @config["name"]+"-"+@config["flavor"].downcase)
+          puts serverpool.mu_name
+          serverpool.listNodes.each { |node|
 #          MU::Cloud::AWS.ecs(@config['region']).register_container_instance({
+#           cluster: @mu_name
 #          })
+          }
 # launch_type: "EC2" only option in GovCloud
         end
 

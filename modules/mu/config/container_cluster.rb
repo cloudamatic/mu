@@ -68,6 +68,7 @@ module MU
           "name" => name,
           "min_size" => count,
           "max_size" => count,
+          "wait_for_nodes" => count,
           "basis" => {
             "launch_config" => {
               "name" => name,
@@ -76,7 +77,6 @@ module MU
           }
         }
         base["vpc"] = vpc if vpc
-#        base["vpc"] = vpc if vpc
         configurator.insertKitten(base, "server_pools")
       end
 

@@ -171,7 +171,7 @@ module MU
         :deps_wait_on_my_creation => false,
         :waits_on_parent_completion => true,
         :class => generic_class_methods,
-        :instance => generic_instance_methods + [:groom]
+        :instance => generic_instance_methods + [:groom, :listNodes]
       },
       :VPC => {
         :has_multiples => false,
