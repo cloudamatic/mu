@@ -1016,6 +1016,7 @@ module MU
 
         if more_schema
           MU::Config.schemaMerge(myschema["properties"], more_schema, descriptor["cloud"])
+					MU::Config.set_defaults(myschema["properties"], more_schema)
         end
         myschema["required"] ||= []
         myschema["required"].concat(more_required)
@@ -1051,6 +1052,7 @@ module MU
           parser = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s)
           plain_descriptor = MU::Config.manxify(Marshal.load(Marshal.dump(descriptor)))
           return false if !parser.validateConfig(plain_descriptor, self)
+					descriptor.merge!(plain_descriptor)
           descriptor['#MU_VALIDATED'] = true
         end
 

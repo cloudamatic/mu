@@ -146,14 +146,6 @@ def join_domain_linux
 end
 
 def install_ad_client_packages
-# This is repo with a copy of the Samba packages hosted in the GlusterFS repo at http://download.gluster.org/pub/gluster/glusterfs/samba/EPEL.repo/epel-6/x86_64
-# XXX may no longer be necessary
-  yum_repository "mu-platform" do
-    description 'Mu-Platform Repo'
-    url "https://s3.amazonaws.com/cap-public/repo/el/$releasever/$basearch/"
-    enabled true
-    gpgcheck false
-  end
 
   %w{samba4-winbind authconfig krb5-workstation pam_krb5 samba4-common oddjob-mkhomedir samba4-winbind-clients samba4-winbind-krb5-locator krb5-devel}.each { |pkg|
     package pkg
