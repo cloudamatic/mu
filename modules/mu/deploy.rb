@@ -108,7 +108,7 @@ module MU
           seedsize = 1 + (retries/10).abs
           seed = (0...seedsize+1).map { ('a'..'z').to_a[rand(26)] }.join
           deploy_id = @appname.upcase + "-" + @environment.upcase + "-" + @timestamp + "-" + seed.upcase
-        end while MU::MommaCat.deploy_exists?(deploy_id) or seed == "mu"
+        end while MU::MommaCat.deploy_exists?(deploy_id) or seed == "mu" or seed[0] == seed[1]
         MU.setVar("deploy_id", deploy_id)
         MU.setVar("appname", @appname.upcase)
         MU.setVar("environment", @environment.upcase)
