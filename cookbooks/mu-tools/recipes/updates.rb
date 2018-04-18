@@ -27,7 +27,7 @@ if !node[:application_attributes][:skip_recipes].include?('updates')
       }
   
       remote_file "#{Chef::Config[:file_cache_path]}/PSWindowsUpdate.zip" do
-        source "https://s3.amazonaws.com/cap-public/PSWindowsUpdate.zip"
+        source "https://s3.amazonaws.com/cloudamatic/PSWindowsUpdate.zip"
       end
   
       ["C:/Users/#{node[:windows_admin_username]}/Documents/WindowsPowerShell/Modules", "c:\\windows\\System32\\WindowsPowerShell\\v1.0\\Modules"].each { |dir|

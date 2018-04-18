@@ -2660,13 +2660,13 @@ MESSAGE_END
       }
     end
 
-    @catadjs = %w{fuzzy ginger lilac chocolate xanthic}
-    @catnouns = %w{bastet bobcat catnip cheetah dot felix jaguar kitty leopard lion lynx maru mittens moggy neko ocelot panther patches paws phoebe purr queen roar saber sekhmet skogkatt socks sphinx spot tail tiger tom whiskers wildcat yowl floof beans ailurophile dander dewclaw grimalkin kibble quick tuft misty simba mew}
-    @catmixed = %w{abyssinian angora bengal birman bobtail bombay burmese calico chartreux cheshire cornish-rex curl devon egyptian-mau feline havana himilayan japanese-bobtail javanese khao-manee maine-coon manx marmalade mau munchkin norwegian pallas persian peterbald polydactyl ragdoll russian-blue savannah scottish-fold serengeti shorthair siamese siberian singapura snowshoe stray tabby tonkinese tortoiseshell turkish-van tuxedo uncia caterwaul lilac-point chocolate-point mackerel maltese knead}
+    @catadjs = %w{fuzzy ginger lilac chocolate xanthic wiggly itty}
+    @catnouns = %w{bastet bobcat catnip cheetah dot felix jaguar kitty leopard lion lynx maru mittens moggy neko ocelot panther patches paws phoebe purr queen roar saber sekhmet skogkatt socks sphinx spot tail tiger tom whiskers wildcat yowl floof beans ailurophile dander dewclaw grimalkin kibble quick tuft misty simba mew quat eek ziggy}
+    @catmixed = %w{abyssinian angora bengal birman bobtail bombay burmese calico chartreux cheshire cornish-rex curl devon egyptian-mau feline havana himilayan japanese-bobtail javanese khao-manee maine-coon manx marmalade mau munchkin norwegian pallas persian peterbald polydactyl ragdoll russian-blue savannah scottish-fold serengeti shorthair siamese siberian singapura snowshoe stray tabby tonkinese tortoiseshell turkish-van tuxedo uncia caterwaul lilac-point chocolate-point mackerel maltese knead whitenose vorpal}
     @catwords = @catadjs + @catnouns + @catmixed
 
-    @jaegeradjs = %w{azure fearless lucky olive vivid electric grey yarely violet ivory jade cinnamon crimson tacit umber mammoth ultra}
-    @jaegernouns = %w{horizon hulk ultimatum yardarm watchman whilrwind wright rhythm ocean enigma eruption typhoon jaeger brawler blaze}
+    @jaegeradjs = %w{azure fearless lucky olive vivid electric grey yarely violet ivory jade cinnamon crimson tacit umber mammoth ultra iron zodiac}
+    @jaegernouns = %w{horizon hulk ultimatum yardarm watchman whilrwind wright rhythm ocean enigma eruption typhoon jaeger brawler blaze vandal excalibur}
     # we *must* have at least one of every letter of the alphabet in this pool
     # to guarantee that we can backfill with parts of speech properly
     @jaegermixed = %w{alpha ajax amber avenger brave bravo charlie chocolate chrome corinthian dancer danger dash delta duet echo edge elite eureka foxtrot guardian gold hyperion illusion imperative india intercept juliet kaleidoscope kilo lancer night nova november oscar omega pacer paladin quickstrike rogue romeo ronin striker tango titan valor victor vulcan warder xenomorph xenon xray xylem yankee yell yukon zeal zero zoner zodiac}

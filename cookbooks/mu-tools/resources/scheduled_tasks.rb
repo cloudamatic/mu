@@ -8,7 +8,7 @@ default_action :config
 action :config do
   %w{run-userdata_scheduledtask.xml}.each { |file|
     remote_file "#{Chef::Config[:file_cache_path]}/#{file}" do
-      source "https://s3.amazonaws.com/cap-public/#{file}"
+      source "https://s3.amazonaws.com/cloudamatic/#{file}"
       action :nothing
     end.run_action(:create)
   }

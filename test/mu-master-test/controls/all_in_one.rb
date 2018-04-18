@@ -70,12 +70,12 @@ control 'init' do
       raise "Mu Masters on RHEL-family hosts must be equivalent to RHEL6 or RHEL7"
     elsif os[:release].to_i < 7
       basepackages.concat(["mysql-devel"])
-      rpms["ruby23"] = "https://s3.amazonaws.com/mu-stuff/ruby23-2.3.1-1.el6.x86_64.rpm"
+      rpms["ruby23"] = "https://s3.amazonaws.com/cloudamatic/ruby23-2.3.1-1.el6.x86_64.rpm"
       removepackages = ["nagios"]
     
     elsif os[:release].to_i < 8
       basepackages.concat(["libX11", "tcl", "tk", "mariadb-devel"])
-      rpms["ruby23"] = "https://s3.amazonaws.com/mu-stuff/ruby23-2.3.1-1.el7.centos.x86_64.rpm"
+      rpms["ruby23"] = "https://s3.amazonaws.com/cloudamatic/ruby23-2.3.1-1.el7.centos.x86_64.rpm"
       removepackages = ["nagios", "firewalld"]
     end
   else

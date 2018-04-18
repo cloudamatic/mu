@@ -4,7 +4,7 @@ BOLD=`tput bold`
 NORM=`tput sgr0`
 CHEF_CLIENT_VERSION="12.21.31-1"
 if [ "$MU_BRANCH" == "" ];then
-  MU_BRANCH="elastic_this_elastic_that" # GIT HOOK EDITABLE DO NOT TOUCH
+  MU_BRANCH="development" # GIT HOOK EDITABLE DO NOT TOUCH
   mydir="`dirname $0`"
   cd $mydir
   if git rev-parse --abbrev-ref HEAD > /dev/null 2>&1;then
