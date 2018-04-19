@@ -47,11 +47,68 @@ module MU
         def groom
           MU.log "IN GROOM FOR CONTAINERCLUSTER", MU::WARN
           serverpool = @deploy.findLitterMate(type: "server_pools", name: @config["name"]+"-"+@config["flavor"].downcase)
-          puts serverpool.mu_name
+          resource_lookup = MU::Cloud::AWS.listInstanceTypes(@config['region'])[@config['region']]
+          resp = MU::Cloud::AWS.ecs(@config['region']).list_container_instances({
+            cluster: @mu_name
+          })
+          existing = {}
+          if resp
+            uuids = []
+            resp.container_instance_arns.each { |arn|
+              uuids << arn.sub(/^.*?:container-instance\//, "")
+            }
+            resp = MU::Cloud::AWS.ecs(@config['region']).describe_container_instances({
+              cluster: @mu_name,
+              container_instances: uuids
+            })
+            resp.container_instances.each { |i|
+              existing[i.ec2_instance_id] = i
+            }
+          end
+
           serverpool.listNodes.each { |node|
-#          MU::Cloud::AWS.ecs(@config['region']).register_container_instance({
-#           cluster: @mu_name
-#          })
+            resources = resource_lookup[node.cloud_desc.instance_type]
+            t = Thread.new {
+              ident_doc = nil
+              ident_doc_sig = nil
+              if !node.windows?
+                session = node.getSSHSession(10, 30)
+                ident_doc = session.exec!("curl -s http://169.254.169.254/latest/dynamic/instance-identity/document/")
+                ident_doc_sig = session.exec!("curl -s http://169.254.169.254/latest/dynamic/instance-identity/signature/")
+              else
+                begin
+                  session = node.getWinRMSession(1, 60)
+                rescue Exception # XXX
+                  session = node.getSSHSession(1, 60)
+                end
+              end
+              MU.log "Identity document for #{node}", MU::DEBUG, details: ident_doc
+              MU.log "Identity document signature for #{node}", MU::DEBUG, details: ident_doc_sig
+              params = {
+                :cluster => @mu_name,
+                :instance_identity_document => ident_doc,
+                :instance_identity_document_signature => ident_doc_sig,
+                :total_resources => [
+                  {
+                    :name => "CPU",
+                    :type => "INTEGER",
+                    :integer_value => resources["vcpu"].to_i
+                  },
+                  {
+                    :name => "MEMORY",
+                    :type => "INTEGER",
+                    :integer_value => (resources["memory"]*1024*1024).to_i
+                  }
+                ]
+              }
+              if !existing.has_key?(node.cloud_id)
+                MU.log "Registering ECS instance #{node} in cluster #{@mu_name}", details: params
+              else
+                params[:container_instance_arn] = existing[node.cloud_id].container_instance_arn
+                MU.log "Updating ECS instance #{node} in cluster #{@mu_name}", MU::NOTICE, details: params
+              end
+              pp MU::Cloud::AWS.ecs(@config['region']).register_container_instance(params)
+            }
           }
 # launch_type: "EC2" only option in GovCloud
         end
@@ -76,6 +133,22 @@ module MU
             resp.cluster_arns.each { |arn|
               if arn.match(/:cluster\/(#{MU.deploy_id}[^:]+)$/)
                 cluster = Regexp.last_match[1]
+                instances = MU::Cloud::AWS.ecs(region).list_container_instances({
+                  cluster: cluster
+                })
+                if instances
+                  instances.container_instance_arns.each { |arn|
+                    uuid = arn.sub(/^.*?:container-instance\//, "")
+                    MU.log "Deregistering instance #{uuid} from ECS Cluster #{cluster}"
+                    if !noop
+                      resp = MU::Cloud::AWS.ecs(region).deregister_container_instance({
+                        cluster: cluster,
+                        container_instance: uuid,
+                        force: true, 
+                      })
+                    end
+                  }
+                end
                 MU.log "Deleting ECS Cluster #{cluster}"
                 if !noop
 # TODO de-register container instances
