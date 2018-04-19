@@ -2075,34 +2075,41 @@ MESSAGE_END
       return if MU.syncLitterThread
       return if !Dir.exists?(deploy_dir)
       svrs = MU::Cloud.resource_types[:Server][:cfg_plural] # legibility shorthand
-      if @kittens.nil? or
-          @kittens[svrs].nil?
-        MU.log "No #{svrs} as yet available in #{@deploy_id}", MU::DEBUG, details: @kittens
-        return
-      end
 
-      MU.log "Updating these siblings in #{@deploy_id}: #{nodeclasses.join(', ')}", MU::DEBUG, details: @kittens[svrs].map { |nodeclass, instance| instance.keys }
+      @kitten_semaphore.synchronize {
+        if @kittens.nil? or
+            @kittens[svrs].nil?
+          MU.log "No #{svrs} as yet available in #{@deploy_id}", MU::DEBUG, details: @kittens
+          return
+        end
+
+        MU.log "Updating these siblings in #{@deploy_id}: #{nodeclasses.join(', ')}", MU::DEBUG, details: @kittens[svrs].map { |nodeclass, instance| instance.keys }
+      }
 
       update_servers = []
       if nodeclasses.nil? or nodeclasses.size == 0
-        @kittens[svrs].values.each_pair { |mu_name, node|
-          next if !triggering_node.nil? and mu_name == triggering_node.mu_name
-          if !node.groomer.nil?
-            update_servers << @kittens[svrs].values
-          end
+        @kitten_semaphore.synchronize {
+          @kittens[svrs].values.each_pair { |mu_name, node|
+            next if !triggering_node.nil? and mu_name == triggering_node.mu_name
+            if !node.groomer.nil?
+              update_servers << @kittens[svrs].values
+            end
+          }
         }
       else
-        @kittens[svrs].each_pair { |nodeclass, servers|
-          servers.each_pair { |mu_name, node|
-            next if !triggering_node.nil? and mu_name == triggering_node.mu_name
-            if nodeclasses.include?(node.config['name']) and !node.groomer.nil?
-              if !node.deploydata.keys.include?('nodename')
-                MU.log "#{nodeclass}, #{mu_name} deploy data is missing (possibly retired), not syncing it", MU::WARN, details: node.deploydata
-                @kittens[svrs][nodeclass].delete(mu_name)
-              else
-                update_servers << node
+        @kitten_semaphore.synchronize {
+          @kittens[svrs].each_pair { |nodeclass, servers|
+            servers.each_pair { |mu_name, node|
+              next if !triggering_node.nil? and mu_name == triggering_node.mu_name
+              if nodeclasses.include?(node.config['name']) and !node.groomer.nil?
+                if !node.deploydata.keys.include?('nodename')
+                  MU.log "#{nodeclass}, #{mu_name} deploy data is missing (possibly retired), not syncing it", MU::WARN, details: node.deploydata
+                  @kittens[svrs][nodeclass].delete(mu_name)
+                else
+                  update_servers << node
+                end
               end
-            end
+            }
           }
         }
       end

@@ -40,12 +40,10 @@ module MU
           resp = MU::Cloud::AWS.ecs(@config['region']).create_cluster({
             cluster_name: @mu_name
           })
-          pp resp
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
-          MU.log "IN GROOM FOR CONTAINERCLUSTER", MU::WARN
           serverpool = @deploy.findLitterMate(type: "server_pools", name: @config["name"]+"-"+@config["flavor"].downcase)
           resource_lookup = MU::Cloud::AWS.listInstanceTypes(@config['region'])[@config['region']]
           resp = MU::Cloud::AWS.ecs(@config['region']).list_container_instances({
@@ -57,13 +55,15 @@ module MU
             resp.container_instance_arns.each { |arn|
               uuids << arn.sub(/^.*?:container-instance\//, "")
             }
-            resp = MU::Cloud::AWS.ecs(@config['region']).describe_container_instances({
-              cluster: @mu_name,
-              container_instances: uuids
-            })
-            resp.container_instances.each { |i|
-              existing[i.ec2_instance_id] = i
-            }
+            if uuids.size > 0
+              resp = MU::Cloud::AWS.ecs(@config['region']).describe_container_instances({
+                cluster: @mu_name,
+                container_instances: uuids
+              })
+              resp.container_instances.each { |i|
+                existing[i.ec2_instance_id] = i
+              }
+            end
           end
 
           serverpool.listNodes.each { |node|
@@ -107,7 +107,6 @@ module MU
                 params[:container_instance_arn] = existing[node.cloud_id].container_instance_arn
                 MU.log "Updating ECS instance #{node} in cluster #{@mu_name}", MU::NOTICE, details: params
               end
-              pp MU::Cloud::AWS.ecs(@config['region']).register_container_instance(params)
             }
           }
 # launch_type: "EC2" only option in GovCloud

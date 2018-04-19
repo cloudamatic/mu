@@ -602,7 +602,7 @@ module MU
             }
           else
             sibling_vpcs.each { |ext_vpc|
-              if ext_vpc['name'].to_s == vpc_block['vpc_name'].to_s
+              if ext_vpc['name'].to_s == vpc_block['vpc_name'].to_s and ext_vpc['subnets']
                 subnet_ptr = "subnet_name"
                 ext_vpc['subnets'].each { |subnet|
                   next if dflt_region and vpc_block["cloud"] == "Google" and subnet['availability_zone'] != dflt_region
