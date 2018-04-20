@@ -41,7 +41,6 @@ module MU
           else
             @mu_name = @deploy.getResourceName(@config['name'])
           end
-
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -133,7 +132,7 @@ module MU
           
           if @config['endpoint']
             config = {
-              :vpc_id => @config['vpc_id'],
+              :vpc_id => @cloud_id,
               :service_name => @config['endpoint'],
               :route_table_ids => route_table_ids
             }
@@ -592,16 +591,16 @@ module MU
                   peer_obj = peer_obj.first
                   peer_id = peer_obj.cloud_id
 
-                  MU.log "Initiating peering connection from VPC #{@config['name']} (#{@config['vpc_id']}) to #{peer_id}"
+                  MU.log "Initiating peering connection from VPC #{@config['name']} (#{@cloud_id}) to #{peer_id}"
                   resp = MU::Cloud::AWS.ec2(@config['region']).create_vpc_peering_connection(
-                      vpc_id: @config['vpc_id'],
-                      peer_vpc_id: peer_id
+                    vpc_id: @cloud_id,
+                    peer_vpc_id: peer_id
                   )
                 else
                   peer_id = peer['vpc']['vpc_id']
-                  MU.log "Initiating peering connection from VPC #{@config['name']} (#{@config['vpc_id']}) to #{peer_id} in account #{peer['account']}", MU::INFO, details: peer
+                  MU.log "Initiating peering connection from VPC #{@config['name']} (#{@cloud_id}) to #{peer_id} in account #{peer['account']}", MU::INFO, details: peer
                   resp = MU::Cloud::AWS.ec2(@config['region']).create_vpc_peering_connection(
-                      vpc_id: @config['vpc_id'],
+                      vpc_id: @cloud_id,
                       peer_vpc_id: peer_id,
                       peer_owner_id: peer['account']
                   )
@@ -628,7 +627,7 @@ module MU
               end
 
               # Create routes to our new friend.
-              MU::Cloud::AWS::VPC.listAllSubnetRouteTables(@config['vpc_id'], region: @config['region']).each { |rtb_id|
+              MU::Cloud::AWS::VPC.listAllSubnetRouteTables(@cloud_id, region: @config['region']).each { |rtb_id|
                 my_route_config = {
                   :route_table_id => rtb_id,
                   :destination_cidr_block => peer_obj.cloud_desc.cidr_block,
@@ -648,7 +647,7 @@ module MU
 
                 if cnxn.status.code == "pending-acceptance"
                   if ((!peer_obj.nil? and !peer_obj.deploydata.nil? and peer_obj.deploydata['auto_accept_peers']) or $MU_CFG['allow_invade_foreign_vpcs'])
-                    MU.log "Auto-accepting peering connection from VPC #{@config['name']} (#{@config['vpc_id']}) to #{peer_id}", MU::NOTICE
+                    MU.log "Auto-accepting peering connection from VPC #{@config['name']} (#{@cloud_id}) to #{peer_id}", MU::NOTICE
                     begin
                       MU::Cloud::AWS.ec2(@config['region']).accept_vpc_peering_connection(
                           vpc_peering_connection_id: peering_id
@@ -671,12 +670,12 @@ module MU
                       end
                     }
                   else
-                    MU.log "VPC #{peer_id} is not managed by this Mu server or is not configured to auto-accept peering requests. You must accept the peering request for '#{@config['name']}' (#{@config['vpc_id']}) by hand.", MU::WARN, details: "In the AWS Console, go to VPC => Peering Connections and look in the Actions drop-down. You can also set 'Invade Foreign VPCs' to 'true' using mu-configure to auto-accept all peering connections within this account, regardless of whether this Mu server owns the VPCs. This setting is per-user."
+                    MU.log "VPC #{peer_id} is not managed by this Mu server or is not configured to auto-accept peering requests. You must accept the peering request for '#{@config['name']}' (#{@cloud_id}) by hand.", MU::WARN, details: "In the AWS Console, go to VPC => Peering Connections and look in the Actions drop-down. You can also set 'Invade Foreign VPCs' to 'true' using mu-configure to auto-accept all peering connections within this account, regardless of whether this Mu server owns the VPCs. This setting is per-user."
                   end
                 end
 
                 if cnxn.status.code == "failed" or cnxn.status.code == "rejected" or cnxn.status.code == "expired" or cnxn.status.code == "deleted"
-                  MU.log "VPC peering connection from VPC #{@config['name']} (#{@config['vpc_id']}) to #{peer_id} #{cnxn.status.code}: #{cnxn.status.message}", MU::ERR
+                  MU.log "VPC peering connection from VPC #{@config['name']} (#{@cloud_id}) to #{peer_id} #{cnxn.status.code}: #{cnxn.status.message}", MU::ERR
                   begin
                     MU::Cloud::AWS.ec2(@config['region']).delete_vpc_peering_connection(
                         vpc_peering_connection_id: peering_id
@@ -684,7 +683,7 @@ module MU
                   rescue Aws::EC2::Errors::InvalidStateTransition => e
                     # XXX apparently this is normal?
                   end
-                  raise MuError, "VPC peering connection from VPC #{@config['name']} (#{@config['vpc_id']}) to #{peer_id} #{cnxn.status.code}: #{cnxn.status.message}"
+                  raise MuError, "VPC peering connection from VPC #{@config['name']} (#{@cloud_id}) to #{peer_id} #{cnxn.status.code}: #{cnxn.status.message}"
                 end
               end while cnxn.status.code != "active" and !(cnxn.status.code == "pending-acceptance" and (peer_obj.nil? or peer_obj.deploydata.nil? or !peer_obj.deploydata['auto_accept_peers']))
 
@@ -1441,7 +1440,7 @@ module MU
         # @param rtb [Hash]: A route table description parsed through {MU::Config::BasketofKittens::vpcs::route_tables}.
         # @return [Hash]: The modified configuration that was originally passed in.
         def createRouteTable(rtb)
-          vpc_id = @config['vpc_id']
+          vpc_id = @cloud_id
           vpc_name = @config['name']
           MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
           resp = MU::Cloud::AWS.ec2.create_route_table(vpc_id: vpc_id).route_table

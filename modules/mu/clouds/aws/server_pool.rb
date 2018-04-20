@@ -662,6 +662,7 @@ module MU
                 ok = false
               end
             end
+            launch["ami_id"] ||= launch["image_id"]
             if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?
               if MU::Config.amazon_images.has_key?(pool['platform']) and
                   MU::Config.amazon_images[pool['platform']].has_key?(pool['region'])

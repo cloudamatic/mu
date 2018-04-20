@@ -107,6 +107,8 @@ module MU
                 params[:container_instance_arn] = existing[node.cloud_id].container_instance_arn
                 MU.log "Updating ECS instance #{node} in cluster #{@mu_name}", MU::NOTICE, details: params
               end
+              MU::Cloud::AWS.ecs(@config['region']).register_container_instance(params)
+
             }
           }
 # launch_type: "EC2" only option in GovCloud
@@ -118,6 +120,19 @@ module MU
           deploy_struct = {
           }
           return deploy_struct
+        end
+
+        # Use the AWS SSM API to fetch the current version of the Amazon Linux
+        # ECS-optimized AMI, so we can use it as a default AMI for ECS deploys.
+        def self.getECSImageId(region = MU.myRegion)
+          resp = MU::Cloud::AWS.ssm(region).get_parameters(
+            names: ["/aws/service/ecs/optimized-ami/amazon-linux/recommended"]
+          )
+          if resp and resp.parameters and resp.parameters.size > 0
+            image_details = JSON.parse(resp.parameters.first.value)
+            return image_details['image_id']
+          end
+          nil
         end
 
         # Remove all container_clusters associated with the currently loaded deployment.
@@ -201,14 +216,23 @@ module MU
             ok = false
           end
 
+          std_ami = getECSImageId(cluster['region'])
+          cluster["host_image"] ||= std_ami
+          if cluster["host_image"] != std_ami
+            MU.log "You have specified a non-standard AMI for ECS container hosts. This can work, but you will need to install Docker and the ECS Agent yourself, ideally through a Chef recipes. See AWS documentation for details.", MU::WARN, details: "https://docs.aws.amazon.com/AmazonECS/latest/developerguide/manually_update_agent.html"
+          else
+            cluster["host_ssh_user"] = "ec2-user"
+          end
+
           if ["ECS", "EKS"].include?(cluster["flavor"])
             MU::Config::ContainerCluster.insert_host_pool(
               configurator,
               cluster["name"]+"-"+cluster["flavor"].downcase,
               cluster["instance_count"],
               cluster["instance_type"],
-              cluster["vpc"],
-              cluster["host_image"]
+              vpc: cluster["vpc"],
+              image_id: cluster["host_image"],
+              ssh_user: cluster["host_ssh_user"]
             )
             cluster["dependencies"] << {
               "name" => cluster["name"]+"-"+cluster["flavor"].downcase,

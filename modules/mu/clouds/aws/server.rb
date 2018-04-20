@@ -2209,6 +2209,10 @@ module MU
               "type" => "string",
               "description" => "The Amazon EC2 AMI on which to base this instance. Will use the default appropriate for the platform, if not specified."
             },
+            "image_id" => {
+              "type" => "string",
+              "description" => "Synonymous with ami_id"
+            },
             "ingress_rules" => {
               "items" => {
                 "properties" => {
@@ -2297,6 +2301,8 @@ module MU
               server['create_image']['copy_to_regions'] = MU::Cloud::AWS.listRegions(server['us_only'])
             end
           end
+
+          server['ami_id'] ||= server['image_id']
 
           if server['ami_id'].nil?
             if MU::Config.amazon_images.has_key?(server['platform']) and

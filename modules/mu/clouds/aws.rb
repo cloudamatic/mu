@@ -449,6 +449,13 @@ module MU
         @@pricing_api[region]
       end
 
+      # Amazon's Simple Systems Manager API
+      def self.ssm(region = MU.curRegion)
+        region ||= myRegion
+        @@ssm_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "SSM", region: region)
+        @@ssm_api[region]
+      end
+
       # Fetch an Amazon instance metadata parameter (example: public-ipv4).
       # @param param [String]: The parameter name to fetch
       # @return [String, nil]
@@ -710,6 +717,7 @@ module MU
       @@efs_api ={}
       @@ecs_api ={}
       @@pricing_api ={}
+      @@ssm_api ={}
     end
   end
 end
