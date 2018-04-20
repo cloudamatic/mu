@@ -672,11 +672,8 @@ module MU
       end
       kitten = nil
 
-      if !mu_name.nil? and
-          @kittens.has_key?("servers") and
-          @kittens["servers"].has_key?(name) and
-          @kittens["servers"][name].has_key?(mu_name)
-        kitten = @kittens["servers"][name][mu_name]
+      kitten = findLitterMate(type: "server", name: name, mu_name: mu_name, cloud_id: cloud_id)
+      if !kitten.nil?
         MU.log "Re-grooming #{mu_name}", details: kitten.deploydata
       else
         first_groom = true
@@ -1221,8 +1218,9 @@ module MU
     # @param mu_name [String]: The fully-resolved and deployed name of the resource
     # @param cloud_id [String]: The cloud provider's unique identifier for this resource
     # @param created_only [Boolean]: Only return the littermate if its cloud_id method returns a value
+    # @param return_all [Boolean]: Return a Hash of matching objects indexed by their mu_name, instead of a single match. Only valid for resource types where has_multiples is true.
     # @return [MU::Cloud]
-    def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false)
+    def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false, return_all: false)
       shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
       type = cfg_plural
       has_multiples = attrs[:has_multiples]
@@ -1236,19 +1234,28 @@ module MU
           next if !name.nil? and name != sib_class
           if has_multiples
             if !name.nil?
+              if return_all
+                return data.dup
+              end
               if data.size == 1 and (cloud_id.nil? or data.values.first.cloud_id == cloud_id)
                 obj = data.values.first
                 return obj
               elsif mu_name.nil? and cloud_id.nil?
                 obj = data.values.first
-                MU.log "#{@deploy_id}: Found multiple matches in findLitterMate based on #{type}: #{name}, and not enough info to narrow down further. Returning an arbitrary result. Caller: #{caller[1]}", MU::WARN, details: data.values
+                MU.log "#{@deploy_id}: Found multiple matches in findLitterMate based on #{type}: #{name}, and not enough info to narrow down further. Returning an arbitrary result. Caller: #{caller[1]}", MU::WARN, details: data.keys
                 return data.values.first
               end
             end
             data.each_pair { |sib_mu_name, obj|
               if (!mu_name.nil? and mu_name == sib_mu_name) or
                   (!cloud_id.nil? and cloud_id == obj.cloud_id)
-                return obj if !created_only or !obj.cloud_id.nil?
+                if !created_only or !obj.cloud_id.nil?
+                  if return_all
+                    return data.dup
+                  else
+                    return obj
+                  end
+                end
               end
             }
           else
@@ -2088,29 +2095,25 @@ MESSAGE_END
 
       update_servers = []
       if nodeclasses.nil? or nodeclasses.size == 0
-        @kitten_semaphore.synchronize {
-          @kittens[svrs].values.each_pair { |mu_name, node|
-            next if !triggering_node.nil? and mu_name == triggering_node.mu_name
-            if !node.groomer.nil?
-              update_servers << @kittens[svrs].values
-            end
-          }
+        litter = findLitterMate(type: "server", return_all: true)
+        litter.each_pair { |mu_name, node|
+          next if !triggering_node.nil? and mu_name == triggering_node.mu_name
+          if !node.groomer.nil?
+            update_servers << node
+          end
         }
       else
-        @kitten_semaphore.synchronize {
-          @kittens[svrs].each_pair { |nodeclass, servers|
-            servers.each_pair { |mu_name, node|
-              next if !triggering_node.nil? and mu_name == triggering_node.mu_name
-              if nodeclasses.include?(node.config['name']) and !node.groomer.nil?
-                if !node.deploydata.keys.include?('nodename')
-                  MU.log "#{nodeclass}, #{mu_name} deploy data is missing (possibly retired), not syncing it", MU::WARN, details: node.deploydata
-                  @kittens[svrs][nodeclass].delete(mu_name)
-                else
-                  update_servers << node
-                end
-              end
-            }
-          }
+        litter = {}
+        nodeclasses.each { |nodeclass|
+          litter.merge!(findLitterMate(type: "server", name: nodeclass, return_all: true))
+        }
+        litter.each_pair { |mu_name, node|
+          next if !triggering_node.nil? and mu_name == triggering_node.mu_name
+          if !node.deploydata.keys.include?('nodename')
+            MU.log "#{nodeclass}, #{mu_name} deploy data is missing (possibly retired), not syncing it", MU::WARN, details: node.deploydata.keys
+          else
+            update_servers << node
+          end
         }
       end
       return if update_servers.size == 0
@@ -2673,10 +2676,8 @@ MESSAGE_END
     @catwords = @catadjs + @catnouns + @catmixed
 
     @jaegeradjs = %w{azure fearless lucky olive vivid electric grey yarely violet ivory jade cinnamon crimson tacit umber mammoth ultra iron zodiac}
-    @jaegernouns = %w{horizon hulk ultimatum yardarm watchman whilrwind wright rhythm ocean enigma eruption typhoon jaeger brawler blaze vandal excalibur}
-    # we *must* have at least one of every letter of the alphabet in this pool
-    # to guarantee that we can backfill with parts of speech properly
-    @jaegermixed = %w{alpha ajax amber avenger brave bravo charlie chocolate chrome corinthian dancer danger dash delta duet echo edge elite eureka foxtrot guardian gold hyperion illusion imperative india intercept juliet kaleidoscope kilo lancer night nova november oscar omega pacer paladin quickstrike rogue romeo ronin striker tango titan valor victor vulcan warder xenomorph xenon xray xylem yankee yell yukon zeal zero zoner zodiac}
+    @jaegernouns = %w{horizon hulk ultimatum yardarm watchman whilrwind wright rhythm ocean enigma eruption typhoon jaeger brawler blaze vandal excalibur paladin juliet kaleidoscope romeo}
+    @jaegermixed = %w{alpha ajax amber avenger brave bravo charlie chocolate chrome corinthian dancer danger dash delta duet echo edge elite eureka foxtrot guardian gold hyperion illusion imperative india intercept kilo lancer night nova november oscar omega pacer quickstrike rogue ronin striker tango titan valor victor vulcan warder xenomorph xenon xray xylem yankee yell yukon zeal zero zoner zodiac}
     @jaegerwords = @jaegeradjs + @jaegernouns + @jaegermixed
 
     @words = @catwords + @jaegerwords

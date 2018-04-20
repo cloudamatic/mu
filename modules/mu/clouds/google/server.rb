@@ -381,7 +381,6 @@ next if !create
             @cloud_id
           )
           begin
-          pp cloud_desc
             sleep 5
           end while cloud_desc.status != "RUNNING"
         end
