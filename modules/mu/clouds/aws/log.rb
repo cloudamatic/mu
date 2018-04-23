@@ -42,11 +42,39 @@ module MU
               @mu_name
             end
 
-          MU.log "Creating log group #{@mu_name}"
 
+          tags = MU::MommaCat.listStandardTags
+          if @config['optional_tags']
+            MU::MommaCat.listOptionalTags.each_pair { |name, value|
+              tags[name] = value
+            }
+          end
+          if @config['tags']
+            @config['tags'].each { |tag|
+              tags[tag['key']] = tag['value']
+            }
+          end
+
+          MU.log "Creating log group #{@mu_name}"
           MU::Cloud::AWS.cloudwatchlogs(@config["region"]).create_log_group(
-            log_group_name: @config["log_group_name"]
+            log_group_name: @config["log_group_name"],
+            tags: tags
           )
+          @cloud_id = @mu_name
+
+          retries = 0
+          max_retries = 5
+          begin
+            resp = MU::Cloud::AWS::Log.getLogGroupByName(@config["log_group_name"], region: @config["region"])
+            if resp.nil?
+              if retries >= max_retries
+                raise MuError, "Cloudwatch Logs group #{@config["log_group_name"]} creation hasn't succeeded after #{(retries*max_retries).to_s}s"
+              else
+                retries += 1
+                sleep 30
+              end
+            end
+          end while resp.nil?
 
           MU::Cloud::AWS.cloudwatchlogs(@config["region"]).create_log_stream(
             log_group_name: @config["log_group_name"],
@@ -146,6 +174,20 @@ module MU
           @cloud_id = @mu_name
         end
 
+        # Grant put access for logs to a cloud service.
+        # @param service [String]: The policy document name of an AWS service, e.g. route53.amazonaws.com or elasticsearch.amazonaws.com
+        # @param log_arn [String]: The ARN of the log group to which we're granting access
+        # @param region [String]: The region in which to allow access
+        def self.allowService(service, log_arn, region = MU.myRegion)
+          prettyname = service.sub(/\..*/, "").capitalize
+          doc = '{ "Version": "2012-10-17", "Statement": [ { "Sid": "'+prettyname+'LogsToCloudWatchLogs", "Effect": "Allow", "Principal": { "Service": [ "'+service+'" ] }, "Action":"logs:PutLogEvents", "Resource": "'+log_arn+'" } ] }'
+
+          MU::Cloud::AWS.cloudwatchlogs(region).put_resource_policy(
+            policy_name: "Allow"+prettyname,
+            policy_document: doc
+          )
+        end
+
         # Return the metadata for this log cofiguration
         # @return [Hash]
         def notify
@@ -165,7 +207,8 @@ module MU
             begin 
               MU::Cloud::AWS.cloudwatchlogs(region).describe_log_groups.log_groups
             # TO DO: Why is it returning UnknownOperationException instead of valid error?
-            rescue Aws::CloudWatchLogs::Errors::UnknownOperationException
+            rescue Aws::CloudWatchLogs::Errors::UnknownOperationException => e
+              MU.log e.inspect
               []
             end
 

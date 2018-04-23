@@ -463,6 +463,20 @@ module MU
         @@elasticsearch_api[region]
       end
 
+      # Amazon's Cognito Identity API
+      def self.cognito_ident(region = MU.curRegion)
+        region ||= myRegion
+        @@cognito_ident_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CognitoIdentity", region: region)
+        @@cognito_ident_api[region]
+      end
+
+      # Amazon's Cognito Identity Provider API
+      def self.cognito_user(region = MU.curRegion)
+        region ||= myRegion
+        @@cognito_user_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CognitoIdentityProvider", region: region)
+        @@cognito_user_api[region]
+      end
+
       # Fetch an Amazon instance metadata parameter (example: public-ipv4).
       # @param param [String]: The parameter name to fetch
       # @return [String, nil]
@@ -726,6 +740,8 @@ module MU
       @@pricing_api ={}
       @@ssm_api ={}
       @@elasticsearch_api ={}
+      @@cognito_ident_api ={}
+      @@cognito_user_api ={}
     end
   end
 end

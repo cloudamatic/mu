@@ -226,7 +226,7 @@ module MU
         :cfg_name => "log",
         :cfg_plural => "logs",
         :interface => self.const_get("Log"),
-        :deps_wait_on_my_creation => false,
+        :deps_wait_on_my_creation => true,
         :waits_on_parent_completion => true,
         :class => generic_class_methods,
         :instance => generic_instance_methods + [:groom]
