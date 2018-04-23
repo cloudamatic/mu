@@ -99,18 +99,21 @@ end
 if $opts[:dryrun]
   MU.log("#{$config} loaded successfully.", html: $opts[:web])
   if MU::Cloud::AWS.hosted # XXX actually, check whether we're targeting AWS resources
-    cost_dummy_deploy = MU::Deploy.new(
-      $opts[:environment],
-      verbosity: MU::Logger::SILENT,
-      force_cloudformation: true,
-      cloudformation_path: "/dev/null",
-      nocleanup: true,
-      stack_conf: stack_conf
-    )
     begin
+      cost_dummy_deploy = MU::Deploy.new(
+        $opts[:environment],
+        verbosity: MU::Logger::SILENT,
+        force_cloudformation: true,
+        cloudformation_path: "/dev/null",
+        nocleanup: true,
+        stack_conf: stack_conf
+      )
       cost_dummy_deploy.run
     rescue MU::Cloud::MuCloudResourceNotImplemented, MU::Cloud::MuCloudFlagNotImplemented
-      MU.log "Cost calculator not available for this stack, as it uses a resource not implemented in Mu's CloudFormation layer.", MU::WARN
+      MU.log "Cost calculator not available for this stack, as it uses a resource not implemented in Mu's CloudFormation layer.", MU::WARN, verbosity: MU::Logger::NORMAL
+    ensure
+      # XXX it'd be nicer if dummy runs didn't generate artifacts to clean up
+      MU::Cleanup.run(MU.deploy_id, verbosity: MU::Logger::SILENT, skipsnapshots: true, skipcloud: true)
     end
   end
   exit

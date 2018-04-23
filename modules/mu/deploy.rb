@@ -356,7 +356,8 @@ module MU
             MU.log "Failed to generate AWS cost-calculation URL. Skipping.", MU::WARN, details: "Deployment uses a feature not available in CloudFormation layer.", verbosity: MU::Logger::NORMAL
           end
           if MU.deploy_id
-            MU::Cleanup.run(MU.deploy_id, verbosity: MU::Logger::SILENT, skipsnapshots: true)
+            # XXX it'd be nicer if dummy runs didn't generate artifacts to clean up
+            MU::Cleanup.run(MU.deploy_id, verbosity: MU::Logger::SILENT, skipsnapshots: true, skipcloud: true)
           end
         }
 
