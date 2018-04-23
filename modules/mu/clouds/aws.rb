@@ -456,6 +456,13 @@ module MU
         @@ssm_api[region]
       end
 
+      # Amazon's Elasticsearch API
+      def self.elasticsearch(region = MU.curRegion)
+        region ||= myRegion
+        @@elasticsearch_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ElasticsearchService", region: region)
+        @@elasticsearch_api[region]
+      end
+
       # Fetch an Amazon instance metadata parameter (example: public-ipv4).
       # @param param [String]: The parameter name to fetch
       # @return [String, nil]
@@ -718,6 +725,7 @@ module MU
       @@ecs_api ={}
       @@pricing_api ={}
       @@ssm_api ={}
+      @@elasticsearch_api ={}
     end
   end
 end

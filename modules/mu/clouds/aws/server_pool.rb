@@ -746,8 +746,8 @@ module MU
             filters << {name: "key", values: ["MU-MASTER-IP"]}
           end
           resp = MU::Cloud::AWS.autoscale(region).describe_tags(
-              filters: filters,
-              max_records: 100
+            filters: filters,
+            max_records: 100
           )
 
           return nil if resp.tags.nil? or resp.tags.size == 0

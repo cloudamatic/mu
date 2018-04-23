@@ -207,7 +207,19 @@ module MU
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching log group.
         def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
-          MU::Cloud::AWS::Log.getLogGroupByName(cloud_id, region: region)
+          found = nil
+          if !cloud_id.nil? and !cloud_id.match(/^arn:/i)
+            found = MU::Cloud::AWS::Log.getLogGroupByName(cloud_id, region: region)
+          else
+            resp = MU::Cloud::AWS.cloudwatchlogs(region).describe_log_groups.log_groups.each { |group|
+              if group.arn == cloud_id or group.arn.sub(/:\*$/, "") == cloud_id
+                found = group
+                break
+              end
+            }
+          end
+
+          found
         end
 
         # Cloud-specific configuration properties.
@@ -269,8 +281,8 @@ module MU
         def self.validateConfig(log, configurator)
           ok = true
 
-          if log_rec["filters"] && !log_rec["filters"].empty?
-            log_rec["filters"].each{ |filter|
+          if log["filters"] && !log["filters"].empty?
+            log["filters"].each{ |filter|
               if filter["namespace"].start_with?("AWS/")
                 MU.log "'namespace' can't be under the 'AWS/' namespace", MU::ERR
                 ok = false
