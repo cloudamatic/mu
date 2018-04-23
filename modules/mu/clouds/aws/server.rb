@@ -273,39 +273,46 @@ module MU
         # @param rolename [String]: The name of the role to create, generally a {MU::Cloud::AWS::Server} mu_name
         # @return [void]
         def self.removeIAMProfile(rolename)
-        # TO DO - Move IAM role/policy removal to its own entity
+          # TODO - Move IAM role/policy removal to its own entity
           MU.log "Removing IAM role and policies for '#{rolename}'"
           begin
             MU::Cloud::AWS.iam.remove_role_from_instance_profile(
-                instance_profile_name: rolename,
-                role_name: rolename
+              instance_profile_name: rolename,
+              role_name: rolename
             )
           rescue Aws::IAM::Errors::ValidationError => e
             MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
           rescue Aws::IAM::Errors::NoSuchEntity => e
-            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
+            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
           end
           begin
             MU::Cloud::AWS.iam.delete_instance_profile(instance_profile_name: rolename)
           rescue Aws::IAM::Errors::ValidationError => e
             MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
           rescue Aws::IAM::Errors::NoSuchEntity => e
-            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
+            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
           end
           begin
             policies = MU::Cloud::AWS.iam.list_role_policies(role_name: rolename).policy_names
             policies.each { |policy|
               MU::Cloud::AWS.iam.delete_role_policy(role_name: rolename, policy_name: policy)
             }
+            policies = MU::Cloud::AWS.iam.list_attached_role_policies(role_name: rolename).attached_policies
+            policies.each { |policy|
+               MU::Cloud::AWS.iam.detach_role_policy(
+                role_name: rolename,
+                policy_arn: policy.policy_arn
+               )
+            }
           rescue Aws::IAM::Errors::ValidationError => e
             MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
           rescue Aws::IAM::Errors::NoSuchEntity => e
-            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
+            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
           end
           begin
             MU::Cloud::AWS.iam.delete_role(role_name: rolename)
           rescue Aws::IAM::Errors::DeleteConflict, Aws::IAM::Errors::NoSuchEntity, Aws::IAM::Errors::ValidationError => e
-            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
+            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
           end
         end
 
