@@ -14,8 +14,12 @@
 
 module MU
   class Config
+    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/alarm.rb
     class Alarm
 
+      # Sections of Alarm schema shared between Alarms as a first-class
+      # resource and as inline declarations in other resources.
+      # @return [Hash]
       def self.common_properties
         {
           "name" => {
@@ -151,6 +155,8 @@ module MU
         }
       end
 
+      # Base configuration schema for a Alarm
+      # @return [Hash]
       def self.schema
         base = {
           "type" => "object",

@@ -14,8 +14,11 @@
 
 module MU
   class Config
+    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/storage_pool.rb
     class StoragePool
 
+      # Base configuration schema for a StoragePool
+      # @return [Hash]
       def self.schema
         {
           "type" => "object",
@@ -61,6 +64,7 @@ module MU
                   "add_firewall_rules" => MU::Config::FirewallRule.reference,
                   "ingress_rules" => {
                     "type" => "array",
+                    "description" => "Firewall rules to apply to our mountpoints",
                     "items" => MU::Config::FirewallRule.ruleschema
                   },
                   "ip_address" => {

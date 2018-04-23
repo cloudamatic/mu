@@ -1013,6 +1013,8 @@ module MU
     allregions.concat(MU::Cloud::AWS.listRegions) if MU::Cloud::AWS.myRegion
     allregions.concat(MU::Cloud::Google.listRegions) if MU::Cloud::Google.defaultProject
 
+    # Configuration chunk for choosing a provider region
+    # @return [Hash]
     def self.region_primitive
       allregions = []
       allregions.concat(MU::Cloud::AWS.listRegions) if MU::Cloud::AWS.myRegion
@@ -1023,6 +1025,9 @@ module MU
       }
     end
 
+    # Configuration chunk for creating resource tags as an array of key/value
+    # pairs.
+    # @return [Hash]
     def self.tags_primitive
       {
         "type" => "array",
@@ -1045,6 +1050,8 @@ module MU
       }
     end
 
+    # Configuration chunk for choosing a cloud provider
+    # @return [Hash]
     def self.cloud_primitive
       {
         "type" => "string",

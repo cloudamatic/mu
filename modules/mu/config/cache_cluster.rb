@@ -14,8 +14,11 @@
 
 module MU
   class Config
+    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/cache_cluster.rb
     class CacheCluster
 
+      # Base configuration schema for a CacheCluster
+      # @return [Hash]
       def self.schema
         {
           "type" => "object",

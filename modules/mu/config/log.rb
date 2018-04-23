@@ -14,8 +14,11 @@
 
 module MU
   class Config
+    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/log.rb
     class Log
 
+      # Base configuration schema for a Log
+      # @return [Hash]
       def self.schema
         {
           "type" => "object",

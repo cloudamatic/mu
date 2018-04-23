@@ -14,6 +14,7 @@
 
 module MU
   class Config
+    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/notification.rb
     class Notification
 
       # XXX
@@ -22,13 +23,11 @@ module MU
       # because in an ideal world it'd be a subclass of MANY something elses?
       def self.schema
         {
+          "type" => "object",
+          "additionalProperties" => false,
+          "description" => "A stub for inline resource that generate SNS notifications in AWS. This should really be expanded.",
           "properties" => {}
         }
-      end
-
-      def self.validate
-        ok = true
-        ok
       end
 
       # Generic pre-processing of {MU::Config::BasketofKittens::notifications}, bare and unvalidated.

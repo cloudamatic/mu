@@ -15,7 +15,7 @@
 module MU
   class Cloud
     class AWS
-      # A search_domain as configured in {MU::Config::BasketofKittens::search_domain}
+      # A search_domain as configured in {MU::Config::BasketofKittens::search_domains}
       class SearchDomain < MU::Cloud::SearchDomain
         @deploy = nil
         @config = nil
@@ -51,13 +51,14 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def groom
           tagDomain
+          @config['domain_name'] ||= @deploydata['domain_name']
           params = genParams(cloud_desc) # get parameters that would change only
 
           if params.size > 1
             waitWhileProcessing # wait until the create finishes, if still going
 
             MU.log "Updating ElasticSearch domain #{@config['domain_name']}", MU::NOTICE, details: params
-            MU::Cloud::AWS.elasticsearch(@config['region']).update_elasticsearch_domain_config(params).domain_status
+            MU::Cloud::AWS.elasticsearch(@config['region']).update_elasticsearch_domain_config(params)
           end
 
           waitWhileProcessing # don't return until creation/updating is complete
@@ -415,7 +416,7 @@ module MU
         # an existing domain, only return things that would be changed.
         def genParams(ext = nil)
           params = {
-            :domain_name => @config['domain_name']
+            :domain_name => @config['domain_name'] || @deploydata['domain_name']
           }
 
           if ext.nil?
@@ -472,6 +473,7 @@ module MU
                 ext.log_publishing_options["INDEX_SLOW_LOGS"].nil? or
                 !ext.log_publishing_options["INDEX_SLOW_LOGS"][:enabled] or
                 ext.log_publishing_options["INDEX_SLOW_LOGS"][:cloud_watch_logs_log_group_arn] != arn
+# XXX broken with "The Resource Access Policy specified for the CloudWatch Logs log group foo does not grant sufficient permissions for Amazon Elasticsearch Service to create a log stream. Please check the Resource Access Policy."
 #              params[:log_publishing_options] = {}
 #              params[:log_publishing_options]["INDEX_SLOW_LOGS"] = {}
 #              params[:log_publishing_options]["INDEX_SLOW_LOGS"][:enabled] = true
@@ -548,9 +550,13 @@ module MU
           end
 
 
-          if @config['cognito']
+          # XXX API fails with "Amazon Elasticsearch must be allowed to use the
+          # passed role" when we do this on creation, but it works fine if we
+          # modify an existing group. AWS bug, workaround is to just apply
+          # this in groom phase exclusively.
+          if @config['cognito'] and !ext.nil?
             myrole = setIAMPolicies
-          pp myrole
+
             if ext.nil? or !ext.cognito_options.enabled or
                ext.cognito_options.user_pool_id != @config['cognito']['user_pool_id'] or
                ext.cognito_options.identity_pool_id != @config['cognito']['identity_pool_id'] or
@@ -566,7 +572,7 @@ module MU
               end
             end
           end
-pp params
+
           params
         end
 
@@ -605,13 +611,13 @@ pp params
 
           begin
             resp = cloud_desc
-            if resp.processing
+            if (resp.endpoint.nil? or resp.endpoint.empty?) and !resp.deleted
               loglevel = (retries > 0 and retries % 3 == 0) ? MU::NOTICE : MU::DEBUG
-              MU.log "Waiting for Elasticsearch domain #{@mu_name} (#{@config['domain_name']}) to be ready", loglevel
+              MU.log "Waiting for Elasticsearch domain #{@mu_name} (#{@config['domain_name']}) to finish creating", loglevel
+              sleep interval
             end
-            sleep interval
             retries += 1
-          end while resp.processing
+          end while (resp.endpoint.nil? or resp.endpoint.empty?) and !resp.deleted
         end
 
       end

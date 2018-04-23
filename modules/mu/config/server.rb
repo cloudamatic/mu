@@ -14,8 +14,11 @@
 
 module MU
   class Config
+    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/server.rb
     class Server
 
+      # Generate schema for a storage volume
+      # @return [Hash]
       def self.storage_primitive
       {
         "type" => "array",
@@ -65,6 +68,8 @@ module MU
       }
     end
 
+    # Generate schema for an inline userdata script declaration
+    # @return [Hash]
     def self.userdata_primitive
       {
         "type" => "object",
@@ -90,6 +95,8 @@ module MU
       }
     end
 
+    # Generate schema for a static IP assignment for an instance
+    # @return [Hash]
     def self.static_ip_primitive
     {
         "type" => "object",
@@ -467,6 +474,8 @@ module MU
       }
     end
 
+    # Base configuration schema for a Server
+    # @return [Hash]
     def self.schema
       base = {
         "type" => "object",

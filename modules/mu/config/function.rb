@@ -14,8 +14,11 @@
 
 module MU
   class Config
+    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/function.rb
     class Function
 
+      # Base configuration schema for a Function
+      # @return [Hash]
       def self.schema
         {
           "type" => "object",

@@ -14,8 +14,11 @@
 
 module MU
   class Config
+    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/search_domain.rb
     class SearchDomain
 
+      # Base configuration schema for a SearchDomain
+      # @return [Hash]
       def self.schema
         {
           "type" => "object",

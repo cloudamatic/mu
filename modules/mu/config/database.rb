@@ -14,8 +14,11 @@
 
 module MU
   class Config
+    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/database.rb
     class Database
 
+      # Base configuration schema for a Database
+      # @return [Hash]
       def self.schema
         {
         "type" => "object",
@@ -228,6 +231,8 @@ module MU
         }
       end
 
+      # Schema block for other resources to use when referencing a sibling Database
+      # @return [Hash]
       def self.reference
         {
           "type" => "object",

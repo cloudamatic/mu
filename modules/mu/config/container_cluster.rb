@@ -14,8 +14,11 @@
 
 module MU
   class Config
+    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/container_cluster.rb
     class ContainerCluster
 
+      # Base configuration schema for a ContainerCluster
+      # @return [Hash]
       def self.schema
         {
           "type" => "object",

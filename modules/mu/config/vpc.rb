@@ -14,8 +14,11 @@
 
 module MU
   class Config
+    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/vpc.rb
     class VPC
 
+      # Base configuration schema for a VPC
+      # @return [Hash]
       def self.schema
         {
           "type" => "object",
@@ -205,10 +208,15 @@ module MU
         }
       end
 
+      # Constant for passing into MU::Config::VPC.reference
       NO_SUBNETS = 0.freeze
+      # Constant for passing into MU::Config::VPC.reference
       ONE_SUBNET = 1.freeze
+      # Constant for passing into MU::Config::VPC.reference
       MANY_SUBNETS = 2.freeze
+      # Constant for passing into MU::Config::VPC.reference
       NAT_OPTS = true.freeze
+      # Constant for passing into MU::Config::VPC.reference
       NO_NAT_OPTS = false.freeze
 
       # There's a small amount of variation in the way various resources need to
@@ -325,6 +333,8 @@ module MU
         return vpc_ref_schema
       end
 
+      # Generate schema for a network route, usually used in the context of a VPC resource
+      # @return [Hash]
       def self.routeschema
         {
           "type" => "object",
@@ -360,6 +370,10 @@ module MU
         }
       end
 
+      # Generic pre-processing of {MU::Config::BasketofKittens::vpcs}, bare and unvalidated.
+      # @param vpc [Hash]: The resource to process and validate
+      # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+      # @return [Boolean]: True if validation succeeded, False otherwise
       def self.validate(vpc, configurator)
         ok = true
 

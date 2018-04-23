@@ -14,8 +14,11 @@
 
 module MU
   class Config
+    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/loadbalancer.rb
     class LoadBalancer
 
+      # Generate schema for a LoadBalancer health check
+      # @return [Hash]
       def self.healthcheck
         {
           "type" => "object",
@@ -61,6 +64,8 @@ module MU
         }
       end
 
+      # Base configuration schema for a LoadBalancer
+      # @return [Hash]
       def self.schema
         {
           "type" => "object",
@@ -368,6 +373,8 @@ module MU
         }
       end
 
+      # Schema block for other resources to use when referencing a sibling LoadBalancer
+      # @return [Hash]
       def self.reference
         {
           "type" => "array",

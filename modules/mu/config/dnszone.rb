@@ -14,8 +14,11 @@
 
 module MU
   class Config
+    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/dnszone.rb
     class DNSZone
 
+      # Base configuration schema for a DNSZone
+      # @return [Hash]
       def self.schema
         {
           "type" => "object",
@@ -52,6 +55,11 @@ module MU
         }
       end
 
+      # Generate a schema definition for a set of DNS records
+      # @param need_target [Boolean]: Whether the target of the record needs to be a required parameter
+      # @param default_type [String]: The type of record to make default (e.g. An, CNAME, etc)
+      # @param need_zone [Boolean]: Whether to explicitly require a zone be declared
+      # @return [Hash]
       def self.records_primitive(need_target: true, default_type: nil, need_zone: false)
         dns_records_primitive = {
           "type" => "array",

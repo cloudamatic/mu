@@ -410,8 +410,10 @@ module MU
           schema = {
             "ingress_rules" => {
               "type" => "array",
+              "description" => "Firewall rules to apply to our mountpoints",
               "items" => {
                 "type" => "object",
+                "description" => "Firewall rules to apply to our mountpoints",
                 "properties" => {
                   "sgs" => {
                     "type" => "array",

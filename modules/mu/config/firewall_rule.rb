@@ -14,8 +14,11 @@
 
 module MU
   class Config
+    # Basket of Kittens config schema and parser logic. See modules/mu/clouds/*/firewall_rule.rb
     class FirewallRule
 
+      # Base configuration schema for a FirewallRule
+      # @return [Hash]
       def self.schema
         {
           "type" => "object",
@@ -56,6 +59,8 @@ module MU
         }
       end
 
+      # Generate schema for an individual firewall rule
+      # @return [Hash]
       def self.ruleschema
         {
           "type" => "object",
@@ -85,6 +90,8 @@ module MU
         }
       end
 
+      # Schema block for other resources to use when referencing a sibling FirewallRule
+      # @return [Hash]
       def self.reference
         {
           "type" => "array",
