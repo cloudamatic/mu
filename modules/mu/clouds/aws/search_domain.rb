@@ -181,6 +181,10 @@ module MU
               "default" => 0,
               "description" => "Separate, dedicated master node(s), over and above the search instances specified in instance_count."
             },
+            "access_policies" => {
+              "type" => "object",
+              "description" => "An IAM policy document for access to ElasticSearch. Our parser expects this to be defined inline like the rest of your YAML/JSON Basket of Kittens, not as raw JSON. For guidance on ElasticSearch IAM capabilities, see: https://docs.aws.amazon.com/elasticsearch-service/latest/developerguide/es-ac.html"
+            },
             "master_instance_type" => {
               "type" => "string",
               "description" => "Instance type for dedicated master nodes, if any were requested. Will default to match instance_type."
@@ -400,8 +404,6 @@ module MU
             )
           end
 
-#          pols = MU::Cloud::AWS.iam(@config['region']).list_attached_role_policies(role_name: @mu_name).attached_policies
-#          pp pols
           MU::Cloud::AWS.iam.attach_role_policy(
             role_name: @mu_name,
             policy_arn: "arn:aws:iam::aws:policy/AmazonESCognitoAccess", 
@@ -451,6 +453,11 @@ module MU
             params[:snapshot_options][:automated_snapshot_start_hour] = @config['snapshot_hour']
           end
 
+          if @config['access_policies']
+            # TODO check against ext.access_policies.options
+            params[:access_policies] = JSON.generate(@config['access_policies'])
+          end
+
           if @config['index_slow_logs']
             arn = nil
             if @config['index_slow_logs'].match(/^arn:/i)
@@ -473,11 +480,10 @@ module MU
                 ext.log_publishing_options["INDEX_SLOW_LOGS"].nil? or
                 !ext.log_publishing_options["INDEX_SLOW_LOGS"][:enabled] or
                 ext.log_publishing_options["INDEX_SLOW_LOGS"][:cloud_watch_logs_log_group_arn] != arn
-# XXX broken with "The Resource Access Policy specified for the CloudWatch Logs log group foo does not grant sufficient permissions for Amazon Elasticsearch Service to create a log stream. Please check the Resource Access Policy."
-#              params[:log_publishing_options] = {}
-#              params[:log_publishing_options]["INDEX_SLOW_LOGS"] = {}
-#              params[:log_publishing_options]["INDEX_SLOW_LOGS"][:enabled] = true
-#              params[:log_publishing_options]["INDEX_SLOW_LOGS"][:cloud_watch_logs_log_group_arn] = arn
+              params[:log_publishing_options] = {}
+              params[:log_publishing_options]["INDEX_SLOW_LOGS"] = {}
+              params[:log_publishing_options]["INDEX_SLOW_LOGS"][:enabled] = true
+              params[:log_publishing_options]["INDEX_SLOW_LOGS"][:cloud_watch_logs_log_group_arn] = arn
               MU::Cloud::AWS::Log.allowService("es.amazonaws.com", arn, @config['region'])
             end
           end
@@ -523,7 +529,6 @@ module MU
               params[:vpc_options][:security_group_ids] = sgs
             end
           end
-
 
           if @config['ebs_type']
             if ext.nil? or ext.ebs_options.nil? or !ext.ebs_options.ebs_enabled or

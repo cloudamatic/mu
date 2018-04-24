@@ -2220,6 +2220,22 @@ module MU
               "type" => "string",
               "description" => "Synonymous with ami_id"
             },
+            "generate_iam_role" => {
+              "type" => "boolean",
+              "default" => true,
+              "description" => "Generate a unique IAM profile for this Server or ServerPool.",
+            },
+            "iam_role" => {
+              "type" => "string",
+              "description" => "An Amazon IAM instance profile, from which to harvest role policies to merge into this node's own instance profile. If generate_iam_role is false, will simple use this profile.",
+            },
+            "iam_policies" => {
+              "type" => "array",
+              "items" => {
+                "description" => "Amazon-compatible role policies which will be merged into this node's own instance profile.  Not valid with generate_iam_role set to false. Our parser expects the role policy document to me embedded under a named container, e.g. { 'name_of_policy':'{ <policy document> } }",
+                "type" => "object"
+              }
+            },
             "ingress_rules" => {
               "items" => {
                 "properties" => {

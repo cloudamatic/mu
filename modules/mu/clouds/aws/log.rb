@@ -113,6 +113,7 @@ module MU
                   "Effect": "Allow",
                   "Action": [
                     "logs:CreateLogStream",
+                    "logs:PutLogEventsBatch",
                     "logs:PutLogEvents"
                   ],
                   "Resource": "arn:'+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+':logs:'+@config["region"]+':'+MU.account_number+':log-group:'+@config["log_group_name"]+':log-stream:'+@config["log_stream_name"]+'*"
@@ -180,7 +181,7 @@ module MU
         # @param region [String]: The region in which to allow access
         def self.allowService(service, log_arn, region = MU.myRegion)
           prettyname = service.sub(/\..*/, "").capitalize
-          doc = '{ "Version": "2012-10-17", "Statement": [ { "Sid": "'+prettyname+'LogsToCloudWatchLogs", "Effect": "Allow", "Principal": { "Service": [ "'+service+'" ] }, "Action":"logs:PutLogEvents", "Resource": "'+log_arn+'" } ] }'
+          doc = '{ "Version": "2012-10-17", "Statement": [ { "Sid": "'+prettyname+'LogsToCloudWatchLogs", "Effect": "Allow", "Principal": { "Service": [ "'+service+'" ] }, "Action": [ "logs:PutLogEvents", "logs:PutLogEventsBatch", "logs:CreateLogStream" ], "Resource": "'+log_arn+'" } ] }'
 
           MU::Cloud::AWS.cloudwatchlogs(region).put_resource_policy(
             policy_name: "Allow"+prettyname,
