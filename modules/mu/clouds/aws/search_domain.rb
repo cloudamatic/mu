@@ -218,9 +218,9 @@ module MU
               "default" => false,
               "description" => "Spread search instances across Availability Zones to facilitate replica index sharding for greater resilience. Note that you also must use the native Elasticsearch API to create replica shards for your cluster. Zone awareness requires an even number of instances in the instance count."
             },
-            "index_slow_logs" => {
+            "slow_logs" => {
               "type" => "string",
-              "description" => "The ARN of a CloudWatch Log Group to which we we'll send slow index logs. If not specified, a log group will be generated."
+              "description" => "The ARN of a CloudWatch Log Group to which we we'll send slow index and search logs. If not specified, a log group will be generated."
             },
             "advanced_options" => {
               "type" => "object",
@@ -312,19 +312,18 @@ module MU
             ok = false
           end
 
-          if dom['index_slow_logs']
-            log_group = MU::Cloud::AWS::Log.find(cloud_id: dom['index_slow_logs'], region: dom['region'])
-            pp log_group
+          if dom['slow_logs']
+            log_group = MU::Cloud::AWS::Log.find(cloud_id: dom['slow_logs'], region: dom['region'])
             if !log_group
-              MU.log "Specified index_slow_logs CloudWatch log group '#{dom['index_slow_logs']}' in SearchDomain '#{dom['name']}' doesn't appear to exist", MU::ERR
+              MU.log "Specified slow_logs CloudWatch log group '#{dom['slow_logs']}' in SearchDomain '#{dom['name']}' doesn't appear to exist", MU::ERR
               ok = false
             end
-            dom['index_slow_logs'] = log_group.arn
+            dom['slow_logs'] = log_group.arn
           else
-            dom['index_slow_logs'] = dom['name']+"-slowlog"
-            log_group = { "name" => dom['index_slow_logs'] }
+            dom['slow_logs'] = dom['name']+"-slowlog"
+            log_group = { "name" => dom['slow_logs'] }
             ok = false if !configurator.insertKitten(log_group, "logs")
-            dom['dependencies'] << { "name" => dom['index_slow_logs'], "type" => "log" }
+            dom['dependencies'] << { "name" => dom['slow_logs'], "type" => "log" }
           end
 
           if dom['advanced_options']
@@ -458,32 +457,39 @@ module MU
             params[:access_policies] = JSON.generate(@config['access_policies'])
           end
 
-          if @config['index_slow_logs']
+          if @config['slow_logs']
             arn = nil
-            if @config['index_slow_logs'].match(/^arn:/i)
-              arn = @config['index_slow_logs']
+            if @config['slow_logs'].match(/^arn:/i)
+              arn = @config['slow_logs']
             else
-              log_group = @deploy.findLitterMate(type: "log", name: @config['index_slow_logs'])
+              log_group = @deploy.findLitterMate(type: "log", name: @config['slow_logs'])
               log_group = MU::Cloud::AWS::Log.find(cloud_id: log_group.mu_name, region: log_group.cloudobj.config['region'])
               if log_group.nil? or log_group.arn.nil?
-                raise MuError, "Failed to retrieve ARN of sibling LogGroup '#{@config['index_slow_logs']}'"
+                raise MuError, "Failed to retrieve ARN of sibling LogGroup '#{@config['slow_logs']}'"
               end
               arn = log_group.arn
             end
 
             if arn
-              @config['index_slow_logs'] = arn
+              @config['slow_logs'] = arn
             end
 
             if ext.nil? or
                 ext.log_publishing_options.nil? or
                 ext.log_publishing_options["INDEX_SLOW_LOGS"].nil? or
                 !ext.log_publishing_options["INDEX_SLOW_LOGS"][:enabled] or
-                ext.log_publishing_options["INDEX_SLOW_LOGS"][:cloud_watch_logs_log_group_arn] != arn
+                ext.log_publishing_options["INDEX_SLOW_LOGS"][:cloud_watch_logs_log_group_arn] != arn or
+                ext.log_publishing_options["SEARCH_SLOW_LOGS"].nil? or
+                !ext.log_publishing_options["SEARCH_SLOW_LOGS"][:enabled] or
+                ext.log_publishing_options["SEARCH_SLOW_LOGS"][:cloud_watch_logs_log_group_arn] != arn
               params[:log_publishing_options] = {}
               params[:log_publishing_options]["INDEX_SLOW_LOGS"] = {}
               params[:log_publishing_options]["INDEX_SLOW_LOGS"][:enabled] = true
               params[:log_publishing_options]["INDEX_SLOW_LOGS"][:cloud_watch_logs_log_group_arn] = arn
+
+              params[:log_publishing_options]["SEARCH_SLOW_LOGS"] = {}
+              params[:log_publishing_options]["SEARCH_SLOW_LOGS"][:enabled] = true
+              params[:log_publishing_options]["SEARCH_SLOW_LOGS"][:cloud_watch_logs_log_group_arn] = arn
               MU::Cloud::AWS::Log.allowService("es.amazonaws.com", arn, @config['region'])
             end
           end
