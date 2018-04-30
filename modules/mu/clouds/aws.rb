@@ -698,6 +698,10 @@ module MU
             end
             return retval
           rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException, Aws::EC2::Errors::IncorrectState, Aws::EC2::Errors::Http503Error, Aws::AutoScaling::Errors::Http503Error, Aws::AutoScaling::Errors::InternalFailure, Aws::AutoScaling::Errors::ServiceUnavailable, Aws::Route53::Errors::ServiceUnavailable, Aws::ElasticLoadBalancing::Errors::Throttling, Aws::RDS::Errors::ClientUnavailable, Aws::Waiters::Errors::UnexpectedError, Aws::ElasticLoadBalancing::Errors::ServiceUnavailable, Aws::ElasticLoadBalancingV2::Errors::Throttling, Seahorse::Client::NetworkingError, Aws::EC2::Errors::IncorrectInstanceState, Aws::IAM::Errors::Throttling => e
+            if e.class.name == "Seahorse::Client::NetworkingError" and e.message.match(/Name or service not known/)
+              MU.log e.inspect, MU::ERR
+              raise e
+            end
             retries = retries + 1
             debuglevel = MU::DEBUG
             interval = 5 + Random.rand(4) - 2
