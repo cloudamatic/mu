@@ -19,6 +19,7 @@ require 'pp'
 require 'json-schema'
 require 'net/http'
 autoload :GraphViz, 'graphviz'
+autoload :ChronicDuration, 'chronic_duration'
 
 module MU
 

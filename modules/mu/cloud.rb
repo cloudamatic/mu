@@ -94,6 +94,9 @@ module MU
     # Stub base class; real implementations generated at runtime
     class SearchDomain;
     end
+    # Stub base class; real implementations generated at runtime
+    class MsgQueue;
+    end
 
     # The types of cloud resources we can create, as class objects. Include
     # methods a class implementing this resource type must support to be
@@ -270,6 +273,17 @@ module MU
         :cfg_name => "search_domain",
         :cfg_plural => "search_domains",
         :interface => self.const_get("SearchDomain"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => false,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom]
+      },
+      :MsgQueue => {
+        :has_multiples => false,
+        :can_live_in_vpc => true,
+        :cfg_name => "msg_queue",
+        :cfg_plural => "msg_queues",
+        :interface => self.const_get("MsgQueue"),
         :deps_wait_on_my_creation => true,
         :waits_on_parent_completion => false,
         :class => generic_class_methods,

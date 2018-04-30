@@ -427,6 +427,13 @@ module MU
         @@sns_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "SNS", region: region)
         @@sns_api[region]
       end
+      
+      # Amazon's SQS API
+      def self.sqs(region = MU.curRegion)
+        region ||= myRegion
+        @@sqs_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "SQS", region: region)
+        @@sqs_api[region]
+      end
 
       # Amazon's EFS API
       def self.efs(region = MU.curRegion)
@@ -739,6 +746,7 @@ module MU
       @@cloudfront_api = {}
       @@elasticache_api = {}
       @@sns_api = {}
+      @@sqs_api = {}
       @@efs_api ={}
       @@ecs_api ={}
       @@pricing_api ={}
