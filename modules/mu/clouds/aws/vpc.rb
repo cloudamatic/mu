@@ -441,9 +441,11 @@ module MU
           end
           notify
 
-          mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
-          if !mu_zone.nil?
-            MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc_id, region: @config['region'])
+          if !MU::Cloud::AWS.isGovCloud?(@config['region'])
+            mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
+            if !mu_zone.nil?
+              MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc_id, region: @config['region'])
+            end
           end
 
           MU.log "VPC #{@mu_name} created", details: @config
@@ -1769,9 +1771,9 @@ module MU
               MU::Cloud::AWS.ec2(region).delete_dhcp_options(dhcp_options_id: optset.dhcp_options_id)
             rescue Aws::EC2::Errors::DependencyViolation => e
               MU.log e.inspect, MU::ERR
-#				rescue Aws::EC2::Errors::InvalidSubnetIDNotFound
-#					MU.log "Subnet #{subnet.subnet_id} disappeared before I could remove it", MU::WARN
-#					next
+#        rescue Aws::EC2::Errors::InvalidSubnetIDNotFound
+#          MU.log "Subnet #{subnet.subnet_id} disappeared before I could remove it", MU::WARN
+#          next
             end
           }
         end
@@ -1853,9 +1855,11 @@ module MU
               end
             end
 
-            mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu", region: region).values.first
-            if !mu_zone.nil?
-              MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc.vpc_id, remove: true)
+            if !MU::Cloud::AWS.isGovCloud?(@config['region'])
+              mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu", region: region).values.first
+              if !mu_zone.nil?
+                MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc.vpc_id, remove: true)
+              end
             end
           }
         end

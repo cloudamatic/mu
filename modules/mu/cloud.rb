@@ -280,12 +280,12 @@ module MU
       },
       :MsgQueue => {
         :has_multiples => false,
-        :can_live_in_vpc => true,
+        :can_live_in_vpc => false,
         :cfg_name => "msg_queue",
         :cfg_plural => "msg_queues",
         :interface => self.const_get("MsgQueue"),
         :deps_wait_on_my_creation => true,
-        :waits_on_parent_completion => false,
+        :waits_on_parent_completion => true,
         :class => generic_class_methods,
         :instance => generic_instance_methods + [:groom]
       }
@@ -578,6 +578,7 @@ module MU
 # describe() cache
           if !cloud_id.nil? or !mu_name.nil?
             @cloudobj.describe(cloud_id: cloud_id)
+            @cloud_id ||= @cloudobj.cloud_id
           end
 
           @deploydata = @cloudobj.deploydata

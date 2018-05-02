@@ -569,7 +569,8 @@ MESSAGE_END
               found = found.delete_if { |x| x.cloud_id.nil? }
               if found.size == 0
                 if service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer" or
-                   service["#MU_CLOUDCLASS"].cfg_name == "firewall_rule"
+                   service["#MU_CLOUDCLASS"].cfg_name == "firewall_rule" or
+                   service["#MU_CLOUDCLASS"].cfg_name == "msg_queue"
 # XXX account for multiples?
 # XXX only know LBs to be safe, atm
                   MU.log "#{service["#MU_CLOUDCLASS"].name} #{service['name']} not found, creating", MU::NOTICE

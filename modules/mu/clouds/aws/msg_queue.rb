@@ -21,6 +21,7 @@ module MU
         @config = nil
         attr_reader :mu_name
         attr_reader :config
+        attr_reader :cloud_id
 
         @cloudformation_data = {}
         attr_reader :cloudformation_data
@@ -31,7 +32,12 @@ module MU
           @deploy = mommacat
           @config = MU::Config.manxify(kitten_cfg)
           @cloud_id ||= cloud_id
-          @mu_name ||= @deploy.getResourceName(@config["name"])
+          if mu_name
+            @mu_name = mu_name
+            cloud_desc if !@cloud_id
+          else
+            @mu_name ||= @deploy.getResourceName(@config["name"])
+          end
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -46,8 +52,9 @@ module MU
             queue_name: namestr,
             attributes: attrs
           )
+          sleep 1
           @cloud_id = resp.queue_url
-
+          puts @cloud_id
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -75,7 +82,7 @@ module MU
 
         # Retrieve the AWS descriptor for this SQS queue. AWS doesn't exactly
         # provide one; if you want real information for SQS ask notify()
-        # @return [String]: Just the SQS url, AWS doesn't return anything else.
+        # @return [Hash]: AWS doesn't return anything but the SQS URL, so supplement with attributes
         def cloud_desc
           if !@cloud_id
             resp = MU::Cloud::AWS.sqs(@config['region']).list_queues(
@@ -84,26 +91,26 @@ module MU
             return nil if !resp or !resp.queue_urls
             resp.queue_urls.each { |url|
               if url.match(/\/#{Regexp.quote(@mu_name)}$/)
-                @cloud_id = url
+                @cloud_id ||= url
                 break
               end
             }
           end
-          @cloud_id
+
+          MU::Cloud::AWS::MsgQueue.find(
+            cloud_id: @cloud_id.dup,
+            region: @config['region']
+          )
         end
 
         # Return the metadata for this MsgQueue rule
         # @return [Hash]
         def notify
           cloud_desc
-          resp = MU::Cloud::AWS.sqs(@config['region']).get_queue_attributes(
-            queue_url: cloud_desc, # all there is to a cloud_desc here
-            attribute_names: ["All"]
+          deploy_struct = MU::Cloud::AWS::MsgQueue.find(
+            cloud_id: @cloud_id,
+            region: @config['region']
           )
-          deploy_struct = {
-            "Url" => @cloud_id
-          }
-          deploy_struct.merge!(resp.attributes)
           return deploy_struct
         end
 
@@ -139,25 +146,48 @@ module MU
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
-        # @return [String]: Just the SQS url, AWS doesn't return anything else.
+        # @return [Hash]: AWS doesn't return anything but the SQS URL, so supplement with attributes
         def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
           flags['account'] ||= MU.account_number
-          begin
-            resp = MU::Cloud::AWS.sqs(region).get_queue_url(
-              queue_name: cloud_id,
-              queue_owner_aws_account_id: flags['account']
-            )
-            return resp.queue_url if resp and resp.queue_url
-          rescue ::Aws::SQS::Errors::NonExistentQueue => e
-            # This is ok, we might have gotten a url
-          end
+          return nil if !cloud_id
+
 
           # If it's a URL, make sure it's good
-          resp = MU::Cloud::AWS.sqs(region).get_queue_attributes(
-            queue_url: cloud_id,
-            attribute_names: ["All"]
-          )
-          return cloud_id if resp and resp.attributes
+          begin
+            if cloud_id.match(/^https?:/i)
+              resp = MU::Cloud::AWS.sqs(region).get_queue_attributes(
+                queue_url: cloud_id,
+                attribute_names: ["All"]
+              )
+              if resp and resp.attributes
+                desc = resp.attributes.dup
+                desc["Url"] = cloud_id
+                return desc
+              end
+            else
+              # If it's a plain queue name, resolve it to a URL
+              resp = MU::Cloud::AWS.sqs(region).get_queue_url(
+                queue_name: cloud_id,
+                queue_owner_aws_account_id: flags['account']
+              )
+              cloud_id = resp.queue_url if resp and resp.queue_url
+            end
+          rescue ::Aws::SQS::Errors::NonExistentQueue => e
+          end
+
+          # Go fetch its attributes
+          if cloud_id
+            resp = MU::Cloud::AWS.sqs(region).get_queue_attributes(
+              queue_url: cloud_id,
+              attribute_names: ["All"]
+            )
+            if resp and resp.attributes
+              desc = resp.attributes.dup
+              desc["Url"] = cloud_id
+MU.log "RETURNING FROM FIND ON #{cloud_id}", MU::WARN, details: caller
+              return desc
+            end
+          end
 
           nil
         end
@@ -204,6 +234,25 @@ module MU
               "description" => "Enables content-based deduplication. When ContentBasedDeduplication is in effect, messages with identical content sent within the deduplication interval are treated as duplicates and only one copy of the message is delivered. This feature is not available in all regions. See also: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/FIFO-queues.html#FIFO-queues-exactly-once-processing",
               "default" => false
             },
+            "failqueue" => {
+              "type" => "object",
+              "description" => "Target queue for messages that can't be processed (consumed) successfully. See also: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-dead-letter-queues.html",
+              "properties" => {
+                "create" => {
+                  "type" => "boolean",
+                  "description" => "Create a separate MsgQueue on the fly."
+                },
+                "retries_before_fail" => {
+                  "type" => "integer",
+                  "description" => "Number of times a message should fail before being sent to this queue. Must be between 1 and 1000.",
+                  "default" => 10
+                },
+                "name" => {
+                  "type" => "string",
+                  "description" => "The name of a sibling SQS resource in this deploy, or the cloud identifier or URL of a pre-existing one"
+                }
+              }
+            },
             "kms" => {
               "type" => "object",
               "description" => "Use an Amazon KMS key to encrypt and decrypt messages in the background. This feature is not available in all regions. https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-server-side-encryption.html#sqs-sse-key-terms",
@@ -230,6 +279,44 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(queue, configurator)
           ok = true
+
+          if queue['failqueue']
+            if (!queue['failqueue']['create'] and !queue['failqueue'].has_key?("name")) or
+               (queue['failqueue']['create'] and queue['failqueue']['name'])
+              MU.log "Must set exactly one of 'create' or 'failqueue' in MsgQueue #{queue['name']}.", MU::ERR
+              ok = false
+            end
+            if queue['failqueue']['retries_before_fail'] < 1 or 
+               queue['failqueue']['retries_before_fail'] > 1000
+              MU.log "'retries_before_fail' must be between 1 and 1000 in MsgQueue #{queue['name']}.", MU::ERR
+              ok = false
+            end
+            if queue['failqueue']['create']
+              failq = queue.dup
+              failq['name'] += "-fail"
+              failq.delete("failqueue")
+              ok = false if !configurator.insertKitten(failq, "msg_queues")
+              queue['failqueue']['name'] = failq['name']
+              queue['dependencies'] << {
+                "name" => failq['name'],
+                "type" => "msg_queue"
+              }
+            else
+              if configurator.haveLitterMate?(queue['failqueue']['name'], "msg_queue")
+                queue['dependencies'] << {
+                  "name" => queue['failqueue']['name'],
+                  "type" => "msg_queue"
+                }
+              else
+                failq = MU::Cloud::AWS::MsgQueue.find(cloud_id: queue['failqueue']['name'])
+                if !failq
+                  MU.log "Could not find an SQS queue named #{queue['failqueue']['name']} for failqueue in MsgQueue '#{queue['name']}'", MU::ERR
+                  ok = false
+                end
+              end
+            end
+          end
+
           if queue['max_msg_size'] < 1 or queue['max_msg_size'] > 256
             MU.log "Must specify a 'max_msg_size' value between 1 and 256 in MsgQueue #{queue['name']}.", MU::ERR
             ok = false
@@ -276,8 +363,9 @@ module MU
           good_regions = ["us-east-1", "us-east-2", "us-west-2", "eu-west-1"]
 
           if (queue['fifo'] or queue['dedup']) and !good_regions.include?(queue['region'])
-            MU.log "Fifo queues aren't supported in all regions, and #{queue['region']} wasn't on the list last we checked. Queue '#{queue['name']}' may not work.", MU::WARN, details: good_regions
+            MU.log "Fifo queues aren't supported in all regions, and #{queue['region']} wasn't on the list last we checked. MsgQueue '#{queue['name']}' may not work.", MU::WARN, details: good_regions
           end
+
 
           ok
         end
@@ -291,6 +379,24 @@ module MU
             "DelaySeconds" => @config['delay'].to_s,
             "ReceiveMessageWaitTimeSeconds" => @config['receive_timeout'].to_s
           }
+
+          if @config['failqueue']
+#            attrs["RedrivePolicy"] = {}
+            sibling = @deploy.findLitterMate(type: "msg_queue", name: config['failqueue']['name'])
+            id = config['failqueue']['name']
+            if sibling # resolve sibling queues to something useful
+              id = sibling.cloud_id
+            end
+            desc = MU::Cloud::AWS::MsgQueue.find(cloud_id: id)
+            if !desc
+              raise MuError, "Failed to get cloud descriptor for SQS queue #{config['failqueue']['name']}"
+            end
+            rdr_pol = {
+              "deadLetterTargetArn" => desc["QueueArn"],
+              "maxReceiveCount" => config['failqueue']['retries_before_fail']
+            }
+            attrs["RedrivePolicy"] = JSON.generate(rdr_pol)
+          end
 
           # These aren't supported in most regions, and will fail loudly and
           # spectacularly if you try to use them in the forbidden lands.
@@ -325,7 +431,8 @@ module MU
             }
           end
           if !url
-            url = cloud_desc
+            desc = cloud_desc
+            url = desc["Url"]
             if !url
               raise MU::MuError, "Can't tag SQS queue, failed to retrieve queue_url"
             end

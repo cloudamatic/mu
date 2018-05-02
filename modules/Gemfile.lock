@@ -390,7 +390,7 @@ DEPENDENCIES
   chef-sugar
   chef-vault (< 3)
   chef-zero (< 13)
-  chronic_duration
+  chronic_duration (~> 0.10.6)
   color
   colorize
   foodcritic (= 12.3.0)
