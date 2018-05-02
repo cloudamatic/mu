@@ -36,21 +36,10 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
-          attrs = {
-            "MaximumMessageSize" => @config['max_msg_size'].to_s,
-            "MessageRetentionPeriod" => @config['retain'].to_s,
-            "DelaySeconds" => @config['delay'].to_s,
-            "ReceiveMessageWaitTimeSeconds" => @config['receive_timeout'].to_s
-          }
-          namestr = @mu_name
+          attrs = genQueueAttrs
 
-          # These aren't supported in most regions, and will fail loudly and
-          # spectacularly if you try to use them in the forbidden lands.
-          if @config['fifo'] or @config['dedup']
-            attrs["FifoQueue"] = "true" # dedup enables fifo implicitly
-            attrs["ContentBasedDeduplication"] = @config['dedup'].to_s
-            namestr += ".fifo"
-          end
+          namestr = @mu_name
+          namestr += ".fifo" if attrs['FifoQueue']
 
           MU.log "Creating SQS queue #{namestr}", details: attrs
           resp = MU::Cloud::AWS.sqs(@config['region']).create_queue(
@@ -61,12 +50,32 @@ module MU
 
         end
 
+        # Called automatically by {MU::Deploy#createResources}
         def groom
           tagQueue
+
+          cur_attrs = notify
+          new_attrs = genQueueAttrs
+
+          changed = false
+          new_attrs.each_pair { |k, v|
+            if !cur_attrs.has_key?(k) or cur_attrs[k] != new_attrs[k]
+              changed = true
+            end
+          }
+          if changed
+            MU.log "Updating SQS queue #{@mu_name}", MU::NOTICE, details: new_attrs
+            resp = MU::Cloud::AWS.sqs(@config['region']).set_queue_attributes(
+              queue_url: @cloud_id,
+              attributes: new_attrs
+            )
+          end
+
         end
 
         # Retrieve the AWS descriptor for this SQS queue. AWS doesn't exactly
         # provide one; if you want real information for SQS ask notify()
+        # @return [String]: Just the SQS url, AWS doesn't return anything else.
         def cloud_desc
           if !@cloud_id
             resp = MU::Cloud::AWS.sqs(@config['region']).list_queues(
@@ -86,6 +95,7 @@ module MU
         # Return the metadata for this MsgQueue rule
         # @return [Hash]
         def notify
+          cloud_desc
           resp = MU::Cloud::AWS.sqs(@config['region']).get_queue_attributes(
             queue_url: cloud_desc, # all there is to a cloud_desc here
             attribute_names: ["All"]
@@ -107,15 +117,21 @@ module MU
             queue_name_prefix: MU.deploy_id
           )
           if resp and resp.queue_urls
+            threads = []
             resp.queue_urls.each { |url|
-              MU.log "Deleting SQS queue #{url}"
-              if !noop
-                MU::Cloud::AWS.sqs(region).delete_queue(
-                  queue_url: url
-                )
-              end
+              threads << Thread.new {
+                MU.log "Deleting SQS queue #{url}"
+                if !noop
+                  MU::Cloud::AWS.sqs(region).delete_queue(
+                    queue_url: url
+                  )
+                  sleep 60 # per API docs, this is how long it takes to really delete
+                end
+              }
             }
-            sleep 60 # per API docs, this is how long it takes to really delete
+            threads.each { |t|
+              t.join
+            }
           end
         end
 
@@ -123,8 +139,27 @@ module MU
         # @param cloud_id [String]: The cloud provider's identifier for this resource.
         # @param region [String]: The cloud provider region.
         # @param flags [Hash]: Optional flags
-        # @return [OpenStruct]: The cloud provider's complete descriptions of matching msg_queue.
+        # @return [String]: Just the SQS url, AWS doesn't return anything else.
         def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
+          flags['account'] ||= MU.account_number
+          begin
+            resp = MU::Cloud::AWS.sqs(region).get_queue_url(
+              queue_name: cloud_id,
+              queue_owner_aws_account_id: flags['account']
+            )
+            return resp.queue_url if resp and resp.queue_url
+          rescue ::Aws::SQS::Errors::NonExistentQueue => e
+            # This is ok, we might have gotten a url
+          end
+
+          # If it's a URL, make sure it's good
+          resp = MU::Cloud::AWS.sqs(region).get_queue_attributes(
+            queue_url: cloud_id,
+            attribute_names: ["All"]
+          )
+          return cloud_id if resp and resp.attributes
+
+          nil
         end
 
         # Cloud-specific configuration properties.
@@ -150,19 +185,41 @@ module MU
             },
             "receive_timeout" => {
               "type" => "string",
-              "description" => "The length of time, in seconds, for which a ReceiveMessage action waits for a message to arrive, between 0 and 20 seconds. YOu can specify a string like '5s' or '20 seconds'.", 
+              "description" => "The length of time, for which a ReceiveMessage action waits for a message to arrive, between 0 and 20 seconds. You can specify a string like '5s' or '20 seconds'.", 
               "default" => "0 seconds"
+            },
+            "visibility_timeout" => {
+              "type" => "string",
+              "description" => "The length of time during which Amazon SQS prevents other consumers from receiving and processing a message after another consumer has received it. Must be between 0 seconds and 12 hours. You can specify a string like '5 minutes' or '3 hours'. See also: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html",
+
+              "default" => "30 seconds"
             },
             "fifo" => {
               "type" => "boolean",
-              "description" => "Designate this queue as a FIFO queue. Messages in this queue must explicitly specify MessageGroupId. This cannot be changed once instantiated. See also: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/FIFO-queues.html#FIFO-queues-understanding-logic",
+              "description" => "Designate this queue as a FIFO queue. Messages in this queue must explicitly specify MessageGroupId. This cannot be changed once instantiated. This feature is not available in all regions. See also: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/FIFO-queues.html#FIFO-queues-understanding-logic",
               "default" => false
             },
             "dedup" => {
               "type" => "boolean",
-              "description" => "Enables content-based deduplication. When ContentBasedDeduplication is in effect, messages with identical content sent within the deduplication interval are treated as duplicates and only one copy of the message is delivered. See also: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/FIFO-queues.html#FIFO-queues-exactly-once-processing",
+              "description" => "Enables content-based deduplication. When ContentBasedDeduplication is in effect, messages with identical content sent within the deduplication interval are treated as duplicates and only one copy of the message is delivered. This feature is not available in all regions. See also: https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/FIFO-queues.html#FIFO-queues-exactly-once-processing",
               "default" => false
             },
+            "kms" => {
+              "type" => "object",
+              "description" => "Use an Amazon KMS key to encrypt and decrypt messages in the background. This feature is not available in all regions. https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-server-side-encryption.html#sqs-sse-key-terms",
+              "required" => ["key_id", "key_reuse_period"],
+              "properties" => {
+                "key_id" => {
+                  "type" => "string",
+                  "description" => "KMS key to use for encryption and decryption"
+                },
+                "key_reuse_period" => {
+                  "type" => "string",
+                  "description" => "The length of time, in seconds, for which Amazon SQS can reuse a data key to encrypt or decrypt messages before calling AWS KMS again. You can specify a string like '5m' or '2 hours'.",
+                  "default" => "5 minutes"
+                }
+              }
+            }
           }
           [toplevel_required, schema]
         end
@@ -197,6 +254,25 @@ module MU
             ok = false
           end
 
+          queue['visibility_timeout'] = ChronicDuration.parse(queue['visibility_timeout'], :keep_zero => true)
+          if !queue['visibility_timeout'] or queue['visibility_timeout'] < 0 or queue['visibility_timeout'] > 43200
+            MU.log "'visibility_timeout' value must be between 0 seconds and 12 hours in MsgQueue #{queue['name']}.", MU::ERR
+            ok = false
+          end
+
+          if queue['kms']
+            good_regions = ["us-east-1", "us-east-2", "us-west-2"]
+            if !good_regions.include?(queue['region'])
+              MU.log "KMS SQS encryption isn't supported in all regions, and #{queue['region']} wasn't on the list last we checked. Queue '#{queue['name']}' may not work.", MU::WARN, details: good_regions
+            end
+            queue['kms']['key_reuse_period'] = ChronicDuration.parse(queue['kms']['key_reuse_period'], :keep_zero => true)
+            if !queue['kms']['key_reuse_period'] or queue['kms']['key_reuse_period'] < 60 or queue['kms']['key_reuse_period'] > 86400
+              MU.log "KMS 'visibility_period' value must be between 60 seconds and 24 hours in MsgQueue #{queue['name']}.", MU::ERR
+              ok = false
+            end
+# XXX check for existence of queue['kms']['key_id']
+          end
+
           good_regions = ["us-east-1", "us-east-2", "us-west-2", "eu-west-1"]
 
           if (queue['fifo'] or queue['dedup']) and !good_regions.include?(queue['region'])
@@ -207,6 +283,27 @@ module MU
         end
 
         private
+
+        def genQueueAttrs
+          attrs = {
+            "MaximumMessageSize" => @config['max_msg_size'].to_s,
+            "MessageRetentionPeriod" => @config['retain'].to_s,
+            "DelaySeconds" => @config['delay'].to_s,
+            "ReceiveMessageWaitTimeSeconds" => @config['receive_timeout'].to_s
+          }
+
+          # These aren't supported in most regions, and will fail loudly and
+          # spectacularly if you try to use them in the forbidden lands.
+          if @config['fifo'] or @config['dedup']
+            attrs["FifoQueue"] = "true" # dedup enables fifo implicitly
+            attrs["ContentBasedDeduplication"] = @config['dedup'].to_s
+          end
+          if @config['kms']
+            attrs["KmsMasterKeyId"] = @config['kms']['key_id'].to_s
+            attrs["KmsDataKeyReusePeriodSeconds"] = @config['kms']['key_reuse_period'].to_s
+          end
+          attrs
+        end
 
         def tagQueue(url = nil)
           tags = {}
@@ -228,11 +325,10 @@ module MU
             }
           end
           if !url
-            queue = cloud_desc
-            if !queue or !queue.queue_url
+            url = cloud_desc
+            if !url
               raise MU::MuError, "Can't tag SQS queue, failed to retrieve queue_url"
             end
-            url = queue.queue_url
           end
 
           begin
@@ -241,7 +337,7 @@ module MU
               tags: tags
             )
           rescue ::Aws::SQS::Errors::UnsupportedOperation, NameError => e
-            MU.log "We appear to be in a region that does not support SQS tagging, unfortunately ('#{e.message}'). Skipping tags.", MU::WARN
+            MU.log "We appear to be in a region that does not support SQS tagging. Skipping tags for #{@mu_name}", MU::NOTICE, details: e.message
           end
         end
 
