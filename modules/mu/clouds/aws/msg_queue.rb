@@ -54,7 +54,6 @@ module MU
           )
           sleep 1
           @cloud_id = resp.queue_url
-          puts @cloud_id
         end
 
         # Called automatically by {MU::Deploy#createResources}

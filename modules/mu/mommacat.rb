@@ -88,6 +88,7 @@ module MU
     attr_reader :mu_user
     attr_reader :clouds
     attr_reader :chef_user
+    attr_reader :no_artifacts
     attr_accessor :kittens # really want a method only available to :Deploy
     @myhome = Etc.getpwuid(Process.uid).dir
     @nagios_home = "/opt/mu/var/nagios_user_home"
@@ -146,6 +147,7 @@ module MU
     # @param ssh_public_key [String]: SSH public key for authorized_hosts on clients.
     # @param skip_resource_objects [Boolean]: Whether preload the cloud resource objects from this deploy. Can save load time for simple MommaCat tasks.
     # @param nocleanup [Boolean]: Skip automatic cleanup of failed resources
+    # @param no_artifacts [Boolean]: Do not save deploy metadata
     # @param deployment_data [Hash]: Known deployment data.
     # @return [void]
     def initialize(deploy_id,
@@ -159,6 +161,7 @@ module MU
                    nocleanup: false,
                    set_context_to_me: true,
                    skip_resource_objects: false,
+                   no_artifacts: false,
                    deployment_data: {},
                    mu_user: Etc.getpwuid(Process.uid).name
     )
@@ -169,6 +172,7 @@ module MU
 
       @deploy_id = deploy_id
       @mu_user = mu_user.dup
+      @no_artifacts = no_artifacts
 
       # Make sure mu_user and chef_user are sane.
       if @mu_user == "root"
@@ -200,7 +204,7 @@ module MU
       if set_context_to_me
         MU::MommaCat.setThreadContext(self)
       end
-      if create
+      if create and !@no_artifacts
         if !Dir.exist?(MU.dataDir+"/deployments")
           MU.log "Creating #{MU.dataDir}/deployments", MU::DEBUG
           Dir.mkdir(MU.dataDir+"/deployments", 0700)
@@ -592,6 +596,7 @@ module MU
     # @param raw_secret [String]: The unencrypted string to store.
     # @param type [String]: The type of secret, used to identify for retrieval.
     def saveNodeSecret(instance_id, raw_secret, type)
+      return if @no_artifacts
       if instance_id.nil? or instance_id.empty? or raw_secret.nil? or raw_secret.empty? or type.nil? or type.empty?
         raise SecretError, "saveNodeSecret requires instance_id, raw_secret, and type args"
       end
@@ -1277,6 +1282,7 @@ module MU
     # @param remove [Boolean]: Remove this resource from the deploy structure, instead of adding it.
     # @return [void]
     def notify(type, key, data, mu_name: nil, remove: false, triggering_node: nil)
+      return if @no_artifacts
       MU::MommaCat.lock("deployment-notification")
       loadDeploy(true) # make sure we're saving the latest and greatest
       have_deploy = true
@@ -2382,6 +2388,7 @@ MESSAGE_END
     # Synchronize all in-memory information related to this to deployment to
     # disk.
     def save!(triggering_node = nil)
+      return if @no_artifacts
       MU::MommaCat.deploy_struct_semaphore.synchronize {
         MU.log "Saving deployment #{MU.deploy_id}", MU::DEBUG
 
