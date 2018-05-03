@@ -172,6 +172,7 @@ fi
 /bin/rm -rf $MU_DATADIR/tmp/berks_changes.$$
 
 if [ "$rebuild_chef_artifacts" == "1" ];then
+  /bin/rm -rf /root/.berkshelf/cookbooks
   $bindir/mu-upload-chef-artifacts -p
 else
   $bindir/mu-upload-chef-artifacts -r mu
