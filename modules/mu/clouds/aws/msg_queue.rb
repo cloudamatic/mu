@@ -61,6 +61,9 @@ module MU
           tagQueue
 
           cur_attrs = notify
+          if cur_attrs["Policy"]
+            MU.log "FECK", MU::WARN, details: JSON.parse(cur_attrs["Policy"]).to_yaml
+          end
           new_attrs = genQueueAttrs
 
           changed = false
@@ -149,7 +152,6 @@ module MU
         def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
           flags['account'] ||= MU.account_number
           return nil if !cloud_id
-
 
           # If it's a URL, make sure it's good
           begin
@@ -252,6 +254,11 @@ MU.log "RETURNING FROM FIND ON #{cloud_id}", MU::WARN, details: caller
                 }
               }
             },
+# TODO this doesn't work as either an ARN, short identifier, or full JSON policy descriptor. Docs are vague. Need to ask AWS.
+#            "iam_policy" => {
+#              "type" => "string",
+#              "description" => "An IAM policy document for access to this SQS queue. Our parser expects this to be defined inline like the rest of your YAML/JSON Basket of Kittens, not as raw JSON. For guidance on SQS IAM capabilities, see: https://docs.aws.amazon.com/IAM/latest/UserGuide/list_amazonsqs.html"
+#            },
             "kms" => {
               "type" => "object",
               "description" => "Use an Amazon KMS key to encrypt and decrypt messages in the background. This feature is not available in all regions. https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-server-side-encryption.html#sqs-sse-key-terms",
@@ -356,7 +363,13 @@ MU.log "RETURNING FROM FIND ON #{cloud_id}", MU::WARN, details: caller
               MU.log "KMS 'visibility_period' value must be between 60 seconds and 24 hours in MsgQueue #{queue['name']}.", MU::ERR
               ok = false
             end
-# XXX check for existence of queue['kms']['key_id']
+            begin
+              MU::Cloud::AWS.kms(queue['region']).describe_key(key_id: queue['kms']['key_id'])
+            rescue Aws::KMS::Errors::NotFoundException => e
+              MU.log "KMS key '#{queue['kms']['key_id']}' specified in Queue '#{queue['name']}' was not found.", MU::ERR, details: "Key IDs are of the form bf64a093-2c3d-46fa-0d4f-8232fa7ed53. Keys can be created at https://console.aws.amazon.com/iam/home#/encryptionKeys/#{queue['region']}"
+              ok = false
+            end
+
           end
 
           good_regions = ["us-east-1", "us-east-2", "us-west-2", "eu-west-1"]
@@ -365,6 +378,7 @@ MU.log "RETURNING FROM FIND ON #{cloud_id}", MU::WARN, details: caller
             MU.log "Fifo queues aren't supported in all regions, and #{queue['region']} wasn't on the list last we checked. MsgQueue '#{queue['name']}' may not work.", MU::WARN, details: good_regions
           end
 
+          # TODO have IAM API validate queue['iam_policy'] if any is set
 
           ok
         end
@@ -380,7 +394,6 @@ MU.log "RETURNING FROM FIND ON #{cloud_id}", MU::WARN, details: caller
           }
 
           if @config['failqueue']
-#            attrs["RedrivePolicy"] = {}
             sibling = @deploy.findLitterMate(type: "msg_queue", name: config['failqueue']['name'])
             id = config['failqueue']['name']
             if sibling # resolve sibling queues to something useful
@@ -407,6 +420,12 @@ MU.log "RETURNING FROM FIND ON #{cloud_id}", MU::WARN, details: caller
             attrs["KmsMasterKeyId"] = @config['kms']['key_id'].to_s
             attrs["KmsDataKeyReusePeriodSeconds"] = @config['kms']['key_reuse_period'].to_s
           end
+
+# TODO this doesn't work as either an ARN, short identifier, or full JSON policy descriptor. Docs are vague. Need to ask AWS.
+#          if @config['iam_policy']
+#            attrs["Policy"] = JSON.generate(@config['iam_policy'])
+#          end
+
           attrs
         end
 

@@ -374,6 +374,8 @@ module MU
 
           end
 
+          # TODO have IAM API validate queue['access_policies'] if any is set
+
           ok
         end
 

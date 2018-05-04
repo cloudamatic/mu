@@ -484,6 +484,13 @@ module MU
         @@cognito_user_api[region]
       end
 
+      # Amazon's KMS API
+      def self.kms(region = MU.curRegion)
+        region ||= myRegion
+        @@kms_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "KMS", region: region)
+        @@kms_api[region]
+      end
+
       # Fetch an Amazon instance metadata parameter (example: public-ipv4).
       # @param param [String]: The parameter name to fetch
       # @return [String, nil]
@@ -754,6 +761,7 @@ module MU
       @@elasticsearch_api ={}
       @@cognito_ident_api ={}
       @@cognito_user_api ={}
+      @@kms_api ={}
     end
   end
 end
