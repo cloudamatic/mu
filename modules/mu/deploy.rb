@@ -350,7 +350,16 @@ module MU
         t = Thread.new {
           Thread.abort_on_exception = true
 
-          # It is not clear why we need to do this now.
+          # I do not understand why this is necessary, but here we are.
+          Thread.handle_interrupt(MU::Cloud::MuCloudResourceNotImplemented => :never) {
+            begin
+              Thread.handle_interrupt(MU::Cloud::MuCloudResourceNotImplemented => :immediate) {
+                MU.log "Cost calculator not available for this stack, as it uses a resource not implemented in Mu's CloudFormation layer.", MU::WARN, verbosity: MU::Logger::NORMAL
+                Thread.current.exit
+              }
+            ensure
+            end
+          }
           begin
             MU.setVar("deploy_id", nil) # make sure we won't ever accidentally blow away the parent deploy
             cost_dummy_deploy = MU::Deploy.new(
