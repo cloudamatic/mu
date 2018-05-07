@@ -5,6 +5,11 @@ NORM=`tput sgr0`
 CHEF_CLIENT_VERSION="12.21.31-1"
 if [ "$MU_BRANCH" == "" ];then
   MU_BRANCH="lambda_aws"
+  mydir="`dirname $0`"
+  cd $mydir
+  if git rev-parse --abbrev-ref HEAD > /dev/null 2>&1;then
+    MU_BRANCH="`git rev-parse --abbrev-ref HEAD`"
+  fi
 fi
 
 # XXX All RHEL family. We can at least cover Debian-flavored hosts too, I bet.

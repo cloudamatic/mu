@@ -391,27 +391,24 @@ module MU
           acl['rules'].each { |rule|
             if !rule['sgs'].nil?
               rule['sgs'].each { |sg_name|
-                if sg_name == acl['name']
-                  # acl['self_referencing'] = true
+	              if configurator.haveLitterMate?(sg_name, "firewall_rules")
+  	              acl["dependencies"] << {
+    	              "type" => "firewall_rule",
+      	            "name" => sg_name,
+        	          "phase" => "groom"
+	                }
+                elsif sg_name == acl['name']
+                  acl['self_referencing'] = true
                   next
                 end
-# XXX what was this for when it was in MU::Config? I think we want to check for a sibling with this name (haveKitten?)
-#                if firewall_rule_names.include?(sg_name)
-#                  acl["dependencies"] << {
-#                    "type" => "firewall_rule",
-#                    "name" => sg_name
-#                  }
-#                else
-#                  MU.log "Didn't see #{sg_name} anywhere, is that ok?", MU::WARN
-#                end
               }
             end
             if !rule['lbs'].nil?
               rule['lbs'].each { |lb_name|
                 acl["dependencies"] << {
-                    "type" => "loadbalancer",
-                    "name" => lb_name,
-                    "phase" => "groom"
+                  "type" => "loadbalancer",
+                  "name" => lb_name,
+                  "phase" => "groom"
                 }
               }
             end

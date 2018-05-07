@@ -50,6 +50,9 @@ module MU
       "Chef"
     end
 
+    attr_accessor :nat_routes
+    attr_reader :skipinitialupdates
+
     attr_reader :google_images
     @@google_images = YAML.load(File.read("#{MU.myRoot}/modules/mu/defaults/google_images.yaml"))
     if File.exists?("#{MU.etcDir}/google_images.yaml")
@@ -755,10 +758,21 @@ module MU
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
       descriptor["#MU_CLOUDCLASS"] = classname
       inheritDefaults(descriptor, cfg_plural)
+      schemaclass = Object.const_get("MU").const_get("Config").const_get(shortclass)
 
       if (descriptor["region"] and descriptor["region"].empty?) or
          (descriptor['cloud'] == "Google" and ["firewall_rule", "vpc"].include?(cfg_name))
         descriptor.delete("region")
+      end
+
+      # Make sure a sensible region has been targeted, if applicable
+      if descriptor["region"]
+        classobj = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"])
+        valid_regions = classobj.listRegions
+        if !valid_regions.include?(descriptor["region"])
+          MU.log "Known regions for cloud '#{descriptor['cloud']}' do not include '#{descriptor["region"]}'", MU::ERR, details: valid_regions
+          ok = false
+        end
       end
 
       # Does this resource go in a VPC?
@@ -774,13 +788,14 @@ module MU
            descriptor["vpc"]['deploy_id'].nil? and
            descriptor["vpc"]['vpc_id'].nil?
           descriptor["dependencies"] << {
-              "type" => "vpc",
-              "name" => descriptor["vpc"]["vpc_name"]
+            "type" => "vpc",
+            "name" => descriptor["vpc"]["vpc_name"]
           }
 
-          if !processVPCReference(descriptor['vpc'],
+          if !MU::Config::VPC.processReference(descriptor['vpc'],
                                   cfg_plural,
                                   shortclass.to_s+" '#{descriptor['name']}'",
+                                  self,
                                   dflt_region: descriptor['region'],
                                   is_sibling: true,
                                   sibling_vpcs: @kittens['vpcs'])
@@ -791,8 +806,9 @@ module MU
           # thing exists, and also fetch its id now so later search routines
           # don't have to work so hard.
         else
-          if !processVPCReference(descriptor["vpc"], cfg_plural,
+          if !MU::Config::VPC.processReference(descriptor["vpc"], cfg_plural,
                                   "#{shortclass} #{descriptor['name']}",
+                                  self,
                                   dflt_region: descriptor['region'])
             MU.log "insertKitten was called from #{caller[0]}", MU::ERR
             ok = false
@@ -809,60 +825,6 @@ module MU
         descriptor['vpc'].delete("subnet_pref")
       end
 
-      # Is it a storage pool with mount points, which need their own VPC refs
-      # resolved?
-      if cfg_plural == "storage_pools" and descriptor['mount_points']
-        new_mount_points = []
-        descriptor['mount_points'].each{ |mp|
-          if mp["vpc"] and !mp["vpc"].empty?
-            if !mp["vpc"]["vpc_name"].nil? and
-               haveLitterMate?(mp["vpc"]["vpc_name"], "vpcs") and
-               mp["vpc"]['deploy_id'].nil? and
-               mp["vpc"]['vpc_id'].nil?
-    
-              if !processVPCReference(mp['vpc'],
-                                      cfg_plural,
-                                      shortclass.to_s+" '#{descriptor['name']}'",
-                                      dflt_region: descriptor['region'],
-                                      is_sibling: true,
-                                      sibling_vpcs: @kittens['vpcs'])
-                ok = false
-              end
-            else
-              if !processVPCReference(mp["vpc"], cfg_plural,
-                                      "#{shortclass} #{descriptor['name']}",
-                                      dflt_region: descriptor['region'])
-                ok = false
-              end
-            end
-            if mp['vpc']['subnets'] and mp['vpc']['subnets'].size > 1
-              seen_azs = []
-              count = 0
-              mp['vpc']['subnets'].each { |subnet|
-                if subnet['az'] and seen_azs.include?(subnet['az'])
-                  MU.log "VPC config for Storage Pool #{pool['name']} has multiple matching subnets per Availability Zone. Only one mount point per AZ is allowed, so you must explicitly declare which subnets to use.", MU::ERR
-                  ok = false
-                  break
-                end
-                seen_azs << subnet['az']
-                subnet.delete("az")
-                newmp = Marshal.load(Marshal.dump(mp))
-                ["subnets", "subnet_pref", "az"].each { |field|
-                  newmp['vpc'].delete(field)
-                }
-                newmp['vpc'].merge!(subnet)
-                newmp['name'] = newmp['name']+count.to_s
-                count = count + 1
-                new_mount_points << newmp
-              }
-            else
-              new_mount_points << mp
-            end
-          end
-        }
-        descriptor['mount_points'] = new_mount_points
-      end
-
       # Does it have generic ingress rules?
       if !descriptor['ingress_rules'].nil?
         fwname = cfg_name+descriptor['name']
@@ -874,6 +836,19 @@ module MU
         ok = false if !insertKitten(acl, "firewall_rules")
         descriptor["add_firewall_rules"] = [] if descriptor["add_firewall_rules"].nil?
         descriptor["add_firewall_rules"] << {"rule_name" => fwname}
+				acl["rules"].each { |acl_include|
+					if acl_include['sgs']
+						acl_include['sgs'].each { |sg_ref|
+							if haveLitterMate?(sg_ref, "firewall_rules")
+								descriptor["dependencies"] << {
+									"type" => "firewall_rule",
+									"name" => sg_ref,
+									"phase" => "groom"
+								}
+							end
+						}
+					end
+				}
       end
 
       # Does it declare association with any sibling LoadBalancers?
@@ -973,13 +948,18 @@ module MU
       end
 
       if !delay_validation
+        # Call the generic validation for the resource type, first and foremost
+        # XXX this might have to be at the top of this insertKitten instead of
+        # here
+        ok = false if !schemaclass.validate(descriptor, self)
 
-        # Merge the cloud-class specific JSON schema and validate against it
+        # Merge the cloud-specific JSON schema and validate against it
         myschema = Marshal.load(Marshal.dump(MU::Config.schema["properties"][cfg_plural]["items"]))
         more_required, more_schema = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s).schema(self)
 
         if more_schema
           MU::Config.schemaMerge(myschema["properties"], more_schema, descriptor["cloud"])
+          MU::Config.set_defaults(descriptor, myschema)
         end
         myschema["required"] ||= []
         myschema["required"].concat(more_required)
@@ -1009,10 +989,15 @@ module MU
           end
         end
 
-        # Run the cloud class's deeper validation
-        parser = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s)
-        return false if !parser.validateConfig(descriptor, self)
-        descriptor['#MU_VALIDATED'] = true
+        # Run the cloud class's deeper validation, unless we've already failed
+        # on stuff that will cause spurious alarms further in
+        if ok
+          parser = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s)
+          plain_descriptor = MU::Config.manxify(Marshal.load(Marshal.dump(descriptor)))
+          return false if !parser.validateConfig(plain_descriptor, self)
+					descriptor.merge!(plain_descriptor)
+          descriptor['#MU_VALIDATED'] = true
+        end
 
       end
 
@@ -1022,6 +1007,111 @@ module MU
         @kittens[cfg_plural] << descriptor if append
       }
       ok
+    end
+
+    allregions = []
+    allregions.concat(MU::Cloud::AWS.listRegions) if MU::Cloud::AWS.myRegion
+    allregions.concat(MU::Cloud::Google.listRegions) if MU::Cloud::Google.defaultProject
+
+    def self.region_primitive
+      allregions = []
+      allregions.concat(MU::Cloud::AWS.listRegions) if MU::Cloud::AWS.myRegion
+      allregions.concat(MU::Cloud::Google.listRegions) if MU::Cloud::Google.defaultProject
+      {
+        "type" => "string",
+        "enum" => allregions
+      }
+    end
+
+    def self.tags_primitive
+      {
+        "type" => "array",
+        "minItems" => 1,
+        "items" => {
+          "description" => "Tags to apply to this resource. Will apply at the cloud provider level and in Chef, where applicable.",
+          "type" => "object",
+          "title" => "tags",
+          "required" => ["key", "value"],
+          "additionalProperties" => false,
+          "properties" => {
+            "key" => {
+              "type" => "string",
+            },
+            "value" => {
+              "type" => "string",
+            }
+          }
+        }
+      }
+    end
+
+    def self.cloud_primitive
+      {
+        "type" => "string",
+        "default" => MU::Config.defaultCloud,
+        "enum" => MU::Cloud.supportedClouds
+      }
+    end
+
+    # Generate configuration for the general-pursose ADMIN firewall rulesets
+    # (security groups in AWS). Note that these are unique to regions and
+    # individual VPCs (as well as Classic, which is just a degenerate case of
+    # a VPC for our purposes.
+    # @param vpc [Hash]: A VPC reference as defined in our config schema. This originates with the calling resource, so we'll peel out just what we need (a name or cloud id of a VPC).
+    # @param admin_ip [String]: Optional string of an extra IP address to allow blanket access to the calling resource.
+    # @param cloud [String]: The parent resource's cloud plugin identifier
+    # @param region [String]: Cloud provider region, if applicable.
+    # @return [Hash<String>]: A dependency description that the calling resource can then add to itself.
+    def adminFirewallRuleset(vpc: nil, admin_ip: nil, region: nil, cloud: nil)
+      if !cloud or (cloud == "AWS" and !region)
+        raise MuError, "Cannot call adminFirewallRuleset without specifying the parent's region and cloud provider"
+      end
+      hosts = Array.new
+      hosts << "#{MU.my_public_ip}/32" if MU.my_public_ip
+      hosts << "#{MU.my_private_ip}/32" if MU.my_private_ip
+      hosts << "#{MU.mu_public_ip}/32" if MU.mu_public_ip
+      hosts << "#{admin_ip}/32" if admin_ip
+      hosts.uniq!
+      name = "admin"
+      realvpc = nil
+
+      if vpc
+        realvpc = {}
+        realvpc['vpc_id'] = vpc['vpc_id'] if !vpc['vpc_id'].nil?
+        realvpc['vpc_name'] = vpc['vpc_name'] if !vpc['vpc_name'].nil?
+        realvpc['deploy_id'] = vpc['deploy_id'] if !vpc['deploy_id'].nil?
+        if !realvpc['vpc_id'].nil? and !realvpc['vpc_id'].empty?
+          # Stupid kludge for Google cloud_ids which are sometimes URLs and
+          # sometimes not. Requirements are inconsistent from scenario to
+          # scenario.
+          name = name + "-" + realvpc['vpc_id'].gsub(/.*\//, "")
+          realvpc['vpc_id'] = getTail("vpc_id", value: realvpc['vpc_id'], prettyname: "Admin Firewall Ruleset #{name} Target VPC",  cloudtype: "AWS::EC2::VPC::Id") if realvpc["vpc_id"].is_a?(String)
+        elsif !realvpc['vpc_name'].nil?
+          name = name + "-" + realvpc['vpc_name']
+        end
+      end
+
+      hosts.uniq!
+
+      rules = []
+      if cloud == "Google"
+        rules = [
+          { "ingress" => true, "proto" => "all", "hosts" => hosts },
+          { "egress" => true, "proto" => "all", "hosts" => hosts }
+        ]
+      else
+        rules = [
+          { "proto" => "tcp", "port_range" => "0-65535", "hosts" => hosts },
+          { "proto" => "udp", "port_range" => "0-65535", "hosts" => hosts },
+          { "proto" => "icmp", "port_range" => "-1", "hosts" => hosts }
+        ]
+      end
+
+      acl = {"name" => name, "rules" => rules, "vpc" => realvpc, "cloud" => cloud, "admin" => true}
+      acl.delete("vpc") if !acl["vpc"]
+      acl["region"] == region if !region.nil? and !region.empty?
+      @admin_firewall_rules << acl if !@admin_firewall_rules.include?(acl)
+      return {"type" => "firewall_rule", "name" => name}
     end
 
     private
@@ -1263,308 +1353,6 @@ module MU
     end
 
 
-    # Pick apart an external VPC reference, validate it, and resolve it and its
-    # various subnets and NAT hosts to live resources.
-    def processVPCReference(vpc_block, parent_type, parent_name, is_sibling: false, sibling_vpcs: [], dflt_region: MU.curRegion)
-      puts vpc_block.ancestors if !vpc_block.is_a?(Hash)
-      if !vpc_block.is_a?(Hash) and vpc_block.kind_of?(MU::Cloud::VPC)
-        return true
-      end
-      ok = true
-
-      if vpc_block['region'].nil? and dflt_region and !dflt_region.empty?
-        vpc_block['region'] = dflt_region.to_s
-      end
-
-      flags = {}
-      flags["subnet_pref"] = vpc_block["subnet_pref"] if !vpc_block["subnet_pref"].nil?
-
-      # First, dig up the enclosing VPC 
-      tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !vpc_block['tag'].nil?
-      if !is_sibling
-        begin
-          if vpc_block['cloud'] != "CloudFormation"
-            found = MU::MommaCat.findStray(
-              vpc_block['cloud'],
-              "vpc",
-              deploy_id: vpc_block["deploy_id"],
-              cloud_id: vpc_block["vpc_id"],
-              name: vpc_block["vpc_name"],
-              tag_key: tag_key,
-              tag_value: tag_value,
-              region: vpc_block["region"],
-              flags: flags,
-              dummy_ok: true
-            )
-
-            ext_vpc = found.first if found.size == 1
-          end
-        rescue Exception => e
-          raise MuError, e.inspect, e.backtrace
-        ensure
-          if !ext_vpc and vpc_block['cloud'] != "CloudFormation"
-            MU.log "Couldn't resolve VPC reference to a unique live VPC in #{parent_name} (called by #{caller[0]})", MU::ERR, details: vpc_block
-            return false
-          elsif !vpc_block["vpc_id"]
-            MU.log "Resolved VPC to #{ext_vpc.cloud_id} in #{parent_name}", MU::DEBUG, details: vpc_block
-            vpc_block["vpc_id"] = getTail("#{parent_name} Target VPC", value: ext_vpc.cloud_id, prettyname: "#{parent_name} Target VPC", cloudtype: "AWS::EC2::VPC::Id")
-          end
-        end
-
-        # Other !is_sibling logic for external vpcs
-        # Next, the NAT host, if there is one
-        if (vpc_block['nat_host_name'] or vpc_block['nat_host_ip'] or vpc_block['nat_host_tag'])
-          if !vpc_block['nat_host_tag'].nil?
-            nat_tag_key, nat_tag_value = vpc_block['nat_host_tag'].to_s.split(/=/, 2)
-          else
-            nat_tag_key, nat_tag_value = [tag_key.to_s, tag_value.to_s]
-          end
-
-          ext_nat = ext_vpc.findBastion(
-            nat_name: vpc_block["nat_host_name"],
-            nat_cloud_id: vpc_block["nat_host_id"],
-            nat_tag_key: nat_tag_key,
-            nat_tag_value: nat_tag_value,
-            nat_ip: vpc_block['nat_host_ip']
-          )
-          ssh_keydir = Etc.getpwnam(MU.mu_user).dir+"/.ssh"
-          if !vpc_block['nat_ssh_key'].nil? and !File.exists?(ssh_keydir+"/"+vpc_block['nat_ssh_key'])
-            MU.log "Couldn't find alternate NAT key #{ssh_keydir}/#{vpc_block['nat_ssh_key']} in #{parent_name}", MU::ERR, details: vpc_block
-            return false
-          end
-
-          if !ext_nat
-            if vpc_block["nat_host_id"].nil? and nat_tag_key.nil? and vpc_block['nat_host_ip'].nil? and vpc_block["deploy_id"].nil?
-              MU.log "Couldn't resolve NAT host to a live instance in #{parent_name}.", MU::DEBUG, details: vpc_block
-            else
-              MU.log "Couldn't resolve NAT host to a live instance in #{parent_name}", MU::ERR, details: vpc_block
-              return false
-            end
-          elsif !vpc_block["nat_host_id"]
-            MU.log "Resolved NAT host to #{ext_nat.cloud_id} in #{parent_name}", MU::DEBUG, details: vpc_block
-            vpc_block["nat_host_id"] = ext_nat.cloud_id
-            vpc_block.delete('nat_host_name')
-            vpc_block.delete('nat_host_ip')
-            vpc_block.delete('nat_host_tag')
-            vpc_block.delete('nat_ssh_user')
-          end
-        end
-
-        # Some resources specify multiple subnets...
-        if vpc_block.has_key?("subnets")
-          vpc_block['subnets'].each { |subnet|
-            tag_key, tag_value = subnet['tag'].split(/=/, 2) if !subnet['tag'].nil?
-            if !ext_vpc.nil?
-              begin
-                ext_subnet = ext_vpc.getSubnet(cloud_id: subnet['subnet_id'], name: subnet['subnet_name'], tag_key: tag_key, tag_value: tag_value)
-              rescue MuError
-              end
-            end
-
-            if ext_subnet.nil? and vpc_block["cloud"] != "CloudFormation"
-              ok = false
-              MU.log "Couldn't resolve subnet reference (list) in #{parent_name} to a live subnet", MU::ERR, details: subnet
-            elsif !subnet['subnet_id']
-              subnet['subnet_id'] = ext_subnet.cloud_id
-              subnet['az'] = ext_subnet.az
-              subnet.delete('subnet_name')
-              subnet.delete('tag')
-              MU.log "Resolved subnet reference in #{parent_name} to #{ext_subnet.cloud_id}", MU::DEBUG, details: subnet
-            end
-          }
-          # ...others single subnets
-        elsif vpc_block.has_key?('subnet_name') or vpc_block.has_key?('subnet_id')
-          tag_key, tag_value = vpc_block['tag'].split(/=/, 2) if !vpc_block['tag'].nil?
-          begin
-            ext_subnet = ext_vpc.getSubnet(cloud_id: vpc_block['subnet_id'], name: vpc_block['subnet_name'], tag_key: tag_key, tag_value: tag_value)
-          rescue MuError => e
-          end
-
-          if ext_subnet.nil?
-            ok = false
-            MU.log "Couldn't resolve subnet reference (name/id) in #{parent_name} to a live subnet", MU::ERR, details: vpc_block
-          elsif !vpc_block['subnet_id']
-            vpc_block['subnet_id'] = ext_subnet.cloud_id
-            vpc_block['az'] = ext_subnet.az
-            vpc_block.delete('subnet_name')
-            vpc_block.delete('subnet_pref')
-            MU.log "Resolved subnet reference in #{parent_name} to #{ext_subnet.cloud_id}", MU::DEBUG, details: vpc_block
-          end
-        end
-      end
-
-      # ...and other times we get to pick
-
-      # First decide whether we should pay attention to subnet_prefs.
-      honor_subnet_prefs = true
-      if vpc_block['subnets']
-        count = 0
-        vpc_block['subnets'].each { |subnet|
-          if subnet['subnet_id'] or subnet['subnet_name']
-            honor_subnet_prefs=false
-          end
-          if !subnet['subnet_id'].nil? and subnet['subnet_id'].is_a?(String)
-            subnet['subnet_id'] = getTail("Subnet #{count} for #{parent_name}", value: subnet['subnet_id'], prettyname: "Subnet #{count} for #{parent_name}", cloudtype: "AWS::EC2::Subnet::Id")
-            count = count + 1
-          end
-        }
-      elsif (vpc_block['subnet_name'] or vpc_block['subnet_id'])
-        honor_subnet_prefs=false
-      end
-
-      if vpc_block['subnet_pref'] and honor_subnet_prefs
-        private_subnets = []
-        private_subnets_map = {}
-        public_subnets = []
-        public_subnets_map = {}
-        nat_routes = {}
-        subnet_ptr = "subnet_id"
-        all_subnets = []
-        if !is_sibling
-          pub = priv = 0
-          raise MuError, "No subnets found in #{ext_vpc}" if ext_vpc.subnets.nil?
-          ext_vpc.subnets.each { |subnet|
-            next if dflt_region and vpc_block["cloud"] == "Google" and subnet.az != dflt_region
-            if subnet.private? and (vpc_block['subnet_pref'] != "all_public" and vpc_block['subnet_pref'] != "public")
-              private_subnets << { "subnet_id" => getTail("#{parent_name} Private Subnet #{priv}", value: subnet.cloud_id, prettyname: "#{parent_name} Private Subnet #{priv}",  cloudtype:  "AWS::EC2::Subnet::Id"), "az" => subnet.az }
-              private_subnets_map[subnet.cloud_id] = subnet
-              priv = priv + 1
-            elsif !subnet.private? and vpc_block['subnet_pref'] != "all_private" and vpc_block['subnet_pref'] != "private"
-              public_subnets << { "subnet_id" => getTail("#{parent_name} Public Subnet #{pub}", value: subnet.cloud_id, prettyname: "#{parent_name} Public Subnet #{pub}",  cloudtype: "AWS::EC2::Subnet::Id"), "az" => subnet.az }
-              public_subnets_map[subnet.cloud_id] = subnet
-              pub = pub + 1
-            else
-              MU.log "#{subnet} didn't match subnet_pref: '#{vpc_block['subnet_pref']}' (private? returned #{subnet.private?})", MU::DEBUG
-            end
-          }
-        else
-          sibling_vpcs.each { |ext_vpc|
-            if ext_vpc['name'].to_s == vpc_block['vpc_name'].to_s
-              subnet_ptr = "subnet_name"
-              ext_vpc['subnets'].each { |subnet|
-                next if dflt_region and vpc_block["cloud"] == "Google" and subnet['availability_zone'] != dflt_region
-                if subnet['is_public'] # NAT nonsense calculated elsewhere, ew
-                  public_subnets << {"subnet_name" => subnet['name'].to_s}
-                else
-                  private_subnets << {"subnet_name" => subnet['name'].to_s}
-                  nat_routes[subnet['name'].to_s] = [] if nat_routes[subnet['name'].to_s].nil?
-                  if !subnet['nat_host_name'].nil?
-                    nat_routes[subnet['name'].to_s] << subnet['nat_host_name'].to_s
-                  end
-                end
-              }
-              break
-            end
-          }
-        end
-
-        if public_subnets.size == 0 and private_subnets == 0
-          MU.log "Couldn't find any subnets for #{parent_name}", MU::ERR
-          return false
-        end
-        all_subnets = public_subnets + private_subnets
-
-        case vpc_block['subnet_pref']
-          when "public"
-            if !public_subnets.nil? and public_subnets.size > 0
-              vpc_block.merge!(public_subnets[rand(public_subnets.length)]) if public_subnets
-            else
-              MU.log "Public subnet requested for #{parent_name}, but none found in #{vpc_block}", MU::ERR
-              return false
-            end
-          when "private"
-            if !private_subnets.nil? and private_subnets.size > 0
-              vpc_block.merge!(private_subnets[rand(private_subnets.length)])
-            else
-              MU.log "Private subnet requested for #{parent_name}, but none found in #{vpc_block}", MU::ERR
-              return false
-            end
-            if !is_sibling and !private_subnets_map[vpc_block[subnet_ptr]].nil?
-              vpc_block['nat_host_id'] = private_subnets_map[vpc_block[subnet_ptr]].defaultRoute
-            elsif nat_routes.has_key?(vpc_block[subnet_ptr])
-              vpc_block['nat_host_name'] == nat_routes[vpc_block[subnet_ptr]]
-            end
-          when "any"
-            vpc_block.merge!(all_subnets.sample)
-          when "all"
-            vpc_block['subnets'] = []
-            public_subnets.each { |subnet|
-              vpc_block['subnets'] << subnet
-            }
-            private_subnets.each { |subnet|
-              vpc_block['subnets'] << subnet
-            }
-          when "all_public"
-            vpc_block['subnets'] = []
-            public_subnets.each { |subnet|
-              vpc_block['subnets'] << subnet
-            }
-          when "all_private"
-            vpc_block['subnets'] = []
-            private_subnets.each { |subnet|
-              vpc_block['subnets'] << subnet
-              if !is_sibling and vpc_block['nat_host_id'].nil? and private_subnets_map.has_key?(subnet[subnet_ptr]) and !private_subnets_map[subnet[subnet_ptr]].nil?
-                vpc_block['nat_host_id'] = private_subnets_map[subnet[subnet_ptr]].defaultRoute
-              elsif nat_routes.has_key?(subnet) and vpc_block['nat_host_name'].nil?
-                vpc_block['nat_host_name'] == nat_routes[subnet]
-              end
-            }
-          else
-            vpc_block['subnets'] ||= []
-
-            sibling_vpcs.each { |ext_vpc|
-              next if ext_vpc["name"] != vpc_block["vpc_name"]
-              ext_vpc["subnets"].each { |subnet|
-                if subnet["route_table"] == vpc_block["subnet_pref"]
-                  vpc_block["subnets"] << subnet
-                end
-              }
-            }
-            if vpc_block['subnets'].size < 1
-              MU.log "Unable to resolve subnet_pref '#{vpc_block['subnet_pref']}' to any route table"
-              ok = false
-            end
-        end
-      end
-
-      if ok
-        # Delete values that don't apply to the schema for whatever this VPC's
-        # parent resource is.
-        vpc_block.keys.each { |vpckey|
-          if @@schema["properties"][parent_type]["items"]["properties"]["vpc"] and
-             !@@schema["properties"][parent_type]["items"]["properties"]["vpc"]["properties"].has_key?(vpckey)
-            vpc_block.delete(vpckey)
-          end
-        }
-        if vpc_block['subnets'] and
-           @@schema["properties"][parent_type]["items"]["properties"]["vpc"] and
-           @@schema["properties"][parent_type]["items"]["properties"]["vpc"]["properties"]["subnets"]
-          vpc_block['subnets'].each { |subnet|
-            subnet.each_key { |subnetkey|
-              if !@@schema["properties"][parent_type]["items"]["properties"]["vpc"]["properties"]["subnets"]["items"]["properties"].has_key?(subnetkey)
-                subnet.delete(subnetkey)
-              end
-            }
-          }
-        end
-
-        vpc_block.delete('deploy_id')
-        vpc_block.delete('vpc_name') if vpc_block.has_key?('vpc_id')
-        vpc_block.delete('deploy_id')
-        vpc_block.delete('tag')
-        MU.log "Resolved VPC resources for #{parent_name}", MU::DEBUG, details: vpc_block
-      end
-
-      if !vpc_block["vpc_id"].nil? and vpc_block["vpc_id"].is_a?(String)
-        vpc_block["vpc_id"] = getTail("#{parent_name}vpc_id", value: vpc_block["vpc_id"], prettyname: "#{parent_name} Target VPC",  cloudtype: "AWS::EC2::VPC::Id")
-      elsif !vpc_block["nat_host_name"].nil? and vpc_block["nat_host_name"].is_a?(String)
-        vpc_block["nat_host_name"] = MU::Config::Tail.new("#{parent_name}nat_host_name", vpc_block["nat_host_name"])
-
-      end
-
-      return ok
-    end
-
     # Verify that a server or server_pool has a valid AD config referencing
     # valid Vaults for credentials.
     def self.check_vault_refs(server)
@@ -1623,151 +1411,13 @@ module MU
       return ok
     end
 
-    # Generate configuration for the general-pursose ADMIN firewall rulesets
-    # (security groups in AWS). Note that these are unique to regions and
-    # individual VPCs (as well as Classic, which is just a degenerate case of
-    # a VPC for our purposes.
-    # @param vpc [Hash]: A VPC reference as defined in our config schema. This originates with the calling resource, so we'll peel out just what we need (a name or cloud id of a VPC).
-    # @param admin_ip [String]: Optional string of an extra IP address to allow blanket access to the calling resource.
-    # @param cloud [String]: The parent resource's cloud plugin identifier
-    # @param region [String]: Cloud provider region, if applicable.
-    # @return [Hash<String>]: A dependency description that the calling resource can then add to itself.
-    def adminFirewallRuleset(vpc: nil, admin_ip: nil, region: nil, cloud: nil)
-      if !cloud or (cloud == "AWS" and !region)
-        raise MuError, "Cannot call adminFirewallRuleset without specifying the parent's region and cloud provider"
-      end
-      hosts = Array.new
-      hosts << "#{MU.my_public_ip}/32" if MU.my_public_ip
-      hosts << "#{MU.my_private_ip}/32" if MU.my_private_ip
-      hosts << "#{MU.mu_public_ip}/32" if MU.mu_public_ip
-      hosts << "#{admin_ip}/32" if admin_ip
-      hosts.uniq!
-      name = "admin"
-      realvpc = nil
-
-      if vpc
-        pp vpc
-        realvpc = {}
-        realvpc['vpc_id'] = vpc['vpc_id'] if !vpc['vpc_id'].nil?
-        realvpc['vpc_name'] = vpc['vpc_name'] if !vpc['vpc_name'].nil?
-        realvpc['deploy_id'] = vpc['deploy_id'] if !vpc['deploy_id'].nil?
-        if !realvpc['vpc_id'].nil? and !realvpc['vpc_id'].empty?
-          # Stupid kludge for Google cloud_ids which are sometimes URLs and
-          # sometimes not. Requirements are inconsistent from scenario to
-          # scenario.
-          name = name + "-" + realvpc['vpc_id'].gsub(/.*\//, "")
-          realvpc['vpc_id'] = getTail("vpc_id", value: realvpc['vpc_id'], prettyname: "Admin Firewall Ruleset #{name} Target VPC",  cloudtype: "AWS::EC2::VPC::Id") if realvpc["vpc_id"].is_a?(String)
-        elsif !realvpc['vpc_name'].nil?
-          name = name + "-" + realvpc['vpc_name']
-        end
-      end
-
-      hosts.uniq!
-
-      rules = []
-      if cloud == "Google"
-        rules = [
-          { "ingress" => true, "proto" => "all", "hosts" => hosts },
-          { "egress" => true, "proto" => "all", "hosts" => hosts }
-        ]
-      else
-        rules = [
-          { "proto" => "tcp", "port_range" => "0-65535", "hosts" => hosts },
-          { "proto" => "udp", "port_range" => "0-65535", "hosts" => hosts },
-          { "proto" => "icmp", "port_range" => "-1", "hosts" => hosts }
-        ]
-      end
-
-      acl = {"name" => name, "rules" => rules, "vpc" => realvpc, "cloud" => cloud, "admin" => true}
-      acl.delete("vpc") if !acl["vpc"]
-      acl["region"] == region if !region.nil? and !region.empty?
-      @admin_firewall_rules << acl if !@admin_firewall_rules.include?(acl)
-      return {"type" => "firewall_rule", "name" => name}
-    end
     
-    def self.validate_alarm_config(alarm)
-      ok = true
-
-      if alarm["namespace"].nil?
-        MU.log "You must specify 'namespace' when creating an alarm", MU::ERR
-        ok = false
-      end
-
-      if alarm["metric_name"].nil?
-        MU.log "You must specify 'metric_name' when creating an alarm", MU::ERR
-        ok = false
-      end
-
-      if alarm["statistic"].nil?
-        MU.log "You must specify 'statistic' when creating an alarm", MU::ERR
-        ok = false
-      end
-
-      if alarm["period"].nil?
-        MU.log "You must specify 'period' when creating an alarm", MU::ERR
-        ok = false
-      end
-
-      if alarm["evaluation_periods"].nil?
-        MU.log "You must specify 'evaluation_periods' when creating an alarm", MU::ERR
-        ok = false
-      end
-
-      if alarm["threshold"].nil?
-        MU.log "You must specify 'threshold' when creating an alarm", MU::ERR
-        ok = false
-      end
-
-      if alarm["comparison_operator"].nil?
-        MU.log "You must specify 'comparison_operator' when creating an alarm", MU::ERR
-        ok = false
-      end
-
-      if alarm["enable_notifications"]
-        if alarm["comparison_operator"].nil?
-          MU.log "You must specify 'comparison_operator' when creating an alarm", MU::ERR
-          ok = false
-        end
-
-        if alarm["notification_group"].nil?
-          MU.log "You must specify 'notification_group' when 'enable_notifications' is set to true", MU::ERR
-          ok = false
-        end
-
-        if alarm["notification_type"].nil?
-          MU.log "You must specify 'notification_type' when 'enable_notifications' is set to true", MU::ERR
-          ok = false
-        end
-
-        #if alarm["notification_endpoint"].nil?
-        #  MU.log "You must specify 'notification_endpoint' when 'enable_notifications' is set to true", MU::ERR
-        #  ok = false
-        #end
-      end
-      
-      if alarm["dimensions"]
-        alarm["dimensions"].each{ |dimension|
-          if dimension["mu_name"] && dimension["cloud_id"]
-            MU.log "You can only specfiy 'mu_name' or 'cloud_id'", MU::ERR
-            ok = false
-          end
-
-          if dimension["cloud_class"].nil?
-            ok = false
-            MU.log "You must specify 'cloud_class'", MU::ERR
-          end
-        }
-      end
-
-      return ok
-    end
-
     # Given a bare hash describing a resource, insert default values which can
     # be inherited from the current live parent configuration.
     # @param kitten [Hash]: A resource descriptor
     # @param type [String]: The type of resource this is ("servers" etc)
     def inheritDefaults(kitten, type)
-      kitten['cloud'] = MU::Config.defaultCloud if kitten['cloud'].nil?
+      kitten['cloud'] ||= MU::Config.defaultCloud
       schema_fields = ["region", "us_only", "scrub_mu_isms"]
       if kitten['cloud'] == "Google"
         kitten["project"] ||= MU::Cloud::Google.defaultProject
@@ -1777,18 +1427,21 @@ module MU
           if !$MU_CFG['google'] or !$MU_CFG['google']['region']
             raise ValidationError, "Google resource declared without a region, but no default Google region declared in mu.yaml"
           end
-          kitten['region'] = $MU_CFG['google']['region']
+          kitten['region'] ||= $MU_CFG['google']['region']
         end
       else
         if !$MU_CFG['aws'] or !$MU_CFG['aws']['region']
           raise ValidationError, "AWS resource declared without a region, but no default AWS region declared in mu.yaml"
         end
-        kitten['region'] = $MU_CFG['aws']['region'] if kitten['region'].nil?
+        kitten['region'] ||= $MU_CFG['aws']['region']
       end
-      kitten['us_only'] = @config['us_only'] if kitten['us_only'].nil?
+      kitten['us_only'] ||= @config['us_only']
+      kitten['us_only'] ||= false
+
+      kitten['scrub_mu_isms'] ||= @config['scrub_mu_isms']
+      kitten['scrub_mu_isms'] ||= false
 
       kitten["dependencies"] ||= []
-      kitten['scrub_mu_isms'] = @config['scrub_mu_isms'] if @config.has_key?('scrub_mu_isms')
 
       # Make sure the schema knows about these "new" fields, so that validation
       # doesn't trip over them.
@@ -1806,7 +1459,9 @@ module MU
 
       count = 0
       @kittens ||= {}
-      ["databases", "servers", "server_pools", "cache_clusters", "alarms", "logs", "loadbalancers", "collections", "firewall_rules", "dnszones", "vpcs", "storage_pools"].each { |type|
+      types = MU::Cloud.resource_types.values.map { |v| v[:cfg_plural] }
+
+      types.each { |type|
         @kittens[type] = config[type]
         @kittens[type] ||= []
         @kittens[type].each { |k|
@@ -1820,446 +1475,11 @@ module MU
         ok = false
       end
 
-      nat_routes ||= {}
-      @kittens["vpcs"].each { |vpc|
-        ok = false if !insertKitten(vpc, "vpcs")
-      }
-
-      # Now go back through and identify peering connections involving any of
-      # the VPCs we've declared. XXX Note that it's real easy to create a
-      # circular dependency here. Ugh.
-      # XXX this junk-wad might be foldable into insertKitten's vpc-processing
-      # bit
-      @kittens["vpcs"].each { |vpc|
-        if !vpc["peers"].nil?
-          vpc["peers"].each { |peer|
-            peer["#MU_CLOUDCLASS"] = Object.const_get("MU").const_get("Cloud").const_get("VPC")
-            # If we're peering with a VPC in this deploy, set it as a dependency
-            if !peer['vpc']["vpc_name"].nil? and
-               haveLitterMate?(peer['vpc']["vpc_name"], "vpcs") and
-               peer["vpc"]['deploy_id'].nil? and peer["vpc"]['vpc_id'].nil?
-              peer['vpc']['region'] = config['region'] if peer['vpc']['region'].nil? # XXX this is AWS-specific
-              peer['vpc']['cloud'] = vpc['cloud'] if peer['vpc']['cloud'].nil?
-              vpc["dependencies"] << {
-                "type" => "vpc",
-                "name" => peer['vpc']["vpc_name"]
-              }
-              # If we're using a VPC from somewhere else, make sure the flippin'
-              # thing exists, and also fetch its id now so later search routines
-              # don't have to work so hard.
-            else
-              peer['vpc']['region'] = config['region'] if peer['vpc']['region'].nil? # XXX this is AWS-specific
-              peer['vpc']['cloud'] = vpc['cloud'] if peer['vpc']['cloud'].nil?
-              if !peer['account'].nil? and peer['account'] != MU.account_number
-                if peer['vpc']["vpc_id"].nil?
-                  MU.log "VPC peering connections to non-local accounts must specify the vpc_id of the peer.", MU::ERR
-                  ok = false
-                end
-              elsif !processVPCReference(peer['vpc'], "vpcs", "vpc '#{vpc['name']}'", dflt_region: peer["vpc"]['region'])
-                ok = false
-              end
-            end
-          }
-        end
-      }
-
-      @kittens["dnszones"].each { |zone|
-# TODO non-local VPCs are valid, but require an account field, which insertKitten doesn't know anything about
-# if !zone['account'].nil? and zone['account'] != MU.account_number
-        ok = false if !insertKitten(zone, "dns_zones")
-      }
-
-      @kittens["firewall_rules"].each { |acl|
-        ok = false if !insertKitten(acl, "firewall_rules")
-      }
-
-
-      @kittens["loadbalancers"].each { |lb|
-        # Convert old-school listener declarations into target groups and health
-        # checks, for which AWS and Google both have equivalents.
-        if lb["targetgroups"].nil? or lb["targetgroups"].size == 0
-          if lb["listeners"].nil? or lb["listeners"].size == 0
-            ok = false
-            MU.log "No targetgroups or listeners defined in LoadBalancer #{lb['name']}", MU::ERR
-          end
-          lb["targetgroups"] = []
-
-          # Manufacture targetgroups out of old-style listener configs
-          lb["listeners"].each { |l|
-            tgname = lb["name"]+l["lb_protocol"].downcase+l["lb_port"].to_s
-            l["targetgroup"] = tgname
-            tg = { 
-              "name" => tgname,
-              "proto" => l["instance_protocol"],
-              "port" => l["instance_port"]
-            }
-            if lb["healthcheck"]
-              hc_target = lb['healthcheck']['target'].match(/^([^:]+):(\d+)(.*)/)
-              tg["healthcheck"] = lb['healthcheck'].dup
-              proto = ["HTTP", "HTTPS"].include?(hc_target[1]) ? hc_target[1] : l["instance_protocol"]
-              tg['healthcheck']['target'] = "#{proto}:#{hc_target[2]}#{hc_target[3]}"
-              tg['healthcheck']["httpcode"] = "200,301,302"
-              MU.log "Converting classic-style ELB health check target #{lb['healthcheck']['target']} to ALB style for target group #{tgname} (#{l["instance_protocol"]}:#{l["instance_port"]}).", details: tg['healthcheck']
-            end
-            lb["targetgroups"] << tg
-          }
-        else
-          lb['listeners'].each { |l|
-            found = false
-            lb['targetgroups'].each { |tg|
-              if l['targetgroup'] == tg['name']
-                found = true
-                break
-              end
-            }
-            if !found
-              ok = false
-              MU.log "listener in LoadBalancer #{lb['name']} refers to targetgroup #{l['targetgroup']}, but no such targetgroup found", MU::ERR
-            end
-          }
-        end
-
-        lb['listeners'].each { |l|
-          if !l['rules'].nil? and l['rules'].size > 0
-            l['rules'].each { |r|
-              if r['actions'].nil?
-                r['actions'] = [
-                  { "targetgroup" => l["targetgroup"], "action" => "forward" }
-                ]
-                next
-              end
-              r['actions'].each { |action|
-                if action['targetgroup'].nil?
-                  action['targetgroup'] = l['targetgroup']
-                else
-                  found = false
-                  lb['targetgroups'].each { |tg|
-                    if l['targetgroup'] == action['targetgroup']
-                      found = true
-                      break
-                    end
-                  }
-                  if !found
-                    ok = false
-                    MU.log "listener action in LoadBalancer #{lb['name']} refers to targetgroup #{action['targetgroup']}, but no such targetgroup found", MU::ERR
-                  end
-                end
-              }
-            }
-          end
+      @nat_routes ||= {}
+      types.each { |type|
+        @kittens[type].each { |descriptor|
+          ok = false if !insertKitten(descriptor, type)
         }
-        ok = false if !insertKitten(lb, "loadbalancers")
-      }
-
-      @kittens["collections"].each { |stack|
-        ok = false if !insertKitten(stack, "collections")
-      }
-
-      @kittens["server_pools"].each { |pool|
-        if haveLitterMate?(pool["name"], "servers")
-          MU.log "Can't use name #{pool['name']} more than once in pools/pool_pools"
-          ok = false
-        end
-        pool['skipinitialupdates'] = true if @skipinitialupdates
-        pool['ingress_rules'] ||= []
-        pool['vault_access'] ||= []
-        pool['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
-        ok = false if !MU::Config.check_vault_refs(pool)
-
-        pool['dependencies'] << adminFirewallRuleset(vpc: pool['vpc'], region: pool['region'], cloud: pool['cloud']) if !pool['scrub_mu_isms']
-
-        if !pool["vpc"].nil?
-          if !pool["vpc"]["subnet_name"].nil? and nat_routes.has_key?(pool["vpc"]["subnet_name"])
-            pool["dependencies"] << {
-                "type" => "pool",
-                "name" => nat_routes[pool["vpc"]["subnet_name"]],
-                "phase" => "groom"
-            }
-          end
-        end
-# TODO make sure this is handled... somewhere
-#        if pool["alarms"] && !pool["alarms"].empty?
-#          pool["alarms"].each { |alarm|
-#            alarm["name"] = "server-#{pool['name']}-#{alarm["name"]}"
-#            alarm["namespace"] = "AWS/EC2" if alarm["namespace"].nil?
-#            alarm['cloud'] = pool['cloud']
-#            ok = false if !insertKitten(alarm, "alarms")
-#          }
-#        end
-        if pool["basis"]["server"] != nil
-          pool["dependencies"] << {"type" => "server", "name" => pool["basis"]["server"]}
-        end
-        if !pool['static_ip'].nil? and !pool['ip'].nil?
-          ok = false
-          MU.log "Server Pools cannot assign specific static IPs.", MU::ERR
-        end
-
-        ok = false if !insertKitten(pool, "server_pools")
-      }
-
-      read_replicas = []
-      database_names = []
-      cluster_nodes = []
-      primary_dbs = []
-      @kittens["databases"].each { |db|
-        primary_dbs << db['name']
-        db['ingress_rules'] ||= []
-        if db['auth_vault'] && !db['auth_vault'].empty?
-          groomclass = MU::Groomer.loadGroomer(db['groomer'])
-          if db['password']
-            MU.log "Database password and database auth_vault can't both be used.", MU::ERR
-            ok = false
-          end
-
-          begin
-            item = groomclass.getSecret(vault: db['auth_vault']['vault'], item: db['auth_vault']['item'])
-            if !item.has_key?(db['auth_vault']['password_field'])
-              MU.log "No value named password_field in Chef Vault #{db['auth_vault']['vault']}:#{db['auth_vault']['item']}, will use an auto generated password.", MU::NOTICE
-              db['auth_vault'].delete(field)
-            end
-          rescue MuError
-            ok = false
-          end
-        end
-
-
-        if db["storage"].nil? and db["creation_style"] == "new" and !db['create_cluster']
-          MU.log "Must provide a value for 'storage' when creating a new database.", MU::ERR, details: db
-          ok = false
-        end
-
-        if db["create_cluster"]
-          if db["cluster_node_count"] < 1
-            MU.log "You are trying to create a database cluster but cluster_node_count is set to #{db["cluster_node_count"]}", MU::ERR
-            ok = false
-          end
-
-          MU.log "'storage' is not supported when creating a database cluster, disregarding", MU::NOTICE if db["storage"]
-          MU.log "'multi_az_on_create' and multi_az_on_deploy are not supported when creating a database cluster, disregarding", MU::NOTICE if db["storage"] if db["multi_az_on_create"] || db["multi_az_on_deploy"]
-        end
-
-        if db["size"].nil?
-          MU.log "You must specify 'size' when creating a new database or a database from a snapshot.", MU::ERR
-          ok = false
-        end
-
-        if db["creation_style"] == "new" and db["storage"].nil?
-          unless db["create_cluster"]
-            MU.log "You must specify 'storage' when creating a new database.", MU::ERR
-            ok = false
-          end
-        end
-
-        if db["creation_style"] == "point_in_time" && db["restore_time"].nil?
-          ok = false
-          MU.log "You must provide restore_time when creation_style is point_in_time", MU::ERR
-        end
-
-        if %w{existing new_snapshot existing_snapshot point_in_time}.include?(db["creation_style"])
-          if db["identifier"].nil?
-            ok = false
-            MU.log "Using existing database (or snapshot thereof), but no identifier given", MU::ERR
-          end
-        end
-
-        if !db["run_sql_on_deploy"].nil? and (db["engine"] != "postgres" and db["engine"] != "mysql")
-          ok = false
-          MU.log "Running SQL on deploy is only supported for postgres and mysql databases", MU::ERR
-        end
-
-        if !db["vpc"].nil?
-          if db["vpc"]["subnet_pref"] and !db["vpc"]["subnets"]
-            if db["vpc"]["subnet_pref"] = "public"
-              db["vpc"]["subnet_pref"] = "all_public"
-            elsif db["vpc"]["subnet_pref"] = "private"
-              db["vpc"]["subnet_pref"] = "all_private"
-            elsif %w{all any}.include? db["vpc"]["subnet_pref"]
-              MU.log "subnet_pref #{db["vpc"]["subnet_pref"]} is not supported for database instance.", MU::ERR
-              ok = false
-            end
-            if db["vpc"]["subnet_pref"] == "all_public" and !db['publicly_accessible']
-              MU.log "Setting publicly_accessible to true on database '#{db['name']}', since deploying into public subnets.", MU::WARN
-              db['publicly_accessible'] = true
-            elsif db["vpc"]["subnet_pref"] == "all_private" and db['publicly_accessible']
-              MU.log "Setting publicly_accessible to false on database '#{db['name']}', since deploying into private subnets.", MU::NOTICE
-              db['publicly_accessible'] = false
-            end
-          end
-
-        end
-
-        # Automatically manufacture another database object, which will serve
-        # as a read replica of this one, if we've set create_read_replica.
-        if db['create_read_replica']
-          replica = Marshal.load(Marshal.dump(db))
-          replica['name'] = db['name']+"-replica"
-          database_names << replica['name']
-          replica['create_read_replica'] = false
-          replica['read_replica_of'] = {
-            "db_name" => db['name'],
-            "cloud" => db['cloud'],
-            "region" => db['read_replica_region'] || db['region']
-          }
-          replica['dependencies'] << {
-            "type" => "database",
-            "name" => db["name"],
-            "phase" => "groom"
-          }
-          read_replicas << replica
-        end
-
-        # Do database cluster nodes the same way we do read replicas, by
-        # duplicating the declaration of the master as a new first-class
-        # resource and tweaking it.
-        if db["create_cluster"]
-          (1..db["cluster_node_count"]).each{ |num|
-            node = Marshal.load(Marshal.dump(db))
-            node["name"] = "#{db['name']}-#{num}"
-            database_names << node["name"]
-            node["create_cluster"] = false
-            node["creation_style"] = "new"
-            node["add_cluster_node"] = true
-            node["member_of_cluster"] = {
-              "db_name" => db['name'],
-              "cloud" => db['cloud'],
-              "region" => db['region']
-            }
-            # AWS will figure out for us which database instance is the writer/master so we can create all of them concurrently.
-            node['dependencies'] << {
-              "type" => "database",
-              "name" => db["name"],
-              "phase" => "groom"
-            }
-            cluster_nodes << node
-
-           # Alarms are set on each DB cluster node, not on the cluster itself,
-           # so futz any alarm declarations accordingly.
-            if node.has_key?("alarms") && !node["alarms"].empty?
-              node["alarms"].each{ |alarm|
-                alarm["name"] = "#{alarm["name"]}-#{node["name"]}"
-              }
-            end
-          }
-
-        end
-
-        ok = false if !insertKitten(db, "databases")
-      }
-
-      @kittens["databases"].concat(read_replicas)
-      @kittens["databases"].concat(cluster_nodes)
-      @kittens["databases"].each { |db|
-        if !db['read_replica_of'].nil?
-          rr = db['read_replica_of']
-          if !rr['db_name'].nil?
-            db['dependencies'] << { "name" => rr['db_name'], "type" => "database" }
-          else
-            rr['cloud'] = db['cloud'] if rr['cloud'].nil?
-            tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
-            found = MU::MommaCat.findStray(
-                rr['cloud'],
-                "database",
-                deploy_id: rr["deploy_id"],
-                cloud_id: rr["db_id"],
-                tag_key: tag_key,
-                tag_value: tag_value,
-                region: rr["region"],
-                dummy_ok: true
-            )
-            ext_database = found.first if !found.nil? and found.size == 1
-            if !ext_database
-              MU.log "Couldn't resolve Database reference to a unique live Database in #{db['name']}", MU::ERR, details: rr
-              ok = false
-            end
-          end
-        elsif db["member_of_cluster"]
-          rr = db["member_of_cluster"]
-          if rr['db_name']
-            if !haveLitterMate?(rr['db_name'], "databases")
-              MU.log "Database cluster node #{db['name']} references sibling source #{rr['db_name']}, but I have no such database", MU::ERR
-              ok = false
-            end
-          else
-            rr['cloud'] = db['cloud'] if rr['cloud'].nil?
-            tag_key, tag_value = rr['tag'].split(/=/, 2) if !rr['tag'].nil?
-            found = MU::MommaCat.findStray(
-                rr['cloud'],
-                "database",
-                deploy_id: rr["deploy_id"],
-                cloud_id: rr["db_id"],
-                tag_key: tag_key,
-                tag_value: tag_value,
-                region: rr["region"],
-                dummy_ok: true
-            )
-            ext_database = found.first if !found.nil? and found.size == 1
-            if !ext_database
-              MU.log "Couldn't resolve Database reference to a unique live Database in #{db['name']}", MU::ERR, details: rr
-              ok = false
-            end
-          end
-        end
-        db['dependencies'].uniq!
-
-        if !primary_dbs.include?(db['name'])
-          ok = false if !insertKitten(db, "databases")
-        end
-      }
-
-      @kittens["cache_clusters"].each { |cluster|
-        if cluster["creation_style"] != "new" && cluster["identifier"].nil?
-          MU.log "CacheCluster #{cluster['name']}'s creation_style is set to #{cluster['creation_style']} but no identifier was provided. Either set creation_style to new or provide an identifier", MU::ERR
-          ok = false
-        end
-        if !cluster.has_key?("node_count") or cluster["node_count"] < 1
-          MU.log "CacheCluster node_count must be >=1.", MU::ERR
-          ok = false
-        end
-        cluster["multi_az"] = true if cluster["node_count"] > 1
-
-        cluster['dependencies'] << adminFirewallRuleset(vpc: cluster['vpc'], region: cluster['region'], cloud: cluster['cloud']) if !cluster['scrub_mu_isms']
-
-        ok = false if !insertKitten(lb, "cache_clusters")
-      }
-
-
-      @kittens["storage_pools"].each { |pool|
-
-        ok = false if !insertKitten(pool, "storage_pools")
-      }
-
-      @kittens["logs"].each { |log_rec|
-        ok = false if !insertKitten(log_rec, "logs")
-      }
-
-      @kittens["servers"].each { |server|
-        if haveLitterMate?(server["name"], "server_pools") 
-          MU.log "Can't use name #{server['name']} more than once in servers/server_pools"
-          ok = false
-        end
-        server['skipinitialupdates'] = true if @skipinitialupdates
-        server['ingress_rules'] ||= []
-        server['vault_access'] ||= []
-        server['vault_access'] << {"vault" => "splunk", "item" => "admin_user"}
-        ok = false if !MU::Config.check_vault_refs(server)
-
-        server['dependencies'] << adminFirewallRuleset(vpc: server['vpc'], region: server['region'], cloud: server['cloud']) if !server['scrub_mu_isms']
-
-        if !server["vpc"].nil?
-          if !server["vpc"]["subnet_name"].nil? and nat_routes.has_key?(server["vpc"]["subnet_name"])
-            server["dependencies"] << {
-                "type" => "server",
-                "name" => nat_routes[server["vpc"]["subnet_name"]],
-                "phase" => "groom"
-            }
-          end
-        end
-
-        ok = false if !insertKitten(server, "servers")
-      }
-
-      @kittens["alarms"].each { |alarm|
-        ok = false if !insertKitten(alarm, "alarms")
       }
 
       # add some default holes to allow dependent instances into databases
@@ -2293,11 +1513,10 @@ module MU
       # XXX seem to be not detecting duplicate admin firewall_rules in adminFirewallRuleset
       @admin_firewall_rules.each { |acl|
         next if seen.include?(acl['name'])
-        pp acl
         ok = false if !insertKitten(acl, "firewall_rules")
         seen << acl['name']
       }
-      ["databases", "servers", "server_pools", "cache_clusters", "alarms", "logs", "loadbalancers", "collections", "firewall_rules", "dnszones", "vpcs", "storage_pools"].each { |type|
+      types.each { |type|
         config[type] = @kittens[type] if @kittens[type].size > 0
       }
       ok = false if !MU::Config.check_dependencies(config)
@@ -2434,188 +1653,8 @@ module MU
       return nil
     end
 
-    # There's a small amount of variation in the way various resources need to
-    # refer to VPCs, so let's wrap them all in a method that'll handle the
-    # wiggling.
-    NO_SUBNETS = 0.freeze
-    ONE_SUBNET = 1.freeze
-    MANY_SUBNETS = 2.freeze
-    NAT_OPTS = true.freeze
-    NO_NAT_OPTS = false.freeze
-
-    def self.vpc_reference_primitive(subnets = MANY_SUBNETS, nat_opts = NAT_OPTS, subnet_pref = nil)
-      vpc_ref_schema = {
-          "type" => "object",
-          "description" => "Deploy, attach, allow access from, or peer this resource with a VPC of VPCs.",
-          "minProperties" => 1,
-          "additionalProperties" => false,
-          "properties" => {
-              "vpc_id" => {
-                "type" => "string",
-                "description" => "Discover this VPC by looking for this cloud provider identifier."
-              },
-              "vpc_name" => {
-                "type" => "string",
-                "description" => "Discover this VPC by Mu-internal name; typically the shorthand 'name' field of a VPC declared elsewhere in the deploy, or in another deploy that's being referenced with 'deploy_id'."
-              },
-              "security_group_name" => {"type" => "string"},
-              "region" => MU::Config.region_primitive,
-              "cloud" => @cloud_primitive,
-              "tag" => {
-                  "type" => "string",
-                  "description" => "Discover this VPC by a cloud provider tag (key=value); note that this tag must not match more than one resource.",
-                  "pattern" => "^[^=]+=.+"
-              },
-              "deploy_id" => {
-                  "type" => "string",
-                  "description" => "Search for this VPC in an existing Mu deploy; specify a Mu deploy id (e.g. DEMO-DEV-2014111400-NG)."
-              }
-          }
-      }
-
-      if nat_opts
-        vpc_ref_schema["properties"].merge!(
-            {
-                "nat_host_name" => {
-                  "type" => "string",
-                  "description" => "The Mu-internal name of a NAT host to use; Typically the shorthand 'name' field of a Server declared elsewhere in the deploy, or in another deploy that's being referenced with 'deploy_id'."
-                },
-                "nat_host_id" => {
-                  "type" => "string",
-                  "description" => "Discover a Server to use as a NAT by looking for this cloud provider identifier."
-                 },
-                "nat_host_ip" => {
-                    "type" => "string",
-                    "description" => "Discover a Server to use as a NAT by looking for an associated IP.",
-                    "pattern" => "^\\d+\\.\\d+\\.\\d+\\.\\d+$"
-                },
-                "nat_ssh_user" => {
-                    "type" => "string",
-                    "default" => "root",
-                },
-                "nat_ssh_key" => {
-                    "type" => "string",
-                    "description" => "An alternate SSH private key for access to the NAT. We'll expect to find this in ~/.ssh along with the regular keys.",
-                },
-                "nat_host_tag" => {
-                    "type" => "string",
-                    "description" => "Discover a Server to use as a NAT by looking for a cloud provider tag (key=value); Note that this tag must not match more than one server.",
-                    "pattern" => "^[^=]+=.+"
-                }
-            }
-        )
-      end
-
-      if subnets > 0
-        vpc_ref_schema["properties"]["subnet_pref"] = {
-            "type" => "string",
-            "default" => subnet_pref,
-            "description" => "When auto-discovering VPC resources, this specifies target subnets for this resource. Special keywords: public, private, any, all, all_public, all_private, all. Using the name of a route table defined elsewhere in this BoK will behave like 'all_<routetablename>.'",
-        }
-
-#        if subnets == ONE_SUBNET
-#          vpc_ref_schema["properties"]["subnet_pref"]["enum"] = ["public", "private", "any"]
-#        elsif subnets == MANY_SUBNETS
-#          vpc_ref_schema["properties"]["subnet_pref"]["enum"] = ["public", "private", "any", "all", "all_public", "all_private"]
-#        else
-#          vpc_ref_schema["properties"]["subnet_pref"]["enum"] = ["public", "private", "any", "all_public", "all_private", "all"]
-#        end
-      end
-
-      if subnets == ONE_SUBNET or subnets == (ONE_SUBNET+MANY_SUBNETS)
-        vpc_ref_schema["properties"]["subnet_name"] = {"type" => "string"}
-        vpc_ref_schema["properties"]["subnet_id"] = {"type" => "string"}
-      end
-      if subnets == MANY_SUBNETS or subnets == (ONE_SUBNET+MANY_SUBNETS)
-        vpc_ref_schema["properties"]["subnets"] = {
-            "type" => "array",
-            "items" => {
-                "type" => "object",
-                "description" => "The subnets to which to attach this resource. Will default to all subnets in this VPC if not specified.",
-                "additionalProperties" => false,
-                "properties" => {
-                    "subnet_name" => {"type" => "string"},
-                    "subnet_id" => {"type" => "string"},
-                    "tag" => {
-                        "type" => "string",
-                        "description" => "Identify this subnet by a tag (key=value). Note that this tag must not match more than one resource.",
-                        "pattern" => "^[^=]+=.+"
-                    }
-                }
-            }
-        }
-        if subnets == (ONE_SUBNET+MANY_SUBNETS)
-          vpc_ref_schema["properties"]["subnets"]["items"]["description"] = "Extra subnets to which to attach this {MU::Cloud::AWS::Server}. Extra network interfaces will be created to accomodate these attachments."
-        end
-      end
-
-      return vpc_ref_schema
-    end
-
-    allregions = []
-    allregions.concat(MU::Cloud::AWS.listRegions) if MU::Cloud::AWS.myRegion
-    allregions.concat(MU::Cloud::Google.listRegions) if MU::Cloud::Google.defaultProject
-
-    def self.region_primitive
-      allregions = []
-      allregions.concat(MU::Cloud::AWS.listRegions) if MU::Cloud::AWS.myRegion
-      allregions.concat(MU::Cloud::Google.listRegions) if MU::Cloud::Google.defaultProject
+    def self.dependencies_primitive
       {
-        "type" => "string",
-        "enum" => allregions
-      }
-    end
-
-    @cloud_primitive = {
-      "type" => "string",
-      "default" => MU::Config.defaultCloud,
-      "enum" => MU::Cloud.supportedClouds
-    }
-
-    @database_ref_primitive = {
-        "type" => "object",
-        "description" => "Incorporate a database object",
-        "minProperties" => 1,
-        "additionalProperties" => false,
-        "properties" => {
-            "db_id" => {"type" => "string"},
-            "db_name" => {"type" => "string"},
-            "region" => MU::Config.region_primitive,
-            "cloud" => @cloud_primitive,
-            "tag" => {
-                "type" => "string",
-                "description" => "Identify this Database by a tag (key=value). Note that this tag must not match more than one resource.",
-                "pattern" => "^[^=]+=.+"
-            },
-            "deploy_id" => {
-                "type" => "string",
-                "description" => "Look for a Database fitting this description in another Mu deployment with this id.",
-            }
-        }
-    }
-
-
-    #   @route_table_reference_primitive = {
-    #     "type" => "object",
-    #     "description" => "Deploy, attach, or peer this resource with a VPC.",
-    #     "minProperties" => 1,
-    #     "additionalProperties" => false,
-    #     "properties" => {
-    #       "vpc_id" => { "type" => "string" },
-    #       "vpc_name" => { "type" => "string" },
-    #       "tag" => {
-    #         "type" => "string",
-    #         "description" => "Identify this VPC by a tag (key=value). Note that this tag must not match more than one resource.",
-    #         "pattern" => "^[^=]+=.+"
-    #       },
-    #       "deploy_id" => {
-    #         "type" => "string",
-    #         "description" => "Look for a VPC fitting this description in another Mu deployment with this id.",
-    #       }
-    #     }
-    #   }
-
-    @dependencies_primitive = {
         "type" => "array",
         "items" => {
             "type" => "object",
@@ -2626,7 +1665,7 @@ module MU
                 "name" => {"type" => "string"},
                 "type" => {
                     "type" => "string",
-                    "enum" => ["server", "database", "server_pool", "loadbalancer", "collection", "firewall_rule", "vpc", "dnszone", "cache_cluster", "storage_pool"]
+                    "enum" => MU::Cloud.resource_types.values.map { |v| v[:cfg_name] }
                 },
                 "phase" => {
                     "type" => "string",
@@ -2635,2719 +1674,169 @@ module MU
                 }
             }
         }
-    }
-
-    @tags_primitive = {
-        "type" => "array",
-        "minItems" => 1,
-        "items" => {
-            "description" => "Tags to apply to this resource. Will apply at the cloud provider level and in Chef, where applicable.",
-            "type" => "object",
-            "title" => "tags",
-            "required" => ["key", "value"],
-            "additionalProperties" => false,
-            "properties" => {
-                "key" => {
-                    "type" => "string",
-                },
-                "value" => {
-                    "type" => "string",
-                }
-            }
-        }
-    }
-
-    @cidr_pattern = "^\\d+\\.\\d+\\.\\d+\\.\\d+\/[0-9]{1,2}$"
-    @cidr_description = "CIDR-formatted IP block, e.g. 1.2.3.4/32"
-    @cidr_primitive = {
-        "type" => "string",
-        "pattern" => @cidr_pattern,
-        "description" => @cidr_description
-    }
-
-    # Schema chunk for generically defining a route cloud resource
-    def self.route_primitive
-      {
-        "type" => "object",
-        "description" => "Define a network route, typically for use inside a VPC.",
-        "properties" => {
-            "destination_network" => {
-                "type" => "string",
-                "pattern" => @cidr_pattern,
-                "description" => @cidr_description,
-                "default" => "0.0.0.0/0"
-            },
-            "peer_id" => {
-                "type" => "string",
-                "description" => "The ID of a VPC peering connection to use as a gateway"
-            },
-            "gateway" => {
-                "type" => "string",
-                "description" => "The ID of a VPN, NAT, or Internet gateway attached to your VPC. #INTERNET will refer to this VPC's default internet gateway, if one exists. #NAT will refer to a this VPC's NAT gateway, and will implicitly create one if none exists. #DENY will ensure that the subnets associated with this route do *not* have a route outside of the VPC's local address space (primarily for Google Cloud, where we must explicitly disable egress to the internet)."
-            },
-            "nat_host_id" => {
-                "type" => "string",
-                "description" => "The instance id of a NAT host in this VPN."
-            },
-            "nat_host_name" => {
-                "type" => "string",
-                "description" => "The MU resource name or Name tag of a NAT host in this VPN."
-            },
-            "interface" => {
-                "type" => "string",
-                "description" => "A network interface over which to route."
-            }
-        }
       }
     end
 
-    @flowlogs_primitive = {
-      "traffic_type_to_log" => {
-        "type" => "string",
-        "description" => "The class of traffic to log - accepted traffic, rejected traffic or all traffic.",
-        "enum" => ["accept", "reject", "all"],
-        "default" => "all"
-      },
-      "log_group_name" => {
-        "type" => "string",
-        "description" => "An existing CloudWachLogs log group the traffic will be logged to. If not provided, a new one will be created"
-      },
-      "enable_traffic_logging" => {
-        "type" => "boolean",
-        "description" => "If traffic logging is enabled or disabled. Will be enabled on all subnets and network interfaces if set to true on a VPC",
-        "default" => false
-      }
-      }
-
-    @vpc_primitive = {
-        "type" => "object",
-        "required" => ["name"],
-        "additionalProperties" => false,
-        "description" => "Create Virtual Private Clouds with custom public or private subnets.",
-        "properties" => {
-            "name" => {"type" => "string"},
-            "cloud" => @cloud_primitive,
-            "ip_block" => {
-                "type" => "string",
-                "pattern" => @cidr_pattern,
-                "description" => @cidr_description,
-                "default" => "10.0.0.0/16"
-            },
-            "tags" => @tags_primitive,
-            "optional_tags" => {
-                "type" => "boolean",
-                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
-                "default" => true
-            },
-            "create_standard_subnets" => {
-              "type" => "boolean",
-              "description" => "If the 'subnets' parameter to this VPC is not specified, we will instead create one set of public subnets and one set of private, with a public/private pair in each Availability Zone in the target region.",
-              "default" => true
-            },
-            "availability_zones" => {
-                "type" => "array",
-                "items" => {
-                    "description" => "When the 'create_standard_subnets' flag is set, use this to target a specific set of availability zones across which to spread those subnets. Will attempt to guess based on the target region, if not specified.",
-                    "type" => "object",
-                    "required" => ["zone"],
-                    "properties" => {
-                        "zone" => {
-                          "type" => "string"
-                        }
-                    }
-                }
-            },
-            "create_internet_gateway" => {
-                "type" => "boolean",
-                "default" => true
-            },
-            "create_nat_gateway" => {
-                "type" => "boolean",
-                "description" => "If set to 'true' will create a NAT gateway to enable traffic in private subnets to be routed to the internet.",
-                "default" => false
-            },
-            "enable_dns_support" => {
-                "type" => "boolean",
-                "default" => true
-            },
-            "endpoint_policy" => {
-                "type" => "array",
-                "items" => {
-                    "description" => "Amazon-compatible endpoint policy that controls access to the endpoint by other resources in the VPC. If not provided Amazon will create a default policy that provides full access.",
-                    "type" => "object"
-                }
-            },
-            "endpoint" => {
-                "type" => "string",
-                "description" => "An Amazon service specific endpoint that resources within a VPC can route to without going through a NAT or an internet gateway. Currently only S3 is supported. an example S3 endpoint in the us-east-1 region: com.amazonaws.us-east-1.s3."
-            },
-            "enable_dns_hostnames" => {
-                "type" => "boolean",
-                "default" => true
-            },
-            "nat_gateway_multi_az" => {
-              "type" => "boolean",
-              "description" => "If set to 'true' will create a separate NAT gateway in each availability zone and configure subnet route tables appropriately",
-              "default" => false
-            },
-            "dependencies" => @dependencies_primitive,
-            "auto_accept_peers" => {
-                "type" => "boolean",
-                "description" => "Peering connections requested to this VPC by other deployments on the same Mu master will be automatically accepted.",
-                "default" => true
-            },
-            "peers" => {
-                "type" => "array",
-                "description" => "One or more other VPCs with which to attempt to create a peering connection.",
-                "items" => {
-                    "type" => "object",
-                    "required" => ["vpc"],
-                    "description" => "One or more other VPCs with which to attempt to create a peering connection.",
-                    "properties" => {
-                        "account" => {
-                            "type" => "string",
-                            "description" => "The AWS account which owns the target VPC."
-                        },
-                        "vpc" => vpc_reference_primitive(MANY_SUBNETS, NO_NAT_OPTS, "all")
-                        #             "route_tables" => {
-                        #               "type" => "array",
-                        #               "items" => {
-                        #                 "type" => "string",
-                        #                 "description" => "The name of a route to which to add a route for this peering connection. If none are specified, all available route tables will have approprite routes added."
-                        #               }
-                        #             }
-                    }
-                }
-            },
-            "route_tables" => {
-                "type" => "array",
-                "items" => {
-                    "type" => "object",
-                    "required" => ["name", "routes"],
-                    "description" => "A table of route entries, typically for use inside a VPC.",
-                    "properties" => {
-                        "name" => {"type" => "string"},
-                        "routes" => {
-                            "type" => "array",
-                            "items" => MU::Config.route_primitive
-                        }
-                    }
-                }
-            },
-            "subnets" => {
-                "type" => "array",
-                "items" => {
-                    "type" => "object",
-                    "required" => ["name", "ip_block"],
-                    "description" => "A list of subnets",
-                    "properties" => {
-                        "name" => {"type" => "string"},
-                        "ip_block" => @cidr_primitive,
-                        "availability_zone" => {"type" => "string"},
-                        "route_table" => {"type" => "string"},
-                        "map_public_ips" => {
-                            "type" => "boolean",
-                            "description" => "If the cloud provider's instances should automatically be assigned publicly routable addresses.",
-                            "default" => false
-                        }
-                    }
-                }
-            },
-            "dhcp" => {
-                "type" => "object",
-                "description" => "Alternate DHCP behavior for nodes in this VPC",
-                "additionalProperties" => false,
-                "properties" => {
-                    "dns_servers" => {
-                        "type" => "array",
-                        "minItems" => 1,
-                        "maxItems" => 4,
-                        "items" => {
-                            "type" => "string",
-                            "description" => "The IP address of up to four DNS servers",
-                            "pattern" => "^\\d+\\.\\d+\\.\\d+\\.\\d+$"
-                        }
-                    },
-                    "ntp_servers" => {
-                        "type" => "array",
-                        "minItems" => 1,
-                        "maxItems" => 4,
-                        "items" => {
-                            "type" => "string",
-                            "description" => "The IP address of up to four NTP servers",
-                            "pattern" => "^\\d+\\.\\d+\\.\\d+\\.\\d+$"
-                        }
-                    },
-                    "netbios_servers" => {
-                        "type" => "array",
-                        "minItems" => 1,
-                        "maxItems" => 4,
-                        "items" => {
-                            "type" => "string",
-                            "description" => "The IP address of up to four NetBIOS servers",
-                            "pattern" => "^\\d+\\.\\d+\\.\\d+\\.\\d+$"
-                        }
-                    },
-                    "netbios_type" => {
-                        "type" => "integer",
-                        "enum" => [1, 2, 4, 8],
-                        "default" => 2
-                    },
-                    "domains" => {
-                        "type" => "array",
-                        "minItems" => 1,
-                        "items" => {
-                            "type" => "string",
-                            "description" => "If you're using AmazonProvidedDNS in us-east-1, specify ec2.internal. If you're using AmazonProvidedDNS in another region, specify region.compute.internal (for example, ap-northeast-1.compute.internal). Otherwise, specify a domain name (for example, MyCompany.com)."
-                        }
-                    }
-                }
-            }
-        }
+    CIDR_PATTERN = "^\\d+\\.\\d+\\.\\d+\\.\\d+\/[0-9]{1,2}$"
+    CIDR_DESCRIPTION = "CIDR-formatted IP block, e.g. 1.2.3.4/32"
+    CIDR_PRIMITIVE = {
+      "type" => "string",
+      "pattern" => CIDR_PATTERN,
+      "description" => CIDR_DESCRIPTION
     }
 
-    @vpc_primitive["properties"].merge!(@flowlogs_primitive)
-    @vpc_primitive["properties"]["subnets"]["items"]["properties"].merge!(@flowlogs_primitive)
-
-    @elasticache_size_primitive = {
-        "pattern" => "^cache\.(t|m|c|i|g|hi|hs|cr|cg|cc){1,2}[0-9]\\.(micro|small|medium|[248]?x?large)$",
-        "type" => "string",
-        "description" => "The Amazon EleastiCache instance type to use when creating this cache cluster.",
-    }
-    @rds_size_primitive = {
-        "pattern" => "^db\.(t|m|c|i|g|r|hi|hs|cr|cg|cc){1,2}[0-9]\\.(micro|small|medium|[248]?x?large)$",
-        "type" => "string",
-        "description" => "The Amazon RDS instance type to use when creating this database instance.",
-    }
-
-    @rds_parameters_primitive = {
-        "type" => "array",
-        "minItems" => 1,
-        "items" => {
-            "description" => "The database parameter group parameter to change and when to apply the change.",
-            "type" => "object",
-            "title" => "Database Parameter",
-            "required" => ["name", "value"],
-            "additionalProperties" => false,
-            "properties" => {
-                "name" => {
-                    "type" => "string"
-                },
-                "value" => {
-                    "type" => "string"
-                },
-                "apply_method" => {
-                    "enum" => ["pending-reboot", "immediate"],
-                    "default" => "immediate",
-                    "type" => "string"
-                }
-            }
-        }
-    }
-
-    @elasticache_parameters_primitive = {
-        "type" => "array",
-        "minItems" => 1,
-        "items" => {
-            "description" => "The cache cluster parameter group parameter to change and when to apply the change.",
-            "type" => "object",
-            "title" => "Cache Cluster Parameter",
-            "required" => ["name", "value"],
-            "additionalProperties" => false,
-            "properties" => {
-                "name" => {
-                    "type" => "string"
-                },
-                "value" => {
-                    "type" => "string"
-                }
-            }
-        }
-    }
-
-    @firewall_ruleset_rule_primitive = {
-      "type" => "object",
-      "description" => "Network ingress and/or egress rules.",
-      "additionalProperties" => false,
-      "properties" => {
-        "port_range" => {"type" => "string"},
-        "port" => {"type" => "integer"},
-        "proto" => {
-          "enum" => ["udp", "tcp", "icmp"],
-          "default" => "tcp",
-          "type" => "string"
-        },
-        "ingress" => {
-          "type" => "boolean",
-          "default" => true
-        },
-        "egress" => {
-          "type" => "boolean",
-          "default" => false
-        },
-        "hosts" => {
-          "type" => "array",
-          "items" => @cidr_primitive
-        }
-      }
-    }
-
-
-    @firewall_ruleset_primitive = {
-        "type" => "object",
-        "required" => ["name"],
-        "additionalProperties" => false,
-        "description" => "Create network-level access controls.",
-        "properties" => {
-            "name" => {"type" => "string"},
-            "cloud" => @cloud_primitive,
-            "vpc_name" => {
-                "type" => "string",
-                "description" => "Backwards-compatibility means of identifying a VPC; see {MU::Config::BasketofKittens::firewall_rules::vpc}"
-            },
-            "vpc_id" => {
-                "type" => "string",
-                "description" => "Backwards-compatibility means of identifying a VPC; see {MU::Config::BasketofKittens::firewall_rules::vpc}"
-            },
-            "vpc" => vpc_reference_primitive(NO_SUBNETS, NO_NAT_OPTS),
-            "tags" => @tags_primitive,
-            "optional_tags" => {
-                "type" => "boolean",
-                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
-                "default" => true
-            },
-            "dependencies" => @dependencies_primitive,
-            "self_referencing" => {
-                "type" => "boolean",
-                "default" => false
-            },
-            "admin" => {
-              "type" => "boolean",
-              "description" => "Internal use only. Flag generic administrative firewall rulesets for use by the Mu Master",
-              "default" => false
-            },
-            "rules" => {
-                "type" => "array",
-                "items" => @firewall_ruleset_rule_primitive
-            }
-        }
-    }
-
-    @additional_firewall_rules = {
-        "type" => "array",
-        "items" => {
-            "type" => "object",
-            "additionalProperties" => false,
-            "description" => "Apply one or more network rulesets, defined in this stack or pre-existing, to this resource. Note that if you add a pre-existing ACL to your resource, they must be compatible (e.g. if using VPCs, they must reside in the same VPC).",
-            "minProperties" => 1,
-            "properties" => {
-                "rule_id" => {"type" => "string"},
-                "rule_name" => {"type" => "string"}
-            }
-        }
-    }
-
-    @storage_primitive = {
-        "type" => "array",
-        "items" => {
-            "type" => "object",
-            "description" => "Creates and attaches an EBS volume to this instance.",
-            "required" => ["size"],
-            "additionalProperties" => false,
-            "properties" => {
-                "size" => {
-                    "type" => "integer",
-                    "description" => "Size of this EBS volume (GB)",
-                },
-                "iops" => {
-                    "type" => "integer",
-                    "description" => "The amount of IOPS to allocate to Provisioned IOPS (io1) volumes.",
-                },
-                "device" => {
-                    "type" => "string",
-                    "description" => "Map this volume to a specific OS-level device (e.g. /dev/sdg)",
-                },
-                "virtual_name" => {
-                    "type" => "string",
-                },
-                "snapshot_id" => {
-                    "type" => "string",
-                },
-                "delete_on_termination" => {
-                    "type" => "boolean",
-                    "default" => true
-                },
-                "no_device" => {
-                    "type" => "string",
-                    "description" => "Do not share this device with the OS"
-                },
-                "encrypted" => {
-                    "type" => "boolean",
-                    "default" => false
-                },
-                "volume_type" => {
-                    "enum" => ["standard", "io1", "gp2", "st1", "sc1"],
-                    "type" => "string",
-                    "default" => "gp2"
-                }
-            }
-        }
-    }
-
-    # We want to have a default email to send SNS notifications
-    sns_notification_email = 
+    # Have a default value available for config schema elements that take an
+    # email address.
+    # @return [String]
+    def self.notification_email 
       if MU.chef_user == "mu"
         ENV['MU_ADMIN_EMAIL']
       else
         MU.userEmail
       end
-
-    @alarm_common_properties = {
-        "name" => {
-            "type" => "string"
-        },
-        "ok_actions" => {
-            "type" => "array",
-            "minItems" => 1,
-            "description" => "What actions to take when alarm state transitions to 'OK'.",
-            "items" => {
-                "type" => "String"
-            }
-        },
-        "alarm_actions" => {
-            "type" => "array",
-            "minItems" => 1,
-            "description" => "What actions to take when alarm state transitions to 'ALARM'.",
-            "items" => {
-                "type" => "String"
-            }
-        },
-        "no_data_actions" => {
-            "type" => "array",
-            "minItems" => 1,
-            "description" => "What actions to take when alarm state transitions to 'INSUFFICIENT'.",
-            "items" => {
-                "type" => "String"
-            }
-        },
-        "metric_name" => {
-            "type" => "string",
-            "description" => "The name of the attribute to monitor eg. CPUUtilization."
-        },
-        "namespace" => {
-            "type" => "string",
-            "description" => "The name of container 'metric_name' belongs to eg. 'AWS/EC2'"
-        },
-        "statistic" => {
-            "type" => "string",
-            "description" => "",
-            "enum" => ["SampleCount", "Average", "Sum", "Minimum", "Maximum"]
-        },
-        "dimensions" => {
-            "type" => "array",
-            "description" => "What to monitor",
-#            "minItems" => 1,
-            "items" => {
-                "type" => "object",
-                "additionalProperties" => false,
-                "required" => ["cloud_class"],
-                "description" => "What to monitor",
-                "properties" => {
-                    "cloud_class" => {
-                        "type" => "string",
-                        "description" => "The type of resource we're checking",
-                        "enum" => ["InstanceId", "server", "Server", "DBInstanceIdentifier", "database", "Database", "LoadBalancerName", "loadbalancer", "LoadBalancer", "CacheClusterId", "cache_cluster", "CacheCluster", "VolumeId", "volume", "Volume", "BucketName", "bucket", "Bucket", "TopicName", "notification", "Notification", "AutoScalingGroupName", "server_pool", "ServerPool"]
-                    },
-                    "cloud_id" => {
-                        "type" => "string",
-                        "description" => "The cloud identifier of the resource the alarm is being created for. eg - i-d96eca0d. Must use either 'cloud_id' OR 'mu_name' AND 'deploy_id'"
-                    },
-                    "mu_name" => {
-                        "type" => "string",
-                        "description" => "The full name of a resource in a foreign deployment which we should monitor. You should also include 'deploy_id' so we will be able to identifiy a single resource. Use either 'cloud_id' OR 'mu_name' and 'deploy_id'"
-                    },
-                    "deploy_id" => {
-                        "type" => "string",
-                        "description" => "Should be used with 'mu_name' to identifiy a single resource."
-                    },
-                    "name" => {
-                        "type" => "string",
-                        "description" => "The name of another resource in this stack with which to associate this alarm."
-                    }
-                }
-            }  
-        },
-        "period" => {
-            "type" => "integer",
-            "description" => "The time, in seconds the 'statistic' is checked/tested. Must be multiples of 60"
-        },
-        "unit" => {
-            "type" => "string",
-            "description" => "Associated with the 'metric'",
-            "enum" => ["Seconds", "Microseconds", "Milliseconds", "Bytes", "Kilobytes", "Megabytes", "Gigabytes", "Terabytes", "Bits", "Kilobits", "Megabits", "Gigabits", "Terabits", "Percent", "Count", "Bytes/Second", 
-                                "Kilobytes/Second", "Megabytes/Second", "Gigabytes/Second", "Terabytes/Second", "Bits/Second", "Kilobits/Second", "Megabits/Second", "Gigabits/Second", "Terabits/Second", "Count/Second", "nil"]
-        },
-        "evaluation_periods" => {
-            "type" => "integer",
-            "description" => "The number of times to repeat the 'period' before changing the state of an alarm. eg form 'OK' to 'ALARM' state"
-        },
-        "threshold" => {
-        # TO DO: This should be a float
-            "type" => "integer",
-            "description" => "The value the 'statistic' is compared to and action (eg 'alarm_actions') will be invoked "
-        },
-        "comparison_operator" => {
-            "type" => "string",
-            "description" => "The arithmetic operation to use when comparing 'statistic' and 'threshold'. The 'statistic' value is used as the first operand",
-            "enum" => ["GreaterThanOrEqualToThreshold", "GreaterThanThreshold", "LessThanThreshold", "LessThanOrEqualToThreshold"]
-        },
-        # TO DO: Separate all of these to an SNS primitive
-        "enable_notifications" => {
-            "type" => "boolean",
-            "description" => "Rather to send notifications when the alarm state changes"
-        },
-        "notification_group" => {
-            "type" => "string",
-            "description" => "The name of the notification group. Will be created if it doesn't exist. We use / create a default one if not specified. NOTE: because we can't confirm subscription to a group programmatically, you should use an existing group",
-            "default" => "mu-default"
-        },
-        "notification_type" => {
-            "type" => "string",
-            "description" => "What type of notification endpoint will the notification be sent to. defaults to 'email'",
-            "enum" => ["http", "https", "email", "email-json", "sms", "sqs", "application"],
-            "default" => "email"
-        },
-        "notification_endpoint" => {
-            "type" => "string",
-            "description" => "The endpoint the notification will be sent to. eg. if notification_type is 'email'/'email-json' the endpoint will be the email address. A confirmation email will be sent to this email address if a new notification_group is created, if not specified and notification_type is set to 'email' we will use the mu-master email address",
-            "default_if" => [
-                {
-                    "key_is" => "notification_type",
-                    "value_is" => "email",
-                    "set" => sns_notification_email
-                },
-                {
-                    "key_is" => "notification_type",
-                    "value_is" => "email-json",
-                    "set" => sns_notification_email
-                }
-            ]              
-        }
-    }
-
-    @alarm_primitive = {
-        "type" => "object",
-        "title" => "CloudWatch Monitoring",
-        "additionalProperties" => false,
-        "description" => "Create Amazon CloudWatch alarms.",
-        "properties" => {
-          "cloud" => @cloud_primitive,
-          "region" => MU::Config.region_primitive,
-          "dependencies" => @dependencies_primitive
-        }
-    }
-    @alarm_primitive["properties"].merge!(@alarm_common_properties)
-
-    @alarm_common_primitive = {
-        "type" => "array",
-        "minItems" => 1,
-        "items" => {
-            "description" => "Create a CloudWatch Alarm.",
-            "type" => "object",
-            "title" => "CloudWatch Alarm Parameters",
-            "required" => ["name", "metric_name", "statistic", "period", "evaluation_periods", "threshold", "comparison_operator"],
-            "additionalProperties" => false,
-            "properties" => {
-            }
-        }
-    }
-    @alarm_common_primitive["items"]["properties"].merge!(@alarm_common_properties)
-
-    @cloudwatchlogs_filter_primitive = {
-      "type" => "array",
-      "minItems" => 1,
-      "items" => {
-        "description" => "Create a filter on a CloudWachLogs log group.",
-        "type" => "object",
-        "title" => "CloudWatchLogs filter Parameters",
-        "required" => ["name", "search_pattern", "metric_name", "namespace", "value"],
-        "additionalProperties" => false,
-        "properties" => {
-          "name" => {
-              "type" => "string"
-          },
-          "search_pattern" => {
-              "type" => "string",
-              "description" => "A search pattern that will match values in the log"
-          },
-          "metric_name" => {
-              "type" => "string",
-              "description" => "A descriptive and easy to find name for the metric. This can be used to create Alarm(s)"
-          },
-          "namespace" => {
-              "type" => "string",
-              "description" => "A new or existing name space to add the metric to. Use the same namespace for all filters/metrics that are logically grouped together. Will be used to to create Alarm(s)"
-          },
-          "value" => {
-              "type" => "string",
-              "description" => ""
-          }
-        }
-      }
-    }
-
-    @log_primitive = {
-      "type" => "object",
-      "title" => "CloudWatch Logs",
-      "additionalProperties" => false,
-      "description" => "Log events using CloudWatch Logs.",
-      "properties" => {
-        "name" => {
-          "type" => "string"
-        },
-        "cloud" => @cloud_primitive,
-        "region" => MU::Config.region_primitive,
-        "dependencies" => @dependencies_primitive,
-        "retention_period" => {
-          "type" => "integer",
-          "description" => "The number of days to keep log events in the log group before deleting them.",
-          "default" => 14,
-          "enum" => [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653]
-        },
-        "enable_cloudtrail_logging"=> {
-          "type" => "boolean",
-          "default" => false
-        },
-        "filters" => @cloudwatchlogs_filter_primitive
-      }
-    }
-
-    @cloudformation_primitive = {
-        "type" => "object",
-        "title" => "cloudformation",
-        "required" => ["name"],
-        "additionalProperties" => false,
-        "description" => "Create an Amazon CloudFormation stack.",
-        "properties" => {
-            "name" => {"type" => "string"},
-            "cloud" => @cloud_primitive,
-            "tags" => @tags_primitive,
-            "dependencies" => @dependencies_primitive,
-            "parameters" => {
-                "type" => "array",
-                "items" => {
-                    "type" => "object",
-                    "description" => "set cloudformation template parameter",
-                    "required" => ["parameter_key", "parameter_value"],
-                    "additionalProperties" => false,
-                    "properties" => {
-                        "parameter_key" => {"type" => "string"},
-                        "parameter_value" => {"type" => "string"}
-                    }
-                }
-            },
-            "pass_deploy_key_as" => {
-                "type" => "string",
-                "description" => "Pass in the deploy key for this stack as a CloudFormation parameter. Set this to the CloudFormation parameter name.",
-            },
-            "pass_parent_parameters" => {
-              "type" => "boolean",
-              "default" => true,
-              "description" => "If targeting CloudFormation, this will pass all of the parent template's parameters to the nested template"
-            },
-            "on_failure" => {
-                "type" => "string",
-                "enum" => ["DO_NOTHING", "ROLLBACK", "DELETE"],
-                "default" => "ROLLBACK"
-            },
-            "template_file" => {"type" => "string"},
-            "timeout" => {
-              "type" => "string",
-              "description" => "Timeout (in minutes) for building this Collection.",
-              "default" => "45"
-            },
-            "template_url" => {
-                "type" => "string",
-                "pattern" => "^#{URI::regexp(%w(http https))}$"
-            },
-            "creation_style" => {
-                "type" => "string",
-                "enum" => ["existing", "new"]
-            }
-        }
-    }
-
-    @userdata_primitive = {
-        "type" => "object",
-        "description" => "A script to be run during the bootstrap process. Typically used to preconfigure Windows instances.",
-        "required" => ["path"],
-        "additionalProperties" => false,
-        "properties" => {
-            "use_erb" => {
-                "type" => "boolean",
-                "default" => true,
-                "description" => "Assume that this script is an ERB template and parse it as one before passing to the instance."
-            },
-            "skip_std" => {
-                "type" => "boolean",
-                "default" => false,
-                "description" => "Omit the standard Mu userdata entirely in favor of this custom script (normally we'd run both)."
-            },
-            "path" => {
-                "type" => "string",
-                "description" => "A local path or URL to a file which will be loaded and passed to the instance. Relative paths will be resolved from the current working directory of the deploy tool when invoked."
-            }
-        }
-    }
-
-    @static_ip_primitive = {
-        "type" => "object",
-        "additionalProperties" => false,
-        "minProperties" => 1,
-        "description" => "Assign a specific IP to this instance once it's ready.",
-        "properties" => {
-            "ip" => {
-                "type" => "string",
-                "pattern" => "^\\d+\\.\\d+\\.\\d+\\.\\d+$",
-            },
-            "assign_ip" => {
-                "type" => "boolean",
-                "default" => true
-            }
-        }
-    }
-
-    @loadbalancer_reference_primitive = {
-        "type" => "array",
-        "minItems" => 1,
-        "items" => {
-            "type" => "object",
-            "minProperties" => 1,
-            "maxProperties" => 1,
-            "additionalProperties" => false,
-            "description" => "One or more Load Balancers with which this instance should register.",
-            "properties" => {
-                "concurrent_load_balancer" => {
-                    "type" => "string",
-                    "description" => "The name of a MU loadbalancer object, which should also defined in this stack. This will be added as a dependency."
-                },
-                "existing_load_balancer" => {
-                    "type" => "string",
-                    "description" => "The DNS name of an existing Elastic Load Balancer. Must be in the same region as this deployment."
-                }
-            }
-        }
-    }
-
-    def self.dns_records_primitive(need_target: true, default_type: nil, need_zone: false)
-      dns_records_primitive = {
-          "type" => "array",
-          "maxItems" => 100,
-          "items" => {
-              "type" => "object",
-              "required" => ["target", "type"],
-              "additionalProperties" => false,
-              "description" => "DNS records to create. If specified inside another resource (e.g. {MU::Config::BasketofKittens::servers}, {MU::Config::BasketofKittens::loadbalancers}, or {MU::Config::BasketofKittens::databases}), the record(s) will automatically target that resource.",
-              "properties" => {
-                  "override_existing" => {
-                      "type" => "boolean",
-                      "description" => "If true, this record will overwrite any existing record of the same name and type.",
-                      "default" => false
-                  },
-                  "type" => {
-                      "type" => "string",
-                      "description" => "The class of DNS record to create. The R53ALIAS type is not traditional DNS, but instead refers to AWS Route53's alias functionality. An R53ALIAS is only valid if the target is an Elastic LoadBalancer, CloudFront, S3 bucket (configured as a public web server), or another record in the same Route53 hosted zone.",
-                      "enum" => ["SOA", "A", "TXT", "NS", "CNAME", "MX", "PTR", "SRV", "SPF", "AAAA", "R53ALIAS"],
-                      "default_if" => [
-                        {
-                          "key_is" => "mu_type",
-                          "value_is" => "loadbalancer",
-                          "set" => "R53ALIAS"
-                        },
-                        {
-                          "key_is" => "mu_type",
-                          "value_is" => "database",
-                          "set" => "CNAME"
-                        },
-                        {
-                          "key_is" => "mu_type",
-                          "value_is" => "server",
-                          "set" => "A"
-                        }
-                      ]
-                  },
-                  "alias_zone" => {
-                      "type" => "string",
-                      "description" => "If using a type of R53ALIAS, this is the hosted zone ID of the target. Defaults to the zone to which this record is being added."
-                  },
-                  "deploy_id" => {
-                    "type" => "string",
-                    "description" => "Look for a resource in another Mu deployment with this id. Requires mu_type",
-                  },
-                  "mu_type" => {
-                    "type" => "string",
-                    "description" => "The Mu resource type to search the deployment for.",
-                      "enum" => ["loadbalancer", "server", "database", "cache_cluster"]
-                  },
-                  "target_type" => {
-                      "description" => "If the target is a public or a private resource. This only applies to servers/server_pools when using automatic DNS registration. If set to public but the target only has a private address, the private address will be used",
-                      "type" => "string",
-                      "enum" => ["public", "private"]
-                  },
-                  "weight" => {
-                      "type" => "integer",
-                      "description" => "Set the proportion of traffic directed to this target, based on the relative weight of other records with the same DNS name and type."
-                  },
-                  "region" => MU::Config.region_primitive,
-                  "failover" => {
-                      "type" => "string",
-                      "description" => "Failover classification",
-                      "enum" => ["PRIMARY", "SECONDARY"]
-                  },
-                  "ttl" => {
-                      "type" => "integer",
-                      "description" => "DNS time-to-live value for query caching.",
-                      "default" => 7200
-                  },
-                  "target" => {
-                      "type" => "string",
-                      "description" => "The value of this record. Must be valid for the 'type' field, e.g. A records must point to an IP address. If creating a record for an existing deployment, specify the mu_name of the resource, you must also specifiy deploy_id and mu_type",
-                  },
-                  "name" => {
-                      "description" => "Name of the record to create. If not specified, will default to the Mu resource name.",
-                      "type" => "string",
-                      "pattern" => "^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$"
-                  },
-                  "append_environment_name" => {
-                      "description" => "If to append the environment name (eg mydnsname.dev.mudomain.com). to the DNS name",
-                      "type" => "boolean",
-                      "default" => false
-                  },
-                  "geo_location" => {
-                      "type" => "object",
-                      "description" => "Set location for location-based routing.",
-                      "additionalProperties" => false,
-                      "properties" => {
-                          "continent_code" => {
-                              "type" => "string",
-                              "description" => "The code for a continent geo location. Note: only continent locations have a continent code. Specifying continent_code with either country_code or subdivision_code returns an InvalidInput error.",
-                              "enum" => ["AF", "AN", "AS", "EU", "OC", "NA", "SA"]
-                          },
-                          "country_code" => {
-                              "type" => "string",
-                              "description" => "The code for a country geo location. The default location uses '' for the country code and will match all locations that are not matched by a geo location. All other country codes follow the ISO 3166 two-character code."
-                          },
-                          "subdivision_code" => {
-                              "type" => "string",
-                              "description" => "The code for a country's subdivision (e.g., a province of Canada). A subdivision code is only valid with the appropriate country code. Specifying subdivision_code without country_code returns an InvalidInput error."
-                          }
-                      }
-                  },
-                  "healthchecks" => {
-                    "type" => "array",
-                    "items" => {
-                        "type" => "object",
-                        "required" => ["method", "name"],
-                        "additionalProperties" => false,
-                        "description" => "Check used to determine instance health for failover routing.",
-                        "properties" => {
-                          "method" => {
-                              "type" => "string",
-                              "description" => "The health check method to use",
-                              "enum" => ["HTTP", "HTTPS", "HTTP_STR_MATCH", "HTTPS_STR_MATCH", "TCP", "CALCULATED", "CLOUDWATCH_METRIC"]
-                          },
-                          "port" => {
-                              "type" => "integer",
-                              "description" => "Port on which this health check should expect to find a working service.  For HTTP and HTTP_STR_MATCH this defaults to 80 if the port is not specified. For HTTPS and HTTPS_STR_MATCH this defaults to 443 if the port is not specified.",
-                          },
-                          "path" => {
-                              "type" => "string",
-                              "description" => "Path to check for HTTP-based health checks."
-                          },
-                          "type" => {
-                            "type" => "string",
-                            "description" => "When using CALCULATED based health checks make sure to set only the CALCULATED health check to primary while setting all other health checks to secondary.",
-                            "default" => "primary",
-                            "enum" => ["primary", "secondary"]
-                          },
-                          "name" => {
-                              "type" => "string",
-                              "description" => "The health check name."
-                          },
-                          "search_string" => {
-                              "type" => "string",
-                              "description" => "Path to check for STR_MATCH-based health checks."
-                          },
-                          "check_interval" => {
-                              "type" => "integer",
-                              "description" => "The frequency of health checks in seconds.",
-                              "default" => 30,
-                              "enum" => [10, 30]
-                          },
-                          "failure_threshold" => {
-                              "type" => "integer",
-                              "description" => "The number of failed health checks before we consider this entry in failure. Values can be between 1-10.",
-                              "default" => 2,
-                              "pattern" => "^([1-9]|10)$"
-                          },
-                          "insufficient_data" => {
-                            "type" => "string",
-                            "description" => "What should the health check status be set to if there is insufficient data return from the CloudWatch alarm. Used only with CLOUDWATCH_METRIC based health checks.",
-                            "enum" => ["Healthy", "Unhealthy", "LastKnownStatus"]
-                          },
-                          "regions" => {
-                            "type" => "array",
-                            "description" => "The cloud provider's regions from which to test the status of the health check. If not specified will use all regions. Used only with HTTP/HTTPS/TCP based health checks.",
-                            "items" => {
-                              "type" => "string"
-                            }
-                          },
-                          "latency" => {
-                            "description" => "If to measure and graph latency between the health checkers and the endpoint. Used only with HTTP/HTTPS/TCP based health checks.",
-                            "type" => "boolean",
-                            "default" => false
-                          },
-                          "inverted" => {
-                            "description" => "If the status of the health check should be inverted, eg. if health check status is healthy but you would like it to be evaluated as not healthy",
-                            "type" => "boolean",
-                            "default" => false
-                          },
-                          "enable_sni" => {
-                            "description" => "Enabled by default on HTTPS or HTTPS_STR_MATCH",
-                            "type" => "boolean",
-                            "default" => false,
-                            "default_if" => [
-                              {
-                                "key_is" => "method",
-                                "value_is" => "HTTPS",
-                                "set" => true
-                              },
-                              {
-                                "key_is" => "method",
-                                "value_is" => "HTTPS_STR_MATCH",
-                                "set" => true
-                              }
-                            ]
-                          },
-                          "health_threshold" => {
-                            "type" => "integer",
-                            "description" => "The minimum number of health checks that must be healthy when configuring a health check of type CALCULATED. Values can be between 0-256.",
-                            "default" => 1,
-                            "pattern" => "^[\\d]?{3}$"
-                          },
-                          "health_check_ids" => {
-                            "type" => "array",
-                            "description" => "The IDs of existing health checks to use when method is set to CALCULATED.",
-                            "items" => {
-                              "type" => "string"
-                            }
-                          },
-                          "alarm_region" => {
-                            "type" => "string",
-                            "description" => "The cloud provider's region the cloudwatch alarm was created in. Used with CLOUDWATCH_METRIC health checks"
-                          },
-                          "alarm_name" => {
-                            "type" => "string",
-                            "description" => "The cloudwatch alarm name. Used with CLOUDWATCH_METRIC health checks"
-                          }
-                        }
-                    }
-                }
-              }
-          }
-      }
-
-      if !need_target
-        dns_records_primitive["items"]["required"].delete("target")
-        dns_records_primitive["items"]["properties"].delete("target")
-      end
-
-      if need_zone
-        dns_records_primitive["items"]["required"] << "zone"
-        dns_records_primitive["items"]["properties"]["zone"] = {
-            "type" => "object",
-            "additionalProperties" => false,
-            "minProperties" => 1,
-            "description" => "The zone to which to add this record, either as a domain name or as a Route53 zone identifier.",
-            "properties" => {
-                "name" => {
-                    "type" => "string",
-                    "description" => "The domain name of the DNS zone to which to add this record."
-                },
-                "id" => {
-                    "type" => "string",
-                    "description" => "The Route53 identifier of the zone to which to add this record."
-                }
-            }
-        }
-      end
-
-      if !default_type.nil?
-        dns_records_primitive["items"]["properties"]["type"]["default"] = default_type
-        dns_records_primitive["items"]["required"].delete("type")
-      end
-
-      return dns_records_primitive
     end
 
-
-    # properties common to both server and server_pool resources
-    @server_common_properties = {
-        "name" => {"type" => "string"},
+    @@schema = {
+      "$schema" => "http://json-schema.org/draft-04/schema#",
+      "title" => "MU Application",
+      "type" => "object",
+      "description" => "A MU application stack, consisting of at least one resource.",
+      "required" => ["admins", "appname"],
+      "properties" => {
+        "appname" => {
+            "type" => "string",
+            "description" => "A name for your application stack. Should be short, but easy to differentiate from other applications.",
+        },
         "scrub_mu_isms" => {
             "type" => "boolean",
-            "default" => false,
-            "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template."
+            "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template. Setting this flag here will override declarations in individual resources."
+        },
+        "project" => {
+          "type" => "string",
+          "description" => "GOOGLE: The project into which to deploy resources",
+          "default" => MU::Cloud::Google.defaultProject
         },
         "region" => MU::Config.region_primitive,
-        "cloud" => @cloud_primitive,
-        "async_groom" => {
+        "us_only" => {
             "type" => "boolean",
-            "default" => false,
-            "description" => "Bootstrap asynchronously via the Momma Cat daemon instead of during the main deployment process"
-        },
-        "groomer" => {
-            "type" => "string",
-            "default" => MU::Config.defaultGroomer,
-            "enum" => MU.supportedGroomers
-        },
-        "tags" => @tags_primitive,
-        "optional_tags" => {
-            "type" => "boolean",
-            "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
-            "default" => true
-        },
-        "alarms" => @alarm_common_primitive,
-        "active_directory" => {
-            "type" => "object",
-            "additionalProperties" => false,
-            "required" => ["domain_name", "short_domain_name", "domain_controllers", "domain_join_vault", "domain_admin_vault"],
-            "description" => "Integrate this node into an Active Directory domain. On Linux, will configure Winbind and PAM for system-level AD authentication.",
-            "properties" => {
-                "domain_name" => {
-                    "type" => "string",
-                    "description" => "The full name Active Directory domain to join"
-                },
-                "short_domain_name" => {
-                    "type" => "string",
-                    "description" => "The short (NetBIOS) Active Directory domain to join"
-                },
-                "domain_controllers" => {
-                    "type" => "array",
-                    "minItems" => 1,
-                    "items" => {
-                        "type" => "string",
-                        "description" => "IP address of a domain controller"
-                    }
-                },
-                "domain_controller_hostname" => {
-                    "type" => "string",
-                    "description" => "A custom hostname for your domain controller. mu_windows_name will be used if not specified. Do not specify when joining a Domain-Node"
-                },
-                "domain_operation" => {
-                    "type" => "string",
-                    "default" => "join",
-                    "enum" => ["join", "create", "add_controller"],
-                    "description" => "Rather to join, create or add a Domain Controller"
-                },
-                "domain_sid" => {
-                    "type" => "string",
-                    "description" => "SID of a known domain. Used to help Linux clients map uids and gids properly with SSSD."
-                },
-                "node_type" => {
-                    "type" => "string",
-                    "enum" => ["domain_node", "domain_controller"],
-                    "description" => "If the node will be a domain controller or a domain node",
-                    "default" => "domain_node",
-                    "default_if" => [
-                        {
-                            "key_is" => "domain_operation",
-                            "value_is" => "create",
-                            "set" => "domain_controller"
-                        },
-                        {
-                            "key_is" => "domain_operation",
-                            "value_is" => "add_controller",
-                            "set" => "domain_controller"
-                        },
-                        {
-                            "key_is" => "domain_operation",
-                            "value_is" => "join",
-                            "set" => "domain_node"
-                        }
-                    ]
-                },
-                "computer_ou" => {
-                    "type" => "string",
-                    "description" => "The OU to which to add this computer when joining the domain."
-                },
-                "domain_join_vault" => {
-                    "type" => "object",
-                    "additionalProperties" => false,
-                    "description" => "Vault used to store the credentials for the domain join user",
-                    "properties" => {
-                        "vault" => {
-                            "type" => "string",
-                            "default" => "active_directory",
-                            "description" => "The vault where these credentials reside"
-                        },
-                        "item" => {
-                            "type" => "string",
-                            "default" => "join_domain",
-                            "description" => "The vault item where these credentials reside"
-                        },
-                        "password_field" => {
-                            "type" => "string",
-                            "default" => "password",
-                            "description" => "The field within the Vault item where the password for these credentials resides"
-                        },
-                        "username_field" => {
-                            "type" => "string",
-                            "default" => "username",
-                            "description" => "The field where the user name for these credentials resides"
-                        }
-                    }
-                },
-                "domain_admin_vault" => {
-                    "type" => "object",
-                    "additionalProperties" => false,
-                    "description" => "Vault used to store the credentials for the domain admin user",
-                    "properties" => {
-                        "vault" => {
-                            "type" => "string",
-                            "default" => "active_directory",
-                            "description" => "The vault where these credentials reside"
-                        },
-                        "item" => {
-                            "type" => "string",
-                            "default" => "domain_admin",
-                            "description" => "The vault item where these credentials reside"
-                        },
-                        "password_field" => {
-                            "type" => "string",
-                            "default" => "password",
-                            "description" => "The field within the Vault item where the password for these credentials resides"
-                        },
-                        "username_field" => {
-                            "type" => "string",
-                            "default" => "username",
-                            "description" => "The field where the user name for these credentials resides"
-                        }
-                    }
-                }
-            }
-        },
-        "add_private_ips" => {
-            "type" => "integer",
-            "description" => "Assign extra private IP addresses to this server."
-        },
-        "skipinitialupdates" => {
-            "type" => "boolean",
-            "description" => "Node bootstrapping normally runs an internal recipe that does a full system update. This is very slow for testing, so let's have an option to disable it.",
+            "description" => "For resources which span regions, restrict to regions inside the United States",
             "default" => false
         },
-        "sync_siblings" => {
-            "type" => "boolean",
-            "description" => "If true, chef-client will automatically re-run on nodes of the same type when this instance has finished grooming. Use, for example, to add new members to a database cluster in an autoscale group by sharing data in Chef's node structures.",
-            "default" => false
-        },
-        "dns_sync_wait" => {
-            "type" => "boolean",
-            "description" => "Wait for DNS record to propagate in DNS Zone.",
-            "default" => true,
-        },
-        "loadbalancers" => @loadbalancer_reference_primitive,
-        "dependencies" => @dependencies_primitive,
-        "add_firewall_rules" => @additional_firewall_rules,
-        "static_ip" => @static_ip_primitive,
-        "src_dst_check" => {
-            "type" => "boolean",
-            "description" => "Turn off network-level routing paranoia. Set this false to make a NAT do its thing.",
-            "default" => true
-        },
-        "associate_public_ip" => {
-            "type" => "boolean",
-            "default" => false,
-            "description" => "Associate public IP address?"
-        },
-        "userdata_script" => @userdata_primitive,
-        "windows_admin_username" => {
-            "type" => "string",
-            "default" => "Administrator",
-            "description" => "Use an alternate Windows account for Administrator functions. Will change the name of the Administrator account, if it has not already been done."
-        },
-        "windows_auth_vault" => {
-            "type" => "object",
-            "additionalProperties" => false,
-            "required" => ["vault", "item"],
-            "description" => "Set Windows nodes' local administrator password to a value specified in a Chef Vault.",
-            "properties" => {
-                "vault" => {
-                    "type" => "string",
-                    "default" => "windows",
-                    "description" => "The vault where these credentials reside"
-                },
-                "item" => {
-                    "type" => "string",
-                    "default" => "credentials",
-                    "description" => "The vault item where these credentials reside"
-                },
-                "password_field" => {
-                    "type" => "string",
-                    "default" => "password",
-                    "description" => "The field within the Vault item where the password for Windows local Administrator user is stored"
-                },
-                "ec2config_password_field" => {
-                    "type" => "string",
-                    "default" => "ec2config_password",
-                    "description" => "The field within the Vault item where the password for the EC2config service user is stored"
-                },
-                "sshd_password_field" => {
-                    "type" => "string",
-                    "default" => "sshd_password",
-                    "description" => "The field within the Vault item where the password for the Cygwin/SSH service user is stored"
-                }
-            }
-        },
-        "ssh_user" => {
-            "type" => "string",
-            "default" => "root",
-            "default_if" => [
-                {
-                    "key_is" => "platform",
-                    "value_is" => "windows",
-                    "set" => "Administrator"
-                },
-                {
-                    "key_is" => "platform",
-                    "value_is" => "win2k12",
-                    "set" => "Administrator"
-                },
-                {
-                    "key_is" => "platform",
-                    "value_is" => "win2k12r2",
-                    "set" => "Administrator"
-                },
-                {
-                    "key_is" => "platform",
-                    "value_is" => "win2k16",
-                    "set" => "Administrator"
-                },
-                {
-                    "key_is" => "platform",
-                    "value_is" => "ubuntu",
-                    "set" => "ubuntu"
-                },
-                {
-                    "key_is" => "platform",
-                    "value_is" => "ubuntu14",
-                    "set" => "ubuntu"
-                },
-                {
-                    "key_is" => "platform",
-                    "value_is" => "centos7",
-                    "set" => "centos"
-                },
-                {
-                    "key_is" => "platform",
-                    "value_is" => "rhel7",
-                    "set" => "ec2-user"
-                },
-                {
-                    "key_is" => "platform",
-                    "value_is" => "rhel71",
-                    "set" => "ec2-user"
-                },
-                {
-                    "key_is" => "platform",
-                    "value_is" => "amazon",
-                    "set" => "ec2-user"
-                }
-            ]
-        },
-        "use_cloud_provider_windows_password" => {
-            "type" => "boolean",
-            "default" => true
-        },
-        "platform" => {
-            "type" => "string",
-            "default" => "linux",
-            "enum" => ["linux", "windows", "centos", "ubuntu", "centos6", "ubuntu14", "win2k12", "win2k12r2", "win2k16", "centos7", "rhel7", "rhel71", "amazon"],
-            "description" => "Helps select default AMIs, and enables correct grooming behavior based on operating system type.",
-        },
-        "run_list" => {
+        "conditions" => {
             "type" => "array",
             "items" => {
-                "type" => "string",
-                "description" => "Chef run list entry, e.g. role[rolename] or recipe[recipename]."
+              "type" => "object",
+              "required" => ["name", "cloudcode"],
+              "description" => "CloudFormation-specific. Define Conditions as in http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/conditions-section-structure.html. Arguments must use the cloudCode() macro.",
+              "properties" => {
+                "name" => { "required" => true, "type" => "string" },
+                "cloudcode" => { "required" => true, "type" => "string" },
+              }
             }
         },
-        "ingress_rules" => {
+        "parameters" => {
             "type" => "array",
-            "items" => @firewall_ruleset_rule_primitive
-        },
-        # This is a free-form means to pass stuff to the mu-tools Chef cookbook
-        "application_attributes" => {
-            "type" => "object",
-            "description" => "Chef Node structure artifact for mu-tools cookbook.",
-        },
-        # Objects here will be stored in this node's Chef Vault
-        "secrets" => {
-            "type" => "object",
-            "description" => "JSON artifact to be stored in Chef Vault for this node. Note that these values will still be stored in plain text local to the MU server, but only accessible to nodes via Vault."
-        },
-        # This node will be granted access to the following Vault items.
-        "vault_access" => {
-            "type" => "array",
-            "minItems" => 1,
             "items" => {
-                "description" => "Chef Vault items to which this node should be granted access.",
                 "type" => "object",
-                "title" => "vault_access",
-                "required" => ["vault", "item"],
+                "title" => "parameter",
+                "description" => "Parameters to be substituted elsewhere in this Basket of Kittens as ERB variables (<%= varname %>)",
                 "additionalProperties" => false,
                 "properties" => {
-                    "vault" => {
-                        "type" => "string",
-                        "description" => "The Vault to which this node should be granted access."
-                    },
-                    "item" => {
-                        "type" => "string",
-                        "description" => "The item within the Vault to which this node should be granted access."
+                  "name" => { "required" => true, "type" => "string" },
+                  "default" => { "type" => "string" },
+                  "list_of" => {
+                    "type" => "string",
+                    "description" => "Treat the value as a comma-separated list of values with this key name, equivalent to CloudFormation's various List<> types. For example, set to 'subnet_id' to pass values as an array of subnet identifiers as the 'subnets' argument of a VPC stanza."
+                  },
+                  "prettyname" => {
+                    "type" => "string",
+                    "description" => "An alternative name to use when generating parameter fields in, for example, CloudFormation templates"
+                  },
+                  "description" => {"type" => "string"},
+                  "cloudtype" => {
+                    "type" => "string",
+                    "description" => "A platform-specific string describing the type of validation to use for this parameter. E.g. when generating a CloudFormation template, set to AWS::EC2::Image::Id to validate input as an AMI identifier."
+                  },
+                  "required" => {
+                    "type" => "boolean",
+                    "default" => true
+                  },
+                  "valid_values" => {
+                    "type" => "array",
+                    "description" => "List of valid values for this parameter. Can only be a list of static strings, for now.",
+                    "items" => {
+                      "type" => "string"
                     }
+                  }
                 }
             }
         },
-        "existing_deploys" => {
+        # TODO availability zones (or an array thereof) 
+
+        "admins" => {
           "type" => "array",
-          "minItems" => 1,
           "items" => {
             "type" => "object",
-            "additionalProperties" => false,
-            "description" => "Existing deploys that will be loaded into the new deployment metadata. This metadata will be saved on the Chef node",
-            "properties" => {
-                "cloud_type" => {
-                  "type" => "string",
-                  "description" => "The type of resource we will parse metdata for",
-                  "enum" => ["server", "database", "storage_pool", "cache_cluster"]
-                },
-                "cloud_id" => {
-                  "type" => "string",
-                  "description" => "The cloud identifier of the resource from which you would like to add metadata to this deployment. eg - i-d96eca0d. Must use either 'cloud_id' OR 'mu_name' AND 'deploy_id'"
-                },
-                "mu_name" => {
-                  "type" => "string",
-                  "description" => "The full name of a resource in a foreign deployment from which we should add the metdata to this deployment. You should also include 'deploy_id' so we will be able to identifiy a single resource. Use either 'cloud_id' OR 'mu_name' and 'deploy_id'"
-                },
-                "deploy_id" => {
-                  "type" => "string",
-                  "description" => "Should be used with 'mu_name' to identifiy a single resource."
-                }
-            }
-          }
-        }
-    }
-
-    @server_primitive = {
-        "type" => "object",
-        "title" => "server",
-        "required" => ["name", "size", "cloud"],
-        "additionalProperties" => false,
-        "description" => "Create individual server instances.",
-        "properties" => {
-            "dns_records" => dns_records_primitive(need_target: false, default_type: "A", need_zone: true),
-            "create_image" => {
-                "type" => "object",
-                "title" => "create_image",
-                "required" => ["image_then_destroy", "image_exclude_storage", "public"],
-                "additionalProperties" => false,
-                "description" => "Create a reusable image of this server once it is complete.",
-                "properties" => {
-                    "public" => {
-                        "type" => "boolean",
-                        "description" => "Make the image public once it's complete",
-                        "default" => false
-                    },
-                    "image_then_destroy" => {
-                        "type" => "boolean",
-                        "description" => "Destroy the source server after creating the reusable image(s).",
-                        "default" => false
-                    },
-                    "image_exclude_storage" => {
-                        "type" => "boolean",
-                        "description" => "When creating an image of this server, exclude the block device mappings of the source server.",
-                        "default" => false
-                    },
-                    "copy_to_regions" => {
-                        "type" => "array",
-                        "description" => "Replicate the AMI to regions other than the source server's.",
-                        "items" => {
-                            "type" => "String",
-                            "description" => "Regions in which to place more copies of this image. If none are specified, or if the keyword #ALL is specified, will place in all available regions."
-                        }
-                    }
-                }
-            },
-            "vpc" => vpc_reference_primitive(ONE_SUBNET+MANY_SUBNETS, NAT_OPTS, "public"),
-            "monitoring" => {
-                "type" => "boolean",
-                "default" => true,
-                "description" => "Enable detailed instance monitoring.",
-            },
-            "private_ip" => {
-                "type" => "string",
-                "description" => "Request a specific private IP address for this instance.",
-                "pattern" => "^\\d+\\.\\d+\\.\\d+\\.\\d+$"
-            },
-            "size" => {
-              "description" => "The Amazon EC2 instance type to use when creating this server.",
-              "type" => "string"
-            },
-            "storage" => @storage_primitive,
-            "generate_iam_role" => {
-                "type" => "boolean",
-                "default" => true,
-                "description" => "Generate a unique IAM profile for this Server or ServerPool.",
-            },
-            "iam_role" => {
-                "type" => "string",
-                "description" => "An Amazon IAM instance profile, from which to harvest role policies to merge into this node's own instance profile. If generate_iam_role is false, will simple use this profile.",
-            },
-            "iam_policies" => {
-                "type" => "array",
-                "items" => {
-                    "description" => "Amazon-compatible role policies which will be merged into this node's own instance profile.  Not valid with generate_iam_role set to false. Our parser expects the role policy document to me embedded under a named container, e.g. { 'name_of_policy':'{ <policy document> } }",
-                    "type" => "object"
-                }
-            }
-        }
-    }
-    @server_primitive["properties"].merge!(@server_common_properties)
-
-    @database_primitive = {
-        "type" => "object",
-        "title" => "database",
-        "description" => "Create a dedicated database server.",
-        "required" => ["name", "engine", "size", "cloud"],
-        "additionalProperties" => false,
-        "properties" => {
-            "cloud" => @cloud_primitive,
-            "groomer" => {
-                "type" => "string",
-                "default" => MU::Config.defaultGroomer,
-                "enum" => MU.supportedGroomers
-            },
-            "name" => {"type" => "string"},
-            "scrub_mu_isms" => {
-                "type" => "boolean",
-                "default" => false,
-                "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template."
-            },
-            "region" => MU::Config.region_primitive,
-            "db_family" => {"type" => "string"},
-            "tags" => @tags_primitive,
-            "optional_tags" => {
-                "type" => "boolean",
-                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
-                "default" => true
-            },
-            "alarms" => @alarm_common_primitive,
-            "engine_version" => {"type" => "string"},
-            "add_firewall_rules" => @additional_firewall_rules,
-            "read_replica_of" => @database_ref_primitive,
-            "ingress_rules" => {
-                "type" => "array",
-                "items" => @firewall_ruleset_rule_primitive
-            },
-            "engine" => {
-                "enum" => ["mysql", "postgres", "oracle-se1", "oracle-se2", "oracle-se", "oracle-ee", "sqlserver-ee", "sqlserver-se", "sqlserver-ex", "sqlserver-web", "aurora", "mariadb"],
-                "type" => "string"
-            },
-            "add_cluster_node" => {
-              "type" => "boolean",
-              "description" => "Internal use",
-              "default" => false
-            },
-            "member_of_cluster" => {
-              "description" => "Internal use",
-              "type" => "object"
-            },
-            "dns_records" => dns_records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
-            "dns_sync_wait" => {
-                "type" => "boolean",
-                "description" => "Wait for DNS record to propagate in DNS Zone.",
-                "default" => true
-            },
-            "dependencies" => @dependencies_primitive,
-            "size" => @rds_size_primitive,
-            "storage" => {
-              "type" => "integer",
-              "description" => "Storage space for this database instance (GB)."
-            },
-            "storage_type" => {
-                "enum" => ["standard", "gp2", "io1"],
-                "type" => "string",
-                "default" => "gp2"
-            },
-            "run_sql_on_deploy" => {
-                "type" => "array",
-                "minItems" => 1,
-                "items" => {
-                    "description" => "Arbitrary SQL commands to run after the database is fully configred (PostgreSQL databases only).",
-                    "type" => "string"
-                }
-            },
-            "port" => {"type" => "integer"},
-            "vpc" => vpc_reference_primitive(MANY_SUBNETS, NAT_OPTS, "all_public"),
-            "publicly_accessible" => {
-                "type" => "boolean",
-                "default" => true
-            },
-            "multi_az_on_create" => {
-                "type" => "boolean",
-                "description" => "Enable high availability when the database instance is created",
-                "default" => false
-            },
-            "multi_az_on_deploy" => {
-                "type" => "boolean",
-                "description" => "See multi_az_on_groom", 
-                "default" => false
-            },
-            "multi_az_on_groom" => {
-                "type" => "boolean",
-                "description" => "Enable high availability after the database instance is created. This may make deployments based on creation_style other then 'new' faster.",
-                "default" => false
-            },
-            "backup_retention_period" => {
-                "type" => "integer",
-                "default" => 1,
-                "description" => "The number of days to retain an automatic database snapshot. If set to 0 and deployment is multi-az will be overridden to 35"
-            },
-            "preferred_backup_window" => {
-                "type" => "string",
-                "default" => "05:00-05:30",
-                "description" => "The preferred time range to perform automatic database backups."
-            },
-            "preferred_maintenance_window" => {
-                "type" => "string",
-                "description" => "The preferred data/time range to perform database maintenance. Ex. Sun:02:00-Sun:03:00"
-            },
-            "iops" => {
-                "type" => "integer",
-                "description" => "The amount of IOPS to allocate to Provisioned IOPS (io1) volumes. Increments of 1,000"
-            },
-            "auto_minor_version_upgrade" => {
-                "type" => "boolean",
-                "default" => true
-            },
-            "allow_major_version_upgrade" => {
-                "type" => "boolean",
-                "default" => false
-            },
-            "storage_encrypted" => {
-                "type" => "boolean",
-                "default" => false
-            },
-            "creation_style" => {
-                "type" => "string",
-                "enum" => ["existing", "new", "new_snapshot", "existing_snapshot", "point_in_time"],
-                "description" => "'new' - create a pristine database instances; 'existing' - use an existing database instance; 'new_snapshot' - create a snapshot of an existing database, and create a new one from that snapshot; 'existing_snapshot' - create database from an existing snapshot.; 'point_in_time' - create database from point in time backup of an existing database",
-                "default" => "new"
-            },
-            "identifier" => {
-                "type" => "string",
-                "description" => "For any creation_style other than 'new' this parameter identifies the database to use. In the case of new_snapshot or point_in_time this is the identifier of an existing database instance; in the case of existing_snapshot this is the identifier of the snapshot."
-            },
-            "master_user" => {
-              "type" => "string",
-              "description" => "Set master user name for this database instance; if not specified a random username will be generated"
-            },
-            "restore_time" => {
-              "type" => "string",
-              "description" => "Must either be set to 'latest' or date/time value in the following format: 2015-09-12T22:30:00Z. Applies only to point_in_time creation_style"
-            },
-            "create_read_replica" => {
-              "type" => "boolean",
-              "default" => false
-            },
-            "read_replica_region" => {
-              "type" => "string",
-              "description" => "Put read-replica in a particular region, other than the region of the source database."
-            },
-            "cluster_node_count" => {
-              "type" => "integer",
-              "description" => "The number of database instances to add to a database cluster. This only applies to aurora",
-              "default_if" => [
-                {
-                  "key_is" => "engine",
-                  "value_is" => "aurora",
-                  "set" => 1
-                }
-              ]
-            },
-            "create_cluster" => {
-              "type" => "boolean",
-                "description" => "Rather to create a database cluster. This only applies to aurora",
-                "default_if" => [
-                  {
-                    "key_is" => "engine",
-                    "value_is" => "aurora",
-                    "set" => true
-                  }
-                ]
-            },
-            "db_parameter_group_parameters" => @rds_parameters_primitive,
-            "cluster_parameter_group_parameters" => @rds_parameters_primitive,
-            "parameter_group_family" => {
-                "type" => "String",
-                "enum" => [
-                  "postgres9.6", "postgres9.5", "postgres9.4", "postgres9.3", 
-                  "mysql5.1", "mysql5.5", "mysql5.6", "mysql5.7", 
-                  "oracle-ee-11.2", "oracle-ee-12.1", "oracle-se-11.2", "oracle-se-12.1", "oracle-se1-11.2", "oracle-se1-12.1",
-                  "sqlserver-ee-10.5", "sqlserver-ee-11.0", "sqlserver-ee-12.0", "sqlserver-ex-10.5", "sqlserver-ex-11.0", "sqlserver-ex-12.0", "sqlserver-se-10.5", "sqlserver-se-11.0", "sqlserver-se-12.0", "sqlserver-web-10.5", "sqlserver-web-11.0", "sqlserver-web-12.0", 
-                  "aurora5.6", "mariadb-10.0", "mariadb-10.1"
-                ],
-                "description" => "The database family to create the DB Parameter Group for. The family type must be the same type as the database major version - eg if you set engine_version to 9.4.4 the db_family must be set to postgres9.4."
-            },
-            "auth_vault" => {
-                "type" => "object",
-                "additionalProperties" => false,
-                "required" => ["vault", "item"],
-                "description" => "The vault storing the password of the database master user. a random password will be generated if not specified.",
-                "properties" => {
-                    "vault" => {
-                        "type" => "string",
-                        "default" => "database",
-                        "description" => "The vault where these credentials reside"
-                    },
-                    "item" => {
-                        "type" => "string",
-                        "default" => "credentials",
-                        "description" => "The vault item where these credentials reside"
-                    },
-                    "password_field" => {
-                        "type" => "string",
-                        "default" => "password",
-                        "description" => "The field within the Vault item where the password for database master user is stored"
-                    }
-                }
-            }
-        }
-    }
-
-    @cache_cluster_primitive = {
-        "type" => "object",
-        "title" => "Cache Cluster",
-        "description" => "Create cache cluster(s).",
-        "required" => ["name", "engine", "size", "cloud"],
-        "additionalProperties" => false,
-        "properties" => {
-            "cloud" => @cloud_primitive,
-            "name" => {"type" => "string"},
-            "scrub_mu_isms" => {
-                "type" => "boolean",
-                "default" => false,
-                "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template."
-            },
-            "region" => MU::Config.region_primitive,
-            "tags" => @tags_primitive,
-            "optional_tags" => {
-                "type" => "boolean",
-                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
-                "default" => true
-            },
-            "engine_version" => {"type" => "string"},
-            "node_count" => {
-              "type" => "integer",
-                "description" => "The number of cache nodes in a cache cluster (memcached), or the number of cache clusters in a cache group (redis)",
-                "default" => 1
-            },
-            "add_firewall_rules" => @additional_firewall_rules,
-            "ingress_rules" => {
-              "type" => "array",
-              "items" => @firewall_ruleset_rule_primitive
-            },
-            "engine" => {
-                "enum" => ["memcached", "redis"],
-                "type" => "string",
-                "default" => "redis"
-            },
-            "dns_records" => dns_records_primitive(need_target: false, default_type: "CNAME", need_zone: true),
-            "dns_sync_wait" => {
-                "type" => "boolean",
-                "description" => "Wait for DNS record to propagate in DNS Zone.",
-                "default" => true
-            },
-            "alarms" => @alarm_common_primitive,
-            "dependencies" => @dependencies_primitive,
-            "size" => @elasticache_size_primitive,
-            "port" => {
-                "type" => "integer",
-                "default" => 6379,
-                "default_if" => [
-                    {
-                        "key_is" => "engine",
-                        "value_is" => "memcached",
-                        "set" => 11211
-                    },
-                    {
-                      "key_is" => "engine",
-                        "value_is" => "redis",
-                        "set" => 6379
-                    }
-                ]
-            },
-            "vpc" => vpc_reference_primitive(MANY_SUBNETS, NAT_OPTS, "all_public"),
-            "multi_az" => {
-                "type" => "boolean",
-                "description" => "Rather to deploy the cache cluster/cache group in Multi AZ or Single AZ",
-                "default" => false
-            },
-            "snapshot_arn" => {
-                "type" => "string",
-                "description" => "The ARN (Resource Name) of the redis backup stored in S3. Applies only to redis"
-            },
-            "snapshot_retention_limit" => {
-                "type" => "integer",
-                "description" => "The number of days to retain an automatic cache cluster snapshot. Applies only to redis"
-            },
-            "snapshot_window" => {
-                "type" => "string",
-                "description" => "The preferred time range to perform automatic cache cluster backups. Time is in UTC. Applies only to redis. Window must be at least 60 minutes long - 05:00-06:00."
-            },
-            "preferred_maintenance_window" => {
-                "type" => "string",
-                "description" => "The preferred data/time range to perform cache cluster maintenance. Window must be at least 60 minutes long - sun:06:00-sun:07:00. "
-            },
-            "auto_minor_version_upgrade" => {
-                "type" => "boolean",
-                "default" => true
-            },
-            "creation_style" => {
-                "type" => "string",
-                "enum" => ["new", "new_snapshot", "existing_snapshot"],
-                "description" => "'new' - create a new cache cluster; 'new_snapshot' - create a snapshot of of an existing cache cluster, and build a new cache cluster from that snapshot; 'existing_snapshot' - create a cache cluster from an existing snapshot.",
-                "default" => "new"
-            },
-            "identifier" => {
-                "type" => "string",
-                "description" => "For any creation_style other than 'new' this parameter identifies the cache cluster to use. In the case of new_snapshot it will create a snapshot from that cache cluster first; in the case of existing_snapshot, it will use the latest avaliable snapshot."
-            },
-            "notification_arn" => {
-                "type" => "string",
-                "description" => "The AWS resource name of the AWS SNS notification topic notifications will be sent to.",
-            },
-            "parameter_group_parameters" => @elasticache_parameters_primitive,
-            "parameter_group_family" => {
-                "type" => "String",
-                "enum" => ["memcached1.4", "redis2.6", "redis2.8"],
-                "description" => "The cache cluster family to create the Parameter Group for. The family type must be the same type as the cache cluster major version - eg if you set engine_version to 2.6 this parameter must be set to redis2.6."
-            }
-        }
-    }
-
-    @lb_healthcheck_primitive = {
-      "type" => "object",
-      "additionalProperties" => false,
-      "description" => "The method used by a Load Balancer to check the health of its client nodes.",
-      "required" => ["target"],
-      "properties" => {
-        "target" => {
-          "type" => "String",
-          "pattern" => "^(TCP:\\d+|SSL:\\d+|HTTP:\\d+\\/.*|HTTPS:\\d+\\/.*)$",
-          "description" => 'Specifies the instance being checked. The protocol is either TCP, HTTP, HTTPS, or SSL. The range of valid ports is one (1) through 65535.
-    
-      TCP is the default, specified as a TCP: port pair, for example "TCP:5000". In this case a healthcheck simply attempts to open a TCP connection to the instance on the specified port. Failure to connect within the configured timeout is considered unhealthy.
-    
-      SSL is also specified as SSL: port pair, for example, SSL:5000.
-    
-      For HTTP or HTTPS protocol, the situation is different. You have to include a ping path in the string. HTTP is specified as a HTTP:port;/;PathToPing; grouping, for example "HTTP:80/weather/us/wa/seattle". In this case, a HTTP GET request is issued to the instance on the given port and path. Any answer other than "200 OK" within the timeout period is considered unhealthy.
-    
-      The total length of the HTTP ping target needs to be 1024 16-bit Unicode characters or less.'
-        },
-        "timeout" => {
-          "type" => "integer",
-          "default" => 5
-        },
-        "interval" => {
-          "type" => "integer",
-          "default" => 30
-        },
-        "unhealthy_threshold" => {
-          "type" => "integer",
-          "default" => 2
-        },
-        "healthy_threshold" => {
-          "type" => "integer",
-          "default" => 10
-        },
-        "httpcode" => {
-          "type" => "string",
-          "default" => "200,301,302",
-          "description" => "The HTTP codes to use when checking for a successful response from a target."
-        }
-      }
-    }
-
-    @loadbalancer_primitive = {
-        "type" => "object",
-        "title" => "loadbalancer",
-        "description" => "Create Load Balancers",
-        "additionalProperties" => false,
-        "required" => ["name", "listeners", "cloud"],
-        "properties" => {
-            "name" => {
-                "type" => "string",
-                "description" => "Note that Amazon Elastic Load Balancer names must be relatively short. Brevity is recommended here."
-            },
-            "override_name" => {
-                "type" => "string",
-                "description" => "Normally an ELB's Amazon identifier will be named the same as its internal Mu identifier. This allows you to override that name with a specific value. Note that Amazon Elastic Load Balancer names must be relatively short. Brevity is recommended here. Note also that setting a static name here may result in deploy failures due to name collision with existing ELBs."
-            },
-            "classic" => {
-                "type" => "boolean",
-                "default" => false,
-                "description" => "For AWS Load Balancers, revert to the old API instead ElasticLoadbalancingV2 (ALBs)"
-            },
-            "scrub_mu_isms" => {
-                "type" => "boolean",
-                "default" => false,
-                "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template."
-            },
-            "tags" => @tags_primitive,
-            "optional_tags" => {
-                "type" => "boolean",
-                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
-                "default" => true
-            },
-            "add_firewall_rules" => @additional_firewall_rules,
-            "dns_records" => dns_records_primitive(need_target: false, default_type: "R53ALIAS", need_zone: true),
-            "dns_sync_wait" => {
-                "type" => "boolean",
-                "description" => "Wait for DNS record to propagate in DNS Zone.",
-                "default" => true,
-            },
-            "alarms" => @alarm_common_primitive,
-            "ingress_rules" => {
-                "type" => "array",
-                "items" => @firewall_ruleset_rule_primitive
-            },
-            "region" => MU::Config.region_primitive,
-            "cloud" => @cloud_primitive,
-            "cross_zone_unstickiness" => {
-                "type" => "boolean",
-                "default" => false,
-                "description" => "Set true to disable Cross-Zone load balancing, which we enable by default: http://docs.aws.amazon.com/ElasticLoadBalancing/latest/DeveloperGuide/how-elb-works.html#request-routing"
-            },
-            "idle_timeout" => {
-                "type" => "integer",
-                "description" => "Specifies the time (in seconds) the connection is allowed to be idle (no data has been sent over the connection) before it is closed by the load balancer.",
-                "default" => 60
-            },
-            "lb_cookie_stickiness_policy" => {
-                "type" => "object",
-                "additionalProperties" => false,
-                "description" => "Creates a cookie to tie client sessions to back-end servers. Only valid with HTTP/HTTPS listeners.",
-                "required" => ["name"],
-                "properties" => {
-                    "name" => {
-                        "type" => "string",
-                        "description" => "The name of this policy.",
-                        "pattern" => "^([a-zA-Z0-9\\-]+)$"
-                    },
-                    "timeout" => {
-                        "type" => "integer",
-                        "description" => "The time period in seconds after which the cookie should be considered stale. Not specifying this parameter indicates that the sticky session will last for the duration of the browser session."
-                    }
-                }
-            },
-            "ip_stickiness_policy" => {
-                "type" => "object",
-                "additionalProperties" => false,
-                "description" => "Use IP addresses or IP/port/proto combinations to map client sessions to back-end servers. Only valid with Google Cloud, and is ignored for UDP-based listeners.",
-                "properties" => {
-                    "map_proto" => {
-                        "type" => "boolean",
-                        "default" => false,
-                        "description" => "Include the client protocol as well as the IP when determining session affinity. Only valid for internal load balancers."
-                    },
-                    "map_port" => {
-                        "type" => "boolean",
-                        "default" => false,
-                        "description" => "Include the client port as well as the IP when determining session affinity. Only valid for internal load balancers, and only in combination with map_proto."
-                    }
-                }
-            },
-            "app_cookie_stickiness_policy" => {
-                "type" => "object",
-                "additionalProperties" => false,
-                "description" => "Use an application cookie to tie client sessions to back-end servers. Only valid with HTTP/HTTPS listeners, on AWS.",
-                "required" => ["name", "cookie"],
-                "properties" => {
-                    "name" => {
-                        "type" => "string",
-                        "description" => "The name of this policy.",
-                        "pattern" => "^([a-zA-Z0-9\\-]+)$"
-                    },
-                    "cookie" => {
-                        "type" => "string",
-                        "description" => "The name of an application cookie to use for session tracking."
-                    }
-                }
-            },
-            "connection_draining_timeout" => {
-                "type" => "integer",
-                "description" => "Permits the load balancer to complete connections to unhealthy backend instances before retiring them fully. Timeout is in seconds; set to -1 to disable.",
-                "default" => -1
-            },
-            "private" => {
-                "type" => "boolean",
-                "default" => false,
-                "description" => "Set to true if this ELB should only be assigned a private IP address (no public interface)."
-            },
-            "global" => {
-                "type" => "boolean",
-                "default" => true,
-                "description" => "Google Cloud only. Deploy as a global artifact instead of in a specific region. Not valid for UDP targets."
-            },
-            "dependencies" => @dependencies_primitive,
-            "vpc" => vpc_reference_primitive(MANY_SUBNETS, NO_NAT_OPTS, "all_public"),
-            "zones" => {
-                "type" => "array",
-                "minItems" => 1,
-                "description" => "Availability Zones in which this Load Balancer can operate. Specified Availability Zones must be in the same EC2 Region as the load balancer. Traffic will be equally distributed across all zones. If no zones are specified, we'll use all zones in the current region.",
-                "items" => {
-                    "type" => "string"
-                }
-            },
-            "access_log" => {
-              "type" => "object",
-                "additionalProperties" => false,
-                "description" => "Access logging for Load Balancer requests.",
-                "required" => ["enabled", "s3_bucket_name"],
-                "properties" => {
-                "enabled" => {
-                  "type" => "boolean",
-                  "description" => "Toggle access log publishing.",
-                  "default" => false
-                },
-                "s3_bucket_name" => {
-                  "type" => "string",
-                  "description" => "The Amazon S3 bucket to which to publish access logs."
-                },
-                "s3_bucket_prefix" => {
-                  "type" => "string",
-                  "default" => "",
-                  "description" => "The path within the S3 bucket to which to publish the logs."
-                },
-                "emit_interval" => {
-                  "type" => "integer",
-                  "description" => "How frequently to publish access logs.",
-                  "enum" => [5, 60],
-                  "default" => 60
-                }
-              }
-            },
-            # 'healthcheck' was a first-class parmeter for classic ELBs, but is
-            # embedded inside targetgroups for ALBs. In Google, they can be
-            # even more arbitrary, so we also allow you to embed them with
-            # listeners.
-            "healthcheck" => @lb_healthcheck_primitive,
-            "targetgroups" => {
-              "type" => "array",
-              "items" => {
-                "type" => "object",
-                "additionalProperties" => false,
-                "description" => "A grouping of ",
-                "required" => ["name", "proto", "port"],
-                "properties" => {
-                  "healthcheck" => @lb_healthcheck_primitive,
-                  "name" => {
-                    "type" => "string"
-                  },
-                  "proto" => {
-                    "type" => "string",
-                    "enum" => ["HTTP", "HTTPS"],
-                  },
-                  "httpcode" => {
-                    "type" => "string",
-                    "default" => "200,301,302",
-                    "description" => "The HTTP codes to use when checking for a successful response from a target."
-                  },
-                  "port" => {
-                    "type" => "integer",
-                    "minimum" => 1,
-                    "maximum" => 65535,
-                    "description" => "Specifies the TCP port on which the instance server is listening. This property cannot be modified for the life of the load balancer."
-                  }
-                }
-              }
-            },
-            "listeners" => {
-              "type" => "array",
-              "items" => {
-                "type" => "object",
-                "required" => ["lb_protocol", "lb_port", "instance_protocol", "instance_port"],
-                "additionalProperties" => false,
-                "description" => "A list of port/protocols which this Load Balancer should answer.",
-                "properties" => {
-                  "healthcheck" => @lb_healthcheck_primitive,
-                  "lb_port" => {
-                    "type" => "integer",
-                    "description" => "Specifies the external load balancer port number. This property cannot be modified for the life of the load balancer."
-                  },
-                  "instance_port" => {
-                    "type" => "integer",
-                    "description" => "Specifies the TCP port on which the instance server is listening. This property cannot be modified for the life of the load balancer."
-                  },
-                  "lb_protocol" => {
-                    "type" => "string",
-                    "enum" => ["HTTP", "HTTPS", "TCP", "SSL", "UDP"],
-                    "description" => "Specifies the load balancer transport protocol to use for routing - HTTP, HTTPS, TCP, SSL, or UDP. SSL and UDP are only valid in Google Cloud."
-                  },
-                  "targetgroup" => {
-                    "type" => "string",
-                    "description" => "Which of our declared targetgroups should be the back-end for this listener's traffic"
-                  },
-                  "instance_protocol" => {
-                    "type" => "string",
-                    "enum" => ["HTTP", "HTTPS", "TCP", "SSL", "UDP"],
-                    "description" => "Specifies the protocol to use for routing traffic to back-end instances - HTTP, HTTPS, TCP, or SSL. This property cannot be modified for the life of the load balancer.
-
-            If the front-end protocol is HTTP or HTTPS, InstanceProtocol has to be at the same protocol layer, i.e., HTTP or HTTPS. Likewise, if the front-end protocol is TCP or SSL, InstanceProtocol has to be TCP or SSL."
-                  },
-                  "ssl_certificate_name" => {
-                    "type" => "string",
-                    "description" => "The name of a server certificate."
-                  },
-                  "ssl_certificate_id" => {
-                    "type" => "string",
-                    "description" => "The ARN string of an Amazon IAM server certificate."
-                  },
-                  "tls_policy" => {
-                    "type" => "string",
-                    "description" => "Lowest level of TLS to support.",
-                    "default" => "tls1.2",
-                    "enum" => ["tls1.0", "tls1.1", "tls1.2"]
-                  },
-                  "rules" => {
-                    "type" => "array",
-                    "items" => {
-                      "type" => "object",
-                      "description" => "Rules to route requests to different target groups based on the request path",
-                      "required" => ["conditions", "order"],
-                      "additionalProperties" => false,
-                      "properties" => {
-                        "conditions" => {
-                          "type" => "array",
-                          "items" => {
-                            "type" => "object",
-                            "description" => "Rule condition",
-                            "required" => ["field", "values"],
-                            "additionalProperties" => false,
-                            "properties" => {
-                              "field" => {
-                                "type" => "string",
-                                "default" => "path-pattern",
-                                "enum" => ["path-pattern"]
-                              },
-                              "values" => {
-                                "type" => "array",
-                                "items" => {
-                                  "type" => "string",
-                                  "description" => "A pattern to match against for this field."
-                                }
-                              }
-                            }
-                          }
-                        },
-                        "actions" => {
-                          "type" => "array",
-                          "items" => {
-                            "type" => "object",
-                            "description" => "Rule action",
-                            "required" => ["action", "targetgroup"],
-                            "additionalProperties" => false,
-                            "properties" => {
-                              "action" => {
-                                "type" => "string",
-                                "default" => "forward",
-                                "description" => "An action to take when a match occurs. Currently, only forwarding to a targetgroup is supported.",
-                                "enum" => ["forward"]
-                              },
-                              "targetgroup" => {
-                                "type" => "string",
-                                "description" => "Which of our declared targetgroups should be the recipient of this traffic. If left unspecified, will default to the default targetgroup of this listener."
-                              }
-                            }
-                          }
-                        },
-                        "order" => {
-                          "type" => "integer",
-                          "default" => 1,
-                          "description" => "The priority for the rule. Use to order processing relative to other rules."
-                        }
-                      }
-                    }
-                  }
-                }
-          }
-        }
-      }
-    }
-
-    @dns_zones_primitive = {
-        "type" => "object",
-        "additionalProperties" => false,
-        "description" => "Create a DNS zone in Route 53.",
-        "required" => ["name", "cloud"],
-        "properties" => {
-            "cloud" => @cloud_primitive,
-            "name" => {
-                "type" => "string",
-                "description" => "The domain name to create. Must comply with RFC 1123",
-                "pattern" => "^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$"
-            },
-            "scrub_mu_isms" => {
-                "type" => "boolean",
-                "default" => false,
-                "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template."
-            },
-            "private" => {
-                "type" => "boolean",
-                "default" => true,
-                "description" => "Create as a private internal domain, not publicly resolvable."
-            },
-            "all_account_vpcs" => {
-                "type" => "boolean",
-                "default" => true,
-                "description" => "If this zone is private, make sure it is resolvable from all VPCs in this account. Will supercede the list in {MU::Config::BasketofKittens::dnszones.vpcs} for VPCs in this account."
-            },
-            "records" => dns_records_primitive(),
-            "dependencies" => @dependencies_primitive,
-            "vpcs" => {
-                "type" => "array",
-                "items" => vpc_reference_primitive(NO_SUBNETS, NO_NAT_OPTS)
-            }
-        }
-    }
-
-    @server_pool_primitive = {
-        "type" => "object",
-        "additionalProperties" => false,
-        "description" => "Create scalable pools of identical servers.",
-        "required" => ["name", "min_size", "max_size", "basis", "cloud"],
-        "properties" => {
-            "dns_records" => dns_records_primitive(need_target: false, default_type: "A", need_zone: true),
-            "scrub_mu_isms" => {
-                "type" => "boolean",
-                "default" => false,
-                "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template."
-            },
-            "wait_for_nodes" => {
-                "type" => "integer",
-                "description" => "Use this parameter to force a certain number of nodes to come up and be fully bootstrapped before the rest of the pool is initialized.",
-                "default" => 0,
-            },
-            "vpc" => vpc_reference_primitive(MANY_SUBNETS, NAT_OPTS, "all_private"),
-            "min_size" => {"type" => "integer"},
-            "max_size" => {"type" => "integer"},
-            "tags" => @tags_primitive,
-            "optional_tags" => {
-                "type" => "boolean",
-                "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
-                "default" => true
-            },
-            "desired_capacity" => {
-                "type" => "integer",
-                "description" => "The number of Amazon EC2 instances that should be running in the group. Should be between min_size and max_size."
-            },
-            "default_cooldown" => {
-                "type" => "integer",
-                "default" => 300
-            },
-            "health_check_type" => {
-                "type" => "string",
-                "enum" => ["EC2", "ELB"],
-                "default" => "EC2",
-            },
-            "health_check_grace_period" => {
-                "type" => "integer",
-                "default" => 0
-            },
-            "vpc_zone_identifier" => {
-                "type" => "string",
-                "description" => "A comma-separated list of subnet identifiers of Amazon Virtual Private Clouds (Amazon VPCs).
-
-          If you specify subnets and Availability Zones with this call, ensure that the subnets' Availability Zones match the Availability Zones specified."
-            },
-            "scaling_policies" => {
-                "type" => "array",
-                "minItems" => 1,
-                "items" => {
-                    "type" => "object",
-                    "required" => ["name", "type"],
-                    "additionalProperties" => false,
-                    "description" => "A custom AWS Autoscale scaling policy for this pool.",
-                    "properties" => {
-                        "name" => {
-                            "type" => "string"
-                        },
-                        "alarms" => @alarm_common_primitive,
-                        "type" => {
-                            "type" => "string",
-                            "enum" => ["ChangeInCapacity", "ExactCapacity", "PercentChangeInCapacity"],
-                            "description" => "Specifies whether 'adjustment' is an absolute number or a percentage of the current capacity. Valid values are ChangeInCapacity, ExactCapacity, and PercentChangeInCapacity."
-                        },
-                        "adjustment" => {
-                            "type" => "integer",
-                            "description" => "The number of instances by which to scale. 'type' determines the interpretation of this number (e.g., as an absolute number or as a percentage of the existing Auto Scaling group size). A positive increment adds to the current capacity and a negative value removes from the current capacity. Used only when policy_type is set to 'SimpleScaling'"
-                        },
-                        "cooldown" => {
-                            "type" => "integer",
-                            "default" => 1,
-                            "description" => "The amount of time, in seconds, after a scaling activity completes and before the next scaling activity can start."
-                        },
-                        "min_adjustment_magnitude" => {
-                            "type" => "integer",
-                            "description" => "Used when 'type' is set to 'PercentChangeInCapacity', the scaling policy changes the DesiredCapacity of the Auto Scaling group by at least the number of instances specified in the value."
-                        },
-                        "policy_type" => {
-                          "type" => "string",
-                          "enum" => ["SimpleScaling", "StepScaling"],
-                          "description" => "'StepScaling' will add capacity based on the magnitude of the alarm breach, 'SimpleScaling' will add capacity based on the 'adjustment' value provided. Defaults to 'SimpleScaling'.",
-                          "default" => "SimpleScaling"
-                        },
-                        "metric_aggregation_type" => {
-                          "type" => "string",
-                          "enum" => ["Minimum", "Maximum", "Average"],
-                          "description" => "Defaults to 'Average' if not specified. Required when policy_type is set to 'StepScaling'",
-                          "default" => "Average"
-                        },
-                        "step_adjustments" => {
-                          "type" => "array",
-                          "minItems" => 1,
-                          "items" => {
-                            "type" => "object",
-                            "title" => "admin",
-                            "description" => "Requires policy_type 'StepScaling'",
-                            "required" => ["adjustment"],
-                            "additionalProperties" => false,
-                            "properties" => {
-                              "adjustment" => {
-                                  "type" => "integer",
-                                  "description" => "The number of instances by which to scale at this specific step. Postive value when adding capacity, negative value when removing capacity"
-                              },
-                              "lower_bound" => {
-                                  "type" => "integer",
-                                  "description" => "The lower bound value in percentage points above/below the alarm threshold at which to add/remove capacity for this step. Positive value when adding capacity and negative when removing capacity. If this is the first step and capacity is being added this value will most likely be 0"
-                              },
-                              "upper_bound" => {
-                                  "type" => "integer",
-                                  "description" => "The upper bound value in percentage points above/below the alarm threshold at which to add/remove capacity for this step. Positive value when adding capacity and negative when removing capacity. If this is the first step and capacity is being removed this value will most likely be 0"
-                              }
-                            }
-                          }
-                        },
-                        "estimated_instance_warmup" => {
-                          "type" => "integer",
-                          "description" => "Required when policy_type is set to 'StepScaling'"
-                        }
-                    }
-                }
-            },
-            "termination_policies" => {
-                "type" => "array",
-                "minItems" => 1,
-                "items" => {
-                    "type" => "String",
-                    "default" => "Default",
-                    "enum" => ["Default", "OldestInstance", "NewestInstance", "OldestLaunchConfiguration", "ClosestToNextInstanceHour"]
-                }
-            },
-            #XXX this needs its own primitive and discovery mechanism
-            "zones" => {
-              "type" => "array",
-              "minItems" => 1,
-              "items" => {
-                "type" => "string",
-              }
-            },
-            "basis" => {
-                "type" => "object",
-                "minProperties" => 1,
-                "maxProperties" => 1,
-                "additionalProperties" => false,
-                "description" => "The baseline for new servers created within this Autoscale Group.",
-                "properties" => {
-                    "instance_id" => {
-                        "type" => "string",
-                        "description" => "The AWS instance ID of an existing instance to use as the base image for this Autoscale Group.",
-                    },
-                    "server" => {
-                        "type" => "string",
-                        "description" => "Build a server defined elsewhere in this stack, then use it as the base image for this Autoscale Group.",
-                    },
-                    "launch_config" => {
-                        "type" => "object",
-                        "required" => ["name", "size"],
-                        "minProperties" => 3,
-                        "additionalProperties" => false,
-                        "description" => "An Amazon Launch Config for an Autoscale Group.",
-                        "properties" => {
-                            "name" => {"type" => "string"},
-                            "instance_id" => {
-                                "type" => "string",
-                                "description" => "The AWS instance ID of an existing instance to use as the base image in this Launch Config.",
-                            },
-                            "storage" => @storage_primitive,
-                            "server" => {
-                                "type" => "string",
-                                "description" => "Build a server defined elsewhere in this stack, create an AMI from it, then use it as the base image in this Launch Config.",
-                            },
-                            "ami_id" => {
-                                "type" => "string",
-                                "description" => "The Amazon EC2 AMI to use as the base image in this Launch Config. Will use the default for platform if not specified.",
-                            },
-                            "image_id" => {
-                              "type" => "string",
-                              "description" => "The Google Cloud Platform Image on which to base this autoscaler. Will use the default appropriate for the platform, if not specified.",
-                            },
-                            "monitoring" => {
-                                "type" => "boolean",
-                                "default" => true,
-                                "description" => "Enable instance monitoring?",
-                            },
-                            "ebs_optimized" => {
-                                "type" => "boolean",
-                                "default" => false,
-                                "description" => "EBS optimized?",
-                            },
-                            "iam_role" => {
-                                "type" => "string",
-                                "description" => "An Amazon IAM instance profile, from which to harvest role policies to merge into this node's own instance profile. If generate_iam_role is false, will simple use this profile.",
-                            },
-                            "generate_iam_role" => {
-                                "type" => "boolean",
-                                "default" => true,
-                                "description" => "Generate a unique IAM profile for this Server or ServerPool.",
-                            },
-                            "iam_policies" => {
-                                "type" => "array",
-                                "items" => {
-                                    "description" => "Amazon-compatible role policies which will be merged into this node's own instance profile.  Not valid with generate_iam_role set to false. Our parser expects the role policy document to me embedded under a named container, e.g. { 'name_of_policy':'{ <policy document> } }",
-                                    "type" => "object"
-                                }
-                            },
-                            "spot_price" => {
-                                "type" => "string",
-                            },
-                            "kernel_id" => {
-                                "type" => "string",
-                                "description" => "Kernel to use with servers created from this Launch Configuration.",
-                            },
-                            "ramdisk_id" => {
-                                "type" => "string",
-                                "description" => "Kernel to use with servers created from this Launch Configuration.",
-                            },
-                            "size" => {
-                              "description" => "The Amazon EC2 instance type to use when creating this server.",
-                              "type" => "string"
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    @server_pool_primitive["properties"].merge!(@server_common_properties)
-
-    @storage_pool_primitive = {
-      "type" => "object",
-      "title" => "Storage Pool",
-      "description" => "Create a storage pool.",
-      "required" => ["name", "cloud"],
-      "additionalProperties" => false,
-      "properties" => {
-        "cloud" => @cloud_primitive,
-        "name" => {"type" => "string"},
-        "region" => MU::Config.region_primitive,
-        "tags" => @tags_primitive,
-        "optional_tags" => {
-          "type" => "boolean",
-          "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
-          "default" => true
-        },
-        "dependencies" => @dependencies_primitive,
-        "storage_type" => {
-          "type" => "string",
-          "enum" => ["generalPurpose", "maxIO"],
-          "description" => "The storage type / performance mode of this storage pool. Defaults to generalPurpose",
-          "default" => "generalPurpose"
-        }
-      }
-    }
-
-    @storage_pool_mount_points_primitive = {
-      "mount_points" => {
-        "type" => "array",
-        "minItems" => 1,
-        "items" => {
-          "type" => "object",
-          "required" => ["name"],
-          "additionalProperties" => false,
-          "description" => "Mount points for AWS EFS.",
-          "properties" => {
-            "name" => {
-              "type" => "string"
-            },
-            "directory" => {
-              "type" => "string",
-              "description" => "The local directory this mount point will be mounted to",
-              "default" => "/efs"
-            },
-            "vpc" => vpc_reference_primitive(ONE_SUBNET+MANY_SUBNETS, NO_NAT_OPTS, "all_private"),
-            "add_firewall_rules" => @additional_firewall_rules,
-            "ingress_rules" => {
-              "type" => "array",
-              "items" => @firewall_ruleset_rule_primitive
-            },
-            "ip_address" => {
-              "type" => "string",
-              "pattern" => "^\\d+\\.\\d+\\.\\d+\\.\\d+$",
-              "description" => "The private IP address to assign to the mount point."
-            }
-          }
-        }
-      }
-    }
-    @storage_pool_primitive["properties"].merge!(@storage_pool_mount_points_primitive)
-
-    @function_primitive = {
-      "type" => "object",
-      "title" => "Function",
-      "description" => "Create a cloud function.",
-      "required" => ["name", "cloud","runtime","iam_role","handler","code","region"],
-      "additionalProperties" => false,
-      "properties" => {
-        "cloud" => @cloud_primitive,
-        "name" => {"type" => "string"},
-        "runtime" => {"type" => "string"},
-        "iam_role" => {"type" => "string"},
-        "region" => MU::Config.region_primitive,
-        "vpc" => vpc_reference_primitive(ONE_SUBNET+MANY_SUBNETS, NAT_OPTS, "all"),
-        "handler" => {"type" => "string"}, 
-        "timeout" => {"type" => "string"},
-        "tags" => @tags_primitive,
-        "memory" => {"type" => "string"},
-        "environment_variable" => @lambda_env_vars_primitive,
-        "code" =>  @lambda_code_primitive,
-        "trigger" => @lambda_trigger,
-        "dependencies" => @dependencies_primitive,
-        "optional_tags" => {
-          "type" => "boolean",
-          "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true"
-        }
-      }
-    }
-    @lambda_trigger = {
-      "type" => "array",
-      "items" => {
-        "type" => "object",
-        "description" => "Trigger for lambda function",
-        "additionalProperties" => false,
-        "properties" => {
-          "type" => {"type" => "string"},
-          "name" => {"type" => "string"}
-        }
-      }
-    }
-    
-    @lambda_code_primitive = {
-      "type" => "array",
-      "items" => {
-        "type" => "object",
-        "description" => "",
-        "additionalProperties" => false,
-        "properties" => {
-          "s3_bucket" => {"type" => "string"},
-          "s3_key" => {"type" => "string"}
-        }
-      }
-    }
-
-   @lambda_env_vars_primitive = {
-        "type" => "array",
-        "minItems" => 1,
-        "items" => {
-            "description" => "environment variables",
-            "type" => "object",
-            "title" => "tags",
-            "required" => ["key", "value"],
+            "title" => "admin",
+            "description" => "Administrative contacts for this application stack. Will be automatically set to invoking Mu user, if not specified.",
+            "required" => ["name", "email"],
             "additionalProperties" => false,
             "properties" => {
-                "key" => {
-                    "type" => "string",
-                },
-                "value" => {
-                    "type" => "string",
-                }
-            }
-        }
-    }
-   @@schema = {
-        "$schema" => "http://json-schema.org/draft-04/schema#",
-        "title" => "MU Application",
-        "type" => "object",
-        "description" => "A MU application stack, consisting of at least one resource.",
-        "required" => ["admins", "appname"],
-        "properties" => {
-            "appname" => {
+              "name" => {"type" => "string"},
+              "email" => {"type" => "string"},
+              "public_key" => {
                 "type" => "string",
-                "description" => "A name for your application stack. Should be short, but easy to differentiate from other applications.",
-            },
-            "scrub_mu_isms" => {
-                "type" => "boolean",
-                "description" => "When 'cloud' is set to 'CloudFormation,' use this flag to strip out Mu-specific artifacts (tags, standard userdata, naming conventions, etc) to yield a clean, source-agnostic template. Setting this flag here will override declarations in individual resources."
-            },
-            "project" => {
-              "type" => "string",
-              "description" => "GOOGLE: The project into which to deploy resources",
-              "default" => MU::Cloud::Google.defaultProject
-            },
-            "region" => MU::Config.region_primitive,
-            "us_only" => {
-                "type" => "boolean",
-                "description" => "For resources which span regions, restrict to regions inside the United States",
-                "default" => false
-            },
-            "conditions" => {
-                "type" => "array",
-                "items" => {
-                  "type" => "object",
-                  "required" => ["name", "cloudcode"],
-                  "description" => "CloudFormation-specific. Define Conditions as in http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/conditions-section-structure.html. Arguments must use the cloudCode() macro.",
-                  "properties" => {
-                    "name" => { "required" => true, "type" => "string" },
-                    "cloudcode" => { "required" => true, "type" => "string" },
-                  }
-                }
-            },
-            "parameters" => {
-                "type" => "array",
-                "items" => {
-                    "type" => "object",
-                    "title" => "parameter",
-                    "description" => "Parameters to be substituted elsewhere in this Basket of Kittens as ERB variables (<%= varname %>)",
-                    "additionalProperties" => false,
-                    "properties" => {
-                      "name" => { "required" => true, "type" => "string" },
-                      "default" => { "type" => "string" },
-                      "list_of" => {
-                        "type" => "string",
-                        "description" => "Treat the value as a comma-separated list of values with this key name, equivalent to CloudFormation's various List<> types. For example, set to 'subnet_id' to pass values as an array of subnet identifiers as the 'subnets' argument of a VPC stanza."
-                      },
-                      "prettyname" => {
-                        "type" => "string",
-                        "description" => "An alternative name to use when generating parameter fields in, for example, CloudFormation templates"
-                      },
-                      "description" => {"type" => "string"},
-                      "cloudtype" => {
-                        "type" => "string",
-                        "description" => "A platform-specific string describing the type of validation to use for this parameter. E.g. when generating a CloudFormation template, set to AWS::EC2::Image::Id to validate input as an AMI identifier."
-                      },
-                      "required" => {
-                        "type" => "boolean",
-                        "default" => true
-                      },
-                      "valid_values" => {
-                        "type" => "array",
-                        "description" => "List of valid values for this parameter. Can only be a list of static strings, for now.",
-                        "items" => {
-                          "type" => "string"
-                        }
-                      }
-                    }
-                }
-            },
-            # TODO availability zones (or an array thereof) 
-
-            "loadbalancers" => {
-                "type" => "array",
-                "items" => @loadbalancer_primitive
-            },
-            "server_pools" => {
-                "type" => "array",
-                "items" => @server_pool_primitive
-            },
-            "cache_clusters" => {
-                "type" => "array",
-                "items" => @cache_cluster_primitive
-            },
-            "alarms" => {
-                "type" => "array",
-                "items" => @alarm_primitive
-            },
-            "logs" => {
-                "type" => "array",
-                "items" => @log_primitive
-            },
-            "dnszones" => {
-                "type" => "array",
-                "items" => @dns_zones_primitive
-            },
-            "databases" => {
-                "type" => "array",
-                "items" => @database_primitive
-            },
-            "servers" => {
-                "type" => "array",
-                "items" => @server_primitive
-            },
-            "firewall_rules" => {
-                "type" => "array",
-                "items" => @firewall_ruleset_primitive
-            },
-            "collections" => {
-                "type" => "array",
-                "items" => @cloudformation_primitive
-            },
-            "vpcs" => {
-                "type" => "array",
-                "items" => @vpc_primitive
-            },
-            "storage_pools" => {
-              "type" => "array",
-              "items" => @storage_pool_primitive
-            },
-            "functions" => {
-              "type" => "array",
-              "items" => @function_primitive
-            },
-            "admins" => {
-                "type" => "array",
-                "items" => {
-                    "type" => "object",
-                    "title" => "admin",
-                    "description" => "Administrative contacts for this application stack. Will be automatically set to invoking Mu user, if not specified.",
-                    "required" => ["name", "email"],
-                    "additionalProperties" => false,
-                    "properties" => {
-                        "name" => {"type" => "string"},
-                        "email" => {"type" => "string"},
-                        "public_key" => {
-                            "type" => "string",
-                            "description" => "An OpenSSH-style public key string. This will be installed on all instances created in this deployment."
-                        }
-                    }
-                },
-                "minItems" => 1,
-                "uniqueItems" => true
+                "description" => "An OpenSSH-style public key string. This will be installed on all instances created in this deployment."
+              }
             }
-        },
-        "additionalProperties" => false
+          },
+          "minItems" => 1,
+          "uniqueItems" => true
+        }
+      },
+      "additionalProperties" => false
     }
 
+    failed = []
+
+    # Load all of the config stub files at the Ruby level
+    MU::Cloud.resource_types.each_pair { |type, cfg|
+      begin
+        require "mu/config/#{cfg[:cfg_name]}"
+      rescue LoadError => e
+#        raise MuError, "MU::Config implemention of #{type} missing from modules/mu/config/#{cfg[:cfg_name]}.rb"
+        MU.log "MU::Config::#{type} stub class is missing", MU::ERR
+        failed << type
+        next
+      end
+    }
+
+    MU::Cloud.resource_types.each_pair { |type, cfg|
+      begin
+        schemaclass = Object.const_get("MU").const_get("Config").const_get(type)
+        [:schema, :validate].each { |method|
+          if !schemaclass.respond_to?(method)
+            MU.log "MU::Config::#{type}.#{method.to_s} doesn't seem to be implemented", MU::ERR
+            failed << type
+          end
+        }
+        next if failed.include?(type)
+        @@schema["properties"][cfg[:cfg_plural]] = {
+          "type" => "array",
+          "items" => schemaclass.schema
+        }
+        @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["dependencies"] = MU::Config.dependencies_primitive
+        @@schema["properties"][cfg[:cfg_plural]]["items"]["properties"]["cloud"] = MU::Config.cloud_primitive
+        @@schema["properties"][cfg[:cfg_plural]]["items"]["title"] = type.to_s
+      rescue NameError => e
+        failed << type
+        MU.log "Error loading #{type} schema from mu/config/#{cfg[:cfg_name]}", MU::ERR, details: "\t"+e.inspect+"\n\t"+e.backtrace[0]
+      end
+    }
+    failed.uniq!
+    if failed.size > 0
+      raise MuError, "Resource type config loaders failed checks, aborting"
+    end
 
   end #class
 end #module

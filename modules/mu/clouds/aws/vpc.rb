@@ -491,7 +491,7 @@ module MU
                   "logs:DescribeLogStreams",
                   "logs:PutLogEvents"
                 ],
-                "Resource": "arn:aws:logs:'+@config["region"]+':'+MU.account_number+':log-group:'+log_group_name+'*"
+                "Resource": "arn:'+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+':logs:'+@config["region"]+':'+MU.account_number+':log-group:'+log_group_name+'*"
               }
             ]
           }'
@@ -591,6 +591,7 @@ module MU
                   raise MuError, "No result looking for #{@mu_name}'s peer VPCs (#{peer['vpc']})" if peer_obj.nil? or peer_obj.first.nil?
                   peer_obj = peer_obj.first
                   peer_id = peer_obj.cloud_id
+MU.log peer_obj.class.name, MU::WARN, details: peer_obj
 
                   MU.log "Initiating peering connection from VPC #{@config['name']} (#{@config['vpc_id']}) to #{peer_id}"
                   resp = MU::Cloud::AWS.ec2(@config['region']).create_vpc_peering_connection(
@@ -630,9 +631,9 @@ module MU
               # Create routes to our new friend.
               MU::Cloud::AWS::VPC.listAllSubnetRouteTables(@config['vpc_id'], region: @config['region']).each { |rtb_id|
                 my_route_config = {
-                    :route_table_id => rtb_id,
-                    :destination_cidr_block => peer_obj.cloud_desc.cidr_block,
-                    :vpc_peering_connection_id => peering_id
+                  :route_table_id => rtb_id,
+                  :destination_cidr_block => peer_obj.cloud_desc.cidr_block,
+                  :vpc_peering_connection_id => peering_id
                 }
                 begin
                   resp = MU::Cloud::AWS.ec2(@config['region']).create_route(my_route_config)
@@ -739,9 +740,9 @@ module MU
             if tag_value
               MU.log "Searching for VPC by tag:#{tag_key}=#{tag_value}", MU::DEBUG
               resp = MU::Cloud::AWS.ec2(region).describe_vpcs(
-                  filters: [
-                      {name: "tag:#{tag_key}", values: [tag_value]}
-                  ]
+                filters: [
+                  {name: "tag:#{tag_key}", values: [tag_value]}
+                ]
               )
               if resp.data.vpcs.nil? or resp.data.vpcs.size == 0
                 return nil
@@ -1194,7 +1195,33 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
-          schema = {}
+          # Flow Logs can be declared at the VPC level or the subnet level
+          flowlogs = {
+            "traffic_type_to_log" => {
+              "type" => "string",
+              "description" => "The class of traffic to log - accepted traffic, rejected traffic or all traffic.",
+              "enum" => ["accept", "reject", "all"],
+              "default" => "all"
+            },
+            "log_group_name" => {
+              "type" => "string",
+              "description" => "An existing CloudWachLogs log group the traffic will be logged to. If not provided, a new one will be created"
+            },
+            "enable_traffic_logging" => {
+              "type" => "boolean",
+              "description" => "If traffic logging is enabled or disabled. Will be enabled on all subnets and network interfaces if set to true on a VPC",
+              "default" => false
+            }
+          }
+
+          schema = {
+            "subnets" => {
+              "items" => {
+                "properties" => flowlogs
+              }
+            }
+          }
+          schema.merge!(flowlogs)
           [toplevel_required, schema]
         end
 
@@ -1248,6 +1275,7 @@ module MU
           nat_gateway_added = false
           public_rtbs = []
           private_rtbs = []
+          nat_routes = {}
           vpc['route_tables'].each { |table|
             routes = []
             table['routes'].each { |route|
@@ -1633,8 +1661,8 @@ module MU
                 MU.log "Deleting #{table.route_table_id}'s route for #{route.destination_cidr_block}"
                 begin
                   MU::Cloud::AWS.ec2(region).delete_route(
-                      route_table_id: table.route_table_id,
-                      destination_cidr_block: route.destination_cidr_block
+                    route_table_id: table.route_table_id,
+                    destination_cidr_block: route.destination_cidr_block
                   ) if !noop
                 rescue Aws::EC2::Errors::InvalidRouteNotFound
                   MU.log "Route #{table.route_table_id} has already been deleted", MU::WARN
@@ -1773,13 +1801,13 @@ module MU
                 ]
             ).vpc_peering_connections
             my_peer_conns.concat(MU::Cloud::AWS.ec2(region).describe_vpc_peering_connections(
-                                     filters: [
-                                         {
-                                             name: "accepter-vpc-info.vpc-id",
-                                             values: [vpc.vpc_id]
-                                         }
-                                     ]
-                                 ).vpc_peering_connections)
+              filters: [
+                {
+                  name: "accepter-vpc-info.vpc-id",
+                  values: [vpc.vpc_id]
+                }
+              ]
+            ).vpc_peering_connections)
             my_peer_conns.each { |cnxn|
 
               [cnxn.accepter_vpc_info.vpc_id, cnxn.requester_vpc_info.vpc_id].each { |peer_vpc|
@@ -1811,13 +1839,20 @@ module MU
             }
 
             MU.log "Deleting VPC #{vpc.vpc_id}"
+            retries = 0
             begin
               MU::Cloud::AWS.ec2(region).delete_vpc(vpc_id: vpc.vpc_id) if !noop
             rescue Aws::EC2::Errors::InvalidVpcIDNotFound
               MU.log "VPC #{vpc.vpc_id} has already been deleted", MU::WARN
             rescue Aws::EC2::Errors::DependencyViolation => e
               MU.log "Couldn't delete VPC #{vpc.vpc_id} from #{region}: #{e.inspect}", MU::ERR#, details: caller
-              next
+              if retries < 5
+                retries += 1
+                sleep 10
+                retry
+              else
+                next
+              end
             end
 
             mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu", region: region).values.first

@@ -120,6 +120,7 @@ module MU
                   flags = { "project" => project }
                   MU::Cloud::Collection.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Collection"]) > 0
                   MU::Cloud::ServerPool.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["ServerPool"]) > 0
+                  MU::Cloud::ContainerCluster.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["ContainerCluster"]) > 0
                   MU::Cloud::Server.cleanup(skipsnapshots: @skipsnapshots, onlycloud: @onlycloud, noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Server"]) > 0
                   if provider == "AWS"
                     MU::Cloud::Database.cleanup(skipsnapshots: @skipsnapshots, noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Database"]) > 0
@@ -130,6 +131,9 @@ module MU
                     MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["FirewallRule", "Server", "ServerPool", "Database", "StoragePool"]) > 0
                   end
                   MU::Cloud::LoadBalancer.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["LoadBalancer"]) > 0
+                  if provider == "AWS" # flush security groups again
+                    MU::Cloud::FirewallRule.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["LoadBalancer"]) > 0
+                  end
                   MU::Cloud::Alarm.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Alarm"]) > 0 # XXX other resources can make these appear, I think- which ones?
                   MU::Cloud::Notification.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Notification"]) > 0 # XXX other resources can make these appear, I think- which ones?
                   MU::Cloud::Log.cleanup(noop: @noop, ignoremaster: @ignoremaster, region: r, cloud: provider, flags: flags) if @mommacat.nil? or @mommacat.numKittens(types: ["Log"]) > 0 # XXX other resources can make these appear, I think- which ones?
@@ -307,8 +311,8 @@ module MU
             raise e if !e.message.match(/^notFound: /)
           end
         end
-        if $MU_CFG['aws'] and $MU_CFG['aws']['account_number']
-          MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS...
+        if MU.myCloud == "AWS"
+          MU::Cloud::AWS.openFirewallForClients # XXX add the other clouds, or abstract
         end
       end
 

@@ -65,6 +65,9 @@ module MU
     class Server;
     end
     # Stub base class; real implementations generated at runtime
+    class ContainerCluster;
+    end
+    # Stub base class; real implementations generated at runtime
     class ServerPool;
     end
     # Stub base class; real implementations generated at runtime
@@ -156,7 +159,7 @@ module MU
         :interface => self.const_get("Server"),
         :deps_wait_on_my_creation => false,
         :waits_on_parent_completion => false,
-        :class => generic_class_methods,
+        :class => generic_class_methods + [:validateInstanceType],
         :instance => generic_instance_methods + [:groom, :postBoot, :getSSHConfig, :canonicalIP, :getWindowsAdminPassword, :active?, :groomer, :mu_windows_name, :mu_windows_name=, :reboot, :addVolume]
       },
       :ServerPool => {
@@ -168,7 +171,7 @@ module MU
         :deps_wait_on_my_creation => false,
         :waits_on_parent_completion => true,
         :class => generic_class_methods,
-        :instance => generic_instance_methods
+        :instance => generic_instance_methods + [:groom]
       },
       :VPC => {
         :has_multiples => false,
@@ -246,6 +249,17 @@ module MU
         :waits_on_parent_completion => false,
         :class => generic_class_methods,
         :instance => generic_instance_methods
+      },
+      :ContainerCluster => {
+        :has_multiples => false,
+        :can_live_in_vpc => true,
+        :cfg_name => "container_cluster",
+        :cfg_plural => "container_clusters",
+        :interface => self.const_get("ContainerCluster"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => false,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods + [:groom]
       }
     }.freeze
 
@@ -496,7 +510,6 @@ module MU
         end
 
 
-
         # @param mommacat [MU::MommaCat]: The deployment containing this cloud resource
         # @param mu_name [String]: Optional- specify the full Mu resource name of an existing resource to load, instead of creating a new one
         # @param cloud_id [String]: Optional- specify the cloud provider's identifier for an existing resource to load, instead of creating a new one
@@ -606,11 +619,11 @@ module MU
             @url = @cloudobj.url if @cloudobj.respond_to?(:url)
           elsif !@config.nil? and !@cloud_id.nil?
             # The find() method should be returning a Hash with the cloud_id
-            # as a key.
+            # as a key and a cloud platform descriptor as the value.
             begin
               matches = self.class.find(region: @config['region'], cloud_id: @cloud_id, flags: @config)
               if !matches.nil? and matches.is_a?(Hash) and matches.has_key?(@cloud_id)
-                @cloud_desc = matches[@cloud_id].cloud_desc
+                @cloud_desc = matches[@cloud_id]
               else
                 MU.log "Failed to find a live #{self.class.shortname} with identifier #{@cloud_id} in #{@config['region']}, which has a record in deploy #{@deploy.deploy_id}", MU::WARN, details: caller
               end

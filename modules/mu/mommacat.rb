@@ -83,6 +83,7 @@ module MU
     attr_reader :deploy_id
     attr_reader :timestamp
     attr_reader :appname
+    attr_reader :handle
     attr_reader :seed
     attr_reader :mu_user
     attr_reader :clouds
@@ -132,6 +133,7 @@ module MU
       MU.setVar("environment", deploy.environment)
       MU.setVar("timestamp", deploy.timestamp)
       MU.setVar("seed", deploy.seed)
+      MU.setVar("handle", deploy.handle)
     end
 
     # @param deploy_id [String]: The MU identifier of the deployment to load or create.
@@ -193,6 +195,8 @@ module MU
       @ssh_private_key = ssh_private_key
       @ssh_public_key = ssh_public_key
       @clouds = {}
+      @seed = MU.seed # pass this in
+      @handle = MU.handle # pass this in
       if set_context_to_me
         MU::MommaCat.setThreadContext(self)
       end
@@ -209,7 +213,6 @@ module MU
         if @original_config.nil? or !@original_config.is_a?(Hash)
           raise DeployInitializeError, "New MommaCat repository requires config hash"
         end
-        @seed = MU.seed # pass this in
         @appname = @original_config['name']
         MU::Cloud.resource_types.each { |cloudclass, data|
           if !@original_config[data[:cfg_plural]].nil? and @original_config[data[:cfg_plural]].size > 0
@@ -290,7 +293,7 @@ module MU
                     attrs[:interface].new(mommacat: self, kitten_cfg: orig_cfg, mu_name: mu_name)
                   }
                 else
-                  # XXX hack for old deployments
+                  # XXX hack for old deployments, this can go away some day
                   if data['mu_name'].nil? or data['mu_name'].empty?
                     if res_type.to_s == "LoadBalancer" and !data['awsname'].nil?
                       data['mu_name'] = data['awsname'].dup
@@ -761,7 +764,9 @@ module MU
         syncLitter(@deployment["servers"].keys, triggering_node: kitten)
       end
       MU::MommaCat.unlock(cloud_id+"-mommagroom")
-      MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS...
+      if MU.myCloud == "AWS"
+        MU::Cloud::AWS.openFirewallForClients # XXX add the other clouds, or abstract
+      end
       MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
       MU::MommaCat.syncMonitoringConfig(false)
       MU::MommaCat.createStandardTags(cloud_id, region: kitten.config["region"])
@@ -1000,7 +1005,9 @@ module MU
       @cleanup_threads = []
 
       if purged > 0
-        MU::Cloud::AWS.openFirewallForClients # XXX should only run if we're in AWS...
+        if MU.myCloud == "AWS"
+          MU::Cloud::AWS.openFirewallForClients # XXX add the other clouds, or abstract
+        end
         MU::MommaCat.syncMonitoringConfig
       end
       MU::MommaCat.unlock("clean-terminated-instances", true)
@@ -1063,7 +1070,7 @@ module MU
             deploy_id = mu_name.sub(/^(\w+-\w+-\d{10}-[A-Z]{2})-/, '\1')
           end
         end
-#        MU.log "Called findStray with cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}", MU::DEBUG, details: flags
+        MU.log "Called findStray with cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}", MU::DEBUG, details: flags
 
         if !deploy_id.nil? and !calling_deploy.nil? and flags.empty? and
             calling_deploy.deploy_id == deploy_id and (!name.nil? or !mu_name.nil?)
@@ -1150,6 +1157,10 @@ module MU
           cloud_descs = {}
           regions.each { |r|
             cloud_descs[r] = resourceclass.find(cloud_id: cloud_id, region: r, tag_key: tag_key, tag_value: tag_value, flags: flags)
+            # Stop if you found the thing
+            if cloud_id and cloud_descs[r] and !cloud_descs[r].empty?
+              break
+            end
           }
           regions.each { |r|
             next if cloud_descs[r].nil?
@@ -1745,20 +1756,34 @@ MESSAGE_END
         require_cat_words = false
         MU.log "Got an annoying pair of letters #{seed}, not forcing cat-theming", MU::DEBUG
       end
+      allnouns = @catnouns + @jaegernouns
+      alladjs = @catadjs + @jaegeradjs
 
       tries = 0
       begin
-        first_ltr = @words.select { |word| word.match(/^#{seed[0]}/i) }
+        # Try to avoid picking something "nouny" for the first word
+        source = @catadjs + @catmixed + @jaegeradjs + @jaegermixed
+        first_ltr = source.select { |word| word.match(/^#{seed[0]}/i) }
+        if !first_ltr or first_ltr.size == 0
+          first_ltr = @words.select { |word| word.match(/^#{seed[0]}/i) }
+        end
         word_one = first_ltr.shuffle.first
+
         # If we got a paired set that happen to match our letters, go with it
         if !word_one.nil? and word_one.match(/-#{seed[1]}/i)
           word_one, word_two = word_one.split(/-/)
         else
-          second_ltr = @words.select { |word| word.match(/^#{seed[1]}/i) and !word.match(/-/i) }
+          source = @words
+          if @catwords.include?(word_one)
+            source = @jaegerwords
+          elsif require_cat_words
+            source = @catwords
+          end
+          second_ltr = source.select { |word| word.match(/^#{seed[1]}/i) and !word.match(/-/i) }
           word_two = second_ltr.shuffle.first
         end
         tries = tries + 1
-      end while tries < 50 and (word_one.nil? or word_two.nil? or word_one.match(/-/) or (require_cat_words and !@catwords.include?(word_one) and !@catwords.include?(word_two)))
+      end while tries < 50 and (word_one.nil? or word_two.nil? or word_one.match(/-/) or word_one == word_two or (allnouns.include?(word_one) and allnouns.include?(word_two)) or (alladjs.include?(word_one) and alladjs.include?(word_two)) or (require_cat_words and !@catwords.include?(word_one) and !@catwords.include?(word_two)))
 
       if tries >= 50 and (word_one.nil? or word_two.nil?)
         MU.log "I failed to generated a valid handle, faking it", MU::ERR
@@ -2056,7 +2081,7 @@ MESSAGE_END
         return
       end
 
-      MU.log "Updating these siblings in #{@deploy_id}: #{nodeclasses.join(', ')}", MU::DEBUG, details: @kittens[svrs]
+      MU.log "Updating these siblings in #{@deploy_id}: #{nodeclasses.join(', ')}", MU::DEBUG, details: @kittens[svrs].map { |nodeclass, instance| instance.keys }
 
       update_servers = []
       if nodeclasses.nil? or nodeclasses.size == 0
@@ -2072,10 +2097,7 @@ MESSAGE_END
             next if !triggering_node.nil? and mu_name == triggering_node.mu_name
             if nodeclasses.include?(node.config['name']) and !node.groomer.nil?
               if !node.deploydata.keys.include?('nodename')
-                # Our deploydata gets corrupted often with server pools, in this case the the deploy data structure of some nodes is corrupt the hashes can become too nested and also invalid.
-                # When we try to synchronize all our nodes we may get a 'stack level too deep' error.
-                # The choice here is to either fail more gracefully or try to clean up our deployment data. This is an attempt to implement the second option
-                MU.log "#{nodeclass}, #{mu_name} deploy data is corrupt not syncing", MU::ERR, details: node.deploydata
+                MU.log "#{nodeclass}, #{mu_name} deploy data is missing (possibly retired), not syncing it", MU::WARN, details: node.deploydata
                 @kittens[svrs][nodeclass].delete(mu_name)
               else
                 update_servers << node
@@ -2086,18 +2108,30 @@ MESSAGE_END
       end
       return if update_servers.size == 0
 
+      update_servers.each { |node|
+        # Not clear where this pollution comes from, but let's stick a temp
+        # fix in here.
+        if node.deploydata['nodename'] != node.mu_name
+          MU.log "Node #{node.mu_name} had wrong or missing nodename (#{node.deploydata['nodename']}), correcting", MU::WARN
+          node.deploydata['nodename'] = node.mu_name
+          @deployment[svrs][node.config['name']][node.mu_name]['nodename'] = node.mu_name
+          save!
+        end
+      }
+
       # Merge everyone's deploydata together
       if !save_all_only
         skip = []
-        update_servers.each { |sibling|
-          if sibling.mu_name.nil? or sibling.deploydata.nil? or sibling.config.nil?
-            MU.log "Missing mu_name #{sibling.mu_name}, deploydata, or config from #{sibling} in syncLitter", MU::ERR, details: sibling.deploydata
+        update_servers.each { |node|
+          if node.mu_name.nil? or node.deploydata.nil? or node.config.nil?
+            MU.log "Missing mu_name #{node.mu_name}, deploydata, or config from #{node} in syncLitter", MU::ERR, details: node.deploydata
             next
           end
-          if !@deployment[svrs][sibling.config['name']].has_key?(sibling.mu_name) or @deployment[svrs][sibling.config['name']][sibling.mu_name] != sibling.deploydata
-            @deployment[svrs][sibling.config['name']][sibling.mu_name] = sibling.deploydata
+
+          if !@deployment[svrs][node.config['name']].has_key?(node.mu_name) or @deployment[svrs][node.config['name']][node.mu_name] != node.deploydata
+            @deployment[svrs][node.config['name']][node.mu_name] = node.deploydata
           else
-            skip << sibling
+            skip << node
           end
         }
         update_servers = update_servers - skip
@@ -2133,7 +2167,7 @@ MESSAGE_END
     # Given a MU::Cloud object, return the generic self-signed SSL
     # certficate we made for it. If one doesn't exist yet, generate it first.
     # If it's a Windows node, also generate a certificate for WinRM client auth.
-    # @param server [MU::Cloud::Server]: The server for which to generate or return the cert
+    # @param resource [MU::Cloud]: The server or other MU::Cloud resource object for which to generate or return the cert
     # @param poolname [Boolean]: If true, generate certificates for the base name of the server pool of which this node is a member, rather than for the individual node
     # @param keysize [Integer]: The size of the private key to use when generating this certificate
     def nodeSSLCerts(resource, poolname = false, keysize = 4096)
@@ -2175,7 +2209,7 @@ MESSAGE_END
           end
         end
 
-        if resource.class == MU::Cloud::Server and resource.windows?
+        if [MU::Cloud::Server, MU::Cloud::AWS::Server, MU::Cloud::Google::Server].include?(resource.class) and resource.windows?
           if File.exists?("#{MU.mySSLDir}/#{cert_cn}-winrm.crt") and
              File.exists?("#{MU.mySSLDir}/#{cert_cn}-winrm.key")
             results[cert_cn+"-winrm"] = [File.read("#{MU.mySSLDir}/#{cert_cn}-winrm.crt"), File.read("#{MU.mySSLDir}/#{cert_cn}-winrm.key")]
@@ -2236,21 +2270,21 @@ MESSAGE_END
           end
 
           pfx = nil
-          if resource.class == MU::Cloud::Server and resource.windows?
+          cert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/#{certname}.crt"
+          if [MU::Cloud::Server, MU::Cloud::AWS::Server, MU::Cloud::Google::Server].include?(resource.class) and resource.windows?
             cacert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/Mu_CA.pem"
             pfx = OpenSSL::PKCS12.create(nil, nil, key, cert, [cacert], nil, nil, nil, nil)
             open("#{MU.mySSLDir}/#{certname}.pfx", 'w', 0644) { |io|
               io.write pfx.to_der
             }
-            
           end
-          cert = OpenSSL::X509::Certificate.new File.read "#{MU.mySSLDir}/#{certname}.crt"
+
           results[certname] = [cert, key]
 
           if resource.config['cloud'] == "AWS"
             MU::Cloud::AWS.writeDeploySecret(@deploy_id, cert.to_pem, certname+".crt")
             MU::Cloud::AWS.writeDeploySecret(@deploy_id, key.to_pem, certname+".key")
-            if resource.windows?
+            if pfx
               MU::Cloud::AWS.writeDeploySecret(@deploy_id, pfx.to_der, certname+".pfx")
             end
 # XXX add google logic, or better yet abstract this method
@@ -2584,6 +2618,7 @@ MESSAGE_END
           @timestamp = @deployment['timestamp']
           @seed = @deployment['seed']
           @appname = @deployment['appname']
+          @handle = @deployment['handle']
 
           return if deployment_json_only
         end
@@ -2625,9 +2660,19 @@ MESSAGE_END
       }
     end
 
-    @catwords = %w{abyssian acinonyx alley angora bastet bengal birman bobcat bobtail bombay burmese calico chartreux cheetah cheshire cornish-rex curl devon devon-rex dot egyptian-mau feline felix feral fuzzy ginger havana himilayan jaguar japanese-bobtail javanese kitty khao-manee leopard lion lynx maine-coon manx marmalade maru mau mittens moggy munchkin neko norwegian ocelot pallas panther patches paws persian peterbald phoebe polydactyl purr queen quick ragdoll roar russian-blue saber savannah scottish-fold sekhmet serengeti shorthair siamese siberian singapura skogkatt snowshoe socks sphinx spot stray tabby tail tiger tom tonkinese tortoiseshell turkish-van tuxedo uncia whiskers wildcat yowl}
-    @noncatwords = %w{alpha amber auburn azure beta brave bravo brawler charlie chocolate chrome cinnamon corinthian coyote crimson dancer danger dash delta don duet echo edge electric elite enigma eruption eureka fearless foxtrot galvanic gold grace grey horizon hulk hyperion illusion imperative india intercept ivory jade jaeger juliet kaleidoscope kilo lucky mammoth night nova november ocean olive oscar quiescent rhythm rogue romeo ronin royal tacit tango typhoon ultimatum ultra umber upward victor violet vivid vulcan watchman whirlwind wright xenon xray xylem yankee yearling yell yukon zeal zero zippy zodiac}
-    @words = @catwords + @noncatwords
+    @catadjs = %w{fuzzy ginger lilac chocolate xanthic wiggly itty}
+    @catnouns = %w{bastet bobcat catnip cheetah dot felix jaguar kitty leopard lion lynx maru mittens moggy neko ocelot panther patches paws phoebe purr queen roar saber sekhmet skogkatt socks sphinx spot tail tiger tom whiskers wildcat yowl floof beans ailurophile dander dewclaw grimalkin kibble quick tuft misty simba mew quat eek ziggy}
+    @catmixed = %w{abyssinian angora bengal birman bobtail bombay burmese calico chartreux cheshire cornish-rex curl devon egyptian-mau feline havana himilayan japanese-bobtail javanese khao-manee maine-coon manx marmalade mau munchkin norwegian pallas persian peterbald polydactyl ragdoll russian-blue savannah scottish-fold serengeti shorthair siamese siberian singapura snowshoe stray tabby tonkinese tortoiseshell turkish-van tuxedo uncia caterwaul lilac-point chocolate-point mackerel maltese knead whitenose vorpal}
+    @catwords = @catadjs + @catnouns + @catmixed
+
+    @jaegeradjs = %w{azure fearless lucky olive vivid electric grey yarely violet ivory jade cinnamon crimson tacit umber mammoth ultra iron zodiac}
+    @jaegernouns = %w{horizon hulk ultimatum yardarm watchman whilrwind wright rhythm ocean enigma eruption typhoon jaeger brawler blaze vandal excalibur}
+    # we *must* have at least one of every letter of the alphabet in this pool
+    # to guarantee that we can backfill with parts of speech properly
+    @jaegermixed = %w{alpha ajax amber avenger brave bravo charlie chocolate chrome corinthian dancer danger dash delta duet echo edge elite eureka foxtrot guardian gold hyperion illusion imperative india intercept juliet kaleidoscope kilo lancer night nova november oscar omega pacer paladin quickstrike rogue romeo ronin striker tango titan valor victor vulcan warder xenomorph xenon xray xylem yankee yell yukon zeal zero zoner zodiac}
+    @jaegerwords = @jaegeradjs + @jaegernouns + @jaegermixed
+
+    @words = @catwords + @jaegerwords
 
   end #class
 end #module

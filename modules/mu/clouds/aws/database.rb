@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License in the root of the project or at
 #
-#	http://egt-labs.com/mu/LICENSE.html
+#  http://egt-labs.com/mu/LICENSE.html
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -211,7 +211,8 @@ module MU
         # @param account_number [String]: The account in which the resource resides.
         # @return [String]
         def self.getARN(resource, resource_type, client_type, region: MU.curRegion, account_number: MU.account_number)
-          "arn:aws:#{client_type}:#{region}:#{account_number}:#{resource_type}:#{resource}"
+          aws_str = MU::Cloud::AWS.isGovCloud?(region) ? "aws-us-gov" : "aws"
+          "arn:#{aws_str}:#{client_type}:#{region}:#{account_number}:#{resource_type}:#{resource}"
         end
 
         # Construct all our tags.
@@ -406,11 +407,14 @@ module MU
 
           # If referencing an existing DB, insert this deploy's DB security group so it can access db
           if @config["creation_style"] == 'existing'
-            vpc_sg_ids = Array.new
+            vpc_sg_ids = []
             database.vpc_security_groups.each { |vpc_sg|
               vpc_sg_ids << vpc_sg.vpc_security_group_id
             }
-            localdeploy_rule =  @deploy.findLitterMate(type: "firewall_rule", name: "db"+@config['name'])
+            localdeploy_rule =  @deploy.findLitterMate(type: "firewall_rule", name: "database"+@config['name'])
+            if localdeploy_rule.nil?
+              raise MU::MuError, "Database #{@config['name']} failed to find its generic security group 'database#{@config['name']}'"
+            end
             MU.log "Found this deploy's DB security group: #{localdeploy_rule.cloud_id}", MU::DEBUG
             vpc_sg_ids << localdeploy_rule.cloud_id
             mod_config = Hash.new
@@ -790,7 +794,7 @@ module MU
                         :keys => [ssh_keydir+"/"+keypairname],
                         :keys_only => true,
                         :auth_methods => ['publickey'],
-  #								:verbose => :info
+  #                :verbose => :info
                     )
                     port = gateway.open(database.endpoint.address, database.endpoint.port)
                     address = "127.0.0.1"
@@ -1349,7 +1353,34 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
+          rds_parameters_primitive = {
+            "type" => "array",
+            "minItems" => 1,
+            "items" => {
+              "description" => "The database parameter group parameter to change and when to apply the change.",
+              "type" => "object",
+              "title" => "Database Parameter",
+              "required" => ["name", "value"],
+              "additionalProperties" => false,
+              "properties" => {
+                "name" => {
+                  "type" => "string"
+                },
+                "value" => {
+                  "type" => "string"
+                },
+                "apply_method" => {
+                  "enum" => ["pending-reboot", "immediate"],
+                  "default" => "immediate",
+                  "type" => "string"
+                }
+              }
+            }
+          }
+
           schema = {
+            "db_parameter_group_parameters" => rds_parameters_primitive,
+            "cluster_parameter_group_parameters" => rds_parameters_primitive,
             "license_model" => {
               "type" => "string",
               "enum" => ["license-included", "bring-your-own-license", "general-public-license", "postgresql-license"],

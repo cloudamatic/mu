@@ -286,7 +286,7 @@ module MU
             MU.log "Creating AutoScale Launch Configuration #{@mu_name}", details: launch_options
             retries = 0
             begin
-              launch_config = MU::Cloud::AWS.autoscale.create_launch_configuration(launch_options)
+              launch_config = MU::Cloud::AWS.autoscale(@config['region']).create_launch_configuration(launch_options)
             rescue Aws::AutoScaling::Errors::ValidationError => e
               # Retries 20 because can easily go over on a slow day, add retries to warn
               if retries < 20
@@ -317,7 +317,7 @@ module MU
 
           zones_to_try = @config["zones"]
           begin
-            asg = MU::Cloud::AWS.autoscale.create_auto_scaling_group(asg_options)
+            asg = MU::Cloud::AWS.autoscale(@config['region']).create_auto_scaling_group(asg_options)
           rescue Aws::AutoScaling::Errors::ValidationError => e
             if zones_to_try != nil and zones_to_try.size > 0
               MU.log "#{e.message}, retrying with individual AZs", MU::WARN
@@ -332,7 +332,7 @@ module MU
           if zones_to_try != nil and zones_to_try.size < @config["zones"].size
             zones_to_try.each { |zone|
               begin
-                MU::Cloud::AWS.autoscale.update_auto_scaling_group(
+                MU::Cloud::AWS.autoscale(@config['region']).update_auto_scaling_group(
                     auto_scaling_group_name: @mu_name,
                     availability_zones: [zone]
                 )
@@ -368,7 +368,7 @@ module MU
               end
 
               policy_params[:min_adjustment_magnitude] = policy['min_adjustment_magnitude'] if !policy['min_adjustment_magnitude'].nil?
-              resp = MU::Cloud::AWS.autoscale.put_scaling_policy(policy_params)
+              resp = MU::Cloud::AWS.autoscale(@config['region']).put_scaling_policy(policy_params)
 
               # If we are creating alarms for scaling policies we need to have the autoscaling policy ARN
               # To make life easier we're creating the alarms here
@@ -411,11 +411,11 @@ module MU
           attempts = 0
           begin
             sleep 5
-            desc = MU::Cloud::AWS.autoscale.describe_auto_scaling_groups(auto_scaling_group_names: [@mu_name]).auto_scaling_groups.first
+            desc = MU::Cloud::AWS.autoscale(@config['region']).describe_auto_scaling_groups(auto_scaling_group_names: [@mu_name]).auto_scaling_groups.first
             MU.log "Looking for #{desc.min_size} instances in #{@mu_name}, found #{desc.instances.size}", MU::DEBUG
             attempts = attempts + 1
             if attempts > 25 and desc.instances.size == 0
-              MU.log "No instances spun up after #{5*attempts} seconds, something's wrong with Autoscale group #{@mu_name}", MU::ERR, details: MU::Cloud::AWS.autoscale.describe_scaling_activities(auto_scaling_group_name: @mu_name).activities
+              MU.log "No instances spun up after #{5*attempts} seconds, something's wrong with Autoscale group #{@mu_name}", MU::ERR, details: MU::Cloud::AWS.autoscale(@config['region']).describe_scaling_activities(auto_scaling_group_name: @mu_name).activities
               raise MuError, "No instances spun up after #{5*attempts} seconds, something's wrong with Autoscale group #{@mu_name}"
             end
           end while desc.instances.size < desc.min_size
@@ -463,15 +463,49 @@ module MU
               t.join
             }
             MU.log "Setting min_size to #{@config['min_size']} and max_size to #{@config['max_size']}"
-            MU::Cloud::AWS.autoscale.update_auto_scaling_group(
-                auto_scaling_group_name: @mu_name,
-                min_size: @config['min_size'],
-                max_size: @config['max_size']
+            MU::Cloud::AWS.autoscale(@config['region']).update_auto_scaling_group(
+              auto_scaling_group_name: @mu_name,
+              min_size: @config['min_size'],
+              max_size: @config['max_size']
             )
           end
           MU.log "See /var/log/mu-momma-cat.log for asynchronous bootstrap progress.", MU::NOTICE
 
           return asg
+        end
+
+        # Called automatically by {MU::Deploy#createResources}
+        def groom
+          if @config['schedule']
+            resp = MU::Cloud::AWS.autoscale(@config['region']).describe_scheduled_actions(
+              auto_scaling_group_name: @mu_name
+            )
+            if resp and resp.scheduled_update_group_actions
+              resp.scheduled_update_group_actions.each { |s|
+                MU.log "Removing scheduled action #{s.scheduled_action_name} from AutoScale group #{@mu_name}"
+                MU::Cloud::AWS.autoscale(@config['region']).delete_scheduled_action(
+                  auto_scaling_group_name: @mu_name,
+                  scheduled_action_name: s.scheduled_action_name
+                )
+              }
+            end
+            @config['schedule'].each { |s|
+              sched_config = {
+                :auto_scaling_group_name => @mu_name,
+                :scheduled_action_name => s['action_name']
+              }
+              ['max_size', 'min_size', 'desired_capacity', 'recurrence'].each { |flag|
+                sched_config[flag.to_sym] = s[flag] if s[flag]
+              }
+              ['start_time', 'end_time'].each { |flag|
+                sched_config[flag.to_sym] = Time.parse(s[flag]) if s[flag]
+              }
+              MU.log "Adding scheduled action to AutoScale group #{@mu_name}", MU::NOTICE, details: sched_config
+              MU::Cloud::AWS.autoscale(@config['region']).put_scheduled_update_group_action(
+                sched_config
+              )
+            }
+          end
         end
 
         # This is a NOOP right now, because we're really an empty generator for
@@ -499,6 +533,39 @@ module MU
         def self.schema(config)
           toplevel_required = []
           schema = {
+            "schedule" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "required" => ["action_name"],
+                "description" => "Tell AutoScale to alter min/max/desired for this group at a scheduled time, optionally repeating.",
+                "properties" => {
+                  "action_name" => {
+                    "type" => "string",
+                    "description" => "A name for this scheduled action, e.g. 'scale-down-over-night'"
+                  },
+                  "start_time" => {
+                    "type" => "string",
+                    "description" => "When should this one-off scheduled behavior take effect? Times are UTC. Must be a valid Ruby Time.parse() string, e.g. '20:00' or '2014-05-12T08:00:00Z'. If declared along with 'recurrence,' AutoScaling performs the action at this time, and then performs the action based on the specified recurrence."
+                  },
+                  "end_time" => {
+                    "type" => "string",
+                    "description" => "When should this scheduled behavior end? Times are UTC. Must be a valid Ruby Time.parse() string, e.g. '20:00' or '2014-05-12T08:00:00Z'"
+                  },
+                  "recurrence" => {
+                    "type" => "string",
+                    "description" => "A recurring schedule for this action, in Unix cron syntax format (e.g. '0 20 * * *'). Times are UTC."
+                  },
+                  "min_size" => {"type" => "integer"},
+                  "max_size" => {"type" => "integer"},
+                  "desired_capacity" => {
+                    "type" => "integer",
+                    "description" => "The number of Amazon EC2 instances that should be running in the group. Should be between min_size and max_size."
+                  },
+
+                }
+              }
+            },
             "ingress_rules" => {
               "items" => {
                 "properties" => {
@@ -530,8 +597,38 @@ module MU
         def self.validateConfig(pool, configurator)
           ok = true
 
+
+          if !pool["schedule"].nil?
+            pool["schedule"].each { |s|
+              if !s['min_size'] and !s['max_size'] and !s['desired_capacity']
+                MU.log "Scheduled action for AutoScale group #{pool['name']} must declare at least one of min_size, max_size, or desired_capacity", MU::ERR
+                ok = false
+              end
+              if !s['start_time'] and !s['recurrence']
+                MU.log "Scheduled action for AutoScale group #{pool['name']} must declare at least one of start_time or recurrence", MU::ERR
+                ok = false
+              end
+              ['start_time', 'end_time'].each { |time|
+                next if !s[time]
+                begin
+                  Time.parse(s[time])
+                rescue Exception => e
+                  MU.log "Failed to parse #{time} '#{s[time]}' in scheduled action for AutoScale group #{pool['name']}: #{e.message}", MU::ERR
+                  ok = false
+                end
+              }
+              if s['recurrence'] and !s['recurrence'].match(/^\s*[\d\-\*]+\s+[\d\-\*]+\s[\d\-\*]+\s[\d\-\*]+\s[\d\-\*]\s*$/)
+                MU.log "Failed to parse recurrence '#{s['recurrence']}' in scheduled action for AutoScale group #{pool['name']}: does not appear to be a valid cron string", MU::ERR
+                ok = false
+              end
+            }
+          end
+
           if !pool["basis"]["launch_config"].nil?
             launch = pool["basis"]["launch_config"]
+
+            launch['size'] = MU::Cloud::AWS::Server.validateInstanceType(launch["size"], pool["region"])
+            ok = false if launch['size'].nil?
             if !launch['generate_iam_role']
               if !launch['iam_role'] and pool['cloud'] != "CloudFormation"
                 MU.log "Must set iam_role if generate_iam_role set to false", MU::ERR

@@ -16,5 +16,5 @@ supports 'ubuntu'
 supports 'smartos'
 # supports          'omnios'
 
-depends 'build-essential'
+depends 'build-essential', '~> 8.0'
 depends 'mysql'

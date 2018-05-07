@@ -17,4 +17,4 @@ license '# Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
 description 'Utility recipes'
 long_description IO.read(File.join(File.dirname(__FILE__), 'README.md'))
 version '0.6.0'
-depends 'windows'
+depends 'windows', '= 3.2.0'

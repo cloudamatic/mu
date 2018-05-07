@@ -469,7 +469,7 @@ module MU
   end
 
   # The cloud instance identifier of this Mu master
-  def self.myInstanceId;
+  def self.myInstanceId
     return nil if MU.myCloud.nil?
     @@myInstanceId # MU.myCloud will have set this, since it's our test variable
   end
@@ -628,21 +628,21 @@ module MU
 				"Sid": "AWSCloudTrailAclCheck20131101",
 				"Effect": "Allow",
         "Principal": {
-          "AWS": "arn:aws:iam::<%= MU.account_number %>:root",
+          "AWS": "arn:'+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+':iam::<%= MU.account_number %>:root",
           "Service": "cloudtrail.amazonaws.com"
         },
 				"Action": "s3:GetBucketAcl",
-				"Resource": "arn:aws:s3:::<%= $bucketname %>"
+				"Resource": "arn:'+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+':s3:::<%= $bucketname %>"
 			},
 			{
 				"Sid": "AWSCloudTrailWrite20131101",
 				"Effect": "Allow",
         "Principal": {
-          "AWS": "arn:aws:iam::<%= MU.account_number %>:root",
+          "AWS": "arn:'+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+':iam::<%= MU.account_number %>:root",
           "Service": "cloudtrail.amazonaws.com"
         },
 				"Action": "s3:PutObject",
-				"Resource": "arn:aws:s3:::<%= $bucketname %>/AWSLogs/<%= MU.account_number %>/*",
+				"Resource": "arn:'+(MU::Cloud::AWS.isGovCloud? ? "aws-us-gov" : "aws")+':s3:::<%= $bucketname %>/AWSLogs/<%= MU.account_number %>/*",
 				"Condition": {
 					"StringEquals": {
 						"s3:x-amz-acl": "bucket-owner-full-control"

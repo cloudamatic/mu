@@ -94,6 +94,10 @@ case node[:platform]
       action :delete
     end
 
+    file "/etc/yum.repos.d/mu-platform.repo" do
+      action :delete
+    end
+
     directory "/etc/chef" do
       action :delete
       recursive true

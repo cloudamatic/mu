@@ -38,6 +38,10 @@
       "Description": "Existing IAM instance profile/role for Mu Server to access AWS Services",
       "Type": "String"
     },
+    "masterEBSSize": {
+      "Description": "The Size of the root EBS General purpose SSD volume.", 
+      "Type": "String"
+    },
     "VpcCidr": {
       "Description": "CIDR address space for the VPC to be created.",
       "Type": "String",
@@ -720,6 +724,12 @@
         ]
       }
     },
+    "MasterInstanceEIP": {
+      "Type": "AWS::EC2::EIP",
+      "Properties" : {
+         "Domain": "vpc"
+       }
+    },
     "MasterInstance": {
       "Type": "AWS::EC2::Instance",
       "Metadata": {
@@ -767,6 +777,13 @@
         }
       },
       "Properties": {
+        "BlockDeviceMappings": [{
+         "DeviceName": "/dev/sda1",
+         "Ebs":{
+            "VolumeSize":{"Ref":"masterEBSSize"},
+            "VolumeType":"gp2"
+         }
+        }],
         "InstanceType": {
           "Ref": "masterInstanceType"
         },
@@ -801,6 +818,11 @@
               "",
               [
                 "#!/bin/bash -vx\n",
+                "pip install awscli --upgrade --user",
+                "aws configure set default.region us-east-1",
+                "ins_id=$(curl http://169.254.169.254/latest/meta-data/instance-id)",
+                "aws ec2 associate-address --instance-id $ins_id --allocation-id ", {"Fn::GetAtt":["MasterInstanceEIP","AllocationId"]},
+                " sleep 5",
                 "cd /root\n",
                 "easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz \n",
                 "/usr/bin/cfn-init -v -s ",

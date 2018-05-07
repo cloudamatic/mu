@@ -33,6 +33,11 @@ CHEF_CLIENT_VERSION="12.21.31-1"
 KNIFE_WINDOWS="1.9.0"
 MU_BRANCH="lambda_aws"
 MU_BASE="/opt/mu"
+MU_BRANCH="development" # GIT HOOK EDITABLE DO NOT TOUCH
+realbranch=`cd #{MU_BASE}/lib && git rev-parse --abbrev-ref HEAD`
+if $?.exitstatus == 0
+  MU_BRANCH=realbranch.chomp
+end
 
 begin
   resources('service[sshd]')
@@ -171,13 +176,13 @@ if platform_family?("rhel")
   # RHEL6, CentOS6, Amazon Linux
   elsif elversion < 7
     basepackages.concat(["mysql-devel"])
-    rpms["ruby23"] = "https://s3.amazonaws.com/mu-stuff/ruby23-2.3.1-1.el6.x86_64.rpm"
+    rpms["ruby23"] = "https://s3.amazonaws.com/cloudamatic/ruby23-2.3.1-1.el6.x86_64.rpm"
     removepackages = ["nagios"]
 
   # RHEL7, CentOS7
   elsif elversion < 8
     basepackages.concat(["libX11", "tcl", "tk", "mariadb-devel"])
-    rpms["ruby23"] = "https://s3.amazonaws.com/mu-stuff/ruby23-2.3.1-1.el7.centos.x86_64.rpm"
+    rpms["ruby23"] = "https://s3.amazonaws.com/cloudamatic/ruby23-2.3.1-1.el7.centos.x86_64.rpm"
     removepackages = ["nagios", "firewalld"]
   end
   # Amazon Linux
