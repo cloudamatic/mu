@@ -308,7 +308,7 @@ if $opts[:logs]
 
 end
 
-if $opts[:dns]
+if $opts[:dns] and !MU::Cloud::AWS.isGovCloud?
   if instance.vpc_id.nil? or instance.vpc_id.empty?
     MU.log "This Mu master appears to be in EC2 Classic. Route53 private DNS zones are not supported. Falling back to old /etc/hosts chicanery.", MU::ERR
   else
