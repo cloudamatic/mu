@@ -171,13 +171,14 @@ if platform_family?("rhel")
   # RHEL6, CentOS6, Amazon Linux
   elsif elversion < 7
     basepackages.concat(["mysql-devel"])
-    rpms["ruby24"] = "https://github.com/feedforce/ruby-rpm/releases/download/2.4.3/ruby-2.4.3-1.el6.x86_64.rpm"
+    rpms["ruby25"] = "https://github.com/feedforce/ruby-rpm/releases/download/2.5.1/ruby-2.5.1-1.el6.x86_64.rpm"
+    
     removepackages = ["nagios"]
 
   # RHEL7, CentOS7
   elsif elversion < 8
     basepackages.concat(["libX11", "tcl", "tk", "mariadb-devel"])
-    rpms["ruby24"] = "https://github.com/feedforce/ruby-rpm/releases/download/2.4.3/ruby-2.4.3-1.el7.centos.x86_64.rpm"
+    rpms["ruby25"] = "https://github.com/feedforce/ruby-rpm/releases/download/2.5.1/ruby-2.5.1-1.el7.centos.x86_64.rpm"
     removepackages = ["nagios", "firewalld"]
   end
   # Amazon Linux
@@ -284,6 +285,9 @@ end
 rpms.each_pair { |pkg, src|
   rpm_package pkg do
     source src
+    if pkg == "ruby25" 
+      options '--prefix=/opt/rubies/'
+    end
     if pkg == "chef-server-core" and File.size?("/etc/opscode/chef-server.rb")
       # On a normal install this will execute when we set up chef-server.rb,
       # but on a reinstall or an install on an image where that file already
