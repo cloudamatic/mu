@@ -269,6 +269,17 @@ rpm_package "Chef Server upgrade package" do
   notifies :restart, "service[chef-server]", :immediately
   only_if { RUNNING_STANDALONE }
 end
+
+# REMOVE OLD RUBYs
+execute "clean up old Ruby 2.1.6" do
+  command "rm -rf /opt/rubies/ruby-2.1.6"
+  only_if { ::Dir.exists?("/opt/rubies/ruby-2.1.6") }
+end
+
+package 'ruby23-2.3.1-1.el7.centos.x86_64' do
+  action :remove
+end
+
 # Regular old rpm-based installs
 rpms.each_pair { |pkg, src|
   rpm_package pkg do
@@ -287,14 +298,7 @@ package removepackages do
   action :remove
 end
 
-execute "clean up old Ruby 2.1.6" do
-  command "rm -rf /opt/rubies/ruby-2.1.6"
-  only_if { ::Dir.exists?("/opt/rubies/ruby-2.1.6") }
-end
 
-package 'ruby23-2.3.1-1.el7.centos.x86_64' do
-  action :remove
-end
 
 file "initial chef-server.rb" do
   path "/etc/opscode/chef-server.rb"
