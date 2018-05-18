@@ -327,14 +327,14 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_
             exit exitcode if done
 
           else
-            MU.log "#{nodename} complete via #{exec_shell}"
+            MU.log "#{nodename} complete via #{exec_protocol}"
             done = true
           end
 
         end until done
 
         puts "#{nodename} - #{output}" if print_output and output.match(/[^\s]/)
-        
+
       }
       $children[child] = nodename
       while $children.size >= $opts[:concurrent] - 1
