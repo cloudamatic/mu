@@ -255,13 +255,12 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_
             if (!resp or resp.exitcode != 0)
               if $opts[:winrm]
                 MU.log "#{nodename} , NOT trying SSH", MU::WARN
-                output = resp.stdout
               else
                 MU.log "#{nodename} WinRM exec failed, trying SSH", MU::NOTICE
-                puts resp.stderr if resp and resp.stderr
-                puts resp.stdout if resp and resp.stdout
-                output = nil
               end
+              puts resp.stderr if resp and resp.stderr
+              puts resp.stdout if resp and resp.stdout
+              output = nil
             else
               exec_shell = 'WinRM'
               output = resp.stdout
