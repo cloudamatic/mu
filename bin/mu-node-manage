@@ -273,12 +273,12 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_
             exitcode = $?.exitstatus
             # XXX Some Windows nodes need --no-fips right now. And some don't
             # know what that is. Try to accommodate both.
-            # if chefrun and serverobj.windows? and exitcode != 0
-            #   cmd = "powershell -Command chef-client --no-fips"
-            #   cmd += " -o '#{chef_runlist}'" if chef_runlist
-            #   output = `ssh -q #{nodename} "#{cmd}" 2>&1 < /dev/null`
-            #   exitcode = $?.exitstatus
-            # end
+            if chefrun and serverobj.windows? and exitcode != 0
+              cmd = "powershell -Command chef-client --no-fips"
+              cmd += " -o '#{chef_runlist}'" if chef_runlist
+              output = `ssh -q #{nodename} "#{cmd}" 2>&1 < /dev/null`
+              exitcode = $?.exitstatus
+            end
           end
           if exitcode != 0
             if serverobj.windows? and output.match(/NoMethodError: unknown property or method: `ConnectServer'/)
