@@ -2116,7 +2116,8 @@ MESSAGE_END
         litter.each_pair { |mu_name, node|
           next if !triggering_node.nil? and mu_name == triggering_node.mu_name
           if !node.deploydata or !node.deploydata.keys.include?('nodename')
-            MU.log "#{nodeclass}, #{mu_name} deploy data is missing (possibly retired), not syncing it", MU::WARN, details: node.deploydata.keys
+            details = node.deploydata ? node.deploydata.keys : nil
+            MU.log "#{mu_name} deploy data is missing (possibly retired), not syncing it", MU::WARN, details: details
           else
             update_servers << node
           end
