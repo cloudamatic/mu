@@ -251,15 +251,15 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_
             rescue MU::MuError => e
             end
             if (!resp or resp.exitcode != 0)
-              # if $opts[:winrm]
-              #   MU.log "WinRM exec on #{nodename} failed, NOT trying SSH", MU::WARN
-              # else
-              #   MU.log "WinRM exec on #{nodename} failed, trying SSH", MU::NOTICE
-              #   # if chefrun and serverobj.windows?
-              #   #   cmd = "chef-client.bat --no-fips"
-              #   #   cmd += " -o '#{chef_runlist}'" if chef_runlist
-              #   # end
-              # end
+              if $opts[:winrm]
+                MU.log "WinRM exec on #{nodename} failed, NOT trying SSH", MU::WARN
+              else
+                MU.log "WinRM exec on #{nodename} failed, trying SSH", MU::NOTICE
+                # if chefrun and serverobj.windows?
+                #   cmd = "chef-client.bat --no-fips"
+                #   cmd += " -o '#{chef_runlist}'" if chef_runlist
+                # end
+              end
               puts resp.stderr if resp and resp.stderr
               puts resp.stdout if resp and resp.stdout
               output = nil
@@ -270,7 +270,6 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_
             end
           end
           if !output and !$opts[:winrm]
-            MU.log "WinRM exec on #{nodename} failed, trying SSH", MU::NOTICE
             # this should use getSSHSession, for the sake of symmetry
             output = `ssh -q #{nodename} "#{cmd}" 2>&1 < /dev/null`
             exitcode = $?.exitstatus
@@ -282,8 +281,6 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_
               output = `ssh -q #{nodename} "#{cmd}" 2>&1 < /dev/null`
               exitcode = $?.exitstatus
             end
-          else
-            MU.log "WinRM exec on #{nodename} failed, NOT trying SSH", MU::WARN
           end
           if exitcode != 0
             if serverobj.windows? and output.match(/NoMethodError: unknown property or method: `ConnectServer'/)
