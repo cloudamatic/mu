@@ -294,7 +294,11 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_
             end
             exit exitcode if done
           else
-            MU.log "#{nodename} complete via #{exec_shell}"
+            if serverobj.windows?
+              MU.log "#{nodename} complete via #{exec_shell}"
+            else
+              MU.log "#{nodename} complete"
+            end
             done = true
           end
         end until done
