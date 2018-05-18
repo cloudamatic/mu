@@ -313,12 +313,17 @@ module MU
           end
 
           if dom['slow_logs']
-            log_group = MU::Cloud::AWS::Log.find(cloud_id: dom['slow_logs'], region: dom['region'])
-            if !log_group
-              MU.log "Specified slow_logs CloudWatch log group '#{dom['slow_logs']}' in SearchDomain '#{dom['name']}' doesn't appear to exist", MU::ERR
-              ok = false
+            if configurator.haveLitterMate?(dom['slow_logs'], "log")
+              dom['dependencies'] << { "name" => dom['slow_logs'], "type" => "log" }
+            else
+              log_group = MU::Cloud::AWS::Log.find(cloud_id: dom['slow_logs'], region: dom['region'])
+              if !log_group
+                MU.log "Specified slow_logs CloudWatch log group '#{dom['slow_logs']}' in SearchDomain '#{dom['name']}' doesn't appear to exist", MU::ERR
+                ok = false
+              else
+                dom['slow_logs'] = log_group.arn
+              end
             end
-            dom['slow_logs'] = log_group.arn
           else
             dom['slow_logs'] = dom['name']+"-slowlog"
             log_group = { "name" => dom['slow_logs'] }
