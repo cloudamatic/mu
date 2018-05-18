@@ -243,45 +243,49 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_
           MU.log "Running '#{cmd}' on #{nodename} (##{count})" if !print_output
           output = nil
           exitcode = -1
-          exec_shell = 'SSH'
+          attempt_ssh = 1
           if serverobj.windows?
             resp = nil
+            attempt_ssh = 0
+            exec_shell = 'WinRM'
             
             begin
               shell = serverobj.getWinRMSession(0, timeout: 10, winrm_retries: 1)
               resp = shell.run(cmd)
             rescue MU::MuError => e
             end
-            if (!resp or resp.exitcode != 0)
+
+            output = resp.stdout if resp and resp.stdout
+            exitcode = resp.exitcode if resp and resp.exitcode
+
+            # If the connection failed
+            if (!resp or exitcode != 0)
               if $opts[:winrm]
                 MU.log "#{nodename} , NOT trying SSH", MU::WARN
-                output = resp.stdout
-                exitcode = resp.exitcode
               else
                 MU.log "#{nodename} WinRM exec failed, trying SSH", MU::NOTICE
+                attempt_ssh = 1
                 output = nil
+                exitcode = nil
               end
               puts resp.stderr if resp and resp.stderr
               puts resp.stdout if resp and resp.stdout
-            else
-              exec_shell = 'WinRM'
-              output = resp.stdout
-              exitcode = resp.exitcode
             end
+
           end
-          if !output
-            if !serverobj.windows? or !$opts[:winrm]
-              # this should use getSSHSession, for the sake of symmetry
+
+          if attempt_ssh
+            exec_shell = 'SSH'
+            # this should use getSSHSession, for the sake of symmetry
+            output = `ssh -q #{nodename} "#{cmd}" 2>&1 < /dev/null`
+            exitcode = $?.exitstatus
+            # XXX Some Windows nodes need --no-fips right now. And some don't
+            # know what that is. Try to accommodate both.
+            if chefrun and serverobj.windows? and exitcode != 0
+              cmd = "powershell -Command chef-client --no-fips"
+              cmd += " -o '#{chef_runlist}'" if chef_runlist
               output = `ssh -q #{nodename} "#{cmd}" 2>&1 < /dev/null`
               exitcode = $?.exitstatus
-              # XXX Some Windows nodes need --no-fips right now. And some don't
-              # know what that is. Try to accommodate both.
-              if chefrun and serverobj.windows? and exitcode != 0
-                cmd = "powershell -Command chef-client --no-fips"
-                cmd += " -o '#{chef_runlist}'" if chef_runlist
-                output = `ssh -q #{nodename} "#{cmd}" 2>&1 < /dev/null`
-                exitcode = $?.exitstatus
-              end
             end
           end
           if exitcode != 0
