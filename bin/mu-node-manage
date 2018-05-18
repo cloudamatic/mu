@@ -236,76 +236,105 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_
         done = false
         begin
           serverobj = mommacat.findLitterMate(type: "server", mu_name: nodename)
+
+          # Generate the command if attemting a chef run
           if chefrun
             cmd = serverobj.windows? ? "powershell -Command chef-client" : "chef-client || sudo chef-client"
             cmd += " -o '#{chef_runlist}'" if chef_runlist
           end
+
           MU.log "Running '#{cmd}' on #{nodename} (##{count})" if !print_output
+
+          # Set Variables to catch the output and exit code of the execution
           output = nil
           exitcode = -1
-          attempt_ssh = 1
+
+          # Determine which protocols to attempt
           if serverobj.windows?
-            resp = nil
-            attempt_ssh = 0
-            exec_shell = 'WinRM'
+            attempt_winrm = true
+            if $opts[:winrm]
+              attempt_ssh = false
+            else
+              attempt_ssh = true
+            end
+          else
+            attempt_winrm = false
+            attempt_ssh = true
+          end
+
+          # Attempt WinRM Connection, and Fall back to SSH
+          if attempt_winrm
+            exec_protocol = 'WinRM'
             
+            # Attempt to make a connection and exec the command
+            resp = nil
             begin
               shell = serverobj.getWinRMSession(0, timeout: 10, winrm_retries: 1)
               resp = shell.run(cmd)
             rescue MU::MuError => e
             end
 
-            output = resp.stdout if resp and resp.stdout
-            exitcode = resp.exitcode if resp and resp.exitcode
+            if resp
+              # WINRM CONNECTION AND EXECUTION SUCCESS
+              output = resp.stdout if resp.stdout
+              exitcode = resp.exitcode if resp.exitcode
 
-            # If the connection failed
-            if (!resp or exitcode != 0)
-              if $opts[:winrm]
-                MU.log "#{nodename} , NOT trying SSH", MU::WARN
+              if exitcode.eql? 0
+                attempt_ssh = false
               else
-                MU.log "#{nodename} WinRM exec failed, trying SSH", MU::NOTICE
-                attempt_ssh = 1
-                output = nil
-                exitcode = nil
+                puts resp.stderr if resp.stderr
+                puts output
               end
-              puts resp.stderr if resp and resp.stderr
-              puts resp.stdout if resp and resp.stdout
             end
 
+            if exitcode != 0
+              if attempt_ssh
+                MU.log "#{nodename} WinRM exec failed, trying SSH", MU::NOTICE
+              else
+                MU.log "#{nodename} WinRM exec failed, NOT trying SSH", MU::WARN
+              end
+            end
           end
 
           if attempt_ssh
-            exec_shell = 'SSH'
+            exec_protocol = 'SSH'
+
             # this should use getSSHSession, for the sake of symmetry
             output = `ssh -q #{nodename} "#{cmd}" 2>&1 < /dev/null`
             exitcode = $?.exitstatus
-            # XXX Some Windows nodes need --no-fips right now. And some don't
-            # know what that is. Try to accommodate both.
-            if chefrun and serverobj.windows? and exitcode != 0
-              cmd = "powershell -Command chef-client --no-fips"
-              cmd += " -o '#{chef_runlist}'" if chef_runlist
-              output = `ssh -q #{nodename} "#{cmd}" 2>&1 < /dev/null`
-              exitcode = $?.exitstatus
-            end
           end
+
           if exitcode != 0
-            if serverobj.windows? and output.match(/NoMethodError: unknown property or method: `ConnectServer'/)
-              MU.log "#{nodename} encountered transient Windows/Chef ConnectServer error, retrying", MU::WARN
-            elsif print_output
-              done = true
-              puts "#{nodename} - #{output}" if output.match(/[^\s]/)
-              MU.log "#{nodename} did not exit cleanly", MU::WARN
+
+            if output
+
+              if serverobj.windows? and output.match(/NoMethodError: unknown property or method: `ConnectServer'/)
+                MU.log "#{nodename} encountered transient Windows/Chef ConnectServer error, retrying", MU::WARN
+              elsif print_output
+                done = true
+                puts "#{nodename} - #{output}" if output.match(/[^\s]/)
+                MU.log "#{nodename} did not exit cleanly", MU::WARN
+              else
+                done = true
+                MU.log "#{nodename} did not exit cleanly", MU::WARN, details: output.slice(-2000, 2000)
+              end
+
             else
               done = true
-              MU.log "#{nodename} did not exit cleanly", MU::WARN, details: output.slice(-2000, 2000)
+              MU.log "#{nodename} did not exit cleanly", MU::WARN
             end
+
             exit exitcode if done
+
           else
             MU.log "#{nodename} complete via #{exec_shell}"
             done = true
           end
+
         end until done
+
         puts "#{nodename} - #{output}" if print_output and output.match(/[^\s]/)
+        
       }
       $children[child] = nodename
       while $children.size >= $opts[:concurrent] - 1
