@@ -237,16 +237,16 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_
         begin
           serverobj = mommacat.findLitterMate(type: "server", mu_name: nodename)
           if chefrun
-            cmd = serverobj.windows? ? "chef-client --no-fips" : "chef-client || sudo chef-client"
+            cmd = serverobj.windows? ? "powershell -Command chef-client" : "chef-client || sudo chef-client"
             cmd += " -o '#{chef_runlist}'" if chef_runlist
           end
           MU.log "Running '#{cmd}' on #{nodename} (##{count})" if !print_output
           output = nil
           exitcode = -1
-          exec_shell = 'ssh'
+          exec_shell = 'SSH'
           if serverobj.windows?
             resp = nil
-            exec_shell = 'WinRM'
+            
             begin
               shell = serverobj.getWinRMSession(0, timeout: 10, winrm_retries: 1)
               resp = shell.run(cmd)
@@ -258,12 +258,11 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_
               else
                 MU.log "WinRM exec on #{nodename} failed, trying SSH", MU::NOTICE
               end
-              puts resp.stderr if resp and resp.stderr
-              puts resp.stdout if resp and resp.stdout
-              exec_shell = 'ssh'
+              # puts resp.stderr if resp and resp.stderr
+              # puts resp.stdout if resp and resp.stdout
               output = nil
             else
-
+              exec_shell = 'WinRM'
               output = resp.stdout
               exitcode = resp.exitcode
             end
