@@ -33,7 +33,7 @@ Usage:
   opt :xecute, "Run a shell command on matching nodes. Overrides --mode and suppresses some informational output in favor of scriptability.", :require => false, :type => :string
   opt :mode, "Action to perform on matching nodes. Valid actions: groom, chefrun, awsmeta, vaults, certs, chefupgrade", :require => false, :default => "chefrun", :type => :string
   opt :verbose, "Show output from Chef runs, etc", :require => false, :default => false, :type => :boolean
-  opt :winrm, "Force WinRM connection. Default causes mu to attempt to fallback to SSH", :require => false, :default => false, :type => :boolean
+  opt :winrm, "Force WinRM connection. Disable SSH fallback", :require => false, :default => false, :type => :boolean
   opt :info, "List a particular node attribute", :require => false, :default => 'nodename', :type => :string
 end
 
