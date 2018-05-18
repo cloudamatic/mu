@@ -250,7 +250,7 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_
               resp = shell.run(cmd)
             rescue MU::MuError => e
             end
-            if (!resp or resp.exitcode != 0) and !($opts[:mode])
+            if (!resp or resp.exitcode != 0) and !($opts[:winrm])
               MU.log "WinRM exec on #{nodename} failed, trying SSH", MU::WARN
               if chefrun and serverobj.windows?
                 cmd = "chef-client.bat --no-fips"
@@ -260,7 +260,7 @@ def runCommand(deploys = MU::MommaCat.listDeploys, nodes = [], cmd = nil, print_
               puts resp.stdout if resp and resp.stdout
               output = nil
             else
-              if !($opts[:mode])
+              if $opts[:winrm]
                 MU.log "WinRM exec on #{nodename} failed, NOT trying SSH", MU::WARN
               end
               output = resp.stdout
