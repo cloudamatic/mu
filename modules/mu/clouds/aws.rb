@@ -427,6 +427,13 @@ module MU
         @@sns_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "SNS", region: region)
         @@sns_api[region]
       end
+      
+      # Amazon's SQS API
+      def self.sqs(region = MU.curRegion)
+        region ||= myRegion
+        @@sqs_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "SQS", region: region)
+        @@sqs_api[region]
+      end
 
       # Amazon's EFS API
       def self.efs(region = MU.curRegion)
@@ -435,11 +442,53 @@ module MU
         @@efs_api[region]
       end
 
+      # Amazon's ECS API
+      def self.ecs(region = MU.curRegion)
+        region ||= myRegion
+        @@ecs_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ECS", region: region)
+        @@ecs_api[region]
+      end
+
       # Amazon's Pricing API
       def self.pricing(region = MU.curRegion)
         region ||= myRegion
         @@pricing_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "Pricing", region: region)
         @@pricing_api[region]
+      end
+
+      # Amazon's Simple Systems Manager API
+      def self.ssm(region = MU.curRegion)
+        region ||= myRegion
+        @@ssm_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "SSM", region: region)
+        @@ssm_api[region]
+      end
+
+      # Amazon's Elasticsearch API
+      def self.elasticsearch(region = MU.curRegion)
+        region ||= myRegion
+        @@elasticsearch_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "ElasticsearchService", region: region)
+        @@elasticsearch_api[region]
+      end
+
+      # Amazon's Cognito Identity API
+      def self.cognito_ident(region = MU.curRegion)
+        region ||= myRegion
+        @@cognito_ident_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CognitoIdentity", region: region)
+        @@cognito_ident_api[region]
+      end
+
+      # Amazon's Cognito Identity Provider API
+      def self.cognito_user(region = MU.curRegion)
+        region ||= myRegion
+        @@cognito_user_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CognitoIdentityProvider", region: region)
+        @@cognito_user_api[region]
+      end
+
+      # Amazon's KMS API
+      def self.kms(region = MU.curRegion)
+        region ||= myRegion
+        @@kms_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "KMS", region: region)
+        @@kms_api[region]
       end
 
       # Fetch an Amazon instance metadata parameter (example: public-ipv4).
@@ -663,6 +712,10 @@ module MU
             end
             return retval
           rescue Aws::EC2::Errors::InternalError, Aws::EC2::Errors::RequestLimitExceeded, Aws::EC2::Errors::Unavailable, Aws::Route53::Errors::Throttling, Aws::ElasticLoadBalancing::Errors::HttpFailureException, Aws::EC2::Errors::IncorrectState, Aws::EC2::Errors::Http503Error, Aws::AutoScaling::Errors::Http503Error, Aws::AutoScaling::Errors::InternalFailure, Aws::AutoScaling::Errors::ServiceUnavailable, Aws::Route53::Errors::ServiceUnavailable, Aws::ElasticLoadBalancing::Errors::Throttling, Aws::RDS::Errors::ClientUnavailable, Aws::Waiters::Errors::UnexpectedError, Aws::ElasticLoadBalancing::Errors::ServiceUnavailable, Aws::ElasticLoadBalancingV2::Errors::Throttling, Seahorse::Client::NetworkingError, Aws::EC2::Errors::IncorrectInstanceState, Aws::IAM::Errors::Throttling => e
+            if e.class.name == "Seahorse::Client::NetworkingError" and e.message.match(/Name or service not known/)
+              MU.log e.inspect, MU::ERR
+              raise e
+            end
             retries = retries + 1
             debuglevel = MU::DEBUG
             interval = 5 + Random.rand(4) - 2
@@ -700,8 +753,15 @@ module MU
       @@cloudfront_api = {}
       @@elasticache_api = {}
       @@sns_api = {}
+      @@sqs_api = {}
       @@efs_api ={}
+      @@ecs_api ={}
       @@pricing_api ={}
+      @@ssm_api ={}
+      @@elasticsearch_api ={}
+      @@cognito_ident_api ={}
+      @@cognito_user_api ={}
+      @@kms_api ={}
     end
   end
 end

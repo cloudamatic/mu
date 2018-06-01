@@ -34,57 +34,53 @@ it simple:
 
 ```
 
-2. Add our new type to the configuration schema in `modules/mu/config.rb`. This is where our parser learns to look for our type when loading Basket of Kittens YAML or JSON files. Let's start by adding to the top-level of the `@@schema` hash, which is actually a [http://json-schema.org/](JSON Schema) definition.
+2. Add our new type to the configuration schema in `modules/mu/config`. This is where our parser learns to look for our type when loading Basket of Kittens YAML or JSON files. Let's start by adding to the top-level of the `@@schema` hash, which is actually a [http://json-schema.org/](JSON Schema) definition.
 
-Part way down, you'll see where our resource types are listed, such as:
+Each of these stubs must be subclass of `MU::Config` that implements a class with the same class name as you declared in step 1. This class must, at minimum, implement `self.schema` and `self.validate` methods. Minimal example:
 
 ```
-            "server_pools" => {
-                "type" => "array",
-                "items" => @server_pool_primitive
-            },
-            "cache_clusters" => {
-                "type" => "array",
-                "items" => @cache_cluster_primitive
+module MU
+  class Config
+    class Function
+
+      def self.schema
+        {
+          "type" => "object",
+          "title" => "Functions",
+          "additionalProperties" => false,
+          "description" => "Create a serverless cloud function.",
+          "properties" => {
+            "cloud" => MU::Config.cloud_primitive,
+            "name" => {"type" => "string"},
+            "region" => MU::Config.region_primitive,
+            "vpc" => MU::Config::VPC.reference(MU::Config::VPC::ONE_SUBNET+MU::Config::VPC::MANY_SUBNETS, MU::Config::VPC::NO_NAT_OPTS, "all_private"),
+            "dependencies" => MU::Config.dependencies_primitive,
+            "tags" => MU::Config.tags_primitive,
+            "optional_tags" => {
+              "type" => "boolean",
+              "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
             }
+          }
+        }
+      end
 
+      # Generic pre-processing of {MU::Config::BasketofKittens::functions}, bare and unvalidated.
+      # @param function [Hash]: The resource to process and validate
+      # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
+      # @return [Boolean]: True if validation succeeded, False otherwise
+      def self.validate(function, configurator)
+        ok = true
+        ok
+      end
+
+    end
+  end
+end
 ```
 
-Note that the `items` parameter points to a variable elsewhere, so that we
-don't try to define our schema entirely inline. We're going to add one for our new type:
 
-```
-            "functions" => {
-                "type" => "array",
-                "items" => @function_primitive
-            }
-```
-
-...and since we've said that we're going to look for `@function_primitive`, let's go ahead and define that with a minimal set of properties.
-
-```
-    @function_primitive = {
-      "type" => "object",
-      "title" => "Function",
-      "description" => "Create a serverless function.",
-      "required" => ["name", "cloud"],
-      "additionalProperties" => false,
-      "properties" => {
-        "cloud" => @cloud_primitive,
-        "name" => {"type" => "string"},
-        "region" => MU::Config.region_primitive,
-        "vpc" => vpc_reference_primitive(ONE_SUBNET+MANY_SUBNETS, NO_NAT_OPTS, "all_private"),
-        "tags" => @tags_primitive,
-        "optional_tags" => {
-          "type" => "boolean",
-          "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true",
-        },
-      }
-    }
-
-```
-
-3. Define an empty implemention. Remember in step 1 where we had a couple configuration variables in our little hash (`:class => generic_class_methods`, `:instance => generic_instance_methods`)? Well those are lists of class methods and instance methods that our implemention will be required to have.
+3. Define an empty implemention. Remember in step 1 where we had a couple configuration variables in our little hash (`:class => generic_class_methods`, `:instance => generic_instance_methods`)? Well those are lists of class methods and instance methods that any implemention will be required to have, no matter which
+cloud provider it's for.
 
 Looking elsewhere in `cloud.rb` let's see what all we have to do:
 

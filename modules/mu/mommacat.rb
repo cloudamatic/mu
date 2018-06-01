@@ -83,10 +83,12 @@ module MU
     attr_reader :deploy_id
     attr_reader :timestamp
     attr_reader :appname
+    attr_reader :handle
     attr_reader :seed
     attr_reader :mu_user
     attr_reader :clouds
     attr_reader :chef_user
+    attr_reader :no_artifacts
     attr_accessor :kittens # really want a method only available to :Deploy
     @myhome = Etc.getpwuid(Process.uid).dir
     @nagios_home = "/opt/mu/var/nagios_user_home"
@@ -132,6 +134,7 @@ module MU
       MU.setVar("environment", deploy.environment)
       MU.setVar("timestamp", deploy.timestamp)
       MU.setVar("seed", deploy.seed)
+      MU.setVar("handle", deploy.handle)
     end
 
     # @param deploy_id [String]: The MU identifier of the deployment to load or create.
@@ -144,6 +147,7 @@ module MU
     # @param ssh_public_key [String]: SSH public key for authorized_hosts on clients.
     # @param skip_resource_objects [Boolean]: Whether preload the cloud resource objects from this deploy. Can save load time for simple MommaCat tasks.
     # @param nocleanup [Boolean]: Skip automatic cleanup of failed resources
+    # @param no_artifacts [Boolean]: Do not save deploy metadata
     # @param deployment_data [Hash]: Known deployment data.
     # @return [void]
     def initialize(deploy_id,
@@ -157,6 +161,7 @@ module MU
                    nocleanup: false,
                    set_context_to_me: true,
                    skip_resource_objects: false,
+                   no_artifacts: false,
                    deployment_data: {},
                    mu_user: Etc.getpwuid(Process.uid).name
     )
@@ -167,6 +172,7 @@ module MU
 
       @deploy_id = deploy_id
       @mu_user = mu_user.dup
+      @no_artifacts = no_artifacts
 
       # Make sure mu_user and chef_user are sane.
       if @mu_user == "root"
@@ -193,10 +199,12 @@ module MU
       @ssh_private_key = ssh_private_key
       @ssh_public_key = ssh_public_key
       @clouds = {}
+      @seed = MU.seed # pass this in
+      @handle = MU.handle # pass this in
       if set_context_to_me
         MU::MommaCat.setThreadContext(self)
       end
-      if create
+      if create and !@no_artifacts
         if !Dir.exist?(MU.dataDir+"/deployments")
           MU.log "Creating #{MU.dataDir}/deployments", MU::DEBUG
           Dir.mkdir(MU.dataDir+"/deployments", 0700)
@@ -209,7 +217,6 @@ module MU
         if @original_config.nil? or !@original_config.is_a?(Hash)
           raise DeployInitializeError, "New MommaCat repository requires config hash"
         end
-        @seed = MU.seed # pass this in
         @appname = @original_config['name']
         MU::Cloud.resource_types.each { |cloudclass, data|
           if !@original_config[data[:cfg_plural]].nil? and @original_config[data[:cfg_plural]].size > 0
@@ -589,6 +596,7 @@ module MU
     # @param raw_secret [String]: The unencrypted string to store.
     # @param type [String]: The type of secret, used to identify for retrieval.
     def saveNodeSecret(instance_id, raw_secret, type)
+      return if @no_artifacts
       if instance_id.nil? or instance_id.empty? or raw_secret.nil? or raw_secret.empty? or type.nil? or type.empty?
         raise SecretError, "saveNodeSecret requires instance_id, raw_secret, and type args"
       end
@@ -669,11 +677,8 @@ module MU
       end
       kitten = nil
 
-      if !mu_name.nil? and
-          @kittens.has_key?("servers") and
-          @kittens["servers"].has_key?(name) and
-          @kittens["servers"][name].has_key?(mu_name)
-        kitten = @kittens["servers"][name][mu_name]
+      kitten = findLitterMate(type: "server", name: name, mu_name: mu_name, cloud_id: cloud_id)
+      if !kitten.nil?
         MU.log "Re-grooming #{mu_name}", details: kitten.deploydata
       else
         first_groom = true
@@ -1218,8 +1223,9 @@ module MU
     # @param mu_name [String]: The fully-resolved and deployed name of the resource
     # @param cloud_id [String]: The cloud provider's unique identifier for this resource
     # @param created_only [Boolean]: Only return the littermate if its cloud_id method returns a value
+    # @param return_all [Boolean]: Return a Hash of matching objects indexed by their mu_name, instead of a single match. Only valid for resource types where has_multiples is true.
     # @return [MU::Cloud]
-    def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false)
+    def findLitterMate(type: nil, name: nil, mu_name: nil, cloud_id: nil, created_only: false, return_all: false)
       shortclass, cfg_name, cfg_plural, classname, attrs = MU::Cloud.getResourceNames(type)
       type = cfg_plural
       has_multiples = attrs[:has_multiples]
@@ -1233,19 +1239,28 @@ module MU
           next if !name.nil? and name != sib_class
           if has_multiples
             if !name.nil?
+              if return_all
+                return data.dup
+              end
               if data.size == 1 and (cloud_id.nil? or data.values.first.cloud_id == cloud_id)
                 obj = data.values.first
                 return obj
               elsif mu_name.nil? and cloud_id.nil?
                 obj = data.values.first
-                MU.log "#{@deploy_id}: Found multiple matches in findLitterMate based on #{type}: #{name}, and not enough info to narrow down further. Returning an arbitrary result. Caller: #{caller[1]}", MU::WARN, details: data.values
+                MU.log "#{@deploy_id}: Found multiple matches in findLitterMate based on #{type}: #{name}, and not enough info to narrow down further. Returning an arbitrary result. Caller: #{caller[1]}", MU::WARN, details: data.keys
                 return data.values.first
               end
             end
             data.each_pair { |sib_mu_name, obj|
               if (!mu_name.nil? and mu_name == sib_mu_name) or
                   (!cloud_id.nil? and cloud_id == obj.cloud_id)
-                return obj if !created_only or !obj.cloud_id.nil?
+                if !created_only or !obj.cloud_id.nil?
+                  if return_all
+                    return data.dup
+                  else
+                    return obj
+                  end
+                end
               end
             }
           else
@@ -1267,6 +1282,7 @@ module MU
     # @param remove [Boolean]: Remove this resource from the deploy structure, instead of adding it.
     # @return [void]
     def notify(type, key, data, mu_name: nil, remove: false, triggering_node: nil)
+      return if @no_artifacts
       MU::MommaCat.lock("deployment-notification")
       loadDeploy(true) # make sure we're saving the latest and greatest
       have_deploy = true
@@ -2072,35 +2088,39 @@ MESSAGE_END
       return if MU.syncLitterThread
       return if !Dir.exists?(deploy_dir)
       svrs = MU::Cloud.resource_types[:Server][:cfg_plural] # legibility shorthand
-      if @kittens.nil? or
-          @kittens[svrs].nil?
-        MU.log "No #{svrs} as yet available in #{@deploy_id}", MU::DEBUG, details: @kittens
-        return
-      end
 
-      MU.log "Updating these siblings in #{@deploy_id}: #{nodeclasses.join(', ')}", MU::DEBUG, details: @kittens[svrs].map { |nodeclass, instance| instance.keys }
+      @kitten_semaphore.synchronize {
+        if @kittens.nil? or
+            @kittens[svrs].nil?
+          MU.log "No #{svrs} as yet available in #{@deploy_id}", MU::DEBUG, details: @kittens
+          return
+        end
+
+        MU.log "Updating these siblings in #{@deploy_id}: #{nodeclasses.join(', ')}", MU::DEBUG, details: @kittens[svrs].map { |nodeclass, instance| instance.keys }
+      }
 
       update_servers = []
       if nodeclasses.nil? or nodeclasses.size == 0
-        @kittens[svrs].values.each_pair { |mu_name, node|
+        litter = findLitterMate(type: "server", return_all: true)
+        litter.each_pair { |mu_name, node|
           next if !triggering_node.nil? and mu_name == triggering_node.mu_name
           if !node.groomer.nil?
-            update_servers << @kittens[svrs].values
+            update_servers << node
           end
         }
       else
-        @kittens[svrs].each_pair { |nodeclass, servers|
-          servers.each_pair { |mu_name, node|
-            next if !triggering_node.nil? and mu_name == triggering_node.mu_name
-            if nodeclasses.include?(node.config['name']) and !node.groomer.nil?
-              if !node.deploydata.keys.include?('nodename')
-                MU.log "#{nodeclass}, #{mu_name} deploy data is missing (possibly retired), not syncing it", MU::WARN, details: node.deploydata
-                @kittens[svrs][nodeclass].delete(mu_name)
-              else
-                update_servers << node
-              end
-            end
-          }
+        litter = {}
+        nodeclasses.each { |nodeclass|
+          litter.merge!(findLitterMate(type: "server", name: nodeclass, return_all: true))
+        }
+        litter.each_pair { |mu_name, node|
+          next if !triggering_node.nil? and mu_name == triggering_node.mu_name
+          if !node.deploydata or !node.deploydata.keys.include?('nodename')
+            details = node.deploydata ? node.deploydata.keys : nil
+            MU.log "#{mu_name} deploy data is missing (possibly retired), not syncing it", MU::WARN, details: details
+          else
+            update_servers << node
+          end
         }
       end
       return if update_servers.size == 0
@@ -2369,6 +2389,7 @@ MESSAGE_END
     # Synchronize all in-memory information related to this to deployment to
     # disk.
     def save!(triggering_node = nil)
+      return if @no_artifacts
       MU::MommaCat.deploy_struct_semaphore.synchronize {
         MU.log "Saving deployment #{MU.deploy_id}", MU::DEBUG
 
@@ -2615,6 +2636,7 @@ MESSAGE_END
           @timestamp = @deployment['timestamp']
           @seed = @deployment['seed']
           @appname = @deployment['appname']
+          @handle = @deployment['handle']
 
           return if deployment_json_only
         end
@@ -2662,10 +2684,8 @@ MESSAGE_END
     @catwords = @catadjs + @catnouns + @catmixed
 
     @jaegeradjs = %w{azure fearless lucky olive vivid electric grey yarely violet ivory jade cinnamon crimson tacit umber mammoth ultra iron zodiac}
-    @jaegernouns = %w{horizon hulk ultimatum yardarm watchman whilrwind wright rhythm ocean enigma eruption typhoon jaeger brawler blaze vandal excalibur}
-    # we *must* have at least one of every letter of the alphabet in this pool
-    # to guarantee that we can backfill with parts of speech properly
-    @jaegermixed = %w{alpha ajax amber avenger brave bravo charlie chocolate chrome corinthian dancer danger dash delta duet echo edge elite eureka foxtrot guardian gold hyperion illusion imperative india intercept juliet kaleidoscope kilo lancer night nova november oscar omega pacer paladin quickstrike rogue romeo ronin striker tango titan valor victor vulcan warder xenomorph xenon xray xylem yankee yell yukon zeal zero zoner zodiac}
+    @jaegernouns = %w{horizon hulk ultimatum yardarm watchman whilrwind wright rhythm ocean enigma eruption typhoon jaeger brawler blaze vandal excalibur paladin juliet kaleidoscope romeo}
+    @jaegermixed = %w{alpha ajax amber avenger brave bravo charlie chocolate chrome corinthian dancer danger dash delta duet echo edge elite eureka foxtrot guardian gold hyperion illusion imperative india intercept kilo lancer night nova november oscar omega pacer quickstrike rogue ronin striker tango titan valor victor vulcan warder xenomorph xenon xray xylem yankee yell yukon zeal zero zoner zodiac}
     @jaegerwords = @jaegeradjs + @jaegernouns + @jaegermixed
 
     @words = @catwords + @jaegerwords

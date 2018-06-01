@@ -273,39 +273,46 @@ module MU
         # @param rolename [String]: The name of the role to create, generally a {MU::Cloud::AWS::Server} mu_name
         # @return [void]
         def self.removeIAMProfile(rolename)
-        # TO DO - Move IAM role/policy removal to its own entity
+          # TODO - Move IAM role/policy removal to its own entity
           MU.log "Removing IAM role and policies for '#{rolename}'"
           begin
             MU::Cloud::AWS.iam.remove_role_from_instance_profile(
-                instance_profile_name: rolename,
-                role_name: rolename
+              instance_profile_name: rolename,
+              role_name: rolename
             )
           rescue Aws::IAM::Errors::ValidationError => e
             MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
           rescue Aws::IAM::Errors::NoSuchEntity => e
-            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
+            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
           end
           begin
             MU::Cloud::AWS.iam.delete_instance_profile(instance_profile_name: rolename)
           rescue Aws::IAM::Errors::ValidationError => e
             MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
           rescue Aws::IAM::Errors::NoSuchEntity => e
-            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
+            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
           end
           begin
             policies = MU::Cloud::AWS.iam.list_role_policies(role_name: rolename).policy_names
             policies.each { |policy|
               MU::Cloud::AWS.iam.delete_role_policy(role_name: rolename, policy_name: policy)
             }
+            policies = MU::Cloud::AWS.iam.list_attached_role_policies(role_name: rolename).attached_policies
+            policies.each { |policy|
+               MU::Cloud::AWS.iam.detach_role_policy(
+                role_name: rolename,
+                policy_arn: policy.policy_arn
+               )
+            }
           rescue Aws::IAM::Errors::ValidationError => e
             MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
           rescue Aws::IAM::Errors::NoSuchEntity => e
-            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
+            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
           end
           begin
             MU::Cloud::AWS.iam.delete_role(role_name: rolename)
           rescue Aws::IAM::Errors::DeleteConflict, Aws::IAM::Errors::NoSuchEntity, Aws::IAM::Errors::ValidationError => e
-            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
+            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
           end
         end
 
@@ -1943,7 +1950,7 @@ module MU
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, skipsnapshots: false, onlycloud: false, flags: {})
           tagfilters = [
-              {name: "tag:MU-ID", values: [MU.deploy_id]}
+            {name: "tag:MU-ID", values: [MU.deploy_id]}
           ]
           if !ignoremaster
             tagfilters << {name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip]}
@@ -2209,6 +2216,26 @@ module MU
               "type" => "string",
               "description" => "The Amazon EC2 AMI on which to base this instance. Will use the default appropriate for the platform, if not specified."
             },
+            "image_id" => {
+              "type" => "string",
+              "description" => "Synonymous with ami_id"
+            },
+            "generate_iam_role" => {
+              "type" => "boolean",
+              "default" => true,
+              "description" => "Generate a unique IAM profile for this Server or ServerPool.",
+            },
+            "iam_role" => {
+              "type" => "string",
+              "description" => "An Amazon IAM instance profile, from which to harvest role policies to merge into this node's own instance profile. If generate_iam_role is false, will simple use this profile.",
+            },
+            "iam_policies" => {
+              "type" => "array",
+              "items" => {
+                "description" => "Amazon-compatible role policies which will be merged into this node's own instance profile.  Not valid with generate_iam_role set to false. Our parser expects the role policy document to me embedded under a named container, e.g. { 'name_of_policy':'{ <policy document> } }",
+                "type" => "object"
+              }
+            },
             "ingress_rules" => {
               "items" => {
                 "properties" => {
@@ -2239,7 +2266,12 @@ module MU
         # @param region [String]: Region to check against
         # @return [String,nil]
         def self.validateInstanceType(size, region)
-          types = (MU::Cloud::AWS.listInstanceTypes(region))[region]
+          begin
+            types = (MU::Cloud::AWS.listInstanceTypes(region))[region]
+          rescue Aws::Pricing::Errors::UnrecognizedClientException
+            MU.log "Saw authentication error communicating with Pricing API, going to assume our instance type is correct", MU::WARN
+            return size
+          end
           if size.nil? or !types.has_key?(size)
             # See if it's a type we can approximate from one of the other clouds
             gtypes = (MU::Cloud::Google.listInstanceTypes)[MU::Cloud::Google.myRegion]
@@ -2297,6 +2329,8 @@ module MU
               server['create_image']['copy_to_regions'] = MU::Cloud::AWS.listRegions(server['us_only'])
             end
           end
+
+          server['ami_id'] ||= server['image_id']
 
           if server['ami_id'].nil?
             if MU::Config.amazon_images.has_key?(server['platform']) and

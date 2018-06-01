@@ -381,7 +381,6 @@ next if !create
             @cloud_id
           )
           begin
-          pp cloud_desc
             sleep 5
           end while cloud_desc.status != "RUNNING"
         end
@@ -1348,7 +1347,7 @@ next if !create
             },
             "routes" => {
               "type" => "array",
-              "items" => MU::Config.route_primitive
+              "items" => MU::Config::VPC.routeschema
             }
           }
           [toplevel_required, schema]

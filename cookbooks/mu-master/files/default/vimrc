@@ -16,4 +16,4 @@ hi Comment term=bold    ctermfg=DarkCyan    guifg=#80a0ff
 " and to get PHP right when working on Drupal
 au BufReadPost *.module set syntax=php
 au BufReadPost *.install set syntax=php
-set viminfo='300,<300,s10,h
+set viminfo='10,<500,s150,h
