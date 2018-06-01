@@ -793,6 +793,8 @@ module MU
             "name" => descriptor["vpc"]["vpc_name"]
           }
 
+          siblingvpc = haveLitterMate?(descriptor["vpc"]["vpc_name"], "vpcs")
+          insertKitten(siblingvpc, "vpcs") if !siblingvpc["#MU_VALIDATED"]
           if !MU::Config::VPC.processReference(descriptor['vpc'],
                                   cfg_plural,
                                   shortclass.to_s+" '#{descriptor['name']}'",
@@ -846,6 +848,8 @@ module MU
 									"name" => sg_ref,
 									"phase" => "groom"
 								}
+                siblingfw = haveLitterMate?(sg_ref, "firewall_rules")
+                insertKitten(siblingw, "firewall_rules") if !siblingfw["#MU_VALIDATED"]
 							end
 						}
 					end
@@ -884,6 +888,8 @@ module MU
               "type" => "firewall_rule",
               "name" => acl_include["rule_name"]
             }
+            siblingfw = haveLitterMate?(acl_include["rule_name"], "firewall_rules")
+            insertKitten(siblingw, "firewall_rules") if !siblingfw["#MU_VALIDATED"]
           elsif acl_include["rule_name"]
             MU.log shortclass+" #{descriptor['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
             ok = false
@@ -996,6 +1002,7 @@ module MU
           parser = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"]).const_get(shortclass.to_s)
           plain_descriptor = MU::Config.manxify(Marshal.load(Marshal.dump(descriptor)))
           return false if !parser.validateConfig(plain_descriptor, self)
+
           descriptor.merge!(plain_descriptor)
           descriptor['#MU_VALIDATED'] = true
         end
