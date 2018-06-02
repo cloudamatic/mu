@@ -39,23 +39,23 @@ MU_BRANCH="development" # GIT HOOK EDITABLE DO NOT TOUCH
 #   MU_BRANCH=realbranch.chomp
 # end
 
-begin
-  resources('service[sshd]')
-rescue Chef::Exceptions::ResourceNotFound
-  service "sshd" do
-    action :nothing
-  end
-end
+# begin
+#   resources('service[sshd]')
+# rescue Chef::Exceptions::ResourceNotFound
+#   service "sshd" do
+#     action :nothing
+#   end
+# end
 
-if File.read("/etc/ssh/sshd_config").match(/^AllowUsers\s+([^\s]+)(?:\s|$)/)
-  SSH_USER = Regexp.last_match[1].chomp
-else
-  execute "sed -i 's/PermitRootLogin no/PermitRootLogin yes/' /etc/ssh/sshd_config" do
-    only_if "grep 'PermitRootLogin no' /etc/ssh/sshd_config"
-    notifies :restart, "service[sshd]", :immediately
-  end
-  SSH_USER="root"
-end
+# if File.read("/etc/ssh/sshd_config").match(/^AllowUsers\s+([^\s]+)(?:\s|$)/)
+#   SSH_USER = Regexp.last_match[1].chomp
+# else
+#   execute "sed -i 's/PermitRootLogin no/PermitRootLogin yes/' /etc/ssh/sshd_config" do
+#     only_if "grep 'PermitRootLogin no' /etc/ssh/sshd_config"
+#     notifies :restart, "service[sshd]", :immediately
+#   end
+#   SSH_USER="root"
+# end
 RUNNING_STANDALONE=node[:application_attributes].nil?
 
 execute "stop iptables" do
