@@ -33,10 +33,11 @@ CHEF_CLIENT_VERSION="12.21.31-1"
 KNIFE_WINDOWS="1.9.0"
 MU_BASE="/opt/mu"
 MU_BRANCH="development" # GIT HOOK EDITABLE DO NOT TOUCH
-realbranch=`cd #{MU_BASE}/lib && git rev-parse --abbrev-ref HEAD`
-if $?.exitstatus == 0
-  MU_BRANCH=realbranch.chomp
-end
+# TODO: FIND ANOTHER WAY
+# realbranch=`cd #{MU_BASE}/lib && git rev-parse --abbrev-ref HEAD`
+# if $?.exitstatus == 0
+#   MU_BRANCH=realbranch.chomp
+# end
 
 begin
   resources('service[sshd]')
