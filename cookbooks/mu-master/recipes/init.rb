@@ -168,7 +168,7 @@ dpkgs = {}
 
 elversion = node[:platform_version].to_i > 2000 ? 6 : node[:platform_version].to_i
 if platform_family?("rhel")
-  basepackages = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libyaml", "libffi-devel"]
+  basepackages = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libyaml", "libffi-devel", "openssl"]
 #        package epel-release-6-8.9.amzn1.noarch (which is newer than epel-release-6-8.noarch) is already installed
 
   rpms = {
