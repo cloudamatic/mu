@@ -54,7 +54,7 @@ MU_BRANCH="development" # GIT HOOK EDITABLE DO NOT TOUCH
 #     only_if "grep 'PermitRootLogin no' /etc/ssh/sshd_config"
 #     notifies :restart, "service[sshd]", :immediately
 #   end
-#   SSH_USER="root"
+   SSH_USER="root"
 # end
 RUNNING_STANDALONE=node[:application_attributes].nil?
 
