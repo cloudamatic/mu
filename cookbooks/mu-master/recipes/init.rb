@@ -159,7 +159,7 @@ script "reconfigure Chef server" do
     action :nothing
     notifies :run, "execute[stop iptables]", :before
   #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
-    notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
+    #notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
     notifies :restart, "service[chef-server]", :immediately
     notifies :run, "execute[start iptables]", :immediately
     only_if { RUNNING_STANDALONE }
