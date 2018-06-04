@@ -128,7 +128,7 @@ file "use a clean /etc/hosts during install" do
 end
 
 execute "reconfigure Chef server" do
-  command "/opt/opscode/bin/chef-server-ctl reconfigure"
+  command "/opt/opscode/embedded/bin/runsvdir-start && /opt/opscode/bin/chef-server-ctl reconfigure"
   action :nothing
   notifies :run, "execute[stop iptables]", :before
 #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
