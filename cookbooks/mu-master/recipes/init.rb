@@ -28,7 +28,7 @@ require 'socket'
 
 # XXX We want to be able to override these things when invoked from chef-apply,
 # but, like, how?
-CHEF_SERVER_VERSION="12.17.33-1"
+CHEF_SERVER_VERSION="12.17.15-1"
 CHEF_CLIENT_VERSION="12.21.31-1"
 KNIFE_WINDOWS="1.9.0"
 MU_BASE="/opt/mu"
@@ -137,34 +137,6 @@ execute "reconfigure Chef server" do
   notifies :run, "execute[start iptables]", :immediately
   only_if { RUNNING_STANDALONE }
 end
-
-script "reconfigure Chef server" do
-  interpreter "bash"
-  code <<-EOH
-      #!/bin/bash
-      export PATH=/opt/opscode/bin:/opt/opscode/bin/embedded:$PATH
-
-      # Start this so that chef-server-ctl sv-related commands can interact with its services via runsv
-      /opt/opscode/embedded/bin/runsvdir-start &
-      chef-server-ctl reconfigure
-
-      chef-server-ctl start
-
-      # Output current state of things for sanity's sake
-      chef-server-ctl status
-
-      # Something useful that also keeps the container running...
-      tail -f /var/log/opscode/nginx/access.log
-    EOH
-    action :nothing
-    notifies :run, "execute[stop iptables]", :before
-  #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
-    #notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
-    notifies :restart, "service[chef-server]", :immediately
-    notifies :run, "execute[start iptables]", :immediately
-    only_if { RUNNING_STANDALONE }
-end
-
 execute "upgrade Chef server" do
   command "/opt/opscode/bin/chef-server-ctl upgrade"
   action :nothing
@@ -305,7 +277,7 @@ rpm_package "Chef Server upgrade package" do
   only_if "rpm -q chef-server-core"
   notifies :run, "execute[move aside old Chef Server files]", :before
   notifies :run, "execute[upgrade Chef server]", :immediately
-  notifies :run, "script[reconfigure Chef server]", :immediately
+  notifies :run, "execute[reconfigure Chef server]", :immediately
   notifies :restart, "service[chef-server]", :immediately
   only_if { RUNNING_STANDALONE }
 end
@@ -317,7 +289,7 @@ rpms.each_pair { |pkg, src|
       # On a normal install this will execute when we set up chef-server.rb,
       # but on a reinstall or an install on an image where that file already
       # exists, we need to invoke this some other way.
-      notifies :run, "script[reconfigure Chef server]", :immediately
+      notifies :run, "execute[reconfigure Chef server]", :immediately
       only_if { RUNNING_STANDALONE }
     end
   end
@@ -344,7 +316,7 @@ nginx['ssl_protocols'] = 'TLSv1.2'
 bookshelf['external_url'] = 'https://127.0.0.1:7443'
 bookshelf['vip_port'] = 7443\n"
   not_if { ::File.size?("/etc/opscode/chef-server.rb") }
-  notifies :run, "script[reconfigure Chef server]", :immediately
+  notifies :run, "execute[reconfigure Chef server]", :immediately
 end
 
 ["bin", "etc", "lib", "var/users/mu", "var/deployments", "var/orgs/mu"].each { |mudir|
