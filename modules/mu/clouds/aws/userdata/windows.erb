@@ -23,7 +23,7 @@ function log
 
 function fetchSecret([string]$file){
   log "Fetching s3://<%= MU.adminBucketName %>/$file to $tmp/$file"
-  aws.cmd s3 cp s3://<%= MU.adminBucketName %>/$file $tmp/$file
+  aws.cmd --region $region s3 cp s3://<%= MU.adminBucketName %>/$file $tmp/$file
 }
 
 function importCert([string]$cert, [string]$store){
@@ -160,12 +160,14 @@ function callMomma([string]$act)
 {
   $params = @{mu_id='<%= $mu.muID %>';mu_resource_name='<%= $mu.resourceName %>';mu_resource_type='<%= $mu.resourceType %>';mu_instance_id="$awsid";mu_user='<%= $mu.muUser %>';mu_deploy_secret="$deploy_secret";$act="1"}
   log "Calling Momma Cat at https://<%= $mu.publicIP %>:2260 with $act"
-  [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true} # XXX
+  [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}
   $resp = Invoke-WebRequest -Uri https://<%= $mu.publicIP %>:2260 -Method POST -Body $params
   return $resp.Content
 }
 
 $awsid=(New-Object System.Net.WebClient).DownloadString("$awsmeta/meta-data/instance-id")
+$region=(New-Object System.Net.WebClient).DownloadString("$awsmeta/meta-data/placement/availability-zone")
+$region=$region.Substring(0,$region.Length-1)
 
 $credstr = callMomma "mu_windows_admin_creds"
 $creds = $false

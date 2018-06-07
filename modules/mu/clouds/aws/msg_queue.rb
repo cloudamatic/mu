@@ -99,6 +99,7 @@ module MU
             }
           end
 
+          return nil if !@cloud_id
           MU::Cloud::AWS::MsgQueue.find(
             cloud_id: @cloud_id.dup,
             region: @config['region']
