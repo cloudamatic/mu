@@ -16,6 +16,7 @@
 updates_run=0
 need_reboot=0
 instance_id="`curl http://169.254.169.254/latest/meta-data/instance-id`"
+region="`curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone | sed 's/[a-z]$//'`"
 if [ -f /etc/debian_version ];then
 	if ! grep '^/bin/sh /var/lib/cloud/instance/user-data.txt$' /etc/rc.local > /dev/null;then
 		echo "/bin/sh /var/lib/cloud/instance/user-data.txt" >> /etc/rc.local
@@ -145,7 +146,7 @@ if [ "$need_reboot" == "1" ];then
 fi
 <% end %>
 
-$AWSCLI s3 cp s3://<%= MU.adminBucketName %>/<%= $mu.muID %>-secret .
+$AWSCLI --region="$region" s3 cp s3://<%= MU.adminBucketName %>/<%= $mu.muID %>-secret .
 
 echo '
 require "openssl"
