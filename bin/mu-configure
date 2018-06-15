@@ -86,7 +86,8 @@ $CONFIGURABLES = {
     "callback" => :cloneGitRepo,
     "changes" => ["chefartifacts", "chefrun"],
     "array" => true,
-    "default" => ['https://git.egt-labs.com/mu/demo_platform.git']
+#    "default" => ['https://git.egt-labs.com/mu/demo_platform.git']
+    "default" => []
   },
   "master_runlist_extras" => {
     "title" => "Mu Master Runlist Extras",
