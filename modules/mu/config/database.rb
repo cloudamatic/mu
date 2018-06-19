@@ -50,8 +50,8 @@ module MU
             "add_firewall_rules" => MU::Config::FirewallRule.reference,
             "read_replica_of" => reference,
             "ingress_rules" => {
-                "type" => "array",
-                "items" => MU::Config::FirewallRule.ruleschema
+              "type" => "array",
+              "items" => MU::Config::FirewallRule.ruleschema
             },
             "engine" => {
                 "enum" => ["mysql", "postgres", "oracle-se1", "oracle-se2", "oracle-se", "oracle-ee", "sqlserver-ee", "sqlserver-se", "sqlserver-ex", "sqlserver-web", "aurora", "mariadb"],
