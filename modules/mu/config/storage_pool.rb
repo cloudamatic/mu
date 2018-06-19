@@ -96,7 +96,7 @@ module MU
       
                 if !MU::Config::VPC.processReference(mp['vpc'],
                                         "storage_pools",
-                                        shortclass.to_s+" '#{pool['name']}'",
+                                        "storagepool '#{pool['name']}'",
                                         configurator,
                                         dflt_region: pool['region'],
                                         is_sibling: true,
@@ -106,7 +106,7 @@ module MU
               else
                 if !MU::Config::VPC.processReference(mp["vpc"],
                                         "storage_pools",
-                                        "#{shortclass} #{pool['name']}",
+                                        "storagepool #{pool['name']}",
                                         configurator,
                                         dflt_region: pool['region'])
                   ok = false
