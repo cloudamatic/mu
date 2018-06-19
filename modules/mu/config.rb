@@ -825,7 +825,9 @@ module MU
         if descriptor['vpc']['cloud'] == "Google"
           descriptor['vpc'].delete("region")
         end
-        descriptor['vpc'].delete("subnet_pref")
+        if ["firewall_rule", "function"].include?(cfg_name)
+          descriptor['vpc'].delete("subnet_pref")
+        end
       end
 
       # Does it have generic ingress rules?

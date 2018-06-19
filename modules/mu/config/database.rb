@@ -97,8 +97,7 @@ module MU
             "port" => {"type" => "integer"},
             "vpc" => MU::Config::VPC.reference(MU::Config::VPC::MANY_SUBNETS, MU::Config::VPC::NAT_OPTS, "all_public"),
             "publicly_accessible" => {
-                "type" => "boolean",
-                "default" => true
+                "type" => "boolean"
             },
             "multi_az_on_create" => {
                 "type" => "boolean",
@@ -339,13 +338,6 @@ module MU
             elsif %w{all any}.include? db["vpc"]["subnet_pref"]
               MU.log "subnet_pref #{db["vpc"]["subnet_pref"]} is not supported for database instance.", MU::ERR
               ok = false
-            end
-            if db["vpc"]["subnet_pref"] == "all_public" and !db['publicly_accessible']
-              MU.log "Setting publicly_accessible to true on database '#{db['name']}', since deploying into public subnets.", MU::WARN
-              db['publicly_accessible'] = true
-            elsif db["vpc"]["subnet_pref"] == "all_private" and db['publicly_accessible']
-              MU.log "Setting publicly_accessible to false on database '#{db['name']}', since deploying into private subnets.", MU::NOTICE
-              db['publicly_accessible'] = false
             end
           end
         end

@@ -1383,8 +1383,7 @@ module MU
             "cluster_parameter_group_parameters" => rds_parameters_primitive,
             "license_model" => {
               "type" => "string",
-              "enum" => ["license-included", "bring-your-own-license", "general-public-license", "postgresql-license"],
-              "default" => "license-included"
+              "enum" => ["license-included", "bring-your-own-license", "general-public-license", "postgresql-license"]
             },
             "ingress_rules" => {
               "items" => {
@@ -1430,6 +1429,8 @@ module MU
               "postgresql-license"
             elsif db["engine"] == "mysql"
               "general-public-license"
+            else
+              "license-included"
             end
 
           if db["create_read_replica"] or db['read_replica_of']
@@ -1501,6 +1502,17 @@ module MU
                 MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 200 to 4096 GB #{db["storage_type"]} volume types", MU::ERR
                 ok = false
               end
+            end
+          end
+
+          if db["vpc"]
+            puts db['vpc']["subnet_pref"]
+            if db["vpc"]["subnet_pref"] == "all_public" and !db['publicly_accessible']
+              MU.log "Setting publicly_accessible to true on database '#{db['name']}', since deploying into public subnets.", MU::WARN
+              db['publicly_accessible'] = true
+            elsif db["vpc"]["subnet_pref"] == "all_private" and db['publicly_accessible']
+              MU.log "Setting publicly_accessible to false on database '#{db['name']}', since deploying into private subnets.", MU::NOTICE
+              db['publicly_accessible'] = false
             end
           end
 
