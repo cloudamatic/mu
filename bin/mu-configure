@@ -87,7 +87,6 @@ $CONFIGURABLES = {
     "changes" => ["chefartifacts", "chefrun"],
     "array" => true,
     "default" => ['https://github.com/cloudamatic/mu_demo_platform']
-    "default" => []
   },
   "master_runlist_extras" => {
     "title" => "Mu Master Runlist Extras",
