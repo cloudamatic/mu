@@ -1439,6 +1439,15 @@ module MU
             end
           end
 
+          db['ingress_rules'] ||= []
+          fwname = "database"+db['name']
+          acl = {"name" => fwname, "rules" => db['ingress_rules'], "region" => db['region'], "optional_tags" => db['optional_tags'] }
+          acl["tags"] = db['tags'] if db['tags'] && !db['tags'].empty?
+          acl["vpc"] = db['vpc'].dup if db['vpc']
+          ok = false if !configurator.insertKitten(acl, "firewall_rules")
+          db["add_firewall_rules"] = [] if db["add_firewall_rules"].nil?
+          db["add_firewall_rules"] << {"rule_name" => fwname}
+
           if !db['password'].nil? and (db['password'].length < 8 or db['password'].match(/[\/\\@\s]/))
             MU.log "Database password '#{db['password']}' doesn't meet RDS requirements. Must be > 8 chars and have only ASCII characters other than /, @, \", or [space].", MU::ERR
             ok = false
