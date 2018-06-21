@@ -152,6 +152,9 @@ If ($install_chef){
   Set-Content "c:/mu_installed_chef" "yup"
 }
 
+$region=(New-Object System.Net.WebClient).DownloadString("$awsmeta/meta-data/placement/availability-zone")
+$region=$region.Substring(0,$region.Length-1)
+
 fetchSecret("<%= $mu.muID %>-secret")
 log "Encrypting Mu deploy secret"
 $deploy_secret = & "c:\opscode\chef\embedded\bin\ruby" -ropenssl -rbase64 -e "key = OpenSSL::PKey::RSA.new(Base64.urlsafe_decode64('<%= $mu.deployKey %>'))" -e "print Base64.urlsafe_encode64(key.public_encrypt(File.read('$tmp\<%= $mu.muID %>-secret')))"
@@ -166,8 +169,6 @@ function callMomma([string]$act)
 }
 
 $awsid=(New-Object System.Net.WebClient).DownloadString("$awsmeta/meta-data/instance-id")
-$region=(New-Object System.Net.WebClient).DownloadString("$awsmeta/meta-data/placement/availability-zone")
-$region=$region.Substring(0,$region.Length-1)
 
 $credstr = callMomma "mu_windows_admin_creds"
 $creds = $false
