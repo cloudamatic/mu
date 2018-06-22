@@ -3,7 +3,8 @@ maintainer 'Chef Software, Inc.'
 maintainer_email 'cookbooks@getchef.com'
 license 'Apache 2.0'
 description 'Provides the mysql_chef_gem resource'
-
+source_url 'https://github.com/cloudamatic/mu'
+issues_url 'https://github.com/cloudamatic/mu/issues'
 version '0.0.5'
 
 supports 'amazon'

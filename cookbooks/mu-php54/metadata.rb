@@ -22,4 +22,6 @@ depends 'mysql'
 depends 'yum-epel'
 description 'Installs/Configures php'
 long_description IO.read(File.join(File.dirname(__FILE__), 'README.md'))
+source_url 'https://github.com/cloudamatic/mu'
+issues_url 'https://github.com/cloudamatic/mu/issues'
 version '0.3.0'

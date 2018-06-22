@@ -16,6 +16,8 @@ license '# Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
 # limitations under the License.'
 description 'Mu-specific platform capabilities'
 long_description IO.read(File.join(File.dirname(__FILE__), 'README.md'))
+source_url 'https://github.com/cloudamatic/mu'
+issues_url 'https://github.com/cloudamatic/mu/issues'
 version '1.0.4'
 depends "oracle-instantclient"
 depends "nagios"

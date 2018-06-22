@@ -16,5 +16,7 @@ license '# Copyright:: Copyright (c) 2014 eGlobalTech, Inc., all rights reserved
 # limitations under the License.'
 description 'Utility recipes'
 long_description IO.read(File.join(File.dirname(__FILE__), 'README.md'))
+source_url 'https://github.com/cloudamatic/mu'
+issues_url 'https://github.com/cloudamatic/mu/issues'
 version '0.6.0'
 depends 'windows', '= 3.2.0'
