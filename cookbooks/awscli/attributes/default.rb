@@ -1,1 +1,1 @@
-default[:awscli][:compile_time] = false
+default['awscli']['compile_time'] = false
