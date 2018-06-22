@@ -33,12 +33,18 @@ ruby_block "Pull App from Repo" do
     #we can assume the app directory is present now, from create_application_volume
     Dir.chdir($application_mount_directory)
     git_clone = "git clone https://#{$application_repo_username}:#{$application_repo_password}@#{$application_repo}"
-    `#{git_clone}`
+    cmd = Mixlib::ShellOut.new(git_clone)
+    cmd.run_command
+    # `#{git_clone}`
     unless $application_repo_branch == "master"
       Chef::Log.info("Branching to #{$application_repo_branch}")
       Dir.chdir("#{$application_mount_directory}/#{$application_repo_name}")
-      `git checkout -b remotes/origin/#{$application_repo_branch}`
-      `git pull origin #{$application_repo_branch}`
+      cmd = Mixlib::ShellOut.new("git checkout -b remotes/origin/#{$application_repo_branch}")
+      cmd.run_command
+      cmd = Mixlib::ShellOut.new("git pull origin #{$application_repo_branch}")
+      cmd.run_command
+      # `git checkout -b remotes/origin/#{$application_repo_branch}`
+      # `git pull origin #{$application_repo_branch}`
     end
   end
   action :create

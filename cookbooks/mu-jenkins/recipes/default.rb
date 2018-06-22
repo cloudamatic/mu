@@ -62,7 +62,8 @@ end
 
 
 # Download ALPN Jar file and fix to JENKINS_JAVA_OPTIONS
-open_jdk_version = `java -version 2>&1`
+# open_jdk_version = `java -version 2>&1`
+open_jdk_version = shell_out('java -version 2>&1').stdout.str
 if open_jdk_version.include?("openjdk version \"1.8") and node['platform_family'] == 'rhel'
 
   remote_file 'download_anlp_jar' do

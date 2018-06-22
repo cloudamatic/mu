@@ -33,7 +33,8 @@ CHEF_CLIENT_VERSION="12.21.31-1"
 KNIFE_WINDOWS="1.9.0"
 MU_BASE="/opt/mu"
 MU_BRANCH="development" # GIT HOOK EDITABLE DO NOT TOUCH
-realbranch=`cd #{MU_BASE}/lib && git rev-parse --abbrev-ref HEAD`
+# realbranch=`cd #{MU_BASE}/lib && git rev-parse --abbrev-ref HEAD`
+realbranch = shell_out("cd #{MU_BASE}/lib && git rev-parse --abbrev-ref HEAD").stdout.str
 if $?.exitstatus == 0
   MU_BRANCH=realbranch.chomp
 end

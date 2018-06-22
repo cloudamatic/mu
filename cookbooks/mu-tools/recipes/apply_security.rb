@@ -340,8 +340,12 @@ if !node['application_attributes']['skip_recipes'].include?('apply_security')
   
       ruby_block "do a bunch of weird stuff" do
         block do
-          `chcon -Rv --type=user_home_t /home`
-          `rm -rf /tmp/moveusers.tgz`
+          cmd = Mixlib::ShellOut.new('chcon -Rv --type=user_home_t /home')
+          cmd.run_command
+          cmd = Mixlib::ShellOut.new('rm -rf /tmp/moveusers.tgz')
+          cmd.run_command
+          # `chcon -Rv --type=user_home_t /home`
+          # `rm -rf /tmp/moveusers.tgz`
           valid_users="AllowUsers root"
           node['etc']['passwd'].each do |user, data|
             if data['uid'] >= 500 && data['shell'] !~ /nologin/ then

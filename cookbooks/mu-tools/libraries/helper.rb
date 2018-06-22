@@ -182,9 +182,11 @@ module Mutools
           next if !File.exists?(gsutil)
           Chef::Log.info("Fetching deploy secret: #{gsutil} cp gs://#{bucket}/#{filename} -")
           if File.exists?("/usr/bin/python2.7")
-            secret = %x{CLOUDSDK_PYTHON=/usr/bin/python2.7 #{gsutil} cp gs://#{bucket}/#{filename} -}
+            # secret = %x{CLOUDSDK_PYTHON=/usr/bin/python2.7 #{gsutil} cp gs://#{bucket}/#{filename} -}
+            secret = shell_out("CLOUDSDK_PYTHON=/usr/bin/python2.7 #{gsutil} cp gs://#{bucket}/#{filename} -").stdout.str
           else
-            secret = %x{#{gsutil} cp gs://#{bucket}/#{filename} -}
+            # secret = %x{#{gsutil} cp gs://#{bucket}/#{filename} -}
+            secret = shell_out("#{gsutil} cp gs://#{bucket}/#{filename} -").stdout.str
           end
           break if !secret.nil? and !secret.empty?
         }
