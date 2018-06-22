@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-case node[:platform]
+case node['platform']
   when "centos", "redhat"
-    if node[:platform_version].to_i == 7
+    if node['platform_version'].to_i == 7
       package "firewalld" do
         action :remove
       end
@@ -22,5 +22,5 @@ case node[:platform]
       package "iptables-services"
     end
   else
-    Chef::Log.info("Unsupported platform #{node[:platform]}")
+    Chef::Log.info("Unsupported platform #{node['platform']}")
 end
