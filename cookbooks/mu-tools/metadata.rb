@@ -18,6 +18,7 @@ description 'Mu-specific platform capabilities'
 long_description IO.read(File.join(File.dirname(__FILE__), 'README.md'))
 source_url 'https://github.com/cloudamatic/mu'
 issues_url 'https://github.com/cloudamatic/mu/issues'
+chef_version '>= 12.1' if respond_to?(:chef_version)
 version '1.0.4'
 depends "oracle-instantclient"
 depends "nagios"

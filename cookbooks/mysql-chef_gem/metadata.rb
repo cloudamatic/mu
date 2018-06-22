@@ -5,6 +5,7 @@ license 'Apache 2.0'
 description 'Provides the mysql_chef_gem resource'
 source_url 'https://github.com/cloudamatic/mu'
 issues_url 'https://github.com/cloudamatic/mu/issues'
+chef_version '>= 12.1' if respond_to?(:chef_version)
 version '0.0.5'
 
 supports 'amazon'

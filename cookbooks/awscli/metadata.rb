@@ -4,8 +4,9 @@ maintainer_email 'shlomo.swidler@orchestratus.com'
 license 'Apache 2.0'
 description 'Installs the AWS command line tools'
 long_description IO.read(File.join(File.dirname(__FILE__), 'README.md'))
-issues_url 'https://github.com/cloudamatic/mu/issues'
 source_url 'https://github.com/cloudamatic/mu'
+issues_url 'https://github.com/cloudamatic/mu/issues'
+chef_version '>= 12.1' if respond_to?(:chef_version)
 version '0.2.1'
 
 # Mod by rpc to depend on epel recipe.
