@@ -28,7 +28,7 @@ Foodcritic:
   stage: Lint Test
   image: chef/chefdk:latest
   script:
-    - foodcritic cookbooks/
+    - foodcritic cookbooks/ -t ~FC075
   allow_failure: true
 
 ChefSpec:
