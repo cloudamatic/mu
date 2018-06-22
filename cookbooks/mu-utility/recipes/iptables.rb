@@ -13,7 +13,7 @@
 # limitations under the License.
 
 case node['platform']
-  when "centos", "redhat"
+  when platform_family?('rhel')
     if node['platform_version'].to_i == 7
       package "firewalld" do
         action :remove

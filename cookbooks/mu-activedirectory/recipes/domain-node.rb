@@ -26,7 +26,7 @@ case node['platform']
     else
       Chef::Log.info "Requires Windows Server 2012, 2012R2 or windows_server_2016"
     end
-  when "centos", "redhat"
+  when platform_family?('rhel')
     if node['platform_version'].to_i >= 6
       can_join_domain = true # just winbind, really
       include_recipe "mu-activedirectory::sssd"

@@ -17,7 +17,7 @@
 # limitations under the License.
 
 case node['platform']
-  when "centos", "redhat", "ubuntu"
+  when !"windows"
     %w{vim-minimal vim-enhanced}.each { |pkg|
       package pkg
     }

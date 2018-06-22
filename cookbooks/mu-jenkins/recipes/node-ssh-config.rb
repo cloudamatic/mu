@@ -14,7 +14,7 @@ include_recipe 'chef-vault'
 ssh_vault = chef_vault_item(node['jenkins_ssh_vault']['vault'], node['jenkins_ssh_vault']['item'])
 
 case node['platform']
-  when "centos", "redhat"
+  when platform_family?('rhel')
     if platform?("centos")
       ssh_user = "root" if node['platform_version'].to_i == 6
       ssh_user = "centos" if node['platform_version'].to_i == 7

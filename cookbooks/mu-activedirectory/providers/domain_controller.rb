@@ -25,7 +25,7 @@ action :add do
       configure_network_interface
       set_replication_static_ports
       set_computer_name(admin_creds)
-    when "centos", "redhat"
+    when platform_family?('rhel')
       # To do: Do Active Directory on Linux
     else
       Chef::Log.info("Unsupported platform #{node['platform']}")
@@ -36,7 +36,7 @@ action :remove do
   case node['platform']
     when "windows"
       demote
-    when "centos", "redhat"
+    when platform_family?('rhel')
       # To do: Do Active Directory on Linux
     else
       Chef::Log.info("Unsupported platform #{node['platform']}")

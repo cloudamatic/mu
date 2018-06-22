@@ -24,7 +24,7 @@
 
 if !node['application_attributes']['skip_recipes'].include?('split_var_partitions')
   case node['platform']
-    when "centos", "redhat"
+    when platform_family?('rhel')
 
       include_recipe "mu-tools::aws_api"
       include_recipe "mu-tools::google_api"

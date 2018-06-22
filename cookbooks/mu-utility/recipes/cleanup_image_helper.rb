@@ -79,7 +79,7 @@ case node['platform']
 #			end
 #		}
 #	end
-  when "centos", "redhat"
+  when platform_family?('rhel')
     if node['platform_version'].to_i == 7
       execute "sed -i '/^preserve_hostname/d' /etc/cloud/cloud.cfg" do
         only_if "grep 'preserve_hostname: true' /etc/cloud/cloud.cfg"

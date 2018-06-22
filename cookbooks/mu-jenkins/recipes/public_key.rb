@@ -8,7 +8,7 @@
 #
 
 case node['platform']
-  when "centos", "redhat"
+  when platform_family?('rhel')
     include_recipe 'chef-vault'
 
     ssh_vault = chef_vault_item(node['jenkins_ssh_vault']['vault'], node['jenkins_ssh_vault']['item'])

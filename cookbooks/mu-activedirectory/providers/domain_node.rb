@@ -22,7 +22,7 @@ action :add do
       elevate_remote_access
       join_domain_windows
 #      set_computer_name(join_domain_creds)
-    when "centos", "redhat"
+    when platform_family?('rhel')
       install_ad_client_packages
       join_domain_linux
     else
@@ -34,7 +34,7 @@ action :remove do
   case node['platform']
     when "windows"
       unjoin_domain_windows
-    when "centos", "redhat"
+    when platform_family?('rhel')
       unjoin_domain_linux
     else
       Chef::Log.info("Unsupported platform #{node['platform']}")

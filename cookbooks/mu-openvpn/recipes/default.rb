@@ -12,7 +12,7 @@ include_recipe 'chef-vault'
 users_vault = chef_vault_item(node['openvpn']['users_vault']['vault'], node['openvpn']['users_vault']['item'])
 
 case node['platform']
-  when "centos", "redhat"
+  when platform_family?('rhel')
     include_recipe 'mu-firewall'
 
     node['openvpn']['fw_rules'].each { |rule|
