@@ -2111,7 +2111,8 @@ MESSAGE_END
       else
         litter = {}
         nodeclasses.each { |nodeclass|
-          litter.merge!(findLitterMate(type: "server", name: nodeclass, return_all: true))
+          mates = findLitterMate(type: "server", name: nodeclass, return_all: true)
+          litter.merge!(mates) if mates
         }
         litter.each_pair { |mu_name, node|
           next if !triggering_node.nil? and mu_name == triggering_node.mu_name

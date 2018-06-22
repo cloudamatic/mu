@@ -501,8 +501,8 @@ module MU
             end
           end
 
-          if @config['advanced_options'] and ext.nil? or 
-             ext.advanced_options != @config['advanced_options']
+          if @config['advanced_options'] and (ext.nil? or 
+             ext.advanced_options != @config['advanced_options'])
             params[:advanced_options] = {}
             @config['advanced_options'].each_pair { |key, value|
               params[:advanced_options][key] = value

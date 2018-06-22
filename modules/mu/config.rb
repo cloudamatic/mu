@@ -1507,21 +1507,30 @@ module MU
         end
 
         ruleset = haveLitterMate?("database"+db['name'], "firewall_rule")
-        ["server_pools", "servers"].each { |type|
-          shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
-          @kittens[cfg_plural].each { |server|
-            server["dependencies"].each { |dep|
-              if dep["type"] == "database" and dep["name"] == db["name"]
-                # XXX this is AWS-specific, I think. We need to use source_tags to make this happen in Google. This logic probably needs to be dumped into the database layer.
-                ruleset["rules"] << {
-                  "proto" => "tcp",
-                  "port" => db["port"],
-                  "sgs" => [cfg_name+server['name']]
-                }
-              end
+
+        if ruleset
+          ["server_pools", "servers"].each { |type|
+            shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
+            @kittens[cfg_plural].each { |server|
+              server["dependencies"].each { |dep|
+                if dep["type"] == "database" and dep["name"] == db["name"]
+                  # XXX this is AWS-specific, I think. We need to use source_tags to make this happen in Google. This logic probably needs to be dumped into the database layer.
+                  ruleset["rules"] << {
+                    "proto" => "tcp",
+                    "port" => db["port"],
+                    "sgs" => [cfg_name+server['name']]
+                  }
+
+                  ruleset["dependencies"] << {
+                    "name" => cfg_name+server['name'],
+                    "type" => "firewall_rule",
+                    "phase" => "groom"
+                  }
+                end
+              }
             }
           }
-        }
+        end
       }
 
       seen = []
