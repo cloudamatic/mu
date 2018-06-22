@@ -1,7 +1,7 @@
 name 'mysql-chef_gem'
 maintainer 'Chef Software, Inc.'
 maintainer_email 'cookbooks@getchef.com'
-license 'Apache 2.0'
+license 'BSD-3-Clause'
 description 'Provides the mysql_chef_gem resource'
 source_url 'https://github.com/cloudamatic/mu'
 issues_url 'https://github.com/cloudamatic/mu/issues'

@@ -1,7 +1,7 @@
 name 'mu-jenkins'
 maintainer 'eGlobalTech, Inc'
 maintainer_email 'mu-developers@googlegroups.com'
-license 'All rights reserved'
+license 'BSD-3-Clause'
 description 'Installs/Configures mu-jenkins'
 long_description IO.read(File.join(File.dirname(__FILE__), 'README.md'))
 source_url 'https://github.com/cloudamatic/mu'

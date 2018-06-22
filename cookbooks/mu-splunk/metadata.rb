@@ -1,7 +1,7 @@
 name 'mu-splunk'
 maintainer 'eGlobalTech'
 maintainer_email 'mu-developers@googlegroups.com'
-license 'Apache 2.0'
+license 'BSD-3-Clause'
 description 'Manage Splunk Enterprise or Splunk Universal Forwarder. Forked chef-splunk (https://github.com/chef-cookbooks/chef-splunk)'
 source_url 'https://github.com/cloudamatic/mu'
 issues_url 'https://github.com/cloudamatic/mu/issues'

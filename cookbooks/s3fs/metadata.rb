@@ -1,7 +1,7 @@
 name 's3fs'
-maintainer 'CAP'
-maintainer_email 'CAP'
-license 'All rights reserved'
+maintainer 'Mu'
+maintainer_email 'mu-developers@googlegroups.com'
+license 'BSD-3-Clause'
 description 'Installs/Configures s3fs'
 long_description IO.read(File.join(File.dirname(__FILE__), 'README.md'))
 source_url 'https://github.com/cloudamatic/mu'

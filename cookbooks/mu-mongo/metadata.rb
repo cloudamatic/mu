@@ -1,7 +1,7 @@
 name 'mu-mongo'
 maintainer 'John Stange'
 maintainer_email 'john.stange@eglobaltech.com'
-license 'All rights reserved'
+license 'BSD-3-Clause'
 description 'Installs/Configures a Mongo DB cluster'
 long_description IO.read(File.join(File.dirname(__FILE__), 'README.md'))
 source_url 'https://github.com/cloudamatic/mu'
