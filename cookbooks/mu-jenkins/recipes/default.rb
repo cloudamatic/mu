@@ -13,7 +13,7 @@ directory "/opt/java_jce" do
   mode 0755
 end
 
-admin_vault = chef_vault_item(node['jenkins_admin_vault'][:vault], node['jenkins_admin_vault'][:item])
+admin_vault = chef_vault_item(node['jenkins_admin_vault']['vault'], node['jenkins_admin_vault']['item'])
 
 directory "Mu Jenkins home #{node['jenkins']['master']['home']}" do
   path node['jenkins']['master']['home']
