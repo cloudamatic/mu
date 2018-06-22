@@ -96,15 +96,13 @@ service_certs.each { |cert|
     cwd "#{$MU_CFG['datadir']}/ssl"
     not_if { ::File.size?("#{$MU_CFG['datadir']}/ssl/#{cert}.crt") }
   end
-  file "#{$MU_CFG['datadir']}/ssl/#{cert}.key" do
-    mode 0400
+
+  %w{key crt p12}.each do |type|
+    file "#{$MU_CFG['datadir']}/ssl/#{cert}.#{type}" do
+      mode 0400
+    end
   end
-  file "#{$MU_CFG['datadir']}/ssl/#{cert}.crt" do
-    mode 0444
-  end
-  file "#{$MU_CFG['datadir']}/ssl/#{cert}.p12" do
-    mode 0444
-  end
+
   file "#{$MU_CFG['datadir']}/ssl/#{cert}.csr" do
     action :delete
   end

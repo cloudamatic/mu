@@ -223,17 +223,11 @@ remote_file "#{MU_BASE}/lib/.git/hooks/pre-commit" do
   mode 0755
 end
 
-directory MU_BASE+"/var" do
-  recursive true
-  mode 0755
-end
-directory MU_BASE+"/install" do
-  recursive true
-  mode 0755
-end
-directory MU_BASE+"/deprecated-bash-library.sh" do
-  recursive true
-  mode 0755
+[MU_BASE+"/var", MU_BASE+"/install", MU_BASE+"/deprecated-bash-library.sh"].each do |dir|
+  directory dir do
+    recursive true
+    mode 0755
+  end
 end
 
 # Stub files so standalone Ruby programs like mu-configure can know what
