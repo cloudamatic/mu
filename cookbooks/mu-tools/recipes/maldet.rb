@@ -55,8 +55,8 @@ if node['maldet']['install'] == true and !node['application_attributes']['skip_r
     end
 
     cron "update maldet" do
-      minute "#{Random.rand(0...59)}"
-      hour "#{Random.rand(0...23)}"
+      minute Random.rand(0...59)
+      hour Random.rand(0...23)
       command "/usr/local/maldetect/maldet --update > /dev/null; /usr/local/sbin/maldet_scanall.sh > /dev/null"
     end
   end

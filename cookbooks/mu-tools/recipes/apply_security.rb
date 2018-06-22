@@ -350,7 +350,7 @@ if !node['application_attributes']['skip_recipes'].include?('apply_security')
           end
           Chef::Log.info("Enabling ssh users #{valid_users}")
           fe = Chef::Util::FileEdit.new("/etc/ssh/sshd_config")
-          fe.search_file_replace_line(/^AllowUsers.*$/, "#{valid_users}")
+          fe.search_file_replace_line(/^AllowUsers.*$/, valid_users)
           fe.write_file
         end
         only_if { ::File.exists?("/tmp/moveusers.tgz") }

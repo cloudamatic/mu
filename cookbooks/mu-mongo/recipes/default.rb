@@ -16,7 +16,7 @@ node.save
 
 
 node['application_attributes']['mongo_dirs'].each { |path|
-  directory "#{path['dir']}" do
+  directory path['dir'] do
     owner "mongod"
     group "mongod"
   end

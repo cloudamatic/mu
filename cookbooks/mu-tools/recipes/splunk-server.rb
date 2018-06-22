@@ -85,7 +85,7 @@ if node['splunk']['license'] != nil
   if !node['splunk']['license_cookbook'].nil? and !node['splunk']['license_cookbook'].empty?
     cookbook_file "/opt/splunk/etc/licenses/enterprise/Splunk.license" do
       source "splunk.license"
-      cookbook "#{node['splunk']['license_cookbook']}"
+      cookbook node['splunk']['license_cookbook']
       notifies :restart, "service[splunk]", :immediately
     end
   end rescue NoMethodError
