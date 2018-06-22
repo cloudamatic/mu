@@ -21,7 +21,7 @@ if disk_name_str == "CAP-MASTER" or disk_name_str == "MU-MASTER" and !node['host
   disk_name_str = node['hostname']
 end rescue NoMethodError
 
-default.os_updates_using_chef = false
+default['os_updates_using_chef'] = false
 
 default['application_attributes']['application_volume']['mount_directory'] = '/apps'
 default['application_attributes']['application_volume']['mount_device'] = '/dev/xvdf'

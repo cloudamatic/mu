@@ -147,7 +147,7 @@ case node['platform_family']
         :domain => node['ad']['domain_name'],
         'dc_ips' => node['ad']['dc_ips']
       )
-      notifies :restart, "service[network]", :immediately unless %w{redhat centos}.include?(node.platform) && node.platform_version.to_i == 7
+      notifies :restart, "service[network]", :immediately unless %w{redhat centos}.include?(node['platform']) && node['platform_version'].to_i == 7
     end
 
     # If adcli fails mysteriously, look for bogus /etc/hosts entries pointing
