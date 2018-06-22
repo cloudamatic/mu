@@ -55,7 +55,7 @@ else
   end
   SSH_USER="root"
 end
-RUNNING_STANDALONE=node[:application_attributes].nil?
+RUNNING_STANDALONE=node['application_attributes'].nil?
 
 execute "stop iptables" do
   command "/sbin/service iptables stop"
@@ -158,7 +158,7 @@ removepackages = []
 rpms = {}
 dpkgs = {}
 
-elversion = node[:platform_version].to_i > 2000 ? 6 : node[:platform_version].to_i
+elversion = node['platform_version'].to_i > 2000 ? 6 : node['platform_version'].to_i
 if platform_family?("rhel")
   basepackages = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libyaml", "libffi-devel"]
 #        package epel-release-6-8.9.amzn1.noarch (which is newer than epel-release-6-8.noarch) is already installed
@@ -185,7 +185,7 @@ if platform_family?("rhel")
     removepackages = ["nagios", "firewalld"]
   end
   # Amazon Linux
-  if node[:platform_version].to_i > 2000
+  if node['platform_version'].to_i > 2000
     basepackages.concat(["compat-libffi5"])
     rpms.delete("epel-release")
   end
