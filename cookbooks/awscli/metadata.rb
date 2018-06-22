@@ -17,20 +17,4 @@ recipe "default", "Install AWS CLI tools"
   supports plat
 end
 
-attribute 'awscli/compile_time',
-          :display_name => "Compile Time",
-          :description => "Whether to install the awscli tool during chef compile time or not",
-          :default => "false",
-          :type => "string",
-          :required => "optional",
-          :recipes => ["awscli::default"]
-
-attribute 'awscli/config_profiles',
-          :display_name => "Configuration Profiles",
-          :description => "A hash of profile names to hashes of key-value pairs specifying configuration options",
-          :default => "nil",
-          :type => "hash",
-          :required => "optional",
-          :recipes => ["awscli::default"]
-
 #depends    'mu-utility::epel'
