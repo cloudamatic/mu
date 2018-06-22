@@ -8,3 +8,4 @@ Mu_CA.pem
 install/headlesscheatsheet
 bin/consul
 bin/vault
+.vscode
