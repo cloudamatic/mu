@@ -253,7 +253,7 @@ module Mutools
 
     def get_mu_master_ips
       master_ips = []
-      master_ips << "127.0.0.1" if node['name'] == "MU-MASTER"
+      master_ips << "127.0.0.1" if node.name == "MU-MASTER"
       master = search(:node, "name:MU-MASTER")
       master.each { |server|
         if server.has_key?("ec2")

@@ -38,7 +38,7 @@ master_ips.each { |host|
   if host.match(/^(?:10\.|172\.(1[6789]|2[0-9]|3[01])\.|192\.168\.)/)
     hostsfile_entry host do
       hostname $MU_CFG['hostname']
-      aliases [node['name'], "MU-MASTER"]
+      aliases [node.name, "MU-MASTER"]
       action :append
     end
   end

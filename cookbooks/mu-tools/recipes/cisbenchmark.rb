@@ -43,7 +43,7 @@ package "mailx"
 bash "mail results" do
   user "root"
   code <<-EOH
-		echo "The node has been configured and the security file can be found in /tmp/cis-cat-full.zip directory" | mailx -a /tmp/cis-results.zip -s "#{node['name']} security report" -- #{node['admins'].first}
+		echo "The node has been configured and the security file can be found in /tmp/cis-cat-full.zip directory" | mailx -a /tmp/cis-results.zip -s "#{node.name} security report" -- #{node['admins'].first}
   EOH
 end
 
