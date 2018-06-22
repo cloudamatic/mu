@@ -12,7 +12,7 @@ GEM
   specs:
     addressable (2.4.0)
     ast (2.4.0)
-    aws-sdk-core (2.11.70)
+    aws-sdk-core (2.11.74)
       aws-sigv4 (~> 1.0)
       jmespath (~> 1.0)
     aws-sigv4 (1.0.2)
@@ -191,7 +191,7 @@ GEM
     mime-types-data (3.2016.0521)
     mini_portile2 (2.3.0)
     minitar (0.6.1)
-    mixlib-archive (0.4.7)
+    mixlib-archive (0.4.8)
       mixlib-log
     mixlib-authentication (1.4.2)
     mixlib-cli (1.7.0)
@@ -202,7 +202,7 @@ GEM
     molinillo (0.6.5)
     multi_json (1.13.1)
     multipart-post (2.0.0)
-    mysql (2.9.1)
+    mysql2 (0.5.1)
     net-ldap (0.16.1)
     net-scp (1.2.1)
       net-ssh (>= 2.6.5)
@@ -399,7 +399,7 @@ DEPENDENCIES
   inspec (~> 1.51.18)
   json-schema
   knife-windows!
-  mysql
+  mysql2
   net-ldap
   net-ssh (~> 3.2.0)
   netaddr (< 2.0)
