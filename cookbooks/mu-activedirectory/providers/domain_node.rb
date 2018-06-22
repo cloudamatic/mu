@@ -16,7 +16,7 @@ def whyrun_supported?
 end
 
 action :add do
-  case node[:platform]
+  case node['platform']
     when "windows"
       set_client_dns
       elevate_remote_access
@@ -26,18 +26,18 @@ action :add do
       install_ad_client_packages
       join_domain_linux
     else
-      Chef::Log.info("Unsupported platform #{node[:platform]}")
+      Chef::Log.info("Unsupported platform #{node['platform']}")
   end
 end
 
 action :remove do
-  case node[:platform]
+  case node['platform']
     when "windows"
       unjoin_domain_windows
     when "centos", "redhat"
       unjoin_domain_linux
     else
-      Chef::Log.info("Unsupported platform #{node[:platform]}")
+      Chef::Log.info("Unsupported platform #{node['platform']}")
   end
 end
 
@@ -53,7 +53,7 @@ def join_domain_windows
   unless in_domain?
     # This will allow us to add a new computer account to the correct OU so the right group policy is applied
     new_name = nil
-    new_name = "-NewName #{new_resource.computer_name}" if node[:hostname].downcase != new_resource.computer_name.downcase
+    new_name = "-NewName #{new_resource.computer_name}" if node['hostname'].downcase != new_resource.computer_name.downcase
 
     if new_resource.computer_ou
       code = "Add-Computer -DomainName #{new_resource.dns_name} -Credential#{join_domain_creds} #{new_name} -OUPath '#{new_resource.computer_ou}' -PassThru -Verbose -Force"
@@ -115,11 +115,11 @@ def join_domain_linux
   pam_winbind_lib
   configure_winbind_kerberos_authentication
 
-  directory "#{node[:ad][:samba_conf_dir]}/includes" do
+  directory "#{node['ad']['samba_conf_dir']}/includes" do
     mode 0755
   end
 
-  template "#{node[:ad][:samba_conf_dir]}/smb.conf" do
+  template "#{node['ad']['samba_conf_dir']}/smb.conf" do
     source "smb.conf.erb"
     owner "root"
     group "root"
@@ -131,7 +131,7 @@ def join_domain_linux
         :dcs => new_resource.dc_names,
         :computer_name => new_resource.computer_name,
         :netbios_name => new_resource.netbios_name,
-        :include_file => "#{node[:ad][:samba_conf_dir]}/includes/#{node[:ad][:samba_include_file]}"
+        :include_file => "#{node['ad']['samba_conf_dir']}/includes/#{node['ad']['samba_include_file']}"
     )
   end
 
@@ -151,7 +151,7 @@ def install_ad_client_packages
     package pkg
   }
 
-  if %w{centos redhat}.include?(node[:platform]) && node[:platform_version].to_i == 7
+  if %w{centos redhat}.include?(node['platform']) && node['platform_version'].to_i == 7
     # execute "systemctl enable smb.service "
     package "samba"
     service "smb" do 

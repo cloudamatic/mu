@@ -8,11 +8,11 @@
 #
 
 include_recipe 'chef-vault'
-domain_admin = chef_vault_item(node[:ad][:admin_auth][:vault], node[:ad][:admin_auth][:item])
+domain_admin = chef_vault_item(node['ad']['admin_auth']['vault'], node['ad']['admin_auth']['item'])
 
 can_add_controller = false
 
-case node[:platform]
+case node['platform']
   when "windows"
     ::Chef::Recipe.send(:include, Chef::Mixin::PowershellOut)
 
@@ -27,11 +27,11 @@ case node[:platform]
   when "centos", "redhat"
     # To do: Active Directory on Linux
   else
-    Chef::Log.info("Unsupported platform #{node[:platform]}")
+    Chef::Log.info("Unsupported platform #{node['platform']}")
 end
 
 if can_add_controller
-  mu_activedirectory_domain_controller node[:ad][:domain_name] do
+  mu_activedirectory_domain_controller node['ad']['domain_name'] do
     netbios_name node['ad']['netbios_name']
     domain_admin_user domain_admin[node['ad']['admin_auth']['username_field']]
     domain_admin_password domain_admin[node['ad']['admin_auth']['password_field']]
