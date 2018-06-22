@@ -57,14 +57,7 @@ else
 end
 RUNNING_STANDALONE=node['application_attributes'].nil?
 
-execute "stop iptables" do
-  command "/sbin/service iptables stop"
-  ignore_failure true
-  action :nothing
-  only_if "( /bin/systemctl -l --no-pager | grep iptables.service ) || ( /sbin/chkconfig --list | grep ^iptables )"
-end
-execute "start iptables" do
-  command "/sbin/service iptables start"
+service "iptables" do
   ignore_failure true
   action :nothing
   only_if "( /bin/systemctl -l --no-pager | grep iptables.service ) || ( /sbin/chkconfig --list | grep ^iptables )"
@@ -122,22 +115,22 @@ end
 execute "reconfigure Chef server" do
   command "/opt/opscode/bin/chef-server-ctl reconfigure"
   action :nothing
-  notifies :run, "execute[stop iptables]", :before
+  notifies :stop, "service[iptables]", :before
 #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
   notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
   notifies :restart, "service[chef-server]", :immediately
-  notifies :run, "execute[start iptables]", :immediately
+  notifies :start, "service[iptables]", :immediately
   only_if { RUNNING_STANDALONE }
 end
 execute "upgrade Chef server" do
   command "/opt/opscode/bin/chef-server-ctl upgrade"
   action :nothing
   timeout 1200 # this can take a while
-  notifies :run, "execute[stop iptables]", :before
+  notifies :stop, "service[iptables]", :before
   notifies :run, "execute[Chef Server rabbitmq workaround]", :before
 #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
   notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
-  notifies :run, "execute[start iptables]", :immediately
+  notifies :start, "service[iptables]", :immediately
   only_if { RUNNING_STANDALONE }
 end
 service "chef-server" do
@@ -148,8 +141,8 @@ service "chef-server" do
   action :nothing
 #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
 #  notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
-  notifies :run, "execute[stop iptables]", :before
-  notifies :run, "execute[start iptables]", :immediately
+  notifies :stop, "service[iptables]", :before
+  notifies :start, "service[iptables]", :immediately
   only_if { RUNNING_STANDALONE }
 end
 
@@ -417,9 +410,9 @@ end
 execute "initial Chef artifact upload" do
   command "MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts"
   action :nothing
-  notifies :run, "execute[stop iptables]", :before
+  notifies :stop, "service[iptables]", :before
   notifies :run, "execute[knife ssl fetch]", :before
-  notifies :run, "execute[start iptables]", :immediately
+  notifies :start, "service[iptables]", :immediately
   only_if { RUNNING_STANDALONE }
 end
 chef_gem "simple-password-gen" do
