@@ -18,7 +18,7 @@
 
 
 master_ips = get_mu_master_ips
-case node[:platform]
+case node['platform']
 when "centos", "redhat"
   include_recipe 'mu-firewall'
 

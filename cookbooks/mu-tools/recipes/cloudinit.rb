@@ -19,14 +19,14 @@
 # Make sure cloud-init or equivalent gets installed. Kind of trivial for the
 # common Linux platforms.
  
-if !node[:application_attributes][:skip_recipes].include?('epel') and !node[:application_attributes][:skip_recipes].include?('base_repositories')
+if !node['application_attributes']['skip_recipes'].include?('epel') and !node['application_attributes']['skip_recipes'].include?('base_repositories')
   if platform_family?("rhel")
     include_recipe "yum-epel"
     package "cloud-init" do
       ignore_failure true
     end
   
-    if node[:platform_version].to_i == 6
+    if node['platform_version'].to_i == 6
       bash "allow ssh as root" do
         only_if "grep 'disable_root: 1' /etc/cloud/cloud.cfg"
         code <<-EOH
@@ -41,7 +41,7 @@ if !node[:application_attributes][:skip_recipes].include?('epel') and !node[:app
           EOH
         end
       }
-    elsif node[:platform_version].to_i == 7
+    elsif node['platform_version'].to_i == 7
       # making sure hostname  is kept across reboot
       execute "sed -i '/ssh_pwauth/a preserve_hostname: true' /etc/cloud/cloud.cfg" do
         not_if "grep 'preserve_hostname: true' /etc/cloud/cloud.cfg"
@@ -53,6 +53,6 @@ if !node[:application_attributes][:skip_recipes].include?('epel') and !node[:app
   elsif platform_family?("windows")
     Chef::Log.info ("Windows use ec2config, no cloud-init package is necessary")
   else
-    Chef::Log.info("Unsupported platform #{node[:platform]}")
+    Chef::Log.info("Unsupported platform #{node['platform']}")
   end
 end

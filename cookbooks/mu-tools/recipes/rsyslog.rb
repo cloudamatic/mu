@@ -16,8 +16,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-if !node[:application_attributes][:skip_recipes].include?('rsyslog')
-  case node[:platform_family]
+if !node['application_attributes']['skip_recipes'].include?('rsyslog')
+  case node['platform_family']
   when "rhel", "debian"
     package "rsyslog"
     package "rsyslog-gnutls"
@@ -45,7 +45,7 @@ if !node[:application_attributes][:skip_recipes].include?('rsyslog')
       package "policycoreutils"
     end
 
-    if node[:name] != "MU-MASTER" # XXX I'm sure we can come up with a smarter condition than this
+    if node['name'] != "MU-MASTER" # XXX I'm sure we can come up with a smarter condition than this
       master_ips = get_mu_master_ips
 # XXX This should prefer a master IP that's in our private subnet, and also
 # be able to tell which ones are private and which are public.

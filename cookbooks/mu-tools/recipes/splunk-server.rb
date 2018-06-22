@@ -27,34 +27,34 @@
   end
 }
 
-if !node[:splunk][:splunkdb][:dev].nil?
-  directory node[:splunk][:splunkdb][:path] do
+if !node['splunk']['splunkdb']['dev'].nil?
+  directory node['splunk']['splunkdb']['path'] do
     recursive true
   end
-  execute "mkfs.ext4 #{node[:splunk][:splunkdb][:dev]}" do
-    not_if "tune2fs -l #{node[:splunk][:splunkdb][:dev]}"
+  execute "mkfs.ext4 #{node['splunk']['splunkdb']['dev']}" do
+    not_if "tune2fs -l #{node['splunk']['splunkdb']['dev']}"
   end
-  mount node[:splunk][:splunkdb][:path] do
-    device node[:splunk][:splunkdb][:dev]
+  mount node['splunk']['splunkdb']['path'] do
+    device node['splunk']['splunkdb']['dev']
     action [:mount, :enable]
   end
 end
 
 include_recipe "mu-splunk::server"
 
-if node[:splunk][:splunkdb][:path] != "/opt/splunk/var/lib/splunk"
-  execute "set SPLUNK_DB path in splunk-launch.conf to #{node[:splunk][:splunkdb][:path]}" do
-    command "sed -i 's/^ *SPLUNK_DB//' /opt/splunk/etc/splunk-launch.conf ; echo 'SPLUNK_DB=#{node[:splunk][:splunkdb][:path]}' >> /opt/splunk/etc/splunk-launch.conf; chown splunk:splunk #{node[:splunk][:splunkdb][:path]}"
-    not_if "grep '^SPLUNK_DB=#{node[:splunk][:splunkdb][:path]}'"
+if node['splunk']['splunkdb']['path'] != "/opt/splunk/var/lib/splunk"
+  execute "set SPLUNK_DB path in splunk-launch.conf to #{node['splunk']['splunkdb']['path']}" do
+    command "sed -i 's/^ *SPLUNK_DB//' /opt/splunk/etc/splunk-launch.conf ; echo 'SPLUNK_DB=#{node['splunk']['splunkdb']['path']}' >> /opt/splunk/etc/splunk-launch.conf; chown splunk:splunk #{node['splunk']['splunkdb']['path']}"
+    not_if "grep '^SPLUNK_DB=#{node['splunk']['splunkdb']['path']}'"
     notifies :restart, "service[splunk]", :immediately
   end
 end
 
-if node[:splunk][:minfreespace] != 5000
+if node['splunk']['minfreespace'] != 5000
   server_conf = "/opt/splunk/etc/system/local/server.conf"
   execute "set minFreeSpace in #{server_conf}" do
-    command "echo '[diskUsage]' >> #{server_conf}; echo 'minFreeSpace = #{node[:splunk][:minfreespace]}' >> #{server_conf}"
-    not_if "grep '^minFreeSpace = #{node[:splunk][:minfreespace]}$' #{server_conf}"
+    command "echo '[diskUsage]' >> #{server_conf}; echo 'minFreeSpace = #{node['splunk']['minfreespace']}' >> #{server_conf}"
+    not_if "grep '^minFreeSpace = #{node['splunk']['minfreespace']}$' #{server_conf}"
     notifies :restart, "service[splunk]", :immediately
   end
 end
@@ -74,7 +74,7 @@ cookbook_file "/opt/splunk/etc/system/local/serverclass.conf" do
   mode "0644"
 end
 
-if node[:splunk][:license] != nil
+if node['splunk']['license'] != nil
   directory "/opt/splunk/etc/licenses/enterprise" do
     owner "splunk"
     group "splunk"
@@ -91,7 +91,7 @@ if node[:splunk][:license] != nil
   end rescue NoMethodError
 end
 
-#splunk_auth_info = chef_vault_item(node[:splunk][:auth][:data_bag], node[:splunk][:auth][:data_bag_item])['auth']
+#splunk_auth_info = chef_vault_item(node['splunk'][:auth][:data_bag], node['splunk'][:auth][:data_bag_item])['auth']
 #admin_user, admin_pw = splunk_auth_info.split(':')
 #
 #node[:deployment][:admins].each_pair { |name, data|

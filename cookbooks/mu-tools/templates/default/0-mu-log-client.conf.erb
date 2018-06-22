@@ -1,4 +1,4 @@
-$LocalHostName <%= node[:name] %>
+$LocalHostName <%= node['name'] %>
 
 <% if !@syslog_server.nil? %>
 # certificate files - just CA for a client

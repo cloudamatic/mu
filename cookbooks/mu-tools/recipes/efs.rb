@@ -48,7 +48,7 @@ if node['deployment'].has_key?('storage_pools')
           endpoint = target['ip_address']
         end
 
-        if node[:platform_family] == "rhel" and node[:platform_version].to_i < 6
+        if node['platform_family'] == "rhel" and node['platform_version'].to_i < 6
           service "portmap" do
             action [:enable, :start]
           end
@@ -58,7 +58,7 @@ if node['deployment'].has_key?('storage_pools')
           device "#{endpoint}:/"
           fstype "nfs4"
           action [:mount, :enable]
-          unless node[:platform_family] == "rhel" and node[:platform_version].to_i < 6
+          unless node['platform_family'] == "rhel" and node['platform_version'].to_i < 6
             options "nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2"
           end
         end
