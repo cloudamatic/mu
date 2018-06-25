@@ -90,7 +90,7 @@ module MU
           pool['mount_points'].each{ |mp|
             if mp["vpc"] and !mp["vpc"].empty?
               if !mp["vpc"]["vpc_name"].nil? and
-                 configurator.haveLitterMate?(mp["vpc"]["vpc_name"], "vpcs") and
+                 siblingvpc = configurator.haveLitterMate?(mp["vpc"]["vpc_name"], "vpcs") and
                  mp["vpc"]['deploy_id'].nil? and
                  mp["vpc"]['vpc_id'].nil?
       
@@ -100,7 +100,7 @@ module MU
                                         configurator,
                                         dflt_region: pool['region'],
                                         is_sibling: true,
-                                        sibling_vpcs: @kittens['vpcs'])
+                                        sibling_vpcs: [siblingvpc])
                   ok = false
                 end
               else
