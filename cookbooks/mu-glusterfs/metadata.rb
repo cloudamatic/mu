@@ -8,5 +8,10 @@ source_url 'https://github.com/cloudamatic/mu'
 issues_url 'https://github.com/cloudamatic/mu/issues'
 chef_version '>= 12.1' if respond_to?(:chef_version)
 version '0.1.0'
+
+%w( centos ).each do |os|
+	supports os
+end
+
 depends 'yum'
 depends 'mu-firewall'

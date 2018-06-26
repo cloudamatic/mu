@@ -12,3 +12,7 @@ depends "windows", '= 3.2.0'
 depends "chef-vault", '< 3.0'
 depends "yum-epel"
 depends "build-essential", '~> 8.0'
+
+%w( amazon centos redhat windows ).each do |os|
+	supports os
+end

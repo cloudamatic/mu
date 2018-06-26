@@ -8,6 +8,11 @@ source_url 'https://github.com/cloudamatic/mu'
 issues_url 'https://github.com/cloudamatic/mu/issues'
 chef_version '>= 12.1' if respond_to?(:chef_version)
 version '0.6.0'
+
+%w( amazon centos redhat windows ).each do |os|
+	supports os
+end
+
 depends 'java'
 depends 'jenkins', '~> 5.0.1'
 depends 'chef-vault', '< 3.0'

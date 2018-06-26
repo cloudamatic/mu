@@ -8,6 +8,10 @@ issues_url 'https://github.com/cloudamatic/mu/issues'
 chef_version '>= 12.1' if respond_to?(:chef_version)
 version '1.3.0'
 
+%w( amazon centos redhat windows ).each do |os|
+	supports os
+end
+
 # for secrets management in setup_auth recipe
 depends 'chef-vault', '< 3.0'
 depends 'windows', '= 3.2.0'

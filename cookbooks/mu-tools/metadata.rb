@@ -8,6 +8,11 @@ source_url 'https://github.com/cloudamatic/mu'
 issues_url 'https://github.com/cloudamatic/mu/issues'
 chef_version '>= 12.1' if respond_to?(:chef_version)
 version '1.0.4'
+
+%w( amazon centos redhat windows ).each do |os|
+	supports os
+end
+
 depends "oracle-instantclient"
 depends "nagios"
 depends "database"
