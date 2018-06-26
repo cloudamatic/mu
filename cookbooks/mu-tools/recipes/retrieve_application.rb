@@ -47,5 +47,5 @@ ruby_block "Pull App from Repo" do
       # `git pull origin #{$application_repo_branch}`
     end
   end
-  action :create
+  action :run
 end

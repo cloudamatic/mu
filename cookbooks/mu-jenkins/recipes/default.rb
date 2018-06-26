@@ -154,7 +154,7 @@ jenkins_script 'configure_jenkins_auth' do
   instance.save()
   EOH
 #  not_if "grep managerDN #{node['jenkins']['master']['home']}/config.xml | grep #{bind_creds[$MU_CFG['ldap']['bind_creds']['username_field']]}"
-  notifies :create, 'ruby_block[configure_jenkins_auth_set]', :immediately
+  notifies :run, 'ruby_block[configure_jenkins_auth_set]', :immediately
   action :nothing unless !::File.size?("#{node['jenkins']['master']['home']}/config.xml") or !::File.read("#{node['jenkins']['master']['home']}/config.xml").match(bind_creds[$MU_CFG['ldap']['bind_creds']['username_field']])
 end
 
