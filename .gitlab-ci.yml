@@ -31,6 +31,12 @@ Foodcritic:
     - foodcritic cookbooks/ -t ~FC075 -t ~FC015 -t ~FC034 -t ~FC122
   allow_failure: true
 
+Foodcritic Deprications:
+  stage: Lint Test
+  image: chef/chefdk:latest
+  script:
+    - foodcritic cookbooks/ -t depricated -t chef13 -t chef14
+
 ChefSpec:
   stage: Test
   image: chef/chefdk:latest
