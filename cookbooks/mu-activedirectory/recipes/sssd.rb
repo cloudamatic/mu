@@ -84,14 +84,21 @@ case node['platform_family']
       end
       package %w(git automake libtool openldap-devel libxslt-devel)
 
-      execute "git clone git://anongit.freedesktop.org/realmd/adcli" do
-        cwd "/root"
-        not_if { ::Dir.exists?("/root/adcli") }
+      git 'Clone ADCLI' do
+        repository 'git clone git://anongit.freedesktop.org/realmd/adcli'
+        revision 'master'
+        destination '/root'
+        action :sync
       end
+      
+      # execute "git clone git://anongit.freedesktop.org/realmd/adcli" do
+      #   cwd "/root"
+      #   not_if { ::Dir.exists?("/root/adcli") }
+      # end
 
-      execute "git fetch && git pull" do
-        cwd "/root/adcli"
-      end
+      # execute "git fetch && git pull" do
+      #   cwd "/root/adcli"
+      # end
 
       include_recipe "build-essential"
 
