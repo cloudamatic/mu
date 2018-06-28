@@ -665,6 +665,7 @@ module MU
 
           if !pool["basis"]["launch_config"].nil?
             launch = pool["basis"]["launch_config"]
+            launch['iam_policies'] ||= pool['iam_policies']
 
             launch['size'] = MU::Cloud::AWS::Server.validateInstanceType(launch["size"], pool["region"])
             ok = false if launch['size'].nil?
