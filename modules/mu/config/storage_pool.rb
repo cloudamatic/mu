@@ -90,10 +90,11 @@ module MU
           pool['mount_points'].each{ |mp|
             if mp["vpc"] and !mp["vpc"].empty?
               if !mp["vpc"]["vpc_name"].nil? and
-                 siblingvpc = configurator.haveLitterMate?(mp["vpc"]["vpc_name"], "vpcs") and
+                 configurator.haveLitterMate?(mp["vpc"]["vpc_name"], "vpcs") and
                  mp["vpc"]['deploy_id'].nil? and
                  mp["vpc"]['vpc_id'].nil?
       
+                siblingvpc = configurator.haveLitterMate?(mp["vpc"]["vpc_name"], "vpcs")
                 if !MU::Config::VPC.processReference(mp['vpc'],
                                         "storage_pools",
                                         "storagepool '#{pool['name']}'",
