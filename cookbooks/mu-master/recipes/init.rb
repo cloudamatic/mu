@@ -33,10 +33,11 @@ CHEF_CLIENT_VERSION="12.21.31-1"
 KNIFE_WINDOWS="1.9.0"
 MU_BASE="/opt/mu"
 MU_BRANCH="development" # GIT HOOK EDITABLE DO NOT TOUCH
-realbranch=`cd #{MU_BASE}/lib && git rev-parse --abbrev-ref HEAD`
-if $?.exitstatus == 0
-  MU_BRANCH=realbranch.chomp
-end
+# TODO: FIND ANOTHER WAY
+# realbranch=`cd #{MU_BASE}/lib && git rev-parse --abbrev-ref HEAD`
+# if $?.exitstatus == 0
+#   MU_BRANCH=realbranch.chomp
+# end
 
 begin
   resources('service[sshd]')
@@ -46,15 +47,21 @@ rescue Chef::Exceptions::ResourceNotFound
   end
 end
 
-if File.read("/etc/ssh/sshd_config").match(/^AllowUsers\s+([^\s]+)(?:\s|$)/)
-  SSH_USER = Regexp.last_match[1].chomp
-else
-  execute "sed -i 's/PermitRootLogin no/PermitRootLogin yes/' /etc/ssh/sshd_config" do
-    only_if "grep 'PermitRootLogin no' /etc/ssh/sshd_config"
-    notifies :restart, "service[sshd]", :immediately
+begin
+  if File.read("/etc/ssh/sshd_config").match(/^AllowUsers\s+([^\s]+)(?:\s|$)/)
+    SSH_USER = Regexp.last_match[1].chomp
+  else
+    execute "sed -i 's/PermitRootLogin no/PermitRootLogin yes/' /etc/ssh/sshd_config" do
+      only_if "grep 'PermitRootLogin no' /etc/ssh/sshd_config"
+      notifies :restart, "service[sshd]", :immediately
+    end
+    SSH_USER="root"
   end
+rescue
   SSH_USER="root"
 end
+
+
 RUNNING_STANDALONE=node[:application_attributes].nil?
 
 execute "stop iptables" do
@@ -117,10 +124,11 @@ file "use a clean /etc/hosts during install" do
   notifies :create, "remote_file[back up /etc/hosts]", :before
   only_if { RUNNING_STANDALONE }
   not_if { ::Dir.exists?("#{MU_BASE}/lib/.git") }
+  ignore_failure true
 end
 
 execute "reconfigure Chef server" do
-  command "/opt/opscode/bin/chef-server-ctl reconfigure"
+  command "/opt/opscode/embedded/bin/runsvdir-start & /opt/opscode/bin/chef-server-ctl reconfigure"
   action :nothing
   notifies :run, "execute[stop iptables]", :before
 #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
@@ -160,7 +168,7 @@ dpkgs = {}
 
 elversion = node[:platform_version].to_i > 2000 ? 6 : node[:platform_version].to_i
 if platform_family?("rhel")
-  basepackages = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libyaml", "libffi-devel"]
+  basepackages = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libyaml", "libffi-devel", "openssl"]
 #        package epel-release-6-8.9.amzn1.noarch (which is newer than epel-release-6-8.noarch) is already installed
 
   rpms = {
