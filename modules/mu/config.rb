@@ -627,7 +627,7 @@ module MU
         nodes = {}
         MU::Cloud.resource_types.each_pair { |classname, attrs|
           nodes[attrs[:cfg_name]] = {}
-          if config.has_key?(attrs[:cfg_plural])
+          if config.has_key?(attrs[:cfg_plural]) and config[attrs[:cfg_plural]]
             config[attrs[:cfg_plural]].each { |resource|
               nodes[attrs[:cfg_name]][resource['name']] = g.add_nodes("#{classname}: #{resource['name']}")
             }
@@ -635,7 +635,7 @@ module MU
         }
         # Now add edges corresponding to the dependencies they list
         MU::Cloud.resource_types.each_pair { |classname, attrs|
-          if config.has_key?(attrs[:cfg_plural])
+          if config.has_key?(attrs[:cfg_plural]) and config[attrs[:cfg_plural]]
             config[attrs[:cfg_plural]].each { |resource|
               if resource.has_key?("dependencies")
                 me = nodes[attrs[:cfg_name]][resource['name']]
@@ -825,7 +825,9 @@ module MU
         if descriptor['vpc']['cloud'] == "Google"
           descriptor['vpc'].delete("region")
         end
-        descriptor['vpc'].delete("subnet_pref")
+        if ["firewall_rule", "function"].include?(cfg_name)
+          descriptor['vpc'].delete("subnet_pref")
+        end
       end
 
       # Does it have generic ingress rules?

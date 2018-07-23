@@ -545,7 +545,7 @@ module MU
         )
 
         if resp.nil? or resp.security_groups.nil? or resp.security_groups.size == 0
-          if instance.vpc_id.nil?
+          if MU.myCloudDescriptor.vpc_id.nil?
             sg_id = my_sgs.first
             resp = MU::Cloud::AWS.ec2.describe_security_groups(group_ids: [sg_id])
             group = resp.security_groups.first
@@ -554,7 +554,7 @@ module MU
             group = MU::Cloud::AWS.ec2.create_security_group(
               group_name: my_client_sg_name,
               description: my_client_sg_name,
-              vpc_id: instance.vpc_id
+              vpc_id: MU.myCloudDescriptor.vpc_id
             )
             sg_id = group.group_id
             my_sgs << sg_id

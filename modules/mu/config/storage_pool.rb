@@ -94,19 +94,20 @@ module MU
                  mp["vpc"]['deploy_id'].nil? and
                  mp["vpc"]['vpc_id'].nil?
       
+                siblingvpc = configurator.haveLitterMate?(mp["vpc"]["vpc_name"], "vpcs")
                 if !MU::Config::VPC.processReference(mp['vpc'],
                                         "storage_pools",
-                                        shortclass.to_s+" '#{pool['name']}'",
+                                        "storagepool '#{pool['name']}'",
                                         configurator,
                                         dflt_region: pool['region'],
                                         is_sibling: true,
-                                        sibling_vpcs: @kittens['vpcs'])
+                                        sibling_vpcs: [siblingvpc])
                   ok = false
                 end
               else
                 if !MU::Config::VPC.processReference(mp["vpc"],
                                         "storage_pools",
-                                        "#{shortclass} #{pool['name']}",
+                                        "storagepool #{pool['name']}",
                                         configurator,
                                         dflt_region: pool['region'])
                   ok = false
