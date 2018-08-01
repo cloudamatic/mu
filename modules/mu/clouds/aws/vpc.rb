@@ -1855,7 +1855,7 @@ module MU
               end
             end
 
-            if !MU::Cloud::AWS.isGovCloud?(@config['region'])
+            if !MU::Cloud::AWS.isGovCloud?(region)
               mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu", region: region).values.first
               if !mu_zone.nil?
                 MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc.vpc_id, remove: true)

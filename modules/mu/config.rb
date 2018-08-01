@@ -831,8 +831,12 @@ module MU
       end
 
       # Does it have generic ingress rules?
-      if !descriptor['ingress_rules'].nil?
-        fwname = cfg_name+descriptor['name']
+      fwname = cfg_name+descriptor['name']
+      if !haveLitterMate?(fwname, "firewall_rules") and
+         (descriptor['ingress_rules'] or
+         ["server", "server_pool", "database"].include?(cfg_name))
+        descriptor['ingress_rules'] ||= []
+
         acl = {"name" => fwname, "rules" => descriptor['ingress_rules'], "region" => descriptor['region'] }
         acl["vpc"] = descriptor['vpc'].dup if descriptor['vpc']
         ["optional_tags", "tags", "cloud", "project"].each { |param|
@@ -841,21 +845,21 @@ module MU
         ok = false if !insertKitten(acl, "firewall_rules")
         descriptor["add_firewall_rules"] = [] if descriptor["add_firewall_rules"].nil?
         descriptor["add_firewall_rules"] << {"rule_name" => fwname}
-				acl["rules"].each { |acl_include|
-					if acl_include['sgs']
-						acl_include['sgs'].each { |sg_ref|
-							if haveLitterMate?(sg_ref, "firewall_rules")
-								descriptor["dependencies"] << {
-									"type" => "firewall_rule",
-									"name" => sg_ref,
-									"phase" => "groom"
-								}
+        acl["rules"].each { |acl_include|
+          if acl_include['sgs']
+            acl_include['sgs'].each { |sg_ref|
+              if haveLitterMate?(sg_ref, "firewall_rules")
+                descriptor["dependencies"] << {
+                  "type" => "firewall_rule",
+                  "name" => sg_ref,
+                  "phase" => "groom"
+                }
                 siblingfw = haveLitterMate?(sg_ref, "firewall_rules")
                 insertKitten(siblingw, "firewall_rules") if !siblingfw["#MU_VALIDATED"]
-							end
-						}
-					end
-				}
+              end
+            }
+          end
+        }
       end
 
       # Does it declare association with any sibling LoadBalancers?
@@ -891,9 +895,9 @@ module MU
               "name" => acl_include["rule_name"]
             }
             siblingfw = haveLitterMate?(acl_include["rule_name"], "firewall_rules")
-            insertKitten(siblingw, "firewall_rules") if !siblingfw["#MU_VALIDATED"]
+            insertKitten(siblingfw, "firewall_rules") if !siblingfw["#MU_VALIDATED"]
           elsif acl_include["rule_name"]
-            MU.log shortclass+" #{descriptor['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
+            MU.log shortclass.to_s+" #{descriptor['name']} depends on FirewallRule #{acl_include["rule_name"]}, but no such rule declared.", MU::ERR
             ok = false
           end
         }
@@ -1508,8 +1512,7 @@ module MU
           db['port'] = 1521 if db['engine'].match(/^oracle\-/)
         end
 
-        ruleset = haveLitterMate?("database"+db['name'], "firewall_rule")
-
+        ruleset = haveLitterMate?("database"+db['name'], "firewall_rules")
         if ruleset
           ["server_pools", "servers"].each { |type|
             shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
