@@ -97,6 +97,18 @@ module MU
     # Stub base class; real implementations generated at runtime
     class MsgQueue;
     end
+    # Stub base class; real implementations generated at runtime
+    class Project;
+    end
+    # Stub base class; real implementations generated at runtime
+    class Folder;
+    end
+    # Stub base class; real implementations generated at runtime
+    class User;
+    end
+    # Stub base class; real implementations generated at runtime
+    class Group;
+    end
 
     # The types of cloud resources we can create, as class objects. Include
     # methods a class implementing this resource type must support to be
@@ -288,6 +300,50 @@ module MU
         :waits_on_parent_completion => true,
         :class => generic_class_methods,
         :instance => generic_instance_methods + [:groom]
+      },
+      :Project => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "project",
+        :cfg_plural => "projects",
+        :interface => self.const_get("Project"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods
+      },
+      :Folder => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "folder",
+        :cfg_plural => "folders",
+        :interface => self.const_get("Folder"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods
+      },
+      :User => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "user",
+        :cfg_plural => "users",
+        :interface => self.const_get("User"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods
+      },
+      :Group => {
+        :has_multiples => false,
+        :can_live_in_vpc => false,
+        :cfg_name => "group",
+        :cfg_plural => "groups",
+        :interface => self.const_get("Group"),
+        :deps_wait_on_my_creation => true,
+        :waits_on_parent_completion => true,
+        :class => generic_class_methods,
+        :instance => generic_instance_methods
       }
     }.freeze
 

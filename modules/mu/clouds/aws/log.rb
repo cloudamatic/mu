@@ -15,7 +15,7 @@
 module MU
   class Cloud
     class AWS
-      # A log as configured in {MU::Config::BasketofKittens::logs}
+      # A logging facility as configured in {MU::Config::BasketofKittens::logs}
       class Log < MU::Cloud::Log
         @deploy = nil
         @config = nil
