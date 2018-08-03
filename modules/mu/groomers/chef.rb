@@ -4,7 +4,7 @@
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License in the root of the project or at
 #
-#	  http://egt-labs.com/mu/LICENSE.html
+#    http://egt-labs.com/mu/LICENSE.html
 #
 # Unless required by applicable law or agreed to in writing, software
 # distributed under the License is distributed on an "AS IS" BASIS,
@@ -434,9 +434,9 @@ module MU
         remove_cmd = nil
         if !@server.windows?
           if @server.config['ssh_user'] == "root"
-            remove_cmd = "rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; rpm -e chef; apt-get -y remove chef ; touch /opt/mu_installed_chef"
+            remove_cmd = "rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; yum -y erase chef ; rpm -e chef; apt-get -y remove chef ; touch /opt/mu_installed_chef"
           else
-            remove_cmd = "sudo rpm -e erase chef ; sudo rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; sudo apt-get -y remove chef ; sudo touch /opt/mu_installed_chef"
+            remove_cmd = "sudo yum -y erase chef ; sudo rpm -e erase chef ; sudo rm -rf /var/chef/ /etc/chef /opt/chef/ /usr/bin/chef-* ; sudo apt-get -y remove chef ; sudo touch /opt/mu_installed_chef"
           end
           guardfile = "/opt/mu_installed_chef"
 
@@ -447,7 +447,7 @@ module MU
               ssh.exec!(%Q{test -f #{guardfile} || (#{remove_cmd}) ; touch #{guardfile}})
             rescue IOError => e
               # TO DO - retry this in a cleaner way
-              MU.log "Got #{e.inspect} while trying to clean up chef, retrying", MU::NOTICE
+              MU.log "Got #{e.inspect} while trying to clean up chef, retrying", MU::NOTICE, details: %Q{test -f #{guardfile} || (#{remove_cmd}) ; touch #{guardfile}}
               ssh = @server.getSSHSession(15)
               ssh.exec!(%Q{test -f #{guardfile} || (#{remove_cmd}) ; touch #{guardfile}})
             end
@@ -525,7 +525,8 @@ module MU
         stashHostSSLCertSecret
         if !@config['cleaned_chef']
           begin
-            preClean(true)
+            leave_ours = @config['scrub_groomer'] ? false : true
+            preClean(leave_ours)
           rescue RuntimeError => e
             MU.log e.inspect, MU::ERR
             sleep 10
@@ -584,14 +585,14 @@ module MU
           end
 
           # XXX this seems to break Knife Bootstrap
-          #			if vault_access.size > 0
-          #				v = {}
-          #				vault_access.each { |vault|
-          #					v[vault['vault']] = [] if v[vault['vault']].nil?
-          #					v[vault['vault']] << vault['item']
-          #				}
-          #				kb.config[:bootstrap_vault_json] = JSON.generate(v)
-          #			end
+          #      if vault_access.size > 0
+          #        v = {}
+          #        vault_access.each { |vault|
+          #          v[vault['vault']] = [] if v[vault['vault']].nil?
+          #          v[vault['vault']] << vault['item']
+          #        }
+          #        kb.config[:bootstrap_vault_json] = JSON.generate(v)
+          #      end
 
           kb.config[:json_attribs] = JSON.generate(json_attribs) if json_attribs.size > 1
           kb.config[:run_list] = run_list

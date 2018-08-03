@@ -136,6 +136,11 @@ module MU
               "default" => MU::Config.defaultGroomer,
               "enum" => MU.supportedGroomers
           },
+          "scrub_groomer" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Remove pre-existing groomer agents from node before bootstrapping. Especially useful for image builds."
+          },
           "tags" => MU::Config.tags_primitive,
           "optional_tags" => {
               "type" => "boolean",
