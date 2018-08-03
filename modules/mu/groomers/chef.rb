@@ -259,6 +259,7 @@ module MU
           knifeAddToRunList(multiple: @config['run_list'])
         end
 
+        timeout = @server.windows? ? 1800 : 600
         pending_reboot_count = 0
         chef_node = ::Chef::Node.load(@server.mu_name)
         if !@config['application_attributes'].nil?
@@ -296,11 +297,13 @@ module MU
               upgrade_cmd = try_upgrade ? "curl -L https://chef.io/chef/install.sh | version=#{MU.chefVersion} sh &&" : ""
               cmd = "#{upgrade_cmd} chef-client --color || echo #{error_signal}"
             end
-            retval = ssh.exec!(cmd) { |ch, stream, data|
-              puts data
-              output << data
-              raise MU::Cloud::BootstrapTempFail if data.match(/REBOOT_SCHEDULED| WARN: Reboot requested:/)
-              raise MU::Groomer::RunError, output.grep(/ ERROR: /).last if data.match(/#{error_signal}/)
+            Timeout::timeout(timeout) {
+              retval = ssh.exec!(cmd) { |ch, stream, data|
+                puts data
+                output << data
+                raise MU::Cloud::BootstrapTempFail if data.match(/REBOOT_SCHEDULED| WARN: Reboot requested:/)
+                raise MU::Groomer::RunError, output.grep(/ ERROR: /).last if data.match(/#{error_signal}/)
+              }
             }
           else
             MU.log "Invoking Chef over WinRM on #{@server.mu_name}: #{purpose}"
@@ -322,16 +325,18 @@ module MU
             if override_runlist
               cmd = cmd + " -o '#{override_runlist}'"
             end
-            resp = winrm.run(cmd) do |stdout, stderr|
-              if stdout
-                print stdout if output
-                output << stdout
+            Timeout::timeout(timeout) {
+              resp = winrm.run(cmd) do |stdout, stderr|
+                if stdout
+                  print stdout if output
+                  output << stdout
+                end
+                if stderr
+                  MU.log stderr, MU::ERR
+                  output << stderr
+                end
               end
-              if stderr
-                MU.log stderr, MU::ERR
-                output << stderr
-              end
-            end
+            }
             if resp.exitcode != 0
               raise MU::Cloud::BootstrapTempFail if resp.exitcode == 35 or output.join("\n").match(/REBOOT_SCHEDULED| WARN: Reboot requested:/)
               raise MU::Groomer::RunError, output.slice(output.length-50, output.length).join("")
