@@ -686,7 +686,7 @@ module MU
           end
           node, config, deploydata = describe(cloud_id: @cloud_id)
           instance = cloud_desc
-          raise MuError, "Couldn't find instance of #{@mu_name} (#{@cloud_id})" if !instance
+          raise MuError, "Couldn't find instance #{@mu_name} (#{@cloud_id})" if !instance
           @cloud_id = instance.instance_id
           return false if !MU::MommaCat.lock(instance.instance_id+"-orchestrate", true)
           return false if !MU::MommaCat.lock(instance.instance_id+"-groom", true)

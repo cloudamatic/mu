@@ -449,6 +449,13 @@ module MU
         @@ecs_api[region]
       end
 
+      # Amazon's EKS API
+      def self.eks(region = MU.curRegion)
+        region ||= myRegion
+        @@eks_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "EKS", region: region)
+        @@eks_api[region]
+      end
+
       # Amazon's Pricing API
       def self.pricing(region = MU.curRegion)
         region ||= myRegion
@@ -756,6 +763,7 @@ module MU
       @@sqs_api = {}
       @@efs_api ={}
       @@ecs_api ={}
+      @@eks_api ={}
       @@pricing_api ={}
       @@ssm_api ={}
       @@elasticsearch_api ={}

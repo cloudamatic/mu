@@ -35,90 +35,204 @@ module MU
           @mu_name ||= @deploy.getResourceName(@config["name"])
         end
 
+        # Generate the generic EKS machine role that will be used by the
+        # control plane.
+        def self.createControlPlaneIAMRole(rolename)
+          resp = MU::Cloud::AWS.iam.create_role(
+            role_name: rolename,
+            assume_role_policy_document: '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":["eks.amazonaws.com"]},"Action":["sts:AssumeRole"]}]}'
+          )
+          arn = resp.role.arn
+          MU.log "Created EKS control plane role #{rolename}"
+          MU::Cloud::AWS.iam.attach_role_policy(
+            policy_arn: "arn:aws:iam::aws:policy/AmazonEKSServicePolicy",
+            role_name: rolename
+          )
+          MU::Cloud::AWS.iam.attach_role_policy(
+            policy_arn: "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy",
+            role_name: rolename
+          )
+          begin
+            MU::Cloud::AWS.iam.get_role(role_name: rolename)
+          rescue Aws::IAM::Errors::NoSuchEntity => e
+            MU.log e.inspect, MU::WARN
+            sleep 10
+            retry
+          end
+          arn
+        end
+
         # Called automatically by {MU::Deploy#createResources}
         def create
-          resp = MU::Cloud::AWS.ecs(@config['region']).create_cluster({
-            cluster_name: @mu_name
-          })
+          if @config['flavor'] == "EKS"
+            subnet_ids = []
+            @config["vpc"]["subnets"].each { |subnet|
+              subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"].to_s, name: subnet["subnet_name"].to_s)
+              raise MuError, "Couldn't find a live subnet matching #{subnet} in #{@vpc} (#{@vpc.subnets})" if subnet_obj.nil?
+              subnet_ids << subnet_obj.cloud_id
+            }
+            role_arn = MU::Cloud::AWS::ContainerCluster.createControlPlaneIAMRole(@mu_name)
+
+            security_groups = []
+            if @dependencies.has_key?("firewall_rule")
+              @dependencies['firewall_rule'].values.each { |sg|
+                security_groups << sg.cloud_id
+              }
+            end
+
+            begin
+              MU::Cloud::AWS.eks(@config['region']).create_cluster(
+                name: @mu_name,
+                version: @config['kubernetes']['version'],
+                role_arn: role_arn,
+                security_group_ids: security_groups,
+                resources_vpc_config: {
+                  subnet_ids: subnet_ids
+                }
+              )
+            rescue Aws::EKS::Errors::UnsupportedAvailabilityZoneException => e
+              # this isn't the dumbest thing we've ever done, but it's up there
+              if e.message.match(/because (#{Regexp.quote(@config['region'])}[a-z]), the targeted availability zone, does not currently have sufficient capacity/)
+                bad_az = Regexp.last_match(1)
+                deletia = nil
+                subnet_ids.each { |subnet|
+                  subnet_obj = @vpc.getSubnet(cloud_id: subnet)
+                  if subnet_obj.az == bad_az
+                    deletia = subnet
+                    break
+                  end
+                }
+                raise e if deletia.nil?
+                MU.log "#{bad_az} does not have EKS capacity dropping #{deletia} from cluster #{@config['name']} and retrying", MU::NOTICE
+                subnet_ids.delete(deletia)
+                retry
+              end
+            rescue Aws::EKS::Errors::InvalidParameterException => e
+              if e.message.match(/role with arn: #{role_arn}, does not exist/)
+                sleep 5
+                retry
+              end
+            end
+            status = nil
+            retries = 0
+            begin
+              resp = MU::Cloud::AWS.eks(@config['region']).describe_cluster(
+                name: @mu_name
+              )
+              status = resp.cluster.status
+              if retries > 0 and (retries % 3) == 0 and status != "ACTIVE"
+                MU.log "Waiting for EKS cluster #{@mu_name} to become active (currently #{status})", MU::NOTICE
+              end
+              sleep 30
+              retries += 1
+            end while status != "ACTIVE"
+            MU.log "Creation of EKS cluster #{@mu_name} complete"
+          else
+            MU::Cloud::AWS.ecs(@config['region']).create_cluster(
+              cluster_name: @mu_name
+            )
+          end
         end
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
           serverpool = @deploy.findLitterMate(type: "server_pools", name: @config["name"]+"-"+@config["flavor"].downcase)
           resource_lookup = MU::Cloud::AWS.listInstanceTypes(@config['region'])[@config['region']]
-          resp = MU::Cloud::AWS.ecs(@config['region']).list_container_instances({
-            cluster: @mu_name
-          })
-          existing = {}
-          if resp
-            uuids = []
-            resp.container_instance_arns.each { |arn|
-              uuids << arn.sub(/^.*?:container-instance\//, "")
-            }
-            if uuids.size > 0
-              resp = MU::Cloud::AWS.ecs(@config['region']).describe_container_instances({
-                cluster: @mu_name,
-                container_instances: uuids
-              })
-              resp.container_instances.each { |i|
-                existing[i.ec2_instance_id] = i
+
+          if @config['kubernetes']
+            MU.log "XXX in groom land for EKS"
+          else
+            resp = MU::Cloud::AWS.ecs(@config['region']).list_container_instances({
+              cluster: @mu_name
+            })
+            existing = {}
+            if resp
+              uuids = []
+              resp.container_instance_arns.each { |arn|
+                uuids << arn.sub(/^.*?:container-instance\//, "")
               }
+              if uuids.size > 0
+                resp = MU::Cloud::AWS.ecs(@config['region']).describe_container_instances({
+                  cluster: @mu_name,
+                  container_instances: uuids
+                })
+                resp.container_instances.each { |i|
+                  existing[i.ec2_instance_id] = i
+                }
+              end
             end
-          end
-
-          serverpool.listNodes.each { |node|
-            resources = resource_lookup[node.cloud_desc.instance_type]
-            t = Thread.new {
-              ident_doc = nil
-              ident_doc_sig = nil
-              if !node.windows?
-                session = node.getSSHSession(10, 30)
-                ident_doc = session.exec!("curl -s http://169.254.169.254/latest/dynamic/instance-identity/document/")
-                ident_doc_sig = session.exec!("curl -s http://169.254.169.254/latest/dynamic/instance-identity/signature/")
-              else
-                begin
-                  session = node.getWinRMSession(1, 60)
-                rescue Exception # XXX
-                  session = node.getSSHSession(1, 60)
+  
+            serverpool.listNodes.each { |node|
+              resources = resource_lookup[node.cloud_desc.instance_type]
+              t = Thread.new {
+                ident_doc = nil
+                ident_doc_sig = nil
+                if !node.windows?
+                  session = node.getSSHSession(10, 30)
+                  ident_doc = session.exec!("curl -s http://169.254.169.254/latest/dynamic/instance-identity/document/")
+                  ident_doc_sig = session.exec!("curl -s http://169.254.169.254/latest/dynamic/instance-identity/signature/")
+                else
+                  begin
+                    session = node.getWinRMSession(1, 60)
+                  rescue Exception # XXX
+                    session = node.getSSHSession(1, 60)
+                  end
                 end
-              end
-              MU.log "Identity document for #{node}", MU::DEBUG, details: ident_doc
-              MU.log "Identity document signature for #{node}", MU::DEBUG, details: ident_doc_sig
-              params = {
-                :cluster => @mu_name,
-                :instance_identity_document => ident_doc,
-                :instance_identity_document_signature => ident_doc_sig,
-                :total_resources => [
-                  {
-                    :name => "CPU",
-                    :type => "INTEGER",
-                    :integer_value => resources["vcpu"].to_i
-                  },
-                  {
-                    :name => "MEMORY",
-                    :type => "INTEGER",
-                    :integer_value => (resources["memory"]*1024*1024).to_i
-                  }
-                ]
+                MU.log "Identity document for #{node}", MU::DEBUG, details: ident_doc
+                MU.log "Identity document signature for #{node}", MU::DEBUG, details: ident_doc_sig
+                params = {
+                  :cluster => @mu_name,
+                  :instance_identity_document => ident_doc,
+                  :instance_identity_document_signature => ident_doc_sig,
+                  :total_resources => [
+                    {
+                      :name => "CPU",
+                      :type => "INTEGER",
+                      :integer_value => resources["vcpu"].to_i
+                    },
+                    {
+                      :name => "MEMORY",
+                      :type => "INTEGER",
+                      :integer_value => (resources["memory"]*1024*1024).to_i
+                    }
+                  ]
+                }
+                if !existing.has_key?(node.cloud_id)
+                  MU.log "Registering ECS instance #{node} in cluster #{@mu_name}", details: params
+                else
+                  params[:container_instance_arn] = existing[node.cloud_id].container_instance_arn
+                  MU.log "Updating ECS instance #{node} in cluster #{@mu_name}", MU::NOTICE, details: params
+                end
+                MU::Cloud::AWS.ecs(@config['region']).register_container_instance(params)
+  
               }
-              if !existing.has_key?(node.cloud_id)
-                MU.log "Registering ECS instance #{node} in cluster #{@mu_name}", details: params
-              else
-                params[:container_instance_arn] = existing[node.cloud_id].container_instance_arn
-                MU.log "Updating ECS instance #{node} in cluster #{@mu_name}", MU::NOTICE, details: params
-              end
-              MU::Cloud::AWS.ecs(@config['region']).register_container_instance(params)
-
             }
-          }
+          end
 # launch_type: "EC2" only option in GovCloud
+        end
+
+        def cloud_desc
+          if @config['flavor'] == "EKS"
+            resp = MU::Cloud::AWS.eks(@config['region']).describe_cluster(
+              name: @mu_name
+            )
+            resp.cluster
+          else
+            resp = MU::Cloud::AWS.ecs(@config['region']).describe_clusters(
+              clusters: [@mu_name]
+            )
+            resp.clusters.first
+          end
         end
 
         # Return the metadata for this ContainerCluster
         # @return [Hash]
         def notify
-          deploy_struct = {
-          }
+          deploy_struct = MU.structToHash(cloud_desc)
+          deploy_struct["region"] = @config['region']
+          if @config['flavor'] == "EKS"
+            deploy_struct["max_pods"] = @config['kubernetes']['max_pods'].to_s
+          end
           return deploy_struct
         end
 
@@ -173,6 +287,37 @@ module MU
               end
             }
           end
+          resp = MU::Cloud::AWS.eks(region).list_clusters
+
+          if resp and resp.clusters
+            resp.clusters.each { |cluster|
+              if cluster.match(/^#{MU.deploy_id}-/)
+                MU.log "Deleting EKS Cluster #{cluster}"
+                if !noop
+                  MU::Cloud::AWS.eks(region).delete_cluster(
+                    name: cluster
+                  )
+                  begin
+                    status = nil
+                    retries = 0
+                    begin
+                      deletion = MU::Cloud::AWS.eks(region).describe_cluster(
+                        name: cluster
+                      )
+                      status = deletion.cluster.status
+                      if retries > 0 and (retries % 3) == 0
+                        MU.log "Waiting for EKS cluster #{cluster} to finish deleting (status #{status})", MU::NOTICE
+                      end
+                      retries += 1
+                      sleep 30
+                    end while status
+                  rescue Aws::EKS::Errors::ResourceNotFoundException
+                    # this is what we want
+                  end
+                end
+              end
+            }
+          end
         end
 
         # Locate an existing container_clusters.
@@ -193,6 +338,10 @@ module MU
               "enum" => ["ECS", "EKS", "Fargate"],
               "default" => "ECS"
             },
+            "platform" => {
+              "description" => "The platform to choose for worker nodes. Will default to Amazon Linux for ECS, CentOS 7 for everything else",
+              "default" => "centos7"
+            },
             "ami_id" => {
               "type" => "string",
               "description" => "The Amazon EC2 AMI on which to base this cluster's container hosts. Will use the default appropriate for the platform, if not specified."
@@ -211,33 +360,65 @@ module MU
           cluster['size'] = MU::Cloud::AWS::Server.validateInstanceType(cluster["instance_type"], cluster["region"])
           ok = false if cluster['size'].nil?
 
+          if cluster["flavor"] == "EKS" and !cluster["kubernetes"]
+            MU.log "ContainerCluster '#{cluster['name']}' must specify 'kubernetes' stanza for EKS flavor", MU::ERR
+            ok = false
+          elsif cluster["flavor"] == "ECS" and cluster["kubernetes"] and !MU::Cloud::AWS.isGovCloud?(cluster["region"])
+            cluster["flavor"] = "EKS"
+            MU.log "Setting flavor of ContainerCluster '#{cluster['name']}' to EKS ('kubernetes' stanza was specified)", MU::NOTICE
+          end
+
           if MU::Cloud::AWS.isGovCloud?(cluster["region"]) and cluster["flavor"] != "ECS"
             MU.log "AWS GovCloud does not support #{cluster["flavor"]} yet, just ECS", MU::ERR
             ok = false
           end
 
-          std_ami = getECSImageId(cluster['region'])
-          cluster["host_image"] ||= std_ami
-          if cluster["host_image"] != std_ami
-            MU.log "You have specified a non-standard AMI for ECS container hosts. This can work, but you will need to install Docker and the ECS Agent yourself, ideally through a Chef recipes. See AWS documentation for details.", MU::WARN, details: "https://docs.aws.amazon.com/AmazonECS/latest/developerguide/manually_update_agent.html"
-          else
-            cluster["host_ssh_user"] = "ec2-user"
+          if cluster["flavor"] == "ECS"
+            std_ami = getECSImageId(cluster['region'])
+            cluster["host_image"] ||= std_ami
+            if cluster["host_image"] != std_ami
+              MU.log "You have specified a non-standard AMI for ECS container hosts. This can work, but you will need to install Docker and the ECS Agent yourself, ideally through a Chef recipes. See AWS documentation for details.", MU::WARN, details: "https://docs.aws.amazon.com/AmazonECS/latest/developerguide/manually_update_agent.html"
+            else
+              cluster["host_ssh_user"] = "ec2-user"
+              cluster.delete("platform")
+            end
           end
 
+
           if ["ECS", "EKS"].include?(cluster["flavor"])
+            depends = cluster["flavor"] == "EKS" ? [{ "type" => "container_cluster", "name" => cluster['name'], "phase" => "create" }] : []
+            recipes = cluster["flavor"] == "EKS" ? ["mu-tools::eks"] : []
+
             MU::Config::ContainerCluster.insert_host_pool(
               configurator,
-              cluster["name"]+"-"+cluster["flavor"].downcase,
+              cluster["name"],
               cluster["instance_count"],
               cluster["instance_type"],
               vpc: cluster["vpc"],
               image_id: cluster["host_image"],
-              ssh_user: cluster["host_ssh_user"]
+              ssh_user: cluster["host_ssh_user"],
+              depends: depends,
+              recipes: recipes,
+              platform: cluster["platform"]
             )
-            cluster["dependencies"] << {
-              "name" => cluster["name"]+"-"+cluster["flavor"].downcase,
-              "type" => "server_pool",
-            }
+            if cluster["flavor"] == "ECS"
+              cluster["dependencies"] << {
+                "name" => cluster["name"]+"-"+cluster["flavor"].downcase,
+                "type" => "server_pool",
+              }
+            elsif cluster["flavor"] == "EKS"
+              cluster['ingress_rules'] = [
+                "sgs" => ["server_pool#{cluster['name']}"],
+                "port" => 443
+              ]
+              fwname = "container_cluster#{cluster['name']}"
+              acl = {"name" => fwname, "rules" => cluster['ingress_rules'], "region" => cluster['region'], "optional_tags" => cluster['optional_tags']}
+              acl["tags"] = cluster['tags'] if cluster['tags'] && !cluster['tags'].empty?
+              acl["vpc"] = cluster['vpc'].dup if cluster['vpc']
+              ok = false if !configurator.insertKitten(acl, "firewall_rules")
+              cluster["add_firewall_rules"] = [] if cluster["add_firewall_rules"].nil?
+              cluster["add_firewall_rules"] << {"rule_name" => fwname}
+            end
           end
 
           ok

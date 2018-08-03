@@ -38,6 +38,22 @@ module MU
               "type" => "integer",
               "default" => 2
             },
+            "kubernetes" => {
+              "type" => "object",
+              "description" => "Deploy to a managed Kubernetes service, such as EKS or GKE",
+              "properties" => {
+                "version" => {
+                  "type" => "string",
+                  "default" => "1.10",
+                  "description" => "Version of Kubernetes control plane to deploy",
+                },
+                "max_pods" => {
+                  "type" => "integer",
+                  "default" => 5,
+                  "description" => "Maximum number of pods that can be deployed on any given worker node",
+                }
+              }
+            },
             "flavor" => {
               "type" => "string",
               "description" => "Container clusters in Amazon can be ECS, EKS, or Fargate; Google supports GKE only"
@@ -72,7 +88,7 @@ module MU
       # @param count [Integer]: The number of nodes for the ServerPool
       # @param vpc [Hash]: Optional VPC reference block for the ServerPool
       # @param image_id [String]: Optional image id on which to base the ServerPool's nodes
-      def self.insert_host_pool(configurator, name, count, size, vpc: nil, image_id: nil, ssh_user: "root")
+      def self.insert_host_pool(configurator, name, count, size, vpc: nil, image_id: nil, ssh_user: "root", recipes: [], depends: [], platform: nil)
         base = {
           "name" => name,
           "min_size" => count,
@@ -86,6 +102,13 @@ module MU
             }
           }
         }
+        base["platform"] = platform if platform
+        if recipes.size > 0
+          base["run_list"] = recipes
+        end
+        if depends.size > 0
+          base["dependencies"] = depends
+        end
         base["vpc"] = vpc if vpc
         base["basis"]["launch_config"]["image_id"] = image_id if image_id
         configurator.insertKitten(base, "server_pools")

@@ -427,9 +427,9 @@ module MU
       has_multiples = attrs[:has_multiples]
 
       @kitten_semaphore.synchronize {
-        @kittens[type] = {} if @kittens[type].nil?
+        @kittens[type] ||= {}
         if has_multiples
-          @kittens[type][name] = {} if @kittens[type][name].nil?
+          @kittens[type][name] ||= {}
           @kittens[type][name][object.mu_name] = object
         else
           @kittens[type][name] = object
