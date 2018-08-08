@@ -553,7 +553,7 @@ MESSAGE_END
           MU.log "Launching thread #{threadname}", MU::DEBUG
           begin
             if service['#MUOBJECT'].nil?
-              service['#MUOBJECT'] = service["#MU_CLOUDCLASS"].new(mommacat: @mommacat, kitten_cfg: myservice)
+              service['#MUOBJECT'] = service["#MU_CLOUDCLASS"].new(mommacat: @mommacat, kitten_cfg: myservice, delayed_save: @updating)
             end
           rescue Exception => e
             MU::MommaCat.unlockAll
@@ -568,10 +568,12 @@ MESSAGE_END
             raise e
           end
           begin
-            MU.log "Running #{service['#MUOBJECT']}.#{mode}", MU::DEBUG
+#            MU.log "Running #{service['#MUOBJECT']}.#{mode}", MU::DEBUG
+            MU.log "Running #{service['#MUOBJECT']}.#{mode} (updating: #{@updating})", MU::NOTICE
             if !@updating or mode != "create"
               myservice = run_this_method.call
             else
+
               # XXX experimental create behavior for --liveupdate flag, only works on a couple of resource types. Inserting new resources into an old deploy is tricky.
               opts = {}
               if service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer"
@@ -592,19 +594,24 @@ MESSAGE_END
               if found.size == 0
                 if service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer" or
                    service["#MU_CLOUDCLASS"].cfg_name == "firewall_rule" or
-                   service["#MU_CLOUDCLASS"].cfg_name == "msg_queue"
-# XXX account for multiples?
+                   service["#MU_CLOUDCLASS"].cfg_name == "msg_queue" or
+                   service["#MU_CLOUDCLASS"].cfg_name == "server_pool"# or
+#                   service["#MU_CLOUDCLASS"].cfg_name == "container_cluster"
 # XXX only know LBs to be safe, atm
                   MU.log "#{service["#MU_CLOUDCLASS"].name} #{service['name']} not found, creating", MU::NOTICE
                   myservice = run_this_method.call
                 end
               else
                 real_descriptor = @mommacat.findLitterMate(type: service["#MU_CLOUDCLASS"].cfg_name, name: service['name'], created_only: true)
-                if !real_descriptor and
-                   service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer" or
-                   service["#MU_CLOUDCLASS"].cfg_name == "firewall_rule" or
-                   service["#MU_CLOUDCLASS"].cfg_name == "container_cluster"
-                  MU.log "#{service["#MU_CLOUDCLASS"].name} #{service['name']} not found, creating", MU::NOTICE
+
+                if !real_descriptor and (
+                    service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer" or
+                    service["#MU_CLOUDCLASS"].cfg_name == "firewall_rule" or
+                    service["#MU_CLOUDCLASS"].cfg_name == "msg_queue" or
+                    service["#MU_CLOUDCLASS"].cfg_name == "server_pool"# or
+#                    service["#MU_CLOUDCLASS"].cfg_name == "container_cluster"
+                   )
+                  MU.log "Invoking #{run_this_method.to_s} #{service['name']} #{service['name']}", MU::NOTICE
                   myservice = run_this_method.call
                 end
 #MU.log "#{service["#MU_CLOUDCLASS"].cfg_name} #{service['name']}", MU::NOTICE

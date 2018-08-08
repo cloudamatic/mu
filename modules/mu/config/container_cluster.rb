@@ -82,38 +82,6 @@ module MU
         ok
       end
 
-      # Generate a ServerPool for a set of container hosts.
-      # @param configurator [MU::Config]: The MU::Config object into which we're injecting
-      # @param name [String]: The name parameter for the ServerPool
-      # @param count [Integer]: The number of nodes for the ServerPool
-      # @param vpc [Hash]: Optional VPC reference block for the ServerPool
-      # @param image_id [String]: Optional image id on which to base the ServerPool's nodes
-      def self.insert_host_pool(configurator, name, count, size, vpc: nil, image_id: nil, ssh_user: "root", recipes: [], depends: [], platform: nil)
-        base = {
-          "name" => name,
-          "min_size" => count,
-          "max_size" => count,
-          "wait_for_nodes" => count,
-          "ssh_user" => ssh_user,
-          "basis" => {
-            "launch_config" => {
-              "name" => name,
-              "size" => size
-            }
-          }
-        }
-        base["platform"] = platform if platform
-        if recipes.size > 0
-          base["run_list"] = recipes
-        end
-        if depends.size > 0
-          base["dependencies"] = depends
-        end
-        base["vpc"] = vpc if vpc
-        base["basis"]["launch_config"]["image_id"] = image_id if image_id
-        configurator.insertKitten(base, "server_pools")
-      end
-
     end
   end
 end

@@ -19,11 +19,13 @@
 
 if node['deployment'].has_key?('container_clusters')
   pp node['deployment']['container_clusters']
-  region = node['deployment']['container_clusters'][node['service_name']]['region']
-  cluster = node['deployment']['container_clusters'][node['service_name']]['name']
-  max_pods = node['deployment']['container_clusters'][node['service_name']]['max_pods']
-  ca = node['deployment']['container_clusters'][node['service_name']]['certificate_authority']['data']
-  endpoint = node['deployment']['container_clusters'][node['service_name']]['endpoint']
+  cluster_short_name = node['service_name'].sub(/-workers$/, "")
+  region = node['deployment']['container_clusters'][cluster_short_name]['region']
+  cluster = node['deployment']['container_clusters'][cluster_short_name]['name']
+  max_pods = node['deployment']['container_clusters'][cluster_short_name]['max_pods']
+  ca = node['deployment']['container_clusters'][cluster_short_name]['certificate_authority']['data']
+  endpoint = node['deployment']['container_clusters'][cluster_short_name]['endpoint']
+#  admin_role = node['deployment']['container_clusters'][cluster_short_name]['k8s_admin_role']
 
   if platform_family?("rhel") and node[:platform_version].to_i >= 7
     execute "rpm --import https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg"
@@ -40,6 +42,10 @@ gpgkey=https://packages.cloud.google.com/yum/doc/yum-key.gpg
     end
     execute "yum -q makecache -y --disablerepo='*' --enablerepo=kubernetes"
     package "docker"
+    package "awscli"
+    package "kubeadm"
+    package "kubelet"
+    package "kubectl"
   elsif platform_family?("debian")
     package "apt-transport-https"
     package "ca-certificates"
@@ -57,19 +63,26 @@ EOH
     file "/etc/apt/sources.list.d/kubernetes.list" do
       content "deb http://apt.kubernetes.io/ kubernetes-xenial main\n"
     end
+    package "kubeadm"
+    package "kubelet"
+    package "kubectl"
   else
-    raise "#{node['platform']} #{node[:platform_version].to_s} isn't supported as a Kubernetes worker"
+    Chef::Log.info("I don't know how to turn #{node['platform']} #{node[:platform_version].to_s} into a Kubernetes worker, hopefully it's pre-configured")
   end
-  package "kubeadm"
-  package "kubelet"
-  package "kubectl"
+
+  service "docker" do
+    action [:start, :enable]
+  end
+  service "kubelet" do
+    action [:start, :enable]
+  end
 
   directory "/etc/kubernetes/pki/" do
     recursive true
     action :create
   end
   file "/etc/kubernetes/pki/ca.crt" do
-    content ca
+    content Base64.decode64(ca)
   end
   bash "install EKS node client" do
     code <<EOH
@@ -82,8 +95,8 @@ EOH
       curl -o $MODEL_FILE_PATH https://s3-us-west-2.amazonaws.com/amazon-eks/1.10.3/2018-06-05/eks-2017-11-01.normal.json
       aws configure add-model --service-model file://$MODEL_FILE_PATH --service-name eks
       INTERNAL_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
-      sed -i s,MASTER_ENDPOINT,"#{endpoint}",g /var/lib/kubelet/kubeconfig
-      sed -i s,CLUSTER_NAME,"#{cluster}",g /var/lib/kubelet/kubeconfig
+#      sed -i s,MASTER_ENDPOINT,"#{endpoint}",g /var/lib/kubelet/kubeconfig
+#      sed -i s,CLUSTER_NAME,"#{cluster}",g /var/lib/kubelet/kubeconfig
       sed -i s,REGION,"#{region}",g /etc/systemd/system/kubelet.service
       sed -i s,MAX_PODS,"#{max_pods}",g /etc/systemd/system/kubelet.service
       sed -i s,MASTER_ENDPOINT,$MASTER_ENDPOINT,g /etc/systemd/system/kubelet.service
@@ -91,8 +104,31 @@ EOH
       DNS_CLUSTER_IP=10.100.0.10
       if [[ $INTERNAL_IP == 10.* ]] ; then DNS_CLUSTER_IP=172.20.0.10; fi
       sed -i s,DNS_CLUSTER_IP,$DNS_CLUSTER_IP,g  /etc/systemd/system/kubelet.service
-      sed -i s,CERTIFICATE_AUTHORITY_FILE,$CA_CERTIFICATE_FILE_PATH,g /var/lib/kubelet/kubeconfig
+#      sed -i s,CERTIFICATE_AUTHORITY_FILE,$CA_CERTIFICATE_FILE_PATH,g /var/lib/kubelet/kubeconfig
       sed -i s,CLIENT_CA_FILE,$CA_CERTIFICATE_FILE_PATH,g  /etc/systemd/system/kubelet.service
+      systemctl daemon-reload
 EOH
+    notifies :restart, "service[kubelet]", :delayed
   end
+
+  directory "/root/.kube"
+
+  remote_file "/usr/bin/aws-iam-authenticator" do
+    source "https://amazon-eks.s3-us-west-2.amazonaws.com/1.10.3/2018-07-26/bin/linux/amd64/aws-iam-authenticator"
+    mode 0755
+    not_if "test -f /usr/bin/aws-iam-authenticator"
+  end
+
+  ["/var/lib/kubelet/kubeconfig", "/root/.kube/config"].each { |kubecfg|
+    template kubecfg do
+      source "kubeconfig.erb"
+      variables(
+        :endpoint => endpoint,
+        :cluster => cluster,
+        :cacert => ca,
+        :rolearn => node['ec2']['iam_instance_profile']['arn'].sub(/:instance-profile\//, ":role/")
+      )
+    end
+  }
+
 end

@@ -409,7 +409,7 @@ module MU
       config.close
 
       @original_config = new_conf
-      save!
+#      save! # XXX this will happen later, more sensibly
       MU.log "New config saved to #{deploy_dir}/basket_of_kittens.json"
     end
 
@@ -1281,7 +1281,7 @@ module MU
     # @param data [Hash]: The resource's metadata.
     # @param remove [Boolean]: Remove this resource from the deploy structure, instead of adding it.
     # @return [void]
-    def notify(type, key, data, mu_name: nil, remove: false, triggering_node: nil)
+    def notify(type, key, data, mu_name: nil, remove: false, triggering_node: nil, delayed_save: false)
       return if @no_artifacts
       MU::MommaCat.lock("deployment-notification")
       loadDeploy(true) # make sure we're saving the latest and greatest
@@ -1323,7 +1323,7 @@ module MU
           @deployment[type][key] = data
           MU.log "Adding to @deployment[#{type}][#{key}]", MU::DEBUG, details: data
         end
-        save!(key)
+        save!(key) if !delayed_save
       else
         have_deploy = true
         if @deployment[type].nil? or @deployment[type][key].nil?
@@ -1353,7 +1353,7 @@ module MU
             @deployment.delete(type)
           end
         end
-        save!
+        save! if !delayed_save
 
       end
       MU::MommaCat.unlock("deployment-notification")
@@ -2313,6 +2313,11 @@ MESSAGE_END
       results[cert_cn]
     end
 
+    # @return [String]: The Mu Master filesystem directory holding metadata for the current deployment
+    def deploy_dir
+      MU::MommaCat.deploy_dir(@deploy_id)
+    end
+
     private
 
     # Check to see whether a given resource name is unique across all
@@ -2374,10 +2379,6 @@ MESSAGE_END
       end
       deploy_path = File.expand_path(path+"/"+deploy_id)
       return Dir.exist?(deploy_path)
-    end
-
-    def deploy_dir
-      MU::MommaCat.deploy_dir(@deploy_id)
     end
 
 

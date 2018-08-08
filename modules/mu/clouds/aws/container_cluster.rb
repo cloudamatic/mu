@@ -25,6 +25,9 @@ module MU
 
         @cloudformation_data = {}
         attr_reader :cloudformation_data
+        def self.EKSRegions
+          ["us-east-1", "us-west-2"]
+        end
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
         # @param kitten_cfg [Hash]: The fully parsed and resolved {MU::Config} resource descriptor as defined in {MU::Config::BasketofKittens::container_clusters}
@@ -62,6 +65,26 @@ module MU
           arn
         end
 
+        # Generate the generic EKS Kubernetes admin role for use with 
+        # aws-iam-authenticator
+        def self.createK8SAdminRole(rolename)
+          resp = MU::Cloud::AWS.iam.create_role(
+            role_name: rolename,
+            assume_role_policy_document: '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":"arn:aws:iam::'+MU.account_number+':root"},"Action":"sts:AssumeRole","Condition":{}}]}'
+          )
+          arn = resp.role.arn
+          MU.log "Created EKS Kubernetes admin role #{rolename}"
+          begin
+            MU::Cloud::AWS.iam.get_role(role_name: rolename)
+          rescue Aws::IAM::Errors::NoSuchEntity => e
+            MU.log e.inspect, MU::WARN
+            sleep 10
+            retry
+          end
+          arn
+        end
+
+
         # Called automatically by {MU::Deploy#createResources}
         def create
           if @config['flavor'] == "EKS"
@@ -72,6 +95,8 @@ module MU
               subnet_ids << subnet_obj.cloud_id
             }
             role_arn = MU::Cloud::AWS::ContainerCluster.createControlPlaneIAMRole(@mu_name)
+            MU::Cloud::AWS::Server.createIAMProfile(@mu_name+"-WORKERS", canned_policies: ["AmazonEKSWorkerNodePolicy", "AmazonEKS_CNI_Policy", "AmazonEC2ContainerRegistryReadOnly"])
+#            @config['k8s_admin_role'] = MU::Cloud::AWS::ContainerCluster.createK8SAdminRole(@mu_name+"-K8SADMIN")
 
             security_groups = []
             if @dependencies.has_key?("firewall_rule")
@@ -85,8 +110,8 @@ module MU
                 name: @mu_name,
                 version: @config['kubernetes']['version'],
                 role_arn: role_arn,
-                security_group_ids: security_groups,
                 resources_vpc_config: {
+                  security_group_ids: security_groups,
                   subnet_ids: subnet_ids
                 }
               )
@@ -103,7 +128,7 @@ module MU
                   end
                 }
                 raise e if deletia.nil?
-                MU.log "#{bad_az} does not have EKS capacity dropping #{deletia} from cluster #{@config['name']} and retrying", MU::NOTICE
+                MU.log "#{bad_az} does not have EKS capacity. Dropping #{deletia} from ContainerCluster '#{@config['name']}' and retrying.", MU::NOTICE
                 subnet_ids.delete(deletia)
                 retry
               end
@@ -125,6 +150,14 @@ module MU
               end
               sleep 30
               retries += 1
+            rescue Aws::EKS::Errors::ResourceNotFoundException => e
+              if retries < 30
+                sleep 30
+                retries += 1
+                retry
+              else
+                raise e
+              end
             end while status != "ACTIVE"
             MU.log "Creation of EKS cluster #{@mu_name} complete"
           else
@@ -140,7 +173,27 @@ module MU
           resource_lookup = MU::Cloud::AWS.listInstanceTypes(@config['region'])[@config['region']]
 
           if @config['kubernetes']
-            MU.log "XXX in groom land for EKS"
+            kube = ERB.new(File.read(MU.myRoot+"/cookbooks/mu-tools/templates/default/kubeconfig.erb"))
+            configmap = ERB.new(File.read(MU.myRoot+"/extras/aws-auth-cm.yaml.erb"))
+            me = cloud_desc
+            @endpoint = me.endpoint
+            @cacert = me.certificate_authority.data
+            @cluster = @mu_name
+            resp = MU::Cloud::AWS.iam.get_role(role_name: @mu_name+"-WORKERS")
+            @worker_role_arn = resp.role.arn
+            kube_conf = @deploy.deploy_dir+"/kubeconfig-#{@config['name']}"
+            eks_auth = @deploy.deploy_dir+"/eks-auth-cm-#{@config['name']}.yaml"
+            
+            File.open(kube_conf, "w"){ |k|
+              k.puts kube.result(binding)
+            }
+            File.open(eks_auth, "w"){ |k|
+              k.puts configmap.result(binding)
+            }
+            authmap_cmd = %Q{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" apply -f "#{eks_auth}"}
+            MU.log "Configuring Kubernetes <=> IAM mapping for worker nodes", details: authmap_cmd
+            %x{#{authmap_cmd}}
+# maybe guard this
           else
             resp = MU::Cloud::AWS.ecs(@config['region']).list_container_instances({
               cluster: @mu_name
@@ -238,9 +291,30 @@ module MU
 
         # Use the AWS SSM API to fetch the current version of the Amazon Linux
         # ECS-optimized AMI, so we can use it as a default AMI for ECS deploys.
-        def self.getECSImageId(region = MU.myRegion)
+        # @param flavor [String]: ECS or EKS
+        def self.getECSImageId(flavor = "ECS", region = MU.myRegion)
+          if flavor == "ECS"
+            resp = MU::Cloud::AWS.ssm(region).get_parameters(
+              names: ["/aws/service/#{flavor.downcase}/optimized-ami/amazon-linux/recommended"]
+            )
+            if resp and resp.parameters and resp.parameters.size > 0
+              image_details = JSON.parse(resp.parameters.first.value)
+              return image_details['image_id']
+            end
+          elsif flavor == "EKS"
+            # XXX this is absurd, but these don't appear to be available from an API anywhere
+            # Here's their Packer build, should just convert to Chef: https://github.com/awslabs/amazon-eks-ami
+            amis = { "us-east-1" => "ami-dea4d5a1", "us-west-2" => "ami-73a6e20b" }
+            return amis[region]
+          end
+          nil
+        end
+
+        # Use the AWS SSM API to fetch the current version of the Amazon Linux
+        # EKS-optimized AMI, so we can use it as a default AMI for EKS deploys.
+        def self.getEKSImageId(region = MU.myRegion)
           resp = MU::Cloud::AWS.ssm(region).get_parameters(
-            names: ["/aws/service/ecs/optimized-ami/amazon-linux/recommended"]
+            names: ["/aws/service/ekss/optimized-ami/amazon-linux/recommended"]
           )
           if resp and resp.parameters and resp.parameters.size > 0
             image_details = JSON.parse(resp.parameters.first.value)
@@ -287,6 +361,7 @@ module MU
               end
             }
           end
+          return if !MU::Cloud::AWS::ContainerCluster.EKSRegions.include?(region)
           resp = MU::Cloud::AWS.eks(region).list_clusters
 
           if resp and resp.clusters
@@ -326,6 +401,11 @@ module MU
         # @param flags [Hash]: Optional flags
         # @return [OpenStruct]: The cloud provider's complete descriptions of matching container_clusters.
         def self.find(cloud_id: nil, region: MU.curRegion, flags: {})
+          MU.log cloud_id, MU::WARN, details: flags
+          MU.log region, MU::WARN
+          resp = MU::Cloud::AWS.ecs(region).list_clusters
+          resp = MU::Cloud::AWS.eks(region).list_clusters
+          exit
         end
 
         # Cloud-specific configuration properties.
@@ -360,6 +440,7 @@ module MU
           cluster['size'] = MU::Cloud::AWS::Server.validateInstanceType(cluster["instance_type"], cluster["region"])
           ok = false if cluster['size'].nil?
 
+
           if cluster["flavor"] == "EKS" and !cluster["kubernetes"]
             MU.log "ContainerCluster '#{cluster['name']}' must specify 'kubernetes' stanza for EKS flavor", MU::ERR
             ok = false
@@ -368,16 +449,25 @@ module MU
             MU.log "Setting flavor of ContainerCluster '#{cluster['name']}' to EKS ('kubernetes' stanza was specified)", MU::NOTICE
           end
 
+          if cluster["flavor"] == "EKS" and !MU::Cloud::AWS::ContainerCluster.EKSRegions.include?(cluster['region'])
+            MU.log "EKS is only available in some regions", MU::ERR, details: MU::Cloud::AWS::ContainerCluster.EKSRegions
+            ok = false
+          end
+
           if MU::Cloud::AWS.isGovCloud?(cluster["region"]) and cluster["flavor"] != "ECS"
             MU.log "AWS GovCloud does not support #{cluster["flavor"]} yet, just ECS", MU::ERR
             ok = false
           end
 
-          if cluster["flavor"] == "ECS"
-            std_ami = getECSImageId(cluster['region'])
+          if ["ECS", "EKS"].include?(cluster["flavor"])
+            std_ami = getECSImageId(cluster["flavor"], cluster['region'])
             cluster["host_image"] ||= std_ami
             if cluster["host_image"] != std_ami
-              MU.log "You have specified a non-standard AMI for ECS container hosts. This can work, but you will need to install Docker and the ECS Agent yourself, ideally through a Chef recipes. See AWS documentation for details.", MU::WARN, details: "https://docs.aws.amazon.com/AmazonECS/latest/developerguide/manually_update_agent.html"
+              if cluster["flavor"] == "ECS"
+                MU.log "You have specified a non-standard AMI for ECS container hosts. This can work, but you will need to install Docker and the ECS Agent yourself, ideally through a Chef recipes. See AWS documentation for details.", MU::WARN, details: "https://docs.aws.amazon.com/AmazonECS/latest/developerguide/manually_update_agent.html"
+              elsif cluster["flavor"] == "EKS"
+                MU.log "You have specified a non-standard AMI for EKS worker hosts. This can work, but you will need to install Docker and configure Kubernetes yourself, ideally through a Chef recipes. See AWS documentation for details.", MU::WARN, details: "https://docs.aws.amazon.com/eks/latest/userguide/launch-workers.html"
+              end
             else
               cluster["host_ssh_user"] = "ec2-user"
               cluster.delete("platform")
@@ -386,29 +476,52 @@ module MU
 
 
           if ["ECS", "EKS"].include?(cluster["flavor"])
-            depends = cluster["flavor"] == "EKS" ? [{ "type" => "container_cluster", "name" => cluster['name'], "phase" => "create" }] : []
-            recipes = cluster["flavor"] == "EKS" ? ["mu-tools::eks"] : []
 
-            MU::Config::ContainerCluster.insert_host_pool(
-              configurator,
-              cluster["name"],
-              cluster["instance_count"],
-              cluster["instance_type"],
-              vpc: cluster["vpc"],
-              image_id: cluster["host_image"],
-              ssh_user: cluster["host_ssh_user"],
-              depends: depends,
-              recipes: recipes,
-              platform: cluster["platform"]
-            )
+            worker_pool = {
+              "name" => cluster["name"]+"-workers",
+              "min_size" => cluster["instance_count"],
+              "max_size" => cluster["instance_count"],
+              "wait_for_nodes" => cluster["instance_count"],
+              "ssh_user" => cluster["host_ssh_user"],
+              "basis" => {
+                "launch_config" => {
+                  "name" => cluster["name"]+"-workers",
+                  "size" => cluster["instance_type"]
+                }
+              }
+            }
+            if cluster["vpc"]
+              worker_pool["vpc"] = cluster["vpc"]
+            end
+            if cluster["host_image"]
+              worker_pool["basis"]["launch_config"]["image_id"] = cluster["host_image"]
+            end
+
+            if cluster["flavor"] == "EKS"
+              worker_pool["canned_iam_policies"] = [
+                "AmazonEKSWorkerNodePolicy",
+                "AmazonEKS_CNI_Policy",
+                "AmazonEC2ContainerRegistryReadOnly"
+              ]
+              worker_pool["dependencies"] = [
+                {
+                  "type" => "container_cluster",
+                  "name" => cluster['name']
+                }
+              ]
+              worker_pool["run_list"] = ["mu-tools::eks"]
+            end
+
+            configurator.insertKitten(worker_pool, "server_pools")
+
             if cluster["flavor"] == "ECS"
               cluster["dependencies"] << {
-                "name" => cluster["name"]+"-"+cluster["flavor"].downcase,
+                "name" => cluster["name"]+"-workers",
                 "type" => "server_pool",
               }
             elsif cluster["flavor"] == "EKS"
               cluster['ingress_rules'] = [
-                "sgs" => ["server_pool#{cluster['name']}"],
+                "sgs" => ["server_pool#{cluster['name']}-workers"],
                 "port" => 443
               ]
               fwname = "container_cluster#{cluster['name']}"
@@ -418,6 +531,10 @@ module MU
               ok = false if !configurator.insertKitten(acl, "firewall_rules")
               cluster["add_firewall_rules"] = [] if cluster["add_firewall_rules"].nil?
               cluster["add_firewall_rules"] << {"rule_name" => fwname}
+              cluster["dependencies"] << {
+                "name" => fwname,
+                "type" => "firewall_rule",
+              }
             end
           end
 

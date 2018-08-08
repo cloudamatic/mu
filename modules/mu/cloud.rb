@@ -488,6 +488,7 @@ module MU
         attr_reader :destroyed
         attr_reader :cfm_template
         attr_reader :cfm_name
+        attr_reader :delayed_save
 
         def self.shortname
           name.sub(/.*?::([^:]+)$/, '\1')
@@ -545,11 +546,13 @@ module MU
         def initialize(mommacat: nil,
                        mu_name: nil,
                        cloud_id: nil,
-                       kitten_cfg: nil)
+                       kitten_cfg: nil,
+                       delayed_save: false)
           raise MuError, "Cannot invoke Cloud objects without a configuration" if kitten_cfg.nil?
           @live = true
           @deploy = mommacat
           @config = kitten_cfg
+          @delayed_save = delayed_save
           @cloud_id = cloud_id
           
           if !@deploy.nil?
@@ -621,9 +624,9 @@ module MU
           end
           if !@deploy.nil?
             if !@cloudobj.nil? and !@config.nil? and !@cloudobj.mu_name.nil?
-              @deploy.notify(self.class.cfg_plural, @config['name'], nil, mu_name: @cloudobj.mu_name, remove: true, triggering_node: @cloudobj)
+              @deploy.notify(self.class.cfg_plural, @config['name'], nil, mu_name: @cloudobj.mu_name, remove: true, triggering_node: @cloudobj, delayed_save: @delayed_save)
             elsif !@mu_name.nil?
-              @deploy.notify(self.class.cfg_plural, @config['name'], nil, mu_name: @mu_name, remove: true, triggering_node: self)
+              @deploy.notify(self.class.cfg_plural, @config['name'], nil, mu_name: @mu_name, remove: true, triggering_node: self, delayed_save: @delayed_save)
             end
             @deploy.removeKitten(self)
           end
@@ -851,6 +854,7 @@ module MU
 
         def self.find(*flags)
           allfound = {}
+
           MU::Cloud.supportedClouds.each { |cloud|
             begin
               args = flags.first
@@ -1341,11 +1345,11 @@ module MU
               end
               deploydata['cloud_id'] = @cloudobj.cloud_id if !@cloudobj.cloud_id.nil?
               deploydata['mu_name'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
-              @deploy.notify(self.class.cfg_plural, @config['name'], deploydata, triggering_node: @cloudobj) if !@deploy.nil?
+              @deploy.notify(self.class.cfg_plural, @config['name'], deploydata, triggering_node: @cloudobj, delayed_save: @delayed_save) if !@deploy.nil?
             elsif method == :notify
               retval['cloud_id'] = @cloudobj.cloud_id if !@cloudobj.cloud_id.nil?
               retval['mu_name'] = @cloudobj.mu_name if !@cloudobj.mu_name.nil?
-              @deploy.notify(self.class.cfg_plural, @config['name'], retval, triggering_node: @cloudobj) if !@deploy.nil?
+              @deploy.notify(self.class.cfg_plural, @config['name'], retval, triggering_node: @cloudobj, delayed_save: @delayed_save) if !@deploy.nil?
             end
             @method_semaphore.synchronize {
               @method_locks.delete(method)

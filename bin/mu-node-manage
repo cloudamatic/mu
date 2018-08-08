@@ -360,25 +360,25 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
         end
         resp.auto_scaling_groups.each { |asg|
           launch = MU::Cloud::AWS.autoscale.describe_launch_configurations(
-              launch_configuration_names: [asg.launch_configuration_name]
+            launch_configuration_names: [asg.launch_configuration_name]
           ).launch_configurations.first
 
           olduserdata = Base64.decode64(launch.user_data)
 
           userdata = MU::Cloud::AWS::Server.fetchUserdata(
-              platform: server["platform"],
-              template_variables: {
-                  "deployKey" => Base64.urlsafe_encode64(mommacat.public_key),
-                  "deploySSHKey" => mommacat.ssh_public_key,
-                  "muID" => muid,
-                  "muUser" => MU.chef_user,
-                  "publicIP" => MU.mu_public_ip,
-                  "resourceName" => svr_class,
-                  "windowsAdminName" => server['windows_admin_username'],
-                  "skipApplyUpdates" => server['skipinitialupdates'],
-                  "resourceType" => "server_pool"
-              },
-              custom_append: server['userdata_script']
+            platform: server["platform"],
+            template_variables: {
+              "deployKey" => Base64.urlsafe_encode64(mommacat.public_key),
+              "deploySSHKey" => mommacat.ssh_public_key,
+              "muID" => muid,
+              "muUser" => MU.chef_user,
+              "publicIP" => MU.mu_public_ip,
+              "resourceName" => svr_class,
+              "windowsAdminName" => server['windows_admin_username'],
+              "skipApplyUpdates" => server['skipinitialupdates'],
+              "resourceType" => "server_pool"
+            },
+            custom_append: server['userdata_script']
           )
 
           # Figure out which devices are embedded in the AMI already.
@@ -451,8 +451,8 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
           end
 
           MU::Cloud::AWS.autoscale.update_auto_scaling_group(
-              auto_scaling_group_name: pool_name,
-              launch_configuration_name: pool_name+"-TMP"
+            auto_scaling_group_name: pool_name,
+            launch_configuration_name: pool_name+"-TMP"
           )
 
           # ...now back to an identical one with the "real" name
@@ -473,11 +473,11 @@ def updateAWSMetaData(deploys = MU::MommaCat.listDeploys, nodes = [])
               associate_public_ip_address: launch.associate_public_ip_address
           )
           MU::Cloud::AWS.autoscale.update_auto_scaling_group(
-              auto_scaling_group_name: pool_name,
-              launch_configuration_name: pool_name
+            auto_scaling_group_name: pool_name,
+            launch_configuration_name: pool_name
           )
           MU::Cloud::AWS.autoscale.delete_launch_configuration(
-              launch_configuration_name: pool_name+"-TMP"
+            launch_configuration_name: pool_name+"-TMP"
           )
 
           MU.log "Launch Configuration #{asg.launch_configuration_name} replaced"
