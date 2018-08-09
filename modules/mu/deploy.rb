@@ -595,8 +595,8 @@ MESSAGE_END
                 if service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer" or
                    service["#MU_CLOUDCLASS"].cfg_name == "firewall_rule" or
                    service["#MU_CLOUDCLASS"].cfg_name == "msg_queue" or
-                   service["#MU_CLOUDCLASS"].cfg_name == "server_pool"# or
-#                   service["#MU_CLOUDCLASS"].cfg_name == "container_cluster"
+                   service["#MU_CLOUDCLASS"].cfg_name == "server_pool" or
+                   service["#MU_CLOUDCLASS"].cfg_name == "container_cluster"
 # XXX only know LBs to be safe, atm
                   MU.log "#{service["#MU_CLOUDCLASS"].name} #{service['name']} not found, creating", MU::NOTICE
                   myservice = run_this_method.call
@@ -608,8 +608,8 @@ MESSAGE_END
                     service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer" or
                     service["#MU_CLOUDCLASS"].cfg_name == "firewall_rule" or
                     service["#MU_CLOUDCLASS"].cfg_name == "msg_queue" or
-                    service["#MU_CLOUDCLASS"].cfg_name == "server_pool"# or
-#                    service["#MU_CLOUDCLASS"].cfg_name == "container_cluster"
+                    service["#MU_CLOUDCLASS"].cfg_name == "server_pool" or
+                    service["#MU_CLOUDCLASS"].cfg_name == "container_cluster"
                    )
                   MU.log "Invoking #{run_this_method.to_s} #{service['name']} #{service['name']}", MU::NOTICE
                   myservice = run_this_method.call

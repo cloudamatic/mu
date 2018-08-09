@@ -152,6 +152,9 @@ module MU
               retries += 1
             rescue Aws::EKS::Errors::ResourceNotFoundException => e
               if retries < 30
+                if retries > 0 and (retries % 3) == 0
+                  MU.log "Got #{e.message} trying to describe EKS cluster #{@mu_name}, waiting and retrying", MU::WARN
+                end
                 sleep 30
                 retries += 1
                 retry
