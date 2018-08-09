@@ -137,6 +137,7 @@ module MU
               MU::Cloud::FirewallRule.find(cloud_id: @cloud_id, region: @config['region'])
           )
           sg_data["group_id"] = @cloud_id
+          sg_data["cloud_id"] = @cloud_id
           return sg_data
         end
 

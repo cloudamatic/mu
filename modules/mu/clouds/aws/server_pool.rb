@@ -593,7 +593,7 @@ module MU
             begin
               MU.log "Removing AutoScale Launch Configuration #{resource_id}"
               MU::Cloud::AWS.autoscale(region).delete_launch_configuration(
-                  launch_configuration_name: resource_id
+                launch_configuration_name: resource_id
               )
             rescue Aws::AutoScaling::Errors::ValidationError => e
               MU.log "No such Launch Configuration #{resource_id}"
@@ -688,7 +688,7 @@ module MU
 
           storage.concat(MU::Cloud::AWS::Server.ephemeral_mappings)
 
-          if oldlaunch
+          if !oldlaunch.nil?
             olduserdata = Base64.decode64(oldlaunch.user_data)
             if userdata != olduserdata or
                 oldlaunch.image_id != @config["basis"]["launch_config"]["ami_id"] or
@@ -700,34 +700,33 @@ module MU
 #                XXX block device comparison isn't this simple
               return
             end
-          end
 
-          # Put our Autoscale group onto a temporary launch config
-          begin
+            # Put our Autoscale group onto a temporary launch config
+            begin
 
-            MU::Cloud::AWS.autoscale(@config['region']).create_launch_configuration(
-              launch_configuration_name: @mu_name+"-TMP",
-              user_data: Base64.encode64(olduserdata),
-              image_id: oldlaunch.image_id,
-              key_name: oldlaunch.key_name,
-              security_groups: oldlaunch.security_groups,
-              instance_type: oldlaunch.instance_type,
-              block_device_mappings: storage,
-              instance_monitoring: oldlaunch.instance_monitoring,
-              iam_instance_profile: oldlaunch.iam_instance_profile,
-              ebs_optimized: oldlaunch.ebs_optimized,
-              associate_public_ip_address: oldlaunch.associate_public_ip_address
-            )
-          rescue ::Aws::AutoScaling::Errors::ValidationError => e
-            if e.message.match(/Member must have length less than or equal to (\d+)/)
-              MU.log "Userdata script too long updating #{@mu_name} Launch Config (#{Base64.encode64(userdata).size.to_s}/#{Regexp.last_match[1]} bytes)", MU::ERR
-            else
-              MU.log "Error updating #{@mu_name} Launch Config", MU::ERR, details: e.message
+              MU::Cloud::AWS.autoscale(@config['region']).create_launch_configuration(
+                launch_configuration_name: @mu_name+"-TMP",
+                user_data: Base64.encode64(olduserdata),
+                image_id: oldlaunch.image_id,
+                key_name: oldlaunch.key_name,
+                security_groups: oldlaunch.security_groups,
+                instance_type: oldlaunch.instance_type,
+                block_device_mappings: storage,
+                instance_monitoring: oldlaunch.instance_monitoring,
+                iam_instance_profile: oldlaunch.iam_instance_profile,
+                ebs_optimized: oldlaunch.ebs_optimized,
+                associate_public_ip_address: oldlaunch.associate_public_ip_address
+              )
+            rescue ::Aws::AutoScaling::Errors::ValidationError => e
+              if e.message.match(/Member must have length less than or equal to (\d+)/)
+                MU.log "Userdata script too long updating #{@mu_name} Launch Config (#{Base64.encode64(userdata).size.to_s}/#{Regexp.last_match[1]} bytes)", MU::ERR
+              else
+                MU.log "Error updating #{@mu_name} Launch Config", MU::ERR, details: e.message
+              end
+              raise e.message
             end
-            raise e.message
-          end
 
-          if oldlaunch
+
             MU::Cloud::AWS.autoscale(@config['region']).update_auto_scaling_group(
               auto_scaling_group_name: @mu_name,
               launch_configuration_name: @mu_name+"-TMP"
@@ -738,6 +737,7 @@ module MU
             )
           end
 
+          # Now to build the new one
           sgs = []
           if @dependencies.has_key?("firewall_rule")
             @dependencies['firewall_rule'].values.each { |sg|
@@ -772,7 +772,7 @@ module MU
           if @config['basis']['launch_config']['generate_iam_role']
             # Using ARN instead of IAM instance profile name to hopefully get around some random AWS failures
             rolename, cfm_role_name, cfm_prof_name, arn = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['basis']['launch_config']['iam_role'], extra_policies: @config['basis']['launch_config']['iam_policies'], canned_policies: @config['basis']['launch_config']['canned_iam_policies'])
-            launch_options[:iam_instance_profile] = arn
+            launch_options[:iam_instance_profile] = rolename
           elsif @config['basis']['launch_config']['iam_role'].nil?
             raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
           else
@@ -787,9 +787,15 @@ module MU
             MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'], region: @config['region'])
           end
 
-          MU::Cloud::AWS.autoscale(@config['region']).create_launch_configuration(launch_options)
+          begin
+            MU::Cloud::AWS.autoscale(@config['region']).create_launch_configuration(launch_options)
+          rescue Aws::AutoScaling::Errors::ValidationError => e
+            MU.log e.message, MU::WARN
+            sleep 10
+            retry
+          end
 
-          if oldlaunch
+          if !oldlaunch.nil?
             # Tell the ASG to use the new one, and nuke the old one
             MU::Cloud::AWS.autoscale(@config['region']).update_auto_scaling_group(
               auto_scaling_group_name: @mu_name,
@@ -802,11 +808,13 @@ module MU
           else
             MU.log "Launch Configuration #{@mu_name} created"
           end
+
         end
 
         def buildOptionsHash
           asg_options = {
             :auto_scaling_group_name => @mu_name,
+            :launch_configuration_name => @mu_name,
             :default_cooldown => @config["default_cooldown"],
             :health_check_type => @config["health_check_type"],
             :health_check_grace_period => @config["health_check_grace_period"],

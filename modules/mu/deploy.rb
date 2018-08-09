@@ -568,8 +568,7 @@ MESSAGE_END
             raise e
           end
           begin
-#            MU.log "Running #{service['#MUOBJECT']}.#{mode}", MU::DEBUG
-            MU.log "Running #{service['#MUOBJECT']}.#{mode} (updating: #{@updating})", MU::NOTICE
+            MU.log "Checking whether to run #{service['#MUOBJECT']}.#{mode} (updating: #{@updating})", MU::DEBUG
             if !@updating or mode != "create"
               myservice = run_this_method.call
             else
@@ -591,6 +590,7 @@ MESSAGE_END
                                  dummy_ok: false
                                 )
               found = found.delete_if { |x| x.cloud_id.nil? }
+
               if found.size == 0
                 if service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer" or
                    service["#MU_CLOUDCLASS"].cfg_name == "firewall_rule" or

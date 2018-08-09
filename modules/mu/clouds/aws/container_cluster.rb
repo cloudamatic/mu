@@ -165,6 +165,7 @@ module MU
               cluster_name: @mu_name
             )
           end
+          @cloud_id = @mu_name
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -282,6 +283,7 @@ module MU
         # @return [Hash]
         def notify
           deploy_struct = MU.structToHash(cloud_desc)
+          deploy_struct['cloud_id'] = @mu_name
           deploy_struct["region"] = @config['region']
           if @config['flavor'] == "EKS"
             deploy_struct["max_pods"] = @config['kubernetes']['max_pods'].to_s

@@ -1234,7 +1234,7 @@ module MU
         if !@kittens.has_key?(type)
           return nil
         end
-        MU.log "findLitterMate(type: #{type}, name: #{name}, mu_name: #{mu_name}, cloud_id: #{cloud_id}, created_only: #{created_only})", MU::DEBUG, details: @kittens
+        MU.log "findLitterMate(type: #{type}, name: #{name}, mu_name: #{mu_name}, cloud_id: #{cloud_id}, created_only: #{created_only})", MU::DEBUG, details: @kittens.keys.map { |k| k.to_s+": "+@kittens[k].keys.join(", ") }
         @kittens[type].each { |sib_class, data|
           next if !name.nil? and name != sib_class
           if has_multiples

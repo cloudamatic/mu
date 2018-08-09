@@ -421,6 +421,14 @@ module MU
           end
 
           begin
+            MU::Cloud::AWS.iam.get_role(role_name: rolename)
+          rescue Aws::IAM::Errors::NoSuchEntity => e
+            MU.log e.inspect, MU::WARN
+            sleep 10
+            retry
+          end
+
+          begin
             resp = MU::Cloud::AWS.iam.create_instance_profile(
               instance_profile_name: rolename
             )
@@ -428,6 +436,14 @@ module MU
             resp = MU::Cloud::AWS.iam.get_instance_profile(
               instance_profile_name: rolename
             )
+          end
+
+          begin
+            MU::Cloud::AWS.iam.get_instance_profile(instance_profile_name: rolename)
+          rescue Aws::IAM::Errors::NoSuchEntity => e
+            MU.log e.inspect, MU::WARN
+            sleep 10
+            retry
           end
 
           begin
