@@ -88,6 +88,7 @@ module MU
           @config["subnet_group_name"] = @mu_name
           MU.log "Using the database identifier #{@config['identifier']}"
 
+
           if @config["create_cluster"]
             getPassword
             createSubnetGroup
@@ -411,6 +412,7 @@ module MU
             database.vpc_security_groups.each { |vpc_sg|
               vpc_sg_ids << vpc_sg.vpc_security_group_id
             }
+
             localdeploy_rule =  @deploy.findLitterMate(type: "firewall_rule", name: "database"+@config['name'])
             if localdeploy_rule.nil?
               raise MU::MuError, "Database #{@config['name']} failed to find its generic security group 'database#{@config['name']}'"
@@ -420,6 +422,7 @@ module MU
             mod_config = Hash.new
             mod_config[:vpc_security_group_ids] = vpc_sg_ids
             mod_config[:db_instance_identifier] = @config["identifier"]
+
             MU::Cloud::AWS.rds(@config['region']).modify_db_instance(mod_config)
             MU.log "Modified database #{@config['identifier']} with new security groups: #{mod_config}", MU::NOTICE
           end
@@ -582,7 +585,7 @@ module MU
         def createSubnetGroup
           # Finding subnets, creating security groups/adding holes, create subnet group
           subnet_ids = []
-
+          vpc_id = nil
           if @config['vpc'] and !@config['vpc'].empty?
             raise MuError, "Didn't find the VPC specified in #{@config["vpc"]}" unless @vpc
 
@@ -640,6 +643,17 @@ module MU
               @config["publicly_accessible"] = true
               using_default_vpc = true
               MU.log "Using default VPC for cache cluster #{@config['identifier']}"
+            end
+          end
+
+          if @config['creation_style'] == "existing"
+            srcdb = MU::Cloud::AWS.rds(@config['region']).describe_db_instances(
+              db_instance_identifier: @config['identifier']
+            )
+            srcdb_vpc = srcdb.db_instances.first.db_subnet_group.vpc_id
+            if srcdb_vpc != vpc_id
+              MU.log "#{self} is deploying into #{vpc_id}, but our source database, #{@config['identifier']}, is in #{srcdb_vpc}", MU::ERR
+              raise MuError, "Can't use 'existing' to deploy into a different VPC from the source database; try 'new_snapshot' instead"
             end
           end
 
@@ -1440,14 +1454,16 @@ module MU
             end
           end
 
-          db['ingress_rules'] ||= []
-          fwname = "database"+db['name']
-          acl = {"name" => fwname, "rules" => db['ingress_rules'], "region" => db['region'], "optional_tags" => db['optional_tags'] }
-          acl["tags"] = db['tags'] if db['tags'] && !db['tags'].empty?
-          acl["vpc"] = db['vpc'].dup if db['vpc']
-          ok = false if !configurator.insertKitten(acl, "firewall_rules")
-          db["add_firewall_rules"] = [] if db["add_firewall_rules"].nil?
-          db["add_firewall_rules"] << {"rule_name" => fwname}
+          if db["creation_style"] == "existing"
+            begin
+              MU::Cloud::AWS.rds(db['region']).describe_db_instances(
+                db_instance_identifier: db['identifier']
+              )
+            rescue Aws::RDS::Errors::DBInstanceNotFound => e
+              MU.log "Source database #{db['identifier']} was specified for #{db['name']}, but no such database exists in #{db['region']}", MU::ERR
+              ok = false
+            end
+          end
 
           if !db['password'].nil? and (db['password'].length < 8 or db['password'].match(/[\/\\@\s]/))
             MU.log "Database password '#{db['password']}' doesn't meet RDS requirements. Must be > 8 chars and have only ASCII characters other than /, @, \", or [space].", MU::ERR
@@ -1506,7 +1522,6 @@ module MU
           end
 
           if db["vpc"]
-            puts db['vpc']["subnet_pref"]
             if db["vpc"]["subnet_pref"] == "all_public" and !db['publicly_accessible']
               MU.log "Setting publicly_accessible to true on database '#{db['name']}', since deploying into public subnets.", MU::WARN
               db['publicly_accessible'] = true

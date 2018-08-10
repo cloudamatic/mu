@@ -23,7 +23,7 @@ module MU
         {
         "type" => "object",
         "description" => "Create a dedicated database server.",
-        "required" => ["name", "engine", "size", "cloud"],
+        "required" => ["name", "engine", "size", "cloud", "storage"],
         "additionalProperties" => false,
         "properties" => {
             "groomer" => {
