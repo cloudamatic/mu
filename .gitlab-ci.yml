@@ -72,6 +72,14 @@ BrakeMan:
   script:
     - echo "BrakeMan!"
 
+Parser Test:
+  stage: Smoke Test
+  script:
+    - mu-deploy -d modules/tests/super_simple_bok.yml
+    - mu-deploy -d modules/tests/super_complex_bok.yml
+  tags: 
+    - mu-master
+
 Smoke Test:
   stage: Smoke Test
   script:
