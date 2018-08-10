@@ -34,7 +34,3 @@ search_domains:
 databases:
 -
   <%= include("../mu/config/database.yml") %>
-  
-# msg_queues:
-# -
-#   <%= include("./msg_queues/msg_queues.yml") %>

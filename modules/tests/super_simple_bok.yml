@@ -20,21 +20,17 @@ parameters:
 
 vpcs:
 -
-  <%= include("./vpcs/vpcs.yml") %>
+  <%= include("../mu/config/vpc.yml") %>
 logs:
 -
- <%= include("./logs/logs.yml") %> 
+ <%= include("../mu/config/log.yml") %> 
 servers:
 -
-  <%= include("./servers/servers.yml") %>
+  <%= include("../mu/config/server.yml") %>
 search_domains:
 -
-  <%= include("./search_domains/search_domains.yml") %>
+  <%= include("../mu/config/search_domain.yml") %>
 
 databases:
 -
-  <%= include("./databases/databases.yml") %>
-  
-# msg_queues:
-# -
-#   <%= include("./msg_queues/msg_queues.yml") %>
+  <%= include("../mu/config/database.yml") %>
