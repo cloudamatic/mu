@@ -550,6 +550,7 @@ module MU
 #            poolacl["tags"] = cluster['tags'] if cluster['tags'] && !cluster['tags'].empty?
             if cluster["vpc"]
               worker_pool["vpc"] = cluster["vpc"]
+              worker_pool["vpc"]["subnet_pref"] = cluster["instance_subnet_pref"]
 #              poolacl["vpc"] = cluster['vpc'].dup
             end
 #            ok = false if !configurator.insertKitten(poolacl, "firewall_rules")

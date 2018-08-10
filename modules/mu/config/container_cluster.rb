@@ -68,6 +68,11 @@ module MU
             "instance_type" => {
               "type" => "string",
               "description" => "Type of container host instances to use. Equivalent to 'size' parameter in Server or ServerPool"
+            },
+            "instance_subnet_pref" => {
+              "type" => "string",
+              "default" => "all_private",
+              "description" => "Worker nodes inherit the main cluster VPC configuration by default. This parameter allows targeting the worker node-cluster to a different class of subnets"
             }
           }
         }
