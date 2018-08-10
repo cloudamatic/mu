@@ -587,7 +587,7 @@ module MU
                       found_sgs = MU::MommaCat.findStray("AWS", "firewall_rule", name: sg_name, region: @config['region'], deploy_id: MU.deploy_id, calling_deploy: @deploy)
                     end
                     if found_sgs.nil? or found_sgs.size == 0
-                      raise MuError, "Attempted to reference non-existing Security Group #{sg_name} while building #{@mu_name}"
+                      raise MuError, "Attempted to reference non-existent Security Group #{sg_name} while building #{@mu_name}"
                     end
                     sg = found_sgs.first
                   end

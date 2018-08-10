@@ -1361,6 +1361,7 @@ module MU
 
     # Tag a resource. Defaults to applying our MU deployment identifier, if no
     # arguments other than the resource identifier are given.
+    # XXX this belongs in the cloud layer(s)
     #
     # @param resource [String]: The cloud provider identifier of the resource to tag
     # @param tag_name [String]: The name of the tag to create

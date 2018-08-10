@@ -28,7 +28,7 @@ module MU
           "properties" => {
             "name" => { "type" => "string" },
             "region" => MU::Config.region_primitive,
-            "vpc" => MU::Config::VPC.reference(MU::Config::VPC::ONE_SUBNET + MU::Config::VPC::MANY_SUBNETS, MU::Config::VPC::NO_NAT_OPTS, "all_private"),
+            "vpc" => MU::Config::VPC.reference(MU::Config::VPC::ONE_SUBNET + MU::Config::VPC::MANY_SUBNETS, MU::Config::VPC::NO_NAT_OPTS, "all"),
             "tags" => MU::Config.tags_primitive,
             "optional_tags" => {
               "type" => "boolean",

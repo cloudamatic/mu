@@ -94,6 +94,7 @@ module MU
               raise MuError, "Couldn't find a live subnet matching #{subnet} in #{@vpc} (#{@vpc.subnets})" if subnet_obj.nil?
               subnet_ids << subnet_obj.cloud_id
             }
+
             role_arn = MU::Cloud::AWS::ContainerCluster.createControlPlaneIAMRole(@mu_name)
             MU::Cloud::AWS::Server.createIAMProfile(@mu_name+"-WORKERS", canned_policies: ["AmazonEKSWorkerNodePolicy", "AmazonEKS_CNI_Policy", "AmazonEC2ContainerRegistryReadOnly"])
 #            @config['k8s_admin_role'] = MU::Cloud::AWS::ContainerCluster.createK8SAdminRole(@mu_name+"-K8SADMIN")
@@ -162,6 +163,7 @@ module MU
                 raise e
               end
             end while status != "ACTIVE"
+
             MU.log "Creation of EKS cluster #{@mu_name} complete"
           else
             MU::Cloud::AWS.ecs(@config['region']).create_cluster(
@@ -179,6 +181,22 @@ module MU
           if @config['kubernetes']
             kube = ERB.new(File.read(MU.myRoot+"/cookbooks/mu-tools/templates/default/kubeconfig.erb"))
             configmap = ERB.new(File.read(MU.myRoot+"/extras/aws-auth-cm.yaml.erb"))
+            tagme = [@vpc.cloud_id]
+            tagme_elb = []
+            @vpc.subnets.each { |s|
+              tagme << s.cloud_id
+              tagme_elb << s.cloud_id if !s.private?
+            }
+            rtbs = MU::Cloud::AWS.ec2(@config['region']).describe_route_tables(
+              filters: [ { name: "vpc-id", values: [@vpc.cloud_id] } ]
+            ).route_tables
+            tagme.concat(rtbs.map { |r| r.route_table_id } )
+            main_sg = @deploy.findLitterMate(type: "firewall_rules", name: "server_pool#{@config['name']}-workers")
+            tagme << main_sg.cloud_id
+            MU.log "Applying kubernetes.io tags to VPC resources", details: tagme
+            MU::Cloud::AWS.createTag("kubernetes.io/cluster/#{@mu_name}", "shared", tagme)
+            MU::Cloud::AWS.createTag("kubernetes.io/cluster/elb", @mu_name, tagme_elb)
+
             me = cloud_desc
             @endpoint = me.endpoint
             @cacert = me.certificate_authority.data
@@ -367,11 +385,37 @@ module MU
             }
           end
           return if !MU::Cloud::AWS::ContainerCluster.EKSRegions.include?(region)
+
+
           resp = MU::Cloud::AWS.eks(region).list_clusters
 
           if resp and resp.clusters
             resp.clusters.each { |cluster|
               if cluster.match(/^#{MU.deploy_id}-/)
+
+                desc = MU::Cloud::AWS.eks(region).describe_cluster(
+                  name: cluster
+                ).cluster
+
+                untag = []
+                untag << desc.resources_vpc_config.vpc_id
+                subnets = MU::Cloud::AWS.ec2(region).describe_subnets(
+                  filters: [ { name: "vpc-id", values: [desc.resources_vpc_config.vpc_id] } ]
+                ).subnets
+
+                # subnets
+                untag.concat(subnets.map { |s| s.subnet_id } )
+                rtbs = MU::Cloud::AWS.ec2(region).describe_route_tables(
+                  filters: [ { name: "vpc-id", values: [desc.resources_vpc_config.vpc_id] } ]
+                ).route_tables
+                untag.concat(rtbs.map { |r| r.route_table_id } )
+                untag.concat(desc.resources_vpc_config.subnet_ids)
+                untag.concat(desc.resources_vpc_config.security_group_ids)
+                MU.log "Removing Kubernetes tags from VPC resources for #{cluster}", details: untag
+                if !noop
+                  MU::Cloud::AWS.removeTag("kubernetes.io/cluster/#{cluster}", "shared", untag)
+                  MU::Cloud::AWS.removeTag("kubernetes.io/cluster/elb", cluster, untag)
+                end
                 MU.log "Deleting EKS Cluster #{cluster}"
                 if !noop
                   MU::Cloud::AWS.eks(region).delete_cluster(
@@ -394,6 +438,7 @@ module MU
                   rescue Aws::EKS::Errors::ResourceNotFoundException
                     # this is what we want
                   end
+                  MU::Cloud::AWS::Server.removeIAMProfile(cluster)
                 end
               end
             }
@@ -484,10 +529,15 @@ module MU
 
             worker_pool = {
               "name" => cluster["name"]+"-workers",
+              "region" => cluster['region'],
               "min_size" => cluster["instance_count"],
               "max_size" => cluster["instance_count"],
               "wait_for_nodes" => cluster["instance_count"],
               "ssh_user" => cluster["host_ssh_user"],
+#              "ingress_rules" => [
+#                "sgs" => ["container_cluster#{cluster['name']}"],
+#                "port" => -1
+#              ],
               "basis" => {
                 "launch_config" => {
                   "name" => cluster["name"]+"-workers",
@@ -495,9 +545,14 @@ module MU
                 }
               }
             }
+#            poolfwname = "server_pool#{cluster['name']}-workers"
+#            poolacl = {"name" => poolfwname, "rules" => worker_pool['ingress_rules'], "region" => cluster['region'], "optional_tags" => cluster['optional_tags'], "dependencies" => [ { "type" => "firewall_rule", "name" => "server_pool#{cluster['name']}-workers", "phase" => "groom" } ] }
+#            poolacl["tags"] = cluster['tags'] if cluster['tags'] && !cluster['tags'].empty?
             if cluster["vpc"]
               worker_pool["vpc"] = cluster["vpc"]
+#              poolacl["vpc"] = cluster['vpc'].dup
             end
+#            ok = false if !configurator.insertKitten(poolacl, "firewall_rules")
             if cluster["host_image"]
               worker_pool["basis"]["launch_config"]["image_id"] = cluster["host_image"]
             end
