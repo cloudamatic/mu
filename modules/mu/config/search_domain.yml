@@ -1,0 +1,25 @@
+<% if $complexity == "complex" %>
+
+name: search_domain-complex
+instance_type: t2.small.elasticsearch
+instance_count: 4
+dedicated_masters: 1
+master_instance_type: t2.medium.elasticsearch
+zone_aware: true
+ebs_iops: 100
+ebs_type: gp2
+elasticsearch_version: "6.2"
+advanced_options:
+  "indices.query.bool.max_clause_count": 512
+#cognito:
+#  identity_pool_id: "us-east-1:69e2223c-2c74-42ca-9b27-1037fcb60b87"
+#  user_pool_id: "us-east-1_eSwWA1VYQ"
+slow_logs: <%= logs_name %>
+vpc:
+  vpc_name: <%= vpc_name %>
+
+<% else %> # IF NOT COMPLEX THEN ASSUME SIMPLE
+
+name: search_domain-simple
+instance_type: t2.small.elasticsearch
+<% end %>

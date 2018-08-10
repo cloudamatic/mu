@@ -1,0 +1,6 @@
+<% if $complexity == 'complex' %>
+name: <%= vpc_name %>
+# TODO: BUILD OUT COMPLEX EXAMPLE
+<% else %>
+name: <%= vpc_name %>
+<% end %>
