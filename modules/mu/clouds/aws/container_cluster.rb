@@ -551,6 +551,7 @@ module MU
             if cluster["vpc"]
               worker_pool["vpc"] = cluster["vpc"]
               worker_pool["vpc"]["subnet_pref"] = cluster["instance_subnet_pref"]
+              worker_pool["vpc"].delete("subnets")
 #              poolacl["vpc"] = cluster['vpc'].dup
             end
 #            ok = false if !configurator.insertKitten(poolacl, "firewall_rules")
