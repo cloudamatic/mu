@@ -131,4 +131,15 @@ EOH
     end
   }
 
+  master_ips = get_mu_master_ips
+  opento = master_ips.map { |x| "#{x}/32"}
+
+  opento.uniq.each { |src|
+    [:tcp, :udp, :icmp].each { |proto|
+      execute "iptables -I INPUT -p #{proto.to_s} -s #{src}" do
+        not_if "iptables -L -n | tr -s ' ' | grep -- '#{proto.to_s} -- #{src.sub(/\/32$/, "")}' > /dev/null"
+      end
+    }
+  }
+
 end
