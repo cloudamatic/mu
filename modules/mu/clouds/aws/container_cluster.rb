@@ -25,7 +25,9 @@ module MU
 
         @cloudformation_data = {}
         attr_reader :cloudformation_data
+        # Return the list of regions where we know EKS is supported.
         def self.EKSRegions
+          # XXX would prefer to query service API for this
           ["us-east-1", "us-west-2"]
         end
 
@@ -294,6 +296,8 @@ module MU
 # launch_type: "EC2" only option in GovCloud
         end
 
+        # Return the cloud layer descriptor for this EKS/ECS/Fargate cluster
+        # @return [OpenStruct]
         def cloud_desc
           if @config['flavor'] == "EKS"
             resp = MU::Cloud::AWS.eks(@config['region']).describe_cluster(

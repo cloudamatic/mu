@@ -292,12 +292,16 @@ module MU
 
         end
 
+        # Retrieve the AWS descriptor for this Autoscale group
+        # @return [OpenStruct]
         def cloud_desc
           MU::Cloud::AWS.autoscale(@config['region']).describe_auto_scaling_groups(
             auto_scaling_group_names: [@mu_name]
           ).auto_scaling_groups.first
         end
 
+        # Retrieve deployment metadata for this Autoscale group
+        # @return [Hash]
         def notify
           return MU.structToHash(cloud_desc)
         end
@@ -609,6 +613,8 @@ module MU
           }
           return nil
         end
+
+        private
 
         def createUpdateLaunchConfig
           return if !@config['basis'] or !@config['basis']["launch_config"]
