@@ -496,7 +496,7 @@ MESSAGE_END
         @dependency_threads["#{name}_create"]=["mu_create_container"]
         @dependency_threads["#{name}_groom"]=["#{name}_create", "mu_groom_container"]
 
-        MU.log "Setting dependencies for #{name}", MU::DEBUG
+        MU.log "Setting dependencies for #{name}", MU::DEBUG, details: resource["dependencies"]
         if resource["dependencies"] != nil then
           resource["dependencies"].each { |dependency|
             parent_class = nil
@@ -508,11 +508,21 @@ MESSAGE_END
             }
 
             parent_type = parent_class.cfg_name
+
+            # our groom thread will always need to wait on our parent's create
             parent = parent_type+"_"+dependency["name"]+"_create"
             addDependentThread(parent, "#{name}_groom")
-            if (parent_class.deps_wait_on_my_creation and parent_type != res_type) or resource["#MU_CLOUDCLASS"].waits_on_parent_completion or dependency['phase'] == "create"
+
+            # should our creation thread also wait on our parent's create?
+            if !resource["no_create_wait"] and
+               (resource["#MU_CLOUDCLASS"].waits_on_parent_completion or
+               dependency['phase'] == "create" or
+               (parent_class.deps_wait_on_my_creation and parent_type != res_type))
               addDependentThread(parent, "#{name}_create")
             end
+
+
+            # how about our groom thread waiting on our parents' grooms?
             if (dependency['phase'] == "groom" or resource["#MU_CLOUDCLASS"].waits_on_parent_completion) and parent_class.instance_methods(false).include?(:groom)
               parent = parent_type+"_"+dependency["name"]+"_groom"
               addDependentThread(parent, "#{name}_groom")

@@ -212,10 +212,18 @@ module MU
             File.open(eks_auth, "w"){ |k|
               k.puts configmap.result(binding)
             }
+
             authmap_cmd = %Q{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" apply -f "#{eks_auth}"}
             MU.log "Configuring Kubernetes <=> IAM mapping for worker nodes", details: authmap_cmd
+# maybe guard this mess
             %x{#{authmap_cmd}}
-# maybe guard this
+
+# and this one
+            admin_user_cmd = %Q{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" apply -f "#{MU.myRoot}/extras/admin-user.yaml"}
+            admin_role_cmd = %Q{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" apply -f "#{MU.myRoot}/extras/admin-role-binding.yaml"}
+            MU.log "Configuring Kubernetes admin-user and role", details: admin_user_cmd+"\n"+admin_role_cmd
+            %x{#{admin_user_cmd}}
+            %x{#{admin_role_cmd}}
           else
             resp = MU::Cloud::AWS.ecs(@config['region']).list_container_instances({
               cluster: @mu_name
@@ -534,10 +542,10 @@ module MU
               "max_size" => cluster["instance_count"],
               "wait_for_nodes" => cluster["instance_count"],
               "ssh_user" => cluster["host_ssh_user"],
-#              "ingress_rules" => [
-#                "sgs" => ["container_cluster#{cluster['name']}"],
-#                "port" => -1
-#              ],
+              "ingress_rules" => [
+                "sgs" => ["container_cluster#{cluster['name']}"],
+                "port_range" => "0-65535"
+              ],
               "basis" => {
                 "launch_config" => {
                   "name" => cluster["name"]+"-workers",
@@ -545,16 +553,15 @@ module MU
                 }
               }
             }
-#            poolfwname = "server_pool#{cluster['name']}-workers"
-#            poolacl = {"name" => poolfwname, "rules" => worker_pool['ingress_rules'], "region" => cluster['region'], "optional_tags" => cluster['optional_tags'], "dependencies" => [ { "type" => "firewall_rule", "name" => "server_pool#{cluster['name']}-workers", "phase" => "groom" } ] }
-#            poolacl["tags"] = cluster['tags'] if cluster['tags'] && !cluster['tags'].empty?
+            poolfwname = "server_pool#{cluster['name']}-workers"
+            poolacl = {"name" => poolfwname, "rules" => worker_pool['ingress_rules'], "region" => cluster['region'], "optional_tags" => cluster['optional_tags'], "dependencies" => [ { "type" => "firewall_rule", "name" => "container_cluster#{cluster['name']}", "no_create_wait" => true } ] }
+            poolacl["tags"] = cluster['tags'] if cluster['tags'] && !cluster['tags'].empty?
             if cluster["vpc"]
-              worker_pool["vpc"] = cluster["vpc"]
+              worker_pool["vpc"] = cluster["vpc"].dup
               worker_pool["vpc"]["subnet_pref"] = cluster["instance_subnet_pref"]
               worker_pool["vpc"].delete("subnets")
-#              poolacl["vpc"] = cluster['vpc'].dup
             end
-#            ok = false if !configurator.insertKitten(poolacl, "firewall_rules")
+            ok = false if !configurator.insertKitten(poolacl, "firewall_rules", true)
             if cluster["host_image"]
               worker_pool["basis"]["launch_config"]["image_id"] = cluster["host_image"]
             end
@@ -587,10 +594,10 @@ module MU
                 "port" => 443
               ]
               fwname = "container_cluster#{cluster['name']}"
-              acl = {"name" => fwname, "rules" => cluster['ingress_rules'], "region" => cluster['region'], "optional_tags" => cluster['optional_tags']}
+              acl = {"name" => fwname, "rules" => cluster['ingress_rules'], "region" => cluster['region'], "optional_tags" => cluster['optional_tags'], "dependencies" => [ { "type" => "firewall_rule", "name" => "server_pool#{cluster['name']}-workers", "no_create_wait" => true } ]}
               acl["tags"] = cluster['tags'] if cluster['tags'] && !cluster['tags'].empty?
               acl["vpc"] = cluster['vpc'].dup if cluster['vpc']
-              ok = false if !configurator.insertKitten(acl, "firewall_rules")
+              ok = false if !configurator.insertKitten(acl, "firewall_rules", true)
               cluster["add_firewall_rules"] = [] if cluster["add_firewall_rules"].nil?
               cluster["add_firewall_rules"] << {"rule_name" => fwname}
               cluster["dependencies"] << {
