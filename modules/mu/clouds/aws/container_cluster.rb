@@ -503,10 +503,7 @@ module MU
           ok = false if cluster['size'].nil?
 
 
-          if cluster["flavor"] == "EKS" and !cluster["kubernetes"]
-            MU.log "ContainerCluster '#{cluster['name']}' must specify 'kubernetes' stanza for EKS flavor", MU::ERR
-            ok = false
-          elsif cluster["flavor"] == "ECS" and cluster["kubernetes"] and !MU::Cloud::AWS.isGovCloud?(cluster["region"])
+          if cluster["flavor"] == "ECS" and cluster["kubernetes"] and !MU::Cloud::AWS.isGovCloud?(cluster["region"])
             cluster["flavor"] = "EKS"
             MU.log "Setting flavor of ContainerCluster '#{cluster['name']}' to EKS ('kubernetes' stanza was specified)", MU::NOTICE
           end
@@ -548,7 +545,7 @@ module MU
               "ssh_user" => cluster["host_ssh_user"],
               "ingress_rules" => [
                 "sgs" => ["container_cluster#{cluster['name']}"],
-                "port_range" => "0-65535"
+                "port_range" => "0-65536"
               ],
               "basis" => {
                 "launch_config" => {
@@ -565,7 +562,9 @@ module MU
               worker_pool["vpc"]["subnet_pref"] = cluster["instance_subnet_pref"]
               worker_pool["vpc"].delete("subnets")
             end
-            ok = false if !configurator.insertKitten(poolacl, "firewall_rules", true)
+            if cluster["flavor"] == "EKS"
+              ok = false if !configurator.insertKitten(poolacl, "firewall_rules", true)
+            end
             if cluster["host_image"]
               worker_pool["basis"]["launch_config"]["image_id"] = cluster["host_image"]
             end

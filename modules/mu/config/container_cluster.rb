@@ -40,7 +40,7 @@ module MU
             },
             "kubernetes" => {
               "type" => "object",
-              "description" => "Deploy to a managed Kubernetes service, such as EKS or GKE",
+              "description" => "Options for Kubernetes, specific to EKS or GKE",
               "properties" => {
                 "version" => {
                   "type" => "string",
