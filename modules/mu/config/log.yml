@@ -1,0 +1,6 @@
+<% if $complexity == 'complex' %>
+name: <%= logs_name %>
+# TODO: BUILD OUT COMPLEX EXAMPLE
+<% else %>
+name: <%= logs_name %>
+<% end %>
