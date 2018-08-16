@@ -233,6 +233,12 @@ module MU
 
   setLogging(MU::Logger::NORMAL, false)
 
+  # Shortcut to get SUMMARY messages from the global MU::Logger instance
+  # @return [Array<String>]
+  def self.summary
+    @@logger.summary
+  end
+
   # Shortcut to invoke {MU::Logger#log}
   def self.log(msg, level = MU::INFO, details: nil, html: html = false, verbosity: MU.verbosity)
     return if (level == MU::DEBUG and verbosity <= MU::Logger::LOUD)
@@ -277,6 +283,9 @@ module MU
   ERR = 4.freeze
   # Log entries for fatal errors
   ERROR = 4.freeze
+  # Log entries that will be held and displayed/emailed at the end of deploy,
+  # cleanup, etc.
+  SUMMARY = 5.freeze
 
   autoload :Cleanup, 'mu/cleanup'
   autoload :Deploy, 'mu/deploy'

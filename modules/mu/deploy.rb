@@ -391,13 +391,27 @@ module MU
         MU.log "Deployment #{MU.deploy_id} \"#{MU.handle}\" complete", details: deployment, verbosity: @verbosity
       end
 
+      if MU.summary.size > 0
+        summary.each { |msg|
+          puts msg
+        }
+      end
+
     end
 
     private
 
     def sendMail()
 
-      $str = JSON.pretty_generate(@mommacat.deployment)
+      $str = ""
+
+      if MU.summary.size > 0
+        summary.each { |msg|
+          $str += msg+"\n"
+        }
+      end
+
+      $str += JSON.pretty_generate(@mommacat.deployment)
 
       admin_addrs = @admins.map { |admin|
         admin['name']+" <"+admin['email']+">"

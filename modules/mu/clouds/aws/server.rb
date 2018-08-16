@@ -1363,6 +1363,7 @@ module MU
               lb.registerNode(@cloud_id)
             }
           end
+          MU.log "Server #{@config['name']} private IP is #{@deploydata["private_ip_address}#{@deploydata["public_ip_address"] ? ", public IP is "+@deploydata["public_ip_address"] : ""} ", MU::SUMMARY
 
           # Let us into any databases we depend on.
           # This is probelmtic with autscaling - old ips are not removed, and access to the database can easily be given at the BoK level

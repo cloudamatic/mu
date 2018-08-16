@@ -47,6 +47,8 @@ module MU
       @handle = handle
     end
 
+    attr_reader :summary
+
     # @param msg [String]: A short message to log
     # @param level [Integer]: The level at which to log (DEBUG, INFO, NOTICE, WARN, ERR)
     # @param details [String,Hash,Array]: Extra information for verbose logging modes.
@@ -61,6 +63,7 @@ module MU
     )
       verbosity = MU::Logger::NORMAL if verbosity.nil?
       return if verbosity == MU::Logger::SILENT
+      @summary = []
 
       # By which we mean, "get the filename (with the .rb stripped off) which
       # originated the call to this method. Which, for our purposes, is the
@@ -97,6 +100,8 @@ module MU
 
       @@log_semaphere.synchronize {
         case level
+          when SUMMARY
+            @summary << msg
           when DEBUG
             if verbosity >= MU::Logger::LOUD
               if @html
