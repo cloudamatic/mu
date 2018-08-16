@@ -1,0 +1,14 @@
+<% if $complexity == "complex" %>
+name: k8s
+flavor: EKS
+instance_type: t2.medium
+instance_count: 4
+kubernetes:
+  max_pods: 10
+instance_subnet_pref: all_public
+platform: centos
+<% else %>
+name: ecs
+flavor: ECS
+instance_type: t2.medium
+<% end %>

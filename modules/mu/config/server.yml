@@ -1,0 +1,8 @@
+<% if $complexity == 'complex' %>
+name: server-complex
+size: <%= instance_type %>
+# TODO: BUILD OUT COMPLEX EXAMPLE
+<% else %>
+name: server-simple
+size: <%= instance_type %>
+<% end %>
