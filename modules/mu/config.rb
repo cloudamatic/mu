@@ -756,6 +756,10 @@ module MU
       }
       ok = true
 
+      if descriptor["cloud"]
+        descriptor["cloud"].capitalize!
+      end
+
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
       descriptor["#MU_CLOUDCLASS"] = classname
       inheritDefaults(descriptor, cfg_plural)
@@ -768,7 +772,7 @@ module MU
 
       # Make sure a sensible region has been targeted, if applicable
       if descriptor["region"]
-        classobj = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"])
+        classobj = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"].capitalize)
         valid_regions = classobj.listRegions
         if !valid_regions.include?(descriptor["region"])
           MU.log "Known regions for cloud '#{descriptor['cloud']}' do not include '#{descriptor["region"]}'", MU::ERR, details: valid_regions
@@ -1439,8 +1443,9 @@ module MU
     # @param type [String]: The type of resource this is ("servers" etc)
     def inheritDefaults(kitten, type)
       kitten['cloud'] ||= MU::Config.defaultCloud
+
       schema_fields = ["region", "us_only", "scrub_mu_isms"]
-      if kitten['cloud'] == "Google"
+      if kitten['cloud'].capitalize == "Google"
         kitten["project"] ||= MU::Cloud::Google.defaultProject
         schema_fields << "project"
         if kitten['region'].nil? and !kitten['#MU_CLOUDCLASS'].nil? and
@@ -1456,6 +1461,7 @@ module MU
         end
         kitten['region'] ||= $MU_CFG['aws']['region']
       end
+
       kitten['us_only'] ||= @config['us_only']
       kitten['us_only'] ||= false
 
