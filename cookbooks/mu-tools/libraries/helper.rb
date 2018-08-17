@@ -156,6 +156,17 @@ module Mutools
       return siblings
     end
 
+    def get_first_nameserver
+      if File.exists?("/etc/resolv.conf")
+        File.readlines("/etc/resolv.conf").each { |l|
+          l.chomp!
+          if l.match(/^nameserver (\d+\.\d+\.\d+\.\d+)$/)
+            return Regexp.last_match(1)
+          end
+        }
+      end
+    end
+
     def get_deploy_secret
       uri = URI("https://#{get_mu_master_ips.first}:2260/rest/bucketname")
       http = Net::HTTP.new(uri.hostname, uri.port)

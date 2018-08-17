@@ -18,7 +18,6 @@
 # Client-side behavior for interfacing with Amazon Elastic File System
 
 if node['deployment'].has_key?('container_clusters')
-  pp node['deployment']['container_clusters']
   cluster_short_name = node['service_name'].sub(/-workers$/, "")
   region = node['deployment']['container_clusters'][cluster_short_name]['region']
   cluster = node['deployment']['container_clusters'][cluster_short_name]['name']
@@ -84,27 +83,32 @@ EOH
   file "/etc/kubernetes/pki/ca.crt" do
     content Base64.decode64(ca)
   end
-  bash "install EKS node client" do
-    code <<EOH
-      CA_CERTIFICATE_DIRECTORY=/etc/kubernetes/pki
-      CA_CERTIFICATE_FILE_PATH=$CA_CERTIFICATE_DIRECTORY/ca.crt
-      MODEL_DIRECTORY_PATH=~/.aws/eks
-      MODEL_FILE_PATH=$MODEL_DIRECTORY_PATH/eks-2017-11-01.normal.json
-      mkdir -p $CA_CERTIFICATE_DIRECTORY
-      mkdir -p $MODEL_DIRECTORY_PATH
-      curl -o $MODEL_FILE_PATH https://s3-us-west-2.amazonaws.com/amazon-eks/1.10.3/2018-06-05/eks-2017-11-01.normal.json
-      aws configure add-model --service-model file://$MODEL_FILE_PATH --service-name eks
-      INTERNAL_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
-      sed -i s,REGION,"#{region}",g /etc/systemd/system/kubelet.service
-      sed -i s,MAX_PODS,"#{max_pods}",g /etc/systemd/system/kubelet.service
-      sed -i s,MASTER_ENDPOINT,$MASTER_ENDPOINT,g /etc/systemd/system/kubelet.service
-      sed -i s,INTERNAL_IP,$INTERNAL_IP,g /etc/systemd/system/kubelet.service
-      DNS_CLUSTER_IP=10.100.0.10
-      if [[ $INTERNAL_IP == 10.* ]] ; then DNS_CLUSTER_IP=172.20.0.10; fi
-      sed -i s,DNS_CLUSTER_IP,$DNS_CLUSTER_IP,g  /etc/systemd/system/kubelet.service
-      sed -i s,CLIENT_CA_FILE,$CA_CERTIFICATE_FILE_PATH,g  /etc/systemd/system/kubelet.service
-      systemctl daemon-reload
-EOH
+
+  directory "/root/.aws/eks" do
+    recursive true
+    action :create
+  end
+
+  remote_file "/root/.aws/eks/eks-2017-11-01.normal.json" do
+    source "https://s3-us-west-2.amazonaws.com/amazon-eks/1.10.3/2018-06-05/eks-2017-11-01.normal.json"
+  end
+
+  execute "aws configure add-model --service-model file://root/.aws/eks/eks-2017-11-01.normal.json --service-name eks"
+
+  execute "systemctl daemon-reload" do
+    action :nothing
+  end
+
+  template "/etc/systemd/system/kubelet.service" do
+    source "kubelet.service.erb"
+    mode 0644
+#    :pod_infra_container? :region?
+#    --pod-infra-container-image=602401143452.dkr.ecr.us-east-1.amazonaws.com/eks/pause-amd64:3.1
+    variables(
+      :dns => get_first_nameserver(),
+      :node_ip => get_aws_metadata("meta-data/local-ipv4")
+    )
+    notifies :run, "execute[systemctl daemon-reload]", :immediately
     notifies :restart, "service[kubelet]", :delayed
   end
 
