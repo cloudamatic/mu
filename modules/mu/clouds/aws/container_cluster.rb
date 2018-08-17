@@ -226,6 +226,28 @@ module MU
             MU.log "Configuring Kubernetes admin-user and role", details: admin_user_cmd+"\n"+admin_role_cmd
             %x{#{admin_user_cmd}}
             %x{#{admin_role_cmd}}
+
+            if @config['kubernetes_resources']
+              count = 0
+              @config['kubernetes_resources'].each { |blob|
+                blobfile = @deploy.deploy_dir+"/k8s-resource-#{count.to_s}-#{@config['name']}"
+                File.open(blobfile, "w") { |f|
+                  f.puts blob.to_yaml
+                }
+                %x{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" get -f #{blobfile} > /dev/null 2>&1}
+                arg = $?.exitstatus == 0 ? "replace" : "create"
+                cmd = %Q{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" #{arg} -f #{blobfile}}
+                MU.log "Applying Kubernetes resource #{count.to_s} with kubectl #{arg}", details: cmd
+                output = %x{#{cmd} 2>&1}
+                if $?.exitstatus == 0
+                  MU.log "Kuberentes resource #{count.to_s} #{arg} was successful: #{output}", details: blob.to_yaml
+                else
+                  MU.log "Kuberentes resource #{count.to_s} #{arg} failed: #{output}", MU::WARN, details: blob.to_yaml
+                end
+                count += 1
+              }
+            end
+
             MU.log %Q{How to interact with your Kubernetes cluster\nkubectl --kubeconfig "#{kube_conf}" get all\nkubectl --kubeconfig "#{kube_conf}" create -f some_k8s_deploy.yml}, MU::SUMMARY
           else
             resp = MU::Cloud::AWS.ecs(@config['region']).list_container_instances({
@@ -555,17 +577,12 @@ module MU
                 }
               }
             }
-#            poolfwname = "server_pool#{cluster['name']}-workers"
-#            poolacl = {"name" => poolfwname, "rules" => worker_pool['ingress_rules'], "region" => cluster['region'], "optional_tags" => cluster['optional_tags'], "dependencies" => [ { "type" => "firewall_rule", "name" => "container_cluster#{cluster['name']}", "no_create_wait" => true } ] }
-#            poolacl["tags"] = cluster['tags'] if cluster['tags'] && !cluster['tags'].empty?
             if cluster["vpc"]
-#              poolacl["vpc"] = cluster["vpc"].dup
               worker_pool["vpc"] = cluster["vpc"].dup
               worker_pool["vpc"]["subnet_pref"] = cluster["instance_subnet_pref"]
               worker_pool["vpc"].delete("subnets")
             end
             if cluster["flavor"] == "EKS"
-#              ok = false if !configurator.insertKitten(poolacl, "firewall_rules", true)
             end
             if cluster["host_image"]
               worker_pool["basis"]["launch_config"]["image_id"] = cluster["host_image"]

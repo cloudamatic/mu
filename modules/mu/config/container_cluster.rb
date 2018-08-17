@@ -54,6 +54,13 @@ module MU
                 }
               }
             },
+            "kubernetes_resources" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "description" => "Optional Kubernetes-specific resource descriptors to run with kubectl create|replace when grooming this cluster. See https://kubernetes.io/docs/concepts/overview/working-with-objects/kubernetes-objects/#understanding-kubernetes-objects"
+              }
+            },
             "flavor" => {
               "type" => "string",
               "description" => "Container clusters in Amazon can be ECS, EKS, or Fargate; Google supports GKE only"
