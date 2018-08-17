@@ -546,7 +546,7 @@ module MU
               "ssh_user" => cluster["host_ssh_user"],
               "ingress_rules" => [
                 "sgs" => ["container_cluster#{cluster['name']}"],
-                "port_range" => "0-65536"
+                "port_range" => "1-65535"
               ],
               "basis" => {
                 "launch_config" => {
@@ -555,16 +555,17 @@ module MU
                 }
               }
             }
-            poolfwname = "server_pool#{cluster['name']}-workers"
-            poolacl = {"name" => poolfwname, "rules" => worker_pool['ingress_rules'], "region" => cluster['region'], "optional_tags" => cluster['optional_tags'], "dependencies" => [ { "type" => "firewall_rule", "name" => "container_cluster#{cluster['name']}", "no_create_wait" => true } ] }
-            poolacl["tags"] = cluster['tags'] if cluster['tags'] && !cluster['tags'].empty?
+#            poolfwname = "server_pool#{cluster['name']}-workers"
+#            poolacl = {"name" => poolfwname, "rules" => worker_pool['ingress_rules'], "region" => cluster['region'], "optional_tags" => cluster['optional_tags'], "dependencies" => [ { "type" => "firewall_rule", "name" => "container_cluster#{cluster['name']}", "no_create_wait" => true } ] }
+#            poolacl["tags"] = cluster['tags'] if cluster['tags'] && !cluster['tags'].empty?
             if cluster["vpc"]
+#              poolacl["vpc"] = cluster["vpc"].dup
               worker_pool["vpc"] = cluster["vpc"].dup
               worker_pool["vpc"]["subnet_pref"] = cluster["instance_subnet_pref"]
               worker_pool["vpc"].delete("subnets")
             end
             if cluster["flavor"] == "EKS"
-              ok = false if !configurator.insertKitten(poolacl, "firewall_rules", true)
+#              ok = false if !configurator.insertKitten(poolacl, "firewall_rules", true)
             end
             if cluster["host_image"]
               worker_pool["basis"]["launch_config"]["image_id"] = cluster["host_image"]
@@ -593,10 +594,11 @@ module MU
                 "type" => "server_pool",
               }
             elsif cluster["flavor"] == "EKS"
-              cluster['ingress_rules'] = [
+              cluster['ingress_rules'] ||= []
+              cluster['ingress_rules'] << {
                 "sgs" => ["server_pool#{cluster['name']}-workers"],
                 "port" => 443
-              ]
+              }
               fwname = "container_cluster#{cluster['name']}"
               acl = {"name" => fwname, "rules" => cluster['ingress_rules'], "region" => cluster['region'], "optional_tags" => cluster['optional_tags'], "dependencies" => [ { "type" => "firewall_rule", "name" => "server_pool#{cluster['name']}-workers", "no_create_wait" => true } ]}
               acl["tags"] = cluster['tags'] if cluster['tags'] && !cluster['tags'].empty?

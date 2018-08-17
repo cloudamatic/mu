@@ -756,10 +756,6 @@ module MU
       }
       ok = true
 
-      if descriptor["cloud"]
-        descriptor["cloud"].capitalize!
-      end
-
       shortclass, cfg_name, cfg_plural, classname = MU::Cloud.getResourceNames(type)
       descriptor["#MU_CLOUDCLASS"] = classname
       inheritDefaults(descriptor, cfg_plural)
@@ -772,7 +768,7 @@ module MU
 
       # Make sure a sensible region has been targeted, if applicable
       if descriptor["region"]
-        classobj = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"].capitalize)
+        classobj = Object.const_get("MU").const_get("Cloud").const_get(descriptor["cloud"])
         valid_regions = classobj.listRegions
         if !valid_regions.include?(descriptor["region"])
           MU.log "Known regions for cloud '#{descriptor['cloud']}' do not include '#{descriptor["region"]}'", MU::ERR, details: valid_regions
@@ -836,6 +832,7 @@ module MU
 
       # Does it have generic ingress rules?
       fwname = cfg_name+descriptor['name']
+
       if !haveLitterMate?(fwname, "firewall_rules") and
          (descriptor['ingress_rules'] or
          ["server", "server_pool", "database"].include?(cfg_name))
@@ -856,7 +853,7 @@ module MU
                 descriptor["dependencies"] << {
                   "type" => "firewall_rule",
                   "name" => sg_ref,
-                  "phase" => "groom"
+                  "no_create_wait" => true
                 }
                 siblingfw = haveLitterMate?(sg_ref, "firewall_rules")
                 insertKitten(siblingw, "firewall_rules") if !siblingfw["#MU_VALIDATED"]
@@ -877,7 +874,7 @@ module MU
           end
         }
       end
-        
+
       # Does it want to know about Storage Pools?
       if !descriptor["storage_pools"].nil?
         descriptor["storage_pools"].each { |sp|
@@ -1445,7 +1442,7 @@ module MU
       kitten['cloud'] ||= MU::Config.defaultCloud
 
       schema_fields = ["region", "us_only", "scrub_mu_isms"]
-      if kitten['cloud'].capitalize == "Google"
+      if kitten['cloud'] == "Google"
         kitten["project"] ||= MU::Cloud::Google.defaultProject
         schema_fields << "project"
         if kitten['region'].nil? and !kitten['#MU_CLOUDCLASS'].nil? and

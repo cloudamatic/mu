@@ -61,6 +61,7 @@ module MU
           if !vpc_id.nil?
             sg_struct[:vpc_id] = vpc_id
           end
+
           begin
             secgroup = MU::Cloud::AWS.ec2(@config['region']).create_security_group(sg_struct)
             @cloud_id = secgroup.group_id
@@ -245,17 +246,15 @@ module MU
               ingress_to_revoke = Array.new
               egress_to_revoke = Array.new
               sg.ip_permissions.each { |hole|
-
-                hole_hash = MU.structToHash(hole)
-                if !hole_hash[:user_id_group_pairs].nil?
-                  hole[:user_id_group_pairs].each { |group_ref|
-                    group_ref.delete(:group_name) if group_ref.is_a?(Hash)
-                  }
-                end
                 ingress_to_revoke << MU.structToHash(hole)
                 ingress_to_revoke.each { |rule|
-                  if !rule[:user_id_group_pairs].nil? and rule[:user_id_group_pairs].size == 0
+                  if !rule[:user_id_group_pairs].nil? and rule[:user_id_group_pairs] .size == 0
                     rule.delete(:user_id_group_pairs)
+                  elsif !rule[:user_id_group_pairs].nil?
+                    rule[:user_id_group_pairs].each { |group_ref|
+                      group_ref = MU.structToHash(group_ref)
+                      group_ref.delete(:group_name) if group_ref[:group_id]
+                    }
                   end
 
                   if !rule[:ip_ranges].nil? and rule[:ip_ranges].size == 0
@@ -272,16 +271,15 @@ module MU
                 }
               }
               sg.ip_permissions_egress.each { |hole|
-                hole_hash = MU.structToHash(hole)
-                if !hole_hash[:user_id_group_pairs].nil? and hole_hash[:user_id_group_pairs].is_a?(Hash)
-                  hole[:user_id_group_pairs].each { |group_ref|
-                    group_ref.delete(:group_name)
-                  }
-                end
                 egress_to_revoke << MU.structToHash(hole)
                 egress_to_revoke.each { |rule|
                   if !rule[:user_id_group_pairs].nil? and rule[:user_id_group_pairs].size == 0
                     rule.delete(:user_id_group_pairs)
+                  elsif !rule[:user_id_group_pairs].nil?
+                    rule[:user_id_group_pairs].each { |group_ref|
+                      group_ref = MU.structToHash(group_ref)
+                      group_ref.delete(:group_name) if group_ref[:group_id]
+                    }
                   end
 
                   if !rule[:ip_ranges].nil? and rule[:ip_ranges].size == 0
@@ -298,6 +296,7 @@ module MU
                 }
               }
               begin
+
                 if ingress_to_revoke.size > 0
                   MU::Cloud::AWS.ec2(region).revoke_security_group_ingress(
                       group_id: sg.group_id,
@@ -491,18 +490,20 @@ module MU
           ec2_rules = []
           if rules != nil
             rules.uniq!
+
             rules.each { |rule|
-              ec2_rule = Hash.new
-              rule['proto'] = "tcp" if rule['proto'].nil? or rule['proto'].empty?
+              ec2_rule = {}
+
+              rule['proto'] ||= "tcp"
               ec2_rule[:ip_protocol] = rule['proto']
 
               p_start = nil
               p_end = nil
               if rule['port_range']
-                p_start, p_end = rule['port_range'].split(/\s*-\s*/)
+                p_start, p_end = rule['port_range'].to_s.split(/\s*-\s*/)
               elsif rule['port']
-                p_start = rule['port']
-                p_end = rule['port']
+                p_start = rule['port'].to_i
+                p_end = rule['port'].to_i
               elsif rule['proto'] != "icmp"
                 raise MuError, "Can't create a TCP or UDP security group rule without specifying ports: #{rule}"
               end
