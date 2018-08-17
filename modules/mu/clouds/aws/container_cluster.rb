@@ -600,10 +600,11 @@ module MU
                 "port" => 443
               }
               fwname = "container_cluster#{cluster['name']}"
-              acl = {"name" => fwname, "rules" => cluster['ingress_rules'], "region" => cluster['region'], "optional_tags" => cluster['optional_tags'], "dependencies" => [ { "type" => "firewall_rule", "name" => "server_pool#{cluster['name']}-workers", "no_create_wait" => true } ]}
+              acl = {"name" => fwname, "rules" => cluster['ingress_rules'], "region" => cluster['region'], "optional_tags" => cluster['optional_tags'] }
               acl["tags"] = cluster['tags'] if cluster['tags'] && !cluster['tags'].empty?
               acl["vpc"] = cluster['vpc'].dup if cluster['vpc']
-              ok = false if !configurator.insertKitten(acl, "firewall_rules", true)
+
+              ok = false if !configurator.insertKitten(acl, "firewall_rules")
               cluster["add_firewall_rules"] = [] if cluster["add_firewall_rules"].nil?
               cluster["add_firewall_rules"] << {"rule_name" => fwname}
               cluster["dependencies"] << {

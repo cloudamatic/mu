@@ -51,7 +51,6 @@ module MU
           vpc_id = @vpc.cloud_id if !@vpc.nil?
           groupname = @mu_name
           description = groupname
-
           MU.log "Creating EC2 Security Group #{groupname}"
 
           sg_struct = {
@@ -395,7 +394,7 @@ module MU
   	              acl["dependencies"] << {
     	              "type" => "firewall_rule",
       	            "name" => sg_name,
-        	          "phase" => "groom"
+                    "no_create_wait" => true
 	                }
                 elsif sg_name == acl['name']
                   acl['self_referencing'] = true
