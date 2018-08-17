@@ -95,8 +95,6 @@ EOH
       curl -o $MODEL_FILE_PATH https://s3-us-west-2.amazonaws.com/amazon-eks/1.10.3/2018-06-05/eks-2017-11-01.normal.json
       aws configure add-model --service-model file://$MODEL_FILE_PATH --service-name eks
       INTERNAL_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
-#      sed -i s,MASTER_ENDPOINT,"#{endpoint}",g /var/lib/kubelet/kubeconfig
-#      sed -i s,CLUSTER_NAME,"#{cluster}",g /var/lib/kubelet/kubeconfig
       sed -i s,REGION,"#{region}",g /etc/systemd/system/kubelet.service
       sed -i s,MAX_PODS,"#{max_pods}",g /etc/systemd/system/kubelet.service
       sed -i s,MASTER_ENDPOINT,$MASTER_ENDPOINT,g /etc/systemd/system/kubelet.service
@@ -104,7 +102,6 @@ EOH
       DNS_CLUSTER_IP=10.100.0.10
       if [[ $INTERNAL_IP == 10.* ]] ; then DNS_CLUSTER_IP=172.20.0.10; fi
       sed -i s,DNS_CLUSTER_IP,$DNS_CLUSTER_IP,g  /etc/systemd/system/kubelet.service
-#      sed -i s,CERTIFICATE_AUTHORITY_FILE,$CA_CERTIFICATE_FILE_PATH,g /var/lib/kubelet/kubeconfig
       sed -i s,CLIENT_CA_FILE,$CA_CERTIFICATE_FILE_PATH,g  /etc/systemd/system/kubelet.service
       systemctl daemon-reload
 EOH
@@ -141,5 +138,19 @@ EOH
       end
     }
   }
+
+  execute "/usr/sbin/sysctl -w net.ipv4.ip_forward=1"
+
+  execute "echo 'net.ipv4.ip_forward = 1' >> /etc/sysctl.conf" do
+    not_if "grep ^net.ipv4.ip_forward /etc/sysctl.conf"
+  end
+
+  bash "Allow DockerD to forward traffic outside" do
+    code <<EOH
+    /sbin/iptables -A FORWARD -i docker0 -j ACCEPT
+    /sbin/iptables -A INPUT -i docker0 -j ACCEPT
+    /sbin/iptables -t nat -A POSTROUTING -o eth0 -s 172.17.0.0/16 -j MASQUERADE
+EOH
+  end
 
 end
