@@ -602,6 +602,7 @@ MESSAGE_END
               if service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer"
                 opts['classic'] = service['classic'] ? true : false
               end
+
               found = MU::MommaCat.findStray(service['cloud'],
                                  service["#MU_CLOUDCLASS"].cfg_name,
                                  name: service['name'],
@@ -613,7 +614,10 @@ MESSAGE_END
                                  flags: opts,
                                  dummy_ok: false
                                 )
-              found = found.delete_if { |x| x.cloud_id.nil? }
+
+              found = found.delete_if { |x|
+                x.cloud_id.nil? and x.cloudobj.cloud_id.nil?
+              }
 
               if found.size == 0
                 if service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer" or

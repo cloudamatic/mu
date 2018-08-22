@@ -674,7 +674,7 @@ module MU
         # @return [Array<Hash>]: mu_name, config, deploydata
         def describe(cloud_id: nil, update_cache: false)
           if cloud_id.nil? and !@cloudobj.nil?
-            @cloud_id = @cloudobj.cloud_id
+            @cloud_id ||= @cloudobj.cloud_id
           end
           res_type = self.class.cfg_plural
           res_name = @config['name'] if !@config.nil?
@@ -701,14 +701,14 @@ module MU
               @mu_name = @deploydata['#MU_NAME']
             end
             if @deploydata.has_key?('cloud_id')
-              @cloud_id = @deploydata['cloud_id']
+              @cloud_id ||= @deploydata['cloud_id']
             else
               # XXX temp hack to catch old Amazon-style identifiers. Remove this
               # before supporting any other cloud layers, otherwise name
               # collision is possible.
               ["group_id", "instance_id", "awsname", "identifier", "vpc_id", "id"].each { |identifier|
                 if @deploydata.has_key?(identifier)
-                  @cloud_id = @deploydata[identifier]
+                  @cloud_id ||= @deploydata[identifier]
                   if @mu_name.nil? and (identifier == "awsname" or identifier == "identifier" or identifier == "group_id")
                     @mu_name = @deploydata[identifier]
                   end

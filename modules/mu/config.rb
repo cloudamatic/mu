@@ -827,7 +827,7 @@ module MU
           }
 
           siblingvpc = haveLitterMate?(descriptor["vpc"]["vpc_name"], "vpcs")
-          insertKitten(siblingvpc, "vpcs") if !siblingvpc["#MU_VALIDATED"]
+#          insertKitten(siblingvpc, "vpcs") if !siblingvpc["#MU_VALIDATED"]
           if !MU::Config::VPC.processReference(descriptor['vpc'],
                                   cfg_plural,
                                   shortclass.to_s+" '#{descriptor['name']}'",
@@ -1527,6 +1527,16 @@ module MU
 
       @kittens["firewall_rules"].each { |acl|
         acl = resolveIntraStackFirewallRefs(acl)
+      }
+
+      # Make sure validation has been called for all on-the-fly generated
+      # resources.
+      types.each { |type|
+        @kittens[type].each { |descriptor|
+          if !descriptor["#MU_VALIDATED"]
+            ok = false if !insertKitten(descriptor, type)
+          end
+        }
       }
 
       # add some default holes to allow dependent instances into databases

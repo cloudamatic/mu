@@ -577,7 +577,8 @@ module MU
   # @param struct [OpenStruct]
   # @return [Hash]
   def self.structToHash(struct)
-    if struct.is_a?(Struct)
+    if struct.is_a?(Struct) or struct.class.ancestors.include?(Google::Apis::Core::Hashable)
+
       hash = struct.to_h
       hash.each_pair { |key, value|
         hash[key] = self.structToHash(value)

@@ -574,7 +574,7 @@ module MU
             server["vpc"]["subnet_pref"] = "public"
           end
 
-          if !server["vpc"]["subnet_name"].nil? and configurator.nat_routes.has_key?(server["vpc"]["subnet_name"])
+          if !server["vpc"]["subnet_name"].nil? and configurator.nat_routes.has_key?(server["vpc"]["subnet_name"]) and !configurator.nat_routes[server["vpc"]["subnet_name"]].empty?
             server["dependencies"] << {
               "type" => "server",
               "name" => configurator.nat_routes[server["vpc"]["subnet_name"]],

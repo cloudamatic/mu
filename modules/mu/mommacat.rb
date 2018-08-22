@@ -1234,7 +1234,7 @@ module MU
         if !@kittens.has_key?(type)
           return nil
         end
-        MU.log "findLitterMate(type: #{type}, name: #{name}, mu_name: #{mu_name}, cloud_id: #{cloud_id}, created_only: #{created_only})", MU::DEBUG, details: @kittens.keys.map { |k| k.to_s+": "+@kittens[k].keys.join(", ") }
+        MU.log "findLitterMate(type: #{type}, name: #{name}, mu_name: #{mu_name}, cloud_id: #{cloud_id}, created_only: #{created_only}). Caller: #{caller[2]}", MU::DEBUG, details: @kittens.keys.map { |k| k.to_s+": "+@kittens[k].keys.join(", ") }
         @kittens[type].each { |sib_class, data|
           next if !name.nil? and name != sib_class
           if has_multiples
@@ -1247,7 +1247,7 @@ module MU
                 return obj
               elsif mu_name.nil? and cloud_id.nil?
                 obj = data.values.first
-                MU.log "#{@deploy_id}: Found multiple matches in findLitterMate based on #{type}: #{name}, and not enough info to narrow down further. Returning an arbitrary result. Caller: #{caller[1]}", MU::WARN, details: data.keys
+                MU.log "#{@deploy_id}: Found multiple matches in findLitterMate based on #{type}: #{name}, and not enough info to narrow down further. Returning an arbitrary result. Caller: #{caller[2]}", MU::WARN, details: data.keys
                 return data.values.first
               end
             end
