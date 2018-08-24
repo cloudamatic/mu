@@ -48,8 +48,9 @@ module MU
           end
         end
 
+
         # Called automatically by {MU::Deploy#createResources}
-        # @return [String]: The cloud provider's identifier for this database instance.
+        # @return [String]: The cloud provider's identifier for this GKE instance.
         def create
           labels = {}
           MU::MommaCat.listStandardTags.each_pair { |name, value|

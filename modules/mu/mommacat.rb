@@ -1074,6 +1074,8 @@ module MU
         end
         MU.log "Called findStray with cloud: #{cloud}, type: #{type}, deploy_id: #{deploy_id}, calling_deploy: #{calling_deploy.deploy_id if !calling_deploy.nil?}, name: #{name}, cloud_id: #{cloud_id}, tag_key: #{tag_key}, tag_value: #{tag_value}", MU::DEBUG, details: flags
 
+        # See if the thing we're looking for is a member of the deploy that's
+        # asking after it.
         if !deploy_id.nil? and !calling_deploy.nil? and flags.empty? and
             calling_deploy.deploy_id == deploy_id and (!name.nil? or !mu_name.nil?)
           handle = calling_deploy.findLitterMate(type: type, name: name, mu_name: mu_name, cloud_id: cloud_id)
@@ -1081,7 +1083,7 @@ module MU
         end
 
         kittens = {}
-        # Search our deploys for matching resources
+        # Search our other deploys for matching resources
         if (deploy_id or name or mu_name or cloud_id)# and flags.empty?
           mu_descs = MU::MommaCat.getResourceMetadata(cfg_plural, name: name, deploy_id: deploy_id, mu_name: mu_name)
 
@@ -2504,6 +2506,8 @@ MESSAGE_END
           Dir.entries(deploy_root).each { |deploy|
             this_deploy_dir = deploy_root+"/"+deploy
             next if deploy == "." or deploy == ".." or !Dir.exists?(this_deploy_dir)
+            next if deploy_id and deploy_id != deploy
+
             if !File.size?(this_deploy_dir+"/deployment.json")
               MU.log "#{this_deploy_dir}/deployment.json doesn't exist, skipping when loading cache", MU::DEBUG
               next
@@ -2515,6 +2519,7 @@ MESSAGE_END
 
               next
             end
+
             @deploy_cache[deploy] = Hash.new if !@deploy_cache.has_key?(deploy)
             MU.log "Caching deploy #{deploy}", MU::DEBUG
             lock = File.open("#{this_deploy_dir}/deployment.json", File::RDONLY)
