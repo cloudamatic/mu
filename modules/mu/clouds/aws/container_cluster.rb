@@ -207,12 +207,17 @@ module MU
             @worker_role_arn = resp.role.arn
             kube_conf = @deploy.deploy_dir+"/kubeconfig-#{@config['name']}"
             eks_auth = @deploy.deploy_dir+"/eks-auth-cm-#{@config['name']}.yaml"
+            gitlab_helper = @deploy.deploy_dir+"/gitlab-eks-helper-#{@config['name']}.sh"
             
             File.open(kube_conf, "w"){ |k|
               k.puts kube.result(binding)
             }
             File.open(eks_auth, "w"){ |k|
               k.puts configmap.result(binding)
+            }
+            gitlab = ERB.new(File.read(MU.myRoot+"/extras/gitlab-eks-helper.sh.erb"))
+            File.open(gitlab_helper, "w"){ |k|
+              k.puts gitlab.result(binding)
             }
 
             authmap_cmd = %Q{/opt/mu/bin/kubectl --kubeconfig "#{kube_conf}" apply -f "#{eks_auth}"}
