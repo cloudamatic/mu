@@ -367,7 +367,7 @@ module MU
           elsif flavor == "EKS"
             # XXX this is absurd, but these don't appear to be available from an API anywhere
             # Here's their Packer build, should just convert to Chef: https://github.com/awslabs/amazon-eks-ami
-            amis = { "us-east-1" => "ami-dea4d5a1", "us-west-2" => "ami-73a6e20b" }
+            amis = { "us-east-1" => "ami-0b2ae3c6bda8b5c06", "us-west-2" => "ami-08cab282f9979fc7a" }
             return amis[region]
           end
           nil
