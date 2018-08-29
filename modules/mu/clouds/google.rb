@@ -400,8 +400,8 @@ module MU
         require 'google/apis/container_v1'
 
         if subclass.nil?
-          @@resource_api ||= MU::Cloud::Google::Endpoint.new(api: "ContainerV1::ContainerService", scopes: ['https://www.googleapis.com/auth/cloud-platform'])
-          return @@resource_api
+          @@container_api ||= MU::Cloud::Google::Endpoint.new(api: "ContainerV1::ContainerService", scopes: ['https://www.googleapis.com/auth/cloud-platform'])
+          return @@container_api
         elsif subclass.is_a?(Symbol)
           return Object.const_get("::Google").const_get("Apis").const_get("ContainerV1").const_get(subclass)
         end

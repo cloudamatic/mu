@@ -60,10 +60,18 @@ module MU
           }
           labels["name"] = MU::Cloud::Google.nameStr(@mu_name)
 
+          subnet = nil
+          @vpc.subnets.each { |s|
+            if s.az == @config['region']
+              subnet = s
+              break
+            end
+          }
+
           desc = {
             :name => @mu_name.downcase,
-#            :network
-#            :subnetwork
+            :network => @vpc.cloud_id,
+            :subnetwork => subnet.cloud_id,
             :resource_labels => labels,
             :initial_cluster_version => @config['kubernetes']['version'],
             :initial_node_count => @config['instance_count'],
@@ -74,13 +82,13 @@ module MU
             :cluster => MU::Cloud::Google.container(:Cluster).new(desc)
           )
 
-MU.log "CREATING CLUSTER IN #{@config['availability_zone']}", MU::NOTICE, details: desc
           cluster = MU::Cloud::Google.container.create_cluster(
             @config['project'],
             @config['availability_zone'],
             requestobj
           )
 
+# XXX wait until the thing is ready
         end
 
         # Locate an existing ContainerCluster or ContainerClusters and return an array containing matching GCP resource descriptors for those that match.
@@ -95,6 +103,7 @@ MU.log "CREATING CLUSTER IN #{@config['availability_zone']}", MU::NOTICE, detail
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+           # XXX do all the kubernetes stuff like we do in AWS
         end
 
         # Register a description of this cluster instance with this deployment's metadata.
@@ -110,6 +119,25 @@ MU.log "CREATING CLUSTER IN #{@config['availability_zone']}", MU::NOTICE, detail
         # @return [void]
         def self.cleanup(skipsnapshots: false, noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
           flags["project"] ||= MU::Cloud::Google.defaultProject
+          MU::Cloud::Google.listAZs(region).each { |az|
+            found = MU::Cloud::Google.container.list_zone_clusters(flags["project"], az)
+            if found and found.clusters
+              found.clusters.each { |cluster|
+                MU.log "Deleting GKE cluster #{cluster.name}"
+                if !noop
+                  MU::Cloud::Google.container.delete_zone_cluster(flags["project"], az, cluster.name)
+                  begin
+                    MU::Cloud::Google.container.get_zone_cluster(flags["project"], az, cluster.name)
+                    sleep 10
+                  rescue ::Google::Apis::ClientError => e
+                    if !e.message.match(/notFound:/)
+                      raise e
+                    end
+                  end while true
+                end
+              }
+            end
+          }
         end
 
         # Cloud-specific configuration properties.
