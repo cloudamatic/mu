@@ -34,12 +34,13 @@ KNIFE_WINDOWS="1.9.0"
 MU_BASE="/opt/mu"
 
 realbranch=`cd #{MU_BASE}/lib && git rev-parse --abbrev-ref HEAD`
-MU_BRANCH = if ENV.key?('MU_BRANCH')
-  ENV['MU_BRANCH']
+
+if ENV.key?('MU_BRANCH')
+  MU_BRANCH = ENV['MU_BRANCH']
 elsif $?.exitstatus == 0
-  realbranch.chomp
+  MU_BRANCH=realbranch.chomp
 else
-  "master"
+  MU_BRANCH="master"
 end
 begin
   resources('service[sshd]')
