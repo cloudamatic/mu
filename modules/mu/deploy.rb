@@ -73,7 +73,8 @@ module MU
                    reraise_thread: nil,
                    stack_conf: nil,
                    no_artifacts: false,
-                   deploy_id: nil)
+                   deploy_id: nil,
+                   deploy_obj: nil)
       MU.setVar("verbosity", verbosity)
       @webify_logs = webify_logs
       @verbosity = verbosity
@@ -98,9 +99,10 @@ module MU
       @original_config = Marshal.load(Marshal.dump(stack_conf))
       @original_config.freeze
       @admins = stack_conf["admins"]
+      @mommacat = deploy_obj
 
       if deploy_id
-        @mommacat = MU::MommaCat.new(deploy_id)
+        @mommacat ||= MU::MommaCat.new(deploy_id)
         @updating = true
       else
         @environment = environment

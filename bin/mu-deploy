@@ -128,6 +128,9 @@ end
 
 if $opts[:update]
   deploy = MU::MommaCat.new($opts[:update])
+# TODO consider whether this is useful/valid
+#  old_conf = JSON.parse(File.read(deploy.deploy_dir+"/basket_of_kittens.json"))
+#  stack_conf = old_conf.merge(stack_conf)
   deploy.updateBasketofKittens(stack_conf)
   deployer = MU::Deploy.new(
     deploy.environment,
@@ -135,7 +138,8 @@ if $opts[:update]
     webify_logs: $opts[:web],
     nocleanup: true, # don't accidentally blow up an existing deploy
     stack_conf: stack_conf,
-    deploy_id: $opts[:update]
+    deploy_id: $opts[:update],
+    deploy_obj: deploy
   )
   deployer.run
   exit 0

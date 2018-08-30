@@ -785,7 +785,7 @@ module MU
     # or load if that hasn't been done already.
     def SSHKey
       return [@ssh_key_name, @ssh_private_key, @ssh_public_key] if !@ssh_key_name.nil?
-      if numKittens(types: ["Server", "ServerPool"]) == 0
+      if numKittens(types: ["Server", "ServerPool", "ContainerCluster"]) == 0
         return []
       end
       @ssh_key_name="deploy-#{MU.deploy_id}"

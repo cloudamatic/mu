@@ -36,6 +36,8 @@ module MU
 
           if !mu_name.nil?
             @mu_name = mu_name
+            deploydata = describe[2]
+            @config['availability_zone'] = deploydata['zone']
           else
             @mu_name ||=
               if @config and @config['engine'] and @config["engine"].match(/^sqlserver/)
@@ -60,6 +62,8 @@ module MU
           }
           labels["name"] = MU::Cloud::Google.nameStr(@mu_name)
 
+          @config['availability_zone'] ||= MU::Cloud::Google.listAZs(@config['region']).sample
+
           subnet = nil
           @vpc.subnets.each { |s|
             if s.az == @config['region']
@@ -68,25 +72,65 @@ module MU
             end
           }
 
+          service_acct = MU::Cloud::Google::Server.createServiceAccount(
+            @mu_name.downcase,
+            project: @config['project']
+          )
+          MU::Cloud::Google.grantDeploySecretAccess(service_acct.email)
+
+          @config['ssh_user'] ||= "mu"
+
+          node_desc = {
+            :machine_type => @config['instance_type'],
+            :preemptible => @config['preemptible'],
+            :disk_size_gb => @config['disk_size_gb'],
+            :labels => labels,
+            :tags => [@mu_name.downcase],
+            :service_account => service_acct.email,
+            :oauth_scopes => ["https://www.googleapis.com/auth/compute", "https://www.googleapis.com/auth/devstorage.read_only"],
+            :metadata => {
+              "ssh-keys" => @config['ssh_user']+":"+@deploy.ssh_public_key
+            }
+          }
+          [:local_ssd_count, :min_cpu_platform, :image_type].each { |field|
+            if @config[field.to_s]
+              node_desc[field] = @config[field.to_s]
+            end
+          }
+
+          nodeobj = MU::Cloud::Google.container(:NodeConfig).new(node_desc)
+
           desc = {
             :name => @mu_name.downcase,
+            :description => @deploy.deploy_id,
             :network => @vpc.cloud_id,
             :subnetwork => subnet.cloud_id,
+            :labels => labels,
             :resource_labels => labels,
             :initial_cluster_version => @config['kubernetes']['version'],
             :initial_node_count => @config['instance_count'],
-            :locations => MU::Cloud::Google.listAZs(@config['region'])
+            :locations => MU::Cloud::Google.listAZs(@config['region']),
+            :node_config => nodeobj
           }
 
           requestobj = MU::Cloud::Google.container(:CreateClusterRequest).new(
             :cluster => MU::Cloud::Google.container(:Cluster).new(desc)
           )
 
+          MU.log "Creating GKE cluster #{@mu_name.downcase}", details: desc
           cluster = MU::Cloud::Google.container.create_cluster(
             @config['project'],
             @config['availability_zone'],
             requestobj
           )
+
+          resp = nil
+          begin
+            resp = MU::Cloud::Google.container.get_zone_cluster(@config["project"], @config['availability_zone'], @mu_name.downcase)
+            sleep 30 if resp.status != "RUNNING"
+          end while resp.nil? or resp.status != "RUNNING"
+#          labelCluster # XXX need newer API release
+          @cloud_id = @mu_name.downcase
 
 # XXX wait until the thing is ready
         end
@@ -103,12 +147,40 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def groom
+          deploydata = describe[2]
+          @config['availability_zone'] ||= deploydata['zone']
+          resp = MU::Cloud::Google.container.get_zone_cluster(@config["project"], @config['availability_zone'], @mu_name.downcase)
+#          pp resp
+
+#          labelCluster # XXX need newer API release
+
+          # desired_*:
+          # addons_config
+          # image_type
+          # locations
+          # master_authorized_networks_config
+          # master_version
+          # monitoring_service
+          # node_pool_autoscaling
+          # node_pool_id
+          # node_version
+#          update = {
+
+#          }
+#          pp update
+#          requestobj = MU::Cloud::Google.container(:UpdateClusterRequest).new(
+#            :cluster => MU::Cloud::Google.container(:ClusterUpdate).new(update)
+#          )
            # XXX do all the kubernetes stuff like we do in AWS
         end
 
         # Register a description of this cluster instance with this deployment's metadata.
         def notify
-          {}
+          desc = MU.structToHash(MU::Cloud::Google.container.get_zone_cluster(@config["project"], @config['availability_zone'], @mu_name.downcase))
+          desc["project"] = @config['project']
+          desc["cloud_id"] = @cloud_id
+          desc["mu_name"] = @mu_name.downcase
+          desc
         end
 
         # Called by {MU::Cleanup}. Locates resources that were created by the
@@ -121,6 +193,7 @@ module MU
           flags["project"] ||= MU::Cloud::Google.defaultProject
           MU::Cloud::Google.listAZs(region).each { |az|
             found = MU::Cloud::Google.container.list_zone_clusters(flags["project"], az)
+#filter: "description eq #{MU.deploy_id}"
             if found and found.clusters
               found.clusters.each { |cluster|
                 MU.log "Deleting GKE cluster #{cluster.name}"
@@ -128,10 +201,15 @@ module MU
                   MU::Cloud::Google.container.delete_zone_cluster(flags["project"], az, cluster.name)
                   begin
                     MU::Cloud::Google.container.get_zone_cluster(flags["project"], az, cluster.name)
-                    sleep 10
+                    sleep 60
                   rescue ::Google::Apis::ClientError => e
-                    if !e.message.match(/notFound:/)
+                    if e.message.match(/is currently creating cluster/)
+                      sleep 60
+                      retry
+                    elsif !e.message.match(/notFound:/)
                       raise e
+                    else
+                      break
                     end
                   end while true
                 end
@@ -145,7 +223,30 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
-          schema = {}
+          schema = {
+            "local_ssd_count" => {
+              "type" => "integer",
+              "description" => "The number of local SSD disks to be attached to workers. See https://cloud.google.com/compute/docs/disks/local-ssd#local_ssd_limits"
+            },
+            "disk_size_gb" => {
+              "type" => "integer",
+              "description" => "Size of the disk attached to each worker, specified in GB. The smallest allowed disk size is 10GB",
+              "default" => 100
+            },
+            "min_cpu_platform" => {
+              "type" => "string",
+              "description" => "Minimum CPU platform to be used by workers. The instances may be scheduled on the specified or newer CPU platform. Applicable values are the friendly names of CPU platforms, such as minCpuPlatform: 'Intel Haswell' or minCpuPlatform: 'Intel Sandy Bridge'."
+            },
+            "preemptible" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Whether the workers are created as preemptible VM instances. See: https://cloud.google.com/compute/docs/instances/preemptible for more information about preemptible VM instances."
+            },
+            "image_type" => {
+              "type" => "string",
+              "description" => "The image type to use for workers. Note that for a given image type, the latest version of it will be used."
+            }
+          }
           [toplevel_required, schema]
         end
 
@@ -155,15 +256,32 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(cluster, configurator)
           ok = true
+# XXX validate k8s versions (master and node)
+# XXX validate image types
+# MU::Cloud::Google.container.get_project_zone_serverconfig(@config["project"], @config['availability_zone'])
 
-          if !cluster['availability_zone']
-            cluster['availability_zone'] = MU::Cloud::Google.listAZs(cluster['region']).sample
-          end
+          cluster['instance_type'] = MU::Cloud::Google::Server.validateInstanceType(cluster["instance_type"], cluster["region"])
+          ok = false if cluster['instance_type'].nil?
 
           ok
         end
 
         private
+
+        def labelCluster
+          labels = {}
+          MU::MommaCat.listStandardTags.each_pair { |name, value|
+            if !value.nil?
+              labels[name.downcase] = value.downcase.gsub(/[^a-z0-9\-\_]/i, "_")
+            end
+          }
+          labels["name"] = MU::Cloud::Google.nameStr(@mu_name)
+
+          labelset = MU::Cloud::Google.container(:SetLabelsRequest).new(
+            resource_labels: labels
+          )
+          MU::Cloud::Google.container.resource_project_zone_cluster_labels(@config["project"], @config['availability_zone'], @mu_name.downcase, labelset)
+        end
 
       end #class
     end #class
