@@ -196,6 +196,7 @@ module MU
 #filter: "description eq #{MU.deploy_id}"
             if found and found.clusters
               found.clusters.each { |cluster|
+                next if !cluster.name.match(/^#{Regexp.quote(MU.deploy_id)}\-/i)
                 MU.log "Deleting GKE cluster #{cluster.name}"
                 if !noop
                   MU::Cloud::Google.container.delete_zone_cluster(flags["project"], az, cluster.name)
