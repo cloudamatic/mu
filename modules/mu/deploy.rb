@@ -339,6 +339,7 @@ module MU
         end
       end
 
+
       # Send notifications
       sendMail
       if @mommacat.numKittens(clouds: ["AWS"]) > 0
@@ -393,8 +394,9 @@ module MU
         MU.log "Deployment #{MU.deploy_id} \"#{MU.handle}\" complete", details: deployment, verbosity: @verbosity
       end
 
+
       if MU.summary.size > 0
-        summary.each { |msg|
+        MU.summary.each { |msg|
           puts msg
         }
       end
@@ -408,7 +410,7 @@ module MU
       $str = ""
 
       if MU.summary.size > 0
-        summary.each { |msg|
+        MU.summary.each { |msg|
           $str += msg+"\n"
         }
       end

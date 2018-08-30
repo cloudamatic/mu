@@ -228,7 +228,10 @@ module MU
   # Set parameters parameters for calls to {MU#log}
   def self.setLogging(verbosity, webify_logs = false, handle = STDOUT)
     MU.setVar("verbosity", verbosity)
-    @@logger = MU::Logger.new(verbosity, webify_logs, handle)
+    @@logger ||= MU::Logger.new(verbosity, webify_logs, handle)
+    @@logger.html = webify_logs
+    @@logger.verbosity = verbosity
+    @@logger.handle = handle
   end
 
   setLogging(MU::Logger::NORMAL, false)

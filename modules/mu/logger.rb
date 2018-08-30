@@ -45,9 +45,14 @@ module MU
       @verbosity = verbosity
       @html = html
       @handle = handle
+      @summary = []
     end
 
     attr_reader :summary
+    attr_accessor :verbosity
+    attr_accessor :quiet
+    attr_accessor :html
+    attr_accessor :handle
 
     # @param msg [String]: A short message to log
     # @param level [Integer]: The level at which to log (DEBUG, INFO, NOTICE, WARN, ERR)
@@ -63,7 +68,6 @@ module MU
     )
       verbosity = MU::Logger::NORMAL if verbosity.nil?
       return if verbosity == MU::Logger::SILENT
-      @summary = []
 
       # By which we mean, "get the filename (with the .rb stripped off) which
       # originated the call to this method. Which, for our purposes, is the
