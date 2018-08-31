@@ -178,19 +178,12 @@ if platform_family?("rhel")
 <<<<<<< HEAD
     rpms["ruby25"] = "https://github.com/feedforce/ruby-rpm/releases/download/2.5.1/ruby-2.5.1-1.el6.x86_64.rpm"
     
-=======
-    rpms["ruby23"] = "https://s3.amazonaws.com/cloudamatic/ruby23-2.3.1-1.el6.x86_64.rpm"
->>>>>>> master
     removepackages = ["nagios"]
 
   # RHEL7, CentOS7
   elsif elversion < 8
     basepackages.concat(["libX11", "tcl", "tk", "mariadb-devel"])
-<<<<<<< HEAD
     rpms["ruby25"] = "https://github.com/feedforce/ruby-rpm/releases/download/2.5.1/ruby-2.5.1-1.el7.centos.x86_64.rpm"
-=======
-    rpms["ruby23"] = "https://s3.amazonaws.com/cloudamatic/ruby23-2.3.1-1.el7.centos.x86_64.rpm"
->>>>>>> master
     removepackages = ["nagios", "firewalld"]
   end
   # Amazon Linux
