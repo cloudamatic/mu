@@ -175,7 +175,6 @@ if platform_family?("rhel")
   # RHEL6, CentOS6, Amazon Linux
   elsif elversion < 7
     basepackages.concat(["mysql-devel"])
-<<<<<<< HEAD
     rpms["ruby25"] = "https://github.com/feedforce/ruby-rpm/releases/download/2.5.1/ruby-2.5.1-1.el6.x86_64.rpm"
     
     removepackages = ["nagios"]
