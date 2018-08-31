@@ -88,6 +88,7 @@ module MU
           @config["subnet_group_name"] = @mu_name
           MU.log "Using the database identifier #{@config['identifier']}"
 
+
           if @config["create_cluster"]
             getPassword
             createSubnetGroup
@@ -211,7 +212,8 @@ module MU
         # @param account_number [String]: The account in which the resource resides.
         # @return [String]
         def self.getARN(resource, resource_type, client_type, region: MU.curRegion, account_number: MU.account_number)
-          "arn:aws:#{client_type}:#{region}:#{account_number}:#{resource_type}:#{resource}"
+          aws_str = MU::Cloud::AWS.isGovCloud?(region) ? "aws-us-gov" : "aws"
+          "arn:#{aws_str}:#{client_type}:#{region}:#{account_number}:#{resource_type}:#{resource}"
         end
 
         # Construct all our tags.
@@ -410,6 +412,7 @@ module MU
             database.vpc_security_groups.each { |vpc_sg|
               vpc_sg_ids << vpc_sg.vpc_security_group_id
             }
+
             localdeploy_rule =  @deploy.findLitterMate(type: "firewall_rule", name: "database"+@config['name'])
             if localdeploy_rule.nil?
               raise MU::MuError, "Database #{@config['name']} failed to find its generic security group 'database#{@config['name']}'"
@@ -419,6 +422,7 @@ module MU
             mod_config = Hash.new
             mod_config[:vpc_security_group_ids] = vpc_sg_ids
             mod_config[:db_instance_identifier] = @config["identifier"]
+
             MU::Cloud::AWS.rds(@config['region']).modify_db_instance(mod_config)
             MU.log "Modified database #{@config['identifier']} with new security groups: #{mod_config}", MU::NOTICE
           end
@@ -581,7 +585,7 @@ module MU
         def createSubnetGroup
           # Finding subnets, creating security groups/adding holes, create subnet group
           subnet_ids = []
-
+          vpc_id = nil
           if @config['vpc'] and !@config['vpc'].empty?
             raise MuError, "Didn't find the VPC specified in #{@config["vpc"]}" unless @vpc
 
@@ -639,6 +643,17 @@ module MU
               @config["publicly_accessible"] = true
               using_default_vpc = true
               MU.log "Using default VPC for cache cluster #{@config['identifier']}"
+            end
+          end
+
+          if @config['creation_style'] == "existing"
+            srcdb = MU::Cloud::AWS.rds(@config['region']).describe_db_instances(
+              db_instance_identifier: @config['identifier']
+            )
+            srcdb_vpc = srcdb.db_instances.first.db_subnet_group.vpc_id
+            if srcdb_vpc != vpc_id
+              MU.log "#{self} is deploying into #{vpc_id}, but our source database, #{@config['identifier']}, is in #{srcdb_vpc}", MU::ERR
+              raise MuError, "Can't use 'existing' to deploy into a different VPC from the source database; try 'new_snapshot' instead"
             end
           end
 
@@ -1352,11 +1367,37 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
+          rds_parameters_primitive = {
+            "type" => "array",
+            "minItems" => 1,
+            "items" => {
+              "description" => "The database parameter group parameter to change and when to apply the change.",
+              "type" => "object",
+              "title" => "Database Parameter",
+              "required" => ["name", "value"],
+              "additionalProperties" => false,
+              "properties" => {
+                "name" => {
+                  "type" => "string"
+                },
+                "value" => {
+                  "type" => "string"
+                },
+                "apply_method" => {
+                  "enum" => ["pending-reboot", "immediate"],
+                  "default" => "immediate",
+                  "type" => "string"
+                }
+              }
+            }
+          }
+
           schema = {
+            "db_parameter_group_parameters" => rds_parameters_primitive,
+            "cluster_parameter_group_parameters" => rds_parameters_primitive,
             "license_model" => {
               "type" => "string",
-              "enum" => ["license-included", "bring-your-own-license", "general-public-license", "postgresql-license"],
-              "default" => "license-included"
+              "enum" => ["license-included", "bring-your-own-license", "general-public-license", "postgresql-license"]
             },
             "ingress_rules" => {
               "items" => {
@@ -1402,11 +1443,24 @@ module MU
               "postgresql-license"
             elsif db["engine"] == "mysql"
               "general-public-license"
+            else
+              "license-included"
             end
 
           if db["create_read_replica"] or db['read_replica_of']
             if db["engine"] != "postgres" and db["engine"] != "mysql"
               MU.log "Read replica(s) database instances only supported for postgres and mysql. #{db["engine"]} not supported.", MU::ERR
+              ok = false
+            end
+          end
+
+          if db["creation_style"] == "existing"
+            begin
+              MU::Cloud::AWS.rds(db['region']).describe_db_instances(
+                db_instance_identifier: db['identifier']
+              )
+            rescue Aws::RDS::Errors::DBInstanceNotFound => e
+              MU.log "Source database #{db['identifier']} was specified for #{db['name']}, but no such database exists in #{db['region']}", MU::ERR
               ok = false
             end
           end
@@ -1464,6 +1518,16 @@ module MU
                 MU.log "Database storage size is set to #{db["storage"]}. #{db["engine"]} only supports storage sizes between 200 to 4096 GB #{db["storage_type"]} volume types", MU::ERR
                 ok = false
               end
+            end
+          end
+
+          if db["vpc"]
+            if db["vpc"]["subnet_pref"] == "all_public" and !db['publicly_accessible']
+              MU.log "Setting publicly_accessible to true on database '#{db['name']}', since deploying into public subnets.", MU::WARN
+              db['publicly_accessible'] = true
+            elsif db["vpc"]["subnet_pref"] == "all_private" and db['publicly_accessible']
+              MU.log "Setting publicly_accessible to false on database '#{db['name']}', since deploying into private subnets.", MU::NOTICE
+              db['publicly_accessible'] = false
             end
           end
 

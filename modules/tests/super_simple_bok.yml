@@ -1,0 +1,36 @@
+---
+appname: superBoK
+parameters:
+  - name: complexity
+    default: complex
+  - name: vpc_name
+    required: false
+  - name: instance_type
+    default: t2.medium
+  - name: db_size
+    default: db.t2.small
+  - name: vpc_name
+    default: superBoK_VPC
+  - name: logs_name
+    default: superBoK_logs
+  - name: queues_name
+    default: superBoK_queues
+
+<% $complexity = 'complex' %>
+
+vpcs:
+-
+  <%= include("../mu/config/vpc.yml") %>
+logs:
+-
+ <%= include("../mu/config/log.yml") %> 
+servers:
+-
+  <%= include("../mu/config/server.yml") %>
+search_domains:
+-
+  <%= include("../mu/config/search_domain.yml") %>
+
+databases:
+-
+  <%= include("../mu/config/database.yml") %>

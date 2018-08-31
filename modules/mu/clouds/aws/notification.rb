@@ -115,7 +115,7 @@ module MU
         # @param account_number [String]: The cloud provider account number.
         # @return [string]: The cloud provider's identifier.
         def self.topicExist(topic_name, region: MU.curRegion, account_number: MU.account_number)
-          arn = "arn:aws:sns:#{region}:#{account_number}:#{topic_name}"
+          arn = "arn:#{MU::Cloud::AWS.isGovCloud?(region) ? "aws-us-gov" : "aws"}:sns:#{region}:#{account_number}:#{topic_name}"
           match = nil
           MU::Cloud::AWS.sns(region).list_topics.topics.each { |topic|
             if topic.topic_arn == arn

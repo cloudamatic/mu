@@ -347,6 +347,15 @@ module MU
           MU::Cloud::AWS::Server.schema(config)
         end
 
+        # Confirm that the given instance size is valid for the given region.
+        # If someone accidentally specified an equivalent size from some other cloud provider, return something that makes sense. If nothing makes sense, return nil.
+        # @param size [String]: Instance type to check
+        # @param region [String]: Region to check against
+        # @return [String,nil]
+        def self.validateInstanceType(size, region)
+          MU::Cloud::AWS::Server.validateInstanceType(size, region)
+        end
+
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::servers}, bare and unvalidated.
         # @param server [Hash]: The resource to process and validate
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member

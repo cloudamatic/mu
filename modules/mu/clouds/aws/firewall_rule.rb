@@ -391,7 +391,7 @@ module MU
           acl['rules'].each { |rule|
             if !rule['sgs'].nil?
               rule['sgs'].each { |sg_name|
-	              if configurator.haveLitterMate?(sg_name, "firewall_rules")
+	              if configurator.haveLitterMate?(sg_name, "firewall_rules") and sg_name != acl['name']
   	              acl["dependencies"] << {
     	              "type" => "firewall_rule",
       	            "name" => sg_name,

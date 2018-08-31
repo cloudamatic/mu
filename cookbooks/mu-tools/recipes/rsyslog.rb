@@ -35,7 +35,7 @@ if !node[:application_attributes][:skip_recipes].include?('rsyslog')
         package "policycoreutils-python"
         execute "allow rsyslog to meddle with port 10514" do
           command "/usr/sbin/semanage port -a -t syslogd_port_t -p tcp 10514"
-          not_if "/usr/sbin/semanage port -l | grep '^syslogd_port_t.*10514'"
+          not_if "/usr/sbin/semanage port -l | grep '^syslog.*10514'"
         end
       end
   

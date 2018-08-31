@@ -230,7 +230,7 @@ module MU
               body = resp.body
             rescue Exception => e
               MU.log "Failed to fetch #{cryptfile} from S3 bucket #{MU.adminBucketName}", MU::ERR, details: e.inspect
-              %x{/bin/dd if=/dev/urandom of=#{temp_dev} > /dev/null 2>&1}
+              %x{/bin/dd if=/dev/urandom of=#{temp_dev} bs=1M count=1 > /dev/null 2>&1}
               raise e
             end
           elsif MU::Cloud::Google.hosted
@@ -238,7 +238,7 @@ module MU
               body = MU::Cloud::Google.storage.get_object(MU.adminBucketName, cryptfile)
             rescue Exception => e
               MU.log "Failed to fetch #{cryptfile} from Cloud Storage bucket #{MU.adminBucketName}", MU::ERR, details: e.inspect
-              %x{/bin/dd if=/dev/urandom of=#{temp_dev} > /dev/null 2>&1}
+              %x{/bin/dd if=/dev/urandom of=#{temp_dev} bs=1M count=1 > /dev/null 2>&1}
               raise e
             end
           else
@@ -272,7 +272,7 @@ module MU
         end
 
         if cryptfile
-          %x{/bin/dd if=/dev/urandom of=#{temp_dev} > /dev/null 2>&1}
+          %x{/bin/dd if=/dev/urandom of=#{temp_dev} bs=1M count=1 > /dev/null 2>&1}
         end
 
       end

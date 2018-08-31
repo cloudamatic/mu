@@ -302,7 +302,7 @@ module MU
             }
           end
 
-          ok = false unless MU::Config.validate_alarm_config(alarm) # XXX this probably belongs here, rolled out
+          ok = false unless MU::Config::Alarm.validate(alarm, configurator) # XXX the stuff in this method is probably also AWS-specific
 
           ok
         end

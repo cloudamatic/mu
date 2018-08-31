@@ -381,7 +381,6 @@ next if !create
             @cloud_id
           )
           begin
-          pp cloud_desc
             sleep 5
           end while cloud_desc.status != "RUNNING"
         end
@@ -1348,11 +1347,47 @@ next if !create
             },
             "routes" => {
               "type" => "array",
-              "items" => MU::Config.route_primitive
+              "items" => MU::Config::VPC.routeschema
             }
           }
           [toplevel_required, schema]
         end
+
+        # Confirm that the given instance size is valid for the given region.
+        # If someone accidentally specified an equivalent size from some other cloud provider, return something that makes sense. If nothing makes sense, return nil.
+        # @param size [String]: Instance type to check
+        # @param region [String]: Region to check against
+        # @return [String,nil]
+        def self.validateInstanceType(size, region)
+          types = (MU::Cloud::Google.listInstanceTypes(region))[region]
+          if types and (size.nil? or !types.has_key?(size))
+            # See if it's a type we can approximate from one of the other clouds
+            atypes = (MU::Cloud::AWS.listInstanceTypes)[MU::Cloud::AWS.myRegion]
+            foundmatch = false
+            if atypes and atypes.size > 0 and atypes.has_key?(size)
+              vcpu = atypes[size]["vcpu"]
+              mem = atypes[size]["memory"]
+              ecu = atypes[size]["ecu"]
+              types.keys.sort.reverse.each { |type|
+                features = types[type]
+                next if ecu == "Variable" and ecu != features["ecu"]
+                next if features["vcpu"] != vcpu
+                if (features["memory"] - mem.to_f).abs < 0.10*mem
+                  foundmatch = true
+                  MU.log "You specified an Amazon instance type '#{size}.' Approximating with Google Compute type '#{type}.'", MU::WARN
+                  size = type
+                  break
+                end
+              }
+            end
+            if !foundmatch
+              MU.log "Invalid size '#{size}' for Google Compute instance in #{region}. Supported types:", MU::ERR, details: types.keys.sort.join(", ")
+              return nil
+            end
+          end
+          size
+        end
+
 
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::servers}, bare and unvalidated.
         # @param server [Hash]: The resource to process and validate
@@ -1361,11 +1396,8 @@ next if !create
         def self.validateConfig(server, configurator)
           ok = true
 
-          sizepattern = /^(f|g|n){1,2}[0-9]-(micro|small|standard|highmem|highcpu)(-(1|2|4|8|16|32|64))?$/
-          if server["size"].nil? or !server["size"].match(sizepattern)
-            MU.log "Invalid size '#{server['size']}' for a Google Compute instance. Must match: #{sizepattern}", MU::ERR
-            ok = false
-          end
+          server['size'] = validateInstanceType(server["size"], server["region"])
+          ok = false if server['size'].nil?
 
           # If we're not targeting an availability zone, pick one randomly
           if !server['availability_zone']

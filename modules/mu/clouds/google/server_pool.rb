@@ -175,7 +175,25 @@ module MU
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
-          schema = {}
+          schema = {
+            "named_ports" => {
+              "type" => "array",
+              "items" => {
+                "type" => "object",
+                "required" => ["name", "port"],
+                "additionalProperties" => false,
+                "description" => "A named network port for a Google instance group, used for health checks and forwarding targets.",
+                "properties" => {
+                  "name" => {
+                    "type" => "string"
+                  },
+                  "port" => {
+                    "type" => "integer"
+                  }
+                }
+              }
+            }
+          }
           [toplevel_required, schema]
         end
 
@@ -185,34 +203,39 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(pool, configurator)
           ok = true
+
           pool['named_ports'] ||= []
           if !pool['named_ports'].include?({"name" => "ssh", "port" => 22})
             pool['named_ports'] << {"name" => "ssh", "port" => 22}
           end
           
           if pool['basis']['launch_config']
+            launch = pool["basis"]["launch_config"]
 
-            if pool['basis']['launch_config']['image_id'].nil?
+            launch['size'] = MU::Cloud::Google::Server.validateInstanceType(launch["size"], pool["region"])
+            ok = false if launch['size'].nil?
+
+            if launch['image_id'].nil?
               if MU::Config.google_images.has_key?(pool['platform'])
-                pool['basis']['launch_config']['image_id'] = configurator.getTail("server_pool"+pool['name']+"Image", value: MU::Config.google_images[pool['platform']], prettyname: "server_pool"+pool['name']+"Image", cloudtype: "Google::Apis::ComputeBeta::Image")
+                launch['image_id'] = configurator.getTail("server_pool"+pool['name']+"Image", value: MU::Config.google_images[pool['platform']], prettyname: "server_pool"+pool['name']+"Image", cloudtype: "Google::Apis::ComputeBeta::Image")
               else
-                MU.log "No image specified for #{pool['name']} and no default available for platform #{pool['platform']}", MU::ERR, details: pool['basis']['launch_config']
+                MU.log "No image specified for #{pool['name']} and no default available for platform #{pool['platform']}", MU::ERR, details: launch
                 ok = false
               end
             end
 
             real_image = nil
             begin
-              real_image = MU::Cloud::Google::Server.fetchImage(pool['basis']['launch_config']['image_id'].to_s)
+              real_image = MU::Cloud::Google::Server.fetchImage(launch['image_id'].to_s)
             rescue ::Google::Apis::ClientError => e
               MU.log e.inspect, MU::WARN
             end
 
             if real_image.nil?
-              MU.log "Image #{pool['basis']['launch_config']['image_id']} for server_pool #{pool['name']} does not appear to exist", MU::ERR
+              MU.log "Image #{launch['image_id']} for server_pool #{pool['name']} does not appear to exist", MU::ERR
               ok = false
             else
-              pool['basis']['launch_config']['image_id'] = real_image.self_link
+              launch['image_id'] = real_image.self_link
             end
           end
 

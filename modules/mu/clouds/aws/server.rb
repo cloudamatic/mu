@@ -273,39 +273,46 @@ module MU
         # @param rolename [String]: The name of the role to create, generally a {MU::Cloud::AWS::Server} mu_name
         # @return [void]
         def self.removeIAMProfile(rolename)
-        # TO DO - Move IAM role/policy removal to its own entity
+          # TODO - Move IAM role/policy removal to its own entity
           MU.log "Removing IAM role and policies for '#{rolename}'"
           begin
             MU::Cloud::AWS.iam.remove_role_from_instance_profile(
-                instance_profile_name: rolename,
-                role_name: rolename
+              instance_profile_name: rolename,
+              role_name: rolename
             )
           rescue Aws::IAM::Errors::ValidationError => e
             MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
           rescue Aws::IAM::Errors::NoSuchEntity => e
-            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
+            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
           end
           begin
             MU::Cloud::AWS.iam.delete_instance_profile(instance_profile_name: rolename)
           rescue Aws::IAM::Errors::ValidationError => e
             MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
           rescue Aws::IAM::Errors::NoSuchEntity => e
-            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
+            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
           end
           begin
             policies = MU::Cloud::AWS.iam.list_role_policies(role_name: rolename).policy_names
             policies.each { |policy|
               MU::Cloud::AWS.iam.delete_role_policy(role_name: rolename, policy_name: policy)
             }
+            policies = MU::Cloud::AWS.iam.list_attached_role_policies(role_name: rolename).attached_policies
+            policies.each { |policy|
+               MU::Cloud::AWS.iam.detach_role_policy(
+                role_name: rolename,
+                policy_arn: policy.policy_arn
+               )
+            }
           rescue Aws::IAM::Errors::ValidationError => e
             MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
           rescue Aws::IAM::Errors::NoSuchEntity => e
-            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
+            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
           end
           begin
             MU::Cloud::AWS.iam.delete_role(role_name: rolename)
           rescue Aws::IAM::Errors::DeleteConflict, Aws::IAM::Errors::NoSuchEntity, Aws::IAM::Errors::ValidationError => e
-            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::WARN
+            MU.log "Cleaning up IAM role #{rolename}: #{e.inspect}", MU::DEBUG
           end
         end
 
@@ -1943,7 +1950,7 @@ module MU
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, skipsnapshots: false, onlycloud: false, flags: {})
           tagfilters = [
-              {name: "tag:MU-ID", values: [MU.deploy_id]}
+            {name: "tag:MU-ID", values: [MU.deploy_id]}
           ]
           if !ignoremaster
             tagfilters << {name: "tag:MU-MASTER-IP", values: [MU.mu_public_ip]}
@@ -2209,6 +2216,26 @@ module MU
               "type" => "string",
               "description" => "The Amazon EC2 AMI on which to base this instance. Will use the default appropriate for the platform, if not specified."
             },
+            "image_id" => {
+              "type" => "string",
+              "description" => "Synonymous with ami_id"
+            },
+            "generate_iam_role" => {
+              "type" => "boolean",
+              "default" => true,
+              "description" => "Generate a unique IAM profile for this Server or ServerPool.",
+            },
+            "iam_role" => {
+              "type" => "string",
+              "description" => "An Amazon IAM instance profile, from which to harvest role policies to merge into this node's own instance profile. If generate_iam_role is false, will simple use this profile.",
+            },
+            "iam_policies" => {
+              "type" => "array",
+              "items" => {
+                "description" => "Amazon-compatible role policies which will be merged into this node's own instance profile.  Not valid with generate_iam_role set to false. Our parser expects the role policy document to me embedded under a named container, e.g. { 'name_of_policy':'{ <policy document> } }",
+                "type" => "object"
+              }
+            },
             "ingress_rules" => {
               "items" => {
                 "properties" => {
@@ -2233,6 +2260,46 @@ module MU
           [toplevel_required, schema]
         end
 
+        # Confirm that the given instance size is valid for the given region.
+        # If someone accidentally specified an equivalent size from some other cloud provider, return something that makes sense. If nothing makes sense, return nil.
+        # @param size [String]: Instance type to check
+        # @param region [String]: Region to check against
+        # @return [String,nil]
+        def self.validateInstanceType(size, region)
+          begin
+            types = (MU::Cloud::AWS.listInstanceTypes(region))[region]
+          rescue Aws::Pricing::Errors::UnrecognizedClientException
+            MU.log "Saw authentication error communicating with Pricing API, going to assume our instance type is correct", MU::WARN
+            return size
+          end
+          if size.nil? or !types.has_key?(size)
+            # See if it's a type we can approximate from one of the other clouds
+            gtypes = (MU::Cloud::Google.listInstanceTypes)[MU::Cloud::Google.myRegion]
+            foundmatch = false
+            if gtypes and gtypes.size > 0 and gtypes.has_key?(size)
+              vcpu = gtypes[size]["vcpu"]
+              mem = gtypes[size]["memory"]
+              ecu = gtypes[size]["ecu"]
+              types.keys.sort.reverse.each { |type|
+                features = types[type]
+                next if ecu == "Variable" and ecu != features["ecu"]
+                next if features["vcpu"] != vcpu
+                if (features["memory"] - mem.to_f).abs < 0.10*mem
+                  foundmatch = true
+                  MU.log "You specified a Google Compute instance type '#{size}.' Approximating with Amazon EC2 type '#{type}.'", MU::WARN
+                  size = type
+                  break
+                end
+              }
+            end
+            if !foundmatch
+              MU.log "Invalid size '#{size}' for AWS EC2 instance in #{region}. Supported types:", MU::ERR, details: types.keys.sort.join(", ")
+              return nil
+            end
+          end
+          size
+        end
+
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::servers}, bare and unvalidated.
         # @param server [Hash]: The resource to process and validate
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
@@ -2240,11 +2307,8 @@ module MU
         def self.validateConfig(server, configurator)
           ok = true
 
-          sizepattern = /^(t|m|c|i|g|r|hi|hs|cr|cg|cc){1,2}[0-9]\.(nano|micro|small|medium|[248]?x?large)$/
-          if server["size"].nil? or !server["size"].match(sizepattern)
-            MU.log "Invalid size '#{server['size']}' for AWS EC2 instance. Must match: #{sizepattern}", MU::ERR
-            ok = false
-          end
+          server['size'] = validateInstanceType(server["size"], server["region"])
+          ok = false if server['size'].nil?
 
           if !server['generate_iam_role']
             if !server['iam_role'] and server['cloud'] != "CloudFormation"
@@ -2265,6 +2329,8 @@ module MU
               server['create_image']['copy_to_regions'] = MU::Cloud::AWS.listRegions(server['us_only'])
             end
           end
+
+          server['ami_id'] ||= server['image_id']
 
           if server['ami_id'].nil?
             if MU::Config.amazon_images.has_key?(server['platform']) and

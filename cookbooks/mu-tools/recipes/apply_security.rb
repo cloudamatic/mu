@@ -1,4 +1,3 @@
-#
 # Cookbook Name:: mu-tools
 # Recipe:: apply_security
 #

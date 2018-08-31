@@ -474,6 +474,20 @@ module MU
           return asg
         end
 
+        # List out the nodes that are members of this pool
+        # @return [Array<MU::Cloud::Server>]
+        def listNodes
+          nodes = []
+          me = MU::Cloud::AWS::ServerPool.find(cloud_id: cloud_id)
+          if me and me.first and me.first.instances
+            me.first.instances.each { |instance|
+              found = MU::MommaCat.findStray("AWS", "server", cloud_id: instance.instance_id, region: @config["region"], dummy_ok: true)
+              nodes.concat(found)
+            }
+          end
+          nodes
+        end
+
         # Called automatically by {MU::Deploy#createResources}
         def groom
           if @config['schedule']
@@ -523,8 +537,17 @@ module MU
         # @param flags [Hash]: Optional flags
         # @return [Array<Hash<String,OpenStruct>>]: The cloud provider's complete descriptions of matching ServerPools
         def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
-          MU.log "XXX ServerPool.find not yet implemented", MU::WARN
-          return {}
+          found = []
+          if cloud_id
+            resp = MU::Cloud::AWS.autoscale.describe_auto_scaling_groups({
+              auto_scaling_group_names: [
+                cloud_id
+              ], 
+            })
+            return resp.auto_scaling_groups
+          end
+# TODO implement the tag-based search
+          return found
         end
 
         # Cloud-specific configuration properties.
@@ -533,6 +556,22 @@ module MU
         def self.schema(config)
           toplevel_required = []
           schema = {
+            "generate_iam_role" => {
+              "type" => "boolean",
+              "default" => true,
+              "description" => "Generate a unique IAM profile for this Server or ServerPool.",
+            },
+            "iam_role" => {
+              "type" => "string",
+              "description" => "An Amazon IAM instance profile, from which to harvest role policies to merge into this node's own instance profile. If generate_iam_role is false, will simple use this profile.",
+            },
+            "iam_policies" => {
+              "type" => "array",
+              "items" => {
+                "description" => "Amazon-compatible role policies which will be merged into this node's own instance profile.  Not valid with generate_iam_role set to false. Our parser expects the role policy document to me embedded under a named container, e.g. { 'name_of_policy':'{ <policy document> } }",
+                "type" => "object"
+              }
+            },
             "schedule" => {
               "type" => "array",
               "items" => {
@@ -596,6 +635,8 @@ module MU
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(pool, configurator)
           ok = true
+
+
           if !pool["schedule"].nil?
             pool["schedule"].each { |s|
               if !s['min_size'] and !s['max_size'] and !s['desired_capacity']
@@ -624,6 +665,10 @@ module MU
 
           if !pool["basis"]["launch_config"].nil?
             launch = pool["basis"]["launch_config"]
+            launch['iam_policies'] ||= pool['iam_policies']
+
+            launch['size'] = MU::Cloud::AWS::Server.validateInstanceType(launch["size"], pool["region"])
+            ok = false if launch['size'].nil?
             if !launch['generate_iam_role']
               if !launch['iam_role'] and pool['cloud'] != "CloudFormation"
                 MU.log "Must set iam_role if generate_iam_role set to false", MU::ERR
@@ -634,6 +679,7 @@ module MU
                 ok = false
               end
             end
+            launch["ami_id"] ||= launch["image_id"]
             if launch["server"].nil? and launch["instance_id"].nil? and launch["ami_id"].nil?
               if MU::Config.amazon_images.has_key?(pool['platform']) and
                   MU::Config.amazon_images[pool['platform']].has_key?(pool['region'])
@@ -717,8 +763,8 @@ module MU
             filters << {name: "key", values: ["MU-MASTER-IP"]}
           end
           resp = MU::Cloud::AWS.autoscale(region).describe_tags(
-              filters: filters,
-              max_records: 100
+            filters: filters,
+            max_records: 100
           )
 
           return nil if resp.tags.nil? or resp.tags.size == 0

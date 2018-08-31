@@ -31,8 +31,12 @@ require 'socket'
 CHEF_SERVER_VERSION="12.17.15-1"
 CHEF_CLIENT_VERSION="14.0.190"
 KNIFE_WINDOWS="1.9.0"
-MU_BRANCH="chef_14_support"
 MU_BASE="/opt/mu"
+MU_BRANCH="master" # GIT HOOK EDITABLE DO NOT TOUCH
+realbranch=`cd #{MU_BASE}/lib && git rev-parse --abbrev-ref HEAD`
+if $?.exitstatus == 0
+  MU_BRANCH=realbranch.chomp
+end
 
 begin
   resources('service[sshd]')
@@ -171,14 +175,22 @@ if platform_family?("rhel")
   # RHEL6, CentOS6, Amazon Linux
   elsif elversion < 7
     basepackages.concat(["mysql-devel"])
+<<<<<<< HEAD
     rpms["ruby25"] = "https://github.com/feedforce/ruby-rpm/releases/download/2.5.1/ruby-2.5.1-1.el6.x86_64.rpm"
     
+=======
+    rpms["ruby23"] = "https://s3.amazonaws.com/cloudamatic/ruby23-2.3.1-1.el6.x86_64.rpm"
+>>>>>>> master
     removepackages = ["nagios"]
 
   # RHEL7, CentOS7
   elsif elversion < 8
     basepackages.concat(["libX11", "tcl", "tk", "mariadb-devel"])
+<<<<<<< HEAD
     rpms["ruby25"] = "https://github.com/feedforce/ruby-rpm/releases/download/2.5.1/ruby-2.5.1-1.el7.centos.x86_64.rpm"
+=======
+    rpms["ruby23"] = "https://s3.amazonaws.com/cloudamatic/ruby23-2.3.1-1.el7.centos.x86_64.rpm"
+>>>>>>> master
     removepackages = ["nagios", "firewalld"]
   end
   # Amazon Linux

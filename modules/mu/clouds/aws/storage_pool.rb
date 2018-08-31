@@ -62,11 +62,10 @@ module MU
             parent_thread_id = Thread.current.object_id
             @config['mount_points'].each { |target|
               sgs = []
-              if @dependencies.has_key?("firewall_rule")
-                @dependencies['firewall_rule'].values.each { |sg|
-                  target['add_firewall_rules'].each { |mount_sg|
-                    sgs << sg.cloud_id if sg.config['name'] == mount_sg['rule_name']
-                  }
+              if target['add_firewall_rules']
+                target['add_firewall_rules'].each { |mount_sg|
+                  sg = @deploy.findLitterMate(type: "firewall_rule", name: mount_sg['rule_name'])
+                  sgs << sg.cloud_id if sg
                 }
               end
 
@@ -79,6 +78,8 @@ module MU
                   end
                   target['vpc']['subnet_id'] = subnet_obj.cloud_id
                 end
+              elsif target['vpc']["subnets"] and !target['vpc']["subnets"].empty?
+                target['vpc']['subnet_id'] = target['vpc']["subnets"].first["subnet_id"]
               end
 
               mp_threads << Thread.new {
@@ -195,6 +196,7 @@ module MU
         # @param region [String]: The cloud provider region
         def self.create_mount_target(cloud_id: nil, ip_address: nil, subnet_id: nil, security_groups: [], region: MU.curRegion)
           MU.log "Creating mount target for filesystem #{cloud_id}"
+
           resp = MU::Cloud::AWS.efs(region).create_mount_target(
             file_system_id: cloud_id,
             subnet_id: subnet_id,
@@ -410,8 +412,10 @@ module MU
           schema = {
             "ingress_rules" => {
               "type" => "array",
+              "description" => "Firewall rules to apply to our mountpoints",
               "items" => {
                 "type" => "object",
+                "description" => "Firewall rules to apply to our mountpoints",
                 "properties" => {
                   "sgs" => {
                     "type" => "array",

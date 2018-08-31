@@ -296,6 +296,35 @@ module MU
         end
       end
 
+
+      @@instance_types = nil
+      # Query the GCP API for the list of valid EC2 instance types and some of
+      # their attributes. We can use this in config validation and to help
+      # "translate" machine types across cloud providers.
+      # @param region [String]: Supported machine types can vary from region to region, so we look for the set we're interested in specifically
+      # @return [Hash]
+      def self.listInstanceTypes(region = myRegion)
+        return @@instance_types if @@instance_types and @@instance_types[region]
+        if !MU::Cloud::Google.defaultProject
+          return {}
+        end
+
+        @@instance_types ||= {}
+        @@instance_types[region] ||= {}
+        result = MU::Cloud::Google.compute.list_machine_types(MU::Cloud::Google.defaultProject, listAZs(region).first)
+        result.items.each { |type|
+          @@instance_types[region][type.name] ||= {}
+          @@instance_types[region][type.name]["memory"] = sprintf("%.1f", type.memory_mb/1024.0).to_f
+          @@instance_types[region][type.name]["vcpu"] = type.guest_cpus.to_f
+          if type.is_shared_cpu
+            @@instance_types[region][type.name]["ecu"] = "Variable"
+          else
+            @@instance_types[region][type.name]["ecu"] = type.guest_cpus
+          end
+        }
+        @@instance_types
+      end
+
       # Google has fairly strict naming conventions (all lowercase, no
       # underscores, etc). Provide a wrapper to our standard names to handle it.
       def self.nameStr(name)
@@ -365,7 +394,7 @@ module MU
         end
       end
 
-      # Google's Service Manager API (the one you use to enable other APIs)
+      # Google's Service Manager API (the one you use to enable pre-project APIs)
       # @param subclass [<Google::Apis::ServicemanagementV1>]: If specified, will return the class ::Google::Apis::ServicemanagementV1::subclass instead of an API client instance
       def self.service_manager(subclass = nil)
         require 'google/apis/servicemanagement_v1'
@@ -513,18 +542,30 @@ module MU
               if e.message.match(/^invalidParameter:/)
                 MU.log "#{method_sym.to_s}: "+e.message, MU::ERR, details: arguments
               end
-              if retries <= 1 and e.message.match(/^accessNotConfigured/) and arguments.first
+              if retries <= 1 and e.message.match(/^accessNotConfigured/)
+                enable_obj = nil
+                project = arguments.size > 0 ? arguments.first.to_s : MU::Cloud::Google.defaultProject
                 enable_obj = MU::Cloud::Google.service_manager(:EnableServiceRequest).new(
-                  consumer_id: "project:"+arguments.first.to_s, # there's always a project id
+                  consumer_id: "project:"+project
                 )
                 # XXX dumbass way to get this string
                 e.message.match(/Enable it by visiting https:\/\/console\.developers\.google\.com\/apis\/api\/(.+?)\//)
                 svc_name = Regexp.last_match[1]
-                MU.log "Attempting to enable #{svc_name} in project #{arguments.first}, then waiting for 30s", MU::WARN
-                MU::Cloud::Google.service_manager.enable_service(svc_name, enable_obj)
-                sleep 30
-                retries += 1
-                retry
+                save_verbosity = MU.verbosity
+                if svc_name != "servicemanagement.googleapis.com"
+                  MU.setLogging(MU::Logger::NORMAL)
+                  MU.log "Attempting to enable #{svc_name} in project #{project}, then waiting for 30s", MU::WARN
+                  MU.setLogging(save_verbosity)
+                  MU::Cloud::Google.service_manager.enable_service(svc_name, enable_obj)
+                  sleep 30
+                  retries += 1
+                  retry
+                else
+                  MU.setLogging(MU::Logger::NORMAL)
+                  MU.log "Google Cloud's Service Management API must be enabled manually by visiting #{e.message.gsub(/.*?(https?:\/\/[^\s]+)(?:$|\s).*/, '\1')}", MU::ERR
+                  MU.setLogging(save_verbosity)
+                  raise MU::MuError, "Service Management API not yet enabled for this account/project"
+                end
               elsif retries <= 10 and
                  e.message.match(/^resourceNotReady:/) or
                  (e.message.match(/^resourceInUseByAnotherResource:/) and method_sym.to_s.match(/^delete_/))

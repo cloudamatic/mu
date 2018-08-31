@@ -47,6 +47,9 @@ module MU
     # failure occurs.
     attr_reader :nocleanup
 
+    # We just pass this flag to MommaCat, telling it not to save any metadata.
+    attr_reader :no_artifacts
+
     # Indicates whether we are updating an existing deployment, as opposed to
     # creating a new one.
     attr_reader :updating
@@ -55,7 +58,12 @@ module MU
     # @param verbosity [Integer]: Debug level for MU.log output
     # @param webify_logs [Boolean]: Toggles web-friendly log output
     # @param nocleanup [Boolean]: Toggles whether to skip cleanup of resources if this deployment fails.
+    # @param cloudformation_path [String]: If we're outputting CloudFormation, here's where to put it
+    # @param force_cloudformation [Boolean]: Output CloudFormation regardless of what cloud resources target
+    # @param reraise_thread [Thread]: Raise any major exceptions to this thread
     # @param stack_conf [Hash]: A full application stack configuration parsed by {MU::Config}
+    # @param no_artifacts [Boolean]: Do not save deploy metadata
+    # @param deploy_id [String]: Reload and re-process an existing deploy
     def initialize(environment,
                    verbosity: MU::Logger::NORMAL,
                    webify_logs: false,
@@ -64,11 +72,13 @@ module MU
                    force_cloudformation: false,
                    reraise_thread: nil,
                    stack_conf: nil,
+                   no_artifacts: false,
                    deploy_id: nil)
       MU.setVar("verbosity", verbosity)
       @webify_logs = webify_logs
       @verbosity = verbosity
       @nocleanup = nocleanup
+      @no_artifacts = no_artifacts
       @reraise_thread = reraise_thread
       MU.setLogging(verbosity, webify_logs)
 
@@ -108,7 +118,7 @@ module MU
           seedsize = 1 + (retries/10).abs
           seed = (0...seedsize+1).map { ('a'..'z').to_a[rand(26)] }.join
           deploy_id = @appname.upcase + "-" + @environment.upcase + "-" + @timestamp + "-" + seed.upcase
-        end while MU::MommaCat.deploy_exists?(deploy_id) or seed == "mu"
+        end while MU::MommaCat.deploy_exists?(deploy_id) or seed == "mu" or seed[0] == seed[1]
         MU.setVar("deploy_id", deploy_id)
         MU.setVar("appname", @appname.upcase)
         MU.setVar("environment", @environment.upcase)
@@ -215,6 +225,7 @@ module MU
             config: @main_config,
             environment: @environment,
             nocleanup: @nocleanup,
+            no_artifacts: @no_artifacts,
             set_context_to_me: true,
             deployment_data: metadata,
             mu_user: MU.mu_user
@@ -322,7 +333,7 @@ module MU
         end
         MU::MommaCat.getLitter(MU.deploy_id, use_cache: false)
         if @mommacat.numKittens(types: ["Server", "ServerPool"]) > 0
-          MU::MommaCat.syncMonitoringConfig
+#          MU::MommaCat.syncMonitoringConfig # TODO only invoke if Server or ServerPool actually changed something when @updating
         end
       end
 
@@ -333,31 +344,53 @@ module MU
         MU.setLogging(MU::Logger::SILENT)
 
         @environment ||= "dev"
-        cost_dummy_deploy = MU::Deploy.new(
-          @environment.dup,
-          verbosity: MU::Logger::SILENT,
-          force_cloudformation: true,
-          cloudformation_path: "/dev/null",
-          nocleanup: false, # make sure we clean up the cost allocation deploy
-          stack_conf: @original_config,
-          reraise_thread: @main_thread
-        )
 
+        begin
+        Thread.abort_on_exception = false
         t = Thread.new {
+          Thread.abort_on_exception = true
+
+          # I do not understand why this is necessary, but here we are.
+          Thread.handle_interrupt(MU::Cloud::MuCloudResourceNotImplemented => :never) {
+            begin
+              Thread.handle_interrupt(MU::Cloud::MuCloudResourceNotImplemented => :immediate) {
+                MU.log "Cost calculator not available for this stack, as it uses a resource not implemented in Mu's CloudFormation layer.", MU::WARN, verbosity: MU::Logger::NORMAL
+                Thread.current.exit
+              }
+            ensure
+            end
+          }
           begin
+            MU.setVar("deploy_id", nil) # make sure we won't ever accidentally blow away the parent deploy
+            cost_dummy_deploy = MU::Deploy.new(
+              @environment.dup,
+              verbosity: MU::Logger::SILENT,
+              force_cloudformation: true,
+              cloudformation_path: "/dev/null",
+              nocleanup: false, # make sure we clean up the cost allocation deploy
+              stack_conf: @original_config,
+              reraise_thread: @main_thread,
+              no_artifacts: true
+            )
             cost_dummy_deploy.run
-          rescue MU::Cloud::MuCloudFlagNotImplemented, MU::Cloud::MuCloudResourceNotImplemented => e
-            MU.log "Failed to generate AWS cost-calculation URL. Skipping.", MU::WARN, details: "Deployment uses a feature not available in CloudFormation layer.", verbosity: MU::Logger::NORMAL
-          rescue Exception => e
-            MU.log "Failed to generate AWS cost-calculation URL. Skipping.", MU::WARN, details: "Deployment uses a feature not available in CloudFormation layer.", verbosity: MU::Logger::NORMAL
+          rescue MU::Cloud::MuCloudFlagNotImplemented, MU::Cloud::MuCloudResourceNotImplemented, MU::MuError => e
+            # This doesn't seem to get caught and I don't know why and I don't care
+#            MU.log "Failed to generate AWS cost-calculation URL. Skipping.", MU::WARN, details: "Deployment uses a feature not available in CloudFormation layer.", verbosity: MU::Logger::NORMAL
           end
         }
 
         t.join
-        MU.setLogging(@verbosity)
+        rescue MU::Cloud::MuCloudFlagNotImplemented, MU::Cloud::MuCloudResourceNotImplemented => e
+          # already handled in the thread what did it
+          MU.log "Failed to generate AWS cost-calculation URL. Skipping.", MU::WARN, details: "Deployment uses a feature not available in CloudFormation layer.", verbosity: MU::Logger::NORMAL
+        ensure
+          MU.setLogging(@verbosity)
+          MU.log "Deployment #{MU.deploy_id} \"#{MU.handle}\" complete", details: deployment, verbosity: @verbosity
+        end
+      else
+        MU.log "Deployment #{MU.deploy_id} \"#{MU.handle}\" complete", details: deployment, verbosity: @verbosity
       end
 
-      MU.log "Deployment #{MU.deploy_id} \"#{MU.handle}\" complete", details: deployment
     end
 
     private
@@ -532,6 +565,7 @@ MESSAGE_END
           rescue Exception => e
             MU::MommaCat.unlockAll
             @main_thread.raise MuError, "Error invoking #{service["#MU_CLOUDCLASS"]}.#{mode} for #{myservice['name']} (#{e.inspect})", e.backtrace
+            raise e
           end
           begin
             MU.log "Running #{service['#MUOBJECT']}.#{mode}", MU::DEBUG
@@ -557,7 +591,8 @@ MESSAGE_END
               found = found.delete_if { |x| x.cloud_id.nil? }
               if found.size == 0
                 if service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer" or
-                   service["#MU_CLOUDCLASS"].cfg_name == "firewall_rule"
+                   service["#MU_CLOUDCLASS"].cfg_name == "firewall_rule" or
+                   service["#MU_CLOUDCLASS"].cfg_name == "msg_queue"
 # XXX account for multiples?
 # XXX only know LBs to be safe, atm
                   MU.log "#{service["#MU_CLOUDCLASS"].name} #{service['name']} not found, creating", MU::NOTICE
@@ -567,7 +602,8 @@ MESSAGE_END
                 real_descriptor = @mommacat.findLitterMate(type: service["#MU_CLOUDCLASS"].cfg_name, name: service['name'], created_only: true)
                 if !real_descriptor and
                    service["#MU_CLOUDCLASS"].cfg_name == "loadbalancer" or
-                   service["#MU_CLOUDCLASS"].cfg_name == "firewall_rule"
+                   service["#MU_CLOUDCLASS"].cfg_name == "firewall_rule" or
+                   service["#MU_CLOUDCLASS"].cfg_name == "container_cluster"
                   MU.log "#{service["#MU_CLOUDCLASS"].name} #{service['name']} not found, creating", MU::NOTICE
                   myservice = run_this_method.call
                 end

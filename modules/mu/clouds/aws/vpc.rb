@@ -41,7 +41,6 @@ module MU
           else
             @mu_name = @deploy.getResourceName(@config['name'])
           end
-
         end
 
         # Called automatically by {MU::Deploy#createResources}
@@ -133,7 +132,7 @@ module MU
           
           if @config['endpoint']
             config = {
-              :vpc_id => @config['vpc_id'],
+              :vpc_id => @cloud_id,
               :service_name => @config['endpoint'],
               :route_table_ids => route_table_ids
             }
@@ -442,9 +441,11 @@ module MU
           end
           notify
 
-          mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
-          if !mu_zone.nil?
-            MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc_id, region: @config['region'])
+          if !MU::Cloud::AWS.isGovCloud?(@config['region'])
+            mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu").values.first
+            if !mu_zone.nil?
+              MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc_id, region: @config['region'])
+            end
           end
 
           MU.log "VPC #{@mu_name} created", details: @config
@@ -491,7 +492,7 @@ module MU
                   "logs:DescribeLogStreams",
                   "logs:PutLogEvents"
                 ],
-                "Resource": "arn:aws:logs:'+@config["region"]+':'+MU.account_number+':log-group:'+log_group_name+'*"
+                "Resource": "arn:'+(MU::Cloud::AWS.isGovCloud?(@config["region"]) ? "aws-us-gov" : "aws")+':logs:'+@config["region"]+':'+MU.account_number+':log-group:'+log_group_name+'*"
               }
             ]
           }'
@@ -591,18 +592,17 @@ module MU
                   raise MuError, "No result looking for #{@mu_name}'s peer VPCs (#{peer['vpc']})" if peer_obj.nil? or peer_obj.first.nil?
                   peer_obj = peer_obj.first
                   peer_id = peer_obj.cloud_id
-MU.log peer_obj.class.name, MU::WARN, details: peer_obj
 
-                  MU.log "Initiating peering connection from VPC #{@config['name']} (#{@config['vpc_id']}) to #{peer_id}"
+                  MU.log "Initiating peering connection from VPC #{@config['name']} (#{@cloud_id}) to #{peer_id}"
                   resp = MU::Cloud::AWS.ec2(@config['region']).create_vpc_peering_connection(
-                      vpc_id: @config['vpc_id'],
-                      peer_vpc_id: peer_id
+                    vpc_id: @cloud_id,
+                    peer_vpc_id: peer_id
                   )
                 else
                   peer_id = peer['vpc']['vpc_id']
-                  MU.log "Initiating peering connection from VPC #{@config['name']} (#{@config['vpc_id']}) to #{peer_id} in account #{peer['account']}", MU::INFO, details: peer
+                  MU.log "Initiating peering connection from VPC #{@config['name']} (#{@cloud_id}) to #{peer_id} in account #{peer['account']}", MU::INFO, details: peer
                   resp = MU::Cloud::AWS.ec2(@config['region']).create_vpc_peering_connection(
-                      vpc_id: @config['vpc_id'],
+                      vpc_id: @cloud_id,
                       peer_vpc_id: peer_id,
                       peer_owner_id: peer['account']
                   )
@@ -629,7 +629,7 @@ MU.log peer_obj.class.name, MU::WARN, details: peer_obj
               end
 
               # Create routes to our new friend.
-              MU::Cloud::AWS::VPC.listAllSubnetRouteTables(@config['vpc_id'], region: @config['region']).each { |rtb_id|
+              MU::Cloud::AWS::VPC.listAllSubnetRouteTables(@cloud_id, region: @config['region']).each { |rtb_id|
                 my_route_config = {
                   :route_table_id => rtb_id,
                   :destination_cidr_block => peer_obj.cloud_desc.cidr_block,
@@ -649,7 +649,7 @@ MU.log peer_obj.class.name, MU::WARN, details: peer_obj
 
                 if cnxn.status.code == "pending-acceptance"
                   if ((!peer_obj.nil? and !peer_obj.deploydata.nil? and peer_obj.deploydata['auto_accept_peers']) or $MU_CFG['allow_invade_foreign_vpcs'])
-                    MU.log "Auto-accepting peering connection from VPC #{@config['name']} (#{@config['vpc_id']}) to #{peer_id}", MU::NOTICE
+                    MU.log "Auto-accepting peering connection from VPC #{@config['name']} (#{@cloud_id}) to #{peer_id}", MU::NOTICE
                     begin
                       MU::Cloud::AWS.ec2(@config['region']).accept_vpc_peering_connection(
                           vpc_peering_connection_id: peering_id
@@ -672,12 +672,12 @@ MU.log peer_obj.class.name, MU::WARN, details: peer_obj
                       end
                     }
                   else
-                    MU.log "VPC #{peer_id} is not managed by this Mu server or is not configured to auto-accept peering requests. You must accept the peering request for '#{@config['name']}' (#{@config['vpc_id']}) by hand.", MU::WARN, details: "In the AWS Console, go to VPC => Peering Connections and look in the Actions drop-down. You can also set 'Invade Foreign VPCs' to 'true' using mu-configure to auto-accept all peering connections within this account, regardless of whether this Mu server owns the VPCs. This setting is per-user."
+                    MU.log "VPC #{peer_id} is not managed by this Mu server or is not configured to auto-accept peering requests. You must accept the peering request for '#{@config['name']}' (#{@cloud_id}) by hand.", MU::WARN, details: "In the AWS Console, go to VPC => Peering Connections and look in the Actions drop-down. You can also set 'Invade Foreign VPCs' to 'true' using mu-configure to auto-accept all peering connections within this account, regardless of whether this Mu server owns the VPCs. This setting is per-user."
                   end
                 end
 
                 if cnxn.status.code == "failed" or cnxn.status.code == "rejected" or cnxn.status.code == "expired" or cnxn.status.code == "deleted"
-                  MU.log "VPC peering connection from VPC #{@config['name']} (#{@config['vpc_id']}) to #{peer_id} #{cnxn.status.code}: #{cnxn.status.message}", MU::ERR
+                  MU.log "VPC peering connection from VPC #{@config['name']} (#{@cloud_id}) to #{peer_id} #{cnxn.status.code}: #{cnxn.status.message}", MU::ERR
                   begin
                     MU::Cloud::AWS.ec2(@config['region']).delete_vpc_peering_connection(
                         vpc_peering_connection_id: peering_id
@@ -685,7 +685,7 @@ MU.log peer_obj.class.name, MU::WARN, details: peer_obj
                   rescue Aws::EC2::Errors::InvalidStateTransition => e
                     # XXX apparently this is normal?
                   end
-                  raise MuError, "VPC peering connection from VPC #{@config['name']} (#{@config['vpc_id']}) to #{peer_id} #{cnxn.status.code}: #{cnxn.status.message}"
+                  raise MuError, "VPC peering connection from VPC #{@config['name']} (#{@cloud_id}) to #{peer_id} #{cnxn.status.code}: #{cnxn.status.message}"
                 end
               end while cnxn.status.code != "active" and !(cnxn.status.code == "pending-acceptance" and (peer_obj.nil? or peer_obj.deploydata.nil? or !peer_obj.deploydata['auto_accept_peers']))
 
@@ -1195,7 +1195,33 @@ MU.log peer_obj.class.name, MU::WARN, details: peer_obj
         # @return [Array<Array,Hash>]: List of required fields, and json-schema Hash of cloud-specific configuration parameters for this resource
         def self.schema(config)
           toplevel_required = []
-          schema = {}
+          # Flow Logs can be declared at the VPC level or the subnet level
+          flowlogs = {
+            "traffic_type_to_log" => {
+              "type" => "string",
+              "description" => "The class of traffic to log - accepted traffic, rejected traffic or all traffic.",
+              "enum" => ["accept", "reject", "all"],
+              "default" => "all"
+            },
+            "log_group_name" => {
+              "type" => "string",
+              "description" => "An existing CloudWachLogs log group the traffic will be logged to. If not provided, a new one will be created"
+            },
+            "enable_traffic_logging" => {
+              "type" => "boolean",
+              "description" => "If traffic logging is enabled or disabled. Will be enabled on all subnets and network interfaces if set to true on a VPC",
+              "default" => false
+            }
+          }
+
+          schema = {
+            "subnets" => {
+              "items" => {
+                "properties" => flowlogs
+              }
+            }
+          }
+          schema.merge!(flowlogs)
           [toplevel_required, schema]
         end
 
@@ -1416,7 +1442,7 @@ MU.log peer_obj.class.name, MU::WARN, details: peer_obj
         # @param rtb [Hash]: A route table description parsed through {MU::Config::BasketofKittens::vpcs::route_tables}.
         # @return [Hash]: The modified configuration that was originally passed in.
         def createRouteTable(rtb)
-          vpc_id = @config['vpc_id']
+          vpc_id = @cloud_id
           vpc_name = @config['name']
           MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
           resp = MU::Cloud::AWS.ec2.create_route_table(vpc_id: vpc_id).route_table
@@ -1745,9 +1771,9 @@ MU.log peer_obj.class.name, MU::WARN, details: peer_obj
               MU::Cloud::AWS.ec2(region).delete_dhcp_options(dhcp_options_id: optset.dhcp_options_id)
             rescue Aws::EC2::Errors::DependencyViolation => e
               MU.log e.inspect, MU::ERR
-#				rescue Aws::EC2::Errors::InvalidSubnetIDNotFound
-#					MU.log "Subnet #{subnet.subnet_id} disappeared before I could remove it", MU::WARN
-#					next
+#        rescue Aws::EC2::Errors::InvalidSubnetIDNotFound
+#          MU.log "Subnet #{subnet.subnet_id} disappeared before I could remove it", MU::WARN
+#          next
             end
           }
         end
@@ -1829,9 +1855,11 @@ MU.log peer_obj.class.name, MU::WARN, details: peer_obj
               end
             end
 
-            mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu", region: region).values.first
-            if !mu_zone.nil?
-              MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc.vpc_id, remove: true)
+            if !MU::Cloud::AWS.isGovCloud?(region)
+              mu_zone = MU::Cloud::DNSZone.find(cloud_id: "platform-mu", region: region).values.first
+              if !mu_zone.nil?
+                MU::Cloud::AWS::DNSZone.toggleVPCAccess(id: mu_zone.id, vpc_id: vpc.vpc_id, remove: true)
+              end
             end
           }
         end

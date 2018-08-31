@@ -46,6 +46,7 @@ Usage:
   opt :ephemeral, "Make sure all of our instance store (ephemeral) block devices are mapped and available.", :require => false, :default => false, :type => :boolean
 end
 
+
 my_instance_id = MU::Cloud::AWS.getAWSMetaData("instance-id")
 
 resp = MU::Cloud::AWS.ec2.describe_instances(instance_ids: [my_instance_id])
@@ -53,9 +54,10 @@ instance = resp.reservations.first.instances.first
 
 preferred_ip = MU.mu_public_ip
 
-if $opts[:ephemeral]
-  if instance.instance_type.match(/^(t2|m4)\./)
-    MU.log "t2 and m4 instance types do not have ephemeral volumes, skipping setup", MU::WARN
+if $opts[:ephemeral] and !MU::Cloud::AWS.isGovCloud?
+  instancetypes = MU::Cloud::AWS.listInstanceTypes
+  if instancetypes[MU.myRegion][instance.instance_type]["storage"] == "EBS only"
+    MU.log "#{instance.instance_type} instance types do not have ephemeral volumes, skipping ephemeral device setup", MU::NOTICE
   else
 #    instance.block_device_mappings.each { |dev|
 #      next if dev.ebs
@@ -306,7 +308,7 @@ if $opts[:logs]
 
 end
 
-if $opts[:dns]
+if $opts[:dns] and !MU::Cloud::AWS.isGovCloud?
   if instance.vpc_id.nil? or instance.vpc_id.empty?
     MU.log "This Mu master appears to be in EC2 Classic. Route53 private DNS zones are not supported. Falling back to old /etc/hosts chicanery.", MU::ERR
   else

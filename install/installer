@@ -4,8 +4,12 @@ BOLD=`tput bold`
 NORM=`tput sgr0`
 CHEF_CLIENT_VERSION="14.0.190"
 if [ "$MU_BRANCH" == "" ];then
-  MU_BRANCH="chef_14_support"
-  MU_BRANCH="chef_14_support"
+  MU_BRANCH="master" # GIT HOOK EDITABLE DO NOT TOUCH
+  mydir="`dirname $0`"
+  cd $mydir
+  if git rev-parse --abbrev-ref HEAD > /dev/null 2>&1;then
+    MU_BRANCH="`git rev-parse --abbrev-ref HEAD`"
+  fi
 fi
 
 # XXX All RHEL family. We can at least cover Debian-flavored hosts too, I bet.

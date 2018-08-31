@@ -62,7 +62,6 @@ module MU
           )
           MU.log "Creating network #{@mu_name} (#{@config['ip_block']}) in project #{@config['project']}", details: networkobj
           resp = MU::Cloud::Google.compute.insert_network(@config['project'], networkobj)
-          pp resp
           @url = resp.self_link # XXX needs to go in notify
           @cloud_id = resp.name
 
