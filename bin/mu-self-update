@@ -189,7 +189,7 @@ cd $MU_LIBDIR/modules
 /usr/local/ruby-current/bin/bundle clean --force
 cd
 
-chef_major="`chef-apply --version | awk '{print $2}' | cut -d\. -f1`"
+chef_major="`/opt/chef/bin/chef-apply --version | awk '{print $2}' | cut -d\. -f1`"
 if [ "$chef_major" == "12" ];then
   DIST_VERSION=`rpm -qa \*-release\* | grep -Ei "redhat|^centos" | cut -d"-" -f3`
   # IS_AMAZON=0
