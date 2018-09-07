@@ -1,3 +1,12 @@
+GIT
+  remote: https://github.com/eGT-Labs/knife-windows.git
+  revision: 0deb5ce9bba6718ebac6bb6c48a1a4b7bdc4b15b
+  branch: winrm_cert_auth
+  specs:
+    knife-windows (1.9.0)
+      winrm (~> 2.1)
+      winrm-elevated (~> 1.0)
+
 GEM
   remote: https://rubygems.org/
   specs:
@@ -344,6 +353,7 @@ DEPENDENCIES
   google-api-client (~> 0.19.8)
   googleauth (~> 0.6.6)
   json-schema
+  knife-windows!
   mysql2
   net-ldap
   net-ssh (~> 4.2)
