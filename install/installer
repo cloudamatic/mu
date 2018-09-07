@@ -2,7 +2,7 @@
 
 BOLD=`tput bold`
 NORM=`tput sgr0`
-CHEF_CLIENT_VERSION="14.0.190"
+CHEF_CLIENT_VERSION="14.4.56"
 if [ "$MU_BRANCH" == "" ];then
   MU_BRANCH="chef_14_support" # GIT HOOK EDITABLE DO NOT TOUCH
   mydir="`dirname $0`"
