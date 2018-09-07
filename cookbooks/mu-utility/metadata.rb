@@ -13,4 +13,4 @@ version '0.6.0'
 	supports os
 end
 
-depends 'windows', '= 3.2.0'
+depends 'windows', '~> 5.1.1'

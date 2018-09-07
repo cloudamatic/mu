@@ -13,8 +13,8 @@ version '0.6.0'
 	supports os
 end
 
-depends 'java'
-depends 'jenkins', '~> 5.0.1'
+depends 'java', '~> 2.2.0'
+depends 'jenkins', '~> 6.2.0'
 depends 'chef-vault', '~> 3.1.1'
 depends 'mu-master'
 depends 'mu-utility'

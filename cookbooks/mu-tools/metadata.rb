@@ -13,17 +13,17 @@ version '1.0.4'
 	supports os
 end
 
-depends "oracle-instantclient"
-depends "nagios"
-depends "database"
-depends "postgresql"
-depends "build-essential", '~> 8.0'
+depends "oracle-instantclient", '~> 1.1.0'
+depends "nagios", '~> 8.1.0'
+depends "database", '~> 6.1.1'
+depends "postgresql", '~> 7.1.0'
+depends "build-essential", '~> 8.2.1'
 depends "mu-utility"
-depends "java"
-depends "windows", '= 3.2.0'
+depends "java", '~> 2.2.0'
+depends "windows", '~> 5.1.1'
 depends "mu-splunk"
-depends "chef-vault"
-depends "poise-python"
-depends "yum-epel"
+depends "chef-vault", '~> 3.1.1'
+depends "poise-python", '~> 1.7.0'
+depends "yum-epel", '~> 3.2.0'
 depends "mu-firewall"
 depends "mu-activedirectory"

@@ -14,4 +14,4 @@ end
 
 # for secrets management in setup_auth recipe
 depends 'chef-vault', '~> 3.1.1'
-depends 'windows', '= 3.2.0'
+depends 'windows', '~> 5.1.1'
