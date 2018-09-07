@@ -281,8 +281,18 @@ execute "clean up old Ruby 2.1.6" do
   only_if { ::Dir.exists?("/opt/rubies/ruby-2.1.6") }
 end
 
-package 'ruby23-2.3.1-1.el7.centos.x86_64' do
-  action :remove
+yum_package 'ruby23-2.3.1-1.el7.centos.x86_64' do
+  action :purge
+end
+
+execute "Kill ruby-2.3.1" do
+  command "yum erase ruby23-2.3.1-1.el7.centos.x86_64 -y"
+  only_if { ::Dir.exists?("/opt/rubies/ruby-2.3.1") }
+end
+
+execute "clean up old ruby-2.3.1" do
+  command "rm -rf /opt/rubies/ruby-2.3.1"
+  only_if { ::Dir.exists?("/opt/rubies/ruby-2.3.1") }
 end
 
 # Regular old rpm-based installs
