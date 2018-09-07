@@ -6,7 +6,7 @@ description 'Mu-specific platform capabilities'
 long_description IO.read(File.join(File.dirname(__FILE__), 'README.md'))
 source_url 'https://github.com/cloudamatic/mu'
 issues_url 'https://github.com/cloudamatic/mu/issues'
-chef_version '>= 12.1' if respond_to?(:chef_version)
+chef_version '>= 14.0' if respond_to?(:chef_version)
 version '1.0.4'
 
 %w( amazon centos redhat windows ).each do |os|
@@ -17,7 +17,6 @@ depends "oracle-instantclient", '~> 1.1.0'
 depends "nagios", '~> 8.1.0'
 depends "database", '~> 6.1.1'
 depends "postgresql", '~> 7.1.0'
-depends "build-essential", '~> 8.2.1'
 depends "mu-utility"
 depends "java", '~> 2.2.0'
 depends "windows", '~> 5.1.1'

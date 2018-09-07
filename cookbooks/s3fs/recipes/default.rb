@@ -18,7 +18,10 @@
 
 include_recipe "mu-utility::zip"
 package "make"
-include_recipe "build-essential"
+
+build_essential 'name' do
+  compile_time  True
+end
 
 case node['platform']
 

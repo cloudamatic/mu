@@ -100,7 +100,9 @@ case node['platform_family']
       #   cwd "/root/adcli"
       # end
 
-      include_recipe "build-essential"
+      build_essential 'name' do
+        compile_time  True
+      end
 
       # This is our workaround until the RPM makes it way back into a repo
       # somewhere. It was removed from EPEL after it became part of mainstream

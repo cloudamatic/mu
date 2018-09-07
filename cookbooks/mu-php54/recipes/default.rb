@@ -16,8 +16,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-include_recipe 'build-essential'
 include_recipe "apache2"
+
+build_essential 'name' do
+  compile_time  True
+end
 
 case node['platform']
 
