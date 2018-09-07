@@ -16,7 +16,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-case node[:platform]
+case node['platform']
 
   when "centos"
 
@@ -27,7 +27,7 @@ case node[:platform]
       package pkg
     }
   else
-    Chef::Log.info("Unsupported platform #{node[:platform]}")
+    Chef::Log.info("Unsupported platform #{node['platform']}")
 end
 
 

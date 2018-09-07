@@ -55,16 +55,9 @@ else
   end
   SSH_USER="root"
 end
-RUNNING_STANDALONE=node[:application_attributes].nil?
+RUNNING_STANDALONE=node['application_attributes'].nil?
 
-execute "stop iptables" do
-  command "/sbin/service iptables stop"
-  ignore_failure true
-  action :nothing
-  only_if "( /bin/systemctl -l --no-pager | grep iptables.service ) || ( /sbin/chkconfig --list | grep ^iptables )"
-end
-execute "start iptables" do
-  command "/sbin/service iptables start"
+service "iptables" do
   ignore_failure true
   action :nothing
   only_if "( /bin/systemctl -l --no-pager | grep iptables.service ) || ( /sbin/chkconfig --list | grep ^iptables )"
@@ -122,22 +115,22 @@ end
 execute "reconfigure Chef server" do
   command "/opt/opscode/bin/chef-server-ctl reconfigure"
   action :nothing
-  notifies :run, "execute[stop iptables]", :before
+  notifies :stop, "service[iptables]", :before
 #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
   notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
   notifies :restart, "service[chef-server]", :immediately
-  notifies :run, "execute[start iptables]", :immediately
+  notifies :start, "service[iptables]", :immediately
   only_if { RUNNING_STANDALONE }
 end
 execute "upgrade Chef server" do
   command "/opt/opscode/bin/chef-server-ctl upgrade"
   action :nothing
   timeout 1200 # this can take a while
-  notifies :run, "execute[stop iptables]", :before
+  notifies :stop, "service[iptables]", :before
   notifies :run, "execute[Chef Server rabbitmq workaround]", :before
 #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
   notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
-  notifies :run, "execute[start iptables]", :immediately
+  notifies :start, "service[iptables]", :immediately
   only_if { RUNNING_STANDALONE }
 end
 service "chef-server" do
@@ -148,8 +141,8 @@ service "chef-server" do
   action :nothing
 #  notifies :create, "link[/tmp/.s.PGSQL.5432]", :before
 #  notifies :create, "link[/var/run/postgresql/.s.PGSQL.5432]", :before
-  notifies :run, "execute[stop iptables]", :before
-  notifies :run, "execute[start iptables]", :immediately
+  notifies :stop, "service[iptables]", :before
+  notifies :start, "service[iptables]", :immediately
   only_if { RUNNING_STANDALONE }
 end
 
@@ -158,7 +151,7 @@ removepackages = []
 rpms = {}
 dpkgs = {}
 
-elversion = node[:platform_version].to_i > 2000 ? 6 : node[:platform_version].to_i
+elversion = node['platform_version'].to_i > 2000 ? 6 : node['platform_version'].to_i
 if platform_family?("rhel")
   basepackages = ["git", "curl", "diffutils", "patch", "gcc", "gcc-c++", "make", "postgresql-devel", "libyaml", "libffi-devel"]
 #        package epel-release-6-8.9.amzn1.noarch (which is newer than epel-release-6-8.noarch) is already installed
@@ -186,7 +179,7 @@ if platform_family?("rhel")
     removepackages = ["nagios", "firewalld"]
   end
   # Amazon Linux
-  if node[:platform_version].to_i > 2000
+  if node['platform_version'].to_i > 2000
     basepackages.concat(["compat-libffi5"])
     rpms.delete("epel-release")
   end
@@ -231,17 +224,11 @@ remote_file "#{MU_BASE}/lib/.git/hooks/pre-commit" do
   mode 0755
 end
 
-directory MU_BASE+"/var" do
-  recursive true
-  mode 0755
-end
-directory MU_BASE+"/install" do
-  recursive true
-  mode 0755
-end
-directory MU_BASE+"/deprecated-bash-library.sh" do
-  recursive true
-  mode 0755
+[MU_BASE+"/var", MU_BASE+"/install", MU_BASE+"/deprecated-bash-library.sh"].each do |dir|
+  directory dir do
+    recursive true
+    mode 0755
+  end
 end
 
 # Stub files so standalone Ruby programs like mu-configure can know what
@@ -440,9 +427,9 @@ end
 execute "initial Chef artifact upload" do
   command "MU_INSTALLDIR=#{MU_BASE} MU_LIBDIR=#{MU_BASE}/lib MU_DATADIR=#{MU_BASE}/var #{MU_BASE}/lib/bin/mu-upload-chef-artifacts"
   action :nothing
-  notifies :run, "execute[stop iptables]", :before
+  notifies :stop, "service[iptables]", :before
   notifies :run, "execute[knife ssl fetch]", :before
-  notifies :run, "execute[start iptables]", :immediately
+  notifies :start, "service[iptables]", :immediately
   only_if { RUNNING_STANDALONE }
 end
 chef_gem "simple-password-gen" do

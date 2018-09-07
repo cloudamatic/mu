@@ -14,8 +14,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 
-if !node[:application_attributes][:skip_recipes].include?('nrpe')
-  case node[:platform_family]
+if !node['application_attributes']['skip_recipes'].include?('nrpe')
+  case node['platform_family']
     when "rhel"
     package ['nrpe', 'nagios-plugins-disk', 'nagios-plugins-nrpe', 'nagios-plugins-ssh'] 
     master_ips = get_mu_master_ips

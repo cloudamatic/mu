@@ -17,9 +17,9 @@
 #
 # Apply security patterns for hardening
 
-if !node[:application_attributes][:skip_recipes].include?('apply_security')
-  case node[:platform]
-    when "centos", "redhat"
+if !node['application_attributes']['skip_recipes'].include?('apply_security')
+  case node['platform']
+    when platform_family?('rhel')
       include_recipe "mu-tools::aws_api"
       include_recipe "mu-tools::google_api"
   
@@ -203,7 +203,7 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
   
       # Make sure we don't lock ourselves out of nodes when setting AllowGroups
       # in sshd.
-      if !node[:application_attributes][:sshd_allow_groups].empty?
+      if !node['application_attributes']['sshd_allow_groups'].empty?
         group "mu_sshd_system_login"
         ['root', 'centos', 'ec2-user'].each { |sys_login|
           group "add #{sys_login} to mu_sshd_system_login" do
@@ -213,7 +213,7 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
             ignore_failure true
           end
         }
-        node.override[:application_attributes][:sshd_allow_groups] = "mu_sshd_system_login "+node[:application_attributes][:sshd_allow_groups]
+        node.override['application_attributes']['sshd_allow_groups'] = "mu_sshd_system_login "+node['application_attributes']['sshd_allow_groups']
       end rescue NoMethodError
   
       template "/etc/ssh/sshd_config" do
@@ -226,20 +226,20 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
       end
   
       cookbook_file "/etc/issue.net" do
-        source node[:banner][:path]
+        source node['banner']['path']
         mode 0644
         owner "root"
         group "root"
       end
   
       cookbook_file "/etc/issue" do
-        source node[:banner][:path]
+        source node['banner']['path']
         mode 0644
         owner "root"
         group "root"
       end
       #		cookbook_file "/etc/motd" do
-      #			source node[:banner][:path]
+      #			source node['banner']['path']
       #			mode 0644
       #			owner "root"
       #			group "root"
@@ -330,8 +330,8 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
       }
 
       mu_tools_disk "/home" do
-        device node[:application_attributes][:home][:mount_device]
-        size node[:application_attributes][:home][:volume_size_gb]
+        device node['application_attributes']['home']['mount_device']
+        size node['application_attributes']['home']['volume_size_gb']
         preserve_data true
         not_if "awk '{print $2}' < /etc/mtab | grep '^/home$'"
       end
@@ -340,8 +340,12 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
   
       ruby_block "do a bunch of weird stuff" do
         block do
-          `chcon -Rv --type=user_home_t /home`
-          `rm -rf /tmp/moveusers.tgz`
+          cmd = Mixlib::ShellOut.new('chcon -Rv --type=user_home_t /home')
+          cmd.run_command
+          cmd = Mixlib::ShellOut.new('rm -rf /tmp/moveusers.tgz')
+          cmd.run_command
+          # `chcon -Rv --type=user_home_t /home`
+          # `rm -rf /tmp/moveusers.tgz`
           valid_users="AllowUsers root"
           node['etc']['passwd'].each do |user, data|
             if data['uid'] >= 500 && data['shell'] !~ /nologin/ then
@@ -350,7 +354,7 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
           end
           Chef::Log.info("Enabling ssh users #{valid_users}")
           fe = Chef::Util::FileEdit.new("/etc/ssh/sshd_config")
-          fe.search_file_replace_line(/^AllowUsers.*$/, "#{valid_users}")
+          fe.search_file_replace_line(/^AllowUsers.*$/, valid_users)
           fe.write_file
         end
         only_if { ::File.exists?("/tmp/moveusers.tgz") }
@@ -368,19 +372,19 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
   
       # XXX This is where ephemeral storage seems to land, usually. Usually. We'd
       # probably like a more robust way of identifying it.
-      if !node[:tmp_dev].nil?
-        if node[:platform_version].to_i == 6
-          execute "mkfs.ext4 #{node[:tmp_dev]}" do
-            not_if "tune2fs -l #{node[:tmp_dev]}"
+      if !node['tmp_dev'].nil?
+        if node['platform_version'].to_i == 6
+          execute "mkfs.ext4 #{node['tmp_dev']}" do
+            not_if "tune2fs -l #{node['tmp_dev']}"
           end
-        elsif node[:platform_version].to_i == 7
-          execute "mkfs.xfs -i size=512 #{node[:tmp_dev]}" do
-            not_if "xfs_info #{node[:tmp_dev]}"
+        elsif node['platform_version'].to_i == 7
+          execute "mkfs.xfs -i size=512 #{node['tmp_dev']}" do
+            not_if "xfs_info #{node['tmp_dev']}"
           end
         end
   
         mount "/tmp" do
-          device node[:tmp_dev]
+          device node['tmp_dev']
           options "nodev,nosuid,noexec"
           action [:mount, :enable]
           notifies :run, "execute[fix /tmp permissions]", :immediately
@@ -398,7 +402,7 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
     when "ubuntu"
       # Make sure we don't lock ourselves out of nodes when setting AllowGroups
       # in sshd.
-      if !node[:application_attributes][:sshd_allow_groups].empty?
+      if !node['application_attributes']['sshd_allow_groups'].empty?
         group "mu_sshd_system_login"
         ['root', 'ubuntu'].each { |sys_login|
           group "mu_sshd_system_login" do
@@ -407,7 +411,7 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
             ignore_failure true
           end
         }
-        node.override[:application_attributes][:sshd_allow_groups] = "mu_sshd_system_login "+node[:application_attributes][:sshd_allow_groups]
+        node.override['application_attributes']['sshd_allow_groups'] = "mu_sshd_system_login "+node['application_attributes']['sshd_allow_groups']
       end rescue NoMethodError
   
       template "/etc/ssh/sshd_config" do
@@ -431,6 +435,6 @@ if !node[:application_attributes][:skip_recipes].include?('apply_security')
         group "root"
       end
     else
-      Chef::Log.info("Unsupported platform #{node[:platform]}")
+      Chef::Log.info("Unsupported platform #{node['platform']}")
   end
 end

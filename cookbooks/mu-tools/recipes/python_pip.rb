@@ -21,7 +21,7 @@
 # Requires an initial python and pip installation
 # For now, linux only.  Remove case statement if windows turns out to need it
 
-case node[:platform]
+case node['platform']
   when "windows"
   else
     bash "update-pip" do

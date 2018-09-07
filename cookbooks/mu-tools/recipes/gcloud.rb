@@ -17,19 +17,19 @@
 # limitations under the License.
 
 if platform_family?("rhel")
-  if node[:platform_version].to_i >= 7
+  if node['platform_version'].to_i >= 7
     yum_repository "google-cloud-sdk" do
       description 'Google Cloud SDK'
-      url "https://packages.cloud.google.com/yum/repos/cloud-sdk-el#{node[:platform_version].to_i}-x86_64#{node[:platform_version].to_i == 6 ? "-unstable": ""}"
+      url "https://packages.cloud.google.com/yum/repos/cloud-sdk-el#{node['platform_version'].to_i}-x86_64#{node['platform_version'].to_i == 6 ? "-unstable": ""}"
       enabled true
       gpgcheck true
       repo_gpgcheck true
       gpgkey ["https://packages.cloud.google.com/yum/doc/yum-key.gpg", "https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg"]
     end
     package "google-cloud-sdk"
-  elsif node[:platform_version].to_i == 6
+  elsif node['platform_version'].to_i == 6
     rpm_package "IUS" do
-      source "https://#{node[:platform]}#{node[:platform_version].to_i}.iuscommunity.org/ius-release.rpm"
+      source "https://#{node['platform']}#{node['platform_version'].to_i}.iuscommunity.org/ius-release.rpm"
     end
     package ["python27", "python27-libs"]
     remote_file "#{Chef::Config[:file_cache_path]}/gcloud-cli.sh" do
