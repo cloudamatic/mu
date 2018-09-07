@@ -14,7 +14,7 @@ version '1.0.4'
 end
 
 depends "oracle-instantclient", '~> 1.1.0'
-depends "nagios", '~> 8.1.0'
+depends "nagios"
 depends "database", '~> 6.1.1'
 depends "postgresql", '~> 7.1.0'
 depends "mu-utility"

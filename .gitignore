@@ -9,3 +9,4 @@ install/headlesscheatsheet
 bin/consul
 bin/vault
 .vscode
+Berksfile.lock

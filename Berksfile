@@ -18,13 +18,14 @@ cookbook 'mu-utility', path: "#{cookbook_path}/mu-utility"
 # cookbook 'awscli', path: "#{cookbook_path}/awscli"
 cookbook 'cloudcli', '~> 1.2.0'
 # cookbook 'mysql-chef_gem', path: "#{cookbook_path}/mysql-chef_gem"
-# cookbook 'nagios', path: "#{cookbook_path}/nagios"
-cookbook 'nagios', '~> 8.1.0'
 # cookbook 's3fs', path: "#{cookbook_path}/s3fs"
 cookbook 's3fs', '~> 3.0.1'
 
+# Nagios cookbook is borked, and dragging these cookbooks down with it...
+cookbook 'nagios', path: "#{cookbook_path}/nagios"
+cookbook 'apache2', '< 4.0'
+
 # Supermarket Cookbooks that are using latest as of 09/07/18
-cookbook 'apache2', '~> 5.2.1'
 cookbook 'chef-vault', '~> 3.1.1'
 cookbook 'windows', '~> 5.1.1'
 cookbook 'aws', '~> 2.9.3'

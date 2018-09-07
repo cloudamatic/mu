@@ -16,6 +16,6 @@ end
 
 depends 'mu-utility'
 depends 'simple_iptables', '~> 0.8.0'
-depends 'apache2', '~> 5.2.1'
+depends 'apache2', '< 4.0'
 depends 'mysql', '~> 8.5.1'
 depends 'yum-epel', '~> 3.2.0'

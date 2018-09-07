@@ -13,7 +13,7 @@ version '0.9.0'
 	supports os
 end
 
-depends 'nagios', '~> 8.1.0'
+depends 'nagios'
 depends 'nrpe', '~> 2.0.3'
 depends 'mu-utility'
 depends 'mu-tools'
@@ -27,4 +27,4 @@ depends 'vault-cluster', '~> 2.1.0'
 depends 'consul-cluster', '~> 2.0.0'
 depends 'hostsfile', '~> 3.0.1'
 depends 'chef-vault', '~> 3.1.1'
-depends 'apache2', '~> 5.2.1'
+depends 'apache2', '< 4.0'
