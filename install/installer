@@ -13,7 +13,7 @@ if [ "$MU_BRANCH" == "" ];then
 fi
 
 # XXX All RHEL family. We can at least cover Debian-flavored hosts too, I bet.
-DIST_VERSION=`rpm -qa \*-release\* | grep -Ei "redhat|centos" | cut -d"-" -f3`
+DIST_VERSION=`rpm -qa \*-release\* | grep -Ei "redhat|^centos" | cut -d"-" -f3`
 #IS_AMAZON=0
 if [ "$DIST_VERSION" == "" ];then # funny package name in Amazon Linux
   DIST_VERSION=6

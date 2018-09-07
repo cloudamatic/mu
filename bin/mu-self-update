@@ -191,7 +191,7 @@ cd
 
 chef_major="`chef-apply --version | awk '{print $2}' | cut -d\. -f1`"
 if [ "$chef_major" == "12" ];then
-  DIST_VERSION=`rpm -qa \*-release\* | grep -Ei "redhat|centos" | cut -d"-" -f3`
+  DIST_VERSION=`rpm -qa \*-release\* | grep -Ei "redhat|^centos" | cut -d"-" -f3`
   # IS_AMAZON=0
   if [ "$DIST_VERSION" == "" ];then # funny package name in Amazon Linux
     DIST_VERSION=6
