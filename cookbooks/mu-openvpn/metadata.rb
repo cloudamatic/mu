@@ -13,6 +13,6 @@ version '0.1.0'
 	supports os
 end
 
-depends 'chef-vault', '< 3.0'
+depends 'chef-vault', '~> 3.1.1'
 depends 'mu-utility'
 depends 'mu-firewall'

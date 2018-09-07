@@ -22,7 +22,7 @@ cookbook 's3fs', path: "#{cookbook_path}/s3fs"
 
 # Supermarket Cookbooks are an outdated version as of 3/21/18
 cookbook 'apache2', '< 4.0'
-cookbook 'chef-vault', '< 3.0'
+cookbook 'chef-vault', '~> 3.1.1'
 cookbook 'windows', '= 3.2.0'
 cookbook 'aws', '~> 2.9.3'
 cookbook 'build-essential', '~> 8.0'

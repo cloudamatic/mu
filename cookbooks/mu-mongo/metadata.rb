@@ -14,4 +14,4 @@ version '0.5.0'
 end
 
 depends 'mongodb', '~> 0.16.2'
-depends 'chef-vault', '< 3.0'
+depends 'chef-vault', '~> 3.1.1'

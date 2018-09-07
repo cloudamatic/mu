@@ -9,7 +9,7 @@ issues_url 'https://github.com/cloudamatic/mu/issues'
 chef_version '>= 12.1' if respond_to?(:chef_version)
 version '0.2.0'
 depends "windows", '= 3.2.0'
-depends "chef-vault", '< 3.0'
+depends "chef-vault", '~> 3.1.1'
 depends "yum-epel"
 depends "build-essential", '~> 8.0'
 

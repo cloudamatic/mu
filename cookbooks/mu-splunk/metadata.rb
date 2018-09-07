@@ -13,5 +13,5 @@ version '1.3.0'
 end
 
 # for secrets management in setup_auth recipe
-depends 'chef-vault', '< 3.0'
+depends 'chef-vault', '~> 3.1.1'
 depends 'windows', '= 3.2.0'

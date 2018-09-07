@@ -15,7 +15,7 @@ end
 
 depends 'java'
 depends 'jenkins', '~> 5.0.1'
-depends 'chef-vault', '< 3.0'
+depends 'chef-vault', '~> 3.1.1'
 depends 'mu-master'
 depends 'mu-utility'
 depends 'mu-tools'
