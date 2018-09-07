@@ -17,7 +17,7 @@ require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.r
 # now we have our global config available as the read-only hash $MU_CFG
 
 require 'mu'
-require 'trollop'
+require 'optimist'
 require 'simple-password-gen'
 require 'net/smtp'
 
@@ -26,7 +26,7 @@ if Etc.getpwuid(Process.uid).name != "root"
   exit 1
 end
 
-$opts = Trollop::options do
+$opts = Optimist::options do
   banner <<-EOS
 Listing users:
 #{$0}
@@ -106,11 +106,11 @@ Dir.mkdir($MU_CFG['datadir']+"/users", 0755) if !Dir.exist?($MU_CFG['datadir']+"
 
 if $opts[:admin] and $opts[:revoke_admin]
   MU.log "Cannot both add and revoke admin access", MU::ERR
-  Trollop::educate
+  Optimist::educate
 end
 if $opts[:password] and $opts[:generate_password]
   MU.log "Cannot both specify a password and generate a password", MU::ERR
-  Trollop::educate
+  Optimist::educate
 end
 
 if $opts[:orgs] and $opts[:remove_from_orgs] and ($opts[:orgs] & $opts[:remove_from_orgs]).size > 0
@@ -142,7 +142,7 @@ if !ARGV[0] or ARGV[0].empty?
       bail = true
     end
   }
-  Trollop::educate if bail
+  Optimist::educate if bail
   MU::Master.printUsersToTerminal
   exit 0
 elsif $opts.select { |opt| opt =~ /_given$/ }.size == 0

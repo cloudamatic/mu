@@ -225,6 +225,7 @@ GEM
       plist (~> 3.1)
       systemu (~> 2.6.4)
       wmi-lite (~> 1.0)
+    optimist (3.0.0)
     os (1.0.0)
     paint (1.0.1)
     parallel (1.12.1)
@@ -312,7 +313,6 @@ GEM
     tomlrb (1.2.7)
     treetop (1.6.10)
       polyglot (~> 0.3)
-    trollop (2.9.9)
     uber (0.1.0)
     unicode-display_width (1.4.0)
     uuidtools (2.1.5)
@@ -359,6 +359,7 @@ DEPENDENCIES
   net-ssh (~> 4.2)
   netaddr (~> 2.0.3)
   nokogiri (~> 1.8.4)
+  optimist
   pg (~> 0.18.4)
   rack
   rubocop (~> 0.58.2)
@@ -367,7 +368,6 @@ DEPENDENCIES
   simple-password-gen
   solve (~> 4.0.0)
   thin
-  trollop (~> 2.9.9)
   winrm (~> 2.2.3)
   yard
 

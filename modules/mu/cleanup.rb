@@ -15,7 +15,7 @@
 require 'json'
 require 'net/http'
 require 'net/smtp'
-require 'trollop'
+require 'optimist'
 require 'fileutils'
 
 Thread.abort_on_exception = true

@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-require 'trollop'
+require 'optimist'
 require 'simple-password-gen'
 require 'socket'
 require 'open-uri'
@@ -181,7 +181,7 @@ $CONFIGURABLES = {
 AMROOT = Process.uid == 0
 HOMEDIR = Etc.getpwuid(Process.uid).dir
 
-$opts = Trollop::options do
+$opts = Optimist::options do
   banner <<-EOS
   EOS
   required = []

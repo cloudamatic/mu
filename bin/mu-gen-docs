@@ -22,7 +22,7 @@ require 'rubygems'
 require 'bundler/setup'
 require 'json'
 require 'erb'
-require 'trollop'
+require 'optimist'
 require 'json-schema'
 require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.rb"))
 require 'mu'

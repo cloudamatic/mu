@@ -19,11 +19,11 @@ require File.realpath(File.expand_path(File.dirname(__FILE__)+"/mu-load-config.r
 
 require 'rubygems'
 require 'bundler/setup'
-require 'trollop'
+require 'optimist'
 require 'mu'
 Dir.chdir(MU.installDir)
 
-$opts = Trollop::options do
+$opts = Optimist::options do
   banner <<-EOS
 Usage:
 #{$0} [-i] [-n] [-s] [-o] [-w] [-v] <deploy_id>
