@@ -17,7 +17,6 @@ cookbook 'mu-utility', path: "#{cookbook_path}/mu-utility"
 # Forked Cookbooks
 # cookbook 'awscli', path: "#{cookbook_path}/awscli"
 cookbook 'cloudcli', '~> 1.2.0'
-# cookbook 'mysql-chef_gem', path: "#{cookbook_path}/mysql-chef_gem"
 # cookbook 's3fs', path: "#{cookbook_path}/s3fs"
 cookbook 's3fs', '~> 3.0.1'
 
