@@ -202,7 +202,7 @@ GEM
     molinillo (0.6.5)
     multi_json (1.13.1)
     multipart-post (2.0.0)
-    mysql (2.9.1)
+    mysql2 (0.5.1)
     net-ldap (0.16.1)
     net-scp (1.2.1)
       net-ssh (>= 2.6.5)
@@ -399,7 +399,7 @@ DEPENDENCIES
   inspec (~> 1.51.18)
   json-schema
   knife-windows!
-  mysql
+  mysql2
   net-ldap
   net-ssh (~> 3.2.0)
   netaddr (< 2.0)
