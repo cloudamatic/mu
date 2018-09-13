@@ -405,6 +405,8 @@ module MU
 
           database = MU::Cloud::AWS::Database.getDatabaseById(@config['identifier'], region: @config['region'])
           MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: database.db_instance_identifier, target: "#{database.endpoint.address}.", cloudclass: MU::Cloud::Database, sync_wait: @config['dns_sync_wait'])
+          MU.log "Database #{@config['name']} is at #{database.endpoint.address}", MU::SUMMARY
+          MU.log "knife vault show #{@config['auth_vault']['vault']} #{@config['auth_vault']['item']} for Database #{@config['name']} credentials", MU::SUMMARY
 
           # If referencing an existing DB, insert this deploy's DB security group so it can access db
           if @config["creation_style"] == 'existing'

@@ -135,6 +135,9 @@ module MU
         # @return [Array]: The Compute :AttachedDisk objects describing disks that've been created
         def self.diskConfig(config, create = true, disk_as_url = true)
           disks = []
+          puts config['image_id']
+          puts config['basis']
+
           img = fetchImage(config['image_id'] || config['basis']['launch_config']['image_id'])
 
 # XXX slurp settings from /dev/sda or w/e by convention?
@@ -857,7 +860,7 @@ next if !create
 # XXX put that 'ip' value into flags
           instance = nil
           flags["project"] ||= MU::Cloud::Google.defaultProject
-          if !region.nil?
+          if !region.nil? and MU::Cloud::Google.listRegions.include?(region)
             regions = [region]
           else
             regions = MU::Cloud::Google.listRegions
@@ -1181,6 +1184,10 @@ next if !create
           nil
         end
 
+        def cloud_desc
+          MU::Cloud::Google::Server.find(cloud_id: @cloud_id).values.first
+        end
+
         # Return the IP address that we, the Mu server, should be using to access
         # this host via the network. Note that this does not factor in SSH
         # bastion hosts that may be in the path, see getSSHConfig if that's what
@@ -1194,6 +1201,7 @@ next if !create
 
           private_ips = []
           public_ips = []
+
           cloud_desc.network_interfaces.each { |iface|
             private_ips << iface.network_ip
             if iface.access_configs
@@ -1490,6 +1498,7 @@ next if !create
               raise e if !e.message.match(/^forbidden: /)
             end
           end
+
           ok
         end
 

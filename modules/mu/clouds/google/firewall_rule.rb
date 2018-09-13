@@ -36,6 +36,8 @@ module MU
           @cloud_id ||= cloud_id
           if !mu_name.nil?
             @mu_name = mu_name
+            # This is really a placeholder, since we "own" multiple rule sets
+            @cloud_id ||= MU::Cloud::Google.nameStr(@mu_name+"-ingress-allow")
           else
             if !@vpc.nil?
               @mu_name = @deploy.getResourceName(@config['name'], need_unique_string: true)
@@ -76,6 +78,7 @@ module MU
             ["ingress", "egress"].each { |dir|
               if rule[dir] or (dir == "ingress" and !rule.has_key?("egress"))
                 setname = MU::Cloud::Google.nameStr(@mu_name+"-"+dir+"-"+(rule['deny'] ? "deny" : "allow"))
+                @cloud_id ||= setname
                 allrules[setname] ||= {
                   :name => setname,
                   :direction => dir.upcase,
@@ -125,10 +128,12 @@ module MU
         # Log metadata about this ruleset to the currently running deployment
         def notify
           sg_data = MU.structToHash(
-              MU::Cloud::FirewallRule.find(cloud_id: @cloud_id, region: @config['region'])
+            MU::Cloud::Google::FirewallRule.find(cloud_id: @cloud_id, region: @config['region'])
           )
           sg_data ||= {}
           sg_data["group_id"] = @cloud_id
+          sg_data["cloud_id"] = @cloud_id
+
           return sg_data
         end
 

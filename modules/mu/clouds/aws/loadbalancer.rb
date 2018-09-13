@@ -161,7 +161,8 @@ module MU
             end
           end
           @cloud_id = @mu_name
-          MU.log "Load Balancer is at #{lb.dns_name}"
+          MU.log "LoadBalancer #{@config['name']} is at #{lb.dns_name}"
+          MU.log "LoadBalancer #{@config['name']} is at #{lb.dns_name}", MU::SUMMARY
 
           parent_thread_id = Thread.current.object_id
           generic_mu_dns = nil

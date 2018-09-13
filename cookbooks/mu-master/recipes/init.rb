@@ -32,12 +32,15 @@ CHEF_SERVER_VERSION="12.17.15-1"
 CHEF_CLIENT_VERSION="14.4.56"
 KNIFE_WINDOWS="1.9.0"
 MU_BASE="/opt/mu"
-MU_BRANCH="chef_14_support" # GIT HOOK EDITABLE DO NOT TOUCH
 realbranch=`cd #{MU_BASE}/lib && git rev-parse --abbrev-ref HEAD`
-if $?.exitstatus == 0
-  MU_BRANCH=realbranch.chomp
-end
 
+if ENV.key?('MU_BRANCH')
+  MU_BRANCH = ENV['MU_BRANCH']
+elsif $?.exitstatus == 0
+  MU_BRANCH=realbranch.chomp
+else
+  MU_BRANCH="master"
+end
 begin
   resources('service[sshd]')
 rescue Chef::Exceptions::ResourceNotFound
@@ -219,9 +222,8 @@ end
     mode 0755
   end
 }
-remote_file "#{MU_BASE}/lib/.git/hooks/pre-commit" do
-  source "file://#{MU_BASE}/lib/extras/git-fix-branch-hook"
-  mode 0755
+file  "#{MU_BASE}/lib/.git/hooks/pre-commit" do
+  action :delete
 end
 
 [MU_BASE+"/var", MU_BASE+"/install", MU_BASE+"/deprecated-bash-library.sh"].each do |dir|

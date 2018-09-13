@@ -1,0 +1,20 @@
+#!/bin/sh
+
+cfg="<%= kube_conf %>"
+kubectl="kubectl --kubeconfig $cfg"
+
+echo "API URL:"
+cat $cfg | grep server: | awk '{print $2}'
+echo ""
+
+echo "CA Certificate:"
+cat $cfg | grep certificate-authority-data: | awk '{print $2}' | base64 -d
+echo ""
+
+echo "Token:"
+$kubectl -n kube-system describe secret $($kubectl -n kube-system get secret | grep admin-user | awk '{print $1}') | grep '^token:' | awk '{print $2}'
+
+if ! ($kubectl get clusterrolebindings | grep ^default-gitlab-sa-admin > /dev/null);then
+  # this might not work if the gitlab-managed-apps namespace doesn't exist yet
+  $kubectl create clusterrolebinding --user system:serviceaccount:gitlab-managed-apps:default default-gitlab-sa-admin --clusterrole cluster-admin
+fi
