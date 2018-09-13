@@ -224,9 +224,11 @@ module Mutools
         if secret.nil?
           raise "Failed to fetch deploy secret, and I can't communicate with Momma Cat without it"
         end
-        Chef::Log.info("Sending Momma Cat #{action} request to #{uri}")
+
+        Chef::Log.info("Sending Momma Cat #{action} request to #{uri} from #{get_aws_metadata("meta-data/instance-id")}")
         req.set_form_data(
           "mu_id" => mu_get_tag_value("MU-ID"),
+          "mu_instance_id" => get_aws_metadata("meta-data/instance-id") || get_google_metadata("name"),
           "mu_resource_name" => node[:service_name],
           "mu_resource_type" => res_type,
           "mu_user" => node[:deployment][:mu_user] || node[:deployment][:chef_user],
