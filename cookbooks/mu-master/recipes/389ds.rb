@@ -42,7 +42,7 @@ $CREDS = {
 }
 
 service_name = "dirsrv"
-if node[:platform_version].to_i >= 7
+if node['platform_version'].to_i >= 7
   service_name = service_name + "@" + $MU_CFG["hostname"]
 end
 
@@ -92,7 +92,7 @@ service service_name do
   action [:enable, :start]
 end
 
-if platform_family?("rhel") and node[:platform_version].to_i >= 7
+if platform_family?("rhel") and node['platform_version'].to_i >= 7
   cookbook_file "dirsrv_admin.pp" do
     path "#{Chef::Config[:file_cache_path]}/dirsrv_admin.pp"
   end

@@ -19,7 +19,7 @@
 include_recipe 'build-essential'
 include_recipe "apache2"
 
-case node[:platform]
+case node['platform']
 
   when "centos"
     include_recipe "yum-epel"
@@ -84,7 +84,7 @@ case node[:platform]
     end
 
   else
-    Chef::Log.info("Unsupported platform #{node[:platform]}")
+    Chef::Log.info("Unsupported platform #{node['platform']}")
 
 end
 

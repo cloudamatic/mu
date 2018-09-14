@@ -16,7 +16,7 @@ def whyrun_supported?
 end
 
 action :add do
-  case node[:platform]
+  case node['platform']
     when "windows"
       install_ad_features
       elevate_remote_access
@@ -25,21 +25,21 @@ action :add do
       configure_network_interface
       set_replication_static_ports
       set_computer_name(admin_creds)
-    when "centos", "redhat"
+    when platform_family?('rhel')
       # To do: Do Active Directory on Linux
     else
-      Chef::Log.info("Unsupported platform #{node[:platform]}")
+      Chef::Log.info("Unsupported platform #{node['platform']}")
   end
 end
 
 action :remove do
-  case node[:platform]
+  case node['platform']
     when "windows"
       demote
-    when "centos", "redhat"
+    when platform_family?('rhel')
       # To do: Do Active Directory on Linux
     else
-      Chef::Log.info("Unsupported platform #{node[:platform]}")
+      Chef::Log.info("Unsupported platform #{node['platform']}")
   end
 end
 

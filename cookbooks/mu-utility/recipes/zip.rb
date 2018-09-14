@@ -16,11 +16,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-case node[:platform]
-  when "centos", "redhat", "ubuntu"
+case node['platform']
+  when !"windows"
     %w{zip unzip}.each { |pkg|
       package pkg
     }
   else
-    Chef::Log.info("Unsupported platform #{node[:platform]}")
+    Chef::Log.info("Unsupported platform #{node['platform']}")
 end
