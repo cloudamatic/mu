@@ -986,7 +986,7 @@ module MU
 
           deploy_struct = {}
           my_dbs.each { |db|
-          deploy_struct = 
+            deploy_struct = 
             if db["create_cluster"]
               db["identifier"] = @mu_name.downcase if db["identifier"].nil?
               cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(db["identifier"], region: db['region'])
@@ -1039,10 +1039,12 @@ module MU
                     dnsrec['name'] = database.db_instance_identifier if !dnsrec.has_key?('name')
                     dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
                   }
+                  # XXX this should be a call to @deploy.nameKitten
+                  MU::Cloud::AWS::DNSZone.createRecordsFromConfig(db['dns_records'], target: database.endpoint.address)
                 end
-                # XXX this should be a call to @deploy.nameKitten
-                MU::Cloud::AWS::DNSZone.createRecordsFromConfig(db['dns_records'], target: database.endpoint.address)
               end
+
+              database = cloud_desc
 
               vpc_sg_ids = Array.new
               database.vpc_security_groups.each { |vpc_sg|

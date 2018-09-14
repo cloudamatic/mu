@@ -838,9 +838,7 @@ module MU
                   @subnets << MU::Cloud::AWS::VPC::Subnet.new(self, subnet)
                 elsif !subnet["cloud_id"]
                   resp.data.subnets.each { |desc|
-
                     if desc.cidr_block == subnet["ip_block"]
-                      puts desc.subnet_id
                       subnet['cloud_id'] = desc.subnet_id
                       @subnets << MU::Cloud::AWS::VPC::Subnet.new(self, subnet)
                     end
@@ -866,7 +864,6 @@ module MU
                 end
               }
             end
-
             return @subnets
           }
         end
@@ -960,12 +957,14 @@ module MU
           if !cloud_id and !name and !tag_key and !tag_value and !ip_block
             raise MuError, "getSubnet called with no non-nil arguments"
           end
-          loadSubnets
+          subnets
 
           @subnets.each { |subnet|
             if !cloud_id.nil? and !subnet.cloud_id.nil? and subnet.cloud_id.to_s == cloud_id.to_s
               return subnet
             elsif !name.nil? and !subnet.name.nil? and subnet.name.to_s == name.to_s
+              return subnet
+            elsif !ip_block.nil? and !subnet.ip_block.nil? and subnet.ip_block.to_s == ip_block.to_s
               return subnet
             end
           }
@@ -1901,7 +1900,7 @@ module MU
           attr_reader :mu_name
           attr_reader :name
           attr_reader :az
-
+          attr_reader :cloud_desc
 
           # @param parent [MU::Cloud::AWS::VPC]: The parent VPC of this subnet.
           # @param config [Hash<String>]:
@@ -1915,6 +1914,7 @@ module MU
             resp = MU::Cloud::AWS.ec2(@config['region']).describe_subnets(subnet_ids: [@cloud_id]).subnets.first
             @az = resp.availability_zone
             @ip_block = resp.cidr_block
+            @cloud_desc = resp
 
           end
 

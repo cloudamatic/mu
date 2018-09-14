@@ -541,6 +541,7 @@ module MU
 # XXX The language for addressing ELBs should be as flexible as VPCs. This sauce
 # is weak.
 # Try to find one by name in this deploy
+
                   found = MU::MommaCat.findStray(
                     "AWS",
                     "loadbalancers",
@@ -560,6 +561,7 @@ module MU
                     end
                   end
                   lb = found.first
+
                   if !lb.nil? and !lb.cloud_desc.nil?
                     lb.cloud_desc.security_groups.each { |lb_sg|
                       ec2_rule[:user_id_group_pairs] << {

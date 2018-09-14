@@ -827,7 +827,11 @@ module MU
           }
 
           siblingvpc = haveLitterMate?(descriptor["vpc"]["vpc_name"], "vpcs")
-#          insertKitten(siblingvpc, "vpcs") if !siblingvpc["#MU_VALIDATED"]
+          # things that live in subnets need their VPCs to be fully
+          # resolved before we can proceed
+          if ["server", "server_pool", "loadbalancer", "database", "cache_cluster", "container_cluster", "storage_pool"].include?(cfg_name)
+            insertKitten(siblingvpc, "vpcs") if !siblingvpc["#MU_VALIDATED"]
+          end
           if !MU::Config::VPC.processReference(descriptor['vpc'],
                                   cfg_plural,
                                   shortclass.to_s+" '#{descriptor['name']}'",
