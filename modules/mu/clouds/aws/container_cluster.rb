@@ -28,7 +28,7 @@ module MU
         # Return the list of regions where we know EKS is supported.
         def self.EKSRegions
           # XXX would prefer to query service API for this
-          ["us-east-1", "us-west-2"]
+          ["us-east-1", "us-west-2", "eu-west-1"]
         end
 
         # @param mommacat [MU::MommaCat]: A {MU::Mommacat} object containing the deploy of which this resource is/will be a member.
@@ -367,7 +367,7 @@ module MU
           elsif flavor == "EKS"
             # XXX this is absurd, but these don't appear to be available from an API anywhere
             # Here's their Packer build, should just convert to Chef: https://github.com/awslabs/amazon-eks-ami
-            amis = { "us-east-1" => "ami-0b2ae3c6bda8b5c06", "us-west-2" => "ami-08cab282f9979fc7a" }
+            amis = { "us-east-1" => "ami-0440e4f6b9713faf6", "us-west-2" => "ami-0a54c984b9f908c81", "eu-west-1" => "ami-0c7a4976cb6fafd3a" }
             return amis[region]
           end
           nil
