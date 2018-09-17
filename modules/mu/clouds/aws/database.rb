@@ -599,12 +599,18 @@ module MU
               else
                 subnet_objects= []
                 @config["vpc"]["subnets"].each { |subnet|
-                  subnet_objects << @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
+                  sobj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
+                  if sobj.nil?
+                    MU.log "Got nil result from @vpc.getSubnet(cloud_id: #{subnet["subnet_id"]}, name: #{subnet["subnet_name"]})", MU::WARN
+                  else
+                    subnet_objects << sobj
+                  end
                 }
                 subnet_objects
               end
 
             subnets.each{ |subnet|
+              next if subnet.nil?
               if @config["publicly_accessible"]
                 subnet_ids << subnet.cloud_id if !subnet.private?
               elsif !@config["publicly_accessible"]
