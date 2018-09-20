@@ -269,7 +269,7 @@ module MU
         end
         if @server.deploy.original_config.has_key?('parameters')
           MU.log "Setting node:#{@server.mu_name} parameters", MU::DEBUG, details: @server.deploy.original_config['parameters']
-          chef_node.normal.mu_parameters = @server.deploy.original_config['parameters']
+          chef_node.normal['mu_parameters'] = @server.deploy.original_config['parameters']
           chef_node.save
         end
         saveDeployData
@@ -724,12 +724,12 @@ retry
             }
           end
 
-          if chef_node.normal.deployment != @server.deploy.deployment
+          if chef_node.normal['deployment'] != @server.deploy.deployment
             MU.log "Updating node: #{@server.mu_name} deployment attributes", details: @server.deploy.deployment
-            chef_node.normal.deployment.merge!(@server.deploy.deployment)
+            chef_node.normal['deployment'].merge!(@server.deploy.deployment)
             chef_node.save
           end
-          return chef_node[:deployment]
+          return chef_node['deployment']
         rescue Net::HTTPServerException => e
           MU.log "Attempted to save deployment to Chef node #{@server.mu_name} before it was bootstrapped.", MU::DEBUG
         end
@@ -818,46 +818,46 @@ retry
         system_name = chef_node['fqdn'] if !chef_node['fqdn'].nil?
         MU.log "#{@server.mu_name} local name is #{system_name}", MU::DEBUG
 
-        chef_node.normal.app = @config['application_cookbook'] if @config['application_cookbook'] != nil
-        chef_node.normal.service_name = @config["name"]
-        chef_node.normal.windows_admin_username = @config['windows_admin_username']
+        chef_node.normal.app = @config['application_cookbook'] if !@config['application_cookbook'].nil?
+        chef_node.normal["service_name"] = @config["name"]
+        chef_node.normal["windows_admin_username"] = @config['windows_admin_username']
         chef_node.chef_environment = MU.environment.downcase
         if @server.config['cloud'] == "AWS"
-          chef_node.normal.ec2 = MU.structToHash(@server.cloud_desc)
+          chef_node.normal["ec2"] = MU.structToHash(@server.cloud_desc)
         end
 
         if @server.windows?
-          chef_node.normal.windows_admin_username = @config['windows_admin_username']
-          chef_node.normal.windows_auth_vault = @server.mu_name
-          chef_node.normal.windows_auth_item = "windows_credentials"
-          chef_node.normal.windows_auth_password_field = "password"
-          chef_node.normal.windows_auth_username_field = "username"
-          chef_node.normal.windows_ec2config_password_field = "ec2config_password"
-          chef_node.normal.windows_ec2config_username_field = "ec2config_username"
-          chef_node.normal.windows_sshd_password_field = "sshd_password"
-          chef_node.normal.windows_sshd_username_field = "sshd_username"
+          chef_node.normal['windows_admin_username'] = @config['windows_admin_username']
+          chef_node.normal['windows_auth_vault'] = @server.mu_name
+          chef_node.normal['windows_auth_item'] = "windows_credentials"
+          chef_node.normal['windows_auth_password_field'] = "password"
+          chef_node.normal['windows_auth_username_field'] = "username"
+          chef_node.normal['windows_ec2config_password_field'] = "ec2config_password"
+          chef_node.normal['windows_ec2config_username_field'] = "ec2config_username"
+          chef_node.normal['windows_sshd_password_field'] = "sshd_password"
+          chef_node.normal['windows_sshd_username_field'] = "sshd_username"
         end
 
         # If AD integration has been requested for this node, give Chef what it'll need.
         if !@config['active_directory'].nil?
-          chef_node.normal.ad.computer_name = @server.mu_windows_name
-          chef_node.normal.ad.node_class = @config['name']
-          chef_node.normal.ad.domain_name = @config['active_directory']['domain_name']
-          chef_node.normal.ad.node_type = @config['active_directory']['node_type']
-          chef_node.normal.ad.domain_operation = @config['active_directory']['domain_operation']
-          chef_node.normal.ad.domain_controller_hostname = @config['active_directory']['domain_controller_hostname'] if @config['active_directory'].has_key?('domain_controller_hostname')
-          chef_node.normal.ad.netbios_name = @config['active_directory']['short_domain_name']
-          chef_node.normal.ad.computer_ou = @config['active_directory']['computer_ou'] if @config['active_directory'].has_key?('computer_ou')
-          chef_node.normal.ad.domain_sid = @config['active_directory']['domain_sid'] if @config['active_directory'].has_key?('domain_sid')
-          chef_node.normal.ad.dcs = @config['active_directory']['domain_controllers']
-          chef_node.normal.ad.domain_join_vault = @config['active_directory']['domain_join_vault']['vault']
-          chef_node.normal.ad.domain_join_item = @config['active_directory']['domain_join_vault']['item']
-          chef_node.normal.ad.domain_join_username_field = @config['active_directory']['domain_join_vault']['username_field']
-          chef_node.normal.ad.domain_join_password_field = @config['active_directory']['domain_join_vault']['password_field']
-          chef_node.normal.ad.domain_admin_vault = @config['active_directory']['domain_admin_vault']['vault']
-          chef_node.normal.ad.domain_admin_item = @config['active_directory']['domain_admin_vault']['item']
-          chef_node.normal.ad.domain_admin_username_field = @config['active_directory']['domain_admin_vault']['username_field']
-          chef_node.normal.ad.domain_admin_password_field = @config['active_directory']['domain_admin_vault']['password_field']
+          chef_node.normal['ad']['computer_name'] = @server.mu_windows_name
+          chef_node.normal['ad']['node_class'] = @config['name']
+          chef_node.normal['ad']['domain_name'] = @config['active_directory']['domain_name']
+          chef_node.normal['ad']['node_type'] = @config['active_directory']['node_type']
+          chef_node.normal['ad']['domain_operation'] = @config['active_directory']['domain_operation']
+          chef_node.normal['ad']['domain_controller_hostname'] = @config['active_directory']['domain_controller_hostname'] if @config['active_directory'].has_key?('domain_controller_hostname')
+          chef_node.normal['ad']['netbios_name'] = @config['active_directory']['short_domain_name']
+          chef_node.normal['ad']['computer_ou'] = @config['active_directory']['computer_ou'] if @config['active_directory'].has_key?('computer_ou')
+          chef_node.normal['ad']['domain_sid'] = @config['active_directory']['domain_sid'] if @config['active_directory'].has_key?('domain_sid')
+          chef_node.normal['ad']['dcs'] = @config['active_directory']['domain_controllers']
+          chef_node.normal['ad']['domain_join_vault'] = @config['active_directory']['domain_join_vault']['vault']
+          chef_node.normal['ad']['domain_join_item'] = @config['active_directory']['domain_join_vault']['item']
+          chef_node.normal['ad']['domain_join_username_field'] = @config['active_directory']['domain_join_vault']['username_field']
+          chef_node.normal['ad']['domain_join_password_field'] = @config['active_directory']['domain_join_vault']['password_field']
+          chef_node.normal['ad']['domain_admin_vault'] = @config['active_directory']['domain_admin_vault']['vault']
+          chef_node.normal['ad']['domain_admin_item'] = @config['active_directory']['domain_admin_vault']['item']
+          chef_node.normal['ad']['domain_admin_username_field'] = @config['active_directory']['domain_admin_vault']['username_field']
+          chef_node.normal['ad']['domain_admin_password_field'] = @config['active_directory']['domain_admin_vault']['password_field']
         end
 
         # Amazon-isms, possibly irrelevant
@@ -871,10 +871,10 @@ retry
                 }
             }
         }
-        chef_node.normal.awscli = awscli_region_widget
+        chef_node.normal['awscli'] = awscli_region_widget
 
         if !@server.cloud.nil?
-          chef_node.normal.cloudprovider = @server.cloud
+          chef_node.normal['cloudprovider'] = @server.cloud
 
           # XXX In AWS this is an OpenStruct-ish thing, but it may not be in
           # others.
@@ -890,7 +890,7 @@ retry
           }
         end
 
-        chef_node.normal.tags = tags
+        chef_node.normal['tags'] = tags
         chef_node.save
 
         # If we have a database make sure we grant access to that vault.

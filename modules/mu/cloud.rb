@@ -1226,7 +1226,7 @@ module MU
                     :config => false,
                     :keys_only => true,
                     :keys => [ssh_keydir+"/"+nat_ssh_key, ssh_keydir+"/"+@deploy.ssh_key_name],
-                    :paranoid => false,
+                    :verify_host_key => false,
                     #           :verbose => :info,
                     :port => 22,
                     :auth_methods => ['publickey'],
@@ -1240,7 +1240,7 @@ module MU
                     :config => false,
                     :keys_only => true,
                     :keys => [ssh_keydir+"/"+@deploy.ssh_key_name],
-                    :paranoid => false,
+                    :verify_host_key => false,
                     #           :verbose => :info,
                     :port => 22,
                     :auth_methods => ['publickey']

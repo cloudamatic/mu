@@ -1104,7 +1104,7 @@ module MU
               cidr = NetAddr::IPv4Net.parse(route.destination_cidr_block)
               shared_ip_space = false
               my_routes.each { |my_cidr|
-                if my_cidr.contains(route.destination_cidr_block) or my_cidr.cmp(cidr)
+                if my_cidr.contains(NetAddr::IPv4Net.parse(route.destination_cidr_block).nth(2)) or my_cidr.cmp(cidr)
                   shared_ip_space = true
                   break
                 end
