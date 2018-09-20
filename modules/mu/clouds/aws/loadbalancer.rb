@@ -549,12 +549,12 @@ module MU
         def cloud_desc
           if @config['classic']
             resp = MU::Cloud::AWS.elb(@config['region']).describe_load_balancers(
-              load_balancer_names: [@mu_name]
+              load_balancer_names: [@cloud_id]
             ).load_balancer_descriptions.first
             return resp
           else
             resp = MU::Cloud::AWS.elb2(@config['region']).describe_load_balancers(
-              names: [@mu_name]
+              names: [@cloud_id]
             ).load_balancers.first
             if @targetgroups.nil? and !@deploy.nil? and
                 @deploy.deployment['loadbalancers'].has_key?(@config['name']) and
