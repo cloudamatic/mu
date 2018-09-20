@@ -136,7 +136,7 @@ module MU
                 retry
               end
             rescue Aws::EKS::Errors::InvalidParameterException => e
-              if e.message.match(/role with arn: #{role_arn}, does not exist/)
+              if e.message.match(/role with arn: #{role_arn}, (could not be assumed|does not exist)/)
                 sleep 5
                 retry
               end
