@@ -275,10 +275,10 @@ module MU
               ).mount_targets
 
               mount_target = nil
+              subnet_cidr_obj = NetAddr::IPv4Net.parse(subnet_obj.ip_block)
               mp_vpc.subnets.each { |subnet_obj|
                 mount_targets.map { |t|
-                  mnt_cidr = NetAddr::CIDR.create(t.ip_address+"/32")
-                  if mnt_cidr.is_contained?(subnet_obj.ip_block)
+                  if subnet_cidr_obj.contains(t.ip_address)
                     mount_target = t
                     subnet = subnet_obj.cloud_desc
                   end

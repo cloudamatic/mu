@@ -677,32 +677,40 @@ module MU
     # subnets.
     # @param ip_block [String]: CIDR of the network to subdivide
     # @param subnets_desired [Integer]: Number of subnets we want back
+    # @param max_mask [Integer]: The highest netmask we're allowed to use for a subnet (various by cloud provider)
     # @return [MU::Config::Tail]: Resulting subnet tails, or nil if an error occurred.
-    def divideNetwork(ip_block, subnets_desired)
-      cidr = NetAddr::CIDR.create(ip_block.to_s)
-      # Round the number of addresses we're splitting into down to the nearest power
-      # of two so they'll fit in the available bit space
-      raw_subnet_size = (cidr.size)/subnets_desired - 2*subnets_desired
-      avail_addrs = 2 ** (32 - cidr.bits)
-      subnet_size = ((avail_addrs/subnets_desired) >> 1)
-#          subnet_bits = 32 - (subnet_size).to_s(2).size
+    def divideNetwork(ip_block, subnets_desired, max_mask = 28)
+      cidr = NetAddr::IPv4Net.parse(ip_block.to_s)
+
+      # Ugly but reliable method of landing on the right subnet size
+      subnet_bits = cidr.netmask.prefix_len
       begin
-        subnets = cidr.subnet(:IPCount => subnet_size, :NumSubnets => subnets_desired)
+        subnet_bits += 1
+
+        if subnet_bits > max_mask
+          MU.log "Can't subdivide #{cidr.to_s} into #{subnets_desired.to_s}", MU::ERR
+          raise MuError, "Subnets smaller than /#{max_mask} not permitted"
+        end
+      end while cidr.subnet_count(subnet_bits) < subnets_desired
+
+      if cidr.subnet_count(subnet_bits) > subnets_desired
+        MU.log "Requested #{subnets_desired.to_s} subnets from #{cidr.to_s}, leaving #{(cidr.subnet_count(subnet_bits)-subnets_desired).to_s} unused /#{subnet_bits.to_s}s available", MU::NOTICE
+      end
+
+      begin
+        subnets = []
+        (0..subnets_desired).each { |x|
+          subnets << cidr.nth_subnet(subnet_bits, x).to_s
+        }
       rescue RuntimeError => e
         if e.message.match(/exceeds subnets available for allocation/)
           MU.log e.message, MU::ERR
-          MU.log "I'm attempting to create #{subnets_desired} subnets (one public and one private for each Availability Zone), of #{subnet_size} addresses each, but that's too many for a /#{cidr.bits} network. Either declare a larger network, or explicitly declare a list of subnets with few enough entries to fit.", MU::ERR
+          MU.log "I'm attempting to create #{subnets_desired} subnets (one public and one private for each Availability Zone), of #{subnet_size} addresses each, but that's too many for a /#{cidr.netmask.prefix_len} network. Either declare a larger network, or explicitly declare a list of subnets with few enough entries to fit.", MU::ERR
           return nil
         else
           raise e
         end
       end
-
-      # XXX NetAddr::CIDR wants to allocate evenly-sized subnets because
-      # it's annoying, so we end up using the IP space inefficiently. Lop
-      # off the extra subnets we end up with and don't want. It would be
-      # nice if we just did all this math ourselves and did it better.
-      subnets.slice!(subnets_desired,subnets.size-1) if subnets.size > subnets_desired
 
       subnets = getTail("subnetblocks", value: subnets.join(","), cloudtype: "CommaDelimitedList", description: "IP Address ranges to be used for VPC subnets", prettyname: "SubnetIpBlocks", list_of: "ip_block").map { |tail| tail["ip_block"] }
       subnets

@@ -1088,7 +1088,7 @@ module MU
           @rtb_cache[source_subnets_key].each { |route_table|
             route_table.routes.each { |route|
               if route.destination_cidr_block != "0.0.0.0/0" and route.state == "active" and !route.destination_cidr_block.nil?
-                my_routes << NetAddr::CIDR.create(route.destination_cidr_block)
+                my_routes << NetAddr::IPv4Net.parse(route.destination_cidr_block)
                 if !route.vpc_peering_connection_id.nil?
                   vpc_peer_mapping[route.vpc_peering_connection_id] = route.destination_cidr_block
                 end
@@ -1101,10 +1101,10 @@ module MU
           @rtb_cache[target_subnets_key].each { |route_table|
             route_table.routes.each { |route|
               next if route.destination_cidr_block == "0.0.0.0/0" or route.state != "active" or route.destination_cidr_block.nil?
-              cidr = NetAddr::CIDR.create(route.destination_cidr_block)
+              cidr = NetAddr::IPv4Net.parse(route.destination_cidr_block)
               shared_ip_space = false
               my_routes.each { |my_cidr|
-                if my_cidr.contains?(cidr) or my_cidr == cidr
+                if my_cidr.contains(route.destination_cidr_block) or my_cidr.cmp(cidr)
                   shared_ip_space = true
                   break
                 end
@@ -1373,7 +1373,7 @@ module MU
               # turn into a hash so we can use list parameters easily
               vpc['availability_zones'] = vpc['availability_zones'].map { |val| val['zone'] }
             end
-            subnets = config.divideNetwork(vpc['ip_block'], vpc['availability_zones'].size*vpc['route_tables'].size)
+            subnets = config.divideNetwork(vpc['ip_block'], vpc['availability_zones'].size*vpc['route_tables'].size, 28)
 
             ok = false if subnets.nil?
             vpc['subnets'] = []

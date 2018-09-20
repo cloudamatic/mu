@@ -523,7 +523,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
               if vpc['regions'].nil? or vpc['regions'].empty?
                 vpc['regions'] = MU::Cloud::Google.listRegions(vpc['us_only'])
               end
-              blocks = configurator.divideNetwork(vpc['ip_block'], vpc['regions'].size*vpc['route_tables'].size)
+              blocks = configurator.divideNetwork(vpc['ip_block'], vpc['regions'].size*vpc['route_tables'].size, 29)
               ok = false if blocks.nil?
 
               vpc["subnets"] = []
@@ -550,7 +550,7 @@ MU.log "ROUTES TO #{target_instance.name}", MU::WARN, details: resp
           # table, so that the routes therein will only apply to the portion of
           # our network we want them to.
           if vpc['route_tables'].size > 1
-            blocks = configurator.divideNetwork(vpc['ip_block'], vpc['route_tables'].size*2)
+            blocks = configurator.divideNetwork(vpc['ip_block'], vpc['route_tables'].size*2, 29)
             peernames = []
             vpc['route_tables'].each { |tbl|
               peernames << vpc['name']+"-"+tbl['name']
