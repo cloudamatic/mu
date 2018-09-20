@@ -214,7 +214,7 @@ module MU
         q = Chef::Search::Query.new
         begin
           q.search("node", "tags_MU-ID:#{MU.deploy_id}").each { |item|
-            next if item.is_a?(Fixnum)
+            next if item.is_a?(Integer)
             item.each { |node|
               deadnodes << node.name
             }
@@ -224,7 +224,7 @@ module MU
 
         begin
           q.search("node", "name:#{MU.deploy_id}-*").each { |item|
-            next if item.is_a?(Fixnum)
+            next if item.is_a?(Integer)
             item.each { |node|
               deadnodes << node.name
             }
