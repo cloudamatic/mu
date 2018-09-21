@@ -161,9 +161,17 @@ module MU
         def self.schema(config)
           toplevel_required = ["elasticsearch_version", "instance_type"]
           versions = MU::Cloud::AWS.elasticsearch.list_elasticsearch_versions.elasticsearch_versions
-          instance_types = MU::Cloud::AWS.elasticsearch.list_elasticsearch_instance_types(
-            elasticsearch_version: "6.3"
-          ).elasticsearch_instance_types
+          instance_types = nil
+          begin
+            instance_types = MU::Cloud::AWS.elasticsearch.list_elasticsearch_instance_types(
+              elasticsearch_version: "6.3"
+            ).elasticsearch_instance_types
+          rescue Aws::ElasticsearchService::Errors::ValidationException
+            # Some regions (GovCloud) lag
+            instance_types = MU::Cloud::AWS.elasticsearch.list_elasticsearch_instance_types(
+              elasticsearch_version: "6.2"
+            ).elasticsearch_instance_types
+          end
 
           schema = {
             "elasticsearch_version" => {

@@ -29,14 +29,27 @@ module MU
         "properties" => {
           "cloud" => MU::Config.cloud_primitive,
           "name" => {"type" => "string"},
-          "runtime" => {"type" => "string"},
+          "runtime" => {
+            "type" => "string",
+            "enum" => %w{nodejs, nodejs4.3, nodejs6.10, nodejs8.10, java8, python2.7, python3.6, dotnetcore1.0, dotnetcore2.0, dotnetcore2.1, nodejs4.3-edge, go1.x}
+          },
           "iam_role" => {"type" => "string"},
           "region" => MU::Config.region_primitive,
           "vpc" => MU::Config::VPC.reference(MU::Config::VPC::ONE_SUBNET+MU::Config::VPC::MANY_SUBNETS, MU::Config::VPC::NO_NAT_OPTS, "all_private"),
-          "handler" => {"type" => "string"}, 
-          "timeout" => {"type" => "string"},
+          "handler" => {
+            "type" => "string",
+            "description" => "The function within your code that Lambda calls to begin execution. For Node.js, it is the module-name.export value in your function. For Java, it can be package.class-name::handler or package.class-name. For more information, see https://docs.aws.amazon.com/lambda/latest/dg/java-programming-model-handler-types.html"
+          }, 
+          "timeout" => {
+            "type" => "integer",
+            "default" => 3
+          },
           "tags" => MU::Config.tags_primitive,
-          "memory" => {"type" => "string"},
+          "memory" => {
+            "type" => "integer",
+            "default" => 128,
+            "description" => "Memory to allocation for function, in MB. The value must be a multiple of 64 MB."
+          },
           "dependencies" => MU::Config.dependencies_primitive,
           "optional_tags" => {
             "type" => "boolean",
