@@ -1,0 +1,6 @@
+# A generic admin user for Kubernetes
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: admin-user
+  namespace: kube-system

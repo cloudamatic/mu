@@ -739,6 +739,39 @@ module MU
       }
     end
 
+    # FirewallRules can reference other FirewallRules, which means we need to do
+    # an extra pass to make sure we get all intra-stack dependencies correct.
+    # @param acl [Hash]: The configuration hash for the FirewallRule to check
+    # @return [Hash]
+    def resolveIntraStackFirewallRefs(acl)
+      acl["rules"].each { |acl_include|
+        if acl_include['sgs']
+          acl_include['sgs'].each { |sg_ref|
+            if haveLitterMate?(sg_ref, "firewall_rules")
+              acl["dependencies"] ||= []
+              found = false
+              acl["dependencies"].each { |dep|
+                if dep["type"] == "firewall_rule" and dep["name"] == sg_ref
+                  dep["no_create_wait"] = true
+                  found = true
+                end
+              }
+              if !found
+                acl["dependencies"] << {
+                  "type" => "firewall_rule",
+                  "name" => sg_ref,
+                  "no_create_wait" => true
+                }
+              end
+              siblingfw = haveLitterMate?(sg_ref, "firewall_rules")
+              insertKitten(siblingfw, "firewall_rules") if !siblingfw["#MU_VALIDATED"]
+            end
+          }
+        end
+      }
+      acl
+    end
+
     # Insert a resource into the current stack
     # @param descriptor [Hash]: The configuration description, as from a Basket of Kittens
     # @param type [String]: The type of resource being added
@@ -794,7 +827,11 @@ module MU
           }
 
           siblingvpc = haveLitterMate?(descriptor["vpc"]["vpc_name"], "vpcs")
-          insertKitten(siblingvpc, "vpcs") if !siblingvpc["#MU_VALIDATED"]
+          # things that live in subnets need their VPCs to be fully
+          # resolved before we can proceed
+          if ["server", "server_pool", "loadbalancer", "database", "cache_cluster", "container_cluster", "storage_pool"].include?(cfg_name)
+            insertKitten(siblingvpc, "vpcs") if !siblingvpc["#MU_VALIDATED"]
+          end
           if !MU::Config::VPC.processReference(descriptor['vpc'],
                                   cfg_plural,
                                   shortclass.to_s+" '#{descriptor['name']}'",
@@ -832,6 +869,7 @@ module MU
 
       # Does it have generic ingress rules?
       fwname = cfg_name+descriptor['name']
+
       if !haveLitterMate?(fwname, "firewall_rules") and
          (descriptor['ingress_rules'] or
          ["server", "server_pool", "database"].include?(cfg_name))
@@ -842,24 +880,10 @@ module MU
         ["optional_tags", "tags", "cloud", "project"].each { |param|
           acl[param] = descriptor[param] if descriptor[param]
         }
-        ok = false if !insertKitten(acl, "firewall_rules")
         descriptor["add_firewall_rules"] = [] if descriptor["add_firewall_rules"].nil?
         descriptor["add_firewall_rules"] << {"rule_name" => fwname}
-        acl["rules"].each { |acl_include|
-          if acl_include['sgs']
-            acl_include['sgs'].each { |sg_ref|
-              if haveLitterMate?(sg_ref, "firewall_rules")
-                descriptor["dependencies"] << {
-                  "type" => "firewall_rule",
-                  "name" => sg_ref,
-                  "phase" => "groom"
-                }
-                siblingfw = haveLitterMate?(sg_ref, "firewall_rules")
-                insertKitten(siblingw, "firewall_rules") if !siblingfw["#MU_VALIDATED"]
-              end
-            }
-          end
-        }
+        acl = resolveIntraStackFirewallRefs(acl)
+        ok = false if !insertKitten(acl, "firewall_rules")
       end
 
       # Does it declare association with any sibling LoadBalancers?
@@ -873,7 +897,7 @@ module MU
           end
         }
       end
-        
+
       # Does it want to know about Storage Pools?
       if !descriptor["storage_pools"].nil?
         descriptor["storage_pools"].each { |sp|
@@ -1439,6 +1463,7 @@ module MU
     # @param type [String]: The type of resource this is ("servers" etc)
     def inheritDefaults(kitten, type)
       kitten['cloud'] ||= MU::Config.defaultCloud
+
       schema_fields = ["region", "us_only", "scrub_mu_isms"]
       if kitten['cloud'] == "Google"
         kitten["project"] ||= MU::Cloud::Google.defaultProject
@@ -1456,6 +1481,7 @@ module MU
         end
         kitten['region'] ||= $MU_CFG['aws']['region']
       end
+
       kitten['us_only'] ||= @config['us_only']
       kitten['us_only'] ||= false
 
@@ -1503,6 +1529,20 @@ module MU
         }
       }
 
+      @kittens["firewall_rules"].each { |acl|
+        acl = resolveIntraStackFirewallRefs(acl)
+      }
+
+      # Make sure validation has been called for all on-the-fly generated
+      # resources.
+      types.each { |type|
+        @kittens[type].each { |descriptor|
+          if !descriptor["#MU_VALIDATED"]
+            ok = false if !insertKitten(descriptor, type)
+          end
+        }
+      }
+
       # add some default holes to allow dependent instances into databases
       @kittens["databases"].each { |db|
         if db['port'].nil?
@@ -1529,7 +1569,7 @@ module MU
                   ruleset["dependencies"] << {
                     "name" => cfg_name+server['name'],
                     "type" => "firewall_rule",
-                    "phase" => "groom"
+                    "no_create_wait" => true
                   }
                 end
               }
@@ -1697,9 +1737,14 @@ module MU
                     "enum" => MU::Cloud.resource_types.values.map { |v| v[:cfg_name] }
                 },
                 "phase" => {
-                    "type" => "string",
-                    "description" => "Which part of the creation process of the resource we depend on should we wait for before starting our own creation? Defaults are usually sensible, but sometimes you want, say, a Server to wait on another Server to be completely ready (through its groom phase) before starting up.",
-                    "enum" => ["create", "groom"]
+                  "type" => "string",
+                  "description" => "Which part of the creation process of the resource we depend on should we wait for before starting our own creation? Defaults are usually sensible, but sometimes you want, say, a Server to wait on another Server to be completely ready (through its groom phase) before starting up.",
+                  "enum" => ["create", "groom"]
+                },
+                "no_create_wait" => {
+                    "type" => "boolean",
+                    "default" => false,
+                    "description" => "By default, it's assumed that we want to wait on our parents' creation phase, in addition to whatever is declared in this stanza. Setting this flag will bypass waiting on our parent resource's creation, so that our create or groom phase can instead depend only on the parent's groom phase. "
                 }
             }
         }

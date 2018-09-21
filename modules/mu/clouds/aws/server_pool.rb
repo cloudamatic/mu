@@ -42,276 +42,10 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def create
           MU.setVar("curRegion", @config['region']) if !@config['region'].nil?
+          
+          createUpdateLaunchConfig
 
-          asg_options = {
-            :auto_scaling_group_name => @mu_name,
-            :default_cooldown => @config["default_cooldown"],
-            :health_check_type => @config["health_check_type"],
-            :health_check_grace_period => @config["health_check_grace_period"],
-            :tags => []
-          }
-
-          MU::MommaCat.listStandardTags.each_pair { |name, value|
-            asg_options[:tags] << {key: name, value: value, propagate_at_launch: true}
-          }
-
-          if @config['optional_tags']
-            MU::MommaCat.listOptionalTags.each_pair { |name, value|
-              asg_options[:tags] << {key: name, value: value, propagate_at_launch: true}
-            }
-          end
-
-          if @config['tags']
-            @config['tags'].each { |tag|
-              asg_options[:tags] << {key: tag['key'], value: tag['value'], propagate_at_launch: true}
-            }
-          end
-
-          if @config["wait_for_nodes"] > 0
-            MU.log "Setting pool #{@mu_name} min_size and max_size to #{@config["wait_for_nodes"]} until bootstrapped"
-            asg_options[:min_size] = @config["wait_for_nodes"]
-            asg_options[:max_size] = @config["wait_for_nodes"]
-          else
-            asg_options[:min_size] = @config["min_size"]
-            asg_options[:max_size] = @config["max_size"]
-          end
-
-          if @config["loadbalancers"]
-            lbs = []
-            tg_arns = []
-# XXX refactor this into the LoadBalancer resource
-            @config["loadbalancers"].each { |lb|
-              if lb["existing_load_balancer"]
-                lbs << lb["existing_load_balancer"]
-                @deploy.deployment["loadbalancers"] = Array.new if !@deploy.deployment["loadbalancers"]
-                @deploy.deployment["loadbalancers"] << {
-                    "name" => lb["existing_load_balancer"],
-                    "awsname" => lb["existing_load_balancer"]
-                    # XXX probably have to query API to get the DNS name of this one
-                }
-              elsif lb["concurrent_load_balancer"]
-                raise MuError, "No loadbalancers exist! I need one named #{lb['concurrent_load_balancer']}" if !@deploy.deployment["loadbalancers"]
-                found = false
-                @deploy.deployment["loadbalancers"].each_pair { |lb_name, deployed_lb|
-                  if lb_name == lb['concurrent_load_balancer']
-                    lbs << deployed_lb["awsname"]
-                    if deployed_lb.has_key?("targetgroups")
-                      deployed_lb["targetgroups"].each_pair { |tg_name, tg_arn|
-                        tg_arns << tg_arn
-                      }
-                    end
-                    found = true
-                  end
-                }
-                raise MuError, "I need a loadbalancer named #{lb['concurrent_load_balancer']}, but none seems to have been created!" if !found
-              end
-            }
-            if tg_arns.size > 0
-              asg_options[:target_group_arns] = tg_arns
-            else
-              asg_options[:load_balancer_names] = lbs
-            end
-          end
-          asg_options[:termination_policies] = @config["termination_policies"] if @config["termination_policies"]
-          asg_options[:desired_capacity] = @config["desired_capacity"] if @config["desired_capacity"]
-
-          basis = @config["basis"]
-
-          if basis["launch_config"]
-            nodes_name = @deploy.getResourceName(basis["launch_config"]["name"])
-            launch_desc = basis["launch_config"]
-
-            if !launch_desc["server"].nil?
-              #XXX this isn't how we find these; use findStray or something
-              if @deploy.deployment["images"].nil? or @deploy.deployment["images"][launch_desc["server"]].nil?
-                raise MuError, "#{@mu_name} needs an AMI from server #{launch_desc["server"]}, but I don't see one anywhere"
-              end
-              launch_desc["ami_id"] = @deploy.deployment["images"][launch_desc["server"]]["image_id"]
-              MU.log "Using AMI '#{launch_desc["ami_id"]}' from sibling server #{launch_desc["server"]} in ServerPool #{@mu_name}"
-            elsif !launch_desc["instance_id"].nil?
-              launch_desc["ami_id"] = MU::Cloud::AWS::Server.createImage(
-                name: @mu_name,
-                instance_id: launch_desc["instance_id"]
-              )
-            end
-            MU::Cloud::AWS::Server.waitForAMI(launch_desc["ami_id"])
-
-            launch_options = {
-              :launch_configuration_name => @mu_name,
-              :image_id => launch_desc["ami_id"],
-              :instance_type => launch_desc["size"],
-              :key_name => @deploy.ssh_key_name,
-              :ebs_optimized => launch_desc["ebs_optimized"],
-              :instance_monitoring => {:enabled => launch_desc["monitoring"]},
-            }
-
-            # Figure out which devices are embedded in the AMI already.
-            image = MU::Cloud::AWS.ec2(@config['region']).describe_images(image_ids: [launch_desc["ami_id"]]).images.first
-            ext_disks = {}
-            if !image.block_device_mappings.nil?
-              image.block_device_mappings.each { |disk|
-                if !disk.device_name.nil? and !disk.device_name.empty? and !disk.ebs.nil? and !disk.ebs.empty?
-                  ext_disks[disk.device_name] = MU.structToHash(disk.ebs)
-                end
-              }
-            end
-
-            launch_options[:block_device_mappings] = []
-            if launch_desc["storage"]
-              storage = Array.new
-              launch_desc["storage"].each { |vol|
-                # Drop the "encrypted" flag if a snapshot for this device exists
-                # in the AMI, even if they both agree about the value of said
-                # flag. Apparently that's a thing now.
-                if ext_disks.has_key?(vol["device"])
-                  if ext_disks[vol["device"]].has_key?(:snapshot_id)
-                    vol.delete("encrypted")
-                  end
-                end
-                mapping, cfm_mapping = MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
-                storage << mapping
-              }
-              launch_options[:block_device_mappings] = storage
-            end
-
-            # Map ephemeral disk devices too, in case our AMI wasn't smart
-            # enough to do it for us.
-            launch_options[:block_device_mappings].concat(MU::Cloud::AWS::Server.ephemeral_mappings)
-
-            ["kernel_id", "ramdisk_id", "spot_price"].each { |arg|
-              if launch_desc[arg]
-                launch_options[arg.to_sym] = launch_desc[arg]
-              end
-            }
-
-            rolename = nil
-            if launch_desc['generate_iam_role']
-              # Using ARN instead of IAM instance profile name to hopefully get around some random AWS failures
-              rolename, cfm_role_name, cfm_prof_name, arn = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: launch_desc['iam_role'], extra_policies: launch_desc['iam_policies'])
-              launch_options[:iam_instance_profile] = arn
-            elsif launch_desc['iam_role'].nil?
-              raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
-            else
-              launch_options[:iam_instance_profile] = launch_desc['iam_role']
-            end
-
-            @config['iam_role'] = rolename ? rolename : launch_options[:iam_instance_profile]
-
-            if rolename
-              MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(rolename, region: @config['region'])
-            else
-              MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'], region: @config['region'])
-            end
-
-            instance_secret = Password.random(50)
-            @deploy.saveNodeSecret("default", instance_secret, "instance_secret")
-
-            launch_options[:user_data] = Base64.encode64(
-              MU::Cloud.fetchUserdata(
-                platform: @config["platform"],
-                cloud: "aws",
-                template_variables: {
-                  "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
-                  "deploySSHKey" => @deploy.ssh_public_key,
-                  "muID" => MU.deploy_id,
-                  "muUser" => MU.mu_user,
-                  "publicIP" => MU.mu_public_ip,
-                  "skipApplyUpdates" => @config['skipinitialupdates'],
-                  "windowsAdminName" => @config['windows_admin_username'],
-                  "resourceName" => @config["name"],
-                  "resourceType" => "server_pool",
-                  "platform" => @config["platform"]
-                },
-                custom_append: @config['userdata_script']
-              )
-            )
-
-            if launch_desc["user_data"]
-              launch_options[:user_data] = launch_desc["user_data"]
-            end
-
-          elsif basis["server"]
-            nodes_name = @deploy.getResourceName(basis["server"])
-            srv_name = basis["server"]
-# XXX cloudformation bits
-            if @deploy.deployment['servers'] != nil and
-                @deploy.deployment['servers'][srv_name] != nil
-              asg_options[:instance_id] = @deploy.deployment['servers'][srv_name]["instance_id"]
-            end
-          elsif basis["instance_id"]
-            # TODO should go fetch the name tag or something
-            nodes_name = @deploy.getResourceName(basis["instance_id"].gsub(/-/, ""))
-# XXX cloudformation bits
-            asg_options[:instance_id] = basis["instance_id"]
-          end
-
-          if @config["vpc_zone_identifier"]
-            asg_options[:vpc_zone_identifier] = @config["vpc_zone_identifier"]
-          elsif @config["vpc"]
-            subnet_ids = []
-            if !@config["vpc"]["subnets"].nil? and @config["vpc"]["subnets"].size > 0
-              @config["vpc"]["subnets"].each { |subnet|
-                subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
-                subnet_ids << subnet_obj.cloud_id
-              }
-            else
-              @vpc.subnets.each { |subnet_obj|
-                next if subnet_obj.private? and ["all_public", "public"].include?(@config["vpc"]["subnet_pref"])
-                next if !subnet_obj.private? and ["all_private", "private"].include?(@config["vpc"]["subnet_pref"])
-                subnet_ids << subnet_obj.cloud_id
-              }
-            end
-            if subnet_ids.size == 0
-              raise MuError, "No valid subnets found for #{@mu_name} from #{@config["vpc"]}"
-            end
-            asg_options[:vpc_zone_identifier] = subnet_ids.join(",")
-          end
-
-          sgs = []
-          if @dependencies.has_key?("firewall_rule")
-            @dependencies['firewall_rule'].values.each { |sg|
-              sgs << sg.cloud_id
-            }
-          end
-
-          if !asg_options[:vpc_zone_identifier].nil? and asg_options[:vpc_zone_identifier].empty?
-            asg_options.delete(:vpc_zone_identifier)
-          end
-          if !asg_options[:vpc_zone_identifier].nil?# or !@config["vpc"].nil?
-            launch_options[:associate_public_ip_address] = @config["associate_public_ip"]
-          end
-
-          if launch_options
-            launch_options[:security_groups] = sgs
-            MU.log "Creating AutoScale Launch Configuration #{@mu_name}", details: launch_options
-            retries = 0
-            begin
-              launch_config = MU::Cloud::AWS.autoscale(@config['region']).create_launch_configuration(launch_options)
-            rescue Aws::AutoScaling::Errors::ValidationError => e
-              # Retries 20 because can easily go over on a slow day, add retries to warn
-              if retries < 20
-                # Autoscale seems to lag behind the IAM endpoint in noticing that
-                # a profile exists, so shut up about it and retry.
-                if retries > 3 or !e.message.match(/Invalid IamInstanceProfile/)
-                  MU.log "Got #{e.inspect} creating Launch Configuration #{@mu_name} with retries #{retries} of 20", MU::WARN
-                end
-                retries = retries + 1
-                sleep 10
-                retry
-              else
-                raise MuError, "Got #{e.inspect} creating Launch Configuration #{@mu_name}"
-              end
-            end
-            asg_options[:launch_configuration_name] = @mu_name
-          end
-
-          # Do the dance of specifying individual zones if we haven't asked to
-          # use particular VPC subnets.
-          if @config['zones'].nil? and asg_options[:vpc_zone_identifier].nil?
-            @config["zones"] = MU::Cloud::AWS.listAZs(@config['region'])
-            MU.log "Using zones from #{@config['region']}", MU::DEBUG, details: @config['zones']
-          end
-          asg_options[:availability_zones] = @config["zones"] if @config["zones"] != nil
+          asg_options = buildOptionsHash
 
           MU.log "Creating AutoScale group #{@mu_name}", details: asg_options
 
@@ -520,13 +254,64 @@ module MU
               )
             }
           end
+
+          createUpdateLaunchConfig
+
+          current = cloud_desc
+          asg_options = buildOptionsHash
+
+          need_tag_update = false
+          oldtags = current.tags.map { |t|
+            t.key+" "+t.value+" "+t.propagate_at_launch.to_s
+          }
+          tag_conf = { :tags => asg_options[:tags] }
+          tag_conf[:tags].each { |t|
+            if !oldtags.include?(t[:key]+" "+t[:value]+" "+t[:propagate_at_launch].to_s)
+              need_tag_update = true
+            end
+            t[:resource_id] = @mu_name
+            t[:resource_type] = "auto-scaling-group"
+          }
+
+          if need_tag_update
+            MU.log "Updating ServerPool #{@mu_name} with new tags", MU::NOTICE, details: tag_conf[:tags]
+
+            MU::Cloud::AWS.autoscale(@config['region']).create_or_update_tags(tag_conf)
+            current.instances.each { |instance|
+              tag_conf[:tags].each { |t|
+                MU::MommaCat.createTag(instance.instance_id, t[:key], t[:value], region: @config['region'])
+              }
+            }
+          end
+
+# XXX actually compare for changes instead of just blindly updating
+#pp current
+#pp asg_options
+          asg_options.delete(:tags)
+          asg_options[:min_size] = @config["min_size"]
+          asg_options[:max_size] = @config["max_size"]
+          MU::Cloud::AWS.autoscale(@config['region']).attach_load_balancer_target_groups(
+            auto_scaling_group_name: @mu_name,
+            target_group_arns: asg_options[:target_group_arns]
+          )
+          asg_options.delete(:target_group_arns)
+
+          MU::Cloud::AWS.autoscale(@config['region']).update_auto_scaling_group(asg_options)
+
         end
 
-        # This is a NOOP right now, because we're really an empty generator for
-        # Servers, and that's what we care about having in deployment
-        # descriptors. Should we log some stuff though?
+        # Retrieve the AWS descriptor for this Autoscale group
+        # @return [OpenStruct]
+        def cloud_desc
+          MU::Cloud::AWS.autoscale(@config['region']).describe_auto_scaling_groups(
+            auto_scaling_group_names: [@mu_name]
+          ).auto_scaling_groups.first
+        end
+
+        # Retrieve deployment metadata for this Autoscale group
+        # @return [Hash]
         def notify
-          return {}
+          return MU.structToHash(cloud_desc)
         end
 
         # Locate an existing ServerPool or ServerPools and return an array containing matching AWS resource descriptors for those that match.
@@ -539,7 +324,7 @@ module MU
         def self.find(cloud_id: nil, region: MU.curRegion, tag_key: "Name", tag_value: nil, flags: {})
           found = []
           if cloud_id
-            resp = MU::Cloud::AWS.autoscale.describe_auto_scaling_groups({
+            resp = MU::Cloud::AWS.autoscale(region).describe_auto_scaling_groups({
               auto_scaling_group_names: [
                 cloud_id
               ], 
@@ -570,6 +355,13 @@ module MU
               "items" => {
                 "description" => "Amazon-compatible role policies which will be merged into this node's own instance profile.  Not valid with generate_iam_role set to false. Our parser expects the role policy document to me embedded under a named container, e.g. { 'name_of_policy':'{ <policy document> } }",
                 "type" => "object"
+              }
+            },
+            "canned_iam_policies" => {
+              "type" => "array",
+              "items" => {
+                "description" => "IAM policies to attach, pre-defined by Amazon (e.g. AmazonEKSWorkerNodePolicy)",
+                "type" => "string"
               }
             },
             "schedule" => {
@@ -813,7 +605,7 @@ module MU
             begin
               MU.log "Removing AutoScale Launch Configuration #{resource_id}"
               MU::Cloud::AWS.autoscale(region).delete_launch_configuration(
-                  launch_configuration_name: resource_id
+                launch_configuration_name: resource_id
               )
             rescue Aws::AutoScaling::Errors::ValidationError => e
               MU.log "No such Launch Configuration #{resource_id}"
@@ -829,6 +621,350 @@ module MU
           }
           return nil
         end
+
+        private
+
+        def createUpdateLaunchConfig
+          return if !@config['basis'] or !@config['basis']["launch_config"]
+
+          instance_secret = Password.random(50)
+          @deploy.saveNodeSecret("default", instance_secret, "instance_secret")
+
+          nodes_name = @deploy.getResourceName(@config['basis']["launch_config"]["name"])
+          if !@config['basis']['launch_config']["server"].nil?
+            #XXX this isn't how we find these; use findStray or something
+            if @deploy.deployment["images"].nil? or @deploy.deployment["images"][@config['basis']['launch_config']["server"]].nil?
+              raise MuError, "#{@mu_name} needs an AMI from server #{@config['basis']['launch_config']["server"]}, but I don't see one anywhere"
+            end
+            @config['basis']['launch_config']["ami_id"] = @deploy.deployment["images"][@config['basis']['launch_config']["server"]]["image_id"]
+            MU.log "Using AMI '#{@config['basis']['launch_config']["ami_id"]}' from sibling server #{@config['basis']['launch_config']["server"]} in ServerPool #{@mu_name}"
+          elsif !@config['basis']['launch_config']["instance_id"].nil?
+            @config['basis']['launch_config']["ami_id"] = MU::Cloud::AWS::Server.createImage(
+              name: @mu_name,
+              instance_id: @config['basis']['launch_config']["instance_id"]
+            )
+          end
+          MU::Cloud::AWS::Server.waitForAMI(@config['basis']['launch_config']["ami_id"])
+
+          oldlaunch = MU::Cloud::AWS.autoscale(@config['region']).describe_launch_configurations(
+            launch_configuration_names: [@mu_name]
+          ).launch_configurations.first
+
+          userdata = MU::Cloud.fetchUserdata(
+            platform: @config["platform"],
+            cloud: "aws",
+            template_variables: {
+              "deployKey" => Base64.urlsafe_encode64(@deploy.public_key),
+              "deploySSHKey" => @deploy.ssh_public_key,
+              "muID" => @deploy.deploy_id,
+              "muUser" => MU.chef_user,
+              "publicIP" => MU.mu_public_ip,
+              "windowsAdminName" => @config['windows_admin_username'],
+              "skipApplyUpdates" => @config['skipinitialupdates'],
+              "resourceName" => @config["name"],
+              "resourceType" => "server_pool",
+              "platform" => @config["platform"]
+            },
+            custom_append: @config['userdata_script']
+          )
+
+          # Figure out which devices are embedded in the AMI already.
+          image = MU::Cloud::AWS.ec2.describe_images(image_ids: [@config["basis"]["launch_config"]["ami_id"]]).images.first
+
+          if image.nil?
+            raise "#{@config["basis"]["launch_config"]["ami_id"]} does not exist, cannot update/create launch config #{@mu_name}"
+          end
+
+          ext_disks = {}
+          if !image.block_device_mappings.nil?
+            image.block_device_mappings.each { |disk|
+              if !disk.device_name.nil? and !disk.device_name.empty? and !disk.ebs.nil? and !disk.ebs.empty?
+                ext_disks[disk.device_name] = MU.structToHash(disk.ebs)
+                if ext_disks[disk.device_name].has_key?(:snapshot_id)
+                  ext_disks[disk.device_name].delete(:encrypted)
+                end
+              end
+            }
+          end
+
+          storage = []
+          if !@config["basis"]["launch_config"]["storage"].nil?
+            @config["basis"]["launch_config"]["storage"].each { |vol|
+              if ext_disks.has_key?(vol["device"])
+                if ext_disks[vol["device"]].has_key?(:snapshot_id)
+                  vol.delete("encrypted")
+                end
+              end
+              mapping, cfm_mapping = MU::Cloud::AWS::Server.convertBlockDeviceMapping(vol)
+              storage << mapping
+            }
+          end
+
+          storage.concat(MU::Cloud::AWS::Server.ephemeral_mappings)
+
+          if !oldlaunch.nil?
+            olduserdata = Base64.decode64(oldlaunch.user_data)
+            if userdata != olduserdata or
+                oldlaunch.image_id != @config["basis"]["launch_config"]["ami_id"] or
+                oldlaunch.ebs_optimized != @config["basis"]["launch_config"]["ebs_optimized"] or
+                oldlaunch.instance_type != @config["basis"]["launch_config"]["size"] or
+                oldlaunch.instance_monitoring.enabled != @config["basis"]["launch_config"]["monitoring"]
+                # XXX check more things
+#                launch.block_device_mappings != storage
+#                XXX block device comparison isn't this simple
+              return
+            end
+
+            # Put our Autoscale group onto a temporary launch config
+            begin
+
+              MU::Cloud::AWS.autoscale(@config['region']).create_launch_configuration(
+                launch_configuration_name: @mu_name+"-TMP",
+                user_data: Base64.encode64(olduserdata),
+                image_id: oldlaunch.image_id,
+                key_name: oldlaunch.key_name,
+                security_groups: oldlaunch.security_groups,
+                instance_type: oldlaunch.instance_type,
+                block_device_mappings: storage,
+                instance_monitoring: oldlaunch.instance_monitoring,
+                iam_instance_profile: oldlaunch.iam_instance_profile,
+                ebs_optimized: oldlaunch.ebs_optimized,
+                associate_public_ip_address: oldlaunch.associate_public_ip_address
+              )
+            rescue ::Aws::AutoScaling::Errors::ValidationError => e
+              if e.message.match(/Member must have length less than or equal to (\d+)/)
+                MU.log "Userdata script too long updating #{@mu_name} Launch Config (#{Base64.encode64(userdata).size.to_s}/#{Regexp.last_match[1]} bytes)", MU::ERR
+              else
+                MU.log "Error updating #{@mu_name} Launch Config", MU::ERR, details: e.message
+              end
+              raise e.message
+            end
+
+
+            MU::Cloud::AWS.autoscale(@config['region']).update_auto_scaling_group(
+              auto_scaling_group_name: @mu_name,
+              launch_configuration_name: @mu_name+"-TMP"
+            )
+            # ...now back to an identical one with the "real" name
+            MU::Cloud::AWS.autoscale(@config['region']).delete_launch_configuration(
+              launch_configuration_name: @mu_name
+            )
+          end
+
+          # Now to build the new one
+          sgs = []
+          if @dependencies.has_key?("firewall_rule")
+            @dependencies['firewall_rule'].values.each { |sg|
+              sgs << sg.cloud_id
+            }
+          end
+
+          launch_options = {
+            :launch_configuration_name => @mu_name,
+            :user_data => Base64.encode64(userdata),
+            :image_id => @config["basis"]["launch_config"]["ami_id"],
+            :key_name => @deploy.ssh_key_name,
+            :security_groups => sgs,
+            :instance_type => @config["basis"]["launch_config"]["size"],
+            :block_device_mappings => storage,
+            :instance_monitoring => {:enabled => @config["basis"]["launch_config"]["monitoring"]},
+            :ebs_optimized => @config["basis"]["launch_config"]["ebs_optimized"]
+          }
+          if @config["vpc"] or @config["vpc_zone_identifier"]
+            launch_options[:associate_public_ip_address] = @config["associate_public_ip"]
+          end
+          ["kernel_id", "ramdisk_id", "spot_price"].each { |arg|
+            if @config['basis']['launch_config'][arg]
+              launch_options[arg.to_sym] = @config['basis']['launch_config'][arg]
+            end
+          }
+          rolename = nil
+          ['generate_iam_role', 'iam_policies', 'canned_iam_policies', 'iam_role'].each { |field|
+            @config['basis']['launch_config'][field] ||= @config[field]
+          }
+
+          if @config['basis']['launch_config']['generate_iam_role']
+            # Using ARN instead of IAM instance profile name to hopefully get around some random AWS failures
+            rolename, cfm_role_name, cfm_prof_name, arn = MU::Cloud::AWS::Server.createIAMProfile(@mu_name, base_profile: @config['basis']['launch_config']['iam_role'], extra_policies: @config['basis']['launch_config']['iam_policies'], canned_policies: @config['basis']['launch_config']['canned_iam_policies'])
+            launch_options[:iam_instance_profile] = rolename
+          elsif @config['basis']['launch_config']['iam_role'].nil?
+            raise MuError, "#{@mu_name} has generate_iam_role set to false, but no iam_role assigned."
+          else
+            launch_options[:iam_instance_profile] = @config['basis']['launch_config']['iam_role']
+          end
+
+          @config['iam_role'] = rolename ? rolename : launch_options[:iam_instance_profile]
+
+          if rolename
+            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(rolename, region: @config['region'])
+          else
+            MU::Cloud::AWS::Server.addStdPoliciesToIAMProfile(@config['iam_role'], region: @config['region'])
+          end
+
+          begin
+            MU::Cloud::AWS.autoscale(@config['region']).create_launch_configuration(launch_options)
+          rescue Aws::AutoScaling::Errors::ValidationError => e
+            MU.log e.message, MU::WARN
+            sleep 10
+            retry
+          end
+
+          if !oldlaunch.nil?
+            # Tell the ASG to use the new one, and nuke the old one
+            MU::Cloud::AWS.autoscale(@config['region']).update_auto_scaling_group(
+              auto_scaling_group_name: @mu_name,
+              launch_configuration_name: @mu_name
+            )
+            MU::Cloud::AWS.autoscale(@config['region']).delete_launch_configuration(
+              launch_configuration_name: @mu_name+"-TMP"
+            )
+            MU.log "Launch Configuration #{@mu_name} replaced"
+          else
+            MU.log "Launch Configuration #{@mu_name} created"
+          end
+
+        end
+
+        def buildOptionsHash
+          asg_options = {
+            :auto_scaling_group_name => @mu_name,
+            :launch_configuration_name => @mu_name,
+            :default_cooldown => @config["default_cooldown"],
+            :health_check_type => @config["health_check_type"],
+            :health_check_grace_period => @config["health_check_grace_period"],
+            :tags => []
+          }
+
+          MU::MommaCat.listStandardTags.each_pair { |name, value|
+            asg_options[:tags] << {key: name, value: value, propagate_at_launch: true}
+          }
+
+          if @config['optional_tags']
+            MU::MommaCat.listOptionalTags.each_pair { |name, value|
+              asg_options[:tags] << {key: name, value: value, propagate_at_launch: true}
+            }
+          end
+
+          if @config['tags']
+            @config['tags'].each { |tag|
+              asg_options[:tags] << {key: tag['key'], value: tag['value'], propagate_at_launch: true}
+            }
+          end
+
+          if @dependencies.has_key?("container_cluster")
+            @dependencies['container_cluster'].values.each { |cc|
+              if cc.config['flavor'] == "EKS"
+                asg_options[:tags] << {
+                  key: "kubernetes.io/cluster/#{cc.mu_name}",
+                  value: "owned",
+                  propagate_at_launch: true
+                }
+              end
+            }
+          end
+
+          if @config["wait_for_nodes"] > 0
+            asg_options[:min_size] = @config["wait_for_nodes"]
+            asg_options[:max_size] = @config["wait_for_nodes"]
+          else
+            asg_options[:min_size] = @config["min_size"]
+            asg_options[:max_size] = @config["max_size"]
+          end
+
+          if @config["loadbalancers"]
+            lbs = []
+            tg_arns = []
+# XXX refactor this into the LoadBalancer resource
+            @config["loadbalancers"].each { |lb|
+              if lb["existing_load_balancer"]
+                lbs << lb["existing_load_balancer"]
+                @deploy.deployment["loadbalancers"] = Array.new if !@deploy.deployment["loadbalancers"]
+                @deploy.deployment["loadbalancers"] << {
+                    "name" => lb["existing_load_balancer"],
+                    "awsname" => lb["existing_load_balancer"]
+                    # XXX probably have to query API to get the DNS name of this one
+                }
+              elsif lb["concurrent_load_balancer"]
+                raise MuError, "No loadbalancers exist! I need one named #{lb['concurrent_load_balancer']}" if !@deploy.deployment["loadbalancers"]
+                found = false
+                @deploy.deployment["loadbalancers"].each_pair { |lb_name, deployed_lb|
+                  if lb_name == lb['concurrent_load_balancer']
+                    lbs << deployed_lb["awsname"]
+                    if deployed_lb.has_key?("targetgroups")
+                      deployed_lb["targetgroups"].each_pair { |tg_name, tg_arn|
+                        tg_arns << tg_arn
+                      }
+                    end
+                    found = true
+                  end
+                }
+                raise MuError, "I need a loadbalancer named #{lb['concurrent_load_balancer']}, but none seems to have been created!" if !found
+              end
+            }
+            if tg_arns.size > 0
+              asg_options[:target_group_arns] = tg_arns
+            else
+              asg_options[:load_balancer_names] = lbs
+            end
+          end
+          asg_options[:termination_policies] = @config["termination_policies"] if @config["termination_policies"]
+          asg_options[:desired_capacity] = @config["desired_capacity"] if @config["desired_capacity"]
+
+          if @config["vpc_zone_identifier"]
+            asg_options[:vpc_zone_identifier] = @config["vpc_zone_identifier"]
+          elsif @config["vpc"]
+
+            subnet_ids = []
+
+            if !@config["vpc"]["subnets"].nil? and @config["vpc"]["subnets"].size > 0
+              @config["vpc"]["subnets"].each { |subnet|
+                subnet_obj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
+                next if !subnet_obj
+                subnet_ids << subnet_obj.cloud_id
+              }
+            else
+              @vpc.subnets.each { |subnet_obj|
+                next if subnet_obj.private? and ["all_public", "public"].include?(@config["vpc"]["subnet_pref"])
+                next if !subnet_obj.private? and ["all_private", "private"].include?(@config["vpc"]["subnet_pref"])
+                subnet_ids << subnet_obj.cloud_id
+              }
+            end
+            if subnet_ids.size == 0
+              raise MuError, "No valid subnets found for #{@mu_name} from #{@config["vpc"]}"
+            end
+            asg_options[:vpc_zone_identifier] = subnet_ids.join(",")
+          end
+
+
+          if @config['basis']["server"]
+            nodes_name = @deploy.getResourceName(@config['basis']["server"])
+            srv_name = @config['basis']["server"]
+# XXX cloudformation bits
+            if @deploy.deployment['servers'] != nil and
+                @deploy.deployment['servers'][srv_name] != nil
+              asg_options[:instance_id] = @deploy.deployment['servers'][srv_name]["instance_id"]
+            end
+          elsif @config['basis']["instance_id"]
+            # TODO should go fetch the name tag or something
+            nodes_name = @deploy.getResourceName(@config['basis']["instance_id"].gsub(/-/, ""))
+# XXX cloudformation bits
+            asg_options[:instance_id] = @config['basis']["instance_id"]
+          end
+
+          if !asg_options[:vpc_zone_identifier].nil? and asg_options[:vpc_zone_identifier].empty?
+            asg_options.delete(:vpc_zone_identifier)
+          end
+
+          # Do the dance of specifying individual zones if we haven't asked to
+          # use particular VPC subnets.
+          if @config['zones'].nil? and asg_options[:vpc_zone_identifier].nil?
+            @config["zones"] = MU::Cloud::AWS.listAZs(@config['region'])
+            MU.log "Using zones from #{@config['region']}", MU::DEBUG, details: @config['zones']
+          end
+          asg_options[:availability_zones] = @config["zones"] if @config["zones"] != nil
+          asg_options
+        end
+
       end
     end
   end

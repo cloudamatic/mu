@@ -5,6 +5,7 @@
       name: centos7
       platform: centos7
       size: m3.medium
+      scrub_groomer: true
       run_list:
       - recipe[mu-tools::apply_security]
       - recipe[mu-tools::updates]

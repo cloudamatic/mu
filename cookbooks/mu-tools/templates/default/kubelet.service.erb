@@ -1,0 +1,35 @@
+[Unit]
+Description=Kubernetes Kubelet
+Documentation=https://github.com/kubernetes/kubernetes
+After=docker.service
+Requires=docker.service
+
+[Service]
+ExecStart=/usr/bin/kubelet \
+  --address=0.0.0.0 \
+  --authentication-token-webhook \
+  --authorization-mode=Webhook \
+  --allow-privileged=true \
+  --cloud-provider=aws \
+  --cluster-dns=<%= @dns %> \
+  --cluster-domain=cluster.local \
+  --cni-bin-dir=/opt/cni/bin \
+  --cni-conf-dir=/etc/cni/net.d \
+  --container-runtime=docker \
+  --max-pods=10 \
+  --node-ip=<%= @node_ip %> \
+  --network-plugin=cni \
+  --pod-infra-container-image=602401143452.dkr.ecr.us-east-1.amazonaws.com/eks/pause-amd64:3.1 \
+  --cgroup-driver=cgroupfs \
+  --register-node=true \
+  --kubeconfig=/var/lib/kubelet/kubeconfig \
+  --feature-gates=RotateKubeletServerCertificate=true \
+  --anonymous-auth=false \
+  --resolv-conf=/etc/resolv.conf \
+  --client-ca-file=/etc/kubernetes/pki/ca.crt
+
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

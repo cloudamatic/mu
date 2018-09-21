@@ -228,10 +228,19 @@ module MU
   # Set parameters parameters for calls to {MU#log}
   def self.setLogging(verbosity, webify_logs = false, handle = STDOUT)
     MU.setVar("verbosity", verbosity)
-    @@logger = MU::Logger.new(verbosity, webify_logs, handle)
+    @@logger ||= MU::Logger.new(verbosity, webify_logs, handle)
+    @@logger.html = webify_logs
+    @@logger.verbosity = verbosity
+    @@logger.handle = handle
   end
 
   setLogging(MU::Logger::NORMAL, false)
+
+  # Shortcut to get SUMMARY messages from the global MU::Logger instance
+  # @return [Array<String>]
+  def self.summary
+    @@logger.summary
+  end
 
   # Shortcut to invoke {MU::Logger#log}
   def self.log(msg, level = MU::INFO, details: nil, html: html = false, verbosity: MU.verbosity)
@@ -277,6 +286,9 @@ module MU
   ERR = 4.freeze
   # Log entries for fatal errors
   ERROR = 4.freeze
+  # Log entries that will be held and displayed/emailed at the end of deploy,
+  # cleanup, etc.
+  SUMMARY = 5.freeze
 
   autoload :Cleanup, 'mu/cleanup'
   autoload :Deploy, 'mu/deploy'
@@ -568,7 +580,14 @@ module MU
   # @param struct [OpenStruct]
   # @return [Hash]
   def self.structToHash(struct)
-    if struct.is_a?(Struct)
+    google_struct = false
+    begin
+      google_struct = struct.class.ancestors.include?(::Google::Apis::Core::Hashable)
+    rescue NameError
+    end
+
+    if struct.is_a?(Struct) or google_struct
+
       hash = struct.to_h
       hash.each_pair { |key, value|
         hash[key] = self.structToHash(value)

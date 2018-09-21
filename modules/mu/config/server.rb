@@ -136,6 +136,11 @@ module MU
               "default" => MU::Config.defaultGroomer,
               "enum" => MU.supportedGroomers
           },
+          "scrub_groomer" => {
+              "type" => "boolean",
+              "default" => false,
+              "description" => "Remove pre-existing groomer agents from node before bootstrapping. Especially useful for image builds."
+          },
           "tags" => MU::Config.tags_primitive,
           "optional_tags" => {
               "type" => "boolean",
@@ -569,7 +574,7 @@ module MU
             server["vpc"]["subnet_pref"] = "public"
           end
 
-          if !server["vpc"]["subnet_name"].nil? and configurator.nat_routes.has_key?(server["vpc"]["subnet_name"])
+          if !server["vpc"]["subnet_name"].nil? and configurator.nat_routes.has_key?(server["vpc"]["subnet_name"]) and !configurator.nat_routes[server["vpc"]["subnet_name"]].empty?
             server["dependencies"] << {
               "type" => "server",
               "name" => configurator.nat_routes[server["vpc"]["subnet_name"]],

@@ -593,14 +593,14 @@ module MU
                   peer_obj = peer_obj.first
                   peer_id = peer_obj.cloud_id
 
-                  MU.log "Initiating peering connection from VPC #{@config['name']} (#{@cloud_id}) to #{peer_id}"
+                  MU.log "Setting peering connection from VPC #{@config['name']} (#{@cloud_id}) to #{peer_id}"
                   resp = MU::Cloud::AWS.ec2(@config['region']).create_vpc_peering_connection(
                     vpc_id: @cloud_id,
                     peer_vpc_id: peer_id
                   )
                 else
                   peer_id = peer['vpc']['vpc_id']
-                  MU.log "Initiating peering connection from VPC #{@config['name']} (#{@cloud_id}) to #{peer_id} in account #{peer['account']}", MU::INFO, details: peer
+                  MU.log "Setting peering connection from VPC #{@config['name']} (#{@cloud_id}) to #{peer_id} in account #{peer['account']}", MU::INFO, details: peer
                   resp = MU::Cloud::AWS.ec2(@config['region']).create_vpc_peering_connection(
                       vpc_id: @cloud_id,
                       peer_vpc_id: peer_id,
@@ -638,7 +638,19 @@ module MU
                 begin
                   resp = MU::Cloud::AWS.ec2(@config['region']).create_route(my_route_config)
                 rescue Aws::EC2::Errors::RouteAlreadyExists => e
-                  MU.log "Attempt to create duplicate route to #{peer_obj.cloud_desc.cidr_block} from VPC #{@config['name']}", MU::WARN
+                  rtbdesc = MU::Cloud::AWS.ec2(@config['region']).describe_route_tables(
+                    route_table_ids: [rtb_id]
+                  ).route_tables.first
+                  rtbdesc.routes.each { |r|
+                    if r.destination_cidr_block == peer_obj.cloud_desc.cidr_block
+                      if r.vpc_peering_connection_id != peering_id
+                        MU.log "Attempt to create duplicate route to #{peer_obj.cloud_desc.cidr_block} from VPC #{@config['name']}", MU::ERR, details: r
+                        raise MuError, "Can't create route via #{peering_id}, a route to #{peer_obj.cloud_desc.cidr_block} already exists"
+                      else
+                        break # this is fine, the route simply already exists
+                      end
+                    end
+                  }
                 end
               }
 
@@ -792,9 +804,9 @@ module MU
         def loadSubnets
           if @cloud_id
             resp = MU::Cloud::AWS.ec2(@config['region']).describe_subnets(
-                filters: [
-                    {name: "vpc-id", values: [@cloud_id]}
-                ]
+              filters: [
+                { name: "vpc-id", values: [@cloud_id] }
+              ]
             )
             if resp.nil? or resp.subnets.nil? or resp.subnets.size == 0
               MU.log "Got empty results when trying to list subnets in #{@cloud_id}", MU::WARN
@@ -821,13 +833,24 @@ module MU
                     end
                   }
                 end
-                if !ext_ids.include?(subnet["cloud_id"])
+
+                if subnet["cloud_id"] and !ext_ids.include?(subnet["cloud_id"])
                   @subnets << MU::Cloud::AWS::VPC::Subnet.new(self, subnet)
+                elsif !subnet["cloud_id"]
+                  resp.data.subnets.each { |desc|
+                    if desc.cidr_block == subnet["ip_block"]
+                      subnet['cloud_id'] = desc.subnet_id
+                      @subnets << MU::Cloud::AWS::VPC::Subnet.new(self, subnet)
+                    end
+                  }
                 end
+
               }
-              # Of course we might be loading up a dummy subnet object from a foreign
-              # or non-Mu-created VPC and subnet. So make something up.
-            elsif !resp.nil?
+            end
+
+            # Of course we might be loading up a dummy subnet object from a
+            # foreign or non-Mu-created VPC and subnet. So make something up.
+            if !resp.nil? and @subnets.empty?
               resp.data.subnets.each { |desc|
                 subnet = {}
                 subnet["ip_block"] = desc.cidr_block
@@ -841,7 +864,6 @@ module MU
                 end
               }
             end
-
             return @subnets
           }
         end
@@ -935,12 +957,14 @@ module MU
           if !cloud_id and !name and !tag_key and !tag_value and !ip_block
             raise MuError, "getSubnet called with no non-nil arguments"
           end
-          loadSubnets
+          subnets
 
           @subnets.each { |subnet|
             if !cloud_id.nil? and !subnet.cloud_id.nil? and subnet.cloud_id.to_s == cloud_id.to_s
               return subnet
             elsif !name.nil? and !subnet.name.nil? and subnet.name.to_s == name.to_s
+              return subnet
+            elsif !ip_block.nil? and !subnet.ip_block.nil? and subnet.ip_block.to_s == ip_block.to_s
               return subnet
             end
           }
@@ -1876,7 +1900,7 @@ module MU
           attr_reader :mu_name
           attr_reader :name
           attr_reader :az
-
+          attr_reader :cloud_desc
 
           # @param parent [MU::Cloud::AWS::VPC]: The parent VPC of this subnet.
           # @param config [Hash<String>]:
@@ -1887,10 +1911,10 @@ module MU
             @mu_name = config['mu_name']
             @name = config['name']
             @deploydata = config # This is a dummy for the sake of describe()
-
             resp = MU::Cloud::AWS.ec2(@config['region']).describe_subnets(subnet_ids: [@cloud_id]).subnets.first
             @az = resp.availability_zone
             @ip_block = resp.cidr_block
+            @cloud_desc = resp
 
           end
 

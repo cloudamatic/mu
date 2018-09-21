@@ -162,7 +162,7 @@ module MU
           toplevel_required = ["elasticsearch_version", "instance_type"]
           versions = MU::Cloud::AWS.elasticsearch.list_elasticsearch_versions.elasticsearch_versions
           instance_types = MU::Cloud::AWS.elasticsearch.list_elasticsearch_instance_types(
-            elasticsearch_version: "6.2"
+            elasticsearch_version: "6.3"
           ).elasticsearch_instance_types
 
           schema = {

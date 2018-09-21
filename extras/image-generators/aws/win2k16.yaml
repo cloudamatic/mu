@@ -5,6 +5,7 @@
       name: win2k16
       platform: windows
       size: m4.large
+      scrub_groomer: true
       run_list:
       - recipe[mu-tools::updates]
       - recipe[mu-utility::cleanup_image_helper]

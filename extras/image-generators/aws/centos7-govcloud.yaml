@@ -12,6 +12,7 @@
       vpc_id: <%= vpc_id %>
       subnet_pref: private
     size: m3.medium
+    scrub_groomer: true
     run_list:
     - recipe[mu-tools::apply_security]
     - recipe[mu-tools::updates]

@@ -394,6 +394,19 @@ module MU
         end
       end
 
+      # Google's Container API
+      # @param subclass [<Google::Apis::ContainerV1>]: If specified, will return the class ::Google::Apis::ContainerV1::subclass instead of an API client instance
+      def self.container(subclass = nil)
+        require 'google/apis/container_v1'
+
+        if subclass.nil?
+          @@container_api ||= MU::Cloud::Google::Endpoint.new(api: "ContainerV1::ContainerService", scopes: ['https://www.googleapis.com/auth/cloud-platform'])
+          return @@container_api
+        elsif subclass.is_a?(Symbol)
+          return Object.const_get("::Google").const_get("Apis").const_get("ContainerV1").const_get(subclass)
+        end
+      end
+
       # Google's Service Manager API (the one you use to enable pre-project APIs)
       # @param subclass [<Google::Apis::ServicemanagementV1>]: If specified, will return the class ::Google::Apis::ServicemanagementV1::subclass instead of an API client instance
       def self.service_manager(subclass = nil)
@@ -695,6 +708,7 @@ module MU
       end
 
       @@compute_api = nil
+      @@container_api = nil
       @@storage_api = nil
       @@sql_api = nil
       @@iam_api = nil

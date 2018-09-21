@@ -405,6 +405,8 @@ module MU
 
           database = MU::Cloud::AWS::Database.getDatabaseById(@config['identifier'], region: @config['region'])
           MU::Cloud::AWS::DNSZone.genericMuDNSEntry(name: database.db_instance_identifier, target: "#{database.endpoint.address}.", cloudclass: MU::Cloud::Database, sync_wait: @config['dns_sync_wait'])
+          MU.log "Database #{@config['name']} is at #{database.endpoint.address}", MU::SUMMARY
+          MU.log "knife vault show #{@config['auth_vault']['vault']} #{@config['auth_vault']['item']} for Database #{@config['name']} credentials", MU::SUMMARY
 
           # If referencing an existing DB, insert this deploy's DB security group so it can access db
           if @config["creation_style"] == 'existing'
@@ -597,12 +599,18 @@ module MU
               else
                 subnet_objects= []
                 @config["vpc"]["subnets"].each { |subnet|
-                  subnet_objects << @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
+                  sobj = @vpc.getSubnet(cloud_id: subnet["subnet_id"], name: subnet["subnet_name"])
+                  if sobj.nil?
+                    MU.log "Got nil result from @vpc.getSubnet(cloud_id: #{subnet["subnet_id"]}, name: #{subnet["subnet_name"]})", MU::WARN
+                  else
+                    subnet_objects << sobj
+                  end
                 }
                 subnet_objects
               end
 
             subnets.each{ |subnet|
+              next if subnet.nil?
               if @config["publicly_accessible"]
                 subnet_ids << subnet.cloud_id if !subnet.private?
               elsif !@config["publicly_accessible"]
@@ -984,7 +992,7 @@ module MU
 
           deploy_struct = {}
           my_dbs.each { |db|
-          deploy_struct = 
+            deploy_struct = 
             if db["create_cluster"]
               db["identifier"] = @mu_name.downcase if db["identifier"].nil?
               cluster = MU::Cloud::AWS::Database.getDatabaseClusterById(db["identifier"], region: db['region'])
@@ -1037,10 +1045,12 @@ module MU
                     dnsrec['name'] = database.db_instance_identifier if !dnsrec.has_key?('name')
                     dnsrec['name'] = "#{dnsrec['name']}.#{MU.environment.downcase}" if dnsrec["append_environment_name"] && !dnsrec['name'].match(/\.#{MU.environment.downcase}$/)
                   }
+                  # XXX this should be a call to @deploy.nameKitten
+                  MU::Cloud::AWS::DNSZone.createRecordsFromConfig(db['dns_records'], target: database.endpoint.address)
                 end
-                # XXX this should be a call to @deploy.nameKitten
-                MU::Cloud::AWS::DNSZone.createRecordsFromConfig(db['dns_records'], target: database.endpoint.address)
               end
+
+              database = cloud_desc
 
               vpc_sg_ids = Array.new
               database.vpc_security_groups.each { |vpc_sg|

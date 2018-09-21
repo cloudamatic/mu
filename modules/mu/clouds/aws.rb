@@ -56,6 +56,61 @@ module MU
         region.match(/^us-gov-/)
       end
 
+      # @param resources [Array<String>]: The cloud provider identifier of the resource to untag
+      # @param key [String]: The name of the tag to remove
+      # @param value [String]: The value of the tag to remove
+      # @param region [String]: The cloud provider region
+      def self.removeTag(key, value, resources = [], region: myRegion)
+        MU::Cloud::AWS.ec2(region).delete_tags(
+          resources: resources,
+          tags: [
+            {
+              key: key,
+              value: value
+            }
+          ]
+        )
+      end
+
+      # Tag EC2 resources. 
+      #
+      # @param resources [Array<String>]: The cloud provider identifier of the resource to tag
+      # @param key [String]: The name of the tag to create
+      # @param value [String]: The value of the tag
+      # @param region [String]: The cloud provider region
+      # @return [void,<Hash>]
+      def self.createTag(key, value, resources = [], region: myRegion)
+  
+        if !MU::Cloud::CloudFormation.emitCloudFormation
+          begin
+            MU::Cloud::AWS.ec2(region).create_tags(
+              resources: resources,
+              tags: [
+                {
+                  key: key,
+                  value: value
+                }
+              ]
+            )
+          rescue Aws::EC2::Errors::ServiceError => e
+            MU.log "Got #{e.inspect} tagging #{resources.size.to_s} resources with #{key}=#{value}", MU::WARN, details: resources if attempts > 1
+            if attempts < 5
+              attempts = attempts + 1
+              sleep 15
+              retry
+            else
+              raise e
+            end
+          end
+          MU.log "Created tag #{key} with value #{value}", MU::DEBUG, details: resources
+        else
+          return {
+            "Key" =>  key,
+            "Value" => value
+          }
+        end
+      end
+
       @@azs = {}
       # List the Availability Zones associated with a given Amazon Web Services
       # region. If no region is given, search the one in which this MU master
@@ -461,6 +516,13 @@ module MU
         @@ecs_api[region]
       end
 
+      # Amazon's EKS API
+      def self.eks(region = MU.curRegion)
+        region ||= myRegion
+        @@eks_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "EKS", region: region)
+        @@eks_api[region]
+      end
+
       # Amazon's Pricing API
       def self.pricing(region = MU.curRegion)
         region ||= myRegion
@@ -770,6 +832,7 @@ module MU
       @@lambda_api ={}
       @@cloudwatch_events_api = {}
       @@ecs_api ={}
+      @@eks_api ={}
       @@pricing_api ={}
       @@ssm_api ={}
       @@elasticsearch_api ={}

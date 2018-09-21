@@ -45,25 +45,27 @@ Usage:
   opt :uploadlogs, "Push today's log files to the Cloud Storage bucket created by the -l option.", :require => false, :default => false, :type => :boolean
 end
 
-instance = MU.myCloudDescriptor
-admin_sg_name = "mu-master-"+MU.myInstanceId+"-ingress-allow"
-if !instance.tags.items or !instance.tags.items.include?(admin_sg_name)
-  newitems = instance.tags.items ? instance.tags.items.dup : []
-  newitems << admin_sg_name
-  MU.log "Setting my instance tags", MU::NOTICE, details: newitems
-  newtags = MU::Cloud::Google.compute(:Tags).new(
-    fingerprint: instance.tags.fingerprint,
-    items: newitems
-  )
-  MU::Cloud::Google.compute.set_instance_tags(
-    MU::Cloud::Google.myProject,
-    MU.myAZ,
-    MU.myInstanceId,
-    newtags
-  )
+if MU::Cloud::Google.hosted
   instance = MU.myCloudDescriptor
+  admin_sg_name = "mu-master-"+MU.myInstanceId+"-ingress-allow"
+  if !instance.tags.items or !instance.tags.items.include?(admin_sg_name)
+    newitems = instance.tags.items ? instance.tags.items.dup : []
+    newitems << admin_sg_name
+    MU.log "Setting my instance tags", MU::NOTICE, details: newitems
+    newtags = MU::Cloud::Google.compute(:Tags).new(
+      fingerprint: instance.tags.fingerprint,
+      items: newitems
+    )
+    MU::Cloud::Google.compute.set_instance_tags(
+      MU::Cloud::Google.myProject,
+      MU.myAZ,
+      MU.myInstanceId,
+      newtags
+    )
+    instance = MU.myCloudDescriptor
+  end
+  preferred_ip = MU.mu_public_ip
 end
-preferred_ip = MU.mu_public_ip
 
 # Create a security group, or manipulate an existing one, so that we have all
 # of the appropriate network holes.
