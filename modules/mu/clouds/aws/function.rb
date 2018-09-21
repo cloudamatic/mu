@@ -91,8 +91,6 @@ module MU
         end
 
 
-
-
         def assign_tag(resource_arn, tag_list, region=@config['region'])
           begin
             tag_list.each do |each_pair|
@@ -110,12 +108,10 @@ module MU
         # Called automatically by {MU::Deploy#createResources}
         def create
           role_arn = get_role_arn(@config['iam_role'])
-          func_name = "#{@config['name'].upcase}-#{MU.deploy_id}"
-          @mu_name = func_name
           
           lambda_properties = {
             code: {},
-            function_name:func_name,
+            function_name:@mu_name,
             handler:@config['handler'],
             publish:true,
             role:role_arn,
@@ -145,6 +141,16 @@ module MU
               }
           end
 
+          lambda_properties[:tags] = {}
+          MU::MommaCat.listStandardTags.each_pair { |k, v|
+            lambda_properties[:tags][k] = v
+          }
+          if @config['tags']
+            @config['tags'].each { |tag|
+              lambda_properties[:tags][tag.key.first] = tag.values.first
+            }
+          end
+
           if @config.has_key?('vpc')
              ### get vpc and subnet_name
              ### find the subnet_id
@@ -155,14 +161,13 @@ module MU
              lambda_properties[:vpc_config] = vpc_conf
           end
 
-
           @config['tags'] ||= []
-          @config['tags'].push({'deploy_id' => MU.deploy_id})
+
           lambda_func = MU::Cloud::AWS.lambda(@config['region']).create_function(lambda_properties)
           tag_function = assign_tag(lambda_func.function_arn, @config['tags']) 
-          get_function=  MU::Cloud::AWS.lambda(@config['region']).get_function({
-            function_name: func_name
-          })
+          get_function=  MU::Cloud::AWS.lambda(@config['region']).get_function(
+            function_name: @mu_name
+          )
           func_arn = get_function.configuration.function_arn if !get_function.empty?
           
           
@@ -179,17 +184,17 @@ module MU
 
             trigger_properties = {
               action: "lambda:InvokeFunction", 
-              function_name: func_name, 
+              function_name: @mu_name, 
               principal: "#{@config['trigger']['type'].downcase}.amazonaws.com", 
               source_arn: trigger_arn, 
-              statement_id: "#{func_name}-ID-1",
+              statement_id: "#{@mu_name}-ID-1",
             }
             p trigger_arn
             p trigger_properties           
 
             MU.log trigger_properties, MU::DEBUG
             add_trigger = MU::Cloud::AWS.lambda(@config['region']).add_permission(trigger_properties)
-            adjust_trigger(@config['trigger']['type'], trigger_arn, func_arn, func_name) 
+            adjust_trigger(@config['trigger']['type'], trigger_arn, func_arn, @mu_name) 
           
           end 
           return lambda_func
@@ -260,7 +265,20 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
-          p MU.deploy_id
+          MU::Cloud::AWS.lambda(region).list_functions.functions.each { |f|
+            desc = MU::Cloud::AWS.lambda(region).get_function(
+              function_name: f.function_name
+            )
+            if desc.tags and desc.tags["MU-ID"] == MU.deploy_id
+              MU.log "Deleting Lambda function #{f.function_name}"
+              if !noop
+                MU::Cloud::AWS.lambda(region).delete_function(
+                  function_name: f.function_name
+                )
+              end
+            end
+          }
+
         end
 
 
