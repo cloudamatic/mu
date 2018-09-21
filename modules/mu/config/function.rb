@@ -31,7 +31,7 @@ module MU
           "name" => {"type" => "string"},
           "runtime" => {
             "type" => "string",
-            "enum" => %w{nodejs, nodejs4.3, nodejs6.10, nodejs8.10, java8, python2.7, python3.6, dotnetcore1.0, dotnetcore2.0, dotnetcore2.1, nodejs4.3-edge, go1.x}
+            "enum" => %w{nodejs nodejs4.3 nodejs6.10 nodejs8.10 java8 python2.7 python3.6 dotnetcore1.0 dotnetcore2.0 dotnetcore2.1 nodejs4.3-edge go1.x}
           },
           "iam_role" => {"type" => "string"},
           "region" => MU::Config.region_primitive,
@@ -42,6 +42,7 @@ module MU
           }, 
           "timeout" => {
             "type" => "integer",
+						"description" => "Maximum run time for an invocation of this function, in seconds",
             "default" => 3
           },
           "tags" => MU::Config.tags_primitive,
@@ -71,11 +72,25 @@ module MU
             "type" => "array", 
             "items" => { 
               "type" => "object",  
-              "description" => "", 
-              "additionalProperties" => false, 
+              "description" => "Zipped deployment package to upload to Lambda. You must specify either s3_bucket+s3_key or zip_file.", 
+              "additionalProperties" => false,
               "properties" => {  
-                "s3_bucket" => {"type" => "string"}, 
-                "s3_key" => {"type" => "string"} 
+                "s3_bucket" => {
+									"type" => "string",
+									"description" => "An S3 bucket where the deployment package can be found. Must be used in conjunction with s3_key."
+								}, 
+                "s3_key" => {
+									"type" => "string",
+									"description" => "Key in s3_bucket where the deployment package can be found. Must be used in conjunction with s3_bucket."
+								}, 
+                "s3_object_version" => {
+									"type" => "string",
+									"description" => "Specify an S3 object version for the deployment package, instead of the current default"
+								}, 
+                "zip_file" => {
+									"type" => "string",
+									"description" => "Path to a zipped deployment package to upload."
+								} 
               }  
             }  
           },
