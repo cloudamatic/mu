@@ -47,20 +47,6 @@ module MU
           end
         end
 
-
-
-        # Called automatically by {MU::Deploy#createResources}
-        def create
-          begin
-            aws_lambda = create_lambda
-          rescue Exception => e
-            MU.log "#{e}", MU::ERR
-            raise MuError, "#{e}"
-          end
-        end
-
-
-
         def get_vpc_config(vpc_name, subnet_name, sg_name,region=@config['region'])
           if !subnet_name.nil? and !sg_name.nil? and !vpc_name.nil?
             ## get vpc_id
@@ -121,26 +107,28 @@ module MU
         end
 
 
-        def create_lambda
+        # Called automatically by {MU::Deploy#createResources}
+        def create
           role_arn = get_role_arn(@config['iam_role'])
           func_name = "#{@config['name'].upcase}-#{MU.deploy_id}"
           @mu_name = func_name
           
           lambda_properties = {
+            code: {},
             function_name:func_name,
             handler:@config['handler'],
             publish:true,
             role:role_arn,
-            runtime:@config['run_time'],
+            runtime:@config['runtime'],
           }
 
-          if @config['code'][0]['zip_file']
-            # XXX have validateConfig check perms, validity
-            zip = File.read(@config['code'][0]['zip_file'])
-            code[:zip_file] = Base64.encode64(zip)
+          if @config['code']['zip_file']
+            zip = File.read(@config['code']['zip_file'])
+            MU.log "Uploading deployment package from #{@config['code']['zip_file']}"
+            lambda_properties[:code][:zip_file] = zip
           else
-            code[:s3_bucket] = @config['code'][0]['s3_bucket']
-            code[:s3_key] = @config['code'][0]['s3_key']
+            lambda_properties[:code][:s3_bucket] = @config['code']['s3_bucket']
+            lambda_properties[:code][:s3_key] = @config['code']['s3_key']
           end
            
           if @config.has_key?('timeout')
@@ -168,7 +156,7 @@ module MU
           end
 
 
-
+          @config['tags'] ||= []
           @config['tags'].push({'deploy_id' => MU.deploy_id})
           lambda_func = MU::Cloud::AWS.lambda(@config['region']).create_function(lambda_properties)
           tag_function = assign_tag(lambda_func.function_arn, @config['tags']) 
@@ -312,17 +300,12 @@ module MU
           [toplevel_required, schema]
         end
 
-
-
         # Cloud-specific pre-processing of {MU::Config::BasketofKittens::functions}, bare and unvalidated.
         # @param function [Hash]: The resource to process and validate
         # @param configurator [MU::Config]: The overall deployment configurator of which this resource is a member
         # @return [Boolean]: True if validation succeeded, False otherwise
         def self.validateConfig(function, configurator)
           ok = true
-#          if something_bad
-#            ok = false
-#          end
 
           ok
         end

@@ -42,7 +42,7 @@ module MU
           }, 
           "timeout" => {
             "type" => "integer",
-						"description" => "Maximum run time for an invocation of this function, in seconds",
+            "description" => "Maximum run time for an invocation of this function, in seconds",
             "default" => 3
           },
           "tags" => MU::Config.tags_primitive,
@@ -69,30 +69,27 @@ module MU
             }
           },
           "code" => {
-            "type" => "array", 
-            "items" => { 
-              "type" => "object",  
-              "description" => "Zipped deployment package to upload to Lambda. You must specify either s3_bucket+s3_key or zip_file.", 
-              "additionalProperties" => false,
-              "properties" => {  
-                "s3_bucket" => {
-									"type" => "string",
-									"description" => "An S3 bucket where the deployment package can be found. Must be used in conjunction with s3_key."
-								}, 
-                "s3_key" => {
-									"type" => "string",
-									"description" => "Key in s3_bucket where the deployment package can be found. Must be used in conjunction with s3_bucket."
-								}, 
-                "s3_object_version" => {
-									"type" => "string",
-									"description" => "Specify an S3 object version for the deployment package, instead of the current default"
-								}, 
-                "zip_file" => {
-									"type" => "string",
-									"description" => "Path to a zipped deployment package to upload."
-								} 
-              }  
-            }  
+            "type" => "object",  
+            "description" => "Zipped deployment package to upload to Lambda. You must specify either s3_bucket+s3_key or zip_file.", 
+            "additionalProperties" => false,
+            "properties" => {  
+              "s3_bucket" => {
+                "type" => "string",
+                "description" => "An S3 bucket where the deployment package can be found. Must be used in conjunction with s3_key."
+              }, 
+              "s3_key" => {
+                "type" => "string",
+                "description" => "Key in s3_bucket where the deployment package can be found. Must be used in conjunction with s3_bucket."
+              }, 
+              "s3_object_version" => {
+                "type" => "string",
+                "description" => "Specify an S3 object version for the deployment package, instead of the current default"
+              }, 
+              "zip_file" => {
+                "type" => "string",
+                "description" => "Path to a zipped deployment package to upload."
+              } 
+            }
           },
           "environment_variable" => {
             "type" => "array", 
@@ -123,6 +120,13 @@ module MU
       # @return [Boolean]: True if validation succeeded, False otherwise
       def self.validate(function, configurator)
         ok = true
+        if function['code']['zip_file']
+          if !File.readable?(function['code']['zip_file'])
+            MU.log "Can't read deployment package #{function['code']['zip_file']}", MU::ERR
+            ok = false
+          end
+        end
+
         ok
       end
 
