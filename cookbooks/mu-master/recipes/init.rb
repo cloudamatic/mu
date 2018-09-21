@@ -32,6 +32,7 @@ CHEF_SERVER_VERSION="12.17.15-1"
 CHEF_CLIENT_VERSION="14.4.56"
 KNIFE_WINDOWS="1.9.0"
 MU_BASE="/opt/mu"
+MU_BRANCH="eeks_the_cat" # GIT HOOK EDITABLE DO NOT TOUCH
 realbranch=`cd #{MU_BASE}/lib && git rev-parse --abbrev-ref HEAD`
 
 if ENV.key?('MU_BRANCH')

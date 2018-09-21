@@ -497,6 +497,18 @@ module MU
         @@efs_api[region]
       end
 
+      def self.lambda(region = MU.curRegion)
+        regiom ||= myRegion
+        @@lambda_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "Lambda", region: region)
+        @@lambda_api[region]
+      end
+      
+      def self.cloudwatch_events(region = MU.cureRegion)
+        region ||= myRegion
+        @@cloudwatch_events_api[region] ||= MU::Cloud::AWS::Endpoint.new(api: "CloudWatchEvents", region: region)
+        @@cloudwatch_events_api
+      end
+
       # Amazon's ECS API
       def self.ecs(region = MU.curRegion)
         region ||= myRegion
@@ -817,6 +829,8 @@ module MU
       @@sns_api = {}
       @@sqs_api = {}
       @@efs_api ={}
+      @@lambda_api ={}
+      @@cloudwatch_events_api = {}
       @@ecs_api ={}
       @@eks_api ={}
       @@pricing_api ={}
