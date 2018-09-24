@@ -290,11 +290,13 @@ module MU
           asg_options.delete(:tags)
           asg_options[:min_size] = @config["min_size"]
           asg_options[:max_size] = @config["max_size"]
-          MU::Cloud::AWS.autoscale(@config['region']).attach_load_balancer_target_groups(
-            auto_scaling_group_name: @mu_name,
-            target_group_arns: asg_options[:target_group_arns]
-          )
-          asg_options.delete(:target_group_arns)
+					if asg_options[:target_group_arns]
+            MU::Cloud::AWS.autoscale(@config['region']).attach_load_balancer_target_groups(
+              auto_scaling_group_name: @mu_name,
+              target_group_arns: asg_options[:target_group_arns]
+            )
+            asg_options.delete(:target_group_arns)
+  				end
 
           MU::Cloud::AWS.autoscale(@config['region']).update_auto_scaling_group(asg_options)
 
