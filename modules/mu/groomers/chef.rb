@@ -727,6 +727,7 @@ retry
           if chef_node.normal['deployment'] != @server.deploy.deployment
             MU.log "Updating node: #{@server.mu_name} deployment attributes", details: @server.deploy.deployment
             chef_node.normal['deployment'].merge!(@server.deploy.deployment)
+            chef_node.normal['deployment']['ssh_public_key'] = @server.deploy.ssh_public_key
             chef_node.save
           end
           return chef_node['deployment']
