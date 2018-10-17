@@ -56,15 +56,23 @@ module MU
             "type" => "boolean",
             "description" => "Tag the resource with our optional tags (MU-HANDLE, MU-MASTER-NAME, MU-OWNER). Defaults to true"
           },
-          "trigger" => {
+          "triggers" => {
             "type" => "array",
             "items" => {
               "type" => "object",
               "description" => "Trigger for lambda function",
+              "required" => ["service"],
               "additionalProperties" => false,
               "properties" => {
-                "type" => {"type" => "string"},
-                "name" => {"type" => "string"}
+                "service" => {
+                  "type" => "string",
+                  "enum" => %w{apigateway events s3 sns sqs dynamodb kinesis ses cognito alexa iot},
+                  "description" => "The name of the AWS service that will trigger this function"
+                },
+                "name" => {
+                  "type" => "string",
+                  "description" => "The name of the API Gateway, Cloudwatch Event, or other event trigger object"
+                }
               }
             }
           },
