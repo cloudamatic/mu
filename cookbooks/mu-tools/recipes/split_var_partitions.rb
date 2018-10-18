@@ -23,8 +23,9 @@
 # make it part of your regular build process.
 
 if !node['application_attributes']['skip_recipes'].include?('split_var_partitions')
+  log "*************** "+node['platform']
   case node['platform']
-    when platform_family?('rhel')
+    when "redhat", "rhel", "centos", "amazon"
 
       include_recipe "mu-tools::aws_api"
       include_recipe "mu-tools::google_api"

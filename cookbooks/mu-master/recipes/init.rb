@@ -26,6 +26,13 @@ require 'etc'
 require 'open-uri'
 require 'socket'
 
+# If we're invoked with a stripped-down environment, many of our guards and
+# execs will fail. Append the stuff that's typically missing. Note that even
+# if we hardcode all of our own paths to commands things still break, due to
+# things that spawn commands of their own with the environment they inherit
+# from us.
+ENV['PATH'] = ENV['PATH']+":/bin:/opt/opscode/embedded/bin"
+
 # XXX We want to be able to override these things when invoked from chef-apply,
 # but, like, how?
 CHEF_SERVER_VERSION="12.17.15-1"
@@ -439,6 +446,7 @@ chef_gem "simple-password-gen" do
   compile_time true
 end
 require "simple-password-gen"
+
 # XXX this would make an awesome library
 execute "create mu Chef user" do
   command "/opt/opscode/bin/chef-server-ctl user-create mu Mu Master root@example.com #{Password.pronounceable} -f #{MU_BASE}/var/users/mu/mu.user.key"
