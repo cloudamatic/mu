@@ -23,13 +23,25 @@ module MU
 
         # Called automatically by {MU::Deploy#createResources}
         def create
+          resp = MU::Cloud::AWS.apig(@config['region']).create_rest_api(
+            name: @mu_name,
+            description: @deploy.deploy_id
+          )
+          @cloud_id = resp.id
         end
 
-        # Return the metadata for this API rule
+        # @return [Struct]
+        def cloud_desc
+          MU::Cloud::AWS.apig(@config['region']).get_rest_api(
+            rest_api_id: @cloud_id
+          )
+        end
+
+        # Return the metadata for this API
         # @return [Hash]
         def notify
-          deploy_struct = {
-          }
+          deploy_struct = MU.structToHash(cloud_desc)
+# XXX stages and whatnot
           return deploy_struct
         end
 
@@ -39,6 +51,20 @@ module MU
         # @param region [String]: The cloud provider region
         # @return [void]
         def self.cleanup(noop: false, ignoremaster: false, region: MU.curRegion, flags: {})
+          resp = MU::Cloud::AWS.apig(region).get_rest_apis
+          if resp and resp.items
+            resp.items.each { |api|
+              # The stupid things don't have tags
+              if api.description == MU.deploy_id
+                MU.log "Deleting API Gateway #{api.name} (#{api.id})"
+                if !noop
+                  MU::Cloud::AWS.apig(region).delete_rest_api(
+                    rest_api_id: api.id
+                  )
+                end
+              end
+            }
+          end
         end
 
         # Locate an existing API.

@@ -268,9 +268,6 @@ module MU
           return deploy_struct
         end
 
-
-
-
         # Remove all functions associated with the currently loaded deployment.
         # @param noop [Boolean]: If true, will only print what would be done
         # @param ignoremaster [Boolean]: If true, will remove resources not flagged as originating from this Mu server

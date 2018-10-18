@@ -586,7 +586,7 @@ module MU
     rescue NameError
     end
 
-    if struct.is_a?(Struct) or google_struct
+    if struct.is_a?(Struct) or google_struct or struct.is_a?(::Seahorse::Client::Response)
 
       hash = struct.to_h
       hash.each_pair { |key, value|
